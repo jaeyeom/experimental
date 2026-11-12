@@ -40,6 +40,11 @@ type ApprovalPullRequest struct {
 	// Checks are the status checks on the head commit.
 	Checks    []ApprovalCheck
 	ChecksErr string
+	// BaseRef is the base branch name.
+	BaseRef string
+	// Ownership is set by gh-approve when a rule sets codeowners_covered.
+	// Nil means it was not read.
+	Ownership *Ownership
 }
 
 // ApprovalReview is one submitted review, oldest first.
@@ -145,7 +150,7 @@ query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     nameWithOwner
     pullRequest(number: $number) {
-      number url title state isDraft headRefOid
+      number url title state isDraft headRefOid baseRefName
       author { login }
       additions deletions changedFiles
       files(first: 100) { pageInfo { hasNextPage } nodes { path additions deletions } }
@@ -181,13 +186,14 @@ type pageInfoJSON struct {
 }
 
 type approvalPRJSON struct {
-	Number     int    `json:"number"`
-	URL        string `json:"url"`
-	Title      string `json:"title"`
-	State      string `json:"state"`
-	IsDraft    bool   `json:"isDraft"`
-	HeadRefOid string `json:"headRefOid"`
-	Author     *struct {
+	Number      int    `json:"number"`
+	URL         string `json:"url"`
+	Title       string `json:"title"`
+	State       string `json:"state"`
+	IsDraft     bool   `json:"isDraft"`
+	HeadRefOid  string `json:"headRefOid"`
+	BaseRefName string `json:"baseRefName"`
+	Author      *struct {
 		Login string `json:"login"`
 	} `json:"author"`
 	Additions    int `json:"additions"`
@@ -289,6 +295,7 @@ func convertApprovalPR(raw *approvalPRJSON, ref PullRef) ApprovalPullRequest {
 		Title:        raw.Title,
 		State:        raw.State,
 		HeadSHA:      raw.HeadRefOid,
+		BaseRef:      raw.BaseRefName,
 		Draft:        raw.IsDraft,
 		Additions:    raw.Additions,
 		Deletions:    raw.Deletions,

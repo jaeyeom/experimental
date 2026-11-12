@@ -11,6 +11,15 @@ type ApproveRule struct {
 	// appended to the approval body as <!-- gh-approve: <name> -->.
 	Name string `pkl:"name"`
 
+	// What a matching rule does. "approve" approves the pull request.
+	// "handoff" requests `reviewers`, then removes you as an individual
+	// requested reviewer. A hand-off never approves.
+	Action string `pkl:"action"`
+
+	// Logins to request on a hand-off. Required for a hand-off rule and not
+	// allowed on an approve rule.
+	Reviewers []string `pkl:"reviewers"`
+
 	// Repositories as owner/name or globs such as "acme/*".
 	Repos []string `pkl:"repos"`
 
@@ -19,6 +28,16 @@ type ApproveRule struct {
 
 	// Globs. No changed file may match any of them.
 	PathsNoneMatch []string `pkl:"paths_none_match"`
+
+	// Globs. At least one changed file must match one of them.
+	PathsAnyMatch []string `pkl:"paths_any_match"`
+
+	// When true, every changed file must be in paths_any_match, or be owned
+	// (per the base branch's CODEOWNERS) by neither you nor a team of yours,
+	// or be owned only by teams of yours that have other members and are
+	// requested reviewers. Unreadable CODEOWNERS or team data fails it.
+	// Team membership needs the read:org scope.
+	CodeownersCovered bool `pkl:"codeowners_covered"`
 
 	// Maximum added plus deleted lines.
 	MaxChangedLines *int `pkl:"max_changed_lines"`

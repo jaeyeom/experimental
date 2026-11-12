@@ -30,6 +30,15 @@ const (
 	ChecksAllowPending = "allow_pending"
 )
 
+// Values of ApproveRule.Action.
+const (
+	// ActionApprove approves the pull request.
+	ActionApprove = "approve"
+	// ActionHandoff requests the rule's reviewers, then removes the user as
+	// a requested reviewer. It never approves.
+	ActionHandoff = "handoff"
+)
+
 // ApproveConfig holds gh-approve settings. Only Pkl config supports it.
 type ApproveConfig struct {
 	// Body is the approval body. The matching rule name is appended to it.
@@ -47,10 +56,16 @@ type ApproveConfig struct {
 // ApproveRule is one gh-approve rule. Its conditions are ANDed.
 // An empty list or a nil limit adds no condition.
 type ApproveRule struct {
-	Name                 string
+	Name string
+	// Action is ActionApprove or ActionHandoff.
+	Action string
+	// Reviewers are the logins a hand-off requests.
+	Reviewers            []string
 	Repos                []string
 	PathsAllMatch        []string
 	PathsNoneMatch       []string
+	PathsAnyMatch        []string
+	CodeownersCovered    bool
 	MaxChangedLines      *int
 	MaxAddedLines        *int
 	MaxFiles             *int
@@ -91,9 +106,13 @@ func convertApprove(src pklconfig.ApproveConfig) ApproveConfig {
 	for _, rule := range src.Rules {
 		converted := ApproveRule{
 			Name:                 rule.Name,
+			Action:               rule.Action,
+			Reviewers:            cloneStrings(rule.Reviewers),
 			Repos:                cloneStrings(rule.Repos),
 			PathsAllMatch:        cloneStrings(rule.PathsAllMatch),
 			PathsNoneMatch:       cloneStrings(rule.PathsNoneMatch),
+			PathsAnyMatch:        cloneStrings(rule.PathsAnyMatch),
+			CodeownersCovered:    rule.CodeownersCovered,
 			MaxChangedLines:      copyIntPtr(rule.MaxChangedLines),
 			MaxAddedLines:        copyIntPtr(rule.MaxAddedLines),
 			MaxFiles:             copyIntPtr(rule.MaxFiles),
@@ -139,6 +158,7 @@ func validateApproveRule(rule ApproveRule) error {
 		"repos":            rule.Repos,
 		"paths_all_match":  rule.PathsAllMatch,
 		"paths_none_match": rule.PathsNoneMatch,
+		"paths_any_match":  rule.PathsAnyMatch,
 	}
 	for field, patterns := range globs {
 		for _, pattern := range patterns {
@@ -146,6 +166,18 @@ func validateApproveRule(rule ApproveRule) error {
 				return fmt.Errorf("%s glob %q is invalid", field, pattern)
 			}
 		}
+	}
+	switch rule.Action {
+	case ActionApprove:
+		if len(rule.Reviewers) > 0 {
+			return fmt.Errorf("reviewers is only allowed on a handoff rule")
+		}
+	case ActionHandoff:
+		if len(rule.Reviewers) == 0 {
+			return fmt.Errorf("reviewers is required on a handoff rule")
+		}
+	default:
+		return fmt.Errorf("action %q is not approve or handoff", rule.Action)
 	}
 	switch rule.Checks {
 	case "", ChecksGreen, ChecksAllowPending:

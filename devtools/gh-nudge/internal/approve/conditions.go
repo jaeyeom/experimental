@@ -21,6 +21,8 @@ type ConditionResult struct {
 	Condition string `json:"condition"`
 	Pass      bool   `json:"pass"`
 	Saw       string `json:"saw"`
+	// Details are per-item verdicts, such as one line per changed file.
+	Details []string `json:"details,omitempty"`
 }
 
 // RuleResult is one rule's verdict. Conditions are in evaluation order.
@@ -44,29 +46,33 @@ func (r RuleResult) FirstFailure() (ConditionResult, bool) {
 
 // condition is one rule condition. To add one, add its config field and an
 // entry to conditions. active reports whether the rule sets the condition.
+// A condition sets check, or detail when it reports per-item verdicts.
 type condition struct {
 	name   string
 	active func(rule config.ApproveRule) bool
 	check  func(rule config.ApproveRule, pr github.ApprovalPullRequest) (bool, string)
+	detail func(rule config.ApproveRule, pr github.ApprovalPullRequest) (bool, string, []string)
 }
 
 // conditions are evaluated in this order. The first failure is reported.
 var conditions = []condition{
-	{"repos", func(r config.ApproveRule) bool { return len(r.Repos) > 0 }, checkRepos},
-	{"paths_all_match", func(r config.ApproveRule) bool { return len(r.PathsAllMatch) > 0 }, checkPathsAllMatch},
-	{"paths_none_match", func(r config.ApproveRule) bool { return len(r.PathsNoneMatch) > 0 }, checkPathsNoneMatch},
-	{"max_changed_lines", func(r config.ApproveRule) bool { return r.MaxChangedLines != nil }, checkMaxChangedLines},
-	{"max_added_lines", func(r config.ApproveRule) bool { return r.MaxAddedLines != nil }, checkMaxAddedLines},
-	{"max_files", func(r config.ApproveRule) bool { return r.MaxFiles != nil }, checkMaxFiles},
-	{"pure_deletion", func(r config.ApproveRule) bool { return r.PureDeletion }, checkPureDeletion},
-	{"authors_allow", func(r config.ApproveRule) bool { return len(r.AuthorsAllow) > 0 }, checkAuthorsAllow},
-	{"authors_deny", func(r config.ApproveRule) bool { return len(r.AuthorsDeny) > 0 }, checkAuthorsDeny},
-	{"labels_required", func(r config.ApproveRule) bool { return len(r.LabelsRequired) > 0 }, checkLabelsRequired},
-	{"labels_forbidden", func(r config.ApproveRule) bool { return len(r.LabelsForbidden) > 0 }, checkLabelsForbidden},
-	{"required_approvals_by", func(r config.ApproveRule) bool { return len(r.RequiredApprovalsBy) > 0 }, checkRequiredApprovals},
-	{"checks", func(r config.ApproveRule) bool { return r.Checks != "" }, checkChecks},
-	{"not_draft", func(r config.ApproveRule) bool { return r.NotDraft }, checkNotDraft},
-	{"max_unresolved_threads", func(config.ApproveRule) bool { return true }, checkUnresolvedThreads},
+	{name: "repos", active: func(r config.ApproveRule) bool { return len(r.Repos) > 0 }, check: checkRepos},
+	{name: "paths_all_match", active: func(r config.ApproveRule) bool { return len(r.PathsAllMatch) > 0 }, check: checkPathsAllMatch},
+	{name: "paths_none_match", active: func(r config.ApproveRule) bool { return len(r.PathsNoneMatch) > 0 }, check: checkPathsNoneMatch},
+	{name: "paths_any_match", active: func(r config.ApproveRule) bool { return len(r.PathsAnyMatch) > 0 }, check: checkPathsAnyMatch},
+	{name: "max_changed_lines", active: func(r config.ApproveRule) bool { return r.MaxChangedLines != nil }, check: checkMaxChangedLines},
+	{name: "max_added_lines", active: func(r config.ApproveRule) bool { return r.MaxAddedLines != nil }, check: checkMaxAddedLines},
+	{name: "max_files", active: func(r config.ApproveRule) bool { return r.MaxFiles != nil }, check: checkMaxFiles},
+	{name: "pure_deletion", active: func(r config.ApproveRule) bool { return r.PureDeletion }, check: checkPureDeletion},
+	{name: "authors_allow", active: func(r config.ApproveRule) bool { return len(r.AuthorsAllow) > 0 }, check: checkAuthorsAllow},
+	{name: "authors_deny", active: func(r config.ApproveRule) bool { return len(r.AuthorsDeny) > 0 }, check: checkAuthorsDeny},
+	{name: "labels_required", active: func(r config.ApproveRule) bool { return len(r.LabelsRequired) > 0 }, check: checkLabelsRequired},
+	{name: "labels_forbidden", active: func(r config.ApproveRule) bool { return len(r.LabelsForbidden) > 0 }, check: checkLabelsForbidden},
+	{name: "required_approvals_by", active: func(r config.ApproveRule) bool { return len(r.RequiredApprovalsBy) > 0 }, check: checkRequiredApprovals},
+	{name: "checks", active: func(r config.ApproveRule) bool { return r.Checks != "" }, check: checkChecks},
+	{name: "not_draft", active: func(r config.ApproveRule) bool { return r.NotDraft }, check: checkNotDraft},
+	{name: "max_unresolved_threads", active: func(config.ApproveRule) bool { return true }, check: checkUnresolvedThreads},
+	{name: "codeowners_covered", active: func(r config.ApproveRule) bool { return r.CodeownersCovered }, detail: checkCodeownersCovered},
 }
 
 // EvaluateRule evaluates every condition the rule sets.
@@ -76,9 +82,14 @@ func EvaluateRule(rule config.ApproveRule, pr github.ApprovalPullRequest) RuleRe
 		if !cond.active(rule) {
 			continue
 		}
-		pass, saw := cond.check(rule, pr)
-		result.Conditions = append(result.Conditions, ConditionResult{Condition: cond.name, Pass: pass, Saw: saw})
-		if !pass {
+		got := ConditionResult{Condition: cond.name}
+		if cond.detail != nil {
+			got.Pass, got.Saw, got.Details = cond.detail(rule, pr)
+		} else {
+			got.Pass, got.Saw = cond.check(rule, pr)
+		}
+		result.Conditions = append(result.Conditions, got)
+		if !got.Pass {
 			result.Matched = false
 		}
 	}
@@ -184,6 +195,60 @@ func checkPathsNoneMatch(rule config.ApproveRule, pr github.ApprovalPullRequest)
 		return false, "matched: " + strings.Join(inside, ", ")
 	}
 	return true, fmt.Sprintf("none of %d files match", len(pr.Files))
+}
+
+func checkPathsAnyMatch(rule config.ApproveRule, pr github.ApprovalPullRequest) (bool, string) {
+	if pr.FilesErr != "" {
+		return unreadable(pr.FilesErr)
+	}
+	for _, file := range pr.Files {
+		if matchesAny(rule.PathsAnyMatch, file.Path) {
+			return true, "matched: " + file.Path
+		}
+	}
+	return false, fmt.Sprintf("none of %d files match", len(pr.Files))
+}
+
+// checkCodeownersCovered passes when every changed file is in
+// paths_any_match, or owned by neither the viewer nor a team of the viewer,
+// or owned only through teams of the viewer that have other members and are
+// requested reviewers. pr.Ownership holds the last two verdicts.
+func checkCodeownersCovered(rule config.ApproveRule, pr github.ApprovalPullRequest) (bool, string, []string) {
+	reason := ""
+	switch {
+	case pr.FilesErr != "":
+		reason = pr.FilesErr
+	case pr.Ownership == nil:
+		reason = "CODEOWNERS not read"
+	case pr.Ownership.Err != "":
+		reason = pr.Ownership.Err
+	}
+	if reason != "" {
+		pass, saw := unreadable(reason)
+		return pass, saw, nil
+	}
+	var blocked, details []string
+	for _, file := range pr.Ownership.Files {
+		owners := strings.Join(file.Owners, " ")
+		if owners == "" {
+			owners = "none"
+		}
+		switch {
+		case matchesAny(rule.PathsAnyMatch, file.Path):
+			details = append(details, "pass "+file.Path+": in paths_any_match")
+		case file.Blocker != "":
+			blocked = append(blocked, file.Path+" ("+file.Blocker+")")
+			details = append(details, "FAIL "+file.Path+": blocked by "+file.Blocker)
+		case !file.Mine:
+			details = append(details, "pass "+file.Path+": not owned by you or your teams (owners: "+owners+")")
+		default:
+			details = append(details, "pass "+file.Path+": your owning teams are requested and have other members (owners: "+owners+")")
+		}
+	}
+	if len(blocked) > 0 {
+		return false, "not covered: " + strings.Join(blocked, ", "), details
+	}
+	return true, fmt.Sprintf("all %d files covered", len(pr.Ownership.Files)), details
 }
 
 func checkLimit(value, limit int, unit string) (bool, string) {

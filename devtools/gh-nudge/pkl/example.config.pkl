@@ -157,5 +157,18 @@ approve {
     //   agent_timeout = 60.s
     //   // agent_cache = false
     // }
+    //
+    // A hand-off rule never approves. It requests `reviewers`, then removes
+    // you as an individual requested reviewer. It acts at most once per pull
+    // request: if your own account removed you and you were requested again,
+    // the pull request stays with you.
+    new {
+      name = "dashboard-handoff"
+      action = "handoff"
+      reviewers { "colleague" }
+      paths_any_match { "tools/dashboard/**" }
+      authors_deny { "colleague" }
+      codeowners_covered = true
+    }
   }
 }

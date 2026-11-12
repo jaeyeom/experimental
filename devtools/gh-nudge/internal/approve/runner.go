@@ -19,6 +19,8 @@ const (
 	ActionSkipped      = "skipped"
 	ActionManual       = "manual"
 	ActionError        = "error"
+	ActionHandoff      = "handoff"
+	ActionWouldHandoff = "would_handoff"
 )
 
 // Client is the gh access gh-approve needs. *github.Client implements it.
@@ -29,11 +31,16 @@ type Client interface {
 	PullRequestHeadSHA(ref github.PullRef) (string, error)
 	PullRequestDiff(ref github.PullRef) (string, error)
 	ApprovePullRequest(ref github.PullRef, commitSHA, body string) error
+	CodeownersFile(ref github.PullRef, baseRef string) (string, string, error)
+	TeamMembers(org, slug string) ([]string, error)
+	ReviewRequestTimeline(ref github.PullRef) ([]github.ReviewRequestEvent, error)
+	RequestReviewers(ref github.PullRef, logins []string) error
+	RemoveRequestedReviewer(ref github.PullRef, login string) error
 }
 
 // Options are the per-run command-line choices.
 type Options struct {
-	// Apply approves for real. Without it, the run is a dry run.
+	// Apply approves and hands off for real. Without it, the run is a dry run.
 	Apply bool
 	// Explain prints every condition of every rule with the value it saw.
 	Explain bool
@@ -53,6 +60,15 @@ type LogEntry struct {
 	Rules  []RuleResult `json:"rules"`
 	Action string       `json:"action"`
 	Reason string       `json:"reason,omitempty"`
+	// Reviewers are the logins a hand-off requests.
+	Reviewers []string `json:"reviewers,omitempty"`
+	// Timeline is the loop guard's evidence: the viewer's review request
+	// events, oldest first.
+	Timeline []github.ReviewRequestEvent `json:"timeline,omitempty"`
+	// LoopGuard is the loop guard's verdict.
+	LoopGuard string `json:"loopGuard,omitempty"`
+	// Steps are the hand-off writes and their results, in order.
+	Steps []string `json:"steps,omitempty"`
 }
 
 // Runner evaluates review requests and approves the ones a rule matches.
@@ -68,6 +84,9 @@ type Runner struct {
 	RunCommand CommandRunner
 	// AgentCache caches agent command decisions. Nil bypasses the cache.
 	AgentCache *AgentCache
+
+	// teams caches team members for the run, keyed by lowercase org/slug.
+	teams map[string]teamMembers
 }
 
 // errNotRequested marks a pull request that does not request the viewer as
@@ -122,7 +141,7 @@ func (r *Runner) targets(opts Options) ([]github.PullRef, bool, error) {
 	return refs, false, nil
 }
 
-// decide evaluates one pull request and approves it when allowed.
+// decide evaluates one pull request and approves or hands it off when allowed.
 // skip is true for a search result that only requests a team.
 func (r *Runner) decide(ref github.PullRef, viewer string, opts Options, single bool) (LogEntry, bool) {
 	entry := LogEntry{
@@ -143,6 +162,9 @@ func (r *Runner) decide(ref github.PullRef, viewer string, opts Options, single 
 	var agent AgentFunc
 	if skipReason == "" {
 		agent = r.agent(pr)
+		if needsOwnership(r.Config.Rules) {
+			pr.Ownership = r.loadOwnership(pr, viewer)
+		}
 	}
 	results, matched := Evaluate(r.Config.Rules, pr, agent)
 	entry.Rules = results
@@ -154,12 +176,24 @@ func (r *Runner) decide(ref github.PullRef, viewer string, opts Options, single 
 		entry.Action, entry.Reason = ActionSkipped, skipReason
 	case matched == "":
 		entry.Action = ActionManual
+	case r.rule(matched).Action == config.ActionHandoff:
+		r.handoff(&entry, pr, r.rule(matched), viewer, opts.Apply)
 	case !opts.Apply:
 		entry.Action = ActionWouldApprove
 	default:
 		entry.Action, entry.Reason = r.approve(ref, pr.HeadSHA, matched)
 	}
 	return entry, false
+}
+
+// rule returns the rule named name.
+func (r *Runner) rule(name string) config.ApproveRule {
+	for _, rule := range r.Config.Rules {
+		if rule.Name == name {
+			return rule
+		}
+	}
+	return config.ApproveRule{}
 }
 
 // skipReason returns why pr is never approved whatever the rules say, or "".
@@ -242,11 +276,12 @@ func (r *Runner) report(entry LogEntry, explain bool) error {
 	if entry.Reason != "" {
 		fmt.Fprintf(&out, "    %s\n", entry.Reason)
 	}
+	writeHandoff(&out, entry, explain)
 	for _, result := range entry.Rules {
 		switch {
 		case explain:
 			writeExplain(&out, result)
-		case entry.Action == ActionManual:
+		case entry.Action == ActionManual && entry.Rule == nil:
 			writeFirstFailure(&out, result)
 		case result.Matched && result.Agent != nil:
 			fmt.Fprintf(&out, "    %s\n", result.Agent.Summary())
@@ -256,6 +291,20 @@ func (r *Runner) report(entry LogEntry, explain bool) error {
 		return fmt.Errorf("write output: %w", err)
 	}
 	return nil
+}
+
+// writeHandoff writes a hand-off's reviewers, steps, and, with explain, the
+// loop guard verdict.
+func writeHandoff(out *strings.Builder, entry LogEntry, explain bool) {
+	if len(entry.Reviewers) > 0 {
+		fmt.Fprintf(out, "    reviewers: %s\n", strings.Join(entry.Reviewers, ", "))
+	}
+	for _, step := range entry.Steps {
+		fmt.Fprintf(out, "    step: %s\n", step)
+	}
+	if explain && entry.LoopGuard != "" {
+		fmt.Fprintf(out, "    loop guard: %s\n", entry.LoopGuard)
+	}
 }
 
 // writeExplain writes every condition of result with the value it saw.
@@ -271,6 +320,9 @@ func writeExplain(out *strings.Builder, result RuleResult) {
 			mark = "FAIL"
 		}
 		fmt.Fprintf(out, "      %s %s: %s\n", mark, cond.Condition, cond.Saw)
+		for _, detail := range cond.Details {
+			fmt.Fprintf(out, "        %s\n", detail)
+		}
 		if cond.Condition == agentCondition && result.Agent != nil && result.Agent.Cache != "" {
 			fmt.Fprintf(out, "        agent_cache: %s, key %s\n", result.Agent.Cache, agentKeyText(*result.Agent))
 			if result.Agent.CacheError != "" {

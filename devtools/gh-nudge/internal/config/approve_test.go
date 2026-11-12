@@ -92,6 +92,35 @@ approve {
 		defaults.AgentCacheDisabled {
 		t.Fatalf("rule agent defaults = %q %v", defaults.AgentCommand, defaults.AgentTimeout)
 	}
+	if defaults.Action != ActionApprove || len(defaults.Reviewers) != 0 || len(defaults.PathsAnyMatch) != 0 || defaults.CodeownersCovered {
+		t.Fatalf("rule hand-off defaults = %+v", defaults)
+	}
+}
+
+func TestLoadPklHandoffRule(t *testing.T) {
+	cfg, err := LoadConfig(writeApprovePkl(t, `
+approve {
+  rules {
+    new {
+      name = "dashboard-handoff"
+      action = "handoff"
+      reviewers { "colleague" }
+      paths_any_match { "tools/dashboard/**" }
+      authors_deny { "colleague" }
+      codeowners_covered = true
+    }
+  }
+}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule := cfg.Approve.Rules[0]
+	if rule.Action != ActionHandoff || strings.Join(rule.Reviewers, ",") != "colleague" ||
+		strings.Join(rule.PathsAnyMatch, ",") != "tools/dashboard/**" || !rule.CodeownersCovered ||
+		strings.Join(rule.AuthorsDeny, ",") != "colleague" {
+		t.Fatalf("rule = %+v", rule)
+	}
 }
 
 func TestLoadPklApproveDefaults(t *testing.T) {
@@ -110,17 +139,23 @@ func TestLoadPklApproveDefaults(t *testing.T) {
 
 func TestLoadPklApproveRejectsBadConfig(t *testing.T) {
 	tests := map[string]struct{ approve, want string }{
-		"unknown rule key":    {`approve { rules { new { name = "r"; max_lines = 3 } } }`, "max_lines"},
-		"unknown approve key": {`approve { dry_run = false }`, "dry_run"},
-		"bad checks":          {`approve { rules { new { name = "r"; checks = "red" } } }`, "checks"},
-		"bad glob":            {`approve { rules { new { name = "r"; paths_all_match { "a/[" } } } }`, "paths_all_match"},
-		"bad repo glob":       {`approve { rules { new { name = "r"; repos { "acme/[" } } } }`, "repos"},
-		"duplicate name":      {`approve { rules { new { name = "r" } new { name = "r" } } }`, "twice"},
-		"empty name":          {`approve { rules { new { name = "" } } }`, "name"},
-		"empty agent argv0":   {`approve { rules { new { name = "r"; agent_command { "" } } } }`, "agent_command"},
-		"zero agent timeout":  {`approve { rules { new { name = "r"; agent_timeout = 0.s } } }`, "agent_timeout"},
-		"zero cache ttl":      {`approve { agent_cache_ttl = 0.s }`, "agent_cache_ttl"},
-		"zero cache size":     {`approve { agent_cache_max_mb = 0 }`, "agent_cache_max_mb"},
+		"unknown rule key":          {`approve { rules { new { name = "r"; max_lines = 3 } } }`, "max_lines"},
+		"unknown approve key":       {`approve { dry_run = false }`, "dry_run"},
+		"bad checks":                {`approve { rules { new { name = "r"; checks = "red" } } }`, "checks"},
+		"bad glob":                  {`approve { rules { new { name = "r"; paths_all_match { "a/[" } } } }`, "paths_all_match"},
+		"bad repo glob":             {`approve { rules { new { name = "r"; repos { "acme/[" } } } }`, "repos"},
+		"duplicate name":            {`approve { rules { new { name = "r" } new { name = "r" } } }`, "twice"},
+		"empty name":                {`approve { rules { new { name = "" } } }`, "name"},
+		"empty agent argv0":         {`approve { rules { new { name = "r"; agent_command { "" } } } }`, "agent_command"},
+		"zero agent timeout":        {`approve { rules { new { name = "r"; agent_timeout = 0.s } } }`, "agent_timeout"},
+		"zero cache ttl":            {`approve { agent_cache_ttl = 0.s }`, "agent_cache_ttl"},
+		"zero cache size":           {`approve { agent_cache_max_mb = 0 }`, "agent_cache_max_mb"},
+		"handoff without reviewers": {`approve { rules { new { name = "r"; action = "handoff" } } }`, "reviewers"},
+		"approve with reviewers":    {`approve { rules { new { name = "r"; reviewers { "bob" } } } }`, "reviewers"},
+		"unknown action":            {`approve { rules { new { name = "r"; action = "merge" } } }`, "action"},
+		"empty reviewer":            {`approve { rules { new { name = "r"; action = "handoff"; reviewers { "" } } } }`, "reviewers"},
+		"bad any glob":              {`approve { rules { new { name = "r"; paths_any_match { "a/[" } } } }`, "paths_any_match"},
+		"unknown handoff key":       {`approve { rules { new { name = "r"; action = "handoff"; reviewers { "bob" }; team_reviewers { "x" } } } }`, "team_reviewers"},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -152,7 +187,7 @@ func TestExampleConfigLoadsApproveRules(t *testing.T) {
 	for _, rule := range cfg.Approve.Rules {
 		names = append(names, rule.Name)
 	}
-	if got := strings.Join(names, ","); got != "internal-dashboard,pure-deletion,small-outside-infra,internal-only" {
+	if got := strings.Join(names, ","); got != "internal-dashboard,pure-deletion,small-outside-infra,internal-only,dashboard-handoff" {
 		t.Fatalf("rules = %s", got)
 	}
 }

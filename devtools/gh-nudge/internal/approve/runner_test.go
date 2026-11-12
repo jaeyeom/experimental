@@ -36,6 +36,7 @@ type fakeClient struct {
 	diffReads  int
 	// diff overrides the default diff of every pull request.
 	diff string
+	handoffFake
 }
 
 func (f *fakeClient) ViewerLogin() (string, error) { return f.viewer, nil }
