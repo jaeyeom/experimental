@@ -1,7 +1,9 @@
 // Package roundcache keeps GitHub results between prsync rounds in one JSON
 // file, so a round can skip calls whose answer cannot have changed.
-// Entries expire after TTL (the history TTL for path history, the load TTL
-// for review load) and are dropped on Save, as are entries whose key is
+// Entries expire after their TTL (TTL for status checks, the history TTL
+// for path history, the load TTL for review load, the members TTL for team
+// members, the CODEOWNERS TTL for CODEOWNERS bodies, and KeepTTL for changed
+// files, review snapshots and CODEOWNERS locations) and are dropped on Save, as are entries whose key is
 // not in the current format. The file is only a cache: a missing or
 // corrupt file starts empty.
 package roundcache
@@ -35,6 +37,19 @@ const HistoryTTL = 24 * time.Hour
 // another TTL.
 const LoadTTL = time.Hour
 
+// MembersTTL is how long a team's member list is reused unless
+// SetMembersTTL sets another TTL.
+const MembersTTL = 24 * time.Hour
+
+// CodeownersTTL is how long a CODEOWNERS body is reused unless
+// SetCodeownersTTL sets another TTL.
+const CodeownersTTL = 6 * time.Hour
+
+// KeepTTL is how long entries are kept whose key already pins the answer
+// (changed files per head, review snapshots per head and updatedAt), and
+// how long a CODEOWNERS location is kept as the first place to look.
+const KeepTTL = 24 * time.Hour
+
 // dayVersion prefixes a path-history version keyed by the history
 // window's start day; other versions are base branch heads.
 const dayVersion = "since:"
@@ -47,10 +62,12 @@ type Cache struct {
 	historyTTL time.Duration
 	// byDay is set when path history is keyed by the window's start day,
 	// so head-keyed entries are of an old format, and the reverse.
-	byDay   bool
-	loadTTL time.Duration
-	data    payload
-	dirty   bool
+	byDay         bool
+	loadTTL       time.Duration
+	membersTTL    time.Duration
+	codeownersTTL time.Duration
+	data          payload
+	dirty         bool
 }
 
 type payload struct {
@@ -58,6 +75,12 @@ type payload struct {
 	Rollups map[string]rollupEntry  `json:"rollups"`
 	Rounds  map[string]int          `json:"rounds,omitempty"`
 	Loads   map[string]loadEntry    `json:"loads,omitempty"`
+	// Members is keyed by org/slug, Files and Reviews by repo#number, and
+	// Codeowners by repo@ref.
+	Members    map[string]membersEntry    `json:"members,omitempty"`
+	Files      map[string]filesEntry      `json:"files,omitempty"`
+	Codeowners map[string]codeownersEntry `json:"codeowners,omitempty"`
+	Reviews    map[string]reviewsEntry    `json:"reviews,omitempty"`
 	// HistoryBatch is the path-history request size that last worked.
 	HistoryBatch int `json:"historyBatch,omitempty"`
 }
@@ -72,6 +95,33 @@ type loadEntry struct {
 	Count int       `json:"count"`
 }
 
+type membersEntry struct {
+	At      time.Time       `json:"at"`
+	Members []gh.TeamMember `json:"members"`
+}
+
+type filesEntry struct {
+	At    time.Time `json:"at"`
+	Head  string    `json:"head"`
+	Files []string  `json:"files"`
+}
+
+// codeownersEntry is the CODEOWNERS body of a ref and the path it was found
+// at; an empty path means none of the locations exists.
+type codeownersEntry struct {
+	At   time.Time `json:"at"`
+	Path string    `json:"path"`
+	Body string    `json:"body"`
+}
+
+type reviewsEntry struct {
+	At        time.Time         `json:"at"`
+	Head      string            `json:"head"`
+	UpdatedAt string            `json:"updatedAt"`
+	Author    string            `json:"author"`
+	Reviews   []gh.LatestReview `json:"reviews"`
+}
+
 type rollupEntry struct {
 	At        time.Time        `json:"at"`
 	Head      string           `json:"head"`
@@ -82,7 +132,10 @@ type rollupEntry struct {
 // Load reads path. A missing file is an empty cache. A corrupt file is an
 // empty cache and an error for the caller to log.
 func Load(path string, now func() time.Time) (*Cache, error) {
-	c := &Cache{path: path, now: now, historyTTL: HistoryTTL, loadTTL: LoadTTL, data: emptyPayload()}
+	c := &Cache{
+		path: path, now: now, historyTTL: HistoryTTL, loadTTL: LoadTTL,
+		membersTTL: MembersTTL, codeownersTTL: CodeownersTTL, data: emptyPayload(),
+	}
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return c, nil
@@ -106,16 +159,32 @@ func Load(path string, now func() time.Time) (*Cache, error) {
 	if data.Loads != nil {
 		c.data.Loads = data.Loads
 	}
+	if data.Members != nil {
+		c.data.Members = data.Members
+	}
+	if data.Files != nil {
+		c.data.Files = data.Files
+	}
+	if data.Codeowners != nil {
+		c.data.Codeowners = data.Codeowners
+	}
+	if data.Reviews != nil {
+		c.data.Reviews = data.Reviews
+	}
 	c.data.HistoryBatch = data.HistoryBatch
 	return c, nil
 }
 
 func emptyPayload() payload {
 	return payload{
-		History: map[string]historyEntry{},
-		Rollups: map[string]rollupEntry{},
-		Rounds:  map[string]int{},
-		Loads:   map[string]loadEntry{},
+		History:    map[string]historyEntry{},
+		Rollups:    map[string]rollupEntry{},
+		Rounds:     map[string]int{},
+		Loads:      map[string]loadEntry{},
+		Members:    map[string]membersEntry{},
+		Files:      map[string]filesEntry{},
+		Codeowners: map[string]codeownersEntry{},
+		Reviews:    map[string]reviewsEntry{},
 	}
 }
 
@@ -145,8 +214,35 @@ func (c *Cache) SetLoadTTL(ttl time.Duration) {
 	c.loadTTL = ttl
 }
 
+// SetMembersTTL sets how long a team's member list is reused; Save drops
+// older entries. A ttl <= 0 restores MembersTTL.
+func (c *Cache) SetMembersTTL(ttl time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if ttl <= 0 {
+		ttl = MembersTTL
+	}
+	c.membersTTL = ttl
+}
+
+// SetCodeownersTTL sets how long a CODEOWNERS body is reused. Its location
+// is kept for the longer of ttl and KeepTTL. A ttl <= 0 restores
+// CodeownersTTL.
+func (c *Cache) SetCodeownersTTL(ttl time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if ttl <= 0 {
+		ttl = CodeownersTTL
+	}
+	c.codeownersTTL = ttl
+}
+
 func historyKey(repo, ref, path, version string) string {
 	return repo + "@" + ref + "\x00" + path + "\x00" + version
+}
+
+func codeownersKey(repo, ref string) string {
+	return repo + "@" + ref
 }
 
 func rollupKey(repo string, number int) string {
@@ -176,6 +272,12 @@ func knownRollupKey(key string) bool {
 	return err == nil
 }
 
+func knownCodeownersKey(key string) bool {
+	repo, ref, ok := strings.Cut(key, "@")
+	return ok && strings.Contains(repo, "/") && ref != ""
+}
+
+// knownLoadKey also fits team members, keyed by org/slug.
 func knownLoadKey(key string) bool {
 	org, login, ok := strings.Cut(key, "/")
 	return ok && org != "" && login != "" && !strings.Contains(login, "/")
@@ -224,6 +326,111 @@ func (c *Cache) PutReviewLoad(org, login string, n int) {
 	defer c.mu.Unlock()
 	c.data.Loads[loadKey(org, login)] = loadEntry{At: c.now(), Count: n}
 	c.dirty = true
+}
+
+// TeamMembers returns the stored members of org/slug while they are fresh.
+func (c *Cache) TeamMembers(org, slug string) ([]gh.TeamMember, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, ok := c.data.Members[org+"/"+slug]
+	if !ok || !c.fresh(entry.At, c.membersTTL) {
+		return nil, false
+	}
+	return entry.Members, true
+}
+
+// PutTeamMembers stores members for TeamMembers.
+func (c *Cache) PutTeamMembers(org, slug string, members []gh.TeamMember) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.data.Members[org+"/"+slug] = membersEntry{At: c.now(), Members: members}
+	c.dirty = true
+}
+
+// ChangedFiles returns the stored changed files of a pull request while
+// its head is unchanged, for at most KeepTTL. An empty head is a miss.
+func (c *Cache) ChangedFiles(repo string, number int, head string) ([]string, bool) {
+	if head == "" {
+		return nil, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, ok := c.data.Files[rollupKey(repo, number)]
+	if !ok || entry.Head != head || !c.fresh(entry.At, KeepTTL) {
+		return nil, false
+	}
+	return entry.Files, true
+}
+
+// PutChangedFiles stores files for ChangedFiles. An empty head is not
+// stored.
+func (c *Cache) PutChangedFiles(repo string, number int, head string, files []string) {
+	if head == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.data.Files[rollupKey(repo, number)] = filesEntry{At: c.now(), Head: head, Files: files}
+	c.dirty = true
+}
+
+// ReviewSnapshot returns the stored author and latest reviews of a pull
+// request while its head and updatedAt are unchanged, for at most KeepTTL.
+// An empty head or updatedAt is a miss.
+func (c *Cache) ReviewSnapshot(repo string, number int, head, updatedAt string) (string, []gh.LatestReview, bool) {
+	if head == "" || updatedAt == "" {
+		return "", nil, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, ok := c.data.Reviews[rollupKey(repo, number)]
+	if !ok || entry.Head != head || entry.UpdatedAt != updatedAt || !c.fresh(entry.At, KeepTTL) {
+		return "", nil, false
+	}
+	return entry.Author, entry.Reviews, true
+}
+
+// PutReviewSnapshot stores a snapshot for ReviewSnapshot. An empty head or
+// updatedAt is not stored.
+func (c *Cache) PutReviewSnapshot(repo string, number int, head, updatedAt, author string, reviews []gh.LatestReview) {
+	if head == "" || updatedAt == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.data.Reviews[rollupKey(repo, number)] = reviewsEntry{
+		At: c.now(), Head: head, UpdatedAt: updatedAt, Author: author, Reviews: reviews,
+	}
+	c.dirty = true
+}
+
+// Codeowners returns the stored CODEOWNERS body of repo at ref and the path
+// it was found at (empty when none exists). ok is set while the body is
+// fresh; past that, path is still returned for the longer of the
+// CODEOWNERS TTL and KeepTTL, as the place to look first.
+func (c *Cache) Codeowners(repo, ref string) (body, path string, ok bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, found := c.data.Codeowners[codeownersKey(repo, ref)]
+	if !found || !c.fresh(entry.At, c.codeownersKeep()) {
+		return "", "", false
+	}
+	if !c.fresh(entry.At, c.codeownersTTL) {
+		return "", entry.Path, false
+	}
+	return entry.Body, entry.Path, true
+}
+
+// PutCodeowners stores body, found at path, for Codeowners.
+func (c *Cache) PutCodeowners(repo, ref, path, body string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.data.Codeowners[codeownersKey(repo, ref)] = codeownersEntry{At: c.now(), Path: path, Body: body}
+	c.dirty = true
+}
+
+func (c *Cache) codeownersKeep() time.Duration {
+	return max(c.codeownersTTL, KeepTTL)
 }
 
 // Rollup returns the stored status checks of a pull request when its head
@@ -303,6 +510,7 @@ func (c *Cache) Save() error {
 			c.dirty = true
 		}
 	}
+	c.pruneTeamCover()
 	if !c.dirty {
 		return nil
 	}
@@ -318,4 +526,33 @@ func (c *Cache) Save() error {
 	}
 	c.dirty = false
 	return nil
+}
+
+// pruneTeamCover drops expired team-cover entries and those whose key is
+// not in the current format. The caller holds mu.
+func (c *Cache) pruneTeamCover() {
+	for key, entry := range c.data.Members {
+		if !c.fresh(entry.At, c.membersTTL) || !knownLoadKey(key) {
+			delete(c.data.Members, key)
+			c.dirty = true
+		}
+	}
+	for key, entry := range c.data.Files {
+		if !c.fresh(entry.At, KeepTTL) || !knownRollupKey(key) {
+			delete(c.data.Files, key)
+			c.dirty = true
+		}
+	}
+	for key, entry := range c.data.Reviews {
+		if !c.fresh(entry.At, KeepTTL) || !knownRollupKey(key) {
+			delete(c.data.Reviews, key)
+			c.dirty = true
+		}
+	}
+	for key, entry := range c.data.Codeowners {
+		if !c.fresh(entry.At, c.codeownersKeep()) || !knownCodeownersKey(key) {
+			delete(c.data.Codeowners, key)
+			c.dirty = true
+		}
+	}
 }

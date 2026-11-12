@@ -32,28 +32,58 @@ type coverCache struct {
 	historyTTL time.Duration
 	// batch is the path count the next history request starts at, and
 	// maxBatch the most it grows to.
-	batch       int
-	maxBatch    int
-	load        map[string]int
-	loadTTL     time.Duration
-	active      map[string]bool
-	loadSkipped bool
-	activeSkip  bool
-	rulesFailed map[string]bool
+	batch    int
+	maxBatch int
+	load     map[string]int
+	loadTTL  time.Duration
+	// membersTTL and codeownersTTL > 0 reuse stored team members and
+	// CODEOWNERS.
+	membersTTL    time.Duration
+	codeownersTTL time.Duration
+	active        map[string]bool
+	loadSkipped   bool
+	activeSkip    bool
+	rulesFailed   map[string]bool
 	// budget counts the round's GitHub calls against maxCalls.
 	budget   *gh.CallBudget
 	maxCalls int
-	// stop is why the round stopped early; empty while it runs.
-	stop string
-	// deferred are the history keys of paths left for the next round.
-	deferred map[string]bool
+	// stop is why the round stopped early, and stopStep the step it
+	// stopped in; empty while it runs.
+	stop     string
+	stopStep string
+	// deferred are the history keys of paths left for the next round,
+	// deferredTeams the teams whose members were not looked up, and
+	// deferredPRs the PRs left without suggestions.
+	deferred      map[string]bool
+	deferredTeams map[string]bool
+	deferredPRs   int
 	// listed, needed and hits count paths for the round summary.
 	listed, needed, hits int
+	// memberLookups, fileLookups and reviewLookups count stored-cache hits
+	// and real calls for the round summary.
+	memberLookups, fileLookups, reviewLookups lookupCount
+}
+
+// lookupCount is the stored-cache hits and real calls of one lookup.
+type lookupCount struct {
+	hits, calls int
 }
 
 const (
 	stopCallCap     = "call cap"
 	stopRateLimited = "rate limited"
+)
+
+// Steps a round can stop in, as the cap message names them.
+const (
+	stepReviews    = "reviews"
+	stepMembers    = "team members"
+	stepFiles      = "files"
+	stepCodeowners = "codeowners"
+	stepBaseHead   = "base head"
+	stepHistory    = "history"
+	stepActivity   = "activity"
+	stepLoad       = "load"
 )
 
 // errStopped unwinds team-cover work once the round stopped; see
@@ -62,28 +92,32 @@ var errStopped = errors.New("team-cover stopped")
 
 func newCoverCache(cfg config.Config, now time.Time) *coverCache {
 	return &coverCache{
-		historySince: now.AddDate(0, 0, -cfg.TeamCoverHistoryDays),
-		activeSince:  now.AddDate(0, 0, -cfg.TeamCoverActiveDays),
-		members:      map[string]cachedMembers{},
-		files:        map[string][]string{},
-		rules:        map[string][]codeRule{},
-		history:      map[string]gh.PathHistory{},
-		historyTTL:   cfg.TeamCoverHistoryTTL,
-		batch:        cfg.TeamCoverBatchPaths,
-		maxBatch:     cfg.TeamCoverBatchPaths,
-		load:         map[string]int{},
-		loadTTL:      cfg.TeamCoverLoadTTL,
-		active:       map[string]bool{},
-		rulesFailed:  map[string]bool{},
-		budget:       gh.NewCallBudget(cfg.TeamCoverMaxCalls),
-		maxCalls:     cfg.TeamCoverMaxCalls,
-		deferred:     map[string]bool{},
+		historySince:  now.AddDate(0, 0, -cfg.TeamCoverHistoryDays),
+		activeSince:   now.AddDate(0, 0, -cfg.TeamCoverActiveDays),
+		members:       map[string]cachedMembers{},
+		files:         map[string][]string{},
+		rules:         map[string][]codeRule{},
+		history:       map[string]gh.PathHistory{},
+		historyTTL:    cfg.TeamCoverHistoryTTL,
+		batch:         cfg.TeamCoverBatchPaths,
+		maxBatch:      cfg.TeamCoverBatchPaths,
+		load:          map[string]int{},
+		loadTTL:       cfg.TeamCoverLoadTTL,
+		membersTTL:    cfg.TeamCoverMembersTTL,
+		codeownersTTL: cfg.TeamCoverCodeownersTTL,
+		deferredTeams: map[string]bool{},
+		active:        map[string]bool{},
+		rulesFailed:   map[string]bool{},
+		budget:        gh.NewCallBudget(cfg.TeamCoverMaxCalls),
+		maxCalls:      cfg.TeamCoverMaxCalls,
+		deferred:      map[string]bool{},
 	}
 }
 
-// halted reports whether err stops the round: a rate limit, after which
-// no team-cover call is made, or the call cap.
-func (c *coverCache) halted(err error) bool {
+// halted reports whether err, from step, stops the round: a rate limit,
+// after which no team-cover call is made, or the call cap. The first step
+// that stops the round is kept.
+func (c *coverCache) halted(step string, err error) bool {
 	switch {
 	case gh.IsRateLimited(err):
 		c.stop = stopRateLimited
@@ -94,7 +128,23 @@ func (c *coverCache) halted(err error) bool {
 	default:
 		return false
 	}
+	if c.stopStep == "" {
+		c.stopStep = step
+	}
 	return true
+}
+
+// deferredWork says what the cap left for the next round, in the unit of
+// the step it stopped in.
+func (c *coverCache) deferredWork() string {
+	switch c.stopStep {
+	case stepMembers:
+		return fmt.Sprintf("%d teams", len(c.deferredTeams))
+	case stepHistory, stepBaseHead:
+		return fmt.Sprintf("%d paths", len(c.deferred))
+	default:
+		return fmt.Sprintf("%d PRs", c.deferredPRs)
+	}
 }
 
 // report adds the round summary, and why the round stopped, to the round
@@ -104,14 +154,16 @@ func (c *coverCache) report(ctx context.Context, doc *Document) {
 	if c.maxCalls > 0 {
 		limit = fmt.Sprintf("cap %d", c.maxCalls)
 	}
-	summary := fmt.Sprintf("team-cover: %d of %d paths need history, %d cache hits, %d calls (%s)",
-		c.needed, c.listed, c.hits, c.budget.Used(), limit)
+	summary := fmt.Sprintf("team-cover: paths %d/%d need history (%d hits); team members %d hits/%d calls; "+
+		"files %d/%d; reviews %d/%d; calls %d (%s)",
+		c.needed, c.listed, c.hits, c.memberLookups.hits, c.memberLookups.calls,
+		c.fileLookups.hits, c.fileLookups.calls, c.reviewLookups.hits, c.reviewLookups.calls, c.budget.Used(), limit)
 	runlog.FromContext(ctx).Info(summary)
 	doc.TeamCoverNotes = append(doc.TeamCoverNotes, summary)
 	var msg string
 	switch c.stop {
 	case stopCallCap:
-		msg = fmt.Sprintf("team-cover: call cap %d reached; %d paths deferred", c.maxCalls, len(c.deferred))
+		msg = fmt.Sprintf("team-cover: call cap %d reached during %s; %s deferred", c.maxCalls, c.stopStep, c.deferredWork())
 	case stopRateLimited:
 		msg = "team-cover: stopped (rate limited)"
 	default:
@@ -187,6 +239,7 @@ func (c *coverCache) prepareAll(ctx context.Context, client GH, cfg config.Confi
 		}
 		cover, err := c.prepare(ctx, client, cfg, doc, doc.PRs[i])
 		if errors.Is(err, errStopped) {
+			c.deferRest(doc.PRs[i:], cfg)
 			break
 		}
 		if err != nil {
@@ -202,6 +255,7 @@ func (c *coverCache) finishAll(ctx context.Context, client GH, cfg config.Config
 	for i := range covers {
 		suggestions, err := c.finish(ctx, client, cfg, doc, &covers[i])
 		if errors.Is(err, errStopped) {
+			c.deferredPRs++
 			continue
 		}
 		if err != nil {
@@ -210,6 +264,31 @@ func (c *coverCache) finishAll(ctx context.Context, client GH, cfg config.Config
 		doc.PRs[i].TeamReviewSuggestions = suggestions
 	}
 	return nil
+}
+
+// deferRest counts prs, left unprepared, that request a team, and their
+// teams whose members were not looked up.
+func (c *coverCache) deferRest(prs []PR, cfg config.Config) {
+	for _, pr := range prs {
+		org, err := repoOrg(pr.Repo)
+		if err != nil {
+			continue
+		}
+		teams, _ := teamRequests(pr.ReviewRequests, org, cfg.TeamCoverSkipTeams)
+		if len(teams) == 0 {
+			continue
+		}
+		c.deferredPRs++
+		c.deferTeams(teams)
+	}
+}
+
+func (c *coverCache) deferTeams(teams []string) {
+	for _, team := range teams {
+		if _, done := c.members[team]; !done {
+			c.deferredTeams[team] = true
+		}
+	}
 }
 
 // teamCoverDue reports whether this round runs the job under
@@ -354,12 +433,12 @@ func (c *coverCache) fillCodeowners(ctx context.Context, client GH, doc *Documen
 	}
 	rules, ok := c.rules[key]
 	if !ok {
-		body, err := client.Codeowners(ctx, pr.Repo, pr.Base)
+		body, err := c.codeowners(ctx, client, pr.Repo, pr.Base)
 		if err != nil {
 			if stop := contextStop(ctx, err); stop != nil {
 				return stop
 			}
-			if c.halted(err) {
+			if c.halted(stepCodeowners, err) {
 				return errStopped
 			}
 			loud(doc, fmt.Sprintf("skipping team_cover codeowners signal for %s: %s", pr.Repo, err.Error()))
@@ -383,6 +462,29 @@ func (c *coverCache) fillCodeowners(ctx context.Context, client GH, doc *Documen
 		}
 	}
 	return nil
+}
+
+// codeowners is the CODEOWNERS body of repo at ref. With a stored cache it
+// is reused for team_cover_codeowners_ttl; past that the location it was
+// last found at is requested first.
+func (c *coverCache) codeowners(ctx context.Context, client GH, repo, ref string) (string, error) {
+	stored := c.stored != nil && c.codeownersTTL > 0
+	first := ""
+	if stored {
+		body, path, ok := c.stored.Codeowners(repo, ref)
+		if ok {
+			return body, nil
+		}
+		first = path
+	}
+	body, path, err := client.Codeowners(ctx, repo, ref, first)
+	if err != nil {
+		return "", fmt.Errorf("codeowners: %w", err)
+	}
+	if stored {
+		c.stored.PutCodeowners(repo, ref, path, body)
+	}
+	return body, nil
 }
 
 // fillHistory copies what loadHistory fetched for the PR's files. A path
@@ -509,7 +611,7 @@ func (c *coverCache) loadGroup(ctx context.Context, client GH, doc *Document, gr
 		if stop := contextStop(ctx, err); stop != nil {
 			return stop
 		}
-		if c.halted(err) {
+		if c.halted(stepHistory, err) {
 			c.deferPaths(group, missing)
 			return errStopped
 		}
@@ -519,7 +621,7 @@ func (c *coverCache) loadGroup(ctx context.Context, client GH, doc *Document, gr
 	c.keepHistory(group, version, got)
 	if len(got.Deferred) > 0 {
 		c.deferPaths(group, got.Deferred)
-		c.halted(gh.ErrCallCap)
+		c.halted(stepHistory, gh.ErrCallCap)
 		return errStopped
 	}
 	return nil
@@ -590,7 +692,7 @@ func (c *coverCache) baseHead(ctx context.Context, client GH, doc *Document, gro
 		if stop := contextStop(ctx, err); stop != nil {
 			return "", stop
 		}
-		if c.halted(err) {
+		if c.halted(stepBaseHead, err) {
 			return "", errStopped
 		}
 		loud(doc, fmt.Sprintf("team cover base head unavailable for %s %s: %s", group.repo, group.base, err.Error()))
@@ -609,7 +711,7 @@ func (c *coverCache) fillActivity(ctx context.Context, client GH, cfg config.Con
 			if stop := contextStop(ctx, err); stop != nil {
 				return stop
 			}
-			if c.halted(err) {
+			if c.halted(stepActivity, err) {
 				return errStopped
 			}
 			c.activeSkip = true
@@ -650,25 +752,41 @@ func (c *coverCache) fillLoad(ctx context.Context, client GH, doc *Document, org
 	return nil
 }
 
+// snapshot is the PR's author and latest reviews. With a stored cache it
+// is reused while the PR's head and updatedAt are unchanged.
 func (c *coverCache) snapshot(ctx context.Context, client GH, doc *Document, pr PR) (string, []gh.LatestReview, string, error) {
+	if c.stored != nil {
+		if author, reviews, ok := c.stored.ReviewSnapshot(pr.Repo, pr.Number, pr.HeadSHA, pr.UpdatedAt); ok {
+			c.reviewLookups.hits++
+			return author, reviews, "", nil
+		}
+	}
 	author, reviews, err := client.ReviewSnapshot(ctx, pr.Repo, pr.Number)
 	if err != nil {
 		if stop := contextStop(ctx, err); stop != nil {
 			return "", nil, "", stop
 		}
-		if c.halted(err) {
+		if c.halted(stepReviews, err) {
 			return "", nil, "", errStopped
 		}
+		c.reviewLookups.calls++
 		msg := fmt.Sprintf("cannot list reviews of %s#%d: %s", pr.Repo, pr.Number, err.Error())
 		loud(doc, msg)
 		return "", nil, msg, nil
 	}
+	c.reviewLookups.calls++
+	if c.stored != nil {
+		c.stored.PutReviewSnapshot(pr.Repo, pr.Number, pr.HeadSHA, pr.UpdatedAt, author, reviews)
+	}
 	return author, reviews, "", nil
 }
 
+// ensureMembers looks up each team's members once a round. With a stored
+// cache a lookup that worked is reused for team_cover_memberLookupsttl.
 func (c *coverCache) ensureMembers(ctx context.Context, client GH, doc *Document, teams []string) (map[string]string, error) {
 	errs := map[string]string{}
-	for _, team := range teams {
+	stored := c.stored != nil && c.membersTTL > 0
+	for i, team := range teams {
 		if cached, ok := c.members[team]; ok {
 			if cached.err != "" {
 				errs[team] = cached.err
@@ -683,21 +801,34 @@ func (c *coverCache) ensureMembers(ctx context.Context, client GH, doc *Document
 			loud(doc, msg)
 			continue
 		}
+		if stored {
+			if members, ok := c.stored.TeamMembers(org, slug); ok {
+				c.memberLookups.hits++
+				c.members[team] = cachedMembers{members: members}
+				continue
+			}
+		}
 		members, err := client.TeamMembers(ctx, org, slug)
 		if err != nil {
 			if stop := contextStop(ctx, err); stop != nil {
 				return nil, stop
 			}
-			if c.halted(err) {
+			if c.halted(stepMembers, err) {
+				c.deferTeams(teams[i:])
 				return nil, errStopped
 			}
+			c.memberLookups.calls++
 			msg := fmt.Sprintf("cannot list members of %s: %s", team, err.Error())
 			c.members[team] = cachedMembers{err: msg}
 			errs[team] = msg
 			loud(doc, msg)
 			continue
 		}
+		c.memberLookups.calls++
 		c.members[team] = cachedMembers{members: members}
+		if stored {
+			c.stored.PutTeamMembers(org, slug, members)
+		}
 	}
 	return errs, nil
 }
@@ -707,19 +838,30 @@ func (c *coverCache) changedFiles(ctx context.Context, client GH, doc *Document,
 	if files, ok := c.files[key]; ok {
 		return files, nil
 	}
+	if c.stored != nil {
+		if files, ok := c.stored.ChangedFiles(pr.Repo, pr.Number, pr.HeadSHA); ok {
+			c.fileLookups.hits++
+			c.files[key] = files
+			return files, nil
+		}
+	}
 	files, err := client.ChangedFiles(ctx, pr.Repo, pr.Number)
 	if err != nil {
 		if stop := contextStop(ctx, err); stop != nil {
 			return nil, stop
 		}
-		if c.halted(err) {
+		if c.halted(stepFiles, err) {
 			return nil, errStopped
 		}
 		loud(doc, fmt.Sprintf("team cover files unavailable for %s#%d: %s", pr.Repo, pr.Number, err.Error()))
 		files = []string{}
 	}
+	c.fileLookups.calls++
 	slices.Sort(files)
 	c.files[key] = files
+	if err == nil && c.stored != nil {
+		c.stored.PutChangedFiles(pr.Repo, pr.Number, pr.HeadSHA, files)
+	}
 	return files, nil
 }
 
@@ -756,7 +898,7 @@ func (c *coverCache) reviewLoad(ctx context.Context, client GH, doc *Document, o
 		if stop := contextStop(ctx, err); stop != nil {
 			return 0, false, stop
 		}
-		if c.halted(err) {
+		if c.halted(stepLoad, err) {
 			return 0, false, errStopped
 		}
 		c.loadSkipped = true
