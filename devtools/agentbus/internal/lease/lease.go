@@ -172,9 +172,17 @@ type Table struct {
 	mu    sync.Mutex
 	dir   string
 	doc   file
-	log   *eventlog.Log
+	log   EventLog
 	now   func() time.Time
 	names func(handle string) string
+	// skips are the skipped waiting notices logged per checkout, kept in
+	// memory only.
+	skips map[string]*skipSet
+}
+
+// EventLog is where a Table logs its events.
+type EventLog interface {
+	Append(e eventlog.Event) error
 }
 
 type file struct {
@@ -236,7 +244,7 @@ type waiter struct {
 
 // Open loads the table from dir. A missing file is an empty table. now
 // is the clock; names returns the registered name of a handle, or "".
-func Open(dir string, log *eventlog.Log, now func() time.Time, names func(handle string) string) (*Table, error) {
+func Open(dir string, log EventLog, now func() time.Time, names func(handle string) string) (*Table, error) {
 	if now == nil {
 		now = time.Now
 	}
@@ -247,7 +255,7 @@ func Open(dir string, log *eventlog.Log, now func() time.Time, names func(handle
 	if err != nil {
 		return nil, err
 	}
-	return &Table{dir: dir, doc: doc, log: log, now: now, names: names}, nil
+	return &Table{dir: dir, doc: doc, log: log, now: now, names: names, skips: map[string]*skipSet{}}, nil
 }
 
 // Claim grants a free checkout to caller or queues caller. It never
@@ -288,16 +296,21 @@ func (t *Table) Claim(caller string, a Args) (Reply, error) {
 		}
 		r := Reply{Result: ResultQueued}
 		events := []eventlog.Event{claim}
+		var skip string
 		if i := rec.find(caller); i >= 0 {
 			rec.Queue[i].For = d
 			rec.Queue[i].Why = a.Why
 			rec.Queue[i].Urgent = a.Urgent
+			skip = skipRepeat
 		} else {
 			t.doc.Seq++
 			rec.Queue = append(rec.Queue, waiter{Handle: caller, Urgent: a.Urgent, For: d, Why: a.Why, Since: now, Seq: t.doc.Seq})
-			if r.Waiting = t.waitingNotice(rec, a.Checkout, caller, d, a.Why, now); r.Waiting != nil {
+			if r.Waiting, skip = t.waitingNotice(rec, a.Checkout, caller, d, a.Why, now); r.Waiting != nil {
 				events = append(events, eventlog.Event{Event: eventlog.EventLeaseNotifyWaiting, Actor: rec.Holder.Handle, Detail: fmt.Sprintf("waiter %s; %d waiting", caller, len(rec.Queue))})
 			}
+		}
+		if caller != UserHolder && skip != "" && t.firstSkip(a.Checkout, rec.Holder, caller, skip) {
+			events = append(events, eventlog.Event{Event: eventlog.EventLeaseNotifySkipped, Actor: caller, Detail: fmt.Sprintf("holder %s; reason %s; queue %d", rec.Holder.Handle, skip, len(rec.Queue))})
 		}
 		rec.sortQueue()
 		r.Position = rec.find(caller) + 1
@@ -461,14 +474,29 @@ func grantNext(rec *record, now time.Time, gone func(handle string) bool, r *Rep
 	return events
 }
 
+// Reasons a lease_notify_skipped event gives.
+const (
+	skipUserHolder   = "user-holder"
+	skipPastDeadline = "past-deadline"
+	skipRepeat       = "repeat"
+)
+
 // waitingNotice is the message that tells rec's holder caller newly
-// queued behind it, or nil. Only an agent holding a held lease with time
-// left is told: the user is not, and a holder past its deadline gets the
-// check-in instead. The user's own queued claim asks the holder already.
-func (t *Table) waitingNotice(rec *record, checkout, caller string, d time.Duration, why string, now time.Time) *Notice {
+// queued behind it, or nil and why it was skipped. Only an agent holding
+// a held lease with time left is told: the user is not, and a holder
+// past its deadline gets the check-in instead. The user's own queued
+// claim asks the holder already.
+func (t *Table) waitingNotice(rec *record, checkout, caller string, d time.Duration, why string, now time.Time) (*Notice, string) {
 	h := rec.Holder
-	if caller == UserHolder || h.Handle == UserHolder || rec.State != StateHeld || !now.Before(h.Deadline) {
-		return nil
+	switch {
+	case caller == UserHolder:
+		return nil, ""
+	case h.Handle == UserHolder:
+		return nil, skipUserHolder
+	case rec.State != StateHeld:
+		return nil, ""
+	case !now.Before(h.Deadline):
+		return nil, skipPastDeadline
 	}
 	who := cmp.Or(t.names(caller), caller)
 	paren := "for " + Short(d)
@@ -476,7 +504,32 @@ func (t *Table) waitingNotice(rec *record, checkout, caller string, d time.Durat
 		paren = why + ", " + paren
 	}
 	text := fmt.Sprintf("[lease] %d waiting for %s: %s (%s). Release when you can: agentbus lease release", len(rec.Queue), checkout, who, paren)
-	return &Notice{To: h.Handle, Text: text}
+	return &Notice{To: h.Handle, Text: text}, ""
+}
+
+// skipSet is the (waiter, reason) pairs logged as skipped notices while
+// one holder keeps a checkout.
+type skipSet struct {
+	holder string
+	since  time.Time
+	seen   map[[2]string]bool
+}
+
+// firstSkip reports whether the skipped notice for waiter and reason is
+// the first one while h holds checkout, and remembers it. A new holder
+// starts a fresh set. The caller holds t.mu.
+func (t *Table) firstSkip(checkout string, h *holder, waiter, reason string) bool {
+	s := t.skips[checkout]
+	if s == nil || s.holder != h.Handle || !s.since.Equal(h.Since) {
+		s = &skipSet{holder: h.Handle, since: h.Since, seen: map[[2]string]bool{}}
+		t.skips[checkout] = s
+	}
+	k := [2]string{waiter, reason}
+	if s.seen[k] {
+		return false
+	}
+	s.seen[k] = true
+	return true
 }
 
 // holder is w granted at now. The user gets no deadline.
@@ -547,7 +600,8 @@ func (t *Table) update(checkout string, change func(*record, time.Time) (Reply, 
 	}
 	for _, ev := range events {
 		ev.Name = checkout
-		if err := t.log.Append(ev); err != nil {
+		// A skipped notice that cannot be logged does not change the answer.
+		if err := t.log.Append(ev); err != nil && ev.Event != eventlog.EventLeaseNotifySkipped {
 			return Reply{}, fmt.Errorf("log %s: %w", ev.Event, err)
 		}
 	}

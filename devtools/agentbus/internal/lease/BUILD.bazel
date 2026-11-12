@@ -19,6 +19,7 @@ go_test(
         "checkin_test.go",
         "lease_test.go",
         "release_test.go",
+        "skipped_test.go",
         "takeover_mode_test.go",
         "takeover_test.go",
         "user_test.go",

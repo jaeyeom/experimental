@@ -370,6 +370,16 @@ and the user's own queued ~pause~ sends only its ask. Each notice is a
 ~lease_notify_waiting~ event naming the holder, the waiter, and the
 queue length.
 
+A notice not sent is a ~lease_notify_skipped~ event, with the waiter as
+its actor and ~holder <holder>; reason <reason>; queue <n>~ as its
+detail. The reason is ~user-holder~ (the user holds or paused the
+checkout), ~past-deadline~ (the holder is past its bid), or ~repeat~
+(the waiter claimed again while queued). Each holder, waiter, and
+reason is logged once while that holder keeps the lease, so ten repeat
+claims leave one line; a new holder starts afresh, and a daemon restart
+may log one more. The user's own queued claim logs nothing. ~agentbus
+log --event lease_notify_skipped~ answers why a holder was not told.
+
 ~status --json~ prints this shape, which other tools read and which
 stays stable. ~--all~ prints an array of them. ~state~ is ~free~,
 ~held~, ~paused~, ~releasing~, or ~needs-adopt~. ~holder~ is absent
@@ -389,8 +399,10 @@ The daemon keeps lease state in ~leases.json~ in its state directory,
 so a restart keeps holders, queues, and deadlines. Every claim, grant,
 extend, leave, release, and skip is a ~lease_claim~, ~lease_grant~,
 ~lease_extend~, ~lease_leave~, ~lease_release~, or ~lease_skip~ event
-in the event log, with the checkout key as its name. A tool call the
-[[*Enforcement hook][enforcement hook]] denies is a ~lease_hook_deny~ event.
+in the event log, with the checkout key as its name, and so are the
+~lease_notify_waiting~ and ~lease_notify_skipped~ notice events above.
+A tool call the [[*Enforcement hook][enforcement hook]] denies is a
+~lease_hook_deny~ event.
 
 ** Lease in hub mode
 
