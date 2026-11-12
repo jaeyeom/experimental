@@ -321,9 +321,10 @@ to Pkl for new installations.
 
 ** gh-approve
 
-~gh-approve~ approves pull requests that match rules you write in config. It
-approves as the logged-in ~gh~ user, through the ~gh~ CLI. It leaves every
-other pull request for a human. It runs no LLM review itself, but a rule can
+~gh-approve~ approves pull requests that match rules you write in config, or
+hands them off to a colleague (see [[*Hand-off rules][Hand-off rules]]). It
+acts as the logged-in ~gh~ user, through the ~gh~ CLI. It leaves every other
+pull request for a human. It runs no LLM review itself, but a rule can
 run a command of yours as a last check. See [[*Agent command][Agent command]].
 
 It looks only at open pull requests that request you *as an individual*. It
@@ -360,6 +361,8 @@ condition is optional. An empty list or an unset limit adds no condition.
 | ~repos~                  | Repositories as ~owner/name~ or globs, such as ~acme/*~                           |
 | ~paths_all_match~        | Globs. Every changed file must match one of them                                  |
 | ~paths_none_match~       | Globs. No changed file may match any of them, such as CI config, infra, lockfiles |
+| ~paths_any_match~        | Globs. At least one changed file must match one of them                           |
+| ~codeowners_covered~     | Default ~false~. Every changed file must pass the CODEOWNERS coverage check       |
 | ~max_changed_lines~      | Maximum added plus deleted lines                                                  |
 | ~max_added_lines~        | Maximum added lines                                                               |
 | ~max_files~              | Maximum changed files                                                             |
@@ -436,6 +439,64 @@ Starter rule shapes. These are examples. Nothing is hard-coded.
 The ~approve~ section is supported only in Pkl config. A YAML config that has
 an ~approve~ key fails to load.
 
+*** Hand-off rules
+
+Sometimes you are asked to review a pull request only because it touches a
+directory that a colleague also owns. A hand-off rule passes such a pull
+request to the colleague: it requests the colleague's review, then removes you
+as an individual requested reviewer. A hand-off *never approves anything*. The
+scope is the same as for approve rules: only pull requests that request you as
+an individual, and never your own.
+
+#+begin_src pkl
+  new {
+    name = "dashboard-handoff"
+    action = "handoff"
+    reviewers { "colleague" }
+    paths_any_match { "tools/dashboard/**" }
+    authors_deny { "colleague" }
+    codeowners_covered = true
+  }
+#+end_src
+
+- ~action~ is ~"approve"~ (the default) or ~"handoff"~.
+- ~reviewers~ are the logins to request. It is required on a hand-off rule and
+  not allowed on an approve rule.
+- Every other condition works as for approve rules and is ANDed.
+
+*Coverage check.* With ~codeowners_covered = true~, every changed file must
+meet one of these:
+
+1. It matches the rule's ~paths_any_match~, the area the colleague takes over.
+2. Its owners include neither you nor a team you belong to.
+3. Every owning team that includes you also has other members *and* is a
+   requested reviewer on the pull request. You are not an owner by name.
+
+Owners come from the base branch's CODEOWNERS (=.github/=, the root, or
+=docs/=, the first found), parsed with the same code as ~gh-codeowners~. If
+CODEOWNERS or a team's members cannot be read, the check fails; it never
+assumes a pass. Reading team members needs the ~read:org~ scope. An email
+owner fails the check, since gh-approve cannot tell whether it is you.
+~--explain~ prints the verdict for each file and the owner that blocked it.
+
+*Actions with ~--apply~.* gh-approve re-reads the head and skips the pull
+request if it moved. Then it requests the reviewers through the REST
+~requested_reviewers~ endpoint. Only after that succeeds does it remove you as
+an individual requested reviewer. It never removes a team request and never
+dismisses or changes a review. If the request succeeds and the removal fails,
+the pull request is reported as an error with both steps; the colleague stays
+requested, which is harmless. Writes are never retried.
+
+It skips the pull request when a target reviewer already reviewed it or is
+already requested, or when you already reviewed it.
+
+*Loop guard.* The author may add you back after a hand-off, and then the pull
+request stays with you. gh-approve reads the pull request's
+~review_requested~ and ~review_request_removed~ timeline events for you. If
+your own account ever removed you from the pull request, it never hands it off
+again and reports ~manual~ with ~re-requested after hand-off~. The timeline is
+the source of truth, so this works without local state and across machines.
+
 *** Agent command
 
 A rule may set ~agent_command~, such as a script that asks an LLM to review
@@ -505,7 +566,8 @@ ago)~, ~agent: defer (cached)~, or ~agent: approve (fresh)~. ~--explain~ adds
 
 *** Safety
 
-- *Dry run by default.* Only ~--apply~ approves.
+- *Dry run by default.* Only ~--apply~ approves or hands off. A dry run makes
+  no writes.
 - *Head pinning.* gh-approve evaluates one head SHA. With ~--apply~, it reads
   the head again just before it approves. If the head moved, it skips the pull
   request and says so. The approval is posted with ~gh api~ to the pull
@@ -524,7 +586,10 @@ ago)~, ~agent: defer (cached)~, or ~agent: approve (fresh)~. ~--explain~ adds
   per-condition ~pass~ and ~saw~, and ~agent~ with ~decision~, ~reason~ and
   ~durationMs~ when the rule's agent command ran), ~action~, and ~reason~.
   ~--explain~ shows the same agent decision, reason and duration. The action is
-  ~approved~, ~would_approve~, ~skipped~, ~manual~, or ~error~.
+  ~approved~, ~would_approve~, ~handoff~, ~would_handoff~, ~skipped~,
+  ~manual~, or ~error~. A hand-off line also has ~reviewers~, ~timeline~ (your
+  review request events, the loop guard's evidence), ~loopGuard~, and ~steps~
+  (each write and its result).
 
 ** gh-throttle
 

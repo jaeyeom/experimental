@@ -136,12 +136,27 @@ class ApproveRule {
   /// Rule name. It is shown in output, written to the audit log, and
   /// appended to the approval body as <!-- gh-approve: <name> -->.
   name: String(!isEmpty)
+  /// What a matching rule does. "approve" approves the pull request.
+  /// "handoff" requests `reviewers`, then removes you as an individual
+  /// requested reviewer. A hand-off never approves.
+  action: String(this == "approve" || this == "handoff") = "approve"
+  /// Logins to request on a hand-off. Required for a hand-off rule and not
+  /// allowed on an approve rule.
+  reviewers: Listing<String(!isEmpty)> = new {}
   /// Repositories as owner/name or globs such as "acme/*".
   repos: Listing<String> = new {}
   /// Globs. Every changed file must match one of them.
   paths_all_match: Listing<String> = new {}
   /// Globs. No changed file may match any of them.
   paths_none_match: Listing<String> = new {}
+  /// Globs. At least one changed file must match one of them.
+  paths_any_match: Listing<String> = new {}
+  /// When true, every changed file must be in paths_any_match, or be owned
+  /// (per the base branch's CODEOWNERS) by neither you nor a team of yours,
+  /// or be owned only by teams of yours that have other members and are
+  /// requested reviewers. Unreadable CODEOWNERS or team data fails it.
+  /// Team membership needs the read:org scope.
+  codeowners_covered: Boolean = false
   /// Maximum added plus deleted lines.
   max_changed_lines: Int(this >= 0)?
   /// Maximum added lines.
