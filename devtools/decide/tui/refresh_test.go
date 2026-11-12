@@ -70,7 +70,7 @@ func sendKeyMsg(t *testing.T, m *Model, msg tea.Msg) {
 
 func agentReply(t *testing.T, led *decide.Ledger, id, text string) {
 	t.Helper()
-	if _, err := led.Reply(id, text, nil, false); err != nil {
+	if _, err := led.Reply(id, "", text, nil, false); err != nil {
 		t.Fatal(err)
 	}
 }

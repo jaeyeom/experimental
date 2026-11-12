@@ -99,8 +99,8 @@ buffer in that window."
   (list "answer" "--json" "--via" "ui" id text))
 
 (defun decide--send-args (name text)
-  "Argument list that sends TEXT to recipient NAME."
-  (list "send" "--to" name "--json" text))
+  "Argument list that sends TEXT to recipient NAME, recorded as from the UI."
+  (list "send" "--to" name "--via" "ui" "--json" text))
 
 (defun decide--reply-args (id text)
   "Argument list that appends TEXT to thread ID and notifies its owner.
@@ -324,13 +324,17 @@ Quitting the prompt keeps the current filter."
   "One header line for MSG.  LATEST marks the newest message.
 The author uses `decide-human' or `decide-agent', and the time uses
 `decide-time'.  Option keys are dim, not badges, because answers use
-the option numbers.  CURRENT marks the selected message."
+the option numbers.  CURRENT marks the selected message.  A message
+whose `by' is set and differs from its author shows \"author (via by)\"."
   (let* ((author (decide--field msg "author"))
+         (by (decide--field msg "by"))
          (face (if (equal author "human") 'decide-human 'decide-agent))
          (age (decide--list-age (decide--field msg "time")))
          (keys (decide--option-keys-text msg))
          (parts nil)
          (line nil))
+    (unless (or (string-empty-p by) (equal by author))
+      (setq author (format "%s (via %s)" author by)))
     (unless (string-empty-p author)
       (setq parts (append parts (list (propertize author 'face face)))))
     (unless (string-empty-p age)

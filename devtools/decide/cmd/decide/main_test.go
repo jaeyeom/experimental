@@ -594,7 +594,7 @@ func TestShowPrintsForwardedFrom(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	item, err := led.ForwardThread("D-123", "alpha", "pane-a", "fwd note")
+	item, err := led.ForwardThread("D-123", "alpha", "pane-a", "fwd note", decide.ViaCLI)
 	if err != nil {
 		t.Fatal(err)
 	}

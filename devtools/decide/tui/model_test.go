@@ -295,7 +295,7 @@ func TestDetailHeaderAlignsAndNoColor(t *testing.T) {
 		Kind:     decide.KindRelay,
 		State:    decide.StateOpen,
 	})
-	sent, err := led.StartThread("beta", "pane-2", "please look")
+	sent, err := led.StartThread("beta", "pane-2", "please look", decide.ViaCLI)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -800,6 +800,9 @@ func TestDetailOneAnswersFirstOption(t *testing.T) {
 	}
 	if got.State != decide.StateAnswered || got.Answer == nil || got.Answer.Value != "a" || got.Answer.AnsweredBy != "human" || got.Answer.Via != decide.ViaUI {
 		t.Fatalf("answer = %+v state %s", got.Answer, got.State)
+	}
+	if last := got.Messages[len(got.Messages)-1]; last.OptionKey != "a" || last.Via != decide.ViaUI {
+		t.Fatalf("answer message = %+v", last)
 	}
 }
 
@@ -3769,7 +3772,7 @@ func TestThreadViewShowsTheDraftAndReplies(t *testing.T) {
 		fmt.Fprintf(&words, "draftword%d ", i)
 	}
 	draft := words.String() + "draftend"
-	replied, err := led.Reply(item.ID, draft, []decide.Option{
+	replied, err := led.Reply(item.ID, "", draft, []decide.Option{
 		{Key: "send", Label: "send"},
 		{Key: "edit", Label: "edit"},
 		{Key: "don't send", Label: "don't send"},
@@ -3860,7 +3863,7 @@ func TestThreadViewShowsTheDraftAndReplies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := led.Reply(again.ID, draft, []decide.Option{
+	if _, err := led.Reply(again.ID, "", draft, []decide.Option{
 		{Key: "send", Label: "send"},
 		{Key: "edit", Label: "edit"},
 		{Key: "don't send", Label: "don't send"},
@@ -3876,7 +3879,7 @@ func TestThreadViewShowsTheDraftAndReplies(t *testing.T) {
 		t.Fatal(err)
 	}
 	last := edited.Messages[len(edited.Messages)-1]
-	if edited.State != decide.StateAnswered || edited.Answer == nil || edited.Answer.Value != "edits" || edited.Answer.AnsweredBy != "human" || edited.Answer.Via != decide.ViaUI || last.Author != "human" || last.Text != "edits" {
+	if edited.State != decide.StateAnswered || edited.Answer == nil || edited.Answer.Value != "edits" || edited.Answer.AnsweredBy != "human" || edited.Answer.Via != decide.ViaUI || last.Author != "human" || last.Text != "edits" || last.Via != decide.ViaUI || last.By != "" {
 		t.Fatalf("reply = state %s answer %+v message %+v", edited.State, edited.Answer, last)
 	}
 	if len(edited.Options) != 3 || edited.Options[0].Key != "send" {
@@ -3900,7 +3903,7 @@ func TestYArchivesANotificationNotAQuestion(t *testing.T) {
 		State:    decide.StateOpen,
 		Options:  []decide.Option{{Key: "draft", Label: "draft a message for me"}},
 	})
-	if _, err := led.Reply(item.ID, "full draft", []decide.Option{
+	if _, err := led.Reply(item.ID, "", "full draft", []decide.Option{
 		{Key: "send", Label: "send"},
 		{Key: "edit", Label: "edit"},
 		{Key: "don't send", Label: "don't send"},

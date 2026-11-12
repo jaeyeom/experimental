@@ -443,6 +443,30 @@ an answer from a hub client keeps its ~via~.
 This guards against accidents, not a misbehaving agent: every agent
 runs as the same user and could still edit the ledger or drive the TUI.
 
+** Who wrote each message
+
+Each thread message in ~messages~ also records where it came from:
+
+- ~via~: every human message (an answer, a composer send, a new thread
+  from ~decide send --to~) has ~ui~ or ~cli~, by the same rules as
+  ~answer.via~. Agent messages have none. A message stored before ~via~
+  existed has none and does not count as ~ui~.
+- ~by~: ~decide reply~ and ~decide send --id~ record who ran them: the
+  caller's agentbus name when its pane has one, else its herdr pane
+  handle, else nothing. In hub mode the client sends its handle and
+  agentbus names to the hub, as for an ask. ~author~ is unchanged: a
+  reply's author is still the thread owner. The inbox and Emacs show
+  ~owner (via <by>)~ when ~by~ is set and differs from the author.
+
+~decide show --json~ includes ~via~ and ~by~ on each message, next to
+~optionKey~.
+
+A reply returns an answered or done thread to the inbox, as intended.
+A later human free-text message that answers the reopened thread
+replaces ~answer~. A tool that needs an
+earlier option pick reads the messages, which keep its ~optionKey~,
+~via~ and ~by~, rather than ~answer~.
+
 * Notify
 
 After a relay answer is saved, ~notifyTemplate~ runs as a shell command.

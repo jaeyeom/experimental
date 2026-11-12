@@ -59,6 +59,12 @@ type Option struct {
 // Message is one entry in a thread. Author is "human" or an agent name.
 // Options are present only when that message asks for a choice.
 // OptionKey and OptionLabel are set on a message that answers with an option.
+// Via is ViaUI or ViaCLI on a human message, as in Answer.Via. It is empty
+// on an agent message and on a message stored before via existed, which
+// does not count as ViaUI.
+// By is who sent the message from the command line: the caller's agentbus
+// name, else its herdr pane handle. It is empty when unknown. Author stays
+// the thread owner on an agent reply, so By tells which agent wrote it.
 type Message struct {
 	Author      string    `json:"author"`
 	Time        time.Time `json:"time"`
@@ -66,6 +72,17 @@ type Message struct {
 	Options     []Option  `json:"options,omitempty"`
 	OptionKey   string    `json:"optionKey,omitempty"`
 	OptionLabel string    `json:"optionLabel,omitempty"`
+	Via         string    `json:"via,omitempty"`
+	By          string    `json:"by,omitempty"`
+}
+
+// Sender is the author to show: "author (via by)" when By is set and
+// differs from Author, else Author.
+func (m Message) Sender() string {
+	if m.By == "" || m.By == m.Author {
+		return m.Author
+	}
+	return m.Author + " (via " + m.By + ")"
 }
 
 // Answer is set only when an item has been answered.
@@ -309,6 +326,7 @@ func (l *Ledger) Answer(id, value, via string) (Item, error) {
 			Author: "human",
 			Time:   it.AnsweredAt,
 			Text:   stored,
+			Via:    via,
 		}
 		if label, ok := optionLabel(it.Options, stored); ok {
 			it.Answer.Key, it.Answer.Label = stored, label
@@ -328,18 +346,22 @@ func (l *Ledger) Answer(id, value, via string) (Item, error) {
 
 // StartThread stores a human compose addressed to owner.
 // pane is the owner's notify pane. text is the first message and the question.
-func (l *Ledger) StartThread(owner, pane, text string) (Item, error) {
-	return l.ForwardThread("", owner, pane, text)
+// via is stored on the message, as in Answer.
+func (l *Ledger) StartThread(owner, pane, text, via string) (Item, error) {
+	return l.ForwardThread("", owner, pane, text, via)
 }
 
 // ForwardThread is StartThread for a note forwarded from item from.
 // An empty from starts a plain thread.
-func (l *Ledger) ForwardThread(from, owner, pane, text string) (Item, error) {
+func (l *Ledger) ForwardThread(from, owner, pane, text, via string) (Item, error) {
 	if strings.TrimSpace(owner) == "" {
 		return Item{}, fmt.Errorf("decide owner is empty")
 	}
 	if strings.TrimSpace(text) == "" {
 		return Item{}, fmt.Errorf("decide text is empty")
+	}
+	if err := CheckVia(via); err != nil {
+		return Item{}, err
 	}
 	now := l.clock().UTC()
 	return l.Create(&Item{
@@ -353,6 +375,7 @@ func (l *Ledger) ForwardThread(from, owner, pane, text string) (Item, error) {
 			Author: "human",
 			Time:   now,
 			Text:   text,
+			Via:    via,
 		}},
 	})
 }
@@ -394,8 +417,9 @@ func (l *Ledger) Delete(id string) error {
 // That includes a question created without free text.
 // An answered, done, or notification thread keeps its answer and state.
 // A withdrawn thread is refused. text is stored unchanged.
-// via is stored with an answer, as in Answer.
-func (l *Ledger) Compose(id, text, via string) (Item, error) {
+// via is stored on the message and with an answer, as in Answer.
+// by is who sent it, as in Message.By, and may be empty.
+func (l *Ledger) Compose(id, text, via, by string) (Item, error) {
 	if strings.TrimSpace(text) == "" {
 		return Item{}, fmt.Errorf("decide text is empty")
 	}
@@ -417,6 +441,8 @@ func (l *Ledger) Compose(id, text, via string) (Item, error) {
 			Author: "human",
 			Time:   now,
 			Text:   text,
+			Via:    via,
+			By:     by,
 		})
 		if openQuestion(it) {
 			it.State = StateAnswered
@@ -433,12 +459,13 @@ func (l *Ledger) Compose(id, text, via string) (Item, error) {
 	return updated, nil
 }
 
-// Reply appends an agent message. The author is the thread owner.
+// Reply appends an agent message. The author is the thread owner, and by,
+// which may be empty, is who wrote it, as in Message.By.
 // No options leaves a notification: the thread is open, unread, and has no
 // pending options. Options return it to the inbox as needing an answer.
 // freeText is stored only when options are present. text is stored unchanged.
 // An answered or done thread returns to the inbox. A withdrawn thread is refused.
-func (l *Ledger) Reply(id, text string, options []Option, freeText bool) (Item, error) {
+func (l *Ledger) Reply(id, by, text string, options []Option, freeText bool) (Item, error) {
 	if strings.TrimSpace(text) == "" {
 		return Item{}, fmt.Errorf("decide text is empty")
 	}
@@ -459,6 +486,7 @@ func (l *Ledger) Reply(id, text string, options []Option, freeText bool) (Item, 
 			Author: it.Owner,
 			Time:   l.clock().UTC(),
 			Text:   text,
+			By:     by,
 		}
 		if len(options) > 0 {
 			msg.Options = append([]Option(nil), options...)
@@ -887,6 +915,7 @@ func ensureMessages(it *Item) {
 		Author: author,
 		Time:   it.AnsweredAt.UTC(),
 		Text:   it.Answer.Value,
+		Via:    it.Answer.Via,
 	})
 }
 

@@ -158,11 +158,21 @@ func TestEveryOpRoundTrips(t *testing.T) {
 	if got, err := c.MarkRead(relay.ID); err != nil || got.Unread {
 		t.Fatalf("mark read = %+v, %v", got, err)
 	}
-	if got, err := c.Reply(relay.ID, "why?"); err != nil || got.Messages[len(got.Messages)-1].Text != "why?" || len(h.sends) != 1 {
+	if got, err := c.Reply(relay.ID, "why?"); err != nil || got.Messages[len(got.Messages)-1].Text != "why?" || got.Messages[len(got.Messages)-1].Via != decide.ViaUI || len(h.sends) != 1 {
 		t.Fatalf("reply = %+v, %v, sends %q", got, err, h.sends)
 	}
-	if got, err := c.Answer(relay.ID, "y"); err != nil || got.Answer == nil || got.Answer.Via != decide.ViaUI {
+	if got, err := c.Answer(relay.ID, "y"); err != nil || got.Answer == nil || got.Answer.Via != decide.ViaUI || got.Messages[len(got.Messages)-1].Via != decide.ViaUI {
 		t.Fatalf("answer = %+v, %v", got.Answer, err)
+	}
+	led, err := decide.Open(h.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := led.Reply(relay.ID, "ops/bot", "agent note", nil, false); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := c.Get(relay.ID); err != nil || got.Messages[len(got.Messages)-1].By != "ops/bot" {
+		t.Fatalf("show by = %+v, %v", got.Messages, err)
 	}
 	if got, err := c.Done(relay.ID, "shipped"); err != nil || got.State != decide.StateDone || got.Outcome != "shipped" {
 		t.Fatalf("done = %+v, %v", got, err)

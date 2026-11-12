@@ -21,15 +21,24 @@
 (ert-deftest decide-compose-args-and-cancel ()
   (let ((text "hello\nthere"))
     (should (equal (decide--send-args "alpha" text)
-                   (list "send" "--to" "alpha" "--json" text)))
+                   (list "send" "--to" "alpha" "--via" "ui" "--json" text)))
     (should (equal (decide--submit-args 'send "alpha" text)
-                   (list "send" "--to" "alpha" "--json" text)))
+                   (list "send" "--to" "alpha" "--via" "ui" "--json" text)))
     (should (null (decide--submit-args 'cancel "alpha" text)))))
 
 (ert-deftest decide-reply-args-record-ui ()
   (let ((text "hello\nthere"))
     (should (equal (decide--submit-args 'reply "D-001" text)
                    (list "send" "--id" "D-001" "--via" "ui" "--json" text)))))
+
+(ert-deftest decide-message-header-names-the-sender ()
+  (let ((owner-only '(("author" . "ada") ("text" . "x")))
+        (same '(("author" . "ada") ("by" . "ada") ("text" . "x")))
+        (by '(("author" . "slackwatch") ("by" . "ops/agent") ("text" . "x"))))
+    (should (equal (substring-no-properties (decide--message-header owner-only nil)) "ada"))
+    (should (equal (substring-no-properties (decide--message-header same nil)) "ada"))
+    (should (equal (substring-no-properties (decide--message-header by nil))
+                   "slackwatch (via ops/agent)"))))
 
 (ert-deftest decide-status-stale-row-is-dim ()
   (with-temp-buffer

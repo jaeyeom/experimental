@@ -157,7 +157,7 @@ func (b *LocalBackend) Answer(id, value string) (decide.Item, error) {
 
 // Reply implements Backend.
 func (b *LocalBackend) Reply(id, text string) (decide.Item, error) {
-	updated, err := b.with(func(led *decide.Ledger) (decide.Item, error) { return led.Compose(id, text, decide.ViaUI) })
+	updated, err := b.with(func(led *decide.Ledger) (decide.Item, error) { return led.Compose(id, text, decide.ViaUI, "") })
 	if err != nil {
 		return decide.Item{}, err
 	}
@@ -252,7 +252,7 @@ func (b *LocalBackend) Send(forward string, tg Target, text string) error {
 	if err != nil {
 		return err
 	}
-	item, err := led.ForwardThread(forward, tg.Name, tg.Pane, text)
+	item, err := led.ForwardThread(forward, tg.Name, tg.Pane, text, decide.ViaUI)
 	if err != nil {
 		return fmt.Errorf("store decide thread: %w", err)
 	}
@@ -271,7 +271,7 @@ func (b *LocalBackend) sendBus(forward string, tg Target, text string) error {
 		return err
 	}
 	pane := busPanePrefix + tg.Name
-	item, err := led.ForwardThread(forward, tg.Name, pane, text)
+	item, err := led.ForwardThread(forward, tg.Name, pane, text, decide.ViaUI)
 	if err != nil {
 		return fmt.Errorf("store decide thread: %w", err)
 	}
