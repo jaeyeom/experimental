@@ -2,6 +2,7 @@ package roundcache
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"maps"
 	"os"
@@ -196,16 +197,155 @@ func TestSetHistoryTTLBoundsReuse(t *testing.T) {
 
 	clk := newClock()
 	c, _ := Load(filepath.Join(t.TempDir(), "cache.json"), clk.now)
-	c.SetHistoryTTL(6 * time.Hour)
+	const ttl = 6 * time.Hour
+	c.SetHistoryTTL(ttl)
 	c.PutPathHistory("acme/widgets", "main", "src/a.go", "since:2026-08-03", gh.PathHistory{Authors: []string{"alice"}})
 
-	clk.t = clk.t.Add(6*time.Hour - time.Second)
+	// Every key lasts at least half the TTL, and none past it.
+	start := clk.t
+	clk.t = start.Add(ttl/2 - time.Second)
 	if _, ok := c.PathHistory("acme/widgets", "main", "src/a.go", "since:2026-08-03"); !ok {
-		t.Fatal("miss inside the TTL")
+		t.Fatal("miss before half the TTL")
 	}
-	clk.t = clk.t.Add(2 * time.Second)
+	clk.t = start.Add(ttl)
 	if _, ok := c.PathHistory("acme/widgets", "main", "src/a.go", "since:2026-08-03"); ok {
-		t.Fatal("hit past the TTL")
+		t.Fatal("hit at the TTL")
+	}
+}
+
+// historyLifetime is the age at which path's stored history stops being a hit.
+func historyLifetime(c *Cache, clk *clock, start time.Time, path string, ttl time.Duration) time.Duration {
+	const version = "since:2026-08-03"
+	lo, hi := time.Duration(0), ttl
+	for hi-lo > time.Millisecond {
+		mid := lo + (hi-lo)/2
+		clk.t = start.Add(mid)
+		if _, ok := c.PathHistory("acme/widgets", "main", path, version); ok {
+			lo = mid
+			continue
+		}
+		hi = mid
+	}
+	clk.t = start
+	return hi
+}
+
+func TestPathHistoryExpirySpreadsAcrossHalfTTL(t *testing.T) {
+	t.Parallel()
+
+	clk := newClock()
+	c, _ := Load(filepath.Join(t.TempDir(), "cache.json"), clk.now)
+	const ttl = 6 * time.Hour
+	const n = 48
+	const version = "since:2026-08-03"
+	c.SetHistoryTTL(ttl)
+	start := clk.t
+	paths := make([]string, n)
+	for i := range paths {
+		paths[i] = fmt.Sprintf("src/f%03d.go", i)
+		c.PutPathHistory("acme/widgets", "main", paths[i], version, gh.PathHistory{Authors: []string{"alice"}})
+	}
+
+	clk.t = start.Add(ttl/2 - time.Second)
+	for _, path := range paths {
+		if _, ok := c.PathHistory("acme/widgets", "main", path, version); !ok {
+			t.Fatalf("%s missed before T/2", path)
+		}
+	}
+	clk.t = start
+
+	lives := make([]time.Duration, n)
+	for i, path := range paths {
+		lives[i] = historyLifetime(c, clk, start, path, ttl)
+		if lives[i] < ttl/2 || lives[i] > ttl {
+			t.Fatalf("%s lifetime %v outside [T/2, T]", path, lives[i])
+		}
+	}
+	slices.Sort(lives)
+	if lives[0] > 3*ttl/4 || lives[n-1] <= 3*ttl/4 {
+		t.Fatalf("lifetimes %v..%v, want them spread across [T/2, T]", lives[0], lives[n-1])
+	}
+
+	clk.t = start.Add(ttl)
+	for _, path := range paths {
+		if _, ok := c.PathHistory("acme/widgets", "main", path, version); ok {
+			t.Fatalf("%s reused at T", path)
+		}
+	}
+
+	// Save drops each entry on its own lifetime, not one shared deadline.
+	clk.t = start.Add(3 * ttl / 4)
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if kept := len(c.data.History); kept == 0 || kept == n {
+		t.Fatalf("Save kept %d of %d at 3T/4, want only entries still inside their own lifetime", kept, n)
+	}
+}
+
+func TestPathHistoryJitterStableForKey(t *testing.T) {
+	t.Parallel()
+
+	const ttl = 6 * time.Hour
+	const path = "src/a.go"
+	const version = "since:2026-08-03"
+	store := func() (*Cache, *clock) {
+		clk := newClock()
+		c, _ := Load(filepath.Join(t.TempDir(), "cache.json"), clk.now)
+		c.SetHistoryTTL(ttl)
+		c.PutPathHistory("acme/widgets", "main", path, version, gh.PathHistory{Authors: []string{"alice"}})
+		return c, clk
+	}
+	first, clk1 := store()
+	second, clk2 := store()
+	if got, want := historyLifetime(first, clk1, clk1.t, path, ttl), historyLifetime(second, clk2, clk2.t, path, ttl); got != want {
+		t.Fatalf("lifetime %v then %v, want the same jitter for the same key", got, want)
+	}
+
+	// A hit, a save, and a load recompute that jitter; they do not store another one.
+	start := clk1.t
+	clk1.t = start.Add(time.Hour)
+	if _, ok := first.PathHistory("acme/widgets", "main", path, version); !ok {
+		t.Fatal("miss inside the lifetime")
+	}
+	if err := first.Save(); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(first.path, clk1.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded.SetHistoryTTL(ttl)
+	clk1.t = start
+	if got := historyLifetime(loaded, clk1, start, path, ttl); got != historyLifetime(second, clk2, clk2.t, path, ttl) {
+		t.Fatalf("lifetime after load %v, want the same jitter", got)
+	}
+}
+
+func TestPathHistoryHitKeepsStoredTime(t *testing.T) {
+	t.Parallel()
+
+	clk := newClock()
+	c, _ := Load(filepath.Join(t.TempDir(), "cache.json"), clk.now)
+	const ttl = 6 * time.Hour
+	const version = "since:2026-08-03"
+	c.SetHistoryTTL(ttl)
+	c.PutPathHistory("acme/widgets", "main", "src/a.go", version, gh.PathHistory{Authors: []string{"alice"}})
+	key := historyKey("acme/widgets", "main", "src/a.go", version)
+	stored := c.data.History[key].At
+
+	clk.t = clk.t.Add(time.Hour)
+	got, ok := c.PathHistory("acme/widgets", "main", "src/a.go", version)
+	if !ok || len(got.Authors) != 1 || got.Authors[0] != "alice" {
+		t.Fatalf("PathHistory() = %+v, %v", got, ok)
+	}
+	if !c.data.History[key].At.Equal(stored) {
+		t.Fatalf("At = %s, want %s (a hit must not extend the entry)", c.data.History[key].At, stored)
+	}
+
+	clk.t = stored.Add(ttl)
+	if _, ok := c.PathHistory("acme/widgets", "main", "src/a.go", version); ok {
+		t.Fatal("hit past the TTL: the earlier hit extended the entry")
 	}
 }
 

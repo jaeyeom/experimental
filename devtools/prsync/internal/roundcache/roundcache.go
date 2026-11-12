@@ -1,9 +1,9 @@
 // Package roundcache keeps GitHub results between prsync rounds in one JSON
 // file, so a round can skip calls whose answer cannot have changed.
 // Entries expire after their TTL (the status-checks TTL for status checks,
-// the history TTL for path history, the load TTL for review load, the
-// members TTL for team members, the CODEOWNERS TTL for CODEOWNERS bodies,
-// the threads TTL for review threads, the closed TTL for closed
+// the per-key history lifetime for path history, the load TTL for review
+// load, the members TTL for team members, the CODEOWNERS TTL for
+// CODEOWNERS bodies, the threads TTL for review threads, the closed TTL for closed
 // pull-request views, and KeepTTL for changed files, review snapshots and
 // CODEOWNERS locations) and are dropped on Save, as are entries whose key
 // is not in the current format.
@@ -15,9 +15,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -229,9 +231,10 @@ func emptyPayload() payload {
 
 // SetHistoryTTL sets how long a path-history entry is reused; Save drops
 // older entries. A ttl > 0 means history is keyed by the window's start
-// day ("since:" versions), so Save drops head-keyed entries; a ttl <= 0
-// means it is keyed by the base head, restores HistoryTTL, and Save drops
-// day-keyed entries.
+// day ("since:" versions), so Save drops head-keyed entries, and each
+// entry's lifetime is a deterministic hash of its key in [ttl/2, ttl].
+// A ttl <= 0 means it is keyed by the base head, restores HistoryTTL,
+// and Save drops day-keyed entries. That mode does not jitter.
 func (c *Cache) SetHistoryTTL(ttl time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -361,17 +364,127 @@ func (c *Cache) fresh(at time.Time, ttl time.Duration) bool {
 	return c.now().Sub(at) < ttl
 }
 
+// historyLife is how long key is reused. A positive configured TTL jitters
+// it per key; the head-keyed backstop does not.
+func (c *Cache) historyLife(key string) time.Duration {
+	if !c.byDay {
+		return c.historyTTL
+	}
+	return jitteredTTL(key, c.historyTTL)
+}
+
+func (c *Cache) historyFresh(key string, at time.Time) bool {
+	return c.fresh(at, c.historyLife(key))
+}
+
+// jitteredTTL is key's lifetime when history is keyed by the window's
+// start day. It is a deterministic value in [ttl/2, ttl], so the same key
+// always expires on the same schedule and nothing is reused past ttl.
+func jitteredTTL(key string, ttl time.Duration) time.Duration {
+	half := ttl / 2
+	span := ttl - half
+	if span <= 0 {
+		return ttl
+	}
+	extra := hashKey(key) % (uint64(span) + 1)
+	return half + time.Duration(extra) //nolint:gosec // extra <= span, which fits in a duration
+}
+
+func hashKey(key string) uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(key))
+	return h.Sum64()
+}
+
 // PathHistory returns the stored history of path on ref for version (the
 // caller's key, such as the base head or the window's start day) while it
-// is fresh.
+// is fresh. A hit does not change the stored time.
 func (c *Cache) PathHistory(repo, ref, path, version string) (gh.PathHistory, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	entry, ok := c.data.History[historyKey(repo, ref, path, version)]
-	if !ok || !c.fresh(entry.At, c.historyTTL) {
+	key := historyKey(repo, ref, path, version)
+	entry, ok := c.data.History[key]
+	if !ok || !c.historyFresh(key, entry.At) {
 		return gh.PathHistory{}, false
 	}
 	return entry.History, true
+}
+
+// pathHistoryItem is one fresh path-history entry, nearest expiry first.
+type pathHistoryItem struct {
+	repo, ref, path, version string
+	expires, at              time.Time
+}
+
+// NearestPathHistory calls yield with each fresh path-history entry closest
+// to expiry, oldest first. It stops when yield returns false. At most n
+// entries are yielded; n <= 0 yields every fresh entry. Head-keyed history
+// yields nothing. yield must not call the Cache.
+func (c *Cache) NearestPathHistory(n int, yield func(repo, ref, path, version string) bool) {
+	for _, item := range c.nearestPathHistory(n) {
+		if !yield(item.repo, item.ref, item.path, item.version) {
+			return
+		}
+	}
+}
+
+func (c *Cache) nearestPathHistory(n int) []pathHistoryItem {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.byDay {
+		return nil
+	}
+	items := make([]pathHistoryItem, 0, len(c.data.History))
+	for key, entry := range c.data.History {
+		if !c.knownHistoryKey(key) || !c.historyFresh(key, entry.At) {
+			continue
+		}
+		repo, ref, path, version, ok := splitHistoryKey(key)
+		if !ok {
+			continue
+		}
+		items = append(items, pathHistoryItem{
+			repo: repo, ref: ref, path: path, version: version,
+			expires: entry.At.Add(c.historyLife(key)), at: entry.At,
+		})
+	}
+	slices.SortFunc(items, comparePathHistoryExpiry)
+	if n <= 0 || n > len(items) {
+		return items
+	}
+	return items[:n]
+}
+
+func comparePathHistoryExpiry(a, b pathHistoryItem) int {
+	if c := a.expires.Compare(b.expires); c != 0 {
+		return c
+	}
+	if c := a.at.Compare(b.at); c != 0 {
+		return c
+	}
+	if c := strings.Compare(a.path, b.path); c != 0 {
+		return c
+	}
+	if c := strings.Compare(a.repo, b.repo); c != 0 {
+		return c
+	}
+	return strings.Compare(a.ref+"\x00"+a.version, b.ref+"\x00"+b.version)
+}
+
+func splitHistoryKey(key string) (repo, ref, path, version string, ok bool) {
+	head, rest, found := strings.Cut(key, "\x00")
+	if !found {
+		return "", "", "", "", false
+	}
+	path, version, found = strings.Cut(rest, "\x00")
+	if !found || strings.Contains(version, "\x00") {
+		return "", "", "", "", false
+	}
+	repo, ref, found = strings.Cut(head, "@")
+	if !found || repo == "" || ref == "" || path == "" || version == "" {
+		return "", "", "", "", false
+	}
+	return repo, ref, path, version, true
 }
 
 // PutPathHistory stores history for PathHistory.
@@ -662,7 +775,7 @@ func (c *Cache) Save() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for key, entry := range c.data.History {
-		if !c.fresh(entry.At, c.historyTTL) || !c.knownHistoryKey(key) {
+		if !c.historyFresh(key, entry.At) || !c.knownHistoryKey(key) {
 			delete(c.data.History, key)
 			c.dirty = true
 		}

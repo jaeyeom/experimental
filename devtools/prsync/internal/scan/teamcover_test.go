@@ -618,6 +618,10 @@ func (m *mapHistoryCache) PutPathHistory(repo, ref, path, head string, h gh.Path
 	m.entries[repo+"@"+ref+"\x00"+path+"\x00"+head] = h
 }
 
+// NearestPathHistory yields nothing: this fake does not track expiry.
+func (m *mapHistoryCache) NearestPathHistory(int, func(string, string, string, string) bool) {
+}
+
 type countRounds struct{ n map[string]int }
 
 func (c *countRounds) NextRound(job string) int {
@@ -727,8 +731,8 @@ func TestRunTeamCoverHistoryCachedByTimeAcrossBaseHeads(t *testing.T) {
 	cache.SetHistoryTTL(6 * time.Hour)
 
 	first, _, _ := historyRoundAt(t, cache, "h1", "base1", clock, 6*time.Hour)
-	if first.historyCalls != 1 || first.historyRefs[0] != "main" {
-		t.Fatalf("first round history calls = %d refs = %#v, want one call on the branch", first.historyCalls, first.historyRefs)
+	if len(first.historyPaths) == 0 || !slices.Equal(first.historyPaths[0], []string{"src/a.go", "src/b.go"}) || first.historyRefs[0] != "main" {
+		t.Fatalf("first round history paths = %#v refs = %#v, want the miss fetched on the branch", first.historyPaths, first.historyRefs)
 	}
 	if first.headCalls != 0 {
 		t.Fatalf("headCalls = %d, want no base head lookup with a TTL", first.headCalls)
@@ -736,11 +740,16 @@ func TestRunTeamCoverHistoryCachedByTimeAcrossBaseHeads(t *testing.T) {
 
 	clock = fixtureNow.Add(time.Hour)
 	second, doc, logs := historyRoundAt(t, cache, "h2", "base2", clock, 6*time.Hour)
-	if second.historyCalls != 0 || second.headCalls != 0 {
-		t.Fatalf("moved base head within the TTL: history=%d heads=%d, want none", second.historyCalls, second.headCalls)
+	if second.headCalls != 0 {
+		t.Fatalf("headCalls = %d, want no base head lookup within the TTL", second.headCalls)
 	}
 	if !strings.Contains(logs, `"msg":"team-cover cache","hits":2,"misses":0`) {
 		t.Fatalf("logs = %s, want team-cover cache hits 2 misses 0", logs)
+	}
+	for _, ref := range second.historyRefs {
+		if ref != "main" {
+			t.Fatalf("history refs = %#v, want refreshes on the branch, not the base head", second.historyRefs)
+		}
 	}
 	got := doc.PRs[0].TeamReviewSuggestions
 	if len(got) != 1 || len(got[0].Suggest) != 1 || got[0].Suggest[0].Login != "carol" {
@@ -749,8 +758,8 @@ func TestRunTeamCoverHistoryCachedByTimeAcrossBaseHeads(t *testing.T) {
 
 	clock = fixtureNow.Add(7 * time.Hour)
 	third, _, _ := historyRoundAt(t, cache, "h3", "base3", clock, 6*time.Hour)
-	if third.historyCalls != 1 || !slices.Equal(third.historyPaths[0], []string{"src/a.go", "src/b.go"}) {
-		t.Fatalf("past the TTL: history calls = %d paths = %#v, want both paths again", third.historyCalls, third.historyPaths)
+	if len(third.historyPaths) == 0 || !slices.Equal(third.historyPaths[0], []string{"src/a.go", "src/b.go"}) {
+		t.Fatalf("past the TTL: history paths = %#v, want both paths fetched again", third.historyPaths)
 	}
 }
 

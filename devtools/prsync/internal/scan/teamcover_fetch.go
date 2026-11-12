@@ -218,6 +218,9 @@ func coverTeams(ctx context.Context, deps Deps, cfg config.Config, doc *Document
 	if err := cache.finishAll(ctx, client, cfg, doc, covers); err != nil {
 		return err
 	}
+	if err := cache.refreshHistory(ctx, client, doc); err != nil {
+		return err
+	}
 	cache.report(ctx, doc)
 	// A review snapshot error returns before any member call, so the cache stays empty.
 	if allMemberLookupsFailed(cache) {
@@ -643,6 +646,76 @@ func (c *coverCache) storedHistory(group historyGroup, version string) []string 
 		missing = append(missing, path)
 	}
 	return missing
+}
+
+// refreshPath is one stored history entry a round may refetch early.
+type refreshPath struct {
+	repo, ref, path string
+}
+
+// refreshHistory spends calls still under the cap refetching stored path
+// history closest to expiry, oldest first, in the same batched requests.
+// Reading an entry does not renew it; this is the renewal. Head-keyed
+// history is left alone. Suggestions already chosen are not changed.
+func (c *coverCache) refreshHistory(ctx context.Context, client GH, doc *Document) error {
+	if c.historyTTL <= 0 || c.stored == nil || c.stop != "" || c.budget.Left() == 0 {
+		return nil
+	}
+	version := "since:" + c.historySince.UTC().Format(time.DateOnly)
+	var paths []refreshPath
+	c.stored.NearestPathHistory(0, func(repo, ref, path, ver string) bool {
+		if ver == version {
+			paths = append(paths, refreshPath{repo: repo, ref: ref, path: path})
+		}
+		return true
+	})
+	for _, group := range refreshGroups(paths) {
+		if c.budget.Left() == 0 || c.stop != "" {
+			return nil
+		}
+		done, err := c.refreshGroup(ctx, client, doc, group, version)
+		if err != nil || done {
+			return err
+		}
+	}
+	return nil
+}
+
+// refreshGroups batches only paths that are adjacent in expiry order and
+// share a repository and base. A nearer path in another repository is not
+// skipped to fill a batch.
+func refreshGroups(paths []refreshPath) []historyGroup {
+	var groups []historyGroup
+	for _, path := range paths {
+		n := len(groups)
+		if n == 0 || groups[n-1].repo != path.repo || groups[n-1].base != path.ref {
+			groups = append(groups, historyGroup{repo: path.repo, base: path.ref, paths: []string{path.path}})
+			continue
+		}
+		groups[n-1].paths = append(groups[n-1].paths, path.path)
+	}
+	return groups
+}
+
+// refreshGroup refetches one repository and base. done is set when the cap
+// left paths unfetched, or the fetch failed, so the caller stops.
+func (c *coverCache) refreshGroup(ctx context.Context, client GH, doc *Document, group historyGroup, version string) (bool, error) {
+	got, err := client.PathHistories(ctx, group.repo, group.base, group.paths, c.historySince, c.batch, c.maxBatch)
+	if err != nil {
+		if stop := contextStop(ctx, err); stop != nil {
+			return false, stop
+		}
+		if errors.Is(err, gh.ErrCallCap) {
+			return true, nil
+		}
+		if c.halted(stepHistory, err) {
+			return true, nil
+		}
+		loud(doc, fmt.Sprintf("team cover history refresh unavailable for %s %s: %s", group.repo, group.base, err.Error()))
+		return true, nil
+	}
+	c.keepHistory(group, version, got)
+	return len(got.Deferred) > 0, nil
 }
 
 // keepHistory records what PathHistories fetched, and stores it and the

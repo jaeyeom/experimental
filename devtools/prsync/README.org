@@ -220,7 +220,7 @@ Environment variables are not expanded.
 | ~team_cover_active_days~ | ~0~ | Drop members with no org event in this many days. ~0~ disables the filter. The events API covers about 90 days. Must be >= 0. |
 | ~team_cover_every~ | ~1~ | Run the team-cover job on every Nth round: the 1st, N+1th, and so on. The count is kept in the round cache and counts rounds with ~team_cover~ on and the job not skipped. A skipped round omits ~team_review_suggestions~. Must be >= 1. |
 | ~team_cover_batch_paths~ | ~5~ | Paths per path-history request. A request that times out (GitHub stops a GraphQL query after about 10 seconds) or reports ~RESOURCE_LIMITS_EXCEEDED~ or HTTP 502/504 is split in half and each half retried, down to single paths; a single path that still fails is skipped with a warning in the run log, e.g. ~team-cover: batch of 20 timed out; retrying as 2×10~, with the first line of stdout and stderr. After two requests in a row work whole, the size doubles, up to this value. The size that worked is kept in the round cache (never below 2 unless two paths fail together that each work alone) and the next round starts there instead. Must be >= 1. |
-| ~team_cover_history_ttl~ | ~6h~ | Go duration. How long a path's history is reused, keyed by repository, base branch, path, and the history window's start day, whatever the base branch head. A window of weeks barely changes in a few hours, so a slightly stale list is accepted. Older entries are dropped when the round cache is written. ~0~ keys it by the base branch head instead (reused while the head is unchanged, for at most a day). Must be >= 0. |
+| ~team_cover_history_ttl~ | ~6h~ | Go duration. How long a path's history is reused, keyed by repository, base branch, path, and the history window's start day, whatever the base branch head. Each entry lasts a deterministic hash of its key, between half this TTL and the TTL, so a batch stored together expires gradually; a hit does not extend it, and nothing is reused past the TTL. When a round finishes with calls left under ~team_cover_max_calls~, those calls refetch the entries closest to expiry, oldest first, in the same batched history requests. A window of weeks barely changes in a few hours, so a slightly stale list is accepted. Each entry is dropped on its own lifetime when the round cache is written. ~0~ keys it by the base branch head instead (reused while the head is unchanged, for at most a day, with no jitter and no early refresh). Must be >= 0. |
 | ~team_cover_max_calls~ | ~40~ | Caps team-cover's GitHub calls in one round: history, search and REST calls, retries included. Round-cache hits make no call and do not count. A history request is not sent unless a call is left for its pull requests' reviews. At the cap the remaining paths and teams wait for the next round, and the cache fills over several rounds; a PR whose history is incomplete gets no ~team_review_suggestions~ that round. The round output and the warnings name the step that was cut short and what it left: ~team-cover: call cap 40 reached during history; 120 paths deferred~, or ~during team members; 12 teams deferred~; other steps (~reviews~, ~files~, ~codeowners~, ~activity~, ~load~) count deferred PRs. Must be >= 1. |
 | ~team_cover_load_ttl~ | ~1h~ | Go duration. How long a login's open-direct-request count (the ~load~ signal) is reused across rounds, from the round cache. ~0~ searches every round. Must be >= 0. |
 | ~team_cover_members_ttl~ | ~24h~ | Go duration. How long a team's member list is reused across rounds, from the round cache. A failed lookup is not stored. ~0~ fetches it every round. Must be >= 0. |
@@ -356,9 +356,10 @@ queries small and skips calls whose answer cannot have changed since the
 last round. Results are kept in ~round-cache.json~, next to
 ~state_file~: status checks for ~status_checks_ttl~, review threads for
 ~review_threads_ttl~, merged PR states until no tab references them,
-closed PR states for ~pr_view_closed_ttl~, path history for
-~team_cover_history_ttl~ (at most a day when that is ~0~), review load
-for ~team_cover_load_ttl~, team members for ~team_cover_members_ttl~,
+closed PR states for ~pr_view_closed_ttl~, path history for up to
+~team_cover_history_ttl~ (each entry between half of that and the full
+TTL; at most a day when that is ~0~), review load for
+~team_cover_load_ttl~, team members for ~team_cover_members_ttl~,
 CODEOWNERS for ~team_cover_codeowners_ttl~, and changed files and review
 snapshots for at most a day. Expired entries, and entries whose key is not
 in the current format (such as head-keyed history while
@@ -390,11 +391,18 @@ ignored with a warning in the run log.
   ~tabs: pr view N hits/M calls~ each round.
 - *Team-cover history.* Each path's history is stored per repository,
   base branch, path, and the history window's start day, and reused for
-  ~team_cover_history_ttl~ even when the base branch head moves. Paths
-  that miss are fetched on the base branch in batched queries per
-  repository and base. The run log records ~team-cover cache~ with
-  ~hits~ and ~misses~. With ~team_cover_history_ttl=0~ the start day is
-  replaced by the base branch head commit: each round looks up the head
+  up to ~team_cover_history_ttl~ even when the base branch head moves.
+  Each entry's lifetime is a deterministic hash of its key, between half
+  the TTL and the TTL, so a batch stored together lapses gradually and a
+  hit does not move the stored time. Nothing is reused past the TTL.
+  When the round finishes with calls left under ~team_cover_max_calls~,
+  those calls refetch the entries closest to expiry, oldest first,
+  through the same batched history requests. Paths that miss are fetched
+  on the base branch in batched queries per repository and base. The run
+  log records ~team-cover cache~ with ~hits~ and ~misses~. With
+  ~team_cover_history_ttl=0~ the start day is replaced by the base
+  branch head commit, and history is not jittered or refreshed early:
+  each round looks up the head
   of each base branch once (~GET repos/{owner}/{repo}/git/ref/heads/{base}~)
   and reuses the stored history only while it has not moved; if the head
   lookup fails, history is fetched on the branch and not stored.
