@@ -19,6 +19,8 @@ Every item has options, includes `--rec`, and usually allows `--free-text`.
 
 `--notify-pane` routes the answer to the owning agent's pane.
 
+Inside herdr, `--owner` can be omitted: it defaults to this tab's label. An explicit `--owner` should match the tab label or one of your agentbus names, because the user finds you by tab.
+
 Before acting on an answer line, verify it with `decide show --json`: `state` is `answered` and `answeredBy` is `human`.
 
 `answer.via` is `ui` for an answer the user gave in the inbox or Emacs, and `cli` for `decide answer` or `decide send --id`. Agents never pass `--via ui` to `decide answer` or `decide send`.

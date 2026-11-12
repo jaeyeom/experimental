@@ -24,6 +24,14 @@ func TestMain(m *testing.M) {
 	if os.Getenv("DECIDE_TEST_CHILD") == "1" {
 		os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 	}
+	// A test that wants a herdr pane or agentbus names sets them itself.
+	if err := os.Unsetenv("HERDR_PANE_ID"); err != nil {
+		fmt.Fprintf(os.Stderr, "unset HERDR_PANE_ID: %v\n", err)
+		os.Exit(1)
+	}
+	agentbusWhoami = func(context.Context) (string, error) {
+		return "", errors.New("agentbus is not run in tests")
+	}
 	cfg, err := os.MkdirTemp("", "decide-cli-config")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cli config dir: %v\n", err)
@@ -1441,6 +1449,8 @@ func TestSkill(t *testing.T) {
 		"Run `decide` with no arguments",
 		"Every item has options, includes `--rec`, and usually allows `--free-text`.",
 		"`--notify-pane` routes the answer to the owning agent's pane.",
+		"Inside herdr, `--owner` can be omitted: it defaults to this tab's label.",
+		"An explicit `--owner` should match the tab label or one of your agentbus names",
 		"verify it with `decide show --json`: `state` is `answered` and `answeredBy` is `human`.",
 		"Agents never pass `--via ui` to `decide answer` or `decide send`.",
 		"Close an item with `decide done` and an outcome.",

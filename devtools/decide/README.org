@@ -254,6 +254,28 @@ this machine), ~workspace~, ~tab~, ~pane~, and ~state~: ~live~,
 ~workspaceId~ and ~tabId~. Emacs shows the same line from it, so an
 Emacs item buffer is drawn after the lookup, and ~g~ looks it up again.
 
+* The owner of an ask
+
+Inside a herdr pane (~HERDR_PANE_ID~ is set), ~decide ask~ without
+~--owner~ uses the label of this pane's tab as the owner, so the owner
+matches the tab the user sees. Outside herdr, or when herdr does not
+list the pane, ~--owner~ is required.
+
+Every ask from a herdr pane stores that pane as ~notifyPane~, so
+[[*Where the owner lives]] can find it. An explicit ~--notify-pane~
+still wins and still decides where answers go.
+
+An explicit ~--owner~ that is neither the tab label nor one of this
+pane's agentbus names, from ~agentbus whoami~ with a 2s deadline, prints
+a warning on stderr and still files the item:
+
+#+begin_example
+warning: owner "X" matches neither this tab ("review") nor your agentbus names (ops/inbox); the user finds you by tab
+#+end_example
+
+When agentbus is missing or fails, the names are ~none~ and only the tab
+label counts.
+
 * Emacs
 
 ~devtools/decide/emacs/decide.el~ is a plain Emacs frontend. Load that
@@ -349,6 +371,12 @@ caller's machine as ~notifyMachine~ either way, because a bare pane id
 names a pane on the machine the command came from. An ~agentbus:~
 notify pane gets no machine. An ask on the hub itself stores no
 machine, as before.
+
+The client also looks up its tab label and agentbus names, as in
+[[*The owner of an ask]], and sends them as ~DECIDE_TAB_LABEL~ and
+~DECIDE_BUS_NAMES~ (comma-separated). The hub reads them only with a
+trusted ~DECIDE_AS_HANDLE~, so the default owner and the warning work
+as they do locally.
 
 The hub then reaches that pane through ~herdr --machine <machine>~: the
 built-in compose send (~decide send --id~ and a reply from the inbox)
