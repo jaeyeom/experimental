@@ -129,6 +129,17 @@ sh_test(
     ],
 )
 
+sh_test(
+    name = "fork_keeper_vars_test",
+    srcs = ["fork_keeper_vars_test.sh"],
+    # setup-fork-keeper.yml imports other playbooks.
+    data = ["inventory.ini"] + glob(["*.yml"]),
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
 # GENERATED ANSIBLE TESTS - DO NOT EDIT BELOW THIS LINE
 # Individual syntax check test for each playbook (for better caching)
 

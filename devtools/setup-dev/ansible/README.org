@@ -105,6 +105,25 @@ compatible bundled collection:
 - A failed =ansible-galaxy= install aborts the run and does not refresh
   the daily cache.
 
+** Per-machine settings
+
+=inventory.ini= is tracked and shared by every machine, so per-machine
+settings do not go there. Put them in
+=${XDG_CONFIG_HOME:-~/.config}/setup-dev/vars.yml=, outside the repository,
+so every checkout and worktree on the machine uses them. The file is
+optional. A playbook loads it with =vars_files= when it reads such a
+setting, and =-e= still overrides it for one run.
+
+| Variable                   | Playbook                | Effect                               |
+|----------------------------+-------------------------+--------------------------------------|
+| =fork_keeper_cron_enabled= | =setup-fork-keeper.yml= | =true= keeps the daily fork-keeper job |
+
+For example, on the machine that runs fork-keeper:
+
+#+begin_src yaml
+  fork_keeper_cron_enabled: true
+#+end_src
+
 * Design
 The purpose of this Ansible Setup Dev is to set up my development environment
 mostly identical in any environment. I made Ansible Playbooks import other
