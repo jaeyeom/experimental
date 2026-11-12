@@ -82,7 +82,7 @@ func (s *tunnelSetup) startHubDaemon(t *testing.T) ([]string, paths.Dirs) {
 	stop := startDaemon(t, dirs, daemon.Config{
 		Adapters:     []adapter.Adapter{ad},
 		PollInterval: time.Hour,
-		HubCaller:    herdr.RemoteCaller,
+		HubCaller:    herdr.HubCaller,
 	})
 	t.Cleanup(stop)
 	return base, dirs
@@ -161,6 +161,7 @@ func TestTunnelMissingOrDeadUsesSSH(t *testing.T) {
 	}
 	ln.(*net.UnixListener).SetUnlinkOnClose(false)
 	ln.Close()
+	id := pinClientID(t, "linux2:01ARZ3NDEKTSV4RRFFQ69G5FAV")
 	start := time.Now()
 	if code, _, stderr := s.run(t, s.env, "", "send", "ops/x", "hi"); code != 0 {
 		t.Fatalf("send = %d, stderr %q", code, stderr)
@@ -168,7 +169,7 @@ func TestTunnelMissingOrDeadUsesSSH(t *testing.T) {
 	if took := time.Since(start); took > 2*time.Second {
 		t.Fatalf("a dead tunnel took %s to fall back", took)
 	}
-	if got := s.ssh.Lines("agentbus.args"); !slices.Equal(got, []string{"send", "ops/x", "hi"}) {
+	if got := s.ssh.Lines("agentbus.args"); !slices.Equal(got, []string{"send", "ops/x", "hi", "--client-id", id}) {
 		t.Fatalf("with a dead tunnel, hub args = %q", got)
 	}
 	if got := s.ssh.Read("agentbus.handle"); got != "herdr:linux2/default/w1:p1" {

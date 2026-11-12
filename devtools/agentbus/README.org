@@ -312,6 +312,12 @@ The ssh path is resolved when you run ~install~, and the unit runs
 without a terminal, so the key must work without a prompt. With
 ~hibernate_policy~ on or ~dry-run~, ~install~ also writes and loads the
 unit of ~agentbus hibernate --policy~ (see [[*On a hub-mode client]]).
+~install~ also writes ~com.agentbus.outbox~ (macOS) or
+~agentbus-outbox.service~ (Linux), which runs ~agentbus outbox flush
+--watch~ and retries queued sends when the tunnel answers.
+
+A send or reply that prints ~queued~ is not at the hub yet. Do not
+resend it. Check ~agentbus status <client-id>~.
 
 While the tunnel socket is there and the hub answers a ping on it in
 this protocol, a command from a herdr pane runs here and sends its

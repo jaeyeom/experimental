@@ -69,8 +69,30 @@ func TrustedCaller(env []string, key string) (string, error) {
 	if envValue(env, "SSH_CONNECTION") == "" {
 		return "", fmt.Errorf("%s is only trusted over ssh, from a hub-mode call", key)
 	}
+	if _, err := AnonCaller(raw); err == nil {
+		return raw, nil
+	}
 	if _, err := RemoteCaller(raw); err != nil {
 		return "", fmt.Errorf("%s: %w", key, err)
+	}
+	return raw, nil
+}
+
+// AnonCaller accepts raw only as anon:<host>-<pid>, the identity a
+// hub-mode client stored for a sender that is not a herdr pane.
+func AnonCaller(raw string) (string, error) {
+	rest, ok := strings.CutPrefix(raw, "anon:")
+	if !ok {
+		return "", fmt.Errorf("handle %q is not an anon handle", raw)
+	}
+	dash := strings.LastIndex(rest, "-")
+	if dash <= 0 || dash == len(rest)-1 {
+		return "", fmt.Errorf("handle %q is not an anon handle", raw)
+	}
+	for _, r := range rest[dash+1:] {
+		if r < '0' || r > '9' {
+			return "", fmt.Errorf("handle %q is not an anon handle", raw)
+		}
 	}
 	return raw, nil
 }

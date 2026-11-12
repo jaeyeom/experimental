@@ -321,7 +321,11 @@ func TestHubInstallWritesThePolicyUnitOnlyWhenThePolicyIsOn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stdout != "wrote "+tunnel+"\nwrote "+policy+"\n" {
+	outboxPath, err := unitPath(runtime.GOOS, home, env, outboxLaunchdLabel, outboxUnitName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "wrote "+tunnel+"\nwrote "+outboxPath+"\nwrote "+policy+"\n" {
 		t.Fatalf("stdout = %q", stdout)
 	}
 	data, err := os.ReadFile(policy)

@@ -139,6 +139,16 @@ func RemoteCaller(raw string) (string, error) {
 	return hubcall.RemoteCaller(raw) //nolint:wrapcheck // the shared rule's message names the handle
 }
 
+// HubCaller accepts a remote herdr handle or an anon:<host>-<pid> handle.
+// A hub-mode outbox replays the sender it stored, including an anon pid
+// that is not this flusher's.
+func HubCaller(raw string) (string, error) {
+	if _, err := hubcall.AnonCaller(raw); err == nil {
+		return raw, nil
+	}
+	return RemoteCaller(raw)
+}
+
 // LocalHandle is the handle of the caller's pane on the local herdr
 // server, herdr:local/<session>/<pane>.
 func LocalHandle(ctx context.Context, env []string) (string, error) {

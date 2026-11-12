@@ -138,6 +138,14 @@ func commands() []command {
 			run:     noStdin(cmdLog),
 		},
 		{
+			name:    "outbox",
+			summary: "List or flush hub-mode messages waiting on this machine.",
+			usage:   "agentbus outbox <ls|flush> [--watch]",
+			flags:   "--watch  with flush, retry until interrupted, backing off from about 5s to 5m (default: false, flush once)",
+			example: "agentbus outbox ls",
+			run:     noStdin(cmdOutbox),
+		},
+		{
 			name:    "lease",
 			summary: "Claim, extend, leave, check, release, or adopt the lease on a guarded checkout; pause, unshare, or resume it as the user; status shows who holds it; hook and install-hook enforce it in Claude Code.",
 			usage:   "agentbus lease <claim|extend|leave|status|check|release|adopt|pause|unshare|resume|hook|install-hook> [flags]",
@@ -312,7 +320,9 @@ Config ($XDG_CONFIG_HOME/agentbus/config.toml):
                           it relaunches has to become idle or done
 
 In hub mode a hub that cannot be reached fails the command with
-"agentbus: hub <target> unreachable: <cause>". It never falls back to a
+"agentbus: hub <target> unreachable: <cause>", except send and reply,
+which stay in a local outbox and exit 0 with
+"queued (hub unreachable): <client-id>". It never falls back to a
 local daemon. When $XDG_RUNTIME_DIR/agentbus/tunnel.sock is a forward of
 the hub's $XDG_RUNTIME_DIR/agentbus/hub.sock, a call from a herdr pane
 goes over it instead of starting ssh; log still runs over ssh.

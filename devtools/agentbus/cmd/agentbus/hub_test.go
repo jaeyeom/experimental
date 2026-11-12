@@ -76,19 +76,20 @@ func (h *hubSetup) runEnv(t *testing.T, env []string, stdin string, args ...stri
 
 func TestHubSendQuotesEachArgument(t *testing.T) {
 	h := startHub(t, `hub = "me@hub"`)
+	id := pinClientID(t, "client:01ARZ3NDEKTSV4RRFFQ69G5FAV")
 	h.ssh.Write("agentbus.stdout", "m-1 delivered\n")
 	code, stdout, stderr := h.run(t, "", "send", "ops/x", "a b; c")
 	if code != 0 || stdout != "m-1 delivered\n" {
 		t.Fatalf("send = %d, stdout %q, stderr %q", code, stdout, stderr)
 	}
-	if got := h.ssh.Lines("agentbus.args"); !slices.Equal(got, []string{"send", "ops/x", "a b; c"}) {
+	if got := h.ssh.Lines("agentbus.args"); !slices.Equal(got, []string{"send", "ops/x", "a b; c", "--client-id", id}) {
 		t.Fatalf("hub args = %q", got)
 	}
 	argv := h.ssh.Lines("argv")
 	if !slices.Contains(argv, "me@hub") || !slices.Contains(argv, "BatchMode=yes") || !slices.Contains(argv, "ConnectTimeout=5") {
 		t.Fatalf("ssh argv = %q", argv)
 	}
-	if last := argv[len(argv)-1]; !strings.HasSuffix(last, "agentbus send ops/x 'a b; c'") {
+	if last := argv[len(argv)-1]; !strings.Contains(last, "agentbus send ops/x 'a b; c' --client-id "+id) {
 		t.Fatalf("remote command = %q", last)
 	}
 }
@@ -117,10 +118,11 @@ func TestHubSendForwardsStdinAndReadsFileLocally(t *testing.T) {
 	if err := os.WriteFile(path, []byte("from file\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	id := pinClientID(t, "client:01ARZ3NDEKTSV4RRFFQ69G5FAV")
 	if code, _, stderr := h.run(t, "ignored", "send", "ops/x", "--file", path, "--ttl", "30m"); code != 0 {
 		t.Fatalf("send --file = %d, stderr %q", code, stderr)
 	}
-	if got := h.ssh.Lines("agentbus.args"); !slices.Equal(got, []string{"send", "ops/x", "--ttl", "30m"}) {
+	if got := h.ssh.Lines("agentbus.args"); !slices.Equal(got, []string{"send", "ops/x", "--ttl", "30m", "--client-id", id}) {
 		t.Fatalf("hub args = %q", got)
 	}
 	if got := h.ssh.Read("agentbus.stdin"); got != "from file\n" {
@@ -199,16 +201,24 @@ func TestHubUnreachableFailsFast(t *testing.T) {
 	h.ssh.Write("down", "")
 	h.ssh.Unreachable()
 	start := time.Now()
-	code, _, stderr := h.run(t, "", "send", "ops/x", "hi")
+	code, _, stderr := h.run(t, "", "list")
 	if took := time.Since(start); took > 5*time.Second {
-		t.Fatalf("send took %s", took)
+		t.Fatalf("list took %s", took)
 	}
 	if code == 0 || !strings.Contains(stderr, "agentbus: hub me@hub unreachable: host unreachable") {
-		t.Fatalf("send = %d, stderr %q", code, stderr)
+		t.Fatalf("list = %d, stderr %q", code, stderr)
 	}
 	if entries, _ := os.ReadDir(h.runtime); len(entries) != 0 {
 		t.Fatalf("hub mode created local runtime state: %v", entries)
 	}
+}
+
+func pinClientID(t *testing.T, id string) string {
+	t.Helper()
+	orig := mintClientID
+	mintClientID = func(string) (string, error) { return id, nil }
+	t.Cleanup(func() { mintClientID = orig })
+	return id
 }
 
 func TestHubHooksExitZeroWhenUnreachable(t *testing.T) {

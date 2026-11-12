@@ -55,10 +55,11 @@ func run(ctx context.Context, args, env []string, stdin io.Reader, stdout, stder
 			return 0
 		}
 	}
+	cfg, cfgErr := hubSettings(env)
+	maybeFlush(ctx, cfg, cfgErr, env)
 	if len(args) == 0 || !localCommands[args[0]] {
-		cfg, err := hubSettings(env)
-		if err != nil {
-			fmt.Fprintf(stderr, "agentbus: %s\n", err)
+		if cfgErr != nil {
+			fmt.Fprintf(stderr, "agentbus: %s\n", cfgErr)
 			return 1
 		}
 		if cfg.Hub != "" {

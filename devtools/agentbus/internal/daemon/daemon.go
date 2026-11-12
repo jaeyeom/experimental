@@ -1079,12 +1079,25 @@ func (s *server) bypass(req Request) Response {
 	}
 	target := strings.TrimSpace(req.Name)
 	resolved := s.reg.Lookup(target)
+	if req.ClientID != "" {
+		if err := mailbox.ValidClientID(req.ClientID); err != nil {
+			return Response{Error: err.Error()}
+		}
+		lines, err := s.log.Read(eventlog.Filter{Event: eventlog.EventBypass, MsgID: req.ClientID})
+		if err != nil {
+			return Response{Error: err.Error()}
+		}
+		if len(lines) > 0 {
+			return Response{OK: true, Name: resolved, Duplicate: true}
+		}
+	}
 	if err := s.log.Append(eventlog.Event{
 		Event:    eventlog.EventBypass,
 		Actor:    actor,
 		Name:     target,
 		Resolved: resolved,
 		Detail:   detail,
+		MsgID:    req.ClientID,
 	}); err != nil {
 		return Response{Error: err.Error()}
 	}
