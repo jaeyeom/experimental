@@ -28,6 +28,16 @@ type Deps struct {
 	// Marker returns the gh-merge rca_marker for one repository.
 	// Nil skips merge-queue-fix.
 	Marker func(owner, repo string) (string, error)
+	// History keeps team-cover path history between rounds. Nil keeps it
+	// for this round only.
+	History HistoryCache
+}
+
+// HistoryCache stores the path history of path on ref, keyed also by the
+// pull request's head commit.
+type HistoryCache interface {
+	PathHistory(repo, ref, path, head string) (gh.PathHistory, bool)
+	PutPathHistory(repo, ref, path, head string, history gh.PathHistory)
 }
 
 // GH is the GitHub surface scan uses.
@@ -89,7 +99,7 @@ func Run(ctx context.Context, deps Deps, cfg config.Config, repos []string, now 
 	if err := classifyRepos(ctx, deps.GH, cfg, resolved, deps.Marker, &doc); err != nil {
 		return finish(doc, err)
 	}
-	if err := coverTeams(ctx, deps.GH, cfg, &doc, now); err != nil {
+	if err := coverTeams(ctx, deps.GH, deps.History, cfg, &doc, now); err != nil {
 		return finish(doc, err)
 	}
 	if err := matchTabs(ctx, deps, cfg, &doc); err != nil {
@@ -142,7 +152,7 @@ func RunTargets(ctx context.Context, deps Deps, cfg config.Config, targets []Tar
 		}
 		doc.PRs = append(doc.PRs, classified)
 	}
-	if err := coverTeams(ctx, deps.GH, cfg, &doc, now); err != nil {
+	if err := coverTeams(ctx, deps.GH, deps.History, cfg, &doc, now); err != nil {
 		return finish(doc, err)
 	}
 	if err := matchTabs(ctx, deps, cfg, &doc); err != nil {

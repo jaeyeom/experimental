@@ -36,6 +36,22 @@ type Client struct {
 	now    func() time.Time
 	// openPRPage is the open-PR search page once halved; zero means openPRSearchPage.
 	openPRPage atomic.Int32
+	// rollups keeps settled status checks between rounds; nil keeps none.
+	rollups RollupCache
+}
+
+// RollupCache keeps a pull request's status checks between rounds, keyed by
+// its head commit and updatedAt.
+type RollupCache interface {
+	Rollup(repo string, number int, head, updatedAt string) ([]StatusCheck, bool)
+	PutRollup(repo string, number int, head, updatedAt string, checks []StatusCheck)
+}
+
+// WithRollupCache makes ListOpenPRs skip the per-PR rollup view for a pull
+// request whose head and updatedAt match a stored settled rollup.
+func (c *Client) WithRollupCache(cache RollupCache) *Client {
+	c.rollups = cache
+	return c
 }
 
 // NewClient returns a gh adapter that invokes bin via exec.
@@ -154,7 +170,8 @@ func (c *Client) ListOpenPRs(ctx context.Context, repo, author string) ([]PRList
 // GitHub's resource limit once many open PRs carry a large rollup, and the
 // gateway answers 502 or 504. A per-PR failure sets StatusCheckError and
 // leaves the rollup nil. A primary rate limit or a canceled context fails
-// the whole list.
+// the whole list. A pull request with a cached settled rollup for the same
+// head and updatedAt reuses it without a call.
 func (c *Client) fillStatusChecks(ctx context.Context, repo string, items []PRListItem) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -178,7 +195,7 @@ func (c *Client) fillStatusChecks(ctx context.Context, repo string, items []PRLi
 			if ctx.Err() != nil {
 				return
 			}
-			checks, err := c.statusChecks(ctx, repo, items[i].Number)
+			checks, err := c.statusChecksCached(ctx, repo, items[i])
 			if err == nil {
 				items[i].StatusCheckRollup = checks
 				return
@@ -212,6 +229,38 @@ func rollupErrFatal(err error) bool {
 	}
 	lower := strings.ToLower(err.Error())
 	return strings.Contains(lower, "rate limit") && !strings.Contains(lower, "secondary")
+}
+
+func (c *Client) statusChecksCached(ctx context.Context, repo string, item PRListItem) ([]StatusCheck, error) {
+	if c.rollups == nil {
+		return c.statusChecks(ctx, repo, item.Number)
+	}
+	if checks, ok := c.rollups.Rollup(repo, item.Number, item.HeadRefOid, item.UpdatedAt); ok {
+		return checks, nil
+	}
+	checks, err := c.statusChecks(ctx, repo, item.Number)
+	if err == nil && item.HeadRefOid != "" && item.UpdatedAt != "" && rollupSettled(checks) {
+		c.rollups.PutRollup(repo, item.Number, item.HeadRefOid, item.UpdatedAt, checks)
+	}
+	return checks, err
+}
+
+// rollupSettled reports whether every check has finished. A pending check
+// can finish without changing the pull request's updatedAt, so only a
+// settled, non-empty rollup is safe to reuse.
+func rollupSettled(checks []StatusCheck) bool {
+	if len(checks) == 0 {
+		return false
+	}
+	for _, check := range checks {
+		switch {
+		case check.State == "PENDING" || check.State == "EXPECTED":
+			return false
+		case check.State == "" && check.Status != "COMPLETED":
+			return false
+		}
+	}
+	return true
 }
 
 func (c *Client) statusChecks(ctx context.Context, repo string, number int) ([]StatusCheck, error) {

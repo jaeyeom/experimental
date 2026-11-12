@@ -61,6 +61,7 @@ type PRListItem struct {
 	BaseRefName       string         `json:"baseRefName"`
 	HeadRefName       string         `json:"headRefName"`
 	HeadRefOid        string         `json:"headRefOid"`
+	UpdatedAt         string         `json:"updatedAt"`
 	Mergeable         string         `json:"mergeable"`
 	MergeStateStatus  string         `json:"mergeStateStatus"`
 	IsDraft           bool           `json:"isDraft"`
@@ -71,6 +72,9 @@ type PRListItem struct {
 	// StatusCheckError is set when the per-PR rollup view failed.
 	// StatusCheckRollup is then nil and is not "no checks".
 	StatusCheckError string `json:"-"`
+	// Truncated names connections that had more nodes than the query asked
+	// for. They are logged as warnings.
+	Truncated []string `json:"-"`
 }
 
 // PRSearchItem is one row from `gh search prs`. State is "open", "merged", or

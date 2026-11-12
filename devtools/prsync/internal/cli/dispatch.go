@@ -151,7 +151,8 @@ func loadDispatchDoc(ctx context.Context, cfg config.Config, exec executor.Execu
 }
 
 func loadFullScan(ctx context.Context, cfg config.Config, exec executor.Executor) (scan.Document, error) {
-	deps := scanDeps(exec, cfg, herdr.NewClient(exec, cfg.HerdrBin))
+	deps, saveCache := scanDeps(ctx, exec, cfg, herdr.NewClient(exec, cfg.HerdrBin))
+	defer saveCache()
 	doc, err := scan.Run(ctx, deps, cfg, nil, time.Now())
 	return finishScanLoad(doc, err, cfg)
 }
@@ -165,7 +166,8 @@ func loadTargetedDoc(ctx context.Context, cfg config.Config, exec executor.Execu
 		}
 		targets = append(targets, scan.Target{Repo: repo, Number: n})
 	}
-	deps := scanDeps(exec, cfg, herdr.NewClient(exec, cfg.HerdrBin))
+	deps, saveCache := scanDeps(ctx, exec, cfg, herdr.NewClient(exec, cfg.HerdrBin))
+	defer saveCache()
 	doc, err := scan.RunTargets(ctx, deps, cfg, targets, time.Now())
 	return finishScanLoad(doc, err, cfg)
 }

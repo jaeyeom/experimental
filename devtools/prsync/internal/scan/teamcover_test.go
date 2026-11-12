@@ -560,3 +560,60 @@ func countSubstr(warnings []string, needle string) int {
 	}
 	return n
 }
+
+type mapHistoryCache struct {
+	entries map[string]gh.PathHistory
+}
+
+func (m *mapHistoryCache) PathHistory(repo, ref, path, head string) (gh.PathHistory, bool) {
+	h, ok := m.entries[repo+"@"+ref+"\x00"+path+"\x00"+head]
+	return h, ok
+}
+
+func (m *mapHistoryCache) PutPathHistory(repo, ref, path, head string, h gh.PathHistory) {
+	m.entries[repo+"@"+ref+"\x00"+path+"\x00"+head] = h
+}
+
+func TestRunTeamCoverReusesPathHistoryAcrossRounds(t *testing.T) {
+	t.Parallel()
+
+	cache := &mapHistoryCache{entries: map[string]gh.PathHistory{}}
+	round := func(head string) (*scriptGH, Document) {
+		t.Helper()
+		g := teamCoverGH(map[string]memberCall{
+			"acme/foo": {members: []gh.TeamMember{{Login: "bob", Type: "User"}, {Login: "carol", Type: "User"}}},
+		})
+		pr := teamPR(1)
+		pr.HeadRefOid = head
+		g.list["acme/widgets"] = listResult{prs: []gh.PRListItem{pr}}
+		g.files = map[string][]string{"acme/widgets#1": {"src/a.go"}}
+		g.history = map[string]gh.PathHistory{"acme/widgets@main\x00src/a.go": {Authors: []string{"carol"}}}
+		cfg := teamCoverCfg()
+		cfg.TeamCoverSignals = []string{"history"}
+		cfg.TeamCoverActiveDays = 0
+		deps := depsWith(g, fixtureHerdr{})
+		deps.History = cache
+		doc, err := Run(context.Background(), deps, cfg, []string{"acme/widgets"}, fixtureNow)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return g, doc
+	}
+
+	first, _ := round("h1")
+	if first.historyCalls != 1 {
+		t.Fatalf("first round historyCalls = %d, want 1", first.historyCalls)
+	}
+	second, doc := round("h1")
+	if second.historyCalls != 0 {
+		t.Fatalf("same path and head: historyCalls = %d, want 0", second.historyCalls)
+	}
+	got := doc.PRs[0].TeamReviewSuggestions
+	if len(got) != 1 || len(got[0].Suggest) == 0 || got[0].Suggest[0].Login != "carol" {
+		t.Fatalf("suggestions = %+v, want carol ranked first from the cached history", got)
+	}
+	third, _ := round("h2")
+	if third.historyCalls != 1 {
+		t.Fatalf("new head: historyCalls = %d, want 1", third.historyCalls)
+	}
+}

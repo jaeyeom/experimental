@@ -385,14 +385,14 @@ func TestListOpenPRsHalvesPageOnHTTP502(t *testing.T) {
 		"state":"OPEN"
 	}`)
 	mock := newGHMock()
-	expectOpenPRSearch(mock, "acme/widgets", "alice", 100).
-		WillFail("HTTP 502: 502 Bad Gateway", 1).Once().Build()
 	expectOpenPRSearch(mock, "acme/widgets", "alice", 50).
 		WillFail("HTTP 502: 502 Bad Gateway", 1).Once().Build()
 	expectOpenPRSearch(mock, "acme/widgets", "alice", 25).
+		WillFail("HTTP 502: 502 Bad Gateway", 1).Once().Build()
+	expectOpenPRSearch(mock, "acme/widgets", "alice", 12).
 		WillSucceed(body, 0).Once().Build()
 	expectStatusChecks(mock, 123, `{"statusCheckRollup":[]}`).Once().Build()
-	expectOpenPRSearch(mock, "acme/gadgets", "alice", 25).
+	expectOpenPRSearch(mock, "acme/gadgets", "alice", 12).
 		WillSucceed(openPRSearchJSON(), 0).Once().Build()
 	client, probe := newProbedClient(t, mock)
 	got, err := client.ListOpenPRs(probe.ctx(), "acme/widgets", "alice")
@@ -402,8 +402,8 @@ func TestListOpenPRsHalvesPageOnHTTP502(t *testing.T) {
 	if len(got) != 1 || got[0].Number != 123 {
 		t.Fatalf("ListOpenPRs() = %+v, want PR 123", got)
 	}
-	if pages := searchPages(mock); !slices.Equal(pages, []string{"first=100", "first=50", "first=25"}) {
-		t.Fatalf("pages = %v, want 100, 50, 25", pages)
+	if pages := searchPages(mock); !slices.Equal(pages, []string{"first=50", "first=25", "first=12"}) {
+		t.Fatalf("pages = %v, want 50, 25, 12", pages)
 	}
 	if !slices.Equal(probe.waits, ghListHTTPRetryBackoffs[:2]) {
 		t.Fatalf("waits = %v, want %v", probe.waits, ghListHTTPRetryBackoffs[:2])
@@ -417,7 +417,7 @@ func TestListOpenPRsHalvesPageOnHTTP502(t *testing.T) {
 	if len(halved) != 2 {
 		t.Fatalf("halving lines = %v, want 2", halved)
 	}
-	for i, want := range [][2]int{{100, 50}, {50, 25}} {
+	for i, want := range [][2]int{{50, 25}, {25, 12}} {
 		line := halved[i]
 		if !strings.Contains(line, `"level":"INFO"`) ||
 			!strings.Contains(line, `"failed_page":`+strconv.Itoa(want[0])) ||
@@ -430,8 +430,8 @@ func TestListOpenPRsHalvesPageOnHTTP502(t *testing.T) {
 	if _, err := client.ListOpenPRs(probe.ctx(), "acme/gadgets", "alice"); err != nil {
 		t.Fatalf("second ListOpenPRs() unexpected error: %v", err)
 	}
-	if pages := searchPages(mock); !slices.Equal(pages, []string{"first=100", "first=50", "first=25", "first=25"}) {
-		t.Fatalf("pages = %v, want the second list at 25", pages)
+	if pages := searchPages(mock); !slices.Equal(pages, []string{"first=50", "first=25", "first=12", "first=12"}) {
+		t.Fatalf("pages = %v, want the second list at 12", pages)
 	}
 }
 
@@ -439,15 +439,15 @@ func TestListOpenPRsWalksPagesAfterHTTP502(t *testing.T) {
 	t.Parallel()
 
 	mock := newGHMock()
-	expectOpenPRSearch(mock, "acme/widgets", "alice", 100).
-		WillFail("HTTP 502: 502 Bad Gateway", 1).Once().Build()
 	expectOpenPRSearch(mock, "acme/widgets", "alice", 50).
 		WillFail("HTTP 502: 502 Bad Gateway", 1).Once().Build()
 	expectOpenPRSearch(mock, "acme/widgets", "alice", 25).
+		WillFail("HTTP 502: 502 Bad Gateway", 1).Once().Build()
+	expectOpenPRSearch(mock, "acme/widgets", "alice", 12).
 		WillSucceed(openPRSearchPageJSON(56, "c1", prNodes(1, 25)...), 0).Once().Build()
-	expectOpenPRSearchAfter(mock, "acme/widgets", "alice", 25, "c1").
+	expectOpenPRSearchAfter(mock, "acme/widgets", "alice", 12, "c1").
 		WillSucceed(openPRSearchPageJSON(56, "c2", prNodes(26, 25)...), 0).Once().Build()
-	expectOpenPRSearchAfter(mock, "acme/widgets", "alice", 25, "c2").
+	expectOpenPRSearchAfter(mock, "acme/widgets", "alice", 12, "c2").
 		WillSucceed(openPRSearchPageJSON(56, "", prNodes(51, 6)...), 0).Once().Build()
 	client, probe := newProbedClient(t, mock)
 	got, err := client.listOpenPRsShrinking(probe.ctx(), "acme/widgets", "alice")
@@ -469,13 +469,13 @@ func TestListOpenPRsRetriesSameCursorAfterHTTP502(t *testing.T) {
 	t.Parallel()
 
 	mock := newGHMock()
-	expectOpenPRSearch(mock, "acme/widgets", "alice", 100).
+	expectOpenPRSearch(mock, "acme/widgets", "alice", 50).
 		WillSucceed(openPRSearchPageJSON(6, "c1", prNodes(1, 2)...), 0).Once().Build()
-	expectOpenPRSearchAfter(mock, "acme/widgets", "alice", 100, "c1").
-		WillFail("HTTP 502: 502 Bad Gateway", 1).Once().Build()
 	expectOpenPRSearchAfter(mock, "acme/widgets", "alice", 50, "c1").
+		WillFail("HTTP 502: 502 Bad Gateway", 1).Once().Build()
+	expectOpenPRSearchAfter(mock, "acme/widgets", "alice", 25, "c1").
 		WillSucceed(openPRSearchPageJSON(6, "c2", prNodes(3, 2)...), 0).Once().Build()
-	expectOpenPRSearchAfter(mock, "acme/widgets", "alice", 50, "c2").
+	expectOpenPRSearchAfter(mock, "acme/widgets", "alice", 25, "c2").
 		WillSucceed(openPRSearchPageJSON(6, "", prNodes(5, 2)...), 0).Once().Build()
 	client, probe := newProbedClient(t, mock)
 	got, err := client.listOpenPRsShrinking(probe.ctx(), "acme/widgets", "alice")
@@ -485,7 +485,7 @@ func TestListOpenPRsRetriesSameCursorAfterHTTP502(t *testing.T) {
 	if want := prNumbers(1, 6); !slices.Equal(itemNumbers(got), want) {
 		t.Fatalf("numbers = %v, want %v", itemNumbers(got), want)
 	}
-	if pages := searchPages(mock); !slices.Equal(pages, []string{"first=100", "first=100", "first=50", "first=50"}) {
+	if pages := searchPages(mock); !slices.Equal(pages, []string{"first=50", "first=50", "first=25", "first=25"}) {
 		t.Fatalf("pages = %v, want the halved page kept for page 3", pages)
 	}
 	if afters := searchAfters(mock); !slices.Equal(afters, []string{"", "after=c1", "after=c1", "after=c2"}) {
@@ -497,9 +497,9 @@ func TestListOpenPRsWarnsWhenWalkIsIncomplete(t *testing.T) {
 	t.Parallel()
 
 	mock := newGHMock()
-	expectOpenPRSearch(mock, "acme/widgets", "alice", 100).
+	expectOpenPRSearch(mock, "acme/widgets", "alice", 50).
 		WillSucceed(openPRSearchPageJSON(4, "c1", prNodes(1, 2)...), 0).Once().Build()
-	expectOpenPRSearchAfter(mock, "acme/widgets", "alice", 100, "c1").
+	expectOpenPRSearchAfter(mock, "acme/widgets", "alice", 50, "c1").
 		WillSucceed(openPRSearchPageJSON(4, "", prNodes(2, 2)...), 0).Once().Build()
 	client, probe := newProbedClient(t, mock)
 	got, err := client.listOpenPRsShrinking(probe.ctx(), "acme/widgets", "alice")
@@ -1048,7 +1048,7 @@ func TestListOpenPRsTransientExhausted(t *testing.T) {
 	t.Parallel()
 
 	mock := newGHMock()
-	for _, page := range []int{100, 50, 25, 12, 6} {
+	for _, page := range []int{50, 25, 12, 6, 3} {
 		expectOpenPRSearch(mock, "acme/widgets", "alice", page).
 			WillFail("HTTP 504: 504 Gateway Timeout (https://api.github.com/graphql)", 1).Once().Build()
 	}
@@ -1066,7 +1066,7 @@ func TestListOpenPRsTransientExhausted(t *testing.T) {
 	if calls := len(mock.Executions()); calls != ghListHTTPRetryAttempts {
 		t.Fatalf("calls = %d, want %d", calls, ghListHTTPRetryAttempts)
 	}
-	if pages := searchPages(mock); !slices.Equal(pages, []string{"first=100", "first=50", "first=25", "first=12", "first=6"}) {
+	if pages := searchPages(mock); !slices.Equal(pages, []string{"first=50", "first=25", "first=12", "first=6", "first=3"}) {
 		t.Fatalf("pages = %v, want each retry at half the page", pages)
 	}
 	if !slices.Equal(probe.waits, ghListHTTPRetryBackoffs) {

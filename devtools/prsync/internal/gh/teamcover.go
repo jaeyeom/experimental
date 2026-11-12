@@ -12,7 +12,11 @@ import (
 	"time"
 )
 
-const pathHistoryQuery = `query($owner:String!,$name:String!,$expression:String!,$path:String!,$since:GitTimestamp!){repository(owner:$owner,name:$name){object(expression:$expression){... on Commit{history(first:100,path:$path,since:$since){nodes{author{user{login}}associatedPullRequests(first:10){nodes{reviews(first:20){nodes{author{login}}}}}}}}}}}`
+// pathHistoryQuery keeps every connection small: GitHub's secondary limit
+// caps GraphQL CPU time per user, and the nested review nodes multiply
+// (30 commits x 2 pull requests x 10 reviews). A truncated connection is
+// logged, not paged: history is a ranking signal, not a complete record.
+const pathHistoryQuery = `query($owner:String!,$name:String!,$expression:String!,$path:String!,$since:GitTimestamp!){repository(owner:$owner,name:$name){object(expression:$expression){... on Commit{history(first:30,path:$path,since:$since){pageInfo{hasNextPage}nodes{author{user{login}}associatedPullRequests(first:2){pageInfo{hasNextPage}nodes{reviews(first:10){pageInfo{hasNextPage}nodes{author{login}}}}}}}}}}}`
 
 // ReviewSnapshot loads the pull request author and latestReviews.
 // Used only when team_cover is on, so the open-PR list query stays unchanged.
@@ -103,8 +107,9 @@ func (c *Client) contents(ctx context.Context, owner, name, path, ref string) (s
 	return body, true, nil
 }
 
-// PathHistory returns authors and reviewers of up to 100 commits on path
+// PathHistory returns authors and reviewers of up to 30 commits on path
 // since the cutoff, on ref. Reviewers come from those commits' pull requests.
+// A truncated connection logs a warning.
 func (c *Client) PathHistory(ctx context.Context, repo, ref, path string, since time.Time) (PathHistory, error) {
 	owner, name, err := splitOwnerRepo(repo)
 	if err != nil {
@@ -125,9 +130,12 @@ func (c *Client) PathHistory(ctx context.Context, repo, ref, path string, since 
 		}
 		return PathHistory{}, err
 	}
-	history, err := parsePathHistory(result.Output)
+	history, truncated, err := parsePathHistory(result.Output)
 	if err != nil {
 		return PathHistory{}, err
+	}
+	for _, conn := range truncated {
+		warnTruncated(ctx, conn, "repo", repo, "ref", ref, "path", path)
 	}
 	return history, nil
 }
@@ -282,23 +290,30 @@ func isMissingPath(err error) bool {
 	return strings.Contains(lower, "http 404") || strings.Contains(lower, "not found")
 }
 
-func parsePathHistory(raw string) (PathHistory, error) {
+// parsePathHistory also returns the names of connections that had more
+// nodes than the query asked for, once each.
+func parsePathHistory(raw string) (PathHistory, []string, error) {
 	var payload pathHistoryPayload
 	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
-		return PathHistory{}, fmt.Errorf("decode path history: %w", err)
+		return PathHistory{}, nil, fmt.Errorf("decode path history: %w", err)
 	}
 	if len(payload.Errors) > 0 {
-		return PathHistory{}, fmt.Errorf("path history graphql: %s", payload.Errors[0].Message)
+		return PathHistory{}, nil, fmt.Errorf("path history graphql: %s", payload.Errors[0].Message)
 	}
 	var history PathHistory
 	if payload.Data.Repository.Object == nil {
-		return history, nil
+		return history, nil, nil
 	}
-	for _, node := range payload.Data.Repository.Object.History.Nodes {
+	var truncated truncation
+	hist := payload.Data.Repository.Object.History
+	truncated.note("history", hist.PageInfo.HasNextPage)
+	for _, node := range hist.Nodes {
 		if node.Author.User != nil && node.Author.User.Login != "" {
 			history.Authors = append(history.Authors, node.Author.User.Login)
 		}
+		truncated.note("associatedPullRequests", node.AssociatedPullRequests.PageInfo.HasNextPage)
 		for _, pr := range node.AssociatedPullRequests.Nodes {
+			truncated.note("reviews", pr.Reviews.PageInfo.HasNextPage)
 			for _, review := range pr.Reviews.Nodes {
 				if review.Author != nil && review.Author.Login != "" {
 					history.Reviewers = append(history.Reviewers, review.Author.Login)
@@ -306,7 +321,7 @@ func parsePathHistory(raw string) (PathHistory, error) {
 			}
 		}
 	}
-	return history, nil
+	return history, truncated, nil
 }
 
 type pathHistoryPayload struct {
@@ -314,16 +329,19 @@ type pathHistoryPayload struct {
 		Repository struct {
 			Object *struct {
 				History struct {
-					Nodes []struct {
+					PageInfo gqlHasNextPage `json:"pageInfo"`
+					Nodes    []struct {
 						Author struct {
 							User *struct {
 								Login string `json:"login"`
 							} `json:"user"`
 						} `json:"author"`
 						AssociatedPullRequests struct {
-							Nodes []struct {
+							PageInfo gqlHasNextPage `json:"pageInfo"`
+							Nodes    []struct {
 								Reviews struct {
-									Nodes []struct {
+									PageInfo gqlHasNextPage `json:"pageInfo"`
+									Nodes    []struct {
 										Author *struct {
 											Login string `json:"login"`
 										} `json:"author"`

@@ -24,6 +24,7 @@ type coverCache struct {
 	files        map[string][]string
 	rules        map[string][]codeRule
 	history      map[string]gh.PathHistory
+	stored       HistoryCache
 	load         map[string]int
 	active       map[string]bool
 	loadSkipped  bool
@@ -46,11 +47,12 @@ func newCoverCache(cfg config.Config, now time.Time) *coverCache {
 	}
 }
 
-func coverTeams(ctx context.Context, client GH, cfg config.Config, doc *Document, now time.Time) error {
+func coverTeams(ctx context.Context, client GH, stored HistoryCache, cfg config.Config, doc *Document, now time.Time) error {
 	if !cfg.TeamCover || cfg.Skips(config.JobTeamCover) {
 		return nil
 	}
 	cache := newCoverCache(cfg, now)
+	cache.stored = stored
 	for i := range doc.PRs {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("team cover: %w", err)
@@ -331,11 +333,20 @@ func (c *coverCache) pathHistory(ctx context.Context, client GH, pr PR, file str
 	if hist, ok := c.history[key]; ok {
 		return hist, nil
 	}
+	if c.stored != nil && pr.HeadSHA != "" {
+		if hist, ok := c.stored.PathHistory(pr.Repo, pr.Base, file, pr.HeadSHA); ok {
+			c.history[key] = hist
+			return hist, nil
+		}
+	}
 	hist, err := client.PathHistory(ctx, pr.Repo, pr.Base, file, c.historySince)
 	if err != nil {
 		return gh.PathHistory{}, fmt.Errorf("path history for %s: %w", file, err)
 	}
 	c.history[key] = hist
+	if c.stored != nil && pr.HeadSHA != "" {
+		c.stored.PutPathHistory(pr.Repo, pr.Base, file, pr.HeadSHA, hist)
+	}
 	return hist, nil
 }
 

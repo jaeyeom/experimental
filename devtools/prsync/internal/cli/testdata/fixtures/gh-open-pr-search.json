@@ -10,6 +10,7 @@
           "baseRefName": "main",
           "headRefName": "fix-widget",
           "headRefOid": "abc123def456",
+          "updatedAt": "2026-01-01T10:00:00Z",
           "mergeable": "MERGEABLE",
           "mergeStateStatus": "CLEAN",
           "isDraft": false,

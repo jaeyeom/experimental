@@ -170,6 +170,45 @@ func TestScanHerdrMissingDegrades(t *testing.T) {
 	}
 }
 
+// TestScanSecondRoundSkipsUnchangedRollupView runs two rounds against one
+// state_file. The pull request's head and updatedAt do not change, and its
+// checks are settled, so the second round reuses the stored rollup.
+func TestScanSecondRoundSkipsUnchangedRollupView(t *testing.T) {
+	ghBin, herdrBin := fixtureBins(t)
+	viewLog := filepath.Join(t.TempDir(), "view.log")
+	t.Setenv("GH_FAKE_VIEW_LOG", viewLog)
+	stateDir := t.TempDir()
+	cfgPath := writeScanConfig(t, "gh_bin="+ghBin+"\nherdr_bin="+herdrBin+"\nauthor=alice\nrepos=acme/widgets\n"+
+		"state_file="+filepath.Join(stateDir, "state.json")+"\n")
+	views := func() int {
+		data, err := os.ReadFile(viewLog)
+		if err != nil {
+			return 0
+		}
+		return strings.Count(string(data), "statusCheckRollup")
+	}
+	for round, want := range []int{1, 1} {
+		var stdout, stderr bytes.Buffer
+		code := Execute(context.Background(), []string{"scan", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+		if code != ExitOK {
+			t.Fatalf("round %d: exit = %d, stderr=%q", round, code, stderr.String())
+		}
+		var doc scan.Document
+		if err := json.Unmarshal(stdout.Bytes(), &doc); err != nil {
+			t.Fatalf("round %d: json: %v", round, err)
+		}
+		if len(doc.PRs) != 1 || doc.PRs[0].CIState != "green" {
+			t.Fatalf("round %d: prs = %+v, want one green PR", round, doc.PRs)
+		}
+		if got := views(); got != want {
+			t.Fatalf("round %d: rollup views = %d, want %d", round, got, want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, roundCacheFile)); err != nil {
+		t.Fatalf("round cache: %v", err)
+	}
+}
+
 func writeScanConfig(t *testing.T, body string) string {
 	t.Helper()
 	if !strings.Contains(body, "state_file=") {
