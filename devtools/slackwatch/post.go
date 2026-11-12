@@ -12,11 +12,13 @@ import (
 // PostRef names a Slack post or a watch. Either WatchID is set, or Channel
 // and TS are. ThreadTS is the parent thread when the post is known to be a
 // thread reply; it is empty for a top-level post or when unknown.
+// Permalink is the link the post was given as, if any.
 type PostRef struct {
-	WatchID  int64
-	Channel  string
-	TS       string
-	ThreadTS string
+	WatchID   int64
+	Channel   string
+	TS        string
+	ThreadTS  string
+	Permalink string
 }
 
 var (
@@ -62,7 +64,7 @@ func parsePermalink(s string) (PostRef, error) {
 		return PostRef{}, fmt.Errorf("not a Slack message permalink: %q", s)
 	}
 	digits := m[2]
-	p := PostRef{Channel: m[1], TS: digits[:len(digits)-6] + "." + digits[len(digits)-6:]}
+	p := PostRef{Channel: m[1], TS: digits[:len(digits)-6] + "." + digits[len(digits)-6:], Permalink: s}
 	if thread := u.Query().Get("thread_ts"); thread != "" && thread != p.TS {
 		if !tsRE.MatchString(thread) {
 			return PostRef{}, fmt.Errorf("invalid thread_ts in permalink: %q", s)

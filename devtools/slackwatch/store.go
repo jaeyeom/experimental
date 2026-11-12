@@ -139,6 +139,16 @@ ALTER TABLE status ADD COLUMN last_sweep_at INTEGER;
 ALTER TABLE status ADD COLUMN last_sweep_error TEXT NOT NULL DEFAULT '';
 ALTER TABLE status ADD COLUMN undelivered INTEGER NOT NULL DEFAULT 0;
 `,
+	// team_url is the workspace URL from auth.test, for building
+	// permalinks. A watch added from a permalink keeps that link.
+	`
+CREATE TABLE workspace (
+	id       INTEGER PRIMARY KEY CHECK (id = 1),
+	team_url TEXT NOT NULL DEFAULT ''
+);
+INSERT INTO workspace (id) VALUES (1);
+ALTER TABLE watches ADD COLUMN permalink TEXT NOT NULL DEFAULT '';
+`,
 }
 
 // Store is the slackwatch SQLite database. The server and the CLI each
@@ -194,6 +204,23 @@ func (s *Store) migrate() error {
 	return nil
 }
 
+// TeamURL returns the stored workspace URL, or "" when not known yet.
+func (s *Store) TeamURL() (string, error) {
+	var u string
+	if err := s.db.QueryRow(`SELECT team_url FROM workspace WHERE id = 1`).Scan(&u); err != nil {
+		return "", fmt.Errorf("read team URL: %w", err)
+	}
+	return u, nil
+}
+
+// SetTeamURL stores the workspace URL that auth.test reports.
+func (s *Store) SetTeamURL(u string) error {
+	if _, err := s.db.Exec(`UPDATE workspace SET team_url = ? WHERE id = 1`, u); err != nil {
+		return fmt.Errorf("store team URL: %w", err)
+	}
+	return nil
+}
+
 // DB returns the underlying handle.
 func (s *Store) DB() *sql.DB {
 	return s.db
@@ -208,17 +235,19 @@ func (s *Store) Close() error {
 }
 
 // Reply is one message in a watched thread or DM. WatchID 0 means none.
+// Permalink is set by ShowWatch when the team URL is known.
 type Reply struct {
-	Channel  string `json:"channel"`
-	TS       string `json:"ts"`
-	WatchID  int64  `json:"watchId"`
-	Author   string `json:"author"`
-	Text     string `json:"text"`
-	ThreadTS string `json:"threadTs"`
-	EditedAt string `json:"editedAt,omitempty"`
-	IsSelf   bool   `json:"isSelf"`
-	Acked    bool   `json:"acked"`
-	Deleted  bool   `json:"deleted,omitempty"`
+	Channel   string `json:"channel"`
+	TS        string `json:"ts"`
+	WatchID   int64  `json:"watchId"`
+	Author    string `json:"author"`
+	Text      string `json:"text"`
+	ThreadTS  string `json:"threadTs"`
+	EditedAt  string `json:"editedAt,omitempty"`
+	IsSelf    bool   `json:"isSelf"`
+	Acked     bool   `json:"acked"`
+	Deleted   bool   `json:"deleted,omitempty"`
+	Permalink string `json:"permalink,omitempty"`
 }
 
 // AddReply stores r. A reply already stored under the same (channel, ts)

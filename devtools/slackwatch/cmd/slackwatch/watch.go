@@ -377,6 +377,9 @@ func cmdShow(configPath string, args []string, stdout, stderr io.Writer) int {
 
 func printDetail(w io.Writer, d slackwatch.WatchDetail) {
 	fmt.Fprintf(w, "watch %d  %s  %s %s  thread %s  since %s\n", d.ID, d.State, d.Kind, d.Channel, d.ThreadTS, d.SinceTS)
+	if d.Permalink != "" {
+		fmt.Fprintf(w, "link: %s\n", d.Permalink)
+	}
 	fmt.Fprintf(w, "owner: %s\npurpose: %s\nrefs: %s\nsource: %s\ncreated: %s\n",
 		d.Owner, d.Purpose, strings.Join(d.Refs, ", "), d.Source, d.CreatedAt.Local().Format(time.RFC3339))
 	if !d.Until.IsZero() {
@@ -398,7 +401,11 @@ func printDetail(w io.Writer, d slackwatch.WatchDetail) {
 		if r.Deleted {
 			marks = append(marks, "deleted")
 		}
-		fmt.Fprintf(w, "  %s %s %s [%s]: %s\n", r.TS, tsTime(r.TS), r.Author, strings.Join(marks, ","), r.Text)
+		link := ""
+		if r.Permalink != "" {
+			link = " " + r.Permalink
+		}
+		fmt.Fprintf(w, "  %s %s %s [%s]%s: %s\n", r.TS, tsTime(r.TS), r.Author, strings.Join(marks, ","), link, r.Text)
 	}
 	fmt.Fprintf(w, "reactions (%d):\n", len(d.Reactions))
 	for _, r := range d.Reactions {

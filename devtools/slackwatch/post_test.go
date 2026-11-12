@@ -11,17 +11,23 @@ func TestParsePost(t *testing.T) {
 		{
 			name: "top-level permalink",
 			args: []string{"https://acme.slack.com/archives/C0123ABC/p1700000000000100"},
-			want: PostRef{Channel: "C0123ABC", TS: "1700000000.000100"},
+			want: PostRef{Channel: "C0123ABC", TS: "1700000000.000100", Permalink: "https://acme.slack.com/archives/C0123ABC/p1700000000000100"},
 		},
 		{
 			name: "reply permalink",
 			args: []string{"https://acme.slack.com/archives/C0123ABC/p1700000005000200?thread_ts=1700000000.000100&cid=C0123ABC"},
-			want: PostRef{Channel: "C0123ABC", TS: "1700000005.000200", ThreadTS: "1700000000.000100"},
+			want: PostRef{
+				Channel: "C0123ABC", TS: "1700000005.000200", ThreadTS: "1700000000.000100",
+				Permalink: "https://acme.slack.com/archives/C0123ABC/p1700000005000200?thread_ts=1700000000.000100&cid=C0123ABC",
+			},
 		},
 		{
 			name: "permalink to the parent with its own thread_ts",
 			args: []string{"https://acme.slack.com/archives/C0123ABC/p1700000000000100?thread_ts=1700000000.000100"},
-			want: PostRef{Channel: "C0123ABC", TS: "1700000000.000100"},
+			want: PostRef{
+				Channel: "C0123ABC", TS: "1700000000.000100",
+				Permalink: "https://acme.slack.com/archives/C0123ABC/p1700000000000100?thread_ts=1700000000.000100",
+			},
 		},
 		{
 			name: "channel and ts",

@@ -27,7 +27,9 @@ const (
 // ErrNoWatch means no watch matches the given post or id.
 var ErrNoWatch = errors.New("no such watch")
 
-// Watch is one watched thread or DM. Zero times mean unset.
+// Watch is one watched thread or DM. Zero times mean unset. Permalink is
+// the link the watch was added from; ShowWatch and ListWatches fill it
+// from the team URL when there is none.
 type Watch struct {
 	ID           int64     `json:"id"`
 	Channel      string    `json:"channel"`
@@ -44,6 +46,7 @@ type Watch struct {
 	CreatedAt    time.Time `json:"createdAt"`
 	ClosedAt     time.Time `json:"closedAt,omitzero"`
 	CloseReason  string    `json:"closeReason,omitempty"`
+	Permalink    string    `json:"permalink,omitempty"`
 }
 
 // WatchUpdate holds the fields a command sets on a watch. Nil fields are
@@ -89,7 +92,7 @@ type Reaction struct {
 }
 
 const watchCols = `id, channel, thread_ts, kind, since_ts, state, owner, purpose, refs,
-source, until, last_activity, created_at, closed_at, close_reason`
+source, until, last_activity, created_at, closed_at, close_reason, permalink`
 
 // Refs are stored newline-separated.
 const refsSep = "\n"
@@ -111,7 +114,7 @@ func (r *watchRow) dest(extra ...any) []any {
 	return append([]any{
 		&r.w.ID, &r.w.Channel, &r.w.ThreadTS, &r.w.Kind, &r.w.SinceTS, &r.w.State,
 		&r.w.Owner, &r.w.Purpose, &r.refs, &r.w.Source, &r.until, &r.last,
-		&r.created, &r.closed, &r.w.CloseReason,
+		&r.created, &r.closed, &r.w.CloseReason, &r.w.Permalink,
 	}, extra...)
 }
 
@@ -126,6 +129,19 @@ func (r *watchRow) watch() Watch {
 	w.CreatedAt = time.Unix(r.created, 0).UTC()
 	w.ClosedAt = unixTime(r.closed)
 	return w
+}
+
+// link returns the stored permalink, or one to the watched post built
+// from teamURL. It is empty when neither is known.
+func (w Watch) link(teamURL string) string {
+	if w.Permalink != "" {
+		return w.Permalink
+	}
+	ts := w.SinceTS
+	if ts == "" {
+		ts = w.ThreadTS
+	}
+	return permalink(teamURL, w.Channel, ts, w.ThreadTS)
 }
 
 func unixTime(n sql.NullInt64) time.Time {
@@ -218,6 +234,9 @@ func (s *Store) AddWatch(p PostRef, u WatchUpdate, now time.Time) (Watch, bool, 
 WHERE id = ?2 AND (length(?1) < length(since_ts) OR (length(?1) = length(since_ts) AND ?1 < since_ts))`, p.TS, id); err != nil {
 			return Watch{}, false, fmt.Errorf("update since_ts: %w", err)
 		}
+		if _, err := tx.Exec(`UPDATE watches SET permalink = ?1 WHERE id = ?2 AND permalink = ''`, p.Permalink, id); err != nil {
+			return Watch{}, false, fmt.Errorf("update permalink: %w", err)
+		}
 	}
 	if err := addUpdate(tx, id, u); err != nil {
 		return Watch{}, false, err
@@ -263,8 +282,8 @@ func insertWatch(tx *sql.Tx, p PostRef, u WatchUpdate, now time.Time) (int64, er
 	if u.Owner != nil && *u.Owner != "" {
 		state = StateOpen
 	}
-	res, err := tx.Exec(`INSERT INTO watches (channel, thread_ts, kind, since_ts, state, source, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?)`, p.Channel, thread, kind, p.TS, state, SourceManual, now.Unix())
+	res, err := tx.Exec(`INSERT INTO watches (channel, thread_ts, kind, since_ts, state, source, created_at, permalink)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, p.Channel, thread, kind, p.TS, state, SourceManual, now.Unix(), p.Permalink)
 	if err != nil {
 		return 0, fmt.Errorf("insert watch: %w", err)
 	}
@@ -375,10 +394,15 @@ func (s *Store) AckWatch(id int64) (int64, error) {
 }
 
 // ListWatches returns one summary per watch matching f, ordered by id.
+// Each has a permalink when one is stored or the team URL is known.
 // Unacked counts replies by others that are not yet acknowledged.
 // Undelivered is set when a failed delivery has no later successful one
 // for the same reply, such as a fallback.
 func (s *Store) ListWatches(f WatchFilter) ([]WatchSummary, error) {
+	teamURL, err := s.TeamURL()
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.db.Query(`
 SELECT `+watchCols+`,
 	(SELECT COUNT(*) FROM replies r WHERE r.watch_id = w.id),
@@ -406,6 +430,7 @@ ORDER BY id`, f.Owner, f.State)
 			continue
 		}
 		sum.Watch = r.watch()
+		sum.Permalink = sum.link(teamURL)
 		out = append(out, sum)
 	}
 	if err := rows.Err(); err != nil {
@@ -415,11 +440,18 @@ ORDER BY id`, f.Owner, f.State)
 }
 
 // ShowWatch returns the watch with its posts, replies, and reactions.
+// The watch and its replies have permalinks when the team URL is known;
+// a stored watch permalink wins.
 func (s *Store) ShowWatch(id int64) (WatchDetail, error) {
 	w, err := getWatch(s.db, id)
 	if err != nil {
 		return WatchDetail{}, err
 	}
+	teamURL, err := s.TeamURL()
+	if err != nil {
+		return WatchDetail{}, err
+	}
+	w.Permalink = w.link(teamURL)
 	d := WatchDetail{Watch: w, Posts: []string{}, Replies: []Reply{}, Reactions: []Reaction{}}
 	err = s.queryEach(func(rows *sql.Rows) error {
 		var ts string
@@ -439,6 +471,7 @@ func (s *Store) ShowWatch(id int64) (WatchDetail, error) {
 			return err //nolint:wrapcheck // Wrapped by queryEach.
 		}
 		r.WatchID = watchID.Int64
+		r.Permalink = permalink(teamURL, r.Channel, r.TS, r.ThreadTS)
 		d.Replies = append(d.Replies, r)
 		return nil
 	}, `SELECT channel, ts, watch_id, author, text, thread_ts, edited_at, is_self, acked, deleted

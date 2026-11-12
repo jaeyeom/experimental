@@ -316,15 +316,15 @@ func (p *Processor) note(event string, w Watch, m Message) Notification {
 	}
 }
 
-// permalink builds a Slack message link from the workspace URL. It is
-// empty when the URL is unknown.
+// permalink builds a Slack message link from the workspace URL, in the
+// form Slack itself uses. It is empty when the URL is unknown.
 func permalink(teamURL, channel, ts, threadTS string) string {
 	if teamURL == "" {
 		return ""
 	}
 	link := strings.TrimSuffix(teamURL, "/") + "/archives/" + channel + "/p" + strings.Replace(ts, ".", "", 1)
 	if threadTS != "" && threadTS != ts {
-		link += "?thread_ts=" + threadTS
+		link += "?thread_ts=" + threadTS + "&cid=" + channel
 	}
 	return link
 }
