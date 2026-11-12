@@ -55,7 +55,7 @@ func cmdServe(configPath string, args []string, _, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), unix.SIGINT, unix.SIGTERM)
 	defer stop()
 	logger := slog.New(slog.NewTextHandler(stderr, nil))
-	if err := serve(ctx, cfg, store, tokens, logger); err != nil && !errors.Is(err, context.Canceled) {
+	if err := serve(ctx, configPath, cfg, store, tokens, logger); err != nil && !errors.Is(err, context.Canceled) {
 		return fail(stderr, err)
 	}
 	return 0
@@ -70,7 +70,7 @@ type sweeper interface {
 // serve connects through Socket Mode and handles events until ctx ends.
 // Every (re)connect and every sweepInterval triggers a sweep, which runs
 // beside event handling so acks are not delayed.
-func serve(ctx context.Context, cfg slackwatch.Config, store *slackwatch.Store, tokens slackwatch.Tokens, logger *slog.Logger) error {
+func serve(ctx context.Context, configPath string, cfg slackwatch.Config, store *slackwatch.Store, tokens slackwatch.Tokens, logger *slog.Logger) error {
 	api := slack.New(tokens.UserToken, slack.OptionAppLevelToken(tokens.AppToken))
 	proc, err := newProcessor(ctx, api, cfg, store, logger)
 	if err != nil {
@@ -85,6 +85,7 @@ func serve(ctx context.Context, cfg slackwatch.Config, store *slackwatch.Store, 
 	go hb.run(ctx)
 	sweeps := make(chan struct{}, 1)
 	go runSweeps(ctx, &slackwatch.CatchUp{Slack: slackReader{api: api}, Proc: proc}, sweeps, cfg.SweepInterval.Duration, hb.swept, logger)
+	startOutbox(ctx, configPath, cfg, store, logger)
 	done := make(chan error, 1)
 	go func() { done <- client.RunContext(ctx) }()
 	for {

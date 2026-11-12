@@ -20,6 +20,19 @@ const (
 	EventOrphaned = "orphaned"
 	EventChannel  = "channel"
 	EventReopened = "reopened"
+
+	// Outbox events. Ready goes to post.agent in handoff mode, posting
+	// disabled to the fallback target, and the others to the owner of
+	// the outbox record (rejected, mismatch, and failed also to the
+	// fallback target).
+	EventOutboxReady     = "outbox-ready"
+	EventOutboxRedraft   = "outbox-redraft"
+	EventOutboxDropped   = "outbox-dropped"
+	EventOutboxRejected  = "outbox-rejected"
+	EventOutboxMismatch  = "outbox-mismatch"
+	EventOutboxFailed    = "outbox-failed"
+	EventOutboxCancelled = "outbox-cancelled"
+	EventPostingDisabled = "posting-disabled"
 )
 
 // outputLimit caps the stdout and stderr kept per delivery.
@@ -39,6 +52,11 @@ type Notification struct {
 	Refs      []string
 	Author    string
 	Text      string
+	// OutboxID is the outbox record an outbox event is about.
+	OutboxID int64
+	// Message, when set, is SLACKWATCH_MESSAGE in place of the text
+	// built from the other fields.
+	Message string
 }
 
 // Notifier runs the notify template for notifications and records every
@@ -179,9 +197,12 @@ func (n *Notifier) target(name string) string { return n.Config.Target(name) }
 
 func (n *Notifier) env(note Notification, target string) []string {
 	text := excerpt(note.Text, n.Config.ExcerptLimit)
-	watchID := ""
+	watchID, outboxID := "", ""
 	if note.WatchID != 0 {
 		watchID = strconv.FormatInt(note.WatchID, 10)
+	}
+	if note.OutboxID != 0 {
+		outboxID = strconv.FormatInt(note.OutboxID, 10)
 	}
 	// Parent values come first. os/exec keeps the last value for a
 	// duplicate key, so these override any inherited SLACKWATCH_* variable.
@@ -197,12 +218,16 @@ func (n *Notifier) env(note Notification, target string) []string {
 		"SLACKWATCH_AUTHOR="+note.Author,
 		"SLACKWATCH_TEXT="+text,
 		"SLACKWATCH_WATCH_ID="+watchID,
+		"SLACKWATCH_OUTBOX_ID="+outboxID,
 		"SLACKWATCH_MESSAGE="+message(note, text),
 	)
 }
 
 // message is the ready-made one-paragraph text in SLACKWATCH_MESSAGE.
 func message(note Notification, text string) string {
+	if note.Message != "" {
+		return note.Message
+	}
 	var b strings.Builder
 	switch note.Event {
 	case EventUnowned:

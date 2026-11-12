@@ -112,7 +112,7 @@ func cmdStatus(configPath string, args []string, stdout, stderr io.Writer) int {
 	if len(pos) != 0 {
 		return usageErr(stderr, errors.New("status takes no arguments"))
 	}
-	_, store, err := openStore(configPath)
+	cfg, store, err := openStore(configPath)
 	if err != nil {
 		return fail(stderr, err)
 	}
@@ -120,6 +120,15 @@ func cmdStatus(configPath string, args []string, stdout, stderr io.Writer) int {
 	st, err := store.ReadStatus(time.Now())
 	if err != nil {
 		return fail(stderr, err)
+	}
+	if st.Outbox, err = store.OutboxCounts(); err != nil {
+		return fail(stderr, err)
+	}
+	st.PostMode = cfg.Post.Mode
+	if st.PostMode == slackwatch.PostModeDirect {
+		if st.PostingDisabled, err = store.PostingDisabled(); err != nil {
+			return fail(stderr, err)
+		}
 	}
 	if *asJSON {
 		if code := writeJSON(stdout, stderr, st); code != 0 {
@@ -145,6 +154,16 @@ func printStatus(w io.Writer, st slackwatch.Status) {
 	fmt.Fprintf(w, "last catch-up: %s\n", sweepResult(st.LastCatchUpAt, st.LastCatchUpError))
 	fmt.Fprintf(w, "last sweep: %s\n", sweepResult(st.LastSweepAt, st.LastSweepError))
 	fmt.Fprintf(w, "undelivered: %d\n", st.Undelivered)
+	posting := st.PostMode
+	switch {
+	case posting == "":
+		posting = "off"
+	case st.PostingDisabled != "":
+		posting += " (disabled: " + st.PostingDisabled + ")"
+	}
+	fmt.Fprintf(w, "posting: %s\n", posting)
+	fmt.Fprintf(w, "outbox: %d pending, %d awaiting-handoff, %d needs-redraft\n",
+		st.Outbox.Pending, st.Outbox.AwaitingHandoff, st.Outbox.NeedsRedraft)
 }
 
 func localTime(t time.Time) string {

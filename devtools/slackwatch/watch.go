@@ -47,6 +47,9 @@ type Watch struct {
 	ClosedAt     time.Time `json:"closedAt,omitzero"`
 	CloseReason  string    `json:"closeReason,omitempty"`
 	Permalink    string    `json:"permalink,omitempty"`
+	// Flag marks a problem with the watched post, such as a posted text
+	// that does not match the approved outbox text.
+	Flag string `json:"flag,omitempty"`
 }
 
 // WatchUpdate holds the fields a command sets on a watch. Nil fields are
@@ -92,7 +95,7 @@ type Reaction struct {
 }
 
 const watchCols = `id, channel, thread_ts, kind, since_ts, state, owner, purpose, refs,
-source, until, last_activity, created_at, closed_at, close_reason, permalink`
+source, until, last_activity, created_at, closed_at, close_reason, permalink, flag`
 
 // Refs are stored newline-separated.
 const refsSep = "\n"
@@ -114,7 +117,7 @@ func (r *watchRow) dest(extra ...any) []any {
 	return append([]any{
 		&r.w.ID, &r.w.Channel, &r.w.ThreadTS, &r.w.Kind, &r.w.SinceTS, &r.w.State,
 		&r.w.Owner, &r.w.Purpose, &r.refs, &r.w.Source, &r.until, &r.last,
-		&r.created, &r.closed, &r.w.CloseReason, &r.w.Permalink,
+		&r.created, &r.closed, &r.w.CloseReason, &r.w.Permalink, &r.w.Flag,
 	}, extra...)
 }
 
@@ -374,6 +377,11 @@ func (s *Store) CloseWatch(id int64, reason string, now time.Time) (Watch, error
 // SnoozeWatch sets the time until which a watch stays open.
 func (s *Store) SnoozeWatch(id int64, until time.Time) (Watch, error) {
 	return s.execWatch(id, `UPDATE watches SET until = ? WHERE id = ?`, until.Unix())
+}
+
+// FlagWatch sets the flag of a watch.
+func (s *Store) FlagWatch(id int64, flag string) (Watch, error) {
+	return s.execWatch(id, `UPDATE watches SET flag = ? WHERE id = ?`, flag)
 }
 
 // AckWatch marks every stored reply on the watch acknowledged and returns

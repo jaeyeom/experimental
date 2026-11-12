@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "main.go",
+        "outbox.go",
         "serve.go",
         "skill.go",
         "slackapi.go",
@@ -34,6 +35,7 @@ go_test(
     size = "small",
     srcs = [
         "main_test.go",
+        "outbox_test.go",
         "serve_test.go",
         "skill_test.go",
         "slackapi_test.go",
