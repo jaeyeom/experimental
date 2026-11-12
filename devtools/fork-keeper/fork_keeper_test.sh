@@ -35,6 +35,7 @@ case $cmd in
 		G merge-base --is-ancestor "$head" refs/heads/main && continue
 		out=$(jq -c --argjson r "$row" --arg h "$head" '. + [{
 			number: $r.number, headRefName: $r.headRefName,
+			url: "https://github.invalid/pull/\($r.number)",
 			headRefOid: ($r.head_override // $h),
 			labels: [$r.labels[] | {name: .}]}]' <<<"$out")
 	done
@@ -166,6 +167,8 @@ git --git-dir="$FX/upstream.git" update-ref refs/tags/v1 "$u1"
 fk clean
 check "rc=$RC $OUT" eq "$RC" 0
 check "must report promoted: $OUT" said "promoted"
+check "must log the new PR's URL: $OUT" said "opened https://github.invalid/pull/1"
+check "promoted line has the URL: $OUT" said "promoted sync/$DATE https://github.invalid/pull/1 "
 check "one PR created" eq "$(prs)" 1
 check "sync branch pushed" eq "$(oref refs/heads/sync/$DATE)" "$(oref refs/heads/main)"
 check "main rebased onto upstream" git --git-dir="$FX/origin.git" merge-base --is-ancestor "$u1" refs/heads/main
@@ -186,6 +189,7 @@ ucommit README "docs" >/dev/null
 main_before="$(oref refs/heads/main)"
 fk clean
 check "must report needs-review: $OUT" said "needs-review"
+check "needs-review line has the URL: $OUT" said "needs-review: sync/$DATE https://github.invalid/pull/1 (verdict"
 check "needs-review label" has_label 1 needs-review
 check "main untouched" eq "$(oref refs/heads/main)" "$main_before"
 check "upstream-head not recorded" bash -c "! git --git-dir='$FX/origin.git' rev-parse -q --verify refs/fork-keeper/upstream-head"
@@ -220,12 +224,15 @@ DATE=2026-11-11
 fk clean
 check "rc=$RC $OUT" eq "$RC" 0
 check "must wait for review: $OUT" said "waiting for review"
+check "waiting line has the URL: $OUT" said "waiting for review: sync/2026-11-10 https://github.invalid/pull/1 "
 check "agent must not rerun" eq "$(runs)" 1
 
 CUR=sticky-refresh
 u2="$(ucommit README "harmless docs")"
 fk clean
 check "must stay needs-review: $OUT" said "needs-review"
+check "must log the refreshed PR's URL: $OUT" said "refreshed https://github.invalid/pull/1"
+check "needs-review line has the URL: $OUT" said "needs-review: sync/2026-11-10 https://github.invalid/pull/1 (verdict"
 check "agent reran" eq "$(runs)" 2
 check "same PR refreshed" eq "$(prs)" 1
 check "sync branch has new upstream" git --git-dir="$FX/origin.git" merge-base --is-ancestor "$u2" refs/heads/sync/2026-11-10
@@ -246,6 +253,7 @@ DATE=2026-11-12
 fk clean
 check "rc=$RC $OUT" eq "$RC" 0
 check "must report promoted: $OUT" said "promoted"
+check "approved promoted line has the URL: $OUT" said "promoted approved sync/2026-11-10 https://github.invalid/pull/1 "
 check "main is the approved head" eq "$(oref refs/heads/main)" "$pr_head"
 check "pre-sync tag on the old main" eq "$(oref refs/tags/pre-sync/2026-11-12)" "$main_before"
 check "upstream-head is the reviewed upstream" eq "$(oref refs/fork-keeper/upstream-head)" "$u2"

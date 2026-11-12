@@ -146,13 +146,17 @@ promote() {
 
 has_label() { jq -e --arg l "$1" 'any(.labels[]; .name == $l)' <<<"$pr" >/dev/null; }
 
-pr=$(gh pr list -R "$repo" --state open --json number,headRefName,headRefOid,labels) ||
+pr=$(gh pr list -R "$repo" --state open --json number,headRefName,headRefOid,labels,url) ||
 	die "gh pr list failed"
 pr=$(jq -c '[.[] | select(.headRefName | startswith("sync/"))] | sort_by(.number) | last // empty' <<<"$pr")
 sync_branch="sync/$today"
 sticky=false
+pr_url=
+# at: the sync branch, followed by its PR's URL once there is one.
+at() { printf '%s%s' "$sync_branch" "${pr_url:+ $pr_url}"; }
 if [[ -n $pr ]]; then
 	sync_branch=$(jq -r .headRefName <<<"$pr")
+	pr_url=$(jq -r '.url // empty' <<<"$pr")
 	pr_head=$(jq -r .headRefOid <<<"$pr")
 	fetched=$(G rev-parse -q --verify "refs/remotes/origin/$sync_branch^{commit}" || true)
 	if has_label "$APPROVED"; then
@@ -160,7 +164,7 @@ if [[ -n $pr ]]; then
 			base=$(G rev-parse -q --verify "refs/fork-keeper/sync-base/$sync_branch^{commit}") ||
 				die "approved $sync_branch has no refs/fork-keeper/sync-base/$sync_branch"
 			promote "$pr_head" "$base" "refs/fork-keeper/sync-tags/$sync_branch"
-			log "promoted approved $sync_branch ($pr_head) to $branch"
+			log "promoted approved $(at) ($pr_head) to $branch"
 			exit 0
 		fi
 		log "ignoring $APPROVED: PR head $pr_head is not the fetched $sync_branch"
@@ -168,7 +172,7 @@ if [[ -n $pr ]]; then
 	if has_label "$NEEDS_REVIEW"; then
 		sticky=true
 		if [[ -n $fetched ]] && G merge-base --is-ancestor "$upstream_new" "$fetched"; then
-			log "waiting for review: $sync_branch already has upstream $upstream_new"
+			log "waiting for review: $(at) already has upstream $upstream_new"
 			exit 0
 		fi
 	fi
@@ -252,17 +256,19 @@ G push -q --prune "$fork_url" "+$candidate:refs/heads/$sync_branch" \
 if [[ -n $pr ]]; then
 	gh pr edit "$sync_branch" -R "$repo" --body-file "$body" >/dev/null ||
 		die "cannot refresh the PR for $sync_branch"
+	log "refreshed ${pr_url:-$sync_branch}"
 else
-	gh pr create -R "$repo" --base "$branch" --head "$sync_branch" \
-		--title "fork-keeper: sync upstream $today" --body-file "$body" >/dev/null ||
+	pr_url=$(gh pr create -R "$repo" --base "$branch" --head "$sync_branch" \
+		--title "fork-keeper: sync upstream $today" --body-file "$body") ||
 		die "cannot open a PR for $sync_branch"
+	log "opened ${pr_url:-$sync_branch}"
 fi
 
 if [[ $valid == true && $verdict == clean && $tw_rc -eq 0 && $sticky == false ]]; then
 	promote "$candidate" "$upstream_new" refs/upstream-tags
-	log "promoted $sync_branch ($candidate) to $branch"
+	log "promoted $(at) ($candidate) to $branch"
 	exit 0
 fi
 gh pr edit "$sync_branch" -R "$repo" --add-label "$NEEDS_REVIEW" >/dev/null ||
 	die "cannot label $sync_branch $NEEDS_REVIEW"
-log "needs-review: $sync_branch (verdict $verdict, validator $valid, tripwires rc $tw_rc, sticky $sticky)"
+log "needs-review: $(at) (verdict $verdict, validator $valid, tripwires rc $tw_rc, sticky $sticky)"
