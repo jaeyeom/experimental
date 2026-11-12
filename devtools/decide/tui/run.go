@@ -35,6 +35,9 @@ type Options struct {
 	AvatarDefault bool
 	AvatarMono    string
 	Checkouts     []decide.ConfigCheckout
+	// Machine is this machine's herdr label, so an owner pane on it is
+	// looked up without --machine.
+	Machine string
 }
 
 // Run draws the inbox until q or EOF. It reloads the ledger on Interval,
@@ -102,6 +105,7 @@ func prepare(opts Options) (*Model, error) {
 	m.AvatarDefault = opts.AvatarDefault
 	m.AvatarMono = opts.AvatarMono
 	m.Checkouts = opts.Checkouts
+	m.Machine = opts.Machine
 	m.avatarProfile = termenv.NewOutput(opts.Out).EnvColorProfile()
 	if opts.Now != nil {
 		m.Now = opts.Now

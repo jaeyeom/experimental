@@ -60,11 +60,7 @@ func hubConfig() (hubSettings, error) {
 		}
 		hub.ConnectTimeout = d
 	}
-	machine := strings.TrimSpace(cfg.Machine)
-	if env := strings.TrimSpace(os.Getenv("DECIDE_MACHINE")); env != "" {
-		machine = env
-	}
-	return hubSettings{hub: hub, machine: machine}, nil
+	return hubSettings{hub: hub, machine: decide.LocalMachine(cfg)}, nil
 }
 
 // maybeRunOnHub runs args on the hub when hub mode is on and reports

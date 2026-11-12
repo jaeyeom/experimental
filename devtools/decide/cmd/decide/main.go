@@ -459,6 +459,7 @@ func cmdInbox(args []string, stdout, stderr io.Writer) int {
 		AvatarDefault: cfg.AvatarDefault,
 		AvatarMono:    cfg.AvatarMono,
 		Checkouts:     cfg.Checkouts,
+		Machine:       decide.LocalMachine(cfg),
 	}); err != nil {
 		return fail(stderr, err, 1)
 	}
@@ -604,9 +605,34 @@ func cmdShow(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
+	if jsonOut {
+		return writeShowJSON(id, stdout, stderr)
+	}
 	return withItem(stdout, stderr, jsonOut, false, func(led *decide.Ledger) (decide.Item, error) {
 		return led.Get(id)
 	})
+}
+
+// writeShowJSON prints item id with ownerLocation, where its owner pane lives
+// in herdr now.
+func writeShowJSON(id string, stdout, stderr io.Writer) int {
+	led, err := openLedger()
+	if err != nil {
+		return fail(stderr, err, 1)
+	}
+	item, err := led.Get(id)
+	if err != nil {
+		return fail(stderr, err, 1)
+	}
+	cfg, err := decide.LoadConfig()
+	if err != nil {
+		return fail(stderr, err, 1)
+	}
+	locs := decide.LocationResolver{}.Resolve(context.Background(), []decide.OwnerLocation{decide.OwnerPane(&item, decide.LocalMachine(cfg))})
+	return writeJSON(stdout, stderr, struct {
+		decide.Item
+		OwnerLocation decide.OwnerLocation `json:"ownerLocation"`
+	}{item, locs[0]})
 }
 
 func cmdWithdraw(args []string, stdout, stderr io.Writer) int {

@@ -7,6 +7,7 @@ go_library(
         "avatar.go",
         "lease.go",
         "ledger.go",
+        "location.go",
         "notify.go",
         "send.go",
         "snooze.go",
@@ -28,9 +29,11 @@ go_test(
         "avatar_test.go",
         "lease_test.go",
         "ledger_test.go",
+        "location_test.go",
         "snooze_test.go",
     ],
     embed = [":go_default_library"],
+    deps = ["//devtools/pkg/herdrtest:go_default_library"],
 )
 
 org_lint_tests(["README.org"])

@@ -53,7 +53,16 @@ func (m *Model) Init() tea.Cmd {
 }
 
 // Update drives the existing inbox behavior from bubbletea messages.
+// Opening an item also starts the lookup of where its owner lives.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	next, cmd := m.update(msg)
+	if locate := m.locateCmd(); locate != nil {
+		cmd = tea.Batch(cmd, locate)
+	}
+	return next, cmd
+}
+
+func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.keyLog != nil {
 		logInput(m.keyLog, msg)
 	}
@@ -85,6 +94,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateMouse(msg)
 	case reloadMsg:
 		return m.updateReload()
+	case locationMsg:
+		m.setLocation(msg)
+		return m, nil
 	default:
 		return m, nil
 	}

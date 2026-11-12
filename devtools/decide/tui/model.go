@@ -167,6 +167,12 @@ type Model struct {
 	avatarFailed  map[string]bool
 	// Checkouts map status resources to lease-guarded checkouts.
 	Checkouts []decide.ConfigCheckout
+	// Machine is this machine's herdr label. locations caches each
+	// item's owner location for the session. locateWant asks Update to
+	// look up the open item's owner.
+	Machine    string
+	locations  map[string]decide.OwnerLocation
+	locateWant bool
 }
 
 // New returns an inbox positioned on the open folder.
@@ -862,6 +868,7 @@ func (m *Model) openRow() error {
 		return fmt.Errorf("mark decide item read: %w", err)
 	}
 	m.detail = &updated
+	m.locateWant = true
 	m.mode = modeDetail
 	m.draft = ""
 	m.reply = ""
@@ -2221,7 +2228,7 @@ func (m *Model) detailLines(width int) []screenLine {
 		title += fmt.Sprintf("  /%s (%d)", m.highlight, highlightCount(it, re))
 	}
 	lines := []screenLine{{text: plainText(title)}}
-	lines = append(lines, headerLines(it, m.now().Location())...)
+	lines = append(lines, headerLines(it, m.now().Location(), decide.OwnerAt(it.Owner, m.ownerLocation(it)))...)
 	if m.avatarFits(width) {
 		// The owner is the other party: the asker, or the recipient of
 		// a thread the human started.
@@ -2273,15 +2280,16 @@ func headerTime(t time.Time) string {
 	return t.UTC().Format(time.RFC3339)
 }
 
-// headerLines is the metadata block above the item body.
-// Labels share one column so the colons line up.
-func headerLines(it *decide.Item, loc *time.Location) []screenLine {
+// headerLines is the metadata block above the item body. owner is the
+// owner and where it lives. Labels share one column so the colons line up.
+func headerLines(it *decide.Item, loc *time.Location, owner string) []screenLine {
 	from, to := threadParties(it)
 	rows := []struct{ label, value string }{{"From", from}}
 	if to != "" {
 		rows = append(rows, struct{ label, value string }{"To", to})
 	}
 	rows = append(rows,
+		struct{ label, value string }{"Owner", owner},
 		struct{ label, value string }{"Kind", it.Kind},
 		struct{ label, value string }{"State", it.State},
 		struct{ label, value string }{"Created", headerTime(it.CreatedAt)},

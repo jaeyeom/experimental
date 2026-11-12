@@ -575,10 +575,43 @@
   (let (cols)
     (dolist (line (split-string text "\n"))
       (when (string-match
-             "\\` *\\(From\\|To\\|Kind\\|State\\|Created\\|Answered\\):"
+             "\\` *\\(From\\|To\\|Owner\\|Kind\\|State\\|Created\\|Answered\\):"
              line)
         (push (string-match ":" line) cols)))
     (nreverse cols)))
+
+(ert-deftest decide-owner-location-text ()
+  (should (equal (decide--owner-location-text nil) "unknown"))
+  (should (equal (decide--owner-location-text '(("pane" . "") ("state" . "unknown")))
+                 "unknown"))
+  (should (equal (decide--owner-location-text
+                  '(("machine" . "") ("workspace" . "experimental") ("tab" . "review")
+                    ("pane" . "w3:p7") ("state" . "live")))
+                 "experimental / review (w3:p7)"))
+  (should (equal (decide--owner-location-text
+                  '(("machine" . "mac") ("workspace" . "experimental") ("tab" . "review")
+                    ("pane" . "w3:p7") ("state" . "live")))
+                 "mac: experimental / review (w3:p7)"))
+  (should (equal (decide--owner-location-text '(("pane" . "w3:p9") ("state" . "closed")))
+                 "(w3:p9) — tab closed"))
+  (should (equal (decide--owner-location-text
+                  '(("machine" . "mac") ("pane" . "w3:p7") ("state" . "unreachable")))
+                 "mac: (w3:p7) (unreachable)"))
+  (should (equal (decide--owner-location-text '(("pane" . "w3:p7") ("state" . "unknown")))
+                 "(w3:p7)")))
+
+(ert-deftest decide-item-header-shows-owner-location ()
+  (let ((text (decide--item-text
+               '(("id" . "D-1")
+                 ("owner" . "review-load")
+                 ("kind" . "relay")
+                 ("state" . "open")
+                 ("question" . "ship it?")
+                 ("ownerLocation" .
+                  (("machine" . "") ("workspace" . "experimental") ("tab" . "review")
+                   ("pane" . "w3:p7") ("state" . "live")))))))
+    (should (string-match-p
+             "^ *Owner: review-load at experimental / review (w3:p7)$" text))))
 
 (ert-deftest decide-list-faces-and-item-header-align ()
   (should (facep 'decide-requester))
@@ -610,12 +643,12 @@
                 'decide-requester))
     (should (eq (get-text-property (string-match "relay" line) 'face line)
                 'decide-badge))
-    (should (= (length ask-colons) 5))
+    (should (= (length ask-colons) 6))
     (should (apply #'= ask-colons))
     (should-not (string-match-p "^ *To:" ask-text))
     (should (string-match-p "From: ada" ask-text))
     (should (string-match-p "Answered: \n\nship it?" ask-text))
-    (should (= (length thread-colons) 6))
+    (should (= (length thread-colons) 7))
     (should (apply #'= thread-colons))
     (should (string-match-p "From: human" thread-text))
     (should (string-match-p "To: beta" thread-text))

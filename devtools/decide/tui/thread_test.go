@@ -296,10 +296,10 @@ func TestThreadMessagesAreBlocks(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.width = 40
-	m.height = 24
+	m.height = 25
 	press(t, m, "o")
 	view := m.View()
-	assertFrame(t, view, 40, 24)
+	assertFrame(t, view, 40, 25)
 	vis := visibleLine(view)
 	if strings.Count(vis, "────") < 2 {
 		t.Fatalf("rules = %d\n%s", strings.Count(vis, "────"), view)
@@ -327,7 +327,7 @@ func TestThreadMessagesAreBlocks(t *testing.T) {
 
 	t.Setenv("NO_COLOR", "1")
 	plain := m.View()
-	assertFrame(t, plain, 40, 24)
+	assertFrame(t, plain, 40, 25)
 	if hasColorSequence(plain) {
 		t.Fatalf("NO_COLOR view has color\n%s", plain)
 	}

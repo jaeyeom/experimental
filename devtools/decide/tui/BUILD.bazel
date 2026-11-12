@@ -10,6 +10,7 @@ go_library(
         "field.go",
         "keydebug.go",
         "link.go",
+        "location.go",
         "model.go",
         "mouse.go",
         "program.go",
@@ -60,6 +61,7 @@ go_test(
         "field_test.go",
         "lease_test.go",
         "link_test.go",
+        "location_test.go",
         "machine_test.go",
         "model_test.go",
         "recipients_test.go",
@@ -74,6 +76,7 @@ go_test(
     deps = [
         "//devtools/decide:go_default_library",
         "//devtools/decide/tui/avatar:go_default_library",
+        "//devtools/pkg/herdrtest:go_default_library",
         "@com_github_charmbracelet_bubbletea//:go_default_library",
         "@com_github_charmbracelet_lipgloss//:go_default_library",
         "@com_github_muesli_termenv//:go_default_library",

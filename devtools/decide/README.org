@@ -221,6 +221,39 @@ file that cannot be read or decoded, or an unknown ~builtin~ id, is
 hidden too, and the status line shows the error once. Rendered avatars are cached, so moving the
 selection or reloading does not decode the file again.
 
+* Where the owner lives
+
+The item view has an ~Owner:~ header line: the owner and the herdr
+workspace, tab, and pane of the item's stored ~notifyPane~, looked up
+live when the item opens:
+
+#+begin_example
+Owner: review-load at experimental / review (w6:pM)
+#+end_example
+
+- No stored pane: ~at unknown~. An ~agentbus:~ name is not looked up
+  and shows as the pane id.
+- A pane herdr no longer lists: ~at (w6:pM) — tab closed~.
+- A ~notifyMachine~ other than this machine's label (~machine~ in the
+  config, or ~DECIDE_MACHINE~): the lookup runs through
+  ~herdr --machine <m>~ and the line starts with the machine, as in
+  ~at mac: experimental / review (w6:pM)~. A machine that does not
+  answer shows ~at mac: (w6:pM) (unreachable)~.
+- herdr missing, not running, or failing: only the pane id.
+
+A lookup is one ~herdr pane list~ (which maps the pane to its tab),
+one ~herdr tab list~, and one ~herdr workspace list~ per machine, each
+with a 5s deadline. The inbox never waits for it: the line shows the
+pane id until the lookup returns. The result is cached per item for
+the session and looked up again each time the item is opened; the
+ledger reload tick does not ask herdr.
+
+~decide show --json~ adds ~ownerLocation~ with ~machine~ (empty for
+this machine), ~workspace~, ~tab~, ~pane~, and ~state~: ~live~,
+~closed~, ~unknown~, or ~unreachable~. A live pane also has
+~workspaceId~ and ~tabId~. Emacs shows the same line from it, so an
+Emacs item buffer is drawn after the lookup, and ~g~ looks it up again.
+
 * Emacs
 
 ~devtools/decide/emacs/decide.el~ is a plain Emacs frontend. Load that

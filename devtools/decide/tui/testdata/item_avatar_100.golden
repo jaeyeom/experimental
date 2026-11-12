@@ -2,10 +2,11 @@
 │[1m┌────────────────────────────────────────────────────────────────────────────────────────────────┐[0m│
 │[1m│[0m[32mAAAAAAAAAA[0m[0m D-001                                                                                [1m│[0m│
 │[1m│[0m[32mAAAAAAAAAA[0m[0m [37m    From:[0m a/x                                                                        [1m│[0m│
+│[1m│[0m[32mAAAAAAAAAA[0m[0m [37m   Owner:[0m a/x at unknown                                                             [1m│[0m│
 │[1m│[0m[32mAAAAAAAAAA[0m[0m [37m    Kind:[0m relay                                                                      [1m│[0m│
 │[1m│[0m[32mAAAAAAAAAA[0m[0m [37m   State:[0m open                                                                       [1m│[0m│
 │[1m│[0m[32mAAAAAAAAAA[0m[0m [37m Created:[0m 2026-11-01T00:00:00Z                                                       [1m│[0m│
-│[1m│[0m[32mAAAAAAAAAA[0m[0m [37mAnswered:[0m                                                                            [1m│[0m│
+│[1m│[0m           [37mAnswered:[0m                                                                            [1m│[0m│
 │[1m│[0m                                                                                                [1m│[0m│
 │[1m│[0m[7m[32ma/x[0m  [90m10d[0m  latest[0m                                                                                [1m│[0m│
 │[1m│[0m  ship it?                                                                                      [1m│[0m│
@@ -13,7 +14,6 @@
 │[1m│[0mdeadline: -                                                                                     [1m│[0m│
 │[1m└────────────────────────────────────────────────────────────────────────────────────────────────┘[0m│
 │opened D-001  mouse on  0 reply  f forward  u list  e/y archive  j/k up/down pgup/pgdn home/end  …│
-│                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │

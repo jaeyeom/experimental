@@ -181,3 +181,62 @@ func TestComposeReportsAnUnreachableMachine(t *testing.T) {
 		t.Fatalf("send --id = %d, stderr %q", code, stderr)
 	}
 }
+
+func TestShowJSONCarriesOwnerLocation(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("DECIDE_HUB", "")
+	t.Setenv("DECIDE_MACHINE", "hub")
+	herdr := herdrtest.Install(t)
+	lists := map[string]string{
+		"panes":      `{"result":{"panes":[{"pane_id":"w3:p7","tab_id":"w3:t2","workspace_id":"w3"}]}}`,
+		"tabs":       `{"result":{"tabs":[{"tab_id":"w3:t2","label":"review"}]}}`,
+		"workspaces": `{"result":{"workspaces":[{"workspace_id":"w3","label":"experimental"}]}}`,
+	}
+	for _, m := range []string{"local", "mac"} {
+		for kind, body := range lists {
+			herdr.Write(m+"."+kind, body)
+		}
+	}
+	herdr.Write("down.down", "")
+	led, err := openLedger()
+	if err != nil {
+		t.Fatal(err)
+	}
+	live := decide.OwnerLocation{Workspace: "experimental", Tab: "review", Pane: "w3:p7", State: decide.LocationLive, WorkspaceID: "w3", TabID: "w3:t2"}
+	remote := live
+	remote.Machine = "mac"
+	cases := []struct {
+		label string
+		item  decide.Item
+		want  decide.OwnerLocation
+	}{
+		{"live", decide.Item{NotifyPane: "w3:p7"}, live},
+		{"closed", decide.Item{NotifyPane: "w3:p9"}, decide.OwnerLocation{Pane: "w3:p9", State: decide.LocationClosed}},
+		{"no pane", decide.Item{}, decide.OwnerLocation{State: decide.LocationUnknown}},
+		{"this machine by label", decide.Item{NotifyPane: "w3:p7", NotifyMachine: "hub"}, live},
+		{"other machine", decide.Item{NotifyPane: "w3:p7", NotifyMachine: "mac"}, remote},
+		{"unreachable", decide.Item{NotifyPane: "w3:p7", NotifyMachine: "down"}, decide.OwnerLocation{Machine: "down", Pane: "w3:p7", State: decide.LocationUnreachable}},
+	}
+	for _, tc := range cases {
+		tc.item.Owner, tc.item.Question, tc.item.Kind, tc.item.State = "ada", "q", decide.KindRelay, decide.StateOpen
+		created, err := led.Create(&tc.item)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, stderr, code := runCLI("show", "--json", created.ID)
+		if code != 0 {
+			t.Fatalf("%s: show --json = %d\n%s", tc.label, code, stderr)
+		}
+		var got struct {
+			ID            string               `json:"id"`
+			OwnerLocation decide.OwnerLocation `json:"ownerLocation"`
+		}
+		if err := json.Unmarshal([]byte(raw), &got); err != nil {
+			t.Fatalf("%s: %v\n%s", tc.label, err, raw)
+		}
+		if got.ID != created.ID || got.OwnerLocation != tc.want {
+			t.Fatalf("%s: ownerLocation = %+v, want %+v\n%s", tc.label, got.OwnerLocation, tc.want, raw)
+		}
+	}
+}

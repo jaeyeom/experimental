@@ -311,7 +311,7 @@ func TestDetailHeaderAlignsAndNoColor(t *testing.T) {
 	press(t, m, "o")
 	threaded := m.View()
 	threadCols := headerColonColumns(t, threaded)
-	if len(threadCols) != 6 {
+	if len(threadCols) != 7 {
 		t.Fatalf("thread header rows %d\n%s", len(threadCols), threaded)
 	}
 	for _, col := range threadCols[1:] {
@@ -355,7 +355,7 @@ func TestDetailHeaderAlignsAndNoColor(t *testing.T) {
 	press(t, m, "o")
 	asked := m.View()
 	askCols := headerColonColumns(t, asked)
-	if len(askCols) != 5 {
+	if len(askCols) != 6 {
 		t.Fatalf("ask header rows %d\n%s", len(askCols), asked)
 	}
 	for _, col := range askCols[1:] {
@@ -418,7 +418,7 @@ func rawHeaderLine(t *testing.T, view, label string) string {
 
 func isHeaderLine(text string) bool {
 	field := strings.TrimSpace(text)
-	for _, label := range []string{"From:", "To:", "Kind:", "State:", "Created:", "Answered:"} {
+	for _, label := range []string{"From:", "To:", "Owner:", "Kind:", "State:", "Created:", "Answered:"} {
 		if strings.HasPrefix(field, label) {
 			return true
 		}
