@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jaeyeom/experimental/devtools/decide/tui"
 	"github.com/jaeyeom/experimental/devtools/decide/tui/avatar"
 	"github.com/muesli/termenv"
 	"golang.org/x/sys/unix"
@@ -25,17 +26,27 @@ const (
 )
 
 func cmdAvatars(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "set" {
+		return cmdAvatarsSet(args[1:], stdout, stderr)
+	}
 	if len(args) == 0 || args[0] != "list" {
-		return fail(stderr, fmt.Errorf("decide avatars requires list"), 2)
+		return fail(stderr, fmt.Errorf("decide avatars requires list or set"), 2)
 	}
 	fs := flag.NewFlagSet("avatars list", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	name := fs.String("name", "", "also show the built-in this name gets")
+	idsOnly := fs.Bool("ids", false, "print only the ids, one per line")
 	if code, stop := stopped(parseFlags(fs, args[1:])); stop {
 		return code
 	}
 	if len(fs.Args()) != 0 {
 		return fail(stderr, fmt.Errorf("decide avatars list does not take arguments"), 2)
+	}
+	if *idsOnly {
+		for _, id := range avatar.BuiltinIDs() {
+			fmt.Fprintln(stdout, id)
+		}
+		return 0
 	}
 	profile := termenv.NewOutput(stdout).EnvColorProfile()
 	if *name != "" {
@@ -57,6 +68,20 @@ func cmdAvatars(args []string, stdout, stderr io.Writer) int {
 		}
 		writeAvatarRow(stdout, ids[start:min(start+perRow, len(ids))], profile, idWidth)
 	}
+	return 0
+}
+
+// cmdAvatarsSet saves name's avatar in this machine's config, as the
+// inbox avatar picker does.
+func cmdAvatarsSet(args []string, stdout, stderr io.Writer) int {
+	if len(args) != 2 {
+		return fail(stderr, fmt.Errorf("decide avatars set requires <name> <id|default|none>"), 2)
+	}
+	name, choice := args[0], args[1]
+	if _, err := tui.SaveAvatar(name, choice); err != nil {
+		return fail(stderr, err, 1)
+	}
+	fmt.Fprintf(stdout, "avatar for %s: %s (saved to config)\n", name, choice)
 	return 0
 }
 

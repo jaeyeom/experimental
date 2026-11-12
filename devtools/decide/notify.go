@@ -129,7 +129,16 @@ func LoadConfig() (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("read decide config: %w", err)
 	}
+	return parseConfig(data, filepath.Dir(path))
+}
+
+// parseConfig parses config data from a file in dir. Nil data is an
+// empty config.
+func parseConfig(data []byte, dir string) (Config, error) {
 	var cfg Config
+	if data == nil {
+		return cfg, nil
+	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("parse decide config: %w", err)
 	}
@@ -139,7 +148,7 @@ func LoadConfig() (Config, error) {
 	if len(cfg.OpenCommand) > 0 && cfg.OpenCommand[0] == "" {
 		return Config{}, fmt.Errorf("decide config openCommand: the program is empty")
 	}
-	resolveAvatarFiles(cfg.Avatars, filepath.Dir(path))
+	resolveAvatarFiles(cfg.Avatars, dir)
 	return cfg, nil
 }
 

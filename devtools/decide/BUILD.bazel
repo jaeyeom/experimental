@@ -5,6 +5,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "avatar.go",
+        "avatarconfig.go",
         "lease.go",
         "ledger.go",
         "location.go",
@@ -27,6 +28,7 @@ go_test(
     size = "small",
     srcs = [
         "avatar_test.go",
+        "avatarconfig_test.go",
         "config_test.go",
         "lease_test.go",
         "ledger_test.go",

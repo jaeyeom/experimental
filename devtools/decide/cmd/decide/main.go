@@ -105,7 +105,8 @@ func usage(w io.Writer) {
   decide send --id <id> [--json] [--via cli|ui] <text>
   decide reply <id> [--option key:label ...] [--rec key] [--free-text] [--json] <text>
   decide skill
-  decide avatars list [--name <name>]
+  decide avatars list [--name <name>] [--ids]
+  decide avatars set <name> <id|default|none>
 `)
 }
 

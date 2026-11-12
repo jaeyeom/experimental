@@ -31,6 +31,7 @@ func (m *Model) avatarFits(width int) bool {
 
 // hasAvatar reports whether name shows an avatar, without rendering it.
 // Under NO_COLOR or a monochrome terminal, avatarMono "hide" hides all.
+// A matching hide rule hides name's.
 func (m *Model) hasAvatar(name string) bool {
 	if name == "" {
 		return false
@@ -39,8 +40,8 @@ func (m *Model) hasAvatar(name string) bool {
 	if mono && m.AvatarMono == decide.AvatarMonoHide {
 		return false
 	}
-	if _, ok := decide.MatchAvatar(m.Avatars, name); ok {
-		return true
+	if rule, ok := decide.MatchAvatar(m.Avatars, name); ok {
+		return !rule.Hide
 	}
 	return m.AvatarDefault
 }

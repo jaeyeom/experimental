@@ -479,7 +479,7 @@ The reply line and the numbered options follow."
   (let ((keys (decide--option-keys item)))
     (concat (mapconcat #'identity keys "  ")
             (if keys "   " "")
-            "0 reply   y archive   O owner   "
+            "0 reply   y archive   O owner   A avatar   "
             (if (decide--item-links item) "l link   " "")
             "q quit")))
 
@@ -575,6 +575,25 @@ the item shows them."
      ((null (cdr links)) (browse-url (car links)))
      (t (let ((row (completing-read "Open link: " (decide--link-rows links) nil t)))
           (browse-url (nth (1- (string-to-number row)) links)))))))
+
+(defun decide--avatars-set-args (owner choice)
+  "Argument list that sets OWNER's avatar to CHOICE in the local config."
+  (list "avatars" "set" owner choice))
+
+(defun decide-set-avatar ()
+  "Change the avatar of the open item's owner, as the inbox's A does.
+Offer every built-in id plus default and none, then save the choice to
+this machine's config with `decide avatars set'."
+  (interactive)
+  (let ((owner (decide--field (car decide--items) "owner")))
+    (when (string-empty-p owner)
+      (user-error "No owner"))
+    (let* ((ids (append '("default" "none")
+                        (split-string (decide--command '("avatars" "list" "--ids"))
+                                      "\n" t)))
+           (choice (completing-read (format "Avatar for %s: " owner) ids nil t)))
+      (message "%s" (string-trim
+                     (decide--command (decide--avatars-set-args owner choice)))))))
 
 (defun decide-answer-option ()
   "Answer the open item with one of its option keys."
@@ -759,6 +778,7 @@ Long lines wrap, so a draft in the thread can be scrolled."
 (define-key decide-item-mode-map (kbd "0") #'decide-reply)
 (define-key decide-item-mode-map (kbd "y") #'decide-archive)
 (define-key decide-item-mode-map (kbd "O") #'decide-focus-owner)
+(define-key decide-item-mode-map (kbd "A") #'decide-set-avatar)
 (define-key decide-item-mode-map (kbd "l") #'decide-open-link)
 (define-key decide-item-mode-map (kbd "n") #'decide-message-next)
 (define-key decide-item-mode-map (kbd "p") #'decide-message-previous)
@@ -1055,6 +1075,7 @@ or archives."
    decide-item-mode-map
    (list (kbd "o") #'decide-answer-option
          (kbd "O") #'decide-focus-owner
+         (kbd "A") #'decide-set-avatar
          (kbd "l") #'decide-open-link
          (kbd "0") #'decide-reply
          (kbd "y") #'decide-archive

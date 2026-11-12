@@ -108,6 +108,12 @@ type Model struct {
 	out          io.Writer
 	keyLog       io.Writer
 	linkPick     bool
+	// avatarPick is the avatar picker for avatarOwner. avatarCursor is
+	// the entry under the cursor and avatarTop the first row shown.
+	avatarPick   bool
+	avatarOwner  string
+	avatarCursor int
+	avatarTop    int
 	linkURL      string
 	mouseOn      bool
 	mouseSync    bool
@@ -297,8 +303,8 @@ func (m *Model) Key(r rune) (bool, error) {
 	if m.help {
 		return m.helpKey(r)
 	}
-	if m.linkPick {
-		return m.linkPickKey(r)
+	if m.pickerOpen() {
+		return m.popupKey(r)
 	}
 	if m.answerFocus {
 		return m.answerKey(r)
@@ -665,9 +671,12 @@ func (m *Model) detailKey(r rune) (bool, error) {
 }
 
 // detailOutside runs an item-view key that acts outside the inbox:
-// Y copies the message, L the link, and o jumps to the owner's tab.
+// Y copies the message, L the link, o jumps to the owner's tab, and A
+// picks the owner's avatar, saved to config.
 func (m *Model) detailOutside(r rune) bool {
 	switch r {
+	case 'A':
+		m.beginAvatarPick()
 	case 'Y':
 		m.copyCurrentMessage()
 	case 'L':
@@ -1117,12 +1126,14 @@ func (m *Model) View() string {
 
 func (m *Model) allLines() []screenLine {
 	var lines []screenLine
-	if m.help || m.snoozing || m.linkPick {
+	if m.help || m.snoozing || m.linkPick || m.avatarPick {
 		switch {
 		case m.help:
 			lines = m.helpLines()
 		case m.snoozing:
 			lines = m.snoozeLines()
+		case m.avatarPick:
+			lines = m.avatarPickLines()
 		default:
 			lines = m.linkPickLines()
 		}
@@ -1177,6 +1188,9 @@ func (m *Model) statusLine() screenLine {
 			return screenLine{text: m.status + "  " + label + linkPickHint}
 		}
 		return screenLine{text: label + linkPickHint}
+	}
+	if m.avatarPick {
+		return screenLine{text: label + avatarPickHint}
 	}
 	if m.chord {
 		return screenLine{text: goToMenu(m.contentWidth())}
@@ -2150,7 +2164,7 @@ func (m *Model) helpLines() []screenLine {
 		"1-9 answer  0 reply  f forward  e/y archive  d outcome  b snooze",
 		"/ filters as you type, esc restores, empty enter clears",
 		"l opens a link, or picks one: j/k or a number, enter opens",
-		"L copies the link   Y copies the message",
+		"L copies the link   Y copies the message   A picks the owner's avatar",
 		"shift+drag selects text",
 		"M toggles mouse capture",
 		"esc back",

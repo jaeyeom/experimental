@@ -342,7 +342,7 @@
               (call-interactively (key-binding (kbd "o"))))
             (with-current-buffer "*decide D-4*"
               (should (equal header-line-format
-                             "a  b   0 reply   y archive   O owner   q quit"))
+                             "a  b   0 reply   y archive   O owner   A avatar   q quit"))
               (should-not (string-match-p "free text" header-line-format))
               (should (eq (lookup-key decide-item-mode-map (kbd "o"))
                           #'decide-answer-option))
@@ -642,6 +642,28 @@ CALLS are (MACHINE ARGS) in order.  REFUSE makes every call fail."
 (ert-deftest decide-focus-owner-key ()
   (should (eq (lookup-key decide-item-mode-map (kbd "O")) #'decide-focus-owner))
   (should (string-match-p "O owner" (decide--item-keys-line nil))))
+
+(ert-deftest decide-set-avatar-saves-the-choice ()
+  (let (calls offered)
+    (with-temp-buffer
+      (setq-local decide--items (list '(("id" . "D-9") ("owner" . "ops/x"))))
+      (cl-letf (((symbol-function 'decide--command)
+                 (lambda (args)
+                   (setq calls (append calls (list args)))
+                   (if (equal args '("avatars" "list" "--ids"))
+                       "bee\nowl\n"
+                     "avatar for ops/x: owl (saved to config)\n")))
+                ((symbol-function 'completing-read)
+                 (lambda (_prompt ids &rest _)
+                   (setq offered ids)
+                   "owl")))
+        (should (equal (decide-set-avatar) "avatar for ops/x: owl (saved to config)"))))
+    (should (equal offered '("default" "none" "bee" "owl")))
+    (should (equal (cadr calls) '("avatars" "set" "ops/x" "owl")))))
+
+(ert-deftest decide-set-avatar-key ()
+  (should (eq (lookup-key decide-item-mode-map (kbd "A")) #'decide-set-avatar))
+  (should (string-match-p "A avatar" (decide--item-keys-line nil))))
 
 (defconst decide-test--link-item
   '(("id" . "D-9")
