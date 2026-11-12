@@ -72,6 +72,7 @@ func (c *Cache) Run(ctx context.Context, l *Limiter, args []string, run Runner, 
 		if l.Log != nil {
 			_ = l.Log(Entry{Time: l.now(), Args: strings.Join(Redact(args), " "), Reason: ReasonCacheHit})
 		}
+		l.logCacheHit(args)
 		return Result{StdoutLen: int64(len(data))}, nil
 	}
 	// The directory exists before gh runs, so a mutation that finishes

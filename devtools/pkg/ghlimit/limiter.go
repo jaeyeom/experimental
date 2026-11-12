@@ -41,6 +41,9 @@ type Limiter struct {
 	// Log, when set, receives one Entry for each call that waited longer
 	// than LogThreshold.
 	Log func(Entry) error
+	// LogCall, when set, receives one CallEntry for each gh run and each
+	// read the cache served.
+	LogCall func(CallEntry) error
 }
 
 // LogThreshold is the shortest total wait that is logged.
@@ -109,16 +112,63 @@ func (l *Limiter) Run(ctx context.Context, args []string, run Runner) (Result, e
 		defer l.recordMutation()
 	}
 
-	res, err := run(ctx)
+	info := ClassifyCall(args)
+	res, err := l.runCall(ctx, args, info, run, &waits)
 	if err == nil && res.ExitCode != 0 && res.StdoutLen == 0 &&
 		RateLimited(args, string(res.Stderr), string(res.StdoutHead)) {
 		d := l.backoff(res)
 		l.sleep(d)
 		waits = append(waits, wait{ReasonBackoff, d})
-		res, err = run(ctx)
+		res, err = l.runCall(ctx, args, info, run, &waits)
 	}
 	l.log(args, waits)
 	return res, err
+}
+
+// runCall runs gh once within the per-minute budgets, adding any budget
+// wait to waits, and logs the call.
+func (l *Limiter) runCall(ctx context.Context, args []string, info CallInfo, run Runner, waits *[]wait) (Result, error) {
+	id, budgetWaits, err := l.reserve(ctx, info)
+	*waits = append(*waits, budgetWaits...)
+	if err != nil {
+		return Result{}, err
+	}
+	start := l.now()
+	res, err := run(ctx)
+	took := l.now().Sub(start)
+	l.finish(ctx, id, info, took)
+	if err == nil {
+		l.logCall(args, info, start, took, res)
+	}
+	return res, err
+}
+
+// logCall sends the CallEntry of one gh run.
+func (l *Limiter) logCall(args []string, info CallInfo, start time.Time, took time.Duration, res Result) {
+	if l.LogCall == nil {
+		return
+	}
+	e := newCallEntry(args, info, start)
+	e.DurationMS = took.Milliseconds()
+	e.ExitCode = res.ExitCode
+	e.RateLimited = res.ExitCode != 0 && RateLimited(args, string(res.Stderr), string(res.StdoutHead))
+	if res.StdoutKept {
+		if cost, remaining, ok := ParseRateLimit(res.Stdout); ok {
+			e.RateLimitCost, e.RateLimitRemaining = &cost, &remaining
+		}
+	}
+	_ = l.LogCall(e)
+}
+
+// logCacheHit sends the CallEntry of a read served from the cache,
+// which costs no points.
+func (l *Limiter) logCacheHit(args []string) {
+	if l.LogCall == nil {
+		return
+	}
+	e := newCallEntry(args, ClassifyCall(args), l.now())
+	e.Points, e.CacheHit = 0, true
+	_ = l.LogCall(e)
 }
 
 // acquireSlot takes one of the MaxConcurrent slot locks.

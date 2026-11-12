@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jaeyeom/experimental/devtools/pkg/procinfo"
 )
 
 func writeExec(t *testing.T, path, body string) string {
@@ -214,5 +216,74 @@ echo '{}'
 	}
 	if _, err := os.Stat(filepath.Join(h.env["XDG_RUNTIME_DIR"], "gh-throttle", "cache")); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("cache off created the cache dir: %v", err)
+	}
+}
+
+func TestCallerChainSkipsShells(t *testing.T) {
+	procs := []procinfo.Process{
+		{PID: 1, PPID: 0, Name: "launchd"},
+		{PID: 10, PPID: 1, Name: "prsync", Argv: []string{"/usr/local/bin/prsync", "run"}},
+		{PID: 20, PPID: 10, Name: "bash"},
+		{PID: 30, PPID: 20, Name: "sh"},
+	}
+	caller, chain := callerChain(procs, 30)
+	if caller != "prsync" || strings.Join(chain, ">") != "sh>bash>prsync" {
+		t.Fatalf("callerChain = %q, %q; want prsync via sh>bash>prsync", caller, chain)
+	}
+	caller, chain = callerChain(procs, 10)
+	if caller != "prsync" || strings.Join(chain, ">") != "prsync" {
+		t.Fatalf("callerChain from the tool = %q, %q", caller, chain)
+	}
+	shellsOnly := []procinfo.Process{{PID: 5, PPID: 4, Name: "zsh"}, {PID: 4, PPID: 4, Name: "-bash"}}
+	caller, chain = callerChain(shellsOnly, 5)
+	if caller != "zsh" || strings.Join(chain, ">") != "zsh>-bash" {
+		t.Fatalf("callerChain of only shells = %q, %q; want the parent shell", caller, chain)
+	}
+	if caller, chain = callerChain(nil, 7); caller != "" || chain != nil {
+		t.Fatalf("callerChain of an unknown pid = %q, %q", caller, chain)
+	}
+}
+
+func TestCallsAreLoggedAndStatsReadThem(t *testing.T) {
+	h := newHarness(t, "echo '{\"data\":{\"rateLimit\":{\"cost\":1,\"remaining\":42}}}'\n")
+	args := []string{"api", "graphql", "-f", "query={ rateLimit { cost remaining } viewer { login } }"}
+	if code := h.run(args, ""); code != 0 {
+		t.Fatalf("exit %d stderr %q", code, h.stderr.String())
+	}
+	raw, err := os.ReadFile(filepath.Join(h.env["XDG_STATE_HOME"], "gh-throttle", "calls.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var e struct {
+		PID       int    `json:"pid"`
+		Kind      string `json:"kind"`
+		Points    int    `json:"points"`
+		Cwd       string `json:"cwd"`
+		QueryHash string `json:"queryHash"`
+		Remaining *int   `json:"rateLimitRemaining"`
+	}
+	if err := json.Unmarshal(raw, &e); err != nil {
+		t.Fatalf("calls log %q: %v", raw, err)
+	}
+	wd, _ := os.Getwd()
+	if e.PID != os.Getpid() || e.Kind != "graphql" || e.Points != 1 || e.Cwd != wd || e.QueryHash == "" || e.Remaining == nil || *e.Remaining != 42 {
+		t.Fatalf("call entry = %s", raw)
+	}
+
+	h.stdout.Reset()
+	if code := h.run([]string{"--stats", "--since", "10m", "--json"}, ""); code != 0 {
+		t.Fatalf("--stats --json exit %d stderr %q", code, h.stderr.String())
+	}
+	var s struct {
+		Calls         int `json:"calls"`
+		QueriesByTime []struct {
+			Key string `json:"key"`
+		} `json:"queriesByTime"`
+	}
+	if err := json.Unmarshal(h.stdout.Bytes(), &s); err != nil || s.Calls != 1 || len(s.QueriesByTime) != 1 || s.QueriesByTime[0].Key != e.QueryHash {
+		t.Fatalf("--stats --json = %s (%v)", h.stdout.String(), err)
+	}
+	if code := h.run([]string{"--stats", "--since", "nonsense"}, ""); code == 0 {
+		t.Fatal("--stats accepted a bad --since")
 	}
 }
