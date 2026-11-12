@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/jaeyeom/experimental/devtools/decide"
+	"github.com/muesli/termenv"
 )
 
 // itemLinks lists the URLs an item shows, in the order the view draws them.
@@ -153,4 +154,14 @@ func (m *Model) mouseLabel() string {
 		return "mouse on  "
 	}
 	return "mouse off "
+}
+
+// hyperlink wraps text in an OSC 8 hyperlink to url when on is set.
+// Terminals that support OSC 8 then open the full url from any part of
+// text; widths ignore the sequences.
+func hyperlink(url, text string, on bool) string {
+	if !on {
+		return text
+	}
+	return termenv.Hyperlink(url, text)
 }

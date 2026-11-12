@@ -113,7 +113,7 @@ func TestLinkPickerListsEveryLinkAndOpensTwoDigits(t *testing.T) {
 	view := m.View()
 	for i, link := range links {
 		row := fmt.Sprintf("%2d  %s", i+1, link)
-		if !strings.Contains(view, row) {
+		if !strings.Contains(visibleLine(view), row) {
 			t.Fatalf("picker missing row %q\n%s", row, view)
 		}
 	}
@@ -158,7 +158,7 @@ func TestLinkPickerMovesWithJKAndArrows(t *testing.T) {
 	m = next.(*Model)
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
 	m = next.(*Model)
-	if !strings.Contains(m.View(), ">  4  https://example.test/link/04") {
+	if !strings.Contains(visibleLine(m.View()), ">  4  https://example.test/link/04") {
 		t.Fatalf("cursor not on row 4\n%s", m.View())
 	}
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})

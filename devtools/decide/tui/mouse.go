@@ -62,6 +62,21 @@ func (m *Model) Click(x, y int) error {
 	return nil
 }
 
+// CtrlClick opens the link under 1-based screen coordinates. Off a link
+// it does nothing. Each piece of a wrapped link keeps its whole URL.
+func (m *Model) CtrlClick(x, y int) {
+	m.View()
+	if y < 1 || y > len(m.rows) {
+		return
+	}
+	for _, h := range m.rows[y-1] {
+		if h.kind == hitLink && x >= h.x0 && x <= h.x1 {
+			m.openURL(h.url)
+			return
+		}
+	}
+}
+
 // fieldRow is the composer hit on screen row y, if any.
 func (m *Model) fieldRow(y int) (hit, bool) {
 	if y < 1 || y > len(m.rows) {

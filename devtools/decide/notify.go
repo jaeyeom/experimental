@@ -66,6 +66,14 @@ type Config struct {
 	// appended as the last argument and no shell runs. Empty is
 	// xdg-open, or open on macOS.
 	OpenCommand []string `json:"openCommand,omitempty"`
+	// Hyperlinks wraps URLs in the inbox item view in OSC 8 hyperlinks.
+	// Unset is on; false turns them off.
+	Hyperlinks *bool `json:"hyperlinks,omitempty"`
+}
+
+// HyperlinksOn reports whether the inbox writes OSC 8 hyperlinks.
+func (c Config) HyperlinksOn() bool {
+	return c.Hyperlinks == nil || *c.Hyperlinks
 }
 
 // Recipients chooses extra compose recipients. Agentbus adds the names

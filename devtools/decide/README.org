@@ -255,6 +255,29 @@ with a 5 second limit, so the inbox never waits for it. The status line
 then shows ~opened <url>~ or ~open failed: <error>~. There is no
 clipboard fallback; ~L~ copies the link.
 
+** Clicking links
+
+The inbox captures the mouse by default, so a click reaches the inbox
+rather than the terminal. A click or a ~Ctrl~ click on a URL in the item
+view opens it with the same opener and status line as ~l~. Each line of
+a wrapped URL opens the whole URL. A ~Ctrl~ click anywhere else does
+nothing, while a plain click there keeps its usual meaning, such as
+opening a row or answering an option. ~Shift~ drag still selects text.
+
+~M~ toggles mouse capture. With capture off, the terminal or the
+multiplexer handles clicks itself: drag selects text, and a terminal
+that opens links on ~Ctrl~ click or ~Cmd~ click does so.
+
+The item view and the link picker wrap every URL they draw in an OSC 8
+hyperlink to the full URL, including a URL that is wrapped across lines
+or shortened, so a terminal that supports OSC 8 opens the whole URL from
+any visible part. The sequences take no columns, and ~NO_COLOR~ keeps
+them. Turn them off in the config:
+
+#+begin_src json
+{"hyperlinks": false}
+#+end_src
+
 * Where the owner lives
 
 The item view has an ~Owner:~ header line: the owner and the herdr

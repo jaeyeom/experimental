@@ -182,6 +182,8 @@ type Model struct {
 	linkDigits  string
 	openWant    string
 	OpenCommand []string
+	// NoHyperlinks drops the OSC 8 hyperlinks around URLs.
+	NoHyperlinks bool
 }
 
 // New returns an inbox positioned on the open folder.
@@ -1933,15 +1935,16 @@ func truncateVisible(text string, width int) string {
 			i = next
 			continue
 		}
-		if vis >= limit {
-			break
-		}
 		_, size := utf8.DecodeRuneInString(text[i:])
 		if size <= 0 {
 			break
 		}
-		b.WriteString(text[i : i+size])
-		vis++
+		// Past the limit, keep scanning so the escape sequences after
+		// the cut still close, such as the end of an OSC 8 hyperlink.
+		if vis < limit {
+			b.WriteString(text[i : i+size])
+			vis++
+		}
 		i += size
 	}
 	if vis < lipgloss.Width(text) && limit < width {
@@ -2363,7 +2366,7 @@ func headerLabelStyle() lipgloss.Style {
 // The body is indented under that header.
 func (m *Model) threadLines(it *decide.Item, width int, re *regexp.Regexp) []screenLine {
 	if len(it.Messages) == 0 {
-		return questionLines(it.Question, width, re)
+		return questionLines(it.Question, width, re, !m.NoHyperlinks)
 	}
 	now := time.Now()
 	if m.Now != nil {
@@ -2387,7 +2390,7 @@ func (m *Model) threadLines(it *decide.Item, width int, re *regexp.Regexp) []scr
 			text:   messageHeader(msg, now, i == last, i == m.message),
 			header: i + 1,
 		})
-		for _, line := range questionLines(msg.Text, bodyWidth, re) {
+		for _, line := range questionLines(msg.Text, bodyWidth, re, !m.NoHyperlinks) {
 			lines = append(lines, indentLine(line))
 		}
 	}
@@ -2481,12 +2484,13 @@ func plainText(s string) string {
 
 var urlPattern = regexp.MustCompile(`https?://[^[:space:]]+`)
 
-// questionLines wraps q. A non-nil re marks its matches.
-func questionLines(q string, width int, re *regexp.Regexp) []screenLine {
+// questionLines wraps q. A non-nil re marks its matches. With links
+// set, each URL carries an OSC 8 hyperlink.
+func questionLines(q string, width int, re *regexp.Regexp, links bool) []screenLine {
 	parts := strings.Split(q, "\n")
 	lines := make([]screenLine, 0, len(parts))
 	for _, part := range parts {
-		lines = append(lines, linkLines(part, width, re)...)
+		lines = append(lines, linkLines(part, width, re, links)...)
 	}
 	return lines
 }
@@ -2548,7 +2552,7 @@ func wrapIndexed(s string, width int) []textChunk {
 	return out
 }
 
-func linkLines(part string, width int, re *regexp.Regexp) []screenLine {
+func linkLines(part string, width int, re *regexp.Regexp, links bool) []screenLine {
 	chunks := wrapIndexed(part, width)
 	spans := urlPattern.FindAllStringIndex(part, -1)
 	var matches [][]int
@@ -2557,12 +2561,15 @@ func linkLines(part string, width int, re *regexp.Regexp) []screenLine {
 	}
 	lines := make([]screenLine, 0, len(chunks))
 	for _, ch := range chunks {
-		lines = append(lines, styleLinkChunk(part, ch, spans, matches))
+		lines = append(lines, styleLinkChunk(part, ch, spans, matches, links))
 	}
 	return lines
 }
 
-func styleLinkChunk(original string, ch textChunk, spans, matches [][]int) screenLine {
+// styleLinkChunk underlines the URL pieces of one wrapped chunk. With
+// links set, every piece is an OSC 8 hyperlink to its whole URL, so a
+// wrapped or truncated URL still opens in full.
+func styleLinkChunk(original string, ch textChunk, spans, matches [][]int, links bool) screenLine {
 	if ch.from >= ch.to {
 		return screenLine{text: plainText("")}
 	}
@@ -2587,7 +2594,7 @@ func styleLinkChunk(original string, ch textChunk, spans, matches [][]int) scree
 		frag := original[visStart:visEnd]
 		startCol := lipgloss.Width(original[ch.from:visStart]) + 1
 		shown := "\x1b[4m" + frag + "\x1b[24m"
-		b.WriteString(termenv.Hyperlink(original[span[0]:span[1]], shown))
+		b.WriteString(hyperlink(original[span[0]:span[1]], shown, links))
 		endCol := startCol + lipgloss.Width(frag) - 1
 		if endCol < startCol {
 			endCol = startCol
@@ -2630,7 +2637,7 @@ func (m *Model) relayLines(it *decide.Item, width int) []screenLine {
 		}
 	}
 	for _, link := range it.Links {
-		lines = append(lines, linkLines(link, width, nil)...)
+		lines = append(lines, linkLines(link, width, nil, !m.NoHyperlinks)...)
 	}
 	deadline := "-"
 	if it.Deadline != nil {

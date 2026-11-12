@@ -41,6 +41,8 @@ type Options struct {
 	// OpenCommand is the link opener argv; the URL is appended. Empty
 	// is xdg-open, or open on macOS.
 	OpenCommand []string
+	// NoHyperlinks drops the OSC 8 hyperlinks around URLs.
+	NoHyperlinks bool
 }
 
 // Run draws the inbox until q or EOF. It reloads the ledger on Interval,
@@ -110,6 +112,7 @@ func prepare(opts Options) (*Model, error) {
 	m.Checkouts = opts.Checkouts
 	m.Machine = opts.Machine
 	m.OpenCommand = opts.OpenCommand
+	m.NoHyperlinks = opts.NoHyperlinks
 	m.avatarProfile = termenv.NewOutput(opts.Out).EnvColorProfile()
 	if opts.Now != nil {
 		m.Now = opts.Now
