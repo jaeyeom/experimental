@@ -400,7 +400,7 @@ func TestSendToBusNameRunsAgentbusSend(t *testing.T) {
 	if send[2] != decide.DeliveryNote(it.ID, "human", "hello bus") || !strings.Contains(send[2], it.ID) {
 		t.Fatalf("note = %q", send[2])
 	}
-	if it.Owner != "coord/primary" || it.NotifyPane != "agentbus:coord/primary" || it.BusMessage != "m-7f3a" {
+	if it.Owner != "coord/primary" || it.NotifyPane != "agentbus:coord/primary" || it.BusMessage != "m-7f3a" || it.Messages[0].Via != decide.ViaUI {
 		t.Fatalf("thread = %+v", it)
 	}
 	if m.note != "" || m.composing || m.status != "sent to coord/primary" {

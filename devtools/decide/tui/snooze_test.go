@@ -84,7 +84,7 @@ func TestAgentReplyWakesASnoozedItemInTheTUI(t *testing.T) {
 	m, led, clock, item := snoozeModel(t)
 	press(t, m, "b\r")
 	*clock = clock.Add(10 * time.Minute)
-	if _, err := led.Reply(item.ID, "news", nil, false); err != nil {
+	if _, err := led.Reply(item.ID, "", "news", nil, false); err != nil {
 		t.Fatal(err)
 	}
 	sendKeyMsg(t, m, reloadMsg{})

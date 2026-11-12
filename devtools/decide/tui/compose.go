@@ -173,7 +173,7 @@ func forwardPrefill(it *decide.Item, msg int) string {
 			msg = n - 1
 		}
 		m := it.Messages[msg]
-		quote(&b, strings.TrimSpace(m.Author+" "+headerTime(m.Time)))
+		quote(&b, strings.TrimSpace(m.Sender()+" "+headerTime(m.Time)))
 		text := m.Text
 		if clipped := clipRunes(text, forwardQuoteLimit); clipped != text {
 			text = clipped + "…"

@@ -2403,7 +2403,7 @@ func messageHeader(msg decide.Message, now time.Time, latest, current bool) stri
 	}
 	var parts []string
 	if msg.Author != "" {
-		parts = append(parts, authorStyle.Render(msg.Author))
+		parts = append(parts, authorStyle.Render(msg.Sender()))
 	}
 	if !msg.Time.IsZero() {
 		parts = append(parts, paletteStyle(colors.Time, paletteTime).Render(age(now.Sub(msg.Time))))

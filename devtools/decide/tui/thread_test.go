@@ -187,7 +187,7 @@ func seedTUIThread(t *testing.T, dir string) (string, []decide.Message) {
 	if _, err := led.Answer(item.ID, "human note", decide.ViaCLI); err != nil {
 		t.Fatal(err)
 	}
-	got, err := led.Reply(item.ID, "agent draft", []decide.Option{
+	got, err := led.Reply(item.ID, "", "agent draft", []decide.Option{
 		{Key: "keep", Label: "Keep", Recommended: true},
 		{Key: "drop", Label: "Drop"},
 	}, false)
@@ -287,7 +287,7 @@ func TestThreadMessagesAreBlocks(t *testing.T) {
 					{Key: "drop", Label: "Drop"},
 				},
 			},
-			{Author: "ada", Time: now.Add(-3 * time.Minute), Text: "newest note"},
+			{Author: "ada", Time: now.Add(-3 * time.Minute), Text: "newest note", By: "ops/bot"},
 		},
 	})
 	m := New(dir)
@@ -304,7 +304,7 @@ func TestThreadMessagesAreBlocks(t *testing.T) {
 	if strings.Count(vis, "────") < 2 {
 		t.Fatalf("rules = %d\n%s", strings.Count(vis, "────"), view)
 	}
-	for _, needle := range []string{"ada  10d", "human  2h  keep drop", "ada  3m  latest", "  root ask", "  newest note"} {
+	for _, needle := range []string{"ada  10d", "human  2h  keep drop", "ada (via ops/bot)  3m  latest", "  root ask", "  newest note"} {
 		if !strings.Contains(vis, needle) {
 			t.Fatalf("missing %q\n%s", needle, vis)
 		}

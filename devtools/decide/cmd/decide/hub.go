@@ -25,6 +25,14 @@ var localCommands = map[string]bool{
 	"avatars": true,
 }
 
+// callerCommands send the hub-mode caller's handle and agentbus names: an
+// ask, to be notified, and a reply or send, to record its sender.
+var callerCommands = map[string]bool{
+	"ask":   true,
+	"reply": true,
+	"send":  true,
+}
+
 // asHandleEnv carries the hub-mode caller's herdr handle to the hub, as
 // AGENTBUS_AS_HANDLE does for agentbus.
 const asHandleEnv = "DECIDE_AS_HANDLE"
@@ -107,7 +115,8 @@ func maybeRunOnHub(args []string, remote string, stdout, stderr io.Writer) (int,
 
 // runOnHub runs one decide command on the hub's ledger over ssh. It
 // never reads or creates the local ledger. An ask from a herdr pane
-// carries that pane's handle, so the hub notifies it on this machine.
+// carries that pane's handle, so the hub notifies it on this machine; a
+// reply or send carries it so the hub records the sender.
 // The inbox runs here against the hub.
 func runOnHub(settings hubSettings, args []string, stdout, stderr io.Writer) int {
 	hub := settings.hub
@@ -117,12 +126,16 @@ func runOnHub(settings hubSettings, args []string, stdout, stderr io.Writer) int
 	ctx, stop := signal.NotifyContext(context.Background(), unix.SIGINT, unix.SIGTERM)
 	defer stop()
 	call := hubcall.Call{Args: args, Stdout: stdout, Stderr: stderr}
-	if args[0] == "ask" && os.Getenv("HERDR_PANE_ID") != "" {
+	if callerCommands[args[0]] && os.Getenv("HERDR_PANE_ID") != "" {
 		caller, err := callerHandle(ctx, settings.machine)
-		if err != nil {
+		switch {
+		case err == nil:
+			call.Env = append([]string{asHandleEnv + "=" + caller}, clientAskEnv(ctx, os.Getenv("HERDR_PANE_ID"))...)
+		case args[0] == "ask":
 			return fail(stderr, err, 1)
+		default:
+			fmt.Fprintf(stderr, "warning: decide %s records no sender: %s\n", args[0], err)
 		}
-		call.Env = append([]string{asHandleEnv + "=" + caller}, clientAskEnv(ctx, os.Getenv("HERDR_PANE_ID"))...)
 	}
 	code, err := hub.Run(ctx, call)
 	if err != nil {

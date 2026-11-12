@@ -101,7 +101,7 @@ func usage(w io.Writer) {
   decide status clear --agent <name>
   decide status clear --resource <name>
   decide targets [--json]
-  decide send --to <name> [--json] <text>
+  decide send --to <name> [--json] [--via cli|ui] <text>
   decide send --id <id> [--json] [--via cli|ui] <text>
   decide reply <id> [--option key:label ...] [--rec key] [--free-text] [--json] <text>
   decide skill
@@ -123,7 +123,7 @@ func cmdSend(args []string, stdout, stderr io.Writer) int {
 	to := fs.String("to", "", "recipient name")
 	id := fs.String("id", "", "thread to append a human message")
 	jsonOut := fs.Bool("json", false, "print JSON")
-	via := fs.String("via", decide.ViaCLI, "with --id, where an answer came from: cli, or ui for the inbox front ends only")
+	via := fs.String("via", decide.ViaCLI, "where the message came from: cli, or ui for the inbox front ends only")
 	if code, stop := stopped(parseFlags(fs, args)); stop {
 		return code
 	}
@@ -140,7 +140,7 @@ func cmdSend(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err, 2)
 	}
 	if hasID {
-		return cmdCompose(strings.TrimSpace(*id), text, *via, *jsonOut, stdout, stderr)
+		return cmdCompose(strings.TrimSpace(*id), text, *via, senderOf(context.Background()), *jsonOut, stdout, stderr)
 	}
 	cfg, err := decide.LoadConfig()
 	if err != nil {
@@ -158,7 +158,7 @@ func cmdSend(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
-	item, err := led.StartThread(tg.Name, tg.Pane, text)
+	item, err := led.StartThread(tg.Name, tg.Pane, text, *via)
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
@@ -181,14 +181,14 @@ func cmdSend(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func cmdCompose(id, text, via string, jsonOut bool, stdout, stderr io.Writer) int {
+func cmdCompose(id, text, via, by string, jsonOut bool, stdout, stderr io.Writer) int {
 	cfg, err := decide.LoadConfig()
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
 	var item decide.Item
 	code := withItem(stdout, stderr, jsonOut, false, func(led *decide.Ledger) (decide.Item, error) {
-		got, err := led.Compose(id, text, via)
+		got, err := led.Compose(id, text, via, by)
 		if err != nil {
 			return decide.Item{}, fmt.Errorf("compose decide item: %w", err)
 		}
@@ -232,8 +232,9 @@ func cmdReply(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	allowFree := len(opts) > 0 && *freeText
+	by := senderOf(context.Background())
 	return withItem(stdout, stderr, *jsonOut, false, func(led *decide.Ledger) (decide.Item, error) {
-		return led.Reply(id, text, opts, allowFree)
+		return led.Reply(id, by, text, opts, allowFree)
 	})
 }
 
@@ -1010,7 +1011,7 @@ func writeShow(w io.Writer, it *decide.Item) {
 		if !msg.Time.IsZero() {
 			when = msg.Time.Format(time.RFC3339Nano)
 		}
-		fmt.Fprintf(w, "message: %s %s %s\n", when, msg.Author, msg.Text)
+		fmt.Fprintf(w, "message: %s %s %s\n", when, msg.Sender(), msg.Text)
 	}
 }
 

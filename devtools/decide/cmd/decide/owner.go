@@ -97,6 +97,37 @@ func askerOf(ctx context.Context) asker {
 	return asker{tab: paneTabLabel(ctx, pane), names: func() []string { return localBusNames(ctx) }}
 }
 
+// senderOf is who runs a reply or send --id, for decide.Message.By: the
+// caller's first agentbus name, else its herdr pane handle, else empty
+// outside herdr. On the hub, a trusted hub-mode caller's names and handle
+// come from the environment the client sent. Locally, the handle is the
+// one `agentbus whoami` prints, or HERDR_PANE_ID when agentbus fails.
+func senderOf(ctx context.Context) string {
+	if caller, err := hubcall.TrustedCaller(os.Environ(), asHandleEnv); err == nil && caller != "" {
+		if names := splitNames(os.Getenv(busNamesEnv)); len(names) > 0 {
+			return names[0]
+		}
+		return caller
+	}
+	pane := strings.TrimSpace(os.Getenv("HERDR_PANE_ID"))
+	if pane == "" {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(ctx, whoamiTimeout)
+	defer cancel()
+	out, err := agentbusWhoami(ctx)
+	if err != nil {
+		return pane
+	}
+	if names := parseWhoami(out); len(names) > 0 {
+		return names[0]
+	}
+	if handle := strings.TrimSpace(out); handle != "" && !strings.Contains(handle, "\n") {
+		return handle
+	}
+	return pane
+}
+
 // clientAskEnv is the tab label and agentbus names a hub-mode client
 // sends with an ask from pane.
 func clientAskEnv(ctx context.Context, pane string) []string {

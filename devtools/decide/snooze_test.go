@@ -65,7 +65,7 @@ func TestReplyWakesASnoozedItem(t *testing.T) {
 		t.Fatal(err)
 	}
 	clock.t = clock.t.Add(10 * time.Minute)
-	got, err := led.Reply(item.ID, "update", nil, false)
+	got, err := led.Reply(item.ID, "", "update", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestComposeAndAnswerWakeASnoozedItem(t *testing.T) {
 	if _, err := led.Snooze(item.ID, clock.t.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	got, err := led.Compose(item.ID, "hi", ViaCLI)
+	got, err := led.Compose(item.ID, "hi", ViaCLI, "")
 	if err != nil {
 		t.Fatal(err)
 	}
