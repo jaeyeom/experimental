@@ -38,6 +38,7 @@ Examples below use the name ~ops/inbox~ and the handle
 | ~wake <name or handle>~ | Relaunch a hibernated agent now. A message to it wakes it too. ~--if-hibernated~ makes it safe before every prompt. See [[*Wake a hibernated agent]]. |
 | ~install~ | Install the supervisor and load it; in hub mode, the tunnel to the hub, and the ~hibernate --policy~ unit when ~hibernate_policy~ is on or ~dry-run~. |
 | ~install-hooks~ | Install the observe-only ~SendMessage~ hook and the merged-draft prompt guard. |
+| ~doctor --sandbox~ | Print the Claude Code sandbox allowlist this machine needs, then test each connection. See [[*Running inside an agent sandbox]]. |
 
 ~agentbus --help~ (or ~-h~, or ~help~) lists these commands.
 ~agentbus help <command>~ or ~agentbus <command> --help~ prints that
@@ -311,7 +312,9 @@ streams the hub's event log from its daemon, and ~log --follow~ and
 serves other callers meanwhile. Otherwise the command uses ssh as
 above: when the socket is missing or nobody answers on it, when the
 caller is not in a herdr pane, and, after printing the version error,
-when the protocols differ.
+when the protocols differ. Inside an agent sandbox a tunnel socket that
+is there but fails is an error instead; see
+[[*Running inside an agent sandbox]].
 
 * Workdir lease
 
@@ -1047,6 +1050,83 @@ the error says so:
 ~agentbusd~ is the binary next to ~agentbus~. A sandbox that cannot
 reach the socket and cannot execute that binary gets one of those
 errors.
+
+** Running inside an agent sandbox
+
+An agent sandbox, such as Claude Code's sandbox (Seatbelt on macOS,
+bubblewrap on Linux), denies unix sockets and network hosts it does not
+list. A hub-mode command makes up to three kinds of connection, and
+each failure names its step, the socket or ssh target, and what to
+allow:
+
+1. *Identify the pane.* The ~herdr~ CLI connects to the herdr socket,
+   ~$HERDR_SOCKET_PATH~ (for example ~~/.config/herdr/herdr.sock~ on
+   macOS), to look up the pane's agent session. A denied connect fails
+   with
+   ~identify this pane: connect /path/herdr.sock: operation not permitted (sandbox? allow this unix socket)~.
+2. *Talk to the hub* over the tunnel socket,
+   ~$XDG_RUNTIME_DIR/agentbus/tunnel.sock~, when it is there. On Linux
+   ~XDG_RUNTIME_DIR~ is usually ~/run/user/<uid>~; on macOS it is
+   whatever your shell sets, since agentbus requires it.
+3. *Otherwise run on the hub over ssh*, which needs network access to
+   the hub and read access to ~~/.ssh~.
+
+herdr exports ~HERDR_PANE_ID~, ~HERDR_TAB_ID~, ~HERDR_WORKSPACE_ID~ and
+~HERDR_SOCKET_PATH~ to each pane, but not the agent session, so the
+handle cannot be built from the environment alone. Instead, ~agentbus
+register~ in hub mode asks herdr for this pane's handle and caches it in
+~$XDG_RUNTIME_DIR/agentbus/panes/<pane-id>~ (mode 0600). Later calls
+use the cached handle and ask herdr only when nothing is cached, so a
+sandboxed agent that registered once (or whose first register ran
+unsandboxed) needs no herdr socket. ~register~ always asks herdr again
+when it can, which refreshes the cache after the pane starts a new
+agent session; when herdr is denied it keeps the cached handle.
+
+Inside a sandbox, a tunnel socket that is there but fails (denied, not
+answering, or another protocol) fails the command with
+~reach the hub over the tunnel: ...; not falling back to ssh inside a sandbox~
+instead of falling back to ssh, so ~~/.ssh~ is never needed. Hooks
+still exit 0. agentbus counts as sandboxed when ~SANDBOX_RUNTIME~ is
+set (Claude Code's sandbox sets it), when ~AGENTBUS_SANDBOX=1~, or when
+a connect fails with "operation not permitted";
+~AGENTBUS_SANDBOX=0~ turns the environment check off. A failed ssh
+fallback inside a sandbox says what ssh needs and points at the tunnel.
+
+~agentbus doctor --sandbox~ prints the entries this machine needs in
+the shape of Claude Code's sandbox settings, then tests each
+connection:
+
+#+begin_example
+Claude Code sandbox settings this machine needs (merge into settings.json):
+{
+  "sandbox": {
+    "network": {
+      "allowUnixSockets": [
+        "/Users/me/.config/herdr/herdr.sock",
+        "/Users/me/run/agentbus/tunnel.sock",
+        "/Users/me/run/agentbus/daemon.sock"
+      ],
+      "allowedDomains": [
+        "hub"
+      ]
+    }
+  }
+}
+allowedDomains is only for the ssh fallback to me@hub, which also reads ~/.ssh; the tunnel needs neither.
+
+Checks:
+  herdr socket /Users/me/.config/herdr/herdr.sock: ok
+  tunnel socket /Users/me/run/agentbus/tunnel.sock: ok
+  daemon socket /Users/me/run/agentbus/daemon.sock: missing
+  ssh me@hub: ok (its ssh port answers)
+#+end_example
+
+Each socket is ~ok~, ~missing~, ~blocked (sandbox? allow this unix
+socket)~, or ~failed: <error>~. The ssh check only connects to the
+hub's ssh port; it does not log in. The hub entry is the host part of
+~hub~, so for a ~Host~ alias in ~~/.ssh/config~ allow its real
+~HostName~ as well. doctor only prints the entries; it never edits
+your settings.
 
 * Install
 

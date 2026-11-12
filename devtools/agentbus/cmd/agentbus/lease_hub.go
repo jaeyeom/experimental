@@ -70,7 +70,11 @@ func hubRouted(ctx context.Context) bool {
 // tunnel when it answers, else ssh. bound shortens the ssh timeouts for
 // lease check and the hook, which must give up within leaseHookTimeout.
 func leaseHubRoute(ctx context.Context, cfg config.Config, env []string, bound bool, stderr io.Writer) (context.Context, error) {
-	if routed, ok := openTunnel(ctx, cfg, "lease", env, stderr); ok {
+	routed, ok, err := openTunnel(ctx, cfg, "lease", env, stderr)
+	if err != nil {
+		return ctx, err
+	}
+	if ok {
 		return routed, nil
 	}
 	r := sshRoute{hub: hubcall.Hub{Target: cfg.Hub, Tool: "agentbus", ConnectTimeout: cfg.RemoteTimeout}}

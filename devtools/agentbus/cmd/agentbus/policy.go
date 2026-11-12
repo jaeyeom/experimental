@@ -146,7 +146,11 @@ func (r *policyRunner) tick(ctx context.Context, now time.Time) error {
 	} else if err := r.idle.SaveEvery(r.seenPath, now); err != nil {
 		fmt.Fprintf(r.stderr, "%s%s\n", policyPrefix, err)
 	}
-	return r.policy.Tick(hibernateHubRoute(ctx, r.cfg, r.env, io.Discard)) //nolint:wrapcheck // Tick names what failed
+	routed, err := hibernateHubRoute(ctx, r.cfg, r.env, io.Discard)
+	if err != nil {
+		return err
+	}
+	return r.policy.Tick(routed) //nolint:wrapcheck // Tick names what failed
 }
 
 // saveSeen saves the idle times on exit, unless the runner never read

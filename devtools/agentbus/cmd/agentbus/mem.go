@@ -171,9 +171,13 @@ func memHubBus(ctx context.Context, cfg config.Config, env []string) (*memreport
 	ctx, cancel := context.WithTimeout(ctx, total)
 	defer cancel()
 	var bus *memreport.Bus
-	if routed, ok := openTunnel(ctx, cfg, "mem", env, io.Discard); ok {
+	routed, ok, err := openTunnel(ctx, cfg, "mem", env, io.Discard)
+	switch {
+	case err != nil:
+		return nil, err
+	case ok:
 		bus, _, err = memBus(routed, env)
-	} else {
+	default:
 		bus, err = memSSHBus(ctx, cfg, total)
 	}
 	if err != nil {

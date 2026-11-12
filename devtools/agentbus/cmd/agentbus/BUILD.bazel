@@ -22,6 +22,7 @@ go_library(
         "policy.go",
         "prompthook.go",
         "registry.go",
+        "sandbox.go",
         "tunnel.go",
         "tunnelinstall.go",
         "wake.go",
@@ -80,6 +81,7 @@ go_test(
         "queue_test.go",
         "registry_test.go",
         "remote_test.go",
+        "sandbox_test.go",
         "tunnel_test.go",
         "tunnelinstall_test.go",
         "wake_test.go",
@@ -103,5 +105,6 @@ go_test(
         "//devtools/pkg/hubcall/sshtest:go_default_library",
         "//devtools/pkg/procinfo:go_default_library",
         "//devtools/pkg/remotecall:go_default_library",
+        "@org_golang_x_sys//unix:go_default_library",
     ],
 )
