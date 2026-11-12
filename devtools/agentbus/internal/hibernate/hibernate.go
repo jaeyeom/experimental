@@ -306,7 +306,7 @@ func (h *Hibernator) check(ctx context.Context, c candidate, state Reply, procs 
 	if !resting(a.Status) {
 		f.reasons = append(f.reasons, "agent is "+cmp.Or(a.Status, "in an unknown state"))
 	}
-	h.checkProcesses(ctx, c, procs, &f)
+	h.checkProcesses(ctx, c, procs, memreport.LeasesOf(state.Leases, c.handle), &f)
 	h.checkScreen(ctx, a, &f)
 	f.reasons = append(f.reasons, LeaseReasons(state.Leases, c.handle)...)
 	if pattern, ok := h.exempt(c); ok {
@@ -317,8 +317,10 @@ func (h *Hibernator) check(ctx context.Context, c candidate, state Reply, procs 
 
 // checkProcesses reads the pane's foreground and refuses background
 // jobs and build tools in the agent's cwd, by the rules agentbus mem
-// and prsync use.
-func (h *Hibernator) checkProcesses(ctx context.Context, c candidate, procs []procinfo.Process, f *facts) {
+// and prsync use. A build tool counts only when it is in the agent's
+// own process tree (its pane's shell and foreground), unless the agent
+// holds or is queued for a lease: then any build in its cwd counts.
+func (h *Hibernator) checkProcesses(ctx context.Context, c candidate, procs []procinfo.Process, leases []memreport.Lease, f *facts) {
 	info, err := h.Panes.ProcessInfo(ctx, c.agent.PaneID)
 	if err != nil {
 		f.reasons = append(f.reasons, "cannot read the pane's processes: "+err.Error())
@@ -339,9 +341,29 @@ func (h *Hibernator) checkProcesses(ctx context.Context, c candidate, procs []pr
 		f.reasons = append(f.reasons, "cannot tell the agent's cwd")
 		return
 	}
+	own := make(map[int]bool)
+	treeRoots := roots
+	if info.ShellPID > 0 {
+		treeRoots = append([]int{info.ShellPID}, roots...)
+	}
+	for _, p := range procinfo.Tree(procs, treeRoots) {
+		own[p.PID] = true
+	}
+	leaseNote := ""
+	if len(leases) > 0 {
+		leaseNote = "agent is queued for the lease"
+		if slices.ContainsFunc(leases, func(l memreport.Lease) bool { return l.Role == memreport.RoleHolder }) {
+			leaseNote = "agent holds the lease"
+		}
+	}
 	skip := procinfo.Ancestors(procs, h.Self)
 	for _, p := range procinfo.BuildTools(ctx, procs, procinfo.DefaultBuildTools, procinfo.DefaultBuildToolIgnore, skip, proc.Cwd, h.Cwd) {
-		f.reasons = append(f.reasons, fmt.Sprintf("build tool pid %d %s in %s", p.PID, procinfo.CommandLine(p), p.Cwd))
+		switch {
+		case own[p.PID]:
+			f.reasons = append(f.reasons, fmt.Sprintf("own build tool pid %d %s in %s", p.PID, procinfo.CommandLine(p), p.Cwd))
+		case leaseNote != "":
+			f.reasons = append(f.reasons, fmt.Sprintf("checkout build pid %d %s in %s (%s)", p.PID, procinfo.CommandLine(p), p.Cwd, leaseNote))
+		}
 	}
 }
 

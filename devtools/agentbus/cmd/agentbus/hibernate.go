@@ -93,10 +93,11 @@ func parseHibernate(args []string, stderr io.Writer) (hibernate.Request, bool, e
 	idleOver := fs.Duration("idle-over", 0, "hibernate every agent idle at least this long")
 	dryRun := fs.Bool("dry-run", false, "report what would happen and change nothing")
 	asJSON := fs.Bool("json", false, "print a JSON array, one object per agent")
-	if err := fs.Parse(args); err != nil {
-		return hibernate.Request{}, false, err //nolint:wrapcheck // flag already printed it
+	targets, err := parseInterspersed(fs, args)
+	if err != nil {
+		return hibernate.Request{}, false, err
 	}
-	req := hibernate.Request{Targets: fs.Args(), IdleOver: *idleOver, DryRun: *dryRun}
+	req := hibernate.Request{Targets: targets, IdleOver: *idleOver, DryRun: *dryRun}
 	switch {
 	case *idleOver < 0:
 		return req, false, errors.New("--idle-over must not be negative")

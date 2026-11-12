@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "discover.go",
         "envelope.go",
+        "flags.go",
         "help.go",
         "hibernate.go",
         "hook.go",
@@ -59,6 +60,7 @@ go_test(
     srcs = [
         "discover_test.go",
         "envelope_test.go",
+        "flags_test.go",
         "help_test.go",
         "hibernate_test.go",
         "hook_test.go",
