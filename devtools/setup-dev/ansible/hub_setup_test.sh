@@ -27,6 +27,48 @@ INVENTORY="${SCRIPT_DIR}/inventory.ini"
 # --- No host or user names in the playbooks ---
 # A literal ssh target (user@host) must not appear. `@{{` is the go
 # install version, and a host under .example is a documentation placeholder.
+# github.com/<owner>/ and an owner/repo token name the GitHub module, not
+# this machine. A home path or a bare user still counts.
+_name_filtered=$(mktemp)
+_name_fixture=$(mktemp)
+trap 'rm -f "$_name_filtered" "$_name_fixture"' EXIT INT TERM
+
+# strip_github_owner copies src to dst with GitHub owner references to
+# name removed. name is literal text.
+strip_github_owner() {
+	python3 -c '
+import pathlib, sys
+name, src, dst = sys.argv[1:]
+text = pathlib.Path(src).read_text()
+text = text.replace("github.com/%s/" % name, "github.com/")
+text = text.replace("(%s/" % name, "(")
+text = text.replace(" %s/" % name, " ")
+pathlib.Path(dst).write_text(text)
+' "$1" "$2" "$3"
+}
+
+# names_local is true when file still contains name after that strip.
+names_local() {
+	strip_github_owner "$2" "$1" "$_name_filtered"
+	if grep -qF -- "$2" "$_name_filtered"; then
+		return 0
+	fi
+	return 1
+}
+
+_fixname=zzfixtureuser
+printf 'github.com/%s/experimental\n(%s/experimental#683)\n repo: %s/gmailctl\n' \
+	"$_fixname" "$_fixname" "$_fixname" >"$_name_fixture"
+if names_local "$_name_fixture" "$_fixname"; then
+	fail "a GitHub owner was treated as a local user"
+fi
+printf '/Users/%s\nuser: %s\n' "$_fixname" "$_fixname" >"$_name_fixture"
+if names_local "$_name_fixture" "$_fixname"; then
+	:
+else
+	fail "a home path or bare user was allowed"
+fi
+
 for _pb in "$HOST_PLAYBOOK" "$CLIENT_PLAYBOOK"; do
 	if grep -noE '[A-Za-z0-9._-]+@[A-Za-z0-9{][A-Za-z0-9._-]*' "$_pb" | grep -vE '@(\{|[A-Za-z0-9._-]*\.example$)'; then
 		fail "$(basename "$_pb") names an ssh target"
@@ -34,11 +76,13 @@ for _pb in "$HOST_PLAYBOOK" "$CLIENT_PLAYBOOK"; do
 	for _name in "$(id -un 2>/dev/null || true)" "$(hostname -s 2>/dev/null || true)"; do
 		# Short names (root, ci) match ordinary words; skip them.
 		[ "${#_name}" -ge 5 ] || continue
-		if grep -niF -- "$_name" "$_pb"; then
+		if names_local "$_pb" "$_name"; then
+			grep -niF -- "$_name" "$_name_filtered" || true
 			fail "$(basename "$_pb") names this machine or user: ${_name}"
 		fi
 	done
 done
+rm -f "$_name_filtered" "$_name_fixture"
 
 if ! command -v ansible-playbook >/dev/null 2>&1; then
 	echo "SKIP: ansible-playbook not found"
