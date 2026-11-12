@@ -254,6 +254,18 @@ func (m *Model) now() time.Time {
 	return time.Now()
 }
 
+// zone is the zone stamps use. UTC forces UTC. Otherwise it is the
+// clock's zone, which is the machine zone for time.Now.
+func (m *Model) zone() *time.Location {
+	if m.UTC {
+		return time.UTC
+	}
+	if loc := m.now().Location(); loc != nil {
+		return loc
+	}
+	return time.UTC
+}
+
 func (m *Model) searchPrompt() screenLine {
 	return screenLine{text: "/" + withCursor(m.search, len([]rune(m.search))) + "  as you type  enter keeps  esc restores"}
 }

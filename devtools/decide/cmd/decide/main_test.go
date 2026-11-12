@@ -612,6 +612,30 @@ func TestShowPrintsForwardedFrom(t *testing.T) {
 	}
 }
 
+func TestShowJSONKeepsUTC(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	deadline := time.Date(2026, 12, 1, 15, 4, 5, 0, time.UTC)
+	id := askChoice(t, "ship it?", "--deadline", deadline.Format(time.RFC3339))
+	raw, stderr, code := runCLI("show", "--json", id)
+	if code != 0 {
+		t.Fatalf("show --json code = %d\n%s", code, stderr)
+	}
+	if strings.Contains(raw, "·") || strings.Contains(raw, "ago") {
+		t.Fatalf("json has a display stamp\n%s", raw)
+	}
+	item := decodeItem(t, raw)
+	encoded, err := json.Marshal(item.CreatedAt.UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.CreatedAt.Location() != time.UTC || !strings.Contains(raw, string(encoded)) || !strings.HasSuffix(strings.Trim(string(encoded), `"`), "Z") {
+		t.Fatalf("createdAt %s\n%s", encoded, raw)
+	}
+	if !strings.Contains(raw, deadline.Format(time.RFC3339)) {
+		t.Fatalf("deadline is not UTC\n%s", raw)
+	}
+}
+
 func TestShowKeepsTheAnswerLabelAfterAFollowUp(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	id := askChoice(t, "pick one")

@@ -51,7 +51,7 @@ func TestSnoozeFromTheListHidesUntilTheTime(t *testing.T) {
 		t.Fatalf("popup\n%s", m.View())
 	}
 	press(t, m, "\r")
-	if m.snoozing || m.status != "snoozed "+item.ID+" until Tue 15:00" {
+	if m.snoozing || m.status != "snoozed "+item.ID+" until today 15:00 · in 1h" {
 		t.Fatalf("status %q snoozing %v", m.status, m.snoozing)
 	}
 	if strings.Contains(m.View(), "ship it?") {
@@ -65,7 +65,7 @@ func TestSnoozeFromTheListHidesUntilTheTime(t *testing.T) {
 	}
 	press(t, m, "gz")
 	view := m.View()
-	if !strings.Contains(view, "[Snoozed]") || !strings.Contains(view, "ship it?") || !strings.Contains(view, "until Tue 15:00") {
+	if !strings.Contains(view, "[Snoozed]") || !strings.Contains(view, "ship it?") || !strings.Contains(view, "until today 15:00 · in 1h") {
 		t.Fatalf("snoozed folder\n%s", view)
 	}
 
@@ -119,7 +119,7 @@ func TestSnoozeFromTheItemViewReturnsToTheList(t *testing.T) {
 		t.Fatal("not opened")
 	}
 	press(t, m, "bjj\r")
-	if m.mode != modeList || m.status != "snoozed "+item.ID+" until Wed 09:00" {
+	if m.mode != modeList || m.status != "snoozed "+item.ID+" until tomorrow 09:00" {
 		t.Fatalf("mode %d status %q", m.mode, m.status)
 	}
 }
@@ -156,7 +156,7 @@ func TestSnoozeCustomEntry(t *testing.T) {
 		t.Fatalf("no inline error\n%s", m.View())
 	}
 	press(t, m, "\x7f\x7f\x7f\x7f2h30m\r")
-	if m.snoozing || m.status != "snoozed "+item.ID+" until Tue 16:30" {
+	if m.snoozing || m.status != "snoozed "+item.ID+" until today 16:30 · in 2h" {
 		t.Fatalf("snoozing %v status %q", m.snoozing, m.status)
 	}
 	got, _ := led.Get(item.ID)

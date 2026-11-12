@@ -22,7 +22,7 @@ const hubInterval = time.Second
 // ssh session to `decide serve --stdio`. Links open here; ledger writes,
 // notifications, and compose sends run on the hub.
 func cmdHubInbox(settings hubSettings, args []string, stdout, stderr io.Writer) int {
-	snoozed, code, ok := inboxFlags(args, stderr)
+	snoozed, utc, code, ok := inboxFlags(args, stderr)
 	if !ok {
 		return code
 	}
@@ -41,6 +41,7 @@ func cmdHubInbox(settings hubSettings, args []string, stdout, stderr io.Writer) 
 	}
 	defer client.Close()
 	opts := inboxOptions(local.Config, stdout, snoozed)
+	opts.UTC = utc || local.Config.UI.UTC
 	opts.Backend = client
 	opts.Interval = hubInterval
 	// The hub's display settings fill the keys this config does not

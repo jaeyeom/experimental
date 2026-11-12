@@ -34,7 +34,7 @@ func TestDisplaySettingsExportOnlyDisplayKeys(t *testing.T) {
 		"hub": "me@hub", "hubTimeout": "5s", "machine": "mac", "hubMachine": "hub",
 		"openCommand": ["my-open"], "checkouts": [{"name": "repo", "path": "/src/repo"}],
 		"notifyTemplate": "notify-me", "notifyPane": "w1:p1", "sendTemplate": "herdr send {pane}",
-		"optionsOnly": true, "colors": {"human": "2"},
+		"optionsOnly": true, "colors": {"human": "2"}, "ui": {"utc": true},
 		"avatarDefault": true, "avatarMono": "hide", "recipients": {"agentbus": true},
 		"recipientsTimeout": "5s", "targets": [{"name": "builder", "pane": "w2:p3"}],
 		"hyperlinks": false, "avatars": [{"match": "ada", "builtin": "owl"}]
@@ -53,7 +53,7 @@ func TestDisplaySettingsExportOnlyDisplayKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, secret := range []string{"openCommand", "me@hub", "hubMachine", "checkouts", "/src/repo", "notify-me", "herdr send", "my-open", "machine"} {
+	for _, secret := range []string{"openCommand", "me@hub", "hubMachine", "checkouts", "/src/repo", "notify-me", "herdr send", "my-open", "machine", "utc"} {
 		if strings.Contains(string(data), secret) {
 			t.Fatalf("display settings carry %q: %s", secret, data)
 		}
