@@ -128,6 +128,24 @@ func TestHubSendForwardsStdinAndReadsFileLocally(t *testing.T) {
 	}
 }
 
+func TestHubSendForwardsClientIDWithFile(t *testing.T) {
+	h := startHub(t, `hub = "me@hub"`)
+	path := filepath.Join(t.TempDir(), "body.txt")
+	if err := os.WriteFile(path, []byte("from file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	id := "mac:01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	if code, _, stderr := h.run(t, "ignored", "send", "ops/x", "--file", path, "--client-id", id, "--ttl", "30m"); code != 0 {
+		t.Fatalf("send --file = %d, stderr %q", code, stderr)
+	}
+	if got := h.ssh.Lines("agentbus.args"); !slices.Equal(got, []string{"send", "ops/x", "--client-id", id, "--ttl", "30m"}) {
+		t.Fatalf("hub args = %q", got)
+	}
+	if got := h.ssh.Read("agentbus.stdin"); got != "from file\n" {
+		t.Fatalf("hub stdin = %q", got)
+	}
+}
+
 func TestHubStdinIsNotForwardedToOtherCommands(t *testing.T) {
 	h := startHub(t, `hub = "me@hub"`)
 	if code, _, stderr := h.run(t, "keep me", "status", "m-1"); code != 0 {

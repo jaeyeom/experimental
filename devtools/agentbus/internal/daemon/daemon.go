@@ -117,6 +117,26 @@ type Request struct {
 	Fresh bool `json:"fresh,omitempty"`
 	// Machine makes a wake's Name a herdr pane id on that machine.
 	Machine string `json:"machine,omitempty"`
+	// ClientID is the caller's retry key for send and reply.
+	ClientID string `json:"clientId,omitempty"`
+	// Events are client log lines for op log-append.
+	// Origin on each line is ignored; the daemon records origin client.
+	Events []ClientEvent `json:"events,omitempty"`
+}
+
+// ClientEvent is one log line a client asks the daemon to append.
+// A non-zero Time is kept. Origin is not trusted.
+type ClientEvent struct {
+	Time        time.Time `json:"time,omitempty"`
+	Event       string    `json:"event"`
+	Actor       string    `json:"actor"`
+	Name        string    `json:"name,omitempty"`
+	MsgID       string    `json:"msg,omitempty"`
+	Detail      string    `json:"detail,omitempty"`
+	Reason      string    `json:"reason,omitempty"`
+	TargetState string    `json:"targetState,omitempty"`
+	Resolved    string    `json:"resolved,omitempty"`
+	Origin      string    `json:"origin,omitempty"`
 }
 
 // bypassPreview is how many bytes of a SendMessage body a bypass event keeps.
@@ -153,7 +173,9 @@ type Response struct {
 	Names  []NameRecord `json:"names,omitempty"`
 	Rows   []AgentRow   `json:"rows,omitempty"`
 	State  string       `json:"state,omitempty"`
-	Text   string       `json:"text,omitempty"`
+	// Duplicate is true when send or reply absorbed a repeated client id.
+	Duplicate bool   `json:"duplicate,omitempty"`
+	Text      string `json:"text,omitempty"`
 	// Protocol is the daemon's ProtocolVersion on hub-socket replies.
 	Protocol int `json:"protocol,omitempty"`
 	// End marks the last reply of a log stream that does not follow.
@@ -543,9 +565,37 @@ func (s *server) dispatch(req Request, pid int) Response {
 		return s.list(req)
 	case "search":
 		return s.search(req)
+	case "log-append":
+		return s.appendLog(req)
 	default:
 		return s.dispatchMessage(req, pid)
 	}
+}
+
+// appendLog writes client events with their original timestamps.
+// Every line is marked origin client, whatever Origin the request carried.
+func (s *server) appendLog(req Request) Response {
+	if len(req.Events) == 0 {
+		return Response{Error: "log-append needs events"}
+	}
+	for _, line := range req.Events {
+		err := s.log.Append(eventlog.Event{
+			Time:        line.Time,
+			Event:       line.Event,
+			MsgID:       line.MsgID,
+			Actor:       line.Actor,
+			Name:        line.Name,
+			Resolved:    line.Resolved,
+			Detail:      line.Detail,
+			Reason:      line.Reason,
+			TargetState: line.TargetState,
+			Origin:      eventlog.OriginClient,
+		})
+		if err != nil {
+			return Response{Error: err.Error()}
+		}
+	}
+	return Response{OK: true}
 }
 
 // dispatchMessage handles the message and hook ops.
@@ -1161,11 +1211,11 @@ func (s *server) send(req Request, pid int) Response {
 	if err != nil {
 		return Response{Error: err.Error()}
 	}
-	result, err := s.box.Send(s.ctx, req.Env, pid, req.Name, req.Body, mailbox.Options{TTL: ttl, Wait: req.Wait})
+	result, err := s.box.Send(s.ctx, req.Env, pid, req.Name, req.Body, mailbox.Options{TTL: ttl, Wait: req.Wait, ClientID: req.ClientID})
 	if err != nil {
 		return Response{Error: err.Error()}
 	}
-	return Response{OK: true, Name: result.ID, State: result.State}
+	return Response{OK: true, Name: result.ID, State: result.State, Duplicate: result.Duplicate}
 }
 
 func positiveDuration(raw string) (time.Duration, error) {
@@ -1180,11 +1230,11 @@ func positiveDuration(raw string) (time.Duration, error) {
 }
 
 func (s *server) reply(req Request, pid int) Response {
-	result, err := s.box.Reply(s.ctx, req.Env, pid, req.Name, req.Body)
+	result, err := s.box.Reply(s.ctx, req.Env, pid, req.Name, req.Body, mailbox.Options{ClientID: req.ClientID})
 	if err != nil {
 		return Response{Error: err.Error()}
 	}
-	return Response{OK: true, Name: result.ID, State: result.State}
+	return Response{OK: true, Name: result.ID, State: result.State, Duplicate: result.Duplicate}
 }
 
 func (s *server) show(req Request) Response {

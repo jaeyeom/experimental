@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,13 +15,14 @@ import (
 )
 
 func cmdSend(ctx context.Context, args, env []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	target, body, file, ttl, wait, err := parseSend(args)
+	parsed, err := parseSend(args)
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus send: %s\n", err)
 		return 2
 	}
-	if file != "" {
-		data, readErr := os.ReadFile(file)
+	body := parsed.body
+	if parsed.file != "" {
+		data, readErr := os.ReadFile(parsed.file)
 		if readErr != nil {
 			fmt.Fprintf(stderr, "agentbus send: %s\n", readErr)
 			return 1
@@ -39,16 +41,19 @@ func cmdSend(ctx context.Context, args, env []string, stdin io.Reader, stdout, s
 		}
 		body = string(data)
 	}
-	return finishSend(ctx, env, daemon.Request{Op: "send", Name: target, Body: body, Env: env, TTL: ttl, Wait: wait}, stdout, stderr)
+	return finishSend(ctx, env, daemon.Request{
+		Op: "send", Name: parsed.target, Body: body, Env: env,
+		TTL: parsed.ttl, Wait: parsed.wait, ClientID: parsed.clientID,
+	}, parsed.asJSON, stdout, stderr)
 }
 
 func cmdReply(ctx context.Context, args, env []string, stdout, stderr io.Writer) int {
-	id, body, err := parseReply(args)
+	id, body, clientID, asJSON, err := parseReply(args)
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus reply: %s\n", err)
 		return 2
 	}
-	return finishSend(ctx, env, daemon.Request{Op: "reply", Name: id, Body: body, Env: env}, stdout, stderr)
+	return finishSend(ctx, env, daemon.Request{Op: "reply", Name: id, Body: body, Env: env, ClientID: clientID}, asJSON, stdout, stderr)
 }
 
 func cmdShow(ctx context.Context, args, env []string, stdout, stderr io.Writer) int {
@@ -80,7 +85,7 @@ func cmdMessageText(ctx context.Context, args, env []string, op string, stdout, 
 	return 0
 }
 
-func finishSend(ctx context.Context, env []string, req daemon.Request, stdout, stderr io.Writer) int {
+func finishSend(ctx context.Context, env []string, req daemon.Request, asJSON bool, stdout, stderr io.Writer) int {
 	if req.Body == "" {
 		fmt.Fprintf(stderr, "agentbus: message body is required\n")
 		return 2
@@ -93,7 +98,19 @@ func finishSend(ctx context.Context, env []string, req daemon.Request, stdout, s
 		fmt.Fprintf(stderr, "agentbus: %s\n", resp.Error)
 		return 1
 	}
-	fmt.Fprintf(stdout, "%s %s\n", resp.Name, resp.State)
+	if asJSON {
+		err := json.NewEncoder(stdout).Encode(struct {
+			ID        string `json:"id"`
+			State     string `json:"state"`
+			Duplicate bool   `json:"duplicate,omitempty"`
+		}{ID: resp.Name, State: resp.State, Duplicate: resp.Duplicate})
+		if err != nil {
+			fmt.Fprintf(stderr, "agentbus: %s\n", err)
+			return 1
+		}
+	} else {
+		fmt.Fprintf(stdout, "%s %s\n", resp.Name, resp.State)
+	}
 	switch resp.State {
 	case "held: " + mailbox.HoldHibernated:
 		fmt.Fprintf(stderr, "agentbus: the agent is hibernated; the message is queued until it wakes\n")
@@ -105,25 +122,51 @@ func finishSend(ctx context.Context, env []string, req daemon.Request, stdout, s
 	return 0
 }
 
-func parseSend(args []string) (string, string, string, string, bool, error) {
+type sendParse struct {
+	target   string
+	body     string
+	file     string
+	ttl      string
+	clientID string
+	wait     bool
+	asJSON   bool
+}
+
+func parseSend(args []string) (sendParse, error) {
 	wait, rest, err := takeBool(args, "--wait")
 	if err != nil {
-		return "", "", "", "", false, err
+		return sendParse{}, err
+	}
+	asJSON, rest, err := takeBool(rest, "--json")
+	if err != nil {
+		return sendParse{}, err
 	}
 	ttl, rest, ttlFound, err := takeFlag(rest, "--ttl")
 	if err != nil {
-		return "", "", "", "", false, err
+		return sendParse{}, err
 	}
 	if ttlFound {
 		if err := positiveTTL(ttl); err != nil {
-			return "", "", "", "", false, err
+			return sendParse{}, err
+		}
+	}
+	clientID, rest, idFound, err := takeFlag(rest, "--client-id")
+	if err != nil {
+		return sendParse{}, err
+	}
+	if idFound {
+		if err := mailbox.ValidClientID(clientID); err != nil {
+			return sendParse{}, fmt.Errorf("%w", err)
 		}
 	}
 	target, body, file, err := parseSendArgs(rest)
 	if err != nil {
-		return "", "", "", "", false, err
+		return sendParse{}, err
 	}
-	return target, body, file, ttl, wait, nil
+	return sendParse{
+		target: target, body: body, file: file, ttl: ttl,
+		clientID: clientID, wait: wait, asJSON: asJSON,
+	}, nil
 }
 
 func positiveTTL(raw string) error {
@@ -156,7 +199,7 @@ func parseSendArgs(args []string) (string, string, string, error) {
 		return "", "", "", err
 	}
 	if len(rest) < 1 || strings.HasPrefix(rest[0], "-") {
-		return "", "", "", errors.New("usage: agentbus send <name|handle> [<body>] [--file <path>] [--ttl <duration>] [--wait]")
+		return "", "", "", errors.New("usage: agentbus send <name|handle> [<body>] [--file <path>] [--ttl <duration>] [--wait] [--client-id <id>] [--json]")
 	}
 	if found {
 		if strings.TrimSpace(file) == "" {
@@ -173,9 +216,22 @@ func parseSendArgs(args []string) (string, string, string, error) {
 	return rest[0], strings.Join(rest[1:], " "), "", nil
 }
 
-func parseReply(args []string) (string, string, error) {
-	if len(args) < 2 || strings.HasPrefix(args[0], "-") {
-		return "", "", errors.New("usage: agentbus reply <id> <body>")
+func parseReply(args []string) (string, string, string, bool, error) {
+	asJSON, rest, err := takeBool(args, "--json")
+	if err != nil {
+		return "", "", "", false, err
 	}
-	return args[0], strings.Join(args[1:], " "), nil
+	clientID, rest, found, err := takeFlag(rest, "--client-id")
+	if err != nil {
+		return "", "", "", false, err
+	}
+	if found {
+		if err := mailbox.ValidClientID(clientID); err != nil {
+			return "", "", "", false, fmt.Errorf("%w", err)
+		}
+	}
+	if len(rest) < 2 || strings.HasPrefix(rest[0], "-") {
+		return "", "", "", false, errors.New("usage: agentbus reply <id> <body> [--client-id <id>] [--json]")
+	}
+	return rest[0], strings.Join(rest[1:], " "), clientID, asJSON, nil
 }

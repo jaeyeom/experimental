@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"testing"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter/fake"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/client"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
@@ -251,6 +253,185 @@ func TestQueueHoldsForUserDraft(t *testing.T) {
 	if state != "expired" || textsContain(ad.Texts, "ttl-body") ||
 		!textsContain(ad.Texts, "message "+expiredID+" to eng/reviewer expired") {
 		t.Fatalf("ttl send = %q texts %q", expired, ad.Texts)
+	}
+}
+
+func TestClientIDAcceptIsIdempotent(t *testing.T) {
+	runtime := shortRuntime(t)
+	base := []string{
+		"XDG_RUNTIME_DIR=" + runtime,
+		"XDG_STATE_HOME=" + t.TempDir(),
+		"HOME=" + t.TempDir(),
+	}
+	dirs, err := paths.FromEnv(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := "herdr:local/default/w1:p1"
+	reviewer := "herdr:local/default/w1:p2"
+	ad := &fake.Adapter{
+		AdapterName: "herdr",
+		Reach:       map[string]adapter.State{sender: adapter.StateIdle, reviewer: adapter.StateIdle},
+		Result:      map[string]adapter.Result{sender: adapter.ResultAccepted, reviewer: adapter.ResultAccepted},
+		PaneHandles: map[string]string{"p1": sender, "p2": reviewer},
+		InventoryAgents: []adapter.Agent{
+			{Handle: sender, PaneID: "p1", SessionID: "default", Status: "idle"},
+			{Handle: reviewer, PaneID: "p2", SessionID: "default", Status: "idle"},
+		},
+	}
+	cfg := daemon.Config{Adapters: []adapter.Adapter{ad}, PollInterval: time.Hour}
+	stop := startDaemon(t, dirs, cfg)
+	env := func(pane string) []string {
+		return append(append([]string{}, base...), "HERDR_PANE_ID="+pane)
+	}
+	mustCmd(t, []string{"register", "ops/inbox", "--when", "reviews"}, env("p1"))
+	mustCmd(t, []string{"register", "eng/reviewer", "--when", "reviews"}, env("p2"))
+	clientID := "mac:01ARZ3NDEKTSV4RRFFQ69G5FAV"
+
+	first, _ := mustCmd(t, []string{"send", "--client-id", clientID, "eng/reviewer", "same-body"}, env("p1"))
+	id, state, ok := strings.Cut(strings.TrimSpace(first), " ")
+	if !ok || !strings.HasPrefix(id, "m-") || state != "delivered" || strings.Contains(first, "duplicate") {
+		t.Fatalf("first accept = %q", first)
+	}
+	if len(ad.Texts) != 1 || !textsContain(ad.Texts, "same-body") {
+		t.Fatalf("first delivery = %q", ad.Texts)
+	}
+
+	fresh, _ := mustCmd(t, []string{"send", "--json", "eng/reviewer", "json-body"}, env("p1"))
+	if strings.Contains(fresh, "duplicate") || !strings.Contains(fresh, `"state":"delivered"`) {
+		t.Fatalf("first json = %q", fresh)
+	}
+
+	again, _ := mustCmd(t, []string{"send", "--json", "--client-id", clientID, "eng/reviewer", "same-body"}, env("p1"))
+	if !strings.Contains(again, `"id":"`+id+`"`) || !strings.Contains(again, `"duplicate":true`) || !strings.Contains(again, `"state":"delivered"`) {
+		t.Fatalf("duplicate json = %q", again)
+	}
+	if len(ad.Texts) != 2 {
+		t.Fatalf("duplicate changed deliveries: %q", ad.Texts)
+	}
+
+	code, stdout, stderr := runCmd([]string{"send", "--client-id", clientID, "eng/reviewer", "other-body"}, env("p1"))
+	if code == 0 || !strings.Contains(stderr, "conflict") {
+		t.Fatalf("different body = %d %q %q", code, stdout, stderr)
+	}
+	code, stdout, stderr = runCmd([]string{"send", "--client-id", clientID, reviewer, "same-body"}, env("p1"))
+	if code == 0 || !strings.Contains(stderr, "conflict") {
+		t.Fatalf("different recipient = %d %q %q", code, stdout, stderr)
+	}
+	if len(ad.Texts) != 2 || textsContain(ad.Texts, "other-body") {
+		t.Fatalf("conflict stored a delivery: %q", ad.Texts)
+	}
+	if !logHas(t, dirs, "dedupe", clientID) {
+		t.Fatal("dedupe event missing")
+	}
+
+	stop()
+	before := len(ad.Texts)
+	stop = startDaemon(t, dirs, cfg)
+	defer stop()
+	third, _ := mustCmd(t, []string{"send", "--client-id", clientID, "eng/reviewer", "same-body"}, env("p1"))
+	thirdID, _, ok := strings.Cut(strings.TrimSpace(third), " ")
+	if !ok || thirdID != id || len(ad.Texts) != before {
+		t.Fatalf("after restart = %q texts %q", third, ad.Texts)
+	}
+
+	byClient, _ := mustCmd(t, []string{"status", clientID}, base)
+	byID, _ := mustCmd(t, []string{"status", id}, base)
+	for _, text := range []string{byClient, byID} {
+		if !strings.Contains(text, "id: "+id) || !strings.Contains(text, "client_id: "+clientID) {
+			t.Fatalf("status = %q", text)
+		}
+	}
+	shown, _ := mustCmd(t, []string{"show", id}, base)
+	if !strings.Contains(shown, "client_id: "+clientID) || !strings.Contains(shown, "same-body") {
+		t.Fatalf("show = %q", shown)
+	}
+
+	plain, _ := mustCmd(t, []string{"send", "eng/reviewer", "plain-body"}, env("p1"))
+	plainID, _, ok := strings.Cut(strings.TrimSpace(plain), " ")
+	if !ok || plainID == id || !textsContain(ad.Texts, "plain-body") {
+		t.Fatalf("send without client id = %q texts %q", plain, ad.Texts)
+	}
+
+	replyID := "mac:01ARZ3NDEKTSV4RRFFQ69G5FAW"
+	reply, _ := mustCmd(t, []string{"reply", "--client-id", replyID, id, "thanks"}, env("p2"))
+	gotReply, _, ok := strings.Cut(strings.TrimSpace(reply), " ")
+	if !ok || gotReply == id {
+		t.Fatalf("reply = %q", reply)
+	}
+	replyAgain, _ := mustCmd(t, []string{"reply", "--json", "--client-id", replyID, id, "thanks"}, env("p2"))
+	if !strings.Contains(replyAgain, `"id":"`+gotReply+`"`) || !strings.Contains(replyAgain, `"duplicate":true`) {
+		t.Fatalf("duplicate reply = %q", replyAgain)
+	}
+	if !textsContain(ad.Texts, "thanks") {
+		t.Fatalf("reply was not delivered: %q", ad.Texts)
+	}
+	thanks := 0
+	for _, text := range ad.Texts {
+		if strings.Contains(text, "thanks") {
+			thanks++
+		}
+	}
+	if thanks != 1 {
+		t.Fatalf("reply delivered %d times: %q", thanks, ad.Texts)
+	}
+
+	code, _, stderr = runCmd([]string{"send", "--client-id", "nocolon", "eng/reviewer", "x"}, env("p1"))
+	if code == 0 || !strings.Contains(stderr, "client id") {
+		t.Fatalf("invalid client id = %d %q", code, stderr)
+	}
+}
+
+func TestClientLogAppendKeepsTimeAndMarksOrigin(t *testing.T) {
+	runtime := shortRuntime(t)
+	base := []string{
+		"XDG_RUNTIME_DIR=" + runtime,
+		"XDG_STATE_HOME=" + t.TempDir(),
+		"HOME=" + t.TempDir(),
+	}
+	dirs, err := paths.FromEnv(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop := startDaemon(t, dirs, daemon.Config{PollInterval: time.Hour})
+	defer stop()
+	when := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
+	resp, err := client.Call(context.Background(), dirs.SocketPath, daemon.Request{
+		Op: "log-append",
+		Events: []daemon.ClientEvent{{
+			Time:   when,
+			Event:  eventlog.EventSend,
+			Actor:  "outbox",
+			Detail: "queued locally",
+			Origin: "spoof",
+		}},
+	})
+	if err != nil || !resp.OK {
+		t.Fatalf("log-append = %+v, %v", resp, err)
+	}
+	lines, err := eventlog.Open(dirs.StateDir).Read(eventlog.Filter{Event: eventlog.EventSend})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("send lines = %v", lines)
+	}
+	if strings.Contains(lines[0], "spoof") {
+		t.Fatalf("client origin was trusted: %s", lines[0])
+	}
+	ev, err := eventlog.Parse(lines[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ev.Time.Equal(when) || ev.Origin != eventlog.OriginClient || ev.Detail != "queued locally" {
+		t.Fatalf("event = %+v", ev)
+	}
+	text, err := eventlog.Format(lines[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, `origin="client"`) {
+		t.Fatalf("format = %q", text)
 	}
 }
 

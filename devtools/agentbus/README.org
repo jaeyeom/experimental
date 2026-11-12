@@ -26,11 +26,11 @@ Examples below use the name ~ops/inbox~ and the handle
 | ~release <name> --to <claimer>~ | Hand the name to that claimer. Send context first. |
 | ~list [--json] [--fresh]~ | Registered names, ~--when~, liveness, and transport. |
 | ~search [query]~ | Every reachable agent, registered or not. |
-| ~send <name or handle> [<body>]~ | Send. Also ~--file~, stdin, ~--ttl~, and ~--wait~. |
-| ~reply <id> <body>~ | Reply. ~to~ is the original sender and ~re~ is ~id~. |
+| ~send <name or handle> [<body>]~ | Send. Also ~--file~, stdin, ~--ttl~, ~--wait~, ~--client-id~, and ~--json~. |
+| ~reply <id> <body>~ | Reply. ~to~ is the original sender and ~re~ is ~id~. Also ~--client-id~ and ~--json~. |
 | ~show <id>~ | Print one stored message. |
 | ~thread <id>~ | Print the chain. |
-| ~status <id>~ | Print id, state, and how long it has waited. |
+| ~status <id>~ | Print id, state, client id when set, and how long it has waited. ~<id>~ may be a client id. |
 | ~log~ | Read the daemon event log. |
 | ~lease <claim/extend/leave/status/check/release/adopt/pause/unshare/resume/hook/install-hook>~ | Hold the lease on a guarded checkout, or see who holds it; enforce it in Claude Code. See [[*Workdir lease]]. |
 | ~mem [--json]~ | Memory per local agent pane: process-tree RSS, long-lived jobs, names, and leases. See [[*Memory per agent]]. |
@@ -66,6 +66,18 @@ agentbus log --name ops/inbox
 ~send~ reads the body from the argument, from ~--file~, or from stdin.
 The body must not be empty. ~--ttl 30m~ sets a deadline for that one
 message. ~--wait~ blocks until it is delivered or that deadline passes.
+~--client-id <machine>:<ulid>~ makes that accept idempotent for the
+sender handle. The id is at most 64 characters from ~[A-Za-z0-9._:-]~
+and contains a colon. A retry with the same id, body, and recipient
+returns the original message id and state and creates nothing. ~--json~
+prints ~id~, ~state~, and, on that retry, ~duplicate: true~. Text output
+stays ~<id> <state>~. A different body or recipient is a conflict and
+stores nothing. The id is kept with the message, including across a
+daemon restart, for as long as the message is retained and at least 7
+days. ~status <client-id>~ resolves to that message. ~status~ and ~show~
+print ~client_id~ when one is set. A repeated accept appends a ~dedupe~
+log event. A client can append log events through the daemon with their
+original timestamps; those lines are marked ~origin: client~.
 ~search~ with no query lists everyone the daemon can see. A query is a
 case-sensitive substring of the name, ~--when~, tab label, or title.
 
