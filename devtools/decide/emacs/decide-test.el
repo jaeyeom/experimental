@@ -342,7 +342,7 @@
               (call-interactively (key-binding (kbd "o"))))
             (with-current-buffer "*decide D-4*"
               (should (equal header-line-format
-                             "a  b   0 reply   y archive   q quit"))
+                             "a  b   0 reply   y archive   O owner   q quit"))
               (should-not (string-match-p "free text" header-line-format))
               (should (eq (lookup-key decide-item-mode-map (kbd "o"))
                           #'decide-answer-option))
@@ -599,6 +599,49 @@
                  "mac: (w3:p7) (unreachable)"))
   (should (equal (decide--owner-location-text '(("pane" . "w3:p7") ("state" . "unknown")))
                  "(w3:p7)")))
+
+(defun decide-test--focus (loc &optional refuse)
+  "Focus LOC with a fake herdr.  Return (STATUS CALLS).
+CALLS are (MACHINE ARGS) in order.  REFUSE makes every call fail."
+  (let (calls)
+    (cl-letf (((symbol-function 'decide--herdr)
+               (lambda (machine args)
+                 (setq calls (append calls (list (list machine args))))
+                 (if refuse "unsupported" nil))))
+      (list (decide--focus-owner loc) calls))))
+
+(defconst decide-test--live-owner
+  '(("machine" . "") ("workspace" . "experimental") ("tab" . "review")
+    ("pane" . "w3:p7") ("state" . "live") ("workspaceId" . "w3") ("tabId" . "w3:t2")))
+
+(ert-deftest decide-focus-owner-live-pane ()
+  (should (equal (decide-test--focus decide-test--live-owner)
+                 '("focused experimental / review"
+                   (("" ("workspace" "focus" "w3"))
+                    ("" ("tab" "focus" "w3:t2")))))))
+
+(ert-deftest decide-focus-owner-other-machine ()
+  (let ((loc (cons '("machine" . "mac") decide-test--live-owner)))
+    (should (equal (decide-test--focus loc)
+                   '("focused mac: experimental / review"
+                     (("mac" ("workspace" "focus" "w3"))
+                      ("mac" ("tab" "focus" "w3:t2"))))))
+    (should (equal (decide-test--focus loc t)
+                   '("owner is on mac; not focusable from here"
+                     (("mac" ("workspace" "focus" "w3"))))))))
+
+(ert-deftest decide-focus-owner-without-live-pane-does-nothing ()
+  (should (equal (decide-test--focus '(("pane" . "w3:p9") ("state" . "closed")))
+                 '("owner tab closed; nothing to focus" nil)))
+  (should (equal (decide-test--focus nil)
+                 '("owner location unknown; nothing to focus" nil)))
+  (should (equal (decide-test--focus '(("machine" . "mac") ("pane" . "w3:p7")
+                                       ("state" . "unreachable")))
+                 '("owner is on mac, which did not answer; nothing to focus" nil))))
+
+(ert-deftest decide-focus-owner-key ()
+  (should (eq (lookup-key decide-item-mode-map (kbd "O")) #'decide-focus-owner))
+  (should (string-match-p "O owner" (decide--item-keys-line nil))))
 
 (ert-deftest decide-item-header-shows-owner-location ()
   (let ((text (decide--item-text

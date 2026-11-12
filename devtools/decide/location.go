@@ -132,6 +132,38 @@ func (r LocationResolver) Resolve(ctx context.Context, locs []OwnerLocation) []O
 	return out
 }
 
+// Focus brings loc's workspace and then its tab to the front in herdr,
+// through `herdr --machine` for another machine, and returns the status
+// line text. herdr cannot focus a pane by id, so the tab is the target.
+// A location that is not live runs nothing and says why.
+func (r LocationResolver) Focus(ctx context.Context, loc OwnerLocation) string {
+	switch {
+	case loc.State == LocationClosed:
+		return "owner tab closed; nothing to focus"
+	case loc.State == LocationUnreachable:
+		return "owner is on " + loc.Machine + ", which did not answer; nothing to focus"
+	case loc.State != LocationLive || loc.WorkspaceID == "" || loc.TabID == "":
+		return "owner location unknown; nothing to focus"
+	}
+	run := r.Run
+	if run == nil {
+		run = ExecHerdr
+	}
+	for _, args := range [][]string{{"workspace", "focus", loc.WorkspaceID}, {"tab", "focus", loc.TabID}} {
+		if _, err := run(ctx, loc.Machine, args); err != nil {
+			if loc.Machine != "" {
+				return "owner is on " + loc.Machine + "; not focusable from here"
+			}
+			return "focus owner: " + err.Error()
+		}
+	}
+	prefix := ""
+	if loc.Machine != "" {
+		prefix = loc.Machine + ": "
+	}
+	return "focused " + prefix + loc.Workspace + " / " + loc.Tab
+}
+
 type herdrSnapshot struct {
 	panes      map[string]herdrPane
 	tabs       map[string]string

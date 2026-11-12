@@ -58,6 +58,11 @@
   :type 'string
   :group 'decide)
 
+(defcustom decide-herdr-program "herdr"
+  "Name or path of the herdr executable that focuses an owner's tab."
+  :type 'string
+  :group 'decide)
+
 (defcustom decide-display-buffer-action '(display-buffer-same-window)
   "Display action for the list, an open item, and the status board.
 The default reuses the selected window, and `q' returns to the previous
@@ -474,7 +479,58 @@ The reply line and the numbered options follow."
   (let ((keys (decide--option-keys item)))
     (concat (mapconcat #'identity keys "  ")
             (if keys "   " "")
-            "0 reply   y archive   q quit")))
+            "0 reply   y archive   O owner   q quit")))
+
+(defun decide--herdr (machine args)
+  "Run herdr ARGS on MACHINE, empty for this machine.
+Return nil on success, or the error output."
+  (with-temp-buffer
+    (let ((status (apply #'call-process decide-herdr-program nil t nil
+                         (append (unless (string-empty-p machine)
+                                   (list "--machine" machine))
+                                 args))))
+      (unless (eq status 0)
+        (let ((out (string-trim (buffer-string))))
+          (if (string-empty-p out) (format "exit %s" status) out))))))
+
+(defun decide--focus-owner (loc)
+  "Focus the workspace and then the tab of LOC, an `ownerLocation'.
+Return the status text.  herdr cannot focus a pane by id, so the tab
+is the target.  A location that is not live runs nothing and says why."
+  (let ((machine (decide--field loc "machine"))
+        (state (decide--field loc "state"))
+        (workspace-id (decide--field loc "workspaceId"))
+        (tab-id (decide--field loc "tabId")))
+    (cond
+     ((equal state "closed") "owner tab closed; nothing to focus")
+     ((equal state "unreachable")
+      (format "owner is on %s, which did not answer; nothing to focus" machine))
+     ((or (not (equal state "live"))
+          (string-empty-p workspace-id)
+          (string-empty-p tab-id))
+      "owner location unknown; nothing to focus")
+     (t
+      (let ((err (or (decide--herdr machine (list "workspace" "focus" workspace-id))
+                     (decide--herdr machine (list "tab" "focus" tab-id)))))
+        (cond
+         ((and err (not (string-empty-p machine)))
+          (format "owner is on %s; not focusable from here" machine))
+         (err (concat "focus owner: " err))
+         (t (format "focused %s%s / %s"
+                    (if (string-empty-p machine) "" (concat machine ": "))
+                    (decide--field loc "workspace")
+                    (decide--field loc "tab")))))))))
+
+(defun decide-focus-owner ()
+  "Jump to the herdr tab of the open item's owner.
+It uses the location from opening the item; \\[revert-buffer] looks it
+up again.  The item is not marked read or answered."
+  (interactive)
+  (let ((item (car decide--items)))
+    (unless item
+      (user-error "No item"))
+    (message "%s" (decide--focus-owner
+                   (alist-get "ownerLocation" item nil nil #'equal)))))
 
 (defun decide-answer-option ()
   "Answer the open item with one of its option keys."
@@ -658,6 +714,7 @@ Long lines wrap, so a draft in the thread can be scrolled."
 (define-key decide-item-mode-map (kbd "o") #'decide-answer-option)
 (define-key decide-item-mode-map (kbd "0") #'decide-reply)
 (define-key decide-item-mode-map (kbd "y") #'decide-archive)
+(define-key decide-item-mode-map (kbd "O") #'decide-focus-owner)
 (define-key decide-item-mode-map (kbd "n") #'decide-message-next)
 (define-key decide-item-mode-map (kbd "p") #'decide-message-previous)
 (define-key decide-item-mode-map (kbd "q") #'quit-window)
@@ -952,6 +1009,7 @@ or archives."
   (decide--evil-bind
    decide-item-mode-map
    (list (kbd "o") #'decide-answer-option
+         (kbd "O") #'decide-focus-owner
          (kbd "0") #'decide-reply
          (kbd "y") #'decide-archive
          (kbd "n") #'decide-message-next

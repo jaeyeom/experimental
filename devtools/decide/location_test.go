@@ -2,6 +2,7 @@ package decide
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -183,5 +184,85 @@ func TestOwnerLocationPendingShowsPaneID(t *testing.T) {
 	}
 	if loc.State != LocationUnknown {
 		t.Fatalf("state = %q", loc.State)
+	}
+}
+
+func liveLocation(machine string) OwnerLocation {
+	return OwnerLocation{Machine: machine, Workspace: "experimental", Tab: "review", Pane: "w3:p7", State: LocationLive, WorkspaceID: "w3", TabID: "w3:t2"}
+}
+
+// focusCalls drops the reachability probe from argv.
+func focusCalls(argv []string) []string {
+	var out []string
+	for _, call := range argv {
+		if !strings.HasPrefix(call, "machine status ") {
+			out = append(out, call)
+		}
+	}
+	return out
+}
+
+func TestFocusOwnerLocalPane(t *testing.T) {
+	f := herdrtest.Install(t)
+	got := LocationResolver{}.Focus(context.Background(), liveLocation(""))
+	if got != "focused experimental / review" {
+		t.Fatalf("status = %q", got)
+	}
+	want := []string{"workspace focus w3", "tab focus w3:t2"}
+	if argv := focusCalls(f.Argv()); !slices.Equal(argv, want) {
+		t.Fatalf("herdr calls = %q, want %q", argv, want)
+	}
+}
+
+func TestFocusOwnerOtherMachine(t *testing.T) {
+	f := herdrtest.Install(t)
+	got := LocationResolver{}.Focus(context.Background(), liveLocation("mac"))
+	if got != "focused mac: experimental / review" {
+		t.Fatalf("status = %q", got)
+	}
+	want := []string{"--machine mac workspace focus w3", "--machine mac tab focus w3:t2"}
+	if argv := focusCalls(f.Argv()); !slices.Equal(argv, want) {
+		t.Fatalf("herdr calls = %q, want %q", argv, want)
+	}
+}
+
+func TestFocusOwnerOtherMachineRefused(t *testing.T) {
+	f := herdrtest.Install(t)
+	f.Write("mac.focus-refused", "")
+	got := LocationResolver{}.Focus(context.Background(), liveLocation("mac"))
+	if got != "owner is on mac; not focusable from here" {
+		t.Fatalf("status = %q", got)
+	}
+	if argv := focusCalls(f.Argv()); len(argv) != 1 || argv[0] != "--machine mac workspace focus w3" {
+		t.Fatalf("herdr calls = %q", argv)
+	}
+}
+
+func TestFocusOwnerLocalFailure(t *testing.T) {
+	f := herdrtest.Install(t)
+	f.Write("local.focus-refused", "")
+	got := LocationResolver{}.Focus(context.Background(), liveLocation(""))
+	if !strings.HasPrefix(got, "focus owner: ") {
+		t.Fatalf("status = %q", got)
+	}
+}
+
+func TestFocusOwnerWithoutLivePaneDoesNothing(t *testing.T) {
+	for _, tc := range []struct {
+		loc  OwnerLocation
+		want string
+	}{
+		{OwnerLocation{Pane: "w3:p9", State: LocationClosed}, "owner tab closed; nothing to focus"},
+		{OwnerLocation{State: LocationUnknown}, "owner location unknown; nothing to focus"},
+		{OwnerLocation{Pane: "w3:p7", State: LocationUnknown}, "owner location unknown; nothing to focus"},
+		{OwnerLocation{Machine: "mac", Pane: "w3:p7", State: LocationUnreachable}, "owner is on mac, which did not answer; nothing to focus"},
+	} {
+		f := herdrtest.Install(t)
+		if got := (LocationResolver{}).Focus(context.Background(), tc.loc); got != tc.want {
+			t.Errorf("Focus(%+v) = %q, want %q", tc.loc, got, tc.want)
+		}
+		if argv := f.Argv(); len(argv) != 0 {
+			t.Errorf("Focus(%+v) ran herdr %q", tc.loc, argv)
+		}
 	}
 }
