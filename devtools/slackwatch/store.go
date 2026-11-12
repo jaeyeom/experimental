@@ -190,6 +190,14 @@ CREATE TABLE posting (
 INSERT INTO posting (id) VALUES (1);
 ALTER TABLE watches ADD COLUMN flag TEXT NOT NULL DEFAULT '';
 `,
+	// The result of serve's last outbox poll. failing_since is set while
+	// polls fail.
+	`
+ALTER TABLE status ADD COLUMN outbox_poll_ok INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE status ADD COLUMN outbox_poll_last_ok INTEGER;
+ALTER TABLE status ADD COLUMN outbox_poll_error TEXT NOT NULL DEFAULT '';
+ALTER TABLE status ADD COLUMN outbox_poll_failing_since INTEGER;
+`,
 }
 
 // Store is the slackwatch SQLite database. The server and the CLI each

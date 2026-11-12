@@ -39,13 +39,44 @@ type Status struct {
 	PostMode        string       `json:"postMode"`
 	PostingDisabled string       `json:"postingDisabled,omitempty"`
 	Outbox          OutboxCounts `json:"outbox"`
+	// OutboxPoll is the result of serve's last outbox poll, zero when
+	// it has not polled.
+	OutboxPoll OutboxPoll `json:"outboxPoll,omitzero"`
+}
+
+// OutboxPoll is the result of the last outbox poll. LastOK is the time
+// of the last successful poll. While polls fail, FailingSince is the
+// time of the first failure in a row and LastError the latest error.
+type OutboxPoll struct {
+	OK           bool      `json:"ok"`
+	LastOK       time.Time `json:"lastOk,omitzero"`
+	LastError    string    `json:"lastError"`
+	FailingSince time.Time `json:"failingSince,omitzero"`
+}
+
+// Record applies the result of a poll at now.
+func (p *OutboxPoll) Record(now time.Time, err error) {
+	if err == nil {
+		*p = OutboxPoll{OK: true, LastOK: now}
+		return
+	}
+	if !p.Failing() {
+		p.FailingSince = now
+	}
+	p.OK, p.LastError = false, err.Error()
+}
+
+// Failing reports whether the latest poll failed.
+func (p OutboxPoll) Failing() bool {
+	return !p.OK && !p.FailingSince.IsZero()
 }
 
 // Healthy reports whether the server is up with a fresh heartbeat and
-// every notification was delivered, and posting is not disabled. A
-// reconnecting server is up.
+// every notification was delivered, posting is not disabled, and the
+// latest outbox poll did not fail. A reconnecting server is up.
 func (st Status) Healthy() bool {
-	return st.State != ConnDown && st.State != ConnStale && st.Undelivered == 0 && st.PostingDisabled == ""
+	return st.State != ConnDown && st.State != ConnStale && st.Undelivered == 0 && st.PostingDisabled == "" &&
+		!st.OutboxPoll.Failing()
 }
 
 // undeliveredQuery counts notifications nobody received. Each failed
@@ -71,11 +102,14 @@ func (s *Store) WriteStatus(st Status) error {
 	if _, err := s.db.Exec(`UPDATE status SET
 	pid = ?, started_at = ?, heartbeat_at = ?, heartbeat_interval = ?, connection = ?,
 	last_event_at = ?, last_catchup_at = ?, last_catchup_error = ?,
-	last_sweep_at = ?, last_sweep_error = ?, undelivered = (`+undeliveredQuery+`)
+	last_sweep_at = ?, last_sweep_error = ?,
+	outbox_poll_ok = ?, outbox_poll_last_ok = ?, outbox_poll_error = ?, outbox_poll_failing_since = ?,
+	undelivered = (`+undeliveredQuery+`)
 WHERE id = 1`,
 		st.PID, unixOrNull(st.StartedAt), unixOrNull(st.HeartbeatAt), int64(st.HeartbeatInterval.Duration/time.Second),
 		st.Connection, unixOrNull(st.LastEventAt), unixOrNull(st.LastCatchUpAt), st.LastCatchUpError,
-		unixOrNull(st.LastSweepAt), st.LastSweepError); err != nil {
+		unixOrNull(st.LastSweepAt), st.LastSweepError,
+		st.OutboxPoll.OK, unixOrNull(st.OutboxPoll.LastOK), st.OutboxPoll.LastError, unixOrNull(st.OutboxPoll.FailingSince)); err != nil {
 		return fmt.Errorf("write status: %w", err)
 	}
 	return nil
@@ -86,13 +120,17 @@ WHERE id = 1`,
 // twice its interval at now.
 func (s *Store) ReadStatus(now time.Time) (Status, error) {
 	var st Status
-	var pid, started, heartbeat, interval, event, catchUp, sweep sql.NullInt64
+	var pid, started, heartbeat, interval, event, catchUp, sweep, pollOK, failingSince sql.NullInt64
 	if err := s.db.QueryRow(`SELECT pid, started_at, heartbeat_at, heartbeat_interval, connection,
-	last_event_at, last_catchup_at, last_catchup_error, last_sweep_at, last_sweep_error, undelivered
+	last_event_at, last_catchup_at, last_catchup_error, last_sweep_at, last_sweep_error, undelivered,
+	outbox_poll_ok, outbox_poll_last_ok, outbox_poll_error, outbox_poll_failing_since
 FROM status WHERE id = 1`).Scan(&pid, &started, &heartbeat, &interval, &st.Connection,
-		&event, &catchUp, &st.LastCatchUpError, &sweep, &st.LastSweepError, &st.Undelivered); err != nil {
+		&event, &catchUp, &st.LastCatchUpError, &sweep, &st.LastSweepError, &st.Undelivered,
+		&st.OutboxPoll.OK, &pollOK, &st.OutboxPoll.LastError, &failingSince); err != nil {
 		return Status{}, fmt.Errorf("read status: %w", err)
 	}
+	st.OutboxPoll.LastOK = unixTime(pollOK)
+	st.OutboxPoll.FailingSince = unixTime(failingSince)
 	st.PID = int(pid.Int64)
 	st.StartedAt = unixTime(started)
 	st.HeartbeatAt = unixTime(heartbeat)

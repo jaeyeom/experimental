@@ -13,6 +13,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -52,6 +53,57 @@ type Config struct {
 	// Post configures slackwatch post. Posting is off unless Post.Mode is
 	// set.
 	Post PostConfig `json:"post"`
+	// DecideCommand is the argv prefix of every decide call. Empty means
+	// decide from PATH.
+	DecideCommand Command `json:"decideCommand"`
+}
+
+// DefaultDecideCommand is decideCommand when it is unset.
+const DefaultDecideCommand = "decide"
+
+// DecideArgv is decideCommand, or decide when it is unset.
+func (c Config) DecideArgv() []string {
+	if len(c.DecideCommand) == 0 {
+		return []string{DefaultDecideCommand}
+	}
+	return c.DecideCommand
+}
+
+// ResolveDecide returns the path of the decide executable, looked up on
+// PATH unless decideCommand names a path.
+func (c Config) ResolveDecide() (string, error) {
+	name := c.DecideArgv()[0]
+	path, err := exec.LookPath(name)
+	if err != nil {
+		return "", fmt.Errorf("decideCommand %q: %w", name, err)
+	}
+	return path, nil
+}
+
+// Command is a command written in JSON as a path string or an argv
+// list.
+type Command []string
+
+// UnmarshalJSON accepts a non-empty string or a list of strings whose
+// first element is non-empty.
+func (c *Command) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err == nil {
+		if s == "" {
+			return errors.New("command must not be empty")
+		}
+		*c = Command{s}
+		return nil
+	}
+	var argv []string
+	if err := json.Unmarshal(b, &argv); err != nil {
+		return fmt.Errorf("command must be a path or a list of strings: %w", err)
+	}
+	if len(argv) == 0 || argv[0] == "" {
+		return errors.New("command must not be empty")
+	}
+	*c = argv
+	return nil
 }
 
 // Posting modes for PostConfig.Mode.

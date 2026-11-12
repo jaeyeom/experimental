@@ -21,10 +21,10 @@ import (
 	"github.com/slack-go/slack"
 )
 
-// newDecider returns the decide client. Tests replace it with a fake so
-// they never run the real decide.
-var newDecider = func() slackwatch.Decider {
-	return slackwatch.DecideCLI{Run: slackwatch.ExecDecide}
+// newDecider returns the decide client that runs cfg's decideCommand.
+// Tests replace it with a fake so they never run the real decide.
+var newDecider = func(cfg slackwatch.Config) slackwatch.Decider {
+	return slackwatch.DecideCLI{Run: slackwatch.ExecDecide(cfg.DecideArgv())}
 }
 
 // slackAPIURL overrides the Slack Web API URL for the posting commands.
@@ -110,7 +110,7 @@ func newOutbox(configPath string, cfg slackwatch.Config, store *slackwatch.Store
 		Store:    store,
 		Config:   cfg,
 		Reload:   func() (slackwatch.Config, error) { return slackwatch.LoadConfig(configPath) },
-		Decide:   newDecider(),
+		Decide:   newDecider(cfg),
 		Notifier: &slackwatch.Notifier{Store: store, Config: cfg, Logger: logger},
 		Writer:   slackWriter{},
 		Reader:   readTokenReader{cfg: cfg},
@@ -532,15 +532,20 @@ func writePin(path, salt, pin string) error {
 	return nil
 }
 
-// pollOutbox polls decide for answers every interval until ctx ends.
-// Errors are logged; the next poll retries.
-func pollOutbox(ctx context.Context, o *slackwatch.Outbox, interval time.Duration, logger *slog.Logger) {
+// pollOutbox runs poll every interval until ctx ends and passes each
+// result to done. Errors are logged; the next poll retries.
+func pollOutbox(ctx context.Context, poll func(context.Context) error, interval time.Duration, done func(error), logger *slog.Logger) {
 	tick := time.NewTicker(interval)
 	defer tick.Stop()
 	for {
-		if err := o.Poll(ctx); err != nil && ctx.Err() == nil {
+		err := poll(ctx)
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
 			logger.Error("slackwatch serve: outbox poll", "error", err)
 		}
+		done(err)
 		select {
 		case <-ctx.Done():
 			return
@@ -551,8 +556,10 @@ func pollOutbox(ctx context.Context, o *slackwatch.Outbox, interval time.Duratio
 
 // startOutbox starts posting in serve when post.mode is set. A config
 // that does not allow posting is logged and posting stays off; watching
-// continues.
-func startOutbox(ctx context.Context, configPath string, cfg slackwatch.Config, store *slackwatch.Store, logger *slog.Logger) {
+// continues. Each poll first resolves decideCommand, so a missing decide
+// fails the first poll at startup and every poll after it, even with
+// nothing pending. polled receives each poll result.
+func startOutbox(ctx context.Context, configPath string, cfg slackwatch.Config, store *slackwatch.Store, logger *slog.Logger, polled func(error)) {
 	if cfg.Post.Mode == "" {
 		return
 	}
@@ -567,5 +574,11 @@ func startOutbox(ctx context.Context, configPath string, cfg slackwatch.Config, 
 		}
 	}
 	logger.Info("slackwatch serve: posting", "mode", cfg.Post.Mode)
-	go pollOutbox(ctx, o, slackwatch.DefaultOutboxPoll, logger)
+	poll := func(ctx context.Context) error {
+		if _, err := cfg.ResolveDecide(); err != nil {
+			return err //nolint:wrapcheck // Already names decideCommand.
+		}
+		return o.Poll(ctx) //nolint:wrapcheck // Already descriptive.
+	}
+	go pollOutbox(ctx, poll, slackwatch.DefaultOutboxPoll, polled, logger)
 }

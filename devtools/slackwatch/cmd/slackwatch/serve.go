@@ -85,7 +85,7 @@ func serve(ctx context.Context, configPath string, cfg slackwatch.Config, store 
 	go hb.run(ctx)
 	sweeps := make(chan struct{}, 1)
 	go runSweeps(ctx, &slackwatch.CatchUp{Slack: slackReader{api: api}, Proc: proc}, sweeps, cfg.SweepInterval.Duration, hb.swept, logger)
-	startOutbox(ctx, configPath, cfg, store, logger)
+	startOutbox(ctx, configPath, cfg, store, logger, hb.outboxPolled)
 	done := make(chan error, 1)
 	go func() { done <- client.RunContext(ctx) }()
 	for {

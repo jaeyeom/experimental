@@ -97,6 +97,11 @@ func (h *heartbeat) swept(catchUp bool, err error) {
 	})
 }
 
+// outboxPolled records the result of an outbox poll.
+func (h *heartbeat) outboxPolled(err error) {
+	h.update(func(st *slackwatch.Status) { st.OutboxPoll.Record(h.now(), err) })
+}
+
 // stop marks the server down.
 func (h *heartbeat) stop() {
 	h.update(func(st *slackwatch.Status) { st.Connection = slackwatch.ConnDown })
@@ -164,6 +169,12 @@ func printStatus(w io.Writer, st slackwatch.Status) {
 	fmt.Fprintf(w, "posting: %s\n", posting)
 	fmt.Fprintf(w, "outbox: %d pending, %d awaiting-handoff, %d needs-redraft\n",
 		st.Outbox.Pending, st.Outbox.AwaitingHandoff, st.Outbox.NeedsRedraft)
+	switch p := st.OutboxPoll; {
+	case p.Failing():
+		fmt.Fprintf(w, "outbox poll: failing since %s: %s\n", localTime(p.FailingSince), p.LastError)
+	case p.OK:
+		fmt.Fprintf(w, "outbox poll: ok %s\n", localTime(p.LastOK))
+	}
 }
 
 func localTime(t time.Time) string {

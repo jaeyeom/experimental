@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -176,7 +177,7 @@ type Decider interface {
 }
 
 // DecideCLI runs the decide command through Run, which returns its
-// standard output. ExecDecide is the real Run.
+// standard output. ExecDecide makes the real Run.
 type DecideCLI struct {
 	Run func(ctx context.Context, args ...string) ([]byte, error)
 }
@@ -222,21 +223,26 @@ func (d DecideCLI) runJSON(ctx context.Context, v any, args ...string) error {
 // decideTimeout bounds one decide command, which may run over ssh.
 const decideTimeout = time.Minute
 
-// ExecDecide runs decide from PATH with args and returns its stdout. Its
-// stderr is part of the error.
-func ExecDecide(ctx context.Context, args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, decideTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "decide", args...)
-	var stdout bytes.Buffer
-	stderr := &limitedBuffer{limit: outputLimit}
-	cmd.Stdout = &stdout
-	cmd.Stderr = stderr
-	cmd.WaitDelay = time.Second
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+// ExecDecide returns a Run that runs argv, such as Config.DecideArgv,
+// followed by args, and returns its stdout. Its stderr is part of the
+// error.
+func ExecDecide(argv []string) func(ctx context.Context, args ...string) ([]byte, error) {
+	return func(ctx context.Context, args ...string) ([]byte, error) {
+		ctx, cancel := context.WithTimeout(ctx, decideTimeout)
+		defer cancel()
+		// argv is decideCommand from the operator's own config.
+		// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
+		cmd := exec.CommandContext(ctx, argv[0], append(slices.Clip(argv[1:]), args...)...) //nolint:gosec // G204: operator config.
+		var stdout bytes.Buffer
+		stderr := &limitedBuffer{limit: outputLimit}
+		cmd.Stdout = &stdout
+		cmd.Stderr = stderr
+		cmd.WaitDelay = time.Second
+		if err := cmd.Run(); err != nil {
+			return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+		}
+		return stdout.Bytes(), nil
 	}
-	return stdout.Bytes(), nil
 }
 
 // AuthInfo is what auth.test reports: the token's user id and the
