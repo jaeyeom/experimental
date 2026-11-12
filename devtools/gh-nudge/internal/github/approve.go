@@ -427,6 +427,17 @@ func (c *Client) PullRequestHeadSHA(ref PullRef) (string, error) {
 	return sha, nil
 }
 
+// PullRequestDiff reads the pull request's unified diff through the REST API.
+// Only stdout is returned, so a gh warning cannot end up in the diff.
+func (c *Client) PullRequestDiff(ref PullRef) (string, error) {
+	path := fmt.Sprintf("repos/%s/%s/pulls/%d", ref.Owner, ref.Repo, ref.Number)
+	stdout, stderr, err := c.executeSeparated("gh", "api", path, "-H", "Accept: application/vnd.github.diff")
+	if err != nil {
+		return "", fmt.Errorf("read diff of %s/%s#%d: %w\n%s", ref.Owner, ref.Repo, ref.Number, err, stderr)
+	}
+	return stdout, nil
+}
+
 // ApprovePullRequest posts an APPROVE review pinned to commitSHA.
 // GitHub rejects the review when commitSHA is not part of the pull request.
 func (c *Client) ApprovePullRequest(ref PullRef, commitSHA, body string) error {

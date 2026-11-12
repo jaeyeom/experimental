@@ -3,6 +3,7 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "go_default_library",
     srcs = [
+        "agent.go",
         "conditions.go",
         "runner.go",
     ],
@@ -12,6 +13,7 @@ go_library(
         "//devtools/gh-nudge/internal/config:go_default_library",
         "//devtools/gh-nudge/internal/github:go_default_library",
         "//devtools/gh-nudge/internal/models:go_default_library",
+        "//devtools/pkg/remotecall:go_default_library",
         "@com_github_bmatcuk_doublestar_v4//:go_default_library",
     ],
 )
@@ -19,6 +21,8 @@ go_library(
 go_test(
     name = "go_default_test",
     srcs = [
+        "agent_test.go",
+        "agent_unix_test.go",
         "conditions_test.go",
         "runner_test.go",
     ],
@@ -27,5 +31,41 @@ go_test(
         "//devtools/gh-nudge/internal/config:go_default_library",
         "//devtools/gh-nudge/internal/github:go_default_library",
         "//devtools/gh-nudge/internal/models:go_default_library",
-    ],
+        "//devtools/pkg/remotecall:go_default_library",
+    ] + select({
+        "@rules_go//go/platform:aix": [
+            "@org_golang_x_sys//unix:go_default_library",
+        ],
+        "@rules_go//go/platform:android": [
+            "@org_golang_x_sys//unix:go_default_library",
+        ],
+        "@rules_go//go/platform:darwin": [
+            "@org_golang_x_sys//unix:go_default_library",
+        ],
+        "@rules_go//go/platform:dragonfly": [
+            "@org_golang_x_sys//unix:go_default_library",
+        ],
+        "@rules_go//go/platform:freebsd": [
+            "@org_golang_x_sys//unix:go_default_library",
+        ],
+        "@rules_go//go/platform:illumos": [
+            "@org_golang_x_sys//unix:go_default_library",
+        ],
+        "@rules_go//go/platform:ios": [
+            "@org_golang_x_sys//unix:go_default_library",
+        ],
+        "@rules_go//go/platform:linux": [
+            "@org_golang_x_sys//unix:go_default_library",
+        ],
+        "@rules_go//go/platform:netbsd": [
+            "@org_golang_x_sys//unix:go_default_library",
+        ],
+        "@rules_go//go/platform:openbsd": [
+            "@org_golang_x_sys//unix:go_default_library",
+        ],
+        "@rules_go//go/platform:solaris": [
+            "@org_golang_x_sys//unix:go_default_library",
+        ],
+        "//conditions:default": [],
+    }),
 )

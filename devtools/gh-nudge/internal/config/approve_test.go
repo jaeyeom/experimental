@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeApprovePkl(t *testing.T, approve string) string {
@@ -40,6 +41,8 @@ approve {
       checks = "allow_pending"
       not_draft = false
       max_unresolved_threads = 2
+      agent_command { "review-agent"; "--strict" }
+      agent_timeout = 30.s
     }
     new {
       name = "defaults"
@@ -72,9 +75,15 @@ approve {
 	if rule.Checks != ChecksAllowPending || rule.NotDraft || rule.MaxUnresolvedThreads != 2 {
 		t.Fatalf("rule flags = %+v", rule)
 	}
+	if strings.Join(rule.AgentCommand, " ") != "review-agent --strict" || rule.AgentTimeout != 30*time.Second {
+		t.Fatalf("rule agent = %q %v", rule.AgentCommand, rule.AgentTimeout)
+	}
 	defaults := approve.Rules[1]
 	if defaults.MaxChangedLines != nil || defaults.Checks != "" || !defaults.NotDraft || defaults.MaxUnresolvedThreads != 0 {
 		t.Fatalf("rule defaults = %+v", defaults)
+	}
+	if len(defaults.AgentCommand) != 0 || defaults.AgentTimeout != DefaultAgentTimeout || DefaultAgentTimeout != 120*time.Second {
+		t.Fatalf("rule agent defaults = %q %v", defaults.AgentCommand, defaults.AgentTimeout)
 	}
 }
 
@@ -97,6 +106,8 @@ func TestLoadPklApproveRejectsBadConfig(t *testing.T) {
 		"bad repo glob":       {`approve { rules { new { name = "r"; repos { "acme/[" } } } }`, "repos"},
 		"duplicate name":      {`approve { rules { new { name = "r" } new { name = "r" } } }`, "twice"},
 		"empty name":          {`approve { rules { new { name = "" } } }`, "name"},
+		"empty agent argv0":   {`approve { rules { new { name = "r"; agent_command { "" } } } }`, "agent_command"},
+		"zero agent timeout":  {`approve { rules { new { name = "r"; agent_timeout = 0.s } } }`, "agent_timeout"},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {

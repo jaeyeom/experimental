@@ -28,6 +28,8 @@ type RuleResult struct {
 	Rule       string            `json:"rule"`
 	Matched    bool              `json:"matched"`
 	Conditions []ConditionResult `json:"conditions"`
+	// Agent is set when the rule's agent command ran.
+	Agent *AgentResult `json:"agent,omitempty"`
 }
 
 // FirstFailure returns the first condition that failed.
@@ -83,19 +85,51 @@ func EvaluateRule(rule config.ApproveRule, pr github.ApprovalPullRequest) RuleRe
 	return result
 }
 
+// AgentFunc runs a rule's agent command.
+type AgentFunc func(rule config.ApproveRule) AgentResult
+
 // Evaluate evaluates every rule and returns the name of the first matching
-// rule, or "" when none matches.
-func Evaluate(rules []config.ApproveRule, pr github.ApprovalPullRequest) ([]RuleResult, string) {
+// rule, or "" when none matches. A rule's agent command runs last, only when
+// its other conditions passed and no earlier rule matched. A nil agent runs
+// no agent command, and a rule that sets one does not match.
+func Evaluate(rules []config.ApproveRule, pr github.ApprovalPullRequest, agent AgentFunc) ([]RuleResult, string) {
 	results := make([]RuleResult, 0, len(rules))
 	matched := ""
 	for _, rule := range rules {
 		result := EvaluateRule(rule, pr)
+		if len(rule.AgentCommand) > 0 {
+			run := agent
+			if matched != "" {
+				run = nil
+			}
+			result = withAgent(result, rule, run)
+		}
 		if result.Matched && matched == "" {
 			matched = rule.Name
 		}
 		results = append(results, result)
 	}
 	return results, matched
+}
+
+// withAgent adds the agent command's condition to result.
+func withAgent(result RuleResult, rule config.ApproveRule, agent AgentFunc) RuleResult {
+	cond := ConditionResult{Condition: agentCondition}
+	switch {
+	case !result.Matched:
+		cond.Saw = "not run: another condition failed"
+	case agent == nil:
+		cond.Saw = "not run"
+		result.Matched = false
+	default:
+		got := agent(rule)
+		result.Agent = &got
+		cond.Pass = got.Decision == AgentApprove
+		cond.Saw = got.String()
+		result.Matched = cond.Pass
+	}
+	result.Conditions = append(result.Conditions, cond)
+	return result
 }
 
 func unreadable(reason string) (bool, string) {

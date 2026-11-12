@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
 
@@ -10,6 +11,10 @@ import (
 
 // DefaultApproveBody is the gh-approve review body when config omits body.
 const DefaultApproveBody = "LGTM"
+
+// DefaultAgentTimeout bounds an approve rule's agent command when config
+// omits agent_timeout.
+const DefaultAgentTimeout = 120 * time.Second
 
 // Values of ApproveRule.Checks.
 const (
@@ -48,6 +53,11 @@ type ApproveRule struct {
 	Checks               string
 	NotDraft             bool
 	MaxUnresolvedThreads int
+	// AgentCommand is argv, run without a shell after every other condition
+	// passed. Empty adds no condition.
+	AgentCommand []string
+	// AgentTimeout bounds AgentCommand. Zero means DefaultAgentTimeout.
+	AgentTimeout time.Duration
 }
 
 func convertApprove(src pklconfig.ApproveConfig) ApproveConfig {
@@ -75,6 +85,8 @@ func convertApprove(src pklconfig.ApproveConfig) ApproveConfig {
 			RequiredApprovalsBy:  cloneStrings(rule.RequiredApprovalsBy),
 			NotDraft:             rule.NotDraft,
 			MaxUnresolvedThreads: rule.MaxUnresolvedThreads,
+			AgentCommand:         cloneStrings(rule.AgentCommand),
+			AgentTimeout:         rule.AgentTimeout.GoDuration(),
 		}
 		if rule.Checks != nil {
 			converted.Checks = *rule.Checks
