@@ -229,6 +229,10 @@ type Config struct {
 	// TeamCoverCodeownersTTL is how long a repository's CODEOWNERS is
 	// reused across rounds. Zero fetches it every round.
 	TeamCoverCodeownersTTL time.Duration
+	// ReviewThreadsTTL is the longest a pull request's review threads are
+	// reused across rounds while its head and updatedAt are unchanged.
+	// Zero fetches them every round.
+	ReviewThreadsTTL time.Duration
 
 	// GateIgnoreProcs are patterns for an agent's helpers (MCP and
 	// language servers, status-line commands). A plain pattern matches
@@ -320,6 +324,7 @@ func Defaults() Config {
 		TeamCoverLoadTTL:         time.Hour,
 		TeamCoverMembersTTL:      24 * time.Hour,
 		TeamCoverCodeownersTTL:   6 * time.Hour,
+		ReviewThreadsTTL:         6 * time.Hour,
 		GateIgnoreProcs:          slices.Clone(procinfo.DefaultHelpers),
 		GateBuildTools:           slices.Clone(procinfo.DefaultBuildTools),
 		GateBuildToolIgnore:      slices.Clone(procinfo.DefaultBuildToolIgnore),
@@ -593,6 +598,8 @@ func applyOtherKey(cfg *Config, key, val string) error {
 		b, err := parseBool(key, val)
 		cfg.ScanInScopeOnly = b
 		return err
+	case "review_threads_ttl":
+		return applyNonNegativeDuration(&cfg.ReviewThreadsTTL, key, val)
 	case "dispatch_prompt_suffix":
 		cfg.PromptSuffix = val
 		return nil

@@ -2,9 +2,10 @@
 // file, so a round can skip calls whose answer cannot have changed.
 // Entries expire after their TTL (TTL for status checks, the history TTL
 // for path history, the load TTL for review load, the members TTL for team
-// members, the CODEOWNERS TTL for CODEOWNERS bodies, and KeepTTL for changed
-// files, review snapshots and CODEOWNERS locations) and are dropped on Save, as are entries whose key is
-// not in the current format. The file is only a cache: a missing or
+// members, the CODEOWNERS TTL for CODEOWNERS bodies, the threads TTL for
+// review threads, and KeepTTL for changed files, review snapshots and
+// CODEOWNERS locations) and are dropped on Save, as are entries whose key
+// is not in the current format. The file is only a cache: a missing or
 // corrupt file starts empty.
 package roundcache
 
@@ -45,6 +46,10 @@ const MembersTTL = 24 * time.Hour
 // SetCodeownersTTL sets another TTL.
 const CodeownersTTL = 6 * time.Hour
 
+// ThreadsTTL is how long a pull request's review threads are reused
+// unless SetThreadsTTL sets another TTL.
+const ThreadsTTL = 6 * time.Hour
+
 // KeepTTL is how long entries are kept whose key already pins the answer
 // (changed files per head, review snapshots per head and updatedAt), and
 // how long a CODEOWNERS location is kept as the first place to look.
@@ -66,6 +71,7 @@ type Cache struct {
 	loadTTL       time.Duration
 	membersTTL    time.Duration
 	codeownersTTL time.Duration
+	threadsTTL    time.Duration
 	data          payload
 	dirty         bool
 }
@@ -75,12 +81,13 @@ type payload struct {
 	Rollups map[string]rollupEntry  `json:"rollups"`
 	Rounds  map[string]int          `json:"rounds,omitempty"`
 	Loads   map[string]loadEntry    `json:"loads,omitempty"`
-	// Members is keyed by org/slug, Files and Reviews by repo#number, and
-	// Codeowners by repo@ref.
+	// Members is keyed by org/slug, Files, Reviews and Threads by
+	// repo#number, and Codeowners by repo@ref.
 	Members    map[string]membersEntry    `json:"members,omitempty"`
 	Files      map[string]filesEntry      `json:"files,omitempty"`
 	Codeowners map[string]codeownersEntry `json:"codeowners,omitempty"`
 	Reviews    map[string]reviewsEntry    `json:"reviews,omitempty"`
+	Threads    map[string]threadsEntry    `json:"threads,omitempty"`
 	// HistoryBatch is the path-history request size that last worked.
 	HistoryBatch int `json:"historyBatch,omitempty"`
 }
@@ -122,6 +129,13 @@ type reviewsEntry struct {
 	Reviews   []gh.LatestReview `json:"reviews"`
 }
 
+type threadsEntry struct {
+	At        time.Time   `json:"at"`
+	Head      string      `json:"head"`
+	UpdatedAt string      `json:"updatedAt"`
+	Threads   []gh.Thread `json:"threads"`
+}
+
 type rollupEntry struct {
 	At        time.Time        `json:"at"`
 	Head      string           `json:"head"`
@@ -134,7 +148,8 @@ type rollupEntry struct {
 func Load(path string, now func() time.Time) (*Cache, error) {
 	c := &Cache{
 		path: path, now: now, historyTTL: HistoryTTL, loadTTL: LoadTTL,
-		membersTTL: MembersTTL, codeownersTTL: CodeownersTTL, data: emptyPayload(),
+		membersTTL: MembersTTL, codeownersTTL: CodeownersTTL, threadsTTL: ThreadsTTL,
+		data: emptyPayload(),
 	}
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -171,6 +186,9 @@ func Load(path string, now func() time.Time) (*Cache, error) {
 	if data.Reviews != nil {
 		c.data.Reviews = data.Reviews
 	}
+	if data.Threads != nil {
+		c.data.Threads = data.Threads
+	}
 	c.data.HistoryBatch = data.HistoryBatch
 	return c, nil
 }
@@ -185,6 +203,7 @@ func emptyPayload() payload {
 		Files:      map[string]filesEntry{},
 		Codeowners: map[string]codeownersEntry{},
 		Reviews:    map[string]reviewsEntry{},
+		Threads:    map[string]threadsEntry{},
 	}
 }
 
@@ -235,6 +254,17 @@ func (c *Cache) SetCodeownersTTL(ttl time.Duration) {
 		ttl = CodeownersTTL
 	}
 	c.codeownersTTL = ttl
+}
+
+// SetThreadsTTL sets how long a pull request's review threads are reused;
+// Save drops older entries. A ttl <= 0 restores ThreadsTTL.
+func (c *Cache) SetThreadsTTL(ttl time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if ttl <= 0 {
+		ttl = ThreadsTTL
+	}
+	c.threadsTTL = ttl
 }
 
 func historyKey(repo, ref, path, version string) string {
@@ -404,6 +434,56 @@ func (c *Cache) PutReviewSnapshot(repo string, number int, head, updatedAt, auth
 	c.dirty = true
 }
 
+// ReviewThreads returns the stored review threads of a pull request while
+// its head and updatedAt are unchanged and the entry is younger than the
+// threads TTL. An empty head or updatedAt is a miss.
+func (c *Cache) ReviewThreads(repo string, number int, head, updatedAt string) ([]gh.Thread, bool) {
+	if head == "" || updatedAt == "" {
+		return nil, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, ok := c.data.Threads[rollupKey(repo, number)]
+	if !ok || entry.Head != head || entry.UpdatedAt != updatedAt || !c.fresh(entry.At, c.threadsTTL) {
+		return nil, false
+	}
+	return entry.Threads, true
+}
+
+// PutReviewThreads stores threads for ReviewThreads. An empty head or
+// updatedAt is not stored.
+func (c *Cache) PutReviewThreads(repo string, number int, head, updatedAt string, threads []gh.Thread) {
+	if head == "" || updatedAt == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.data.Threads[rollupKey(repo, number)] = threadsEntry{
+		At: c.now(), Head: head, UpdatedAt: updatedAt, Threads: threads,
+	}
+	c.dirty = true
+}
+
+// PruneReviewThreads drops the stored review threads of repo's pull
+// requests whose number is not in open.
+func (c *Cache) PruneReviewThreads(repo string, open []int) {
+	keep := make(map[string]struct{}, len(open))
+	for _, number := range open {
+		keep[rollupKey(repo, number)] = struct{}{}
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for key := range c.data.Threads {
+		if r, _, _ := strings.Cut(key, "#"); r != repo {
+			continue
+		}
+		if _, ok := keep[key]; !ok {
+			delete(c.data.Threads, key)
+			c.dirty = true
+		}
+	}
+}
+
 // Codeowners returns the stored CODEOWNERS body of repo at ref and the path
 // it was found at (empty when none exists). ok is set while the body is
 // fresh; past that, path is still returned for the longer of the
@@ -510,6 +590,7 @@ func (c *Cache) Save() error {
 			c.dirty = true
 		}
 	}
+	c.pruneThreads()
 	c.pruneTeamCover()
 	if !c.dirty {
 		return nil
@@ -526,6 +607,17 @@ func (c *Cache) Save() error {
 	}
 	c.dirty = false
 	return nil
+}
+
+// pruneThreads drops expired review threads and those whose key is not in
+// the current format. The caller holds mu.
+func (c *Cache) pruneThreads() {
+	for key, entry := range c.data.Threads {
+		if !c.fresh(entry.At, c.threadsTTL) || !knownRollupKey(key) {
+			delete(c.data.Threads, key)
+			c.dirty = true
+		}
+	}
 }
 
 // pruneTeamCover drops expired team-cover entries and those whose key is

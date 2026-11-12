@@ -221,6 +221,11 @@
 # bodies append: … [truncated, see <thread url>]
 # comment_body_max_chars=4000
 
+# The longest scan reuses a PR's review threads from round-cache.json
+# while its head commit and updatedAt are unchanged. Go duration. 0
+# fetches them every round. Default 6h.
+# review_threads_ttl=6h
+
 # How long the same unaddressed comment ids stay deduped. Go duration.
 # 0 expires immediately. Default 24h.
 # dedupe_ttl=24h

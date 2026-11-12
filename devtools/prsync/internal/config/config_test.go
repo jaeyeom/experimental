@@ -641,6 +641,23 @@ func TestLoadTeamCover(t *testing.T) {
 	}
 }
 
+func TestLoadReviewThreadsTTL(t *testing.T) {
+	for body, want := range map[string]time.Duration{
+		"review_threads_ttl=90m\n": 90 * time.Minute,
+		"review_threads_ttl=0\n":   0,
+	} {
+		path := filepath.Join(t.TempDir(), "prsync.config")
+		mustWrite(t, path, body)
+		got, err := Load(path)
+		if err != nil {
+			t.Fatalf("Load(%q): %v", body, err)
+		}
+		if got.ReviewThreadsTTL != want {
+			t.Fatalf("Load(%q) ReviewThreadsTTL = %v, want %v", body, got.ReviewThreadsTTL, want)
+		}
+	}
+}
+
 func TestLoadTeamCoverHistoryTTLZero(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "prsync.config")
 	mustWrite(t, path, "team_cover_history_ttl=0\n")
@@ -772,6 +789,8 @@ func TestLoadValidationErrors(t *testing.T) {
 		{name: "negative team cover load ttl", body: "team_cover_load_ttl=-1m\n", key: "team_cover_load_ttl"},
 		{name: "bad team cover members ttl", body: "team_cover_members_ttl=1\n", key: "team_cover_members_ttl"},
 		{name: "negative team cover codeowners ttl", body: "team_cover_codeowners_ttl=-1h\n", key: "team_cover_codeowners_ttl"},
+		{name: "bad review threads ttl", body: "review_threads_ttl=6\n", key: "review_threads_ttl"},
+		{name: "negative review threads ttl", body: "review_threads_ttl=-1h\n", key: "review_threads_ttl"},
 		{name: "bad dedupe ttl", body: "dedupe_ttl=tomorrow\n", key: "dedupe_ttl"},
 		{name: "negative dedupe ttl", body: "dedupe_ttl=-1s\n", key: "dedupe_ttl"},
 		{name: "negative dedupe scans", body: "dedupe_scans=-1\n", key: "dedupe_scans"},
@@ -940,6 +959,9 @@ func TestDefaults(t *testing.T) {
 	}
 	if got.TeamCoverCodeownersTTL != 6*time.Hour {
 		t.Fatalf("TeamCoverCodeownersTTL = %v, want 6h", got.TeamCoverCodeownersTTL)
+	}
+	if got.ReviewThreadsTTL != 6*time.Hour {
+		t.Fatalf("ReviewThreadsTTL = %v, want 6h", got.ReviewThreadsTTL)
 	}
 	if got.StateFile != "~/.config/prsync/state.json" {
 		t.Fatalf("StateFile = %q", got.StateFile)

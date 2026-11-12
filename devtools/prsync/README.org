@@ -169,6 +169,7 @@ Environment variables are not expanded.
 | ~machine_checkouts~ | empty | Comma- or space-separated ~machine=/path~ entries: each machine's checkout of the dispatch repo, an absolute path on that machine. The gate for a ~tab_machine~ other than ~local~ checks it, and fails without an entry. Each machine must be in ~machines~. See [[*One watcher per machine][One watcher per machine]]. |
 | ~untabbed~ | empty | ~include~ or ~exclude~: whether PRs with no tab belong to a ~tab_machine~ run. Empty = only the ~local~ run includes them. ~--untabbed~ overrides it. |
 | ~scan_in_scope_only~ | ~false~ | When ~true~, ~scan~ leaves PRs marked ~out_of_scope~ out of its output, as ~--in-scope~ does. ~--in-scope=false~ overrides it. |
+| ~review_threads_ttl~ | ~6h~ | Go duration. The longest a PR's review threads are reused across rounds, from the round cache, while its ~headRefOid~ and ~updatedAt~ are unchanged. It bounds staleness from changes that may not move ~updatedAt~, such as a resolved thread. ~0~ fetches them every round. Must be >= 0. See [[*Round cache][Round cache]]. |
 | ~skip_jobs~ | empty | Comma-separated machine-wide jobs this run skips. The only job is ~team-cover~. An unknown job is a config error. ~--skip~ overrides it. |
 | ~open_missing_tabs~ | ~false~ | When ~true~, ~dispatch~ opens a herdr tab and starts ~open_tabs_agent~ for an in-scope PR with no tab, then dispatches to it. ~--open-tabs~ overrides it. See [[*Opening tabs for untabbed PRs][Opening tabs for untabbed PRs]]. |
 | ~open_tabs_workspace~ | empty | Comma-separated: a plain value for the local server and ~machine=value~ for others. A herdr workspace label or id. Empty = herdr's choice. |
@@ -351,7 +352,8 @@ per-PR status-check views at a time during a scan.
 GitHub also caps GraphQL CPU time per user, so prsync keeps its large
 queries small and skips calls whose answer cannot have changed since the
 last round. Results are kept in ~round-cache.json~, next to
-~state_file~: status checks for an hour, path history for
+~state_file~: status checks for an hour, review threads for
+~review_threads_ttl~, path history for
 ~team_cover_history_ttl~ (at most a day when that is ~0~), review load
 for ~team_cover_load_ttl~, team members for ~team_cover_members_ttl~,
 CODEOWNERS for ~team_cover_codeowners_ttl~, and changed files and review
@@ -366,6 +368,13 @@ ignored with a warning in the run log.
   finished, the scan reuses the stored checks instead of running the
   per-PR status-check view. A pending or empty rollup is never stored,
   because a check can finish without changing ~updatedAt~.
+- *Review threads.* Each PR's review threads are stored per repository
+  and number with its ~headRefOid~ and ~updatedAt~. While both match the
+  open-PR list and the entry is younger than ~review_threads_ttl~, the
+  scan reuses them instead of the per-PR GraphQL query. A failed fetch is
+  not stored, and a PR no longer in its repository's open list is
+  dropped. The run log records ~scan: review threads N hits/M calls~
+  each round.
 - *Team-cover history.* Each path's history is stored per repository,
   base branch, path, and the history window's start day, and reused for
   ~team_cover_history_ttl~ even when the base branch head moves. Paths
