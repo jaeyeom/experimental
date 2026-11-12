@@ -21,8 +21,12 @@ func TestAppendLogAndStats(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	s, err := ReadStats(path, filepath.Join(filepath.Dir(path), "calls.jsonl"), now, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var out bytes.Buffer
-	if err := WriteStats(&out, path, now, time.Hour); err != nil {
+	if err := s.WriteText(&out); err != nil {
 		t.Fatal(err)
 	}
 	got := out.String()
@@ -43,8 +47,13 @@ func TestAppendLogAndStats(t *testing.T) {
 }
 
 func TestStatsWithoutLog(t *testing.T) {
+	dir := t.TempDir()
+	s, err := ReadStats(filepath.Join(dir, "none.jsonl"), filepath.Join(dir, "calls.jsonl"), time.Now(), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var out bytes.Buffer
-	if err := WriteStats(&out, filepath.Join(t.TempDir(), "none.jsonl"), time.Now(), time.Hour); err != nil {
+	if err := s.WriteText(&out); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "0 waits") {

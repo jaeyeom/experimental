@@ -7,18 +7,22 @@
 //
 // Usage:
 //
-//	gh-throttle pr view 123        # as gh pr view 123
-//	gh-throttle --stats            # summarise the last hour's waits
+//	gh-throttle pr view 123                   # as gh pr view 123
+//	gh-throttle --stats [--since 1h] [--json] # summarise calls and waits
 //
 // Knobs: GH_THROTTLE_MAX_CONCURRENT, GH_THROTTLE_MUTATION_GAP,
 // GH_THROTTLE_BACKOFF, GH_THROTTLE_MAX_BACKOFF, GH_THROTTLE_OFF=1 to
 // bypass the limiter, GH_THROTTLE_CACHE_TTL to turn on the read cache,
-// and GH_THROTTLE_NO_CACHE=1 to skip it for one call.
+// GH_THROTTLE_NO_CACHE=1 to skip it for one call, and
+// GH_THROTTLE_POINTS_PER_MIN and GH_THROTTLE_GRAPHQL_SECS_PER_MIN for
+// the per-minute budgets.
 package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -53,8 +57,8 @@ func run(args []string, getenv func(string) string, self string, stdin io.Reader
 		fmt.Fprintf(stderr, "gh-throttle: %v\n", err)
 		return 1
 	}
-	if len(args) == 1 && args[0] == "--stats" {
-		if err := ghlimit.WriteStats(stdout, ghlimit.LogPath(getenv), time.Now(), time.Hour); err != nil {
+	if len(args) > 0 && args[0] == "--stats" {
+		if err := writeStats(args[1:], getenv, stdout); err != nil {
 			return fail(err)
 		}
 		return 0
@@ -74,14 +78,22 @@ func run(args []string, getenv func(string) string, self string, stdin io.Reader
 	if err != nil {
 		return fail(err)
 	}
-	logPath := ghlimit.LogPath(getenv)
+	logPath, callLogPath := ghlimit.LogPath(getenv), ghlimit.CallLogPath(getenv)
+	caller := lookupCaller()
+	cwd, _ := os.Getwd()
 	limiter := &ghlimit.Limiter{
 		Dir:    ghlimit.StateDir(getenv),
 		Config: cfg,
 		Log: func(e ghlimit.Entry) error {
 			e.PID = os.Getpid()
-			e.Caller = parentName()
+			e.Caller, _ = caller()
 			return ghlimit.AppendLog(logPath, e)
+		},
+		LogCall: func(e ghlimit.CallEntry) error {
+			e.PID = os.Getpid()
+			e.Caller, e.CallerChain = caller()
+			e.Cwd = cwd
+			return ghlimit.AppendCallLog(callLogPath, e, ghlimit.MaxCallLogSize)
 		},
 	}
 	runner, err := ghlimit.NewExecRunner(gh, args, stdin, stdout, stderr)
@@ -100,6 +112,11 @@ func run(args []string, getenv func(string) string, self string, stdin io.Reader
 	}
 	if cache.TTL > 0 && !cache.Bypass {
 		cache.Identity = ghlimit.CacheIdentity(getenv)
+		runner.KeepStdout = true
+	}
+	if ghlimit.ClassifyCall(args).AsksRateLimit() {
+		// Kept up to a bound, for the rateLimit { cost remaining } the
+		// call log records.
 		runner.KeepStdout = true
 	}
 	res, err := cache.Run(context.Background(), limiter, args, runner.Run, stdout)
@@ -191,23 +208,85 @@ func isTerminal(w io.Writer) bool {
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
-// parentName is the name of the process that ran gh-throttle, or "" when
-// it cannot be read.
-func parentName() string {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	procs, err := procinfo.LocalTable().List(ctx)
+// writeStats prints the --stats summary; args are what follows
+// --stats: --since DURATION (default 1h) and --json.
+func writeStats(args []string, getenv func(string) string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("gh-throttle --stats", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	since := fs.Duration("since", time.Hour, "how far back to summarise")
+	asJSON := fs.Bool("json", false, "print JSON")
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("--stats: %w", err)
+	}
+	if fs.NArg() > 0 || *since <= 0 {
+		return errors.New("usage: gh-throttle --stats [--since 1h] [--json]")
+	}
+	s, err := ghlimit.ReadStats(ghlimit.LogPath(getenv), ghlimit.CallLogPath(getenv), time.Now(), *since)
 	if err != nil {
-		return ""
+		return fmt.Errorf("read stats: %w", err)
 	}
-	ppid := os.Getppid()
-	for _, p := range procs {
-		if p.PID == ppid {
-			if p.Name != "" {
-				return p.Name
-			}
-			return procinfo.Argv0Base(p)
+	if *asJSON {
+		enc := json.NewEncoder(stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(s); err != nil {
+			return fmt.Errorf("write stats: %w", err)
 		}
+		return nil
 	}
-	return ""
+	return s.WriteText(stdout) //nolint:wrapcheck // WriteText wraps its own errors
+}
+
+// lookupCaller starts reading the process table in the background, so
+// it overlaps the gh run, and returns a function that waits for the
+// caller and its chain (see callerChain).
+func lookupCaller() func() (string, []string) {
+	var (
+		name  string
+		chain []string
+	)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		procs, err := procinfo.LocalTable().List(ctx)
+		if err == nil {
+			name, chain = callerChain(procs, os.Getppid())
+		}
+	}()
+	return func() (string, []string) {
+		<-done
+		return name, chain
+	}
+}
+
+// callerChain walks up from ppid to the first ancestor that is not a
+// shell. It returns that ancestor's name, or the last name when every
+// ancestor is a shell, and the names on the way, starting with ppid's.
+func callerChain(procs []procinfo.Process, ppid int) (string, []string) {
+	byPID := make(map[int]procinfo.Process, len(procs))
+	for _, p := range procs {
+		byPID[p.PID] = p
+	}
+	var chain []string
+	for pid, seen := ppid, map[int]bool{}; !seen[pid]; {
+		seen[pid] = true
+		p, ok := byPID[pid]
+		if !ok {
+			break
+		}
+		name := p.Name
+		if name == "" {
+			name = procinfo.Argv0Base(p)
+		}
+		chain = append(chain, name)
+		if !procinfo.IsShell(p) {
+			return name, chain
+		}
+		pid = p.PPID
+	}
+	if len(chain) == 0 {
+		return "", nil
+	}
+	return chain[0], chain
 }

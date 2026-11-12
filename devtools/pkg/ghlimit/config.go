@@ -22,6 +22,10 @@ const (
 	EnvBackoff       = "GH_THROTTLE_BACKOFF"
 	EnvMaxBackoff    = "GH_THROTTLE_MAX_BACKOFF"
 	EnvCacheTTL      = "GH_THROTTLE_CACHE_TTL"
+	// EnvPointsPerMin and EnvGraphQLSecsPerMin set the per-minute
+	// budgets; 0 turns one off.
+	EnvPointsPerMin      = "GH_THROTTLE_POINTS_PER_MIN"
+	EnvGraphQLSecsPerMin = "GH_THROTTLE_GRAPHQL_SECS_PER_MIN"
 	// EnvNoCache set to 1 makes one call skip the read cache.
 	EnvNoCache = "GH_THROTTLE_NO_CACHE"
 )
@@ -45,17 +49,27 @@ type Config struct {
 	// CacheTTL is how long a cached read is served. Zero, the default,
 	// turns the read cache off.
 	CacheTTL time.Duration
+	// PointsPerMin caps the secondary-limit points (see ClassifyCall)
+	// spent in any 60s by all of the user's processes. Zero turns it off.
+	PointsPerMin int
+	// GraphQLTimePerMin caps the summed wall time of the GraphQL calls
+	// started in any 60s, a proxy for GitHub's GraphQL CPU limit. Zero
+	// turns it off.
+	GraphQLTimePerMin time.Duration
 }
 
 // DefaultConfig is one call at a time, mutations 1s apart, a 60s
-// backoff capped at 5m, and a 10m lock wait.
+// backoff capped at 5m, a 10m lock wait, and per-minute budgets of 1500
+// points and 40s of GraphQL time, below GitHub's 2000 and 60s.
 func DefaultConfig() Config {
 	return Config{
-		MaxConcurrent: 1,
-		MutationGap:   time.Second,
-		Backoff:       time.Minute,
-		MaxBackoff:    5 * time.Minute,
-		MaxWait:       10 * time.Minute,
+		MaxConcurrent:     1,
+		MutationGap:       time.Second,
+		Backoff:           time.Minute,
+		MaxBackoff:        5 * time.Minute,
+		MaxWait:           10 * time.Minute,
+		PointsPerMin:      1500,
+		GraphQLTimePerMin: 40 * time.Second,
 	}
 }
 
@@ -71,6 +85,13 @@ func ConfigFromEnv(getenv func(string) string) (Config, error) {
 		}
 		cfg.MaxConcurrent = n
 	}
+	if v := getenv(EnvPointsPerMin); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return cfg, fmt.Errorf("%s=%q: want a whole number of at least 0", EnvPointsPerMin, v)
+		}
+		cfg.PointsPerMin = n
+	}
 	for _, d := range []struct {
 		name string
 		dst  *time.Duration
@@ -79,6 +100,7 @@ func ConfigFromEnv(getenv func(string) string) (Config, error) {
 		{EnvBackoff, &cfg.Backoff},
 		{EnvMaxBackoff, &cfg.MaxBackoff},
 		{EnvCacheTTL, &cfg.CacheTTL},
+		{EnvGraphQLSecsPerMin, &cfg.GraphQLTimePerMin},
 	} {
 		v := getenv(d.name)
 		if v == "" {
@@ -125,12 +147,21 @@ func CacheDir(getenv func(string) string) string {
 	return filepath.Join(StateDir(getenv), "cache")
 }
 
-// LogPath is $XDG_STATE_HOME/gh-throttle/log.jsonl, with
+// LogPath is $XDG_STATE_HOME/gh-throttle/log.jsonl, the wait log, with
 // XDG_STATE_HOME defaulting to ~/.local/state.
 func LogPath(getenv func(string) string) string {
+	return filepath.Join(logDir(getenv), "log.jsonl")
+}
+
+// CallLogPath is calls.jsonl next to LogPath, the log of every call.
+func CallLogPath(getenv func(string) string) string {
+	return filepath.Join(logDir(getenv), "calls.jsonl")
+}
+
+func logDir(getenv func(string) string) string {
 	base := getenv("XDG_STATE_HOME")
 	if base == "" {
 		base = filepath.Join(getenv("HOME"), ".local", "state")
 	}
-	return filepath.Join(base, "gh-throttle", "log.jsonl")
+	return filepath.Join(base, "gh-throttle")
 }

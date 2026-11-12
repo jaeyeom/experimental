@@ -3,7 +3,9 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "go_default_library",
     srcs = [
+        "budget.go",
         "cache.go",
+        "calls.go",
         "classify.go",
         "config.go",
         "exec.go",
@@ -11,6 +13,7 @@ go_library(
         "lock_other.go",
         "lock_unix.go",
         "log.go",
+        "stats.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/pkg/ghlimit",
     visibility = ["//visibility:public"],
@@ -34,10 +37,13 @@ go_library(
 go_test(
     name = "go_default_test",
     srcs = [
+        "budget_test.go",
         "cache_test.go",
+        "calls_test.go",
         "classify_test.go",
         "limiter_test.go",
         "log_test.go",
+        "stats_test.go",
     ],
     embed = [":go_default_library"],
 )
