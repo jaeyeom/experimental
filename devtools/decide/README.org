@@ -254,6 +254,25 @@ this machine), ~workspace~, ~tab~, ~pane~, and ~state~: ~live~,
 ~workspaceId~ and ~tabId~. Emacs shows the same line from it, so an
 Emacs item buffer is drawn after the lookup, and ~g~ looks it up again.
 
+** Jump to the owner
+
+~o~ in the TUI item view, or ~O~ in an Emacs item buffer, brings the
+owner's herdr tab to the front from the location already looked up:
+~herdr workspace focus <workspaceId>~, then ~herdr tab focus <tabId>~.
+herdr 0.9 focuses a pane only by direction from another pane, not by
+id, so the tab is the target. The TUI runs the calls off the update
+loop. The inbox stays where it was, and the item is not marked read or
+answered.
+
+- Success: the status line says ~focused experimental / review~.
+- Another machine: the calls run through ~herdr --machine <m>~, and the
+  status line says ~focused mac: experimental / review~. When herdr
+  refuses, it says ~owner is on mac; not focusable from here~.
+- A closed tab, a machine that did not answer, or an unknown location:
+  no herdr call, and the status line says why, such as
+  ~owner tab closed; nothing to focus~.
+- In the TUI, before the lookup returns: ~owner location still loading~.
+
 * The owner of an ask
 
 Inside a herdr pane (~HERDR_PANE_ID~ is set), ~decide ask~ without

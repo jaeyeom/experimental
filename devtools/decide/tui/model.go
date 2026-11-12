@@ -173,6 +173,8 @@ type Model struct {
 	Machine    string
 	locations  map[string]decide.OwnerLocation
 	locateWant bool
+	// focusWant asks Update to focus this owner location's tab.
+	focusWant *decide.OwnerLocation
 }
 
 // New returns an inbox positioned on the open folder.
@@ -622,14 +624,8 @@ func (m *Model) detailKey(r rune) (bool, error) {
 	case 'b':
 		m.beginSnooze()
 		return false, nil
-	case 'Y':
-		m.copyCurrentMessage()
-		return false, nil
 	case 'l':
 		return false, m.openSelectedLink()
-	case 'L':
-		m.copyCurrentLink()
-		return false, nil
 	case '/':
 		m.beginSearch()
 		return false, nil
@@ -637,10 +633,26 @@ func (m *Model) detailKey(r rune) (bool, error) {
 		m.scrollEnd()
 		return false, nil
 	}
-	if m.detailComposer(r) {
+	if m.detailOutside(r) || m.detailComposer(r) {
 		return false, nil
 	}
 	return m.detailText(r)
+}
+
+// detailOutside runs an item-view key that acts outside the inbox:
+// Y copies the message, L the link, and o jumps to the owner's tab.
+func (m *Model) detailOutside(r rune) bool {
+	switch r {
+	case 'Y':
+		m.copyCurrentMessage()
+	case 'L':
+		m.copyCurrentLink()
+	case 'o':
+		m.jumpToOwner()
+	default:
+		return false
+	}
+	return true
 }
 
 // detailComposer opens the composer an item-view key names: c compose,
@@ -1197,8 +1209,8 @@ func (m *Model) statusLine() screenLine {
 }
 
 // withOptionalHints adds d outcome in an open item, then /find, then
-// b snooze, then g go to in an open item, before "? help" while each fits,
-// so a narrow footer keeps "? help".
+// b snooze, then g go to and o owner in an open item, before "? help"
+// while each fits, so a narrow footer keeps "? help".
 func (m *Model) withOptionalHints(text string) string {
 	extras := []string{"/find", "b snooze"}
 	switch m.mode {
@@ -1206,7 +1218,7 @@ func (m *Model) withOptionalHints(text string) string {
 		extras = extras[:1]
 	case modeDetail, modeOutcome:
 		extras = append([]string{"d outcome"}, extras...)
-		extras = append(extras, "g go to")
+		extras = append(extras, "g go to", "o owner")
 	}
 	for _, extra := range extras {
 		wide := strings.TrimSuffix(text, "? help") + extra + "  ? help"
@@ -2175,6 +2187,9 @@ func (m *Model) helpLines() []screenLine {
 			if strings.HasPrefix(line, "/ filters") {
 				text[i] = "/ highlights as you type, esc restores, empty enter clears"
 			}
+		}
+		if i := slices.Index(text, "o or enter opens    u returns to the list"); i >= 0 {
+			text[i] = "o jumps to the owner's herdr tab    u returns to the list"
 		}
 	}
 	lines := make([]screenLine, len(text))

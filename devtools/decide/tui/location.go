@@ -49,3 +49,35 @@ func (m *Model) setLocation(msg locationMsg) {
 	}
 	m.locations[msg.id] = msg.loc
 }
+
+// focusMsg is the status line text after a jump to the owner's tab.
+type focusMsg string
+
+// jumpToOwner asks Update to focus the open item's owner tab from its
+// cached location. It leaves the inbox and the item as they are.
+func (m *Model) jumpToOwner() {
+	if m.detail == nil {
+		return
+	}
+	loc, ok := m.locations[m.detail.ID]
+	if !ok {
+		loc = decide.OwnerPane(m.detail, m.Machine)
+		if loc.Pane != "" {
+			m.status = "owner location still loading"
+			return
+		}
+	}
+	m.focusWant = &loc
+}
+
+// focusCmd runs the jump jumpToOwner asked for off the update loop.
+func (m *Model) focusCmd() tea.Cmd {
+	if m.focusWant == nil {
+		return nil
+	}
+	loc := *m.focusWant
+	m.focusWant = nil
+	return func() tea.Msg {
+		return focusMsg(decide.LocationResolver{}.Focus(context.Background(), loc))
+	}
+}

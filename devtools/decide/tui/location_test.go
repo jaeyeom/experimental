@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -121,5 +122,123 @@ func TestItemViewOwnerWithoutPaneIsUnknown(t *testing.T) {
 	}
 	if argv := f.Argv(); len(argv) != 0 {
 		t.Fatalf("herdr ran %q", argv)
+	}
+}
+
+// openOwner opens the item and lets the owner lookup finish.
+func openOwner(t *testing.T, m *Model, f *herdrtest.Fake) {
+	t.Helper()
+	if cmd := update(t, m, 'o'); cmd != nil {
+		m.Update(cmd())
+	}
+	f.Argv()
+}
+
+// jumpOwner presses o in the item view and runs the command it starts.
+func jumpOwner(t *testing.T, m *Model) {
+	t.Helper()
+	if cmd := update(t, m, 'o'); cmd != nil {
+		m.Update(cmd())
+	}
+}
+
+func TestItemViewJumpsToOwnerTab(t *testing.T) {
+	f := fakeOwnerHerdr(t)
+	m := ownerModel(t, &decide.Item{NotifyPane: "w3:p7"})
+	openOwner(t, m, f)
+	cursor, id := m.cursor, m.detail.ID
+
+	cmd := update(t, m, 'o')
+	if cmd == nil {
+		t.Fatal("o started no focus command")
+	}
+	if argv := f.Argv(); len(argv) != 0 {
+		t.Fatalf("herdr ran on the update loop: %q", argv)
+	}
+	m.Update(cmd())
+	want := []string{"workspace focus w3", "tab focus w3:t2"}
+	if argv := f.Argv(); !slices.Equal(argv, want) {
+		t.Fatalf("herdr calls = %q, want %q", argv, want)
+	}
+	if got := footer(t, m); !strings.Contains(got, "focused experimental / review") {
+		t.Fatalf("footer = %q", got)
+	}
+	if m.mode != modeDetail || m.cursor != cursor || m.detail == nil || m.detail.ID != id {
+		t.Fatalf("jump moved the inbox: mode %v cursor %d", m.mode, m.cursor)
+	}
+	if m.detail.State != decide.StateOpen {
+		t.Fatalf("jump changed the item state to %q", m.detail.State)
+	}
+}
+
+func TestItemViewJumpToOwnerOnOtherMachine(t *testing.T) {
+	f := fakeOwnerHerdr(t)
+	m := ownerModel(t, &decide.Item{NotifyPane: "w3:p7", NotifyMachine: "mac"})
+	m.Machine = "hub"
+	openOwner(t, m, f)
+	f.Write("mac.focus-refused", "")
+	jumpOwner(t, m)
+	if got := footer(t, m); !strings.Contains(got, "owner is on mac; not focusable from here") {
+		t.Fatalf("footer = %q", got)
+	}
+	called := false
+	for _, argv := range f.Argv() {
+		if strings.HasPrefix(argv, "--machine mac workspace focus w3") {
+			called = true
+		}
+	}
+	if !called {
+		t.Fatal("focus did not run with --machine mac")
+	}
+}
+
+func TestItemViewJumpWithoutLiveOwnerDoesNothing(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		item decide.Item
+		want string
+	}{
+		{"closed", decide.Item{NotifyPane: "w3:p9"}, "owner tab closed; nothing to focus"},
+		{"unknown", decide.Item{}, "owner location unknown; nothing to focus"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := fakeOwnerHerdr(t)
+			m := ownerModel(t, &tc.item)
+			openOwner(t, m, f)
+			jumpOwner(t, m)
+			if argv := f.Argv(); len(argv) != 0 {
+				t.Fatalf("herdr ran %q", argv)
+			}
+			if got := footer(t, m); !strings.Contains(got, tc.want) {
+				t.Fatalf("footer = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestItemViewJumpBeforeLookupWaits(t *testing.T) {
+	f := fakeOwnerHerdr(t)
+	m := ownerModel(t, &decide.Item{NotifyPane: "w3:p7"})
+	update(t, m, 'o')
+	jumpOwner(t, m)
+	if argv := f.Argv(); len(argv) != 0 {
+		t.Fatalf("herdr ran %q", argv)
+	}
+	if got := footer(t, m); !strings.Contains(got, "owner location still loading") {
+		t.Fatalf("footer = %q", got)
+	}
+}
+
+func TestItemViewHelpListsOwnerJump(t *testing.T) {
+	f := fakeOwnerHerdr(t)
+	m := ownerModel(t, &decide.Item{NotifyPane: "w3:p7"})
+	m.width = 200
+	openOwner(t, m, f)
+	if got := footer(t, m); !strings.Contains(got, "o owner") {
+		t.Fatalf("footer = %q", got)
+	}
+	update(t, m, '?')
+	if got := visibleLine(m.View()); !strings.Contains(got, "o jumps to the owner's herdr tab") {
+		t.Fatalf("help = %q", got)
 	}
 }
