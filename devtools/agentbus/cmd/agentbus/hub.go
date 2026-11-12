@@ -132,8 +132,7 @@ const (
 // exits 0, as it does when the local bus is down.
 func runHookOnHub(ctx context.Context, hub hubcall.Hub, call hubcall.Call, env []string) int {
 	total := hubHookTimeout(env)
-	hub.ConnectTimeout = min(hookConnectTimeout, total)
-	hub.Deadline = total
+	hub = hookHub(hub, total)
 	ctx, cancel := context.WithTimeout(ctx, total)
 	defer cancel()
 	code, err := hub.Run(ctx, call)
@@ -141,6 +140,15 @@ func runHookOnHub(ctx context.Context, hub hubcall.Hub, call hubcall.Call, env [
 		return 0
 	}
 	return code
+}
+
+// hookHub bounds hub by the hook deadline total: ssh connects within
+// hookConnectTimeout, or total when that is shorter, and the hub's
+// shell starts within total.
+func hookHub(hub hubcall.Hub, total time.Duration) hubcall.Hub {
+	hub.ConnectTimeout = min(hookConnectTimeout, total)
+	hub.Deadline = total
+	return hub
 }
 
 // hubHookTimeout is AGENTBUS_HOOK_TIMEOUT, or defaultHookTimeout when it is
