@@ -98,20 +98,30 @@ func finishSend(ctx context.Context, env []string, req daemon.Request, asJSON bo
 		fmt.Fprintf(stderr, "agentbus: %s\n", resp.Error)
 		return 1
 	}
+	return printAccepted(stdout, stderr, resp.Name, resp.State, asJSON, resp.Duplicate)
+}
+
+func printAccepted(stdout, stderr io.Writer, id, state string, asJSON, dup bool) int {
 	if asJSON {
 		err := json.NewEncoder(stdout).Encode(struct {
 			ID        string `json:"id"`
 			State     string `json:"state"`
 			Duplicate bool   `json:"duplicate,omitempty"`
-		}{ID: resp.Name, State: resp.State, Duplicate: resp.Duplicate})
+		}{ID: id, State: state, Duplicate: dup})
 		if err != nil {
 			fmt.Fprintf(stderr, "agentbus: %s\n", err)
 			return 1
 		}
-	} else {
-		fmt.Fprintf(stdout, "%s %s\n", resp.Name, resp.State)
+	} else if _, err := fmt.Fprintf(stdout, "%s %s\n", id, state); err != nil {
+		fmt.Fprintf(stderr, "agentbus: %s\n", err)
+		return 1
 	}
-	switch resp.State {
+	noteHeld(stderr, state)
+	return 0
+}
+
+func noteHeld(stderr io.Writer, state string) {
+	switch state {
 	case "held: " + mailbox.HoldHibernated:
 		fmt.Fprintf(stderr, "agentbus: the agent is hibernated; the message is queued until it wakes\n")
 	case "held: " + mailbox.HoldWaking:
@@ -119,7 +129,6 @@ func finishSend(ctx context.Context, env []string, req daemon.Request, asJSON bo
 	case "held: " + mailbox.HoldWakeFailed:
 		fmt.Fprintf(stderr, "agentbus: the agent is hibernated and its last wake failed; the message is queued until a wake succeeds\n")
 	}
-	return 0
 }
 
 type sendParse struct {

@@ -147,7 +147,7 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 		Waker:              &hibernate.Waker{Panes: ad, Clock: hibernate.RealClock{}, Timeout: cfg.WakeTimeout},
 		InlineBytes:        inline,
 		ListLivenessMaxAge: cfg.ListLivenessMaxAge,
-		HubCaller:          herdr.RemoteCaller,
+		HubCaller:          herdr.HubCaller,
 		LeaseTiming:        leaseTiming(cfg, stderr),
 		Notify:             decideNotifier(exec.LookPath, runQuiet, stderr),
 		// The policy runs only in this daemon, so only on a machine that

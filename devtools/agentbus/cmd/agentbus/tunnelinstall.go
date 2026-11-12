@@ -18,6 +18,8 @@ import (
 const (
 	tunnelLaunchdLabel = "com.agentbus.tunnel"
 	tunnelUnitName     = "agentbus-tunnel.service"
+	outboxLaunchdLabel = "com.agentbus.outbox"
+	outboxUnitName     = "agentbus-outbox.service"
 )
 
 // tunnelSpec is an ssh forward from this machine's tunnel socket to the
@@ -57,7 +59,12 @@ func cmdInstallTunnel(ctx context.Context, cfg config.Config, args, env []string
 		fmt.Fprintf(stderr, "agentbus install: %s\n", err)
 		return 1
 	}
-	units := [][2]string{{path, tunnelUnitName}}
+	outboxPath, err := installOutbox(env)
+	if err != nil {
+		fmt.Fprintf(stderr, "agentbus install: wrote %s\n%s\n", path, err)
+		return 1
+	}
+	units := [][2]string{{path, tunnelUnitName}, {outboxPath, outboxUnitName}}
 	// The hibernation policy is opt-in: its unit is written only while
 	// hibernate_policy is on or dry-run.
 	if cfg.Policy().Mode != hibernate.PolicyOff {
@@ -193,6 +200,48 @@ func installTunnel(cfg config.Config, env []string) (string, error) {
 
 func tunnelPath(goos, home string, env []string) (string, error) {
 	return unitPath(goos, home, env, tunnelLaunchdLabel, tunnelUnitName)
+}
+
+// installOutbox writes the supervised `agentbus outbox flush --watch`
+// of a hub-mode client. The client runs no agentbusd.
+func installOutbox(env []string) (string, error) {
+	home, err := homeFrom(env)
+	if err != nil {
+		return "", err
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("cannot find this executable: %w", err)
+	}
+	path, err := unitPath(runtime.GOOS, home, env, outboxLaunchdLabel, outboxUnitName)
+	if err != nil {
+		return "", err
+	}
+	body, err := outboxUnitBody(runtime.GOOS, exe, supervisorEnv(env))
+	if err != nil {
+		return "", err
+	}
+	if err := writeAtomic(path, []byte(body), 0o644); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func outboxUnitBody(goos, exe string, envVars [][2]string) (string, error) {
+	args := []string{exe, "outbox", "flush", "--watch"}
+	switch goos {
+	case "darwin":
+		return launchdPlist(outboxLaunchdLabel, args, envVars)
+	case "linux":
+		return systemdUnit(systemdService{
+			description: "agentbus outbox flush for this hub-mode client",
+			exec:        args,
+			restart:     "always",
+			restartSec:  "5",
+		}, envVars), nil
+	default:
+		return "", fmt.Errorf("agentbus install supports systemd and launchd, not %s", goos)
+	}
 }
 
 // tunnelBody is the unit that runs the forward and restarts it when it

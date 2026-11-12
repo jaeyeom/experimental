@@ -57,10 +57,12 @@ If a submit is blocked with `agentbus: your unsent draft was merged with a bus m
 
 When something seems lost, check `agentbus status <id>` and `agentbus log` before resending. `agentbus log` accepts `--since`, `--name`, `--msg`, `--event`, `--follow`, and `--json`. `--since` takes a duration ago (`30m`, `6h`, `2d`), an RFC3339 time, or a `YYYY-MM-DD` date.
 
+`queued` means the message is not at the hub yet. Do not resend it. Check `agentbus status <client-id>`.
+
 ## Sandbox
 
 The CLI connects to `$XDG_RUNTIME_DIR/agentbus/daemon.sock`. The daemon needs the state directory (`$XDG_STATE_HOME/agentbus` or `~/.local/state/agentbus`) and the `herdr` command's socket to the local herdr server. If the CLI cannot reach the daemon and cannot start it, the error says so and the command fails.
 
 ## Install
 
-`agentbus install` installs the supervisor (launchd on macOS, a systemd user unit on Linux). `agentbus install-hooks` records Claude Code `SendMessage` calls and does not block them. When the recipient holds a bus name, the hook adds a hint such as `This recipient is coord/primary on agentbus. Next time use: agentbus send coord/primary "..."` to your context; use `agentbus send` for that recipient next time. The bypass event records that name as `resolved`. If `agentbus` is not on `PATH`, or the bus is down, that hook exits 0. It also adds a `UserPromptSubmit` guard that blocks a prompt where a bus message follows the user's own text, and re-queues that message.
+`agentbus install` installs the supervisor (launchd on macOS, a systemd user unit on Linux). In hub mode it also installs a unit that runs `agentbus outbox flush --watch`. `agentbus install-hooks` records Claude Code `SendMessage` calls and does not block them. When the recipient holds a bus name, the hook adds a hint such as `This recipient is coord/primary on agentbus. Next time use: agentbus send coord/primary "..."` to your context; use `agentbus send` for that recipient next time. The bypass event records that name as `resolved`. If `agentbus` is not on `PATH`, or the bus is down, that hook exits 0. It also adds a `UserPromptSubmit` guard that blocks a prompt where a bus message follows the user's own text, and re-queues that message.

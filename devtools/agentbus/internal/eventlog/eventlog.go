@@ -28,6 +28,8 @@ const (
 	EventHandoff      = "handoff"
 	EventClaimRefused = "claim_refused"
 	EventSend         = "send"
+	// EventQueued is a client outbox accept, not yet at the hub.
+	EventQueued = "queued"
 	// EventDedupe is a repeated accept absorbed by a client id.
 	EventDedupe         = "dedupe"
 	EventDeliverAttempt = "deliver_attempt"
@@ -430,7 +432,7 @@ func validate(e Event) error {
 func knownEvent(name string) bool {
 	switch name {
 	case EventRegister, EventDescribe, EventRelease, EventHandoff, EventClaimRefused,
-		EventSend, EventDedupe, EventDeliverAttempt, EventDelivered, EventHeld, EventRetry,
+		EventSend, EventQueued, EventDedupe, EventDeliverAttempt, EventDelivered, EventHeld, EventRetry,
 		EventRequeued, EventExpired, EventRejected, EventAdapterError, EventBypass, EventStart, EventStop,
 		EventLeaseClaim, EventLeaseGrant, EventLeaseExtend, EventLeaseLeave,
 		EventLeaseRelease, EventLeaseSkip, EventLeaseCheckIn, EventLeaseAutoExtend,

@@ -199,6 +199,7 @@ func cmdDoctor(ctx context.Context, args, env []string, stdout, stderr io.Writer
 		fmt.Fprintf(stderr, "agentbus doctor: %s\n", err)
 		return 1
 	}
+	reportStaleOutbox(env, stdout)
 	if !*sandbox {
 		return 0
 	}

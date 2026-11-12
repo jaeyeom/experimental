@@ -72,8 +72,8 @@ func tunnelFrom(ctx context.Context) (tunnel, bool) {
 // runHubMode runs cmd here against the hub's daemon over the tunnel when
 // it can, and otherwise runs the whole command on the hub over ssh.
 func runHubMode(ctx context.Context, cfg config.Config, cmd command, args, env []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	if len(args) > 0 && args[0] == "install" {
-		return cmdInstallTunnel(ctx, cfg, args[1:], env, stdout, stderr)
+	if code, done := hubCommand(ctx, cfg, args, env, stdin, stdout, stderr); done {
+		return code
 	}
 	if len(args) == 0 {
 		return runOnHub(ctx, cfg, args, env, stdin, stdout, stderr)
@@ -82,7 +82,7 @@ func runHubMode(ctx context.Context, cfg config.Config, cmd command, args, env [
 		refreshPaneHandle(ctx, env, stderr)
 	}
 	tunnelled, ok, err := openTunnel(ctx, cfg, args[0], env, stderr)
-	if err != nil {
+	if err != nil && !errors.Is(err, errProtocolMismatch) {
 		if hookCommands[args[0]] {
 			return 0
 		}
@@ -93,6 +93,34 @@ func runHubMode(ctx context.Context, cfg config.Config, cmd command, args, env [
 		return cmd.run(tunnelled, args[1:], env, stdin, stdout, stderr)
 	}
 	return runOnHub(ctx, cfg, args, env, stdin, stdout, stderr)
+}
+
+// hubCommand handles the hub-mode commands that do not just forward.
+// done is false when the caller should open the tunnel or ssh.
+func hubCommand(ctx context.Context, cfg config.Config, args, env []string, stdin io.Reader, stdout, stderr io.Writer) (int, bool) {
+	if len(args) == 0 {
+		return 0, false
+	}
+	switch args[0] {
+	case "install":
+		return cmdInstallTunnel(ctx, cfg, args[1:], env, stdout, stderr), true
+	case "send", "reply":
+		return hubDeliver(ctx, cfg, args, env, stdin, stdout, stderr), true
+	case "hook":
+		return hubRecordHook(ctx, cfg, args[1:], env, stdin, stdout, stderr), true
+	case "status":
+		if len(args) < 2 {
+			return 0, false
+		}
+		line, ok := outboxStatus(env, args[1])
+		if !ok {
+			return 0, false
+		}
+		fmt.Fprintln(stdout, line)
+		return 0, true
+	default:
+		return 0, false
+	}
 }
 
 // openTunnel returns ctx routed to the hub over the tunnel socket when
@@ -133,9 +161,14 @@ func openTunnel(ctx context.Context, cfg config.Config, name string, env []strin
 	var mismatch *protocolMismatchError
 	if errors.As(err, &mismatch) && !hookCommands[name] {
 		fmt.Fprintf(stderr, "agentbus: %s\n", mismatch)
+		return ctx, false, errProtocolMismatch
 	}
 	return ctx, false, nil
 }
+
+// errProtocolMismatch is a hub daemon that speaks another protocol.
+// The ssh fallback still runs. send and reply do not queue on it.
+var errProtocolMismatch = errors.New("protocol mismatch")
 
 // protocolMismatchError is a hub daemon that speaks another protocol.
 type protocolMismatchError struct {

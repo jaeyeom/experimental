@@ -43,6 +43,8 @@ var localCommands = map[string]bool{
 	"hibernate": true,
 	// doctor checks this machine's sockets and the route to the hub.
 	"doctor": true,
+	// outbox is this machine's queue of hub sends.
+	"outbox": true,
 }
 
 // stdinCommands read stdin, so hub mode forwards it.

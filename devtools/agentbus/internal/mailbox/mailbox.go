@@ -236,7 +236,15 @@ func (m *Mailbox) preview(body string) bool {
 func (m *Mailbox) stamp(ctx context.Context, env []string, peerPID int) (string, string, bool) {
 	for _, ad := range m.adapters {
 		handle, err := ad.Identify(ctx, env)
-		if err != nil || !strings.HasPrefix(handle, "herdr:") {
+		if err != nil || handle == "" {
+			continue
+		}
+		// A replayed anon handle carries the original pid. Recomputing
+		// it from this process would miss the client-id dedupe.
+		if strings.HasPrefix(handle, "anon:") {
+			return handle, handle, false
+		}
+		if !strings.HasPrefix(handle, "herdr:") {
 			continue
 		}
 		names := m.reg.NamesOf(handle)

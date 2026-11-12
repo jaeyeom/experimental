@@ -109,8 +109,19 @@ func TestHubInstallWritesTunnelUnitWithoutLoading(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stdout != "wrote "+path+"\n" {
+	outboxPath, err := unitPath(runtime.GOOS, home, env, outboxLaunchdLabel, outboxUnitName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "wrote "+path+"\nwrote "+outboxPath+"\n" {
 		t.Fatalf("stdout = %q", stdout)
+	}
+	outboxUnit, err := os.ReadFile(outboxPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(outboxUnit), "outbox") || !strings.Contains(string(outboxUnit), "flush") || !strings.Contains(string(outboxUnit), "--watch") {
+		t.Fatalf("outbox unit = %s", outboxUnit)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
