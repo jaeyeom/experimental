@@ -24,7 +24,7 @@ type ExecRunner struct {
 	// Env is the child's environment; nil inherits this process's.
 	Env []string
 	// StdoutDirect hands stdout to gh as is, so gh can see a terminal.
-	// Result.StdoutLen is then 0.
+	// Result.StdoutLen is then 0 and Result.StdoutUncounted true.
 	StdoutDirect bool
 	// StderrLive writes stderr out as gh runs, as well as capturing it.
 	StderrLive bool
@@ -75,7 +75,10 @@ func (r *ExecRunner) Run(ctx context.Context) (Result, error) {
 		cmd.Stderr = io.MultiWriter(r.stderr, &stderr)
 	}
 	err := cmd.Run()
-	res := Result{Stderr: stderr.Bytes(), StderrShown: r.StderrLive, StdoutLen: out.n, StdoutHead: out.head}
+	res := Result{
+		Stderr: stderr.Bytes(), StderrShown: r.StderrLive,
+		StdoutLen: out.n, StdoutHead: out.head, StdoutUncounted: r.StdoutDirect,
+	}
 	if out.keep && !r.StdoutDirect {
 		res.Stdout, res.StdoutKept = out.all, true
 	}

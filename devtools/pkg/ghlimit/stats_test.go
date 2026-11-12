@@ -100,3 +100,37 @@ func TestCallStatsRanking(t *testing.T) {
 		t.Fatalf("JSON round trip = %+v, %v", back, err)
 	}
 }
+
+func TestStatsCountAnomaliesByCaller(t *testing.T) {
+	dir := t.TempDir()
+	callLog := filepath.Join(dir, "calls.jsonl")
+	now := time.Unix(1_700_000_000, 0)
+	for _, e := range []CallEntry{
+		{Time: now, Caller: "decide", Kind: KindSubcommand, Anomaly: AnomalyEmptyJSON},
+		{Time: now, Caller: "decide", Kind: KindSubcommand, Anomaly: AnomalyEmptyJSON},
+		{Time: now, Caller: "prsync", Kind: KindGraphQL, Anomaly: AnomalyEmptyJSON},
+		{Time: now, Caller: "prsync", Kind: KindGraphQL},
+	} {
+		if err := AppendCallLog(callLog, e, MaxCallLogSize); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s, err := ReadStats(filepath.Join(dir, "log.jsonl"), callLog, now, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Anomalies != 3 || len(s.AnomaliesByCaller) != 2 ||
+		s.AnomaliesByCaller[0] != (StatRow{Key: "decide", Fields: AnomalyEmptyJSON, Count: 2}) ||
+		s.AnomaliesByCaller[1] != (StatRow{Key: "prsync", Fields: AnomalyEmptyJSON, Count: 1}) {
+		t.Fatalf("anomalies = %d, by caller %+v", s.Anomalies, s.AnomaliesByCaller)
+	}
+	var text bytes.Buffer
+	if err := s.WriteText(&text); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"3 anomalies", "anomalies by caller", "decide", AnomalyEmptyJSON} {
+		if !strings.Contains(text.String(), want) {
+			t.Errorf("text stats missing %q:\n%s", want, text.String())
+		}
+	}
+}
