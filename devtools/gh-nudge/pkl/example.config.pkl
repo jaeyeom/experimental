@@ -96,3 +96,47 @@ repo_settings {
     block_merge_labels {}
   }
 }
+
+// gh-approve only. Rules are ORed. The conditions in one rule are ANDed.
+// A pull request that no rule matches is left for a human. These are examples.
+approve {
+  // The matching rule name is appended as <!-- gh-approve: <rule> -->.
+  body = "LGTM"
+  skip_already_approved = true
+  rules {
+    // Only files under one internal dashboard directory.
+    new {
+      name = "internal-dashboard"
+      repos { "organization-name/repo-name-1" }
+      paths_all_match { "tools/internal-dashboard/**" }
+      checks = "green"
+    }
+    // Pure deletions.
+    new {
+      name = "pure-deletion"
+      pure_deletion = true
+      checks = "green"
+    }
+    // At most 50 changed lines outside CI and infra paths.
+    new {
+      name = "small-outside-infra"
+      max_changed_lines = 50
+      paths_none_match {
+        ".github/**"
+        ".circleci/**"
+        "infra/**"
+        "**/*.lock"
+        "**/go.sum"
+        "**/package-lock.json"
+      }
+      checks = "green"
+    }
+    // Small PRs, up to 200 lines, that carry an "internal-only" label.
+    new {
+      name = "internal-only"
+      max_changed_lines = 200
+      labels_required { "internal-only" }
+      checks = "allow_pending"
+    }
+  }
+}

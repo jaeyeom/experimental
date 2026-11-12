@@ -5,6 +5,8 @@ import "github.com/apple/pkl-go/pkl"
 
 func init() {
 	pkl.RegisterMappingFor[Config]("gh_nudge.Config")
+	pkl.RegisterMappingFor[ApproveConfig]("gh_nudge.Config#ApproveConfig")
+	pkl.RegisterMappingFor[ApproveRule]("gh_nudge.Config#ApproveRule")
 	pkl.RegisterMappingFor[ChannelRoutingConfig]("gh_nudge.Config#ChannelRoutingConfig")
 	pkl.RegisterMappingFor[GitHubConfig]("gh_nudge.Config#GitHubConfig")
 	pkl.RegisterMappingFor[LabelAgeConfig]("gh_nudge.Config#LabelAgeConfig")

@@ -1,0 +1,31 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "conditions.go",
+        "runner.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/gh-nudge/internal/approve",
+    visibility = ["//devtools/gh-nudge:__subpackages__"],
+    deps = [
+        "//devtools/gh-nudge/internal/config:go_default_library",
+        "//devtools/gh-nudge/internal/github:go_default_library",
+        "//devtools/gh-nudge/internal/models:go_default_library",
+        "@com_github_bmatcuk_doublestar_v4//:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = [
+        "conditions_test.go",
+        "runner_test.go",
+    ],
+    embed = [":go_default_library"],
+    deps = [
+        "//devtools/gh-nudge/internal/config:go_default_library",
+        "//devtools/gh-nudge/internal/github:go_default_library",
+        "//devtools/gh-nudge/internal/models:go_default_library",
+    ],
+)

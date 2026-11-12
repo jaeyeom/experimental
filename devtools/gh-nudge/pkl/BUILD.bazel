@@ -6,5 +6,7 @@ pkl_library(
     visibility = ["//visibility:public"],
 )
 
+exports_files(["example.config.pkl"])
+
 # Go code is generated using @pkl-go/gen.pkl and placed in //devtools/gh-nudge/internal/config/pkl
 # To regenerate: cd devtools/gh-nudge && make generate-pkl

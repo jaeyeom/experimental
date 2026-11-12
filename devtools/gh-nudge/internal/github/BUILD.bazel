@@ -3,6 +3,7 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "go_default_library",
     srcs = [
+        "approve.go",
         "github.go",
         "label_age.go",
         "mergequeue.go",
@@ -21,6 +22,7 @@ go_library(
 go_test(
     name = "go_default_test",
     srcs = [
+        "approve_test.go",
         "github_test.go",
         "label_age_test.go",
         "mergequeue_test.go",
