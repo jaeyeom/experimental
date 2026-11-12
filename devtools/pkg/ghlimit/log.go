@@ -64,11 +64,13 @@ func add(m map[string]*tally, key string, d time.Duration) {
 }
 
 // WriteStats summarises the log entries at path from the last window
-// before now: the count and total wait, then by reason and by caller.
+// before now: the count and total wait, the cache hits, then the waits
+// by reason and by caller.
 // A missing log is no entries. Unreadable lines are skipped.
 func WriteStats(w io.Writer, path string, now time.Time, window time.Duration) error {
 	byReason, byCaller := map[string]*tally{}, map[string]*tally{}
 	var total tally
+	hits := 0
 	f, err := os.Open(path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -80,6 +82,10 @@ func WriteStats(w io.Writer, path string, now time.Time, window time.Duration) e
 		for scanner.Scan() {
 			var e Entry
 			if json.Unmarshal(scanner.Bytes(), &e) != nil || now.Sub(e.Time) > window {
+				continue
+			}
+			if e.Reason == ReasonCacheHit {
+				hits++
 				continue
 			}
 			d := time.Duration(e.WaitMS) * time.Millisecond
@@ -94,6 +100,9 @@ func WriteStats(w io.Writer, path string, now time.Time, window time.Duration) e
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintf(tw, "%d waits in the last %v, %.1fs total\n", total.count, window, total.wait.Seconds())
+	if hits > 0 {
+		fmt.Fprintf(tw, "%d cache hits (gh runs saved)\n", hits)
+	}
 	for _, group := range []struct {
 		title string
 		m     map[string]*tally

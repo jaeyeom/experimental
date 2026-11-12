@@ -158,3 +158,61 @@ func TestBadConfigFails(t *testing.T) {
 		t.Fatalf("exit %d stderr %q", code, h.stderr.String())
 	}
 }
+
+func TestCacheServesRepeatedReads(t *testing.T) {
+	count := filepath.Join(t.TempDir(), "count")
+	h := newHarness(t, `n=$(cat "`+count+`" 2>/dev/null || echo 0)
+echo $((n + 1)) > "`+count+`"
+echo '{"title":"t"}'
+`)
+	h.env["GH_THROTTLE_CACHE_TTL"] = "1h"
+	h.env["GH_REPO"] = "o/r"
+	view := []string{"pr", "view", "1", "--json", "title"}
+	runs := func() string {
+		raw, _ := os.ReadFile(count)
+		return strings.TrimSpace(string(raw))
+	}
+	for range 2 {
+		if code := h.run(view, ""); code != 0 {
+			t.Fatalf("exit %d stderr %q", code, h.stderr.String())
+		}
+	}
+	if runs() != "1" || h.stdout.String() != "{\"title\":\"t\"}\n{\"title\":\"t\"}\n" {
+		t.Fatalf("gh ran %s times, stdout %q; want one run and the output twice", runs(), h.stdout.String())
+	}
+
+	h.env["GH_THROTTLE_NO_CACHE"] = "1"
+	h.run(view, "")
+	delete(h.env, "GH_THROTTLE_NO_CACHE")
+	if runs() != "2" {
+		t.Fatalf("gh ran %s times; GH_THROTTLE_NO_CACHE=1 must run gh", runs())
+	}
+
+	h.run([]string{"pr", "close", "1"}, "")
+	h.run(view, "")
+	if runs() != "4" {
+		t.Fatalf("gh ran %s times; a mutation of o/r must clear its cache", runs())
+	}
+
+	h.stdout.Reset()
+	if code := h.run([]string{"--stats"}, ""); code != 0 || !strings.Contains(h.stdout.String(), "1 cache hits") {
+		t.Fatalf("--stats exit %d:\n%s", code, h.stdout.String())
+	}
+}
+
+func TestCacheOffByDefault(t *testing.T) {
+	count := filepath.Join(t.TempDir(), "count")
+	h := newHarness(t, `echo x >> "`+count+`"
+echo '{}'
+`)
+	h.env["GH_REPO"] = "o/r"
+	for range 2 {
+		h.run([]string{"pr", "view", "1", "--json", "title"}, "")
+	}
+	if raw, _ := os.ReadFile(count); string(raw) != "x\nx\n" {
+		t.Fatalf("gh runs %q, want 2", raw)
+	}
+	if _, err := os.Stat(filepath.Join(h.env["XDG_RUNTIME_DIR"], "gh-throttle", "cache")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("cache off created the cache dir: %v", err)
+	}
+}

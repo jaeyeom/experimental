@@ -558,11 +558,49 @@ through instead of waiting for the slot its parent holds.
   =~/.local/state/gh-throttle/log.jsonl=): ~time~, ~pid~, ~caller~ (the parent
   process name), ~args~ (command, subcommand and flag names, with every value
   replaced by ~_~), ~reason~ (~slot~, ~slot_timeout~, ~mutation_gap~,
-  ~backoff~, joined by ~+~) and ~waitMs~.
+  ~backoff~, joined by ~+~) and ~waitMs~. A read served from the cache logs a
+  ~cache_hit~ line, and ~--stats~ counts those as gh runs saved.
 
 gh's stderr is held until gh exits so a retried attempt's error is not
 shown. When stderr is a terminal it is shown live as well. When stdout is a
 terminal gh gets it directly, so tables and colors look as usual.
+
+*** Read cache (opt-in)
+
+Several tools often read the same PR state within seconds of each other.
+With ~GH_THROTTLE_CACHE_TTL~ set (for example ~20s~), gh-throttle serves a
+repeated read from a short-lived cache instead of running gh again. It is off
+by default.
+
+- *What is cached.* Only ~gh pr view <number|url|branch> --json ...~, ~gh pr
+  list --json ...~ (with ordinary list flags, not ~--web~) and ~gh api~ GET
+  calls (no ~-f~ / ~-F~ fields unless ~-X GET~, no ~--input~, not
+  ~graphql~). ~gh pr view~ with no argument depends on the current branch and
+  is never cached.
+- *Key.* The exact arguments, the repository and the user. The user is the OS
+  user plus a hash of the gh token variables, ~GH_HOST~, the gh config
+  directory and its ~hosts.yml~ (so ~gh auth switch~ starts a fresh cache).
+- *Repository.* ~-R~ / ~--repo~, a PR URL argument, the ~repos/OWNER/REPO/~
+  prefix of a ~gh api~ path, or else the working directory's repository:
+  ~GH_REPO~, else the git remote marked as gh's default (~gh repo
+  set-default~), else the only remote. It is read from git, never with an
+  extra gh API call. When the repository cannot be told (for example several
+  remotes and no default), the call is not cached. A ~gh api~ path outside
+  ~repos/~ (such as ~user~) is cached with no repository.
+- *Storage.* The stdout of a successful call (exit 0) only, never failures or
+  stderr, in ~$XDG_RUNTIME_DIR/gh-throttle/cache/~ with mode 0600 files in 0700
+  directories. Output gh writes straight to a terminal is not cached.
+- *Invalidation.* A mutation through gh-throttle clears the cached reads of
+  its repository (from ~-R~, PR or issue URLs in its arguments, the ~gh api~
+  path, or the working directory). When its repository cannot be told, as for
+  a ~gh api graphql~ mutation, it clears the whole cache. A read that was
+  still running when a mutation finished is not served. Mutations made with
+  ~GH_THROTTLE_OFF=1~ or outside gh-throttle do not clear anything; the TTL
+  bounds how stale a read can be. ~gh api~ reads outside ~repos/~ (such as
+  ~search/issues~) expire only by TTL.
+- *Hits are free.* A hit takes no slot and does not wait for the mutation gap.
+- *Bypass.* ~GH_THROTTLE_NO_CACHE=1~ runs one call without reading or writing
+  the cache.
 
 *** Knobs
 
@@ -574,6 +612,8 @@ terminal gh gets it directly, so tables and colors look as usual.
 | ~GH_THROTTLE_MAX_BACKOFF~    | ~5m~    | Cap on any backoff                              |
 | ~GH_THROTTLE_OFF~            | unset   | ~1~ runs gh directly, with no lock and no log   |
 | ~GH_THROTTLE_GH~             | unset   | Path of the real gh                             |
+| ~GH_THROTTLE_CACHE_TTL~      | unset   | Serve repeated reads from a cache for this long |
+| ~GH_THROTTLE_NO_CACHE~       | unset   | ~1~ skips the read cache for one call           |
 
 Durations take Go syntax (~1500ms~, ~2m~) or a number of seconds. An invalid
 value is an error, and gh does not run.

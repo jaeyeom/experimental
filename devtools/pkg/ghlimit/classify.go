@@ -36,20 +36,21 @@ func IsMutation(args []string) bool {
 }
 
 // apiFlags maps the gh api flags that take a value to what the value
-// is: "method", "field", or "" for a value that only needs skipping so
+// is: "method", "field", "hostname", or "" for a value that only needs skipping so
 // it is not read as the endpoint.
 var apiFlags = map[string]string{
 	"-X": "method", "--method": "method",
 	"-f": "field", "-F": "field", "--field": "field", "--raw-field": "field",
 	"-H": "", "--header": "", "-q": "", "--jq": "", "-t": "", "--template": "",
-	"--cache": "", "--hostname": "", "--input": "", "-p": "", "--preview": "",
+	"--cache": "", "--hostname": "hostname", "--input": "", "-p": "", "--preview": "",
 }
 
-// apiCall is what IsMutation needs from gh api args.
+// apiCall is what IsMutation and the cache need from gh api args.
 type apiCall struct {
 	method   string
 	fields   []string
 	endpoint string
+	hostname string
 }
 
 func (c *apiCall) set(kind, value string) {
@@ -58,6 +59,8 @@ func (c *apiCall) set(kind, value string) {
 		c.method = strings.ToUpper(value)
 	case "field":
 		c.fields = append(c.fields, value)
+	case "hostname":
+		c.hostname = value
 	}
 }
 
