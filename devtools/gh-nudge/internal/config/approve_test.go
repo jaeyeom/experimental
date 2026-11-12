@@ -23,6 +23,8 @@ func TestLoadPklApprove(t *testing.T) {
 	path := writeApprovePkl(t, `
 approve {
   body = "Looks fine"
+  agent_cache_ttl = 2.d
+  agent_cache_max_mb = 10
   rules {
     new {
       name = "dashboard"
@@ -43,6 +45,7 @@ approve {
       max_unresolved_threads = 2
       agent_command { "review-agent"; "--strict" }
       agent_timeout = 30.s
+      agent_cache = false
     }
     new {
       name = "defaults"
@@ -57,6 +60,9 @@ approve {
 	approve := cfg.Approve
 	if approve.Body != "Looks fine" || !approve.SkipAlreadyApproved || len(approve.Rules) != 2 {
 		t.Fatalf("approve = %+v", approve)
+	}
+	if approve.AgentCacheTTL != 48*time.Hour || approve.AgentCacheMaxMB != 10 {
+		t.Fatalf("approve agent cache = %v %d", approve.AgentCacheTTL, approve.AgentCacheMaxMB)
 	}
 	rule := approve.Rules[0]
 	if rule.Name != "dashboard" || strings.Join(rule.Repos, ",") != "acme/*" ||
@@ -75,14 +81,15 @@ approve {
 	if rule.Checks != ChecksAllowPending || rule.NotDraft || rule.MaxUnresolvedThreads != 2 {
 		t.Fatalf("rule flags = %+v", rule)
 	}
-	if strings.Join(rule.AgentCommand, " ") != "review-agent --strict" || rule.AgentTimeout != 30*time.Second {
+	if strings.Join(rule.AgentCommand, " ") != "review-agent --strict" || rule.AgentTimeout != 30*time.Second || !rule.AgentCacheDisabled {
 		t.Fatalf("rule agent = %q %v", rule.AgentCommand, rule.AgentTimeout)
 	}
 	defaults := approve.Rules[1]
 	if defaults.MaxChangedLines != nil || defaults.Checks != "" || !defaults.NotDraft || defaults.MaxUnresolvedThreads != 0 {
 		t.Fatalf("rule defaults = %+v", defaults)
 	}
-	if len(defaults.AgentCommand) != 0 || defaults.AgentTimeout != DefaultAgentTimeout || DefaultAgentTimeout != 120*time.Second {
+	if len(defaults.AgentCommand) != 0 || defaults.AgentTimeout != DefaultAgentTimeout || DefaultAgentTimeout != 120*time.Second ||
+		defaults.AgentCacheDisabled {
 		t.Fatalf("rule agent defaults = %q %v", defaults.AgentCommand, defaults.AgentTimeout)
 	}
 }
@@ -94,6 +101,10 @@ func TestLoadPklApproveDefaults(t *testing.T) {
 	}
 	if cfg.Approve.Body != DefaultApproveBody || !cfg.Approve.SkipAlreadyApproved || len(cfg.Approve.Rules) != 0 {
 		t.Fatalf("approve = %+v", cfg.Approve)
+	}
+	if cfg.Approve.AgentCacheTTL != DefaultAgentCacheTTL || DefaultAgentCacheTTL != 7*24*time.Hour ||
+		cfg.Approve.AgentCacheMaxMB != DefaultAgentCacheMaxMB || DefaultAgentCacheMaxMB != 50 {
+		t.Fatalf("approve agent cache = %v %d", cfg.Approve.AgentCacheTTL, cfg.Approve.AgentCacheMaxMB)
 	}
 }
 
@@ -108,6 +119,8 @@ func TestLoadPklApproveRejectsBadConfig(t *testing.T) {
 		"empty name":          {`approve { rules { new { name = "" } } }`, "name"},
 		"empty agent argv0":   {`approve { rules { new { name = "r"; agent_command { "" } } } }`, "agent_command"},
 		"zero agent timeout":  {`approve { rules { new { name = "r"; agent_timeout = 0.s } } }`, "agent_timeout"},
+		"zero cache ttl":      {`approve { agent_cache_ttl = 0.s }`, "agent_cache_ttl"},
+		"zero cache size":     {`approve { agent_cache_max_mb = 0 }`, "agent_cache_max_mb"},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {

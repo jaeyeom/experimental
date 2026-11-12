@@ -340,6 +340,9 @@ request that requests only a team you belong to.
   # Evaluate one pull request and print every condition with the value it saw
   gh-approve --pr acme/widgets#12 --explain
   gh-approve --pr https://github.com/acme/widgets/pull/12
+
+  # Run agent commands without the decision cache
+  gh-approve --no-agent-cache
 #+end_src
 
 The output is a table with the pull request, the action, the matched rule, and
@@ -371,6 +374,7 @@ condition is optional. An empty list or an unset limit adds no condition.
 | ~max_unresolved_threads~ | Default ~0~                                                                       |
 | ~agent_command~          | A command, as argv, that must print ~approve~. Runs last. See below               |
 | ~agent_timeout~          | Default ~120.s~. How long ~agent_command~ may run                                 |
+| ~agent_cache~            | Default ~true~. ~false~ runs ~agent_command~ every time, without the cache        |
 
 Globs use ~**~ for any number of directories. Logins match without regard to
 case. Labels match exactly, including case. For ~required_approvals_by~, a
@@ -387,6 +391,10 @@ Global settings:
   appended as ~<!-- gh-approve: <rule> -->~.
 - ~skip_already_approved~ skips a pull request you already approved at the
   current head. Default ~true~.
+- ~agent_cache_ttl~ is how long a cached ~agent_command~ decision is reused.
+  Default ~7.d~.
+- ~agent_cache_max_mb~ bounds the ~agent_command~ decision cache. Default ~50~.
+  See [[*Agent decision cache][Agent decision cache]].
 - gh-approve never approves a pull request you authored. This is always on and
   cannot be configured.
 
@@ -467,6 +475,33 @@ timeout, output that is not one JSON object, or an unknown decision all count
 as ~defer~, with the error as the reason. A diff that cannot be read defers
 without running the command. On timeout, the command's whole process group is
 killed.
+
+*** Agent decision cache
+
+An agent command can be expensive, such as an LLM review, so gh-approve caches
+its decision. The key is the sha256 of the exact stdin bytes, the argv, and the
+rule name. Stdin is built deterministically: files and labels are sorted, and
+it carries the head SHA, so a new push or a changed diff runs the command
+again.
+
+- One file per key under =$XDG_CACHE_HOME/gh-approve/agent/= (default
+  =~/.cache/gh-approve/agent/=), mode 0600, written atomically. It holds the
+  decision, the reason, the time, and the duration of the original run.
+- Only an ~approve~ or ~defer~ the command printed is cached. An error, a
+  timeout, a non-zero exit, invalid output, or an unknown decision is never
+  cached, so the next pass runs the command again.
+- An entry older than ~agent_cache_ttl~ (default ~7.d~) is ignored and removed.
+  When the cache is larger than ~agent_cache_max_mb~ (default ~50~), the
+  oldest entries are evicted first.
+- ~--no-agent-cache~ neither reads nor writes the cache. A rule with
+  ~agent_cache = false~ always runs its command.
+- Only the agent step is cached. Every other condition is still evaluated
+  live, and ~--apply~ still re-reads the head before it approves.
+
+The table shows where a decision came from, such as ~agent: approve (cached 2d
+ago)~, ~agent: defer (cached)~, or ~agent: approve (fresh)~. ~--explain~ adds
+~agent_cache: hit|miss|bypass~ and the key's short hash, and the audit log's
+~agent~ object has ~agent_cache~ and ~agent_cache_key~.
 
 *** Safety
 

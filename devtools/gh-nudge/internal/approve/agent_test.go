@@ -44,7 +44,7 @@ func TestRunAgentDecisions(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := runAgent(ExecCommand, shellRule(tt.script), sampleInput())
+			got := runAgent(ExecCommand, nil, shellRule(tt.script), sampleInput())
 			if got.Decision != tt.wantDecision {
 				t.Fatalf("decision = %q, want %q (reason %q)", got.Decision, tt.wantDecision, got.Reason)
 			}
@@ -59,7 +59,7 @@ func TestRunAgentDecisions(t *testing.T) {
 
 func TestRunAgentMissingCommandDefers(t *testing.T) {
 	rule := config.ApproveRule{Name: "agent", AgentCommand: []string{"/nonexistent/gh-approve-agent"}}
-	if got := runAgent(ExecCommand, rule, sampleInput()); got.Decision != AgentDefer || got.Reason == "" {
+	if got := runAgent(ExecCommand, nil, rule, sampleInput()); got.Decision != AgentDefer || got.Reason == "" {
 		t.Fatalf("result = %+v", got)
 	}
 }
@@ -68,7 +68,7 @@ func TestRunAgentTimeoutDefers(t *testing.T) {
 	rule := shellRule(`sleep 30`)
 	rule.AgentTimeout = 200 * time.Millisecond
 	start := time.Now()
-	got := runAgent(ExecCommand, rule, sampleInput())
+	got := runAgent(ExecCommand, nil, rule, sampleInput())
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Fatalf("runAgent took %v after a 200ms timeout", elapsed)
 	}
@@ -83,7 +83,7 @@ func TestRunAgentTimeoutDefers(t *testing.T) {
 func TestRunAgentStdinCarriesDiffAndFilesToCommand(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "stdin.json")
 	rule := shellRule(`cat > "$1"; echo '{"decision": "approve", "reason": "ok"}'`, path)
-	if got := runAgent(ExecCommand, rule, sampleInput()); got.Decision != AgentApprove {
+	if got := runAgent(ExecCommand, nil, rule, sampleInput()); got.Decision != AgentApprove {
 		t.Fatalf("result = %+v", got)
 	}
 	data, err := os.ReadFile(path)

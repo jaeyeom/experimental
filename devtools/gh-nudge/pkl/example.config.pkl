@@ -144,12 +144,18 @@ approve {
     // {"decision": "approve" | "defer", "reason": "..."}.
     // Failures and timeouts defer.
     //
+    // Its approve and defer decisions are cached by input hash (stdin, argv,
+    // rule name) under $XDG_CACHE_HOME/gh-approve/agent, so an unchanged PR
+    // does not run it again. Failures are never cached. Set
+    // agent_cache = false on the rule, or pass --no-agent-cache, to bypass.
+    //
     // new {
     //   name = "docs-reviewed-by-agent"
     //   paths_all_match { "docs/**" }
     //   checks = "green"
     //   agent_command { "/path/to/review-agent"; "--strict" }
     //   agent_timeout = 60.s
+    //   // agent_cache = false
     // }
   }
 }

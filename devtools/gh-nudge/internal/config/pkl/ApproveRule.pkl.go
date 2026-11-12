@@ -68,4 +68,8 @@ type ApproveRule struct {
 
 	// How long agent_command may run. Its process group is killed after that.
 	AgentTimeout pkl.Duration `pkl:"agent_timeout"`
+
+	// Cache agent_command's approve and defer decisions by input hash. Set
+	// false to run the command on every pass.
+	AgentCache bool `pkl:"agent_cache"`
 }

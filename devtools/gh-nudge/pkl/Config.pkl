@@ -177,6 +177,9 @@ class ApproveRule {
   agent_command: Listing<String(!isEmpty)> = new {}
   /// How long agent_command may run. Its process group is killed after that.
   agent_timeout: Duration(value > 0) = 120.s
+  /// Cache agent_command's approve and defer decisions by input hash. Set
+  /// false to run the command on every pass.
+  agent_cache: Boolean = true
 }
 
 /// gh-approve settings. gh-nudge and gh-merge ignore this section.
@@ -185,6 +188,11 @@ class ApproveConfig {
   body: String(!isEmpty) = "LGTM"
   /// Skip a pull request the user already approved at the current head.
   skip_already_approved: Boolean = true
+  /// How long a cached agent_command decision is reused.
+  agent_cache_ttl: Duration(value > 0) = 7.d
+  /// Size limit of the agent_command decision cache. The oldest entries are
+  /// evicted first.
+  agent_cache_max_mb: Int(this > 0) = 50
   /// Rules. A pull request that matches none of them is left for a human.
   rules: Listing<ApproveRule> = new {}
 }

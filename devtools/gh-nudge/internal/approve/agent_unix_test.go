@@ -17,7 +17,7 @@ func TestRunAgentTimeoutKillsProcessGroup(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "child.pid")
 	rule := shellRule(`sleep 30 & echo $! > "$1"; wait`, pidFile)
 	rule.AgentTimeout = 300 * time.Millisecond
-	if got := runAgent(ExecCommand, rule, sampleInput()); got.Decision != AgentDefer {
+	if got := runAgent(ExecCommand, nil, rule, sampleInput()); got.Decision != AgentDefer {
 		t.Fatalf("result = %+v", got)
 	}
 	data, err := os.ReadFile(pidFile)

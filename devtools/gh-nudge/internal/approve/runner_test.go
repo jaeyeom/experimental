@@ -34,6 +34,8 @@ type fakeClient struct {
 	approvals  []approval
 	diffErr    error
 	diffReads  int
+	// diff overrides the default diff of every pull request.
+	diff string
 }
 
 func (f *fakeClient) ViewerLogin() (string, error) { return f.viewer, nil }
@@ -66,6 +68,9 @@ func (f *fakeClient) PullRequestDiff(ref github.PullRef) (string, error) {
 	f.diffReads++
 	if f.diffErr != nil {
 		return "", f.diffErr
+	}
+	if f.diff != "" {
+		return f.diff, nil
 	}
 	return fmt.Sprintf("diff for #%d\n", ref.Number), nil
 }
@@ -396,15 +401,21 @@ func TestRunSkipsClosedPR(t *testing.T) {
 
 // fakeAgent is a fake agent command. It records each call and prints stdout.
 type fakeAgent struct {
-	stdout string
-	calls  [][]string
-	stdins [][]byte
+	stdout   string
+	code     int
+	timedOut bool
+	startErr bool
+	calls    [][]string
+	stdins   [][]byte
 }
 
 func (f *fakeAgent) run(_ context.Context, stdin []byte, argv []string) (remotecall.Result, error) {
 	f.calls = append(f.calls, argv)
 	f.stdins = append(f.stdins, stdin)
-	return remotecall.Result{Stdout: f.stdout}, nil
+	if f.startErr {
+		return remotecall.Result{}, errors.New("executable not found")
+	}
+	return remotecall.Result{Stdout: f.stdout, Code: f.code, TimedOut: f.timedOut}, nil
 }
 
 func agentRule(name string) config.ApproveRule {
@@ -455,7 +466,7 @@ func TestRunAgentDeferLeavesPRForHuman(t *testing.T) {
 	if got := entry.Rules[0].Agent; got == nil || got.Decision != AgentDefer || got.Reason != "touches billing" {
 		t.Fatalf("agent result = %+v", got)
 	}
-	if !strings.Contains(res.out, "agent: agent_command failed") || !strings.Contains(res.out, "touches billing") {
+	if !strings.Contains(res.out, "agent: agent: defer (fresh): touches billing") {
 		t.Fatalf("out = %s", res.out)
 	}
 }

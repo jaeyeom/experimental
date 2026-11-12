@@ -66,6 +66,8 @@ type Runner struct {
 	Now func() time.Time
 	// RunCommand runs agent commands. Nil means ExecCommand.
 	RunCommand CommandRunner
+	// AgentCache caches agent command decisions. Nil bypasses the cache.
+	AgentCache *AgentCache
 }
 
 // errNotRequested marks a pull request that does not request the viewer as
@@ -193,7 +195,7 @@ func (r *Runner) agent(pr github.ApprovalPullRequest) AgentFunc {
 		if diffErr != nil {
 			return AgentResult{Decision: AgentDefer, Reason: diffErr.Error()}
 		}
-		return runAgent(run, rule, newAgentInput(pr, diff))
+		return runAgent(run, r.AgentCache, rule, newAgentInput(pr, diff))
 	}
 }
 
@@ -210,6 +212,14 @@ func (r *Runner) approve(ref github.PullRef, evaluatedSHA, rule string) (string,
 		return ActionError, err.Error()
 	}
 	return ActionApproved, ""
+}
+
+// agentKeyText is the short cache key, or "none" when the cache was bypassed.
+func agentKeyText(a AgentResult) string {
+	if a.CacheKey == "" {
+		return "none"
+	}
+	return a.CacheKey
 }
 
 func (r *Runner) report(entry LogEntry, explain bool) error {
@@ -235,26 +245,49 @@ func (r *Runner) report(entry LogEntry, explain bool) error {
 	for _, result := range entry.Rules {
 		switch {
 		case explain:
-			verdict := "no match"
-			if result.Matched {
-				verdict = "match"
-			}
-			fmt.Fprintf(&out, "    rule %s: %s\n", result.Rule, verdict)
-			for _, cond := range result.Conditions {
-				mark := "pass"
-				if !cond.Pass {
-					mark = "FAIL"
-				}
-				fmt.Fprintf(&out, "      %s %s: %s\n", mark, cond.Condition, cond.Saw)
-			}
+			writeExplain(&out, result)
 		case entry.Action == ActionManual:
-			if first, ok := result.FirstFailure(); ok {
-				fmt.Fprintf(&out, "    %s: %s failed (%s)\n", result.Rule, first.Condition, first.Saw)
-			}
+			writeFirstFailure(&out, result)
+		case result.Matched && result.Agent != nil:
+			fmt.Fprintf(&out, "    %s\n", result.Agent.Summary())
 		}
 	}
 	if _, err := io.WriteString(r.Out, out.String()); err != nil {
 		return fmt.Errorf("write output: %w", err)
 	}
 	return nil
+}
+
+// writeExplain writes every condition of result with the value it saw.
+func writeExplain(out *strings.Builder, result RuleResult) {
+	verdict := "no match"
+	if result.Matched {
+		verdict = "match"
+	}
+	fmt.Fprintf(out, "    rule %s: %s\n", result.Rule, verdict)
+	for _, cond := range result.Conditions {
+		mark := "pass"
+		if !cond.Pass {
+			mark = "FAIL"
+		}
+		fmt.Fprintf(out, "      %s %s: %s\n", mark, cond.Condition, cond.Saw)
+		if cond.Condition == agentCondition && result.Agent != nil && result.Agent.Cache != "" {
+			fmt.Fprintf(out, "        agent_cache: %s, key %s\n", result.Agent.Cache, agentKeyText(*result.Agent))
+			if result.Agent.CacheError != "" {
+				fmt.Fprintf(out, "        agent_cache_error: %s\n", result.Agent.CacheError)
+			}
+		}
+	}
+}
+
+// writeFirstFailure writes why result did not match.
+func writeFirstFailure(out *strings.Builder, result RuleResult) {
+	first, ok := result.FirstFailure()
+	switch {
+	case !ok:
+	case first.Condition == agentCondition && result.Agent != nil:
+		fmt.Fprintf(out, "    %s: %s\n", result.Rule, result.Agent.Summary())
+	default:
+		fmt.Fprintf(out, "    %s: %s failed (%s)\n", result.Rule, first.Condition, first.Saw)
+	}
 }
