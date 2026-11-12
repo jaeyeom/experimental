@@ -72,7 +72,7 @@ Optional: copy [[file:prsync.config.example][prsync.config.example]] to ~./prsyn
 * Commands
 
 #+BEGIN_EXAMPLE
-prsync scan     [--config PATH] [--repo owner/repo ...] [--json] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
+prsync scan     [--config PATH] [--repo owner/repo ...] [--json] [--in-scope] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
 prsync tabs     --orphans [--config PATH] [--json] [--stdin] [--close-merged] [--go] [--force] [--tab-machine M]
 prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--ci-fix] [--hint TEXT] [--prompt-suffix TEXT] [--force] [--stdin] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
 prsync comment  [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--stdin] [--allow-duplicate] --body TEXT
@@ -87,6 +87,7 @@ prsync version
 | ~--config PATH~ | scan, tabs, dispatch, comment, gate | Use this file (must exist) |
 | ~--repo owner/repo~ | scan | Repeatable; replaces ~repos~ entirely |
 | ~--json~ | scan, tabs | Accepted no-op (stdout is always JSON) |
+| ~--in-scope~ | scan | Leave PRs marked ~out_of_scope~ out of the output. Overrides ~scan_in_scope_only~. See [[*One watcher per machine][One watcher per machine]] |
 | ~--orphans~ | tabs | Required; report live-agent tabs with no open/draft PR |
 | ~--close-merged~ | tabs | Close ~merged~-bucket orphan tabs (default is dry-run) |
 | ~--pr owner/repo#N~ | dispatch, comment | Repeatable. ~dispatch~ fetches only these PRs; ~comment~ limits candidates in the scan |
@@ -166,6 +167,7 @@ Environment variables are not expanded.
 | ~tab_machine~ | empty | Scope ~scan~, ~dispatch~, and ~tabs~ to PRs whose tab is on this machine: ~local~ or one of ~machines~. Empty = every machine. Any other value is a config error. ~--tab-machine~ overrides it. See [[*One watcher per machine][One watcher per machine]]. |
 | ~machine_checkouts~ | empty | Comma- or space-separated ~machine=/path~ entries: each machine's checkout of the dispatch repo, an absolute path on that machine. The gate for a ~tab_machine~ other than ~local~ checks it, and fails without an entry. Each machine must be in ~machines~. See [[*One watcher per machine][One watcher per machine]]. |
 | ~untabbed~ | empty | ~include~ or ~exclude~: whether PRs with no tab belong to a ~tab_machine~ run. Empty = only the ~local~ run includes them. ~--untabbed~ overrides it. |
+| ~scan_in_scope_only~ | ~false~ | When ~true~, ~scan~ leaves PRs marked ~out_of_scope~ out of its output, as ~--in-scope~ does. ~--in-scope=false~ overrides it. |
 | ~skip_jobs~ | empty | Comma-separated machine-wide jobs this run skips. The only job is ~team-cover~. An unknown job is a config error. ~--skip~ overrides it. |
 | ~gh_bin~ | ~$GH_BIN~, else ~gh~ | gh executable. Set it (or ~GH_BIN~) to a rate limiter such as ~gh-throttle~; see [[*Running gh through a rate limiter][Running gh through a rate limiter]]. |
 | ~jira_bin~ | ~jira~ | jira executable. Used only for ~jira issue view~ after a live close. |
@@ -383,9 +385,20 @@ matching:
 | ~tab_unknown~ because ~M~ is unreachable | the ~M~ run, reported as today |
 | Same label on two machines | both runs: each reports the ambiguous-tab warning, and neither dispatches it |
 
-A PR owned by another run stays in ~scan~ output with ~out_of_scope~
-(~tab on local~, ~no tab~, or ~tab may be on linux2 (unreachable)~), and
-its per-PR warnings are dropped. ~dispatch~ skips it with
+~scan~ lists every PR on every machine. A PR owned by another run stays
+in its output with ~out_of_scope~ (~tab on local~, ~no tab~, or ~tab may
+be on linux2 (unreachable)~), and its per-PR warnings are dropped. When
+any PR is marked, stderr says how many, e.g. ~2 out of scope
+(tab_machine=linux2)~. A caller that reads ~.tab~ must skip the marked
+PRs too: pass ~--in-scope~ (or ~scan_in_scope_only = true~) to leave them
+out, or filter them yourself:
+
+#+BEGIN_EXAMPLE
+prsync scan --tab-machine linux2 --in-scope
+prsync scan --tab-machine linux2 | jq '.prs[] | select(.out_of_scope == null)'
+#+END_EXAMPLE
+
+With ~--in-scope~, ~summary~ counts only the PRs that remain. ~dispatch~ skips it with
 ~skipped_out_of_scope~ and that reason as ~detail~. A ~dispatch --stdin~
 document keeps the scope it was scanned with, so pipe ~scan~ with the
 same ~--tab-machine~.

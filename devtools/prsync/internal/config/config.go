@@ -124,6 +124,8 @@ type Config struct {
 	// Untabbed is include or exclude for PRs with no tab. Empty means
 	// only the local run includes them.
 	Untabbed string
+	// ScanInScopeOnly leaves PRs marked out_of_scope out of scan output.
+	ScanInScopeOnly bool
 	// SkipJobs are machine-wide steps (Jobs) this run does not perform.
 	SkipJobs          []string
 	GHBin             string
@@ -545,6 +547,10 @@ func applyOtherKey(cfg *Config, key, val string) error {
 	case "tab_machine", "untabbed", "skip_jobs":
 		applyScopeKey(cfg, key, val)
 		return nil
+	case "scan_in_scope_only":
+		b, err := parseBool(key, val)
+		cfg.ScanInScopeOnly = b
+		return err
 	case "dispatch_prompt_suffix":
 		cfg.PromptSuffix = val
 		return nil

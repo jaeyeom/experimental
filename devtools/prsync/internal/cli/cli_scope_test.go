@@ -100,6 +100,71 @@ func TestScanTabMachineFromConfig(t *testing.T) {
 	}
 }
 
+// runScopedScan runs scan with args and decodes stdout.
+func runScopedScan(t *testing.T, cfgPath string, args ...string) (scan.Document, string) {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), append([]string{"scan", "--json", "--config", cfgPath}, args...), &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitOK {
+		t.Fatalf("%v: exit = %d, stderr=%q", args, code, stderr.String())
+	}
+	var doc scan.Document
+	if err := json.Unmarshal(stdout.Bytes(), &doc); err != nil {
+		t.Fatalf("%v: %v", args, err)
+	}
+	return doc, stderr.String()
+}
+
+func TestScanInScopeDropsOtherMachines(t *testing.T) {
+	ghBin, _ := fixtureBins(t)
+	scopeFake(t, "local")
+	cfgPath := writeLiveConfig(t, ghBin, "herdr", filepath.Join(t.TempDir(), "state.json"), "machines=m2")
+
+	tests := []struct {
+		args     []string
+		wantPRs  int
+		wantMark string
+		wantNote bool
+	}{
+		{[]string{"--tab-machine", "m2"}, 1, "tab on local", true},
+		{[]string{"--tab-machine", "m2", "--in-scope"}, 0, "", true},
+		{[]string{"--tab-machine", "local", "--in-scope"}, 1, "", false},
+		{[]string{"--in-scope"}, 1, "", false},
+	}
+	for _, tc := range tests {
+		doc, stderr := runScopedScan(t, cfgPath, tc.args...)
+		if len(doc.PRs) != tc.wantPRs || doc.Summary.Total != tc.wantPRs {
+			t.Fatalf("%v: prs = %+v summary = %+v, want %d", tc.args, doc.PRs, doc.Summary, tc.wantPRs)
+		}
+		if tc.wantPRs == 1 && doc.PRs[0].OutOfScope != tc.wantMark {
+			t.Fatalf("%v: out_of_scope = %q, want %q", tc.args, doc.PRs[0].OutOfScope, tc.wantMark)
+		}
+		if got := strings.Contains(stderr, "1 out of scope (tab_machine=m2)\n"); got != tc.wantNote {
+			t.Fatalf("%v: stderr = %q, want out-of-scope count %v", tc.args, stderr, tc.wantNote)
+		}
+		if !tc.wantNote && strings.Contains(stderr, "out of scope") {
+			t.Fatalf("%v: stderr = %q, want no out-of-scope count", tc.args, stderr)
+		}
+	}
+}
+
+func TestScanInScopeOnlyFromConfig(t *testing.T) {
+	ghBin, _ := fixtureBins(t)
+	scopeFake(t, "local")
+	cfgPath := writeLiveConfig(t, ghBin, "herdr", filepath.Join(t.TempDir(), "state.json"), "machines=m2", "tab_machine=m2", "scan_in_scope_only=true")
+
+	doc, stderr := runScopedScan(t, cfgPath)
+	if len(doc.PRs) != 0 {
+		t.Fatalf("prs = %+v, want none", doc.PRs)
+	}
+	if !strings.Contains(stderr, "1 out of scope (tab_machine=m2)\n") {
+		t.Fatalf("stderr = %q, want the out-of-scope count", stderr)
+	}
+	if doc, _ = runScopedScan(t, cfgPath, "--in-scope=false"); len(doc.PRs) != 1 {
+		t.Fatalf("--in-scope=false: prs = %+v, want #123 back", doc.PRs)
+	}
+}
+
 func TestDispatchTabMachineSkipsOtherMachines(t *testing.T) {
 	ghBin, _ := fixtureBins(t)
 	f := scopeFake(t, "local")

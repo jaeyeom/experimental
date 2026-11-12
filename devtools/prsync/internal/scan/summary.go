@@ -38,3 +38,27 @@ func uncoveredTeams(suggestions []TeamReviewSuggestion) int {
 	}
 	return n
 }
+
+// CountOutOfScope is how many PRs in doc belong to another tab_machine run.
+func CountOutOfScope(doc Document) int {
+	n := 0
+	for _, pr := range doc.PRs {
+		if pr.OutOfScope != "" {
+			n++
+		}
+	}
+	return n
+}
+
+// DropOutOfScope removes the PRs marked OutOfScope from doc and
+// recomputes its summary over the PRs that remain.
+func DropOutOfScope(doc *Document) {
+	kept := make([]PR, 0, len(doc.PRs))
+	for _, pr := range doc.PRs {
+		if pr.OutOfScope == "" {
+			kept = append(kept, pr)
+		}
+	}
+	doc.PRs = kept
+	doc.Summary = summarize(kept)
+}

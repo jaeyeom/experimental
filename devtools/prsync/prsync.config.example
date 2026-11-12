@@ -45,6 +45,9 @@
 # Whether PRs with no tab belong to this run: include | exclude. Empty =
 # only the local run includes them.
 # untabbed=include
+# Leave PRs marked out_of_scope out of scan output (scan --in-scope).
+# Default false: scan lists every PR and marks the out-of-scope ones.
+# scan_in_scope_only=true
 # Machine-wide jobs this run skips (comma-separated): team-cover. Run
 # gh-nudge next to the watcher that does not skip.
 # skip_jobs=team-cover

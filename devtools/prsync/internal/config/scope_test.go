@@ -24,6 +24,29 @@ func TestLoadRunScope(t *testing.T) {
 	}
 }
 
+func TestLoadScanInScopeOnly(t *testing.T) {
+	t.Parallel()
+
+	if Defaults().ScanInScopeOnly {
+		t.Fatal("default ScanInScopeOnly = true, want false")
+	}
+	path := filepath.Join(t.TempDir(), "prsync.config")
+	mustWrite(t, path, "scan_in_scope_only=true\n")
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !got.ScanInScopeOnly {
+		t.Fatal("ScanInScopeOnly = false, want true")
+	}
+
+	mustWrite(t, path, "scan_in_scope_only=maybe\n")
+	var keyErr *KeyError
+	if _, err := Load(path); !errors.As(err, &keyErr) || keyErr.Key != "scan_in_scope_only" {
+		t.Fatalf("Load error = %v, want scan_in_scope_only key error", err)
+	}
+}
+
 func TestLoadRunScopeRejectsUnknownValues(t *testing.T) {
 	t.Parallel()
 
