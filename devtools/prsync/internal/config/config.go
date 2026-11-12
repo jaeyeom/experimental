@@ -233,6 +233,10 @@ type Config struct {
 	// reused across rounds while its head and updatedAt are unchanged.
 	// Zero fetches them every round.
 	ReviewThreadsTTL time.Duration
+	// StatusChecksTTL is the longest a pull request's settled status-check
+	// rollup is reused across rounds while its head and updatedAt are
+	// unchanged. Zero fetches it every round.
+	StatusChecksTTL time.Duration
 	// PRViewClosedTTL is how long a closed (not merged) pull request's
 	// state is reused across rounds; merged results are reused until no
 	// tab references them. Zero fetches closed pull requests every round.
@@ -329,6 +333,7 @@ func Defaults() Config {
 		TeamCoverMembersTTL:      24 * time.Hour,
 		TeamCoverCodeownersTTL:   6 * time.Hour,
 		ReviewThreadsTTL:         6 * time.Hour,
+		StatusChecksTTL:          6 * time.Hour,
 		PRViewClosedTTL:          24 * time.Hour,
 		GateIgnoreProcs:          slices.Clone(procinfo.DefaultHelpers),
 		GateBuildTools:           slices.Clone(procinfo.DefaultBuildTools),
@@ -603,10 +608,8 @@ func applyOtherKey(cfg *Config, key, val string) error {
 		b, err := parseBool(key, val)
 		cfg.ScanInScopeOnly = b
 		return err
-	case "review_threads_ttl":
-		return applyNonNegativeDuration(&cfg.ReviewThreadsTTL, key, val)
-	case "pr_view_closed_ttl":
-		return applyNonNegativeDuration(&cfg.PRViewClosedTTL, key, val)
+	case "review_threads_ttl", "status_checks_ttl", "pr_view_closed_ttl":
+		return applyCacheTTL(cfg, key, val)
 	case "dispatch_prompt_suffix":
 		cfg.PromptSuffix = val
 		return nil
@@ -679,6 +682,21 @@ func teamCoverTTL(cfg *Config, key string) *time.Duration {
 	default:
 		return nil
 	}
+}
+
+func applyCacheTTL(cfg *Config, key, val string) error {
+	var dst *time.Duration
+	switch key {
+	case "review_threads_ttl":
+		dst = &cfg.ReviewThreadsTTL
+	case "status_checks_ttl":
+		dst = &cfg.StatusChecksTTL
+	case "pr_view_closed_ttl":
+		dst = &cfg.PRViewClosedTTL
+	default:
+		return fmt.Errorf("cache ttl: expected review_threads_ttl, status_checks_ttl, or pr_view_closed_ttl, found %q", key)
+	}
+	return applyNonNegativeDuration(dst, key, val)
 }
 
 func applyNonNegativeDuration(dst *time.Duration, key, val string) error {

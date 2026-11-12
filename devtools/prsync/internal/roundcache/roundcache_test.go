@@ -66,7 +66,7 @@ func TestEntriesExpire(t *testing.T) {
 	}
 
 	// The history key holds the base head, so its TTL is only a backstop.
-	clk.t = clk.t.Add(TTL + time.Second)
+	clk.t = clk.t.Add(StatusChecksTTL + time.Second)
 	next, _ := Load(path, clk.now)
 	if _, ok := next.PathHistory("acme/widgets", "main", "src/a.go", "base1"); !ok {
 		t.Fatal("path history for an unchanged base head expired with the rollup TTL")
@@ -448,6 +448,47 @@ func TestReviewThreadsExpireAfterThreadsTTL(t *testing.T) {
 	}
 	if len(c.data.Threads) != 0 {
 		t.Fatalf("threads = %v, want the expired entry pruned", c.data.Threads)
+	}
+}
+
+func TestStatusChecksExpireAfterConfiguredTTL(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "cache.json")
+	clk := newClock()
+	c, _ := Load(path, clk.now)
+	c.SetStatusChecksTTL(time.Hour)
+	c.PutRollup("acme/widgets", 7, "head1", "t1", []gh.StatusCheck{{Name: "ci", Status: "COMPLETED", Conclusion: "SUCCESS"}})
+	clk.t = clk.t.Add(59 * time.Minute)
+	if _, ok := c.Rollup("acme/widgets", 7, "head1", "t1"); !ok {
+		t.Fatal("miss inside the TTL")
+	}
+	clk.t = clk.t.Add(2 * time.Minute)
+	if _, ok := c.Rollup("acme/widgets", 7, "head1", "t1"); ok {
+		t.Fatal("hit past the TTL")
+	}
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if len(c.data.Rollups) != 0 {
+		t.Fatalf("rollups = %v, want the expired entry pruned", c.data.Rollups)
+	}
+}
+
+func TestDefaultStatusChecksTTL(t *testing.T) {
+	t.Parallel()
+
+	clk := newClock()
+	c, _ := Load(filepath.Join(t.TempDir(), "cache.json"), clk.now)
+	c.SetStatusChecksTTL(0)
+	c.PutRollup("acme/widgets", 7, "head1", "t1", []gh.StatusCheck{{Name: "ci"}})
+	clk.t = clk.t.Add(StatusChecksTTL - time.Second)
+	if _, ok := c.Rollup("acme/widgets", 7, "head1", "t1"); !ok {
+		t.Fatal("miss inside StatusChecksTTL")
+	}
+	clk.t = clk.t.Add(2 * time.Second)
+	if _, ok := c.Rollup("acme/widgets", 7, "head1", "t1"); ok {
+		t.Fatal("hit past StatusChecksTTL")
 	}
 }
 

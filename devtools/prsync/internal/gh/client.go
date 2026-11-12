@@ -232,14 +232,15 @@ func rollupErrFatal(err error) bool {
 }
 
 func (c *Client) statusChecksCached(ctx context.Context, repo string, item PRListItem) ([]StatusCheck, error) {
-	if c.rollups == nil {
-		return c.statusChecks(ctx, repo, item.Number)
+	if c.rollups != nil {
+		if checks, ok := c.rollups.Rollup(repo, item.Number, item.HeadRefOid, item.UpdatedAt); ok {
+			noteRollupHit(ctx)
+			return checks, nil
+		}
 	}
-	if checks, ok := c.rollups.Rollup(repo, item.Number, item.HeadRefOid, item.UpdatedAt); ok {
-		return checks, nil
-	}
+	noteRollupCall(ctx)
 	checks, err := c.statusChecks(ctx, repo, item.Number)
-	if err == nil && item.HeadRefOid != "" && item.UpdatedAt != "" && rollupSettled(checks) {
+	if err == nil && c.rollups != nil && item.HeadRefOid != "" && item.UpdatedAt != "" && rollupSettled(checks) {
 		c.rollups.PutRollup(repo, item.Number, item.HeadRefOid, item.UpdatedAt, checks)
 	}
 	return checks, err
