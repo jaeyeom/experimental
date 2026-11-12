@@ -117,12 +117,111 @@ setting, and =-e= still overrides it for one run.
 | Variable                   | Playbook                | Effect                               |
 |----------------------------+-------------------------+--------------------------------------|
 | =fork_keeper_cron_enabled= | =setup-fork-keeper.yml= | =true= keeps the daily fork-keeper job |
+| =hub_ssh_target= and others | =setup-hub-client.yml= | See [[*Two-machine hub setup]]     |
 
 For example, on the machine that runs fork-keeper:
 
 #+begin_src yaml
   fork_keeper_cron_enabled: true
 #+end_src
+
+** Two-machine hub setup
+
+One machine, the hub (Linux), runs =agentbusd= and the decide ledger. A
+client (for example macOS) runs =agentbus= and =decide= in hub mode, and
+they reach the hub with =ssh -o BatchMode=yes <hub> <cmd>=. Two manual
+playbooks set this up. =all.yml= imports neither, so nothing changes on a
+machine until you run one there.
+
+| Variable               | Default     | Meaning                                                  |
+|------------------------+-------------+----------------------------------------------------------|
+| =hub_ssh_target=       | required    | ssh target of the hub, such as =me@hub.example=          |
+| =client_machine_label= | required    | this client's herdr saved-machine label on the hub       |
+| =hub_tools_version=    | =latest=    | =go install= version of agentbus and decide: a tag or commit |
+| =hub_connect_timeout=  | =5s=        | ssh connect timeout (=hubTimeout=, =remote_timeout=)     |
+| =hub_host_shell=       | login shell | =bash= or =zsh=, for =setup-hub-host.yml=                |
+
+Set them in the client's per-machine vars file (see [[*Per-machine
+settings]]), in a private inventory or group vars, or with =-e=; not in
+the shared =inventory.ini=. Without =hub_ssh_target= and
+=client_machine_label=, =setup-hub-client.yml= stops before it changes
+anything.
+
+On the hub, =setup-hub-host.yml= puts =~/go/bin= and =~/.local/bin= on
+=PATH= for =ssh hub cmd=. Many =~/.bashrc= files return early for a
+non-interactive shell, so for bash it writes a marked block at the top
+of =~/.bashrc=, above that guard; for zsh it writes the block to
+=~/.zshenv=. Another run leaves the file as it is, and the block does
+not add a directory that is already on =PATH=. Then it checks, from a
+non-interactive shell, that =decide=, =agentbus=, and =herdr= are found,
+and fails naming any that are not. It does not install them.
+
+On the client, =setup-hub-client.yml= installs =agentbus= and =decide=
+with =go install ...@<hub_tools_version>=. =agentbusd= refuses to start
+in hub mode, so it is not installed. Then it:
+
+- merges =hub=, =hubTimeout=, and =machine= into
+  =~/.config/decide/config.json= and keeps every other key;
+- sets the top-level =hub=, =machine=, and =remote_timeout= in
+  =~/.config/agentbus/config.toml=, above its first =[section]=, and
+  keeps the other keys and sections.
+
+Both files are backed up before a change. It does not run
+=agentbus install=, start a service or tunnel, or touch tokens.
+
+Run each playbook on its own machine:
+
+#+begin_src sh
+  # on the hub
+  ansible-playbook -i inventory.ini setup-hub-host.yml
+  # on the client
+  ansible-playbook -i inventory.ini setup-hub-client.yml \
+    -e hub_ssh_target=me@hub.example -e client_machine_label=laptop
+#+end_src
+
+=./ensure.sh setup-hub-host= and =./ensure.sh setup-hub-client= work too.
+To run both from one controller, use a private inventory that names the
+two machines and limit each run, for example
+=ansible-playbook -i ~/hosts.ini setup-hub-host.yml -l hub=.
+
+*** Check
+
+The last task of =setup-hub-client.yml= runs =decide status list= and
+=agentbus list= through the hub, with =DECIDE_HUB= and =AGENTBUS_HUB= set
+to =hub_ssh_target=. It fails with the command's stderr when the hub is
+unreachable or a binary is missing on either side. To run only the check:
+
+#+begin_src sh
+  ansible-playbook -i inventory.ini setup-hub-client.yml --tags hub-check \
+    -e hub_ssh_target=me@hub.example -e client_machine_label=laptop
+#+end_src
+
+The hub must accept the client's ssh key without a prompt, and the
+client must be saved in the hub's herdr as =client_machine_label=.
+
+*** Next manual step
+
+For the faster forwarded-socket path, add =hub_socket= to the client's
+=~/.config/agentbus/config.toml= and run =agentbus install= there; see
+"Talk to the hub daemon over a forwarded socket" in
+[[file:../../agentbus/README.org][agentbus/README.org]]. Without it,
+every agentbus command goes over ssh.
+
+*** Undo
+
+Each change leaves a backup next to the file, named
+=<file>.<pid>.<date>@<time>~=. The agentbus config gets one backup per
+key that changed, so the oldest backup from a run is the file before
+that run:
+
+#+begin_src sh
+  ls -tr ~/.config/decide/config.json.*~ ~/.config/agentbus/config.toml.*~
+  cp ~/.config/decide/config.json.12345.2026-01-02@03:04:05~ ~/.config/decide/config.json
+#+end_src
+
+A file that did not exist before has no backup; delete it. On the hub,
+delete the lines from =# BEGIN setup-dev hub PATH= through
+=# END setup-dev hub PATH= in =~/.bashrc= or =~/.zshenv=.
 
 * Design
 The purpose of this Ansible Setup Dev is to set up my development environment
@@ -276,6 +375,8 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-herdr.yml
 - setup-history.yml
 - setup-homebrew-env.yml
+- setup-hub-client.yml
+- setup-hub-host.yml
 - setup-java.yml
 - setup-java-tools.yml
 - setup-jetbrains-mono-font.yml

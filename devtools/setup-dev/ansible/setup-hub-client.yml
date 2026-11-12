@@ -1,0 +1,182 @@
+---
+# Two-machine hub setup, client side (jaeyeom/experimental#683).
+#
+# Installs agentbus and decide, and points both at the hub:
+#
+#   - ~/.config/decide/config.json: hub, hubTimeout, machine, merged into
+#     the existing JSON;
+#   - ~/.config/agentbus/config.toml: top-level hub, machine,
+#     remote_timeout, above the first [section].
+#
+# Both files are backed up (file.<pid>.<date>@<time>~) before a change.
+# Nothing else: no `agentbus install`, service, tunnel, or token. agentbusd
+# is not installed, because it refuses to start in hub mode.
+#
+# Variables (inventory, group vars, the per-machine vars file
+# ${XDG_CONFIG_HOME:-~/.config}/setup-dev/vars.yml, or -e):
+#
+#   hub_ssh_target        required, the ssh target of the hub
+#   client_machine_label  required, this machine's herdr saved-machine
+#                         label on the hub
+#   hub_tools_version     go install version: a tag, a commit, or latest
+#                         (default latest)
+#   hub_connect_timeout   ssh connect timeout (default 5s)
+#
+#   ansible-playbook -i inventory.ini setup-hub-client.yml \
+#     -e hub_ssh_target=me@hub.example -e client_machine_label=laptop
+#
+# The last task (tag hub-check) runs `decide status list` and
+# `agentbus list` through the hub. `--tags hub-check` runs only the check;
+# `--tags hub-config` only writes the two files. hub_setup_test.sh runs
+# both with a temp HOME.
+- import_playbook: gather-facts.yml
+- import_playbook: setup-user-go-bin-directory.yml
+
+- name: Point agentbus and decide at the hub
+  hosts: all
+  # The first file found is loaded. /dev/null keeps a missing vars file
+  # from failing the play.
+  vars_files:
+    - - "{{ (lookup('ansible.builtin.env', 'XDG_CONFIG_HOME') or (lookup('ansible.builtin.env', 'HOME') ~ '/.config')) ~ '/setup-dev/vars.yml' }}"
+      - /dev/null
+  # Defaults live in expressions, not play vars, so inventory and group
+  # vars still set the four variables.
+  vars:
+    hub_client_target: "{{ hub_ssh_target | default('') }}"
+    hub_client_machine: "{{ client_machine_label | default('') }}"
+    hub_client_version: "{{ hub_tools_version | default('latest') }}"
+    hub_client_timeout: "{{ hub_connect_timeout | default('5s') }}"
+    hub_client_home: "{{ ansible_facts['env']['HOME'] }}"
+    hub_client_config_home: "{{ ansible_facts['env']['XDG_CONFIG_HOME'] | default(hub_client_home ~ '/.config', true) }}"
+    hub_client_decide_config: "{{ hub_client_config_home }}/decide/config.json"
+    hub_client_agentbus_config: "{{ hub_client_config_home }}/agentbus/config.toml"
+    hub_client_module: github.com/jaeyeom/experimental
+    hub_client_packages:
+      - "{{ hub_client_module }}/devtools/agentbus/cmd/agentbus"
+      - "{{ hub_client_module }}/devtools/decide/cmd/decide"
+  tasks:
+    - name: Include guard for setup-hub-client playbook
+      block:
+        - name: Stop early if the setup-hub-client playbook is already included
+          meta: end_play
+          when: setup_hub_client_playbook_imported is defined
+        - name: Ensure the setup-hub-client playbook is not included
+          set_fact:
+            setup_hub_client_playbook_imported: true
+          when: setup_hub_client_playbook_imported is not defined
+      tags: always
+
+    - name: Require the hub variables
+      ansible.builtin.assert:
+        that:
+          - hub_client_target | length > 0
+          - hub_client_machine | length > 0
+        fail_msg: >-
+          Set hub_ssh_target (the hub's ssh target) and client_machine_label
+          (this machine's herdr saved-machine label on the hub), with -e or
+          in ~/.config/setup-dev/vars.yml.
+        quiet: true
+      tags: always
+
+    # A tag, a commit, or latest resolves to one module version (a commit
+    # to its pseudo-version), so a binary already at it is left alone.
+    - name: Resolve hub_tools_version to a module version
+      ansible.builtin.command:
+        argv: [go, list, -m, -f, "{{ '{{' }}.Version{{ '}}' }}", "{{ hub_client_module }}@{{ hub_client_version }}"]
+      register: hub_client_resolved
+      changed_when: false
+      check_mode: false
+      tags: hub-install
+
+    - name: Read the installed agentbus and decide versions
+      ansible.builtin.shell: >-
+        go version -m "$(go env GOPATH)/bin/{{ item | basename }}" 2>/dev/null
+        | awk '$1 == "mod" { print $3 }'
+      loop: "{{ hub_client_packages }}"
+      register: hub_client_installed
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      tags: hub-install
+
+    - name: Install agentbus and decide
+      ansible.builtin.command: go install {{ item.item }}@{{ hub_client_resolved.stdout }}
+      loop: "{{ hub_client_installed.results }}"
+      loop_control:
+        label: "{{ item.item | basename }}"
+      when: item.stdout != hub_client_resolved.stdout
+      register: hub_client_install
+      until: hub_client_install is succeeded
+      retries: 3
+      delay: 30
+      tags: hub-install
+
+    - name: Read the decide config
+      ansible.builtin.slurp:
+        src: "{{ hub_client_decide_config }}"
+      register: hub_client_decide_current
+      failed_when: false
+      tags: hub-config
+
+    - name: Create the config directories
+      ansible.builtin.file:
+        path: "{{ item | dirname }}"
+        state: directory
+      loop:
+        - "{{ hub_client_decide_config }}"
+        - "{{ hub_client_agentbus_config }}"
+      tags: hub-config
+
+    - name: Merge hub, hubTimeout, and machine into the decide config
+      ansible.builtin.copy:
+        dest: "{{ hub_client_decide_config }}"
+        backup: true
+        mode: "0600"
+        content: |
+          {{ ((hub_client_decide_current.content | default('') | b64decode | trim or '{}') | from_json)
+             | combine({'hub': hub_client_target, 'hubTimeout': hub_client_timeout, 'machine': hub_client_machine})
+             | to_nice_json(indent=2) }}
+      tags: hub-config
+
+    # Without a section, ini_file keeps the keys above the first [section].
+    - name: Set hub, machine, and remote_timeout in the agentbus config
+      community.general.ini_file:
+        path: "{{ hub_client_agentbus_config }}"
+        option: "{{ item.key }}"
+        value: "{{ item.value | to_json }}"
+        modify_inactive_option: false
+        backup: true
+        mode: "0600"
+      loop:
+        - {key: hub, value: "{{ hub_client_target }}"}
+        - {key: machine, value: "{{ hub_client_machine }}"}
+        - {key: remote_timeout, value: "{{ hub_client_timeout }}"}
+      loop_control:
+        label: "{{ item.key }}"
+      tags: hub-config
+
+    - name: Run decide and agentbus through the hub
+      ansible.builtin.command:
+        argv: "{{ item }}"
+      loop:
+        - [decide, status, list]
+        - [agentbus, list]
+      loop_control:
+        label: "{{ item | join(' ') }}"
+      environment:
+        DECIDE_HUB: "{{ hub_client_target }}"
+        AGENTBUS_HUB: "{{ hub_client_target }}"
+      register: hub_client_check
+      changed_when: false
+      check_mode: false
+      failed_when: false
+      tags: hub-check
+
+    - name: Fail when the hub check failed
+      ansible.builtin.fail:
+        msg: "`{{ item.item | join(' ') }}` through {{ hub_client_target }} failed (exit {{ item.rc | default('?') }}): {{ item.stderr | default('', true) or item.msg | default('') }}"
+      loop: "{{ hub_client_check.results }}"
+      loop_control:
+        label: "{{ item.item | join(' ') }}"
+      when: item.rc | default(1) != 0
+      tags: hub-check

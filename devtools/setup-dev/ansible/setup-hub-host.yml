@@ -1,0 +1,100 @@
+---
+# Two-machine hub setup, hub side (jaeyeom/experimental#683).
+#
+# A client in hub mode runs `ssh -o BatchMode=yes <hub> decide ...` and
+# `ssh ... <hub> agentbus ...`, and the hub reaches the client's panes
+# through herdr. Such a command starts a non-interactive shell, and many
+# distributions' ~/.bashrc returns before it adds ~/go/bin and ~/.local/bin
+# to PATH. This playbook puts a PATH block where that shell reads it:
+#
+#   - bash: the top of ~/.bashrc, above any non-interactive `return` guard
+#     (bash sources ~/.bashrc for a command that sshd starts);
+#   - zsh: ~/.zshenv, which every zsh reads.
+#
+# Then it checks that a non-interactive shell finds decide, agentbus, and
+# herdr, and fails naming the ones it does not find. It installs nothing.
+#
+# Run it on the hub:
+#
+#   ansible-playbook -i inventory.ini setup-hub-host.yml
+#
+# hub_host_shell (bash or zsh) defaults to the user's login shell. The
+# hub-path tag covers every task; hub_setup_test.sh runs them with a temp
+# HOME.
+- import_playbook: gather-facts.yml
+
+- name: Put the hub tools on PATH for ssh commands
+  hosts: all
+  vars:
+    hub_host_home: "{{ ansible_facts['env']['HOME'] }}"
+    hub_host_login_shell: "{{ hub_host_shell | default(ansible_facts['user_shell'] | default('/bin/bash') | basename) }}"
+    hub_host_rc_file: "{{ hub_host_home }}/{{ '.zshenv' if hub_host_login_shell == 'zsh' else '.bashrc' }}"
+    hub_host_commands:
+      - decide
+      - agentbus
+      - herdr
+  tasks:
+    - name: Include guard for setup-hub-host playbook
+      block:
+        - name: Stop early if the setup-hub-host playbook is already included
+          meta: end_play
+          when: setup_hub_host_playbook_imported is defined
+        - name: Ensure the setup-hub-host playbook is not included
+          set_fact:
+            setup_hub_host_playbook_imported: true
+          when: setup_hub_host_playbook_imported is not defined
+      tags: hub-path
+
+    - name: Fail on a login shell this playbook does not handle
+      ansible.builtin.fail:
+        msg: >-
+          hub_host_shell is {{ hub_host_login_shell }}; this playbook handles
+          bash and zsh. Set -e hub_host_shell=bash or zsh, or add ~/go/bin and
+          ~/.local/bin to PATH where that shell reads it for `ssh host cmd`.
+      when: hub_host_login_shell not in ['bash', 'zsh']
+      tags: hub-path
+
+    # The case guards keep PATH free of repeats when the file is read twice.
+    - name: Prepend ~/go/bin and ~/.local/bin to PATH for non-interactive shells
+      ansible.builtin.blockinfile:
+        path: "{{ hub_host_rc_file }}"
+        create: true
+        mode: "0644"
+        insertbefore: BOF
+        append_newline: true
+        marker: "# {mark} setup-dev hub PATH (setup-hub-host.yml)"
+        block: |
+          for _setup_dev_hub_dir in "$HOME/.local/bin" "$HOME/go/bin"; do
+              case ":$PATH:" in
+                  *":$_setup_dev_hub_dir:"*) ;;
+                  *) PATH="$_setup_dev_hub_dir:$PATH" ;;
+              esac
+          done
+          unset _setup_dev_hub_dir
+          export PATH
+      tags: hub-path
+
+    # sshd runs `<shell> -c <cmd>` with a minimal environment; bash then
+    # sources ~/.bashrc and zsh reads ~/.zshenv. This reproduces that
+    # without a login or an interactive shell, and without ssh.
+    - name: Find the hub tools from a non-interactive shell
+      ansible.builtin.shell: >-
+        env -i HOME={{ hub_host_home | quote }} PATH=/usr/bin:/bin
+        {{ hub_host_login_shell }} -c
+        {{ (('. "$HOME/.bashrc" >/dev/null 2>&1; ' if hub_host_login_shell == 'bash' else '')
+            ~ 'for c in ' ~ (hub_host_commands | map('quote') | join(' '))
+            ~ '; do command -v "$c" >/dev/null 2>&1 || printf "%s\n" "$c"; done') | quote }}
+      register: hub_host_missing
+      changed_when: false
+      check_mode: false
+      tags: hub-path
+
+    - name: Fail when a hub tool is missing
+      ansible.builtin.fail:
+        msg: >-
+          not found on PATH for a non-interactive ssh command:
+          {{ hub_host_missing.stdout_lines | join(' ') }}.
+          Install it into ~/go/bin or ~/.local/bin on this hub (for example
+          ./ensure.sh herdr, or go install for decide and agentbus).
+      when: hub_host_missing.stdout_lines | length > 0
+      tags: hub-path
