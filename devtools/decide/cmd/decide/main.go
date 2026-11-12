@@ -96,7 +96,7 @@ func usage(w io.Writer) {
   decide status clear --resource <name>
   decide targets [--json]
   decide send --to <name> [--json] <text>
-  decide send --id <id> [--json] <text>
+  decide send --id <id> [--json] [--via cli|ui] <text>
   decide reply <id> [--option key:label ...] [--rec key] [--free-text] [--json] <text>
   decide skill
   decide avatars list [--name <name>]
@@ -116,8 +116,12 @@ func cmdSend(args []string, stdout, stderr io.Writer) int {
 	to := fs.String("to", "", "recipient name")
 	id := fs.String("id", "", "thread to append a human message")
 	jsonOut := fs.Bool("json", false, "print JSON")
+	via := fs.String("via", decide.ViaCLI, "with --id, where an answer came from: cli, or ui for the inbox front ends only")
 	if code, stop := stopped(parseFlags(fs, args)); stop {
 		return code
+	}
+	if err := decide.CheckVia(*via); err != nil {
+		return fail(stderr, err, 2)
 	}
 	hasTo := strings.TrimSpace(*to) != ""
 	hasID := strings.TrimSpace(*id) != ""
@@ -129,7 +133,7 @@ func cmdSend(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err, 2)
 	}
 	if hasID {
-		return cmdCompose(strings.TrimSpace(*id), text, *jsonOut, stdout, stderr)
+		return cmdCompose(strings.TrimSpace(*id), text, *via, *jsonOut, stdout, stderr)
 	}
 	cfg, err := decide.LoadConfig()
 	if err != nil {
@@ -170,14 +174,14 @@ func cmdSend(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func cmdCompose(id, text string, jsonOut bool, stdout, stderr io.Writer) int {
+func cmdCompose(id, text, via string, jsonOut bool, stdout, stderr io.Writer) int {
 	cfg, err := decide.LoadConfig()
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
 	var item decide.Item
 	code := withItem(stdout, stderr, jsonOut, false, func(led *decide.Ledger) (decide.Item, error) {
-		got, err := led.Compose(id, text, decide.ViaCLI)
+		got, err := led.Compose(id, text, via)
 		if err != nil {
 			return decide.Item{}, fmt.Errorf("compose decide item: %w", err)
 		}

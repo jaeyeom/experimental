@@ -26,6 +26,11 @@
                    (list "send" "--to" "alpha" "--json" text)))
     (should (null (decide--submit-args 'cancel "alpha" text)))))
 
+(ert-deftest decide-reply-args-record-ui ()
+  (let ((text "hello\nthere"))
+    (should (equal (decide--submit-args 'reply "D-001" text)
+                   (list "send" "--id" "D-001" "--via" "ui" "--json" text)))))
+
 (ert-deftest decide-status-stale-row-is-dim ()
   (with-temp-buffer
     (decide-status-render
@@ -481,7 +486,7 @@
             (with-current-buffer "*decide reply D-001*"
               (insert "edits")
               (call-interactively #'decide-reply-send))
-            (should (equal (car calls) '("send" "--id" "D-001" "--json" "edits")))
+            (should (equal (car calls) '("send" "--id" "D-001" "--via" "ui" "--json" "edits")))
             (setq item note)
             (decide-show-id "D-002")
             (setq calls nil)
@@ -721,6 +726,9 @@
       (should (equal (decide--field (alist-get "answer" item nil nil #'equal)
                                     "answeredBy")
                      "human"))
+      (should (equal (decide--field (alist-get "answer" item nil nil #'equal)
+                                    "via")
+                     "ui"))
       (should (equal (decide-test--texts id)
                      (list "root ask" text))))))
 

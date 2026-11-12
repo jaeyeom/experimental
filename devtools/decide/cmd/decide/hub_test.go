@@ -98,6 +98,42 @@ func TestHubInboxRefuses(t *testing.T) {
 	}
 }
 
+// TestHubSendIDKeepsVia forwards a client's send --id to the fake hub,
+// then replays the forwarded arguments on a real ledger as the hub would.
+func TestHubSendIDKeepsVia(t *testing.T) {
+	fake, _ := setupHub(t, "")
+	writeSendConfig(t, os.Getenv("XDG_CONFIG_HOME"))
+	for _, tc := range []struct {
+		flags []string
+		want  string
+	}{
+		{[]string{"--via", "ui"}, decide.ViaUI},
+		{nil, decide.ViaCLI},
+	} {
+		t.Setenv("DECIDE_HUB", "")
+		id := askRelay(t, []string{"--notify-pane", "p1"}, "on the hub")
+		args := append(append([]string{"send", "--id", id}, tc.flags...), "edits")
+
+		t.Setenv("DECIDE_HUB", "me@hub")
+		var stderr bytes.Buffer
+		if code := run(args, &bytes.Buffer{}, &stderr); code != 0 {
+			t.Fatalf("client %q = %d, stderr %q", args, code, stderr.String())
+		}
+		forwarded := fake.Lines("decide.args")
+		if !slices.Equal(forwarded, args) {
+			t.Fatalf("hub args = %q, want %q", forwarded, args)
+		}
+
+		t.Setenv("DECIDE_HUB", "")
+		if _, stderr, code := runCLI(forwarded...); code != 0 {
+			t.Fatalf("hub %q = %d\n%s", forwarded, code, stderr)
+		}
+		if got := showJSON(t, id); got.Answer == nil || got.Answer.Via != tc.want {
+			t.Fatalf("hub send --id for %q = %+v, want via %s", args, got.Answer, tc.want)
+		}
+	}
+}
+
 // TestHubAnswerKeepsVia forwards a client's answer to the fake hub, then
 // replays the forwarded arguments on a real ledger as the hub would.
 func TestHubAnswerKeepsVia(t *testing.T) {
