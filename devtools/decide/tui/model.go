@@ -195,6 +195,8 @@ type Model struct {
 	OpenCommand []string
 	// NoHyperlinks drops the OSC 8 hyperlinks around URLs.
 	NoHyperlinks bool
+	// UTC shows stamps in UTC. False uses the clock's zone.
+	UTC bool
 	// backend replaces the local ledger in Dir, such as a hub's.
 	// asyncReload reloads it off the update loop. hubDown marks a
 	// reload that found the hub unreachable.
@@ -1318,10 +1320,11 @@ func (m *Model) statusScreen(width int) []screenLine {
 }
 
 func (m *Model) agentTable(width int, now time.Time) []screenLine {
-	headers := []string{"agent", "state", "age", "text"}
+	headers := []string{"agent", "state", "updated", "text"}
 	rows := make([][]string, len(m.agents))
+	loc := m.zone()
 	for i, row := range m.agents {
-		rows[i] = []string{row.Name, row.State, age(now.Sub(row.UpdatedAt)), row.Text}
+		rows[i] = []string{row.Name, row.State, stamp(row.UpdatedAt, now, loc), row.Text}
 	}
 	return styledStatusRows(headers, rows, width, func(i int) lipgloss.Style {
 		style := statusStyle(m.agents[i].UpdatedAt, now)
@@ -1333,10 +1336,11 @@ func (m *Model) agentTable(width int, now time.Time) []screenLine {
 }
 
 func (m *Model) resourceTable(width int, now time.Time) []screenLine {
-	headers := []string{"resource", "free/busy", "age", "note"}
+	headers := []string{"resource", "free/busy", "updated", "note"}
 	rows := make([][]string, len(m.resources))
+	loc := m.zone()
 	for i, row := range m.resources {
-		rows[i] = []string{row.Name, row.Availability, age(now.Sub(row.UpdatedAt)), decide.ResourceNote(row)}
+		rows[i] = []string{row.Name, row.Availability, stamp(row.UpdatedAt, now, loc), decide.ResourceNote(row)}
 	}
 	return styledStatusRows(headers, rows, width, func(i int) lipgloss.Style {
 		return statusStyle(m.resources[i].UpdatedAt, now)
@@ -2220,13 +2224,11 @@ func (m *Model) rowLines(width int) []screenLine {
 	if len(m.items) == 0 {
 		return []screenLine{{text: m.emptyText("(empty)")}}
 	}
-	now := time.Now()
-	if m.Now != nil {
-		now = m.Now()
-	}
+	now := m.now()
+	loc := m.zone()
 	cells := make([][]string, len(m.items))
 	for i, it := range m.items {
-		cells[i] = inboxCells(it, now)
+		cells[i] = inboxCells(it, now, loc)
 	}
 	widths := inboxColumnWidths(cells, width)
 	styles := inboxStyles()
@@ -2260,7 +2262,7 @@ func (m *Model) detailLines(width int) []screenLine {
 		title += fmt.Sprintf("  /%s (%d)", m.highlight, highlightCount(it, re))
 	}
 	lines := []screenLine{{text: plainText(title)}}
-	lines = append(lines, headerLines(it, m.now().Location(), decide.OwnerAt(it.Owner, m.ownerLocation(it)))...)
+	lines = append(lines, headerLines(it, m.now(), m.zone(), decide.OwnerAt(it.Owner, m.ownerLocation(it)))...)
 	if m.avatarFits(width) {
 		// The owner is the other party: the asker, or the recipient of
 		// a thread the human started.
@@ -2305,16 +2307,10 @@ func threadParties(it *decide.Item) (from, to string) {
 	return author, it.Owner
 }
 
-func headerTime(t time.Time) string {
-	if t.IsZero() {
-		return ""
-	}
-	return t.UTC().Format(time.RFC3339)
-}
-
 // headerLines is the metadata block above the item body. owner is the
 // owner and where it lives. Labels share one column so the colons line up.
-func headerLines(it *decide.Item, loc *time.Location, owner string) []screenLine {
+// Times are stamps in loc.
+func headerLines(it *decide.Item, now time.Time, loc *time.Location, owner string) []screenLine {
 	from, to := threadParties(it)
 	rows := []struct{ label, value string }{{"From", from}}
 	if to != "" {
@@ -2324,11 +2320,11 @@ func headerLines(it *decide.Item, loc *time.Location, owner string) []screenLine
 		struct{ label, value string }{"Owner", owner},
 		struct{ label, value string }{"Kind", it.Kind},
 		struct{ label, value string }{"State", it.State},
-		struct{ label, value string }{"Created", headerTime(it.CreatedAt)},
-		struct{ label, value string }{"Answered", headerTime(it.AnsweredAt)},
+		struct{ label, value string }{"Created", stamp(it.CreatedAt, now, loc)},
+		struct{ label, value string }{"Answered", stamp(it.AnsweredAt, now, loc)},
 	)
 	if it.SnoozedUntil != nil {
-		rows = append(rows, struct{ label, value string }{"Snoozed", "until " + decide.SnoozeLabel(it.SnoozedUntil.In(loc))})
+		rows = append(rows, struct{ label, value string }{"Snoozed", "until " + stamp(*it.SnoozedUntil, now, loc)})
 	}
 	width := 0
 	for _, row := range rows {
@@ -2365,10 +2361,8 @@ func (m *Model) threadLines(it *decide.Item, width int, re *regexp.Regexp) []scr
 	if len(it.Messages) == 0 {
 		return questionLines(it.Question, width, re, !m.NoHyperlinks)
 	}
-	now := time.Now()
-	if m.Now != nil {
-		now = m.Now()
-	}
+	now := m.now()
+	loc := m.zone()
 	ruleWidth := width
 	if ruleWidth < 1 {
 		ruleWidth = 8
@@ -2384,7 +2378,7 @@ func (m *Model) threadLines(it *decide.Item, width int, re *regexp.Regexp) []scr
 			lines = append(lines, screenLine{text: plainText(strings.Repeat("─", ruleWidth))})
 		}
 		lines = append(lines, screenLine{
-			text:   messageHeader(msg, now, i == last, i == m.message),
+			text:   messageHeader(msg, now, loc, i == last, i == m.message),
 			header: i + 1,
 		})
 		for _, line := range questionLines(msg.Text, bodyWidth, re, !m.NoHyperlinks) {
@@ -2394,9 +2388,9 @@ func (m *Model) threadLines(it *decide.Item, width int, re *regexp.Regexp) []scr
 	return lines
 }
 
-// messageHeader is one line: author, relative time, option keys, and latest.
+// messageHeader is one line: author, stamp, option keys, and latest.
 // Human and agent authors use two theme colors. The time uses the time color.
-func messageHeader(msg decide.Message, now time.Time, latest, current bool) string {
+func messageHeader(msg decide.Message, now time.Time, loc *time.Location, latest, current bool) string {
 	colors := loadColors()
 	r := paletteRenderer()
 	authorStyle := paletteStyle(colors.Agent, paletteAgent)
@@ -2407,8 +2401,8 @@ func messageHeader(msg decide.Message, now time.Time, latest, current bool) stri
 	if msg.Author != "" {
 		parts = append(parts, authorStyle.Render(msg.Sender()))
 	}
-	if !msg.Time.IsZero() {
-		parts = append(parts, paletteStyle(colors.Time, paletteTime).Render(age(now.Sub(msg.Time))))
+	if when := stamp(msg.Time, now, loc); when != "" {
+		parts = append(parts, paletteStyle(colors.Time, paletteTime).Render(when))
 	}
 	if keys := optionKeys(msg.Options); keys != "" {
 		parts = append(parts, paletteStyle(colors.Time, paletteTime).Render(keys))
@@ -2638,7 +2632,7 @@ func (m *Model) relayLines(it *decide.Item, width int) []screenLine {
 	}
 	deadline := "-"
 	if it.Deadline != nil {
-		deadline = it.Deadline.Format(time.RFC3339)
+		deadline = stamp(*it.Deadline, m.now(), m.zone())
 	}
 	lines = append(lines, screenLine{text: plainText("deadline: " + deadline)})
 	return lines
@@ -2665,10 +2659,10 @@ func withCursor(text string, col int) string {
 // inboxCells are the list columns: id, requester, relative time, kind or
 // state, then the question.
 // A snoozed item shows its wake time in place of the age.
-func inboxCells(it decide.Item, now time.Time) []string {
+func inboxCells(it decide.Item, now time.Time, loc *time.Location) []string {
 	when := age(now.Sub(it.CreatedAt))
 	if it.SnoozedUntil != nil {
-		when = "until " + decide.SnoozeLabel(it.SnoozedUntil.In(now.Location()))
+		when = "until " + stamp(*it.SnoozedUntil, now, loc)
 	}
 	return []string{it.ID, it.Owner, when, rowBadge(it), rowSnippet(it)}
 }

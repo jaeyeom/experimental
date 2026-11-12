@@ -49,7 +49,7 @@ func TestMutedTimeAndDetailAreReadable(t *testing.T) {
 	if got := sgrBefore(t, view, "From:"); got != "\x1b[37m" || sgrFaint(got) {
 		t.Fatalf("muted body %q", got)
 	}
-	if got := sgrBefore(t, view, "5h"); got != "\x1b[90m" || sgrFaint(got) {
+	if got := sgrBeforeLine(t, lineContainingAll(view, "ada", "5h ago"), "5h ago"); got != "\x1b[90m" || sgrFaint(got) {
 		t.Fatalf("time %q", got)
 	}
 	body := lineContaining(view, "detail body")
@@ -75,13 +75,13 @@ func TestMutedTimeAndDetailAreReadable(t *testing.T) {
 	if got := sgrBefore(t, timed, "From:"); got != "\x1b[37m" {
 		t.Fatalf("missing muted key %q", got)
 	}
-	if got := sgrBefore(t, timed, "5h"); got != "\x1b[34m" || sgrFaint(got) {
+	if got := sgrBeforeLine(t, lineContainingAll(timed, "ada", "5h ago"), "5h ago"); got != "\x1b[34m" || sgrFaint(got) {
 		t.Fatalf("time override %q", got)
 	}
 
 	writeColorConfig(t, cfg, `{"colors":{"agent":"1","human":"5"}}`+"\n")
 	authors := m.View()
-	adaLine := lineContaining(authors, "5h")
+	adaLine := lineContainingAll(authors, "ada", "5h ago")
 	if got := sgrBeforeLine(t, adaLine, "ada"); got != "\x1b[31m" {
 		t.Fatalf("agent %q\n%s", got, adaLine)
 	}
@@ -112,6 +112,22 @@ func writeColorConfig(t *testing.T, cfg, body string) {
 	if err := os.WriteFile(filepath.Join(cfg, "decide", "config.json"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func lineContainingAll(view string, parts ...string) string {
+	for _, line := range strings.Split(view, "\n") {
+		match := true
+		for _, part := range parts {
+			if !strings.Contains(line, part) {
+				match = false
+				break
+			}
+		}
+		if match {
+			return line
+		}
+	}
+	return ""
 }
 
 func sgrBefore(t *testing.T, view, needle string) string {

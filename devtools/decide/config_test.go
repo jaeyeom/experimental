@@ -65,6 +65,22 @@ func TestLoadConfigRecipientsTimeout(t *testing.T) {
 	}
 }
 
+func TestLoadConfigUIUTC(t *testing.T) {
+	writeConfig(t, `{"ui": {"utc": true}}`)
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.UI.UTC {
+		t.Fatal("ui.utc was not set")
+	}
+	writeConfig(t, `{}`)
+	cfg, err = LoadConfig()
+	if err != nil || cfg.UI.UTC {
+		t.Fatalf("default ui = %+v, err %v", cfg.UI, err)
+	}
+}
+
 func TestLoadConfigRecipientsTimeoutMustBePositive(t *testing.T) {
 	for _, data := range []string{`{"recipientsTimeout": "soon"}`, `{"recipientsTimeout": "0s"}`} {
 		writeConfig(t, data)

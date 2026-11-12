@@ -189,6 +189,36 @@ func TestHubInboxUnreachableFailsAtStart(t *testing.T) {
 	assertNoLocalState(t, state)
 }
 
+func TestInboxUTCComesFromTheFlagOrLocalConfig(t *testing.T) {
+	t.Setenv("DECIDE_HUB", "")
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	if err := os.MkdirAll(filepath.Join(cfg, "decide"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	opts := stubInbox(t, nil)
+	var stderr bytes.Buffer
+	if code := run([]string{"inbox", "--utc"}, &bytes.Buffer{}, &stderr); code != 0 || !opts.UTC {
+		t.Fatalf("flag utc %v code %d %s", opts.UTC, code, stderr.String())
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "decide", "config.json"), []byte(`{"ui":{"utc":true}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opts = stubInbox(t, nil)
+	stderr.Reset()
+	if code := run([]string{"inbox"}, &bytes.Buffer{}, &stderr); code != 0 || !opts.UTC {
+		t.Fatalf("config utc %v code %d %s", opts.UTC, code, stderr.String())
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "decide", "config.json"), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opts = stubInbox(t, nil)
+	stderr.Reset()
+	if code := run([]string{"inbox"}, &bytes.Buffer{}, &stderr); code != 0 || opts.UTC {
+		t.Fatalf("local zone utc %v code %d %s", opts.UTC, code, stderr.String())
+	}
+}
+
 func TestInboxWithoutAHubUsesTheLocalLedger(t *testing.T) {
 	t.Setenv("DECIDE_HUB", "")
 	opts := stubInbox(t, nil)

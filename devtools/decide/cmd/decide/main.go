@@ -97,7 +97,7 @@ func usage(w io.Writer) {
   decide answer [--json] [--via cli|ui] <id> <option|text>
   decide snooze [--json] <id> <2h30m|HH:MM|YYYY-MM-DD HH:MM|mon 9:00>
   decide unsnooze [--json] <id>
-  decide [--remote <user@host>] inbox [--snoozed]
+  decide [--remote <user@host>] inbox [--snoozed] [--utc]
   decide status set --agent <name> [--state working|idle|paused|blocked] <text>
   decide status set --resource <name> free|busy [<note>]
   decide status list [--json]
@@ -445,7 +445,7 @@ func statusAge(d time.Duration) string {
 var runInbox = tui.Run
 
 func cmdInbox(args []string, stdout, stderr io.Writer) int {
-	snoozed, code, ok := inboxFlags(args, stderr)
+	snoozed, utc, code, ok := inboxFlags(args, stderr)
 	if !ok {
 		return code
 	}
@@ -458,6 +458,7 @@ func cmdInbox(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err, 1)
 	}
 	opts := inboxOptions(cfg, stdout, snoozed)
+	opts.UTC = utc || cfg.UI.UTC
 	opts.Dir = dir
 	if err := runInbox(opts); err != nil {
 		return fail(stderr, err, 1)
@@ -466,17 +467,18 @@ func cmdInbox(args []string, stdout, stderr io.Writer) int {
 }
 
 // inboxFlags parses the inbox flags and reports whether to go on.
-func inboxFlags(args []string, stderr io.Writer) (snoozed bool, code int, ok bool) {
+func inboxFlags(args []string, stderr io.Writer) (snoozed, utc bool, code int, ok bool) {
 	fs := flag.NewFlagSet("inbox", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	snoozedFlag := fs.Bool("snoozed", false, "open on the Snoozed folder")
+	utcFlag := fs.Bool("utc", false, "show times in UTC")
 	if code, stop := stopped(parseFlags(fs, args)); stop {
-		return false, code, false
+		return false, false, code, false
 	}
 	if len(fs.Args()) != 0 {
-		return false, fail(stderr, fmt.Errorf("decide inbox does not take arguments"), 2), false
+		return false, false, fail(stderr, fmt.Errorf("decide inbox does not take arguments"), 2), false
 	}
-	return *snoozedFlag, 0, true
+	return *snoozedFlag, *utcFlag, 0, true
 }
 
 // inboxOptions are the inbox settings from this machine's config.

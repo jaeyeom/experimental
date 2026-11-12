@@ -46,6 +46,9 @@ type Options struct {
 	OpenCommand []string
 	// NoHyperlinks drops the OSC 8 hyperlinks around URLs.
 	NoHyperlinks bool
+	// UTC shows times in UTC. False uses the clock's zone, which is
+	// the machine zone when the clock is time.Now.
+	UTC bool
 	// Backend replaces the local ledger in Dir, such as the hub's in
 	// hub mode. It is reloaded off the update loop.
 	Backend Backend
@@ -126,6 +129,7 @@ func prepare(opts Options) (*Model, error) {
 	m.Machine = opts.Machine
 	m.OpenCommand = opts.OpenCommand
 	m.NoHyperlinks = opts.NoHyperlinks
+	m.UTC = opts.UTC
 	if opts.Backend != nil {
 		m.backend = opts.Backend
 		m.asyncReload = true

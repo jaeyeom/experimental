@@ -342,7 +342,7 @@ func TestDetailHeaderAlignsAndNoColor(t *testing.T) {
 		"To: beta",
 		"Kind: " + sent.Kind,
 		"State: " + sent.State,
-		"Created: " + sent.CreatedAt.UTC().Format(time.RFC3339),
+		"Created: " + stamp(sent.CreatedAt, m.now(), m.now().Location()),
 		"Answered:",
 	} {
 		if !strings.Contains(plainVis, needle) {
@@ -777,6 +777,7 @@ func TestDetailOneAnswersFirstOption(t *testing.T) {
 		Deadline: &deadline,
 	})
 	m := New(dir)
+	m.Now = func() time.Time { return time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC) }
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
@@ -787,8 +788,11 @@ func TestDetailOneAnswersFirstOption(t *testing.T) {
 		"1  Alpha (recommended)",
 		"2  Beta",
 		"https://example.test/spec",
-		deadline.Format(time.RFC3339),
+		"2026-12-01 15:04",
 	} {
+		if strings.Contains(view, deadline.Format(time.RFC3339)) {
+			t.Fatalf("deadline is still RFC3339\n%s", view)
+		}
 		if !strings.Contains(view, needle) {
 			t.Fatalf("detail missing %q\n%s", needle, view)
 		}
@@ -4180,6 +4184,16 @@ func TestComposeBoxesFollowFocusAndFit(t *testing.T) {
 	}
 }
 
+// colIndex is the visual column of needle in line. A multi-byte rune
+// still counts as its display width.
+func colIndex(line, needle string) int {
+	i := strings.Index(line, needle)
+	if i < 0 {
+		return -1
+	}
+	return lipgloss.Width(line[:i])
+}
+
 func assertFrame(t *testing.T, view string, width, height int) {
 	t.Helper()
 	if strings.HasSuffix(view, "\n") {
@@ -4254,31 +4268,36 @@ func TestStatusBoardShowsAgentsResourcesAndDimsStale(t *testing.T) {
 		if agentHeader == "" || alpha == "" || beta == "" || resHeader == "" || workspace == "" {
 			t.Fatalf("width %d missing a status row\n%s", width, view)
 		}
-		stateCol := strings.Index(visibleLine(agentHeader), "state")
-		textCol := strings.Index(visibleLine(agentHeader), "text")
-		ageCol := strings.Index(visibleLine(agentHeader), " age ") + 1
-		if stateCol < 1 || textCol <= stateCol || ageCol <= stateCol {
-			t.Fatalf("width %d header columns state %d age %d text %d\n%s", width, stateCol, ageCol, textCol, visibleLine(agentHeader))
+		header := visibleLine(agentHeader)
+		alphaLine := visibleLine(alpha)
+		betaLine := visibleLine(beta)
+		stateCol := colIndex(header, "state")
+		textCol := colIndex(header, "text")
+		updatedCol := colIndex(header, "updated")
+		if stateCol < 1 || textCol <= stateCol || updatedCol <= stateCol {
+			t.Fatalf("width %d header columns state %d updated %d text %d\n%s", width, stateCol, updatedCol, textCol, header)
 		}
-		if strings.Index(visibleLine(alpha), "working") != stateCol || strings.Index(visibleLine(beta), "paused") != stateCol {
-			t.Fatalf("width %d state column drifted\nalpha %s\nbeta %s", width, visibleLine(alpha), visibleLine(beta))
+		if colIndex(alphaLine, "working") != stateCol || colIndex(betaLine, "paused") != stateCol {
+			t.Fatalf("width %d state column drifted\nalpha %s\nbeta %s", width, alphaLine, betaLine)
 		}
-		if strings.Index(visibleLine(alpha), "now") != ageCol || strings.Index(visibleLine(beta), "10m") != ageCol {
-			t.Fatalf("width %d age column drifted\nalpha %s\nbeta %s", width, visibleLine(alpha), visibleLine(beta))
+		if colIndex(alphaLine, "12:00 · now") != updatedCol || colIndex(betaLine, "11:50 · 10m ago") != updatedCol {
+			t.Fatalf("width %d updated column drifted\nalpha %s\nbeta %s", width, alphaLine, betaLine)
 		}
-		if strings.Index(visibleLine(alpha), "xxxx") != textCol {
-			t.Fatalf("width %d text column drifted\n%s", width, visibleLine(alpha))
+		if colIndex(alphaLine, "xxxx") != textCol {
+			t.Fatalf("width %d text column drifted\n%s", width, alphaLine)
 		}
 		if !strings.Contains(visibleLine(alpha), "…") || strings.Contains(visibleLine(alpha), longText) {
 			t.Fatalf("width %d long text left its column\n%s", width, visibleLine(alpha))
 		}
-		busyCol := strings.Index(visibleLine(resHeader), "free/busy")
-		noteCol := strings.Index(visibleLine(resHeader), "note")
+		resHead := visibleLine(resHeader)
+		workspaceLine := visibleLine(workspace)
+		busyCol := colIndex(resHead, "free/busy")
+		noteCol := colIndex(resHead, "note")
 		if busyCol < 1 || noteCol <= busyCol {
-			t.Fatalf("width %d resource header\n%s", width, visibleLine(resHeader))
+			t.Fatalf("width %d resource header\n%s", width, resHead)
 		}
-		if strings.Index(visibleLine(workspace), "free") != busyCol || strings.Index(visibleLine(workspace), "paused") != noteCol {
-			t.Fatalf("width %d resource columns drifted\n%s", width, visibleLine(workspace))
+		if colIndex(workspaceLine, "free") != busyCol || colIndex(workspaceLine, "paused") != noteCol {
+			t.Fatalf("width %d resource columns drifted\n%s", width, workspaceLine)
 		}
 		if !strings.Contains(beta, "\x1b[2m") {
 			t.Fatalf("width %d stale row was not dimmed\n%s", width, beta)

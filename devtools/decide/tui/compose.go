@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
@@ -148,7 +149,7 @@ func (m *Model) forwardItem() {
 	}
 	m.focusCompose()
 	m.forward = m.detail.ID
-	m.note = forwardPrefill(m.detail, m.message)
+	m.note = forwardPrefill(m.detail, m.message, m.now(), m.zone())
 	m.composeFocus = focusText
 	m.pullNote()
 	m.noteField.Focus()
@@ -159,7 +160,7 @@ const forwardQuoteLimit = 2000
 
 // forwardPrefill quotes the question, message msg (or the latest when msg
 // is out of range), and the first link of it.
-func forwardPrefill(it *decide.Item, msg int) string {
+func forwardPrefill(it *decide.Item, msg int, now time.Time, loc *time.Location) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Forwarded from %s (owner: %s)\n", it.ID, it.Owner)
 	line, rest, _ := strings.Cut(it.Question, "\n")
@@ -173,7 +174,7 @@ func forwardPrefill(it *decide.Item, msg int) string {
 			msg = n - 1
 		}
 		m := it.Messages[msg]
-		quote(&b, strings.TrimSpace(m.Sender()+" "+headerTime(m.Time)))
+		quote(&b, strings.TrimSpace(m.Sender()+" "+stamp(m.Time, now, loc)))
 		text := m.Text
 		if clipped := clipRunes(text, forwardQuoteLimit); clipped != text {
 			text = clipped + "…"

@@ -223,12 +223,21 @@ An open item from ~review/docs~ then looks like this (without color):
 │▐█▀▀▀▀▀▀█▌     From: review/docs                        │
 │▐ (o)(o) ▌     Kind: relay                              │
 │▐   \/   ▌    State: open                               │
-│▐ ▀▄▀▄▀▄ ▌  Created: 2026-11-10T09:00:00Z               │
+│▐ ▀▄▀▄▀▄ ▌  Created: 09:00 · 5m ago                     │
 │ ▀▘ ▀▀ ▝▀  Answered:                                    │
 │                                                        │
-│review/docs  5m  latest                                 │
+│review/docs  09:00 · 5m ago  latest                     │
 │  merge the release branch?                             │
 #+end_example
+
+Times follow the machine running the inbox, including in hub mode.
+Today is ~09:00 · 5m ago~ or ~today 17:00 · in 3h~. Yesterday is
+~yesterday 18:02~, the next few days are ~Tue 09:15~, and older times
+are ~2026-11-03 09:15~. ~decide inbox --utc~, or ~"ui": {"utc": true}~
+in this machine's config, shows those stamps in UTC. The hub's zone is
+not used, and ~ui~ is not a display key the hub sends. The list age
+stays short, such as ~5m~. ~show~, ~show --json~, and the ledger stay
+UTC.
 
 The avatar is hidden, and the layout is the same as without one, when
 no rule matches and ~avatarDefault~ is off, when the terminal is under
@@ -623,7 +632,7 @@ keys:
 An allowlist decides which keys these are; a key not on it is never
 sent. Machine keys (~hub~, ~hubTimeout~, ~machine~, ~hubMachine~,
 ~openCommand~, ~checkouts~), the notify and send templates,
-~notifyPane~, ~optionsOnly~, and ~colors~ stay on each machine.
+~notifyPane~, ~optionsOnly~, ~colors~, and ~ui~ stay on each machine.
 
 The merge is per top-level key, and the client wins: a key set in this
 machine's config keeps its local value, and every other display key

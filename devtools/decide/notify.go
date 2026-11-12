@@ -76,6 +76,14 @@ type Config struct {
 	// Hyperlinks wraps URLs in the inbox item view in OSC 8 hyperlinks.
 	// Unset is on; false turns them off.
 	Hyperlinks *bool `json:"hyperlinks,omitempty"`
+	// UI is this machine's inbox display. A hub does not send it.
+	UI InboxUI `json:"ui,omitempty"`
+}
+
+// InboxUI is local inbox display. UTC shows times in UTC instead of
+// the machine's zone.
+type InboxUI struct {
+	UTC bool `json:"utc,omitempty"`
 }
 
 // HyperlinksOn reports whether the inbox writes OSC 8 hyperlinks.

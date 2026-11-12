@@ -115,7 +115,7 @@ func (m *Model) wakeLabel(it *decide.Item) string {
 	if it.SnoozedUntil == nil {
 		return ""
 	}
-	return decide.SnoozeLabel(it.SnoozedUntil.In(m.now().Location()))
+	return stamp(*it.SnoozedUntil, m.now(), m.zone())
 }
 
 // snoozeLines is the popup: the item, one row per choice, and an inline
@@ -127,7 +127,8 @@ func (m *Model) snoozeLines() []screenLine {
 	for _, e := range entries {
 		labelW = max(labelW, len(e.label))
 	}
-	loc := m.now().Location()
+	now := m.now()
+	loc := m.zone()
 	for i, e := range entries {
 		marker := "  "
 		if i == m.snoozeCursor {
@@ -141,7 +142,7 @@ func (m *Model) snoozeLines() []screenLine {
 				text = marker + e.label + ": " + withCursor(m.snoozeCustom, len([]rune(m.snoozeCustom)))
 			}
 		case !e.unsnooze:
-			text = marker + padRight(e.label, labelW) + "  " + decide.SnoozeLabel(e.at.In(loc))
+			text = marker + padRight(e.label, labelW) + "  " + stamp(e.at, now, loc)
 		}
 		lines = append(lines, screenLine{text: plainText(text)})
 	}

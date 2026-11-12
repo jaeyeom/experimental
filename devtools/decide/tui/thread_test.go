@@ -295,16 +295,16 @@ func TestThreadMessagesAreBlocks(t *testing.T) {
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
-	m.width = 40
+	m.width = 80
 	m.height = 25
 	press(t, m, "o")
 	view := m.View()
-	assertFrame(t, view, 40, 25)
+	assertFrame(t, view, 80, 25)
 	vis := visibleLine(view)
 	if strings.Count(vis, "────") < 2 {
 		t.Fatalf("rules = %d\n%s", strings.Count(vis, "────"), view)
 	}
-	for _, needle := range []string{"ada  10d", "human  2h  keep drop", "ada (via ops/bot)  3m  latest", "  root ask", "  newest note"} {
+	for _, needle := range []string{"ada  2026-10-29 12:00", "human  10:00 · 2h ago  keep drop", "ada (via ops/bot)  11:57 · 3m ago  latest", "  root ask", "  newest note"} {
 		if !strings.Contains(vis, needle) {
 			t.Fatalf("missing %q\n%s", needle, vis)
 		}
@@ -313,26 +313,26 @@ func TestThreadMessagesAreBlocks(t *testing.T) {
 		t.Fatalf("latest count\n%s", vis)
 	}
 	middle := visibleLine(lineContaining(view, "human"))
-	if !strings.Contains(middle, "keep") || !strings.Contains(middle, "2h") {
+	if !strings.Contains(middle, "keep") || !strings.Contains(middle, "2h ago") {
 		t.Fatalf("middle header %q", middle)
 	}
-	if strings.Contains(visibleLine(lineContaining(view, "10d")), "latest") {
+	if strings.Contains(visibleLine(lineContaining(view, "2026-10-29")), "latest") {
 		t.Fatalf("oldest marked latest\n%s", vis)
 	}
-	humanColor := authorSGR(view, "2h", "human")
-	agentColor := authorSGR(view, "10d", "ada")
+	humanColor := authorSGR(view, "2h ago", "human")
+	agentColor := authorSGR(view, "2026-10-29", "ada")
 	if humanColor == "" || agentColor == "" || humanColor == agentColor {
 		t.Fatalf("author colors human %q agent %q", humanColor, agentColor)
 	}
 
 	t.Setenv("NO_COLOR", "1")
 	plain := m.View()
-	assertFrame(t, plain, 40, 25)
+	assertFrame(t, plain, 80, 25)
 	if hasColorSequence(plain) {
 		t.Fatalf("NO_COLOR view has color\n%s", plain)
 	}
 	plainVis := visibleLine(plain)
-	for _, needle := range []string{"ada  10d", "human  2h  keep drop", "latest", "────", "  root ask"} {
+	for _, needle := range []string{"ada  2026-10-29 12:00", "human  10:00 · 2h ago  keep drop", "latest", "────", "  root ask"} {
 		if !strings.Contains(plainVis, needle) {
 			t.Fatalf("NO_COLOR missing %q\n%s", needle, plainVis)
 		}
@@ -503,11 +503,12 @@ func TestForwardPrefillsTheSelectedMessage(t *testing.T) {
 		{Author: "ada", Time: at(3), Text: "third"},
 	}, []string{"https://ex.test/pr/1"})
 	m, _ := forwardModel(t, dir)
+	m.Now = func() time.Time { return time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC) }
 	press(t, m, "n")
 	press(t, m, "f")
 	want := "Forwarded from " + item.ID + " (owner: ada)\n" +
 		"> ship the release?\n" +
-		"> human 2026-11-05T02:00:00Z\n" +
+		"> human 02:00 · 10h ago\n" +
 		"> second line\n" +
 		"> more\n" +
 		"Link: https://ex.test/pr/1\n"
@@ -532,7 +533,7 @@ func TestForwardQuotesTheAnswerLabel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	note := forwardPrefill(&answered, -1)
+	note := forwardPrefill(&answered, -1, time.Now(), time.UTC)
 	if !strings.Contains(note, "> a: Alpha\n") {
 		t.Fatalf("prefill does not quote the label\n%s", note)
 	}
