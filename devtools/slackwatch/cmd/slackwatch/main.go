@@ -63,6 +63,9 @@ var commands = map[string]func(configPath string, args []string, stdout, stderr 
 	"status":  cmdStatus,
 	"inbound": cmdInbound,
 	"skill":   cmdSkill,
+	"post":    cmdPost,
+	"outbox":  cmdOutbox,
+	"pin":     cmdPin,
 }
 
 func usage(w io.Writer) {
@@ -89,6 +92,18 @@ Commands:
                       server heartbeat; exits 1 when down, stale, or undelivered
   slackwatch inbound [--since DUR|DATE] [--json]
                       recorded DMs and mentions
+  slackwatch post --to <channel-id|#name|thread-permalink> --text-file F --owner T --purpose S [--ref R ...] [--json]
+                      submit a draft; it is posted only after the user approves
+                      the exact text and destination in decide (needs post.mode)
+  slackwatch outbox ls [--state S] [--json]
+  slackwatch outbox show <id> [--json]
+                      a submitted draft with its exact text
+  slackwatch outbox posted <id> <permalink>
+                      report a handoff post; slackwatch reads it back and checks it
+  slackwatch outbox poke <decide-id>
+                      handle a decide answer now instead of at the next poll
+  slackwatch outbox cancel <id> [--reason S]
+  slackwatch pin      check the write token with auth.test and pin it in config
   slackwatch skill    print the agent skill (SKILL.md)
   slackwatch help     show this help
 

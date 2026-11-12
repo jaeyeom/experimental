@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -48,6 +49,75 @@ type Config struct {
 	// Outbox is where agents send Slack drafts for approval and posting,
 	// such as an agentbus name. slackwatch skill names it.
 	Outbox string `json:"outbox"`
+	// Post configures slackwatch post. Posting is off unless Post.Mode is
+	// set.
+	Post PostConfig `json:"post"`
+}
+
+// Posting modes for PostConfig.Mode.
+const (
+	PostModeHandoff = "handoff"
+	PostModeDirect  = "direct"
+)
+
+// DefaultDecideOwner is the decide owner of approval items when
+// post.decideOwner is unset.
+const DefaultDecideOwner = "slackwatch"
+
+// ErrPostingOff means post.mode is not set.
+var ErrPostingOff = errors.New("posting is disabled: set post.mode to handoff or direct in slackwatch config")
+
+// PostConfig is the "post" object of the config. Mode is handoff or
+// direct; empty disables posting. Agent is the handoff target. ExpectUser
+// is the Slack user id posts must come from. PinSalt, TokenPin,
+// WriteTokenFile, and Footer apply to direct mode only.
+type PostConfig struct {
+	Mode           string `json:"mode"`
+	Agent          string `json:"agent"`
+	ExpectUser     string `json:"expectUser"`
+	PinSalt        string `json:"pinSalt"`
+	TokenPin       string `json:"tokenPin"`
+	WriteTokenFile string `json:"writeTokenFile"`
+	Footer         string `json:"footer"`
+	DecideOwner    string `json:"decideOwner"`
+}
+
+func (p PostConfig) decideOwner() string {
+	if p.DecideOwner == "" {
+		return DefaultDecideOwner
+	}
+	return p.DecideOwner
+}
+
+// CheckPost reports whether the config allows posting. It returns
+// ErrPostingOff when post.mode is unset. In direct mode footerPattern
+// must match post.footer, so agent posts stay distinguishable.
+func (c Config) CheckPost() error {
+	p := c.Post
+	switch p.Mode {
+	case "":
+		return ErrPostingOff
+	case PostModeHandoff:
+		if p.Agent == "" {
+			return errors.New("post.mode is handoff but post.agent is not set")
+		}
+	case PostModeDirect:
+		if p.WriteTokenFile == "" {
+			return errors.New("post.mode is direct but post.writeTokenFile is not set")
+		}
+		if strings.TrimSpace(p.Footer) == "" {
+			return errors.New("post.mode is direct but post.footer is not set")
+		}
+		if c.FooterPattern.Regexp == nil || !c.FooterPattern.MatchString(p.Footer) {
+			return fmt.Errorf("footerPattern does not match post.footer %q; refusing to post", p.Footer)
+		}
+	default:
+		return fmt.Errorf("post.mode %q must be %s or %s", p.Mode, PostModeHandoff, PostModeDirect)
+	}
+	if p.ExpectUser == "" {
+		return fmt.Errorf("post.mode is %s but post.expectUser is not set", p.Mode)
+	}
+	return nil
 }
 
 // Target resolves name through the targets map. An unknown name is used

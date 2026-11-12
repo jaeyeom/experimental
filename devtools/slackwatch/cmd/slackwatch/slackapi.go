@@ -90,6 +90,37 @@ func (r slackReader) ChannelID(ctx context.Context, name string) (string, error)
 	}
 }
 
+// Message reads one message back: a thread reply from
+// conversations.replies, a top-level message from conversations.history.
+func (r slackReader) Message(ctx context.Context, channel, ts, threadTS string) (slackwatch.Message, error) {
+	var msgs []slack.Message
+	if threadTS != "" {
+		got, _, _, err := r.api.GetConversationRepliesContext(ctx, &slack.GetConversationRepliesParameters{
+			ChannelID: channel, Timestamp: threadTS, Oldest: ts, Latest: ts, Inclusive: true, Limit: 2,
+		})
+		if err != nil {
+			return slackwatch.Message{}, apiError("conversations.replies", err)
+		}
+		msgs = got
+	} else {
+		res, err := r.api.GetConversationHistoryContext(ctx, &slack.GetConversationHistoryParameters{
+			ChannelID: channel, Oldest: ts, Latest: ts, Inclusive: true, Limit: 1,
+		})
+		if err != nil {
+			return slackwatch.Message{}, apiError("conversations.history", err)
+		}
+		msgs = res.Messages
+	}
+	for _, m := range msgs {
+		if m.Timestamp == ts {
+			return slackwatch.Message{
+				Channel: channel, TS: ts, ThreadTS: m.ThreadTimestamp, User: messageAuthor(m.User, m.BotID), Text: m.Text,
+			}, nil
+		}
+	}
+	return slackwatch.Message{}, fmt.Errorf("message %s %s not found", channel, ts)
+}
+
 func apiError(method string, err error) error {
 	if rl, ok := errors.AsType[*slack.RateLimitedError](err); ok {
 		return &slackwatch.RateLimitError{RetryAfter: rl.RetryAfter}

@@ -27,6 +27,9 @@ var (
 	permalinkRE = regexp.MustCompile(`^/archives/([A-Z0-9]+)/p([0-9]{7,})$`)
 )
 
+// ValidChannel reports whether s looks like a Slack channel id.
+func ValidChannel(s string) bool { return channelRE.MatchString(s) }
+
 // ParsePost parses the <post> arguments of a CLI command: a permalink, a
 // channel and ts pair, or a watch id.
 func ParsePost(args []string) (PostRef, error) {

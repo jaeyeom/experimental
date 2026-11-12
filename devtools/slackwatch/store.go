@@ -149,6 +149,47 @@ CREATE TABLE workspace (
 INSERT INTO workspace (id) VALUES (1);
 ALTER TABLE watches ADD COLUMN permalink TEXT NOT NULL DEFAULT '';
 `,
+	// The outbox of slackwatch post. text_hash is the hex SHA-256 of
+	// text. decide_outcome is set when the decide item is to be closed
+	// and decide_closed once it is. posting holds why posting is
+	// disabled, empty when enabled. A watch flag marks a problem such as
+	// an outbox mismatch.
+	`
+CREATE TABLE outbox (
+	id             INTEGER PRIMARY KEY,
+	channel        TEXT NOT NULL,
+	thread_ts      TEXT NOT NULL DEFAULT '',
+	dest_name      TEXT NOT NULL DEFAULT '',
+	parent_link    TEXT NOT NULL DEFAULT '',
+	text           TEXT NOT NULL,
+	text_hash      TEXT NOT NULL,
+	owner          TEXT NOT NULL,
+	purpose        TEXT NOT NULL DEFAULT '',
+	refs           TEXT NOT NULL DEFAULT '',
+	state          TEXT NOT NULL DEFAULT 'pending' CHECK (state IN (
+		'pending', 'approved', 'posting', 'awaiting-handoff', 'posted',
+		'needs-redraft', 'dropped', 'rejected', 'mismatch', 'cancelled', 'failed')),
+	reason         TEXT NOT NULL DEFAULT '',
+	decide_id      TEXT NOT NULL DEFAULT '',
+	decide_outcome TEXT NOT NULL DEFAULT '',
+	decide_closed  INTEGER NOT NULL DEFAULT 0,
+	answer         TEXT NOT NULL DEFAULT '',
+	post_ts        TEXT NOT NULL DEFAULT '',
+	permalink      TEXT NOT NULL DEFAULT '',
+	posted_text    TEXT NOT NULL DEFAULT '',
+	watch_id       INTEGER REFERENCES watches (id) ON DELETE SET NULL,
+	created_at     INTEGER NOT NULL,
+	updated_at     INTEGER NOT NULL
+);
+CREATE INDEX outbox_state ON outbox (state);
+CREATE INDEX outbox_decide ON outbox (decide_id);
+CREATE TABLE posting (
+	id       INTEGER PRIMARY KEY CHECK (id = 1),
+	disabled TEXT NOT NULL DEFAULT ''
+);
+INSERT INTO posting (id) VALUES (1);
+ALTER TABLE watches ADD COLUMN flag TEXT NOT NULL DEFAULT '';
+`,
 }
 
 // Store is the slackwatch SQLite database. The server and the CLI each

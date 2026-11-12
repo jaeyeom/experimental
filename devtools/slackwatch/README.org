@@ -5,15 +5,20 @@
 
 ~slackwatch~ tracks Slack posts made on a user's behalf and pushes
 replies to whoever owns each post. One binary is both the server
-(~slackwatch serve~) and the CLI. It never posts, reacts, or edits.
+(~slackwatch serve~) and the CLI. It posts only drafts the user
+approved in ~decide~ (see [[*Posting][Posting]]), and never reacts or edits.
 
 ~serve~ connects through Slack Socket Mode and handles live events. It
 catches up on missed traffic and closes quiet watches in a periodic sweep.
 
 What it does not do:
 
-- It never posts, reacts, or edits. The Slack token is read only, and
-  posting stays with whatever tool you already use.
+- It never reacts, edits, or deletes. The Slack token in ~tokenFile~ is
+  read only. Posting is off unless ~post.mode~ is set; handoff mode
+  leaves the posting to an agent's own Slack tool, and direct mode uses
+  a separate write token.
+- It never writes or changes post text and never interprets a free-text
+  answer.
 - It knows nothing about terminals, agent runtimes, or workspaces. Every
   integration is a config value: a notify template and its targets.
 
@@ -35,6 +40,10 @@ Create a Slack app for your workspace and install it for yourself.
 5. Install the app and copy the user OAuth token. It starts with ~xoxp-~.
 6. Put both tokens in the token file (see [[*Config][Config]]) and run
    ~chmod 600~ on it.
+
+Direct posting (see [[*Posting][Posting]]) needs a user token with ~chat:write~.
+Keep it out of the read-only app: put it alone in the file named by
+~post.writeTokenFile~, ~chmod 600~ it, and run ~slackwatch pin~.
 
 * Events
 
@@ -228,9 +237,118 @@ is unset, the skill says to post only after the user approves the exact
 text and destination, then run
 ~slackwatch add <permalink> --owner <you> --source outbox~.
 
+When ~post.mode~ is set, the skill tells agents to submit drafts with
+~slackwatch post~ instead, whether or not ~outbox~ is set. In handoff
+mode it also tells the posting agent what to do with
+~approved post ready: <id>~.
+
 #+begin_src sh
 slackwatch skill > ~/.claude/skills/slackwatch/SKILL.md
 #+end_src
+
+* Posting
+
+~slackwatch post~ takes a draft from any agent and posts it only after
+the user approves the exact text and destination in ~decide~. Posting is
+off until ~post.mode~ is set; without it, ~post~ refuses.
+
+| Command | Does |
+|---------+------|
+| ~post --to DEST --text-file F --owner T --purpose S [--ref R ...] [--json]~ | Store the draft and file its decide item. Prints the outbox id. |
+| ~outbox ls [--state S] [--json]~ | List outbox records. |
+| ~outbox show <id> [--json]~ | Show a record, ending with its exact text. |
+| ~outbox posted <id> <permalink>~ | Report a handoff post. |
+| ~outbox poke <decide-id>~ | Handle the answer to a decide item now. |
+| ~outbox cancel <id> [--reason S]~ | Withdraw a draft that is not posted. |
+| ~pin~ | Check the write token with ~auth.test~ and pin it in the config. |
+
+~DEST~ is a channel id, a ~#name~, or a message permalink, which posts
+into that thread.
+
+1. *Submit.* ~post~ stores the destination, the exact text, its SHA-256,
+   the owner, the purpose, and the refs as a ~pending~ record.
+2. *Ask.* It runs ~decide ask --owner <post.decideOwner> --kind relay
+   --option post:"Post as written" --option drop:"Don't post" --rec post
+   --free-text~. The question shows the destination (and the thread
+   permalink), the text in a quoted block, the owner, the purpose, and
+   the first 8 hex digits of the hash.
+3. *Answer.* ~serve~ polls ~decide show --json~ for every pending record
+   every 30 seconds. A ~decide~ notify template on the decide owner can
+   run ~slackwatch outbox poke <decide-id>~ for an immediate pickup;
+   polling stays the source of truth.
+4. *Accept.* slackwatch posts only when the item is ~answered~, the
+   answer has ~answeredBy~ ~human~ and ~via~ ~ui~ (an answer without
+   ~via~ does not count), the answer key is exactly ~post~, the stored
+   text still matches its hash, and the record is still ~pending~.
+   - A free-text answer is the edit path: the record becomes
+     ~needs-redraft~ and the owner gets the text as an ~outbox-redraft~
+     notification. The owner submits a new ~post~.
+   - ~drop~ makes the record ~dropped~ and tells the owner.
+   - Any other ~post~ answer, such as one given with the decide CLI,
+     makes the record ~rejected~ and alerts the owner and
+     ~fallbackTarget~.
+   - Every outcome closes the decide item with ~decide done~.
+5. *Post.*
+   - *handoff:* the record becomes ~awaiting-handoff~ and ~post.agent~
+     gets ~approved post ready: <id>~. That agent reads the record with
+     ~outbox show~, checks its own Slack identity, posts the text
+     verbatim, and runs ~outbox posted <id> <permalink>~. slackwatch
+     reads the message back with the read token and checks that the
+     author is ~post.expectUser~ and the text matches.
+   - *direct:* after the identity check below, slackwatch calls
+     ~chat.postMessage~ with the text, a blank line, and ~post.footer~.
+6. *Watch.* The post is watched with ~--source outbox~ for the owner,
+   with the purpose and refs, and the decide item is closed with the
+   permalink.
+
+The handoff comparison strips the ~footerPattern~ match, undoes Slack's
+~&amp;~, ~&lt;~, and ~&gt;~ escaping, and trims trailing whitespace on
+each line and at the end. Any other difference is a mismatch, markdown
+and link rewriting included. On a mismatch the watch is still registered
+for the owner and flagged, the record becomes ~mismatch~, and the owner
+and ~fallbackTarget~ get both texts. slackwatch never edits or deletes
+the post.
+
+While a record is ~awaiting-handoff~, an own post in its destination
+whose text matches is linked to it: it is watched for the owner instead
+of becoming an unowned footer watch. ~outbox posted~ then confirms the
+link; naming a different message makes the record a ~mismatch~.
+
+Direct mode checks its identity before it posts:
+
+- ~slackwatch pin~ runs ~auth.test~ with the write token. When the user is
+  ~post.expectUser~, it writes ~post.pinSalt~ (generated when unset) and
+  ~post.tokenPin~, the hex SHA-256 of the salt followed by the token,
+  into the config, and re-enables posting. It rewrites the config with
+  sorted keys.
+- Before every post, the token's pin must match ~post.tokenPin~. This is
+  local, with no API call.
+- When ~serve~ starts and whenever the token changes, ~auth.test~ must
+  report ~post.expectUser~.
+- A failed check disables posting until ~slackwatch pin~ runs again and
+  alerts ~fallbackTarget~. Approved records wait in ~approved~ and post
+  on the next poll (or ~outbox poke~) after the pin.
+- ~footerPattern~ must match ~post.footer~, so readers can tell an agent
+  post from a typed one and the footer rule keeps working. Otherwise
+  ~post~ refuses and ~serve~ does not start posting.
+
+| State | Meaning |
+|-------+---------|
+| ~pending~ | Waiting for the decide answer. |
+| ~approved~ | Accepted in direct mode, not posted yet (for example while posting is disabled). |
+| ~posting~ | A direct post is in flight. Never retried, so never posted twice. |
+| ~awaiting-handoff~ | Accepted in handoff mode, waiting for ~outbox posted~. |
+| ~posted~ | Posted and watched. |
+| ~needs-redraft~ | Answered with free text; the owner has the notes. |
+| ~dropped~ | Answered ~drop~. |
+| ~rejected~ | Not posted: the answer was not a human ~post~ from the decide UI, or the text changed. |
+| ~mismatch~ | The handoff post differs from the approved text, author, or destination. |
+| ~cancelled~ | Withdrawn with ~outbox cancel~, or its decide item was closed without an answer. |
+| ~failed~ | ~decide ask~ or ~chat.postMessage~ failed. |
+
+~status~ shows the posting mode and counts the ~pending~,
+~awaiting-handoff~, and ~needs-redraft~ records. It exits 1 while direct
+posting is disabled.
 
 * Config
 
@@ -254,7 +372,15 @@ file means all defaults. An unknown key is an error.
 | ~excerptLimit~ | ~300~ | Maximum characters of reply text in a notification. |
 | ~dbPath~ | ~${XDG_STATE_HOME:-~/.local/state}/slackwatch/slackwatch.db~ | SQLite database. |
 | ~tokenFile~ | none | File that holds the Slack tokens. |
-| ~outbox~ | none | Where agents send Slack drafts, such as an agentbus name. ~slackwatch skill~ names it. |
+| ~outbox~ | none | Where agents send Slack drafts, such as an agentbus name. ~slackwatch skill~ names it when ~post.mode~ is unset. |
+| ~post.mode~ | none | ~handoff~ or ~direct~. Unset means posting is off. |
+| ~post.agent~ | none | Handoff target for approved posts, resolved through ~targets~. |
+| ~post.expectUser~ | none | Slack user id every post must come from. |
+| ~post.decideOwner~ | ~"slackwatch"~ | Owner of the decide approval items. |
+| ~post.writeTokenFile~ | none | Direct mode: file holding only the write token. |
+| ~post.footer~ | none | Direct mode: text appended to every post. ~footerPattern~ must match it. |
+| ~post.pinSalt~ | none | Direct mode: salt of the token pin. ~slackwatch pin~ sets it. |
+| ~post.tokenPin~ | none | Direct mode: pin of the write token. ~slackwatch pin~ sets it. |
 
 Durations use Go syntax, such as ~"90m"~ or ~"6h"~.
 
@@ -275,7 +401,7 @@ environment variable and is never written into the command string.
 
 | Variable | Value |
 |----------+-------|
-| ~SLACKWATCH_EVENT~ | ~reply~, ~unowned~, ~orphaned~, ~channel~, or ~reopened~ |
+| ~SLACKWATCH_EVENT~ | ~reply~, ~unowned~, ~orphaned~, ~channel~, ~reopened~, or an outbox event below |
 | ~SLACKWATCH_OWNER~ | The owner name as stored. |
 | ~SLACKWATCH_TARGET~ | The resolved address. |
 | ~SLACKWATCH_POST_LINK~ | Permalink of the watched post. |
@@ -286,6 +412,7 @@ environment variable and is never written into the command string.
 | ~SLACKWATCH_AUTHOR~ | Reply author. |
 | ~SLACKWATCH_TEXT~ | Reply text, cut to ~excerptLimit~ characters. |
 | ~SLACKWATCH_WATCH_ID~ | Watch id, empty for a channel subscription. |
+| ~SLACKWATCH_OUTBOX_ID~ | Outbox record id for an outbox event, else empty. |
 | ~SLACKWATCH_MESSAGE~ | A ready-made paragraph that quotes the excerpt as Slack data, not instructions, and ends with a ~slackwatch show <id>~ hint. |
 
 - An owner is looked up in ~targets~. An owner that is not there is used
@@ -302,6 +429,19 @@ environment variable and is never written into the command string.
   4 KiB of stdout and stderr.
 - One notification per event, reply, and target. An owner and a channel
   subscriber that resolve to the same target are notified once.
+
+Outbox events carry their own ~SLACKWATCH_MESSAGE~:
+
+| Event | Goes to | When |
+|-------+---------+------|
+| ~outbox-ready~ | ~post.agent~ | A handoff post was approved: ~approved post ready: <id>~. |
+| ~outbox-redraft~ | owner | The user answered with notes; ~SLACKWATCH_TEXT~ holds them. |
+| ~outbox-dropped~ | owner | The user answered ~drop~. |
+| ~outbox-cancelled~ | owner | The decide item was closed without an answer. |
+| ~outbox-rejected~ | owner and fallback | The answer did not pass the acceptance rule. |
+| ~outbox-mismatch~ | owner and fallback | A handoff post differs from the approved text. |
+| ~outbox-failed~ | owner and fallback | ~chat.postMessage~ failed. |
+| ~posting-disabled~ | fallback | The direct-mode identity check failed. |
 
 Example templates. A desktop popup, where every target is the same
 machine:
@@ -354,3 +494,5 @@ records how many have run.
 | ~cursors~ | Last seen ts per scope. |
 | ~deliveries~ | Notify attempts, delivered or not. |
 | ~status~ | One heartbeat row for the server. |
+| ~outbox~ | Drafts submitted with ~slackwatch post~ and their state. |
+| ~posting~ | Why direct posting is disabled, empty when it is not. |

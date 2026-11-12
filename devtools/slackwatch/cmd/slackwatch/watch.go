@@ -388,6 +388,9 @@ func printDetail(w io.Writer, d slackwatch.WatchDetail) {
 	if !d.ClosedAt.IsZero() {
 		fmt.Fprintf(w, "closed: %s %s\n", d.ClosedAt.Local().Format(time.RFC3339), d.CloseReason)
 	}
+	if d.Flag != "" {
+		fmt.Fprintf(w, "flag: %s\n", d.Flag)
+	}
 	fmt.Fprintf(w, "posts: %s\n", strings.Join(d.Posts, ", "))
 	fmt.Fprintf(w, "replies (%d):\n", len(d.Replies))
 	for _, r := range d.Replies {

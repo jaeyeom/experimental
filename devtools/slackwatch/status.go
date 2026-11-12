@@ -33,12 +33,19 @@ type Status struct {
 	LastSweepAt       time.Time `json:"lastSweepAt,omitzero"`
 	LastSweepError    string    `json:"lastSweepError"`
 	Undelivered       int       `json:"undelivered"`
+	// PostMode is post.mode, empty when posting is off. PostingDisabled
+	// is why direct posting is disabled. Outbox counts the records
+	// waiting on someone. The status command fills these.
+	PostMode        string       `json:"postMode"`
+	PostingDisabled string       `json:"postingDisabled,omitempty"`
+	Outbox          OutboxCounts `json:"outbox"`
 }
 
 // Healthy reports whether the server is up with a fresh heartbeat and
-// every notification was delivered. A reconnecting server is up.
+// every notification was delivered, and posting is not disabled. A
+// reconnecting server is up.
 func (st Status) Healthy() bool {
-	return st.State != ConnDown && st.State != ConnStale && st.Undelivered == 0
+	return st.State != ConnDown && st.State != ConnStale && st.Undelivered == 0 && st.PostingDisabled == ""
 }
 
 // undeliveredQuery counts notifications nobody received. Each failed

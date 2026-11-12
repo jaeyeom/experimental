@@ -8,7 +8,20 @@ description: "Use slackwatch when posting, replying, or sending a DM on Slack, s
 slackwatch watches Slack posts and notifies each watch's owner when someone replies. Run `slackwatch help` for every command and flag.
 
 ## Posting
-{{if .Outbox}}
+{{if .PostMode}}
+Do not post to Slack yourself. Write the exact text to a file and submit it:
+
+    slackwatch post --to <channel-id|#name|thread-permalink> --text-file <file> --owner <you> --purpose "..." --ref <ref>
+
+It prints an outbox id. The user approves the exact text and destination in decide. slackwatch then posts it and registers the watch with you as owner. If the user asks for changes instead, an outbox-redraft notification carries their notes: redraft and submit again. Run `slackwatch outbox show <id>` to check a draft.
+{{if eq .PostMode "handoff"}}
+When you get `approved post ready: <id>`, you are the posting agent:
+
+1. Run `slackwatch outbox show <id>` for the destination and the exact text.
+2. Check that your Slack connector posts as the user's own account. If it does not, stop and tell the user.
+3. Post the text verbatim to that destination. Change nothing.
+4. Run `slackwatch outbox posted <id> <permalink>`. slackwatch reads the post back and checks it.
+{{end}}{{else if .Outbox}}
 Do not post to Slack yourself. Send one message to the outbox `{{.Outbox}}`:
 
     agentbus send {{.Outbox}} "<message>"
