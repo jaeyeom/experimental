@@ -18,6 +18,8 @@
 # tab_label_template={id}
 
 # herdr_bin=herdr
+# gh executable. Default: $GH_BIN, else gh. Set it to gh-throttle to
+# rate-limit GitHub calls.
 # gh_bin=gh
 # jira_bin=jira
 

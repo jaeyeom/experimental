@@ -9,7 +9,10 @@ go_library(
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/prsync/internal/config",
     visibility = ["//devtools/prsync:__subpackages__"],
-    deps = ["//devtools/pkg/procinfo:go_default_library"],
+    deps = [
+        "//devtools/pkg/ghcli:go_default_library",
+        "//devtools/pkg/procinfo:go_default_library",
+    ],
 )
 
 go_test(

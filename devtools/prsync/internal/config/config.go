@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/jaeyeom/experimental/devtools/pkg/ghcli"
 	"github.com/jaeyeom/experimental/devtools/pkg/procinfo"
 )
 
@@ -280,6 +281,7 @@ func Defaults() Config {
 // explicitPath is the --config value (empty if unset).
 func Load(explicitPath string) (Config, error) {
 	cfg := Defaults()
+	cfg.GHBin = ghcli.Bin()
 	path, err := resolvePath(explicitPath)
 	if err != nil {
 		return Config{}, err

@@ -2,13 +2,19 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "go_default_library",
-    srcs = ["envelope.go"],
+    srcs = [
+        "bin.go",
+        "envelope.go",
+    ],
     importpath = "github.com/jaeyeom/experimental/devtools/pkg/ghcli",
     visibility = ["//visibility:public"],
 )
 
 go_test(
     name = "go_default_test",
-    srcs = ["envelope_test.go"],
+    srcs = [
+        "bin_test.go",
+        "envelope_test.go",
+    ],
     embed = [":go_default_library"],
 )

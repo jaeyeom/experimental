@@ -1,4 +1,5 @@
-// Package ghcli parses the GitHub GraphQL JSON envelope.
+// Package ghcli holds helpers shared by tools that run the gh CLI: the gh
+// executable to run, and parsing of the GitHub GraphQL JSON envelope.
 package ghcli
 
 import (

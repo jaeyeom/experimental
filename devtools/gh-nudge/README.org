@@ -20,6 +20,21 @@ This subdirectory contains a few utilities integrated with Github.
 1. [[https://cli.github.com/][Github CLI]] installed and authenticated
 2. Slack API token for sending notifications
 
+*** Running gh through a rate limiter
+
+Every command here (~gh-nudge~, ~gh-merge~, ~gh-pr-review~, ~gh-approve~,
+and the rest) runs the executable named by the ~GH_BIN~ environment
+variable wherever it would run ~gh~. Unset, it runs ~gh~ from ~PATH~, as
+before. To send every GitHub call through the client-side limiter
+~gh-throttle~ (or any wrapper that accepts ~gh~'s arguments):
+
+#+begin_src sh
+export GH_BIN=gh-throttle   # or an absolute path
+gh-merge 123
+#+end_src
+
+Only commands named ~gh~ are redirected; ~git~ and other tools are not.
+
 *** Obtaining a Slack API Token
 
 To get a Slack API token for GitHub Nudge:
