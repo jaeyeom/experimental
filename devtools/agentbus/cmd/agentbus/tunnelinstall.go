@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/hibernate"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 )
 
@@ -56,16 +57,96 @@ func cmdInstallTunnel(ctx context.Context, cfg config.Config, args, env []string
 		fmt.Fprintf(stderr, "agentbus install: %s\n", err)
 		return 1
 	}
-	if envFlag(env, "AGENTBUS_INSTALL_NO_LOAD") {
-		fmt.Fprintf(stdout, "wrote %s\n", path)
-		return 0
+	units := [][2]string{{path, tunnelUnitName}}
+	// The hibernation policy is opt-in: its unit is written only while
+	// hibernate_policy is on or dry-run.
+	if cfg.Policy().Mode != hibernate.PolicyOff {
+		policy, err := installPolicy(env)
+		if err != nil {
+			fmt.Fprintf(stderr, "agentbus install: wrote %s\n%s\n", path, err)
+			return 1
+		}
+		units = append(units, [2]string{policy, policyUnitName})
 	}
-	if err := loadSupervisor(ctx, runtime.GOOS, path, tunnelUnitName); err != nil {
-		fmt.Fprintf(stderr, "agentbus install: wrote %s\n%s\n", path, err)
-		return 1
+	for _, u := range units {
+		if envFlag(env, "AGENTBUS_INSTALL_NO_LOAD") {
+			fmt.Fprintf(stdout, "wrote %s\n", u[0])
+			continue
+		}
+		if err := loadSupervisor(ctx, runtime.GOOS, u[0], u[1]); err != nil {
+			fmt.Fprintf(stderr, "agentbus install: wrote %s\n%s\n", u[0], err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "installed %s\n", u[0])
 	}
-	fmt.Fprintf(stdout, "installed %s\n", path)
 	return 0
+}
+
+const (
+	policyLaunchdLabel = "com.agentbus.hibernate-policy"
+	policyUnitName     = "agentbus-hibernate-policy.service"
+	// policyLogName is the launchd job's stderr, in the state directory.
+	policyLogName = "hibernate-policy.log"
+)
+
+// installPolicy writes the supervised `agentbus hibernate --policy` of
+// a hub-mode client. It gets PATH, where it finds herdr and ssh.
+func installPolicy(env []string) (string, error) {
+	home, err := homeFrom(env)
+	if err != nil {
+		return "", err
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("cannot find this executable: %w", err)
+	}
+	state, err := paths.StateDir(env)
+	if err != nil {
+		return "", fmt.Errorf("locate the policy log: %w", err)
+	}
+	if err := os.MkdirAll(state, 0o700); err != nil {
+		return "", fmt.Errorf("create the state dir: %w", err)
+	}
+	vars := supervisorEnv(env)
+	if p := envGet(env, "PATH"); p != "" {
+		vars = append(vars, [2]string{"PATH", p})
+	}
+	path, err := policyPath(runtime.GOOS, home, env)
+	if err != nil {
+		return "", err
+	}
+	body, err := policyBody(runtime.GOOS, exe, filepath.Join(state, policyLogName), vars)
+	if err != nil {
+		return "", err
+	}
+	if err := writeAtomic(path, []byte(body), 0o644); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func policyPath(goos, home string, env []string) (string, error) {
+	return unitPath(goos, home, env, policyLaunchdLabel, policyUnitName)
+}
+
+// policyBody is the unit that runs `agentbus hibernate --policy` and
+// restarts it when it fails. It exits 0 when hibernate_policy is off,
+// and stays stopped then.
+func policyBody(goos, exe, logPath string, envVars [][2]string) (string, error) {
+	args := []string{exe, "hibernate", "--policy"}
+	switch goos {
+	case "darwin":
+		return launchdJob{label: policyLaunchdLabel, args: args, env: envVars, onFailure: true, stderr: logPath}.plist()
+	case "linux":
+		return systemdUnit(systemdService{
+			description: "agentbus hibernation policy for this hub-mode client",
+			exec:        args,
+			restart:     "on-failure",
+			restartSec:  "30",
+		}, envVars), nil
+	default:
+		return "", fmt.Errorf("agentbus install supports systemd and launchd, not %s", goos)
+	}
 }
 
 func installTunnel(cfg config.Config, env []string) (string, error) {

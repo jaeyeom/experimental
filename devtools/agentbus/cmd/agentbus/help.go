@@ -152,11 +152,13 @@ func commands() []command {
 				"Refuses, naming each failed check, unless the agent is idle or done, shows no dialog, " +
 				"runs no background job or build tool in its cwd, has an empty composer (Claude Code only), " +
 				"holds and waits for no lease, and is not in hibernate_exempt.",
-			usage: "agentbus hibernate <name|handle>... | --idle-over <duration> [--dry-run] [--json]",
+			usage: "agentbus hibernate <name|handle>... | --idle-over <duration> [--dry-run] [--json] | --policy",
 			flags: "--idle-over <d>  every agent the daemon has seen idle or done for at least d\n" +
 				"--dry-run       print \"would hibernate <name> (<rss>)\" and change nothing\n" +
 				"--json          print a JSON array: name, handle, pane, outcome (hibernated,\n" +
-				"                refused, would-hibernate, failed), reasons, rss_bytes, warning",
+				"                refused, would-hibernate, failed), reasons, rss_bytes, warning\n" +
+				"--policy        in hub mode, run hibernate_policy for this machine until stopped;\n" +
+				"                agentbus install runs it when hibernate_policy is on or dry-run",
 			example: "agentbus hibernate --idle-over 2h --dry-run",
 			run:     noStdin(cmdHibernate),
 		},

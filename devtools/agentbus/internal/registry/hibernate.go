@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strings"
 	"time"
 
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/hibernate"
 )
 
@@ -158,24 +158,11 @@ func (r *Registry) hibernatedRows(query string) []Row {
 	return rows
 }
 
-// seenState is the state an agent was last seen in, since when, and
-// herdr's state_change_seq then.
-type seenState struct {
-	status string
-	seq    int64
-	since  time.Time
-}
-
 // Seen is how long each agent in the inventory has been in its state.
 func (r *Registry) Seen() map[string]hibernate.Seen {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	now := r.now()
-	out := make(map[string]hibernate.Seen, len(r.seen))
-	for handle, s := range r.seen {
-		out[handle] = hibernate.Seen{Status: s.status, For: now.Sub(s.since)}
-	}
-	return out
+	return r.seen.Seen(r.now())
 }
 
 func (r *Registry) now() time.Time {
@@ -185,32 +172,12 @@ func (r *Registry) now() time.Time {
 	return time.Now()
 }
 
-// track updates seen from every inventory snapshot. An agent keeps its
-// since while its status and state_change_seq stay, and across done to
-// idle, which is the user looking at a finished turn. Any other change
-// starts it over. An agent no longer listed is dropped. The caller holds
+// track updates seen from every inventory snapshot. The caller holds
 // r.mu.
 func (r *Registry) track() {
-	now := r.now()
-	next := map[string]seenState{}
+	var all []adapter.Agent
 	for _, agents := range r.snaps {
-		for _, a := range agents {
-			if a.Handle == "" || strings.TrimSpace(a.Status) == "" {
-				continue
-			}
-			s := seenState{status: a.Status, seq: a.StateSeq, since: now}
-			if old, ok := r.seen[a.Handle]; ok && keepsSince(old, s) {
-				s.since = old.since
-			}
-			next[a.Handle] = s
-		}
+		all = append(all, agents...)
 	}
-	r.seen = next
-}
-
-func keepsSince(old, cur seenState) bool {
-	if old.status == cur.status && old.seq == cur.seq {
-		return true
-	}
-	return old.status == "done" && cur.status == "idle"
+	r.seen.Observe(r.now(), all)
 }

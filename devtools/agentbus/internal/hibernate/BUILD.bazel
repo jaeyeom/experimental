@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "hibernate.go",
+        "idle.go",
         "policy.go",
         "record.go",
         "wake.go",
@@ -25,6 +26,7 @@ go_test(
     name = "go_default_test",
     srcs = [
         "hibernate_test.go",
+        "idle_test.go",
         "policy_test.go",
         "wake_test.go",
     ],

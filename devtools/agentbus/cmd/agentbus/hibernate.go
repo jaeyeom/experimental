@@ -33,6 +33,13 @@ var (
 // names, the leases, and the records, over the tunnel when the hub
 // answers there, else over ssh through `agentbus lease forward`.
 func cmdHibernate(ctx context.Context, args, env []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "--policy" {
+		if len(args) > 1 {
+			fmt.Fprintf(stderr, "agentbus hibernate: --policy takes no other arguments\n")
+			return 2
+		}
+		return cmdHibernatePolicy(ctx, env, stderr)
+	}
 	req, asJSON, err := parseHibernate(args, stderr)
 	if err != nil {
 		if !errors.Is(err, flag.ErrHelp) {
@@ -53,17 +60,7 @@ func cmdHibernate(ctx context.Context, args, env []string, stdout, stderr io.Wri
 		}
 		ctx = hibernateHubRoute(ctx, cfg, env, stderr)
 	}
-	h := &hibernate.Hibernator{
-		Panes:   &herdr.Adapter{},
-		Bus:     busClient{env: env},
-		Procs:   hibernateProcs,
-		Cwd:     hibernateCwd,
-		Clock:   hibernateClock,
-		Machine: machine,
-		Exempt:  cfg.HibernateExempt,
-		Self:    os.Getpid(),
-	}
-	results, err := h.Run(ctx, req)
+	results, err := newHibernator(cfg, env, machine).Run(ctx, req)
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus hibernate: %s\n", err)
 		return 1
@@ -73,6 +70,21 @@ func cmdHibernate(ctx context.Context, args, env []string, stdout, stderr io.Wri
 		return 1
 	}
 	return hibernateCode(req, results)
+}
+
+// newHibernator stops this machine's agents, with daemon requests sent
+// through dialBus. machine is empty unless in hub mode.
+func newHibernator(cfg config.Config, env []string, machine string) *hibernate.Hibernator {
+	return &hibernate.Hibernator{
+		Panes:   &herdr.Adapter{},
+		Bus:     busClient{env: env},
+		Procs:   hibernateProcs,
+		Cwd:     hibernateCwd,
+		Clock:   hibernateClock,
+		Machine: machine,
+		Exempt:  cfg.HibernateExempt,
+		Self:    os.Getpid(),
+	}
 }
 
 func parseHibernate(args []string, stderr io.Writer) (hibernate.Request, bool, error) {

@@ -123,7 +123,8 @@ const (
 	DefaultHibernateInterval = time.Minute
 )
 
-// Policy is the policy the daemon runs. It is off unless
+// Policy is the policy the daemon runs, or on a hub-mode client
+// `agentbus hibernate --policy`. It is off unless
 // hibernate_policy is "dry-run" or "on" and hibernate_below is set. The
 // target defaults to hibernate_below.
 func (c Config) Policy() Policy {

@@ -180,6 +180,22 @@ func supervisorBody(goos, bin string, envVars [][2]string) (string, error) {
 
 // launchdPlist is a job that runs args at load and again whenever it exits.
 func launchdPlist(label string, args []string, envVars [][2]string) (string, error) {
+	return launchdJob{label: label, args: args, env: envVars}.plist()
+}
+
+// launchdJob is a job that runs args at load and again when it exits.
+type launchdJob struct {
+	label string
+	args  []string
+	env   [][2]string
+	// onFailure restarts the job only after it exits non-zero.
+	onFailure bool
+	// stderr, when set, is the file its stderr is appended to.
+	stderr string
+}
+
+func (j launchdJob) plist() (string, error) {
+	label, args, envVars := j.label, j.args, j.env
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -201,8 +217,19 @@ func launchdPlist(label string, args []string, envVars [][2]string) (string, err
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
-  <true/>
 `)
+	if j.onFailure {
+		b.WriteString("  <dict>\n    <key>SuccessfulExit</key>\n    <false/>\n  </dict>\n")
+	} else {
+		b.WriteString("  <true/>\n")
+	}
+	if j.stderr != "" {
+		esc, err := xmlEscape(j.stderr)
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&b, "  <key>StandardErrorPath</key>\n  <string>%s</string>\n", esc)
+	}
 	if len(envVars) > 0 {
 		b.WriteString("  <key>EnvironmentVariables</key>\n  <dict>\n")
 		for _, kv := range envVars {

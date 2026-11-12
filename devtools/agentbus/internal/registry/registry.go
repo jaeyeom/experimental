@@ -44,7 +44,7 @@ type Registry struct {
 	hibernated map[string]hibernate.Record
 	// seen is the state each inventory agent was last seen in, by
 	// handle.
-	seen map[string]seenState
+	seen hibernate.IdleTracker
 	// Now is the clock seen times are read from. Nil uses time.Now.
 	Now func() time.Time
 	mu  sync.Mutex
