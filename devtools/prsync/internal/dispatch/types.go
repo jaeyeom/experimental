@@ -48,4 +48,7 @@ type Item struct {
 	Machine        string `json:"machine,omitempty"`
 	RenderedPrompt string `json:"rendered_prompt,omitempty"` //nolint:tagliatelle // brief outbound contract
 	Detail         string `json:"detail,omitempty"`
+	// Woke is set when the pane's agent was hibernated and agentbus
+	// woke it before the prompt.
+	Woke bool `json:"woke,omitempty"`
 }

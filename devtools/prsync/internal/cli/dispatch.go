@@ -61,6 +61,12 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	return cmd
 }
 
+// promptWaker wakes a hibernated agent before its prompt under
+// wake_before_prompt=auto. Tests replace it so they never run agentbus.
+var promptWaker = func(exec executor.Executor) dispatch.Waker {
+	return dispatch.AgentbusWaker{Exec: exec, Bin: "agentbus"}
+}
+
 func validateDispatchFlags(prs []string, all, rebase, ciFix bool, hint string) error {
 	if all && len(prs) > 0 {
 		return &ExitError{Code: ExitUsage, Err: errors.New("cannot combine --pr and --all")}
@@ -103,7 +109,7 @@ func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, 
 	}
 	h := herdr.NewClient(exec, cfg.HerdrBin)
 	ctx = withGateProbes(ctx, exec, cfg, h)
-	out, err := dispatch.Run(ctx, h, dispatch.FileStore{Path: cfg.StateFile, Scope: cfg.TabMachine}, cfg, dispatch.Request{
+	req := dispatch.Request{
 		Doc:        doc,
 		PRs:        prs,
 		RunnerPane: h.RunnerPane(ctx),
@@ -112,7 +118,11 @@ func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, 
 		Hint:       hint,
 		Force:      force,
 		Remote:     func(machine string) dispatch.Herdr { return machineHerdr(exec, cfg, machine) },
-	}, time.Now())
+	}
+	if cfg.WakeBeforePrompt == "auto" {
+		req.Waker = promptWaker(exec)
+	}
+	out, err := dispatch.Run(ctx, h, dispatch.FileStore{Path: cfg.StateFile, Scope: cfg.TabMachine}, cfg, req, time.Now())
 	if writeErr := writeDispatchJSON(stdout, out); writeErr != nil {
 		return writeErr
 	}

@@ -99,6 +99,11 @@
 # gate_timeout_ms=1800000
 # dispatch_timeout_ms=1800000
 
+# Before each prompt, wake the tab's agent if agentbus hibernated it:
+# auto (default) runs `agentbus wake --if-hibernated` when agentbus is
+# installed, and a failed wake fails the dispatch; off never does.
+# wake_before_prompt=auto
+
 # Inline prompt, or @/path/to/file (tilde is expanded).
 # Substituted: {identifier} {number} {title} {repo} {url} {head} {base} {state} {comments} {hint}.
 # {state} is open, closed, or merged. Empty when the scan document has no state.

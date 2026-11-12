@@ -111,6 +111,8 @@ type Request struct {
 	// Fresh makes list probe liveness now instead of answering from
 	// the cache. A daemon that predates it always probes.
 	Fresh bool `json:"fresh,omitempty"`
+	// Machine makes a wake's Name a herdr pane id on that machine.
+	Machine string `json:"machine,omitempty"`
 }
 
 // bypassPreview is how many bytes of a SendMessage body a bypass event keeps.

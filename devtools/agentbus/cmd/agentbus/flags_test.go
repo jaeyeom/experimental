@@ -67,12 +67,22 @@ func TestHibernateFlagsAfterTheHandle(t *testing.T) {
 }
 
 func TestWakeTakesANameAfterDoubleDash(t *testing.T) {
-	name, err := parseWake([]string{"--", "-odd"}, io.Discard)
-	if err != nil || name != "-odd" {
-		t.Fatalf("name = %q, err = %v", name, err)
+	w, err := parseWake([]string{"--", "-odd"}, io.Discard)
+	if err != nil || w.target != "-odd" {
+		t.Fatalf("wake = %+v, err = %v", w, err)
 	}
 	if _, err := parseWake([]string{"ops/x", "--now"}, io.Discard); err == nil {
 		t.Fatal("want an error for an unknown flag after the name")
+	}
+}
+
+func TestWakeFlagsAfterThePane(t *testing.T) {
+	w, err := parseWake([]string{"w1:p1", "--if-hibernated", "--wait", "--machine", "mini"}, io.Discard)
+	if err != nil || w.target != "w1:p1" || !w.ifHibernated || w.machine != "mini" {
+		t.Fatalf("wake = %+v, err = %v", w, err)
+	}
+	if _, err := parseWake([]string{"ops/x", "--wait=false"}, io.Discard); err == nil {
+		t.Fatal("want an error for --wait=false: a wake always waits")
 	}
 }
 

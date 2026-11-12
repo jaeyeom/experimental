@@ -8,7 +8,9 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/hibernate"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/mailbox"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/memreport"
+	"github.com/jaeyeom/experimental/devtools/pkg/hubcall"
 )
 
 // hibernateActor is the actor of the hibernate events.
@@ -124,13 +126,40 @@ func (s *server) logHibernate(ev eventlog.Event) error {
 // reaches an agent on another machine with `herdr --machine`, so in hub
 // mode the hub wakes any machine's agent. Unlike hibernate, any caller
 // may wake any agent: a message to it would wake it anyway.
+//
+// A Name with a Machine is a pane id there, and a pane with no
+// hibernation record is not hibernated. A failed wake's State says why
+// when the agent was not relaunched: WakeNotHibernated or WakeUnknown.
 func (s *server) wakeAgent(req Request) Response {
-	handle, err := s.box.Wake(s.ctx, req.Name)
-	if err != nil {
+	target := req.Name
+	if req.Machine != "" {
+		machine := req.Machine
+		if caller, remote := s.remoteCaller(req.Env); remote && machine == hubcall.LocalMachine {
+			machine = handleMachine(caller)
+		}
+		handle, ok := s.reg.HibernationOfPane(machine, req.Name)
+		if !ok {
+			return Response{Error: fmt.Sprintf("pane %s on %s is not hibernated", req.Name, machine), State: WakeNotHibernated}
+		}
+		target = handle
+	}
+	handle, err := s.box.Wake(s.ctx, target)
+	switch {
+	case errors.Is(err, mailbox.ErrUnknownTarget):
+		return Response{Error: err.Error(), State: WakeUnknown}
+	case errors.Is(err, mailbox.ErrNotHibernated):
+		return Response{Error: err.Error(), Handle: handle, State: WakeNotHibernated}
+	case err != nil:
 		return Response{Error: err.Error(), Handle: handle}
 	}
 	return Response{OK: true, Name: req.Name, Handle: handle}
 }
+
+// The States of a wake that relaunched nothing.
+const (
+	WakeNotHibernated = "not-hibernated"
+	WakeUnknown       = "unknown"
+)
 
 // agentName is handle's first name, else handle.
 func (s *server) agentName(handle string) string {
