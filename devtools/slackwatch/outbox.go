@@ -66,7 +66,8 @@ var ErrNoOutbox = errors.New("no such outbox record")
 // exact text to post and TextHash its hex SHA-256. ThreadTS is set for a
 // thread reply. Answer is the free-text answer of a needs-redraft record.
 // PostTS, Permalink, and WatchID are set once the post is known.
-// PostedText is what Slack returned for a handoff post.
+// PostedText is what Slack returned for a handoff post. Manual is set
+// when the post was made by hand and recorded with PostedManual.
 type OutboxRecord struct {
 	ID           int64     `json:"id"`
 	Channel      string    `json:"channel"`
@@ -87,6 +88,7 @@ type OutboxRecord struct {
 	Permalink    string    `json:"permalink,omitempty"`
 	PostedText   string    `json:"postedText,omitempty"`
 	WatchID      int64     `json:"watchId,omitempty"`
+	Manual       bool      `json:"manual"`
 	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
 }
@@ -718,13 +720,14 @@ func (o *Outbox) postDirect(ctx context.Context, cfg Config, r OutboxRecord) err
 		return err
 	}
 	link := permalink(teamURL, r.Channel, ts, r.ThreadTS)
-	return o.registerPosted(ctx, r, OutboxPosting, PostRef{Channel: r.Channel, TS: ts, ThreadTS: r.ThreadTS, Permalink: link}, "", "")
+	return o.registerPosted(ctx, r, []string{OutboxPosting}, PostRef{Channel: r.Channel, TS: ts, ThreadTS: r.ThreadTS, Permalink: link}, "", "", false)
 }
 
 // registerPosted watches the post for the record's owner, moves the
-// record from from to posted (or mismatch when mismatch is set, which
-// also flags the watch and alerts), and closes the decide item.
-func (o *Outbox) registerPosted(ctx context.Context, r OutboxRecord, from string, p PostRef, mismatch, postedText string) error {
+// record from one of from to posted (or mismatch when mismatch is set,
+// which also flags the watch and alerts), notes manual, and closes the
+// decide item.
+func (o *Outbox) registerPosted(ctx context.Context, r OutboxRecord, from []string, p PostRef, mismatch, postedText string, manual bool) error {
 	u := WatchUpdate{Owner: &r.Owner, Purpose: &r.Purpose, Source: ptr(SourceOutbox)}
 	if len(r.Refs) > 0 {
 		u.Refs = r.Refs
@@ -744,15 +747,15 @@ func (o *Outbox) registerPosted(ctx context.Context, r OutboxRecord, from string
 			return err
 		}
 	}
-	moved, err := o.Store.moveOutbox(r.ID, []string{from}, outboxUpdate{
+	moved, err := o.Store.moveOutbox(r.ID, from, outboxUpdate{
 		state: state, reason: &mismatch, postTS: &p.TS, permalink: &p.Permalink,
-		postedText: &postedText, watchID: &w.ID, decideOutcome: &outcome,
+		postedText: &postedText, watchID: &w.ID, decideOutcome: &outcome, manual: &manual,
 	}, o.Now())
 	if err != nil {
 		return err
 	}
 	if !moved {
-		return fmt.Errorf("outbox %d left %s while posting", r.ID, from)
+		return fmt.Errorf("outbox %d left %s while posting", r.ID, strings.Join(from, " or "))
 	}
 	r.WatchID, r.Permalink = w.ID, p.Permalink
 	if mismatch != "" {
@@ -780,6 +783,57 @@ func (o *Outbox) Posted(ctx context.Context, id int64, link string) (OutboxRecor
 	if r.State != OutboxAwaitingHandoff {
 		return OutboxRecord{}, fmt.Errorf("outbox %d is %s, not %s", id, r.State, OutboxAwaitingHandoff)
 	}
+	return o.posted(ctx, r, link, []string{OutboxAwaitingHandoff}, false)
+}
+
+// PostedManual records that id was posted by hand at link, for example
+// while serve could not reach decide. It accepts a pending or
+// awaiting-handoff record. A pending record needs a human post answer
+// from the decide UI on its decide item first; a manual post never
+// skips approval. The checks after that are Posted's, and the record
+// notes manual.
+func (o *Outbox) PostedManual(ctx context.Context, id int64, link string) (OutboxRecord, error) {
+	r, err := o.Store.GetOutbox(id)
+	if err != nil {
+		return OutboxRecord{}, err
+	}
+	switch r.State {
+	case OutboxAwaitingHandoff:
+		return o.posted(ctx, r, link, []string{OutboxAwaitingHandoff}, true)
+	case OutboxPending:
+	default:
+		return OutboxRecord{}, fmt.Errorf("outbox %d is %s, not %s or %s", id, r.State, OutboxPending, OutboxAwaitingHandoff)
+	}
+	approved, err := o.uiApproved(ctx, r)
+	if err != nil {
+		return OutboxRecord{}, err
+	}
+	if !approved {
+		return OutboxRecord{}, fmt.Errorf("no ui approval found for %d", id)
+	}
+	// A poll may accept the answer meanwhile. Moving from approved too
+	// keeps direct mode from posting it a second time.
+	return o.posted(ctx, r, link, []string{OutboxPending, OutboxApproved, OutboxAwaitingHandoff}, true)
+}
+
+// uiApproved reports whether r's decide item holds an answer the
+// acceptance rule posts on: a human post from the decide UI.
+func (o *Outbox) uiApproved(ctx context.Context, r OutboxRecord) (bool, error) {
+	if r.DecideID == "" {
+		return false, nil
+	}
+	item, err := o.Decide.Show(ctx, r.DecideID)
+	if err != nil {
+		return false, fmt.Errorf("outbox %d: %w", r.ID, err)
+	}
+	a := item.Answer
+	return item.State == decideAnswered && a != nil &&
+		a.Key == decideKeyPost && a.AnsweredBy == decideHuman && a.Via == decideViaUI, nil
+}
+
+// posted reads the post at link back, compares it with r, and registers
+// it, moving r from one of from.
+func (o *Outbox) posted(ctx context.Context, r OutboxRecord, link string, from []string, manual bool) (OutboxRecord, error) {
 	p, err := ParsePost([]string{link})
 	if err != nil {
 		return OutboxRecord{}, err
@@ -811,10 +865,10 @@ func (o *Outbox) Posted(ctx context.Context, id int64, link string) (OutboxRecor
 	if NormalizePosted(m.Text, cfg.FooterPattern.Regexp) != NormalizeStored(r.Text) {
 		problems = append(problems, "the posted text differs from the approved text")
 	}
-	if err := o.registerPosted(ctx, r, OutboxAwaitingHandoff, p, strings.Join(problems, "; "), m.Text); err != nil {
+	if err := o.registerPosted(ctx, r, from, p, strings.Join(problems, "; "), m.Text, manual); err != nil {
 		return OutboxRecord{}, err
 	}
-	return o.Store.GetOutbox(id)
+	return o.Store.GetOutbox(r.ID)
 }
 
 // Cancel withdraws a record that is not posted yet and closes its
@@ -846,7 +900,7 @@ type outboxUpdate struct {
 	state                                                        string
 	reason, answer, decideOutcome, postTS, permalink, postedText *string
 	watchID                                                      *int64
-	decideClosed                                                 *bool
+	decideClosed, manual                                         *bool
 }
 
 // maxFrom is how many states moveOutbox may move from.
@@ -858,14 +912,14 @@ func (s *Store) moveOutbox(id int64, from []string, u outboxUpdate, now time.Tim
 	if len(from) == 0 || len(from) > maxFrom {
 		return false, fmt.Errorf("move outbox %d: want 1 to %d states, got %d", id, maxFrom, len(from))
 	}
-	args := []any{u.state, u.reason, u.answer, u.decideOutcome, u.postTS, u.permalink, u.postedText, u.watchID, u.decideClosed, now.Unix(), id}
+	args := []any{u.state, u.reason, u.answer, u.decideOutcome, u.postTS, u.permalink, u.postedText, u.watchID, u.decideClosed, u.manual, now.Unix(), id}
 	for i := range maxFrom {
 		args = append(args, from[min(i, len(from)-1)])
 	}
 	res, err := s.db.Exec(`UPDATE outbox SET state = ?,
 reason = COALESCE(?, reason), answer = COALESCE(?, answer), decide_outcome = COALESCE(?, decide_outcome),
 post_ts = COALESCE(?, post_ts), permalink = COALESCE(?, permalink), posted_text = COALESCE(?, posted_text),
-watch_id = COALESCE(?, watch_id), decide_closed = COALESCE(?, decide_closed), updated_at = ?
+watch_id = COALESCE(?, watch_id), decide_closed = COALESCE(?, decide_closed), manual = COALESCE(?, manual), updated_at = ?
 WHERE id = ? AND state IN (?, ?, ?)`, args...)
 	if err != nil {
 		return false, fmt.Errorf("update outbox %d: %w", id, err)
@@ -878,7 +932,7 @@ WHERE id = ? AND state IN (?, ?, ?)`, args...)
 }
 
 const outboxCols = `id, channel, thread_ts, dest_name, parent_link, text, text_hash, owner, purpose, refs,
-state, reason, decide_id, decide_closed, answer, post_ts, permalink, posted_text, watch_id, created_at, updated_at`
+state, reason, decide_id, decide_closed, answer, post_ts, permalink, posted_text, watch_id, manual, created_at, updated_at`
 
 type scanner interface {
 	Scan(dest ...any) error
@@ -891,7 +945,7 @@ func scanOutbox(sc scanner) (OutboxRecord, error) {
 	var created, updated int64
 	if err := sc.Scan(&r.ID, &r.Channel, &r.ThreadTS, &r.DestName, &r.ParentLink, &r.Text, &r.TextHash,
 		&r.Owner, &r.Purpose, &refs, &r.State, &r.Reason, &r.DecideID, &r.DecideClosed, &r.Answer,
-		&r.PostTS, &r.Permalink, &r.PostedText, &watchID, &created, &updated); err != nil {
+		&r.PostTS, &r.Permalink, &r.PostedText, &watchID, &r.Manual, &created, &updated); err != nil {
 		return OutboxRecord{}, err //nolint:wrapcheck // Wrapped by callers.
 	}
 	r.Refs = []string{}

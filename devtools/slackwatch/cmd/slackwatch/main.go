@@ -98,8 +98,10 @@ Commands:
   slackwatch outbox ls [--state S] [--json]
   slackwatch outbox show <id> [--json]
                       a submitted draft with its exact text
-  slackwatch outbox posted <id> <permalink>
-                      report a handoff post; slackwatch reads it back and checks it
+  slackwatch outbox posted [--manual] <id> <permalink>
+                      report a handoff post; slackwatch reads it back and checks it;
+                      --manual records a post made by hand (pending or
+                      awaiting-handoff; still needs a decide UI approval)
   slackwatch outbox poke <decide-id>
                       handle a decide answer now instead of at the next poll
   slackwatch outbox cancel <id> [--reason S]
