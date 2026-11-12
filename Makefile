@@ -53,6 +53,7 @@ INSTALL_CMDS := \
 	./devtools/gh-nudge/cmd/gh-pr-review \
 	./devtools/gh-nudge/cmd/gh-slack \
 	./devtools/gh-nudge/cmd/gh-storage \
+	./devtools/gh-nudge/cmd/gh-throttle \
 	./devtools/linters/cmd/org-lint \
 	./devtools/linters/cmd/pkgvar \
 	./devtools/linters/cmd/unnecessary-interface-assertion-linter \
