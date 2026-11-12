@@ -796,7 +796,7 @@ check that failed:
 | State | herdr's agent state is not ~idle~ or ~done~. |
 | Dialog | The screen shows a permission or question prompt. |
 | Background job | A long-lived child of the agent runs, by the rule of [[*Memory per agent]]. |
-| Build tool | A build-tool client (~bazel~, ~make~, ~go~, ~cargo~, and the rest of prsync's list, shared in ~devtools/pkg/procinfo~) runs with its cwd inside the agent's cwd. |
+| Build tool | A build-tool client (~bazel~, ~make~, ~go~, ~cargo~, and the rest of prsync's list, shared in ~devtools/pkg/procinfo~) runs with its cwd inside the agent's cwd and in the agent's own process tree: a descendant of the pane's shell or foreground (~own build tool pid N ...~). Another pane's build in a shared checkout counts only when the agent holds or is queued for a lease (~checkout build pid N ... (agent holds the lease)~). |
 | Composer | The input box holds unsent text, or cannot be read. Only Claude Code's is read; any other kind is refused. |
 | Lease | The agent holds a lease or is queued for one. The daemon checks again when it writes the record. |
 | Exempt | A name or the handle matches ~hibernate_exempt = ["ops/*", ...]~ in the config: names, handles, or globs. |
@@ -820,7 +820,8 @@ holder, and a message to it wakes it first; see
 Output is one line per agent: ~hibernated <name> (<rss> freed)~,
 ~refused <name>: <reasons>~, ~failed <name>: <reason>~, or with
 ~--dry-run~, ~would hibernate <name> (<rss>)~. ~--dry-run~ writes no
-record, sends no input, and logs nothing. ~--json~ prints an array of
+record, sends no input, and logs nothing. Flags may come before or
+after the names; ~--~ ends them. ~--json~ prints an array of
 objects with ~name~, ~handle~, ~pane~, ~outcome~ (~hibernated~,
 ~refused~, ~would-hibernate~, or ~failed~), ~reasons~, ~rss_bytes~, and
 ~warning~. The daemon logs ~agent_hibernated~ and

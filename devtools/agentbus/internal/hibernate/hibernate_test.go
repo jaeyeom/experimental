@@ -133,7 +133,8 @@ type world struct {
 
 // newWorld has alice, an idle claude named ops/x in w1:p1 (pid 100,
 // 300 MiB with a 20 MiB helper), and bob, an idle claude named ops/y in
-// w1:p2 (pid 200). The daemon has seen both idle for three hours.
+// w1:p2 (pid 200). Each pane has its own shell: pid 1 for w1:p1, pid 2
+// for w1:p2. The daemon has seen both idle for three hours.
 func newWorld() *world {
 	w := &world{
 		panes: &fakePanes{
@@ -143,7 +144,11 @@ func newWorld() *world {
 			},
 			infos: map[string]herdr.ProcessInfo{
 				"w1:p1": info(100, "/src/repo", "claude", "--model", "opus"),
-				"w1:p2": info(200, "/src/other", "claude"),
+				"w1:p2": func() herdr.ProcessInfo {
+					i := info(200, "/src/other", "claude")
+					i.ShellPID = 2
+					return i
+				}(),
 			},
 			screens: map[string]string{"w1:p1": claudeScreen("❯ "), "w1:p2": claudeScreen("❯ ")},
 			exits:   map[string]bool{"w1:p1": true, "w1:p2": true},
@@ -160,7 +165,8 @@ func newWorld() *world {
 			{PID: 1, PPID: 0, Name: "zsh", Argv: []string{"-zsh"}, Age: -1},
 			{PID: 100, PPID: 1, Name: "claude", Argv: []string{"claude"}, RSS: 300 * mib, Age: 3 * time.Hour},
 			{PID: 101, PPID: 100, Name: "node", Argv: []string{"node", "/opt/github-mcp-server/index.js"}, RSS: 20 * mib, Age: time.Hour},
-			{PID: 200, PPID: 1, Name: "claude", Argv: []string{"claude"}, RSS: 100 * mib, Age: 3 * time.Hour},
+			{PID: 2, PPID: 0, Name: "zsh", Argv: []string{"-zsh"}, Age: -1},
+			{PID: 200, PPID: 2, Name: "claude", Argv: []string{"claude"}, RSS: 100 * mib, Age: 3 * time.Hour},
 		},
 		cwds: map[int]string{},
 	}
@@ -244,10 +250,22 @@ func TestEachRefusalOnItsOwn(t *testing.T) {
 		{"background job", func(w *world) {
 			w.procs = append(w.procs, procinfo.Process{PID: 102, PPID: 100, Name: "sh", Argv: []string{"sh", "-c", "sleep 600"}, Age: time.Minute})
 		}, "background job pid 102 sh -c \"sleep 600\""},
-		{"build tool in the cwd", func(w *world) {
+		{"own build tool in the cwd", func(w *world) {
 			w.procs = append(w.procs, procinfo.Process{PID: 300, PPID: 1, Name: "bazel", Argv: []string{"bazel", "test", "//..."}, Age: time.Minute})
 			w.cwds[300] = "/src/repo/sub"
-		}, "build tool pid 300 bazel test //... in /src/repo/sub"},
+		}, "own build tool pid 300 bazel test //... in /src/repo/sub"},
+		{"own build tool under the agent", func(w *world) {
+			w.procs = append(w.procs, procinfo.Process{PID: 300, PPID: 100, Name: "go", Argv: []string{"go", "test", "./..."}, Age: time.Minute})
+			w.cwds[300] = "/src/repo"
+		}, "own build tool pid 300 go test ./... in /src/repo"},
+		{"checkout build while holding the lease", func(w *world) {
+			otherBuild(w)
+			w.bus.state.Leases = []lease.Status{{Checkout: "local:/src/repo", Holder: &lease.HolderView{Handle: alice}}}
+		}, "checkout build pid 300 bazel test //... in /src/repo/sub (agent holds the lease)"},
+		{"checkout build while queued for the lease", func(w *world) {
+			otherBuild(w)
+			w.bus.state.Leases = []lease.Status{{Checkout: "local:/src/repo", Holder: &lease.HolderView{Handle: bob}, Queue: []lease.WaiterView{{Handle: alice}}}}
+		}, "checkout build pid 300 bazel test //... in /src/repo/sub (agent is queued for the lease)"},
 		{"unsent text", func(w *world) { w.panes.screens["w1:p1"] = claudeScreen("❯ half a thought") }, "unsent text in the composer"},
 		{"unknown kind", func(w *world) { w.panes.agents[0].Kind = "codex" }, "cannot read the composer of a codex agent"},
 		{"held lease", func(w *world) {
@@ -278,6 +296,39 @@ func TestEachRefusalOnItsOwn(t *testing.T) {
 				t.Fatalf("refused events = %q", w.bus.refused)
 			}
 		})
+	}
+}
+
+// otherBuild runs a bazel build in alice's checkout from bob's pane.
+func otherBuild(w *world) {
+	w.procs = append(w.procs, procinfo.Process{PID: 300, PPID: 2, Name: "bazel", Argv: []string{"bazel", "test", "//..."}, Age: time.Minute})
+	w.cwds[300] = "/src/repo/sub"
+}
+
+func TestAnotherPanesBuildInTheCheckoutDoesNotBlock(t *testing.T) {
+	for _, dryRun := range []bool{true, false} {
+		w := newWorld()
+		otherBuild(w)
+		results := w.run(t, Request{Targets: []string{"ops/x"}, DryRun: dryRun})
+		want := OutcomeHibernated
+		if dryRun {
+			want = OutcomeWould
+		}
+		if len(results) != 1 || results[0].Outcome != want {
+			t.Fatalf("dry run %v: results = %+v", dryRun, results)
+		}
+		if dryRun && results[0].Line() != "would hibernate ops/x (320.0 MiB)" {
+			t.Fatalf("line = %q", results[0].Line())
+		}
+	}
+}
+
+func TestAnotherPanesBuildDoesNotBlockTheIdlePolicyPick(t *testing.T) {
+	w := newWorld()
+	otherBuild(w)
+	results := w.run(t, Request{IdleOver: 2 * time.Hour, DryRun: true})
+	if len(results) != 2 || results[0].Outcome != OutcomeWould || results[1].Outcome != OutcomeWould {
+		t.Fatalf("results = %+v", results)
 	}
 }
 

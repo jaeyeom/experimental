@@ -200,15 +200,16 @@ func parseLeaseFlags(sub string, args []string, stderr io.Writer) (leaseFlags, e
 	case "resume":
 		fs.BoolVar(&f.asIs, "as-is", false, "skip the switch to the default branch and the pull")
 	}
-	if err := fs.Parse(args); err != nil {
+	pos, err := parseInterspersed(fs, args)
+	if err != nil {
 		return f, fmt.Errorf("parse flags: %w", err)
 	}
 	if sub == "unshare" {
-		f.with = fs.Args()
+		f.with = pos
 		if len(f.with) == 0 {
 			return f, errors.New("name a pane or agent to unshare")
 		}
-	} else if fs.NArg() != 0 {
+	} else if len(pos) != 0 {
 		return f, errors.New("unexpected arguments")
 	}
 	if (sub == "claim" || sub == "extend") && strings.TrimSpace(f.bid) == "" {

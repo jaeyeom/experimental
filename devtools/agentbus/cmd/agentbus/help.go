@@ -150,7 +150,8 @@ func commands() []command {
 			name: "hibernate",
 			summary: "Stop idle agents on this machine but keep their panes and names. " +
 				"Refuses, naming each failed check, unless the agent is idle or done, shows no dialog, " +
-				"runs no background job or build tool in its cwd, has an empty composer (Claude Code only), " +
+				"runs no background job and no build tool of its own in its cwd (any build there while it holds or waits for a lease), " +
+				"has an empty composer (Claude Code only), " +
 				"holds and waits for no lease, and is not in hibernate_exempt.",
 			usage: "agentbus hibernate <name|handle>... | --idle-over <duration> [--dry-run] [--json] | --policy",
 			flags: "--idle-over <d>  every agent the daemon has seen idle or done for at least d\n" +
