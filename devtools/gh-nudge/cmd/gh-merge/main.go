@@ -202,8 +202,35 @@ func listFetchedPullRequests(githubClient mergeClient, cfg *config.Config, sleep
 	if err != nil {
 		return err
 	}
+	if err := loadStatusChecks(githubClient, ready); err != nil {
+		return err
+	}
 	logMergeScan(cfg, ready, "Finding PRs with no review requests in the current repository")
 	return printReadyPullRequests(cfg, ready)
+}
+
+// statusChecksReader reads one pull request's status checks. The pull
+// request list leaves them out, so list and merge read them only for the
+// pull requests that pass the cheap filters.
+type statusChecksReader interface {
+	StatusChecks(prURL string) ([]models.StatusCheck, error)
+}
+
+// loadStatusChecks fills StatusCheckRollup for each pull request in prs.
+// A client without statusChecksReader leaves prs as fetched.
+func loadStatusChecks(githubClient any, prs []models.PullRequest) error {
+	reader, ok := githubClient.(statusChecksReader)
+	if !ok {
+		return nil
+	}
+	for i := range prs {
+		checks, err := reader.StatusChecks(prs[i].URL)
+		if err != nil {
+			return fmt.Errorf("failed to get status checks for %s: %w", prs[i].URL, err)
+		}
+		prs[i].StatusCheckRollup = checks
+	}
+	return nil
 }
 
 func fetchListPullRequests(githubClient mergeClient) ([]models.PullRequest, func(string) (string, error), error) {
@@ -412,6 +439,9 @@ func mergePRs(githubClient mergeClient, cfg *config.Config) error {
 	prs, err := githubClient.GetMergeablePullRequests()
 	if err != nil {
 		return fmt.Errorf("failed to get PRs: %w", err)
+	}
+	if err := loadStatusChecks(githubClient, prs); err != nil {
+		return err
 	}
 	logMergeScan(cfg, prs, "Finding and merging PRs with no review requests",
 		"dry_run", dryRun,

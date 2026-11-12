@@ -1132,3 +1132,124 @@ func sliceEqual(a, b []string) bool {
 	}
 	return true
 }
+
+// argsExec records every gh argument list and answers by subcommand.
+type argsExec struct {
+	calls [][]string
+	list  string
+	views map[string]string
+}
+
+func (a *argsExec) Execute(cmd string, args ...string) (string, error) {
+	stdout, _, err := a.ExecuteSeparated(cmd, args...)
+	return stdout, err
+}
+
+func (a *argsExec) ExecuteWithStdin(_ string, cmd string, args ...string) (string, error) {
+	return a.Execute(cmd, args...)
+}
+
+func (a *argsExec) ExecuteSeparated(_ string, args ...string) (string, string, error) {
+	a.calls = append(a.calls, append([]string(nil), args...))
+	if len(args) >= 2 && args[0] == "pr" && args[1] == "list" {
+		return a.list, "", nil
+	}
+	if len(args) >= 5 && args[0] == "pr" && args[1] == "view" {
+		if out, ok := a.views[args[2]+" "+args[4]]; ok {
+			return out, "", nil
+		}
+	}
+	return "", "", errors.New("unexpected gh call: " + strings.Join(args, " "))
+}
+
+func TestPullRequestListsOmitFilesAndChecks(t *testing.T) {
+	mergeFields := []string{"url", "title", "isDraft", "labels", "mergeable", "headRefName", "reviewRequests"}
+	tests := []struct {
+		name  string
+		fetch func(*Client) ([]models.PullRequest, error)
+		want  []string
+	}{
+		{"pending", (*Client).GetPendingPullRequests, []string{"url", "title", "isDraft", "labels", "reviewRequests", "latestReviews"}},
+		{"authored", (*Client).GetAuthoredPullRequests, mergeFields},
+		{"mergeable", (*Client).GetMergeablePullRequests, mergeFields},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			exec := &argsExec{list: "[]"}
+			if _, err := tc.fetch(NewClientWithExecutor(exec)); err != nil {
+				t.Fatalf("fetch error = %v", err)
+			}
+			if len(exec.calls) != 1 {
+				t.Fatalf("gh calls = %d, want 1", len(exec.calls))
+			}
+			got := strings.Split(jsonFieldsArg(t, exec.calls[0]), ",")
+			if !sliceEqual(got, tc.want) {
+				t.Fatalf("--json fields = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestStatusChecksFetchedOncePerPullRequest(t *testing.T) {
+	const url = "https://github.com/acme/widgets/pull/1"
+	exec := &argsExec{views: map[string]string{
+		url + " statusCheckRollup": `{"statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]}`,
+	}}
+	client := NewClientWithExecutor(exec)
+	for range 2 {
+		checks, err := client.StatusChecks(url)
+		if err != nil {
+			t.Fatalf("StatusChecks() error = %v", err)
+		}
+		if len(checks) != 1 || checks[0].Name != "ci" || checks[0].Conclusion != "SUCCESS" {
+			t.Fatalf("checks = %+v", checks)
+		}
+	}
+	if len(exec.calls) != 1 {
+		t.Fatalf("gh calls = %d, want 1: %v", len(exec.calls), exec.calls)
+	}
+	want := []string{"pr", "view", url, "--json", "statusCheckRollup"}
+	if !sliceEqual(exec.calls[0], want) {
+		t.Fatalf("args = %v, want %v", exec.calls[0], want)
+	}
+}
+
+func TestPullRequestFilesFetchedOncePerPullRequest(t *testing.T) {
+	const url = "https://github.com/acme/widgets/pull/2"
+	exec := &argsExec{views: map[string]string{
+		url + " files": `{"files":[{"path":"docs/a.md","additions":1,"deletions":0}]}`,
+	}}
+	client := NewClientWithExecutor(exec)
+	for range 2 {
+		files, err := client.PullRequestFiles(url)
+		if err != nil {
+			t.Fatalf("PullRequestFiles() error = %v", err)
+		}
+		if len(files) != 1 || files[0].Path != "docs/a.md" {
+			t.Fatalf("files = %+v", files)
+		}
+	}
+	if len(exec.calls) != 1 {
+		t.Fatalf("gh calls = %d, want 1: %v", len(exec.calls), exec.calls)
+	}
+	want := []string{"pr", "view", url, "--json", "files"}
+	if !sliceEqual(exec.calls[0], want) {
+		t.Fatalf("args = %v, want %v", exec.calls[0], want)
+	}
+}
+
+func TestStatusChecksErrorIsNotCached(t *testing.T) {
+	const url = "https://github.com/acme/widgets/pull/3"
+	exec := &argsExec{views: map[string]string{}}
+	client := NewClientWithExecutor(exec)
+	if _, err := client.StatusChecks(url); err == nil {
+		t.Fatal("expected error")
+	}
+	exec.views[url+" statusCheckRollup"] = `{"statusCheckRollup":[]}`
+	if _, err := client.StatusChecks(url); err != nil {
+		t.Fatalf("second StatusChecks() error = %v", err)
+	}
+	if len(exec.calls) != 2 {
+		t.Fatalf("gh calls = %d, want 2", len(exec.calls))
+	}
+}
