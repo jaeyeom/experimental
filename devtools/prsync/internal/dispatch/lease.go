@@ -42,6 +42,8 @@ type LeaseSource interface {
 	Guarded(ctx context.Context, checkout string) (bool, error)
 	// Status is the checkout's lease.
 	Status(ctx context.Context, checkout string) (LeaseStatus, error)
+	// All is the hub's lease table, keyed by <machine>:<path> checkouts.
+	All(ctx context.Context) ([]LeaseStatus, error)
 }
 
 // AgentbusLease reads the lease with the agentbus CLI.
@@ -67,6 +69,15 @@ func (a AgentbusLease) Status(ctx context.Context, checkout string) (LeaseStatus
 	var out LeaseStatus
 	if err := a.run(ctx, &out, "lease", "status", "--json", "--path", checkout); err != nil {
 		return LeaseStatus{}, err
+	}
+	return out, nil
+}
+
+// All runs `agentbus lease status --all --json`.
+func (a AgentbusLease) All(ctx context.Context) ([]LeaseStatus, error) {
+	var out []LeaseStatus
+	if err := a.run(ctx, &out, "lease", "status", "--all", "--json"); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -104,6 +115,9 @@ func (s *snapshotProbes) lease(ctx context.Context, policy gatePolicy) leaseVerd
 	if s.Lease == nil || policy.checkout == "" || policy.leaseMode == "off" {
 		return leaseVerdict{}
 	}
+	if policy.machine != "" {
+		return s.remoteLease(ctx, policy)
+	}
 	guarded, err := s.leaseGuarded(ctx, policy.checkout)
 	if err == nil && !guarded {
 		return leaseVerdict{}
@@ -113,17 +127,43 @@ func (s *snapshotProbes) lease(ctx context.Context, policy gatePolicy) leaseVerd
 		st, err = s.Lease.Status(ctx, policy.checkout)
 	}
 	if err != nil {
-		s.run.warnLease(ctx, err)
-		out := leaseVerdict{unavailable: &Unavailable{Checkout: policy.checkout, Signal: SignalLease, Error: err.Error()}}
-		if policy.leaseMode == "required" {
-			out.hold = &Busy{Checkout: policy.checkout, Signal: SignalLease, Detail: "cannot read the lease: " + err.Error()}
-		}
-		return out
+		return s.leaseUnreadable(ctx, policy, err)
 	}
+	return s.leaseRead(policy, st)
+}
+
+// remoteLease is the verdict on another machine's checkout, read from
+// the hub's lease table (`agentbus lease status --all`) by its
+// <machine>:<path> key. A checkout missing from the table is not
+// guarded.
+func (s *snapshotProbes) remoteLease(ctx context.Context, policy gatePolicy) leaseVerdict {
+	all, err := s.Lease.All(ctx)
+	if err != nil {
+		return s.leaseUnreadable(ctx, policy, err)
+	}
+	s.run.leaseWarned = ""
+	for _, st := range all {
+		if st.Checkout == policy.leaseKey {
+			return s.leaseRead(policy, st)
+		}
+	}
+	return leaseVerdict{}
+}
+
+func (s *snapshotProbes) leaseUnreadable(ctx context.Context, policy gatePolicy, err error) leaseVerdict {
+	s.run.warnLease(ctx, err)
+	out := leaseVerdict{unavailable: &Unavailable{Machine: policy.machine, Checkout: policy.checkout, Signal: SignalLease, Error: err.Error()}}
+	if policy.leaseMode == "required" {
+		out.hold = &Busy{Machine: policy.machine, Checkout: policy.checkout, Signal: SignalLease, Detail: "cannot read the lease: " + err.Error()}
+	}
+	return out
+}
+
+func (s *snapshotProbes) leaseRead(policy gatePolicy, st LeaseStatus) leaseVerdict {
 	s.run.leaseWarned = ""
 	out := leaseVerdict{read: true}
 	if st.State != "free" {
-		out.hold = &Busy{Checkout: policy.checkout, Signal: SignalLease, Detail: leaseDetail(st)}
+		out.hold = &Busy{Machine: policy.machine, Checkout: policy.checkout, Signal: SignalLease, Detail: leaseDetail(st)}
 	}
 	return out
 }

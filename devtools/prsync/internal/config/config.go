@@ -117,6 +117,10 @@ type Config struct {
 	// TabMachine scopes a run to PRs whose tab is on this machine: local
 	// or one of Machines. Empty means every machine.
 	TabMachine string
+	// MachineCheckouts maps one of Machines to its checkout of the
+	// dispatch repo. The gate of a TabMachine run on another machine
+	// uses it instead of the local checkout.
+	MachineCheckouts map[string]string
 	// Untabbed is include or exclude for PRs with no tab. Empty means
 	// only the local run includes them.
 	Untabbed string
@@ -536,6 +540,8 @@ func applyOtherKey(cfg *Config, key, val string) error {
 	switch key {
 	case "machines":
 		return applyMachines(cfg, val)
+	case "machine_checkouts":
+		return applyMachineCheckouts(cfg, val)
 	case "tab_machine", "untabbed", "skip_jobs":
 		applyScopeKey(cfg, key, val)
 		return nil

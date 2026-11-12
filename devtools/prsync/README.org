@@ -101,7 +101,7 @@ prsync version
 | ~--body TEXT~ | comment | Comment body to post (required) |
 | ~--allow-duplicate~ | comment | Post even if the same ~(repo, number, head_sha, body)~ was already recorded |
 | ~--path~ | logs | Print the run-log file path as JSON instead of dumping the file |
-| ~--tab-machine M~ | scan, dispatch, tabs | Scope the run to PRs whose tab is on ~M~: ~local~ or one of ~machines~. Overrides ~tab_machine~. See [[*One watcher per machine][One watcher per machine]] |
+| ~--tab-machine M~ | scan, dispatch, tabs, gate | Scope the run to PRs whose tab is on ~M~: ~local~ or one of ~machines~. ~gate~ (and dispatch's gate) then checks ~M~'s checkout and agents. Overrides ~tab_machine~. See [[*One watcher per machine][One watcher per machine]] |
 | ~--untabbed include~ / ~exclude~ | scan, dispatch | Whether PRs with no tab belong to this run. Overrides ~untabbed~ |
 | ~--skip JOB~ | scan, dispatch | Repeatable. Skip a machine-wide job this run (~team-cover~). Overrides ~skip_jobs~ |
 
@@ -164,6 +164,7 @@ Environment variables are not expanded.
 | ~machines~ | empty | Space- or comma-separated saved herdr machines (~herdr --machine <m>~) searched for PR tabs, in addition to the local server. Empty = local only. ~local~ is reserved. See [[*Other herdr machines][Other herdr machines]]. |
 | ~machine_timeout_ms~ | ~5000~ | Bound for each herdr call to one of ~machines~, except ~agent prompt~ and ~agent wait~, which use ~dispatch_timeout_ms~. |
 | ~tab_machine~ | empty | Scope ~scan~, ~dispatch~, and ~tabs~ to PRs whose tab is on this machine: ~local~ or one of ~machines~. Empty = every machine. Any other value is a config error. ~--tab-machine~ overrides it. See [[*One watcher per machine][One watcher per machine]]. |
+| ~machine_checkouts~ | empty | Comma- or space-separated ~machine=/path~ entries: each machine's checkout of the dispatch repo, an absolute path on that machine. The gate for a ~tab_machine~ other than ~local~ checks it, and fails without an entry. Each machine must be in ~machines~. See [[*One watcher per machine][One watcher per machine]]. |
 | ~untabbed~ | empty | ~include~ or ~exclude~: whether PRs with no tab belong to a ~tab_machine~ run. Empty = only the ~local~ run includes them. ~--untabbed~ overrides it. |
 | ~skip_jobs~ | empty | Comma-separated machine-wide jobs this run skips. The only job is ~team-cover~. An unknown job is a config error. ~--skip~ overrides it. |
 | ~gh_bin~ | ~$GH_BIN~, else ~gh~ | gh executable. Set it (or ~GH_BIN~) to a rate limiter such as ~gh-throttle~; see [[*Running gh through a rate limiter][Running gh through a rate limiter]]. |
@@ -412,6 +413,52 @@ unscoped dispatch, ~comment~, and a scoped run's write all take
 ~<state_file>.lock~, so do not mix an unscoped watcher with scoped ones
 on one state file: a scoped write waits about 5 s for the lock and then
 fails.
+
+*** Gating on another machine
+
+~prsync gate --tab-machine M~ and the built-in gate of ~dispatch
+--tab-machine M~ (or ~tab_machine = M~) check ~M~'s checkout, not the
+local one. Name it in ~machine_checkouts~:
+
+#+BEGIN_EXAMPLE
+machines=linux2
+machine_checkouts=linux2=/home/me/src/repo
+#+END_EXAMPLE
+
+Without an entry for ~M~ the gate fails with a config error (exit 2)
+naming ~machine_checkouts~; it never falls back to the local path.
+~--tab-machine local~ and an unscoped run keep the local gate.
+
+| Check | On ~M~ |
+|-------+--------|
+| Lease | ~agentbus lease status --all --json~, the entry whose ~checkout~ is ~M:<path>~. A missing entry is an unguarded checkout; ~gate_lease~ keeps its meaning |
+| Busy signals | ~working~, ~blocked~, ~background-job~, and ~pending-question~ from ~herdr --machine M~, with ~concurrency_cwd = checkout~ matched against ~M~'s paths. The local session is not read |
+| Dirty tree, ~build-tool~ | Skipped: ~herdr --machine~ runs only herdr API calls. The JSON has the note ~checkout not inspected on M~ |
+| ~M~ unreachable | Unsafe (exit 1) with ~reason~ ~machine M unreachable~; a live dispatch reports ~gate_unsafe~ at once |
+
+The gate JSON adds ~machine~ and ~lease_key~:
+
+#+BEGIN_SRC json
+{
+  "safe": false,
+  "busy": [
+    {
+      "machine": "linux2",
+      "pane_id": "",
+      "tab_id": "",
+      "agent_status": "",
+      "checkout": "/home/me/src/repo",
+      "signal": "lease",
+      "detail": "held by pm/foo until 14:20"
+    }
+  ],
+  "machine": "linux2",
+  "lease_key": "linux2:/home/me/src/repo",
+  "notes": [
+    "checkout not inspected on linux2"
+  ]
+}
+#+END_SRC
 
 * Worked examples
 
@@ -1030,9 +1077,11 @@ pane under cron).
 
 With ~machines~ set, the gate also reads ~herdr --machine <m> agent
 list~ on each machine, with the same ~machine_timeout_ms~ deadline as
-~scan~. A run scoped with ~--tab-machine~ (or ~tab_machine~) reads only
-that machine, or none for ~local~; in ~managed~ mode a machine is read
-only when a matched tab is on it. Local agents are always read. A
+~scan~. A run scoped with ~--tab-machine local~ reads no other
+machine; in ~managed~ mode a machine is read only when a matched tab
+is on it. Local agents are read except when ~--tab-machine~ names
+another machine; that gate reads only that machine against its
+~machine_checkouts~ path (see [[*Gating on another machine][Gating on another machine]]). A
 remote entry in ~busy~, ~exempt~, ~ignored~, and ~signal_unavailable~
 has ~machine~, and its tab is named ~<tab_id>@<machine>~ in log and
 wait lines.

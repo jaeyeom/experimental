@@ -21,6 +21,17 @@ type fakeLease struct {
 	statusErr  error
 	guardedN   int
 	statusN    int
+	// all is the hub's `lease status --all` table.
+	all    []LeaseStatus
+	allErr error
+	allN   int
+}
+
+func (f *fakeLease) All(context.Context) ([]LeaseStatus, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.allN++
+	return f.all, f.allErr
 }
 
 func (f *fakeLease) Guarded(context.Context, string) (bool, error) {
@@ -227,6 +238,19 @@ func TestAgentbusLeaseUnguarded(t *testing.T) {
 	guarded, err := AgentbusLease{Exec: mock, Bin: "agentbus"}.Guarded(context.Background(), "/src/repo")
 	if err != nil || guarded {
 		t.Fatalf("Guarded() = %v, %v; want false", guarded, err)
+	}
+}
+
+func TestAgentbusLeaseAll(t *testing.T) {
+	t.Parallel()
+
+	mock := executor.NewMockExecutor()
+	mock.ExpectCommandWithArgs("agentbus", "lease", "status", "--all", "--json").
+		WillSucceed(`[{"checkout": "local:/src/repo", "state": "free", "holder": null},`+
+			`{"checkout": "mac:/Users/me/src/repo", "state": "held", "holder": {"handle": "h", "name": "pm/foo"}, "takeover": "log"}]`, 0).Build()
+	all, err := AgentbusLease{Exec: mock, Bin: "agentbus"}.All(context.Background())
+	if err != nil || len(all) != 2 || all[1].Checkout != "mac:/Users/me/src/repo" || all[1].Holder == nil || all[1].Holder.Name != "pm/foo" {
+		t.Fatalf("All() = %+v, %v", all, err)
 	}
 }
 

@@ -266,7 +266,10 @@ func TestGateRemoteScope(t *testing.T) {
 	}{
 		{"unscoped", func(*config.Config) {}, nil, false},
 		{"tab machine local", func(c *config.Config) { c.TabMachine = config.LocalMachine }, nil, true},
-		{"tab machine m2", func(c *config.Config) { c.TabMachine = "m2" }, nil, false},
+		{"tab machine m2", func(c *config.Config) {
+			c.TabMachine = "m2"
+			c.MachineCheckouts = map[string]string{"m2": "/src/repo"}
+		}, nil, false},
 		{"managed without m2 tabs", func(c *config.Config) { c.ConcurrencyWaitOn = "managed" }, map[string]struct{}{"w2:tC": {}}, true},
 		{"managed with an m2 tab", func(c *config.Config) { c.ConcurrencyWaitOn = "managed" }, map[string]struct{}{"w3:t2@m2": {}}, false},
 	}

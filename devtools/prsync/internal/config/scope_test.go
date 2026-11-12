@@ -69,3 +69,52 @@ func TestIncludeUntabbedDefaultsToLocal(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadMachineCheckouts(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "prsync.config")
+	mustWrite(t, path, "machines=mac linux2\nmachine_checkouts=\"mac=/Users/me/src/repo, linux2=/home/me/repo\"\ntab_machine=mac\n")
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.MachineCheckouts["mac"] != "/Users/me/src/repo" || got.MachineCheckouts["linux2"] != "/home/me/repo" || len(got.MachineCheckouts) != 2 {
+		t.Fatalf("machine_checkouts = %v", got.MachineCheckouts)
+	}
+	if got.GateMachine() != "mac" {
+		t.Fatalf("GateMachine() = %q, want mac", got.GateMachine())
+	}
+}
+
+func TestGateMachineIsEmptyForLocalRuns(t *testing.T) {
+	t.Parallel()
+
+	for _, tm := range []string{"", LocalMachine} {
+		cfg := Defaults()
+		cfg.Machines = []string{"mac"}
+		cfg.TabMachine = tm
+		if got := cfg.GateMachine(); got != "" {
+			t.Errorf("GateMachine() with tab_machine %q = %q, want empty", tm, got)
+		}
+	}
+}
+
+func TestLoadMachineCheckoutsRejectsBadEntries(t *testing.T) {
+	t.Parallel()
+
+	for _, body := range []string{
+		"machines=mac\nmachine_checkouts=mac\n",
+		"machines=mac\nmachine_checkouts=mac=\n",
+		"machines=mac\nmachine_checkouts=mac=src/repo\n",
+		"machines=mac\nmachine_checkouts=m3=/src/repo\n",
+		"machines=mac\nmachine_checkouts=local=/src/repo\n",
+	} {
+		path := filepath.Join(t.TempDir(), "prsync.config")
+		mustWrite(t, path, body)
+		var keyErr *KeyError
+		if _, err := Load(path); !errors.As(err, &keyErr) || keyErr.Key != "machine_checkouts" {
+			t.Errorf("Load(%q) error = %v, want machine_checkouts key error", body, err)
+		}
+	}
+}

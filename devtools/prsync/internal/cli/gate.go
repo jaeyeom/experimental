@@ -41,6 +41,15 @@ read through herdr --machine. An unreachable machine (signal
 "machine-unreachable") or a remote tab whose signals cannot be read
 (signal "signal-unavailable") holds the gate.
 
+With --tab-machine <m> (or tab_machine) naming another machine, the
+gate checks that machine's checkout, machine_checkouts.<m>, instead of
+the local one; without that entry it fails. It reads only m's agents,
+and the lease of <m>:<path> from agentbus lease status --all --json (a
+checkout missing there is not guarded). The checkout's git state is not
+read: the JSON notes "checkout not inspected on <m>". An unreachable m
+makes the gate unsafe ("machine <m> unreachable"). The JSON names the
+machine and lease_key.
+
 Config keys for the gate:
   gate_ignore_procs       Comma-separated patterns for agent helpers that
                           are never a background job. Each is checked
@@ -77,23 +86,28 @@ Config keys for the gate:
 
 func newGateCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	var configPath string
+	var scope scopeFlags
 	cmd := &cobra.Command{
 		Use:   "gate",
 		Short: "Check whether it is safe to start another agent",
 		Long:  fmt.Sprintf(gateLong, strings.Join(config.Defaults().GateIgnoreProcs, ",")),
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runGate(cmd.Context(), stdout, exec, configPath)
+			return runGate(cmd.Context(), stdout, exec, configPath, func(cfg *config.Config) error { return scope.apply(cmd, cfg) })
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
+	cmd.Flags().StringVar(&scope.tabMachine, "tab-machine", "", "gate on this herdr machine's checkout and agents: local or one of machines (overrides tab_machine)")
 	return cmd
 }
 
-func runGate(ctx context.Context, stdout io.Writer, exec executor.Executor, configPath string) error {
+func runGate(ctx context.Context, stdout io.Writer, exec executor.Executor, configPath string, applyScope func(*config.Config) error) error {
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
+	}
+	if err := applyScope(&cfg); err != nil {
+		return err
 	}
 	logStartup(ctx, "gate", cfg)
 	res, err := evaluateGate(ctx, cfg, exec)
@@ -142,10 +156,10 @@ func evaluateGate(ctx context.Context, cfg config.Config, exec executor.Executor
 	if err != nil {
 		return dispatch.Result{}, err
 	}
-	if cfg.Checkout == "" {
+	if cfg.Checkout == "" && cfg.GateMachine() == "" {
 		cfg.Checkout = dispatch.CheckoutOfRepos(cfg.Repos)
 	}
-	if cfg.ConcurrencyCwd == "checkout" && cfg.Checkout == "" {
+	if cfg.ConcurrencyCwd == "checkout" && cfg.Checkout == "" && cfg.GateMachine() == "" {
 		cfg.Checkout = dispatch.CheckoutOfCWD()
 	}
 	ctx = withGateProbes(ctx, exec, cfg, h)

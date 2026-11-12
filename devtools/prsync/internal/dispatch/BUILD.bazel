@@ -42,6 +42,7 @@ go_test(
         "machines_test.go",
         "probes_test.go",
         "prompt_test.go",
+        "remote_checkout_test.go",
         "remote_gate_test.go",
         "scope_test.go",
         "settle_test.go",

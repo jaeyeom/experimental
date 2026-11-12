@@ -77,6 +77,14 @@ type Result struct {
 	// Exempt lists the tabs skipped by gate_exempt_panes or
 	// gate_exempt_tabs.
 	Exempt []Exempt `json:"exempt,omitempty"`
+	// Machine is the other machine the gate checked (tab_machine), and
+	// LeaseKey the <machine>:<path> key of its checkout in the hub's
+	// lease table. Both are empty for the local gate.
+	Machine  string `json:"machine,omitempty"`
+	LeaseKey string `json:"lease_key,omitempty"` //nolint:tagliatelle // brief outbound contract
+	// Notes are checks the gate skipped, such as the dirty-tree check
+	// of another machine's checkout.
+	Notes []string `json:"notes,omitempty"`
 }
 
 // Busy is one tab, or the dispatch checkout, that holds the gate.
@@ -105,8 +113,8 @@ func Check(ctx context.Context, h Herdr, waitOn, runnerPane string, matchedTabs 
 
 // GateCheck is a one-shot busy-set evaluation for cfg. It does not sleep.
 func GateCheck(ctx context.Context, h Herdr, cfg config.Config, runnerPane string, matchedTabs map[string]struct{}) (Result, error) {
-	if err := h.RequireMin(ctx, herdrMinVersion); err != nil {
-		return Result{}, fmt.Errorf("herdr version: %w", err)
+	if err := gatePrecheck(ctx, h, cfg); err != nil {
+		return Result{}, err
 	}
 	run := &gateRun{roundStart: roundStartFrom(ctx, time.Now())}
 	return snapshot(ctx, h, gatePolicyFrom(cfg, runnerPane, matchedTabs), run)
@@ -139,8 +147,8 @@ func Wait(ctx context.Context, h Herdr, cfg config.Config, runnerPane string, ma
 		}
 		log.Info("gate_wait_end", args...)
 	}()
-	if err = h.RequireMin(ctx, herdrMinVersion); err != nil {
-		return Result{}, fmt.Errorf("herdr version: %w", err)
+	if err = gatePrecheck(ctx, h, cfg); err != nil {
+		return Result{}, err
 	}
 	start := clock.Now()
 	held := 0
@@ -210,6 +218,34 @@ type gatePolicy struct {
 	exemptTabs      []string
 	// machines are the other herdr machines whose tabs are waited on.
 	machines []string
+	// machine is set when the gate checks another machine's checkout
+	// (tab_machine): only that machine's agents are read, checkout is
+	// its path there, and leaseKey is <machine>:<checkout>.
+	machine  string
+	leaseKey string
+}
+
+// gatePrecheck runs before the first sample: the machine checkout for
+// another machine's gate, and the herdr version.
+func gatePrecheck(ctx context.Context, h Herdr, cfg config.Config) error {
+	if err := requireMachineCheckout(cfg); err != nil {
+		return err
+	}
+	if err := h.RequireMin(ctx, herdrMinVersion); err != nil {
+		return fmt.Errorf("herdr version: %w", err)
+	}
+	return nil
+}
+
+// requireMachineCheckout fails a gate for another machine that has no
+// machine_checkouts entry: the local checkout is never a stand-in.
+func requireMachineCheckout(cfg config.Config) error {
+	m := cfg.GateMachine()
+	if m == "" || cfg.MachineCheckouts[m] != "" {
+		return nil
+	}
+	return &config.KeyError{Key: "machine_checkouts", Reason: fmt.Sprintf(
+		"no checkout for machine %s; the gate for tab_machine %s needs its path there, e.g. machine_checkouts = %s=/path/to/checkout", m, m, m)}
 }
 
 func gatePolicyFrom(cfg config.Config, runnerPane string, matched map[string]struct{}) gatePolicy {
@@ -217,7 +253,7 @@ func gatePolicyFrom(cfg config.Config, runnerPane string, matched map[string]str
 	if mode == "" {
 		mode = "any"
 	}
-	return gatePolicy{
+	p := gatePolicy{
 		waitOn:          cfg.ConcurrencyWaitOn,
 		runnerPane:      runnerPane,
 		matched:         matched,
@@ -234,6 +270,13 @@ func gatePolicyFrom(cfg config.Config, runnerPane string, matched map[string]str
 		leaseMode:       cfg.GateLease,
 		machines:        gateMachines(cfg, matched),
 	}
+	if m := cfg.GateMachine(); m != "" {
+		// The machine is always read: an unreachable one is unsafe.
+		p.machine, p.machines = m, []string{m}
+		p.checkout = cfg.MachineCheckouts[m]
+		p.leaseKey = m + ":" + p.checkout
+	}
+	return p
 }
 
 // gateMachines are the configured machines the gate reads: those in the
@@ -262,20 +305,29 @@ func hasTabOn(matched map[string]struct{}, machine string) bool {
 }
 
 func snapshot(ctx context.Context, h Herdr, policy gatePolicy, run *gateRun) (Result, error) {
-	agents, err := h.AgentList(ctx)
-	if err != nil {
-		return Result{}, fmt.Errorf("agent list: %w", err)
+	var agents []herdr.Agent
+	if policy.machine == "" {
+		var err error
+		if agents, err = h.AgentList(ctx); err != nil {
+			return Result{}, fmt.Errorf("agent list: %w", err)
+		}
 	}
 	probes := &snapshotProbes{Probes: probesFrom(ctx), run: run, jobs: make(map[string]struct{})}
 	lease := probes.lease(ctx, policy)
 	busy := make([]Busy, 0)
 	var exempt []Exempt
 	var unavailable []Unavailable
-	if !lease.read {
+	var down []Busy
+	if !lease.read || policy.machine != "" {
 		// A guarded checkout's lease decides alone; the tab signals
-		// apply to the rest, and when the lease cannot be read.
-		remote, down := remoteAgents(ctx, policy.machines, probes)
-		busy, exempt, unavailable = busySet(ctx, append(agents, remote...), policy, probes)
+		// apply to the rest, and when the lease cannot be read. Another
+		// machine is read either way, to know it is reachable.
+		var remote []herdr.Agent
+		remote, down = remoteAgents(ctx, policy.machines, probes)
+		agents = append(agents, remote...)
+	}
+	if !lease.read {
+		busy, exempt, unavailable = busySet(ctx, agents, policy, probes)
 		busy = append(busy, down...)
 	}
 	if lease.hold != nil {
@@ -286,6 +338,17 @@ func snapshot(ctx context.Context, h Herdr, policy gatePolicy, run *gateRun) (Re
 	}
 	run.prevJobs = probes.jobs
 	res := Result{Safe: len(busy) == 0, Busy: busy, SignalUnavailable: unavailable, Ignored: probes.ignored, Exempt: exempt}
+	if policy.machine != "" {
+		// herdr --machine runs only herdr API calls, so the checkout's
+		// git state (and its build tools) cannot be read there.
+		res.Machine, res.LeaseKey = policy.machine, policy.leaseKey
+		res.Notes = []string{"checkout not inspected on " + policy.machine}
+		if len(down) > 0 {
+			res.Safe = false
+			res.Reason = "machine " + policy.machine + " unreachable"
+		}
+		return res, nil
+	}
 	if reason := dirtyTreeReason(ctx, policy.checkout); reason != "" {
 		res.Safe = false
 		res.Reason = reason
@@ -434,7 +497,7 @@ func busySet(ctx context.Context, agents []herdr.Agent, policy gatePolicy, probe
 			out = append(out, b)
 		}
 	}
-	if probes.Procs != nil && policy.checkout != "" && len(policy.buildTools) > 0 {
+	if probes.Procs != nil && policy.machine == "" && policy.checkout != "" && len(policy.buildTools) > 0 {
 		detail, err := probes.buildTool(ctx, policy)
 		switch {
 		case err != nil:
