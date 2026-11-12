@@ -4,12 +4,23 @@
 #
 # Opt-in for one designated machine. That machine needs `gh` signed in with
 # push rights to the forks; the reviewing agent runs without them. Enable it
-# with:
+# on that machine by adding this line to the per-machine vars file
+# ${XDG_CONFIG_HOME:-~/.config}/setup-dev/vars.yml (outside the repository,
+# so every checkout and worktree on the machine sees it):
 #
-#   ansible-playbook -i inventory.ini setup-fork-keeper.yml -e fork_keeper_cron_enabled=true
+#   fork_keeper_cron_enabled: true
 #
-# With the default (false) the playbook removes the cron entry and installs
-# nothing else.
+# Then plain runs keep the job:
+#
+#   ./ensure.sh setup-fork-keeper
+#
+# `-e fork_keeper_cron_enabled=true|false` overrides the file for one run.
+# Without the file or -e the value is false, and the playbook removes the
+# cron entry and installs nothing else. Do not set it in inventory.ini,
+# which every machine shares.
+#
+# The fork_keeper_cron tag covers only the tasks that add or remove the cron
+# entry; fork_keeper_vars_test.sh runs them in --check mode.
 - import_playbook: gather-facts.yml
 - import_playbook: setup-user-bin-directory.yml
 - import_playbook: git.yml
@@ -18,8 +29,12 @@
 
 - name: Schedule fork-keeper
   hosts: all
+  # The first file found is loaded. /dev/null keeps a missing vars file
+  # from failing the play.
+  vars_files:
+    - - "{{ (lookup('ansible.builtin.env', 'XDG_CONFIG_HOME') or (lookup('ansible.builtin.env', 'HOME') ~ '/.config')) ~ '/setup-dev/vars.yml' }}"
+      - /dev/null
   vars:
-    fork_keeper_cron_enabled: false
     # Daily at 06:17 local time.
     fork_keeper_cron_minute: "17"
     fork_keeper_cron_hour: "6"
@@ -70,22 +85,25 @@
       failed_when: false
       changed_when: false
       check_mode: false
+      tags: fork_keeper_cron
 
     - name: Remove the fork-keeper cron entry on machines that are not designated
       ansible.builtin.cron:
         name: fork-keeper
         state: absent
       when:
-        - not (fork_keeper_cron_enabled | bool)
+        - not (fork_keeper_cron_enabled | default(false) | bool)
         - fork_keeper_crontab_check.rc == 0
+      tags: fork_keeper_cron
 
     - name: Install and schedule fork-keeper
-      when: fork_keeper_cron_enabled | bool
+      when: fork_keeper_cron_enabled | default(false) | bool
       block:
         - name: Fail when crontab is not available
           ansible.builtin.fail:
             msg: fork_keeper_cron_enabled is true, but this machine has no crontab.
           when: fork_keeper_crontab_check.rc != 0
+          tags: fork_keeper_cron
 
         - name: Clone or update the claude-toolbox checkout
           ansible.builtin.git:
@@ -139,3 +157,4 @@
               FORK_KEEPER_SCRIPTS='{{ fork_keeper_scripts_dir }}'
               '{{ fork_keeper_install_dir }}/fork-keeper.sh'
               >>'{{ fork_keeper_log_file }}' 2>&1
+          tags: fork_keeper_cron
