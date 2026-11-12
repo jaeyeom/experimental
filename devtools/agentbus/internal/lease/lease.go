@@ -93,6 +93,14 @@ type Args struct {
 	With []string `json:"with,omitempty"`
 	// AsIs is resume --as-is: the git steps were skipped.
 	AsIs bool `json:"asIs,omitempty"`
+	// Hook marks a check from the PreToolUse lease hook. The daemon logs
+	// its denials, with Tool and Target, the hook's tool call.
+	Hook bool `json:"hook,omitempty"`
+	// Tool is the hook's tool name, such as Edit or Bash.
+	Tool string `json:"tool,omitempty"`
+	// Target is what the tool call would change: a file path relative to
+	// the checkout root, or a git subcommand such as "git switch".
+	Target string `json:"target,omitempty"`
 }
 
 // Reply is the lease part of a daemon response.

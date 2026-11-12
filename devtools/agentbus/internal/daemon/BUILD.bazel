@@ -36,6 +36,7 @@ go_test(
         "hibernate_test.go",
         "hub_test.go",
         "leasecache_test.go",
+        "leasehook_test.go",
         "stream_test.go",
         "takeover_mode_test.go",
         "takeover_test.go",

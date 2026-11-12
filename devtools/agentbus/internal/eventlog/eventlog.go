@@ -70,6 +70,8 @@ const (
 	// EventLeaseNotifyWaiting tells a holder a new waiter queued behind
 	// it.
 	EventLeaseNotifyWaiting = "lease_notify_waiting"
+	// EventLeaseHookDeny is a tool call the lease hook denied.
+	EventLeaseHookDeny = "lease_hook_deny"
 	// EventHibernated is an idle agent stopped with its pane kept.
 	EventHibernated = "agent_hibernated"
 	// EventHibernateRefused is an agent hibernate would not stop, or one
@@ -420,7 +422,7 @@ func knownEvent(name string) bool {
 		EventLeaseRelease, EventLeaseSkip, EventLeaseCheckIn, EventLeaseAutoExtend,
 		EventLeaseTakeover, EventLeaseAdopt, EventLeaseWouldTakeOver,
 		EventLeasePause, EventLeaseResume, EventLeaseWith, EventLeaseUnshare,
-		EventLeaseNotifyWaiting,
+		EventLeaseNotifyWaiting, EventLeaseHookDeny,
 		EventHibernated, EventHibernateRefused, EventWake, EventWakeFailed, EventWakeSkipped,
 		EventPolicyHibernate, EventPolicyWouldHibernate, EventPolicyNoCandidate:
 		return true
