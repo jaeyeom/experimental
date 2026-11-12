@@ -1236,7 +1236,7 @@ func TestItemViewScrollKeys(t *testing.T) {
 
 	m.width = 120
 	footer := m.View()
-	for _, needle := range []string{"j/k up/down pgup/pgdn home/end", "? help"} {
+	for _, needle := range []string{"j/k pgup/pgdn home/end", "q quit", "/find", "? help"} {
 		if !strings.Contains(footer, needle) {
 			t.Fatalf("footer missing %q\n%s", needle, footer)
 		}

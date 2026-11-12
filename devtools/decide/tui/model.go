@@ -264,7 +264,7 @@ func (m *Model) applyList(all []decide.Item) error {
 // In the opened item, up, down, j, and k
 // scroll one line, page up and page down scroll one page, home and end
 // jump to the ends, and G jumps to the end. n and p move between messages. u returns to the
-// list. b snoozes the item. 1 through 9 answer a relay
+// list, and q quits. b snoozes the item. 1 through 9 answer a relay
 // option. 0 focuses the composer.
 // Sending it appends a human message. On an open question that text is also
 // the answer. In a focused composer, ctrl+x then ctrl+e, or ctrl+g alone,
@@ -624,6 +624,8 @@ func (m *Model) helpKey(r rune) (bool, error) {
 
 func (m *Model) detailKey(r rune) (bool, error) {
 	switch r {
+	case 'q':
+		return true, nil
 	case '\x1b', 'u':
 		m.backToList()
 		return false, nil
@@ -1161,7 +1163,7 @@ func (m *Model) narrow() bool {
 func (m *Model) statusLine() screenLine {
 	// The mouse label stays in front. The list and status hints stay the same
 	// width, so a 70-column footer still shows "? help". An open item also
-	// names e/y archive, 0 reply, and f forward, and d outcome when it fits.
+	// names e/y archive, 0 reply, f forward, and q quit, and d outcome when it fits.
 	// It leaves the folder keys to ? help so a 120-column footer still fits.
 	if m.searching {
 		return m.searchPrompt()
@@ -1199,7 +1201,7 @@ func (m *Model) statusLine() screenLine {
 	case modeStatus:
 		hint = label + "g go to  u list  c  tab/text/[Send]  ? help"
 	case modeDetail, modeOutcome:
-		hint = label + "0 reply  f forward  u list  e/y archive  j/k up/down pgup/pgdn home/end  n/p  ? help"
+		hint = label + "0 reply  f forward  u list  q quit  e/y archive  j/k pgup/pgdn home/end  n/p  ? help"
 	}
 	text := hint
 	if status != "" {
