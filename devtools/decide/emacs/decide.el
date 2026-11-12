@@ -90,8 +90,8 @@ buffer in that window."
   "A status row older than this many seconds is dimmed.")
 
 (defun decide--answer-args (id text)
-  "Argument list that answers ID with TEXT."
-  (list "answer" "--json" id text))
+  "Argument list that answers ID with TEXT, recorded as from the UI."
+  (list "answer" "--json" "--via" "ui" id text))
 
 (defun decide--send-args (name text)
   "Argument list that sends TEXT to recipient NAME."

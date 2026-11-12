@@ -184,7 +184,7 @@ func seedTUIThread(t *testing.T, dir string) (string, []decide.Message) {
 			{Key: "n", Label: "No"},
 		},
 	})
-	if _, err := led.Answer(item.ID, "human note"); err != nil {
+	if _, err := led.Answer(item.ID, "human note", decide.ViaCLI); err != nil {
 		t.Fatal(err)
 	}
 	got, err := led.Reply(item.ID, "agent draft", []decide.Option{
@@ -528,7 +528,7 @@ func TestForwardQuotesTheAnswerLabel(t *testing.T) {
 		Kind:     decide.KindRelay,
 		Options:  []decide.Option{{Key: "a", Label: "Alpha"}, {Key: "b", Label: "Beta"}},
 	})
-	answered, err := led.Answer(item.ID, "a")
+	answered, err := led.Answer(item.ID, "a", decide.ViaCLI)
 	if err != nil {
 		t.Fatal(err)
 	}

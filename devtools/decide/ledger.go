@@ -37,6 +37,11 @@ const (
 	// StateWithdrawn was withdrawn. Its id is never reused.
 	StateWithdrawn = "withdrawn"
 
+	// ViaUI is an answer given in the inbox TUI or Emacs.
+	ViaUI = "ui"
+	// ViaCLI is an answer given with the decide command line.
+	ViaCLI = "cli"
+
 	ledgerName = "ledger.json"
 	lockName   = "ledger.lock"
 )
@@ -66,11 +71,22 @@ type Message struct {
 // Answer is set only when an item has been answered.
 // Value is the option key or the free text. Key and Label are set for an
 // option answer and keep the label the option had when it was picked.
+// Via is ViaUI or ViaCLI. It is empty on an answer stored before via
+// existed, which does not count as ViaUI.
 type Answer struct {
 	Value      string `json:"value"`
 	Key        string `json:"key,omitempty"`
 	Label      string `json:"label,omitempty"`
 	AnsweredBy string `json:"answeredBy"`
+	Via        string `json:"via,omitempty"`
+}
+
+// CheckVia reports an error unless via is ViaUI or ViaCLI.
+func CheckVia(via string) error {
+	if via != ViaUI && via != ViaCLI {
+		return fmt.Errorf("decide via %q must be %s or %s", via, ViaUI, ViaCLI)
+	}
+	return nil
 }
 
 // Item is one stored decision, kept as a thread of messages.
@@ -252,13 +268,17 @@ func (l *Ledger) Done(id, outcome string) (Item, error) {
 	return l.finish(id, StateDone, outcome)
 }
 
-// Answer records value on a relay item and sets answeredBy to human.
+// Answer records value on a relay item, sets answeredBy to human, and
+// stores via, which must be ViaUI or ViaCLI.
 // value is an option key, or free text when the item allows it.
 // Free text is stored as given, including quotes and punctuation.
 // A type-in, withdrawn, or done item is refused.
-func (l *Ledger) Answer(id, value string) (Item, error) {
+func (l *Ledger) Answer(id, value, via string) (Item, error) {
 	if strings.TrimSpace(value) == "" {
 		return Item{}, fmt.Errorf("decide answer is empty")
+	}
+	if err := CheckVia(via); err != nil {
+		return Item{}, err
 	}
 	var updated Item
 	err := l.locked(true, func(st *store) error {
@@ -284,7 +304,7 @@ func (l *Ledger) Answer(id, value string) (Item, error) {
 		ensureMessages(it)
 		it.State = StateAnswered
 		it.AnsweredAt = l.clock().UTC()
-		it.Answer = &Answer{Value: stored, AnsweredBy: "human"}
+		it.Answer = &Answer{Value: stored, AnsweredBy: "human", Via: via}
 		msg := Message{
 			Author: "human",
 			Time:   it.AnsweredAt,
@@ -374,9 +394,13 @@ func (l *Ledger) Delete(id string) error {
 // That includes a question created without free text.
 // An answered, done, or notification thread keeps its answer and state.
 // A withdrawn thread is refused. text is stored unchanged.
-func (l *Ledger) Compose(id, text string) (Item, error) {
+// via is stored with an answer, as in Answer.
+func (l *Ledger) Compose(id, text, via string) (Item, error) {
 	if strings.TrimSpace(text) == "" {
 		return Item{}, fmt.Errorf("decide text is empty")
+	}
+	if err := CheckVia(via); err != nil {
+		return Item{}, err
 	}
 	var updated Item
 	err := l.locked(true, func(st *store) error {
@@ -397,7 +421,7 @@ func (l *Ledger) Compose(id, text string) (Item, error) {
 		if openQuestion(it) {
 			it.State = StateAnswered
 			it.AnsweredAt = now
-			it.Answer = &Answer{Value: text, AnsweredBy: "human"}
+			it.Answer = &Answer{Value: text, AnsweredBy: "human", Via: via}
 		}
 		wakeOnMessage(it)
 		updated = *it

@@ -798,7 +798,7 @@ func TestDetailOneAnswersFirstOption(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.State != decide.StateAnswered || got.Answer == nil || got.Answer.Value != "a" || got.Answer.AnsweredBy != "human" {
+	if got.State != decide.StateAnswered || got.Answer == nil || got.Answer.Value != "a" || got.Answer.AnsweredBy != "human" || got.Answer.Via != decide.ViaUI {
 		t.Fatalf("answer = %+v state %s", got.Answer, got.State)
 	}
 }
@@ -3876,7 +3876,7 @@ func TestThreadViewShowsTheDraftAndReplies(t *testing.T) {
 		t.Fatal(err)
 	}
 	last := edited.Messages[len(edited.Messages)-1]
-	if edited.State != decide.StateAnswered || edited.Answer == nil || edited.Answer.Value != "edits" || edited.Answer.AnsweredBy != "human" || last.Author != "human" || last.Text != "edits" {
+	if edited.State != decide.StateAnswered || edited.Answer == nil || edited.Answer.Value != "edits" || edited.Answer.AnsweredBy != "human" || edited.Answer.Via != decide.ViaUI || last.Author != "human" || last.Text != "edits" {
 		t.Fatalf("reply = state %s answer %+v message %+v", edited.State, edited.Answer, last)
 	}
 	if len(edited.Options) != 3 || edited.Options[0].Key != "send" {

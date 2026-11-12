@@ -229,7 +229,7 @@ func TestLiveRefreshKeepsHighlight(t *testing.T) {
 
 func TestLiveRefreshShowsStateChange(t *testing.T) {
 	m, led, item := openLiveThread(t, 40)
-	if _, err := led.Answer(item.ID, "elsewhere"); err != nil {
+	if _, err := led.Answer(item.ID, "elsewhere", decide.ViaCLI); err != nil {
 		t.Fatal(err)
 	}
 	reloadTick(t, m)

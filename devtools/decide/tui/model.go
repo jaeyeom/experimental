@@ -949,7 +949,7 @@ func (m *Model) writeAnswer(value string) error {
 		return err
 	}
 	id := m.detail.ID
-	updated, err := led.Answer(id, value)
+	updated, err := led.Answer(id, value, decide.ViaUI)
 	if err != nil {
 		m.status = err.Error()
 		return nil
@@ -978,7 +978,7 @@ func (m *Model) submitReply() error {
 	if err != nil {
 		return err
 	}
-	updated, err := led.Compose(m.detail.ID, text)
+	updated, err := led.Compose(m.detail.ID, text, decide.ViaUI)
 	if err != nil {
 		m.status = err.Error()
 		return nil
