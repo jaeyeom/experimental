@@ -68,6 +68,11 @@
         upstream_url: https://github.com/gabyx/Githooks.git
         branch: main
         agent: "{{ fork_keeper_agent }}"
+      - name: gmailctl
+        repo: jaeyeom/gmailctl
+        upstream_url: https://github.com/mbrt/gmailctl.git
+        branch: master
+        agent: "{{ fork_keeper_agent }}"
   tasks:
     - name: Include guard for setup-fork-keeper playbook
       block:
