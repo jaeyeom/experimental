@@ -52,8 +52,11 @@ Each new message is handled by the first rule that matches.
 3. A reply in a closed watch's thread within ~reopenWindow~ of closing
    reopens the watch and notifies ~reopened~.
 4. A post by the token owner that matches ~footerPattern~ and has no watch
-   is registered like ~add~, as ~unowned~ with source ~footer~, and
-   ~fallbackTarget~ gets an ~unowned~ notification.
+   is registered like ~add~, as ~unowned~ with source ~footer~. If it is
+   still ~unowned~ after ~unownedGrace~, ~fallbackTarget~ gets an
+   ~unowned~ notification. An ~add --owner~ within that time, such as from
+   a hook, opens the watch and suppresses the notification. A server stop
+   within that time drops the notification.
 5. A DM to the token owner, or a message that mentions them, is stored in
    ~inbound~ without a notification.
 6. Anything else is dropped.
@@ -128,7 +131,8 @@ RFC 3339, or a duration such as ~72h~.
 - ~since_ts~ is the earliest registered post. Older thread traffic is
   never notified.
 - ~add~ again for a watched post updates only the flags given. A new watch
-  is ~open~ with ~--owner~ and ~unowned~ without it.
+  is ~open~ with ~--owner~ and ~unowned~ without it. ~--owner~ on an
+  ~unowned~ watch claims it, as ~claim~ does, and opens it.
 - After registering, ~add~ catches up on the watch when a token is
   available. Without a token it skips catch-up quietly.
 - ~ls~ counts unacknowledged replies by others and flags a watch that has an
@@ -218,6 +222,7 @@ file means all defaults. An unknown key is an error.
 | ~sweepInterval~ | ~"6h"~ | Time between slow sweeps. |
 | ~quietExpiry~ | ~"336h"~ | A watch with no reply from others for this long closes. |
 | ~reopenWindow~ | ~"720h"~ | A reply this soon after a watch closes reopens it. |
+| ~unownedGrace~ | ~"10s"~ | Wait this long before the ~unowned~ notification for a footer post. |
 | ~excerptLimit~ | ~300~ | Maximum characters of reply text in a notification. |
 | ~dbPath~ | ~${XDG_STATE_HOME:-~/.local/state}/slackwatch/slackwatch.db~ | SQLite database. |
 | ~tokenFile~ | none | File that holds the Slack tokens. |

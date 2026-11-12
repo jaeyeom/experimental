@@ -2,6 +2,7 @@ package slackwatch
 
 import (
 	"context"
+	"reflect"
 	"regexp"
 	"testing"
 	"time"
@@ -384,6 +385,109 @@ func TestHandleReaction(t *testing.T) {
 	}
 	if got := f.count(t, `SELECT COUNT(*) FROM reactions`); got != 2 {
 		t.Errorf("stored reactions = %d, want 2", got)
+	}
+	if len(f.rec.notes) != 0 {
+		t.Errorf("notes = %+v, want none", f.rec.notes)
+	}
+}
+
+// fakeTimers runs AfterFunc callbacks when the fixture clock passes them.
+type fakeTimers struct {
+	f       *eventFixture
+	pending []fakeTimer
+}
+
+type fakeTimer struct {
+	at time.Time
+	fn func()
+}
+
+func (ft *fakeTimers) afterFunc(d time.Duration, fn func()) {
+	ft.pending = append(ft.pending, fakeTimer{at: ft.f.now.Add(d), fn: fn})
+}
+
+// advance moves the clock by d and runs the callbacks that are due.
+func (ft *fakeTimers) advance(d time.Duration) {
+	ft.f.now = ft.f.now.Add(d)
+	var left []fakeTimer
+	for _, tm := range ft.pending {
+		if tm.at.After(ft.f.now) {
+			left = append(left, tm)
+			continue
+		}
+		tm.fn()
+	}
+	ft.pending = left
+}
+
+func TestFooterUnownedGrace(t *testing.T) {
+	post := Message{Channel: "C2", ChannelType: "channel", TS: "1700000020.000100", User: selfID, Text: "status\n_sent by agent_"}
+	ref := PostRef{Channel: post.Channel, TS: post.TS}
+	tests := []struct {
+		name   string
+		during func(t *testing.T, f *eventFixture)
+		want   []string
+		state  string
+	}{
+		{name: "no owner within the grace period", want: []string{EventUnowned}, state: StateUnowned},
+		{
+			name: "owner added within the grace period",
+			during: func(t *testing.T, f *eventFixture) {
+				if _, _, err := f.store.AddWatch(ref, WatchUpdate{Owner: strp("agent-1")}, f.now); err != nil {
+					t.Fatal(err)
+				}
+			},
+			state: StateOpen,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newEventFixture(t)
+			ft := &fakeTimers{f: f}
+			f.proc.AfterFunc = ft.afterFunc
+			f.proc.Config.UnownedGrace = Duration{10 * time.Second}
+			if err := f.proc.HandleMessage(context.Background(), post); err != nil {
+				t.Fatal(err)
+			}
+			ft.advance(9 * time.Second)
+			if len(f.rec.notes) != 0 {
+				t.Fatalf("notes = %+v before the grace period ended", f.rec.notes)
+			}
+			if tc.during != nil {
+				tc.during(t, f)
+			}
+			ft.advance(time.Second)
+			if got := f.events(); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("events = %v, want %v", got, tc.want)
+			}
+			w, err := f.store.FindWatch(ref)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if w.State != tc.state {
+				t.Errorf("state = %q, want %q", w.State, tc.state)
+			}
+		})
+	}
+}
+
+func TestFooterAfterOwnedAddDoesNotNotify(t *testing.T) {
+	f := newEventFixture(t)
+	post := Message{Channel: "C2", ChannelType: "channel", TS: "1700000020.000100", User: selfID, Text: "sent by agent"}
+	ref := PostRef{Channel: post.Channel, TS: post.TS}
+	if _, _, err := f.store.AddWatch(ref, WatchUpdate{Owner: strp("agent-1")}, f.now); err != nil {
+		t.Fatal(err)
+	}
+	// The footer rule classified the post before add landed.
+	if _, err := f.proc.apply(context.Background(), post, decision{act: actFooter}, f.now); err != nil {
+		t.Fatal(err)
+	}
+	w, err := f.store.FindWatch(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.State != StateOpen || w.Owner != "agent-1" {
+		t.Errorf("watch = %+v, want open and owned by agent-1", w)
 	}
 	if len(f.rec.notes) != 0 {
 		t.Errorf("notes = %+v, want none", f.rec.notes)

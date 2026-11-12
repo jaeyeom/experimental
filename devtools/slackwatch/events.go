@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 )
@@ -42,13 +43,18 @@ type notifier interface {
 
 // Processor stores and notifies Slack messages. Self is the token owner's
 // user id from auth.test, and TeamURL its workspace URL for permalinks.
+// AfterFunc schedules delayed work such as the unowned grace check; nil
+// means time.AfterFunc. Logger reports errors from that work; nil means
+// slog.Default.
 type Processor struct {
-	Store    *Store
-	Notifier notifier
-	Config   Config
-	Self     string
-	TeamURL  string
-	Now      func() time.Time
+	Store     *Store
+	Notifier  notifier
+	Config    Config
+	Self      string
+	TeamURL   string
+	Now       func() time.Time
+	AfterFunc func(d time.Duration, f func())
+	Logger    *slog.Logger
 }
 
 // msgState is what the store knows about a message before it is handled.
@@ -168,11 +174,48 @@ func (p *Processor) apply(ctx context.Context, m Message, d decision, now time.T
 		if err != nil || !created {
 			return "", err
 		}
-		return "", p.notify(ctx, p.note(EventUnowned, w, m))
+		return "", p.notifyUnownedAfterGrace(ctx, w.ID, m)
 	case actInbound:
 		return "", p.Store.addInbound(m, d.kind)
 	}
 	return "", nil
+}
+
+// notifyUnownedAfterGrace sends the unowned notification for footer
+// watch id once the unownedGrace period ends, unless an owner claimed it
+// meanwhile. A zero grace notifies at once.
+func (p *Processor) notifyUnownedAfterGrace(ctx context.Context, id int64, m Message) error {
+	check := func() error {
+		w, err := getWatch(p.Store.db, id)
+		if err != nil || w.State != StateUnowned {
+			return err
+		}
+		return p.notify(ctx, p.note(EventUnowned, w, m))
+	}
+	grace := p.Config.UnownedGrace.Duration
+	if grace <= 0 {
+		return check()
+	}
+	after := p.AfterFunc
+	if after == nil {
+		after = func(d time.Duration, f func()) { time.AfterFunc(d, f) }
+	}
+	after(grace, func() {
+		if ctx.Err() != nil {
+			return
+		}
+		if err := check(); err != nil {
+			p.logger().Error("slackwatch: unowned notification", "watch", id, "err", err)
+		}
+	})
+	return nil
+}
+
+func (p *Processor) logger() *slog.Logger {
+	if p.Logger != nil {
+		return p.Logger
+	}
+	return slog.Default()
 }
 
 func (p *Processor) storeReply(ctx context.Context, m Message, d decision, now time.Time) (string, error) {

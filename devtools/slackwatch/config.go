@@ -25,6 +25,7 @@ const (
 	DefaultReopenWindow  = 720 * time.Hour
 	DefaultExcerptLimit  = 300
 	DefaultNotifyTimeout = 30 * time.Second
+	DefaultUnownedGrace  = 10 * time.Second
 )
 
 // Config is ~/.config/slackwatch/config.json. Tokens are never stored here.
@@ -40,6 +41,7 @@ type Config struct {
 	SweepInterval    Duration          `json:"sweepInterval"`
 	QuietExpiry      Duration          `json:"quietExpiry"`
 	ReopenWindow     Duration          `json:"reopenWindow"`
+	UnownedGrace     Duration          `json:"unownedGrace"`
 	ExcerptLimit     int               `json:"excerptLimit"`
 	DBPath           string            `json:"dbPath"`
 	TokenFile        string            `json:"tokenFile"`
@@ -152,6 +154,7 @@ func defaultConfig() Config {
 		SweepInterval: Duration{DefaultSweepInterval},
 		QuietExpiry:   Duration{DefaultQuietExpiry},
 		ReopenWindow:  Duration{DefaultReopenWindow},
+		UnownedGrace:  Duration{DefaultUnownedGrace},
 		ExcerptLimit:  DefaultExcerptLimit,
 		NotifyTimeout: Duration{DefaultNotifyTimeout},
 		DBPath:        DefaultDBPath(),

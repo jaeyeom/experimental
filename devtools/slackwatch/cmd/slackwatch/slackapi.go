@@ -143,6 +143,7 @@ func newProcessor(ctx context.Context, api *slack.Client, cfg slackwatch.Config,
 		Self:     auth.UserID,
 		TeamURL:  auth.URL,
 		Now:      time.Now,
+		Logger:   logger,
 	}, nil
 }
 

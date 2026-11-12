@@ -48,6 +48,9 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.NotifyTimeout.Duration != 30*time.Second {
 		t.Errorf("NotifyTimeout = %v", cfg.NotifyTimeout)
 	}
+	if cfg.UnownedGrace.Duration != 10*time.Second {
+		t.Errorf("UnownedGrace = %v", cfg.UnownedGrace)
+	}
 	if want := "/xdg/state/slackwatch/slackwatch.db"; cfg.DBPath != want {
 		t.Errorf("DBPath = %q, want %q", cfg.DBPath, want)
 	}
@@ -75,6 +78,7 @@ func TestLoadConfigOverrides(t *testing.T) {
 		"sweepInterval": "90m",
 		"quietExpiry": "1h30m",
 		"reopenWindow": "48h",
+		"unownedGrace": "3s",
 		"excerptLimit": 50,
 		"dbPath": "/tmp/x.db",
 		"tokenFile": "/tmp/tokens"
@@ -94,6 +98,9 @@ func TestLoadConfigOverrides(t *testing.T) {
 	}
 	if cfg.NotifyTimeout.Duration != 10*time.Second {
 		t.Errorf("NotifyTimeout = %v", cfg.NotifyTimeout)
+	}
+	if cfg.UnownedGrace.Duration != 3*time.Second {
+		t.Errorf("UnownedGrace = %v", cfg.UnownedGrace)
 	}
 	if !cfg.NotifySelf || cfg.ExcerptLimit != 50 || cfg.DBPath != "/tmp/x.db" ||
 		cfg.TokenFile != "/tmp/tokens" || cfg.Targets["ops"] != "pane:1" ||

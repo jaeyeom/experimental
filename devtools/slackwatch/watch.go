@@ -219,7 +219,7 @@ WHERE id = ?2 AND (length(?1) < length(since_ts) OR (length(?1) = length(since_t
 			return Watch{}, false, fmt.Errorf("update since_ts: %w", err)
 		}
 	}
-	if err := updateWatch(tx, id, u); err != nil {
+	if err := addUpdate(tx, id, u); err != nil {
 		return Watch{}, false, err
 	}
 	if _, err := tx.Exec(`INSERT INTO watch_posts (watch_id, ts) VALUES (?, ?) ON CONFLICT DO NOTHING`, id, p.TS); err != nil {
@@ -233,6 +233,21 @@ WHERE id = ?2 AND (length(?1) < length(since_ts) OR (length(?1) = length(since_t
 		return Watch{}, false, fmt.Errorf("commit add: %w", err)
 	}
 	return w, created, nil
+}
+
+// addUpdate applies u for add. An owner on an unowned watch claims it,
+// so a footer-rule watch that add names an owner for ends up open.
+func addUpdate(tx *sql.Tx, id int64, u WatchUpdate) error {
+	if u.Owner != nil && *u.Owner != "" {
+		var state string
+		if err := tx.QueryRow(`SELECT state FROM watches WHERE id = ?`, id).Scan(&state); err != nil {
+			return fmt.Errorf("read watch %d: %w", id, err)
+		}
+		if state == StateUnowned {
+			return claimWatch(tx, id, *u.Owner, u)
+		}
+	}
+	return updateWatch(tx, id, u)
 }
 
 func insertWatch(tx *sql.Tx, p PostRef, u WatchUpdate, now time.Time) (int64, error) {
@@ -278,6 +293,19 @@ WHERE id = ?`, u.Owner, u.Purpose, refs, u.Source, until, id)
 	return nil
 }
 
+// claimWatch sets owner and the fields in u on watch id and opens it.
+// The caller checks the state inside the same transaction.
+func claimWatch(tx *sql.Tx, id int64, owner string, u WatchUpdate) error {
+	u.Owner = &owner
+	if err := updateWatch(tx, id, u); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE watches SET state = ? WHERE id = ?`, StateOpen, id); err != nil {
+		return fmt.Errorf("claim watch %d: %w", id, err)
+	}
+	return nil
+}
+
 // ClaimWatch gives an unowned or orphaned watch to owner and opens it.
 func (s *Store) ClaimWatch(id int64, owner string, u WatchUpdate) (Watch, error) {
 	tx, err := s.db.Begin()
@@ -292,12 +320,8 @@ func (s *Store) ClaimWatch(id int64, owner string, u WatchUpdate) (Watch, error)
 	if w.State != StateUnowned && w.State != StateOrphaned {
 		return Watch{}, fmt.Errorf("watch %d is %s (owner %q); only unowned or orphaned watches can be claimed", id, w.State, w.Owner)
 	}
-	u.Owner = &owner
-	if err := updateWatch(tx, id, u); err != nil {
+	if err := claimWatch(tx, id, owner, u); err != nil {
 		return Watch{}, err
-	}
-	if _, err := tx.Exec(`UPDATE watches SET state = ? WHERE id = ?`, StateOpen, id); err != nil {
-		return Watch{}, fmt.Errorf("claim watch %d: %w", id, err)
 	}
 	if w, err = getWatch(tx, id); err != nil {
 		return Watch{}, err
