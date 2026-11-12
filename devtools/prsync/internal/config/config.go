@@ -233,6 +233,10 @@ type Config struct {
 	// reused across rounds while its head and updatedAt are unchanged.
 	// Zero fetches them every round.
 	ReviewThreadsTTL time.Duration
+	// PRViewClosedTTL is how long a closed (not merged) pull request's
+	// state is reused across rounds; merged results are reused until no
+	// tab references them. Zero fetches closed pull requests every round.
+	PRViewClosedTTL time.Duration
 
 	// GateIgnoreProcs are patterns for an agent's helpers (MCP and
 	// language servers, status-line commands). A plain pattern matches
@@ -325,6 +329,7 @@ func Defaults() Config {
 		TeamCoverMembersTTL:      24 * time.Hour,
 		TeamCoverCodeownersTTL:   6 * time.Hour,
 		ReviewThreadsTTL:         6 * time.Hour,
+		PRViewClosedTTL:          24 * time.Hour,
 		GateIgnoreProcs:          slices.Clone(procinfo.DefaultHelpers),
 		GateBuildTools:           slices.Clone(procinfo.DefaultBuildTools),
 		GateBuildToolIgnore:      slices.Clone(procinfo.DefaultBuildToolIgnore),
@@ -600,6 +605,8 @@ func applyOtherKey(cfg *Config, key, val string) error {
 		return err
 	case "review_threads_ttl":
 		return applyNonNegativeDuration(&cfg.ReviewThreadsTTL, key, val)
+	case "pr_view_closed_ttl":
+		return applyNonNegativeDuration(&cfg.PRViewClosedTTL, key, val)
 	case "dispatch_prompt_suffix":
 		cfg.PromptSuffix = val
 		return nil

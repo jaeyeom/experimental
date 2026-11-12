@@ -226,6 +226,12 @@
 # fetches them every round. Default 6h.
 # review_threads_ttl=6h
 
+# How long tabs --orphans reuses a closed (not merged) PR's state from
+# round-cache.json for a #N tab. Merged PRs are reused until no tab
+# references them. Go duration. 0 fetches closed PRs every round.
+# Default 24h.
+# pr_view_closed_ttl=24h
+
 # How long the same unaddressed comment ids stay deduped. Go duration.
 # 0 expires immediately. Default 24h.
 # dedupe_ttl=24h
