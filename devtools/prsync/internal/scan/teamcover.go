@@ -44,6 +44,8 @@ type teamPlan struct {
 	covered string
 	ranked  []coverCandidate
 	chosen  []coverCandidate
+	// excluded counts members left out of ranked, by excludeReason.
+	excluded map[string]int
 }
 
 // suggestTeams ranks uncovered teams and reuses a person across the
@@ -72,8 +74,10 @@ func planTeam(in coverFacts, team string) teamPlan {
 	if plan.covered != "" {
 		return plan
 	}
+	plan.excluded = map[string]int{}
 	for _, member := range plan.members {
-		if !keepCandidate(member, in) {
+		if why := excludeReason(member, in); why != "" {
+			plan.excluded[why]++
 			continue
 		}
 		plan.ranked = append(plan.ranked, scoreCandidate(member.Login, in))
@@ -84,15 +88,48 @@ func planTeam(in coverFacts, team string) teamPlan {
 	return plan
 }
 
+// excludeOrder is the order uncoveredReason lists excludeReason values in.
+var excludeOrder = []string{"unnamed", "author", "bot", "excluded login", "approved", "inactive"}
+
 func keepCandidate(member gh.TeamMember, in coverFacts) bool {
+	return excludeReason(member, in) == ""
+}
+
+// excludeReason is why member cannot be suggested, or "" when they can.
+func excludeReason(member gh.TeamMember, in coverFacts) string {
 	login := member.Login
-	if login == "" || strings.EqualFold(login, in.author) || isBotMember(member) {
-		return false
+	switch {
+	case login == "":
+		return "unnamed"
+	case strings.EqualFold(login, in.author):
+		return "author"
+	case isBotMember(member):
+		return "bot"
+	case containsFold(in.exclude, login):
+		return "excluded login"
+	case isApprover(in.reviews, login):
+		return "approved"
+	case in.inactive[strings.ToLower(login)]:
+		return "inactive"
 	}
-	if containsFold(in.exclude, login) || isApprover(in.reviews, login) {
-		return false
+	return ""
+}
+
+// uncoveredReason says why plan, an uncovered team, has no suggestion.
+func uncoveredReason(plan teamPlan) string {
+	if len(plan.members) == 0 {
+		return "no members"
 	}
-	return !in.inactive[strings.ToLower(login)]
+	if len(plan.ranked) > 0 {
+		return "no candidate chosen"
+	}
+	parts := make([]string, 0, len(plan.excluded))
+	for _, why := range excludeOrder {
+		if n := plan.excluded[why]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", n, why))
+		}
+	}
+	return fmt.Sprintf("all %s excluded (%s)", countPhrase(len(plan.members), "", "member"), strings.Join(parts, ", "))
 }
 
 func shareSuggestions(plans []teamPlan, perTeam int) {
@@ -167,6 +204,9 @@ func suggestionsFrom(plans []teamPlan, signals []string, loadOn bool) []TeamRevi
 					Login:   chosen.login,
 					Reasons: coverCandidateReasons(signals, chosen, loadOn),
 				})
+			}
+			if len(item.Suggest) == 0 {
+				item.UncoveredReason = uncoveredReason(plan)
 			}
 		}
 		out[i] = item

@@ -617,7 +617,7 @@ prsync scan --config ./prsync.config
 | ~tab_unknown~ | Present only as ~machine unreachable~, when ~tab~ is ~null~ because a configured machine could not be searched. See [[*Other herdr machines][Other herdr machines]] |
 | ~out_of_scope~ | Present only with ~--tab-machine~, when the PR belongs to another machine's run: ~tab on <m>~, ~no tab~, or ~tab may be on <m> (unreachable)~. See [[*One watcher per machine][One watcher per machine]] |
 | ~summary~ | Rollup of ~prs~. Cross-check a "nothing is local" conclusion against ~summary.tab_here~. ~uncovered_teams~ is present only when ~team_cover~ produced suggestion entries. It counts entries whose ~covered_by~ is null, including teams that failed to list members. ~0~ is included. |
-| ~team_review_suggestions~ | Omitted when ~team_cover~ is off, on a round ~team_cover_every~ skips, or when every requested team was skipped. Each entry is ~team~ (~org/slug~), ~covered_by~ (one login, or null), ~suggest~ (logins and reasons; ~[]~ when covered or failed), and ~error~ when members could not be listed. |
+| ~team_review_suggestions~ | Omitted when ~team_cover~ is off, on a round ~team_cover_every~ skips, or when every requested team was skipped. Each entry is ~team~ (~org/slug~), ~covered_by~ (one login, or null), ~suggest~ (logins and reasons; ~[]~ when covered or failed), ~error~ when members could not be listed, and ~uncovered_reason~ when an uncovered team has no suggestion: ~no members~, or ~all N members excluded (...)~ with a count per filter (author, bot, excluded login, approved, inactive). |
 
 ~team_cover~ is off by default, so the JSON above has no suggestion
 field. With it on, stdout stays JSON. Human-readable lines and one
@@ -627,6 +627,7 @@ run the hint:
 #+BEGIN_EXAMPLE
 acme/widgets#123 org/some-team: suggest alice (codeowner: src/foo/**, 3 open direct requests)
 acme/widgets#123 org/other-team: covered by bob
+acme/widgets#123 org/third-team: uncovered: all 2 members excluded (1 author, 1 inactive)
 gh pr edit 123 --repo acme/widgets --add-reviewer alice
 #+END_EXAMPLE
 
@@ -650,9 +651,9 @@ on those paths, then fewer open direct review requests
 history counts, and the open-request count.
 
 Missing ~read:org~, or a failed member list, sets that team's ~error~
-and a stderr warning. The scan continues. A search or history rate
-limit skips that signal for the rest of the run, warns, and still
-suggests from the remaining signals. An events-API error skips the
+and a stderr warning. The scan continues. Any review-request search
+failure, or a history rate limit, skips that signal for the rest of the
+run, warns, and still suggests from the remaining signals. An events-API error skips the
 activity filter instead of dropping candidates. With the feature off,
 scan does not call team members, CODEOWNERS, path history, or the
 review-request search. With it on, a round where no PR has a requested

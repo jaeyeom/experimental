@@ -92,7 +92,7 @@ func TestDirectReviewCountRateLimit(t *testing.T) {
 	t.Parallel()
 
 	mock := newGHMock()
-	mock.ExpectCommandWithArgs(testGHBin, "api", "search/issues",
+	mock.ExpectCommandWithArgs(testGHBin, "api", "search/issues", "--method", "GET",
 		"-f", "q=user-review-requested:carol org:acme is:pr is:open", "-f", "per_page=1").
 		WillFail("HTTP 403: API rate limit exceeded", 1).Once().Build()
 	_, err := NewClient(mock, testGHBin).DirectReviewCount(context.Background(), "acme", "carol")
@@ -105,13 +105,44 @@ func TestDirectReviewCount(t *testing.T) {
 	t.Parallel()
 
 	mock := newGHMock()
-	mock.ExpectCommandWithArgs(testGHBin, "api", "search/issues",
+	mock.ExpectCommandWithArgs(testGHBin, "api", "search/issues", "--method", "GET",
 		"-f", "q=user-review-requested:carol org:acme is:pr is:open", "-f", "per_page=1").
 		WillSucceed(`{"total_count":3,"items":[]}`, 0).Build()
 	got, err := NewClient(mock, testGHBin).DirectReviewCount(context.Background(), "acme", "carol")
 	if err != nil || got != 3 {
 		t.Fatalf("count=%d err=%v", got, err)
 	}
+}
+
+// GitHub's search endpoint is GET only. gh api with -f fields and no
+// --method sends a POST, which search/issues answers with 404.
+func TestDirectReviewCountSendsGET(t *testing.T) {
+	t.Parallel()
+
+	mock := newGHMock()
+	mock.ExpectCustom(func(_ context.Context, cfg executor.ToolConfig) bool {
+		return isSearchIssues(cfg.Args) && !hasGETMethod(cfg.Args)
+	}).WillFail("gh: Not Found (HTTP 404)", 1).Build()
+	mock.ExpectCustom(func(_ context.Context, cfg executor.ToolConfig) bool {
+		return isSearchIssues(cfg.Args) && hasGETMethod(cfg.Args)
+	}).WillSucceed(`{"total_count":4,"items":[]}`, 0).Build()
+	got, err := NewClient(mock, testGHBin).DirectReviewCount(context.Background(), "acme", "carol")
+	if err != nil || got != 4 {
+		t.Fatalf("count=%d err=%v, want 4 from a GET", got, err)
+	}
+}
+
+func isSearchIssues(args []string) bool {
+	return len(args) > 1 && args[0] == "api" && args[1] == "search/issues"
+}
+
+func hasGETMethod(args []string) bool {
+	for i := 0; i+1 < len(args); i++ {
+		if (args[i] == "--method" || args[i] == "-X") && strings.EqualFold(args[i+1], "GET") {
+			return true
+		}
+	}
+	return false
 }
 
 func TestPathHistoriesBatchesPaths(t *testing.T) {

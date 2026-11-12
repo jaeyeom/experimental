@@ -147,6 +147,35 @@ func TestScanTeamCoverSuggests(t *testing.T) {
 	}
 }
 
+func TestTeamCoverHintsNameUncoveredReason(t *testing.T) {
+	t.Parallel()
+
+	bob := "bob"
+	doc := scan.Document{PRs: []scan.PR{{
+		Repo:   "acme/widgets",
+		Number: 7,
+		TeamReviewSuggestions: []scan.TeamReviewSuggestion{
+			{Team: "acme/covered", CoveredBy: &bob, Suggest: []scan.SuggestedReviewer{}},
+			{Team: "acme/gone", Suggest: []scan.SuggestedReviewer{}, UncoveredReason: "all 2 members excluded (1 author, 1 inactive)"},
+			{Team: "acme/missing", Suggest: []scan.SuggestedReviewer{}, Error: "cannot list members of acme/missing: HTTP 403"},
+			{Team: "acme/live", Suggest: []scan.SuggestedReviewer{{Login: "carol", Reasons: []string{}}}},
+		},
+	}}}
+	var out bytes.Buffer
+	if err := writeTeamCoverHints(&out, doc); err != nil {
+		t.Fatal(err)
+	}
+	want := "" +
+		"acme/widgets#7 acme/covered: covered by bob\n" +
+		"acme/widgets#7 acme/gone: uncovered: all 2 members excluded (1 author, 1 inactive)\n" +
+		"acme/widgets#7 acme/missing: uncovered: cannot list members of acme/missing: HTTP 403\n" +
+		"acme/widgets#7 acme/live: suggest carol\n" +
+		"gh pr edit 7 --repo acme/widgets --add-reviewer carol\n"
+	if out.String() != want {
+		t.Fatalf("hints =\n%s\nwant\n%s", out.String(), want)
+	}
+}
+
 func TestScanHerdrMissingDegrades(t *testing.T) {
 	t.Parallel()
 
