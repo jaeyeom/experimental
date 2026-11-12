@@ -178,6 +178,38 @@ func TestClaimDoneSnooze(t *testing.T) {
 	}
 }
 
+func TestAddWatchOwnerOpensUnownedWatch(t *testing.T) {
+	p := PostRef{Channel: "C1", TS: "1700000000.000100"}
+	footer := WatchUpdate{Source: strp(SourceFooter)}
+	hook := WatchUpdate{Owner: strp("agent-1"), Purpose: strp("ask"), Refs: []string{"PR#1"}, Source: strp(SourceHook)}
+	for _, tc := range []struct {
+		name    string
+		updates []WatchUpdate
+		source  string
+	}{
+		{"footer then add", []WatchUpdate{footer, hook}, SourceHook},
+		{"add then footer", []WatchUpdate{hook, footer}, SourceFooter},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := openTestStore(t)
+			var w Watch
+			for _, u := range tc.updates {
+				var err error
+				// Both land in the same second of the fake clock.
+				if w, _, err = s.AddWatch(p, u, testNow()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if w.State != StateOpen || w.Owner != "agent-1" {
+				t.Errorf("watch = %+v, want open and owned by agent-1", w)
+			}
+			if w.Purpose != "ask" || !reflect.DeepEqual(w.Refs, []string{"PR#1"}) || w.Source != tc.source {
+				t.Errorf("watch = %+v, want purpose, refs, and source %q merged", w, tc.source)
+			}
+		})
+	}
+}
+
 func TestFindWatchMissing(t *testing.T) {
 	s := openTestStore(t)
 	if _, err := s.FindWatch(PostRef{WatchID: 9}); !errors.Is(err, ErrNoWatch) {
