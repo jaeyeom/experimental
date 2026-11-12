@@ -78,14 +78,10 @@ func (m *Model) snoozeKey(r rune) (bool, error) {
 }
 
 func (m *Model) pickSnooze(e snoozeEntry) error {
-	led, err := m.ledger()
-	if err != nil {
-		return err
-	}
 	id := m.snoozeItem.ID
 	if e.unsnooze {
 		m.snoozing = false
-		if _, err := led.Unsnooze(id); err != nil {
+		if _, err := m.store().Unsnooze(id); err != nil {
 			m.status = err.Error()
 			return nil
 		}
@@ -94,6 +90,7 @@ func (m *Model) pickSnooze(e snoozeEntry) error {
 	}
 	at := e.at
 	if e.custom {
+		var err error
 		at, err = decide.ParseSnooze(m.snoozeCustom, m.now())
 		if err != nil {
 			m.snoozeErr = err.Error()
@@ -101,7 +98,7 @@ func (m *Model) pickSnooze(e snoozeEntry) error {
 		}
 	}
 	m.snoozing = false
-	updated, err := led.Snooze(id, at)
+	updated, err := m.store().Snooze(id, at)
 	if err != nil {
 		m.status = err.Error()
 		return nil

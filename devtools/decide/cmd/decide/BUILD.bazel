@@ -7,6 +7,7 @@ go_library(
         "hub.go",
         "main.go",
         "owner.go",
+        "serve.go",
         "skill.go",
     ],
     embedsrcs = ["skill.md"],
@@ -14,6 +15,7 @@ go_library(
     visibility = ["//visibility:private"],
     deps = [
         "//devtools/decide:go_default_library",
+        "//devtools/decide/inboxrpc:go_default_library",
         "//devtools/decide/tui:go_default_library",
         "//devtools/decide/tui/avatar:go_default_library",
         "//devtools/pkg/hubcall:go_default_library",
@@ -49,8 +51,10 @@ go_test(
     tags = ["no-sandbox"],
     deps = [
         "//devtools/decide:go_default_library",
+        "//devtools/decide/tui:go_default_library",
         "//devtools/decide/tui/avatar:go_default_library",
         "//devtools/pkg/herdrtest:go_default_library",
+        "//devtools/pkg/hubcall:go_default_library",
         "//devtools/pkg/hubcall/sshtest:go_default_library",
         "@com_github_muesli_termenv//:go_default_library",
     ],

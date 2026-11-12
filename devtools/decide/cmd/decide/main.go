@@ -24,7 +24,11 @@ func main() {
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
-	if code, done := maybeRunOnHub(args, stdout, stderr); done {
+	args, remote, err := remoteFlag(args)
+	if err != nil {
+		return fail(stderr, err, 2)
+	}
+	if code, done := maybeRunOnHub(args, remote, stdout, stderr); done {
 		return code
 	}
 	return runLocal(args, stdout, stderr)
@@ -55,6 +59,8 @@ func runLocal(args []string, stdout, stderr io.Writer) int {
 		return cmdList(args[1:], stdout, stderr)
 	case "inbox":
 		return cmdInbox(args[1:], stdout, stderr)
+	case "serve":
+		return cmdServe(args[1:], stdout, stderr)
 	case "status":
 		return cmdStatus(args[1:], stdout, stderr)
 	case "targets":
@@ -88,7 +94,7 @@ func usage(w io.Writer) {
   decide answer [--json] [--via cli|ui] <id> <option|text>
   decide snooze [--json] <id> <2h30m|HH:MM|YYYY-MM-DD HH:MM|mon 9:00>
   decide unsnooze [--json] <id>
-  decide inbox [--snoozed]
+  decide [--remote <user@host>] inbox [--snoozed]
   decide status set --agent <name> [--state working|idle|paused|blocked] <text>
   decide status set --resource <name> free|busy [<note>]
   decide status list [--json]
@@ -429,15 +435,13 @@ func statusAge(d time.Duration) string {
 	}
 }
 
+// runInbox runs the inbox TUI. Tests replace it.
+var runInbox = tui.Run
+
 func cmdInbox(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("inbox", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	snoozed := fs.Bool("snoozed", false, "open on the Snoozed folder")
-	if code, stop := stopped(parseFlags(fs, args)); stop {
+	snoozed, code, ok := inboxFlags(args, stderr)
+	if !ok {
 		return code
-	}
-	if len(fs.Args()) != 0 {
-		return fail(stderr, fmt.Errorf("decide inbox does not take arguments"), 2)
 	}
 	dir, err := decide.DefaultDir()
 	if err != nil {
@@ -447,14 +451,37 @@ func cmdInbox(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
-	if err := tui.Run(tui.Options{
-		Dir:           dir,
+	opts := inboxOptions(cfg, stdout, snoozed)
+	opts.Dir = dir
+	if err := runInbox(opts); err != nil {
+		return fail(stderr, err, 1)
+	}
+	return 0
+}
+
+// inboxFlags parses the inbox flags and reports whether to go on.
+func inboxFlags(args []string, stderr io.Writer) (snoozed bool, code int, ok bool) {
+	fs := flag.NewFlagSet("inbox", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	snoozedFlag := fs.Bool("snoozed", false, "open on the Snoozed folder")
+	if code, stop := stopped(parseFlags(fs, args)); stop {
+		return false, code, false
+	}
+	if len(fs.Args()) != 0 {
+		return false, fail(stderr, fmt.Errorf("decide inbox does not take arguments"), 2), false
+	}
+	return *snoozedFlag, 0, true
+}
+
+// inboxOptions are the inbox settings from this machine's config.
+func inboxOptions(cfg decide.Config, stdout io.Writer, snoozed bool) tui.Options {
+	return tui.Options{
 		In:            os.Stdin,
 		Out:           stdout,
 		Targets:       inboxTargets(cfg),
 		SendTemplate:  cfg.SendTemplate,
 		Agentbus:      cfg.Recipients.Agentbus,
-		Snoozed:       *snoozed,
+		Snoozed:       snoozed,
 		Avatars:       cfg.Avatars,
 		AvatarDefault: cfg.AvatarDefault,
 		AvatarMono:    cfg.AvatarMono,
@@ -462,10 +489,7 @@ func cmdInbox(args []string, stdout, stderr io.Writer) int {
 		Machine:       decide.LocalMachine(cfg),
 		OpenCommand:   cfg.OpenCommand,
 		NoHyperlinks:  !cfg.HyperlinksOn(),
-	}); err != nil {
-		return fail(stderr, err, 1)
 	}
-	return 0
 }
 
 func inboxTargets(cfg decide.Config) []tui.Target {

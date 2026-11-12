@@ -43,6 +43,9 @@ type Options struct {
 	OpenCommand []string
 	// NoHyperlinks drops the OSC 8 hyperlinks around URLs.
 	NoHyperlinks bool
+	// Backend replaces the local ledger in Dir, such as the hub's in
+	// hub mode. It is reloaded off the update loop.
+	Backend Backend
 }
 
 // Run draws the inbox until q or EOF. It reloads the ledger on Interval,
@@ -113,6 +116,10 @@ func prepare(opts Options) (*Model, error) {
 	m.Machine = opts.Machine
 	m.OpenCommand = opts.OpenCommand
 	m.NoHyperlinks = opts.NoHyperlinks
+	if opts.Backend != nil {
+		m.backend = opts.Backend
+		m.asyncReload = true
+	}
 	m.avatarProfile = termenv.NewOutput(opts.Out).EnvColorProfile()
 	if opts.Now != nil {
 		m.Now = opts.Now

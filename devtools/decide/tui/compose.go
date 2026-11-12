@@ -131,48 +131,13 @@ func (m *Model) sendNote() error {
 		m.status = "no compose target"
 		return nil
 	}
-	text := m.note
-	if tg.Bus {
-		return m.sendBus(tg, text)
-	}
-	// The thread id has to exist before the pane note is built.
-	item, err := m.recordThread(tg, text)
-	if err != nil {
-		m.status = err.Error()
-		return nil
-	}
-	note := decide.DeliveryNote(item.ID, "human", text)
-	if m.forward != "" {
-		note = decide.ForwardNote(item.ID, m.forward, "human", text)
-	}
-	argv := decide.SendArgv(m.SendTemplate, tg.Pane, note)
-	send := m.runSend
-	if send == nil {
-		send = decide.RunSend
-	}
-	if err := send(argv); err != nil {
-		m.status = err.Error()
-		return nil
-	}
-	if err := decide.AppendSend(m.Dir, tg.Name, tg.Pane, text); err != nil {
+	if err := m.store().Send(m.forward, tg, m.note); err != nil {
 		m.status = err.Error()
 		return nil
 	}
 	m.clearNote()
 	m.status = "sent to " + tg.Name
 	return nil
-}
-
-func (m *Model) recordThread(tg Target, text string) (decide.Item, error) {
-	led, err := decide.Open(m.Dir)
-	if err != nil {
-		return decide.Item{}, fmt.Errorf("open decide ledger: %w", err)
-	}
-	item, err := led.ForwardThread(m.forward, tg.Name, tg.Pane, text)
-	if err != nil {
-		return decide.Item{}, fmt.Errorf("store decide thread: %w", err)
-	}
-	return item, nil
 }
 
 // forwardItem opens compose on the viewed item with its context quoted.

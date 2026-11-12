@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/jaeyeom/experimental/devtools/decide"
+	"github.com/jaeyeom/experimental/devtools/decide/tui"
+	"github.com/jaeyeom/experimental/devtools/pkg/hubcall"
 	"github.com/jaeyeom/experimental/devtools/pkg/hubcall/sshtest"
 )
 
@@ -86,15 +88,136 @@ func TestHubUnreachableNeverFallsBack(t *testing.T) {
 	assertNoLocalState(t, state)
 }
 
-func TestHubInboxRefuses(t *testing.T) {
-	fake, _ := setupHub(t, `{"hub": "me@hub"}`)
+// hubDecide puts a decide on PATH for the fake ssh that is this test
+// binary with its own hub state and config, so `decide serve --stdio`
+// runs for real on a separate ledger. It returns the hub's ledger
+// directory and the directory of the script, which records its args.
+func hubDecide(t *testing.T, hubConfig string) (string, string) {
+	t.Helper()
+	bin := t.TempDir()
+	hubState, hubCfg := t.TempDir(), t.TempDir()
+	if err := os.MkdirAll(filepath.Join(hubCfg, "decide"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hubCfg, "decide", "config.json"), []byte(hubConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\n" +
+		"unset DECIDE_HUB\n" +
+		"export DECIDE_TEST_CHILD=1 XDG_STATE_HOME=" + hubcall.Quote(hubState) + " XDG_CONFIG_HOME=" + hubcall.Quote(hubCfg) + "\n" +
+		`printf '%s\n' "$@" > ` + hubcall.Quote(filepath.Join(bin, "args")) + "\n" +
+		"exec " + hubcall.Quote(self) + ` "$@"` + "\n"
+	if err := os.WriteFile(filepath.Join(bin, "decide"), []byte(script), 0o755); err != nil { //nolint:gosec // an executable test script
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return filepath.Join(hubState, "decide"), bin
+}
+
+// stubInbox replaces the TUI and returns the options it was run with.
+func stubInbox(t *testing.T, check func(tui.Options)) *tui.Options {
+	t.Helper()
+	var got tui.Options
+	prev := runInbox
+	runInbox = func(opts tui.Options) error {
+		got = opts
+		if check != nil {
+			check(opts)
+		}
+		return nil
+	}
+	t.Cleanup(func() { runInbox = prev })
+	return &got
+}
+
+func TestHubInboxRunsLocallyAgainstTheHub(t *testing.T) {
+	_, state := setupHub(t, `{"hub": "me@hub", "machine": "mac", "hubMachine": "hub"}`)
+	hubDir, bin := hubDecide(t, `{"targets": [{"name": "builder", "pane": "w2:p3"}]}`)
+	led, err := decide.Open(hubDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := led.Create(&decide.Item{Question: "ship?", Owner: "ada", Kind: decide.KindRelay, State: decide.StateOpen, Options: []decide.Option{{Key: "y", Label: "Yes"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := stubInbox(t, func(opts tui.Options) {
+		items, err := opts.Backend.List()
+		if err != nil || len(items) != 1 || items[0].ID != item.ID {
+			t.Errorf("hub list = %+v, %v", items, err)
+		}
+		if _, err := opts.Backend.Answer(item.ID, "y"); err != nil {
+			t.Errorf("hub answer: %v", err)
+		}
+	})
 	var stderr bytes.Buffer
-	code := run([]string{"inbox"}, &bytes.Buffer{}, &stderr)
-	if code == 0 || !strings.Contains(stderr.String(), "run decide inbox there") {
+	if code := run([]string{"inbox"}, &bytes.Buffer{}, &stderr); code != 0 {
 		t.Fatalf("inbox = %d, stderr %q", code, stderr.String())
 	}
-	if fake.Read("argv") != "" {
-		t.Fatal("inbox ran ssh")
+	if opts.Backend == nil || len(opts.Targets) != 1 || opts.Targets[0].Name != "builder" {
+		t.Fatalf("options = %+v", opts)
+	}
+	got, err := led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Answer == nil || got.Answer.Via != decide.ViaUI {
+		t.Fatalf("hub answer = %+v", got.Answer)
+	}
+	if args, _ := os.ReadFile(filepath.Join(bin, "args")); string(args) != "serve\n--stdio\n" {
+		t.Fatalf("hub ran decide %q", args)
+	}
+	assertNoLocalState(t, state)
+}
+
+func TestHubInboxUnreachableFailsAtStart(t *testing.T) {
+	fake, state := setupHub(t, `{"hub": "me@hub", "hubTimeout": "1s"}`)
+	fake.Write("down", "")
+	fake.Unreachable()
+	stubInbox(t, func(tui.Options) { t.Error("the inbox started without the hub") })
+	var stderr bytes.Buffer
+	code := run([]string{"inbox"}, &bytes.Buffer{}, &stderr)
+	if code == 0 || !strings.Contains(stderr.String(), "hub me@hub unreachable") {
+		t.Fatalf("inbox = %d, stderr %q", code, stderr.String())
+	}
+	assertNoLocalState(t, state)
+}
+
+func TestInboxWithoutAHubUsesTheLocalLedger(t *testing.T) {
+	t.Setenv("DECIDE_HUB", "")
+	opts := stubInbox(t, nil)
+	var stderr bytes.Buffer
+	if code := run([]string{"inbox", "--snoozed"}, &bytes.Buffer{}, &stderr); code != 0 {
+		t.Fatalf("inbox = %d, stderr %q", code, stderr.String())
+	}
+	dir, _ := decide.DefaultDir()
+	if opts.Backend != nil || opts.Dir != dir || !opts.Snoozed {
+		t.Fatalf("options = %+v", opts)
+	}
+}
+
+func TestRemoteOverridesTheHubForOneInvocation(t *testing.T) {
+	fake, _ := setupHub(t, `{"hub": "me@config"}`)
+	t.Setenv("DECIDE_HUB", "me@env")
+	var stderr bytes.Buffer
+	if code := run([]string{"--remote", "me@hub", "show", "D-1"}, &bytes.Buffer{}, &stderr); code != 0 {
+		t.Fatalf("show = %d, stderr %q", code, stderr.String())
+	}
+	if argv := fake.Lines("argv"); !slices.Contains(argv, "me@hub") || slices.Contains(argv, "me@env") {
+		t.Fatalf("ssh argv = %q", argv)
+	}
+	if got := fake.Lines("decide.args"); !slices.Equal(got, []string{"show", "D-1"}) {
+		t.Fatalf("hub args = %q", got)
+	}
+	if code := run([]string{"--remote=me@other", "list"}, &bytes.Buffer{}, &stderr); code != 0 || !slices.Contains(fake.Lines("argv"), "me@other") {
+		t.Fatalf("--remote= = %d, argv %q", code, fake.Lines("argv"))
+	}
+	if code := run([]string{"--remote"}, &bytes.Buffer{}, &stderr); code != 2 {
+		t.Fatalf("--remote without a target = %d", code)
 	}
 }
 
