@@ -17,6 +17,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/github"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/rcamarker"
+	"github.com/jaeyeom/experimental/devtools/pkg/ghcli"
 )
 
 const logTailLines = 20
@@ -1185,7 +1186,7 @@ func firstRemoteName(output string) string {
 }
 
 func ownerRepoFromGH() (string, error) {
-	out, err := runCommand("gh", "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner")
+	out, err := runCommand(ghcli.Bin(), "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner")
 	if err != nil {
 		return "", fmt.Errorf("resolve repository from gh repo view: %w", err)
 	}

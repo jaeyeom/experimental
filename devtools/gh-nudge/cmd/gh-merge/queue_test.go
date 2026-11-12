@@ -3210,6 +3210,22 @@ func withCommandStub(t *testing.T, fn func(string, ...string) (string, error)) {
 	t.Cleanup(func() { runCommand = prev })
 }
 
+func TestOwnerRepoFromGHUsesGHBin(t *testing.T) {
+	t.Setenv("GH_BIN", "/opt/bin/gh-throttle")
+	var gotName string
+	withCommandStub(t, func(name string, _ ...string) (string, error) {
+		gotName = name
+		return "acme/widgets\n", nil
+	})
+	got, err := ownerRepoFromGH()
+	if err != nil {
+		t.Fatalf("ownerRepoFromGH: %v", err)
+	}
+	if got != "acme/widgets" || gotName != "/opt/bin/gh-throttle" {
+		t.Fatalf("got %q via %q, want acme/widgets via /opt/bin/gh-throttle", got, gotName)
+	}
+}
+
 func TestRCAPostsMarkerForLatestRemoval(t *testing.T) {
 	path := writeRCAFile(t, "Investigated the reset.\n")
 	pr := readyPR()

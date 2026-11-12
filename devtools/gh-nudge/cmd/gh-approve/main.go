@@ -91,7 +91,7 @@ func run(configPath string, opts approve.Options) (err error) {
 		}
 	}()
 	runner := &approve.Runner{
-		Client: github.NewClient(context.Background(), executor.NewBasicExecutor()),
+		Client: github.NewClient(context.Background(), github.GHExecutor(executor.NewBasicExecutor())),
 		Config: cfg.Approve,
 		Out:    os.Stdout,
 		Log:    logFile,

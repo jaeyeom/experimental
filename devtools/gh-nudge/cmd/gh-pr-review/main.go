@@ -34,7 +34,7 @@ func newCommandHandler(storageHome string) (*prreview.CommandHandler, error) {
 
 	// Initialize executor and context
 	ctx := context.Background()
-	exec := executor.NewBasicExecutor()
+	exec := github.GHExecutor(executor.NewBasicExecutor())
 
 	// Initialize GitHub client
 	baseClient := github.NewClient(ctx, exec)
@@ -57,7 +57,7 @@ const (
 // autoDetectOwnerRepo gets the default owner/repo using gh CLI.
 func autoDetectOwnerRepo() (string, error) {
 	ctx := context.Background()
-	exec := executor.NewBasicExecutor()
+	exec := github.GHExecutor(executor.NewBasicExecutor())
 
 	output, err := executor.Output(ctx, exec, "gh", "repo", "set-default", "-v")
 	if err != nil {
@@ -70,7 +70,7 @@ func autoDetectOwnerRepo() (string, error) {
 // autoDetectIdentifier gets the PR number if available, optionally falls back to current branch.
 func autoDetectIdentifier(prOnly bool) (string, error) {
 	ctx := context.Background()
-	exec := executor.NewBasicExecutor()
+	exec := github.GHExecutor(executor.NewBasicExecutor())
 
 	// Try to get PR number first
 	if output, err := executor.Output(ctx, exec, "gh", "pr", "view", "--json", "number", "-t", "{{.number}}"); err == nil {

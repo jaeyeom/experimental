@@ -63,7 +63,7 @@ func getNotificationPath() (string, error) {
 func initializeClients(cfg *config.Config) (*github.Client, *slack.Client) {
 	// Initialize GitHub client
 	ctx := context.Background()
-	exec := executor.NewBasicExecutor()
+	exec := github.GHExecutor(executor.NewBasicExecutor())
 	githubClient := github.NewClient(ctx, exec)
 
 	// Initialize Slack client with appropriate MessagePoster

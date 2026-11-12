@@ -1021,8 +1021,39 @@ func isolateConfigEnv(t *testing.T) (home, cwd string) {
 	cwd = t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("BUILD_WORKING_DIRECTORY", "")
+	t.Setenv("GH_BIN", "")
 	t.Chdir(cwd)
 	return home, cwd
+}
+
+func TestLoadGHBinPrecedence(t *testing.T) {
+	tests := []struct {
+		name   string
+		env    string
+		config string
+		want   string
+	}{
+		{name: "default", want: "gh"},
+		{name: "GH_BIN wins over default", env: "/opt/bin/gh-throttle", want: "/opt/bin/gh-throttle"},
+		{name: "gh_bin wins over GH_BIN", env: "/opt/bin/gh-throttle", config: "gh_bin=/usr/local/bin/gh\n", want: "/usr/local/bin/gh"},
+		{name: "gh_bin without GH_BIN", config: "gh_bin=/usr/local/bin/gh\n", want: "/usr/local/bin/gh"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, cwd := isolateConfigEnv(t)
+			t.Setenv("GH_BIN", tt.env)
+			if tt.config != "" {
+				mustWrite(t, filepath.Join(cwd, "prsync.config"), tt.config)
+			}
+			got, err := Load("")
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if got.GHBin != tt.want {
+				t.Fatalf("GHBin = %q, want %q", got.GHBin, tt.want)
+			}
+		})
+	}
 }
 
 func mustWrite(t *testing.T, path, body string) {

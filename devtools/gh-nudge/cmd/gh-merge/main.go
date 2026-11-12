@@ -559,7 +559,7 @@ func main() {
 
 	// Initialize GitHub client
 	ctx := context.Background()
-	exec := executor.NewBasicExecutor()
+	exec := github.GHExecutor(executor.NewBasicExecutor())
 	githubClient := github.NewClient(ctx, exec)
 
 	// Determine command
