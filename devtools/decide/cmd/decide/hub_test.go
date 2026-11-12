@@ -145,7 +145,9 @@ func TestHubInboxRunsLocallyAgainstTheHub(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var display tui.Display
 	opts := stubInbox(t, func(opts tui.Options) {
+		display, _ = opts.Display.Display()
 		items, err := opts.Backend.List()
 		if err != nil || len(items) != 1 || items[0].ID != item.ID {
 			t.Errorf("hub list = %+v, %v", items, err)
@@ -158,8 +160,8 @@ func TestHubInboxRunsLocallyAgainstTheHub(t *testing.T) {
 	if code := run([]string{"inbox"}, &bytes.Buffer{}, &stderr); code != 0 {
 		t.Fatalf("inbox = %d, stderr %q", code, stderr.String())
 	}
-	if opts.Backend == nil || len(opts.Targets) != 1 || opts.Targets[0].Name != "builder" {
-		t.Fatalf("options = %+v", opts)
+	if opts.Backend == nil || len(display.Targets) != 1 || display.Targets[0].Name != "builder" {
+		t.Fatalf("options = %+v, display %+v", opts, display)
 	}
 	got, err := led.Get(item.ID)
 	if err != nil {

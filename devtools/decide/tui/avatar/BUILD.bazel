@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "avatar.go",
         "builtin.go",
+        "overlay.go",
     ],
     embedsrcs = [
         "builtin/bee.txt",
@@ -65,6 +66,7 @@ go_test(
     srcs = [
         "avatar_test.go",
         "builtin_test.go",
+        "overlay_test.go",
     ],
     data = glob(["testdata/**"]),
     embed = [":go_default_library"],

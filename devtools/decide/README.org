@@ -563,7 +563,8 @@ JSON request per line, such as ~{"id":3,"op":"answer","item":"D-1","text":"a"}~,
 and writes one response per line with the same ~id~. It covers every
 call the inbox makes: list, show, mark read, answer (recorded with
 ~via: ui~), reply, done, archive, withdraw, snooze and unsnooze, the
-status board, targets and agentbus names, send, and the owner location.
+status board, targets and agentbus names, send, the owner location, and
+the hub's display settings (~config~, below).
 Ledger writes, notify commands, compose sends, and the status board's
 checkout leases all run on the hub with the hub's config, as with the
 CLI. The local ledger is never read or created. A hub whose ~decide~
@@ -607,3 +608,47 @@ a locked key cannot hang it. A hub that cannot be reached fails with
 TCP connect to its SSH port fails, or with
 ~... unreachable: authentication locked (unlock your SSH/gpg agent)~
 when the host answers.
+
+*** Display settings from the hub
+
+The inbox takes its display settings from the hub, so a fresh client
+shows the hub's avatars and recipients without copying its config. At
+connect, and again on each reconnect, it asks the hub for its display
+keys:
+
+- ~avatars~, ~avatarDefault~, ~avatarMono~
+- ~recipients~, ~recipientsTimeout~, ~targets~
+- ~hyperlinks~
+
+An allowlist decides which keys these are; a key not on it is never
+sent. Machine keys (~hub~, ~hubTimeout~, ~machine~, ~hubMachine~,
+~openCommand~, ~checkouts~), the notify and send templates,
+~notifyPane~, ~optionsOnly~, and ~colors~ stay on each machine.
+
+The merge is per top-level key, and the client wins: a key set in this
+machine's config keeps its local value, and every other display key
+takes the hub's. To stop following the hub for a key, set it locally,
+for example ~"avatarDefault": false~. ~avatars~ is one key: a local
+~avatars~ list replaces the hub's whole list, rule for rule. A local
+~targets~ list is what compose offers, and the hub still looks each
+name up in its own ~targets~ when it sends.
+
+A hub avatar rule with ~file~ names a file on the hub. The hub reads it
+and sends its bytes with the settings, up to 256 KB per file; the path
+itself is never sent. The client keeps the bytes in memory for the
+session and renders them with its own terminal profile. A file the hub
+cannot read, or one over the limit, is hidden, and the status line says
+why once.
+
+At start the status line says, for example,
+~display settings: hub (3 keys), local overrides: avatarDefault~.
+~decide config show --effective~, run on the client, prints the merged
+settings: one line per key with its source (~local~ or ~hub~) and its
+value, tab-separated. Without ~--effective~, or without a hub, it
+prints this machine's config the same way.
+
+#+begin_example
+avatarDefault	local	false
+avatars	hub	[{"match":"ada","file":"hub:0.png"}]
+hub	local	"me@hub"
+#+end_example

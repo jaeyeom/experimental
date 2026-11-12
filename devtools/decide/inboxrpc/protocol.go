@@ -16,8 +16,9 @@ import (
 	"github.com/jaeyeom/experimental/devtools/decide/tui"
 )
 
-// Version is the protocol version hello returns.
-const Version = 1
+// Version is the protocol version hello returns. Version 2 added
+// config.
+const Version = 2
 
 // Ops. Archive is done with the outcome "archived".
 const (
@@ -37,6 +38,7 @@ const (
 	OpBusList  = "bus-list"
 	OpSend     = "send"
 	OpLocate   = "locate"
+	OpConfig   = "config"
 )
 
 // Request is one line from the client. Item is the item id. Text is the
@@ -55,19 +57,21 @@ type Request struct {
 
 // Response is one line from the server. Error fails the request.
 // NotifyError is a write that was stored whose notification failed.
-// Output is the raw `agentbus list --json` of bus-list.
+// Output is the raw `agentbus list --json` of bus-list. Display is the
+// hub's display settings, from config.
 type Response struct {
-	ID          int64                 `json:"id"`
-	Error       string                `json:"error,omitempty"`
-	NotifyError string                `json:"notifyError,omitempty"`
-	Version     int                   `json:"version,omitempty"`
-	Item        *decide.Item          `json:"item,omitempty"`
-	Items       []decide.Item         `json:"items,omitempty"`
-	Status      *tui.StatusBoard      `json:"status,omitempty"`
-	Targets     []decide.ConfigTarget `json:"targets,omitempty"`
-	Agentbus    bool                  `json:"agentbus,omitempty"`
-	Output      string                `json:"output,omitempty"`
-	Location    *decide.OwnerLocation `json:"location,omitempty"`
+	ID          int64                   `json:"id"`
+	Error       string                  `json:"error,omitempty"`
+	NotifyError string                  `json:"notifyError,omitempty"`
+	Version     int                     `json:"version,omitempty"`
+	Item        *decide.Item            `json:"item,omitempty"`
+	Items       []decide.Item           `json:"items,omitempty"`
+	Status      *tui.StatusBoard        `json:"status,omitempty"`
+	Targets     []decide.ConfigTarget   `json:"targets,omitempty"`
+	Agentbus    bool                    `json:"agentbus,omitempty"`
+	Output      string                  `json:"output,omitempty"`
+	Location    *decide.OwnerLocation   `json:"location,omitempty"`
+	Display     *decide.DisplaySettings `json:"display,omitempty"`
 }
 
 // writeOps change the ledger or send something. While the hub is

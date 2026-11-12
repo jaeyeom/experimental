@@ -17,11 +17,13 @@ import (
 const maxLine = 64 << 20
 
 // Server answers inbox requests against Backend, the hub's own ledger.
-// Targets and Agentbus are the hub's compose recipients.
+// Targets and Agentbus are the hub's compose recipients. Display
+// returns the hub's display settings for config; nil sends none.
 type Server struct {
 	Backend  *tui.LocalBackend
 	Targets  []decide.ConfigTarget
 	Agentbus bool
+	Display  func() (decide.DisplaySettings, error)
 }
 
 // Serve answers each request line from r on w until r ends. Requests
@@ -85,6 +87,8 @@ func (s *Server) handle(ctx context.Context, req Request) Response {
 		return Response{Targets: s.Targets, Agentbus: s.Agentbus}
 	case OpBusList:
 		return s.busList(ctx)
+	case OpConfig:
+		return s.config()
 	case OpSend:
 		return s.send(req)
 	case OpLocate:
@@ -123,6 +127,17 @@ func (s *Server) itemOp(req Request) (Response, bool) {
 		return Response{}, false
 	}
 	return itemResponse(op()), true
+}
+
+func (s *Server) config() Response {
+	var settings decide.DisplaySettings
+	if s.Display != nil {
+		var err error
+		if settings, err = s.Display(); err != nil {
+			return failed(err)
+		}
+	}
+	return Response{Display: &settings}
 }
 
 func (s *Server) busList(ctx context.Context) Response {

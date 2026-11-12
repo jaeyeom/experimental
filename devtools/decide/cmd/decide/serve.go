@@ -26,7 +26,7 @@ func cmdHubInbox(settings hubSettings, args []string, stdout, stderr io.Writer) 
 	if !ok {
 		return code
 	}
-	cfg, err := decide.LoadConfig()
+	local, err := decide.LoadConfigFile()
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
@@ -40,15 +40,12 @@ func cmdHubInbox(settings hubSettings, args []string, stdout, stderr io.Writer) 
 		return fail(stderr, err, 1)
 	}
 	defer client.Close()
-	targets, agentbus, err := client.Targets()
-	if err != nil {
-		return fail(stderr, err, 1)
-	}
-	opts := inboxOptions(cfg, stdout, snoozed)
+	opts := inboxOptions(local.Config, stdout, snoozed)
 	opts.Backend = client
 	opts.Interval = hubInterval
-	opts.Targets = targets
-	opts.Agentbus = agentbus
+	// The hub's display settings fill the keys this config does not
+	// set, at start and after each reconnect.
+	opts.Display = &hubDisplay{local: local, fetch: client.Display}
 	opts.BusRunner = client.BusRunner
 	// The hub's own config maps its checkouts on the status board.
 	opts.Checkouts = nil
@@ -88,6 +85,13 @@ func cmdServe(args []string, stdout, stderr io.Writer) int {
 		},
 		Targets:  cfg.Targets,
 		Agentbus: cfg.Recipients.Agentbus,
+		Display: func() (decide.DisplaySettings, error) {
+			f, err := decide.LoadConfigFile()
+			if err != nil {
+				return decide.DisplaySettings{}, err //nolint:wrapcheck // LoadConfigFile names the config
+			}
+			return f.Display(), nil
+		},
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), unix.SIGINT, unix.SIGTERM)
 	defer stop()
