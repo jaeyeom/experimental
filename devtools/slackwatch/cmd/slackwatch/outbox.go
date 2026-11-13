@@ -75,6 +75,14 @@ func (r readTokenReader) Message(ctx context.Context, channel, ts, threadTS stri
 	return slackReader{api: api}.Message(ctx, channel, ts, threadTS)
 }
 
+func (r readTokenReader) Recent(ctx context.Context, channel, threadTS, oldest string) ([]slackwatch.Message, error) {
+	api, err := readClient(r.cfg)
+	if err != nil {
+		return nil, err
+	}
+	return slackReader{api: api}.Recent(ctx, channel, threadTS, oldest)
+}
+
 func readClient(cfg slackwatch.Config) (*slack.Client, error) {
 	if err := slackwatch.CheckTokenFile(cfg.TokenFile); err != nil {
 		return nil, err //nolint:wrapcheck // Already descriptive.
@@ -232,7 +240,7 @@ func cmdPost(configPath string, args []string, stdout, stderr io.Writer) int {
 
 func cmdOutbox(configPath string, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		return usageErr(stderr, errors.New("outbox needs ls, show, posted, recheck, poke, or cancel"))
+		return usageErr(stderr, errors.New("outbox needs ls, show, posted, recheck, poke, cancel, or retry"))
 	}
 	sub, ok := map[string]func(string, []string, io.Writer, io.Writer) int{
 		"ls":      cmdOutboxLs,
@@ -241,9 +249,10 @@ func cmdOutbox(configPath string, args []string, stdout, stderr io.Writer) int {
 		"recheck": cmdOutboxRecheck,
 		"poke":    cmdOutboxPoke,
 		"cancel":  cmdOutboxCancel,
+		"retry":   cmdOutboxRetry,
 	}[args[0]]
 	if !ok {
-		return usageErr(stderr, fmt.Errorf("unknown outbox command %q; want ls, show, posted, recheck, poke, or cancel", args[0]))
+		return usageErr(stderr, fmt.Errorf("unknown outbox command %q; want ls, show, posted, recheck, poke, cancel, or retry", args[0]))
 	}
 	return sub(configPath, args[1:], stdout, stderr)
 }
@@ -477,6 +486,28 @@ func cmdOutboxCancel(configPath string, args []string, stdout, stderr io.Writer)
 			return err //nolint:wrapcheck // Already descriptive.
 		}
 		fmt.Fprintf(stdout, "outbox %d cancelled\n", r.ID)
+		return nil
+	})
+}
+
+func cmdOutboxRetry(configPath string, args []string, stdout, stderr io.Writer) int {
+	pos, err := parseInterspersed(newFlagSet("outbox retry", stderr), args)
+	if err != nil {
+		return 2
+	}
+	if len(pos) != 1 {
+		return usageErr(stderr, errors.New("outbox retry needs one outbox id"))
+	}
+	id, err := outboxID(pos[0])
+	if err != nil {
+		return usageErr(stderr, err)
+	}
+	return withOutbox(configPath, stderr, func(o *slackwatch.Outbox) error {
+		r, err := o.Retry(context.Background(), id)
+		if err != nil {
+			return err //nolint:wrapcheck // Already descriptive.
+		}
+		fmt.Fprintf(stdout, "outbox %d %s\n", r.ID, r.State)
 		return nil
 	})
 }

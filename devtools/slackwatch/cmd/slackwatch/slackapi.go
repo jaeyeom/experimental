@@ -121,6 +121,64 @@ func (r slackReader) Message(ctx context.Context, channel, ts, threadTS string) 
 	return slackwatch.Message{}, fmt.Errorf("message %s %s not found", channel, ts)
 }
 
+// Recent lists messages at channel since oldest. A threadTS selects
+// conversations.replies; otherwise conversations.history. Unlike History
+// and Replies, every message is returned, including subtypes, so a post
+// that already landed can be matched.
+func (r slackReader) Recent(ctx context.Context, channel, threadTS, oldest string) ([]slackwatch.Message, error) {
+	msgs, err := r.recentMessages(ctx, channel, threadTS, oldest)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]slackwatch.Message, 0, len(msgs))
+	for _, m := range msgs {
+		out = append(out, slackwatch.Message{
+			Channel: channel, TS: m.Timestamp, ThreadTS: m.ThreadTimestamp,
+			User: messageAuthor(m.User, m.BotID), Text: m.Text,
+		})
+	}
+	return out, nil
+}
+
+func (r slackReader) recentMessages(ctx context.Context, channel, threadTS, oldest string) ([]slack.Message, error) {
+	if threadTS != "" {
+		return r.replyMessages(ctx, channel, threadTS, oldest)
+	}
+	return r.historyMessages(ctx, channel, oldest)
+}
+
+func (r slackReader) historyMessages(ctx context.Context, channel, oldest string) ([]slack.Message, error) {
+	p := &slack.GetConversationHistoryParameters{ChannelID: channel, Oldest: oldest, Limit: pageLimit}
+	var out []slack.Message
+	for {
+		res, err := r.api.GetConversationHistoryContext(ctx, p)
+		if err != nil {
+			return nil, apiError("conversations.history", err)
+		}
+		out = append(out, res.Messages...)
+		if !res.HasMore || res.ResponseMetaData.NextCursor == "" {
+			return out, nil
+		}
+		p.Cursor = res.ResponseMetaData.NextCursor
+	}
+}
+
+func (r slackReader) replyMessages(ctx context.Context, channel, threadTS, oldest string) ([]slack.Message, error) {
+	p := &slack.GetConversationRepliesParameters{ChannelID: channel, Timestamp: threadTS, Oldest: oldest, Limit: pageLimit}
+	var out []slack.Message
+	for {
+		msgs, more, next, err := r.api.GetConversationRepliesContext(ctx, p)
+		if err != nil {
+			return nil, apiError("conversations.replies", err)
+		}
+		out = append(out, msgs...)
+		if !more || next == "" {
+			return out, nil
+		}
+		p.Cursor = next
+	}
+}
+
 func apiError(method string, err error) error {
 	if rl, ok := errors.AsType[*slack.RateLimitedError](err); ok {
 		return &slackwatch.RateLimitError{RetryAfter: rl.RetryAfter}

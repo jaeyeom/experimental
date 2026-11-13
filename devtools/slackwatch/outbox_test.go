@@ -103,6 +103,10 @@ type fakeWriter struct {
 
 type fakePost struct{ token, channel, thread, text string }
 
+// postedBody is the direct-mode body: the approved text, a blank line,
+// and the footer.
+func postedBody() string { return approvedText + "\n\n" + footerText }
+
 func (w *fakeWriter) AuthTest(_ context.Context, _ string) (AuthInfo, error) {
 	w.auths++
 	return AuthInfo{UserID: w.user, URL: "https://x.slack.com/"}, nil
@@ -116,10 +120,14 @@ func (w *fakeWriter) PostMessage(_ context.Context, token, channel, thread, text
 	return fmt.Sprintf("1700000100.%06d", len(w.posts)), nil
 }
 
-// fakeReader returns one canned message.
+// fakeReader returns one canned message and a canned recent history.
 type fakeReader struct {
-	msg   Message
-	calls int
+	msg         Message
+	calls       int
+	recent      []Message
+	recentErr   error
+	recentCalls int
+	oldest      string
 }
 
 func (r *fakeReader) Message(_ context.Context, channel, ts, _ string) (Message, error) {
@@ -127,6 +135,23 @@ func (r *fakeReader) Message(_ context.Context, channel, ts, _ string) (Message,
 	m := r.msg
 	m.Channel, m.TS = channel, ts
 	return m, nil
+}
+
+func (r *fakeReader) Recent(_ context.Context, channel, threadTS, oldest string) ([]Message, error) {
+	r.recentCalls++
+	r.oldest = oldest
+	if r.recentErr != nil {
+		return nil, r.recentErr
+	}
+	out := make([]Message, 0, len(r.recent))
+	for _, m := range r.recent {
+		m.Channel = channel
+		if threadTS != "" {
+			m.ThreadTS = threadTS
+		}
+		out = append(out, m)
+	}
+	return out, nil
 }
 
 const (
@@ -1396,5 +1421,212 @@ func TestDecideCLI(t *testing.T) {
 	}
 	if fmt.Sprint(calls) != fmt.Sprint(want) {
 		t.Errorf("calls = %q\nwant %q", calls, want)
+	}
+}
+
+// failedDirect is a direct-mode record whose post failed, with the
+// writer ready for another attempt.
+func failedDirect(t *testing.T) (*outboxFixture, OutboxRecord) {
+	t.Helper()
+	f := newOutboxFixture(t, PostModeDirect)
+	f.writer.err = errors.New("not_in_channel")
+	r := f.submit(t)
+	f.dec.answer(r.DecideID, uiPost)
+	f.poll(t)
+	f.writer.err = nil
+	if got := f.get(t, r.ID); got.State != OutboxFailed {
+		t.Fatalf("state = %s, want failed", got.State)
+	}
+	return f, f.get(t, r.ID)
+}
+
+func TestRetryPostsOnce(t *testing.T) {
+	f, r := failedDirect(t)
+	f.reader.msg = Message{User: expectUser, Text: postedBody()}
+	got, err := f.ob.Retry(context.Background(), r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != OutboxPosted || len(f.writer.posts) != 1 || f.reader.calls != 1 {
+		t.Fatalf("state %s posts %d read-backs %d", got.State, len(f.writer.posts), f.reader.calls)
+	}
+	if f.writer.posts[0].text != postedBody() || f.writer.posts[0].channel != "C1" {
+		t.Errorf("post = %+v", f.writer.posts[0])
+	}
+	if _, err := f.ob.Retry(context.Background(), r.ID); err == nil || !strings.Contains(err.Error(), OutboxPosted) {
+		t.Fatalf("second retry err = %v", err)
+	}
+	if len(f.writer.posts) != 1 || f.get(t, r.ID).State != OutboxPosted {
+		t.Errorf("second retry posted again: %d posts, state %s", len(f.writer.posts), f.get(t, r.ID).State)
+	}
+}
+
+func TestRetryRefusesChangedHash(t *testing.T) {
+	f, r := failedDirect(t)
+	if _, err := f.store.DB().Exec(`UPDATE outbox SET text = ? WHERE id = ?`, "tampered", r.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, err := f.ob.Retry(context.Background(), r.ID)
+	if err == nil || !strings.Contains(err.Error(), "hash") {
+		t.Fatalf("err = %v", err)
+	}
+	if got := f.get(t, r.ID); got.State != OutboxFailed || len(f.writer.posts) != 0 {
+		t.Errorf("state %s posts %d", got.State, len(f.writer.posts))
+	}
+}
+
+func TestRetryRefusesNonUIAnswer(t *testing.T) {
+	f, r := failedDirect(t)
+	item := f.dec.items[r.DecideID]
+	for i := range item.Messages {
+		if item.Messages[i].OptionKey == decideKeyPost {
+			item.Messages[i].Via = "cli"
+		}
+	}
+	_, err := f.ob.Retry(context.Background(), r.ID)
+	if err == nil || !strings.Contains(err.Error(), "via ui") {
+		t.Fatalf("err = %v", err)
+	}
+	if f.get(t, r.ID).State != OutboxFailed || len(f.writer.posts) != 0 {
+		t.Errorf("state %s posts %d", f.get(t, r.ID).State, len(f.writer.posts))
+	}
+}
+
+func TestRetryRefusesOtherStates(t *testing.T) {
+	f := newOutboxFixture(t, PostModeDirect)
+	r := f.submit(t)
+	_, err := f.ob.Retry(context.Background(), r.ID)
+	if err == nil || !strings.Contains(err.Error(), OutboxPending) || !strings.Contains(err.Error(), OutboxFailed) {
+		t.Fatalf("err = %v", err)
+	}
+	if f.get(t, r.ID).State != OutboxPending || len(f.writer.posts) != 0 {
+		t.Errorf("pending record changed")
+	}
+}
+
+func TestRetryRegistersExistingPost(t *testing.T) {
+	f, r := failedDirect(t)
+	const matchTS = "1700000099.000100"
+	f.reader.recent = []Message{
+		{User: "UOTHER", TS: "1700000098.000100", Text: postedBody()},
+		{User: expectUser, TS: "1700000097.000100", Text: "a different message"},
+		{User: expectUser, TS: matchTS, Text: postedBody()},
+	}
+	got, err := f.ob.Retry(context.Background(), r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != OutboxPosted || got.PostTS != matchTS || len(f.writer.posts) != 0 || f.reader.calls != 0 {
+		t.Fatalf("state %s ts %s posts %d read-backs %d", got.State, got.PostTS, len(f.writer.posts), f.reader.calls)
+	}
+	if f.reader.oldest != unixTS(testNow().Add(-retryLookback)) {
+		t.Errorf("oldest = %q", f.reader.oldest)
+	}
+}
+
+func TestRetrySearchErrorStaysFailed(t *testing.T) {
+	f, r := failedDirect(t)
+	f.reader.recentErr = errors.New("slack down")
+	_, err := f.ob.Retry(context.Background(), r.ID)
+	if err == nil || !strings.Contains(err.Error(), "slack down") {
+		t.Fatalf("err = %v", err)
+	}
+	if f.get(t, r.ID).State != OutboxFailed || len(f.writer.posts) != 0 {
+		t.Errorf("state %s posts %d", f.get(t, r.ID).State, len(f.writer.posts))
+	}
+}
+
+func TestRetryRefusesChangedDestination(t *testing.T) {
+	f, r := failedDirect(t)
+	if _, err := f.store.DB().Exec(`UPDATE outbox SET channel = ? WHERE id = ?`, "C9", r.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, err := f.ob.Retry(context.Background(), r.ID)
+	if err == nil || !strings.Contains(err.Error(), "destination") {
+		t.Fatalf("err = %v", err)
+	}
+	if got := f.get(t, r.ID); got.State != OutboxFailed || got.Channel != "C9" || len(f.writer.posts) != 0 {
+		t.Errorf("state %s channel %s posts %d", got.State, got.Channel, len(f.writer.posts))
+	}
+}
+
+func TestRetryRefusesIdentityMismatch(t *testing.T) {
+	f, r := failedDirect(t)
+	f.ob.authed = ""
+	f.writer.user = "UOTHER"
+	_, err := f.ob.Retry(context.Background(), r.ID)
+	if err == nil || !strings.Contains(err.Error(), "UOTHER") {
+		t.Fatalf("err = %v", err)
+	}
+	if f.get(t, r.ID).State != OutboxFailed || len(f.writer.posts) != 0 {
+		t.Errorf("state %s posts %d", f.get(t, r.ID).State, len(f.writer.posts))
+	}
+}
+
+func TestRetryHandoffReturnsToAwaiting(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	r := f.submit(t)
+	f.dec.answer(r.DecideID, uiPost)
+	f.poll(t)
+	if f.get(t, r.ID).State != OutboxAwaitingHandoff {
+		t.Fatalf("state = %s", f.get(t, r.ID).State)
+	}
+	if _, err := f.store.DB().Exec(`UPDATE outbox SET state = ?, reason = ? WHERE id = ?`, OutboxFailed, "chat.postMessage: not_in_channel", r.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := f.ob.Retry(context.Background(), r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != OutboxAwaitingHandoff || got.Reason != "" || len(f.writer.posts) != 0 {
+		t.Fatalf("state %s reason %q posts %d", got.State, got.Reason, len(f.writer.posts))
+	}
+	ready := 0
+	for _, n := range f.rec.notes {
+		if n.Event == EventOutboxReady && n.Owner == "poster" && n.Message == fmt.Sprintf("approved post ready: %d", r.ID) {
+			ready++
+		}
+	}
+	if ready != 2 {
+		t.Errorf("ready notices = %d, want 2", ready)
+	}
+}
+
+func TestNotInChannelNotice(t *testing.T) {
+	f := newOutboxFixture(t, PostModeDirect)
+	f.writer.err = errors.New("not_in_channel")
+	r := f.submit(t)
+	f.dec.answer(r.DecideID, uiPost)
+	f.poll(t)
+	want := fmt.Sprintf("posting account is not a member of %s; join it, then: slackwatch outbox retry %d", r.Channel, r.ID)
+	var notified bool
+	for _, n := range f.rec.notes {
+		if n.Event == EventOutboxFailed && strings.Contains(n.Message, want) {
+			notified = true
+		}
+	}
+	if !notified {
+		t.Errorf("notify missing %q", want)
+	}
+	if !strings.Contains(strings.Join(f.dec.replies, "\n"), want) {
+		t.Errorf("replies = %v", f.dec.replies)
+	}
+	if got := f.get(t, r.ID); got.State != OutboxFailed || !strings.Contains(got.Reason, "chat.postMessage: not_in_channel") {
+		t.Errorf("record = %+v", got)
+	}
+}
+
+func TestPostFailureNotice(t *testing.T) {
+	r := OutboxRecord{ID: 7, Channel: "C1"}
+	for _, tc := range []struct{ reason, want string }{
+		{"chat.postMessage: not_in_channel", "posting account is not a member of C1; join it, then: slackwatch outbox retry 7"},
+		{"chat.postMessage: channel_not_found", "channel C1 was not found; check the destination, then: slackwatch outbox retry 7"},
+		{"chat.postMessage: is_archived", "channel C1 is archived; unarchive it, then: slackwatch outbox retry 7"},
+		{"chat.postMessage: restricted_action", "posting is restricted in C1; fix that, then: slackwatch outbox retry 7"},
+		{"chat.postMessage: fatal_error", "chat.postMessage: fatal_error"},
+	} {
+		if got := postFailureNotice(r, tc.reason); got != tc.want {
+			t.Errorf("postFailureNotice(%q) = %q, want %q", tc.reason, got, tc.want)
+		}
 	}
 }
