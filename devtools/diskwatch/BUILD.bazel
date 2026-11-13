@@ -1,0 +1,52 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+load("//tools/org-lint:defs.bzl", "org_lint_tests")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "action.go",
+        "amount.go",
+        "check.go",
+        "config.go",
+        "disk_darwin.go",
+        "disk_linux.go",
+        "disk_other.go",
+        "disk_unix.go",
+        "paths.go",
+        "state.go",
+        "status.go",
+        "summary.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/diskwatch",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_bmatcuk_doublestar_v4//:go_default_library",
+        "@com_github_google_renameio_v2//:go_default_library",
+        "@com_github_pelletier_go_toml_v2//:go_default_library",
+    ] + select({
+        "@rules_go//go/platform:darwin": [
+            "@org_golang_x_sys//unix:go_default_library",
+        ],
+        "@rules_go//go/platform:linux": [
+            "@org_golang_x_sys//unix:go_default_library",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+go_test(
+    name = "go_default_test",
+    size = "small",
+    srcs = [
+        "amount_test.go",
+        "check_test.go",
+        "config_test.go",
+        "paths_test.go",
+        "state_test.go",
+        "status_test.go",
+        "summary_test.go",
+    ],
+    embed = [":go_default_library"],
+)
+
+org_lint_tests(["README.org"])

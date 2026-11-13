@@ -717,6 +717,34 @@ func TestGoPlaybookInstallsUpstreamToolchainOnDebian(t *testing.T) {
 	}
 }
 
+func TestDiskwatchPlaybookInstallsRunner(t *testing.T) {
+	dir := ansiblePlaybookDir(t)
+	content, err := os.ReadFile(filepath.Join(dir, "diskwatch.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(content)
+	for _, want := range []string{
+		"go install github.com/jaeyeom/experimental/devtools/diskwatch/cmd/diskwatch@latest",
+		"Type=oneshot",
+		"OnUnitActiveSec=5min",
+		"StartInterval",
+		"<integer>300</integer>",
+		"when: diskwatch_config.stat.exists",
+		"when: not diskwatch_config.stat.exists",
+		"systemctl --user enable --now diskwatch.timer",
+		"launchctl bootstrap",
+		"Library/Application Support",
+		"}}/.config",
+		"/diskwatch/config.toml",
+		"TERMUX_VERSION",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("diskwatch.yml missing %q", want)
+		}
+	}
+}
+
 func TestSetupGrokOptsOutOfTraining(t *testing.T) {
 	dir := ansiblePlaybookDir(t)
 	content, err := os.ReadFile(filepath.Join(dir, "setup-grok.yml"))

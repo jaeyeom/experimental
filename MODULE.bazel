@@ -45,6 +45,7 @@ use_repo(
     "com_github_leanovate_gopter",
     "com_github_mattn_go_sqlite3",
     "com_github_muesli_termenv",
+    "com_github_pelletier_go_toml_v2",
     "com_github_slack_go_slack",
     "com_github_spf13_cobra",
     "com_github_spf13_viper",
