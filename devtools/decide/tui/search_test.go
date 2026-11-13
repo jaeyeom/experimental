@@ -495,3 +495,120 @@ func TestListSearchDebouncesLargeInbox(t *testing.T) {
 		t.Fatalf("enter did not force the final pass: %q %d", m.filter, len(m.items))
 	}
 }
+
+func TestSearchCountsEveryFolder(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	day := func(d int) time.Time { return time.Date(2026, 11, d, 0, 0, 0, 0, time.UTC) }
+	item := func(question, state string, d int) {
+		t.Helper()
+		mustCreate(t, led, &decide.Item{
+			Question: question, Owner: "ada", Kind: decide.KindRelay, State: state, CreatedAt: day(d),
+		})
+	}
+	item("alpha apple", decide.StateOpen, 1)
+	item("beta apple", decide.StateOpen, 2)
+	item("gamma pear", decide.StateOpen, 3)
+	item("delta pear", decide.StateAnswered, 4)
+	item("epsilon fig", decide.StateAnswered, 5)
+	item("zeta apple", decide.StateDone, 6)
+
+	m := New(dir)
+	m.Now = func() time.Time { return time.Date(2026, 11, 12, 15, 0, 0, 0, time.UTC) }
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	m.width = 120
+	m.height = 24
+	press(t, m, "/apple")
+
+	assertFolderCount(t, m, 0, "2/3", false)
+	assertFolderCount(t, m, folderIndex(t, "Answered"), "0/2", true)
+	assertFolderCount(t, m, folderIndex(t, "Done"), "1/1", false)
+	status := m.sidebarLines()[len(Folders)].text
+	if strings.Contains(status, "\x1b[2m") || strings.Contains(visibleLine(status), "/") {
+		t.Fatalf("list search dimmed status or showed a match count: %q", status)
+	}
+	checkGolden(t, "search_counts_120.golden", m.View())
+	m.width = 70
+	checkGolden(t, "search_counts_70.golden", m.View())
+	m.width = 120
+
+	item("eta apple", decide.StateAnswered, 7)
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	assertFolderCount(t, m, folderIndex(t, "Answered"), "1/3", false)
+
+	press(t, m, "\x1b")
+	assertFolderCount(t, m, 0, "3", false)
+	assertFolderCount(t, m, folderIndex(t, "Answered"), "3", false)
+	assertFolderCount(t, m, folderIndex(t, "Done"), "1", false)
+}
+
+func TestStatusSearchCountsTheSidebar(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	mustCreate(t, led, &decide.Item{
+		Question: "hello", Owner: "ada", Kind: decide.KindRelay, State: decide.StateOpen,
+		CreatedAt: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC),
+	})
+	board, err := decide.OpenStatus(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := board.SetAgent("alpha", "working", "apple pie"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := board.SetAgent("beta", "working", "reading"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := board.SetResource("oven", "free", "apple tart"); err != nil {
+		t.Fatal(err)
+	}
+	m := New(dir)
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	m.width = 120
+	m.height = 24
+	press(t, m, "gs/apple")
+	assertFolderCount(t, m, len(Folders), "2/3", false)
+	assertFolderCount(t, m, 0, "0/1", true)
+
+	press(t, m, "\x7f\x7f\x7f\x7f\x7fzzz")
+	assertFolderCount(t, m, len(Folders), "0/3", true)
+}
+
+func TestFolderCountsFollowADeferredQuery(t *testing.T) {
+	items := make([]decide.Item, searchDebounceItems)
+	texts := make([]string, len(items))
+	for i := range items {
+		items[i] = decide.Item{ID: fmt.Sprintf("D-%04d", i), Question: "plain", State: decide.StateOpen}
+		texts[i] = searchText(&items[i])
+	}
+	items[0].Question = "needle"
+	texts[0] = searchText(&items[0])
+	m := New(t.TempDir())
+	m.counts = []int{len(items)}
+	m.folderTexts = [][]string{texts}
+	m.searching = true
+	m.search = "needle"
+	count, dim := m.navCountText(0)
+	if count != fmt.Sprintf("1/%d", len(items)) || dim {
+		t.Fatalf("count %s dim %v", count, dim)
+	}
+}
+
+func assertFolderCount(t *testing.T, m *Model, i int, count string, dim bool) {
+	t.Helper()
+	line := m.sidebarLines()[i].text
+	plain := visibleLine(line)
+	fields := strings.Fields(plain)
+	if len(fields) == 0 || fields[len(fields)-1] != count {
+		t.Fatalf("folder %d count = %q, want %s\n%s", i, plain, count, line)
+	}
+	if dim != strings.Contains(line, "\x1b[2m") {
+		t.Fatalf("folder %d dim = %v\n%s", i, strings.Contains(line, "\x1b[2m"), line)
+	}
+}

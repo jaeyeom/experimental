@@ -51,6 +51,29 @@ func (m *Model) setFolder(items []decide.Item, keep string) {
 	m.refilter(keep)
 }
 
+// listQuery is the search folder counts follow. Typing counts at once,
+// including a large list that has not applied the draft yet. A detail
+// highlight does not replace the list filter.
+func (m *Model) listQuery() string {
+	if m.mode != modeDetail && m.searching {
+		return m.search
+	}
+	return m.filter
+}
+
+// matchCount is how many cached search texts contain q, using the same
+// case-insensitive literal match as the list filter.
+func matchCount(texts []string, q string) int {
+	needle := strings.ToLower(q)
+	n := 0
+	for _, text := range texts {
+		if strings.Contains(text, needle) {
+			n++
+		}
+	}
+	return n
+}
+
 // refilter applies m.filter to the cached folder rows.
 func (m *Model) refilter(keep string) {
 	q := strings.ToLower(m.filter)
