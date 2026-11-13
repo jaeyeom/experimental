@@ -11,6 +11,8 @@
     # other agents here; the tasks below loop over this list.
     slackwatch_skill_paths:
       - "{{ ansible_facts['env']['HOME'] }}/.claude/skills/slackwatch/SKILL.md"
+    slackwatch_triage_skill_paths:
+      - "{{ ansible_facts['env']['HOME'] }}/.claude/skills/slackwatch-triage/SKILL.md"
   tasks:
     - name: Include guard for setup-slackwatch playbook
       block:
@@ -150,6 +152,81 @@
         - slackwatch_skill_command_check.rc == 0
         - slackwatch_skill_output.rc | default(1) == 0
         - (slackwatch_skill_output.stdout | default('') | trim | length) > 0
+      environment:
+        PATH: "{{ slackwatch_skill_env_path }}"
+      tags: [slackwatch_skill]
+
+    # The triage brief is a second skill. `slackwatch skill triage` fails
+    # when no inbound block is configured, and then nothing is written.
+    - name: Read the slackwatch triage skill
+      ansible.builtin.command:
+        cmd: slackwatch skill triage
+        strip_empty_ends: false
+      register: slackwatch_triage_output
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      when: slackwatch_skill_command_check.rc == 0
+      environment:
+        PATH: "{{ slackwatch_skill_env_path }}"
+      tags: [slackwatch_skill]
+
+    - name: Warn when slackwatch skill triage fails
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Skipping slackwatch triage skill install because
+          `slackwatch skill triage` exited
+          {{ slackwatch_triage_output.rc | default('unknown') }}.
+          Nothing was written.
+      when:
+        - slackwatch_skill_command_check.rc == 0
+        - slackwatch_triage_output.rc | default(1) != 0
+        - "'inbound is not configured' not in (slackwatch_triage_output.stderr | default(''))"
+      tags: [slackwatch_skill]
+
+    - name: Ensure slackwatch triage skill parent directories exist
+      ansible.builtin.file:
+        path: "{{ item | dirname }}"
+        state: directory
+        mode: '0755'
+      loop: "{{ slackwatch_triage_skill_paths }}"
+      when:
+        - slackwatch_skill_command_check.rc == 0
+        - slackwatch_triage_output.rc | default(1) == 0
+        - (slackwatch_triage_output.stdout | default('') | trim | length) > 0
+      tags: [slackwatch_skill]
+
+    - name: Warn when ensure.sh will write the slackwatch triage skill
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Skipping slackwatch triage skill apply-text because ensure.sh will
+          review and write it after the playbooks.
+      when:
+        - setup_dev_defer_skill_apply | default(false) | bool
+        - slackwatch_skill_command_check.rc == 0
+        - slackwatch_triage_output.rc | default(1) == 0
+        - (slackwatch_triage_output.stdout | default('') | trim | length) > 0
+      tags: [slackwatch_skill]
+
+    - name: Install the slackwatch triage skill
+      ansible.builtin.command:
+        argv:
+          - "{{ playbook_dir }}/verified-run"
+          - apply-text
+          - slackwatch-triage-skill
+          - "{{ item }}"
+          - "--"
+          - slackwatch
+          - skill
+          - triage
+      loop: "{{ slackwatch_triage_skill_paths }}"
+      register: slackwatch_triage_apply
+      changed_when: (slackwatch_triage_apply.stdout | trim) == "updated"
+      when:
+        - not (setup_dev_defer_skill_apply | default(false) | bool)
+        - slackwatch_skill_command_check.rc == 0
+        - slackwatch_triage_output.rc | default(1) == 0
+        - (slackwatch_triage_output.stdout | default('') | trim | length) > 0
       environment:
         PATH: "{{ slackwatch_skill_env_path }}"
       tags: [slackwatch_skill]

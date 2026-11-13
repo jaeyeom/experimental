@@ -13,7 +13,10 @@ go_library(
         "sub.go",
         "watch.go",
     ],
-    embedsrcs = ["skill.md.tmpl"],
+    embedsrcs = [
+        "skill.md.tmpl",
+        "triage.md.tmpl",
+    ],
     importpath = "github.com/jaeyeom/experimental/devtools/slackwatch/cmd/slackwatch",
     visibility = ["//visibility:private"],
     deps = [
@@ -45,6 +48,7 @@ go_test(
         "sub_test.go",
         "watch_test.go",
     ],
+    data = glob(["testdata/**"]),
     embed = [":go_default_library"],
     deps = [
         "//devtools/slackwatch:go_default_library",

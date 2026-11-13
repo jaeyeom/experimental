@@ -628,6 +628,15 @@ func TestSlackwatchSkillInstall(t *testing.T) {
 		"loop: \"{{ slackwatch_skill_paths }}\"",
 		"- slackwatch",
 		"- skill",
+		"slackwatch_triage_skill_paths:",
+		"{{ ansible_facts['env']['HOME'] }}/.claude/skills/slackwatch-triage/SKILL.md",
+		"cmd: slackwatch skill triage",
+		"'inbound is not configured' not in (slackwatch_triage_output.stderr | default(''))",
+		"slackwatch-triage-skill",
+		"loop: \"{{ slackwatch_triage_skill_paths }}\"",
+		"register: slackwatch_triage_apply",
+		"changed_when: (slackwatch_triage_apply.stdout | trim) == \"updated\"",
+		"- triage",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("setup-slackwatch.yml missing %q", want)

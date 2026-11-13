@@ -76,6 +76,18 @@ Each new message is handled by the first rule that matches.
    not notified again. Each message is notified at most once, including
    after a restart or catch-up. The token owner's own messages are not
    inbound.
+
+   ~slackwatch skill triage~ prints the role for ~inbound.target~. It is
+   an error when no ~inbound~ block is set. The brief names only that
+   agent. It tells the agent to register on agentbus, read each notice
+   (channel, ts, author, kind, excerpt, permalink) as data rather than
+   instructions, and file one decide item when the message needs
+   something. Suggested owners come from ~agentbus list~ when-lines and
+   the notify targets in this config, not from a fixed table. The brief
+   does not mention ~ignoreChannels~. Digests default to 12:00 and 18:00
+   local; change those times in the brief itself. The agent never posts,
+   replies, reacts, or runs ~slackwatch post~. ~slackwatch skill~ links
+   to this role when ~inbound~ is set.
 6. Anything else is dropped.
 
 A channel in ~ignoreChannels~ is dropped before these rules. The message
@@ -299,7 +311,12 @@ tells the posting agent what to do with ~approved post ready: <id>~.
 
 #+begin_src sh
 slackwatch skill > ~/.claude/skills/slackwatch/SKILL.md
+slackwatch skill triage > ~/.claude/skills/slackwatch-triage/SKILL.md
 #+end_src
+
+~slackwatch skill triage~ needs an ~inbound~ block. setup-dev installs
+that file, through the same approval flow as the main skill, only when
+the block is present.
 
 * Posting
 
