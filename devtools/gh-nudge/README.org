@@ -344,6 +344,11 @@ request that requests only a team you belong to.
 
   # Run agent commands without the decision cache
   gh-approve --no-agent-cache
+
+  # Recent decisions. --action defaults to approved. --days defaults to 7.
+  gh-approve history
+  gh-approve history --days 30 --action all --rule dashboard --json
+  gh-approve history --no-state
 #+end_src
 
 The output is a table with the pull request, the action, the matched rule, and
@@ -611,7 +616,8 @@ ago)~, ~agent: defer (cached)~, or ~agent: approve (fresh)~. ~--explain~ adds
     with ~unreadable:~ and the reason.
 - *Audit log.* Each decision is appended as one JSON line to
   =~/.config/gh-nudge/approve-log.jsonl=. A line has ~time~, ~pr~, ~url~,
-  ~title~, ~headSha~, ~rule~ (~null~ when none matched), ~rules~ (each rule's
+  ~title~, ~author~ (the pull request author's login; lines written before
+  this field still read), ~headSha~, ~rule~ (~null~ when none matched), ~rules~ (each rule's
   per-condition ~pass~ and ~saw~, and ~agent~ with ~decision~, ~reason~ and
   ~durationMs~ when the rule's agent command ran), ~action~, and ~reason~.
   ~--explain~ shows the same agent decision, reason and duration. The action is
@@ -621,6 +627,32 @@ ago)~, ~agent: defer (cached)~, or ~agent: approve (fresh)~. ~--explain~ adds
   evidence), ~loopGuard~, and ~steps~ (each write and its result). A mark
   line also has ~paths~, the files that were marked, or that a dry run would
   mark.
+
+*** History
+
+~gh-approve history~ lists those decisions. ~--days~ defaults to 7. ~--action~
+is ~approved~ (the default), ~handoff~, ~mark_viewed~, or ~all~. A ~would_*~
+dry-run action is included only with ~--action all~. ~--rule NAME~ keeps one
+rule. ~--json~ prints one JSON array.
+
+The table columns are time (UTC), ~owner/repo#n~, author, current state
+(~OPEN~, ~CLOSED~, or ~MERGED~), action, rule, and title. The author comes
+from the log line. It is looked up only for an older line that has no
+~author~.
+
+~MERGED~ is final. History caches it, with the author and title, in
+~$XDG_CACHE_HOME/gh-nudge/pr-state.json~ (or =~/.cache/gh-nudge/pr-state.json=)
+and does not fetch that pull request again. ~OPEN~ and ~CLOSED~ are fetched
+on every run and are not cached. Every lookup in one run is one GraphQL
+request of aliased ~repository~ / ~pullRequest~ fields, through ~GH_BIN~,
+split into chunks of at most 50. A run whose pull requests are all cached
+as ~MERGED~ makes no call. ~--no-state~ drops the state column and makes no
+call; author and title then come from the log or the cache, and are blank
+when neither has them.
+
+A GraphQL error stops the command. A pull request that cannot be read shows
+~?~ in the cells that are still unknown, and a warning on stderr. The row
+stays.
 
 *** Mark viewed
 
