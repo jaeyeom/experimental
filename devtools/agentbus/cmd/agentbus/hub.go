@@ -43,6 +43,8 @@ var localCommands = map[string]bool{
 	"hibernate": true,
 	// doctor checks this machine's sockets and the route to the hub.
 	"doctor": true,
+	// paths prints this machine's sockets. install asks the hub to run it.
+	"paths": true,
 	// outbox is this machine's queue of hub sends.
 	"outbox": true,
 }

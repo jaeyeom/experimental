@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +16,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/hibernate"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
+	"github.com/jaeyeom/experimental/devtools/pkg/hubcall"
 )
 
 const (
@@ -53,6 +57,14 @@ func cmdInstallTunnel(ctx context.Context, cfg config.Config, args, env []string
 	if len(args) != 0 {
 		fmt.Fprintf(stderr, "agentbus install: unexpected arguments\n")
 		return 2
+	}
+	if cfg.HubSocket == "" {
+		socket, err := discoverHubSocket(ctx, cfg, env, stdout)
+		if err != nil {
+			fmt.Fprintf(stderr, "agentbus install: %s\n", err)
+			return 1
+		}
+		cfg.HubSocket = socket
 	}
 	path, err := installTunnel(cfg, env)
 	if err != nil {
@@ -156,10 +168,126 @@ func policyBody(goos, exe, logPath string, envVars [][2]string) (string, error) 
 	}
 }
 
+// pathReport is the JSON of `agentbus paths --json`.
+type pathReport struct {
+	Socket       string `json:"socket"`
+	HubSocket    string `json:"hub_socket"`    //nolint:tagliatelle // paths JSON shape
+	TunnelSocket string `json:"tunnel_socket"` //nolint:tagliatelle // paths JSON shape
+	StateDir     string `json:"state_dir"`     //nolint:tagliatelle // paths JSON shape
+}
+
+func cmdPaths(_ context.Context, args, env []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("paths", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	asJSON := fs.Bool("json", false, "print socket, hub_socket, tunnel_socket, and state_dir")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if !*asJSON || len(fs.Args()) != 0 {
+		fmt.Fprintln(stderr, "usage: agentbus paths --json")
+		return 2
+	}
+	dirs, err := paths.FromEnv(env)
+	if err != nil {
+		fmt.Fprintf(stderr, "agentbus paths: %s\n", err)
+		return 1
+	}
+	body, err := json.Marshal(pathReport{
+		Socket:       dirs.SocketPath,
+		HubSocket:    dirs.HubSocketPath,
+		TunnelSocket: dirs.TunnelSocketPath,
+		StateDir:     dirs.StateDir,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "agentbus paths: %s\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "%s\n", body)
+	return 0
+}
+
+// discoverHubSocket asks the hub for its hub.sock, writes that path into
+// this machine's config, and prints the line it wrote.
+func discoverHubSocket(ctx context.Context, cfg config.Config, env []string, stdout io.Writer) (string, error) {
+	socket, err := queryHubSocket(ctx, cfg)
+	if err != nil {
+		return "", hubSocketMissing(cfg, env)
+	}
+	if err := rememberHubSocket(env, cfg.Hub, socket); err != nil {
+		return "", err
+	}
+	fmt.Fprint(stdout, hubSocketLine(cfg.Hub, socket))
+	return socket, nil
+}
+
+func hubSocketLine(hub, path string) string {
+	return fmt.Sprintf("hub_socket = %q  # discovered from %s\n", path, hub)
+}
+
+// queryHubSocket runs `agentbus paths --json` on the hub and returns its
+// hub_socket. The hub's value is an absolute path with no colon.
+func queryHubSocket(ctx context.Context, cfg config.Config) (string, error) {
+	var buf bytes.Buffer
+	hub := hubcall.Hub{Target: cfg.Hub, Tool: "agentbus", ConnectTimeout: cfg.RemoteTimeout}
+	code, err := hub.Run(ctx, hubcall.Call{Args: []string{"paths", "--json"}, Stdout: &buf, Stderr: io.Discard})
+	if err != nil {
+		return "", fmt.Errorf("ask %s for hub_socket: %w", cfg.Hub, err)
+	}
+	if code != 0 {
+		return "", fmt.Errorf("ask %s for hub_socket: agentbus paths --json exited %d", cfg.Hub, code)
+	}
+	var got pathReport
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		return "", fmt.Errorf("ask %s for hub_socket: %w", cfg.Hub, err)
+	}
+	if !strings.HasPrefix(got.HubSocket, "/") || strings.Contains(got.HubSocket, ":") {
+		return "", fmt.Errorf("ask %s for hub_socket: %q", cfg.Hub, got.HubSocket)
+	}
+	return got.HubSocket, nil
+}
+
+func rememberHubSocket(env []string, hub, path string) error {
+	cfgPath, err := config.Path(env)
+	if err != nil {
+		return fmt.Errorf("locate config: %w", err)
+	}
+	f, err := os.OpenFile(cfgPath, os.O_RDWR|os.O_APPEND, 0o600) //nolint:gosec // the config path comes from XDG or HOME
+	if err != nil {
+		return fmt.Errorf("open config: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("stat config: %w", err)
+	}
+	if info.Size() > 0 {
+		if _, err := f.Seek(info.Size()-1, io.SeekStart); err != nil {
+			return fmt.Errorf("read config: %w", err)
+		}
+		last := make([]byte, 1)
+		if _, err := f.Read(last); err != nil {
+			return fmt.Errorf("read config: %w", err)
+		}
+		if last[0] != '\n' {
+			if _, err := f.Write([]byte("\n")); err != nil {
+				return fmt.Errorf("write hub_socket: %w", err)
+			}
+		}
+	}
+	if _, err := f.Write([]byte(hubSocketLine(hub, path))); err != nil {
+		return fmt.Errorf("write hub_socket: %w", err)
+	}
+	return nil
+}
+
+func hubSocketMissing(cfg config.Config, env []string) error {
+	cfgPath, _ := config.Path(env)
+	return fmt.Errorf("the daemon runs on the hub %s; to forward to it, set hub_socket = \"<path>\" in %s to the hub's $XDG_RUNTIME_DIR/agentbus/hub.sock\nOn the hub, run `agentbus paths --json`, or `echo $XDG_RUNTIME_DIR/agentbus/hub.sock`", cfg.Hub, cfgPath)
+}
+
 func installTunnel(cfg config.Config, env []string) (string, error) {
 	if cfg.HubSocket == "" {
-		cfgPath, _ := config.Path(env)
-		return "", fmt.Errorf("the daemon runs on the hub %s; to forward to it, set hub_socket = \"<path>\" in %s to the hub's $XDG_RUNTIME_DIR/agentbus/hub.sock", cfg.Hub, cfgPath)
+		return "", hubSocketMissing(cfg, env)
 	}
 	dirs, err := paths.FromEnv(env)
 	if err != nil {

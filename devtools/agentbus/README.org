@@ -316,8 +316,14 @@ hub_socket = "/run/user/1000/agentbus/hub.sock"  # the hub's $XDG_RUNTIME_DIR/ag
 Then run ~agentbus install~ on the second machine. In hub mode it writes
 and loads a tunnel unit instead of a daemon: the launchd job
 ~com.agentbus.tunnel~ on macOS, or the systemd user unit
-~agentbus-tunnel.service~ on Linux. Without ~hub_socket~ it refuses and
-says what to set. The unit creates the socket's directory and runs
+~agentbus-tunnel.service~ on Linux. Without ~hub_socket~, install runs
+~agentbus paths --json~ on the hub over ssh, prints the path, and writes
+~hub_socket = "…"  # discovered from <hub>~ so later runs do not ask
+again. An explicit ~hub_socket~ is used as-is, with no query. If the hub
+cannot be asked, install refuses and names ~agentbus paths --json~ and
+~echo $XDG_RUNTIME_DIR/agentbus/hub.sock~. ~agentbus doctor~ reports when
+the configured path differs from the one the hub reports. The unit
+creates the socket's directory and runs
 
 #+begin_src sh
 ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes \
