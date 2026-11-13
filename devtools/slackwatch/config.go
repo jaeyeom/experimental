@@ -28,14 +28,24 @@ const (
 	DefaultExcerptLimit  = 300
 	DefaultNotifyTimeout = 30 * time.Second
 	DefaultUnownedGrace  = 10 * time.Second
+	// DefaultNotifyRetry1 and DefaultNotifyRetry2 are the waits before
+	// the first and second notify retries.
+	DefaultNotifyRetry1 = 2 * time.Second
+	DefaultNotifyRetry2 = 5 * time.Second
 )
 
 // Config is ~/.config/slackwatch/config.json. Tokens are never stored here.
 // TokenFile names a separate file that only the user can read.
 type Config struct {
-	NotifyTemplate   string            `json:"notifyTemplate"`
-	LivenessTemplate string            `json:"livenessTemplate"`
-	NotifyTimeout    Duration          `json:"notifyTimeout"`
+	NotifyTemplate   string   `json:"notifyTemplate"`
+	LivenessTemplate string   `json:"livenessTemplate"`
+	NotifyTimeout    Duration `json:"notifyTimeout"`
+	// NotifyCheckCommand runs after a failed notify attempt. Exit 0 means
+	// the note was stored or delivered. Empty skips the check.
+	NotifyCheckCommand string `json:"notifyCheckCommand"`
+	// NotifyRetryAfter is the wait before each retry. Nil means 2s then
+	// 5s. An empty slice disables retries.
+	NotifyRetryAfter []Duration        `json:"notifyRetryAfter"`
 	Targets          map[string]string `json:"targets"`
 	FallbackTarget   string            `json:"fallbackTarget"`
 	FooterPattern    Regexp            `json:"footerPattern"`
@@ -299,7 +309,11 @@ func defaultConfig() Config {
 		UnownedGrace:  Duration{DefaultUnownedGrace},
 		ExcerptLimit:  DefaultExcerptLimit,
 		NotifyTimeout: Duration{DefaultNotifyTimeout},
-		DBPath:        DefaultDBPath(),
+		NotifyRetryAfter: []Duration{
+			{DefaultNotifyRetry1},
+			{DefaultNotifyRetry2},
+		},
+		DBPath: DefaultDBPath(),
 	}
 }
 

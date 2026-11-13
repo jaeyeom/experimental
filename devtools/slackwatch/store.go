@@ -203,6 +203,10 @@ ALTER TABLE status ADD COLUMN outbox_poll_failing_since INTEGER;
 	`
 ALTER TABLE outbox ADD COLUMN manual INTEGER NOT NULL DEFAULT 0;
 `,
+	// notify_id is the idempotency key shared by every retry of one note.
+	`
+ALTER TABLE deliveries ADD COLUMN notify_id TEXT NOT NULL DEFAULT '';
+`,
 }
 
 // Store is the slackwatch SQLite database. The server and the CLI each
