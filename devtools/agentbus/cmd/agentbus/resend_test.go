@@ -119,7 +119,8 @@ func TestSendDoesNotStoreTwiceWhenTheReplyIsDropped(t *testing.T) {
 	if len(got) != 1 || *retries != 0 || d.pings() != 0 {
 		t.Fatalf("stored %d, retries %d, pings %d; stdout %q stderr %q", len(got), *retries, d.pings(), stdout, stderr)
 	}
-	want := "agentbus: unknown whether the message was stored; check 'agentbus log --name ops/inbox'\n"
+	want := "agentbus: unknown whether the message was stored; check: agentbus status " + got[0].ClientID + "\n" +
+		"agentbus: check: agentbus log --since 1m --name ops/inbox\n"
 	if code == 0 || stderr != want || stdout != "" {
 		t.Fatalf("code %d stdout %q stderr %q", code, stdout, stderr)
 	}
@@ -137,15 +138,15 @@ func TestReplyDoesNotStoreTwiceWhenTheReplyIsDropped(t *testing.T) {
 	retries := allowRetry(t)
 	code, stdout, stderr := runCmd([]string{"reply", "m-7", "yes"}, env)
 	got := d.requests()
-	if len(got) != 1 || *retries != 0 {
-		t.Fatalf("stored %d, retries %d; stdout %q stderr %q", len(got), *retries, stdout, stderr)
+	if *retries != 0 || stdout != "" {
+		t.Fatalf("retries %d stdout %q stderr %q", *retries, stdout, stderr)
 	}
-	want := "agentbus: unknown whether the message was stored; check 'agentbus log --name m-7'\n"
+	if len(got) != 2 || got[0].Op != "show" || got[1].Op != "reply" || got[1].Body != "yes" || !mintedClientID(got[1].ClientID, "client") {
+		t.Fatalf("request = %+v", got)
+	}
+	want := "agentbus: unknown whether the message was stored; check: agentbus status " + got[1].ClientID + "\n"
 	if code == 0 || stderr != want {
 		t.Fatalf("code %d stderr %q", code, stderr)
-	}
-	if got[0].Op != "reply" || got[0].Body != "yes" || !mintedClientID(got[0].ClientID, "client") {
-		t.Fatalf("request = %+v", got[0])
 	}
 }
 
@@ -154,8 +155,10 @@ func TestWriteErrorDoesNotResend(t *testing.T) {
 	retries := allowRetry(t)
 	orig := dialDaemon
 	dials := 0
-	dialDaemon = func(context.Context, string, daemon.Request) (daemon.Response, error) {
+	var clientID string
+	dialDaemon = func(_ context.Context, _ string, req daemon.Request) (daemon.Response, error) {
 		dials++
+		clientID = req.ClientID
 		return daemon.Response{}, client.MarkSent(errors.New("write request: broken pipe"))
 	}
 	t.Cleanup(func() { dialDaemon = orig })
@@ -163,7 +166,8 @@ func TestWriteErrorDoesNotResend(t *testing.T) {
 	if dials != 1 || *retries != 0 || code == 0 {
 		t.Fatalf("dials %d retries %d code %d stderr %q", dials, *retries, code, stderr)
 	}
-	if !strings.Contains(stderr, "unknown whether the message was stored; check 'agentbus log --name ops/inbox'") {
+	if !strings.Contains(stderr, "unknown whether the message was stored; check: agentbus status "+clientID) ||
+		!strings.Contains(stderr, "agentbus log --since 1m --name ops/inbox") {
 		t.Fatalf("stderr = %q", stderr)
 	}
 }

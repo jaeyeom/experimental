@@ -142,10 +142,14 @@ func callDaemon(ctx context.Context, env []string, req daemon.Request, stderr io
 }
 
 // uncertain is a request that was written and then lost its reply.
-// send and reply name the log to check. Other ops report the dial error.
+// send and reply name status by client id, and the log by recipient.
+// Other ops report the dial error.
 func uncertain(req daemon.Request, err error, stderr io.Writer) (daemon.Response, int) {
 	if req.Op == "send" || req.Op == "reply" {
-		fmt.Fprintf(stderr, "agentbus: unknown whether the message was stored; check 'agentbus log --name %s'\n", req.Name)
+		fmt.Fprintf(stderr, "agentbus: unknown whether the message was stored; check: agentbus status %s\n", req.ClientID)
+		if req.LogName != "" {
+			fmt.Fprintf(stderr, "agentbus: check: agentbus log --since 1m --name %s\n", req.LogName)
+		}
 		return daemon.Response{}, 1
 	}
 	fmt.Fprintf(stderr, "agentbus: %s\n", err)

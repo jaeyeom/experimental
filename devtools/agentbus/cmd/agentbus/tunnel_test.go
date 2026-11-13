@@ -111,9 +111,10 @@ func TestTunnelSendCarriesTheCallerAndRepliesGoBackOverHerdr(t *testing.T) {
 
 	code, out, stderr := s.run(t, s.env, "question\n", "send", "herdr:local/default/w1:p2")
 	id, state, _ := strings.Cut(strings.TrimSpace(out), " ")
-	if code != 0 || state != "delivered" {
+	if code != 0 || state != "queued for delivery" {
 		t.Fatalf("send = %d, stdout %q, stderr %q", code, out, stderr)
 	}
+	awaitDelivered(t, hubEnv, id)
 	if s.usedSSH() {
 		t.Fatalf("tunnelled send ran ssh: %q", s.ssh.Lines("argv"))
 	}
@@ -124,7 +125,9 @@ func TestTunnelSendCarriesTheCallerAndRepliesGoBackOverHerdr(t *testing.T) {
 
 	s.herdr.Argv()
 	hubPane := append(append([]string{}, hubEnv...), "HERDR_PANE_ID=w1:p2")
-	mustCmd(t, []string{"reply", id, "answer"}, hubPane)
+	replied, _ := mustCmd(t, []string{"reply", id, "answer"}, hubPane)
+	replyID, _, _ := strings.Cut(strings.TrimSpace(replied), " ")
+	awaitDelivered(t, hubEnv, replyID)
 	if !textsContain(s.herdr.Argv(), "--machine linux2 agent prompt w1:p1 ") {
 		t.Fatal("the reply did not go back through herdr --machine linux2")
 	}

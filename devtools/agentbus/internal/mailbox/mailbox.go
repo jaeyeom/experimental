@@ -41,10 +41,13 @@ type Result struct {
 // Options controls one send. A zero TTL does not expire.
 // Wait blocks until the message is delivered or expired.
 // ClientID empty keeps the old accept-every-call behavior.
+// ReplyFirst answers after the precheck and leaves the paste until
+// DeliverDeferred. Wait ignores it and blocks until the message settles.
 type Options struct {
-	TTL      time.Duration
-	Wait     bool
-	ClientID string
+	TTL        time.Duration
+	Wait       bool
+	ClientID   string
+	ReplyFirst bool
 }
 
 type message struct {
@@ -101,6 +104,8 @@ type Mailbox struct {
 	// goroutine.
 	waking map[string]*wakeCall
 	wakes  sync.WaitGroup
+	// deferred handles are pasted by DeliverDeferred, after the reply.
+	deferred []string
 }
 
 // Open loads messages. A missing file is an empty mailbox.

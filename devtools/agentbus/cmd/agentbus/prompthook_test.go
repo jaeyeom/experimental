@@ -76,7 +76,11 @@ func TestPromptHookBlocksMergedDraftAndRequeues(t *testing.T) {
 	mustCmd(t, []string{"register", "eng/reviewer", "--when", "reviews"}, paneEnv("p2"))
 	sent, _ := mustCmd(t, []string{"send", "eng/reviewer", "merged-body"}, paneEnv("p1"))
 	id, state, _ := strings.Cut(strings.TrimSpace(sent), " ")
-	if state != "delivered" || len(ad.Texts) != 1 {
+	if state != "queued for delivery" {
+		t.Fatalf("send = %q", sent)
+	}
+	awaitDelivered(t, env, id)
+	if len(ad.Texts) != 1 {
 		t.Fatalf("send = %q texts %q", sent, ad.Texts)
 	}
 	envelope := ad.Texts[0]

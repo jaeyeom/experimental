@@ -124,7 +124,7 @@ func TestPendingSenderStaysOrdered(t *testing.T) {
 
 	p2 := withEnv(s.env, "HERDR_PANE_ID", "w1:p2")
 	code, stdout, stderr = s.run(t, p2, "", "send", "herdr:local/default/w1:p1", "p2-body")
-	if code != 0 || strings.Contains(stdout, "queued") {
+	if code != 0 || !strings.Contains(stdout, "queued for delivery") || strings.Contains(stdout, "queued:") || strings.Contains(stdout, "queued (hub") {
 		t.Fatalf("other sender = %d, stdout %q, stderr %q", code, stdout, stderr)
 	}
 	if countBody(readMessages(t, dirs), "p2-body") != 1 {

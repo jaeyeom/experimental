@@ -192,11 +192,14 @@ func TestHubModeCallerRegistersAndGetsRepliesOnItsMachine(t *testing.T) {
 	}
 
 	id, state := sendID(t, hubEnv, "herdr:local/default/w1:p1", "question")
-	if state != "delivered" {
+	if state != "queued for delivery" {
 		t.Fatalf("send state = %q", state)
 	}
+	awaitDelivered(t, bus.base, id)
 	bus.fake.Argv()
-	mustCmd(t, []string{"reply", id, "answer"}, bus.env("w1:p1"))
+	replied, _ := mustCmd(t, []string{"reply", id, "answer"}, bus.env("w1:p1"))
+	replyID, _, _ := strings.Cut(strings.TrimSpace(replied), " ")
+	awaitDelivered(t, bus.base, replyID)
 	if !textsContain(bus.fake.Argv(), "--machine m2 agent prompt w2:p3 ") {
 		t.Fatal("the reply did not go back through --machine m2")
 	}
