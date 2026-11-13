@@ -365,6 +365,39 @@ them. Turn them off in the config:
 {"hyperlinks": false}
 #+end_src
 
+* Copying text
+
+In the item view, ~Y~ opens a copy menu. ~y~ still archives.
+
+- ~m~ copies the selected message, or the last one when none is
+  selected. The text is the stored message, not the wrapped view.
+- ~q~ copies the question.
+- ~t~ copies the thread. Each message is ~<sender> <local time>~ and
+  then its text.
+- ~i~ copies the item id, such as ~D-123~.
+- ~a~ copies the answer value when the item is answered.
+- ~Esc~ closes the menu.
+
+The status line says ~copied message (312 chars)~, with the same
+shape for the other choices. The text has no borders, padding, soft
+wraps, or ANSI codes, and it keeps its newlines.
+
+~V~ toggles a borderless, unwrapped view of the item so a Shift
+selection also copies clean text. Long lines run past the edge.
+~V~ again restores the normal view.
+
+Clipboard transport is ~ui.clipboard~ in ~config.json~. ~auto~ (the
+default) writes OSC 52 and, when a local clipboard command is
+available, also uses ~pbcopy~, ~wl-copy~, or ~xclip~. ~osc52~ writes
+only OSC 52. ~command~ uses only the local command. ~off~ writes
+nothing and the status line says copy is disabled. OSC 52 is skipped
+above 100 KB; ~auto~ then uses the command, or says the text is too
+large.
+
+#+begin_src json
+{"ui": {"clipboard": "auto"}}
+#+end_src
+
 * Where the owner lives
 
 The item view has an ~Owner:~ header line: the owner and the herdr

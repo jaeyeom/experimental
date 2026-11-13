@@ -80,10 +80,31 @@ type Config struct {
 	UI InboxUI `json:"ui,omitempty"`
 }
 
+// Clipboard transport values of InboxUI.Clipboard. Empty means auto.
+const (
+	ClipboardAuto    = "auto"
+	ClipboardOSC52   = "osc52"
+	ClipboardCommand = "command"
+	ClipboardOff     = "off"
+)
+
 // InboxUI is local inbox display. UTC shows times in UTC instead of
-// the machine's zone.
+// the machine's zone. Clipboard chooses how the inbox copies text.
 type InboxUI struct {
 	UTC bool `json:"utc,omitempty"`
+	// Clipboard is auto, osc52, command, or off. Empty is auto.
+	Clipboard string `json:"clipboard,omitempty"`
+}
+
+// CheckClipboard reports an error when mode is not a clipboard transport.
+// Empty is auto.
+func CheckClipboard(mode string) error {
+	switch mode {
+	case "", ClipboardAuto, ClipboardOSC52, ClipboardCommand, ClipboardOff:
+		return nil
+	default:
+		return fmt.Errorf("decide config ui.clipboard %q must be auto, osc52, command, or off", mode)
+	}
 }
 
 // HyperlinksOn reports whether the inbox writes OSC 8 hyperlinks.
@@ -187,6 +208,9 @@ func parseConfig(data []byte, dir string) (Config, error) {
 		return Config{}, fmt.Errorf("decide config openCommand: the program is empty")
 	}
 	if _, err := parseRecipientsTimeout(cfg.RecipientsTimeout); err != nil {
+		return Config{}, err
+	}
+	if err := CheckClipboard(cfg.UI.Clipboard); err != nil {
 		return Config{}, err
 	}
 	resolveAvatarFiles(cfg.Avatars, dir)

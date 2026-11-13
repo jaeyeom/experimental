@@ -42,24 +42,6 @@ func itemLinks(it *decide.Item) []string {
 	return out
 }
 
-// copyCurrentMessage copies the latest message, or the question when the
-// thread has no messages.
-func (m *Model) copyCurrentMessage() {
-	if m.detail == nil {
-		m.status = "nothing to copy"
-		return
-	}
-	text := m.detail.Question
-	if n := len(m.detail.Messages); n > 0 {
-		text = m.detail.Messages[n-1].Text
-	}
-	if text == "" {
-		m.status = "nothing to copy"
-		return
-	}
-	m.copyText(text)
-}
-
 // copyCurrentLink copies the full URL of the current link.
 func (m *Model) copyCurrentLink() {
 	url := m.linkURL
@@ -77,12 +59,7 @@ func (m *Model) copyCurrentLink() {
 }
 
 func (m *Model) copyText(text string) {
-	wrote := m.writeOSC52(text)
-	clip := m.copyClip
-	if clip == nil {
-		clip = copyClipboard
-	}
-	if err := clip(text); err != nil && !wrote {
+	if err := m.writeClipboard(text); err != nil {
 		m.status = err.Error()
 		return
 	}
