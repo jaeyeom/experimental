@@ -74,18 +74,18 @@ func matchCount(texts []string, q string) int {
 	return n
 }
 
-// refilter applies m.filter to the cached folder rows.
+// refilter applies the agent filter and m.filter to the cached folder rows.
 func (m *Model) refilter(keep string) {
 	q := strings.ToLower(m.filter)
-	if q == "" {
-		m.items = m.folderItems
-	} else {
-		m.items = make([]decide.Item, 0, len(m.folderItems))
-		for i, text := range m.folderText {
-			if strings.Contains(text, q) {
-				m.items = append(m.items, m.folderItems[i])
-			}
+	m.items = make([]decide.Item, 0, len(m.folderItems))
+	for i, it := range m.folderItems {
+		if m.agentFilter != "" && !itemInvolves(it, m.agentFilter) {
+			continue
 		}
+		if q != "" && !strings.Contains(m.folderText[i], q) {
+			continue
+		}
+		m.items = append(m.items, it)
 	}
 	m.cursor = max(slices.IndexFunc(m.items, func(it decide.Item) bool { return it.ID == keep }), 0)
 }
@@ -133,6 +133,7 @@ type searchSnapshot struct {
 	id                string
 	scroll            int
 	agentCursor       int
+	contactCursor     int
 }
 
 // searchKey edits the / prompt. Every edit applies the query at once.
@@ -162,11 +163,12 @@ func (m *Model) beginSearch() {
 	m.searching = true
 	m.search = ""
 	m.prior = searchSnapshot{
-		filter:      m.filter,
-		highlight:   m.highlight,
-		id:          m.cursorID(),
-		scroll:      m.scroll,
-		agentCursor: m.agentCursor,
+		filter:        m.filter,
+		highlight:     m.highlight,
+		id:            m.cursorID(),
+		scroll:        m.scroll,
+		agentCursor:   m.agentCursor,
+		contactCursor: m.contactCursor,
 	}
 }
 
@@ -217,6 +219,11 @@ func (m *Model) applyQuery(q string) {
 		}
 		m.scroll = 0
 		m.revealAgentCursor()
+	case modeContacts:
+		m.filter = q
+		m.scroll = 0
+		m.clampContactCursor()
+		m.revealContactCursor()
 	default:
 		m.filter = q
 		m.refilter(m.cursorID())
@@ -237,6 +244,9 @@ func (m *Model) restoreSearch() {
 		if err := m.loadStatus(); err != nil {
 			m.status = err.Error()
 		}
+	case modeContacts:
+		m.filter = p.filter
+		m.contactCursor = p.contactCursor
 	default:
 		m.filter = p.filter
 		m.refilter(p.id)
@@ -293,18 +303,41 @@ func (m *Model) searchPrompt() screenLine {
 	return screenLine{text: "/" + withCursor(m.search, len([]rune(m.search))) + "  as you type  enter keeps  esc restores"}
 }
 
-// filterHeader names the list, the query, and how many rows it keeps.
-func (m *Model) filterHeader() (screenLine, bool) {
-	if m.filter == "" || m.composing || (m.mode != modeList && m.mode != modeStatus) {
+// agentHeader is the "agent: <name>" line while an agent filter is set.
+func (m *Model) agentHeader() (screenLine, bool) {
+	if m.agentFilter == "" || m.composing {
 		return screenLine{}, false
 	}
-	name := "status"
-	shown := len(m.agents) + len(m.resources)
-	total := m.statusTotal
-	if m.mode == modeList {
+	switch m.mode {
+	case modeList, modeStatus, modeContacts:
+		return screenLine{text: "agent: " + m.agentFilter}, true
+	default:
+		return screenLine{}, false
+	}
+}
+
+// filterHeader names the list, the query, and how many rows it keeps.
+func (m *Model) filterHeader() (screenLine, bool) {
+	if m.filter == "" || m.composing {
+		return screenLine{}, false
+	}
+	var name string
+	var shown, total int
+	switch m.mode {
+	case modeStatus:
+		name = "status"
+		shown = len(m.agents) + len(m.resources)
+		total = m.statusTotal
+	case modeContacts:
+		name = "contacts"
+		shown = len(m.visibleContacts())
+		total = len(m.contacts)
+	case modeList:
 		name = strings.ToLower(Folders[m.folder].Name)
 		shown = len(m.items)
 		total = m.listTotal
+	default:
+		return screenLine{}, false
 	}
 	return screenLine{text: fmt.Sprintf("%s  /%s  (%d of %d)", name, m.filter, shown, total)}, true
 }
@@ -318,11 +351,17 @@ func (m *Model) emptyText(placeholder string) string {
 }
 
 func (m *Model) withFilterHeader(lines []screenLine) []screenLine {
-	header, ok := m.filterHeader()
-	if !ok {
+	var head []screenLine
+	if header, ok := m.agentHeader(); ok {
+		head = append(head, header)
+	}
+	if header, ok := m.filterHeader(); ok {
+		head = append(head, header)
+	}
+	if len(head) == 0 {
 		return lines
 	}
-	return append([]screenLine{header}, lines...)
+	return append(head, lines...)
 }
 
 // highlightCount counts matches in the thread text the item view shows.

@@ -39,6 +39,7 @@ const (
 	modeDetail
 	modeOutcome
 	modeStatus
+	modeContacts
 )
 
 const (
@@ -160,7 +161,20 @@ type Model struct {
 	busLoading bool
 	busTimeout time.Duration
 	busNote    string
-	pickFilter string
+	// busKnown is true after a bus list succeeds, so a ledger name it
+	// did not report is offline. busWant asks Update to start a load.
+	busKnown bool
+	busWant  bool
+	// allItems is the last ledger read. folderRows is each folder's
+	// items, parallel to folderTexts, so an agent filter can count
+	// matches without another read. agentFilter limits every folder
+	// to items that agent owns or sent a message on.
+	allItems      []decide.Item
+	folderRows    [][]decide.Item
+	agentFilter   string
+	contacts      []contact
+	contactCursor int
+	pickFilter    string
 	// snoozing shows the snooze popup for snoozeItem. snoozeCustom is
 	// the custom row's text and snoozeErr its parse error.
 	snoozing     bool
@@ -255,16 +269,20 @@ func (m *Model) applyList(all []decide.Item) error {
 	}
 	keep := m.cursorID()
 	m.refreshDetail(all)
+	m.allItems = append([]decide.Item(nil), all...)
 	m.counts = make([]int, len(Folders))
 	m.folderTexts = make([][]string, len(Folders))
+	m.folderRows = make([][]decide.Item, len(Folders))
 	for _, it := range all {
 		for i, folder := range Folders {
 			if folder.Snoozed == it.Snoozed() && (folder.Snoozed || it.State == folder.State) {
 				m.counts[i]++
 				m.folderTexts[i] = append(m.folderTexts[i], searchText(&it))
+				m.folderRows[i] = append(m.folderRows[i], it)
 			}
 		}
 	}
+	m.rebuildContacts()
 	if Folders[m.folder].Snoozed {
 		m.setFolder(decide.SelectSnoozed(all), keep)
 		return nil
@@ -280,8 +298,9 @@ func (m *Model) applyList(all []decide.Item) error {
 // Key applies one key. In the list, j and k move one row and keep that row
 // visible. G jumps to the last row. g starts a folder chord, and a second g
 // jumps to the first row. o or Enter opens the row, c opens compose, b
-// snoozes the row, and q quits. A second key of i, z, a, d, w, or s opens
-// Inbox, Snoozed, Answered, Done, Withdrawn, or Status. Status is also a row in the folder list. There, j
+// snoozes the row, and q quits. A second key of i, z, a, d, w, s, or c opens
+// Inbox, Snoozed, Answered, Done, Withdrawn, Status, or Contacts.
+// Status and Contacts are also rows in the folder list. There, j
 // and k highlight an agent row and keep it visible, and c opens compose.
 // In the opened item, up, down, j, and k
 // scroll one line, page up and page down scroll one page, home and end
@@ -342,13 +361,27 @@ func (m *Model) Key(r rune) (bool, error) {
 		m.help = true
 		return false, nil
 	}
+	if handled, quit, err := m.modeKey(r); handled {
+		return quit, err
+	}
+	return m.listKey(r)
+}
+
+// modeKey handles a key in the detail, status, or contacts view.
+// handled is false when the list should take the key.
+func (m *Model) modeKey(r rune) (handled bool, quit bool, err error) {
 	switch m.mode {
 	case modeDetail:
-		return m.detailKey(r)
+		quit, err = m.detailKey(r)
+		return true, quit, err
 	case modeStatus:
-		return m.statusKey(r)
+		quit, err = m.statusKey(r)
+		return true, quit, err
+	case modeContacts:
+		quit, err = m.contactsKey(r)
+		return true, quit, err
 	default:
-		return m.listKey(r)
+		return false, false, nil
 	}
 }
 
@@ -370,6 +403,8 @@ func (m *Model) statusKey(r rune) (bool, error) {
 		m.composeFromStatus()
 	case '/':
 		m.beginSearch()
+	case '\x1b':
+		m.clearAgentFilter()
 	}
 	return false, nil
 }
@@ -391,15 +426,23 @@ func (m *Model) moveAgent(delta int) {
 }
 
 func (m *Model) listLen() int {
-	if m.mode == modeStatus {
+	switch m.mode {
+	case modeStatus:
 		return len(m.agents)
+	case modeContacts:
+		return len(m.visibleContacts())
+	default:
+		return len(m.items)
 	}
-	return len(m.items)
 }
 
 func (m *Model) moveList(delta int) {
-	if m.mode == modeStatus {
+	switch m.mode {
+	case modeStatus:
 		m.moveAgent(delta)
+		return
+	case modeContacts:
+		m.moveContact(delta)
 		return
 	}
 	n := len(m.items)
@@ -428,9 +471,14 @@ func (m *Model) jumpList(index int) {
 	if index >= n {
 		index = n - 1
 	}
-	if m.mode == modeStatus {
+	switch m.mode {
+	case modeStatus:
 		m.agentCursor = index
 		m.revealAgentCursor()
+		return
+	case modeContacts:
+		m.contactCursor = index
+		m.revealContactCursor()
 		return
 	}
 	m.cursor = index
@@ -478,7 +526,7 @@ func revealRow(scroll, row, limit int) int {
 
 func (m *Model) listPage() int {
 	var n int
-	if m.mode == modeStatus {
+	if m.mode == modeStatus || m.mode == modeContacts {
 		_, n = m.layoutBudget()
 	} else {
 		n, _ = m.layoutBudget()
@@ -552,8 +600,9 @@ var goToChords = []goToChord{
 	{'d', "done", func(m *Model) error { return m.showFolder(3) }},
 	{'w', "withdrawn", func(m *Model) error { return m.showFolder(4) }},
 	{'s', "status", func(m *Model) error { return m.showStatus() }},
+	{'c', "contacts", func(m *Model) error { return m.showContacts() }},
 	{'g', "top", func(m *Model) error {
-		if m.mode == modeList || m.mode == modeStatus {
+		if m.mode == modeList || m.mode == modeStatus || m.mode == modeContacts {
 			m.jumpList(0)
 		}
 		return nil
@@ -630,6 +679,8 @@ func (m *Model) listKey(r rune) (bool, error) {
 		m.beginSnooze()
 	case '/':
 		m.beginSearch()
+	case '\x1b':
+		m.clearAgentFilter()
 	}
 	return false, nil
 }
@@ -1218,18 +1269,26 @@ func (m *Model) statusLine() screenLine {
 		}
 		return screenLine{text: status + "  " + hint}
 	}
-	hint := label + "g go to  o open  u list  c  tab/text/[Send]  ? help"
-	switch m.mode {
-	case modeStatus:
-		hint = label + "g go to  u list  c  tab/text/[Send]  ? help"
-	case modeDetail, modeOutcome:
-		hint = label + "0 reply  f forward  u list  q quit  e/y archive  j/k pgup/pgdn home/end  n/p  ? help"
-	}
+	hint := m.browseHint(label)
 	text := hint
 	if status != "" {
 		text = status + "  " + hint
 	}
 	return screenLine{text: m.withOptionalHints(text)}
+}
+
+// browseHint is the footer shortcut list for the current view.
+func (m *Model) browseHint(label string) string {
+	switch m.mode {
+	case modeStatus:
+		return label + "g go to  u list  c  tab/text/[Send]  ? help"
+	case modeContacts:
+		return label + "g go to  u list  enter filter  A avatar  ? help"
+	case modeDetail, modeOutcome:
+		return label + "0 reply  f forward  u list  q quit  e/y archive  j/k pgup/pgdn home/end  n/p  ? help"
+	default:
+		return label + "g go to  o open  u list  c  tab/text/[Send]  ? help"
+	}
 }
 
 // withOptionalHints adds d outcome in an open item, then /find, then
@@ -1238,7 +1297,7 @@ func (m *Model) statusLine() screenLine {
 func (m *Model) withOptionalHints(text string) string {
 	extras := []string{"/find", "b snooze"}
 	switch m.mode {
-	case modeStatus:
+	case modeStatus, modeContacts:
 		extras = extras[:1]
 	case modeDetail, modeOutcome:
 		extras = append([]string{"d outcome"}, extras...)
@@ -1258,7 +1317,7 @@ func (m *Model) listFocused() bool {
 }
 
 func (m *Model) detailFocused() bool {
-	return m.mode != modeList && m.mode != modeStatus && !m.composing && !m.answerFocus
+	return m.mode != modeList && m.mode != modeStatus && m.mode != modeContacts && !m.composing && !m.answerFocus
 }
 
 func (m *Model) mailLines() []screenLine {
@@ -1268,6 +1327,9 @@ func (m *Model) mailLines() []screenLine {
 	}
 	if m.mode == modeStatus {
 		return m.statusMail(pane)
+	}
+	if m.mode == modeContacts {
+		return m.contactsMail(pane)
 	}
 	if m.mode != modeList {
 		return m.openedScreen(pane)
@@ -1596,20 +1658,27 @@ func (m *Model) fitDetail(lines []screenLine, width int) []screenLine {
 }
 
 func (m *Model) navLen() int {
-	return len(Folders) + 1
+	return len(Folders) + 2
 }
 
 func (m *Model) navSelected(i int) bool {
-	if m.mode == modeStatus {
+	switch m.mode {
+	case modeStatus:
 		return i == len(Folders)
+	case modeContacts:
+		return i == len(Folders)+1
+	default:
+		return i == m.folder
 	}
-	return i == m.folder
 }
 
 func (m *Model) navName(i int) string {
-	name := "Status"
-	if i < len(Folders) {
+	name := "Contacts"
+	switch {
+	case i < len(Folders):
 		name = Folders[i].Name
+	case i == len(Folders):
+		name = "Status"
 	}
 	if m.navSelected(i) {
 		return "[" + name + "]"
@@ -1638,24 +1707,59 @@ func (m *Model) navText(i int) string {
 	return label
 }
 
-// navCountText is the folder's total, or matches/total while a search is
-// active. Status shows matches/total only when the query filters it.
-// The bool is true when a folder has no matches and should be dimmed.
+// navCountText is the folder's total, or matches/total while a search
+// or an agent filter is active. Status and Contacts show matches/total
+// only when the query filters that view. The bool is true when a folder
+// has no matches and should be dimmed.
 func (m *Model) navCountText(i int) (string, bool) {
 	q := m.listQuery()
-	if i >= len(Folders) {
+	if i == len(Folders) {
 		if q == "" || m.mode != modeStatus {
 			return "", false
 		}
 		matches := len(m.agents) + len(m.resources)
 		return fmt.Sprintf("%d/%d", matches, m.statusTotal), matches == 0
 	}
+	if i > len(Folders) {
+		if q == "" || m.mode != modeContacts {
+			return "", false
+		}
+		shown := len(m.visibleContacts())
+		return fmt.Sprintf("%d/%d", shown, len(m.contacts)), shown == 0
+	}
 	total := m.navCount(i)
-	if q == "" {
+	if q == "" && m.agentFilter == "" {
 		return fmt.Sprintf("%d", total), false
 	}
-	matches := matchCount(m.folderTexts[i], q)
+	matches := m.folderMatchCount(i, q)
 	return fmt.Sprintf("%d/%d", matches, total), matches == 0
+}
+
+// folderMatchCount is how many of the folder's items the agent filter
+// and the search query both keep. No agent filter uses the search text
+// alone, so a count built without folder rows still works.
+func (m *Model) folderMatchCount(i int, q string) int {
+	if m.agentFilter == "" {
+		return matchCount(m.folderTexts[i], q)
+	}
+	needle := strings.ToLower(q)
+	n := 0
+	for j, it := range m.folderRows[i] {
+		if !itemInvolves(it, m.agentFilter) {
+			continue
+		}
+		if needle != "" {
+			text := ""
+			if j < len(m.folderTexts[i]) {
+				text = m.folderTexts[i][j]
+			}
+			if !strings.Contains(text, needle) {
+				continue
+			}
+		}
+		n++
+	}
+	return n
 }
 
 func (m *Model) folderTabLine(width int) screenLine {
@@ -1727,12 +1831,24 @@ func padRight(s string, width int) string {
 	return s
 }
 
+// headerChrome is the agent-filter line plus the search line, when shown.
+func (m *Model) headerChrome() int {
+	n := 0
+	if _, ok := m.agentHeader(); ok {
+		n++
+	}
+	if _, ok := m.filterHeader(); ok {
+		n++
+	}
+	return n
+}
+
 func (m *Model) layoutBudget() (int, int) {
 	if m.height <= 1 {
 		return 0, 0
 	}
 	folderChrome := 0
-	if !m.composing && (m.mode == modeList || m.mode == modeStatus) {
+	if !m.composing && (m.mode == modeList || m.mode == modeStatus || m.mode == modeContacts) {
 		folderChrome = m.navLen()
 		if m.width > 0 {
 			folderChrome = 0
@@ -1745,10 +1861,7 @@ func (m *Model) layoutBudget() (int, int) {
 	if m.framed() {
 		frame = 2
 	}
-	chrome := folderChrome + 1 + frame
-	if _, ok := m.filterHeader(); ok {
-		chrome++
-	}
+	chrome := folderChrome + 1 + frame + m.headerChrome()
 	box := 0
 	if !m.composing && (m.listFocused() || m.detailFocused()) {
 		box = 2
@@ -2229,6 +2342,23 @@ func (m *Model) helpLines() []screenLine {
 			"shift+drag selects text",
 			"M toggles mouse capture",
 			"click folder, target, or [Send]",
+			"wheel scroll",
+			"? or esc close",
+		}
+	}
+	if m.mode == modeContacts {
+		text = []string{
+			"shortcuts",
+			"q quit",
+			"j/k move  pgup/pgdn  home/end  gg/G",
+			goToHelp(),
+			"enter filters every folder to this agent",
+			"esc clears the agent filter",
+			"A picks this agent's avatar",
+			"u returns to the list",
+			"/ filters as you type, esc restores, empty enter clears",
+			"M toggles mouse capture",
+			"click a folder",
 			"wheel scroll",
 			"? or esc close",
 		}

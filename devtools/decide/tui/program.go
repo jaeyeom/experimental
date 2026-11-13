@@ -69,6 +69,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if open := m.openCmd(); open != nil {
 		cmd = tea.Batch(cmd, open)
 	}
+	if bus := m.takeBusCmd(); bus != nil {
+		cmd = tea.Batch(cmd, bus)
+	}
 	return next, cmd
 }
 
@@ -328,6 +331,9 @@ func (m *Model) reloaded() (tea.Model, tea.Cmd) {
 			m.status = err.Error()
 		}
 	}
+	if m.mode == modeContacts {
+		m.rebuildContacts()
+	}
 	return m, m.scheduleReload()
 }
 
@@ -369,7 +375,7 @@ func (m *Model) handleScrollKey(k tea.KeyMsg) bool {
 }
 
 func (m *Model) listNavKey(k tea.KeyMsg) bool {
-	if m.help || m.composing || m.linkPick || m.avatarPick || (m.mode != modeList && m.mode != modeStatus) {
+	if m.help || m.composing || m.linkPick || m.avatarPick || (m.mode != modeList && m.mode != modeStatus && m.mode != modeContacts) {
 		return false
 	}
 	switch k.Type {

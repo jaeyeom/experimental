@@ -507,7 +507,7 @@ func TestStatusFolderIsSelectable(t *testing.T) {
 		m.mode = modeList
 		m.folder = 0
 		view := m.View()
-		for _, name := range []string{"[Inbox]", "Answered", "Done", "Withdrawn", "Status"} {
+		for _, name := range []string{"[Inbox]", "Answered", "Done", "Withdrawn", "Status", "Contacts"} {
 			if !strings.Contains(view, name) {
 				t.Fatalf("width %d missing %s\n%s", width, name, view)
 			}
@@ -599,7 +599,7 @@ func TestFolderCountsShareAColumn(t *testing.T) {
 	if screenRow(view, "[Inbox]") != screenRow(view, "Status") || screenRow(view, "Withdrawn") != screenRow(view, "[Inbox]") {
 		t.Fatalf("narrow folders are not one row\n%s", view)
 	}
-	for _, name := range []string{"[Inbox]", "Answered", "Done", "Withdrawn", "Status"} {
+	for _, name := range []string{"[Inbox]", "Answered", "Done", "Withdrawn", "Status", "Contacts"} {
 		if !strings.Contains(view, name) {
 			t.Fatalf("narrow row missing %s\n%s", name, view)
 		}
@@ -609,7 +609,7 @@ func TestFolderCountsShareAColumn(t *testing.T) {
 func assertFolderCountColumn(t *testing.T, m *Model) {
 	t.Helper()
 	lines := m.sidebarLines()
-	if len(lines) != len(Folders)+1 {
+	if len(lines) != len(Folders)+2 {
 		t.Fatalf("sidebar rows %d", len(lines))
 	}
 	ends := make([]int, len(Folders))
@@ -643,6 +643,13 @@ func assertFolderCountColumn(t *testing.T, m *Model) {
 	}
 	if lipgloss.Width(status) != width || ends[0] != width {
 		t.Fatalf("status width %d row width %d count end %d %q", lipgloss.Width(status), width, ends[0], status)
+	}
+	contacts := lines[len(Folders)+1].text
+	if strings.TrimRight(contacts, " ") != "Contacts" {
+		t.Fatalf("contacts row %q", contacts)
+	}
+	if lipgloss.Width(contacts) != width {
+		t.Fatalf("contacts width %d row width %d %q", lipgloss.Width(contacts), width, contacts)
 	}
 }
 
@@ -1030,7 +1037,7 @@ func TestClickOpensRowSwitchesFolderAndScrolls(t *testing.T) {
 		CreatedAt: time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC),
 	})
 	m := New(dir)
-	m.height = 11
+	m.height = 12
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
