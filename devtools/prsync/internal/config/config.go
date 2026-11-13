@@ -217,6 +217,10 @@ type Config struct {
 	// TeamCoverHistoryTTL is how long a path's history is reused, keyed by
 	// the history window's start day. Zero keys it by the base branch head.
 	TeamCoverHistoryTTL time.Duration
+	// TeamCoverHistorySlackDays is how many UTC days earlier than the
+	// current window start a stored history entry may be and still count
+	// as a hit. Zero requires the same start day.
+	TeamCoverHistorySlackDays int
 	// TeamCoverMaxCalls caps team-cover's GitHub calls in one round.
 	// Work past the cap waits for the next round.
 	TeamCoverMaxCalls int
@@ -305,51 +309,52 @@ func (e *KeyError) Error() string {
 // Defaults returns the built-in configuration.
 func Defaults() Config {
 	return Config{
-		TitleIDPattern:           regexp.MustCompile(`[A-Z]+-[0-9]+`),
-		TabLabelTemplate:         "{id}",
-		HerdrBin:                 "herdr",
-		MachineTimeout:           5 * time.Second,
-		GHBin:                    "gh",
-		JiraBin:                  "jira",
-		ConcurrencyWaitOn:        "any",
-		ConcurrencyIgnoreBlocked: false,
-		ConcurrencyCwd:           "any",
-		GatePoll:                 2000 * time.Millisecond,
-		GateTimeout:              1800000 * time.Millisecond,
-		PromptTemplate:           defaultPromptTemplate,
-		RebasePromptTemplate:     defaultRebasePromptTemplate,
-		CIFixPromptTemplate:      defaultCIFixPromptTemplate,
-		WaitUntil:                []string{"idle", "done"},
-		DispatchTimeout:          1800000 * time.Millisecond,
-		StateFile:                "~/.config/prsync/state.json",
-		DedupeTTL:                24 * time.Hour,
-		DryRun:                   true,
-		CommentLinkMaxChars:      500,
-		CommentBodyMaxChars:      4000,
-		TeamCoverPerTeam:         1,
-		TeamCoverSignals:         []string{"codeowners", "history", "load"},
-		TeamCoverHistoryDays:     90,
-		TeamCoverEvery:           1,
-		TeamCoverBatchPaths:      5,
-		TeamCoverHistoryTTL:      6 * time.Hour,
-		TeamCoverMaxCalls:        40,
-		TeamCoverRefreshMaxCalls: 10,
-		TeamCoverLoadTTL:         time.Hour,
-		TeamCoverMembersTTL:      24 * time.Hour,
-		TeamCoverCodeownersTTL:   6 * time.Hour,
-		ReviewThreadsTTL:         6 * time.Hour,
-		StatusChecksTTL:          6 * time.Hour,
-		PRViewClosedTTL:          24 * time.Hour,
-		GateIgnoreProcs:          slices.Clone(procinfo.DefaultHelpers),
-		GateBuildTools:           slices.Clone(procinfo.DefaultBuildTools),
-		GateBuildToolIgnore:      slices.Clone(procinfo.DefaultBuildToolIgnore),
-		GatePendingQuestion:      "decide",
-		GateLease:                "auto",
-		WakeBeforePrompt:         "auto",
-		GateJobMinAge:            procinfo.DefaultJobMinAge,
-		OpenTabsAgent:            []string{"claude"},
-		OpenTabsMaxPerRound:      defaultOpenTabsMaxPerRound,
-		OpenTabsReadyTimeout:     defaultOpenTabsReadyTimeout,
+		TitleIDPattern:            regexp.MustCompile(`[A-Z]+-[0-9]+`),
+		TabLabelTemplate:          "{id}",
+		HerdrBin:                  "herdr",
+		MachineTimeout:            5 * time.Second,
+		GHBin:                     "gh",
+		JiraBin:                   "jira",
+		ConcurrencyWaitOn:         "any",
+		ConcurrencyIgnoreBlocked:  false,
+		ConcurrencyCwd:            "any",
+		GatePoll:                  2000 * time.Millisecond,
+		GateTimeout:               1800000 * time.Millisecond,
+		PromptTemplate:            defaultPromptTemplate,
+		RebasePromptTemplate:      defaultRebasePromptTemplate,
+		CIFixPromptTemplate:       defaultCIFixPromptTemplate,
+		WaitUntil:                 []string{"idle", "done"},
+		DispatchTimeout:           1800000 * time.Millisecond,
+		StateFile:                 "~/.config/prsync/state.json",
+		DedupeTTL:                 24 * time.Hour,
+		DryRun:                    true,
+		CommentLinkMaxChars:       500,
+		CommentBodyMaxChars:       4000,
+		TeamCoverPerTeam:          1,
+		TeamCoverSignals:          []string{"codeowners", "history", "load"},
+		TeamCoverHistoryDays:      90,
+		TeamCoverEvery:            1,
+		TeamCoverBatchPaths:       5,
+		TeamCoverHistoryTTL:       6 * time.Hour,
+		TeamCoverHistorySlackDays: 2,
+		TeamCoverMaxCalls:         40,
+		TeamCoverRefreshMaxCalls:  10,
+		TeamCoverLoadTTL:          time.Hour,
+		TeamCoverMembersTTL:       24 * time.Hour,
+		TeamCoverCodeownersTTL:    6 * time.Hour,
+		ReviewThreadsTTL:          6 * time.Hour,
+		StatusChecksTTL:           6 * time.Hour,
+		PRViewClosedTTL:           24 * time.Hour,
+		GateIgnoreProcs:           slices.Clone(procinfo.DefaultHelpers),
+		GateBuildTools:            slices.Clone(procinfo.DefaultBuildTools),
+		GateBuildToolIgnore:       slices.Clone(procinfo.DefaultBuildToolIgnore),
+		GatePendingQuestion:       "decide",
+		GateLease:                 "auto",
+		WakeBeforePrompt:          "auto",
+		GateJobMinAge:             procinfo.DefaultJobMinAge,
+		OpenTabsAgent:             []string{"claude"},
+		OpenTabsMaxPerRound:       defaultOpenTabsMaxPerRound,
+		OpenTabsReadyTimeout:      defaultOpenTabsReadyTimeout,
 	}
 }
 
@@ -634,7 +639,8 @@ func applyOtherKey(cfg *Config, key, val string) error {
 	case "team_cover", "team_cover_per_team", "team_cover_skip_teams",
 		"team_cover_exclude_logins", "team_cover_signals",
 		"team_cover_history_days", "team_cover_active_days", "team_cover_every",
-		"team_cover_batch_paths", "team_cover_history_ttl", "team_cover_max_calls",
+		"team_cover_batch_paths", "team_cover_history_ttl", "team_cover_history_slack_days",
+		"team_cover_max_calls",
 		"team_cover_refresh_max_calls", "team_cover_load_ttl",
 		"team_cover_members_ttl", "team_cover_codeowners_ttl":
 		return applyTeamCover(cfg, key, val)
@@ -660,6 +666,8 @@ func applyTeamCover(cfg *Config, key, val string) error {
 		return applyTeamCoverSignals(cfg, val)
 	case "team_cover_history_days":
 		return applyTeamCoverDays(&cfg.TeamCoverHistoryDays, key, val)
+	case "team_cover_history_slack_days":
+		return applyTeamCoverDays(&cfg.TeamCoverHistorySlackDays, key, val)
 	case "team_cover_active_days":
 		return applyTeamCoverDays(&cfg.TeamCoverActiveDays, key, val)
 	case "team_cover_every":
