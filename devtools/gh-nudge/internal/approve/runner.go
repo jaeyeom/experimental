@@ -30,6 +30,7 @@ type Client interface {
 	LoadApprovalPullRequest(ref github.PullRef) (github.ApprovalPullRequest, error)
 	PullRequestHeadSHA(ref github.PullRef) (string, error)
 	PullRequestDiff(ref github.PullRef) (string, error)
+	PullRequestFilePatches(ref github.PullRef) ([]github.PullFile, error)
 	ApprovePullRequest(ref github.PullRef, commitSHA, body string) error
 	CodeownersFile(ref github.PullRef, baseRef string) (string, string, error)
 	TeamMembers(org, slug string) ([]string, error)
@@ -165,6 +166,9 @@ func (r *Runner) decide(ref github.PullRef, viewer string, opts Options, single 
 		if needsOwnership(r.Config.Rules) {
 			pr.Ownership = r.loadOwnership(pr, viewer)
 		}
+		if needsCommentPatches(r.Config.Rules) {
+			r.loadCommentPatches(&pr)
+		}
 	}
 	results, matched := Evaluate(r.Config.Rules, pr, agent)
 	entry.Rules = results
@@ -184,6 +188,18 @@ func (r *Runner) decide(ref github.PullRef, viewer string, opts Options, single 
 		entry.Action, entry.Reason = r.approve(ref, pr.HeadSHA, matched)
 	}
 	return entry, false
+}
+
+// loadCommentPatches fetches REST patches for the deletions-and-comments
+// condition. A transport error is stored on pr. The condition reports a
+// missing patch itself.
+func (r *Runner) loadCommentPatches(pr *github.ApprovalPullRequest) {
+	files, err := r.Client.PullRequestFilePatches(pr.Ref)
+	if err != nil {
+		pr.PatchesErr = err.Error()
+		return
+	}
+	pr.Patches = files
 }
 
 // rule returns the rule named name.

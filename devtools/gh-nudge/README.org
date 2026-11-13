@@ -367,6 +367,7 @@ condition is optional. An empty list or an unset limit adds no condition.
 | ~max_added_lines~        | Maximum added lines                                                               |
 | ~max_files~              | Maximum changed files                                                             |
 | ~pure_deletion~          | The pull request adds no lines                                                    |
+| ~deletions_and_comments_only~ | Default ~false~. At least one line is deleted, and every added line is blank or a comment |
 | ~authors_allow~          | The author must be one of these logins                                            |
 | ~authors_deny~           | The author must not be one of these logins                                        |
 | ~labels_required~        | Every one of these labels must be present                                         |
@@ -387,6 +388,28 @@ case. Labels match exactly, including case. For ~required_approvals_by~, a
 passed. When the head has no required check, every check counts as required.
 ~checks = "allow_pending"~ requires only that no check failed. A failed check
 always fails.
+
+~deletions_and_comments_only~ passes when the pull request deletes at least
+one line and every added line is blank or a comment. A comment line is
+optional whitespace, then the marker, then anything. Code before the marker
+on the same line fails. ~/* */~ and ~<!-- -->~ blocks pass when they open and
+close on added lines. A block opened in a context line, a deleted line, or
+outside the hunk does not cover an added line. A ~#~ line in C or C++ is a
+preprocessor line, so it fails. Python docstrings fail. An added line in a
+file that is not listed fails. Patches come from ~pulls/{n}/files~ only when
+a rule sets the condition. A missing patch, a binary file, or a truncated
+file list fails with ~patch unavailable for <file>~. A rename with no content
+change passes. On success the condition reports ~N deletions, M comment/blank
+additions~.
+
+| Files | Comment |
+|-------+---------|
+| ~.py~ ~.sh~ ~.bash~ ~.zsh~ ~.bzl~ ~.bazel~ ~BUILD~ ~WORKSPACE~ ~.yaml~ ~.yml~ ~.toml~ ~.rb~ ~.pl~ ~Makefile~ ~.mk~ ~.r~ ~Dockerfile~ | ~#~ |
+| ~.cfg~ ~.ini~ | ~#~ or ~;~ |
+| ~.go~ ~.c~ ~.cc~ ~.cpp~ ~.cxx~ ~.h~ ~.hh~ ~.hpp~ ~.rs~ ~.ts~ ~.tsx~ ~.js~ ~.jsx~ ~.java~ ~.kt~ ~.swift~ ~.proto~ ~.scala~ ~.cs~ | ~//~ and ~/* */~ |
+| ~.sql~ ~.lua~ ~.hs~ | ~--~ |
+| ~.md~ ~.html~ ~.htm~ ~.xml~ ~.svg~ | ~<!-- -->~ |
+| ~.el~ ~.lisp~ ~.clj~ | ~;~ |
 
 Global settings:
 
@@ -416,6 +439,12 @@ Starter rule shapes. These are examples. Nothing is hard-coded.
       new {
         name = "pure-deletion"
         pure_deletion = true
+        checks = "green"
+      }
+      // Deletions whose added lines are only comments or blank.
+      new {
+        name = "comment-cleanup"
+        deletions_and_comments_only = true
         checks = "green"
       }
       // At most 50 changed lines outside CI and infra paths.

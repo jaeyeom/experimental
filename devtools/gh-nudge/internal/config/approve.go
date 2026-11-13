@@ -60,24 +60,27 @@ type ApproveRule struct {
 	// Action is ActionApprove or ActionHandoff.
 	Action string
 	// Reviewers are the logins a hand-off requests.
-	Reviewers            []string
-	Repos                []string
-	PathsAllMatch        []string
-	PathsNoneMatch       []string
-	PathsAnyMatch        []string
-	CodeownersCovered    bool
-	MaxChangedLines      *int
-	MaxAddedLines        *int
-	MaxFiles             *int
-	PureDeletion         bool
-	AuthorsAllow         []string
-	AuthorsDeny          []string
-	LabelsRequired       []string
-	LabelsForbidden      []string
-	RequiredApprovalsBy  []string
-	Checks               string
-	NotDraft             bool
-	MaxUnresolvedThreads int
+	Reviewers         []string
+	Repos             []string
+	PathsAllMatch     []string
+	PathsNoneMatch    []string
+	PathsAnyMatch     []string
+	CodeownersCovered bool
+	MaxChangedLines   *int
+	MaxAddedLines     *int
+	MaxFiles          *int
+	PureDeletion      bool
+	// DeletionsAndCommentsOnly requires a deletion and added lines that
+	// are only blank or comments. Patches are fetched only when it is set.
+	DeletionsAndCommentsOnly bool
+	AuthorsAllow             []string
+	AuthorsDeny              []string
+	LabelsRequired           []string
+	LabelsForbidden          []string
+	RequiredApprovalsBy      []string
+	Checks                   string
+	NotDraft                 bool
+	MaxUnresolvedThreads     int
 	// AgentCommand is argv, run without a shell after every other condition
 	// passed. Empty adds no condition.
 	AgentCommand []string
@@ -105,28 +108,29 @@ func convertApprove(src pklconfig.ApproveConfig) ApproveConfig {
 	}
 	for _, rule := range src.Rules {
 		converted := ApproveRule{
-			Name:                 rule.Name,
-			Action:               rule.Action,
-			Reviewers:            cloneStrings(rule.Reviewers),
-			Repos:                cloneStrings(rule.Repos),
-			PathsAllMatch:        cloneStrings(rule.PathsAllMatch),
-			PathsNoneMatch:       cloneStrings(rule.PathsNoneMatch),
-			PathsAnyMatch:        cloneStrings(rule.PathsAnyMatch),
-			CodeownersCovered:    rule.CodeownersCovered,
-			MaxChangedLines:      copyIntPtr(rule.MaxChangedLines),
-			MaxAddedLines:        copyIntPtr(rule.MaxAddedLines),
-			MaxFiles:             copyIntPtr(rule.MaxFiles),
-			PureDeletion:         rule.PureDeletion,
-			AuthorsAllow:         cloneStrings(rule.AuthorsAllow),
-			AuthorsDeny:          cloneStrings(rule.AuthorsDeny),
-			LabelsRequired:       cloneStrings(rule.LabelsRequired),
-			LabelsForbidden:      cloneStrings(rule.LabelsForbidden),
-			RequiredApprovalsBy:  cloneStrings(rule.RequiredApprovalsBy),
-			NotDraft:             rule.NotDraft,
-			MaxUnresolvedThreads: rule.MaxUnresolvedThreads,
-			AgentCommand:         cloneStrings(rule.AgentCommand),
-			AgentTimeout:         rule.AgentTimeout.GoDuration(),
-			AgentCacheDisabled:   !rule.AgentCache,
+			Name:                     rule.Name,
+			Action:                   rule.Action,
+			Reviewers:                cloneStrings(rule.Reviewers),
+			Repos:                    cloneStrings(rule.Repos),
+			PathsAllMatch:            cloneStrings(rule.PathsAllMatch),
+			PathsNoneMatch:           cloneStrings(rule.PathsNoneMatch),
+			PathsAnyMatch:            cloneStrings(rule.PathsAnyMatch),
+			CodeownersCovered:        rule.CodeownersCovered,
+			MaxChangedLines:          copyIntPtr(rule.MaxChangedLines),
+			MaxAddedLines:            copyIntPtr(rule.MaxAddedLines),
+			MaxFiles:                 copyIntPtr(rule.MaxFiles),
+			PureDeletion:             rule.PureDeletion,
+			DeletionsAndCommentsOnly: rule.DeletionsAndCommentsOnly,
+			AuthorsAllow:             cloneStrings(rule.AuthorsAllow),
+			AuthorsDeny:              cloneStrings(rule.AuthorsDeny),
+			LabelsRequired:           cloneStrings(rule.LabelsRequired),
+			LabelsForbidden:          cloneStrings(rule.LabelsForbidden),
+			RequiredApprovalsBy:      cloneStrings(rule.RequiredApprovalsBy),
+			NotDraft:                 rule.NotDraft,
+			MaxUnresolvedThreads:     rule.MaxUnresolvedThreads,
+			AgentCommand:             cloneStrings(rule.AgentCommand),
+			AgentTimeout:             rule.AgentTimeout.GoDuration(),
+			AgentCacheDisabled:       !rule.AgentCache,
 		}
 		if rule.Checks != nil {
 			converted.Checks = *rule.Checks

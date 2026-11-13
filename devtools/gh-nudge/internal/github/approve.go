@@ -28,8 +28,11 @@ type ApprovalPullRequest struct {
 	ChangedFiles int
 	Files        []models.File
 	FilesErr     string
-	Labels       []string
-	LabelsErr    string
+	// Patches are the REST file patches. Nil means they were not fetched.
+	Patches    []PullFile
+	PatchesErr string
+	Labels     []string
+	LabelsErr  string
 	// RequestedUsers are the logins requested as individuals.
 	RequestedUsers []string
 	// RequestedTeams are the slugs of requested teams.
@@ -418,6 +421,59 @@ func approvalChecks(raw *approvalPRJSON) ([]ApprovalCheck, string) {
 		checks = append(checks, ApprovalCheck{Name: name, Required: node.IsRequired, Outcome: outcome})
 	}
 	return checks, ""
+}
+
+// PullFile is one changed file from the pulls/{n}/files REST list.
+// PatchSet is false when GitHub omitted the patch, as it does for a
+// binary file or a patch that is too large.
+type PullFile struct {
+	Path      string
+	Previous  string
+	Status    string
+	Additions int
+	Deletions int
+	Patch     string
+	PatchSet  bool
+}
+
+type pullFileJSON struct {
+	Filename         string  `json:"filename"`
+	PreviousFilename string  `json:"previous_filename"` //nolint:tagliatelle // GitHub API uses snake_case
+	Status           string  `json:"status"`
+	Additions        int     `json:"additions"`
+	Deletions        int     `json:"deletions"`
+	Patch            *string `json:"patch"`
+}
+
+// PullRequestFilePatches reads every changed file's patch. gh paginates
+// the REST list. A file whose patch GitHub omitted has PatchSet false.
+func (c *Client) PullRequestFilePatches(ref PullRef) ([]PullFile, error) {
+	name := fmt.Sprintf("%s/%s#%d", ref.Owner, ref.Repo, ref.Number)
+	path := fmt.Sprintf("repos/%s/%s/pulls/%d/files?per_page=100", ref.Owner, ref.Repo, ref.Number)
+	output, err := c.runGHJSON("api", "--paginate", path)
+	if err != nil {
+		return nil, fmt.Errorf("read patches of %s: %w", name, err)
+	}
+	var raw []pullFileJSON
+	if err := output.decode(&raw); err != nil {
+		return nil, fmt.Errorf("read patches of %s: %w", name, err)
+	}
+	files := make([]PullFile, len(raw))
+	for i, file := range raw {
+		got := PullFile{
+			Path:      file.Filename,
+			Previous:  file.PreviousFilename,
+			Status:    file.Status,
+			Additions: file.Additions,
+			Deletions: file.Deletions,
+			PatchSet:  file.Patch != nil,
+		}
+		if file.Patch != nil {
+			got.Patch = *file.Patch
+		}
+		files[i] = got
+	}
+	return files, nil
 }
 
 // PullRequestHeadSHA reads the current head SHA through the REST API.

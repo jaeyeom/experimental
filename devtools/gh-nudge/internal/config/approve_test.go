@@ -35,6 +35,7 @@ approve {
       max_added_lines = 40
       max_files = 3
       pure_deletion = true
+      deletions_and_comments_only = true
       authors_allow { "alice" }
       authors_deny { "mallory" }
       labels_required { "internal-only" }
@@ -70,7 +71,7 @@ approve {
 		t.Fatalf("rule globs = %+v", rule)
 	}
 	if rule.MaxChangedLines == nil || *rule.MaxChangedLines != 50 || rule.MaxAddedLines == nil || *rule.MaxAddedLines != 40 ||
-		rule.MaxFiles == nil || *rule.MaxFiles != 3 || !rule.PureDeletion {
+		rule.MaxFiles == nil || *rule.MaxFiles != 3 || !rule.PureDeletion || !rule.DeletionsAndCommentsOnly {
 		t.Fatalf("rule sizes = %+v", rule)
 	}
 	if strings.Join(rule.AuthorsAllow, ",") != "alice" || strings.Join(rule.AuthorsDeny, ",") != "mallory" ||
@@ -92,7 +93,7 @@ approve {
 		defaults.AgentCacheDisabled {
 		t.Fatalf("rule agent defaults = %q %v", defaults.AgentCommand, defaults.AgentTimeout)
 	}
-	if defaults.Action != ActionApprove || len(defaults.Reviewers) != 0 || len(defaults.PathsAnyMatch) != 0 || defaults.CodeownersCovered {
+	if defaults.Action != ActionApprove || len(defaults.Reviewers) != 0 || len(defaults.PathsAnyMatch) != 0 || defaults.CodeownersCovered || defaults.DeletionsAndCommentsOnly {
 		t.Fatalf("rule hand-off defaults = %+v", defaults)
 	}
 }
@@ -187,7 +188,10 @@ func TestExampleConfigLoadsApproveRules(t *testing.T) {
 	for _, rule := range cfg.Approve.Rules {
 		names = append(names, rule.Name)
 	}
-	if got := strings.Join(names, ","); got != "internal-dashboard,pure-deletion,small-outside-infra,internal-only,dashboard-handoff" {
+	if got := strings.Join(names, ","); got != "internal-dashboard,pure-deletion,comment-cleanup,small-outside-infra,internal-only,dashboard-handoff" {
 		t.Fatalf("rules = %s", got)
+	}
+	if !cfg.Approve.Rules[2].DeletionsAndCommentsOnly || cfg.Approve.Rules[1].DeletionsAndCommentsOnly {
+		t.Fatalf("comment-cleanup = %+v, pure-deletion = %+v", cfg.Approve.Rules[2], cfg.Approve.Rules[1])
 	}
 }

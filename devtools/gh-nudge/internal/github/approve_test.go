@@ -9,6 +9,30 @@ import (
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
 )
 
+func TestPullRequestFilePatches(t *testing.T) {
+	body := `[
+		{"filename":"a.go","status":"modified","additions":1,"deletions":1,"patch":"@@ -1 +1 @@\n+// a\n"},
+		{"filename":"b.bin","status":"modified","additions":0,"deletions":0},
+		{"filename":"c.go","status":"renamed","previous_filename":"d.go","additions":0,"deletions":0}
+	]`
+	exec := &scriptedExecutor{outputs: []string{body}}
+	files, err := NewClientWithExecutor(exec).PullRequestFilePatches(PullRef{Owner: "acme", Repo: "widgets", Number: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 3 || !files[0].PatchSet || files[0].Patch == "" || files[1].PatchSet || files[1].Path != "b.bin" {
+		t.Fatalf("files = %+v", files)
+	}
+	if files[2].Status != "renamed" || files[2].Previous != "d.go" || files[2].PatchSet {
+		t.Fatalf("rename = %+v", files[2])
+	}
+	joined := strings.Join(exec.calls[0].args, " ")
+	if !strings.Contains(joined, "api") || !strings.Contains(joined, "--paginate") ||
+		!strings.Contains(joined, "repos/acme/widgets/pulls/7/files?per_page=100") {
+		t.Fatalf("args = %q", joined)
+	}
+}
+
 func TestViewerLogin(t *testing.T) {
 	exec := &routeExec{route: map[string]string{"viewer": `{"data":{"viewer":{"login":"me"}}}`}}
 	login, err := NewClientWithExecutor(exec).ViewerLogin()
