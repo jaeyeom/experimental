@@ -444,7 +444,9 @@ file means all defaults. An unknown key is an error.
 |-----+---------+---------|
 | ~notifyTemplate~ | none | Shell template run for a reply. |
 | ~livenessTemplate~ | none | Optional template that checks an owner is alive. |
-| ~notifyTimeout~ | ~"30s"~ | Time limit for each notify or liveness command. |
+| ~notifyTimeout~ | ~"30s"~ | Time limit for each notify, check, or liveness command. |
+| ~notifyCheckCommand~ | none | Optional command run after a failed notify attempt. Exit 0 counts as delivered. |
+| ~notifyRetryAfter~ | ~["2s", "5s"]~ | Wait before each retry. An empty list disables retries. |
 | ~targets~ | none | Map of name to address. |
 | ~fallbackTarget~ | none | Target used when delivery fails. |
 | ~footerPattern~ | none | Optional regexp that finds where a footer starts. The match through the end of the message is dropped, plus one marker (asterisk, underscore, or strikeout) and the whitespace before it. An inline footer " *Sent using* <@U1>" matches ~Sent using\*? <@U1~. |
@@ -498,20 +500,33 @@ environment variable and is never written into the command string.
 | ~SLACKWATCH_TEXT~ | Reply text, cut to ~excerptLimit~ characters. |
 | ~SLACKWATCH_WATCH_ID~ | Watch id, empty for a channel subscription. |
 | ~SLACKWATCH_OUTBOX_ID~ | Outbox record id for an outbox event, else empty. |
+| ~SLACKWATCH_NOTIFY_ID~ | Idempotency key for this attempt chain, ~slackwatch:<watch>:<event>:<ulid>~. Retries of one note reuse it. |
 | ~SLACKWATCH_MESSAGE~ | A ready-made paragraph that quotes the excerpt as Slack data, not instructions, and ends with a ~slackwatch show <id>~ hint. |
 
 - An owner is looked up in ~targets~. An owner that is not there is used
   as a raw address. ~fallbackTarget~ is looked up the same way.
 - When ~livenessTemplate~ is set, it runs first with the same environment.
-  A non-zero exit means the owner is gone.
-- When the liveness check fails or the notify command fails or times out,
-  the watch becomes ~orphaned~ and the template runs again with
-  ~SLACKWATCH_EVENT=orphaned~ for ~fallbackTarget~. A notification with no
-  owner goes straight to ~fallbackTarget~.
+  A non-zero exit means the owner is gone. The watch is orphaned without
+  retrying the notify command.
+- ~SLACKWATCH_NOTIFY_ID~ is one key for the attempt chain. Pass it through
+  when the receiver can dedupe, for example
+  ~agentbus send --client-id "$SLACKWATCH_NOTIFY_ID"~. A command that
+  ignores the variable is still retried. Those retries are not deduped.
+- A non-zero exit or a timeout retries the same command with the same
+  key. ~notifyRetryAfter~ is the wait before each retry. The default is
+  2s then 5s.
+- When ~notifyCheckCommand~ is set, it runs after a failed attempt, with
+  the same environment. Exit 0 means the note was stored, delivered,
+  held, or queued. For example ~agentbus status "$SLACKWATCH_NOTIFY_ID"~.
+- The watch becomes ~orphaned~ when every retry and the optional check
+  fail, or when the liveness check says the owner is gone. The template
+  then runs again with ~SLACKWATCH_EVENT=orphaned~ for ~fallbackTarget~
+  and a new key. A notification with no owner goes straight to
+  ~fallbackTarget~.
 - If that also fails, or there is no ~fallbackTarget~, slackwatch logs an
   error and the failed row stays undelivered, so ~ls~ flags the watch.
-- Every attempt is a row in ~deliveries~, with its exit code and the first
-  4 KiB of stdout and stderr.
+- Every attempt is a row in ~deliveries~, with its exit code, its
+  ~SLACKWATCH_NOTIFY_ID~, and the first 4 KiB of stdout and stderr.
 - One notification per event, reply, and target. An owner and a channel
   subscriber that resolve to the same target are notified once.
 
@@ -528,12 +543,25 @@ Outbox events carry their own ~SLACKWATCH_MESSAGE~:
 | ~outbox-failed~ | owner and fallback | ~chat.postMessage~ failed. |
 | ~posting-disabled~ | fallback | The direct-mode identity check failed. |
 
-Example templates. A desktop popup, where every target is the same
-machine:
+Example templates. Pass ~SLACKWATCH_NOTIFY_ID~ through when the
+receiver can dedupe. A desktop popup, where every target is the same
+machine, ignores the key. Retries still run:
 
 #+begin_src json
 {
   "notifyTemplate": "notify-send \"slackwatch $SLACKWATCH_EVENT\" \"$SLACKWATCH_MESSAGE\"",
+  "fallbackTarget": "me"
+}
+#+end_src
+
+A message bus that stores the key. A retry is a no-op when the first
+attempt landed, and the check counts a stored or queued message as
+delivered:
+
+#+begin_src json
+{
+  "notifyTemplate": "agentbus send --client-id \"$SLACKWATCH_NOTIFY_ID\" \"$SLACKWATCH_TARGET\" \"$SLACKWATCH_MESSAGE\"",
+  "notifyCheckCommand": "agentbus status \"$SLACKWATCH_NOTIFY_ID\"",
   "fallbackTarget": "me"
 }
 #+end_src
@@ -550,9 +578,10 @@ A file per target, so each owner reads its own inbox:
 
 ** Delivery guarantees
 
-- A reply to an open watch is notified to its owner or, if that fails,
-  to ~fallbackTarget~. Replies that arrive while ~serve~ is
-  down are found by the catch-up after it reconnects.
+- A reply to an open watch is notified to its owner. A failed attempt
+  is retried, then sent to ~fallbackTarget~ if it still fails. Replies
+  that arrive while ~serve~ is down are found by the catch-up after it
+  reconnects.
 - A notification is never dropped silently. If neither the owner nor
   the fallback gets it, an error is logged, the row stays undelivered,
   ~ls~ flags the watch, and ~status~ exits 1 with the count.

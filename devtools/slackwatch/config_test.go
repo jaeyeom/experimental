@@ -48,6 +48,12 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.NotifyTimeout.Duration != 30*time.Second {
 		t.Errorf("NotifyTimeout = %v", cfg.NotifyTimeout)
 	}
+	if cfg.NotifyCheckCommand != "" {
+		t.Errorf("NotifyCheckCommand = %q", cfg.NotifyCheckCommand)
+	}
+	if len(cfg.NotifyRetryAfter) != 2 || cfg.NotifyRetryAfter[0].Duration != 2*time.Second || cfg.NotifyRetryAfter[1].Duration != 5*time.Second {
+		t.Errorf("NotifyRetryAfter = %+v", cfg.NotifyRetryAfter)
+	}
 	if cfg.UnownedGrace.Duration != 10*time.Second {
 		t.Errorf("UnownedGrace = %v", cfg.UnownedGrace)
 	}
@@ -71,6 +77,8 @@ func TestLoadConfigOverrides(t *testing.T) {
 		"notifyTemplate": "notify",
 		"livenessTemplate": "alive",
 		"notifyTimeout": "10s",
+		"notifyCheckCommand": "agentbus status",
+		"notifyRetryAfter": ["1s", "250ms"],
 		"targets": {"ops": "pane:1"},
 		"fallbackTarget": "ops",
 		"footerPattern": "^-- (\\S+)$",
@@ -99,6 +107,12 @@ func TestLoadConfigOverrides(t *testing.T) {
 	}
 	if cfg.NotifyTimeout.Duration != 10*time.Second {
 		t.Errorf("NotifyTimeout = %v", cfg.NotifyTimeout)
+	}
+	if cfg.NotifyCheckCommand != "agentbus status" {
+		t.Errorf("NotifyCheckCommand = %q", cfg.NotifyCheckCommand)
+	}
+	if len(cfg.NotifyRetryAfter) != 2 || cfg.NotifyRetryAfter[0].Duration != time.Second || cfg.NotifyRetryAfter[1].Duration != 250*time.Millisecond {
+		t.Errorf("NotifyRetryAfter = %+v", cfg.NotifyRetryAfter)
 	}
 	if cfg.UnownedGrace.Duration != 3*time.Second {
 		t.Errorf("UnownedGrace = %v", cfg.UnownedGrace)

@@ -2,6 +2,7 @@ package slackwatch
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -67,11 +68,13 @@ type Notifier struct {
 	Logger *slog.Logger
 }
 
-// Notify delivers note to its owner's target. When the owner fails the
-// liveness check or the notify command fails, the watch becomes orphaned
-// and the note goes to the fallback target as an orphaned event. A note
-// nobody received is logged at error level and left as an undelivered row.
-// The returned error is only for store failures.
+// Notify delivers note to its owner's target. A failed or timed out
+// notify command is retried with the same idempotency key. The watch
+// becomes orphaned when every retry and the optional check fail, or when
+// the liveness check says the owner is gone, and the note then goes to
+// the fallback target as an orphaned event. A note nobody received is
+// logged at error level and left as an undelivered row. The returned
+// error is a store failure or a cancelled context.
 func (n *Notifier) Notify(ctx context.Context, note Notification) error {
 	if note.Owner == "" {
 		return n.deliverFallback(ctx, note, 1)
@@ -79,7 +82,7 @@ func (n *Notifier) Notify(ctx context.Context, note Notification) error {
 	target := n.target(note.Owner)
 	if strings.TrimSpace(n.Config.NotifyTemplate) == "" {
 		n.Logger.Error("slackwatch notify: notifyTemplate is not set", "event", note.Event, "watch", note.WatchID)
-		return n.record(note, target, 1, result{err: errors.New("notifyTemplate is not set")})
+		return n.record(note, target, 1, "", result{err: errors.New("notifyTemplate is not set")})
 	}
 	ok, err := n.deliver(ctx, note, target, 1)
 	if err != nil || ok {
@@ -100,7 +103,7 @@ func (n *Notifier) deliverFallback(ctx context.Context, note Notification, attem
 		n.Logger.Error("slackwatch notification undelivered: no fallbackTarget",
 			"event", note.Event, "owner", note.Owner, "watch", note.WatchID, "reply", note.ReplyTS)
 		if note.Owner == "" {
-			return n.record(note, "", attempt, result{err: errors.New("no owner and no fallbackTarget")})
+			return n.record(note, "", attempt, "", result{err: errors.New("no owner and no fallbackTarget")})
 		}
 		return nil
 	}
@@ -126,15 +129,97 @@ WHERE event = ? AND reply_ts = ? AND target = ? AND delivered = 1)`,
 			return true, nil
 		}
 	}
-	env := n.env(note, target)
+	notifyID, err := newNotifyKey(note)
+	if err != nil {
+		return false, err
+	}
+	env := n.env(note, target, notifyID)
 	if strings.TrimSpace(n.Config.LivenessTemplate) != "" {
 		if res := n.run(ctx, n.Config.LivenessTemplate, env); res.err != nil {
 			res.err = fmt.Errorf("liveness check: %w", res.err)
-			return false, n.record(note, target, attempt, res)
+			return false, n.record(note, target, attempt, notifyID, res)
 		}
 	}
+	return n.retryNotify(ctx, note, target, attempt, notifyID, env)
+}
+
+// retryNotify runs the notify command once plus one attempt per delay.
+// Every attempt uses notifyID. A cancelled context stops the chain.
+func (n *Notifier) retryNotify(ctx context.Context, note Notification, target string, attempt int, notifyID string, env []string) (bool, error) {
+	delays := n.notifyDelays()
+	for try := 0; ; try++ {
+		delivered, err := n.attemptNotify(ctx, note, target, attempt, notifyID, env)
+		if delivered || err != nil {
+			return delivered, err
+		}
+		if try >= len(delays) {
+			return false, nil
+		}
+		if err := waitRetry(ctx, delays[try]); err != nil {
+			return false, err
+		}
+	}
+}
+
+// attemptNotify runs the notify command once. After a failure, the
+// optional check command can still count the note as delivered.
+func (n *Notifier) attemptNotify(ctx context.Context, note Notification, target string, attempt int, notifyID string, env []string) (bool, error) {
 	res := n.run(ctx, n.Config.NotifyTemplate, env)
-	return res.err == nil, n.record(note, target, attempt, res)
+	if err := n.record(note, target, attempt, notifyID, res); err != nil {
+		return false, err
+	}
+	if res.err == nil {
+		return true, nil
+	}
+	if ctx.Err() != nil {
+		return false, fmt.Errorf("notify: %w", ctx.Err())
+	}
+	return n.confirmNotify(ctx, note, target, attempt, notifyID, env)
+}
+
+// confirmNotify runs notifyCheckCommand. Exit 0 means the message was
+// stored, delivered, held, or queued. An empty command skips the check.
+func (n *Notifier) confirmNotify(ctx context.Context, note Notification, target string, attempt int, notifyID string, env []string) (bool, error) {
+	cmd := strings.TrimSpace(n.Config.NotifyCheckCommand)
+	if cmd == "" {
+		return false, nil
+	}
+	res := n.run(ctx, cmd, env)
+	if err := n.record(note, target, attempt, notifyID, res); err != nil {
+		return false, err
+	}
+	if res.err == nil {
+		return true, nil
+	}
+	if ctx.Err() != nil {
+		return false, fmt.Errorf("notify check: %w", ctx.Err())
+	}
+	return false, nil
+}
+
+func (n *Notifier) notifyDelays() []time.Duration {
+	if n.Config.NotifyRetryAfter == nil {
+		return []time.Duration{DefaultNotifyRetry1, DefaultNotifyRetry2}
+	}
+	out := make([]time.Duration, len(n.Config.NotifyRetryAfter))
+	for i, d := range n.Config.NotifyRetryAfter {
+		out[i] = d.Duration
+	}
+	return out
+}
+
+func waitRetry(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("wait for notify retry: %w", ctx.Err())
+	case <-timer.C:
+		return nil
+	}
 }
 
 type result struct {
@@ -175,7 +260,7 @@ func (n *Notifier) run(ctx context.Context, template string, env []string) resul
 	return res
 }
 
-func (n *Notifier) record(note Notification, target string, attempt int, res result) error {
+func (n *Notifier) record(note Notification, target string, attempt int, notifyID string, res result) error {
 	errText := ""
 	if res.err != nil {
 		errText = res.err.Error()
@@ -184,10 +269,10 @@ func (n *Notifier) record(note Notification, target string, attempt int, res res
 	}
 	watchID := sql.NullInt64{Int64: note.WatchID, Valid: note.WatchID != 0}
 	if _, err := n.Store.db.Exec(`INSERT INTO deliveries
-(event, target, exit_code, attempt, delivered, error, at, watch_id, reply_ts, output)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+(event, target, exit_code, attempt, delivered, error, at, watch_id, reply_ts, output, notify_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		note.Event, target, res.exitCode, attempt, res.err == nil, errText, time.Now().Unix(),
-		watchID, note.ReplyTS, res.output); err != nil {
+		watchID, note.ReplyTS, res.output, notifyID); err != nil {
 		return fmt.Errorf("record delivery: %w", err)
 	}
 	return nil
@@ -195,7 +280,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 
 func (n *Notifier) target(name string) string { return n.Config.Target(name) }
 
-func (n *Notifier) env(note Notification, target string) []string {
+func (n *Notifier) env(note Notification, target, notifyID string) []string {
 	text := excerpt(note.Text, n.Config.ExcerptLimit)
 	watchID, outboxID := "", ""
 	if note.WatchID != 0 {
@@ -219,8 +304,65 @@ func (n *Notifier) env(note Notification, target string) []string {
 		"SLACKWATCH_TEXT="+text,
 		"SLACKWATCH_WATCH_ID="+watchID,
 		"SLACKWATCH_OUTBOX_ID="+outboxID,
+		"SLACKWATCH_NOTIFY_ID="+notifyID,
 		"SLACKWATCH_MESSAGE="+message(note, text),
 	)
+}
+
+// newNotifyKey is one idempotency key for every retry of note.
+func newNotifyKey(note Notification) (string, error) {
+	id, err := newULID()
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("slackwatch:%d:%s:%s", note.WatchID, note.Event, id), nil
+}
+
+func newULID() (string, error) {
+	var id [16]byte
+	ms := uint64(time.Now().UnixMilli())
+	id[0] = byte((ms >> 40) & 0xff)
+	id[1] = byte((ms >> 32) & 0xff)
+	id[2] = byte((ms >> 24) & 0xff)
+	id[3] = byte((ms >> 16) & 0xff)
+	id[4] = byte((ms >> 8) & 0xff)
+	id[5] = byte(ms & 0xff)
+	if _, err := rand.Read(id[6:]); err != nil {
+		return "", fmt.Errorf("read ulid: %w", err)
+	}
+	return encodeULID(id), nil
+}
+
+func encodeULID(id [16]byte) string {
+	const enc = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+	dst := make([]byte, 26)
+	dst[0] = enc[(id[0]&224)>>5]
+	dst[1] = enc[id[0]&31]
+	dst[2] = enc[(id[1]&248)>>3]
+	dst[3] = enc[((id[1]&7)<<2)|((id[2]&192)>>6)]
+	dst[4] = enc[(id[2]&62)>>1]
+	dst[5] = enc[((id[2]&1)<<4)|((id[3]&240)>>4)]
+	dst[6] = enc[((id[3]&15)<<1)|((id[4]&128)>>7)]
+	dst[7] = enc[(id[4]&124)>>2]
+	dst[8] = enc[((id[4]&3)<<3)|((id[5]&224)>>5)]
+	dst[9] = enc[id[5]&31]
+	dst[10] = enc[(id[6]&248)>>3]
+	dst[11] = enc[((id[6]&7)<<2)|((id[7]&192)>>6)]
+	dst[12] = enc[(id[7]&62)>>1]
+	dst[13] = enc[((id[7]&1)<<4)|((id[8]&240)>>4)]
+	dst[14] = enc[((id[8]&15)<<1)|((id[9]&128)>>7)]
+	dst[15] = enc[(id[9]&124)>>2]
+	dst[16] = enc[((id[9]&3)<<3)|((id[10]&224)>>5)]
+	dst[17] = enc[id[10]&31]
+	dst[18] = enc[(id[11]&248)>>3]
+	dst[19] = enc[((id[11]&7)<<2)|((id[12]&192)>>6)]
+	dst[20] = enc[(id[12]&62)>>1]
+	dst[21] = enc[((id[12]&1)<<4)|((id[13]&240)>>4)]
+	dst[22] = enc[((id[13]&15)<<1)|((id[14]&128)>>7)]
+	dst[23] = enc[(id[14]&124)>>2]
+	dst[24] = enc[((id[14]&3)<<3)|((id[15]&224)>>5)]
+	dst[25] = enc[id[15]&31]
+	return string(dst)
 }
 
 // message is the ready-made one-paragraph text in SLACKWATCH_MESSAGE.
