@@ -178,3 +178,13 @@ approve {
     }
   }
 }
+
+// Files the user never reads, marked viewed on a pull request no approve
+// or hand-off rule took. GitHub clears the mark when the file changes.
+viewed {
+  enabled = true
+  rules {
+    new { name = "locks"; paths_match { "**/*.lock"; "**/go.sum"; "**/pnpm-lock.yaml" } }
+    new { name = "not-mine"; codeowners_not_mine = true }
+  }
+}

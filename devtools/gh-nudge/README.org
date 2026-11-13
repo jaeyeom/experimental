@@ -595,8 +595,8 @@ ago)~, ~agent: defer (cached)~, or ~agent: approve (fresh)~. ~--explain~ adds
 
 *** Safety
 
-- *Dry run by default.* Only ~--apply~ approves or hands off. A dry run makes
-  no writes.
+- *Dry run by default.* Only ~--apply~ approves, hands off, or marks files
+  viewed. A dry run makes no writes.
 - *Head pinning.* gh-approve evaluates one head SHA. With ~--apply~, it reads
   the head again just before it approves. If the head moved, it skips the pull
   request and says so. The approval is posted with ~gh api~ to the pull
@@ -615,10 +615,49 @@ ago)~, ~agent: defer (cached)~, or ~agent: approve (fresh)~. ~--explain~ adds
   per-condition ~pass~ and ~saw~, and ~agent~ with ~decision~, ~reason~ and
   ~durationMs~ when the rule's agent command ran), ~action~, and ~reason~.
   ~--explain~ shows the same agent decision, reason and duration. The action is
-  ~approved~, ~would_approve~, ~handoff~, ~would_handoff~, ~skipped~,
-  ~manual~, or ~error~. A hand-off line also has ~reviewers~, ~timeline~ (your
-  review request events, the loop guard's evidence), ~loopGuard~, and ~steps~
-  (each write and its result).
+  ~approved~, ~would_approve~, ~handoff~, ~would_handoff~, ~mark_viewed~,
+  ~would_mark_viewed~, ~skipped~, ~manual~, or ~error~. A hand-off line also
+  has ~reviewers~, ~timeline~ (your review request events, the loop guard's
+  evidence), ~loopGuard~, and ~steps~ (each write and its result). A mark
+  line also has ~paths~, the files that were marked, or that a dry run would
+  mark.
+
+*** Mark viewed
+
+A pull request that no approve or hand-off rule took stays with you. ~viewed~
+rules can tick your GitHub *Viewed* checkbox on files you have decided never
+to read, so the Files tab shows what is left. This never approves anything
+and never changes anyone else's viewed state. It is off unless ~enabled~.
+
+#+begin_src pkl
+viewed {
+  enabled = true
+  rules {
+    new { name = "locks"; paths_match { "**/*.lock"; "**/go.sum"; "**/pnpm-lock.yaml" } }
+    new { name = "not-mine"; codeowners_not_mine = true }
+  }
+}
+#+end_src
+
+- ~enabled~ defaults to ~false~. ~max_marks_per_run~ defaults to 200. One run
+  stops cleanly at that many files.
+- A rule has a ~name~, an optional ~repos~ filter (~owner/name~ or a glob),
+  and one or more selectors. A changed file is selected when the repository
+  matches and any selector matches: a ~paths_match~ glob, or
+  ~codeowners_not_mine~ when the file's CODEOWNERS owners include neither you
+  nor a team you belong to.
+- Only a file whose ~viewerViewedState~ is ~UNVIEWED~ is marked. ~VIEWED~ and
+  ~DISMISSED~ are left alone. ~DISMISSED~ means the file changed since you
+  viewed it. Nothing is ever unmarked.
+- The same pull requests as approve rules: you are requested as an individual,
+  it is open, and it is not a draft. Never your own. A pull request an approve
+  or hand-off rule took is not marked.
+- CODEOWNERS and team members are read the same way as a hand-off coverage
+  check. If either cannot be read, that pull request is not marked.
+- With ~--apply~, gh-approve re-reads the head and skips the pull request if
+  it moved, then runs one ~markFileAsViewed~ mutation per file through ~gh~.
+  A dry run prints ~would_mark_viewed: N files~ and, with ~--explain~, the
+  paths. The audit action is ~mark_viewed~ or ~would_mark_viewed~.
 
 ** gh-throttle
 

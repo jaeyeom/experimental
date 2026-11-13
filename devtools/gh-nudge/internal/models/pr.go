@@ -270,11 +270,21 @@ func (pr *PullRequest) AllowsNudge(requireLabels, skipLabels []string) bool {
 	return true
 }
 
+// Viewer viewed states from PullRequest.files.nodes.viewerViewedState.
+const (
+	ViewerViewed    = "VIEWED"
+	ViewerUnviewed  = "UNVIEWED"
+	ViewerDismissed = "DISMISSED"
+)
+
 // File represents a file changed in a pull request.
 type File struct {
 	Path      string `json:"path"`
 	Additions int    `json:"additions"`
 	Deletions int    `json:"deletions"`
+	// ViewerViewedState is VIEWED, UNVIEWED, or DISMISSED. Empty means
+	// the pull request was loaded without that field.
+	ViewerViewedState string `json:"viewerViewedState,omitempty"`
 }
 
 // Review is a submitted pull request review from GitHub's latestReviews field.

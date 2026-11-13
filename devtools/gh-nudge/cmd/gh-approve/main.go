@@ -80,7 +80,7 @@ func main() {
 		noAgentCache bool
 	)
 	flag.StringVar(&configPath, "config", "", "Path to config file (default ~/.config/gh-nudge/config.pkl)")
-	flag.BoolVar(&opts.Apply, "apply", false, "Approve and hand off for real. Without it, gh-approve is a dry run")
+	flag.BoolVar(&opts.Apply, "apply", false, "Approve, hand off, and mark files viewed for real. Without it, gh-approve is a dry run")
 	flag.StringVar(&opts.PR, "pr", "", "Evaluate one pull request: owner/repo#N or a URL")
 	flag.BoolVar(&opts.Explain, "explain", false, "Print every condition of every rule with the value it saw")
 	flag.BoolVar(&noAgentCache, "no-agent-cache", false, "Run agent commands without reading or writing the decision cache")
@@ -120,6 +120,7 @@ func run(configPath string, opts approve.Options, noAgentCache bool) (err error)
 	runner := &approve.Runner{
 		Client:     github.NewClient(context.Background(), github.GHExecutor(executor.NewBasicExecutor())),
 		Config:     cfg.Approve,
+		Viewed:     cfg.Viewed,
 		Out:        os.Stdout,
 		Log:        logFile,
 		Now:        time.Now,

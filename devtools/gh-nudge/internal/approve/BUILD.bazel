@@ -9,6 +9,7 @@ go_library(
         "conditions.go",
         "handoff.go",
         "runner.go",
+        "viewed.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/gh-nudge/internal/approve",
     visibility = ["//devtools/gh-nudge:__subpackages__"],
@@ -32,6 +33,7 @@ go_test(
         "conditions_test.go",
         "handoff_test.go",
         "runner_test.go",
+        "viewed_test.go",
     ],
     embed = [":go_default_library"],
     deps = [

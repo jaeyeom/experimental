@@ -13,4 +13,6 @@ func init() {
 	pkl.RegisterMappingFor[RepoSettings]("gh_nudge.Config#RepoSettings")
 	pkl.RegisterMappingFor[SettingsConfig]("gh_nudge.Config#SettingsConfig")
 	pkl.RegisterMappingFor[SlackConfig]("gh_nudge.Config#SlackConfig")
+	pkl.RegisterMappingFor[ViewedConfig]("gh_nudge.Config#ViewedConfig")
+	pkl.RegisterMappingFor[ViewedRule]("gh_nudge.Config#ViewedRule")
 }
