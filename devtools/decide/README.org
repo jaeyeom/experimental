@@ -86,6 +86,27 @@ last good names stay in the list. A note to a bus name runs
 inbox also go through ~agentbus send~. When the send fails the draft
 stays and no thread is kept.
 
+* Contacts
+
+~g~ then ~c~ opens Contacts, the sidebar row after Status. One row per
+agent: the names from ~agentbus list --json~ (the same background load
+the compose recipient list uses, and through the hub in hub mode) plus
+every item owner and message sender in the ledger. A name only the
+ledger has is ~(offline)~. The columns are the avatar (its built-in id,
+~file~, or ~-~), the name, the bus liveness, how many open items that
+agent owns or sent a message on, and the last activity, in the same
+local time as the rest of the inbox. Agents with open items come first,
+then the most recent activity. The rows reload on the inbox tick. The
+bus load stays in the background, so an unreachable bus still lists the
+ledger agents and the status line says ~agentbus: unavailable (...)~.
+
+~Enter~ on a contact filters every folder to items that agent owns or
+sent a message in. The sidebar counts become ~matches/total~, as for a
+search, and a header line says ~agent: <name>~. ~Esc~ clears the filter.
+It combines with ~/~. ~j~ and ~k~ move. ~A~ opens the avatar picker for
+that agent and saves it the same way ~A~ in an item does: on the hub in
+hub mode, otherwise in this machine's config.
+
 * Archive and outcome
 
 ~e~ or ~y~ in the inbox list or an open item archives a notification: it
@@ -248,7 +269,8 @@ selection or reloading does not decode the file again.
 
 ** Changing an avatar from the inbox
 
-~A~ in the item view opens a picker for the owner's avatar: every
+~A~ in the item view opens a picker for the owner's avatar, and ~A~ on
+a Contacts row opens it for that agent. Every
 built-in figure with its id under it, ~*~ on the figure shown now and
 ~>~ on the cursor. ~h~ ~j~ ~k~ ~l~ or the arrows move, ~Enter~ saves,
 and ~Esc~ cancels; the grid scrolls when it does not fit. Two extra

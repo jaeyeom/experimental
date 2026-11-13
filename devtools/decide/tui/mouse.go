@@ -254,17 +254,24 @@ func (m *Model) hitCompose(h hit) bool {
 }
 
 func (m *Model) showFolder(n int) error {
-	if n == len(Folders) {
+	switch n {
+	case len(Folders):
 		return m.showStatus()
+	case len(Folders) + 1:
+		return m.showContacts()
 	}
 	if n < 0 || n >= len(Folders) {
 		return nil
 	}
-	if m.mode != modeList {
+	wasList := m.mode == modeList
+	if !wasList {
 		m.backToList()
 	}
 	m.scroll = 0
 	if n == m.folder {
+		if !wasList {
+			return m.Reload()
+		}
 		return nil
 	}
 	m.folder = n

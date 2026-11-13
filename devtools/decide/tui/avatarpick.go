@@ -59,7 +59,17 @@ func (m *Model) beginAvatarPick() {
 		m.status = "no owner"
 		return
 	}
-	m.avatarOwner = m.detail.Owner
+	m.openAvatarPick(m.detail.Owner)
+}
+
+// openAvatarPick opens the picker for name. The item view and Contacts
+// both save through it.
+func (m *Model) openAvatarPick(name string) {
+	if name == "" {
+		m.status = "no owner"
+		return
+	}
+	m.avatarOwner = name
 	m.avatarPick = true
 	m.avatarTop = 0
 	m.avatarCursor = max(slices.Index(avatarPickEntries(), m.avatarCurrent()), 0)

@@ -22,6 +22,8 @@ type Target struct {
 	Bus  bool
 	When string
 	Dead bool
+	// Live is the bus liveness word: alive, dead, hibernated, or unknown.
+	Live string
 }
 
 type sendRecord struct {

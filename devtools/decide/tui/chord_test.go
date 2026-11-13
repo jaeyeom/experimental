@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	goToMenuWide = "go to: i inbox · z snoozed · a answered · d done · w withdrawn · s status · g top · esc cancel"
-	goToMenuKeys = "go to: i z a d w s g"
+	goToMenuWide = "go to: i inbox · z snoozed · a answered · d done · w withdrawn · s status · c contacts · g top · esc cancel"
+	goToMenuKeys = "go to: i z a d w s c g"
 )
 
 // footer is the status row of a framed view: the last non-blank row inside
@@ -116,7 +116,7 @@ func TestGoToTableCoversMenuHelpAndChords(t *testing.T) {
 			t.Fatalf("menu misses %c %s", c.key, c.name)
 		}
 	}
-	if keys != "izadwsg" {
+	if keys != "izadwscg" {
 		t.Fatalf("table keys %q", keys)
 	}
 	if got := goToMenu(0); got != goToMenuWide {
@@ -147,7 +147,7 @@ func TestGoToTableCoversMenuHelpAndChords(t *testing.T) {
 			t.Fatalf("g%c chord %v status %q", c.key, m.chord, m.status)
 		}
 	}
-	for _, r := range "bcefhjklmnopqrtuvxy" {
+	for _, r := range "befhjklmnopqrtuvxy" {
 		m, _, _, _ := snoozeModel(t)
 		press(t, m, "g"+string(r))
 		if m.status != "unknown go-to key" {

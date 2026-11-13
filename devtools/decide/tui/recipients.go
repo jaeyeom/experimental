@@ -60,7 +60,7 @@ type busListMsg struct {
 // busLoad starts a background load of the bus names unless agentbus is
 // off or a load is still running. Compose never waits for it.
 func (m *Model) busLoad() tea.Cmd {
-	if !m.busOn || m.busLoading {
+	if m.busLoading || (!m.busOn && m.mode != modeContacts) {
 		return nil
 	}
 	m.busLoading = true
@@ -101,15 +101,29 @@ func (m *Model) finishBusLoad(msg busListMsg) {
 			m.busNote = note
 			m.status = note
 		}
+		// A failed list did not report anyone new. Ledger names the last
+		// good list also missed stay offline.
+		m.rebuildContacts()
 		return
 	}
 	m.busNote = ""
+	m.busKnown = true
 	var name string
 	if cands := m.candidates(); m.target >= 0 && m.target < len(cands) {
 		name = cands[m.target].Name
 	}
 	m.busNames = msg.names
 	m.selectName(name)
+	m.rebuildContacts()
+}
+
+// takeBusCmd starts the bus load Contacts asked for.
+func (m *Model) takeBusCmd() tea.Cmd {
+	if !m.busWant {
+		return nil
+	}
+	m.busWant = false
+	return m.busLoad()
 }
 
 // listBus runs `agentbus list --json` and returns the bus names, live
@@ -129,7 +143,7 @@ func listBus(ctx context.Context, run BusRunner) ([]Target, error) {
 			continue
 		}
 		names = append(names, Target{
-			Name: a.Name, Pane: a.Handle, Bus: true, When: a.When, Dead: a.Liveness == "dead",
+			Name: a.Name, Pane: a.Handle, Bus: true, When: a.When, Dead: a.Liveness == "dead", Live: a.Liveness,
 		})
 	}
 	slices.SortStableFunc(names, func(a, b Target) int {
