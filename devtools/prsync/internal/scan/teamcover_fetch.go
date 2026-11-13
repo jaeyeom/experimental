@@ -47,6 +47,12 @@ type coverCache struct {
 	// budget counts the round's GitHub calls against maxCalls.
 	budget   *gh.CallBudget
 	maxCalls int
+	// refresh is set on a full scan. refreshMax caps the early history
+	// refetch; those calls also count against budget. refreshCalls is
+	// how many of them this round spent.
+	refresh      bool
+	refreshMax   int
+	refreshCalls int
 	// stop is why the round stopped early, and stopStep the step it
 	// stopped in; empty while it runs.
 	stop     string
@@ -110,6 +116,7 @@ func newCoverCache(cfg config.Config, now time.Time) *coverCache {
 		rulesFailed:   map[string]bool{},
 		budget:        gh.NewCallBudget(cfg.TeamCoverMaxCalls),
 		maxCalls:      cfg.TeamCoverMaxCalls,
+		refreshMax:    cfg.TeamCoverRefreshMaxCalls,
 		deferred:      map[string]bool{},
 	}
 }
@@ -155,9 +162,10 @@ func (c *coverCache) report(ctx context.Context, doc *Document) {
 		limit = fmt.Sprintf("cap %d", c.maxCalls)
 	}
 	summary := fmt.Sprintf("team-cover: paths %d/%d need history (%d hits); team members %d hits/%d calls; "+
-		"files %d/%d; reviews %d/%d; calls %d (%s)",
+		"files %d/%d; reviews %d/%d; refresh %d; calls %d (%s)",
 		c.needed, c.listed, c.hits, c.memberLookups.hits, c.memberLookups.calls,
-		c.fileLookups.hits, c.fileLookups.calls, c.reviewLookups.hits, c.reviewLookups.calls, c.budget.Used(), limit)
+		c.fileLookups.hits, c.fileLookups.calls, c.reviewLookups.hits, c.reviewLookups.calls,
+		c.refreshCalls, c.budget.Used(), limit)
 	runlog.FromContext(ctx).Info(summary)
 	doc.TeamCoverNotes = append(doc.TeamCoverNotes, summary)
 	var msg string
@@ -204,6 +212,7 @@ func coverTeams(ctx context.Context, deps Deps, cfg config.Config, doc *Document
 	client := deps.GH
 	cache := newCoverCache(cfg, now)
 	cache.stored = deps.History
+	cache.refresh = deps.HistoryRefresh
 	if cache.stored != nil && cache.stored.HistoryBatch() > 0 {
 		cache.batch = min(cache.stored.HistoryBatch(), cache.maxBatch)
 	}
@@ -658,9 +667,17 @@ type refreshPath struct {
 // Reading an entry does not renew it; this is the renewal. Head-keyed
 // history is left alone. Suggestions already chosen are not changed.
 func (c *coverCache) refreshHistory(ctx context.Context, client GH, doc *Document) error {
-	if c.historyTTL <= 0 || c.stored == nil || c.stop != "" || c.budget.Left() == 0 {
+	if !c.refresh || c.historyTTL <= 0 || c.stored == nil || c.stop != "" || c.budget.Left() == 0 {
 		return nil
 	}
+	limit := c.refreshMax
+	if limit <= 0 || (c.budget.Left() >= 0 && c.budget.Left() < limit) {
+		limit = c.budget.Left()
+	}
+	restore := c.budget.Narrow(limit)
+	defer restore()
+	before := c.budget.Used()
+	defer func() { c.refreshCalls = c.budget.Used() - before }()
 	version := "since:" + c.historySince.UTC().Format(time.DateOnly)
 	var paths []refreshPath
 	c.stored.NearestPathHistory(0, func(repo, ref, path, ver string) bool {

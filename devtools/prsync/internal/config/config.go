@@ -220,6 +220,10 @@ type Config struct {
 	// TeamCoverMaxCalls caps team-cover's GitHub calls in one round.
 	// Work past the cap waits for the next round.
 	TeamCoverMaxCalls int
+	// TeamCoverRefreshMaxCalls caps how many of those calls an unscoped
+	// scan spends refetching stored path history. A scoped run spends
+	// none. The calls count toward TeamCoverMaxCalls.
+	TeamCoverRefreshMaxCalls int
 	// TeamCoverLoadTTL is how long a login's review-load count is reused
 	// across rounds. Zero fetches it every round.
 	TeamCoverLoadTTL time.Duration
@@ -329,6 +333,7 @@ func Defaults() Config {
 		TeamCoverBatchPaths:      5,
 		TeamCoverHistoryTTL:      6 * time.Hour,
 		TeamCoverMaxCalls:        40,
+		TeamCoverRefreshMaxCalls: 10,
 		TeamCoverLoadTTL:         time.Hour,
 		TeamCoverMembersTTL:      24 * time.Hour,
 		TeamCoverCodeownersTTL:   6 * time.Hour,
@@ -629,7 +634,8 @@ func applyOtherKey(cfg *Config, key, val string) error {
 	case "team_cover", "team_cover_per_team", "team_cover_skip_teams",
 		"team_cover_exclude_logins", "team_cover_signals",
 		"team_cover_history_days", "team_cover_active_days", "team_cover_every",
-		"team_cover_batch_paths", "team_cover_history_ttl", "team_cover_max_calls", "team_cover_load_ttl",
+		"team_cover_batch_paths", "team_cover_history_ttl", "team_cover_max_calls",
+		"team_cover_refresh_max_calls", "team_cover_load_ttl",
 		"team_cover_members_ttl", "team_cover_codeowners_ttl":
 		return applyTeamCover(cfg, key, val)
 	default:
@@ -662,6 +668,8 @@ func applyTeamCover(cfg *Config, key, val string) error {
 		return applyPositiveInt(&cfg.TeamCoverBatchPaths, key, val)
 	case "team_cover_max_calls":
 		return applyPositiveInt(&cfg.TeamCoverMaxCalls, key, val)
+	case "team_cover_refresh_max_calls":
+		return applyPositiveInt(&cfg.TeamCoverRefreshMaxCalls, key, val)
 	default:
 		return nil
 	}

@@ -80,7 +80,7 @@ func TestRunTeamCoverSecondRoundReusesLookups(t *testing.T) {
 		t.Fatalf("first round members=%d files=%d codeowners=%d reviews=%d, want 2, 2, 1, 2",
 			first.memberCalls, first.fileCalls, len(first.codeownersFirst), len(first.snapshotKeys))
 	}
-	want := "team-cover: paths 0/2 need history (0 hits); team members 0 hits/2 calls; files 0/2; reviews 0/2; calls 7 (cap 40)"
+	want := "team-cover: paths 0/2 need history (0 hits); team members 0 hits/2 calls; files 0/2; reviews 0/2; refresh 0; calls 7 (cap 40)"
 	if !slices.Contains(doc.TeamCoverNotes, want) {
 		t.Fatalf("notes = %q, want %q", doc.TeamCoverNotes, want)
 	}
@@ -91,7 +91,7 @@ func TestRunTeamCoverSecondRoundReusesLookups(t *testing.T) {
 		t.Fatalf("second round members=%d files=%d codeowners=%d reviews=%d, want none within the TTLs",
 			second.memberCalls, second.fileCalls, len(second.codeownersFirst), len(second.snapshotKeys))
 	}
-	want = "team-cover: paths 0/2 need history (0 hits); team members 2 hits/0 calls; files 2/0; reviews 2/0; calls 0 (cap 40)"
+	want = "team-cover: paths 0/2 need history (0 hits); team members 2 hits/0 calls; files 2/0; reviews 2/0; refresh 0; calls 0 (cap 40)"
 	if !slices.Contains(doc.TeamCoverNotes, want) {
 		t.Fatalf("notes = %q, want %q", doc.TeamCoverNotes, want)
 	}
@@ -150,7 +150,7 @@ func TestRunTeamCoverCacheHitsDoNotUseTheCap(t *testing.T) {
 	if g.coverCalls != 2 {
 		t.Fatalf("calls = %d, want 2", g.coverCalls)
 	}
-	want := "team-cover: paths 0/2 need history (0 hits); team members 2 hits/0 calls; files 1/1; reviews 1/1; calls 2 (cap 2)"
+	want := "team-cover: paths 0/2 need history (0 hits); team members 2 hits/0 calls; files 1/1; reviews 1/1; refresh 0; calls 2 (cap 2)"
 	if !slices.Equal(doc.TeamCoverNotes, []string{want}) {
 		t.Fatalf("notes = %q, want only %q", doc.TeamCoverNotes, want)
 	}

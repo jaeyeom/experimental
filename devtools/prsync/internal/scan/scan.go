@@ -32,6 +32,10 @@ type Deps struct {
 	// History keeps team-cover path history between rounds. Nil keeps it
 	// for this round only.
 	History HistoryCache
+	// HistoryRefresh refetches stored path history closest to expiry
+	// after this round's own team-cover work. Only an unscoped scan
+	// sets it. dispatch, gate, and a single-PR scan leave it false.
+	HistoryRefresh bool
 	// Rounds counts team-cover rounds for team_cover_every. Nil runs the
 	// job every round.
 	Rounds RoundCounter
@@ -170,6 +174,9 @@ func Run(ctx context.Context, deps Deps, cfg config.Config, repos []string, now 
 // or list every open PR. A missing PR is omitted. An inaccessible repository
 // is recorded and its PRs are omitted. Other view errors are fatal.
 func RunTargets(ctx context.Context, deps Deps, cfg config.Config, targets []Target, now time.Time) (Document, error) {
+	// One pull request is a scoped run. It does not spend spare calls
+	// refetching history that this scan does not need.
+	deps.HistoryRefresh = false
 	ctx = gh.WithRollupStats(ctx)
 	doc := emptyDocument(now)
 	if err := deps.GH.AuthStatus(ctx); err != nil {

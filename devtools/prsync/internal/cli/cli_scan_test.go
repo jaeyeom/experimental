@@ -146,7 +146,7 @@ func TestScanTeamCoverSuggests(t *testing.T) {
 	if !strings.Contains(hint, "gh pr edit 123 --repo acme/widgets --add-reviewer carol") {
 		t.Fatalf("stderr = %q", hint)
 	}
-	if !regexp.MustCompile(`(?m)^team-cover: paths \d+/\d+ need history \(\d+ hits\); team members \d+ hits/\d+ calls; files \d+/\d+; reviews \d+/\d+; calls \d+ \(cap 40\)$`).MatchString(hint) {
+	if !regexp.MustCompile(`(?m)^team-cover: paths \d+/\d+ need history \(\d+ hits\); team members \d+ hits/\d+ calls; files \d+/\d+; reviews \d+/\d+; refresh \d+; calls \d+ \(cap 40\)$`).MatchString(hint) {
 		t.Fatalf("stderr = %q, want the team-cover summary line", hint)
 	}
 	if strings.Contains(stdout.String(), "need history") {
@@ -158,7 +158,7 @@ func TestTeamCoverHintsEndWithNotes(t *testing.T) {
 	t.Parallel()
 
 	doc := scan.Document{TeamCoverNotes: []string{
-		"team-cover: paths 300/359 need history (0 hits); team members 0 hits/1 calls; files 0/1; reviews 0/1; calls 40 (cap 40)",
+		"team-cover: paths 300/359 need history (0 hits); team members 0 hits/1 calls; files 0/1; reviews 0/1; refresh 0; calls 40 (cap 40)",
 		"team-cover: call cap 40 reached during history; 120 paths deferred",
 	}}
 	var out bytes.Buffer
@@ -166,7 +166,7 @@ func TestTeamCoverHintsEndWithNotes(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := "" +
-		"team-cover: paths 300/359 need history (0 hits); team members 0 hits/1 calls; files 0/1; reviews 0/1; calls 40 (cap 40)\n" +
+		"team-cover: paths 300/359 need history (0 hits); team members 0 hits/1 calls; files 0/1; reviews 0/1; refresh 0; calls 40 (cap 40)\n" +
 		"team-cover: call cap 40 reached during history; 120 paths deferred\n"
 	if out.String() != want {
 		t.Fatalf("hints =\n%s\nwant\n%s", out.String(), want)
