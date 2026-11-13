@@ -202,6 +202,14 @@ func commands() []command {
 			run:     noStdin(cmdInstall),
 		},
 		{
+			name:    "paths",
+			summary: "Print this machine's socket and state paths as JSON.",
+			usage:   "agentbus paths --json",
+			flags:   "--json  print socket, hub_socket, tunnel_socket, and state_dir",
+			example: "agentbus paths --json",
+			run:     noStdin(cmdPaths),
+		},
+		{
 			name: "doctor",
 			summary: "Report other agentbusd processes for this user, and with --sandbox print the Claude Code " +
 				"sandbox allowlist this machine needs (the herdr, tunnel, and daemon sockets, and the hub host " +

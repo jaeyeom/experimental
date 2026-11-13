@@ -202,6 +202,7 @@ func cmdDoctor(ctx context.Context, args, env []string, stdout, stderr io.Writer
 	}
 	reportStaleOutbox(env, stdout)
 	reportUnverifiedHolds(dirs.StateDir, stdout)
+	reportHubSocket(ctx, env, stdout)
 	if !*sandbox {
 		return 0
 	}
@@ -247,6 +248,20 @@ func reportUnverifiedHolds(dir string, stdout io.Writer) {
 	for _, line := range lines {
 		fmt.Fprintln(stdout, line)
 	}
+}
+
+// reportHubSocket says when the configured hub_socket is not the path
+// the hub reports. A query that fails leaves the report unchanged.
+func reportHubSocket(ctx context.Context, env []string, stdout io.Writer) {
+	cfg, err := hubSettings(env)
+	if err != nil || cfg.Hub == "" || cfg.HubSocket == "" {
+		return
+	}
+	got, err := queryHubSocket(ctx, cfg)
+	if err != nil || got == cfg.HubSocket {
+		return
+	}
+	fmt.Fprintf(stdout, "hub_socket: configured %s but the hub reports %s\n", cfg.HubSocket, got)
 }
 
 // printDoctorChecks reports each socket and the hub's ssh port as ok or
