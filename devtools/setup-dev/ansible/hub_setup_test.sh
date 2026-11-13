@@ -13,7 +13,8 @@
 #   - hub-check: a failing command fails the play with its stderr.
 #   - hub-ssh-agent: opt-out changes nothing; opt-in writes the rc block
 #     and ssh_identity_agent once, leaves ~/.ssh/config alone, and a
-#     second run changes nothing.
+#     second run changes nothing. keychain in ~/.zshrc wins over an
+#     existing ~/.zprofile. An explicit rc that runs too early warns.
 #   - Neither playbook names a host or user.
 set -eu
 
@@ -355,5 +356,52 @@ _backups_after=$(find "$(dirname "$AGENTBUS_CONFIG")" -name 'config.toml.*~' | w
 run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent -e hub_ssh_stable_agent=true $HUB_ARGS
 expect_no_change "stable agent second run"
 [ "$(grep -c 'ln -sf' "${HOME}/.zprofile")" -eq 1 ] || fail "zprofile: block repeated"
+
+# keychain in .zshrc runs after .zprofile, so the block follows it.
+printf '%s\n' 'keychain' >"${HOME}/.zshrc"
+# shellcheck disable=SC2086
+run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent -e hub_ssh_stable_agent=true $HUB_ARGS
+# shellcheck disable=SC2016 # Match the literal rc block, including $.
+grep -qF '  ln -sf "$SSH_AUTH_SOCK" "$HOME/.ssh/agent.sock"' "${HOME}/.zshrc" || fail "zshrc: agent block missing"
+_key=$(grep -n 'keychain' "${HOME}/.zshrc" | head -1 | cut -d: -f1)
+_link=$(grep -n 'ln -sf' "${HOME}/.zshrc" | head -1 | cut -d: -f1)
+[ -n "$_key" ] && [ -n "$_link" ] && [ "$_link" -gt "$_key" ] || fail "zshrc: block is not after keychain"
+[ "$(grep -c 'ln -sf' "${HOME}/.zprofile")" -eq 1 ] || fail "zprofile: block moved"
+[ "$(cat "${HOME}/.bash_profile")" = "not-this" ] || fail "bash_profile changed"
+# shellcheck disable=SC2086
+run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent -e hub_ssh_stable_agent=true $HUB_ARGS
+expect_no_change "zshrc agent second run"
+[ "$(grep -c 'ln -sf' "${HOME}/.zshrc")" -eq 1 ] || fail "zshrc: block repeated"
+
+# An explicit rc that runs before the agent stays put and warns.
+# shellcheck disable=SC2086
+run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent -e hub_ssh_stable_agent=true -e hub_ssh_agent_rc=~/.zprofile $HUB_ARGS
+expect_no_change "explicit rc stays in zprofile"
+expect_out "explicit rc warns zprofile" "${HOME}/.zprofile"
+expect_out "explicit rc warns zshrc" "${HOME}/.zshrc"
+expect_out "explicit rc warns order" "runs before the agent starts"
+# shellcheck disable=SC2016 # Match the literal rc block, including $.
+grep -qF '  ln -sf "$SSH_AUTH_SOCK" "$HOME/.ssh/agent.sock"' "${HOME}/.zprofile" || fail "zprofile: explicit block missing"
+# shellcheck disable=SC2086
+run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent -e hub_ssh_stable_agent=true -e hub_ssh_agent_rc=~/.zprofile $HUB_ARGS
+expect_no_change "explicit rc second run"
+
+# A sourced file one level deep holds the last agent-start line.
+mkdir -p "${HOME}/.config"
+# shellcheck disable=SC2016 # The sourced file starts ssh-agent literally.
+printf '%s\n' 'eval "$(ssh-agent -s)"' >"${HOME}/.config/agent-start.sh"
+# shellcheck disable=SC2016 # The source line is literal text for the scanner.
+printf '%s\n' 'source "$HOME/.config/agent-start.sh"' >"${HOME}/.zshrc"
+# shellcheck disable=SC2086
+run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent -e hub_ssh_stable_agent=true $HUB_ARGS
+# shellcheck disable=SC2016 # Match the literal rc block, including $.
+grep -qF '  ln -sf "$SSH_AUTH_SOCK" "$HOME/.ssh/agent.sock"' "${HOME}/.config/agent-start.sh" || fail "sourced file: agent block missing"
+grep -qF 'BEGIN setup-dev hub ssh agent' "${HOME}/.zshrc" && fail "zshrc: block written beside a source"
+_agent=$(grep -n 'ssh-agent' "${HOME}/.config/agent-start.sh" | head -1 | cut -d: -f1)
+_link=$(grep -n 'ln -sf' "${HOME}/.config/agent-start.sh" | head -1 | cut -d: -f1)
+[ -n "$_agent" ] && [ -n "$_link" ] && [ "$_link" -gt "$_agent" ] || fail "sourced file: block is not after ssh-agent"
+# shellcheck disable=SC2086
+run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent -e hub_ssh_stable_agent=true $HUB_ARGS
+expect_no_change "sourced agent second run"
 
 echo "PASS"

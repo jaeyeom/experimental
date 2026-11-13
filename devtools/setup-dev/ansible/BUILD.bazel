@@ -171,8 +171,12 @@ sh_test(
     # About a dozen ansible-playbook runs.
     timeout = "long",
     srcs = ["hub_setup_test.sh"],
-    # setup-hub-client.yml imports other playbooks.
-    data = ["inventory.ini"] + glob(["*.yml"]),
+    # setup-hub-client.yml imports other playbooks and runs
+    # hub_ssh_agent_scan.py while choosing the stable-agent rc.
+    data = [
+        "hub_ssh_agent_scan.py",
+        "inventory.ini",
+    ] + glob(["*.yml"]),
     tags = [
         "ansible",
         "local",

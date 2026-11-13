@@ -264,9 +264,11 @@ The hub must be reachable without a prompt:
   passphrase. A passphrase key needs an agent. The launchd or systemd
   tunnel does not inherit ~SSH_AUTH_SOCK~. Point ~ssh_identity_agent~
   at a stable socket such as ~~/.ssh/agent.sock~, kept current from
-  the login shell (=ln -sf "$SSH_AUTH_SOCK" ~/.ssh/agent.sock=), and
-  re-run ~agentbus install~. ~agentbus doctor~ says so when the tunnel
-  last exited 255, and says when that socket is a dangling link;
+  the login shell (=ln -sf "$SSH_AUTH_SOCK" ~/.ssh/agent.sock=). zsh
+  reads ~~/.zprofile~ before ~~/.zshrc~, so that line has to follow
+  the agent start. Re-run ~agentbus install~. ~agentbus doctor~ says
+  so when the tunnel last exited 255, and says when that socket is a
+  dangling link or still points at a different agent;
 - ~agentbus~ on the hub's ~PATH~ for a non-interactive ssh command, and
   ~XDG_RUNTIME_DIR~ set there, for example in ~~/.zshenv~;
 - a POSIX login shell (sh, bash, or zsh) on the hub, which runs the
