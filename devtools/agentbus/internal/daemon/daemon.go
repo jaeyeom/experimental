@@ -77,6 +77,10 @@ type Config struct {
 	// before a list starts a background refresh. Zero uses
 	// registry.DefaultListMaxAge.
 	ListLivenessMaxAge time.Duration
+	// PasteBound is how long one paste may run after shutdown starts.
+	// Zero uses five seconds. The paste is not canceled when Serve's
+	// context ends; this bound is.
+	PasteBound time.Duration
 }
 
 // ProtocolVersion is the request format a hub-socket client must speak.
@@ -346,6 +350,7 @@ func newServer(ctx context.Context, stateDir string, cfg Config, lg *eventlog.Lo
 	if cfg.Waker != nil {
 		box.SetWaker(cfg.Waker)
 	}
+	box.SetPasteBound(cfg.PasteBound)
 	leases, err := lease.Open(stateDir, lg, cfg.Now, func(handle string) string {
 		if names := reg.NamesOf(handle); len(names) > 0 {
 			return names[0]

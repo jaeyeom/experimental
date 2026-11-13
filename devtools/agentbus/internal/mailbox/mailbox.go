@@ -106,6 +106,9 @@ type Mailbox struct {
 	wakes  sync.WaitGroup
 	// deferred handles are pasted by DeliverDeferred, after the reply.
 	deferred []string
+	// pasteBound limits one paste after the caller context ends.
+	// Zero uses defaultPasteBound.
+	pasteBound time.Duration
 }
 
 // Open loads messages. A missing file is an empty mailbox.
