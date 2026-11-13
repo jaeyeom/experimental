@@ -87,7 +87,7 @@ func commands() []command {
 			flags: "--file <path>       read the body from this file (default: none)\n" +
 				"--ttl <duration>    deadline for this message, such as 30m (default: none, no deadline)\n" +
 				"--wait              block until delivered or the deadline passes (default: false)\n" +
-				"--client-id <id>    retry key, <machine>:<ulid>, up to 64 [A-Za-z0-9._:-] with a colon (default: none)\n" +
+				"--client-id <id>    retry key, <machine>:<ulid>, up to 64 [A-Za-z0-9._:-] with a colon (default: a generated <machine>:<ulid>)\n" +
 				"--json              print id, state, and duplicate as JSON (default: false)",
 			example: `agentbus send ops/inbox "are you reviewing the queue?"`,
 			run:     cmdSend,
@@ -96,7 +96,7 @@ func commands() []command {
 			name:    "reply",
 			summary: "Reply. to is the original sender and re is id.",
 			usage:   "agentbus reply <id> <body> [--client-id <id>] [--json]",
-			flags: "--client-id <id>    retry key, <machine>:<ulid>, up to 64 [A-Za-z0-9._:-] with a colon (default: none)\n" +
+			flags: "--client-id <id>    retry key, <machine>:<ulid>, up to 64 [A-Za-z0-9._:-] with a colon (default: a generated <machine>:<ulid>)\n" +
 				"--json              print id, state, and duplicate as JSON (default: false)",
 			example: `agentbus reply m-7f3a "yes, the queue is in progress"`,
 			run:     noStdin(cmdReply),

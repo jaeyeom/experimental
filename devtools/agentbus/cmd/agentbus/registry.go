@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/client"
@@ -122,26 +121,35 @@ func callDaemon(ctx context.Context, env []string, req daemon.Request, stderr io
 	if err == nil {
 		return resp, 0
 	}
-	exe, err2 := os.Executable()
-	if err2 != nil {
-		fmt.Fprintf(stderr, "agentbus: cannot find this executable: %s\n", err2)
-		return daemon.Response{}, 1
+	// A write or a read means the daemon may already have stored this.
+	// Starting it and sending again would store a second copy.
+	if client.RequestSent(err) {
+		return uncertain(req, err, stderr)
 	}
-	bin, err2 := client.DaemonBinBeside(exe)
-	if err2 != nil {
-		fmt.Fprintf(stderr, "agentbus: %s\n", err2)
-		return daemon.Response{}, 1
-	}
-	if err2 = client.Ensure(ctx, dirs, bin, env); err2 != nil {
+	if err2 := ensureDaemonUp(ctx, dirs, env); err2 != nil {
 		fmt.Fprintf(stderr, "agentbus: %s\n", err2)
 		return daemon.Response{}, 1
 	}
 	resp, err = dialDaemon(ctx, dirs.SocketPath, req)
+	if client.RequestSent(err) {
+		return uncertain(req, err, stderr)
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus: %s\n", err)
 		return daemon.Response{}, 1
 	}
 	return resp, 0
+}
+
+// uncertain is a request that was written and then lost its reply.
+// send and reply name the log to check. Other ops report the dial error.
+func uncertain(req daemon.Request, err error, stderr io.Writer) (daemon.Response, int) {
+	if req.Op == "send" || req.Op == "reply" {
+		fmt.Fprintf(stderr, "agentbus: unknown whether the message was stored; check 'agentbus log --name %s'\n", req.Name)
+		return daemon.Response{}, 1
+	}
+	fmt.Fprintf(stderr, "agentbus: %s\n", err)
+	return daemon.Response{}, 1
 }
 
 func parseRegister(args []string) (string, string, error) {

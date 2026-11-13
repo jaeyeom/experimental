@@ -2,9 +2,11 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -167,6 +169,52 @@ func TestEnsureReportsMissingDaemon(t *testing.T) {
 	err := Ensure(ctx, dirs, "", nil)
 	if err == nil || !strings.Contains(err.Error(), "agentbusd") {
 		t.Fatalf("Ensure error = %v", err)
+	}
+}
+
+func TestCallMarksADroppedReplyAsSent(t *testing.T) {
+	sock := filepath.Join(shortDir(t), "d.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		var req daemon.Request
+		_ = json.NewDecoder(conn).Decode(&req)
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err = Call(ctx, sock, daemon.Request{Op: "send", Name: "ops/inbox", Body: "hi"})
+	if !RequestSent(err) || err == nil || !strings.Contains(err.Error(), "read response") {
+		t.Fatalf("Call = %v", err)
+	}
+}
+
+func TestCallDoesNotMarkARefusedConnectAsSent(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err := Call(ctx, filepath.Join(shortDir(t), "missing.sock"), daemon.Request{Op: "ping"})
+	if err == nil || RequestSent(err) || !strings.Contains(err.Error(), "connect to") {
+		t.Fatalf("Call = %v", err)
+	}
+}
+
+type failWrite struct{ net.Conn }
+
+func (failWrite) Write([]byte) (int, error) { return 0, errors.New("broken pipe") }
+
+func TestCallWriteErrorIsSent(t *testing.T) {
+	a, b := net.Pipe()
+	defer b.Close()
+	_, err := exchange(failWrite{a}, daemon.Request{Op: "send", Body: "hi"})
+	if !RequestSent(err) || err == nil || !strings.Contains(err.Error(), "write request: broken pipe") {
+		t.Fatalf("exchange = %v", err)
 	}
 }
 

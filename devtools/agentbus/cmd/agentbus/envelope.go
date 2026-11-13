@@ -90,6 +90,14 @@ func finishSend(ctx context.Context, env []string, req daemon.Request, asJSON bo
 		fmt.Fprintf(stderr, "agentbus: message body is required\n")
 		return 2
 	}
+	if req.ClientID == "" {
+		id, err := localClientID(env)
+		if err != nil {
+			fmt.Fprintf(stderr, "agentbus: %s\n", err)
+			return 1
+		}
+		req.ClientID = id
+	}
 	resp, code := callDaemon(ctx, env, req, stderr)
 	if code != 0 {
 		return code
@@ -99,6 +107,17 @@ func finishSend(ctx context.Context, env []string, req daemon.Request, asJSON bo
 		return 1
 	}
 	return printAccepted(stdout, stderr, resp.Name, resp.State, asJSON, resp.Duplicate)
+}
+
+// localClientID is the retry key for a local send or reply. An explicit
+// --client-id is kept. Otherwise it is <machine>:<ulid>, reused if the
+// daemon was not listening and the same request is dialed again.
+func localClientID(env []string) (string, error) {
+	machine := ""
+	if cfg, err := hubSettings(env); err == nil {
+		machine = cfg.Machine
+	}
+	return mintClientID(machine)
 }
 
 func printAccepted(stdout, stderr io.Writer, id, state string, asJSON, dup bool) int {
