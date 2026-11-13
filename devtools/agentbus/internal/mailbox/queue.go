@@ -31,6 +31,8 @@ type outcome struct {
 	tried    bool
 	reason   string
 	target   string
+	// detail, when set, is the delivered log detail instead of "accepted".
+	detail string
 }
 
 // Poll delivers queued mail immediately, then again on each tick.
@@ -280,7 +282,7 @@ func (m *Mailbox) step(ctx context.Context, handle string) (bool, error) {
 		return true, nil
 	}
 	if outcome.accepted {
-		err := m.markDelivered(id)
+		err := m.markDelivered(id, outcome.detail)
 		m.mu.Unlock()
 		if err != nil {
 			return false, err
@@ -388,6 +390,11 @@ func (m *Mailbox) attempt(ctx context.Context, msg message) outcome {
 	if err != nil || ad == nil || !canDeliver(state) {
 		return m.holdOutcome(state, err)
 	}
+	if ambiguousHold(msg.State) {
+		if o, done := confirmPaste(ctx, ad, msg, state); done {
+			return o
+		}
+	}
 	if reason, held := composerHold(ctx, ad, msg.Handle); held {
 		return outcome{reason: reason, target: string(state)}
 	}
@@ -405,21 +412,102 @@ func (m *Mailbox) attempt(ctx context.Context, msg message) outcome {
 		Detail:      "composer-empty-at-check",
 		TargetState: string(state),
 	})
-	result, err := ad.Deliver(ctx, msg.Handle, text)
+	return deliverOutcome(ctx, ad, msg.Handle, text, state)
+}
+
+// ambiguousHold is a paste that may already be on screen.
+func ambiguousHold(state string) bool {
+	switch state {
+	case "held: " + adapter.HoldAmbiguous, "held: " + adapter.HoldAmbiguousUnverified:
+		return true
+	default:
+		return false
+	}
+}
+
+// confirmPaste looks for this message before a retry paste.
+// done is false when the text is not on screen and a paste may proceed.
+func confirmPaste(ctx context.Context, ad adapter.Adapter, msg message, state adapter.State) (outcome, bool) {
+	probe, ok := adapter.AsPasteConfirmer(ad)
+	if !ok {
+		return unverifiedOutcome(state), true
+	}
+	recent, composer, unreadable, err := probe.Probe(ctx, msg.Handle, "[agentbus "+msg.ID)
+	if err != nil {
+		return unverifiedOutcome(state), true
+	}
+	if hasEnvelope(recent, msg.ID) {
+		return outcome{accepted: true, tried: true, detail: "confirmed-after-ambiguous", target: string(state)}, true
+	}
+	if unreadable {
+		return unverifiedOutcome(state), true
+	}
+	if hasEnvelope(composer, msg.ID) {
+		return submitPaste(ctx, probe, msg.Handle, state)
+	}
+	if strings.TrimSpace(composer) != "" {
+		return outcome{reason: adapter.HoldDraft, target: string(state)}, true
+	}
+	return outcome{}, false
+}
+
+func unverifiedOutcome(state adapter.State) outcome {
+	return outcome{reason: adapter.HoldAmbiguousUnverified, target: string(state)}
+}
+
+// submitPaste presses Enter for a paste that is already in the composer.
+func submitPaste(ctx context.Context, probe adapter.PasteConfirmer, handle string, state adapter.State) (outcome, bool) {
+	if err := probe.Submit(ctx, handle); err != nil {
+		return outcome{tried: true, reason: adapter.HoldAmbiguous, target: string(state)}, true
+	}
+	return outcome{accepted: true, tried: true, detail: "submitted-after-ambiguous", target: string(state)}, true
+}
+
+// hasEnvelope reports whether text contains this message's envelope header.
+// The id must end at a space, a closing bracket, or a newline, so m-1 does
+// not match m-10.
+func hasEnvelope(text, id string) bool {
+	if id == "" || text == "" {
+		return false
+	}
+	needle := "[agentbus " + id
+	rest := text
+	for {
+		i := strings.Index(rest, needle)
+		if i < 0 {
+			return false
+		}
+		after := i + len(needle)
+		if after >= len(rest) {
+			return true
+		}
+		switch rest[after] {
+		case ' ', ']', '\n', '\r':
+			return true
+		}
+		rest = rest[after:]
+	}
+}
+
+// deliverOutcome classifies one paste. A transport error or a failed
+// result is ambiguous: the text may already be on screen. A retryable
+// refusal is definite, and so is an unreachable machine.
+func deliverOutcome(ctx context.Context, ad adapter.Adapter, handle, text string, state adapter.State) outcome {
+	result, err := ad.Deliver(ctx, handle, text)
 	if ue := remotecall.AsUnreachable(err); ue != nil {
 		return unreachableOutcome(ue)
 	}
-	if err != nil {
-		return outcome{tried: true, reason: err.Error(), target: string(state)}
+	if err != nil || ambiguousResult(result) {
+		return outcome{tried: true, reason: adapter.HoldAmbiguous, target: string(state)}
 	}
-	switch result {
-	case adapter.ResultAccepted:
-		return outcome{accepted: true, tried: true, target: string(state)}
-	case adapter.ResultRefusedRetryable:
+	if result == adapter.ResultRefusedRetryable {
 		return outcome{tried: true, reason: "transport refused", target: string(adapter.StateBlocked)}
-	default:
-		return outcome{tried: true, reason: "transport failed", target: string(state)}
 	}
+	return outcome{accepted: true, tried: true, target: string(state)}
+}
+
+func ambiguousResult(result adapter.Result) bool {
+	return result != adapter.ResultAccepted && result != adapter.ResultRefusedRetryable
 }
 
 // composerHold reports a hold reason when the composer is not empty.
@@ -548,7 +636,7 @@ func (m *Mailbox) isBroken(name string) bool {
 	return ok
 }
 
-func (m *Mailbox) markDelivered(id string) error {
+func (m *Mailbox) markDelivered(id, detail string) error {
 	msg := m.msgs[id]
 	now := m.now().UTC()
 	msg.State = stateDelivered
@@ -556,9 +644,11 @@ func (m *Mailbox) markDelivered(id string) error {
 	msg.ClosedAt = &now
 	m.msgs[id] = msg
 	m.pop(msg.Handle)
-	detail := "accepted"
-	if msg.HeldAt != nil {
-		detail += " after hold of " + waitString(now.Sub(*msg.HeldAt))
+	if detail == "" {
+		detail = "accepted"
+		if msg.HeldAt != nil {
+			detail += " after hold of " + waitString(now.Sub(*msg.HeldAt))
+		}
 	}
 	if err := m.logEvent(eventlog.Event{
 		Event:  eventlog.EventDelivered,

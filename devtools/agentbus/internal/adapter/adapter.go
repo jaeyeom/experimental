@@ -61,12 +61,38 @@ func (w *InventoryWarning) Error() string {
 	return strings.Join(w.Lines, "; ")
 }
 
-// Hold reasons ComposerEmpty reports when a paste would mix with user input.
+// Hold reasons ComposerEmpty and an ambiguous paste report.
 const (
 	HoldDraft        = "user draft in composer"
 	HoldDraftUnknown = "draft-unknown"
 	HoldFocused      = "pane focused"
+	// HoldAmbiguous means the deliver call failed and the text may already be on screen.
+	HoldAmbiguous = "ambiguous"
+	// HoldAmbiguousUnverified means the screen could not be read or parsed
+	// after an ambiguous paste, so the message is not pasted again.
+	HoldAmbiguousUnverified = "ambiguous-unverified"
 )
+
+// PasteConfirmer is optional. After an ambiguous paste, the mailbox
+// reads the screen before it pastes again. Adapters that do not
+// implement it leave the message unverified.
+type PasteConfirmer interface {
+	// Probe reads the recent scrollback and the unsubmitted composer.
+	// recent is the text of `herdr agent read --source recent`.
+	// composer is the input box, empty when the box is empty.
+	// unreadable is true when the screen cannot be read or the composer
+	// cannot be parsed. needle is the envelope header the caller matches;
+	// the adapter returns the text it read.
+	Probe(ctx context.Context, handle, needle string) (recent, composer string, unreadable bool, err error)
+	// Submit presses Enter only. It does not send the text again.
+	Submit(ctx context.Context, handle string) error
+}
+
+// AsPasteConfirmer returns ad's screen check when the adapter can do one.
+func AsPasteConfirmer(ad Adapter) (PasteConfirmer, bool) {
+	probe, ok := ad.(PasteConfirmer)
+	return probe, ok
+}
 
 // Adapter is one transport. Identify reads the caller's environment.
 // The caller does not type its own handle.

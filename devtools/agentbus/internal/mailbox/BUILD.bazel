@@ -23,6 +23,7 @@ go_library(
 go_test(
     name = "go_default_test",
     srcs = [
+        "ambiguous_test.go",
         "hibernate_test.go",
         "liveness_test.go",
         "render_test.go",

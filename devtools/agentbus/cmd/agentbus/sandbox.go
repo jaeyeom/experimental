@@ -19,6 +19,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/mailbox"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 	"github.com/jaeyeom/experimental/devtools/pkg/hubcall"
 	"github.com/jaeyeom/experimental/devtools/pkg/procinfo"
@@ -200,6 +201,7 @@ func cmdDoctor(ctx context.Context, args, env []string, stdout, stderr io.Writer
 		return 1
 	}
 	reportStaleOutbox(env, stdout)
+	reportUnverifiedHolds(dirs.StateDir, stdout)
 	if !*sandbox {
 		return 0
 	}
@@ -233,6 +235,18 @@ func cmdDoctor(ctx context.Context, args, env []string, stdout, stderr io.Writer
 	}
 	printDoctorChecks(ctx, stdout, cfg, sockets)
 	return 0
+}
+
+// reportUnverifiedHolds prints messages whose paste may have landed and
+// whose screen could not be checked. A missing mailbox prints nothing.
+func reportUnverifiedHolds(dir string, stdout io.Writer) {
+	lines, err := mailbox.UnverifiedHolds(dir)
+	if err != nil {
+		return
+	}
+	for _, line := range lines {
+		fmt.Fprintln(stdout, line)
+	}
 }
 
 // printDoctorChecks reports each socket and the hub's ssh port as ok or

@@ -196,6 +196,15 @@ var composerMatchers = map[string]func(screen string) (empty, ok bool){
 	"claude": claudeComposerEmpty,
 }
 
+// composerText is the unsubmitted box. ok is false when the kind has no
+// parser or the screen does not parse.
+func composerText(kind, screen string) (string, bool) {
+	if kind != "claude" {
+		return "", false
+	}
+	return claudeComposerText(screen)
+}
+
 // ComposerEmpty reads the pane's visible screen and parses the composer.
 // A kind with no matcher cannot be read, so it holds while the pane is
 // focused, where the user may be typing.
@@ -239,6 +248,64 @@ func (a *Adapter) ComposerEmpty(ctx context.Context, raw string) (bool, string, 
 	return false, adapter.HoldDraftUnknown, nil
 }
 
+// Probe reads the recent scrollback and the visible composer. A kind
+// with no parser, or a read that fails, is unreadable. recent is still
+// returned when only the composer cannot be read, so a scrollback hit
+// can confirm the paste.
+func (a *Adapter) Probe(ctx context.Context, raw, _ string) (string, string, bool, error) {
+	machine, pane, kind, ok := a.probeTarget(ctx, raw)
+	if !ok {
+		return "", "", true, nil
+	}
+	recent, err := a.readPane(ctx, machine, pane, "recent")
+	if err != nil {
+		return "", "", true, nil
+	}
+	visible, err := a.readPane(ctx, machine, pane, "visible")
+	if err != nil {
+		return recent, "", true, nil
+	}
+	text, parsed := composerText(kind, visible)
+	if !parsed {
+		return recent, "", true, nil
+	}
+	return recent, text, false, nil
+}
+
+// Submit presses Enter in the pane. It does not send the text again.
+func (a *Adapter) Submit(ctx context.Context, raw string) error {
+	machine, _, pane, err := parseHandle(raw)
+	if err != nil {
+		return fmt.Errorf("submit enter: %w", err)
+	}
+	_, err = a.paneCallOn(ctx, machine, "pane send-keys", []string{"pane", "send-keys", pane, "enter"})
+	if err != nil {
+		return fmt.Errorf("submit enter: %w", err)
+	}
+	return nil
+}
+
+func (a *Adapter) probeTarget(ctx context.Context, raw string) (machine, pane, kind string, ok bool) {
+	machine, _, pane, err := parseHandle(raw)
+	if err != nil {
+		return "", "", "", false
+	}
+	agents, err := a.agents(ctx, machine)
+	if err != nil {
+		return "", "", "", false
+	}
+	for _, item := range agents {
+		if item.PaneID == pane {
+			return machine, pane, item.Agent, true
+		}
+	}
+	return "", "", "", false
+}
+
+func (a *Adapter) readPane(ctx context.Context, machine, pane, source string) (string, error) {
+	return a.paneCallOn(ctx, machine, "agent read", []string{"agent", "read", pane, "--source", source})
+}
+
 // promptMarker starts Claude Code's input line.
 const promptMarker = "❯"
 
@@ -246,29 +313,42 @@ const promptMarker = "❯"
 // last two horizontal rules, the first starting with the prompt marker.
 // The shell-mode marker "!" always counts as a draft.
 func claudeComposerEmpty(screen string) (empty, ok bool) {
-	lines := strings.Split(screen, "\n")
-	bottom := lastRule(lines, len(lines))
-	if bottom < 0 {
+	text, ok := claudeComposerText(screen)
+	if !ok {
 		return false, false
 	}
-	top := lastRule(lines, bottom)
-	if top < 0 || top+1 >= bottom {
-		return false, false
-	}
-	box := lines[top+1 : bottom]
-	switch {
-	case strings.HasPrefix(box[0], "!"):
+	if strings.HasPrefix(text, "!") {
 		return false, true
-	case !strings.HasPrefix(box[0], promptMarker):
-		return false, false
 	}
-	box[0] = strings.TrimPrefix(box[0], promptMarker)
-	for _, line := range box {
+	for _, line := range strings.Split(text, "\n") {
 		if !blank(line) {
 			return false, true
 		}
 	}
 	return true, true
+}
+
+// claudeComposerText is the input box with the prompt marker removed.
+// Shell mode keeps the "!" line. ok is false when the screen does not parse.
+func claudeComposerText(screen string) (string, bool) {
+	lines := strings.Split(screen, "\n")
+	bottom := lastRule(lines, len(lines))
+	if bottom < 0 {
+		return "", false
+	}
+	top := lastRule(lines, bottom)
+	if top < 0 || top+1 >= bottom {
+		return "", false
+	}
+	box := append([]string(nil), lines[top+1:bottom]...)
+	switch {
+	case strings.HasPrefix(box[0], "!"):
+		return strings.Join(box, "\n"), true
+	case !strings.HasPrefix(box[0], promptMarker):
+		return "", false
+	}
+	box[0] = strings.TrimPrefix(box[0], promptMarker)
+	return strings.Join(box, "\n"), true
 }
 
 func lastRule(lines []string, before int) int {

@@ -358,6 +358,34 @@ func (m *Mailbox) logEvent(e eventlog.Event) error {
 	return nil
 }
 
+// UnverifiedHolds lists messages whose paste may have landed and whose
+// screen could not be checked. Each line is
+// "ambiguous-unverified: <id> to <to>". A missing file is empty.
+func UnverifiedHolds(dir string) ([]string, error) {
+	msgs, err := load(dir)
+	if err != nil {
+		return nil, err
+	}
+	want := "held: " + adapter.HoldAmbiguousUnverified
+	pending := make([]message, 0)
+	for _, msg := range msgs {
+		if msg.State == want {
+			pending = append(pending, msg)
+		}
+	}
+	sort.Slice(pending, func(i, j int) bool {
+		if !pending[i].SentAt.Equal(pending[j].SentAt) {
+			return pending[i].SentAt.Before(pending[j].SentAt)
+		}
+		return pending[i].ID < pending[j].ID
+	})
+	lines := make([]string, 0, len(pending))
+	for _, msg := range pending {
+		lines = append(lines, fmt.Sprintf("ambiguous-unverified: %s to %s", msg.ID, msg.To))
+	}
+	return lines, nil
+}
+
 func load(dir string) (map[string]message, error) {
 	data, err := os.ReadFile(filepath.Join(dir, mailboxFile))
 	if errors.Is(err, os.ErrNotExist) {

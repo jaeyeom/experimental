@@ -26,14 +26,33 @@ type Adapter struct {
 	Texts []string
 	// Composer, when non-nil, answers ComposerEmpty. Otherwise it is empty.
 	Composer func(handle string) (empty bool, reason string, err error)
+	// DeliverErr is returned after OnDeliver, instead of Result.
+	DeliverErr error
+	// OnDeliver runs after the paste is recorded and before the result.
+	OnDeliver func(text string)
+	// Screen is the recent scrollback Probe returns.
+	Screen string
+	// ComposerText is the unsubmitted box Probe returns.
+	ComposerText string
+	// ScreenUnreadable makes Probe report that the screen cannot be checked.
+	ScreenUnreadable bool
+	// ProbeErr is Probe's error.
+	ProbeErr error
+	// Submits counts Enter-only submits.
+	Submits int
+	// SubmitErr is Submit's error.
+	SubmitErr error
 }
 
-// ComposerEmpty calls Composer, or reports an empty composer.
+// ComposerEmpty calls Composer, or reports ComposerText as a user draft.
 func (a *Adapter) ComposerEmpty(_ context.Context, handle string) (bool, string, error) {
-	if a.Composer == nil {
-		return true, "", nil
+	if a.Composer != nil {
+		return a.Composer(handle)
 	}
-	return a.Composer(handle)
+	if strings.TrimSpace(a.ComposerText) != "" {
+		return false, adapter.HoldDraft, nil
+	}
+	return true, "", nil
 }
 
 // Name is the adapter name recorded on adapter_error.
@@ -99,10 +118,40 @@ func (a *Adapter) Deliver(_ context.Context, handle, text string) (adapter.Resul
 	a.Calls++
 	a.LastText = text
 	a.Texts = append(a.Texts, text)
+	if a.OnDeliver != nil {
+		a.OnDeliver(text)
+	}
+	if a.DeliverErr != nil {
+		return adapter.ResultFailed, a.DeliverErr
+	}
 	if result, ok := a.Result[handle]; ok {
 		return result, nil
 	}
 	return adapter.ResultFailed, nil
+}
+
+// Probe returns the scrollback and composer a test stored.
+func (a *Adapter) Probe(context.Context, string, string) (string, string, bool, error) {
+	if a.ProbeErr != nil {
+		return "", "", false, a.ProbeErr
+	}
+	return a.Screen, a.ComposerText, a.ScreenUnreadable, nil
+}
+
+// Submit records one Enter and does not append another paste.
+func (a *Adapter) Submit(context.Context, string) error {
+	a.Submits++
+	if a.SubmitErr != nil {
+		return a.SubmitErr
+	}
+	if a.ComposerText != "" {
+		if a.Screen != "" && !strings.HasSuffix(a.Screen, "\n") {
+			a.Screen += "\n"
+		}
+		a.Screen += a.ComposerText
+		a.ComposerText = ""
+	}
+	return nil
 }
 
 // SelfTest returns SelfTestErr.

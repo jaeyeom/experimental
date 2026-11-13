@@ -152,6 +152,22 @@ one of these:
 - ~held: pane focused~: an agent kind with no parser, while the pane is
   focused. It is delivered once the pane is unfocused. A pane whose box
   can be parsed is delivered even while focused.
+- ~held: ambiguous~: ~herdr agent prompt~ failed and the text may already
+  be on screen. The next pass reads ~herdr agent read <pane> --source
+  recent~ and the composer before it pastes again. This message's own
+  envelope header, ~[agentbus <id>~, is not a user draft. In the recent
+  scrollback, the message is ~delivered~ with
+  ~detail=confirmed-after-ambiguous~ and is not pasted again. In the
+  composer, not yet submitted, the retry presses Enter only. Nowhere on
+  screen, it pastes once more. ~[agentbus m-1~ does not match
+  ~[agentbus m-10~.
+- ~held: ambiguous-unverified~: that check could not read or parse the
+  screen, so the message is not pasted again. ~status~ shows the reason.
+  ~doctor~ prints ~ambiguous-unverified: <id> to <to>~.
+
+A composer that holds another message's envelope, or a real user draft,
+stays ~held: user draft in composer~. A retryable refusal
+(~transport refused~) is a definite miss and is pasted again.
 
 The composer is read again right before the paste. A draft that
 appeared in between holds the message until the next pass. The
