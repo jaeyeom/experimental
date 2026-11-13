@@ -19,6 +19,8 @@ Every item has options, includes `--rec`, and usually allows `--free-text`.
 
 `--notify-pane` routes the answer to the owning agent's pane.
 
+Use `decide reassign` when the owning tab is retired, or for a handoff to another agent.
+
 Inside herdr, `--owner` can be omitted: it defaults to this tab's label. An explicit `--owner` should match the tab label or one of your agentbus names, because the user finds you by tab.
 
 Before acting on an answer line, verify it with `decide show --json`: `state` is `answered` and `answeredBy` is `human`.

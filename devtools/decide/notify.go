@@ -206,6 +206,9 @@ func parseConfig(data []byte, dir string) (Config, error) {
 // DECIDE_MACHINE is the herdr machine of DECIDE_PANE, empty for this machine.
 // None of those fields are substituted into the command string.
 func Notify(item *Item, out io.Writer) error {
+	if item.NotifyClosed {
+		return nil
+	}
 	cfg, err := LoadConfig()
 	if err != nil {
 		return err
@@ -251,6 +254,9 @@ func Notify(item *Item, out io.Writer) error {
 // machine it is on. The item's pane wins over the config pane, which is
 // on this machine, so the machine is empty for it.
 func NotifyTarget(item *Item, cfg Config) (pane, machine string) {
+	if item.NotifyClosed {
+		return "", ""
+	}
 	if strings.TrimSpace(item.NotifyPane) != "" {
 		return item.NotifyPane, item.NotifyMachine
 	}

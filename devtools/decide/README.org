@@ -406,6 +406,8 @@ Every ask from a herdr pane stores that pane as ~notifyPane~, so
 [[*Where the owner lives]] can find it. An explicit ~--notify-pane~
 still wins and still decides where answers go.
 
+~decide reassign~ is for a retired owning tab, or a handoff to another agent.
+
 An explicit ~--owner~ that is neither the tab label nor one of this
 pane's agentbus names, from ~agentbus whoami~ with a 2s deadline, prints
 a warning on stderr and still files the item:

@@ -171,6 +171,9 @@ func (b *LocalBackend) Reply(id, text string) (decide.Item, error) {
 // thread header, the original text, and the reply hint. A pane on
 // another machine is reached through `--machine`.
 func (b *LocalBackend) notifyThread(item *decide.Item, text string) error {
+	if item.NotifyClosed {
+		return nil
+	}
 	cfg, err := decide.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("load decide config: %w", err)

@@ -45,6 +45,7 @@ var itemCommands = map[string]func([]string, io.Writer, io.Writer) int{
 	"answer":   cmdAnswer,
 	"snooze":   cmdSnooze,
 	"unsnooze": cmdUnsnooze,
+	"reassign": cmdReassign,
 }
 
 func runLocal(args []string, stdout, stderr io.Writer) int {
@@ -107,12 +108,14 @@ func usage(w io.Writer) {
   decide send --to <name> [--json] [--via cli|ui] <text>
   decide send --id <id> [--json] [--via cli|ui] <text>
   decide reply <id> [--option key:label ...] [--rec key] [--free-text] [--json] <text>
+  decide reassign <id> [--owner <label>] [--notify-pane <pane>] [--json]
   decide skill
   decide avatars list [--name <name>] [--ids]
   decide avatars set [--local] <name> <id|default|none>
   decide [--remote <user@host>] config show [--effective]
 
 Text for ask, reply, send, done, withdraw, and status set may be a positional argument, --text-file <path>, or - for stdin.
+Use reassign when the owning tab is retired, or for a handoff to another agent.
 `)
 }
 
@@ -209,10 +212,56 @@ func cmdCompose(id, text, via, by string, jsonOut bool, stdout, stderr io.Writer
 		return code
 	}
 	pane, machine := decide.NotifyTarget(&item, cfg)
+	if item.NotifyClosed {
+		return 0
+	}
 	if err := decide.NotifyOwner(pane, machine, item.ID, text); err != nil {
 		return fail(stderr, err, 1)
 	}
 	return 0
+}
+
+// cmdReassign moves an item to a new owner, notify pane, or both.
+func cmdReassign(args []string, stdout, stderr io.Writer) int {
+	args = hoistFlags(args, map[string]bool{"owner": true, "notify-pane": true})
+	fs := flag.NewFlagSet("reassign", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	jsonOut := fs.Bool("json", false, "print the item as JSON")
+	var owner setString
+	var pane setString
+	fs.Var(&owner, "owner", "new owner label")
+	fs.Var(&pane, "notify-pane", "new notify pane, or empty to clear it")
+	if code, stop := stopped(parseFlags(fs, args)); stop {
+		return code
+	}
+	id, err := oneArg(fs.Args(), "id")
+	if err != nil {
+		return fail(stderr, err, 2)
+	}
+	if !owner.set && !pane.set {
+		return fail(stderr, fmt.Errorf("decide reassign requires --owner or --notify-pane"), 2)
+	}
+	if owner.set && strings.TrimSpace(owner.val) == "" {
+		return fail(stderr, fmt.Errorf("decide owner is empty"), 2)
+	}
+	machine := ""
+	if pane.set {
+		machine, err = machineForNotifyPane(pane.val)
+		if err != nil {
+			return fail(stderr, err, 1)
+		}
+	}
+	by := senderOf(context.Background())
+	return withItem(stdout, stderr, *jsonOut, false, func(led *decide.Ledger) (decide.Item, error) {
+		return led.Reassign(id, decide.Reassign{
+			Owner:    strings.TrimSpace(owner.val),
+			SetOwner: owner.set,
+			Pane:     pane.val,
+			SetPane:  pane.set,
+			Machine:  machine,
+			By:       by,
+		})
+	})
 }
 
 func cmdReply(args []string, stdout, stderr io.Writer) int {
@@ -1037,6 +1086,20 @@ func writeField(w io.Writer, name, value string) {
 func fail(stderr io.Writer, err error, code int) int {
 	fmt.Fprintf(stderr, "decide: %v\n", err)
 	return code
+}
+
+// setString is a flag that records whether it was passed, including empty.
+type setString struct {
+	set bool
+	val string
+}
+
+func (s *setString) String() string { return s.val }
+
+func (s *setString) Set(v string) error {
+	s.set = true
+	s.val = v
+	return nil
 }
 
 type stringList []string

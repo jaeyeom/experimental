@@ -951,6 +951,131 @@ func TestForwardNoteNamesTheSource(t *testing.T) {
 	}
 }
 
+func TestReassignUpdatesOwnerPaneMachineAndAppendsEvent(t *testing.T) {
+	led, _ := openTemp(t)
+	item := reassignSeed(t, led)
+	got, err := led.Reassign(item.ID, Reassign{
+		Owner: "bea", SetOwner: true,
+		Pane: "p2", SetPane: true, Machine: "mac",
+		By: "cara",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Owner != "bea" || got.NotifyPane != "p2" || got.NotifyMachine != "mac" || got.NotifyClosed {
+		t.Fatalf("reassign = owner %q pane %q machine %q closed %v", got.Owner, got.NotifyPane, got.NotifyMachine, got.NotifyClosed)
+	}
+	if got.Answer == nil || got.Answer.Value != "a" || got.State != StateAnswered {
+		t.Fatalf("answer changed: %+v state %s", got.Answer, got.State)
+	}
+	if len(got.Messages) != 3 || got.Messages[0].Text != "ship?" || got.Messages[1].Text != "a" {
+		t.Fatalf("history = %+v", got.Messages)
+	}
+	last := got.Messages[2]
+	const want = "reassigned: owner ada → bea; notify pane p1 → p2 (by cara)"
+	if last.Author != "system" || last.By != "cara" || last.Text != want {
+		t.Fatalf("event = %+v, want %q", last, want)
+	}
+	stored, err := led.Get(item.ID)
+	if err != nil || stored.Messages[2].Text != want || stored.NotifyMachine != "mac" {
+		t.Fatalf("stored = %+v err %v", stored, err)
+	}
+}
+
+func TestReassignOneFieldLeavesTheOther(t *testing.T) {
+	led, _ := openTemp(t)
+	item := reassignSeed(t, led)
+	ownerOnly, err := led.Reassign(item.ID, Reassign{Owner: "bea", SetOwner: true, By: "cara"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ownerOnly.Owner != "bea" || ownerOnly.NotifyPane != "p1" || ownerOnly.NotifyMachine != "old" {
+		t.Fatalf("owner only = owner %q pane %q machine %q", ownerOnly.Owner, ownerOnly.NotifyPane, ownerOnly.NotifyMachine)
+	}
+	if ownerOnly.Messages[len(ownerOnly.Messages)-1].Text != "reassigned: owner ada → bea (by cara)" {
+		t.Fatalf("owner event = %q", ownerOnly.Messages[len(ownerOnly.Messages)-1].Text)
+	}
+
+	paneOnly, err := led.Reassign(item.ID, Reassign{Pane: "p9", SetPane: true, Machine: "mac"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paneOnly.Owner != "bea" || paneOnly.NotifyPane != "p9" || paneOnly.NotifyMachine != "mac" {
+		t.Fatalf("pane only = owner %q pane %q machine %q", paneOnly.Owner, paneOnly.NotifyPane, paneOnly.NotifyMachine)
+	}
+	if paneOnly.Messages[len(paneOnly.Messages)-1].Text != "reassigned: notify pane p1 → p9" {
+		t.Fatalf("pane event = %q", paneOnly.Messages[len(paneOnly.Messages)-1].Text)
+	}
+}
+
+func TestReassignBusPaneClearsTheMachine(t *testing.T) {
+	led, _ := openTemp(t)
+	item := reassignSeed(t, led)
+	got, err := led.Reassign(item.ID, Reassign{Pane: "agentbus:ops", SetPane: true, Machine: "mac"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.NotifyPane != "agentbus:ops" || got.NotifyMachine != "" || got.NotifyClosed {
+		t.Fatalf("bus = pane %q machine %q closed %v", got.NotifyPane, got.NotifyMachine, got.NotifyClosed)
+	}
+	cleared, err := led.Reassign(item.ID, Reassign{Pane: "", SetPane: true, Machine: "mac"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared.NotifyPane != "" || cleared.NotifyMachine != "" || !cleared.NotifyClosed {
+		t.Fatalf("cleared = pane %q machine %q closed %v", cleared.NotifyPane, cleared.NotifyMachine, cleared.NotifyClosed)
+	}
+}
+
+func TestReassignRefusesDoneAndWithdrawn(t *testing.T) {
+	led, _ := openTemp(t)
+	for _, state := range []string{StateDone, StateWithdrawn} {
+		item := reassignSeed(t, led)
+		if _, err := led.finish(item.ID, state, "stop"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := led.Reassign(item.ID, Reassign{Owner: "bea", SetOwner: true}); err == nil || !strings.Contains(err.Error(), state) {
+			t.Fatalf("%s reassign err = %v", state, err)
+		}
+		stored, err := led.Get(item.ID)
+		if err != nil || stored.Owner != "ada" {
+			t.Fatalf("stored owner = %q err %v", stored.Owner, err)
+		}
+	}
+}
+
+func TestReassignRequiresAField(t *testing.T) {
+	led, _ := openTemp(t)
+	item := reassignSeed(t, led)
+	if _, err := led.Reassign(item.ID, Reassign{}); err == nil {
+		t.Fatal("reassign with nothing succeeded")
+	}
+	if _, err := led.Reassign(item.ID, Reassign{SetOwner: true}); err == nil {
+		t.Fatal("empty owner succeeded")
+	}
+}
+
+func reassignSeed(t *testing.T, led *Ledger) Item {
+	t.Helper()
+	item, err := led.Create(&Item{
+		Question:      "ship?",
+		Kind:          KindRelay,
+		Owner:         "ada",
+		NotifyPane:    "p1",
+		NotifyMachine: "old",
+		State:         StateAnswered,
+		Answer:        &Answer{Value: "a", AnsweredBy: "human", Via: ViaCLI},
+		Messages: []Message{
+			{Author: "ada", Text: "ship?"},
+			{Author: "human", Text: "a", Via: ViaCLI},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return item
+}
+
 func openTemp(t *testing.T) (*Ledger, string) {
 	t.Helper()
 	dir := t.TempDir()
