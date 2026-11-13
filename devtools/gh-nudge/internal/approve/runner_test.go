@@ -338,7 +338,7 @@ func TestRunAuditLogFields(t *testing.T) {
 	}
 	entry := res.log[0]
 	if !entry.Time.Equal(fixedNow()) || entry.PR != "acme/widgets#1" || entry.URL != "https://github.com/acme/widgets/pull/1" ||
-		entry.HeadSHA != "h1" || entry.Rule == nil || *entry.Rule != "dashboard" || entry.Action != ActionWouldApprove {
+		entry.HeadSHA != "h1" || entry.Author != "alice" || entry.Rule == nil || *entry.Rule != "dashboard" || entry.Action != ActionWouldApprove {
 		t.Fatalf("entry = %+v", entry)
 	}
 	if len(entry.Rules) != 1 || entry.Rules[0].Rule != "dashboard" || len(entry.Rules[0].Conditions) == 0 {
@@ -361,7 +361,7 @@ func TestRunAuditLogRawJSONKeys(t *testing.T) {
 	if err := runner.Run(Options{}); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{`"time"`, `"pr"`, `"headSha"`, `"rule"`, `"rules"`, `"conditions"`, `"pass"`, `"saw"`, `"action"`} {
+	for _, key := range []string{`"time"`, `"pr"`, `"author"`, `"headSha"`, `"rule"`, `"rules"`, `"conditions"`, `"pass"`, `"saw"`, `"action"`} {
 		if !strings.Contains(logBuf.String(), key) {
 			t.Fatalf("log line missing %s: %s", key, logBuf.String())
 		}

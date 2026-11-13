@@ -55,11 +55,14 @@ type Options struct {
 
 // LogEntry is one audit log line.
 type LogEntry struct {
-	Time    time.Time `json:"time"`
-	PR      string    `json:"pr"`
-	URL     string    `json:"url,omitempty"`
-	Title   string    `json:"title,omitempty"`
-	HeadSHA string    `json:"headSha"`
+	Time  time.Time `json:"time"`
+	PR    string    `json:"pr"`
+	URL   string    `json:"url,omitempty"`
+	Title string    `json:"title,omitempty"`
+	// Author is the pull request author's login. Empty on lines written
+	// before the field existed, and when the pull request could not be loaded.
+	Author  string `json:"author,omitempty"`
+	HeadSHA string `json:"headSha"`
 	// Rule is the matching rule, or null when none matched.
 	Rule   *string      `json:"rule"`
 	Rules  []RuleResult `json:"rules"`
@@ -166,7 +169,7 @@ func (r *Runner) decide(ref github.PullRef, viewer string, opts Options, single 
 		entry.Action, entry.Reason = ActionError, err.Error()
 		return entry, false
 	}
-	entry.URL, entry.Title, entry.HeadSHA = pr.URL, pr.Title, pr.HeadSHA
+	entry.URL, entry.Title, entry.HeadSHA, entry.Author = pr.URL, pr.Title, pr.HeadSHA, pr.Author
 	if !containsFold(pr.RequestedUsers, viewer) {
 		entry.Action, entry.Reason = ActionSkipped, errNotRequested.Error()
 		return entry, !single

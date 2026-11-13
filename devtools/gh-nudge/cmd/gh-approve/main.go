@@ -21,6 +21,9 @@
 //	# Evaluate one pull request and print every condition
 //	gh-approve --pr acme/widgets#12 --explain
 //
+//	# List recent decisions, with each pull request's current state
+//	gh-approve history
+//
 // Every decision is appended to ~/.config/gh-nudge/approve-log.jsonl.
 //
 // Agent command decisions are cached under $XDG_CACHE_HOME/gh-approve/agent
@@ -29,8 +32,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -74,6 +79,9 @@ func newAgentCache(cfg config.ApproveConfig, disabled bool, home, xdgCacheHome s
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "history" {
+		os.Exit(runHistory(os.Args[2:]))
+	}
 	var (
 		configPath   string
 		opts         approve.Options
@@ -85,7 +93,7 @@ func main() {
 	flag.BoolVar(&opts.Explain, "explain", false, "Print every condition of every rule with the value it saw")
 	flag.BoolVar(&noAgentCache, "no-agent-cache", false, "Run agent commands without reading or writing the decision cache")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [--apply] [--pr <owner/repo#N | URL>] [--explain] [--no-agent-cache] [--config <path>]\n\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s [--apply] [--pr <owner/repo#N | URL>] [--explain] [--no-agent-cache] [--config <path>]\n       %s history [--days N] [--action approved|handoff|mark_viewed|all] [--rule NAME] [--json] [--no-state]\n\n", os.Args[0], os.Args[0])
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -130,4 +138,65 @@ func run(configPath string, opts approve.Options, noAgentCache bool) (err error)
 		return fmt.Errorf("run: %w", err)
 	}
 	return nil
+}
+
+// runHistory lists recent approve-log decisions. It returns the process
+// exit code. Flag mistakes are 2. A failed lookup is 1.
+func runHistory(args []string) int {
+	fs := flag.NewFlagSet("history", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	var (
+		days    int
+		action  string
+		rule    string
+		jsonOut bool
+		noState bool
+	)
+	fs.IntVar(&days, "days", 7, "How many days of decisions to list")
+	fs.StringVar(&action, "action", approve.ActionApproved, "approved, handoff, mark_viewed, or all; would_* actions are included only with all")
+	fs.StringVar(&rule, "rule", "", "List only decisions for this rule")
+	fs.BoolVar(&jsonOut, "json", false, "Print a JSON array instead of a table")
+	fs.BoolVar(&noState, "no-state", false, "Do not look up the current pull request state")
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: gh-approve history [--days N] [--action approved|handoff|mark_viewed|all] [--rule NAME] [--json] [--no-state]\n\n")
+		fs.SetOutput(os.Stderr)
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			fs.Usage()
+			return 0
+		}
+		fmt.Fprintf(os.Stderr, "gh-approve: %v\n", err)
+		fs.Usage()
+		return 2
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprintf(os.Stderr, "gh-approve: unexpected argument %q\n", fs.Arg(0))
+		fs.Usage()
+		return 2
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gh-approve: find home directory: %v\n", err)
+		return 1
+	}
+	client := github.NewClient(context.Background(), github.GHExecutor(executor.NewBasicExecutor()))
+	err = approve.History(approve.HistoryOptions{
+		LogPath:   filepath.Join(home, ".config", "gh-nudge", "approve-log.jsonl"),
+		CachePath: approve.PRStateCachePath(home, os.Getenv("XDG_CACHE_HOME")),
+		Days:      days,
+		Action:    action,
+		Rule:      rule,
+		JSON:      jsonOut,
+		NoState:   noState,
+		Out:       os.Stdout,
+		Err:       os.Stderr,
+		Lookup:    client.PullRequestSnapshots,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gh-approve: %v\n", err)
+		return 1
+	}
+	return 0
 }
