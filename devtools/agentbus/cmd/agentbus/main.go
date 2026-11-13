@@ -29,10 +29,12 @@ func runProcess() int {
 	return run(ctx, os.Args[1:], os.Environ(), os.Stdin, os.Stdout, os.Stderr)
 }
 
-// Tests replace these so help can prove it never touches the daemon.
+// Tests replace these so help can prove it never touches the daemon,
+// and so a dropped reply is not confused with a daemon that never started.
 var (
-	ensureDaemon = ensure
-	dialDaemon   = client.Call
+	ensureDaemon   = ensure
+	dialDaemon     = client.Call
+	ensureDaemonUp = startDaemonForRetry
 )
 
 func run(ctx context.Context, args, env []string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -71,6 +73,23 @@ func run(ctx context.Context, args, env []string, stdin io.Reader, stdout, stder
 		return ensureDaemon(env, stderr)
 	}
 	return cmd.run(ctx, args[1:], env, stdin, stdout, stderr)
+}
+
+// startDaemonForRetry is the down-daemon path: the socket was missing
+// or the connection was refused before the request was written.
+func startDaemonForRetry(ctx context.Context, dirs paths.Dirs, env []string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("cannot find this executable: %w", err)
+	}
+	bin, err := client.DaemonBinBeside(exe)
+	if err != nil {
+		return fmt.Errorf("%w", err)
+	}
+	if err := client.Ensure(ctx, dirs, bin, env); err != nil {
+		return fmt.Errorf("%w", err)
+	}
+	return nil
 }
 
 func ensure(env []string, stderr io.Writer) int {

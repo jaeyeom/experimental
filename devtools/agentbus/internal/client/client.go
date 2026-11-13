@@ -103,14 +103,43 @@ func Call(ctx context.Context, socketPath string, req daemon.Request) (daemon.Re
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(deadline)
 	}
+	return exchange(conn, req)
+}
+
+// exchange writes one request and reads one reply. A write or read
+// error is marked sent: the daemon may already have applied the request.
+func exchange(conn net.Conn, req daemon.Request) (daemon.Response, error) {
+	defer conn.Close()
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
-		return daemon.Response{}, fmt.Errorf("write request: %w", err)
+		return daemon.Response{}, MarkSent(fmt.Errorf("write request: %w", err))
 	}
 	var resp daemon.Response
 	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
-		return daemon.Response{}, fmt.Errorf("read response: %w", err)
+		return daemon.Response{}, MarkSent(fmt.Errorf("read response: %w", err))
 	}
 	return resp, nil
+}
+
+// sentError is a Call failure after the request write started.
+type sentError struct{ err error }
+
+func (e *sentError) Error() string { return e.err.Error() }
+
+func (e *sentError) Unwrap() error { return e.err }
+
+// MarkSent marks err as a failure after the request write started.
+// The daemon may already have applied the request.
+func MarkSent(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &sentError{err: err}
+}
+
+// RequestSent reports whether err is from a Call that had started writing.
+func RequestSent(err error) bool {
+	var sent *sentError
+	return errors.As(err, &sent)
 }
 
 // Stream sends one request and passes each reply to fn until a reply

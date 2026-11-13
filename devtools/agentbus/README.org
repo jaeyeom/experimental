@@ -68,7 +68,10 @@ The body must not be empty. ~--ttl 30m~ sets a deadline for that one
 message. ~--wait~ blocks until it is delivered or that deadline passes.
 ~--client-id <machine>:<ulid>~ makes that accept idempotent for the
 sender handle. The id is at most 64 characters from ~[A-Za-z0-9._:-]~
-and contains a colon. A retry with the same id, body, and recipient
+and contains a colon. Local ~send~ and ~reply~ generate one when
+~--client-id~ is omitted and reuse it if they redial a daemon that was
+not listening yet. A failure after the request was written is not sent
+again. A retry with the same id, body, and recipient
 returns the original message id and state and creates nothing. ~--json~
 prints ~id~, ~state~, and, on that retry, ~duplicate: true~. Text output
 stays ~<id> <state>~. A different body or recipient is a conflict and
