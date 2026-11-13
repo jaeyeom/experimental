@@ -581,13 +581,13 @@ the item shows them."
           (browse-url (nth (1- (string-to-number row)) links)))))))
 
 (defun decide--avatars-set-args (owner choice)
-  "Argument list that sets OWNER's avatar to CHOICE in the local config."
+  "Argument list that sets OWNER's avatar to CHOICE."
   (list "avatars" "set" owner choice))
 
 (defun decide-set-avatar ()
   "Change the avatar of the open item's owner, as the inbox's A does.
-Offer every built-in id plus default and none, then save the choice to
-this machine's config with `decide avatars set'."
+Offer every built-in id plus default and none, then save the choice
+with `decide avatars set'. Hub mode saves it on the hub."
   (interactive)
   (let ((owner (decide--field (car decide--items) "owner")))
     (when (string-empty-p owner)

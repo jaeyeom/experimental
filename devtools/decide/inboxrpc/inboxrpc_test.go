@@ -1,12 +1,14 @@
 package inboxrpc
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -405,6 +407,102 @@ func TestOlderHubTellsYouToUpdateTheHub(t *testing.T) {
 	want := fmt.Sprintf("hub me@hub: decide serve speaks protocol %d, this decide speaks %d; update decide on the hub", Version-1, Version)
 	if err == nil || err.Error() != want {
 		t.Fatalf("connect = %v, want %s", err, want)
+	}
+}
+
+func TestSetAvatarWritesTheHubAndASecondClientSeesIt(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", home)
+	path := filepath.Join(home, "decide", "config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newHub(t)
+	h.server.Display = func() (decide.DisplaySettings, error) {
+		f, err := decide.LoadConfigFile()
+		if err != nil {
+			return decide.DisplaySettings{}, fmt.Errorf("load config: %w", err)
+		}
+		return f.Display(), nil
+	}
+	first := connect(t, h)
+	second := connect(t, h)
+	if _, err := first.SetAvatar("ops/x", "nope"); err == nil || !strings.Contains(err.Error(), `unknown built-in avatar "nope"`) {
+		t.Fatalf("invalid choice: %v", err)
+	}
+	if data, err := os.ReadFile(path); err != nil || strings.Contains(string(data), "ops/x") {
+		t.Fatalf("rejected choice wrote %s, %v", data, err)
+	}
+	settings, err := first.SetAvatar("ops/x", "owl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(settings.Keys["avatars"]), "owl") {
+		t.Fatalf("display = %s", settings.Keys["avatars"])
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(data), `"builtin": "owl"`) || !strings.Contains(string(data), `"match": "ops/x"`) {
+		t.Fatalf("hub config = %s, %v", data, err)
+	}
+	if _, err := second.List(); err != nil {
+		t.Fatal(err)
+	}
+	got, gen := second.Display()
+	if gen < 2 || !strings.Contains(string(got.Keys["avatars"]), "owl") {
+		t.Fatalf("second client gen %d display %s", gen, got.Keys["avatars"])
+	}
+}
+
+func TestSetAvatarOnAnOldHubSaysToUpdateIt(t *testing.T) {
+	c := &Client{Label: "me@hub", Dial: scriptedHub(func(req Request) Response {
+		switch req.Op {
+		case OpHello:
+			return Response{Version: Version}
+		case OpConfig:
+			return Response{Display: &decide.DisplaySettings{}}
+		default:
+			return Response{Error: fmt.Sprintf("unknown op %q", req.Op)}
+		}
+	})}
+	if err := c.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(c.Close)
+	_, err := c.SetAvatar("ops/x", "owl")
+	want := `hub me@hub: unknown op "set-avatar"; update decide on the hub`
+	if err == nil || err.Error() != want {
+		t.Fatalf("set-avatar = %v", err)
+	}
+}
+
+// scriptedHub answers each request with respond.
+func scriptedHub(respond func(Request) Response) Dialer {
+	return func() (*Conn, error) {
+		reqR, reqW := io.Pipe()
+		respR, respW := io.Pipe()
+		go func() {
+			sc := bufio.NewScanner(reqR)
+			enc := json.NewEncoder(respW)
+			for sc.Scan() {
+				var req Request
+				if err := json.Unmarshal(sc.Bytes(), &req); err != nil {
+					_ = respW.CloseWithError(err)
+					return
+				}
+				resp := respond(req)
+				resp.ID = req.ID
+				if err := enc.Encode(resp); err != nil {
+					return
+				}
+			}
+		}()
+		return &Conn{W: reqW, R: respR, Close: func() {
+			_ = reqW.Close()
+			_ = respR.Close()
+		}}, nil
 	}
 }
 

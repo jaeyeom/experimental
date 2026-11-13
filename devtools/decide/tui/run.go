@@ -52,6 +52,9 @@ type Options struct {
 	// Backend replaces the local ledger in Dir, such as the hub's in
 	// hub mode. It is reloaded off the update loop.
 	Backend Backend
+	// LocalConfig is this machine's config. In hub mode a local avatar
+	// rule still hides the hub's rule for that name.
+	LocalConfig decide.ConfigFile
 	// Display, when set, replaces the display settings above at start
 	// and whenever it reports a change after a ledger read.
 	Display DisplaySource
@@ -134,6 +137,7 @@ func prepare(opts Options) (*Model, error) {
 		m.backend = opts.Backend
 		m.asyncReload = true
 	}
+	m.localConfig = opts.LocalConfig
 	m.avatarProfile = termenv.NewOutput(opts.Out).EnvColorProfile()
 	m.display = opts.Display
 	m.pollDisplay()

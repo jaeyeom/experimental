@@ -361,13 +361,66 @@ func (c *Client) item(req Request) (decide.Item, error) {
 	return *resp.Item, nil
 }
 
-// List implements tui.Backend.
+// List implements tui.Backend. It refreshes the cached display settings
+// first, so another client's avatar save shows up on this poll.
 func (c *Client) List() ([]decide.Item, error) {
+	c.refreshDisplay()
 	resp, err := c.call(Request{Op: OpList})
 	if err != nil {
 		return nil, err
 	}
 	return resp.Items, nil
+}
+
+// SetAvatar saves choice for name on the hub and returns its display
+// settings. A hub that does not know the op says to update decide there.
+// A transport failure is a hub error and does not write locally.
+func (c *Client) SetAvatar(name, choice string) (decide.DisplaySettings, error) {
+	resp, err := c.call(Request{Op: OpSetAvatar, Name: name, Choice: choice})
+	if err != nil {
+		if strings.HasPrefix(err.Error(), "unknown op ") {
+			return decide.DisplaySettings{}, fmt.Errorf("hub %s: %s; update decide on the hub", c.Label, err.Error())
+		}
+		return decide.DisplaySettings{}, err
+	}
+	if resp.Display == nil {
+		return decide.DisplaySettings{}, fmt.Errorf("hub %s: set-avatar returned no display settings", c.Label)
+	}
+	c.noteDisplay(*resp.Display)
+	return *resp.Display, nil
+}
+
+// refreshDisplay fetches config while a session is up and keeps it when
+// it changed, so the next display read sees another client's save.
+func (c *Client) refreshDisplay() {
+	c.mu.Lock()
+	up := c.sess != nil
+	c.mu.Unlock()
+	if !up {
+		return
+	}
+	resp, err := c.call(Request{Op: OpConfig})
+	if err != nil || resp.Display == nil {
+		return
+	}
+	c.noteDisplay(*resp.Display)
+}
+
+// noteDisplay stores next when it differs from the cached settings.
+func (c *Client) noteDisplay(next decide.DisplaySettings) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if displaySame(c.display, next) {
+		return
+	}
+	c.display = next
+	c.displayGen++
+}
+
+func displaySame(a, b decide.DisplaySettings) bool {
+	left, errA := json.Marshal(a)
+	right, errB := json.Marshal(b)
+	return errA == nil && errB == nil && bytes.Equal(left, right)
 }
 
 // Get is one item.

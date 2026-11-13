@@ -278,9 +278,17 @@ its target is replaced and the link stays. A config that does not parse
 or cannot be written is left as it is, and the error goes to the status
 line (or stderr).
 
-The config is this machine's, the one the inbox reads its avatars from.
-In hub mode the inbox runs here, so the change is local and the hub's
-config is not touched; ~decide avatars~ also runs locally.
+With no hub, the write is this machine's config, the one the inbox
+reads its avatars from. In hub mode, ~A~ and ~decide avatars set~ save
+the rule on the hub (~set-avatar~) and the status line says
+~avatar for <owner>: <id> (saved on hub)~. The client's own config is
+not written. A rule already in that local config still wins on this
+machine, and the status line says
+~(saved on hub; a local rule for <owner> overrides it here)~. Another
+open inbox takes the new avatar on its next display refresh.
+~decide avatars set --local~ writes this machine even in hub mode. A
+hub that is down is an error, and nothing is written locally. A hub
+that does not know the op says to update decide on the hub.
 
 To undo a change, pick ~default~ (or ~decide avatars set <name>
 default~), edit the ~avatars~ rule by hand, or restore the copy of the

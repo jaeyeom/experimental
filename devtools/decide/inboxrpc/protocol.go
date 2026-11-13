@@ -17,28 +17,29 @@ import (
 )
 
 // Version is the protocol version hello returns. Version 2 added
-// config.
-const Version = 2
+// config. Version 3 added set-avatar.
+const Version = 3
 
 // Ops. Archive is done with the outcome "archived".
 const (
-	OpHello    = "hello"
-	OpList     = "list"
-	OpShow     = "show"
-	OpMarkRead = "mark-read"
-	OpAnswer   = "answer"
-	OpReply    = "reply"
-	OpDone     = "done"
-	OpArchive  = "archive"
-	OpWithdraw = "withdraw"
-	OpSnooze   = "snooze"
-	OpUnsnooze = "unsnooze"
-	OpStatus   = "status"
-	OpTargets  = "targets"
-	OpBusList  = "bus-list"
-	OpSend     = "send"
-	OpLocate   = "locate"
-	OpConfig   = "config"
+	OpHello     = "hello"
+	OpList      = "list"
+	OpShow      = "show"
+	OpMarkRead  = "mark-read"
+	OpAnswer    = "answer"
+	OpReply     = "reply"
+	OpDone      = "done"
+	OpArchive   = "archive"
+	OpWithdraw  = "withdraw"
+	OpSnooze    = "snooze"
+	OpUnsnooze  = "unsnooze"
+	OpStatus    = "status"
+	OpTargets   = "targets"
+	OpBusList   = "bus-list"
+	OpSend      = "send"
+	OpLocate    = "locate"
+	OpConfig    = "config"
+	OpSetAvatar = "set-avatar"
 )
 
 // Request is one line from the client. Item is the item id. Text is the
@@ -53,6 +54,9 @@ type Request struct {
 	To      string     `json:"to,omitempty"`
 	Bus     bool       `json:"bus,omitempty"`
 	Forward string     `json:"forward,omitempty"`
+	// Name and Choice are a set-avatar: a built-in id, "default", or "none".
+	Name   string `json:"name,omitempty"`
+	Choice string `json:"choice,omitempty"`
 }
 
 // Response is one line from the server. Error fails the request.
@@ -77,13 +81,14 @@ type Response struct {
 // writeOps change the ledger or send something. While the hub is
 // unreachable they fail at once and are never queued.
 var writeOps = map[string]bool{
-	OpMarkRead: true,
-	OpAnswer:   true,
-	OpReply:    true,
-	OpDone:     true,
-	OpArchive:  true,
-	OpWithdraw: true,
-	OpSnooze:   true,
-	OpUnsnooze: true,
-	OpSend:     true,
+	OpMarkRead:  true,
+	OpAnswer:    true,
+	OpReply:     true,
+	OpDone:      true,
+	OpArchive:   true,
+	OpWithdraw:  true,
+	OpSnooze:    true,
+	OpUnsnooze:  true,
+	OpSend:      true,
+	OpSetAvatar: true,
 }

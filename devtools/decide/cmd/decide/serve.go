@@ -47,6 +47,7 @@ func cmdHubInbox(settings hubSettings, args []string, stdout, stderr io.Writer) 
 	// The hub's display settings fill the keys this config does not
 	// set, at start and after each reconnect.
 	opts.Display = &hubDisplay{local: local, fetch: client.Display}
+	opts.LocalConfig = local
 	opts.BusRunner = client.BusRunner
 	// The hub's own config maps its checkouts on the status board.
 	opts.Checkouts = nil

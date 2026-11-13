@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -234,6 +235,86 @@ func TestAvatarPickerMovesAndScrolls(t *testing.T) {
 	if strings.Contains(view, " default") {
 		t.Fatalf("first row still shown after scrolling\n%s", view)
 	}
+}
+
+func TestHubPickerSavesOnTheHub(t *testing.T) {
+	path := pickConfig(t, `{"zeta": true}`)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hub := &hubAvatars{settings: decide.DisplaySettings{Keys: map[string]json.RawMessage{
+		"avatars": json.RawMessage(`[{"match":"ops/x","builtin":"owl"}]`),
+	}}}
+	m := opsItem(t)
+	m.backend = hub
+	press(t, m, "A")
+	pickEntry(t, m, "owl")
+	if hub.name != "ops/x" || hub.choice != "owl" {
+		t.Fatalf("set-avatar name %q choice %q", hub.name, hub.choice)
+	}
+	if m.status != "avatar for ops/x: owl (saved on hub)" {
+		t.Fatalf("status %q", m.status)
+	}
+	if len(m.Avatars) != 1 || m.Avatars[0].Builtin != "owl" {
+		t.Fatalf("avatars = %+v", m.Avatars)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != string(before) {
+		t.Fatalf("client config = %s, %v", got, err)
+	}
+}
+
+func TestHubPickerNotesALocalRule(t *testing.T) {
+	pickConfig(t, `{"avatars":[{"match":"ops/x","builtin":"cat"}]}`)
+	local, err := decide.LoadConfigFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hub := &hubAvatars{settings: decide.DisplaySettings{Keys: map[string]json.RawMessage{
+		"avatars": json.RawMessage(`[{"match":"ops/x","builtin":"owl"}]`),
+	}}}
+	m := opsItem(t, decide.AvatarRule{Match: "ops/x", Builtin: "cat"})
+	m.backend = hub
+	m.localConfig = local
+	press(t, m, "A")
+	pickEntry(t, m, "owl")
+	if hub.name != "ops/x" || hub.choice != "owl" {
+		t.Fatalf("set-avatar name %q choice %q", hub.name, hub.choice)
+	}
+	if m.status != "avatar for ops/x: owl (saved on hub; a local rule for ops/x overrides it here)" {
+		t.Fatalf("status %q", m.status)
+	}
+	if len(m.Avatars) != 1 || m.Avatars[0].Builtin != "cat" {
+		t.Fatalf("avatars = %+v", m.Avatars)
+	}
+}
+
+func TestHubPickerKeepsAvatarsWhenTheHubIsOld(t *testing.T) {
+	pickConfig(t, "")
+	hub := &hubAvatars{err: errors.New(`hub me@hub: unknown op "set-avatar"; update decide on the hub`)}
+	m := opsItem(t, decide.AvatarRule{Match: "ops/x", Builtin: "cat"})
+	m.backend = hub
+	press(t, m, "A")
+	pickEntry(t, m, "owl")
+	if !strings.Contains(m.status, "update decide on the hub") {
+		t.Fatalf("status %q", m.status)
+	}
+	if len(m.Avatars) != 1 || m.Avatars[0].Builtin != "cat" {
+		t.Fatalf("avatars = %+v", m.Avatars)
+	}
+}
+
+type hubAvatars struct {
+	*LocalBackend
+	name     string
+	choice   string
+	settings decide.DisplaySettings
+	err      error
+}
+
+func (h *hubAvatars) SetAvatar(name, choice string) (decide.DisplaySettings, error) {
+	h.name, h.choice = name, choice
+	return h.settings, h.err
 }
 
 func TestSaveAvatarRejectsUnknownID(t *testing.T) {
