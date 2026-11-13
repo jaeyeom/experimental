@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -291,7 +292,7 @@ func TestDoctorHintsWhenTheTunnelExits255(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("doctor = %d, stderr %q", code, stderr)
 	}
-	if !strings.Contains(stdout, tunnelAuthHint) || strings.Contains(stdout, "dangling") {
+	if !strings.Contains(stdout, tunnelAuthHint) || strings.Contains(stdout, "dangling") || strings.Contains(stdout, tunnelOrderHint) {
 		t.Fatalf("stdout = %q", stdout)
 	}
 }
@@ -312,8 +313,58 @@ func TestDoctorSaysTheAgentSocketIsDangling(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("doctor = %d, stderr %q", code, stderr)
 	}
-	if !strings.Contains(stdout, tunnelDanglingHint) || strings.Contains(stdout, "ssh probably could not authenticate") {
+	if !strings.Contains(stdout, tunnelDanglingHint) || !strings.Contains(stdout, tunnelOrderHint) || strings.Contains(stdout, "ssh probably could not authenticate") {
 		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestDoctorHintsWhenTheAgentSocketDiffers(t *testing.T) {
+	h := startHub(t, `hub = "me@hub"`)
+	home := strings.TrimPrefix(h.env[0], "HOME=")
+	dir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// sun_path is short, so the sockets themselves live under /tmp.
+	sockDir, err := os.MkdirTemp("/tmp", "asock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(sockDir) })
+	liveSock, err := net.Listen("unix", filepath.Join(sockDir, "live"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = liveSock.Close() })
+	otherSock, err := net.Listen("unix", filepath.Join(sockDir, "other"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = otherSock.Close() })
+	link := filepath.Join(dir, "agent.sock")
+	if err := os.Symlink(otherSock.Addr().String(), link); err != nil {
+		t.Fatal(err)
+	}
+	orig := tunnelExitStatus
+	tunnelExitStatus = func(context.Context, []string) (int, bool) { return 255, true }
+	t.Cleanup(func() { tunnelExitStatus = orig })
+	env := append(append([]string{}, h.env...), "SSH_AUTH_SOCK="+liveSock.Addr().String())
+	code, stdout, stderr := h.runEnv(t, env, "", "doctor")
+	if code != 0 {
+		t.Fatalf("doctor = %d, stderr %q", code, stderr)
+	}
+	if !strings.Contains(stdout, tunnelAuthHint) || !strings.Contains(stdout, tunnelOrderHint) || strings.Contains(stdout, "dangling") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(liveSock.Addr().String(), link); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr = h.runEnv(t, env, "", "doctor")
+	if code != 0 || strings.Contains(stdout, tunnelOrderHint) {
+		t.Fatalf("matching doctor = %d, stdout %q, stderr %q", code, stdout, stderr)
 	}
 }
 

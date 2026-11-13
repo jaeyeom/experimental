@@ -264,6 +264,9 @@ const (
 	// tunnelDanglingHint replaces tunnelAuthHint when the stable socket
 	// is a symlink whose target is gone.
 	tunnelDanglingHint = "tunnel unit exited 255: ~/.ssh/agent.sock is a dangling link, so ssh has no agent. Open a login shell so the rc block refreshes it (`ln -sf \"$SSH_AUTH_SOCK\" ~/.ssh/agent.sock`)."
+	// tunnelOrderHint is added when the stable socket is stale. zsh
+	// reads .zprofile before .zshrc, so the link can run too early.
+	tunnelOrderHint = "the link may be created before your agent starts; move the block after it"
 )
 
 func readTunnelExitStatus(ctx context.Context, env []string) (int, bool) {
@@ -344,11 +347,15 @@ func reportTunnelExit(ctx context.Context, env []string, stdout io.Writer) {
 	if !ok || code != 255 {
 		return
 	}
-	if agentSockDangling(env) {
-		fmt.Fprintln(stdout, tunnelDanglingHint)
-		return
+	dangling := agentSockDangling(env)
+	hint := tunnelAuthHint
+	if dangling {
+		hint = tunnelDanglingHint
 	}
-	fmt.Fprintln(stdout, tunnelAuthHint)
+	if dangling || agentSockDiffers(env) {
+		hint += " " + tunnelOrderHint
+	}
+	fmt.Fprintln(stdout, hint)
 }
 
 // agentSockDangling reports a ~/.ssh/agent.sock symlink whose target
@@ -366,6 +373,33 @@ func agentSockDangling(env []string) bool {
 	}
 	_, err = os.Stat(path)
 	return errors.Is(err, os.ErrNotExist)
+}
+
+// agentSockDiffers reports that SSH_AUTH_SOCK is a live socket and
+// ~/.ssh/agent.sock does not point at it. An unset or dead
+// SSH_AUTH_SOCK does not differ.
+func agentSockDiffers(env []string) bool {
+	live := envGet(env, "SSH_AUTH_SOCK")
+	if live == "" {
+		return false
+	}
+	info, err := os.Stat(live)
+	if err != nil || info.Mode()&os.ModeSocket == 0 {
+		return false
+	}
+	home, err := homeFrom(env)
+	if err != nil {
+		return false
+	}
+	got, err := filepath.EvalSymlinks(filepath.Join(home, ".ssh", "agent.sock"))
+	if err != nil {
+		return true
+	}
+	want, err := filepath.EvalSymlinks(live)
+	if err != nil {
+		want = live
+	}
+	return filepath.Clean(got) != filepath.Clean(want)
 }
 
 // doctorSockets is the sandbox allowlist. Hub mode has no local daemon.

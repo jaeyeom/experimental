@@ -15,11 +15,17 @@
 #
 # hub_ssh_stable_agent (default false) opts in to a stable ssh-agent
 # socket. The tunnel unit does not inherit SSH_AUTH_SOCK. When true:
-#   - a marked block at the end of the login rc relinks
-#     ~/.ssh/agent.sock to the current agent. The file is
-#     hub_ssh_agent_rc, or ~/.zprofile if it exists, else
-#     ~/.bash_profile, else ~/.profile. Keep the block after the
-#     agent-start line if you move it;
+#   - a marked block at the end of the file that starts the agent
+#     relinks ~/.ssh/agent.sock. zsh reads ~/.zprofile before
+#     ~/.zshrc, so the block must come after the agent-start line
+#     (keychain, ssh-agent, eval "$(ssh-agent, or SSH_AUTH_SOCK=).
+#     When hub_ssh_agent_rc is unset, that file is the one with the
+#     last such line, including a file it sources one level deep.
+#     If none is found, the file is ~/.zprofile if it exists, else
+#     ~/.bash_profile, else ~/.profile. When hub_ssh_agent_rc is set
+#     and the agent starts in a file that runs later, the play warns
+#     and names both files. It does not move the block. Keep the
+#     block after the agent-start line if you move it;
 #   - ssh_identity_agent = "~/.ssh/agent.sock" is set in the agentbus
 #     config, beside hub;
 #   - when the tunnel unit is already installed and that key changed,
@@ -37,7 +43,9 @@
 #                         (default latest)
 #   hub_connect_timeout   ssh connect timeout (default 5s)
 #   hub_ssh_stable_agent  opt in to the stable agent socket (default false)
-#   hub_ssh_agent_rc      login rc for that block (default: see above)
+#   hub_ssh_agent_rc      login rc for that block. Unset: the file
+#                         with the last agent-start line, else the
+#                         default above. zsh reads .zprofile first.
 #
 #   ansible-playbook -i inventory.ini setup-hub-client.yml \
 #     -e hub_ssh_target=me@hub.example -e client_machine_label=laptop
@@ -178,27 +186,36 @@
         label: "{{ item.key }}"
       tags: hub-config
 
-    - name: Use the configured login rc
-      ansible.builtin.set_fact:
-        hub_client_agent_rc_path: "{{ hub_client_agent_rc }}"
-      when: hub_client_stable_agent | bool and hub_client_agent_rc | length > 0
+    - name: Find the shell file that starts the agent
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/hub_ssh_agent_scan.py"
+          - "{{ hub_client_home }}"
+          - "{{ hub_client_agent_rc }}"
+      register: hub_client_agent_scan
+      changed_when: false
+      check_mode: false
+      when: hub_client_stable_agent | bool
       tags: hub-ssh-agent
 
-    - name: Stat candidate login rc files
-      ansible.builtin.stat:
-        path: "{{ hub_client_home }}/{{ item }}"
-      loop:
-        - .zprofile
-        - .bash_profile
-        - .profile
-      register: hub_client_rc_stats
-      when: hub_client_stable_agent | bool and hub_client_agent_rc | length == 0
+    - name: Record the login rc for the stable agent socket
+      ansible.builtin.set_fact:
+        hub_client_agent_rc_path: "{{ (hub_client_agent_scan.stdout | from_json).rc }}"
+        hub_client_agent_warn: "{{ (hub_client_agent_scan.stdout | from_json).warn }}"
+      when: hub_client_stable_agent | bool
       tags: hub-ssh-agent
 
-    - name: Choose the first login rc that exists
-      ansible.builtin.set_fact:
-        hub_client_agent_rc_path: "{% set found = hub_client_rc_stats.results | selectattr('stat.exists') | map(attribute='stat.path') | list %}{{ found[0] if found | length > 0 else hub_client_home ~ '/.profile' }}"
-      when: hub_client_stable_agent | bool and hub_client_agent_rc | length == 0
+    - name: Warn when the agent starts after the chosen rc
+      ansible.builtin.debug:
+        msg: >-
+          hub_ssh_agent_rc {{ hub_client_agent_rc_path }} runs before the
+          agent starts in {{ hub_client_agent_warn }}. zsh reads
+          ~/.zprofile before ~/.zshrc. The block stays where you asked;
+          move it to after the agent-start line, or unset hub_ssh_agent_rc.
+      when:
+        - hub_client_stable_agent | bool
+        - hub_client_agent_warn | default('') | length > 0
       tags: hub-ssh-agent
 
     - name: Keep ~/.ssh/agent.sock pointed at the login agent
