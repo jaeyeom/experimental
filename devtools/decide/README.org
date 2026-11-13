@@ -461,11 +461,12 @@ Each thread message in ~messages~ also records where it came from:
   ~answer.via~. Agent messages have none. A message stored before ~via~
   existed has none and does not count as ~ui~.
 - ~by~: ~decide reply~ and ~decide send --id~ record who ran them: the
-  caller's agentbus name when its pane has one, else its herdr pane
-  handle, else nothing. In hub mode the client sends its handle and
-  agentbus names to the hub, as for an ask. ~author~ is unchanged: a
-  reply's author is still the thread owner. The inbox and Emacs show
-  ~owner (via <by>)~ when ~by~ is set and differs from the author.
+  caller's first agentbus name, else its herdr tab label, else its pane
+  handle, else nothing. In hub mode the client sends its handle, tab
+  label, and agentbus names to the hub, as for an ask. ~author~ is
+  unchanged: a reply's author is still the thread owner. The inbox and
+  Emacs show ~by~ when it is set, and ~author~ otherwise. The owner
+  stays in the item header.
 
 ~decide show --json~ includes ~via~ and ~by~ on each message, next to
 ~optionKey~.

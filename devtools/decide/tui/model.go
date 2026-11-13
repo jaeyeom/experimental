@@ -2264,9 +2264,8 @@ func (m *Model) detailLines(width int) []screenLine {
 	lines := []screenLine{{text: plainText(title)}}
 	lines = append(lines, headerLines(it, m.now(), m.zone(), decide.OwnerAt(it.Owner, m.ownerLocation(it)))...)
 	if m.avatarFits(width) {
-		// The owner is the other party: the asker, or the recipient of
-		// a thread the human started.
-		if av := m.avatarLines(it.Owner); av != nil {
+		// The avatar is the latest sender. The owner stays in the header.
+		if av := m.avatarLines(threadAvatarName(it)); av != nil {
 			lines = besideAvatar(av, lines, width-avatarColumn)
 		}
 	}
@@ -2290,6 +2289,18 @@ func (m *Model) detailLines(width int) []screenLine {
 		lines = append(lines, labeledLines(label, body, hitOutcome, wrap)...)
 	}
 	return lines
+}
+
+// threadAvatarName is the latest message's sender. A sender with no
+// avatar rule uses the default avatar for that name, not the owner's.
+// An item with no messages keeps the owner's avatar.
+func threadAvatarName(it *decide.Item) string {
+	if n := len(it.Messages); n > 0 {
+		if name := it.Messages[n-1].Sender(); name != "" {
+			return name
+		}
+	}
+	return it.Owner
 }
 
 // threadParties is the requester and, when the thread was addressed to

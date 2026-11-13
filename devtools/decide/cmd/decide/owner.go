@@ -98,34 +98,60 @@ func askerOf(ctx context.Context) asker {
 }
 
 // senderOf is who runs a reply or send --id, for decide.Message.By: the
-// caller's first agentbus name, else its herdr pane handle, else empty
-// outside herdr. On the hub, a trusted hub-mode caller's names and handle
-// come from the environment the client sent. Locally, the handle is the
-// one `agentbus whoami` prints, or HERDR_PANE_ID when agentbus fails.
+// caller's first agentbus name, else its herdr tab label, else its pane
+// handle, else empty outside herdr. On the hub, a trusted hub-mode
+// caller's names, tab label, and handle come from the environment the
+// client sent. Locally, the handle is the one `agentbus whoami` prints,
+// or HERDR_PANE_ID when that output has no handle.
 func senderOf(ctx context.Context) string {
 	if caller, err := hubcall.TrustedCaller(os.Environ(), asHandleEnv); err == nil && caller != "" {
-		if names := splitNames(os.Getenv(busNamesEnv)); len(names) > 0 {
-			return names[0]
-		}
-		return caller
+		return hubSender(caller)
 	}
 	pane := strings.TrimSpace(os.Getenv("HERDR_PANE_ID"))
 	if pane == "" {
 		return ""
 	}
+	names, handle := whoamiSender(ctx)
+	if len(names) > 0 {
+		return names[0]
+	}
+	if tab := paneTabLabel(ctx, pane); tab != "" {
+		return tab
+	}
+	if handle != "" {
+		return handle
+	}
+	return pane
+}
+
+// hubSender is the hub-mode caller's display name from the env the client sent.
+func hubSender(caller string) string {
+	if names := splitNames(os.Getenv(busNamesEnv)); len(names) > 0 {
+		return names[0]
+	}
+	if tab := strings.TrimSpace(os.Getenv(tabLabelEnv)); tab != "" {
+		return tab
+	}
+	return caller
+}
+
+// whoamiSender reads this pane's agentbus names and, when it has none, the
+// handle `agentbus whoami` prints. A failure returns neither.
+func whoamiSender(ctx context.Context) (names []string, handle string) {
 	ctx, cancel := context.WithTimeout(ctx, whoamiTimeout)
 	defer cancel()
 	out, err := agentbusWhoami(ctx)
 	if err != nil {
-		return pane
+		return nil, ""
 	}
-	if names := parseWhoami(out); len(names) > 0 {
-		return names[0]
+	if names = parseWhoami(out); len(names) > 0 {
+		return names, ""
 	}
-	if handle := strings.TrimSpace(out); handle != "" && !strings.Contains(handle, "\n") {
-		return handle
+	handle = strings.TrimSpace(out)
+	if handle == "" || strings.Contains(handle, "\n") {
+		return nil, ""
 	}
-	return pane
+	return nil, handle
 }
 
 // clientAskEnv is the tab label and agentbus names a hub-mode client

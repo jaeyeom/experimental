@@ -1361,7 +1361,7 @@ func TestMessageSender(t *testing.T) {
 		msg  Message
 		want string
 	}{
-		{Message{Author: "slackwatch", By: "ops/agent"}, "slackwatch (via ops/agent)"},
+		{Message{Author: "slackwatch", By: "ops/agent"}, "ops/agent"},
 		{Message{Author: "ada", By: "ada"}, "ada"},
 		{Message{Author: "ada"}, "ada"},
 	}

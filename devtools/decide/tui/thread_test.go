@@ -304,12 +304,12 @@ func TestThreadMessagesAreBlocks(t *testing.T) {
 	if strings.Count(vis, "────") < 2 {
 		t.Fatalf("rules = %d\n%s", strings.Count(vis, "────"), view)
 	}
-	for _, needle := range []string{"ada  2026-10-29 12:00", "human  10:00 · 2h ago  keep drop", "ada (via ops/bot)  11:57 · 3m ago  latest", "  root ask", "  newest note"} {
+	for _, needle := range []string{"ada  2026-10-29 12:00", "human  10:00 · 2h ago  keep drop", "ops/bot  11:57 · 3m ago  latest", "  root ask", "  newest note", "Owner:"} {
 		if !strings.Contains(vis, needle) {
 			t.Fatalf("missing %q\n%s", needle, vis)
 		}
 	}
-	if strings.Count(vis, "latest") != 1 {
+	if strings.Count(vis, "latest") != 1 || strings.Contains(vis, "via") {
 		t.Fatalf("latest count\n%s", vis)
 	}
 	middle := visibleLine(lineContaining(view, "human"))
@@ -518,6 +518,20 @@ func TestForwardPrefillsTheSelectedMessage(t *testing.T) {
 	press(t, m, "hi")
 	if m.note != want+"hi" {
 		t.Fatalf("cursor is not after the prefill: %q", m.note)
+	}
+}
+
+func TestForwardQuotesTheSender(t *testing.T) {
+	it := &decide.Item{
+		ID: "D-1", Owner: "ada", Question: "q",
+		Messages: []decide.Message{{
+			Author: "ada", By: "ops/bot", Text: "done",
+			Time: time.Date(2026, 11, 5, 3, 0, 0, 0, time.UTC),
+		}},
+	}
+	note := forwardPrefill(it, 0, time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC), time.UTC)
+	if strings.Contains(note, "via") || !strings.Contains(note, "> ops/bot ") || !strings.Contains(note, "owner: ada") {
+		t.Fatalf("note %q", note)
 	}
 }
 

@@ -38,7 +38,7 @@
     (should (equal (substring-no-properties (decide--message-header owner-only nil)) "ada"))
     (should (equal (substring-no-properties (decide--message-header same nil)) "ada"))
     (should (equal (substring-no-properties (decide--message-header by nil))
-                   "slackwatch (via ops/agent)"))))
+                   "ops/agent"))))
 
 (ert-deftest decide-status-stale-row-is-dim ()
   (with-temp-buffer

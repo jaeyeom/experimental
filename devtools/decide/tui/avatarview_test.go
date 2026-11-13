@@ -147,6 +147,77 @@ func TestItemViewWithoutAvatarIsUnchanged(t *testing.T) {
 	checkGolden(t, "item_plain_50.golden", avatarItemModel(t, 50, withAvatars(decide.AvatarRule{Match: "a/x", File: a})).View())
 }
 
+func TestThreadAvatarFollowsTheLatestSender(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	mustCreate(t, led, &decide.Item{
+		Question:  "ship it?",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		CreatedAt: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC),
+		Messages: []decide.Message{
+			{Author: "ada", Text: "ship it?", Time: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)},
+			{Author: "ada", By: "ops/bot", Text: "posted", Time: time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)},
+		},
+	})
+	m := New(dir)
+	m.Now = func() time.Time { return avatarNow }
+	withAvatars(
+		decide.AvatarRule{Match: "ada", File: writeAvatar(t, "A")},
+		decide.AvatarRule{Match: "ops/bot", File: writeAvatar(t, "B")},
+	)(m)
+	m.AvatarDefault = true
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	m.width = 100
+	m.height = 40
+	press(t, m, "o")
+	view := m.View()
+	if !strings.Contains(view, "BBBBBBBBBB") || strings.Contains(view, "AAAAAAAAAA") {
+		t.Fatalf("avatar is not the sender's\n%s", view)
+	}
+	vis := visibleLine(view)
+	if !strings.Contains(vis, "Owner:") || !strings.Contains(vis, "ada") || !strings.Contains(vis, "ops/bot") || strings.Contains(vis, "via") {
+		t.Fatalf("thread text\n%s", vis)
+	}
+}
+
+func TestThreadAvatarUsesTheDefaultNotTheOwners(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	mustCreate(t, led, &decide.Item{
+		Question:  "ship it?",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		CreatedAt: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC),
+		Messages: []decide.Message{
+			{Author: "ada", By: "coord/primary", Text: "posted", Time: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)},
+		},
+	})
+	m := New(dir)
+	m.Now = func() time.Time { return avatarNow }
+	withAvatars(decide.AvatarRule{Match: "ada", Builtin: "owl"})(m)
+	m.AvatarDefault = true
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	m.width = 100
+	m.height = 40
+	press(t, m, "o")
+	view := m.View()
+	assertAvatarRows(t, view, avatar.ForName("coord/primary", avatarCols, avatarRows, termenv.ANSI))
+	for _, row := range builtinLines(t, "owl", termenv.ANSI) {
+		if strings.Contains(view, row) {
+			t.Fatalf("owner avatar %q shown\n%s", row, view)
+		}
+	}
+}
+
 func TestItemViewAvatarDefault(t *testing.T) {
 	t.Setenv("NO_COLOR", "")
 	m := avatarItemModel(t, 100, func(m *Model) {

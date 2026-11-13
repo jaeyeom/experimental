@@ -49,8 +49,23 @@ func TestReplyAndSendRecordTheAgentbusName(t *testing.T) {
 	}
 }
 
-func TestReplyWithoutANameRecordsThePaneHandle(t *testing.T) {
+func TestReplyWithoutANameRecordsTheTabLabel(t *testing.T) {
 	inHerdrPane(t)
+	fakeWhoami(t, "herdr:m1/s/w1:p3\n", nil)
+	if reply, _ := replyAndSend(t); reply.By != "review" {
+		t.Fatalf("reply = %+v", reply)
+	}
+	fakeWhoami(t, "", errors.New("no agentbus"))
+	if reply, _ := replyAndSend(t); reply.By != "review" {
+		t.Fatalf("reply without agentbus = %+v", reply)
+	}
+}
+
+func TestReplyWithoutANameOrTabRecordsThePaneHandle(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("HERDR_PANE_ID", "w1:p3")
+	herdrtest.Install(t)
 	fakeWhoami(t, "herdr:m1/s/w1:p3\n", nil)
 	if reply, _ := replyAndSend(t); reply.By != "herdr:m1/s/w1:p3" {
 		t.Fatalf("reply = %+v", reply)
@@ -80,6 +95,11 @@ func TestHubRecordsTheClientSender(t *testing.T) {
 		t.Fatalf("reply = %+v, send = %+v", reply, send)
 	}
 	t.Setenv("DECIDE_BUS_NAMES", "")
+	t.Setenv("DECIDE_TAB_LABEL", "review")
+	if reply, _ := replyAndSend(t); reply.By != "review" {
+		t.Fatalf("reply with a tab = %+v", reply)
+	}
+	t.Setenv("DECIDE_TAB_LABEL", "")
 	if reply, _ := replyAndSend(t); reply.By != "herdr:m2/s/p3" {
 		t.Fatalf("reply without names = %+v", reply)
 	}
@@ -102,7 +122,7 @@ func TestHubReplySendsTheCaller(t *testing.T) {
 			t.Fatalf("%q = %d, stderr %q", args, code, stderr.String())
 		}
 		env := fake.Lines("decide.env")
-		for _, want := range []string{"DECIDE_AS_HANDLE=herdr:m2/s/w1:p3", "DECIDE_BUS_NAMES=ops/inbox"} {
+		for _, want := range []string{"DECIDE_AS_HANDLE=herdr:m2/s/w1:p3", "DECIDE_BUS_NAMES=ops/inbox", "DECIDE_TAB_LABEL=review"} {
 			if !slices.Contains(env, want) {
 				t.Fatalf("%q hub env = %q, want %s", args, env, want)
 			}
@@ -137,7 +157,33 @@ func TestShowNamesTheSender(t *testing.T) {
 		t.Fatalf("reply = %d\n%s", code, stderr)
 	}
 	stdout, stderr, code := runCLI("show", id)
-	if code != 0 || !strings.Contains(stdout, " ada (via ops/inbox) posted\n") {
+	if code != 0 || !strings.Contains(stdout, " ops/inbox posted\n") || strings.Contains(stdout, "via") {
+		t.Fatalf("show = %d\n%s\n%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "owner: ada\n") {
+		t.Fatalf("owner missing\n%s", stdout)
+	}
+	got := showJSON(t, id)
+	last := got.Messages[len(got.Messages)-1]
+	if last.Author != "ada" || last.By != "ops/inbox" {
+		t.Fatalf("json message = %+v", last)
+	}
+}
+
+func TestShowNamesTheOwnerOnceWhenTheyReply(t *testing.T) {
+	inHerdrPane(t)
+	fakeWhoami(t, "ops/inbox\nwhen: x\n", nil)
+	writeSendConfig(t, os.Getenv("XDG_CONFIG_HOME"))
+	stdout, stderr, code := runCLI("ask", "--owner", "ops/inbox", "--kind", "relay", "--option", "a:Alpha", "--option", "b:Beta", "--rec", "a", "post it?")
+	if code != 0 {
+		t.Fatalf("ask = %d\n%s", code, stderr)
+	}
+	id := strings.TrimSpace(stdout)
+	if _, stderr, code = runCLI("reply", id, "posted"); code != 0 {
+		t.Fatalf("reply = %d\n%s", code, stderr)
+	}
+	stdout, stderr, code = runCLI("show", id)
+	if code != 0 || strings.Contains(stdout, "via") || !strings.Contains(stdout, "owner: ops/inbox\n") || !strings.Contains(stdout, " ops/inbox posted\n") {
 		t.Fatalf("show = %d\n%s\n%s", code, stdout, stderr)
 	}
 }
