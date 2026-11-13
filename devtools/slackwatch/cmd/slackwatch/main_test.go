@@ -2,11 +2,20 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestMain(m *testing.M) {
+	listAgents = func(context.Context) ([]string, error) {
+		return nil, errors.New("agentbus down")
+	}
+	os.Exit(m.Run())
+}
 
 func writeConfig(t *testing.T, dir string, tokenMode os.FileMode) string {
 	t.Helper()

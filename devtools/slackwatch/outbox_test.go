@@ -95,10 +95,11 @@ func (d *fakeDecider) reply(id, by, text string) {
 
 // fakeWriter is a Slack write API.
 type fakeWriter struct {
-	user  string
-	auths int
-	posts []fakePost
-	err   error
+	user   string
+	auths  int
+	posts  []fakePost
+	err    error
+	errFor map[string]error
 }
 
 type fakePost struct{ token, channel, thread, text string }
@@ -116,6 +117,9 @@ func (w *fakeWriter) PostMessage(_ context.Context, token, channel, thread, text
 	if w.err != nil {
 		return "", w.err
 	}
+	if err := w.errFor[channel]; err != nil {
+		return "", err
+	}
 	w.posts = append(w.posts, fakePost{token, channel, thread, text})
 	return fmt.Sprintf("1700000100.%06d", len(w.posts)), nil
 }
@@ -126,6 +130,7 @@ type fakeReader struct {
 	calls       int
 	recent      []Message
 	recentErr   error
+	recentFail  int // recentErr applies this many times; 0 means every call
 	recentCalls int
 	oldest      string
 }
@@ -140,7 +145,7 @@ func (r *fakeReader) Message(_ context.Context, channel, ts, _ string) (Message,
 func (r *fakeReader) Recent(_ context.Context, channel, threadTS, oldest string) ([]Message, error) {
 	r.recentCalls++
 	r.oldest = oldest
-	if r.recentErr != nil {
+	if r.recentErr != nil && (r.recentFail == 0 || r.recentCalls <= r.recentFail) {
 		return nil, r.recentErr
 	}
 	out := make([]Message, 0, len(r.recent))
@@ -1317,6 +1322,79 @@ func TestDirectFooterPatternMustMatchFooter(t *testing.T) {
 	}
 	if len(f.dec.items) != 0 {
 		t.Error("filed a decide item")
+	}
+}
+
+func TestStaleCachedChannelIsResolvedAgain(t *testing.T) {
+	f := newOutboxFixture(t, PostModeDirect)
+	if err := f.store.PutChannel("general", "COLD", f.ob.Now()); err != nil {
+		t.Fatal(err)
+	}
+	var listed int
+	f.ob.Channels = &ChannelLookup{
+		Store: f.store, Now: f.ob.Now, TTL: DefaultChannelCacheTTL, MaxWait: DefaultChannelLookupWait,
+		List: listFunc(func(context.Context, string) (ChannelPage, error) {
+			listed++
+			return ChannelPage{Channels: []NamedChannel{{Name: "general", ID: "CNEW"}}}, nil
+		}),
+	}
+	f.writer.errFor = map[string]error{"COLD": errors.New("channel_not_found")}
+	r, err := f.ob.Submit(context.Background(), Draft{
+		Channel: "COLD", DestName: "#general", Text: approvedText,
+		Owner: "agent-1", Purpose: "announce deploy",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.dec.answer(r.DecideID, uiPost)
+	f.poll(t)
+	if listed != 1 {
+		t.Errorf("lookups = %d, want one resolve after channel_not_found", listed)
+	}
+	if len(f.writer.posts) != 1 || f.writer.posts[0].channel != "CNEW" {
+		t.Fatalf("posts = %+v", f.writer.posts)
+	}
+	if got := f.get(t, r.ID); got.State != OutboxPosted || got.Channel != "CNEW" {
+		t.Errorf("record = %+v", got)
+	}
+	id, _, ok, err := f.store.ChannelByName("general")
+	if err != nil || !ok || id != "CNEW" {
+		t.Errorf("cache = %q, %v, %v", id, ok, err)
+	}
+	if name, ok, err := f.store.ChannelName("COLD"); err != nil || ok {
+		t.Errorf("stale id still cached as %q, %v, %v", name, ok, err)
+	}
+}
+
+func TestStaleCachedChannelReadResolvesAgain(t *testing.T) {
+	f, r := failedDirect(t)
+	if err := f.store.PutChannel("general", r.Channel, f.ob.Now()); err != nil {
+		t.Fatal(err)
+	}
+	f.reader.recentErr = errors.New("channel_not_found")
+	f.reader.recentFail = 1
+	f.reader.msg = Message{User: expectUser, Text: postedBody()}
+	var listed int
+	f.ob.Channels = &ChannelLookup{
+		Store: f.store, Now: f.ob.Now, TTL: DefaultChannelCacheTTL, MaxWait: DefaultChannelLookupWait,
+		List: listFunc(func(context.Context, string) (ChannelPage, error) {
+			listed++
+			return ChannelPage{Channels: []NamedChannel{{Name: "general", ID: "C2"}}}, nil
+		}),
+	}
+	got, err := f.ob.Retry(context.Background(), r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if listed != 1 {
+		t.Errorf("lookups = %d, want one", listed)
+	}
+	if got.State != OutboxPosted || got.Channel != "C2" || len(f.writer.posts) != 1 || f.writer.posts[0].channel != "C2" {
+		t.Fatalf("record %+v posts %+v", got, f.writer.posts)
+	}
+	id, _, ok, err := f.store.ChannelByName("general")
+	if err != nil || !ok || id != "C2" {
+		t.Errorf("cache = %q, %v, %v", id, ok, err)
 	}
 }
 

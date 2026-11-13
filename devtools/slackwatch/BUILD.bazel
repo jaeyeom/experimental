@@ -4,7 +4,9 @@ load("//tools/org-lint:defs.bzl", "org_lint_tests")
 go_library(
     name = "go_default_library",
     srcs = [
+        "agents.go",
         "catchup.go",
+        "channel.go",
         "config.go",
         "events.go",
         "inbound.go",
@@ -25,7 +27,9 @@ go_test(
     name = "go_default_test",
     size = "small",
     srcs = [
+        "agents_test.go",
         "catchup_test.go",
+        "channel_test.go",
         "config_test.go",
         "contrib_test.go",
         "decidecmd_test.go",

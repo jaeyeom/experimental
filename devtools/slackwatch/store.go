@@ -211,6 +211,16 @@ ALTER TABLE deliveries ADD COLUMN notify_id TEXT NOT NULL DEFAULT '';
 	`
 ALTER TABLE outbox ADD COLUMN supersedes INTEGER NOT NULL DEFAULT 0;
 `,
+	// channels caches a channel name to its id. seen_at is unix seconds,
+	// refreshed when the service sees the channel on an event or a watch.
+	`
+CREATE TABLE channels (
+	name    TEXT PRIMARY KEY,
+	id      TEXT NOT NULL,
+	seen_at INTEGER NOT NULL
+);
+CREATE INDEX channels_id ON channels (id);
+`,
 }
 
 // Store is the slackwatch SQLite database. The server and the CLI each

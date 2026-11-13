@@ -161,17 +161,33 @@ RFC 3339, or a duration such as ~72h~.
 
 | Command | Does |
 |---------+------|
-| ~sub <channel> --owner T [--purpose S] [--until DATE] [--include-self]~ | Notify ~T~ of every new message in a channel. |
+| ~sub <channel> --owner T [--purpose S] [--until DATE] [--include-self] [--owner-unchecked]~ | Notify ~T~ of every new message in a channel. |
 | ~unsub <channel> [--owner T]~ | Remove the channel's subscriptions, or only ~T~'s. |
 | ~subs [--json]~ | List subscriptions. |
 
 ~<channel>~ is a channel id or ~#name~. A name is resolved with
-~conversations.list~, which needs ~tokenFile~, and the id is stored.
+~conversations.list~, which needs ~tokenFile~, and the id is stored in
+the ~channels~ table. A cached id is trusted for ~channelCacheTtl~
+(default 168h) and makes no API call. The service refreshes that row
+when it sees the channel on an event, a watch, a search match, or
+~conversations.info~. A Slack rate limit waits ~Retry-After~, prints
+~rate limited, waiting Ns…~ on stderr, and keeps the pagination cursor.
+The total wait is at most ~channelLookupWait~ (default 60s). If the name
+still cannot be resolved, the error is ~could not resolve #name
+(<reason>); pass the channel id (C…) to --to~, before any outbox record
+is stored. A later post or read that gets ~channel_not_found~ for a
+cached id drops that entry and resolves the name once.
 There is one subscription per channel and owner; ~sub~ again replaces its
 purpose, ~until~, and ~--include-self~. Subscriptions do not expire on
 quiet. They end with ~unsub~ or ~--until~. A subscriber that fails the
 liveness check or the notify command gets the same fallback and
 undelivered handling as a watch owner.
+
+~--owner~ on ~post~ and ~sub~ must be a key in ~targets~ or a name from
+~agentbus list~. An unknown owner is refused with that list.
+~--owner-unchecked~ accepts it anyway. If ~agentbus~ cannot be queried,
+the command warns and accepts the owner. ~sub~ checks the owner before
+resolving the channel.
 
 * Server status and inbound messages
 
@@ -281,7 +297,7 @@ off until ~post.mode~ is set; without it, ~post~ refuses.
 
 | Command | Does |
 |---------+------|
-| ~post --to DEST --text-file F --owner T --purpose S [--ref R ...] [--supersedes ID] [--json]~ | Store the draft and file its decide item. Prints the outbox id. ~--supersedes~ cancels that older draft once this one is stored. |
+| ~post --to DEST --text-file F --owner T --purpose S [--ref R ...] [--supersedes ID] [--owner-unchecked] [--json]~ | Store the draft and file its decide item. Prints the outbox id. ~--supersedes~ cancels that older draft once this one is stored. |
 | ~outbox ls [--state S] [--json]~ | List outbox records. |
 | ~outbox show <id> [--json]~ | Show a record, ending with its exact text. |
 | ~outbox posted [--manual] <id> <permalink>~ | Report a handoff post, or with ~--manual~ a post made by hand. |
@@ -479,6 +495,8 @@ file means all defaults. An unknown key is an error.
 | ~excerptLimit~ | ~300~ | Maximum characters of reply text in a notification. |
 | ~dbPath~ | ~${XDG_STATE_HOME:-~/.local/state}/slackwatch/slackwatch.db~ | SQLite database. |
 | ~tokenFile~ | none | File that holds the Slack tokens. |
+| ~channelCacheTtl~ | ~"168h"~ | How long a cached channel id is trusted. ~"0s"~ trusts nothing. |
+| ~channelLookupWait~ | ~"60s"~ | Longest a name lookup waits out Slack rate limits. ~"0s"~ fails on the first rate limit. |
 | ~outbox~ | none | Where agents send Slack drafts, such as an agentbus name. ~slackwatch skill~ names it when ~post.mode~ is unset. |
 | ~decideCommand~ | ~"decide"~ from ~PATH~ | Command for every ~decide~ call: an absolute path, or an argv list such as ~["ssh", "box", "decide"]~. |
 | ~post.mode~ | none | ~handoff~ or ~direct~. Unset means posting is off. |

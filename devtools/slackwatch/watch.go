@@ -247,6 +247,9 @@ WHERE id = ?2 AND (length(?1) < length(since_ts) OR (length(?1) = length(since_t
 	if _, err := tx.Exec(`INSERT INTO watch_posts (watch_id, ts) VALUES (?, ?) ON CONFLICT DO NOTHING`, id, p.TS); err != nil {
 		return Watch{}, false, fmt.Errorf("add watch post: %w", err)
 	}
+	if _, err := tx.Exec(`UPDATE channels SET seen_at = ? WHERE id = ?`, now.Unix(), p.Channel); err != nil {
+		return Watch{}, false, fmt.Errorf("refresh channel %s: %w", p.Channel, err)
+	}
 	w, err := getWatch(tx, id)
 	if err != nil {
 		return Watch{}, false, err

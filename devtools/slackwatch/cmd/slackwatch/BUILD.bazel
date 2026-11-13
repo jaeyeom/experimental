@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "main.go",
         "outbox.go",
+        "owner.go",
         "serve.go",
         "skill.go",
         "slackapi.go",

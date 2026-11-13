@@ -435,6 +435,9 @@ type Outbox struct {
 	Reader   MessageReader
 	Now      func() time.Time
 	Logger   *slog.Logger
+	// Channels resolves a name after a cached id returns channel_not_found.
+	// Nil skips that retry.
+	Channels *ChannelLookup
 
 	mu     sync.Mutex
 	authed string // TextHash of the write token that passed auth.test
@@ -880,6 +883,109 @@ func (o *Outbox) disable(ctx context.Context, reason string) error {
 	return fmt.Errorf("posting is disabled: %s; run slackwatch pin", reason)
 }
 
+// errNoChannelRefresh means a channel_not_found was not looked up again.
+var errNoChannelRefresh = errors.New("channel not refreshed")
+
+// keepSlack returns err with its text unchanged. The outbox stores that text.
+func keepSlack(err error) error {
+	return err //nolint:wrapcheck // The Slack error text is the stored failure reason.
+}
+
+// postTo posts text. A channel_not_found for a cached id drops that cache
+// entry, resolves the name once, and posts once more.
+func (o *Outbox) postTo(ctx context.Context, token string, r *OutboxRecord, text string) (string, error) {
+	ts, err := o.Writer.PostMessage(ctx, token, r.Channel, r.ThreadTS, text)
+	if !channelNotFound(err) {
+		return ts, keepSlack(err)
+	}
+	if rerr := o.refreshChannel(ctx, r); rerr != nil {
+		if errors.Is(rerr, errNoChannelRefresh) {
+			return "", keepSlack(err)
+		}
+		return "", rerr
+	}
+	ts, err = o.Writer.PostMessage(ctx, token, r.Channel, r.ThreadTS, text)
+	return ts, keepSlack(err)
+}
+
+// recent lists messages at r. A channel_not_found is retried once after
+// the cached id is resolved again.
+func (o *Outbox) recent(ctx context.Context, r *OutboxRecord, oldest string) ([]Message, error) {
+	msgs, err := o.Reader.Recent(ctx, r.Channel, r.ThreadTS, oldest)
+	if !channelNotFound(err) {
+		return msgs, keepSlack(err)
+	}
+	if rerr := o.refreshChannel(ctx, r); rerr != nil {
+		if errors.Is(rerr, errNoChannelRefresh) {
+			return nil, keepSlack(err)
+		}
+		return nil, rerr
+	}
+	msgs, err = o.Reader.Recent(ctx, r.Channel, r.ThreadTS, oldest)
+	return msgs, keepSlack(err)
+}
+
+// readMessage reads the message at ts. A channel_not_found is retried
+// once after the cached id is resolved again.
+func (o *Outbox) readMessage(ctx context.Context, r *OutboxRecord, ts string) (Message, error) {
+	m, err := o.Reader.Message(ctx, r.Channel, ts, r.ThreadTS)
+	if !channelNotFound(err) {
+		return m, keepSlack(err)
+	}
+	if rerr := o.refreshChannel(ctx, r); rerr != nil {
+		if errors.Is(rerr, errNoChannelRefresh) {
+			return Message{}, keepSlack(err)
+		}
+		return Message{}, rerr
+	}
+	m, err = o.Reader.Message(ctx, r.Channel, ts, r.ThreadTS)
+	return m, keepSlack(err)
+}
+
+// refreshChannel drops r's cached channel and resolves its name once.
+func (o *Outbox) refreshChannel(ctx context.Context, r *OutboxRecord) error {
+	if o.Channels == nil || o.Channels.List == nil || o.Store == nil {
+		return errNoChannelRefresh
+	}
+	name, ok := o.cachedName(r)
+	if !ok {
+		return errNoChannelRefresh
+	}
+	if err := o.Store.ForgetChannel(name); err != nil {
+		return err
+	}
+	if err := o.Store.ForgetChannelID(r.Channel); err != nil {
+		return err
+	}
+	newID, err := o.Channels.Resolve(ctx, name)
+	if err != nil {
+		return err
+	}
+	if newID == "" || newID == r.Channel {
+		return errNoChannelRefresh
+	}
+	now := time.Now()
+	if o.Now != nil {
+		now = o.Now()
+	}
+	if err := o.Store.SetOutboxChannel(r.ID, newID, now); err != nil {
+		return err
+	}
+	r.Channel = newID
+	return nil
+}
+
+func (o *Outbox) cachedName(r *OutboxRecord) (string, bool) {
+	if name, ok := strings.CutPrefix(r.DestName, "#"); ok && name != "" {
+		return name, true
+	}
+	name, ok, err := o.Store.ChannelName(r.Channel)
+	if err != nil || !ok || name == "" {
+		return "", false
+	}
+	return name, true
+}
+
 // postDirect posts an approved record with the footer and registers the
 // watch. A failed identity check leaves the record approved for a later
 // poll.
@@ -899,7 +1005,7 @@ func (o *Outbox) postDirect(ctx context.Context, cfg Config, r OutboxRecord) err
 	if err != nil || !moved {
 		return err
 	}
-	ts, err := o.Writer.PostMessage(ctx, token, r.Channel, r.ThreadTS, r.Text+"\n\n"+cfg.Post.Footer)
+	ts, err := o.postTo(ctx, token, &r, r.Text+"\n\n"+cfg.Post.Footer)
 	if err != nil {
 		return o.failPost(ctx, r, err)
 	}
@@ -1058,7 +1164,7 @@ func (o *Outbox) retryDirect(ctx context.Context, cfg Config, r OutboxRecord) (O
 	if err != nil {
 		return OutboxRecord{}, err
 	}
-	dup, ok, err := o.findDuplicate(ctx, cfg, r)
+	dup, ok, err := o.findDuplicate(ctx, cfg, &r)
 	if err != nil {
 		return OutboxRecord{}, err
 	}
@@ -1070,9 +1176,9 @@ func (o *Outbox) retryDirect(ctx context.Context, cfg Config, r OutboxRecord) (O
 
 // findDuplicate looks for a message from post.expectUser with r's text
 // at the destination in the last retryLookback.
-func (o *Outbox) findDuplicate(ctx context.Context, cfg Config, r OutboxRecord) (Message, bool, error) {
+func (o *Outbox) findDuplicate(ctx context.Context, cfg Config, r *OutboxRecord) (Message, bool, error) {
 	oldest := unixTS(o.Now().Add(-retryLookback))
-	msgs, err := o.Reader.Recent(ctx, r.Channel, r.ThreadTS, oldest)
+	msgs, err := o.recent(ctx, r, oldest)
 	if err != nil {
 		return Message{}, false, fmt.Errorf("outbox %d: look for an existing post: %w", r.ID, err)
 	}
@@ -1110,7 +1216,7 @@ func (o *Outbox) postRetry(ctx context.Context, cfg Config, r OutboxRecord, toke
 	if !moved {
 		return OutboxRecord{}, fmt.Errorf("outbox %d is no longer %s", r.ID, OutboxFailed)
 	}
-	ts, err := o.Writer.PostMessage(ctx, token, r.Channel, r.ThreadTS, r.Text+"\n\n"+cfg.Post.Footer)
+	ts, err := o.postTo(ctx, token, &r, r.Text+"\n\n"+cfg.Post.Footer)
 	if err != nil {
 		if ferr := o.failPost(ctx, r, err); ferr != nil {
 			return OutboxRecord{}, ferr
@@ -1127,8 +1233,8 @@ func (o *Outbox) finishRetryPost(ctx context.Context, cfg Config, r OutboxRecord
 	if err != nil {
 		return o.registerRetryRead(ctx, r, ts, "", "could not read the workspace URL: "+err.Error())
 	}
+	m, err := o.readMessage(ctx, &r, ts)
 	link := permalink(teamURL, r.Channel, ts, r.ThreadTS)
-	m, err := o.Reader.Message(ctx, r.Channel, ts, r.ThreadTS)
 	p := PostRef{Channel: r.Channel, TS: ts, ThreadTS: r.ThreadTS, Permalink: link}
 	if err != nil {
 		return o.registerRetryRead(ctx, r, ts, link, "could not read the post back: "+err.Error())

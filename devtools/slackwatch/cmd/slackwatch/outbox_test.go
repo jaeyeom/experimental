@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/slackwatch"
 )
@@ -91,6 +92,9 @@ type postEnv struct {
 	readUser string
 	readText string
 	posts    []url.Values
+	cursors  []string
+	// list answers conversations.list. code 0 means 200. It must not lock e.
+	list func(cursor string) (code int, retryAfter, body string)
 }
 
 // newPostEnv writes a config whose "post" object is post(dir), or none
@@ -121,6 +125,22 @@ func newPostEnv(t *testing.T, post func(dir string) map[string]any) *postEnv {
 			fmt.Fprintf(w, `{"ok":true,"channel":%q,"ts":"1700000100.000001"}`, r.Form.Get("channel"))
 		case "conversations.info":
 			fmt.Fprint(w, `{"ok":true,"channel":{"id":"C0123","name":"general"}}`)
+		case "conversations.list":
+			cursor := r.Form.Get("cursor")
+			e.cursors = append(e.cursors, cursor)
+			if e.list == nil {
+				t.Errorf("unexpected Slack call %s", r.URL.Path)
+				fmt.Fprint(w, `{"ok":false,"error":"unknown_method"}`)
+				return
+			}
+			code, retry, body := e.list(cursor)
+			if code != 0 && code != http.StatusOK {
+				if retry != "" {
+					w.Header().Set("Retry-After", retry)
+				}
+				w.WriteHeader(code)
+			}
+			fmt.Fprint(w, body)
 		case "conversations.history":
 			msg, _ := json.Marshal(map[string]string{"type": "message", "user": e.readUser, "text": e.readText, "ts": r.Form.Get("latest")})
 			fmt.Fprintf(w, `{"ok":true,"messages":[%s]}`, msg)
@@ -218,6 +238,31 @@ func (e *postEnv) record() slackwatch.OutboxRecord {
 		e.t.Fatal(err)
 	}
 	return r
+}
+
+func (e *postEnv) putConfig(key string, value any) {
+	e.t.Helper()
+	b, err := os.ReadFile(e.cfg)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		e.t.Fatal(err)
+	}
+	cfg[key] = value
+	out, err := json.Marshal(cfg)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	writeFile(e.t, e.cfg, string(out))
+}
+
+func useAgents(t *testing.T, names []string, err error) {
+	t.Helper()
+	old := listAgents
+	listAgents = func(context.Context) ([]string, error) { return names, err }
+	t.Cleanup(func() { listAgents = old })
 }
 
 func (e *postEnv) notes() string {
@@ -613,5 +658,141 @@ func TestPostSupersedesPostedRefused(t *testing.T) {
 	}
 	if e.record().State != slackwatch.OutboxPosted {
 		t.Errorf("old state = %s", e.record().State)
+	}
+}
+
+func TestPostNameRateLimitResumesCursor(t *testing.T) {
+	e := newPostEnv(t, handoffPost)
+	var calls int
+	e.list = func(cursor string) (int, string, string) {
+		calls++
+		switch cursor {
+		case "":
+			return http.StatusOK, "", `{"ok":true,"channels":[{"id":"C1","name":"general"}],"response_metadata":{"next_cursor":"p2"}}`
+		case "p2":
+			if calls == 2 {
+				return http.StatusTooManyRequests, "30", `{"ok":false,"error":"ratelimited"}`
+			}
+			return http.StatusOK, "", `{"ok":true,"channels":[{"id":"C9","name":"deploys"}]}`
+		default:
+			t.Errorf("cursor %q", cursor)
+			return http.StatusInternalServerError, "", `{"ok":false,"error":"bad_cursor"}`
+		}
+	}
+	old := waitFor
+	var waits []time.Duration
+	waitFor = func(_ context.Context, d time.Duration) error {
+		waits = append(waits, d)
+		return nil
+	}
+	t.Cleanup(func() { waitFor = old })
+
+	out, errOut, code := e.run("post", "--to", "#deploys", "--text-file", e.textFile, "--owner", "agent-1", "--purpose", "announce")
+	if code != 0 {
+		t.Fatalf("post = %d, stderr %q", code, errOut)
+	}
+	if !strings.Contains(out, "outbox 1") {
+		t.Fatalf("post printed %q", out)
+	}
+	if !strings.Contains(errOut, "rate limited, waiting 30s…") {
+		t.Errorf("stderr = %q, want a 30s wait", errOut)
+	}
+	if len(waits) != 1 || waits[0] != 30*time.Second {
+		t.Errorf("waits = %v, want [30s]", waits)
+	}
+	if got := strings.Join(e.cursors, ","); got != ",p2,p2" {
+		t.Errorf("cursors = %q, want ,p2,p2", got)
+	}
+	r := e.record()
+	if r.Channel != "C9" || r.DestName != "#deploys" {
+		t.Errorf("record channel %q dest %q", r.Channel, r.DestName)
+	}
+	store, err := slackwatch.OpenStore(filepath.Join(e.dir, "slackwatch.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	id, _, ok, err := store.ChannelByName("deploys")
+	if err != nil || !ok || id != "C9" {
+		t.Fatalf("cache deploys = %q ok %v err %v", id, ok, err)
+	}
+	listed := len(e.cursors)
+	e.ok("post", "--to", "#deploys", "--text-file", e.textFile, "--owner", "agent-1", "--purpose", "again")
+	if len(e.cursors) != listed {
+		t.Errorf("cache hit listed again: %v", e.cursors)
+	}
+}
+
+func TestPostNameRateLimitPastBoundWritesNoOutbox(t *testing.T) {
+	e := newPostEnv(t, handoffPost)
+	e.putConfig("channelLookupWait", "0s")
+	e.list = func(string) (int, string, string) {
+		return http.StatusTooManyRequests, "30", `{"ok":false,"error":"ratelimited"}`
+	}
+	old := waitFor
+	waitFor = func(context.Context, time.Duration) error {
+		t.Fatal("slept past the wait bound")
+		return nil
+	}
+	t.Cleanup(func() { waitFor = old })
+
+	_, errOut, code := e.run("post", "--to", "#deploys", "--text-file", e.textFile, "--owner", "agent-1", "--purpose", "announce")
+	if code == 0 {
+		t.Fatal("post succeeded past the rate-limit bound")
+	}
+	if !strings.Contains(errOut, "could not resolve #deploys") || !strings.Contains(errOut, "pass the channel id (C…) to --to") {
+		t.Fatalf("stderr = %q", errOut)
+	}
+	out := e.ok("outbox", "ls", "--json")
+	if strings.TrimSpace(out) != "[]" {
+		t.Fatalf("outbox = %q, want no record", out)
+	}
+}
+
+func TestPostOwnerChecks(t *testing.T) {
+	useAgents(t, []string{"alpha"}, nil)
+	e := newPostEnv(t, handoffPost)
+	e.putConfig("targets", map[string]string{"zeta": "x"})
+	_, errOut, code := e.run("post", "--to", "C0123", "--text-file", e.textFile, "--owner", "nope", "--purpose", "p")
+	if code == 0 || !strings.Contains(errOut, `unknown owner "nope"`) || !strings.Contains(errOut, "known names: alpha, zeta") {
+		t.Fatalf("post = %d, stderr %q", code, errOut)
+	}
+	if out := strings.TrimSpace(e.ok("outbox", "ls", "--json")); out != "[]" {
+		t.Fatalf("outbox = %q", out)
+	}
+	out := e.ok("post", "--to", "C0123", "--text-file", e.textFile, "--owner", "nope", "--owner-unchecked", "--purpose", "p")
+	if !strings.Contains(out, "outbox 1") {
+		t.Fatalf("unchecked post printed %q", out)
+	}
+
+	useAgents(t, nil, errors.New("agentbus down"))
+	e = newPostEnv(t, handoffPost)
+	_, errOut, code = e.run("post", "--to", "C0123", "--text-file", e.textFile, "--owner", "nope", "--purpose", "p")
+	if code != 0 || !strings.Contains(errOut, "agentbus") || !strings.Contains(errOut, "accepting --owner nope") {
+		t.Fatalf("agentbus down post = %d, stderr %q", code, errOut)
+	}
+}
+
+func TestSubOwnerChecks(t *testing.T) {
+	useAgents(t, []string{"alpha"}, nil)
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "config.json")
+	writeFile(t, cfg, `{"dbPath":"`+filepath.Join(dir, "slackwatch.db")+`","targets":{"zeta":"x"}}`)
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--config", cfg, "sub", "#deploys", "--owner", "nope"}, &stdout, &stderr); code == 0 || !strings.Contains(stderr.String(), "known names: alpha, zeta") {
+		t.Fatalf("sub = %d, stderr %q", code, stderr.String())
+	}
+	if out := strings.TrimSpace(sw(t, cfg, "subs", "--json")); out != "[]" {
+		t.Fatalf("subs = %q", out)
+	}
+	if !strings.Contains(sw(t, cfg, "sub", "C0", "--owner", "nope", "--owner-unchecked"), "created") {
+		t.Fatal("owner-unchecked was refused")
+	}
+
+	useAgents(t, nil, errors.New("agentbus down"))
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"--config", cfg, "sub", "C1", "--owner", "other"}, &stdout, &stderr); code != 0 || !strings.Contains(stderr.String(), "agentbus") || !strings.Contains(stderr.String(), "accepting --owner other") {
+		t.Fatalf("agentbus down sub = %d, stderr %q", code, stderr.String())
 	}
 }
