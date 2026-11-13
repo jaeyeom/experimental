@@ -9,8 +9,23 @@
 #     remote_timeout, above the first [section].
 #
 # Both files are backed up (file.<pid>.<date>@<time>~) before a change.
-# Nothing else: no `agentbus install`, service, tunnel, or token. agentbusd
-# is not installed, because it refuses to start in hub mode.
+# Nothing else by default: no `agentbus install`, service, tunnel, or
+# token. agentbusd is not installed, because it refuses to start in hub
+# mode.
+#
+# hub_ssh_stable_agent (default false) opts in to a stable ssh-agent
+# socket. The tunnel unit does not inherit SSH_AUTH_SOCK. When true:
+#   - a marked block at the end of the login rc relinks
+#     ~/.ssh/agent.sock to the current agent. The file is
+#     hub_ssh_agent_rc, or ~/.zprofile if it exists, else
+#     ~/.bash_profile, else ~/.profile. Keep the block after the
+#     agent-start line if you move it;
+#   - ssh_identity_agent = "~/.ssh/agent.sock" is set in the agentbus
+#     config, beside hub;
+#   - when the tunnel unit is already installed and that key changed,
+#     the play prints `agentbus install` for you to run. It rewrites
+#     the unit and restarts it. This playbook never runs it, and it
+#     does not edit ~/.ssh/config.
 #
 # Variables (inventory, group vars, the per-machine vars file
 # ${XDG_CONFIG_HOME:-~/.config}/setup-dev/vars.yml, or -e):
@@ -21,14 +36,17 @@
 #   hub_tools_version     go install version: a tag, a commit, or latest
 #                         (default latest)
 #   hub_connect_timeout   ssh connect timeout (default 5s)
+#   hub_ssh_stable_agent  opt in to the stable agent socket (default false)
+#   hub_ssh_agent_rc      login rc for that block (default: see above)
 #
 #   ansible-playbook -i inventory.ini setup-hub-client.yml \
 #     -e hub_ssh_target=me@hub.example -e client_machine_label=laptop
 #
 # The last task (tag hub-check) runs `decide status list` and
 # `agentbus list` through the hub. `--tags hub-check` runs only the check;
-# `--tags hub-config` only writes the two files. hub_setup_test.sh runs
-# both with a temp HOME.
+# `--tags hub-config` only writes the two files. `--tags hub-ssh-agent`
+# writes the stable agent socket when hub_ssh_stable_agent is true.
+# hub_setup_test.sh runs these with a temp HOME.
 - import_playbook: gather-facts.yml
 - import_playbook: setup-user-go-bin-directory.yml
 
@@ -40,14 +58,19 @@
     - - "{{ (lookup('ansible.builtin.env', 'XDG_CONFIG_HOME') or (lookup('ansible.builtin.env', 'HOME') ~ '/.config')) ~ '/setup-dev/vars.yml' }}"
       - /dev/null
   # Defaults live in expressions, not play vars, so inventory and group
-  # vars still set the four variables.
+  # vars still set these variables.
   vars:
     hub_client_target: "{{ hub_ssh_target | default('') }}"
     hub_client_machine: "{{ client_machine_label | default('') }}"
     hub_client_version: "{{ hub_tools_version | default('latest') }}"
     hub_client_timeout: "{{ hub_connect_timeout | default('5s') }}"
+    hub_client_stable_agent: "{{ hub_ssh_stable_agent | default(false) | bool }}"
+    hub_client_agent_rc: "{{ hub_ssh_agent_rc | default('') }}"
     hub_client_home: "{{ ansible_facts['env']['HOME'] }}"
     hub_client_config_home: "{{ ansible_facts['env']['XDG_CONFIG_HOME'] | default(hub_client_home ~ '/.config', true) }}"
+    hub_client_tunnel_units:
+      - "{{ hub_client_home }}/Library/LaunchAgents/com.agentbus.tunnel.plist"
+      - "{{ hub_client_config_home }}/systemd/user/agentbus-tunnel.service"
     hub_client_decide_config: "{{ hub_client_config_home }}/decide/config.json"
     hub_client_agentbus_config: "{{ hub_client_config_home }}/agentbus/config.toml"
     hub_client_module: github.com/jaeyeom/experimental
@@ -154,6 +177,78 @@
       loop_control:
         label: "{{ item.key }}"
       tags: hub-config
+
+    - name: Use the configured login rc
+      ansible.builtin.set_fact:
+        hub_client_agent_rc_path: "{{ hub_client_agent_rc }}"
+      when: hub_client_stable_agent | bool and hub_client_agent_rc | length > 0
+      tags: hub-ssh-agent
+
+    - name: Stat candidate login rc files
+      ansible.builtin.stat:
+        path: "{{ hub_client_home }}/{{ item }}"
+      loop:
+        - .zprofile
+        - .bash_profile
+        - .profile
+      register: hub_client_rc_stats
+      when: hub_client_stable_agent | bool and hub_client_agent_rc | length == 0
+      tags: hub-ssh-agent
+
+    - name: Choose the first login rc that exists
+      ansible.builtin.set_fact:
+        hub_client_agent_rc_path: "{% set found = hub_client_rc_stats.results | selectattr('stat.exists') | map(attribute='stat.path') | list %}{{ found[0] if found | length > 0 else hub_client_home ~ '/.profile' }}"
+      when: hub_client_stable_agent | bool and hub_client_agent_rc | length == 0
+      tags: hub-ssh-agent
+
+    - name: Keep ~/.ssh/agent.sock pointed at the login agent
+      ansible.builtin.blockinfile:
+        path: "{{ hub_client_agent_rc_path }}"
+        marker: "# {mark} setup-dev hub ssh agent (setup-hub-client.yml)"
+        create: true
+        backup: true
+        block: |
+          if [ -n "$SSH_AUTH_SOCK" ] && [ -S "$SSH_AUTH_SOCK" ] && [ "$SSH_AUTH_SOCK" != "$HOME/.ssh/agent.sock" ]; then
+            ln -sf "$SSH_AUTH_SOCK" "$HOME/.ssh/agent.sock"
+          fi
+      when: hub_client_stable_agent | bool
+      tags: hub-ssh-agent
+
+    - name: Create the agentbus config directory
+      ansible.builtin.file:
+        path: "{{ hub_client_agentbus_config | dirname }}"
+        state: directory
+      when: hub_client_stable_agent | bool
+      tags: hub-ssh-agent
+
+    - name: Set ssh_identity_agent in the agentbus config
+      community.general.ini_file:
+        path: "{{ hub_client_agentbus_config }}"
+        option: ssh_identity_agent
+        value: "{{ '~/.ssh/agent.sock' | to_json }}"
+        modify_inactive_option: false
+        backup: true
+        mode: "0600"
+      register: hub_client_identity_agent
+      when: hub_client_stable_agent | bool
+      tags: hub-ssh-agent
+
+    - name: Stat the tunnel unit
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop: "{{ hub_client_tunnel_units }}"
+      register: hub_client_tunnel_unit
+      when: hub_client_stable_agent | bool
+      tags: hub-ssh-agent
+
+    - name: Tell the user to re-run agentbus install
+      ansible.builtin.debug:
+        msg: "The tunnel unit is installed and ssh_identity_agent changed. Re-run `agentbus install` to rewrite the unit and restart it."
+      when:
+        - hub_client_stable_agent | bool
+        - hub_client_identity_agent is changed
+        - hub_client_tunnel_unit.results | default([]) | selectattr('stat.exists') | list | length > 0
+      tags: hub-ssh-agent
 
     - name: Run decide and agentbus through the hub
       ansible.builtin.command:

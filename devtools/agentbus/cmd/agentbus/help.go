@@ -307,6 +307,9 @@ Config ($XDG_CONFIG_HOME/agentbus/config.toml):
                           ssh connect timeout in hub mode
   hub = "me@hub"          hub mode: run every command on this ssh target
                           (AGENTBUS_HUB overrides it); install refuses
+  ssh_identity_agent = "~/.ssh/agent.sock"
+                          ssh IdentityAgent for the hub; "~/" expands
+                          against HOME. Empty leaves ssh's own agent
   machine = "linux2"      this machine's herdr label on the hub, so a
                           hub-mode caller is herdr:linux2/<session>/<pane>
   lease_checkouts = ["/home/u/src/repo"]

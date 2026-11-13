@@ -76,8 +76,26 @@ func TestRunForwardsArgsStdinAndResult(t *testing.T) {
 			t.Fatalf("ssh argv %q lacks %q", argv, want)
 		}
 	}
+	if slices.ContainsFunc(argv, func(arg string) bool { return strings.Contains(arg, "IdentityAgent") }) {
+		t.Fatalf("ssh argv %q sets IdentityAgent", argv)
+	}
 	if last := argv[len(argv)-1]; !strings.HasSuffix(last, "tool send ops/x 'a b; c'") {
 		t.Fatalf("remote command = %q", last)
+	}
+}
+
+func TestRunSetsIdentityAgent(t *testing.T) {
+	fake := sshtest.Install(t)
+	fake.InstallTool("tool")
+	hub := hubcall.Hub{Target: "me@hub", Tool: "tool", ConnectTimeout: 5 * time.Second, IdentityAgent: "/tmp/agent.sock"}
+	code, _, err := run(t, hub, hubcall.Call{Args: []string{"list"}})
+	if err != nil || code != 0 {
+		t.Fatalf("Run = %d, %v", code, err)
+	}
+	argv := fake.Lines("argv")
+	const opt = "IdentityAgent=/tmp/agent.sock"
+	if slices.Index(argv, opt) < 0 || slices.Index(argv, opt) > slices.Index(argv, "--") {
+		t.Fatalf("ssh argv = %q", argv)
 	}
 }
 

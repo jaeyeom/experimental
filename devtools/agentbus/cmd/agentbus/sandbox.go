@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -233,6 +234,7 @@ func cmdDoctor(ctx context.Context, args, env []string, stdout, stderr io.Writer
 	}
 	printDoctorChecks(ctx, stdout, cfg, sockets)
 	if cfg.Hub != "" {
+		reportTunnelExit(ctx, env, stdout)
 		reportOutboxStatus(env, stdout)
 	}
 	return 0
@@ -247,8 +249,123 @@ func plainDoctor(ctx context.Context, env []string, dirs paths.Dirs, stdout io.W
 	}
 	fmt.Fprintf(stdout, "  tunnel socket %s: %s\n", dirs.TunnelSocketPath, checkSocket(ctx, dirs.TunnelSocketPath))
 	fmt.Fprintln(stdout, sshProbeLine(ctx, cfg))
+	reportTunnelExit(ctx, env, stdout)
 	reportOutboxStatus(env, stdout)
 	return 0
+}
+
+// tunnelExitStatus reports the tunnel unit's last exit code. ok is
+// false when the unit is not installed or the status cannot be read.
+// Tests replace it.
+var tunnelExitStatus = readTunnelExitStatus
+
+const (
+	tunnelAuthHint = "tunnel unit exited 255: ssh probably could not authenticate (no agent for a passphrase key). Keep a stable agent socket (`ln -sf \"$SSH_AUTH_SOCK\" ~/.ssh/agent.sock` in your login shell), set `ssh_identity_agent = \"~/.ssh/agent.sock\"` in the agentbus config, and re-run `agentbus install`. setup-hub-client does this with `hub_ssh_stable_agent: true`."
+	// tunnelDanglingHint replaces tunnelAuthHint when the stable socket
+	// is a symlink whose target is gone.
+	tunnelDanglingHint = "tunnel unit exited 255: ~/.ssh/agent.sock is a dangling link, so ssh has no agent. Open a login shell so the rc block refreshes it (`ln -sf \"$SSH_AUTH_SOCK\" ~/.ssh/agent.sock`)."
+)
+
+func readTunnelExitStatus(ctx context.Context, env []string) (int, bool) {
+	home, err := homeFrom(env)
+	if err != nil {
+		return 0, false
+	}
+	path, err := tunnelPath(runtime.GOOS, home, env)
+	if err != nil {
+		return 0, false
+	}
+	if _, err := os.Stat(path); err != nil {
+		return 0, false
+	}
+	switch runtime.GOOS {
+	case "darwin":
+		return launchdExitStatus(ctx)
+	case "linux":
+		return systemdExitStatus(ctx)
+	default:
+		return 0, false
+	}
+}
+
+func launchdExitStatus(ctx context.Context) (int, bool) {
+	target := "gui/" + strconv.Itoa(os.Getuid()) + "/" + tunnelLaunchdLabel
+	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
+	out, err := exec.CommandContext(ctx, "launchctl", "print", target).CombinedOutput() //nolint:gosec // G204: launchctl prints this machine's tunnel job
+	if err != nil && len(out) == 0 {
+		return 0, false
+	}
+	return parseLaunchdExit(string(out))
+}
+
+func parseLaunchdExit(text string) (int, bool) {
+	const prefix = "last exit code = "
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(line[len(prefix):]))
+		if err != nil {
+			return 0, false
+		}
+		return n, true
+	}
+	return 0, false
+}
+
+func systemdExitStatus(ctx context.Context) (int, bool) {
+	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
+	out, err := exec.CommandContext(ctx, "systemctl", "--user", "show", "-p", "ExecMainStatus", tunnelUnitName).Output() //nolint:gosec // G204: systemctl shows this machine's tunnel unit
+	if err != nil && len(out) == 0 {
+		return 0, false
+	}
+	return parseSystemdExit(string(out))
+}
+
+func parseSystemdExit(text string) (int, bool) {
+	const prefix = "ExecMainStatus="
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(line[len(prefix):]))
+		if err != nil {
+			return 0, false
+		}
+		return n, true
+	}
+	return 0, false
+}
+
+func reportTunnelExit(ctx context.Context, env []string, stdout io.Writer) {
+	code, ok := tunnelExitStatus(ctx, env)
+	if !ok || code != 255 {
+		return
+	}
+	if agentSockDangling(env) {
+		fmt.Fprintln(stdout, tunnelDanglingHint)
+		return
+	}
+	fmt.Fprintln(stdout, tunnelAuthHint)
+}
+
+// agentSockDangling reports a ~/.ssh/agent.sock symlink whose target
+// is missing. A missing path, or a path that is not a symlink, is not
+// dangling.
+func agentSockDangling(env []string) bool {
+	home, err := homeFrom(env)
+	if err != nil {
+		return false
+	}
+	path := filepath.Join(home, ".ssh", "agent.sock")
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		return false
+	}
+	_, err = os.Stat(path)
+	return errors.Is(err, os.ErrNotExist)
 }
 
 // doctorSockets is the sandbox allowlist. Hub mode has no local daemon.

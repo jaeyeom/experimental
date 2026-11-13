@@ -11,6 +11,9 @@
 #     TOML keys go above an existing [section], both files are backed up,
 #     and a second run changes nothing.
 #   - hub-check: a failing command fails the play with its stderr.
+#   - hub-ssh-agent: opt-out changes nothing; opt-in writes the rc block
+#     and ssh_identity_agent once, leaves ~/.ssh/config alone, and a
+#     second run changes nothing.
 #   - Neither playbook names a host or user.
 set -eu
 
@@ -305,5 +308,52 @@ fake agentbus "${ROOT}/bin" 255
 # shellcheck disable=SC2086
 run_fails "$CLIENT_PLAYBOOK" --tags hub-check $HUB_ARGS
 expect_out "hub-check unreachable" "agentbus: hub me@hub.example unreachable: host unreachable"
+
+# hub-ssh-agent is opt-in. The default writes no rc, no ssh config, and
+# no ssh_identity_agent key.
+# shellcheck disable=SC2086
+run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent $HUB_ARGS
+expect_no_change "stable agent opt-out"
+for _absent in "${HOME}/.zprofile" "${HOME}/.bash_profile" "${HOME}/.profile" "${HOME}/.ssh/config"; do
+	[ ! -e "$_absent" ] || fail "stable agent opt-out created ${_absent}"
+done
+if grep -q ssh_identity_agent "$AGENTBUS_CONFIG"; then
+	fail "stable agent opt-out wrote ssh_identity_agent"
+fi
+
+mkdir -p "${HOME}/.ssh" "${HOME}/Library/LaunchAgents"
+printf '%s\n' 'Host sentinel' >"${HOME}/.ssh/config"
+printf '%s\n' 'agent-start' >"${HOME}/.zprofile"
+printf '%s\n' 'not-this' >"${HOME}/.bash_profile"
+: >"${HOME}/Library/LaunchAgents/com.agentbus.tunnel.plist"
+_backups=$(find "$(dirname "$AGENTBUS_CONFIG")" -name 'config.toml.*~' | wc -l | tr -d ' ')
+
+# shellcheck disable=SC2086
+run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent -e hub_ssh_stable_agent=true $HUB_ARGS
+expect_out "stable agent install hint" "agentbus install"
+# shellcheck disable=SC2016 # Match the literal rc block, including $.
+grep -qF 'if [ -n "$SSH_AUTH_SOCK" ] && [ -S "$SSH_AUTH_SOCK" ] && [ "$SSH_AUTH_SOCK" != "$HOME/.ssh/agent.sock" ]; then' "${HOME}/.zprofile" || fail "zprofile: agent block missing"
+# shellcheck disable=SC2016 # Match the literal rc block, including $.
+grep -qF '  ln -sf "$SSH_AUTH_SOCK" "$HOME/.ssh/agent.sock"' "${HOME}/.zprofile" || fail "zprofile: ln missing"
+grep -qF 'BEGIN setup-dev hub ssh agent (setup-hub-client.yml)' "${HOME}/.zprofile" || fail "zprofile: marker missing"
+_start=$(grep -n 'agent-start' "${HOME}/.zprofile" | head -1 | cut -d: -f1)
+_link=$(grep -n 'ln -sf' "${HOME}/.zprofile" | head -1 | cut -d: -f1)
+[ -n "$_start" ] && [ -n "$_link" ] && [ "$_link" -gt "$_start" ] || fail "zprofile: block is not after agent-start"
+[ "$(cat "${HOME}/.bash_profile")" = "not-this" ] || fail "bash_profile changed"
+[ ! -e "${HOME}/.profile" ] || fail "profile created while zprofile exists"
+[ "$(cat "${HOME}/.ssh/config")" = "Host sentinel" ] || fail "ssh config changed"
+grep -qxF 'ssh_identity_agent = "~/.ssh/agent.sock"' "$AGENTBUS_CONFIG" || {
+	cat "$AGENTBUS_CONFIG" >&2
+	fail "agentbus config: ssh_identity_agent missing"
+}
+[ "$(grep -c '^ssh_identity_agent' "$AGENTBUS_CONFIG")" -eq 1 ] || fail "ssh_identity_agent repeated"
+has_backup "${HOME}/.zprofile" || fail "zprofile: no backup"
+_backups_after=$(find "$(dirname "$AGENTBUS_CONFIG")" -name 'config.toml.*~' | wc -l | tr -d ' ')
+[ "$_backups_after" -gt "$_backups" ] || fail "agentbus config: no new backup"
+
+# shellcheck disable=SC2086
+run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent -e hub_ssh_stable_agent=true $HUB_ARGS
+expect_no_change "stable agent second run"
+[ "$(grep -c 'ln -sf' "${HOME}/.zprofile")" -eq 1 ] || fail "zprofile: block repeated"
 
 echo "PASS"

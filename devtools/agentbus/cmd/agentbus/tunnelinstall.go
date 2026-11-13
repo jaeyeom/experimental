@@ -33,21 +33,27 @@ type tunnelSpec struct {
 	target string
 	local  string
 	remote string
+	// identityAgent is ssh -o IdentityAgent. Empty omits the option.
+	identityAgent string
 }
 
 // sshArgs is the forward. StreamLocalBindUnlink replaces a stale local
 // socket. ExitOnForwardFailure and ServerAliveInterval make a failed
 // forward or a dead connection exit, so the supervisor restarts it.
+// identityAgent, when set, is an expanded path.
 func (s tunnelSpec) sshArgs() []string {
-	return []string{
+	args := []string{
 		s.ssh, "-N",
 		"-o", "BatchMode=yes",
 		"-o", "ExitOnForwardFailure=yes",
 		"-o", "StreamLocalBindUnlink=yes",
 		"-o", "ServerAliveInterval=30",
-		"-L", s.local + ":" + s.remote,
-		"--", s.target,
 	}
+	if s.identityAgent != "" {
+		args = append(args, "-o", "IdentityAgent="+s.identityAgent)
+	}
+	args = append(args, "-L", s.local+":"+s.remote, "--", s.target)
+	return args
 }
 
 // cmdInstallTunnel writes and loads the supervised ssh forward that
@@ -228,7 +234,7 @@ func hubSocketLine(hub, path string) string {
 // hub_socket. The hub's value is an absolute path with no colon.
 func queryHubSocket(ctx context.Context, cfg config.Config) (string, error) {
 	var buf bytes.Buffer
-	hub := hubcall.Hub{Target: cfg.Hub, Tool: "agentbus", ConnectTimeout: cfg.RemoteTimeout}
+	hub := agentHub(cfg)
 	code, err := hub.Run(ctx, hubcall.Call{Args: []string{"paths", "--json"}, Stdout: &buf, Stderr: io.Discard})
 	if err != nil {
 		return "", fmt.Errorf("ask %s for hub_socket: %w", cfg.Hub, err)
@@ -307,7 +313,10 @@ func installTunnel(cfg config.Config, env []string) (string, error) {
 	if ssh, err = filepath.Abs(ssh); err != nil {
 		return "", fmt.Errorf("find ssh: %w", err)
 	}
-	spec := tunnelSpec{ssh: ssh, target: cfg.Hub, local: dirs.TunnelSocketPath, remote: cfg.HubSocket}
+	spec := tunnelSpec{
+		ssh: ssh, target: cfg.Hub, local: dirs.TunnelSocketPath, remote: cfg.HubSocket,
+		identityAgent: cfg.SSHIdentityAgent,
+	}
 	path, err := tunnelPath(runtime.GOOS, home, env)
 	if err != nil {
 		return "", err
