@@ -497,6 +497,9 @@ func TestListSearchDebouncesLargeInbox(t *testing.T) {
 }
 
 func TestSearchCountsEveryFolder(t *testing.T) {
+	// Row colors follow NO_COLOR. The goldens include them, so this test
+	// clears the variable the way bazel test does.
+	t.Setenv("NO_COLOR", "")
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	day := func(d int) time.Time { return time.Date(2026, 11, d, 0, 0, 0, 0, time.UTC) }
