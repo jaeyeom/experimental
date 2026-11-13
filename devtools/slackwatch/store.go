@@ -221,6 +221,11 @@ CREATE TABLE channels (
 );
 CREATE INDEX channels_id ON channels (id);
 `,
+	// notified is 1 once an inbound notification was committed, so a
+	// restart or catch-up does not send it again.
+	`
+ALTER TABLE inbound ADD COLUMN notified INTEGER NOT NULL DEFAULT 0;
+`,
 }
 
 // Store is the slackwatch SQLite database. The server and the CLI each

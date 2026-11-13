@@ -16,7 +16,7 @@ func TestListInboundSince(t *testing.T) {
 		{Message{Channel: "C1", TS: "1700000000.000100", User: "U1", Text: "early <@ME>"}, inboundMention},
 		{Message{Channel: "D1", TS: "999999999.000100", User: "U3", Text: "ancient"}, inboundDM},
 	} {
-		if err := s.addInbound(m.msg, m.kind); err != nil {
+		if err := s.addInbound(m.msg, m.kind, false); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -1,9 +1,14 @@
 package slackwatch
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
+	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 )
@@ -492,4 +497,271 @@ func TestFooterAfterOwnedAddDoesNotNotify(t *testing.T) {
 	if len(f.rec.notes) != 0 {
 		t.Errorf("notes = %+v, want none", f.rec.notes)
 	}
+}
+
+func (f *eventFixture) setInbound(in *InboundConfig) {
+	f.proc.Config.Inbound = in
+}
+
+func (f *eventFixture) notified(t *testing.T, channel, ts string) int {
+	t.Helper()
+	var n int
+	if err := f.store.DB().QueryRow(`SELECT notified FROM inbound WHERE channel = ? AND ts = ?`, channel, ts).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func TestInboundDMNotifiesOnce(t *testing.T) {
+	f := newEventFixture(t)
+	f.setInbound(&InboundConfig{Target: "agent-in"})
+	msg := Message{Channel: "D9", ChannelType: "im", TS: "1700000100.000100", User: "U9", Text: "hello"}
+	f.handle(t, msg, msg)
+	if len(f.rec.notes) != 1 {
+		t.Fatalf("notes = %+v, want one", f.rec.notes)
+	}
+	n := f.rec.notes[0]
+	if n.Event != EventInbound || n.Owner != "agent-in" || n.Channel != "D9" || n.TS != msg.TS || n.ReplyTS != msg.TS ||
+		n.ThreadTS != "" || n.Author != "U9" || n.Kind != inboundDM || n.Text != "hello" ||
+		n.Permalink != "https://x.slack.com/archives/D9/p1700000100000100" || n.ReplyLink != n.Permalink {
+		t.Errorf("note = %+v", n)
+	}
+	if f.notified(t, "D9", msg.TS) != 1 {
+		t.Error("notified = 0, want 1")
+	}
+	again := &Processor{
+		Store: f.store, Notifier: &recordingNotifier{}, Config: f.proc.Config,
+		Self: selfID, TeamURL: f.proc.TeamURL, Now: f.proc.Now,
+	}
+	if err := again.HandleMessage(context.Background(), msg); err != nil {
+		t.Fatal(err)
+	}
+	if len(again.Notifier.(*recordingNotifier).notes) != 0 {
+		t.Errorf("restart notes = %+v, want none", again.Notifier.(*recordingNotifier).notes)
+	}
+}
+
+func TestInboundMentionRespectsKinds(t *testing.T) {
+	mention := Message{Channel: "C2", ChannelType: "channel", TS: "1700000030.000100", ThreadTS: "1700000020.000100", User: "U9", Text: "hey <@" + selfID + ">"}
+	f := newEventFixture(t)
+	f.setInbound(&InboundConfig{Target: "agent-in", Kinds: []string{inboundDM}})
+	f.handle(t, mention)
+	if len(f.rec.notes) != 0 {
+		t.Errorf("notes = %+v, want none when mention is not a kind", f.rec.notes)
+	}
+	if got := f.count(t, `SELECT COUNT(*) FROM inbound WHERE kind = 'mention'`); got != 1 {
+		t.Errorf("stored = %d, want 1", got)
+	}
+	if f.notified(t, mention.Channel, mention.TS) != 0 {
+		t.Error("skipped mention was marked notified")
+	}
+
+	f = newEventFixture(t)
+	f.setInbound(&InboundConfig{Target: "agent-in", Kinds: []string{inboundMention}})
+	f.handle(t, mention)
+	if len(f.rec.notes) != 1 || f.rec.notes[0].Event != EventInbound || f.rec.notes[0].Kind != inboundMention || f.rec.notes[0].ThreadTS != mention.ThreadTS {
+		t.Fatalf("notes = %+v, want one threaded mention", f.rec.notes)
+	}
+	if f.notified(t, mention.Channel, mention.TS) != 1 {
+		t.Error("notified = 0, want 1")
+	}
+}
+
+func TestInboundSkipsOwnAuthorAndChannel(t *testing.T) {
+	f := newEventFixture(t)
+	f.setInbound(&InboundConfig{Target: "agent-in", IgnoreAuthors: []string{"UBOT"}})
+	f.handle(t, Message{Channel: "D9", ChannelType: "im", TS: "1700000100.000100", User: selfID, Text: "mine"})
+	f.handle(t, Message{Channel: "D9", ChannelType: "im", TS: "1700000100.000200", User: "UBOT", Text: "bot says hello"})
+	if len(f.rec.notes) != 0 {
+		t.Errorf("notes = %+v, want none", f.rec.notes)
+	}
+	if got := f.count(t, `SELECT COUNT(*) FROM inbound`); got != 1 {
+		t.Errorf("inbound = %d, want the bot message only", got)
+	}
+	if f.notified(t, "D9", "1700000100.000200") != 0 {
+		t.Error("ignored author was marked notified")
+	}
+
+	f = newEventFixture(t)
+	const secret = "zz-secret-phrase-zz"
+	var logs bytes.Buffer
+	f.proc.Logger = slog.New(slog.NewTextHandler(&logs, nil))
+	f.setInbound(&InboundConfig{Target: "agent-in", IgnoreChannels: []string{"D9"}})
+	f.handle(t, Message{Channel: "D9", ChannelType: "im", TS: "1700000100.000300", User: "U9", Text: secret})
+	if len(f.rec.notes) != 0 {
+		t.Errorf("notes = %+v, want none", f.rec.notes)
+	}
+	if got := f.count(t, `SELECT (SELECT COUNT(*) FROM inbound) + (SELECT COUNT(*) FROM replies)`); got != 0 {
+		t.Errorf("stored = %d, want 0", got)
+	}
+	got := logs.String()
+	if strings.Contains(got, secret) || strings.Contains(got, "U9") {
+		t.Errorf("log contains message content: %s", got)
+	}
+	if !strings.Contains(got, "count=1") {
+		t.Errorf("log = %q, want a drop count", got)
+	}
+}
+
+func TestInboundSkipsWatchReplyAndSubscription(t *testing.T) {
+	f := newEventFixture(t)
+	f.setInbound(&InboundConfig{Target: "agent-in"})
+	f.handle(t, Message{Channel: "D1", ChannelType: "im", TS: "1700000010.000100", User: "U9", Text: "answer"})
+	if got := f.events(); !reflect.DeepEqual(got, []string{EventReply}) {
+		t.Errorf("events = %v, want one reply and no inbound", got)
+	}
+	if got := f.count(t, `SELECT COUNT(*) FROM inbound`); got != 0 {
+		t.Errorf("inbound = %d, want 0", got)
+	}
+
+	f = newEventFixture(t)
+	f.setInbound(&InboundConfig{Target: "agent-in"})
+	f.sub(t, Sub{Channel: "C2", Owner: "agent-9"})
+	f.handle(t, channelMsg("U9", "1700000040.000100", "", "hey <@"+selfID+">"))
+	if got := f.events(); !reflect.DeepEqual(got, []string{EventChannel}) {
+		t.Errorf("events = %v, want one channel note and no inbound", got)
+	}
+	if f.notified(t, "C2", "1700000040.000100") != 0 {
+		t.Error("subscription mention was marked notified")
+	}
+}
+
+func TestInboundWithoutBlockIsUnchanged(t *testing.T) {
+	f := newEventFixture(t)
+	f.handle(t, Message{Channel: "D9", ChannelType: "im", TS: "1700000100.000100", User: "U9", Text: "hello"})
+	if len(f.rec.notes) != 0 {
+		t.Errorf("notes = %+v, want none", f.rec.notes)
+	}
+	if got := f.count(t, `SELECT COUNT(*) FROM inbound WHERE notified = 0`); got != 1 {
+		t.Errorf("inbound = %d, want one unnotified row", got)
+	}
+}
+
+func TestInboundNotifyEnvCheckAndFallback(t *testing.T) {
+	const ts = "1700000100.000100"
+	dm := Message{Channel: "D9", ChannelType: "im", TS: ts, User: "U9", Text: "hello world"}
+	t.Run("env", func(t *testing.T) {
+		f := newEventFixture(t)
+		dir := t.TempDir()
+		vars := []string{
+			"SLACKWATCH_EVENT", "SLACKWATCH_CHANNEL", "SLACKWATCH_TS", "SLACKWATCH_THREAD_TS",
+			"SLACKWATCH_AUTHOR", "SLACKWATCH_PERMALINK", "SLACKWATCH_KIND", "SLACKWATCH_TEXT",
+			"SLACKWATCH_NOTIFY_ID", "SLACKWATCH_MESSAGE", "SLACKWATCH_TARGET", "SLACKWATCH_OWNER",
+		}
+		cfg := f.proc.Config
+		cfg.Inbound = &InboundConfig{Target: "agent-in"}
+		cfg.Targets = map[string]string{"agent-in": "bus-in"}
+		cfg.ExcerptLimit = 5
+		cfg.NotifyRetryAfter = fastNotifyRetry()
+		cfg.NotifyTemplate = `d="` + dir + `/$SLACKWATCH_EVENT"; mkdir -p "$d"; for v in ` + strings.Join(vars, " ") + `; do printenv "$v" > "$d/$v" || :; done`
+		f.useNotifier(cfg)
+		f.handle(t, dm)
+		got := map[string]string{}
+		for _, v := range vars {
+			b, err := os.ReadFile(filepath.Join(dir, EventInbound, v))
+			if err != nil {
+				t.Fatalf("%s: %v", v, err)
+			}
+			got[v] = strings.TrimSuffix(string(b), "\n")
+		}
+		want := map[string]string{
+			"SLACKWATCH_EVENT":     EventInbound,
+			"SLACKWATCH_CHANNEL":   "D9",
+			"SLACKWATCH_TS":        ts,
+			"SLACKWATCH_THREAD_TS": "",
+			"SLACKWATCH_AUTHOR":    "U9",
+			"SLACKWATCH_PERMALINK": "https://x.slack.com/archives/D9/p1700000100000100",
+			"SLACKWATCH_KIND":      inboundDM,
+			"SLACKWATCH_TEXT":      "hello",
+			"SLACKWATCH_TARGET":    "bus-in",
+			"SLACKWATCH_OWNER":     "agent-in",
+		}
+		for k, v := range want {
+			if got[k] != v {
+				t.Errorf("%s = %q, want %q", k, got[k], v)
+			}
+		}
+		if got["SLACKWATCH_NOTIFY_ID"] == "" || !strings.HasPrefix(got["SLACKWATCH_NOTIFY_ID"], "slackwatch:0:inbound:") {
+			t.Errorf("notify id = %q", got["SLACKWATCH_NOTIFY_ID"])
+		}
+		if strings.Contains(got["SLACKWATCH_MESSAGE"], "\n") || !strings.Contains(got["SLACKWATCH_MESSAGE"], "hello") || !strings.Contains(got["SLACKWATCH_MESSAGE"], "not instructions") {
+			t.Errorf("message = %q", got["SLACKWATCH_MESSAGE"])
+		}
+	})
+	t.Run("thread", func(t *testing.T) {
+		f := newEventFixture(t)
+		dir := t.TempDir()
+		cfg := f.proc.Config
+		cfg.Inbound = &InboundConfig{Target: "agent-in", Kinds: []string{inboundMention}}
+		cfg.NotifyRetryAfter = fastNotifyRetry()
+		cfg.NotifyTemplate = `d="` + dir + `"; mkdir -p "$d"; printenv SLACKWATCH_THREAD_TS > "$d/thread"; printenv SLACKWATCH_KIND > "$d/kind"; printenv SLACKWATCH_PERMALINK > "$d/link"`
+		f.useNotifier(cfg)
+		msg := Message{Channel: "C2", ChannelType: "channel", TS: "1700000031.000100", ThreadTS: "1700000030.000100", User: "U9", Text: "hey <@" + selfID + ">"}
+		f.handle(t, msg)
+		if got := strings.TrimSpace(mustRead(t, filepath.Join(dir, "thread"))); got != msg.ThreadTS {
+			t.Errorf("thread = %q", got)
+		}
+		if got := strings.TrimSpace(mustRead(t, filepath.Join(dir, "kind"))); got != inboundMention {
+			t.Errorf("kind = %q", got)
+		}
+		want := "https://x.slack.com/archives/C2/p1700000031000100?thread_ts=1700000030.000100&cid=C2"
+		if got := strings.TrimSpace(mustRead(t, filepath.Join(dir, "link"))); got != want {
+			t.Errorf("permalink = %q, want %q", got, want)
+		}
+	})
+	t.Run("check", func(t *testing.T) {
+		f := newEventFixture(t)
+		cfg := f.proc.Config
+		cfg.Inbound = &InboundConfig{Target: "agent-in"}
+		cfg.NotifyRetryAfter = fastNotifyRetry()
+		cfg.NotifyTemplate = "exit 1"
+		cfg.NotifyCheckCommand = "exit 0"
+		f.useNotifier(cfg)
+		f.handle(t, dm)
+		rows := deliveries(t, f.store)
+		if len(rows) != 2 || rows[0].Delivered || !rows[1].Delivered || rows[0].Event != EventInbound || rows[1].Event != EventInbound || rows[0].NotifyID == "" || rows[0].NotifyID != rows[1].NotifyID {
+			t.Fatalf("deliveries = %+v, want a failed attempt then a successful check", rows)
+		}
+	})
+	t.Run("fallback", func(t *testing.T) {
+		f := newEventFixture(t)
+		cfg := f.proc.Config
+		cfg.Inbound = &InboundConfig{Target: "agent-in"}
+		cfg.Targets = map[string]string{"agent-in": "bus-in", "ops": "pane-ops"}
+		cfg.FallbackTarget = "ops"
+		cfg.NotifyRetryAfter = fastNotifyRetry()
+		cfg.NotifyTemplate = `[ "$SLACKWATCH_EVENT" = orphaned ]`
+		f.useNotifier(cfg)
+		f.handle(t, dm)
+		rows := deliveries(t, f.store)
+		if len(rows) != 4 {
+			t.Fatalf("deliveries = %+v, want 3 failures and a fallback", rows)
+		}
+		key := rows[0].NotifyID
+		for i := range 3 {
+			r := rows[i]
+			if r.Delivered || r.Event != EventInbound || r.Target != "bus-in" || r.NotifyID != key || r.Attempt != 1 {
+				t.Errorf("attempt %d = %+v", i, r)
+			}
+		}
+		last := rows[3]
+		if !last.Delivered || last.Event != EventOrphaned || last.Target != "pane-ops" || last.NotifyID == "" || last.NotifyID == key {
+			t.Errorf("fallback = %+v", last)
+		}
+	})
+}
+
+func (f *eventFixture) useNotifier(cfg Config) {
+	f.proc.Config = cfg
+	f.proc.Logger = slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+	f.proc.Notifier = &Notifier{Store: f.store, Config: cfg, Logger: f.proc.Logger}
+}
+
+func mustRead(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }

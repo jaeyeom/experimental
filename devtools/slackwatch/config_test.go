@@ -3,6 +3,7 @@ package slackwatch
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -131,6 +132,35 @@ func TestLoadConfigOverrides(t *testing.T) {
 	}
 	if cfg.FooterPattern.Regexp == nil || !cfg.FooterPattern.MatchString("-- ops") {
 		t.Errorf("FooterPattern = %v", cfg.FooterPattern)
+	}
+}
+
+func TestLoadConfigInbound(t *testing.T) {
+	path := writeFile(t, "config.json", `{
+		"inbound": {"target": "bus-in", "ignoreAuthors": ["UBOT"]}
+	}`, 0o600)
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Inbound == nil || cfg.Inbound.Target != "bus-in" ||
+		!reflect.DeepEqual(cfg.Inbound.Kinds, []string{"dm", "mention"}) ||
+		!reflect.DeepEqual(cfg.Inbound.IgnoreAuthors, []string{"UBOT"}) ||
+		len(cfg.Inbound.IgnoreChannels) != 0 {
+		t.Errorf("inbound = %+v", cfg.Inbound)
+	}
+	for name, body := range map[string]string{
+		"missing target": `{"inbound": {}}`,
+		"blank target":   `{"inbound": {"target": "  "}}`,
+		"bad kind":       `{"inbound": {"target": "bus", "kinds": ["dm", "ping"]}}`,
+		"unknown":        `{"inbound": {"target": "bus", "extra": true}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := writeFile(t, "config.json", body, 0o600)
+			if _, err := LoadConfig(path); err == nil {
+				t.Fatal("expected error")
+			}
+		})
 	}
 }
 

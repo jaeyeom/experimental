@@ -299,6 +299,28 @@ func TestRunSearchRegistersFooterPost(t *testing.T) {
 	}
 }
 
+func TestCatchUpInboundReplayNotifiesOnce(t *testing.T) {
+	f := newCatchUpFixture(t)
+	f.proc.Config.Inbound = &InboundConfig{Target: "agent-in"}
+	ts := tsAt(f.now.Add(-time.Hour))
+	f.slack.search = []Fetched{fetched(Message{Channel: "D9", ChannelType: "im", TS: ts, User: "U9", Text: "ping"})}
+	if err := f.c.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.setCursor(searchScope, "1.000000"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.c.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.events(); !reflect.DeepEqual(got, []string{EventInbound}) {
+		t.Errorf("events = %v, want one inbound", got)
+	}
+	if got := f.count(t, `SELECT COUNT(*) FROM inbound WHERE channel = 'D9' AND notified = 1`); got != 1 {
+		t.Errorf("notified inbound = %d, want 1", got)
+	}
+}
+
 func TestExpireWatches(t *testing.T) {
 	f := newCatchUpFixture(t)
 	now := testNow()
