@@ -178,6 +178,7 @@ func cmdPost(configPath string, args []string, stdout, stderr io.Writer) int {
 	purpose := fs.String("purpose", "", "what the post is for (required)")
 	var refs stringList
 	fs.Var(&refs, "ref", "reference such as an issue or PR (repeatable)")
+	supersedes := fs.String("supersedes", "", "outbox id this draft replaces")
 	asJSON := fs.Bool("json", false, "print the outbox record as JSON")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
@@ -188,6 +189,13 @@ func cmdPost(configPath string, args []string, stdout, stderr io.Writer) int {
 		return usageErr(stderr, errors.New("post takes no arguments"))
 	case *to == "", *textFile == "", *owner == "", *purpose == "":
 		return usageErr(stderr, errors.New("post needs --to, --text-file, --owner, and --purpose"))
+	}
+	var supersedesID int64
+	if *supersedes != "" {
+		supersedesID, err = outboxID(*supersedes)
+		if err != nil {
+			return usageErr(stderr, err)
+		}
 	}
 	cfg, err := slackwatch.LoadConfig(configPath)
 	if err != nil {
@@ -206,6 +214,7 @@ func cmdPost(configPath string, args []string, stdout, stderr io.Writer) int {
 			return err
 		}
 		d.Text, d.Owner, d.Purpose, d.Refs = string(text), *owner, *purpose, refs
+		d.Supersedes = supersedesID
 		r, err := o.Submit(context.Background(), d)
 		if err != nil {
 			return err //nolint:wrapcheck // Already descriptive.
@@ -322,12 +331,27 @@ func cmdOutboxShow(configPath string, args []string, stdout, stderr io.Writer) i
 	if err != nil {
 		return fail(stderr, err)
 	}
+	r.SupersededBy, err = store.SupersededBy(id)
+	if err != nil {
+		return fail(stderr, err)
+	}
 	if *asJSON {
 		return writeJSON(stdout, stderr, r)
 	}
+	printOutbox(stdout, r)
+	return 0
+}
+
+func printOutbox(stdout io.Writer, r slackwatch.OutboxRecord) {
 	fmt.Fprintf(stdout, "outbox %d  %s\n", r.ID, r.State)
 	if r.Reason != "" {
 		fmt.Fprintf(stdout, "reason: %s\n", r.Reason)
+	}
+	if r.Supersedes != 0 {
+		fmt.Fprintf(stdout, "supersedes %d\n", r.Supersedes)
+	}
+	if r.SupersededBy != 0 {
+		fmt.Fprintf(stdout, "superseded by %d\n", r.SupersededBy)
 	}
 	fmt.Fprintf(stdout, "destination: %s (channel %s)\n", dest(r), r.Channel)
 	if r.ParentLink != "" {
@@ -352,7 +376,6 @@ func cmdOutboxShow(configPath string, args []string, stdout, stderr io.Writer) i
 	if !strings.HasSuffix(r.Text, "\n") {
 		fmt.Fprintln(stdout)
 	}
-	return 0
 }
 
 func cmdOutboxPosted(configPath string, args []string, stdout, stderr io.Writer) int {

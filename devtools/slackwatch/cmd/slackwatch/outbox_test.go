@@ -63,6 +63,12 @@ func (d *cmdFakeDecider) answerPost(id string) {
 	d.items[id].Messages = append(d.items[id].Messages, slackwatch.DecideMessage{Author: "human", Text: "post: Post as written", OptionKey: "post", Via: "ui"})
 }
 
+func (d *cmdFakeDecider) answerNotes(id, notes string) {
+	d.items[id].State = "answered"
+	d.items[id].Answer = &slackwatch.DecideAnswer{Value: notes, AnsweredBy: "human", Via: "ui"}
+	d.items[id].Messages = append(d.items[id].Messages, slackwatch.DecideMessage{Author: "human", Text: notes, Via: "ui"})
+}
+
 const (
 	cmdWriteToken = "xoxp-write-token" //nolint:gosec // G101: a fake token for the fake Slack server.
 	cmdExpectUser = "UPOSTER"
@@ -523,5 +529,89 @@ func TestOutboxLsCancelAndStatus(t *testing.T) {
 	}
 	if _, _, code := e.run("outbox", "bogus"); code != 2 {
 		t.Errorf("unknown outbox command exit = %d", code)
+	}
+}
+
+func (e *postEnv) show(id string) (string, slackwatch.OutboxRecord) {
+	e.t.Helper()
+	out := e.ok("outbox", "show", id)
+	var r slackwatch.OutboxRecord
+	if err := json.Unmarshal([]byte(e.ok("outbox", "show", id, "--json")), &r); err != nil {
+		e.t.Fatal(err)
+	}
+	return out, r
+}
+
+func TestCancelNeedsRedraft(t *testing.T) {
+	e := newPostEnv(t, handoffPost)
+	e.submit()
+	e.dec.answerNotes("D-1", "say tomorrow")
+	e.ok("outbox", "poke", "D-1")
+	if e.record().State != slackwatch.OutboxNeedsRedraft {
+		t.Fatalf("state = %s", e.record().State)
+	}
+	e.ok("outbox", "cancel", "1", "--reason", "drop it")
+	if r := e.record(); r.State != slackwatch.OutboxCancelled || e.dec.items["D-1"].State != "done" {
+		t.Errorf("record %+v decide %+v", r, e.dec.items["D-1"])
+	}
+	out, _, _ := e.run("status")
+	if !strings.Contains(out, "outbox: 0 pending, 0 awaiting-handoff, 0 needs-redraft") {
+		t.Errorf("status:\n%s", out)
+	}
+}
+
+func TestPostSupersedes(t *testing.T) {
+	e := newPostEnv(t, handoffPost)
+	e.submit()
+	e.dec.answerNotes("D-1", "say tomorrow")
+	e.ok("outbox", "poke", "D-1")
+
+	_, errOut, code := e.run("post", "--to", "nope", "--text-file", e.textFile, "--owner", "agent-1", "--purpose", "again", "--supersedes", "1")
+	if code == 0 {
+		t.Fatal("invalid destination succeeded")
+	}
+	if r := e.record(); r.State != slackwatch.OutboxNeedsRedraft || r.SupersededBy != 0 {
+		t.Fatalf("old changed: %+v, stderr %q", r, errOut)
+	}
+	if _, _, code := e.run("outbox", "show", "2"); code == 0 {
+		t.Fatal("invalid destination stored a record")
+	}
+
+	out := e.ok("post", "--to", "C0123", "--text-file", e.textFile, "--owner", "agent-1", "--purpose", "again", "--supersedes", "1")
+	if !strings.Contains(out, "outbox 2") {
+		t.Fatalf("post printed %q", out)
+	}
+	text, neu := e.show("2")
+	if neu.Supersedes != 1 || !strings.Contains(text, "supersedes 1") {
+		t.Fatalf("show new = %q %+v", text, neu)
+	}
+	text, old := e.show("1")
+	want := "not posted: superseded by 2"
+	if old.State != slackwatch.OutboxCancelled || old.Reason != want || old.SupersededBy != 2 || !strings.Contains(text, "superseded by 2") {
+		t.Fatalf("show old = %q %+v", text, old)
+	}
+	if e.dec.items["D-1"].State != "done" {
+		t.Errorf("decide = %+v", e.dec.items["D-1"])
+	}
+}
+
+func TestPostSupersedesPostedRefused(t *testing.T) {
+	e := newPostEnv(t, handoffPost)
+	e.submit()
+	e.dec.answerPost("D-1")
+	e.ok("outbox", "poke", "D-1")
+	e.ok("outbox", "posted", "1", cmdPostedLink)
+	if e.record().State != slackwatch.OutboxPosted {
+		t.Fatalf("state = %s", e.record().State)
+	}
+	_, errOut, code := e.run("post", "--to", "C0123", "--text-file", e.textFile, "--owner", "agent-1", "--purpose", "again", "--supersedes", "1")
+	if code == 0 || !strings.Contains(errOut, slackwatch.OutboxPosted) {
+		t.Fatalf("post = %d, stderr %q", code, errOut)
+	}
+	if _, _, code := e.run("outbox", "show", "2"); code == 0 {
+		t.Fatal("posted record was superseded")
+	}
+	if e.record().State != slackwatch.OutboxPosted {
+		t.Errorf("old state = %s", e.record().State)
 	}
 }

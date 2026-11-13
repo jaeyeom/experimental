@@ -524,6 +524,173 @@ func TestCancel(t *testing.T) {
 	}
 }
 
+func redraft(t *testing.T, f *outboxFixture) OutboxRecord {
+	t.Helper()
+	r := f.submit(t)
+	f.dec.answer(r.DecideID, DecideAnswer{Value: "mention the rollback plan", AnsweredBy: "human", Via: "ui"})
+	f.poll(t)
+	got := f.get(t, r.ID)
+	if got.State != OutboxNeedsRedraft {
+		t.Fatalf("state = %s, want needs-redraft", got.State)
+	}
+	return got
+}
+
+func TestCancelNeedsRedraft(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	r := redraft(t, f)
+	got, err := f.ob.Cancel(context.Background(), r.ID, "dropping it")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != OutboxCancelled || got.Reason != "dropping it" {
+		t.Fatalf("record = %+v", got)
+	}
+	if f.dec.items[r.DecideID].State != "done" {
+		t.Errorf("decide = %+v, want done", f.dec.items[r.DecideID])
+	}
+	c, err := f.store.OutboxCounts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Pending != 0 || c.AwaitingHandoff != 0 || c.NeedsRedraft != 0 {
+		t.Errorf("counts = %+v", c)
+	}
+}
+
+func submitReplacing(t *testing.T, f *outboxFixture, old int64) (OutboxRecord, error) {
+	t.Helper()
+	return f.ob.Submit(context.Background(), Draft{
+		Channel: "C1", DestName: "#general", Text: "revised text",
+		Owner: "agent-1", Purpose: "announce deploy", Supersedes: old,
+	})
+}
+
+func TestSupersedeNeedsRedraft(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	old := redraft(t, f)
+	neu, err := submitReplacing(t, f, old.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if neu.Supersedes != old.ID || neu.State != OutboxPending {
+		t.Fatalf("new = %+v", neu)
+	}
+	want := fmt.Sprintf("not posted: superseded by %d", neu.ID)
+	got := f.get(t, old.ID)
+	if got.State != OutboxCancelled || got.Reason != want {
+		t.Fatalf("old = %+v, want reason %q", got, want)
+	}
+	if f.dec.items[old.DecideID].State != "done" {
+		t.Errorf("decide = %+v, want done", f.dec.items[old.DecideID])
+	}
+	by, err := f.store.SupersededBy(old.ID)
+	if err != nil || by != neu.ID {
+		t.Errorf("SupersededBy = %d, %v", by, err)
+	}
+	if back, err := f.store.SupersededBy(neu.ID); err != nil || back != 0 {
+		t.Errorf("SupersededBy(new) = %d, %v", back, err)
+	}
+}
+
+func TestSupersedePendingAndAwaitingHandoff(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	old := f.submit(t)
+	neu, err := submitReplacing(t, f, old.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("not posted: superseded by %d", neu.ID)
+	if got := f.get(t, old.ID); got.State != OutboxCancelled || got.Reason != want {
+		t.Fatalf("pending old = %+v", got)
+	}
+	if f.dec.outcomes[old.DecideID] != want || f.dec.items[old.DecideID].State != "done" {
+		t.Errorf("decide outcome = %q, item %+v", f.dec.outcomes[old.DecideID], f.dec.items[old.DecideID])
+	}
+
+	f = newOutboxFixture(t, PostModeHandoff)
+	old = approveHandoff(t, f)
+	if got := f.get(t, old.ID); got.State != OutboxAwaitingHandoff {
+		t.Fatalf("state = %s, want awaiting-handoff", got.State)
+	}
+	if _, err := submitReplacing(t, f, old.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.get(t, old.ID); got.State != OutboxCancelled {
+		t.Errorf("awaiting-handoff old state = %s", got.State)
+	}
+}
+
+func TestSupersedeRefusesFinished(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	old := approveHandoff(t, f)
+	moved, err := f.store.moveOutbox(old.ID, []string{OutboxAwaitingHandoff}, outboxUpdate{state: OutboxPosted}, testNow())
+	if err != nil || !moved {
+		t.Fatalf("move = %v, %v", moved, err)
+	}
+	if _, err := submitReplacing(t, f, old.ID); err == nil || !strings.Contains(err.Error(), OutboxPosted) {
+		t.Fatalf("err = %v, want a refusal naming posted", err)
+	}
+	recs, err := f.store.ListOutbox("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 1 || recs[0].State != OutboxPosted {
+		t.Fatalf("records = %+v", recs)
+	}
+
+	approved := newOutboxFixture(t, PostModeDirect)
+	r := approved.submit(t)
+	moved, err = approved.store.moveOutbox(r.ID, []string{OutboxPending}, outboxUpdate{state: OutboxApproved}, testNow())
+	if err != nil || !moved {
+		t.Fatalf("move = %v, %v", moved, err)
+	}
+	if _, err := submitReplacing(t, approved, r.ID); err == nil || !strings.Contains(err.Error(), OutboxApproved) {
+		t.Fatalf("err = %v, want a refusal naming approved", err)
+	}
+	if recs, err = approved.store.ListOutbox(""); err != nil || len(recs) != 1 {
+		t.Fatalf("records = %+v, %v", recs, err)
+	}
+}
+
+func TestSupersedeFailureLeavesOld(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	old := redraft(t, f)
+	_, err := f.ob.Submit(context.Background(), Draft{
+		Text: "revised text", Owner: "agent-1", Purpose: "announce deploy", Supersedes: old.ID,
+	})
+	if err == nil {
+		t.Fatal("empty destination succeeded")
+	}
+	if got := f.get(t, old.ID); got.State != OutboxNeedsRedraft || got.Reason != "" {
+		t.Fatalf("old changed: %+v", got)
+	}
+	recs, err := f.store.ListOutbox("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 1 {
+		t.Fatalf("records = %d, want 1", len(recs))
+	}
+
+	f.dec.askErr = errors.New("decide down")
+	_, err = submitReplacing(t, f, old.ID)
+	if err == nil {
+		t.Fatal("submit succeeded with decide down")
+	}
+	if got := f.get(t, old.ID); got.State != OutboxNeedsRedraft {
+		t.Fatalf("old = %+v, want needs-redraft", got)
+	}
+	neu := f.get(t, 2)
+	if neu.State != OutboxFailed || neu.Supersedes != 0 {
+		t.Fatalf("failed submit = %+v", neu)
+	}
+	by, err := f.store.SupersededBy(old.ID)
+	if err != nil || by != 0 {
+		t.Errorf("SupersededBy = %d, %v", by, err)
+	}
+}
+
 func approveHandoff(t *testing.T, f *outboxFixture) OutboxRecord {
 	t.Helper()
 	r := f.submit(t)

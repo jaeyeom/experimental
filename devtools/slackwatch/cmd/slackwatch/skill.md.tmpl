@@ -13,7 +13,7 @@ Do not post to Slack yourself. Write the exact text to a file and submit it:
 
     slackwatch post --to <channel-id|#name|thread-permalink> --text-file <file> --owner <you> --purpose "..." --ref <ref>
 
-It prints an outbox id. The user approves the exact text and destination in decide. slackwatch then posts it and registers the watch with you as owner. If the user asks for changes instead, an outbox-redraft notification carries their notes: redraft and submit again. Run `slackwatch outbox show <id>` to check a draft.
+It prints an outbox id. The user approves the exact text and destination in decide. slackwatch then posts it and registers the watch with you as owner. If the user asks for changes instead, an outbox-redraft notification carries their notes: redraft and submit again with `--supersedes <id>`. Run `slackwatch outbox show <id>` to check a draft.
 
 Do not reply in the decide thread of an outbox draft (owner `{{.DecideOwner}}`). slackwatch owns it and reads the user's pick from it.
 {{if eq .PostMode "handoff"}}

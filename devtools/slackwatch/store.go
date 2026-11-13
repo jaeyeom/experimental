@@ -207,6 +207,10 @@ ALTER TABLE outbox ADD COLUMN manual INTEGER NOT NULL DEFAULT 0;
 	`
 ALTER TABLE deliveries ADD COLUMN notify_id TEXT NOT NULL DEFAULT '';
 `,
+	// supersedes is the outbox id a redraft replaces. 0 means none.
+	`
+ALTER TABLE outbox ADD COLUMN supersedes INTEGER NOT NULL DEFAULT 0;
+`,
 }
 
 // Store is the slackwatch SQLite database. The server and the CLI each

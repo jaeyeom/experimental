@@ -92,7 +92,7 @@ Commands:
                       server heartbeat; exits 1 when down, stale, or undelivered
   slackwatch inbound [--since DUR|DATE] [--json]
                       recorded DMs and mentions
-  slackwatch post --to <channel-id|#name|thread-permalink> --text-file F --owner T --purpose S [--ref R ...] [--json]
+  slackwatch post --to <channel-id|#name|thread-permalink> --text-file F --owner T --purpose S [--ref R ...] [--supersedes ID] [--json]
                       submit a draft; it is posted only after the user approves
                       the exact text and destination in decide (needs post.mode)
   slackwatch outbox ls [--state S] [--json]
