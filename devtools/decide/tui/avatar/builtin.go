@@ -63,7 +63,7 @@ func Builtin(id string, cols, rows int, profile termenv.Profile) ([]string, erro
 	if !ok {
 		return nil, fmt.Errorf("unknown built-in avatar %q", id)
 	}
-	return renderText(text, cols, rows, effectiveProfile(profile)), nil
+	return renderBuiltin(id, text, cols, rows, effectiveProfile(profile)), nil
 }
 
 // PickBuiltin returns the built-in id for name. pickGeneration chooses a

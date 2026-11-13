@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"hash/fnv"
 	"math"
+	"os"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
@@ -391,6 +393,319 @@ func TestPickGenerationWeights(t *testing.T) {
 		want := float64(n*len(ids)) / float64(total)
 		if math.Abs(float64(counts[g])-want) > 0.03*n {
 			t.Errorf("generation %d drew %d of %d names, want about %.0f", g+1, counts[g], n, want)
+		}
+	}
+}
+
+// renderedCell is one visible cell of a rendered figure.
+type renderedCell struct {
+	r      rune
+	fg, bg *[3]int
+	hasBG  bool
+}
+
+// parseRender splits rendered lines into cells, tracking SGR foreground
+// and background. A reset clears both.
+func parseRender(lines []string) [][]renderedCell {
+	out := make([][]renderedCell, len(lines))
+	for i, line := range lines {
+		var fg, bg *[3]int
+		var row []renderedCell
+		for j := 0; j < len(line); {
+			if line[j] == 0x1b {
+				seq, n := escape(line[j:])
+				j += n
+				fg, bg = applyRenderSGR(fg, bg, seq)
+				continue
+			}
+			r, n := utf8.DecodeRuneInString(line[j:])
+			j += n
+			row = append(row, renderedCell{r: r, fg: fg, bg: bg, hasBG: bg != nil})
+		}
+		out[i] = row
+	}
+	return out
+}
+
+func applyRenderSGR(fg, bg *[3]int, seq string) (*[3]int, *[3]int) {
+	if !strings.HasPrefix(seq, "\x1b[") || !strings.HasSuffix(seq, "m") {
+		return fg, bg
+	}
+	params := seq[2 : len(seq)-1]
+	if params == "" || params == "0" {
+		return nil, nil
+	}
+	parts := strings.Split(params, ";")
+	for i := 0; i+4 < len(parts); i++ {
+		rgb, ok := partsRGB(parts[i+2 : i+5])
+		if !ok {
+			continue
+		}
+		switch parts[i] + ";" + parts[i+1] {
+		case "38;2":
+			fg = &rgb
+		case "48;2":
+			bg = &rgb
+		}
+	}
+	return fg, bg
+}
+
+func partsRGB(parts []string) ([3]int, bool) {
+	var rgb [3]int
+	for i := range rgb {
+		v, ok := decimal255(parts[i])
+		if !ok {
+			return [3]int{}, false
+		}
+		rgb[i] = v
+	}
+	return rgb, true
+}
+
+func decimal255(s string) (int, bool) {
+	n := 0
+	if s == "" {
+		return 0, false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return 0, false
+		}
+		n = n*10 + int(r-'0')
+		if n > 255 {
+			return 0, false
+		}
+	}
+	return n, true
+}
+
+func paintedBounds(row string) (left, right int, ok bool) {
+	left = -1
+	i := 0
+	for _, r := range row {
+		if r != ' ' {
+			if left < 0 {
+				left = i
+			}
+			right = i
+			ok = true
+		}
+		i++
+	}
+	return left, right, ok
+}
+
+func TestBuiltinInteriorFill(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	for _, id := range BuiltinIDs() {
+		lines, err := Builtin(id, builtinCols, builtinRows, termenv.TrueColor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := parseRender(lines)
+		src := visibleLines(source(t, id))
+		for y, row := range src {
+			left, right, ok := paintedBounds(row)
+			if !ok {
+				continue
+			}
+			x := 0
+			for _, r := range row {
+				if x >= len(got[y]) {
+					t.Fatalf("%s %d,%d: rendered row is short", id, y, x)
+				}
+				cell := got[y][x]
+				if (x < left || x > right) && cell.hasBG {
+					t.Errorf("%s %d,%d outside the outline has background %v", id, y, x, *cell.bg)
+				}
+				if r != ' ' || x <= left || x >= right {
+					x++
+					continue
+				}
+				switch {
+				case interiorGap(id, y, x):
+					if cell.hasBG {
+						t.Errorf("%s %d,%d is a deliberate gap but has background %v", id, y, x, *cell.bg)
+					}
+				case !cell.hasBG:
+					t.Errorf("%s %d,%d enclosed space has no background", id, y, x)
+				default:
+					l := relativeLuminance(*cell.bg)
+					onBlack, onWhite := (l+0.05)/0.05, 1.05/(l+0.05)
+					if onBlack < 2 || onWhite < 2 {
+						t.Errorf("%s %d,%d fill %v contrast %.2f on black, %.2f on white", id, y, x, *cell.bg, onBlack, onWhite)
+					}
+				}
+				x++
+			}
+		}
+	}
+}
+
+func TestQueenAndKingFaceFill(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	for _, tc := range []struct {
+		id      string
+		eyeRow  int
+		eyes    []int
+		gap     []int
+		mouth   int
+		mouthAt []int
+	}{
+		{id: "queen", eyeRow: 2, eyes: []int{3, 6}, gap: []int{4, 5}, mouth: 3, mouthAt: []int{3, 4, 5, 6}},
+		{id: "king", eyeRow: 2, eyes: []int{3, 6}, gap: []int{4, 5}, mouth: 3, mouthAt: []int{3, 4, 5, 6}},
+	} {
+		lines, err := Builtin(tc.id, builtinCols, builtinRows, termenv.TrueColor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := parseRender(lines)
+		eyeBG := got[tc.eyeRow][tc.gap[0]]
+		if !eyeBG.hasBG {
+			t.Fatalf("%s face space has no background", tc.id)
+		}
+		for _, x := range tc.gap {
+			if !got[tc.eyeRow][x].hasBG || *got[tc.eyeRow][x].bg != *eyeBG.bg {
+				t.Errorf("%s eye gap col %d background = %v, want %v", tc.id, x, got[tc.eyeRow][x].bg, eyeBG.bg)
+			}
+		}
+		for _, x := range tc.eyes {
+			cell := got[tc.eyeRow][x]
+			if cell.r != 'o' || !cell.hasBG || cell.fg == nil || *cell.bg != *eyeBG.bg {
+				t.Errorf("%s eye col %d = %+v, want o on the face fill", tc.id, x, cell)
+				continue
+			}
+			if *cell.fg == *cell.bg || contrastRGB(*cell.fg, *cell.bg) < 2 {
+				t.Errorf("%s eye col %d fg %v does not sit on bg %v", tc.id, x, *cell.fg, *cell.bg)
+			}
+		}
+		for _, x := range tc.mouthAt {
+			cell := got[tc.mouth][x]
+			if !cell.hasBG || *cell.bg != *eyeBG.bg {
+				t.Errorf("%s mouth col %d background = %v, want face fill %v", tc.id, x, cell.bg, eyeBG.bg)
+			}
+		}
+		if got[0][0].hasBG || got[0][9].hasBG {
+			t.Errorf("%s corners outside the crown have a background", tc.id)
+		}
+		// The face fill is the eye glyph's own colour in the source.
+		want := sourceEye(t, tc.id)
+		if *eyeBG.bg != want {
+			t.Errorf("%s face fill = %v, want the eye colour %v", tc.id, *eyeBG.bg, want)
+		}
+	}
+}
+
+func sourceEye(t *testing.T, id string) [3]int {
+	t.Helper()
+	text := source(t, id)
+	var fg *[3]int
+	for i := 0; i < len(text); {
+		if text[i] == 0x1b {
+			seq, n := escape(text[i:])
+			i += n
+			fg, _ = applyRenderSGR(fg, nil, seq)
+			continue
+		}
+		r, n := utf8.DecodeRuneInString(text[i:])
+		i += n
+		if r == 'o' && fg != nil {
+			return *fg
+		}
+	}
+	t.Fatalf("%s has no coloured o", id)
+	return [3]int{}
+}
+
+func contrastRGB(a, b [3]int) float64 {
+	hi, lo := relativeLuminance(a), relativeLuminance(b)
+	if hi < lo {
+		hi, lo = lo, hi
+	}
+	return (hi + 0.05) / (lo + 0.05)
+}
+
+func TestQueenAndKingGolden(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	for _, id := range []string{"queen", "king"} {
+		lines, err := Builtin(id, builtinCols, builtinRows, termenv.TrueColor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := strings.Join(lines, "\n") + "\n"
+		want, err := os.ReadFile("testdata/" + id + ".golden")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != string(want) {
+			t.Errorf("%s render differs from testdata/%s.golden", id, id)
+		}
+		if !strings.Contains(got, "48;2;") {
+			t.Errorf("%s golden has no background color", id)
+		}
+	}
+}
+
+func TestBuiltinNoColorFillsWithBlock(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	lines, err := Builtin("queen", builtinCols, builtinRows, termenv.TrueColor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := strings.Join(lines, ""); strings.Contains(s, "\x1b") {
+		t.Fatalf("NO_COLOR queen has escapes: %q", s)
+	}
+	got := visibleLines(strings.Join(lines, "\n"))
+	if got[2] != " ▐█o██o█▌ " {
+		t.Errorf("queen eyes row = %q, want the gap filled with blocks", got[2])
+	}
+	if got[3] != " ▐██▀▀██▌ " {
+		t.Errorf("queen mouth row = %q, want cheek spaces filled with blocks", got[3])
+	}
+	if got[0] != "   ▗▙▟▖   " {
+		t.Errorf("queen crown row = %q, want the outside left clear", got[0])
+	}
+	bee, err := Builtin("bee", builtinCols, builtinRows, termenv.Ascii)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bee[0] != " ▄▄    ▄▄ " {
+		t.Errorf("bee wings row = %q, want the gap between the wings left clear", bee[0])
+	}
+}
+
+func TestBuiltinFillProfiles(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	lines, err := Builtin("queen", builtinCols, builtinRows, termenv.ANSI256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := strings.Join(lines, "")
+	if strings.Contains(all, "48;2;") || strings.Contains(all, "38;2;") {
+		t.Errorf("ANSI256 queen still has truecolor: %q", all)
+	}
+	if !strings.Contains(all, "48;5;") || !strings.Contains(all, "38;5;") {
+		t.Errorf("ANSI256 queen = %q, want downsampled fg and bg", all)
+	}
+	lines, err = Builtin("queen", builtinCols, builtinRows, termenv.ANSI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all = strings.Join(lines, "")
+	if strings.Contains(all, "48;2;") || strings.Contains(all, "38;2;") || strings.Contains(all, ";5;") {
+		t.Errorf("ANSI queen has a higher color profile: %q", all)
+	}
+	if !strings.Contains(all, "\x1b[") {
+		t.Errorf("ANSI queen has no color: %q", all)
+	}
+	for _, id := range BuiltinIDs() {
+		for _, profile := range []termenv.Profile{termenv.ANSI256, termenv.ANSI, termenv.Ascii} {
+			got, err := Builtin(id, builtinCols, builtinRows, profile)
+			if err != nil {
+				t.Fatalf("%s profile %v: %v", id, profile, err)
+			}
+			checkShape(t, got, builtinCols, builtinRows)
 		}
 	}
 }
