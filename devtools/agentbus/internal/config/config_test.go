@@ -36,6 +36,17 @@ hub_socket = "/run/user/1000/agentbus/hub.sock"  # on the hub
 	}
 }
 
+func TestParseIdentityAgent(t *testing.T) {
+	got, err := Parse("ssh_identity_agent = \"~/.ssh/agent.sock\"\n")
+	if err != nil || got.SSHIdentityAgent != "~/.ssh/agent.sock" {
+		t.Fatalf("Parse tilde = %q, %v", got.SSHIdentityAgent, err)
+	}
+	got, err = Parse("ssh_identity_agent = \"/Users/me/.ssh/agent.sock\"\n")
+	if err != nil || got.SSHIdentityAgent != "/Users/me/.ssh/agent.sock" {
+		t.Fatalf("Parse absolute = %q, %v", got.SSHIdentityAgent, err)
+	}
+}
+
 func TestParseLeaseCheckouts(t *testing.T) {
 	got, err := Parse(`lease_checkouts = ["/home/u/src/repo", "/home/u/src/other/"]  # guarded
 `)
@@ -246,6 +257,9 @@ func TestParseErrors(t *testing.T) {
 		{"hub_socket = \"\"\n", "line 1: hub_socket must be a non-empty string"},
 		{"hub_socket = \"run/hub.sock\"\n", "line 1: hub_socket must be an absolute path"},
 		{"hub_socket = \"/run/a:b.sock\"\n", "line 1: hub_socket must not contain a colon"},
+		{"ssh_identity_agent = \"rel/agent.sock\"\n", "ssh_identity_agent must be an absolute path"},
+		{"ssh_identity_agent = \"~\"\n", "ssh_identity_agent must be an absolute path"},
+		{"ssh_identity_agent = \"\"\n", "ssh_identity_agent must be a non-empty string"},
 		{"lease_check_interval = \"0s\"\n", "line 1: lease_check_interval must be a positive duration"},
 		{"lease_checkin_repeat = \"often\"\n", "line 1: lease_checkin_repeat must be a positive duration"},
 		{"lease_idle_grace = 5\n", "line 1: lease_idle_grace must be a positive duration"},
@@ -289,5 +303,39 @@ func TestLoad(t *testing.T) {
 	path, err := Path([]string{"HOME=" + home, "XDG_CONFIG_HOME=" + xdg})
 	if err != nil || path != filepath.Join(xdg, "agentbus", "config.toml") {
 		t.Fatalf("Path = %q, %v", path, err)
+	}
+}
+
+func TestLoadExpandsSSHIdentityAgent(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, ".config", "agentbus")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte("ssh_identity_agent = \"~/.ssh/agent.sock\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load([]string{"HOME=" + home})
+	want := filepath.Join(home, ".ssh", "agent.sock")
+	if err != nil || got.SSHIdentityAgent != want {
+		t.Fatalf("Load = %q, %v; want %q", got.SSHIdentityAgent, err, want)
+	}
+	if err := os.WriteFile(path, []byte("ssh_identity_agent = \"/var/run/agent.sock\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err = Load([]string{"HOME=" + home})
+	if err != nil || got.SSHIdentityAgent != "/var/run/agent.sock" {
+		t.Fatalf("Load absolute = %q, %v", got.SSHIdentityAgent, err)
+	}
+	xdg := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(xdg, "agentbus"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(xdg, "agentbus", "config.toml"), []byte("ssh_identity_agent = \"~/.ssh/agent.sock\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load([]string{"XDG_CONFIG_HOME=" + xdg}); err == nil || !strings.Contains(err.Error(), "HOME is not set") {
+		t.Fatalf("Load without HOME = %v", err)
 	}
 }

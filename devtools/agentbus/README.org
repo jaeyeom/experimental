@@ -240,11 +240,15 @@ herdr label as the hub knows it:
 hub = "me@hub"          # ssh target that runs agentbus (AGENTBUS_HUB overrides it)
 machine = "linux2"      # this machine's herdr saved-machine label on the hub
 remote_timeout = "5s"   # ssh connect timeout (default 5s)
+ssh_identity_agent = "~/.ssh/agent.sock"  # optional IdentityAgent for that ssh
 #+end_src
 
 Then every command except ~help~, ~install~, and ~install-hooks~ runs as
 ~ssh -o BatchMode=yes -o ConnectTimeout=<n> <hub> agentbus <args>~,
-with each argument quoted. stdout, stderr, and the exit code come back
+with each argument quoted. When ~ssh_identity_agent~ is set, that ssh
+also passes ~-o IdentityAgent=<path>~, with a leading ~~/~ expanded,
+and ~agentbus install~ writes the same option into the tunnel unit.
+Unset leaves ssh's own agent lookup. stdout, stderr, and the exit code come back
 unchanged. ~send~ forwards stdin, and reads a ~--file~ path here and
 sends its content, so the hub never needs the path. Commands that
 identify the caller (~register~, ~describe~, ~whoami~, ~release~,
@@ -257,7 +261,12 @@ shows the command came over ssh, and replies go back through
 The hub must be reachable without a prompt:
 
 - an SSH key the agent holds, because ~BatchMode=yes~ never asks for a
-  passphrase;
+  passphrase. A passphrase key needs an agent. The launchd or systemd
+  tunnel does not inherit ~SSH_AUTH_SOCK~. Point ~ssh_identity_agent~
+  at a stable socket such as ~~/.ssh/agent.sock~, kept current from
+  the login shell (=ln -sf "$SSH_AUTH_SOCK" ~/.ssh/agent.sock=), and
+  re-run ~agentbus install~. ~agentbus doctor~ says so when the tunnel
+  last exited 255, and says when that socket is a dangling link;
 - ~agentbus~ on the hub's ~PATH~ for a non-interactive ssh command, and
   ~XDG_RUNTIME_DIR~ set there, for example in ~~/.zshenv~;
 - a POSIX login shell (sh, bash, or zsh) on the hub, which runs the

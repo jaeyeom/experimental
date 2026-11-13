@@ -316,7 +316,7 @@ func attemptSSH(ctx context.Context, cfg config.Config, _ []string, e outbox.Ent
 	if e.Stdin != "" {
 		call.Stdin = strings.NewReader(e.Stdin)
 	}
-	hub := hubcall.Hub{Target: cfg.Hub, Tool: "agentbus", ConnectTimeout: cfg.RemoteTimeout}
+	hub := agentHub(cfg)
 	code, err := hub.Run(ctx, call)
 	// A cancelled ssh comes back as a bare non-zero code. That is not a
 	// hub refusal, and dropping the queued message would lose it.
@@ -1008,7 +1008,7 @@ func hubRecordHook(ctx context.Context, cfg config.Config, args, env []string, s
 	}
 	call := hubcall.Call{Args: append([]string{"hook"}, args...), Stdin: bytes.NewReader(raw), Stderr: io.Discard}
 	total := hubHookTimeout(env)
-	hub := hookHub(hubcall.Hub{Target: cfg.Hub, Tool: "agentbus", ConnectTimeout: cfg.RemoteTimeout}, total)
+	hub := hookHub(agentHub(cfg), total)
 	ctx, cancel := context.WithTimeout(ctx, total)
 	defer cancel()
 	code, err := hub.Run(ctx, call)

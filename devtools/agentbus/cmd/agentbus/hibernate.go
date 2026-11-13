@@ -14,7 +14,6 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/hibernate"
-	"github.com/jaeyeom/experimental/devtools/pkg/hubcall"
 	"github.com/jaeyeom/experimental/devtools/pkg/procinfo"
 )
 
@@ -157,7 +156,7 @@ func hibernateHubRoute(ctx context.Context, cfg config.Config, env []string, std
 	if ok {
 		return routed, nil
 	}
-	r := sshRoute{hub: hubcall.Hub{Target: cfg.Hub, Tool: "agentbus", ConnectTimeout: cfg.RemoteTimeout}}
+	r := sshRoute{hub: agentHub(cfg)}
 	if envGet(env, "HERDR_PANE_ID") != "" {
 		if caller, err := callerHandle(ctx, cfg, env); err == nil {
 			r.handle = caller

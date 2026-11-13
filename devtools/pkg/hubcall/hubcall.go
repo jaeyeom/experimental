@@ -59,6 +59,9 @@ type Hub struct {
 	// Deadline bounds the time until the hub's shell runs. Zero is twice
 	// ConnectTimeout.
 	Deadline time.Duration
+	// IdentityAgent, when set, is ssh's IdentityAgent. Empty leaves ssh's
+	// own agent lookup alone.
+	IdentityAgent string
 	// Probe tells a down host from a locked key. Nil is TCPProbe(Target).
 	Probe remotecall.Probe
 }
@@ -92,8 +95,11 @@ func (h Hub) Run(ctx context.Context, c Call) (int, error) {
 	args := []string{
 		"-o", "BatchMode=yes",
 		"-o", "ConnectTimeout=" + strconv.Itoa(int((connect+time.Second-1)/time.Second)),
-		"--", h.Target, RemoteCommand(h.Tool, c.Env, c.Args),
 	}
+	if h.IdentityAgent != "" {
+		args = append(args, "-o", "IdentityAgent="+h.IdentityAgent)
+	}
+	args = append(args, "--", h.Target, RemoteCommand(h.Tool, c.Env, c.Args))
 	callCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	stderr := &readyWriter{out: c.Stderr}

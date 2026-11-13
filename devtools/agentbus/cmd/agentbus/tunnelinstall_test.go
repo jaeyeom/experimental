@@ -77,6 +77,33 @@ func TestTunnelUnitTexts(t *testing.T) {
 	}
 }
 
+func TestTunnelSSHArgsIncludeIdentityAgent(t *testing.T) {
+	spec := tunnelSpec{
+		ssh:           "/usr/bin/ssh",
+		target:        "me@hub",
+		local:         "/rt/agentbus/tunnel.sock",
+		remote:        "/run/user/1000/agentbus/hub.sock",
+		identityAgent: "/Users/me/.ssh/agent.sock",
+	}
+	args := spec.sshArgs()
+	const opt = "IdentityAgent=/Users/me/.ssh/agent.sock"
+	if slices.Index(args, opt) < 0 || slices.Index(args, opt) > slices.Index(args, "-L") {
+		t.Fatalf("ssh args = %q", args)
+	}
+	plist, err := tunnelBody("darwin", spec, nil)
+	if err != nil || !strings.Contains(plist, "<string>"+opt+"</string>") {
+		t.Fatalf("plist = %s, %v", plist, err)
+	}
+	unit, err := tunnelBody("linux", spec, nil)
+	if err != nil || !strings.Contains(unit, `-o "IdentityAgent=/Users/me/.ssh/agent.sock"`) {
+		t.Fatalf("unit = %s, %v", unit, err)
+	}
+	plain := tunnelSpec{ssh: spec.ssh, target: spec.target, local: spec.local, remote: spec.remote}
+	if slices.ContainsFunc(plain.sshArgs(), func(arg string) bool { return strings.Contains(arg, "IdentityAgent") }) {
+		t.Fatalf("unset ssh args = %q", plain.sshArgs())
+	}
+}
+
 func TestHubInstallNeedsHubSocket(t *testing.T) {
 	h := startHub(t, `hub = "me@hub"`)
 	env := append(append([]string{}, h.env...), "AGENTBUS_INSTALL_NO_LOAD=1")
@@ -216,6 +243,94 @@ func TestPathsJSON(t *testing.T) {
 	want := filepath.Join(runtimeDir, "agentbus")
 	if got.Socket != filepath.Join(want, "daemon.sock") || got.HubSocket != filepath.Join(want, "hub.sock") || got.TunnelSocket != filepath.Join(want, "tunnel.sock") || got.StateDir != filepath.Join(state, "agentbus") {
 		t.Fatalf("paths = %+v", got)
+	}
+}
+
+func TestSSHIdentityAgentReachesTheTunnelAndTheFallback(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("install supports launchd and systemd")
+	}
+	h := startHub(t, `hub = "me@hub"`, `hub_socket = "/run/user/1000/agentbus/hub.sock"`, `ssh_identity_agent = "~/.ssh/agent.sock"`)
+	home := strings.TrimPrefix(h.env[0], "HOME=")
+	want := "IdentityAgent=" + filepath.Join(home, ".ssh", "agent.sock")
+	if code, _, stderr := h.run(t, "", "list"); code != 0 {
+		t.Fatalf("list = %d, stderr %q", code, stderr)
+	}
+	if argv := h.ssh.Lines("argv"); !slices.Contains(argv, want) {
+		t.Fatalf("ssh argv = %q, want %s", argv, want)
+	}
+	env := append(append([]string{}, h.env...), "AGENTBUS_INSTALL_NO_LOAD=1")
+	code, stdout, stderr := h.runEnv(t, env, "", "install")
+	if code != 0 {
+		t.Fatalf("install = %d, stdout %q, stderr %q", code, stdout, stderr)
+	}
+	path, err := tunnelPath(runtime.GOOS, home, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(data), want) {
+		t.Fatalf("unit = %s, %v", data, err)
+	}
+
+	plain := startHub(t, `hub = "me@hub"`)
+	if code, _, stderr := plain.run(t, "", "list"); code != 0 {
+		t.Fatalf("plain list = %d, stderr %q", code, stderr)
+	}
+	if argv := plain.ssh.Lines("argv"); slices.ContainsFunc(argv, func(arg string) bool { return strings.Contains(arg, "IdentityAgent") }) {
+		t.Fatalf("ssh argv %q sets IdentityAgent", argv)
+	}
+}
+
+func TestDoctorHintsWhenTheTunnelExits255(t *testing.T) {
+	h := startHub(t, `hub = "me@hub"`)
+	orig := tunnelExitStatus
+	tunnelExitStatus = func(context.Context, []string) (int, bool) { return 255, true }
+	t.Cleanup(func() { tunnelExitStatus = orig })
+	code, stdout, stderr := h.run(t, "", "doctor")
+	if code != 0 {
+		t.Fatalf("doctor = %d, stderr %q", code, stderr)
+	}
+	if !strings.Contains(stdout, tunnelAuthHint) || strings.Contains(stdout, "dangling") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestDoctorSaysTheAgentSocketIsDangling(t *testing.T) {
+	h := startHub(t, `hub = "me@hub"`)
+	home := strings.TrimPrefix(h.env[0], "HOME=")
+	if err := os.MkdirAll(filepath.Join(home, ".ssh"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(home, ".ssh", "missing-agent"), filepath.Join(home, ".ssh", "agent.sock")); err != nil {
+		t.Fatal(err)
+	}
+	orig := tunnelExitStatus
+	tunnelExitStatus = func(context.Context, []string) (int, bool) { return 255, true }
+	t.Cleanup(func() { tunnelExitStatus = orig })
+	code, stdout, stderr := h.run(t, "", "doctor")
+	if code != 0 {
+		t.Fatalf("doctor = %d, stderr %q", code, stderr)
+	}
+	if !strings.Contains(stdout, tunnelDanglingHint) || strings.Contains(stdout, "ssh probably could not authenticate") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestParseTunnelExitStatus(t *testing.T) {
+	code, ok := parseLaunchdExit("\tstate = spawn scheduled\n\tlast exit code = 255\n")
+	if !ok || code != 255 {
+		t.Fatalf("launchd = %d, %v", code, ok)
+	}
+	if _, ok := parseLaunchdExit("last exit code = (never exited)\n"); ok {
+		t.Fatal("never exited parsed")
+	}
+	code, ok = parseSystemdExit("ExecMainStatus=255\n")
+	if !ok || code != 255 {
+		t.Fatalf("systemd = %d, %v", code, ok)
+	}
+	if _, ok := parseSystemdExit("ActiveState=inactive\n"); ok {
+		t.Fatal("missing ExecMainStatus parsed")
 	}
 }
 

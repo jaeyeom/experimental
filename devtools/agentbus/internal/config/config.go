@@ -8,6 +8,7 @@
 //	list_liveness_max_age = "15s"  # list refreshes cached liveness older than this
 //	hub = "me@hub"          # run every command on this ssh target
 //	machine = "linux2"      # this machine's herdr label on the hub
+//	ssh_identity_agent = "~/.ssh/agent.sock"  # ssh IdentityAgent for the hub
 //	hub_socket = "/run/user/1000/agentbus/hub.sock"  # hub.sock on the hub
 //	lease_checkouts = ["/home/u/src/repo"]  # checkouts the lease guards
 //	lease_check_interval = "2m"   # how often an overrun holder is checked
@@ -57,6 +58,10 @@ type Config struct {
 	// HubSocket is the hub daemon's hub.sock path on the hub. agentbus
 	// install in hub mode forwards the local tunnel socket to it.
 	HubSocket string
+	// SSHIdentityAgent is ssh's IdentityAgent for calls to the hub.
+	// Load expands a leading "~/" against HOME. Empty means ssh's own
+	// agent lookup.
+	SSHIdentityAgent string
 	// LeaseCheckouts are this machine's guarded checkouts: absolute
 	// paths of git top-levels that need the lease before a change.
 	LeaseCheckouts []string
@@ -184,7 +189,25 @@ func Load(env []string) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("%s: %w", path, err)
 	}
+	if err := cfg.expandIdentity(env); err != nil {
+		return Config{}, fmt.Errorf("%s: %w", path, err)
+	}
 	return cfg, nil
+}
+
+// expandIdentity rewrites a "~/..." ssh_identity_agent against HOME.
+// An absolute path is left as written.
+func (c *Config) expandIdentity(env []string) error {
+	path := c.SSHIdentityAgent
+	if !strings.HasPrefix(path, "~/") {
+		return nil
+	}
+	home := envGet(env, "HOME")
+	if home == "" {
+		return errors.New(`HOME is not set; ssh_identity_agent starts with "~/"`)
+	}
+	c.SSHIdentityAgent = filepath.Join(home, path[2:])
+	return nil
 }
 
 // Parse reads the config text.
@@ -237,7 +260,7 @@ func parseLine(cfg *Config, line string) error {
 		return parseLeaseIgnoreProcs(cfg, value)
 	case "hibernate_exempt":
 		return parseHibernateExempt(cfg, value)
-	case "hub", "machine", "hub_socket":
+	case "hub", "machine", "hub_socket", "ssh_identity_agent":
 		return parseHubKey(cfg, key, value)
 	default:
 		return fmt.Errorf("unknown key %s", key)
@@ -405,8 +428,25 @@ func parseHubSocket(cfg *Config, value string) error {
 	return nil
 }
 
-// parseHubKey reads hub, machine, or hub_socket.
+// parseIdentityAgent reads ssh_identity_agent. The path is absolute
+// or starts with "~/", which Load expands against HOME.
+func parseIdentityAgent(cfg *Config, value string) error {
+	path, err := parseName("ssh_identity_agent", value)
+	if err != nil {
+		return err
+	}
+	if !filepath.IsAbs(path) && !strings.HasPrefix(path, "~/") {
+		return errors.New(`ssh_identity_agent must be an absolute path or start with "~/", such as "~/.ssh/agent.sock"`)
+	}
+	cfg.SSHIdentityAgent = path
+	return nil
+}
+
+// parseHubKey reads hub, machine, hub_socket, or ssh_identity_agent.
 func parseHubKey(cfg *Config, key, value string) error {
+	if key == "ssh_identity_agent" {
+		return parseIdentityAgent(cfg, value)
+	}
 	if key == "hub_socket" {
 		return parseHubSocket(cfg, value)
 	}

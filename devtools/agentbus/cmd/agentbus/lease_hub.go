@@ -77,7 +77,7 @@ func leaseHubRoute(ctx context.Context, cfg config.Config, env []string, bound b
 	if ok {
 		return routed, nil
 	}
-	r := sshRoute{hub: hubcall.Hub{Target: cfg.Hub, Tool: "agentbus", ConnectTimeout: cfg.RemoteTimeout}}
+	r := sshRoute{hub: agentHub(cfg)}
 	if bound {
 		r.hub.ConnectTimeout = leaseHookTimeout / 3
 		r.hub.Deadline = leaseHookTimeout / 2

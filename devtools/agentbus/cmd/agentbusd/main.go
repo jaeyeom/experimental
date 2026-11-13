@@ -56,6 +56,9 @@ Config file ($XDG_CONFIG_HOME/agentbus/config.toml, optional):
   hub = "me@hub"          this machine uses the daemon on this ssh target,
                           so agentbusd refuses to start (AGENTBUS_HUB
                           overrides it)
+  ssh_identity_agent = "~/.ssh/agent.sock"
+                          optional ssh IdentityAgent for hub-mode ssh;
+                          "~/" expands when the config is loaded
   lease_check_interval = "2m"
                           how often a holder past its lease bid is looked
                           at, and how far one still working is extended

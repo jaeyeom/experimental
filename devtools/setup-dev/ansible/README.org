@@ -139,6 +139,8 @@ machine until you run one there.
 | =client_machine_label= | required    | this client's herdr saved-machine label on the hub       |
 | =hub_tools_version=    | =latest=    | =go install= version of agentbus and decide: a tag or commit |
 | =hub_connect_timeout=  | =5s=        | ssh connect timeout (=hubTimeout=, =remote_timeout=)     |
+| =hub_ssh_stable_agent= | =false=     | opt in: login rc links =~/.ssh/agent.sock=, sets =ssh_identity_agent=, and prints =agentbus install= when the tunnel unit is installed and that key changed |
+| =hub_ssh_agent_rc=     | first of =~/.zprofile=, =~/.bash_profile=, =~/.profile= | login rc for that block; keep it after the agent-start line |
 | =hub_host_shell=       | login shell | =bash= or =zsh=, for =setup-hub-host.yml=                |
 
 Set them in the client's per-machine vars file (see [[*Per-machine
@@ -168,6 +170,17 @@ in hub mode, so it is not installed. Then it:
 
 Both files are backed up before a change. It does not run
 =agentbus install=, start a service or tunnel, or touch tokens.
+
+With =hub_ssh_stable_agent: true= (the default is false) it also
+appends a marked block to the login rc (=hub_ssh_agent_rc=, or
+=~/.zprofile= if it exists, else =~/.bash_profile=, else =~/.profile=).
+The block runs =ln -sf "$SSH_AUTH_SOCK" ~/.ssh/agent.sock= after the
+agent has started; keep it after the agent-start line if you move it.
+It sets =ssh_identity_agent = "~/.ssh/agent.sock"= in the agentbus
+config. It still does not edit =~/.ssh/config= and still does not run
+=agentbus install=. When the tunnel unit is already installed and that
+key changed, it prints =agentbus install= so you can rewrite the unit
+and restart it.
 
 Run each playbook on its own machine:
 
