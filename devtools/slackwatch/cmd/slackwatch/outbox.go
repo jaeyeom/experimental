@@ -95,8 +95,9 @@ func readClient(cfg slackwatch.Config) (*slack.Client, error) {
 }
 
 // lookupChannelName returns #name for a channel id, or "" when it is
-// unknown, such as without a token file or for a DM.
-func lookupChannelName(cfg slackwatch.Config, id string) string {
+// unknown, such as without a token file or for a DM. A name it learns
+// is stored in the channel cache.
+func lookupChannelName(cfg slackwatch.Config, store *slackwatch.Store, id string) string {
 	if cfg.TokenFile == "" {
 		return ""
 	}
@@ -108,12 +109,23 @@ func lookupChannelName(cfg slackwatch.Config, id string) string {
 	if err != nil || ch.Name == "" {
 		return ""
 	}
+	if store != nil {
+		if err := store.PutChannel(ch.Name, id, time.Now()); err != nil {
+			return "#" + ch.Name
+		}
+	}
 	return "#" + ch.Name
 }
 
 // newOutbox builds the outbox engine for configPath. It rereads the
 // config before posting, so a new slackwatch pin takes effect at once.
-func newOutbox(configPath string, cfg slackwatch.Config, store *slackwatch.Store, logger *slog.Logger) *slackwatch.Outbox {
+func newOutbox(configPath string, cfg slackwatch.Config, store *slackwatch.Store, logger *slog.Logger, stderr io.Writer) *slackwatch.Outbox {
+	lookup := channelLookup(cfg, store, stderr)
+	if stderr == nil && logger != nil {
+		lookup.OnWait = func(d time.Duration) {
+			logger.Info(fmt.Sprintf("rate limited, waiting %s…", d))
+		}
+	}
 	return &slackwatch.Outbox{
 		Store:    store,
 		Config:   cfg,
@@ -124,6 +136,7 @@ func newOutbox(configPath string, cfg slackwatch.Config, store *slackwatch.Store
 		Reader:   readTokenReader{cfg: cfg},
 		Now:      time.Now,
 		Logger:   logger,
+		Channels: &lookup,
 	}
 }
 
@@ -134,7 +147,7 @@ func withOutbox(configPath string, stderr io.Writer, f func(*slackwatch.Outbox) 
 		return fail(stderr, err)
 	}
 	defer store.Close()
-	if err := f(newOutbox(configPath, cfg, store, slog.New(slog.NewTextHandler(stderr, nil)))); err != nil {
+	if err := f(newOutbox(configPath, cfg, store, slog.New(slog.NewTextHandler(stderr, nil)), stderr)); err != nil {
 		return fail(stderr, err)
 	}
 	return 0
@@ -142,11 +155,11 @@ func withOutbox(configPath string, stderr io.Writer, f func(*slackwatch.Outbox) 
 
 // destination resolves --to: a channel id, a #name, or a message
 // permalink, whose thread the post replies in.
-func destination(cfg slackwatch.Config, store *slackwatch.Store, to string) (slackwatch.Draft, error) {
+func destination(cfg slackwatch.Config, store *slackwatch.Store, to string, stderr io.Writer) (slackwatch.Draft, error) {
 	var d slackwatch.Draft
 	switch {
 	case strings.HasPrefix(to, "#"):
-		id, err := resolveChannel(cfg, strings.TrimPrefix(to, "#"))
+		id, err := resolveChannel(cfg, store, strings.TrimPrefix(to, "#"), stderr)
 		if err != nil {
 			return d, err
 		}
@@ -174,7 +187,7 @@ func destination(cfg slackwatch.Config, store *slackwatch.Store, to string) (sla
 	default:
 		return d, fmt.Errorf("--to %q is not a channel id, #name, or thread permalink", to)
 	}
-	d.DestName = lookupChannelName(cfg, d.Channel)
+	d.DestName = lookupChannelName(cfg, store, d.Channel)
 	return d, nil
 }
 
@@ -187,6 +200,7 @@ func cmdPost(configPath string, args []string, stdout, stderr io.Writer) int {
 	var refs stringList
 	fs.Var(&refs, "ref", "reference such as an issue or PR (repeatable)")
 	supersedes := fs.String("supersedes", "", "outbox id this draft replaces")
+	unchecked := fs.Bool("owner-unchecked", false, "accept an owner that is not a known target or agent")
 	asJSON := fs.Bool("json", false, "print the outbox record as JSON")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
@@ -212,12 +226,15 @@ func cmdPost(configPath string, args []string, stdout, stderr io.Writer) int {
 	if err := cfg.CheckPost(); err != nil {
 		return fail(stderr, err)
 	}
+	if err := checkOwner(cfg, *owner, *unchecked, stderr); err != nil {
+		return fail(stderr, err)
+	}
 	text, err := os.ReadFile(*textFile)
 	if err != nil {
 		return fail(stderr, fmt.Errorf("read --text-file: %w", err))
 	}
 	return withOutbox(configPath, stderr, func(o *slackwatch.Outbox) error {
-		d, err := destination(cfg, o.Store, *to)
+		d, err := destination(cfg, o.Store, *to, stderr)
 		if err != nil {
 			return err
 		}
@@ -653,7 +670,7 @@ func startOutbox(ctx context.Context, configPath string, cfg slackwatch.Config, 
 		logger.Error("slackwatch serve: posting not started", "error", err)
 		return
 	}
-	o := newOutbox(configPath, cfg, store, logger)
+	o := newOutbox(configPath, cfg, store, logger, nil)
 	if cfg.Post.Mode == slackwatch.PostModeDirect {
 		if err := o.CheckIdentity(ctx); err != nil {
 			logger.Error("slackwatch serve: write token identity check", "error", err)

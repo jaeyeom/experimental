@@ -57,6 +57,12 @@ type Config struct {
 	ExcerptLimit     int               `json:"excerptLimit"`
 	DBPath           string            `json:"dbPath"`
 	TokenFile        string            `json:"tokenFile"`
+	// ChannelCacheTTL is how long a cached channel name → id is trusted.
+	// The default is 168h. Zero trusts nothing.
+	ChannelCacheTTL Duration `json:"channelCacheTtl"`
+	// ChannelLookupWait is the longest a name lookup waits out Slack rate limits.
+	// The default is 60s. Zero fails on the first rate limit.
+	ChannelLookupWait Duration `json:"channelLookupWait"`
 	// Outbox is where agents send Slack drafts for approval and posting,
 	// such as an agentbus name. slackwatch skill names it.
 	Outbox string `json:"outbox"`
@@ -313,7 +319,9 @@ func defaultConfig() Config {
 			{DefaultNotifyRetry1},
 			{DefaultNotifyRetry2},
 		},
-		DBPath: DefaultDBPath(),
+		DBPath:            DefaultDBPath(),
+		ChannelCacheTTL:   Duration{DefaultChannelCacheTTL},
+		ChannelLookupWait: Duration{DefaultChannelLookupWait},
 	}
 }
 

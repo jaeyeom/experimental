@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -14,7 +15,7 @@ import (
 func useFakeResolver(t *testing.T, ids map[string]string) {
 	t.Helper()
 	old := resolveChannel
-	resolveChannel = func(_ slackwatch.Config, name string) (string, error) {
+	resolveChannel = func(_ slackwatch.Config, _ *slackwatch.Store, name string, _ io.Writer) (string, error) {
 		if id, ok := ids[name]; ok {
 			return id, nil
 		}

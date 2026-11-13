@@ -84,7 +84,7 @@ Commands:
                       mark every stored reply acknowledged
   slackwatch ls [--owner T] [--state S] [--unacked] [--json]
   slackwatch show <post> [--json]
-  slackwatch sub <channel> --owner T [--purpose S] [--until DATE] [--include-self]
+  slackwatch sub <channel> --owner T [--purpose S] [--until DATE] [--include-self] [--owner-unchecked]
                       notify T of every new message in a channel
   slackwatch unsub <channel> [--owner T]
   slackwatch subs [--json]
@@ -92,7 +92,7 @@ Commands:
                       server heartbeat; exits 1 when down, stale, or undelivered
   slackwatch inbound [--since DUR|DATE] [--json]
                       recorded DMs and mentions
-  slackwatch post --to <channel-id|#name|thread-permalink> --text-file F --owner T --purpose S [--ref R ...] [--supersedes ID] [--json]
+  slackwatch post --to <channel-id|#name|thread-permalink> --text-file F --owner T --purpose S [--ref R ...] [--supersedes ID] [--owner-unchecked] [--json]
                       submit a draft; it is posted only after the user approves
                       the exact text and destination in decide (needs post.mode)
   slackwatch outbox ls [--state S] [--json]

@@ -16,8 +16,11 @@ import (
 const pageLimit = 200
 
 // slackReader is slackwatch.SlackReader over the Slack Web API.
+// channels, when set, stores channel names seen on search results.
 type slackReader struct {
-	api *slack.Client
+	api      *slack.Client
+	channels *slackwatch.Store
+	now      func() time.Time
 }
 
 func (r slackReader) Replies(ctx context.Context, channel, threadTS, oldest string) ([]slackwatch.Fetched, error) {
@@ -61,6 +64,9 @@ func (r slackReader) Search(ctx context.Context, query string) ([]slackwatch.Fet
 			return nil, apiError("search.messages", err)
 		}
 		for _, m := range res.Matches {
+			if err := r.remember(m.Channel.Name, m.Channel.ID); err != nil {
+				return nil, err
+			}
 			out = append(out, searchFetched(m))
 		}
 		if params.Page >= res.Pages {
@@ -70,24 +76,47 @@ func (r slackReader) Search(ctx context.Context, query string) ([]slackwatch.Fet
 	}
 }
 
-// ChannelID finds a channel by name with conversations.list.
-func (r slackReader) ChannelID(ctx context.Context, name string) (string, error) {
-	p := &slack.GetConversationsParameters{ExcludeArchived: true, Limit: pageLimit, Types: []string{"public_channel", "private_channel"}}
-	for {
-		channels, next, err := r.api.GetConversationsContext(ctx, p)
-		if err != nil {
-			return "", apiError("conversations.list", err)
-		}
-		for _, c := range channels {
-			if c.Name == name {
-				return c.ID, nil
-			}
-		}
-		if next == "" {
-			return "", fmt.Errorf("no channel named #%s", name)
-		}
-		p.Cursor = next
+// ListChannels reads one page of conversations.list.
+func (r slackReader) ListChannels(ctx context.Context, cursor string) (slackwatch.ChannelPage, error) {
+	p := &slack.GetConversationsParameters{
+		ExcludeArchived: true, Limit: pageLimit, Cursor: cursor,
+		Types: []string{"public_channel", "private_channel"},
 	}
+	channels, next, err := r.api.GetConversationsContext(ctx, p)
+	if err != nil {
+		return slackwatch.ChannelPage{}, apiError("conversations.list", err)
+	}
+	page := slackwatch.ChannelPage{Next: next}
+	for _, c := range channels {
+		if c.Name == "" || c.ID == "" {
+			continue
+		}
+		page.Channels = append(page.Channels, slackwatch.NamedChannel{Name: c.Name, ID: c.ID})
+	}
+	return page, nil
+}
+
+// ChannelID finds a channel by name with conversations.list. It does not
+// use the state cache; resolveChannel does.
+func (r slackReader) ChannelID(ctx context.Context, name string) (string, error) {
+	return slackwatch.ChannelLookup{ //nolint:wrapcheck // Already names the channel and the fix.
+		List: r, TTL: slackwatch.DefaultChannelCacheTTL, MaxWait: slackwatch.DefaultChannelLookupWait,
+	}.ChannelID(ctx, name)
+}
+
+// remember stores a channel name seen by the service.
+func (r slackReader) remember(name, id string) error {
+	if r.channels == nil || name == "" || id == "" {
+		return nil
+	}
+	now := time.Now()
+	if r.now != nil {
+		now = r.now()
+	}
+	if err := r.channels.PutChannel(name, id, now); err != nil {
+		return fmt.Errorf("remember channel #%s: %w", name, err)
+	}
+	return nil
 }
 
 // Message reads one message back: a thread reply from
@@ -252,5 +281,5 @@ func slackCatchUp(cfg slackwatch.Config, store *slackwatch.Store, stderr io.Writ
 	if err != nil {
 		return nil, err
 	}
-	return &slackwatch.CatchUp{Slack: slackReader{api: api}, Proc: proc}, nil
+	return &slackwatch.CatchUp{Slack: slackReader{api: api, channels: store}, Proc: proc}, nil
 }

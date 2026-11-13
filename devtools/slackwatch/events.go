@@ -155,14 +155,33 @@ func mentions(text, user string) bool {
 	return user != "" && (strings.Contains(text, "<@"+user+">") || strings.Contains(text, "<@"+user+"|"))
 }
 
+// touchChannel refreshes a cached channel id. An unknown id is left alone.
+func (p *Processor) touchChannel(id string, now time.Time) error {
+	if id == "" {
+		return nil
+	}
+	return p.Store.TouchChannel(id, now) //nolint:wrapcheck // Already descriptive.
+}
+
+func (p *Processor) seenChannel(id string) error {
+	now := time.Now()
+	if p.Now != nil {
+		now = p.Now()
+	}
+	return p.touchChannel(id, now)
+}
+
 // HandleMessage classifies a new message and stores or notifies it. The
 // same (channel, ts) handled again is a no-op.
 func (p *Processor) HandleMessage(ctx context.Context, m Message) error {
+	now := p.Now()
+	if err := p.touchChannel(m.Channel, now); err != nil {
+		return err
+	}
 	st, err := p.Store.messageState(m)
 	if err != nil {
 		return err
 	}
-	now := p.Now()
 	d := classify(m, st, p.Self, p.Config, now)
 	notified, err := p.apply(ctx, m, d, now)
 	if err != nil {
@@ -348,6 +367,9 @@ func permalink(teamURL, channel, ts, threadTS string) string {
 // HandleEdit updates the stored text of an edited message. It never
 // notifies.
 func (p *Processor) HandleEdit(m Message) error {
+	if err := p.seenChannel(m.Channel); err != nil {
+		return err
+	}
 	if _, err := p.Store.DB().Exec(`UPDATE replies SET text = ?, edited_at = ? WHERE channel = ? AND ts = ?`,
 		m.Text, m.EditedTS, m.Channel, m.TS); err != nil {
 		return fmt.Errorf("edit reply %s/%s: %w", m.Channel, m.TS, err)
@@ -361,6 +383,9 @@ func (p *Processor) HandleEdit(m Message) error {
 
 // HandleDelete marks a stored reply deleted. It never notifies.
 func (p *Processor) HandleDelete(channel, ts string) error {
+	if err := p.seenChannel(channel); err != nil {
+		return err
+	}
 	if _, err := p.Store.DB().Exec(`UPDATE replies SET deleted = 1 WHERE channel = ? AND ts = ?`, channel, ts); err != nil {
 		return fmt.Errorf("delete reply %s/%s: %w", channel, ts, err)
 	}
@@ -370,6 +395,9 @@ func (p *Processor) HandleDelete(channel, ts string) error {
 // HandleReaction stores a reaction on a watched post or a stored reply
 // and drops any other. It never notifies.
 func (p *Processor) HandleReaction(channel string, r Reaction) error {
+	if err := p.seenChannel(channel); err != nil {
+		return err
+	}
 	if _, err := p.Store.DB().Exec(`
 INSERT INTO reactions (channel, ts, user, name)
 SELECT ?1, ?2, ?3, ?4 WHERE EXISTS (

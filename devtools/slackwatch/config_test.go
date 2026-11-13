@@ -57,6 +57,12 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.UnownedGrace.Duration != 10*time.Second {
 		t.Errorf("UnownedGrace = %v", cfg.UnownedGrace)
 	}
+	if cfg.ChannelCacheTTL.Duration != DefaultChannelCacheTTL {
+		t.Errorf("ChannelCacheTTL = %v", cfg.ChannelCacheTTL)
+	}
+	if cfg.ChannelLookupWait.Duration != DefaultChannelLookupWait {
+		t.Errorf("ChannelLookupWait = %v", cfg.ChannelLookupWait)
+	}
 	if want := "/xdg/state/slackwatch/slackwatch.db"; cfg.DBPath != want {
 		t.Errorf("DBPath = %q, want %q", cfg.DBPath, want)
 	}

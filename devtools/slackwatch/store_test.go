@@ -58,7 +58,7 @@ func TestStoreTables(t *testing.T) {
 	defer s.Close()
 	for _, table := range []string{
 		"watches", "watch_posts", "replies", "reactions", "inbound",
-		"subs", "cursors", "deliveries", "status", "workspace", "outbox", "posting",
+		"subs", "cursors", "deliveries", "status", "workspace", "outbox", "posting", "channels",
 	} {
 		var name string
 		err := s.DB().QueryRow(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&name)

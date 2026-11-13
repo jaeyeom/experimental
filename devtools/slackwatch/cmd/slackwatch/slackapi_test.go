@@ -169,6 +169,29 @@ func TestSlackReaderSearch(t *testing.T) {
 	}
 }
 
+func TestSlackReaderSearchRemembersChannel(t *testing.T) {
+	store, err := slackwatch.OpenStore(filepath.Join(t.TempDir(), "slackwatch.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	seen := time.Unix(1_700_000_000, 0)
+	r := fakeSlackAPI(t, func(string, *http.Request) (int, string) {
+		return 200, `{"ok":true,"messages":{"paging":{"page":1,"pages":1},"matches":[
+{"type":"message","user":"USELF","text":"top","ts":"5.000100","channel":{"id":"C5","name":"deploys"},
+ "permalink":"https://x.slack.com/archives/C5/p5000100"}]}}`
+	})
+	r.channels = store
+	r.now = func() time.Time { return seen }
+	if _, err := r.Search(context.Background(), "from:me"); err != nil {
+		t.Fatal(err)
+	}
+	id, got, ok, err := store.ChannelByName("deploys")
+	if err != nil || !ok || id != "C5" || !got.Equal(seen) {
+		t.Fatalf("cache = %q %v ok %v err %v", id, got, ok, err)
+	}
+}
+
 func TestSlackReaderRateLimit(t *testing.T) {
 	r := fakeSlackAPI(t, func(string, *http.Request) (int, string) {
 		return http.StatusTooManyRequests, `{"ok":false,"error":"ratelimited"}`

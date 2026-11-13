@@ -10,29 +10,58 @@ import (
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/slackwatch"
-	"github.com/slack-go/slack"
 )
 
-// resolveChannel looks up a channel id by name with conversations.list.
-// Tests replace it with a fake.
-var resolveChannel = func(cfg slackwatch.Config, name string) (string, error) {
+// waitFor sleeps out a Slack rate limit. Tests replace it.
+var waitFor = slackwatch.Wait
+
+// channelLookup resolves names through the state cache and conversations.list.
+func channelLookup(cfg slackwatch.Config, store *slackwatch.Store, stderr io.Writer) slackwatch.ChannelLookup {
+	lookup := slackwatch.ChannelLookup{
+		Store: store, List: tokenChannelList{cfg: cfg}, Now: time.Now,
+		TTL: cfg.ChannelCacheTTL.Duration, MaxWait: cfg.ChannelLookupWait.Duration, Sleep: waitFor,
+	}
+	if stderr != nil {
+		lookup.OnWait = func(d time.Duration) {
+			fmt.Fprintf(stderr, "rate limited, waiting %s…\n", d)
+		}
+	}
+	return lookup
+}
+
+// tokenChannelList lists conversations with the user token.
+type tokenChannelList struct {
+	cfg slackwatch.Config
+}
+
+func (t tokenChannelList) ListChannels(ctx context.Context, cursor string) (slackwatch.ChannelPage, error) {
+	api, err := readClient(t.cfg)
+	if err != nil {
+		return slackwatch.ChannelPage{}, err
+	}
+	page, err := slackReader{api: api}.ListChannels(ctx, cursor)
+	if err != nil {
+		return slackwatch.ChannelPage{}, err //nolint:wrapcheck // Already descriptive.
+	}
+	return page, nil
+}
+
+// resolveChannel looks up a channel id by name. A fresh cache hit makes
+// no API call. Tests replace it with a fake.
+var resolveChannel = func(cfg slackwatch.Config, store *slackwatch.Store, name string, stderr io.Writer) (string, error) {
 	if cfg.TokenFile == "" {
 		return "", fmt.Errorf("resolving #%s needs tokenFile; pass the channel id instead", name)
 	}
 	if err := slackwatch.CheckTokenFile(cfg.TokenFile); err != nil {
 		return "", err //nolint:wrapcheck // Already descriptive.
 	}
-	tokens, err := slackwatch.LoadTokens(cfg.TokenFile)
-	if err != nil {
-		return "", err //nolint:wrapcheck // Already descriptive.
-	}
-	return slackReader{api: slack.New(tokens.UserToken)}.ChannelID(context.Background(), name)
+	return channelLookup(cfg, store, stderr).ChannelID(context.Background(), name) //nolint:wrapcheck // Already names the channel and the fix.
 }
 
 // channelArg returns the channel id for an id or a #name.
-func channelArg(cfg slackwatch.Config, arg string) (string, error) {
+func channelArg(cfg slackwatch.Config, store *slackwatch.Store, arg string, stderr io.Writer) (string, error) {
 	if name, ok := strings.CutPrefix(arg, "#"); ok {
-		return resolveChannel(cfg, name)
+		return resolveChannel(cfg, store, name, stderr)
 	}
 	return arg, nil
 }
@@ -48,7 +77,7 @@ func withChannel(configPath, cmd string, pos []string, stderr io.Writer, f func(
 		return fail(stderr, err)
 	}
 	defer store.Close()
-	channel, err := channelArg(cfg, pos[0])
+	channel, err := channelArg(cfg, store, pos[0], stderr)
 	if err != nil {
 		return fail(stderr, err)
 	}
@@ -65,6 +94,7 @@ func cmdSub(configPath string, args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&s.Purpose, "purpose", "", "why the channel is followed")
 	until := fs.String("until", "", "end the subscription at this date")
 	fs.BoolVar(&s.IncludeSelf, "include-self", false, "also notify the token owner's own messages")
+	unchecked := fs.Bool("owner-unchecked", false, "accept an owner that is not a known target or agent")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
 		return 2
@@ -77,6 +107,13 @@ func cmdSub(configPath string, args []string, stdout, stderr io.Writer) int {
 		if s.Until, err = parseUntil(*until, now); err != nil {
 			return usageErr(stderr, err)
 		}
+	}
+	cfg, err := slackwatch.LoadConfig(configPath)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	if err := checkOwner(cfg, s.Owner, *unchecked, stderr); err != nil {
+		return fail(stderr, err)
 	}
 	return withChannel(configPath, "sub", pos, stderr, func(store *slackwatch.Store, channel string) error {
 		s.Channel = channel
