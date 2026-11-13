@@ -236,6 +236,31 @@ func TestDoctorListsAnExtraDaemon(t *testing.T) {
 	}
 }
 
+func TestDoctorReportsAnUnverifiedHold(t *testing.T) {
+	h, _ := sandboxHub(t)
+	var stateHome string
+	for _, kv := range h.env {
+		if value, ok := strings.CutPrefix(kv, "XDG_STATE_HOME="); ok {
+			stateHome = value
+		}
+	}
+	dir := filepath.Join(stateHome, "agentbus")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"messages":[{"id":"m-9","from":"a","to":"ops/x","sentAt":"2026-01-01T00:00:00Z","body":"hi","state":"held: ambiguous-unverified","handle":"herdr:local/default/w1:p1"},{"id":"m-8","from":"a","to":"ops/y","sentAt":"2026-01-01T00:00:00Z","body":"ok","state":"delivered","handle":"h"}]}`
+	if err := os.WriteFile(filepath.Join(dir, "messages.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := h.run(t, "", "doctor")
+	if code != 0 {
+		t.Fatalf("doctor = %d, stderr %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "ambiguous-unverified: m-9 to ops/x\n") || strings.Contains(stdout, "m-8") {
+		t.Fatalf("stdout = %s", stdout)
+	}
+}
+
 func TestDoctorRejectsArguments(t *testing.T) {
 	h, _ := sandboxHub(t)
 	if code, _, stderr := h.run(t, "", "doctor", "extra"); code != 2 || !strings.Contains(stderr, "--sandbox") {

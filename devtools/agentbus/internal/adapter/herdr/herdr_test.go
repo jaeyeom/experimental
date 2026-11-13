@@ -188,6 +188,76 @@ func TestComposerEmpty(t *testing.T) {
 	}
 }
 
+func TestProbeReadsRecentAndVisibleAndSubmitPressesEnter(t *testing.T) {
+	const handle = "herdr:local/default/w2:p3"
+	recent := "[agentbus m-1 from ops/inbox → eng/reviewer · 09:00]\nhello\n"
+	visible := claudeScreen("❯ [agentbus m-1 from ops/inbox → eng/reviewer]")
+	var cmds []string
+	ad := &Adapter{Run: func(_ context.Context, args []string) (string, string, int, error) {
+		cmd := strings.Join(args, " ")
+		cmds = append(cmds, cmd)
+		switch cmd {
+		case "agent list":
+			return agentList, "", 0, nil
+		case "agent read w2:p3 --source recent":
+			return recent, "", 0, nil
+		case "agent read w2:p3 --source visible":
+			return visible, "", 0, nil
+		case "pane send-keys w2:p3 enter":
+			return "", "", 0, nil
+		default:
+			t.Fatalf("unexpected command %q", args)
+			return "", "", 1, nil
+		}
+	}}
+	gotRecent, gotComposer, unreadable, err := ad.Probe(context.Background(), handle, "[agentbus m-1")
+	if err != nil || unreadable || gotRecent != recent || !strings.Contains(gotComposer, "[agentbus m-1 from") {
+		t.Fatalf("Probe = %q, %q, unreadable %v, err %v", gotRecent, gotComposer, unreadable, err)
+	}
+	if err := ad.Submit(context.Background(), handle); err != nil {
+		t.Fatal(err)
+	}
+	if cmds[len(cmds)-1] != "pane send-keys w2:p3 enter" {
+		t.Fatalf("commands = %q", cmds)
+	}
+}
+
+func TestProbeIsUnreadableWhenTheScreenCannotBeRead(t *testing.T) {
+	const handle = "herdr:local/default/w2:p3"
+	ad := &Adapter{Run: func(_ context.Context, args []string) (string, string, int, error) {
+		if strings.Join(args, " ") == "agent list" {
+			return agentList, "", 0, nil
+		}
+		return "", "no access", 1, nil
+	}}
+	recent, composer, unreadable, err := ad.Probe(context.Background(), handle, "[agentbus m-1")
+	if err != nil || !unreadable || recent != "" || composer != "" {
+		t.Fatalf("Probe = %q, %q, unreadable %v, err %v", recent, composer, unreadable, err)
+	}
+}
+
+func TestProbeKeepsRecentWhenTheComposerDoesNotParse(t *testing.T) {
+	const handle = "herdr:local/default/w2:p3"
+	recent := "[agentbus m-1 from ops/inbox → eng/reviewer · 09:00]\nhello\n"
+	ad := &Adapter{Run: func(_ context.Context, args []string) (string, string, int, error) {
+		switch strings.Join(args, " ") {
+		case "agent list":
+			return agentList, "", 0, nil
+		case "agent read w2:p3 --source recent":
+			return recent, "", 0, nil
+		case "agent read w2:p3 --source visible":
+			return "garbage\n", "", 0, nil
+		default:
+			t.Fatalf("unexpected command %q", args)
+			return "", "", 1, nil
+		}
+	}}
+	gotRecent, composer, unreadable, err := ad.Probe(context.Background(), handle, "[agentbus m-1")
+	if err != nil || !unreadable || gotRecent != recent || composer != "" {
+		t.Fatalf("Probe = %q, %q, unreadable %v, err %v", gotRecent, composer, unreadable, err)
+	}
+}
+
 func TestSelfTestFailureIsTheCommandError(t *testing.T) {
 	ad := &Adapter{Run: func(context.Context, []string) (string, string, int, error) {
 		return "", "not running", 1, nil
