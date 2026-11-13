@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "avatar.go",
         "builtin.go",
+        "interior.go",
         "overlay.go",
     ],
     embedsrcs = [

@@ -219,8 +219,13 @@ list, for the selected recipient. Map names to files in
   monochrome terminal. Otherwise they show without color.
 
 decide ships 42 original built-in figures, each 10x6 in truecolor
-half-block and box characters with no background fills, so they read on
-light and dark themes. Generation 1: ~bee~, ~bun~, ~cactus~, ~cat~,
+half-block and box characters. A space enclosed by the figure is painted
+with a background, and eyes and mouths sit on that fill, so the inside
+is not the terminal background. A gap between parts, and every cell
+outside the outline, stays clear. The fill reads on light and dark
+themes; on a 256-color or 16-color terminal it is downsampled with the
+foreground, and with no color it becomes a block. Generation 1:
+~bee~, ~bun~, ~cactus~, ~cat~,
 ~crab~, ~fox~, ~frog~, ~ghost~, ~glasses~, ~headphones~,
 ~knight-helmet~, ~lighthouse~, ~mushroom~, ~octopus~, ~owl~,
 ~penguin~, ~planet~, ~robot~, ~rocket~, ~snail~, ~teapot~, ~tree~,
