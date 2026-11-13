@@ -325,7 +325,7 @@ Quitting the prompt keeps the current filter."
 The author uses `decide-human' or `decide-agent', and the time uses
 `decide-time'.  Option keys are dim, not badges, because answers use
 the option numbers.  CURRENT marks the selected message.  A message
-whose `by' is set and differs from its author shows \"author (via by)\"."
+with `by' set is shown as that sender.  Otherwise it shows `author'."
   (let* ((author (decide--field msg "author"))
          (by (decide--field msg "by"))
          (face (if (equal author "human") 'decide-human 'decide-agent))
@@ -333,8 +333,8 @@ whose `by' is set and differs from its author shows \"author (via by)\"."
          (keys (decide--option-keys-text msg))
          (parts nil)
          (line nil))
-    (unless (or (string-empty-p by) (equal by author))
-      (setq author (format "%s (via %s)" author by)))
+    (unless (string-empty-p by)
+      (setq author by))
     (unless (string-empty-p author)
       (setq parts (append parts (list (propertize author 'face face)))))
     (unless (string-empty-p age)

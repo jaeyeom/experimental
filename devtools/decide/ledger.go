@@ -62,9 +62,9 @@ type Option struct {
 // Via is ViaUI or ViaCLI on a human message, as in Answer.Via. It is empty
 // on an agent message and on a message stored before via existed, which
 // does not count as ViaUI.
-// By is who sent the message from the command line: the caller's agentbus
-// name, else its herdr pane handle. It is empty when unknown. Author stays
-// the thread owner on an agent reply, so By tells which agent wrote it.
+// By is who sent the message from the command line: the caller's first
+// agentbus name, else its herdr tab label, else its pane handle. It is
+// empty when unknown. Author stays the thread owner on an agent reply.
 type Message struct {
 	Author      string    `json:"author"`
 	Time        time.Time `json:"time"`
@@ -76,13 +76,13 @@ type Message struct {
 	By          string    `json:"by,omitempty"`
 }
 
-// Sender is the author to show: "author (via by)" when By is set and
-// differs from Author, else Author.
+// Sender is who to show for this message: By when it is set, else Author.
+// The item owner stays in the item header and is not repeated here.
 func (m Message) Sender() string {
-	if m.By == "" || m.By == m.Author {
-		return m.Author
+	if m.By != "" {
+		return m.By
 	}
-	return m.Author + " (via " + m.By + ")"
+	return m.Author
 }
 
 // Answer is set only when an item has been answered.
