@@ -664,9 +664,10 @@ and never changes anyone else's viewed state. It is off unless ~enabled~.
 #+begin_src pkl
 viewed {
   enabled = true
+  never_mark { "**/*.go"; "**/*.py"; "**/*.proto" }
   rules {
     new { name = "locks"; paths_match { "**/*.lock"; "**/go.sum"; "**/pnpm-lock.yaml" } }
-    new { name = "not-mine"; codeowners_not_mine = true }
+    new { name = "not-mine"; codeowners_not_mine = true; paths_none_match { "docs/**" } }
   }
 }
 #+end_src
@@ -678,6 +679,16 @@ viewed {
   matches and any selector matches: a ~paths_match~ glob, or
   ~codeowners_not_mine~ when the file's CODEOWNERS owners include neither you
   nor a team you belong to.
+- ~paths_none_match~ (alias ~except_paths~) is a glob list on one rule, with
+  the same syntax as ~paths_match~. A file matching any of them is not marked
+  by that rule, even when a selector matches. Another rule can still mark it.
+  Setting both names on one rule is a config error.
+- ~never_mark~ is a glob list on ~viewed~. A file matching any of them is
+  never marked by any rule. It wins over every rule's selectors.
+- With ~--explain~, a file a selector would have marked and an exclusion kept
+  visible is named with ~excluded by rule <name> paths_none_match <glob>~ or
+  ~excluded by viewed.never_mark <glob>~. The audit log does not record that
+  file as marked.
 - Only a file whose ~viewerViewedState~ is ~UNVIEWED~ is marked. ~VIEWED~ and
   ~DISMISSED~ are left alone. ~DISMISSED~ means the file changed since you
   viewed it. Nothing is ever unmarked.

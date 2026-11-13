@@ -49,7 +49,11 @@ type ViewedConfig struct {
 	Enabled bool
 	// MaxMarksPerRun is how many files one run may mark. Zero marks nothing.
 	MaxMarksPerRun int
-	// Rules select the files. A file is marked when any rule selects it.
+	// NeverMark are globs. A changed file matching any of them is never
+	// marked, by any rule. This wins over every rule's selectors.
+	NeverMark []string
+	// Rules select the files. A file is marked when any rule selects it
+	// and NeverMark does not.
 	Rules []ViewedRule
 }
 
@@ -61,9 +65,15 @@ type ViewedRule struct {
 	Repos []string
 	// PathsMatch are globs. A changed file matching any of them is selected.
 	PathsMatch []string
+	// PathsNoneMatch are globs. A changed file matching any of them is not
+	// selected by this rule, even when a selector matches. Another rule
+	// can still select it. except_paths in config is an alias of this.
+	PathsNoneMatch []string
 	// CodeownersNotMine selects a file whose owners include neither the
 	// user nor a team the user belongs to.
 	CodeownersNotMine bool
+	// exceptPaths holds the except_paths alias until validation merges it.
+	exceptPaths []string
 }
 
 // ApproveConfig holds gh-approve settings. Only Pkl config supports it.
@@ -171,24 +181,32 @@ func convertViewed(src pklconfig.ViewedConfig) ViewedConfig {
 	out := ViewedConfig{
 		Enabled:        src.Enabled,
 		MaxMarksPerRun: src.MaxMarksPerRun,
+		NeverMark:      cloneStrings(src.NeverMark),
 	}
 	for _, rule := range src.Rules {
 		out.Rules = append(out.Rules, ViewedRule{
 			Name:              rule.Name,
 			Repos:             cloneStrings(rule.Repos),
 			PathsMatch:        cloneStrings(rule.PathsMatch),
+			PathsNoneMatch:    cloneStrings(rule.PathsNoneMatch),
+			exceptPaths:       cloneStrings(rule.ExceptPaths),
 			CodeownersNotMine: rule.CodeownersNotMine,
 		})
 	}
 	return out
 }
 
-func validateViewed(viewed ViewedConfig) error {
+func validateViewed(viewed *ViewedConfig) error {
 	if viewed.MaxMarksPerRun < 0 {
 		return fmt.Errorf("viewed max_marks_per_run must be >= 0")
 	}
+	for _, pattern := range viewed.NeverMark {
+		if !doublestar.ValidatePattern(pattern) {
+			return fmt.Errorf("viewed never_mark glob %q is invalid", pattern)
+		}
+	}
 	seen := make(map[string]bool, len(viewed.Rules))
-	for _, rule := range viewed.Rules {
+	for i, rule := range viewed.Rules {
 		if rule.Name == "" {
 			return fmt.Errorf("viewed rule name must not be empty")
 		}
@@ -199,9 +217,18 @@ func validateViewed(viewed ViewedConfig) error {
 		if len(rule.PathsMatch) == 0 && !rule.CodeownersNotMine {
 			return fmt.Errorf("viewed rule %q needs paths_match or codeowners_not_mine", rule.Name)
 		}
+		if len(rule.PathsNoneMatch) > 0 && len(rule.exceptPaths) > 0 {
+			return fmt.Errorf("viewed rule %q sets both paths_none_match and except_paths", rule.Name)
+		}
+		if len(rule.PathsNoneMatch) == 0 {
+			rule.PathsNoneMatch = rule.exceptPaths
+		}
+		rule.exceptPaths = nil
+		viewed.Rules[i] = rule
 		globs := map[string][]string{
-			"repos":       rule.Repos,
-			"paths_match": rule.PathsMatch,
+			"repos":            rule.Repos,
+			"paths_match":      rule.PathsMatch,
+			"paths_none_match": rule.PathsNoneMatch,
 		}
 		for field, patterns := range globs {
 			for _, pattern := range patterns {

@@ -146,9 +146,10 @@ func TestLoadPklViewed(t *testing.T) {
 viewed {
   enabled = true
   max_marks_per_run = 5
+  never_mark { "**/*.go"; "**/*.py"; "**/*.proto" }
   rules {
     new { name = "locks"; repos { "acme/*" }; paths_match { "**/*.lock"; "**/go.sum" } }
-    new { name = "not-mine"; codeowners_not_mine = true }
+    new { name = "not-mine"; codeowners_not_mine = true; paths_none_match { "docs/**" } }
   }
 }
 `))
@@ -158,12 +159,32 @@ viewed {
 	if !cfg.Viewed.Enabled || cfg.Viewed.MaxMarksPerRun != 5 || len(cfg.Viewed.Rules) != 2 {
 		t.Fatalf("viewed = %+v", cfg.Viewed)
 	}
+	if strings.Join(cfg.Viewed.NeverMark, ",") != "**/*.go,**/*.py,**/*.proto" {
+		t.Fatalf("never_mark = %+v", cfg.Viewed.NeverMark)
+	}
 	locks := cfg.Viewed.Rules[0]
 	if locks.Name != "locks" || strings.Join(locks.Repos, ",") != "acme/*" || strings.Join(locks.PathsMatch, ",") != "**/*.lock,**/go.sum" || locks.CodeownersNotMine {
 		t.Fatalf("locks = %+v", locks)
 	}
-	if !cfg.Viewed.Rules[1].CodeownersNotMine || len(cfg.Viewed.Rules[1].PathsMatch) != 0 {
-		t.Fatalf("not-mine = %+v", cfg.Viewed.Rules[1])
+	notMine := cfg.Viewed.Rules[1]
+	if !notMine.CodeownersNotMine || len(notMine.PathsMatch) != 0 || strings.Join(notMine.PathsNoneMatch, ",") != "docs/**" {
+		t.Fatalf("not-mine = %+v", notMine)
+	}
+}
+
+func TestLoadPklViewedExceptPathsAlias(t *testing.T) {
+	cfg, err := LoadConfig(writeApprovePkl(t, `
+viewed {
+  rules {
+    new { name = "not-mine"; codeowners_not_mine = true; except_paths { "docs/**" } }
+  }
+}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(cfg.Viewed.Rules[0].PathsNoneMatch, ",") != "docs/**" {
+		t.Fatalf("alias = %+v", cfg.Viewed.Rules[0])
 	}
 }
 
@@ -191,6 +212,10 @@ func TestLoadPklApproveRejectsBadConfig(t *testing.T) {
 		"viewed rule marks nothing": {`viewed { rules { new { name = "r" } } }`, "paths_match"},
 		"duplicate viewed rule":     {`viewed { rules { new { name = "r"; paths_match { "a" } } new { name = "r"; paths_match { "b" } } } }`, "twice"},
 		"bad viewed glob":           {`viewed { rules { new { name = "r"; paths_match { "a/[" } } } }`, "paths_match"},
+		"bad paths_none_match glob": {`viewed { rules { new { name = "r"; paths_match { "a" }; paths_none_match { "a/[" } } } }`, `viewed rule "r": paths_none_match`},
+		"bad except_paths glob":     {`viewed { rules { new { name = "r"; codeowners_not_mine = true; except_paths { "a/[" } } } }`, `viewed rule "r": paths_none_match`},
+		"bad never_mark glob":       {`viewed { never_mark { "a/[" } }`, `never_mark glob "a/["`},
+		"both exclusion keys":       {`viewed { rules { new { name = "r"; paths_match { "a" }; paths_none_match { "docs/**" }; except_paths { "vendor/**" } } } }`, `viewed rule "r" sets both`},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {

@@ -161,6 +161,93 @@ func TestViewedCodeownersNotMine(t *testing.T) {
 	}
 }
 
+func TestViewedPathsNoneMatchLetsAnotherRuleMark(t *testing.T) {
+	pr := viewedPR(1,
+		viewedFile("docs/guide.md", models.ViewerUnviewed),
+		viewedFile("other/x.go", models.ViewerUnviewed),
+		viewedFile("dash/a.go", models.ViewerUnviewed),
+	)
+	fake := newFake(pr)
+	fake.codeowners = testCodeowners
+	fake.teams = map[string][]string{"acme/everyone": {"bob", "carol"}}
+	viewed := config.ViewedConfig{
+		Enabled: true, MaxMarksPerRun: 10,
+		Rules: []config.ViewedRule{
+			{Name: "not-mine", CodeownersNotMine: true, PathsNoneMatch: []string{"docs/**"}},
+			{Name: "docs", PathsMatch: []string{"docs/**"}},
+		},
+	}
+	res := runViewed(t, fake, viewed, Options{Explain: true, Apply: true})
+	if res.err != nil {
+		t.Fatal(res.err)
+	}
+	if strings.Join(res.log[0].Paths, ",") != "docs/guide.md,other/x.go" {
+		t.Fatalf("paths = %+v", res.log[0].Paths)
+	}
+	if strings.Contains(res.out, "excluded by") {
+		t.Fatalf("a file another rule marked was explained as excluded:\n%s", res.out)
+	}
+
+	viewed.Rules = viewed.Rules[:1]
+	again := newFake(pr)
+	again.codeowners = testCodeowners
+	again.teams = map[string][]string{"acme/everyone": {"bob", "carol"}}
+	res = runViewed(t, again, viewed, Options{Explain: true})
+	if res.err != nil {
+		t.Fatal(res.err)
+	}
+	if strings.Join(res.log[0].Paths, ",") != "other/x.go" || len(res.fake.marks) != 0 {
+		t.Fatalf("paths = %+v marks %+v", res.log[0].Paths, res.fake.marks)
+	}
+	if !strings.Contains(res.out, "docs/guide.md: excluded by rule not-mine paths_none_match docs/**") {
+		t.Fatalf("explain = %s", res.out)
+	}
+	if len(res.log[0].Exclusions) != 0 {
+		t.Fatalf("audit log recorded the exclusion: %+v", res.log[0].Exclusions)
+	}
+	plainFake := newFake(pr)
+	plainFake.codeowners = testCodeowners
+	plainFake.teams = again.teams
+	plain := runViewed(t, plainFake, viewed, Options{})
+	if strings.Contains(plain.out, "excluded by") {
+		t.Fatalf("exclusion printed without --explain:\n%s", plain.out)
+	}
+}
+
+func TestViewedNeverMarkBlocksEveryRule(t *testing.T) {
+	pr := viewedPR(1,
+		viewedFile("a.go", models.ViewerUnviewed),
+		viewedFile("docs/b.go", models.ViewerUnviewed),
+		viewedFile("README.md", models.ViewerUnviewed),
+	)
+	viewed := config.ViewedConfig{
+		Enabled: true, MaxMarksPerRun: 10,
+		NeverMark: []string{"**/*.go", "**/*.py", "**/*.proto"},
+		Rules: []config.ViewedRule{{
+			Name: "broad", PathsMatch: []string{"**/*"}, PathsNoneMatch: []string{"docs/**"},
+		}},
+	}
+	res := runViewed(t, newFake(pr), viewed, Options{Explain: true, Apply: true})
+	if res.err != nil {
+		t.Fatal(res.err)
+	}
+	if strings.Join(res.log[0].Paths, ",") != "README.md" || len(res.fake.marks) != 1 || res.fake.marks[0].path != "README.md" {
+		t.Fatalf("paths = %+v marks %+v", res.log[0].Paths, res.fake.marks)
+	}
+	if !strings.Contains(res.out, "a.go: excluded by viewed.never_mark **/*.go") {
+		t.Fatalf("explain = %s", res.out)
+	}
+	if !strings.Contains(res.out, "docs/b.go: excluded by viewed.never_mark **/*.go") {
+		t.Fatalf("never_mark lost to the rule exclusion:\n%s", res.out)
+	}
+	if strings.Contains(res.out, "paths_none_match") {
+		t.Fatalf("rule exclusion won over never_mark:\n%s", res.out)
+	}
+	if len(res.log[0].Exclusions) != 0 {
+		t.Fatalf("audit log recorded exclusions: %+v", res.log[0].Exclusions)
+	}
+}
+
 func TestViewedSkipsMatchedDraftAndOwnPullRequests(t *testing.T) {
 	matched := viewedPR(1, viewedFile("dash/a.go", models.ViewerUnviewed))
 	res := runConfig(t, newFake(matched), config.ApproveConfig{

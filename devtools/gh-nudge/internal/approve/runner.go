@@ -79,6 +79,9 @@ type LogEntry struct {
 	Steps []string `json:"steps,omitempty"`
 	// Paths are the files this run marked viewed, or would mark in a dry run.
 	Paths []string `json:"paths,omitempty"`
+	// Exclusions are explain lines for files a selector matched and an
+	// exclusion kept visible. They are not part of the audit log.
+	Exclusions []string `json:"-"`
 }
 
 // Runner evaluates review requests and approves the ones a rule matches.
@@ -303,6 +306,7 @@ func (r *Runner) report(entry LogEntry, explain bool) error {
 	}
 	writeHandoff(&out, entry, explain)
 	writeViewed(&out, entry, explain)
+	writeExclusions(&out, entry, explain)
 	for _, result := range entry.Rules {
 		switch {
 		case explain:
@@ -360,6 +364,16 @@ func writeViewed(out *strings.Builder, entry LogEntry, explain bool) {
 	}
 	for _, path := range entry.Paths {
 		fmt.Fprintf(out, "      %s\n", path)
+	}
+}
+
+// writeExclusions writes, with --explain, each file an exclusion kept visible.
+func writeExclusions(out *strings.Builder, entry LogEntry, explain bool) {
+	if !explain {
+		return
+	}
+	for _, line := range entry.Exclusions {
+		fmt.Fprintf(out, "      %s\n", line)
 	}
 }
 
