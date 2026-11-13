@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -13,13 +14,21 @@ import (
 )
 
 func TestRunFailsLoudlyWithoutRuntimeDir(t *testing.T) {
-	var stderr bytes.Buffer
-	code := run(context.Background(), nil, []string{"HOME=/Users/me"}, strings.NewReader(""), io.Discard, &stderr)
-	if code == 0 {
-		t.Fatal("run exited 0")
+	var stdout, stderr bytes.Buffer
+	home := "/Users/me"
+	if runtime.GOOS == "darwin" {
+		home = shortRuntime(t)
 	}
-	if !strings.Contains(stderr.String(), "XDG_RUNTIME_DIR") {
-		t.Fatalf("stderr = %q", stderr.String())
+	code := run(context.Background(), []string{"paths", "--json"}, []string{"HOME=" + home, "XDG_STATE_HOME=" + t.TempDir()}, strings.NewReader(""), &stdout, &stderr)
+	if runtime.GOOS == "darwin" {
+		want := filepath.Join(home, "Library", "Caches", "agentbus", "run", "agentbus", "daemon.sock")
+		if code != 0 || !strings.Contains(stdout.String(), want) {
+			t.Fatalf("run = %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+		}
+		return
+	}
+	if code == 0 || !strings.Contains(stderr.String(), "XDG_RUNTIME_DIR") {
+		t.Fatalf("run = %d, stderr %q", code, stderr.String())
 	}
 }
 

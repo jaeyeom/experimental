@@ -3,9 +3,15 @@ package paths
 
 import (
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
+
+// sunPathLimit is the darwin sockaddr_un path size, including the NUL.
+const sunPathLimit = 104
 
 // Dirs is where one agentbus instance keeps its socket and state.
 type Dirs struct {
@@ -34,24 +40,67 @@ func StateDir(env []string) (string, error) {
 	return filepath.Join(stateRoot, "agentbus"), nil
 }
 
-// FromEnv reads XDG_RUNTIME_DIR and the state directory from env.
-// Both locations are required; a missing one is reported so the CLI can
-// fail instead of guessing.
+// FromEnv reads the runtime and state directories from env.
+// On Linux, XDG_RUNTIME_DIR is required. On darwin, an unset
+// XDG_RUNTIME_DIR uses ~/Library/Caches/agentbus/run, created mode 0700.
+// A set XDG_RUNTIME_DIR is used as given and that default is not created.
 func FromEnv(env []string) (Dirs, error) {
+	return fromEnv(env, runtime.GOOS)
+}
+
+func fromEnv(env []string, goos string) (Dirs, error) {
 	state, err := StateDir(env)
 	if err != nil {
 		return Dirs{}, err
 	}
-	runtime := envValues(env)["XDG_RUNTIME_DIR"]
-	if runtime == "" {
-		return Dirs{}, errors.New("XDG_RUNTIME_DIR is not set; the agentbus daemon socket needs it")
+	values := envValues(env)
+	runtimeDir := values["XDG_RUNTIME_DIR"]
+	if runtimeDir == "" {
+		runtimeDir, err = defaultRuntimeDir(values["HOME"], goos)
+		if err != nil {
+			return Dirs{}, err
+		}
 	}
-	return Dirs{
-		SocketPath:       filepath.Join(runtime, "agentbus", "daemon.sock"),
-		HubSocketPath:    filepath.Join(runtime, "agentbus", "hub.sock"),
-		TunnelSocketPath: filepath.Join(runtime, "agentbus", "tunnel.sock"),
+	dirs := Dirs{
+		SocketPath:       filepath.Join(runtimeDir, "agentbus", "daemon.sock"),
+		HubSocketPath:    filepath.Join(runtimeDir, "agentbus", "hub.sock"),
+		TunnelSocketPath: filepath.Join(runtimeDir, "agentbus", "tunnel.sock"),
 		StateDir:         state,
-	}, nil
+	}
+	if values["XDG_RUNTIME_DIR"] != "" || goos != "darwin" {
+		return dirs, nil
+	}
+	if err := checkSunPaths(dirs); err != nil {
+		return Dirs{}, err
+	}
+	if err := os.MkdirAll(runtimeDir, 0o700); err != nil {
+		return Dirs{}, fmt.Errorf("create runtime dir: %w", err)
+	}
+	if err := os.Chmod(runtimeDir, 0o700); err != nil {
+		return Dirs{}, fmt.Errorf("create runtime dir: %w", err)
+	}
+	return dirs, nil
+}
+
+// defaultRuntimeDir is the runtime directory when XDG_RUNTIME_DIR is unset.
+func defaultRuntimeDir(home, goos string) (string, error) {
+	if goos != "darwin" {
+		return "", errors.New("XDG_RUNTIME_DIR is not set; the agentbus daemon socket needs it")
+	}
+	if home == "" {
+		return "", errors.New("HOME is not set; the agentbus runtime directory belongs in ~/Library/Caches/agentbus/run")
+	}
+	return filepath.Join(home, "Library", "Caches", "agentbus", "run"), nil
+}
+
+// checkSunPaths rejects a default darwin socket path that cannot fit in sun_path.
+func checkSunPaths(dirs Dirs) error {
+	for _, path := range []string{dirs.SocketPath, dirs.HubSocketPath, dirs.TunnelSocketPath} {
+		if len(path) >= sunPathLimit {
+			return fmt.Errorf("socket path %s is too long: %d bytes, over the %d-byte sun_path limit including the terminating NUL", path, len(path), sunPathLimit)
+		}
+	}
+	return nil
 }
 
 // LeaseCacheDir is where the lease hook caches "you hold it" answers:

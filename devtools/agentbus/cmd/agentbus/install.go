@@ -319,6 +319,12 @@ func supervisorEnv(env []string) [][2]string {
 			out = append(out, [2]string{key, val})
 		}
 	}
+	// A darwin unit with no XDG_RUNTIME_DIR exports the same default the CLI uses.
+	if envGet(env, "XDG_RUNTIME_DIR") == "" && runtime.GOOS == "darwin" {
+		if dirs, err := paths.FromEnv(env); err == nil {
+			out = append(out, [2]string{"XDG_RUNTIME_DIR", filepath.Dir(filepath.Dir(dirs.SocketPath))})
+		}
+	}
 	return out
 }
 

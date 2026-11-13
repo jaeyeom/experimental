@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -188,18 +189,106 @@ func TestDoctorSandboxListsTheSocketsAndChecksThem(t *testing.T) {
 		`"allowUnixSockets"`,
 		fmt.Sprintf("%q", herdrSock),
 		fmt.Sprintf("%q", tunnelSock),
-		fmt.Sprintf("%q", daemonSock),
 		`"allowedDomains"`,
 		`"hub"`,
 		"herdr socket " + herdrSock + ": ",
-		"daemon socket " + daemonSock + ": ok",
 		"tunnel socket " + tunnelSock + ": missing",
 		"ssh me@hub: blocked",
+		"outbox flusher: missing",
+		"outbox: no pending entries",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("doctor output lacks %q:\n%s", want, stdout)
 		}
 	}
+	if strings.Contains(stdout, daemonSock) || strings.Contains(stdout, "daemon socket") {
+		t.Fatalf("hub mode checked the local daemon socket:\n%s", stdout)
+	}
+}
+
+func TestDoctorHubModeNeedsNoLocalDaemon(t *testing.T) {
+	h, _ := sandboxHub(t)
+	runtimeDir := shortRuntime(t)
+	env := slices.DeleteFunc(slices.Clone(h.env), func(kv string) bool {
+		return strings.HasPrefix(kv, "XDG_RUNTIME_DIR=")
+	})
+	env = append(env, "XDG_RUNTIME_DIR="+runtimeDir)
+	tunnelSock := filepath.Join(runtimeDir, "agentbus", "tunnel.sock")
+	if err := os.MkdirAll(filepath.Dir(tunnelSock), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("unix", tunnelSock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	home := envValue(t, env, "HOME")
+	unit, err := unitPath(runtime.GOOS, home, env, outboxLaunchdLabel, outboxUnitName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(unit), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unit, []byte("outbox\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	orig := doctorProbe
+	doctorProbe = func(string) remotecall.Probe { return func(context.Context) bool { return true } }
+	t.Cleanup(func() { doctorProbe = orig })
+
+	code, stdout, stderr := h.runEnv(t, env, "", "doctor")
+	if code != 0 {
+		t.Fatalf("doctor = %d, stderr %q", code, stderr)
+	}
+	if h.ssh.Read("argv") != "" {
+		t.Fatal("doctor ran ssh")
+	}
+	for _, want := range []string{
+		"tunnel socket " + tunnelSock + ": ok",
+		"ssh me@hub: ok (its ssh port answers)",
+		"outbox flusher: present (" + unit + ")",
+		"outbox: no pending entries",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("doctor output lacks %q:\n%s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "daemon socket") {
+		t.Fatalf("hub mode checked the local daemon socket:\n%s", stdout)
+	}
+}
+
+func TestDoctorSandboxPrintsTheDarwinRuntime(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("darwin default runtime directory")
+	}
+	h, _ := sandboxHub(t)
+	home := shortRuntime(t)
+	env := slices.DeleteFunc(slices.Clone(h.env), func(kv string) bool {
+		return strings.HasPrefix(kv, "XDG_RUNTIME_DIR=") || strings.HasPrefix(kv, "HOME=")
+	})
+	env = append(env, "HOME="+home)
+	code, stdout, stderr := h.runEnv(t, env, "", "doctor", "--sandbox")
+	if code != 0 {
+		t.Fatalf("doctor = %d, stderr %q", code, stderr)
+	}
+	tunnel := filepath.Join(home, "Library", "Caches", "agentbus", "run", "agentbus", "tunnel.sock")
+	if !strings.Contains(stdout, tunnel) || strings.Contains(stdout, "$XDG_RUNTIME_DIR") {
+		t.Fatalf("stdout = %s", stdout)
+	}
+}
+
+func envValue(t *testing.T, env []string, key string) string {
+	t.Helper()
+	prefix := key + "="
+	for _, kv := range env {
+		if value, ok := strings.CutPrefix(kv, prefix); ok {
+			return value
+		}
+	}
+	t.Fatalf("%s is unset", key)
+	return ""
 }
 
 func TestDoctorListsAnExtraDaemon(t *testing.T) {
