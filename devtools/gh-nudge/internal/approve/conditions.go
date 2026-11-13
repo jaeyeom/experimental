@@ -64,6 +64,7 @@ var conditions = []condition{
 	{name: "max_added_lines", active: func(r config.ApproveRule) bool { return r.MaxAddedLines != nil }, check: checkMaxAddedLines},
 	{name: "max_files", active: func(r config.ApproveRule) bool { return r.MaxFiles != nil }, check: checkMaxFiles},
 	{name: "pure_deletion", active: func(r config.ApproveRule) bool { return r.PureDeletion }, check: checkPureDeletion},
+	{name: "deletions_and_comments_only", active: func(r config.ApproveRule) bool { return r.DeletionsAndCommentsOnly }, check: checkDeletionsAndCommentsOnly},
 	{name: "authors_allow", active: func(r config.ApproveRule) bool { return len(r.AuthorsAllow) > 0 }, check: checkAuthorsAllow},
 	{name: "authors_deny", active: func(r config.ApproveRule) bool { return len(r.AuthorsDeny) > 0 }, check: checkAuthorsDeny},
 	{name: "labels_required", active: func(r config.ApproveRule) bool { return len(r.LabelsRequired) > 0 }, check: checkLabelsRequired},
@@ -269,6 +270,30 @@ func checkMaxFiles(rule config.ApproveRule, pr github.ApprovalPullRequest) (bool
 
 func checkPureDeletion(_ config.ApproveRule, pr github.ApprovalPullRequest) (bool, string) {
 	return pr.Additions == 0, fmt.Sprintf("%d added lines", pr.Additions)
+}
+
+func checkDeletionsAndCommentsOnly(_ config.ApproveRule, pr github.ApprovalPullRequest) (bool, string) {
+	if pr.Deletions <= 0 {
+		return false, "0 deletions"
+	}
+	if pr.PatchesErr != "" {
+		return unreadable(pr.PatchesErr)
+	}
+	if pr.Patches == nil {
+		return unreadable("patches not loaded")
+	}
+	if pr.ChangedFiles > len(pr.Patches) {
+		return false, "patch unavailable for " + missingPatchFile(pr)
+	}
+	adds := 0
+	for _, file := range pr.Patches {
+		n, reason, ok := fileCommentAdditions(file)
+		if !ok {
+			return false, reason
+		}
+		adds += n
+	}
+	return true, fmt.Sprintf("%d deletions, %d comment/blank additions", pr.Deletions, adds)
 }
 
 func checkAuthorsAllow(rule config.ApproveRule, pr github.ApprovalPullRequest) (bool, string) {

@@ -34,6 +34,9 @@ type fakeClient struct {
 	approvals  []approval
 	diffErr    error
 	diffReads  int
+	patchReads int
+	patchErr   error
+	patches    map[int][]github.PullFile
 	// diff overrides the default diff of every pull request.
 	diff string
 	handoffFake
@@ -63,6 +66,14 @@ func (f *fakeClient) PullRequestHeadSHA(ref github.PullRef) (string, error) {
 		return sha, nil
 	}
 	return f.prs[ref.Number].HeadSHA, nil
+}
+
+func (f *fakeClient) PullRequestFilePatches(ref github.PullRef) ([]github.PullFile, error) {
+	f.patchReads++
+	if f.patchErr != nil {
+		return nil, f.patchErr
+	}
+	return f.patches[ref.Number], nil
 }
 
 func (f *fakeClient) PullRequestDiff(ref github.PullRef) (string, error) {

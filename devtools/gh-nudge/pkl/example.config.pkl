@@ -117,6 +117,12 @@ approve {
       pure_deletion = true
       checks = "green"
     }
+    // Deletions whose added lines are only comments or blank.
+    new {
+      name = "comment-cleanup"
+      deletions_and_comments_only = true
+      checks = "green"
+    }
     // At most 50 changed lines outside CI and infra paths.
     new {
       name = "small-outside-infra"

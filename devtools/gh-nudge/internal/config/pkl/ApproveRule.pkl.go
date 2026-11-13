@@ -51,6 +51,11 @@ type ApproveRule struct {
 	// When true, the pull request must add no lines.
 	PureDeletion bool `pkl:"pure_deletion"`
 
+	// When true, at least one line is deleted and every added line is
+	// blank or a comment in that file's language. Patches are read only
+	// when a rule sets this. A missing or binary patch fails the rule.
+	DeletionsAndCommentsOnly bool `pkl:"deletions_and_comments_only"`
+
 	// PR author logins. The author must be one of them.
 	AuthorsAllow []string `pkl:"authors_allow"`
 
