@@ -148,6 +148,35 @@ func TestHubSendForwardsClientIDWithFile(t *testing.T) {
 	}
 }
 
+func TestHubReplyForwardsStdinAndReadsFileLocally(t *testing.T) {
+	h := startHub(t, `hub = "me@hub"`)
+	if code, _, stderr := h.run(t, "from stdin\n", "reply", "m-1"); code != 0 {
+		t.Fatalf("reply = %d, stderr %q", code, stderr)
+	}
+	if got := h.ssh.Read("agentbus.stdin"); got != "from stdin\n" {
+		t.Fatalf("hub stdin = %q", got)
+	}
+	args := h.ssh.Lines("agentbus.args")
+	if len(args) < 2 || args[0] != "reply" || args[1] != "m-1" || slices.Contains(args, "--file") {
+		t.Fatalf("hub args = %q", args)
+	}
+
+	path := filepath.Join(t.TempDir(), "body.txt")
+	if err := os.WriteFile(path, []byte("from file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr := h.run(t, "ignored", "reply", "m-1", "--file", path); code != 0 {
+		t.Fatalf("reply --file = %d, stderr %q", code, stderr)
+	}
+	args = h.ssh.Lines("agentbus.args")
+	if len(args) < 2 || args[0] != "reply" || args[1] != "m-1" || slices.Contains(args, "--file") || slices.Contains(args, path) {
+		t.Fatalf("hub args = %q", args)
+	}
+	if got := h.ssh.Read("agentbus.stdin"); got != "from file\n" {
+		t.Fatalf("hub stdin = %q", got)
+	}
+}
+
 func TestHubStdinIsNotForwardedToOtherCommands(t *testing.T) {
 	h := startHub(t, `hub = "me@hub"`)
 	if code, _, stderr := h.run(t, "keep me", "status", "m-1"); code != 0 {

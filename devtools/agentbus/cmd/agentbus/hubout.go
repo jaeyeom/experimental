@@ -349,7 +349,7 @@ func prepareHubSend(cfg config.Config, args []string, stdin io.Reader, stderr io
 		return outbox.Entry{}, false, false, 2
 	}
 	if args[0] == "reply" {
-		return prepareReply(cfg, args[1:], stderr)
+		return prepareReply(cfg, args[1:], stdin, stderr)
 	}
 	return prepareSend(cfg, args[1:], stdin, stderr)
 }
@@ -360,7 +360,7 @@ func prepareSend(cfg config.Config, args []string, stdin io.Reader, stderr io.Wr
 		fmt.Fprintf(stderr, "agentbus send: %s\n", err)
 		return outbox.Entry{}, false, false, 2
 	}
-	body, fwd, code := sendBody(parsed, args, stdin, stderr)
+	body, fwd, code := messageFwd("send", parsed.file, parsed.body, args, stdin, stderr)
 	if code != 0 {
 		return outbox.Entry{}, false, false, code
 	}
@@ -375,62 +375,67 @@ func prepareSend(cfg config.Config, args []string, stdin io.Reader, stderr io.Wr
 	}
 	fwd = withClientID(fwd, id)
 	return outbox.Entry{
-		Kind: outbox.KindSend, Args: withoutBool(fwd, "--wait"), Stdin: stdinOf(parsed, body),
+		Kind: outbox.KindSend, Args: withoutBool(fwd, "--wait"), Stdin: stdinOf(parsed.body, parsed.file, body),
 		ClientID: id, TTL: parsed.ttl, Target: parsed.target, Body: body,
 	}, parsed.wait, parsed.asJSON, 0
 }
 
-func sendBody(parsed sendParse, args []string, stdin io.Reader, stderr io.Writer) (string, []string, int) {
-	fwd := append([]string{"send"}, args...)
-	if parsed.file != "" {
-		data, err := os.ReadFile(parsed.file)
+func messageFwd(command, file, body string, args []string, stdin io.Reader, stderr io.Writer) (string, []string, int) {
+	fwd := append([]string{command}, args...)
+	if file != "" {
+		data, err := os.ReadFile(file)
 		if err != nil {
-			fmt.Fprintf(stderr, "agentbus send: %s\n", err)
+			fmt.Fprintf(stderr, "agentbus %s: %s\n", command, err)
 			return "", nil, 1
 		}
 		_, rest, _, _ := takeFlag(args, "--file")
-		return string(data), append([]string{"send"}, rest...), 0
+		return string(data), append([]string{command}, rest...), 0
 	}
-	if parsed.body != "" {
-		return parsed.body, fwd, 0
+	if body != "" {
+		return body, fwd, 0
 	}
 	if stdin == nil {
 		return "", fwd, 0
 	}
 	data, err := io.ReadAll(stdin)
 	if err != nil {
-		fmt.Fprintf(stderr, "agentbus send: %s\n", err)
+		fmt.Fprintf(stderr, "agentbus %s: %s\n", command, err)
 		return "", nil, 1
 	}
 	return string(data), fwd, 0
 }
 
-func stdinOf(parsed sendParse, body string) string {
-	if parsed.body != "" && parsed.file == "" {
+func stdinOf(positional, file, body string) string {
+	if positional != "" && file == "" {
 		return ""
 	}
 	return body
 }
 
-func prepareReply(cfg config.Config, args []string, stderr io.Writer) (outbox.Entry, bool, bool, int) {
-	id, body, clientID, asJSON, err := parseReply(args)
+func prepareReply(cfg config.Config, args []string, stdin io.Reader, stderr io.Writer) (outbox.Entry, bool, bool, int) {
+	parsed, err := parseReply(args)
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus reply: %s\n", err)
 		return outbox.Entry{}, false, false, 2
 	}
-	cid, err := chooseClientID(cfg.Machine, clientID)
+	body, fwd, code := messageFwd("reply", parsed.file, parsed.body, args, stdin, stderr)
+	if code != 0 {
+		return outbox.Entry{}, false, false, code
+	}
+	if strings.TrimSpace(body) == "" {
+		fmt.Fprintf(stderr, "agentbus: message body is required\n")
+		return outbox.Entry{}, false, false, 2
+	}
+	cid, err := chooseClientID(cfg.Machine, parsed.clientID)
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus reply: %s\n", err)
 		return outbox.Entry{}, false, false, 1
 	}
-	fwd := []string{"reply", id, body}
-	if asJSON {
-		fwd = append(fwd, "--json")
-	}
 	fwd = withClientID(fwd, cid)
 	return outbox.Entry{
-		Kind: outbox.KindReply, Args: fwd, ClientID: cid, Target: id, Body: body,
-	}, false, asJSON, 0
+		Kind: outbox.KindReply, Args: fwd, Stdin: stdinOf(parsed.body, parsed.file, body),
+		ClientID: cid, Target: parsed.id, Body: body,
+	}, false, parsed.asJSON, 0
 }
 
 func chooseClientID(machine, given string) (string, error) {

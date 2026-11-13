@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -143,5 +146,67 @@ func TestEnvelopeStampsFromAndPreviewsLongBodies(t *testing.T) {
 	code, stdinSent, stderr := runCmdIn([]string{"send", "eng/reviewer"}, env("p1"), strings.NewReader("from-stdin"))
 	if code != 0 || !strings.Contains(stdinSent, "queued for delivery") {
 		t.Fatalf("stdin send = %d %q %q", code, stdinSent, stderr)
+	}
+}
+
+func TestReplyAndSendBodySources(t *testing.T) {
+	oldDial, oldEnsure := dialDaemon, ensureDaemon
+	t.Cleanup(func() { dialDaemon, ensureDaemon = oldDial, oldEnsure })
+	var got []daemon.Request
+	dialDaemon = func(_ context.Context, _ string, req daemon.Request) (daemon.Response, error) {
+		got = append(got, req)
+		return daemon.Response{OK: true, Name: "m-9", State: "queued"}, nil
+	}
+	ensureDaemon = func([]string, io.Writer) int { return 0 }
+	env := []string{"HOME=" + t.TempDir(), "XDG_RUNTIME_DIR=" + t.TempDir(), "XDG_STATE_HOME=" + t.TempDir()}
+	runBody := func(stdin string, args ...string) (int, string) {
+		t.Helper()
+		got = nil
+		var stdout, stderr bytes.Buffer
+		code := run(context.Background(), args, env, strings.NewReader(stdin), &stdout, &stderr)
+		return code, stderr.String()
+	}
+	replyBody := func() string {
+		t.Helper()
+		for _, req := range got {
+			if req.Op == "reply" {
+				return req.Body
+			}
+		}
+		return ""
+	}
+	file := filepath.Join(t.TempDir(), "msg.txt")
+	if err := os.WriteFile(file, []byte("from-file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, stderr := runBody("", "reply", "m-1", "--file", file); code != 0 || replyBody() != "from-file" {
+		t.Fatalf("reply --file = %d %q body %q", code, stderr, replyBody())
+	}
+	if code, stderr := runBody("from-stdin", "reply", "m-1"); code != 0 || replyBody() != "from-stdin" {
+		t.Fatalf("reply stdin = %d %q body %q", code, stderr, replyBody())
+	}
+	if code, stderr := runBody("dash-stdin", "reply", "m-1", "-"); code != 0 || replyBody() != "dash-stdin" {
+		t.Fatalf("reply - = %d %q body %q", code, stderr, replyBody())
+	}
+	if code, stderr := runBody("nope", "reply", "m-1", "--bogus", "x"); code == 0 || !strings.Contains(stderr, "unknown flag --bogus") || len(got) != 0 {
+		t.Fatalf("reply --bogus = %d %q calls %d", code, stderr, len(got))
+	}
+	if code, stderr := runBody("", "reply", "m-1", "--", "--bogus", "x"); code != 0 || replyBody() != "--bogus x" {
+		t.Fatalf("reply -- --bogus = %d %q body %q", code, stderr, replyBody())
+	}
+	if code, stderr := runBody("nope", "send", "ops/x", "--bogus", "x"); code == 0 || !strings.Contains(stderr, "unknown flag --bogus") || len(got) != 0 {
+		t.Fatalf("send --bogus = %d %q calls %d", code, stderr, len(got))
+	}
+	if code, stderr := runBody("", "send", "ops/x", "--", "--bogus", "x"); code != 0 {
+		t.Fatalf("send -- --bogus = %d %q", code, stderr)
+	}
+	var sent string
+	for _, req := range got {
+		if req.Op == "send" {
+			sent = req.Body
+		}
+	}
+	if sent != "--bogus x" {
+		t.Fatalf("send body = %q", sent)
 	}
 }

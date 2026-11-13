@@ -52,6 +52,7 @@ var localCommands = map[string]bool{
 // stdinCommands read stdin, so hub mode forwards it.
 var stdinCommands = map[string]bool{
 	"send":        true,
+	"reply":       true,
 	"hook":        true,
 	"prompt-hook": true,
 }
@@ -108,9 +109,9 @@ func runOnHub(ctx context.Context, cfg config.Config, args, env []string, stdin 
 	if hookCommands[name] {
 		call.Stderr = io.Discard
 	}
-	if name == "send" {
+	if name == "send" || name == "reply" {
 		var code int
-		if call, code = sendFileOnStdin(call, stderr); code != 0 {
+		if call, code = messageFileOnStdin(call, stderr); code != 0 {
 			return code
 		}
 	}
@@ -178,20 +179,36 @@ func hubHookTimeout(env []string) time.Duration {
 	return defaultHookTimeout
 }
 
-// sendFileOnStdin reads a --file path here and sends its content on
-// stdin, so the hub never needs the path.
-func sendFileOnStdin(call hubcall.Call, stderr io.Writer) (hubcall.Call, int) {
-	parsed, err := parseSend(call.Args[1:])
-	if err != nil || parsed.file == "" {
+// messageFileOnStdin reads a --file path here and sends its content on
+// stdin, so the hub never needs the path. send and reply both do this.
+func messageFileOnStdin(call hubcall.Call, stderr io.Writer) (hubcall.Call, int) {
+	if len(call.Args) == 0 {
+		return call, 0
+	}
+	var file string
+	var err error
+	switch call.Args[0] {
+	case "send":
+		var parsed sendParse
+		parsed, err = parseSend(call.Args[1:])
+		file = parsed.file
+	case "reply":
+		var parsed replyParse
+		parsed, err = parseReply(call.Args[1:])
+		file = parsed.file
+	default:
+		return call, 0
+	}
+	if err != nil || file == "" {
 		return call, 0
 	}
 	_, rest, _, _ := takeFlag(call.Args[1:], "--file")
-	data, err := os.ReadFile(parsed.file)
-	if err != nil {
-		fmt.Fprintf(stderr, "agentbus send: %s\n", err)
+	data, readErr := os.ReadFile(file)
+	if readErr != nil {
+		fmt.Fprintf(stderr, "agentbus %s: %s\n", call.Args[0], readErr)
 		return call, 1
 	}
-	call.Args = append([]string{"send"}, rest...)
+	call.Args = append([]string{call.Args[0]}, rest...)
 	call.Stdin = strings.NewReader(string(data))
 	return call, 0
 }

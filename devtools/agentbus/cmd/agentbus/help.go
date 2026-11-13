@@ -91,18 +91,22 @@ func commands() []command {
 				"                    composer checks prints \"queued for delivery\": stored and\n" +
 				"                    being pasted. agentbus status <id> then shows delivered\n" +
 				"--client-id <id>    retry key, <machine>:<ulid>, up to 64 [A-Za-z0-9._:-] with a colon (default: a generated <machine>:<ulid>)\n" +
-				"--json              print id, state, and duplicate as JSON (default: false)",
+				"--json              print id, state, and duplicate as JSON (default: false)\n" +
+				"--                   end of flags; the next words are the body, even if they start with --",
 			example: `agentbus send ops/inbox "are you reviewing the queue?"`,
 			run:     cmdSend,
 		},
 		{
 			name:    "reply",
-			summary: "Reply. to is the original sender and re is id.",
-			usage:   "agentbus reply <id> <body> [--client-id <id>] [--json]",
-			flags: "--client-id <id>    retry key, <machine>:<ulid>, up to 64 [A-Za-z0-9._:-] with a colon (default: a generated <machine>:<ulid>)\n" +
-				"--json              print id, state, and duplicate as JSON (default: false)",
+			summary: "Reply. The body comes from the argument, --file, or stdin. to is the original sender and re is id.",
+			usage:   "agentbus reply <id> [<body>] [--file <path>] [--client-id <id>] [--json]",
+			flags: "--file <path>       read the body from this file (default: none)\n" +
+				"stdin               the body, when no body words are given or the body is - (default: none)\n" +
+				"--client-id <id>    retry key, <machine>:<ulid>, up to 64 [A-Za-z0-9._:-] with a colon (default: a generated <machine>:<ulid>)\n" +
+				"--json              print id, state, and duplicate as JSON (default: false)\n" +
+				"--                   end of flags; the next words are the body, even if they start with --",
 			example: `agentbus reply m-7f3a "yes, the queue is in progress"`,
-			run:     noStdin(cmdReply),
+			run:     cmdReply,
 		},
 		{
 			name:    "show",
