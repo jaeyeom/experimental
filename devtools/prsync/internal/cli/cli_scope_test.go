@@ -16,6 +16,19 @@ import (
 
 // scopeFake is a fake herdr whose only PROJ-123 tab, w3:t2 with idle
 // agent w3:p2, is on machine `on` ("local" or "m2").
+func TestHistoryRefreshOnlyOnUnscopedScan(t *testing.T) {
+	t.Parallel()
+	if !historyRefresh(nil, false) {
+		t.Fatal("unscoped scan left history refresh off")
+	}
+	if historyRefresh([]string{"acme/widgets"}, false) {
+		t.Fatal("--repo turned history refresh on")
+	}
+	if historyRefresh(nil, true) {
+		t.Fatal("--in-scope turned history refresh on")
+	}
+}
+
 func scopeFake(t *testing.T, on string) *herdrtest.Fake {
 	t.Helper()
 	f := herdrtest.Install(t)

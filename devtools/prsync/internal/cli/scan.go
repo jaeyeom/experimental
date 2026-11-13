@@ -54,6 +54,7 @@ func newScanCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 			}
 			logStartup(cmd.Context(), "scan", cfg)
 			deps, saveCache := scanDeps(cmd.Context(), exec, cfg, herdr.NewClient(exec, cfg.HerdrBin))
+			deps.HistoryRefresh = historyRefresh(repos, cfg.ScanInScopeOnly)
 			now := time.Now()
 			doc, err := scan.Run(cmd.Context(), deps, cfg, repos, now)
 			saveCache()
@@ -87,6 +88,13 @@ func newScanCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	cmd.Flags().BoolVar(&inScope, "in-scope", false, "leave PRs marked out_of_scope out of the output (overrides scan_in_scope_only)")
 	addScopeFlags(cmd, &scope)
 	return cmd
+}
+
+// historyRefresh reports whether this scan is the unscoped round that
+// refetches path history close to expiry. --repo and --in-scope do not.
+// dispatch, gate, and a single-PR scan never call it.
+func historyRefresh(repos []string, inScopeOnly bool) bool {
+	return len(repos) == 0 && !inScopeOnly
 }
 
 // writeOutOfScopeCount writes how many PRs another tab_machine run owns,

@@ -70,7 +70,7 @@ func TestRunTeamCoverCallCapDefersPathsToNextRound(t *testing.T) {
 	if len(got) != 1 || len(got[0].Suggest) != 1 || got[0].Suggest[0].Login != "carol" {
 		t.Fatalf("suggestions = %+v, want carol once the history is complete", got)
 	}
-	want := "team-cover: paths 300/300 need history (185 hits); team members 0 hits/1 calls; files 0/1; reviews 0/1; calls 26 (cap 40)"
+	want := "team-cover: paths 300/300 need history (185 hits); team members 0 hits/1 calls; files 0/1; reviews 0/1; refresh 0; calls 26 (cap 40)"
 	if !slices.Contains(doc.TeamCoverNotes, want) {
 		t.Fatalf("notes = %q, want %q", doc.TeamCoverNotes, want)
 	}
@@ -199,7 +199,7 @@ func historyRefreshFixture(t *testing.T) (clock time.Time, cache *roundcache.Cac
 	return clock, cache, order, version
 }
 
-func runCoveredHistoryRound(t *testing.T, cache *roundcache.Cache, now time.Time, paths []string, maxCalls, batch int) (*scriptGH, Document) {
+func runCoveredHistoryRound(t *testing.T, cache *roundcache.Cache, now time.Time, paths []string, maxCalls, batch int, refresh bool, refreshMax int) (*scriptGH, Document) {
 	t.Helper()
 	g := teamCoverGH(map[string]memberCall{
 		"acme/foo": {members: []gh.TeamMember{{Login: "someone", Type: "User"}, {Login: "carol", Type: "User"}}},
@@ -213,8 +213,12 @@ func runCoveredHistoryRound(t *testing.T, cache *roundcache.Cache, now time.Time
 	cfg.TeamCoverMaxCalls = maxCalls
 	cfg.TeamCoverBatchPaths = batch
 	cfg.TeamCoverHistoryTTL = 6 * time.Hour
+	if refreshMax > 0 {
+		cfg.TeamCoverRefreshMaxCalls = refreshMax
+	}
 	deps := depsWith(g, fixtureHerdr{})
 	deps.History = cache
+	deps.HistoryRefresh = refresh
 	doc, err := Run(context.Background(), deps, cfg, []string{"acme/widgets"}, now)
 	if err != nil {
 		t.Fatal(err)
@@ -234,7 +238,7 @@ func TestRunTeamCoverSpareBudgetRefreshesNearestHistory(t *testing.T) {
 	const maxCalls = 4
 	const spare = 2
 	clock, cache, order, version := historyRefreshFixture(t)
-	g, _ := runCoveredHistoryRound(t, cache, clock, order, maxCalls, 1)
+	g, doc := runCoveredHistoryRound(t, cache, clock, order, maxCalls, 1, true, 0)
 	if g.coverCalls != maxCalls {
 		t.Fatalf("calls = %d, want exactly the cap of %d", g.coverCalls, maxCalls)
 	}
@@ -254,6 +258,76 @@ func TestRunTeamCoverSpareBudgetRefreshesNearestHistory(t *testing.T) {
 			t.Fatalf("%s authors = %v, want %s", path, got.Authors, want)
 		}
 	}
+	if !strings.Contains(strings.Join(doc.TeamCoverNotes, "\n"), "refresh 2") {
+		t.Fatalf("notes = %q, want the refresh count", doc.TeamCoverNotes)
+	}
+}
+
+func TestRunTeamCoverScopedRunSkipsHistoryRefresh(t *testing.T) {
+	t.Parallel()
+
+	// A single-PR scan has spare budget and entries near expiry, and
+	// still refetches nothing. RunTargets is that scan.
+	clock, cache, order, version := historyRefreshFixture(t)
+	g := teamCoverGH(map[string]memberCall{
+		"acme/foo": {members: []gh.TeamMember{{Login: "someone", Type: "User"}, {Login: "carol", Type: "User"}}},
+	})
+	g.view = map[string]viewResult{"acme/widgets#1": {item: teamPR(1)}}
+	cfg := teamCoverCfg()
+	cfg.TeamCoverSignals = []string{"history"}
+	cfg.TeamCoverMaxCalls = 40
+	cfg.TeamCoverHistoryTTL = 6 * time.Hour
+	deps := depsWith(g, fixtureHerdr{})
+	deps.History = cache
+	deps.HistoryRefresh = true
+	doc, err := RunTargets(context.Background(), deps, cfg, []Target{{Repo: "acme/widgets", Number: 1}}, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.historyCalls != 0 {
+		t.Fatalf("history calls = %d paths = %#v, want no early refresh", g.historyCalls, g.historyPaths)
+	}
+	for _, path := range order {
+		got, ok := cache.PathHistory("acme/widgets", "main", path, version)
+		if !ok || len(got.Authors) != 1 || got.Authors[0] != "old" {
+			t.Fatalf("%s = %+v, %v; want the stored history left as it was", path, got, ok)
+		}
+	}
+	if !strings.Contains(strings.Join(doc.TeamCoverNotes, "\n"), "refresh 0") {
+		t.Fatalf("notes = %q, want refresh 0", doc.TeamCoverNotes)
+	}
+}
+
+func TestRunTeamCoverRefreshCapLimitsSpareBudget(t *testing.T) {
+	t.Parallel()
+
+	// The covered PR leaves far more than the refresh cap. Only the cap's
+	// worth of nearest entries is refetched, and those calls count.
+	const refreshMax = 2
+	clock, cache, order, version := historyRefreshFixture(t)
+	g, doc := runCoveredHistoryRound(t, cache, clock, order, 40, 1, true, refreshMax)
+	if g.historyCalls != 1 || !slices.Equal(g.historyPaths[0], order) {
+		t.Fatalf("history calls = %d paths = %#v, want one batched refresh, nearest first %v", g.historyCalls, g.historyPaths, order)
+	}
+	if g.coverCalls != 2+refreshMax {
+		t.Fatalf("calls = %d, want the two setup calls plus the refresh cap", g.coverCalls)
+	}
+	for i, path := range order {
+		got, ok := cache.PathHistory("acme/widgets", "main", path, version)
+		if !ok {
+			t.Fatalf("%s missing after the round", path)
+		}
+		want := "old"
+		if i < refreshMax {
+			want = "new"
+		}
+		if len(got.Authors) != 1 || got.Authors[0] != want {
+			t.Fatalf("%s authors = %v, want %s", path, got.Authors, want)
+		}
+	}
+	if !strings.Contains(strings.Join(doc.TeamCoverNotes, "\n"), "refresh 2") {
+		t.Fatalf("notes = %q, want the refresh count", doc.TeamCoverNotes)
+	}
 }
 
 func TestRunTeamCoverNoSpareBudgetSkipsHistoryRefresh(t *testing.T) {
@@ -262,7 +336,7 @@ func TestRunTeamCoverNoSpareBudgetSkipsHistoryRefresh(t *testing.T) {
 	// The covered PR uses the whole cap on its snapshot and member lookup.
 	const maxCalls = 2
 	clock, cache, order, version := historyRefreshFixture(t)
-	g, _ := runCoveredHistoryRound(t, cache, clock, order, maxCalls, 1)
+	g, _ := runCoveredHistoryRound(t, cache, clock, order, maxCalls, 1, true, 0)
 	if g.coverCalls != maxCalls {
 		t.Fatalf("calls = %d, want the cap of %d with nothing past it", g.coverCalls, maxCalls)
 	}
@@ -305,7 +379,7 @@ func TestRunTeamCoverSummaryNote(t *testing.T) {
 	t.Parallel()
 
 	g, doc, _ := historyRound(t, &mapHistoryCache{entries: map[string]gh.PathHistory{}}, "h", "base1")
-	want := fmt.Sprintf("team-cover: paths 2/2 need history (0 hits); team members 0 hits/1 calls; files 0/2; reviews 0/2; calls %d (cap 40)", g.coverCalls)
+	want := fmt.Sprintf("team-cover: paths 2/2 need history (0 hits); team members 0 hits/1 calls; files 0/2; reviews 0/2; refresh 0; calls %d (cap 40)", g.coverCalls)
 	if !slices.Equal(doc.TeamCoverNotes, []string{want}) {
 		t.Fatalf("notes = %q, want %q", doc.TeamCoverNotes, want)
 	}

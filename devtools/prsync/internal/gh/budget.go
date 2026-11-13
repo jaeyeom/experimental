@@ -114,6 +114,30 @@ func noteRollup(ctx context.Context, hit bool) {
 func noteRollupHit(ctx context.Context)  { noteRollup(ctx, true) }
 func noteRollupCall(ctx context.Context) { noteRollup(ctx, false) }
 
+// Narrow lowers the cap to n further calls until restore runs. Those
+// calls still count toward the cap restore puts back. n <= 0 allows no
+// further call until restore. A nil budget returns a no-op restore.
+func (b *CallBudget) Narrow(n int) func() {
+	if b == nil {
+		return func() {}
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	old := b.max
+	if n < 0 {
+		n = 0
+	}
+	next := b.used + n
+	if b.max <= 0 || next < b.max {
+		b.max = next
+	}
+	return func() {
+		b.mu.Lock()
+		b.max = old
+		b.mu.Unlock()
+	}
+}
+
 // Left is how many calls remain, or -1 without a cap.
 func (b *CallBudget) Left() int {
 	if b == nil {

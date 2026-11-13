@@ -266,6 +266,7 @@
 # team_cover_batch_paths=5     # most paths per history request; halved on timeout
 # team_cover_history_ttl=6h    # reuse path history this long; 0 = per base head
 # team_cover_max_calls=40      # team-cover GitHub calls per round; the rest wait
+# team_cover_refresh_max_calls=10 # unscoped scan only; counts toward max_calls
 # team_cover_load_ttl=1h       # reuse each login's review load this long
 # team_cover_members_ttl=24h   # reuse each team's member list this long
 # team_cover_codeowners_ttl=6h # reuse each repository's CODEOWNERS this long

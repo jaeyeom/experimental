@@ -597,6 +597,7 @@ func TestLoadTeamCover(t *testing.T) {
 		"team_cover_batch_paths=8",
 		"team_cover_history_ttl=90m",
 		"team_cover_max_calls=12",
+		"team_cover_refresh_max_calls=3",
 		"team_cover_load_ttl=30m",
 		"team_cover_members_ttl=2h",
 		"team_cover_codeowners_ttl=0",
@@ -632,6 +633,9 @@ func TestLoadTeamCover(t *testing.T) {
 	}
 	if got.TeamCoverMaxCalls != 12 {
 		t.Fatalf("max calls=%d, want 12", got.TeamCoverMaxCalls)
+	}
+	if got.TeamCoverRefreshMaxCalls != 3 {
+		t.Fatalf("refresh max calls=%d, want 3", got.TeamCoverRefreshMaxCalls)
 	}
 	if got.TeamCoverLoadTTL != 30*time.Minute {
 		t.Fatalf("load ttl=%v, want 30m", got.TeamCoverLoadTTL)
@@ -819,6 +823,7 @@ func TestLoadValidationErrors(t *testing.T) {
 		{name: "bad team cover history ttl", body: "team_cover_history_ttl=6\n", key: "team_cover_history_ttl"},
 		{name: "negative team cover history ttl", body: "team_cover_history_ttl=-1h\n", key: "team_cover_history_ttl"},
 		{name: "zero team cover max calls", body: "team_cover_max_calls=0\n", key: "team_cover_max_calls"},
+		{name: "zero team cover refresh max calls", body: "team_cover_refresh_max_calls=0\n", key: "team_cover_refresh_max_calls"},
 		{name: "bad team cover load ttl", body: "team_cover_load_ttl=1\n", key: "team_cover_load_ttl"},
 		{name: "negative team cover load ttl", body: "team_cover_load_ttl=-1m\n", key: "team_cover_load_ttl"},
 		{name: "bad team cover members ttl", body: "team_cover_members_ttl=1\n", key: "team_cover_members_ttl"},
@@ -988,6 +993,9 @@ func TestDefaults(t *testing.T) {
 	}
 	if got.TeamCoverMaxCalls != 40 {
 		t.Fatalf("TeamCoverMaxCalls = %d, want 40", got.TeamCoverMaxCalls)
+	}
+	if got.TeamCoverRefreshMaxCalls != 10 {
+		t.Fatalf("TeamCoverRefreshMaxCalls = %d, want 10", got.TeamCoverRefreshMaxCalls)
 	}
 	if got.TeamCoverLoadTTL != time.Hour {
 		t.Fatalf("TeamCoverLoadTTL = %v, want 1h", got.TeamCoverLoadTTL)
