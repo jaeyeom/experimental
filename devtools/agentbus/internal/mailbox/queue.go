@@ -23,7 +23,9 @@ const (
 	stateQueued = "queued for delivery"
 	// defaultPoll matches the registry inventory interval.
 	defaultPoll = 2 * time.Second
-	waitTick    = 15 * time.Millisecond
+	// defaultPasteBound is how long one paste may run after shutdown.
+	defaultPasteBound = 5 * time.Second
+	waitTick          = 15 * time.Millisecond
 )
 
 // HoldHibernated is the hold reason of a message to a hibernated agent.
@@ -42,8 +44,9 @@ type outcome struct {
 
 // Poll delivers queued mail immediately, then again on each tick.
 // A non-positive interval uses defaultPoll. An empty queue logs nothing.
-// Before returning, Poll waits for the flushes it started; they run under
-// ctx, so its end cuts off their remote calls.
+// Before returning, Poll waits for the flushes it started. A paste runs
+// under its own bound, so shutdown does not cut it off; Poll still waits
+// for that flush before it returns.
 func (m *Mailbox) Poll(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = defaultPoll
@@ -514,7 +517,30 @@ func (m *Mailbox) attempt(ctx context.Context, msg message, deliver bool) outcom
 		Detail:      "composer-empty-at-check",
 		TargetState: string(state),
 	})
-	return deliverOutcome(ctx, ad, msg.Handle, text, state)
+	return m.deliverOutcome(ctx, ad, msg.Handle, text, state)
+}
+
+// SetPasteBound limits one paste. Zero uses defaultPasteBound.
+// Call it before the mailbox delivers anything.
+func (m *Mailbox) SetPasteBound(d time.Duration) {
+	m.pasteBound = d
+}
+
+func (m *Mailbox) pasteLimit() time.Duration {
+	if m.pasteBound > 0 {
+		return m.pasteBound
+	}
+	return defaultPasteBound
+}
+
+// pasteContext detaches a paste from ctx's cancel and bounds it.
+// ok is false when ctx is already done, so shutdown starts no new paste.
+func (m *Mailbox) pasteContext(ctx context.Context) (context.Context, context.CancelFunc, bool) {
+	if ctx.Err() != nil {
+		return ctx, func() {}, false
+	}
+	paste, cancel := context.WithTimeout(context.WithoutCancel(ctx), m.pasteLimit())
+	return paste, cancel, true
 }
 
 // ambiguousHold is a paste that may already be on screen.
@@ -591,11 +617,18 @@ func hasEnvelope(text, id string) bool {
 	}
 }
 
-// deliverOutcome classifies one paste. A transport error or a failed
-// result is ambiguous: the text may already be on screen. A retryable
-// refusal is definite, and so is an unreachable machine.
-func deliverOutcome(ctx context.Context, ad adapter.Adapter, handle, text string, state adapter.State) outcome {
-	result, err := ad.Deliver(ctx, handle, text)
+// deliverOutcome classifies one paste. The paste outlives ctx so
+// shutdown can drain it, and it stops at the paste bound. A canceled
+// ctx does not start a new paste. A transport error or a failed result
+// is ambiguous: the text may already be on screen. A retryable refusal
+// is definite, and so is an unreachable machine.
+func (m *Mailbox) deliverOutcome(ctx context.Context, ad adapter.Adapter, handle, text string, state adapter.State) outcome {
+	paste, cancel, ok := m.pasteContext(ctx)
+	if !ok {
+		return outcome{deferred: true}
+	}
+	defer cancel()
+	result, err := ad.Deliver(paste, handle, text)
 	if ue := remotecall.AsUnreachable(err); ue != nil {
 		return unreachableOutcome(ue)
 	}
@@ -898,7 +931,12 @@ func (m *Mailbox) notifySender(ctx context.Context, id, from, text, unsent strin
 		})
 		return
 	}
-	_, _ = ad.Deliver(ctx, handle, text)
+	paste, cancel, ok := m.pasteContext(ctx)
+	if !ok {
+		return
+	}
+	defer cancel()
+	_, _ = ad.Deliver(paste, handle, text)
 }
 
 // markFrontQueued stores stateQueued on a front the precheck will paste.
