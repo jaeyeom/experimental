@@ -329,6 +329,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - all.yml
 - bazel.yml
 - cleanup-repo.yml
+- diskwatch.yml
 - gather-facts.yml
 - gmi.yml
 - go.yml

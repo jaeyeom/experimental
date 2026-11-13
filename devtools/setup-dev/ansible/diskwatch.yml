@@ -1,0 +1,181 @@
+---
+# Manual playbook. Installs diskwatch and a periodic runner. The runner
+# is not enabled unless a config file exists. Termux is skipped.
+- import_playbook: setup-user-go-bin-directory.yml
+
+- name: Ensure diskwatch is present
+  hosts: all
+  tasks:
+    - name: Include guard for diskwatch playbook
+      block:
+        - name: Stop early if the diskwatch playbook is already included
+          meta: end_play
+          when: diskwatch_playbook_imported is defined
+        - name: Ensure the diskwatch playbook is not included
+          ansible.builtin.set_fact:
+            diskwatch_playbook_imported: true
+          when: diskwatch_playbook_imported is not defined
+
+    - name: Skip diskwatch on Termux
+      meta: end_play
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined
+
+    - name: Check if diskwatch is installed
+      ansible.builtin.shell: go version -m $(command -v diskwatch) | grep '^\s*mod\s'
+      register: diskwatch_installed
+      ignore_errors: true
+      changed_when: false
+
+    - name: Extract diskwatch version
+      block:
+        - name: Set diskwatch facts
+          ansible.builtin.set_fact:
+            diskwatch_module_path: "{{ diskwatch_installed.stdout.split()[1] }}"
+            diskwatch_module_version: "{{ diskwatch_installed.stdout.split()[2] }}"
+        - name: Determine the latest diskwatch version
+          ansible.builtin.command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ diskwatch_module_path }}@latest"
+          register: diskwatch_latest
+          ignore_errors: true
+          changed_when: false
+        - name: Debug diskwatch module path and version
+          ansible.builtin.debug:
+            msg: "{{ diskwatch_module_path }} {{ diskwatch_module_version }} => {{ diskwatch_latest.stdout }}"
+      rescue:
+        - name: Clear diskwatch facts
+          ansible.builtin.set_fact:
+            diskwatch_module_path: ""
+            diskwatch_module_version: ""
+
+    - name: Get diskwatch build Go version
+      ansible.builtin.shell: go version -m $(command -v diskwatch) 2>/dev/null | head -1 | awk '{print $2}'
+      register: diskwatch_build_go
+      ignore_errors: true
+      changed_when: false
+
+    - name: Upgrade diskwatch
+      ansible.builtin.command: go install github.com/jaeyeom/experimental/devtools/diskwatch/cmd/diskwatch@latest
+      register: diskwatch_upgrade
+      until: diskwatch_upgrade is succeeded
+      retries: 3
+      delay: 30
+      when: >
+        diskwatch_module_version is not defined or
+        diskwatch_module_version == "" or
+        diskwatch_module_version != diskwatch_latest.stdout or
+        diskwatch_build_go.stdout | default('') != go_toolchain_version
+
+    - name: Use XDG_CONFIG_HOME for diskwatch
+      ansible.builtin.set_fact:
+        diskwatch_config_root: "{{ ansible_facts['env']['XDG_CONFIG_HOME'] }}"
+      when: ansible_facts['env']['XDG_CONFIG_HOME'] | default('', true) | length > 0
+
+    - name: Use Application Support for diskwatch on macOS
+      ansible.builtin.set_fact:
+        diskwatch_config_root: "{{ ansible_facts['env']['HOME'] }}/Library/Application Support"
+      when:
+        - ansible_facts['os_family'] == "Darwin"
+        - ansible_facts['env']['XDG_CONFIG_HOME'] | default('', true) | length == 0
+
+    - name: Use ~/.config for diskwatch
+      ansible.builtin.set_fact:
+        diskwatch_config_root: "{{ ansible_facts['env']['HOME'] }}/.config"
+      when:
+        - ansible_facts['os_family'] != "Darwin"
+        - ansible_facts['env']['XDG_CONFIG_HOME'] | default('', true) | length == 0
+
+    - name: Set the diskwatch config path
+      ansible.builtin.set_fact:
+        diskwatch_config_path: "{{ diskwatch_config_root }}/diskwatch/config.toml"
+
+    - name: Check for a diskwatch config
+      ansible.builtin.stat:
+        path: "{{ diskwatch_config_path }}"
+      register: diskwatch_config
+
+    - name: Install the diskwatch systemd user units
+      when:
+        - ansible_facts['env']['TERMUX_VERSION'] is not defined
+        - ansible_facts['os_family'] != "Darwin"
+      block:
+        - name: Ensure the systemd user directory exists
+          ansible.builtin.file:
+            path: "{{ ansible_facts['env']['HOME'] }}/.config/systemd/user"
+            state: directory
+            mode: "0755"
+        - name: Install diskwatch.service
+          ansible.builtin.copy:
+            dest: "{{ ansible_facts['env']['HOME'] }}/.config/systemd/user/diskwatch.service"
+            mode: "0644"
+            content: |
+              [Unit]
+              Description=diskwatch low-disk check
+              [Service]
+              Type=oneshot
+              ExecStart={{ go_env_gopath.stdout }}/bin/diskwatch check
+              [Install]
+              WantedBy=default.target
+        - name: Install diskwatch.timer
+          ansible.builtin.copy:
+            dest: "{{ ansible_facts['env']['HOME'] }}/.config/systemd/user/diskwatch.timer"
+            mode: "0644"
+            content: |
+              [Unit]
+              Description=run diskwatch every 5 minutes
+              [Timer]
+              OnBootSec=5min
+              OnUnitActiveSec=5min
+              [Install]
+              WantedBy=timers.target
+        - name: Reload systemd user units
+          ansible.builtin.command: systemctl --user daemon-reload
+          changed_when: false
+        - name: Enable the diskwatch timer when a config exists
+          ansible.builtin.command: systemctl --user enable --now diskwatch.timer
+          when: diskwatch_config.stat.exists
+        - name: Disable the diskwatch timer when a config is absent
+          ansible.builtin.command: systemctl --user disable --now diskwatch.timer
+          when: not diskwatch_config.stat.exists
+          failed_when: false
+
+    - name: Install the diskwatch launchd agent
+      when: ansible_facts['os_family'] == "Darwin"
+      block:
+        - name: Ensure LaunchAgents exists
+          ansible.builtin.file:
+            path: "{{ ansible_facts['env']['HOME'] }}/Library/LaunchAgents"
+            state: directory
+            mode: "0755"
+        - name: Install the diskwatch launchd plist
+          ansible.builtin.copy:
+            dest: "{{ ansible_facts['env']['HOME'] }}/Library/LaunchAgents/com.jaeyeom.diskwatch.plist"
+            mode: "0644"
+            content: |
+              <?xml version="1.0" encoding="UTF-8"?>
+              <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+              <plist version="1.0">
+              <dict>
+                <key>Label</key>
+                <string>com.jaeyeom.diskwatch</string>
+                <key>ProgramArguments</key>
+                <array>
+                  <string>{{ go_env_gopath.stdout }}/bin/diskwatch</string>
+                  <string>check</string>
+                </array>
+                <key>StartInterval</key>
+                <integer>300</integer>
+                <key>RunAtLoad</key>
+                <false/>
+              </dict>
+              </plist>
+        - name: Bootout the diskwatch agent before enabling it
+          ansible.builtin.command: launchctl bootout gui/{{ ansible_facts['user_uid'] }} {{ ansible_facts['env']['HOME'] }}/Library/LaunchAgents/com.jaeyeom.diskwatch.plist
+          when: diskwatch_config.stat.exists
+          failed_when: false
+          changed_when: false
+        - name: Enable the diskwatch agent when a config exists
+          ansible.builtin.command: launchctl bootstrap gui/{{ ansible_facts['user_uid'] }} {{ ansible_facts['env']['HOME'] }}/Library/LaunchAgents/com.jaeyeom.diskwatch.plist
+          when: diskwatch_config.stat.exists
+        - name: Disable the diskwatch agent when a config is absent
+          ansible.builtin.command: launchctl bootout gui/{{ ansible_facts['user_uid'] }} {{ ansible_facts['env']['HOME'] }}/Library/LaunchAgents/com.jaeyeom.diskwatch.plist
+          when: not diskwatch_config.stat.exists
+          failed_when: false

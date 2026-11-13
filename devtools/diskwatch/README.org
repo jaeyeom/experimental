@@ -1,0 +1,138 @@
+#+TITLE: diskwatch
+#+DATE: 2026-11-13
+
+* Overview
+
+~diskwatch~ watches free space on the filesystems you name. When a
+filesystem gets low, it lists where the space is going and runs a
+command you configure. It never deletes anything.
+
+Free space has no portable change event. ~inotify~ and ~FSEvents~ report
+name and content changes, not ~statfs~ updates, so the check is a poll.
+
+* Hysteresis and cooldown
+
+Each mount has ~low~, ~high~, and an optional ~urgent~ threshold. A
+threshold is a percent (~15%~) or a size (~40G~, powers of 1024).
+
+- The mount starts armed. Free space below ~low~ runs ~on_low~ once and
+  disarms the mount.
+- It stays quiet until free space rises above ~high~, which arms it
+  again.
+- After a trigger, the same mount waits ~cooldown~ (default 6 hours)
+  before it can trigger again.
+- Free space below ~urgent~ runs ~on_low~ even during that wait, and
+  even while the mount is disarmed. The action then runs on later
+  checks until free space rises above ~urgent~.
+- A failed action is logged and retried on the next check. It does not
+  start the cooldown.
+
+* Install
+
+#+BEGIN_SRC bash
+go install github.com/jaeyeom/experimental/devtools/diskwatch/cmd/diskwatch@latest
+#+END_SRC
+
+~devtools/setup-dev/ansible/diskwatch.yml~ installs the binary and a
+periodic runner. The runner is not enabled unless a config file exists.
+
+- Linux: a systemd user timer every 5 minutes and a oneshot
+  ~diskwatch.service~.
+- macOS: a launchd agent, ~com.jaeyeom.diskwatch~, whose
+  ~StartInterval~ is 300 seconds.
+
+* Config
+
+The file is =$XDG_CONFIG_HOME/diskwatch/config.toml= when that variable
+is set. Otherwise it is =$HOME/.config/diskwatch/config.toml=, or
+=$HOME/Library/Application Support/diskwatch/config.toml= on macOS.
+
+State is =$XDG_STATE_HOME/diskwatch/state.json=, or
+=$HOME/Library/Application Support/diskwatch/state.json= on macOS when
+~XDG_STATE_HOME~ is unset. It is written by creating a temporary file
+and renaming it into place.
+
+There are no default paths. ~cooldown~ defaults to ~6h~ and
+~summary_top~ defaults to 10.
+
+#+BEGIN_SRC toml
+cooldown = "6h"
+summary_top = 8
+report_paths = ["~/src/**"]
+on_low = ["~/bin/diskwatch-notify"]
+
+[[mounts]]
+path = "/"
+low = "15%"
+high = "25%"
+urgent = "5%"
+#+END_SRC
+
+diskwatch expands a leading =~/~ in ~report_paths~. ~on_low~ is
+executed as written, so its first element should be an absolute path.
+
+~low~ must be below ~high~, in the same unit. ~urgent~, when set, must
+be below ~low~. ~on_low~ is an argv list and must not be empty.
+
+* Commands
+
+| Command | Behavior |
+|---------+----------|
+| ~diskwatch check~ | One pass over the configured mounts. |
+| ~diskwatch check --dry-run~ | Print what would trigger, with the summary, and do not run the action or record a trigger. |
+| ~diskwatch status~ | Free space, armed or cooldown state, last trigger, and last action result. |
+| ~diskwatch status --json~ | The same report as JSON. |
+| ~diskwatch hook~ | The same check as ~check~, and at most once a minute. |
+
+~--config~ selects a config file. An invalid config exits 2 and names
+the problem.
+
+~hook~ is meant to run just after something that spends disk, such as
+creating a worktree:
+
+#+BEGIN_SRC bash
+git worktree add ../feature-branch
+diskwatch hook
+#+END_SRC
+
+* Usage summary
+
+On a trigger, diskwatch measures each ~report_paths~ match with a
+bounded walk. The walk does not follow symlinks and does not enter
+another filesystem. It stops at a time limit (5 seconds) and still
+reports what it counted. A short walk is a partial summary, not a
+failure. Rows are largest first, limited to ~summary_top~.
+
+* The on_low contract
+
+~on_low~ is executed directly. diskwatch does not invoke a shell.
+The timer's ~PATH~ is small, so the first argument should be an
+absolute path. Exit 0 counts as delivered and starts the cooldown.
+Any other exit is logged and retried next time.
+
+The command receives the current environment plus:
+
+| Variable | Value |
+|----------+-------|
+| ~DISKWATCH_MOUNT~ | Mount path from the config. |
+| ~DISKWATCH_FREE_BYTES~ | Free bytes (~statfs~ available). |
+| ~DISKWATCH_FREE_PCT~ | Free space as a percent with two decimals. |
+| ~DISKWATCH_TOTAL_BYTES~ | Filesystem size in bytes. |
+| ~DISKWATCH_HOST~ | Host name. |
+| ~DISKWATCH_SUMMARY~ | Usage summary as text, largest first. |
+| ~DISKWATCH_SUMMARY_FILE~ | The same summary as JSON. |
+
+This script only notifies. It does not delete files.
+
+#+BEGIN_SRC sh
+#!/bin/sh
+msg="${DISKWATCH_MOUNT} has ${DISKWATCH_FREE_PCT}% free on ${DISKWATCH_HOST}"
+if command -v notify-send >/dev/null 2>&1; then
+  notify-send "low disk" "$msg"
+elif command -v osascript >/dev/null 2>&1; then
+  osascript -e "display notification \"$msg\" with title \"low disk\""
+else
+  printf '%s\n' "$msg" >&2
+fi
+printf '%s\n' "$DISKWATCH_SUMMARY" >&2
+#+END_SRC

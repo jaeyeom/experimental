@@ -80,6 +80,7 @@ linters:
             - github.com/charmbracelet/lipgloss
             - github.com/google/renameio/v2
             - github.com/muesli/termenv
+            - github.com/pelletier/go-toml/v2
           deny:
             - pkg: "github.com/leanovate/gopter"
               desc: gopter is for test only
