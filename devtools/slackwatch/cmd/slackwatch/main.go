@@ -107,6 +107,9 @@ Commands:
   slackwatch outbox poke <decide-id>
                       handle a decide answer now instead of at the next poll
   slackwatch outbox cancel <id> [--reason S]
+  slackwatch outbox retry <id>
+                      post a failed direct record once after the checks,
+                      or return a handoff record to awaiting-handoff
   slackwatch pin      check the write token with auth.test and pin it in config
   slackwatch skill    print the agent skill (SKILL.md)
   slackwatch help     show this help

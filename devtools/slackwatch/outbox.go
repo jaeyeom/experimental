@@ -59,6 +59,11 @@ const (
 // DefaultOutboxPoll is how often serve polls decide for answers.
 const DefaultOutboxPoll = 30 * time.Second
 
+// retryLookback is how far back outbox retry searches the destination
+// for a message that already landed. A match is registered as posted
+// and is not sent again.
+const retryLookback = 15 * time.Minute
+
 // ErrNoOutbox means no outbox record matches.
 var ErrNoOutbox = errors.New("no such outbox record")
 
@@ -390,10 +395,14 @@ type SlackWriter interface {
 	PostMessage(ctx context.Context, token, channel, threadTS, text string) (string, error)
 }
 
-// MessageReader reads one message back with the read token. threadTS is
+// MessageReader reads messages back with the read token. threadTS is
 // the parent of a thread reply, empty for a top-level message.
 type MessageReader interface {
+	// Message reads the message at ts.
 	Message(ctx context.Context, channel, ts, threadTS string) (Message, error)
+	// Recent lists messages since oldest, a Slack ts. A set threadTS
+	// lists that thread. Every message is included, subtypes too.
+	Recent(ctx context.Context, channel, threadTS, oldest string) ([]Message, error)
 }
 
 // Draft is what slackwatch post submits.
@@ -892,12 +901,7 @@ func (o *Outbox) postDirect(ctx context.Context, cfg Config, r OutboxRecord) err
 	}
 	ts, err := o.Writer.PostMessage(ctx, token, r.Channel, r.ThreadTS, r.Text+"\n\n"+cfg.Post.Footer)
 	if err != nil {
-		reason := "chat.postMessage: " + err.Error()
-		return o.finishFrom(ctx, r, OutboxPosting, end{
-			state: OutboxFailed, reason: reason, outcome: "not posted: " + reason,
-			event: EventOutboxFailed, alert: true,
-			message: fmt.Sprintf("Slack draft outbox %d (purpose: %q) could not be posted: %s.", r.ID, r.Purpose, reason),
-		})
+		return o.failPost(ctx, r, err)
 	}
 	teamURL, err := o.Store.TeamURL()
 	if err != nil {
@@ -905,6 +909,245 @@ func (o *Outbox) postDirect(ctx context.Context, cfg Config, r OutboxRecord) err
 	}
 	link := permalink(teamURL, r.Channel, ts, r.ThreadTS)
 	return o.registerPosted(ctx, r, []string{OutboxPosting}, PostRef{Channel: r.Channel, TS: ts, ThreadTS: r.ThreadTS, Permalink: link}, "", "", false)
+}
+
+// failPost records a chat.postMessage error as failed. The stored reason
+// stays the Slack error. A known fixable error is named in the
+// notification and in a decide reply.
+func (o *Outbox) failPost(ctx context.Context, r OutboxRecord, postErr error) error {
+	reason := "chat.postMessage: " + postErr.Error()
+	notice := postFailureNotice(r, reason)
+	err := o.finishFrom(ctx, r, OutboxPosting, end{
+		state: OutboxFailed, reason: reason, outcome: "not posted: " + reason,
+		event: EventOutboxFailed, alert: true,
+		message: fmt.Sprintf("Slack draft outbox %d (purpose: %q) could not be posted: %s.", r.ID, r.Purpose, notice),
+	})
+	if err != nil {
+		return err
+	}
+	if notice == reason || r.DecideID == "" {
+		return nil
+	}
+	if rerr := o.Decide.Reply(ctx, r.DecideID, notice); rerr != nil {
+		o.logger().Warn("slackwatch outbox: reply with the post failure", "outbox", r.ID, "error", rerr)
+	}
+	return nil
+}
+
+// postFailureNotice is the human text for a chat.postMessage failure.
+// reason is the stored error. Known Slack errors get a short hint;
+// every other error stays reason.
+func postFailureNotice(r OutboxRecord, reason string) string {
+	retry := fmt.Sprintf("slackwatch outbox retry %d", r.ID)
+	switch {
+	case strings.Contains(reason, "not_in_channel"):
+		return fmt.Sprintf("posting account is not a member of %s; join it, then: %s", r.Channel, retry)
+	case strings.Contains(reason, "channel_not_found"):
+		return fmt.Sprintf("channel %s was not found; check the destination, then: %s", r.Channel, retry)
+	case strings.Contains(reason, "is_archived"):
+		return fmt.Sprintf("channel %s is archived; unarchive it, then: %s", r.Channel, retry)
+	case strings.Contains(reason, "restricted_action"):
+		return fmt.Sprintf("posting is restricted in %s; fix that, then: %s", r.Channel, retry)
+	default:
+		return reason
+	}
+}
+
+// Retry resumes a failed record. Direct mode posts once after the
+// acceptance checks and a search for a post that already landed.
+// Handoff mode returns the record to awaiting-handoff.
+func (o *Outbox) Retry(ctx context.Context, id int64) (OutboxRecord, error) {
+	r, err := o.Store.GetOutbox(id)
+	if err != nil {
+		return OutboxRecord{}, err
+	}
+	if r.State != OutboxFailed {
+		return OutboxRecord{}, fmt.Errorf("outbox %d is %s, not %s", id, r.State, OutboxFailed)
+	}
+	cfg, err := o.config()
+	if err != nil {
+		return OutboxRecord{}, err
+	}
+	if err := o.retryChecks(ctx, r); err != nil {
+		return OutboxRecord{}, err
+	}
+	if cfg.Post.Mode != PostModeDirect {
+		return o.retryHandoff(ctx, cfg, r)
+	}
+	return o.retryDirect(ctx, cfg, r)
+}
+
+// retryChecks re-runs the acceptance rule for a failed record: a human
+// post pick from the decide UI, the stored text still matching its
+// hash, and the destination still the one in the decide question.
+func (o *Outbox) retryChecks(ctx context.Context, r OutboxRecord) error {
+	if r.DecideID == "" {
+		return fmt.Errorf("outbox %d: the decide answer was not post via ui by the human", r.ID)
+	}
+	item, err := o.Decide.Show(ctx, r.DecideID)
+	if err != nil {
+		return fmt.Errorf("outbox %d: %w", r.ID, err)
+	}
+	m, ok := latestHuman(item)
+	if !ok || m.OptionKey != decideKeyPost || m.Via != decideViaUI {
+		return fmt.Errorf("outbox %d: the decide answer was not post via ui by the human", r.ID)
+	}
+	if TextHash(r.Text) != r.TextHash {
+		return fmt.Errorf("outbox %d: the stored text no longer matches its hash", r.ID)
+	}
+	if !destinationUnchanged(r, item) {
+		return fmt.Errorf("outbox %d: the destination changed", r.ID)
+	}
+	return nil
+}
+
+// latestHuman is the latest message the user wrote on it.
+func latestHuman(it DecideItem) (DecideMessage, bool) {
+	for i := len(it.Messages) - 1; i >= 0; i-- {
+		if it.Messages[i].human() {
+			return it.Messages[i], true
+		}
+	}
+	return DecideMessage{}, false
+}
+
+// destinationUnchanged reports whether the decide question still names
+// r's channel and, when r is a thread reply, that thread.
+func destinationUnchanged(r OutboxRecord, it DecideItem) bool {
+	var dest, thread string
+	for _, m := range it.Messages {
+		for _, line := range strings.Split(m.Text, "\n") {
+			if v, ok := strings.CutPrefix(line, "Destination: "); ok {
+				dest = v
+			}
+			if v, ok := strings.CutPrefix(line, "In thread: "); ok {
+				thread = v
+			}
+		}
+	}
+	if !strings.Contains(dest, r.Channel) {
+		return false
+	}
+	if r.ThreadTS == "" {
+		return thread == ""
+	}
+	return strings.Contains(thread, r.ThreadTS) || (r.ParentLink != "" && thread == r.ParentLink)
+}
+
+// retryHandoff moves a failed handoff record back to awaiting-handoff
+// and sends the usual ready notice. It does not post.
+func (o *Outbox) retryHandoff(ctx context.Context, cfg Config, r OutboxRecord) (OutboxRecord, error) {
+	empty := ""
+	moved, err := o.Store.moveOutbox(r.ID, []string{OutboxFailed}, outboxUpdate{state: OutboxAwaitingHandoff, reason: &empty}, o.Now())
+	if err != nil {
+		return OutboxRecord{}, err
+	}
+	if !moved {
+		return OutboxRecord{}, fmt.Errorf("outbox %d is no longer %s", r.ID, OutboxFailed)
+	}
+	if err := o.notify(ctx, r, EventOutboxReady, cfg.Post.Agent, fmt.Sprintf("approved post ready: %d", r.ID), ""); err != nil {
+		return OutboxRecord{}, err
+	}
+	return o.Store.GetOutbox(r.ID)
+}
+
+// retryDirect posts a failed direct record once, or registers a matching
+// message that already landed.
+func (o *Outbox) retryDirect(ctx context.Context, cfg Config, r OutboxRecord) (OutboxRecord, error) {
+	token, err := o.writeToken(ctx, cfg)
+	if err != nil {
+		return OutboxRecord{}, err
+	}
+	dup, ok, err := o.findDuplicate(ctx, cfg, r)
+	if err != nil {
+		return OutboxRecord{}, err
+	}
+	if ok {
+		return o.registerExisting(ctx, r, dup)
+	}
+	return o.postRetry(ctx, cfg, r, token)
+}
+
+// findDuplicate looks for a message from post.expectUser with r's text
+// at the destination in the last retryLookback.
+func (o *Outbox) findDuplicate(ctx context.Context, cfg Config, r OutboxRecord) (Message, bool, error) {
+	oldest := unixTS(o.Now().Add(-retryLookback))
+	msgs, err := o.Reader.Recent(ctx, r.Channel, r.ThreadTS, oldest)
+	if err != nil {
+		return Message{}, false, fmt.Errorf("outbox %d: look for an existing post: %w", r.ID, err)
+	}
+	stored := NormalizeStored(r.Text)
+	for _, m := range msgs {
+		if m.User == cfg.Post.ExpectUser && sameText(NormalizePosted(m.Text, cfg.FooterPattern.Regexp), stored, false) {
+			return m, true, nil
+		}
+	}
+	return Message{}, false, nil
+}
+
+// registerExisting watches an already-landed message and marks r posted.
+func (o *Outbox) registerExisting(ctx context.Context, r OutboxRecord, m Message) (OutboxRecord, error) {
+	teamURL, err := o.Store.TeamURL()
+	if err != nil {
+		return OutboxRecord{}, err
+	}
+	link := permalink(teamURL, r.Channel, m.TS, r.ThreadTS)
+	p := PostRef{Channel: r.Channel, TS: m.TS, ThreadTS: r.ThreadTS, Permalink: link}
+	if err := o.registerPosted(ctx, r, []string{OutboxFailed}, p, "", m.Text, false); err != nil {
+		return OutboxRecord{}, err
+	}
+	return o.Store.GetOutbox(r.ID)
+}
+
+// postRetry sends r once and reads it back. A read failure still
+// registers the message, as a mismatch, so the record does not stay
+// in posting.
+func (o *Outbox) postRetry(ctx context.Context, cfg Config, r OutboxRecord, token string) (OutboxRecord, error) {
+	moved, err := o.Store.moveOutbox(r.ID, []string{OutboxFailed}, outboxUpdate{state: OutboxPosting, reason: ptr("")}, o.Now())
+	if err != nil {
+		return OutboxRecord{}, err
+	}
+	if !moved {
+		return OutboxRecord{}, fmt.Errorf("outbox %d is no longer %s", r.ID, OutboxFailed)
+	}
+	ts, err := o.Writer.PostMessage(ctx, token, r.Channel, r.ThreadTS, r.Text+"\n\n"+cfg.Post.Footer)
+	if err != nil {
+		if ferr := o.failPost(ctx, r, err); ferr != nil {
+			return OutboxRecord{}, ferr
+		}
+		return OutboxRecord{}, fmt.Errorf("outbox %d: %s", r.ID, postFailureNotice(r, "chat.postMessage: "+err.Error()))
+	}
+	return o.finishRetryPost(ctx, cfg, r, ts)
+}
+
+// finishRetryPost reads the new message back and registers it as posted
+// or mismatch.
+func (o *Outbox) finishRetryPost(ctx context.Context, cfg Config, r OutboxRecord, ts string) (OutboxRecord, error) {
+	teamURL, err := o.Store.TeamURL()
+	if err != nil {
+		return o.registerRetryRead(ctx, r, ts, "", "could not read the workspace URL: "+err.Error())
+	}
+	link := permalink(teamURL, r.Channel, ts, r.ThreadTS)
+	m, err := o.Reader.Message(ctx, r.Channel, ts, r.ThreadTS)
+	p := PostRef{Channel: r.Channel, TS: ts, ThreadTS: r.ThreadTS, Permalink: link}
+	if err != nil {
+		return o.registerRetryRead(ctx, r, ts, link, "could not read the post back: "+err.Error())
+	}
+	mismatch := strings.Join(readBackProblems(cfg, r, m, p), "; ")
+	if err := o.registerPosted(ctx, r, []string{OutboxPosting}, p, mismatch, m.Text, false); err != nil {
+		return OutboxRecord{}, err
+	}
+	return o.Store.GetOutbox(r.ID)
+}
+
+// registerRetryRead registers ts from posting with a mismatch reason,
+// so a post that landed is not sent again.
+func (o *Outbox) registerRetryRead(ctx context.Context, r OutboxRecord, ts, link, mismatch string) (OutboxRecord, error) {
+	p := PostRef{Channel: r.Channel, TS: ts, ThreadTS: r.ThreadTS, Permalink: link}
+	if err := o.registerPosted(ctx, r, []string{OutboxPosting}, p, mismatch, "", false); err != nil {
+		return OutboxRecord{}, err
+	}
+	return o.Store.GetOutbox(r.ID)
 }
 
 // registerPosted watches the post for the record's owner, moves the

@@ -72,6 +72,28 @@ func TestSlackReaderReplies(t *testing.T) {
 	}
 }
 
+func TestSlackReaderRecentKeepsSubtypes(t *testing.T) {
+	r := fakeSlackAPI(t, func(method string, req *http.Request) (int, string) {
+		if method != "conversations.replies" || req.Form.Get("oldest") != "9.000000" || req.Form.Get("ts") != "1.000100" {
+			t.Errorf("unexpected call %s %v", method, req.Form)
+		}
+		return 200, `{"ok":true,"messages":[
+{"type":"message","user":"UPOST","text":"landed","ts":"8.000100","thread_ts":"1.000100"},
+{"type":"message","subtype":"channel_join","user":"U7","text":"joined","ts":"8.000200","thread_ts":"1.000100"}]}`
+	})
+	got, err := r.Recent(context.Background(), "C1", "1.000100", "9.000000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []slackwatch.Message{
+		{Channel: "C1", TS: "8.000100", ThreadTS: "1.000100", User: "UPOST", Text: "landed"},
+		{Channel: "C1", TS: "8.000200", ThreadTS: "1.000100", User: "U7", Text: "joined"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Recent = %+v, want %+v", got, want)
+	}
+}
+
 func TestSlackReaderHistory(t *testing.T) {
 	r := fakeSlackAPI(t, func(method string, req *http.Request) (int, string) {
 		if method != "conversations.history" || req.Form.Get("oldest") != "1.000100" {

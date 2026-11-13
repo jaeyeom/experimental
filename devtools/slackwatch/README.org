@@ -288,6 +288,7 @@ off until ~post.mode~ is set; without it, ~post~ refuses.
 | ~outbox recheck <id>~ | Read a mismatch post back again with the current config. A pass moves it to ~posted~ and replies on the decide item. A failure prints the remaining problems and exits non-zero. |
 | ~outbox poke <decide-id>~ | Handle the answer to a decide item now. |
 | ~outbox cancel <id> [--reason S]~ | Withdraw a draft that is not posted. |
+| ~outbox retry <id>~ | Post a failed direct record once, or return a failed handoff record to ~awaiting-handoff~. |
 | ~pin~ | Check the write token with ~auth.test~ and pin it in the config. |
 
 ~DEST~ is a channel id, a ~#name~, or a message permalink, which posts
@@ -416,6 +417,26 @@ Direct mode checks its identity before it posts:
   one. Normalizing ~text~ plus the footer must yield ~text~. Otherwise
   ~post~ refuses and ~serve~ does not start posting.
 
+A ~failed~ record can be resumed with ~outbox retry <id>~. It re-runs
+the acceptance checks: the latest human message is a ~post~ pick with
+~via ui~, the stored text still matches its hash, and the destination
+in the decide question is unchanged. A failed check leaves the record
+~failed~ and prints which check failed. Direct mode also checks the
+identity pin, then searches the destination for a message from
+~post.expectUser~ with this text in the last 15 minutes. A match is
+registered as ~posted~ and nothing new is sent. Otherwise it posts
+once, reads the message back, and moves the record to ~posted~ or
+~mismatch~. Handoff mode does not post: the record returns to
+~awaiting-handoff~ and ~post.agent~ gets ~approved post ready: <id>~
+again.
+
+When ~chat.postMessage~ returns ~not_in_channel~, the ~outbox-failed~
+notice (the decide reply and the notification) says the posting
+account is not a member of the channel and names ~outbox retry~.
+~channel_not_found~, ~is_archived~, and ~restricted_action~ name a
+short fix and the same command. Any other error is reported as Slack
+returned it. The stored reason stays the Slack error.
+
 | State | Meaning |
 |-------+---------|
 | ~pending~ | Waiting for the decide answer. |
@@ -428,7 +449,7 @@ Direct mode checks its identity before it posts:
 | ~rejected~ | Not posted: the user's latest pick was not a ~post~ from the decide UI, or the text changed. |
 | ~mismatch~ | The handoff post differs from the approved text, author, or destination. |
 | ~cancelled~ | Withdrawn with ~outbox cancel~, or its decide item was closed without an answer. |
-| ~failed~ | ~decide ask~ or ~chat.postMessage~ failed. |
+| ~failed~ | ~decide ask~ or ~chat.postMessage~ failed. ~outbox retry~ resumes it. |
 
 ~status~ shows the posting mode and counts the ~pending~,
 ~awaiting-handoff~, and ~needs-redraft~ records. It exits 1 while direct
@@ -540,7 +561,7 @@ Outbox events carry their own ~SLACKWATCH_MESSAGE~:
 | ~outbox-cancelled~ | owner | The decide item was closed without an answer. |
 | ~outbox-rejected~ | owner and fallback | The answer did not pass the acceptance rule. |
 | ~outbox-mismatch~ | owner and fallback | A handoff post differs from the approved text. |
-| ~outbox-failed~ | owner and fallback | ~chat.postMessage~ failed. |
+| ~outbox-failed~ | owner and fallback | ~chat.postMessage~ failed. A fixable error names the cause and ~outbox retry~. |
 | ~posting-disabled~ | fallback | The direct-mode identity check failed. |
 
 Example templates. Pass ~SLACKWATCH_NOTIFY_ID~ through when the
