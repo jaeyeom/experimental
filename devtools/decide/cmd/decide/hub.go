@@ -123,6 +123,10 @@ func runOnHub(settings hubSettings, args []string, stdout, stderr io.Writer) int
 	if args[0] == "inbox" {
 		return cmdHubInbox(settings, args[1:], stdout, stderr)
 	}
+	args, err := expandHubText(args)
+	if err != nil {
+		return fail(stderr, err, 2)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), unix.SIGINT, unix.SIGTERM)
 	defer stop()
 	call := hubcall.Call{Args: args, Stdout: stdout, Stderr: stderr}

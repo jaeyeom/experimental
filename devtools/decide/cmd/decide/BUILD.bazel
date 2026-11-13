@@ -10,6 +10,7 @@ go_library(
         "owner.go",
         "serve.go",
         "skill.go",
+        "text.go",
     ],
     embedsrcs = ["skill.md"],
     importpath = "github.com/jaeyeom/experimental/devtools/decide/cmd/decide",
@@ -44,6 +45,7 @@ go_test(
         "owner_test.go",
         "sender_test.go",
         "snooze_test.go",
+        "text_test.go",
         "thread_test.go",
     ],
     data = [
