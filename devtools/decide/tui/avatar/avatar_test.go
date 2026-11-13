@@ -239,6 +239,7 @@ func TestImageProfiles(t *testing.T) {
 }
 
 func TestWebP(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
 	p, err := filepath.Abs("testdata/half.webp")
 	if err != nil {
 		t.Fatal(err)
