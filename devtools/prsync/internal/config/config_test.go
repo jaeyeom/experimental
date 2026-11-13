@@ -596,6 +596,7 @@ func TestLoadTeamCover(t *testing.T) {
 		"team_cover_every=3",
 		"team_cover_batch_paths=8",
 		"team_cover_history_ttl=90m",
+		"team_cover_history_slack_days=0",
 		"team_cover_max_calls=12",
 		"team_cover_refresh_max_calls=3",
 		"team_cover_load_ttl=30m",
@@ -630,6 +631,9 @@ func TestLoadTeamCover(t *testing.T) {
 	}
 	if got.TeamCoverHistoryTTL != 90*time.Minute {
 		t.Fatalf("history ttl=%v, want 90m", got.TeamCoverHistoryTTL)
+	}
+	if got.TeamCoverHistorySlackDays != 0 {
+		t.Fatalf("history slack=%d, want 0", got.TeamCoverHistorySlackDays)
 	}
 	if got.TeamCoverMaxCalls != 12 {
 		t.Fatalf("max calls=%d, want 12", got.TeamCoverMaxCalls)
@@ -817,6 +821,7 @@ func TestLoadValidationErrors(t *testing.T) {
 		{name: "bad skip team", body: "team_cover_skip_teams=not-a-team\n", key: "team_cover_skip_teams"},
 		{name: "unknown signal", body: "team_cover_signals=codeowners,vibes\n", key: "team_cover_signals"},
 		{name: "negative history days", body: "team_cover_history_days=-1\n", key: "team_cover_history_days"},
+		{name: "negative history slack days", body: "team_cover_history_slack_days=-1\n", key: "team_cover_history_slack_days"},
 		{name: "negative active days", body: "team_cover_active_days=-3\n", key: "team_cover_active_days"},
 		{name: "zero team cover every", body: "team_cover_every=0\n", key: "team_cover_every"},
 		{name: "zero team cover batch paths", body: "team_cover_batch_paths=0\n", key: "team_cover_batch_paths"},
@@ -990,6 +995,9 @@ func TestDefaults(t *testing.T) {
 	}
 	if got.TeamCoverHistoryTTL != 6*time.Hour {
 		t.Fatalf("TeamCoverHistoryTTL = %v, want 6h", got.TeamCoverHistoryTTL)
+	}
+	if got.TeamCoverHistorySlackDays != 2 {
+		t.Fatalf("TeamCoverHistorySlackDays = %d, want 2", got.TeamCoverHistorySlackDays)
 	}
 	if got.TeamCoverMaxCalls != 40 {
 		t.Fatalf("TeamCoverMaxCalls = %d, want 40", got.TeamCoverMaxCalls)

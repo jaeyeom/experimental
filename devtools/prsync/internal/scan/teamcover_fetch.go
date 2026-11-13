@@ -30,6 +30,9 @@ type coverCache struct {
 	// historyTTL > 0 keys stored history by the window's start day instead
 	// of the base head; the stored cache applies the TTL.
 	historyTTL time.Duration
+	// historySlack is how many UTC days earlier than the current start
+	// day a stored entry may be and still count. Zero requires that day.
+	historySlack int
 	// batch is the path count the next history request starts at, and
 	// maxBatch the most it grows to.
 	batch    int
@@ -64,7 +67,8 @@ type coverCache struct {
 	deferredTeams map[string]bool
 	deferredPRs   int
 	// listed, needed and hits count paths for the round summary.
-	listed, needed, hits int
+	// slackHits are the hits whose start day is earlier than this round's.
+	listed, needed, hits, slackHits int
 	// memberLookups, fileLookups and reviewLookups count stored-cache hits
 	// and real calls for the round summary.
 	memberLookups, fileLookups, reviewLookups lookupCount
@@ -105,6 +109,7 @@ func newCoverCache(cfg config.Config, now time.Time) *coverCache {
 		rules:         map[string][]codeRule{},
 		history:       map[string]gh.PathHistory{},
 		historyTTL:    cfg.TeamCoverHistoryTTL,
+		historySlack:  cfg.TeamCoverHistorySlackDays,
 		batch:         cfg.TeamCoverBatchPaths,
 		maxBatch:      cfg.TeamCoverBatchPaths,
 		load:          map[string]int{},
@@ -161,9 +166,13 @@ func (c *coverCache) report(ctx context.Context, doc *Document) {
 	if c.maxCalls > 0 {
 		limit = fmt.Sprintf("cap %d", c.maxCalls)
 	}
-	summary := fmt.Sprintf("team-cover: paths %d/%d need history (%d hits); team members %d hits/%d calls; "+
+	hits := fmt.Sprintf("%d hits", c.hits)
+	if c.slackHits > 0 {
+		hits += fmt.Sprintf(") (%d across days", c.slackHits)
+	}
+	summary := fmt.Sprintf("team-cover: paths %d/%d need history (%s); team members %d hits/%d calls; "+
 		"files %d/%d; reviews %d/%d; refresh %d; calls %d (%s)",
-		c.needed, c.listed, c.hits, c.memberLookups.hits, c.memberLookups.calls,
+		c.needed, c.listed, hits, c.memberLookups.hits, c.memberLookups.calls,
 		c.fileLookups.hits, c.fileLookups.calls, c.reviewLookups.hits, c.reviewLookups.calls,
 		c.refreshCalls, c.budget.Used(), limit)
 	runlog.FromContext(ctx).Info(summary)
@@ -639,22 +648,63 @@ func (c *coverCache) loadGroup(ctx context.Context, client GH, doc *Document, gr
 	return nil
 }
 
-// storedHistory takes group's paths stored under version and returns the
-// others.
+// storedHistory takes group's paths stored under version, or a UTC start
+// day up to historySlack earlier, and returns the others.
 func (c *coverCache) storedHistory(group historyGroup, version string) []string {
 	if version == "" {
 		return group.paths
 	}
 	var missing []string
 	for _, path := range group.paths {
-		if hist, ok := c.stored.PathHistory(group.repo, group.base, path, version); ok {
-			c.history[historyKey(group.repo, group.base, path)] = hist
-			c.hits++
+		hist, ok, across := historyNear(c.stored, group.repo, group.base, path, version, c.historySlack)
+		if !ok {
+			missing = append(missing, path)
 			continue
 		}
-		missing = append(missing, path)
+		c.history[historyKey(group.repo, group.base, path)] = hist
+		c.hits++
+		if across {
+			c.slackHits++
+		}
 	}
 	return missing
+}
+
+// historyNear returns the newest fresh history for version, then for a
+// UTC start day up to slack days earlier. across is set when the hit is
+// not version itself. A non-day version, or slack 0, is an exact lookup.
+// The cache's own TTL still applies to each day.
+func historyNear(stored HistoryCache, repo, ref, path, version string, slack int) (gh.PathHistory, bool, bool) {
+	if stored == nil {
+		return gh.PathHistory{}, false, false
+	}
+	if hist, ok := stored.PathHistory(repo, ref, path, version); ok {
+		return hist, true, false
+	}
+	day, ok := sinceDay(version)
+	if !ok || slack <= 0 {
+		return gh.PathHistory{}, false, false
+	}
+	for i := 1; i <= slack; i++ {
+		earlier := "since:" + day.AddDate(0, 0, -i).Format(time.DateOnly)
+		if hist, ok := stored.PathHistory(repo, ref, path, earlier); ok {
+			return hist, true, true
+		}
+	}
+	return gh.PathHistory{}, false, false
+}
+
+// sinceDay is the UTC date in a "since:YYYY-MM-DD" history version.
+func sinceDay(version string) (time.Time, bool) {
+	raw, ok := strings.CutPrefix(version, "since:")
+	if !ok {
+		return time.Time{}, false
+	}
+	day, err := time.Parse(time.DateOnly, raw)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return day, true
 }
 
 // refreshPath is one stored history entry a round may refetch early.
@@ -754,9 +804,11 @@ func (c *coverCache) keepHistory(group historyGroup, version string, got gh.Path
 
 // historyVersion is the key the stored cache holds group's history under,
 // and the ref to fetch it on. With a history TTL the key is the window's
-// start day and the ref the base branch; otherwise both are the base head.
-// The key is empty without a stored cache or when the head lookup fails;
-// history is then fetched on the branch and not stored.
+// start day in UTC and the ref the base branch. Lookup also accepts a
+// start day up to historySlack days earlier, and a miss is stored under
+// this key. Otherwise both are the base head. The key is empty without a
+// stored cache or when the head lookup fails; history is then fetched on
+// the branch and not stored.
 func (c *coverCache) historyVersion(ctx context.Context, client GH, doc *Document, group historyGroup) (string, string, error) {
 	if c.stored == nil {
 		return "", group.base, nil
