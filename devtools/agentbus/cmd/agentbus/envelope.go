@@ -20,26 +20,9 @@ func cmdSend(ctx context.Context, args, env []string, stdin io.Reader, stdout, s
 		fmt.Fprintf(stderr, "agentbus send: %s\n", err)
 		return 2
 	}
-	body := parsed.body
-	if parsed.file != "" {
-		data, readErr := os.ReadFile(parsed.file)
-		if readErr != nil {
-			fmt.Fprintf(stderr, "agentbus send: %s\n", readErr)
-			return 1
-		}
-		body = string(data)
-	}
-	if body == "" {
-		if stdin == nil {
-			fmt.Fprintf(stderr, "agentbus send: message body is required\n")
-			return 2
-		}
-		data, readErr := io.ReadAll(stdin)
-		if readErr != nil {
-			fmt.Fprintf(stderr, "agentbus send: %s\n", readErr)
-			return 1
-		}
-		body = string(data)
+	body, code := readMessageBody("send", parsed.body, parsed.file, stdin, stderr)
+	if code != 0 {
+		return code
 	}
 	return finishSend(ctx, env, daemon.Request{
 		Op: "send", Name: parsed.target, Body: body, Env: env,
@@ -48,16 +31,46 @@ func cmdSend(ctx context.Context, args, env []string, stdin io.Reader, stdout, s
 	}, parsed.asJSON, stdout, stderr)
 }
 
-func cmdReply(ctx context.Context, args, env []string, stdout, stderr io.Writer) int {
-	id, body, clientID, asJSON, err := parseReply(args)
+func cmdReply(ctx context.Context, args, env []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	parsed, err := parseReply(args)
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus reply: %s\n", err)
 		return 2
 	}
+	body, code := readMessageBody("reply", parsed.body, parsed.file, stdin, stderr)
+	if code != 0 {
+		return code
+	}
 	return finishSend(ctx, env, daemon.Request{
-		Op: "reply", Name: id, Body: body, Env: env, ClientID: clientID,
-		LogName: replyRecipient(ctx, env, id),
-	}, asJSON, stdout, stderr)
+		Op: "reply", Name: parsed.id, Body: body, Env: env, ClientID: parsed.clientID,
+		LogName: replyRecipient(ctx, env, parsed.id),
+	}, parsed.asJSON, stdout, stderr)
+}
+
+// readMessageBody resolves one body. file wins over body. An empty body
+// reads stdin. The caller still rejects an empty result.
+func readMessageBody(cmd, body, file string, stdin io.Reader, stderr io.Writer) (string, int) {
+	if file != "" {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			fmt.Fprintf(stderr, "agentbus %s: %s\n", cmd, err)
+			return "", 1
+		}
+		return string(data), 0
+	}
+	if body != "" {
+		return body, 0
+	}
+	if stdin == nil {
+		fmt.Fprintf(stderr, "agentbus %s: message body is required\n", cmd)
+		return "", 2
+	}
+	data, err := io.ReadAll(stdin)
+	if err != nil {
+		fmt.Fprintf(stderr, "agentbus %s: %s\n", cmd, err)
+		return "", 1
+	}
+	return string(data), 0
 }
 
 // replyRecipient is the original sender, for a lost reply's log hint.
@@ -181,15 +194,16 @@ type sendParse struct {
 }
 
 func parseSend(args []string) (sendParse, error) {
-	wait, rest, err := takeBool(args, "--wait")
+	left, literal := splitDoubleDash(args)
+	wait, left, err := takeBool(left, "--wait")
 	if err != nil {
 		return sendParse{}, err
 	}
-	asJSON, rest, err := takeBool(rest, "--json")
+	asJSON, left, err := takeBool(left, "--json")
 	if err != nil {
 		return sendParse{}, err
 	}
-	ttl, rest, ttlFound, err := takeFlag(rest, "--ttl")
+	ttl, left, ttlFound, err := takeFlag(left, "--ttl")
 	if err != nil {
 		return sendParse{}, err
 	}
@@ -198,7 +212,7 @@ func parseSend(args []string) (sendParse, error) {
 			return sendParse{}, err
 		}
 	}
-	clientID, rest, idFound, err := takeFlag(rest, "--client-id")
+	clientID, left, idFound, err := takeFlag(left, "--client-id")
 	if err != nil {
 		return sendParse{}, err
 	}
@@ -207,12 +221,12 @@ func parseSend(args []string) (sendParse, error) {
 			return sendParse{}, fmt.Errorf("%w", err)
 		}
 	}
-	target, body, file, err := parseSendArgs(rest)
+	msg, err := parsePositionals(left, literal, "usage: agentbus send <name|handle> [<body>] [--file <path>] [--ttl <duration>] [--wait] [--client-id <id>] [--json]")
 	if err != nil {
 		return sendParse{}, err
 	}
 	return sendParse{
-		target: target, body: body, file: file, ttl: ttl,
+		target: msg.recipient, body: msg.body, file: msg.file, ttl: ttl,
 		clientID: clientID, wait: wait, asJSON: asJSON,
 	}, nil
 }
@@ -241,45 +255,109 @@ func takeBool(args []string, flagName string) (bool, []string, error) {
 	return found, rest, nil
 }
 
-func parseSendArgs(args []string) (string, string, string, error) {
-	file, rest, found, err := takeFlag(args, "--file")
-	if err != nil {
-		return "", "", "", err
-	}
-	if len(rest) < 1 || strings.HasPrefix(rest[0], "-") {
-		return "", "", "", errors.New("usage: agentbus send <name|handle> [<body>] [--file <path>] [--ttl <duration>] [--wait] [--client-id <id>] [--json]")
-	}
-	if found {
-		if strings.TrimSpace(file) == "" {
-			return "", "", "", errors.New("--file needs a path")
-		}
-		if len(rest) != 1 {
-			return "", "", "", errors.New("pass the body as an argument or --file, not both")
-		}
-		return rest[0], "", file, nil
-	}
-	if len(rest) == 1 {
-		return rest[0], "", "", nil
-	}
-	return rest[0], strings.Join(rest[1:], " "), "", nil
+type replyParse struct {
+	id       string
+	body     string
+	file     string
+	clientID string
+	asJSON   bool
 }
 
-func parseReply(args []string) (string, string, string, bool, error) {
-	asJSON, rest, err := takeBool(args, "--json")
+// messageBody is one recipient and one body source. An empty body and
+// file means the caller reads stdin.
+type messageBody struct {
+	recipient string
+	body      string
+	file      string
+}
+
+func parseReply(args []string) (replyParse, error) {
+	left, literal := splitDoubleDash(args)
+	asJSON, left, err := takeBool(left, "--json")
 	if err != nil {
-		return "", "", "", false, err
+		return replyParse{}, err
 	}
-	clientID, rest, found, err := takeFlag(rest, "--client-id")
+	clientID, left, found, err := takeFlag(left, "--client-id")
 	if err != nil {
-		return "", "", "", false, err
+		return replyParse{}, err
 	}
 	if found {
 		if err := mailbox.ValidClientID(clientID); err != nil {
-			return "", "", "", false, fmt.Errorf("%w", err)
+			return replyParse{}, fmt.Errorf("%w", err)
 		}
 	}
-	if len(rest) < 2 || strings.HasPrefix(rest[0], "-") {
-		return "", "", "", false, errors.New("usage: agentbus reply <id> <body> [--client-id <id>] [--json]")
+	msg, err := parsePositionals(left, literal, "usage: agentbus reply <id> [<body>] [--file <path>] [--client-id <id>] [--json]")
+	if err != nil {
+		return replyParse{}, err
 	}
-	return rest[0], strings.Join(rest[1:], " "), clientID, asJSON, nil
+	return replyParse{
+		id: msg.recipient, body: msg.body, file: msg.file,
+		clientID: clientID, asJSON: asJSON,
+	}, nil
+}
+
+// splitDoubleDash ends flag parsing. Words after "--" are body text.
+func splitDoubleDash(args []string) (left, literal []string) {
+	for i, arg := range args {
+		if arg == "--" {
+			return args[:i], args[i+1:]
+		}
+	}
+	return args, nil
+}
+
+// parsePositionals reads the recipient and exactly one body source:
+// --file, stdin, or the remaining words. A token that starts with "--"
+// before the body starts is an unknown flag.
+func parsePositionals(left, literal []string, usage string) (messageBody, error) {
+	file, rest, found, err := takeFlag(left, "--file")
+	if err != nil {
+		return messageBody{}, err
+	}
+	if len(rest) < 1 {
+		return messageBody{}, errors.New(usage)
+	}
+	if strings.HasPrefix(rest[0], "--") {
+		return messageBody{}, fmt.Errorf("unknown flag %s", rest[0])
+	}
+	if strings.HasPrefix(rest[0], "-") {
+		return messageBody{}, errors.New(usage)
+	}
+	words, stdin, err := leadingBody(rest[1:])
+	if err != nil {
+		return messageBody{}, err
+	}
+	if stdin && len(literal) > 0 {
+		return messageBody{}, errors.New("pass the body as an argument or -, not both")
+	}
+	words = append(words, literal...)
+	if found {
+		if strings.TrimSpace(file) == "" {
+			return messageBody{}, errors.New("--file needs a path")
+		}
+		if len(words) > 0 || stdin {
+			return messageBody{}, errors.New("pass the body as an argument or --file, not both")
+		}
+		return messageBody{recipient: rest[0], file: file}, nil
+	}
+	if stdin || len(words) == 0 {
+		return messageBody{recipient: rest[0]}, nil
+	}
+	return messageBody{recipient: rest[0], body: strings.Join(words, " ")}, nil
+}
+
+// leadingBody returns the body words before a "--" separator.
+// A sole "-" selects stdin. An unknown "--" flag before any word is an error.
+func leadingBody(args []string) ([]string, bool, error) {
+	if len(args) == 1 && args[0] == "-" {
+		return nil, true, nil
+	}
+	var words []string
+	for _, arg := range args {
+		if len(words) == 0 && strings.HasPrefix(arg, "--") {
+			return nil, false, fmt.Errorf("unknown flag %s", arg)
+		}
+		words = append(words, arg)
+	}
+	return words, false, nil
 }

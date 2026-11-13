@@ -27,7 +27,7 @@ Examples below use the name ~ops/inbox~ and the handle
 | ~list [--json] [--fresh]~ | Registered names, ~--when~, liveness, and transport. |
 | ~search [query]~ | Every reachable agent, registered or not. |
 | ~send <name or handle> [<body>]~ | Send. Also ~--file~, stdin, ~--ttl~, ~--wait~, ~--client-id~, and ~--json~. |
-| ~reply <id> <body>~ | Reply. ~to~ is the original sender and ~re~ is ~id~. Also ~--client-id~ and ~--json~. |
+| ~reply <id> [<body>]~ | Reply. ~to~ is the original sender and ~re~ is ~id~. Also ~--file~, stdin, ~--~, ~--client-id~, and ~--json~. |
 | ~show <id>~ | Print one stored message. |
 | ~thread <id>~ | Print the chain. |
 | ~status <id>~ | Print id, state, client id when set, and how long it has waited. ~<id>~ may be a client id. |
@@ -63,8 +63,13 @@ agentbus status m-7f3a
 agentbus log --name ops/inbox
 #+END_SRC
 
-~send~ reads the body from the argument, from ~--file~, or from stdin.
-The body must not be empty. ~--ttl 30m~ sets a deadline for that one
+~send~ and ~reply~ read the body from the argument, from ~--file~, or
+from stdin (no body words, or a body of ~-~). Exactly one of those. The
+body must not be empty. A token that starts with ~--~ and is not a known
+flag is a usage error, and it is not sent as text. Words after ~--~ are
+the body, so ~agentbus reply <id> -- --literal text~ sends ~--literal
+text~. A ~--~ flag after the body has started, such as ~see --help~, is
+still body text. ~--ttl 30m~ sets a deadline for that one
 message. ~--wait~ blocks until it is delivered or that deadline passes.
 Without ~--wait~, a message that passes the recipient, target-state, and
 composer checks is answered ~queued for delivery~ before the paste. That
@@ -269,8 +274,8 @@ with each argument quoted. When ~ssh_identity_agent~ is set, that ssh
 also passes ~-o IdentityAgent=<path>~, with a leading ~~/~ expanded,
 and ~agentbus install~ writes the same option into the tunnel unit.
 Unset leaves ssh's own agent lookup. stdout, stderr, and the exit code come back
-unchanged. ~send~ forwards stdin, and reads a ~--file~ path here and
-sends its content, so the hub never needs the path. Commands that
+unchanged. ~send~ and ~reply~ forward stdin, and read a ~--file~ path
+here and send its content, so the hub never needs the path. Commands that
 identify the caller (~register~, ~describe~, ~whoami~, ~release~,
 ~send~, ~reply~) send ~herdr:<machine>/<session>/<pane>~ for this pane
 as ~AGENTBUS_AS_HANDLE~. The hub trusts it only when ~SSH_CONNECTION~
