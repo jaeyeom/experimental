@@ -134,13 +134,15 @@ type Model struct {
 	highlight    string
 	// prior is the state from before /. folderItems and folderText are
 	// the unfiltered folder and its lowercase search text, so typing in
-	// the prompt filters without reading the ledger. A large folder
-	// defers that pass: searchPending marks a query not yet applied,
-	// searchAt is its last keystroke, and searchArmed asks Update for a
-	// tick.
+	// the prompt filters without reading the ledger. folderTexts is that
+	// text for every folder, so a search can count matches outside the
+	// current one. A large folder defers that pass: searchPending marks
+	// a query not yet applied, searchAt is its last keystroke, and
+	// searchArmed asks Update for a tick.
 	prior         searchSnapshot
 	folderItems   []decide.Item
 	folderText    []string
+	folderTexts   [][]string
 	searchPending bool
 	searchArmed   bool
 	searchAt      time.Time
@@ -254,10 +256,12 @@ func (m *Model) applyList(all []decide.Item) error {
 	keep := m.cursorID()
 	m.refreshDetail(all)
 	m.counts = make([]int, len(Folders))
+	m.folderTexts = make([][]string, len(Folders))
 	for _, it := range all {
 		for i, folder := range Folders {
 			if folder.Snoozed == it.Snoozed() && (folder.Snoozed || it.State == folder.State) {
 				m.counts[i]++
+				m.folderTexts[i] = append(m.folderTexts[i], searchText(&it))
 			}
 		}
 	}
@@ -1622,10 +1626,36 @@ func (m *Model) navCount(i int) int {
 
 func (m *Model) navText(i int) string {
 	name := m.navName(i)
-	if i >= len(Folders) {
+	count, dim := m.navCountText(i)
+	if count == "" {
 		return name
 	}
-	return fmt.Sprintf("%s %d", name, m.navCount(i))
+	label := name + " " + count
+	if dim {
+		useStyles()
+		return dimNav.Render(label)
+	}
+	return label
+}
+
+// navCountText is the folder's total, or matches/total while a search is
+// active. Status shows matches/total only when the query filters it.
+// The bool is true when a folder has no matches and should be dimmed.
+func (m *Model) navCountText(i int) (string, bool) {
+	q := m.listQuery()
+	if i >= len(Folders) {
+		if q == "" || m.mode != modeStatus {
+			return "", false
+		}
+		matches := len(m.agents) + len(m.resources)
+		return fmt.Sprintf("%d/%d", matches, m.statusTotal), matches == 0
+	}
+	total := m.navCount(i)
+	if q == "" {
+		return fmt.Sprintf("%d", total), false
+	}
+	matches := matchCount(m.folderTexts[i], q)
+	return fmt.Sprintf("%d/%d", matches, total), matches == 0
 }
 
 func (m *Model) folderTabLine(width int) screenLine {
@@ -1654,6 +1684,8 @@ const folderCountMin = 3
 func (m *Model) sidebarLines() []screenLine {
 	n := m.navLen()
 	names := make([]string, n)
+	counts := make([]string, n)
+	dims := make([]bool, n)
 	nameW := 0
 	countW := folderCountMin
 	for i := 0; i < n; i++ {
@@ -1661,21 +1693,20 @@ func (m *Model) sidebarLines() []screenLine {
 		if w := lipgloss.Width(names[i]); w > nameW {
 			nameW = w
 		}
-		if i >= len(Folders) {
-			continue
-		}
-		if w := lipgloss.Width(fmt.Sprintf("%d", m.navCount(i))); w > countW {
+		counts[i], dims[i] = m.navCountText(i)
+		if w := lipgloss.Width(counts[i]); w > countW {
 			countW = w
 		}
 	}
 	lines := make([]screenLine, n)
 	for i := 0; i < n; i++ {
-		count := ""
-		if i < len(Folders) {
-			count = fmt.Sprintf("%d", m.navCount(i))
+		text := padRight(names[i], nameW) + " " + padLeft(counts[i], countW)
+		if dims[i] {
+			useStyles()
+			text = dimNav.Render(text)
 		}
 		lines[i] = screenLine{
-			text: padRight(names[i], nameW) + " " + padLeft(count, countW),
+			text: text,
 			hits: []hit{{kind: hitFolder, n: i}},
 		}
 	}
@@ -1963,6 +1994,7 @@ var (
 	detailLine   lipgloss.Style
 	staleLine    lipgloss.Style
 	plainLine    lipgloss.Style
+	dimNav       lipgloss.Style
 	focusMark    lipgloss.Style
 	optionButton lipgloss.Style
 	searchMatch  lipgloss.Style
@@ -1977,6 +2009,7 @@ func useStyles() {
 		detailLine = lipgloss.NewStyle()
 		staleLine = lipgloss.NewStyle().Faint(true)
 		plainLine = lipgloss.NewStyle()
+		dimNav = lipgloss.NewStyle().Faint(true)
 		focusMark = lipgloss.NewStyle().Bold(true)
 		optionButton = lipgloss.NewStyle().Reverse(true)
 		// Black on yellow reads the same on light and dark terminals.
