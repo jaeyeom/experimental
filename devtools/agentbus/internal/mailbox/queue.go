@@ -18,6 +18,9 @@ import (
 const (
 	stateDelivered = "delivered"
 	stateExpired   = "expired"
+	// stateQueued is the send and reply answer when the paste has not
+	// run. The stored state becomes delivered once the paste is accepted.
+	stateQueued = "queued for delivery"
 	// defaultPoll matches the registry inventory interval.
 	defaultPoll = 2 * time.Second
 	waitTick    = 15 * time.Millisecond
@@ -33,6 +36,8 @@ type outcome struct {
 	target   string
 	// detail, when set, is the delivered log detail instead of "accepted".
 	detail string
+	// deferred means the precheck passed and the paste has not run.
+	deferred bool
 }
 
 // Poll delivers queued mail immediately, then again on each tick.
@@ -71,6 +76,9 @@ func (m *Mailbox) enqueue(ctx context.Context, msg message, opt Options) (Result
 	if dup.Duplicate {
 		return dup, nil
 	}
+	if opt.ReplyFirst && !opt.Wait {
+		return m.replyFirst(ctx, msg)
+	}
 	if err := m.flushHandle(ctx, msg.Handle); err != nil {
 		return Result{}, err
 	}
@@ -78,6 +86,85 @@ func (m *Mailbox) enqueue(ctx context.Context, msg message, opt Options) (Result
 		return m.resultOf(msg.ID)
 	}
 	return m.wait(ctx, msg.ID, msg.Handle)
+}
+
+// replyFirst runs the precheck and returns. The paste waits for
+// DeliverDeferred, so a slow paste does not hold the reply.
+func (m *Mailbox) replyFirst(ctx context.Context, msg message) (Result, error) {
+	if err := m.precheckHandle(ctx, msg.Handle); err != nil {
+		return Result{}, err
+	}
+	res, err := m.resultOf(msg.ID)
+	if err != nil {
+		return Result{}, err
+	}
+	if res.State == "" {
+		if err := m.markQueued(msg.ID); err != nil {
+			return Result{}, err
+		}
+		res.State = stateQueued
+	}
+	m.noteDeferred(msg.Handle)
+	return res, nil
+}
+
+// precheckHandle applies holds and expiry, and stops before a paste.
+func (m *Mailbox) precheckHandle(ctx context.Context, handle string) error {
+	for {
+		if ctx.Err() != nil {
+			return nil
+		}
+		cont, err := m.step(ctx, handle, false)
+		if err != nil || !cont {
+			return err
+		}
+	}
+}
+
+// DeliverDeferred pastes what replyFirst left queued. Call it after the
+// response is written. A flush error is logged; the reply already left.
+func (m *Mailbox) DeliverDeferred(ctx context.Context) {
+	m.mu.Lock()
+	handles := m.deferred
+	m.deferred = nil
+	m.mu.Unlock()
+	seen := map[string]bool{}
+	for _, handle := range handles {
+		if seen[handle] || handle == "" {
+			continue
+		}
+		seen[handle] = true
+		if ctx.Err() != nil {
+			return
+		}
+		if err := m.flushHandle(ctx, handle); err != nil {
+			_ = m.logEvent(eventlog.Event{
+				Event:  eventlog.EventAdapterError,
+				Actor:  "agentbus",
+				Detail: "queue flush failed",
+				Reason: err.Error(),
+			})
+		}
+	}
+}
+
+func (m *Mailbox) noteDeferred(handle string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.deferred = append(m.deferred, handle)
+}
+
+// markQueued records that the paste has not run yet.
+func (m *Mailbox) markQueued(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	msg, ok := m.msgs[id]
+	if !ok || msg.State != "" {
+		return nil
+	}
+	msg.State = stateQueued
+	m.msgs[id] = msg
+	return m.save()
 }
 
 func (m *Mailbox) wait(ctx context.Context, id, handle string) (Result, error) {
@@ -240,7 +327,7 @@ func (m *Mailbox) flushHandle(ctx context.Context, handle string) error {
 		if ctx.Err() != nil {
 			return nil
 		}
-		cont, err := m.step(ctx, handle)
+		cont, err := m.step(ctx, handle, true)
 		if err != nil || !cont {
 			return err
 		}
@@ -249,7 +336,8 @@ func (m *Mailbox) flushHandle(ctx context.Context, handle string) error {
 
 // step attempts the front message.
 // The mailbox lock is not held across State, Deliver, or the expiry notice.
-func (m *Mailbox) step(ctx context.Context, handle string) (bool, error) {
+// deliver false stops once the precheck says the front is ready to paste.
+func (m *Mailbox) step(ctx context.Context, handle string, deliver bool) (bool, error) {
 	m.mu.Lock()
 	id, ok := m.front(handle)
 	if !ok {
@@ -271,12 +359,19 @@ func (m *Mailbox) step(ctx context.Context, handle string) (bool, error) {
 	m.inflight[id] = true
 	m.mu.Unlock()
 
-	outcome := m.attempt(ctx, msg)
-	m.noteLiveness(handle, outcome)
+	outcome := m.attempt(ctx, msg, deliver)
+	if !outcome.deferred {
+		m.noteLiveness(handle, outcome)
+	}
 
 	m.mu.Lock()
 	delete(m.inflight, id)
 	m.cv.Broadcast()
+	if outcome.deferred {
+		err := m.markFrontQueued(handle, id)
+		m.mu.Unlock()
+		return false, err
+	}
 	if !m.stillFront(handle, id) {
 		m.mu.Unlock()
 		return true, nil
@@ -378,7 +473,7 @@ func (m *Mailbox) noteLiveness(handle string, o outcome) {
 	}
 }
 
-func (m *Mailbox) attempt(ctx context.Context, msg message) outcome {
+func (m *Mailbox) attempt(ctx context.Context, msg message, deliver bool) outcome {
 	if err := m.prepare(ctx); err != nil {
 		return outcome{reason: "unreachable", target: "unreachable"}
 	}
@@ -391,12 +486,19 @@ func (m *Mailbox) attempt(ctx context.Context, msg message) outcome {
 		return m.holdOutcome(state, err)
 	}
 	if ambiguousHold(msg.State) {
+		if !deliver {
+			// The screen check is part of the paste, so the reply is not held up.
+			return outcome{reason: strings.TrimPrefix(msg.State, "held: "), target: string(state)}
+		}
 		if o, done := confirmPaste(ctx, ad, msg, state); done {
 			return o
 		}
 	}
 	if reason, held := composerHold(ctx, ad, msg.Handle); held {
 		return outcome{reason: reason, target: string(state)}
+	}
+	if !deliver {
+		return outcome{deferred: true}
 	}
 	text := render(msg, m.preview(msg.Body))
 	// Re-read right before the paste: a draft that appeared since the
@@ -797,6 +899,21 @@ func (m *Mailbox) notifySender(ctx context.Context, id, from, text, unsent strin
 		return
 	}
 	_, _ = ad.Deliver(ctx, handle, text)
+}
+
+// markFrontQueued stores stateQueued on a front the precheck will paste.
+// The caller holds m.mu. A message that is no longer front is left alone.
+func (m *Mailbox) markFrontQueued(handle, id string) error {
+	if !m.stillFront(handle, id) {
+		return nil
+	}
+	msg := m.msgs[id]
+	if msg.State != "" {
+		return nil
+	}
+	msg.State = stateQueued
+	m.msgs[id] = msg
+	return m.save()
 }
 
 func (m *Mailbox) front(handle string) (string, bool) {

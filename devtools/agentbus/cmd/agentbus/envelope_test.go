@@ -63,9 +63,10 @@ func TestEnvelopeStampsFromAndPreviewsLongBodies(t *testing.T) {
 
 	sent, _ := mustCmd(t, []string{"send", "eng/reviewer", "hello"}, env("p1"))
 	id, state, ok := strings.Cut(strings.TrimSpace(sent), " ")
-	if !ok || !strings.HasPrefix(id, "m-") || state != "delivered" {
+	if !ok || !strings.HasPrefix(id, "m-") || state != "queued for delivery" {
 		t.Fatalf("send = %q", sent)
 	}
+	awaitDelivered(t, base, id)
 	if !strings.Contains(ad.LastText, "from ops/inbox → eng/reviewer") || strings.Contains(ad.LastText, holder) {
 		t.Fatalf("delivery = %q", ad.LastText)
 	}
@@ -102,6 +103,7 @@ func TestEnvelopeStampsFromAndPreviewsLongBodies(t *testing.T) {
 	if !ok {
 		t.Fatalf("anon send = %q", anonSent)
 	}
+	awaitDelivered(t, base, anonID)
 	if !strings.Contains(ad.LastText, "from "+wantFrom) || !strings.Contains(ad.LastText, "no reply address") {
 		t.Fatalf("anon delivery = %q, want from %s", ad.LastText, wantFrom)
 	}
@@ -112,7 +114,11 @@ func TestEnvelopeStampsFromAndPreviewsLongBodies(t *testing.T) {
 	body := strings.Repeat("x", 80) + "END-OF-BODY"
 	longSent, _ := mustCmd(t, []string{"send", "eng/reviewer", body}, env("p1"))
 	longID, _, ok := strings.Cut(strings.TrimSpace(longSent), " ")
-	if !ok || strings.Contains(ad.LastText, "END-OF-BODY") || !strings.Contains(ad.LastText, "agentbus show "+longID) {
+	if !ok {
+		t.Fatalf("long send = %q", longSent)
+	}
+	awaitDelivered(t, base, longID)
+	if strings.Contains(ad.LastText, "END-OF-BODY") || !strings.Contains(ad.LastText, "agentbus show "+longID) {
 		t.Fatalf("long delivery id %q text %q", longID, ad.LastText)
 	}
 	longShow, _ := mustCmd(t, []string{"show", longID}, base)
@@ -135,7 +141,7 @@ func TestEnvelopeStampsFromAndPreviewsLongBodies(t *testing.T) {
 	}
 
 	code, stdinSent, stderr := runCmdIn([]string{"send", "eng/reviewer"}, env("p1"), strings.NewReader("from-stdin"))
-	if code != 0 || !strings.Contains(stdinSent, "delivered") {
+	if code != 0 || !strings.Contains(stdinSent, "queued for delivery") {
 		t.Fatalf("stdin send = %d %q %q", code, stdinSent, stderr)
 	}
 }

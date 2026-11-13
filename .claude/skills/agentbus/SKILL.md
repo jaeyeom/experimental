@@ -49,13 +49,13 @@ agentbus thread m-7f3a
 agentbus status m-7f3a
 ```
 
-`send` also takes `--file`, stdin, `--ttl 30m`, and `--wait`.
+`send` also takes `--file`, stdin, `--ttl 30m`, and `--wait`. Without `--wait`, a send or reply that passes the recipient, state, and composer checks prints `queued for delivery`. That means the message is stored and being pasted now. Check `agentbus status <id>` to see `delivered`. `--wait` still blocks until it is delivered. A precheck hold still prints `held: <reason>` at once.
 
 Delivery pastes only into an empty composer. A message to a pane where the user has typed but not submitted stays queued as `held: user draft in composer`. `held: draft-unknown` means the screen could not be read, and `held: pane focused` means an agent kind the bus cannot read is focused. These holds are expected and clear on their own. Do not resend.
 
 If a submit is blocked with `agentbus: your unsent draft was merged with a bus message`, the input box holds the user's draft followed by the bus message. Delete the `[agentbus m-…]` part and submit the rest. The bus has re-queued that message and delivers it once the box is empty.
 
-When something seems lost, check `agentbus status <id>` and `agentbus log` before resending. `agentbus log` accepts `--since`, `--name`, `--msg`, `--event`, `--follow`, and `--json`. `--since` takes a duration ago (`30m`, `6h`, `2d`), an RFC3339 time, or a `YYYY-MM-DD` date.
+When something seems lost, check `agentbus status <id>` and `agentbus log` before resending. If the command says it is unknown whether the message was stored, the next words are `agentbus status <client-id>`. That status finds the message. `send` also names `agentbus log --since 1m --name <recipient>`, and `reply` names the original sender there. `agentbus log` accepts `--since`, `--name`, `--msg`, `--event`, `--follow`, and `--json`. `--since` takes a duration ago (`30m`, `6h`, `2d`), an RFC3339 time, or a `YYYY-MM-DD` date.
 
 `queued` means the message is not at the hub yet. Do not resend it. Check `agentbus status <client-id>`.
 

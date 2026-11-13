@@ -62,6 +62,7 @@ go_test(
     name = "go_default_test",
     srcs = [
         "discover_test.go",
+        "earlyreply_test.go",
         "envelope_test.go",
         "flags_test.go",
         "help_test.go",

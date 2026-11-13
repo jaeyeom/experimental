@@ -66,12 +66,19 @@ agentbus log --name ops/inbox
 ~send~ reads the body from the argument, from ~--file~, or from stdin.
 The body must not be empty. ~--ttl 30m~ sets a deadline for that one
 message. ~--wait~ blocks until it is delivered or that deadline passes.
+Without ~--wait~, a message that passes the recipient, target-state, and
+composer checks is answered ~queued for delivery~ before the paste. That
+means it is stored and being pasted now. ~agentbus status <id>~ shows
+~delivered~ once the paste finishes. A precheck hold still answers
+~held: <reason>~ at once. ~reply~ answers the same way.
 ~--client-id <machine>:<ulid>~ makes that accept idempotent for the
 sender handle. The id is at most 64 characters from ~[A-Za-z0-9._:-]~
 and contains a colon. Local ~send~ and ~reply~ generate one when
 ~--client-id~ is omitted and reuse it if they redial a daemon that was
 not listening yet. A failure after the request was written is not sent
-again. A retry with the same id, body, and recipient
+again. The error names that call's client id, ~agentbus status <client-id>~,
+and for ~send~ also ~agentbus log --since 1m --name <recipient>~. ~reply~
+uses the original sender in that log command. A retry with the same id, body, and recipient
 returns the original message id and state and creates nothing. ~--json~
 prints ~id~, ~state~, and, on that retry, ~duplicate: true~. Text output
 stays ~<id> <state>~. A different body or recipient is a conflict and

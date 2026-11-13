@@ -44,6 +44,7 @@ func cmdSend(ctx context.Context, args, env []string, stdin io.Reader, stdout, s
 	return finishSend(ctx, env, daemon.Request{
 		Op: "send", Name: parsed.target, Body: body, Env: env,
 		TTL: parsed.ttl, Wait: parsed.wait, ClientID: parsed.clientID,
+		LogName: parsed.target,
 	}, parsed.asJSON, stdout, stderr)
 }
 
@@ -53,7 +54,26 @@ func cmdReply(ctx context.Context, args, env []string, stdout, stderr io.Writer)
 		fmt.Fprintf(stderr, "agentbus reply: %s\n", err)
 		return 2
 	}
-	return finishSend(ctx, env, daemon.Request{Op: "reply", Name: id, Body: body, Env: env, ClientID: clientID}, asJSON, stdout, stderr)
+	return finishSend(ctx, env, daemon.Request{
+		Op: "reply", Name: id, Body: body, Env: env, ClientID: clientID,
+		LogName: replyRecipient(ctx, env, id),
+	}, asJSON, stdout, stderr)
+}
+
+// replyRecipient is the original sender, for a lost reply's log hint.
+// A lookup that fails leaves the hint with only the client id.
+func replyRecipient(ctx context.Context, env []string, id string) string {
+	resp, code := callDaemon(ctx, env, daemon.Request{Op: "show", Name: id}, io.Discard)
+	if code != 0 || !resp.OK {
+		return ""
+	}
+	for _, line := range strings.Split(resp.Text, "\n") {
+		name, ok := strings.CutPrefix(line, "from: ")
+		if ok && name != "" {
+			return name
+		}
+	}
+	return ""
 }
 
 func cmdShow(ctx context.Context, args, env []string, stdout, stderr io.Writer) int {

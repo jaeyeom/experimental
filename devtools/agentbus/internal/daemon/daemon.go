@@ -119,6 +119,8 @@ type Request struct {
 	Machine string `json:"machine,omitempty"`
 	// ClientID is the caller's retry key for send and reply.
 	ClientID string `json:"clientId,omitempty"`
+	// LogName is the recipient named in a lost-reply hint. It is not sent.
+	LogName string `json:"-"`
 	// Events are client log lines for op log-append.
 	// Origin on each line is ignored; the daemon records origin client.
 	Events []ClientEvent `json:"events,omitempty"`
@@ -488,6 +490,8 @@ func (s *server) handle(conn net.Conn, hub bool) {
 		return
 	}
 	_ = reply(scoped.dispatch(req, peerPID(conn)))
+	// The paste follows the bytes, so a slow delivery does not hold the reply.
+	scoped.box.DeliverDeferred(scoped.ctx)
 }
 
 // forwarded checks a request from the hub socket and returns the server
@@ -1224,7 +1228,9 @@ func (s *server) send(req Request, pid int) Response {
 	if err != nil {
 		return Response{Error: err.Error()}
 	}
-	result, err := s.box.Send(s.ctx, req.Env, pid, req.Name, req.Body, mailbox.Options{TTL: ttl, Wait: req.Wait, ClientID: req.ClientID})
+	result, err := s.box.Send(s.ctx, req.Env, pid, req.Name, req.Body, mailbox.Options{
+		TTL: ttl, Wait: req.Wait, ClientID: req.ClientID, ReplyFirst: !req.Wait,
+	})
 	if err != nil {
 		return Response{Error: err.Error()}
 	}
@@ -1243,7 +1249,7 @@ func positiveDuration(raw string) (time.Duration, error) {
 }
 
 func (s *server) reply(req Request, pid int) Response {
-	result, err := s.box.Reply(s.ctx, req.Env, pid, req.Name, req.Body, mailbox.Options{ClientID: req.ClientID})
+	result, err := s.box.Reply(s.ctx, req.Env, pid, req.Name, req.Body, mailbox.Options{ClientID: req.ClientID, ReplyFirst: true})
 	if err != nil {
 		return Response{Error: err.Error()}
 	}

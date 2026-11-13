@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"sync"
 	"testing"
@@ -131,8 +132,13 @@ func TestQueueHoldsThenDeliversAndSurvivesRestart(t *testing.T) {
 
 	ad.Result[reviewer] = adapter.ResultRefusedRetryable
 	code, stdout, stderr := runCmd([]string{"send", "eng/reviewer", "refused-body"}, env("p1"))
-	if code != 0 || !strings.Contains(stdout, "held: transport refused") {
+	refusedID, refusedState, ok := strings.Cut(strings.TrimSpace(stdout), " ")
+	if code != 0 || !ok || refusedState != "queued for delivery" {
 		t.Fatalf("refusal = %d %q %q", code, stdout, stderr)
+	}
+	refused, _ := mustCmd(t, []string{"status", refusedID}, base)
+	if !strings.Contains(refused, "state: held: transport refused") {
+		t.Fatalf("refusal status = %q", refused)
 	}
 }
 
@@ -233,10 +239,19 @@ func TestQueueHoldsForUserDraft(t *testing.T) {
 		}
 	}
 
-	// Race: empty at the check, a draft at the pre-paste re-read.
+	// Race: empty at the precheck, a draft at the pre-paste re-read.
+	// The reply follows the precheck, so it says queued. The paste holds.
 	before := len(ad.Texts)
 	setComposer(target, "", adapter.HoldDraft)
-	raceID := sendHeld("race-body", "held: "+adapter.HoldDraft)
+	raceOut, _ := mustCmd(t, []string{"send", "eng/reviewer", "race-body"}, env)
+	raceID, raceState, _ := strings.Cut(strings.TrimSpace(raceOut), " ")
+	if raceState != "queued for delivery" {
+		t.Fatalf("race send = %q, want queued for delivery", raceOut)
+	}
+	raceStatus, _ := mustCmd(t, []string{"status", raceID}, base)
+	if !strings.Contains(raceStatus, "state: held: "+adapter.HoldDraft) {
+		t.Fatalf("race status = %q", raceStatus)
+	}
 	if len(ad.Texts) != before {
 		t.Fatalf("pasted while the user typed: %q", ad.Texts)
 	}
@@ -290,17 +305,25 @@ func TestClientIDAcceptIsIdempotent(t *testing.T) {
 
 	first, _ := mustCmd(t, []string{"send", "--client-id", clientID, "eng/reviewer", "same-body"}, env("p1"))
 	id, state, ok := strings.Cut(strings.TrimSpace(first), " ")
-	if !ok || !strings.HasPrefix(id, "m-") || state != "delivered" || strings.Contains(first, "duplicate") {
+	if !ok || !strings.HasPrefix(id, "m-") || state != "queued for delivery" || strings.Contains(first, "duplicate") {
 		t.Fatalf("first accept = %q", first)
 	}
+	awaitDelivered(t, base, id)
 	if len(ad.Texts) != 1 || !textsContain(ad.Texts, "same-body") {
 		t.Fatalf("first delivery = %q", ad.Texts)
 	}
 
 	fresh, _ := mustCmd(t, []string{"send", "--json", "eng/reviewer", "json-body"}, env("p1"))
-	if strings.Contains(fresh, "duplicate") || !strings.Contains(fresh, `"state":"delivered"`) {
+	if strings.Contains(fresh, "duplicate") || !strings.Contains(fresh, `"state":"queued for delivery"`) {
 		t.Fatalf("first json = %q", fresh)
 	}
+	var freshMsg struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(fresh), &freshMsg); err != nil {
+		t.Fatal(err)
+	}
+	awaitDelivered(t, base, freshMsg.ID)
 
 	again, _ := mustCmd(t, []string{"send", "--json", "--client-id", clientID, "eng/reviewer", "same-body"}, env("p1"))
 	if !strings.Contains(again, `"id":"`+id+`"`) || !strings.Contains(again, `"duplicate":true`) || !strings.Contains(again, `"state":"delivered"`) {
@@ -349,7 +372,11 @@ func TestClientIDAcceptIsIdempotent(t *testing.T) {
 
 	plain, _ := mustCmd(t, []string{"send", "eng/reviewer", "plain-body"}, env("p1"))
 	plainID, _, ok := strings.Cut(strings.TrimSpace(plain), " ")
-	if !ok || plainID == id || !textsContain(ad.Texts, "plain-body") {
+	if !ok || plainID == id {
+		t.Fatalf("send without client id = %q", plain)
+	}
+	awaitDelivered(t, base, plainID)
+	if !textsContain(ad.Texts, "plain-body") {
 		t.Fatalf("send without client id = %q texts %q", plain, ad.Texts)
 	}
 
@@ -359,6 +386,7 @@ func TestClientIDAcceptIsIdempotent(t *testing.T) {
 	if !ok || gotReply == id {
 		t.Fatalf("reply = %q", reply)
 	}
+	awaitDelivered(t, base, gotReply)
 	replyAgain, _ := mustCmd(t, []string{"reply", "--json", "--client-id", replyID, id, "thanks"}, env("p2"))
 	if !strings.Contains(replyAgain, `"id":"`+gotReply+`"`) || !strings.Contains(replyAgain, `"duplicate":true`) {
 		t.Fatalf("duplicate reply = %q", replyAgain)

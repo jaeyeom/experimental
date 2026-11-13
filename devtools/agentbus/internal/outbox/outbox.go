@@ -280,6 +280,9 @@ func (b Box) TryLock() (func(), bool, error) {
 		return nil, false, err
 	}
 	return func() {
+		// Close alone can leave the lock until a forked paste execs.
+		// Unlock explicitly so the next flush can take it.
+		_ = unix.Flock(int(f.Fd()), unix.LOCK_UN) //nolint:gosec // G115: a file descriptor fits in int
 		_ = f.Close()
 		unhold(b.Dir)
 	}, true, nil

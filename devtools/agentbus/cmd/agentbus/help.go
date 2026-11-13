@@ -86,7 +86,10 @@ func commands() []command {
 			usage:   "agentbus send <name|handle> [<body>] [--file <path>] [--ttl <duration>] [--wait] [--client-id <id>] [--json]",
 			flags: "--file <path>       read the body from this file (default: none)\n" +
 				"--ttl <duration>    deadline for this message, such as 30m (default: none, no deadline)\n" +
-				"--wait              block until delivered or the deadline passes (default: false)\n" +
+				"--wait              block until delivered or the deadline passes (default: false).\n" +
+				"                    Without it, a message that passes the recipient, state, and\n" +
+				"                    composer checks prints \"queued for delivery\": stored and\n" +
+				"                    being pasted. agentbus status <id> then shows delivered\n" +
 				"--client-id <id>    retry key, <machine>:<ulid>, up to 64 [A-Za-z0-9._:-] with a colon (default: a generated <machine>:<ulid>)\n" +
 				"--json              print id, state, and duplicate as JSON (default: false)",
 			example: `agentbus send ops/inbox "are you reviewing the queue?"`,
