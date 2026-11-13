@@ -111,7 +111,8 @@ Commands:
                       post a failed direct record once after the checks,
                       or return a handoff record to awaiting-handoff
   slackwatch pin      check the write token with auth.test and pin it in config
-  slackwatch skill    print the agent skill (SKILL.md)
+  slackwatch skill [triage]
+                      print the agent skill, or the inbound triage role
   slackwatch help     show this help
 
 <post> is a Slack permalink, a channel and ts, or a watch id.
