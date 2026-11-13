@@ -281,7 +281,7 @@ off until ~post.mode~ is set; without it, ~post~ refuses.
 
 | Command | Does |
 |---------+------|
-| ~post --to DEST --text-file F --owner T --purpose S [--ref R ...] [--json]~ | Store the draft and file its decide item. Prints the outbox id. |
+| ~post --to DEST --text-file F --owner T --purpose S [--ref R ...] [--supersedes ID] [--json]~ | Store the draft and file its decide item. Prints the outbox id. ~--supersedes~ cancels that older draft once this one is stored. |
 | ~outbox ls [--state S] [--json]~ | List outbox records. |
 | ~outbox show <id> [--json]~ | Show a record, ending with its exact text. |
 | ~outbox posted [--manual] <id> <permalink>~ | Report a handoff post, or with ~--manual~ a post made by hand. |
@@ -319,7 +319,7 @@ into that thread.
    do not cancel it.
    - A free-text message is the edit path: the record becomes
      ~needs-redraft~ and the owner gets the text as an ~outbox-redraft~
-     notification. The owner submits a new ~post~.
+     notification. The owner submits a new ~post~ with ~--supersedes <id>~.
    - ~drop~ makes the record ~dropped~ and tells the owner.
    - A human message after a ~post~ pick, such as ~drop~ or free text,
      takes precedence and goes through those paths.

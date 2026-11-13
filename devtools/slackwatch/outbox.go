@@ -69,26 +69,31 @@ var ErrNoOutbox = errors.New("no such outbox record")
 // PostedText is what Slack returned for a handoff post. Manual is set
 // when the post was made by hand and recorded with PostedManual.
 type OutboxRecord struct {
-	ID           int64     `json:"id"`
-	Channel      string    `json:"channel"`
-	ThreadTS     string    `json:"threadTs,omitempty"`
-	DestName     string    `json:"destName,omitempty"`
-	ParentLink   string    `json:"parentLink,omitempty"`
-	Text         string    `json:"text"`
-	TextHash     string    `json:"textHash"`
-	Owner        string    `json:"owner"`
-	Purpose      string    `json:"purpose"`
-	Refs         []string  `json:"refs"`
-	State        string    `json:"state"`
-	Reason       string    `json:"reason,omitempty"`
-	DecideID     string    `json:"decideId,omitempty"`
-	DecideClosed bool      `json:"decideClosed"`
-	Answer       string    `json:"answer,omitempty"`
-	PostTS       string    `json:"postTs,omitempty"`
-	Permalink    string    `json:"permalink,omitempty"`
-	PostedText   string    `json:"postedText,omitempty"`
-	WatchID      int64     `json:"watchId,omitempty"`
-	Manual       bool      `json:"manual"`
+	ID           int64    `json:"id"`
+	Channel      string   `json:"channel"`
+	ThreadTS     string   `json:"threadTs,omitempty"`
+	DestName     string   `json:"destName,omitempty"`
+	ParentLink   string   `json:"parentLink,omitempty"`
+	Text         string   `json:"text"`
+	TextHash     string   `json:"textHash"`
+	Owner        string   `json:"owner"`
+	Purpose      string   `json:"purpose"`
+	Refs         []string `json:"refs"`
+	State        string   `json:"state"`
+	Reason       string   `json:"reason,omitempty"`
+	DecideID     string   `json:"decideId,omitempty"`
+	DecideClosed bool     `json:"decideClosed"`
+	Answer       string   `json:"answer,omitempty"`
+	PostTS       string   `json:"postTs,omitempty"`
+	Permalink    string   `json:"permalink,omitempty"`
+	PostedText   string   `json:"postedText,omitempty"`
+	WatchID      int64    `json:"watchId,omitempty"`
+	Manual       bool     `json:"manual"`
+	// Supersedes is the outbox id this draft replaces. 0 means none.
+	Supersedes int64 `json:"supersedes,omitempty"`
+	// SupersededBy is the outbox id that replaced this one. It is not
+	// stored; show fills it in. 0 means none.
+	SupersededBy int64     `json:"supersededBy,omitempty"`
 	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
 }
@@ -401,6 +406,10 @@ type Draft struct {
 	Owner      string
 	Purpose    string
 	Refs       []string
+	// Supersedes is an outbox id this draft replaces. 0 means none.
+	// It must be needs-redraft, pending, or awaiting-handoff. That
+	// record is cancelled only after this draft is stored.
+	Supersedes int64
 }
 
 // Outbox runs slackwatch post: it files the decide item, applies the
@@ -441,8 +450,13 @@ func (o *Outbox) logger() *slog.Logger {
 }
 
 // Submit stores d as a pending record and files its decide item.
+// When Supersedes is set, that older record is cancelled only after
+// this one is stored. A failed submit leaves the older record as it was.
 func (o *Outbox) Submit(ctx context.Context, d Draft) (OutboxRecord, error) {
 	if err := o.Config.CheckPost(); err != nil {
+		return OutboxRecord{}, err
+	}
+	if err := o.checkSupersedes(d.Supersedes); err != nil {
 		return OutboxRecord{}, err
 	}
 	switch {
@@ -479,7 +493,42 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	if _, err := o.Store.db.Exec(`UPDATE outbox SET decide_id = ? WHERE id = ?`, decideID, id); err != nil {
 		return OutboxRecord{}, fmt.Errorf("store decide id of outbox %d: %w", id, err)
 	}
+	if d.Supersedes != 0 {
+		if err := o.supersede(ctx, d.Supersedes, id); err != nil {
+			return OutboxRecord{}, err
+		}
+	}
 	return o.Store.GetOutbox(id)
+}
+
+// checkSupersedes reports an error when id cannot be replaced. 0 is fine.
+// A record that is posted, cancelled, or otherwise finished is refused,
+// and so is anything that is not still a draft.
+func (o *Outbox) checkSupersedes(id int64) error {
+	if id == 0 {
+		return nil
+	}
+	old, err := o.Store.GetOutbox(id)
+	if err != nil {
+		return err
+	}
+	switch old.State {
+	case OutboxNeedsRedraft, OutboxPending, OutboxAwaitingHandoff:
+		return nil
+	default:
+		return fmt.Errorf("outbox %d is %s; only needs-redraft, pending, or awaiting-handoff records can be superseded", id, old.State)
+	}
+}
+
+// supersede links newID back to oldID and cancels oldID. newID is already stored.
+func (o *Outbox) supersede(ctx context.Context, oldID, newID int64) error {
+	if _, err := o.Store.db.Exec(`UPDATE outbox SET supersedes = ? WHERE id = ?`, oldID, newID); err != nil {
+		return fmt.Errorf("link outbox %d to %d: %w", newID, oldID, err)
+	}
+	outcome := fmt.Sprintf("not posted: superseded by %d", newID)
+	_, err := o.cancelIn(ctx, oldID, []string{OutboxNeedsRedraft, OutboxPending, OutboxAwaitingHandoff}, outcome, outcome,
+		"only needs-redraft, pending, or awaiting-handoff records can be superseded")
+	return err
 }
 
 // question is the decide question for a draft.
@@ -1060,14 +1109,21 @@ func (o *Outbox) Recheck(ctx context.Context, id int64) (OutboxRecord, error) {
 }
 
 // Cancel withdraws a record that is not posted yet and closes its
-// decide item.
+// decide item. needs-redraft is included, so a draft the user sent
+// back can be dropped instead of replaced.
 func (o *Outbox) Cancel(ctx context.Context, id int64, reason string) (OutboxRecord, error) {
 	outcome := "not posted: cancelled"
 	if reason != "" {
 		outcome += ": " + reason
 	}
-	moved, err := o.Store.moveOutbox(id, []string{OutboxPending, OutboxApproved, OutboxAwaitingHandoff},
-		outboxUpdate{state: OutboxCancelled, reason: &reason, decideOutcome: &outcome}, o.Now())
+	return o.cancelIn(ctx, id, []string{OutboxPending, OutboxApproved, OutboxAwaitingHandoff, OutboxNeedsRedraft}, reason, outcome,
+		"only pending, approved, awaiting-handoff, or needs-redraft records can be cancelled")
+}
+
+// cancelIn moves id to cancelled when it is in from, then closes its
+// decide item with outcome. refused is the error when the state does not match.
+func (o *Outbox) cancelIn(ctx context.Context, id int64, from []string, reason, outcome, refused string) (OutboxRecord, error) {
+	moved, err := o.Store.moveOutbox(id, from, outboxUpdate{state: OutboxCancelled, reason: &reason, decideOutcome: &outcome}, o.Now())
 	if err != nil {
 		return OutboxRecord{}, err
 	}
@@ -1076,7 +1132,7 @@ func (o *Outbox) Cancel(ctx context.Context, id int64, reason string) (OutboxRec
 		return OutboxRecord{}, err
 	}
 	if !moved {
-		return OutboxRecord{}, fmt.Errorf("outbox %d is %s; only pending, approved, or awaiting-handoff records can be cancelled", id, r.State)
+		return OutboxRecord{}, fmt.Errorf("outbox %d is %s; %s", id, r.State, refused)
 	}
 	o.closeDecide(ctx, r)
 	return o.Store.GetOutbox(id)
@@ -1092,7 +1148,7 @@ type outboxUpdate struct {
 }
 
 // maxFrom is how many states moveOutbox may move from.
-const maxFrom = 3
+const maxFrom = 4
 
 // moveOutbox applies u to record id if its state is one of from (at
 // most maxFrom states), and reports whether it did.
@@ -1108,7 +1164,7 @@ func (s *Store) moveOutbox(id int64, from []string, u outboxUpdate, now time.Tim
 reason = COALESCE(?, reason), answer = COALESCE(?, answer), decide_outcome = COALESCE(?, decide_outcome),
 post_ts = COALESCE(?, post_ts), permalink = COALESCE(?, permalink), posted_text = COALESCE(?, posted_text),
 watch_id = COALESCE(?, watch_id), decide_closed = COALESCE(?, decide_closed), manual = COALESCE(?, manual), updated_at = ?
-WHERE id = ? AND state IN (?, ?, ?)`, args...)
+WHERE id = ? AND state IN (?, ?, ?, ?)`, args...)
 	if err != nil {
 		return false, fmt.Errorf("update outbox %d: %w", id, err)
 	}
@@ -1120,7 +1176,7 @@ WHERE id = ? AND state IN (?, ?, ?)`, args...)
 }
 
 const outboxCols = `id, channel, thread_ts, dest_name, parent_link, text, text_hash, owner, purpose, refs,
-state, reason, decide_id, decide_closed, answer, post_ts, permalink, posted_text, watch_id, manual, created_at, updated_at`
+state, reason, decide_id, decide_closed, answer, post_ts, permalink, posted_text, watch_id, manual, supersedes, created_at, updated_at`
 
 type scanner interface {
 	Scan(dest ...any) error
@@ -1133,7 +1189,7 @@ func scanOutbox(sc scanner) (OutboxRecord, error) {
 	var created, updated int64
 	if err := sc.Scan(&r.ID, &r.Channel, &r.ThreadTS, &r.DestName, &r.ParentLink, &r.Text, &r.TextHash,
 		&r.Owner, &r.Purpose, &refs, &r.State, &r.Reason, &r.DecideID, &r.DecideClosed, &r.Answer,
-		&r.PostTS, &r.Permalink, &r.PostedText, &watchID, &r.Manual, &created, &updated); err != nil {
+		&r.PostTS, &r.Permalink, &r.PostedText, &watchID, &r.Manual, &r.Supersedes, &created, &updated); err != nil {
 		return OutboxRecord{}, err //nolint:wrapcheck // Wrapped by callers.
 	}
 	r.Refs = []string{}
@@ -1156,6 +1212,19 @@ func (s *Store) GetOutbox(id int64) (OutboxRecord, error) {
 		return OutboxRecord{}, fmt.Errorf("read outbox %d: %w", id, err)
 	}
 	return r, nil
+}
+
+// SupersededBy is the id of the draft that replaced id, or 0 when none has.
+func (s *Store) SupersededBy(id int64) (int64, error) {
+	var by int64
+	err := s.db.QueryRow(`SELECT id FROM outbox WHERE supersedes = ? ORDER BY id LIMIT 1`, id).Scan(&by)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("find the draft that replaced outbox %d: %w", id, err)
+	}
+	return by, nil
 }
 
 func (s *Store) outboxByDecide(decideID string) (OutboxRecord, error) {
