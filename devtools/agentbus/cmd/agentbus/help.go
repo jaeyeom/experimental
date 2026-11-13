@@ -211,9 +211,9 @@ func commands() []command {
 		},
 		{
 			name: "doctor",
-			summary: "Report other agentbusd processes for this user, and with --sandbox print the Claude Code " +
-				"sandbox allowlist this machine needs (the herdr, tunnel, and daemon sockets, and the hub host " +
-				"for the ssh fallback), then test each connection.",
+			summary: "Report other agentbusd processes for this user. In hub mode, report the tunnel, the ssh port, " +
+				"the outbox flusher, and pending outbox entries instead of the local daemon socket. With --sandbox, " +
+				"print the Claude Code sandbox allowlist this machine needs and test each connection.",
 			usage:   "agentbus doctor [--sandbox]",
 			flags:   "--sandbox  also print the sandbox settings entries and report each connection ok or blocked",
 			example: "agentbus doctor --sandbox",

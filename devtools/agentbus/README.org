@@ -1067,12 +1067,18 @@ on the client shows the configured mode and thresholds.
 
 * Sandbox
 
-The CLI has to connect to the daemon socket. That socket is
-~$XDG_RUNTIME_DIR/agentbus/daemon.sock~. The state directory is
+The CLI has to connect to the daemon socket. On Linux that socket is
+~$XDG_RUNTIME_DIR/agentbus/daemon.sock~, and ~XDG_RUNTIME_DIR~ is
+required. On macOS, when ~XDG_RUNTIME_DIR~ is unset, the sockets are
+under ~~/Library/Caches/agentbus/run/agentbus/~ (~daemon.sock~,
+~hub.sock~, and ~tunnel.sock~). That directory is created with mode 0700
+and is not ~$TMPDIR~. A socket path of 104 bytes or more,
+including the terminating NUL, is an error that names the path. When
+~XDG_RUNTIME_DIR~ is set, both systems use it and the macOS default
+directory is not created. The state directory is
 ~$XDG_STATE_HOME/agentbus~, or ~$HOME/.local/state/agentbus~ when
-~XDG_STATE_HOME~ is unset. Both the runtime directory and the state
-directory are required. The CLI reports a missing one instead of
-guessing.
+~XDG_STATE_HOME~ is unset. The CLI reports a missing state directory,
+or a missing Linux runtime directory, instead of guessing.
 
 The daemon needs that state directory. It also needs the ~herdr~
 command and the herdr socket for the local server the panes use. Without
@@ -1088,6 +1094,7 @@ the error says so:
 - ~agentbus: start agentbusd: ...~
 - ~agentbus: agentbusd did not become ready: ...~
 - ~agentbus: XDG_RUNTIME_DIR is not set; the agentbus daemon socket needs it~
+  (Linux; macOS uses ~~/Library/Caches/agentbus/run~ instead)
 - =agentbus: HOME is not set; agentbus state belongs in ~/.local/state/agentbus=
 
 ~agentbusd~ is the binary next to ~agentbus~. A sandbox that cannot
@@ -1107,10 +1114,11 @@ allow:
    macOS), to look up the pane's agent session. A denied connect fails
    with
    ~identify this pane: connect /path/herdr.sock: operation not permitted (sandbox? allow this unix socket)~.
-2. *Talk to the hub* over the tunnel socket,
-   ~$XDG_RUNTIME_DIR/agentbus/tunnel.sock~, when it is there. On Linux
-   ~XDG_RUNTIME_DIR~ is usually ~/run/user/<uid>~; on macOS it is
-   whatever your shell sets, since agentbus requires it.
+2. *Talk to the hub* over the tunnel socket, when it is there. On Linux
+   that is ~$XDG_RUNTIME_DIR/agentbus/tunnel.sock~ (usually
+   ~/run/user/<uid>~). On macOS it is that path when ~XDG_RUNTIME_DIR~
+   is set, and ~~/Library/Caches/agentbus/run/agentbus/tunnel.sock~
+   otherwise. ~agentbus doctor --sandbox~ prints the resolved path.
 3. *Otherwise run on the hub over ssh*, which needs network access to
    the hub and read access to ~~/.ssh~.
 
@@ -1118,7 +1126,9 @@ herdr exports ~HERDR_PANE_ID~, ~HERDR_TAB_ID~, ~HERDR_WORKSPACE_ID~ and
 ~HERDR_SOCKET_PATH~ to each pane, but not the agent session, so the
 handle cannot be built from the environment alone. Instead, ~agentbus
 register~ in hub mode asks herdr for this pane's handle and caches it in
-~$XDG_RUNTIME_DIR/agentbus/panes/<pane-id>~ (mode 0600). Later calls
+~$XDG_RUNTIME_DIR/agentbus/panes/<pane-id>~ (mode 0600), or under
+~~/Library/Caches/agentbus/run/agentbus/panes/~ on macOS when
+~XDG_RUNTIME_DIR~ is unset. Later calls
 use the cached handle and ask herdr only when nothing is cached, so a
 sandboxed agent that registered once (or whose first register ran
 unsandboxed) needs no herdr socket. ~register~ always asks herdr again
@@ -1146,8 +1156,7 @@ Claude Code sandbox settings this machine needs (merge into settings.json):
     "network": {
       "allowUnixSockets": [
         "/Users/me/.config/herdr/herdr.sock",
-        "/Users/me/run/agentbus/tunnel.sock",
-        "/Users/me/run/agentbus/daemon.sock"
+        "/Users/me/Library/Caches/agentbus/run/agentbus/tunnel.sock"
       ],
       "allowedDomains": [
         "hub"
@@ -1159,17 +1168,22 @@ allowedDomains is only for the ssh fallback to me@hub, which also reads ~/.ssh; 
 
 Checks:
   herdr socket /Users/me/.config/herdr/herdr.sock: ok
-  tunnel socket /Users/me/run/agentbus/tunnel.sock: ok
-  daemon socket /Users/me/run/agentbus/daemon.sock: missing
+  tunnel socket /Users/me/Library/Caches/agentbus/run/agentbus/tunnel.sock: ok
   ssh me@hub: ok (its ssh port answers)
+  outbox flusher: present (/Users/me/Library/LaunchAgents/com.agentbus.outbox.plist)
+  outbox: no pending entries
 #+end_example
 
-Each socket is ~ok~, ~missing~, ~blocked (sandbox? allow this unix
-socket)~, or ~failed: <error>~. The ssh check only connects to the
-hub's ssh port; it does not log in. The hub entry is the host part of
-~hub~, so for a ~Host~ alias in ~~/.ssh/config~ allow its real
-~HostName~ as well. doctor only prints the entries; it never edits
-your settings.
+A hub-mode client does not list or check the local daemon socket.
+~doctor~ reports the tunnel, the ssh port, the outbox flusher unit, and
+pending outbox entries, and it exits 0 when those are healthy even
+though no local daemon socket exists. A machine that is not a hub
+client still lists the daemon socket. Each socket is ~ok~, ~missing~,
+~blocked (sandbox? allow this unix socket)~, or ~failed: <error>~. The
+ssh check only connects to the hub's ssh port; it does not log in. The
+hub entry is the host part of ~hub~, so for a ~Host~ alias in
+~~/.ssh/config~ allow its real ~HostName~ as well. doctor only prints
+the entries; it never edits your settings.
 
 * Install
 
@@ -1177,7 +1191,8 @@ your settings.
 file is ~$HOME/Library/LaunchAgents/com.agentbus.agentbusd.plist~. On Linux
 it is ~$XDG_CONFIG_HOME/systemd/user/agentbus.service~, or
 ~$HOME/.config/systemd/user/agentbus.service~ when ~XDG_CONFIG_HOME~
-is unset.
+is unset. A macOS unit written without ~XDG_RUNTIME_DIR~ exports the
+default runtime directory, so the job and the CLI use the same sockets.
 
 ~agentbus install-hooks~ writes a Claude Code ~PreToolUse~ hook on
 ~SendMessage~ to the user settings only, ~$HOME/.claude/settings.json~,

@@ -34,9 +34,11 @@ Flags:
   -h, --help  Print this help.
 
 Environment:
-  XDG_RUNTIME_DIR              required; the socket is $XDG_RUNTIME_DIR/agentbus/daemon.sock,
-                               and callers forwarded from other machines use
-                               $XDG_RUNTIME_DIR/agentbus/hub.sock
+  XDG_RUNTIME_DIR              socket directory. Required on Linux
+                               ($XDG_RUNTIME_DIR/agentbus/daemon.sock, and
+                               $XDG_RUNTIME_DIR/agentbus/hub.sock for
+                               forwarded callers). On macOS, when unset,
+                               ~/Library/Caches/agentbus/run is used instead
   XDG_STATE_HOME               state directory parent (default: $HOME/.local/state)
   XDG_CONFIG_HOME              config directory parent (default: $HOME/.config)
   HOME                         required when XDG_STATE_HOME or XDG_CONFIG_HOME is unset

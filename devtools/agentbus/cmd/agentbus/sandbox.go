@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -204,18 +205,14 @@ func cmdDoctor(ctx context.Context, args, env []string, stdout, stderr io.Writer
 	reportUnverifiedHolds(dirs.StateDir, stdout)
 	reportHubSocket(ctx, env, stdout)
 	if !*sandbox {
-		return 0
+		return plainDoctor(ctx, env, dirs, stdout)
 	}
 	cfg, err := hubSettings(env)
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus doctor: %s\n", err)
 		return 1
 	}
-	sockets := []doctorSocket{
-		{"herdr socket", envGet(env, herdrSocketEnv)},
-		{"tunnel socket", dirs.TunnelSocketPath},
-		{"daemon socket", dirs.SocketPath},
-	}
+	sockets := doctorSockets(env, dirs, cfg.Hub)
 	network := map[string][]string{"allowUnixSockets": {}}
 	for _, s := range sockets {
 		if s.path != "" {
@@ -235,7 +232,74 @@ func cmdDoctor(ctx context.Context, args, env []string, stdout, stderr io.Writer
 		fmt.Fprintf(stdout, "allowedDomains is only for the ssh fallback to %s, which also reads ~/.ssh; the tunnel needs neither.\n", cfg.Hub)
 	}
 	printDoctorChecks(ctx, stdout, cfg, sockets)
+	if cfg.Hub != "" {
+		reportOutboxStatus(env, stdout)
+	}
 	return 0
+}
+
+// plainDoctor reports a hub-mode client's tunnel, ssh, and outbox.
+// It does not check the local daemon socket.
+func plainDoctor(ctx context.Context, env []string, dirs paths.Dirs, stdout io.Writer) int {
+	cfg, err := hubSettings(env)
+	if err != nil || cfg.Hub == "" {
+		return 0
+	}
+	fmt.Fprintf(stdout, "  tunnel socket %s: %s\n", dirs.TunnelSocketPath, checkSocket(ctx, dirs.TunnelSocketPath))
+	fmt.Fprintln(stdout, sshProbeLine(ctx, cfg))
+	reportOutboxStatus(env, stdout)
+	return 0
+}
+
+// doctorSockets is the sandbox allowlist. Hub mode has no local daemon.
+func doctorSockets(env []string, dirs paths.Dirs, hub string) []doctorSocket {
+	sockets := []doctorSocket{
+		{"herdr socket", envGet(env, herdrSocketEnv)},
+		{"tunnel socket", dirs.TunnelSocketPath},
+	}
+	if hub == "" {
+		sockets = append(sockets, doctorSocket{"daemon socket", dirs.SocketPath})
+	}
+	return sockets
+}
+
+// reportOutboxStatus prints the outbox flusher unit and pending entries.
+func reportOutboxStatus(env []string, stdout io.Writer) {
+	fmt.Fprintf(stdout, "  outbox flusher: %s\n", outboxFlusherStatus(env))
+	fmt.Fprintf(stdout, "  %s\n", pendingOutboxLine(env))
+}
+
+func outboxFlusherStatus(env []string) string {
+	home, err := homeFrom(env)
+	if err != nil {
+		return "unknown (" + err.Error() + ")"
+	}
+	path, err := unitPath(runtime.GOOS, home, env, outboxLaunchdLabel, outboxUnitName)
+	if err != nil {
+		return "unknown (" + err.Error() + ")"
+	}
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "missing (" + path + ")"
+		}
+		return "failed: " + err.Error()
+	}
+	return "present (" + path + ")"
+}
+
+func pendingOutboxLine(env []string) string {
+	box, err := openBox(env)
+	if err != nil {
+		return "outbox: unavailable"
+	}
+	pending, err := box.Pending()
+	if err != nil {
+		return "outbox: failed: " + err.Error()
+	}
+	if len(pending) == 0 {
+		return "outbox: no pending entries"
+	}
+	return fmt.Sprintf("outbox: %d pending", len(pending))
 }
 
 // reportUnverifiedHolds prints messages whose paste may have landed and
@@ -275,13 +339,18 @@ func printDoctorChecks(ctx context.Context, stdout io.Writer, cfg config.Config,
 		}
 		fmt.Fprintf(stdout, "  %s %s: %s\n", s.label, s.path, checkSocket(ctx, s.path))
 	}
+	fmt.Fprintln(stdout, sshProbeLine(ctx, cfg))
+}
+
+// sshProbeLine is the ssh-port check. It does not log in.
+func sshProbeLine(ctx context.Context, cfg config.Config) string {
 	switch {
 	case cfg.Hub == "":
-		fmt.Fprintln(stdout, "  ssh: not in hub mode")
+		return "  ssh: not in hub mode"
 	case doctorProbe(cfg.Hub)(ctx):
-		fmt.Fprintf(stdout, "  ssh %s: ok (its ssh port answers)\n", cfg.Hub)
+		return fmt.Sprintf("  ssh %s: ok (its ssh port answers)", cfg.Hub)
 	default:
-		fmt.Fprintf(stdout, "  ssh %s: blocked (its ssh port does not answer; sandbox? allow %s)\n", cfg.Hub, hubHost(cfg.Hub))
+		return fmt.Sprintf("  ssh %s: blocked (its ssh port does not answer; sandbox? allow %s)", cfg.Hub, hubHost(cfg.Hub))
 	}
 }
 

@@ -205,6 +205,10 @@ func TestInstallWritesSupervisorWithoutLoading(t *testing.T) {
 }
 
 func TestInstallFailsWithoutRuntimeDir(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		testDarwinInstallAgreesOnSocket(t)
+		return
+	}
 	home := t.TempDir()
 	code, _, stderr := runCmd([]string{"install"}, []string{"HOME=" + home, "AGENTBUS_INSTALL_NO_LOAD=1"})
 	if code == 0 || !strings.Contains(stderr, "XDG_RUNTIME_DIR") {
@@ -212,6 +216,40 @@ func TestInstallFailsWithoutRuntimeDir(t *testing.T) {
 	}
 	if _, err := os.Stat(installedPath(home)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("unit err = %v", err)
+	}
+}
+
+func testDarwinInstallAgreesOnSocket(t *testing.T) {
+	t.Helper()
+	stubDaemon(t)
+	home := shortRuntime(t)
+	env := []string{"HOME=" + home, "AGENTBUS_INSTALL_NO_LOAD=1"}
+	code, stdout, stderr := runCmd([]string{"install"}, env)
+	if code != 0 {
+		t.Fatalf("install = %d\nstdout %s\nstderr %s", code, stdout, stderr)
+	}
+	dirs, err := paths.FromEnv(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(installedPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeDir := filepath.Dir(filepath.Dir(dirs.SocketPath))
+	wantSock := filepath.Join(home, "Library", "Caches", "agentbus", "run", "agentbus", "daemon.sock")
+	if dirs.SocketPath != wantSock {
+		t.Fatalf("CLI socket = %s, want %s", dirs.SocketPath, wantSock)
+	}
+	if !strings.Contains(string(data), runtimeDir) {
+		t.Fatalf("plist missing %s\n%s", runtimeDir, data)
+	}
+	unitDirs, err := paths.FromEnv(append(append([]string{}, env...), "XDG_RUNTIME_DIR="+runtimeDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unitDirs.SocketPath != dirs.SocketPath {
+		t.Fatalf("unit socket %s, CLI %s", unitDirs.SocketPath, dirs.SocketPath)
 	}
 }
 
