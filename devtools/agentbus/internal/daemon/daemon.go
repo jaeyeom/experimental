@@ -81,6 +81,9 @@ type Config struct {
 	// Zero uses five seconds. The paste is not canceled when Serve's
 	// context ends; this bound is.
 	PasteBound time.Duration
+	// HoldNoticeAfter is how long a held message waits before one notice
+	// to its sender. Nil uses 10 minutes. A pointer to zero sends none.
+	HoldNoticeAfter *time.Duration
 }
 
 // ProtocolVersion is the request format a hub-socket client must speak.
@@ -438,6 +441,7 @@ func openState(dir string, cfg Config, lg *eventlog.Log) (*registry.Registry, *m
 	if err != nil {
 		return nil, nil, fmt.Errorf("open mailbox: %w", err)
 	}
+	box.SetHoldNoticeAfter(cfg.HoldNoticeAfter)
 	return reg, box, nil
 }
 

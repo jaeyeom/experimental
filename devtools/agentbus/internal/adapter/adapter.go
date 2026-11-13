@@ -65,7 +65,12 @@ func (w *InventoryWarning) Error() string {
 const (
 	HoldDraft        = "user draft in composer"
 	HoldDraftUnknown = "draft-unknown"
-	HoldFocused      = "pane focused"
+	// HoldScrolled means the visible screen has no input box and the
+	// bottom of the buffer does. The pane is scrolled up. The message
+	// stays held until the visible read finds the box, even when the
+	// box at the bottom is empty.
+	HoldScrolled = "pane scrolled up"
+	HoldFocused  = "pane focused"
 	// HoldAmbiguous means the deliver call failed and the text may already be on screen.
 	HoldAmbiguous = "ambiguous"
 	// HoldAmbiguousUnverified means the screen could not be read or parsed

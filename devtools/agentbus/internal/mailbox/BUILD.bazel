@@ -25,6 +25,7 @@ go_test(
     srcs = [
         "ambiguous_test.go",
         "hibernate_test.go",
+        "hold_test.go",
         "liveness_test.go",
         "render_test.go",
         "wake_test.go",

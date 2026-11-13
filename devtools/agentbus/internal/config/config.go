@@ -18,6 +18,7 @@
 //	lease_ignore_procs = ["zsh", "claude"]  # adopt's process check ignores these
 //	hibernate_exempt = ["ops/*"]  # names, handles, or globs hibernate never stops
 //	wake_timeout = "60s"          # how long a woken agent has to get ready
+//	hold_notice_after = "10m"    # one notice after a hold this long; "0s" sends none
 //	hibernate_policy = "dry-run"  # "on" hibernates under memory pressure; "dry-run" only logs
 //	hibernate_below = "1.5GiB"    # available memory under which the policy acts
 //	hibernate_target = "3GiB"     # available memory at which it stops
@@ -99,6 +100,9 @@ type Config struct {
 	// hibernate_interval. Zero is the default.
 	HibernateMinIdle  time.Duration
 	HibernateInterval time.Duration
+	// HoldNoticeAfter is how long a hold waits before one notice to the
+	// sender. Nil means 10 minutes. A pointer to zero disables notices.
+	HoldNoticeAfter *time.Duration
 	// Warnings are problems that did not fail the load, such as an
 	// invalid lease_takeover.
 	Warnings []string
@@ -242,7 +246,7 @@ func parseLine(cfg *Config, line string) error {
 	case "machines":
 		return parseMachines(cfg, value)
 	case "remote_timeout", "list_liveness_max_age", "lease_check_interval", "lease_checkin_repeat", "lease_idle_grace", "wake_timeout",
-		"hibernate_min_idle", "hibernate_interval":
+		"hibernate_min_idle", "hibernate_interval", "hold_notice_after":
 		return parseDurationKey(cfg, key, value)
 	case "hibernate_policy":
 		parseHibernatePolicy(cfg, value)
@@ -265,6 +269,18 @@ func parseLine(cfg *Config, line string) error {
 	default:
 		return fmt.Errorf("unknown key %s", key)
 	}
+}
+
+// parseHoldNoticeAfter reads hold_notice_after. Zero disables notices.
+// A missing key leaves HoldNoticeAfter nil, which means 10 minutes.
+func parseHoldNoticeAfter(cfg *Config, value string) error {
+	raw, rest, ok := parseString(value)
+	d, err := time.ParseDuration(raw)
+	if !ok || !blankOrComment(rest) || err != nil || d < 0 {
+		return errors.New(`hold_notice_after must be a duration of at least 0s, such as "10m"`)
+	}
+	cfg.HoldNoticeAfter = &d
+	return nil
 }
 
 // parseHibernateExempt reads hibernate_exempt, a list of names,
@@ -306,6 +322,8 @@ func parseDurationKey(cfg *Config, key, value string) error {
 		return parseDuration(&cfg.HibernateMinIdle, key, value, "30m")
 	case "hibernate_interval":
 		return parseDuration(&cfg.HibernateInterval, key, value, "1m")
+	case "hold_notice_after":
+		return parseHoldNoticeAfter(cfg, value)
 	default:
 		return parseDuration(&cfg.WakeTimeout, key, value, "60s")
 	}

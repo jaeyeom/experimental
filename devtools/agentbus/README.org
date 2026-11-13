@@ -155,7 +155,13 @@ one of these:
 
 - ~held: user draft in composer~: the user has typed text and not
   submitted it, or the box is in ~!~ shell mode.
-- ~held: draft-unknown~: the screen did not parse or could not be read.
+- ~held: draft-unknown~: the screen did not parse or could not be read,
+  including when the bottom of the buffer has no input box either.
+- ~held: pane scrolled up~: the visible read found no input box, and a
+  read of the bottom of the buffer (~herdr agent read <pane> --source
+  recent~) did. The box there may be empty. The message stays held
+  until the visible read finds the box. ~--source recent~ reads the
+  bottom of the buffer and does not follow the scrolled viewport.
 - ~held: pane focused~: an agent kind with no parser, while the pane is
   focused. It is delivered once the pane is unfocused. A pane whose box
   can be parsed is delivered even while focused.
@@ -181,6 +187,19 @@ appeared in between holds the message until the next pass. The
 ~deliver_attempt~ event with ~detail=composer-empty-at-check~ shows the
 check ran. The race narrows but cannot close. ~delivered~ logs how long
 the message was held. ~--ttl~ still applies to a held message.
+
+Messages queued behind a held message are ~held: waiting for an earlier
+message <id>~, where ~<id>~ is the message in front. That is the reason
+logged for them, including after the front message is released. They
+are not logged as a user draft.
+
+A hold that lasts ~hold_notice_after~ (default 10m; ~"0s"~ sends none)
+sends the sender one notice through the same path as an expiry notice.
+The notice names the message id, the recipient, the hold reason, and
+~agentbus status <id>~. A message waiting behind another uses its own
+waiting reason, which names the front id. An anonymous sender is not
+notified; the daemon logs ~hold_notice_skipped~. Each message is told
+at most once, and a restart does not send the notice again.
 
 The prompt guard from ~agentbus install-hooks~ catches what the race
 lets through. A Claude Code prompt with an envelope header
@@ -209,6 +228,7 @@ List the machines whose agents ~search~ shows in
 machines = ["linux2"]   # saved herdr machines to include in search
 remote_timeout = "5s"   # bound on each call to another machine (default 5s)
 list_liveness_max_age = "15s"  # list refreshes cached liveness older than this (default 15s)
+hold_notice_after = "10m"  # one notice to the sender after a hold this long; "0s" sends none
 #+end_src
 
 Every call to another machine has an overall deadline that kills herdr

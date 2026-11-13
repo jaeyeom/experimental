@@ -146,18 +146,24 @@ func TestClaudeComposerFixtures(t *testing.T) {
 func TestComposerEmpty(t *testing.T) {
 	const handle = "herdr:local/default/w2:p3"
 	tests := []struct {
-		name    string
-		kind    string
-		focused string
-		screen  string
-		readErr bool
-		empty   bool
-		reason  string
-		wantErr bool
+		name       string
+		kind       string
+		focused    string
+		screen     string
+		recent     string
+		readErr    bool
+		recentErr  bool
+		wantRecent int
+		empty      bool
+		reason     string
+		wantErr    bool
 	}{
 		{name: "claude empty and focused", kind: "claude", focused: "true", screen: claudeScreen("❯ "), empty: true},
 		{name: "claude draft", kind: "claude", focused: "false", screen: claudeScreen("❯ ! git pull"), reason: adapter.HoldDraft},
-		{name: "claude unparseable", kind: "claude", focused: "false", screen: "garbage\n", reason: adapter.HoldDraftUnknown},
+		{name: "claude unparseable", kind: "claude", focused: "false", screen: "garbage\n", wantRecent: 1, reason: adapter.HoldDraftUnknown},
+		{name: "claude scrolled empty box", kind: "claude", focused: "false", screen: "garbage\n", recent: claudeScreen("❯ "), wantRecent: 1, reason: adapter.HoldScrolled},
+		{name: "claude scrolled draft box", kind: "claude", focused: "false", screen: "garbage\n", recent: claudeScreen("❯ please hold"), wantRecent: 1, reason: adapter.HoldScrolled},
+		{name: "claude recent read fails", kind: "claude", focused: "false", screen: "garbage\n", recentErr: true, wantRecent: 1, reason: adapter.HoldDraftUnknown},
 		{name: "claude read fails", kind: "claude", focused: "false", readErr: true, reason: adapter.HoldDraftUnknown, wantErr: true},
 		{name: "unknown kind focused", kind: "codex", focused: "true", reason: adapter.HoldFocused},
 		{name: "unknown kind unfocused", kind: "codex", focused: "false", empty: true},
@@ -166,6 +172,7 @@ func TestComposerEmpty(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			list := `{"result":{"agents":[{"pane_id":"w2:p3","agent":"` + tt.kind +
 				`","agent_status":"idle","focused":` + tt.focused + `,"agent_session":{"value":"default"}}]}}`
+			recentReads := 0
 			ad := &Adapter{Run: func(_ context.Context, args []string) (string, string, int, error) {
 				switch strings.Join(args, " ") {
 				case "agent list":
@@ -175,6 +182,15 @@ func TestComposerEmpty(t *testing.T) {
 						return "", "boom", 1, nil
 					}
 					return tt.screen, "", 0, nil
+				case "agent read w2:p3 --source recent":
+					recentReads++
+					if tt.recentErr {
+						return "", "boom", 1, nil
+					}
+					if tt.recent == "" {
+						return "garbage\n", "", 0, nil
+					}
+					return tt.recent, "", 0, nil
 				default:
 					t.Fatalf("unexpected command %q", args)
 					return "", "", 1, nil
@@ -183,6 +199,9 @@ func TestComposerEmpty(t *testing.T) {
 			empty, reason, err := ad.ComposerEmpty(context.Background(), handle)
 			if empty != tt.empty || reason != tt.reason || (err != nil) != tt.wantErr {
 				t.Fatalf("ComposerEmpty = %v, %q, %v; want %v, %q, err %v", empty, reason, err, tt.empty, tt.reason, tt.wantErr)
+			}
+			if recentReads != tt.wantRecent {
+				t.Fatalf("recent reads = %d, want %d", recentReads, tt.wantRecent)
 			}
 		})
 	}

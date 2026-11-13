@@ -68,6 +68,8 @@ type message struct {
 	HeldAt       *time.Time `json:"heldAt,omitempty"`
 	DeliveredAt  *time.Time `json:"deliveredAt,omitempty"`
 	ClosedAt     *time.Time `json:"closedAt,omitempty"`
+	// HoldNotice is set once a long-hold notice was claimed for this message.
+	HoldNotice bool `json:"holdNoticeSent,omitempty"`
 }
 
 type file struct {
@@ -109,6 +111,10 @@ type Mailbox struct {
 	// pasteBound limits one paste after the caller context ends.
 	// Zero uses defaultPasteBound.
 	pasteBound time.Duration
+	// noticeAfter is how long a hold waits before one sender notice.
+	// Zero with noticeOff false uses defaultHoldNotice. noticeOff sends none.
+	noticeAfter time.Duration
+	noticeOff   bool
 }
 
 // Open loads messages. A missing file is an empty mailbox.
