@@ -49,6 +49,9 @@ const (
 	EventLeaseLeave     = "lease_leave"
 	EventLeaseRelease   = "lease_release"
 	EventLeaseSkip      = "lease_skip"
+	// EventHoldNoticeSkipped is a long-hold notice not sent because the
+	// sender is anonymous.
+	EventHoldNoticeSkipped = "hold_notice_skipped"
 	// EventLeaseCheckIn is a check-in sent to a holder whose bid ended.
 	EventLeaseCheckIn = "lease_checkin"
 	// EventLeaseAutoExtend is a silent extend of a holder still working.
@@ -432,7 +435,8 @@ func validate(e Event) error {
 func knownEvent(name string) bool {
 	switch name {
 	case EventRegister, EventDescribe, EventRelease, EventHandoff, EventClaimRefused,
-		EventSend, EventQueued, EventDedupe, EventDeliverAttempt, EventDelivered, EventHeld, EventRetry,
+		EventSend, EventQueued, EventDedupe, EventDeliverAttempt, EventDelivered, EventHeld,
+		EventHoldNoticeSkipped, EventRetry,
 		EventRequeued, EventExpired, EventRejected, EventAdapterError, EventBypass, EventStart, EventStop,
 		EventLeaseClaim, EventLeaseGrant, EventLeaseExtend, EventLeaseLeave,
 		EventLeaseRelease, EventLeaseSkip, EventLeaseCheckIn, EventLeaseAutoExtend,

@@ -25,6 +25,8 @@ const (
 	defaultPoll = 2 * time.Second
 	// defaultPasteBound is how long one paste may run after shutdown.
 	defaultPasteBound = 5 * time.Second
+	// defaultHoldNotice is how long a hold waits before one sender notice.
+	defaultHoldNotice = 10 * time.Minute
 	waitTick          = 15 * time.Millisecond
 )
 
@@ -397,6 +399,9 @@ func (m *Mailbox) step(ctx context.Context, handle string, deliver bool) (bool, 
 	err := m.holdTail(handle)
 	m.mu.Unlock()
 	if err != nil {
+		return false, err
+	}
+	if err := m.maybeHoldNotices(ctx, handle); err != nil {
 		return false, err
 	}
 	return false, nil
@@ -865,10 +870,11 @@ func (m *Mailbox) holdTail(handle string) error {
 	if len(ids) < 2 {
 		return nil
 	}
+	reason := "waiting for an earlier message " + ids[0]
+	next := "held: " + reason
 	changed := false
 	for _, id := range ids[1:] {
 		msg := m.msgs[id]
-		const next = "held: waiting for an earlier message"
 		if msg.State == next {
 			continue
 		}
@@ -882,7 +888,7 @@ func (m *Mailbox) holdTail(handle string) error {
 			MsgID:       msg.ID,
 			Name:        msg.To,
 			Detail:      "waited " + waitString(m.now().Sub(msg.SentAt)),
-			Reason:      "waiting for an earlier message",
+			Reason:      reason,
 			TargetState: "queued",
 		}); err != nil {
 			return err
@@ -892,6 +898,106 @@ func (m *Mailbox) holdTail(handle string) error {
 		return nil
 	}
 	return m.save()
+}
+
+// SetHoldNoticeAfter sets how long a hold waits before one notice to
+// the sender. Nil uses 10 minutes. A duration of zero or less sends none.
+func (m *Mailbox) SetHoldNoticeAfter(d *time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if d == nil {
+		m.noticeAfter = defaultHoldNotice
+		m.noticeOff = false
+		return
+	}
+	if *d <= 0 {
+		m.noticeOff = true
+		return
+	}
+	m.noticeOff = false
+	m.noticeAfter = *d
+}
+
+// holdNotice is one sender notice claimed for a message past the threshold.
+type holdNotice struct {
+	id     string
+	from   string
+	to     string
+	reason string
+}
+
+// maybeHoldNotices sends at most one notice per message that has been
+// held for the configured duration. The caller does not hold m.mu.
+func (m *Mailbox) maybeHoldNotices(ctx context.Context, handle string) error {
+	due, err := m.claimHoldNotices(handle)
+	if err != nil {
+		return err
+	}
+	for _, item := range due {
+		m.sendHoldNotice(ctx, item)
+	}
+	return nil
+}
+
+// claimHoldNotices marks due messages so a later poll does not notice
+// them again. A save failure puts the marks back.
+func (m *Mailbox) claimHoldNotices(handle string) ([]holdNotice, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.noticeOff {
+		return nil, nil
+	}
+	after := m.noticeAfter
+	if after <= 0 {
+		after = defaultHoldNotice
+	}
+	now := m.now()
+	var due []holdNotice
+	var marked []string
+	for _, id := range m.queue[handle] {
+		msg := m.msgs[id]
+		if msg.HoldNotice || msg.HeldAt == nil || now.Sub(*msg.HeldAt) < after {
+			continue
+		}
+		msg.HoldNotice = true
+		m.msgs[id] = msg
+		marked = append(marked, id)
+		due = append(due, holdNotice{
+			id:     msg.ID,
+			from:   msg.From,
+			to:     msg.To,
+			reason: strings.TrimPrefix(msg.State, "held: "),
+		})
+	}
+	if len(due) == 0 {
+		return nil, nil
+	}
+	if err := m.save(); err != nil {
+		for _, id := range marked {
+			msg := m.msgs[id]
+			msg.HoldNotice = false
+			m.msgs[id] = msg
+		}
+		return nil, err
+	}
+	return due, nil
+}
+
+// sendHoldNotice tells the sender once. An anonymous sender is only logged.
+func (m *Mailbox) sendHoldNotice(ctx context.Context, n holdNotice) {
+	if strings.HasPrefix(n.from, "anon:") {
+		_ = m.logEvent(eventlog.Event{
+			Event:  eventlog.EventHoldNoticeSkipped,
+			Actor:  "agentbus",
+			MsgID:  n.id,
+			Name:   n.to,
+			Detail: "anonymous sender",
+			Reason: n.reason,
+		})
+		return
+	}
+	text := fmt.Sprintf("agentbus: message %s to %s held: %s\nagentbus status %s\n", n.id, n.to, n.reason, n.id)
+	m.notifySender(ctx, n.id, n.from, text, "hold notice not sent")
 }
 
 // notifyExpired tells a reachable sender directly. It does not queue

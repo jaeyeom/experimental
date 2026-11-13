@@ -238,12 +238,28 @@ func (a *Adapter) ComposerEmpty(ctx context.Context, raw string) (bool, string, 
 		empty, ok := match(stdout)
 		switch {
 		case !ok:
-			return false, adapter.HoldDraftUnknown, nil
+			return a.scrolledOrUnknown(ctx, machine, pane, match)
 		case !empty:
 			return false, adapter.HoldDraft, nil
 		default:
 			return true, "", nil
 		}
+	}
+	return false, adapter.HoldDraftUnknown, nil
+}
+
+// scrolledOrUnknown reads the bottom of the buffer when the visible
+// screen has no input box. A box there, empty or not, means the pane is
+// scrolled up, so the message stays held. A missing box or a failed read
+// stays draft-unknown. The visible read already succeeded, so a failed
+// recent read is not an error.
+func (a *Adapter) scrolledOrUnknown(ctx context.Context, machine, pane string, match func(string) (bool, bool)) (bool, string, error) {
+	stdout, err := a.readPane(ctx, machine, pane, "recent")
+	if err != nil {
+		return false, adapter.HoldDraftUnknown, nil
+	}
+	if _, ok := match(stdout); ok {
+		return false, adapter.HoldScrolled, nil
 	}
 	return false, adapter.HoldDraftUnknown, nil
 }

@@ -146,6 +146,27 @@ func TestParseHibernateExempt(t *testing.T) {
 	}
 }
 
+func TestParseHoldNoticeAfter(t *testing.T) {
+	got, err := Parse("hold_notice_after = \"10m\"\n")
+	if err != nil || got.HoldNoticeAfter == nil || *got.HoldNoticeAfter != 10*time.Minute {
+		t.Fatalf("Parse = %+v, %v", got, err)
+	}
+	disabled, err := Parse("hold_notice_after = \"0s\"\n")
+	if err != nil || disabled.HoldNoticeAfter == nil || *disabled.HoldNoticeAfter != 0 {
+		t.Fatalf("zero = %+v, %v", disabled, err)
+	}
+	unset, err := Parse("machines = [\"linux2\"]\n")
+	if err != nil || unset.HoldNoticeAfter != nil {
+		t.Fatalf("unset = %+v, %v", unset, err)
+	}
+	if _, err := Parse("hold_notice_after = \"-1s\"\n"); err == nil || !strings.Contains(err.Error(), `hold_notice_after must be a duration of at least 0s`) {
+		t.Fatalf("negative: %v", err)
+	}
+	if _, err := Parse("hold_notice_after = \"soon\"\n"); err == nil || !strings.Contains(err.Error(), `hold_notice_after must be a duration of at least 0s, such as "10m"`) {
+		t.Fatalf("garbage: %v", err)
+	}
+}
+
 func TestParseWakeTimeout(t *testing.T) {
 	got, err := Parse("wake_timeout = \"90s\"  # slow machine\n")
 	if err != nil || got.WakeTimeout != 90*time.Second {

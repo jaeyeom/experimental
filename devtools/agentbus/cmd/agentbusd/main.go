@@ -160,6 +160,7 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 		HibernatePolicy: hibernatePolicy(cfg, stderr),
 		PolicyInterval:  cfg.Policy().Interval,
 		LastTurn:        lastturn.Claude(lastturn.ClaudeProjectsDir(env)),
+		HoldNoticeAfter: cfg.HoldNoticeAfter,
 	}); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(stderr, "agentbusd: %s\n", err)
 		if errors.Is(err, daemon.ErrAlreadyRunning) {
