@@ -16,11 +16,12 @@ func (r *Runner) markViewed(entry *LogEntry, pr github.ApprovalPullRequest, view
 	if !r.Viewed.Enabled || entry.Action != ActionManual || entry.Rule != nil || pr.Draft {
 		return
 	}
-	paths, err := r.viewedPaths(pr, viewer)
+	paths, exclusions, err := r.viewedPaths(pr, viewer)
 	if err != nil {
 		entry.Action, entry.Reason = ActionError, err.Error()
 		return
 	}
+	entry.Exclusions = exclusions
 	if len(paths) == 0 || r.marksLeft <= 0 {
 		return
 	}
@@ -82,25 +83,30 @@ func (r *Runner) markPaths(pr github.ApprovalPullRequest, paths []string) ([]str
 
 // viewedPaths returns the UNVIEWED files a rule selects, in pull request order.
 // Unreadable CODEOWNERS or team data fails the pull request closed.
-func (r *Runner) viewedPaths(pr github.ApprovalPullRequest, viewer string) ([]string, error) {
+func (r *Runner) viewedPaths(pr github.ApprovalPullRequest, viewer string) ([]string, []string, error) {
 	rules := viewedRulesFor(r.Viewed.Rules, pr)
 	if len(rules) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	mine, err := r.viewedOwnership(pr, viewer, rules)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var paths []string
+	var paths, exclusions []string
 	for _, file := range pr.Files {
 		if file.ViewerViewedState != models.ViewerUnviewed {
 			continue
 		}
-		if viewedSelected(rules, file.Path, mine) {
+		mark, reason := viewedDecision(r.Viewed.NeverMark, rules, file.Path, mine)
+		if mark {
 			paths = append(paths, file.Path)
+			continue
+		}
+		if reason != "" {
+			exclusions = append(exclusions, file.Path+": "+reason)
 		}
 	}
-	return paths, nil
+	return paths, exclusions, nil
 }
 
 // viewedOwnership loads CODEOWNERS when a rule needs it. mine is nil when
@@ -160,14 +166,41 @@ func viewedRulesFor(rules []config.ViewedRule, pr github.ApprovalPullRequest) []
 	return out
 }
 
-// viewedSelected reports whether any rule selects path. mine is nil when
-// no rule uses codeowners. A codeowners rule then does not select the file.
-func viewedSelected(rules []config.ViewedRule, path string, mine map[string]bool) bool {
+// viewedDecision reports whether path is marked, or why an exclusion kept
+// it visible. A reason is empty when no selector matched. never_mark wins
+// over a rule's paths_none_match. mine is nil when no rule uses codeowners.
+func viewedDecision(never []string, rules []config.ViewedRule, path string, mine map[string]bool) (bool, string) {
+	if glob := firstGlob(never, path); glob != "" && viewedSelectorAny(rules, path, mine) {
+		return false, "excluded by viewed.never_mark " + glob
+	}
+	var blocked string
 	for _, rule := range rules {
-		if len(rule.PathsMatch) > 0 && matchesAny(rule.PathsMatch, path) {
-			return true
+		if !viewedSelector(rule, path, mine) {
+			continue
 		}
-		if rule.CodeownersNotMine && mine != nil && !mine[path] {
+		if glob := firstGlob(rule.PathsNoneMatch, path); glob != "" {
+			if blocked == "" {
+				blocked = fmt.Sprintf("excluded by rule %s paths_none_match %s", rule.Name, glob)
+			}
+			continue
+		}
+		return true, ""
+	}
+	return false, blocked
+}
+
+// viewedSelector reports whether a rule's selectors match path, before
+// paths_none_match. mine is nil when no rule uses codeowners.
+func viewedSelector(rule config.ViewedRule, path string, mine map[string]bool) bool {
+	if len(rule.PathsMatch) > 0 && matchesAny(rule.PathsMatch, path) {
+		return true
+	}
+	return rule.CodeownersNotMine && mine != nil && !mine[path]
+}
+
+func viewedSelectorAny(rules []config.ViewedRule, path string, mine map[string]bool) bool {
+	for _, rule := range rules {
+		if viewedSelector(rule, path, mine) {
 			return true
 		}
 	}

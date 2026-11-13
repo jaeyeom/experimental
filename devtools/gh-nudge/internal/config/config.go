@@ -424,7 +424,7 @@ func validateConfig(cfg *Config) error {
 	if err := validateApprove(cfg.Approve); err != nil {
 		return err
 	}
-	if err := validateViewed(cfg.Viewed); err != nil {
+	if err := validateViewed(&cfg.Viewed); err != nil {
 		return err
 	}
 	return validateRepoSettings(cfg.RepoSettings)

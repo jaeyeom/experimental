@@ -148,13 +148,17 @@ func unreadable(reason string) (bool, string) {
 	return false, "unreadable: " + reason
 }
 
-func matchesAny(patterns []string, value string) bool {
+func firstGlob(patterns []string, value string) string {
 	for _, pattern := range patterns {
 		if ok, err := doublestar.Match(pattern, value); err == nil && ok {
-			return true
+			return pattern
 		}
 	}
-	return false
+	return ""
+}
+
+func matchesAny(patterns []string, value string) bool {
+	return firstGlob(patterns, value) != ""
 }
 
 func containsFold(items []string, value string) bool {
