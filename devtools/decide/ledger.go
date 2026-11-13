@@ -128,10 +128,13 @@ type Item struct {
 	// NotifyMachine is the herdr machine NotifyPane is on, for an item
 	// asked in hub mode from another machine. Empty is this machine.
 	NotifyMachine string `json:"notifyMachine,omitempty"`
-	TypeText      string `json:"typeText,omitempty"`
-	Where         string `json:"where,omitempty"`
-	Reason        string `json:"reason,omitempty"`
-	Outcome       string `json:"outcome,omitempty"`
+	// NotifyClosed is set when reassign clears the pane, so nothing is
+	// routed. An empty NotifyPane without it still uses the config pane.
+	NotifyClosed bool   `json:"notifyClosed,omitempty"`
+	TypeText     string `json:"typeText,omitempty"`
+	Where        string `json:"where,omitempty"`
+	Reason       string `json:"reason,omitempty"`
+	Outcome      string `json:"outcome,omitempty"`
 	// ForwardedFrom is the item id a forwarded thread was started from.
 	ForwardedFrom string `json:"forwardedFrom,omitempty"`
 	// BusMessage is the agentbus message id of a note sent to a bus name.
@@ -506,6 +509,92 @@ func (l *Ledger) Reply(id, by, text string, options []Option, freeText bool) (It
 		return Item{}, err
 	}
 	return updated, nil
+}
+
+// Reassign is an owner or notify-pane change. SetOwner and SetPane
+// choose which fields change. Pane may be empty when SetPane is set,
+// which clears routing. Machine is the herdr machine of a pane id and
+// is ignored for an empty pane or an agentbus name. By is who ran it
+// and may be empty.
+type Reassign struct {
+	Owner    string
+	SetOwner bool
+	Pane     string
+	SetPane  bool
+	Machine  string
+	By       string
+}
+
+// Reassign moves id to a new owner, notify pane, or both.
+// A done or withdrawn item is refused. The thread gains one system
+// message. Earlier messages and the answer stay as they were.
+func (l *Ledger) Reassign(id string, change Reassign) (Item, error) {
+	if !change.SetOwner && !change.SetPane {
+		return Item{}, fmt.Errorf("decide reassign requires an owner or a notify pane")
+	}
+	owner := strings.TrimSpace(change.Owner)
+	if change.SetOwner && owner == "" {
+		return Item{}, fmt.Errorf("decide owner is empty")
+	}
+	var updated Item
+	err := l.locked(true, func(st *store) error {
+		it, err := findItem(st, id)
+		if err != nil {
+			return err
+		}
+		if it.State == StateDone || it.State == StateWithdrawn {
+			return fmt.Errorf("decide item %s is %s", id, it.State)
+		}
+		ensureMessages(it)
+		oldOwner, oldPane := it.Owner, it.NotifyPane
+		if change.SetOwner {
+			it.Owner = owner
+		}
+		if change.SetPane {
+			applyNotifyPane(it, change.Pane, change.Machine)
+		}
+		it.Messages = append(it.Messages, Message{
+			Author: "system",
+			Time:   l.clock().UTC(),
+			Text:   reassignNote(oldOwner, it.Owner, oldPane, it.NotifyPane, change.By, change.SetOwner, change.SetPane),
+			By:     change.By,
+		})
+		updated = *it
+		return nil
+	})
+	if err != nil {
+		return Item{}, err
+	}
+	return updated, nil
+}
+
+// applyNotifyPane stores pane and its machine. An empty pane clears
+// routing. An agentbus name is not on a machine.
+func applyNotifyPane(it *Item, pane, machine string) {
+	pane = strings.TrimSpace(pane)
+	it.NotifyPane = pane
+	it.NotifyMachine = ""
+	it.NotifyClosed = pane == ""
+	if pane == "" || strings.HasPrefix(pane, BusPanePrefix) {
+		return
+	}
+	it.NotifyMachine = strings.TrimSpace(machine)
+}
+
+// reassignNote is the system message for one reassign.
+func reassignNote(oldOwner, newOwner, oldPane, newPane, by string, setOwner, setPane bool) string {
+	var parts []string
+	if setOwner {
+		parts = append(parts, "owner "+oldOwner+" → "+newOwner)
+	}
+	if setPane {
+		parts = append(parts, "notify pane "+oldPane+" → "+newPane)
+	}
+	note := "reassigned: " + strings.Join(parts, "; ")
+	if by != "" {
+		note += " (by " + by + ")"
+	}
+	return note
 }
 
 // openQuestion is a relay thread still waiting for a human answer.

@@ -26,11 +26,12 @@ var localCommands = map[string]bool{
 }
 
 // callerCommands send the hub-mode caller's handle and agentbus names: an
-// ask, to be notified, and a reply or send, to record its sender.
+// ask or reassign, to be notified, and a reply or send, to record its sender.
 var callerCommands = map[string]bool{
-	"ask":   true,
-	"reply": true,
-	"send":  true,
+	"ask":      true,
+	"reassign": true,
+	"reply":    true,
+	"send":     true,
 }
 
 // asHandleEnv carries the hub-mode caller's herdr handle to the hub, as
@@ -135,7 +136,7 @@ func runOnHub(settings hubSettings, args []string, stdout, stderr io.Writer) int
 		switch {
 		case err == nil:
 			call.Env = append([]string{asHandleEnv + "=" + caller}, clientAskEnv(ctx, os.Getenv("HERDR_PANE_ID"))...)
-		case args[0] == "ask":
+		case args[0] == "ask" || args[0] == "reassign":
 			return fail(stderr, err, 1)
 		default:
 			fmt.Fprintf(stderr, "warning: decide %s records no sender: %s\n", args[0], err)
@@ -218,4 +219,23 @@ func notifyHubCaller(item *decide.Item) error {
 		item.NotifyMachine = machine
 	}
 	return nil
+}
+
+// machineForNotifyPane is the herdr machine of pane, the same way ask
+// stores it. An empty pane or an agentbus name has none. A hub-mode
+// caller supplies the machine. With no caller, the pane is on this machine.
+func machineForNotifyPane(pane string) (string, error) {
+	pane = strings.TrimSpace(pane)
+	if pane == "" || strings.HasPrefix(pane, decide.BusPanePrefix) {
+		return "", nil
+	}
+	caller, err := hubcall.TrustedCaller(os.Environ(), asHandleEnv)
+	if err != nil || caller == "" {
+		return "", err //nolint:wrapcheck // the shared trust rule names the variable
+	}
+	machine, _, _, err := hubcall.ParseHandle(caller)
+	if err != nil {
+		return "", err //nolint:wrapcheck // the shared parser names the handle
+	}
+	return machine, nil
 }

@@ -43,6 +43,7 @@ go_test(
         "machine_test.go",
         "main_test.go",
         "owner_test.go",
+        "reassign_test.go",
         "sender_test.go",
         "snooze_test.go",
         "text_test.go",
