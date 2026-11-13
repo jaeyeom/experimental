@@ -21,6 +21,9 @@ const (
 	ActionError        = "error"
 	ActionHandoff      = "handoff"
 	ActionWouldHandoff = "would_handoff"
+	ActionMarkViewed   = "mark_viewed"
+	// ActionWouldMarkViewed is the dry-run action for files that would be marked.
+	ActionWouldMarkViewed = "would_mark_viewed"
 )
 
 // Client is the gh access gh-approve needs. *github.Client implements it.
@@ -32,6 +35,7 @@ type Client interface {
 	PullRequestDiff(ref github.PullRef) (string, error)
 	PullRequestFilePatches(ref github.PullRef) ([]github.PullFile, error)
 	ApprovePullRequest(ref github.PullRef, commitSHA, body string) error
+	MarkFileAsViewed(ref github.PullRef, pullRequestID, path string) error
 	CodeownersFile(ref github.PullRef, baseRef string) (string, string, error)
 	TeamMembers(org, slug string) ([]string, error)
 	ReviewRequestTimeline(ref github.PullRef) ([]github.ReviewRequestEvent, error)
@@ -70,12 +74,17 @@ type LogEntry struct {
 	LoopGuard string `json:"loopGuard,omitempty"`
 	// Steps are the hand-off writes and their results, in order.
 	Steps []string `json:"steps,omitempty"`
+	// Paths are the files this run marked viewed, or would mark in a dry run.
+	Paths []string `json:"paths,omitempty"`
 }
 
 // Runner evaluates review requests and approves the ones a rule matches.
 type Runner struct {
 	Client Client
 	Config config.ApproveConfig
+	// Viewed is the mark-viewed config. It is separate from Config because
+	// the pkl block is a sibling of approve.
+	Viewed config.ViewedConfig
 	// Out receives the human-readable table.
 	Out io.Writer
 	// Log receives one JSON line per evaluated pull request.
@@ -88,6 +97,8 @@ type Runner struct {
 
 	// teams caches team members for the run, keyed by lowercase org/slug.
 	teams map[string]teamMembers
+	// marksLeft is how many files this run may still mark viewed.
+	marksLeft int
 }
 
 // errNotRequested marks a pull request that does not request the viewer as
@@ -105,9 +116,10 @@ func (r *Runner) Run(opts Options) error {
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(r.Out, "%-32s %-14s %-20s %s\n", "PR", "ACTION", "RULE", "TITLE"); err != nil {
+	if _, err := fmt.Fprintf(r.Out, "%-32s %-18s %-20s %s\n", "PR", "ACTION", "RULE", "TITLE"); err != nil {
 		return fmt.Errorf("write output: %w", err)
 	}
+	r.marksLeft = r.Viewed.MaxMarksPerRun
 	failed := 0
 	for _, ref := range refs {
 		entry, skip := r.decide(ref, viewer, opts, single)
@@ -187,6 +199,7 @@ func (r *Runner) decide(ref github.PullRef, viewer string, opts Options, single 
 	default:
 		entry.Action, entry.Reason = r.approve(ref, pr.HeadSHA, matched)
 	}
+	r.markViewed(&entry, pr, viewer, opts.Apply)
 	return entry, false
 }
 
@@ -281,23 +294,17 @@ func (r *Runner) report(entry LogEntry, explain bool) error {
 		return fmt.Errorf("write audit log: %w", err)
 	}
 	var out strings.Builder
-	rule := "-"
-	switch {
-	case entry.Rule != nil:
-		rule = *entry.Rule
-	case entry.Action == ActionManual:
-		rule = "manual"
-	}
-	fmt.Fprintf(&out, "%-32s %-14s %-20s %s\n", entry.PR, entry.Action, rule, entry.Title)
+	fmt.Fprintf(&out, "%-32s %-18s %-20s %s\n", entry.PR, entry.Action, ruleColumn(entry), entry.Title)
 	if entry.Reason != "" {
 		fmt.Fprintf(&out, "    %s\n", entry.Reason)
 	}
 	writeHandoff(&out, entry, explain)
+	writeViewed(&out, entry, explain)
 	for _, result := range entry.Rules {
 		switch {
 		case explain:
 			writeExplain(&out, result)
-		case entry.Action == ActionManual && entry.Rule == nil:
+		case leftForHuman(entry):
 			writeFirstFailure(&out, result)
 		case result.Matched && result.Agent != nil:
 			fmt.Fprintf(&out, "    %s\n", result.Agent.Summary())
@@ -307,6 +314,50 @@ func (r *Runner) report(entry LogEntry, explain bool) error {
 		return fmt.Errorf("write output: %w", err)
 	}
 	return nil
+}
+
+// ruleColumn is the RULE cell. A pull request no approve rule took says manual.
+func ruleColumn(entry LogEntry) string {
+	if entry.Rule != nil {
+		return *entry.Rule
+	}
+	if leftForHuman(entry) {
+		return "manual"
+	}
+	return "-"
+}
+
+// leftForHuman reports a pull request no approve or hand-off rule took.
+func leftForHuman(entry LogEntry) bool {
+	if entry.Rule != nil {
+		return false
+	}
+	switch entry.Action {
+	case ActionManual, ActionMarkViewed, ActionWouldMarkViewed:
+		return true
+	default:
+		return false
+	}
+}
+
+// writeViewed writes how many files were marked, and with explain their paths.
+func writeViewed(out *strings.Builder, entry LogEntry, explain bool) {
+	var verb string
+	switch entry.Action {
+	case ActionWouldMarkViewed:
+		verb = ActionWouldMarkViewed
+	case ActionMarkViewed:
+		verb = ActionMarkViewed
+	default:
+		return
+	}
+	fmt.Fprintf(out, "    %s: %d files\n", verb, len(entry.Paths))
+	if !explain {
+		return
+	}
+	for _, path := range entry.Paths {
+		fmt.Fprintf(out, "      %s\n", path)
+	}
 }
 
 // writeHandoff writes a hand-off's reviewers, steps, and, with explain, the

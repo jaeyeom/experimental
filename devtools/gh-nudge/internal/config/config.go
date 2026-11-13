@@ -30,6 +30,8 @@ type Config struct {
 	RepoSettings map[string]RepoSettings `yaml:"repo_settings"`
 	// Approve holds gh-approve settings. Only Pkl config supports it.
 	Approve ApproveConfig `yaml:"-"`
+	// Viewed holds gh-approve "mark viewed" settings. Only Pkl config supports it.
+	Viewed ViewedConfig `yaml:"-"`
 	// Path is the file gh-merge selected. It is not read from the file.
 	Path string `yaml:"-"`
 	// SettingsFrom is the repo_settings key that applied, or SettingsFromGlobal.
@@ -310,6 +312,7 @@ func convertPklConfig(pklCfg *pklconfig.Config) *Config {
 		},
 		RepoSettings: convertRepoSettings(pklCfg.RepoSettings),
 		Approve:      convertApprove(pklCfg.Approve),
+		Viewed:       convertViewed(pklCfg.Viewed),
 	}
 	normalizeSettings(&cfg.Settings)
 
@@ -419,6 +422,9 @@ func validateConfig(cfg *Config) error {
 		return err
 	}
 	if err := validateApprove(cfg.Approve); err != nil {
+		return err
+	}
+	if err := validateViewed(cfg.Viewed); err != nil {
 		return err
 	}
 	return validateRepoSettings(cfg.RepoSettings)

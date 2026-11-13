@@ -39,6 +39,33 @@ const (
 	ActionHandoff = "handoff"
 )
 
+// DefaultMaxMarksPerRun is how many files one gh-approve run may mark
+// viewed when config omits max_marks_per_run.
+const DefaultMaxMarksPerRun = 200
+
+// ViewedConfig holds gh-approve "mark viewed" settings.
+type ViewedConfig struct {
+	// Enabled marks files on pull requests no approve or hand-off rule took.
+	Enabled bool
+	// MaxMarksPerRun is how many files one run may mark. Zero marks nothing.
+	MaxMarksPerRun int
+	// Rules select the files. A file is marked when any rule selects it.
+	Rules []ViewedRule
+}
+
+// ViewedRule is one "mark viewed" rule. Repos filters the pull request.
+// A file matches when any set selector matches.
+type ViewedRule struct {
+	Name string
+	// Repos are owner/name or globs. Empty matches every repository.
+	Repos []string
+	// PathsMatch are globs. A changed file matching any of them is selected.
+	PathsMatch []string
+	// CodeownersNotMine selects a file whose owners include neither the
+	// user nor a team the user belongs to.
+	CodeownersNotMine bool
+}
+
 // ApproveConfig holds gh-approve settings. Only Pkl config supports it.
 type ApproveConfig struct {
 	// Body is the approval body. The matching rule name is appended to it.
@@ -138,6 +165,53 @@ func convertApprove(src pklconfig.ApproveConfig) ApproveConfig {
 		out.Rules = append(out.Rules, converted)
 	}
 	return out
+}
+
+func convertViewed(src pklconfig.ViewedConfig) ViewedConfig {
+	out := ViewedConfig{
+		Enabled:        src.Enabled,
+		MaxMarksPerRun: src.MaxMarksPerRun,
+	}
+	for _, rule := range src.Rules {
+		out.Rules = append(out.Rules, ViewedRule{
+			Name:              rule.Name,
+			Repos:             cloneStrings(rule.Repos),
+			PathsMatch:        cloneStrings(rule.PathsMatch),
+			CodeownersNotMine: rule.CodeownersNotMine,
+		})
+	}
+	return out
+}
+
+func validateViewed(viewed ViewedConfig) error {
+	if viewed.MaxMarksPerRun < 0 {
+		return fmt.Errorf("viewed max_marks_per_run must be >= 0")
+	}
+	seen := make(map[string]bool, len(viewed.Rules))
+	for _, rule := range viewed.Rules {
+		if rule.Name == "" {
+			return fmt.Errorf("viewed rule name must not be empty")
+		}
+		if seen[rule.Name] {
+			return fmt.Errorf("viewed rule %q is defined twice", rule.Name)
+		}
+		seen[rule.Name] = true
+		if len(rule.PathsMatch) == 0 && !rule.CodeownersNotMine {
+			return fmt.Errorf("viewed rule %q needs paths_match or codeowners_not_mine", rule.Name)
+		}
+		globs := map[string][]string{
+			"repos":       rule.Repos,
+			"paths_match": rule.PathsMatch,
+		}
+		for field, patterns := range globs {
+			for _, pattern := range patterns {
+				if !doublestar.ValidatePattern(pattern) {
+					return fmt.Errorf("viewed rule %q: %s glob %q is invalid", rule.Name, field, pattern)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func validateApprove(approve ApproveConfig) error {

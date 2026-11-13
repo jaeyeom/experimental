@@ -281,3 +281,34 @@ func TestApprovePullRequestReportsGhError(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+func TestLoadApprovalPullRequestReadsViewedState(t *testing.T) {
+	fixture := strings.Replace(approvalPRFixture, `"headRefOid": "head1",`, `"id": "PR_node", "headRefOid": "head1",`, 1)
+	fixture = strings.Replace(fixture, `"path": "dash/a.go", "additions": 4, "deletions": 1`, `"path": "dash/a.go", "additions": 4, "deletions": 1, "viewerViewedState": "UNVIEWED"`, 1)
+	exec := &routeExec{route: map[string]string{"reviewThreads": fixture}}
+	pr, err := NewClientWithExecutor(exec).LoadApprovalPullRequest(PullRef{Owner: "acme", Repo: "widgets", Number: 12})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pr.NodeID != "PR_node" || pr.Files[0].ViewerViewedState != models.ViewerUnviewed || !strings.Contains(exec.calls[0], "viewerViewedState") {
+		t.Fatalf("node %q file %+v call %s", pr.NodeID, pr.Files[0], exec.calls[0])
+	}
+}
+
+func TestMarkFileAsViewed(t *testing.T) {
+	ref := PullRef{Owner: "acme", Repo: "widgets", Number: 12}
+	exec := &routeExec{route: map[string]string{"markFileAsViewed": `{"data":{"markFileAsViewed":{"clientMutationId":null}}}`}}
+	if err := NewClientWithExecutor(exec).MarkFileAsViewed(ref, "PR_node", "go.sum"); err != nil {
+		t.Fatal(err)
+	}
+	if len(exec.calls) != 1 || !strings.Contains(exec.calls[0], "id=PR_node") || !strings.Contains(exec.calls[0], "path=go.sum") || !strings.Contains(exec.calls[0], "mutation") {
+		t.Fatalf("calls = %v", exec.calls)
+	}
+	if err := NewClientWithExecutor(exec).MarkFileAsViewed(ref, "", "go.sum"); err == nil || len(exec.calls) != 1 {
+		t.Fatalf("empty id error = %v calls %d", err, len(exec.calls))
+	}
+	exec = &routeExec{route: map[string]string{"markFileAsViewed": `{"errors":[{"message":"forbidden"}]}`}}
+	if err := NewClientWithExecutor(exec).MarkFileAsViewed(ref, "PR_node", "go.sum"); err == nil || !strings.Contains(err.Error(), "forbidden") {
+		t.Fatalf("error = %v", err)
+	}
+}

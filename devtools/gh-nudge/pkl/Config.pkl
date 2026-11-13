@@ -201,6 +201,34 @@ class ApproveRule {
   agent_cache: Boolean = true
 }
 
+/// One gh-approve "mark viewed" rule. A changed file is marked when the
+/// repos filter matches and any selector matches: a paths_match glob, or
+/// codeowners_not_mine when the file's owners include neither the user
+/// nor a team the user belongs to.
+class ViewedRule {
+  /// Rule name. It is shown in --explain and written to the audit log.
+  name: String(!isEmpty)
+  /// Repositories as owner/name or globs such as "acme/*". Empty matches every repo.
+  repos: Listing<String> = new {}
+  /// Globs. A changed file matching any of them is marked viewed.
+  paths_match: Listing<String> = new {}
+  /// When true, mark a file whose CODEOWNERS owners include neither the
+  /// user nor a team the user belongs to. Unreadable CODEOWNERS or team
+  /// data marks nothing for that pull request.
+  codeowners_not_mine: Boolean = false
+}
+
+/// gh-approve "mark viewed" settings. Off by default. gh-nudge and
+/// gh-merge ignore this section.
+class ViewedConfig {
+  /// When false, gh-approve never marks a file viewed.
+  enabled: Boolean = false
+  /// How many files one run may mark. Zero marks nothing.
+  max_marks_per_run: Int(this >= 0) = 200
+  /// Rules. A file is marked when any rule selects it.
+  rules: Listing<ViewedRule> = new {}
+}
+
 /// gh-approve settings. gh-nudge and gh-merge ignore this section.
 class ApproveConfig {
   /// Approval body. The matching rule name is appended as an HTML comment.
@@ -226,3 +254,5 @@ settings: SettingsConfig = new {}
 repo_settings: Mapping<String, RepoSettings> = new {}
 /// gh-approve rules and settings.
 approve: ApproveConfig = new {}
+/// gh-approve "mark viewed" rules. Off unless enabled.
+viewed: ViewedConfig = new {}

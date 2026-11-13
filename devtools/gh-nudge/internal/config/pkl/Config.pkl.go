@@ -22,6 +22,9 @@ type Config struct {
 
 	// gh-approve rules and settings.
 	Approve ApproveConfig `pkl:"approve"`
+
+	// gh-approve "mark viewed" rules. Off unless enabled.
+	Viewed ViewedConfig `pkl:"viewed"`
 }
 
 // LoadFromPath loads the pkl module at the given path and evaluates it into a Config

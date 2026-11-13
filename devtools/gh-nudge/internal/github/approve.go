@@ -16,12 +16,14 @@ const userReviewRequestedQuery = "is:pr is:open archived:false user-review-reque
 // ApprovalPullRequest is the pull request state gh-approve evaluates.
 // A non-empty *Err field means that data could not be read completely.
 type ApprovalPullRequest struct {
-	Ref          PullRef
-	URL          string
-	Title        string
-	State        string
-	Author       string
-	HeadSHA      string
+	Ref     PullRef
+	URL     string
+	Title   string
+	State   string
+	Author  string
+	HeadSHA string
+	// NodeID is the GraphQL node id. markFileAsViewed needs it.
+	NodeID       string
 	Draft        bool
 	Additions    int
 	Deletions    int
@@ -153,10 +155,10 @@ query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     nameWithOwner
     pullRequest(number: $number) {
-      number url title state isDraft headRefOid baseRefName
+      id number url title state isDraft headRefOid baseRefName
       author { login }
       additions deletions changedFiles
-      files(first: 100) { pageInfo { hasNextPage } nodes { path additions deletions } }
+      files(first: 100) { pageInfo { hasNextPage } nodes { path additions deletions viewerViewedState } }
       labels(first: 100) { pageInfo { hasNextPage } nodes { name } }
       reviewRequests(first: 100) {
         nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug } } }
@@ -189,6 +191,7 @@ type pageInfoJSON struct {
 }
 
 type approvalPRJSON struct {
+	ID          string `json:"id"`
 	Number      int    `json:"number"`
 	URL         string `json:"url"`
 	Title       string `json:"title"`
@@ -298,6 +301,7 @@ func convertApprovalPR(raw *approvalPRJSON, ref PullRef) ApprovalPullRequest {
 		Title:        raw.Title,
 		State:        raw.State,
 		HeadSHA:      raw.HeadRefOid,
+		NodeID:       raw.ID,
 		BaseRef:      raw.BaseRefName,
 		Draft:        raw.IsDraft,
 		Additions:    raw.Additions,
@@ -421,6 +425,30 @@ func approvalChecks(raw *approvalPRJSON) ([]ApprovalCheck, string) {
 		checks = append(checks, ApprovalCheck{Name: name, Required: node.IsRequired, Outcome: outcome})
 	}
 	return checks, ""
+}
+
+const markFileAsViewedMutation = `
+mutation($id: ID!, $path: String!) {
+  markFileAsViewed(input: {pullRequestId: $id, path: $path}) {
+    clientMutationId
+  }
+}`
+
+// MarkFileAsViewed ticks the viewer's Viewed checkbox for path. It does
+// not approve anything. One call is one mutation, and it is not retried.
+func (c *Client) MarkFileAsViewed(ref PullRef, pullRequestID, path string) error {
+	name := fmt.Sprintf("%s/%s#%d", ref.Owner, ref.Repo, ref.Number)
+	if pullRequestID == "" {
+		return fmt.Errorf("mark %s viewed on %s: pull request id is empty", path, name)
+	}
+	body, callErr := c.graphqlMutation(markFileAsViewedMutation, []string{
+		"-f", "id=" + pullRequestID,
+		"-f", "path=" + path,
+	})
+	if err := graphqlCallError("mark "+path+" viewed on "+name, body, callErr); err != nil {
+		return err
+	}
+	return nil
 }
 
 // PullFile is one changed file from the pulls/{n}/files REST list.

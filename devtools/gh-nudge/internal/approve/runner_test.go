@@ -32,6 +32,8 @@ type fakeClient struct {
 	headReads  int
 	approveErr error
 	approvals  []approval
+	markErr    error
+	marks      []viewedMark
 	diffErr    error
 	diffReads  int
 	patchReads int
@@ -95,6 +97,20 @@ func (f *fakeClient) ApprovePullRequest(ref github.PullRef, sha, body string) er
 	return nil
 }
 
+type viewedMark struct {
+	ref  github.PullRef
+	id   string
+	path string
+}
+
+func (f *fakeClient) MarkFileAsViewed(ref github.PullRef, id, path string) error {
+	if f.markErr != nil {
+		return f.markErr
+	}
+	f.marks = append(f.marks, viewedMark{ref: ref, id: id, path: path})
+	return nil
+}
+
 func prNumber(n int) github.ApprovalPullRequest {
 	pr := basePR()
 	pr.Ref.Number = n
@@ -126,10 +142,16 @@ func run(t *testing.T, fake *fakeClient, rules []config.ApproveRule, opts Option
 
 func runWith(t *testing.T, fake *fakeClient, rules []config.ApproveRule, opts Options, command CommandRunner) runResult {
 	t.Helper()
+	return runConfig(t, fake, config.ApproveConfig{Body: "LGTM", SkipAlreadyApproved: true, Rules: rules}, config.ViewedConfig{}, opts, command)
+}
+
+func runConfig(t *testing.T, fake *fakeClient, cfg config.ApproveConfig, viewed config.ViewedConfig, opts Options, command CommandRunner) runResult {
+	t.Helper()
 	var out, logBuf bytes.Buffer
 	runner := &Runner{
 		Client:     fake,
-		Config:     config.ApproveConfig{Body: "LGTM", SkipAlreadyApproved: true, Rules: rules},
+		Config:     cfg,
+		Viewed:     viewed,
 		Out:        &out,
 		Log:        &logBuf,
 		Now:        fixedNow,

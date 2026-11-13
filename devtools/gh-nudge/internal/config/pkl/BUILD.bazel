@@ -12,6 +12,8 @@ go_library(
         "RepoSettings.pkl.go",
         "SettingsConfig.pkl.go",
         "SlackConfig.pkl.go",
+        "ViewedConfig.pkl.go",
+        "ViewedRule.pkl.go",
         "init.pkl.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config/pkl",
