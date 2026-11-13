@@ -49,6 +49,8 @@ type Options struct {
 	// UTC shows times in UTC. False uses the clock's zone, which is
 	// the machine zone when the clock is time.Now.
 	UTC bool
+	// Clipboard is auto, osc52, command, or off. Empty is auto.
+	Clipboard string
 	// Backend replaces the local ledger in Dir, such as the hub's in
 	// hub mode. It is reloaded off the update loop.
 	Backend Backend
@@ -133,6 +135,7 @@ func prepare(opts Options) (*Model, error) {
 	m.OpenCommand = opts.OpenCommand
 	m.NoHyperlinks = opts.NoHyperlinks
 	m.UTC = opts.UTC
+	m.clipboard = opts.Clipboard
 	if opts.Backend != nil {
 		m.backend = opts.Backend
 		m.asyncReload = true

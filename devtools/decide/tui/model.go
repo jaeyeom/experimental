@@ -213,6 +213,11 @@ type Model struct {
 	NoHyperlinks bool
 	// UTC shows stamps in UTC. False uses the clock's zone.
 	UTC bool
+	// clipboard is auto, osc52, command, or off. Empty is auto.
+	clipboard string
+	// copyMenu is the item-view copy menu. plain is the borderless view.
+	copyMenu bool
+	plain    bool
 	// backend replaces the local ledger in Dir, such as a hub's.
 	// asyncReload reloads it off the update loop. hubDown marks a
 	// reload that found the hub unreachable.
@@ -312,8 +317,8 @@ func (m *Model) applyList(all []decide.Item) error {
 // opens that draft in an external editor. e or y archives a notification,
 // in the list or the item, and d asks for an outcome then marks the item
 // done. l opens a link, L copies
-// its URL, and Y copies the
-// current message. M toggles mouse capture. Enter submits the composer only
+// its URL, Y opens the copy menu, and
+// V toggles a borderless view. M toggles mouse capture. Enter submits the composer only
 // while it is focused. Esc leaves it and keeps the unsent draft. In compose,
 // Tab moves from the recipient
 // to the text to [Send], Enter inserts a newline in the text, and Enter on
@@ -328,6 +333,9 @@ func (m *Model) applyList(all []decide.Item) error {
 func (m *Model) Key(r rune) (bool, error) {
 	if m.chord {
 		return m.finishChord(r)
+	}
+	if m.copyMenu {
+		return m.copyMenuKey(r)
 	}
 	if m.snoozing {
 		return m.snoozeKey(r)
@@ -738,16 +746,19 @@ func (m *Model) detailKey(r rune) (bool, error) {
 }
 
 // detailOutside runs an item-view key that acts outside the inbox:
-// Y copies the message, L the link, o jumps to the owner's tab, and A
-// picks the owner's avatar, saved to config.
+// Y opens the copy menu, L copies the link, V toggles the plain view,
+// o jumps to the owner's tab, and A picks the owner's avatar, saved
+// to config.
 func (m *Model) detailOutside(r rune) bool {
 	switch r {
 	case 'A':
 		m.beginAvatarPick()
 	case 'Y':
-		m.copyCurrentMessage()
+		m.openCopyMenu()
 	case 'L':
 		m.copyCurrentLink()
+	case 'V':
+		m.togglePlain()
 	case 'o':
 		m.jumpToOwner()
 	default:
@@ -1144,6 +1155,8 @@ func (m *Model) backToList() {
 	m.replyFocus = false
 	m.closeLinkPick()
 	m.linkURL = ""
+	m.copyMenu = false
+	m.plain = false
 	m.resetFields()
 	m.scroll = 0
 	m.message = 0
@@ -1185,7 +1198,7 @@ func (m *Model) View() string {
 
 func (m *Model) allLines() []screenLine {
 	var lines []screenLine
-	if m.help || m.snoozing || m.linkPick || m.avatarPick {
+	if m.help || m.snoozing || m.linkPick || m.avatarPick || m.copyMenu {
 		switch {
 		case m.help:
 			lines = m.helpLines()
@@ -1193,6 +1206,8 @@ func (m *Model) allLines() []screenLine {
 			lines = m.snoozeLines()
 		case m.avatarPick:
 			lines = m.avatarPickLines()
+		case m.copyMenu:
+			lines = m.copyMenuLines()
 		default:
 			lines = m.linkPickLines()
 		}
@@ -1223,6 +1238,9 @@ func (m *Model) contentWidth() int {
 }
 
 func (m *Model) framed() bool {
+	if m.plain && m.mode == modeDetail {
+		return false
+	}
 	return m.width >= 2 && m.height >= 2
 }
 
@@ -1250,6 +1268,13 @@ func (m *Model) statusLine() screenLine {
 	}
 	if m.avatarPick {
 		return screenLine{text: label + avatarPickHint}
+	}
+	if m.copyMenu {
+		hint := label + "m message  q question  t thread  i id  a answer  esc"
+		if m.status != "" {
+			return screenLine{text: m.status + "  " + hint}
+		}
+		return screenLine{text: hint}
 	}
 	if m.chord {
 		return screenLine{text: goToMenu(m.contentWidth())}
@@ -1321,6 +1346,9 @@ func (m *Model) detailFocused() bool {
 }
 
 func (m *Model) mailLines() []screenLine {
+	if m.plain && m.mode == modeDetail {
+		return m.plainScreen()
+	}
 	pane := m.contentWidth()
 	if m.composing {
 		return m.composeScreen(pane)
@@ -2316,7 +2344,7 @@ func (m *Model) helpLines() []screenLine {
 		"1-9 answer  0 reply  f forward  e/y archive  d outcome  b snooze",
 		"/ filters as you type, esc restores, empty enter clears",
 		"l opens a link, or picks one: j/k or a number, enter opens",
-		"L copies the link   Y copies the message   A picks the owner's avatar",
+		"L copies the link   Y copy menu   V plain view   A picks the owner's avatar",
 		"shift+drag selects text",
 		"M toggles mouse capture",
 		"esc back",

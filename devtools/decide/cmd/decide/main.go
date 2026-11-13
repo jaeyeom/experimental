@@ -558,6 +558,7 @@ func inboxOptions(cfg decide.Config, stdout io.Writer, snoozed bool) tui.Options
 		Machine:           decide.LocalMachine(cfg),
 		OpenCommand:       cfg.OpenCommand,
 		NoHyperlinks:      !cfg.HyperlinksOn(),
+		Clipboard:         cfg.UI.Clipboard,
 	}
 }
 

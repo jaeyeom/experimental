@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/jaeyeom/experimental/devtools/decide"
@@ -162,9 +163,11 @@ func TestClickAndCopyWhileMouseCaptureIsOn(t *testing.T) {
 	}
 
 	out.Reset()
-	press(t, m, "Y")
+	press(t, m, "Ym")
 	got, ok = osc52Text(out.String())
-	if m.status != "copied" || !ok || got != "latest note" {
+	wantMsg := "see the spec"
+	wantStatus := fmt.Sprintf("copied message (%d chars)", utf8.RuneCountInString(wantMsg))
+	if m.status != wantStatus || !ok || got != wantMsg {
 		t.Fatalf("copy message status %q ok %v text %q", m.status, ok, got)
 	}
 
@@ -203,10 +206,16 @@ func TestYCopiesTheQuestionWhenTheThreadIsEmpty(t *testing.T) {
 	var out bytes.Buffer
 	m.out = &out
 	m.copyClip = func(string) error { return nil }
-	press(t, m, "Y")
+	quit, err := m.Key('Y')
+	if quit || err != nil || !m.copyMenu {
+		t.Fatalf("menu quit %v err %v open %v", quit, err, m.copyMenu)
+	}
+	quit, err = m.Key('q')
 	got, ok := osc52Text(out.String())
-	if m.status != "copied" || !ok || got != "just a question" {
-		t.Fatalf("status %q ok %v text %q", m.status, ok, got)
+	want := "just a question"
+	wantStatus := fmt.Sprintf("copied question (%d chars)", utf8.RuneCountInString(want))
+	if quit || err != nil || m.copyMenu || m.status != wantStatus || !ok || got != want {
+		t.Fatalf("quit %v err %v menu %v status %q ok %v text %q", quit, err, m.copyMenu, m.status, ok, got)
 	}
 }
 

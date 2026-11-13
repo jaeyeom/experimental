@@ -81,6 +81,29 @@ func TestLoadConfigUIUTC(t *testing.T) {
 	}
 }
 
+func TestLoadConfigClipboard(t *testing.T) {
+	for _, mode := range []string{"auto", "osc52", "command", "off"} {
+		writeConfig(t, `{"ui": {"clipboard": "`+mode+`"}}`)
+		cfg, err := LoadConfig()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.UI.Clipboard != mode {
+			t.Fatalf("clipboard %q, want %q", cfg.UI.Clipboard, mode)
+		}
+	}
+	writeConfig(t, `{}`)
+	cfg, err := LoadConfig()
+	if err != nil || cfg.UI.Clipboard != "" {
+		t.Fatalf("default clipboard %q err %v", cfg.UI.Clipboard, err)
+	}
+	writeConfig(t, `{"ui": {"clipboard": "paste"}}`)
+	_, err = LoadConfig()
+	if err == nil || !strings.Contains(err.Error(), "ui.clipboard") || !strings.Contains(err.Error(), "paste") {
+		t.Fatalf("err = %v, want a ui.clipboard error naming paste", err)
+	}
+}
+
 func TestLoadConfigRecipientsTimeoutMustBePositive(t *testing.T) {
 	for _, data := range []string{`{"recipientsTimeout": "soon"}`, `{"recipientsTimeout": "0s"}`} {
 		writeConfig(t, data)
