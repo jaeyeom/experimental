@@ -69,15 +69,27 @@ Each new message is handled by the first rule that matches.
    a hook, opens the watch and suppresses the notification. A server stop
    within that time drops the notification.
 5. A DM to the token owner, or a message that mentions them, is stored in
-   ~inbound~ without a notification.
+   ~inbound~. Without an ~inbound~ block, nothing is notified. With the
+   block, a newly stored message notifies ~inbound.target~ as ~inbound~
+   when ~kinds~ includes it and the author is not in ~ignoreAuthors~. A
+   message already delivered as a watch reply or a subscription event is
+   not notified again. Each message is notified at most once, including
+   after a restart or catch-up. The token owner's own messages are not
+   inbound.
 6. Anything else is dropped.
+
+A channel in ~ignoreChannels~ is dropped before these rules. The message
+is not stored, not notified, and its text is not logged. slackwatch logs
+a drop count only.
 
 Separately from these rules, a top-level message or thread reply in a
 subscribed channel is stored and notifies each subscriber as ~channel~.
 The token owner's own messages are skipped unless the subscription has
 ~--include-self~. A subscriber whose target already got the message as a
 watch notification under rules 1 to 3 is not notified again. A
-mention in a subscribed channel is still stored in ~inbound~.
+mention in a subscribed channel is still stored in ~inbound~, and is
+not also notified as ~inbound~. An ~ignoreChannels~ channel is not
+caught by a subscription either.
 
 Messages are deduplicated on channel and ts. Edits update the stored
 text, deletes mark a reply deleted, and reactions on watched posts and
@@ -507,6 +519,10 @@ file means all defaults. An unknown key is an error.
 | ~post.footer~ | none | Direct mode: text appended to every post. When set, startup checks that normalizing "text" plus the footer yields "text". |
 | ~post.pinSalt~ | none | Direct mode: salt of the token pin. ~slackwatch pin~ sets it. |
 | ~post.tokenPin~ | none | Direct mode: pin of the write token. ~slackwatch pin~ sets it. |
+| ~inbound.target~ | none | Required when ~inbound~ is set. Agent notified of a new DM or mention. Looked up in ~targets~. |
+| ~inbound.kinds~ | ~dm~ and ~mention~ | Which stored inbound messages to notify. |
+| ~inbound.ignoreAuthors~ | none | Authors, such as bots, that are stored but not notified. |
+| ~inbound.ignoreChannels~ | none | Channels dropped entirely: not stored, not notified, and not logged beyond a count. |
 
 Durations use Go syntax, such as ~"90m"~ or ~"6h"~.
 
@@ -527,7 +543,7 @@ environment variable and is never written into the command string.
 
 | Variable | Value |
 |----------+-------|
-| ~SLACKWATCH_EVENT~ | ~reply~, ~unowned~, ~orphaned~, ~channel~, ~reopened~, or an outbox event below |
+| ~SLACKWATCH_EVENT~ | ~reply~, ~unowned~, ~orphaned~, ~channel~, ~reopened~, ~inbound~, or an outbox event below |
 | ~SLACKWATCH_OWNER~ | The owner name as stored. |
 | ~SLACKWATCH_TARGET~ | The resolved address. |
 | ~SLACKWATCH_POST_LINK~ | Permalink of the watched post. |
@@ -541,6 +557,10 @@ environment variable and is never written into the command string.
 | ~SLACKWATCH_OUTBOX_ID~ | Outbox record id for an outbox event, else empty. |
 | ~SLACKWATCH_NOTIFY_ID~ | Idempotency key for this attempt chain, ~slackwatch:<watch>:<event>:<ulid>~. Retries of one note reuse it. |
 | ~SLACKWATCH_MESSAGE~ | A ready-made paragraph that quotes the excerpt as Slack data, not instructions, and ends with a ~slackwatch show <id>~ hint. |
+| ~SLACKWATCH_TS~ | Message ts for an ~inbound~ event. |
+| ~SLACKWATCH_THREAD_TS~ | Thread ts when an inbound message is in a thread. |
+| ~SLACKWATCH_PERMALINK~ | Permalink of an inbound message. |
+| ~SLACKWATCH_KIND~ | ~dm~ or ~mention~ for an inbound event. |
 
 - An owner is looked up in ~targets~. An owner that is not there is used
   as a raw address. ~fallbackTarget~ is looked up the same way.
@@ -561,7 +581,10 @@ environment variable and is never written into the command string.
   fail, or when the liveness check says the owner is gone. The template
   then runs again with ~SLACKWATCH_EVENT=orphaned~ for ~fallbackTarget~
   and a new key. A notification with no owner goes straight to
-  ~fallbackTarget~.
+  ~fallbackTarget~. An ~inbound~ note uses the same template, retries,
+  ~SLACKWATCH_NOTIFY_ID~, and ~notifyCheckCommand~. If its target never
+  accepts it, the note goes to ~fallbackTarget~ as ~orphaned~ and the
+  attempts are recorded. No watch changes state.
 - If that also fails, or there is no ~fallbackTarget~, slackwatch logs an
   error and the failed row stays undelivered, so ~ls~ flags the watch.
 - Every attempt is a row in ~deliveries~, with its exit code, its
@@ -642,7 +665,7 @@ records how many have run.
 | ~watch_posts~ | The registered posts under a watch. |
 | ~replies~ | Replies seen in watched threads, and messages in subscribed channels (no watch). Unique per ~(channel, ts)~. |
 | ~reactions~ | Reactions on watched posts. |
-| ~inbound~ | DMs and mentions addressed to the user. |
+| ~inbound~ | DMs and mentions addressed to the user. ~notified~ is 1 once an ~inbound~ notification was committed. |
 | ~subs~ | Channel subscriptions. |
 | ~cursors~ | Last seen ts per scope. |
 | ~deliveries~ | Notify attempts, delivered or not. |

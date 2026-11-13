@@ -183,6 +183,14 @@ func (p *Processor) HandleMessage(ctx context.Context, m Message) error {
 		return err
 	}
 	d := classify(m, st, p.Self, p.Config, now)
+	if p.Config.ignoresInboundChannel(m.Channel) {
+		// Drop the message before it is stored or notified. Log a count
+		// only when it would have been kept, and never the text.
+		if d.act != actDrop || len(d.subs) > 0 {
+			p.logger().Info("slackwatch: dropped inbound from ignored channel", "count", 1)
+		}
+		return nil
+	}
 	notified, err := p.apply(ctx, m, d, now)
 	if err != nil {
 		return err
@@ -203,7 +211,7 @@ func (p *Processor) apply(ctx context.Context, m Message, d decision, now time.T
 		}
 		return "", p.notifyUnownedAfterGrace(ctx, w.ID, m)
 	case actInbound:
-		return "", p.Store.addInbound(m, d.kind)
+		return p.storeInbound(ctx, m, d)
 	case actOutboxLink:
 		return "", p.linkOutbox(m, d.outbox, now)
 	}
@@ -245,6 +253,37 @@ func (p *Processor) logger() *slog.Logger {
 		return p.Logger
 	}
 	return slog.Default()
+}
+
+// storeInbound records m and, when it passes the inbound filters and was
+// not also delivered as a subscription, notifies inbound.target. The
+// notified flag is stored before the send so a restart cannot send it
+// twice. A watch reply is not inbound, so it is not notified here.
+func (p *Processor) storeInbound(ctx context.Context, m Message, d decision) (string, error) {
+	notify := len(d.subs) == 0 && p.Config.wantInboundNotify(d.kind, m.User)
+	if err := p.Store.addInbound(m, d.kind, notify); err != nil {
+		return "", err
+	}
+	if !notify {
+		return "", nil
+	}
+	if err := p.notify(ctx, p.inboundNote(m, d.kind)); err != nil {
+		return "", err
+	}
+	return p.Config.Target(p.Config.Inbound.Target), nil
+}
+
+func (p *Processor) inboundNote(m Message, kind string) Notification {
+	thread := ""
+	if m.threaded() {
+		thread = m.ThreadTS
+	}
+	link := permalink(p.TeamURL, m.Channel, m.TS, m.ThreadTS)
+	return Notification{
+		Event: EventInbound, Owner: p.Config.Inbound.Target, Channel: m.Channel,
+		ReplyTS: m.TS, ReplyLink: link, Author: m.User, Text: m.Text,
+		TS: m.TS, ThreadTS: thread, Permalink: link, Kind: kind,
+	}
 }
 
 func (p *Processor) storeReply(ctx context.Context, m Message, d decision, now time.Time) (string, error) {
@@ -501,9 +540,13 @@ WHERE id = ?`, StateUnowned, StateOpen, id); err != nil {
 	return nil
 }
 
-func (s *Store) addInbound(m Message, kind string) error {
-	if _, err := s.db.Exec(`INSERT INTO inbound (channel, ts, author, text, kind) VALUES (?, ?, ?, ?, ?)
-ON CONFLICT (channel, ts) DO NOTHING`, m.Channel, m.TS, m.User, m.Text, kind); err != nil {
+func (s *Store) addInbound(m Message, kind string, notified bool) error {
+	flag := 0
+	if notified {
+		flag = 1
+	}
+	if _, err := s.db.Exec(`INSERT INTO inbound (channel, ts, author, text, kind, notified) VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (channel, ts) DO NOTHING`, m.Channel, m.TS, m.User, m.Text, kind, flag); err != nil {
 		return fmt.Errorf("add inbound %s/%s: %w", m.Channel, m.TS, err)
 	}
 	return nil

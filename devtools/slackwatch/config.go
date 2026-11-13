@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -72,6 +73,62 @@ type Config struct {
 	// DecideCommand is the argv prefix of every decide call. Empty means
 	// decide from PATH.
 	DecideCommand Command `json:"decideCommand"`
+	// Inbound, when set, notifies an agent about new DMs and mentions.
+	// Nil stores those messages and does not notify.
+	Inbound *InboundConfig `json:"inbound"`
+}
+
+// InboundConfig is the optional "inbound" config object. Target is
+// required. Kinds defaults to dm and mention. Ignore lists default to
+// empty.
+type InboundConfig struct {
+	Target         string   `json:"target"`
+	Kinds          []string `json:"kinds"`
+	IgnoreAuthors  []string `json:"ignoreAuthors"`
+	IgnoreChannels []string `json:"ignoreChannels"`
+}
+
+// normalize checks inbound and fills kinds when they were omitted.
+func (in *InboundConfig) normalize() error {
+	if in == nil {
+		return nil
+	}
+	if strings.TrimSpace(in.Target) == "" {
+		return errors.New("inbound.target is required")
+	}
+	if len(in.Kinds) == 0 {
+		in.Kinds = []string{inboundDM, inboundMention}
+	}
+	for _, kind := range in.Kinds {
+		if kind != inboundDM && kind != inboundMention {
+			return fmt.Errorf("inbound.kinds %q must be dm or mention", kind)
+		}
+	}
+	return nil
+}
+
+// wantInboundNotify reports whether a newly stored inbound message of
+// kind by author should notify inbound.target. An ignored channel never
+// reaches this check.
+func (c Config) wantInboundNotify(kind, author string) bool {
+	in := c.Inbound
+	if in == nil || strings.TrimSpace(in.Target) == "" {
+		return false
+	}
+	if slices.Contains(in.IgnoreAuthors, author) {
+		return false
+	}
+	kinds := in.Kinds
+	if len(kinds) == 0 {
+		kinds = []string{inboundDM, inboundMention}
+	}
+	return slices.Contains(kinds, kind)
+}
+
+// ignoresInboundChannel reports whether channel is listed in
+// inbound.ignoreChannels. Those messages are dropped entirely.
+func (c Config) ignoresInboundChannel(channel string) bool {
+	return c.Inbound != nil && slices.Contains(c.Inbound.IgnoreChannels, channel)
 }
 
 // DefaultDecideCommand is decideCommand when it is unset.
@@ -339,6 +396,9 @@ func LoadConfig(path string) (Config, error) {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&cfg); err != nil {
+		return Config{}, fmt.Errorf("parse slackwatch config %s: %w", path, err)
+	}
+	if err := cfg.Inbound.normalize(); err != nil {
 		return Config{}, fmt.Errorf("parse slackwatch config %s: %w", path, err)
 	}
 	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {

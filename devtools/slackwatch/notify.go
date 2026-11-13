@@ -21,6 +21,7 @@ const (
 	EventOrphaned = "orphaned"
 	EventChannel  = "channel"
 	EventReopened = "reopened"
+	EventInbound  = "inbound"
 
 	// Outbox events. Ready goes to post.agent in handoff mode, posting
 	// disabled to the fallback target, and the others to the owner of
@@ -58,6 +59,12 @@ type Notification struct {
 	// Message, when set, is SLACKWATCH_MESSAGE in place of the text
 	// built from the other fields.
 	Message string
+	// TS, ThreadTS, Permalink, and Kind are set for an inbound event.
+	// ThreadTS is empty when the message is not in a thread.
+	TS        string
+	ThreadTS  string
+	Permalink string
+	Kind      string
 }
 
 // Notifier runs the notify template for notifications and records every
@@ -291,7 +298,7 @@ func (n *Notifier) env(note Notification, target, notifyID string) []string {
 	}
 	// Parent values come first. os/exec keeps the last value for a
 	// duplicate key, so these override any inherited SLACKWATCH_* variable.
-	return append(os.Environ(),
+	env := append(os.Environ(),
 		"SLACKWATCH_EVENT="+note.Event,
 		"SLACKWATCH_OWNER="+note.Owner,
 		"SLACKWATCH_TARGET="+target,
@@ -307,6 +314,18 @@ func (n *Notifier) env(note Notification, target, notifyID string) []string {
 		"SLACKWATCH_NOTIFY_ID="+notifyID,
 		"SLACKWATCH_MESSAGE="+message(note, text),
 	)
+	if note.Kind == "" && note.TS == "" {
+		return env
+	}
+	env = append(env,
+		"SLACKWATCH_TS="+note.TS,
+		"SLACKWATCH_PERMALINK="+note.Permalink,
+		"SLACKWATCH_KIND="+note.Kind,
+	)
+	if note.ThreadTS != "" {
+		env = append(env, "SLACKWATCH_THREAD_TS="+note.ThreadTS)
+	}
+	return env
 }
 
 // newNotifyKey is one idempotency key for every retry of note.
@@ -380,6 +399,12 @@ func message(note Notification, text string) string {
 		b.WriteString("New Slack message in a subscribed channel")
 	case EventReopened:
 		b.WriteString("Slack reply reopened a closed watch")
+	case EventInbound:
+		if note.Kind == inboundMention {
+			b.WriteString("New Slack mention")
+		} else {
+			b.WriteString("New Slack direct message")
+		}
 	default:
 		b.WriteString("New Slack reply")
 	}
