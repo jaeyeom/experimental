@@ -29,6 +29,39 @@ Close an item with `decide done` and an outcome. A follow-up is a reply in the e
 
 Reply in the same thread when the user picks "draft a message for me", with the full draft text and options such as `send`, `edit`, and `don't send`. The user answers or requests edits inside decide.
 
+## Write for the inbox
+
+Short lines. A one-line summary first.
+
+Numbered steps or bullets for details.
+
+The exact command run and the exact error, each on its own indented lines.
+
+End an `ask` with a `Your action:` block listing each option key on its own line, with what it does.
+
+Pass multi-line text from a file or from stdin. `"$(cat file)"` also works.
+
+```
+decide reply D-123 --text-file /path/to/msg.txt
+decide send --to me - <<'EOF'
+...
+EOF
+```
+
+```
+Ship the inbox fix
+
+1. The pane redraws on each answer.
+2. The list keeps its place.
+
+    decide reply D-1 --text-file msg.txt
+    decide: text is empty
+
+Your action:
+a: ship it
+b: wait
+```
+
 ## Status
 
 `decide status set` posts the agent state, and posts a shared resource as free or busy.

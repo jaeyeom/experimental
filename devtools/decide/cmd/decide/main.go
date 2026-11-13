@@ -111,6 +111,8 @@ func usage(w io.Writer) {
   decide avatars list [--name <name>] [--ids]
   decide avatars set <name> <id|default|none>
   decide [--remote <user@host>] config show [--effective]
+
+Text for ask, reply, send, done, withdraw, and status set may be a positional argument, --text-file <path>, or - for stdin.
 `)
 }
 
@@ -122,6 +124,10 @@ func cmdSendOrReply(args []string, stdout, stderr io.Writer) int {
 }
 
 func cmdSend(args []string, stdout, stderr io.Writer) int {
+	file, args, err := pullTextFile(args)
+	if err != nil {
+		return fail(stderr, err, 2)
+	}
 	fs := flag.NewFlagSet("send", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	to := fs.String("to", "", "recipient name")
@@ -139,7 +145,7 @@ func cmdSend(args []string, stdout, stderr io.Writer) int {
 	if hasTo == hasID {
 		return fail(stderr, fmt.Errorf("decide send requires --to or --id"), 2)
 	}
-	text, err := oneArg(fs.Args(), "text")
+	text, err := bodyFrom(fs.Args(), file, "text")
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
@@ -210,6 +216,10 @@ func cmdCompose(id, text, via, by string, jsonOut bool, stdout, stderr io.Writer
 }
 
 func cmdReply(args []string, stdout, stderr io.Writer) int {
+	file, args, err := pullTextFile(args)
+	if err != nil {
+		return fail(stderr, err, 2)
+	}
 	args = hoistFlags(args, map[string]bool{"option": true, "rec": true})
 	fs := flag.NewFlagSet("reply", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -221,7 +231,7 @@ func cmdReply(args []string, stdout, stderr io.Writer) int {
 	if code, stop := stopped(parseFlags(fs, args)); stop {
 		return code
 	}
-	id, text, err := twoArgs(fs.Args(), "id", "text")
+	id, text, err := pairBody(fs.Args(), "id", "text", file)
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
@@ -286,6 +296,10 @@ func cmdStatus(args []string, stdout, stderr io.Writer) int {
 }
 
 func cmdStatusSet(args []string, stdout, stderr io.Writer) int {
+	file, args, err := pullTextFile(args)
+	if err != nil {
+		return fail(stderr, err, 2)
+	}
 	fs := flag.NewFlagSet("status set", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	agent := fs.String("agent", "", "agent name")
@@ -304,9 +318,9 @@ func cmdStatusSet(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err, 1)
 	}
 	if hasResource {
-		return setResource(stdout, stderr, board, *resource, fs.Args())
+		return setResource(stdout, stderr, board, *resource, file, fs.Args())
 	}
-	text, err := oneArg(fs.Args(), "text")
+	text, err := bodyFrom(fs.Args(), file, "text")
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
@@ -318,15 +332,12 @@ func cmdStatusSet(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func setResource(stdout, stderr io.Writer, board *decide.Status, name string, args []string) int {
-	if len(args) < 1 || len(args) > 2 || strings.TrimSpace(args[0]) == "" {
-		return fail(stderr, fmt.Errorf("decide status set --resource requires free or busy"), 2)
+func setResource(stdout, stderr io.Writer, board *decide.Status, name, file string, args []string) int {
+	availability, note, err := resourceArgs(args, file)
+	if err != nil {
+		return fail(stderr, err, 2)
 	}
-	note := ""
-	if len(args) == 2 {
-		note = args[1]
-	}
-	row, err := board.SetResource(name, args[0], note)
+	row, err := board.SetResource(name, availability, note)
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
@@ -513,6 +524,10 @@ func inboxTargets(cfg decide.Config) []tui.Target {
 }
 
 func cmdAsk(args []string, stdout, stderr io.Writer) int {
+	file, args, err := pullTextFile(args)
+	if err != nil {
+		return fail(stderr, err, 2)
+	}
 	fs := flag.NewFlagSet("ask", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	jsonOut := fs.Bool("json", false, "print the new item as JSON")
@@ -532,7 +547,7 @@ func cmdAsk(args []string, stdout, stderr io.Writer) int {
 	if code, stop := stopped(parseFlags(fs, args)); stop {
 		return code
 	}
-	question, err := oneArg(fs.Args(), "question")
+	question, err := bodyFrom(fs.Args(), file, "question")
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
@@ -723,11 +738,15 @@ func cmdAnswer(args []string, stdout, stderr io.Writer) int {
 }
 
 func cmdText(args []string, stdout, stderr io.Writer, name, textName string, fn func(*decide.Ledger, string, string) (decide.Item, error)) int {
+	file, args, err := pullTextFile(args)
+	if err != nil {
+		return fail(stderr, err, 2)
+	}
 	fs, jsonOut, code := itemCmd(name, args, stderr)
 	if fs == nil {
 		return code
 	}
-	id, text, err := twoArgs(fs.Args(), "id", textName)
+	id, text, err := pairBody(fs.Args(), "id", textName, file)
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
@@ -899,27 +918,7 @@ const flagHelp = -1
 // hoistFlags moves flags in front of positionals so they parse after an id.
 // valued flags consume the following argument unless the flag contains '='.
 func hoistFlags(args []string, valued map[string]bool) []string {
-	var flags, pos []string
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if a == "--" {
-			pos = append(pos, args[i+1:]...)
-			break
-		}
-		if a == "-" || !strings.HasPrefix(a, "-") {
-			pos = append(pos, a)
-			continue
-		}
-		flags = append(flags, a)
-		name := strings.TrimLeft(a, "-")
-		if name == "" || strings.Contains(name, "=") {
-			continue
-		}
-		if valued[name] && i+1 < len(args) {
-			i++
-			flags = append(flags, args[i])
-		}
-	}
+	flags, pos := splitFlags(args, valued)
 	return append(flags, pos...)
 }
 
