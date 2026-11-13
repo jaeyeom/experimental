@@ -205,6 +205,9 @@ type Model struct {
 	hubDown     bool
 	// display supplies display settings that change on a reconnect.
 	display DisplaySource
+	// localConfig is this machine's config, so a local avatar rule can
+	// hide a hub save.
+	localConfig decide.ConfigFile
 }
 
 // New returns an inbox positioned on the open folder.

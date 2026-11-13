@@ -124,9 +124,19 @@ func (m *Model) moveAvatarPick(delta int) {
 	m.avatarCursor = max(min(m.avatarCursor+delta, n-1), 0)
 }
 
-// saveAvatar saves choice for name and shows it at once. An error leaves
-// the avatars as they were.
+// avatarHub saves an avatar on the hub and returns its display settings.
+// A local backend does not implement it.
+type avatarHub interface {
+	SetAvatar(name, choice string) (decide.DisplaySettings, error)
+}
+
+// saveAvatar saves choice for name and shows it at once. In hub mode
+// the write goes to the hub. An error leaves the avatars as they were.
 func (m *Model) saveAvatar(name, choice string) {
+	if hub, ok := m.backend.(avatarHub); ok {
+		m.saveHubAvatar(name, choice, hub)
+		return
+	}
 	rules, err := SaveAvatar(name, choice)
 	if err != nil {
 		m.status = fmt.Sprintf("avatar for %s: %v", name, err)
@@ -138,6 +148,34 @@ func (m *Model) saveAvatar(name, choice string) {
 		delete(m.avatarFailed, "builtin:"+rule.Builtin)
 	}
 	m.status = fmt.Sprintf("avatar for %s: %s (saved to config)", name, choice)
+}
+
+// saveHubAvatar writes choice on the hub and applies the settings it
+// returns. A local rule for name still wins, and the status line says so.
+func (m *Model) saveHubAvatar(name, choice string, hub avatarHub) {
+	settings, err := hub.SetAvatar(name, choice)
+	if err != nil {
+		m.status = fmt.Sprintf("avatar for %s: %v", name, err)
+		return
+	}
+	eff, err := decide.MergeDisplay(m.localConfig, settings)
+	if err != nil {
+		m.status = fmt.Sprintf("avatar for %s: %v", name, err)
+		return
+	}
+	m.Avatars = eff.Config.Avatars
+	m.AvatarDefault = eff.Config.AvatarDefault
+	m.AvatarMono = eff.Config.AvatarMono
+	files := avatar.Overlay{}
+	for file, body := range eff.Files {
+		files[file] = avatar.MemFile{Data: body.Data, Err: body.Error}
+	}
+	m.avatarRender = avatar.NewRenderer(files)
+	m.avatarFailed = nil
+	m.status = fmt.Sprintf("avatar for %s: %s (saved on hub)", name, choice)
+	if decide.LocalAvatarHides(m.localConfig, name) {
+		m.status = fmt.Sprintf("avatar for %s: %s (saved on hub; a local rule for %s overrides it here)", name, choice, name)
+	}
 }
 
 // avatarCellWidth is a two-column marker and the longest entry.

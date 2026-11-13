@@ -40,6 +40,16 @@ func MatchAvatar(rules []AvatarRule, name string) (AvatarRule, bool) {
 	return AvatarRule{}, false
 }
 
+// LocalAvatarHides reports whether local sets avatars and a rule matches
+// name, so a hub rule for name does not show on this machine.
+func LocalAvatarHides(local ConfigFile, name string) bool {
+	if _, ok := local.Keys["avatars"]; !ok {
+		return false
+	}
+	_, ok := MatchAvatar(local.Config.Avatars, name)
+	return ok
+}
+
 func checkAvatarRules(rules []AvatarRule) error {
 	for i, r := range rules {
 		if r.File != "" && r.Builtin != "" {

@@ -183,17 +183,87 @@ func TestAvatarsSetErrors(t *testing.T) {
 	}
 }
 
-func TestAvatarsSetRunsLocallyInHubMode(t *testing.T) {
+func TestAvatarsSetLocalFlagWritesThisMachine(t *testing.T) {
 	fake, _ := setupHub(t, `{"hub": "me@hub"}`)
-	if _, stderr, code := runCLI("avatars", "set", "ops/x", "owl"); code != 0 {
+	stdout, stderr, code := runCLI("avatars", "set", "--local", "ops/x", "owl")
+	if code != 0 {
 		t.Fatalf("code = %d, stderr = %s", code, stderr)
 	}
+	if stdout != "avatar for ops/x: owl (saved to config)\n" {
+		t.Fatalf("stdout = %q", stdout)
+	}
 	if fake.Read("argv") != "" {
-		t.Fatal("avatars set ran ssh")
+		t.Fatal("--local ran ssh")
 	}
 	data, err := os.ReadFile(filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "decide", "config.json"))
 	if err != nil || !strings.Contains(string(data), `"hub": "me@hub"`) || !strings.Contains(string(data), `"builtin": "owl"`) {
 		t.Fatalf("local config = %s, %v", data, err)
+	}
+}
+
+func TestAvatarsSetInHubModeWritesTheHub(t *testing.T) {
+	_, _ = setupHub(t, `{"hub": "me@hub"}`)
+	_, _, hubCfg := hubDecide(t, `{}`)
+	client := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "decide", "config.json")
+	before, err := os.ReadFile(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, code := runCLI("avatars", "set", "ops/x", "owl")
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %s", code, stderr)
+	}
+	if stdout != "avatar for ops/x: owl (saved on hub)\n" {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	if got, err := os.ReadFile(client); err != nil || string(got) != string(before) {
+		t.Fatalf("client config = %s, %v", got, err)
+	}
+	hub, err := os.ReadFile(filepath.Join(hubCfg, "decide", "config.json"))
+	if err != nil || !strings.Contains(string(hub), `"builtin": "owl"`) || !strings.Contains(string(hub), `"match": "ops/x"`) {
+		t.Fatalf("hub config = %s, %v", hub, err)
+	}
+}
+
+func TestAvatarsSetNotesALocalOverride(t *testing.T) {
+	_, _ = setupHub(t, `{"hub": "me@hub", "avatars": [{"match": "ops/x", "builtin": "cat"}]}`)
+	_, _, hubCfg := hubDecide(t, `{}`)
+	stdout, stderr, code := runCLI("avatars", "set", "ops/x", "owl")
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %s", code, stderr)
+	}
+	want := "avatar for ops/x: owl (saved on hub; a local rule for ops/x overrides it here)\n"
+	if stdout != want {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	client, err := os.ReadFile(filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "decide", "config.json"))
+	if err != nil || !strings.Contains(string(client), `"builtin": "cat"`) || strings.Contains(string(client), "owl") {
+		t.Fatalf("client config = %s, %v", client, err)
+	}
+	hub, err := os.ReadFile(filepath.Join(hubCfg, "decide", "config.json"))
+	if err != nil || !strings.Contains(string(hub), `"builtin": "owl"`) {
+		t.Fatalf("hub config = %s, %v", hub, err)
+	}
+}
+
+func TestAvatarsSetHubRejectsABadChoiceAndAnUnreachableHub(t *testing.T) {
+	fake, _ := setupHub(t, `{"hub": "me@hub", "hubTimeout": "1s"}`)
+	_, _, hubCfg := hubDecide(t, `{}`)
+	if _, stderr, code := runCLI("avatars", "set", "ops/x", "nope"); code != 1 || !strings.Contains(stderr, `unknown built-in avatar "nope"`) {
+		t.Fatalf("bad choice: code %d stderr %q", code, stderr)
+	}
+	hub, err := os.ReadFile(filepath.Join(hubCfg, "decide", "config.json"))
+	if err != nil || strings.Contains(string(hub), "ops/x") {
+		t.Fatalf("hub config = %s, %v", hub, err)
+	}
+	fake.Write("down", "")
+	fake.Unreachable()
+	if _, stderr, code := runCLI("avatars", "set", "ops/x", "owl"); code != 1 || !strings.Contains(stderr, "unreachable") {
+		t.Fatalf("unreachable: code %d stderr %q", code, stderr)
+	}
+	client, err := os.ReadFile(filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "decide", "config.json"))
+	if err != nil || strings.Contains(string(client), "owl") {
+		t.Fatalf("client config = %s, %v", client, err)
 	}
 }
 

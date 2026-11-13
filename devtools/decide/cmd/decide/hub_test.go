@@ -92,7 +92,7 @@ func TestHubUnreachableNeverFallsBack(t *testing.T) {
 // binary with its own hub state and config, so `decide serve --stdio`
 // runs for real on a separate ledger. It returns the hub's ledger
 // directory and the directory of the script, which records its args.
-func hubDecide(t *testing.T, hubConfig string) (string, string) {
+func hubDecide(t *testing.T, hubConfig string) (string, string, string) {
 	t.Helper()
 	bin := t.TempDir()
 	hubState, hubCfg := t.TempDir(), t.TempDir()
@@ -115,7 +115,7 @@ func hubDecide(t *testing.T, hubConfig string) (string, string) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	return filepath.Join(hubState, "decide"), bin
+	return filepath.Join(hubState, "decide"), bin, hubCfg
 }
 
 // stubInbox replaces the TUI and returns the options it was run with.
@@ -136,7 +136,7 @@ func stubInbox(t *testing.T, check func(tui.Options)) *tui.Options {
 
 func TestHubInboxRunsLocallyAgainstTheHub(t *testing.T) {
 	_, state := setupHub(t, `{"hub": "me@hub", "machine": "mac", "hubMachine": "hub"}`)
-	hubDir, bin := hubDecide(t, `{"targets": [{"name": "builder", "pane": "w2:p3"}]}`)
+	hubDir, bin, _ := hubDecide(t, `{"targets": [{"name": "builder", "pane": "w2:p3"}]}`)
 	led, err := decide.Open(hubDir)
 	if err != nil {
 		t.Fatal(err)

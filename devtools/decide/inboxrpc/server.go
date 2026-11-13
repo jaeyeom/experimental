@@ -64,40 +64,25 @@ func (s *Server) handle(ctx context.Context, req Request) Response {
 	if resp, ok := s.itemOp(req); ok {
 		return resp
 	}
-	b := s.Backend
 	switch req.Op {
 	case OpHello:
 		return Response{Version: Version}
 	case OpList:
-		items, err := b.List()
-		if err != nil {
-			return failed(err)
-		}
-		if items == nil {
-			items = []decide.Item{}
-		}
-		return Response{Items: items}
+		return s.list()
 	case OpStatus:
-		board, err := b.Status()
-		if err != nil {
-			return failed(err)
-		}
-		return Response{Status: &board}
+		return s.status()
 	case OpTargets:
 		return Response{Targets: s.Targets, Agentbus: s.Agentbus}
 	case OpBusList:
 		return s.busList(ctx)
 	case OpConfig:
 		return s.config()
+	case OpSetAvatar:
+		return s.setAvatar(req)
 	case OpSend:
 		return s.send(req)
 	case OpLocate:
-		it, err := b.Get(req.Item)
-		if err != nil {
-			return failed(err)
-		}
-		loc := b.Locate(ctx, &it)
-		return Response{Location: &loc}
+		return s.locate(ctx, req)
 	default:
 		return Response{Error: fmt.Sprintf("unknown op %q", req.Op)}
 	}
@@ -127,6 +112,43 @@ func (s *Server) itemOp(req Request) (Response, bool) {
 		return Response{}, false
 	}
 	return itemResponse(op()), true
+}
+
+func (s *Server) list() Response {
+	items, err := s.Backend.List()
+	if err != nil {
+		return failed(err)
+	}
+	if items == nil {
+		items = []decide.Item{}
+	}
+	return Response{Items: items}
+}
+
+func (s *Server) status() Response {
+	board, err := s.Backend.Status()
+	if err != nil {
+		return failed(err)
+	}
+	return Response{Status: &board}
+}
+
+func (s *Server) locate(ctx context.Context, req Request) Response {
+	it, err := s.Backend.Get(req.Item)
+	if err != nil {
+		return failed(err)
+	}
+	loc := s.Backend.Locate(ctx, &it)
+	return Response{Location: &loc}
+}
+
+// setAvatar validates choice the way the local picker does, writes the
+// rule to this machine's config, and returns the display settings.
+func (s *Server) setAvatar(req Request) Response {
+	if _, err := tui.SaveAvatar(req.Name, req.Choice); err != nil {
+		return failed(err)
+	}
+	return s.config()
 }
 
 func (s *Server) config() Response {

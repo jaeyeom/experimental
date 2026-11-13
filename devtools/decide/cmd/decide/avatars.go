@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jaeyeom/experimental/devtools/decide"
+	"github.com/jaeyeom/experimental/devtools/decide/inboxrpc"
 	"github.com/jaeyeom/experimental/devtools/decide/tui"
 	"github.com/jaeyeom/experimental/devtools/decide/tui/avatar"
 	"github.com/muesli/termenv"
@@ -71,18 +73,59 @@ func cmdAvatars(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// cmdAvatarsSet saves name's avatar in this machine's config, as the
-// inbox avatar picker does.
+// cmdAvatarsSet saves name's avatar. Hub mode writes it on the hub.
+// --local writes this machine's config instead.
 func cmdAvatarsSet(args []string, stdout, stderr io.Writer) int {
-	if len(args) != 2 {
+	fs := flag.NewFlagSet("avatars set", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	local := fs.Bool("local", false, "write this machine's config even in hub mode")
+	if code, stop := stopped(parseFlags(fs, args)); stop {
+		return code
+	}
+	if len(fs.Args()) != 2 {
 		return fail(stderr, fmt.Errorf("decide avatars set requires <name> <id|default|none>"), 2)
 	}
-	name, choice := args[0], args[1]
+	name, choice := fs.Arg(0), fs.Arg(1)
+	if !*local {
+		if code, done := setAvatarOnHub(name, choice, stdout, stderr); done {
+			return code
+		}
+	}
 	if _, err := tui.SaveAvatar(name, choice); err != nil {
 		return fail(stderr, err, 1)
 	}
 	fmt.Fprintf(stdout, "avatar for %s: %s (saved to config)\n", name, choice)
 	return 0
+}
+
+// setAvatarOnHub writes the rule through the hub's set-avatar op.
+// done is false when hub mode is off. A failure does not write locally.
+func setAvatarOnHub(name, choice string, stdout, stderr io.Writer) (int, bool) {
+	settings, err := hubConfig("")
+	if err != nil {
+		return fail(stderr, err, 1), true
+	}
+	if settings.hub.Target == "" {
+		return 0, false
+	}
+	client := &inboxrpc.Client{Dial: inboxrpc.HubDialer(settings.hub), Label: settings.hub.Target}
+	if err := client.Connect(); err != nil {
+		return fail(stderr, err, 1), true
+	}
+	defer client.Close()
+	if _, err := client.SetAvatar(name, choice); err != nil {
+		return fail(stderr, err, 1), true
+	}
+	note := fmt.Sprintf("avatar for %s: %s (saved on hub)", name, choice)
+	local, err := decide.LoadConfigFile()
+	if err != nil {
+		return fail(stderr, err, 1), true
+	}
+	if decide.LocalAvatarHides(local, name) {
+		note = fmt.Sprintf("avatar for %s: %s (saved on hub; a local rule for %s overrides it here)", name, choice, name)
+	}
+	fmt.Fprintln(stdout, note)
+	return 0, true
 }
 
 // writeAvatarRow prints figures side by side, each with its id beside it.

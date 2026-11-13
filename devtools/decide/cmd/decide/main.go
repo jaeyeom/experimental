@@ -109,7 +109,7 @@ func usage(w io.Writer) {
   decide reply <id> [--option key:label ...] [--rec key] [--free-text] [--json] <text>
   decide skill
   decide avatars list [--name <name>] [--ids]
-  decide avatars set <name> <id|default|none>
+  decide avatars set [--local] <name> <id|default|none>
   decide [--remote <user@host>] config show [--effective]
 
 Text for ask, reply, send, done, withdraw, and status set may be a positional argument, --text-file <path>, or - for stdin.
