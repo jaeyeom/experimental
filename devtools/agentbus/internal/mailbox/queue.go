@@ -74,14 +74,15 @@ func (m *Mailbox) enqueue(ctx context.Context, msg message, opt Options) (Result
 		deadline := m.now().UTC().Add(opt.TTL)
 		msg.Deadline = &deadline
 	}
-	dup, err := m.store(msg)
+	hold := opt.ReplyFirst && !opt.Wait
+	dup, err := m.store(msg, hold)
 	if err != nil {
 		return Result{}, err
 	}
 	if dup.Duplicate {
 		return dup, nil
 	}
-	if opt.ReplyFirst && !opt.Wait {
+	if hold {
 		return m.replyFirst(ctx, msg)
 	}
 	if err := m.flushHandle(ctx, msg.Handle); err != nil {
@@ -96,6 +97,7 @@ func (m *Mailbox) enqueue(ctx context.Context, msg message, opt Options) (Result
 // replyFirst runs the precheck and returns. The paste waits for
 // DeliverDeferred, so a slow paste does not hold the reply.
 func (m *Mailbox) replyFirst(ctx context.Context, msg message) (Result, error) {
+	defer m.releaseHoldPaste(msg.ID)
 	if err := m.precheckHandle(ctx, msg.Handle); err != nil {
 		return Result{}, err
 	}
@@ -111,6 +113,14 @@ func (m *Mailbox) replyFirst(ctx context.Context, msg message) (Result, error) {
 	}
 	m.noteDeferred(msg.Handle)
 	return res, nil
+}
+
+// releaseHoldPaste lets a later flush paste id. Call it only after the
+// send answer is copied.
+func (m *Mailbox) releaseHoldPaste(id string) {
+	m.mu.Lock()
+	delete(m.holdPaste, id)
+	m.mu.Unlock()
 }
 
 // precheckHandle applies holds and expiry, and stops before a paste.
@@ -194,7 +204,7 @@ func (m *Mailbox) wait(ctx context.Context, id, handle string) (Result, error) {
 	}
 }
 
-func (m *Mailbox) store(msg message) (Result, error) {
+func (m *Mailbox) store(msg message, holdPaste bool) (Result, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if msg.ClientID != "" {
@@ -208,6 +218,12 @@ func (m *Mailbox) store(msg message) (Result, error) {
 		m.byClient[dedupeKey{sender: msg.SenderHandle, clientID: msg.ClientID}] = msg.ID
 	}
 	m.queue[msg.Handle] = append(m.queue[msg.Handle], msg.ID)
+	if holdPaste {
+		if m.holdPaste == nil {
+			m.holdPaste = map[string]bool{}
+		}
+		m.holdPaste[msg.ID] = true
+	}
 	if err := m.logEvent(eventlog.Event{
 		Event:  eventlog.EventSend,
 		Actor:  msg.From,
@@ -339,13 +355,23 @@ func (m *Mailbox) flushHandle(ctx context.Context, handle string) error {
 	}
 }
 
+// leaveForReply reports that this flush should stop. The front is missing,
+// or it is a ReplyFirst message whose answer is not snapshotted yet.
+// The caller holds m.mu.
+func (m *Mailbox) leaveForReply(id string, ok, deliver bool) bool {
+	if !ok {
+		return true
+	}
+	return deliver && m.holdPaste[id]
+}
+
 // step attempts the front message.
 // The mailbox lock is not held across State, Deliver, or the expiry notice.
 // deliver false stops once the precheck says the front is ready to paste.
 func (m *Mailbox) step(ctx context.Context, handle string, deliver bool) (bool, error) {
 	m.mu.Lock()
 	id, ok := m.front(handle)
-	if !ok {
+	if m.leaveForReply(id, ok, deliver) {
 		m.mu.Unlock()
 		return false, nil
 	}
