@@ -22,7 +22,11 @@ import (
 const (
 	launchdLabel    = "com.agentbus.agentbusd"
 	systemdUnitName = "agentbus.service"
-	hookScriptName  = "agentbus-sendmessage.sh"
+	// herdrUnitName is the herdr server's systemd user unit. herdr does
+	// not install one itself; when the user has, the daemon starts
+	// after it.
+	herdrUnitName  = "herdr.service"
+	hookScriptName = "agentbus-sendmessage.sh"
 	// promptHookScriptName is the UserPromptSubmit guard against a bus
 	// message merged into a user draft.
 	promptHookScriptName = "agentbus-userpromptsubmit.sh"
@@ -127,7 +131,7 @@ func installSupervisor(goos, home, bin string, env []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	body, err := supervisorBody(goos, bin, supervisorEnv(env))
+	body, err := supervisorBody(goos, bin, supervisorEnv(env), herdrUnit(goos, home, env))
 	if err != nil {
 		return "", err
 	}
@@ -163,13 +167,30 @@ func systemdUserDir(home string, env []string) string {
 	return filepath.Join(home, ".config", "systemd", "user")
 }
 
-func supervisorBody(goos, bin string, envVars [][2]string) (string, error) {
+// herdrUnit is herdrUnitName when it is installed beside the agentbus
+// unit, and "" otherwise or on a system without systemd.
+func herdrUnit(goos, home string, env []string) string {
+	if goos != "linux" {
+		return ""
+	}
+	if _, err := os.Stat(filepath.Join(systemdUserDir(home, env), herdrUnitName)); err != nil {
+		return ""
+	}
+	return herdrUnitName
+}
+
+// supervisorBody is the daemon's launchd job or systemd unit. A
+// non-empty after is a systemd unit the daemon starts after and wants.
+// The daemon retries herdr either way; the ordering only spares the
+// retries at boot.
+func supervisorBody(goos, bin string, envVars [][2]string, after string) (string, error) {
 	switch goos {
 	case "darwin":
 		return launchdPlist(launchdLabel, []string{bin}, envVars)
 	case "linux":
 		return systemdUnit(systemdService{
 			description: "agentbus daemon",
+			after:       after,
 			exec:        []string{bin},
 			restart:     "on-failure",
 		}, envVars), nil
@@ -252,6 +273,8 @@ func (j launchdJob) plist() (string, error) {
 // systemdService is the [Service] part of a systemd user unit.
 type systemdService struct {
 	description string
+	// after, when set, is a unit this one starts after and wants.
+	after string
 	// pre, when set, runs before exec.
 	pre     []string
 	exec    []string
@@ -262,7 +285,11 @@ type systemdService struct {
 
 func systemdUnit(svc systemdService, envVars [][2]string) string {
 	var b strings.Builder
-	b.WriteString("[Unit]\nDescription=" + svc.description + "\n\n[Service]\n")
+	b.WriteString("[Unit]\nDescription=" + svc.description + "\n")
+	if svc.after != "" {
+		b.WriteString("After=" + svc.after + "\nWants=" + svc.after + "\n")
+	}
+	b.WriteString("\n[Service]\n")
 	if len(svc.pre) > 0 {
 		b.WriteString("ExecStartPre=" + systemdLine(svc.pre) + "\n")
 	}

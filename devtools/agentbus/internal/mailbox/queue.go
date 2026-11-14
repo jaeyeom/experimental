@@ -2,6 +2,7 @@ package mailbox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -508,14 +509,15 @@ func (m *Mailbox) noteLiveness(handle string, o outcome) {
 }
 
 func (m *Mailbox) attempt(ctx context.Context, msg message, deliver bool) outcome {
-	if err := m.prepare(ctx); err != nil {
+	ads, err := m.reg.Usable(ctx)
+	if err != nil {
 		return outcome{reason: "unreachable", target: "unreachable"}
 	}
 	if rec, ok := m.reg.Hibernation(msg.Handle); ok && hibernate.Asleep(rec.Status) {
 		// Its pane runs a shell now. The message waits for a wake.
 		return m.wakeOutcome(ctx, rec)
 	}
-	state, ad, err := m.observe(ctx, msg.Handle)
+	state, ad, err := m.observe(ctx, ads, msg.Handle)
 	if err != nil || ad == nil || !canDeliver(state) {
 		return m.holdOutcome(state, err)
 	}
@@ -709,13 +711,15 @@ func (m *Mailbox) holdOutcome(state adapter.State, err error) outcome {
 	return outcome{reason: holdReason(state), target: string(state)}
 }
 
-func (m *Mailbox) observe(ctx context.Context, handle string) (adapter.State, adapter.Adapter, error) {
+// observe asks ads, the adapters that pass their self-test, for
+// handle's state. With every adapter down the target is unreachable.
+func (m *Mailbox) observe(ctx context.Context, ads []adapter.Adapter, handle string) (adapter.State, adapter.Adapter, error) {
+	if len(ads) == 0 && len(m.adapters) > 0 {
+		return "", nil, errors.New("no adapter is reachable")
+	}
 	var fallback adapter.State
 	var sawErr error
-	for _, item := range m.adapters {
-		if m.isBroken(item.Name()) {
-			continue
-		}
+	for _, item := range ads {
 		state, err := item.State(ctx, handle)
 		if err != nil {
 			sawErr = err
@@ -762,44 +766,6 @@ func holdReason(state adapter.State) string {
 		}
 		return string(state)
 	}
-}
-
-func (m *Mailbox) prepare(ctx context.Context) error {
-	m.prep.Do(func() {
-		m.prepErr = m.runSelfTests(ctx)
-	})
-	return m.prepErr
-}
-
-func (m *Mailbox) runSelfTests(ctx context.Context) error {
-	broken := map[string]string{}
-	for _, item := range m.adapters {
-		err := item.SelfTest(ctx)
-		if err == nil {
-			continue
-		}
-		broken[item.Name()] = err.Error()
-		if logErr := m.logEvent(eventlog.Event{
-			Event:  eventlog.EventAdapterError,
-			Actor:  "agentbus",
-			Name:   item.Name(),
-			Detail: "self-test failed",
-			Reason: err.Error(),
-		}); logErr != nil {
-			return fmt.Errorf("log adapter_error: %w", logErr)
-		}
-	}
-	m.mu.Lock()
-	m.broken = broken
-	m.mu.Unlock()
-	return nil
-}
-
-func (m *Mailbox) isBroken(name string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	_, ok := m.broken[name]
-	return ok
 }
 
 func (m *Mailbox) markDelivered(id, detail string) error {
@@ -1045,10 +1011,11 @@ func (m *Mailbox) notifySender(ctx context.Context, id, from, text, unsent strin
 	if err != nil {
 		return
 	}
-	if err := m.prepare(ctx); err != nil {
+	ads, err := m.reg.Usable(ctx)
+	if err != nil {
 		return
 	}
-	state, ad, err := m.observe(ctx, handle)
+	state, ad, err := m.observe(ctx, ads, handle)
 	if err != nil || ad == nil || !canDeliver(state) {
 		return
 	}

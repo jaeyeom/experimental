@@ -37,8 +37,7 @@ type Registry struct {
 	names         map[string]record
 	adapters      []adapter.Adapter
 	log           *eventlog.Log
-	broken        map[string]bool
-	tested        bool
+	health        health
 	snaps         map[string][]adapter.Agent
 	invBroken     map[string]bool
 	warnings      map[string][]string
@@ -90,7 +89,6 @@ func Open(dir string, adapters []adapter.Adapter, log *eventlog.Log) (*Registry,
 		hibernated: doc.Hibernated,
 		adapters:   adapters,
 		log:        log,
-		broken:     map[string]bool{},
 	}
 	// Idle times are best effort: a file that cannot be read starts
 	// them over, as a daemon without one does.
@@ -444,33 +442,17 @@ func splitHandle(handle string) (scheme, session, pane string, ok bool) {
 	return scheme, parts[1], parts[2], true
 }
 
+// usable is Usable for a caller that holds r.mu.
 func (r *Registry) usable(ctx context.Context) ([]adapter.Adapter, error) {
-	if !r.tested {
-		r.tested = true
-		for _, ad := range r.adapters {
-			err := ad.SelfTest(ctx)
-			if err == nil {
-				continue
-			}
-			r.broken[ad.Name()] = true
-			if logErr := r.logEvent(eventlog.Event{
-				Event:  eventlog.EventAdapterError,
-				Actor:  "agentbus",
-				Name:   ad.Name(),
-				Detail: "self-test failed",
-				Reason: err.Error(),
-			}); logErr != nil {
-				return nil, logErr
-			}
-		}
-	}
-	out := make([]adapter.Adapter, 0, len(r.adapters))
-	for _, ad := range r.adapters {
-		if !r.broken[ad.Name()] {
-			out = append(out, ad)
-		}
-	}
-	return out, nil
+	return r.health.usable(ctx, r.adapters, r.now, r.logEvent)
+}
+
+// Usable returns the adapters whose self-test passes. A failed adapter
+// is tested again after a backoff of at most healthBackoffMax, so one
+// that was down when the daemon started comes back without a restart.
+// It does not take r.mu.
+func (r *Registry) Usable(ctx context.Context) ([]adapter.Adapter, error) {
+	return r.usable(ctx)
 }
 
 func (r *Registry) logEvent(e eventlog.Event) error {

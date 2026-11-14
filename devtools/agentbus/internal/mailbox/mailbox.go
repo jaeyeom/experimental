@@ -97,9 +97,6 @@ type Mailbox struct {
 	inflight map[string]bool
 	flushing map[string]bool
 	adapters []adapter.Adapter
-	broken   map[string]string
-	prep     sync.Once
-	prepErr  error
 	// waker relaunches hibernated agents; nil holds their messages.
 	waker Waker
 	// waking is the wake in flight per handle, and wakes every wake
