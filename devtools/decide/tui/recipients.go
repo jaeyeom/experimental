@@ -169,7 +169,27 @@ func ParseBusList(out []byte) ([]Target, error) {
 
 // candidates are the configured targets, then live bus names, then dead
 // ones. A configured target whose pane a bus name holds is left out.
+// composeDead names follow, unless the bus already lists them.
 func (m *Model) candidates() []Target {
+	out := m.listedCandidates()
+	if len(m.composeDead) == 0 {
+		return out
+	}
+	extra := make([]Target, 0, len(m.composeDead))
+	for _, tg := range m.composeDead {
+		if slices.ContainsFunc(out, func(have Target) bool { return have.Name == tg.Name }) {
+			continue
+		}
+		extra = append(extra, tg)
+	}
+	if len(extra) == 0 {
+		return out
+	}
+	return append(append([]Target{}, out...), extra...)
+}
+
+// listedCandidates are the configured targets and the last bus list.
+func (m *Model) listedCandidates() []Target {
 	if len(m.busNames) == 0 {
 		return m.Targets
 	}

@@ -165,6 +165,9 @@ type Model struct {
 	// did not report is offline. busWant asks Update to start a load.
 	busKnown bool
 	busWant  bool
+	// composeDead are dead names Contacts opened compose for that the
+	// bus does not list. candidates offers them until the bus does.
+	composeDead []Target
 	// allItems is the last ledger read. folderRows is each folder's
 	// items, parallel to folderTexts, so an agent filter can count
 	// matches without another read. agentFilter limits every folder
@@ -2414,6 +2417,7 @@ func (m *Model) helpLines() []screenLine {
 			goToHelp(),
 			"enter filters every folder to this agent",
 			"esc clears the agent filter",
+			"c compose",
 			"A picks this agent's avatar",
 			"a aliases this contact to a bus name",
 			"x hides this contact",

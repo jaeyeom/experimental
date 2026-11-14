@@ -151,9 +151,15 @@ dead bus names it would release. Nothing is written or released unless
 sent a message in, including items recorded under any merged name. The
 sidebar counts become ~matches/total~, as for a
 search, and a header line says ~agent: <name>~. ~Esc~ clears the filter.
-It combines with ~/~. ~j~ and ~k~ move. ~A~ opens the avatar picker for
-that agent and saves it the same way ~A~ in an item does: on the hub in
-hub mode, otherwise in this machine's config.
+It combines with ~/~. ~j~ and ~k~ move. ~c~ opens compose to the
+selected contact. The recipient is that contact's canonical agent name,
+not an alias, and the cursor starts in the text box. ~Tab~, ~Shift-Tab~,
+~Enter~, and ~Esc~ are the usual compose keys. A dead contact, or a
+hidden contact the bus does not list, still opens compose with the
+recipient set and the same warning a dead compose target already shows.
+~A~ opens the avatar picker for that agent and saves it the same way
+~A~ in an item does: on the hub in hub mode, otherwise in this machine's
+config.
 
 * Archive and outcome
 
