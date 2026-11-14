@@ -2617,8 +2617,9 @@ func (m *Model) threadLines(it *decide.Item, width int, re *regexp.Regexp) []scr
 	last := len(it.Messages) - 1
 	prev := ""
 	for i, msg := range it.Messages {
+		name := m.messageAvatarName(msg)
 		if i > 0 {
-			lines = append(lines, messageRule(ruleWidth, reserve))
+			lines = append(lines, messageRule(ruleWidth, reserve, name != prev))
 		}
 		block := []screenLine{{
 			text:   messageHeader(msg, now, loc, i == last, i == m.message),
@@ -2627,7 +2628,6 @@ func (m *Model) threadLines(it *decide.Item, width int, re *regexp.Regexp) []scr
 		for _, line := range questionLines(msg.Text, bodyWidth, re, !m.NoHyperlinks) {
 			block = append(block, indentLine(line))
 		}
-		name := m.messageAvatarName(msg)
 		var av []string
 		if reserve && name != "" && name != prev {
 			av = m.avatarLines(name)
@@ -2646,9 +2646,14 @@ func (m *Model) threadLines(it *decide.Item, width int, re *regexp.Regexp) []scr
 }
 
 // messageRule is the line between messages. When the thread reserves an
-// avatar column, the rule keeps that gutter and the avatar starts on the
-// sender line below it.
-func messageRule(ruleWidth int, reserve bool) screenLine {
+// avatar column, a rule between the same sender keeps that gutter. A rule
+// between different senders crosses the column, from the left edge of the
+// thread area to the right edge. The avatar still starts on the sender
+// line below the rule.
+func messageRule(ruleWidth int, reserve, across bool) screenLine {
+	if reserve && across {
+		return screenLine{text: plainText(strings.Repeat("─", ruleWidth+avatarColumn))}
+	}
 	line := screenLine{text: plainText(strings.Repeat("─", ruleWidth))}
 	if !reserve {
 		return line
