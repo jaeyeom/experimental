@@ -137,6 +137,26 @@ understandable through visual representations.
 
 [[file:ascii-art/README.org][→ Full Documentation]]
 
+*** gh-ask                                                     :experimental:
+
+Loopback server that hands a question about a pull request line range to
+a configured command, such as one that files it for an agent. The
+command runs without a shell, and the question reaches it only through a
+file.
+
+*Installation:*
+#+BEGIN_SRC bash
+  go install github.com/jaeyeom/experimental/devtools/gh-ask/cmd/gh-ask@latest
+#+END_SRC
+
+*Usage:*
+#+BEGIN_SRC bash
+  gh-ask token                 # create the shared secret and print it
+  gh-ask serve --config ~/.config/gh-ask/config.toml
+#+END_SRC
+
+[[file:gh-ask/README.org][→ Full Documentation]]
+
 *** gh-nudge                                                         :active:
 
 Suite of GitHub workflow utilities including PR review reminders, Slack
