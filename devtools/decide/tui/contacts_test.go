@@ -110,7 +110,7 @@ func TestContactsMergeBusAndLedger(t *testing.T) {
 	press(t, m, "?")
 	help := m.View()
 	for _, needle := range []string{
-		"c contacts", "enter filters every folder", "esc clears the agent filter", "A picks this agent's avatar",
+		"c contacts", "c compose", "enter filters every folder", "esc clears the agent filter", "A picks this agent's avatar",
 		"x hides this contact", "H shows hidden contacts", "X hides every dead contact", "R releases a dead bus name",
 		"a aliases this contact to a bus name",
 	} {
@@ -723,5 +723,155 @@ func TestMergedRowFilterFindsEveryAlias(t *testing.T) {
 	view := m.View()
 	if !strings.Contains(view, "from-primary") || !strings.Contains(view, "from-bus") {
 		t.Fatalf("filter missed an alias\n%s", view)
+	}
+}
+
+func TestMergedRowSelectionRunsToTheEnd(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	m := openContacts(t, []string{"backup", "primary"}, `[
+		{"name":"coord/backup","liveness":"alive"},
+		{"name":"coord/primary","liveness":"alive"}
+	]`)
+	selectContact(t, m, "coord/primary")
+	view := m.View()
+	selected := lineContaining(view, "coord/primary")
+	other := lineContaining(view, "coord/backup")
+	if selected == "" || other == "" || selected == other {
+		t.Fatalf("merged rows\n%s", view)
+	}
+	assertReverseRunsThrough(t, selected, "aka primary")
+	if strings.Contains(other, "\x1b[7m") {
+		t.Fatalf("non-selected row is reversed\n%s", other)
+	}
+	if got := sgrBeforeLine(t, other, "aka backup"); !sgrFaint(got) {
+		t.Fatalf("aka sgr %q\n%s", got, other)
+	}
+	checkGolden(t, "contacts_merged_120.golden", view)
+}
+
+func TestComposeToLiveContactFocusesTheText(t *testing.T) {
+	m := openContacts(t, []string{"ada"}, `[{"name":"ada","liveness":"alive"}]`)
+	selectContact(t, m, "ada")
+	press(t, m, "c")
+	assertComposeRecipient(t, m, "ada")
+	press(t, m, "hi")
+	if m.note != "hi" || m.pickFilter != "" {
+		t.Fatalf("note %q filter %q", m.note, m.pickFilter)
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if m.composeFocus != focusRecipient || m.note != "hi" {
+		t.Fatalf("shift-tab focus %d note %q", m.composeFocus, m.note)
+	}
+	press(t, m, "\x1b")
+	if m.composing {
+		t.Fatal("esc kept compose open")
+	}
+}
+
+func TestComposeToMergedRowUsesTheCanonicalName(t *testing.T) {
+	m := openContacts(t, []string{"primary"}, `[{"name":"coord/primary","liveness":"alive"}]`)
+	selectContact(t, m, "coord/primary")
+	if !strings.Contains(m.View(), "aka primary") {
+		t.Fatalf("row is not merged\n%s", m.View())
+	}
+	press(t, m, "c")
+	assertComposeRecipient(t, m, "coord/primary")
+	tg, _ := m.selectedTarget()
+	if tg.Name == "primary" {
+		t.Fatalf("recipient is the alias %q", tg.Name)
+	}
+}
+
+func TestComposeToDeadContactWarns(t *testing.T) {
+	t.Run("bus dead", func(t *testing.T) {
+		m := openContacts(t, []string{"zed"}, `[{"name":"zed","liveness":"dead"}]`)
+		selectContact(t, m, "zed")
+		press(t, m, "c")
+		assertComposeRecipient(t, m, "zed")
+		assertDeadTargetWarning(t, m, "zed")
+	})
+	t.Run("no registration", func(t *testing.T) {
+		m := openContacts(t, []string{"ada", "cara"}, `[{"name":"ada","liveness":"alive"}]`)
+		selectContact(t, m, "cara")
+		if c, _ := m.selectedContact(); c.state() != stateDead || c.OnBus {
+			t.Fatalf("cara %+v", c)
+		}
+		press(t, m, "c")
+		assertComposeRecipient(t, m, "cara")
+		assertDeadTargetWarning(t, m, "cara")
+	})
+	t.Run("hidden", func(t *testing.T) {
+		pickConfig(t, `{"zeta": true}`)
+		m := openContacts(t, []string{"ada", "cara"}, `[{"name":"ada","liveness":"alive"}]`)
+		selectContact(t, m, "cara")
+		press(t, m, "xH")
+		selectContact(t, m, "cara")
+		press(t, m, "c")
+		assertComposeRecipient(t, m, "cara")
+		assertDeadTargetWarning(t, m, "cara")
+	})
+}
+
+func openContacts(t *testing.T, owners []string, list string) *Model {
+	t.Helper()
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	now := time.Date(2026, 11, 12, 15, 0, 0, 0, time.UTC)
+	for i, owner := range owners {
+		mustCreate(t, led, &decide.Item{
+			Question: owner, Owner: owner, Kind: decide.KindRelay, State: decide.StateOpen,
+			CreatedAt: now.Add(time.Duration(i) * time.Minute),
+		})
+	}
+	m := New(dir)
+	m.Now = func() time.Time { return now }
+	m.UTC = true
+	m.busOn = false
+	m.busRun = (&fakeBus{list: list}).run
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	m.width = 120
+	m.height = 24
+	if err := m.showContacts(); err != nil {
+		t.Fatal(err)
+	}
+	finishContactBus(t, m)
+	return m
+}
+
+func assertComposeRecipient(t *testing.T, m *Model, name string) {
+	t.Helper()
+	tg, ok := m.selectedTarget()
+	if !m.composing || m.composeFocus != focusText || !m.noteField.Focused() || !ok || tg.Name != name {
+		t.Fatalf("compose %v focus %d field %v recipient %q", m.composing, m.composeFocus, m.noteField.Focused(), tg.Name)
+	}
+}
+
+func assertDeadTargetWarning(t *testing.T, m *Model, name string) {
+	t.Helper()
+	want := name + " is dead: the bus holds the note until the name is claimed"
+	if m.status != want {
+		t.Fatalf("status %q", m.status)
+	}
+}
+
+// assertReverseRunsThrough fails when the highlight resets before needle
+// or before the row's trailing padding.
+func assertReverseRunsThrough(t *testing.T, line, needle string) {
+	t.Helper()
+	const open = "\x1b[7m"
+	i := strings.Index(line, open)
+	if i < 0 {
+		t.Fatalf("no reverse\n%s", line)
+	}
+	rest := line[i+len(open):]
+	j := strings.Index(rest, "\x1b[0m")
+	if j < 0 {
+		t.Fatalf("reverse never ends\n%s", line)
+	}
+	body := rest[:j]
+	if strings.Contains(body, "\x1b[") || !strings.Contains(body, needle) || strings.TrimRight(body, " ") == body {
+		t.Fatalf("reverse does not cover %q and the padding\n%s", needle, line)
 	}
 }

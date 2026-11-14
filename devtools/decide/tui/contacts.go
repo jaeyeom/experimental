@@ -381,10 +381,44 @@ func (m *Model) contactsKey(r rune) (bool, error) {
 		if c, ok := m.selectedContact(); ok {
 			m.openAvatarPick(c.Name)
 		}
+	case 'c':
+		m.composeFromContact()
 	case '/':
 		m.beginSearch()
 	}
 	return false, nil
+}
+
+// composeFromContact opens the compose view on the selected contact.
+// The recipient is the canonical name, and the cursor starts in the
+// text box. A dead name the bus does not list is still selected, and
+// selectTarget keeps its dead-target warning.
+func (m *Model) composeFromContact() {
+	c, ok := m.selectedContact()
+	if !ok {
+		return
+	}
+	m.ensureComposeDead(c)
+	m.focusCompose()
+	if m.selectName(c.Name) {
+		m.selectTarget(m.target)
+	}
+	m.advanceCompose()
+}
+
+// ensureComposeDead adds a dead candidate for a contact the bus does
+// not list, so compose can select that name. A name already offered,
+// or one the bus has not yet called dead, is left alone.
+func (m *Model) ensureComposeDead(c contact) {
+	if c.Name == "" || c.state() != stateDead {
+		return
+	}
+	if slices.ContainsFunc(m.candidates(), func(tg Target) bool { return tg.Name == c.Name }) {
+		return
+	}
+	m.composeDead = append(m.composeDead, Target{
+		Name: c.Name, Bus: true, Dead: true, Live: "dead",
+	})
 }
 
 // contactsHideKey handles hide, show-hidden, hide-dead, and release.
@@ -532,23 +566,57 @@ func (m *Model) contactsScreen(width int) []screenLine {
 	return lines
 }
 
-// contactName is the row label, with a dim aka suffix for other names.
+// contactName is the row label, including a plain aka suffix. The row
+// style paints the whole line; a pre-rendered suffix would reset it.
 func (m *Model) contactName(row contact) string {
 	if len(row.Aka) == 0 {
 		return row.Name
 	}
+	return row.Name + " " + akaSuffix(row)
+}
+
+// akaSuffix is the other names a merged row shows.
+func akaSuffix(row contact) string {
+	return "aka " + strings.Join(row.Aka, ", ")
+}
+
+// contactCell is the name column. dimAka is set only for a row with no
+// style of its own. A reverse or faint row must not contain a reset,
+// or the highlight stops at the aka suffix.
+func (m *Model) contactCell(row contact, dimAka bool) string {
+	if len(row.Aka) == 0 || !dimAka {
+		return m.contactName(row)
+	}
 	useStyles()
-	return row.Name + " " + dimNav.Render("aka "+strings.Join(row.Aka, ", "))
+	return row.Name + " " + dimNav.Render(akaSuffix(row))
+}
+
+// contactRowStyle is the highlight for contact row i. dimAka is true
+// when that highlight does not already style the whole line.
+func (m *Model) contactRowStyle(row contact, i int) (style lipgloss.Style, dimAka bool) {
+	useStyles()
+	if i == m.contactCursor {
+		return plainLine.Reverse(true), false
+	}
+	switch row.state() {
+	case stateDead, stateUnresponsive:
+		return plainLine.Faint(true), false
+	default:
+		return plainLine, true
+	}
 }
 
 func (m *Model) contactTable(width int, now time.Time, rows []contact) []screenLine {
 	headers := []string{"avatar", "name", "state", "liveness", "open", "activity"}
 	cells := make([][]string, len(rows))
+	styles := make([]lipgloss.Style, len(rows))
 	loc := m.zone()
 	for i, row := range rows {
+		style, dimAka := m.contactRowStyle(row, i)
+		styles[i] = style
 		cells[i] = []string{
 			m.avatarMark(row.Name),
-			m.contactName(row),
+			m.contactCell(row, dimAka),
 			row.stateLabel(),
 			row.liveLabel(),
 			strconv.Itoa(row.Open),
@@ -556,15 +624,7 @@ func (m *Model) contactTable(width int, now time.Time, rows []contact) []screenL
 		}
 	}
 	return styledStatusRows(headers, cells, width, func(i int) lipgloss.Style {
-		if i == m.contactCursor {
-			return plainLine.Reverse(true)
-		}
-		switch rows[i].state() {
-		case stateDead, stateUnresponsive:
-			return plainLine.Faint(true)
-		default:
-			return plainLine
-		}
+		return styles[i]
 	})
 }
 
