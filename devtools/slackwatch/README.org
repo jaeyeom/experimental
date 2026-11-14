@@ -333,7 +333,7 @@ off until ~post.mode~ is set; without it, ~post~ refuses.
 | ~outbox ls [--state S] [--json]~ | List outbox records. |
 | ~outbox show <id> [--json]~ | Show a record, ending with its exact text. |
 | ~outbox posted [--manual] <id> <permalink>~ | Report a handoff post, or with ~--manual~ a post made by hand. |
-| ~outbox recheck <id>~ | Read a mismatch post back again with the current config. A pass moves it to ~posted~ and replies on the decide item. A failure prints the remaining problems and exits non-zero. |
+| ~outbox recheck <id>~ | Read a mismatch post back again with the current config. A pass moves it to ~posted~. A failure prints the remaining problems and exits non-zero. Either way the result is replied on the decide item, which is then closed. |
 | ~outbox poke <decide-id>~ | Handle the answer to a decide item now. |
 | ~outbox cancel <id> [--reason S]~ | Withdraw a draft that is not posted. |
 | ~outbox retry <id>~ | Post a failed direct record once, or return a failed handoff record to ~awaiting-handoff~. |
@@ -391,7 +391,8 @@ refuses and asks for the user id. ~im:write~ is not used.
      ~fallbackTarget~.
    - A decide item closed or withdrawn before an accepted pick makes
      the record ~cancelled~.
-   - Every outcome closes the decide item with ~decide done~.
+   - Every outcome closes the decide item with ~decide done~, except
+     ~failed~, which leaves it open (see below).
 5. *Post.*
    - *handoff:* the record becomes ~awaiting-handoff~ and ~post.agent~
      gets ~approved post ready: <id>~. That agent reads the record with
@@ -404,6 +405,15 @@ refuses and asks for the user id. ~im:write~ is not used.
 6. *Watch.* The post is watched with ~--source outbox~ for the owner,
    with the purpose and refs, and the decide item is closed with the
    permalink.
+7. *Reply.* Before it closes the decide item, slackwatch tells the user
+   the result with one ~decide reply~ in its thread:
+   - ~Posted: <permalink>~ when the record ends ~posted~;
+   - ~Posted, but the text differs from the approved draft: <permalink> (<problems>)~
+     when it ends ~mismatch~;
+   - ~Post failed: <reason>; reply post to retry~ when it ends ~failed~.
+     This reply puts ~post~ and ~drop~ back, and the item stays open.
+   The same reply follows ~outbox posted~ (with or without ~--manual~),
+   ~outbox recheck~, and ~outbox retry~.
 
 The handoff comparison strips the footer. ~footerPattern~ finds where
 the footer starts, and everything from that match through the end of
@@ -414,8 +424,10 @@ marker. An inline footer " *Sent using* <@U1>" is dropped by
 undone, and trailing whitespace on each line and at the end is trimmed.
 In handoff mode a connector link ~<url|label>~ is read back as ~url~
 when the label is the URL, the URL without its scheme, or a truncated
-prefix of either ending in …, and runs of blank lines on either side
-count as one line break. Any other difference is a mismatch, including
+prefix of either ending in …. Slack's auto-links are read back as
+their text: ~<mailto:X|X>~ as ~X~, and ~<tel:X|Y>~ as ~Y~ when ~Y~
+shows the same digits as ~X~. A mail link with a different label stays
+as it is. Runs of blank lines on either side count as one line break. Any other difference is a mismatch, including
 a bold or italic change and an unrelated link label. On a mismatch the watch is still registered
 for the owner and flagged, the record becomes ~mismatch~, and the owner
 and ~fallbackTarget~ get both texts. slackwatch never edits or deletes
@@ -496,6 +508,15 @@ once, reads the message back, and moves the record to ~posted~ or
 ~awaiting-handoff~ and ~post.agent~ gets ~approved post ready: <id>~
 again.
 
+A failed record whose decide item is still open is also retried
+automatically. When the latest human message there is a new ~post~
+pick made after the failure (compared to the second), the next poll or
+~outbox poke~ runs the same ~outbox retry~ once: the same checks, and
+the same search for a post that already landed. A pick from before the
+failure never triggers it. If that retry fails too, the record stays
+~failed~ and the thread gets another ~Post failed~ reply; a later
+~post~ pick retries once more.
+
 When ~chat.postMessage~ returns ~not_in_channel~, the ~outbox-failed~
 notice (the decide reply and the notification) says the posting
 account is not a member of the channel and names ~outbox retry~.
@@ -515,7 +536,7 @@ returned it. The stored reason stays the Slack error.
 | ~rejected~ | Not posted: the user's latest pick was not a ~post~ from the decide UI, or the text changed. |
 | ~mismatch~ | The handoff post differs from the approved text, author, or destination. |
 | ~cancelled~ | Withdrawn with ~outbox cancel~, or its decide item was closed without an answer. |
-| ~failed~ | ~decide ask~ or ~chat.postMessage~ failed. ~outbox retry~ resumes it. |
+| ~failed~ | ~decide ask~ or ~chat.postMessage~ failed. ~outbox retry~, or a new ~post~ pick in its decide item, resumes it. |
 
 ~status~ shows the posting mode and counts the ~pending~,
 ~awaiting-handoff~, and ~needs-redraft~ records. It exits 1 while direct
