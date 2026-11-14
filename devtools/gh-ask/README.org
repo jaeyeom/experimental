@@ -67,13 +67,18 @@ With ~reuse = "per-pr"~, the default, the server stores the id that
 =$HOME/.local/state/gh-ask/threads.json=. It writes the file with mode
 ~0600~ to a temp file and renames it into place.
 
-A later ask on the same PR runs ~followup_command~ with the stored
-~{id}~ and the new message ~{file}~, and returns the stored id. Its
-stdout is ignored. When the last status ~status_command~ reported for
-that id says ~closed~, the ask runs ~ask_command~ instead and the new
-id replaces the stored one. The server learns a thread is closed only
-through ~GET /status/<id>~; without ~status_command~, a stored thread is
-reused until you remove it from the state file.
+A later ask on the same PR checks the stored id before reusing it.
+When ~status_command~ is set, the ask uses a cached status younger
+than about 10 seconds; otherwise it runs ~status_command~. ~closed~
+true runs ~ask_command~, and the new id replaces the stored one. If
+~status_command~ fails, with a non-zero exit, a timeout, or invalid
+JSON, the ask logs the reason and starts a new thread too. A visible
+new thread is better than a question lost in a thread that might
+already be closed. When the status is still open, the ask runs
+~followup_command~ with the stored ~{id}~ and the new message ~{file}~,
+ignores that command's stdout, and returns the stored id. Without
+~status_command~, a stored thread is reused until you remove it from
+the state file.
 
 Two asks on the same PR at the same moment can both start a thread; the
 one that finishes last is stored.

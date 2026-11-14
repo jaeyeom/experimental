@@ -172,10 +172,9 @@ func decodeRequest(w http.ResponseWriter, r *http.Request) (AskRequest, int, err
 }
 
 // ask writes the message file and returns the thread id. With
-// ReusePerPR and an open thread stored for the PR, it runs
-// followup_command for that thread; otherwise it runs ask_command and
-// stores the new id. Its errors are short and safe to show the browser;
-// details go to the log.
+// ReusePerPR it reuses an open stored thread through followup_command.
+// Otherwise it runs ask_command and stores the new id. Its errors are
+// short and safe to show the browser; details go to the log.
 func (s *Server) ask(ctx context.Context, req AskRequest) (string, error) {
 	path, err := writeMessageFile(s.tempDir, RenderMessage(req))
 	if err != nil {
@@ -193,17 +192,8 @@ func (s *Server) ask(ctx context.Context, req AskRequest) (string, error) {
 		"repo": req.Repo,
 	}
 	if s.cfg.Reuse == ReusePerPR {
-		id, ok, err := s.openThread(req.Repo, req.PR)
-		if err != nil {
-			s.logger.Error("gh-ask: state file", "err", err)
-			return "", errors.New("could not read state file")
-		}
-		if ok {
-			vars["id"] = id
-			if _, err := s.run(ctx, "followup_command", s.cfg.FollowupCommand, vars, "repo", req.Repo, "pr", req.PR); err != nil {
-				return "", err
-			}
-			return id, nil
+		if id, done, err := s.followStored(ctx, req, vars); done || err != nil {
+			return id, err
 		}
 	}
 	out, err := s.run(ctx, "ask_command", s.cfg.AskCommand, vars, "repo", req.Repo, "pr", req.PR)
@@ -217,6 +207,40 @@ func (s *Server) ask(ctx context.Context, req AskRequest) (string, error) {
 	}
 	s.recordThread(req.Repo, req.PR, id)
 	return id, nil
+}
+
+// followStored runs followup_command for the PR's stored thread when
+// that thread is still open. done is false when the caller should start
+// a new thread: nothing is stored, the stored thread is closed, or its
+// status could not be checked. With status_command set, a cached status
+// younger than statusCacheTTL is used; otherwise the command runs. A
+// failed check is logged and starts a new thread, which is safer than a
+// question posted into a thread that might already be closed. Without
+// status_command, the stored id is reused as it is.
+func (s *Server) followStored(ctx context.Context, req AskRequest, vars map[string]string) (string, bool, error) {
+	id, ok, err := s.openThread(req.Repo, req.PR)
+	if err != nil {
+		s.logger.Error("gh-ask: state file", "err", err)
+		return "", true, errors.New("could not read state file")
+	}
+	if !ok {
+		return "", false, nil
+	}
+	if len(s.cfg.StatusCommand) > 0 {
+		st, err := s.status(ctx, id)
+		if err != nil {
+			s.logger.Error("gh-ask: status check failed; starting a new thread", "id", id, "err", err)
+			return "", false, nil
+		}
+		if st.Closed {
+			return "", false, nil
+		}
+	}
+	vars["id"] = id
+	if _, err := s.run(ctx, "followup_command", s.cfg.FollowupCommand, vars, "repo", req.Repo, "pr", req.PR); err != nil {
+		return "", true, err
+	}
+	return id, true, nil
 }
 
 // run expands tmpl with vars and runs it. Its error is short and safe to

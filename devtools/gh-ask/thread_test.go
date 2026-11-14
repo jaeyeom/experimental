@@ -1,10 +1,12 @@
 package ghask
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -156,6 +158,7 @@ func TestClosedStatusStartsNewThread(t *testing.T) {
 	if runs := cmds.followup.runs(t); len(runs) != 0 {
 		t.Errorf("followup_command ran for a closed thread: %q", runs)
 	}
+	cmds.status.setOutput(t, openStatus)
 	if id := askID(t, env, validRequest()); id != "bbb" {
 		t.Fatalf("next id = %q, want bbb reused", id)
 	}
@@ -318,4 +321,133 @@ func TestStatusRequestChecks(t *testing.T) {
 	}
 	resp, body := env.status(t, "aaa", withHeader("Origin", "https://github.com"))
 	assertStatus(t, resp, body, http.StatusOK)
+}
+
+func TestAskClosedStatusWithoutPollStartsNewThread(t *testing.T) {
+	env, cmds := newThreadEnv(t, nil)
+	if id := askID(t, env, validRequest()); id != "aaa" {
+		t.Fatalf("first id = %q, want aaa", id)
+	}
+	cmds.status.setOutput(t, `{"state":"done","answered":true,"closed":true}`)
+	cmds.ask.setOutput(t, "created thread-bbb\n")
+	if id := askID(t, env, validRequest()); id != "bbb" {
+		t.Fatalf("id = %q, want new thread bbb", id)
+	}
+	if runs := cmds.followup.runs(t); len(runs) != 0 {
+		t.Errorf("followup_command ran on a closed thread: %q", runs)
+	}
+	if runs := cmds.ask.runs(t); len(runs) != 2 {
+		t.Errorf("ask_command runs = %d, want 2", len(runs))
+	}
+	if runs := cmds.status.runs(t); len(runs) != 1 || runs[0] != "aaa" {
+		t.Errorf("status_command runs = %q, want one check of aaa", runs)
+	}
+	threads, err := loadState(env.srv.cfg.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := threads[stateKey("octo/demo", 42)]; got.ID != "bbb" {
+		t.Errorf("stored = %+v, want id bbb", got)
+	}
+}
+
+func TestAskOpenStatusReusesThread(t *testing.T) {
+	env, cmds := newThreadEnv(t, nil)
+	askID(t, env, validRequest())
+	if id := askID(t, env, validRequest()); id != "aaa" {
+		t.Fatalf("id = %q, want stored aaa", id)
+	}
+	runs := cmds.followup.runs(t)
+	if len(runs) != 1 || runs[0] != "--id aaa --pr 42 --repo octo/demo" {
+		t.Errorf("followup_command runs = %q, want one for aaa", runs)
+	}
+	if runs := cmds.ask.runs(t); len(runs) != 1 {
+		t.Errorf("ask_command runs = %d, want 1", len(runs))
+	}
+	if runs := cmds.status.runs(t); len(runs) != 1 || runs[0] != "aaa" {
+		t.Errorf("status_command runs = %q, want one check of aaa", runs)
+	}
+}
+
+func TestAskStatusFailureStartsNewThread(t *testing.T) {
+	env, cmds := newThreadEnv(t, nil)
+	var logs bytes.Buffer
+	env.srv.logger = slog.New(slog.NewTextHandler(&logs, nil))
+	askID(t, env, validRequest())
+	cmds.status.setOutput(t, "not json")
+	cmds.ask.setOutput(t, "created thread-bbb\n")
+	if id := askID(t, env, validRequest()); id != "bbb" {
+		t.Fatalf("id = %q, want new thread bbb", id)
+	}
+	if runs := cmds.followup.runs(t); len(runs) != 0 {
+		t.Errorf("followup_command ran after a failed status: %q", runs)
+	}
+	if !strings.Contains(logs.String(), "starting a new thread") {
+		t.Errorf("log = %q, want a line that a new thread is starting", logs.String())
+	}
+}
+
+func TestAskStatusCommandExitStartsNewThread(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "fail.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho fail >&2\nexit 3\n"), 0o700); err != nil { //nolint:gosec // G306: the fake command must be executable
+		t.Fatal(err)
+	}
+	env, cmds := newThreadEnv(t, func(c *Config) { c.StatusCommand = []string{script, "{id}"} })
+	var logs bytes.Buffer
+	env.srv.logger = slog.New(slog.NewTextHandler(&logs, nil))
+	askID(t, env, validRequest())
+	cmds.ask.setOutput(t, "created thread-bbb\n")
+	if id := askID(t, env, validRequest()); id != "bbb" {
+		t.Fatalf("id = %q, want new thread bbb", id)
+	}
+	if runs := cmds.followup.runs(t); len(runs) != 0 {
+		t.Errorf("followup_command ran after a failed status: %q", runs)
+	}
+	if !strings.Contains(logs.String(), "starting a new thread") {
+		t.Errorf("log = %q, want a line that a new thread is starting", logs.String())
+	}
+}
+
+func TestAskUsesFreshStatusCache(t *testing.T) {
+	env, cmds := newThreadEnv(t, nil)
+	askID(t, env, validRequest())
+	resp, body := env.status(t, "aaa")
+	assertStatus(t, resp, body, http.StatusOK)
+	*env.clock = env.clock.Add(statusCacheTTL - time.Second)
+	if id := askID(t, env, validRequest()); id != "aaa" {
+		t.Fatalf("id within TTL = %q, want stored aaa", id)
+	}
+	if runs := cmds.status.runs(t); len(runs) != 1 {
+		t.Fatalf("status_command runs within TTL = %d, want 1", len(runs))
+	}
+	*env.clock = env.clock.Add(2 * time.Second)
+	if id := askID(t, env, validRequest()); id != "aaa" {
+		t.Fatalf("id after TTL = %q, want stored aaa", id)
+	}
+	if runs := cmds.status.runs(t); len(runs) != 2 {
+		t.Errorf("status_command runs after TTL = %d, want 2", len(runs))
+	}
+	runs := cmds.followup.runs(t)
+	if len(runs) != 2 || runs[0] != "--id aaa --pr 42 --repo octo/demo" {
+		t.Errorf("followup_command runs = %q, want two for aaa", runs)
+	}
+}
+
+func TestAskWithoutStatusCommandReusesByID(t *testing.T) {
+	env, cmds := newThreadEnv(t, func(c *Config) { c.StatusCommand = nil })
+	askID(t, env, validRequest())
+	if id := askID(t, env, validRequest()); id != "aaa" {
+		t.Fatalf("id = %q, want stored aaa", id)
+	}
+	runs := cmds.followup.runs(t)
+	if len(runs) != 1 || runs[0] != "--id aaa --pr 42 --repo octo/demo" {
+		t.Errorf("followup_command runs = %q, want one for aaa", runs)
+	}
+	if runs := cmds.ask.runs(t); len(runs) != 1 {
+		t.Errorf("ask_command runs = %d, want 1", len(runs))
+	}
+	if runs := cmds.status.runs(t); len(runs) != 0 {
+		t.Errorf("status_command runs = %q, want none", runs)
+	}
 }
