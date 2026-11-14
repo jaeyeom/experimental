@@ -94,8 +94,15 @@ func extractID(re *regexp.Regexp, out []byte) (string, bool) {
 		id = m[1]
 	}
 	s := strings.TrimSpace(string(id))
-	if s == "" || len(s) > maxIDBytes || strings.ContainsFunc(s, unicode.IsControl) {
+	if !validID(s) {
 		return "", false
 	}
 	return s, true
+}
+
+// validID reports whether id is non-empty, at most maxIDBytes, and free of
+// control characters. Ids from command output and from /status URLs must
+// pass it.
+func validID(id string) bool {
+	return id != "" && len(id) <= maxIDBytes && !strings.ContainsFunc(id, unicode.IsControl)
 }

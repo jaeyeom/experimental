@@ -65,6 +65,8 @@ func newTestEnv(t *testing.T, stdout string, code int, mutate func(*Config)) *te
 		IDPattern:      regexp.MustCompile(`thread-([0-9a-f]+)`),
 		RateLimit:      DefaultRateLimit,
 		CommandTimeout: 30 * time.Second,
+		Reuse:          ReuseNone,
+		StateFile:      filepath.Join(t.TempDir(), "state", "threads.json"),
 	}
 	if mutate != nil {
 		mutate(&cfg)
