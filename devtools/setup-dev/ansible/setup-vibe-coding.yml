@@ -1,4 +1,5 @@
 ---
+- import_playbook: gh-approve.yml
 - import_playbook: gh-codeowners.yml
 - import_playbook: gh-merge.yml
 - import_playbook: gh-nudge.yml
@@ -6,6 +7,7 @@
 - import_playbook: gh-repox.yml
 - import_playbook: gh-slack.yml
 - import_playbook: gh-storage.yml
+- import_playbook: gh-throttle.yml
 - import_playbook: prsync.yml
 - import_playbook: review-and-push-loop.yml
 - import_playbook: setup-git.yml

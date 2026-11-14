@@ -13,3 +13,8 @@ go_binary(
     embed = [":go_default_library"],
     visibility = ["//visibility:public"],
 )
+
+exports_files(
+    ["main.go"],
+    visibility = ["//devtools/gh-nudge/cmd:__pkg__"],
+)

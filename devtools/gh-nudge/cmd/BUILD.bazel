@@ -1,0 +1,13 @@
+# Each command package exports main.go. subpackages() picks up a new
+# directory, and the setup-dev test requires a GoTool for that command.
+filegroup(
+    name = "commands",
+    srcs = [
+        "//devtools/gh-nudge/cmd/%s:main.go" % name
+        for name in subpackages(
+            include = ["*"],
+            allow_empty = False,
+        )
+    ],
+    visibility = ["//devtools/setup-dev/ansible:__pkg__"],
+)
