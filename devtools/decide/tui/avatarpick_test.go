@@ -73,6 +73,77 @@ func pickEntry(t *testing.T, m *Model, entry string) {
 	press(t, m, "\r")
 }
 
+func TestAvatarPickTargetsTheSelectedSender(t *testing.T) {
+	path := pickConfig(t, "")
+	t.Setenv("NO_COLOR", "")
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	mustCreate(t, led, &decide.Item{
+		Question:  "ship it?",
+		Owner:     "team/a",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		CreatedAt: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC),
+		Messages: []decide.Message{
+			{Author: "team/b", Text: "opening", Time: time.Date(2026, 11, 1, 1, 0, 0, 0, time.UTC)},
+			{Author: "human", Text: "from me", Time: time.Date(2026, 11, 1, 2, 0, 0, 0, time.UTC)},
+			{Author: "system", Text: "note", Time: time.Date(2026, 11, 1, 3, 0, 0, 0, time.UTC)},
+			{Author: "pane", By: "w1:p9", Text: "from b", Time: time.Date(2026, 11, 1, 4, 0, 0, 0, time.UTC)},
+		},
+	})
+	m := New(dir)
+	m.Now = func() time.Time { return avatarNow }
+	m.avatarProfile = termenv.Ascii
+	m.busNames = []Target{{Name: "team/b", Pane: "w1:p9"}}
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	m.width = 100
+	m.height = 40
+	press(t, m, "o")
+
+	// The opening message is selected. A still changes the owner.
+	press(t, m, "A")
+	if !m.avatarPick || m.avatarOwner != "team/a" || !strings.Contains(visibleLine(m.View()), "avatar for team/a") {
+		t.Fatalf("opening pick owner %q open %v status %q", m.avatarOwner, m.avatarPick, m.status)
+	}
+	press(t, m, "\x1b")
+
+	press(t, m, "nA")
+	if m.avatarPick || m.status != "no avatar for human" {
+		t.Fatalf("human pick %v message %d status %q", m.avatarPick, m.message, m.status)
+	}
+	press(t, m, "nA")
+	if m.avatarPick || m.status != "no avatar for system" {
+		t.Fatalf("system pick %v message %d status %q", m.avatarPick, m.message, m.status)
+	}
+
+	// Message 3 is the pane handle, which is team/b.
+	press(t, m, "nA")
+	if !m.avatarPick || m.avatarOwner != "team/b" || !strings.Contains(visibleLine(m.View()), "avatar for team/b") {
+		t.Fatalf("message 3 pick owner %q open %v status %q", m.avatarOwner, m.avatarPick, m.status)
+	}
+	pickEntry(t, m, "owl")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"match": "team/b"`) || !strings.Contains(string(data), `"builtin": "owl"`) || strings.Contains(string(data), "team/a") {
+		t.Fatalf("config =\n%s", data)
+	}
+}
+
+func TestHelpSetsAvatarForTheSelectedSender(t *testing.T) {
+	m := opsItem(t)
+	var help string
+	for _, line := range m.helpLines() {
+		help += visibleLine(line.text) + "\n"
+	}
+	if !strings.Contains(help, "A — set avatar for the selected sender") {
+		t.Fatalf("help =\n%s", help)
+	}
+}
+
 func TestAvatarPickerShowsEveryFigure(t *testing.T) {
 	pickConfig(t, "")
 	m := opsItem(t, decide.AvatarRule{Match: "ops/x", Builtin: "owl"})

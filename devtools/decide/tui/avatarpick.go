@@ -52,14 +52,37 @@ func avatarPickEntries() []string {
 	return append([]string{avatarDefaultEntry, avatarNoneEntry}, avatar.BuiltinIDs()...)
 }
 
-// beginAvatarPick opens the picker for the open item's owner, with the
-// cursor on the current entry.
+// beginAvatarPick opens the picker for the selected message's sender,
+// with the cursor on the current entry. The opening message, and an
+// item with no message selected, keep the owner. human and system have
+// no avatar to set.
 func (m *Model) beginAvatarPick() {
 	if m.detail == nil || m.detail.Owner == "" {
 		m.status = "no owner"
 		return
 	}
-	m.openAvatarPick(m.detail.Owner)
+	name, ok := m.avatarPickTarget()
+	if !ok {
+		return
+	}
+	m.openAvatarPick(name)
+}
+
+// avatarPickTarget is the name A edits. ok false means the status line
+// already says why there is nothing to set.
+func (m *Model) avatarPickTarget() (string, bool) {
+	it := m.detail
+	if len(it.Messages) == 0 || m.message <= 0 || m.message >= len(it.Messages) {
+		return it.Owner, true
+	}
+	msg := it.Messages[m.message]
+	raw := msg.Sender()
+	name := m.messageAvatarName(msg)
+	if raw == "human" || raw == "system" || raw == "" || name == "" || name == "human" || name == "system" {
+		m.status = "no avatar for " + raw
+		return "", false
+	}
+	return name, true
 }
 
 // openAvatarPick opens the picker for name. The item view and Contacts

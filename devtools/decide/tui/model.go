@@ -784,8 +784,8 @@ func (m *Model) detailKey(r rune) (bool, error) {
 
 // detailOutside runs an item-view key that acts outside the inbox:
 // Y opens the copy menu, L copies the link, V toggles the plain view,
-// o jumps to the owner's tab, and A picks the owner's avatar, saved
-// to config.
+// o jumps to the owner's tab, and A sets the selected sender's avatar,
+// saved to config. The opening message still sets the owner's.
 func (m *Model) detailOutside(r rune) bool {
 	switch r {
 	case 'A':
@@ -2382,7 +2382,7 @@ func (m *Model) helpLines() []screenLine {
 		"1-9 answer  0 reply  f forward  e/y archive  d outcome  b snooze",
 		"/ filters as you type, esc restores, empty enter clears",
 		"l opens a link, or picks one: j/k or a number, enter opens",
-		"L copies the link   Y copy menu   V plain view   A picks the owner's avatar",
+		"L copies the link   Y copy menu   V plain view   A — set avatar for the selected sender",
 		"shift+drag selects text",
 		"M toggles mouse capture",
 		"esc back",

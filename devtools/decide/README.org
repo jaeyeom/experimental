@@ -334,15 +334,18 @@ selection or reloading does not decode the file again.
 
 ** Changing an avatar from the inbox
 
-~A~ in the item view opens a picker for the owner's avatar, and ~A~ on
-a Contacts row opens it for that agent. Every
+~A~ in the item view opens a picker for the selected message's sender
+(~avatar for <name>~). The opening message, and an item with no message
+selected, still change the owner's avatar. ~human~ and ~system~ have
+none: the status line says ~no avatar for <sender>~. ~A~ on a Contacts
+row opens it for that agent. Every
 built-in figure with its id under it, ~*~ on the figure shown now and
 ~>~ on the cursor. ~h~ ~j~ ~k~ ~l~ or the arrows move, ~Enter~ saves,
 and ~Esc~ cancels; the grid scrolls when it does not fit. Two extra
-entries come first: ~default~ removes the owner's exact rule, so glob
-rules or ~avatarDefault~ apply again, and ~none~ hides the owner's
+entries come first: ~default~ removes that name's exact rule, so glob
+rules or ~avatarDefault~ apply again, and ~none~ hides that name's
 avatar. The new avatar shows at once, and the status line says
-~avatar for <owner>: <id> (saved to config)~. The same change from a
+~avatar for <name>: <id> (saved to config)~. The same change from a
 script, or ~A~ in ~decide.el~:
 
 #+begin_src sh
