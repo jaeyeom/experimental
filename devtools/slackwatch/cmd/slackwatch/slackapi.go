@@ -99,15 +99,15 @@ func (r slackReader) ListChannels(ctx context.Context, cursor string) (slackwatc
 // ListUsers reads one page of users.list.
 func (r slackReader) ListUsers(ctx context.Context, cursor string) (slackwatch.UserPage, error) {
 	p := r.api.GetUsersPaginated(slack.GetUsersOptionCursor(cursor), slack.GetUsersOptionLimit(pageLimit))
-	p, err := p.Next(ctx)
+	next, err := p.Next(ctx)
 	if err != nil {
 		if p.Done(err) {
 			return slackwatch.UserPage{}, nil
 		}
 		return slackwatch.UserPage{}, apiError("users.list", err)
 	}
-	page := slackwatch.UserPage{Next: p.Cursor}
-	for _, u := range p.Users {
+	page := slackwatch.UserPage{Next: next.Cursor}
+	for _, u := range next.Users {
 		if u.ID == "" || u.Deleted {
 			continue
 		}
