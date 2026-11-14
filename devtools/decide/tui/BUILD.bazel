@@ -8,6 +8,8 @@ go_library(
         "backend.go",
         "compose.go",
         "contacts.go",
+        "contacts_alias.go",
+        "contacts_resolve.go",
         "copy.go",
         "ctrlenter.go",
         "display.go",

@@ -416,6 +416,31 @@ func (c *Client) SetHidden(names []string) (decide.DisplaySettings, error) {
 	return *resp.Display, nil
 }
 
+// SetAliases saves contact aliases on the hub and returns its display
+// settings. A hub that does not know the op says to update decide there.
+// A nil map clears the key.
+func (c *Client) SetAliases(aliases map[string]string) (decide.DisplaySettings, error) {
+	if aliases == nil {
+		aliases = map[string]string{}
+	}
+	raw, err := json.Marshal(aliases)
+	if err != nil {
+		return decide.DisplaySettings{}, fmt.Errorf("contact aliases: %w", err)
+	}
+	resp, err := c.call(Request{Op: OpSetAliases, Text: string(raw)})
+	if err != nil {
+		if strings.HasPrefix(err.Error(), "unknown op ") {
+			return decide.DisplaySettings{}, fmt.Errorf("hub %s: %s; update decide on the hub", c.Label, err.Error())
+		}
+		return decide.DisplaySettings{}, err
+	}
+	if resp.Display == nil {
+		return decide.DisplaySettings{}, fmt.Errorf("hub %s: set-contact-aliases returned no display settings", c.Label)
+	}
+	c.noteDisplay(*resp.Display)
+	return *resp.Display, nil
+}
+
 // refreshDisplay fetches config while a session is up and keeps it when
 // it changed, so the next display read sees another client's save.
 func (c *Client) refreshDisplay() {

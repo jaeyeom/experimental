@@ -503,6 +503,38 @@ func TestSetHiddenWritesTheHubAndASecondClientSeesIt(t *testing.T) {
 	}
 }
 
+func TestSetAliasesWritesTheHubAndASecondClientSeesIt(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", home)
+	path := filepath.Join(home, "decide", "config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newHub(t)
+	h.server.Display = func() (decide.DisplaySettings, error) {
+		f, err := decide.LoadConfigFile()
+		if err != nil {
+			return decide.DisplaySettings{}, fmt.Errorf("load config: %w", err)
+		}
+		return f.Display(), nil
+	}
+	first := connect(t, h)
+	settings, err := first.SetAliases(map[string]string{"primary": "coord/primary"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(settings.Keys["contactAliases"]), "primary") {
+		t.Fatalf("display = %s", settings.Keys["contactAliases"])
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(data), "coord/primary") {
+		t.Fatalf("hub config = %s, %v", data, err)
+	}
+}
+
 func TestSetAvatarOnAnOldHubSaysToUpdateIt(t *testing.T) {
 	c := &Client{Label: "me@hub", Dial: scriptedHub(func(req Request) Response {
 		switch req.Op {
