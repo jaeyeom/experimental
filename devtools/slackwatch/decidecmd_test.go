@@ -113,6 +113,53 @@ echo '{"id":"D-1","state":"open"}'
 	}
 }
 
+func TestDecideReplyRunsAsOwner(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "env")
+	script := filepath.Join(dir, "fake-decide")
+	body := `#!/bin/sh
+path=$PATH
+printf '%s\n' "$*" >> '` + log + `'
+printf 'pane=%s\n' "${HERDR_PANE_ID-unset}" >> '` + log + `'
+printf 'sender=%s\n' "${SLACKWATCH_DECIDE_SENDER-unset}" >> '` + log + `'
+printf 'path=%s\n' "$path" >> '` + log + `'
+echo '{"id":"D-1","state":"open"}'
+`
+	if err := os.WriteFile(script, []byte(body), 0o700); err != nil { //nolint:gosec // G306: the fake decide must be executable.
+		t.Fatal(err)
+	}
+	t.Setenv("HERDR_PANE_ID", "w1:p2")
+	t.Setenv("DECIDE_AS_HANDLE", "herdr:laptop/s/w1:p2")
+	d := DecideCLI{Run: ExecDecide([]string{script}), Owner: "slackwatch"}
+	if err := d.Reply(context.Background(), "D-1", "still here"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.ReplyOptions(context.Background(), "D-1", "Post this?"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if strings.Count(text, "pane=slackwatch\n") != 2 || strings.Count(text, "sender=slackwatch\n") != 2 {
+		t.Fatalf("reply env =\n%s", text)
+	}
+	if strings.Contains(text, "herdr:laptop") || strings.Contains(text, "w1:p2") {
+		t.Fatalf("reply kept the caller pane:\n%s", text)
+	}
+	for _, line := range strings.Split(text, "\n") {
+		rest, ok := strings.CutPrefix(line, "path=")
+		if !ok {
+			continue
+		}
+		first := strings.Split(rest, string(os.PathListSeparator))[0]
+		if _, err := os.Stat(filepath.Join(first, "agentbus")); err != nil {
+			t.Errorf("PATH %q has no agentbus stub", first)
+		}
+	}
+}
+
 func TestDecideCommandDefault(t *testing.T) {
 	if got := (Config{}).DecideArgv(); fmt.Sprint(got) != "[decide]" {
 		t.Errorf("DecideArgv = %q, want [decide]", got)

@@ -29,7 +29,13 @@ type cmdFakeDecider struct {
 
 func (d *cmdFakeDecider) Ask(_ context.Context, _, question string) (string, error) {
 	id := fmt.Sprintf("D-%d", len(d.items)+1)
-	d.items[id] = &slackwatch.DecideItem{ID: id, State: "open"}
+	d.items[id] = &slackwatch.DecideItem{
+		ID: id, State: "open",
+		Options: []slackwatch.DecideOption{
+			{Key: "post", Label: "Post as written", Recommended: true},
+			{Key: "drop", Label: "Don't post"},
+		},
+	}
 	d.questions[id] = question
 	return id, nil
 }
@@ -40,6 +46,20 @@ func (d *cmdFakeDecider) Show(_ context.Context, id string) (slackwatch.DecideIt
 		return slackwatch.DecideItem{}, errors.New("no such item")
 	}
 	return *it, nil
+}
+
+func (d *cmdFakeDecider) ReplyOptions(_ context.Context, id, text string) error {
+	it, ok := d.items[id]
+	if !ok {
+		return errors.New("no such item")
+	}
+	it.Options = []slackwatch.DecideOption{
+		{Key: "post", Label: "Post as written", Recommended: true},
+		{Key: "drop", Label: "Don't post"},
+	}
+	it.Messages = append(it.Messages, slackwatch.DecideMessage{Text: text, By: "slackwatch"})
+	d.replies = append(d.replies, text)
+	return nil
 }
 
 func (d *cmdFakeDecider) Reply(_ context.Context, id, text string) error {

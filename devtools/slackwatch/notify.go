@@ -26,7 +26,8 @@ const (
 	// Outbox events. Ready goes to post.agent in handoff mode, posting
 	// disabled to the fallback target, and the others to the owner of
 	// the outbox record (rejected, mismatch, and failed also to the
-	// fallback target).
+	// fallback target). Options tells the owner that post and drop were
+	// put back on an open decide item.
 	EventOutboxReady     = "outbox-ready"
 	EventOutboxRedraft   = "outbox-redraft"
 	EventOutboxDropped   = "outbox-dropped"
@@ -34,6 +35,7 @@ const (
 	EventOutboxMismatch  = "outbox-mismatch"
 	EventOutboxFailed    = "outbox-failed"
 	EventOutboxCancelled = "outbox-cancelled"
+	EventOutboxOptions   = "outbox-options"
 	EventPostingDisabled = "posting-disabled"
 )
 
