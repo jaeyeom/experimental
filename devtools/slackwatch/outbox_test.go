@@ -139,15 +139,15 @@ func (w *fakeWriter) AuthTest(_ context.Context, _ string) (AuthInfo, error) {
 	return AuthInfo{UserID: w.user, URL: "https://x.slack.com/"}, nil
 }
 
-func (w *fakeWriter) PostMessage(_ context.Context, token, channel, thread, text string) (string, error) {
+func (w *fakeWriter) PostMessage(_ context.Context, token, channel, thread, text string) (string, string, error) {
 	if w.err != nil {
-		return "", w.err
+		return "", "", w.err
 	}
 	if err := w.errFor[channel]; err != nil {
-		return "", err
+		return "", "", err
 	}
 	w.posts = append(w.posts, fakePost{token, channel, thread, text})
-	return fmt.Sprintf("1700000100.%06d", len(w.posts)), nil
+	return channel, fmt.Sprintf("1700000100.%06d", len(w.posts)), nil
 }
 
 // fakeReader returns one canned message and a canned recent history.

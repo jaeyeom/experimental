@@ -238,6 +238,14 @@ func (s *Store) ForgetChannelID(id string) error {
 	return nil
 }
 
+// SetRequestedTo stores the destination the user typed.
+func (s *Store) SetRequestedTo(id int64, requested string, now time.Time) error {
+	if _, err := s.db.Exec(`UPDATE outbox SET requested_to = ?, updated_at = ? WHERE id = ?`, requested, now.Unix(), id); err != nil {
+		return fmt.Errorf("set outbox %d requested destination: %w", id, err)
+	}
+	return nil
+}
+
 // SetOutboxChannel stores a new destination channel on an outbox record.
 func (s *Store) SetOutboxChannel(id int64, channel string, now time.Time) error {
 	if _, err := s.db.Exec(`UPDATE outbox SET channel = ?, updated_at = ? WHERE id = ?`, channel, now.Unix(), id); err != nil {

@@ -107,12 +107,22 @@ type postEnv struct {
 	tokenFile string
 	dec       *cmdFakeDecider
 
-	mu       sync.Mutex
-	authUser string
-	readUser string
-	readText string
-	posts    []url.Values
-	cursors  []string
+	mu          sync.Mutex
+	authUser    string
+	readUser    string
+	readText    string
+	posts       []url.Values
+	opens       []url.Values
+	cursors     []string
+	openChannel string // conversations.open returns this D… id
+	openErr     string // conversations.open error code; empty means ok
+	postChannel string // chat.postMessage response channel; empty uses the request
+	usersBody   string // users.list body; empty means the call is unexpected
+	emails      map[string]string
+	// history overrides conversations.history. n counts calls from 0.
+	// Nil keeps the default readUser, readText, and latest ts.
+	history func(n int, form url.Values) (user, text, ts string)
+	histN   int
 	// list answers conversations.list. code 0 means 200. It must not lock e.
 	list func(cursor string) (code int, retryAfter, body string)
 }
@@ -142,7 +152,37 @@ func newPostEnv(t *testing.T, post func(dir string) map[string]any) *postEnv {
 			fmt.Fprintf(w, `{"ok":true,"url":"https://acme.slack.com/","user_id":%q}`, e.authUser)
 		case "chat.postMessage":
 			e.posts = append(e.posts, r.Form)
-			fmt.Fprintf(w, `{"ok":true,"channel":%q,"ts":"1700000100.000001"}`, r.Form.Get("channel"))
+			ch := r.Form.Get("channel")
+			if e.postChannel != "" {
+				ch = e.postChannel
+			}
+			fmt.Fprintf(w, `{"ok":true,"channel":%q,"ts":"1700000100.000001"}`, ch)
+		case "conversations.open":
+			e.opens = append(e.opens, r.Form)
+			if e.openErr != "" {
+				fmt.Fprintf(w, `{"ok":false,"error":%q}`, e.openErr)
+				return
+			}
+			if e.openChannel == "" {
+				t.Errorf("unexpected Slack call %s", r.URL.Path)
+				fmt.Fprint(w, `{"ok":false,"error":"unknown_method"}`)
+				return
+			}
+			fmt.Fprintf(w, `{"ok":true,"channel":{"id":%q}}`, e.openChannel)
+		case "users.list":
+			if e.usersBody == "" {
+				t.Errorf("unexpected Slack call %s", r.URL.Path)
+				fmt.Fprint(w, `{"ok":false,"error":"unknown_method"}`)
+				return
+			}
+			fmt.Fprint(w, e.usersBody)
+		case "users.lookupByEmail":
+			id := e.emails[r.Form.Get("email")]
+			if id == "" {
+				fmt.Fprint(w, `{"ok":false,"error":"users_not_found"}`)
+				return
+			}
+			fmt.Fprintf(w, `{"ok":true,"user":{"id":%q,"name":"ada"}}`, id)
 		case "conversations.info":
 			fmt.Fprint(w, `{"ok":true,"channel":{"id":"C0123","name":"general"}}`)
 		case "conversations.list":
@@ -162,7 +202,12 @@ func newPostEnv(t *testing.T, post func(dir string) map[string]any) *postEnv {
 			}
 			fmt.Fprint(w, body)
 		case "conversations.history":
-			msg, _ := json.Marshal(map[string]string{"type": "message", "user": e.readUser, "text": e.readText, "ts": r.Form.Get("latest")})
+			user, text, ts := e.readUser, e.readText, r.Form.Get("latest")
+			if e.history != nil {
+				user, text, ts = e.history(e.histN, r.Form)
+			}
+			e.histN++
+			msg, _ := json.Marshal(map[string]string{"type": "message", "user": user, "text": text, "ts": ts})
 			fmt.Fprintf(w, `{"ok":true,"messages":[%s]}`, msg)
 		default:
 			t.Errorf("unexpected Slack call %s", r.URL.Path)
@@ -814,5 +859,275 @@ func TestSubOwnerChecks(t *testing.T) {
 	stderr.Reset()
 	if code := run([]string{"--config", cfg, "sub", "C1", "--owner", "other"}, &stdout, &stderr); code != 0 || !strings.Contains(stderr.String(), "agentbus") || !strings.Contains(stderr.String(), "accepting --owner other") {
 		t.Fatalf("agentbus down sub = %d, stderr %q", code, stderr.String())
+	}
+}
+
+func usersListBody(members ...string) string {
+	return `{"ok":true,"members":[` + strings.Join(members, ",") + `],"response_metadata":{"next_cursor":""}}`
+}
+
+func (e *postEnv) postDraft(to string) string {
+	e.t.Helper()
+	return e.ok("post", "--to", to, "--text-file", e.textFile, "--owner", "agent-1", "--purpose", "announce release")
+}
+
+func (e *postEnv) approveAndPost() {
+	e.t.Helper()
+	e.dec.answerPost("D-1")
+	e.ok("outbox", "poke", "D-1")
+	e.ok("outbox", "poke", "D-1")
+}
+
+func (e *postEnv) withStore(t *testing.T, fn func(*slackwatch.Store)) {
+	t.Helper()
+	s, err := slackwatch.OpenStore(filepath.Join(e.dir, "slackwatch.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := s.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	fn(s)
+}
+
+type watchSnap struct {
+	channel, thread, kind, state, owner string
+}
+
+func listWatches(t *testing.T, s *slackwatch.Store) []watchSnap {
+	t.Helper()
+	rows, err := s.DB().Query(`SELECT channel, thread_ts, kind, state, owner FROM watches ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	var out []watchSnap
+	for rows.Next() {
+		var w watchSnap
+		if err := rows.Scan(&w.channel, &w.thread, &w.kind, &w.state, &w.owner); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, w)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func TestPostUserIDStoresDMChannel(t *testing.T) {
+	e := newDirectEnv(t, "")
+	e.openChannel = "D456"
+	e.postChannel = "D456"
+	if out := e.postDraft("U123"); !strings.Contains(out, "outbox 1") {
+		t.Fatalf("post printed %q", out)
+	}
+	if len(e.opens) != 1 || e.opens[0].Get("users") != "U123" {
+		t.Fatalf("conversations.open = %v", e.opens)
+	}
+	e.approveAndPost()
+	if len(e.posts) != 1 || e.posts[0].Get("channel") != "D456" {
+		t.Fatalf("chat.postMessage = %v", e.posts)
+	}
+	r := e.record()
+	const link = "https://acme.slack.com/archives/D456/p1700000100000001"
+	if r.State != slackwatch.OutboxPosted || r.Channel != "D456" || r.RequestedTo != "U123" || r.Permalink != link || r.WatchID == 0 {
+		t.Fatalf("record = %+v", r)
+	}
+	e.withStore(t, func(s *slackwatch.Store) {
+		got := listWatches(t, s)
+		if len(got) != 1 || got[0].channel != "D456" || got[0].kind != slackwatch.KindDM || got[0].owner != "agent-1" || got[0].state != slackwatch.StateOpen {
+			t.Fatalf("watches = %+v", got)
+		}
+		cfg, err := slackwatch.LoadConfig(e.cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		proc := &slackwatch.Processor{
+			Store: s, Notifier: &slackwatch.Notifier{Store: s, Config: cfg}, Config: cfg,
+			Self: cmdExpectUser, Now: time.Now,
+		}
+		if err := proc.HandleMessage(context.Background(), slackwatch.Message{
+			Channel: "D456", TS: "1700000101.000001", User: "UOTHER", Text: "got it",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		got = listWatches(t, s)
+		if len(got) != 1 || got[0].state == slackwatch.StateUnowned {
+			t.Fatalf("watches after reply = %+v", got)
+		}
+	})
+	if notes := e.notes(); !strings.Contains(notes, "reply agent-1") {
+		t.Fatalf("notes = %q", notes)
+	}
+}
+
+func TestPostUserIDOpenFailureStoresNothing(t *testing.T) {
+	e := newDirectEnv(t, "")
+	e.openErr = "user_not_found"
+	_, errOut, code := e.run("post", "--to", "U123", "--text-file", e.textFile, "--owner", "agent-1", "--purpose", "announce release")
+	if code == 0 || !strings.Contains(errOut, "conversations.open") || !strings.Contains(errOut, "user_not_found") {
+		t.Fatalf("post = %d, stderr %q", code, errOut)
+	}
+	if out := strings.TrimSpace(e.ok("outbox", "ls", "--json")); out != "[]" {
+		t.Fatalf("outbox = %q", out)
+	}
+	if len(e.posts) != 0 {
+		t.Fatalf("posted despite a failed open: %v", e.posts)
+	}
+}
+
+func TestPostAtNameOpensDM(t *testing.T) {
+	e := newDirectEnv(t, "")
+	e.openChannel = "D456"
+	e.postChannel = "D456"
+	e.usersBody = usersListBody(`{"id":"UADA","name":"ada","profile":{"display_name":"Ada"}}`)
+	if out := e.postDraft("@ada"); !strings.Contains(out, "outbox 1") {
+		t.Fatalf("post printed %q", out)
+	}
+	if len(e.opens) != 1 || e.opens[0].Get("users") != "UADA" {
+		t.Fatalf("conversations.open = %v", e.opens)
+	}
+	e.approveAndPost()
+	r := e.record()
+	if r.Channel != "D456" || r.RequestedTo != "@ada" || r.Permalink != "https://acme.slack.com/archives/D456/p1700000100000001" {
+		t.Fatalf("record = %+v", r)
+	}
+	if len(e.posts) != 1 || e.posts[0].Get("channel") != "D456" {
+		t.Fatalf("chat.postMessage = %v", e.posts)
+	}
+}
+
+func TestPostAmbiguousNameRefused(t *testing.T) {
+	e := newDirectEnv(t, "")
+	e.usersBody = usersListBody(
+		`{"id":"U1","name":"sam","profile":{"display_name":"Sam"}}`,
+		`{"id":"U2","name":"sam2","profile":{"display_name":"Sam"}}`,
+	)
+	_, errOut, code := e.run("post", "--to", "@Sam", "--text-file", e.textFile, "--owner", "agent-1", "--purpose", "announce release")
+	if code == 0 || !strings.Contains(errOut, "U1") || !strings.Contains(errOut, "U2") {
+		t.Fatalf("post = %d, stderr %q", code, errOut)
+	}
+	if out := strings.TrimSpace(e.ok("outbox", "ls", "--json")); out != "[]" {
+		t.Fatalf("outbox = %q", out)
+	}
+	if len(e.opens) != 0 || len(e.posts) != 0 {
+		t.Fatalf("opens = %v, posts = %v", e.opens, e.posts)
+	}
+}
+
+func TestPostEmailOpensDM(t *testing.T) {
+	e := newDirectEnv(t, "")
+	e.openChannel = "D456"
+	e.postChannel = "D456"
+	e.emails = map[string]string{"ada@example.com": "UADA"}
+	const to = "@ada@example.com"
+	if out := e.postDraft(to); !strings.Contains(out, "outbox 1") {
+		t.Fatalf("post printed %q", out)
+	}
+	if len(e.opens) != 1 || e.opens[0].Get("users") != "UADA" {
+		t.Fatalf("conversations.open = %v", e.opens)
+	}
+	e.approveAndPost()
+	r := e.record()
+	if r.Channel != "D456" || r.RequestedTo != to || !strings.Contains(r.Permalink, "/archives/D456/") {
+		t.Fatalf("record = %+v", r)
+	}
+}
+
+func TestOutboxRepairMergesDuplicateWatch(t *testing.T) {
+	e := newDirectEnv(t, "")
+	e.openChannel = "D456"
+	e.withStore(t, func(s *slackwatch.Store) {
+		const ts = "1700000100.000001"
+		link := "https://acme.slack.com/archives/U123/p1700000100000001"
+		res, err := s.DB().Exec(`INSERT INTO watches
+(channel, thread_ts, kind, since_ts, state, owner, source, created_at, permalink)
+VALUES ('U123', ?, 'thread', ?, 'open', 'agent-1', 'outbox', 1700000100, ?)`, ts, ts, link)
+		if err != nil {
+			t.Fatal(err)
+		}
+		owned, err := res.LastInsertId()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.DB().Exec(`INSERT INTO watches
+(channel, thread_ts, kind, since_ts, state, owner, source, created_at, permalink)
+VALUES ('D456', ?, 'dm', ?, 'unowned', '', 'footer', 1700000100, ?)`,
+			ts, ts, "https://acme.slack.com/archives/D456/p1700000100000001"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.DB().Exec(`INSERT INTO outbox
+(channel, text, text_hash, owner, purpose, state, post_ts, permalink, watch_id, created_at, updated_at)
+VALUES ('U123', 'hello', ?, 'agent-1', 'announce', 'posted', ?, ?, ?, 1700000100, 1700000100)`,
+			slackwatch.TextHash("hello"), ts, link, owned); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if out := e.ok("outbox", "repair"); !strings.Contains(out, "repaired 1 DM channel") {
+		t.Fatalf("repair printed %q", out)
+	}
+	r := e.record()
+	if r.Channel != "D456" || r.RequestedTo != "U123" || !strings.Contains(r.Permalink, "/archives/D456/") || strings.Contains(r.Permalink, "/archives/U123/") {
+		t.Fatalf("record = %+v", r)
+	}
+	if len(e.opens) != 1 || e.opens[0].Get("users") != "U123" {
+		t.Fatalf("conversations.open = %v", e.opens)
+	}
+	e.withStore(t, func(s *slackwatch.Store) {
+		got := listWatches(t, s)
+		if len(got) != 1 || got[0].channel != "D456" || got[0].owner != "agent-1" || got[0].state != slackwatch.StateOpen || got[0].kind != slackwatch.KindDM {
+			t.Fatalf("watches = %+v", got)
+		}
+	})
+}
+
+func TestOutboxRetryResolvesUserID(t *testing.T) {
+	e := newDirectEnv(t, "")
+	e.openChannel = "D456"
+	e.postChannel = "D456"
+	e.history = func(n int, form url.Values) (string, string, string) {
+		if n == 0 {
+			return "UOTHER", "not the draft", "1700000001.000001"
+		}
+		ts := form.Get("latest")
+		if ts == "" {
+			ts = "1700000100.000001"
+		}
+		return cmdExpectUser, cmdText + "\n" + cmdFooter, ts
+	}
+	e.withStore(t, func(s *slackwatch.Store) {
+		if _, err := s.DB().Exec(`INSERT INTO outbox
+(channel, text, text_hash, owner, purpose, state, decide_id, created_at, updated_at)
+VALUES ('U123', ?, ?, 'agent-1', 'announce release', 'failed', 'D-1', 1700000100, 1700000100)`,
+			cmdText, slackwatch.TextHash(cmdText)); err != nil {
+			t.Fatal(err)
+		}
+	})
+	e.dec.items["D-1"] = &slackwatch.DecideItem{
+		ID: "D-1", State: "answered",
+		Messages: []slackwatch.DecideMessage{
+			{By: "slackwatch", Text: "Destination: U123\nPurpose: announce release"},
+			{Author: "human", Text: "post: Post as written", OptionKey: "post", Via: "ui"},
+		},
+	}
+	if out := e.ok("outbox", "retry", "1"); !strings.Contains(out, "posted") {
+		t.Fatalf("retry printed %q", out)
+	}
+	r := e.record()
+	if r.State != slackwatch.OutboxPosted || r.Channel != "D456" || r.RequestedTo != "U123" || !strings.Contains(r.Permalink, "/archives/D456/") {
+		t.Fatalf("record = %+v", r)
+	}
+	if len(e.posts) != 1 || e.posts[0].Get("channel") != "D456" {
+		t.Fatalf("chat.postMessage = %v", e.posts)
+	}
+	if len(e.opens) != 1 || e.opens[0].Get("users") != "U123" {
+		t.Fatalf("conversations.open = %v", e.opens)
 	}
 }

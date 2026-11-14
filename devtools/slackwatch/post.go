@@ -30,6 +30,11 @@ var (
 // ValidChannel reports whether s looks like a Slack channel id.
 func ValidChannel(s string) bool { return channelRE.MatchString(s) }
 
+// UserID reports whether s is a Slack user id (U…). A DM channel starts with D.
+func UserID(s string) bool {
+	return len(s) > 1 && s[0] == 'U' && channelRE.MatchString(s)
+}
+
 // ParsePost parses the <post> arguments of a CLI command: a permalink, a
 // channel and ts pair, or a watch id.
 func ParsePost(args []string) (PostRef, error) {

@@ -49,16 +49,75 @@ func (slackWriter) AuthTest(ctx context.Context, token string) (slackwatch.AuthI
 	return slackwatch.AuthInfo{UserID: res.UserID, URL: res.URL}, nil
 }
 
-func (slackWriter) PostMessage(ctx context.Context, token, channel, threadTS, text string) (string, error) {
+func (slackWriter) PostMessage(ctx context.Context, token, channel, threadTS, text string) (string, string, error) {
 	opts := []slack.MsgOption{slack.MsgOptionText(text, false)}
 	if threadTS != "" {
 		opts = append(opts, slack.MsgOptionTS(threadTS))
 	}
-	_, ts, err := newSlackClient(token).PostMessageContext(ctx, channel, opts...)
+	got, ts, err := newSlackClient(token).PostMessageContext(ctx, channel, opts...)
 	if err != nil {
-		return "", apiError("chat.postMessage", err)
+		return "", "", apiError("chat.postMessage", err)
 	}
-	return ts, nil
+	if got == "" {
+		got = channel
+	}
+	return got, ts, nil
+}
+
+func (slackWriter) OpenDM(ctx context.Context, token, userID string) (string, error) {
+	ch, _, _, err := newSlackClient(token).OpenConversationContext(ctx, &slack.OpenConversationParameters{
+		Users: []string{userID}, ReturnIM: true,
+	})
+	if err != nil {
+		return "", apiError("conversations.open", err)
+	}
+	if ch == nil || ch.ID == "" {
+		return "", fmt.Errorf("slack conversations.open: %s returned no channel", userID)
+	}
+	return ch.ID, nil
+}
+
+// postToken is the token that opens and posts a DM. Direct mode uses
+// the write token. Handoff mode uses the user token that receives events.
+func postToken(cfg slackwatch.Config) (string, error) {
+	if cfg.Post.Mode == slackwatch.PostModeDirect {
+		if cfg.Post.WriteTokenFile == "" {
+			return "", errors.New("post.writeTokenFile is not set")
+		}
+		token, err := slackwatch.LoadWriteToken(cfg.Post.WriteTokenFile)
+		if err != nil {
+			return "", fmt.Errorf("read write token: %w", err)
+		}
+		return token, nil
+	}
+	if cfg.TokenFile == "" {
+		return "", errors.New("tokenFile is not set")
+	}
+	tokens, err := slackwatch.LoadTokens(cfg.TokenFile)
+	if err != nil {
+		return "", err //nolint:wrapcheck // Already descriptive.
+	}
+	if tokens.UserToken == "" {
+		return "", errors.New("token file has no user token")
+	}
+	return tokens.UserToken, nil
+}
+
+// slackDMs opens a user id with the posting token.
+type slackDMs struct {
+	load func() (slackwatch.Config, error)
+}
+
+func (s slackDMs) OpenDM(ctx context.Context, userID string) (string, error) {
+	cfg, err := s.load()
+	if err != nil {
+		return "", err
+	}
+	token, err := postToken(cfg)
+	if err != nil {
+		return "", err
+	}
+	return slackWriter{}.OpenDM(ctx, token, userID)
 }
 
 // readTokenReader is slackwatch.MessageReader with the read token, which
@@ -137,6 +196,7 @@ func newOutbox(configPath string, cfg slackwatch.Config, store *slackwatch.Store
 		Now:      time.Now,
 		Logger:   logger,
 		Channels: &lookup,
+		DMs:      slackDMs{load: func() (slackwatch.Config, error) { return slackwatch.LoadConfig(configPath) }},
 	}
 }
 
@@ -153,10 +213,13 @@ func withOutbox(configPath string, stderr io.Writer, f func(*slackwatch.Outbox) 
 	return 0
 }
 
-// destination resolves --to: a channel id, a #name, or a message
-// permalink, whose thread the post replies in.
+// destination resolves --to: a channel id, a #name, an @name, a user
+// id, or a message permalink, whose thread the post replies in.
+// A user id or @name is opened first. A failed open returns before
+// the caller stores a record.
 func destination(cfg slackwatch.Config, store *slackwatch.Store, to string, stderr io.Writer) (slackwatch.Draft, error) {
 	var d slackwatch.Draft
+	d.RequestedTo = to
 	switch {
 	case strings.HasPrefix(to, "#"):
 		id, err := resolveChannel(cfg, store, strings.TrimPrefix(to, "#"), stderr)
@@ -164,6 +227,15 @@ func destination(cfg slackwatch.Config, store *slackwatch.Store, to string, stde
 			return d, err
 		}
 		d.Channel, d.DestName = id, to
+		return d, nil
+	case strings.HasPrefix(to, "@"):
+		return openNamedDM(cfg, store, to, stderr)
+	case slackwatch.UserID(to):
+		dm, err := openDMChannel(cfg, to)
+		if err != nil {
+			return d, err
+		}
+		d.Channel = dm
 		return d, nil
 	case strings.Contains(to, "://"):
 		p, err := slackwatch.ParsePost([]string{to})
@@ -185,15 +257,85 @@ func destination(cfg slackwatch.Config, store *slackwatch.Store, to string, stde
 	case slackwatch.ValidChannel(to):
 		d.Channel = to
 	default:
-		return d, fmt.Errorf("--to %q is not a channel id, #name, or thread permalink", to)
+		return d, fmt.Errorf("--to %q is not a channel id, #name, @name, user id, or thread permalink", to)
 	}
 	d.DestName = lookupChannelName(cfg, store, d.Channel)
 	return d, nil
 }
 
+// openNamedDM resolves @name, or an email when the name contains @,
+// then opens that user's DM.
+func openNamedDM(cfg slackwatch.Config, store *slackwatch.Store, to string, stderr io.Writer) (slackwatch.Draft, error) {
+	var d slackwatch.Draft
+	d.RequestedTo = to
+	d.DestName = to
+	name := strings.TrimPrefix(to, "@")
+	var userID string
+	var err error
+	if strings.Contains(name, "@") {
+		userID, err = lookupEmail(cfg, name)
+	} else {
+		userID, err = resolveUser(cfg, store, name, stderr)
+	}
+	if err != nil {
+		return d, err
+	}
+	dm, err := openDMChannel(cfg, userID)
+	if err != nil {
+		return d, err
+	}
+	d.Channel = dm
+	return d, nil
+}
+
+func openDMChannel(cfg slackwatch.Config, userID string) (string, error) {
+	token, err := postToken(cfg)
+	if err != nil {
+		return "", err
+	}
+	return slackWriter{}.OpenDM(context.Background(), token, userID)
+}
+
+func resolveUser(cfg slackwatch.Config, store *slackwatch.Store, name string, stderr io.Writer) (string, error) {
+	if cfg.TokenFile == "" {
+		return "", fmt.Errorf("resolving @%s needs tokenFile; pass the user id instead", name)
+	}
+	lookup := slackwatch.UserLookup{
+		Store: store, List: tokenUserList{cfg: cfg}, Now: time.Now,
+		TTL: cfg.ChannelCacheTTL.Duration, MaxWait: cfg.ChannelLookupWait.Duration, Sleep: waitFor,
+	}
+	if stderr != nil {
+		lookup.OnWait = func(d time.Duration) {
+			fmt.Fprintf(stderr, "rate limited, waiting %s…\n", d)
+		}
+	}
+	return lookup.UserID(context.Background(), name) //nolint:wrapcheck // Already names the user.
+}
+
+func lookupEmail(cfg slackwatch.Config, email string) (string, error) {
+	api, err := readClient(cfg)
+	if err != nil {
+		return "", err
+	}
+	return slackReader{api: api}.UserByEmail(context.Background(), email)
+}
+
+// tokenUserList lists users with the user token.
+type tokenUserList struct {
+	cfg slackwatch.Config
+}
+
+func (t tokenUserList) ListUsers(ctx context.Context, cursor string) (slackwatch.UserPage, error) {
+	api, err := readClient(t.cfg)
+	if err != nil {
+		return slackwatch.UserPage{}, err
+	}
+	return slackReader{api: api}.ListUsers(ctx, cursor)
+}
+
 func cmdPost(configPath string, args []string, stdout, stderr io.Writer) int {
 	fs := newFlagSet("post", stderr)
-	to := fs.String("to", "", "channel id, #name, or thread permalink (required)")
+	to := fs.String("to", "", "channel id, #name, @name, user id, or thread permalink (required)")
 	textFile := fs.String("text-file", "", "file holding the exact text to post (required)")
 	owner := fs.String("owner", "", "agent that gets the replies (required)")
 	purpose := fs.String("purpose", "", "what the post is for (required)")
@@ -257,7 +399,7 @@ func cmdPost(configPath string, args []string, stdout, stderr io.Writer) int {
 
 func cmdOutbox(configPath string, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		return usageErr(stderr, errors.New("outbox needs ls, show, posted, recheck, poke, cancel, or retry"))
+		return usageErr(stderr, errors.New("outbox needs ls, show, posted, recheck, poke, cancel, retry, or repair"))
 	}
 	sub, ok := map[string]func(string, []string, io.Writer, io.Writer) int{
 		"ls":      cmdOutboxLs,
@@ -267,9 +409,10 @@ func cmdOutbox(configPath string, args []string, stdout, stderr io.Writer) int {
 		"poke":    cmdOutboxPoke,
 		"cancel":  cmdOutboxCancel,
 		"retry":   cmdOutboxRetry,
+		"repair":  cmdOutboxRepair,
 	}[args[0]]
 	if !ok {
-		return usageErr(stderr, fmt.Errorf("unknown outbox command %q; want ls, show, posted, recheck, poke, cancel, or retry", args[0]))
+		return usageErr(stderr, fmt.Errorf("unknown outbox command %q; want ls, show, posted, recheck, poke, cancel, retry, or repair", args[0]))
 	}
 	return sub(configPath, args[1:], stdout, stderr)
 }
@@ -380,6 +523,9 @@ func printOutbox(stdout io.Writer, r slackwatch.OutboxRecord) {
 		fmt.Fprintf(stdout, "superseded by %d\n", r.SupersededBy)
 	}
 	fmt.Fprintf(stdout, "destination: %s (channel %s)\n", dest(r), r.Channel)
+	if r.RequestedTo != "" && r.RequestedTo != r.Channel && r.RequestedTo != r.DestName {
+		fmt.Fprintf(stdout, "requested: %s\n", r.RequestedTo)
+	}
 	if r.ParentLink != "" {
 		fmt.Fprintf(stdout, "thread: %s\n", r.ParentLink)
 	}
@@ -525,6 +671,28 @@ func cmdOutboxRetry(configPath string, args []string, stdout, stderr io.Writer) 
 			return err //nolint:wrapcheck // Already descriptive.
 		}
 		fmt.Fprintf(stdout, "outbox %d %s\n", r.ID, r.State)
+		return nil
+	})
+}
+
+func cmdOutboxRepair(configPath string, args []string, stdout, stderr io.Writer) int {
+	pos, err := parseInterspersed(newFlagSet("outbox repair", stderr), args)
+	if err != nil {
+		return 2
+	}
+	if len(pos) != 0 {
+		return usageErr(stderr, errors.New("outbox repair takes no arguments"))
+	}
+	return withOutbox(configPath, stderr, func(o *slackwatch.Outbox) error {
+		n, err := o.Repair(context.Background())
+		if err != nil {
+			return err //nolint:wrapcheck // Already descriptive.
+		}
+		noun := "channels"
+		if n == 1 {
+			noun = "channel"
+		}
+		fmt.Fprintf(stdout, "repaired %d DM %s\n", n, noun)
 		return nil
 	})
 }
@@ -675,6 +843,11 @@ func startOutbox(ctx context.Context, configPath string, cfg slackwatch.Config, 
 		if err := o.CheckIdentity(ctx); err != nil {
 			logger.Error("slackwatch serve: write token identity check", "error", err)
 		}
+	}
+	if n, err := o.Repair(ctx); err != nil {
+		logger.Error("slackwatch serve: repair DM channels", "error", err, "repaired", n)
+	} else if n > 0 {
+		logger.Info("slackwatch serve: repaired DM channels", "count", n)
 	}
 	logger.Info("slackwatch serve: posting", "mode", cfg.Post.Mode)
 	poll := func(ctx context.Context) error {
