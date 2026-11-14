@@ -38,14 +38,14 @@ func composerHint(kind composerKind) string {
 	if kind == composerNote {
 		send = "Ctrl+Enter / Alt+Enter send  Tab [Send]"
 	}
-	return "C-a/C-e line  C-k kill  C-j newline  C-o open  C-x C-e/C-g editor  " + send + "  Esc cancel"
+	return "C-a/C-e line  C-k kill  C-j newline  C-o open  C-x C-e/C-g editor  Alt+q fill  " + send + "  Esc cancel"
 }
 
 // composerHelp is the composer part of the ? overlay.
 var composerHelp = []string{
 	"C-f/C-b/C-n/C-p or arrows move  C-a/C-e line",
 	"C-d delete  C-k kill  C-j newline  C-o open",
-	"C-x C-e or C-g edits the draft",
+	"C-x C-e or C-g edits the draft  Alt+q fill",
 	"Ctrl+Enter, Alt+Enter or C-s sends the draft",
 }
 
