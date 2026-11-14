@@ -106,6 +106,8 @@ type InboxUI struct {
 	UTC bool `json:"utc,omitempty"`
 	// Clipboard is auto, osc52, command, or off. Empty is auto.
 	Clipboard string `json:"clipboard,omitempty"`
+	// FillColumn is the compose fill width. Zero is 72.
+	FillColumn int `json:"fillColumn,omitempty"`
 }
 
 // CheckClipboard reports an error when mode is not a clipboard transport.

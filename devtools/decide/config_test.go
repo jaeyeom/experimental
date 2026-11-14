@@ -104,6 +104,22 @@ func TestLoadConfigClipboard(t *testing.T) {
 	}
 }
 
+func TestLoadConfigFillColumn(t *testing.T) {
+	writeConfig(t, `{"ui": {"fillColumn": 40}}`)
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.UI.FillColumn != 40 {
+		t.Fatalf("fillColumn %d, want 40", cfg.UI.FillColumn)
+	}
+	writeConfig(t, `{}`)
+	cfg, err = LoadConfig()
+	if err != nil || cfg.UI.FillColumn != 0 {
+		t.Fatalf("default fillColumn %d err %v", cfg.UI.FillColumn, err)
+	}
+}
+
 func TestLoadConfigRecipientsTimeoutMustBePositive(t *testing.T) {
 	for _, data := range []string{`{"recipientsTimeout": "soon"}`, `{"recipientsTimeout": "0s"}`} {
 		writeConfig(t, data)

@@ -184,7 +184,7 @@ func TestComposerHintsListEditingKeys(t *testing.T) {
 		m.height = 30
 		m.status = ""
 		footer := visibleLine(lineContaining(m.View(), "C-k kill"))
-		if !strings.Contains(footer, keys+"  "+send) {
+		if !strings.Contains(footer, keys+"  Alt+q fill  "+send) {
 			t.Fatalf("composer %v footer %q", kind, footer)
 		}
 	}
@@ -197,6 +197,7 @@ func TestComposerHintsListEditingKeys(t *testing.T) {
 		"C-f/C-b/C-n/C-p or arrows move  C-a/C-e line",
 		"C-d delete  C-k kill  C-j newline  C-o open",
 		"C-x C-e or C-g edits the draft",
+		"Alt+q fill",
 	} {
 		if !strings.Contains(help, needle) {
 			t.Fatalf("help missing %q\n%s", needle, help)

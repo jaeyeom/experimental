@@ -57,6 +57,8 @@ type Options struct {
 	UTC bool
 	// Clipboard is auto, osc52, command, or off. Empty is auto.
 	Clipboard string
+	// FillColumn is the compose fill width. Zero is 72.
+	FillColumn int
 	// Backend replaces the local ledger in Dir, such as the hub's in
 	// hub mode. It is reloaded off the update loop.
 	Backend Backend
@@ -145,6 +147,7 @@ func prepare(opts Options) (*Model, error) {
 	m.aliases = cloneAliases(opts.ContactAliases)
 	m.UTC = opts.UTC
 	m.clipboard = opts.Clipboard
+	m.fillColumn = opts.FillColumn
 	if opts.Backend != nil {
 		m.backend = opts.Backend
 		m.asyncReload = true

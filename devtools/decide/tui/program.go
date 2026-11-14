@@ -143,6 +143,10 @@ func (m *Model) updateKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if kind, ok := m.composerKind(); ok && isSendKey(msg) {
 		return m, m.sendComposer(kind)
 	}
+	if m.composerFocused() && isFillKey(msg) {
+		m.fillComposer()
+		return m, nil
+	}
 	if isEditKey(msg) && m.editComposerKey(msg) {
 		return m, nil
 	}

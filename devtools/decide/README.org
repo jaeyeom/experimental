@@ -201,6 +201,16 @@ reply, answer, and outcome boxes. In the note box it does the same as
 in the others. The inbox runs the terminal in raw mode, which turns off
 XON/XOFF flow control, so ~C-s~ reaches it.
 
+~Alt+q~ fills the paragraph at the cursor. List items stay separate:
+the marker stays on the first line and later lines line up under the
+item text. An indented block, and text inside a fence of backticks or
+tildes, is left as it is. The width is ~ui.fillColumn~ in ~config.json~,
+or 72 when that is unset, and it is never wider than the compose box.
+
+#+begin_src json
+{"ui": {"fillColumn": 72}}
+#+end_src
+
 ~Ctrl+Enter~ works where the terminal sends it as its own sequence with
 no keyboard mode switched on: exactly =ESC [27;5;13~= (xterm
 modifyOtherKeys) or =ESC [13;5u= (kitty). The inbox rewrites those two

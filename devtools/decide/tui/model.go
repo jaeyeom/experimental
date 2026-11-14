@@ -233,6 +233,8 @@ type Model struct {
 	UTC bool
 	// clipboard is auto, osc52, command, or off. Empty is auto.
 	clipboard string
+	// fillColumn is the compose fill width. Zero is 72.
+	fillColumn int
 	// copyMenu is the item-view copy menu. plain is the borderless view.
 	copyMenu bool
 	plain    bool
@@ -344,7 +346,7 @@ func (m *Model) applyList(all []decide.Item) error {
 // [Send] sends. Printable keys type into a focused field, and the
 // composerKeys Emacs bindings edit it; '\n' (C-j) inserts a newline and
 // only '\r' (Enter) submits. Ctrl+Enter, Alt+Enter and C-s send from any focused
-// composer; Update handles them before Key. ? opens the
+// composer, and Alt+q fills the paragraph there; Update handles them before Key. ? opens the
 // shortcut overlay only when no text field is focused, and Esc or ? closes
 // it. / opens a search prompt that filters a list or highlights matches in
 // an open item as you type. Enter keeps the result, an empty Enter clears
