@@ -38,6 +38,7 @@ func TestDisplaySettingsExportOnlyDisplayKeys(t *testing.T) {
 		"avatarDefault": true, "avatarMono": "hide", "recipients": {"agentbus": true},
 		"recipientsTimeout": "5s", "targets": [{"name": "builder", "pane": "w2:p3"}],
 		"hyperlinks": false, "hiddenContacts": ["zed"], "contactAliases": {"primary": "coord/primary"},
+		"messageAvatars": false,
 		"avatars": [{"match": "ada", "builtin": "owl"}]
 	}`)
 	got := f.Display()
@@ -46,7 +47,7 @@ func TestDisplaySettingsExportOnlyDisplayKeys(t *testing.T) {
 		keys = append(keys, k)
 	}
 	slices.Sort(keys)
-	want := []string{"avatarDefault", "avatarMono", "avatars", "contactAliases", "hiddenContacts", "hyperlinks", "recipients", "recipientsTimeout", "targets"}
+	want := []string{"avatarDefault", "avatarMono", "avatars", "contactAliases", "hiddenContacts", "hyperlinks", "messageAvatars", "recipients", "recipientsTimeout", "targets"}
 	if !slices.Equal(keys, want) {
 		t.Fatalf("keys = %q, want %q", keys, want)
 	}
@@ -135,6 +136,31 @@ func TestMergeDisplayLocalValueWins(t *testing.T) {
 	}
 	if got := eff.Summary(); got != "display settings: hub (3 keys), local overrides: avatarDefault" {
 		t.Fatalf("summary = %q", got)
+	}
+}
+
+func TestMessageAvatarsDefaultsOn(t *testing.T) {
+	if !hubFile(t, `{}`).Config.MessageAvatarsOn() {
+		t.Fatal("unset messageAvatars is off")
+	}
+	if hubFile(t, `{"messageAvatars": false}`).Config.MessageAvatarsOn() {
+		t.Fatal("messageAvatars false is on")
+	}
+	hub := hubFile(t, `{"messageAvatars": false}`).Display()
+	eff, err := MergeDisplay(hubFile(t, `{"hub": "me@hub"}`), hub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eff.Config.MessageAvatarsOn() || eff.Sources["messageAvatars"] != SourceHub {
+		t.Fatalf("config on %v sources %v", eff.Config.MessageAvatarsOn(), eff.Sources)
+	}
+	local := hubFile(t, `{"messageAvatars": true}`)
+	eff, err = MergeDisplay(local, hub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !eff.Config.MessageAvatarsOn() || eff.Sources["messageAvatars"] != SourceLocal {
+		t.Fatalf("local did not win: on %v sources %v", eff.Config.MessageAvatarsOn(), eff.Sources)
 	}
 }
 

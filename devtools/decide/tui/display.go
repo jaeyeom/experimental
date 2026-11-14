@@ -18,6 +18,7 @@ type Display struct {
 	Avatars           []decide.AvatarRule
 	AvatarDefault     bool
 	AvatarMono        string
+	MessageAvatars    bool
 	NoHyperlinks      bool
 	AvatarFiles       map[string]decide.AvatarFile
 	HiddenContacts    []string
@@ -54,6 +55,7 @@ func (m *Model) applyDisplay(d Display) {
 	m.Avatars = d.Avatars
 	m.AvatarDefault = d.AvatarDefault
 	m.AvatarMono = d.AvatarMono
+	m.MessageAvatars = d.MessageAvatars
 	m.NoHyperlinks = d.NoHyperlinks
 	prevHidden := strings.Join(m.hidden, "\x00")
 	m.hidden = append([]string(nil), d.HiddenContacts...)

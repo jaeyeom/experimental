@@ -571,6 +571,7 @@ func inboxOptions(cfg decide.Config, stdout io.Writer, snoozed bool) tui.Options
 		Avatars:           cfg.Avatars,
 		AvatarDefault:     cfg.AvatarDefault,
 		AvatarMono:        cfg.AvatarMono,
+		MessageAvatars:    cfg.MessageAvatarsOn(),
 		Checkouts:         cfg.Checkouts,
 		Machine:           decide.LocalMachine(cfg),
 		OpenCommand:       cfg.OpenCommand,

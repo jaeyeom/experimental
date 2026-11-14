@@ -69,6 +69,9 @@ type Config struct {
 	// AvatarMono is AvatarMonoHide to hide avatars without color, under
 	// NO_COLOR or a monochrome terminal. Otherwise they show uncolored.
 	AvatarMono string `json:"avatarMono,omitempty"`
+	// MessageAvatars shows each thread message's sender beside that
+	// message. Nil is on. The header avatar stays the item owner.
+	MessageAvatars *bool `json:"messageAvatars,omitempty"`
 	// Checkouts maps status resource names to checkout paths whose
 	// agentbus lease the status board shows.
 	Checkouts []ConfigCheckout `json:"checkouts,omitempty"`
@@ -119,6 +122,12 @@ func CheckClipboard(mode string) error {
 // HyperlinksOn reports whether the inbox writes OSC 8 hyperlinks.
 func (c Config) HyperlinksOn() bool {
 	return c.Hyperlinks == nil || *c.Hyperlinks
+}
+
+// MessageAvatarsOn reports whether each thread message shows its sender's
+// avatar. Unset is on.
+func (c Config) MessageAvatarsOn() bool {
+	return c.MessageAvatars == nil || *c.MessageAvatars
 }
 
 // DefaultBusListTimeout bounds `agentbus list --json` when the config
