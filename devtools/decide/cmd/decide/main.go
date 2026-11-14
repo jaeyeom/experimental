@@ -858,12 +858,20 @@ func cmdAnswer(args []string, stdout, stderr io.Writer) int {
 	if answered.Kind != decide.KindRelay {
 		return 0
 	}
-	if err := decide.Notify(&answered, stderr); err != nil {
-		recordNotifyError(answered.ID, err)
+	if err := deliverAnswer(&answered, stderr); err != nil {
 		return fail(stderr, err, 1)
 	}
-	recordNotifyError(answered.ID, nil)
 	return 0
+}
+
+// deliverAnswer notifies item and stores the attempt on the ledger.
+func deliverAnswer(item *decide.Item, out io.Writer) error {
+	led, err := openLedger()
+	if err != nil {
+		return err
+	}
+	_, err = led.DeliverAnswer(item, out)
+	return err //nolint:wrapcheck // DeliverAnswer names the failure
 }
 
 func cmdText(args []string, stdout, stderr io.Writer, name, textName string, fn func(*decide.Ledger, string, string) (decide.Item, error)) int {
@@ -1156,6 +1164,13 @@ func writeShow(w io.Writer, it *decide.Item) {
 	writeField(w, "notifyPane", it.NotifyPane)
 	writeField(w, "notifyMachine", it.NotifyMachine)
 	writeField(w, "notifyError", it.NotifyError)
+	for _, d := range it.Delivery {
+		line := d.Outcome
+		if d.Error != "" {
+			line += ": " + d.Error
+		}
+		fmt.Fprintf(w, "delivery: %s %s %s\n", d.At.UTC().Format(time.RFC3339Nano), d.Target, line)
+	}
 	writeField(w, "typeText", it.TypeText)
 	writeField(w, "where", it.Where)
 	writeField(w, "reason", it.Reason)

@@ -63,8 +63,14 @@ type Result struct {
 // the whole group is killed, so a hung ssh child cannot outlive the call.
 // A non-nil error means the process did not start.
 func Run(ctx context.Context, name string, args ...string) (Result, error) {
+	return RunEnv(ctx, nil, name, args...)
+}
+
+// RunEnv is Run with env as the child's environment.
+// Nil env keeps the process environment.
+func RunEnv(ctx context.Context, env []string, name string, args ...string) (Result, error) {
 	var stdout, stderr bytes.Buffer
-	res, err := RunIO(ctx, nil, &stdout, &stderr, name, args...)
+	res, err := runIO(ctx, env, nil, &stdout, &stderr, name, args...)
 	res.Stdout = stdout.String()
 	res.Stderr = stderr.String()
 	return res, err
@@ -73,10 +79,17 @@ func Run(ctx context.Context, name string, args ...string) (Result, error) {
 // RunIO is Run with the caller's stdin, stdout, and stderr. The Result
 // carries Code and TimedOut; its Stdout and Stderr stay empty.
 func RunIO(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, name string, args ...string) (Result, error) {
+	return runIO(ctx, nil, stdin, stdout, stderr, name, args...)
+}
+
+func runIO(ctx context.Context, env []string, stdin io.Reader, stdout, stderr io.Writer, name string, args ...string) (Result, error) {
 	// The caller names the binary, such as herdr or ssh, and passes an
 	// argument list, not a shell line.
 	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	cmd := exec.CommandContext(ctx, name, args...)
+	if len(env) > 0 {
+		cmd.Env = env
+	}
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr

@@ -142,6 +142,8 @@ type Item struct {
 	// NotifyError is why the last notification was not delivered.
 	// Empty means it was delivered, or no notification ran.
 	NotifyError string `json:"notifyError,omitempty"`
+	// Delivery is each attempt to deliver an answer, oldest first.
+	Delivery []Delivery `json:"delivery,omitempty"`
 	// SnoozedUntil hides the item until that time. SnoozedAt is when the
 	// snooze was set. A new message on the thread clears both.
 	SnoozedUntil *time.Time `json:"snoozedUntil,omitempty"`
@@ -993,6 +995,9 @@ func cloneItem(src *Item) Item {
 			}
 		}
 	}
+	if src.Delivery != nil {
+		item.Delivery = append([]Delivery(nil), src.Delivery...)
+	}
 	return item
 }
 
@@ -1015,6 +1020,9 @@ func normalizeTimes(item *Item) {
 	}
 	for i := range item.Messages {
 		item.Messages[i].Time = item.Messages[i].Time.UTC()
+	}
+	for i := range item.Delivery {
+		item.Delivery[i].At = item.Delivery[i].At.UTC()
 	}
 }
 

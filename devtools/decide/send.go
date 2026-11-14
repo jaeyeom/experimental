@@ -145,15 +145,23 @@ func MachineArgv(argv []string, machine string) []string {
 // cannot be reached fails with a *remotecall.UnreachableError in the
 // error chain, as agentbus reports it.
 func RunSend(argv []string) error {
+	return runSend(argv, nil)
+}
+
+// runSend executes argv. A non-nil env replaces the process environment.
+func runSend(argv, env []string) error {
 	if len(argv) == 0 {
 		return fmt.Errorf("decide send: empty command")
 	}
 	if len(argv) >= 3 && argv[1] == "--machine" {
-		return runSendOn(argv[2], argv[0], argv[3:])
+		return runSendOn(argv[2], argv[0], argv[3:], env)
 	}
 	// The note is already its own argument. Operator config chooses the program.
 	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	cmd := exec.Command(argv[0], argv[1:]...) //nolint:gosec // G204: the note is its own argument, not a shell string
+	if len(env) > 0 {
+		cmd.Env = env
+	}
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = io.Discard
@@ -168,8 +176,8 @@ func RunSend(argv []string) error {
 
 // runSendOn runs program with `--machine machine args...` under
 // MachineTimeout. The probe asks herdr whether the machine answers.
-func runSendOn(machine, program string, args []string) error {
-	stdout, stderr, code, err := runOnMachine(context.Background(), machine, program, args)
+func runSendOn(machine, program string, args, env []string) error {
+	stdout, stderr, code, err := runOnMachine(context.Background(), machine, program, args, env)
 	if err != nil {
 		return fmt.Errorf("decide send: %w", err)
 	}
@@ -183,7 +191,8 @@ func runSendOn(machine, program string, args []string) error {
 }
 
 // stdoutDeliveryError reports a delivery whose command exited 0 but
-// printed JSON with a top-level error object. Other stdout is success.
+// printed JSON with a top-level error object, or said the pane or agent
+// was not found. Other stdout is success.
 func stdoutDeliveryError(stdout string) error {
 	raw := strings.TrimSpace(stdout)
 	if raw == "" {
@@ -192,13 +201,29 @@ func stdoutDeliveryError(stdout string) error {
 	var body struct {
 		Error json.RawMessage `json:"error"`
 	}
-	if err := json.Unmarshal([]byte(raw), &body); err != nil {
-		return nil
+	if err := json.Unmarshal([]byte(raw), &body); err == nil {
+		if len(body.Error) > 0 && string(body.Error) != "null" && body.Error[0] == '{' {
+			return fmt.Errorf("command reported %s", raw)
+		}
 	}
-	if len(body.Error) == 0 || string(body.Error) == "null" || body.Error[0] != '{' {
-		return nil
+	if phrase := missedTarget(raw); phrase != "" {
+		return fmt.Errorf("%s", phrase)
 	}
-	return fmt.Errorf("command reported %s", raw)
+	return nil
+}
+
+// missedTarget reports a pane or agent the command said it could not find.
+// Empty means the text is not that kind of failure.
+func missedTarget(text string) string {
+	low := strings.ToLower(text)
+	switch {
+	case strings.Contains(low, "pane not found"):
+		return "pane not found"
+	case strings.Contains(low, "agent not found"):
+		return "agent not found"
+	default:
+		return ""
+	}
 }
 
 // undeliveredBus reports an agentbus send that was held or queued.
@@ -241,9 +266,9 @@ func busStateHeldOrQueued(state string) bool {
 // runOnMachine runs program with `--machine machine args...` under
 // MachineTimeout. The probe asks herdr whether the machine answers, so a
 // machine that cannot be reached fails with a *remotecall.UnreachableError.
-func runOnMachine(ctx context.Context, machine, program string, args []string) (string, string, int, error) {
+func runOnMachine(ctx context.Context, machine, program string, args, env []string) (string, string, int, error) {
 	run := func(ctx context.Context, argv []string) (string, string, int, error) {
-		res, err := remotecall.Run(ctx, program, argv...)
+		res, err := remotecall.RunEnv(ctx, env, program, argv...)
 		return res.Stdout, res.Stderr, res.Code, err //nolint:wrapcheck // OnHerdrMachine reports it
 	}
 	herdr := func(ctx context.Context, argv []string) (string, string, int, error) {
