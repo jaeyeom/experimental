@@ -47,10 +47,23 @@ agentbus list
 Good: herdr-registered names are not all ~liveness: unreachable~.
 
 If ~agentbus search~ printed nothing, or every herdr-registered name
-is ~liveness: unreachable~, the daemon started before the herdr
-server. Wait until the log is quiet, then restart. Skip the restart
-when the two checks above are already good. Held messages drain after
-the restart.
+is ~liveness: unreachable~, right after boot, the daemon started
+before the herdr server. Since
+[[https://github.com/jaeyeom/experimental/issues/767][#767]] it keeps
+retrying and recovers by itself once herdr is up, usually within a
+minute. Held messages then drain on their own. A daemon older than
+#767 does not self-recover, so it still needs the restart below.
+
+#+BEGIN_SRC bash
+agentbus doctor
+#+END_SRC
+
+Good: the output does not contain ~herdr transport unreachable~.
+
+Restart only if ~agentbus doctor~ still prints
+~herdr transport unreachable~ after about a minute. Wait until the
+log is quiet first. Skip the restart when the checks above are
+already good.
 
 #+BEGIN_SRC bash
 agentbus log --since 10s
@@ -72,10 +85,6 @@ launchctl kickstart -k "gui/$(id -u)/com.agentbus.agentbusd"
 #+END_SRC
 
 Good: no output and exit 0, and ~com.agentbus.agentbusd~ has a pid in ~launchctl list~.
-
-This restart is the workaround today.
-[[https://github.com/jaeyeom/experimental/issues/767][#767]] removes
-this step once it lands.
 
 * herdr tabs
 
