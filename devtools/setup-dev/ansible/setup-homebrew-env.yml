@@ -3,6 +3,13 @@
 
 - name: Setup Homebrew shell environment
   hosts: all
+  vars:
+    # homebrew_env_os and the brew paths are facts in normal use. A test
+    # passes -e to point them at a temp prefix or a non-Darwin family.
+    homebrew_env_os: "{{ ansible_facts['os_family'] }}"
+    homebrew_opt_brew: /opt/homebrew/bin/brew
+    homebrew_usr_brew: /usr/local/bin/brew
+    homebrew_zshenv: "{{ ansible_facts['env']['HOME'] }}/.zshenv"
   tasks:
     - name: Include guard for setup-homebrew-env playbook
       block:
@@ -14,7 +21,8 @@
             setup_homebrew_env_playbook_imported: true
           when: setup_homebrew_env_playbook_imported is not defined
 
-    - name: Ensure Homebrew environment is set for non-login shells
+    # ~/.zshrc is read by interactive zsh. ssh host command reads ~/.zshenv.
+    - name: Ensure Homebrew shellenv is in the interactive shell rc
       blockinfile:
         path: "{{ user_profile_path }}"
         insertbefore: BOF
@@ -27,3 +35,44 @@
               eval "$(/usr/local/bin/brew shellenv)"
             fi
           fi
+
+    - name: Check for Apple Silicon Homebrew
+      stat:
+        path: "{{ homebrew_opt_brew }}"
+      register: homebrew_opt
+      tags: homebrew-zshenv
+
+    - name: Check for Intel Homebrew
+      stat:
+        path: "{{ homebrew_usr_brew }}"
+      register: homebrew_usr
+      tags: homebrew-zshenv
+
+    # sbin is listed first so each prepend leaves bin in front of sbin.
+    - name: Record the Homebrew prefix for non-interactive zsh
+      set_fact:
+        homebrew_prefix: "{{ ((homebrew_opt.stat.exists | default(false)) | ternary(homebrew_opt_brew, homebrew_usr_brew)) | dirname | dirname }}"
+      when:
+        - homebrew_env_os == "Darwin"
+        - (homebrew_opt.stat.exists | default(false)) or (homebrew_usr.stat.exists | default(false))
+      changed_when: false
+      tags: homebrew-zshenv
+
+    - name: Prepend Homebrew to PATH in ~/.zshenv
+      blockinfile:
+        path: "{{ homebrew_zshenv }}"
+        create: true
+        mode: "0644"
+        insertbefore: BOF
+        marker: "# {mark} setup-dev Homebrew PATH (setup-homebrew-env.yml)"
+        block: |
+          for _setup_dev_brew_dir in {{ homebrew_prefix }}/sbin {{ homebrew_prefix }}/bin; do
+              case ":$PATH:" in
+                  *":$_setup_dev_brew_dir:"*) ;;
+                  *) PATH="$_setup_dev_brew_dir:$PATH" ;;
+              esac
+          done
+          unset _setup_dev_brew_dir
+          export PATH
+      when: homebrew_prefix is defined
+      tags: homebrew-zshenv

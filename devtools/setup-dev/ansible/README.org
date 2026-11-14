@@ -344,6 +344,14 @@ regenerate outputs.
 
 See [[file:TODO.org][TODO.org]] for the full backlog, changelog, and planned features.
 
+* Homebrew on non-interactive zsh
+
+=setup-homebrew-env.yml= still puts =brew shellenv= in the interactive
+rc (=~/.zshrc= on zsh). =ssh host command= reads =~/.zshenv= only, so
+on macOS the same playbook prepends the Homebrew bin and sbin
+directories there when =brew= is installed. A second run does not
+duplicate them. Linux and Termux are left alone.
+
 * Claude Code sandbox network
 
 =setup-claude-sandbox.yml= writes =sandbox.network.allowedDomains= in

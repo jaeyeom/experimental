@@ -167,6 +167,18 @@ sh_test(
 )
 
 sh_test(
+    name = "homebrew_zshenv_test",
+    srcs = ["homebrew_zshenv_test.sh"],
+    # setup-homebrew-env.yml imports setup-shell-profile.yml. The test
+    # runs only the homebrew-zshenv tag.
+    data = ["inventory.ini"] + glob(["*.yml"]),
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "claude_sandbox_settings_test",
     srcs = ["claude_sandbox_settings_test.sh"],
     # setup-claude-sandbox.yml imports other playbooks. The test runs
