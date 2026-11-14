@@ -1,0 +1,126 @@
+#+TITLE: gh-ask
+#+DATE: 2026-11-14
+
+* Overview
+
+~gh-ask~ lets a reviewer ask a question about a line range in a pull
+request diff from the browser. A local server on ~127.0.0.1~ takes the
+question and hands it to a command you configure, for example one that
+files the question for an agent and prints a thread id.
+
+The server has one endpoint, ~POST /ask~. It is not a generic exec
+service: the command is fixed in config, and the request text reaches
+it only through a file.
+
+* Install
+
+#+BEGIN_SRC bash
+go install github.com/jaeyeom/experimental/devtools/gh-ask/cmd/gh-ask@latest
+#+END_SRC
+
+* Usage
+
+#+BEGIN_SRC bash
+gh-ask token                                     # create the secret if missing and print it
+gh-ask serve --config ~/.config/gh-ask/config.toml
+#+END_SRC
+
+Both commands take ~--config~. The default is
+=$XDG_CONFIG_HOME/gh-ask/config.toml=, or
+=$HOME/.config/gh-ask/config.toml=.
+
+~gh-ask token~ writes 32 random bytes, hex encoded, to the token file
+with mode ~0600~. It prints the existing token when the file already
+exists. ~gh-ask serve~ refuses to start without the token file, and
+refuses a token file that group or others can read.
+
+* Config
+
+#+BEGIN_SRC toml
+# Only 127.0.0.1:<port> is accepted. Default 127.0.0.1:8765.
+listen = "127.0.0.1:8765"
+# owner/name repos the server accepts.
+repos = ["octo/demo"]
+# argv, run without a shell. Only {file}, {pr} and {repo} are replaced.
+ask_command = ["ask-agent", "--message-file", "{file}", "--pr", "{pr}", "--repo", "{repo}"]
+# Finds the id in stdout: group 1 if the pattern has a group, else the match.
+id_pattern = 'thread-([0-9a-f]+)'
+# Optional.
+rate_limit = 10            # asks per hour
+command_timeout = "2m"
+token_file = "token"       # relative to the config file's directory
+#+END_SRC
+
+Unknown keys are errors.
+
+* POST /ask
+
+The body is JSON:
+
+| Field        | Notes                                        |
+|--------------+----------------------------------------------|
+| ~repo~       | ~owner/name~, must be in ~repos~             |
+| ~pr~         | positive integer                             |
+| ~head_sha~   | hex commit id                                |
+| ~path~       | file path, at most 1 KB, no control chars    |
+| ~side~       | ~LEFT~ or ~RIGHT~                            |
+| ~start_line~ | first line, 1 or later                       |
+| ~end_line~   | last line, not before ~start_line~           |
+| ~selection~  | code, at most 4 KB                           |
+| ~question~   | non-empty, at most 2 KB                      |
+| ~deep~       | boolean                                      |
+| ~page_url~   | an ~https://github.com/~ link, at most 2 KB  |
+
+On success the response is ~{"id": "..."}~. Errors are
+~{"error": "..."}~ with a short message; details go to the server log.
+
+| Status | Meaning                                                |
+|--------+--------------------------------------------------------|
+| 400    | bad JSON or a bad field                                |
+| 401    | missing or wrong ~X-Gh-Ask-Token~                      |
+| 403    | bad ~Host~, bad ~Origin~, or repo not in ~repos~       |
+| 404    | any path other than ~/ask~                             |
+| 405    | any method other than ~POST~, including ~OPTIONS~      |
+| 413    | a field over its cap, or a body over 16 KB             |
+| 429    | over the rate limit                                    |
+| 502    | the command failed, timed out, or printed no id        |
+
+* Security
+
+- The server binds only ~127.0.0.1~. Any other ~listen~ address is
+  refused.
+- ~X-Gh-Ask-Token~ must match the token file. The compare runs in
+  constant time.
+- No CORS headers are ever sent, and ~OPTIONS~ gets ~405~. A web page
+  cannot send the token header cross-origin, so only a userscript or
+  extension can call the server.
+- ~Host~ must be ~127.0.0.1:<port>~ or ~localhost:<port>~. This blocks
+  DNS rebinding.
+- ~Origin~, when present, must be ~https://github.com~ or a
+  ~chrome-extension://~, ~moz-extension://~ or
+  ~safari-web-extension://~ origin.
+- Requests rejected before the rate limit check do not use up the
+  limit.
+
+* The message file
+
+The request is rendered to a mode-0600 temp file:
+
+#+BEGIN_EXAMPLE
+[gh-ask] PR 42 · pkg/a.go:10-12 (RIGHT) · deep=no
+
+Question:
+Why is this retried?
+
+Code:
+for i := 0; i < 3; i++ {
+
+Link:
+https://github.com/octo/demo/pull/42/files#diff-...
+#+END_EXAMPLE
+
+The file is deleted when the command exits. A command that hands the
+file to something asynchronous must copy it first.
+
+The command runs with no stdin, the server's environment, and
+~command_timeout~. It keeps running if the browser disconnects.

@@ -1,0 +1,35 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+load("//tools/org-lint:defs.bzl", "org_lint_tests")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "command.go",
+        "config.go",
+        "listen.go",
+        "message.go",
+        "ratelimit.go",
+        "server.go",
+        "token.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/gh-ask",
+    visibility = ["//visibility:public"],
+    deps = ["@com_github_pelletier_go_toml_v2//:go_default_library"],
+)
+
+go_test(
+    name = "go_default_test",
+    size = "small",
+    srcs = [
+        "command_test.go",
+        "config_test.go",
+        "listen_test.go",
+        "message_test.go",
+        "ratelimit_test.go",
+        "server_test.go",
+        "token_test.go",
+    ],
+    embed = [":go_default_library"],
+)
+
+org_lint_tests(["README.org"])
