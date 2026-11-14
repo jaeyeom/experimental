@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -127,6 +128,86 @@ func TestSendAnswersBeforeASlowPaste(t *testing.T) {
 	awaitDelivered(t, base, replyID)
 	if ad.Calls != 2 || messageCount(t, base) != 2 {
 		t.Fatalf("pastes = %d messages = %d", ad.Calls, messageCount(t, base))
+	}
+}
+
+// TestSecondSendStaysQueuedWhileThePreviousPasteRuns stores a second
+// send while the first paste is still inside DeliverDeferred. The second
+// answer stays queued for delivery.
+func TestSecondSendStaysQueuedWhileThePreviousPasteRuns(t *testing.T) {
+	base := []string{
+		"XDG_RUNTIME_DIR=" + shortRuntime(t),
+		"XDG_STATE_HOME=" + t.TempDir(),
+		"HOME=" + t.TempDir(),
+	}
+	dirs, err := paths.FromEnv(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := "herdr:local/default/w1:p1"
+	reviewer := "herdr:local/default/w1:p2"
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	ad := &fake.Adapter{
+		AdapterName: "herdr",
+		Reach:       map[string]adapter.State{sender: adapter.StateIdle, reviewer: adapter.StateIdle},
+		Result:      map[string]adapter.Result{sender: adapter.ResultAccepted, reviewer: adapter.ResultAccepted},
+		PaneHandles: map[string]string{"p1": sender, "p2": reviewer},
+		InventoryAgents: []adapter.Agent{
+			{Handle: sender, PaneID: "p1", SessionID: "default", Status: "idle"},
+			{Handle: reviewer, PaneID: "p2", SessionID: "default", Status: "idle"},
+		},
+		OnDeliver: func(string) {
+			once.Do(func() {
+				close(entered)
+				<-release
+			})
+		},
+	}
+	stop := startDaemon(t, dirs, daemon.Config{Adapters: []adapter.Adapter{ad}, PollInterval: time.Hour})
+	defer stop()
+	env := func(pane string) []string {
+		return append(append([]string{}, base...), "HERDR_PANE_ID="+pane)
+	}
+	mustCmd(t, []string{"register", "ops/inbox", "--when", "reviews"}, env("p1"))
+	mustCmd(t, []string{"register", "eng/reviewer", "--when", "reviews"}, env("p2"))
+
+	first, _ := mustCmd(t, []string{"send", "eng/reviewer", "first"}, env("p1"))
+	if !strings.Contains(first, "queued for delivery") {
+		t.Fatalf("first send = %q", first)
+	}
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first paste did not start")
+	}
+
+	type sendResult struct {
+		code int
+		out  string
+		err  string
+	}
+	got := make(chan sendResult, 1)
+	go func() {
+		code, out, errText := runCmd([]string{"send", "eng/reviewer", "second"}, env("p1"))
+		got <- sendResult{code, out, errText}
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for messageCount(t, base) < 2 {
+		if time.Now().After(deadline) {
+			t.Fatal("second send was not stored")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	close(release)
+	select {
+	case res := <-got:
+		if res.code != 0 || !strings.Contains(res.out, "queued for delivery") {
+			t.Fatalf("second send = %d %q %q", res.code, res.out, res.err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("second send did not answer")
 	}
 }
 

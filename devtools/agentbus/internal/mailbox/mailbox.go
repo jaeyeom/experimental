@@ -108,6 +108,9 @@ type Mailbox struct {
 	wakes  sync.WaitGroup
 	// deferred handles are pasted by DeliverDeferred, after the reply.
 	deferred []string
+	// holdPaste keeps a ReplyFirst message in the queue until replyFirst
+	// has snapshotted its answer. A concurrent flush does not paste it.
+	holdPaste map[string]bool
 	// pasteBound limits one paste after the caller context ends.
 	// Zero uses defaultPasteBound.
 	pasteBound time.Duration
@@ -128,18 +131,19 @@ func Open(dir string, reg *registry.Registry, adapters []adapter.Adapter, log *e
 		return nil, err
 	}
 	box := &Mailbox{
-		dir:      dir,
-		reg:      reg,
-		log:      log,
-		inline:   inline,
-		now:      time.Now,
-		msgs:     msgs,
-		byClient: indexClients(msgs),
-		queue:    rebuild(msgs),
-		inflight: map[string]bool{},
-		flushing: map[string]bool{},
-		adapters: adapters,
-		waking:   map[string]*wakeCall{},
+		dir:       dir,
+		reg:       reg,
+		log:       log,
+		inline:    inline,
+		now:       time.Now,
+		msgs:      msgs,
+		byClient:  indexClients(msgs),
+		queue:     rebuild(msgs),
+		inflight:  map[string]bool{},
+		flushing:  map[string]bool{},
+		holdPaste: map[string]bool{},
+		adapters:  adapters,
+		waking:    map[string]*wakeCall{},
 	}
 	box.cv = sync.NewCond(&box.mu)
 	return box, nil
