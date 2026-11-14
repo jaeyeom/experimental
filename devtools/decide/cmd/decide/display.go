@@ -53,6 +53,7 @@ func displayOf(cfg decide.Config, files map[string]decide.AvatarFile) tui.Displa
 		Avatars:           cfg.Avatars,
 		AvatarDefault:     cfg.AvatarDefault,
 		AvatarMono:        cfg.AvatarMono,
+		MessageAvatars:    cfg.MessageAvatarsOn(),
 		NoHyperlinks:      !cfg.HyperlinksOn(),
 		AvatarFiles:       files,
 		HiddenContacts:    append([]string(nil), cfg.HiddenContacts...),

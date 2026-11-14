@@ -109,7 +109,21 @@ func (m *Model) pickerAvatar(inner int) (av []string, reserve bool) {
 // Hits move right past the column, and a whole-row hit covers only the
 // fieldW columns of text.
 func besideAvatar(av []string, lines []screenLine, fieldW int) []screenLine {
-	n := max(avatarRows, len(lines))
+	return prefixAvatar(av, lines, fieldW, true)
+}
+
+// besideAvatarRun prefixes the avatar column. A drawn avatar grows the
+// block to avatarRows. An empty avatar keeps the line count and only
+// the blank gutter, so a later message in the same run stays aligned.
+func besideAvatarRun(av []string, lines []screenLine, fieldW int) []screenLine {
+	return prefixAvatar(av, lines, fieldW, len(av) > 0)
+}
+
+func prefixAvatar(av []string, lines []screenLine, fieldW int, fill bool) []screenLine {
+	n := len(lines)
+	if fill {
+		n = max(avatarRows, n)
+	}
 	blank := strings.Repeat(" ", avatarColumn)
 	out := make([]screenLine, n)
 	for i := range out {

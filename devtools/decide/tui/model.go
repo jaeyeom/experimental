@@ -199,15 +199,17 @@ type Model struct {
 	snoozeCustom string
 	snoozeErr    string
 	// Avatars, AvatarDefault, and AvatarMono come from decide config.
+	// MessageAvatars shows a sender avatar on each thread message.
 	// avatarProfile is the terminal's color profile. avatarRender
 	// replaces the shared renderer. avatarFailed holds files that did
 	// not render.
-	Avatars       []decide.AvatarRule
-	AvatarDefault bool
-	AvatarMono    string
-	avatarProfile termenv.Profile
-	avatarRender  *avatar.Renderer
-	avatarFailed  map[string]bool
+	Avatars        []decide.AvatarRule
+	AvatarDefault  bool
+	AvatarMono     string
+	MessageAvatars bool
+	avatarProfile  termenv.Profile
+	avatarRender   *avatar.Renderer
+	avatarFailed   map[string]bool
 	// Checkouts map status resources to lease-guarded checkouts.
 	Checkouts []decide.ConfigCheckout
 	// Machine is this machine's herdr label. locations caches each
@@ -250,13 +252,14 @@ type Model struct {
 // New returns an inbox positioned on the open folder.
 func New(dir string) *Model {
 	return &Model{
-		Dir:        dir,
-		Now:        time.Now,
-		mouseOn:    true,
-		replyField: newComposerField(),
-		free:       newComposerField(),
-		outcome:    newComposerField(),
-		noteField:  newComposerField(),
+		Dir:            dir,
+		Now:            time.Now,
+		mouseOn:        true,
+		MessageAvatars: true,
+		replyField:     newComposerField(),
+		free:           newComposerField(),
+		outcome:        newComposerField(),
+		noteField:      newComposerField(),
 	}
 }
 
@@ -2499,8 +2502,8 @@ func (m *Model) detailLines(width int) []screenLine {
 	lines := []screenLine{{text: plainText(title)}}
 	lines = append(lines, headerLines(it, m.now(), m.zone(), decide.OwnerAt(it.Owner, m.ownerLocation(it)))...)
 	if m.avatarFits(width) {
-		// The avatar is the latest sender. The owner stays in the header.
-		if av := m.avatarLines(threadAvatarName(it)); av != nil {
+		// The header avatar is the item owner. Each message has its own.
+		if av := m.avatarLines(it.Owner); av != nil {
 			lines = besideAvatar(av, lines, width-avatarColumn)
 		}
 	}
@@ -2524,18 +2527,6 @@ func (m *Model) detailLines(width int) []screenLine {
 		lines = append(lines, labeledLines(label, body, hitOutcome, wrap)...)
 	}
 	return lines
-}
-
-// threadAvatarName is the latest message's sender. A sender with no
-// avatar rule uses the default avatar for that name, not the owner's.
-// An item with no messages keeps the owner's avatar.
-func threadAvatarName(it *decide.Item) string {
-	if n := len(it.Messages); n > 0 {
-		if name := it.Messages[n-1].Sender(); name != "" {
-			return name
-		}
-	}
-	return it.Owner
 }
 
 // threadParties is the requester and, when the thread was addressed to
@@ -2609,29 +2600,97 @@ func (m *Model) threadLines(it *decide.Item, width int, re *regexp.Regexp) []scr
 	}
 	now := m.now()
 	loc := m.zone()
-	ruleWidth := width
+	reserve := m.messageAvatarsFit(it, width)
+	textWidth := width
+	if reserve {
+		textWidth = width - avatarColumn
+	}
+	ruleWidth := textWidth
 	if ruleWidth < 1 {
 		ruleWidth = 8
 	}
-	bodyWidth := width
-	if width > 2 {
-		bodyWidth = width - 2
+	bodyWidth := textWidth
+	if textWidth > 2 {
+		bodyWidth = textWidth - 2
 	}
 	var lines []screenLine
 	last := len(it.Messages) - 1
+	prev := ""
 	for i, msg := range it.Messages {
 		if i > 0 {
-			lines = append(lines, screenLine{text: plainText(strings.Repeat("─", ruleWidth))})
+			lines = append(lines, messageRule(ruleWidth, reserve))
 		}
-		lines = append(lines, screenLine{
+		block := []screenLine{{
 			text:   messageHeader(msg, now, loc, i == last, i == m.message),
 			header: i + 1,
-		})
+		}}
 		for _, line := range questionLines(msg.Text, bodyWidth, re, !m.NoHyperlinks) {
-			lines = append(lines, indentLine(line))
+			block = append(block, indentLine(line))
 		}
+		name := m.messageAvatarName(msg)
+		var av []string
+		if reserve && name != "" && name != prev {
+			av = m.avatarLines(name)
+		}
+		if name == "" {
+			prev = ""
+		} else {
+			prev = name
+		}
+		if reserve {
+			block = besideAvatarRun(av, block, textWidth)
+		}
+		lines = append(lines, block...)
 	}
 	return lines
+}
+
+// messageRule is the line between messages. When the thread reserves an
+// avatar column, the rule keeps that gutter and the avatar starts on the
+// sender line below it.
+func messageRule(ruleWidth int, reserve bool) screenLine {
+	line := screenLine{text: plainText(strings.Repeat("─", ruleWidth))}
+	if !reserve {
+		return line
+	}
+	return besideAvatarRun(nil, []screenLine{line}, ruleWidth)[0]
+}
+
+// messageAvatarsFit reports whether this thread reserves an avatar column.
+// A rule that fails to render does not reserve one, matching the header.
+func (m *Model) messageAvatarsFit(it *decide.Item, width int) bool {
+	if !m.MessageAvatars || !m.avatarFits(width) {
+		return false
+	}
+	for _, msg := range it.Messages {
+		name := m.messageAvatarName(msg)
+		if name != "" && m.avatarLines(name) != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// messageAvatarName is the avatar key for msg. Human messages use an
+// explicit rule only. system and an empty sender have none. Other
+// senders resolve through the bus name, the pane handle, and aliases.
+func (m *Model) messageAvatarName(msg decide.Message) string {
+	raw := msg.Sender()
+	switch raw {
+	case "", "system":
+		return ""
+	case "human":
+		rule, ok := decide.MatchAvatar(m.Avatars, "human")
+		if !ok || rule.Hide {
+			return ""
+		}
+		return "human"
+	}
+	name := newResolver(m.busNames, m.aliases).canonical(raw, nil)
+	if name == "" || name == "system" {
+		return ""
+	}
+	return name
 }
 
 // messageHeader is one line: author, stamp, option keys, and latest.

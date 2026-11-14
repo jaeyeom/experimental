@@ -37,7 +37,9 @@ type Options struct {
 	Avatars       []decide.AvatarRule
 	AvatarDefault bool
 	AvatarMono    string
-	Checkouts     []decide.ConfigCheckout
+	// MessageAvatars shows a sender avatar beside each thread message.
+	MessageAvatars bool
+	Checkouts      []decide.ConfigCheckout
 	// Machine is this machine's herdr label, so an owner pane on it is
 	// looked up without --machine.
 	Machine string
@@ -134,6 +136,7 @@ func prepare(opts Options) (*Model, error) {
 	m.Avatars = opts.Avatars
 	m.AvatarDefault = opts.AvatarDefault
 	m.AvatarMono = opts.AvatarMono
+	m.MessageAvatars = opts.MessageAvatars
 	m.Checkouts = opts.Checkouts
 	m.Machine = opts.Machine
 	m.OpenCommand = opts.OpenCommand

@@ -176,8 +176,8 @@ func TestThreadAvatarFollowsTheLatestSender(t *testing.T) {
 	m.height = 40
 	press(t, m, "o")
 	view := m.View()
-	if !strings.Contains(view, "BBBBBBBBBB") || strings.Contains(view, "AAAAAAAAAA") {
-		t.Fatalf("avatar is not the sender's\n%s", view)
+	if !strings.Contains(view, "AAAAAAAAAA") || !strings.Contains(view, "BBBBBBBBBB") {
+		t.Fatalf("header or message avatar missing\n%s", view)
 	}
 	vis := visibleLine(view)
 	if !strings.Contains(vis, "Owner:") || !strings.Contains(vis, "ada") || !strings.Contains(vis, "ops/bot") || strings.Contains(vis, "via") {
@@ -210,12 +210,79 @@ func TestThreadAvatarUsesTheDefaultNotTheOwners(t *testing.T) {
 	m.height = 40
 	press(t, m, "o")
 	view := m.View()
-	assertAvatarRows(t, view, avatar.ForName("coord/primary", avatarCols, avatarRows, termenv.ANSI))
-	for _, row := range builtinLines(t, "owl", termenv.ANSI) {
-		if strings.Contains(view, row) {
-			t.Fatalf("owner avatar %q shown\n%s", row, view)
+	assertAvatarRows(t, view, builtinLines(t, "owl", termenv.ANSI))
+	assertAvatarInView(t, view, avatar.ForName("coord/primary", avatarCols, avatarRows, termenv.ANSI))
+}
+
+func TestMessageAvatars(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	mustCreate(t, led, &decide.Item{
+		Question:  "ship it?",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		CreatedAt: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC),
+		Messages: []decide.Message{
+			{Author: "ada", Text: "from ada", Time: time.Date(2026, 11, 1, 1, 0, 0, 0, time.UTC)},
+			{Author: "ada", Text: "ada again", Time: time.Date(2026, 11, 1, 2, 0, 0, 0, time.UTC)},
+			{Author: "ada", By: "ops/bot", Text: "from bot", Time: time.Date(2026, 11, 1, 3, 0, 0, 0, time.UTC)},
+			{Author: "ada", By: "w1:p9", Text: "via pane", Time: time.Date(2026, 11, 1, 4, 0, 0, 0, time.UTC)},
+			{Author: "human", Text: "from me", Time: time.Date(2026, 11, 1, 5, 0, 0, 0, time.UTC)},
+			{Author: "system", Text: "note", Time: time.Date(2026, 11, 1, 6, 0, 0, 0, time.UTC)},
+		},
+	})
+	open := func(width int, avatars bool) *Model {
+		t.Helper()
+		m := New(dir)
+		m.Now = func() time.Time { return avatarNow }
+		m.busNames = []Target{{Name: "ops/bot", Pane: "w1:p9"}}
+		withAvatars(
+			decide.AvatarRule{Match: "ada", File: writeAvatar(t, "A")},
+			decide.AvatarRule{Match: "ops/bot", File: writeAvatar(t, "B")},
+			decide.AvatarRule{Match: "human", File: writeAvatar(t, "H")},
+		)(m)
+		m.MessageAvatars = avatars
+		if err := m.Reload(); err != nil {
+			t.Fatal(err)
+		}
+		m.width = width
+		m.height = 56
+		press(t, m, "o")
+		return m
+	}
+	wide := open(100, true)
+	view := wide.View()
+	// Header plus ada's first message. The next ada message is the same run.
+	if n := strings.Count(view, strings.Repeat("A", avatarCols)); n != avatarRows*2 {
+		t.Fatalf("owner avatar rows = %d, want %d\n%s", n, avatarRows*2, view)
+	}
+	// The pane handle resolves to ops/bot, so it continues that run.
+	if n := strings.Count(view, strings.Repeat("B", avatarCols)); n != avatarRows {
+		t.Fatalf("bot avatar rows = %d, want %d\n%s", n, avatarRows, view)
+	}
+	if n := strings.Count(view, strings.Repeat("H", avatarCols)); n != avatarRows {
+		t.Fatalf("human avatar rows = %d, want %d\n%s", n, avatarRows, view)
+	}
+	checkGolden(t, "item_message_avatars_100.golden", view)
+
+	narrow := open(50, true).View()
+	for _, ch := range []string{"A", "B", "H"} {
+		if strings.Contains(narrow, strings.Repeat(ch, avatarCols)) {
+			t.Fatalf("narrow view shows %s\n%s", ch, narrow)
 		}
 	}
+	checkGolden(t, "item_message_avatars_50.golden", narrow)
+
+	off := open(100, false).View()
+	if n := strings.Count(off, strings.Repeat("A", avatarCols)); n != avatarRows {
+		t.Fatalf("header avatar rows = %d, want %d\n%s", n, avatarRows, off)
+	}
+	if strings.Contains(off, strings.Repeat("B", avatarCols)) || strings.Contains(off, strings.Repeat("H", avatarCols)) {
+		t.Fatalf("message avatars shown while off\n%s", off)
+	}
+	checkGolden(t, "item_message_avatars_off.golden", off)
 }
 
 func TestItemViewAvatarDefault(t *testing.T) {
@@ -228,13 +295,35 @@ func TestItemViewAvatarDefault(t *testing.T) {
 	assertAvatarRows(t, m.View(), want)
 }
 
-// assertAvatarRows fails unless every row of av shows in view, in order,
-// each followed by the gutter.
+// assertAvatarRows fails unless every row of av shows in the header, in
+// order, each followed by the gutter. The header avatar starts on screen
+// row 2.
 func assertAvatarRows(t *testing.T, view string, av []string) {
 	t.Helper()
 	lines := viewLines(view)
 	for i, row := range av {
 		if !strings.Contains(lines[2+i], row+" ") {
+			t.Fatalf("avatar row %d %q missing\n%s", i, row, view)
+		}
+	}
+}
+
+// assertAvatarInView fails unless every row of av shows somewhere in view,
+// in order, each followed by the gutter. Message avatars sit below the header.
+func assertAvatarInView(t *testing.T, view string, av []string) {
+	t.Helper()
+	lines := viewLines(view)
+	at := 0
+	for i, row := range av {
+		found := false
+		for ; at < len(lines); at++ {
+			if strings.Contains(lines[at], row+" ") {
+				found = true
+				at++
+				break
+			}
+		}
+		if !found {
 			t.Fatalf("avatar row %d %q missing\n%s", i, row, view)
 		}
 	}
