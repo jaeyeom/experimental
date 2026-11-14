@@ -150,6 +150,12 @@ class Pool {
 /// Organization name.
 org: String(!isEmpty)
 
+/// Extra approval words, added to the default list.
+approvalWords: Listing<String> = new {}
+
+/// Default approval words to stop rejecting. Each entry is warned on every run.
+allowApprovalWords: Listing<String> = new {}
+
 /// Machines keyed by the name roles and pools use.
 machines: Mapping<String, Machine>
 
@@ -203,6 +209,8 @@ local function rendered(): Dynamic =
       rules = module.rules
       roles = withRules(module.roles)
       pools = module.pools
+      approvalWords = module.approvalWords
+      allowApprovalWords = module.allowApprovalWords
     }
 
 output {
