@@ -68,7 +68,10 @@
             # which stays consistent across both modes.
             - "{{ claude_tmpdir }}"
         network:
-          allowedHosts:
+          # allowedDomains is the documented key. A rerun unions any
+          # allowedDomains and allowedHosts already in settings.json with
+          # this list, then drops allowedHosts. Hosts added by hand stay.
+          allowedDomains:
             # GitHub
             - api.github.com
             # Go modules and downloads
@@ -185,6 +188,7 @@
         path: "{{ claude_settings_dir }}"
         state: directory
         mode: "0755"
+      tags: claude-sandbox-settings
 
     - name: Create Claude temp directory
       file:
@@ -251,6 +255,7 @@
       stat:
         path: "{{ claude_settings_file }}"
       register: settings_file_stat
+      tags: claude-sandbox-settings
 
     - name: Create empty settings.json if not exists
       copy:
@@ -258,23 +263,71 @@
         dest: "{{ claude_settings_file }}"
         mode: "0644"
       when: not settings_file_stat.stat.exists
+      tags: claude-sandbox-settings
 
     - name: Read current settings.json
       slurp:
         src: "{{ claude_settings_file }}"
       register: current_settings_raw
+      tags: claude-sandbox-settings
 
+    # combine replaces lists and keeps an old allowedHosts key. Build the
+    # allowlist first: existing allowedDomains, then allowedHosts, then
+    # this playbook, first occurrence wins. Then drop allowedHosts.
     - name: Parse current settings and compute merged result
+      vars:
+        claude_current: "{{ current_settings_raw.content | b64decode | from_json }}"
+        claude_network: "{{ (claude_current.sandbox | default({})).network | default({}) }}"
+        claude_existing_domains: "{{ claude_network.allowedDomains | default([], true) }}"
+        claude_existing_hosts: "{{ claude_network.allowedHosts | default([], true) }}"
+        claude_playbook_domains: "{{ sandbox_config.sandbox.network.allowedDomains }}"
+        claude_seen: "{{ claude_existing_domains + claude_existing_hosts }}"
+        claude_merged_domains: >-
+          {{
+            claude_existing_domains
+            + (claude_existing_hosts | reject('in', claude_existing_domains) | list)
+            + (claude_playbook_domains | reject('in', claude_seen) | list)
+          }}
+        claude_merged_config: >-
+          {{
+            sandbox_config | combine({
+              'sandbox': {
+                'network': {
+                  'allowedDomains': claude_merged_domains
+                }
+              }
+            }, recursive=True)
+          }}
+        claude_combined: "{{ claude_current | combine(claude_merged_config, recursive=True) }}"
+        claude_network_clean: >-
+          {{
+            claude_combined.sandbox.network
+            | dict2items
+            | rejectattr('key', 'equalto', 'allowedHosts')
+            | list
+            | items2dict
+          }}
       set_fact:
-        current_settings: "{{ current_settings_raw.content | b64decode | from_json }}"
-        desired_settings: "{{ (current_settings_raw.content | b64decode | from_json) | combine(sandbox_config, recursive=True) }}"
+        current_settings: "{{ claude_current }}"
+        desired_settings: >-
+          {{
+            claude_combined | combine({
+              'sandbox': claude_combined.sandbox | combine({
+                'network': claude_network_clean
+              })
+            })
+          }}
+      changed_when: false
+      tags: claude-sandbox-settings
 
     - name: Update settings.json if sandbox config changed
       copy:
         content: "{{ desired_settings | to_nice_json }}"
         dest: "{{ claude_settings_file }}"
         mode: "0644"
+        backup: true
       when: current_settings != desired_settings
+      tags: claude-sandbox-settings
 
     - name: Display current sandbox settings
       shell: jq '.sandbox' "{{ claude_settings_file }}"

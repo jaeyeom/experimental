@@ -344,6 +344,14 @@ regenerate outputs.
 
 See [[file:TODO.org][TODO.org]] for the full backlog, changelog, and planned features.
 
+* Claude Code sandbox network
+
+=setup-claude-sandbox.yml= writes =sandbox.network.allowedDomains= in
+=~/.claude/settings.json=. A rerun unions that list with any
+=allowedDomains= and =allowedHosts= already there, then drops
+=allowedHosts=. Hosts added by hand stay. Other settings keys are left
+as they are.
+
 * Manual Playbooks
 These files are playbooks not generated from =generate_packages.go=:
 
