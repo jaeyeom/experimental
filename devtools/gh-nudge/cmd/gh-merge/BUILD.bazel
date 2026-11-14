@@ -42,3 +42,8 @@ go_test(
         "//devtools/gh-nudge/internal/models:go_default_library",
     ],
 )
+
+exports_files(
+    ["main.go"],
+    visibility = ["//devtools/gh-nudge/cmd:__pkg__"],
+)

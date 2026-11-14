@@ -158,6 +158,15 @@ func tflintReleaseInstall(goos string) ShellInstallMethod {
 	}
 }
 
+// ghNudgeVersion is the version every gh-nudge command installs. The
+// family shares one pkl/Config.pkl, and an older binary warns about
+// unknown fields.
+const ghNudgeVersion = "latest"
+
+func ghNudgeTool(name string) PlatformSpecificTool {
+	return GoTool(name, "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/"+name+"@"+ghNudgeVersion, Import{Playbook: "gh"})
+}
+
 // emacsApplicationsAliasSuffix runs emacs_app_link.sh after the Darwin
 // emacs-plus install. The admin task runs only when the user cannot write
 // the destination, and it passes "symlink" so Finder is not invoked as root.
@@ -553,13 +562,15 @@ ln -sf {{ user_bin_directory }}/../lib/detekt/bin/detekt-cli {{ user_bin_directo
 		},
 		Imports: nil,
 	},
-	GoTool("gh-codeowners", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-codeowners@latest", Import{Playbook: "gh"}),
-	GoTool("gh-merge", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-merge@latest", Import{Playbook: "gh"}),
-	GoTool("gh-nudge", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-nudge@latest", Import{Playbook: "gh"}),
-	GoTool("gh-pr-review", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-pr-review@latest", Import{Playbook: "gh"}),
+	ghNudgeTool("gh-approve"),
+	ghNudgeTool("gh-codeowners"),
+	ghNudgeTool("gh-merge"),
+	ghNudgeTool("gh-nudge"),
+	ghNudgeTool("gh-pr-review"),
 	GhExtension("gh-repox", "jaeyeom/gh-repox"),
-	GoTool("gh-slack", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-slack@latest", Import{Playbook: "gh"}),
-	GoTool("gh-storage", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-storage@latest", Import{Playbook: "gh"}),
+	ghNudgeTool("gh-slack"),
+	ghNudgeTool("gh-storage"),
+	ghNudgeTool("gh-throttle"),
 	{
 		// macOS only. The Homebrew cask repackages the official signed .dmg:
 		// https://ghostty.org/docs/install/binary#homebrew

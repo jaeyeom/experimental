@@ -29,7 +29,10 @@ go_test(
         "setup_bazel_wrapper_test.go",
         "types_test.go",
     ],
-    data = glob(["*.yml"]) + ["emacs_app_link.sh"],
+    data = glob(["*.yml"]) + [
+        "emacs_app_link.sh",
+        "//devtools/gh-nudge/cmd:commands",
+    ],
     embed = [":go_default_library"],
 )
 
@@ -352,6 +355,7 @@ sh_test(
         "gather-facts.yml",
         "gcloud.yml",
         "gh.yml",
+        "gh-approve.yml",
         "gh-codeowners.yml",
         "gh-merge.yml",
         "gh-nudge.yml",
@@ -359,6 +363,7 @@ sh_test(
         "gh-repox.yml",
         "gh-slack.yml",
         "gh-storage.yml",
+        "gh-throttle.yml",
         "ghostty.yml",
         "git.yml",
         "githooks-cli.yml",
@@ -1216,6 +1221,23 @@ sh_test(
 )
 
 sh_test(
+    name = "gh-approve_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["gh-approve.yml"],
+    data = [
+        "gh.yml",
+        "gh-approve.yml",
+        "go.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "gh-codeowners_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["gh-codeowners.yml"],
@@ -1321,6 +1343,23 @@ sh_test(
     data = [
         "gh.yml",
         "gh-storage.yml",
+        "go.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
+    name = "gh-throttle_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["gh-throttle.yml"],
+    data = [
+        "gh.yml",
+        "gh-throttle.yml",
         "go.yml",
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
@@ -2429,6 +2468,7 @@ sh_test(
         "fzf.yml",
         "gather-facts.yml",
         "gh.yml",
+        "gh-approve.yml",
         "gh-codeowners.yml",
         "gh-merge.yml",
         "gh-nudge.yml",
@@ -2436,6 +2476,7 @@ sh_test(
         "gh-repox.yml",
         "gh-slack.yml",
         "gh-storage.yml",
+        "gh-throttle.yml",
         "ghostty.yml",
         "git.yml",
         "githooks-cli.yml",
@@ -4191,6 +4232,7 @@ sh_test(
         "factory.yml",
         "gather-facts.yml",
         "gh.yml",
+        "gh-approve.yml",
         "gh-codeowners.yml",
         "gh-merge.yml",
         "gh-nudge.yml",
@@ -4198,6 +4240,7 @@ sh_test(
         "gh-repox.yml",
         "gh-slack.yml",
         "gh-storage.yml",
+        "gh-throttle.yml",
         "git.yml",
         "go.yml",
         "grok.yml",
@@ -4800,6 +4843,7 @@ test_suite(
         ":gcloud_syntax_test",
         ":gdformat_syntax_test",
         ":gemini_syntax_test",
+        ":gh-approve_syntax_test",
         ":gh-codeowners_syntax_test",
         ":gh-merge_syntax_test",
         ":gh-nudge_syntax_test",
@@ -4807,6 +4851,7 @@ test_suite(
         ":gh-repox_syntax_test",
         ":gh-slack_syntax_test",
         ":gh-storage_syntax_test",
+        ":gh-throttle_syntax_test",
         ":gh_syntax_test",
         ":ghostty_syntax_test",
         ":git_syntax_test",

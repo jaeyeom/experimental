@@ -102,6 +102,73 @@ func TestHashicorpAptRepoName(t *testing.T) {
 	}
 }
 
+func TestGhNudgeCommandsAreInstalledTogether(t *testing.T) {
+	ansible := ansiblePlaybookDir(t)
+	entries, err := os.ReadDir(filepath.Join(ansible, "..", "..", "gh-nudge", "cmd"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			want = append(want, entry.Name())
+		}
+	}
+	sort.Strings(want)
+	if len(want) == 0 {
+		t.Fatal("devtools/gh-nudge/cmd has no commands")
+	}
+
+	const prefix = "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/"
+	version := ""
+	got := make([]string, 0, len(want))
+	for _, tool := range platformSpecificTools {
+		method, ok := tool.platforms[PlatformAll].(GoInstallMethod)
+		if !ok {
+			continue
+		}
+		rest, ok := strings.CutPrefix(method.PkgPath, prefix)
+		if !ok {
+			continue
+		}
+		name, ver, ok := strings.Cut(rest, "@")
+		if !ok || name != tool.command {
+			t.Errorf("gh-nudge path %q does not install %q", method.PkgPath, tool.command)
+			continue
+		}
+		if version == "" {
+			version = ver
+		} else if ver != version {
+			t.Errorf("%s installs @%s, want @%s like the rest of the family", name, ver, version)
+		}
+		hasGH := false
+		for _, imp := range tool.GetAllImports() {
+			if imp.Playbook == "gh" {
+				hasGH = true
+			}
+		}
+		if !hasGH {
+			t.Errorf("%s does not import the gh playbook", name)
+		}
+		got = append(got, name)
+	}
+	sort.Strings(got)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("installed gh-nudge commands = %v, cmd directories = %v", got, want)
+	}
+
+	vibe, err := os.ReadFile(filepath.Join(ansible, "setup-vibe-coding.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range want {
+		line := "import_playbook: " + name + ".yml"
+		if !strings.Contains(string(vibe), line) {
+			t.Errorf("setup-vibe-coding.yml missing %q", line)
+		}
+	}
+}
+
 func TestPlatformSpecificToolsSorted(t *testing.T) {
 	if !sort.SliceIsSorted(platformSpecificTools, func(i, j int) bool {
 		return platformSpecificTools[i].command < platformSpecificTools[j].command
