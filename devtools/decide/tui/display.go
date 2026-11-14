@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/decide"
@@ -19,6 +20,7 @@ type Display struct {
 	AvatarMono        string
 	NoHyperlinks      bool
 	AvatarFiles       map[string]decide.AvatarFile
+	HiddenContacts    []string
 	Note              string
 }
 
@@ -52,6 +54,11 @@ func (m *Model) applyDisplay(d Display) {
 	m.AvatarDefault = d.AvatarDefault
 	m.AvatarMono = d.AvatarMono
 	m.NoHyperlinks = d.NoHyperlinks
+	prevHidden := strings.Join(m.hidden, "\x00")
+	m.hidden = append([]string(nil), d.HiddenContacts...)
+	if strings.Join(m.hidden, "\x00") != prevHidden && len(m.allItems) > 0 {
+		m.rebuildContacts()
+	}
 	files := avatar.Overlay{}
 	for name, f := range d.AvatarFiles {
 		files[name] = avatar.MemFile{Data: f.Data, Err: f.Error}

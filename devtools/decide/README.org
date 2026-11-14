@@ -93,12 +93,48 @@ agent: the names from ~agentbus list --json~ (the same background load
 the compose recipient list uses, and through the hub in hub mode) plus
 every item owner and message sender in the ledger. A name only the
 ledger has is ~(offline)~. The columns are the avatar (its built-in id,
-~file~, or ~-~), the name, the bus liveness, how many open items that
-agent owns or sent a message on, and the last activity, in the same
-local time as the rest of the inbox. Agents with open items come first,
-then the most recent activity. The rows reload on the inbox tick. The
-bus load stays in the background, so an unreachable bus still lists the
+~file~, or ~-~), the name, the state, the bus liveness, how many open
+items that agent owns or sent a message on, and the last activity, in
+the same local time as the rest of the inbox. The sidebar count is the
+number of active contacts. A search or an agent filter shows it as
+~matches/total~, as the other folders do.
+
+Each contact is one of three states. ~active~ means agentbus reports
+the name ~alive~. ~unresponsive~ means the name is registered but
+reported ~unreachable~, hibernated, or waking (the list's JSON word
+~unknown~ is the unreachable report). ~dead~ means agentbus reports the
+name gone or dead, or the name is known only from the ledger and is not
+registered. Before the bus list answers, a ledger name is not marked
+dead. Rows sort by state (active, then unresponsive, then dead). Within
+a state, open items come first, then the most recent activity. Dead and
+unresponsive rows are dim. The rows reload on the inbox tick. The bus
+load stays in the background, so an unreachable bus still lists the
 ledger agents and the status line says ~agentbus: unavailable (...)~.
+
+~x~ hides the selected contact. The hidden list is the ~hiddenContacts~
+display setting: on the hub in hub mode (~set-hidden~), otherwise in
+this machine's config. The write changes only that key and keeps every
+other key and its order, with the same temp-file rename and
+~config.json.bak~ backup as an avatar write. Hiding does not delete
+ledger items or messages. A hidden contact comes back on its own when
+it is active again. ~H~ toggles showing hidden rows for this session.
+~X~ hides every dead contact after a confirm. ~R~ on a name agentbus
+still lists as dead runs ~agentbus release <name>~ after a confirm that
+names the agent, and the result goes to the status line. ~R~ is refused
+for an active or unresponsive name, and for a name the bus does not
+list.
+
+The same changes from a script, run on the hub when hub mode is on:
+
+#+begin_src sh
+decide contacts hide <name>
+decide contacts unhide <name>
+decide contacts prune --dead [--release] [--yes]
+#+end_src
+
+~prune --dead~ prints the names it would hide, and with ~--release~ the
+dead bus names it would release. Nothing is written or released unless
+~--yes~ is given.
 
 ~Enter~ on a contact filters every folder to items that agent owns or
 sent a message in. The sidebar counts become ~matches/total~, as for a
@@ -292,8 +328,8 @@ decide avatars set ops/x none
 decide avatars list --ids
 #+end_src
 
-This is the only time decide writes its config, and it writes only the
-~avatars~ section. Choosing a figure writes ~{"match": "<owner>",
+An avatar change writes only the ~avatars~ section. Choosing a figure
+writes ~{"match": "<owner>",
 "builtin": "<id>"}~, or ~"hide": true~ for ~none~. An existing rule
 whose ~match~ is exactly the owner keeps its place and other keys and
 has its ~file~ or ~builtin~ replaced; otherwise the new rule goes first
@@ -698,7 +734,7 @@ keys:
 
 - ~avatars~, ~avatarDefault~, ~avatarMono~
 - ~recipients~, ~recipientsTimeout~, ~targets~
-- ~hyperlinks~
+- ~hyperlinks~, ~hiddenContacts~
 
 An allowlist decides which keys these are; a key not on it is never
 sent. Machine keys (~hub~, ~hubTimeout~, ~machine~, ~hubMachine~,

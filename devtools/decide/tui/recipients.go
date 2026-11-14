@@ -133,6 +133,15 @@ func listBus(ctx context.Context, run BusRunner) ([]Target, error) {
 	if err != nil {
 		return nil, err
 	}
+	names, err := ParseBusList(out)
+	if err != nil {
+		return nil, err
+	}
+	return names, nil
+}
+
+// ParseBusList parses `agentbus list --json`. Live names come first.
+func ParseBusList(out []byte) ([]Target, error) {
 	var agents []busAgent
 	if err := json.Unmarshal(out, &agents); err != nil {
 		return nil, fmt.Errorf("parse agentbus list: %w", err)

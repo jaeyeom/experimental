@@ -75,6 +75,8 @@ func runLocal(args []string, stdout, stderr io.Writer) int {
 		return cmdSkill(args[1:], stdout, stderr)
 	case "avatars":
 		return cmdAvatars(args[1:], stdout, stderr)
+	case "contacts":
+		return cmdContacts(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stderr)
 		return 0
@@ -112,6 +114,9 @@ func usage(w io.Writer) {
   decide skill
   decide avatars list [--name <name>] [--ids]
   decide avatars set [--local] <name> <id|default|none>
+  decide contacts hide <name>
+  decide contacts unhide <name>
+  decide contacts prune --dead [--release] [--yes]
   decide [--remote <user@host>] config show [--effective]
 
 Text for ask, reply, send, done, withdraw, and status set may be a positional argument, --text-file <path>, or - for stdin.
@@ -559,6 +564,7 @@ func inboxOptions(cfg decide.Config, stdout io.Writer, snoozed bool) tui.Options
 		OpenCommand:       cfg.OpenCommand,
 		NoHyperlinks:      !cfg.HyperlinksOn(),
 		Clipboard:         cfg.UI.Clipboard,
+		HiddenContacts:    cfg.HiddenContacts,
 	}
 }
 

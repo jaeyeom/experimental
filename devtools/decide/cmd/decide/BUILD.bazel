@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "avatars.go",
+        "contacts.go",
         "display.go",
         "hub.go",
         "main.go",

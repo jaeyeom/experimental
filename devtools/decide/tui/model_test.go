@@ -599,10 +599,14 @@ func TestFolderCountsShareAColumn(t *testing.T) {
 	if screenRow(view, "[Inbox]") != screenRow(view, "Status") || screenRow(view, "Withdrawn") != screenRow(view, "[Inbox]") {
 		t.Fatalf("narrow folders are not one row\n%s", view)
 	}
-	for _, name := range []string{"[Inbox]", "Answered", "Done", "Withdrawn", "Status", "Contacts"} {
+	for _, name := range []string{"[Inbox]", "Answered", "Done", "Withdrawn", "Status"} {
 		if !strings.Contains(view, name) {
 			t.Fatalf("narrow row missing %s\n%s", name, view)
 		}
+	}
+	// Wide counts plus the Contacts total can end in the ellipsis.
+	if !strings.Contains(visibleLine(view), "Contact") {
+		t.Fatalf("narrow row missing Contacts\n%s", view)
 	}
 }
 
@@ -645,8 +649,13 @@ func assertFolderCountColumn(t *testing.T, m *Model) {
 		t.Fatalf("status width %d row width %d count end %d %q", lipgloss.Width(status), width, ends[0], status)
 	}
 	contacts := lines[len(Folders)+1].text
-	if strings.TrimRight(contacts, " ") != "Contacts" {
+	trimmed := strings.TrimRight(contacts, " ")
+	if !strings.HasPrefix(trimmed, "Contacts") {
 		t.Fatalf("contacts row %q", contacts)
+	}
+	at := strings.LastIndex(trimmed, "0")
+	if at < 0 || at+len("0") != len(trimmed) || at+len("0") != ends[0] {
+		t.Fatalf("contacts count in %q, folder end %d", contacts, ends[0])
 	}
 	if lipgloss.Width(contacts) != width {
 		t.Fatalf("contacts width %d row width %d %q", lipgloss.Width(contacts), width, contacts)

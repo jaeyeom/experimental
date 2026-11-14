@@ -390,6 +390,32 @@ func (c *Client) SetAvatar(name, choice string) (decide.DisplaySettings, error) 
 	return *resp.Display, nil
 }
 
+// SetHidden saves the hidden contact list on the hub and returns its
+// display settings. A hub that does not know the op says to update
+// decide there. A transport failure is a hub error and does not write
+// locally. A nil names list clears the key.
+func (c *Client) SetHidden(names []string) (decide.DisplaySettings, error) {
+	if names == nil {
+		names = []string{}
+	}
+	raw, err := json.Marshal(names)
+	if err != nil {
+		return decide.DisplaySettings{}, fmt.Errorf("hidden contacts: %w", err)
+	}
+	resp, err := c.call(Request{Op: OpSetHidden, Text: string(raw)})
+	if err != nil {
+		if strings.HasPrefix(err.Error(), "unknown op ") {
+			return decide.DisplaySettings{}, fmt.Errorf("hub %s: %s; update decide on the hub", c.Label, err.Error())
+		}
+		return decide.DisplaySettings{}, err
+	}
+	if resp.Display == nil {
+		return decide.DisplaySettings{}, fmt.Errorf("hub %s: set-hidden returned no display settings", c.Label)
+	}
+	c.noteDisplay(*resp.Display)
+	return *resp.Display, nil
+}
+
 // refreshDisplay fetches config while a session is up and keeps it when
 // it changed, so the next display read sees another client's save.
 func (c *Client) refreshDisplay() {

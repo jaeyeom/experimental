@@ -79,6 +79,8 @@ func (s *Server) handle(ctx context.Context, req Request) Response {
 		return s.config()
 	case OpSetAvatar:
 		return s.setAvatar(req)
+	case OpSetHidden:
+		return s.setHidden(req)
 	case OpSend:
 		return s.send(req)
 	case OpLocate:
@@ -146,6 +148,19 @@ func (s *Server) locate(ctx context.Context, req Request) Response {
 // rule to this machine's config, and returns the display settings.
 func (s *Server) setAvatar(req Request) Response {
 	if _, err := tui.SaveAvatar(req.Name, req.Choice); err != nil {
+		return failed(err)
+	}
+	return s.config()
+}
+
+// setHidden replaces the hub's hiddenContacts list and returns the
+// display settings. Text is a JSON array of names.
+func (s *Server) setHidden(req Request) Response {
+	var names []string
+	if err := json.Unmarshal([]byte(req.Text), &names); err != nil {
+		return failed(fmt.Errorf("hidden contacts: %w", err))
+	}
+	if _, err := decide.SetHiddenContacts(names); err != nil {
 		return failed(err)
 	}
 	return s.config()

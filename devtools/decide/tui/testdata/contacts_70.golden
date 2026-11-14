@@ -1,9 +1,9 @@
 [1m┌────────────────────────────────────────────────────────────────────┐[0m
-│Inbox 2 Snoozed 0 Answered 0 Done 0 Withdrawn 0 Status [Contacts]   │
-│avatar name liveness  open activity                                 │
-│[7m-      cara (offline) 1    14:00 · 1h ago                           [0m│
-│-      ada  alive     1    13:00 · 2h ago                           │
-│-      zed  dead      0                                             │
+│Inbox 2 Snoozed 0 Answered 0 Done 0 Withdrawn 0 Status [Contacts] 1 │
+│avatar name state  liveness  open activity                          │
+│-      ada  active alive     1    13:00 · 2h ago                    │
+│[7m-      cara dead   (offline) 1    14:00 · 1h ago                    [0m│
+│[2m-      zed  dead   dead      0                                      [0m│
 │contacts  mouse on  g go to  u list  enter filter  A avatar  ? help │
 │                                                                    │
 │                                                                    │

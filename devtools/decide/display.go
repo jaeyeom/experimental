@@ -29,7 +29,7 @@ const (
 // DisplayKeys are the config keys a hub shares with its clients. A key
 // not listed here is never exported.
 func DisplayKeys() []string {
-	return []string{"avatarDefault", "avatarMono", "avatars", "hyperlinks", "recipients", "recipientsTimeout", "targets"}
+	return []string{"avatarDefault", "avatarMono", "avatars", "hiddenContacts", "hyperlinks", "recipients", "recipientsTimeout", "targets"}
 }
 
 // copyDisplayKey sets dst's field for display key key from src.
@@ -41,6 +41,8 @@ func copyDisplayKey(key string, dst, src *Config) {
 		dst.AvatarMono = src.AvatarMono
 	case "avatars":
 		dst.Avatars = src.Avatars
+	case "hiddenContacts":
+		dst.HiddenContacts = src.HiddenContacts
 	case "hyperlinks":
 		dst.Hyperlinks = src.Hyperlinks
 	case "recipients":

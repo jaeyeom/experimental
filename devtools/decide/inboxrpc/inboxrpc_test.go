@@ -456,6 +456,53 @@ func TestSetAvatarWritesTheHubAndASecondClientSeesIt(t *testing.T) {
 	}
 }
 
+func TestSetHiddenWritesTheHubAndASecondClientSeesIt(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", home)
+	path := filepath.Join(home, "decide", "config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newHub(t)
+	h.server.Display = func() (decide.DisplaySettings, error) {
+		f, err := decide.LoadConfigFile()
+		if err != nil {
+			return decide.DisplaySettings{}, fmt.Errorf("load config: %w", err)
+		}
+		return f.Display(), nil
+	}
+	first := connect(t, h)
+	second := connect(t, h)
+	settings, err := first.SetHidden([]string{"cara", "zed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(settings.Keys["hiddenContacts"]), "cara") {
+		t.Fatalf("display = %s", settings.Keys["hiddenContacts"])
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(data), "cara") || !strings.Contains(string(data), "zed") {
+		t.Fatalf("hub config = %s, %v", data, err)
+	}
+	if _, err := second.List(); err != nil {
+		t.Fatal(err)
+	}
+	got, gen := second.Display()
+	if gen < 2 || !strings.Contains(string(got.Keys["hiddenContacts"]), "zed") {
+		t.Fatalf("second client gen %d display %s", gen, got.Keys["hiddenContacts"])
+	}
+	if _, err := first.SetHidden(nil); err != nil {
+		t.Fatal(err)
+	}
+	data, err = os.ReadFile(path)
+	if err != nil || strings.Contains(string(data), "cara") {
+		t.Fatalf("cleared config = %s, %v", data, err)
+	}
+}
+
 func TestSetAvatarOnAnOldHubSaysToUpdateIt(t *testing.T) {
 	c := &Client{Label: "me@hub", Dial: scriptedHub(func(req Request) Response {
 		switch req.Op {

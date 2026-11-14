@@ -174,7 +174,14 @@ type Model struct {
 	agentFilter   string
 	contacts      []contact
 	contactCursor int
-	pickFilter    string
+	// hidden is the display setting of contact names Contacts does not
+	// show. showHidden is the session's H toggle. confirmKind is a y/n
+	// prompt, and confirmName is the agent a release would name.
+	hidden      []string
+	showHidden  bool
+	confirmKind int
+	confirmName string
+	pickFilter  string
 	// snoozing shows the snooze popup for snoozeItem. snoozeCustom is
 	// the custom row's text and snoozeErr its parse error.
 	snoozing     bool
@@ -331,6 +338,9 @@ func (m *Model) applyList(all []decide.Item) error {
 // an open item as you type. Enter keeps the result, an empty Enter clears
 // it, and Esc restores the state from before /.
 func (m *Model) Key(r rune) (bool, error) {
+	if m.confirmKind != confirmNone {
+		return m.confirmKey(r)
+	}
 	if m.chord {
 		return m.finishChord(r)
 	}
@@ -1736,9 +1746,10 @@ func (m *Model) navText(i int) string {
 }
 
 // navCountText is the folder's total, or matches/total while a search
-// or an agent filter is active. Status and Contacts show matches/total
-// only when the query filters that view. The bool is true when a folder
-// has no matches and should be dimmed.
+// or an agent filter is active. Status shows matches/total only when
+// the query filters that view. Contacts counts active contacts, and
+// shows matches/total under a search or an agent filter. The bool is
+// true when a folder has no matches and should be dimmed.
 func (m *Model) navCountText(i int) (string, bool) {
 	q := m.listQuery()
 	if i == len(Folders) {
@@ -1749,11 +1760,11 @@ func (m *Model) navCountText(i int) (string, bool) {
 		return fmt.Sprintf("%d/%d", matches, m.statusTotal), matches == 0
 	}
 	if i > len(Folders) {
-		if q == "" || m.mode != modeContacts {
-			return "", false
+		total, matches := m.activeContactMatches()
+		if q == "" && m.agentFilter == "" {
+			return fmt.Sprintf("%d", total), false
 		}
-		shown := len(m.visibleContacts())
-		return fmt.Sprintf("%d/%d", shown, len(m.contacts)), shown == 0
+		return fmt.Sprintf("%d/%d", matches, total), matches == 0
 	}
 	total := m.navCount(i)
 	if q == "" && m.agentFilter == "" {
@@ -2383,6 +2394,10 @@ func (m *Model) helpLines() []screenLine {
 			"enter filters every folder to this agent",
 			"esc clears the agent filter",
 			"A picks this agent's avatar",
+			"x hides this contact",
+			"H shows hidden contacts",
+			"X hides every dead contact",
+			"R releases a dead bus name",
 			"u returns to the list",
 			"/ filters as you type, esc restores, empty enter clears",
 			"M toggles mouse capture",
