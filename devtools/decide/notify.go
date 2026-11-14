@@ -27,8 +27,9 @@ import (
 // with the thread id and the author.
 // DECIDE_REPLY_HINT is one line.
 // Reply in this thread: decide reply D-123 "..." (add --option key:label for a follow-up question; decide done D-123 "outcome" when finished). Do not answer only in your terminal.
-// DECIDE_MACHINE is the herdr machine DECIDE_PANE is on, empty for
-// this machine.
+// DECIDE_MACHINE is empty. The template runs only for a pane on this
+// machine. A pane on another machine is delivered with the send command
+// and `--machine`, and the template is not run.
 // Those values are not written into the command string. An empty template
 // runs nothing. There is no default notify command. The example is not a default.
 // SendTemplate is the compose argv template. Empty means
@@ -240,7 +241,9 @@ func parseConfig(data []byte, dir string) (Config, error) {
 // Notify runs the configured template after a relay answer is saved.
 // An empty template does nothing for a pane. The item notify pane overrides the config pane.
 // A pane that starts with agentbus: is delivered with agentbus send, and the
-// template is not run. The template only ever sees a pane target.
+// template is not run. A pane on another machine is delivered with the send
+// command and `--machine`, and the template is not run. The template only
+// ever sees a pane on this machine.
 // The command reads "$DECIDE_ID", "$DECIDE_ANSWER", "$DECIDE_ANSWER_LABEL",
 // "$DECIDE_OWNER", "$DECIDE_PANE", "$DECIDE_KIND", "$DECIDE_QUESTION",
 // "$DECIDE_ANSWERED_AT", "$DECIDE_ANSWERED_BY", "$DECIDE_THREAD_HEADER",
@@ -249,7 +252,7 @@ func parseConfig(data []byte, dir string) (Config, error) {
 // the author.
 // DECIDE_REPLY_HINT is one line.
 // Reply in this thread: decide reply D-123 "..." (add --option key:label for a follow-up question; decide done D-123 "outcome" when finished). Do not answer only in your terminal.
-// DECIDE_MACHINE is the herdr machine of DECIDE_PANE, empty for this machine.
+// DECIDE_MACHINE is empty. The template runs only for a pane on this machine.
 // None of those fields are substituted into the command string.
 // A command that exits 0 and prints JSON with a top-level error object
 // was not delivered.
@@ -264,6 +267,9 @@ func Notify(item *Item, out io.Writer) error {
 	pane, machine := NotifyTarget(item, cfg)
 	if name, ok := strings.CutPrefix(pane, BusPanePrefix); ok {
 		return notifyBus(item, strings.TrimSpace(name))
+	}
+	if machine != "" {
+		return notifyRemote(item, pane, machine, cfg)
 	}
 	if strings.TrimSpace(cfg.NotifyTemplate) == "" {
 		return nil
@@ -300,6 +306,23 @@ func Notify(item *Item, out io.Writer) error {
 		return logDelivery(item.ID, fmt.Errorf("notify: %w", err))
 	}
 	if err := stdoutDeliveryError(stdout.String()); err != nil {
+		return logDelivery(item.ID, fmt.Errorf("notify: %w", err))
+	}
+	return nil
+}
+
+// notifyRemote delivers the answer note to a pane on another machine.
+// The user's notify template is not run.
+func notifyRemote(item *Item, pane, machine string, cfg Config) error {
+	answer := ""
+	answeredBy := ""
+	if item.Answer != nil {
+		answer = item.Answer.Value
+		answeredBy = item.Answer.AnsweredBy
+	}
+	note := DeliveryNote(item.ID, answeredBy, answer)
+	argv := MachineArgv(SendArgv(cfg.SendTemplate, pane, note), machine)
+	if err := RunSend(argv); err != nil {
 		return logDelivery(item.ID, fmt.Errorf("notify: %w", err))
 	}
 	return nil

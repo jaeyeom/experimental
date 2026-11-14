@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jaeyeom/experimental/devtools/pkg/herdrtest"
 )
 
 func TestNotifyRoutesAgentbusWithoutTheTemplate(t *testing.T) {
@@ -64,6 +66,73 @@ func TestNotifyTemplateErrorJSON(t *testing.T) {
 	err := Notify(item, &strings.Builder{})
 	if err == nil || !strings.Contains(err.Error(), "agent_not_found") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestNotifyRemotePaneUsesMachine(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "template-ran")
+	writeConfig(t, `{"notifyTemplate":"touch `+marker+`"}`)
+	herdr := herdrtest.Install(t)
+	item := &Item{
+		ID:            "D-7",
+		NotifyPane:    "p3",
+		NotifyMachine: "m2",
+		Answer:        &Answer{Value: "ship", AnsweredBy: "human"},
+	}
+	if err := Notify(item, &strings.Builder{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal("notify template ran for a remote pane")
+	}
+	header, _, _ := strings.Cut(DeliveryNote("D-7", "human", "ship"), "\n")
+	want := "--machine m2 agent prompt p3 " + header
+	argv := herdr.Argv()
+	if len(argv) == 0 || argv[0] != want {
+		t.Fatalf("herdr argv = %q, want %q", argv, want)
+	}
+}
+
+func TestNotifyRemotePaneFailure(t *testing.T) {
+	writeConfig(t, `{"notifyTemplate":"true"}`)
+	item := &Item{
+		ID:            "D-7",
+		NotifyPane:    "p3",
+		NotifyMachine: "m2",
+		Answer:        &Answer{Value: "ship", AnsweredBy: "human"},
+	}
+	t.Run("unreachable", func(t *testing.T) {
+		herdr := herdrtest.Install(t)
+		herdr.Write("m2.down", "")
+		err := Notify(item, &strings.Builder{})
+		if err == nil || !strings.Contains(err.Error(), "m2") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+	t.Run("error json", func(t *testing.T) {
+		herdr := herdrtest.Install(t)
+		herdr.Write("m2.prompt", `{"error":{"code":"agent_not_found"}}`)
+		err := Notify(item, &strings.Builder{})
+		if err == nil || !strings.Contains(err.Error(), "agent_not_found") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+}
+
+func TestNotifyLocalPaneRunsTheTemplate(t *testing.T) {
+	writeConfig(t, `{"notifyTemplate":"printf ok"}`)
+	herdr := herdrtest.Install(t)
+	item := &Item{ID: "D-7", NotifyPane: "w1:p1", Answer: &Answer{Value: "ship", AnsweredBy: "human"}}
+	var out strings.Builder
+	if err := Notify(item, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "ok" {
+		t.Fatalf("stdout = %q", out.String())
+	}
+	if argv := herdr.Argv(); len(argv) != 0 {
+		t.Fatalf("local pane ran herdr: %q", argv)
 	}
 }
 

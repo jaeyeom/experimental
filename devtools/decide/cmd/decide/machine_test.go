@@ -3,6 +3,10 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -141,21 +145,27 @@ func TestLocalAskLeavesTheMachineEmpty(t *testing.T) {
 	}
 }
 
-func TestHubNotifyExportsTheMachine(t *testing.T) {
+func TestHubNotifyDeliversToTheCallerMachine(t *testing.T) {
 	dump := setupNotifyDump(t)
 	t.Setenv("DECIDE_HUB", "")
 	t.Setenv("SSH_CONNECTION", "x")
 	t.Setenv("DECIDE_AS_HANDLE", "herdr:m2/s/p3")
+	herdr := herdrtest.Install(t)
 	item := askJSON(t)
 	if _, stderr, code := runCLI("answer", item.ID, "a"); code != 0 {
 		t.Fatalf("answer = %d\n%s", code, stderr)
 	}
-	if got := readDump(t, dump, "DECIDE_MACHINE"); got != "m2" {
-		t.Fatalf("DECIDE_MACHINE = %q, want m2", got)
+	if _, err := os.Stat(filepath.Join(dump, "DECIDE_MACHINE")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal("notify template ran for a remote pane")
 	}
-	if got := readDump(t, dump, "DECIDE_PANE"); got != "p3" {
-		t.Fatalf("DECIDE_PANE = %q, want p3", got)
+	header := "[decide " + item.ID + " from human]"
+	want := "--machine m2 agent prompt p3 " + header
+	for _, line := range herdr.Argv() {
+		if line == want {
+			return
+		}
 	}
+	t.Fatalf("herdr did not send %q", want)
 }
 
 func TestComposeSendsToTheItemMachine(t *testing.T) {
