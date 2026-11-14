@@ -226,6 +226,17 @@ CREATE INDEX channels_id ON channels (id);
 	`
 ALTER TABLE inbound ADD COLUMN notified INTEGER NOT NULL DEFAULT 0;
 `,
+	// requested_to is the destination the user typed. channel is the
+	// conversation id events arrive on: D… for a DM, not the user id.
+	// users caches a lowercase name to one user id, as channels does.
+	`
+ALTER TABLE outbox ADD COLUMN requested_to TEXT NOT NULL DEFAULT '';
+CREATE TABLE users (
+	name    TEXT PRIMARY KEY,
+	id      TEXT NOT NULL,
+	seen_at INTEGER NOT NULL
+);
+`,
 }
 
 // Store is the slackwatch SQLite database. The server and the CLI each

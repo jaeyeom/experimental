@@ -76,8 +76,11 @@ var ErrNoOutbox = errors.New("no such outbox record")
 // PostedText is what Slack returned for a handoff post. Manual is set
 // when the post was made by hand and recorded with PostedManual.
 type OutboxRecord struct {
-	ID           int64    `json:"id"`
-	Channel      string   `json:"channel"`
+	ID      int64  `json:"id"`
+	Channel string `json:"channel"`
+	// RequestedTo is the destination the user typed, such as a user id
+	// or @name. Channel is the conversation events arrive on.
+	RequestedTo  string   `json:"requestedTo,omitempty"`
 	ThreadTS     string   `json:"threadTs,omitempty"`
 	DestName     string   `json:"destName,omitempty"`
 	ParentLink   string   `json:"parentLink,omitempty"`
@@ -530,9 +533,15 @@ type AuthInfo struct {
 type SlackWriter interface {
 	// AuthTest reports who the token belongs to.
 	AuthTest(ctx context.Context, token string) (AuthInfo, error)
-	// PostMessage posts text to channel, in the thread threadTS when set,
-	// and returns the new message's ts.
-	PostMessage(ctx context.Context, token, channel, threadTS, text string) (string, error)
+	// PostMessage posts text to channel, in the thread threadTS when set.
+	// It returns the channel id from the response, which for a DM is the
+	// D… conversation, and the new message's ts.
+	PostMessage(ctx context.Context, token, channel, threadTS, text string) (channelID, ts string, err error)
+}
+
+// DMOpener opens the DM with a user id and returns its D… channel.
+type DMOpener interface {
+	OpenDM(ctx context.Context, userID string) (string, error)
 }
 
 // MessageReader reads messages back with the read token. threadTS is
@@ -547,14 +556,15 @@ type MessageReader interface {
 
 // Draft is what slackwatch post submits.
 type Draft struct {
-	Channel    string
-	ThreadTS   string
-	DestName   string
-	ParentLink string
-	Text       string
-	Owner      string
-	Purpose    string
-	Refs       []string
+	Channel     string
+	RequestedTo string
+	ThreadTS    string
+	DestName    string
+	ParentLink  string
+	Text        string
+	Owner       string
+	Purpose     string
+	Refs        []string
 	// Supersedes is an outbox id this draft replaces. 0 means none.
 	// It must be needs-redraft, pending, or awaiting-handoff. That
 	// record is cancelled only after this draft is stored.
@@ -578,6 +588,9 @@ type Outbox struct {
 	// Channels resolves a name after a cached id returns channel_not_found.
 	// Nil skips that retry.
 	Channels *ChannelLookup
+	// DMs opens a user id into its D… channel. Nil leaves a user id as-is
+	// until a caller that has an opener resolves it.
+	DMs DMOpener
 
 	mu     sync.Mutex
 	authed string // TextHash of the write token that passed auth.test
@@ -629,9 +642,9 @@ func (o *Outbox) Submit(ctx context.Context, d Draft) (OutboxRecord, error) {
 	now := o.Now()
 	hash := TextHash(d.Text)
 	res, err := o.Store.db.Exec(`INSERT INTO outbox
-(channel, thread_ts, dest_name, parent_link, text, text_hash, owner, purpose, refs, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		d.Channel, d.ThreadTS, d.DestName, d.ParentLink, d.Text, hash, d.Owner, d.Purpose,
+(channel, requested_to, thread_ts, dest_name, parent_link, text, text_hash, owner, purpose, refs, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		d.Channel, d.RequestedTo, d.ThreadTS, d.DestName, d.ParentLink, d.Text, hash, d.Owner, d.Purpose,
 		strings.Join(d.Refs, refsSep), now.Unix(), now.Unix())
 	if err != nil {
 		return OutboxRecord{}, fmt.Errorf("add outbox record: %w", err)
@@ -1161,6 +1174,94 @@ func (o *Outbox) disable(ctx context.Context, reason string) error {
 	return fmt.Errorf("posting is disabled: %s; run slackwatch pin", reason)
 }
 
+// useDMChannel replaces a stored user id with the D… channel from
+// conversations.open. A channel id is left alone. The user id is kept
+// in requested_to when that field is empty.
+func (o *Outbox) useDMChannel(ctx context.Context, r *OutboxRecord) error {
+	if r == nil || !UserID(r.Channel) {
+		return nil
+	}
+	if o.DMs == nil {
+		return fmt.Errorf("outbox %d: %s is a user id and conversations.open is not configured", r.ID, r.Channel)
+	}
+	dm, err := o.DMs.OpenDM(ctx, r.Channel)
+	if err != nil {
+		return fmt.Errorf("outbox %d: conversations.open %s: %w", r.ID, r.Channel, err)
+	}
+	if dm == "" || UserID(dm) {
+		return fmt.Errorf("outbox %d: conversations.open %s returned %q", r.ID, r.Channel, dm)
+	}
+	if r.RequestedTo == "" {
+		if err := o.Store.SetRequestedTo(r.ID, r.Channel, o.now()); err != nil {
+			return err
+		}
+		r.RequestedTo = r.Channel
+	}
+	return o.notePostedChannel(r, dm)
+}
+
+// notePostedChannel stores the channel chat.postMessage returned.
+// Permalink, the watch, and the read-back then use that id.
+func (o *Outbox) notePostedChannel(r *OutboxRecord, channel string) error {
+	if r == nil || channel == "" || channel == r.Channel {
+		return nil
+	}
+	if err := o.Store.SetOutboxChannel(r.ID, channel, o.now()); err != nil {
+		return err
+	}
+	r.Channel = channel
+	return nil
+}
+
+func (o *Outbox) now() time.Time {
+	if o.Now != nil {
+		return o.Now()
+	}
+	return time.Now()
+}
+
+// Repair rewrites outbox records whose channel is still a user id.
+// Each record and its watch move to the D… channel. A footer watch
+// already on that DM is merged in, so a second watch is not registered.
+// It returns how many records changed.
+func (o *Outbox) Repair(ctx context.Context) (int, error) {
+	recs, err := o.Store.listOutbox(`channel LIKE 'U%'`)
+	if err != nil {
+		return 0, err
+	}
+	var todo []OutboxRecord
+	for _, r := range recs {
+		if UserID(r.Channel) {
+			todo = append(todo, r)
+		}
+	}
+	if len(todo) == 0 {
+		return 0, nil
+	}
+	if o.DMs == nil {
+		return 0, errors.New("DM repair needs conversations.open")
+	}
+	var errs []error
+	n := 0
+	for _, r := range todo {
+		dm, err := o.DMs.OpenDM(ctx, r.Channel)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("outbox %d: conversations.open %s: %w", r.ID, r.Channel, err))
+			continue
+		}
+		if dm == "" || UserID(dm) {
+			errs = append(errs, fmt.Errorf("outbox %d: conversations.open %s returned %q", r.ID, r.Channel, dm))
+			continue
+		}
+		if err := o.Store.RetargetOutboxDM(r.ID, r.Channel, dm, o.now()); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		n++
+	}
+	return n, errors.Join(errs...)
+}
+
 // errNoChannelRefresh means a channel_not_found was not looked up again.
 var errNoChannelRefresh = errors.New("channel not refreshed")
 
@@ -1171,19 +1272,22 @@ func keepSlack(err error) error {
 
 // postTo posts text. A channel_not_found for a cached id drops that cache
 // entry, resolves the name once, and posts once more.
-func (o *Outbox) postTo(ctx context.Context, token string, r *OutboxRecord, text string) (string, error) {
-	ts, err := o.Writer.PostMessage(ctx, token, r.Channel, r.ThreadTS, text)
+func (o *Outbox) postTo(ctx context.Context, token string, r *OutboxRecord, text string) (string, string, error) {
+	if err := o.useDMChannel(ctx, r); err != nil {
+		return "", "", err
+	}
+	channel, ts, err := o.Writer.PostMessage(ctx, token, r.Channel, r.ThreadTS, text)
 	if !channelNotFound(err) {
-		return ts, keepSlack(err)
+		return channel, ts, keepSlack(err)
 	}
 	if rerr := o.refreshChannel(ctx, r); rerr != nil {
 		if errors.Is(rerr, errNoChannelRefresh) {
-			return "", keepSlack(err)
+			return "", "", keepSlack(err)
 		}
-		return "", rerr
+		return "", "", rerr
 	}
-	ts, err = o.Writer.PostMessage(ctx, token, r.Channel, r.ThreadTS, text)
-	return ts, keepSlack(err)
+	channel, ts, err = o.Writer.PostMessage(ctx, token, r.Channel, r.ThreadTS, text)
+	return channel, ts, keepSlack(err)
 }
 
 // recent lists messages at r. A channel_not_found is retried once after
@@ -1283,9 +1387,12 @@ func (o *Outbox) postDirect(ctx context.Context, cfg Config, r OutboxRecord) err
 	if err != nil || !moved {
 		return err
 	}
-	ts, err := o.postTo(ctx, token, &r, r.Text+"\n\n"+cfg.Post.Footer)
+	channel, ts, err := o.postTo(ctx, token, &r, r.Text+"\n\n"+cfg.Post.Footer)
 	if err != nil {
 		return o.failPost(ctx, r, err)
+	}
+	if err := o.notePostedChannel(&r, channel); err != nil {
+		return err
 	}
 	teamURL, err := o.Store.TeamURL()
 	if err != nil {
@@ -1442,6 +1549,9 @@ func (o *Outbox) retryDirect(ctx context.Context, cfg Config, r OutboxRecord) (O
 	if err != nil {
 		return OutboxRecord{}, err
 	}
+	if err := o.useDMChannel(ctx, &r); err != nil {
+		return OutboxRecord{}, err
+	}
 	dup, ok, err := o.findDuplicate(ctx, cfg, &r)
 	if err != nil {
 		return OutboxRecord{}, err
@@ -1475,6 +1585,11 @@ func (o *Outbox) registerExisting(ctx context.Context, r OutboxRecord, m Message
 	if err != nil {
 		return OutboxRecord{}, err
 	}
+	if m.Channel != "" {
+		if err := o.notePostedChannel(&r, m.Channel); err != nil {
+			return OutboxRecord{}, err
+		}
+	}
 	link := permalink(teamURL, r.Channel, m.TS, r.ThreadTS)
 	p := PostRef{Channel: r.Channel, TS: m.TS, ThreadTS: r.ThreadTS, Permalink: link}
 	if err := o.registerPosted(ctx, r, []string{OutboxFailed}, p, "", m.Text, false); err != nil {
@@ -1494,12 +1609,15 @@ func (o *Outbox) postRetry(ctx context.Context, cfg Config, r OutboxRecord, toke
 	if !moved {
 		return OutboxRecord{}, fmt.Errorf("outbox %d is no longer %s", r.ID, OutboxFailed)
 	}
-	ts, err := o.postTo(ctx, token, &r, r.Text+"\n\n"+cfg.Post.Footer)
+	channel, ts, err := o.postTo(ctx, token, &r, r.Text+"\n\n"+cfg.Post.Footer)
 	if err != nil {
 		if ferr := o.failPost(ctx, r, err); ferr != nil {
 			return OutboxRecord{}, ferr
 		}
 		return OutboxRecord{}, fmt.Errorf("outbox %d: %s", r.ID, postFailureNotice(r, "chat.postMessage: "+err.Error()))
+	}
+	if err := o.notePostedChannel(&r, channel); err != nil {
+		return OutboxRecord{}, err
 	}
 	return o.finishRetryPost(ctx, cfg, r, ts)
 }
@@ -1852,7 +1970,7 @@ WHERE id = ? AND state IN (?, ?, ?, ?)`, args...)
 	return n == 1, nil
 }
 
-const outboxCols = `id, channel, thread_ts, dest_name, parent_link, text, text_hash, owner, purpose, refs,
+const outboxCols = `id, channel, requested_to, thread_ts, dest_name, parent_link, text, text_hash, owner, purpose, refs,
 state, reason, decide_id, decide_closed, answer, post_ts, permalink, posted_text, watch_id, manual, supersedes, created_at, updated_at`
 
 type scanner interface {
@@ -1864,7 +1982,7 @@ func scanOutbox(sc scanner) (OutboxRecord, error) {
 	var refs string
 	var watchID sql.NullInt64
 	var created, updated int64
-	if err := sc.Scan(&r.ID, &r.Channel, &r.ThreadTS, &r.DestName, &r.ParentLink, &r.Text, &r.TextHash,
+	if err := sc.Scan(&r.ID, &r.Channel, &r.RequestedTo, &r.ThreadTS, &r.DestName, &r.ParentLink, &r.Text, &r.TextHash,
 		&r.Owner, &r.Purpose, &refs, &r.State, &r.Reason, &r.DecideID, &r.DecideClosed, &r.Answer,
 		&r.PostTS, &r.Permalink, &r.PostedText, &watchID, &r.Manual, &r.Supersedes, &created, &updated); err != nil {
 		return OutboxRecord{}, err //nolint:wrapcheck // Wrapped by callers.
@@ -1889,6 +2007,112 @@ func (s *Store) GetOutbox(id int64) (OutboxRecord, error) {
 		return OutboxRecord{}, fmt.Errorf("read outbox %d: %w", id, err)
 	}
 	return r, nil
+}
+
+// RetargetOutboxDM moves record id from a user id to its DM channel.
+// The record's watch moves with it. A watch already on that DM for the
+// same thread is merged, and the owned watch is the one kept.
+func (s *Store) RetargetOutboxDM(id int64, from, to string, now time.Time) error {
+	if from == "" || to == "" || from == to {
+		return fmt.Errorf("retarget outbox %d from %q to %q", id, from, to)
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("retarget outbox %d: %w", id, err)
+	}
+	defer tx.Rollback() //nolint:errcheck // No-op after Commit.
+	var watchID sql.NullInt64
+	var link, requested string
+	if err := tx.QueryRow(`SELECT watch_id, permalink, requested_to FROM outbox WHERE id = ?`, id).Scan(&watchID, &link, &requested); err != nil {
+		return fmt.Errorf("retarget outbox %d: %w", id, err)
+	}
+	if requested == "" {
+		requested = from
+	}
+	link = strings.ReplaceAll(link, "/archives/"+from+"/", "/archives/"+to+"/")
+	if _, err := tx.Exec(`UPDATE outbox SET channel = ?, requested_to = ?, permalink = ?, updated_at = ? WHERE id = ?`,
+		to, requested, link, now.Unix(), id); err != nil {
+		return fmt.Errorf("retarget outbox %d: %w", id, err)
+	}
+	if watchID.Valid {
+		if err := retargetWatch(tx, id, watchID.Int64, from, to); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("retarget outbox %d: %w", id, err)
+	}
+	return nil
+}
+
+// retargetWatch moves watchID onto to. A watch already there is merged
+// into the one that has an owner.
+func retargetWatch(tx *sql.Tx, outboxID, watchID int64, from, to string) error {
+	var thread, owner, link string
+	if err := tx.QueryRow(`SELECT thread_ts, owner, permalink FROM watches WHERE id = ?`, watchID).Scan(&thread, &owner, &link); err != nil {
+		return fmt.Errorf("retarget watch %d: %w", watchID, err)
+	}
+	keep, drop, err := chooseDMWatch(tx, outboxID, watchID, to, thread, owner)
+	if err != nil {
+		return err
+	}
+	if drop != 0 {
+		if err := mergeWatch(tx, keep, drop); err != nil {
+			return err
+		}
+	}
+	if keep != watchID {
+		if err := tx.QueryRow(`SELECT permalink FROM watches WHERE id = ?`, keep).Scan(&link); err != nil {
+			return fmt.Errorf("read watch %d: %w", keep, err)
+		}
+	}
+	link = strings.ReplaceAll(link, "/archives/"+from+"/", "/archives/"+to+"/")
+	if _, err := tx.Exec(`UPDATE watches SET channel = ?, kind = ?, permalink = ? WHERE id = ?`, to, KindDM, link, keep); err != nil {
+		return fmt.Errorf("move watch %d to %s: %w", keep, to, err)
+	}
+	if _, err := tx.Exec(`UPDATE replies SET channel = ? WHERE watch_id = ? AND channel = ?`, to, keep, from); err != nil {
+		return fmt.Errorf("move replies of watch %d: %w", keep, err)
+	}
+	return nil
+}
+
+// chooseDMWatch picks the watch to keep on (to, thread). The owned watch
+// wins. drop is the other watch, or 0 when to has no watch yet.
+func chooseDMWatch(tx *sql.Tx, outboxID, watchID int64, to, thread, owner string) (keep, drop int64, err error) {
+	keep = watchID
+	var otherID int64
+	var otherOwner string
+	err = tx.QueryRow(`SELECT id, owner FROM watches WHERE channel = ? AND thread_ts = ? AND id <> ?`, to, thread, watchID).Scan(&otherID, &otherOwner)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return keep, 0, nil
+	case err != nil:
+		return 0, 0, fmt.Errorf("find watch on %s: %w", to, err)
+	}
+	drop = otherID
+	if owner == "" && otherOwner != "" {
+		keep, drop = otherID, watchID
+		if _, err = tx.Exec(`UPDATE outbox SET watch_id = ? WHERE id = ?`, keep, outboxID); err != nil {
+			return 0, 0, fmt.Errorf("point outbox %d at watch %d: %w", outboxID, keep, err)
+		}
+	}
+	return keep, drop, nil
+}
+
+// mergeWatch moves drop's replies and posts onto keep, then deletes drop.
+func mergeWatch(tx *sql.Tx, keep, drop int64) error {
+	if _, err := tx.Exec(`UPDATE replies SET watch_id = ? WHERE watch_id = ?`, keep, drop); err != nil {
+		return fmt.Errorf("merge replies into watch %d: %w", keep, err)
+	}
+	if _, err := tx.Exec(`INSERT INTO watch_posts (watch_id, ts)
+SELECT ?, ts FROM watch_posts WHERE watch_id = ?
+ON CONFLICT DO NOTHING`, keep, drop); err != nil {
+		return fmt.Errorf("merge posts into watch %d: %w", keep, err)
+	}
+	if _, err := tx.Exec(`DELETE FROM watches WHERE id = ?`, drop); err != nil {
+		return fmt.Errorf("drop duplicate watch %d: %w", drop, err)
+	}
+	return nil
 }
 
 // SupersededBy is the id of the draft that replaced id, or 0 when none has.

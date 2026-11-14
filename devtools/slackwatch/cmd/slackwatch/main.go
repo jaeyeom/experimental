@@ -92,7 +92,7 @@ Commands:
                       server heartbeat; exits 1 when down, stale, or undelivered
   slackwatch inbound [--since DUR|DATE] [--json]
                       recorded DMs and mentions
-  slackwatch post --to <channel-id|#name|thread-permalink> --text-file F --owner T --purpose S [--ref R ...] [--supersedes ID] [--owner-unchecked] [--json]
+  slackwatch post --to <channel-id|#name|@name|user-id|thread-permalink> --text-file F --owner T --purpose S [--ref R ...] [--supersedes ID] [--owner-unchecked] [--json]
                       submit a draft; it is posted only after the user approves
                       the exact text and destination in decide (needs post.mode)
   slackwatch outbox ls [--state S] [--json]
@@ -110,6 +110,8 @@ Commands:
   slackwatch outbox retry <id>
                       post a failed direct record once after the checks,
                       or return a handoff record to awaiting-handoff
+  slackwatch outbox repair
+                      rewrite a record stored under a user id onto its DM channel
   slackwatch pin      check the write token with auth.test and pin it in config
   slackwatch skill [triage]
                       print the agent skill, or the inbound triage role

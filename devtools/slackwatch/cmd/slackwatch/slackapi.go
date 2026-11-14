@@ -96,6 +96,38 @@ func (r slackReader) ListChannels(ctx context.Context, cursor string) (slackwatc
 	return page, nil
 }
 
+// ListUsers reads one page of users.list.
+func (r slackReader) ListUsers(ctx context.Context, cursor string) (slackwatch.UserPage, error) {
+	p := r.api.GetUsersPaginated(slack.GetUsersOptionCursor(cursor), slack.GetUsersOptionLimit(pageLimit))
+	p, err := p.Next(ctx)
+	if err != nil {
+		if p.Done(err) {
+			return slackwatch.UserPage{}, nil
+		}
+		return slackwatch.UserPage{}, apiError("users.list", err)
+	}
+	page := slackwatch.UserPage{Next: p.Cursor}
+	for _, u := range p.Users {
+		if u.ID == "" || u.Deleted {
+			continue
+		}
+		page.Users = append(page.Users, slackwatch.NamedUser{ID: u.ID, Name: u.Name, Display: u.Profile.DisplayName})
+	}
+	return page, nil
+}
+
+// UserByEmail resolves an email with users.lookupByEmail.
+func (r slackReader) UserByEmail(ctx context.Context, email string) (string, error) {
+	u, err := r.api.GetUserByEmailContext(ctx, email)
+	if err != nil {
+		return "", apiError("users.lookupByEmail", err)
+	}
+	if u == nil || u.ID == "" {
+		return "", fmt.Errorf("slack users.lookupByEmail: %s returned no user", email)
+	}
+	return u.ID, nil
+}
+
 // ChannelID finds a channel by name with conversations.list. It does not
 // use the state cache; resolveChannel does.
 func (r slackReader) ChannelID(ctx context.Context, name string) (string, error) {
