@@ -145,6 +145,171 @@ func TestReplyArgumentOrdersAppendTheBody(t *testing.T) {
 	}
 }
 
+func TestPlainReplyFromAnotherSenderKeepsTheOptionKey(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	id := askRelay(t, nil, "post it?")
+	before := showJSON(t, id)
+	stdout, stderr, code := runCLI("reply", id, "context from someone else")
+	if code != 0 {
+		t.Fatalf("reply code = %d\n%s\n%s", code, stderr, stdout)
+	}
+	got := showJSON(t, id)
+	if !optionKeys(got.Options, "a", "b") || !got.FreeText || got.Options[0].Label != before.Options[0].Label {
+		t.Fatalf("options = %+v free %v", got.Options, got.FreeText)
+	}
+	if len(got.Messages) != 2 || got.Messages[1].Text != "context from someone else" || len(got.Messages[1].Options) != 0 {
+		t.Fatalf("messages = %+v", got.Messages)
+	}
+	if code := answer(t, id, "a"); code != 0 {
+		t.Fatalf("option key was not accepted, code %d", code)
+	}
+	answered := showJSON(t, id)
+	if answered.Answer == nil || answered.Answer.Key != "a" {
+		t.Fatalf("answer = %+v", answered.Answer)
+	}
+}
+
+func TestReplyWithNewOptionsReplacesPending(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	id := askRelay(t, nil, "post it?")
+	stdout, stderr, code := runCLI(
+		"reply", id, "pick again",
+		"--option", "c:Yes", "--option", "d:No", "--rec", "c",
+	)
+	if code != 0 {
+		t.Fatalf("reply code = %d\n%s\n%s", code, stderr, stdout)
+	}
+	got := showJSON(t, id)
+	if !optionKeys(got.Options, "c", "d") || !recommendedKey(got.Options, "c") || got.FreeText {
+		t.Fatalf("options = %+v free %v", got.Options, got.FreeText)
+	}
+	if !optionKeys(got.Messages[0].Options, "a", "b") {
+		t.Fatalf("ask options changed: %+v", got.Messages[0].Options)
+	}
+}
+
+func TestPlainReplyAfterAnswerClearsOptions(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	id := askRelay(t, nil, "post it?")
+	if code := answer(t, id, "a"); code != 0 {
+		t.Fatalf("answer code = %d", code)
+	}
+	stdout, stderr, code := runCLI("reply", id, "shipped")
+	if code != 0 {
+		t.Fatalf("reply code = %d\n%s\n%s", code, stderr, stdout)
+	}
+	got := showJSON(t, id)
+	if got.State != decide.StateOpen || len(got.Options) != 0 {
+		t.Fatalf("state %s options %+v", got.State, got.Options)
+	}
+}
+
+func TestOwnerRepliesOnlyRefusesOtherSenders(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	writeSendConfig(t, os.Getenv("XDG_CONFIG_HOME"))
+	id := askRelay(t, []string{"--owner-replies-only", "--notify-pane", "p1"}, "post it?")
+	raw, stderr, code := runCLI("show", "--json", id)
+	if code != 0 {
+		t.Fatalf("show code = %d\n%s", code, stderr)
+	}
+	if !strings.Contains(raw, `"ownerRepliesOnly": true`) {
+		t.Fatalf("show --json missing flag:\n%s", raw)
+	}
+	before := len(showJSON(t, id).Messages)
+	want := "item " + id + " accepts replies only from its owner ada; message the owner instead"
+	for _, args := range [][]string{
+		{"reply", id, "not the owner"},
+		{"send", "--id", id, "not the owner"},
+		{"send", "--id", id, "--via", "ui", "not the owner either"},
+	} {
+		stdout, stderr, code := runCLI(args...)
+		if code == 0 || !strings.Contains(stderr, want) {
+			t.Fatalf("%q = %d\nstderr %q\nstdout %q", args, code, stderr, stdout)
+		}
+	}
+	got := showJSON(t, id)
+	if len(got.Messages) != before || !optionKeys(got.Options, "a", "b") {
+		t.Fatalf("refused senders changed the item: options %+v messages %d", got.Options, len(got.Messages))
+	}
+	if code := answer(t, id, "a"); code != 0 {
+		t.Fatalf("human answer code = %d", code)
+	}
+	dir, err := decide.DefaultDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	led, err := decide.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inboxID := askRelay(t, []string{"--owner-replies-only"}, "inbox?")
+	if _, err := led.Compose(inboxID, "from the inbox", decide.ViaUI, ""); err != nil {
+		t.Fatalf("inbox reply: %v", err)
+	}
+	inbox := showJSON(t, inboxID)
+	last := inbox.Messages[len(inbox.Messages)-1]
+	if last.Author != "human" || last.Text != "from the inbox" || last.Via != decide.ViaUI {
+		t.Fatalf("inbox reply = %+v", last)
+	}
+}
+
+func TestOwnerRepliesOnlyRefusesANamedSender(t *testing.T) {
+	inHerdrPane(t)
+	fakeWhoami(t, "ops/other\nwhen: x\n", nil)
+	writeSendConfig(t, os.Getenv("XDG_CONFIG_HOME"))
+	stdout, stderr, code := runCLI(
+		"ask", "--owner", "ada", "--owner-replies-only", "--kind", "relay",
+		"--option", "a:Alpha", "--option", "b:Beta", "--rec", "a",
+		"--notify-pane", "p1", "post it?",
+	)
+	if code != 0 {
+		t.Fatalf("ask = %d\n%s", code, stderr)
+	}
+	id := strings.TrimSpace(stdout)
+	want := "item " + id + " accepts replies only from its owner ada; message the owner instead"
+	if stdout, stderr, code = runCLI("reply", id, "from another agent"); code == 0 || !strings.Contains(stderr, want) {
+		t.Fatalf("reply = %d\nstderr %q\nstdout %q", code, stderr, stdout)
+	}
+	if stdout, stderr, code = runCLI("send", "--id", id, "from another agent"); code == 0 || !strings.Contains(stderr, want) {
+		t.Fatalf("send = %d\nstderr %q\nstdout %q", code, stderr, stdout)
+	}
+	got := showJSON(t, id)
+	if len(got.Messages) != 1 || !optionKeys(got.Options, "a", "b") {
+		t.Fatalf("item changed: options %+v messages %+v", got.Options, got.Messages)
+	}
+}
+
+func TestOwnerRepliesOnlyAcceptsTheOwner(t *testing.T) {
+	inHerdrPane(t)
+	fakeWhoami(t, "ops/inbox\nwhen: x\n", nil)
+	writeSendConfig(t, os.Getenv("XDG_CONFIG_HOME"))
+	stdout, stderr, code := runCLI(
+		"ask", "--owner", "ops/inbox", "--owner-replies-only", "--kind", "relay",
+		"--option", "a:Alpha", "--option", "b:Beta", "--rec", "a",
+		"--notify-pane", "p1", "post it?",
+	)
+	if code != 0 {
+		t.Fatalf("ask = %d\n%s", code, stderr)
+	}
+	id := strings.TrimSpace(stdout)
+	if stdout, stderr, code = runCLI("reply", id, "from the owner"); code != 0 {
+		t.Fatalf("owner reply = %d\n%s\n%s", code, stderr, stdout)
+	}
+	if got := lastMessage(t, id); got.By != "ops/inbox" || got.Text != "from the owner" {
+		t.Fatalf("owner reply = %+v", got)
+	}
+	if stdout, stderr, code = runCLI("send", "--id", id, "owner note"); code != 0 {
+		t.Fatalf("owner send = %d\n%s\n%s", code, stderr, stdout)
+	}
+	if got := lastMessage(t, id); got.By != "ops/inbox" || got.Author != "human" {
+		t.Fatalf("owner send = %+v", got)
+	}
+}
+
 func TestReplyUnknownFlagAfterTextDoesNotChangeTheThread(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())

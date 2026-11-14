@@ -89,7 +89,7 @@ func runLocal(args []string, stdout, stderr io.Writer) int {
 
 func usage(w io.Writer) {
 	fmt.Fprintf(w, `Usage:
-  decide ask [--owner <label>] --kind relay|type-in \
+  decide ask [--owner <label>] [--owner-replies-only] --kind relay|type-in \
     --option key:label --rec key [--free-text] [--options-only] [--deadline RFC3339] \
     [--link url] [--notify-pane pane] [--type-text text] [--where place] \
     [--json] <question>
@@ -207,6 +207,15 @@ func cmdCompose(id, text, via, by string, jsonOut bool, stdout, stderr io.Writer
 	}
 	var item decide.Item
 	code := withItem(stdout, stderr, jsonOut, false, func(led *decide.Ledger) (decide.Item, error) {
+		cur, err := led.Get(id)
+		if err != nil {
+			return decide.Item{}, fmt.Errorf("compose decide item: %w", err)
+		}
+		if cur.State != decide.StateWithdrawn {
+			if err := cur.RejectForeignSender(by); err != nil {
+				return decide.Item{}, err //nolint:wrapcheck // the refusal sentence is printed unchanged
+			}
+		}
 		got, err := led.Compose(id, text, via, by)
 		if err != nil {
 			return decide.Item{}, fmt.Errorf("compose decide item: %w", err)
@@ -594,6 +603,7 @@ func cmdAsk(args []string, stdout, stderr io.Writer) int {
 	rec := fs.String("rec", "", "recommended option key")
 	freeText := fs.Bool("free-text", false, "allow an answer that is not an option")
 	optionsOnly := fs.Bool("options-only", false, "reject an answer that is not an option")
+	ownerRepliesOnly := fs.Bool("owner-replies-only", false, "only the owner may reply or send on this item")
 	deadline := fs.String("deadline", "", "deadline in RFC3339")
 	notifyPane := fs.String("notify-pane", "", "pane stored for a later notify command")
 	typeText := fs.String("type-text", "", "exact text to type")
@@ -615,7 +625,7 @@ func cmdAsk(args []string, stdout, stderr io.Writer) int {
 	}
 	allowFree := relayFreeText(*kind, *freeText, *optionsOnly, cfg.OptionsOnly)
 	who := askOwner(*owner, askerOf(context.Background()), stderr)
-	item, err := buildAsk(who, *kind, *rec, allowFree, *deadline, *notifyPane, *typeText, *where, []string(options), []string(links), question)
+	item, err := buildAsk(who, *kind, *rec, allowFree, *ownerRepliesOnly, *deadline, *notifyPane, *typeText, *where, []string(options), []string(links), question)
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
@@ -870,7 +880,7 @@ func relayFreeText(kind string, freeText, optionsOnly, configOptionsOnly bool) b
 	return true
 }
 
-func buildAsk(owner, kind, rec string, freeText bool, deadline, notifyPane, typeText, where string, options, links []string, question string) (decide.Item, error) {
+func buildAsk(owner, kind, rec string, freeText, ownerRepliesOnly bool, deadline, notifyPane, typeText, where string, options, links []string, question string) (decide.Item, error) {
 	if strings.TrimSpace(owner) == "" {
 		return decide.Item{}, fmt.Errorf("decide owner is required")
 	}
@@ -909,16 +919,17 @@ func buildAsk(owner, kind, rec string, freeText bool, deadline, notifyPane, type
 		storedLinks = append([]string(nil), links...)
 	}
 	return decide.Item{
-		Question:   question,
-		Options:    opts,
-		FreeText:   freeText,
-		Owner:      owner,
-		Links:      storedLinks,
-		Deadline:   when,
-		Kind:       kind,
-		NotifyPane: notifyPane,
-		TypeText:   typeText,
-		Where:      where,
+		Question:         question,
+		Options:          opts,
+		FreeText:         freeText,
+		Owner:            owner,
+		Links:            storedLinks,
+		Deadline:         when,
+		Kind:             kind,
+		NotifyPane:       notifyPane,
+		TypeText:         typeText,
+		Where:            where,
+		OwnerRepliesOnly: ownerRepliesOnly,
 	}, nil
 }
 
@@ -1037,6 +1048,9 @@ func writeShow(w io.Writer, it *decide.Item) {
 	fmt.Fprintf(w, "kind: %s\n", it.Kind)
 	fmt.Fprintf(w, "state: %s\n", it.State)
 	fmt.Fprintf(w, "freeText: %t\n", it.FreeText)
+	if it.OwnerRepliesOnly {
+		fmt.Fprintf(w, "ownerRepliesOnly: true\n")
+	}
 	fmt.Fprintf(w, "unread: %t\n", it.Unread)
 	for _, opt := range it.Options {
 		mark := ""

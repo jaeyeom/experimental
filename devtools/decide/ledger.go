@@ -143,6 +143,10 @@ type Item struct {
 	// snooze was set. A new message on the thread clears both.
 	SnoozedUntil *time.Time `json:"snoozedUntil,omitempty"`
 	SnoozedAt    *time.Time `json:"snoozedAt,omitempty"`
+	// OwnerRepliesOnly refuses decide reply and decide send --id unless
+	// the sender is Owner. A human reply from the inbox and an answer
+	// are still allowed.
+	OwnerRepliesOnly bool `json:"ownerRepliesOnly,omitempty"`
 }
 
 // Ledger is the on-disk decision store for one directory.
@@ -462,12 +466,23 @@ func (l *Ledger) Compose(id, text, via, by string) (Item, error) {
 	return updated, nil
 }
 
+// RejectForeignSender reports when by may not post on an owner-only item.
+// The sender is the owner when by equals Owner. An empty by is not the owner.
+// A human inbox reply does not call this, and neither does an answer.
+func (it *Item) RejectForeignSender(by string) error {
+	if it == nil || !it.OwnerRepliesOnly || by == it.Owner {
+		return nil
+	}
+	return fmt.Errorf("item %s accepts replies only from its owner %s; message the owner instead", it.ID, it.Owner)
+}
+
 // Reply appends an agent message. The author is the thread owner, and by,
 // which may be empty, is who wrote it, as in Message.By.
-// No options leaves a notification: the thread is open, unread, and has no
-// pending options. Options return it to the inbox as needing an answer.
-// freeText is stored only when options are present. text is stored unchanged.
+// Options replace the pending options and freeText. A reply with no options
+// keeps them while the item is open, and clears options only when reopening
+// an answered or done item. text is stored unchanged.
 // An answered or done thread returns to the inbox. A withdrawn thread is refused.
+// OwnerRepliesOnly refuses a sender other than the owner.
 func (l *Ledger) Reply(id, by, text string, options []Option, freeText bool) (Item, error) {
 	if strings.TrimSpace(text) == "" {
 		return Item{}, fmt.Errorf("decide text is empty")
@@ -484,6 +499,9 @@ func (l *Ledger) Reply(id, by, text string, options []Option, freeText bool) (It
 		if it.State == StateWithdrawn {
 			return fmt.Errorf("decide item %s is %s", id, it.State)
 		}
+		if err := it.RejectForeignSender(by); err != nil {
+			return err
+		}
 		ensureMessages(it)
 		msg := Message{
 			Author: it.Owner,
@@ -495,7 +513,7 @@ func (l *Ledger) Reply(id, by, text string, options []Option, freeText bool) (It
 			msg.Options = append([]Option(nil), options...)
 			it.Options = append([]Option(nil), options...)
 			it.FreeText = freeText
-		} else {
+		} else if it.State == StateAnswered || it.State == StateDone {
 			it.Options = nil
 		}
 		it.Messages = append(it.Messages, msg)
