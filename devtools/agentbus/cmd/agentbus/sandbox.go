@@ -23,6 +23,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/mailbox"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/registry"
 	"github.com/jaeyeom/experimental/devtools/pkg/hubcall"
 	"github.com/jaeyeom/experimental/devtools/pkg/procinfo"
 )
@@ -204,6 +205,7 @@ func cmdDoctor(ctx context.Context, args, env []string, stdout, stderr io.Writer
 	}
 	reportStaleOutbox(env, stdout)
 	reportUnverifiedHolds(dirs.StateDir, stdout)
+	reportTransports(dirs.StateDir, stdout)
 	reportHubSocket(ctx, env, stdout)
 	if !*sandbox {
 		return plainDoctor(ctx, env, dirs, stdout)
@@ -457,6 +459,20 @@ func pendingOutboxLine(env []string) string {
 // whose screen could not be checked. A missing mailbox prints nothing.
 func reportUnverifiedHolds(dir string, stdout io.Writer) {
 	lines, err := mailbox.UnverifiedHolds(dir)
+	if err != nil {
+		return
+	}
+	for _, line := range lines {
+		fmt.Fprintln(stdout, line)
+	}
+}
+
+// reportTransports prints each adapter the running daemon last found
+// unreachable, from its event log, such as "herdr transport
+// unreachable: <error>". herdr's error names the socket it tried. A
+// missing log prints nothing.
+func reportTransports(dir string, stdout io.Writer) {
+	lines, err := registry.TransportProblems(dir)
 	if err != nil {
 		return
 	}

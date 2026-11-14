@@ -40,15 +40,18 @@ const (
 	EventExpired        = "expired"
 	EventRejected       = "rejected"
 	EventAdapterError   = "adapter_error"
-	EventBypass         = "bypass"
-	EventStart          = "start"
-	EventStop           = "stop"
-	EventLeaseClaim     = "lease_claim"
-	EventLeaseGrant     = "lease_grant"
-	EventLeaseExtend    = "lease_extend"
-	EventLeaseLeave     = "lease_leave"
-	EventLeaseRelease   = "lease_release"
-	EventLeaseSkip      = "lease_skip"
+	// EventAdapterReachable is an adapter whose self-test passes again
+	// after an adapter_error.
+	EventAdapterReachable = "adapter_reachable"
+	EventBypass           = "bypass"
+	EventStart            = "start"
+	EventStop             = "stop"
+	EventLeaseClaim       = "lease_claim"
+	EventLeaseGrant       = "lease_grant"
+	EventLeaseExtend      = "lease_extend"
+	EventLeaseLeave       = "lease_leave"
+	EventLeaseRelease     = "lease_release"
+	EventLeaseSkip        = "lease_skip"
 	// EventHoldNoticeSkipped is a long-hold notice not sent because the
 	// sender is anonymous.
 	EventHoldNoticeSkipped = "hold_notice_skipped"
@@ -437,7 +440,7 @@ func knownEvent(name string) bool {
 	case EventRegister, EventDescribe, EventRelease, EventHandoff, EventClaimRefused,
 		EventSend, EventQueued, EventDedupe, EventDeliverAttempt, EventDelivered, EventHeld,
 		EventHoldNoticeSkipped, EventRetry,
-		EventRequeued, EventExpired, EventRejected, EventAdapterError, EventBypass, EventStart, EventStop,
+		EventRequeued, EventExpired, EventRejected, EventAdapterError, EventAdapterReachable, EventBypass, EventStart, EventStop,
 		EventLeaseClaim, EventLeaseGrant, EventLeaseExtend, EventLeaseLeave,
 		EventLeaseRelease, EventLeaseSkip, EventLeaseCheckIn, EventLeaseAutoExtend,
 		EventLeaseTakeover, EventLeaseAdopt, EventLeaseWouldTakeOver,

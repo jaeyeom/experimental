@@ -28,6 +28,7 @@ go_test(
         "hold_test.go",
         "liveness_test.go",
         "render_test.go",
+        "transport_test.go",
         "wake_test.go",
     ],
     embed = [":go_default_library"],

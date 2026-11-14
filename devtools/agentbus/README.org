@@ -1129,6 +1129,18 @@ The daemon needs that state directory. It also needs the ~herdr~
 command and the herdr socket for the local server the panes use. Without
 them it cannot see panes or deliver.
 
+A daemon that starts before the herdr server, as at boot when both are
+user services, does not need a restart. While herdr does not answer,
+the daemon tries it again after 1s, then twice as long each time, up to
+30s, running ~herdr~ afresh so the binary and the socket are looked up
+again. Meanwhile search is empty, names are ~unreachable~, and sends
+are held; once herdr answers, the next poll fills search and liveness,
+and held messages are delivered. The event log gets one ~adapter_error~
+(~herdr unreachable~) when herdr goes down and one ~adapter_reachable~
+(~herdr reachable~) when it comes back, not one per retry. While it is
+down, ~agentbus doctor~ prints ~herdr transport unreachable: <error>~,
+where herdr's error names the socket it tried.
+
 ~agentbus install~ is the supervisor: a launchd plist on macOS, or a
 systemd user unit on Linux. The CLI still starts ~agentbusd~ itself when
 the daemon is down. That start is detached, in its own session. If the
@@ -1238,6 +1250,9 @@ it is ~$XDG_CONFIG_HOME/systemd/user/agentbus.service~, or
 ~$HOME/.config/systemd/user/agentbus.service~ when ~XDG_CONFIG_HOME~
 is unset. A macOS unit written without ~XDG_RUNTIME_DIR~ exports the
 default runtime directory, so the job and the CLI use the same sockets.
+When a ~herdr.service~ user unit sits in the same directory, the Linux
+unit adds ~After=herdr.service~ and ~Wants=herdr.service~, so the daemon
+starts after the herdr server. The daemon retries herdr without it.
 
 ~agentbus install-hooks~ writes a Claude Code ~PreToolUse~ hook on
 ~SendMessage~ to the user settings only, ~$HOME/.claude/settings.json~,

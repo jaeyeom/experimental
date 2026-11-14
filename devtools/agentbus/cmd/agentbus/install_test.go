@@ -255,7 +255,7 @@ func testDarwinInstallAgreesOnSocket(t *testing.T) {
 
 func TestSupervisorTexts(t *testing.T) {
 	vars := [][2]string{{"HOME", "/Users/me"}, {"XDG_RUNTIME_DIR", "/tmp/ab"}}
-	plist, err := supervisorBody("darwin", "/bin/agentbusd", vars)
+	plist, err := supervisorBody("darwin", "/bin/agentbusd", vars, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +271,7 @@ func TestSupervisorTexts(t *testing.T) {
 			t.Fatalf("plist missing %s\n%s", want, plist)
 		}
 	}
-	escaped, err := supervisorBody("darwin", "/bin/agentbusd&", nil)
+	escaped, err := supervisorBody("darwin", "/bin/agentbusd&", nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +279,7 @@ func TestSupervisorTexts(t *testing.T) {
 		t.Fatalf("escaped plist = %s", escaped)
 	}
 
-	unit, err := supervisorBody("linux", "/bin/agentbusd", vars)
+	unit, err := supervisorBody("linux", "/bin/agentbusd", vars, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +295,7 @@ func TestSupervisorTexts(t *testing.T) {
 			t.Fatalf("unit missing %s\n%s", want, unit)
 		}
 	}
-	quoted, err := supervisorBody("linux", "/opt/a&b/agentbusd", nil)
+	quoted, err := supervisorBody("linux", "/opt/a&b/agentbusd", nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,9 +309,41 @@ func TestSupervisorTexts(t *testing.T) {
 	if path != filepath.Join("/cfg", "systemd", "user", systemdUnitName) {
 		t.Fatalf("systemd path = %s", path)
 	}
-	_, err = supervisorBody("plan9", "/bin/agentbusd", nil)
+	if strings.Contains(unit, "After=") || strings.Contains(unit, "Wants=") {
+		t.Fatalf("unit orders after an unknown herdr unit:\n%s", unit)
+	}
+	_, err = supervisorBody("plan9", "/bin/agentbusd", nil, "")
 	if err == nil {
 		t.Fatal("plan9 supervisor body succeeded")
+	}
+}
+
+func TestSupervisorOrdersAfterAKnownHerdrUnit(t *testing.T) {
+	cfg := t.TempDir()
+	env := []string{"XDG_CONFIG_HOME=" + cfg}
+	if got := herdrUnit("linux", "/home/me", env); got != "" {
+		t.Fatalf("herdr unit with none installed = %q", got)
+	}
+	dir := filepath.Join(cfg, "systemd", "user")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, herdrUnitName), []byte("[Service]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := herdrUnit("linux", "/home/me", env); got != herdrUnitName {
+		t.Fatalf("herdr unit = %q", got)
+	}
+	if got := herdrUnit("darwin", "/home/me", env); got != "" {
+		t.Fatalf("darwin herdr unit = %q", got)
+	}
+	unit, err := supervisorBody("linux", "/bin/agentbusd", nil, herdrUnitName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "[Unit]\nDescription=agentbus daemon\nAfter=" + herdrUnitName + "\nWants=" + herdrUnitName + "\n\n[Service]\n"
+	if !strings.HasPrefix(unit, want) {
+		t.Fatalf("unit = %s, want prefix %s", unit, want)
 	}
 }
 

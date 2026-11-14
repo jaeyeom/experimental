@@ -15,6 +15,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 	"github.com/jaeyeom/experimental/devtools/pkg/herdrtest"
 	"github.com/jaeyeom/experimental/devtools/pkg/remotecall"
 )
@@ -347,6 +348,33 @@ func TestDoctorReportsAnUnverifiedHold(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "ambiguous-unverified: m-9 to ops/x\n") || strings.Contains(stdout, "m-8") {
 		t.Fatalf("stdout = %s", stdout)
+	}
+}
+
+func TestDoctorReportsAnUnreachableHerdrTransport(t *testing.T) {
+	h, _ := sandboxHub(t)
+	var stateHome string
+	for _, kv := range h.env {
+		if value, ok := strings.CutPrefix(kv, "XDG_STATE_HOME="); ok {
+			stateHome = value
+		}
+	}
+	lg := eventlog.Open(filepath.Join(stateHome, "agentbus"))
+	for _, ev := range []eventlog.Event{
+		{Event: eventlog.EventStart, Actor: "daemon", Detail: "listening"},
+		{Event: eventlog.EventAdapterError, Actor: "agentbus", Name: "herdr", Detail: "herdr unreachable", Reason: "herdr agent list: exit 1: no herdr server is running at /run/user/1000/herdr.sock"},
+	} {
+		if err := lg.Append(ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	code, stdout, stderr := h.run(t, "", "doctor")
+	if code != 0 {
+		t.Fatalf("doctor = %d, stderr %q", code, stderr)
+	}
+	want := "herdr transport unreachable: herdr agent list: exit 1: no herdr server is running at /run/user/1000/herdr.sock\n"
+	if !strings.Contains(stdout, want) {
+		t.Fatalf("stdout lacks %q:\n%s", want, stdout)
 	}
 }
 
