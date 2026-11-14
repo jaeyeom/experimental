@@ -71,6 +71,7 @@ go_test(
         "contacts_test.go",
         "copy_test.go",
         "ctrlenter_test.go",
+        "delivery_test.go",
         "display_test.go",
         "editor_test.go",
         "field_test.go",

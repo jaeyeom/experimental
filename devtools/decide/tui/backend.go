@@ -118,6 +118,7 @@ func (b *LocalBackend) List() ([]decide.Item, error) {
 	if err != nil {
 		return nil, err
 	}
+	_ = led.RetryDue(b.now(), io.Discard)
 	all, err := led.List()
 	if err != nil {
 		return nil, fmt.Errorf("list decide ledger: %w", err)
@@ -148,11 +149,14 @@ func (b *LocalBackend) Answer(id, value string) (decide.Item, error) {
 		return decide.Item{}, err
 	}
 	if updated.Kind == decide.KindRelay {
-		if err := decide.Notify(&updated, io.Discard); err != nil {
-			updated.NotifyError = b.recordNotifyError(updated.ID, err)
+		led, lerr := b.ledger()
+		if lerr != nil {
+			return updated, lerr
+		}
+		updated, err = led.DeliverAnswer(&updated, io.Discard)
+		if err != nil {
 			return updated, &NotifyError{Err: err}
 		}
-		updated.NotifyError = b.recordNotifyError(updated.ID, nil)
 	}
 	return updated, nil
 }

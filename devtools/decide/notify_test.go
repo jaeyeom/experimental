@@ -16,7 +16,7 @@ func TestNotifyRoutesAgentbusWithoutTheTemplate(t *testing.T) {
 	marker := filepath.Join(dir, "template-ran")
 	writeConfig(t, `{"notifyTemplate":"touch `+marker+`","notifyPane":"pane"}`)
 	args := filepath.Join(dir, "args")
-	installProgram(t, "agentbus", "#!/bin/sh\nprintf '%s\\n' \"$1\" \"$2\" \"$3\" > '"+args+"'\nprintf '%s\\n' 'm-1 delivered'\n")
+	installProgram(t, "agentbus", "#!/bin/sh\nprintf '%s\\n' \"$1\" \"$2\" \"$3\" \"$4\" \"$5\" > '"+args+"'\nprintf '%s\\n' 'm-1 delivered'\n")
 
 	item := &Item{
 		ID:         "D-7",
@@ -32,7 +32,7 @@ func TestNotifyRoutesAgentbusWithoutTheTemplate(t *testing.T) {
 	}
 	got := readText(t, args)
 	note := DeliveryNote("D-7", "human", "ship")
-	want := "send\nops/x\n" + note + "\n"
+	want := "send\nops/x\n" + note + "\n--client-id\n" + DeliveryKey(item) + "\n"
 	if got != want {
 		t.Fatalf("agentbus args = %q, want %q", got, want)
 	}
@@ -53,8 +53,8 @@ func TestNotifyAgentbusHeldAndQueued(t *testing.T) {
 	for _, state := range []string{"held: hibernated", "queued", "queued for delivery"} {
 		t.Run(state, func(t *testing.T) {
 			installProgram(t, "agentbus", "#!/bin/sh\nprintf '%s\\n' 'm-1 "+state+"'\n")
-			if err := Notify(item, &strings.Builder{}); err == nil {
-				t.Fatalf("state %q was treated as delivered", state)
+			if err := Notify(item, &strings.Builder{}); err != nil {
+				t.Fatalf("state %q: %v", state, err)
 			}
 		})
 	}

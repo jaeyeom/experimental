@@ -2565,6 +2565,9 @@ func headerLines(it *decide.Item, now time.Time, loc *time.Location, owner strin
 	if it.SnoozedUntil != nil {
 		rows = append(rows, struct{ label, value string }{"Snoozed", "until " + stamp(*it.SnoozedUntil, now, loc)})
 	}
+	if msg, ok := decide.Undelivered(it); ok {
+		rows = append(rows, struct{ label, value string }{"Delivery", undeliveredText(msg)})
+	}
 	width := 0
 	for _, row := range rows {
 		if n := lipgloss.Width(row.label); n > width {
@@ -3000,7 +3003,22 @@ func rowSnippet(it decide.Item) string {
 	if n := len(it.Messages); n > 0 {
 		text = it.Messages[n-1].Text
 	}
-	return strings.Join(strings.Fields(text), " ")
+	text = strings.Join(strings.Fields(text), " ")
+	if msg, ok := decide.Undelivered(&it); ok {
+		note := undeliveredText(msg)
+		if text != "" {
+			return note + " " + text
+		}
+		return note
+	}
+	return text
+}
+
+func undeliveredText(msg string) string {
+	if msg == "" {
+		return "not delivered"
+	}
+	return "not delivered: " + msg
 }
 
 // ANSI palette indexes follow the terminal theme, not a fixed RGB color.

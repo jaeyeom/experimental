@@ -247,7 +247,7 @@ func (r LocationResolver) snapshot(ctx context.Context, machine string) (*herdrS
 // MachineTimeout.
 func ExecHerdr(ctx context.Context, machine string, args []string) (string, error) {
 	if machine != "" {
-		stdout, stderr, code, err := runOnMachine(ctx, machine, "herdr", args)
+		stdout, stderr, code, err := runOnMachine(ctx, machine, "herdr", args, nil)
 		if err != nil {
 			return "", fmt.Errorf("herdr on %s: %w", machine, err)
 		}

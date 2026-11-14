@@ -22,7 +22,8 @@ import (
 // NotifyTemplate is a shell command. It reads "$DECIDE_ID", "$DECIDE_ANSWER",
 // "$DECIDE_ANSWER_LABEL", "$DECIDE_OWNER", "$DECIDE_PANE", "$DECIDE_KIND",
 // "$DECIDE_QUESTION", "$DECIDE_ANSWERED_AT", "$DECIDE_ANSWERED_BY",
-// "$DECIDE_THREAD_HEADER", "$DECIDE_REPLY_HINT", and "$DECIDE_MACHINE".
+// "$DECIDE_THREAD_HEADER", "$DECIDE_REPLY_HINT", "$DECIDE_MACHINE",
+// and "$DECIDE_DELIVERY_KEY".
 // DECIDE_THREAD_HEADER is one line such as "[decide D-123 from human]",
 // with the thread id and the author.
 // DECIDE_REPLY_HINT is one line.
@@ -30,6 +31,8 @@ import (
 // DECIDE_MACHINE is empty. The template runs only for a pane on this
 // machine. A pane on another machine is delivered with the send command
 // and `--machine`, and the template is not run.
+// DECIDE_DELIVERY_KEY is <item id>:<answeredAt> for this answer.
+// Retries of the same answer reuse it.
 // Those values are not written into the command string. An empty template
 // runs nothing. There is no default notify command. The example is not a default.
 // SendTemplate is the compose argv template. Empty means
@@ -247,22 +250,37 @@ func parseConfig(data []byte, dir string) (Config, error) {
 // The command reads "$DECIDE_ID", "$DECIDE_ANSWER", "$DECIDE_ANSWER_LABEL",
 // "$DECIDE_OWNER", "$DECIDE_PANE", "$DECIDE_KIND", "$DECIDE_QUESTION",
 // "$DECIDE_ANSWERED_AT", "$DECIDE_ANSWERED_BY", "$DECIDE_THREAD_HEADER",
-// "$DECIDE_REPLY_HINT", and "$DECIDE_MACHINE". DECIDE_THREAD_HEADER is
-// one line such as "[decide D-123 from human]", with the thread id and
-// the author.
+// "$DECIDE_REPLY_HINT", "$DECIDE_MACHINE", and "$DECIDE_DELIVERY_KEY".
+// DECIDE_THREAD_HEADER is one line such as "[decide D-123 from human]",
+// with the thread id and the author.
 // DECIDE_REPLY_HINT is one line.
 // Reply in this thread: decide reply D-123 "..." (add --option key:label for a follow-up question; decide done D-123 "outcome" when finished). Do not answer only in your terminal.
 // DECIDE_MACHINE is empty. The template runs only for a pane on this machine.
+// DECIDE_DELIVERY_KEY is <item id>:<answeredAt> for this answer. Retries
+// of the same answer reuse it. A pane on another machine gets the same
+// key in the environment of the send command.
 // None of those fields are substituted into the command string.
-// A command that exits 0 and prints JSON with a top-level error object
-// was not delivered.
+// A command that exits 0 and prints JSON with a top-level error object,
+// or text that says the pane or agent was not found, was not delivered.
+// A held or queued agentbus send was accepted for later delivery.
 func Notify(item *Item, out io.Writer) error {
-	if item.NotifyClosed {
-		return nil
+	_, _, err := notifyAttempt(item, out)
+	return err
+}
+
+// notifyAttempt runs one answer notification.
+// An empty outcome with a nil error means nothing was sent.
+// outcome is OutcomeDelivered, OutcomeFailed, or OutcomeQueued.
+func notifyAttempt(item *Item, out io.Writer) (target, outcome string, err error) {
+	if item == nil || item.NotifyClosed {
+		return "", "", nil
+	}
+	if out == nil {
+		out = io.Discard
 	}
 	cfg, err := LoadConfig()
 	if err != nil {
-		return err
+		return "", OutcomeFailed, err
 	}
 	pane, machine := NotifyTarget(item, cfg)
 	if name, ok := strings.CutPrefix(pane, BusPanePrefix); ok {
@@ -272,14 +290,13 @@ func Notify(item *Item, out io.Writer) error {
 		return notifyRemote(item, pane, machine, cfg)
 	}
 	if strings.TrimSpace(cfg.NotifyTemplate) == "" {
-		return nil
+		return "", "", nil
 	}
-	answer := ""
-	answeredBy := ""
-	if item.Answer != nil {
-		answer = item.Answer.Value
-		answeredBy = item.Answer.AnsweredBy
-	}
+	return notifyLocal(item, pane, cfg, out)
+}
+
+func notifyLocal(item *Item, pane string, cfg Config, out io.Writer) (string, string, error) {
+	answer, answeredBy := answerFields(item)
 	// The template is operator config. Fields stay in the environment.
 	// Parent values come first. os/exec keeps the last value for a duplicate
 	// key, so the item values override a parent DECIDE_* variable.
@@ -297,50 +314,66 @@ func Notify(item *Item, out io.Writer) error {
 		"DECIDE_ANSWERED_BY="+answeredBy,
 		"DECIDE_THREAD_HEADER="+threadHeader(item.ID, answeredBy),
 		"DECIDE_REPLY_HINT="+replyHint(item.ID),
-		"DECIDE_MACHINE="+machine,
+		"DECIDE_MACHINE=",
+		"DECIDE_DELIVERY_KEY="+DeliveryKey(item),
 	)
 	var stdout bytes.Buffer
 	cmd.Stdout = io.MultiWriter(out, &stdout)
 	cmd.Stderr = out
 	if err := cmd.Run(); err != nil {
-		return logDelivery(item.ID, fmt.Errorf("notify: %w", err))
+		return pane, OutcomeFailed, logDelivery(item.ID, fmt.Errorf("notify: %w", err))
 	}
 	if err := stdoutDeliveryError(stdout.String()); err != nil {
-		return logDelivery(item.ID, fmt.Errorf("notify: %w", err))
+		return pane, OutcomeFailed, logDelivery(item.ID, fmt.Errorf("notify: %w", err))
 	}
-	return nil
+	return pane, OutcomeDelivered, nil
 }
 
 // notifyRemote delivers the answer note to a pane on another machine.
-// The user's notify template is not run.
-func notifyRemote(item *Item, pane, machine string, cfg Config) error {
-	answer := ""
-	answeredBy := ""
-	if item.Answer != nil {
-		answer = item.Answer.Value
-		answeredBy = item.Answer.AnsweredBy
-	}
+// The user's notify template is not run. The send command sees
+// DECIDE_DELIVERY_KEY.
+func notifyRemote(item *Item, pane, machine string, cfg Config) (string, string, error) {
+	target := pane + "@" + machine
+	answer, answeredBy := answerFields(item)
 	note := DeliveryNote(item.ID, answeredBy, answer)
 	argv := MachineArgv(SendArgv(cfg.SendTemplate, pane, note), machine)
-	if err := RunSend(argv); err != nil {
-		return logDelivery(item.ID, fmt.Errorf("notify: %w", err))
+	env := append(os.Environ(), "DECIDE_DELIVERY_KEY="+DeliveryKey(item))
+	if err := runSend(argv, env); err != nil {
+		return target, OutcomeFailed, logDelivery(item.ID, fmt.Errorf("notify: %w", err))
 	}
-	return nil
+	return target, OutcomeDelivered, nil
 }
 
 // notifyBus delivers the answer note to an agentbus name. The user's
-// notify template is not run.
-func notifyBus(item *Item, name string) error {
+// notify template is not run. The client id is the answer's delivery key.
+// A held or queued state is queued, not a failure.
+func notifyBus(item *Item, name string) (string, string, error) {
+	target := BusPanePrefix + name
 	if name == "" {
-		return logDelivery(item.ID, fmt.Errorf("notify: agentbus name is empty"))
+		return target, OutcomeFailed, logDelivery(item.ID, fmt.Errorf("notify: agentbus name is empty"))
 	}
-	answer := ""
-	answeredBy := ""
-	if item.Answer != nil {
-		answer = item.Answer.Value
-		answeredBy = item.Answer.AnsweredBy
+	answer, answeredBy := answerFields(item)
+	out, err := ExecAgentbus(context.Background(), []string{
+		"send", name, DeliveryNote(item.ID, answeredBy, answer),
+		"--client-id", DeliveryKey(item),
+	})
+	if err != nil {
+		return target, OutcomeFailed, logDelivery(item.ID, fmt.Errorf("notify: %w", err))
 	}
-	return deliverBus(item.ID, name, DeliveryNote(item.ID, answeredBy, answer))
+	if undeliveredBus(string(out)) != nil {
+		return target, OutcomeQueued, nil
+	}
+	if err := stdoutDeliveryError(string(out)); err != nil {
+		return target, OutcomeFailed, logDelivery(item.ID, fmt.Errorf("notify: %w", err))
+	}
+	return target, OutcomeDelivered, nil
+}
+
+func answerFields(item *Item) (value, by string) {
+	if item != nil && item.Answer != nil {
+		return item.Answer.Value, item.Answer.AnsweredBy
+	}
+	return "", ""
 }
 
 // deliverBus runs agentbus send. A non-zero exit, a held or queued
