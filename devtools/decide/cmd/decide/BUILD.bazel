@@ -46,6 +46,7 @@ go_test(
         "owner_test.go",
         "reassign_test.go",
         "sender_test.go",
+        "slackwatch_outbox_test.go",
         "snooze_test.go",
         "text_test.go",
         "thread_test.go",
@@ -63,6 +64,7 @@ go_test(
         "//devtools/pkg/herdrtest:go_default_library",
         "//devtools/pkg/hubcall:go_default_library",
         "//devtools/pkg/hubcall/sshtest:go_default_library",
+        "//devtools/slackwatch:go_default_library",
         "@com_github_muesli_termenv//:go_default_library",
     ],
 )

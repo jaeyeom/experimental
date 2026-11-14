@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -50,6 +51,7 @@ var OutboxStates = []string{
 const (
 	decideKeyPost   = "post"
 	decideKeyDrop   = "drop"
+	decideOpen      = "open"
 	decideDone      = "done"
 	decideWithdrawn = "withdrawn"
 	decideHuman     = "human"
@@ -279,13 +281,22 @@ func (m DecideMessage) human() bool {
 	return m.Author == decideHuman && m.By == ""
 }
 
+// DecideOption is one choice on a decide item, as decide show --json
+// prints it.
+type DecideOption struct {
+	Key         string `json:"key"`
+	Label       string `json:"label"`
+	Recommended bool   `json:"recommended,omitempty"`
+}
+
 // DecideItem is the part of a decide item slackwatch reads. The
 // acceptance rule reads Messages, not Answer, which a later free-text
-// message replaces.
+// message replaces. Options are the choices still on the open item.
 type DecideItem struct {
 	ID       string          `json:"id"`
 	State    string          `json:"state"`
 	Answer   *DecideAnswer   `json:"answer"`
+	Options  []DecideOption  `json:"options,omitempty"`
 	Messages []DecideMessage `json:"messages"`
 }
 
@@ -296,20 +307,59 @@ type Decider interface {
 	Show(ctx context.Context, id string) (DecideItem, error)
 	Done(ctx context.Context, id, outcome string) error
 	Reply(ctx context.Context, id, text string) error
+	// ReplyOptions posts text and puts the post and drop options back
+	// on an open item.
+	ReplyOptions(ctx context.Context, id, text string) error
 }
 
+// decideSenderKey carries DecideCLI.Owner into ExecDecide for a reply.
+type decideSenderKey struct{}
+
 // DecideCLI runs the decide command through Run, which returns its
-// standard output. ExecDecide makes the real Run.
+// standard output. ExecDecide makes the real Run. Owner is the decide
+// owner a reply is recorded as. Ask's owner argument is separate.
 type DecideCLI struct {
-	Run func(ctx context.Context, args ...string) ([]byte, error)
+	Run   func(ctx context.Context, args ...string) ([]byte, error)
+	Owner string
+}
+
+// decideChoiceArgs is the post and drop options shared by ask and a
+// re-attach reply.
+func decideChoiceArgs() []string {
+	return []string{
+		"--option", decideKeyPost + ":Post as written",
+		"--option", decideKeyDrop + ":Don't post",
+		"--rec", decideKeyPost, "--free-text",
+	}
+}
+
+// askArgs is a decide ask for question. ownerOnly sets the flag that
+// refuses replies from anyone but the item owner.
+func askArgs(owner, question string, ownerOnly bool) []string {
+	args := []string{"ask", "--owner", owner}
+	if ownerOnly {
+		args = append(args, "--owner-replies-only")
+	}
+	args = append(args, "--kind", "relay")
+	args = append(args, decideChoiceArgs()...)
+	return append(args, "--json", question)
 }
 
 // Ask files a relay item with the post and drop options and free text.
+// It passes --owner-replies-only when this decide accepts the flag, and
+// retries once without it when the flag is unknown. An unknown flag is
+// rejected before an item is created.
 func (d DecideCLI) Ask(ctx context.Context, owner, question string) (string, error) {
+	id, err := d.ask(ctx, askArgs(owner, question, true))
+	if err == nil || !strings.Contains(err.Error(), "flag provided but not defined: -owner-replies-only") {
+		return id, err
+	}
+	return d.ask(ctx, askArgs(owner, question, false))
+}
+
+func (d DecideCLI) ask(ctx context.Context, args []string) (string, error) {
 	var it DecideItem
-	if err := d.runJSON(ctx, &it, "ask", "--owner", owner, "--kind", "relay",
-		"--option", decideKeyPost+":Post as written", "--option", decideKeyDrop+":Don't post",
-		"--rec", decideKeyPost, "--free-text", "--json", question); err != nil {
+	if err := d.runJSON(ctx, &it, args...); err != nil {
 		return "", err
 	}
 	if it.ID == "" {
@@ -334,7 +384,24 @@ func (d DecideCLI) Done(ctx context.Context, id, outcome string) error {
 // Reply posts text on an item's thread.
 func (d DecideCLI) Reply(ctx context.Context, id, text string) error {
 	var it DecideItem
-	return d.runJSON(ctx, &it, "reply", "--json", id, text)
+	return d.runJSON(d.asOwner(ctx), &it, "reply", "--json", id, text)
+}
+
+// ReplyOptions posts text and puts the post and drop options back, with
+// post recommended and free text allowed. The text is the approval question.
+func (d DecideCLI) ReplyOptions(ctx context.Context, id, text string) error {
+	var it DecideItem
+	args := append([]string{"reply"}, decideChoiceArgs()...)
+	args = append(args, "--json", id, text)
+	return d.runJSON(d.asOwner(ctx), &it, args...)
+}
+
+// asOwner marks ctx so ExecDecide records a reply as Owner.
+func (d DecideCLI) asOwner(ctx context.Context) context.Context {
+	if d.Owner == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, decideSenderKey{}, d.Owner)
 }
 
 func (d DecideCLI) runJSON(ctx context.Context, v any, args ...string) error {
@@ -355,17 +422,21 @@ const decideTimeout = time.Minute
 // followed by args, and returns its stdout. Its stderr is part of the
 // error. decide runs without the caller's herdr pane, so the items
 // slackwatch files get no agent notifyPane and a reply in their thread
-// goes to slackwatch through decide's notifyTemplate.
+// goes to slackwatch through decide's notifyTemplate. A reply whose
+// context names DecideCLI.Owner is recorded as that owner: an empty
+// sender is not the owner, and owner-only items refuse it.
 func ExecDecide(argv []string) func(ctx context.Context, args ...string) ([]byte, error) {
 	return func(ctx context.Context, args ...string) ([]byte, error) {
 		ctx, cancel := context.WithTimeout(ctx, decideTimeout)
 		defer cancel()
+		env, err := decideCommandEnv(ctx, args)
+		if err != nil {
+			return nil, err
+		}
 		// argv is decideCommand from the operator's own config.
 		// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 		cmd := exec.CommandContext(ctx, argv[0], append(slices.Clip(argv[1:]), args...)...) //nolint:gosec // G204: operator config.
-		cmd.Env = slices.DeleteFunc(os.Environ(), func(kv string) bool {
-			return strings.HasPrefix(kv, "HERDR_PANE_ID=") || strings.HasPrefix(kv, "DECIDE_AS_HANDLE=")
-		})
+		cmd.Env = env
 		var stdout bytes.Buffer
 		stderr := &limitedBuffer{limit: outputLimit}
 		cmd.Stdout = &stdout
@@ -376,6 +447,75 @@ func ExecDecide(argv []string) func(ctx context.Context, args ...string) ([]byte
 		}
 		return stdout.Bytes(), nil
 	}
+}
+
+// decideCommandEnv drops the caller's pane and handle. For a reply sent
+// as DecideCLI.Owner, it sets that pane id and puts an agentbus whoami
+// stub first on PATH so the recorded sender is the owner even when a
+// real agentbus name would otherwise win.
+func decideCommandEnv(ctx context.Context, args []string) ([]string, error) {
+	env := slices.DeleteFunc(os.Environ(), func(kv string) bool {
+		return strings.HasPrefix(kv, "HERDR_PANE_ID=") || strings.HasPrefix(kv, "DECIDE_AS_HANDLE=")
+	})
+	owner, _ := ctx.Value(decideSenderKey{}).(string)
+	if len(args) == 0 || args[0] != "reply" || owner == "" {
+		return env, nil
+	}
+	dir, err := decideSenderStub()
+	if err != nil {
+		return nil, err
+	}
+	env = append(env, "HERDR_PANE_ID="+owner, "SLACKWATCH_DECIDE_SENDER="+owner)
+	return prependPath(env, dir), nil
+}
+
+// senderStubDir is the agentbus whoami stub shared by slackwatch replies.
+var (
+	senderStubOnce sync.Once
+	senderStubDir  string
+	senderStubErr  error
+)
+
+// decideSenderStub returns a directory whose agentbus command prints
+// SLACKWATCH_DECIDE_SENDER as a whoami name. One directory serves every reply.
+func decideSenderStub() (string, error) {
+	senderStubOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "slackwatch-decide-sender-")
+		if err != nil {
+			senderStubErr = fmt.Errorf("decide sender: %w", err)
+			return
+		}
+		script := "#!/bin/sh\nprintf '%s\\nwhen: slackwatch outbox\\n' \"$SLACKWATCH_DECIDE_SENDER\"\n"
+		// The stub has to be executable so decide's whoami lookup runs it.
+		if err := os.WriteFile(filepath.Join(dir, "agentbus"), []byte(script), 0o700); err != nil { //nolint:gosec // G306: agentbus must be executable.
+			senderStubErr = errors.Join(fmt.Errorf("decide sender: %w", err), os.RemoveAll(dir))
+			return
+		}
+		senderStubDir = dir
+	})
+	return senderStubDir, senderStubErr
+}
+
+// prependPath puts dir first on PATH and drops any earlier PATH entry.
+func prependPath(env []string, dir string) []string {
+	out := make([]string, 0, len(env)+1)
+	var old string
+	var found bool
+	for _, kv := range env {
+		v, ok := strings.CutPrefix(kv, "PATH=")
+		if !ok {
+			out = append(out, kv)
+			continue
+		}
+		if !found {
+			old, found = v, true
+		}
+	}
+	path := dir
+	if found && old != "" {
+		path += string(os.PathListSeparator) + old
+	}
+	return append(out, "PATH="+path)
 }
 
 // AuthInfo is what auth.test reports: the token's user id and the
@@ -441,6 +581,11 @@ type Outbox struct {
 
 	mu     sync.Mutex
 	authed string // TextHash of the write token that passed auth.test
+	// optionFix is a decide id whose post and drop options were
+	// re-attached and are still missing. optionNotes counts those
+	// notices so each loss has its own delivery key.
+	optionFix   map[string]struct{}
+	optionNotes int
 }
 
 func (o *Outbox) config() (Config, error) {
@@ -510,7 +655,21 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			return OutboxRecord{}, err
 		}
 	}
-	return o.Store.GetOutbox(id)
+	return o.submitted(ctx, id)
+}
+
+// submitted returns the stored record and re-attaches decide options when
+// an open item lost them. The ask already succeeded, so a show or reply
+// failure is logged and the record is still returned.
+func (o *Outbox) submitted(ctx context.Context, id int64) (OutboxRecord, error) {
+	rec, err := o.Store.GetOutbox(id)
+	if err != nil {
+		return OutboxRecord{}, err
+	}
+	if err := o.checkOptions(ctx, rec); err != nil {
+		o.logger().Warn("slackwatch outbox: decide options", "outbox", rec.ID, "error", err)
+	}
+	return rec, nil
 }
 
 // checkSupersedes reports an error when id cannot be replaced. 0 is fine.
@@ -573,6 +732,122 @@ func question(id int64, d Draft, hash string) string {
 		b.WriteString("> " + line + "\n")
 	}
 	return strings.TrimSuffix(b.String(), "\n")
+}
+
+// draftFrom rebuilds the draft a record was asked with, so a re-attached
+// reply can repeat that question.
+func draftFrom(r OutboxRecord) Draft {
+	return Draft{
+		Channel: r.Channel, ThreadTS: r.ThreadTS, DestName: r.DestName, ParentLink: r.ParentLink,
+		Text: r.Text, Owner: r.Owner, Purpose: r.Purpose, Refs: r.Refs,
+	}
+}
+
+// hasPostDrop reports whether options still lists post and drop.
+func hasPostDrop(opts []DecideOption) bool {
+	var post, drop bool
+	for _, opt := range opts {
+		switch opt.Key {
+		case decideKeyPost:
+			post = true
+		case decideKeyDrop:
+			drop = true
+		}
+	}
+	return post && drop
+}
+
+// hasHuman reports whether a person has written in the thread.
+func hasHuman(item DecideItem) bool {
+	for _, m := range item.Messages {
+		if m.human() {
+			return true
+		}
+	}
+	return false
+}
+
+func (o *Outbox) lostOptionsNoted(id string) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	_, ok := o.optionFix[id]
+	return ok
+}
+
+func (o *Outbox) noteLostOptions(id string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.optionFix == nil {
+		o.optionFix = map[string]struct{}{}
+	}
+	o.optionFix[id] = struct{}{}
+}
+
+func (o *Outbox) forgetLostOptions(id string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	delete(o.optionFix, id)
+}
+
+// checkOptions reads r's decide item and re-attaches post and drop when
+// an open, unanswered item lost them. A show or reply failure is returned
+// so the caller can log it without failing the submit that already filed
+// the item.
+func (o *Outbox) checkOptions(ctx context.Context, r OutboxRecord) error {
+	if r.DecideID == "" {
+		return nil
+	}
+	item, err := o.Decide.Show(ctx, r.DecideID)
+	if err != nil {
+		return fmt.Errorf("outbox %d: %w", r.ID, err)
+	}
+	return o.ensureOptions(ctx, r, item)
+}
+
+// ensureOptions re-attaches post and drop once per loss on an open item
+// with no human message. Seeing the options again clears that mark, so a
+// later loss is re-attached too. The notice goes to the record's owner.
+func (o *Outbox) ensureOptions(ctx context.Context, r OutboxRecord, item DecideItem) error {
+	if item.State != decideOpen || hasHuman(item) {
+		return nil
+	}
+	if hasPostDrop(item.Options) {
+		o.forgetLostOptions(r.DecideID)
+		return nil
+	}
+	if o.lostOptionsNoted(r.DecideID) {
+		return nil
+	}
+	if err := o.Decide.ReplyOptions(ctx, r.DecideID, question(r.ID, draftFrom(r), r.TextHash)); err != nil {
+		return fmt.Errorf("outbox %d: re-attach decide options: %w", r.ID, err)
+	}
+	o.logger().Warn("slackwatch outbox: decide item lost its options; re-attached", "outbox", r.ID, "decide", r.DecideID)
+	if fresh, err := o.Decide.Show(ctx, r.DecideID); err != nil {
+		o.noteLostOptions(r.DecideID)
+		o.logger().Warn("slackwatch outbox: show decide item after re-attach", "outbox", r.ID, "error", err)
+	} else if hasPostDrop(fresh.Options) {
+		o.forgetLostOptions(r.DecideID)
+	} else {
+		o.noteLostOptions(r.DecideID)
+	}
+	return o.notifyLostOptions(ctx, r)
+}
+
+// notifyLostOptions sends one notice for this loss. The reply timestamp
+// changes per loss so a later loss is not deduped with the previous one.
+func (o *Outbox) notifyLostOptions(ctx context.Context, r OutboxRecord) error {
+	o.mu.Lock()
+	o.optionNotes++
+	n := o.optionNotes
+	o.mu.Unlock()
+	msg := fmt.Sprintf("outbox %d: decide item lost its options; re-attached", r.ID)
+	if err := o.Notifier.Notify(ctx, Notification{
+		Event: EventOutboxOptions, Owner: r.Owner, OutboxID: r.ID, WatchID: r.WatchID, Channel: r.Channel,
+		ReplyTS: fmt.Sprintf("outbox:%d:options:%d", r.ID, n), Purpose: r.Purpose, Refs: r.Refs, Message: msg,
+	}); err != nil {
+		return fmt.Errorf("notify %s for outbox %d: %w", EventOutboxOptions, r.ID, err)
+	}
+	return nil
 }
 
 // Poll handles the answers to every pending record, posts approved
@@ -678,6 +953,9 @@ func (o *Outbox) process(ctx context.Context, cfg Config, r OutboxRecord) error 
 			event: EventOutboxCancelled, closed: true,
 			message: fmt.Sprintf("Slack draft outbox %d was not posted: its decide item was %s without an accepted answer.", r.ID, item.State),
 		})
+	}
+	if err := o.ensureOptions(ctx, r, item); err != nil {
+		return err
 	}
 	m, ok, refusal := acceptance(r, item)
 	switch {
@@ -1321,9 +1599,10 @@ func (o *Outbox) Posted(ctx context.Context, id int64, link string) (OutboxRecor
 
 // PostedManual records that id was posted by hand at link, for example
 // while serve could not reach decide. It accepts a pending or
-// awaiting-handoff record. A pending record must pass the acceptance
-// rule first; a manual post never skips approval. The checks after that
-// are Posted's, and the record notes manual.
+// awaiting-handoff record, and a needs-redraft record whose thread has
+// a verified post pick for the current draft. A pending record must
+// pass the acceptance rule first. A manual post never skips approval.
+// The checks after that are Posted's, and the record notes manual.
 func (o *Outbox) PostedManual(ctx context.Context, id int64, link string) (OutboxRecord, error) {
 	r, err := o.Store.GetOutbox(id)
 	if err != nil {
@@ -1332,6 +1611,11 @@ func (o *Outbox) PostedManual(ctx context.Context, id int64, link string) (Outbo
 	switch r.State {
 	case OutboxAwaitingHandoff:
 		return o.posted(ctx, r, link, []string{OutboxAwaitingHandoff}, true)
+	case OutboxNeedsRedraft:
+		if err := o.redraftApproved(ctx, r); err != nil {
+			return OutboxRecord{}, err
+		}
+		return o.posted(ctx, r, link, []string{OutboxNeedsRedraft}, true)
 	case OutboxPending:
 	default:
 		return OutboxRecord{}, fmt.Errorf("outbox %d is %s, not %s or %s", id, r.State, OutboxPending, OutboxAwaitingHandoff)
@@ -1342,6 +1626,50 @@ func (o *Outbox) PostedManual(ctx context.Context, id int64, link string) (Outbo
 	// A poll may accept the answer meanwhile. Moving from approved too
 	// keeps direct mode from posting it a second time.
 	return o.posted(ctx, r, link, []string{OutboxPending, OutboxApproved, OutboxAwaitingHandoff}, true)
+}
+
+// redraftApproved reports whether r's thread has a verified post pick
+// for the current draft: option post, by human, via ui, after the
+// latest copy of this draft's question. A changed hash is refused
+// before the message is read back.
+func (o *Outbox) redraftApproved(ctx context.Context, r OutboxRecord) error {
+	if r.DecideID == "" {
+		return fmt.Errorf("no ui approval found for %d: it has no decide item", r.ID)
+	}
+	if len(r.TextHash) < 8 || TextHash(r.Text) != r.TextHash {
+		return fmt.Errorf("no ui approval found for %d: the stored text no longer matches its hash", r.ID)
+	}
+	item, err := o.Decide.Show(ctx, r.DecideID)
+	if err != nil {
+		return fmt.Errorf("outbox %d: %w", r.ID, err)
+	}
+	if !verifiedPost(r, item) {
+		return fmt.Errorf("no ui approval found for %d: no verified post pick for the current draft", r.ID)
+	}
+	return nil
+}
+
+// verifiedPost reports whether the latest human message after this
+// draft's latest question is a post pick from the decide UI.
+func verifiedPost(r OutboxRecord, it DecideItem) bool {
+	marker := fmt.Sprintf("Text hash: %s (outbox %d)", r.TextHash[:8], r.ID)
+	last := -1
+	for i, m := range it.Messages {
+		if strings.Contains(m.Text, marker) {
+			last = i
+		}
+	}
+	if last < 0 {
+		return false
+	}
+	var picked DecideMessage
+	var ok bool
+	for _, m := range it.Messages[last+1:] {
+		if m.human() {
+			picked, ok = m, true
+		}
+	}
+	return ok && picked.OptionKey == decideKeyPost && picked.Via == decideViaUI
 }
 
 // uiApproved returns an error unless r's decide item passes the

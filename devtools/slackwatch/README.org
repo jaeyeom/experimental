@@ -341,15 +341,25 @@ into that thread.
 
 1. *Submit.* ~post~ stores the destination, the exact text, its SHA-256,
    the owner, the purpose, and the refs as a ~pending~ record.
-2. *Ask.* It runs ~decide ask --owner <post.decideOwner> --kind relay
-   --option post:"Post as written" --option drop:"Don't post" --rec post
-   --free-text~. The question shows the destination (and the thread
+2. *Ask.* It runs ~decide ask --owner <post.decideOwner> --owner-replies-only
+   --kind relay --option post:"Post as written" --option drop:"Don't post"
+   --rec post --free-text~ when the installed decide accepts
+   ~--owner-replies-only~, and the same command without that flag when it
+   does not. The question shows the destination (and the thread
    permalink), the text in a quoted block, the owner, the purpose, and
    the first 8 hex digits of the hash. ~decide~ runs without
    ~HERDR_PANE_ID~ and ~DECIDE_AS_HANDLE~, so the item has no agent
    ~notifyPane~ even when an agent runs ~slackwatch post~ from its pane.
+   A reply slackwatch itself posts on that item is recorded as the decide
+   owner, so an owner-only item accepts it.
 3. *Answer.* ~serve~ polls ~decide show --json~ for every pending record
-   every 30 seconds. ~decide~'s ~notifyTemplate~ can run
+   every 30 seconds. After ask, and on each poll of an open item with no
+   human message, slackwatch checks that the item still lists ~post~ and
+   ~drop~. If they are missing, it re-attaches them once with ~decide reply~
+   using those options, ~--rec post~, ~--free-text~, and the same question,
+   logs it, and sends the record's owner ~outbox <id>: decide item lost its
+   options; re-attached~. A later loss, after the options are present
+   again, is re-attached again. ~decide~'s ~notifyTemplate~ can run
    ~slackwatch outbox poke <decide-id>~ for an immediate pickup when the
    owner is ~post.decideOwner~, so a reply lands with slackwatch and not
    in an agent's pane (see below); polling stays the source of truth.
@@ -411,11 +421,15 @@ link; naming a different message makes the record a ~mismatch~.
 
 When an approved draft is posted by hand, for example because ~serve~
 could not reach decide, ~outbox posted --manual <id> <permalink>~
-records it. It accepts a ~pending~ or ~awaiting-handoff~ record. For a
-~pending~ record it first reads the decide item and applies the same
-acceptance rule as step 4; when the rule refuses it, it fails with
-~no ui approval found for <id>: <reason>~ and changes nothing. A
-manual post never bypasses approval. The read-back, author, and text
+records it. It accepts a ~pending~ or ~awaiting-handoff~ record, and a
+~needs-redraft~ record when the thread has a verified approval of the
+current draft: an ~optionKey~ ~post~ answer by ~human~ via ~ui~, after
+the latest message that carries this draft's text hash. Anything else
+is refused. For a ~pending~ record it first reads the decide item and
+applies the same acceptance rule as step 4; when the rule refuses it,
+it fails with ~no ui approval found for <id>: <reason>~ and changes
+nothing. A manual post never bypasses approval, and free text is not
+an approval. The read-back, author, and text
 checks are the handoff ones: a match makes the record ~posted~, watches
 it for the owner with ~--source outbox~, and closes the decide item
 with the permalink; a difference makes it ~mismatch~ and alerts. The
@@ -617,6 +631,7 @@ Outbox events carry their own ~SLACKWATCH_MESSAGE~:
 | ~outbox-redraft~ | owner | The user answered with notes; ~SLACKWATCH_TEXT~ holds them. |
 | ~outbox-dropped~ | owner | The user answered ~drop~. |
 | ~outbox-cancelled~ | owner | The decide item was closed without an answer. |
+| ~outbox-options~ | owner | ~post~ and ~drop~ were missing; slackwatch re-attached them. |
 | ~outbox-rejected~ | owner and fallback | The answer did not pass the acceptance rule. |
 | ~outbox-mismatch~ | owner and fallback | A handoff post differs from the approved text. |
 | ~outbox-failed~ | owner and fallback | ~chat.postMessage~ failed. A fixable error names the cause and ~outbox retry~. |

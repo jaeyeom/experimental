@@ -1,6 +1,7 @@
 package slackwatch
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -15,13 +16,15 @@ import (
 
 // fakeDecider is an in-memory decide ledger.
 type fakeDecider struct {
-	items     map[string]*DecideItem
-	questions map[string]string
-	owners    map[string]string
-	outcomes  map[string]string
-	replies   []string
-	askErr    error
-	next      int
+	items               map[string]*DecideItem
+	questions           map[string]string
+	owners              map[string]string
+	outcomes            map[string]string
+	replies             []string
+	optionReplies       []string
+	dropRestoredOptions bool
+	askErr              error
+	next                int
 }
 
 func newFakeDecider() *fakeDecider {
@@ -34,7 +37,14 @@ func (d *fakeDecider) Ask(_ context.Context, owner, question string) (string, er
 	}
 	d.next++
 	id := fmt.Sprintf("D-%d", d.next)
-	d.items[id] = &DecideItem{ID: id, State: "open", Messages: []DecideMessage{{Author: owner, Text: question}}}
+	d.items[id] = &DecideItem{
+		ID: id, State: "open",
+		Options: []DecideOption{
+			{Key: decideKeyPost, Label: "Post as written", Recommended: true},
+			{Key: decideKeyDrop, Label: "Don't post"},
+		},
+		Messages: []DecideMessage{{Author: owner, Text: question}},
+	}
 	d.questions[id] = question
 	d.owners[id] = owner
 	return id, nil
@@ -55,6 +65,22 @@ func (d *fakeDecider) Reply(_ context.Context, id, text string) error {
 	}
 	it.Messages = append(it.Messages, DecideMessage{Author: d.owners[id], Text: text, By: "slackwatch"})
 	d.replies = append(d.replies, text)
+	return nil
+}
+
+func (d *fakeDecider) ReplyOptions(_ context.Context, id, text string) error {
+	it, ok := d.items[id]
+	if !ok {
+		return errors.New("no such item")
+	}
+	d.optionReplies = append(d.optionReplies, text)
+	if !d.dropRestoredOptions {
+		it.Options = []DecideOption{
+			{Key: decideKeyPost, Label: "Post as written", Recommended: true},
+			{Key: decideKeyDrop, Label: "Don't post"},
+		}
+	}
+	it.Messages = append(it.Messages, DecideMessage{Author: d.owners[id], Text: text, By: "slackwatch"})
 	return nil
 }
 
@@ -1493,7 +1519,7 @@ func TestDecideCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := [][]string{
-		{"ask", "--owner", "slackwatch", "--kind", "relay", "--option", "post:Post as written", "--option", "drop:Don't post", "--rec", "post", "--free-text", "--json", "Post?"},
+		{"ask", "--owner", "slackwatch", "--owner-replies-only", "--kind", "relay", "--option", "post:Post as written", "--option", "drop:Don't post", "--rec", "post", "--free-text", "--json", "Post?"},
 		{"show", "--json", "D-7"},
 		{"done", "--json", "D-7", "posted"},
 	}
@@ -1706,5 +1732,203 @@ func TestPostFailureNotice(t *testing.T) {
 		if got := postFailureNotice(r, tc.reason); got != tc.want {
 			t.Errorf("postFailureNotice(%q) = %q, want %q", tc.reason, got, tc.want)
 		}
+	}
+}
+
+func TestAskPassesOwnerOnlyWhenDecideSupportsIt(t *testing.T) {
+	var calls [][]string
+	d := DecideCLI{Run: func(_ context.Context, args ...string) ([]byte, error) {
+		calls = append(calls, append([]string(nil), args...))
+		if args[0] == "ask" && !slicesHas(args, "--owner-replies-only") {
+			return nil, errors.New("missing flag")
+		}
+		return []byte(`{"id":"D-1","state":"open"}`), nil
+	}}
+	if id, err := d.Ask(context.Background(), "slackwatch", "Post?"); err != nil || id != "D-1" {
+		t.Fatalf("Ask = %q, %v", id, err)
+	}
+	if len(calls) != 1 || !slicesHas(calls[0], "--owner-replies-only") {
+		t.Fatalf("calls = %q", calls)
+	}
+}
+
+func TestAskOmitsOwnerOnlyWhenDecideRejectsIt(t *testing.T) {
+	var calls [][]string
+	d := DecideCLI{Run: func(_ context.Context, args ...string) ([]byte, error) {
+		calls = append(calls, append([]string(nil), args...))
+		if slicesHas(args, "--owner-replies-only") {
+			return nil, errors.New("decide ask: exit status 2: flag provided but not defined: -owner-replies-only")
+		}
+		return []byte(`{"id":"D-2","state":"open"}`), nil
+	}}
+	if id, err := d.Ask(context.Background(), "slackwatch", "Post?"); err != nil || id != "D-2" {
+		t.Fatalf("Ask = %q, %v", id, err)
+	}
+	if len(calls) != 2 || !slicesHas(calls[0], "--owner-replies-only") || slicesHas(calls[1], "--owner-replies-only") {
+		t.Fatalf("calls = %q", calls)
+	}
+}
+
+func slicesHas(args []string, want string) bool {
+	for _, a := range args {
+		if a == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestOutboxReattachesLostOptionsOnce(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	r := f.submit(t)
+	f.dec.items[r.DecideID].Options = nil
+	f.dec.dropRestoredOptions = true
+	var logs bytes.Buffer
+	f.ob.Logger = slog.New(slog.NewTextHandler(&logs, nil))
+	f.poll(t)
+	f.poll(t)
+	if len(f.dec.optionReplies) != 1 {
+		t.Fatalf("reattach replies = %d, want 1: %q", len(f.dec.optionReplies), f.dec.optionReplies)
+	}
+	if f.dec.optionReplies[0] != f.dec.questions[r.DecideID] {
+		t.Errorf("reattach text differs from the approval question\nreply %q\nquestion %q", f.dec.optionReplies[0], f.dec.questions[r.DecideID])
+	}
+	want := fmt.Sprintf("outbox %d: decide item lost its options; re-attached", r.ID)
+	var notices int
+	for _, n := range f.rec.notes {
+		if n.Message == want && n.Owner == r.Owner {
+			notices++
+		}
+	}
+	if notices != 1 {
+		t.Fatalf("notices = %d, events %v", notices, f.events())
+	}
+	if !strings.Contains(logs.String(), "re-attached") {
+		t.Errorf("log = %q", logs.String())
+	}
+	if got := f.get(t, r.ID); got.State != OutboxPending {
+		t.Fatalf("state = %s, want pending", got.State)
+	}
+}
+
+func TestOutboxReattachesAgainAfterOptionsReturn(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	r := f.submit(t)
+	f.dec.items[r.DecideID].Options = nil
+	f.poll(t)
+	if len(f.dec.optionReplies) != 1 {
+		t.Fatalf("first loss replies = %d", len(f.dec.optionReplies))
+	}
+	f.dec.items[r.DecideID].Options = nil
+	f.poll(t)
+	if len(f.dec.optionReplies) != 2 {
+		t.Fatalf("second loss replies = %d, want 2", len(f.dec.optionReplies))
+	}
+	want := fmt.Sprintf("outbox %d: decide item lost its options; re-attached", r.ID)
+	var notices int
+	for _, n := range f.rec.notes {
+		if n.Message == want {
+			notices++
+		}
+	}
+	if notices != 2 {
+		t.Fatalf("notices = %d, want 2", notices)
+	}
+}
+
+func TestOutboxLeavesOptionsAlone(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	r := f.submit(t)
+	f.dec.items[r.DecideID].Options = []DecideOption{
+		{Key: decideKeyPost, Label: "Post as written"},
+		{Key: decideKeyDrop, Label: "Don't post"},
+	}
+	var logs bytes.Buffer
+	f.ob.Logger = slog.New(slog.NewTextHandler(&logs, nil))
+	f.poll(t)
+	if len(f.dec.optionReplies) != 0 || len(f.rec.notes) != 0 || logs.Len() != 0 {
+		t.Fatalf("replies %q events %v log %q", f.dec.optionReplies, f.events(), logs.String())
+	}
+	if got := f.get(t, r.ID); got.State != OutboxPending {
+		t.Fatalf("state = %s", got.State)
+	}
+}
+
+func TestFreeTextPostStillNeedsRedraftWhenOptionsAreGone(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	r := f.submit(t)
+	f.dec.items[r.DecideID].Options = nil
+	f.dec.answer(r.DecideID, DecideAnswer{Value: "Post", AnsweredBy: "human", Via: "ui"})
+	f.poll(t)
+	if got := f.get(t, r.ID); got.State != OutboxNeedsRedraft {
+		t.Fatalf("state = %s, want needs-redraft", got.State)
+	}
+	if len(f.dec.optionReplies) != 0 {
+		t.Fatalf("reattached an answered item: %q", f.dec.optionReplies)
+	}
+}
+
+func TestManualPostedNeedsRedraftWithVerifiedPost(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	r := f.submit(t)
+	f.dec.answer(r.DecideID, DecideAnswer{Value: "shorter", AnsweredBy: "human", Via: "ui"})
+	f.poll(t)
+	if got := f.get(t, r.ID); got.State != OutboxNeedsRedraft {
+		t.Fatalf("state = %s, want needs-redraft", got.State)
+	}
+	f.reader.msg = Message{User: expectUser, Text: approvedText}
+	if _, err := f.ob.PostedManual(context.Background(), r.ID, postedLink); err == nil {
+		t.Fatal("accepted needs-redraft without a post pick")
+	}
+	if got := f.get(t, r.ID); got.State != OutboxNeedsRedraft || f.reader.calls != 0 {
+		t.Fatalf("record = %+v reads %d", got, f.reader.calls)
+	}
+	f.dec.items[r.DecideID].Messages = append(f.dec.items[r.DecideID].Messages, DecideMessage{
+		Author: "human", Text: "post", OptionKey: decideKeyPost, Via: decideViaUI,
+	})
+	got, err := f.ob.PostedManual(context.Background(), r.ID, postedLink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != OutboxPosted || !got.Manual || got.Permalink != postedLink {
+		t.Fatalf("record = %+v", got)
+	}
+}
+
+func TestManualPostedNeedsRedraftRefusesUnverified(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		msgs []DecideMessage
+	}{
+		{name: "free text post", msgs: []DecideMessage{{Author: "human", Text: "Post", Via: "ui"}}},
+		{name: "cli post", msgs: []DecideMessage{{Author: "human", Text: "post", OptionKey: "post", Via: "cli"}}},
+		{name: "agent post", msgs: []DecideMessage{{Author: "human", Text: "post", OptionKey: "post", Via: "ui", By: "agent"}}},
+		{name: "stale pick before the draft text", msgs: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newOutboxFixture(t, PostModeHandoff)
+			r := f.submit(t)
+			f.dec.answer(r.DecideID, DecideAnswer{Value: "shorter", AnsweredBy: "human", Via: "ui"})
+			f.poll(t)
+			it := f.dec.items[r.DecideID]
+			if tc.name == "stale pick before the draft text" {
+				q := it.Messages[0].Text
+				it.Messages = []DecideMessage{
+					{Author: DefaultDecideOwner, Text: q},
+					{Author: "human", Text: "post", OptionKey: decideKeyPost, Via: decideViaUI},
+					{Author: DefaultDecideOwner, Text: q, By: "slackwatch"},
+				}
+			} else {
+				it.Messages = append(it.Messages, tc.msgs...)
+			}
+			f.reader.msg = Message{User: expectUser, Text: approvedText}
+			_, err := f.ob.PostedManual(context.Background(), r.ID, postedLink)
+			if err == nil || !strings.Contains(err.Error(), "no ui approval found") {
+				t.Fatalf("err = %v", err)
+			}
+			if got := f.get(t, r.ID); got.State != OutboxNeedsRedraft || f.reader.calls != 0 {
+				t.Fatalf("record = %+v reads %d", got, f.reader.calls)
+			}
+		})
 	}
 }

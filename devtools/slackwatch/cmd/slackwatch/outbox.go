@@ -24,7 +24,7 @@ import (
 // newDecider returns the decide client that runs cfg's decideCommand.
 // Tests replace it with a fake so they never run the real decide.
 var newDecider = func(cfg slackwatch.Config) slackwatch.Decider {
-	return slackwatch.DecideCLI{Run: slackwatch.ExecDecide(cfg.DecideArgv())}
+	return slackwatch.DecideCLI{Run: slackwatch.ExecDecide(cfg.DecideArgv()), Owner: cfg.Post.DecideOwnerOrDefault()}
 }
 
 // slackAPIURL overrides the Slack Web API URL for the posting commands.
