@@ -1,8 +1,8 @@
 // Package ghask is a loopback HTTP server that hands a question about a
 // pull request line range to a locally configured command.
 //
-// The only endpoint is POST /ask. The request text is written to a file;
-// it never reaches the command's argv.
+// The endpoints are POST /ask and GET /status/<id>. The request text is
+// written to a file; it never reaches a command's argv.
 package ghask
 
 import (
@@ -17,8 +17,12 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 )
+
+const statusPrefix = "/status/"
 
 // TokenHeader carries the shared secret.
 const TokenHeader = "X-Gh-Ask-Token" //nolint:gosec // G101: a header name, not a credential
@@ -27,7 +31,8 @@ const githubOrigin = "https://github.com"
 
 var extensionOrigin = regexp.MustCompile(`^(chrome-extension|moz-extension|safari-web-extension)://[A-Za-z0-9.-]+$`)
 
-// Server handles POST /ask. Create it with NewServer.
+// Server handles POST /ask and GET /status/<id>. Create it with
+// NewServer.
 type Server struct {
 	cfg       Config
 	tokenHash [sha256.Size]byte
@@ -37,6 +42,14 @@ type Server struct {
 	// tempDir is where message files go. Empty means os.TempDir.
 	tempDir string
 	logger  *slog.Logger
+
+	mu sync.Mutex
+	// threads is the state file's content, loaded on first use. It is
+	// used only with ReusePerPR.
+	threads map[string]threadEntry
+	// created holds the ids ask_command printed in this process.
+	created  map[string]bool
+	statuses map[string]cachedStatus
 }
 
 // NewServer returns a handler for a server listening on 127.0.0.1:port.
@@ -48,6 +61,8 @@ func NewServer(cfg Config, token string, port int) *Server {
 		hosts:     []string{"127.0.0.1:" + p, "localhost:" + p},
 		now:       time.Now,
 		logger:    slog.Default(),
+		created:   map[string]bool{},
+		statuses:  map[string]cachedStatus{},
 	}
 	s.limiter = newLimiter(cfg.RateLimit, time.Hour, func() time.Time { return s.now() })
 	return s
@@ -58,14 +73,22 @@ type errorBody struct {
 }
 
 // ServeHTTP never sets CORS headers. A browser preflight gets 405, so a
-// page cannot add the token header cross-origin.
+// page cannot add the token header cross-origin. Every route gets the
+// same Host, Origin and token checks.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/ask" {
+	var method string
+	var handle func(http.ResponseWriter, *http.Request)
+	switch {
+	case r.URL.Path == "/ask":
+		method, handle = http.MethodPost, s.serveAsk
+	case strings.HasPrefix(r.URL.Path, statusPrefix):
+		method, handle = http.MethodGet, s.serveStatus
+	default:
 		writeJSON(w, http.StatusNotFound, errorBody{"not found"})
 		return
 	}
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", http.MethodPost)
+	if r.Method != method {
+		w.Header().Set("Allow", method)
 		writeJSON(w, http.StatusMethodNotAllowed, errorBody{"method not allowed"})
 		return
 	}
@@ -81,6 +104,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, errorBody{"bad token"})
 		return
 	}
+	handle(w, r)
+}
+
+func (s *Server) serveAsk(w http.ResponseWriter, r *http.Request) {
 	req, status, err := decodeRequest(w, r)
 	if err != nil {
 		writeJSON(w, status, errorBody{err.Error()})
@@ -144,8 +171,11 @@ func decodeRequest(w http.ResponseWriter, r *http.Request) (AskRequest, int, err
 	return req, 0, nil
 }
 
-// ask writes the message file, runs ask_command, and returns the id. Its
-// errors are short and safe to show the browser; details go to the log.
+// ask writes the message file and returns the thread id. With
+// ReusePerPR and an open thread stored for the PR, it runs
+// followup_command for that thread; otherwise it runs ask_command and
+// stores the new id. Its errors are short and safe to show the browser;
+// details go to the log.
 func (s *Server) ask(ctx context.Context, req AskRequest) (string, error) {
 	path, err := writeMessageFile(s.tempDir, RenderMessage(req))
 	if err != nil {
@@ -157,26 +187,52 @@ func (s *Server) ask(ctx context.Context, req AskRequest) (string, error) {
 			s.logger.Warn("gh-ask: remove message file", "err", err)
 		}
 	}()
-	argv, err := expandArgv(s.cfg.AskCommand, map[string]string{
+	vars := map[string]string{
 		"file": path,
 		"pr":   strconv.Itoa(req.PR),
 		"repo": req.Repo,
-	})
-	if err != nil {
-		s.logger.Error("gh-ask: ask_command", "err", err)
-		return "", errors.New("bad ask_command")
 	}
-	out, stderr, err := runCommand(ctx, argv, s.cfg.CommandTimeout)
+	if s.cfg.Reuse == ReusePerPR {
+		id, ok, err := s.openThread(req.Repo, req.PR)
+		if err != nil {
+			s.logger.Error("gh-ask: state file", "err", err)
+			return "", errors.New("could not read state file")
+		}
+		if ok {
+			vars["id"] = id
+			if _, err := s.run(ctx, "followup_command", s.cfg.FollowupCommand, vars, "repo", req.Repo, "pr", req.PR); err != nil {
+				return "", err
+			}
+			return id, nil
+		}
+	}
+	out, err := s.run(ctx, "ask_command", s.cfg.AskCommand, vars, "repo", req.Repo, "pr", req.PR)
 	if err != nil {
-		s.logger.Error("gh-ask: ask_command", "repo", req.Repo, "pr", req.PR, "err", err, "stderr", stderr)
-		return "", errors.New("ask_command failed")
+		return "", err
 	}
 	id, ok := extractID(s.cfg.IDPattern, out)
 	if !ok {
 		s.logger.Error("gh-ask: no id in ask_command output", "repo", req.Repo, "pr", req.PR)
 		return "", errors.New("ask_command printed no id")
 	}
+	s.recordThread(req.Repo, req.PR, id)
 	return id, nil
+}
+
+// run expands tmpl with vars and runs it. Its error is short and safe to
+// show the browser; details, with logArgs, go to the log.
+func (s *Server) run(ctx context.Context, name string, tmpl []string, vars map[string]string, logArgs ...any) ([]byte, error) {
+	argv, err := expandArgv(tmpl, vars)
+	if err != nil {
+		s.logger.Error("gh-ask: "+name, "err", err)
+		return nil, errors.New("bad " + name)
+	}
+	out, stderr, err := runCommand(ctx, argv, s.cfg.CommandTimeout)
+	if err != nil {
+		s.logger.Error("gh-ask: "+name, append(logArgs, "err", err, "stderr", stderr)...)
+		return nil, errors.New(name + " failed")
+	}
+	return out, nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

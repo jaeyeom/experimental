@@ -12,6 +12,7 @@ const configBody = `
 repos = ["octo/demo"]
 ask_command = ["asker", "{file}"]
 id_pattern = 'thread-(\w+)'
+followup_command = ["follower", "{id}", "{file}"]
 `
 
 func TestTokenCreatesAndPrints(t *testing.T) {

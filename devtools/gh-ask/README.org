@@ -8,9 +8,9 @@ request diff from the browser. A local server on ~127.0.0.1~ takes the
 question and hands it to a command you configure, for example one that
 files the question for an agent and prints a thread id.
 
-The server has one endpoint, ~POST /ask~. It is not a generic exec
-service: the command is fixed in config, and the request text reaches
-it only through a file.
+The server has two endpoints, ~POST /ask~ and ~GET /status/<id>~. It
+is not a generic exec service: the commands are fixed in config, and
+the request text reaches them only through a file.
 
 * Install
 
@@ -45,13 +45,41 @@ repos = ["octo/demo"]
 ask_command = ["ask-agent", "--message-file", "{file}", "--pr", "{pr}", "--repo", "{repo}"]
 # Finds the id in stdout: group 1 if the pattern has a group, else the match.
 id_pattern = 'thread-([0-9a-f]+)'
+# Runs instead of ask_command for a later ask on a PR whose thread is
+# open. Only {id}, {file}, {pr} and {repo} are replaced. Required unless
+# reuse = "none".
+followup_command = ["ask-agent", "--thread", "{id}", "--message-file", "{file}"]
 # Optional.
+reuse = "per-pr"           # or "none": every ask runs ask_command
+status_command = ["ask-agent", "--status", "{id}"]  # only {id}; enables GET /status/<id>
 rate_limit = 10            # asks per hour
-command_timeout = "2m"
+command_timeout = "2m"     # applies to every command
 token_file = "token"       # relative to the config file's directory
 #+END_SRC
 
-Unknown keys are errors.
+Unknown keys and unknown placeholders are errors.
+
+* Thread reuse
+
+With ~reuse = "per-pr"~, the default, the server stores the id that
+~ask_command~ printed for each ~(repo, pr)~ in
+=$XDG_STATE_HOME/gh-ask/threads.json=, or
+=$HOME/.local/state/gh-ask/threads.json=. It writes the file with mode
+~0600~ to a temp file and renames it into place.
+
+A later ask on the same PR runs ~followup_command~ with the stored
+~{id}~ and the new message ~{file}~, and returns the stored id. Its
+stdout is ignored. When the last status ~status_command~ reported for
+that id says ~closed~, the ask runs ~ask_command~ instead and the new
+id replaces the stored one. The server learns a thread is closed only
+through ~GET /status/<id>~; without ~status_command~, a stored thread is
+reused until you remove it from the state file.
+
+Two asks on the same PR at the same moment can both start a thread; the
+one that finishes last is stored.
+
+With ~reuse = "none"~, every ask runs ~ask_command~ and nothing is
+stored.
 
 * POST /ask
 
@@ -79,16 +107,47 @@ On success the response is ~{"id": "..."}~. Errors are
 | 400    | bad JSON or a bad field                                |
 | 401    | missing or wrong ~X-Gh-Ask-Token~                      |
 | 403    | bad ~Host~, bad ~Origin~, or repo not in ~repos~       |
-| 404    | any path other than ~/ask~                             |
+| 404    | any path other than ~/ask~ or ~/status/<id>~           |
 | 405    | any method other than ~POST~, including ~OPTIONS~      |
 | 413    | a field over its cap, or a body over 16 KB             |
 | 429    | over the rate limit                                    |
 | 502    | the command failed, timed out, or printed no id        |
 
+* GET /status/<id>
+
+#+BEGIN_SRC bash
+curl -H "X-Gh-Ask-Token: $(gh-ask token)" http://127.0.0.1:8765/status/abc123
+#+END_SRC
+
+The server runs ~status_command~ with ~{id}~. The command must print
+one JSON object:
+
+#+BEGIN_SRC json
+{"state": "answered", "answered": true, "closed": false}
+#+END_SRC
+
+All three fields are required. ~state~ is a string of at most 256
+bytes with no control characters. Other fields are dropped, and the
+three are returned as the response body. A good result is cached for
+10 seconds per id; a failure is not cached. Status requests do not use
+up the ask rate limit.
+
+| Status | Meaning                                                    |
+|--------+------------------------------------------------------------|
+| 401    | missing or wrong ~X-Gh-Ask-Token~                          |
+| 403    | bad ~Host~ or bad ~Origin~                                 |
+| 404    | an id this server did not create, or no ~status_command~   |
+| 405    | any method other than ~GET~, including ~OPTIONS~           |
+| 502    | the command failed, timed out, or printed bad JSON         |
+
+Only ids that ~ask_command~ printed answer: ids from this process, and
+with ~reuse = "per-pr"~, ids in the state file.
+
 * Security
 
 - The server binds only ~127.0.0.1~. Any other ~listen~ address is
   refused.
+- Both endpoints get the same token, ~Host~ and ~Origin~ checks.
 - ~X-Gh-Ask-Token~ must match the token file. The compare runs in
   constant time.
 - No CORS headers are ever sent, and ~OPTIONS~ gets ~405~. A web page
@@ -122,5 +181,7 @@ https://github.com/octo/demo/pull/42/files#diff-...
 The file is deleted when the command exits. A command that hands the
 file to something asynchronous must copy it first.
 
-The command runs with no stdin, the server's environment, and
-~command_timeout~. It keeps running if the browser disconnects.
+~ask_command~ and ~followup_command~ run with no stdin, the server's
+environment, and ~command_timeout~. They keep running if the browser
+disconnects. ~status_command~ runs the same way but is stopped when the
+browser disconnects.

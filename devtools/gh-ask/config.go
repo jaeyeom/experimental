@@ -22,9 +22,20 @@ const (
 	DefaultCommandTimeout = 2 * time.Minute
 )
 
-// askPlaceholders are the only placeholders ask_command may use. None of
-// them carries request text.
-var askPlaceholders = []string{"file", "pr", "repo"}
+// Reuse modes for the reuse key.
+const (
+	// ReusePerPR sends a later ask on the same PR to the PR's thread.
+	ReusePerPR = "per-pr"
+	// ReuseNone starts a new thread for every ask.
+	ReuseNone = "none"
+)
+
+// Placeholders each command may use. None of them carries request text.
+var (
+	askPlaceholders      = []string{"file", "pr", "repo"}
+	followupPlaceholders = []string{"file", "pr", "repo", "id"}
+	statusPlaceholders   = []string{"id"}
+)
 
 // Config is the parsed gh-ask config.
 type Config struct {
@@ -32,8 +43,17 @@ type Config struct {
 	Listen string
 	// Repos is the owner/name allowlist.
 	Repos []string
-	// AskCommand is the argv template run for each ask.
+	// AskCommand is the argv template run for each ask that starts a
+	// thread.
 	AskCommand []string
+	// FollowupCommand is the argv template run for a later ask on a PR
+	// whose thread is still open. Required when Reuse is ReusePerPR.
+	FollowupCommand []string
+	// StatusCommand is the argv template run for GET /status/<id>. When
+	// empty, /status answers 404.
+	StatusCommand []string
+	// Reuse is ReusePerPR or ReuseNone.
+	Reuse string
 	// IDPattern finds the id in the command's stdout. Its first group is
 	// the id when it has one; otherwise the whole match is.
 	IDPattern *regexp.Regexp
@@ -43,16 +63,22 @@ type Config struct {
 	// TokenFile holds the shared secret. LoadConfig defaults it to
 	// "token" next to the config file.
 	TokenFile string
+	// StateFile holds the (repo, pr) to id map for ReusePerPR. It is not
+	// a config key; the serve command sets it to DefaultStatePath.
+	StateFile string
 }
 
 type fileConfig struct {
-	Listen         string   `toml:"listen"`
-	Repos          []string `toml:"repos"`
-	AskCommand     []string `toml:"ask_command"`
-	IDPattern      string   `toml:"id_pattern"`
-	RateLimit      int      `toml:"rate_limit"`
-	CommandTimeout string   `toml:"command_timeout"`
-	TokenFile      string   `toml:"token_file"`
+	Listen          string   `toml:"listen"`
+	Repos           []string `toml:"repos"`
+	AskCommand      []string `toml:"ask_command"`
+	FollowupCommand []string `toml:"followup_command"`
+	StatusCommand   []string `toml:"status_command"`
+	Reuse           string   `toml:"reuse"`
+	IDPattern       string   `toml:"id_pattern"`
+	RateLimit       int      `toml:"rate_limit"`
+	CommandTimeout  string   `toml:"command_timeout"`
+	TokenFile       string   `toml:"token_file"`
 }
 
 // ParseConfig parses and validates TOML config. Unknown keys are errors.
@@ -68,12 +94,15 @@ func ParseConfig(data []byte) (Config, error) {
 		return Config{}, fmt.Errorf("parse config: %w", err)
 	}
 	cfg := Config{
-		Listen:         raw.Listen,
-		Repos:          raw.Repos,
-		AskCommand:     raw.AskCommand,
-		RateLimit:      raw.RateLimit,
-		CommandTimeout: DefaultCommandTimeout,
-		TokenFile:      raw.TokenFile,
+		Listen:          raw.Listen,
+		Repos:           raw.Repos,
+		AskCommand:      raw.AskCommand,
+		FollowupCommand: raw.FollowupCommand,
+		StatusCommand:   raw.StatusCommand,
+		Reuse:           raw.Reuse,
+		RateLimit:       raw.RateLimit,
+		CommandTimeout:  DefaultCommandTimeout,
+		TokenFile:       raw.TokenFile,
 	}
 	if cfg.Listen == "" {
 		cfg.Listen = DefaultListen
@@ -89,7 +118,7 @@ func ParseConfig(data []byte) (Config, error) {
 			return Config{}, fmt.Errorf("repos: %q is not owner/name", repo)
 		}
 	}
-	if err := checkArgvTemplate("ask_command", cfg.AskCommand, askPlaceholders); err != nil {
+	if err := cfg.checkCommands(); err != nil {
 		return Config{}, err
 	}
 	if raw.IDPattern == "" {
@@ -104,6 +133,33 @@ func ParseConfig(data []byte) (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+func (cfg *Config) checkCommands() error {
+	if err := checkArgvTemplate("ask_command", cfg.AskCommand, askPlaceholders); err != nil {
+		return err
+	}
+	switch cfg.Reuse {
+	case "":
+		cfg.Reuse = ReusePerPR
+	case ReusePerPR, ReuseNone:
+	default:
+		return fmt.Errorf("reuse %q: want %q or %q", cfg.Reuse, ReusePerPR, ReuseNone)
+	}
+	if cfg.FollowupCommand != nil || cfg.Reuse == ReusePerPR {
+		if err := checkArgvTemplate("followup_command", cfg.FollowupCommand, followupPlaceholders); err != nil {
+			if len(cfg.FollowupCommand) == 0 && cfg.Reuse == ReusePerPR {
+				return fmt.Errorf("%w; it is required unless reuse = %q", err, ReuseNone)
+			}
+			return err
+		}
+	}
+	if cfg.StatusCommand != nil {
+		if err := checkArgvTemplate("status_command", cfg.StatusCommand, statusPlaceholders); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (cfg *Config) applyLimits(raw fileConfig) error {

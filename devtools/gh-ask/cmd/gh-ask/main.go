@@ -2,7 +2,7 @@
 // pull request line range to a configured command.
 //
 //	gh-ask token [--config PATH]   create the shared secret if missing and print it
-//	gh-ask serve [--config PATH]   serve POST /ask on 127.0.0.1:<port>
+//	gh-ask serve [--config PATH]   serve POST /ask and GET /status/<id> on 127.0.0.1:<port>
 package main
 
 import (
@@ -24,7 +24,7 @@ import (
 
 const usage = `usage:
   gh-ask token [--config PATH]   create the shared secret if missing and print it
-  gh-ask serve [--config PATH]   serve POST /ask on the configured 127.0.0.1 port
+  gh-ask serve [--config PATH]   serve POST /ask and GET /status/<id> on the configured 127.0.0.1 port
 
 The default config is $XDG_CONFIG_HOME/gh-ask/config.toml, or
 $HOME/.config/gh-ask/config.toml.
@@ -112,6 +112,10 @@ func cmdServe(args []string, stderr io.Writer, env []string) int {
 	if err != nil {
 		fmt.Fprintf(stderr, "gh-ask: %v (run gh-ask token first)\n", err)
 		return 1
+	}
+	if cfg.StateFile, err = ghask.DefaultStatePath(env); err != nil {
+		fmt.Fprintf(stderr, "gh-ask: %v\n", err)
+		return 2
 	}
 	ln, err := ghask.Listen(cfg.Listen)
 	if err != nil {

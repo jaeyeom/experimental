@@ -13,6 +13,8 @@ listen = "127.0.0.1:8765"
 repos = ["octo/demo"]
 ask_command = ["asker", "--file", "{file}", "--pr", "{pr}", "--repo", "{repo}"]
 id_pattern = 'thread-([0-9a-f]+)'
+followup_command = ["follow", "--id", "{id}", "--file", "{file}", "--pr", "{pr}", "--repo", "{repo}"]
+status_command = ["status", "{id}"]
 `
 
 func TestParseConfigDefaults(t *testing.T) {
@@ -31,6 +33,26 @@ func TestParseConfigDefaults(t *testing.T) {
 	}
 	if got := cfg.IDPattern.String(); got != "thread-([0-9a-f]+)" {
 		t.Errorf("IDPattern = %q", got)
+	}
+	if cfg.Reuse != ReusePerPR {
+		t.Errorf("Reuse = %q, want %q", cfg.Reuse, ReusePerPR)
+	}
+	if len(cfg.FollowupCommand) != 9 || len(cfg.StatusCommand) != 2 {
+		t.Errorf("FollowupCommand = %q, StatusCommand = %q", cfg.FollowupCommand, cfg.StatusCommand)
+	}
+}
+
+func TestParseConfigReuseNone(t *testing.T) {
+	data := strings.NewReplacer(
+		`followup_command = ["follow", "--id", "{id}", "--file", "{file}", "--pr", "{pr}", "--repo", "{repo}"]`, "",
+		`status_command = ["status", "{id}"]`, "",
+	).Replace(validConfig) + "reuse = \"none\"\n"
+	cfg, err := ParseConfig([]byte(data))
+	if err != nil {
+		t.Fatalf("ParseConfig() error = %v", err)
+	}
+	if cfg.Reuse != ReuseNone || cfg.FollowupCommand != nil || cfg.StatusCommand != nil {
+		t.Errorf("got reuse %q followup %q status %q", cfg.Reuse, cfg.FollowupCommand, cfg.StatusCommand)
 	}
 }
 
@@ -71,6 +93,12 @@ func TestParseConfigErrors(t *testing.T) {
 		{name: "payload placeholder", replace: [2]string{`"{repo}"]`, `"{question}"]`}, wantErr: "{question}"},
 		{name: "no id pattern", replace: [2]string{`id_pattern = 'thread-([0-9a-f]+)'`, ""}, wantErr: "id_pattern"},
 		{name: "bad id pattern", replace: [2]string{`'thread-([0-9a-f]+)'`, `'('`}, wantErr: "id_pattern"},
+		{name: "id in ask_command", replace: [2]string{`"{repo}"]`, `"{id}"]`}, wantErr: "ask_command: unknown placeholder {id}"},
+		{name: "bad reuse", extra: "reuse = \"always\"\n", wantErr: "reuse"},
+		{name: "per-pr without followup", replace: [2]string{`followup_command = ["follow", "--id", "{id}", "--file", "{file}", "--pr", "{pr}", "--repo", "{repo}"]`, ""}, wantErr: "followup_command"},
+		{name: "followup payload placeholder", replace: [2]string{`"follow", "--id"`, `"follow", "{question}"`}, wantErr: "followup_command: unknown placeholder {question}"},
+		{name: "status file placeholder", replace: [2]string{`["status", "{id}"]`, `["status", "{id}", "{file}"]`}, wantErr: "status_command: unknown placeholder {file}"},
+		{name: "empty status command", replace: [2]string{`["status", "{id}"]`, `[]`}, wantErr: "status_command"},
 		{name: "unknown key", extra: "colour = 1\n", wantErr: "colour"},
 		{name: "negative rate", extra: "rate_limit = -1\n", wantErr: "rate_limit"},
 		{name: "bad timeout", extra: "command_timeout = \"soon\"\n", wantErr: "command_timeout"},
