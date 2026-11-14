@@ -9,11 +9,13 @@ import (
 
 // Spec is one organization. Field names match `pkl eval -f json`.
 type Spec struct {
-	Org      string             `json:"org"`
-	Machines map[string]Machine `json:"machines"`
-	Rules    []Rule             `json:"rules"`
-	Roles    map[string]Role    `json:"roles"`
-	Pools    map[string]Pool    `json:"pools"`
+	Org                string             `json:"org"`
+	Machines           map[string]Machine `json:"machines"`
+	Rules              []Rule             `json:"rules"`
+	Roles              map[string]Role    `json:"roles"`
+	Pools              map[string]Pool    `json:"pools"`
+	ApprovalWords      []string           `json:"approvalWords"`
+	AllowApprovalWords []string           `json:"allowApprovalWords"`
 }
 
 // Machine is one host the organization runs on.

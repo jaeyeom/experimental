@@ -2,7 +2,10 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "go_default_library",
-    srcs = ["spec.go"],
+    srcs = [
+        "decides.go",
+        "spec.go",
+    ],
     importpath = "github.com/jaeyeom/experimental/devtools/orgctl",
     visibility = ["//visibility:public"],
 )
@@ -10,7 +13,10 @@ go_library(
 go_test(
     name = "go_default_test",
     size = "small",
-    srcs = ["spec_test.go"],
+    srcs = [
+        "decides_test.go",
+        "spec_test.go",
+    ],
     data = glob(["**/*.pkl"]),
     embed = [":go_default_library"],
     tags = ["no-sandbox"],
