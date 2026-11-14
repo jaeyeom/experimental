@@ -181,6 +181,12 @@ type Model struct {
 	showHidden  bool
 	confirmKind int
 	confirmName string
+	// aliases maps a ledger name to a canonical agent. aliasPick is the
+	// bus-name picker that stores one pair, from aliasFrom.
+	aliases     map[string]string
+	aliasPick   bool
+	aliasFrom   string
+	aliasCursor int
 	pickFilter  string
 	// snoozing shows the snooze popup for snoozeItem. snoozeCustom is
 	// the custom row's text and snoozeErr its parse error.
@@ -338,26 +344,8 @@ func (m *Model) applyList(all []decide.Item) error {
 // an open item as you type. Enter keeps the result, an empty Enter clears
 // it, and Esc restores the state from before /.
 func (m *Model) Key(r rune) (bool, error) {
-	if m.confirmKind != confirmNone {
-		return m.confirmKey(r)
-	}
-	if m.chord {
-		return m.finishChord(r)
-	}
-	if m.copyMenu {
-		return m.copyMenuKey(r)
-	}
-	if m.snoozing {
-		return m.snoozeKey(r)
-	}
-	if m.searching {
-		return m.searchKey(r)
-	}
-	if m.help {
-		return m.helpKey(r)
-	}
-	if m.pickerOpen() {
-		return m.popupKey(r)
+	if quit, handled, err := m.overlayKey(r); handled {
+		return quit, err
 	}
 	if m.answerFocus {
 		return m.answerKey(r)
@@ -383,6 +371,39 @@ func (m *Model) Key(r rune) (bool, error) {
 		return quit, err
 	}
 	return m.listKey(r)
+}
+
+// overlayKey handles a modal that sits above the folder keys.
+// handled is false when the key belongs to the current mode.
+func (m *Model) overlayKey(r rune) (bool, bool, error) {
+	switch {
+	case m.confirmKind != confirmNone:
+		quit, err := m.confirmKey(r)
+		return quit, true, err
+	case m.chord:
+		quit, err := m.finishChord(r)
+		return quit, true, err
+	case m.copyMenu:
+		quit, err := m.copyMenuKey(r)
+		return quit, true, err
+	case m.snoozing:
+		quit, err := m.snoozeKey(r)
+		return quit, true, err
+	case m.searching:
+		quit, err := m.searchKey(r)
+		return quit, true, err
+	case m.help:
+		quit, err := m.helpKey(r)
+		return quit, true, err
+	case m.aliasPick:
+		quit, err := m.aliasPickKey(r)
+		return quit, true, err
+	case m.pickerOpen():
+		quit, err := m.popupKey(r)
+		return quit, true, err
+	default:
+		return false, false, nil
+	}
 }
 
 // modeKey handles a key in the detail, status, or contacts view.
@@ -1784,7 +1805,7 @@ func (m *Model) folderMatchCount(i int, q string) int {
 	needle := strings.ToLower(q)
 	n := 0
 	for j, it := range m.folderRows[i] {
-		if !itemInvolves(it, m.agentFilter) {
+		if !m.agentKeeps(it) {
 			continue
 		}
 		if needle != "" {
@@ -2394,6 +2415,7 @@ func (m *Model) helpLines() []screenLine {
 			"enter filters every folder to this agent",
 			"esc clears the agent filter",
 			"A picks this agent's avatar",
+			"a aliases this contact to a bus name",
 			"x hides this contact",
 			"H shows hidden contacts",
 			"X hides every dead contact",

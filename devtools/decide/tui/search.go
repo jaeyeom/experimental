@@ -79,7 +79,7 @@ func (m *Model) refilter(keep string) {
 	q := strings.ToLower(m.filter)
 	m.items = make([]decide.Item, 0, len(m.folderItems))
 	for i, it := range m.folderItems {
-		if m.agentFilter != "" && !itemInvolves(it, m.agentFilter) {
+		if !m.agentKeeps(it) {
 			continue
 		}
 		if q != "" && !strings.Contains(m.folderText[i], q) {

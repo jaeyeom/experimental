@@ -38,6 +38,8 @@ type contact struct {
 	Offline  bool
 	Open     int
 	Last     time.Time
+	// Aka are the ledger names that resolved to Name, other than Name.
+	Aka []string
 }
 
 func (c contact) liveLabel() string {
@@ -105,7 +107,7 @@ func (m *Model) rebuildContacts() {
 	if rows := m.visibleContacts(); m.contactCursor >= 0 && m.contactCursor < len(rows) {
 		prev = rows[m.contactCursor].Name
 	}
-	m.contacts = buildContacts(m.allItems, m.busNames, m.busKnown || m.busNote != "")
+	m.contacts = buildContacts(m.allItems, m.busNames, m.busKnown || m.busNote != "", m.aliases)
 	m.dropActiveHidden()
 	m.contactCursor = 0
 	for i, c := range m.visibleContacts() {
@@ -138,7 +140,7 @@ func (m *Model) visibleContacts() []contact {
 	q := strings.ToLower(m.filter)
 	out := make([]contact, 0, len(rows))
 	for _, c := range rows {
-		if strings.Contains(strings.ToLower(c.Name), q) || strings.Contains(strings.ToLower(c.liveLabel()), q) {
+		if c.matchesQuery(q) {
 			out = append(out, c)
 		}
 	}
@@ -164,14 +166,15 @@ type contactSet struct {
 }
 
 // buildContacts is the union of bus names and ledger owners and senders.
+// Ledger names resolve to a canonical agent before the rows merge.
 // A name only the ledger has is offline once a bus list has succeeded
 // or failed. Before that answer it is not marked. Rows sort by state
 // (active, then not-yet-known, then unresponsive, then dead). Within a
 // state, open items sort first, then the newest activity, then the name.
-func buildContacts(items []decide.Item, bus []Target, busKnown bool) []contact {
+func buildContacts(items []decide.Item, bus []Target, busKnown bool, aliases map[string]string) []contact {
 	set := contactSet{byName: map[string]*contact{}}
 	set.addBus(bus)
-	set.addItems(items)
+	set.addItems(items, newResolver(bus, aliases))
 	return set.list(busKnown)
 }
 
@@ -199,28 +202,38 @@ func (s *contactSet) addBus(bus []Target) {
 	}
 }
 
-func (s *contactSet) addItems(items []decide.Item) {
+func (s *contactSet) addItems(items []decide.Item, res nameResolver) {
 	for i := range items {
-		s.addItem(items[i])
+		s.addItem(items[i], res)
 	}
 }
 
-func (s *contactSet) addItem(it decide.Item) {
+func (s *contactSet) addItem(it decide.Item, res nameResolver) {
 	seen := map[string]bool{}
 	last := itemActivity(it)
 	open := it.State == decide.StateOpen && !it.Snoozed()
-	s.note(it.Owner, open, last, seen)
+	s.note(it.Owner, res.canonical(it.Owner, &it), open, last, seen)
 	for _, msg := range it.Messages {
-		s.note(msg.Sender(), open, last, seen)
+		name := msg.Sender()
+		s.note(name, res.canonical(name, nil), open, last, seen)
+	}
+	if bus, ok := res.notifyBus(it.NotifyPane); ok {
+		s.note("", bus, open, last, seen)
 	}
 }
 
-func (s *contactSet) note(name string, open bool, last time.Time, seen map[string]bool) {
-	if name == "" || seen[name] {
+func (s *contactSet) note(raw, canon string, open bool, last time.Time, seen map[string]bool) {
+	if canon == "" {
 		return
 	}
-	seen[name] = true
-	c := s.add(name)
+	c := s.add(canon)
+	if raw != "" && raw != canon {
+		c.addAka(raw)
+	}
+	if seen[canon] {
+		return
+	}
+	seen[canon] = true
 	if open {
 		c.Open++
 	}
@@ -229,10 +242,30 @@ func (s *contactSet) note(name string, open bool, last time.Time, seen map[strin
 	}
 }
 
+func (c *contact) addAka(name string) {
+	if name == "" || name == c.Name || slices.Contains(c.Aka, name) {
+		return
+	}
+	c.Aka = append(c.Aka, name)
+}
+
+// matchesQuery reports whether q, already lower-case, is in the name,
+// an aka, or the liveness label. An empty q matches.
+func (c contact) matchesQuery(q string) bool {
+	if q == "" {
+		return true
+	}
+	if strings.Contains(strings.ToLower(c.Name), q) || strings.Contains(strings.ToLower(c.liveLabel()), q) {
+		return true
+	}
+	return strings.Contains(strings.ToLower(strings.Join(c.Aka, " ")), q)
+}
+
 func (s *contactSet) list(busKnown bool) []contact {
 	out := make([]contact, 0, len(s.order))
 	for _, name := range s.order {
 		c := *s.byName[name]
+		slices.Sort(c.Aka)
 		if busKnown && !c.OnBus {
 			c.Offline = true
 		}
@@ -279,6 +312,30 @@ func itemActivity(it decide.Item) time.Time {
 		last = *it.SnoozedAt
 	}
 	return last
+}
+
+// agentKeeps reports whether it belongs on screen under the agent
+// filter. A merged contact matches every name that resolved to it.
+func (m *Model) agentKeeps(it decide.Item) bool {
+	if m.agentFilter == "" {
+		return true
+	}
+	if itemInvolves(it, m.agentFilter) {
+		return true
+	}
+	res := newResolver(m.busNames, m.aliases)
+	if res.canonical(it.Owner, &it) == m.agentFilter {
+		return true
+	}
+	for _, msg := range it.Messages {
+		if res.canonical(msg.Sender(), nil) == m.agentFilter {
+			return true
+		}
+	}
+	if bus, ok := res.notifyBus(it.NotifyPane); ok && bus == m.agentFilter {
+		return true
+	}
+	return false
 }
 
 // itemInvolves reports whether name owns the item or sent a message on it.
@@ -347,6 +404,8 @@ func (m *Model) contactsHideKey(r rune) bool {
 		m.askHideDead()
 	case 'R':
 		m.askRelease()
+	case 'a':
+		m.beginAliasPick()
 	default:
 		return false
 	}
@@ -453,6 +512,9 @@ func (m *Model) contactsMail(pane int) []screenLine {
 }
 
 func (m *Model) contactsScreen(width int) []screenLine {
+	if m.aliasPick {
+		return m.aliasPickScreen(width)
+	}
 	rows := m.visibleContacts()
 	var lines []screenLine
 	if len(rows) == 0 {
@@ -470,6 +532,15 @@ func (m *Model) contactsScreen(width int) []screenLine {
 	return lines
 }
 
+// contactName is the row label, with a dim aka suffix for other names.
+func (m *Model) contactName(row contact) string {
+	if len(row.Aka) == 0 {
+		return row.Name
+	}
+	useStyles()
+	return row.Name + " " + dimNav.Render("aka "+strings.Join(row.Aka, ", "))
+}
+
 func (m *Model) contactTable(width int, now time.Time, rows []contact) []screenLine {
 	headers := []string{"avatar", "name", "state", "liveness", "open", "activity"}
 	cells := make([][]string, len(rows))
@@ -477,7 +548,7 @@ func (m *Model) contactTable(width int, now time.Time, rows []contact) []screenL
 	for i, row := range rows {
 		cells[i] = []string{
 			m.avatarMark(row.Name),
-			row.Name,
+			m.contactName(row),
 			row.stateLabel(),
 			row.liveLabel(),
 			strconv.Itoa(row.Open),
@@ -506,7 +577,7 @@ func (m *Model) activeContactMatches() (total, matches int) {
 			continue
 		}
 		total++
-		if q == "" || strings.Contains(strings.ToLower(c.Name), q) || strings.Contains(strings.ToLower(c.liveLabel()), q) {
+		if c.matchesQuery(q) {
 			matches++
 		}
 	}
@@ -515,8 +586,8 @@ func (m *Model) activeContactMatches() (total, matches int) {
 
 // DeadContactNames lists dead contacts in contact order. release is the
 // subset agentbus still lists, so a history-only name is only hidden.
-func DeadContactNames(items []decide.Item, bus []Target) (hide, release []string) {
-	for _, c := range buildContacts(items, bus, true) {
+func DeadContactNames(items []decide.Item, bus []Target, aliases map[string]string) (hide, release []string) {
+	for _, c := range buildContacts(items, bus, true, aliases) {
 		if c.state() != stateDead {
 			continue
 		}

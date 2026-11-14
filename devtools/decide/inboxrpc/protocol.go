@@ -18,29 +18,31 @@ import (
 
 // Version is the protocol version hello returns. Version 2 added
 // config. Version 3 added set-avatar. Version 4 added set-hidden.
-const Version = 4
+// Version 5 added set-contact-aliases.
+const Version = 5
 
 // Ops. Archive is done with the outcome "archived".
 const (
-	OpHello     = "hello"
-	OpList      = "list"
-	OpShow      = "show"
-	OpMarkRead  = "mark-read"
-	OpAnswer    = "answer"
-	OpReply     = "reply"
-	OpDone      = "done"
-	OpArchive   = "archive"
-	OpWithdraw  = "withdraw"
-	OpSnooze    = "snooze"
-	OpUnsnooze  = "unsnooze"
-	OpStatus    = "status"
-	OpTargets   = "targets"
-	OpBusList   = "bus-list"
-	OpSend      = "send"
-	OpLocate    = "locate"
-	OpConfig    = "config"
-	OpSetAvatar = "set-avatar"
-	OpSetHidden = "set-hidden"
+	OpHello      = "hello"
+	OpList       = "list"
+	OpShow       = "show"
+	OpMarkRead   = "mark-read"
+	OpAnswer     = "answer"
+	OpReply      = "reply"
+	OpDone       = "done"
+	OpArchive    = "archive"
+	OpWithdraw   = "withdraw"
+	OpSnooze     = "snooze"
+	OpUnsnooze   = "unsnooze"
+	OpStatus     = "status"
+	OpTargets    = "targets"
+	OpBusList    = "bus-list"
+	OpSend       = "send"
+	OpLocate     = "locate"
+	OpConfig     = "config"
+	OpSetAvatar  = "set-avatar"
+	OpSetHidden  = "set-hidden"
+	OpSetAliases = "set-contact-aliases"
 )
 
 // Request is one line from the client. Item is the item id. Text is the
@@ -57,6 +59,7 @@ type Request struct {
 	Forward string     `json:"forward,omitempty"`
 	// Name and Choice are a set-avatar: a built-in id, "default", or "none".
 	// Text for set-hidden is a JSON array of hidden contact names.
+	// Text for set-contact-aliases is a JSON object of ledger name to agent.
 	Name   string `json:"name,omitempty"`
 	Choice string `json:"choice,omitempty"`
 }
@@ -83,15 +86,16 @@ type Response struct {
 // writeOps change the ledger or send something. While the hub is
 // unreachable they fail at once and are never queued.
 var writeOps = map[string]bool{
-	OpMarkRead:  true,
-	OpAnswer:    true,
-	OpReply:     true,
-	OpDone:      true,
-	OpArchive:   true,
-	OpWithdraw:  true,
-	OpSnooze:    true,
-	OpUnsnooze:  true,
-	OpSend:      true,
-	OpSetAvatar: true,
-	OpSetHidden: true,
+	OpMarkRead:   true,
+	OpAnswer:     true,
+	OpReply:      true,
+	OpDone:       true,
+	OpArchive:    true,
+	OpWithdraw:   true,
+	OpSnooze:     true,
+	OpUnsnooze:   true,
+	OpSend:       true,
+	OpSetAvatar:  true,
+	OpSetHidden:  true,
+	OpSetAliases: true,
 }

@@ -56,7 +56,19 @@ func displayOf(cfg decide.Config, files map[string]decide.AvatarFile) tui.Displa
 		NoHyperlinks:      !cfg.HyperlinksOn(),
 		AvatarFiles:       files,
 		HiddenContacts:    append([]string(nil), cfg.HiddenContacts...),
+		ContactAliases:    aliasCopy(cfg.ContactAliases),
 	}
+}
+
+func aliasCopy(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 // cmdConfig is `decide config show [--effective]`. It runs here even in

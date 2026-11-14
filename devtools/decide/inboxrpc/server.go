@@ -81,6 +81,8 @@ func (s *Server) handle(ctx context.Context, req Request) Response {
 		return s.setAvatar(req)
 	case OpSetHidden:
 		return s.setHidden(req)
+	case OpSetAliases:
+		return s.setAliases(req)
 	case OpSend:
 		return s.send(req)
 	case OpLocate:
@@ -161,6 +163,19 @@ func (s *Server) setHidden(req Request) Response {
 		return failed(fmt.Errorf("hidden contacts: %w", err))
 	}
 	if _, err := decide.SetHiddenContacts(names); err != nil {
+		return failed(err)
+	}
+	return s.config()
+}
+
+// setAliases replaces the hub's contactAliases map and returns the
+// display settings. Text is a JSON object of ledger name to agent.
+func (s *Server) setAliases(req Request) Response {
+	var aliases map[string]string
+	if err := json.Unmarshal([]byte(req.Text), &aliases); err != nil {
+		return failed(fmt.Errorf("contact aliases: %w", err))
+	}
+	if _, err := decide.SetContactAliases(aliases); err != nil {
 		return failed(err)
 	}
 	return s.config()

@@ -18,40 +18,50 @@ import (
 // then a rename, including through a symlink.
 func SetHiddenContacts(names []string) ([]string, error) {
 	names = normalizeHidden(names)
+	if err := writeConfigMember("hiddenContacts", names); err != nil {
+		return nil, err
+	}
+	return names, nil
+}
+
+// writeConfigMember replaces one top-level config key. The write matches
+// SetAvatarRule: a temp file, one backup, then a rename, including
+// through a symlink.
+func writeConfigMember(key string, value any) error {
 	path, ok := configPath()
 	if !ok {
-		return nil, fmt.Errorf("decide config: no home directory")
+		return fmt.Errorf("decide config: no home directory")
 	}
 	target, data, perm, err := readConfigForWrite(path)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if _, err := parseConfig(data, filepath.Dir(path)); err != nil {
-		return nil, err
+		return err
 	}
 	src := data
 	if src == nil {
 		src = []byte("{}")
 	}
-	out, err := editHidden(src, names)
+	out, err := editMember(src, key, value)
 	if err != nil {
-		return nil, fmt.Errorf("edit decide config: %w", err)
+		return fmt.Errorf("edit decide config: %w", err)
 	}
 	if _, err := parseConfig(out, filepath.Dir(path)); err != nil {
-		return nil, err
+		return err
 	}
 	if data != nil {
 		if err := backupConfig(path, data, perm); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return nil, fmt.Errorf("write decide config: %w", err)
+		return fmt.Errorf("write decide config: %w", err)
 	}
 	if err := renameio.WriteFile(target, out, perm, renameio.WithTempDir(filepath.Dir(target))); err != nil {
-		return nil, fmt.Errorf("write decide config: %w", err)
+		return fmt.Errorf("write decide config: %w", err)
 	}
-	return names, nil
+	return nil
 }
 
 // normalizeHidden trims names, drops blanks, and keeps the first of
@@ -70,20 +80,21 @@ func normalizeHidden(names []string) []string {
 	return out
 }
 
-// editHidden returns src with hiddenContacts set to names.
-func editHidden(src []byte, names []string) ([]byte, error) {
+// editMember returns src with key set to value. Other keys and their
+// order are kept.
+func editMember(src []byte, key string, value any) ([]byte, error) {
 	top, err := parseObject(src)
 	if err != nil {
 		return nil, err
 	}
-	value, err := marshalPlain(names)
+	raw, err := marshalPlain(value)
 	if err != nil {
 		return nil, err
 	}
-	if i := memberIndex(top, "hiddenContacts"); i >= 0 {
-		top[i].value = value
+	if i := memberIndex(top, key); i >= 0 {
+		top[i].value = raw
 	} else {
-		top = append(top, jsonMember{key: "hiddenContacts", value: value})
+		top = append(top, jsonMember{key: key, value: raw})
 	}
 	compact, err := writeObject(top)
 	if err != nil {

@@ -13,7 +13,7 @@ import (
 
 func cmdContacts(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		return fail(stderr, fmt.Errorf("decide contacts requires hide, unhide, or prune"), 2)
+		return fail(stderr, fmt.Errorf("decide contacts requires hide, unhide, alias, or prune"), 2)
 	}
 	switch args[0] {
 	case "hide":
@@ -22,8 +22,10 @@ func cmdContacts(args []string, stdout, stderr io.Writer) int {
 		return cmdContactsHide(args[1:], false, stdout, stderr)
 	case "prune":
 		return cmdContactsPrune(args[1:], stdout, stderr)
+	case "alias":
+		return cmdContactsAlias(args[1:], stdout, stderr)
 	default:
-		return fail(stderr, fmt.Errorf("decide contacts requires hide, unhide, or prune"), 2)
+		return fail(stderr, fmt.Errorf("decide contacts requires hide, unhide, alias, or prune"), 2)
 	}
 }
 
@@ -127,7 +129,7 @@ func loadDeadContacts(stderr io.Writer) (decide.Config, []string, []string, int)
 	if err != nil {
 		return decide.Config{}, nil, nil, fail(stderr, err, 1)
 	}
-	hide, rel := tui.DeadContactNames(items, bus)
+	hide, rel := tui.DeadContactNames(items, bus, cfg.ContactAliases)
 	return cfg, hide, rel, 0
 }
 
@@ -180,6 +182,36 @@ func releaseDeadNames(stdout io.Writer, cfg decide.Config, rel []string) int {
 		}
 		fmt.Fprintf(stdout, "released %s: %s\n", name, text)
 	}
+	return 0
+}
+
+func cmdContactsAlias(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("contacts alias", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	if code, stop := stopped(parseFlags(fs, args)); stop {
+		return code
+	}
+	if len(fs.Args()) != 2 {
+		return fail(stderr, fmt.Errorf("decide contacts alias requires <name> <agent>"), 2)
+	}
+	name := strings.TrimSpace(fs.Arg(0))
+	agent := strings.TrimSpace(fs.Arg(1))
+	if name == "" || agent == "" {
+		return fail(stderr, fmt.Errorf("decide contacts alias requires <name> <agent>"), 2)
+	}
+	cfg, err := decide.LoadConfig()
+	if err != nil {
+		return fail(stderr, err, 1)
+	}
+	aliases := map[string]string{}
+	for k, v := range cfg.ContactAliases {
+		aliases[k] = v
+	}
+	aliases[name] = agent
+	if _, err := decide.SetContactAliases(aliases); err != nil {
+		return fail(stderr, err, 1)
+	}
+	fmt.Fprintf(stdout, "aliased %s to %s\n", name, agent)
 	return 0
 }
 

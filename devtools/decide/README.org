@@ -89,14 +89,21 @@ stays and no thread is kept.
 * Contacts
 
 ~g~ then ~c~ opens Contacts, the sidebar row after Status. One row per
-agent: the names from ~agentbus list --json~ (the same background load
-the compose recipient list uses, and through the hub in hub mode) plus
-every item owner and message sender in the ledger. A name only the
-ledger has is ~(offline)~. The columns are the avatar (its built-in id,
-~file~, or ~-~), the name, the state, the bus liveness, how many open
-items that agent owns or sent a message on, and the last activity, in
-the same local time as the rest of the inbox. The sidebar count is the
-number of active contacts. A search or an agent filter shows it as
+agent. Names come from ~agentbus list --json~ (the same background load
+the compose recipient list uses, and through the hub in hub mode) and
+from every item owner and message sender in the ledger. ~human~ and
+~system~ are not contacts. A ledger name merges into a bus name when it
+is that name, a herdr handle or pane id for that agent's handle, the
+unique last path segment of one bus name (~primary~ into
+~coord/primary~), or a ~contactAliases~ entry. A short name shared by
+two bus names stays its own row. A name only the ledger has is
+~(offline)~. A merged row shows the canonical name and the other names
+in a dim ~aka~ suffix, and its open count sums the items under those
+names. The columns are the avatar (its built-in id, ~file~, or ~-~),
+the name, the state, the bus liveness, how many open items that agent
+owns or sent a message on, and the last activity, in the same local
+time as the rest of the inbox. The sidebar count is the number of
+active contacts. A search or an agent filter shows it as
 ~matches/total~, as the other folders do.
 
 Each contact is one of three states. ~active~ means agentbus reports
@@ -122,13 +129,17 @@ it is active again. ~H~ toggles showing hidden rows for this session.
 still lists as dead runs ~agentbus release <name>~ after a confirm that
 names the agent, and the result goes to the status line. ~R~ is refused
 for an active or unresponsive name, and for a name the bus does not
-list.
+list. ~a~ aliases the selected contact to a bus name, picked from that
+list with ~j~ and ~k~. The pair is the ~contactAliases~ display
+setting: on the hub in hub mode (~set-contact-aliases~), otherwise in
+this machine's config, and the write changes only that key.
 
 The same changes from a script, run on the hub when hub mode is on:
 
 #+begin_src sh
 decide contacts hide <name>
 decide contacts unhide <name>
+decide contacts alias <name> <agent>
 decide contacts prune --dead [--release] [--yes]
 #+end_src
 
@@ -137,7 +148,8 @@ dead bus names it would release. Nothing is written or released unless
 ~--yes~ is given.
 
 ~Enter~ on a contact filters every folder to items that agent owns or
-sent a message in. The sidebar counts become ~matches/total~, as for a
+sent a message in, including items recorded under any merged name. The
+sidebar counts become ~matches/total~, as for a
 search, and a header line says ~agent: <name>~. ~Esc~ clears the filter.
 It combines with ~/~. ~j~ and ~k~ move. ~A~ opens the avatar picker for
 that agent and saves it the same way ~A~ in an item does: on the hub in
@@ -734,7 +746,7 @@ keys:
 
 - ~avatars~, ~avatarDefault~, ~avatarMono~
 - ~recipients~, ~recipientsTimeout~, ~targets~
-- ~hyperlinks~, ~hiddenContacts~
+- ~hyperlinks~, ~hiddenContacts~, ~contactAliases~
 
 An allowlist decides which keys these are; a key not on it is never
 sent. Machine keys (~hub~, ~hubTimeout~, ~machine~, ~hubMachine~,

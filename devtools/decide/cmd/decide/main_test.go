@@ -1525,6 +1525,18 @@ func TestContactsHideUnhideAndPruneDryRun(t *testing.T) {
 	if err != nil || strings.Contains(string(data), "bea") {
 		t.Fatalf("unhide config %s %v", data, err)
 	}
+
+	stdout, stderr, code = runCLI("contacts", "alias", "primary", "coord/primary")
+	if code != 0 {
+		t.Fatalf("alias code %d\n%s\n%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "aliased primary to coord/primary") {
+		t.Fatalf("alias stdout %q", stdout)
+	}
+	data, err = os.ReadFile(configPath)
+	if err != nil || !strings.Contains(string(data), "primary") || !strings.Contains(string(data), "coord/primary") {
+		t.Fatalf("alias config %s %v", data, err)
+	}
 }
 
 func releaseCalls(calls [][]string) int {

@@ -112,6 +112,7 @@ func TestContactsMergeBusAndLedger(t *testing.T) {
 	for _, needle := range []string{
 		"c contacts", "enter filters every folder", "esc clears the agent filter", "A picks this agent's avatar",
 		"x hides this contact", "H shows hidden contacts", "X hides every dead contact", "R releases a dead bus name",
+		"a aliases this contact to a bus name",
 	} {
 		if !strings.Contains(help, needle) {
 			t.Fatalf("help missing %q\n%s", needle, help)
@@ -594,4 +595,133 @@ func (h *hubHidden) SetHidden(names []string) (decide.DisplaySettings, error) {
 		return decide.DisplaySettings{}, fmt.Errorf("hidden contacts: %w", err)
 	}
 	return decide.DisplaySettings{Keys: map[string]json.RawMessage{"hiddenContacts": raw}}, nil
+}
+
+func TestContactsResolveDuplicateNames(t *testing.T) {
+	now := time.Date(2026, 11, 12, 15, 0, 0, 0, time.UTC)
+	handle := "herdr:local/abc/w4:p7J"
+	tab := "<ticket> tab (w4:p7J)"
+	items := []decide.Item{
+		{Owner: "primary", State: decide.StateOpen, CreatedAt: now, Kind: decide.KindRelay},
+		{Owner: "coord/primary", State: decide.StateOpen, CreatedAt: now, Kind: decide.KindRelay, Messages: []decide.Message{{By: handle, Time: now, Text: "pane"}}},
+		{Owner: "ada", State: decide.StateOpen, CreatedAt: now, Kind: decide.KindRelay},
+		{Owner: "project-manager", State: decide.StateOpen, CreatedAt: now, Kind: decide.KindRelay},
+		{Owner: tab, NotifyPane: "w4:p7J", State: decide.StateOpen, CreatedAt: now, Kind: decide.KindRelay},
+		{Owner: "human", Messages: []decide.Message{{Author: "system", By: "system", Time: now, Text: "note"}}},
+	}
+	bus := []Target{
+		{Name: "coord/primary", Pane: handle, Live: "alive", Bus: true},
+		{Name: "a/ada", Live: "alive", Bus: true},
+		{Name: "b/ada", Live: "dead", Bus: true},
+	}
+	rows := buildContacts(items, bus, true, map[string]string{"project-manager": "coord/primary"})
+	got := map[string]contact{}
+	for _, c := range rows {
+		got[c.Name] = c
+	}
+	for _, banned := range []string{"human", "system", "primary", "project-manager", handle, tab} {
+		if _, ok := got[banned]; ok {
+			t.Fatalf("%s stayed its own row in %q", banned, contactNames(rows))
+		}
+	}
+	if _, ok := got["ada"]; !ok {
+		t.Fatalf("ambiguous ada merged into %q", contactNames(rows))
+	}
+	if _, ok := got["a/ada"]; !ok || got["b/ada"].Name != "b/ada" {
+		t.Fatalf("rows %q", contactNames(rows))
+	}
+	wantAka := []string{tab, handle, "primary", "project-manager"}
+	slicesAKA := strings.Join(got["coord/primary"].Aka, ",")
+	if slicesAKA != strings.Join(wantAka, ",") {
+		t.Fatalf("aka %q", got["coord/primary"].Aka)
+	}
+	text := contactNameText(got["coord/primary"])
+	if !strings.Contains(text, "aka "+strings.Join(wantAka, ", ")) {
+		t.Fatalf("name cell %q", text)
+	}
+	only := buildContacts([]decide.Item{
+		{Owner: "primary", State: decide.StateOpen, CreatedAt: now, Kind: decide.KindRelay},
+	}, []Target{{Name: "coord/primary", Live: "alive", Bus: true}}, true, nil)
+	if len(only) != 1 || only[0].Name != "coord/primary" || !strings.Contains(contactNameText(only[0]), "aka primary") {
+		t.Fatalf("primary row %+v %q", only, contactNameText(only[0]))
+	}
+}
+
+func contactNameText(c contact) string {
+	m := &Model{}
+	return m.contactName(c)
+}
+
+func TestAliasKeyMergesTheSelectedContact(t *testing.T) {
+	path := pickConfig(t, `{"zeta": true}`)
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	now := time.Date(2026, 11, 12, 15, 0, 0, 0, time.UTC)
+	mustCreate(t, led, &decide.Item{
+		Question: "old-q", Owner: "old-label", Kind: decide.KindRelay, State: decide.StateOpen, CreatedAt: now,
+	})
+	bus := &fakeBus{list: `[{"name":"coord/primary","liveness":"alive","handle":"herdr:local/s/w1:p1"}]`}
+	m := New(dir)
+	m.Now = func() time.Time { return now }
+	m.UTC = true
+	m.busOn = false
+	m.busRun = bus.run
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	m.width = 120
+	m.height = 24
+	if err := m.showContacts(); err != nil {
+		t.Fatal(err)
+	}
+	finishContactBus(t, m)
+	selectContact(t, m, "old-label")
+	press(t, m, "a\r")
+	if !strings.Contains(m.status, "aliased old-label to coord/primary") {
+		t.Fatalf("status %q", m.status)
+	}
+	if got := contactNames(m.contacts); strings.Join(got, ",") != "coord/primary" {
+		t.Fatalf("contacts %q", got)
+	}
+	view := m.View()
+	if !strings.Contains(view, "aka old-label") {
+		t.Fatalf("view missing aka\n%s", view)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(data), "old-label") || !strings.Contains(string(data), "coord/primary") {
+		t.Fatalf("config %s %v", data, err)
+	}
+}
+
+func TestMergedRowFilterFindsEveryAlias(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	now := time.Date(2026, 11, 12, 15, 0, 0, 0, time.UTC)
+	mustCreate(t, led, &decide.Item{
+		Question: "from-primary", Owner: "primary", Kind: decide.KindRelay, State: decide.StateOpen, CreatedAt: now,
+	})
+	mustCreate(t, led, &decide.Item{
+		Question: "from-bus", Owner: "coord/primary", Kind: decide.KindRelay, State: decide.StateOpen, CreatedAt: now,
+	})
+	bus := &fakeBus{list: `[{"name":"coord/primary","liveness":"alive"}]`}
+	m := New(dir)
+	m.Now = func() time.Time { return now }
+	m.UTC = true
+	m.busOn = false
+	m.busRun = bus.run
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	m.width = 120
+	m.height = 24
+	if err := m.showContacts(); err != nil {
+		t.Fatal(err)
+	}
+	finishContactBus(t, m)
+	selectContact(t, m, "coord/primary")
+	press(t, m, "\rgi")
+	view := m.View()
+	if !strings.Contains(view, "from-primary") || !strings.Contains(view, "from-bus") {
+		t.Fatalf("filter missed an alias\n%s", view)
+	}
 }

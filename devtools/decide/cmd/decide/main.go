@@ -116,6 +116,7 @@ func usage(w io.Writer) {
   decide avatars set [--local] <name> <id|default|none>
   decide contacts hide <name>
   decide contacts unhide <name>
+  decide contacts alias <name> <agent>
   decide contacts prune --dead [--release] [--yes]
   decide [--remote <user@host>] config show [--effective]
 
@@ -565,6 +566,7 @@ func inboxOptions(cfg decide.Config, stdout io.Writer, snoozed bool) tui.Options
 		NoHyperlinks:      !cfg.HyperlinksOn(),
 		Clipboard:         cfg.UI.Clipboard,
 		HiddenContacts:    cfg.HiddenContacts,
+		ContactAliases:    cfg.ContactAliases,
 	}
 }
 
