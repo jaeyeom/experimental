@@ -1,0 +1,12 @@
+# The userscript test runs on the host's node (node --test), not a Bazel
+# JavaScript toolchain. See userscript_test.sh.
+sh_test(
+    name = "userscript_test",
+    size = "small",
+    srcs = ["userscript_test.sh"],
+    data = [
+        "gh-ask.test.js",
+        "gh-ask.user.js",
+        "testdom.js",
+    ] + glob(["testdata/*.html"]),
+)
