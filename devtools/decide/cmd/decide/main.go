@@ -231,8 +231,10 @@ func cmdCompose(id, text, via, by string, jsonOut bool, stdout, stderr io.Writer
 		return 0
 	}
 	if err := decide.NotifyOwner(pane, machine, item.ID, text); err != nil {
+		recordNotifyError(item.ID, err)
 		return fail(stderr, err, 1)
 	}
+	recordNotifyError(item.ID, nil)
 	return 0
 }
 
@@ -800,8 +802,10 @@ func cmdAnswer(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	if err := decide.Notify(&answered, stderr); err != nil {
+		recordNotifyError(answered.ID, err)
 		return fail(stderr, err, 1)
 	}
+	recordNotifyError(answered.ID, nil)
 	return 0
 }
 
@@ -851,6 +855,21 @@ func withItem(stdout, stderr io.Writer, jsonOut, idOnly bool, fn func(*decide.Le
 	}
 	writeShow(stdout, &item)
 	return 0
+}
+
+// recordNotifyError stores err on id so decide show can surface it.
+// A nil err clears a previous failure. A ledger error leaves the
+// notification result unchanged.
+func recordNotifyError(id string, err error) {
+	led, oerr := openLedger()
+	if oerr != nil {
+		return
+	}
+	message := ""
+	if err != nil {
+		message = err.Error()
+	}
+	_, _ = led.SetNotifyError(id, message)
 }
 
 func openLedger() (*decide.Ledger, error) {
@@ -1079,6 +1098,7 @@ func writeShow(w io.Writer, it *decide.Item) {
 	}
 	writeField(w, "notifyPane", it.NotifyPane)
 	writeField(w, "notifyMachine", it.NotifyMachine)
+	writeField(w, "notifyError", it.NotifyError)
 	writeField(w, "typeText", it.TypeText)
 	writeField(w, "where", it.Where)
 	writeField(w, "reason", it.Reason)

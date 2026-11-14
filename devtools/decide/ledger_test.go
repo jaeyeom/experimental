@@ -1173,6 +1173,35 @@ func sameAnswer(got, want *Answer) bool {
 	return *got == *want
 }
 
+func TestSetNotifyErrorStoresAndClears(t *testing.T) {
+	led, _ := openTemp(t)
+	item, err := led.StartThread("ada", "agentbus:ops/x", "hi", ViaCLI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := led.SetNotifyError(item.ID, "agentbus send queued")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.NotifyError != "agentbus send queued" || stored.NotifyError != got.NotifyError {
+		t.Fatalf("notify error = %q, stored %q", got.NotifyError, stored.NotifyError)
+	}
+	cleared, err := led.SetNotifyError(item.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared.NotifyError != "" {
+		t.Fatalf("cleared = %q", cleared.NotifyError)
+	}
+	if _, err := led.SetNotifyError("D-999", "x"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing id err = %v", err)
+	}
+}
+
 func TestSetBusMessageStoresTheMessageID(t *testing.T) {
 	led, _ := openTemp(t)
 	item, err := led.StartThread("coord/primary", "agentbus:coord/primary", "hi", ViaCLI)

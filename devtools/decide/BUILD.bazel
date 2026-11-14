@@ -37,6 +37,7 @@ go_test(
         "lease_test.go",
         "ledger_test.go",
         "location_test.go",
+        "notify_test.go",
         "snooze_test.go",
     ],
     embed = [":go_default_library"],

@@ -1,6 +1,7 @@
 package decide
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -87,10 +88,14 @@ func RunSend(argv []string) error {
 	// The note is already its own argument. Operator config chooses the program.
 	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	cmd := exec.Command(argv[0], argv[1:]...) //nolint:gosec // G204: the note is its own argument, not a shell string
-	cmd.Stdout = io.Discard
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
 	cmd.Stderr = io.Discard
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("decide send: %w", err)
+	}
+	if err := stdoutDeliveryError(stdout.String()); err != nil {
+		return logDelivery("", fmt.Errorf("decide send: %w", err))
 	}
 	return nil
 }
@@ -98,14 +103,73 @@ func RunSend(argv []string) error {
 // runSendOn runs program with `--machine machine args...` under
 // MachineTimeout. The probe asks herdr whether the machine answers.
 func runSendOn(machine, program string, args []string) error {
-	_, stderr, code, err := runOnMachine(context.Background(), machine, program, args)
+	stdout, stderr, code, err := runOnMachine(context.Background(), machine, program, args)
 	if err != nil {
 		return fmt.Errorf("decide send: %w", err)
 	}
 	if code != 0 {
 		return fmt.Errorf("decide send: %s on machine %s: exit %d: %s", program, machine, code, strings.TrimSpace(stderr))
 	}
+	if err := stdoutDeliveryError(stdout); err != nil {
+		return logDelivery("", fmt.Errorf("decide send: %w", err))
+	}
 	return nil
+}
+
+// stdoutDeliveryError reports a delivery whose command exited 0 but
+// printed JSON with a top-level error object. Other stdout is success.
+func stdoutDeliveryError(stdout string) error {
+	raw := strings.TrimSpace(stdout)
+	if raw == "" {
+		return nil
+	}
+	var body struct {
+		Error json.RawMessage `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(raw), &body); err != nil {
+		return nil
+	}
+	if len(body.Error) == 0 || string(body.Error) == "null" || body.Error[0] != '{' {
+		return nil
+	}
+	return fmt.Errorf("command reported %s", raw)
+}
+
+// undeliveredBus reports an agentbus send that was held or queued.
+// Those states exit 0 and are not delivery.
+func undeliveredBus(stdout string) error {
+	if !busStateHeldOrQueued(busSendState(stdout)) {
+		return nil
+	}
+	return fmt.Errorf("agentbus send %s", strings.TrimSpace(stdout))
+}
+
+func busSendState(stdout string) string {
+	raw := strings.TrimSpace(stdout)
+	if raw == "" {
+		return ""
+	}
+	if raw[0] == '{' {
+		var body struct {
+			State string `json:"state"`
+		}
+		if err := json.Unmarshal([]byte(raw), &body); err != nil {
+			return ""
+		}
+		return body.State
+	}
+	_, state, ok := strings.Cut(raw, " ")
+	if !ok {
+		return ""
+	}
+	return state
+}
+
+func busStateHeldOrQueued(state string) bool {
+	state = strings.ToLower(strings.TrimSpace(state))
+	return state == "held" || state == "queued" ||
+		strings.HasPrefix(state, "held:") || strings.HasPrefix(state, "held ") ||
+		strings.HasPrefix(state, "queued:") || strings.HasPrefix(state, "queued ")
 }
 
 // runOnMachine runs program with `--machine machine args...` under
@@ -134,6 +198,9 @@ func NotifyOwner(pane, machine, id, text string) error {
 	}
 	if strings.TrimSpace(id) == "" {
 		return fmt.Errorf("decide compose id is empty")
+	}
+	if name, ok := strings.CutPrefix(pane, BusPanePrefix); ok {
+		return deliverBus(id, strings.TrimSpace(name), DeliveryNote(id, "human", text))
 	}
 	cfg, err := LoadConfig()
 	if err != nil {

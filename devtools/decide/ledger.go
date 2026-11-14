@@ -139,6 +139,9 @@ type Item struct {
 	ForwardedFrom string `json:"forwardedFrom,omitempty"`
 	// BusMessage is the agentbus message id of a note sent to a bus name.
 	BusMessage string `json:"busMessage,omitempty"`
+	// NotifyError is why the last notification was not delivered.
+	// Empty means it was delivered, or no notification ran.
+	NotifyError string `json:"notifyError,omitempty"`
 	// SnoozedUntil hides the item until that time. SnoozedAt is when the
 	// snooze was set. A new message on the thread clears both.
 	SnoozedUntil *time.Time `json:"snoozedUntil,omitempty"`
@@ -385,6 +388,25 @@ func (l *Ledger) ForwardThread(from, owner, pane, text, via string) (Item, error
 			Via:    via,
 		}},
 	})
+}
+
+// SetNotifyError stores why id's last notification was not delivered.
+// An empty message clears a previous failure.
+func (l *Ledger) SetNotifyError(id, message string) (Item, error) {
+	var updated Item
+	err := l.locked(true, func(st *store) error {
+		it, err := findItem(st, id)
+		if err != nil {
+			return err
+		}
+		it.NotifyError = message
+		updated = *it
+		return nil
+	})
+	if err != nil {
+		return Item{}, err
+	}
+	return updated, nil
 }
 
 // SetBusMessage stores the agentbus message id that delivered id.
