@@ -923,16 +923,16 @@ func listWatches(t *testing.T, s *slackwatch.Store) []watchSnap {
 
 func TestPostUserIDStoresDMChannel(t *testing.T) {
 	e := newDirectEnv(t, "")
-	e.openChannel = "D456"
+	e.openErr = "missing_scope"
 	e.postChannel = "D456"
 	if out := e.postDraft("U123"); !strings.Contains(out, "outbox 1") {
 		t.Fatalf("post printed %q", out)
 	}
-	if len(e.opens) != 1 || e.opens[0].Get("users") != "U123" {
+	if len(e.opens) != 0 {
 		t.Fatalf("conversations.open = %v", e.opens)
 	}
 	e.approveAndPost()
-	if len(e.posts) != 1 || e.posts[0].Get("channel") != "D456" {
+	if len(e.posts) != 1 || e.posts[0].Get("channel") != "U123" {
 		t.Fatalf("chat.postMessage = %v", e.posts)
 	}
 	r := e.record()
@@ -968,18 +968,28 @@ func TestPostUserIDStoresDMChannel(t *testing.T) {
 	}
 }
 
-func TestPostUserIDOpenFailureStoresNothing(t *testing.T) {
+func TestPostAtNameUsesCachedID(t *testing.T) {
 	e := newDirectEnv(t, "")
-	e.openErr = "user_not_found"
-	_, errOut, code := e.run("post", "--to", "U123", "--text-file", e.textFile, "--owner", "agent-1", "--purpose", "announce release")
-	if code == 0 || !strings.Contains(errOut, "conversations.open") || !strings.Contains(errOut, "user_not_found") {
-		t.Fatalf("post = %d, stderr %q", code, errOut)
+	e.openErr = "missing_scope"
+	e.postChannel = "D456"
+	e.withStore(t, func(s *slackwatch.Store) {
+		if err := s.PutUser("ada", "UADA", time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if out := e.postDraft("@ada"); !strings.Contains(out, "outbox 1") {
+		t.Fatalf("post printed %q", out)
 	}
-	if out := strings.TrimSpace(e.ok("outbox", "ls", "--json")); out != "[]" {
-		t.Fatalf("outbox = %q", out)
+	if len(e.opens) != 0 {
+		t.Fatalf("conversations.open = %v", e.opens)
 	}
-	if len(e.posts) != 0 {
-		t.Fatalf("posted despite a failed open: %v", e.posts)
+	e.approveAndPost()
+	r := e.record()
+	if r.Channel != "D456" || r.RequestedTo != "@ada" || !strings.Contains(r.Permalink, "/archives/D456/") {
+		t.Fatalf("record = %+v", r)
+	}
+	if len(e.posts) != 1 || e.posts[0].Get("channel") != "UADA" {
+		t.Fatalf("chat.postMessage = %v", e.posts)
 	}
 }
 
@@ -991,7 +1001,7 @@ func TestPostAtNameOpensDM(t *testing.T) {
 	if out := e.postDraft("@ada"); !strings.Contains(out, "outbox 1") {
 		t.Fatalf("post printed %q", out)
 	}
-	if len(e.opens) != 1 || e.opens[0].Get("users") != "UADA" {
+	if len(e.opens) != 0 {
 		t.Fatalf("conversations.open = %v", e.opens)
 	}
 	e.approveAndPost()
@@ -999,8 +1009,23 @@ func TestPostAtNameOpensDM(t *testing.T) {
 	if r.Channel != "D456" || r.RequestedTo != "@ada" || r.Permalink != "https://acme.slack.com/archives/D456/p1700000100000001" {
 		t.Fatalf("record = %+v", r)
 	}
-	if len(e.posts) != 1 || e.posts[0].Get("channel") != "D456" {
+	if len(e.posts) != 1 || e.posts[0].Get("channel") != "UADA" {
 		t.Fatalf("chat.postMessage = %v", e.posts)
+	}
+}
+
+func TestPostAtNameMissingScopeRefused(t *testing.T) {
+	e := newDirectEnv(t, "")
+	e.usersBody = `{"ok":false,"error":"missing_scope"}`
+	_, errOut, code := e.run("post", "--to", "@ada", "--text-file", e.textFile, "--owner", "agent-1", "--purpose", "announce release")
+	if code == 0 || !strings.Contains(errOut, "cannot resolve @ada without the im:write/users:read scope; pass the user id (U…) instead") {
+		t.Fatalf("post = %d, stderr %q", code, errOut)
+	}
+	if out := strings.TrimSpace(e.ok("outbox", "ls", "--json")); out != "[]" {
+		t.Fatalf("outbox = %q", out)
+	}
+	if len(e.opens) != 0 || len(e.posts) != 0 {
+		t.Fatalf("opens = %v, posts = %v", e.opens, e.posts)
 	}
 }
 
@@ -1031,13 +1056,16 @@ func TestPostEmailOpensDM(t *testing.T) {
 	if out := e.postDraft(to); !strings.Contains(out, "outbox 1") {
 		t.Fatalf("post printed %q", out)
 	}
-	if len(e.opens) != 1 || e.opens[0].Get("users") != "UADA" {
+	if len(e.opens) != 0 {
 		t.Fatalf("conversations.open = %v", e.opens)
 	}
 	e.approveAndPost()
 	r := e.record()
 	if r.Channel != "D456" || r.RequestedTo != to || !strings.Contains(r.Permalink, "/archives/D456/") {
 		t.Fatalf("record = %+v", r)
+	}
+	if len(e.posts) != 1 || e.posts[0].Get("channel") != "UADA" {
+		t.Fatalf("chat.postMessage = %v", e.posts)
 	}
 }
 
@@ -1064,20 +1092,23 @@ VALUES ('D456', ?, 'dm', ?, 'unowned', '', 'footer', 1700000100, ?)`,
 			t.Fatal(err)
 		}
 		if _, err := s.DB().Exec(`INSERT INTO outbox
-(channel, text, text_hash, owner, purpose, state, post_ts, permalink, watch_id, created_at, updated_at)
-VALUES ('U123', 'hello', ?, 'agent-1', 'announce', 'posted', ?, ?, ?, 1700000100, 1700000100)`,
+(id, channel, text, text_hash, owner, purpose, state, post_ts, permalink, watch_id, created_at, updated_at)
+VALUES (27, 'U123', 'hello', ?, 'agent-1', 'announce', 'posted', ?, ?, ?, 1700000100, 1700000100)`,
 			slackwatch.TextHash("hello"), ts, link, owned); err != nil {
 			t.Fatal(err)
 		}
 	})
-	if out := e.ok("outbox", "repair"); !strings.Contains(out, "repaired 1 DM channel") {
+	if out := e.ok("outbox", "repair", "--channel", "27=D456"); !strings.Contains(out, "repaired 27 to D456") {
 		t.Fatalf("repair printed %q", out)
 	}
-	r := e.record()
+	var r slackwatch.OutboxRecord
+	if err := json.Unmarshal([]byte(e.ok("outbox", "show", "27", "--json")), &r); err != nil {
+		t.Fatal(err)
+	}
 	if r.Channel != "D456" || r.RequestedTo != "U123" || !strings.Contains(r.Permalink, "/archives/D456/") || strings.Contains(r.Permalink, "/archives/U123/") {
 		t.Fatalf("record = %+v", r)
 	}
-	if len(e.opens) != 1 || e.opens[0].Get("users") != "U123" {
+	if len(e.opens) != 0 {
 		t.Fatalf("conversations.open = %v", e.opens)
 	}
 	e.withStore(t, func(s *slackwatch.Store) {
@@ -1086,6 +1117,47 @@ VALUES ('U123', 'hello', ?, 'agent-1', 'announce', 'posted', ?, ?, ?, 1700000100
 			t.Fatalf("watches = %+v", got)
 		}
 	})
+}
+
+func TestOutboxRepairListsAndSkipsIgnored(t *testing.T) {
+	e := newDirectEnv(t, "")
+	e.openErr = "missing_scope"
+	e.putConfig("inbound", map[string]any{"target": "agent-in", "ignoreChannels": []string{"U9"}})
+	e.withStore(t, func(s *slackwatch.Store) {
+		if _, err := s.DB().Exec(`INSERT INTO outbox
+(id, channel, text, text_hash, owner, purpose, state, created_at, updated_at)
+VALUES
+(27, 'U123', 'hello', ?, 'agent-1', 'announce', 'posted', 1700000100, 1700000100),
+(28, 'U9', 'nope', ?, 'agent-1', 'announce', 'posted', 1700000100, 1700000100)`,
+			slackwatch.TextHash("hello"), slackwatch.TextHash("nope")); err != nil {
+			t.Fatal(err)
+		}
+	})
+	listed := e.ok("outbox", "repair")
+	if !strings.Contains(listed, "27 U123") || !strings.Contains(listed, "28 U9 skipped (ignored channel)") {
+		t.Fatalf("list printed %q", listed)
+	}
+	if len(e.opens) != 0 || len(e.posts) != 0 {
+		t.Fatalf("repair called Slack: opens %v posts %v", e.opens, e.posts)
+	}
+	out := e.ok("outbox", "repair", "--channel", "27=D456", "--channel", "28=D9")
+	if !strings.Contains(out, "repaired 27 to D456") || !strings.Contains(out, "28 U9 skipped (ignored channel)") {
+		t.Fatalf("repair printed %q", out)
+	}
+	var kept slackwatch.OutboxRecord
+	if err := json.Unmarshal([]byte(e.ok("outbox", "show", "28", "--json")), &kept); err != nil {
+		t.Fatal(err)
+	}
+	if kept.Channel != "U9" {
+		t.Fatalf("ignored record = %+v", kept)
+	}
+	var moved slackwatch.OutboxRecord
+	if err := json.Unmarshal([]byte(e.ok("outbox", "show", "27", "--json")), &moved); err != nil {
+		t.Fatal(err)
+	}
+	if moved.Channel != "D456" {
+		t.Fatalf("repaired record = %+v", moved)
+	}
 }
 
 func TestOutboxRetryResolvesUserID(t *testing.T) {
@@ -1124,10 +1196,10 @@ VALUES ('U123', ?, ?, 'agent-1', 'announce release', 'failed', 'D-1', 1700000100
 	if r.State != slackwatch.OutboxPosted || r.Channel != "D456" || r.RequestedTo != "U123" || !strings.Contains(r.Permalink, "/archives/D456/") {
 		t.Fatalf("record = %+v", r)
 	}
-	if len(e.posts) != 1 || e.posts[0].Get("channel") != "D456" {
+	if len(e.posts) != 1 || e.posts[0].Get("channel") != "U123" {
 		t.Fatalf("chat.postMessage = %v", e.posts)
 	}
-	if len(e.opens) != 1 || e.opens[0].Get("users") != "U123" {
+	if len(e.opens) != 0 {
 		t.Fatalf("conversations.open = %v", e.opens)
 	}
 }
