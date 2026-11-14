@@ -390,6 +390,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-config-tools.yml
 - setup-cousine-font.yml
 - setup-css-tools.yml
+- setup-decide.yml
 - setup-dejavu-sans-mono-font.yml
 - setup-devtools.yml
 - setup-direnv.yml

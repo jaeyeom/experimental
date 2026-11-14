@@ -46,6 +46,7 @@ sh_binary(
         "ansible_become.sh",
         "cache_expired.sh",
         "community_general.sh",
+        "decide_skill_approve.sh",
         "ensure_args.sh",
         "factory_skill_approve.sh",
         "herdr_skill_approve.sh",
@@ -127,6 +128,31 @@ sh_test(
         "herdr_skill_approve.sh",
         "setup-herdr.yml",
         "verified-run",
+    ],
+)
+
+sh_test(
+    name = "decide_skill_approve_test",
+    srcs = ["decide_skill_approve_test.sh"],
+    data = [
+        "decide_skill_approve.sh",
+        "ensure.sh",
+        "setup-decide.yml",
+        "verified-run",
+    ],
+)
+
+sh_test(
+    name = "decide_skill_test",
+    srcs = ["decide_skill_test.sh"],
+    # setup-decide.yml imports other playbooks.
+    data = [
+        "inventory.ini",
+        "verified-run",
+    ] + glob(["*.yml"]),
+    tags = [
+        "ansible",
+        "local",
     ],
 )
 
@@ -311,6 +337,7 @@ sh_test(
         "codex.yml",
         "copier.yml",
         "curl.yml",
+        "decide.yml",
         "delta.yml",
         "detekt.yml",
         "direnv.yml",
@@ -401,6 +428,7 @@ sh_test(
         "setup-codex-termux.yml",
         "setup-config-tools.yml",
         "setup-css-tools.yml",
+        "setup-decide.yml",
         "setup-devtools.yml",
         "setup-direnv.yml",
         "setup-emacs.yml",
@@ -868,6 +896,22 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["dart.yml"],
     data = ["dart.yml"],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
+    name = "decide_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["decide.yml"],
+    data = [
+        "decide.yml",
+        "go.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
     tags = [
         "ansible",
         "local",
@@ -2374,6 +2418,7 @@ sh_test(
         "cmake.yml",
         "codex.yml",
         "curl.yml",
+        "decide.yml",
         "delta.yml",
         "direnv.yml",
         "e.yml",
@@ -2431,6 +2476,7 @@ sh_test(
         "setup-claude-privacy.yml",
         "setup-claude-toolbox.yml",
         "setup-codex-termux.yml",
+        "setup-decide.yml",
         "setup-devtools.yml",
         "setup-direnv.yml",
         "setup-emacs.yml",
@@ -3145,6 +3191,23 @@ sh_test(
         "setup-shell-profile.yml",
         "stylelint.yml",
         "tasks/github-release-info.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
+    name = "setup-decide_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-decide.yml"],
+    data = [
+        "decide.yml",
+        "go.yml",
+        "setup-decide.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
     ],
     tags = [
         "ansible",
@@ -4123,6 +4186,7 @@ sh_test(
         "claudelytics.yml",
         "codex.yml",
         "curl.yml",
+        "decide.yml",
         "delta.yml",
         "factory.yml",
         "gather-facts.yml",
@@ -4150,6 +4214,7 @@ sh_test(
         "setup-claude-privacy.yml",
         "setup-claude-toolbox.yml",
         "setup-codex-termux.yml",
+        "setup-decide.yml",
         "setup-factory.yml",
         "setup-git.yml",
         "setup-grok.yml",
@@ -4716,6 +4781,7 @@ test_suite(
         ":copier_syntax_test",
         ":curl_syntax_test",
         ":dart_syntax_test",
+        ":decide_syntax_test",
         ":delta_syntax_test",
         ":detekt_syntax_test",
         ":direnv_syntax_test",
@@ -4844,6 +4910,7 @@ test_suite(
         ":setup-config-tools_syntax_test",
         ":setup-cousine-font_syntax_test",
         ":setup-css-tools_syntax_test",
+        ":setup-decide_syntax_test",
         ":setup-dejavu-sans-mono-font_syntax_test",
         ":setup-devtools_syntax_test",
         ":setup-direnv_syntax_test",

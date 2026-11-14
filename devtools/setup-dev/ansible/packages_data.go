@@ -412,6 +412,7 @@ var platformSpecificTools = []PlatformSpecificTool{
 		},
 		Imports: nil,
 	},
+	GoTool("decide", "github.com/jaeyeom/experimental/devtools/decide/cmd/decide@latest"),
 	{
 		command: "delta",
 		platforms: map[PlatformName]InstallMethod{
