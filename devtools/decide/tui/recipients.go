@@ -18,8 +18,6 @@ const (
 	// busReloadInterval is how often a ledger reload also reloads the
 	// bus names in the background.
 	busReloadInterval = 30 * time.Second
-	// busSendTimeout bounds `agentbus send`, which only queues the note.
-	busSendTimeout = 10 * time.Second
 	// busPanePrefix marks a thread's notify pane as a bus name.
 	busPanePrefix = decide.BusPanePrefix
 	// pickerMaxRows caps the recipient dropdown.
@@ -195,7 +193,7 @@ func (m *Model) listedCandidates() []Target {
 	}
 	out := make([]Target, 0, len(m.Targets)+len(m.busNames))
 	for _, tg := range m.Targets {
-		if !slices.ContainsFunc(m.busNames, func(b Target) bool { return samePane(b.Pane, tg.Pane) }) {
+		if !slices.ContainsFunc(m.busNames, func(b Target) bool { return decide.SamePane(b.Pane, tg.Pane) }) {
 			out = append(out, tg)
 		}
 	}
@@ -205,10 +203,7 @@ func (m *Model) listedCandidates() []Target {
 // samePane reports whether bus handle holds the configured pane. A herdr
 // handle ends in "/<pane>".
 func samePane(handle, pane string) bool {
-	if handle == "" || pane == "" {
-		return false
-	}
-	return handle == pane || strings.HasSuffix(handle, "/"+pane)
+	return decide.SamePane(handle, pane)
 }
 
 // visibleTargets are the candidate indices that match the picker filter

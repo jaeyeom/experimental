@@ -31,6 +31,9 @@ const (
 	// BusPanePrefix marks a notify pane as an agentbus name, which is
 	// not on any one machine.
 	BusPanePrefix = "agentbus:"
+
+	// BusSendTimeout bounds one `agentbus send`, which only queues the note.
+	BusSendTimeout = 10 * time.Second
 )
 
 // SendRecord is one line of the send history.
@@ -48,6 +51,69 @@ func FindTarget(targets []ConfigTarget, name string) (ConfigTarget, bool) {
 		}
 	}
 	return ConfigTarget{}, false
+}
+
+// BusRecipient is one name from `agentbus list --json`. Handle is its
+// herdr handle. Delivery does not type into that pane.
+type BusRecipient struct {
+	Name   string
+	Handle string
+}
+
+// SendRecipient is who `decide send --to` delivers to. Bus means the
+// note goes through agentbus, and Pane is agentbus:<name>.
+type SendRecipient struct {
+	Name string
+	Pane string
+	Bus  bool
+}
+
+// SamePane reports whether a bus handle holds pane. A herdr handle ends
+// in "/<pane>". An empty handle or pane does not match.
+func SamePane(handle, pane string) bool {
+	if handle == "" || pane == "" {
+		return false
+	}
+	return handle == pane || strings.HasSuffix(handle, "/"+pane)
+}
+
+// ResolveSend picks name from targets and, when agentbus is set, bus.
+// A configured target whose pane a bus handle holds is left out. The
+// first exact name wins, and configured targets come before bus names.
+// When agentbus is false, bus is ignored.
+func ResolveSend(targets []ConfigTarget, bus []BusRecipient, agentbus bool, name string) (SendRecipient, bool) {
+	if !agentbus {
+		tg, ok := FindTarget(targets, name)
+		if !ok {
+			return SendRecipient{}, false
+		}
+		return SendRecipient{Name: tg.Name, Pane: tg.Pane}, true
+	}
+	kept := make([]ConfigTarget, 0, len(targets))
+	for _, tg := range targets {
+		if busHoldsPane(bus, tg.Pane) {
+			continue
+		}
+		kept = append(kept, tg)
+	}
+	if tg, ok := FindTarget(kept, name); ok {
+		return SendRecipient{Name: tg.Name, Pane: tg.Pane}, true
+	}
+	for _, b := range bus {
+		if b.Name == name {
+			return SendRecipient{Name: b.Name, Pane: BusPanePrefix + b.Name, Bus: true}, true
+		}
+	}
+	return SendRecipient{}, false
+}
+
+func busHoldsPane(bus []BusRecipient, pane string) bool {
+	for _, b := range bus {
+		if SamePane(b.Handle, pane) {
+			return true
+		}
+	}
+	return false
 }
 
 // SendArgv builds the compose command. An empty template is
@@ -207,6 +273,61 @@ func NotifyOwner(pane, machine, id, text string) error {
 		return err
 	}
 	return RunSend(MachineArgv(SendArgv(cfg.SendTemplate, pane, DeliveryNote(id, "human", text)), machine))
+}
+
+// SendBus runs `agentbus send name note` and returns the message id, the
+// first word of stdout. A nil run uses ExecAgentbus. Held or queued
+// stdout is still success: the id is that first word. A nil ctx uses
+// context.Background. The call is bounded by BusSendTimeout.
+func SendBus(ctx context.Context, run AgentbusRunner, name, note string) (string, error) {
+	if run == nil {
+		run = ExecAgentbus
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, BusSendTimeout)
+	defer cancel()
+	out, err := run(ctx, []string{"send", name, note})
+	if err != nil {
+		return "", err //nolint:wrapcheck // the inbox status line prints agentbus's error
+	}
+	id, _, _ := strings.Cut(strings.TrimSpace(string(out)), " ")
+	return id, nil
+}
+
+// OpenBusThread stores a thread addressed to an agentbus name and delivers
+// text with SendBus. via is ViaCLI or ViaUI. An empty forward starts a
+// new thread; otherwise the note names that item. A failed send deletes
+// the thread. The returned item includes the bus message id.
+func OpenBusThread(led *Ledger, dir, forward, name, text, via string, run AgentbusRunner) (Item, error) {
+	pane := BusPanePrefix + name
+	item, err := led.ForwardThread(forward, name, pane, text, via)
+	if err != nil {
+		return Item{}, fmt.Errorf("store decide thread: %w", err)
+	}
+	msgID, err := SendBus(context.Background(), run, name, busDeliveryNote(item.ID, forward, text))
+	if err != nil {
+		if derr := led.Delete(item.ID); derr != nil {
+			return Item{}, fmt.Errorf("%w; %w", err, derr)
+		}
+		return Item{}, err //nolint:wrapcheck // the inbox status line prints agentbus's error
+	}
+	updated, err := led.SetBusMessage(item.ID, msgID)
+	if err != nil {
+		return Item{}, fmt.Errorf("record bus message: %w", err)
+	}
+	if err := AppendSend(dir, name, pane, text); err != nil {
+		return Item{}, fmt.Errorf("record decide send: %w", err)
+	}
+	return updated, nil
+}
+
+func busDeliveryNote(id, forward, text string) string {
+	if forward != "" {
+		return ForwardNote(id, forward, "human", text)
+	}
+	return DeliveryNote(id, "human", text)
 }
 
 // AppendSend records one successful send under dir.

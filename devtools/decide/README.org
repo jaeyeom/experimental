@@ -58,9 +58,15 @@ cannot be read, the stored row shows with ~(guess)~.
 Plain output is one name per line. ~--json~ is an array of ~name~ and
 ~pane~. It does not print the notify template or the send template.
 
-~decide send --to <name> [--json] "<text>"~ sends a note to one recipient
-through the same command the inbox uses. The text is one argument. An
-unknown name or an empty note sends nothing.
+~decide send --to <name> [--json] "<text>"~ starts a thread to one recipient.
+The text is one argument. A configured target uses the send template, the
+same command the inbox uses for that pane. With ~"recipients": {"agentbus": true}~,
+~--to~ also accepts a name from ~agentbus list --json~, under the same list
+the inbox uses, and the note goes through ~agentbus send~ with no pane
+command. ~--via~ defaults to ~cli~. Plain output is ~sent to <name> as <id>~.
+~--json~ adds ~id~ to ~name~ and ~text~. An unknown name prints
+~decide send recipient "<name>" is unknown~ and exits 2. An empty note
+sends nothing. ~decide send --id~ is unchanged.
 
 In the inbox compose box the recipient list is a dropdown of at most
 eight rows, and at most a third of the screen. Typing filters it by name

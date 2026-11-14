@@ -45,6 +45,7 @@ go_test(
         "main_test.go",
         "owner_test.go",
         "reassign_test.go",
+        "send_test.go",
         "sender_test.go",
         "slackwatch_outbox_test.go",
         "snooze_test.go",
