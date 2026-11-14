@@ -485,6 +485,56 @@ func readDump(t *testing.T, dump, name string) string {
 	return string(data)
 }
 
+func TestAnswerBusFailureIsOnShow(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	writeNotifyConfig(t, "true", "pane")
+	mode := filepath.Join(state, "mode")
+	if err := os.WriteFile(mode, []byte("fail"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\nmode=$(cat '" + mode + "')\n" +
+		"if [ \"$mode\" = fail ]; then echo 'agentbus: down' >&2; exit 1; fi\n" +
+		"printf '%s\\n' 'm-1 delivered'\n"
+	bin := filepath.Join(t.TempDir(), "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "agentbus"), []byte(script), 0o755); err != nil { //nolint:gosec // test sentinel script
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	id := askRelay(t, []string{"--notify-pane", "agentbus:ops/x"}, "bus target")
+	if _, stderr, code := runCLI("answer", id, "a"); code == 0 {
+		t.Fatal("failing agentbus notify succeeded")
+	} else if !strings.Contains(stderr, "notify") {
+		t.Fatalf("stderr = %q", stderr)
+	}
+	got := showJSON(t, id)
+	if got.State != decide.StateAnswered || got.Answer == nil || got.Answer.Value != "a" || got.NotifyError == "" {
+		t.Fatalf("show = %+v", got)
+	}
+	stdout, stderr, code := runCLI("show", id)
+	if code != 0 {
+		t.Fatalf("show code = %d\n%s", code, stderr)
+	}
+	if !strings.Contains(stdout, "notifyError: "+got.NotifyError) {
+		t.Fatalf("show = %q", stdout)
+	}
+
+	if err := os.WriteFile(mode, []byte("ok"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, stderr, code := runCLI("send", "--id", id, "again"); code != 0 {
+		t.Fatalf("send code = %d\n%s", code, stderr)
+	}
+	if showJSON(t, id).NotifyError != "" {
+		t.Fatal("a later delivery left notifyError set")
+	}
+}
+
 func TestNotifyFailureKeepsAnswer(t *testing.T) {
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)

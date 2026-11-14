@@ -1,0 +1,138 @@
+package decide
+
+import (
+	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestNotifyRoutesAgentbusWithoutTheTemplate(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "template-ran")
+	writeConfig(t, `{"notifyTemplate":"touch `+marker+`","notifyPane":"pane"}`)
+	args := filepath.Join(dir, "args")
+	installProgram(t, "agentbus", "#!/bin/sh\nprintf '%s\\n' \"$1\" \"$2\" \"$3\" > '"+args+"'\nprintf '%s\\n' 'm-1 delivered'\n")
+
+	item := &Item{
+		ID:         "D-7",
+		NotifyPane: "agentbus:ops/x",
+		Answer:     &Answer{Value: "ship", AnsweredBy: "human"},
+	}
+	var out strings.Builder
+	if err := Notify(item, &out); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal("notify template ran for an agentbus target")
+	}
+	got := readText(t, args)
+	note := DeliveryNote("D-7", "human", "ship")
+	want := "send\nops/x\n" + note + "\n"
+	if got != want {
+		t.Fatalf("agentbus args = %q, want %q", got, want)
+	}
+}
+
+func TestNotifyAgentbusFailure(t *testing.T) {
+	writeConfig(t, `{"notifyTemplate":"true"}`)
+	installProgram(t, "agentbus", "#!/bin/sh\necho 'agentbus: down' >&2\nexit 1\n")
+	item := &Item{ID: "D-7", NotifyPane: "agentbus:ops/x", Answer: &Answer{Value: "ship", AnsweredBy: "human"}}
+	if err := Notify(item, &strings.Builder{}); err == nil {
+		t.Fatal("failing agentbus send returned nil")
+	}
+}
+
+func TestNotifyAgentbusHeldAndQueued(t *testing.T) {
+	writeConfig(t, `{"notifyTemplate":"true"}`)
+	item := &Item{ID: "D-7", NotifyPane: "agentbus:ops/x", Answer: &Answer{Value: "ship", AnsweredBy: "human"}}
+	for _, state := range []string{"held: hibernated", "queued", "queued for delivery"} {
+		t.Run(state, func(t *testing.T) {
+			installProgram(t, "agentbus", "#!/bin/sh\nprintf '%s\\n' 'm-1 "+state+"'\n")
+			if err := Notify(item, &strings.Builder{}); err == nil {
+				t.Fatalf("state %q was treated as delivered", state)
+			}
+		})
+	}
+}
+
+func TestNotifyTemplateErrorJSON(t *testing.T) {
+	writeConfig(t, `{"notifyTemplate":"printf '%s' '{\"error\":{\"code\":\"agent_not_found\"}}'"}`)
+	item := &Item{ID: "D-7", NotifyPane: "w1:p1", Answer: &Answer{Value: "ship", AnsweredBy: "human"}}
+	err := Notify(item, &strings.Builder{})
+	if err == nil || !strings.Contains(err.Error(), "agent_not_found") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestNotifyPaneTemplateUnchanged(t *testing.T) {
+	writeConfig(t, `{"notifyTemplate":"printf ok"}`)
+	item := &Item{ID: "D-7", NotifyPane: "w1:p1", Answer: &Answer{Value: "ship", AnsweredBy: "human"}}
+	var out strings.Builder
+	if err := Notify(item, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "ok" {
+		t.Fatalf("stdout = %q", out.String())
+	}
+}
+
+func TestRunSendTreatsErrorJSONAsFailure(t *testing.T) {
+	script := filepath.Join(t.TempDir(), "herdr")
+	body := "#!/bin/sh\nprintf '%s\\n' '{\"error\":{\"code\":\"agent_not_found\"}}'\n"
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil { //nolint:gosec // test sentinel script
+		t.Fatal(err)
+	}
+	err := RunSend([]string{script, "agent", "prompt", "w1:p1", "note"})
+	if err == nil || !strings.Contains(err.Error(), "agent_not_found") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRunSendKeepsASuccessfulCommand(t *testing.T) {
+	script := filepath.Join(t.TempDir(), "herdr")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf ok\n"), 0o755); err != nil { //nolint:gosec // test sentinel script
+		t.Fatal(err)
+	}
+	if err := RunSend([]string{script, "agent", "prompt", "w1:p1", "note"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNotifyOwnerRoutesAgentbus(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, `{"sendTemplate":"false {pane}"}`)
+	args := filepath.Join(dir, "args")
+	installProgram(t, "agentbus", "#!/bin/sh\nprintf '%s\\n' \"$1\" \"$2\" \"$3\" > '"+args+"'\nprintf '%s\\n' 'm-1 delivered'\n")
+	if err := NotifyOwner("agentbus:ops/x", "mac", "D-7", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	got := readText(t, args)
+	note := DeliveryNote("D-7", "human", "hello")
+	if got != "send\nops/x\n"+note+"\n" {
+		t.Fatalf("agentbus args = %q", got)
+	}
+}
+
+func installProgram(t *testing.T, name, script string) {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil { //nolint:gosec // test sentinel script
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func readText(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}

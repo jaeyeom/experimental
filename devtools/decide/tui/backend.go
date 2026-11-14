@@ -149,8 +149,10 @@ func (b *LocalBackend) Answer(id, value string) (decide.Item, error) {
 	}
 	if updated.Kind == decide.KindRelay {
 		if err := decide.Notify(&updated, io.Discard); err != nil {
+			updated.NotifyError = b.recordNotifyError(updated.ID, err)
 			return updated, &NotifyError{Err: err}
 		}
+		updated.NotifyError = b.recordNotifyError(updated.ID, nil)
 	}
 	return updated, nil
 }
@@ -162,9 +164,26 @@ func (b *LocalBackend) Reply(id, text string) (decide.Item, error) {
 		return decide.Item{}, err
 	}
 	if err := b.notifyThread(&updated, text); err != nil {
+		updated.NotifyError = b.recordNotifyError(updated.ID, err)
 		return updated, &NotifyError{Err: err}
 	}
+	updated.NotifyError = b.recordNotifyError(updated.ID, nil)
 	return updated, nil
+}
+
+// recordNotifyError stores err on id and returns the stored text.
+// A nil err clears a previous failure.
+func (b *LocalBackend) recordNotifyError(id string, err error) string {
+	message := ""
+	if err != nil {
+		message = err.Error()
+	}
+	if _, serr := b.with(func(led *decide.Ledger) (decide.Item, error) {
+		return led.SetNotifyError(id, message)
+	}); serr != nil {
+		return message
+	}
+	return message
 }
 
 // notifyThread runs the compose command so the owner pane sees the

@@ -1,11 +1,14 @@
 package decide
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -224,7 +227,9 @@ func parseConfig(data []byte, dir string) (Config, error) {
 }
 
 // Notify runs the configured template after a relay answer is saved.
-// An empty template does nothing. The item notify pane overrides the config pane.
+// An empty template does nothing for a pane. The item notify pane overrides the config pane.
+// A pane that starts with agentbus: is delivered with agentbus send, and the
+// template is not run. The template only ever sees a pane target.
 // The command reads "$DECIDE_ID", "$DECIDE_ANSWER", "$DECIDE_ANSWER_LABEL",
 // "$DECIDE_OWNER", "$DECIDE_PANE", "$DECIDE_KIND", "$DECIDE_QUESTION",
 // "$DECIDE_ANSWERED_AT", "$DECIDE_ANSWERED_BY", "$DECIDE_THREAD_HEADER",
@@ -235,6 +240,8 @@ func parseConfig(data []byte, dir string) (Config, error) {
 // Reply in this thread: decide reply D-123 "..." (add --option key:label for a follow-up question; decide done D-123 "outcome" when finished). Do not answer only in your terminal.
 // DECIDE_MACHINE is the herdr machine of DECIDE_PANE, empty for this machine.
 // None of those fields are substituted into the command string.
+// A command that exits 0 and prints JSON with a top-level error object
+// was not delivered.
 func Notify(item *Item, out io.Writer) error {
 	if item.NotifyClosed {
 		return nil
@@ -243,10 +250,13 @@ func Notify(item *Item, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	pane, machine := NotifyTarget(item, cfg)
+	if name, ok := strings.CutPrefix(pane, BusPanePrefix); ok {
+		return notifyBus(item, strings.TrimSpace(name))
+	}
 	if strings.TrimSpace(cfg.NotifyTemplate) == "" {
 		return nil
 	}
-	pane, machine := NotifyTarget(item, cfg)
 	answer := ""
 	answeredBy := ""
 	if item.Answer != nil {
@@ -272,12 +282,52 @@ func Notify(item *Item, out io.Writer) error {
 		"DECIDE_REPLY_HINT="+replyHint(item.ID),
 		"DECIDE_MACHINE="+machine,
 	)
-	cmd.Stdout = out
+	var stdout bytes.Buffer
+	cmd.Stdout = io.MultiWriter(out, &stdout)
 	cmd.Stderr = out
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("notify: %w", err)
+		return logDelivery(item.ID, fmt.Errorf("notify: %w", err))
+	}
+	if err := stdoutDeliveryError(stdout.String()); err != nil {
+		return logDelivery(item.ID, fmt.Errorf("notify: %w", err))
 	}
 	return nil
+}
+
+// notifyBus delivers the answer note to an agentbus name. The user's
+// notify template is not run.
+func notifyBus(item *Item, name string) error {
+	if name == "" {
+		return logDelivery(item.ID, fmt.Errorf("notify: agentbus name is empty"))
+	}
+	answer := ""
+	answeredBy := ""
+	if item.Answer != nil {
+		answer = item.Answer.Value
+		answeredBy = item.Answer.AnsweredBy
+	}
+	return deliverBus(item.ID, name, DeliveryNote(item.ID, answeredBy, answer))
+}
+
+// deliverBus runs agentbus send. A non-zero exit, a held or queued
+// state, or JSON with a top-level error object is not delivery.
+func deliverBus(id, name, text string) error {
+	out, err := ExecAgentbus(context.Background(), []string{"send", name, text})
+	if err != nil {
+		return logDelivery(id, fmt.Errorf("notify: %w", err))
+	}
+	if err := undeliveredBus(string(out)); err != nil {
+		return logDelivery(id, fmt.Errorf("notify: %w", err))
+	}
+	if err := stdoutDeliveryError(string(out)); err != nil {
+		return logDelivery(id, fmt.Errorf("notify: %w", err))
+	}
+	return nil
+}
+
+func logDelivery(id string, err error) error {
+	slog.Error("decide notification was not delivered", "id", id, "err", err)
+	return err
 }
 
 // NotifyTarget is the pane notifications for item go to and the herdr

@@ -648,7 +648,19 @@ into the command string.
   herdr ${DECIDE_MACHINE:+--machine "$DECIDE_MACHINE"} agent prompt "$DECIDE_PANE" "$DECIDE_THREAD_HEADER $DECIDE_ANSWER"
   #+end_src
 
-An empty ~notifyTemplate~ runs nothing. There is no default notify command.
+An empty ~notifyTemplate~ runs nothing for a pane target. There is no default notify command.
+
+A template only ever sees a pane target. When the notify pane is
+~agentbus:<name>~, decide does not run ~notifyTemplate~. It sends the
+thread header, the answer, and the reply hint with
+~agentbus send <name> <text>~. A non-zero exit, a ~held~ or ~queued~
+state, and JSON with a top-level ~error~ object all count as not
+delivered. The item keeps that failure in ~notifyError~, which
+~decide show~ prints, until a later delivery succeeds.
+
+A pane target still uses ~notifyTemplate~. After that command, or
+~decide send~, exits 0, decide reads its stdout. JSON with a top-level
+~error~ object is a failed delivery, the same as a non-zero exit.
 
 A parent value of the same name does not win.
 
