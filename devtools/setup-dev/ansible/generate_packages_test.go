@@ -453,6 +453,8 @@ func TestHerdrSkippedOnTermux(t *testing.T) {
 		"meta: end_play\n      when: ansible_facts['env']['TERMUX_VERSION'] is defined",
 		"prefix = \"ctrl+]\"",
 		"close_pane = \"\"",
+		"previous_agent = \"prefix+up\"",
+		"next_agent = \"prefix+down\"",
 	} {
 		if !strings.Contains(setup, want) {
 			t.Errorf("setup-herdr.yml missing %q", want)

@@ -58,9 +58,13 @@
           # prefix+x (close_pane) sits next to prefix+c (new tab). An empty
           # binding drops that shortcut. The mouse menu and `herdr pane close`
           # still close a pane.
+          # prefix+up and prefix+down cycle agents in the agent panel.
+          # Up is previous, Down is next. prefix+n and prefix+p stay tabs.
           [keys]
           prefix = "ctrl+]"
           close_pane = ""
+          previous_agent = "prefix+up"
+          next_agent = "prefix+down"
       register: herdr_prefix_config
 
     # blockinfile appends the managed block verbatim, so a hand-written [keys]
