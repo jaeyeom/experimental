@@ -4,6 +4,11 @@ Ansible playbooks for setting up development environments across macOS, Linux, a
 
 See [[file:ansible/README.org][ansible/README.org]] for documentation.
 
+After a host reboot, follow
+[[file:../agentbus/reboot.org][the agent-stack reboot runbook]]
+(agentbus, herdr-hosted agents, decide, slackwatch, and a hub-mode
+client).
+
 * Bootstrap (Fresh Machine)
 
 On a fresh machine, run the bootstrap script to clone the repository and set up

@@ -15,6 +15,8 @@ The agent rules live in ~.claude/skills/agentbus/SKILL.md~.
 Examples below use the name ~ops/inbox~ and the handle
 ~herdr:local/default/w2:p3~.
 
+After a host reboot, follow [[file:reboot.org][the reboot runbook]].
+
 * Commands
 
 | Command | What it does |
