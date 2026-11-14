@@ -27,7 +27,9 @@ Before acting on an answer line, verify it with `decide show --json`: `state` is
 
 `answer.via` is `ui` for an answer the user gave in the inbox or Emacs, and `cli` for `decide answer` or `decide send --id`. Agents never pass `--via ui` to `decide answer` or `decide send`.
 
-Close an item with `decide done` and an outcome. A follow-up is a reply in the existing thread, not a new item. A human reply notifies the owner. `decide reply` posts the agent's progress or result. A reply with options asks a follow-up question. A reply without options is a notification the user can archive.
+Close an item with `decide done` and an outcome. A follow-up is a reply in the existing thread, not a new item. A human reply notifies the owner. `decide reply` posts the agent's progress or result. A reply with options asks a follow-up question and replaces the pending options. A plain reply on an open question keeps those options and free text, so the user can still answer with an option key. A plain reply that reopens an answered or done item is a notification the user can archive.
+
+`decide ask --owner-replies-only` is for a tool that owns the thread and parses the user's answer, such as an outbox approval. Do not set it on every ask. `decide reply` and `decide send --id` from anyone but that owner are refused: `item <id> accepts replies only from its owner <owner>; message the owner instead`. A human reply in the inbox, and an answer, are still allowed. `decide show --json` includes `ownerRepliesOnly` when it is set. The tool's own reply is accepted only when the recorded sender is that owner.
 
 Reply in the same thread when the user picks "draft a message for me", with the full draft text and options such as `send`, `edit`, and `don't send`. The user answers or requests edits inside decide.
 

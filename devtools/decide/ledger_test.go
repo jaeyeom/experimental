@@ -1496,3 +1496,155 @@ func TestMessageSender(t *testing.T) {
 		}
 	}
 }
+
+func postChoice() []Option {
+	return []Option{
+		{Key: "post", Label: "Post", Recommended: true},
+		{Key: "drop", Label: "Drop"},
+	}
+}
+
+func optionsEqual(t *testing.T, got, want []Option) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("options = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("options = %+v, want %+v", got, want)
+		}
+	}
+}
+
+func TestPlainReplyKeepsPendingOptions(t *testing.T) {
+	led, _ := openTemp(t)
+	opts := postChoice()
+	item, err := led.Create(&Item{
+		Question: "post it?",
+		Owner:    "ada",
+		Kind:     KindRelay,
+		FreeText: true,
+		Options:  opts,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := led.Reply(item.ID, "other", "context note", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	optionsEqual(t, got.Options, opts)
+	if !got.FreeText || got.State != StateOpen {
+		t.Fatalf("free %v state %s", got.FreeText, got.State)
+	}
+	last := got.Messages[len(got.Messages)-1]
+	if last.Text != "context note" || last.By != "other" || len(last.Options) != 0 {
+		t.Fatalf("note = %+v", last)
+	}
+	if len(got.Messages[0].Options) != 2 || got.Messages[0].Options[0].Key != "post" {
+		t.Fatalf("ask options changed: %+v", got.Messages[0].Options)
+	}
+	answered, err := led.Answer(item.ID, "post", ViaUI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if answered.Answer == nil || answered.Answer.Key != "post" || answered.Answer.Label != "Post" {
+		t.Fatalf("answer = %+v", answered.Answer)
+	}
+
+	locked, err := led.Create(&Item{
+		Question: "keys only",
+		Owner:    "ada",
+		Kind:     KindRelay,
+		Options:  postChoice(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept, err := led.Reply(locked.ID, "other", "still open", nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	optionsEqual(t, kept.Options, opts)
+	if kept.FreeText {
+		t.Fatal("plain reply turned freeText on")
+	}
+}
+
+func TestReplyWithOptionsReplacesPending(t *testing.T) {
+	led, _ := openTemp(t)
+	item, err := led.Create(&Item{
+		Question: "post it?",
+		Owner:    "ada",
+		Kind:     KindRelay,
+		FreeText: true,
+		Options:  postChoice(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := []Option{
+		{Key: "send", Label: "Send", Recommended: true},
+		{Key: "edit", Label: "Edit"},
+	}
+	got, err := led.Reply(item.ID, "ada", "draft", next, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	optionsEqual(t, got.Options, next)
+	if got.FreeText {
+		t.Fatal("freeText was kept")
+	}
+	last := got.Messages[len(got.Messages)-1]
+	optionsEqual(t, last.Options, next)
+	if len(got.Messages[0].Options) != 2 || got.Messages[0].Options[0].Key != "post" {
+		t.Fatalf("ask options changed: %+v", got.Messages[0].Options)
+	}
+}
+
+func TestPlainReplyAfterAnswerClearsOptions(t *testing.T) {
+	led, _ := openTemp(t)
+	item, err := led.Create(&Item{
+		Question: "post it?",
+		Owner:    "ada",
+		Kind:     KindRelay,
+		FreeText: true,
+		Options:  postChoice(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := led.Answer(item.ID, "post", ViaCLI); err != nil {
+		t.Fatal(err)
+	}
+	got, err := led.Reply(item.ID, "ada", "shipped", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != StateOpen || !got.Unread || len(got.Options) != 0 {
+		t.Fatalf("notification = state %s unread %v options %+v", got.State, got.Unread, got.Options)
+	}
+	if got.Messages[len(got.Messages)-1].Text != "shipped" || len(got.Messages[len(got.Messages)-1].Options) != 0 {
+		t.Fatalf("note = %+v", got.Messages[len(got.Messages)-1])
+	}
+
+	doneItem, err := led.Create(&Item{
+		Question: "later",
+		Owner:    "ada",
+		Kind:     KindRelay,
+		Options:  postChoice(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := led.Done(doneItem.ID, "sent"); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := led.Reply(doneItem.ID, "ada", "more", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopened.State != StateOpen || len(reopened.Options) != 0 || reopened.Outcome != "sent" {
+		t.Fatalf("reopened = state %s outcome %q options %+v", reopened.State, reopened.Outcome, reopened.Options)
+	}
+}

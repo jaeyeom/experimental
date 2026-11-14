@@ -595,6 +595,23 @@ Each thread message in ~messages~ also records where it came from:
 ~decide show --json~ includes ~via~ and ~by~ on each message, next to
 ~optionKey~.
 
+A plain ~decide reply~ on an open question keeps that item's options
+and ~freeText~. The user can still answer with an option key. A reply
+that passes ~--option~ replaces the pending options and ~freeText~.
+A plain reply clears options only when it reopens an answered or done
+item as a notification. A withdrawn item is still refused.
+
+~decide ask --owner-replies-only~ marks an item so ~decide reply~ and
+~decide send --id~ from any sender other than the owner are refused
+with ~item D-123 accepts replies only from its owner slackwatch;
+message the owner instead~. The command prints that sentence after
+~decide:~. A human reply from the inbox is still allowed, and so is
+an answer, including one from the TUI. ~decide show --json~ includes
+~ownerRepliesOnly~ when the flag is set. Set the flag on a tool that
+owns the thread and parses the user's answer, such as an outbox
+approval. Do not set it on every ask. The tool's own reply is accepted
+only when the recorded sender is that owner.
+
 A reply returns an answered or done thread to the inbox, as intended.
 A later human free-text message that answers the reopened thread
 replaces ~answer~. A tool that needs an
