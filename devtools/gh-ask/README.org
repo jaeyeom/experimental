@@ -190,3 +190,95 @@ file to something asynchronous must copy it first.
 environment, and ~command_timeout~. They keep running if the browser
 disconnects. ~status_command~ runs the same way but is stopped when the
 browser disconnects.
+
+* Userscript
+
+[[file:userscript/gh-ask.user.js][userscript/gh-ask.user.js]] adds an "Ask agent" button to the pull
+request "Files changed" view, both the classic ~/pull/<n>/files~ page
+and the newer ~/pull/<n>/changes~ page. It runs in Violentmonkey or
+Tampermonkey.
+
+** Install
+
+1. Install Violentmonkey or Tampermonkey in the browser.
+2. Open the raw file, for example
+   =https://github.com/jaeyeom/experimental/raw/main/devtools/gh-ask/userscript/gh-ask.user.js=,
+   and confirm the install. Or create a new script and paste the file.
+3. Start the server with ~gh-ask serve~, with the repos you review in
+   ~repos~.
+4. On a pull request page, open the userscript manager's menu and pick
+   "Set gh-ask token / port". Paste the output of ~gh-ask token~, then
+   enter the port from ~listen~, 8765 by default. An empty token answer
+   keeps the stored token.
+
+The token and port are stored with ~GM_setValue~, in the userscript
+manager's storage. They never go into the page DOM or a URL.
+
+** How it works
+
+- Hovering a numbered diff line shows the button on that line.
+  Selecting text inside one file's diff shows it at the end of the
+  selection.
+- The button opens a popover with a question box, a "deep" checkbox and
+  Send.
+- Send builds the ~POST /ask~ body from the page:
+  - ~repo~ and ~pr~ from the URL.
+  - ~head_sha~ from a commit range in the URL, else the hidden
+    ~comparison_end_oid~ input (classic view), else ~headOid~ in the
+    page's embedded JSON (changes view).
+  - ~path~, ~side~ and the line range from the diff rows. A range takes
+    the side of the line where the selection ends.
+  - ~selection~ from the selected text, or the hunk around the line when
+    nothing is selected, cut to 4 KB.
+  - ~page_url~, the page link with the line anchor, such as
+    ~#diff-<hash>R10-R12~.
+- After the server answers, the line gets a chip, ~Asked in <id> ·
+  waiting~. The script polls ~GET /status/<id>~ every 20 seconds while
+  the tab is visible, for at most 30 minutes, and shows ~answered~ or
+  ~closed~ when the status says so.
+- Errors show in the chip and the popover: auth failure (401), forbidden
+  (403), too large (413), rate limit (429), command failed (502), and
+  server down when there is no response. The popover stays open after a
+  failed send so the question can be sent again.
+
+The script sends requests only with ~GM_xmlhttpRequest~, only to
+~http://127.0.0.1:<port>~, and with ~anonymous~ set so no cookies go
+along. ~@connect~ lists only ~127.0.0.1~ and ~localhost~. Text from the
+server is shown with ~textContent~.
+
+** Tests
+
+#+BEGIN_SRC bash
+node --test devtools/gh-ask/userscript/
+bazel test //devtools/gh-ask/userscript:userscript_test
+#+END_SRC
+
+The test runs the payload builder, URL and head commit parsing, error
+text and the poller against sample diff markup in
+=userscript/testdata/=, one file per view. It uses the host's ~node~ and
+fails when ~node~ is missing. The browser glue (button, popover, chip)
+has no automated test. After changing it, check by hand on a real pull
+request: the button on hover and on a selection, a send that reaches
+the server, the chip moving to ~answered~, and "auth failed" in the
+chip after setting a wrong token.
+
+Lint, when ~biome~ or ~oxlint~ is installed:
+
+#+BEGIN_SRC bash
+biome lint devtools/gh-ask/userscript/
+oxlint devtools/gh-ask/userscript/
+#+END_SRC
+
+** Limitations
+
+- GitHub's diff markup is not an API and changes without notice. Each
+  fixture in =userscript/testdata/= says which markup it copies. When the
+  button stops appearing or the payload is wrong, save the real page,
+  update the fixture, and fix the script against the test.
+- The script loads only on URLs that match ~@match~. GitHub moves
+  between pull request tabs without a page load, so after clicking into
+  "Files changed" from another tab, reload the page once.
+- The changes view re-renders rows, which can drop a chip.
+- A range covers one side of one file. A selection across files is
+  refused.
+- The answer text is not shown; read it where the agent posts it.

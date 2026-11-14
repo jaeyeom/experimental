@@ -1,0 +1,413 @@
+// Tests for the pure parts of gh-ask.user.js. Run with:
+//   node --test devtools/gh-ask/userscript/
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const { parse, byAttr } = require("./testdom.js");
+const G = require("./gh-ask.user.js");
+
+const A = "diff-99d875210072b234cb9c80abb7d462206b77696d5450874b204d32fa61b2dca4";
+const B = "diff-c444f711e9191b53952edb65bfd8c644419fc7695c62611dc0fb304b4fb197d6";
+
+function fixture(name) {
+  return parse(fs.readFileSync(path.join(__dirname, "testdata", name), "utf8"));
+}
+
+const views = [
+  {
+    name: "classic files view",
+    file: "files-view.html",
+    href: "https://github.com/octo/demo/pull/42/files",
+    head: "0123456789abcdef0123456789abcdef01234567",
+  },
+  {
+    name: "changes view",
+    file: "changes-view.html",
+    href: "https://github.com/octo/demo/pull/42/changes",
+    head: "89abcdef0123456789abcdef0123456789abcdef",
+  },
+];
+
+for (const v of views) {
+  test(`${v.name}: head sha`, () => {
+    assert.equal(G.findHeadSha(fixture(v.file), v.href), v.head);
+  });
+
+  test(`${v.name}: line info for code and number cells`, () => {
+    const root = fixture(v.file);
+    const cases = [
+      ["ctx8", "RIGHT", 8],
+      ["del9", "LEFT", 9],
+      ["numL9", "LEFT", 9],
+      ["add10", "RIGHT", 10],
+      ["ctx12", "RIGHT", 12],
+    ];
+    for (const [id, side, line] of cases) {
+      const info = G.lineInfo(byAttr(root, "data-fixture", id));
+      assert.ok(info, id);
+      assert.deepEqual(
+        [info.path, info.side, info.line, info.anchor],
+        ["pkg/a.go", side, line, A],
+        id,
+      );
+    }
+  });
+
+  test(`${v.name}: hovered line payload uses the hunk text`, () => {
+    const root = fixture(v.file);
+    const el = byAttr(root, "data-fixture", "add10");
+    const got = G.buildPayload({
+      href: `${v.href}?w=1#top`,
+      headSha: v.head,
+      start: el,
+      end: el,
+      selection: "",
+      question: "Why log?",
+      deep: true,
+    });
+    assert.deepEqual(got, {
+      payload: {
+        repo: "octo/demo",
+        pr: 42,
+        head_sha: v.head,
+        path: "pkg/a.go",
+        side: "RIGHT",
+        start_line: 10,
+        end_line: 10,
+        selection: [
+          "@@ -8,5 +8,7 @@ package a",
+          " func Retry() error {",
+          "-\tfor i := 0; i < 2; i++ {",
+          "+\tfor i := 0; i < 3; i++ {",
+          "+\t\tlog.Print(i)",
+          " \t\tif err := try(); err == nil {",
+          " \t\t\treturn nil",
+        ].join("\n"),
+        question: "Why log?",
+        deep: true,
+        page_url: `${v.href}#${A}R10`,
+      },
+    });
+  });
+
+  test(`${v.name}: selection range takes the end side and the selected text`, () => {
+    const root = fixture(v.file);
+    const got = G.buildPayload({
+      href: v.href,
+      headSha: v.head,
+      // Selected bottom-up: the order must not matter.
+      start: byAttr(root, "data-fixture", "ctx12"),
+      end: byAttr(root, "data-fixture", "ctx8"),
+      selection: "func Retry() error {\n...",
+      question: "q",
+      deep: false,
+    });
+    assert.equal(got.error, undefined);
+    const p = got.payload;
+    assert.deepEqual(
+      [p.side, p.start_line, p.end_line, p.selection, p.page_url],
+      ["RIGHT", 8, 12, "func Retry() error {\n...", `${v.href}#${A}R8-R12`],
+    );
+  });
+
+  test(`${v.name}: deleted lines range on the left side`, () => {
+    const root = fixture(v.file);
+    const del = byAttr(root, "data-fixture", "del9");
+    const got = G.buildPayload({
+      href: v.href,
+      headSha: v.head,
+      start: byAttr(root, "data-fixture", "ctx8"),
+      end: del,
+      selection: "x",
+      question: "q",
+      deep: false,
+    });
+    const p = got.payload;
+    assert.deepEqual(
+      [p.side, p.start_line, p.end_line, p.page_url],
+      ["LEFT", 8, 9, `${v.href}#${A}L8-L9`],
+    );
+  });
+}
+
+test("classic split view: side comes from the code cell", () => {
+  const root = fixture("files-view.html");
+  const left = G.lineInfo(byAttr(root, "data-fixture", "splitL5"));
+  const right = G.lineInfo(byAttr(root, "data-fixture", "splitR6"));
+  assert.deepEqual([left.path, left.side, left.line, left.anchor], ["cmd/main.go", "LEFT", 5, B]);
+  assert.deepEqual(
+    [right.path, right.side, right.line, right.anchor],
+    ["cmd/main.go", "RIGHT", 6, B],
+  );
+  const got = G.buildPayload({
+    href: "https://github.com/octo/demo/pull/42/files",
+    headSha: "0123456",
+    start: byAttr(root, "data-fixture", "splitR5"),
+    end: byAttr(root, "data-fixture", "splitR5"),
+    selection: "",
+    question: "q",
+    deep: false,
+  });
+  assert.equal(
+    got.payload.selection,
+    ["@@ -5,2 +5,2 @@ func main() {", "-\trun(false)", "+\trun(true)", " }"].join("\n"),
+  );
+});
+
+test("a range across two files is refused", () => {
+  const root = fixture("files-view.html");
+  const got = G.buildPayload({
+    href: "https://github.com/octo/demo/pull/42/files",
+    headSha: "0123456",
+    start: byAttr(root, "data-fixture", "ctx8"),
+    end: byAttr(root, "data-fixture", "splitR5"),
+    selection: "x",
+    question: "q",
+    deep: false,
+  });
+  assert.match(got.error, /one file/);
+});
+
+test("hunk header rows and non-diff elements have no line", () => {
+  const root = fixture("files-view.html");
+  assert.equal(G.lineInfo(byAttr(root, "data-fixture", "hunk1")), null);
+  assert.equal(G.lineInfo(byAttr(root, "id", "files")), null);
+});
+
+test("parsePrUrl", () => {
+  assert.deepEqual(G.parsePrUrl("https://github.com/octo/demo/pull/42/files?diff=split#diff-1"), {
+    repo: "octo/demo",
+    pr: 42,
+    page: "https://github.com/octo/demo/pull/42/files",
+  });
+  assert.deepEqual(G.parsePrUrl("https://github.com/o/r.js/pull/7/changes/abc1234..def5678"), {
+    repo: "o/r.js",
+    pr: 7,
+    page: "https://github.com/o/r.js/pull/7/changes/abc1234..def5678",
+  });
+  for (const bad of [
+    "https://github.com/octo/demo/pull/42",
+    "https://github.com/octo/demo/issues/42/files",
+    "http://github.com/octo/demo/pull/42/files",
+    "https://github.com.evil.example/octo/demo/pull/42/files",
+    "https://gist.github.com/octo/demo/pull/42/files",
+  ]) {
+    assert.equal(G.parsePrUrl(bad), null, bad);
+  }
+});
+
+test("findHeadSha prefers a commit range in the URL", () => {
+  const root = fixture("files-view.html");
+  assert.equal(
+    G.findHeadSha(root, "https://github.com/octo/demo/pull/42/files/1111111..abcdef1"),
+    "abcdef1",
+  );
+  assert.equal(
+    G.findHeadSha(root, "https://github.com/octo/demo/pull/42/files/fedcba9"),
+    "fedcba9",
+  );
+  assert.equal(
+    G.findHeadSha(parse("<div></div>"), "https://github.com/octo/demo/pull/42/files"),
+    "",
+  );
+});
+
+test("buildPayload errors", () => {
+  const root = fixture("files-view.html");
+  const el = byAttr(root, "data-fixture", "ctx8");
+  const base = {
+    href: "https://github.com/octo/demo/pull/42/files",
+    headSha: "0123456",
+    start: el,
+    end: el,
+    selection: "x",
+    question: "q",
+    deep: false,
+  };
+  assert.match(
+    G.buildPayload({ ...base, href: "https://github.com/octo/demo" }).error,
+    /pull request/,
+  );
+  assert.match(G.buildPayload({ ...base, headSha: "" }).error, /head commit/);
+  assert.match(G.buildPayload({ ...base, headSha: "xyz1234" }).error, /head commit/);
+  assert.match(G.buildPayload({ ...base, question: "  " }).error, /question/);
+  assert.match(G.buildPayload({ ...base, question: "é".repeat(1025) }).error, /question/);
+  assert.match(G.buildPayload({ ...base, start: root }).error, /line/);
+});
+
+test("selection is cut to 4 KB on a character boundary", () => {
+  const root = fixture("files-view.html");
+  const el = byAttr(root, "data-fixture", "ctx8");
+  const got = G.buildPayload({
+    href: "https://github.com/octo/demo/pull/42/files",
+    headSha: "0123456",
+    start: el,
+    end: el,
+    selection: `a${"€".repeat(2000)}`,
+    question: "q",
+    deep: false,
+  });
+  const bytes = Buffer.byteLength(got.payload.selection);
+  assert.ok(bytes <= 4096 && bytes > 4090, String(bytes));
+  assert.ok(!got.payload.selection.includes("�"));
+});
+
+test("truncateUtf8 keeps surrogate pairs whole", () => {
+  assert.equal(G.truncateUtf8("ab😀c", 5), "ab");
+  assert.equal(G.truncateUtf8("ab😀c", 6), "ab😀");
+  assert.equal(G.truncateUtf8("abc", 3), "abc");
+});
+
+test("serverUrl only builds loopback URLs", () => {
+  assert.equal(G.serverUrl(8765, "/ask"), "http://127.0.0.1:8765/ask");
+  assert.equal(
+    G.serverUrl("9000", G.statusPath("a/b c")),
+    "http://127.0.0.1:9000/status/a%2Fb%20c",
+  );
+  for (const bad of [0, 65536, "80; evil", "1e3", "", null, "8765@evil.example", -1]) {
+    assert.equal(G.serverUrl(bad, "/ask"), null, String(bad));
+  }
+});
+
+test("askError maps server statuses", () => {
+  assert.match(G.askError(401), /token/);
+  assert.match(G.askError(403), /forbidden/);
+  assert.match(G.askError(413), /too large/);
+  assert.match(G.askError(429), /rate limit/);
+  assert.match(G.askError(502), /command failed/);
+  assert.match(G.askError(0), /server down/);
+  assert.match(G.askError(500), /500/);
+  assert.match(G.askError(-1), /userscript menu/);
+  assert.equal(G.askError(400, "question is empty"), "bad request (question is empty)");
+});
+
+test("status labels and chip text", () => {
+  assert.equal(G.statusLabel({ state: "x", answered: false, closed: false }), "waiting");
+  assert.equal(G.statusLabel({ state: "x", answered: true, closed: false }), "answered");
+  assert.equal(G.statusLabel({ state: "x", answered: true, closed: true }), "closed");
+  assert.equal(G.chipText("t-1", "waiting"), "Asked in t-1 · waiting");
+});
+
+// fakeClock runs setTimeout callbacks when advance passes their time.
+function fakeClock() {
+  let now = 0;
+  let timers = [];
+  return {
+    now: () => now,
+    setTimeout(fn, ms) {
+      const t = { at: now + ms, fn };
+      timers.push(t);
+      return t;
+    },
+    clearTimeout(t) {
+      timers = timers.filter((x) => x !== t);
+    },
+    advance(ms) {
+      const end = now + ms;
+      for (;;) {
+        timers.sort((a, b) => a.at - b.at);
+        const t = timers[0];
+        if (!t || t.at > end) {
+          break;
+        }
+        timers.shift();
+        now = t.at;
+        t.fn();
+      }
+      now = end;
+    },
+    pending: () => timers.length,
+  };
+}
+
+function poller(clock, opts) {
+  const calls = [];
+  const updates = [];
+  let visible = true;
+  const results = opts.results ?? [];
+  const stop = G.startPolling({
+    now: clock.now,
+    setTimeout: clock.setTimeout,
+    clearTimeout: clock.clearTimeout,
+    isVisible: () => visible,
+    fetchStatus(done) {
+      calls.push(clock.now());
+      done(
+        results.shift() ?? { status: 200, body: { state: "open", answered: false, closed: false } },
+      );
+    },
+    onUpdate: (u) => updates.push(u),
+  });
+  return { calls, updates, stop, setVisible: (b) => (visible = b) };
+}
+
+test("polling: every 20 s while visible, until answered", () => {
+  const clock = fakeClock();
+  const p = poller(clock, {
+    results: [
+      { status: 200, body: { state: "open", answered: false, closed: false } },
+      { status: 200, body: { state: "done", answered: true, closed: false } },
+    ],
+  });
+  clock.advance(19_999);
+  assert.deepEqual(p.calls, []);
+  clock.advance(1);
+  assert.deepEqual(p.calls, [20_000]);
+  p.setVisible(false);
+  clock.advance(60_000);
+  assert.deepEqual(p.calls, [20_000]);
+  p.setVisible(true);
+  clock.advance(20_000);
+  assert.deepEqual(p.calls, [20_000, 100_000]);
+  assert.deepEqual(p.updates, [{ label: "waiting" }, { label: "answered" }]);
+  assert.equal(clock.pending(), 0);
+});
+
+test("polling: stops on closed", () => {
+  const clock = fakeClock();
+  const p = poller(clock, {
+    results: [{ status: 200, body: { state: "x", answered: false, closed: true } }],
+  });
+  clock.advance(20_000);
+  assert.deepEqual(p.updates, [{ label: "closed" }]);
+  assert.equal(clock.pending(), 0);
+});
+
+test("polling: gives up after 30 minutes", () => {
+  const clock = fakeClock();
+  const p = poller(clock, {});
+  clock.advance(60 * 60_000);
+  assert.equal(p.calls.length, 90);
+  assert.ok(p.calls.at(-1) <= 30 * 60_000);
+  assert.deepEqual(p.updates.at(-1), { label: "waiting", error: "stopped polling after 30 min" });
+  assert.equal(clock.pending(), 0);
+});
+
+test("polling: auth failure stops, a server error keeps polling", () => {
+  const clock = fakeClock();
+  const p = poller(clock, { results: [{ status: 0 }, { status: 502 }, { status: 401 }] });
+  clock.advance(10 * 60_000);
+  assert.equal(p.calls.length, 3);
+  assert.deepEqual(
+    p.updates.map((u) => u.error),
+    [G.askError(0), G.askError(502), G.askError(401)],
+  );
+  assert.equal(clock.pending(), 0);
+});
+
+test("polling: stop() cancels the timer", () => {
+  const clock = fakeClock();
+  const p = poller(clock, {});
+  p.stop();
+  clock.advance(60_000);
+  assert.deepEqual(p.calls, []);
+});
+
+test("the script only connects to loopback", () => {
+  const src = fs.readFileSync(path.join(__dirname, "gh-ask.user.js"), "utf8");
+  const connects = [...src.matchAll(/^\/\/ @connect\s+(\S+)/gm)].map((m) => m[1]);
+  assert.deepEqual(connects.sort(), ["127.0.0.1", "localhost"]);
+  assert.doesNotMatch(src, /\bfetch\(|XMLHttpRequest\(|\.innerHTML\b|insertAdjacentHTML|\beval\(/);
+  assert.match(src, /^\/\/ @version\s+\d+\.\d+\.\d+$/m);
+});

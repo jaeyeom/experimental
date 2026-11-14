@@ -1,0 +1,101 @@
+<!--
+Mimics the classic pull request "Files changed" view,
+https://github.com/<owner>/<repo>/pull/<n>/files, server-rendered HTML
+with a diff-table per file. pkg/a.go is in unified mode and cmd/main.go
+in split mode. The markup is trimmed to the elements and attributes
+gh-ask.user.js reads, written from GitHub pages as of 2025-2026.
+
+GitHub's DOM is not an API and changes without notice. When the
+userscript stops finding lines, save the real page, update this fixture
+to match it, and fix the script against the updated test.
+
+data-fixture attributes are not GitHub's; the test uses them to find
+elements.
+-->
+<div id="files" class="diff-view js-diff-container">
+  <input type="hidden" name="comparison_start_oid" value="1111111111111111111111111111111111111111" />
+  <input type="hidden" name="comparison_end_oid" value="0123456789abcdef0123456789abcdef01234567" />
+
+  <div class="file js-file js-details-container" data-tagsearch-path="pkg/a.go" data-file-type=".go">
+    <div class="file-header js-file-header" data-path="pkg/a.go" data-anchor="diff-99d875210072b234cb9c80abb7d462206b77696d5450874b204d32fa61b2dca4">
+      <a href="#diff-99d875210072b234cb9c80abb7d462206b77696d5450874b204d32fa61b2dca4" title="pkg/a.go">pkg/a.go</a>
+    </div>
+    <div class="js-file-content">
+      <table class="diff-table js-diff-table tab-size" data-tab-size="8" data-diff-anchor="diff-99d875210072b234cb9c80abb7d462206b77696d5450874b204d32fa61b2dca4">
+        <tbody>
+          <tr class="js-expandable-line" data-position="0">
+            <td class="blob-num blob-num-expandable" colspan="2"></td>
+            <td class="blob-code blob-code-inner blob-code-hunk" data-fixture="hunk1">@@ -8,5 +8,7 @@ package a</td>
+          </tr>
+          <tr data-hunk="h1">
+            <td id="diff-99d875210072b234cb9c80abb7d462206b77696d5450874b204d32fa61b2dca4L8" data-line-number="8" class="blob-num blob-num-context js-linkable-line-number"></td>
+            <td id="diff-99d875210072b234cb9c80abb7d462206b77696d5450874b204d32fa61b2dca4R8" data-line-number="8" class="blob-num blob-num-context js-linkable-line-number"></td>
+            <td class="blob-code blob-code-context js-file-line" data-fixture="ctx8"><span class="blob-code-inner blob-code-marker js-code-nav-pass" data-code-marker=" ">func Retry() error {</span></td>
+          </tr>
+          <tr data-hunk="h1">
+            <td id="diff-99d875210072b234cb9c80abb7d462206b77696d5450874b204d32fa61b2dca4L9" data-line-number="9" class="blob-num blob-num-deletion js-linkable-line-number" data-fixture="numL9"></td>
+            <td class="blob-num blob-num-deletion empty-cell"></td>
+            <td class="blob-code blob-code-deletion js-file-line" data-fixture="del9"><span class="blob-code-inner blob-code-marker js-code-nav-pass" data-code-marker="-">	for i := 0; i &lt; 2; i++ {</span></td>
+          </tr>
+          <tr data-hunk="h1">
+            <td class="blob-num blob-num-addition empty-cell"></td>
+            <td id="diff-99d875210072b234cb9c80abb7d462206b77696d5450874b204d32fa61b2dca4R9" data-line-number="9" class="blob-num blob-num-addition js-linkable-line-number"></td>
+            <td class="blob-code blob-code-addition js-file-line" data-fixture="add9"><span class="blob-code-inner blob-code-marker js-code-nav-pass" data-code-marker="+">	for i := 0; i &lt; 3; i++ {</span></td>
+          </tr>
+          <tr data-hunk="h1">
+            <td class="blob-num blob-num-addition empty-cell"></td>
+            <td id="diff-99d875210072b234cb9c80abb7d462206b77696d5450874b204d32fa61b2dca4R10" data-line-number="10" class="blob-num blob-num-addition js-linkable-line-number"></td>
+            <td class="blob-code blob-code-addition js-file-line" data-fixture="add10"><span class="blob-code-inner blob-code-marker js-code-nav-pass" data-code-marker="+">		log.Print(i)</span></td>
+          </tr>
+          <tr data-hunk="h1">
+            <td id="diff-99d875210072b234cb9c80abb7d462206b77696d5450874b204d32fa61b2dca4L10" data-line-number="10" class="blob-num blob-num-context js-linkable-line-number"></td>
+            <td id="diff-99d875210072b234cb9c80abb7d462206b77696d5450874b204d32fa61b2dca4R11" data-line-number="11" class="blob-num blob-num-context js-linkable-line-number"></td>
+            <td class="blob-code blob-code-context js-file-line" data-fixture="ctx11"><span class="blob-code-inner blob-code-marker js-code-nav-pass" data-code-marker=" ">		if err := try(); err == nil {</span></td>
+          </tr>
+          <tr data-hunk="h1">
+            <td id="diff-99d875210072b234cb9c80abb7d462206b77696d5450874b204d32fa61b2dca4L11" data-line-number="11" class="blob-num blob-num-context js-linkable-line-number"></td>
+            <td id="diff-99d875210072b234cb9c80abb7d462206b77696d5450874b204d32fa61b2dca4R12" data-line-number="12" class="blob-num blob-num-context js-linkable-line-number"></td>
+            <td class="blob-code blob-code-context js-file-line" data-fixture="ctx12"><span class="blob-code-inner blob-code-marker js-code-nav-pass" data-code-marker=" ">			return nil</span></td>
+          </tr>
+          <tr class="js-expandable-line" data-position="7">
+            <td class="blob-num blob-num-expandable" colspan="2"></td>
+            <td class="blob-code blob-code-inner blob-code-hunk">@@ -40,2 +42,2 @@ func Retry() error {</td>
+          </tr>
+          <tr data-hunk="h2">
+            <td id="diff-99d875210072b234cb9c80abb7d462206b77696d5450874b204d32fa61b2dca4L40" data-line-number="40" class="blob-num blob-num-context js-linkable-line-number"></td>
+            <td id="diff-99d875210072b234cb9c80abb7d462206b77696d5450874b204d32fa61b2dca4R42" data-line-number="42" class="blob-num blob-num-context js-linkable-line-number"></td>
+            <td class="blob-code blob-code-context js-file-line" data-fixture="ctx42"><span class="blob-code-inner blob-code-marker js-code-nav-pass" data-code-marker=" ">	return errors.New("gave up")</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="file js-file js-details-container" data-tagsearch-path="cmd/main.go" data-file-type=".go">
+    <div class="file-header js-file-header" data-path="cmd/main.go" data-anchor="diff-c444f711e9191b53952edb65bfd8c644419fc7695c62611dc0fb304b4fb197d6">
+      <a href="#diff-c444f711e9191b53952edb65bfd8c644419fc7695c62611dc0fb304b4fb197d6" title="cmd/main.go">cmd/main.go</a>
+    </div>
+    <div class="js-file-content">
+      <table class="diff-table js-diff-table tab-size file-diff-split" data-tab-size="8" data-diff-anchor="diff-c444f711e9191b53952edb65bfd8c644419fc7695c62611dc0fb304b4fb197d6">
+        <tbody>
+          <tr class="js-expandable-line" data-position="0">
+            <td class="blob-num blob-num-expandable"></td>
+            <td class="blob-code blob-code-inner blob-code-hunk" colspan="3">@@ -5,2 +5,2 @@ func main() {</td>
+          </tr>
+          <tr data-hunk="h3">
+            <td id="diff-c444f711e9191b53952edb65bfd8c644419fc7695c62611dc0fb304b4fb197d6L5" data-line-number="5" class="blob-num blob-num-deletion js-linkable-line-number"></td>
+            <td class="blob-code blob-code-deletion js-file-line" data-split-side="left" data-fixture="splitL5"><span class="blob-code-inner blob-code-marker js-code-nav-pass" data-code-marker="-">	run(false)</span></td>
+            <td id="diff-c444f711e9191b53952edb65bfd8c644419fc7695c62611dc0fb304b4fb197d6R5" data-line-number="5" class="blob-num blob-num-addition js-linkable-line-number"></td>
+            <td class="blob-code blob-code-addition js-file-line" data-split-side="right" data-fixture="splitR5"><span class="blob-code-inner blob-code-marker js-code-nav-pass" data-code-marker="+">	run(true)</span></td>
+          </tr>
+          <tr data-hunk="h3">
+            <td id="diff-c444f711e9191b53952edb65bfd8c644419fc7695c62611dc0fb304b4fb197d6L6" data-line-number="6" class="blob-num blob-num-context js-linkable-line-number"></td>
+            <td class="blob-code blob-code-context js-file-line" data-split-side="left" data-fixture="splitL6"><span class="blob-code-inner blob-code-marker js-code-nav-pass" data-code-marker=" ">}</span></td>
+            <td id="diff-c444f711e9191b53952edb65bfd8c644419fc7695c62611dc0fb304b4fb197d6R6" data-line-number="6" class="blob-num blob-num-context js-linkable-line-number"></td>
+            <td class="blob-code blob-code-context js-file-line" data-split-side="right" data-fixture="splitR6"><span class="blob-code-inner blob-code-marker js-code-nav-pass" data-code-marker=" ">}</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
