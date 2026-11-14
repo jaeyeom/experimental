@@ -202,8 +202,8 @@ func (b *LocalBackend) notifyThread(item *decide.Item, text string) error {
 		return fmt.Errorf("decide compose pane is empty")
 	}
 	if name, ok := strings.CutPrefix(pane, busPanePrefix); ok {
-		_, err := b.busSend(name, decide.DeliveryNote(item.ID, "human", text))
-		return err
+		_, err := decide.SendBus(context.Background(), b.busRunner(), name, decide.DeliveryNote(item.ID, "human", text))
+		return err //nolint:wrapcheck // SendBus returns agentbus's error, which the status line prints
 	}
 	template := b.SendTemplate
 	if strings.TrimSpace(template) == "" {
@@ -292,25 +292,8 @@ func (b *LocalBackend) sendBus(forward string, tg Target, text string) error {
 	if err != nil {
 		return err
 	}
-	pane := busPanePrefix + tg.Name
-	item, err := led.ForwardThread(forward, tg.Name, pane, text, decide.ViaUI)
-	if err != nil {
-		return fmt.Errorf("store decide thread: %w", err)
-	}
-	msgID, err := b.busSend(tg.Name, deliveryNote(item.ID, forward, text))
-	if err != nil {
-		if derr := led.Delete(item.ID); derr != nil {
-			return fmt.Errorf("%w; %w", err, derr)
-		}
-		return err
-	}
-	if _, err := led.SetBusMessage(item.ID, msgID); err != nil {
-		return fmt.Errorf("record bus message: %w", err)
-	}
-	if err := decide.AppendSend(b.Dir, tg.Name, pane, text); err != nil {
-		return fmt.Errorf("record decide send: %w", err)
-	}
-	return nil
+	_, err = decide.OpenBusThread(led, b.Dir, forward, tg.Name, text, decide.ViaUI, b.busRunner())
+	return err //nolint:wrapcheck // OpenBusThread names the failure, and a bus error is the status line
 }
 
 // deliveryNote is the pane note for a new thread, naming the item it
@@ -320,19 +303,6 @@ func deliveryNote(id, forward, text string) string {
 		return decide.ForwardNote(id, forward, "human", text)
 	}
 	return decide.DeliveryNote(id, "human", text)
-}
-
-// busSend runs `agentbus send name note` and returns the message id,
-// the first word agentbus prints.
-func (b *LocalBackend) busSend(name, note string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), busSendTimeout)
-	defer cancel()
-	out, err := b.busRunner()(ctx, []string{"send", name, note})
-	if err != nil {
-		return "", err
-	}
-	id, _, _ := strings.Cut(strings.TrimSpace(string(out)), " ")
-	return id, nil
 }
 
 // OwnerPane implements Backend.

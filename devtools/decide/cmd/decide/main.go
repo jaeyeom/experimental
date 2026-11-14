@@ -165,9 +165,9 @@ func cmdSend(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
-	tg, ok := decide.FindTarget(cfg.Targets, *to)
-	if !ok {
-		return fail(stderr, fmt.Errorf("decide send recipient %q is unknown", *to), 2)
+	rec, code, err := resolveSendTo(cfg, *to)
+	if err != nil {
+		return fail(stderr, err, code)
 	}
 	dir, err := decide.DefaultDir()
 	if err != nil {
@@ -177,26 +177,81 @@ func cmdSend(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
-	item, err := led.StartThread(tg.Name, tg.Pane, text, *via)
+	item, err := deliverNewThread(led, dir, cfg.SendTemplate, rec, text, *via)
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
+	return printSent(stdout, stderr, rec.Name, text, item.ID, *jsonOut)
+}
+
+// resolveSendTo finds name on the same recipient list the inbox uses.
+// A list or parse failure is an error with exit 1. An unknown name is
+// exit 2.
+func resolveSendTo(cfg decide.Config, name string) (decide.SendRecipient, int, error) {
+	bus, err := sendBusNames(cfg)
+	if err != nil {
+		return decide.SendRecipient{}, 1, err
+	}
+	rec, ok := decide.ResolveSend(cfg.Targets, bus, cfg.Recipients.Agentbus, name)
+	if !ok {
+		return decide.SendRecipient{}, 2, fmt.Errorf("decide send recipient %q is unknown", name)
+	}
+	return rec, 0, nil
+}
+
+// sendBusNames is the agentbus half of the recipient list. The gate off
+// returns no names and does not run agentbus.
+func sendBusNames(cfg decide.Config) ([]decide.BusRecipient, error) {
+	if !cfg.Recipients.Agentbus {
+		return nil, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.BusListTimeout())
+	defer cancel()
+	out, err := agentbusRun(ctx, []string{"list", "--json"})
+	if err != nil {
+		return nil, err //nolint:wrapcheck // agentbus names the failure; it is not an unknown recipient
+	}
+	names, err := tui.ParseBusList(out)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // ParseBusList names the parse failure
+	}
+	bus := make([]decide.BusRecipient, len(names))
+	for i, tg := range names {
+		bus[i] = decide.BusRecipient{Name: tg.Name, Handle: tg.Pane}
+	}
+	return bus, nil
+}
+
+// deliverNewThread starts a thread and delivers it. A bus name goes
+// through agentbus. A configured target uses the send template.
+func deliverNewThread(led *decide.Ledger, dir, template string, rec decide.SendRecipient, text, via string) (decide.Item, error) {
+	if rec.Bus {
+		return decide.OpenBusThread(led, dir, "", rec.Name, text, via, agentbusRun) //nolint:wrapcheck // OpenBusThread names the failure
+	}
+	item, err := led.StartThread(rec.Name, rec.Pane, text, via)
+	if err != nil {
+		return decide.Item{}, err //nolint:wrapcheck // StartThread names the refusal
+	}
 	note := decide.DeliveryNote(item.ID, "human", text)
-	argv := decide.SendArgv(cfg.SendTemplate, tg.Pane, note)
-	if err := decide.RunSend(argv); err != nil {
-		return fail(stderr, err, 1)
+	if err := decide.RunSend(decide.SendArgv(template, rec.Pane, note)); err != nil {
+		return decide.Item{}, err //nolint:wrapcheck // RunSend names the send
 	}
-	if err := decide.AppendSend(dir, tg.Name, tg.Pane, text); err != nil {
-		return fail(stderr, err, 1)
+	if err := decide.AppendSend(dir, rec.Name, rec.Pane, text); err != nil {
+		return decide.Item{}, err //nolint:wrapcheck // AppendSend names the history
 	}
+	return item, nil
+}
+
+func printSent(stdout, stderr io.Writer, name, text, id string, jsonOut bool) int {
 	sent := struct {
 		Name string `json:"name"`
 		Text string `json:"text"`
-	}{Name: tg.Name, Text: text}
-	if *jsonOut {
+		ID   string `json:"id"`
+	}{Name: name, Text: text, ID: id}
+	if jsonOut {
 		return writeJSON(stdout, stderr, sent)
 	}
-	fmt.Fprintf(stdout, "sent to %s\n", tg.Name)
+	fmt.Fprintf(stdout, "sent to %s as %s\n", name, id)
 	return 0
 }
 
