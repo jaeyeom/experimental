@@ -285,6 +285,120 @@ func TestMessageAvatars(t *testing.T) {
 	checkGolden(t, "item_message_avatars_off.golden", off)
 }
 
+func TestMessageRuleCrossesAvatarWhenSenderChanges(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	mustCreate(t, led, &decide.Item{
+		Question:  "ship it?",
+		Owner:     "zed",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		CreatedAt: time.Date(2026, 11, 11, 0, 0, 0, 0, time.UTC),
+		Messages: []decide.Message{
+			{Author: "ann", Text: "one", Time: time.Date(2026, 11, 11, 1, 0, 0, 0, time.UTC)},
+			{Author: "ann", Text: "two", Time: time.Date(2026, 11, 11, 2, 0, 0, 0, time.UTC)},
+			{Author: "bob", Text: "three", Time: time.Date(2026, 11, 11, 3, 0, 0, 0, time.UTC)},
+			{Author: "bob", Text: "four", Time: time.Date(2026, 11, 11, 4, 0, 0, 0, time.UTC)},
+			{Author: "ann", Text: "five", Time: time.Date(2026, 11, 11, 5, 0, 0, 0, time.UTC)},
+		},
+	})
+	open := func(width int, avatars bool) string {
+		t.Helper()
+		m := New(dir)
+		m.Now = func() time.Time { return avatarNow }
+		withAvatars(
+			decide.AvatarRule{Match: "ann", File: writeAvatar(t, "A")},
+			decide.AvatarRule{Match: "bob", File: writeAvatar(t, "B")},
+		)(m)
+		m.MessageAvatars = avatars
+		if err := m.Reload(); err != nil {
+			t.Fatal(err)
+		}
+		m.width = width
+		m.height = 80
+		press(t, m, "o")
+		return m.View()
+	}
+
+	var wideLen, narrowLen int
+	for _, width := range []int{100, 80} {
+		view := open(width, true)
+		rules := messageRules(t, view)
+		if len(rules) != 4 {
+			t.Fatalf("width %d rules = %d\n%s", width, len(rules), visibleLine(view))
+		}
+		// A→A and B→B keep the avatar column blank. A→B and B→A cross it.
+		for i, across := range []bool{false, true, false, true} {
+			if across {
+				if !strings.HasPrefix(rules[i], strings.Repeat("─", avatarColumn)) {
+					t.Fatalf("width %d rule %d should cross the avatar column: %q", width, i, rules[i])
+				}
+			} else if !strings.HasPrefix(rules[i], strings.Repeat(" ", avatarColumn)) || !strings.HasPrefix(strings.TrimLeft(rules[i], " "), "─") {
+				t.Fatalf("width %d rule %d should leave the avatar column blank: %q", width, i, rules[i])
+			}
+			if !strings.Contains(rules[i][avatarColumn:], "─") {
+				t.Fatalf("width %d rule %d has no text-column rule: %q", width, i, rules[i])
+			}
+		}
+		if n := strings.Count(view, strings.Repeat("A", avatarCols)); n != avatarRows*2 {
+			t.Fatalf("width %d ann avatar rows = %d, want %d\n%s", width, n, avatarRows*2, view)
+		}
+		if n := strings.Count(view, strings.Repeat("B", avatarCols)); n != avatarRows {
+			t.Fatalf("width %d bob avatar rows = %d, want %d\n%s", width, n, avatarRows, view)
+		}
+		name := fmt.Sprintf("item_message_rule_%d.golden", width)
+		checkGolden(t, name, view)
+		if width == 100 {
+			wideLen = len([]rune(rules[1]))
+		} else {
+			narrowLen = len([]rune(rules[1]))
+		}
+	}
+	if wideLen-narrowLen != 20 {
+		t.Fatalf("full rule width 100−80 = %d, want 20", wideLen-narrowLen)
+	}
+
+	off := open(100, false)
+	rules := messageRules(t, off)
+	if len(rules) != 4 {
+		t.Fatalf("avatars off rules = %d\n%s", len(rules), visibleLine(off))
+	}
+	for i, rule := range rules {
+		if strings.HasPrefix(rule, " ") || !strings.HasPrefix(rule, "─") {
+			t.Fatalf("avatars off rule %d = %q", i, rule)
+		}
+	}
+	if strings.Contains(off, strings.Repeat("A", avatarCols)) || strings.Contains(off, strings.Repeat("B", avatarCols)) {
+		t.Fatalf("avatars off still draws message avatars\n%s", off)
+	}
+	checkGolden(t, "item_message_rule_off.golden", off)
+}
+
+// messageRules returns the visible text of each message rule, inside the frame.
+func messageRules(t *testing.T, view string) []string {
+	t.Helper()
+	var out []string
+	for _, line := range strings.Split(view, "\n") {
+		vis := visibleLine(line)
+		if !strings.Contains(vis, "─") {
+			continue
+		}
+		rule := true
+		for _, r := range vis {
+			if r != ' ' && r != '─' && r != '│' {
+				rule = false
+				break
+			}
+		}
+		if !rule {
+			continue
+		}
+		out = append(out, strings.Trim(vis, "│"))
+	}
+	return out
+}
+
 func TestItemViewAvatarDefault(t *testing.T) {
 	t.Setenv("NO_COLOR", "")
 	m := avatarItemModel(t, 100, func(m *Model) {
