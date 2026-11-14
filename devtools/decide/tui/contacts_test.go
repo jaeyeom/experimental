@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -31,6 +32,7 @@ func contactNames(rows []contact) []string {
 }
 
 func TestContactsMergeBusAndLedger(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	now := time.Date(2026, 11, 12, 15, 0, 0, 0, time.UTC)
@@ -72,7 +74,7 @@ func TestContactsMergeBusAndLedger(t *testing.T) {
 	if len(bus.calls) != 1 || strings.Join(bus.calls[0], " ") != "list --json" {
 		t.Fatalf("bus calls %q", bus.calls)
 	}
-	if got := contactNames(m.contacts); strings.Join(got, ",") != "cara,ada,zed" {
+	if got := contactNames(m.contacts); strings.Join(got, ",") != "ada,cara,zed" {
 		t.Fatalf("contacts %q", got)
 	}
 	byName := map[string]contact{}
@@ -82,15 +84,16 @@ func TestContactsMergeBusAndLedger(t *testing.T) {
 		}
 		byName[c.Name] = c
 	}
-	if byName["ada"].Offline || byName["ada"].Liveness != "alive" || byName["ada"].Open != 1 {
+	if byName["ada"].Offline || byName["ada"].Liveness != "alive" || byName["ada"].Open != 1 || byName["ada"].stateLabel() != "active" {
 		t.Fatalf("ada %+v", byName["ada"])
 	}
-	if !byName["cara"].Offline || byName["cara"].Open != 1 {
+	if !byName["cara"].Offline || byName["cara"].Open != 1 || byName["cara"].stateLabel() != "dead" {
 		t.Fatalf("cara %+v", byName["cara"])
 	}
-	if byName["zed"].Offline || byName["zed"].Liveness != "dead" || byName["zed"].Open != 0 {
+	if byName["zed"].Offline || byName["zed"].Liveness != "dead" || byName["zed"].Open != 0 || byName["zed"].stateLabel() != "dead" {
 		t.Fatalf("zed %+v", byName["zed"])
 	}
+	assertFolderCount(t, m, len(Folders)+1, "1", false)
 	view = m.View()
 	if !strings.Contains(view, "(offline)") || !strings.Contains(view, "cara") {
 		t.Fatalf("history-only agent not marked offline\n%s", view)
@@ -106,7 +109,10 @@ func TestContactsMergeBusAndLedger(t *testing.T) {
 	m.height = 0
 	press(t, m, "?")
 	help := m.View()
-	for _, needle := range []string{"c contacts", "enter filters every folder", "esc clears the agent filter", "A picks this agent's avatar"} {
+	for _, needle := range []string{
+		"c contacts", "enter filters every folder", "esc clears the agent filter", "A picks this agent's avatar",
+		"x hides this contact", "H shows hidden contacts", "X hides every dead contact", "R releases a dead bus name",
+	} {
 		if !strings.Contains(help, needle) {
 			t.Fatalf("help missing %q\n%s", needle, help)
 		}
@@ -283,4 +289,309 @@ func TestUnreachableBusStillListsLedgerAgents(t *testing.T) {
 	if !strings.Contains(m.View(), "(offline)") {
 		t.Fatalf("ledger agent was not marked offline\n%s", m.View())
 	}
+}
+
+func TestContactsSortByStateAndCountMatches(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	now := time.Date(2026, 11, 12, 15, 0, 0, 0, time.UTC)
+	open := func(owner string, age time.Duration) {
+		t.Helper()
+		mustCreate(t, led, &decide.Item{
+			Question: owner, Owner: owner, Kind: decide.KindRelay, State: decide.StateOpen,
+			CreatedAt: now.Add(-age),
+		})
+	}
+	open("ada", 2*time.Hour)
+	open("cara", time.Hour)
+	open("bea", 3*time.Hour)
+	bus := &fakeBus{list: `[
+		{"name":"ada","liveness":"alive"},
+		{"name":"eve","liveness":"alive"},
+		{"name":"bea","liveness":"hibernated"},
+		{"name":"neo","liveness":"waking"},
+		{"name":"una","liveness":"unreachable"},
+		{"name":"unk","liveness":"unknown"},
+		{"name":"zed","liveness":"dead"},
+		{"name":"gon","liveness":"gone"}
+	]`}
+	m := New(dir)
+	m.Now = func() time.Time { return now }
+	m.busRun = bus.run
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	m.width = 120
+	m.height = 30
+	if err := m.showContacts(); err != nil {
+		t.Fatal(err)
+	}
+	finishContactBus(t, m)
+	want := []string{"ada", "eve", "bea", "neo", "una", "unk", "cara", "gon", "zed"}
+	if got := contactNames(m.contacts); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("contacts %q", got)
+	}
+	byName := map[string]contact{}
+	for _, c := range m.contacts {
+		byName[c.Name] = c
+	}
+	if byName["cara"].OnBus || !byName["cara"].Offline || byName["cara"].stateLabel() != "dead" {
+		t.Fatalf("history-only cara %+v", byName["cara"])
+	}
+	for _, name := range []string{"bea", "neo", "una", "unk"} {
+		if byName[name].stateLabel() != "unresponsive" {
+			t.Fatalf("%s %+v", name, byName[name])
+		}
+	}
+	if byName["gon"].stateLabel() != "dead" || byName["zed"].stateLabel() != "dead" {
+		t.Fatalf("gon %+v zed %+v", byName["gon"], byName["zed"])
+	}
+	assertFolderCount(t, m, len(Folders)+1, "2", false)
+	press(t, m, "/ada\r")
+	assertFolderCount(t, m, len(Folders)+1, "1/2", false)
+	press(t, m, "/zzz\r")
+	assertFolderCount(t, m, len(Folders)+1, "0/2", true)
+	press(t, m, "/\r")
+	selectContact(t, m, "ada")
+	press(t, m, "\r")
+	assertFolderCount(t, m, len(Folders)+1, "2/2", false)
+}
+
+func TestHideContactPersistsOnTheHubAndReturnsWhenActive(t *testing.T) {
+	path := pickConfig(t, `{"zeta": true}`)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	mustCreate(t, led, &decide.Item{
+		Question: "from cara", Owner: "cara", Kind: decide.KindRelay, State: decide.StateOpen,
+	})
+	mustCreate(t, led, &decide.Item{
+		Question: "from ada", Owner: "ada", Kind: decide.KindRelay, State: decide.StateOpen,
+	})
+	bus := &fakeBus{list: `[
+		{"name":"ada","liveness":"alive"},
+		{"name":"cara","liveness":"dead"}
+	]`}
+	m := New(dir)
+	m.busRun = bus.run
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	hub := &hubHidden{}
+	m.backend = hub
+	m.width = 100
+	m.height = 30
+	if err := m.showContacts(); err != nil {
+		t.Fatal(err)
+	}
+	finishContactBus(t, m)
+	selectContact(t, m, "ada")
+	press(t, m, "x")
+	if len(hub.calls) != 0 {
+		t.Fatalf("hiding an active contact wrote %q", hub.calls)
+	}
+	if !strings.Contains(m.status, "active") {
+		t.Fatalf("status %q", m.status)
+	}
+	selectContact(t, m, "cara")
+	press(t, m, "x")
+	if len(hub.calls) != 1 || strings.Join(hub.calls[0], ",") != "cara" {
+		t.Fatalf("hub hidden %q", hub.calls)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != string(before) {
+		t.Fatalf("client config = %s, %v", got, err)
+	}
+	if names := contactNames(m.visibleContacts()); strings.Join(names, ",") != "ada" {
+		t.Fatalf("visible %q", names)
+	}
+	press(t, m, "H")
+	if names := contactNames(m.visibleContacts()); strings.Join(names, ",") != "ada,cara" {
+		t.Fatalf("show hidden %q", names)
+	}
+	press(t, m, "H")
+	if names := contactNames(m.visibleContacts()); strings.Join(names, ",") != "ada" {
+		t.Fatalf("hide again %q", names)
+	}
+	bus.list = `[{"name":"ada","liveness":"alive"},{"name":"cara","liveness":"alive"}]`
+	finishContactBus(t, m)
+	names := contactNames(m.visibleContacts())
+	if len(names) != 2 || !strings.Contains(strings.Join(names, ","), "ada") || !strings.Contains(strings.Join(names, ","), "cara") {
+		t.Fatalf("active again %q", names)
+	}
+	last := hub.calls[len(hub.calls)-1]
+	if len(last) != 0 {
+		t.Fatalf("still hidden %q", last)
+	}
+	items, err := led.List()
+	if err != nil || len(items) != 2 {
+		t.Fatalf("ledger items %d %v", len(items), err)
+	}
+}
+
+func TestHideAllDeadAsksThenHidesOnlyDead(t *testing.T) {
+	path := pickConfig(t, `{"zeta": true}`)
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	for _, owner := range []string{"ada", "bea", "cara"} {
+		mustCreate(t, led, &decide.Item{
+			Question: owner, Owner: owner, Kind: decide.KindRelay, State: decide.StateOpen,
+		})
+	}
+	bus := &fakeBus{list: `[
+		{"name":"ada","liveness":"alive"},
+		{"name":"bea","liveness":"hibernated"},
+		{"name":"zed","liveness":"dead"}
+	]`}
+	m := New(dir)
+	m.busRun = bus.run
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	m.width = 100
+	m.height = 30
+	if err := m.showContacts(); err != nil {
+		t.Fatal(err)
+	}
+	finishContactBus(t, m)
+	press(t, m, "X")
+	if !strings.Contains(m.status, "dead") || !strings.Contains(m.status, "y/n") {
+		t.Fatalf("status %q", m.status)
+	}
+	if names := contactNames(m.visibleContacts()); strings.Join(names, ",") != "ada,bea,cara,zed" {
+		t.Fatalf("hidden before confirm %q", names)
+	}
+	press(t, m, "n")
+	if names := contactNames(m.visibleContacts()); strings.Join(names, ",") != "ada,bea,cara,zed" {
+		t.Fatalf("n hid %q", names)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || strings.Contains(string(data), "hiddenContacts") {
+		t.Fatalf("config after cancel %s %v", data, err)
+	}
+	press(t, m, "X")
+	press(t, m, "y")
+	if names := contactNames(m.visibleContacts()); strings.Join(names, ",") != "ada,bea" {
+		t.Fatalf("after confirm %q", names)
+	}
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(saved), "cara") || !strings.Contains(string(saved), "zed") || strings.Contains(string(saved), "ada") || strings.Contains(string(saved), "bea") {
+		t.Fatalf("config %s", saved)
+	}
+	items, err := led.List()
+	if err != nil || len(items) != 3 {
+		t.Fatalf("ledger items %d %v", len(items), err)
+	}
+	press(t, m, "H")
+	if names := contactNames(m.visibleContacts()); strings.Join(names, ",") != "ada,bea,cara,zed" {
+		t.Fatalf("show hidden %q", names)
+	}
+}
+
+func TestReleaseDeadNameRefusesLive(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	for _, owner := range []string{"ada", "bea", "cara"} {
+		mustCreate(t, led, &decide.Item{
+			Question: owner, Owner: owner, Kind: decide.KindRelay, State: decide.StateOpen,
+		})
+	}
+	bus := &fakeBus{list: `[
+		{"name":"ada","liveness":"alive"},
+		{"name":"bea","liveness":"hibernated"},
+		{"name":"zed","liveness":"dead"}
+	]`}
+	m := New(dir)
+	m.busRun = bus.run
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	m.width = 100
+	m.height = 30
+	if err := m.showContacts(); err != nil {
+		t.Fatal(err)
+	}
+	finishContactBus(t, m)
+	selectContact(t, m, "zed")
+	press(t, m, "R")
+	if !strings.Contains(m.status, "zed") || !strings.Contains(m.status, "y/n") {
+		t.Fatalf("status %q", m.status)
+	}
+	if releases(bus) != 0 {
+		t.Fatalf("released before confirm %q", bus.calls)
+	}
+	press(t, m, "y")
+	if releases(bus) != 1 || strings.Join(bus.calls[len(bus.calls)-1], " ") != "release zed" {
+		t.Fatalf("calls %q", bus.calls)
+	}
+	if !strings.Contains(m.status, "zed") || strings.Contains(m.status, "refused") {
+		t.Fatalf("status %q", m.status)
+	}
+	selectContact(t, m, "ada")
+	press(t, m, "R")
+	if !strings.Contains(m.status, "refused") || !strings.Contains(m.status, "active") || releases(bus) != 1 {
+		t.Fatalf("status %q calls %q", m.status, bus.calls)
+	}
+	selectContact(t, m, "bea")
+	press(t, m, "R")
+	if !strings.Contains(m.status, "refused") || !strings.Contains(m.status, "unresponsive") || releases(bus) != 1 {
+		t.Fatalf("status %q calls %q", m.status, bus.calls)
+	}
+	selectContact(t, m, "cara")
+	press(t, m, "R")
+	if !strings.Contains(m.status, "refused") || releases(bus) != 1 {
+		t.Fatalf("status %q calls %q", m.status, bus.calls)
+	}
+}
+
+func finishContactBus(t *testing.T, m *Model) {
+	t.Helper()
+	m.busWant = true
+	cmd := m.takeBusCmd()
+	if cmd == nil {
+		t.Fatal("no bus load")
+	}
+	m.Update(cmd())
+}
+
+func selectContact(t *testing.T, m *Model, name string) {
+	t.Helper()
+	for i, c := range m.visibleContacts() {
+		if c.Name == name {
+			m.contactCursor = i
+			return
+		}
+	}
+	t.Fatalf("%s missing from %q", name, contactNames(m.visibleContacts()))
+}
+
+func releases(bus *fakeBus) int {
+	n := 0
+	for _, call := range bus.calls {
+		if len(call) > 0 && call[0] == "release" {
+			n++
+		}
+	}
+	return n
+}
+
+type hubHidden struct {
+	*LocalBackend
+	calls [][]string
+}
+
+func (h *hubHidden) SetHidden(names []string) (decide.DisplaySettings, error) {
+	h.calls = append(h.calls, append([]string(nil), names...))
+	raw, err := json.Marshal(names)
+	if err != nil {
+		return decide.DisplaySettings{}, fmt.Errorf("hidden contacts: %w", err)
+	}
+	return decide.DisplaySettings{Keys: map[string]json.RawMessage{"hiddenContacts": raw}}, nil
 }

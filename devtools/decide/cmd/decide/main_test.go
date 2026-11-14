@@ -1446,6 +1446,97 @@ func TestStatusListReadsCheckoutLease(t *testing.T) {
 	}
 }
 
+func TestContactsHideUnhideAndPruneDryRun(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	cfgHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	led, err := decide.Open(filepath.Join(state, "decide"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, owner := range []string{"ada", "cara"} {
+		if _, err := led.Create(&decide.Item{
+			Question: owner, Owner: owner, Kind: decide.KindRelay, State: decide.StateOpen,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var calls [][]string
+	agentbusRun = func(_ context.Context, args []string) ([]byte, error) {
+		calls = append(calls, append([]string(nil), args...))
+		if len(args) >= 2 && args[0] == "list" && args[1] == "--json" {
+			return []byte(`[{"name":"ada","liveness":"alive"},{"name":"zed","liveness":"dead"}]`), nil
+		}
+		if len(args) == 2 && args[0] == "release" {
+			return []byte("ok\n"), nil
+		}
+		return nil, errors.New("unexpected agentbus " + strings.Join(args, " "))
+	}
+	t.Cleanup(func() { agentbusRun = decide.ExecAgentbus })
+
+	stdout, stderr, code := runCLI("contacts", "prune", "--dead")
+	if code != 0 {
+		t.Fatalf("dry-run code %d\n%s\n%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "would hide cara") || !strings.Contains(stdout, "would hide zed") {
+		t.Fatalf("dry-run %q", stdout)
+	}
+	if strings.Contains(stdout, "would release") || strings.Contains(stdout, "would hide ada") {
+		t.Fatalf("dry-run %q", stdout)
+	}
+	if n := releaseCalls(calls); n != 0 {
+		t.Fatalf("dry-run released %q", calls)
+	}
+	configPath := filepath.Join(cfgHome, "decide", "config.json")
+	if _, err := os.Stat(configPath); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("dry-run wrote config: %v", err)
+	}
+
+	stdout, stderr, code = runCLI("contacts", "prune", "--dead", "--release")
+	if code != 0 {
+		t.Fatalf("release dry-run code %d\n%s\n%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "would hide cara") || !strings.Contains(stdout, "would hide zed") || !strings.Contains(stdout, "would release zed") {
+		t.Fatalf("release dry-run %q", stdout)
+	}
+	if strings.Contains(stdout, "would release cara") || strings.Contains(stdout, "would release ada") {
+		t.Fatalf("release dry-run %q", stdout)
+	}
+	if n := releaseCalls(calls); n != 0 {
+		t.Fatalf("release dry-run called release %q", calls)
+	}
+	if _, err := os.Stat(configPath); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("release dry-run wrote config: %v", err)
+	}
+
+	stdout, stderr, code = runCLI("contacts", "hide", "bea")
+	if code != 0 {
+		t.Fatalf("hide code %d\n%s\n%s", code, stdout, stderr)
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil || !strings.Contains(string(data), "bea") {
+		t.Fatalf("hide config %s %v", data, err)
+	}
+	if _, _, code = runCLI("contacts", "unhide", "bea"); code != 0 {
+		t.Fatalf("unhide code %d", code)
+	}
+	data, err = os.ReadFile(configPath)
+	if err != nil || strings.Contains(string(data), "bea") {
+		t.Fatalf("unhide config %s %v", data, err)
+	}
+}
+
+func releaseCalls(calls [][]string) int {
+	n := 0
+	for _, call := range calls {
+		if len(call) > 0 && call[0] == "release" {
+			n++
+		}
+	}
+	return n
+}
+
 func runCLI(args ...string) (string, string, int) {
 	var stdout, stderr bytes.Buffer
 	code := run(args, &stdout, &stderr)

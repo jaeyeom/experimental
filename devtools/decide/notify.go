@@ -76,6 +76,9 @@ type Config struct {
 	// Hyperlinks wraps URLs in the inbox item view in OSC 8 hyperlinks.
 	// Unset is on; false turns them off.
 	Hyperlinks *bool `json:"hyperlinks,omitempty"`
+	// HiddenContacts are agent names the Contacts folder does not show.
+	// A name that is active again is dropped from the list.
+	HiddenContacts []string `json:"hiddenContacts,omitempty"`
 	// UI is this machine's inbox display. A hub does not send it.
 	UI InboxUI `json:"ui,omitempty"`
 }

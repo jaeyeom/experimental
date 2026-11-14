@@ -47,6 +47,8 @@ func (f *fakeBus) run(_ context.Context, args []string) ([]byte, error) {
 		return []byte(f.list), f.listErr
 	case len(args) == 3 && args[0] == "send":
 		return []byte(f.sendOut), f.sendErr
+	case len(args) == 2 && args[0] == "release":
+		return []byte("ok\n"), nil
 	default:
 		return nil, fmt.Errorf("unexpected agentbus %q", args)
 	}

@@ -17,8 +17,8 @@ import (
 )
 
 // Version is the protocol version hello returns. Version 2 added
-// config. Version 3 added set-avatar.
-const Version = 3
+// config. Version 3 added set-avatar. Version 4 added set-hidden.
+const Version = 4
 
 // Ops. Archive is done with the outcome "archived".
 const (
@@ -40,6 +40,7 @@ const (
 	OpLocate    = "locate"
 	OpConfig    = "config"
 	OpSetAvatar = "set-avatar"
+	OpSetHidden = "set-hidden"
 )
 
 // Request is one line from the client. Item is the item id. Text is the
@@ -55,6 +56,7 @@ type Request struct {
 	Bus     bool       `json:"bus,omitempty"`
 	Forward string     `json:"forward,omitempty"`
 	// Name and Choice are a set-avatar: a built-in id, "default", or "none".
+	// Text for set-hidden is a JSON array of hidden contact names.
 	Name   string `json:"name,omitempty"`
 	Choice string `json:"choice,omitempty"`
 }
@@ -91,4 +93,5 @@ var writeOps = map[string]bool{
 	OpUnsnooze:  true,
 	OpSend:      true,
 	OpSetAvatar: true,
+	OpSetHidden: true,
 }

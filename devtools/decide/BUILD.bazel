@@ -7,6 +7,7 @@ go_library(
         "avatar.go",
         "avatarconfig.go",
         "display.go",
+        "hidden.go",
         "lease.go",
         "ledger.go",
         "location.go",
