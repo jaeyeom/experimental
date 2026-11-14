@@ -1,0 +1,101 @@
+amends "../pkl/Org.pkl"
+
+org = "Acme Desk"
+
+machines {
+  ["north"] {
+    host = "north.example"
+    herdrHandle = "north"
+    timezone = "UTC"
+  }
+  ["south"] {
+    host = "south.example"
+    herdrHandle = "south"
+    timezone = "America/New_York"
+  }
+}
+
+rules {
+  new {
+    id = "plain-words"
+    text = "Write so a new teammate can follow the note."
+    source = "desk handbook"
+  }
+  new {
+    id = "no-secrets"
+    text = "Never write down a secret value."
+    source = "desk handbook"
+  }
+}
+
+roles {
+  ["coord/lead"] {
+    machine = "north"
+    workspace = "hq"
+    tab = "lead"
+    cwd = "/work/acme/lead"
+    agent = "coordinator"
+    model = "desk-large"
+    effort = "medium"
+    brief {
+      skill = "lead-desk"
+      file = "briefs/lead.md"
+      text = "Keep the desk moving. Ask before changing a plan."
+      memory { "notes/lead.md" }
+    }
+    decides { "priority" "schedule" }
+    owns { "desk-plan" }
+    checkoutLease = "none"
+    tools { "notes" }
+    state { "/work/acme/state/lead" }
+    needs {
+      permissions { "notes.read" }
+      secrets { "MAIL_TOKEN" }
+      services { "mail" }
+    }
+  }
+  ["review/desk"] {
+    machine = "north"
+    workspace = "hq"
+    tab = "desk"
+    cwd = "/work/acme/review"
+    agent = "reviewer"
+    brief {
+      text = "Read the proposed change and say what is unclear."
+    }
+    reportsTo = "coord/lead"
+    decides { "clarity" }
+    escalates { "security-question" }
+    checkoutLease = "short"
+    tools { "notes" }
+  }
+  ["watch/night"] {
+    machine = "south"
+    workspace = "hq"
+    tab = "night"
+    cwd = "/work/acme/watch"
+    `when` = "weekday mornings"
+    agent = "watcher"
+    schedules {
+      new {
+        id = "overnight"
+        cron = "0 9 * * 1-5"
+        prompt = "Read the overnight notes and leave a short summary."
+        durable = true
+      }
+    }
+    reportsTo = "coord/lead"
+    owns { "overnight-notes" }
+    checkoutLease = "none"
+  }
+}
+
+pools {
+  ["hands"] {
+    machine = "south"
+    workspace = "hq"
+    starter = "coord/lead"
+    max = 3
+    source = "the staffing note"
+  }
+}

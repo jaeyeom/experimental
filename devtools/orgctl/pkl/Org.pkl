@@ -1,0 +1,210 @@
+/// A declarative spec of an agent organization.
+/// pkl eval -f json renders the document the Go engine decodes.
+/// The Go engine does not parse Pkl.
+module orgctl.Org
+
+/// One machine the organization runs on.
+class Machine {
+  /// Host name the operator uses for this machine.
+  host: String(!isEmpty)
+
+  /// Herdr handle for this machine.
+  herdrHandle: String(!isEmpty)
+
+  /// IANA timezone name, such as "UTC".
+  timezone: String(!isEmpty)
+}
+
+/// One org-wide rule.
+class Rule {
+  /// Stable id. Roles name rules by this id.
+  id: String(!isEmpty)
+
+  /// The rule text.
+  text: String(!isEmpty)
+
+  /// Where the rule came from. Informational.
+  source: String(!isEmpty)
+}
+
+/// The note a role reads when it starts.
+class Brief {
+  /// Skill name. Empty when the role has no skill.
+  skill: String = ""
+
+  /// Path of a brief file, relative to the role's cwd. Empty when unused.
+  file: String = ""
+
+  /// Inline brief text. Empty when the brief is only a file.
+  text: String = ""
+
+  /// Durable memory files the role keeps.
+  memory: Listing<String> = new {}
+}
+
+/// A scheduled prompt owned by a role.
+class Schedule {
+  /// Stable id, unique among the role's schedules.
+  id: String(!isEmpty)
+
+  /// Cron expression.
+  cron: String(!isEmpty)
+
+  /// Prompt text.
+  prompt: String(!isEmpty)
+
+  /// True when the schedule survives a restart.
+  durable: Boolean = true
+}
+
+/// What a person still has to provide. Names only. Values are never read.
+class Needs {
+  /// Permission names to print as a user step.
+  permissions: Listing<String> = new {}
+
+  /// Secret names. The values are never read.
+  secrets: Listing<String> = new {}
+
+  /// Service names the role expects to be up.
+  services: Listing<String> = new {}
+}
+
+/// One agent, keyed in `roles` by its agentbus name.
+class Role {
+  /// Key in `machines`.
+  machine: String(!isEmpty)
+
+  /// Workspace label.
+  workspace: String(!isEmpty)
+
+  /// Tab label. Unique within the workspace.
+  tab: String(!isEmpty)
+
+  /// Working directory.
+  cwd: String(!isEmpty)
+
+  /// Text passed to agentbus as `--when`. Empty when unused.
+  `when`: String = ""
+
+  /// Agent kind.
+  agent: String(!isEmpty)
+
+  /// Model name. Empty when the agent picks.
+  model: String = ""
+
+  /// Effort name. Empty when the agent picks.
+  effort: String = ""
+
+  /// Start-up brief.
+  brief: Brief = new {}
+
+  /// Schedules this role owns. A pool cannot own one.
+  schedules: Listing<Schedule> = new {}
+
+  /// Agentbus name of the role this one reports to. Null at the top.
+  reportsTo: String?
+
+  /// Decision names this role makes. Approval verbs are rejected later.
+  decides: Listing<String> = new {}
+
+  /// Names this role escalates.
+  escalates: Listing<String> = new {}
+
+  /// Names this role owns.
+  owns: Listing<String> = new {}
+
+  /// Checkout lease: none, short, or worker.
+  checkoutLease: "none" | "short" | "worker" = "none"
+
+  /// Tool names.
+  tools: Listing<String> = new {}
+
+  /// Durable state directories.
+  state: Listing<String> = new {}
+
+  /// What a person still has to provide.
+  needs: Needs = new {}
+
+  /// Rule ids. Null means every org rule.
+  rules: Listing<String>?
+}
+
+/// A worker pool. It has no schedules. A schedule's owner is always a role.
+class Pool {
+  /// Key in `machines`.
+  machine: String(!isEmpty)
+
+  /// Workspace label.
+  workspace: String(!isEmpty)
+
+  /// Agentbus name of the role that starts a worker.
+  starter: String(!isEmpty)
+
+  /// Maximum number of workers.
+  max: Int(this >= 0)
+
+  /// Where the pool was described. Informational.
+  source: String = ""
+}
+
+/// Organization name.
+org: String(!isEmpty)
+
+/// Machines keyed by the name roles and pools use.
+machines: Mapping<String, Machine>
+
+/// Org-wide rules.
+rules: Listing<Rule>
+
+/// Roles keyed by agentbus name.
+roles: Mapping<String, Role>
+
+/// Worker pools keyed by name.
+pools: Mapping<String, Pool> = new {}
+
+local ruleIds: List<String> = rules.toList().map((rule) -> rule.id)
+
+local function uniqueTabs(items: Mapping<String, Role>): Boolean =
+  let (labels = items.keys.fold(List(), (acc, name) -> acc.add(items[name].workspace + "\t" + items[name].tab)))
+    labels.length == labels.toSet().length
+
+local function reportsExist(items: Mapping<String, Role>): Boolean =
+  items.every((_, role) -> role.reportsTo == null || items.containsKey(role.reportsTo))
+
+local function machinesExist(names: List<String>): Boolean =
+  names.every((name) -> machines.containsKey(name))
+
+/// A missing `rules` list means every org rule. The class default stays null
+/// so an amend can still tell "omitted" from "set".
+local function withRules(items: Mapping<String, Role>): Mapping<String, Role> =
+  (items) {
+    for (name in items.keys) {
+      [name] {
+        rules = if (items[name].rules == null) new Listing { for (id in ruleIds) { id } } else items[name].rules
+      }
+    }
+  }
+
+/// `pkl eval` renders [output]. Checks live here so a bad spec fails that eval.
+/// Inside `Dynamic`, a bare name would read the property being defined.
+local function rendered(): Dynamic =
+  if (!uniqueTabs(roles))
+    throw("duplicate tab label in a workspace")
+  else if (!reportsExist(roles))
+    throw("reportsTo does not name a role")
+  else if (!machinesExist(roles.keys.fold(List(), (acc, name) -> acc.add(roles[name].machine))))
+    throw("role names an unknown machine")
+  else if (!machinesExist(pools.keys.fold(List(), (acc, name) -> acc.add(pools[name].machine))))
+    throw("pool names an unknown machine")
+  else
+    new Dynamic {
+      org = module.org
+      machines = module.machines
+      rules = module.rules
+      roles = withRules(module.roles)
+      pools = module.pools
+    }
+
+output {
+  value = rendered()
+}
