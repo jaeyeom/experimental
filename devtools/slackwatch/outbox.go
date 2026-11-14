@@ -539,11 +539,6 @@ type SlackWriter interface {
 	PostMessage(ctx context.Context, token, channel, threadTS, text string) (channelID, ts string, err error)
 }
 
-// DMOpener opens the DM with a user id and returns its D… channel.
-type DMOpener interface {
-	OpenDM(ctx context.Context, userID string) (string, error)
-}
-
 // MessageReader reads messages back with the read token. threadTS is
 // the parent of a thread reply, empty for a top-level message.
 type MessageReader interface {
@@ -588,9 +583,6 @@ type Outbox struct {
 	// Channels resolves a name after a cached id returns channel_not_found.
 	// Nil skips that retry.
 	Channels *ChannelLookup
-	// DMs opens a user id into its D… channel. Nil leaves a user id as-is
-	// until a caller that has an opener resolves it.
-	DMs DMOpener
 
 	mu     sync.Mutex
 	authed string // TextHash of the write token that passed auth.test
@@ -1174,37 +1166,73 @@ func (o *Outbox) disable(ctx context.Context, reason string) error {
 	return fmt.Errorf("posting is disabled: %s; run slackwatch pin", reason)
 }
 
-// useDMChannel replaces a stored user id with the D… channel from
-// conversations.open. A channel id is left alone. The user id is kept
-// in requested_to when that field is empty.
-func (o *Outbox) useDMChannel(ctx context.Context, r *OutboxRecord) error {
-	if r == nil || !UserID(r.Channel) {
+// ErrIgnoredDM means repair left the record alone. Its channel is listed
+// in inbound.ignoreChannels.
+var ErrIgnoredDM = errors.New("skipped (ignored channel)")
+
+// DMRepair is an outbox record whose channel is still a user id.
+type DMRepair struct {
+	ID      int64
+	Channel string
+	Ignored bool
+}
+
+// ListDMRepairs returns records stored under a user id. It does not
+// call Slack. Ignored is set when the channel is in inbound.ignoreChannels.
+func (o *Outbox) ListDMRepairs() ([]DMRepair, error) {
+	recs, err := o.Store.listOutbox(`channel LIKE 'U%'`)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := o.config()
+	if err != nil {
+		return nil, err
+	}
+	var out []DMRepair
+	for _, r := range recs {
+		if !UserID(r.Channel) {
+			continue
+		}
+		out = append(out, DMRepair{
+			ID: r.ID, Channel: r.Channel, Ignored: cfg.ignoresInboundChannel(r.Channel),
+		})
+	}
+	return out, nil
+}
+
+// RepairDM moves record id onto dm, a D… channel, and merges a duplicate
+// watch. A record whose channel is in inbound.ignoreChannels is left
+// unchanged and returns ErrIgnoredDM. It does not call Slack.
+func (o *Outbox) RepairDM(id int64, dm string) error {
+	if !strings.HasPrefix(dm, "D") || !ValidChannel(dm) {
+		return fmt.Errorf("outbox %d: %q is not a DM channel", id, dm)
+	}
+	r, err := o.Store.GetOutbox(id)
+	if err != nil {
+		return err
+	}
+	cfg, err := o.config()
+	if err != nil {
+		return err
+	}
+	if cfg.ignoresInboundChannel(r.Channel) {
+		return ErrIgnoredDM
+	}
+	return o.Store.RetargetOutboxDM(r.ID, r.Channel, dm, o.now())
+}
+
+// notePostedChannel stores the channel chat.postMessage returned.
+// Permalink, the watch, and the read-back then use that id. A user id
+// with an empty requested_to is kept there.
+func (o *Outbox) notePostedChannel(r *OutboxRecord, channel string) error {
+	if r == nil || channel == "" || channel == r.Channel {
 		return nil
 	}
-	if o.DMs == nil {
-		return fmt.Errorf("outbox %d: %s is a user id and conversations.open is not configured", r.ID, r.Channel)
-	}
-	dm, err := o.DMs.OpenDM(ctx, r.Channel)
-	if err != nil {
-		return fmt.Errorf("outbox %d: conversations.open %s: %w", r.ID, r.Channel, err)
-	}
-	if dm == "" || UserID(dm) {
-		return fmt.Errorf("outbox %d: conversations.open %s returned %q", r.ID, r.Channel, dm)
-	}
-	if r.RequestedTo == "" {
+	if UserID(r.Channel) && r.RequestedTo == "" {
 		if err := o.Store.SetRequestedTo(r.ID, r.Channel, o.now()); err != nil {
 			return err
 		}
 		r.RequestedTo = r.Channel
-	}
-	return o.notePostedChannel(r, dm)
-}
-
-// notePostedChannel stores the channel chat.postMessage returned.
-// Permalink, the watch, and the read-back then use that id.
-func (o *Outbox) notePostedChannel(r *OutboxRecord, channel string) error {
-	if r == nil || channel == "" || channel == r.Channel {
-		return nil
 	}
 	if err := o.Store.SetOutboxChannel(r.ID, channel, o.now()); err != nil {
 		return err
@@ -1220,48 +1248,6 @@ func (o *Outbox) now() time.Time {
 	return time.Now()
 }
 
-// Repair rewrites outbox records whose channel is still a user id.
-// Each record and its watch move to the D… channel. A footer watch
-// already on that DM is merged in, so a second watch is not registered.
-// It returns how many records changed.
-func (o *Outbox) Repair(ctx context.Context) (int, error) {
-	recs, err := o.Store.listOutbox(`channel LIKE 'U%'`)
-	if err != nil {
-		return 0, err
-	}
-	var todo []OutboxRecord
-	for _, r := range recs {
-		if UserID(r.Channel) {
-			todo = append(todo, r)
-		}
-	}
-	if len(todo) == 0 {
-		return 0, nil
-	}
-	if o.DMs == nil {
-		return 0, errors.New("DM repair needs conversations.open")
-	}
-	var errs []error
-	n := 0
-	for _, r := range todo {
-		dm, err := o.DMs.OpenDM(ctx, r.Channel)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("outbox %d: conversations.open %s: %w", r.ID, r.Channel, err))
-			continue
-		}
-		if dm == "" || UserID(dm) {
-			errs = append(errs, fmt.Errorf("outbox %d: conversations.open %s returned %q", r.ID, r.Channel, dm))
-			continue
-		}
-		if err := o.Store.RetargetOutboxDM(r.ID, r.Channel, dm, o.now()); err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		n++
-	}
-	return n, errors.Join(errs...)
-}
-
 // errNoChannelRefresh means a channel_not_found was not looked up again.
 var errNoChannelRefresh = errors.New("channel not refreshed")
 
@@ -1273,9 +1259,6 @@ func keepSlack(err error) error {
 // postTo posts text. A channel_not_found for a cached id drops that cache
 // entry, resolves the name once, and posts once more.
 func (o *Outbox) postTo(ctx context.Context, token string, r *OutboxRecord, text string) (string, string, error) {
-	if err := o.useDMChannel(ctx, r); err != nil {
-		return "", "", err
-	}
 	channel, ts, err := o.Writer.PostMessage(ctx, token, r.Channel, r.ThreadTS, text)
 	if !channelNotFound(err) {
 		return channel, ts, keepSlack(err)
@@ -1547,9 +1530,6 @@ func (o *Outbox) retryHandoff(ctx context.Context, cfg Config, r OutboxRecord) (
 func (o *Outbox) retryDirect(ctx context.Context, cfg Config, r OutboxRecord) (OutboxRecord, error) {
 	token, err := o.writeToken(ctx, cfg)
 	if err != nil {
-		return OutboxRecord{}, err
-	}
-	if err := o.useDMChannel(ctx, &r); err != nil {
 		return OutboxRecord{}, err
 	}
 	dup, ok, err := o.findDuplicate(ctx, cfg, &r)

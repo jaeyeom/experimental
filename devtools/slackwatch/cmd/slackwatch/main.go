@@ -110,8 +110,10 @@ Commands:
   slackwatch outbox retry <id>
                       post a failed direct record once after the checks,
                       or return a handoff record to awaiting-handoff
-  slackwatch outbox repair
-                      rewrite a record stored under a user id onto its DM channel
+  slackwatch outbox repair [--channel <id>=<D…> ...]
+                      list records stored under a user id, or rewrite the named
+                      ones onto those DM channels. Does not call Slack.
+                      im:write is not required to post a user id
   slackwatch pin      check the write token with auth.test and pin it in config
   slackwatch skill [triage]
                       print the agent skill, or the inbound triage role

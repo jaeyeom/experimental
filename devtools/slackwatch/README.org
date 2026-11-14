@@ -42,7 +42,10 @@ Create a Slack app for your workspace and install it for yourself.
    ~chmod 600~ on it.
 
 Direct posting (see [[*Posting][Posting]]) needs a user token with ~chat:write~.
-Keep it out of the read-only app: put it alone in the file named by
+That is the only posting scope slackwatch assumes. ~im:write~ is not
+assumed: ~post --to U…~ calls ~chat.postMessage~ with that user id, and
+stores the ~D…~ channel from the response. Keep the write token out of
+the read-only app: put it alone in the file named by
 ~post.writeTokenFile~, ~chmod 600~ it, and run ~slackwatch pin~.
 
 * Events
@@ -334,10 +337,14 @@ off until ~post.mode~ is set; without it, ~post~ refuses.
 | ~outbox poke <decide-id>~ | Handle the answer to a decide item now. |
 | ~outbox cancel <id> [--reason S]~ | Withdraw a draft that is not posted. |
 | ~outbox retry <id>~ | Post a failed direct record once, or return a failed handoff record to ~awaiting-handoff~. |
+| ~outbox repair [--channel <id>=<D…> ...]~ | With no ~--channel~, list records whose channel is still a user id. It does not call Slack. With ~--channel~, rewrite only those records and their watches onto the given ~D…~ channel, merging a duplicate watch. A record whose channel is in ~inbound.ignoreChannels~ is printed as ~skipped (ignored channel)~ and left unchanged, even when a mapping names it. |
 | ~pin~ | Check the write token with ~auth.test~ and pin it in the config. |
 
-~DEST~ is a channel id, a ~#name~, or a message permalink, which posts
-into that thread.
+~DEST~ is a channel id, a ~#name~, an ~@name~, a user id (~U…~), or a
+message permalink, which posts into that thread. An ~@name~ posts as
+its cached user id. Resolving a name that is not cached needs
+~users:read~ (an address needs ~users:read.email~). ~missing_scope~
+refuses and asks for the user id. ~im:write~ is not used.
 
 1. *Submit.* ~post~ stores the destination, the exact text, its SHA-256,
    the owner, the purpose, and the refs as a ~pending~ record.
