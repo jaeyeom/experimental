@@ -16,12 +16,17 @@ import (
 
 // fakeDecider is an in-memory decide ledger.
 type fakeDecider struct {
-	items               map[string]*DecideItem
-	questions           map[string]string
-	owners              map[string]string
-	outcomes            map[string]string
-	replies             []string
-	optionReplies       []string
+	items         map[string]*DecideItem
+	questions     map[string]string
+	owners        map[string]string
+	outcomes      map[string]string
+	replies       []string
+	optionReplies []string
+	// log is every reply, options reply, and done call in order, as
+	// "reply: text", "options: text", or "done: outcome".
+	log []string
+	// at is the time of the human messages answer adds.
+	at                  time.Time
 	dropRestoredOptions bool
 	askErr              error
 	next                int
@@ -63,8 +68,10 @@ func (d *fakeDecider) Reply(_ context.Context, id, text string) error {
 	if !ok {
 		return errors.New("no such item")
 	}
+	it.State = "open"
 	it.Messages = append(it.Messages, DecideMessage{Author: d.owners[id], Text: text, By: "slackwatch"})
 	d.replies = append(d.replies, text)
+	d.log = append(d.log, "reply: "+text)
 	return nil
 }
 
@@ -74,6 +81,7 @@ func (d *fakeDecider) ReplyOptions(_ context.Context, id, text string) error {
 		return errors.New("no such item")
 	}
 	d.optionReplies = append(d.optionReplies, text)
+	d.log = append(d.log, "options: "+text)
 	if !d.dropRestoredOptions {
 		it.Options = []DecideOption{
 			{Key: decideKeyPost, Label: "Post as written", Recommended: true},
@@ -94,6 +102,7 @@ func (d *fakeDecider) Done(_ context.Context, id, outcome string) error {
 	}
 	it.State = "done"
 	d.outcomes[id] = outcome
+	d.log = append(d.log, "done: "+outcome)
 	return nil
 }
 
@@ -104,7 +113,7 @@ func (d *fakeDecider) answer(id string, a DecideAnswer) {
 	it := d.items[id]
 	it.State = "answered"
 	it.Answer = &a
-	m := DecideMessage{Author: "human", Text: a.Value, OptionKey: a.Key, Via: a.Via}
+	m := DecideMessage{Author: "human", Text: a.Value, OptionKey: a.Key, Via: a.Via, Time: d.at}
 	if a.AnsweredBy != "human" {
 		m.By = a.AnsweredBy
 	}
@@ -121,11 +130,12 @@ func (d *fakeDecider) reply(id, by, text string) {
 
 // fakeWriter is a Slack write API.
 type fakeWriter struct {
-	user   string
-	auths  int
-	posts  []fakePost
-	err    error
-	errFor map[string]error
+	user     string
+	auths    int
+	attempts int
+	posts    []fakePost
+	err      error
+	errFor   map[string]error
 }
 
 type fakePost struct{ token, channel, thread, text string }
@@ -140,6 +150,7 @@ func (w *fakeWriter) AuthTest(_ context.Context, _ string) (AuthInfo, error) {
 }
 
 func (w *fakeWriter) PostMessage(_ context.Context, token, channel, thread, text string) (string, string, error) {
+	w.attempts++
 	if w.err != nil {
 		return "", "", w.err
 	}
@@ -872,7 +883,7 @@ func TestRecheck(t *testing.T) {
 		if len(f.writer.posts) != posts {
 			t.Fatalf("posts = %d, want %d", len(f.writer.posts), posts)
 		}
-		if len(f.dec.replies) != 1 || !strings.Contains(f.dec.replies[0], "rechecked") {
+		if n := len(f.dec.replies); n == 0 || f.dec.replies[n-1] != "Posted: "+postedLink {
 			t.Fatalf("replies = %q", f.dec.replies)
 		}
 		w, err := f.store.FindWatch(PostRef{WatchID: got.WatchID})
@@ -1145,6 +1156,42 @@ func TestHandoffReadBack(t *testing.T) {
 			match:  false,
 		},
 		{
+			name:   "auto-linked email",
+			stored: "Mail a@example.com today",
+			posted: "Mail <mailto:a@example.com|a@example.com> today",
+			match:  true,
+		},
+		{
+			name:   "email with a different label",
+			stored: "Mail a@example.com today",
+			posted: "Mail <mailto:a@example.com|support> today",
+			match:  false,
+		},
+		{
+			name:   "auto-linked phone number",
+			stored: "Call +1 555-123-4567 now",
+			posted: "Call <tel:+15551234567|+1 555-123-4567> now",
+			match:  true,
+		},
+		{
+			name:   "phone link to a different number",
+			stored: "Call 555-123-4567 now",
+			posted: "Call <tel:5559999999|555-123-4567> now",
+			match:  false,
+		},
+		{
+			name:   "mentions are unchanged",
+			stored: "Ask <@U5> in <#C1|general>",
+			posted: "Ask <@U5> in <#C1|general>",
+			match:  true,
+		},
+		{
+			name:   "channel mention is not a stored name",
+			stored: "Ask in general",
+			posted: "Ask in <#C1|general>",
+			match:  false,
+		},
+		{
 			name:   "bold versus italic",
 			stored: "*Heading*",
 			posted: "_Heading_",
@@ -1157,7 +1204,7 @@ func TestHandoffReadBack(t *testing.T) {
 			match:  false,
 		},
 	}
-	if len(handoffRules) != 2 || handoffRules[0].name != "link label" || handoffRules[1].name != "blank lines" {
+	if len(handoffRules) != 3 || handoffRules[0].name != "link label" || handoffRules[1].name != "auto link" || handoffRules[2].name != "blank lines" {
 		t.Fatalf("handoff rules = %+v", handoffRules)
 	}
 	for _, tc := range cases {
@@ -1712,8 +1759,8 @@ func TestNotInChannelNotice(t *testing.T) {
 	if !notified {
 		t.Errorf("notify missing %q", want)
 	}
-	if !strings.Contains(strings.Join(f.dec.replies, "\n"), want) {
-		t.Errorf("replies = %v", f.dec.replies)
+	if !strings.Contains(strings.Join(f.dec.optionReplies, "\n"), want) {
+		t.Errorf("replies = %v", f.dec.optionReplies)
 	}
 	if got := f.get(t, r.ID); got.State != OutboxFailed || !strings.Contains(got.Reason, "chat.postMessage: not_in_channel") {
 		t.Errorf("record = %+v", got)
@@ -1930,5 +1977,224 @@ func TestManualPostedNeedsRedraftRefusesUnverified(t *testing.T) {
 				t.Fatalf("record = %+v reads %d", got, f.reader.calls)
 			}
 		})
+	}
+}
+
+// outcomeLog is the decide replies, options replies, and done calls, in
+// order.
+func (f *outboxFixture) outcomeLog() []string {
+	return f.dec.log
+}
+
+func TestOutcomeReplyPostedBeforeDone(t *testing.T) {
+	f := newOutboxFixture(t, PostModeDirect)
+	f.reader.msg = Message{User: expectUser, Text: postedBody()}
+	r := f.submit(t)
+	f.dec.answer(r.DecideID, uiPost)
+	f.poll(t)
+	got := f.get(t, r.ID)
+	if got.State != OutboxPosted {
+		t.Fatalf("state = %s", got.State)
+	}
+	want := []string{"reply: Posted: " + got.Permalink, "done: " + got.Permalink}
+	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
+		t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
+	}
+}
+
+func TestOutcomeReplyMismatchBeforeDone(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	r := approveHandoff(t, f)
+	f.reader.msg = Message{User: expectUser, Text: "Ship that"}
+	if _, err := f.ob.Posted(context.Background(), r.ID, postedLink); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"reply: Posted, but the text differs from the approved draft: " + postedLink + " (the posted text differs from the approved text)",
+		"done: posted with a mismatch: " + postedLink,
+	}
+	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
+		t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
+	}
+}
+
+func TestOutcomeReplyManualPosted(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	r := f.submit(t)
+	f.dec.answer(r.DecideID, uiPost)
+	f.reader.msg = Message{User: expectUser, Text: approvedText}
+	if _, err := f.ob.PostedManual(context.Background(), r.ID, postedLink); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"reply: Posted: " + postedLink, "done: " + postedLink}
+	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
+		t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
+	}
+}
+
+func TestOutcomeReplyFailedLeavesItemOpen(t *testing.T) {
+	f := newOutboxFixture(t, PostModeDirect)
+	f.writer.err = errors.New("fatal_error")
+	r := f.submit(t)
+	f.dec.answer(r.DecideID, uiPost)
+	f.poll(t)
+	f.poll(t)
+	if got := f.get(t, r.ID); got.State != OutboxFailed {
+		t.Fatalf("state = %s", got.State)
+	}
+	want := []string{"options: Post failed: chat.postMessage: fatal_error; reply post to retry"}
+	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
+		t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
+	}
+	it := f.dec.items[r.DecideID]
+	if it.State == "done" || !hasPostDrop(it.Options) {
+		t.Errorf("item = %+v, want open with post and drop", it)
+	}
+}
+
+func TestOutcomeReplyManualRetry(t *testing.T) {
+	f, r := failedDirect(t)
+	f.dec.log = nil
+	f.reader.msg = Message{User: expectUser, Text: postedBody()}
+	got, err := f.ob.Retry(context.Background(), r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"reply: Posted: " + got.Permalink, "done: " + got.Permalink}
+	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
+		t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
+	}
+}
+
+func TestOutcomeReplyRecheck(t *testing.T) {
+	mismatch := func(t *testing.T) (*outboxFixture, OutboxRecord) {
+		t.Helper()
+		f := newOutboxFixture(t, PostModeHandoff)
+		r := approveHandoff(t, f)
+		f.reader.msg = Message{User: expectUser, Text: approvedText + " *Sent using* <@U1>"}
+		got, err := f.ob.Posted(context.Background(), r.ID, postedLink)
+		if err != nil || got.State != OutboxMismatch {
+			t.Fatalf("posted = %+v, %v", got, err)
+		}
+		f.dec.log = nil
+		return f, got
+	}
+	t.Run("pass", func(t *testing.T) {
+		f, r := mismatch(t)
+		f.ob.Config.FooterPattern = Regexp{regexp.MustCompile(`Sent using\*? <@U1`)}
+		if _, err := f.ob.Recheck(context.Background(), r.ID); err != nil {
+			t.Fatal(err)
+		}
+		want := []string{"reply: Posted: " + postedLink, "done: " + postedLink}
+		if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
+			t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
+		}
+	})
+	t.Run("still different", func(t *testing.T) {
+		f, r := mismatch(t)
+		if _, err := f.ob.Recheck(context.Background(), r.ID); err == nil {
+			t.Fatal("recheck passed")
+		}
+		want := []string{
+			"reply: Posted, but the text differs from the approved draft: " + postedLink + " (the posted text differs from the approved text)",
+			"done: posted with a mismatch: " + postedLink,
+		}
+		if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
+			t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
+		}
+	})
+}
+
+// failedThenAnswered is failedDirect with a later clock: the failure is
+// at testNow and the clock then reads testNow plus a minute.
+func failedThenAnswered(t *testing.T, answerAt time.Time) (*outboxFixture, OutboxRecord) {
+	t.Helper()
+	f, r := failedDirect(t)
+	f.ob.Now = func() time.Time { return testNow().Add(time.Minute) }
+	f.dec.log = nil
+	f.writer.attempts = 0
+	if !answerAt.IsZero() {
+		f.dec.at = answerAt
+		f.dec.answer(r.DecideID, uiPost)
+	}
+	return f, r
+}
+
+func TestAutoRetryOnFreshPost(t *testing.T) {
+	f, r := failedThenAnswered(t, testNow().Add(30*time.Second))
+	f.reader.msg = Message{User: expectUser, Text: postedBody()}
+	f.poll(t)
+	f.poll(t)
+	got := f.get(t, r.ID)
+	if got.State != OutboxPosted || f.writer.attempts != 1 {
+		t.Fatalf("state %s attempts %d", got.State, f.writer.attempts)
+	}
+	want := []string{"reply: Posted: " + got.Permalink, "done: " + got.Permalink}
+	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
+		t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
+	}
+}
+
+func TestAutoRetryOnPoke(t *testing.T) {
+	f, r := failedThenAnswered(t, testNow().Add(30*time.Second))
+	f.reader.msg = Message{User: expectUser, Text: postedBody()}
+	if err := f.ob.Poke(context.Background(), r.DecideID); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.get(t, r.ID); got.State != OutboxPosted || f.writer.attempts != 1 {
+		t.Fatalf("state %s attempts %d", got.State, f.writer.attempts)
+	}
+}
+
+func TestAutoRetryNeedsFreshAnswer(t *testing.T) {
+	for name, at := range map[string]time.Time{
+		"no new answer":          {},
+		"older than the failure": testNow().Add(-time.Minute),
+		"same second":            testNow().Add(500 * time.Millisecond),
+	} {
+		t.Run(name, func(t *testing.T) {
+			f, r := failedThenAnswered(t, at)
+			f.poll(t)
+			if err := f.ob.Poke(context.Background(), r.DecideID); err != nil {
+				t.Fatal(err)
+			}
+			if got := f.get(t, r.ID); got.State != OutboxFailed || f.writer.attempts != 0 || len(f.outcomeLog()) != 0 {
+				t.Fatalf("state %s attempts %d decide %q", got.State, f.writer.attempts, f.outcomeLog())
+			}
+		})
+	}
+}
+
+func TestAutoRetryFailsOnce(t *testing.T) {
+	f, r := failedThenAnswered(t, testNow().Add(30*time.Second))
+	f.writer.err = errors.New("fatal_error")
+	f.poll(t)
+	f.poll(t)
+	if err := f.ob.Poke(context.Background(), r.DecideID); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.get(t, r.ID); got.State != OutboxFailed || f.writer.attempts != 1 {
+		t.Fatalf("state %s attempts %d", got.State, f.writer.attempts)
+	}
+	want := []string{"options: Post failed: chat.postMessage: fatal_error; reply post to retry"}
+	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
+		t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
+	}
+}
+
+func TestAutoRetryChecksRunOnce(t *testing.T) {
+	f, r := failedThenAnswered(t, testNow().Add(30*time.Second))
+	if _, err := f.store.DB().Exec(`UPDATE outbox SET text = ? WHERE id = ?`, "tampered", r.ID); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	f.ob.Logger = slog.New(slog.NewTextHandler(&logs, nil))
+	f.poll(t)
+	f.poll(t)
+	if got := f.get(t, r.ID); got.State != OutboxFailed || f.writer.attempts != 0 {
+		t.Fatalf("state %s attempts %d", got.State, f.writer.attempts)
+	}
+	if n := strings.Count(logs.String(), "hash"); n != 1 {
+		t.Errorf("refused retries logged %d times, want 1:\n%s", n, logs.String())
 	}
 }

@@ -512,7 +512,7 @@ func TestOutboxRecheck(t *testing.T) {
 	if len(e.posts) != posts {
 		t.Fatalf("posts = %d, want %d", len(e.posts), posts)
 	}
-	if len(e.dec.replies) != 1 || !strings.Contains(e.dec.replies[0], "rechecked") {
+	if n := len(e.dec.replies); n == 0 || e.dec.replies[n-1] != "Posted: "+cmdPostedLink {
 		t.Fatalf("replies = %q", e.dec.replies)
 	}
 }

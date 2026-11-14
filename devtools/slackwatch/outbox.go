@@ -194,7 +194,8 @@ var slackLink = regexp.MustCompile(`<([^<>|]+)\|([^<>]+)>`)
 var blankLines = regexp.MustCompile(`\n(?:[ \t]*\n)+`)
 
 // handoffRules normalize a handoff read-back before the compare. Link
-// labels change only the posted text. Blank lines change both sides.
+// labels and Slack's email and phone auto-links change only the posted
+// text. Blank lines change both sides.
 // There is no bold or italic mapping.
 var handoffRules = []struct {
 	name  string
@@ -204,6 +205,12 @@ var handoffRules = []struct {
 		name: "link label",
 		apply: func(posted, stored string) (string, string) {
 			return restoreConnectorLinks(posted), stored
+		},
+	},
+	{
+		name: "auto link",
+		apply: func(posted, stored string) (string, string) {
+			return restoreAutoLinks(posted), stored
 		},
 	},
 	{
@@ -253,6 +260,38 @@ func connectorLabel(url, label string) bool {
 	return strings.HasPrefix(url, stem) || strings.HasPrefix(bare, stem)
 }
 
+// restoreAutoLinks maps Slack's auto-linked <mailto:X|X> back to X, and
+// <tel:X|Y> back to Y when Y shows the same digits as X. Any other label
+// stays.
+func restoreAutoLinks(s string) string {
+	return slackLink.ReplaceAllStringFunc(s, func(m string) string {
+		parts := slackLink.FindStringSubmatch(m)
+		if addr, ok := strings.CutPrefix(parts[1], "mailto:"); ok && addr == parts[2] {
+			return parts[2]
+		}
+		if number, ok := strings.CutPrefix(parts[1], "tel:"); ok && phoneDigits(number) != "" && phoneDigits(number) == phoneDigits(parts[2]) {
+			return parts[2]
+		}
+		return m
+	})
+}
+
+// phoneDigits is the digits of a phone number, or "" when s holds
+// anything but digits, spaces, and the characters + - . ( ).
+func phoneDigits(s string) string {
+	var b strings.Builder
+	for _, c := range s {
+		switch {
+		case c >= '0' && c <= '9':
+			b.WriteRune(c)
+		case strings.ContainsRune("+-.() ", c):
+		default:
+			return ""
+		}
+	}
+	return b.String()
+}
+
 func collapseBlankLines(s string) string {
 	return blankLines.ReplaceAllString(s, "\n")
 }
@@ -269,13 +308,15 @@ type DecideAnswer struct {
 // DecideMessage is one message of a decide thread as decide show --json
 // prints it. OptionKey is set on an option pick. Via is "ui" or "cli" on
 // a human message and empty on one stored before via existed. By is set
-// when the message was sent from the command line by an agent.
+// when the message was sent from the command line by an agent. Time is
+// when decide stored it.
 type DecideMessage struct {
-	Author    string `json:"author"`
-	Text      string `json:"text"`
-	OptionKey string `json:"optionKey,omitempty"`
-	Via       string `json:"via,omitempty"`
-	By        string `json:"by,omitempty"`
+	Author    string    `json:"author"`
+	Time      time.Time `json:"time"`
+	Text      string    `json:"text"`
+	OptionKey string    `json:"optionKey,omitempty"`
+	Via       string    `json:"via,omitempty"`
+	By        string    `json:"by,omitempty"`
 }
 
 // human reports whether the user wrote m. A message sent with by is not
@@ -591,6 +632,9 @@ type Outbox struct {
 	// notices so each loss has its own delivery key.
 	optionFix   map[string]struct{}
 	optionNotes int
+	// autoRetried is the time of the post pick each failed record was
+	// last retried on, so one pick retries it at most once.
+	autoRetried map[int64]time.Time
 }
 
 func (o *Outbox) config() (Config, error) {
@@ -885,6 +929,13 @@ func (o *Outbox) Poll(ctx context.Context) error {
 			errs = append(errs, o.postDirect(ctx, cfg, r))
 		}
 	}
+	failed, err := o.Store.retryableOutbox()
+	if err != nil {
+		return err
+	}
+	for _, r := range failed {
+		errs = append(errs, o.autoRetry(ctx, r))
+	}
 	unclosed, err := o.Store.unclosedOutbox()
 	if err != nil {
 		return err
@@ -897,7 +948,8 @@ func (o *Outbox) Poll(ctx context.Context) error {
 
 // Poke handles the answer to one decide item at once. In direct mode an
 // approved record that is not posted yet, such as after a new
-// slackwatch pin, is posted. Any other record is left alone.
+// slackwatch pin, is posted. A failed record is retried on a new post
+// pick. Any other record is left alone.
 func (o *Outbox) Poke(ctx context.Context, decideID string) error {
 	cfg, err := o.config()
 	if err != nil {
@@ -915,8 +967,47 @@ func (o *Outbox) Poke(ctx context.Context, decideID string) error {
 		return o.process(ctx, cfg, r)
 	case r.State == OutboxApproved && cfg.Post.Mode == PostModeDirect:
 		return o.postDirect(ctx, cfg, r)
+	case r.State == OutboxFailed && !r.DecideClosed:
+		return o.autoRetry(ctx, r)
 	}
 	return nil
+}
+
+// autoRetry runs Retry once when the latest human message on a failed
+// record's decide item is a post pick made after the failure. The
+// record's updated time is the failure; decide times are compared to
+// the second, so a pick in the same second does not count. Retry makes
+// the usual checks and the double-post search. Its error is logged: a
+// failed post is already reported by failPost.
+func (o *Outbox) autoRetry(ctx context.Context, r OutboxRecord) error {
+	item, err := o.Decide.Show(ctx, r.DecideID)
+	if err != nil {
+		return fmt.Errorf("outbox %d: %w", r.ID, err)
+	}
+	m, ok := latestHuman(item)
+	if !ok || m.OptionKey != decideKeyPost || !m.Time.Truncate(time.Second).After(r.UpdatedAt) || !o.firstAutoRetry(r.ID, m.Time) {
+		return nil
+	}
+	o.logger().Info("slackwatch outbox: retrying after a new post pick", "outbox", r.ID, "decide", r.DecideID)
+	if _, err := o.Retry(ctx, r.ID); err != nil {
+		o.logger().Warn("slackwatch outbox: automatic retry", "outbox", r.ID, "error", err)
+	}
+	return nil
+}
+
+// firstAutoRetry records that r was retried on the pick at at, and
+// reports whether it had not been yet.
+func (o *Outbox) firstAutoRetry(id int64, at time.Time) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if prev, ok := o.autoRetried[id]; ok && prev.Equal(at) {
+		return false
+	}
+	if o.autoRetried == nil {
+		o.autoRetried = map[int64]time.Time{}
+	}
+	o.autoRetried[id] = at
+	return true
 }
 
 // acceptance is the acceptance rule for record r and its decide item.
@@ -1387,22 +1478,20 @@ func (o *Outbox) postDirect(ctx context.Context, cfg Config, r OutboxRecord) err
 
 // failPost records a chat.postMessage error as failed. The stored reason
 // stays the Slack error. A known fixable error is named in the
-// notification and in a decide reply.
+// notification and in the decide reply. The decide item stays open with
+// post and drop, so a new post pick retries it (see autoRetry).
 func (o *Outbox) failPost(ctx context.Context, r OutboxRecord, postErr error) error {
 	reason := "chat.postMessage: " + postErr.Error()
 	notice := postFailureNotice(r, reason)
 	err := o.finishFrom(ctx, r, OutboxPosting, end{
-		state: OutboxFailed, reason: reason, outcome: "not posted: " + reason,
+		state: OutboxFailed, reason: reason,
 		event: EventOutboxFailed, alert: true,
 		message: fmt.Sprintf("Slack draft outbox %d (purpose: %q) could not be posted: %s.", r.ID, r.Purpose, notice),
 	})
-	if err != nil {
+	if err != nil || r.DecideID == "" {
 		return err
 	}
-	if notice == reason || r.DecideID == "" {
-		return nil
-	}
-	if rerr := o.Decide.Reply(ctx, r.DecideID, notice); rerr != nil {
+	if rerr := o.Decide.ReplyOptions(ctx, r.DecideID, "Post failed: "+notice+"; reply post to retry"); rerr != nil {
 		o.logger().Warn("slackwatch outbox: reply with the post failure", "outbox", r.ID, "error", rerr)
 	}
 	return nil
@@ -1645,10 +1734,7 @@ func (o *Outbox) registerPosted(ctx context.Context, r OutboxRecord, from []stri
 	if err != nil {
 		return err
 	}
-	link := p.Permalink
-	if link == "" {
-		link = p.Channel + " " + p.TS
-	}
+	link := postLink(p)
 	state, outcome := OutboxPosted, link
 	if mismatch != "" {
 		state, outcome = OutboxMismatch, "posted with a mismatch: "+link
@@ -1677,8 +1763,37 @@ func (o *Outbox) registerPosted(ctx context.Context, r OutboxRecord, from []stri
 			}
 		}
 	}
+	o.replyOutcome(ctx, r, postedReply(link, mismatch))
 	o.closeDecide(ctx, r)
 	return nil
+}
+
+// postLink is p's permalink, or its channel and ts when it has none.
+func postLink(p PostRef) string {
+	if p.Permalink != "" {
+		return p.Permalink
+	}
+	return p.Channel + " " + p.TS
+}
+
+// postedReply is the decide reply for a post at link. mismatch is the
+// read-back problems, empty when the post matches.
+func postedReply(link, mismatch string) string {
+	if mismatch == "" {
+		return "Posted: " + link
+	}
+	return fmt.Sprintf("Posted, but the text differs from the approved draft: %s (%s)", link, mismatch)
+}
+
+// replyOutcome tells the user r's result in its decide thread before the
+// item is closed. A failure is logged; the close goes ahead.
+func (o *Outbox) replyOutcome(ctx context.Context, r OutboxRecord, text string) {
+	if r.DecideID == "" {
+		return
+	}
+	if err := o.Decide.Reply(ctx, r.DecideID, text); err != nil {
+		o.logger().Warn("slackwatch outbox: reply with the outcome", "outbox", r.ID, "decide", r.DecideID, "error", err)
+	}
 }
 
 // Posted records that the handoff agent posted record id at link. It
@@ -1834,9 +1949,10 @@ func readBackProblems(cfg Config, r OutboxRecord, m Message, p PostRef) []string
 }
 
 // Recheck reads the mismatch record's posted message again and runs the
-// read-back checks with the current config. A pass moves it to posted
-// and replies on its decide item. A failure leaves it mismatch.
-// Nothing is posted.
+// read-back checks with the current config. A pass moves it to posted.
+// A failure leaves it mismatch. Either way the result is replied on its
+// decide item, which is then closed with the record's outcome. Nothing
+// is posted.
 func (o *Outbox) Recheck(ctx context.Context, id int64) (OutboxRecord, error) {
 	r, err := o.Store.GetOutbox(id)
 	if err != nil {
@@ -1857,12 +1973,18 @@ func (o *Outbox) Recheck(ctx context.Context, id int64) (OutboxRecord, error) {
 		return OutboxRecord{}, fmt.Errorf("read back %s: %w", r.Permalink, err)
 	}
 	p := PostRef{Channel: r.Channel, TS: r.PostTS, ThreadTS: r.ThreadTS, Permalink: r.Permalink}
+	link := postLink(p)
 	problems := readBackProblems(cfg, r, m, p)
 	if len(problems) > 0 {
-		return r, fmt.Errorf("outbox %d mismatch: %s", id, strings.Join(problems, "; "))
+		mismatch := strings.Join(problems, "; ")
+		o.replyOutcome(ctx, r, postedReply(link, mismatch))
+		o.closeDecide(ctx, r)
+		return r, fmt.Errorf("outbox %d mismatch: %s", id, mismatch)
 	}
 	empty := ""
-	moved, err := o.Store.moveOutbox(id, []string{OutboxMismatch}, outboxUpdate{state: OutboxPosted, reason: &empty}, o.Now())
+	moved, err := o.Store.moveOutbox(id, []string{OutboxMismatch}, outboxUpdate{
+		state: OutboxPosted, reason: &empty, decideOutcome: &link, decideClosed: ptr(false),
+	}, o.Now())
 	if err != nil {
 		return OutboxRecord{}, err
 	}
@@ -1874,12 +1996,8 @@ func (o *Outbox) Recheck(ctx context.Context, id int64) (OutboxRecord, error) {
 			return OutboxRecord{}, err
 		}
 	}
-	if r.DecideID == "" {
-		return OutboxRecord{}, fmt.Errorf("outbox %d: expected a decide item, found none", id)
-	}
-	if err := o.Decide.Reply(ctx, r.DecideID, fmt.Sprintf("rechecked outbox %d; the posted message matches the approved text", id)); err != nil {
-		return OutboxRecord{}, fmt.Errorf("recheck outbox %d: %w", id, err)
-	}
+	o.replyOutcome(ctx, r, postedReply(link, ""))
+	o.closeDecide(ctx, r)
 	return o.Store.GetOutbox(id)
 }
 
@@ -2146,6 +2264,12 @@ func (s *Store) ListOutbox(state string) ([]OutboxRecord, error) {
 func (s *Store) unclosedOutbox() ([]OutboxRecord, error) {
 	return s.listOutbox(`decide_outcome <> '' AND decide_closed = 0 AND decide_id <> ''
 AND state NOT IN (?, ?, ?, ?)`, OutboxPending, OutboxApproved, OutboxPosting, OutboxAwaitingHandoff)
+}
+
+// retryableOutbox returns failed records whose decide item is still
+// open, so a new post pick there can retry them.
+func (s *Store) retryableOutbox() ([]OutboxRecord, error) {
+	return s.listOutbox(`state = ? AND decide_id <> '' AND decide_closed = 0`, OutboxFailed)
 }
 
 // awaitingHandoff returns the records awaiting handoff to channel and
