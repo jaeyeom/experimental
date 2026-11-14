@@ -642,6 +642,22 @@ func TestLibatomic1Package(t *testing.T) {
 	}
 }
 
+func TestDecideGoTool(t *testing.T) {
+	tool := findPlatformSpecificTool(t, "decide")
+	method, ok := tool.platforms[PlatformAll].(GoInstallMethod)
+	if !ok {
+		t.Fatalf("decide PlatformAll method = %T, want GoInstallMethod", tool.platforms[PlatformAll])
+	}
+	wantPath := "github.com/jaeyeom/experimental/devtools/decide/cmd/decide@latest"
+	if method.PkgPath != wantPath {
+		t.Errorf("decide PkgPath = %q, want %q", method.PkgPath, wantPath)
+	}
+	wantAll := []Import{{Playbook: "setup-user-go-bin-directory"}}
+	if got := tool.GetAllImports(); !reflect.DeepEqual(got, wantAll) {
+		t.Errorf("decide GetAllImports() = %s, want %s", formatImports(got), formatImports(wantAll))
+	}
+}
+
 func TestSlackwatchGoTool(t *testing.T) {
 	tool := findPlatformSpecificTool(t, "slackwatch")
 	method, ok := tool.platforms[PlatformAll].(GoInstallMethod)

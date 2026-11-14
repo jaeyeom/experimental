@@ -589,7 +589,7 @@ func TestFactorySkillInstall(t *testing.T) {
 	if !strings.Contains(vibe, wantVibe) {
 		t.Errorf("setup-vibe-coding.yml missing unconditional setup-factory import after setup-herdr")
 	}
-	if !strings.Contains(vibe, "herdr, factory, slackwatch, aside") {
+	if !strings.Contains(vibe, "herdr, factory, slackwatch, decide, aside") {
 		t.Error("setup-vibe-coding.yml completion message missing factory")
 	}
 }
@@ -667,8 +667,75 @@ func TestSlackwatchSkillInstall(t *testing.T) {
 	if !strings.Contains(vibe, "- import_playbook: setup-factory.yml\n- import_playbook: setup-slackwatch.yml\n") {
 		t.Error("setup-vibe-coding.yml missing setup-slackwatch import after setup-factory")
 	}
-	if !strings.Contains(vibe, "factory, slackwatch, aside") {
+	if !strings.Contains(vibe, "factory, slackwatch, decide") {
 		t.Error("setup-vibe-coding.yml completion message missing slackwatch")
+	}
+}
+
+func TestDecideSkillInstall(t *testing.T) {
+	dir := ansiblePlaybookDir(t)
+	read := func(name string) string {
+		t.Helper()
+		content, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(content)
+	}
+
+	got := read("setup-decide.yml")
+	if !strings.Contains(got, "\n- import_playbook: decide.yml\n\n") {
+		t.Error("setup-decide.yml must import decide.yml on every platform")
+	}
+	for _, want := range []string{
+		"setup_decide_playbook_imported",
+		"decide_skill_paths:",
+		"{{ ansible_facts['env']['HOME'] }}/.claude/skills/decide/SKILL.md",
+		"command: go env GOPATH",
+		"ansible.builtin.shell: command -v decide",
+		"cmd: decide skill",
+		"strip_empty_ends: false",
+		"Skipping decide skill install because decide is not on PATH.",
+		"exited {{ decide_skill_output.rc | default('unknown') }}",
+		"printed nothing",
+		"path: \"{{ item | dirname }}\"",
+		"apply-text",
+		"decide-skill",
+		"Skipping decide skill apply-text because ensure.sh will",
+		"not (setup_dev_defer_skill_apply | default(false) | bool)",
+		"register: decide_skill_apply",
+		"changed_when: (decide_skill_apply.stdout | trim) == \"updated\"",
+		"loop: \"{{ decide_skill_paths }}\"",
+		"- decide",
+		"- skill",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("setup-decide.yml missing %q", want)
+		}
+	}
+	for _, unwanted := range []string{
+		"decide serve",
+		"launchctl",
+		"systemctl",
+		"content: \"{{ decide_skill_output.stdout }}\"",
+		"ansible.builtin.copy",
+	} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("setup-decide.yml must not mention %q", unwanted)
+		}
+	}
+
+	decide := read("decide.yml")
+	if !strings.Contains(decide, "command: go install github.com/jaeyeom/experimental/devtools/decide/cmd/decide@latest") {
+		t.Error("decide.yml missing go install of devtools/decide/cmd/decide")
+	}
+
+	vibe := read("setup-vibe-coding.yml")
+	if !strings.Contains(vibe, "- import_playbook: setup-slackwatch.yml\n- import_playbook: setup-decide.yml\n") {
+		t.Error("setup-vibe-coding.yml missing setup-decide import after setup-slackwatch")
+	}
+	if !strings.Contains(vibe, "slackwatch, decide, aside") {
+		t.Error("setup-vibe-coding.yml completion message missing decide")
 	}
 }
 

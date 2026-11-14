@@ -1,0 +1,154 @@
+---
+# Installs decide and writes its agent skill through verified-run
+# apply-text. Running decide as a service stays manual.
+- import_playbook: decide.yml
+
+- name: Ensure the decide agent skill is installed
+  hosts: all
+  vars:
+    # Each entry receives the same `decide skill` text. Add paths for
+    # other agents here; the tasks below loop over this list.
+    decide_skill_paths:
+      - "{{ ansible_facts['env']['HOME'] }}/.claude/skills/decide/SKILL.md"
+  tasks:
+    - name: Include guard for setup-decide playbook
+      block:
+        - name: Stop early if the setup-decide playbook is already included
+          meta: end_play
+          when: setup_decide_playbook_imported is defined
+        - name: Ensure the setup-decide playbook is not included
+          set_fact:
+            setup_decide_playbook_imported: true
+          when: setup_decide_playbook_imported is not defined
+
+    # The lookups below only read, so they also run under --check; that lets
+    # a check run report whether the skill file would change. A missing go
+    # leaves PATH as is.
+    - name: Determine GOPATH for decide commands
+      ansible.builtin.command: go env GOPATH
+      register: go_env_gopath
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      environment:
+        GOTOOLCHAIN: local
+      tags: [decide_skill]
+
+    - name: Set PATH for decide commands
+      set_fact:
+        decide_skill_env_path: >-
+          {{ (go_env_gopath.stdout ~ '/bin:')
+             if (go_env_gopath.rc | default(1)) == 0 and (go_env_gopath.stdout | default('') | length) > 0
+             else '' }}{{ ansible_facts['env']['PATH'] }}
+      tags: [decide_skill]
+
+    - name: Check whether decide is installed
+      ansible.builtin.shell: command -v decide
+      register: decide_skill_command_check
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      environment:
+        PATH: "{{ decide_skill_env_path }}"
+      tags: [decide_skill]
+
+    - name: Warn when decide is not installed
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Skipping decide skill install because decide is not on PATH.
+          Nothing was written.
+      when: decide_skill_command_check.rc != 0
+      tags: [decide_skill]
+
+    # strip_empty_ends would drop the trailing newline and make the installed
+    # file differ from `decide skill`. The file gets no header: skill
+    # frontmatter must stay first, and the file must match the output byte
+    # for byte.
+    - name: Read the decide agent skill
+      ansible.builtin.command:
+        cmd: decide skill
+        strip_empty_ends: false
+      register: decide_skill_output
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      when: decide_skill_command_check.rc == 0
+      environment:
+        PATH: "{{ decide_skill_env_path }}"
+      tags: [decide_skill]
+
+    - name: Warn when decide skill fails
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Skipping decide skill install because `decide skill`
+          exited {{ decide_skill_output.rc | default('unknown') }}.
+          Nothing was written.
+      when:
+        - decide_skill_command_check.rc == 0
+        - decide_skill_output.rc | default(1) != 0
+      tags: [decide_skill]
+
+    - name: Warn when decide skill prints nothing
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Skipping decide skill install because `decide skill`
+          printed nothing. Nothing was written.
+      when:
+        - decide_skill_command_check.rc == 0
+        - decide_skill_output.rc | default(1) == 0
+        - (decide_skill_output.stdout | default('') | trim | length) == 0
+      tags: [decide_skill]
+
+    - name: Ensure decide skill parent directories exist
+      ansible.builtin.file:
+        path: "{{ item | dirname }}"
+        state: directory
+        mode: '0755'
+      loop: "{{ decide_skill_paths }}"
+      when:
+        - decide_skill_command_check.rc == 0
+        - decide_skill_output.rc | default(1) == 0
+        - (decide_skill_output.stdout | default('') | trim | length) > 0
+      tags: [decide_skill]
+
+    # ensure.sh passes setup_dev_defer_skill_apply so it can review in a
+    # shell that has a terminal and write the file afterward. This task
+    # warns and does not run apply-text in that case. A direct
+    # ansible-playbook run leaves the var unset, so a new or changed skill
+    # fails the install task below and prints the review-text command.
+    - name: Warn when ensure.sh will write the decide agent skill
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Skipping decide skill apply-text because ensure.sh will
+          review and write it after the playbooks.
+      when:
+        - setup_dev_defer_skill_apply | default(false) | bool
+        - decide_skill_command_check.rc == 0
+        - decide_skill_output.rc | default(1) == 0
+        - (decide_skill_output.stdout | default('') | trim | length) > 0
+      tags: [decide_skill]
+
+    # apply-text writes the raw `decide skill` bytes when they match the
+    # stored approval. Stdout is `updated` or `unchanged`. Under --check the
+    # command module does not run it, so nothing is approved or written.
+    - name: Install the decide agent skill
+      ansible.builtin.command:
+        argv:
+          - "{{ playbook_dir }}/verified-run"
+          - apply-text
+          - decide-skill
+          - "{{ item }}"
+          - "--"
+          - decide
+          - skill
+      loop: "{{ decide_skill_paths }}"
+      register: decide_skill_apply
+      changed_when: (decide_skill_apply.stdout | trim) == "updated"
+      when:
+        - not (setup_dev_defer_skill_apply | default(false) | bool)
+        - decide_skill_command_check.rc == 0
+        - decide_skill_output.rc | default(1) == 0
+        - (decide_skill_output.stdout | default('') | trim | length) > 0
+      environment:
+        PATH: "{{ decide_skill_env_path }}"
+      tags: [decide_skill]
