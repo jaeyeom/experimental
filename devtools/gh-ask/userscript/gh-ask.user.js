@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         gh-ask
 // @namespace    https://github.com/jaeyeom/experimental/tree/main/devtools/gh-ask
-// @version      0.1.5
+// @version      0.1.6
 // @description  Ask a local agent about lines in a pull request diff, through gh-ask serve on 127.0.0.1.
 // @match        https://github.com/*
 // @grant        GM_xmlhttpRequest
@@ -405,12 +405,30 @@ function buildPayload({ href, headSha, start, end, selection, question, deep }) 
 }
 
 // prHeader is the pull request title, where the whole-PR button sits.
+// The classic title comes first. Otherwise it is an h1 whose parent or
+// grandparent has data-component="TitleArea".
 function prHeader(root) {
   const found = findAll(
     root,
     (e) => classes(e).includes("js-issue-title") || e.getAttribute("data-testid") === "issue-title",
   );
-  return found[0] || null;
+  if (found[0]) {
+    return found[0];
+  }
+  const titles = findAll(root, (e) => e.tagName === "H1" && inTitleArea(e));
+  return titles[0] || null;
+}
+
+// inTitleArea reports whether el's parent or grandparent is a TitleArea.
+function inTitleArea(el) {
+  let e = el.parentElement;
+  for (let i = 0; i < 2 && e; i++) {
+    if (e.getAttribute("data-component") === "TitleArea") {
+      return true;
+    }
+    e = e.parentElement;
+  }
+  return false;
 }
 
 // buildWholePrPayload is a question about the pull request, with no file
