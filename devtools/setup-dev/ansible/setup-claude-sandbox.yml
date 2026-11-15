@@ -142,6 +142,8 @@
           - "Bash(head *)"     # Read-only filter
           - "Bash(jq *)"       # Read-only JSON processor
           - "Bash(npm test *)"
+          # npm auth helper for an Artifact Registry repo (rewrites ~/.npmrc token)
+          - "Bash(npx -y google-artifactregistry-auth)"
           - "Bash(pwd *)"      # Read-only: prints working directory
           - "Bash(rg *)"       # Safe: read-only search tool, no exec capability
           - "Bash(ruff *)"
@@ -274,6 +276,9 @@
     # combine replaces lists and keeps an old allowedHosts key. Build the
     # allowlist first: existing allowedDomains, then allowedHosts, then
     # this playbook, first occurrence wins. Then drop allowedHosts.
+    # permissions.allow and permissions.deny are the same kind of union:
+    # rules already in settings.json stay, in front, and the playbook
+    # adds only the ones that are missing.
     - name: Parse current settings and compute merged result
       vars:
         claude_current: "{{ current_settings_raw.content | b64decode | from_json }}"
@@ -288,6 +293,21 @@
             + (claude_existing_hosts | reject('in', claude_existing_domains) | list)
             + (claude_playbook_domains | reject('in', claude_seen) | list)
           }}
+        claude_permissions: "{{ claude_current.permissions | default({}, true) }}"
+        claude_existing_allow: "{{ claude_permissions.allow | default([], true) }}"
+        claude_existing_deny: "{{ claude_permissions.deny | default([], true) }}"
+        claude_playbook_allow: "{{ sandbox_config.permissions.allow }}"
+        claude_playbook_deny: "{{ sandbox_config.permissions.deny | default([], true) }}"
+        claude_merged_allow: >-
+          {{
+            claude_existing_allow
+            + (claude_playbook_allow | reject('in', claude_existing_allow) | list)
+          }}
+        claude_merged_deny: >-
+          {{
+            claude_existing_deny
+            + (claude_playbook_deny | reject('in', claude_existing_deny) | list)
+          }}
         claude_merged_config: >-
           {{
             sandbox_config | combine({
@@ -295,6 +315,10 @@
                 'network': {
                   'allowedDomains': claude_merged_domains
                 }
+              },
+              'permissions': {
+                'allow': claude_merged_allow,
+                'deny': claude_merged_deny
               }
             }, recursive=True)
           }}
