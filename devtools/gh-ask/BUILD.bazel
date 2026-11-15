@@ -28,11 +28,13 @@ go_test(
         "listen_test.go",
         "message_test.go",
         "ratelimit_test.go",
+        "readme_test.go",
         "server_test.go",
         "state_test.go",
         "thread_test.go",
         "token_test.go",
     ],
+    data = ["README.org"],
     embed = [":go_default_library"],
 )
 
