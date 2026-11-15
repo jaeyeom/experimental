@@ -47,6 +47,31 @@ func TestNotifyAgentbusFailure(t *testing.T) {
 	}
 }
 
+func TestNotifyAndOwnerShareAcceptedBusSend(t *testing.T) {
+	writeConfig(t, `{"notifyTemplate":"false {pane}"}`)
+	item := &Item{ID: "D-7", NotifyPane: "agentbus:ops/x", Answer: &Answer{Value: "ship", AnsweredBy: "human"}}
+	cases := []struct {
+		name    string
+		script  string
+		wantErr bool
+	}{
+		{name: "queued", script: "#!/bin/sh\nprintf '%s\\n' 'm-1 queued for delivery'\n"},
+		{name: "held exit 3", script: "#!/bin/sh\nprintf '%s\\n' 'm-1 held: hibernated'\necho 'agentbus: held' >&2\nexit 3\n"},
+		{name: "exit 1", script: "#!/bin/sh\necho 'agentbus: down' >&2\nexit 1\n", wantErr: true},
+		{name: "error json", script: "#!/bin/sh\nprintf '%s\\n' '{\"error\":{\"code\":\"agent_not_found\"}}'\n", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			installProgram(t, "agentbus", tc.script)
+			nerr := Notify(item, &strings.Builder{})
+			oerr := NotifyOwner("agentbus:ops/x", "", "D-7", "hello")
+			if (nerr != nil) != tc.wantErr || (oerr != nil) != tc.wantErr {
+				t.Fatalf("notify err %v, owner err %v, want error %v", nerr, oerr, tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestNotifyAgentbusHeldAndQueued(t *testing.T) {
 	writeConfig(t, `{"notifyTemplate":"true"}`)
 	item := &Item{ID: "D-7", NotifyPane: "agentbus:ops/x", Answer: &Answer{Value: "ship", AnsweredBy: "human"}}

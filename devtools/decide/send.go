@@ -260,7 +260,7 @@ func missedTarget(text string) string {
 }
 
 // undeliveredBus reports an agentbus send that was held or queued.
-// Those states exit 0 and are not delivery.
+// The message was accepted. classifyBusSend records that as queued.
 func undeliveredBus(stdout string) error {
 	if !busStateHeldOrQueued(busSendState(stdout)) {
 		return nil
@@ -294,6 +294,24 @@ func busStateHeldOrQueued(state string) bool {
 	return state == "held" || state == "queued" ||
 		strings.HasPrefix(state, "held:") || strings.HasPrefix(state, "held ") ||
 		strings.HasPrefix(state, "queued:") || strings.HasPrefix(state, "queued ")
+}
+
+// classifyBusSend decides whether agentbus send accepted the message.
+// Held or queued stdout is accepted, including the held exit 3.
+// queued is true when the bus held or queued the message instead of
+// delivering it now. A non-zero exit other than that, or JSON with a
+// top-level error object, is an error.
+func classifyBusSend(stdout string, runErr error) (queued bool, err error) {
+	if err := stdoutDeliveryError(stdout); err != nil {
+		return false, err
+	}
+	if undeliveredBus(stdout) != nil {
+		return true, nil
+	}
+	if runErr != nil {
+		return false, fmt.Errorf("agentbus send: %w", runErr)
+	}
+	return false, nil
 }
 
 // runOnMachine runs program with `--machine machine args...` under

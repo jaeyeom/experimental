@@ -420,16 +420,7 @@ func notifyBus(item *Item, name string) (string, string, error) {
 		"send", name, DeliveryNote(item.ID, answeredBy, answer),
 		"--client-id", DeliveryKey(item),
 	})
-	if err != nil {
-		return target, OutcomeFailed, logDelivery(item.ID, fmt.Errorf("notify: %w", err))
-	}
-	if undeliveredBus(string(out)) != nil {
-		return target, OutcomeQueued, nil
-	}
-	if err := stdoutDeliveryError(string(out)); err != nil {
-		return target, OutcomeFailed, logDelivery(item.ID, fmt.Errorf("notify: %w", err))
-	}
-	return target, OutcomeDelivered, nil
+	return busSendOutcome(target, item.ID, string(out), err)
 }
 
 func answerFields(item *Item) (value, by string) {
@@ -439,20 +430,25 @@ func answerFields(item *Item) (value, by string) {
 	return "", ""
 }
 
-// deliverBus runs agentbus send. A non-zero exit, a held or queued
-// state, or JSON with a top-level error object is not delivery.
+// deliverBus runs agentbus send for a compose follow-up. Acceptance is
+// classifyBusSend, the same rule as an answer notification.
 func deliverBus(id, name, text string) error {
 	out, err := ExecAgentbus(context.Background(), []string{"send", name, text})
+	_, _, accErr := busSendOutcome("", id, string(out), err)
+	return accErr
+}
+
+// busSendOutcome applies classifyBusSend. A held or queued message is
+// OutcomeQueued with a nil error. id is only used when logging a failure.
+func busSendOutcome(target, id, stdout string, runErr error) (string, string, error) {
+	queued, err := classifyBusSend(stdout, runErr)
 	if err != nil {
-		return logDelivery(id, fmt.Errorf("notify: %w", err))
+		return target, OutcomeFailed, logDelivery(id, fmt.Errorf("notify: %w", err))
 	}
-	if err := undeliveredBus(string(out)); err != nil {
-		return logDelivery(id, fmt.Errorf("notify: %w", err))
+	if queued {
+		return target, OutcomeQueued, nil
 	}
-	if err := stdoutDeliveryError(string(out)); err != nil {
-		return logDelivery(id, fmt.Errorf("notify: %w", err))
-	}
-	return nil
+	return target, OutcomeDelivered, nil
 }
 
 func logDelivery(id string, err error) error {

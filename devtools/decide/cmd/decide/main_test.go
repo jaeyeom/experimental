@@ -485,6 +485,46 @@ func readDump(t *testing.T, dump, name string) string {
 	return string(data)
 }
 
+func TestComposeBusSendAcceptance(t *testing.T) {
+	cases := []struct {
+		name   string
+		script string
+		want   int
+	}{
+		{name: "queued", script: "#!/bin/sh\nprintf '%s\\n' 'm-1 queued for delivery'\n"},
+		{name: "held", script: "#!/bin/sh\nprintf '%s\\n' 'm-1 held: hibernated'\necho 'agentbus: held' >&2\nexit 3\n"},
+		{name: "exit", script: "#!/bin/sh\necho 'agentbus: down' >&2\nexit 1\n", want: 1},
+		{name: "json", script: "#!/bin/sh\nprintf '%s\\n' '{\"error\":{\"code\":\"agent_not_found\"}}'\n", want: 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("XDG_STATE_HOME", t.TempDir())
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			bin := filepath.Join(t.TempDir(), "bin")
+			if err := os.MkdirAll(bin, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(bin, "agentbus"), []byte(tc.script), 0o755); err != nil { //nolint:gosec // test sentinel script
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+			id := askRelay(t, []string{"--notify-pane", "agentbus:ops/x"}, "bus target")
+			_, stderr, code := runCLI("send", "--id", id, "follow up")
+			if code != tc.want {
+				t.Fatalf("send --id code = %d, want %d\n%s", code, tc.want, stderr)
+			}
+			got := showJSON(t, id)
+			if tc.want == 0 && got.NotifyError != "" {
+				t.Fatalf("notifyError = %q", got.NotifyError)
+			}
+			if tc.want != 0 && got.NotifyError == "" {
+				t.Fatal("notifyError is empty")
+			}
+		})
+	}
+}
+
 func TestAnswerBusFailureIsOnShow(t *testing.T) {
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
