@@ -418,9 +418,101 @@ test("the script only connects to loopback", () => {
 const POPOVER_W = 360;
 const MARGIN = 8;
 
-test("userscript version is 0.1.2", () => {
+test("userscript version is 0.1.3", () => {
   const src = fs.readFileSync(path.join(__dirname, "gh-ask.user.js"), "utf8");
-  assert.match(src, /^\/\/ @version\s+0\.1\.2$/m);
+  assert.match(src, /^\/\/ @version\s+0\.1\.3$/m);
+});
+
+function keyEvent(extra) {
+  return {
+    key: "Enter",
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    shiftKey: false,
+    prevented: false,
+    stopped: false,
+    preventDefault() {
+      this.prevented = true;
+    },
+    stopPropagation() {
+      this.stopped = true;
+    },
+    ...extra,
+  };
+}
+
+test("ctrl+enter and meta+enter send once from the question box", () => {
+  for (const extra of [{ ctrlKey: true }, { metaKey: true }, { ctrlKey: true, metaKey: true }]) {
+    const sends = [];
+    const event = keyEvent(extra);
+    let page = 0;
+    const popover = () => {
+      G.onPopoverKey(event, {
+        question: "Why?",
+        sending: false,
+        send: () => sends.push("send"),
+        close: () => sends.push("close"),
+      });
+    };
+    popover();
+    if (!event.stopped) {
+      page += 1;
+    }
+    assert.deepEqual(sends, ["send"]);
+    assert.equal(event.prevented, true);
+    assert.equal(page, 0);
+  }
+});
+
+test("plain enter does not send", () => {
+  const event = keyEvent();
+  let sends = 0;
+  G.onPopoverKey(event, {
+    question: "Why?",
+    sending: false,
+    send: () => {
+      sends += 1;
+    },
+    close() {},
+  });
+  assert.equal(sends, 0);
+  assert.equal(event.prevented, false);
+  assert.equal(event.stopped, false);
+});
+
+test("an empty question or a send in flight does not send", () => {
+  for (const ctx of [
+    { question: "  ", sending: false },
+    { question: "Why?", sending: true },
+  ]) {
+    const event = keyEvent({ ctrlKey: true });
+    let sends = 0;
+    G.onPopoverKey(event, {
+      ...ctx,
+      send: () => {
+        sends += 1;
+      },
+      close() {},
+    });
+    assert.equal(sends, 0);
+    assert.equal(event.stopped, true);
+  }
+});
+
+test("ctrl+enter does nothing while the popover is closed", () => {
+  const src = fs.readFileSync(path.join(__dirname, "gh-ask.user.js"), "utf8");
+  const main = src.slice(src.indexOf("function main("));
+  assert.match(main, /popover\.addEventListener\("keydown"/);
+  assert.doesNotMatch(
+    main,
+    /(?:document|window)\.addEventListener\("keydown"[\s\S]{0,200}(?:ctrlKey|metaKey)/,
+  );
+});
+
+test("send button names the shortcut", () => {
+  const src = fs.readFileSync(path.join(__dirname, "gh-ask.user.js"), "utf8");
+  assert.match(src, /Send \(⌘↵ \/ Ctrl\+↵\)/);
 });
 
 test("header button builds a whole-PR payload", () => {
