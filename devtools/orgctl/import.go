@@ -215,7 +215,7 @@ func slugJobs(jobs []LiveCron, files map[string]string) []importSchedule {
 		if len([]rune(text)) > importPromptLimit {
 			path := "prompts/" + id + ".txt"
 			files[path] = text
-			expr = "read(" + pklQuote(path) + ")"
+			expr = "read(" + pklQuote(path) + ").text"
 		}
 		out = append(out, importSchedule{id: id, cron: cron, prompt: expr})
 	}
