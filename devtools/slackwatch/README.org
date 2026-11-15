@@ -333,9 +333,9 @@ off until ~post.mode~ is set; without it, ~post~ refuses.
 | ~outbox ls [--state S] [--json]~ | List outbox records. |
 | ~outbox show <id> [--json]~ | Show a record, ending with its exact text. |
 | ~outbox posted [--manual] <id> <permalink>~ | Report a handoff post, or with ~--manual~ a post made by hand. |
-| ~outbox recheck <id>~ | Read a mismatch post back again with the current config. A pass moves it to ~posted~. A failure prints the remaining problems and exits non-zero. Either way the result is replied on the decide item, which is then closed. |
+| ~outbox recheck <id>~ | Read a mismatch post back again with the current config. A pass moves it to ~posted~. A failure prints the remaining problems and exits non-zero. A post that was deleted moves the record to ~cancelled~ with the reason ~post deleted~. Either way the result is replied on the decide item, which is then closed. Nothing is posted. |
 | ~outbox poke <decide-id>~ | Handle the answer to a decide item now. |
-| ~outbox cancel <id> [--reason S]~ | Withdraw a draft that is not posted. |
+| ~outbox cancel <id> [reason \vert --reason S]~ | Withdraw a draft that is not posted. A ~mismatch~ record, or a ~posted~ record whose message is gone, is closed too, for example ~outbox cancel 12 "post deleted"~. |
 | ~outbox retry <id>~ | Post a failed direct record once, or return a failed handoff record to ~awaiting-handoff~. |
 | ~outbox repair [--channel <id>=<D…> ...]~ | With no ~--channel~, list records whose channel is still a user id. It does not call Slack. With ~--channel~, rewrite only those records and their watches onto the given ~D…~ channel, merging a duplicate watch. A record whose channel is in ~inbound.ignoreChannels~ is printed as ~skipped (ignored channel)~ and left unchanged, even when a mapping names it. |
 | ~pin~ | Check the write token with ~auth.test~ and pin it in the config. |
@@ -535,7 +535,7 @@ returned it. The stored reason stays the Slack error.
 | ~dropped~ | Answered ~drop~. |
 | ~rejected~ | Not posted: the user's latest pick was not a ~post~ from the decide UI, or the text changed. |
 | ~mismatch~ | The handoff post differs from the approved text, author, or destination. |
-| ~cancelled~ | Withdrawn with ~outbox cancel~, or its decide item was closed without an answer. |
+| ~cancelled~ | Withdrawn with ~outbox cancel~, its decide item was closed without an answer, or its post was deleted (~outbox recheck~). ~status~ does not count it. |
 | ~failed~ | ~decide ask~ or ~chat.postMessage~ failed. ~outbox retry~, or a new ~post~ pick in its decide item, resumes it. |
 
 ~status~ shows the posting mode and counts the ~pending~,

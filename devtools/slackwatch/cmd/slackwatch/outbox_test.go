@@ -517,6 +517,57 @@ func TestOutboxRecheck(t *testing.T) {
 	}
 }
 
+// mismatchEnv is a handoff env whose record 1 is a mismatch.
+func mismatchEnv(t *testing.T) *postEnv {
+	t.Helper()
+	e := newPostEnv(t, handoffPost)
+	e.submit()
+	e.dec.answerPost("D-1")
+	e.ok("outbox", "poke", "D-1")
+	e.readText = cmdText + " *Sent using* <@U1>"
+	e.ok("outbox", "posted", "1", cmdPostedLink)
+	if r := e.record(); r.State != slackwatch.OutboxMismatch {
+		t.Fatalf("state = %s", r.State)
+	}
+	return e
+}
+
+func TestOutboxRecheckPostDeleted(t *testing.T) {
+	e := mismatchEnv(t)
+	e.history = func(int, url.Values) (string, string, string) { return cmdExpectUser, "other", "1.000000" }
+	posts := len(e.posts)
+	out := e.ok("outbox", "recheck", "1")
+	if !strings.Contains(out, "outbox 1 cancelled: post deleted") {
+		t.Fatalf("recheck printed %q", out)
+	}
+	if r := e.record(); r.State != slackwatch.OutboxCancelled || r.Reason != "post deleted" {
+		t.Fatalf("record = %+v", r)
+	}
+	if len(e.posts) != posts {
+		t.Fatalf("posts = %d, want %d", len(e.posts), posts)
+	}
+	if e.dec.outcomes["D-1"] != "cancelled: post deleted" {
+		t.Fatalf("outcome = %q", e.dec.outcomes["D-1"])
+	}
+}
+
+func TestOutboxCancelMismatch(t *testing.T) {
+	e := mismatchEnv(t)
+	out := e.ok("outbox", "cancel", "1", "post deleted")
+	if !strings.Contains(out, "outbox 1 cancelled") {
+		t.Fatalf("cancel printed %q", out)
+	}
+	if r := e.record(); r.State != slackwatch.OutboxCancelled || r.Reason != "post deleted" {
+		t.Fatalf("record = %+v", r)
+	}
+	if e.dec.outcomes["D-1"] != "cancelled: post deleted" {
+		t.Fatalf("outcome = %q", e.dec.outcomes["D-1"])
+	}
+	if _, errOut, code := e.run("outbox", "cancel", "1", "a", "--reason", "b"); code != 2 {
+		t.Fatalf("two reasons exit = %d, stderr %q", code, errOut)
+	}
+}
+
 func TestPostDirectPostsWithFooter(t *testing.T) {
 	e := newDirectEnv(t, "")
 	e.submit()

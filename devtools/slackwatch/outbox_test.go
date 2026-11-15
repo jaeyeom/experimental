@@ -164,6 +164,7 @@ func (w *fakeWriter) PostMessage(_ context.Context, token, channel, thread, text
 // fakeReader returns one canned message and a canned recent history.
 type fakeReader struct {
 	msg         Message
+	err         error // Message returns err when set
 	calls       int
 	recent      []Message
 	recentErr   error
@@ -174,6 +175,9 @@ type fakeReader struct {
 
 func (r *fakeReader) Message(_ context.Context, channel, ts, _ string) (Message, error) {
 	r.calls++
+	if r.err != nil {
+		return Message{}, r.err
+	}
 	m := r.msg
 	m.Channel, m.TS = channel, ts
 	return m, nil
@@ -2103,6 +2107,115 @@ func TestOutcomeReplyRecheck(t *testing.T) {
 			t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
 		}
 	})
+}
+
+// mismatchRecord is a handoff record posted with a footer the config
+// does not strip, so it is a mismatch. The decide log is cleared.
+func mismatchRecord(t *testing.T) (*outboxFixture, OutboxRecord) {
+	t.Helper()
+	f := newOutboxFixture(t, PostModeHandoff)
+	r := approveHandoff(t, f)
+	f.reader.msg = Message{User: expectUser, Text: approvedText + " *Sent using* <@U1>"}
+	got, err := f.ob.Posted(context.Background(), r.ID, postedLink)
+	if err != nil || got.State != OutboxMismatch {
+		t.Fatalf("posted = %+v, %v", got, err)
+	}
+	f.dec.log = nil
+	return f, got
+}
+
+func TestRecheckPostDeleted(t *testing.T) {
+	f, r := mismatchRecord(t)
+	posts := len(f.writer.posts)
+	f.reader.err = fmt.Errorf("slack conversations.history: %w", ErrMessageNotFound)
+	got, err := f.ob.Recheck(context.Background(), r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != OutboxCancelled || got.Reason != "post deleted" {
+		t.Fatalf("record = %+v, want cancelled: post deleted", got)
+	}
+	if len(f.writer.posts) != posts {
+		t.Fatalf("posts = %d, want %d", len(f.writer.posts), posts)
+	}
+	want := []string{
+		"reply: The posted message " + postedLink + " was deleted; outbox " + fmt.Sprint(r.ID) + " is cancelled: post deleted",
+		"done: cancelled: post deleted",
+	}
+	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
+		t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
+	}
+	w, err := f.store.FindWatch(PostRef{WatchID: got.WatchID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Flag != "" {
+		t.Errorf("watch flag = %q", w.Flag)
+	}
+	if c, err := f.store.OutboxCounts(); err != nil || c != (OutboxCounts{}) {
+		t.Errorf("counts = %+v, %v", c, err)
+	}
+}
+
+func TestRecheckReadErrorKeepsMismatch(t *testing.T) {
+	f, r := mismatchRecord(t)
+	f.reader.err = errors.New("slack conversations.history: ratelimited")
+	if _, err := f.ob.Recheck(context.Background(), r.ID); err == nil {
+		t.Fatal("recheck passed")
+	}
+	if got := f.get(t, r.ID); got.State != OutboxMismatch {
+		t.Fatalf("record = %+v, want mismatch", got)
+	}
+}
+
+func TestCancelMismatch(t *testing.T) {
+	f, r := mismatchRecord(t)
+	got, err := f.ob.Cancel(context.Background(), r.ID, "post deleted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != OutboxCancelled || got.Reason != "post deleted" {
+		t.Fatalf("record = %+v", got)
+	}
+	want := []string{"reply: Cancelled: post deleted", "done: cancelled: post deleted"}
+	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
+		t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
+	}
+	w, err := f.store.FindWatch(PostRef{WatchID: got.WatchID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Flag != "" {
+		t.Errorf("watch flag = %q", w.Flag)
+	}
+}
+
+func TestCancelPosted(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	f.reader.msg = Message{User: expectUser, Text: approvedText}
+	r, err := f.ob.Posted(context.Background(), approveHandoff(t, f).ID, postedLink)
+	if err != nil || r.State != OutboxPosted {
+		t.Fatalf("posted = %+v, %v", r, err)
+	}
+	if _, err := f.ob.Cancel(context.Background(), r.ID, "post deleted"); err == nil || !strings.Contains(err.Error(), "still there") {
+		t.Fatalf("cancel of a live post = %v", err)
+	}
+	if got := f.get(t, r.ID); got.State != OutboxPosted {
+		t.Fatalf("record = %+v, want posted", got)
+	}
+	f.dec.log = nil
+	f.reader.err = ErrMessageNotFound
+	got, err := f.ob.Cancel(context.Background(), r.ID, "post deleted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != OutboxCancelled || got.Reason != "post deleted" {
+		t.Fatalf("record = %+v", got)
+	}
+	want := []string{"reply: Cancelled: post deleted", "done: cancelled: post deleted"}
+	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
+		t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
+	}
 }
 
 // failedThenAnswered is failedDirect with a later clock: the failure is

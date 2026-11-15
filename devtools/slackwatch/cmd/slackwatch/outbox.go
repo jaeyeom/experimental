@@ -536,6 +536,10 @@ func cmdOutboxRecheck(configPath string, args []string, stdout, stderr io.Writer
 		if err != nil {
 			return err //nolint:wrapcheck // Already descriptive.
 		}
+		if r.State == slackwatch.OutboxCancelled {
+			fmt.Fprintf(stdout, "outbox %d cancelled: %s\n", r.ID, r.Reason)
+			return nil
+		}
 		fmt.Fprintf(stdout, "outbox %d posted\n", r.ID)
 		return nil
 	})
@@ -573,8 +577,14 @@ func cmdOutboxCancel(configPath string, args []string, stdout, stderr io.Writer)
 	if err != nil {
 		return 2
 	}
-	if len(pos) != 1 {
-		return usageErr(stderr, errors.New("outbox cancel needs one outbox id"))
+	if len(pos) < 1 || len(pos) > 2 {
+		return usageErr(stderr, errors.New("outbox cancel needs one outbox id and an optional reason"))
+	}
+	if len(pos) == 2 {
+		if *reason != "" {
+			return usageErr(stderr, errors.New("outbox cancel takes the reason once, as an argument or --reason"))
+		}
+		*reason = pos[1]
 	}
 	id, err := outboxID(pos[0])
 	if err != nil {

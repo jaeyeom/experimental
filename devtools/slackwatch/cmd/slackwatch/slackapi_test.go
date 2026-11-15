@@ -203,6 +203,29 @@ func TestSlackReaderRateLimit(t *testing.T) {
 	}
 }
 
+func TestSlackReaderMessageNotFound(t *testing.T) {
+	for name, tc := range map[string]struct {
+		thread, body string
+	}{
+		"history empty":     {body: `{"ok":true,"messages":[]}`},
+		"history other ts":  {body: `{"ok":true,"messages":[{"type":"message","user":"U1","text":"x","ts":"2.000100"}]}`},
+		"thread not found":  {thread: "1.000100", body: `{"ok":false,"error":"thread_not_found"}`},
+		"message not found": {thread: "1.000100", body: `{"ok":false,"error":"message_not_found"}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := fakeSlackAPI(t, func(string, *http.Request) (int, string) { return 200, tc.body })
+			_, err := r.Message(context.Background(), "C1", "1.000200", tc.thread)
+			if !errors.Is(err, slackwatch.ErrMessageNotFound) {
+				t.Fatalf("err = %v, want ErrMessageNotFound", err)
+			}
+		})
+	}
+	r := fakeSlackAPI(t, func(string, *http.Request) (int, string) { return 200, `{"ok":false,"error":"channel_not_found"}` })
+	if _, err := r.Message(context.Background(), "C1", "1.000200", ""); err == nil || errors.Is(err, slackwatch.ErrMessageNotFound) {
+		t.Fatalf("channel_not_found err = %v", err)
+	}
+}
+
 func TestNewProcessorStoresTeamURL(t *testing.T) {
 	r := fakeSlackAPI(t, func(method string, _ *http.Request) (int, string) {
 		if method != "auth.test" {
