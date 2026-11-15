@@ -65,14 +65,8 @@ type importSchedule struct {
 }
 
 func importRoles(live Live) ([]importRole, []string) {
-	byPane := map[string]LiveAgent{}
 	byName := map[string]LiveAgent{}
 	for _, agent := range live.Agents {
-		if agent.Pane != "" {
-			if _, ok := byPane[agent.Pane]; !ok {
-				byPane[agent.Pane] = agent
-			}
-		}
 		if agent.Name != "" {
 			if _, ok := byName[agent.Name]; !ok {
 				byName[agent.Name] = agent
@@ -91,7 +85,7 @@ func importRoles(live Live) ([]importRole, []string) {
 			gone = append(gone, item.Name)
 			continue
 		}
-		agent, _ := agentFor(item, byPane, byName)
+		agent, _ := agentFor(item, live, byName)
 		roles = append(roles, roleFrom(item, agent))
 	}
 	slices.SortFunc(roles, func(a, b importRole) int {
@@ -102,10 +96,9 @@ func importRoles(live Live) ([]importRole, []string) {
 	return roles, gone
 }
 
-func agentFor(item LiveName, byPane, byName map[string]LiveAgent) (LiveAgent, bool) {
+func agentFor(item LiveName, live Live, byName map[string]LiveAgent) (LiveAgent, bool) {
 	if item.Pane != "" {
-		agent, ok := byPane[item.Pane]
-		return agent, ok
+		return paneAgent(live, item.Pane)
 	}
 	agent, ok := byName[item.Name]
 	return agent, ok
