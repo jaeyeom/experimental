@@ -186,11 +186,62 @@ func TestImportLongPrompt(t *testing.T) {
 		Crons: []LiveCron{{CreatedBySessionID: "sess-1", Cron: "0 9 * * *", Prompt: prompt}},
 	}
 	rendered := RenderImport(live, "Org.pkl")
-	if strings.Contains(rendered.Stub, prompt) || !strings.Contains(rendered.Stub, `prompt = read("prompts/word-word-word-word.txt")`) {
+	if strings.Contains(rendered.Stub, prompt) || !strings.Contains(rendered.Stub, `prompt = read("prompts/word-word-word-word.txt").text`) {
 		t.Fatalf("stub =\n%s", rendered.Stub)
 	}
 	if rendered.Files["prompts/word-word-word-word.txt"] != prompt {
 		t.Fatalf("files = %#v", rendered.Files)
+	}
+}
+
+func TestImportLongPromptEvaluates(t *testing.T) {
+	prompt := strings.Repeat("word ", 39) + "tails"
+	if len(prompt) != 200 {
+		t.Fatalf("prompt length %d, want 200", len(prompt))
+	}
+	live := Live{
+		Names: []LiveName{{Name: "desk/one", SessionID: "sess-1", Server: "local"}},
+		Agents: []LiveAgent{{
+			Name: "desk/one", Workspace: "org-a", Tab: "one", Cwd: "/work/one", Kind: "grok", Machine: "local",
+		}},
+		Crons: []LiveCron{{CreatedBySessionID: "sess-1", Cron: "0 9 * * *", Prompt: prompt}},
+	}
+	amends := filepath.Join(orgctlRoot(t), "pkl", "Org.pkl")
+	rendered := RenderImport(live, amends)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "org.pkl")
+	if err := os.WriteFile(path, []byte(rendered.Stub), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for rel, body := range rendered.Files {
+		dest := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(dest, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stdout, stderr, code := evalPkl(t, path)
+	if code != 0 {
+		t.Fatalf("pkl eval exit %d\n%s\n%s", code, stderr, rendered.Stub)
+	}
+	spec, err := Decode(stdout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := spec.CheckDecides(nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := spec.CheckCwd(); err != nil {
+		t.Fatal(err)
+	}
+	if err := spec.CheckPatterns(); err != nil {
+		t.Fatal(err)
+	}
+	got := spec.Roles["desk/one"].Schedules
+	if len(got) != 1 || got[0].Prompt != prompt {
+		t.Fatalf("schedules = %+v", got)
 	}
 }
 

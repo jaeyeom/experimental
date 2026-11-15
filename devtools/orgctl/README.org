@@ -106,7 +106,7 @@ alive or unreachable, is a comment (~// gone: NAME~), not a role.
 A durable job is attached to the role whose handle session created
 it. The schedule id is a slug of the prompt's first four words. A
 prompt of at most 80 characters is copied into the stub. A longer
-prompt is ~read("prompts/<id>.txt")~, and ~--out~ writes the full
+prompt is ~read("prompts/<id>.txt").text~, and ~--out~ writes the full
 prompt beside the stub. A job with no matching role is a trailing
 comment.
 
