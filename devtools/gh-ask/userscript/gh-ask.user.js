@@ -1,10 +1,9 @@
 // ==UserScript==
 // @name         gh-ask
 // @namespace    https://github.com/jaeyeom/experimental/tree/main/devtools/gh-ask
-// @version      0.1.3
+// @version      0.1.4
 // @description  Ask a local agent about lines in a pull request diff, through gh-ask serve on 127.0.0.1.
-// @match        https://github.com/*/*/pull/*/files*
-// @match        https://github.com/*/*/pull/*/changes*
+// @match        https://github.com/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -18,8 +17,10 @@
 // The first half of this file is pure: it reads a DOM-like tree through
 // tagName, getAttribute, parentElement, children and textContent only,
 // so gh-ask.test.js runs it in node against testdata/ fixtures. The
-// browser glue, main(), is the only code that uses document, window or
-// GM_* functions. It sends requests only to http://127.0.0.1:<port>.
+// browser glue (registerMenu, main, and boot) is the only code that uses
+// document, window, or GM_* functions. bindPage takes those as arguments
+// so tests can drive navigation without a browser. Requests go only to
+// http://127.0.0.1:<port>.
 
 // Limits from devtools/gh-ask/message.go.
 const MAX_SELECTION_BYTES = 4 << 10;
@@ -609,13 +610,109 @@ function placeInView(anchor, size, viewport) {
   return { left, top, width };
 }
 
+// isDiffPath reports a pull request files or changes view. GitHub's
+// soft navigation keeps one document, so the script matches every
+// github.com page and activates only for this path.
+const DIFF_PATH_RE = /^\/[^/]+\/[^/]+\/pull\/\d+\/(files|changes)(\/|$)/;
+
+function isDiffPath(pathname) {
+  return DIFF_PATH_RE.test(pathname || "");
+}
+
+// navDebounceMs batches turbo and history events into one activation check.
+const navDebounceMs = 100;
+const NAV_EVENT = "gh-ask:navigate";
+
+// bindPage watches pathname and calls activate() on a diff view.
+// activate returns a function that removes that session. A later diff
+// view deactivates the previous one first, so buttons are not duplicated.
+// Other pages only compare the path.
+function bindPage(page) {
+  let activePath = null;
+  let stopSession = null;
+  let timer = null;
+
+  function sync() {
+    timer = null;
+    const path = page.location.pathname || "";
+    if (isDiffPath(path)) {
+      if (activePath === path) {
+        return;
+      }
+      if (stopSession) {
+        stopSession();
+        stopSession = null;
+      }
+      stopSession = page.activate();
+      activePath = path;
+      return;
+    }
+    if (stopSession) {
+      stopSession();
+      stopSession = null;
+    }
+    activePath = null;
+  }
+
+  function schedule() {
+    if (timer !== null) {
+      page.clearTimeout(timer);
+    }
+    timer = page.setTimeout(sync, navDebounceMs);
+  }
+
+  const history = page.history;
+  const original = {
+    pushState: history.pushState,
+    replaceState: history.replaceState,
+  };
+  for (const name of ["pushState", "replaceState"]) {
+    const orig = original[name];
+    history[name] = function patchedHistory(...args) {
+      const result = orig.apply(this, args);
+      page.window.dispatchEvent(new page.window.Event(NAV_EVENT));
+      return result;
+    };
+  }
+
+  function onNav() {
+    schedule();
+  }
+  for (const type of ["turbo:load", "turbo:render", "popstate", NAV_EVENT]) {
+    page.window.addEventListener(type, onNav);
+  }
+  schedule();
+
+  return {
+    stop() {
+      if (timer !== null) {
+        page.clearTimeout(timer);
+        timer = null;
+      }
+      for (const type of ["turbo:load", "turbo:render", "popstate", NAV_EVENT]) {
+        page.window.removeEventListener(type, onNav);
+      }
+      history.pushState = original.pushState;
+      history.replaceState = original.replaceState;
+      if (stopSession) {
+        stopSession();
+        stopSession = null;
+      }
+      activePath = null;
+    },
+  };
+}
+
 const GhAsk = {
   askError,
+  bindPage,
   buildPayload,
   buildWholePrPayload,
   chipText,
   findHeadSha,
+  isDiffPath,
   lineInfo,
+  navDebounceMs,
   onPopoverKey,
   parsePrUrl,
   placeInView,
@@ -644,7 +741,7 @@ const CSS = `
 .gh-ask-chip.gh-ask-bad { background: #ffebe9; color: #cf222e; }
 `;
 
-function main() {
+function registerMenu() {
   const TOKEN_RE = /^[\x21-\x7e]{1,256}$/;
 
   function settings() {
@@ -677,6 +774,14 @@ function main() {
     }
     GM_setValue("port", Number(port.trim()));
   });
+}
+
+// main installs the diff-view controls and returns a function that
+// removes them, their listeners, and any status polling.
+function main() {
+  function settings() {
+    return { token: GM_getValue("token", ""), port: GM_getValue("port", DEFAULT_PORT) };
+  }
 
   // request sends one request to the loopback server and calls done
   // with {status, body}. status 0 is no response, -1 missing settings.
@@ -721,7 +826,8 @@ function main() {
     return e;
   }
 
-  document.head.append(el("style", { textContent: CSS }));
+  const style = el("style", { textContent: CSS });
+  document.head.append(style);
 
   const button = el("button", {
     type: "button",
@@ -734,6 +840,8 @@ function main() {
   let popover = null;
   let popoverPoint = null;
   let headerButton = null;
+  let watch = null;
+  const pollStops = [];
 
   function elementOf(node) {
     return node && node.nodeType === 3 ? node.parentElement : node;
@@ -768,13 +876,14 @@ function main() {
     };
   }
 
-  window.addEventListener("resize", () => {
+  function onResize() {
     if (popover && popoverPoint) {
       place(popover, popoverPoint());
     }
-  });
+  }
+  window.addEventListener("resize", onResize);
 
-  document.addEventListener("mouseover", (e) => {
+  function onMouseOver(e) {
     if (popover || target?.selection || button.contains(e.target)) {
       return;
     }
@@ -788,9 +897,10 @@ function main() {
     const r = info.row.getBoundingClientRect();
     button.hidden = false;
     place(button, { top: r.top, left: r.right - button.offsetWidth - 4 });
-  });
+  }
+  document.addEventListener("mouseover", onMouseOver);
 
-  document.addEventListener("mouseup", (e) => {
+  function onMouseUp(e) {
     if (popover || button.contains(e.target)) {
       return;
     }
@@ -813,7 +923,8 @@ function main() {
       button.hidden = false;
       place(button, { top: r.bottom + 4, left: r.right });
     }, 0);
-  });
+  }
+  document.addEventListener("mouseup", onMouseUp);
 
   function closePopover() {
     if (popover) {
@@ -825,11 +936,12 @@ function main() {
     button.hidden = true;
   }
 
-  document.addEventListener("keydown", (e) => {
+  function onKeyDown(e) {
     if (e.key === "Escape") {
       closePopover();
     }
-  });
+  }
+  document.addEventListener("keydown", onKeyDown);
 
   function setChip(chip, text, bad) {
     chip.textContent = text;
@@ -839,16 +951,18 @@ function main() {
   function track(chip, id) {
     const shownId = truncateUtf8(id, 100);
     setChip(chip, chipText(shownId, "waiting"), false);
-    startPolling({
-      now: () => Date.now(),
-      setTimeout: (fn, ms) => window.setTimeout(fn, ms),
-      clearTimeout: (t) => window.clearTimeout(t),
-      isVisible: () => document.visibilityState === "visible",
-      fetchStatus: (done) => request("GET", statusPath(id), null, done),
-      onUpdate: ({ label, error }) => {
-        setChip(chip, chipText(shownId, label) + (error ? ` · ${error}` : ""), Boolean(error));
-      },
-    });
+    pollStops.push(
+      startPolling({
+        now: () => Date.now(),
+        setTimeout: (fn, ms) => window.setTimeout(fn, ms),
+        clearTimeout: (t) => window.clearTimeout(t),
+        isVisible: () => document.visibilityState === "visible",
+        fetchStatus: (done) => request("GET", statusPath(id), null, done),
+        onUpdate: ({ label, error }) => {
+          setChip(chip, chipText(shownId, label) + (error ? ` · ${error}` : ""), Boolean(error));
+        },
+      }),
+    );
   }
 
   // openAsk shows the question popover. point() is the viewport anchor,
@@ -992,17 +1106,60 @@ function main() {
   }
 
   if (!mountHeaderButton()) {
-    const watch = new MutationObserver(() => {
+    watch = new MutationObserver(() => {
       if (mountHeaderButton()) {
         watch.disconnect();
+        watch = null;
       }
     });
+    // The header sits outside the diff table. Watch only while this
+    // diff view is active, and disconnect on deactivate.
     watch.observe(document.documentElement, { childList: true, subtree: true });
   }
+
+  return function deactivate() {
+    for (const stop of pollStops) {
+      stop();
+    }
+    pollStops.length = 0;
+    window.removeEventListener("resize", onResize);
+    document.removeEventListener("mouseover", onMouseOver);
+    document.removeEventListener("mouseup", onMouseUp);
+    document.removeEventListener("keydown", onKeyDown);
+    if (watch) {
+      watch.disconnect();
+      watch = null;
+    }
+    if (popover) {
+      popover.remove();
+      popover = null;
+    }
+    if (headerButton) {
+      headerButton.remove();
+      headerButton = null;
+    }
+    button.remove();
+    style.remove();
+    for (const chip of document.querySelectorAll(".gh-ask-chip")) {
+      chip.remove();
+    }
+  };
+}
+
+function boot() {
+  registerMenu();
+  bindPage({
+    location: window.location,
+    history: window.history,
+    window,
+    setTimeout: (fn, ms) => window.setTimeout(fn, ms),
+    clearTimeout: (t) => window.clearTimeout(t),
+    activate: () => main(),
+  });
 }
 
 if (typeof module === "object" && module !== null && module.exports) {
   module.exports = GhAsk;
 } else {
-  main();
+  boot();
 }
