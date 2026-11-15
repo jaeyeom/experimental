@@ -378,6 +378,40 @@ func TestDoctorReportsAnUnreachableHerdrTransport(t *testing.T) {
 	}
 }
 
+func TestDoctorReportsHerdrMissingFromPath(t *testing.T) {
+	orig := daemonShow
+	daemonShow = func(context.Context) (string, error) { return "", errors.New("no supervisor") }
+	t.Cleanup(func() { daemonShow = orig })
+	h, _ := sandboxHub(t)
+	var stateHome string
+	for _, kv := range h.env {
+		if value, ok := strings.CutPrefix(kv, "XDG_STATE_HOME="); ok {
+			stateHome = value
+		}
+	}
+	lg := eventlog.Open(filepath.Join(stateHome, "agentbus"))
+	ev := eventlog.Event{
+		Event: eventlog.EventAdapterError, Actor: "agentbus", Name: "herdr",
+		Detail: "herdr unreachable",
+		Reason: `run herdr: exec: "herdr": executable file not found in $PATH`,
+	}
+	if err := lg.Append(ev); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := h.run(t, "", "doctor")
+	if code != 0 {
+		t.Fatalf("doctor = %d, stderr %q", code, stderr)
+	}
+	for _, want := range []string{
+		"herdr: executable file not found in $PATH",
+		"fix: re-run `agentbus install` from a shell where `which herdr` works, or set `herdr_path`.",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("stdout lacks %q:\n%s", want, stdout)
+		}
+	}
+}
+
 func TestDoctorRejectsArguments(t *testing.T) {
 	h, _ := sandboxHub(t)
 	if code, _, stderr := h.run(t, "", "doctor", "extra"); code != 2 || !strings.Contains(stderr, "--sandbox") {

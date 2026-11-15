@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 	"unicode"
@@ -34,6 +35,9 @@ type Adapter struct {
 	Run      Exec
 	Machines []string
 	Timeout  time.Duration
+	// HerdrPath is the herdr binary from herdr_path. It wins over
+	// AGENTBUS_HERDR. Empty uses that variable, then "herdr" on PATH.
+	HerdrPath string
 }
 
 // Name is the adapter name used when a self-test fails.
@@ -402,10 +406,25 @@ func (a *Adapter) SelfTest(ctx context.Context) error {
 	return nil
 }
 
-// RunLive executes the herdr binary on PATH. Cancelling ctx kills herdr
-// and the ssh it may have started.
+// RunLive executes herdr. AGENTBUS_HERDR, when set, is the binary.
+// Cancelling ctx kills herdr and the ssh it may have started.
 func RunLive(ctx context.Context, args []string) (string, string, int, error) {
-	res, err := remotecall.Run(ctx, "herdr", args...)
+	return runHerdr(ctx, herdrBinary(""), args)
+}
+
+// herdrBinary is configured, else AGENTBUS_HERDR, else the name on PATH.
+func herdrBinary(configured string) string {
+	if configured != "" {
+		return configured
+	}
+	if bin := os.Getenv("AGENTBUS_HERDR"); bin != "" {
+		return bin
+	}
+	return "herdr"
+}
+
+func runHerdr(ctx context.Context, bin string, args []string) (string, string, int, error) {
+	res, err := remotecall.Run(ctx, bin, args...)
 	if err != nil {
 		return "", "", -1, fmt.Errorf("run herdr: %w", err)
 	}
@@ -561,10 +580,10 @@ func (a *Adapter) exec(ctx context.Context, machine string, args []string) (stri
 }
 
 func (a *Adapter) run(ctx context.Context, args []string) (string, string, int, error) {
-	if a.Run == nil {
-		return RunLive(ctx, args)
+	if a.Run != nil {
+		return a.Run(ctx, args)
 	}
-	return a.Run(ctx, args)
+	return runHerdr(ctx, herdrBinary(a.HerdrPath), args)
 }
 
 func (a *Adapter) timeout() time.Duration {

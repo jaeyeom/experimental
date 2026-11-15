@@ -80,6 +80,9 @@ func cmdInstall(ctx context.Context, args, env []string, stdout, stderr io.Write
 		fmt.Fprintf(stderr, "agentbus install: %s\n", err)
 		return 1
 	}
+	if _, err := lookPathIn(env, "herdr"); err != nil {
+		fmt.Fprintf(stderr, "agentbus install: herdr not found on PATH; not setting AGENTBUS_HERDR\n")
+	}
 	path, err := installSupervisor(runtime.GOOS, home, bin, env)
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus install: %s\n", err)
@@ -131,14 +134,56 @@ func installSupervisor(goos, home, bin string, env []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	body, err := supervisorBody(goos, bin, supervisorEnv(env), herdrUnit(goos, home, env))
+	body, err := supervisorBody(goos, bin, herdrSupervisorEnv(env), herdrUnit(goos, home, env))
 	if err != nil {
 		return "", err
 	}
-	if err := writeAtomic(path, []byte(body), 0o644); err != nil {
+	if err := writeIfChanged(path, []byte(body), 0o644); err != nil {
 		return "", err
 	}
 	return path, nil
+}
+
+// herdrSupervisorEnv is the daemon environment, plus AGENTBUS_HERDR and
+// a PATH that starts with herdr's directory when herdr is on PATH.
+func herdrSupervisorEnv(env []string) [][2]string {
+	vars := supervisorEnv(env)
+	bin, err := lookPathIn(env, "herdr")
+	if err != nil {
+		return vars
+	}
+	dir := filepath.Dir(bin)
+	return append(vars,
+		[2]string{"AGENTBUS_HERDR", bin},
+		[2]string{"PATH", dir + ":/usr/bin:/bin:/usr/sbin:/sbin"},
+	)
+}
+
+// lookPathIn resolves name in the PATH of env. It does not use the
+// process environment, so install and doctor see the caller's PATH.
+func lookPathIn(env []string, name string) (string, error) {
+	for _, dir := range filepath.SplitList(envGet(env, "PATH")) {
+		if dir == "" {
+			continue
+		}
+		candidate := filepath.Join(dir, name)
+		info, err := os.Stat(candidate)
+		if err != nil || !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
+			continue
+		}
+		return candidate, nil
+	}
+	return "", exec.ErrNotFound
+}
+
+// writeIfChanged replaces path only when its contents differ, so a
+// second install with the same herdr leaves the unit's mtime alone.
+func writeIfChanged(path string, data []byte, mode os.FileMode) error {
+	old, err := os.ReadFile(path)
+	if err == nil && bytes.Equal(old, data) {
+		return nil
+	}
+	return writeAtomic(path, data, mode)
 }
 
 func supervisorPath(goos, home string, env []string) (string, error) {

@@ -9,6 +9,7 @@
 //	hub = "me@hub"          # run every command on this ssh target
 //	machine = "linux2"      # this machine's herdr label on the hub
 //	ssh_identity_agent = "~/.ssh/agent.sock"  # ssh IdentityAgent for the hub
+//	herdr_path = "~/.local/bin/herdr"  # herdr binary; wins over AGENTBUS_HERDR
 //	hub_socket = "/run/user/1000/agentbus/hub.sock"  # hub.sock on the hub
 //	lease_checkouts = ["/home/u/src/repo"]  # checkouts the lease guards
 //	lease_check_interval = "2m"   # how often an overrun holder is checked
@@ -63,6 +64,9 @@ type Config struct {
 	// Load expands a leading "~/" against HOME. Empty means ssh's own
 	// agent lookup.
 	SSHIdentityAgent string
+	// HerdrPath is the herdr binary. It wins over AGENTBUS_HERDR.
+	// Load expands a leading "~/" against HOME.
+	HerdrPath string
 	// LeaseCheckouts are this machine's guarded checkouts: absolute
 	// paths of git top-levels that need the lease before a change.
 	LeaseCheckouts []string
@@ -196,7 +200,23 @@ func Load(env []string) (Config, error) {
 	if err := cfg.expandIdentity(env); err != nil {
 		return Config{}, fmt.Errorf("%s: %w", path, err)
 	}
+	if err := cfg.expandHerdr(env); err != nil {
+		return Config{}, fmt.Errorf("%s: %w", path, err)
+	}
 	return cfg, nil
+}
+
+// expandHerdr rewrites a "~/..." herdr_path against HOME.
+func (c *Config) expandHerdr(env []string) error {
+	if !strings.HasPrefix(c.HerdrPath, "~/") {
+		return nil
+	}
+	home := envGet(env, "HOME")
+	if home == "" {
+		return errors.New(`HOME is not set; herdr_path starts with "~/"`)
+	}
+	c.HerdrPath = filepath.Join(home, c.HerdrPath[2:])
+	return nil
 }
 
 // expandIdentity rewrites a "~/..." ssh_identity_agent against HOME.
@@ -264,7 +284,7 @@ func parseLine(cfg *Config, line string) error {
 		return parseLeaseIgnoreProcs(cfg, value)
 	case "hibernate_exempt":
 		return parseHibernateExempt(cfg, value)
-	case "hub", "machine", "hub_socket", "ssh_identity_agent":
+	case "hub", "machine", "hub_socket", "ssh_identity_agent", "herdr_path":
 		return parseHubKey(cfg, key, value)
 	default:
 		return fmt.Errorf("unknown key %s", key)
@@ -460,8 +480,25 @@ func parseIdentityAgent(cfg *Config, value string) error {
 	return nil
 }
 
-// parseHubKey reads hub, machine, hub_socket, or ssh_identity_agent.
+// parseHerdrPath reads herdr_path, an absolute path or one starting
+// with "~/".
+func parseHerdrPath(cfg *Config, value string) error {
+	path, err := parseName("herdr_path", value)
+	if err != nil {
+		return err
+	}
+	if !filepath.IsAbs(path) && !strings.HasPrefix(path, "~/") {
+		return errors.New(`herdr_path must be an absolute path or start with "~/", such as "~/.local/bin/herdr"`)
+	}
+	cfg.HerdrPath = path
+	return nil
+}
+
+// parseHubKey reads hub, machine, hub_socket, ssh_identity_agent, or herdr_path.
 func parseHubKey(cfg *Config, key, value string) error {
+	if key == "herdr_path" {
+		return parseHerdrPath(cfg, value)
+	}
 	if key == "ssh_identity_agent" {
 		return parseIdentityAgent(cfg, value)
 	}

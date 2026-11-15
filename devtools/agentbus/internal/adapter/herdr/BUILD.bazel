@@ -19,6 +19,7 @@ go_library(
 go_test(
     name = "go_default_test",
     srcs = [
+        "herdr_bin_test.go",
         "herdr_test.go",
         "hub_test.go",
         "pane_test.go",

@@ -206,6 +206,7 @@ func cmdDoctor(ctx context.Context, args, env []string, stdout, stderr io.Writer
 	reportStaleOutbox(env, stdout)
 	reportUnverifiedHolds(dirs.StateDir, stdout)
 	reportTransports(dirs.StateDir, stdout)
+	reportInstallHealth(ctx, env, dirs, stdout)
 	reportHubSocket(ctx, env, stdout)
 	if !*sandbox {
 		return plainDoctor(ctx, env, dirs, stdout)
