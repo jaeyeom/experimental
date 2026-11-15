@@ -148,8 +148,10 @@ repo_settings {
 }
 #+end_src
 
-~gh-nudge~ ignores ~block_merge_labels~. See [[file:README.org][README.org]] for the
-rest of the shared configuration.
+~gh-nudge~ ignores ~block_merge_labels~. The other merge keys
+(~required_checks~, ~flake_signatures~, ~rca_marker~, ~max_requeues~,
+~repo_settings~) are on this page. Nudge keys are in
+[[file:pkl/Config.pkl][Config.pkl]] and [[file:README.org][the suite guide]].
 
 ** Known Issues
 *** Sometimes it needs to run 2 times
