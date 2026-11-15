@@ -1,15 +1,15 @@
 #+TITLE: DevCheck
-#+DATE: 2026-08-28
+#+DATE: 2026-11-15
 
 * Overview
 
-~devcheck~ detects the repository context and runs the matching format, lint,
-and test tools. It prefers Bazel or Make when those actually expose the
-relevant targets, then falls back to language-specific tools. Default output is
-an LLM-oriented report that humans can read too.
-
-Remaining product work lives on GitHub issue #259. This file is user
-documentation for the binary, not a PRD.
+~devcheck~ runs the right formatter, linter, and tests for whatever
+repository you are in, so you (or a coding agent) can use one command
+across Go, Python, and JavaScript/TypeScript projects. It uses ~bazel~
+or ~make~ targets when the repo defines them and falls back to tools
+like ~gofumpt~, ~ruff~, or ~eslint~ otherwise. The default report
+(~--format=prompt~) is written for AI coding agents; use
+~--format=summary~ for a short human-readable result.
 
 * Installation
 
@@ -25,7 +25,7 @@ go install ./devtools/devcheck/cmd/devcheck
 bazel run //devtools/devcheck/cmd/devcheck -- [OPTIONS] [PATH]
 #+END_SRC
 
-~bazel run~ uses the directory you invoked from (~BUILD_WORKING_DIRECTORY~).
+~bazel run~ uses the directory you invoked from.
 
 * Usage
 
@@ -45,18 +45,28 @@ devcheck [OPTIONS] [PATH]
 | ~--force-fallback~ | Skip Bazel/Make and use language-specific tools |
 
 #+BEGIN_SRC bash
-devcheck                         # run format, lint, and test
+devcheck --format=summary        # short result for a person
+devcheck                         # default prompt report, for an agent
 devcheck --dry-run               # preview commands
 devcheck --filter=format         # formatters only
 devcheck --filter=lint,test      # lint and test
-devcheck --format=summary        # short human summary
 devcheck --format=json           # machine-readable JSON
 devcheck --changed-only          # git-changed / untracked files
 devcheck --force-fallback -n     # preview language tools
 devcheck --dry-run ./path        # detect a specific directory
 #+END_SRC
 
-Example (~devcheck --dry-run~ on this repository):
+~--format=summary~ for a dry-run on this repository:
+
+#+BEGIN_EXAMPLE
+DevCheck: 3 passed, 0 failed
+  dry-run make format
+  dry-run make lint
+  dry-run make test
+#+END_EXAMPLE
+
+The default ~--format=prompt~ report is written for an AI coding agent.
+The same dry-run looks like this:
 
 #+BEGIN_EXAMPLE
 🔧 DevCheck Report
@@ -77,15 +87,6 @@ Next Steps for AI Agent:
 1. Re-run without --dry-run to execute the selected tools
 
 Status: dry-run (commands were not executed)
-#+END_EXAMPLE
-
-~--format=summary~ for the same run:
-
-#+BEGIN_EXAMPLE
-DevCheck: 3 passed, 0 failed
-  dry-run make format
-  dry-run make lint
-  dry-run make test
 #+END_EXAMPLE
 
 * Detection
@@ -113,11 +114,11 @@ JavaScript/TypeScript).
 
 Language fallbacks when the binary exists:
 
-| Language | Format | Lint | Test |
-|----------+--------+------+------|
-| Go | ~gofumpt~, then ~gofmt~ | ~golangci-lint~, then ~unnecessary-interface-assertion-linter~ | ~go test~ |
-| Python | ~ruff format~, then ~black~ | ~ruff check~, then ~flake8~ | ~pytest~, then ~python -m unittest~ |
-| JS/TS | ~npm run format~ if present, then ~prettier~ | ~npm run lint~ if present, then ~eslint~ | ~npm test~ if present, else ~jest~ / ~mocha~ |
+| Language | Format                                       | Lint                                                                                         | Test                                         |
+|----------+----------------------------------------------+----------------------------------------------------------------------------------------------+----------------------------------------------|
+| Go       | ~gofumpt~, then ~gofmt~                      | ~golangci-lint~, then [[file:../linters/README.org][unnecessary-interface-assertion-linter]] | ~go test~                                    |
+| Python   | ~ruff format~, then ~black~                  | ~ruff check~, then ~flake8~                                                                  | ~pytest~, then ~python -m unittest~          |
+| JS/TS    | ~npm run format~ if present, then ~prettier~ | ~npm run lint~ if present, then ~eslint~                                                     | ~npm test~ if present, else ~jest~ / ~mocha~ |
 
 ~--changed-only~ lists files from ~git diff --name-only HEAD~ plus untracked
 files. Tools that accept path arguments (~gofumpt~, ~golangci-lint~, ~ruff~,
