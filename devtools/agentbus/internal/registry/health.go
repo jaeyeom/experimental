@@ -100,6 +100,35 @@ func (st *adapterHealth) test(ctx context.Context, ad adapter.Adapter, at time.T
 	}, wasUp
 }
 
+// probe forces a self-test of every adapter and returns one line per
+// adapter that fails now, such as "herdr transport unreachable: <error>".
+// A retry that was already down is still reported. The log is updated
+// only when the adapter goes down or comes back.
+func (h *health) probe(ctx context.Context, ads []adapter.Adapter, now func() time.Time, logEvent func(eventlog.Event) error) ([]string, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.state == nil {
+		h.state = map[string]*adapterHealth{}
+	}
+	var out []string
+	for _, ad := range ads {
+		st := h.state[ad.Name()]
+		if st == nil {
+			st = &adapterHealth{}
+			h.state[ad.Name()] = st
+		}
+		if ev, changed := st.test(ctx, ad, now()); changed {
+			if err := logEvent(ev); err != nil {
+				return nil, err
+			}
+		}
+		if st.err != "" {
+			out = append(out, ad.Name()+" transport unreachable: "+st.err)
+		}
+	}
+	return out, nil
+}
+
 // TransportProblems reads the event log in stateDir and returns one
 // line per adapter the running daemon last found unreachable, such as
 // "herdr transport unreachable: <error>". Events before the daemon's

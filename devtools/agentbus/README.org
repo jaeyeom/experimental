@@ -129,8 +129,14 @@ start with ~--~.
 
 ~--ttl 30m~ sets a deadline for that one message. ~--wait~ blocks until
 it is delivered or the deadline passes. Without ~--wait~, a message
-that passes the checks prints ~<id> queued for delivery~. A hold prints
-~held: <reason>~ at once. ~reply~ answers the same way. ~to~ is the
+that passes the checks prints ~<id> queued for delivery~ and exits 0.
+A hold prints ~held: <reason>~ at once and exits 0, except when herdr
+cannot be reached: the message is stored, stderr says
+~agentbus: held: the daemon can't reach herdr (<reason>); the message will be delivered when it recovers. See: agentbus doctor~,
+and the process exits 3. A registered pane stamped ~anon:~ because herdr
+could not identify it also prints
+~sent as anonymous: the daemon couldn't identify this pane (herdr unreachable)~.
+~--wait~ does not use exit 3. ~reply~ answers the same way. ~to~ is the
 original sender and ~re~ is the id.
 
 #+BEGIN_SRC bash

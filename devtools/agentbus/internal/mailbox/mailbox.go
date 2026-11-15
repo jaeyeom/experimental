@@ -32,10 +32,15 @@ const (
 
 // Result is the id and delivery state of a send or reply.
 // Duplicate is set when this client id was already accepted.
+// Unreachable is set when the message is stored but the transport cannot
+// be reached. AnonHerdr is set when a herdr pane was stamped anon because
+// herdr could not identify it.
 type Result struct {
-	ID        string
-	State     string
-	Duplicate bool
+	ID          string
+	State       string
+	Duplicate   bool
+	Unreachable bool
+	AnonHerdr   bool
 }
 
 // Options controls one send. A zero TTL does not expire.
@@ -108,6 +113,9 @@ type Mailbox struct {
 	// holdPaste keeps a ReplyFirst message in the queue until replyFirst
 	// has snapshotted its answer. A concurrent flush does not paste it.
 	holdPaste map[string]bool
+	// pasting is set while Deliver is inside the adapter, so a send can
+	// return once a slow paste is underway.
+	pasting map[string]bool
 	// pasteBound limits one paste after the caller context ends.
 	// Zero uses defaultPasteBound.
 	pasteBound time.Duration
@@ -139,6 +147,7 @@ func Open(dir string, reg *registry.Registry, adapters []adapter.Adapter, log *e
 		inflight:  map[string]bool{},
 		flushing:  map[string]bool{},
 		holdPaste: map[string]bool{},
+		pasting:   map[string]bool{},
 		adapters:  adapters,
 		waking:    map[string]*wakeCall{},
 	}
@@ -152,8 +161,8 @@ func (m *Mailbox) Send(ctx context.Context, env []string, peerPID int, target, b
 	if body == "" {
 		return Result{}, errors.New("message body is required")
 	}
-	from, sender, replyable := m.stamp(ctx, env, peerPID)
-	return m.send(ctx, from, sender, replyable, target, body, opt)
+	from, sender, replyable, anonHerdr := m.stamp(ctx, env, peerPID)
+	return m.send(ctx, from, sender, replyable, anonHerdr, target, body, opt)
 }
 
 // Post queues a message the daemon itself sends, such as a lease grant.
@@ -162,10 +171,10 @@ func (m *Mailbox) Post(ctx context.Context, from, target, body string) (Result, 
 	if body == "" {
 		return Result{}, errors.New("message body is required")
 	}
-	return m.send(ctx, from, "", false, target, body, Options{})
+	return m.send(ctx, from, "", false, false, target, body, Options{})
 }
 
-func (m *Mailbox) send(ctx context.Context, from, sender string, replyable bool, target, body string, opt Options) (Result, error) {
+func (m *Mailbox) send(ctx context.Context, from, sender string, replyable, anonHerdr bool, target, body string, opt Options) (Result, error) {
 	if err := ValidClientID(opt.ClientID); err != nil {
 		return Result{}, err
 	}
@@ -188,7 +197,12 @@ func (m *Mailbox) send(ctx context.Context, from, sender string, replyable bool,
 	}
 	msg.ClientID = opt.ClientID
 	msg.SenderHandle = sender
-	return m.enqueue(ctx, msg, opt)
+	res, err := m.enqueue(ctx, msg, opt)
+	if err != nil {
+		return Result{}, err
+	}
+	res.AnonHerdr = anonHerdr
+	return res, nil
 }
 
 // Reply sends to the original from and sets re to id.
@@ -207,7 +221,7 @@ func (m *Mailbox) Reply(ctx context.Context, env []string, peerPID int, id, body
 	if !orig.Replyable {
 		return Result{}, errors.New("no reply address")
 	}
-	from, sender, replyable := m.stamp(ctx, env, peerPID)
+	from, sender, replyable, anonHerdr := m.stamp(ctx, env, peerPID)
 	handle, err := m.reg.Resolve(orig.From)
 	if err != nil {
 		return Result{}, fmt.Errorf("resolve reply target: %w", err)
@@ -218,7 +232,12 @@ func (m *Mailbox) Reply(ctx context.Context, env []string, peerPID int, id, body
 	}
 	msg.ClientID = opt.ClientID
 	msg.SenderHandle = sender
-	return m.enqueue(ctx, msg, opt)
+	res, err := m.enqueue(ctx, msg, opt)
+	if err != nil {
+		return Result{}, err
+	}
+	res.AnonHerdr = anonHerdr
+	return res, nil
 }
 
 func (m *Mailbox) newMessage(from, to, re, body string, replyable bool, handle string) (message, error) {
@@ -248,7 +267,7 @@ func (m *Mailbox) preview(body string) bool {
 // stamp returns the display name, the stable sender handle, and whether
 // the caller can be replied to. The dedupe key uses the handle, because
 // the display name changes when the pane's names change.
-func (m *Mailbox) stamp(ctx context.Context, env []string, peerPID int) (string, string, bool) {
+func (m *Mailbox) stamp(ctx context.Context, env []string, peerPID int) (string, string, bool, bool) {
 	for _, ad := range m.adapters {
 		handle, err := ad.Identify(ctx, env)
 		if err != nil || handle == "" {
@@ -257,19 +276,46 @@ func (m *Mailbox) stamp(ctx context.Context, env []string, peerPID int) (string,
 		// A replayed anon handle carries the original pid. Recomputing
 		// it from this process would miss the client-id dedupe.
 		if strings.HasPrefix(handle, "anon:") {
-			return handle, handle, false
+			return handle, handle, false, false
 		}
 		if !strings.HasPrefix(handle, "herdr:") {
 			continue
 		}
 		names := m.reg.NamesOf(handle)
 		if len(names) == 0 {
-			return handle, handle, true
+			return handle, handle, true, false
 		}
-		return strings.Join(names, ", "), handle, true
+		return strings.Join(names, ", "), handle, true, false
 	}
 	who := anon(peerPID)
-	return who, who, false
+	return who, who, false, m.anonBecauseHerdr(ctx, env)
+}
+
+// anonBecauseHerdr reports a herdr pane whose Identify failed because
+// herdr itself could not be asked. A pane herdr can list is not this case.
+func (m *Mailbox) anonBecauseHerdr(ctx context.Context, env []string) bool {
+	if envValue(env, "HERDR_PANE_ID") == "" {
+		return false
+	}
+	for _, ad := range m.adapters {
+		if ad.Name() != "herdr" {
+			continue
+		}
+		if err := ad.SelfTest(ctx); err != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func envValue(env []string, key string) string {
+	prefix := key + "="
+	for _, entry := range env {
+		if value, ok := strings.CutPrefix(entry, prefix); ok {
+			return value
+		}
+	}
+	return ""
 }
 
 func anon(pid int) string {

@@ -455,6 +455,17 @@ func (r *Registry) Usable(ctx context.Context) ([]adapter.Adapter, error) {
 	return r.usable(ctx)
 }
 
+// LiveTransportProblems forces a self-test and returns the adapters that
+// fail right now, as "name transport unreachable: reason". A cached pass
+// is not trusted: doctor asks this instead of the event log.
+func (r *Registry) LiveTransportProblems(ctx context.Context) ([]string, error) {
+	lines, err := r.health.probe(ctx, r.adapters, r.now, r.logEvent)
+	if err != nil {
+		return nil, err
+	}
+	return lines, nil
+}
+
 func (r *Registry) logEvent(e eventlog.Event) error {
 	if r.log == nil {
 		return nil

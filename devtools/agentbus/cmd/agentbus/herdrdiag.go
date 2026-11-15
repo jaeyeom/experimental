@@ -148,13 +148,13 @@ func defaultDaemonShow(ctx context.Context) (string, error) {
 	}
 }
 
-func reportInstallHealth(ctx context.Context, env []string, dirs paths.Dirs, stdout io.Writer) {
+func reportInstallHealth(ctx context.Context, env []string, dirs paths.Dirs, stdout io.Writer, transport []string) {
 	cfg, cfgErr := hubSettings(env)
 	hub := ""
 	if cfgErr == nil {
 		hub = cfg.Hub
 	}
-	if msg := diagnoseHerdr(gatherHerdrFacts(ctx, env, dirs.StateDir, cfgErr == nil, cfg.HerdrPath)); msg != "" {
+	if msg := diagnoseHerdr(gatherHerdrFacts(ctx, env, dirs.StateDir, cfgErr == nil, cfg.HerdrPath, transport)); msg != "" {
 		fmt.Fprint(stdout, msg)
 	}
 	if msg := diagnoseSandbox(gatherSandbox(env, dirs.TunnelSocketPath)); msg != "" {
@@ -171,7 +171,7 @@ func reportInstallHealth(ctx context.Context, env []string, dirs paths.Dirs, std
 	}
 }
 
-func gatherHerdrFacts(ctx context.Context, env []string, stateDir string, haveCfg bool, herdrPath string) herdrFacts {
+func gatherHerdrFacts(ctx context.Context, env []string, stateDir string, haveCfg bool, herdrPath string, transport []string) herdrFacts {
 	f := herdrFacts{GOOS: runtime.GOOS, UID: os.Getuid(), Supervisor: supervisorName(runtime.GOOS)}
 	if bin, err := lookPathIn(env, "herdr"); err == nil {
 		f.CallerHerdr = bin
@@ -203,11 +203,17 @@ func gatherHerdrFacts(ctx context.Context, env []string, stateDir string, haveCf
 		}
 	}
 	f.DaemonHerdrOK = executableFile(f.DaemonHerdr)
+	noteMissing := func(line string) {
+		if strings.Contains(line, "executable file not found") {
+			f.ExecNotFound = true
+		}
+	}
+	for _, line := range transport {
+		noteMissing(line)
+	}
 	if lines, err := registry.TransportProblems(stateDir); err == nil {
 		for _, line := range lines {
-			if strings.Contains(line, "executable file not found") {
-				f.ExecNotFound = true
-			}
+			noteMissing(line)
 		}
 	}
 	return f

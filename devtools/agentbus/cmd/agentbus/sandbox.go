@@ -19,6 +19,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter/herdr"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/mailbox"
@@ -205,8 +206,8 @@ func cmdDoctor(ctx context.Context, args, env []string, stdout, stderr io.Writer
 	}
 	reportStaleOutbox(env, stdout)
 	reportUnverifiedHolds(dirs.StateDir, stdout)
-	reportTransports(dirs.StateDir, stdout)
-	reportInstallHealth(ctx, env, dirs, stdout)
+	lines := reportTransports(ctx, env, dirs.StateDir, stdout)
+	reportInstallHealth(ctx, env, dirs, stdout, lines)
 	reportHubSocket(ctx, env, stdout)
 	if !*sandbox {
 		return plainDoctor(ctx, env, dirs, stdout)
@@ -562,18 +563,72 @@ func reportUnverifiedHolds(dir string, stdout io.Writer) {
 	}
 }
 
-// reportTransports prints each adapter the running daemon last found
-// unreachable, from its event log, such as "herdr transport
-// unreachable: <error>". herdr's error names the socket it tried. A
-// missing log prints nothing.
-func reportTransports(dir string, stdout io.Writer) {
-	lines, err := registry.TransportProblems(dir)
-	if err != nil {
-		return
+// doctorHerdrProbe asks herdr from the doctor's own environment when
+// the daemon cannot be asked. Tests replace it. A nil error means herdr
+// answered.
+var doctorHerdrProbe = func(ctx context.Context, env []string) error {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	path := ""
+	if cfg, err := hubSettings(env); err == nil {
+		path = cfg.HerdrPath
+	}
+	if err := (&herdr.Adapter{HerdrPath: path}).SelfTest(ctx); err != nil {
+		return err //nolint:wrapcheck // doctor prints this text as the reason
+	}
+	return nil
+}
+
+// reportTransports prints each adapter that is unreachable right now.
+// It asks the running daemon. When the daemon cannot be asked, it uses
+// the event log and a direct herdr probe. The lines are also returned
+// so the install diagnosis can see a live "executable file not found".
+func reportTransports(ctx context.Context, env []string, dir string, stdout io.Writer) []string {
+	lines, asked := liveTransportLines(ctx, env)
+	if !asked {
+		if logged, err := registry.TransportProblems(dir); err == nil {
+			lines = logged
+		}
+		if err := doctorHerdrProbe(ctx, env); err != nil {
+			lines = appendTransport(lines, "herdr transport unreachable: "+err.Error())
+		}
 	}
 	for _, line := range lines {
 		fmt.Fprintln(stdout, line)
 	}
+	return lines
+}
+
+func liveTransportLines(ctx context.Context, env []string) ([]string, bool) {
+	// Hub mode has no local daemon. Dialing one is the outbox's job, and
+	// doctor must not start or contact it. The log and the herdr probe
+	// are the fallback.
+	if cfg, err := hubSettings(env); err == nil && cfg.Hub != "" {
+		return nil, false
+	}
+	dirs, err := paths.FromEnv(env)
+	if err != nil {
+		return nil, false
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	resp, err := dialDaemon(ctx, dirs.SocketPath, daemon.Request{Op: "transport-status"})
+	if err != nil || !resp.OK {
+		return nil, false
+	}
+	return resp.Transport, true
+}
+
+func appendTransport(lines []string, extra string) []string {
+	if extra == "" {
+		return lines
+	}
+	for _, line := range lines {
+		if line == extra {
+			return lines
+		}
+	}
+	return append(lines, extra)
 }
 
 // reportHubSocket says when the configured hub_socket is not the path
