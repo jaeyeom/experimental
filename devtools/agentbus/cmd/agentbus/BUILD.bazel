@@ -74,6 +74,7 @@ go_test(
         "install_test.go",
         "lease_adopt_test.go",
         "lease_bash_test.go",
+        "lease_branch_test.go",
         "lease_hook_test.go",
         "lease_hub_test.go",
         "lease_release_test.go",

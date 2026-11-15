@@ -158,13 +158,13 @@ func TestWakeText(t *testing.T) {
 	deadline := time.Date(2026, 11, 10, 9, 40, 0, 0, time.UTC)
 	h := HolderView{Handle: bob, Deadline: deadline.Format(time.RFC3339), Why: "issue 624"}
 	hhmm := deadline.Local().Format("15:04")
-	want := "[lease] granted " + key + " until " + hhmm + " (for: issue 624). Release with: agentbus lease release"
-	if got := WakeText(key, h); got != want {
+	want := "[lease] granted " + key + " until " + hhmm + " (for: issue 624); checkout on main. Release with: agentbus lease release"
+	if got := WakeText(key, h, "main"); got != want {
 		t.Fatalf("wake = %q, want %q", got, want)
 	}
 	h.Why = ""
 	want = "[lease] granted " + key + " until " + hhmm + ". Release with: agentbus lease release"
-	if got := WakeText(key, h); got != want {
-		t.Fatalf("wake without why = %q", got)
+	if got := WakeText(key, h, ""); got != want {
+		t.Fatalf("wake without why or branch = %q", got)
 	}
 }

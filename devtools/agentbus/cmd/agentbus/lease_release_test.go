@@ -90,7 +90,7 @@ func TestLeaseReleaseSwitchesPullsAndWakesTheNextWaiter(t *testing.T) {
 		t.Fatalf("deliveries = %q", w.ad.Texts)
 	}
 	wake := w.ad.Texts[1]
-	if !strings.Contains(wake, "[lease] granted local:"+w.repo+" until ") || !strings.Contains(wake, "(for: issue 624). Release with: agentbus lease release") {
+	if !strings.Contains(wake, "[lease] granted local:"+w.repo+" until ") || !strings.Contains(wake, "(for: issue 624); checkout on main. Release with: agentbus lease release") {
 		t.Fatalf("wake message = %q", wake)
 	}
 	events := strings.Join(w.leaseEvents(t), "\n")

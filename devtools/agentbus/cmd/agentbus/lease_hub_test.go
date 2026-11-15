@@ -430,7 +430,8 @@ func TestLeaseHubSSHReleaseRunsGitHereAndSendsOnlyFacts(t *testing.T) {
 		t.Fatalf("the hub was asked to run %q", remote)
 	}
 	req := h.forwarded(t)
-	if req.Op != "lease-release" || req.Lease == nil || req.Lease.Checkout != key || req.Lease.PullError == "" || len(req.Env) != 0 {
+	if req.Op != "lease-release" || req.Lease == nil || req.Lease.Checkout != key || req.Lease.PullError == "" || len(req.Env) != 0 ||
+		req.Lease.FromBranch != "feature" || req.Lease.Branch != "main" {
 		t.Fatalf("forwarded request = %+v", req)
 	}
 	if got := h.ssh.Read("agentbus.handle"); got != hubAlice {
@@ -448,11 +449,11 @@ func TestLeaseHubSSHClaimSendsTheTreeAndTheMachineKey(t *testing.T) {
 	}})
 	writeFile(t, filepath.Join(h.repo, "a.txt"), []byte("dirty\n"))
 	out := h.mustLease(t, "w1:p1", "claim", "--for", "40m")
-	if !strings.Contains(out, "needs-adopt") {
+	if !strings.Contains(out, "needs-adopt") || !strings.Contains(out, "; checkout on main") {
 		t.Fatalf("claim = %q", out)
 	}
 	req := h.forwarded(t)
-	if req.Op != "lease-claim" || req.Lease.Checkout != key || req.Lease.For != "40m" || req.Lease.Tree == "" {
+	if req.Op != "lease-claim" || req.Lease.Checkout != key || req.Lease.For != "40m" || req.Lease.Tree == "" || req.Lease.Branch != "main" {
 		t.Fatalf("forwarded request = %+v", req)
 	}
 }

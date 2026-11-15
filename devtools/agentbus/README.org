@@ -436,7 +436,7 @@ agentbus lease install-hook
 
 | Subcommand | What it does |
 |------------+--------------|
-| ~claim --for <d> [--urgent] [--why <text>]~ | Take a free checkout, or join its queue. Never blocks. Prints ~granted until HH:MM~ or ~queued, position N (holder X, bid ends HH:MM)~. |
+| ~claim --for <d> [--urgent] [--why <text>]~ | Take a free checkout, or join its queue. Never blocks. Prints ~granted until HH:MM; checkout on <branch>~ (or ~checkout at <sha> (detached)~) or ~queued, position N (holder X, bid ends HH:MM)~. Re-claimed by the same holder within 1 hour of a release that switched branches, it adds ~(you were on <branch> when you released at HH:MM)~; ~--json~ adds ~branch~ and ~previous_branch~. |
 | ~extend --for <d>~ | Holder only. Move the soft deadline to now plus ~--for~. |
 | ~leave~ | Leave the queue. |
 | ~status [--all]~, ~status --guarded~ | Holder, deadline, state, and queue. ~--all~ lists every checkout the daemon has seen. ~--guarded~ only tells whether ~--path~ is in a guarded checkout, from this machine's ~lease_checkouts~, without contacting the daemon or hub; it exits 0 either way, and ~--json~ prints ~{"guarded": true, "checkout": "<key>"}~ or ~{"guarded": false}~. Tools such as prsync use it to skip unguarded checkouts. |

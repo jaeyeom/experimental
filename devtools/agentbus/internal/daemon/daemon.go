@@ -792,24 +792,24 @@ func (s *server) releaseLease(caller string, args lease.Args) (lease.Reply, erro
 		return lease.Reply{}, fmt.Errorf("release: %w", err)
 	}
 	s.dropCache(args.Checkout)
-	s.wake(args.Checkout, r)
+	s.wake(args, r)
 	return r, nil
 }
 
 // wake tells the waiter a release or resume granted the checkout to:
 // an agent by an agentbus message, the user, who has no pane, by a
-// note.
-func (s *server) wake(checkout string, r lease.Reply) {
+// note. The wake names the branch args.Branch says the git steps left.
+func (s *server) wake(args lease.Args, r lease.Reply) {
 	switch r.Granted {
 	case "":
 	case lease.UserHolder:
 		if s.notify != nil {
-			s.notify(lease.PausedNote(checkout))
+			s.notify(lease.PausedNote(args.Checkout))
 		}
 	default:
 		// A wake that cannot be queued does not undo the grant; the
 		// mailbox logs why.
-		_, _ = s.box.Post(s.ctx, "agentbus", r.Granted, lease.WakeText(checkout, *r.Lease.Holder))
+		_, _ = s.box.Post(s.ctx, "agentbus", r.Granted, lease.WakeText(args.Checkout, *r.Lease.Holder, args.Branch))
 	}
 }
 
@@ -1029,7 +1029,7 @@ func (s *server) resumeLease(args lease.Args) (lease.Reply, error) {
 		return lease.Reply{}, fmt.Errorf("resume: %w", err)
 	}
 	s.dropCache(args.Checkout)
-	s.wake(args.Checkout, r)
+	s.wake(args, r)
 	return r, nil
 }
 

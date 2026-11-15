@@ -93,6 +93,13 @@ type Args struct {
 	With []string `json:"with,omitempty"`
 	// AsIs is resume --as-is: the git steps were skipped.
 	AsIs bool `json:"asIs,omitempty"`
+	// Branch is the branch the checkout is on, as checkout.Branch reads
+	// it: for a claim before it, for a release or resume after its git
+	// steps. Empty when git could not tell.
+	Branch string `json:"branch,omitempty"`
+	// FromBranch is the branch a release switched away from. Empty when
+	// it did not switch.
+	FromBranch string `json:"fromBranch,omitempty"`
 	// Hook marks a check from the PreToolUse lease hook. The daemon logs
 	// its denials, with Tool and Target, the hook's tool call.
 	Hook bool `json:"hook,omitempty"`
@@ -126,6 +133,12 @@ type Reply struct {
 	Takeover TakeoverMode `json:"takeover,omitempty"`
 	// Asked is the holder a pause asked to finish up and release.
 	Asked string `json:"asked,omitempty"`
+	// PreviousBranch is the branch a claim's caller was on when its
+	// release switched the checkout away, given when the same caller is
+	// granted it again within reclaimWindow on another branch.
+	PreviousBranch string `json:"previous_branch,omitempty"` //nolint:tagliatelle // the claim --json shape
+	// ReleasedAt is when that release was, RFC3339.
+	ReleasedAt string `json:"released_at,omitempty"` //nolint:tagliatelle // the claim --json shape
 	// Waiting is the notice a claim that newly queued sends the holder.
 	// The daemon sends it; it is not part of the reply on the wire.
 	Waiting *Notice `json:"-"`
@@ -203,6 +216,32 @@ type record struct {
 	// With are the handles the user's pause is shared with. It is kept
 	// while the user waits in the queue and cleared on resume.
 	With []string `json:"with,omitempty"`
+	// Released is the last release that switched branches, until the
+	// next grant.
+	Released *released `json:"released,omitempty"`
+}
+
+// released is a release that switched the checkout away from Branch.
+type released struct {
+	Holder string    `json:"holder"`
+	Branch string    `json:"branch"`
+	At     time.Time `json:"at"`
+}
+
+// reclaimWindow is how long after a switching release the same holder's
+// grant names the branch it was on.
+const reclaimWindow = time.Hour
+
+// granted clears rec's release record for a grant to handle, now on
+// branch, and fills r's hint when the same holder's switching release
+// was within reclaimWindow and left it on another branch.
+func (r *record) granted(handle, branch string, now time.Time, reply *Reply) {
+	p := r.Released
+	r.Released = nil
+	if p == nil || p.Holder != handle || branch == "" || p.Branch == branch || now.Sub(p.At) > reclaimWindow {
+		return
+	}
+	reply.PreviousBranch, reply.ReleasedAt = p.Branch, stamp(p.At)
 }
 
 type holder struct {
@@ -286,7 +325,9 @@ func (t *Table) Claim(caller string, a Args) (Reply, error) {
 			if a.Tree != "" {
 				grant.Reason = a.Tree
 			}
-			return Reply{Result: ResultGranted}, []eventlog.Event{claim, grant}, nil
+			r := Reply{Result: ResultGranted}
+			rec.granted(caller, a.Branch, now, &r)
+			return r, []eventlog.Event{claim, grant}, nil
 		case rec.Holder.Handle == caller:
 			rec.Holder.Deadline = now.Add(d)
 			rec.Holder.For = d
@@ -440,6 +481,9 @@ func (t *Table) Release(caller string, a Args, gone func(handle string) bool) (R
 		if a.PullError != "" {
 			events[0].Detail = "released; pull failed"
 		}
+		if a.FromBranch != "" {
+			rec.Released = &released{Holder: caller, Branch: a.FromBranch, At: now}
+		}
 		events = append(events, grantNext(rec, now, gone, &r)...)
 		return r, events, nil
 	})
@@ -465,6 +509,7 @@ func grantNext(rec *record, now time.Time, gone func(handle string) bool, r *Rep
 		}
 		rec.Holder = w.holder(now)
 		r.Granted = w.Handle
+		rec.granted(w.Handle, "", now, r)
 		events = append(events, eventlog.Event{Event: eventlog.EventLeaseGrant, Actor: w.Handle, Detail: grantDetail(rec)})
 		break
 	}
@@ -553,8 +598,9 @@ func (t *Table) holderUpdate(caller string, a Args, change func(*record) Reply) 
 	})
 }
 
-// WakeText is the agentbus message a new holder gets on grant.
-func WakeText(checkout string, h HolderView) string {
+// WakeText is the agentbus message a new holder gets on grant. branch
+// is the branch the checkout is on, or "" when unknown.
+func WakeText(checkout string, h HolderView, branch string) string {
 	out := "[lease] granted " + checkout
 	if ts, err := time.Parse(time.RFC3339, h.Deadline); err == nil {
 		out += " until " + ts.Local().Format("15:04")
@@ -562,7 +608,23 @@ func WakeText(checkout string, h HolderView) string {
 	if h.Why != "" {
 		out += " (for: " + h.Why + ")"
 	}
+	if on := OnBranch(branch); on != "" {
+		out += "; " + on
+	}
 	return out + ". Release with: agentbus lease release"
+}
+
+// OnBranch says which branch the checkout is on, from checkout.Branch's
+// answer: "checkout on main", "checkout at <sha> (detached)", or ""
+// when branch is unknown.
+func OnBranch(branch string) string {
+	if sha, ok := strings.CutPrefix(branch, "(detached at "); ok {
+		return "checkout at " + strings.TrimSuffix(sha, ")") + " (detached)"
+	}
+	if branch == "" {
+		return ""
+	}
+	return "checkout on " + branch
 }
 
 // update runs change on the checkout's record under the lock, records a
