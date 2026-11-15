@@ -20,18 +20,24 @@ go_binary(
     visibility = ["//visibility:public"],
 )
 
+exports_files(["README.org"])
+
 go_test(
     name = "go_default_test",
     srcs = [
         "generate_packages_test.go",
         "install_methods_test.go",
         "packages_data_test.go",
+        "readme_test.go",
         "setup_bazel_wrapper_test.go",
         "types_test.go",
     ],
     data = glob(["*.yml"]) + [
+        "README.org",
         "emacs_app_link.sh",
         "//devtools/gh-nudge/cmd:commands",
+        "//devtools/setup-dev:README.org",
+        "//devtools/setup-dev/ansible/docs:hub-setup.org",
     ],
     embed = [":go_default_library"],
 )
