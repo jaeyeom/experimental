@@ -357,13 +357,16 @@ duplicate them. Linux and Termux are left alone.
 
 * Claude Code sandbox network
 
-=setup-claude-sandbox.yml= writes =sandbox.network.allowedDomains= and
-=sandbox.network.allowUnixSockets= in =~/.claude/settings.json=. A
-rerun unions each list with what is already there. Domains also take
-=allowedHosts=, then that key is dropped. Entries added by hand stay,
-in front. =allowUnixSockets= also gains the docker socket and the
-herdr, agentbus daemon, and agentbus tunnel sockets from =agentbus
-doctor --sandbox=. Other settings keys are left as they are.
+=setup-claude-sandbox.yml= writes =sandbox.network.allowedDomains=,
+=sandbox.network.allowUnixSockets=, and =sandbox.filesystem.allowWrite=
+in =~/.claude/settings.json=. A rerun unions each list with what is
+already there. Domains also take =allowedHosts=, then that key is
+dropped. Entries added by hand stay, in front. =allowUnixSockets= also
+gains the docker socket and the herdr, agentbus daemon, and agentbus
+tunnel sockets from =agentbus doctor --sandbox=. On macOS,
+=allowWrite= also gains =~/Library/Caches/agentbus/state= and
+=~/Library/Caches/agentbus/run=. Other settings keys are left as they
+are.
 
 * Manual Playbooks
 These files are playbooks not generated from =generate_packages.go=:
