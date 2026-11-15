@@ -68,10 +68,13 @@ func extraNames(spec Spec, live Live) []string {
 
 func extraCrons(spec Spec, live Live) []string {
 	crons := make([]LiveCron, 0, len(live.Crons))
+	seen := map[string]bool{}
 	for _, cron := range live.Crons {
-		if declaredCron(spec, cron) {
+		key := cronKey(cron)
+		if seen[key] || declaredCron(spec, cron) {
 			continue
 		}
+		seen[key] = true
 		crons = append(crons, cron)
 	}
 	slices.SortFunc(crons, func(a, b LiveCron) int {
@@ -91,14 +94,16 @@ func extraCrons(spec Spec, live Live) []string {
 func misplacedCrons(spec Spec, live Live) []string {
 	names := roleNames(spec)
 	var lines []string
+	seen := map[string]bool{}
 	for _, name := range names {
 		role := spec.Roles[name]
 		owner := roleSession(live, name)
 		for _, schedule := range role.Schedules {
 			cron, hit := matchCron(live, roleDir(role), schedule, owner)
-			if hit != cronOther {
+			if hit != cronOther || seen[cronKey(cron)] || jobOwned(spec, live, cron) {
 				continue
 			}
+			seen[cronKey(cron)] = true
 			target := sessionRole(spec, live, cron.CreatedBySessionID)
 			if target == "" {
 				target = name
@@ -108,6 +113,27 @@ func misplacedCrons(spec Spec, live Live) []string {
 		}
 	}
 	return lines
+}
+
+func cronKey(cron LiveCron) string {
+	return cron.Cwd + "\x00" + cron.ID
+}
+
+func jobOwned(spec Spec, live Live, job LiveCron) bool {
+	for _, name := range roleNames(spec) {
+		role := spec.Roles[name]
+		if roleDir(role) != job.Cwd {
+			continue
+		}
+		owner := roleSession(live, name)
+		for _, schedule := range role.Schedules {
+			got, hit := matchCron(live, job.Cwd, schedule, owner)
+			if hit == cronOwned && got.Cwd == job.Cwd && got.ID == job.ID {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func whenDrift(spec Spec, live Live) []string {

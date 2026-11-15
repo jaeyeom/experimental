@@ -285,4 +285,5 @@ A pool with no patterns hides every tab in its workspace, and hides
 a name that starts with the pool key or whose agent is in that
 workspace. A namePattern or tabPattern limits
 that to matching workers. When both are set, a worker must match both.
-A role key stays a role.
+A role key stays a role. Each scheduled job is read once and reported
+once, including when several roles share its directory.

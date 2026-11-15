@@ -84,6 +84,7 @@ func TestReadCronsExpandsHome(t *testing.T) {
 		Schedules: []orgctl.Schedule{{ID: "daily", Cron: "0 9 * * 1-5", Durable: true}},
 	}, &live)
 	proj := filepath.Join(home, "proj")
+	readCrons(orgctl.Role{Cwd: "~/proj"}, &live)
 	if len(live.Crons) != 1 || live.Crons[0].Cwd != proj || live.Crons[0].ID != "daily" {
 		t.Fatalf("crons = %#v", live.Crons)
 	}

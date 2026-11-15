@@ -1,6 +1,7 @@
 package orgctl
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -157,6 +158,55 @@ func TestDriftPoolPatterns(t *testing.T) {
 	}
 	if !strings.Contains(got, "+ name adhoc/two") || !strings.Contains(got, "+ tab mixed/other") {
 		t.Fatalf("unmatched worker missing\n%s", got)
+	}
+}
+
+func TestDriftReportsSharedCwdOnce(t *testing.T) {
+	const cwd = "/work/shared"
+	roles := map[string]Role{}
+	var agents []LiveAgent
+	for i := range 10 {
+		name := fmt.Sprintf("desk/%02d", i)
+		role := Role{Cwd: cwd}
+		if i < 3 {
+			role.Schedules = []Schedule{{
+				ID: fmt.Sprintf("job-%d", i), Cron: fmt.Sprintf("%d * * * *", i), Durable: true,
+			}}
+			agents = append(agents, LiveAgent{Name: name, SessionID: fmt.Sprintf("sess-%d", i)})
+		}
+		roles[name] = role
+	}
+	var jobs []LiveCron
+	for i := range 3 {
+		job := LiveCron{
+			Cwd: cwd, ID: fmt.Sprintf("aaaa000%d", i), Cron: fmt.Sprintf("%d * * * *", i),
+			CreatedBySessionID: fmt.Sprintf("sess-%d", i),
+		}
+		jobs = append(jobs, job, job)
+	}
+	for i := range 2 {
+		job := LiveCron{Cwd: cwd, ID: fmt.Sprintf("bbbb000%d", i), Cron: fmt.Sprintf("%d * * * *", i+10)}
+		jobs = append(jobs, job, job)
+	}
+	lines := Drift(Spec{Roles: roles}, Live{Crons: jobs, Agents: agents})
+	got := strings.Join(lines, "\n")
+	count := strings.Count(got, "\n+ cron ")
+	if strings.HasPrefix(got, "+ cron ") {
+		count++
+	}
+	if count != 2 || strings.Contains(got, "misplaced") || strings.Contains(got, "+ cron aaaa") {
+		t.Fatalf("+ cron count = %d\n%s", count, got)
+	}
+
+	roles["desk/00"] = Role{Cwd: cwd, Schedules: []Schedule{{ID: "night", Cron: "0 9 * * *", Durable: true}}}
+	moved := LiveCron{
+		Cwd: cwd, ID: "cccc0001", Cron: "0 9 * * *", CreatedBySessionID: "sess-9",
+	}
+	agents = append(agents, LiveAgent{Name: "desk/09", SessionID: "sess-9"})
+	lines = Drift(Spec{Roles: roles}, Live{Crons: []LiveCron{moved, moved}, Agents: agents})
+	got = strings.Join(lines, "\n")
+	if strings.Count(got, "misplaced") != 1 || strings.Contains(got, "+ cron ") {
+		t.Fatalf("misplaced =\n%s", got)
 	}
 }
 
