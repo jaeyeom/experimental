@@ -1,176 +1,113 @@
-#+TITLE: Org Linters
-#+DATE: 2025-06-20
+#+TITLE: Linters
+#+DATE: 2026-11-15
 
 * Overview
 
-This directory contains linting tools for various file formats, including org-lint for Org-mode files, a Go linter for unnecessary interface assertions, and pkgvar for package-level variables.
+This directory holds three small linters. ~org-lint~ runs Emacs's built-in
+Org-mode linter from the command line, so ~.org~ files can be checked in
+CI. The two Go linters catch patterns ~golangci-lint~ doesn't: interface
+assertions that guard nothing, and package-level variables that should be
+constants or that run code at init time.
+
+~make lint~ runs ~pkgvar~. ~make check~ runs the org-lint tests.
+[[file:../devcheck/README.org][devcheck]] runs
+~unnecessary-interface-assertion-linter~ when it falls back to Go tools.
+Emacs packages for ~org-lint~ come from
+[[file:../setup-dev/README.org][setup-dev]].
+
+Go 1.26 or later.
+
+* Index
+
+| Tool                                   | Checks                                                       | Language | Typical use                    |
+|----------------------------------------+--------------------------------------------------------------+----------+--------------------------------|
+| org-lint                               | Org-mode syntax and source blocks, via Emacs org-lint        | Org      | make check, on .org files      |
+| unnecessary-interface-assertion-linter | var _ I = (*T)(nil) when that assertion adds nothing         | Go       | devcheck's Go fallback         |
+| pkgvar                                 | package-level var that should be const, or that runs at init | Go       | make lint, via go vet -vettool |
 
 * Tools
 
 ** org-lint
 
-A Go wrapper around Emacs org-lint functionality that provides command-line linting for Org-mode files.
+Runs Emacs's built-in ~org-lint~ on one or more ~.org~ files. Pass every
+file in one command. One Emacs process checks all of them.
 
-*** Features
+Emacs starts in batch mode, adds the current Emacs version's ELPA
+directory to ~load-path~ (both =~/.emacs.d= and =~/.config/emacs=), and
+loads the ~ob-*~ and ~*-mode~ packages it can. A package that fails to
+load is skipped. That is what lets source blocks be checked.
 
-- Lints one or more .org files using Emacs org-lint
-- Returns appropriate exit codes (0 for clean, 1 for issues)
-- Formats output as filename:line: (trust-level) description
-- Automatically loads user's Emacs packages from elpa directory
-- Loads all available ob-* packages for org-babel source block support
-- Auto-discovers and loads all *-mode packages for comprehensive language support
-- Gracefully handles package loading errors
-- Supports both traditional (~/.emacs.d) and modern (~/.config/emacs) configurations
-- Only loads packages for the current Emacs version
-- Suitable for CI/CD pipelines and pre-commit hooks
+*** Install
 
-*** Installation
-
-**** Direct Installation from GitHub (Recommended)
+Emacs with Org mode. [[file:../setup-dev/README.org][setup-dev]] installs
+those packages with ~./ensure.sh org-lint~ from
+~devtools/setup-dev/ansible/~.
 
 #+BEGIN_SRC bash
-# Install the latest version from GitHub
 go install github.com/jaeyeom/experimental/devtools/linters/cmd/org-lint@latest
-
-# Verify installation
-org-lint README.org
 #+END_SRC
-
-**** From Source
-
-#+BEGIN_SRC bash
-# Clone the repository
-git clone https://github.com/jaeyeom/experimental.git
-cd experimental/devtools/linters
-
-# Install the tool (requires Go 1.16+)
-go install ./cmd/org-lint
-
-# Verify installation
-org-lint --help
-#+END_SRC
-
-**** From Repository Root
-
-#+BEGIN_SRC bash
-# Install directly with full path
-go install ./devtools/linters/cmd/org-lint
-#+END_SRC
-
-*** Prerequisites
-
-- Go 1.16 or later
-- Emacs with org-mode (ELPA ~org~ and ~org-contrib~) and ~dart-mode~ for
-  org-babel source block linting
-- ~$GOPATH/bin~ or ~$GOBIN~ in your PATH
-
-Install Emacs packages via Ansible (~./ensure.sh org-lint~ in
-~devtools/setup-dev/ansible/~, or
-~ansible-playbook -i inventory.ini setup-org-lint-emacs.yml~).
 
 *** Usage
 
 #+BEGIN_SRC bash
-# Lint a single file
 org-lint README.org
-
-# Lint multiple files
-org-lint file1.org file2.org file3.org
-
-# Use in scripts (check exit code)
-if org-lint *.org; then
-    echo "All files are clean"
-else
-    echo "Issues found"
-fi
-
-# Enable debug output to see load-path
+org-lint file1.org file2.org
 DEBUG=1 org-lint README.org
+org-lint --skip-if-no-emacs *.org
 #+END_SRC
 
-*** Output Format
+*** Output
 
-#+BEGIN_SRC text
-README.org:15: (low) Missing space after comma
-README.org:42: (nil) Link should have a description
-README.org:89: (high) Invalid property syntax
-#+END_SRC
+~org-lint sample.org~ prints one line per finding. ~sample.org~ had a
+link to a missing file, two headings with the same custom id, and
+~#+ATTR_ORG: :align nowhere~ on a paragraph:
 
-*** Integration Examples
+#+BEGIN_EXAMPLE
+sample.org:3: (low) Link to non-existent local file "missing.org"
+sample.org:7: (nil) Duplicate CUSTOM_ID property "same"
+sample.org:12: (nil) Duplicate CUSTOM_ID property "same"
+sample.org:15: (high) "nowhere" not a supported value for #+ATTR_ORG keyword attribute ":align".
+#+END_EXAMPLE
 
-**** Pre-commit Hook
+~(low)~ is a weaker check, ~(high)~ is a stronger one, and ~(nil)~ means
+the check set no trust level. The level is only a hint from Emacs.
 
-#+BEGIN_SRC bash
-#!/bin/sh
-# .git/hooks/pre-commit
-ORG_FILES=$(git diff --cached --name-only --diff-filter=ACM -z | grep -z '\.org$')
+*** Exit codes
 
-if [ -n "$ORG_FILES" ]; then
-    echo "Running org-mode checks on .org files..."
-    echo -n "$ORG_FILES" | xargs -0 -r org-lint
-fi
-#+END_SRC
-
-**** GitHub Actions
-
-#+BEGIN_SRC yaml
-- name: Lint Org files
-  run: |
-    go install github.com/jaeyeom/experimental/devtools/linters/cmd/org-lint@latest
-    org-lint $(find . -name "*.org")
-#+END_SRC
-
-*** How It Works
-
-The tool uses Emacs in batch mode with the following approach:
-
-1. Detects user's Emacs configuration directory using ~user-emacs-directory~
-2. Adds package directories to load-path for the current Emacs version only
-3. Loads all available ~ob-*~ packages for org-babel source block support
-4. Auto-discovers and loads all ~*-mode~ packages for comprehensive language support
-5. Runs org-lint on each specified file
-6. Returns exit code 1 if any issues are found, 0 if all files are clean
-
-This ensures that the linter has access to all your installed Emacs packages and can properly validate org-babel source blocks and other org-mode features.
-
-*** Known Issues
-
-**** Performance
-
-The linter can be slow when processing multiple files because Emacs needs to start up and load all packages for each file. For better performance when linting many files:
-
-- Consider using a wrapper script that collects all files and passes them in a single invocation
-- The startup overhead is amortized when processing multiple files in one command
-- On a typical system, expect ~1-3 seconds per file due to Emacs startup and package loading
-
-**** Package Loading
-
-Some ob-* or *-mode packages may fail to load due to missing dependencies or configuration issues. The tool gracefully handles these failures and continues linting, but you may miss validation for specific source block languages if their corresponding packages fail to load.
-
-*** Building from Source
-
-**** Using Go
-
-#+BEGIN_SRC bash
-# Build binary in current directory
-go build ./cmd/org-lint
-
-# Or build and install to GOPATH/bin
-go install ./cmd/org-lint
-#+END_SRC
-
-**** Using Bazel
-
-#+BEGIN_SRC bash
-bazel build //devtools/linters/cmd/org-lint:org-lint
-#+END_SRC
+- ~org-lint~ exits 0 when every file is clean. It also exits 0 when
+  ~--skip-if-no-emacs~ is set and ~emacs~ is not on ~PATH~.
+- It exits 1 when a file has a finding, a file is missing, ~emacs~ is
+  not on ~PATH~, or no file was given.
 
 ** unnecessary-interface-assertion-linter
 
-Flags compile-time interface assertions of the form ~var _ Iface = (*T)(nil)~
-when the interface has a single implementation and is not used elsewhere.
+Flags ~var _ Iface = (*T)(nil)~ when two things are both true: only one
+type implements ~Iface~, and the name ~Iface~ appears only on that line.
+A use of the name, such as a function parameter, keeps the line. A second
+implementation keeps it too.
 
-*** Installation
+#+BEGIN_SRC go
+package iface
+
+type Runner interface{ Run() }
+
+type runner struct{}
+
+func (*runner) Run() {}
+
+var _ Runner = (*runner)(nil)
+#+END_SRC
+
+The path is absolute. A run of this file ends with:
+
+#+BEGIN_EXAMPLE
+bad.go:9:1: Unnecessary interface assertion
+#+END_EXAMPLE
+
+Adding ~func start(r Runner) { r.Run() }~ uses the name, and the finding
+goes away.
+
+*** Install
 
 #+BEGIN_SRC bash
 go install github.com/jaeyeom/experimental/devtools/linters/cmd/unnecessary-interface-assertion-linter@latest
@@ -179,40 +116,67 @@ go install github.com/jaeyeom/experimental/devtools/linters/cmd/unnecessary-inte
 *** Usage
 
 #+BEGIN_SRC bash
-# Lint the current module
 unnecessary-interface-assertion-linter ./...
-
-# JSON output (used by devcheck)
 unnecessary-interface-assertion-linter --json ./...
-
-# Load packages from a specific directory
 unnecessary-interface-assertion-linter --dir path/to/module ./...
 #+END_SRC
 
-Exit code 1 if issues are found, 0 if clean.
+~--json~ is what [[file:../devcheck/README.org][devcheck]] reads.
 
-#+BEGIN_SRC bash
-bazel build //devtools/linters/cmd/unnecessary-interface-assertion-linter
-#+END_SRC
+*** Exit codes
+
+- The command exits 0 when there is no finding.
+- It exits 1 when there is a finding or a package fails to load.
+- It exits 2 when the flags are invalid.
 
 ** pkgvar
 
-Reports two kinds of package-level variables:
+A package-level ~var~ that never changes should be a ~const~. ~pkgvar~
+also flags an initializer that calls a function or receives from a
+channel when the package is loaded.
 
-- A package-level ~var~, exported or not, whose initializer is a Go constant
-  expression, when the package does not assign to it or take its address.
-  A string kept for ~-ldflags -X~ is suppressed on that declaration with a
-  nolint comment and a reason.
-- An initializer that calls a function or receives from a channel, unless the
-  call is pure and a name keeps the result.
+#+BEGIN_SRC go
+package sample
 
-The default allowlist is ~errors.New~, ~fmt.Errorf~, ~regexp.MustCompile~,
-~strings.Join~, ~strings.Repeat~, ~strings.ReplaceAll~, and ~strings.Split~.
-A listed function is quiet only when every argument is pure and a name keeps
-the result. ~new~ and ~make~ are pure builtins. Interface assertions stay with
-unnecessary-interface-assertion-linter.
+import (
+	"os"
+	"regexp"
+)
 
-*** Installation
+func loadConfig() string { return os.Getenv("CFG") }
+
+var maxRetries = 3
+var re = regexp.MustCompile(`x`)
+var cfg = loadConfig()
+var version = "dev" //nolint:pkgvar // set with -ldflags -X
+var _ = regexp.MustCompile(`x`)
+#+END_SRC
+
+~maxRetries~ is never assigned and the package never takes its address,
+so it should be a constant. ~re~ is quiet: ~regexp.MustCompile~ is on the
+allowlist and the result is stored in ~re~. ~cfg~ is flagged because
+~loadConfig~ calls ~os.Getenv~, which runs when the package is
+initialized. ~version~ stays a variable. The ~nolint~ comment names
+~pkgvar~ and gives a reason, which is how a string set with ~-ldflags -X~
+is kept. A comment with no reason does not suppress the finding. The
+blank ~var _~ is flagged even though ~regexp.MustCompile~ is on the
+allowlist, because the result is discarded.
+
+The message says "impure" when the call is not on the allowlist and is
+not one of the builtins ~len~, ~cap~, ~complex~, ~real~, ~imag~, ~min~,
+~max~, ~new~, and ~make~. A function in the same package is allowed only
+when its body stays within those calls and does not change other
+package-level variables, take their addresses, start a goroutine, defer,
+send, or receive.
+
+A compile-time interface assertion is not a ~pkgvar~ finding. The other
+Go linter in this directory reports those.
+
+The default allowlist is every name in the command below except
+~example.com/config.Load~. The ~-allowlist~ flag replaces the whole list.
+It does not append.
+
+*** Install
 
 #+BEGIN_SRC bash
 go install github.com/jaeyeom/experimental/devtools/linters/cmd/pkgvar@latest
@@ -221,14 +185,37 @@ go install github.com/jaeyeom/experimental/devtools/linters/cmd/pkgvar@latest
 *** Usage
 
 #+BEGIN_SRC bash
-# go vet drives the singlechecker
 go vet -vettool=$(which pkgvar) ./...
-
-# The default allowlist is errors.New, fmt.Errorf, regexp.MustCompile,
-# strings.Join, strings.Repeat, strings.ReplaceAll, and strings.Split.
-go vet -vettool=$(which pkgvar) -allowlist errors.New,fmt.Errorf,regexp.MustCompile,strings.Join,strings.Repeat,strings.ReplaceAll,strings.Split ./...
 #+END_SRC
 
 #+BEGIN_SRC bash
-bazel build //devtools/linters/cmd/pkgvar
+go vet -vettool=$(which pkgvar) -allowlist errors.New,fmt.Errorf,regexp.MustCompile,strings.Join,strings.Repeat,strings.ReplaceAll,strings.Split,example.com/config.Load ./...
+#+END_SRC
+
+*** Output
+
+~go vet~ prints paths relative to the package directory:
+
+#+BEGIN_EXAMPLE
+sample.go:10:5: package-level variable can be a constant
+sample.go:12:5: package-level initializer calls an impure function or receives from a channel
+sample.go:14:5: package-level initializer discards its result
+#+END_EXAMPLE
+
+~re~ and ~version~ produce no line. The ~pkgvar~ binary prints an
+absolute path for the same three lines.
+
+*** Exit codes
+
+- ~go vet -vettool~ exits 0 when there is no finding and exits 1 when
+  there is a finding or the package did not load.
+- The ~pkgvar~ binary exits 3 when it prints a finding. It exits 1 when
+  no package is given.
+
+* Development
+
+#+BEGIN_SRC bash
+go test ./devtools/linters/...
+bazel test //devtools/linters/...
+bazel build //devtools/linters/cmd/org-lint //devtools/linters/cmd/pkgvar //devtools/linters/cmd/unnecessary-interface-assertion-linter
 #+END_SRC
