@@ -18,6 +18,8 @@ go_test(
     srcs = [
         "main_behavioral_test.go",
         "main_test.go",
+        "readme_test.go",
     ],
+    data = ["//devtools/rename-jira-keys:README.org"],
     embed = [":go_default_library"],
 )
