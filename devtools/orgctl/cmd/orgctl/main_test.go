@@ -212,6 +212,23 @@ func TestDriftExitCodes(t *testing.T) {
 	}
 }
 
+func TestImportSchemaFlag(t *testing.T) {
+	load := func(orgctl.Spec) (orgctl.Live, error) {
+		return orgctl.Live{
+			Names: []orgctl.LiveName{{Name: "coord/lead", Server: "local"}},
+			Agents: []orgctl.LiveAgent{{
+				Name: "coord/lead", Machine: "local", Workspace: "hq", Tab: "lead",
+				Cwd: "/work/lead", Kind: "coordinator",
+			}},
+		}, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := runIO([]string{"import", "--schema", "/pinned/Org.pkl"}, &stdout, &stderr, load)
+	if code != 0 || !strings.Contains(stdout.String(), `amends "/pinned/Org.pkl"`) {
+		t.Fatalf("exit %d\n%s\n%s", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestImportRefusesOverwrite(t *testing.T) {
 	dir := t.TempDir()
 	out := filepath.Join(dir, "org.pkl")

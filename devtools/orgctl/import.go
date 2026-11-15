@@ -1,15 +1,36 @@
 package orgctl
 
 import (
+	"fmt"
 	"slices"
 	"strings"
+	"unicode"
 )
+
+// importPromptLimit is the longest prompt copied into the stub.
+// A longer prompt is read from prompts/<id>.txt.
+const importPromptLimit = 80
+
+// RenderedImport is a Pkl stub plus prompt files it reads.
+// Files are keyed by a path relative to the stub.
+type RenderedImport struct {
+	Stub  string
+	Files map[string]string
+}
 
 // Import renders a Pkl stub that amends amendsPath.
 // reportsTo, decides, brief and needs are TODO comments.
 // Pool candidates are comments. The stub does not write a file.
 func Import(live Live, amendsPath string) string {
-	roles := importRoles(live)
+	return RenderImport(live, amendsPath).Stub
+}
+
+// RenderImport renders the stub and any prompt files a long job needs.
+func RenderImport(live Live, amendsPath string) RenderedImport {
+	roles, gone := importRoles(live)
+	var unowned []LiveCron
+	files := map[string]string{}
+	roles, unowned = attachJobs(roles, live.Crons, files)
 	var b strings.Builder
 	b.WriteString("amends " + pklQuote(amendsPath) + "\n\n")
 	b.WriteString("// TODO: org name\n")
@@ -20,7 +41,9 @@ func Import(live Live, amendsPath string) string {
 	writeImportRoles(&b, roles)
 	b.WriteByte('\n')
 	writePoolComments(&b, live)
-	return b.String()
+	writeGone(&b, gone)
+	writeUnowned(&b, unowned)
+	return RenderedImport{Stub: b.String(), Files: files}
 }
 
 type importRole struct {
@@ -31,68 +54,235 @@ type importRole struct {
 	cwd       string
 	when      string
 	agent     string
-	schedules []LiveCron
+	session   string
+	schedules []importSchedule
 }
 
-func importRoles(live Live) []importRole {
-	agents := make(map[string]LiveAgent, len(live.Agents))
+type importSchedule struct {
+	id     string
+	cron   string
+	prompt string
+}
+
+func importRoles(live Live) ([]importRole, []string) {
+	byPane := map[string]LiveAgent{}
+	byName := map[string]LiveAgent{}
 	for _, agent := range live.Agents {
-		agents[agent.Name] = agent
+		if agent.Pane != "" {
+			if _, ok := byPane[agent.Pane]; !ok {
+				byPane[agent.Pane] = agent
+			}
+		}
+		if agent.Name != "" {
+			if _, ok := byName[agent.Name]; !ok {
+				byName[agent.Name] = agent
+			}
+		}
 	}
 	seen := map[string]bool{}
 	var roles []importRole
+	var gone []string
 	for _, item := range live.Names {
 		if item.Name == "" || seen[item.Name] {
 			continue
 		}
 		seen[item.Name] = true
-		agent := agents[item.Name]
-		machine := agent.Machine
-		if machine == "" {
-			machine = item.Server
+		if item.Liveness == "gone" {
+			gone = append(gone, item.Name)
+			continue
 		}
-		if machine == "" {
-			machine = "local"
-		}
-		kind := agent.Kind
-		if kind == "" {
-			kind = "unknown"
-		}
-		workspace := agent.Workspace
-		if workspace == "" {
-			workspace = "TODO"
-		}
-		tab := agent.Tab
-		if tab == "" {
-			tab = "TODO"
-		}
-		cwd := agent.Cwd
-		if cwd == "" {
-			cwd = "TODO"
-		}
-		roles = append(roles, importRole{
-			name: item.Name, machine: machine, workspace: workspace,
-			tab: tab, cwd: cwd, when: item.When, agent: kind,
-			schedules: cronsFor(live, cwd),
-		})
+		agent, _ := agentFor(item, byPane, byName)
+		roles = append(roles, roleFrom(item, agent))
 	}
 	slices.SortFunc(roles, func(a, b importRole) int {
 		return strings.Compare(a.name, b.name)
 	})
-	return roles
+	slices.Sort(gone)
+	uniquifyTabs(roles)
+	return roles, gone
 }
 
-func cronsFor(live Live, cwd string) []LiveCron {
-	var jobs []LiveCron
-	for _, cron := range live.Crons {
-		if cron.Cwd == cwd && cron.ID != "" {
-			jobs = append(jobs, cron)
+func agentFor(item LiveName, byPane, byName map[string]LiveAgent) (LiveAgent, bool) {
+	if item.Pane != "" {
+		agent, ok := byPane[item.Pane]
+		return agent, ok
+	}
+	agent, ok := byName[item.Name]
+	return agent, ok
+}
+
+func roleFrom(item LiveName, agent LiveAgent) importRole {
+	machine := agent.Machine
+	if machine == "" {
+		machine = item.Server
+	}
+	if machine == "" {
+		machine = "local"
+	}
+	kind := agent.Kind
+	if kind == "" {
+		kind = "unknown"
+	}
+	workspace := agent.Workspace
+	if workspace == "" {
+		workspace = "TODO"
+	}
+	tab := agent.Tab
+	if tab == "" {
+		tab = "TODO"
+	}
+	cwd := agent.Cwd
+	if cwd == "" {
+		cwd = "TODO"
+	}
+	return importRole{
+		name: item.Name, machine: machine, workspace: workspace,
+		tab: tab, cwd: cwd, when: item.When, agent: kind, session: item.SessionID,
+	}
+}
+
+func uniquifyTabs(roles []importRole) {
+	seen := map[string]bool{}
+	for i := range roles {
+		key := roles[i].workspace + "\t" + roles[i].tab
+		if !seen[key] {
+			seen[key] = true
+			continue
+		}
+		base := roles[i].tab
+		if strings.HasPrefix(base, "TODO") {
+			base = "TODO"
+		}
+		for n := 1; ; n++ {
+			candidate := fmt.Sprintf("%s-%d", base, n)
+			key = roles[i].workspace + "\t" + candidate
+			if !seen[key] {
+				roles[i].tab = candidate
+				seen[key] = true
+				break
+			}
 		}
 	}
+}
+
+func attachJobs(roles []importRole, crons []LiveCron, files map[string]string) ([]importRole, []LiveCron) {
+	bySession := map[string]int{}
+	for i, role := range roles {
+		if role.session != "" {
+			if _, ok := bySession[role.session]; !ok {
+				bySession[role.session] = i
+			}
+		}
+	}
+	owned := map[int][]LiveCron{}
+	var unowned []LiveCron
+	for _, cron := range crons {
+		idx, ok := bySession[cron.CreatedBySessionID]
+		if cron.CreatedBySessionID == "" || !ok {
+			unowned = append(unowned, cron)
+			continue
+		}
+		owned[idx] = append(owned[idx], cron)
+	}
+	for idx, jobs := range owned {
+		sortCrons(jobs)
+		roles[idx].schedules = slugJobs(jobs, files)
+	}
+	sortCrons(unowned)
+	return roles, unowned
+}
+
+func sortCrons(jobs []LiveCron) {
 	slices.SortFunc(jobs, func(a, b LiveCron) int {
-		return strings.Compare(a.ID, b.ID)
+		if a.Cron != b.Cron {
+			return strings.Compare(a.Cron, b.Cron)
+		}
+		return strings.Compare(a.Prompt, b.Prompt)
 	})
-	return jobs
+}
+
+func slugJobs(jobs []LiveCron, files map[string]string) []importSchedule {
+	used := map[string]bool{}
+	out := make([]importSchedule, 0, len(jobs))
+	for _, job := range jobs {
+		id := uniqueSlug(promptSlug(job.Prompt), used)
+		cron := job.Cron
+		if cron == "" {
+			cron = "* * * * *"
+		}
+		text := job.Prompt
+		if text == "" {
+			text = "TODO"
+		}
+		expr := pklQuote(text)
+		if len([]rune(text)) > importPromptLimit {
+			path := "prompts/" + id + ".txt"
+			files[path] = text
+			expr = "read(" + pklQuote(path) + ")"
+		}
+		out = append(out, importSchedule{id: id, cron: cron, prompt: expr})
+	}
+	return out
+}
+
+func uniqueSlug(base string, used map[string]bool) string {
+	if base == "" {
+		base = "job"
+	}
+	id := base
+	for n := 2; used[id]; n++ {
+		id = fmt.Sprintf("%s-%d", base, n)
+	}
+	used[id] = true
+	return id
+}
+
+func promptSlug(prompt string) string {
+	var words []string
+	var cur strings.Builder
+	flush := func() {
+		if cur.Len() == 0 || len(words) >= 4 {
+			cur.Reset()
+			return
+		}
+		words = append(words, cur.String())
+		cur.Reset()
+	}
+	for _, r := range strings.ToLower(prompt) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			if len(words) < 4 {
+				cur.WriteRune(r)
+			}
+			continue
+		}
+		flush()
+	}
+	flush()
+	if len(words) == 0 {
+		return "job"
+	}
+	slug := strings.Join(words, "-")
+	if runes := []rune(slug); len(runes) > 40 {
+		slug = strings.TrimRight(string(runes[:40]), "-")
+	}
+	if slug == "" {
+		return "job"
+	}
+	return slug
+}
+
+func writeGone(b *strings.Builder, names []string) {
+	for _, name := range names {
+		b.WriteString("// gone: " + name + "\n")
+	}
+}
+
+func writeUnowned(b *strings.Builder, jobs []LiveCron) {
+	for _, job := range jobs {
+		prefix := strings.ReplaceAll(promptPrefix(job.Prompt), "\n", " ")
+		prefix = strings.ReplaceAll(prefix, "\r", " ")
+		b.WriteString("// unowned cron: " + job.Cron + " " + prefix + "\n")
+	}
 }
 
 func writeMachines(b *strings.Builder, roles []importRole) {
@@ -167,18 +357,10 @@ func writeImportRoles(b *strings.Builder, roles []importRole) {
 		if len(role.schedules) > 0 {
 			b.WriteString("    schedules {\n")
 			for _, schedule := range role.schedules {
-				cron := schedule.Cron
-				if cron == "" {
-					cron = "* * * * *"
-				}
-				prompt := schedule.Prompt
-				if prompt == "" {
-					prompt = "TODO"
-				}
 				b.WriteString("      new {\n")
-				b.WriteString("        id = " + pklQuote(schedule.ID) + "\n")
-				b.WriteString("        cron = " + pklQuote(cron) + "\n")
-				b.WriteString("        prompt = " + pklQuote(prompt) + "\n")
+				b.WriteString("        id = " + pklQuote(schedule.id) + "\n")
+				b.WriteString("        cron = " + pklQuote(schedule.cron) + "\n")
+				b.WriteString("        prompt = " + schedule.prompt + "\n")
 				b.WriteString("      }\n")
 			}
 			b.WriteString("    }\n")
