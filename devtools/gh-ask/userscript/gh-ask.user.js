@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         gh-ask
 // @namespace    https://github.com/jaeyeom/experimental/tree/main/devtools/gh-ask
-// @version      0.1.8
+// @version      0.1.9
 // @description  Ask a local agent about lines in a pull request diff, through gh-ask serve on 127.0.0.1.
 // @match        https://github.com/*
 // @grant        GM_xmlhttpRequest
@@ -456,6 +456,97 @@ function prHeader(root) {
   }
   const titles = findAll(root, (e) => e.tagName === "H1" && inTitleArea(e));
   return titles[0] || null;
+}
+
+function classIncludes(el, part) {
+  const value = el.getAttribute ? el.getAttribute("class") : "";
+  return typeof value === "string" && value.includes(part);
+}
+
+function indexOfNode(list, node) {
+  return Array.prototype.indexOf.call(list || [], node);
+}
+
+// panelToggleSlot is where the panel toggle goes. The sticky header
+// wins: after the title copy control, or at the start of the actions
+// when that control is missing. Otherwise it sits next to the title.
+function panelToggleSlot(root) {
+  const bar = findAll(root, (e) => classIncludes(e, "miniHeaderInner"))[0];
+  if (bar) {
+    const meta = findAll(bar, (e) => classIncludes(e, "metadata"))[0];
+    const title = meta && findAll(meta, (e) => classIncludes(e, "titleWithCopy"))[0];
+    if (title && title.parentElement) {
+      return { parent: title.parentElement, after: title, first: false };
+    }
+    const actions = findAll(bar, (e) => classIncludes(e, "actions"))[0];
+    if (actions) {
+      return { parent: actions, after: null, first: true };
+    }
+  }
+  const heading = prHeader(root);
+  const host = heading?.parentElement;
+  if (!host) {
+    return null;
+  }
+  return { parent: host, after: null, first: false };
+}
+
+function toggleInSlot(slot, toggle) {
+  const kids = slot.parent.children;
+  const at = indexOfNode(kids, toggle);
+  if (at < 0) {
+    return false;
+  }
+  if (slot.after) {
+    return kids[at - 1] === slot.after;
+  }
+  if (slot.first) {
+    return at === 0;
+  }
+  return at === kids.length - 1;
+}
+
+function insertChild(parent, node, before) {
+  if (typeof parent.insertBefore === "function") {
+    parent.insertBefore(node, before || null);
+    return;
+  }
+  const kids = parent.childNodes;
+  const old = node.parentElement;
+  if (old && old.childNodes) {
+    const i = indexOfNode(old.childNodes, node);
+    if (i >= 0) {
+      old.childNodes.splice(i, 1);
+    }
+  }
+  node.parentElement = parent;
+  if (!before) {
+    kids.push(node);
+    return;
+  }
+  const at = indexOfNode(kids, before);
+  kids.splice(at < 0 ? kids.length : at, 0, node);
+}
+
+// mountPanelToggle puts toggle in panelToggleSlot. The same node is
+// moved when a better slot appears, so the page never has two.
+function mountPanelToggle(root, toggle) {
+  const slot = panelToggleSlot(root);
+  if (!slot) {
+    return false;
+  }
+  if (toggleInSlot(slot, toggle)) {
+    return true;
+  }
+  const before = slot.first ? slot.parent.children[0] || null : null;
+  insertChild(slot.parent, toggle, slot.after ? nextElement(slot.after) : before);
+  return toggleInSlot(slot, toggle);
+}
+
+function nextElement(el) {
+  const kids = el.parentElement ? el.parentElement.children : [];
+  const at = indexOfNode(kids, el);
+  return at >= 0 ? kids[at + 1] || null : null;
 }
 
 // inTitleArea reports whether el's parent or grandparent is a TitleArea.
@@ -1216,6 +1307,7 @@ const GhAsk = {
   lineInfo,
   navDebounceMs,
   onPopoverKey,
+  mountPanelToggle,
   panelAsk,
   panelPollInterval,
   panelView,
@@ -1239,7 +1331,8 @@ const GhAsk = {
 const CSS = `
 .gh-ask-btn { position: absolute; z-index: 100; font: 12px sans-serif; padding: 2px 6px;
   border: 1px solid #8c959f; border-radius: 6px; background: #f6f8fa; color: #1f2328; cursor: pointer; }
-.gh-ask-header { position: static; z-index: auto; margin-left: 8px; vertical-align: middle; }
+.gh-ask-btn.gh-ask-header { position: static; z-index: auto; margin-left: 8px;
+  vertical-align: middle; line-height: 20px; padding: 0 8px; }
 .gh-ask-pop { position: absolute; z-index: 101; width: 360px; padding: 8px; font: 13px sans-serif;
   border: 1px solid #8c959f; border-radius: 6px; background: #fff; color: #1f2328;
   box-shadow: 0 4px 12px rgba(0,0,0,.2); }
@@ -1547,19 +1640,21 @@ function activatePanel() {
     onPopoverKey(event, { question: question.value, sending, send: submit, close });
   });
 
+  let mountTimer = null;
   function mountToggle() {
-    const title = prHeader(document.documentElement);
-    const host = title && title.parentElement;
-    if (!host) {
-      return false;
+    return mountPanelToggle(document.documentElement, toggle);
+  }
+  function scheduleMount() {
+    if (mountTimer !== null) {
+      window.clearTimeout(mountTimer);
     }
-    if (!host.contains(toggle)) {
-      host.append(toggle);
-    }
-    return true;
+    mountTimer = window.setTimeout(() => {
+      mountTimer = null;
+      mountToggle();
+    }, navDebounceMs);
   }
   watch = new MutationObserver(() => {
-    mountToggle();
+    scheduleMount();
   });
   watch.observe(document.documentElement, { childList: true, subtree: true });
   mountToggle();
@@ -1570,6 +1665,10 @@ function activatePanel() {
       panelApi = null;
     }
     stopPoll();
+    if (mountTimer !== null) {
+      window.clearTimeout(mountTimer);
+      mountTimer = null;
+    }
     if (watch) {
       watch.disconnect();
       watch = null;

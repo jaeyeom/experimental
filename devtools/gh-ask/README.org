@@ -149,9 +149,10 @@ minutes. A failed send stays in the popover so you can send it again.
 The chip and the popover show the failure: auth failure, forbidden,
 too large, rate limit, the command failed, or the server is down.
 
-A ~gh-ask~ button in the pull request title opens a read-only side
-panel. It is on every pull request tab, including Conversation and
-Commits, and it stays up when GitHub changes tabs without a reload.
+A ~gh-ask~ button in the sticky pull request header opens a read-only
+side panel. On a page without that header it sits next to the title.
+It is on every pull request tab, including Conversation and Commits,
+and it stays up when GitHub changes tabs without a reload.
 The diff buttons are only on the files and changes views.
 
 Opening the panel loads the stored thread. Each message shows You,
