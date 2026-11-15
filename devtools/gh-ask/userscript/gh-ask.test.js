@@ -419,9 +419,9 @@ test("the script only connects to loopback", () => {
 const POPOVER_W = 360;
 const MARGIN = 8;
 
-test("userscript version is 0.1.9", () => {
+test("userscript version is 0.1.10", () => {
   const src = fs.readFileSync(path.join(__dirname, "gh-ask.user.js"), "utf8");
-  assert.match(src, /^\/\/ @version\s+0\.1\.9$/m);
+  assert.match(src, /^\/\/ @version\s+0\.1\.10$/m);
 });
 
 const FILES_HEAD = "0123456789abcdef0123456789abcdef01234567";
@@ -1118,13 +1118,13 @@ test("TitleArea without an h1 is not a header", () => {
   assert.equal(G.prHeader(classic).getAttribute("data-fixture"), "pr-title");
 });
 
-test("header button builds a whole-PR payload", () => {
+test("a panel question with no line is a whole-PR ask", () => {
+  const src = fs.readFileSync(path.join(__dirname, "gh-ask.user.js"), "utf8");
+  assert.doesNotMatch(src, /Ask about this PR/);
+  assert.doesNotMatch(src, /Follow-up for the agent/);
+  assert.match(src, /Question for the agent/);
   for (const v of views) {
-    const root = fixture(v.file);
-    const header = G.prHeader(root);
-    assert.ok(header, v.name);
-    assert.equal(header.getAttribute("data-fixture"), "pr-title", v.name);
-    const got = G.buildWholePrPayload({
+    const got = G.panelAsk({
       href: `${v.href}?w=1#diff-abcR10`,
       headSha: v.head,
       question: "Is the design right?",
@@ -1209,7 +1209,7 @@ function diffPage(pathname) {
   };
   const nodes = [];
   function mount() {
-    const made = ["Ask agent", "Ask about this PR"].map((text) => {
+    const made = ["Ask agent"].map((text) => {
       const node = {
         text,
         removed: false,
@@ -1257,7 +1257,7 @@ test("soft navigation activates only on a diff and does not duplicate buttons", 
   settle(page);
   assert.deepEqual(
     page.buttons().map((b) => b.text),
-    ["Ask agent", "Ask about this PR"],
+    ["Ask agent"],
   );
 
   page.history.pushState({}, "", "/o/r/pull/1");
@@ -1268,14 +1268,14 @@ test("soft navigation activates only on a diff and does not duplicate buttons", 
   settle(page);
   assert.deepEqual(
     page.buttons().map((b) => b.text),
-    ["Ask agent", "Ask about this PR"],
+    ["Ask agent"],
   );
 
   page.history.pushState({}, "", "/o/r/pull/2/files");
   settle(page);
   assert.deepEqual(
     page.buttons().map((b) => b.text),
-    ["Ask agent", "Ask about this PR"],
+    ["Ask agent"],
   );
 });
 
@@ -1285,11 +1285,11 @@ test("turbo:load activates a diff view", () => {
   page.location.pathname = "/o/r/pull/1/files";
   page.window.dispatchEvent(new page.window.Event("turbo:load"));
   settle(page);
-  assert.equal(page.buttons().length, 2);
+  assert.equal(page.buttons().length, 1);
 
   page.window.dispatchEvent(new page.window.Event("turbo:load"));
   settle(page);
-  assert.equal(page.buttons().length, 2);
+  assert.equal(page.buttons().length, 1);
 });
 
 test("userscript matches all of github.com", () => {

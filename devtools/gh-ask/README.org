@@ -134,15 +134,15 @@ The userscript adds "Ask agent" on the pull request Files changed
 view, both ~/pull/<n>/files~ and the newer ~/pull/<n>/changes~ page.
 Hover a numbered diff line and the button sits on that line.
 Selecting text inside one file's diff puts the button at the end of
-the selection. A selection that crosses files is refused. "Ask about
-this PR", next to the pull request title, asks with no file or line.
+the selection. A selection that crosses files is refused. A question
+about the whole pull request goes in the side panel, with no line.
 
 The button opens a popover with a question box, a ~deep~ checkbox,
 and Send. Cmd+Enter or Ctrl+Enter sends. Enter stays a newline. The
 popover stays inside the window.
 
 Send stores the question on the thread for that pull request. The
-line, or the title button, gets a chip: ~Asked in <id> · waiting~,
+line gets a chip: ~Asked in <id> · waiting~,
 then ~answered~ or ~closed~ when the status says so. The chip is
 polled every 20 seconds while the tab is visible, for at most 30
 minutes. A failed send stays in the popover so you can send it again.
@@ -158,8 +158,9 @@ The diff buttons are only on the files and changes views.
 Opening the panel loads the stored thread. Each message shows You,
 Agent, or Note, and the time in local time, oldest first, newest at
 the bottom. A closed thread shows ~closed~. When nothing is stored
-yet, the panel says "No question yet" and still offers a follow-up
-box. Clicking a status chip opens the same panel. A chip on a line
+yet, the panel says "No question yet" and still offers a question
+box. A question with no line asks about the whole pull request.
+Clicking a status chip opens the same panel. A chip on a line
 sends the follow-up as a line question; anything else sends the
 whole pull request. Cmd+Enter or Ctrl+Enter sends.
 
@@ -444,8 +445,8 @@ bazel test //devtools/gh-ask/userscript:userscript_test
 
 The test runs the payload builder, URL and head-commit parsing, error
 text, the poller, and the answer panel against sample diff markup in
-=userscript/testdata/=, one file per view. The whole-PR payload is
-checked from the title in those fixtures. The panel tests check that
+=userscript/testdata/=, one file per view. A panel question with no
+line is checked as a whole-PR payload. The panel tests check that
 message text stays literal, the poll cadence, ~GET /thread~, and
 which ask form a follow-up uses. Popover placement is checked against
 fixed viewports, not a layout engine. It uses the host's ~node~ and
@@ -494,8 +495,8 @@ real page, update the fixture, and fix the script against the test.
 - ~selection~ is the selected text, or the hunk around the line when
   nothing is selected, cut to 4 KB.
 - ~page_url~ is the page link with the line anchor, such as
-  ~#diff-<hash>R10-R12~. For "Ask about this PR" it is the files or
-  changes page without a line anchor.
+  ~#diff-<hash>R10-R12~. A whole-PR question from the panel uses the
+  page without a line anchor.
 - The popover and the button stay inside the window: a box that would
   pass the right edge shifts left, one that would pass the bottom
   opens above, and a narrow window shrinks the popover. Resizing the

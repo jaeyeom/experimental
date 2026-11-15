@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         gh-ask
 // @namespace    https://github.com/jaeyeom/experimental/tree/main/devtools/gh-ask
-// @version      0.1.9
+// @version      0.1.10
 // @description  Ask a local agent about lines in a pull request diff, through gh-ask serve on 127.0.0.1.
 // @match        https://github.com/*
 // @grant        GM_xmlhttpRequest
@@ -559,34 +559,6 @@ function inTitleArea(el) {
     e = e.parentElement;
   }
   return false;
-}
-
-// buildWholePrPayload is a question about the pull request, with no file
-// or line. page_url is the files or changes page without a line anchor.
-function buildWholePrPayload({ href, headSha, question, deep }) {
-  const url = parsePrUrl(href);
-  if (!url) {
-    return { error: "not a pull request files page" };
-  }
-  if (!SHA_RE.test(headSha || "")) {
-    return { error: "could not find the head commit on this page" };
-  }
-  if (!question || question.trim() === "") {
-    return { error: "the question is empty" };
-  }
-  if (utf8Len(question) > MAX_QUESTION_BYTES) {
-    return { error: "the question is over 2 KB" };
-  }
-  return {
-    payload: {
-      repo: url.repo,
-      pr: url.pr,
-      head_sha: headSha,
-      question,
-      deep: Boolean(deep),
-      page_url: url.page,
-    },
-  };
 }
 
 // serverUrl returns http://127.0.0.1:<port><path>, or null for a bad
@@ -1297,7 +1269,6 @@ const GhAsk = {
   askPanel,
   bindPage,
   buildPayload,
-  buildWholePrPayload,
   chipText,
   findHeadSha,
   formatMessageTime,
@@ -1433,7 +1404,7 @@ function activatePanel() {
     textContent: "gh-ask",
   });
   const log = el("div", { className: "gh-ask-panel-log" });
-  const question = el("textarea", { placeholder: "Follow-up for the agent" });
+  const question = el("textarea", { placeholder: "Question for the agent" });
   const deep = el("input", { type: "checkbox" });
   const send = el("button", {
     type: "button",
@@ -1733,8 +1704,6 @@ function main() {
   let target = null;
   let popover = null;
   let popoverPoint = null;
-  let headerButton = null;
-  let watch = null;
   const pollStops = [];
 
   function elementOf(node) {
@@ -2000,59 +1969,6 @@ function main() {
     );
   });
 
-  function mountHeaderButton() {
-    if (headerButton) {
-      return true;
-    }
-    const title = prHeader(document.documentElement);
-    const host = title && title.parentElement;
-    if (!host) {
-      return false;
-    }
-    headerButton = el("button", {
-      type: "button",
-      className: "gh-ask-btn gh-ask-header",
-      textContent: "Ask about this PR",
-    });
-    host.append(headerButton);
-    headerButton.addEventListener("click", () => {
-      openAsk(
-        () => {
-          const r = headerButton.getBoundingClientRect();
-          return { top: r.bottom + 4, left: r.left };
-        },
-        async (question, deep, onStatus) => {
-          const head = await resolveHeadSha(headOpts(onStatus));
-          if (head.error) {
-            return head;
-          }
-          return buildWholePrPayload({
-            href: window.location.href,
-            headSha: head.headSha,
-            question,
-            deep,
-          });
-        },
-        (chip) => {
-          headerButton.parentElement.insertBefore(chip, headerButton.nextSibling);
-        },
-      );
-    });
-    return true;
-  }
-
-  if (!mountHeaderButton()) {
-    watch = new MutationObserver(() => {
-      if (mountHeaderButton()) {
-        watch.disconnect();
-        watch = null;
-      }
-    });
-    // The header sits outside the diff table. Watch only while this
-    // diff view is active, and disconnect on deactivate.
-    watch.observe(document.documentElement, { childList: true, subtree: true });
-  }
-
   return function deactivate() {
     for (const stop of pollStops) {
       stop();
@@ -2062,17 +1978,9 @@ function main() {
     document.removeEventListener("mouseover", onMouseOver);
     document.removeEventListener("mouseup", onMouseUp);
     document.removeEventListener("keydown", onKeyDown);
-    if (watch) {
-      watch.disconnect();
-      watch = null;
-    }
     if (popover) {
       popover.remove();
       popover = null;
-    }
-    if (headerButton) {
-      headerButton.remove();
-      headerButton = null;
     }
     button.remove();
     style.remove();
