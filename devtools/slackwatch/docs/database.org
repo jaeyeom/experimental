@@ -1,0 +1,22 @@
+Read this when you query the SQLite file or add a migration.
+The guide links here instead of listing the tables.
+
+* Database
+
+SQLite in WAL mode, so the server and the CLI can open the same file at
+once. Each open applies any pending migrations. ~PRAGMA user_version~
+records how many have run.
+
+| Table | Holds |
+|-------+-------|
+| ~watches~ | One watched thread or DM. Unique per ~(channel, thread_ts)~. |
+| ~watch_posts~ | The registered posts under a watch. |
+| ~replies~ | Replies seen in watched threads, and messages in subscribed channels (no watch). Unique per ~(channel, ts)~. |
+| ~reactions~ | Reactions on watched posts. |
+| ~inbound~ | DMs and mentions addressed to the user. ~notified~ is 1 once an ~inbound~ notification was committed. |
+| ~subs~ | Channel subscriptions. |
+| ~cursors~ | Last seen ts per scope. |
+| ~deliveries~ | Notify attempts, delivered or not. |
+| ~status~ | One heartbeat row for the server. |
+| ~outbox~ | Drafts submitted with ~slackwatch post~ and their state. |
+| ~posting~ | Why direct posting is disabled, empty when it is not. |

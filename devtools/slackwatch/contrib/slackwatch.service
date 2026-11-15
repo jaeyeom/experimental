@@ -1,5 +1,9 @@
 # Example systemd user unit for slackwatch serve.
 #
+# go install puts the binary in ~/go/bin, or in $GOBIN when that is set,
+# otherwise in $(go env GOPATH)/bin (usually ~/go/bin). ExecStart uses
+# %h/go/bin. If GOBIN is somewhere else, edit ExecStart.
+#
 # Install:
 #   cp slackwatch.service ~/.config/systemd/user/
 #   systemctl --user daemon-reload
@@ -7,7 +11,7 @@
 #   journalctl --user -u slackwatch.service -f
 #
 # No secrets live here. The config names the tokenFile, which must be
-# chmod 600. Adjust the binary and config paths to your install.
+# chmod 600. Adjust the config path if you do not use the default.
 #
 # systemd does not read your shell profile, so PATH below must contain
 # decide when post.mode is set. Otherwise set decideCommand in the config
@@ -20,7 +24,7 @@ After=network-online.target
 
 [Service]
 Environment=PATH=%h/go/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=%h/.local/bin/slackwatch --config %h/.config/slackwatch/config.json serve
+ExecStart=%h/go/bin/slackwatch --config %h/.config/slackwatch/config.json serve
 Restart=on-failure
 RestartSec=30
 StandardOutput=journal

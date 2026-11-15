@@ -60,7 +60,8 @@ INSTALL_CMDS := \
 	./devtools/linters/cmd/unnecessary-interface-assertion-linter \
 	./devtools/prsync/cmd/prsync \
 	./devtools/rename-jira-keys/cmd/rename-jira-keys \
-	./devtools/reviewpush/cmd/review-and-push-loop
+	./devtools/reviewpush/cmd/review-and-push-loop \
+	./devtools/slackwatch/cmd/slackwatch
 
 install:
 	GOPACKAGESDRIVER= go install $(INSTALL_CMDS)
