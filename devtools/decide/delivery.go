@@ -13,6 +13,8 @@ const (
 	OutcomeFailed = "failed"
 	// OutcomeQueued is an agentbus hold. The bus delivers one copy later.
 	OutcomeQueued = "delivered (queued)"
+	// OutcomeResend is the one follow-up of an answer the owner had not taken up.
+	OutcomeResend = "resend"
 
 	// MaxDeliveryAttempts is the first send plus retries of one answer.
 	MaxDeliveryAttempts = 3
@@ -120,6 +122,8 @@ func (l *Ledger) appendDelivery(id string, d Delivery) (Item, error) {
 		it.Delivery = append(it.Delivery, d)
 		switch d.Outcome {
 		case OutcomeFailed:
+			it.NotifyError = d.Error
+		case OutcomeResend:
 			it.NotifyError = d.Error
 		case OutcomeDelivered, OutcomeQueued:
 			it.NotifyError = ""

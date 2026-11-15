@@ -112,6 +112,36 @@ type InboxUI struct {
 	Clipboard string `json:"clipboard,omitempty"`
 	// FillColumn is the compose fill width. Zero is 72.
 	FillColumn int `json:"fillColumn,omitempty"`
+	// StaleAnswerAfter is how long an answer sits before a follow-up,
+	// such as "30m". Empty is 30 minutes.
+	StaleAnswerAfter string `json:"staleAnswerAfter,omitempty"`
+}
+
+// DefaultStaleAnswerAfter is how long an answer sits before a follow-up
+// when ui.staleAnswerAfter is unset.
+const DefaultStaleAnswerAfter = 30 * time.Minute
+
+// StaleAnswerAfter is ui.staleAnswerAfter, or DefaultStaleAnswerAfter
+// when it is unset. LoadConfig rejects an invalid duration.
+func (c Config) StaleAnswerAfter() time.Duration {
+	d, err := parseStaleAnswerAfter(c.UI.StaleAnswerAfter)
+	if err != nil || d <= 0 {
+		return DefaultStaleAnswerAfter
+	}
+	return d
+}
+
+// parseStaleAnswerAfter parses ui.staleAnswerAfter. Empty is zero.
+func parseStaleAnswerAfter(raw string) (time.Duration, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return 0, fmt.Errorf("decide config ui.staleAnswerAfter must be a positive duration, such as \"30m\"")
+	}
+	return d, nil
 }
 
 // CheckClipboard reports an error when mode is not a clipboard transport.
@@ -235,6 +265,9 @@ func parseConfig(data []byte, dir string) (Config, error) {
 		return Config{}, err
 	}
 	if err := CheckClipboard(cfg.UI.Clipboard); err != nil {
+		return Config{}, err
+	}
+	if _, err := parseStaleAnswerAfter(cfg.UI.StaleAnswerAfter); err != nil {
 		return Config{}, err
 	}
 	resolveAvatarFiles(cfg.Avatars, dir)

@@ -701,6 +701,29 @@ reloads, after 5s and then after 20s, and then it stops. Three attempts
 is the cap. The same key is sent again. A new answer has a new
 ~answeredAt~ and a new key. A queued attempt is not retried.
 
+An answered item the owner has not taken up is followed up once. It is
+stale when it is still answered, ~ui.staleAnswerAfter~ on the ledger
+machine has passed (30 minutes when that is unset), and the owner has
+not replied in the thread, marked it read, or run ~decide done~.
+Opening the item marks it read. The check runs on the machine that
+holds the ledger: from the inbox reload there, and in hub mode from
+~decide serve~, so the item does not have to be open. The hub does it.
+A hub client does not.
+
+The follow-up looks the owner up first, through ~herdr --machine~ when
+the pane is on another machine, and then reads ~herdr agent list~:
+
+- The pane is gone, or the pane is live and has no agent: the item is
+  marked ~owner gone~. The inbox item view shows ~Close~, which finishes
+  it. Nothing is re-sent.
+- The agent's ~agent_status~ is ~blocked~: the item is marked
+  ~owner waiting on a dialog~. Nothing is re-sent.
+- Otherwise the answer is re-sent once, with the same
+  ~DECIDE_DELIVERY_KEY~, and stored as a delivery whose outcome is
+  ~resend~. An agentbus target gets that key as ~--client-id~. A pane on
+  another machine is re-sent with ~--machine~, the same way as the first
+  delivery. A new answer can be re-sent once more.
+
 A parent value of the same name does not win.
 
 ~{id}~, ~{answer}~, ~{owner}~, and ~{pane}~ are not substituted. Braces

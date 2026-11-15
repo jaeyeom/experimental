@@ -124,7 +124,13 @@ type Item struct {
 	WithdrawnAt time.Time  `json:"withdrawnAt,omitempty"`
 	Answer      *Answer    `json:"answer,omitempty"`
 	Unread      bool       `json:"unread"`
-	NotifyPane  string     `json:"notifyPane,omitempty"`
+	// ReadAt is when the item was last marked read. A mark before
+	// AnsweredAt has not seen this answer.
+	ReadAt *time.Time `json:"readAt,omitempty"`
+	// FollowUp is why a stale answer was not re-sent. Empty means none.
+	// A new answer clears it.
+	FollowUp   string `json:"followUp,omitempty"`
+	NotifyPane string `json:"notifyPane,omitempty"`
 	// NotifyMachine is the herdr machine NotifyPane is on, for an item
 	// asked in hub mode from another machine. Empty is this machine.
 	NotifyMachine string `json:"notifyMachine,omitempty"`
@@ -253,6 +259,8 @@ func (l *Ledger) MarkRead(id string) (Item, error) {
 			return err
 		}
 		it.Unread = false
+		now := l.clock().UTC()
+		it.ReadAt = &now
 		updated = *it
 		return nil
 	})
@@ -333,6 +341,7 @@ func (l *Ledger) Answer(id, value, via string) (Item, error) {
 		ensureMessages(it)
 		it.State = StateAnswered
 		it.AnsweredAt = l.clock().UTC()
+		it.FollowUp = ""
 		it.Answer = &Answer{Value: stored, AnsweredBy: "human", Via: via}
 		msg := Message{
 			Author: "human",
@@ -987,6 +996,7 @@ func cloneItem(src *Item) Item {
 	}
 	item.SnoozedUntil = cloneTime(src.SnoozedUntil)
 	item.SnoozedAt = cloneTime(src.SnoozedAt)
+	item.ReadAt = cloneTime(src.ReadAt)
 	if src.Messages != nil {
 		item.Messages = append([]Message(nil), src.Messages...)
 		for i := range item.Messages {
@@ -1017,6 +1027,10 @@ func normalizeTimes(item *Item) {
 	if item.Deadline != nil {
 		t := item.Deadline.UTC()
 		item.Deadline = &t
+	}
+	if item.ReadAt != nil {
+		t := item.ReadAt.UTC()
+		item.ReadAt = &t
 	}
 	for i := range item.Messages {
 		item.Messages[i].Time = item.Messages[i].Time.UTC()

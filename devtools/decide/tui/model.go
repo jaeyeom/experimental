@@ -1036,6 +1036,21 @@ func (m *Model) openRow() error {
 	return m.Reload()
 }
 
+// closeSelected finishes an item whose owner is gone.
+func (m *Model) closeSelected() error {
+	it, ok := m.selectedItem()
+	if !ok || it.FollowUp != decide.FollowUpOwnerGone {
+		return nil
+	}
+	if _, err := m.store().Done(it.ID, "closed"); err != nil {
+		m.status = err.Error()
+		return nil
+	}
+	m.status = "closed " + it.ID
+	m.backToList()
+	return m.Reload()
+}
+
 // archiveSelected marks the selected notification done, the same result as
 // decide done. A thread with pending options still needs an answer.
 func (m *Model) archiveSelected() error {
@@ -2503,6 +2518,9 @@ func (m *Model) detailLines(width int) []screenLine {
 	}
 	lines := []screenLine{{text: plainText(title)}}
 	lines = append(lines, headerLines(it, m.now(), m.zone(), decide.OwnerAt(it.Owner, m.ownerLocation(it)))...)
+	if it.FollowUp == decide.FollowUpOwnerGone {
+		lines = append(lines, screenLine{text: plainText("Close"), hits: []hit{{kind: hitClose}}})
+	}
 	if m.avatarFits(width) {
 		// The header avatar is the item owner. Each message has its own.
 		if av := m.avatarLines(it.Owner); av != nil {
@@ -2567,6 +2585,9 @@ func headerLines(it *decide.Item, now time.Time, loc *time.Location, owner strin
 	}
 	if msg, ok := decide.Undelivered(it); ok {
 		rows = append(rows, struct{ label, value string }{"Delivery", undeliveredText(msg)})
+	}
+	if it.FollowUp != "" {
+		rows = append(rows, struct{ label, value string }{"Follow-up", it.FollowUp})
 	}
 	width := 0
 	for _, row := range rows {

@@ -1164,6 +1164,7 @@ func writeShow(w io.Writer, it *decide.Item) {
 	writeField(w, "notifyPane", it.NotifyPane)
 	writeField(w, "notifyMachine", it.NotifyMachine)
 	writeField(w, "notifyError", it.NotifyError)
+	writeField(w, "follow-up", it.FollowUp)
 	for _, d := range it.Delivery {
 		line := d.Outcome
 		if d.Error != "" {
