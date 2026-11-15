@@ -49,8 +49,9 @@ go_test(
         "cli_scope_test.go",
         "cli_tabs_test.go",
         "cli_test.go",
+        "synopsis_test.go",
     ],
-    data = glob(["testdata/**"]),
+    data = glob(["testdata/**"]) + ["//devtools/prsync:README.org"],
     embed = [":go_default_library"],
     deps = [
         "//devtools/pkg/herdrtest:go_default_library",
@@ -61,6 +62,7 @@ go_test(
         "//devtools/prsync/internal/scan:go_default_library",
         "//devtools/prsync/internal/version:go_default_library",
         "@com_github_jaeyeom_go_cmdexec//:go_default_library",
+        "@com_github_spf13_cobra//:go_default_library",
         "@org_golang_x_sys//unix:go_default_library",
     ],
 )

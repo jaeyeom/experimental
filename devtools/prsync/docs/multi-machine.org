@@ -1,0 +1,293 @@
+#+TITLE: prsync on more than one machine
+
+The short guide is [[file:../README.org][the prsync README]].
+
+* Other herdr machines
+
+With ~machines=linux2~, ~scan~ lists tabs and agents on the local server
+and on each machine (~herdr --machine linux2 tab list~ / ~agent list~),
+and matches each PR over the combined list. A PR whose tab is only on
+~linux2~ is matched like a local one, and its ~tab~ has
+~"machine": "linux2"~. A local tab has no ~machine~ field, so output is
+unchanged when ~machines~ is unset. A tab is keyed as ~<tab_id>@<machine>~
+in warnings and in the ~managed~ gate set, so the same tab id on two
+machines is two tabs. The same label on two machines is ambiguous: a
+warning, ~tab~ is ~null~, and dispatch skips it with ~skipped_no_tab~.
+
+~dispatch~ sends to a remote tab with ~herdr --machine <m> agent
+prompt~, and runs the settle polls and ~agent wait~ there too. Its
+result row has ~machine~. The gate watches the agents on each machine
+too; see [[*Remote tabs][Remote tabs]].
+
+Each call to a machine, other than prompt and wait, has a
+~machine_timeout_ms~ deadline that kills the whole process group, since
+SSH behind ~herdr --machine~ can hang on a locked key instead of
+failing. A machine that fails or times out adds one warning and does
+not fail the scan:
+
+#+BEGIN_EXAMPLE
+machine linux2 unreachable (host unreachable); its tabs were not searched
+machine linux2 unreachable (authentication locked (unlock your SSH/gpg agent)); its tabs were not searched
+#+END_EXAMPLE
+
+~host unreachable~ means the call failed with a network error or
+~herdr machine status linux2 --json~ did not report the host reachable.
+~authentication locked~ means the host answered but the call hit an
+authentication error or the deadline. Any other herdr error is quoted
+instead.
+
+While a machine is unreachable, a PR with an identifier that matches no
+tab on any machine that was searched gets ~"tab_unknown": "machine
+unreachable"~ instead of the no-tab warning: its tab may be on the
+machine that was not searched. ~dispatch~ skips it with
+~skipped_tab_unknown~ this run. A PR that does match a tab on a
+reachable machine is matched as usual; prsync does not hold it back on
+the chance that the unreachable machine has a duplicate.
+
+* One watcher per machine
+
+Every run searches the local server and all ~machines~, so two watchers
+would both pick up a PR whose tab is on ~linux2~. ~--tab-machine~ (or
+~tab_machine~) splits the work: each watcher handles only the PRs whose
+tab is on its machine.
+
+#+BEGIN_EXAMPLE
+watcher A: prsync dispatch --tab-machine local  --untabbed include
+watcher B: prsync dispatch --tab-machine linux2 --untabbed exclude --skip team-cover
+#+END_EXAMPLE
+
+Matching stays global: both watchers list tabs on every machine, so they
+agree on duplicates and on which machine owns a PR. Scoping happens after
+matching:
+
+| PR | Belongs to |
+|----+------------|
+| Matched tab on ~M~ | the ~M~ run |
+| No tab on any machine | the ~local~ run, unless ~--untabbed~ says otherwise. Set it so exactly one watcher includes these |
+| ~tab_unknown~ because ~M~ is unreachable | the ~M~ run, reported as today |
+| Same label on two machines | both runs: each reports the ambiguous-tab warning, and neither dispatches it |
+
+~scan~ lists every PR on every machine. A PR owned by another run stays
+in its output with ~out_of_scope~ (~tab on local~, ~no tab~, or ~tab may
+be on linux2 (unreachable)~), and its per-PR warnings are dropped. When
+any PR is marked, stderr says how many, e.g. ~2 out of scope
+(tab_machine=linux2)~. A caller that reads ~.tab~ must skip the marked
+PRs too: pass ~--in-scope~ (or ~scan_in_scope_only = true~) to leave them
+out, or filter them yourself:
+
+#+BEGIN_EXAMPLE
+prsync scan --tab-machine linux2 --in-scope
+prsync scan --tab-machine linux2 | jq '.prs[] | select(.out_of_scope == null)'
+#+END_EXAMPLE
+
+With ~--in-scope~, ~summary~ counts only the PRs that remain. ~dispatch~ skips it with
+~skipped_out_of_scope~ and that reason as ~detail~. A ~dispatch --stdin~
+document keeps the scope it was scanned with, so pipe ~scan~ with the
+same ~--tab-machine~.
+
+~tabs --orphans~ (and ~--close-merged~) looks only at tabs on
+~--tab-machine~; the version check still runs on the local ~herdr~.
+Without it, ~tabs~ stays local, so each machine's own watcher closes its
+tabs.
+
+Machine-wide jobs are not tied to one PR's tab, so both watchers would
+run them. Skip them in all but one watcher with ~--skip~ (~skip_jobs~):
+
+| Job | What it skips |
+|-----+---------------|
+| ~team-cover~ | The ~team_cover~ reviewer suggestions and their GitHub calls, even when ~team_cover=true~ |
+
+Nudging is a separate tool (~gh-nudge~); run it next to the watcher
+without ~--skip~.
+
+Both watchers can share one ~state_file~. Lock file names are in
+[[file:internals.org::*Lock files][Lock files]].
+
+** Opening tabs for untabbed PRs
+
+By default ~dispatch~ skips a PR with no tab (~skipped_no_tab~), and you
+open, label, and start its tab by hand. With ~--open-tabs~ (or
+~open_missing_tabs = true~), a watcher opens the tab itself, on its own
+machine: the local server, or ~--tab-machine M~ through ~herdr --machine
+M~. It does so only for a PR in its scope (see ~untabbed~ above) that it
+would otherwise dispatch now: not a draft, deduped, or
+~skipped_tab_unknown~ PR.
+
+#+BEGIN_EXAMPLE
+machines=linux2
+machine_checkouts=linux2=/home/me/src/repo
+open_missing_tabs=true
+open_tabs_workspace=prs, linux2=reviews
+open_tabs_cwd=/Users/me/src/repo
+open_tabs_agent=claude --model opus
+#+END_EXAMPLE
+
+For each such PR, live:
+
+1. List the machine's tabs. A tab already labeled for the PR is never
+   replaced: the PR stays ~skipped_no_tab~, and ~detail~ names that tab.
+2. ~herdr tab create --workspace <id> --cwd <dir> --label <label>
+   --no-focus~. The label is ~tab_label_template~ with the PR's
+   identifier, so later rounds match the tab like any other. A PR whose
+   title has no identifier gets no tab.
+3. ~herdr agent start pr-<label> --kind <kind> --pane <root pane>~ (the
+   first word of ~open_tabs_agent~ is the herdr agent kind, the rest are
+   its arguments), then ~herdr agent wait <pane> --until idle~. Both
+   share ~open_tabs_ready_timeout~.
+4. Dispatch as usual: the gate (which does not count the new pane as
+   busy), ~wake_before_prompt~, the prompt, and dedupe state. The result
+   is ~opened_tab_and_dispatched~ with the new ~tab_id~, in the JSON and
+   the run log. A timeout or a blocked agent keeps its usual action and
+   carries ~tab_id~.
+
+If step 2 or 3 fails, the tab prsync created is closed, and the result
+is ~open_tab_failed~ with the reason in ~detail~. The run goes on to the
+next PR. At most ~open_tabs_max_per_round~ tabs are created in one run;
+later PRs are ~skipped_open_tab_cap~. A dry run reports
+~would_open_tab~, with the label, workspace, and directory in ~detail~,
+and makes no herdr change.
+
+The workspace is a label or id, found with ~herdr workspace list~;
+without one herdr picks it. The directory is ~open_tabs_cwd~ for the
+machine, else its ~machine_checkouts~ entry, else (locally) the checkout
+of the PR's repo containing the current directory. With none, the
+result is ~open_tab_failed~.
+
+** Gating on another machine
+
+~prsync gate --tab-machine M~ and the built-in gate of ~dispatch
+--tab-machine M~ (or ~tab_machine = M~) check ~M~'s checkout, not the
+local one. Name it in ~machine_checkouts~:
+
+#+BEGIN_EXAMPLE
+machines=linux2
+machine_checkouts=linux2=/home/me/src/repo
+#+END_EXAMPLE
+
+Without an entry for ~M~ the gate fails with a config error (exit 2)
+naming ~machine_checkouts~; it never falls back to the local path.
+~--tab-machine local~ and an unscoped run keep the local gate.
+
+| Check | On ~M~ |
+|-------+--------|
+| Lease | ~agentbus lease status --all --json~, the entry whose ~checkout~ is ~M:<path>~. A missing entry is an unguarded checkout; ~gate_lease~ keeps its meaning |
+| Busy signals | ~working~, ~blocked~, ~background-job~, and ~pending-question~ from ~herdr --machine M~, with ~concurrency_cwd = checkout~ matched against ~M~'s paths. The local session is not read |
+| Dirty tree, ~build-tool~ | Skipped: ~herdr --machine~ runs only herdr API calls. The JSON has the note ~checkout not inspected on M~ |
+| ~M~ unreachable | Unsafe (exit 1) with ~reason~ ~machine M unreachable~; a live dispatch reports ~gate_unsafe~ at once |
+
+The gate JSON adds ~machine~ and ~lease_key~:
+
+#+BEGIN_SRC json
+{
+  "safe": false,
+  "busy": [
+    {
+      "machine": "linux2",
+      "pane_id": "",
+      "tab_id": "",
+      "agent_status": "",
+      "checkout": "/home/me/src/repo",
+      "signal": "lease",
+      "detail": "held by pm/foo until 14:20"
+    }
+  ],
+  "machine": "linux2",
+  "lease_key": "linux2:/home/me/src/repo",
+  "notes": [
+    "checkout not inspected on linux2"
+  ]
+}
+#+END_SRC
+
+* Remote tabs
+
+With ~machines~ set, the gate also reads ~herdr --machine <m> agent
+list~ on each machine, with the same ~machine_timeout_ms~ deadline as
+~scan~. A run scoped with ~--tab-machine local~ reads no other
+machine; in ~managed~ mode a machine is read only when a matched tab
+is on it. Local agents are read except when ~--tab-machine~ names
+another machine; that gate reads only that machine against its
+~machine_checkouts~ path (see [[*Gating on another machine][Gating on another machine]]). A
+remote entry in ~busy~, ~exempt~, ~ignored~, and ~signal_unavailable~
+has ~machine~, and its tab is named ~<tab_id>@<machine>~ in log and
+wait lines.
+
+- ~working~ and ~blocked~ hold the gate as they do locally, with
+  ~concurrency_ignore_blocked~ and the exemptions applied the same way.
+  ~gate_exempt_tabs~ reads that machine's tab labels.
+- ~background-job~ reads ~herdr --machine <m> pane process-info~. The
+  agent's children are the other processes in its pane's foreground
+  process group; their age is unknown, so ~gate_job_min_age~ does not
+  skip them, but the two-sample rule in the wait loop still applies.
+  ~detail~ has no age: ~pid 4242 sh -c "bazel build //..."~.
+- ~pending-question~ matches a decide item whose ~notifyPane~ is the
+  remote handle ~herdr:<m>/<session>/<pane>~ (what agentbus sends in hub
+  mode).
+- ~build-tool~ and the dirty-tree check stay local: they look at the
+  local dispatch checkout.
+
+A remote tab never counts as free unseen. A machine whose agent list
+fails holds the gate with a machine-level entry, logged once per cause
+as ~gate_machine_unreachable~:
+
+#+BEGIN_SRC json
+{
+  "machine": "linux2",
+  "pane_id": "",
+  "tab_id": "",
+  "agent_status": "",
+  "signal": "machine-unreachable",
+  "detail": "host unreachable"
+}
+#+END_SRC
+
+~detail~ is ~host unreachable~, ~authentication locked (unlock your
+SSH/gpg agent)~, or the herdr error, as for ~scan~. Its ~gate_hold~ line
+is ~gate: busy machine linux2: machine-unreachable host unreachable~.
+When a remote tab's signal cannot be read (process-info fails or lists
+no foreground process, or ~decide~ or the tab labels fail), it is listed
+under ~signal_unavailable~ and the tab holds the gate with signal
+~signal-unavailable~ and ~detail~ ~<signal>: <error>~.
+
+
+* Detail from the key table
+
+Each entry is the note that used to sit in the key table.
+
+** machines
+
+Space- or comma-separated saved herdr machines (~herdr --machine <m>~)
+searched for PR tabs, in addition to the local server. Empty = local only.
+~local~ is reserved. See [[*Other herdr machines][Other herdr machines]].
+
+** tab_machine
+
+Scope ~scan~, ~dispatch~, and ~tabs~ to PRs whose tab is on this machine:
+~local~ or one of ~machines~. Empty = every machine. Any other value is a
+config error. ~--tab-machine~ overrides it. See [[*One watcher per
+machine][One watcher per machine]].
+
+** machine_checkouts
+
+Comma- or space-separated ~machine=/path~ entries: each machine's checkout
+of the dispatch repo, an absolute path on that machine. The gate for a
+~tab_machine~ other than ~local~ checks it, and fails without an entry. Each
+machine must be in ~machines~. See [[*One watcher per machine][One watcher
+per machine]].
+
+** untabbed
+
+~include~ or ~exclude~: whether PRs with no tab belong to a ~tab_machine~
+run. Empty = only the ~local~ run includes them. ~--untabbed~ overrides it.
+
+** open_missing_tabs
+
+When ~true~, ~dispatch~ opens a herdr tab and starts ~open_tabs_agent~ for
+an in-scope PR with no tab, then dispatches to it. ~--open-tabs~ overrides
+it. See [[*Opening tabs for untabbed PRs][Opening tabs for untabbed PRs]].
+
+** open_tabs_workspace
+
+Comma-separated: a plain value for the local server and ~machine=value~ for
+others. A herdr workspace label or id. Empty = herdr's choice.
+
