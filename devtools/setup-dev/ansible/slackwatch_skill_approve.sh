@@ -64,8 +64,19 @@ approve_slackwatch_skill() {
     # apply-text refuses to create the parent directory.
     _sw_dest="${HOME}/.claude/skills/slackwatch/SKILL.md"
     mkdir -p "$(dirname "$_sw_dest")"
-    if ! PATH="$_sw_path" "${_sw_dir}/verified-run" apply-text slackwatch-skill "$_sw_dest" -- slackwatch skill; then
-        return 1
-    fi
+    # apply-text's stdout stays `updated` or `unchanged` for the playbook.
+    # This follow-up labels that token so it is not read as the whole run.
+    _sw_apply=$(PATH="$_sw_path" "${_sw_dir}/verified-run" apply-text slackwatch-skill "$_sw_dest" -- slackwatch skill) || return 1
+    case "$_sw_apply" in
+        updated)
+            printf '%s\n' "slackwatch skill: wrote approved text to ${_sw_dest}."
+            ;;
+        unchanged)
+            printf '%s\n' "slackwatch skill: ${_sw_dest} already up to date (approved text, no write needed)."
+            ;;
+        *)
+            printf '%s\n' "$_sw_apply"
+            ;;
+    esac
     return 0
 }

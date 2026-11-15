@@ -63,8 +63,19 @@ approve_factory_skill() {
     # apply-text refuses to create the parent directory.
     _fs_dest="${HOME}/.claude/skills/factory/SKILL.md"
     mkdir -p "$(dirname "$_fs_dest")"
-    if ! PATH="$_fs_path" "${_fs_dir}/verified-run" apply-text factory-skill "$_fs_dest" -- factory skill; then
-        return 1
-    fi
+    # apply-text's stdout stays `updated` or `unchanged` for the playbook.
+    # This follow-up labels that token so it is not read as the whole run.
+    _fs_apply=$(PATH="$_fs_path" "${_fs_dir}/verified-run" apply-text factory-skill "$_fs_dest" -- factory skill) || return 1
+    case "$_fs_apply" in
+        updated)
+            printf '%s\n' "factory skill: wrote approved text to ${_fs_dest}."
+            ;;
+        unchanged)
+            printf '%s\n' "factory skill: ${_fs_dest} already up to date (approved text, no write needed)."
+            ;;
+        *)
+            printf '%s\n' "$_fs_apply"
+            ;;
+    esac
     return 0
 }

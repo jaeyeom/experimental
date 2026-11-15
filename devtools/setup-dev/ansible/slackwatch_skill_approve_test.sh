@@ -309,7 +309,10 @@ if ! "$PYTHON" "${ROOT}/pty_answer.py" y "${CASE}/drive.sh" >"$_yes_out"; then
 fi
 grep -q 'needs approval' "$_yes_out" || fail "approval run did not say the text needs approval"
 grep -q 'Skill text approved.' "$_yes_out" || fail "approval run did not confirm approval"
-grep -q 'updated' "$_yes_out" || fail "approval run did not apply-text"
+grep -q -F "slackwatch skill: wrote approved text to $(skill_file)." "$_yes_out" || fail "approval run did not label the write"
+if grep -qx 'updated' "$_yes_out" || grep -qx 'unchanged' "$_yes_out"; then
+    fail "approval run printed a bare apply-text token"
+fi
 assert_no_playbook "approval"
 assert_approval_matches "approval" "$SKILL_BODY"
 assert_written "approval" "$SKILL_BODY"
@@ -330,6 +333,10 @@ fi
 assert_no_playbook "second run"
 assert_approval_matches "second run" "$SKILL_BODY"
 assert_written "second run" "$SKILL_BODY"
+printf '%s\n' "$_second_out" | grep -F "slackwatch skill: $(skill_file) already up to date (approved text, no write needed)." >/dev/null || fail "matching skill text was not labeled up to date"
+if printf '%s\n' "$_second_out" | grep -qx 'unchanged' || printf '%s\n' "$_second_out" | grep -qx 'updated'; then
+    fail "matching skill text printed a bare apply-text token"
+fi
 
 # --- changed text without a tty fails, keeps the stored body, and does not rewrite ---
 cp "$SKILL_BODY" "${CASE}/original-body"
