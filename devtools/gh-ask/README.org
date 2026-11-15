@@ -220,7 +220,10 @@ manager's storage. They never go into the page DOM or a URL.
   Selecting text inside one file's diff shows it at the end of the
   selection.
 - The button opens a popover with a question box, a "deep" checkbox and
-  Send.
+  Send. The popover and the button stay inside the window: a box that
+  would pass the right edge shifts left, one that would pass the bottom
+  opens above, and a narrow window shrinks the popover. Resizing the
+  window moves an open popover.
 - Send builds the ~POST /ask~ body from the page:
   - ~repo~ and ~pr~ from the URL.
   - ~head_sha~ from a commit range in the URL, else the hidden
@@ -254,10 +257,11 @@ bazel test //devtools/gh-ask/userscript:userscript_test
 #+END_SRC
 
 The test runs the payload builder, URL and head commit parsing, error
-text and the poller against sample diff markup in
-=userscript/testdata/=, one file per view. It uses the host's ~node~ and
-fails when ~node~ is missing. The browser glue (button, popover, chip)
-has no automated test. After changing it, check by hand on a real pull
+text, and the poller against sample diff markup in
+=userscript/testdata/=, one file per view. Popover placement is checked
+against fixed viewports, not a layout engine. It uses the host's ~node~
+and fails when ~node~ is missing. The browser glue (button, popover,
+chip) has no automated test. After changing it, check by hand on a real pull
 request: the button on hover and on a selection, a send that reaches
 the server, the chip moving to ~answered~, and "auth failed" in the
 chip after setting a wrong token.
