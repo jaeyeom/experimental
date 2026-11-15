@@ -286,3 +286,66 @@ func drain(cmd tea.Cmd) []tea.Msg {
 	}
 	return []tea.Msg{msg}
 }
+
+func TestLocalSendAgentbusPaneUsesTheBus(t *testing.T) {
+	dir := t.TempDir()
+	var calls [][]string
+	var templateRan bool
+	b := &LocalBackend{
+		Dir:          dir,
+		SendTemplate: "missing-pane-cmd {pane}",
+		RunSend: func([]string) error {
+			templateRan = true
+			return fmt.Errorf("herdr ran")
+		},
+		BusRun: func(_ context.Context, args []string) ([]byte, error) {
+			calls = append(calls, append([]string(nil), args...))
+			return []byte("m-7f3a queued\n"), nil
+		},
+	}
+	if err := b.Send("", Target{Name: "team/desk", Pane: "agentbus:team/desk"}, "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if templateRan {
+		t.Fatal("the herdr template ran for an agentbus pane")
+	}
+	if len(calls) != 1 || len(calls[0]) < 2 || calls[0][0] != "send" || calls[0][1] != "team/desk" {
+		t.Fatalf("calls = %q", calls)
+	}
+	led, err := decide.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := led.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Owner != "team/desk" || items[0].NotifyPane != "agentbus:team/desk" || items[0].BusMessage != "m-7f3a" {
+		t.Fatalf("thread = %+v", items)
+	}
+}
+
+func TestLocalSendTemplateFailureDropsTheThread(t *testing.T) {
+	dir := t.TempDir()
+	b := &LocalBackend{
+		Dir: dir,
+		RunSend: func([]string) error {
+			return fmt.Errorf("pane is gone")
+		},
+	}
+	err := b.Send("", Target{Name: "alpha", Pane: "pane-a"}, "hello")
+	if err == nil || !strings.Contains(err.Error(), "pane is gone") {
+		t.Fatalf("err = %v", err)
+	}
+	led, openErr := decide.Open(dir)
+	if openErr != nil {
+		t.Fatal(openErr)
+	}
+	items, listErr := led.List()
+	if listErr != nil {
+		t.Fatal(listErr)
+	}
+	if len(items) != 0 {
+		t.Fatalf("items = %+v", items)
+	}
+}

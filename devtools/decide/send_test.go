@@ -46,6 +46,27 @@ func TestResolveSendUsesTheInboxList(t *testing.T) {
 	}
 }
 
+func TestResolveSendAgentbusPaneUsesTheBus(t *testing.T) {
+	targets := []ConfigTarget{
+		{Name: "team/desk", Pane: "agentbus:team/desk"},
+		{Name: "alpha", Pane: "pane-a"},
+	}
+	bus := []BusRecipient{{Name: "team/desk", Handle: "box/other"}}
+
+	got, ok := ResolveSend(targets, bus, true, "team/desk")
+	if !ok || !got.Bus || got.Name != "team/desk" || got.Pane != "agentbus:team/desk" {
+		t.Fatalf("agentbus pane = %+v %v", got, ok)
+	}
+	got, ok = ResolveSend(targets, bus, true, "alpha")
+	if !ok || got.Bus || got.Pane != "pane-a" || got.Name != "alpha" {
+		t.Fatalf("herdr pane = %+v %v", got, ok)
+	}
+	got, ok = ResolveSend(targets, nil, false, "team/desk")
+	if !ok || !got.Bus || got.Name != "team/desk" || got.Pane != "agentbus:team/desk" {
+		t.Fatalf("gate off = %+v %v", got, ok)
+	}
+}
+
 func TestOpenBusThreadDeliversTheForwardNote(t *testing.T) {
 	dir := t.TempDir()
 	led, err := Open(dir)

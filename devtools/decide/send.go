@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -78,16 +77,18 @@ func SamePane(handle, pane string) bool {
 }
 
 // ResolveSend picks name from targets and, when agentbus is set, bus.
-// A configured target whose pane a bus handle holds is left out. The
-// first exact name wins, and configured targets come before bus names.
-// When agentbus is false, bus is ignored.
+// A configured target whose pane a bus handle holds is left out. A
+// configured pane that starts with BusPanePrefix is that agentbus name,
+// not a herdr pane, even when the agentbus list is off. The first exact
+// name wins, and configured targets come before bus names. When
+// agentbus is false, bus is ignored.
 func ResolveSend(targets []ConfigTarget, bus []BusRecipient, agentbus bool, name string) (SendRecipient, bool) {
 	if !agentbus {
 		tg, ok := FindTarget(targets, name)
 		if !ok {
 			return SendRecipient{}, false
 		}
-		return SendRecipient{Name: tg.Name, Pane: tg.Pane}, true
+		return recipientForTarget(tg), true
 	}
 	kept := make([]ConfigTarget, 0, len(targets))
 	for _, tg := range targets {
@@ -97,7 +98,7 @@ func ResolveSend(targets []ConfigTarget, bus []BusRecipient, agentbus bool, name
 		kept = append(kept, tg)
 	}
 	if tg, ok := FindTarget(kept, name); ok {
-		return SendRecipient{Name: tg.Name, Pane: tg.Pane}, true
+		return recipientForTarget(tg), true
 	}
 	for _, b := range bus {
 		if b.Name == name {
@@ -105,6 +106,28 @@ func ResolveSend(targets []ConfigTarget, bus []BusRecipient, agentbus bool, name
 		}
 	}
 	return SendRecipient{}, false
+}
+
+// recipientForTarget is the send recipient for one configured target.
+// An agentbus: pane is delivered with OpenBusThread under the name
+// after the prefix, which is the target's display name when the pane
+// is agentbus:<that name>.
+func recipientForTarget(tg ConfigTarget) SendRecipient {
+	if rec, ok := AgentbusPaneRecipient(tg.Pane); ok {
+		return rec
+	}
+	return SendRecipient{Name: tg.Name, Pane: tg.Pane}
+}
+
+// AgentbusPaneRecipient reports a pane that names an agentbus recipient.
+// The name is the text after BusPanePrefix. An empty name is not a bus pane.
+func AgentbusPaneRecipient(pane string) (SendRecipient, bool) {
+	name, ok := strings.CutPrefix(strings.TrimSpace(pane), BusPanePrefix)
+	name = strings.TrimSpace(name)
+	if !ok || name == "" {
+		return SendRecipient{}, false
+	}
+	return SendRecipient{Name: name, Pane: BusPanePrefix + name, Bus: true}, true
 }
 
 func busHoldsPane(bus []BusRecipient, pane string) bool {
@@ -162,16 +185,26 @@ func runSend(argv, env []string) error {
 	if len(env) > 0 {
 		cmd.Env = env
 	}
-	var stdout bytes.Buffer
+	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
-	cmd.Stderr = io.Discard
+	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("decide send: %w", err)
+		return fmt.Errorf("decide send: %w%s", err, stderrSuffix(stderr.String()))
 	}
 	if err := stdoutDeliveryError(stdout.String()); err != nil {
 		return logDelivery("", fmt.Errorf("decide send: %w", err))
 	}
 	return nil
+}
+
+// stderrSuffix is the command's stderr for an error, or empty when the
+// command wrote nothing there.
+func stderrSuffix(stderr string) string {
+	msg := strings.TrimSpace(stderr)
+	if msg == "" {
+		return ""
+	}
+	return ": " + msg
 }
 
 // runSendOn runs program with `--machine machine args...` under
