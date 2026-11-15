@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jaeyeom/experimental/devtools/orgctl"
 )
 
 func writeSpec(t *testing.T, body string) string {
@@ -36,5 +38,63 @@ func TestCheckPrintsAllowWarning(t *testing.T) {
 	code := run([]string{"check", path}, &stderr)
 	if code != 0 || !strings.Contains(stderr.String(), `warning: allowApprovalWords "merge"`) {
 		t.Fatalf("exit %d, stderr %s", code, stderr.String())
+	}
+}
+
+func TestPlanExitCodes(t *testing.T) {
+	body := `{"machines":{"north":{"host":"north.example"}},"roles":{"coord/lead":{"machine":"north","workspace":"hq","tab":"lead","cwd":"/work"}}}`
+	path := writeSpec(t, body)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	match := func(orgctl.Spec) (orgctl.Live, error) {
+		return orgctl.Live{
+			Local:    "north",
+			Tabs:     []orgctl.LiveTab{{Workspace: "hq", Label: "lead"}},
+			Names:    []orgctl.LiveName{{Name: "coord/lead"}},
+			Agents:   []orgctl.LiveAgent{{Name: "coord/lead", Cwd: "/work"}},
+			CronRead: []string{"/work"},
+		}, nil
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runIO([]string{"plan", path}, &stdout, &stderr, match); code != 0 {
+		t.Fatalf("clean exit %d\n%s%s", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	missing := func(orgctl.Spec) (orgctl.Live, error) {
+		return orgctl.Live{Local: "north"}, nil
+	}
+	code := runIO([]string{"plan", "--machine", "north", path}, &stdout, &stderr, missing)
+	if code != 2 || !strings.Contains(stdout.String(), "+ coord/lead tab hq/lead") {
+		t.Fatalf("changes exit %d\n%s", code, stdout.String())
+	}
+	stdout.Reset()
+	remote := func(orgctl.Spec) (orgctl.Live, error) {
+		return orgctl.Live{Local: "south"}, nil
+	}
+	code = runIO([]string{"plan", "--role", "coord/lead", path}, &stdout, &stderr, remote)
+	if code != 2 || !strings.Contains(stdout.String(), "remote: not read") {
+		t.Fatalf("remote exit %d\n%s", code, stdout.String())
+	}
+	stdout.Reset()
+	code = runIO([]string{"plan", "--machine", "south", path}, &stdout, &stderr, missing)
+	if code != 0 || stdout.Len() != 0 {
+		t.Fatalf("filtered exit %d\n%s", code, stdout.String())
+	}
+	code = runIO([]string{"plan", filepath.Join(t.TempDir(), "missing.json")}, &stdout, &stderr, match)
+	if code != 1 {
+		t.Fatalf("missing spec exit %d", code)
+	}
+	bad := writeSpec(t, `{`)
+	if code := runIO([]string{"plan", bad}, &stdout, &stderr, match); code != 1 {
+		t.Fatalf("bad spec exit %d", code)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatal("plan wrote the spec")
 	}
 }

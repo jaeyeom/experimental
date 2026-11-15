@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "brief.go",
         "decides.go",
+        "plan.go",
         "spec.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/orgctl",
@@ -17,6 +18,7 @@ go_test(
     srcs = [
         "brief_test.go",
         "decides_test.go",
+        "plan_test.go",
         "spec_test.go",
     ],
     data = glob(["**/*.pkl"]),
