@@ -19,6 +19,9 @@ const (
 	BriefEdited = "edited in place"
 	// BriefMissing means the brief file is absent.
 	BriefMissing = "missing"
+	// BriefUnmanaged means brief.text is empty, so the file is not compared.
+	// The file exists. An empty text with no file is BriefMissing.
+	BriefUnmanaged = "unmanaged"
 )
 
 // Render builds the brief file body from brief.text and the org rules
@@ -51,10 +54,22 @@ func Hash(role Role, org Spec) [32]byte {
 // Compare hashes the rendered brief against the file at brief.file.
 // A relative path is joined to dir, the role cwd. The file is opened
 // read-only. v1 never writes it.
+// An empty brief.text is not managed: the file is only checked for
+// existence, with no render and no hash.
 func Compare(role Role, org Spec, dir string) (string, error) {
 	path := briefPath(dir, role)
 	if path == "" {
 		return BriefMissing, nil
+	}
+	if role.Brief.Text == "" {
+		_, err := os.Stat(path)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return BriefMissing, nil
+			}
+			return "", fmt.Errorf("stat brief: %w", err)
+		}
+		return BriefUnmanaged, nil
 	}
 	data, err := readBrief(path)
 	if err != nil {

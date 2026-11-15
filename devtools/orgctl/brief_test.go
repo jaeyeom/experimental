@@ -121,6 +121,43 @@ func TestCompareMissingFile(t *testing.T) {
 	}
 }
 
+func TestCompareEmptyTextIsUnmanaged(t *testing.T) {
+	role, org := briefSample()
+	role.Brief.Text = ""
+	dir := t.TempDir()
+	path := filepath.Join(dir, role.Brief.File)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("hand written\n")
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Compare(role, org, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != BriefUnmanaged {
+		t.Fatalf("status = %q, want unmanaged", got)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(body) {
+		t.Fatal("brief file changed")
+	}
+
+	missing := Role{Brief: Brief{File: "briefs/gone.md"}}
+	got, err = Compare(missing, org, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != BriefMissing {
+		t.Fatalf("absent = %q, want missing", got)
+	}
+}
+
 func TestCompareMatchingFile(t *testing.T) {
 	role, org := briefSample()
 	dir := t.TempDir()

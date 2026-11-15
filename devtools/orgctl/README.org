@@ -217,7 +217,10 @@ agent, each cron in spec order, an edited brief, then an unknown
 model. ~USER STEP~ lines for every selected role come after the diff.
 
 cwd and model lines are omitted when herdr was not read, or when no
-agent is present. A missing brief is not a marker. ~+~ is only a tab,
+agent is present. A missing brief is not a marker. An empty
+~brief.text~ means the file is not managed: plan prints
+~i ROLE brief unmanaged~ when that file exists, and that line
+does not change the exit code. ~+~ is only a tab,
 an agentbus name, or a durable cron. ~!~ on a brief means the file on
 disk was edited in place.
 
