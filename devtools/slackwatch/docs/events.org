@@ -1,0 +1,87 @@
+Read this when a reply was missed, a watch closed early, or catch-up looks wrong.
+Everyday commands are in [[file:../README.org][the slackwatch guide]].
+
+* Events
+
+~serve~ learns the token owner's user id and the workspace URL from
+~auth.test~ at startup. ~add~ does the same when it catches up. The
+workspace URL is stored for permalinks.
+Each new message is handled by the first rule that matches.
+
+1. A reply in a watched thread that is not closed, newer than the watch's
+   ~since_ts~, is stored. A reply by someone else notifies the owner
+   (~reply~, or ~unowned~ to ~fallbackTarget~ when there is no owner).
+   The token owner's own reply is stored without a notification unless
+   ~notifySelf~ is set. Either kind updates ~last_activity~.
+2. A top-level message by someone else in an IM or MPIM with an active
+   ~dm~ watch counts as a reply to the latest such watch. It is not
+   recorded as inbound.
+3. A reply in a closed watch's thread within ~reopenWindow~ of closing
+   reopens the watch and notifies ~reopened~.
+4. A post by the token owner that matches ~footerPattern~ and has no watch
+   is registered like ~add~, as ~unowned~ with source ~footer~. If it is
+   still ~unowned~ after ~unownedGrace~, ~fallbackTarget~ gets an
+   ~unowned~ notification. An ~add --owner~ within that time, such as from
+   a hook, opens the watch and suppresses the notification. A server stop
+   within that time drops the notification.
+5. A DM to the token owner, or a message that mentions them, is stored in
+   ~inbound~. Without an ~inbound~ block, nothing is notified. With the
+   block, a newly stored message notifies ~inbound.target~ as ~inbound~
+   when ~kinds~ includes it and the author is not in ~ignoreAuthors~. A
+   message already delivered as a watch reply or a subscription event is
+   not notified again. Each message is notified at most once, including
+   after a restart or catch-up. The token owner's own messages are not
+   inbound.
+
+   ~slackwatch skill triage~ prints that agent's brief. See
+   [[file:../README.org::*Agent skill][Agent skill]] in the guide.
+6. Anything else is dropped.
+
+A channel in ~ignoreChannels~ is dropped before these rules. The message
+is not stored, not notified, and its text is not logged. slackwatch logs
+a drop count only.
+
+Separately from these rules, a top-level message or thread reply in a
+subscribed channel is stored and notifies each subscriber as ~channel~.
+The token owner's own messages are skipped unless the subscription has
+~--include-self~. A subscriber whose target already got the message as a
+watch notification under rules 1 to 3 is not notified again. A
+mention in a subscribed channel is still stored in ~inbound~, and is
+not also notified as ~inbound~. An ~ignoreChannels~ channel is not
+caught by a subscription either.
+
+Messages are deduplicated on channel and ts. Edits update the stored
+text, deletes mark a reply deleted, and reactions on watched posts and
+replies are stored for ~show~. None of these notify.
+
+* Catch-up and expiry
+
+~serve~ sweeps after every Socket Mode connect (so on start and on each
+reconnect) and every ~sweepInterval~. ~add~ also catches up its one
+watch when a token is available. A sweep:
+
+1. Catches up every watch that is not closed, or was closed within
+   ~reopenWindow~: ~conversations.replies~ for a thread watch and
+   ~conversations.history~ for a ~dm~ watch, after the watch's cursor
+   (initially its ~since_ts~).
+2. Runs ~search.messages~ for the token owner's own posts (~from:me~),
+   messages to them (~to:me~), and mentions of them, after the search
+   cursor (initially one day back). This finds footer posts and inbound
+   messages missed while ~serve~ was down.
+3. Catches up every subscription whose ~until~ has not passed, after its
+   cursor (initially the time of ~sub~): ~conversations.history~ for
+   top-level messages, plus ~conversations.replies~ for threads whose
+   ~latest_reply~ is after the cursor. Thread parents are looked for up
+   to 7 days before the cursor.
+4. Closes watches past their deadline, without notifying.
+
+Fetched messages go through the same rules as live events and are
+deduplicated on channel and ts, so overlap with events is harmless.
+Reactions on fetched watched posts and replies are stored. A cursor
+advances only after its batch is stored. A ~429~ waits out ~Retry-After~
+and retries. One failing watch or subscription is logged and does not stop the others.
+
+A watch's deadline is ~until~ when set. Otherwise it is ~quietExpiry~
+after the later of its creation and its latest reply by someone other
+than the token owner. The token owner's own replies update
+~last_activity~ but do not keep a watch open.
