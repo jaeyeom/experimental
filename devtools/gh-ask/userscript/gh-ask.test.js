@@ -418,9 +418,9 @@ test("the script only connects to loopback", () => {
 const POPOVER_W = 360;
 const MARGIN = 8;
 
-test("userscript version is 0.1.3", () => {
+test("userscript version is 0.1.4", () => {
   const src = fs.readFileSync(path.join(__dirname, "gh-ask.user.js"), "utf8");
-  assert.match(src, /^\/\/ @version\s+0\.1\.3$/m);
+  assert.match(src, /^\/\/ @version\s+0\.1\.4$/m);
 });
 
 function keyEvent(extra) {
@@ -553,6 +553,146 @@ test("far right anchor keeps the popover inside the viewport", () => {
   assert.ok(got.left >= MARGIN);
   assert.ok(got.left + got.width <= viewport.width - MARGIN);
   assert.ok(got.top + size.height <= viewport.height - MARGIN);
+});
+
+test("diff paths are files and changes views", () => {
+  for (const path of [
+    "/o/r/pull/1/files",
+    "/o/r/pull/1/changes",
+    "/o/r/pull/1/files/abcdef",
+    "/o/r/pull/1/files/",
+  ]) {
+    assert.equal(G.isDiffPath(path), true, path);
+  }
+  for (const path of ["/o/r/pulls", "/o/r/pull/1", "/o/r/pull/1/commits", "/pull/1/files"]) {
+    assert.equal(G.isDiffPath(path), false, path);
+  }
+});
+
+function diffPage(pathname) {
+  const clock = fakeClock();
+  const location = { pathname };
+  const listeners = new Map();
+  const window = {
+    Event: class Event {
+      constructor(type) {
+        this.type = type;
+      }
+    },
+    addEventListener(type, fn) {
+      const list = listeners.get(type) ?? [];
+      list.push(fn);
+      listeners.set(type, list);
+    },
+    removeEventListener(type, fn) {
+      listeners.set(
+        type,
+        (listeners.get(type) ?? []).filter((f) => f !== fn),
+      );
+    },
+    dispatchEvent(event) {
+      for (const fn of listeners.get(event.type) ?? []) {
+        fn(event);
+      }
+    },
+  };
+  const history = {
+    pushState(_state, _title, url) {
+      location.pathname = String(url);
+    },
+    replaceState(_state, _title, url) {
+      location.pathname = String(url);
+    },
+  };
+  const nodes = [];
+  function mount() {
+    const made = ["Ask agent", "Ask about this PR"].map((text) => {
+      const node = {
+        text,
+        removed: false,
+        remove() {
+          this.removed = true;
+        },
+      };
+      nodes.push(node);
+      return node;
+    });
+    return () => {
+      for (const node of made) {
+        node.remove();
+      }
+    };
+  }
+  const binding = G.bindPage({
+    location,
+    history,
+    window,
+    setTimeout: (fn, ms) => clock.setTimeout(fn, ms),
+    clearTimeout: (t) => clock.clearTimeout(t),
+    activate: mount,
+  });
+  return {
+    location,
+    history,
+    window,
+    clock,
+    binding,
+    buttons: () => nodes.filter((node) => !node.removed),
+  };
+}
+
+function settle(page) {
+  page.clock.advance(G.navDebounceMs);
+}
+
+test("soft navigation activates only on a diff and does not duplicate buttons", () => {
+  const page = diffPage("/o/r/pulls");
+  settle(page);
+  assert.equal(page.buttons().length, 0);
+
+  page.history.pushState({}, "", "/o/r/pull/1/files");
+  settle(page);
+  assert.deepEqual(
+    page.buttons().map((b) => b.text),
+    ["Ask agent", "Ask about this PR"],
+  );
+
+  page.history.pushState({}, "", "/o/r/pull/1");
+  settle(page);
+  assert.equal(page.buttons().length, 0);
+
+  page.history.pushState({}, "", "/o/r/pull/1/files");
+  settle(page);
+  assert.deepEqual(
+    page.buttons().map((b) => b.text),
+    ["Ask agent", "Ask about this PR"],
+  );
+
+  page.history.pushState({}, "", "/o/r/pull/2/files");
+  settle(page);
+  assert.deepEqual(
+    page.buttons().map((b) => b.text),
+    ["Ask agent", "Ask about this PR"],
+  );
+});
+
+test("turbo:load activates a diff view", () => {
+  const page = diffPage("/o/r/pulls");
+  settle(page);
+  page.location.pathname = "/o/r/pull/1/files";
+  page.window.dispatchEvent(new page.window.Event("turbo:load"));
+  settle(page);
+  assert.equal(page.buttons().length, 2);
+
+  page.window.dispatchEvent(new page.window.Event("turbo:load"));
+  settle(page);
+  assert.equal(page.buttons().length, 2);
+});
+
+test("userscript matches all of github.com", () => {
+  const src = fs.readFileSync(path.join(__dirname, "gh-ask.user.js"), "utf8");
+  assert.match(src, /^\/\/ @match\s+https:\/\/github\.com\/\*$/m);
+  assert.doesNotMatch(src, /@match\s+https:\/\/github\.com\/\*\/\*\/pull/);
 });
 
 test("anchor near the bottom opens the popover above", () => {

@@ -304,9 +304,12 @@ oxlint devtools/gh-ask/userscript/
   fixture in =userscript/testdata/= says which markup it copies. When the
   button stops appearing or the payload is wrong, save the real page,
   update the fixture, and fix the script against the test.
-- The script loads only on URLs that match ~@match~. GitHub moves
-  between pull request tabs without a page load, so after clicking into
-  "Files changed" from another tab, reload the page once.
+- ~@match~ is ~https://github.com/*~. GitHub moves between pages
+  without a full reload, so a match limited to the files URL never runs
+  when the user opens "Files changed" from the pull request list or the
+  Conversation tab. The script loads on every github.com page and, until
+  the path is a pull request files or changes view, only checks the URL.
+  Leaving that view removes the buttons and stops polling.
 - The changes view re-renders rows, which can drop a chip.
 - A range covers one side of one file. A selection across files is
   refused.
