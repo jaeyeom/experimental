@@ -31,6 +31,7 @@ var gapAll = map[string]bool{
 // parts of a figure, not the surface inside it. Keys are row, col.
 var deliberateGaps = map[string]map[[2]int]bool{
 	"bee":        gap(0, 3, 0, 4, 0, 5, 0, 6, 1, 4, 1, 5),
+	"branch":     gap(2, 4, 3, 4),
 	"beer-mug":   gap(0, 4, 3, 8),
 	"book":       gap(0, 4, 0, 5),
 	"cactus":     gap(0, 6, 0, 7, 1, 2, 1, 3, 2, 6),
@@ -39,6 +40,7 @@ var deliberateGaps = map[string]map[[2]int]bool{
 	"dog":        gap(0, 3, 0, 4, 0, 5, 0, 6),
 	"fox":        gap(0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7),
 	"frog":       gap(0, 4, 0, 5),
+	"hand":       gap(0, 2, 0, 4, 0, 6),
 	"jester":     gap(0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7),
 	"king":       gap(0, 3, 0, 6),
 	"lighthouse": gap(0, 2, 0, 7),

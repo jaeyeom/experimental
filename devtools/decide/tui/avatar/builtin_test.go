@@ -230,14 +230,15 @@ func TestPickBuiltin(t *testing.T) {
 		known[id] = true
 	}
 	// Golden: generation-1 names keep the #647 pick (FNV-1a 32 of the
-	// name, mod 24, over the sorted generation-1 ids); the others moved
-	// to a generation-2 figure.
+	// name, mod 24, over the sorted generation-1 ids). A name that draws
+	// a later generation keeps that generation's figure. Adding a
+	// generation moves a name only into the new one.
 	golden := map[string]string{
 		"coord/primary":   "snail",
 		"pm-1":            "planet",
 		"agent-5":         "mushroom",
 		"agent-0":         "king",
-		"agent-3":         "jester",
+		"agent-3":         "line-chart",
 		"coord/secondary": "king",
 	}
 	for _, name := range []string{"coord/primary", "pm-1", "agent-5"} {
@@ -245,10 +246,13 @@ func TestPickBuiltin(t *testing.T) {
 			t.Errorf("pickGeneration(%q) = %d, want 0", name, g)
 		}
 	}
-	for _, name := range []string{"agent-0", "agent-3", "coord/secondary"} {
+	for _, name := range []string{"agent-0", "coord/secondary"} {
 		if g := pickGeneration(name); g != 1 {
 			t.Errorf("pickGeneration(%q) = %d, want 1", name, g)
 		}
+	}
+	if g := pickGeneration("agent-3"); g != 2 {
+		t.Errorf("pickGeneration(%q) = %d, want 2", "agent-3", g)
 	}
 	for name, want := range golden {
 		if got := PickBuiltin(name); got != want {
@@ -291,6 +295,10 @@ func TestGenerations(t *testing.T) {
 	}
 	if len(builtinGenerations) < 2 || !slices.Equal(builtinGenerations[1], want2) {
 		t.Fatalf("generations = %q, want generation 2 %q", builtinGenerations, want2)
+	}
+	want3 := []string{"hand", "gopher", "line-chart", "chat", "ticket", "branch"}
+	if len(builtinGenerations) != 3 || !slices.Equal(builtinGenerations[2], want3) {
+		t.Fatalf("generation 3 = %q, want %q", builtinGenerations, want3)
 	}
 	var all []string
 	for g, ids := range builtinGenerations {
@@ -353,8 +361,14 @@ func TestPickBuiltinKeepsGeneration1(t *testing.T) {
 		}
 		moved[got] = true
 	}
-	if stayed < 100 {
-		t.Errorf("%d of 200 names kept their figure, want at least 100", stayed)
+	total := 0
+	for _, ids := range builtinGenerations {
+		total += len(ids)
+	}
+	// Generation 0's share of these 200 names, with room for the hash.
+	wantStay := 200*len(builtinGenerations[0])/total - 20
+	if stayed < wantStay {
+		t.Errorf("%d of 200 names kept their figure, want at least %d", stayed, wantStay)
 	}
 	if len(moved) < 12 {
 		t.Errorf("moved names use %d new figures, want at least 12", len(moved))

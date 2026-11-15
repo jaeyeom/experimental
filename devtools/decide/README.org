@@ -295,7 +295,7 @@ list, for the selected recipient. Map names to files in
 - ~avatarMono~ is ~"hide"~ to hide avatars under ~NO_COLOR~ or on a
   monochrome terminal. Otherwise they show without color.
 
-decide ships 42 original built-in figures, each 10x6 in truecolor
+decide ships 48 original built-in figures, each 10x6 in truecolor
 half-block and box characters. A space enclosed by the figure is painted
 with a background, and eyes and mouths sit on that fill, so the inside
 is not the terminal background. A gap between parts, and every cell
@@ -310,7 +310,12 @@ foreground, and with no color it becomes a block. Generation 1:
 unpinned names): ~banker~, ~beer-mug~, ~bishop~, ~book~, ~cook~,
 ~dog~, ~general~, ~hammer~, ~jester~, ~king~, ~merchant~, ~peasant~,
 ~physician~, ~pirate~, ~queen~, ~scholar~, ~spy~, and ~witch~. The
-people tell apart by hat, hair, or what they hold. Preview them,
+people tell apart by hat, hair, or what they hold. Generation 3
+(which moves about 6/48 of unpinned names): ~hand~, ~gopher~,
+~line-chart~, ~chat~, ~ticket~, and ~branch~. ~chat~, ~ticket~ and
+~branch~ are generic pictures, not a product logo. ~gopher~ is an
+original pixel drawing. The Go gopher was designed by Renee French
+and is licensed CC BY 4.0. Preview them,
 several per row as the terminal allows, and see which one a name gets:
 
 #+begin_src sh
