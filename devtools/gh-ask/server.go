@@ -1,8 +1,8 @@
 // Package ghask is a loopback HTTP server that hands a question about a
 // pull request line range to a locally configured command.
 //
-// The endpoints are POST /ask and GET /status/<id>. The request text is
-// written to a file; it never reaches a command's argv.
+// The endpoints are POST /ask, GET /status/<id> and GET /thread. The
+// request text is written to a file; it never reaches a command's argv.
 package ghask
 
 import (
@@ -31,8 +31,8 @@ const githubOrigin = "https://github.com"
 
 var extensionOrigin = regexp.MustCompile(`^(chrome-extension|moz-extension|safari-web-extension)://[A-Za-z0-9.-]+$`)
 
-// Server handles POST /ask and GET /status/<id>. Create it with
-// NewServer.
+// Server handles POST /ask, GET /status/<id> and GET /thread. Create it
+// with NewServer.
 type Server struct {
 	cfg       Config
 	tokenHash [sha256.Size]byte
@@ -81,6 +81,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.URL.Path == "/ask":
 		method, handle = http.MethodPost, s.serveAsk
+	case r.URL.Path == "/thread":
+		method, handle = http.MethodGet, s.serveThread
 	case strings.HasPrefix(r.URL.Path, statusPrefix):
 		method, handle = http.MethodGet, s.serveStatus
 	default:

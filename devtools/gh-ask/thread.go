@@ -8,9 +8,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -18,13 +22,32 @@ const (
 	statusCacheTTL = 10 * time.Second
 	// maxStateBytes caps the state string from status_command.
 	maxStateBytes = 256
+	// maxStatusMessages is how many messages GET /status returns.
+	maxStatusMessages = 50
+	// maxStatusTextBytes caps one message's text, on a UTF-8 boundary.
+	maxStatusTextBytes = 16 * 1024
+	// maxStatusBodyBytes caps the GET /status response body.
+	maxStatusBodyBytes = 256 * 1024
 )
 
-// ThreadStatus is the JSON body of GET /status/<id>.
+// errStatusMessages means the messages array was present but not usable.
+// The three required status fields are still returned.
+var errStatusMessages = errors.New("invalid status messages")
+
+// StatusMessage is one entry of the optional messages array.
+type StatusMessage struct {
+	Role string    `json:"role"`
+	Time time.Time `json:"time"`
+	Text string    `json:"text"`
+}
+
+// ThreadStatus is the JSON body of GET /status/<id>. Messages is omitted
+// when status_command did not print a usable array.
 type ThreadStatus struct {
-	State    string `json:"state"`
-	Answered bool   `json:"answered"`
-	Closed   bool   `json:"closed"`
+	State    string          `json:"state"`
+	Answered bool            `json:"answered"`
+	Closed   bool            `json:"closed"`
+	Messages []StatusMessage `json:"messages,omitempty"`
 }
 
 type cachedStatus struct {
@@ -159,7 +182,9 @@ func (s *Server) status(ctx context.Context, id string) (ThreadStatus, error) {
 		return ThreadStatus{}, err
 	}
 	st, err := parseStatus(out)
-	if err != nil {
+	if errors.Is(err, errStatusMessages) {
+		s.logger.Error("gh-ask: status messages", "id", id, "err", err)
+	} else if err != nil {
 		s.logger.Error("gh-ask: status_command output", "id", id, "err", err)
 		return ThreadStatus{}, errors.New("status_command printed bad JSON")
 	}
@@ -171,12 +196,15 @@ func (s *Server) status(ctx context.Context, id string) (ThreadStatus, error) {
 }
 
 // parseStatus accepts exactly one JSON object with a string state and
-// bool answered and closed. Other fields are dropped.
+// bool answered and closed. An optional messages array is cleaned and
+// returned oldest first. A bad messages array returns the three fields
+// and errStatusMessages. Other fields are dropped.
 func parseStatus(out []byte) (ThreadStatus, error) {
 	var raw struct {
-		State    *string `json:"state"`
-		Answered *bool   `json:"answered"`
-		Closed   *bool   `json:"closed"`
+		State    *string         `json:"state"`
+		Answered *bool           `json:"answered"`
+		Closed   *bool           `json:"closed"`
+		Messages json.RawMessage `json:"messages"`
 	}
 	dec := json.NewDecoder(bytes.NewReader(out))
 	if err := dec.Decode(&raw); err != nil {
@@ -191,5 +219,159 @@ func parseStatus(out []byte) (ThreadStatus, error) {
 	if len(*raw.State) > maxStateBytes || strings.ContainsFunc(*raw.State, unicode.IsControl) {
 		return ThreadStatus{}, errors.New("state is too long or has control characters")
 	}
-	return ThreadStatus{State: *raw.State, Answered: *raw.Answered, Closed: *raw.Closed}, nil
+	st := ThreadStatus{State: *raw.State, Answered: *raw.Answered, Closed: *raw.Closed}
+	msgs, err := cleanStatusMessages(raw.Messages)
+	if err != nil {
+		return st, err
+	}
+	st.Messages = msgs
+	return fitStatusBody(st), nil
+}
+
+// cleanStatusMessages validates messages. A missing or null array is
+// omitted. The wrong JSON type, a missing field, or an unparseable time
+// rejects the whole array.
+func cleanStatusMessages(raw json.RawMessage) ([]StatusMessage, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+	var in []struct {
+		Role *string `json:"role"`
+		Time *string `json:"time"`
+		Text *string `json:"text"`
+	}
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return nil, errStatusMessages
+	}
+	msgs := make([]StatusMessage, 0, len(in))
+	for _, m := range in {
+		msg, ok, err := oneStatusMessage(m.Role, m.Time, m.Text)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			msgs = append(msgs, msg)
+		}
+	}
+	sort.SliceStable(msgs, func(i, j int) bool {
+		return msgs[i].Time.Before(msgs[j].Time)
+	})
+	if len(msgs) > maxStatusMessages {
+		msgs = msgs[len(msgs)-maxStatusMessages:]
+	}
+	if len(msgs) == 0 {
+		return nil, nil
+	}
+	return msgs, nil
+}
+
+func oneStatusMessage(role, when, text *string) (StatusMessage, bool, error) {
+	if role == nil || when == nil || text == nil {
+		return StatusMessage{}, false, errStatusMessages
+	}
+	parsed, err := time.Parse(time.RFC3339, *when)
+	if err != nil {
+		return StatusMessage{}, false, errStatusMessages
+	}
+	switch *role {
+	case "you", "agent", "note":
+	default:
+		return StatusMessage{}, false, nil
+	}
+	return StatusMessage{
+		Role: *role,
+		Time: parsed,
+		Text: truncateUTF8(cleanStatusText(*text), maxStatusTextBytes),
+	}, true, nil
+}
+
+func cleanStatusText(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' || !unicode.IsControl(r) {
+			return r
+		}
+		return -1
+	}, s)
+}
+
+func truncateUTF8(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	i := 0
+	for i < len(s) {
+		_, size := utf8.DecodeRuneInString(s[i:])
+		if i+size > maxBytes {
+			break
+		}
+		i += size
+	}
+	return s[:i]
+}
+
+// fitStatusBody drops the oldest messages until the encoded response,
+// including the newline writeJSON adds, fits in maxStatusBodyBytes.
+func fitStatusBody(st ThreadStatus) ThreadStatus {
+	for len(st.Messages) > 0 {
+		body, err := json.Marshal(st)
+		if err != nil {
+			st.Messages = nil
+			return st
+		}
+		if len(body)+1 <= maxStatusBodyBytes {
+			break
+		}
+		st.Messages = st.Messages[1:]
+	}
+	if len(st.Messages) == 0 {
+		st.Messages = nil
+	}
+	return st
+}
+
+// serveThread answers GET /thread?repo=&pr= from the state file. It runs
+// no command. reuse other than per-pr, and a PR with no stored id, are 404.
+func (s *Server) serveThread(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.Reuse != ReusePerPR {
+		writeJSON(w, http.StatusNotFound, errorBody{"not found"})
+		return
+	}
+	q := r.URL.Query()
+	if !slices.Contains(s.cfg.Repos, q.Get("repo")) {
+		writeJSON(w, http.StatusForbidden, errorBody{"repo not allowed"})
+		return
+	}
+	pr, err := strconv.Atoi(q.Get("pr"))
+	if err != nil || pr <= 0 {
+		writeJSON(w, http.StatusBadRequest, errorBody{"bad pr"})
+		return
+	}
+	id, ok, err := s.storedThreadID(q.Get("repo"), pr)
+	if err != nil {
+		s.logger.Error("gh-ask: state file", "err", err)
+		writeJSON(w, http.StatusBadGateway, errorBody{"state file"})
+		return
+	}
+	if !ok {
+		writeJSON(w, http.StatusNotFound, errorBody{"not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		ID string `json:"id"`
+	}{ID: id})
+}
+
+// storedThreadID returns the id stored for the PR, including a closed one.
+// s.mu is taken here. A missing entry is ok false.
+func (s *Server) storedThreadID(repo string, pr int) (string, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.loadThreadsLocked(); err != nil {
+		return "", false, err
+	}
+	entry, ok := s.threads[stateKey(repo, pr)]
+	if !ok || entry.ID == "" {
+		return "", false, nil
+	}
+	return entry.ID, true, nil
 }

@@ -2,7 +2,7 @@
 // pull request line range to a configured command.
 //
 //	gh-ask token [--config PATH]   create the shared secret if missing and print it
-//	gh-ask serve [--config PATH]   serve POST /ask and GET /status/<id> on 127.0.0.1:<port>
+//	gh-ask serve [--config PATH]   serve POST /ask, GET /status/<id> and GET /thread
 package main
 
 import (
@@ -24,7 +24,7 @@ import (
 
 const usage = `usage:
   gh-ask token [--config PATH]   create the shared secret if missing and print it
-  gh-ask serve [--config PATH]   serve POST /ask and GET /status/<id> on the configured 127.0.0.1 port
+  gh-ask serve [--config PATH]   serve POST /ask, GET /status/<id> and GET /thread on the configured 127.0.0.1 port
 
 The default config is $XDG_CONFIG_HOME/gh-ask/config.toml, or
 $HOME/.config/gh-ask/config.toml.
