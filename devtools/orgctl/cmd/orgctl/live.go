@@ -79,7 +79,7 @@ func readImportCrons(live *orgctl.Live) {
 		}
 		for _, job := range jobs {
 			live.Crons = append(live.Crons, orgctl.LiveCron{
-				Cwd: agent.Cwd, ID: job.ID, Cron: job.Cron, Prompt: job.Prompt,
+				Cwd: agent.Cwd, ID: job.ID, Cron: job.Cron, Prompt: job.FullPrompt,
 				ExpiresAt: job.ExpiresAt, CreatedBySessionID: job.CreatedBySessionID,
 			})
 		}

@@ -99,13 +99,16 @@ roles {
 ~Org.pkl~ found by walking up from the working directory. Import
 joins each agentbus name to the herdr agent on the pane in its
 handle, and copies that pane's workspace, tab and cwd. A name with
-no pane stays ~TODO~. Colliding placeholders become ~TODO-1~,
-~TODO-2~, and so on. A gone name is a comment, not a role. A durable
-job is attached to the role whose handle session created it. The
-schedule id is a slug of the prompt's first four words. A prompt of
-at most 80 characters is copied into the stub. A longer prompt is
-~read("prompts/<id>.txt")~, and ~--out~ writes that file beside the
-stub. A job with no matching role is a trailing comment.
+no pane keeps workspace and tab as ~TODO~, and cwd as =~/TODO= so
+~check~ accepts the stub. Colliding tab placeholders become
+~TODO-1~, ~TODO-2~, and so on. A stale name, anything other than
+alive or unreachable, is a comment (~// gone: NAME~), not a role.
+A durable job is attached to the role whose handle session created
+it. The schedule id is a slug of the prompt's first four words. A
+prompt of at most 80 characters is copied into the stub. A longer
+prompt is ~read("prompts/<id>.txt")~, and ~--out~ writes the full
+prompt beside the stub. A job with no matching role is a trailing
+comment.
 
 Fill those TODOs before checking the spec. ~decides~ takes ordinary
 work words such as ~priority~. An approval verb is rejected. A secret
