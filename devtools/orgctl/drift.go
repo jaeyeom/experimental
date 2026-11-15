@@ -193,7 +193,7 @@ func sessionRole(spec Spec, live Live, session string) string {
 func matchesPool(name string, spec Spec, live Live) bool {
 	for key, pool := range spec.Pools {
 		if pool.NamePattern == "" && pool.TabPattern == "" {
-			if name == key || strings.HasPrefix(name, key+"-") || strings.HasPrefix(name, key+"/") {
+			if name == key || strings.HasPrefix(name, key+"-") || strings.HasPrefix(name, key+"/") || agentInWorkspace(live, name, pool.Workspace) {
 				return true
 			}
 			continue
@@ -239,6 +239,15 @@ func nameTabMatches(live Live, name string, pool Pool) bool {
 func tabHasName(live Live, tab LiveTab, pattern string) bool {
 	for _, agent := range live.Agents {
 		if agent.Workspace == tab.Workspace && agent.Tab == tab.Label && globMatch(pattern, agent.Name) {
+			return true
+		}
+	}
+	return false
+}
+
+func agentInWorkspace(live Live, name, workspace string) bool {
+	for _, agent := range live.Agents {
+		if agent.Name == name && agent.Workspace == workspace {
 			return true
 		}
 	}
