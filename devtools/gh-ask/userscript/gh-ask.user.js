@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         gh-ask
 // @namespace    https://github.com/jaeyeom/experimental/tree/main/devtools/gh-ask
-// @version      0.1.1
+// @version      0.1.2
 // @description  Ask a local agent about lines in a pull request diff, through gh-ask serve on 127.0.0.1.
 // @match        https://github.com/*/*/pull/*/files*
 // @match        https://github.com/*/*/pull/*/changes*
@@ -402,6 +402,43 @@ function buildPayload({ href, headSha, start, end, selection, question, deep }) 
   };
 }
 
+// prHeader is the pull request title, where the whole-PR button sits.
+function prHeader(root) {
+  const found = findAll(
+    root,
+    (e) => classes(e).includes("js-issue-title") || e.getAttribute("data-testid") === "issue-title",
+  );
+  return found[0] || null;
+}
+
+// buildWholePrPayload is a question about the pull request, with no file
+// or line. page_url is the files or changes page without a line anchor.
+function buildWholePrPayload({ href, headSha, question, deep }) {
+  const url = parsePrUrl(href);
+  if (!url) {
+    return { error: "not a pull request files page" };
+  }
+  if (!SHA_RE.test(headSha || "")) {
+    return { error: "could not find the head commit on this page" };
+  }
+  if (!question || question.trim() === "") {
+    return { error: "the question is empty" };
+  }
+  if (utf8Len(question) > MAX_QUESTION_BYTES) {
+    return { error: "the question is over 2 KB" };
+  }
+  return {
+    payload: {
+      repo: url.repo,
+      pr: url.pr,
+      head_sha: headSha,
+      question,
+      deep: Boolean(deep),
+      page_url: url.page,
+    },
+  };
+}
+
 // serverUrl returns http://127.0.0.1:<port><path>, or null for a bad
 // port. It is the only place a request URL is made.
 function serverUrl(port, path) {
@@ -553,11 +590,13 @@ function placeInView(anchor, size, viewport) {
 const GhAsk = {
   askError,
   buildPayload,
+  buildWholePrPayload,
   chipText,
   findHeadSha,
   lineInfo,
   parsePrUrl,
   placeInView,
+  prHeader,
   serverUrl,
   startPolling,
   statusLabel,
@@ -570,6 +609,7 @@ const GhAsk = {
 const CSS = `
 .gh-ask-btn { position: absolute; z-index: 100; font: 12px sans-serif; padding: 2px 6px;
   border: 1px solid #8c959f; border-radius: 6px; background: #f6f8fa; color: #1f2328; cursor: pointer; }
+.gh-ask-header { position: static; z-index: auto; margin-left: 8px; vertical-align: middle; }
 .gh-ask-pop { position: absolute; z-index: 101; width: 360px; padding: 8px; font: 13px sans-serif;
   border: 1px solid #8c959f; border-radius: 6px; background: #fff; color: #1f2328;
   box-shadow: 0 4px 12px rgba(0,0,0,.2); }
@@ -669,6 +709,8 @@ function main() {
   document.body.append(button);
   let target = null;
   let popover = null;
+  let popoverPoint = null;
+  let headerButton = null;
 
   function elementOf(node) {
     return node && node.nodeType === 3 ? node.parentElement : node;
@@ -704,8 +746,8 @@ function main() {
   }
 
   window.addEventListener("resize", () => {
-    if (popover) {
-      place(popover, popoverAnchor());
+    if (popover && popoverPoint) {
+      place(popover, popoverPoint());
     }
   });
 
@@ -755,6 +797,7 @@ function main() {
       popover.remove();
       popover = null;
     }
+    popoverPoint = null;
     target = null;
     button.hidden = true;
   }
@@ -785,11 +828,14 @@ function main() {
     });
   }
 
-  button.addEventListener("click", () => {
-    if (!target) {
+  // openAsk shows the question popover. point() is the viewport anchor,
+  // build(question, deep) returns {payload} or {error}, and placeChip
+  // inserts the status chip next to the control that opened it.
+  function openAsk(point, build, placeChip) {
+    if (popover) {
       return;
     }
-    const ask = target;
+    popoverPoint = point;
     const question = el("textarea", { placeholder: "Question for the agent" });
     const deep = el("input", { type: "checkbox" });
     const send = el("button", {
@@ -805,30 +851,21 @@ function main() {
       err,
     ]);
     document.body.append(popover);
-    place(popover, popoverAnchor());
+    place(popover, popoverPoint());
     button.hidden = true;
     question.focus();
     cancel.addEventListener("click", closePopover);
 
     let chip = null;
     send.addEventListener("click", () => {
-      const built = buildPayload({
-        href: window.location.href,
-        headSha: findHeadSha(document.documentElement, window.location.href),
-        start: ask.start,
-        end: ask.end,
-        selection: ask.selection,
-        question: question.value,
-        deep: deep.checked,
-      });
+      const built = build(question.value, deep.checked);
       if (built.error) {
         err.textContent = built.error;
         return;
       }
       if (!chip) {
         chip = el("span", { className: "gh-ask-chip" });
-        const info = lineInfo(ask.end);
-        info.row.lastElementChild.append(chip);
+        placeChip(chip);
       }
       setChip(chip, "Asking agent…", false);
       send.disabled = true;
@@ -851,7 +888,78 @@ function main() {
         err.textContent = msg;
       });
     });
+  }
+
+  button.addEventListener("click", () => {
+    if (!target) {
+      return;
+    }
+    const ask = target;
+    openAsk(
+      () => popoverAnchor(),
+      (question, deep) =>
+        buildPayload({
+          href: window.location.href,
+          headSha: findHeadSha(document.documentElement, window.location.href),
+          start: ask.start,
+          end: ask.end,
+          selection: ask.selection,
+          question,
+          deep,
+        }),
+      (chip) => {
+        const info = lineInfo(ask.end);
+        if (info) {
+          info.row.lastElementChild.append(chip);
+        }
+      },
+    );
   });
+
+  function mountHeaderButton() {
+    if (headerButton) {
+      return true;
+    }
+    const title = prHeader(document.documentElement);
+    const host = title && title.parentElement;
+    if (!host) {
+      return false;
+    }
+    headerButton = el("button", {
+      type: "button",
+      className: "gh-ask-btn gh-ask-header",
+      textContent: "Ask about this PR",
+    });
+    host.append(headerButton);
+    headerButton.addEventListener("click", () => {
+      openAsk(
+        () => {
+          const r = headerButton.getBoundingClientRect();
+          return { top: r.bottom + 4, left: r.left };
+        },
+        (question, deep) =>
+          buildWholePrPayload({
+            href: window.location.href,
+            headSha: findHeadSha(document.documentElement, window.location.href),
+            question,
+            deep,
+          }),
+        (chip) => {
+          headerButton.parentElement.insertBefore(chip, headerButton.nextSibling);
+        },
+      );
+    });
+    return true;
+  }
+
+  if (!mountHeaderButton()) {
+    const watch = new MutationObserver(() => {
+      if (mountHeaderButton()) {
+        watch.disconnect();
+      }
+    });
+    watch.observe(document.documentElement, { childList: true, subtree: true });
+  }
 }
 
 if (typeof module === "object" && module !== null && module.exports) {

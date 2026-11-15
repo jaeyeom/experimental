@@ -138,6 +138,15 @@ func assertNoCORS(t *testing.T, resp *http.Response) {
 	}
 }
 
+func wholePR(req AskRequest) AskRequest {
+	req.Path = ""
+	req.Side = ""
+	req.StartLine = 0
+	req.EndLine = 0
+	req.Selection = ""
+	return req
+}
+
 func assertStatus(t *testing.T, resp *http.Response, body []byte, want int) {
 	t.Helper()
 	if resp.StatusCode != want {
@@ -175,6 +184,37 @@ func TestAskSuccess(t *testing.T) {
 	}
 	if _, err := os.Stat(args[0]); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("message file %s still exists after the command (err %v)", args[0], err)
+	}
+}
+
+func TestAskWholePR(t *testing.T) {
+	env := newTestEnv(t, "created thread-abc123\n", 0, nil)
+	req := wholePR(validRequest())
+	resp, body := env.ask(t, req)
+	assertStatus(t, resp, body, http.StatusOK)
+	msg, err := os.ReadFile(env.fake.msgOut)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(msg) != RenderMessage(req) {
+		t.Errorf("message file =\n%s\nwant\n%s", msg, RenderMessage(req))
+	}
+	if strings.Contains(string(msg), "Code:") {
+		t.Errorf("whole PR message includes a Code block:\n%s", msg)
+	}
+}
+
+func TestAskPartialLocation(t *testing.T) {
+	env := newTestEnv(t, "created thread-abc123\n", 0, nil)
+	req := validRequest()
+	req.Side = ""
+	req.StartLine = 0
+	req.EndLine = 0
+	req.Selection = ""
+	resp, body := env.ask(t, req)
+	assertStatus(t, resp, body, http.StatusBadRequest)
+	if env.ran() {
+		t.Error("ask_command ran for a partial location")
 	}
 }
 

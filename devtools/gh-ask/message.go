@@ -54,8 +54,16 @@ func isTooLarge(err error) bool {
 	return errors.As(err, &tl)
 }
 
+// located reports whether any file, side, line, or selection was sent.
+// Those fields are all-or-none: none of them is a whole-PR question.
+func (r AskRequest) located() bool {
+	return r.Path != "" || r.Side != "" || r.StartLine != 0 || r.EndLine != 0 || r.Selection != ""
+}
+
 // Validate checks every field. Size errors are reported first, so an
-// oversized request always gets 413.
+// oversized request always gets 413. A request with no location fields
+// is a whole-PR question. A request with some of them must have a valid
+// path, side, and line range.
 func (r AskRequest) Validate() error {
 	if err := r.checkSizes(); err != nil {
 		return err
@@ -69,14 +77,16 @@ func (r AskRequest) Validate() error {
 	if !shaPattern.MatchString(r.HeadSHA) {
 		return errors.New("head_sha must be a hex commit id")
 	}
-	if r.Path == "" || strings.ContainsFunc(r.Path, unicode.IsControl) {
-		return errors.New("path must be non-empty with no control characters")
-	}
-	if r.Side != "LEFT" && r.Side != "RIGHT" {
-		return errors.New("side must be LEFT or RIGHT")
-	}
-	if r.StartLine <= 0 || r.EndLine < r.StartLine {
-		return errors.New("start_line and end_line must form a range starting at 1 or later")
+	if r.located() {
+		if r.Path == "" || strings.ContainsFunc(r.Path, unicode.IsControl) {
+			return errors.New("path must be non-empty with no control characters")
+		}
+		if r.Side != "LEFT" && r.Side != "RIGHT" {
+			return errors.New("side must be LEFT or RIGHT")
+		}
+		if r.StartLine <= 0 || r.EndLine < r.StartLine {
+			return errors.New("start_line and end_line must form a range starting at 1 or later")
+		}
 	}
 	if strings.TrimSpace(r.Question) == "" {
 		return errors.New("question is empty")
@@ -117,9 +127,14 @@ func RenderMessage(r AskRequest) string {
 		deep = "yes"
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "[gh-ask] PR %d · %s:%d-%d (%s) · deep=%s\n", r.PR, r.Path, r.StartLine, r.EndLine, r.Side, deep)
-	writeBlock(&b, "Question", r.Question)
-	writeBlock(&b, "Code", r.Selection)
+	if r.located() {
+		fmt.Fprintf(&b, "[gh-ask] PR %d · %s:%d-%d (%s) · deep=%s\n", r.PR, r.Path, r.StartLine, r.EndLine, r.Side, deep)
+		writeBlock(&b, "Question", r.Question)
+		writeBlock(&b, "Code", r.Selection)
+	} else {
+		fmt.Fprintf(&b, "[gh-ask] PR %d · whole PR · deep=%s\n", r.PR, deep)
+		writeBlock(&b, "Question", r.Question)
+	}
 	writeBlock(&b, "Link", r.PageURL)
 	return b.String()
 }

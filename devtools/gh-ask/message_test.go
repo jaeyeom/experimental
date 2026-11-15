@@ -81,6 +81,52 @@ func TestValidateRequest(t *testing.T) {
 	}
 }
 
+func TestRenderWholePR(t *testing.T) {
+	req := validRequest()
+	req.Path = ""
+	req.Side = ""
+	req.StartLine = 0
+	req.EndLine = 0
+	req.Selection = ""
+	got := RenderMessage(req)
+	want := "[gh-ask] PR 42 · whole PR · deep=no\n" +
+		"\nQuestion:\nWhy?\n" +
+		"\nLink:\nhttps://github.com/octo/demo/pull/42/files#diff-abc\n"
+	if got != want {
+		t.Errorf("RenderMessage() =\n%s\nwant\n%s", got, want)
+	}
+	if strings.Contains(got, "Code:") {
+		t.Errorf("whole PR message includes a Code block:\n%s", got)
+	}
+	req.Deep = true
+	if first, _, _ := strings.Cut(RenderMessage(req), "\n"); first != "[gh-ask] PR 42 · whole PR · deep=yes" {
+		t.Errorf("first line = %q", first)
+	}
+}
+
+func TestValidateWholePR(t *testing.T) {
+	req := validRequest()
+	req.Path = ""
+	req.Side = ""
+	req.StartLine = 0
+	req.EndLine = 0
+	req.Selection = ""
+	if err := req.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
+func TestValidatePartialLocation(t *testing.T) {
+	req := validRequest()
+	req.Side = ""
+	req.StartLine = 0
+	req.EndLine = 0
+	req.Selection = ""
+	if err := req.Validate(); err == nil {
+		t.Fatal("Validate() accepted a path without lines")
+	}
+}
+
 func TestWriteMessageFile(t *testing.T) {
 	dir := t.TempDir()
 	path, err := writeMessageFile(dir, "hello\n")
