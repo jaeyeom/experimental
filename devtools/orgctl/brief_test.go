@@ -158,6 +158,38 @@ func TestCompareEmptyTextIsUnmanaged(t *testing.T) {
 	}
 }
 
+func TestCompareExpandsHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	role, org := briefSample()
+	role.Brief.File = "~/briefs/x.md"
+	path := filepath.Join(home, "briefs", "x.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(Render(role, org)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Compare(role, org, "/unused")
+	if err != nil || got != BriefOK {
+		t.Fatalf("tilde file = %q, %v", got, err)
+	}
+
+	role.Cwd = "~/proj"
+	role.Brief.File = "BRIEF.md"
+	rel := filepath.Join(home, "proj", "BRIEF.md")
+	if err := os.MkdirAll(filepath.Dir(rel), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rel, []byte(Render(role, org)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err = Compare(role, org, role.Cwd)
+	if err != nil || got != BriefOK {
+		t.Fatalf("relative file = %q, %v", got, err)
+	}
+}
+
 func TestCompareMatchingFile(t *testing.T) {
 	role, org := briefSample()
 	dir := t.TempDir()

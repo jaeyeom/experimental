@@ -57,7 +57,10 @@ func Hash(role Role, org Spec) [32]byte {
 // An empty brief.text is not managed: the file is only checked for
 // existence, with no render and no hash.
 func Compare(role Role, org Spec, dir string) (string, error) {
-	path := briefPath(dir, role)
+	path, err := briefPath(dir, role)
+	if err != nil {
+		return "", err
+	}
 	if path == "" {
 		return BriefMissing, nil
 	}
@@ -84,15 +87,19 @@ func Compare(role Role, org Spec, dir string) (string, error) {
 	return BriefEdited, nil
 }
 
-func briefPath(dir string, role Role) string {
+func briefPath(dir string, role Role) (string, error) {
 	file := role.Brief.File
 	if file == "" {
-		return ""
+		return "", nil
 	}
-	if filepath.IsAbs(file) {
-		return file
+	if file == "~" || strings.HasPrefix(file, "~/") || filepath.IsAbs(file) {
+		return ExpandPath(file)
 	}
-	return filepath.Join(dir, file)
+	root, err := ExpandPath(dir)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, file), nil
 }
 
 func readBrief(path string) ([]byte, error) {

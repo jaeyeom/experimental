@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"slices"
 	"strings"
@@ -185,18 +186,29 @@ func readRoleFiles(spec orgctl.Spec, live *orgctl.Live) {
 }
 
 func readCrons(role orgctl.Role, live *orgctl.Live) {
+	cwd, err := orgctl.ExpandPath(role.Cwd)
+	if err != nil {
+		return
+	}
+	info, err := os.Stat(cwd)
+	if err != nil || !info.IsDir() {
+		if err == nil || errors.Is(err, fs.ErrNotExist) {
+			live.MissingCwd = append(live.MissingCwd, cwd)
+		}
+		return
+	}
 	schedules := make([]crons.Schedule, len(role.Schedules))
 	for i, schedule := range role.Schedules {
 		schedules[i] = crons.Schedule{ID: schedule.ID, Durable: schedule.Durable}
 	}
-	jobs, _, warnings := crons.Read(role.Cwd, schedules, crons.Config{})
+	jobs, _, warnings := crons.Read(cwd, schedules, crons.Config{})
 	if cronUnreadable(warnings) {
 		return
 	}
-	live.CronRead = append(live.CronRead, role.Cwd)
+	live.CronRead = append(live.CronRead, cwd)
 	for _, job := range jobs {
 		live.Crons = append(live.Crons, orgctl.LiveCron{
-			Cwd: role.Cwd, ID: job.ID, Cron: job.Cron, Prompt: job.Prompt,
+			Cwd: cwd, ID: job.ID, Cron: job.Cron, Prompt: job.Prompt,
 			ExpiresAt: job.ExpiresAt, CreatedBySessionID: job.CreatedBySessionID,
 		})
 	}

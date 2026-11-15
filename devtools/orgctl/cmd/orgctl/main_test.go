@@ -51,6 +51,56 @@ func TestPlanUnmanagedBriefStaysClean(t *testing.T) {
 	}
 }
 
+func TestCheckRejectsRelativeCwd(t *testing.T) {
+	path := writeSpec(t, `{"roles":{"desk/clerk":{"cwd":"proj"}}}`)
+	var stderr bytes.Buffer
+	code := run([]string{"check", path}, &stderr)
+	if code != 1 || !strings.Contains(stderr.String(), "role desk/clerk: cwd must be absolute or start with ~") {
+		t.Fatalf("exit %d, stderr %s", code, stderr.String())
+	}
+	for _, cwd := range []string{"/proj", "~/proj"} {
+		path = writeSpec(t, `{"roles":{"desk/clerk":{"cwd":"`+cwd+`"}}}`)
+		stderr.Reset()
+		if code := run([]string{"check", path}, &stderr); code != 0 {
+			t.Fatalf("cwd %s exit %d, stderr %s", cwd, code, stderr.String())
+		}
+	}
+}
+
+func TestReadCronsExpandsHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, "proj", ".claude")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"tasks":[{"id":"daily","cron":"0 9 * * 1-5","prompt":"hi","createdAt":1761955200000}]}`
+	if err := os.WriteFile(filepath.Join(dir, "scheduled_tasks.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var live orgctl.Live
+	readCrons(orgctl.Role{
+		Cwd:       "~/proj",
+		Schedules: []orgctl.Schedule{{ID: "daily", Cron: "0 9 * * 1-5", Durable: true}},
+	}, &live)
+	proj := filepath.Join(home, "proj")
+	if len(live.Crons) != 1 || live.Crons[0].Cwd != proj || live.Crons[0].ID != "daily" {
+		t.Fatalf("crons = %#v", live.Crons)
+	}
+	if len(live.CronRead) != 1 || live.CronRead[0] != proj {
+		t.Fatalf("read = %#v", live.CronRead)
+	}
+
+	live = orgctl.Live{}
+	readCrons(orgctl.Role{
+		Cwd:       "~/missing",
+		Schedules: []orgctl.Schedule{{ID: "daily", Durable: true}},
+	}, &live)
+	if len(live.Crons) != 0 || len(live.CronRead) != 0 || len(live.MissingCwd) != 1 || live.MissingCwd[0] != filepath.Join(home, "missing") {
+		t.Fatalf("missing cwd live = %#v", live)
+	}
+}
+
 func TestCheckPrintsAllowWarning(t *testing.T) {
 	path := writeSpec(t, `{"roles":{"coord/lead":{"decides":["merge PRs"]}},"allowApprovalWords":["merge"]}`)
 	var stderr bytes.Buffer

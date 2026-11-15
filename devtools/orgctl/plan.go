@@ -21,7 +21,9 @@ type Live struct {
 	CronRead     []string
 	Briefs       map[string]string
 	KnownModels  []string
-	Now          time.Time
+	// MissingCwd lists expanded role directories that were not found.
+	MissingCwd []string
+	Now        time.Time
 }
 
 // LiveTab is a tab label in a workspace.
@@ -122,12 +124,20 @@ func roleDiff(name string, role Role, live Live, window time.Duration) []string 
 	}
 	var lines []string
 	lines = append(lines, presenceLines(name, role, live)...)
-	lines = append(lines, cronLines(name, role, live, window)...)
+	if cwdMissing(role, live) {
+		lines = append(lines, "? "+name+" cwd not found")
+	} else {
+		lines = append(lines, cronLines(name, role, live, window)...)
+	}
 	switch live.Briefs[name] {
 	case BriefEdited:
 		lines = append(lines, "! "+name+" brief edited in place")
 	case BriefUnmanaged:
 		lines = append(lines, "i "+name+" brief unmanaged")
+	case BriefMissing:
+		if role.Brief.File != "" {
+			lines = append(lines, "+ "+name+" brief missing")
+		}
 	}
 	if modelUnknown(role, live) {
 		lines = append(lines, "! "+name+" model unknown")
@@ -156,7 +166,7 @@ func presenceLines(name string, role Role, live Live) []string {
 	if !ok {
 		return lines
 	}
-	if agent.Cwd != "" && agent.Cwd != role.Cwd {
+	if agent.Cwd != "" && agent.Cwd != roleDir(role) {
 		lines = append(lines, "~ "+name+" cwd")
 	}
 	if agent.Model != "" && role.Model != "" && agent.Model != role.Model {
@@ -167,9 +177,10 @@ func presenceLines(name string, role Role, live Live) []string {
 
 func cronLines(name string, role Role, live Live, window time.Duration) []string {
 	var lines []string
-	read := cronWasRead(live, role.Cwd)
+	dir := roleDir(role)
+	read := cronWasRead(live, dir)
 	for _, schedule := range role.Schedules {
-		if line := cronLine(name, role.Cwd, schedule, live, read, window); line != "" {
+		if line := cronLine(name, dir, schedule, live, read, window); line != "" {
 			lines = append(lines, line)
 		}
 	}
@@ -330,6 +341,16 @@ func nameSession(live Live, name string) string {
 		}
 	}
 	return ""
+}
+
+func cwdMissing(role Role, live Live) bool {
+	dir := roleDir(role)
+	for _, item := range live.MissingCwd {
+		if item == dir {
+			return true
+		}
+	}
+	return false
 }
 
 func cronWasRead(live Live, cwd string) bool {

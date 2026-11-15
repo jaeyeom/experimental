@@ -217,7 +217,8 @@ agent, each cron in spec order, an edited brief, then an unknown
 model. ~USER STEP~ lines for every selected role come after the diff.
 
 cwd and model lines are omitted when herdr was not read, or when no
-agent is present. A missing brief is not a marker. An empty
+agent is present. A configured brief that is absent is
+~+ ROLE brief missing~. An empty
 ~brief.text~ means the file is not managed: plan prints
 ~i ROLE brief unmanaged~ when that file exists, and that line
 does not change the exit code. ~+~ is only a tab,
@@ -228,6 +229,11 @@ cron are split by the prompt prefix. A job created by another session
 is not missing. A role with no live handle is unverifiable. ~!~ on a
 brief means the file on disk was edited in place.
 
+A role cwd and a brief path expand a leading ~ to the home directory.
+A relative brief path is joined to that cwd. ~check~ rejects a
+relative cwd. A missing cwd is ~? ROLE cwd not found~, and its crons
+are not read as an empty job file.
+
 The command leaves the known-model list empty, so a normal plan does
 not print ~model unknown~. A snapshot that sets the list can.
 
@@ -236,6 +242,7 @@ not print ~model unknown~. A snapshot that sets the list can.
 | +      | + ROLE tab WORKSPACE/LABEL   | herdr was read and the tab is absent        |
 | +      | + ROLE agentbus              | the agentbus name is absent                 |
 | +      | + ROLE cron ID               | durable cron absent, file read, live handle |
+| +      | + ROLE brief missing         | brief.file is set and the file is absent    |
 | ~      | ~ ROLE when                  | the agentbus when string differs            |
 | ~      | ~ ROLE cwd                   | herdr was read and the cwd differs          |
 | ~      | ~ ROLE model                 | both models are set and they differ         |
@@ -245,6 +252,7 @@ not print ~model unknown~. A snapshot that sets the list can.
 | ?      | ? ROLE remote: not read      | the role's machine is not this host         |
 | ?      | ? ROLE herdr: not read       | herdr could not be read                     |
 | ?      | ? ROLE agentbus: not read    | agentbus names could not be read            |
+| ?      | ? ROLE cwd not found         | the role directory does not exist           |
 | ?      | ? ROLE cron ID unverifiable  | file not read, not durable, or no handle    |
 
 | Line                            | When              |

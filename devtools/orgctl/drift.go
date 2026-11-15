@@ -94,7 +94,7 @@ func misplacedCrons(spec Spec, live Live) []string {
 		role := spec.Roles[name]
 		owner := roleSession(live, name)
 		for _, schedule := range role.Schedules {
-			cron, hit := matchCron(live, role.Cwd, schedule, owner)
+			cron, hit := matchCron(live, roleDir(role), schedule, owner)
 			if hit != cronOther {
 				continue
 			}
@@ -157,7 +157,7 @@ func roleOwnsTab(spec Spec, tab LiveTab) bool {
 
 func declaredCron(spec Spec, cron LiveCron) bool {
 	for _, role := range spec.Roles {
-		if role.Cwd != cron.Cwd {
+		if roleDir(role) != cron.Cwd {
 			continue
 		}
 		for _, schedule := range role.Schedules {
