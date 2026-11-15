@@ -1,6 +1,12 @@
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 load("//tools/org-lint:defs.bzl", "org_lint_tests")
 
+exports_files([
+    "README.org",
+    "examples/acme.pkl",
+    "pkl/Org.pkl",
+])
+
 go_library(
     name = "go_default_library",
     srcs = [
@@ -26,9 +32,14 @@ go_test(
         "import_test.go",
         "path_test.go",
         "plan_test.go",
+        "readme_test.go",
         "spec_test.go",
     ],
-    data = glob(["**/*.pkl"]),
+    data = glob(["**/*.pkl"]) + [
+        "README.org",
+        "//devtools:README.org",
+        "//devtools/orgctl/docs:reference.org",
+    ],
     embed = [":go_default_library"],
     tags = ["no-sandbox"],
 )
