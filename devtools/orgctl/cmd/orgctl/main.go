@@ -7,8 +7,8 @@
 // approvalWords field does the same. allowApprovalWords drops a default
 // word and is printed as a warning.
 //
-// plan is read-only. Exit 0 means no diff markers, 2 means changes, and
-// 1 means an error. USER STEP lines are not changes.
+// plan and drift are read-only. Exit 0 means no diff markers, 2 means
+// changes, and 1 means an error. USER STEP lines are not changes.
 package main
 
 import (
@@ -24,7 +24,8 @@ import (
 )
 
 const usage = "usage: orgctl check [--approval-word WORD]... SPEC.json\n" +
-	"       orgctl plan [--machine NAME] [--role NAME] [--expiring 2d] SPEC.json"
+	"       orgctl plan [--machine NAME] [--role NAME] [--expiring 2d] SPEC.json\n" +
+	"       orgctl drift SPEC.json"
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stderr))
@@ -44,6 +45,8 @@ func runIO(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (orgc
 		return runCheck(args, stderr)
 	case "plan":
 		return runPlan(args, stdout, stderr, load)
+	case "drift":
+		return runDrift(args, stdout, stderr, load)
 	default:
 		fmt.Fprintln(stderr, usage)
 		return 2
@@ -124,6 +127,44 @@ func runPlan(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (or
 		Role:     *role,
 		Expiring: window,
 	})
+	for _, line := range lines {
+		fmt.Fprintln(stdout, line)
+	}
+	if orgctl.PlanChanged(lines) {
+		return 2
+	}
+	return 0
+}
+
+func runDrift(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (orgctl.Live, error)) int {
+	fs := flag.NewFlagSet("drift", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	if err := fs.Parse(args[1:]); err != nil {
+		return 1
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprintln(stderr, "usage: orgctl drift SPEC.json")
+		return 1
+	}
+	data, err := os.ReadFile(fs.Arg(0)) //nolint:gosec // G304: the operator named the spec file
+	if err != nil {
+		fmt.Fprintf(stderr, "read spec: %v\n", err)
+		return 1
+	}
+	spec, err := orgctl.Decode(data)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if load == nil {
+		load = loadLive
+	}
+	live, err := load(spec)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	lines := orgctl.Drift(spec, live)
 	for _, line := range lines {
 		fmt.Fprintln(stdout, line)
 	}

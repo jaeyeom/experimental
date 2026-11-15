@@ -32,9 +32,10 @@ type LiveTab struct {
 
 // LiveAgent is one running agent.
 type LiveAgent struct {
-	Name  string
-	Cwd   string
-	Model string
+	Name      string
+	Cwd       string
+	Model     string
+	SessionID string
 }
 
 // LiveName is one agentbus name.
@@ -45,9 +46,11 @@ type LiveName struct {
 
 // LiveCron is one durable job read from a role cwd.
 type LiveCron struct {
-	Cwd       string
-	ID        string
-	ExpiresAt time.Time
+	Cwd                string
+	ID                 string
+	Cron               string
+	ExpiresAt          time.Time
+	CreatedBySessionID string
 }
 
 // PlanOptions filters plan and sets the expiring window.

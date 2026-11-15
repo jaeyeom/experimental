@@ -76,7 +76,9 @@ func readHerdr(live *orgctl.Live) error {
 	}
 	live.Agents = make([]orgctl.LiveAgent, 0, len(snap.Agents))
 	for _, agent := range snap.Agents {
-		live.Agents = append(live.Agents, orgctl.LiveAgent{Name: agent.Name, Cwd: agent.Cwd})
+		live.Agents = append(live.Agents, orgctl.LiveAgent{
+			Name: agent.Name, Cwd: agent.Cwd, SessionID: agent.SessionID,
+		})
 	}
 	return nil
 }
@@ -126,7 +128,8 @@ func readCrons(role orgctl.Role, live *orgctl.Live) {
 	live.CronRead = append(live.CronRead, role.Cwd)
 	for _, job := range jobs {
 		live.Crons = append(live.Crons, orgctl.LiveCron{
-			Cwd: role.Cwd, ID: job.ID, ExpiresAt: job.ExpiresAt,
+			Cwd: role.Cwd, ID: job.ID, Cron: job.Cron,
+			ExpiresAt: job.ExpiresAt, CreatedBySessionID: job.CreatedBySessionID,
 		})
 	}
 }

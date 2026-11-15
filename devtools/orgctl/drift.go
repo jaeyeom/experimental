@@ -1,0 +1,245 @@
+package orgctl
+
+import (
+	"slices"
+	"strings"
+)
+
+// Drift reports live tabs, names, and crons that the spec does not declare.
+// It also reports a cron created by another role's session, a when mismatch,
+// and a brief edited in place. Each finding is followed by a suggestion.
+// Nothing is written.
+func Drift(spec Spec, live Live) []string {
+	var lines []string
+	lines = append(lines, extraTabs(spec, live)...)
+	lines = append(lines, extraNames(spec, live)...)
+	lines = append(lines, extraCrons(spec, live)...)
+	lines = append(lines, misplacedCrons(spec, live)...)
+	lines = append(lines, whenDrift(spec, live)...)
+	lines = append(lines, briefDrift(spec, live)...)
+	return lines
+}
+
+func extraTabs(spec Spec, live Live) []string {
+	if live.HerdrNotRead {
+		return nil
+	}
+	tabs := make([]LiveTab, 0, len(live.Tabs))
+	for _, tab := range live.Tabs {
+		if roleOwnsTab(spec, tab) || poolTab(tab, spec.Pools) {
+			continue
+		}
+		tabs = append(tabs, tab)
+	}
+	slices.SortFunc(tabs, func(a, b LiveTab) int {
+		if a.Workspace != b.Workspace {
+			return strings.Compare(a.Workspace, b.Workspace)
+		}
+		return strings.Compare(a.Label, b.Label)
+	})
+	var lines []string
+	for _, tab := range tabs {
+		lines = append(lines, "+ tab "+tab.Workspace+"/"+tab.Label)
+		lines = append(lines, "USER: close tab "+tab.Label+" in "+tab.Workspace)
+	}
+	return lines
+}
+
+func extraNames(spec Spec, live Live) []string {
+	if live.NamesNotRead {
+		return nil
+	}
+	var names []string
+	for _, item := range live.Names {
+		if _, ok := spec.Roles[item.Name]; ok || matchesPool(item.Name, spec.Pools) {
+			continue
+		}
+		names = append(names, item.Name)
+	}
+	slices.Sort(names)
+	var lines []string
+	for _, name := range names {
+		lines = append(lines, "+ name "+name)
+		lines = append(lines, nameStub(name))
+	}
+	return lines
+}
+
+func extraCrons(spec Spec, live Live) []string {
+	crons := make([]LiveCron, 0, len(live.Crons))
+	for _, cron := range live.Crons {
+		if declaredCron(spec, cron) {
+			continue
+		}
+		crons = append(crons, cron)
+	}
+	slices.SortFunc(crons, func(a, b LiveCron) int {
+		if a.Cwd != b.Cwd {
+			return strings.Compare(a.Cwd, b.Cwd)
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	var lines []string
+	for _, cron := range crons {
+		lines = append(lines, "+ cron "+cron.ID)
+		lines = append(lines, cronStub(cron))
+	}
+	return lines
+}
+
+func misplacedCrons(spec Spec, live Live) []string {
+	names := roleNames(spec)
+	var lines []string
+	for _, name := range names {
+		role := spec.Roles[name]
+		owner := roleSession(live, name)
+		for _, schedule := range role.Schedules {
+			cron, ok := findCron(live, role.Cwd, schedule.ID)
+			if !ok || cron.CreatedBySessionID == "" || owner == "" || cron.CreatedBySessionID == owner {
+				continue
+			}
+			target := sessionRole(spec, live, cron.CreatedBySessionID)
+			if target == "" {
+				target = name
+			}
+			lines = append(lines, "! cron "+schedule.ID+" misplaced: move to role "+target)
+			lines = append(lines, "USER: recreate cron in role "+target)
+		}
+	}
+	return lines
+}
+
+func whenDrift(spec Spec, live Live) []string {
+	if live.NamesNotRead {
+		return nil
+	}
+	var lines []string
+	for _, name := range roleNames(spec) {
+		when, ok := liveWhen(live, name)
+		if !ok || when == spec.Roles[name].When {
+			continue
+		}
+		lines = append(lines, "~ "+name+" when")
+		lines = append(lines, whenStub(when))
+	}
+	return lines
+}
+
+func briefDrift(spec Spec, live Live) []string {
+	var lines []string
+	for _, name := range roleNames(spec) {
+		if live.Briefs[name] != BriefEdited {
+			continue
+		}
+		lines = append(lines, "! "+name+" brief edited in place")
+		lines = append(lines, "USER: review brief for "+name)
+	}
+	return lines
+}
+
+func roleNames(spec Spec) []string {
+	names := make([]string, 0, len(spec.Roles))
+	for name := range spec.Roles {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
+}
+
+func roleOwnsTab(spec Spec, tab LiveTab) bool {
+	for _, role := range spec.Roles {
+		if role.Workspace == tab.Workspace && role.Tab == tab.Label {
+			return true
+		}
+	}
+	return false
+}
+
+func declaredCron(spec Spec, cron LiveCron) bool {
+	for _, role := range spec.Roles {
+		if role.Cwd != cron.Cwd {
+			continue
+		}
+		for _, schedule := range role.Schedules {
+			if schedule.ID == cron.ID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func roleSession(live Live, name string) string {
+	agent, ok := liveAgent(live, name)
+	if !ok {
+		return ""
+	}
+	return agent.SessionID
+}
+
+func sessionRole(spec Spec, live Live, session string) string {
+	if session == "" {
+		return ""
+	}
+	for _, name := range roleNames(spec) {
+		if roleSession(live, name) == session {
+			return name
+		}
+	}
+	return ""
+}
+
+func matchesPool(name string, pools map[string]Pool) bool {
+	for key := range pools {
+		if name == key || strings.HasPrefix(name, key+"-") || strings.HasPrefix(name, key+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func poolTab(tab LiveTab, pools map[string]Pool) bool {
+	for key, pool := range pools {
+		if tab.Workspace != pool.Workspace {
+			continue
+		}
+		if tab.Label == key || strings.HasPrefix(tab.Label, key+"-") || strings.HasPrefix(tab.Label, key+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func nameStub(name string) string {
+	return "module drift.stub\n\nname = " + pklQuote(name) + "\n"
+}
+
+func cronStub(cron LiveCron) string {
+	return "module drift.stub\n\nid = " + pklQuote(cron.ID) +
+		"\ncron = " + pklQuote(cron.Cron) +
+		"\ncwd = " + pklQuote(cron.Cwd) + "\n"
+}
+
+func whenStub(when string) string {
+	return "module drift.stub\n\n`when` = " + pklQuote(when) + "\n"
+}
+
+func pklQuote(s string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range s {
+		switch r {
+		case '\\', '"':
+			b.WriteByte('\\')
+			b.WriteRune(r)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
+}
