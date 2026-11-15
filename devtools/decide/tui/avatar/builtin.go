@@ -32,6 +32,9 @@ var builtinGenerations = [][]string{
 		"hammer", "jester", "king", "merchant", "peasant", "physician",
 		"pirate", "queen", "scholar", "spy", "witch",
 	},
+	{
+		"hand", "gopher", "line-chart", "chat", "ticket", "branch",
+	},
 }
 
 // BuiltinIDs returns the built-in figure ids in sorted order.
