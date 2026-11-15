@@ -419,9 +419,9 @@ test("the script only connects to loopback", () => {
 const POPOVER_W = 360;
 const MARGIN = 8;
 
-test("userscript version is 0.1.7", () => {
+test("userscript version is 0.1.8", () => {
   const src = fs.readFileSync(path.join(__dirname, "gh-ask.user.js"), "utf8");
-  assert.match(src, /^\/\/ @version\s+0\.1\.7$/m);
+  assert.match(src, /^\/\/ @version\s+0\.1\.8$/m);
 });
 
 const FILES_HEAD = "0123456789abcdef0123456789abcdef01234567";
@@ -501,6 +501,89 @@ test("panel ask reports a missing head and does not call the local server", asyn
   );
   assert.equal(empty.error, HEAD_MISSING);
   assert.deepEqual(requests, []);
+});
+
+const SOFT_HEAD = "cafebabecafebabecafebabecafebabecafebabe";
+const FILES_HREF = "https://github.com/octo/demo/pull/42/files";
+
+test("soft-nav files view reads the layout head commit", () => {
+  assert.equal(G.findHeadSha(fixture("files-soft-nav.html"), FILES_HREF), SOFT_HEAD);
+  assert.equal(
+    G.findHeadSha(fixture("files-soft-nav.html"), `${FILES_HREF}/1111111..abcdef1`),
+    "abcdef1",
+  );
+});
+
+test("a bad layout head commit is ignored and the next source is used", () => {
+  const input = `<input name="head_sha" value="${FILES_HEAD}">`;
+  const cases = [
+    JSON.stringify({
+      payload: { pullRequestsLayoutRoute: { pullRequest: { headSha: "zzzzzzz" } } },
+    }),
+    "{",
+    JSON.stringify({ payload: {} }),
+  ];
+  for (const json of cases) {
+    const root = parse(
+      `<script type="application/json" data-target="react-app.embeddedData">${json}</script>${input}`,
+    );
+    assert.equal(G.findHeadSha(root, FILES_HREF), FILES_HEAD, json);
+  }
+});
+
+test("line ask uses the cache, then the files page, and keeps the question", async () => {
+  const start = byAttr(fixture("files-view.html"), "data-fixture", "add10");
+  const page = parse("<div></div>");
+  const filesHtml = fs.readFileSync(path.join(__dirname, "testdata", "files-view.html"), "utf8");
+  const cachedSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  const cache = new Map([["octo/demo#42", cachedSha]]);
+  const requests = [];
+  const statuses = [];
+  let fetches = 0;
+  const fetchText = async (url) => {
+    fetches += 1;
+    assert.equal(url, "/octo/demo/pull/42/files");
+    return filesHtml;
+  };
+  const opts = {
+    href: FILES_HREF,
+    root: page,
+    start,
+    end: start,
+    selection: "",
+    question: "why this line?",
+    deep: false,
+    parseHtml: (html) => parse(html),
+    onStatus: (msg) => statuses.push(msg),
+    request: (payload) => requests.push(payload),
+  };
+  const cached = await G.askLine({ ...opts, fetchText, cache });
+  assert.equal(fetches, 0);
+  assert.equal(cached.payload.head_sha, cachedSha);
+  assert.equal(requests[0].head_sha, cachedSha);
+  assert.equal(requests[0].path, "pkg/a.go");
+  assert.equal(requests[0].start_line, 10);
+
+  cache.delete("octo/demo#42");
+  const fetched = await G.askLine({ ...opts, fetchText, cache });
+  assert.equal(fetches, 1);
+  assert.equal(fetched.payload.head_sha, FILES_HEAD);
+  assert.deepEqual(statuses, [HEAD_FINDING]);
+  assert.equal(requests[1].head_sha, FILES_HEAD);
+
+  const before = requests.length;
+  const failed = await G.askLine({
+    ...opts,
+    cache: new Map(),
+    fetchText: async () => {
+      throw new Error("network");
+    },
+  });
+  const shown = G.popoverAskResult("why this line?", failed);
+  assert.equal(shown.question, "why this line?");
+  assert.equal(shown.error, HEAD_MISSING);
+  assert.equal(shown.payload, null);
+  assert.equal(requests.length, before);
 });
 
 test("files and changes views do not fetch the files page", async () => {

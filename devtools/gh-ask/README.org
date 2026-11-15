@@ -477,15 +477,17 @@ real page, update the fixture, and fix the script against the test.
 ** Userscript internals
 
 - ~repo~ and ~pr~ come from the URL.
-- ~head_sha~ comes from a commit range in the URL, else the hidden
-  ~comparison_end_oid~ input on the classic view, else ~headOid~ in
-  the page's embedded JSON on the changes view. A tab with none of
-  those, such as Conversation, fetches ~/OWNER/REPO/pull/N/files~ on
-  this origin and reads the commit there. That result is cached for
-  the pull request until the URL changes or the page loads again.
-  The panel says "finding the head commit…" while the fetch runs.
-  If it fails, the panel says "couldn't find the head commit; open
-  Files changed and ask there" and does not call the local server.
+- ~head_sha~ comes from a commit range in the URL, else
+  ~pullRequestsLayoutRoute.pullRequest.headSha~ in the
+  ~react-app.embeddedData~ JSON, else the hidden ~head_sha~ or
+  ~comparison_end_oid~ input, else ~headOid~ in the page's embedded
+  JSON. A page with none of those fetches ~/OWNER/REPO/pull/N/files~
+  on this origin and reads the commit there. That result is cached
+  for the pull request until the URL changes or the page loads again.
+  The panel and the line popover say "finding the head commit…"
+  while the fetch runs. If it fails, they say "couldn't find the
+  head commit; open Files changed and ask there", do not call the
+  local server, and the line popover keeps the question text.
 - ~path~, ~side~, and the line range come from the diff rows. A range
   takes the side of the line where the selection ends.
 - ~selection~ is the selected text, or the hunk around the line when

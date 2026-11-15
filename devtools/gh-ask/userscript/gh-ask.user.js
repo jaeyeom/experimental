@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         gh-ask
 // @namespace    https://github.com/jaeyeom/experimental/tree/main/devtools/gh-ask
-// @version      0.1.7
+// @version      0.1.8
 // @description  Ask a local agent about lines in a pull request diff, through gh-ask serve on 127.0.0.1.
 // @match        https://github.com/*
 // @grant        GM_xmlhttpRequest
@@ -120,12 +120,17 @@ function parsePrUrl(href) {
 }
 
 // findHeadSha returns the commit the diff shows, or "". A commit or
-// range in the URL wins; then the hidden form inputs of the classic view;
-// then the embedded JSON of the React view.
+// range in the URL wins; then the PR layout JSON, which stays on the
+// page across a soft navigation; then the hidden form inputs of the
+// classic view; then headOid in embedded JSON.
 function findHeadSha(root, href) {
   const m = URL_HEAD_RE.exec(href);
   if (m) {
     return m[1];
+  }
+  const layout = layoutHeadSha(root);
+  if (layout) {
+    return layout;
   }
   for (const name of ["head_sha", "comparison_end_oid"]) {
     for (const el of findAll(
@@ -146,6 +151,39 @@ function findHeadSha(root, href) {
     if (h) {
       return h[1];
     }
+  }
+  return "";
+}
+
+// layoutHeadSha reads pullRequestsLayoutRoute.pullRequest.headSha from
+// the React app's embedded JSON. A parse error, a missing path, or a
+// value that is not a commit is skipped so a later source can match.
+function layoutHeadSha(root) {
+  for (const el of findAll(
+    root,
+    (e) =>
+      e.tagName === "SCRIPT" &&
+      e.getAttribute("type") === "application/json" &&
+      e.getAttribute("data-target") === "react-app.embeddedData",
+  )) {
+    const sha = layoutSha(el.textContent);
+    if (sha) {
+      return sha;
+    }
+  }
+  return "";
+}
+
+function layoutSha(text) {
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return "";
+  }
+  const sha = data?.payload?.pullRequestsLayoutRoute?.pullRequest?.headSha;
+  if (typeof sha === "string" && SHA_RE.test(sha)) {
+    return sha;
   }
   return "";
 }
@@ -927,6 +965,42 @@ async function resolveHeadSha(opts) {
   return { headSha: sha };
 }
 
+// askLine resolves the head commit, then builds a line or selection
+// POST /ask. request is the local server. It is not called when the
+// head is missing. The question is left for the caller to keep.
+async function askLine(opts) {
+  const head = await resolveHeadSha(opts);
+  if (head.error) {
+    return head;
+  }
+  const built = buildPayload({
+    href: opts.href,
+    headSha: head.headSha,
+    start: opts.start,
+    end: opts.end,
+    selection: opts.selection || "",
+    question: opts.question,
+    deep: opts.deep,
+  });
+  if (built.error || !built.payload) {
+    return built;
+  }
+  if (opts.request) {
+    opts.request(built.payload);
+  }
+  return built;
+}
+
+// popoverAskResult is the popover after an ask resolves. The question
+// stays. An error is shown and nothing is sent.
+function popoverAskResult(question, built) {
+  if (!built || built.error || !built.payload) {
+    const error = built?.error ? built.error : "could not find the head commit on this page";
+    return { question, error, payload: null };
+  }
+  return { question, error: "", payload: built.payload };
+}
+
 // askPanel resolves the head commit, then builds the panel's POST /ask.
 // request is the local server. It is not called when the head is missing.
 async function askPanel(opts) {
@@ -1128,6 +1202,7 @@ function bindPage(page) {
 
 const GhAsk = {
   askError,
+  askLine,
   askPanel,
   bindPage,
   buildPayload,
@@ -1146,6 +1221,7 @@ const GhAsk = {
   panelView,
   parsePrUrl,
   placeInView,
+  popoverAskResult,
   prHeader,
   renderMessage,
   renderPanel,
@@ -1684,9 +1760,11 @@ function main() {
     );
   }
 
-  // openAsk shows the question popover. point() is the viewport anchor,
-  // build(question, deep) returns {payload} or {error}, and placeChip
-  // inserts the status chip next to the control that opened it.
+  // openAsk shows the question popover. point() is the viewport anchor.
+  // build(question, deep, onStatus) returns {payload} or {error}, and
+  // may be async while the head commit is fetched. placeChip inserts
+  // the status chip next to the control that opened it. A failed ask
+  // leaves the question text in the box.
   function openAsk(point, build, placeChip) {
     if (popover) {
       return;
@@ -1715,18 +1793,29 @@ function main() {
 
     let chip = null;
     let sending = false;
-    function submit() {
+    async function submit() {
       if (sending) {
         return;
       }
-      const built = build(question.value, deep.checked);
-      if (built.error) {
-        err.textContent = built.error;
+      sending = true;
+      send.disabled = true;
+      const built = await build(question.value, deep.checked, (msg) => {
+        err.textContent = msg;
+      });
+      if (!popover) {
         return;
       }
+      const shown = popoverAskResult(question.value, built);
+      if (!shown.payload) {
+        sending = false;
+        send.disabled = false;
+        err.textContent = shown.error;
+        return;
+      }
+      err.textContent = "";
       if (!chip) {
         chip = el("span", { className: "gh-ask-chip" });
-        const asked = built.payload;
+        const asked = shown.payload;
         const chipLine =
           asked && asked.path
             ? {
@@ -1746,10 +1835,7 @@ function main() {
         placeChip(chip);
       }
       setChip(chip, "Asking agent…", false);
-      sending = true;
-      send.disabled = true;
-      err.textContent = "";
-      request("POST", "/ask", built.payload, (res) => {
+      request("POST", "/ask", shown.payload, (res) => {
         sending = false;
         send.disabled = false;
         if (
@@ -1779,6 +1865,17 @@ function main() {
     });
   }
 
+  function headOpts(onStatus) {
+    return {
+      href: window.location.href,
+      root: document.documentElement,
+      cache: headCache,
+      onStatus,
+      fetchText: fetchSameOrigin,
+      parseHtml: (html) => new DOMParser().parseFromString(html, "text/html"),
+    };
+  }
+
   button.addEventListener("click", () => {
     if (!target) {
       return;
@@ -1786,10 +1883,9 @@ function main() {
     const ask = target;
     openAsk(
       () => popoverAnchor(),
-      (question, deep) =>
-        buildPayload({
-          href: window.location.href,
-          headSha: findHeadSha(document.documentElement, window.location.href),
+      (question, deep, onStatus) =>
+        askLine({
+          ...headOpts(onStatus),
           start: ask.start,
           end: ask.end,
           selection: ask.selection,
@@ -1826,13 +1922,18 @@ function main() {
           const r = headerButton.getBoundingClientRect();
           return { top: r.bottom + 4, left: r.left };
         },
-        (question, deep) =>
-          buildWholePrPayload({
+        async (question, deep, onStatus) => {
+          const head = await resolveHeadSha(headOpts(onStatus));
+          if (head.error) {
+            return head;
+          }
+          return buildWholePrPayload({
             href: window.location.href,
-            headSha: findHeadSha(document.documentElement, window.location.href),
+            headSha: head.headSha,
             question,
             deep,
-          }),
+          });
+        },
         (chip) => {
           headerButton.parentElement.insertBefore(chip, headerButton.nextSibling);
         },
