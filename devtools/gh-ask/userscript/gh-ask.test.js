@@ -418,9 +418,36 @@ test("the script only connects to loopback", () => {
 const POPOVER_W = 360;
 const MARGIN = 8;
 
-test("userscript version is 0.1.1", () => {
+test("userscript version is 0.1.2", () => {
   const src = fs.readFileSync(path.join(__dirname, "gh-ask.user.js"), "utf8");
-  assert.match(src, /^\/\/ @version\s+0\.1\.1$/m);
+  assert.match(src, /^\/\/ @version\s+0\.1\.2$/m);
+});
+
+test("header button builds a whole-PR payload", () => {
+  for (const v of views) {
+    const root = fixture(v.file);
+    const header = G.prHeader(root);
+    assert.ok(header, v.name);
+    assert.equal(header.getAttribute("data-fixture"), "pr-title", v.name);
+    const got = G.buildWholePrPayload({
+      href: `${v.href}?w=1#diff-abcR10`,
+      headSha: v.head,
+      question: "Is the design right?",
+      deep: true,
+    });
+    assert.equal(got.error, undefined, v.name);
+    assert.deepEqual(got.payload, {
+      repo: "octo/demo",
+      pr: 42,
+      head_sha: v.head,
+      question: "Is the design right?",
+      deep: true,
+      page_url: v.href,
+    });
+    for (const key of ["path", "side", "start_line", "end_line", "selection"]) {
+      assert.equal(Object.hasOwn(got.payload, key), false, `${v.name} ${key}`);
+    }
+  }
 });
 
 test("far right anchor keeps the popover inside the viewport", () => {
