@@ -1,114 +1,259 @@
-#+TITLE: Repo-Sync: Multi-Machine Development File Synchronization
+#+TITLE: repo-sync
 
-* Overview
+repo-sync keeps files that live in a project directory but that you do
+not commit there, such as local config, editor settings, and notes, the
+same on every machine. It copies matching files into a local clone of a
+separate private Git repository you own, then commits, pulls with
+rebase, and pushes, and copies changes from other machines back. Use it
+when the files are too project-specific for a dotfiles manager and you
+do not want a full Syncthing share.
 
-Repo-Sync is a specialized utility for synchronizing project-specific files
-across multiple development machines using Git-based workflow automation. It
-addresses the unique challenge of keeping development configurations and project
-files in sync without uploading entire repositories to remote storage.
+* How it works
 
-The utility is implemented in Go for cross-platform compatibility, performance,
-and robust concurrent operations while leveraging external tools like rsync and
-Git for specialized functionality.
+~config add-project~ names the project and records five paths. ~sync~
+rsyncs between the local directory and a clone on this machine, then
+commits, pulls with rebase, and pushes that clone.
 
-** Key Features
+#+begin_example
+~/projects/myproject
+        <- rsync ->
+~/.repo-sync/remotes/myproject
+        <- git commit, pull --rebase, push ->
+git@github.com:you/sync-repo.git
+#+end_example
 
-- **Selective Synchronization**: Uses rsync patterns to sync only relevant files
-- **Git Integration**: Automated commit-pull-push workflows with conflict resolution
-- **Multi-Machine Coordination**: Deletion tracking and conflict resolution across machines
-- **SQLite Database**: Metadata tracking, performance metrics, and operation history
-- **Robust Error Handling**: Comprehensive error detection and recovery procedures
+- A *project* is the name you pass on the command line, such as
+  ~myproject~.
+- The *sync repo* is the private Git repository you push to
+  (~remote_repo~).
+- The *local dir* (~local_work_dir~) is the project directory on this
+  machine, such as =~/projects/myproject=.
+- The *remote work dir* (~remote_work_dir~) is a local clone of the
+  sync repo, not a directory on another machine. ~config add-project~
+  sets it to =~/.repo-sync/remotes/<project-name>=.
+- The *remote prefix* (~remote_path_prefix~) is a directory inside that
+  clone. ~add~ and ~remove~ use
+  ~remote_work_dir/remote_prefix/<file>~. ~sync~, ~sync download~, and
+  ~sync upload~ rsync the local directory with the clone root.
 
-** Installation
+~sync~ runs rsync with ~--delete~ and ~--delete-excluded~. When the
+project has include patterns, rsync also gets ~--exclude=*~, so only
+included names match. The copy back onto the local directory is not a
+dry run. Files there that do not match an include can be deleted. Keep
+the synced files in a directory that holds only those files, and run
+~sync --dry-run~ before the first real sync.
 
-*** From Source (Bazel)
+~sync --dry-run~ still clones the sync repo when
+=~/.repo-sync/remotes/<project-name>= is not a clone yet, and it still
+runs ~git ls-remote~. It passes ~--dry-run~ to the first rsync and
+skips the commit, the pull, the push, and the copy back.
 
-This project is part of a Bazel monorepo. To build and run:
+* Requirements
 
-#+BEGIN_SRC bash
-# Build with Bazel
+- git
+- rsync
+- A private Git repository you can push to. The URL must start with
+  ~git@~, ~ssh://~, or ~https://~.
+- A C compiler. The database driver is ~github.com/mattn/go-sqlite3~,
+  which needs cgo (~CGO_ENABLED=1~).
+- Go 1.26.0 to build from this repository. The module is the repository
+  root. This directory has no ~go.mod~.
+
+* Install
+
+Put the binary on ~PATH~ before the quick start. Building needs cgo.
+
+#+begin_src sh
+go install github.com/jaeyeom/experimental/devtools/repo-sync/cmd/repo-sync@latest
+#+end_src
+
+From a checkout of this repository:
+
+#+begin_src sh
+go install ./devtools/repo-sync/cmd/repo-sync
+#+end_src
+
+Bazel, from the repository root:
+
+#+begin_src sh
 bazel build //devtools/repo-sync/cmd/repo-sync:repo-sync
+bazel run //devtools/repo-sync/cmd/repo-sync:repo-sync -- --help
+#+end_src
 
-# Run directly
-bazel run //devtools/repo-sync/cmd/repo-sync:repo-sync
+* Quick start
 
-# Or use the Makefile shortcuts
-cd devtools/repo-sync
-make build
-make install  # Runs the repo-root install
-#+END_SRC
+Create the config directory and the database:
 
-** Quick Start
-
-*** 1. Initialize Repo-Sync
-
-#+BEGIN_SRC bash
-# Initialize configuration and database
+#+begin_src sh
 repo-sync init
-#+END_SRC
+#+end_src
 
-This creates the configuration directory at =~/.config/repo-sync/= with:
-- =config.yaml= - Global configuration
-- =mappings/= - Project-specific mapping files
-- =metadata.db= - SQLite database for tracking operations
-- =logs/=, =backups/=, =rollbacks/=, =locks/= - Working directories
+The first ~init~ prints a warning, then the paths. ~chmod~ runs before
+SQLite creates ~metadata.db~. This is one captured run with ~HOME~
+under a temporary directory. On your machine the same lines use
+=~/.config/repo-sync=:
 
-*** 2. Add a Project
+#+begin_example
+time=2026-11-14T22:39:16.981-08:00 level=WARN msg="Failed to set database permissions" error="chmod /tmp/repo-sync-demo-FeBM/home/.config/repo-sync/metadata.db: no such file or directory"
+Configuration directory: /tmp/repo-sync-demo-FeBM/home/.config/repo-sync
+Database location: /tmp/repo-sync-demo-FeBM/home/.config/repo-sync/metadata.db
 
-#+BEGIN_SRC bash
-# Add a new project mapping
+Next steps:
+1. Add a project: repo-sync config add-project <name> --local-dir <path> --remote-repo <url>
+2. Sync a project: repo-sync sync <name>
+#+end_example
+
+The next-step line omits ~--remote-prefix~. That flag is required.
+
+Add a project. ~--local-dir~, ~--remote-repo~, and ~--remote-prefix~
+are required. A ~--local-dir~ that starts with =~/= is expanded.
+
+#+begin_src sh
 repo-sync config add-project myproject \
-  --local-dir /path/to/local/project \
-  --remote-repo git@github.com:user/sync-repo.git \
+  --local-dir ~/projects/myproject \
+  --remote-repo git@github.com:you/sync-repo.git \
   --remote-prefix projects/myproject \
-  --include "*.yaml" --include "*.json" \
-  --exclude "*.tmp" --exclude "*.log"
-#+END_SRC
+  --include '*.org' \
+  --exclude '*.log'
+#+end_src
 
-*** 3. Synchronize Files
+The same captured run printed:
 
-#+BEGIN_SRC bash
-# Perform bidirectional sync
-repo-sync sync myproject
+#+begin_example
+Project 'myproject' added successfully:
+  Local directory: /tmp/repo-sync-demo-FeBM/projects/myproject
+  Remote repository: git@localhost:sync-repo.git
+  Remote work directory: /tmp/repo-sync-demo-FeBM/home/.repo-sync/remotes/myproject
+  Remote path prefix: projects/myproject
+#+end_example
 
-# Download only (remote takes precedence)
-repo-sync download myproject
+~status~ prints the stored paths and the counters. With no parsed
+completion time, ~Last sync~ is Go's zero time:
 
-# Upload only (local takes precedence)
-repo-sync upload myproject
+#+begin_example
+Project: myproject
+Local Directory: /tmp/repo-sync-demo-FeBM/projects/myproject
+Remote Repository: git@localhost:sync-repo.git
+Remote Work Directory: /tmp/repo-sync-demo-FeBM/home/.repo-sync/remotes/myproject
 
-# Dry run to see what would be synced
+Statistics:
+  Total syncs: 0
+  Successful syncs: 0
+  Failed syncs: 0
+  Last sync: 0001-01-01 00:00:00
+  Tracked files: 0
+  Conflicted files: 0
+#+end_example
+
+Preview, then sync:
+
+#+begin_src sh
 repo-sync sync myproject --dry-run
-#+END_SRC
+repo-sync sync myproject
+#+end_src
 
-* Architecture
+~sync --dry-run~ prints the same four-line summary as a real sync. It
+does not print an itemized "would sync" list. rsync's own output is
+logged at debug. This is the stdout from the captured run. The counters
+and the duration are that run's values:
 
-** Commands
+#+begin_example
+Sync completed successfully:
+  Files synced: 0
+  Bytes transferred: 0
+  Conflicts resolved: 0
+  Duration: 20.575083ms
+#+end_example
 
-*** Core Operations
+A real ~sync~ prints those same four lines after the commit, the pull
+with rebase, the push, and the copy back onto the local directory.
+The default slog level is warn, so info lines stay off unless you pass
+~-v~ or ~--debug~.
 
-- =repo-sync init= - Initialize configuration and database
-- =repo-sync sync <project>= - Bidirectional synchronization
-- =repo-sync add <project> <file>= - Add file to sync scope
-- =repo-sync remove <project> <file>= - Remove file from sync scope
+* Commands
 
-*** Management
+~repo-sync --help~ lists these commands. ~download~ and ~upload~ are
+subcommands of ~sync~, shown by ~repo-sync sync --help~. There is no
+~repo-sync log~ command and no ~repo-sync test~ command.
 
-- =repo-sync config add-project <name>= - Add project configuration
-- =repo-sync config remove-project <name>= - Remove project configuration
-- =repo-sync config list-projects= - List all projects
-- =repo-sync config show-project <name>= - Show project details
+| Command                                | Purpose                                      |
+|----------------------------------------+----------------------------------------------|
+| repo-sync init                         | Create the config directory and database     |
+| repo-sync sync <project>               | Rsync both ways, then commit, pull, and push |
+| repo-sync sync download <project>      | Pull, then copy the clone onto the local dir |
+| repo-sync sync upload <project>        | Copy the local dir onto the clone, then push |
+| repo-sync add <project> <file>         | Copy one file under the prefix and commit    |
+| repo-sync remove <project> <file>      | Delete the local file and the prefix copy    |
+| repo-sync status [project]             | Print paths and sync counts                  |
+| repo-sync verify <project>             | Print checks; connectivity is not checked    |
+| repo-sync config add-project <name>    | Save a project mapping                       |
+| repo-sync config remove-project <name> | Delete the mapping file only                 |
+| repo-sync config list-projects         | List project mappings                        |
+| repo-sync config show-project <name>   | Print one project mapping                    |
+| repo-sync completion                   | Print a shell completion script              |
+| repo-sync help [command]               | Print help                                   |
 
-*** Status and Verification
+*Warning.* ~repo-sync remove <project> <file>~ deletes that file from
+the local directory and from ~remote_work_dir/remote_prefix/<file>~,
+then commits and pushes the deletion. It does not merely drop the file
+from the sync set. Unless you pass ~--confirm~, it asks:
 
-- =repo-sync status [project]= - Show sync status
-- =repo-sync verify <project>= - Verify configuration and connectivity
+#+begin_example
+Are you sure you want to remove '<file>' from project '<project>'? [y/N]:
+#+end_example
 
-** Configuration
+On success it prints ~File removed successfully:~, the file path, the
+git commit, and ~Deletion timestamp:~ in ~2006-01-02 15:04:05~ form.
+Other machines are not told about the deletion. See
+[[*Not yet implemented]].
 
-*** Global Configuration (=~/.config/repo-sync/config.yaml=)
+~config remove-project~ is different. It deletes the mapping file
+=~/.config/repo-sync/mappings/<name>.yaml= and leaves your files and
+the clone in place. Without ~-f~ / ~--force~ it asks:
 
-#+BEGIN_SRC yaml
+#+begin_example
+Are you sure you want to remove project '<name>'? [y/N]:
+#+end_example
+
+Flags that exist in help:
+
+- ~--reset-db~ on ~init~ deletes an existing database, then creates the
+  tables again.
+- ~--dry-run~ on ~sync~, ~sync download~, and ~sync upload~ passes
+  ~--dry-run~ to rsync. On ~sync~ it also skips the commit, the pull,
+  the push, and the copy back.
+- ~--force~ on ~sync~ is accepted. The sync engine does not read it.
+- ~--confirm~ on ~remove~ skips the prompt. The local file is still
+  deleted.
+- ~-f~ / ~--force~ on ~config remove-project~ skips that prompt.
+- ~config add-project~ requires ~--local-dir~, ~--remote-repo~, and
+  ~--remote-prefix~. Repeat ~--include~ and ~--exclude~ for each
+  pattern.
+- ~--config~ selects the config file. The default is
+  =~/.config/repo-sync/config.yaml=.
+- ~-v~ / ~--verbose~ sets slog to info. ~--debug~ sets slog to debug.
+  ~-h~ / ~--help~ prints help.
+
+~sync download~ prints ~Download completed:~ and then
+~Files downloaded:~ and ~Bytes transferred:~. ~sync upload~ prints
+~Upload completed:~ and then ~Files uploaded:~ and
+~Bytes transferred:~. ~add~ prints ~File added successfully:~, the
+file path, the size in bytes, and the git commit.
+
+~status~ with no project name prints one summary line per project,
+~Project Status Summary:~ and then the name, ~OK~, ~CONFLICTS~, or
+~ISSUES~, and ~Last sync:~ as ~2006-01-02 15:04~. No projects prints
+~No projects configured~.
+
+* Configuration
+
+Global settings are =~/.config/repo-sync/config.yaml=. ~init~ writes
+this file when it is missing:
+
+#+begin_src yaml
+# Repo-Sync Configuration
+# Global settings for repo-sync utility
+
 # Default sync patterns (can be overridden per project)
 default_sync_patterns:
   include:
@@ -146,310 +291,129 @@ logging:
   level: "info"
   file_retention_days: 30
   max_file_size_mb: 10
-#+END_SRC
+#+end_src
 
-*** Project Configuration (=~/.config/repo-sync/mappings/<project>.yaml=)
+The running code reads two of those groups:
 
-#+BEGIN_SRC yaml
-project_name: "myproject"
-local_work_dir: "/home/user/projects/myproject"
-remote_repo: "git@github.com:user/dotfiles-sync.git"
-remote_work_dir: "/home/user/.repo-sync/remotes/dotfiles-sync"
-remote_path_prefix: "projects/myproject"
-sync_patterns:
-  include:
-    - "*.yaml"
-    - "*.json"
-    - "config/**/*"
-  exclude:
-    - "*.tmp"
-    - "*.log"
-    - ".git/**/*"
-#+END_SRC
+- ~default_sync_patterns~, when a project has no include patterns and
+  no exclude patterns.
+- ~performance.rsync_compression_level~, passed to rsync as
+  ~--compress-level~.
 
-** Architecture
+The other keys are parsed and otherwise unused. See
+[[*Not yet implemented]]. The slog level comes from ~-v~ and ~--debug~,
+not from ~logging.level~.
 
-*** Core Components
+Each project is =~/.config/repo-sync/mappings/<name>.yaml=. The keys
+are ~project_name~, ~local_work_dir~, ~remote_repo~,
+~remote_work_dir~, ~remote_path_prefix~, and ~sync_patterns~ with
+~include~ and ~exclude~. ~add-project~ stores absolute paths.
+~sync_patterns~ on the project replace the global patterns when either
+list is non-empty.
 
-1. *Configuration Management* - YAML-based project configurations and user settings
-2. *Database Layer* - SQLite for metadata and operation tracking
-3. *Synchronization Engine* - Rsync integration for efficient file transfer
-4. *Git Workflow Manager* - Automated commit, pull, and push operations
-5. *Conflict Resolution System* - Multiple resolution strategies with backup capability
+The database is =~/.config/repo-sync/metadata.db=. ~init~ also creates
+~mappings~, ~logs~, ~backups~, ~rollbacks~, and ~locks~ under
+=~/.config/repo-sync=. Nothing else in the program reads or writes
+~logs~, ~backups~, ~rollbacks~, or ~locks~.
 
-*** Workflow
+* Using it on a second machine
 
-1. *Pre-sync validation* - Ensures remote repository is accessible
-2. *Initial rsync* - Syncs files from local to remote work directory using selective patterns
-3. *Git operations* - Commits, pulls with rebase, resolves conflicts, and pushes
-4. *Post-sync rsync* - Syncs any changes back to local work directory
+Run ~init~ there. Run ~config add-project~ with the same
+~--remote-repo~ and ~--remote-prefix~, and with the local directory on
+that machine. The project name selects
+=~/.repo-sync/remotes/<project-name>= on that machine. ~add-project~
+only writes the mapping. The clone is created when ~sync~,
+~sync download~, ~sync upload~, or ~add~ builds the engine. Then run
+~sync~.
 
-** Configuration Structure
+~remove~ deletes the file on the machine where you run it and pushes
+that deletion. It does not record the deletion for the other machine,
+so a later ~sync~ there can copy the file back.
 
-The utility maintains configuration in the user's home directory:
+* Troubleshooting
 
-#+begin_example
-~/.config/repo-sync/
-├── config.yaml           # Main configuration file
-├── mappings/             # Project-specific mapping files
-│   ├── project1.yaml
-│   └── project2.yaml
-├── metadata.db          # SQLite database for tracking operations
-└── logs/                # Operation logs
-    ├── sync.log
-    └── errors.log
-#+end_example
+- ~config add-project~ fails with ~local directory does not exist~ when
+  ~--local-dir~ is missing on disk. Create the directory first.
+- ~invalid remote repository URL~ means the URL does not start with
+  ~git@~, ~https://~, or ~ssh://~.
+- ~sync~ fails before copying files when ~git ls-remote~ cannot reach
+  ~remote_repo~, or when ~git clone~ cannot create the remote work
+  dir. ~--dry-run~ does not skip those checks.
+- ~rsync command failed~ means the rsync invocation failed. Pass
+  ~--debug~ to log rsync's own lines.
+- The ~chmod~ warning on the first ~init~ is the database file not
+  existing yet. The ~Configuration directory~ line after it is the
+  result. Run ~init~ again only to recreate a database you removed, or
+  pass ~--reset-db~ to delete the current database first.
+- ~verify~ prints a checkmark before it has checked the local
+  directory, SSH, or the remote work dir. A successful exit means the
+  database opened. See [[*Not yet implemented]].
+- There is no command that drops a file from the sync set and leaves
+  the local file on disk. ~remove~ deletes it.
 
-** Development
+* Not yet implemented
 
-*** Building
+These are not in the code. The design notes under [[*Development]]
+describe some of them as later work.
+[[file:IMPLEMENTATION_PLAN.md][IMPLEMENTATION_PLAN.md]] marks phases 3
+and 4 as not implemented.
 
-#+BEGIN_SRC bash
-# Build binary with Bazel
-make build
-# or: bazel build //devtools/repo-sync/cmd/repo-sync:repo-sync
+- Conflict strategies other than "keep one side of the hunk". On a
+  rebase conflict, ~resolveFileConflict~ in ~internal/git/manager.go~
+  keeps the incoming side when that side has any lines, and otherwise
+  keeps the local side. It does not compare timestamps, and it does
+  not offer a content or manual strategy.
+  ~conflict_resolution.default_strategy~ and
+  ~conflict_resolution.backup_conflicts~ are not read.
+- ~performance.max_concurrent_operations~ and
+  ~performance.timeout_seconds~ are not read.
+- ~logging.level~, ~logging.file_retention_days~, and
+  ~logging.max_file_size_mb~ are not read.
+- ~sync --force~ is accepted and not read.
+- Cross-machine deletion tracking. ~internal/reposync/engine.go~ has a
+  TODO at the end of ~RemoveFile~. ~remove~ deletes the local file and
+  the copy under the prefix, then commits and pushes. It does not
+  store a deletion row for other machines.
+- Connectivity checks in ~verify~. The local-directory, SSH, and
+  remote-directory checks are TODOs in ~internal/cli/status.go~. Only
+  opening the database is real.
+- Git hooks and branch management. The git step in the clone is
+  commit, ~pull --rebase~, and push.
+- The ~logs~, ~backups~, ~rollbacks~, and ~locks~ directories created
+  by ~init~.
 
-# Run tests with Bazel
-make test
-# or: bazel test //devtools/repo-sync/...
+* Development
 
-# Format code (from repo root)
-make format
+From the repository root, with cgo enabled:
 
-# Run the application
-make run
-# or: bazel run //devtools/repo-sync/cmd/repo-sync:repo-sync
-#+END_SRC
+#+begin_src sh
+go test ./devtools/repo-sync/...
+bazel test //devtools/repo-sync/...
+#+end_src
 
-*** Project Structure
+Logging is ~log/slog~, not logrus. The sync package is
+~internal/reposync/~, not ~internal/sync/~.
 
 #+begin_example
 devtools/repo-sync/
-├── cmd/repo-sync/           # Main application entry point
-├── internal/
-│   ├── cli/                 # CLI command implementations
-│   ├── config/              # Configuration management
-│   ├── database/            # SQLite operations
-│   ├── git/                 # Git workflow manager
-│   └── sync/                # Synchronization engine
-├── Makefile                 # Build automation
-├── go.mod                   # Go module file
-└── README.org               # This file
+  cmd/repo-sync/                 program main
+  internal/cli/                  commands
+  internal/config/               YAML loading
+  internal/database/             sqlite metadata
+  internal/git/                  clone, commit, pull --rebase, push
+  internal/reposync/             rsync and the sync engine
+  technical-implementation.org
+  conflict-resolution.org
+  database-schema.org
+  error-handling.org
+  IMPLEMENTATION_PLAN.md
 #+end_example
 
-** Dependencies
+Those documents are the design. They describe behavior the program
+does not implement yet.
 
-- *Go 1.21+* - Programming language
-- *rsync* - File synchronization tool
-- *git* - Version control system
-- *sqlite3* - Database engine
-
-*** Go Dependencies
-
-- =github.com/spf13/cobra= - CLI framework
-- =github.com/spf13/viper= - Configuration management
-- =github.com/mattn/go-sqlite3= - SQLite driver
-- =github.com/sirupsen/logrus= - Structured logging
-- =gopkg.in/yaml.v3= - YAML parsing
-
-** Troubleshooting
-
-*** Common Issues
-
-1. **SSH Authentication Failed**
-   #+BEGIN_SRC bash
-   # Generate SSH key
-   ssh-keygen -t ed25519 -C "your_email@example.com"
-
-   # Add to SSH agent
-   ssh-add ~/.ssh/id_ed25519
-
-   # Add public key to remote Git service
-   #+END_SRC
-
-2. **Rsync Not Found**
-   #+BEGIN_SRC bash
-   # Install rsync
-   sudo apt install rsync  # Ubuntu/Debian
-   brew install rsync      # macOS
-   #+END_SRC
-
-3. **Database Locked**
-   #+BEGIN_SRC bash
-   # Check for running processes
-   lsof ~/.config/repo-sync/metadata.db
-
-   # Reset database if necessary
-   repo-sync init --reset-db
-   #+END_SRC
-
-*** Debug Mode
-
-#+BEGIN_SRC bash
-# Enable verbose logging
-repo-sync --verbose sync myproject
-
-# Enable debug tracing
-repo-sync --debug sync myproject
-#+END_SRC
-
-* Usage Examples
-
-** Initial Setup
-
-#+BEGIN_SRC bash
-# Initialize repo-sync configuration
-repo-sync init
-
-# Add a new project mapping
-repo-sync config add-project myproject \
-  --local-dir /home/user/projects/myproject \
-  --remote-repo git@github.com:user/sync-repo.git \
-  --remote-prefix projects/myproject
-#+END_SRC
-
-** Daily Workflow
-
-#+BEGIN_SRC bash
-# Morning sync - download changes from other machines
-repo-sync sync myproject
-
-# Work on files...
-
-# Evening sync - upload changes to remote
-repo-sync sync myproject
-
-# Add new configuration file
-repo-sync add myproject ./config/new-feature.yaml
-
-# Remove obsolete file
-repo-sync remove myproject ./config/deprecated.yaml
-#+END_SRC
-
-** Multi-Machine Coordination
-
-#+BEGIN_SRC bash
-# On Machine A
-repo-sync sync myproject
-# Edit files...
-repo-sync sync myproject
-
-# On Machine B
-repo-sync sync myproject  # Automatically pulls changes from Machine A
-# Edit different files...
-repo-sync sync myproject  # Pushes changes back
-#+END_SRC
-
-* Advanced Features
-
-** Core Operations Details
-
-*** 1. Sync Operation
-The sync operation performs bidirectional synchronization:
-1. *Pre-sync validation*: Ensures remote repository is accessible
-2. *Initial rsync*: Syncs files from local to remote work directory using selective patterns
-3. *Git operations*: Commits, pulls with rebase, resolves conflicts, and pushes
-4. *Post-sync rsync*: Syncs any changes back to local work directory
-
-*** 2. Add Operation
-Adds new files to the synchronization scope:
-1. *Precondition check*: Verifies file doesn't exist in remote repository
-2. *Sync execution*: Runs full sync operation first
-3. *File mirroring*: Copies local file to appropriate remote work directory path
-4. *Git commit and push*: Commits the new file and pushes to remote
-
-*** 3. Remove Operation
-Removes files from both local and remote repositories with deletion tracking:
-1. *Deletion execution*: Removes file from both local and remote work directories
-2. *Metadata tracking*: Records deletion timestamp and commit hash in SQLite database
-3. *Git operations*: Commits deletion and pushes to remote repository
-
-** Deletion Synchronization
-
-The utility maintains a deletion tracking system to coordinate file removals
-across multiple machines. The system analyzes Git log for deleted files and
-compares local file content with deletion records.
-
-** Conflict Resolution
-
-Automated conflict resolution uses multiple strategies including
-timestamp-based, content-based, and manual intervention approaches. The system
-creates backup copies before overwriting conflicted files.
-
-** Git Integration
-
-Deep integration with Git workflows including commit message automation, branch
-management, hook integration, and sparse checkout support.
-
-* Comparison with Existing Solutions
-
-** Advantages over Syncthing
-- *Selective sync*: Only syncs files that should be shared
-- *Git integration*: Version control and conflict resolution
-- *Project-specific*: Handles multiple projects with different sync requirements
-- *Deletion tracking*: Proper handling of file deletions across machines
-
-** Advantages over Git Sparse-Checkout
-- *Multi-repository support*: Works across different project repositories
-- *Automated workflow*: Reduces manual Git operations
-- *Conflict resolution*: Automated handling of merge conflicts
-- *Flexible mapping*: Maps local directories to arbitrary remote paths
-
-** Advantages over Dotfile Managers
-- *Project-specific*: Not limited to dotfiles and configurations
-- *Multi-machine state*: Tracks synchronization state across machines
-- *Selective inclusion*: Doesn't require entire repository checkout
-- *Development workflow*: Designed for active development scenarios
-
-* Future Enhancements
-
-** Planned Features
-- *Watch mode*: Automatic sync on file changes
-- *Conflict visualization*: GUI for resolving complex conflicts
-- *Bandwidth optimization*: Compression and delta sync improvements
-- *Plugin system*: Extensible architecture for custom workflows
-- *Integration hooks*: Pre/post sync script execution
-
-** Advanced Workflows
-- *Branch-aware sync*: Different sync behavior per Git branch
-- *Staged sync*: Selective synchronization of staged changes
-- *Rollback support*: Easy rollback to previous sync states
-- *Sync analytics*: Statistics and monitoring of sync operations
-
-* Quick Troubleshooting
-
-** Common Commands
-#+BEGIN_SRC bash
-# Check sync status
-repo-sync status myproject
-
-# Verify repository state
-repo-sync verify myproject
-
-# Show recent sync operations
-repo-sync log myproject --limit 10
-
-# Test connectivity
-repo-sync test myproject
-#+END_SRC
-
-* Contributing
-
-This utility fills a specific gap in the development workflow ecosystem by
-combining selective file synchronization, Git automation, and multi-machine
-coordination in a way that existing tools don't adequately address.
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Run =make format= and =make test=
-6. Submit a pull request
-
-** Implementation Details
-
-The utility is implemented in *Go* for cross-platform compatibility, strong concurrency support, excellent performance, robust error handling, and easy deployment as a single binary. The implementation leverages Go's standard library along with carefully selected third-party packages while maintaining external dependencies on rsync and Git for their specialized functionality.
-
-** License
-
-This project is part of the experimental repository and follows the same licensing terms.
+- [[file:technical-implementation.org][technical-implementation.org]]
+- [[file:conflict-resolution.org][conflict-resolution.org]]
+- [[file:database-schema.org][database-schema.org]]
+- [[file:error-handling.org][error-handling.org]]
+- [[file:IMPLEMENTATION_PLAN.md][IMPLEMENTATION_PLAN.md]]
