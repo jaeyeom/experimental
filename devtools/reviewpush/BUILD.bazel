@@ -20,3 +20,9 @@ go_test(
     embed = [":go_default_library"],
     deps = ["@com_github_jaeyeom_go_cmdexec//:go_default_library"],
 )
+
+go_test(
+    name = "readme_test",
+    srcs = ["readme_test.go"],
+    data = ["README.md"],
+)

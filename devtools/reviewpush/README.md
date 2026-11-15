@@ -1,32 +1,132 @@
-# reviewpush
+# review-and-push-loop
 
-`reviewpush` is the library and CLI wrapper behind `review-and-push-loop`.
+`review-and-push-loop` pushes your unpushed local commits one at a
+time, but only after OpenAI's Codex CLI reviews each one. Codex runs
+read-only and can only answer push or blocked; the tool validates the
+answer and runs `git push`. Use it when another agent (such as Claude
+Code) has written several local commits and you want a second model to
+gate them before they reach `origin`.
 
-It is built for a very specific workflow: let [Codex](https://github.com/openai/codex) (OpenAI's CLI, distinct from Claude Code) review commits, but do not let Codex edit code or push directly. The wrapper keeps the review pass read-only, validates the result, and performs the push itself.
+It pushes to `origin` without asking. For a first try, pass
+`--max-iterations 1`.
+
+## Prerequisites
+
+- The `codex` command is on `PATH` and already authenticated. Set
+  `CODEX_BIN` when the binary has another name.
+- The repository has a remote named `origin`.
+- You have push rights on that remote.
+
+## Quick start
+
+Install:
+
+```bash
+go install github.com/jaeyeom/experimental/devtools/reviewpush/cmd/review-and-push-loop@latest
+```
+
+Review and push a single commit:
+
+```bash
+review-and-push-loop --max-iterations 1
+```
+
+The Bazel target is `//devtools/reviewpush/cmd/review-and-push-loop`.
+
+Human mode is the default. It fetches, names the commit under review,
+prints that commit with `git log --stat --format=fuller -1`, and on a
+push prints `Pushed through <commit>.` A finished run ends with
+`DONE: HEAD is not ahead of <remote>.`:
+
+```text
+Fetching origin/main before iteration 1...
+Iteration 1: reviewing and pushing a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2 (1 commit(s) ahead of origin/main).
+========================================
+TARGET COMMIT
+========================================
+commit a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2
+Author:     Ada Lovelace <ada@example.com>
+AuthorDate: Sat Nov 14 09:00:00 2026 -0800
+Commit:     Ada Lovelace <ada@example.com>
+CommitDate: Sat Nov 14 09:00:00 2026 -0800
+
+    Fix the startup path
+
+ main.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+========================================
+Pushed through a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2.
+DONE: HEAD is not ahead of origin/main.
+```
+
+The text between the `========` lines is the `git log` output. The
+other lines are what the command prints. `--output compact` skips the
+banner and the `Pushed through` line, and it does not stream Codex
+stderr when the pass succeeds. One iteration is a single line:
+
+```text
+ITERATION 1 target=a1b2c3d4e5f6 ahead=2 status=PUSH push_target=c3d4e5f6a7b8
+DONE base=origin/main
+```
+
+A blocked review in human mode stops like this:
+
+```text
+BLOCKED: review-and-push stopped on a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2.
+Reason: hard blocker
+```
 
 > "I finally found the proper usage of codex! Review but don't work on the code. It shows its super power when I tell it that the code is written by Claude Code!"
 
-![reviewpush overview](overview.jpg)
+## Options
+
+| Name | Kind | Default | Meaning |
+| --- | --- | --- | --- |
+| `--repo` | flag | `.` | Repository directory. |
+| `--base` | flag | detected | Override base detection (`origin/HEAD`, then `main`, `master`, or `trunk`). |
+| `--max-iterations` | flag | `100` | Maximum review and push cycles. Must be greater than zero. |
+| `--output` | flag | `human` | `human` or `compact`. |
+| `GIT_BIN` | environment | `git` | Git executable. |
+| `CODEX_BIN` | environment | `codex` | Codex executable. |
+| `CODEX_TIMEOUT_SECONDS` | environment | `300` | Seconds for each Codex pass. A non-negative integer. `0` waits without a deadline. |
+
+```bash
+CODEX_TIMEOUT_SECONDS=300 review-and-push-loop --repo . --base main --max-iterations 1 --output human
+```
+
+`--max-iterations` below 1, an unknown `--output` value, a
+non-integer `CODEX_TIMEOUT_SECONDS`, and a base branch that cannot be
+detected are configuration errors.
+
+## Exit codes
+
+- `0`: success. `HEAD` is no longer ahead of the remote base branch.
+- `1`: configuration error.
+- `2`: blocked, push failed, Codex failed, fetch failed, or the loop hit a guardrail.
 
 ## What it does
 
-`review-and-push-loop` repeatedly:
+![reviewpush overview](overview.jpg)
 
-1. Fetches `origin`.
-2. Detects the remote base branch from `origin/HEAD`, or falls back to `main`, `master`, or `trunk`.
-3. Finds the oldest local commit that is ahead of the remote base branch.
-4. Starts a fresh Codex process to review that commit.
-5. Lets Codex choose one of two outcomes:
-   - `PUSH`: push exactly that commit, or push through a descendant commit to batch contiguous commits.
-   - `BLOCKED`: stop because a hard blocker was found.
-6. Validates the proposed push target before pushing.
-7. Repeats until `HEAD` is no longer ahead of the remote base branch.
+`review-and-push-loop` repeats the following until `HEAD` is not ahead
+of the remote base, or a pass stops the loop:
 
-The Codex pass is explicitly instructed to stay read-only and inspect Git objects directly. The wrapper, not Codex, performs `git push`.
-
-## Workflow diagram
-
-Typical usage looks like this:
+1. Fetch `origin`.
+2. Detect the base branch from `origin/HEAD`, then `main`, `master`,
+   or `trunk`. If none of those remote refs exist, use the current
+   local branch and treat the remote branch as not created yet, so the
+   first push can create it. A detached `HEAD` in that situation is an
+   error unless you pass `--base`.
+3. Find the oldest local commit ahead of that base. When the remote
+   branch does not exist yet, that is the root commit reachable from
+   `HEAD`.
+4. Start a fresh Codex process to review that commit. Codex is told to
+   stay read-only, to inspect Git objects directly, and to ignore a
+   dirty work tree unless those local changes affect the review.
+5. Read Codex's answer: push, or stop because a hard blocker was found.
+6. Check the commit that would be pushed, then run
+   `git push origin <commit>:refs/heads/<base>`.
+7. Repeat.
 
 ```text
 Claude Code writes commits locally
@@ -90,97 +190,47 @@ Codex review
           -> optionally spin off a GitHub issue for follow-up
 ```
 
-The GitHub issue step is not automated by `review-and-push-loop` itself. The tool only decides whether to push or stop, then performs the validated push.
+Filing that GitHub issue is not automated. The tool only decides
+whether to push or stop, then performs the validated push.
 
 ## Review policy
 
-The prompt is intentionally narrow. It treats only hard blockers as push-stopping issues, such as:
+The prompt treats only hard blockers as push-stopping issues:
 
 - security bugs
 - leaked secrets
 - obvious destructive data loss or corruption
 - clearly broken startup or primary-path behavior
 
-Non-blocking feedback is expected to stay non-blocking. This tool is for landing reviewed commits one at a time, not for asking Codex to rewrite the branch.
+Other feedback stays non-blocking. This tool lands the reviewed
+commits. It does not ask Codex to rewrite the branch.
 
 ## Safety properties
 
-Before pushing, the wrapper checks that the proposed `push_target`:
+Before `git push`, the wrapper checks that the commit it is about to
+push:
 
 - resolves to a real commit
-- is a descendant of the remote base ref
-- is at or after the oldest commit currently under review
+- is a descendant of the remote base ref, when that ref already exists
+- is the oldest commit under review, or a descendant of it
 - is an ancestor of `HEAD`
 
-That prevents Codex from pushing an unrelated commit or skipping outside the contiguous range between the oldest unpushed commit and `HEAD`.
+Those checks keep the push inside the contiguous range from the oldest
+unpushed commit through `HEAD`. A push of several commits is allowed
+only when Codex explicitly recommends that, and only through a commit
+that passes the same checks. The field names for that recommendation
+are in Internals.
 
-There is also a cross-check for multi-commit pushes:
+## Internals
 
-- if `multi_commits=false`, the wrapper pushes only the current target commit, even if `push_target` names a later commit
-- if `multi_commits=true`, the wrapper allows pushing through the validated descendant commit
+The Go package behind the command is `reviewpush`.
 
-## CLI
+Codex does not push. Each pass is a new process. The wrapper validates
+the JSON below and is the only thing that runs `git push`.
 
-Install:
+### Codex response contract
 
-```bash
-go install github.com/jaeyeom/experimental/devtools/reviewpush/cmd/review-and-push-loop@latest
-```
-
-Run from a repository:
-
-```bash
-review-and-push-loop
-```
-
-Run against another repo:
-
-```bash
-review-and-push-loop --repo /path/to/repo
-```
-
-Override base branch detection:
-
-```bash
-review-and-push-loop --base main
-```
-
-Limit the loop:
-
-```bash
-review-and-push-loop --max-iterations 10
-```
-
-Use compact output for agent-driven wrappers:
-
-```bash
-review-and-push-loop --output compact
-```
-
-If you build with Bazel, the binary target is `//devtools/reviewpush/cmd/review-and-push-loop`.
-
-## Flags
-
-- `--repo`: repository directory, default `.`
-- `--base`: override automatic base branch detection
-- `--max-iterations`: maximum number of review/push cycles, default `100`
-- `--output`: output mode, `human` (default) or `compact`
-
-## Environment variables
-
-- `GIT_BIN`: git executable, default `git`
-- `CODEX_BIN`: codex executable, default `codex`
-- `CODEX_TIMEOUT_SECONDS`: per-pass timeout, default `300`
-
-## Exit codes
-
-- `0`: success, `HEAD` is no longer ahead of the remote base branch
-- `1`: configuration error
-- `2`: blocked, push failed, Codex failed, or the loop hit a guardrail
-
-## Codex response contract
-
-Each Codex pass must return JSON matching this shape:
+Each pass must return JSON of this shape and nothing else:
 
 ```json
 {
@@ -192,7 +242,7 @@ Each Codex pass must return JSON matching this shape:
 }
 ```
 
-Or, when blocked:
+When the review stops:
 
 ```json
 {
@@ -204,9 +254,19 @@ Or, when blocked:
 }
 ```
 
-## Notes
+`status` is `PUSH` or `BLOCKED`. On `PUSH`, `blocked_reason` is null.
+On `BLOCKED`, `push_target` is null and the wrapper does not push.
 
-- The tool tolerates a dirty working tree and tells Codex to ignore unrelated local changes unless they directly affect the review.
-- In the default `human` mode, it prints a commit banner using `git log --stat --format=fuller -1 <commit>` before each pass so the target is obvious.
-- In `compact` mode, it suppresses the commit banner and live Codex stderr on successful passes, then emits one concise summary line per iteration.
-- It probes `codex exec --help` and only uses flags supported by the installed Codex binary, such as `--ask-for-approval`, `--sandbox`, `--ephemeral`, `--output-schema`, and `--output-last-message`.
+`multi_commits` is the cross-check for how far to push:
+
+- `false`: push only the commit under review, even when `push_target`
+  names a later commit.
+- `true`: push through `push_target` after the safety checks. That
+  commit must be a descendant of the commit under review.
+
+The wrapper asks Codex for this object with `codex exec`. It runs
+`codex exec --help` and passes only flags that this Codex binary
+advertises: `--ask-for-approval` (`never`, or `--full-auto` when that
+flag is absent), `--sandbox` (`workspace-write`, or
+`danger-full-access` when `TERMUX_VERSION` is set), `--ephemeral`,
+`--color` (`never`), `--output-schema`, and `--output-last-message`.

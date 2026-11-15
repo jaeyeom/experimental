@@ -566,19 +566,19 @@ rules:
   - match: ["devtools/reviewpush/cmd/**"]
     docs:
       - path: devtools/reviewpush/README.md
-        section: "## CLI"
+        section: "## Quick start"
         why: "review-and-push-loop entry point"
       - path: devtools/reviewpush/README.md
-        section: "## Flags"
+        section: "## Options"
         why: "--repo/--base/--max-iterations/--output"
       - path: devtools/reviewpush/README.md
-        section: "## Environment variables"
+        section: "## Options"
         why: "wrapper env overrides"
 
   - match: ["devtools/reviewpush/codex.go"]
     docs:
       - path: devtools/reviewpush/README.md
-        section: "## Codex response contract"
+        section: "### Codex response contract"
         why: "PUSH vs BLOCKED JSON contract"
 
   - match: ["devtools/reviewpush/reviewpush.go"]
