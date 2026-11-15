@@ -103,10 +103,13 @@ Commands:
                       --manual records a post made by hand (pending or
                       awaiting-handoff; still needs a decide UI approval)
   slackwatch outbox recheck <id>
-                      read a mismatch post back again with the current config
+                      read a mismatch post back again with the current config;
+                      a deleted post cancels the record ("post deleted")
   slackwatch outbox poke <decide-id>
                       handle a decide answer now instead of at the next poll
-  slackwatch outbox cancel <id> [--reason S]
+  slackwatch outbox cancel <id> [reason | --reason S]
+                      withdraw a draft, or close a mismatch record or a
+                      posted record whose message is gone
   slackwatch outbox retry <id>
                       post a failed direct record once after the checks,
                       or return a handoff record to awaiting-handoff

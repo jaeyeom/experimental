@@ -69,6 +69,13 @@ const retryLookback = 15 * time.Minute
 // ErrNoOutbox means no outbox record matches.
 var ErrNoOutbox = errors.New("no such outbox record")
 
+// ErrMessageNotFound means a read-back found no message at the ts, such
+// as a post someone deleted. MessageReader.Message wraps it.
+var ErrMessageNotFound = errors.New("message not found")
+
+// postDeleted is the reason a record whose post is gone is cancelled with.
+const postDeleted = "post deleted"
+
 // OutboxRecord is one draft submitted with slackwatch post. Text is the
 // exact text to post and TextHash its hex SHA-256. ThreadTS is set for a
 // thread reply. Answer is the free-text answer of a needs-redraft record.
@@ -583,7 +590,8 @@ type SlackWriter interface {
 // MessageReader reads messages back with the read token. threadTS is
 // the parent of a thread reply, empty for a top-level message.
 type MessageReader interface {
-	// Message reads the message at ts.
+	// Message reads the message at ts. A missing message is an error
+	// wrapping ErrMessageNotFound.
 	Message(ctx context.Context, channel, ts, threadTS string) (Message, error)
 	// Recent lists messages since oldest, a Slack ts. A set threadTS
 	// lists that thread. Every message is included, subtypes too.
@@ -1951,8 +1959,9 @@ func readBackProblems(cfg Config, r OutboxRecord, m Message, p PostRef) []string
 // Recheck reads the mismatch record's posted message again and runs the
 // read-back checks with the current config. A pass moves it to posted.
 // A failure leaves it mismatch. Either way the result is replied on its
-// decide item, which is then closed with the record's outcome. Nothing
-// is posted.
+// decide item, which is then closed with the record's outcome. A
+// message that is gone moves it to cancelled with the reason
+// "post deleted". Nothing is posted.
 func (o *Outbox) Recheck(ctx context.Context, id int64) (OutboxRecord, error) {
 	r, err := o.Store.GetOutbox(id)
 	if err != nil {
@@ -1968,12 +1977,16 @@ func (o *Outbox) Recheck(ctx context.Context, id int64) (OutboxRecord, error) {
 	if err != nil {
 		return OutboxRecord{}, err
 	}
+	p := PostRef{Channel: r.Channel, TS: r.PostTS, ThreadTS: r.ThreadTS, Permalink: r.Permalink}
+	link := postLink(p)
 	m, err := o.Reader.Message(ctx, r.Channel, r.PostTS, r.ThreadTS)
+	if errors.Is(err, ErrMessageNotFound) {
+		return o.cancelPost(ctx, r, postDeleted,
+			fmt.Sprintf("The posted message %s was deleted; outbox %d is cancelled: %s", link, id, postDeleted))
+	}
 	if err != nil {
 		return OutboxRecord{}, fmt.Errorf("read back %s: %w", r.Permalink, err)
 	}
-	p := PostRef{Channel: r.Channel, TS: r.PostTS, ThreadTS: r.ThreadTS, Permalink: r.Permalink}
-	link := postLink(p)
 	problems := readBackProblems(cfg, r, m, p)
 	if len(problems) > 0 {
 		mismatch := strings.Join(problems, "; ")
@@ -2003,14 +2016,75 @@ func (o *Outbox) Recheck(ctx context.Context, id int64) (OutboxRecord, error) {
 
 // Cancel withdraws a record that is not posted yet and closes its
 // decide item. needs-redraft is included, so a draft the user sent
-// back can be dropped instead of replaced.
+// back can be dropped instead of replaced. A mismatch record, or a
+// posted record whose message is gone, is closed too, such as after
+// someone deleted the post.
 func (o *Outbox) Cancel(ctx context.Context, id int64, reason string) (OutboxRecord, error) {
+	r, err := o.Store.GetOutbox(id)
+	if err != nil {
+		return OutboxRecord{}, err
+	}
+	reply := "Cancelled"
+	if reason != "" {
+		reply += ": " + reason
+	}
+	switch r.State {
+	case OutboxMismatch:
+		return o.cancelPost(ctx, r, reason, reply)
+	case OutboxPosted:
+		if err := o.postGone(ctx, r); err != nil {
+			return OutboxRecord{}, err
+		}
+		return o.cancelPost(ctx, r, reason, reply)
+	}
 	outcome := "not posted: cancelled"
 	if reason != "" {
 		outcome += ": " + reason
 	}
 	return o.cancelIn(ctx, id, []string{OutboxPending, OutboxApproved, OutboxAwaitingHandoff, OutboxNeedsRedraft}, reason, outcome,
-		"only pending, approved, awaiting-handoff, or needs-redraft records can be cancelled")
+		"only pending, approved, awaiting-handoff, needs-redraft, or mismatch records, or posted records whose message is gone, can be cancelled")
+}
+
+// postGone returns nil when the read-back finds no message at r's post.
+func (o *Outbox) postGone(ctx context.Context, r OutboxRecord) error {
+	if r.PostTS == "" {
+		return fmt.Errorf("outbox %d: expected a posted message, found none", r.ID)
+	}
+	_, err := o.Reader.Message(ctx, r.Channel, r.PostTS, r.ThreadTS)
+	switch {
+	case errors.Is(err, ErrMessageNotFound):
+		return nil
+	case err != nil:
+		return fmt.Errorf("read back %s: %w", r.Permalink, err)
+	}
+	return fmt.Errorf("outbox %d is posted and its message %s is still there; delete it first", r.ID, postLink(PostRef{Channel: r.Channel, TS: r.PostTS, Permalink: r.Permalink}))
+}
+
+// cancelPost moves r, a record with a post, from its state to cancelled
+// with reason, clears its watch flag, replies reply on its decide item,
+// and closes the item with "cancelled: reason". Nothing is posted.
+func (o *Outbox) cancelPost(ctx context.Context, r OutboxRecord, reason, reply string) (OutboxRecord, error) {
+	outcome := "cancelled"
+	if reason != "" {
+		outcome += ": " + reason
+	}
+	moved, err := o.Store.moveOutbox(r.ID, []string{r.State}, outboxUpdate{
+		state: OutboxCancelled, reason: &reason, decideOutcome: &outcome, decideClosed: ptr(false),
+	}, o.Now())
+	if err != nil {
+		return OutboxRecord{}, err
+	}
+	if !moved {
+		return OutboxRecord{}, fmt.Errorf("outbox %d left %s while cancelling", r.ID, r.State)
+	}
+	if r.WatchID != 0 {
+		if _, err := o.Store.FlagWatch(r.WatchID, ""); err != nil {
+			return OutboxRecord{}, err
+		}
+	}
+	o.replyOutcome(ctx, r, reply)
+	o.closeDecide(ctx, r)
+	return o.Store.GetOutbox(r.ID)
 }
 
 // cancelIn moves id to cancelled when it is in from, then closes its

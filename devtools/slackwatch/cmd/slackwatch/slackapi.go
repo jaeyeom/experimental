@@ -179,7 +179,7 @@ func (r slackReader) Message(ctx context.Context, channel, ts, threadTS string) 
 			}, nil
 		}
 	}
-	return slackwatch.Message{}, fmt.Errorf("message %s %s not found", channel, ts)
+	return slackwatch.Message{}, fmt.Errorf("%w: %s %s", slackwatch.ErrMessageNotFound, channel, ts)
 }
 
 // Recent lists messages at channel since oldest. A threadTS selects
@@ -243,6 +243,9 @@ func (r slackReader) replyMessages(ctx context.Context, channel, threadTS, oldes
 func apiError(method string, err error) error {
 	if rl, ok := errors.AsType[*slack.RateLimitedError](err); ok {
 		return &slackwatch.RateLimitError{RetryAfter: rl.RetryAfter}
+	}
+	if se, ok := errors.AsType[slack.SlackErrorResponse](err); ok && (se.Err == "message_not_found" || se.Err == "thread_not_found") {
+		return fmt.Errorf("slack %s: %w: %w", method, err, slackwatch.ErrMessageNotFound)
 	}
 	return fmt.Errorf("slack %s: %w", method, err)
 }
