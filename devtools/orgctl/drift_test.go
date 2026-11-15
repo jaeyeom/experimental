@@ -32,8 +32,8 @@ func TestDriftReportsLiveExtras(t *testing.T) {
 			{Workspace: "workers", Label: "hands-2"},
 		},
 		Names: []LiveName{
-			{Name: "coord/lead", When: "evenings"},
-			{Name: "review/desk"},
+			{Name: "coord/lead", When: "evenings", SessionID: "sess-lead"},
+			{Name: "review/desk", SessionID: "sess-review"},
 			{Name: "extra/one"},
 			{Name: "hands-1"},
 		},
@@ -228,11 +228,40 @@ func TestDriftNamePatternCoversTab(t *testing.T) {
 	}
 }
 
+func TestDriftOwnsJobByHandleSession(t *testing.T) {
+	spec := Spec{Roles: map[string]Role{
+		"desk/clerk": {
+			Workspace: "hq", Tab: "clerk", Cwd: "/work/clerk",
+			Schedules: []Schedule{{ID: "daily", Cron: "0 9 * * 1-5", Durable: true, Prompt: "Read notes"}},
+		},
+	}}
+	live := Live{
+		Tabs:  []LiveTab{{Workspace: "hq", Label: "clerk"}},
+		Names: []LiveName{{Name: "desk/clerk", SessionID: "sess-clerk"}},
+		Agents: []LiveAgent{{
+			Name: "not-the-role", SessionID: "other-session",
+			Workspace: "hq", Tab: "clerk", Cwd: "/work/clerk",
+		}},
+		Crons: []LiveCron{{
+			Cwd: "/work/clerk", ID: "aabbccdd", Cron: "0 9 * * 1-5",
+			Prompt: "Read notes", CreatedBySessionID: "sess-clerk",
+		}},
+		CronRead: []string{"/work/clerk"},
+	}
+	if lines := Drift(spec, live); len(lines) != 0 {
+		t.Fatalf("drift =\n%s", strings.Join(lines, "\n"))
+	}
+	if lines := Plan(spec, live, PlanOptions{}); len(lines) != 0 {
+		t.Fatalf("plan =\n%s", strings.Join(lines, "\n"))
+	}
+}
+
 func TestDriftSeparatesGoneNames(t *testing.T) {
 	spec := Spec{Roles: map[string]Role{}}
 	live := Live{Names: []LiveName{
 		{Name: "extra/one", Liveness: "alive"},
 		{Name: "old/one", Liveness: "gone"},
+		{Name: "dead/one", Liveness: "dead"},
 		{Name: "far/one", Liveness: "unreachable"},
 	}}
 	got := strings.Join(Drift(spec, live), "\n")
@@ -248,12 +277,16 @@ func TestDriftSeparatesGoneNames(t *testing.T) {
 	if strings.Contains(got, "name = \"old/one\"") || strings.Contains(got, "+ name old/one") {
 		t.Fatalf("gone name got a stub\n%s", got)
 	}
+	if !strings.Contains(got, "gone (stale registration): dead/one") || strings.Contains(got, "+ name dead/one") || strings.Contains(got, "name = \"dead/one\"") {
+		t.Fatalf("dead name =\n%s", got)
+	}
 }
 
 func TestDriftReportsSharedCwdOnce(t *testing.T) {
 	const cwd = "/work/shared"
 	roles := map[string]Role{}
 	var agents []LiveAgent
+	var names []LiveName
 	for i := range 10 {
 		name := fmt.Sprintf("desk/%02d", i)
 		role := Role{Cwd: cwd}
@@ -261,7 +294,8 @@ func TestDriftReportsSharedCwdOnce(t *testing.T) {
 			role.Schedules = []Schedule{{
 				ID: fmt.Sprintf("job-%d", i), Cron: fmt.Sprintf("%d * * * *", i), Durable: true,
 			}}
-			agents = append(agents, LiveAgent{Name: name, SessionID: fmt.Sprintf("sess-%d", i)})
+			names = append(names, LiveName{Name: name, SessionID: fmt.Sprintf("sess-%d", i)})
+			agents = append(agents, LiveAgent{Name: "pane-" + name, SessionID: "herdr-only"})
 		}
 		roles[name] = role
 	}
@@ -277,7 +311,7 @@ func TestDriftReportsSharedCwdOnce(t *testing.T) {
 		job := LiveCron{Cwd: cwd, ID: fmt.Sprintf("bbbb000%d", i), Cron: fmt.Sprintf("%d * * * *", i+10)}
 		jobs = append(jobs, job, job)
 	}
-	lines := Drift(Spec{Roles: roles}, Live{Crons: jobs, Agents: agents})
+	lines := Drift(Spec{Roles: roles}, Live{Crons: jobs, Agents: agents, Names: names})
 	got := strings.Join(lines, "\n")
 	count := strings.Count(got, "\n+ cron ")
 	if strings.HasPrefix(got, "+ cron ") {
@@ -291,8 +325,9 @@ func TestDriftReportsSharedCwdOnce(t *testing.T) {
 	moved := LiveCron{
 		Cwd: cwd, ID: "cccc0001", Cron: "0 9 * * *", CreatedBySessionID: "sess-9",
 	}
-	agents = append(agents, LiveAgent{Name: "desk/09", SessionID: "sess-9"})
-	lines = Drift(Spec{Roles: roles}, Live{Crons: []LiveCron{moved, moved}, Agents: agents})
+	names = append(names, LiveName{Name: "desk/09", SessionID: "sess-9"})
+	agents = append(agents, LiveAgent{Name: "pane-desk/09", SessionID: "herdr-only"})
+	lines = Drift(Spec{Roles: roles}, Live{Crons: []LiveCron{moved, moved}, Agents: agents, Names: names})
 	got = strings.Join(lines, "\n")
 	if strings.Count(got, "misplaced") != 1 || strings.Contains(got, "+ cron ") {
 		t.Fatalf("misplaced =\n%s", got)
