@@ -720,3 +720,132 @@ func TestEArchivesLikeY(t *testing.T) {
 		t.Fatalf("g d folder %d items %+v", m.folder, m.items)
 	}
 }
+
+func TestYDoesNotArchiveAnUnseenMessage(t *testing.T) {
+	m, led, item := openLiveThread(t, 14)
+	press(t, m, "nj")
+	agentReply(t, led, item.ID, "fresh news")
+	reloadTick(t, m)
+	if m.newMessages < 1 {
+		t.Fatal("setup: no unseen message")
+	}
+	pressed := time.Now()
+	m.Now = func() time.Time { return pressed.Add(3 * time.Second) }
+	press(t, m, "y")
+
+	got, err := led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != decide.StateOpen || got.Outcome != "" {
+		t.Fatalf("state %s outcome %q", got.State, got.Outcome)
+	}
+	if m.status != "new message: not archived" || m.mode != modeDetail {
+		t.Fatalf("status %q mode %d", m.status, m.mode)
+	}
+	if m.message != len(m.detail.Messages)-1 || !strings.Contains(m.View(), "fresh news") {
+		t.Fatalf("message %d\n%s", m.message, m.View())
+	}
+}
+
+func TestYHoldsAMessageOneSecondOld(t *testing.T) {
+	item, m, led := archiveAged(t, time.Second)
+	press(t, m, "oy")
+	got, err := led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != decide.StateOpen || m.status != "new message: not archived" || m.mode != modeDetail {
+		t.Fatalf("state %s status %q mode %d", got.State, m.status, m.mode)
+	}
+	if !strings.Contains(m.View(), "just in") {
+		t.Fatalf("view\n%s", m.View())
+	}
+}
+
+func TestArchiveGraceSettingHoldsAThreeSecondMessage(t *testing.T) {
+	item, m, led := archiveAged(t, 3*time.Second)
+	m.archiveGrace = 5 * time.Second
+	press(t, m, "y")
+	got, err := led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != decide.StateOpen || m.status != "new message: not archived" {
+		t.Fatalf("state %s status %q", got.State, m.status)
+	}
+}
+
+func TestYArchivesAMessageThreeSecondsOld(t *testing.T) {
+	item, m, led := archiveAged(t, 3*time.Second)
+	press(t, m, "y")
+	got, err := led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != decide.StateDone || got.Outcome != "archived" || m.status != "done "+item.ID {
+		t.Fatalf("state %s outcome %q status %q", got.State, got.Outcome, m.status)
+	}
+}
+
+func TestYStaysOpenWhenANewerMessageArrives(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	seen := time.Now().Add(-time.Minute)
+	item := mustCreate(t, led, &decide.Item{
+		Question:  "note",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		CreatedAt: seen,
+		Messages:  []decide.Message{{Author: "ada", Time: seen, Text: "note"}},
+	})
+	m := New(dir)
+	m.width = 100
+	m.height = 30
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "o")
+	if _, err := led.Reply(item.ID, "", "sneaky", nil, false); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "y")
+
+	got, err := led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != decide.StateOpen || m.status != "new message arrived: not archived" || m.mode != modeDetail {
+		t.Fatalf("state %s status %q mode %d", got.State, m.status, m.mode)
+	}
+	if !strings.Contains(m.View(), "sneaky") {
+		t.Fatalf("view\n%s", m.View())
+	}
+}
+
+func archiveAged(t *testing.T, age time.Duration) (decide.Item, *Model, *decide.Ledger) {
+	t.Helper()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	now := time.Date(2026, 11, 14, 15, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	at := now.Add(-age)
+	item := mustCreate(t, led, &decide.Item{
+		Question:  "just in",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		CreatedAt: at,
+		Messages:  []decide.Message{{Author: "ada", Time: at, Text: "just in"}},
+	})
+	m := New(dir)
+	m.Now = func() time.Time { return now }
+	m.width = 80
+	m.height = 24
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	return item, m, led
+}

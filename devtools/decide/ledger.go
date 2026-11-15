@@ -49,6 +49,10 @@ const (
 // ErrNotFound is returned when an id is not in the ledger.
 var ErrNotFound = errors.New("decide item not found")
 
+// ErrNewerMessage is returned when archive's seen time is older than a
+// message on the item. The item stays open.
+var ErrNewerMessage = errors.New("new message arrived: not archived")
+
 // Option is one choice on a relay item. At most one option is recommended.
 type Option struct {
 	Key         string `json:"key"`
@@ -297,12 +301,44 @@ func (l *Ledger) Withdraw(id, reason string) (Item, error) {
 }
 
 // Done marks id done and stores outcome. A withdrawn or done item is refused.
+// An explicit outcome, including "archived", does not check message times.
 func (l *Ledger) Done(id, outcome string) (Item, error) {
 	outcome = strings.TrimSpace(outcome)
 	if outcome == "" {
 		return Item{}, fmt.Errorf("decide outcome is empty")
 	}
 	return l.finish(id, StateDone, outcome)
+}
+
+// Archive marks id done with outcome archived when every message is at
+// or before seen. A message newer than seen returns ErrNewerMessage and
+// leaves the item open. The check and the write share one lock.
+func (l *Ledger) Archive(id string, seen time.Time) (Item, error) {
+	var updated Item
+	err := l.locked(true, func(st *store) error {
+		it, err := findItem(st, id)
+		if err != nil {
+			return err
+		}
+		if it.State == StateWithdrawn || it.State == StateDone {
+			return fmt.Errorf("decide item %s is %s", id, it.State)
+		}
+		for _, msg := range it.Messages {
+			if msg.Time.After(seen) {
+				return ErrNewerMessage
+			}
+		}
+		it.State = StateDone
+		clearSnooze(it)
+		it.DoneAt = l.clock().UTC()
+		it.Outcome = "archived"
+		updated = *it
+		return nil
+	})
+	if err != nil {
+		return Item{}, err
+	}
+	return updated, nil
 }
 
 // Answer records value on a relay item, sets answeredBy to human, and

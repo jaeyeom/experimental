@@ -54,6 +54,10 @@ const snoozedFolder = 1
 // narrowWidth is the smallest measured terminal that keeps the sidebar column.
 const narrowWidth = 80
 
+// statusArchiveHeld is the status line when the TUI keeps an item open
+// because a message is still unseen.
+const statusArchiveHeld = "new message: not archived"
+
 // Folders is the inbox order: open, snoozed, answered, done, withdrawn.
 // Snoozed lists snoozed items in any state. The other folders hide them.
 var Folders = []struct {
@@ -235,6 +239,8 @@ type Model struct {
 	clipboard string
 	// fillColumn is the compose fill width. Zero is 72.
 	fillColumn int
+	// archiveGrace is how long a new message holds archive. Zero is 2s.
+	archiveGrace time.Duration
 	// copyMenu is the item-view copy menu. plain is the borderless view.
 	copyMenu bool
 	plain    bool
@@ -1051,8 +1057,11 @@ func (m *Model) closeSelected() error {
 	return m.Reload()
 }
 
-// archiveSelected marks the selected notification done, the same result as
-// decide done. A thread with pending options still needs an answer.
+// archiveSelected marks the selected notification done with outcome
+// archived. It holds when a message is unseen below the view or arrived
+// within archiveGrace, and when the ledger has a message newer than the
+// one this view has seen. A thread with pending options still needs an
+// answer. An explicit outcome uses Done and does not check seen.
 func (m *Model) archiveSelected() error {
 	if m.folder < 0 || m.folder >= len(Folders) || Folders[m.folder].State != decide.StateOpen {
 		return nil
@@ -1065,7 +1074,21 @@ func (m *Model) archiveSelected() error {
 		m.status = "needs an answer"
 		return nil
 	}
-	if _, err := m.store().Done(it.ID, "archived"); err != nil {
+	if m.archiveHeld(it) {
+		m.status = statusArchiveHeld
+		m.revealNewest()
+		return nil
+	}
+	seen, _ := newestMessage(it)
+	if _, err := m.store().Archive(it.ID, seen); err != nil {
+		if errors.Is(err, decide.ErrNewerMessage) {
+			m.status = decide.ErrNewerMessage.Error()
+			if rerr := m.Reload(); rerr != nil {
+				return rerr
+			}
+			m.revealNewest()
+			return nil
+		}
 		m.status = err.Error()
 		return nil
 	}
@@ -1074,6 +1097,50 @@ func (m *Model) archiveSelected() error {
 		m.backToList()
 	}
 	return m.Reload()
+}
+
+// archiveHeld reports whether the user has not seen a message that
+// should keep the item open.
+func (m *Model) archiveHeld(it decide.Item) bool {
+	if m.newMessages > 0 {
+		return true
+	}
+	last, ok := newestMessage(it)
+	if !ok {
+		return false
+	}
+	return m.now().Sub(last) < m.archiveGraceDuration()
+}
+
+func (m *Model) archiveGraceDuration() time.Duration {
+	if m.archiveGrace > 0 {
+		return m.archiveGrace
+	}
+	return decide.DefaultArchiveGrace
+}
+
+// newestMessage is the newest message time on it.
+func newestMessage(it decide.Item) (time.Time, bool) {
+	if len(it.Messages) == 0 {
+		return time.Time{}, false
+	}
+	latest := it.Messages[0].Time
+	for _, msg := range it.Messages[1:] {
+		if msg.Time.After(latest) {
+			latest = msg.Time
+		}
+	}
+	return latest, true
+}
+
+// revealNewest selects the last message in an open item and scrolls to it.
+func (m *Model) revealNewest() {
+	if m.mode != modeDetail || m.detail == nil || len(m.detail.Messages) == 0 {
+		return
+	}
+	m.message = len(m.detail.Messages) - 1
+	m.newMessages = 0
+	m.scrollToMessage()
 }
 
 func (m *Model) selectedItem() (decide.Item, bool) {

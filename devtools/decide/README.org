@@ -170,8 +170,15 @@ config.
 * Archive and outcome
 
 ~e~ or ~y~ in the inbox list or an open item archives a notification: it
-is marked done with the outcome ~archived~, the same as ~decide done~. An
-item with pending options still needs an answer. In an open item, ~d~
+is marked done with the outcome ~archived~. An item with pending options
+still needs an answer. Archive waits when a message is still unseen: one
+below the view, or one that arrived less than ~ui.archiveGrace~ ago
+(default 2s). The status line says ~new message: not archived~, and an
+open item scrolls to that message. The request carries the newest message
+time the inbox has seen. A newer message on the ledger keeps the item
+open, says ~new message arrived: not archived~, and reloads the view.
+~decide done~ with an outcome, including ~archived~, does not check that
+time. In an open item, ~d~
 asks for an outcome, then marks the item done with it. ~g~ then ~d~
 still opens the Done folder.
 
@@ -784,8 +791,10 @@ so links open here with the normal opener (~openCommand~, or ~open~ on
 macOS and ~xdg-open~ on Linux). No flag is needed. The inbox keeps one
 ssh session to the hub, with the same target, options, and deadline as
 the CLI, running the hidden ~decide serve --stdio~. That server reads one
-JSON request per line, such as ~{"id":3,"op":"answer","item":"D-1","text":"a"}~,
-and writes one response per line with the same ~id~. It covers every
+JSON request per line, such as ~{"id":3,"op":"answer","item":"D-1","text":"a"}~.
+An archive request also sends ~seen~, the newest message time the inbox
+has rendered. That is protocol version 6.
+The server writes one response per line with the same ~id~. It covers every
 call the inbox makes: list, show, mark read, answer (recorded with
 ~via: ui~), reply, done, archive, withdraw, snooze and unsnooze, the
 status board, targets and agentbus names, send, the owner location, and

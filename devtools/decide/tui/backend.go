@@ -26,6 +26,9 @@ type Backend interface {
 	// pane the thread note. A failed send is a *NotifyError.
 	Reply(id, text string) (decide.Item, error)
 	Done(id, outcome string) (decide.Item, error)
+	// Archive marks a notification done with outcome archived when no
+	// message is newer than seen.
+	Archive(id string, seen time.Time) (decide.Item, error)
 	Snooze(id string, until time.Time) (decide.Item, error)
 	Unsnooze(id string) (decide.Item, error)
 	Status() (StatusBoard, error)
@@ -243,6 +246,11 @@ func (b *LocalBackend) runSend(argv []string) error {
 // Done implements Backend.
 func (b *LocalBackend) Done(id, outcome string) (decide.Item, error) {
 	return b.with(func(led *decide.Ledger) (decide.Item, error) { return led.Done(id, outcome) })
+}
+
+// Archive implements Backend.
+func (b *LocalBackend) Archive(id string, seen time.Time) (decide.Item, error) {
+	return b.with(func(led *decide.Ledger) (decide.Item, error) { return led.Archive(id, seen) })
 }
 
 // Withdraw withdraws item id with reason.

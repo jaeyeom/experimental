@@ -253,7 +253,7 @@ func TestEveryOpRoundTrips(t *testing.T) {
 		t.Fatalf("unsnooze = %+v, %v", got.SnoozedUntil, err)
 	}
 	archived := h.create(t, &decide.Item{Question: "fyi"})
-	if got, err := c.Archive(archived.ID); err != nil || got.Outcome != "archived" {
+	if got, err := c.Archive(archived.ID, time.Now()); err != nil || got.Outcome != "archived" {
 		t.Fatalf("archive = %+v, %v", got, err)
 	}
 	if got, err := c.Withdraw(other.ID, "moot"); err != nil || got.State != decide.StateWithdrawn {
@@ -696,5 +696,26 @@ func TestReconnectFetchesTheDisplaySettingsAgain(t *testing.T) {
 	got, gen := c.Display()
 	if gen != 2 || string(got.Keys["avatarDefault"]) != "true" {
 		t.Fatalf("display after reconnect = %+v, generation %d", got, gen)
+	}
+}
+
+func TestArchiveRPCRefusesStaleSeen(t *testing.T) {
+	h := newHub(t)
+	item := h.create(t, &decide.Item{Question: "fyi"})
+	c := connect(t, h)
+	shown, err := c.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := shown.Messages[len(shown.Messages)-1].Time
+	if _, err := c.Archive(item.ID, seen.Add(-time.Second)); !errors.Is(err, decide.ErrNewerMessage) {
+		t.Fatalf("stale seen = %v", err)
+	}
+	still, err := c.Get(item.ID)
+	if err != nil || still.State != decide.StateOpen {
+		t.Fatalf("state %s err %v", still.State, err)
+	}
+	if got, err := c.Archive(item.ID, seen); err != nil || got.State != decide.StateDone || got.Outcome != "archived" {
+		t.Fatalf("current seen = %+v %v", got, err)
 	}
 }
