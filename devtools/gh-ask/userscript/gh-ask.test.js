@@ -418,9 +418,9 @@ test("the script only connects to loopback", () => {
 const POPOVER_W = 360;
 const MARGIN = 8;
 
-test("userscript version is 0.1.5", () => {
+test("userscript version is 0.1.6", () => {
   const src = fs.readFileSync(path.join(__dirname, "gh-ask.user.js"), "utf8");
-  assert.match(src, /^\/\/ @version\s+0\.1\.5$/m);
+  assert.match(src, /^\/\/ @version\s+0\.1\.6$/m);
 });
 
 function fakeDoc() {
@@ -787,6 +787,31 @@ test("ctrl+enter does nothing while the popover is closed", () => {
 test("send button names the shortcut", () => {
   const src = fs.readFileSync(path.join(__dirname, "gh-ask.user.js"), "utf8");
   assert.match(src, /Send \(⌘↵ \/ Ctrl\+↵\)/);
+});
+
+test("TitleArea header is the h1", () => {
+  const root = fixture("pr-header-titlearea.html");
+  const header = G.prHeader(root);
+  assert.ok(header);
+  assert.equal(header.tagName, "H1");
+  assert.equal(header.getAttribute("data-fixture"), "pr-title");
+  const direct = parse(
+    '<div data-component="TitleArea"><h1 data-fixture="pr-title">Fix the widget</h1></div>',
+  );
+  assert.equal(G.prHeader(direct).getAttribute("data-fixture"), "pr-title");
+});
+
+test("TitleArea without an h1 is not a header", () => {
+  const root = parse('<div data-component="TitleArea"><div>Fix the widget</div></div>');
+  assert.equal(G.prHeader(root), null);
+  const deep = parse(
+    '<div data-component="TitleArea"><div><div><h1 data-fixture="pr-title">Fix the widget</h1></div></div></div>',
+  );
+  assert.equal(G.prHeader(deep), null);
+  const classic = parse(
+    '<bdi class="js-issue-title" data-fixture="pr-title">Old</bdi><div data-component="TitleArea"><div><h1>New</h1></div></div>',
+  );
+  assert.equal(G.prHeader(classic).getAttribute("data-fixture"), "pr-title");
 });
 
 test("header button builds a whole-PR payload", () => {
