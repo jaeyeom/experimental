@@ -1,0 +1,266 @@
+#+TITLE: orgctl
+#+DATE: 2026-11-15
+
+* Overview
+
+~orgctl~ keeps a declarative spec of a team of coding agents and
+reports how that spec differs from live state. The team is the agents
+in herdr tabs, their agentbus names, and their scheduled jobs.
+
+v1 is read-only. Nothing here creates a tab, starts an agent, or
+writes a cron.
+
+* The model
+
+The spec is Pkl, rendered to JSON. ~check~, ~plan~ and ~drift~ read
+that JSON file. ~devtools/orgctl/pkl/Org.pkl~ is the schema.
+~devtools/orgctl/examples/acme.pkl~ is a fictional spec for a desk
+called Acme Desk.
+
+Three adapters read live state, and only read it:
+
+- herdr: tabs, panes, and the agent in each pane;
+- agentbus: names, liveness, and parsed handles;
+- crons: durable scheduled jobs for a role's working directory.
+
+~plan~ compares the spec with that live state. ~drift~ compares live
+state with the spec: things that are running but not declared, plus a
+few mismatches. ~import~ bootstraps a spec. It reads the same live
+state and prints a Pkl stub that amends ~Org.pkl~. Fields the snapshot
+cannot know, ~reportsTo~, ~decides~, ~brief~ and ~needs~, are TODO
+comments.
+
+* Non-goals
+
+From the tracking issue, and enforced in the tool:
+
+- It never writes Claude Code settings, hooks, permissions or sandbox
+  allowlists. A role may declare ~needs.permissions~, and the tool
+  prints them as ~USER STEP~ lines.
+- Secrets are referenced by name only. Their values are never read.
+- No field grants approval authority. Validation rejects approval
+  verbs in a role's ~decides~ list.
+- It never closes tabs, kills agents or deletes crons.
+- There is no stored state file. Live state is read on every run.
+
+* A walkthrough
+
+The names below are made up. They are not a company, a repository, a
+person, or a channel. Acme Desk in ~examples/acme.pkl~ is the same
+kind of fiction. This walkthrough uses a smaller desk so each step
+fits on one screen.
+
+~import~ does not take a spec file. ~--out~ writes the stub with mode
+~0600~. Without ~--force~, an existing file is left unchanged and the
+command exits 1 with ~refusing to overwrite~.
+
+#+BEGIN_SRC bash
+orgctl import --out desk.pkl
+#+END_SRC
+
+A shortened stub for one live agent looks like this. The real ~amends~
+path is absolute, found by walking up from the working directory to
+~Org.pkl~.
+
+#+BEGIN_EXAMPLE
+amends "/path/to/devtools/orgctl/pkl/Org.pkl"
+
+// TODO: org name
+org = "TODO"
+
+machines {
+  ["local"] {
+    // TODO: host
+    host = "local"
+    herdrHandle = "local"
+    // TODO: timezone
+    timezone = "UTC"
+  }
+}
+
+rules {}
+
+roles {
+  ["desk/clerk"] {
+    machine = "local"
+    workspace = "front"
+    tab = "clerk"
+    cwd = "/work/desk/clerk"
+    agent = "clerk"
+    // TODO: reportsTo
+    // TODO: decides
+    // TODO: brief
+    // TODO: needs
+  }
+}
+#+END_EXAMPLE
+
+Fill those TODOs before checking the spec. ~decides~ takes ordinary
+work words such as ~priority~. An approval verb is rejected. A secret
+is a name, never a value.
+
+#+BEGIN_EXAMPLE
+org = "Acme Desk"
+
+roles {
+  ["desk/clerk"] {
+    machine = "local"
+    workspace = "front"
+    tab = "clerk"
+    cwd = "/work/desk/clerk"
+    agent = "clerk"
+    reportsTo = "desk/lead"
+    decides { "priority" }
+    brief {
+      text = "Keep the front desk moving."
+    }
+    needs {
+      secrets { "MAIL_TOKEN" }
+    }
+  }
+}
+#+END_EXAMPLE
+
+Render the Pkl to JSON, then check it. ~check~ does not read live
+state. Exit 0 means the spec passed, including the decides list.
+
+#+BEGIN_SRC bash
+pkl eval -f json desk.pkl > desk.json
+orgctl check desk.json
+#+END_SRC
+
+~plan~ reads live state and prints diff lines, then ~USER STEP~
+lines. The sample is the shape of those lines.
+
+#+BEGIN_SRC bash
+orgctl plan desk.json
+#+END_SRC
+
+#+BEGIN_EXAMPLE
++ desk/clerk tab front/clerk
+~ desk/clerk when
+! desk/night brief edited in place
+? desk/night cron overnight unverifiable
+USER STEP: desk/clerk secret MAIL_TOKEN
+#+END_EXAMPLE
+
+A line that starts with ~+~, a tilde, ~!~ or ~?~ is a diff marker.
+~USER STEP~ is a reminder for a person. It is not a change, and it
+does not by itself set the exit code.
+
+~drift~ looks the other way. A cron whose creating session belongs to
+another role is misplaced. The tool prints the move and stops. It
+does not delete the job or create a new one.
+
+#+BEGIN_SRC bash
+orgctl drift desk.json
+#+END_SRC
+
+#+BEGIN_EXAMPLE
+! cron overnight misplaced: move to role desk/night
+USER: recreate cron in role desk/night
+#+END_EXAMPLE
+
+* Exit codes
+
+An unknown command, or no command, exits 2. ~check~ exits 2 on a bad
+flag or the wrong number of files. ~plan~, ~drift~ and ~import~ exit
+1 for those usage errors. Diff lines go to stdout. Errors go to
+stderr.
+
+| Command | Code | Meaning                                  |
+|---------+------+------------------------------------------|
+| check   | 0    | the spec passes                          |
+| check   | 1    | the spec or an approval verb is rejected |
+| check   | 2    | usage                                    |
+| plan    | 0    | no diff marker                           |
+| plan    | 1    | the spec, a flag, or a read failed       |
+| plan    | 2    | a diff marker is present                 |
+| drift   | 0    | nothing to report                        |
+| drift   | 1    | the spec, a flag, or a read failed       |
+| drift   | 2    | a diff marker is present                 |
+| import  | 0    | the stub was written                     |
+| import  | 1    | a flag, a read, or a refused overwrite   |
+| (none)  | 2    | usage, or an unknown command             |
+
+A diff marker is a line whose first character is ~+~, a tilde, ~!~
+or ~?~. Lines that start with ~USER STEP~ or ~USER:~ do not count,
+and neither does a drift stub that starts with ~module~.
+
+* Flags
+
+| Flag                 | Commands | Meaning                                  |
+|----------------------+----------+------------------------------------------|
+| --approval-word WORD | check    | extra approval verb to reject; repeat it |
+| --machine NAME       | plan     | only this machine; AND with --role       |
+| --role NAME          | plan     | only this role; AND with --machine       |
+| --expiring 2d        | plan     | cron window; Nd or a Go duration         |
+| --out FILE           | import   | write the stub here instead of stdout    |
+| --force              | import   | overwrite an existing --out file         |
+
+~--machine~ and ~--role~ are both applied. Empty means no filter.
+~--expiring~ defaults to ~2d~, which is 48 hours. ~Nd~ is a whole
+number of days. Anything else is a Go duration, such as ~36h~. A cron
+counts as expiring when its expiry is within that window, including
+the exact end.
+
+~--approval-word~ adds to the built-in approval verbs. The spec can
+do the same with its own list. Dropping a built-in verb is a warning
+on stderr, not a failure by itself.
+
+* Plan lines
+
+Roles are printed in name order. For a role on another machine the
+only diff line is ~? ROLE remote: not read~. Otherwise, within the
+role: the tab, the agentbus name, cwd and model when herdr found an
+agent, each cron in spec order, an edited brief, then an unknown
+model. ~USER STEP~ lines for every selected role come after the diff.
+
+cwd and model lines are omitted when herdr was not read, or when no
+agent is present. A missing brief is not a marker. ~+~ is only a tab,
+an agentbus name, or a durable cron. ~!~ on a brief means the file on
+disk was edited in place.
+
+The command leaves the known-model list empty, so a normal plan does
+not print ~model unknown~. A snapshot that sets the list can.
+
+| Marker | Line                         | When                                       |
+|--------+------------------------------+--------------------------------------------|
+| +      | + ROLE tab WORKSPACE/LABEL   | herdr was read and the tab is absent       |
+| +      | + ROLE agentbus              | the agentbus name is absent                |
+| +      | + ROLE cron ID               | durable cron absent, and the file was read |
+| ~      | ~ ROLE when                  | the agentbus when string differs           |
+| ~      | ~ ROLE cwd                   | herdr was read and the cwd differs         |
+| ~      | ~ ROLE model                 | both models are set and they differ        |
+| !      | ! ROLE brief edited in place | the brief file differs from the spec       |
+| !      | ! ROLE cron ID expiring      | present, and inside the expiring window    |
+| !      | ! ROLE model unknown         | model is set and not in the known list     |
+| ?      | ? ROLE remote: not read      | the role's machine is not this host        |
+| ?      | ? ROLE herdr: not read       | herdr could not be read                    |
+| ?      | ? ROLE agentbus: not read    | agentbus names could not be read           |
+| ?      | ? ROLE cron ID unverifiable  | file not read, or absent and not durable   |
+
+| Line                            | When              |
+|---------------------------------+-------------------|
+| USER STEP: ROLE permission NAME | needs.permissions |
+| USER STEP: ROLE secret NAME     | needs.secrets     |
+| USER STEP: ROLE service NAME    | needs.services    |
+
+* Drift lines
+
+Nothing is written. Each finding is followed by a suggestion. Extras
+are skipped when that source was not read, instead of failing the
+command.
+
+| Marker | Line                                     | Suggestion                         |
+|--------+------------------------------------------+------------------------------------|
+| +      | + tab WORKSPACE/LABEL                    | USER: close tab LABEL in WORKSPACE |
+| +      | + name NAME                              | a Pkl stub for that name           |
+| +      | + cron ID                                | a Pkl stub for that cron           |
+| !      | ! cron ID misplaced: move to role TARGET | USER: recreate cron in role TARGET |
+| ~      | ~ ROLE when                              | a stub that sets the live when     |
+| !      | ! ROLE brief edited in place             | USER: review brief for ROLE        |
+
+A cron is misplaced when the spec declares it on one role, the job
+was created by a session, and that session belongs to a different
+role. The suggestion names the role that owns the session.
