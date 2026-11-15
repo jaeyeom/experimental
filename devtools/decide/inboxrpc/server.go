@@ -39,11 +39,11 @@ func (s *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 	defer wg.Wait()
 	loopCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	if s.FollowEvery > 0 {
+	if s.FollowEvery > 0 && s.Backend != nil {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.follow(loopCtx)
+			s.Backend.FollowLoop(loopCtx, s.FollowEvery, nil)
 		}()
 	}
 	enc := json.NewEncoder(w)
@@ -72,29 +72,6 @@ func (s *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 		return fmt.Errorf("read requests: %w", err)
 	}
 	return nil
-}
-
-// follow re-sends or marks stale answers until ctx ends. The first pass
-// runs at once, then every FollowEvery.
-func (s *Server) follow(ctx context.Context) {
-	s.followOnce()
-	tick := time.NewTicker(s.FollowEvery)
-	defer tick.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
-			s.followOnce()
-		}
-	}
-}
-
-func (s *Server) followOnce() {
-	if s.Backend == nil {
-		return
-	}
-	_ = s.Backend.FollowDue()
 }
 
 func (s *Server) handle(ctx context.Context, req Request) Response {

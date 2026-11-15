@@ -40,6 +40,7 @@ go_test(
     srcs = [
         "avatars_test.go",
         "display_test.go",
+        "follow_test.go",
         "hub_test.go",
         "machine_test.go",
         "main_test.go",
@@ -67,5 +68,6 @@ go_test(
         "//devtools/pkg/hubcall/sshtest:go_default_library",
         "//devtools/slackwatch:go_default_library",
         "@com_github_muesli_termenv//:go_default_library",
+        "@org_golang_x_sys//unix:go_default_library",
     ],
 )
