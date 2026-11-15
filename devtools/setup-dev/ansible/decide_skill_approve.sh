@@ -64,8 +64,19 @@ approve_decide_skill() {
     # apply-text refuses to create the parent directory.
     _dc_dest="${HOME}/.claude/skills/decide/SKILL.md"
     mkdir -p "$(dirname "$_dc_dest")"
-    if ! PATH="$_dc_path" "${_dc_dir}/verified-run" apply-text decide-skill "$_dc_dest" -- decide skill; then
-        return 1
-    fi
+    # apply-text's stdout stays `updated` or `unchanged` for the playbook.
+    # This follow-up labels that token so it is not read as the whole run.
+    _dc_apply=$(PATH="$_dc_path" "${_dc_dir}/verified-run" apply-text decide-skill "$_dc_dest" -- decide skill) || return 1
+    case "$_dc_apply" in
+        updated)
+            printf '%s\n' "decide skill: wrote approved text to ${_dc_dest}."
+            ;;
+        unchanged)
+            printf '%s\n' "decide skill: ${_dc_dest} already up to date (approved text, no write needed)."
+            ;;
+        *)
+            printf '%s\n' "$_dc_apply"
+            ;;
+    esac
     return 0
 }

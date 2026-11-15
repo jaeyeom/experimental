@@ -61,8 +61,19 @@ approve_herdr_skill() {
     # apply-text refuses to create the parent directory.
     _hs_dest="${HOME}/.claude/skills/herdr/SKILL.md"
     mkdir -p "$(dirname "$_hs_dest")"
-    if ! PATH="$_hs_path" "${_hs_dir}/verified-run" apply-text herdr-skill "$_hs_dest" -- herdr --skill; then
-        return 1
-    fi
+    # apply-text's stdout stays `updated` or `unchanged` for the playbook.
+    # This follow-up labels that token so it is not read as the whole run.
+    _hs_apply=$(PATH="$_hs_path" "${_hs_dir}/verified-run" apply-text herdr-skill "$_hs_dest" -- herdr --skill) || return 1
+    case "$_hs_apply" in
+        updated)
+            printf '%s\n' "herdr skill: wrote approved text to ${_hs_dest}."
+            ;;
+        unchanged)
+            printf '%s\n' "herdr skill: ${_hs_dest} already up to date (approved text, no write needed)."
+            ;;
+        *)
+            printf '%s\n' "$_hs_apply"
+            ;;
+    esac
     return 0
 }

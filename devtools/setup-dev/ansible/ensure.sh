@@ -874,6 +874,7 @@ ANSIBLE_RUN_STATUS="$LOG_DIR/ensure_sh.ansible.status"
 # ansible-playbook run does not pass the var, so an unapproved skill still
 # fails that task. --check and -C do not defer and do not review.
 _skill_check=0
+_skill_follow=0
 # shellcheck disable=SC2086  # Intentional word splitting — flags never contain spaces
 for _skill_flag in $flags; do
     case "$_skill_flag" in
@@ -885,6 +886,7 @@ if [ "$_skill_check" -eq 0 ]; then
     if any_arg_imports setup-herdr.yml $playbooks || any_arg_imports setup-factory.yml $playbooks ||
         any_arg_imports setup-slackwatch.yml $playbooks || any_arg_imports setup-decide.yml $playbooks; then
         ensure_args_append -e setup_dev_defer_skill_apply=true
+        _skill_follow=1
     fi
 fi
 
@@ -926,6 +928,11 @@ done
 # fails it after this follow-up; the follow-up does not clear that failure.
 # pre_approve_urls stays URL-only and already ran.
 _skill_follow_rc=0
+# --check and -C leave _skill_follow at 0, and so does a run that selected
+# no skill playbook. The header marks the end of Ansible output.
+if [ "$_skill_follow" -eq 1 ]; then
+    printf '%s\n' "== Agent skill files =="
+fi
 # shellcheck disable=SC2086  # Intentional word splitting — playbook names never contain spaces
 if any_arg_imports setup-herdr.yml $playbooks; then
     approve_herdr_skill "$(dirname "$0")" "$flags" || _skill_follow_rc=1
