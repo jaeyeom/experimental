@@ -271,6 +271,7 @@ command.
 |--------+------------------------------------------+------------------------------------|
 | +      | + tab WORKSPACE/LABEL                    | USER: close tab LABEL in WORKSPACE |
 | +      | + name NAME                              | a Pkl stub for that name           |
+|        | gone (stale registration): NAME          | USER: agentbus release NAME        |
 | +      | + cron ID                                | a Pkl stub for that cron           |
 | !      | ! cron ID misplaced: move to role TARGET | USER: recreate cron in role TARGET |
 | ~      | ~ ROLE when                              | a stub that sets the live when     |

@@ -50,18 +50,27 @@ func extraNames(spec Spec, live Live) []string {
 	if live.NamesNotRead {
 		return nil
 	}
-	var names []string
+	var names, gone []string
 	for _, item := range live.Names {
+		if item.Liveness == "gone" {
+			gone = append(gone, item.Name)
+			continue
+		}
 		if _, ok := spec.Roles[item.Name]; ok || matchesPool(item.Name, spec, live) {
 			continue
 		}
 		names = append(names, item.Name)
 	}
 	slices.Sort(names)
+	slices.Sort(gone)
 	var lines []string
 	for _, name := range names {
 		lines = append(lines, "+ name "+name)
 		lines = append(lines, nameStub(name))
+	}
+	for _, name := range gone {
+		lines = append(lines, "gone (stale registration): "+name)
+		lines = append(lines, "USER: agentbus release "+name)
 	}
 	return lines
 }
