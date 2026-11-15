@@ -98,3 +98,25 @@ func TestPlanExitCodes(t *testing.T) {
 		t.Fatal("plan wrote the spec")
 	}
 }
+
+func TestDriftExitCodes(t *testing.T) {
+	path := writeSpec(t, `{"roles":{"coord/lead":{"workspace":"hq","tab":"lead","cwd":"/work"}}}`)
+	var stdout, stderr bytes.Buffer
+	clean := func(orgctl.Spec) (orgctl.Live, error) {
+		return orgctl.Live{
+			Tabs:  []orgctl.LiveTab{{Workspace: "hq", Label: "lead"}},
+			Names: []orgctl.LiveName{{Name: "coord/lead"}},
+		}, nil
+	}
+	if code := runIO([]string{"drift", path}, &stdout, &stderr, clean); code != 0 {
+		t.Fatalf("clean exit %d\n%s%s", code, stdout.String(), stderr.String())
+	}
+	extra := func(orgctl.Spec) (orgctl.Live, error) {
+		return orgctl.Live{Tabs: []orgctl.LiveTab{{Workspace: "hq", Label: "stray"}}}, nil
+	}
+	stdout.Reset()
+	code := runIO([]string{"drift", path}, &stdout, &stderr, extra)
+	if code != 2 || !strings.Contains(stdout.String(), "USER: close tab stray in hq") {
+		t.Fatalf("drift exit %d\n%s", code, stdout.String())
+	}
+}

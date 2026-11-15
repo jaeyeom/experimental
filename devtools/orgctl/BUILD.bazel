@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "brief.go",
         "decides.go",
+        "drift.go",
         "plan.go",
         "spec.go",
     ],
@@ -18,6 +19,7 @@ go_test(
     srcs = [
         "brief_test.go",
         "decides_test.go",
+        "drift_test.go",
         "plan_test.go",
         "spec_test.go",
     ],
