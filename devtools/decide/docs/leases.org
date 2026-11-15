@@ -1,0 +1,53 @@
+#+TITLE: decide checkout leases
+
+~checkouts~ in the config maps a resource name to a checkout path.
+~decide status list~, ~--json~, the inbox, and ~decide.el~ then show
+that checkout's agentbus workdir lease. The README shows the lines a
+person reads. This file is how a row is chosen.
+
+#+begin_src json
+{"checkouts": [{"name": "checkout", "path": "/abs/repo"}]}
+#+end_src
+
+* This machine
+
+decide first runs ~agentbus lease status --guarded --path <path>~.
+That reads only local agentbus config and makes no daemon call. An
+unguarded path shows the stored ~decide status set --resource~ row
+and makes no further call.
+
+For a guarded path, ~agentbus lease status --json --path <path>~ wins
+over any stored row for that name. ~list~ prints one of:
+
+- ~checkout: free~
+- ~checkout: held by <name> until 14:20~
+- ~checkout: paused by user~
+- ~checkout: needs adopt (backup <ref>)~
+
+A non-empty queue adds ~, <n> queued~. In ~--json~ the row has
+~"source": "lease"~, ~availability~ of ~free~ or ~busy~, and the lease
+text in ~note~.
+
+When ~agentbus~ is missing or the lease cannot be read, the stored row
+shows with ~(guess)~ after it. Its JSON has ~"source": "stored"~ and
+~"guess": true~. Other stored rows have ~"source": "stored"~ and no
+~guess~.
+
+* Another machine, from the hub
+
+In hub mode ~decide status list~ runs on the hub, so it uses the hub's
+~checkouts~ and the hub's ~agentbus~. A plain entry is a checkout on
+the hub itself. For a checkout on another machine that uses the
+agentbus hub, name that machine:
+
+#+begin_src json
+{"name": "checkout", "machine": "mac", "path": "/abs/repo"}
+#+end_src
+
+decide then runs ~agentbus lease status --all --json~ once and shows
+the lease whose ~checkout~ is ~mac:/abs/repo~, the same text with
+~"source": "lease"~. The path must be that checkout's git top-level
+on that machine. There is no ~--guarded~ check for such an entry,
+because that check would read the hub's config. When no lease is
+known under that key, or ~agentbus~ cannot be read, the stored row
+shows with ~(guess)~.

@@ -1,0 +1,9 @@
+load("//tools/org-lint:defs.bzl", "org_lint_tests")
+
+org_lint_tests([
+    "avatars.org",
+    "follow.org",
+    "keys.org",
+    "leases.org",
+    "provenance.org",
+])
