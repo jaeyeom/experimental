@@ -29,7 +29,7 @@ import (
 const usage = "usage: orgctl check [--approval-word WORD]... SPEC.json\n" +
 	"       orgctl plan [--machine NAME] [--role NAME] [--expiring 2d] SPEC.json\n" +
 	"       orgctl drift SPEC.json\n" +
-	"       orgctl import [--out FILE] [--force]"
+	"       orgctl import [--out FILE] [--force] [--schema PATH]"
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stderr))
@@ -198,11 +198,12 @@ func runImport(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (
 	fs.SetOutput(stderr)
 	outPath := fs.String("out", "", "write the stub to this file instead of stdout")
 	force := fs.Bool("force", false, "overwrite an existing --out file")
+	schema := fs.String("schema", "", "Org.pkl the stub amends")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 1
 	}
 	if fs.NArg() != 0 {
-		fmt.Fprintln(stderr, "usage: orgctl import [--out FILE] [--force]")
+		fmt.Fprintln(stderr, "usage: orgctl import [--out FILE] [--force] [--schema PATH]")
 		return 1
 	}
 	if load == nil {
@@ -213,7 +214,12 @@ func runImport(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	stub := orgctl.Import(live, findOrgPkl())
+	amends := *schema
+	if amends == "" {
+		amends = findOrgPkl()
+	}
+	rendered := orgctl.RenderImport(live, amends)
+	stub := rendered.Stub
 	if !strings.HasSuffix(stub, "\n") {
 		stub += "\n"
 	}
@@ -222,6 +228,10 @@ func runImport(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (
 		return 0
 	}
 	if err := writeStub(*outPath, []byte(stub), *force); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if err := writePromptFiles(filepath.Dir(*outPath), rendered.Files); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
@@ -249,6 +259,19 @@ func writeStub(path string, data []byte, force bool) error {
 	}
 	if cerr != nil {
 		return fmt.Errorf("close stub: %w", cerr)
+	}
+	return nil
+}
+
+func writePromptFiles(dir string, files map[string]string) error {
+	for rel, body := range files {
+		path := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return fmt.Errorf("write prompt: %w", err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			return fmt.Errorf("write prompt: %w", err)
+		}
 	}
 	return nil
 }

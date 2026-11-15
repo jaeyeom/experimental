@@ -145,6 +145,7 @@ func readHerdr(live *orgctl.Live) error {
 		live.Agents = append(live.Agents, orgctl.LiveAgent{
 			Name: agent.Name, Cwd: cwd, SessionID: agent.SessionID,
 			Kind: agent.Kind, Workspace: workspace, Tab: tab.Label,
+			Pane: agent.Pane,
 		})
 	}
 	return nil
@@ -165,6 +166,7 @@ func readNames(live *orgctl.Live) error {
 		live.Names = append(live.Names, orgctl.LiveName{
 			Name: name.Name, When: name.When, Server: name.Server,
 			SessionID: name.SessionID, Liveness: name.Liveness,
+			Pane: name.Pane,
 		})
 	}
 	return nil

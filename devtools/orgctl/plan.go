@@ -33,6 +33,7 @@ type LiveTab struct {
 }
 
 // LiveAgent is one running agent.
+// Pane is the herdr pane id. Import joins an agentbus name to it.
 type LiveAgent struct {
 	Name      string
 	Cwd       string
@@ -42,10 +43,11 @@ type LiveAgent struct {
 	Workspace string
 	Tab       string
 	Machine   string
+	Pane      string
 }
 
 // LiveName is one agentbus name.
-// SessionID is the session in a herdr:<server>/<session>/<pane> handle.
+// SessionID and Pane come from a herdr:<server>/<session>/<pane> handle.
 // Liveness is the agentbus value, such as alive, unreachable, or gone.
 type LiveName struct {
 	Name      string
@@ -53,6 +55,7 @@ type LiveName struct {
 	Server    string
 	SessionID string
 	Liveness  string
+	Pane      string
 }
 
 // LiveCron is one durable job read from a role cwd.
