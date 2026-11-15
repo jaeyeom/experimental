@@ -263,7 +263,7 @@ func plainDoctor(ctx context.Context, env []string, dirs paths.Dirs, stdout io.W
 var tunnelExitStatus = readTunnelExitStatus
 
 const (
-	tunnelAuthHint = "tunnel unit exited 255: ssh probably could not authenticate (no agent for a passphrase key). Keep a stable agent socket (`ln -sf \"$SSH_AUTH_SOCK\" ~/.ssh/agent.sock` in your login shell), set `ssh_identity_agent = \"~/.ssh/agent.sock\"` in the agentbus config, and re-run `agentbus install`. setup-hub-client does this with `hub_ssh_stable_agent: true`."
+	tunnelAuthHint = "tunnel down: ssh could not authenticate to the hub: no agent socket for the unit (ssh_identity_agent is unset).\nfix: run setup-hub-client, then agentbus install"
 	// tunnelDanglingHint replaces tunnelAuthHint when the stable socket
 	// is a symlink whose target is gone.
 	tunnelDanglingHint = "tunnel unit exited 255: ~/.ssh/agent.sock is a dangling link, so ssh has no agent. Open a login shell so the rc block refreshes it (`ln -sf \"$SSH_AUTH_SOCK\" ~/.ssh/agent.sock`)."
@@ -345,20 +345,114 @@ func parseSystemdExit(text string) (int, bool) {
 	return 0, false
 }
 
+// tunnelAuthFacts is what doctor knows about a tunnel that exited 255.
+type tunnelAuthFacts struct {
+	Exit255     bool
+	TunnelUp    bool
+	IdentitySet bool
+	SockMissing bool
+	Dangling    bool
+	Differs     bool
+	KeysKnown   bool
+	HasKeys     bool
+	GOOS        string
+}
+
+// diagnoseTunnelAuth names why ssh could not authenticate. A tunnel that
+// is up now marks an older 255 as stale instead of repeating the fix.
+func diagnoseTunnelAuth(f tunnelAuthFacts) string {
+	if !f.Exit255 {
+		return ""
+	}
+	if f.TunnelUp {
+		return "tunnel is up; an old exit 255 (ssh could not authenticate) is stale."
+	}
+	if f.Dangling {
+		return tunnelDanglingHint + " " + tunnelOrderHint
+	}
+	if !f.IdentitySet {
+		msg := tunnelAuthHint
+		if f.Differs {
+			msg += " " + tunnelOrderHint
+		}
+		return msg
+	}
+	if f.SockMissing {
+		return "tunnel down: ssh could not authenticate to the hub: no agent socket for the unit (~/.ssh/agent.sock is missing).\nfix: run setup-hub-client, then agentbus install"
+	}
+	if f.KeysKnown && !f.HasKeys {
+		fix := "run: ssh-add"
+		if f.GOOS == "darwin" {
+			fix = "run: ssh-add --apple-load-keychain"
+		}
+		return "tunnel down: ssh could not authenticate to the hub: no agent socket for the unit (the agent has no keys).\nfix: " + fix
+	}
+	return "tunnel down: ssh could not authenticate to the hub.\nfix: run setup-hub-client, then agentbus install"
+}
+
 func reportTunnelExit(ctx context.Context, env []string, stdout io.Writer) {
 	code, ok := tunnelExitStatus(ctx, env)
 	if !ok || code != 255 {
 		return
 	}
-	dangling := agentSockDangling(env)
-	hint := tunnelAuthHint
-	if dangling {
-		hint = tunnelDanglingHint
+	facts := gatherTunnelAuth(ctx, env)
+	facts.Exit255 = true
+	if msg := diagnoseTunnelAuth(facts); msg != "" {
+		fmt.Fprintln(stdout, msg)
 	}
-	if dangling || agentSockDiffers(env) {
-		hint += " " + tunnelOrderHint
+}
+
+// gatherTunnelAuth reads the local agent socket and whether the tunnel
+// socket currently answers. It does not open an ssh session.
+func gatherTunnelAuth(ctx context.Context, env []string) tunnelAuthFacts {
+	f := tunnelAuthFacts{
+		GOOS:     runtime.GOOS,
+		Dangling: agentSockDangling(env),
+		Differs:  agentSockDiffers(env),
 	}
-	fmt.Fprintln(stdout, hint)
+	if cfg, err := hubSettings(env); err == nil {
+		f.IdentitySet = cfg.SSHIdentityAgent != ""
+	}
+	if dirs, err := paths.FromEnv(env); err == nil && checkSocket(ctx, dirs.TunnelSocketPath) == "ok" {
+		f.TunnelUp = true
+	}
+	if f.Dangling || !f.IdentitySet {
+		return f
+	}
+	home, err := homeFrom(env)
+	if err != nil {
+		return f
+	}
+	sock := filepath.Join(home, ".ssh", "agent.sock")
+	if _, err := os.Lstat(sock); err != nil {
+		f.SockMissing = true
+		return f
+	}
+	info, err := os.Stat(sock)
+	if err != nil || info.Mode()&os.ModeSocket == 0 {
+		return f
+	}
+	f.KeysKnown, f.HasKeys = agentHasKeys(ctx, sock)
+	return f
+}
+
+// agentHasKeys reports whether ssh-add -l saw identities on sock.
+// known is false when the agent could not be asked.
+func agentHasKeys(ctx context.Context, sock string) (bool, bool) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
+	cmd := exec.CommandContext(ctx, "ssh-add", "-l") //nolint:gosec // G204: ssh-add lists keys on the socket doctor already resolved
+	cmd.Env = []string{"SSH_AUTH_SOCK=" + sock}
+	err := cmd.Run()
+	if err == nil {
+		return true, true
+	}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == 1 {
+		return true, false
+	}
+	return false, false
 }
 
 // agentSockDangling reports a ~/.ssh/agent.sock symlink whose target

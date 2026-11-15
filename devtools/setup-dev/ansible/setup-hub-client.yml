@@ -9,12 +9,13 @@
 #     remote_timeout, above the first [section].
 #
 # Both files are backed up (file.<pid>.<date>@<time>~) before a change.
-# Nothing else by default: no `agentbus install`, service, tunnel, or
-# token. agentbusd is not installed, because it refuses to start in hub
-# mode.
+# It does not run `agentbus install`, install a service or tunnel, or
+# write a token. agentbusd is not installed, because it refuses to start
+# in hub mode.
 #
-# hub_ssh_stable_agent (default false) opts in to a stable ssh-agent
-# socket. The tunnel unit does not inherit SSH_AUTH_SOCK. When true:
+# hub_ssh_stable_agent (default true) keeps a stable ssh-agent socket.
+# false opts out. The tunnel unit does not inherit SSH_AUTH_SOCK. When
+# on:
 #   - a marked block at the end of the file that starts the agent
 #     relinks ~/.ssh/agent.sock. zsh reads ~/.zprofile before
 #     ~/.zshrc, so the block must come after the agent-start line
@@ -26,6 +27,9 @@
 #     and the agent starts in a file that runs later, the play warns
 #     and names both files. It does not move the block. Keep the
 #     block after the agent-start line if you move it;
+#   - on macOS, when ~/.ssh/config has UseKeychain yes, the block also
+#     runs `ssh-add --apple-load-keychain -q`. A line already in the
+#     rc is left there and is not copied into the block;
 #   - ssh_identity_agent = "~/.ssh/agent.sock" is set in the agentbus
 #     config, beside hub;
 #   - when the tunnel unit is already installed and that key changed,
@@ -42,7 +46,7 @@
 #   hub_tools_version     go install version: a tag, a commit, or latest
 #                         (default latest)
 #   hub_connect_timeout   ssh connect timeout (default 5s)
-#   hub_ssh_stable_agent  opt in to the stable agent socket (default false)
+#   hub_ssh_stable_agent  stable agent socket (default true; false opts out)
 #   hub_ssh_agent_rc      login rc for that block. Unset: the file
 #                         with the last agent-start line, else the
 #                         default above. zsh reads .zprofile first.
@@ -53,7 +57,7 @@
 # The last task (tag hub-check) runs `decide status list` and
 # `agentbus list` through the hub. `--tags hub-check` runs only the check;
 # `--tags hub-config` only writes the two files. `--tags hub-ssh-agent`
-# writes the stable agent socket when hub_ssh_stable_agent is true.
+# writes the stable agent socket unless hub_ssh_stable_agent is false.
 # hub_setup_test.sh runs these with a temp HOME.
 - import_playbook: gather-facts.yml
 - import_playbook: setup-user-go-bin-directory.yml
@@ -72,7 +76,7 @@
     hub_client_machine: "{{ client_machine_label | default('') }}"
     hub_client_version: "{{ hub_tools_version | default('latest') }}"
     hub_client_timeout: "{{ hub_connect_timeout | default('5s') }}"
-    hub_client_stable_agent: "{{ hub_ssh_stable_agent | default(false) | bool }}"
+    hub_client_stable_agent: "{{ hub_ssh_stable_agent | default(true) | bool }}"
     hub_client_agent_rc: "{{ hub_ssh_agent_rc | default('') }}"
     hub_client_home: "{{ ansible_facts['env']['HOME'] }}"
     hub_client_config_home: "{{ ansible_facts['env']['XDG_CONFIG_HOME'] | default(hub_client_home ~ '/.config', true) }}"
@@ -218,16 +222,28 @@
         - hub_client_agent_warn | default('') | length > 0
       tags: hub-ssh-agent
 
+    - name: Build the stable agent shell block
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/hub_ssh_agent_scan.py"
+          - --block
+          - "{{ hub_client_agent_rc_path }}"
+          - "{{ ansible_system | default('') }}"
+          - "{{ hub_client_home }}/.ssh/config"
+      register: hub_client_agent_block
+      changed_when: false
+      check_mode: false
+      when: hub_client_stable_agent | bool
+      tags: hub-ssh-agent
+
     - name: Keep ~/.ssh/agent.sock pointed at the login agent
       ansible.builtin.blockinfile:
         path: "{{ hub_client_agent_rc_path }}"
         marker: "# {mark} setup-dev hub ssh agent (setup-hub-client.yml)"
         create: true
         backup: true
-        block: |
-          if [ -n "$SSH_AUTH_SOCK" ] && [ -S "$SSH_AUTH_SOCK" ] && [ "$SSH_AUTH_SOCK" != "$HOME/.ssh/agent.sock" ]; then
-            ln -sf "$SSH_AUTH_SOCK" "$HOME/.ssh/agent.sock"
-          fi
+        block: "{{ hub_client_agent_block.stdout }}"
       when: hub_client_stable_agent | bool
       tags: hub-ssh-agent
 

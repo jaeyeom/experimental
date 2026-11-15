@@ -139,7 +139,7 @@ machine until you run one there.
 | =client_machine_label= | required    | this client's herdr saved-machine label on the hub       |
 | =hub_tools_version=    | =latest=    | =go install= version of agentbus and decide: a tag or commit |
 | =hub_connect_timeout=  | =5s=        | ssh connect timeout (=hubTimeout=, =remote_timeout=)     |
-| =hub_ssh_stable_agent= | =false=     | opt in: login rc links =~/.ssh/agent.sock=, sets =ssh_identity_agent=, and prints =agentbus install= when the tunnel unit is installed and that key changed |
+| =hub_ssh_stable_agent= | =true=      | login rc links =~/.ssh/agent.sock=, sets =ssh_identity_agent=, and prints =agentbus install= when the tunnel unit is installed and that key changed. =false= opts out |
 | =hub_ssh_agent_rc=     | last agent-start line, else =~/.zprofile=, =~/.bash_profile=, =~/.profile= | login rc for that block. zsh reads =~/.zprofile= before =~/.zshrc=, so the block must follow the agent start. An explicit file that runs too early warns and stays put |
 | =hub_host_shell=       | login shell | =bash= or =zsh=, for =setup-hub-host.yml=                |
 
@@ -171,8 +171,11 @@ in hub mode, so it is not installed. Then it:
 Both files are backed up before a change. It does not run
 =agentbus install=, start a service or tunnel, or touch tokens.
 
-With =hub_ssh_stable_agent: true= (the default is false) it also
+With =hub_ssh_stable_agent= left on (the default; =false= opts out) it also
 appends a marked block that runs =ln -sf "$SSH_AUTH_SOCK" ~/.ssh/agent.sock=.
+On macOS, when =~/.ssh/config= contains =UseKeychain yes=, that block also
+runs =ssh-add --apple-load-keychain -q=. A line already in the rc is not
+copied in again. A Linux run writes no such line.
 zsh reads =~/.zprofile= before =~/.zshrc=, and the agent often starts
 in =~/.zshrc=, so the block has to come after that line. When
 =hub_ssh_agent_rc= is unset, the block goes at the end of the file

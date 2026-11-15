@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -63,6 +65,11 @@ func cmdInstallTunnel(ctx context.Context, cfg config.Config, args, env []string
 	if len(args) != 0 {
 		fmt.Fprintf(stderr, "agentbus install: unexpected arguments\n")
 		return 2
+	}
+	cfg, err := applyStableAgent(cfg, env, stderr)
+	if err != nil {
+		fmt.Fprintf(stderr, "agentbus install: %s\n", err)
+		return 1
 	}
 	if cfg.HubSocket == "" {
 		socket, err := discoverHubSocket(ctx, cfg, env, stdout)
@@ -321,7 +328,11 @@ func installTunnel(cfg config.Config, env []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	body, err := tunnelBody(runtime.GOOS, spec, supervisorEnv(env))
+	vars := supervisorEnv(env)
+	if spec.identityAgent != "" {
+		vars = append(vars, [2]string{"SSH_AUTH_SOCK", spec.identityAgent})
+	}
+	body, err := tunnelBody(runtime.GOOS, spec, vars)
 	if err != nil {
 		return "", err
 	}
@@ -337,6 +348,67 @@ func installTunnel(cfg config.Config, env []string) (string, error) {
 
 func tunnelPath(goos, home string, env []string) (string, error) {
 	return unitPath(goos, home, env, tunnelLaunchdLabel, tunnelUnitName)
+}
+
+// applyStableAgent points a hub client with no ssh_identity_agent at
+// ~/.ssh/agent.sock when that path is a socket or a symlink. Otherwise
+// it prints one hint and leaves the config alone.
+func applyStableAgent(cfg config.Config, env []string, stderr io.Writer) (config.Config, error) {
+	if cfg.Hub == "" || cfg.SSHIdentityAgent != "" {
+		return cfg, nil
+	}
+	home, err := homeFrom(env)
+	if err != nil {
+		return cfg, err
+	}
+	sock := filepath.Join(home, ".ssh", "agent.sock")
+	if !agentPathUsable(sock) {
+		fmt.Fprintf(stderr, "agentbus install: no ssh agent socket at %s; run setup-hub-client, or ln -sf \"$SSH_AUTH_SOCK\" ~/.ssh/agent.sock and set ssh_identity_agent = \"~/.ssh/agent.sock\"\n", sock)
+		return cfg, nil
+	}
+	if err := writeIdentityAgent(env); err != nil {
+		return cfg, err
+	}
+	cfg.SSHIdentityAgent = sock
+	return cfg, nil
+}
+
+// agentPathUsable reports a socket or any symlink, including one whose
+// target is not there yet.
+func agentPathUsable(path string) bool {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return false
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return true
+	}
+	return info.Mode()&os.ModeSocket != 0
+}
+
+// writeIdentityAgent appends the stable-agent key when the config does
+// not already name one. Load expands the tilde.
+func writeIdentityAgent(env []string) error {
+	path, err := config.Path(env)
+	if err != nil {
+		return fmt.Errorf("locate config: %w", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("read config: %w", err)
+	}
+	const line = "ssh_identity_agent = \"~/.ssh/agent.sock\"\n"
+	if bytes.Contains(data, []byte("ssh_identity_agent")) {
+		return nil
+	}
+	if len(data) > 0 && data[len(data)-1] != '\n' {
+		data = append(data, '\n')
+	}
+	data = append(data, []byte(line)...)
+	if err := writeAtomic(path, data, 0o600); err != nil {
+		return fmt.Errorf("write ssh_identity_agent: %w", err)
+	}
+	return nil
 }
 
 // installOutbox writes the supervised `agentbus outbox flush --watch`
