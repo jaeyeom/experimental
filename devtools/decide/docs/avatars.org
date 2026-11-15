@@ -1,0 +1,110 @@
+#+TITLE: decide avatar figures and config writes
+
+The inbox shows a 10x6 figure for the other party. The README covers how
+to set one. This file is the hash, the shipped ids, and the write.
+
+* Built-in figures
+
+decide ships 48 original figures, each 10x6, in truecolor half-block
+and box characters. A space enclosed by the figure is painted with a
+background, and the eyes and mouth sit on that fill. A gap between
+parts, and every cell outside the outline, stays clear. The fill reads
+on light and dark themes. On a 256-color or 16-color terminal it is
+downsampled with the foreground. With no color it becomes a block.
+
+Preview them with ~decide avatars list~. ~--name <name>~ shows the
+figure that name gets. ~--ids~ prints the ids, which is the list to
+copy from. The ids below are the generations, in the order they were
+added. A generation does not change once it has shipped. New figures
+go in a new generation at the end.
+
+Generation 1:
+
+~bee~, ~bun~, ~cactus~, ~cat~, ~crab~, ~fox~, ~frog~, ~ghost~,
+~glasses~, ~headphones~, ~knight-helmet~, ~lighthouse~, ~mushroom~,
+~octopus~, ~owl~, ~penguin~, ~planet~, ~robot~, ~rocket~, ~snail~,
+~teapot~, ~tree~, ~whale~, ~wizard-hat~.
+
+Generation 2:
+
+~banker~, ~beer-mug~, ~bishop~, ~book~, ~cook~, ~dog~, ~general~,
+~hammer~, ~jester~, ~king~, ~merchant~, ~peasant~, ~physician~,
+~pirate~, ~queen~, ~scholar~, ~spy~, ~witch~.
+
+Generation 3:
+
+~hand~, ~gopher~, ~line-chart~, ~chat~, ~ticket~, ~branch~.
+
+The people tell apart by hat, hair, or what they hold. ~chat~,
+~ticket~, and ~branch~ are generic pictures, not a product logo.
+~gopher~ is an original pixel drawing. The Go gopher was designed by
+Renee French and is licensed CC BY 4.0.
+
+The figure is hidden, and the layout matches an item with none, when
+no rule matches and ~avatarDefault~ is off, when the terminal is under
+60 columns, or when fewer than 30 columns would remain beside it. A
+file that cannot be read or decoded, or an unknown ~builtin~ id, is
+hidden too, and the status line shows the error once. Rendered figures
+are cached, so moving the selection does not decode the file again.
+
+* How a default figure is chosen
+
+~avatarDefault~ gives each unmatched name a built-in id. The pick
+depends only on the name and the generations, so it is the same on
+every machine. A ~builtin~ rule pins a name and skips this.
+
+From the newest generation down, generation g takes the name when a
+hash of ~(g, name)~ falls in g's share of the figures shipped so far.
+The hash is SHA-256 of the text ~decide avatar generation <g>~, a zero
+byte, and the name. The first eight bytes are a big-endian integer.
+That integer, mod the total number of figures in generations 0 through
+g, selects g when it lands in g's own count. Generation 0 keeps
+whatever is left. Adding a generation moves names only into that new
+generation, about ~new/(old+new)~ of the unpinned names. Generation 2
+moved about 18/42. Generation 3 moves about 6/48.
+
+Inside the chosen generation, FNV-1a 32-bit of the name, mod that
+generation's length, is the index. The ids stay in the order above.
+
+* Writing the config
+
+~A~ in the item view opens the picker for the selected message's
+sender (~avatar for <name>~). The opening message, and an item with no
+message selected, still change the owner's figure. ~human~ and
+~system~ have none: the status line says ~no avatar for <sender>~.
+~A~ on a Contacts row opens it for that agent. ~*~ marks the figure
+shown now and ~>~ marks the cursor. The grid scrolls when it does not
+fit. ~default~ removes that name's exact rule, so globs or
+~avatarDefault~ apply again. ~none~ hides that name. The status line
+says ~avatar for <name>: <id> (saved to config)~.
+
+An avatar change writes only the ~avatars~ array. A figure becomes
+~{"match": "<owner>", "builtin": "<id>"}~. ~none~ is ~"hide": true~.
+An existing rule whose ~match~ is exactly the owner keeps its place
+and its other keys, and has ~file~ or ~builtin~ replaced. Otherwise
+the new rule goes first. Glob rules are never edited. Every other
+top-level key, known or not, keeps its value and its order. The file
+is rewritten with a 2-space indent.
+
+The write goes to a temp file in the same directory, is synced, then
+renamed over the config. When ~config.json~ is a symlink, the target
+is replaced and the link stays. A config that does not parse, or that
+this process cannot write, is left as it is. The error goes to the
+status line, or to stderr from ~decide avatars set~. Before the first
+write in a process, the original is copied to ~config.json.bak~ next
+to the file. A missing config is created as ~{}~ with mode ~0600~.
+
+With no hub, the write is this machine's config. In hub mode, ~A~ and
+~decide avatars set~ save on the hub (~set-avatar~) and the status
+line says ~avatar for <owner>: <id> (saved on hub)~. The client's own
+config is not written. A rule already in that local config still wins
+on this machine, and the status line adds ~(saved on hub; a local rule
+for <owner> overrides it here)~. Another open inbox takes the new
+figure on its next display refresh. ~decide avatars set --local~
+writes this machine even in hub mode. A hub that is down is an error,
+and nothing is written locally. A hub that does not know the operation
+says to update decide on the hub.
+
+Hiding a contact and storing an alias use the same temp-file rename
+and the same ~config.json.bak~ backup. Each of those writes changes
+only ~hiddenContacts~ or ~contactAliases~.

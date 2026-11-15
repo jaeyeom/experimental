@@ -1,967 +1,499 @@
 #+TITLE: decide
-#+DATE: 2026-11-05
 
-* Status
+decide is a small inbox for questions that AI coding agents need a human
+to answer. An agent runs ~decide ask~ with a question and a few options.
+You answer in ~decide inbox~ (a terminal UI) or in Emacs, and decide
+notifies the agent's terminal pane with your answer. It also carries
+short notes and status between you and your agents, and one inbox can
+be shared by two machines.
 
-~decide status~ stores agent rows in the decide state directory, in
-~status.json~, separate from the decision ledger.
+* Overview
 
-- ~decide status set --agent <name> [--state working|idle|paused|blocked] "<text>"~
-  writes one row. A new row with no ~--state~ is ~working~. A later set
-  with no ~--state~ keeps the stored state.
-- ~decide status list [--json]~ prints each name, state, age, and text.
-  ~--json~ is an object with an ~agents~ array. Each agent includes
-  ~updatedAt~.
-- ~decide status clear --agent <name>~ removes that one row.
-- ~decide status set --resource <name> free|busy ["<note>"]~ writes a shared
-  resource flag. ~list~ prints ~<name>: free (<note>)~, or ~<name>: free~
-  when the note is empty.
-- ~decide status clear --resource <name>~ removes that one flag.
-  ~--json~ includes a ~resources~ array.
+[[https://herdr.dev/][herdr]] is the terminal multiplexer the panes live
+in. [[file:../agentbus/README.org][agentbus]] is how a named agent is
+reached when the pane is ~agentbus:<name>~. ~decide skill~ prints the
+agent rules (~cmd/decide/skill.md~). This file is the human guide.
 
-In the inbox, ~g~ then ~s~ opens the same rows. The view reloads on the
-inbox tick. A row older than five minutes is dim.
-
-** Checkout leases
-
-~"checkouts": [{"name": "checkout", "path": "/abs/repo"}]~ in the config
-maps a resource name to a checkout path. ~status list~, ~--json~, the
-inbox and ~decide.el~ then show that checkout's agentbus workdir lease:
-
-- ~decide~ first runs ~agentbus lease status --guarded --path <path>~,
-  which reads only local agentbus config. An unguarded path shows the
-  stored row as before and makes no daemon call.
-- For a guarded path, ~agentbus lease status --json --path <path>~ wins
-  over any stored row for that name. ~list~ prints ~checkout: free~,
-  ~checkout: held by <name> until 14:20~, ~checkout: paused by user~, or
-  ~checkout: needs adopt (backup <ref>)~, plus ~, <n> queued~. In
-  ~--json~ the row has ~"source": "lease"~, ~availability~ ~free~ or
-  ~busy~, and the lease text in ~note~.
-- When ~agentbus~ is missing or the lease cannot be read, the stored row
-  from ~decide status set --resource~ shows with ~(guess)~ after it. Its
-  JSON has ~"source": "stored"~ and ~"guess": true~. Other rows have
-  ~"source": "stored"~.
-
-In hub mode ~decide status list~ runs on the hub, so it uses the hub's
-~checkouts~ config and the hub's ~agentbus~. A plain entry is a checkout
-on the hub itself. For a checkout on another machine that uses the
-agentbus hub, name that machine:
-~{"name": "checkout", "machine": "mac", "path": "/abs/repo"}~. ~decide~
-then runs ~agentbus lease status --all --json~ once and shows the lease
-whose ~checkout~ is ~mac:/abs/repo~, the same text with ~"source":
-"lease"~. The path must be the checkout's git top-level on that machine.
-There is no ~--guarded~ check for such an entry, since it would read the
-hub's config: when no lease is known under that key, or ~agentbus~
-cannot be read, the stored row shows with ~(guess)~.
-
-~decide targets [--json]~ prints the compose recipients from the config.
-Plain output is one name per line. ~--json~ is an array of ~name~ and
-~pane~. It does not print the notify template or the send template.
-
-~decide send --to <name> [--json] "<text>"~ starts a thread to one recipient.
-The text is one argument. A configured target uses the send template, the
-same command the inbox uses for that pane. With ~"recipients": {"agentbus": true}~,
-~--to~ also accepts a name from ~agentbus list --json~, under the same list
-the inbox uses, and the note goes through ~agentbus send~ with no pane
-command. ~--via~ defaults to ~cli~. Plain output is ~sent to <name> as <id>~.
-~--json~ adds ~id~ to ~name~ and ~text~. An unknown name prints
-~decide send recipient "<name>" is unknown~ and exits 2. An empty note
-sends nothing. ~decide send --id~ is unchanged.
-
-In the inbox compose box the recipient list is a dropdown of at most
-eight rows, and at most a third of the screen. Typing filters it by name
-or ~when~ text, ignoring case. ~Backspace~ widens it, ~Esc~ clears the
-filter, and a second ~Esc~ leaves compose. ~↑~/~↓~ or ~C-p~/~C-n~ move
-and ~Enter~ picks. A list longer than the dropdown shows the match count
-and groups names by prefix.
-
-With ~"recipients": {"agentbus": true}~ in the config (off by default)
-the list adds the names from ~agentbus list --json~ after the configured
-targets, with their ~when~ text and liveness. Dead names come last. A
-configured target whose pane a bus name holds is shown once, as the bus
-name. The names load in the background when the inbox starts and again
-every 30 seconds, so opening compose never waits for ~agentbus~: the list
-shows the configured targets and the names loaded so far, and names that
-arrive later join it without moving the selection. The top-level
-~"recipientsTimeout": "5s"~ bounds each load (default 3s). When a load times out the status line
-shows ~agentbus: slow (>3s)~, and when ~agentbus~ is missing or fails it
-shows ~agentbus: unavailable (<error>)~, once until a load succeeds. The
-last good names stay in the list. A note to a bus name runs
-~agentbus send <name> <note>~. The thread pane is ~agentbus:<name>~ and
-~busMessage~ is the bus message id. Replies in that thread from the
-inbox also go through ~agentbus send~. When the send fails the draft
-stays and no thread is kept.
-
-* Contacts
-
-~g~ then ~c~ opens Contacts, the sidebar row after Status. One row per
-agent. Names come from ~agentbus list --json~ (the same background load
-the compose recipient list uses, and through the hub in hub mode) and
-from every item owner and message sender in the ledger. ~human~ and
-~system~ are not contacts. A ledger name merges into a bus name when it
-is that name, a herdr handle or pane id for that agent's handle, the
-unique last path segment of one bus name (~primary~ into
-~coord/primary~), or a ~contactAliases~ entry. A short name shared by
-two bus names stays its own row. A name only the ledger has is
-~(offline)~. A merged row shows the canonical name and the other names
-in a dim ~aka~ suffix, and its open count sums the items under those
-names. The columns are the avatar (its built-in id, ~file~, or ~-~),
-the name, the state, the bus liveness, how many open items that agent
-owns or sent a message on, and the last activity, in the same local
-time as the rest of the inbox. The sidebar count is the number of
-active contacts. A search or an agent filter shows it as
-~matches/total~, as the other folders do.
-
-Each contact is one of three states. ~active~ means agentbus reports
-the name ~alive~. ~unresponsive~ means the name is registered but
-reported ~unreachable~, hibernated, or waking (the list's JSON word
-~unknown~ is the unreachable report). ~dead~ means agentbus reports the
-name gone or dead, or the name is known only from the ledger and is not
-registered. Before the bus list answers, a ledger name is not marked
-dead. Rows sort by state (active, then unresponsive, then dead). Within
-a state, open items come first, then the most recent activity. Dead and
-unresponsive rows are dim. The rows reload on the inbox tick. The bus
-load stays in the background, so an unreachable bus still lists the
-ledger agents and the status line says ~agentbus: unavailable (...)~.
-
-~x~ hides the selected contact. The hidden list is the ~hiddenContacts~
-display setting: on the hub in hub mode (~set-hidden~), otherwise in
-this machine's config. The write changes only that key and keeps every
-other key and its order, with the same temp-file rename and
-~config.json.bak~ backup as an avatar write. Hiding does not delete
-ledger items or messages. A hidden contact comes back on its own when
-it is active again. ~H~ toggles showing hidden rows for this session.
-~X~ hides every dead contact after a confirm. ~R~ on a name agentbus
-still lists as dead runs ~agentbus release <name>~ after a confirm that
-names the agent, and the result goes to the status line. ~R~ is refused
-for an active or unresponsive name, and for a name the bus does not
-list. ~a~ aliases the selected contact to a bus name, picked from that
-list with ~j~ and ~k~. The pair is the ~contactAliases~ display
-setting: on the hub in hub mode (~set-contact-aliases~), otherwise in
-this machine's config, and the write changes only that key.
-
-The same changes from a script, run on the hub when hub mode is on:
+* Install
 
 #+begin_src sh
-decide contacts hide <name>
-decide contacts unhide <name>
-decide contacts alias <name> <agent>
-decide contacts prune --dead [--release] [--yes]
+go install github.com/jaeyeom/experimental/devtools/decide/cmd/decide@latest
 #+end_src
 
-~prune --dead~ prints the names it would hide, and with ~--release~ the
-dead bus names it would release. Nothing is written or released unless
-~--yes~ is given.
+~go install ./devtools/decide/cmd/decide~ is the same from a checkout.
+~devtools/setup-dev/ansible/setup-decide.yml~ installs the binary and
+the agent skill. ~decide follow~ as a service is manual; see
+[[*Getting answers back]].
 
-~Enter~ on a contact filters every folder to items that agent owns or
-sent a message in, including items recorded under any merged name. The
-sidebar counts become ~matches/total~, as for a
-search, and a header line says ~agent: <name>~. ~Esc~ clears the filter.
-It combines with ~/~. ~j~ and ~k~ move. ~c~ opens compose to the
-selected contact. The recipient is that contact's canonical agent name,
-not an alias, and the cursor starts in the text box. ~Tab~, ~Shift-Tab~,
-~Enter~, and ~Esc~ are the usual compose keys. A dead contact, or a
-hidden contact the bus does not list, still opens compose with the
-recipient set and the same warning a dead compose target already shows.
-~A~ opens the avatar picker for that agent and saves it the same way
-~A~ in an item does: on the hub in hub mode, otherwise in this machine's
-config.
+Config is JSON at ~$XDG_CONFIG_HOME/decide/config.json~, or
+=~/.config/decide/config.json= when ~XDG_CONFIG_HOME~ is unset. A
+missing file is an empty config.
 
-* Archive and outcome
+* Quick start
 
-~e~ or ~y~ in the inbox list or an open item archives a notification: it
-is marked done with the outcome ~archived~. An item with pending options
-still needs an answer. Archive waits when a message is still unseen: one
-below the view, or one that arrived less than ~ui.archiveGrace~ ago
-(default 2s). The status line says ~new message: not archived~, and an
-open item scrolls to that message. The request carries the newest message
-time the inbox has seen. A newer message on the ledger keeps the item
-open, says ~new message arrived: not archived~, and reloads the view.
-~decide done~ with an outcome, including ~archived~, does not check that
-time. In an open item, ~d~
-asks for an outcome, then marks the item done with it. ~g~ then ~d~
-still opens the Done folder.
-
-* Snooze
-
-~b~ in the inbox list or an open item snoozes it: ~1h~, ~3h~, ~tomorrow
-9:00~, ~next Monday 9:00~, or a custom time. A snoozed item keeps its
-state and is hidden from every folder but Snoozed (~g~ then ~z~), which
-sorts by wake time. It comes back, unread, at that time or as soon as a
-message lands on its thread, such as an agent ~decide reply~. In
-Snoozed, ~b~ also offers ~unsnooze~.
-
-- ~decide snooze <id> <when>~ takes ~2h30m~, ~HH:MM~ (today, or tomorrow
-  once passed), ~YYYY-MM-DD HH:MM~, or ~mon 9:00~, in local time. A done
-  or withdrawn item is refused.
-- ~decide unsnooze <id>~ returns it now.
-- ~decide list~ hides snoozed items. ~--snoozed~ lists only them, and
-  ~decide inbox --snoozed~ opens on that folder. ~show~ prints
-  ~snoozed until:~ and ~--json~ carries ~snoozedUntil~ and ~snoozedAt~.
-
-* Sending from a composer
-
-~Ctrl+Enter~, ~Alt+Enter~, or ~C-s~ sends from every composer: the note,
-reply, answer, and outcome boxes. In the note box it does the same as
-~Tab~ to ~[Send]~ then ~Enter~. ~Enter~ and ~C-j~ keep their meaning:
-~C-j~ inserts a newline, ~Enter~ inserts one in the note box and sends
-in the others. The inbox runs the terminal in raw mode, which turns off
-XON/XOFF flow control, so ~C-s~ reaches it.
-
-~Alt+q~ fills the paragraph at the cursor. List items stay separate:
-the marker stays on the first line and later lines line up under the
-item text. An indented block, and text inside a fence of backticks or
-tildes, is left as it is. The width is ~ui.fillColumn~ in ~config.json~,
-or 72 when that is unset, and it is never wider than the compose box.
-
-#+begin_src json
-{"ui": {"fillColumn": 72}}
-#+end_src
-
-~Ctrl+Enter~ works where the terminal sends it as its own sequence with
-no keyboard mode switched on: exactly =ESC [27;5;13~= (xterm
-modifyOtherKeys) or =ESC [13;5u= (kitty). The inbox rewrites those two
-sequences to ~Alt+Enter~ before bubbletea parses the input, and every
-other sequence passes through unchanged. When a read stops partway into
-one, the inbox waits up to 25ms for the rest, so a lone ~Esc~ is at most
-that late. The inbox does not turn on modifyOtherKeys or the kitty
-keyboard protocol: either mode would also change how ~Shift~ and ~Ctrl~
-letters, or ~Esc~, arrive, and bubbletea v1 does not parse those
-sequences. A terminal that sends ~Ctrl+Enter~ as plain ~Enter~ or ~C-j~
-gets that key's meaning.
-
-What one terminal sends (herdr, ~TERM=xterm-256color~, no mode switched
-on):
-
-| Key        | Arrives as                                      |
-|------------+-------------------------------------------------|
-| Ctrl+Enter | ="\x1b[27;5;13~"= (xterm modifyOtherKeys form)  |
-| Alt+Enter  | ~alt+enter~                                     |
-| C-j        | ~ctrl+j~                                        |
-| Enter      | ~enter~                                         |
-
-To see what a terminal sends, run the inbox with ~DECIDE_KEYDEBUG~ set
-to a log file path, or to ~1~ for ~decide-keys.log~ in the temp
-directory:
+Inside a [[https://herdr.dev/][herdr]] pane the owner defaults to that
+tab's label, and the pane is stored so the answer can be delivered
+there. Outside herdr, pass ~--owner~.
 
 #+begin_src sh
-DECIDE_KEYDEBUG=/tmp/decide-keys.log decide inbox
-tail -f /tmp/decide-keys.log  # in another pane
+decide ask --kind relay --option y:Yes --option n:No --rec y "Merge the release branch?"
 #+end_src
 
-Each key is one line with its bubbletea type, ~alt~, runes, and name,
-such as ~key type=13 (enter) alt=true runes="" str="alt+enter"~. A
-rewritten ~Ctrl+Enter~ adds a line before its ~alt+enter~ key, such as
-~ctrl+enter bytes="\x1b[13;5u" as alt+enter~. Other input bubbletea does
-not parse is logged with its bytes, such as
-~unknown tea.unknownCSISequenceMsg bytes="\x1b[13;2u"~.
-
-* Avatars
-
-The inbox can show a 10x6 avatar for the other party: in an open item,
-left of the ID and header fields; in compose, left of the recipient
-list, for the selected recipient. Map names to files in
-~$XDG_CONFIG_HOME/decide/config.json~:
-
-#+begin_src json
-{
-  "avatars": [
-    {"match": "coord/primary", "file": "~/avatars/coord.png"},
-    {"match": "pm-*", "file": "avatars/pm.txt"},
-    {"match": "review/*", "builtin": "owl"}
-  ],
-  "avatarDefault": true,
-  "avatarMono": "hide"
-}
-#+end_src
-
-- ~avatars~ matches the item owner, compose target, or bus name. An
-  exact ~match~ wins, then the first ~path.Match~ glob. ~file~ may start
-  with =~/= for the home directory and is otherwise relative to the config file. A PNG or WEBP
-  image is drawn as colored characters; any other file is text, and its
-  ANSI colors are kept. A rule may name a built-in figure with
-  ~builtin~ instead of a ~file~; a rule with both is a config error.
-  A rule with ~"hide": true~ shows no avatar for the names it matches.
-- ~avatarDefault~ (off by default) gives each name no rule matches a
-  built-in figure. The same name always gets the same figure, on every
-  run and machine, with no other config. Built-ins come in generations,
-  each a fixed list of ids that never changes once shipped. A second
-  hash of the name draws a generation, weighted by its size; then the
-  FNV-1a hash of the name, mod that generation's size, picks the id.
-  Each added generation of /new/ figures moves only about
-  new/(old+new) of the unpinned names, each to one of the new figures;
-  every other name keeps its figure. A ~builtin~ rule pins a name for
-  good.
-- ~avatarMono~ is ~"hide"~ to hide avatars under ~NO_COLOR~ or on a
-  monochrome terminal. Otherwise they show without color.
-
-decide ships 48 original built-in figures, each 10x6 in truecolor
-half-block and box characters. A space enclosed by the figure is painted
-with a background, and eyes and mouths sit on that fill, so the inside
-is not the terminal background. A gap between parts, and every cell
-outside the outline, stays clear. The fill reads on light and dark
-themes; on a 256-color or 16-color terminal it is downsampled with the
-foreground, and with no color it becomes a block. Generation 1:
-~bee~, ~bun~, ~cactus~, ~cat~,
-~crab~, ~fox~, ~frog~, ~ghost~, ~glasses~, ~headphones~,
-~knight-helmet~, ~lighthouse~, ~mushroom~, ~octopus~, ~owl~,
-~penguin~, ~planet~, ~robot~, ~rocket~, ~snail~, ~teapot~, ~tree~,
-~whale~, and ~wizard-hat~. Generation 2 (which moved about 18/42 of
-unpinned names): ~banker~, ~beer-mug~, ~bishop~, ~book~, ~cook~,
-~dog~, ~general~, ~hammer~, ~jester~, ~king~, ~merchant~, ~peasant~,
-~physician~, ~pirate~, ~queen~, ~scholar~, ~spy~, and ~witch~. The
-people tell apart by hat, hair, or what they hold. Generation 3
-(which moves about 6/48 of unpinned names): ~hand~, ~gopher~,
-~line-chart~, ~chat~, ~ticket~, and ~branch~. ~chat~, ~ticket~ and
-~branch~ are generic pictures, not a product logo. ~gopher~ is an
-original pixel drawing. The Go gopher was designed by Renee French
-and is licensed CC BY 4.0. Preview them,
-several per row as the terminal allows, and see which one a name gets:
+The command prints the new id and nothing else. The first item is
+~D-001~, then ~D-002~, and so on.
 
 #+begin_src sh
-decide avatars list
-decide avatars list --name coord/primary
+decide inbox
 #+end_src
 
-An open item from ~review/docs~ then looks like this (without color):
+The list is one row per item. The columns are the id, the owner, the
+age, the kind, and the latest message:
 
 #+begin_example
-┌────────────────────────────────────────────────────────┐
-│▗▖      ▗▖ D-007                                        │
-│▐█▀▀▀▀▀▀█▌     From: review/docs                        │
-│▐ (o)(o) ▌     Kind: relay                              │
-│▐   \/   ▌    State: open                               │
-│▐ ▀▄▀▄▀▄ ▌  Created: 09:00 · 5m ago                     │
-│ ▀▘ ▀▀ ▝▀  Answered:                                    │
-│                                                        │
-│review/docs  09:00 · 5m ago  latest                     │
-│  merge the release branch?                             │
+>   D-001  review  5m  relay  Merge the release branch?
 #+end_example
 
-Times follow the machine running the inbox, including in hub mode.
-Today is ~09:00 · 5m ago~ or ~today 17:00 · in 3h~. Yesterday is
-~yesterday 18:02~, the next few days are ~Tue 09:15~, and older times
-are ~2026-11-03 09:15~. ~decide inbox --utc~, or ~"ui": {"utc": true}~
-in this machine's config, shows those stamps in UTC. The hub's zone is
-not used, and ~ui~ is not a display key the hub sends. The list age
-stays short, such as ~5m~. ~show~, ~show --json~, and the ledger stay
-UTC.
-
-The avatar is hidden, and the layout is the same as without one, when
-no rule matches and ~avatarDefault~ is off, when the terminal is under
-60 columns, or when fewer than 30 columns would be left beside it. A
-file that cannot be read or decoded, or an unknown ~builtin~ id, is
-hidden too, and the status line shows the error once. Rendered avatars are cached, so moving the
-selection or reloading does not decode the file again.
-
-** Changing an avatar from the inbox
-
-~A~ in the item view opens a picker for the selected message's sender
-(~avatar for <name>~). The opening message, and an item with no message
-selected, still change the owner's avatar. ~human~ and ~system~ have
-none: the status line says ~no avatar for <sender>~. ~A~ on a Contacts
-row opens it for that agent. Every
-built-in figure with its id under it, ~*~ on the figure shown now and
-~>~ on the cursor. ~h~ ~j~ ~k~ ~l~ or the arrows move, ~Enter~ saves,
-and ~Esc~ cancels; the grid scrolls when it does not fit. With mouse
-capture on, a click on a cell saves it, a click outside the picker
-or on its border cancels, and the wheel moves one row. Two extra
-entries come first: ~default~ removes that name's exact rule, so glob
-rules or ~avatarDefault~ apply again, and ~none~ hides that name's
-avatar. The new avatar shows at once, and the status line says
-~avatar for <name>: <id> (saved to config)~. The same change from a
-script, or ~A~ in ~decide.el~:
+Enter opens the item. Press ~y~ to pick the Yes option, or answer from
+the shell. ~--via ui~ records that a person answered in the inbox or
+Emacs; a bare ~decide answer~ records ~cli~.
 
 #+begin_src sh
-decide avatars set ops/x owl
-decide avatars set ops/x default
-decide avatars set ops/x none
-decide avatars list --ids
+decide answer --via ui D-001 y
+decide show D-001
 #+end_src
 
-An avatar change writes only the ~avatars~ section. Choosing a figure
-writes ~{"match": "<owner>",
-"builtin": "<id>"}~, or ~"hide": true~ for ~none~. An existing rule
-whose ~match~ is exactly the owner keeps its place and other keys and
-has its ~file~ or ~builtin~ replaced; otherwise the new rule goes first
-in ~avatars~. Glob rules are never changed. Every other key, known or
-not, keeps its value and order; the file is rewritten with a 2-space
-indent. The write goes to a temp file in the same directory, is
-synced, then renamed over the config; when ~config.json~ is a symlink,
-its target is replaced and the link stays. A config that does not parse
-or cannot be written is left as it is, and the error goes to the status
-line (or stderr).
-
-With no hub, the write is this machine's config, the one the inbox
-reads its avatars from. In hub mode, ~A~ and ~decide avatars set~ save
-the rule on the hub (~set-avatar~) and the status line says
-~avatar for <owner>: <id> (saved on hub)~. The client's own config is
-not written. A rule already in that local config still wins on this
-machine, and the status line says
-~(saved on hub; a local rule for <owner> overrides it here)~. Another
-open inbox takes the new avatar on its next display refresh.
-~decide avatars set --local~ writes this machine even in hub mode. A
-hub that is down is an error, and nothing is written locally. A hub
-that does not know the op says to update decide on the hub.
-
-To undo a change, pick ~default~ (or ~decide avatars set <name>
-default~), edit the ~avatars~ rule by hand, or restore the copy of the
-original: before its first write, each inbox session (or each
-~decide avatars set~) copies ~config.json~ to ~config.json.bak~ next to
-it.
-
-* Opening links
-
-An item's links are its ~--link~ URLs plus the URLs in its question and
-messages, in the order the item view draws them. ~l~ in the item view
-opens the only link straight away. With several, ~l~ opens a picker
-that lists every link, numbered, with long URLs shortened in the
-middle to keep the host and the end of the path. ~j~ / ~k~ or the arrow
-keys move and ~Enter~ opens the row. With nine links or fewer a digit
-opens its link at once; with more, type the number and press ~Enter~
-(~1~ ~2~ ~Enter~ opens the 12th). ~Esc~ cancels.
-
-The opener is ~openCommand~ in ~$XDG_CONFIG_HOME/decide/config.json~,
-an argument list. The URL is appended as the last argument and no shell
-runs. The default is ~["xdg-open"]~, or ~["open"]~ on macOS:
-
-#+begin_src json
-{"openCommand": ["firefox", "--new-tab"]}
-#+end_src
-
-The opener runs on the machine running the inbox, in the background
-with a 5 second limit, so the inbox never waits for it. The status line
-then shows ~opened <url>~ or ~open failed: <error>~. There is no
-clipboard fallback; ~L~ copies the link.
-
-** Clicking links
-
-The inbox captures the mouse by default, so a click reaches the inbox
-rather than the terminal. A click or a ~Ctrl~ click on a URL in the item
-view opens it with the same opener and status line as ~l~. Each line of
-a wrapped URL opens the whole URL. A ~Ctrl~ click anywhere else does
-nothing, while a plain click there keeps its usual meaning, such as
-opening a row or answering an option. ~Shift~ drag still selects text.
-
-~M~ toggles mouse capture. With capture off, the terminal or the
-multiplexer handles clicks itself: drag selects text, and a terminal
-that opens links on ~Ctrl~ click or ~Cmd~ click does so.
-
-The item view and the link picker wrap every URL they draw in an OSC 8
-hyperlink to the full URL, including a URL that is wrapped across lines
-or shortened, so a terminal that supports OSC 8 opens the whole URL from
-any visible part. The sequences take no columns, and ~NO_COLOR~ keeps
-them. Turn them off in the config:
-
-#+begin_src json
-{"hyperlinks": false}
-#+end_src
-
-* Copying text
-
-In the item view, ~Y~ opens a copy menu. ~y~ still archives.
-
-- ~m~ copies the selected message, or the last one when none is
-  selected. The text is the stored message, not the wrapped view.
-- ~q~ copies the question.
-- ~t~ copies the thread. Each message is ~<sender> <local time>~ and
-  then its text.
-- ~i~ copies the item id, such as ~D-123~.
-- ~a~ copies the answer value when the item is answered.
-- ~Esc~ closes the menu.
-
-The status line says ~copied message (312 chars)~, with the same
-shape for the other choices. The text has no borders, padding, soft
-wraps, or ANSI codes, and it keeps its newlines.
-
-~V~ toggles a borderless, unwrapped view of the item so a Shift
-selection also copies clean text. Long lines run past the edge.
-~V~ again restores the normal view.
-
-Clipboard transport is ~ui.clipboard~ in ~config.json~. ~auto~ (the
-default) writes OSC 52 and, when a local clipboard command is
-available, also uses ~pbcopy~, ~wl-copy~, or ~xclip~. ~osc52~ writes
-only OSC 52. ~command~ uses only the local command. ~off~ writes
-nothing and the status line says copy is disabled. OSC 52 is skipped
-above 100 KB; ~auto~ then uses the command, or says the text is too
-large.
-
-#+begin_src json
-{"ui": {"clipboard": "auto"}}
-#+end_src
-
-* Where the owner lives
-
-The item view has an ~Owner:~ header line: the owner and the herdr
-workspace, tab, and pane of the item's stored ~notifyPane~, looked up
-live when the item opens:
+~decide show~ prints the item. Times are UTC. This sample's owner is
+the tab ~review~ and its notify pane is ~w6:pM~:
 
 #+begin_example
-Owner: review-load at experimental / review (w6:pM)
+id: D-001
+question: Merge the release branch?
+owner: review
+kind: relay
+state: answered
+freeText: true
+unread: false
+option: y: Yes recommended
+option: n: No
+createdAt: 2026-11-15T05:11:55.210872Z
+answeredAt: 2026-11-15T05:11:55.511414Z
+answer: y: Yes
+answeredBy: human
+via: ui
+notifyPane: w6:pM
+message: 2026-11-15T05:11:55.210872Z review Merge the release branch?
+message: 2026-11-15T05:11:55.511414Z human y: Yes
 #+end_example
 
-- No stored pane: ~at unknown~. An ~agentbus:~ name is not looked up
-  and shows as the pane id.
-- A pane herdr no longer lists: ~at (w6:pM) — tab closed~.
-- A ~notifyMachine~ other than this machine's label (~machine~ in the
-  config, or ~DECIDE_MACHINE~): the lookup runs through
-  ~herdr --machine <m>~ and the line starts with the machine, as in
-  ~at mac: experimental / review (w6:pM)~. A machine that does not
-  answer shows ~at mac: (w6:pM) (unreachable)~.
-- herdr missing, not running, or failing: only the pane id.
+~decide show --json D-001~ prints that item as JSON and adds
+~ownerLocation~. The answer object is ~value~ ~y~, ~key~ ~y~, ~label~
+~Yes~, ~answeredBy~ ~human~, and ~via~ ~ui~. A pane herdr does not list
+has ~"state": "closed"~. Unset ~doneAt~ and ~withdrawnAt~ are the zero
+time. An empty ~notifyTemplate~ runs nothing. With a template set, the
+command's environment has ~DECIDE_ID=D-001~, ~DECIDE_ANSWER=y~,
+~DECIDE_ANSWER_LABEL=Yes~, ~DECIDE_OWNER~, and ~DECIDE_PANE~. The full
+list is under [[*Getting answers back]].
 
-A lookup is one ~herdr pane list~ (which maps the pane to its tab),
-one ~herdr tab list~, and one ~herdr workspace list~ per machine, each
-with a 5s deadline. The inbox never waits for it: the line shows the
-pane id until the lookup returns. The result is cached per item for
-the session and looked up again each time the item is opened; the
-ledger reload tick does not ask herdr.
+Close the item when the work is finished:
 
-~decide show --json~ adds ~ownerLocation~ with ~machine~ (empty for
-this machine), ~workspace~, ~tab~, ~pane~, and ~state~: ~live~,
-~closed~, ~unknown~, or ~unreachable~. A live pane also has
-~workspaceId~ and ~tabId~. Emacs shows the same line from it, so an
-Emacs item buffer is drawn after the lookup, and ~g~ looks it up again.
+#+begin_src sh
+decide done D-001 "merged"
+#+end_src
 
-** Jump to the owner
+That prints the item again with ~state: done~ and ~outcome: merged~.
 
-~o~ in the TUI item view, or ~O~ in an Emacs item buffer, brings the
-owner's herdr tab to the front from the location already looked up:
-~herdr workspace focus <workspaceId>~, then ~herdr tab focus <tabId>~.
-herdr 0.9 focuses a pane only by direction from another pane, not by
-id, so the tab is the target. The TUI runs the calls off the update
-loop. The inbox stays where it was, and the item is not marked read or
-answered.
+* Concepts
 
-- Success: the status line says ~focused experimental / review~.
-- Another machine: the calls run through ~herdr --machine <m>~, and the
-  status line says ~focused mac: experimental / review~. When herdr
-  refuses, it says ~owner is on mac; not focusable from here~.
-- A closed tab, a machine that did not answer, or an unknown location:
-  no herdr call, and the status line says why, such as
-  ~owner tab closed; nothing to focus~.
-- In the TUI, before the lookup returns: ~owner location still loading~.
+- An *item* is one question or note, id ~D-001~ and up. Its *thread*
+  is ~messages~. The ask is the first. ~decide reply~ and ~decide send
+  --id~ append. ~decide send --to~ starts a thread.
+- The *owner* is who you find the ask by: inside herdr, the pane's tab
+  label, unless ~--owner~ is set. A name that matches neither that tab
+  nor the pane's agentbus names still files, and asks print a warning
+  on stderr.
+- *relay* is a choice. It needs at least two ~--option key:label~
+  values and ~--rec~ set to one of those keys. Free text is allowed
+  unless ~--options-only~ is set or ~optionsOnly~ is true in the config.
+  *type-in* is "type this exact text". It needs ~--type-text~ and
+  ~--where~.
+- *States* are ~open~, ~answered~, ~done~, and ~withdrawn~. Snoozed is
+  not a state: the item keeps its state and is hidden until it wakes.
+- The *ledger* is ~ledger.json~ in ~$XDG_STATE_HOME/decide~, or
+  =~/.local/state/decide= when ~XDG_STATE_HOME~ is unset. ~status.json~
+  in that same directory holds agent and resource rows, separate from
+  the ledger.
+- The *notify pane* is where the answer is delivered. An ask from a
+  herdr pane stores that pane. ~--notify-pane~ wins. A value of
+  ~agentbus:<name>~ delivers with ~agentbus send~ instead of a pane
+  command.
+- A *hub* is a second machine's ssh target. The hub holds the ledger.
+  The other machine runs the same commands against it. See
+  [[*Using two machines]].
+- The *inbox tick* is the reload. A local inbox reloads the ledger every
+  250ms. A hub inbox asks the hub once a second and keeps the last good
+  view while a request is in flight.
 
-* The owner of an ask
+* Commands
 
-Inside a herdr pane (~HERDR_PANE_ID~ is set), ~decide ask~ without
-~--owner~ uses the label of this pane's tab as the owner, so the owner
-matches the tab the user sees. Outside herdr, or when herdr does not
-list the pane, ~--owner~ is required.
+Text for ~ask~, ~reply~, ~send~, ~done~, ~withdraw~, and ~status set~
+may be a positional argument, ~--text-file <path>~, or ~-~ for stdin.
+Many commands take ~--json~. ~decide --remote user@host <command>~ uses
+that hub for one invocation.
 
-Every ask from a herdr pane stores that pane as ~notifyPane~, so
-[[*Where the owner lives]] can find it. An explicit ~--notify-pane~
-still wins and still decides where answers go.
+| Command                          | Does                                                           |
+|----------------------------------+----------------------------------------------------------------|
+| ~decide ask~                     | File a question for a human to answer.                         |
+| ~decide list~                    | List items in one state. ~--snoozed~ lists only snoozed items. |
+| ~decide show~                    | Print one item. ~--json~ adds ~ownerLocation~.                 |
+| ~decide withdraw~                | Withdraw an item and store the reason.                         |
+| ~decide done~                    | Mark an item done and store the outcome.                       |
+| ~decide answer~                  | Record an answer. ~--via ui~ is for the inbox and Emacs.       |
+| ~decide snooze~                  | Hide an item until a time without changing its state.          |
+| ~decide unsnooze~                | Show a snoozed item again.                                     |
+| ~decide inbox~                   | Open the terminal UI. ~--snoozed~ opens on Snoozed.            |
+| ~decide follow~                  | Retry a failed delivery and send one stale follow-up.          |
+| ~decide status set --agent~      | Set one agent's state and text.                                |
+| ~decide status set --resource~   | Mark a shared resource ~free~ or ~busy~.                       |
+| ~decide status list~             | Print agent rows and resource flags.                           |
+| ~decide status clear --agent~    | Remove one agent row.                                          |
+| ~decide status clear --resource~ | Remove one resource flag.                                      |
+| ~decide targets~                 | Print compose recipients, one name per line.                   |
+| ~decide send --to~               | Start a thread to one recipient.                               |
+| ~decide send --id~               | Append a message to an existing thread.                        |
+| ~decide reply~                   | Post the agent's message on a thread.                          |
+| ~decide reassign~                | Point an item at another owner or notify pane.                 |
+| ~decide skill~                   | Print the agent instructions.                                  |
+| ~decide avatars list~            | Show the built-in figures. ~--ids~ prints ids only.            |
+| ~decide avatars set~             | Save a figure, ~default~, or ~none~ for one name.              |
+| ~decide contacts hide~           | Hide one contact.                                              |
+| ~decide contacts unhide~         | Show one hidden contact again.                                 |
+| ~decide contacts alias~          | Map a ledger name to a bus name.                               |
+| ~decide contacts prune~          | List dead contacts. ~--yes~ hides them.                        |
+| ~decide config show~             | Print this machine's config. ~--effective~ merges the hub.     |
 
-~decide reassign~ is for a retired owning tab, or a handoff to another agent.
+* Asking and answering
 
-An explicit ~--owner~ that is neither the tab label nor one of this
-pane's agentbus names, from ~agentbus whoami~ with a 2s deadline, prints
-a warning on stderr and still files the item:
+~--owner~ names the agent. Inside herdr it defaults to the tab.
+~--kind relay~ needs at least two ~--option key:label~ values and
+~--rec~. ~--kind type-in~ needs ~--type-text~ and ~--where~.
+~--free-text~ allows an answer that is not an option. ~--options-only~
+rejects one, and for relay ~--free-text~ wins over that flag and over
+~optionsOnly~. ~--deadline~ is RFC3339. ~--link~ repeats. ~--notify-pane~
+is a pane id or ~agentbus:<name>~. ~--json~ prints the new item.
 
-#+begin_example
-warning: owner "X" matches neither this tab ("review") nor your agentbus names (ops/inbox); the user finds you by tab
-#+end_example
+~--owner-replies-only~ refuses ~decide reply~ and ~decide send --id~
+from anyone but that owner. The sentence is ~item D-123 accepts replies
+only from its owner slackwatch; message the owner instead~. A human
+reply in the inbox, and any answer, still work. Set it when a tool owns
+the thread and parses the answer. Leave it off on an ordinary ask.
 
-When agentbus is missing or fails, the names are ~none~ and only the tab
-label counts.
+~decide list~ prints the id, the deadline or ~-~, the owner, and the
+question, tab-separated. ~decide answer~ stores an option key or free
+text. ~--via~ is ~ui~ or ~cli~, and the default is ~cli~. ~decide reply~
+appends the agent's message and does not deliver it to a pane. On an
+open question it keeps the options. ~--option~ replaces them. A plain
+reply reopens an answered or done item as a notification you can
+archive. A withdrawn item is refused. ~decide send --to~ prints ~sent
+to <name> as <id>~. An unknown name exits 2. An empty note sends
+nothing. ~decide reassign~ points the item at a new owner or pane when
+the owning tab is retired.
 
-* Emacs
+~decide snooze~ takes ~2h30m~, ~HH:MM~ (today, or tomorrow once that
+time has passed), ~YYYY-MM-DD HH:MM~, or ~mon 9:00~, in local time. A
+clock time may be the next argument, as in ~decide snooze D-001 mon
+9:00~. A done or withdrawn item is refused. ~show~ prints ~snoozed
+until:~.
 
-~devtools/decide/emacs/decide.el~ is a plain Emacs frontend. Load that
-file and run ~M-x decide-list~. It calls ~decide list --json~ and
-~decide show --json~. ~o~ answers with an option key. ~0~ opens a
-normal buffer to reply with free text. ~C-c C-c~ sends that buffer and
-~C-c C-k~ closes it without answering. ~l~ opens the item's link with
-~browse-url~; with several it asks for one of the numbered links.
+An answer's ~via~ is ~ui~ when a person answered in the inbox or Emacs,
+and ~cli~ when ~decide answer~ or ~decide send --id~ recorded it. ~by~
+on a message is who ran ~decide reply~ or ~decide send --id~: their
+agentbus name, else their herdr tab, else their pane. The rules are in
+[[file:docs/provenance.org][docs/provenance.org]].
 
-~c~ composes a note. The recipient comes from ~decide targets --json~.
-~C-c C-c~ runs ~decide send --to~ with the buffer text as one argument.
-~C-c C-k~ closes the buffer and does not send. ~s~ shows
-~decide status list --json~. A row older than five minutes is dim.
-The status buffer refreshes every two seconds while it is visible, and
-the timer stops when the buffer is killed.
+* The inbox
 
-decide.el runs one ~decide~ command per action, so it works in hub mode
-unchanged: with ~hub~ in the config or ~DECIDE_HUB~ set (for example
-~(setenv "DECIDE_HUB" "me@hub")~), each call runs on the hub over ssh and
-links open in this Emacs. For one hub only in Emacs, set
-~decide-program~ to a wrapper script that runs
-~exec decide --remote me@hub "$@"~.
+~decide inbox~ is the terminal UI. ~--utc~, or ~"ui": {"utc": true}~ in
+this machine's config, shows stamps in UTC. Otherwise times follow the
+machine running the inbox, including in hub mode. ~show~ and the ledger
+stay UTC. ~--remote user@host~ and ~--snoozed~ are the other flags.
 
-* Where an answer came from
+The sidebar folders are Inbox, Snoozed, Answered, Done, Withdrawn, then
+Status and Contacts. ~g~ waits for a second key. Esc cancels the chord.
+Any other second key says ~unknown go-to key~.
 
-Each stored answer has ~via~, shown as ~answer.via~ in
-~decide show --json~ and ~decide list --json~, and as a ~via:~ line in
-~decide show~.
+| Key                          | Where                        | Action                                                     |
+|------------------------------+------------------------------+------------------------------------------------------------|
+| ~q~                          | any                          | Quit.                                                      |
+| ~?~                          | any                          | Show this inbox's shortcuts. ~?~ or Esc closes them.       |
+| ~j~ / ~k~                    | list or item                 | Move the row, or scroll one line in an item.               |
+| ~n~ / ~p~                    | item                         | Next or previous message.                                  |
+| ~g~ then ~i~ ~z~ ~a~ ~d~ ~w~ | any                          | Inbox, Snoozed, Answered, Done, Withdrawn.                 |
+| ~g~ then ~s~ / ~c~           | any                          | Status or Contacts.                                        |
+| ~g~ then ~g~ / ~G~           | list, status, contacts       | Top or bottom of the list.                                 |
+| ~G~                          | item                         | Scroll to the end.                                         |
+| pgup / pgdn, home / end      | list and item                | Page, or jump.                                             |
+| Enter or ~o~                 | list                         | Open the row.                                              |
+| ~u~ or Esc                   | item, status, contacts       | Back to the list.                                          |
+| ~c~                          | list, item, status, contacts | Compose a note.                                            |
+| ~e~ or ~y~                   | list, item                   | Archive: mark done with outcome ~archived~.                |
+| ~d~                          | item                         | Ask for an outcome, then mark done.                        |
+| ~b~                          | list, item                   | Snooze. In Snoozed, ~b~ also offers unsnooze.              |
+| ~/~                          | any                          | Filter the list, or highlight an item. Empty Enter clears. |
+| Esc                          | list                         | Clear the agent filter.                                    |
+| ~1~-~9~                      | item                         | Answer with that option.                                   |
+| ~0~                          | item                         | Free-text reply.                                           |
+| ~f~                          | item                         | Forward the item.                                          |
+| ~l~                          | item                         | Open the only link, or pick one.                           |
+| ~L~                          | item                         | Copy the link.                                             |
+| ~Y~                          | item                         | Open the copy menu.                                        |
+| ~V~                          | item                         | Borderless, unwrapped view. ~V~ again restores it.         |
+| ~A~                          | item or contacts             | Open the avatar picker for that sender.                    |
+| ~o~                          | item                         | Focus the owner's herdr tab.                               |
+| ~M~                          | any                          | Toggle mouse capture.                                      |
+| ~x~ / ~H~ / ~X~ / ~R~ / ~a~  | contacts                     | Hide, show hidden, hide dead, release, alias.              |
+| Enter                        | contacts                     | Filter every folder to that agent.                         |
+| Tab / Shift-Tab              | compose                      | Move among recipient, text, and Send.                      |
+| Enter                        | compose                      | Newline in the text. Send on the Send button.              |
+| Ctrl+Enter, Alt+Enter, ~C-s~ | every composer               | Send the draft.                                            |
+| ~Alt+q~                      | compose                      | Fill the paragraph at the cursor.                          |
+| up / down, ~C-n~ / ~C-p~     | compose recipients           | Move in the filtered list.                                 |
+| Backspace / Esc              | compose recipients           | Widen the filter, then leave. The draft stays.             |
+| click / wheel                | list or item                 | Open a row, pick an option, open a URL, or scroll.         |
+| Shift drag                   | any                          | Select text in the terminal.                               |
 
-- ~ui~: the user answered in the inbox TUI, or Emacs answered with
-  ~decide answer --via ui~ or, from its composer, ~decide send --id --via ui~.
-- ~cli~: ~decide answer~ or ~decide send --id~ on an open question without
-  ~--via~. ~--via cli~ is the same. Any other ~--via~ value is an error.
+The copy menu is ~m~ message, ~q~ question, ~t~ thread, ~i~ id, ~a~
+answer, and Esc. The status line says ~copied message (312 chars)~,
+with no borders or ANSI codes. ~ui.clipboard~ is ~auto~ (OSC 52, plus
+~pbcopy~, ~wl-copy~, or ~xclip~), ~osc52~, ~command~, or ~off~. OSC 52
+stops above 100 KB. In the avatar picker, ~h~ ~j~ ~k~ ~l~ or the arrows
+move, Enter saves, and Esc cancels. Mouse behavior is under
+[[*Customizing]].
 
-Only the human front ends pass ~--via ui~. Agents never pass it. A tool
-that must act only on an answer the user gave interactively checks that
-~via~ is ~ui~. An answer stored before ~via~ existed has no ~via~ in its
-JSON and does not count as ~ui~. Hub mode forwards ~--via~ unchanged, so
-an answer from a hub client keeps its ~via~.
+Archive waits while a message is unseen or newer than ~ui.archiveGrace~
+(default 2s). The status line says ~new message: not archived~. Pending
+options still need an answer. ~decide done~ does not check that grace.
+Snooze offers ~1h~, ~3h~, ~tomorrow 9:00~, ~next Monday 9:00~, or a
+custom time. The item stays out of every folder but Snoozed until that
+time, or until a message lands, and then it is unread.
 
-This guards against accidents, not a misbehaving agent: every agent
-runs as the same user and could still edit the ledger or drive the TUI.
+~l~ opens the only link, or a numbered picker. A digit opens one of the
+first nine; with more links, type the number and press Enter. The
+opener is ~openCommand~ (default ~xdg-open~, or ~open~ on macOS). The
+URL is the last argument and no shell runs. The limit is 5 seconds.
+URLs are OSC 8 hyperlinks unless ~hyperlinks~ is false. Mouse capture
+is on by default. ~Ctrl~ click opens a URL. ~M~ gives clicks to the
+terminal.
 
-** Who wrote each message
+The ~Owner:~ line is the herdr workspace, tab, and pane. ~o~ runs
+~herdr workspace focus~ and then ~herdr tab focus~, and does not answer.
+Each lookup has a 5s deadline, and the inbox does not wait. ~show
+--json~ adds ~ownerLocation~ (~machine~, ~workspace~, ~tab~, ~pane~,
+~state~ of ~live~, ~closed~, ~unknown~, or ~unreachable~). Ctrl+Enter
+and ~DECIDE_KEYDEBUG~ are in [[file:docs/keys.org][docs/keys.org]].
 
-Each thread message in ~messages~ also records where it came from:
+* Notes and status
 
-- ~via~: every human message (an answer, a composer send, a new thread
-  from ~decide send --to~) has ~ui~ or ~cli~, by the same rules as
-  ~answer.via~. Agent messages have none. A message stored before ~via~
-  existed has none and does not count as ~ui~.
-- ~by~: ~decide reply~ and ~decide send --id~ record who ran them: the
-  caller's first agentbus name, else its herdr tab label, else its pane
-  handle, else nothing. In hub mode the client sends its handle, tab
-  label, and agentbus names to the hub, as for an ask. ~author~ is
-  unchanged: a reply's author is still the thread owner. The inbox and
-  Emacs show ~by~ when it is set, and ~author~ otherwise. The owner
-  stays in the item header.
+~decide send --to <name> "<text>"~ starts a thread. A configured target
+uses ~sendTemplate~, which defaults to ~herdr agent prompt {pane}~ with
+the note as its own argument. ~{pane}~ is replaced. The note is not
+interpolated into a shell. With ~"recipients": {"agentbus": true}~,
+~--to~ also accepts a name from ~agentbus list~, and the note goes
+through ~agentbus send~. ~--via~ defaults to ~cli~.
 
-~decide show --json~ includes ~via~ and ~by~ on each message, next to
-~optionKey~.
+The compose dropdown has at most eight rows and filters as you type.
+Bus names load in the background, at start and every 30 seconds, so
+compose does not wait. ~recipientsTimeout~ bounds a load (default 3s).
+Dead names come last. A slow load says ~agentbus: slow (>3s)~. A failure
+says ~agentbus: unavailable~ and keeps the last good names.
 
-A plain ~decide reply~ on an open question keeps that item's options
-and ~freeText~. The user can still answer with an option key. A reply
-that passes ~--option~ replaces the pending options and ~freeText~.
-A plain reply clears options only when it reopens an answered or done
-item as a notification. A withdrawn item is still refused.
+~decide status~ uses ~status.json~. ~set --agent~ writes one row. A new
+row with no ~--state~ is ~working~, and a later set keeps the state.
+~list~ prints name, state, age, and text. A row older than five minutes
+is dim. ~set --resource <name> free|busy~ writes a shared flag. ~clear~
+removes one row or one flag. ~checkouts~ maps a resource name to a
+checkout path and shows that path's agentbus lease (~free~, ~held by
+<name> until 14:20~, ~paused by user~, ~needs adopt~, plus ~, <n>
+queued~), or the stored row with ~(guess)~. The choice is in
+[[file:docs/leases.org][docs/leases.org]].
 
-~decide ask --owner-replies-only~ marks an item so ~decide reply~ and
-~decide send --id~ from any sender other than the owner are refused
-with ~item D-123 accepts replies only from its owner slackwatch;
-message the owner instead~. The command prints that sentence after
-~decide:~. A human reply from the inbox is still allowed, and so is
-an answer, including one from the TUI. ~decide show --json~ includes
-~ownerRepliesOnly~ when the flag is set. Set the flag on a tool that
-owns the thread and parses the user's answer, such as an outbox
-approval. Do not set it on every ask. The tool's own reply is accepted
-only when the recorded sender is that owner.
+* Getting answers back
 
-A reply returns an answered or done thread to the inbox, as intended.
-A later human free-text message that answers the reopened thread
-replaces ~answer~. A tool that needs an
-earlier option pick reads the messages, which keep its ~optionKey~,
-~via~ and ~by~, rather than ~answer~.
+After a relay answer is saved, ~notifyTemplate~ runs as a shell command
+for a pane on this machine. Nothing is written into the command string.
+An empty template runs nothing. There is no default notify command.
+~{id}~, ~{answer}~, ~{owner}~, and ~{pane}~ are not substituted.
 
-* Notify
-
-After a relay answer is saved, ~notifyTemplate~ runs as a shell command.
-The environment is how a template reads the answer. Nothing is written
-into the command string.
+The environment is how a template reads the answer:
 
 - ~DECIDE_ID~ is the item id.
 - ~DECIDE_ANSWER~ is the saved answer. An option answer is the option key.
-  A multi-line free-text answer is stored unchanged, including quotes.
-- ~DECIDE_ANSWER_LABEL~ is the label the chosen option had when it was
-  answered. A later follow-up does not change it. It is empty for free text.
+- ~DECIDE_ANSWER_LABEL~ is the label that option had when it was picked.
+  It is empty for free text.
 - ~DECIDE_OWNER~ is the item owner.
-- ~DECIDE_PANE~ is the notify pane. An item pane overrides the config pane.
-- ~DECIDE_KIND~ is the item kind, ~relay~ or ~type-in~.
-- ~DECIDE_QUESTION~ is the first line of the question, at most 200 characters.
-  The next line is not included, and a character is not split.
+- ~DECIDE_PANE~ is the notify pane. The item's pane overrides the config.
+- ~DECIDE_KIND~ is ~relay~ or ~type-in~.
+- ~DECIDE_QUESTION~ is the first line of the question, at most 200
+  characters. A character is not split.
 - ~DECIDE_ANSWERED_AT~ is ~answeredAt~ in RFC3339.
 - ~DECIDE_ANSWERED_BY~ is the stored ~answeredBy~, for example ~human~.
-- ~DECIDE_THREAD_HEADER~ is one line such as ~[decide D-123 from human]~,
-  with the thread id and the author.
-- ~DECIDE_REPLY_HINT~ is one line such as
-  ~Reply in this thread: decide reply D-123 "..." (add --option key:label for a follow-up question; decide done D-123 "outcome" when finished). Do not answer only in your terminal.~
-- ~DECIDE_MACHINE~ is empty. The template runs only for a pane on this
-  machine.
-- ~DECIDE_DELIVERY_KEY~ is ~<item id>:<answeredAt>~ for this answer.
-  Retries of the same answer reuse it.
+- ~DECIDE_THREAD_HEADER~ is one line such as ~[decide D-123 from human]~.
+- ~DECIDE_REPLY_HINT~ is one line telling the agent to ~decide reply~ in
+  the thread and to ~decide done~ when finished.
+- ~DECIDE_MACHINE~ is empty. The template runs only for a local pane.
+- ~DECIDE_DELIVERY_KEY~ is ~<id>:<answeredAt>~. Retries of the same
+  answer reuse it.
 
-An empty ~notifyTemplate~ runs nothing for a pane on this machine. There is no default notify command.
+A pane on another herdr machine does not run ~notifyTemplate~. Decide
+sends the header, the answer, and the reply hint with the compose
+command and ~--machine~. An ~agentbus:<name>~ pane uses ~agentbus send
+--client-id <key>~ with the same ~DECIDE_DELIVERY_KEY~. ~held~ or
+~queued~ is ~delivered (queued)~ and is not retried. Any other failure
+is stored as ~notifyError~ until a later delivery works. Each attempt is
+a ~delivery~ entry (~at~, ~target~, ~outcome~, ~error~). The inbox shows
+~not delivered~ when the latest attempt failed.
 
-A template only ever sees a local pane. When the notify pane is on
-another herdr machine, decide does not run ~notifyTemplate~. It sends
-the thread header, the answer, and the reply hint with the compose send
-command and ~--machine <machine>~, the same way ~decide send --id~
-reaches that pane. A non-zero exit and JSON with a top-level ~error~
-object count as not delivered. When the notify pane is
-~agentbus:<name>~, decide does not run ~notifyTemplate~. It sends the
-thread header, the answer, and the reply hint with
-~agentbus send <name> <text> --client-id <key>~. The key is
-~<item id>:<answeredAt>~ and stays the same for every retry of that
-answer. A non-zero exit, JSON with a top-level ~error~ object, and
-text that says the pane or agent was not found count as not
-delivered. A ~held~ or ~queued~ state is ~delivered (queued)~: the bus
-keeps the message and delivers one copy later, and decide does not
-retry it. The item keeps a failed attempt in ~notifyError~, which
-~decide show~ prints, until a later delivery succeeds.
+A failure is retried on the ledger machine after 5s, then after 20s,
+then it stops. Three attempts is the cap. An answer the owner has not
+taken up is followed up once, after ~ui.staleAnswerAfter~ (30 minutes
+when unset), unless the owner replied, the item was marked read, or
+someone ran ~decide done~. Opening the item marks it read. The check
+runs on the ledger machine: an open local inbox, the hub's ~decide
+serve --stdio~ once a minute, and ~decide follow~. A hub client does
+not run it. A gone pane, or a live pane with no agent, is marked ~owner
+gone~ and nothing is re-sent. An agent with ~agent_status~ ~blocked~ is
+marked ~owner waiting on a dialog~. Otherwise the same key is sent once
+more.
 
-A pane on this machine still uses ~notifyTemplate~. After that command, or
-~decide send~, exits 0, decide reads its stdout. JSON with a top-level
-~error~ object is a failed delivery, the same as a non-zero exit.
-Text that says the pane or agent was not found is a failed delivery too.
-A pane target, including one reached with ~--machine~, puts
-~DECIDE_DELIVERY_KEY~ in the environment of that command.
+~decide follow~ runs that loop every minute until SIGINT or SIGTERM.
+~--every 5m~ changes the interval. ~--once~ is a single pass, for cron.
+Run it on the machine that holds the ledger. A parent value of the same
+environment name does not win. The systemd unit and the launchd agent
+are in [[file:docs/follow.org][docs/follow.org]]. The service needs
+~decide~, the notify command, and herdr on ~PATH~.
 
-Each attempt is stored on the item as ~delivery~: ~at~, ~target~,
-~outcome~ (~delivered~, ~failed~, or ~delivered (queued)~), and
-~error~. ~decide show --json~ prints it. The inbox shows
-~not delivered~ and the error on an answered item whose latest attempt
-for that answer failed, in the list and in the item header.
+* Emacs
 
-A failed attempt is retried on the ledger's machine, wherever the
-stale-answer check below runs, after 5s and then after 20s, and then it
-stops. Three attempts
-is the cap. The same key is sent again. A new answer has a new
-~answeredAt~ and a new key. A queued attempt is not retried.
+~devtools/decide/emacs/decide.el~ is a plain Emacs frontend. Load it and
+run ~M-x decide-list~. It calls ~decide list --json~ and ~decide show
+--json~. ~o~ answers with an option key. ~0~ opens a buffer for free
+text. ~C-c C-c~ sends that buffer and ~C-c C-k~ closes it without
+answering. ~l~ opens a link with ~browse-url~. ~c~ composes a note and
+sends it with ~decide send --to~. ~s~ shows ~decide status list --json~.
+~O~ focuses the owner's tab. ~A~ sets an avatar. ~g~ looks up the owner
+again.
 
-An answered item the owner has not taken up is followed up once. It is
-stale when it is still answered, ~ui.staleAnswerAfter~ on the ledger
-machine has passed (30 minutes when that is unset), and the owner has
-not replied in the thread, marked it read, or run ~decide done~.
-Opening the item marks it read. The check runs on the machine that
-holds the ledger, in three places:
+Each action is one ~decide~ command, so hub mode works when ~hub~ is in
+the config or ~DECIDE_HUB~ is set. For a hub only in Emacs, set
+~decide-program~ to a wrapper that runs ~exec decide --remote me@hub "$@"~.
 
-- ~decide inbox~ open there, on each reload.
-- ~decide serve --stdio~, the session a hub client's inbox starts,
-  once a minute, so the item does not have to be open.
-- ~decide follow~, a runner with no UI and no client
-  ([[*Running the follow-up as a service]]).
+* Configuration
 
-A hub client does not run it. On a hub, the first two run only while
-someone has an inbox open, which is often not the case when the user is
-away. Run ~decide follow~ as a service there.
+One JSON object. Keys you do not set keep the default. ~ui~ is this
+machine only. A hub does not send it.
 
-Passes in several of these at once send one follow-up: each pass locks
-the ledger, and a re-send is recorded under the lock before it is sent.
+| Key                   | Default                     | Meaning                                                                        |
+|-----------------------+-----------------------------+--------------------------------------------------------------------------------|
+| ~notifyTemplate~      | empty                       | Shell command after a local relay answer. Empty runs nothing.                  |
+| ~notifyPane~          | empty                       | Pane used when the item has none.                                              |
+| ~optionsOnly~         | false                       | A relay ask rejects free text unless ~--free-text~.                            |
+| ~sendTemplate~        | ~herdr agent prompt {pane}~ | Compose send command. ~{pane}~ is replaced.                                    |
+| ~targets~             | none                        | Compose recipients. Each entry has ~name~ and ~pane~.                          |
+| ~colors~              | theme indexes               | ~requester~, ~human~, ~agent~, ~time~, ~badge~, ~muted~. ANSI index or ~#hex~. |
+| ~recipients.agentbus~ | false                       | Add ~agentbus list~ names to compose.                                          |
+| ~recipientsTimeout~   | ~3s~                        | Bound on each bus-name load.                                                   |
+| ~hub~                 | empty                       | Ssh target of the ledger machine. ~DECIDE_HUB~ wins.                           |
+| ~hubTimeout~          | ~5s~                        | Ssh connect timeout.                                                           |
+| ~machine~             | empty                       | This machine's herdr label. ~DECIDE_MACHINE~ wins.                             |
+| ~hubMachine~          | empty                       | The hub's herdr label on this machine.                                         |
+| ~avatars~             | none                        | Rules mapping a name to a file or a built-in id.                               |
+| ~avatarDefault~       | false                       | A built-in figure for every name with no rule.                                 |
+| ~avatarMono~          | empty                       | ~hide~ hides avatars when the terminal has no color.                           |
+| ~messageAvatars~      | on                          | A sender figure beside each message. ~false~ turns it off.                     |
+| ~checkouts~           | none                        | Resource name, optional ~machine~, and checkout ~path~.                        |
+| ~openCommand~         | ~xdg-open~ or ~open~        | Argv that opens a link. The URL is the last argument.                          |
+| ~hyperlinks~          | on                          | OSC 8 links in the item view. ~false~ turns them off.                          |
+| ~hiddenContacts~      | none                        | Names the Contacts folder hides.                                               |
+| ~contactAliases~      | none                        | Ledger name to canonical agent name.                                           |
+| ~ui.utc~              | false                       | Inbox stamps in UTC.                                                           |
+| ~ui.clipboard~        | ~auto~                      | ~auto~, ~osc52~, ~command~, or ~off~.                                          |
+| ~ui.fillColumn~       | 72                          | Compose fill width. Never wider than the box.                                  |
+| ~ui.staleAnswerAfter~ | ~30m~                       | How long an answer sits before one follow-up.                                  |
+| ~ui.archiveGrace~     | ~2s~                        | How long a new message holds archive.                                          |
 
-The follow-up looks the owner up first, through ~herdr --machine~ when
-the pane is on another machine, and then reads ~herdr agent list~:
+* Using two machines
 
-- The pane is gone, or the pane is live and has no agent: the item is
-  marked ~owner gone~. The inbox item view shows ~Close~, which finishes
-  it. Nothing is re-sent.
-- The agent's ~agent_status~ is ~blocked~: the item is marked
-  ~owner waiting on a dialog~. Nothing is re-sent.
-- Otherwise the answer is re-sent once, with the same
-  ~DECIDE_DELIVERY_KEY~, and stored as a delivery whose outcome is
-  ~resend~. An agentbus target gets that key as ~--client-id~. A pane on
-  another machine is re-sent with ~--machine~, the same way as the first
-  delivery. A new answer can be re-sent once more.
-
-A parent value of the same name does not win.
-
-~{id}~, ~{answer}~, ~{owner}~, and ~{pane}~ are not substituted. Braces
-are not replaced. An old ~notifyTemplate~ that still uses those braces
-runs the command and does not insert the answer.
-
-** Running the follow-up as a service
-
-~decide follow~ runs the delivery retries and the stale-answer
-follow-up on this machine's ledger every minute, until SIGINT or
-SIGTERM. ~--every 5m~ changes the interval. ~decide follow --once~ runs
-one pass and exits, for cron. Run it on the machine that holds the
-ledger. A pass that fails is printed on stderr and the loop goes on.
-
-Installing it is your step. Put the full path of ~decide~ in the unit.
-On Linux, a systemd user unit at
-~~/.config/systemd/user/decide-follow.service~:
-
-#+begin_src conf
-[Unit]
-Description=decide stale-answer follow-up
-
-[Service]
-ExecStart=%h/go/bin/decide follow
-Restart=on-failure
-
-[Install]
-WantedBy=default.target
-#+end_src
-
-Then ~systemctl --user daemon-reload~ and
-~systemctl --user enable --now decide-follow~. Run
-~loginctl enable-linger~ to keep it running after you log out.
-
-On macOS, a launchd agent at
-~~/Library/LaunchAgents/com.github.jaeyeom.decide-follow.plist~, with
-your home directory in place of ~/Users/me~:
-
-#+begin_src xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>com.github.jaeyeom.decide-follow</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/Users/me/go/bin/decide</string>
-    <string>follow</string>
-  </array>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
-  <true/>
-  <key>StandardErrorPath</key>
-  <string>/Users/me/Library/Logs/decide-follow.log</string>
-</dict>
-</plist>
-#+end_src
-
-Then ~launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.github.jaeyeom.decide-follow.plist~.
-
-The service needs what the notify command and herdr need on ~PATH~.
-Add ~Environment=PATH=...~ to the unit, or an ~EnvironmentVariables~
-dictionary to the plist, when they are not in the default path.
-
-* Hub mode: a second machine
-
-One machine, the hub, holds the ledger. A second machine can run the
-same ~decide~ commands against it over ssh. Set the hub in
-~$XDG_CONFIG_HOME/decide/config.json~ on the second machine, or set
-~DECIDE_HUB~, which wins:
+One machine, the hub, holds the ledger. On the other machine set ~hub~,
+or ~DECIDE_HUB~, which wins:
 
 #+begin_src json
-{"hub": "me@hub", "hubTimeout": "5s", "machine": "laptop"}
+{"hub": "me@hub", "hubTimeout": "5s", "machine": "laptop", "hubMachine": "hub"}
 #+end_src
 
-~machine~ is this machine's herdr label on the hub, the same label
-agentbus uses; ~DECIDE_MACHINE~ wins over it. An ~ask~ from a herdr
-pane needs it: the ask sends this pane as
+~machine~ is this machine's herdr label as the hub knows it.
+~DECIDE_MACHINE~ wins. An ask from a herdr pane sends
 ~DECIDE_AS_HANDLE=herdr:<machine>/<session>/<pane>~. The hub trusts that
 handle only when ~SSH_CONNECTION~ is set and the handle names another
-machine, as agentbus does. On the hub, the item stores the caller's
-pane as ~notifyPane~ when ~--notify-pane~ is not given, and the
-caller's machine as ~notifyMachine~ either way, because a bare pane id
-names a pane on the machine the command came from. An ~agentbus:~
-notify pane gets no machine. An ask on the hub itself stores no
-machine, as before.
+machine. It then stores the caller's pane as ~notifyPane~ and the
+caller's machine as ~notifyMachine~.
 
-The client also looks up its tab label and agentbus names, as in
-[[*The owner of an ask]], and sends them as ~DECIDE_TAB_LABEL~ and
-~DECIDE_BUS_NAMES~ (comma-separated). The hub reads them only with a
-trusted ~DECIDE_AS_HANDLE~, so the default owner and the warning work
-as they do locally.
+Every command except ~help~, ~skill~, ~avatars~, and ~inbox~ runs over
+~ssh -o BatchMode=yes~. ~--remote user@host~ wins for one invocation.
+The local ledger is never created.
 
-The hub then reaches that pane through ~herdr --machine <machine>~: the
-built-in compose send (~decide send --id~ and a reply from the inbox)
-puts ~--machine <machine>~ after the send template's program, with a
-5s deadline, and fails with
-~machine <machine> unreachable: host unreachable~ or
-~... authentication locked (unlock your SSH/gpg agent)~ as agentbus
-does. An answer notification for that pane is delivered the same way.
-The notify template runs only for a pane on this machine; see [[*Notify]].
+~decide inbox~ draws here and keeps one ssh session to ~decide serve
+--stdio~ on the hub. Links still open here. If the hub stops answering,
+the status line says ~hub unreachable; retrying~ and the inbox backs
+off from one second to 30. A write while disconnected is not queued.
+~hubMachine~ lets ~o~ focus a pane on the hub.
 
-Then every command except ~help~, ~skill~, ~avatars~, and ~inbox~ runs
-as ~ssh -o BatchMode=yes -o ConnectTimeout=<n> <hub> decide <args>~,
-with each argument quoted. ~hubTimeout~ is the connect timeout (default 5s).
-stdout, stderr, and the exit code come back unchanged, and the local
-ledger is never read or created.
+Display keys come from the hub, and a key set locally wins: ~avatars~,
+~avatarDefault~, ~avatarMono~, ~recipients~, ~recipientsTimeout~,
+~targets~, ~hyperlinks~, ~hiddenContacts~, ~contactAliases~. ~hub~,
+~machine~, ~openCommand~, ~checkouts~, ~ui~, and the templates stay
+local. ~decide config show --effective~ prints each key, ~local~ or
+~hub~, and the value, tab-separated.
 
-~decide --remote <user@host> <command>~ names the hub for one
-invocation; it wins over ~DECIDE_HUB~ and the config.
+The hub needs a ~BatchMode=yes~ key, ~decide~ on ~PATH~, and a POSIX
+login shell. Failure starts with ~decide: hub me@hub unreachable~.
 
-** The inbox in hub mode
+* Customizing
 
-~decide inbox~ runs the TUI on this machine against the hub's ledger,
-so links open here with the normal opener (~openCommand~, or ~open~ on
-macOS and ~xdg-open~ on Linux). No flag is needed. The inbox keeps one
-ssh session to the hub, with the same target, options, and deadline as
-the CLI, running the hidden ~decide serve --stdio~. That server reads one
-JSON request per line, such as ~{"id":3,"op":"answer","item":"D-1","text":"a"}~.
-An archive request also sends ~seen~, the newest message time the inbox
-has rendered. That is protocol version 6.
-The server writes one response per line with the same ~id~. It covers every
-call the inbox makes: list, show, mark read, answer (recorded with
-~via: ui~), reply, done, archive, withdraw, snooze and unsnooze, the
-status board, targets and agentbus names, send, the owner location, and
-the hub's display settings (~config~, below).
-Ledger writes, notify commands, compose sends, and the status board's
-checkout leases all run on the hub with the hub's config, as with the
-CLI. The local ledger is never read or created. A hub whose ~decide~
-is older than this fails at start and asks to update it.
-
-The inbox lists the hub once a second, off the update loop, so the view
-keeps the last good data while a request is in flight. When the hub
-stops answering:
-
-- The status line says ~hub unreachable; retrying~ and the view stays.
-- The inbox reconnects with a backoff that doubles from one second up
-  to 30 seconds. ~hub reconnected~ shows when it is back.
-- A write while disconnected fails at once with
-  ~hub me@hub unreachable; answer not sent~. Nothing is queued. A write
-  cut off by the drop says ~... not confirmed~; look at the item after
-  the reconnect.
-- A hub that cannot be reached at start fails as the CLI does.
-
-The jump to the owner ([[*Jump to the owner]]) runs herdr here. A pane
-the hub stored without a machine is on the hub, so the jump adds
-~--machine <hubMachine>~, where ~hubMachine~ in this machine's config is
-the hub's label in this machine's herdr:
+Avatars are optional 10x6 figures beside an item header and beside the
+compose recipient. An exact ~match~ wins, then the first glob. ~file~
+may start with =~/=. A PNG or WEBP is drawn as characters. Any other
+file is text. ~builtin~ names a shipped figure. Both in one rule is an
+error. ~"hide": true~ shows nothing.
 
 #+begin_src json
-{"hub": "me@hub", "machine": "laptop", "hubMachine": "hub"}
+{"avatars": [{"match": "pm-*", "builtin": "owl"}], "avatarDefault": true}
 #+end_src
 
-A pane on this machine (~notifyMachine~ equal to ~machine~) needs no
-~--machine~, and a pane on a third machine uses that machine's label.
-Without ~hubMachine~ the jump says
-~owner is on the hub me@hub; set "hubMachine" in the decide config ...~.
-When herdr does not know the machine, it says
-~owner is on hub; not focusable from here (is hub saved in herdr?)~.
+~avatarDefault~ is off until you set it. The same name always gets the
+same figure. ~decide avatars list~ previews them. ~--name~ shows one
+name's figure, and ~--ids~ prints the ids. ~decide avatars set ops/x
+owl~ saves a name. ~default~ drops that exact rule. ~none~ hides it.
+~--local~ writes this machine even in hub mode. Otherwise a hub-mode
+set saves on the hub. ~A~ opens the picker. With mouse capture on, a
+click on a cell saves it, a click outside the picker or on its border
+cancels, and the wheel moves one row. The id list, the hash, and the
+config write are in [[file:docs/avatars.org][docs/avatars.org]].
 
-The hub needs an SSH key the agent holds, because ~BatchMode=yes~ never
-asks for a passphrase; ~decide~ on its ~PATH~ for a non-interactive ssh
-command; and a POSIX login shell (sh, bash, or zsh). The call has a
-deadline of twice the connect timeout until the hub's shell starts, so
-a locked key cannot hang it. A hub that cannot be reached fails with
-~decide: hub me@hub unreachable: host unreachable~ when a one-second
-TCP connect to its SSH port fails, or with
-~... unreachable: authentication locked (unlock your SSH/gpg agent)~
-when the host answers.
+Contacts (~g~ then ~c~) lists ~agentbus list~ names plus every owner
+and sender. ~human~ and ~system~ are not contacts. ~active~ is alive,
+~unresponsive~ is registered but not answering, and ~dead~ is gone or
+known only from the ledger. ~x~ hides a row until it is active again.
+~H~ shows hidden rows for this session. ~X~ hides every dead contact
+after a confirm. ~R~ runs ~agentbus release~ for a name the bus lists
+as dead. ~a~ stores a ~contactAliases~ entry. ~decide contacts prune
+--dead~ prints names and writes nothing unless ~--yes~. ~--release~
+also releases those bus names.
 
-*** Display settings from the hub
+* Troubleshooting
 
-The inbox takes its display settings from the hub, so a fresh client
-shows the hub's avatars and recipients without copying its config. At
-connect, and again on each reconnect, it asks the hub for its display
-keys:
-
-- ~avatars~, ~avatarDefault~, ~avatarMono~
-- ~recipients~, ~recipientsTimeout~, ~targets~
-- ~hyperlinks~, ~hiddenContacts~, ~contactAliases~
-
-An allowlist decides which keys these are; a key not on it is never
-sent. Machine keys (~hub~, ~hubTimeout~, ~machine~, ~hubMachine~,
-~openCommand~, ~checkouts~), the notify and send templates,
-~notifyPane~, ~optionsOnly~, ~colors~, and ~ui~ stay on each machine.
-
-The merge is per top-level key, and the client wins: a key set in this
-machine's config keeps its local value, and every other display key
-takes the hub's. To stop following the hub for a key, set it locally,
-for example ~"avatarDefault": false~. ~avatars~ is one key: a local
-~avatars~ list replaces the hub's whole list, rule for rule. A local
-~targets~ list is what compose offers, and the hub still looks each
-name up in its own ~targets~ when it sends.
-
-A hub avatar rule with ~file~ names a file on the hub. The hub reads it
-and sends its bytes with the settings, up to 256 KB per file; the path
-itself is never sent. The client keeps the bytes in memory for the
-session and renders them with its own terminal profile. A file the hub
-cannot read, or one over the limit, is hidden, and the status line says
-why once.
-
-At start the status line says, for example,
-~display settings: hub (3 keys), local overrides: avatarDefault~.
-~decide config show --effective~, run on the client, prints the merged
-settings: one line per key with its source (~local~ or ~hub~) and its
-value, tab-separated. Without ~--effective~, or without a hub, it
-prints this machine's config the same way.
-
-#+begin_example
-avatarDefault	local	false
-avatars	hub	[{"match":"ada","file":"hub:0.png"}]
-hub	local	"me@hub"
-#+end_example
+~DECIDE_KEYDEBUG=/tmp/decide-keys.log decide inbox~ logs each key.
+~1~ uses ~decide-keys.log~ in the temp directory. Ctrl+Enter is
+recognized only as the two sequences in
+[[file:docs/keys.org][docs/keys.org]]. A terminal that sends it as Enter
+gets Enter. A config that does not parse is left unchanged. Avatar and
+contact writes touch only their own key, and the first write in a
+process copies the file to ~config.json.bak~.
