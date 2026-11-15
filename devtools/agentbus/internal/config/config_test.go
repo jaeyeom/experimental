@@ -47,6 +47,36 @@ func TestParseIdentityAgent(t *testing.T) {
 	}
 }
 
+func TestParseHerdrPath(t *testing.T) {
+	got, err := Parse("herdr_path = \"~/.local/bin/herdr\"\n")
+	if err != nil || got.HerdrPath != "~/.local/bin/herdr" {
+		t.Fatalf("Parse tilde = %q, %v", got.HerdrPath, err)
+	}
+	got, err = Parse("herdr_path = \"/opt/herdr\"\n")
+	if err != nil || got.HerdrPath != "/opt/herdr" {
+		t.Fatalf("Parse absolute = %q, %v", got.HerdrPath, err)
+	}
+	if _, err := Parse("herdr_path = \"herdr\"\n"); err == nil {
+		t.Fatal("relative herdr_path was accepted")
+	}
+}
+
+func TestLoadExpandsHerdrPath(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, ".config", "agentbus")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("herdr_path = \"~/.local/bin/herdr\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load([]string{"HOME=" + home})
+	want := filepath.Join(home, ".local", "bin", "herdr")
+	if err != nil || got.HerdrPath != want {
+		t.Fatalf("Load = %q, %v; want %q", got.HerdrPath, err, want)
+	}
+}
+
 func TestParseLeaseCheckouts(t *testing.T) {
 	got, err := Parse(`lease_checkouts = ["/home/u/src/repo", "/home/u/src/other/"]  # guarded
 `)

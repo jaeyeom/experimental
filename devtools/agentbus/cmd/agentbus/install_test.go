@@ -204,6 +204,93 @@ func TestInstallWritesSupervisorWithoutLoading(t *testing.T) {
 	}
 }
 
+func TestInstallPinsHerdrAndLeavesAnUnchangedUnit(t *testing.T) {
+	stubDaemon(t)
+	home := t.TempDir()
+	binDir := t.TempDir()
+	herdr := filepath.Join(binDir, "herdr")
+	if err := os.WriteFile(herdr, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil { //nolint:gosec // G306: the fake herdr has to be executable
+		t.Fatal(err)
+	}
+	env := []string{
+		"HOME=" + home,
+		"XDG_RUNTIME_DIR=" + shortRuntime(t),
+		"AGENTBUS_INSTALL_NO_LOAD=1",
+		"PATH=" + binDir,
+	}
+	code, _, stderr := runCmd([]string{"install"}, env)
+	if code != 0 {
+		t.Fatalf("install = %d, stderr %q", code, stderr)
+	}
+	if strings.Contains(stderr, "herdr not found") {
+		t.Fatalf("stderr = %q", stderr)
+	}
+	data, err := os.ReadFile(installedPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, want := range []string{herdr, binDir + ":/usr/bin:/bin:/usr/sbin:/sbin"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("unit missing %s\n%s", want, text)
+		}
+	}
+	past := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(installedPath(home), past, past); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr = runCmd([]string{"install"}, env); code != 0 {
+		t.Fatalf("reinstall = %d, stderr %q", code, stderr)
+	}
+	info, err := os.Stat(installedPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.ModTime().Equal(past) {
+		t.Fatalf("unchanged install rewrote the unit at %s", info.ModTime())
+	}
+
+	moved := t.TempDir()
+	next := filepath.Join(moved, "herdr")
+	if err := os.WriteFile(next, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil { //nolint:gosec // G306: the fake herdr has to be executable
+		t.Fatal(err)
+	}
+	env[len(env)-1] = "PATH=" + moved
+	if code, _, stderr = runCmd([]string{"install"}, env); code != 0 {
+		t.Fatalf("moved install = %d, stderr %q", code, stderr)
+	}
+	data, err = os.ReadFile(installedPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text = string(data)
+	if !strings.Contains(text, next) || strings.Contains(text, herdr) {
+		t.Fatalf("unit did not follow herdr\n%s", text)
+	}
+}
+
+func TestInstallWarnsWhenHerdrIsMissing(t *testing.T) {
+	stubDaemon(t)
+	home := t.TempDir()
+	env := []string{
+		"HOME=" + home,
+		"XDG_RUNTIME_DIR=" + shortRuntime(t),
+		"AGENTBUS_INSTALL_NO_LOAD=1",
+		"PATH=" + t.TempDir(),
+	}
+	code, _, stderr := runCmd([]string{"install"}, env)
+	if code != 0 || !strings.Contains(stderr, "herdr not found on PATH") {
+		t.Fatalf("install = %d, stderr %q", code, stderr)
+	}
+	data, err := os.ReadFile(installedPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "AGENTBUS_HERDR") {
+		t.Fatalf("unit pinned a missing herdr\n%s", data)
+	}
+}
+
 func TestInstallFailsWithoutRuntimeDir(t *testing.T) {
 	if runtime.GOOS == "darwin" {
 		testDarwinInstallAgreesOnSocket(t)

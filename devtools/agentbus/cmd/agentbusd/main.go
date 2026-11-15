@@ -145,7 +145,7 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), unix.SIGINT, unix.SIGTERM)
 	defer stop()
-	ad := &herdr.Adapter{Machines: cfg.Machines, Timeout: cfg.RemoteTimeout}
+	ad := &herdr.Adapter{Machines: cfg.Machines, Timeout: cfg.RemoteTimeout, HerdrPath: cfg.HerdrPath}
 	if err := daemon.Serve(ctx, dirs, daemon.Config{
 		RetentionDays:      days,
 		Adapters:           []adapter.Adapter{ad},
