@@ -1,0 +1,409 @@
+Everyday install is in [[file:README.org][the gh-nudge guide]].
+This page is the rules, the dry run, and the audit log.
+
+* gh-approve
+
+~gh-approve~ approves pull requests that match rules you write in config, or
+hands them off to a colleague (see [[*Hand-off rules][Hand-off rules]]). It
+acts as the logged-in ~gh~ user, through the ~gh~ CLI. It leaves every other
+pull request for a human. It runs no LLM review itself, but a rule can
+run a command of yours as a last check. See [[*Agent command][Agent command]].
+
+It looks only at open pull requests that request you *as an individual*. It
+finds them with the search ~user-review-requested:@me~. It ignores a pull
+request that requests only a team you belong to.
+
+#+begin_src shell
+  # Dry run (the default): print what would be approved. Nothing is approved.
+  gh-approve
+
+  # Approve for real
+  gh-approve --apply
+
+  # Evaluate one pull request and print every condition with the value it saw
+  gh-approve --pr acme/widgets#12 --explain
+  gh-approve --pr https://github.com/acme/widgets/pull/12
+
+  # Run agent commands without the decision cache
+  gh-approve --no-agent-cache
+
+  # Recent decisions. --action defaults to approved. --days defaults to 7.
+  gh-approve history
+  gh-approve history --days 30 --action all --rule dashboard --json
+  gh-approve history --no-state
+#+end_src
+
+One starter rule, in the ~approve~ section of ~config.pkl~. ~gh-approve~
+prints the plan and changes nothing until ~--apply~.
+
+#+begin_src pkl
+approve {
+  rules {
+    new {
+      name = "docs"
+      paths_all_match { "docs/**" }
+      checks = "green"
+    }
+  }
+}
+#+end_src
+
+
+The output is a table with the pull request, the action, the matched rule, and
+the title. When no rule matches, the rule column shows ~manual~. Then, for each
+rule, it shows the first condition that failed.
+
+** Rules
+
+Add rules to the ~approve~ section of ~config.pkl~. The conditions in one rule
+are ANDed. Rules are ORed, and the first rule that matches is used. Every
+condition is optional. An empty list or an unset limit adds no condition.
+
+| Condition                | Meaning                                                                           |
+|--------------------------+-----------------------------------------------------------------------------------|
+| ~repos~                  | Repositories as ~owner/name~ or globs, such as ~acme/*~                           |
+| ~paths_all_match~        | Globs. Every changed file must match one of them                                  |
+| ~paths_none_match~       | Globs. No changed file may match any of them, such as CI config, infra, lockfiles |
+| ~paths_any_match~        | Globs. At least one changed file must match one of them                           |
+| ~codeowners_covered~     | Default ~false~. Every changed file must pass the CODEOWNERS coverage check       |
+| ~max_changed_lines~      | Maximum added plus deleted lines                                                  |
+| ~max_added_lines~        | Maximum added lines                                                               |
+| ~max_files~              | Maximum changed files                                                             |
+| ~pure_deletion~          | The pull request adds no lines                                                    |
+| ~deletions_and_comments_only~ | Default ~false~. At least one line is deleted, and every added line is blank or a comment |
+| ~authors_allow~          | The author must be one of these logins                                            |
+| ~authors_deny~           | The author must not be one of these logins                                        |
+| ~labels_required~        | Every one of these labels must be present                                         |
+| ~labels_forbidden~       | None of these labels may be present                                               |
+| ~required_approvals_by~  | Each login's latest review on the current head SHA must be ~APPROVED~             |
+| ~checks~                 | ~"green"~ or ~"allow_pending"~. See below                                         |
+| ~not_draft~              | Default ~true~. A draft does not match                                            |
+| ~max_unresolved_threads~ | Default ~0~                                                                       |
+| ~agent_command~          | A command, as argv, that must print ~approve~. Runs last. See below               |
+| ~agent_timeout~          | Default ~120.s~. How long ~agent_command~ may run                                 |
+| ~agent_cache~            | Default ~true~. ~false~ runs ~agent_command~ every time, without the cache        |
+
+Globs use ~**~ for any number of directories. Logins match without regard to
+case. Labels match exactly, including case. For ~required_approvals_by~, a
+~COMMENTED~ review does not replace an earlier approval on the same head.
+
+~checks = "green"~ requires that no check failed and every required check
+passed. When the head has no required check, every check counts as required.
+~checks = "allow_pending"~ requires only that no check failed. A failed check
+always fails.
+
+Comment markers for ~deletions_and_comments_only~ are under
+[[*Comment markers][Comment markers]].
+
+Global settings:
+
+- ~body~ is the approval body. Default ~LGTM~. The matching rule name is
+  appended as ~<!-- gh-approve: <rule> -->~.
+- ~skip_already_approved~ skips a pull request you already approved at the
+  current head. Default ~true~.
+- ~agent_cache_ttl~ is how long a cached ~agent_command~ decision is reused.
+  Default ~7.d~.
+- ~agent_cache_max_mb~ bounds the ~agent_command~ decision cache. Default ~50~.
+  See [[*Agent decision cache][Agent decision cache]].
+- gh-approve never approves a pull request you authored. This is always on and
+  cannot be configured.
+
+Starter rule shapes. These are examples. Nothing is hard-coded.
+
+#+begin_src pkl
+  approve {
+    rules {
+      // Only files under one internal dashboard directory.
+      new {
+        name = "internal-dashboard"
+        paths_all_match { "tools/internal-dashboard/**" }
+        checks = "green"
+      }
+      // Pure deletions.
+      new {
+        name = "pure-deletion"
+        pure_deletion = true
+        checks = "green"
+      }
+      // Deletions whose added lines are only comments or blank.
+      new {
+        name = "comment-cleanup"
+        deletions_and_comments_only = true
+        checks = "green"
+      }
+      // At most 50 changed lines outside CI and infra paths.
+      new {
+        name = "small-outside-infra"
+        max_changed_lines = 50
+        paths_none_match { ".github/**"; "infra/**"; "**/*.lock"; "**/go.sum" }
+        checks = "green"
+      }
+      // Small pull requests, up to 200 lines, that carry an "internal-only" label.
+      new {
+        name = "internal-only"
+        max_changed_lines = 200
+        labels_required { "internal-only" }
+        checks = "allow_pending"
+      }
+    }
+  }
+#+end_src
+
+The ~approve~ section is supported only in Pkl config. A YAML config that has
+an ~approve~ key fails to load.
+
+** Hand-off rules
+
+Sometimes you are asked to review a pull request only because it touches a
+directory that a colleague also owns. A hand-off rule passes such a pull
+request to the colleague: it requests the colleague's review, then removes you
+as an individual requested reviewer. A hand-off *never approves anything*. The
+scope is the same as for approve rules: only pull requests that request you as
+an individual, and never your own.
+
+#+begin_src pkl
+  new {
+    name = "dashboard-handoff"
+    action = "handoff"
+    reviewers { "colleague" }
+    paths_any_match { "tools/dashboard/**" }
+    authors_deny { "colleague" }
+    codeowners_covered = true
+  }
+#+end_src
+
+- ~action~ is ~"approve"~ (the default) or ~"handoff"~.
+- ~reviewers~ are the logins to request. It is required on a hand-off rule and
+  not allowed on an approve rule.
+- Every other condition works as for approve rules and is ANDed.
+
+*Coverage check.* With ~codeowners_covered = true~, every changed file must
+meet one of these:
+
+1. It matches the rule's ~paths_any_match~, the area the colleague takes over.
+2. Its owners include neither you nor a team you belong to.
+3. Every owning team that includes you also has other members *and* is a
+   requested reviewer on the pull request. You are not an owner by name.
+
+Owners come from the base branch's CODEOWNERS (=.github/=, the root, or
+=docs/=, the first found), parsed with the same code as ~gh-codeowners~. If
+CODEOWNERS or a team's members cannot be read, the check fails; it never
+assumes a pass. Reading team members needs the ~read:org~ scope. An email
+owner fails the check, since gh-approve cannot tell whether it is you.
+~--explain~ prints the verdict for each file and the owner that blocked it.
+
+*Actions with ~--apply~.* gh-approve re-reads the head and skips the pull
+request if it moved. Then it requests the reviewers through the REST
+~requested_reviewers~ endpoint. Only after that succeeds does it remove you as
+an individual requested reviewer. It never removes a team request and never
+dismisses or changes a review. If the request succeeds and the removal fails,
+the pull request is reported as an error with both steps; the colleague stays
+requested, which is harmless. Writes are never retried.
+
+It skips the pull request when a target reviewer already reviewed it or is
+already requested, or when you already reviewed it.
+
+*Loop guard.* The author may add you back after a hand-off, and then the pull
+request stays with you. gh-approve reads the pull request's
+~review_requested~ and ~review_request_removed~ timeline events for you. If
+your own account ever removed you from the pull request, it never hands it off
+again and reports ~manual~ with ~re-requested after hand-off~. The timeline is
+the source of truth, so this works without local state and across machines.
+
+** Agent command
+
+A rule may set ~agent_command~, such as a script that asks an LLM to review
+the diff. It is a list of arguments, run directly, not through a shell. It
+runs only when every other condition of the rule passed and no earlier rule
+matched, and never for a pull request that is skipped anyway, such as your own.
+It runs in dry run too.
+
+#+begin_src pkl
+  new {
+    name = "docs-reviewed-by-agent"
+    paths_all_match { "docs/**" }
+    checks = "green"
+    agent_command { "/home/me/bin/review-agent"; "--strict" }
+    agent_timeout = 60.s
+  }
+#+end_src
+
+Its stdin is one JSON object:
+
+#+begin_src json
+  {
+    "rule": "docs-reviewed-by-agent",
+    "pr": {"repo": "acme/widgets", "number": 12, "url": "...", "title": "...",
+           "author": "alice", "headSha": "...", "draft": false, "additions": 3,
+           "deletions": 1, "changedFiles": 1, "labels": ["docs"]},
+    "files": [{"path": "docs/a.md", "additions": 3, "deletions": 1}],
+    "diff": "diff --git a/docs/a.md b/docs/a.md\n..."
+  }
+#+end_src
+
+~filesError~ is added when the file list could not be read completely. The
+command must print one JSON object, ~{"decision": "approve" | "defer",
+"reason": "..."}~. ~approve~ lets the rule match. ~defer~ leaves the pull
+request for a human, and the reason is shown in the table. A non-zero exit, a
+timeout, output that is not one JSON object, or an unknown decision all count
+as ~defer~, with the error as the reason. A diff that cannot be read defers
+without running the command. On timeout, the command's whole process group is
+killed.
+
+* Reference
+
+** Comment markers
+
+~deletions_and_comments_only~ passes when the pull request deletes at least
+one line and every added line is blank or a comment. A comment line is
+optional whitespace, then the marker, then anything. Code before the marker
+on the same line fails. ~/* */~ and ~<!-- -->~ blocks pass when they open and
+close on added lines. A block opened in a context line, a deleted line, or
+outside the hunk does not cover an added line. A ~#~ line in C or C++ is a
+preprocessor line, so it fails. Python docstrings fail. An added line in a
+file that is not listed fails. Patches come from ~pulls/{n}/files~ only when
+a rule sets the condition. A missing patch, a binary file, or a truncated
+file list fails with ~patch unavailable for <file>~. A rename with no content
+change passes. On success the condition reports ~N deletions, M comment/blank
+additions~.
+
+| Files | Comment |
+|-------+---------|
+| ~.py~ ~.sh~ ~.bash~ ~.zsh~ ~.bzl~ ~.bazel~ ~BUILD~ ~WORKSPACE~ ~.yaml~ ~.yml~ ~.toml~ ~.rb~ ~.pl~ ~Makefile~ ~.mk~ ~.r~ ~Dockerfile~ | ~#~ |
+| ~.cfg~ ~.ini~ | ~#~ or ~;~ |
+| ~.go~ ~.c~ ~.cc~ ~.cpp~ ~.cxx~ ~.h~ ~.hh~ ~.hpp~ ~.rs~ ~.ts~ ~.tsx~ ~.js~ ~.jsx~ ~.java~ ~.kt~ ~.swift~ ~.proto~ ~.scala~ ~.cs~ | ~//~ and ~/* */~ |
+| ~.sql~ ~.lua~ ~.hs~ | ~--~ |
+| ~.md~ ~.html~ ~.htm~ ~.xml~ ~.svg~ | ~<!-- -->~ |
+| ~.el~ ~.lisp~ ~.clj~ | ~;~ |
+
+
+** Agent decision cache
+
+An agent command can be expensive, such as an LLM review, so gh-approve caches
+its decision. The key is the sha256 of the exact stdin bytes, the argv, and the
+rule name. Stdin is built deterministically: files and labels are sorted, and
+it carries the head SHA, so a new push or a changed diff runs the command
+again.
+
+- One file per key under =$XDG_CACHE_HOME/gh-approve/agent/= (default
+  =~/.cache/gh-approve/agent/=), mode 0600, written atomically. It holds the
+  decision, the reason, the time, and the duration of the original run.
+- Only an ~approve~ or ~defer~ the command printed is cached. An error, a
+  timeout, a non-zero exit, invalid output, or an unknown decision is never
+  cached, so the next pass runs the command again.
+- An entry older than ~agent_cache_ttl~ (default ~7.d~) is ignored and removed.
+  When the cache is larger than ~agent_cache_max_mb~ (default ~50~), the
+  oldest entries are evicted first.
+- ~--no-agent-cache~ neither reads nor writes the cache. A rule with
+  ~agent_cache = false~ always runs its command.
+- Only the agent step is cached. Every other condition is still evaluated
+  live, and ~--apply~ still re-reads the head before it approves.
+
+The table shows where a decision came from, such as ~agent: approve (cached 2d
+ago)~, ~agent: defer (cached)~, or ~agent: approve (fresh)~. ~--explain~ adds
+~agent_cache: hit|miss|bypass~ and the key's short hash, and the audit log's
+~agent~ object has ~agent_cache~ and ~agent_cache_key~.
+
+** Safety
+
+- *Dry run by default.* Only ~--apply~ approves, hands off, or marks files
+  viewed. A dry run makes no writes.
+- *Head pinning.* gh-approve evaluates one head SHA. With ~--apply~, it reads
+  the head again just before it approves. If the head moved, it skips the pull
+  request and says so. The approval is posted with ~gh api~ to the pull
+  request reviews endpoint, with ~event=APPROVE~ and ~commit_id~ set to the
+  evaluated head SHA.
+- *Fail loud.*
+  - A ~gh~ error stops that pull request with a clear error. The other pull
+    requests still run, and gh-approve exits non-zero.
+  - An unknown config key is a load error.
+  - Data that cannot be read, such as missing review thread or check data or a
+    truncated file list, never counts as a met condition. The condition fails
+    with ~unreadable:~ and the reason.
+- *Audit log.* Each decision is appended as one JSON line to
+  =~/.config/gh-nudge/approve-log.jsonl=. A line has ~time~, ~pr~, ~url~,
+  ~title~, ~author~ (the pull request author's login; lines written before
+  this field still read), ~headSha~, ~rule~ (~null~ when none matched), ~rules~ (each rule's
+  per-condition ~pass~ and ~saw~, and ~agent~ with ~decision~, ~reason~ and
+  ~durationMs~ when the rule's agent command ran), ~action~, and ~reason~.
+  ~--explain~ shows the same agent decision, reason and duration. The action is
+  ~approved~, ~would_approve~, ~handoff~, ~would_handoff~, ~mark_viewed~,
+  ~would_mark_viewed~, ~skipped~, ~manual~, or ~error~. A hand-off line also
+  has ~reviewers~, ~timeline~ (your review request events, the loop guard's
+  evidence), ~loopGuard~, and ~steps~ (each write and its result). A mark
+  line also has ~paths~, the files that were marked, or that a dry run would
+  mark.
+
+** History
+
+~gh-approve history~ lists those decisions. ~--days~ defaults to 7. ~--action~
+is ~approved~ (the default), ~handoff~, ~mark_viewed~, or ~all~. A ~would_*~
+dry-run action is included only with ~--action all~. ~--rule NAME~ keeps one
+rule. ~--json~ prints one JSON array.
+
+The table columns are time (UTC), ~owner/repo#n~, author, current state
+(~OPEN~, ~CLOSED~, or ~MERGED~), action, rule, and title. The author comes
+from the log line. It is looked up only for an older line that has no
+~author~.
+
+~MERGED~ is final. History caches it, with the author and title, in
+~$XDG_CACHE_HOME/gh-nudge/pr-state.json~ (or =~/.cache/gh-nudge/pr-state.json=)
+and does not fetch that pull request again. ~OPEN~ and ~CLOSED~ are fetched
+on every run and are not cached. Every lookup in one run is one GraphQL
+request of aliased ~repository~ / ~pullRequest~ fields, through ~GH_BIN~,
+split into chunks of at most 50. A run whose pull requests are all cached
+as ~MERGED~ makes no call. ~--no-state~ drops the state column and makes no
+call; author and title then come from the log or the cache, and are blank
+when neither has them.
+
+A GraphQL error stops the command. A pull request that cannot be read shows
+~?~ in the cells that are still unknown, and a warning on stderr. The row
+stays.
+
+** Mark viewed
+
+A pull request that no approve or hand-off rule took stays with you. ~viewed~
+rules can tick your GitHub *Viewed* checkbox on files you have decided never
+to read, so the Files tab shows what is left. This never approves anything
+and never changes anyone else's viewed state. It is off unless ~enabled~.
+
+#+begin_src pkl
+viewed {
+  enabled = true
+  never_mark { "**/*.go"; "**/*.py"; "**/*.proto" }
+  rules {
+    new { name = "locks"; paths_match { "**/*.lock"; "**/go.sum"; "**/pnpm-lock.yaml" } }
+    new { name = "not-mine"; codeowners_not_mine = true; paths_none_match { "docs/**" } }
+  }
+}
+#+end_src
+
+- ~enabled~ defaults to ~false~. ~max_marks_per_run~ defaults to 200. One run
+  stops cleanly at that many files.
+- A rule has a ~name~, an optional ~repos~ filter (~owner/name~ or a glob),
+  and one or more selectors. A changed file is selected when the repository
+  matches and any selector matches: a ~paths_match~ glob, or
+  ~codeowners_not_mine~ when the file's CODEOWNERS owners include neither you
+  nor a team you belong to.
+- ~paths_none_match~ (alias ~except_paths~) is a glob list on one rule, with
+  the same syntax as ~paths_match~. A file matching any of them is not marked
+  by that rule, even when a selector matches. Another rule can still mark it.
+  Setting both names on one rule is a config error.
+- ~never_mark~ is a glob list on ~viewed~. A file matching any of them is
+  never marked by any rule. It wins over every rule's selectors.
+- With ~--explain~, a file a selector would have marked and an exclusion kept
+  visible is named with ~excluded by rule <name> paths_none_match <glob>~ or
+  ~excluded by viewed.never_mark <glob>~. The audit log does not record that
+  file as marked.
+- Only a file whose ~viewerViewedState~ is ~UNVIEWED~ is marked. ~VIEWED~ and
+  ~DISMISSED~ are left alone. ~DISMISSED~ means the file changed since you
+  viewed it. Nothing is ever unmarked.
+- The same pull requests as approve rules: you are requested as an individual,
+  it is open, and it is not a draft. Never your own. A pull request an approve
+  or hand-off rule took is not marked.
+- CODEOWNERS and team members are read the same way as a hand-off coverage
+  check. If either cannot be read, that pull request is not marked.
+- With ~--apply~, gh-approve re-reads the head and skips the pull request if
+  it moved, then runs one ~markFileAsViewed~ mutation per file through ~gh~.
+  A dry run prints ~would_mark_viewed: N files~ and, with ~--explain~, the
+  paths. The audit action is ~mark_viewed~ or ~would_mark_viewed~.
