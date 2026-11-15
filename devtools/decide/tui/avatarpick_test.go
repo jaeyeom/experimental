@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/jaeyeom/experimental/devtools/decide"
@@ -246,6 +247,110 @@ func TestAvatarPickerBrokenConfig(t *testing.T) {
 	if m.hasAvatar("ops/x") {
 		t.Fatal("avatar shown after a failed save")
 	}
+}
+
+func TestAvatarPickerMouse(t *testing.T) {
+	path := pickConfig(t, "")
+	m := opsItem(t)
+	m.mouseOn = true
+	press(t, m, "A")
+	perRow := m.avatarPerRow()
+	if perRow < 3 {
+		t.Fatalf("perRow %d, want several cells", perRow)
+	}
+	if !strings.Contains(visibleLine(m.View()), "click saves, outside cancels") {
+		t.Fatalf("hint =\n%s", visibleLine(m.statusLine().text))
+	}
+	entry := avatarPickEntries()[perRow+2]
+	row, col := avatarCellLabel(m.View(), entry)
+	if row == 0 {
+		t.Fatalf("label for %q not on screen", entry)
+	}
+	midX := col - 2 + avatarCellWidth()/2
+	midY := row - avatarRows/2
+	m = updateMouseAt(t, m, midX, midY, tea.MouseButtonLeft)
+	if m.avatarPick {
+		t.Fatal("cell click left the picker open")
+	}
+	if m.status != "avatar for ops/x: "+entry+" (saved to config)" {
+		t.Fatalf("status %q", m.status)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"builtin": "`+entry+`"`) {
+		t.Fatalf("config =\n%s", data)
+	}
+
+	os.Remove(path)
+	m = opsItem(t)
+	m.mouseOn = true
+	press(t, m, "A")
+	labelEntry := avatarPickEntries()[perRow]
+	row, col = avatarCellLabel(m.View(), labelEntry)
+	if row == 0 {
+		t.Fatalf("label for %q not on screen", labelEntry)
+	}
+	m = updateMouseAt(t, m, col, row, tea.MouseButtonLeft)
+	if m.avatarPick || m.status != "avatar for ops/x: "+labelEntry+" (saved to config)" {
+		t.Fatalf("label click picker %v status %q", m.avatarPick, m.status)
+	}
+
+	os.Remove(path)
+	m = opsItem(t)
+	m.mouseOn = true
+	press(t, m, "A")
+	m = updateMouseAt(t, m, 1, 1, tea.MouseButtonLeft)
+	if m.avatarPick {
+		t.Fatal("outside click left the picker open")
+	}
+	if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("outside click wrote the config: %v", err)
+	}
+
+	m = opsItem(t)
+	m.mouseOn = true
+	press(t, m, "A")
+	start := m.avatarCursor
+	m = updateMouseAt(t, m, 3, 4, tea.MouseButtonWheelDown)
+	if !m.avatarPick || m.avatarCursor != start+perRow {
+		t.Fatalf("wheel down cursor %d open %v, start %d perRow %d", m.avatarCursor, m.avatarPick, start, perRow)
+	}
+	m = updateMouseAt(t, m, 3, 4, tea.MouseButtonWheelUp)
+	if !m.avatarPick || m.avatarCursor != start {
+		t.Fatalf("wheel up cursor %d", m.avatarCursor)
+	}
+
+	m.mouseOn = false
+	if strings.Contains(visibleLine(m.View()), "click saves, outside cancels") {
+		t.Fatal("hint offers clicks while mouse capture is off")
+	}
+	m = updateMouseAt(t, m, midX, midY, tea.MouseButtonLeft)
+	m = updateMouseAt(t, m, 3, 4, tea.MouseButtonWheelDown)
+	if !m.avatarPick || m.avatarCursor != start {
+		t.Fatalf("mouse off changed the picker: open %v cursor %d", m.avatarPick, m.avatarCursor)
+	}
+}
+
+func avatarCellLabel(view, entry string) (row, col int) {
+	for i, line := range strings.Split(view, "\n") {
+		vis := visibleLine(line)
+		idx := 0
+		for {
+			j := strings.Index(vis[idx:], entry)
+			if j < 0 {
+				break
+			}
+			j += idx
+			end := j + len(entry)
+			if j >= 2 && (end == len(vis) || vis[end] == ' ') {
+				return i + 1, utf8.RuneCountInString(vis[:j]) + 1
+			}
+			idx = j + 1
+		}
+	}
+	return 0, 0
 }
 
 func TestAvatarPickerEscCancels(t *testing.T) {
