@@ -1,18 +1,37 @@
 #+TITLE: claude-usage
-#+DATE: 2026-07-23
+#+DATE: 2026-11-15
 
 * Overview
 
-~claude-usage~ prints the current Claude Code *5-hour* and *7-day* usage
-windows (plan name, utilization percent, reset time).
+~claude-usage~ shows how much of your Claude Code subscription's
+5-hour and 7-day limits you have used, and when each window resets.
+It reads the login Claude Code already saved on this machine, so
+there is nothing to configure. Pass ~--json~ to feed the numbers to
+a status bar or a script. It works only for subscription logins
+(Pro, Max, and Team), not API keys.
 
-It is a standalone Go port of the local helper that previously lived at
-~/.local/bin/claude-usage~ and depended on the claude-hud plugin cache. This
-tool talks to Anthropic's OAuth usage API using the same Claude Code credentials
-already stored by the Claude Code app (macOS Keychain, or legacy
-~.credentials.json~).
+* Prerequisites
 
-Related issues: #199–#203.
+- A Claude Code subscription login (Pro, Max, or Team). An API-key
+  login has no usage window, and the command exits 2.
+- macOS reads the Keychain service ~Claude Code-credentials~. When
+  ~CLAUDE_CONFIG_DIR~ is not =~/.claude=, that name gains a hyphen
+  and the first 8 hex characters of the SHA-256 of the config
+  directory. Claude Code must already have stored an OAuth access
+  token. If the Keychain token is missing or expired, macOS reads
+  the credentials file instead.
+- Linux: reads =~/.claude/.credentials.json=. Other systems without
+  Keychain read that same file.
+- Network access to ~https://api.anthropic.com/api/oauth/usage~.
+
+~CLAUDE_CONFIG_DIR~ replaces =~/.claude= on every OS, for both the
+file and the Keychain service name.
+
+| Variable                 | Effect                                                                                             |
+|--------------------------+----------------------------------------------------------------------------------------------------|
+| ~CLAUDE_CONFIG_DIR~      | Config root. Default =~/.claude=. Changes the Keychain service name and the credentials file path. |
+| ~ANTHROPIC_BASE_URL~     | Checked first. An origin other than https://api.anthropic.com means no usage data (exit 2).        |
+| ~ANTHROPIC_API_BASE_URL~ | Same check when ~ANTHROPIC_BASE_URL~ is unset.                                                     |
 
 * Installation
 
@@ -20,23 +39,23 @@ Related issues: #199–#203.
 go install github.com/jaeyeom/experimental/devtools/claude-usage/cmd/claude-usage@latest
 #+END_SRC
 
-Or with Bazel from this repo:
+That writes the binary to ~GOBIN~, or to =$(go env GOPATH)/bin= when
+~GOBIN~ is unset. From this repo:
 
 #+BEGIN_SRC bash
 bazel run //devtools/claude-usage/cmd/claude-usage
 #+END_SRC
 
-After install, you can replace ~/.local/bin/claude-usage with the binary (or put
-~$GOPATH/bin~ / ~$GOBIN~ earlier on ~PATH~).
-
 * Usage
 
+The only flag is ~--json~. Any other argument is an error.
+
 #+BEGIN_SRC bash
-claude-usage          # human-readable table
-claude-usage --json   # stable JSON
+claude-usage
+claude-usage --json
 #+END_SRC
 
-Example human output:
+Human output:
 
 #+BEGIN_EXAMPLE
 plan: Team
@@ -44,7 +63,9 @@ plan: Team
   7-day    12%   resets 2026-07-27 22:59 UTC
 #+END_EXAMPLE
 
-Example JSON:
+A missing percentage is =?= and a missing reset time is =n/a=.
+
+~--json~ prints this object:
 
 #+BEGIN_SRC json
 {
@@ -56,71 +77,43 @@ Example JSON:
 }
 #+END_SRC
 
-* Prerequisites
+* Exit codes
 
-- *Claude Code OAuth login* (Team / Pro / Max subscription). Pure API-key users
-  do not have OAuth usage windows; the tool exits 2.
-- *macOS (primary)*: credentials are read from the Keychain service
-  ~Claude Code-credentials~ (or a hashed suffix when ~CLAUDE_CONFIG_DIR~ is not
-  the default ~/.claude). Claude Code must have stored an OAuth access token.
-- *Linux / other*: Keychain is unavailable. The tool falls back to
-  ~$CLAUDE_CONFIG_DIR/.credentials.json~ if present (legacy Claude Code layout).
-- Network access to ~https://api.anthropic.com/api/oauth/usage~.
-
-Optional environment:
-
-| Variable | Effect |
-|----------|--------|
-| ~CLAUDE_CONFIG_DIR~ | Claude config root (default: ~/.claude). Affects Keychain service name and file path. |
-| ~ANTHROPIC_BASE_URL~ / ~ANTHROPIC_API_BASE_URL~ | If set to a non-Anthropic origin, usage is N/A (exit 2). |
+| Exit | When                                                                           |
+|------+--------------------------------------------------------------------------------|
+| 0    | Success.                                                                       |
+| 2    | Not logged in, no Keychain item, and no credentials file.                      |
+| 2    | The OAuth access token is expired. Log in again with Claude Code.              |
+| 2    | API-key login. subscriptionType contains api, so there is no usage window.     |
+| 2    | The token was rejected (HTTP 401 or 403). Log in again with Claude Code.       |
+| 2    | ANTHROPIC_BASE_URL or ANTHROPIC_API_BASE_URL is not https://api.anthropic.com. |
+| 1    | HTTP 429, the usage API rate limit.                                            |
+| 1    | Network failure or timeout.                                                    |
+| 1    | Keychain lookup failed, including access denied.                               |
+| 1    | Bad arguments, or any other unexpected error.                                  |
 
 * Security
 
-- Credentials are *read-only*. The tool never refreshes or writes tokens.
-- The OAuth access token is held only in memory for the API request.
-- The token is *never* printed to stdout/stderr or included in error messages.
-- On macOS, Keychain access uses ~/usr/bin/security~ with a fixed absolute path
-  (no shell, no PATH lookup).
+- Credentials are read-only. The tool never refreshes or writes tokens.
+- The OAuth access token stays in memory only for the API request.
+- The token is never printed, and error text does not include it.
+- On macOS the Keychain lookup runs =/usr/bin/security= by that absolute
+  path. It does not use a shell or ~PATH~.
 
-* Exit codes
+* Development
 
-| Code | Meaning |
-|------+---------|
-|    0 | Success |
-|    1 | Unexpected error (network, invalid args, keychain/system failure, …) |
-|    2 | No usage data (API-key user, expired/missing creds, rejected token, custom base URL) |
+#+BEGIN_SRC bash
+go test ./devtools/claude-usage/...
+bazel test //devtools/claude-usage/...
+#+END_SRC
 
-* Failure modes
-
-| Situation | Typical result |
-|-----------|----------------|
-| Not logged in / no Keychain item / no file | Exit 2 — no usage data |
-| Expired OAuth access token | Exit 2 — no usage data (re-login with Claude Code) |
-| API-key-only user (~subscriptionType~ api) | Exit 2 — no usage data |
-| Token rejected (HTTP 401/403) | Exit 2 — re-login message |
-| Custom ~ANTHROPIC_BASE_URL~ | Exit 2 — custom base URL message |
-| HTTP 429 rate limit | Exit 1 — rate limited error |
-| Network / timeout | Exit 1 — request error |
-| Keychain access denied / prompt failure | Exit 1 — keychain lookup failed |
-
-* Manual verification
-
-On a Mac with Claude Code OAuth already set up:
+On a machine where Claude Code is already logged in with a subscription:
 
 #+BEGIN_SRC bash
 go run ./devtools/claude-usage/cmd/claude-usage
 go run ./devtools/claude-usage/cmd/claude-usage --json
 #+END_SRC
 
-Unit tests cover formatting, service-name derivation, credential parsing, and
-HTTP mapping with fake transports (no live Keychain or network in CI).
-
-* Development
-
-#+BEGIN_SRC bash
-# Unit tests for this package (Go toolchain)
-go test ./devtools/claude-usage/...
-
-# Or via Bazel
-bazel test //devtools/claude-usage/...
-#+END_SRC
+Unit tests cover formatting, the Keychain service name, credential
+parsing, and HTTP status mapping. They use fake transports, so CI does
+not touch a Keychain or the network.
