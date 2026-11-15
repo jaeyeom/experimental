@@ -1,6 +1,7 @@
 package orgctl
 
 import (
+	"path/filepath"
 	"slices"
 	"strings"
 )
@@ -26,7 +27,7 @@ func extraTabs(spec Spec, live Live) []string {
 	}
 	tabs := make([]LiveTab, 0, len(live.Tabs))
 	for _, tab := range live.Tabs {
-		if roleOwnsTab(spec, tab) || poolTab(tab, spec.Pools) {
+		if roleOwnsTab(spec, tab) || poolTab(tab, spec, live) {
 			continue
 		}
 		tabs = append(tabs, tab)
@@ -51,7 +52,7 @@ func extraNames(spec Spec, live Live) []string {
 	}
 	var names []string
 	for _, item := range live.Names {
-		if _, ok := spec.Roles[item.Name]; ok || matchesPool(item.Name, spec.Pools) {
+		if _, ok := spec.Roles[item.Name]; ok || matchesPool(item.Name, spec, live) {
 			continue
 		}
 		names = append(names, item.Name)
@@ -189,25 +190,64 @@ func sessionRole(spec Spec, live Live, session string) string {
 	return ""
 }
 
-func matchesPool(name string, pools map[string]Pool) bool {
-	for key := range pools {
-		if name == key || strings.HasPrefix(name, key+"-") || strings.HasPrefix(name, key+"/") {
+func matchesPool(name string, spec Spec, live Live) bool {
+	for key, pool := range spec.Pools {
+		if pool.NamePattern == "" && pool.TabPattern == "" {
+			if name == key || strings.HasPrefix(name, key+"-") || strings.HasPrefix(name, key+"/") {
+				return true
+			}
+			continue
+		}
+		if pool.NamePattern == "" || !globMatch(pool.NamePattern, name) {
+			continue
+		}
+		if pool.TabPattern == "" || nameTabMatches(live, name, pool) {
 			return true
 		}
 	}
 	return false
 }
 
-func poolTab(tab LiveTab, pools map[string]Pool) bool {
-	for key, pool := range pools {
+func poolTab(tab LiveTab, spec Spec, live Live) bool {
+	for _, pool := range spec.Pools {
 		if tab.Workspace != pool.Workspace {
 			continue
 		}
-		if tab.Label == key || strings.HasPrefix(tab.Label, key+"-") || strings.HasPrefix(tab.Label, key+"/") {
+		if pool.NamePattern == "" && pool.TabPattern == "" {
+			return true
+		}
+		if pool.TabPattern == "" || !globMatch(pool.TabPattern, tab.Label) {
+			continue
+		}
+		if pool.NamePattern != "" && !tabHasName(live, tab, pool.NamePattern) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func nameTabMatches(live Live, name string, pool Pool) bool {
+	for _, agent := range live.Agents {
+		if agent.Name == name && agent.Workspace == pool.Workspace && globMatch(pool.TabPattern, agent.Tab) {
 			return true
 		}
 	}
 	return false
+}
+
+func tabHasName(live Live, tab LiveTab, pattern string) bool {
+	for _, agent := range live.Agents {
+		if agent.Workspace == tab.Workspace && agent.Tab == tab.Label && globMatch(pattern, agent.Name) {
+			return true
+		}
+	}
+	return false
+}
+
+func globMatch(pattern, value string) bool {
+	ok, err := filepath.Match(pattern, value)
+	return err == nil && ok
 }
 
 func nameStub(name string) string {

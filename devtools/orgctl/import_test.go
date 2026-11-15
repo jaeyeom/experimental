@@ -25,7 +25,7 @@ func TestImportEvaluates(t *testing.T) {
 	}
 	amends := filepath.Join(orgctlRoot(t), "pkl", "Org.pkl")
 	stub := Import(live, amends)
-	for _, todo := range []string{"reportsTo", "decides", "brief", "needs", "pool candidate"} {
+	for _, todo := range []string{"reportsTo", "decides", "brief", "needs", "pool candidate", `tabPattern = "hands-*"`} {
 		if !strings.Contains(stub, "TODO") || !strings.Contains(stub, todo) {
 			t.Errorf("stub missing TODO %s\n%s", todo, stub)
 		}

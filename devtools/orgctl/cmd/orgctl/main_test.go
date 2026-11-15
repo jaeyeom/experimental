@@ -101,6 +101,15 @@ func TestReadCronsExpandsHome(t *testing.T) {
 	}
 }
 
+func TestCheckRejectsBadGlob(t *testing.T) {
+	path := writeSpec(t, `{"pools":{"hands":{"namePattern":"["}}}`)
+	var stderr bytes.Buffer
+	code := run([]string{"check", path}, &stderr)
+	if code != 1 || !strings.Contains(stderr.String(), `pool hands: namePattern "[":`) {
+		t.Fatalf("exit %d, stderr %s", code, stderr.String())
+	}
+}
+
 func TestCheckPrintsAllowWarning(t *testing.T) {
 	path := writeSpec(t, `{"roles":{"coord/lead":{"decides":["merge PRs"]}},"allowApprovalWords":["merge"]}`)
 	var stderr bytes.Buffer

@@ -88,6 +88,88 @@ func TestDriftReportsLiveExtras(t *testing.T) {
 	}
 }
 
+func TestDriftPoolPatterns(t *testing.T) {
+	spec := Spec{
+		Roles: map[string]Role{
+			"desk/lead": {Workspace: "mixed", Tab: "lead", When: "mornings"},
+		},
+		Pools: map[string]Pool{
+			"adhoc": {Workspace: "mixed", NamePattern: "adhoc/*"},
+		},
+	}
+	live := Live{
+		Tabs: []LiveTab{{Workspace: "mixed", Label: "lead"}},
+		Names: []LiveName{
+			{Name: "desk/lead", When: "mornings"},
+			{Name: "adhoc/one"},
+			{Name: "adhoc/two"},
+			{Name: "stray/name"},
+		},
+	}
+	got := strings.Join(Drift(spec, live), "\n")
+	if !strings.Contains(got, "+ name stray/name") {
+		t.Fatalf("missing stray\n%s", got)
+	}
+	if strings.Contains(got, "adhoc/") || strings.Contains(got, "+ name desk/lead") {
+		t.Fatalf("pool worker or role reported\n%s", got)
+	}
+
+	role := spec
+	role.Roles = map[string]Role{
+		"adhoc/lead": {Workspace: "mixed", Tab: "lead", When: "mornings"},
+	}
+	roleLive := Live{
+		Tabs:  []LiveTab{{Workspace: "mixed", Label: "lead"}},
+		Names: []LiveName{{Name: "adhoc/lead", When: "evenings"}},
+	}
+	got = strings.Join(Drift(role, roleLive), "\n")
+	if !strings.Contains(got, "~ adhoc/lead when") || strings.Contains(got, "+ name adhoc/lead") {
+		t.Fatalf("role should win\n%s", got)
+	}
+
+	open := Spec{Pools: map[string]Pool{"hands": {Workspace: "workers"}}}
+	openLive := Live{Tabs: []LiveTab{
+		{Workspace: "workers", Label: "other"},
+		{Workspace: "hq", Label: "stray"},
+	}}
+	got = strings.Join(Drift(open, openLive), "\n")
+	if strings.Contains(got, "workers/other") || !strings.Contains(got, "+ tab hq/stray") {
+		t.Fatalf("unpatterned workspace =\n%s", got)
+	}
+
+	both := Spec{Pools: map[string]Pool{
+		"adhoc": {Workspace: "mixed", NamePattern: "adhoc/*", TabPattern: "adhoc-*"},
+	}}
+	bothLive := Live{
+		Names: []LiveName{{Name: "adhoc/one"}, {Name: "adhoc/two"}},
+		Agents: []LiveAgent{
+			{Name: "adhoc/one", Workspace: "mixed", Tab: "adhoc-1"},
+			{Name: "adhoc/two", Workspace: "mixed", Tab: "other"},
+		},
+		Tabs: []LiveTab{
+			{Workspace: "mixed", Label: "adhoc-1"},
+			{Workspace: "mixed", Label: "other"},
+		},
+	}
+	got = strings.Join(Drift(both, bothLive), "\n")
+	if strings.Contains(got, "adhoc/one") || strings.Contains(got, "adhoc-1") {
+		t.Fatalf("matched worker reported\n%s", got)
+	}
+	if !strings.Contains(got, "+ name adhoc/two") || !strings.Contains(got, "+ tab mixed/other") {
+		t.Fatalf("unmatched worker missing\n%s", got)
+	}
+}
+
+func TestCheckPatterns(t *testing.T) {
+	err := (Spec{Pools: map[string]Pool{"hands": {NamePattern: "["}}}).CheckPatterns()
+	if err == nil || err.Error() != `pool hands: namePattern "[": syntax error in pattern` {
+		t.Fatalf("err = %v", err)
+	}
+	if err := (Spec{Pools: map[string]Pool{"hands": {NamePattern: "adhoc/*"}}}).CheckPatterns(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDriftClean(t *testing.T) {
 	spec := Spec{Roles: map[string]Role{
 		"coord/lead": {

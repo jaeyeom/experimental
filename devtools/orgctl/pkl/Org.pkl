@@ -137,6 +137,14 @@ class Pool {
   /// Workspace label.
   workspace: String(!isEmpty)
 
+  /// Glob for worker agentbus names, such as "adhoc/*".
+  /// Empty, together with an empty tabPattern, keeps every tab in the workspace.
+  namePattern: String = ""
+
+  /// Glob for worker tab labels, such as "adhoc-*".
+  /// Empty, together with an empty namePattern, keeps every tab in the workspace.
+  tabPattern: String = ""
+
   /// Agentbus name of the role that starts a worker.
   starter: String(!isEmpty)
 
