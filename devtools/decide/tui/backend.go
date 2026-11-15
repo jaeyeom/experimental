@@ -315,11 +315,16 @@ func (b *LocalBackend) Status() (StatusBoard, error) {
 	return StatusBoard{Agents: agents, Resources: resources}, nil
 }
 
-// Send implements Backend. A configured target gets the send template;
-// a bus name gets `agentbus send`, and a failed bus send drops the
-// thread it opened.
+// Send implements Backend. A configured target gets the send template.
+// A bus name, and a pane that starts with agentbus:, gets `agentbus send`.
+// A failed send drops the thread it opened.
 func (b *LocalBackend) Send(forward string, tg Target, text string) error {
 	if tg.Bus {
+		return b.sendBus(forward, tg, text)
+	}
+	if rec, ok := decide.AgentbusPaneRecipient(tg.Pane); ok {
+		tg.Name = rec.Name
+		tg.Pane = rec.Pane
 		return b.sendBus(forward, tg, text)
 	}
 	// The thread id has to exist before the pane note is built.
@@ -332,6 +337,9 @@ func (b *LocalBackend) Send(forward string, tg Target, text string) error {
 		return fmt.Errorf("store decide thread: %w", err)
 	}
 	if err := b.runSend(decide.SendArgv(b.SendTemplate, tg.Pane, deliveryNote(item.ID, forward, text))); err != nil {
+		if derr := led.Delete(item.ID); derr != nil {
+			return fmt.Errorf("%w; %w", err, derr)
+		}
 		return err
 	}
 	if err := decide.AppendSend(b.Dir, tg.Name, tg.Pane, text); err != nil {

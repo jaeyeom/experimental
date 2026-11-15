@@ -231,8 +231,9 @@ func sendBusNames(cfg decide.Config) ([]decide.BusRecipient, error) {
 	return bus, nil
 }
 
-// deliverNewThread starts a thread and delivers it. A bus name goes
-// through agentbus. A configured target uses the send template.
+// deliverNewThread starts a thread and delivers it. A bus name, including
+// a configured agentbus: pane, goes through agentbus. A herdr pane uses
+// the send template. A failed template send deletes the new item.
 func deliverNewThread(led *decide.Ledger, dir, template string, rec decide.SendRecipient, text, via string) (decide.Item, error) {
 	if rec.Bus {
 		return decide.OpenBusThread(led, dir, "", rec.Name, text, via, agentbusRun) //nolint:wrapcheck // OpenBusThread names the failure
@@ -243,6 +244,9 @@ func deliverNewThread(led *decide.Ledger, dir, template string, rec decide.SendR
 	}
 	note := decide.DeliveryNote(item.ID, "human", text)
 	if err := decide.RunSend(decide.SendArgv(template, rec.Pane, note)); err != nil {
+		if derr := led.Delete(item.ID); derr != nil {
+			return decide.Item{}, fmt.Errorf("%w; %w", err, derr)
+		}
 		return decide.Item{}, err //nolint:wrapcheck // RunSend names the send
 	}
 	if err := decide.AppendSend(dir, rec.Name, rec.Pane, text); err != nil {

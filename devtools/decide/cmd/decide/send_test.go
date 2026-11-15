@@ -207,6 +207,73 @@ func TestSendConfigTargetStillUsesThePaneTemplate(t *testing.T) {
 	}
 }
 
+func TestSendAgentbusPaneUsesAgentbusNotHerdr(t *testing.T) {
+	state := writeDecideConfig(t, `{
+		"recipients": {"agentbus": true},
+		"targets": [{"name": "team/desk", "pane": "agentbus:team/desk"}],
+		"sendTemplate": "missing-pane-cmd {pane}"
+	}`+"\n")
+	list := []byte(`[{"name":"team/desk","handle":"box/other","liveness":"alive"}]`)
+	calls := scriptedBus(t, list, "m-7f3a queued\n", nil)
+
+	stdout, stderr, code := runCLI("send", "--to", "team/desk", "hello")
+	if code != 0 {
+		t.Fatalf("send = %d\n%s", code, stderr)
+	}
+	items := showThreads(t)
+	if len(items) != 1 {
+		t.Fatalf("items = %+v", items)
+	}
+	it := items[0]
+	if stdout != "sent to team/desk as "+it.ID+"\n" {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	if it.Owner != "team/desk" || it.NotifyPane != "agentbus:team/desk" || it.BusMessage != "m-7f3a" || it.Messages[0].Via != decide.ViaCLI || it.Messages[0].Text != "hello" {
+		t.Fatalf("thread = %+v", it)
+	}
+	var sends [][]string
+	for _, call := range *calls {
+		if len(call) > 0 && call[0] == "send" {
+			sends = append(sends, call)
+		}
+	}
+	wantNote := decide.DeliveryNote(it.ID, "human", "hello")
+	if len(sends) != 1 || len(sends[0]) != 3 || sends[0][1] != "team/desk" || sends[0][2] != wantNote {
+		t.Fatalf("send argv = %q", sends)
+	}
+	history, err := os.ReadFile(filepath.Join(state, "decide", decide.SendsName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(history), `"pane":"agentbus:team/desk"`) || !strings.Contains(string(history), `"text":"hello"`) {
+		t.Fatalf("history = %s", history)
+	}
+}
+
+func TestSendTemplateFailureDropsTheThreadAndKeepsStderr(t *testing.T) {
+	state := writeDecideConfig(t, `{
+		"targets": [{"name": "alpha", "pane": "pane-a"}],
+		"sendTemplate": "fail-send {pane}"
+	}`+"\n")
+	bin := filepath.Join(state, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\necho 'pane is gone' >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(bin, "fail-send"), []byte(script), 0o755); err != nil { //nolint:gosec // test sentinel script
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	_, stderr, code := runCLI("send", "--to", "alpha", "hello")
+	if code == 0 || !strings.Contains(stderr, "pane is gone") {
+		t.Fatalf("send = %d\n%s", code, stderr)
+	}
+	if items := showThreads(t); len(items) != 0 {
+		t.Fatalf("items = %+v", items)
+	}
+}
+
 func TestSendDropsConfigTargetHeldByBusHandle(t *testing.T) {
 	writeDecideConfig(t, `{
 		"recipients": {"agentbus": true},
