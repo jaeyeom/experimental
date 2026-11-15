@@ -411,3 +411,87 @@ test("the script only connects to loopback", () => {
   assert.doesNotMatch(src, /\bfetch\(|XMLHttpRequest\(|\.innerHTML\b|insertAdjacentHTML|\beval\(/);
   assert.match(src, /^\/\/ @version\s+\d+\.\d+\.\d+$/m);
 });
+
+// placeInView takes the desired top-left in viewport coordinates (what
+// place() copies today), the measured box, and the viewport. It returns
+// {left, top, width}. A fit that is already on screen stays put.
+const POPOVER_W = 360;
+const MARGIN = 8;
+
+test("userscript version is 0.1.1", () => {
+  const src = fs.readFileSync(path.join(__dirname, "gh-ask.user.js"), "utf8");
+  assert.match(src, /^\/\/ @version\s+0\.1\.1$/m);
+});
+
+test("far right anchor keeps the popover inside the viewport", () => {
+  const viewport = { width: 1280, height: 800 };
+  const size = { width: POPOVER_W, height: 140 };
+  const anchor = { left: 1210, top: 120 };
+  const got = G.placeInView(anchor, size, viewport);
+  assert.equal(got.width, POPOVER_W);
+  assert.equal(got.left, viewport.width - POPOVER_W - MARGIN);
+  assert.equal(got.top, anchor.top);
+  assert.ok(got.left >= MARGIN);
+  assert.ok(got.left + got.width <= viewport.width - MARGIN);
+  assert.ok(got.top + size.height <= viewport.height - MARGIN);
+});
+
+test("anchor near the bottom opens the popover above", () => {
+  const viewport = { width: 800, height: 600 };
+  const size = { width: POPOVER_W, height: 180 };
+  const anchor = { left: 200, top: 520 };
+  const got = G.placeInView(anchor, size, viewport);
+  assert.equal(got.top, anchor.top - size.height);
+  assert.ok(got.top + size.height <= anchor.top);
+  assert.ok(got.top >= MARGIN);
+  assert.equal(got.left, anchor.left);
+  assert.equal(got.width, POPOVER_W);
+});
+
+test("narrow viewport shrinks the popover and keeps it inside", () => {
+  const height = 120;
+  // 400 - 2*8 is still wider than 360, so the box stays 360 and slides in.
+  const at400 = G.placeInView(
+    { left: 360, top: 80 },
+    { width: POPOVER_W, height },
+    { width: 400, height: 600 },
+  );
+  assert.equal(at400.width, Math.min(POPOVER_W, 400 - 2 * MARGIN));
+  assert.ok(at400.left >= MARGIN);
+  assert.ok(at400.left + at400.width <= 400 - MARGIN);
+  assert.ok(at400.top >= MARGIN);
+  assert.ok(at400.top + height <= 600 - MARGIN);
+
+  // Narrower than the popover plus margins: the width itself shrinks.
+  const at300 = G.placeInView(
+    { left: 280, top: 80 },
+    { width: POPOVER_W, height },
+    { width: 300, height: 600 },
+  );
+  assert.equal(at300.width, 300 - 2 * MARGIN);
+  assert.ok(at300.width < POPOVER_W);
+  assert.equal(at300.left, MARGIN);
+  assert.ok(at300.left + at300.width <= 300 - MARGIN);
+});
+
+test("middle anchor stays where it is today", () => {
+  const viewport = { width: 1280, height: 800 };
+  const anchor = { left: 420, top: 240 };
+  const size = { width: POPOVER_W, height: 150 };
+  const got = G.placeInView(anchor, size, viewport);
+  // place() today sets left to max(0, anchor.left) and keeps the top.
+  assert.deepEqual(got, {
+    left: Math.max(0, anchor.left),
+    top: anchor.top,
+    width: POPOVER_W,
+  });
+});
+
+test("a button near the right edge uses the same clamp", () => {
+  const viewport = { width: 1280, height: 800 };
+  const got = G.placeInView({ left: 1270, top: 300 }, { width: 72, height: 22 }, viewport);
+  assert.equal(got.width, 72);
+  assert.equal(got.left, viewport.width - 72 - MARGIN);
+  assert.equal(got.top, 300);
+  assert.ok(got.left + got.width <= viewport.width - MARGIN);
+});

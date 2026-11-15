@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         gh-ask
 // @namespace    https://github.com/jaeyeom/experimental/tree/main/devtools/gh-ask
-// @version      0.1.0
+// @version      0.1.1
 // @description  Ask a local agent about lines in a pull request diff, through gh-ask serve on 127.0.0.1.
 // @match        https://github.com/*/*/pull/*/files*
 // @match        https://github.com/*/*/pull/*/changes*
@@ -30,6 +30,10 @@ const MAX_PAGE_URL_BYTES = 2 << 10;
 const POLL_INTERVAL_MS = 20_000;
 const POLL_MAX_MS = 30 * 60_000;
 const DEFAULT_PORT = 8765;
+
+// The question popover's CSS width, and the gap kept inside the viewport.
+const POPOVER_WIDTH = 360;
+const VIEWPORT_MARGIN = 8;
 
 const SHA_RE = /^[0-9a-fA-F]{7,64}$/;
 const PR_URL_RE =
@@ -520,6 +524,32 @@ function startPolling(opts) {
   };
 }
 
+function clamp(value, min, max) {
+  if (max < min) {
+    return min;
+  }
+  return Math.min(Math.max(value, min), max);
+}
+
+// placeInView returns the viewport-relative box for a popover or the Ask
+// button. anchor is the desired top-left in viewport coordinates. size is
+// the measured box; width is capped at the viewport minus two margins.
+// The box opens at anchor.top and, when that would pass the bottom margin,
+// flips above the anchor. A point that already fits is left as it is.
+function placeInView(anchor, size, viewport) {
+  const margin = VIEWPORT_MARGIN;
+  const room = Math.max(0, viewport.width - 2 * margin);
+  const width = Math.min(Math.max(0, size.width), room);
+  const height = Math.max(0, size.height);
+  const left = clamp(anchor.left, margin, viewport.width - width - margin);
+  let top = anchor.top;
+  if (top + height > viewport.height - margin) {
+    top = anchor.top - height;
+  }
+  top = clamp(top, margin, viewport.height - height - margin);
+  return { left, top, width };
+}
+
 const GhAsk = {
   askError,
   buildPayload,
@@ -527,6 +557,7 @@ const GhAsk = {
   findHeadSha,
   lineInfo,
   parsePrUrl,
+  placeInView,
   serverUrl,
   startPolling,
   statusLabel,
@@ -643,10 +674,40 @@ function main() {
     return node && node.nodeType === 3 ? node.parentElement : node;
   }
 
+  // Measure hidden and offscreen, then clamp. Inline width is cleared
+  // first so a later, wider window can grow back to the natural size.
   function place(node, rect) {
-    node.style.top = `${rect.top + window.scrollY}px`;
-    node.style.left = `${Math.max(0, rect.left + window.scrollX)}px`;
+    const previousVisibility = node.style.visibility;
+    node.style.visibility = "hidden";
+    node.style.left = "-10000px";
+    node.style.top = "0px";
+    node.style.width = "";
+    const preferred = node.classList.contains("gh-ask-pop") ? POPOVER_WIDTH : node.offsetWidth;
+    const room = Math.max(0, window.innerWidth - 2 * VIEWPORT_MARGIN);
+    node.style.width = `${Math.min(preferred, room)}px`;
+    const placed = placeInView(
+      { left: rect.left, top: rect.top },
+      { width: preferred, height: node.offsetHeight },
+      { width: window.innerWidth, height: window.innerHeight },
+    );
+    node.style.visibility = previousVisibility;
+    node.style.width = `${placed.width}px`;
+    node.style.top = `${placed.top + window.scrollY}px`;
+    node.style.left = `${placed.left + window.scrollX}px`;
   }
+
+  function popoverAnchor() {
+    return {
+      top: Number.parseFloat(button.style.top) - window.scrollY + 24,
+      left: Number.parseFloat(button.style.left) - window.scrollX,
+    };
+  }
+
+  window.addEventListener("resize", () => {
+    if (popover) {
+      place(popover, popoverAnchor());
+    }
+  });
 
   document.addEventListener("mouseover", (e) => {
     if (popover || target?.selection || button.contains(e.target)) {
@@ -744,10 +805,7 @@ function main() {
       err,
     ]);
     document.body.append(popover);
-    place(popover, {
-      top: Number.parseFloat(button.style.top) - window.scrollY + 24,
-      left: Number.parseFloat(button.style.left) - window.scrollX,
-    });
+    place(popover, popoverAnchor());
     button.hidden = true;
     question.focus();
     cancel.addEventListener("click", closePopover);
