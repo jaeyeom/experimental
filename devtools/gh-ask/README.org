@@ -239,7 +239,8 @@ manager's storage. They never go into the page DOM or a URL.
   Selecting text inside one file's diff shows it at the end of the
   selection.
 - The button opens a popover with a question box, a "deep" checkbox and
-  Send. The popover and the button stay inside the window: a box that
+  Send. Cmd+Enter or Ctrl+Enter sends, the same as the button; plain
+  Enter stays a newline. The popover and the button stay inside the window: a box that
   would pass the right edge shifts left, one that would pass the bottom
   opens above, and a narrow window shrinks the popover. Resizing the
   window moves an open popover.

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         gh-ask
 // @namespace    https://github.com/jaeyeom/experimental/tree/main/devtools/gh-ask
-// @version      0.1.2
+// @version      0.1.3
 // @description  Ask a local agent about lines in a pull request diff, through gh-ask serve on 127.0.0.1.
 // @match        https://github.com/*/*/pull/*/files*
 // @match        https://github.com/*/*/pull/*/changes*
@@ -561,6 +561,28 @@ function startPolling(opts) {
   };
 }
 
+// onPopoverKey handles Cmd/Ctrl+Enter and Escape on the open popover.
+// Plain Enter is left alone so the question box inserts a newline.
+// The handled combination stops at the popover, so the page does not
+// also submit a review comment.
+function onPopoverKey(event, ctx) {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    ctx.close();
+    return;
+  }
+  if (event.key !== "Enter" || (!event.ctrlKey && !event.metaKey)) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  if (ctx.sending || !ctx.question || String(ctx.question).trim() === "") {
+    return;
+  }
+  ctx.send();
+}
+
 function clamp(value, min, max) {
   if (max < min) {
     return min;
@@ -594,6 +616,7 @@ const GhAsk = {
   chipText,
   findHeadSha,
   lineInfo,
+  onPopoverKey,
   parsePrUrl,
   placeInView,
   prHeader,
@@ -842,6 +865,7 @@ function main() {
       type: "button",
       className: "btn btn-sm btn-primary",
       textContent: "Send",
+      title: "Send (⌘↵ / Ctrl+↵)",
     });
     const cancel = el("button", { type: "button", className: "btn btn-sm", textContent: "Cancel" });
     const err = el("div", { className: "gh-ask-err" });
@@ -857,7 +881,11 @@ function main() {
     cancel.addEventListener("click", closePopover);
 
     let chip = null;
-    send.addEventListener("click", () => {
+    let sending = false;
+    function submit() {
+      if (sending) {
+        return;
+      }
       const built = build(question.value, deep.checked);
       if (built.error) {
         err.textContent = built.error;
@@ -868,9 +896,11 @@ function main() {
         placeChip(chip);
       }
       setChip(chip, "Asking agent…", false);
+      sending = true;
       send.disabled = true;
       err.textContent = "";
       request("POST", "/ask", built.payload, (res) => {
+        sending = false;
         send.disabled = false;
         if (
           res.status === 200 &&
@@ -886,6 +916,15 @@ function main() {
           res.status === 200 ? "the server returned no id" : askError(res.status, res.body?.error);
         setChip(chip, `gh-ask: ${msg}`, true);
         err.textContent = msg;
+      });
+    }
+    send.addEventListener("click", submit);
+    popover.addEventListener("keydown", (event) => {
+      onPopoverKey(event, {
+        question: question.value,
+        sending,
+        send: submit,
+        close: closePopover,
       });
     });
   }
