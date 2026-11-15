@@ -155,6 +155,13 @@ class Pool {
   source: String = ""
 }
 
+/// Workspaces whose undeclared tabs drift may report.
+class Scope {
+  /// Workspace labels. Empty reports every workspace.
+  /// Pool workspaces are skipped even when listed.
+  workspaces: Listing<String> = new {}
+}
+
 /// Organization name.
 org: String(!isEmpty)
 
@@ -175,6 +182,9 @@ roles: Mapping<String, Role>
 
 /// Worker pools keyed by name.
 pools: Mapping<String, Pool> = new {}
+
+/// Tab drift scope. An empty list reports every workspace.
+scope: Scope = new {}
 
 local ruleIds: List<String> = rules.toList().map((rule) -> rule.id)
 
@@ -219,6 +229,7 @@ local function rendered(): Dynamic =
       pools = module.pools
       approvalWords = module.approvalWords
       allowApprovalWords = module.allowApprovalWords
+      scope = module.scope
     }
 
 output {

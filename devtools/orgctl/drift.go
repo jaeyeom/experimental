@@ -27,7 +27,7 @@ func extraTabs(spec Spec, live Live) []string {
 	}
 	tabs := make([]LiveTab, 0, len(live.Tabs))
 	for _, tab := range live.Tabs {
-		if roleOwnsTab(spec, tab) || poolTab(tab, spec, live) {
+		if !tabInScope(spec, tab.Workspace) || roleOwnsTab(spec, tab) || poolTab(tab, spec, live) {
 			continue
 		}
 		tabs = append(tabs, tab)
@@ -41,9 +41,24 @@ func extraTabs(spec Spec, live Live) []string {
 	var lines []string
 	for _, tab := range tabs {
 		lines = append(lines, "+ tab "+tab.Workspace+"/"+tab.Label)
-		lines = append(lines, "USER: close tab "+tab.Label+" in "+tab.Workspace)
+		lines = append(lines, "add to spec, or USER: close tab "+tab.Label+" in "+tab.Workspace+" if it is no longer needed")
 	}
 	return lines
+}
+
+func tabInScope(spec Spec, workspace string) bool {
+	if !scopeSet(spec.Scope) {
+		return true
+	}
+	if !slices.Contains(spec.Scope.Workspaces, workspace) {
+		return false
+	}
+	for _, pool := range spec.Pools {
+		if pool.Workspace == workspace {
+			return false
+		}
+	}
+	return true
 }
 
 func extraNames(spec Spec, live Live) []string {

@@ -86,6 +86,7 @@ func runCheck(args []string, stderr io.Writer) int {
 		return 1
 	}
 	warnings, err := spec.CheckDecides([]string(extra))
+	warnings = append(warnings, spec.CheckScope()...)
 	for _, warning := range warnings {
 		fmt.Fprintln(stderr, warning)
 	}

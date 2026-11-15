@@ -18,6 +18,14 @@ type Spec struct {
 	Pools              map[string]Pool    `json:"pools"`
 	ApprovalWords      []string           `json:"approvalWords"`
 	AllowApprovalWords []string           `json:"allowApprovalWords"`
+	Scope              *Scope             `json:"scope,omitempty"`
+}
+
+// Scope limits tab drift to a set of workspaces.
+// An empty Workspaces list reports every workspace.
+// Pool workspaces are skipped even when listed.
+type Scope struct {
+	Workspaces []string `json:"workspaces"`
 }
 
 // Machine is one host the organization runs on.
@@ -111,6 +119,43 @@ func (s Spec) CheckPatterns() error {
 		}
 	}
 	return nil
+}
+
+// CheckScope warns when a role or pool workspace is outside a set scope.
+// An empty scope is unset and warns about nothing.
+func (s Spec) CheckScope() []string {
+	if !scopeSet(s.Scope) {
+		return nil
+	}
+	allowed := make(map[string]bool, len(s.Scope.Workspaces))
+	for _, workspace := range s.Scope.Workspaces {
+		allowed[workspace] = true
+	}
+	var warnings []string
+	for _, name := range mapKeys(s.Roles) {
+		if !allowed[s.Roles[name].Workspace] {
+			warnings = append(warnings, fmt.Sprintf("warning: role %s workspace %q is outside the scope", name, s.Roles[name].Workspace))
+		}
+	}
+	for _, name := range mapKeys(s.Pools) {
+		if !allowed[s.Pools[name].Workspace] {
+			warnings = append(warnings, fmt.Sprintf("warning: pool %s workspace %q is outside the scope", name, s.Pools[name].Workspace))
+		}
+	}
+	return warnings
+}
+
+func scopeSet(scope *Scope) bool {
+	return scope != nil && len(scope.Workspaces) > 0
+}
+
+func mapKeys[V any](items map[string]V) []string {
+	names := make([]string, 0, len(items))
+	for name := range items {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
 }
 
 func globError(name, kind, pattern string) error {

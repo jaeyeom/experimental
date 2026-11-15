@@ -16,6 +16,7 @@ func Import(live Live, amendsPath string) string {
 	b.WriteString("org = \"TODO\"\n\n")
 	writeMachines(&b, roles)
 	b.WriteString("\nrules {}\n\n")
+	writeScope(&b, roles)
 	writeImportRoles(&b, roles)
 	b.WriteByte('\n')
 	writePoolComments(&b, live)
@@ -119,6 +120,29 @@ func writeMachines(b *strings.Builder, roles []importRole) {
 		b.WriteString("  }\n")
 	}
 	b.WriteString("}\n")
+}
+
+func writeScope(b *strings.Builder, roles []importRole) {
+	seen := map[string]bool{}
+	var workspaces []string
+	for _, role := range roles {
+		if role.workspace == "" || seen[role.workspace] {
+			continue
+		}
+		seen[role.workspace] = true
+		workspaces = append(workspaces, role.workspace)
+	}
+	if len(workspaces) == 0 {
+		return
+	}
+	slices.Sort(workspaces)
+	b.WriteString("scope {\n")
+	b.WriteString("  workspaces {\n")
+	for _, workspace := range workspaces {
+		b.WriteString("    " + pklQuote(workspace) + "\n")
+	}
+	b.WriteString("  }\n")
+	b.WriteString("}\n\n")
 }
 
 func writeImportRoles(b *strings.Builder, roles []importRole) {
