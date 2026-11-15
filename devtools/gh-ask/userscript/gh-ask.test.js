@@ -419,9 +419,9 @@ test("the script only connects to loopback", () => {
 const POPOVER_W = 360;
 const MARGIN = 8;
 
-test("userscript version is 0.1.8", () => {
+test("userscript version is 0.1.9", () => {
   const src = fs.readFileSync(path.join(__dirname, "gh-ask.user.js"), "utf8");
-  assert.match(src, /^\/\/ @version\s+0\.1\.8$/m);
+  assert.match(src, /^\/\/ @version\s+0\.1\.9$/m);
 });
 
 const FILES_HEAD = "0123456789abcdef0123456789abcdef01234567";
@@ -1000,6 +1000,97 @@ test("ctrl+enter does nothing while the popover is closed", () => {
 test("send button names the shortcut", () => {
   const src = fs.readFileSync(path.join(__dirname, "gh-ask.user.js"), "utf8");
   assert.match(src, /Send \(⌘↵ \/ Ctrl\+↵\)/);
+});
+
+function headerToggles(root) {
+  const out = [];
+  const stack = [root];
+  while (stack.length > 0) {
+    const el = stack.pop();
+    if ((el.getAttribute?.("class") || "").includes("gh-ask-header")) {
+      out.push(el);
+    }
+    for (const kid of el.children || []) {
+      stack.push(kid);
+    }
+  }
+  return out;
+}
+
+function adopt(parent, el) {
+  el.parentElement = parent;
+  parent.childNodes.push(el);
+}
+
+function freshToggle() {
+  return parse('<button class="gh-ask-btn gh-ask-header" data-fixture="toggle">gh-ask</button>')
+    .children[0];
+}
+
+test("panel toggle prefers the sticky header, then the title", () => {
+  const toggle = freshToggle();
+  const sticky = fixture("sticky-header.html");
+  assert.equal(G.mountPanelToggle(sticky, toggle), true);
+  const copy = byAttr(sticky, "data-fixture", "title-copy");
+  const metaKids = copy.parentElement.children;
+  assert.equal(metaKids[indexOf(metaKids, copy) + 1], toggle);
+  assert.equal(headerToggles(sticky).length, 1);
+  assert.equal(G.mountPanelToggle(sticky, toggle), true);
+  assert.equal(headerToggles(sticky).length, 1);
+
+  const actionsOnly = parse(
+    '<div class="miniHeaderInner"><div class="metadata"><span class="number">#1</span></div><div class="actions" data-fixture="actions"><button data-fixture="merge">Merge</button></div></div>',
+  );
+  const second = freshToggle();
+  assert.equal(G.mountPanelToggle(actionsOnly, second), true);
+  assert.equal(byAttr(actionsOnly, "data-fixture", "actions").children[0], second);
+
+  const titleOnly = fixture("pr-header-titlearea.html");
+  const third = freshToggle();
+  assert.equal(G.mountPanelToggle(titleOnly, third), true);
+  assert.equal(third.parentElement, byAttr(titleOnly, "data-fixture", "pr-title").parentElement);
+  assert.equal(headerToggles(titleOnly).length, 1);
+});
+
+function indexOf(list, node) {
+  return Array.prototype.indexOf.call(list, node);
+}
+
+test("panel toggle is moved once when the header is replaced or appears later", () => {
+  const page = parse('<div id="page"></div>').children[0];
+  const toggle = freshToggle();
+  const first = fixture("sticky-header.html").children[0];
+  adopt(page, first);
+  assert.equal(G.mountPanelToggle(page, toggle), true);
+  assert.equal(headerToggles(page).length, 1);
+
+  page.childNodes.splice(indexOf(page.childNodes, first), 1);
+  const again = fixture("sticky-header.html").children[0];
+  adopt(page, again);
+  assert.equal(G.mountPanelToggle(page, toggle), true);
+  assert.equal(headerToggles(page).length, 1);
+  const copy = byAttr(page, "data-fixture", "title-copy");
+  assert.equal(copy.parentElement.children[indexOf(copy.parentElement.children, copy) + 1], toggle);
+  assert.equal(G.mountPanelToggle(page, toggle), true);
+  assert.equal(headerToggles(page).length, 1);
+
+  const late = parse('<h1 class="js-issue-title" data-fixture="pr-title">Fix retry</h1>')
+    .children[0];
+  const plain = parse('<div id="plain"></div>').children[0];
+  adopt(plain, late);
+  const moved = freshToggle();
+  assert.equal(G.mountPanelToggle(plain, moved), true);
+  assert.equal(moved.parentElement, late.parentElement);
+  const sticky = fixture("sticky-header.html").children[0];
+  adopt(plain, sticky);
+  assert.equal(G.mountPanelToggle(plain, moved), true);
+  assert.equal(headerToggles(plain).length, 1);
+  assert.equal(late.parentElement.children.includes(moved), false);
+  const title = byAttr(plain, "data-fixture", "title-copy");
+  assert.equal(
+    title.parentElement.children[indexOf(title.parentElement.children, title) + 1],
+    moved,
+  );
 });
 
 test("TitleArea header is the h1", () => {
