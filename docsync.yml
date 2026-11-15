@@ -371,7 +371,7 @@ rules:
   - match: ["devtools/docsync/cmd/**", "devtools/docsync/internal/cli/root.go"]
     docs:
       - path: devtools/docsync/README.org
-        section: "* Installation"
+        section: "* Quick start"
         why: "go install / bazel run entry point"
       - path: devtools/docsync/README.org
         section: "* Config discovery"
