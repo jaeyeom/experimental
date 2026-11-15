@@ -334,6 +334,54 @@ func TestDriftReportsSharedCwdOnce(t *testing.T) {
 	}
 }
 
+func TestDriftSuggestsRegisteringUnnamedRole(t *testing.T) {
+	spec := Spec{Roles: map[string]Role{
+		"desk/clerk": {
+			Cwd: "/work/clerk",
+			Schedules: []Schedule{{
+				ID: "daily", Cron: "0 9 * * 1-5", Durable: true, Prompt: "Read notes",
+			}},
+		},
+	}}
+	live := Live{Crons: []LiveCron{{
+		Cwd: "/work/clerk", ID: "file-id", Cron: "0 9 * * 1-5",
+		Prompt: "Read notes", CreatedBySessionID: "sess-orphan",
+	}}}
+	got := strings.Join(Drift(spec, live), "\n")
+	want := "USER: register the tab running session sess-orphan as desk/clerk, or recreate the cron in desk/clerk"
+	if !strings.Contains(got, "! cron daily misplaced: move to role desk/clerk") || !strings.Contains(got, want) {
+		t.Fatalf("drift =\n%s", got)
+	}
+	if strings.Contains(got, "USER: recreate cron in role desk/clerk") {
+		t.Fatalf("named-role suggestion used for an unnamed role\n%s", got)
+	}
+}
+
+func TestDriftPoolNameByPane(t *testing.T) {
+	spec := Spec{Pools: map[string]Pool{"hands": {Workspace: "workers"}}}
+	live := Live{
+		Tabs: []LiveTab{
+			{Workspace: "workers", Label: "a"},
+			{Workspace: "misc", Label: "stray"},
+		},
+		Names: []LiveName{
+			{Name: "queue/runner", Pane: "p1"},
+			{Name: "other/name", Pane: "p2"},
+		},
+		Agents: []LiveAgent{
+			{Name: "not-the-bus-name", Pane: "p1", Workspace: "workers", Tab: "a"},
+			{Name: "also-different", Pane: "p2", Workspace: "misc", Tab: "stray"},
+		},
+	}
+	got := strings.Join(Drift(spec, live), "\n")
+	if strings.Contains(got, "+ name queue/runner") {
+		t.Fatalf("pool name reported\n%s", got)
+	}
+	if !strings.Contains(got, "+ name other/name") || !strings.Contains(got, "+ tab misc/stray") {
+		t.Fatalf("drift =\n%s", got)
+	}
+}
+
 func TestDriftSkipsPoolWorkspace(t *testing.T) {
 	spec := Spec{Pools: map[string]Pool{"hands": {Workspace: "workers"}}}
 	live := Live{
