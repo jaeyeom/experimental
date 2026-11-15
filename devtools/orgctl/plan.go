@@ -36,12 +36,17 @@ type LiveAgent struct {
 	Cwd       string
 	Model     string
 	SessionID string
+	Kind      string
+	Workspace string
+	Tab       string
+	Machine   string
 }
 
 // LiveName is one agentbus name.
 type LiveName struct {
-	Name string
-	When string
+	Name   string
+	When   string
+	Server string
 }
 
 // LiveCron is one durable job read from a role cwd.
@@ -49,6 +54,7 @@ type LiveCron struct {
 	Cwd                string
 	ID                 string
 	Cron               string
+	Prompt             string
 	ExpiresAt          time.Time
 	CreatedBySessionID string
 }

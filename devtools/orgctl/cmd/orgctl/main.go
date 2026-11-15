@@ -12,10 +12,13 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -25,14 +28,19 @@ import (
 
 const usage = "usage: orgctl check [--approval-word WORD]... SPEC.json\n" +
 	"       orgctl plan [--machine NAME] [--role NAME] [--expiring 2d] SPEC.json\n" +
-	"       orgctl drift SPEC.json"
+	"       orgctl drift SPEC.json\n" +
+	"       orgctl import [--out FILE] [--force]"
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stderr))
 }
 
 func run(args []string, stderr io.Writer) int {
-	return runIO(args, os.Stdout, stderr, loadLive)
+	load := loadLive
+	if len(args) > 0 && args[0] == "import" {
+		load = func(orgctl.Spec) (orgctl.Live, error) { return loadImportLive() }
+	}
+	return runIO(args, os.Stdout, stderr, load)
 }
 
 func runIO(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (orgctl.Live, error)) int {
@@ -47,6 +55,8 @@ func runIO(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (orgc
 		return runPlan(args, stdout, stderr, load)
 	case "drift":
 		return runDrift(args, stdout, stderr, load)
+	case "import":
+		return runImport(args, stdout, stderr, load)
 	default:
 		fmt.Fprintln(stderr, usage)
 		return 2
@@ -172,6 +182,94 @@ func runDrift(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (o
 		return 2
 	}
 	return 0
+}
+
+func runImport(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (orgctl.Live, error)) int {
+	fs := flag.NewFlagSet("import", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	outPath := fs.String("out", "", "write the stub to this file instead of stdout")
+	force := fs.Bool("force", false, "overwrite an existing --out file")
+	if err := fs.Parse(args[1:]); err != nil {
+		return 1
+	}
+	if fs.NArg() != 0 {
+		fmt.Fprintln(stderr, "usage: orgctl import [--out FILE] [--force]")
+		return 1
+	}
+	if load == nil {
+		load = func(orgctl.Spec) (orgctl.Live, error) { return loadImportLive() }
+	}
+	live, err := load(orgctl.Spec{})
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	stub := orgctl.Import(live, findOrgPkl())
+	if !strings.HasSuffix(stub, "\n") {
+		stub += "\n"
+	}
+	if *outPath == "" {
+		fmt.Fprint(stdout, stub)
+		return 0
+	}
+	if err := writeStub(*outPath, []byte(stub), *force); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	return 0
+}
+
+func writeStub(path string, data []byte, force bool) error {
+	flagSet := os.O_WRONLY | os.O_CREATE
+	if force {
+		flagSet |= os.O_TRUNC
+	} else {
+		flagSet |= os.O_EXCL
+	}
+	f, err := os.OpenFile(path, flagSet, 0o600) //nolint:gosec // G304: the operator named the output file
+	if err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return fmt.Errorf("refusing to overwrite %s", path)
+		}
+		return fmt.Errorf("write stub: %w", err)
+	}
+	_, err = f.Write(data)
+	cerr := f.Close()
+	if err != nil {
+		return fmt.Errorf("write stub: %w", err)
+	}
+	if cerr != nil {
+		return fmt.Errorf("close stub: %w", cerr)
+	}
+	return nil
+}
+
+func findOrgPkl() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "pkl/Org.pkl"
+	}
+	for {
+		candidates := []string{
+			filepath.Join(dir, "devtools", "orgctl", "pkl", "Org.pkl"),
+			filepath.Join(dir, "pkl", "Org.pkl"),
+		}
+		for _, candidate := range candidates {
+			if _, statErr := os.Stat(candidate); statErr == nil {
+				abs, absErr := filepath.Abs(candidate)
+				if absErr == nil {
+					return abs
+				}
+				return candidate
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "pkl/Org.pkl"
 }
 
 func parseExpiring(value string) (time.Duration, error) {
