@@ -296,10 +296,13 @@ func cronsWithExpr(live Live, cwd, expr string) []LiveCron {
 		return nil
 	}
 	var out []LiveCron
+	seen := map[string]bool{}
 	for _, cron := range live.Crons {
-		if cron.Cwd == cwd && cron.Cron == expr {
-			out = append(out, cron)
+		if cron.Cwd != cwd || cron.Cron != expr || seen[cronKey(cron)] {
+			continue
 		}
+		seen[cronKey(cron)] = true
+		out = append(out, cron)
 	}
 	return out
 }

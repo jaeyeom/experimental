@@ -187,7 +187,7 @@ func readRoleFiles(spec orgctl.Spec, live *orgctl.Live) {
 
 func readCrons(role orgctl.Role, live *orgctl.Live) {
 	cwd, err := orgctl.ExpandPath(role.Cwd)
-	if err != nil {
+	if err != nil || pathSeen(live.CronRead, cwd) || pathSeen(live.MissingCwd, cwd) {
 		return
 	}
 	info, err := os.Stat(cwd)
@@ -212,6 +212,15 @@ func readCrons(role orgctl.Role, live *orgctl.Live) {
 			ExpiresAt: job.ExpiresAt, CreatedBySessionID: job.CreatedBySessionID,
 		})
 	}
+}
+
+func pathSeen(paths []string, cwd string) bool {
+	for _, item := range paths {
+		if item == cwd {
+			return true
+		}
+	}
+	return false
 }
 
 func cronUnreadable(warnings []string) bool {
