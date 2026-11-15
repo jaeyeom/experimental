@@ -212,24 +212,46 @@ func (l *Ledger) markFollowUp(id, mark string) (Item, error) {
 	return updated, nil
 }
 
+// resendAnswer claims the one re-send under the ledger lock before it
+// notifies, so passes in other processes (an inbox, a serve session,
+// decide follow) do not send it again.
 func (l *Ledger) resendAnswer(it *Item, now time.Time, out io.Writer) error {
-	cur, err := l.Get(it.ID)
-	if err != nil {
-		return err
-	}
-	if cur.State != StateAnswered || cur.FollowUp != "" || resent(&cur) {
+	var cur Item
+	claimed := false
+	err := l.locked(true, func(st *store) error {
+		stored, err := findItem(st, it.ID)
+		if err != nil {
+			return err
+		}
+		if stored.State != StateAnswered || stored.FollowUp != "" || resent(stored) {
+			return nil
+		}
+		stored.Delivery = append(stored.Delivery, Delivery{At: now.UTC(), Outcome: OutcomeResend})
+		cur = *stored
+		claimed = true
 		return nil
+	})
+	if err != nil || !claimed {
+		return err
 	}
 	target, _, nerr := notifyAttempt(&cur, out)
 	msg := ""
 	if nerr != nil {
 		msg = nerr.Error()
 	}
-	_, err = l.appendDelivery(cur.ID, Delivery{
-		At:      now,
-		Target:  target,
-		Outcome: OutcomeResend,
-		Error:   msg,
+	return l.locked(true, func(st *store) error {
+		stored, err := findItem(st, it.ID)
+		if err != nil {
+			return err
+		}
+		for i := len(stored.Delivery) - 1; i >= 0; i-- {
+			if d := &stored.Delivery[i]; d.Outcome == OutcomeResend {
+				d.Target = target
+				d.Error = msg
+				stored.NotifyError = msg
+				break
+			}
+		}
+		return nil
 	})
-	return err
 }

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -304,6 +305,43 @@ func TestFollowStaleNewAnswerResetsTheResend(t *testing.T) {
 	keys := keyLog(t, logPath)
 	if len(keys) != 4 || keys[3] != second || keys[1] == second {
 		t.Fatalf("keys = %#v, want a new re-send %q", keys, second)
+	}
+}
+
+// TestFollowStaleConcurrentPassesResendOnce is a runner and a serve
+// session passing at the same moment: two ledger handles on one
+// directory. The slow notifier keeps both passes in flight together.
+func TestFollowStaleConcurrentPassesResendOnce(t *testing.T) {
+	f := herdrtest.Install(t)
+	fakeHerdrMachine(f, "local")
+	f.Write("local.agents", `{"result":{"agents":[{"pane_id":"w3:p7","agent_status":"idle"}]}}`)
+	led, clock, logPath := followLedger(t)
+	installProgram(t, "notifier", "#!/bin/sh\nsleep 0.3\nprintf '%s\\n' \"$DECIDE_DELIVERY_KEY\" >> '"+logPath+"'\n")
+	item := answeredRelay(t, led, "w3:p7", "")
+	other := openDeliveryLedger(t, led.dir, clock)
+	now := item.AnsweredAt.Add(31 * time.Minute)
+
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i, l := range []*Ledger{led, other} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs[i] = l.FollowStale(now, nil, nil)
+		}()
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if keys := keyLog(t, logPath); len(keys) != 1 {
+		t.Fatalf("keys = %#v, want one re-send", keys)
+	}
+	got := mustGet(t, led, item.ID)
+	if len(got.Delivery) != 1 || got.Delivery[0].Outcome != OutcomeResend {
+		t.Fatalf("delivery = %+v", got.Delivery)
 	}
 }
 

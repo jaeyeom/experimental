@@ -61,6 +61,57 @@ func cmdHubInbox(settings hubSettings, args []string, stdout, stderr io.Writer) 
 	return 0
 }
 
+// ledgerBackend is this machine's ledger with this machine's config.
+func ledgerBackend() (*tui.LocalBackend, decide.Config, error) {
+	dir, err := decide.DefaultDir()
+	if err != nil {
+		return nil, decide.Config{}, fmt.Errorf("decide directory: %w", err)
+	}
+	cfg, err := decide.LoadConfig()
+	if err != nil {
+		return nil, decide.Config{}, err //nolint:wrapcheck // LoadConfig names the config
+	}
+	return &tui.LocalBackend{
+		Dir:          dir,
+		SendTemplate: cfg.SendTemplate,
+		Checkouts:    cfg.Checkouts,
+		Machine:      decide.LocalMachine(cfg),
+	}, cfg, nil
+}
+
+// cmdFollow is `decide follow`: the stale-answer follow-up and delivery
+// retries on this machine's ledger, without an inbox or a hub client.
+// It runs a pass every --every until SIGINT or SIGTERM, or one pass
+// with --once.
+func cmdFollow(args []string, _, stderr io.Writer) int {
+	fs := flag.NewFlagSet("follow", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	every := fs.Duration("every", followEvery, "time between passes")
+	once := fs.Bool("once", false, "run one pass and exit")
+	if code, stop := stopped(parseFlags(fs, args)); stop {
+		return code
+	}
+	if len(fs.Args()) != 0 || *every <= 0 {
+		return fail(stderr, fmt.Errorf("decide follow takes [--every <duration>] [--once], with a positive duration"), 2)
+	}
+	backend, _, err := ledgerBackend()
+	if err != nil {
+		return fail(stderr, err, 1)
+	}
+	if *once {
+		if err := backend.FollowDue(); err != nil {
+			return fail(stderr, err, 1)
+		}
+		return 0
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), unix.SIGINT, unix.SIGTERM)
+	defer stop()
+	backend.FollowLoop(ctx, *every, func(err error) {
+		fmt.Fprintf(stderr, "decide follow: %v\n", err)
+	})
+	return 0
+}
+
 // cmdServe is the hidden `decide serve --stdio`: the hub side of a
 // hub-mode inbox. It answers JSON-line requests on stdin against this
 // machine's ledger until stdin closes.
@@ -74,21 +125,12 @@ func cmdServe(args []string, stdout, stderr io.Writer) int {
 	if !*stdio || len(fs.Args()) != 0 {
 		return fail(stderr, fmt.Errorf("decide serve needs --stdio and no arguments"), 2)
 	}
-	dir, err := decide.DefaultDir()
-	if err != nil {
-		return fail(stderr, fmt.Errorf("decide directory: %w", err), 1)
-	}
-	cfg, err := decide.LoadConfig()
+	backend, cfg, err := ledgerBackend()
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
 	server := &inboxrpc.Server{
-		Backend: &tui.LocalBackend{
-			Dir:          dir,
-			SendTemplate: cfg.SendTemplate,
-			Checkouts:    cfg.Checkouts,
-			Machine:      decide.LocalMachine(cfg),
-		},
+		Backend:     backend,
 		Targets:     cfg.Targets,
 		Agentbus:    cfg.Recipients.Agentbus,
 		FollowEvery: followEvery,

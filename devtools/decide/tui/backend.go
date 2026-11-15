@@ -115,16 +115,44 @@ func (b *LocalBackend) with(fn func(*decide.Ledger) (decide.Item, error)) (decid
 	return fn(led)
 }
 
-// FollowDue follows up stale answers on this ledger.
+// FollowDue retries failed deliveries that are due and follows up stale
+// answers on this ledger. Each pass locks the ledger per write, and a
+// re-send is claimed under the lock, so passes from several processes
+// send it once.
 func (b *LocalBackend) FollowDue() error {
 	led, err := b.ledger()
 	if err != nil {
 		return err
 	}
+	rerr := led.RetryDue(b.now(), io.Discard)
 	if err := led.FollowStale(b.now(), io.Discard, b.Herdr); err != nil {
 		return fmt.Errorf("follow stale answers: %w", err)
 	}
+	if rerr != nil {
+		return fmt.Errorf("retry deliveries: %w", rerr)
+	}
 	return nil
+}
+
+// FollowLoop runs FollowDue at once and then every every until ctx
+// ends. report, when not nil, gets each pass's error.
+func (b *LocalBackend) FollowLoop(ctx context.Context, every time.Duration, report func(error)) {
+	pass := func() {
+		if err := b.FollowDue(); err != nil && report != nil {
+			report(err)
+		}
+	}
+	pass()
+	tick := time.NewTicker(every)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			pass()
+		}
+	}
 }
 
 // List implements Backend.

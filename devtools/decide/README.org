@@ -708,8 +708,9 @@ Each attempt is stored on the item as ~delivery~: ~at~, ~target~,
 ~not delivered~ and the error on an answered item whose latest attempt
 for that answer failed, in the list and in the item header.
 
-A failed attempt is retried when the inbox on the ledger's machine
-reloads, after 5s and then after 20s, and then it stops. Three attempts
+A failed attempt is retried on the ledger's machine, wherever the
+stale-answer check below runs, after 5s and then after 20s, and then it
+stops. Three attempts
 is the cap. The same key is sent again. A new answer has a new
 ~answeredAt~ and a new key. A queued attempt is not retried.
 
@@ -718,9 +719,20 @@ stale when it is still answered, ~ui.staleAnswerAfter~ on the ledger
 machine has passed (30 minutes when that is unset), and the owner has
 not replied in the thread, marked it read, or run ~decide done~.
 Opening the item marks it read. The check runs on the machine that
-holds the ledger: from the inbox reload there, and in hub mode from
-~decide serve~, so the item does not have to be open. The hub does it.
-A hub client does not.
+holds the ledger, in three places:
+
+- ~decide inbox~ open there, on each reload.
+- ~decide serve --stdio~, the session a hub client's inbox starts,
+  once a minute, so the item does not have to be open.
+- ~decide follow~, a runner with no UI and no client
+  ([[*Running the follow-up as a service]]).
+
+A hub client does not run it. On a hub, the first two run only while
+someone has an inbox open, which is often not the case when the user is
+away. Run ~decide follow~ as a service there.
+
+Passes in several of these at once send one follow-up: each pass locks
+the ledger, and a re-send is recorded under the lock before it is sent.
 
 The follow-up looks the owner up first, through ~herdr --machine~ when
 the pane is on another machine, and then reads ~herdr agent list~:
@@ -741,6 +753,66 @@ A parent value of the same name does not win.
 ~{id}~, ~{answer}~, ~{owner}~, and ~{pane}~ are not substituted. Braces
 are not replaced. An old ~notifyTemplate~ that still uses those braces
 runs the command and does not insert the answer.
+
+** Running the follow-up as a service
+
+~decide follow~ runs the delivery retries and the stale-answer
+follow-up on this machine's ledger every minute, until SIGINT or
+SIGTERM. ~--every 5m~ changes the interval. ~decide follow --once~ runs
+one pass and exits, for cron. Run it on the machine that holds the
+ledger. A pass that fails is printed on stderr and the loop goes on.
+
+Installing it is your step. Put the full path of ~decide~ in the unit.
+On Linux, a systemd user unit at
+~~/.config/systemd/user/decide-follow.service~:
+
+#+begin_src conf
+[Unit]
+Description=decide stale-answer follow-up
+
+[Service]
+ExecStart=%h/go/bin/decide follow
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+#+end_src
+
+Then ~systemctl --user daemon-reload~ and
+~systemctl --user enable --now decide-follow~. Run
+~loginctl enable-linger~ to keep it running after you log out.
+
+On macOS, a launchd agent at
+~~/Library/LaunchAgents/com.github.jaeyeom.decide-follow.plist~, with
+your home directory in place of ~/Users/me~:
+
+#+begin_src xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.github.jaeyeom.decide-follow</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/me/go/bin/decide</string>
+    <string>follow</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardErrorPath</key>
+  <string>/Users/me/Library/Logs/decide-follow.log</string>
+</dict>
+</plist>
+#+end_src
+
+Then ~launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.github.jaeyeom.decide-follow.plist~.
+
+The service needs what the notify command and herdr need on ~PATH~.
+Add ~Environment=PATH=...~ to the unit, or an ~EnvironmentVariables~
+dictionary to the plist, when they are not in the default path.
 
 * Hub mode: a second machine
 

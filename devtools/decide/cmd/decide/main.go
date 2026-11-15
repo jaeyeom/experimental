@@ -48,12 +48,22 @@ var itemCommands = map[string]func([]string, io.Writer, io.Writer) int{
 	"reassign": cmdReassign,
 }
 
+// ledgerCommands run against this machine's ledger until stopped: the
+// hub side of a hub-mode inbox and the stale-answer runner.
+var ledgerCommands = map[string]func([]string, io.Writer, io.Writer) int{
+	"serve":  cmdServe,
+	"follow": cmdFollow,
+}
+
 func runLocal(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		usage(stderr)
 		return 2
 	}
 	if cmd, ok := itemCommands[args[0]]; ok {
+		return cmd(args[1:], stdout, stderr)
+	}
+	if cmd, ok := ledgerCommands[args[0]]; ok {
 		return cmd(args[1:], stdout, stderr)
 	}
 	switch args[0] {
@@ -63,8 +73,6 @@ func runLocal(args []string, stdout, stderr io.Writer) int {
 		return cmdList(args[1:], stdout, stderr)
 	case "inbox":
 		return cmdInbox(args[1:], stdout, stderr)
-	case "serve":
-		return cmdServe(args[1:], stdout, stderr)
 	case "status":
 		return cmdStatus(args[1:], stdout, stderr)
 	case "targets":
@@ -101,6 +109,7 @@ func usage(w io.Writer) {
   decide snooze [--json] <id> <2h30m|HH:MM|YYYY-MM-DD HH:MM|mon 9:00>
   decide unsnooze [--json] <id>
   decide [--remote <user@host>] inbox [--snoozed] [--utc]
+  decide follow [--every 1m] [--once]
   decide status set --agent <name> [--state working|idle|paused|blocked] <text>
   decide status set --resource <name> free|busy [<note>]
   decide status list [--json]
