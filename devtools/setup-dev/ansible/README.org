@@ -1,457 +1,257 @@
-#+TITLE: Ansible Setup Dev
-#+TODO: TODO DOING | DONE
-#+CATEGORY: SetupDev
+#+TITLE: Ansible playbooks
+#+DATE: 2026-11-15
 
-This directory includes Ansible playbooks and a generator of it.
+This directory is the playbooks behind
+[[file:../README.org][setup-dev]]. A rule is a playbook name: the file
+name with ~.yml~ removed. ~./ensure.sh rg~ runs ~rg.yml~. Most
+playbooks are generated from ~packages_data.go~. A file whose first
+lines do not say ~AUTO-GENERATED~ is hand-written. The fresh-machine
+steps are in the setup-dev README, not here.
 
-* Bootstrap (Fresh Machine)
+* Running playbooks
 
-On a fresh machine without the repository cloned, run:
+** One tool, a profile, or everything
 
-#+begin_src sh
-curl -fsSL https://raw.githubusercontent.com/jaeyeom/experimental/main/devtools/setup-dev/ansible/bootstrap.sh | sh
-#+end_src
+#+BEGIN_SRC bash
+./ensure.sh rg
+./ensure.sh profile-minimal
+./ensure.sh all
+#+END_SRC
 
-This installs git (if needed), clones the repository, and guides you through
-running =ensure.sh=.
+~rg~ installs ripgrep. ~profile-minimal~ is the light set. ~all~
+imports the groups listed in ~all.yml~. System packages may ask for a
+sudo password. The log path is in the setup-dev README.
 
-* How to Use
+** Passing Ansible flags
 
-Run the =ensure.sh= script with the proper rule name. Rule names are playbook
-filenames.
-
-#+begin_src sh
-  ./ensure.sh [rule]...
-#+end_src
-
-Arguments starting with =-= go to =ansible-playbook=; the others are
+Arguments that start with ~-~ go to ~ansible-playbook~. The others are
 playbook names. These flags read the next argument as their value:
-=-e=/=--extra-vars= (may repeat), =-t=/=--tags=, =--skip-tags=,
-=-l=/=--limit=, and =-i=/=--inventory=. Each value is passed as one
-argument, so spaces, JSON, and =@file= work:
+~-e~ / ~--extra-vars~ (may repeat), ~-t~ / ~--tags~, ~--skip-tags~,
+~-l~ / ~--limit~, and ~-i~ / ~--inventory~. Each value is one
+argument, so spaces, JSON, and ~@file~ work:
 
-#+begin_src sh
-  ./ensure.sh -e foo=bar -e 'msg="hello world"' --tags setup profile-cloudflare-dev
-#+end_src
+#+BEGIN_SRC bash
+./ensure.sh -e foo=bar -e 'msg="hello world"' --tags setup profile-cloudflare-dev
+#+END_SRC
 
 For any other flag that takes a value, use the joined form
-(~--flag=value~), or the value is treated as a playbook name. Arguments
-after =--= are always playbook names.
+~--flag=value~, or the value is treated as a playbook name. Arguments
+after ~--~ are always playbook names.
 
-When a nested =import_playbook= fails, Ansible stops and =ensure.sh= prints
-the leaf file and task (not only the top-level argument), plus a resume
-command. =--from= starts at the beginning of that leaf playbook file (its
-include-guard, which must be the first play so that file's
-=import_playbook= lines still run) and continues the rest of the original
+** Resuming a failed run
+
+When a nested ~import_playbook~ fails, Ansible stops and ~ensure.sh~
+prints the leaf file and task, plus a resume command. ~--from~ starts
+at the beginning of that leaf playbook. The include guard must be the
+first play in that file, so the file's ~import_playbook~ lines still
 run. Re-running the rest of that leaf file is expected:
 
-#+begin_src sh
-  ./ensure.sh --from setup-git -- all
-#+end_src
+#+BEGIN_SRC bash
+./ensure.sh --from setup-git -- all
+#+END_SRC
 
-=--from= reads the include-guard task name from the playbook file. If the
-file has no include guard, it exits with an error instead of guessing
-=--start-at-task=.
+~--from~ reads the include-guard task name from the playbook. An
+include guard is the task that stops the file when it was already
+imported. If the file has no include guard, ~ensure.sh~ exits with an
+error instead of guessing ~--start-at-task~.
 
-=ensure.sh= refreshes system package managers (=nala= on Debian/Ubuntu,
-=brew= on macOS, =pkg= on Termux) and a few toolchains (=rustup=, Termux
-=pip=, =ansible-galaxy=) at most once every 24 hours. Stamp files live in
-=$HOME/.cache/last_upgrade/=; delete one to force that refresh on the
-next run.
+** Daily refresh
 
-** sudo / privilege escalation
+~ensure.sh~ refreshes system package managers (~nala~ on
+Debian/Ubuntu, ~brew~ on macOS, ~pkg~ on Termux) and a few toolchains
+(~rustup~, Termux ~pip~, ~ansible-galaxy~) at most once every 24
+hours. Stamp files live in =$HOME/.cache/last_upgrade/=. Delete one
+to force that refresh on the next run.
 
-Playbooks use =become: yes= for apt operations. Ansible's sudo plugin
-defaults to =sudo -H -S -n= and does *not* reuse a terminal sudo ticket:
-=sudo true= succeeding without a password in your shell is not enough.
-sudo timestamps are TTY-specific, and Ansible invokes sudo on a different
-TTY (or none).
+* Profiles (Qubes OS / Subset Installs)
 
-On Linux, =ensure.sh= probes passwordless sudo in a new session (so a
-TTY ticket cannot hide a missing =NOPASSWD= rule). If that fails, it
-passes =-K= and Ansible prompts for the become password once at the start
-of the run. Passwordless sudo skips the prompt. Non-interactive runs
-without passwordless sudo fail immediately; re-run from a terminal, pass
-=-K=, or configure =NOPASSWD=.
+A profile is a curated subset of tools in a ~profile-*.yml~ file. It
+uses the same ~import_playbook~ form as ~all.yml~, with fewer
+playbooks.
 
-Ubuntu 25.10 and later point =/usr/bin/sudo= at sudo-rs. sudo-rs prints
-=-p PROMPT= as =[sudo: PROMPT] Password:=, which Ansible's become plugin
-does not recognize, so the task times out on the prompt. When =sudo.ws=
-is on =PATH=, =ensure.sh= sets =ANSIBLE_BECOME_EXE= to that classic sudo.
-A value you already exported is left unchanged.
+*** Available Profiles
 
-** Ansible version requirement
+- ~profile-minimal.yml~ -- core CLI tools for a light setup
+- ~profile-emacs-daily.yml~ -- Emacs with shell tools for daily use
+- ~profile-antigravity.yml~ -- the agy CLI and the desktop IDE
+- ~profile-cloudflare-dev.yml~ -- Node.js, TypeScript, and Cloudflare
 
-Playbooks use =ansible.builtin.deb822_repository= (ansible-core >= 2.15).
-Ubuntu LTS apt packages are often older than that; =ensure.sh= detects this and
-upgrades Ansible via =pip --user= so module resolution succeeds. Ansible
-resolves modules at parse time, so even Debian-only tasks fail on Ubuntu when
-the installed Ansible is too old.
+To add a profile, create ~profile-{name}.yml~ and run ~make~.
 
-On Debian/Ubuntu, =ensure.sh= also installs =python3-debian= (the runtime
-library =deb822_repository= imports).
+*** Qubes OS Workflow
 
-=ensure.sh= installs =community.general= so a Galaxy copy cannot shadow a
-compatible bundled collection:
+A TemplateVM and an AppVM do different jobs:
 
-- On Debian/Ubuntu it prefers the collection shipped with the *active*
-  ansible (the python module tree, not a leftover apt path). If that
-  bundled collection is missing, it installs a Galaxy version pinned to
-  the installed ansible-core (2.15–2.18).
-- After a pip =--user= ansible-core upgrade it ignores leftover apt
-  collections and force-installs a pin for the new core.
-- On macOS and Termux it installs the latest collection from Galaxy
-  (=--force= after an upgrade).
-- A failed =ansible-galaxy= install aborts the run and does not refresh
-  the daily cache.
+1. TemplateVM: run the generated ~qubes-templatevm-{profile}.sh~ to
+   add apt sources and install system packages.
+2. AppVM: run ~./ensure.sh profile-{profile}~ to install
+   home-directory tools (Go, Cargo, npm, configs).
 
-** Per-machine settings
+The hand-written trim and default scripts live in ~../qubes/~, not in
+these generated files. The setup-dev README says which is which.
 
-=inventory.ini= is tracked and shared by every machine, so per-machine
-settings do not go there. Put them in
-=${XDG_CONFIG_HOME:-~/.config}/setup-dev/vars.yml=, outside the repository,
-so every checkout and worktree on the machine uses them. The file is
-optional. A playbook loads it with =vars_files= when it reads such a
-setting, and =-e= still overrides it for one run.
+* Per-machine settings
 
-| Variable                   | Playbook                | Effect                               |
-|----------------------------+-------------------------+--------------------------------------|
-| =fork_keeper_cron_enabled= | =setup-fork-keeper.yml= | =true= keeps the daily fork-keeper job |
-| =hub_ssh_target= and others | =setup-hub-client.yml= | See [[*Two-machine hub setup]]     |
+~inventory.ini~ is tracked and shared, so per-machine settings do not
+go there. Put them in =~/.config/setup-dev/vars.yml=, or under
+~XDG_CONFIG_HOME~ when that variable is set. The file is outside the
+repository and is optional. A playbook loads it with
+~vars_files~ when it reads such a setting, and ~-e~ still overrides it
+for one run.
+
+| Variable                  | Playbook                 | Effect                                  |
+|---------------------------+--------------------------+-----------------------------------------|
+| ~fork_keeper_cron_enabled~ | ~setup-fork-keeper.yml~ | ~true~ keeps the daily fork-keeper job  |
+| ~hub_ssh_target~          | ~setup-hub-client.yml~   | required ssh target; see the hub doc    |
 
 For example, on the machine that runs fork-keeper:
 
-#+begin_src yaml
-  fork_keeper_cron_enabled: true
-#+end_src
+#+BEGIN_SRC yaml
+fork_keeper_cron_enabled: true
+#+END_SRC
 
-** Two-machine hub setup
+* Adding a tool
 
-One machine, the hub (Linux), runs =agentbusd= and the decide ledger. A
-client (for example macOS) runs =agentbus= and =decide= in hub mode, and
-they reach the hub with =ssh -o BatchMode=yes <hub> <cmd>=. Two manual
-playbooks set this up. =all.yml= imports neither, so nothing changes on a
-machine until you run one there.
+Edit ~packages_data.go~. From the repository root, regenerate:
 
-| Variable               | Default     | Meaning                                                  |
-|------------------------+-------------+----------------------------------------------------------|
-| =hub_ssh_target=       | required    | ssh target of the hub, such as =me@hub.example=          |
-| =client_machine_label= | required    | this client's herdr saved-machine label on the hub       |
-| =hub_tools_version=    | =latest=    | =go install= version of agentbus and decide: a tag or commit |
-| =hub_connect_timeout=  | =5s=        | ssh connect timeout (=hubTimeout=, =remote_timeout=)     |
-| =hub_ssh_stable_agent= | =true=      | login rc links =~/.ssh/agent.sock=, sets =ssh_identity_agent=, and prints =agentbus install= when the tunnel unit is installed and that key changed. =false= opts out |
-| =hub_ssh_agent_rc=     | last agent-start line, else =~/.zprofile=, =~/.bash_profile=, =~/.profile= | login rc for that block. zsh reads =~/.zprofile= before =~/.zshrc=, so the block must follow the agent start. An explicit file that runs too early warns and stays put |
-| =hub_host_shell=       | login shell | =bash= or =zsh=, for =setup-hub-host.yml=                |
+#+BEGIN_SRC bash
+make generate-ansible
+#+END_SRC
 
-Set them in the client's per-machine vars file (see [[*Per-machine
-settings]]), in a private inventory or group vars, or with =-e=; not in
-the shared =inventory.ini=. Without =hub_ssh_target= and
-=client_machine_label=, =setup-hub-client.yml= stops before it changes
-anything.
+From this directory, ~make~ does the same thing.
 
-On the hub, =setup-hub-host.yml= puts =~/go/bin= and =~/.local/bin= on
-=PATH= for =ssh hub cmd=. Many =~/.bashrc= files return early for a
-non-interactive shell, so for bash it writes a marked block at the top
-of =~/.bashrc=, above that guard; for zsh it writes the block to
-=~/.zshenv=. Another run leaves the file as it is, and the block does
-not add a directory that is already on =PATH=. Then it checks, from a
-non-interactive shell, that =decide=, =agentbus=, and =herdr= are found,
-and fails naming any that are not. It does not install them.
+A tool whose installer downloads a shell script must go through
+~verified-run~. That helper checks the script's SHA-256 and refuses
+to run it after the upstream file changes. In ~packages_data.go~ the
+command looks like
+~{{ playbook_dir }}/verified-run exec https://example.com/install.sh~.
+Do not add a new ~curl ... | bash~ installer.
 
-On the client, =setup-hub-client.yml= installs =agentbus= and =decide=
-with =go install ...@<hub_tools_version>=. =agentbusd= refuses to start
-in hub mode, so it is not installed. Then it:
+Then check syntax:
 
-- merges =hub=, =hubTimeout=, and =machine= into
-  =~/.config/decide/config.json= and keeps every other key;
-- sets the top-level =hub=, =machine=, and =remote_timeout= in
-  =~/.config/agentbus/config.toml=, above its first =[section]=, and
-  keeps the other keys and sections.
+#+BEGIN_SRC bash
+bazel test //devtools/setup-dev/ansible:ansible_syntax_tests
+#+END_SRC
 
-Both files are backed up before a change. It does not run
-=agentbus install=, start a service or tunnel, or touch tokens.
+* Platform-Specific Installation Strategy
 
-With =hub_ssh_stable_agent= left on (the default; =false= opts out) it also
-appends a marked block that runs =ln -sf "$SSH_AUTH_SOCK" ~/.ssh/agent.sock=.
-On macOS, when =~/.ssh/config= contains =UseKeychain yes=, that block also
-runs =ssh-add --apple-load-keychain -q=. A line already in the rc is not
-copied in again. A Linux run writes no such line.
-zsh reads =~/.zprofile= before =~/.zshrc=, and the agent often starts
-in =~/.zshrc=, so the block has to come after that line. When
-=hub_ssh_agent_rc= is unset, the block goes at the end of the file
-that has the last agent-start line (=keychain=, =ssh-agent=,
-=eval "$(ssh-agent=, or =SSH_AUTH_SOCK==), including a file that
-startup file sources one level deep. If none is found, the file is
-=~/.zprofile= when it exists, else =~/.bash_profile=, else
-=~/.profile=. When =hub_ssh_agent_rc= is set and the agent starts in
-a file that runs later, the play warns and names both files, and
-leaves the block where you asked. Keep the block after the
-agent-start line if you move it.
-It sets =ssh_identity_agent = "~/.ssh/agent.sock"= in the agentbus
-config. It still does not edit =~/.ssh/config= and still does not run
-=agentbus install=. When the tunnel unit is already installed and that
-key changed, it prints =agentbus install= so you can rewrite the unit
-and restart it.
+The generator picks an installer per platform.
 
-Run each playbook on its own machine:
+** Termux
 
-#+begin_src sh
-  # on the hub
-  ansible-playbook -i inventory.ini setup-hub-host.yml
-  # on the client
-  ansible-playbook -i inventory.ini setup-hub-client.yml \
-    -e hub_ssh_target=me@hub.example -e client_machine_label=laptop
-#+end_src
+Prefer ~pkg~ when the package exists. Termux's layout usually needs
+its own packages, and ~pkg~ handles those dependencies.
 
-=./ensure.sh setup-hub-host= and =./ensure.sh setup-hub-client= work too.
-To run both from one controller, use a private inventory that names the
-two machines and limit each run, for example
-=ansible-playbook -i ~/hosts.ini setup-hub-host.yml -l hub=.
+** Debian/Ubuntu
 
-*** Check
+Prefer apt only when an old package is acceptable, or when a
+maintained PPA is current. The Emacs PPA
+(~ppa:ubuntuhandbook1/emacs~) is one of those. The Go toolchain itself
+is not the Ubuntu ~golang~ package. ~go.yml~ installs the latest
+stable upstream release under =/usr/local/go=, checks its SHA-256
+against https://go.dev/dl/?mode=json, and replaces it when a newer
+stable release is published.
 
-The last task of =setup-hub-client.yml= runs =decide status list= and
-=agentbus list= through the hub, with =DECIDE_HUB= and =AGENTBUS_HUB= set
-to =hub_ssh_target=. It fails with the command's stderr when the hub is
-unreachable or a binary is missing on either side. To run only the check:
+** Python
 
-#+begin_src sh
-  ansible-playbook -i inventory.ini setup-hub-client.yml --tags hub-check \
-    -e hub_ssh_target=me@hub.example -e client_machine_label=laptop
-#+end_src
+Prefer ~uv~. It is faster than pip and does not depend on the system
+~distutils~ package.
 
-The hub must accept the client's ssh key without a prompt, and the
-client must be saved in the hub's herdr as =client_machine_label=.
+** Go
 
-*** Next manual step
+~go install~ is the usual method for Go programs. The generator checks
+the installed version and upgrades it.
 
-For the faster forwarded-socket path, add =hub_socket= to the client's
-=~/.config/agentbus/config.toml= and run =agentbus install= there; see
-"Talk to the hub daemon over a forwarded socket" in
-[[file:../../agentbus/README.org][agentbus/README.org]]. Without it,
-every agentbus command goes over ssh.
+** Rust
 
-*** Undo
+On macOS and Debian, ~rustup~ is the toolchain (~rustc~, ~cargo~,
+~rustfmt~, ~clippy~). Extra pieces such as ~rust-analyzer~ are
+~rustup~ components. On Termux, ~pkg install rust~ provides the
+bundled tools, and ~rust-analyzer~ is its own package.
 
-Each change leaves a backup next to the file, named
-=<file>.<pid>.<date>@<time>~=. The agentbus config gets one backup per
-key that changed, so the oldest backup from a run is the file before
-that run:
+** macOS
 
-#+begin_src sh
-  ls -tr ~/.config/decide/config.json.*~ ~/.config/agentbus/config.toml.*~
-  cp ~/.config/decide/config.json.12345.2026-01-02@03:04:05~ ~/.config/decide/config.json
-#+end_src
+Prefer Homebrew for system packages. ~rustup~ itself comes from
+Homebrew and then manages the Rust components.
 
-A file that did not exist before has no backup; delete it. On the hub,
-delete the lines from =# BEGIN setup-dev hub PATH= through
-=# END setup-dev hub PATH= in =~/.bashrc= or =~/.zshenv=.
+* Troubleshooting
 
-* Design
-The purpose of this Ansible Setup Dev is to set up my development environment
-mostly identical in any environment. I made Ansible Playbooks import other
-Playbooks to handle dependencies. To prevent multiple inclusion, I added include
-guards for each playbook file. Generating it is very cumbersome, so I made a Go
-program to generate repetitive text in playbook.
+** sudo / privilege escalation
 
-** Platform-Specific Installation Strategy
-The generator follows a platform-specific installation strategy to ensure optimal
-package management across different environments:
+Playbooks use ~become: yes~ for apt. Ansible's sudo plugin defaults to
+~sudo -H -S -n~ and does not reuse a terminal sudo ticket. ~sudo true~
+succeeding in your shell is not enough. sudo timestamps are
+TTY-specific, and Ansible invokes sudo on a different TTY.
 
-*** Termux
-Package manager =pkg= should be strongly preferred on Termux if the package is
-available, because Termux has an unconventional setup that usually needs
-patching. The =pkg= package manager is also nearly up-to-date and handles
-dependencies properly within the Termux environment.
+On Linux, ~ensure.sh~ probes passwordless sudo in a new session. If
+that fails, it passes ~-K~ and Ansible prompts for the become password
+once. Passwordless sudo skips the prompt. A non-interactive run
+without passwordless sudo fails immediately. Re-run from a terminal,
+pass ~-K~, or configure ~NOPASSWD~.
 
-*** Debian/Ubuntu
-Debian/Ubuntu's package manager =apt= is often not up-to-date, so it's not
-preferred for packages that are actively being developed. Only use =apt= when
-old versions are totally acceptable for the use case.
+Ubuntu 25.10 and later point =/usr/bin/sudo= at sudo-rs. sudo-rs
+prints the ~-p~ prompt in a form Ansible does not recognize, so the
+task times out. When ~sudo.ws~ is on ~PATH~, ~ensure.sh~ sets
+~ANSIBLE_BECOME_EXE~ to that classic sudo. A value you already
+exported is left unchanged.
 
-If there's a well-maintained PPA that provides up-to-date packages, it's good to
-use it with =apt=. One example is the Emacs PPA (=ppa:ubuntuhandbook1/emacs=)
-which provides recent Emacs versions.
+** Ansible version requirement
 
-*** Python Packages
-For Python packages, =uv= is the most preferred installation method. It's
-significantly faster than =pip=, has better dependency resolution, and doesn't
-suffer from issues like the Python 3.12+ =distutils= removal that affects
-system =pip= installations.
+Playbooks use ~ansible.builtin.deb822_repository~ (ansible-core 2.15
+or newer). Ubuntu LTS apt packages are often older. ~ensure.sh~
+detects that and upgrades Ansible with ~pip --user~. Ansible resolves
+modules at parse time, so a too-old Ansible fails even on tasks that
+only target Debian.
 
-*** Go Packages
-Go installer (=go install=) is quite cross-platform and handles versioning well,
-so it's usually a good idea to use it for Go projects. The generator includes
-automatic version checking and upgrade logic for Go packages.
+On Debian/Ubuntu, ~ensure.sh~ also installs ~python3-debian~, which
+~deb822_repository~ imports.
 
-The Go toolchain itself is not installed from apt on Debian and Ubuntu.
-Ubuntu's =golang= package lags upstream (noble still ships Go 1.22), and the
-old playbook also left an existing =go= binary untouched, so =go install=
-kept running that older toolchain. =go install pkg@version= does not download
-a newer toolchain when only a dependency requires one. =go.yml= therefore
-installs the latest stable upstream release under =/usr/local/go=, checks its
-SHA-256 against https://go.dev/dl/?mode=json, and replaces it when a newer
-stable release is published. macOS still uses Homebrew, and Termux still uses
-=pkg=, because the official Linux tarballs do not run there.
+~ensure.sh~ installs ~community.general~ so a Galaxy copy cannot
+shadow a compatible bundled collection:
 
-*** Rust Packages
-On macOS and Debian, =rustup= is the sole Rust toolchain provider. It is
-installed via Homebrew (macOS) or apt (Debian), and =rustup default stable=
-provides =rustc=, =cargo=, =rustfmt=, and =clippy=. Additional components like
-=rust-analyzer= are added via =rustup component add=.
+- On Debian/Ubuntu it prefers the collection shipped with the active
+  Ansible. If that bundled collection is missing, it installs a Galaxy
+  version pinned to the installed ansible-core (2.15 through 2.18).
+- After a pip ~--user~ ansible-core upgrade it ignores leftover apt
+  collections and force-installs a pin for the new core.
+- On macOS and Termux it installs the latest collection from Galaxy.
+- A failed ~ansible-galaxy~ install aborts the run and does not
+  refresh the daily cache.
 
-On Termux, the system =rust= package (=pkg install rust=) provides the bundled
-tools (rustc, cargo, rustfmt, clippy), and =rust-analyzer= is available as a
-separate Termux package.
+* Two-machine agent hub
 
-*** macOS
-Homebrew is generally the preferred installation method on macOS because it
-provides system-level packages. For the Rust toolchain itself, =rustup= is
-installed via Homebrew and manages all Rust components including =rust-analyzer=.
+Optional. One Linux machine runs the agent bus daemon and the decide
+ledger. Clients reach it over ssh. The playbooks, the variables, and
+what they change are in [[file:docs/hub-setup.org][the hub setup]].
 
-Homebrew also supports taps and installation options when needed for specialized
-packages.
+* Playbook notes
 
-To regenerate the playbooks, simply run:
-#+begin_src sh
-  make generate-ansible
-#+end_src
+** Homebrew on non-interactive zsh
 
-The playbook =all.yml= just imports variuos other playbooks that I think are
-essential.
-
-** Profiles (Qubes OS / Subset Installs)
-Profiles are curated subsets of tools defined in =profile-*.yml= files. Each
-profile follows the same =import_playbook= format as =all.yml= but includes
-only the playbooks needed for a specific use case.
-
-For each profile, the generator produces =qubes-templatevm-{profile}.sh=, a
-self-contained TemplateVM bootstrap script that adds PPAs, backports, custom apt
-repos, and installs all packages.
-
-*** Qubes OS Workflow
-In Qubes OS, TemplateVMs and AppVMs serve different roles:
-1. *TemplateVM*: Run the generated =qubes-templatevm-{profile}.sh= to install
-   system-level apt packages and their sources.
-2. *AppVM*: Run =./ensure.sh profile-{profile}= to install home-directory tools
-   (Go, Cargo, npm, configs, etc.) that are not part of the system packages.
-
-*** Available Profiles
-- =profile-minimal.yml= -- Core CLI tools for any lightweight setup
-- =profile-emacs-daily.yml= -- Emacs with shell tools for daily use
-
-To create a new profile, add a =profile-{name}.yml= file and run =make= to
-regenerate outputs.
-
-* Remaining Works
-
-See [[file:TODO.org][TODO.org]] for the full backlog, changelog, and planned features.
-
-* Homebrew on non-interactive zsh
-
-=setup-homebrew-env.yml= still puts =brew shellenv= in the interactive
-rc (=~/.zshrc= on zsh). =ssh host command= reads =~/.zshenv= only, so
+~setup-homebrew-env.yml~ still puts ~brew shellenv~ in the interactive
+rc (=~/.zshrc= on zsh). ~ssh host command~ reads =~/.zshenv= only, so
 on macOS the same playbook prepends the Homebrew bin and sbin
-directories there when =brew= is installed. A second run does not
+directories there when ~brew~ is installed. A second run does not
 duplicate them. Linux and Termux are left alone.
 
-* Claude Code sandbox network
+** Claude Code sandbox network
 
-=setup-claude-sandbox.yml= writes =sandbox.network.allowedDomains=,
-=sandbox.network.allowUnixSockets=, and =sandbox.filesystem.allowWrite=
+~setup-claude-sandbox.yml~ writes ~sandbox.network.allowedDomains~,
+~sandbox.network.allowUnixSockets~, and ~sandbox.filesystem.allowWrite~
 in =~/.claude/settings.json=. A rerun unions each list with what is
-already there. Domains also take =allowedHosts=, then that key is
-dropped. Entries added by hand stay, in front. =allowUnixSockets= also
+already there. Domains also take ~allowedHosts~, then that key is
+dropped. Entries added by hand stay, in front. ~allowUnixSockets~ also
 gains the docker socket and the herdr, agentbus daemon, and agentbus
-tunnel sockets from =agentbus doctor --sandbox=. On macOS,
-=allowWrite= also gains =~/Library/Caches/agentbus/state= and
+tunnel sockets from ~agentbus doctor --sandbox~. On macOS,
+~allowWrite~ also gains =~/Library/Caches/agentbus/state= and
 =~/Library/Caches/agentbus/run=. Other settings keys are left as they
 are.
 
-* Manual Playbooks
-These files are playbooks not generated from =generate_packages.go=:
+* Hand-written playbooks
 
-- all.yml
-- bazel.yml
-- cleanup-repo.yml
-- diskwatch.yml
-- gather-facts.yml
-- gmi.yml
-- go.yml
-- golangci-lint.yml
-- kubectl.yml
-- magit.yml
-- profile-antigravity.yml
-- profile-cloudflare-dev.yml
-- profile-emacs-daily.yml
-- profile-minimal.yml
-- setup-agy.yml
-- setup-bazel.yml
-- setup-cargo.yml
-- setup-cc-tools.yml
-- setup-cicd.yml
-- setup-claude-privacy.yml
-- setup-claude-sandbox.yml
-- setup-claude-termux-rg.yml
-- setup-claude-toolbox.yml
-- setup-codex-termux.yml
-- setup-config-tools.yml
-- setup-cousine-font.yml
-- setup-css-tools.yml
-- setup-decide.yml
-- setup-dejavu-sans-mono-font.yml
-- setup-devtools.yml
-- setup-direnv.yml
-- setup-docker-ce.yml
-- setup-docker-lima.yml
-- setup-docker-wrapper-udocker.yml
-- setup-emacs.yml
-- setup-emacs-lsp-booster.yml
-- setup-factory.yml
-- setup-fira-code.yml
-- setup-fira-code-nerd-font.yml
-- setup-fork-keeper.yml
-- setup-ghostty.yml
-- setup-git.yml
-- setup-go-tools.yml
-- setup-gpg-agent.yml
-- setup-gpg-keygen.yml
-- setup-grok.yml
-- setup-grok-termux.yml
-- setup-grpc.yml
-- setup-herdr.yml
-- setup-history.yml
-- setup-homebrew-env.yml
-- setup-hub-client.yml
-- setup-hub-host.yml
-- setup-java.yml
-- setup-java-tools.yml
-- setup-jetbrains-mono-font.yml
-- setup-kotex.yml
-- setup-kotlin-tools.yml
-- setup-npm.yml
-- setup-nvm.yml
-- setup-office-tools.yml
-- setup-org-lint-emacs.yml
-- setup-pass.yml
-- setup-python-tools.yml
-- setup-rust.yml
-- setup-rust-tools.yml
-- setup-safe-aliases.yml
-- setup-sf-mono-font.yml
-- setup-shell-profile.yml
-- setup-slackwatch.yml
-- setup-spacemacs.yml
-- setup-sql-tools.yml
-- setup-ssh-key.yml
-- setup-starship.yml
-- setup-swift-tools.yml
-- setup-terraform-tools.yml
-- setup-tmux.yml
-- setup-user-bin-directory.yml
-- setup-user-config-directory.yml
-- setup-user-go-bin-directory.yml
-- setup-vibe-coding.yml
-- setup-wrangler.yml
-- setup-z.yml
-- spacemacs.yml
+A ~.yml~ file without the ~AUTO-GENERATED~ header is maintained by
+hand. The generator does not list those names here.
+
+* Remaining Works
+
+See [[file:TODO.org][TODO.org]] for the backlog.

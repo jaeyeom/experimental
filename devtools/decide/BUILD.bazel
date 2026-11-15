@@ -1,6 +1,8 @@
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 load("//tools/org-lint:defs.bzl", "org_lint_tests")
 
+exports_files(["README.org"])
+
 go_library(
     name = "go_default_library",
     srcs = [

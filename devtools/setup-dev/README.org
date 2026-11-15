@@ -1,35 +1,62 @@
 #+TITLE: setup-dev
+#+DATE: 2026-11-15
 
-Ansible playbooks for setting up development environments across macOS, Linux, and Termux.
-
-See [[file:ansible/README.org][ansible/README.org]] for documentation.
-
-After a host reboot, follow
-[[file:../agentbus/reboot.org][the agent-stack reboot runbook]]
-(agentbus, herdr-hosted agents, decide, slackwatch, and a hub-mode
-client).
+setup-dev installs a development environment the same way on macOS,
+Debian/Ubuntu, Fedora, Termux, and Qubes OS. Run ~./ensure.sh <name>~
+from ~devtools/setup-dev/ansible/~. The name is the playbook file
+without ~.yml~, for example ~rg~ or ~profile-minimal~.
 
 * Bootstrap (Fresh Machine)
 
-On a fresh machine, run the bootstrap script to clone the repository and set up
-prerequisites:
+On a fresh machine, run this once:
 
 #+BEGIN_SRC bash
 curl -fsSL https://raw.githubusercontent.com/jaeyeom/experimental/main/devtools/setup-dev/ansible/bootstrap.sh | sh
 #+END_SRC
 
-The bootstrap script will:
-1. Install git if not present
-2. Clone the repository to =~/go/src/github.com/jaeyeom/experimental=
-3. Guide you through running =ensure.sh=
+The script installs git if it is missing, clones the repository to
+=~/go/src/github.com/jaeyeom/experimental=, and then tells you to run
+~ensure.sh~. The clone path is fixed. Some playbooks, including
+~setup-spacemacs.yml~, create symlinks that expect it.
 
-Note: The repository location is fixed because some ansible playbooks (e.g.,
-=setup-spacemacs.yml=) create symlinks that expect this path.
+* Quick start
 
-* Quick Start (Existing Clone)
+From an existing clone:
 
-If you already have the repository cloned:
 #+BEGIN_SRC bash
-cd ansible
+cd devtools/setup-dev/ansible
+./ensure.sh profile-minimal
+./ensure.sh rg
 ./ensure.sh all
 #+END_SRC
+
+~profile-minimal~ is the light setup: shell history, aliases, an ssh
+key, gpg-agent, a small devtools set, Go, and zoxide. ~rg~ installs
+ripgrep. ~all~ imports the groups in ~all.yml~: shell setup, editors,
+and the language-tool bundles. That run takes longer than one tool.
+
+Installing system packages asks for your sudo password unless
+passwordless sudo is already set up. The log is
+=~/.cache/setup-dev/ensure_sh.log=.
+
+* What's here
+
+~ansible/~ holds the playbooks and ~ensure.sh~. Most ~.yml~ files are
+generated from a Go package list. [[file:ansible/README.org][The ansible
+README]] says how to run them and how to add a tool.
+
+~qubes/~ is a different set of scripts: ~trim-debian.sh~,
+~trim-fedora.sh~, ~default-debian.sh~, ~default-fedora.sh~, and
+~brave-fedora.sh~. They reshape a Qubes TemplateVM. They are not the
+generated ~ansible/qubes-templatevm-*.sh~ scripts, which install one
+profile's apt packages inside a template.
+
+* Related
+
+[[file:ansible/docs/hub-setup.org][Two-machine agent hub]], for a Linux
+machine that holds the shared agent bus and the decide ledger.
+
+After a host reboot, follow
+[[file:../agentbus/reboot.org][the agent-stack reboot runbook]]
+(agentbus, herdr-hosted agents, decide, slackwatch, and a hub-mode
+client).

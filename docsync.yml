@@ -820,16 +820,13 @@ rules:
       - "devtools/setup-dev/ansible/verified-run"
     docs:
       - path: devtools/setup-dev/ansible/README.org
-        section: "* How to Use"
+        section: "* Running playbooks"
         why: "ensure.sh, ansible-core, community.general"
-      - path: devtools/setup-dev/ansible/README.org
-        section: "* Bootstrap (Fresh Machine)"
-        why: "bootstrap.sh"
       - path: devtools/setup-dev/README.org
         section: "* Bootstrap (Fresh Machine)"
-        why: "fresh-machine bootstrap"
+        why: "bootstrap.sh and the fresh-machine curl"
       - path: devtools/setup-dev/README.org
-        section: "* Quick Start (Existing Clone)"
+        section: "* Quick start"
         why: "./ensure.sh all"
       - path: devtools/setup-dev/ansible/CLAUDE.md
         section: "## Shell Installer Verification"
@@ -845,8 +842,8 @@ rules:
         section: "### Manual Playbooks"
         why: "hand-maintained playbooks not produced by the generator"
       - path: devtools/setup-dev/ansible/README.org
-        section: "* Manual Playbooks"
-        why: "generated list of non-generated YAML playbooks"
+        section: "* Hand-written playbooks"
+        why: "yml files without the AUTO-GENERATED header"
 
   - match: ["devtools/setup-dev/ansible/profile-*.yml"]
     docs:
@@ -859,8 +856,8 @@ rules:
 
   - match: ["devtools/setup-dev/qubes/**"]
     docs:
-      - path: devtools/setup-dev/ansible/README.org
-        section: "*** Qubes OS Workflow"
+      - path: devtools/setup-dev/README.org
+        section: "* What's here"
         why: "hand-written TemplateVM trim/default/Brave scripts"
 
   # --- spacemacs ---

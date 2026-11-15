@@ -1,0 +1,139 @@
+#+TITLE: Two-machine agent hub
+#+DATE: 2026-11-15
+
+A hub is one Linux machine that holds the shared agent message bus and
+the decide ledger. A client, often a laptop, runs ~agentbus~ and
+~decide~ in hub mode and reaches the hub with
+~ssh -o BatchMode=yes <hub> <cmd>~. Set this up when agents on the
+client should use the same bus and ledger as agents on the hub.
+~all.yml~ imports neither playbook, so ~./ensure.sh all~ does not
+create a hub.
+
+~agentbusd~ is the bus daemon. It runs on the hub. It refuses to start
+in hub mode, so the client does not install it. ~decide~ is the ledger
+of questions that need a person; the hub keeps that ledger. See
+[[file:../../../agentbus/README.org][agentbus]] and
+[[file:../../../decide/README.org][decide]]. A herdr saved-machine label
+is the name herdr already uses for this client on the hub. The
+playbook calls that label ~client_machine_label~. The hub's herdr must
+already have that machine saved, and the hub must accept the client's
+ssh key without a prompt.
+
+A forwarded socket is the optional faster path. After this setup, add
+~hub_socket~ to the client's config.toml and run ~agentbus install~
+there. The file is =~/.config/agentbus/config.toml=. Without that
+socket, every ~agentbus~ command uses ssh. The steps are under "Talk
+to the hub daemon over a forwarded socket" in the agentbus README.
+
+* Variables
+
+| Variable               | Default     | Meaning                                                  |
+|------------------------+-------------+----------------------------------------------------------|
+| ~hub_ssh_target~       | required    | ssh target of the hub, such as ~me@hub.example~          |
+| ~client_machine_label~ | required    | this client's herdr saved-machine label on the hub       |
+| ~hub_tools_version~    | ~latest~    | ~go install~ version of agentbus and decide              |
+| ~hub_connect_timeout~  | ~5s~        | ssh connect timeout (~hubTimeout~, ~remote_timeout~)     |
+| ~hub_ssh_stable_agent~ | ~true~      | link the ssh agent socket and set ~ssh_identity_agent~   |
+| ~hub_ssh_agent_rc~     | see below   | login rc file for the stable-agent block                 |
+| ~hub_host_shell~       | login shell | ~bash~ or ~zsh~, for ~setup-hub-host.yml~                |
+
+Set them in the client's per-machine vars file
+([[file:../README.org][ansible README]], per-machine settings), in a
+private inventory, or with ~-e~. Do not put them in the shared
+~inventory.ini~. Without ~hub_ssh_target~ and ~client_machine_label~,
+~setup-hub-client.yml~ stops before it changes anything.
+
+~hub_ssh_stable_agent~ defaults to on. ~false~ opts out. When it is
+on, the login rc links =~/.ssh/agent.sock~, sets
+~ssh_identity_agent~, and prints ~agentbus install~ when the tunnel
+unit is already installed and that key changed. ~hub_ssh_agent_rc~
+defaults to the file with the last agent-start line, otherwise
+=~/.zprofile=, then =~/.bash_profile=, then =~/.profile=. zsh reads
+=~/.zprofile= before =~/.zshrc=, so the block must follow the agent
+start. An explicit file that runs too early warns and stays put.
+
+* What the playbooks change
+
+On the hub, ~setup-hub-host.yml~ puts =~/go/bin= and =~/.local/bin=
+on ~PATH~ for ~ssh hub cmd~. Many bashrc files return early for a
+non-interactive shell, so for bash it writes a marked block at the top
+of =~/.bashrc=, above that guard. For zsh it writes the block to
+=~/.zshenv=. Another run leaves the file as it is, and the block does
+not add a directory that is already on ~PATH~. Then it checks, from a
+non-interactive shell, that ~decide~, ~agentbus~, and ~herdr~ are
+found, and fails naming any that are not. It does not install them.
+
+On the client, ~setup-hub-client.yml~ installs ~agentbus~ and ~decide~
+with ~go install ...@<hub_tools_version>~. ~agentbusd~ is not
+installed. Then it:
+
+- merges ~hub~, ~hubTimeout~, and ~machine~ into
+  =~/.config/decide/config.json= and keeps every other key;
+- sets the top-level ~hub~, ~machine~, and ~remote_timeout~ in
+  =~/.config/agentbus/config.toml=, above its first section, and
+  keeps the other keys and sections.
+
+Both files are backed up before a change. It does not run
+~agentbus install~, start a service or tunnel, or touch tokens.
+
+With ~hub_ssh_stable_agent~ left on, it also appends a marked block
+that links =$SSH_AUTH_SOCK= to =~/.ssh/agent.sock=. On macOS, when
+=~/.ssh/config= contains ~UseKeychain yes~, that block also runs
+~ssh-add --apple-load-keychain -q~. A line already in the rc is not
+copied in again. A Linux run writes no such line. zsh reads
+=~/.zprofile= before =~/.zshrc=, and the agent often starts in
+=~/.zshrc=, so the block has to come after that line. When
+~hub_ssh_agent_rc~ is unset, the block goes at the end of the file
+that has the last agent-start line (keychain, ssh-agent,
+~eval "$(ssh-agent"~, or an ~SSH_AUTH_SOCK~ assignment), including a
+file that a startup file sources one level deep. If none is found,
+the file is =~/.zprofile= when it exists, else =~/.bash_profile=,
+else =~/.profile=. When ~hub_ssh_agent_rc~ is set and the agent
+starts in a file that runs later, the play warns and names both
+files, and leaves the block where you asked. It sets
+~ssh_identity_agent~ to =~/.ssh/agent.sock= in the agentbus config.
+It still does not edit =~/.ssh/config=. When the tunnel unit is
+already installed and that key changed, it prints ~agentbus install~
+so you can rewrite the unit and restart it.
+
+* Run
+
+Run each playbook on its own machine:
+
+#+BEGIN_SRC bash
+# on the hub
+./ensure.sh setup-hub-host
+# on the client
+./ensure.sh setup-hub-client
+#+END_SRC
+
+The same playbooks work as ~ansible-playbook -i inventory.ini~. To run
+both from one controller, use a private inventory that names the two
+machines and limit each run, for example:
+
+#+BEGIN_SRC bash
+ansible-playbook -i ~/hosts.ini setup-hub-host.yml -l hub
+#+END_SRC
+
+* Check
+
+The last task of ~setup-hub-client.yml~ runs ~decide status list~ and
+~agentbus list~ through the hub, with ~DECIDE_HUB~ and ~AGENTBUS_HUB~
+set to ~hub_ssh_target~. It fails with the command's stderr when the
+hub is unreachable or a binary is missing on either side. To run only
+the check:
+
+#+BEGIN_SRC bash
+ansible-playbook -i inventory.ini setup-hub-client.yml --tags hub-check \
+  -e hub_ssh_target=me@hub.example -e client_machine_label=laptop
+#+END_SRC
+
+* Undo
+
+Each change leaves a backup next to the file. The name adds the
+process id and a timestamp, and ends with a tilde. The agentbus
+config gets one backup per key that changed, so the oldest backup
+from a run is the file before that run. A file that did not exist
+before has no backup; delete it.
+On the hub, delete the lines from ~# BEGIN setup-dev hub PATH~ through
+~# END setup-dev hub PATH~ in =~/.bashrc= or =~/.zshenv~.
