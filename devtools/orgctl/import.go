@@ -168,14 +168,15 @@ func writePoolComments(b *strings.Builder, live Live) {
 	type candidate struct {
 		workspace string
 		prefix    string
+		pattern   string
 	}
 	counts := map[candidate]int{}
 	for _, tab := range live.Tabs {
-		prefix, ok := tabPrefix(tab.Label)
+		prefix, pattern, ok := tabPattern(tab.Label)
 		if !ok || tab.Workspace == "" {
 			continue
 		}
-		counts[candidate{tab.Workspace, prefix}]++
+		counts[candidate{tab.Workspace, prefix, pattern}]++
 	}
 	var found []candidate
 	for item, n := range counts {
@@ -187,18 +188,23 @@ func writePoolComments(b *strings.Builder, live Live) {
 		if a.workspace != b.workspace {
 			return strings.Compare(a.workspace, b.workspace)
 		}
-		return strings.Compare(a.prefix, b.prefix)
+		return strings.Compare(a.pattern, b.pattern)
 	})
 	for _, item := range found {
-		b.WriteString("// TODO: pool candidate " + pklQuote(item.prefix) + " in workspace " + pklQuote(item.workspace) + "\n")
+		b.WriteString("// TODO: pool candidate " + pklQuote(item.prefix) +
+			" in workspace " + pklQuote(item.workspace) +
+			" tabPattern = " + pklQuote(item.pattern) + "\n")
 	}
 }
 
-func tabPrefix(label string) (string, bool) {
+func tabPattern(label string) (prefix, pattern string, ok bool) {
 	for _, sep := range []string{"-", "/"} {
-		if i := strings.Index(label, sep); i > 0 {
-			return label[:i], true
+		i := strings.Index(label, sep)
+		if i <= 0 {
+			continue
 		}
+		prefix = label[:i]
+		return prefix, prefix + sep + "*", true
 	}
-	return "", false
+	return "", "", false
 }

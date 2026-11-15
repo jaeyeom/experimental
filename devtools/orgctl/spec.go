@@ -5,6 +5,8 @@ package orgctl
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"slices"
 )
 
 // Spec is one organization. Field names match `pkl eval -f json`.
@@ -80,12 +82,45 @@ type Role struct {
 }
 
 // Pool is a worker pool. It has no schedules.
+// Empty NamePattern and TabPattern exclude every tab in the workspace.
+// A set pattern matches only those workers. A role key is never a worker.
 type Pool struct {
-	Machine   string `json:"machine"`
-	Workspace string `json:"workspace"`
-	Starter   string `json:"starter"`
-	Max       int    `json:"max"`
-	Source    string `json:"source"`
+	Machine     string `json:"machine"`
+	Workspace   string `json:"workspace"`
+	NamePattern string `json:"namePattern,omitempty"`
+	TabPattern  string `json:"tabPattern,omitempty"`
+	Starter     string `json:"starter"`
+	Max         int    `json:"max"`
+	Source      string `json:"source"`
+}
+
+// CheckPatterns rejects a pool glob that filepath.Match cannot compile.
+func (s Spec) CheckPatterns() error {
+	names := make([]string, 0, len(s.Pools))
+	for name := range s.Pools {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		pool := s.Pools[name]
+		if err := globError(name, "namePattern", pool.NamePattern); err != nil {
+			return err
+		}
+		if err := globError(name, "tabPattern", pool.TabPattern); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func globError(name, kind, pattern string) error {
+	if pattern == "" {
+		return nil
+	}
+	if _, err := filepath.Match(pattern, ""); err != nil {
+		return fmt.Errorf("pool %s: %s %q: %w", name, kind, pattern, err)
+	}
+	return nil
 }
 
 // Decode reads a spec from JSON produced by `pkl eval -f json`.
