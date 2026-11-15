@@ -12,9 +12,10 @@ import (
 	"github.com/muesli/termenv"
 )
 
-// builtinFS holds the built-in figures, one 10x6 ANSI text file per id.
+// builtinFS holds the built-in figures. Most are 10x6 ANSI text.
+// hand and gopher are 10x12 pixel maps.
 //
-//go:embed builtin/*.txt
+//go:embed builtin/*.txt builtin/*.px
 var builtinFS embed.FS
 
 // builtinGenerations lists the built-in ids in the order they were added.
@@ -62,11 +63,15 @@ func builtinSource(id string) (string, bool) {
 // Builtin renders the built-in figure id fit to cols x rows. An unknown id
 // is an error.
 func Builtin(id string, cols, rows int, profile termenv.Profile) ([]string, error) {
+	profile = effectiveProfile(profile)
+	if text, ok := pixelSource(id); ok {
+		return renderPixelMap(text, cols, rows, profile)
+	}
 	text, ok := builtinSource(id)
 	if !ok {
 		return nil, fmt.Errorf("unknown built-in avatar %q", id)
 	}
-	return renderBuiltin(id, text, cols, rows, effectiveProfile(profile)), nil
+	return renderBuiltin(id, text, cols, rows, profile), nil
 }
 
 // PickBuiltin returns the built-in id for name. pickGeneration chooses a
