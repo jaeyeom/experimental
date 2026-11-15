@@ -161,6 +161,28 @@ func TestDriftPoolPatterns(t *testing.T) {
 	}
 }
 
+func TestDriftSeparatesGoneNames(t *testing.T) {
+	spec := Spec{Roles: map[string]Role{}}
+	live := Live{Names: []LiveName{
+		{Name: "extra/one", Liveness: "alive"},
+		{Name: "old/one", Liveness: "gone"},
+		{Name: "far/one", Liveness: "unreachable"},
+	}}
+	got := strings.Join(Drift(spec, live), "\n")
+	if !strings.Contains(got, "+ name extra/one") || !strings.Contains(got, "name = \"extra/one\"") {
+		t.Fatalf("alive name missing\n%s", got)
+	}
+	if !strings.Contains(got, "+ name far/one") || !strings.Contains(got, "name = \"far/one\"") {
+		t.Fatalf("unreachable name missing\n%s", got)
+	}
+	if !strings.Contains(got, "gone (stale registration): old/one") || !strings.Contains(got, "USER: agentbus release old/one") {
+		t.Fatalf("gone section missing\n%s", got)
+	}
+	if strings.Contains(got, "name = \"old/one\"") || strings.Contains(got, "+ name old/one") {
+		t.Fatalf("gone name got a stub\n%s", got)
+	}
+}
+
 func TestDriftReportsSharedCwdOnce(t *testing.T) {
 	const cwd = "/work/shared"
 	roles := map[string]Role{}

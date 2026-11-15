@@ -46,11 +46,13 @@ type LiveAgent struct {
 
 // LiveName is one agentbus name.
 // SessionID is the session in a herdr:<server>/<session>/<pane> handle.
+// Liveness is the agentbus value, such as alive, unreachable, or gone.
 type LiveName struct {
 	Name      string
 	When      string
 	Server    string
 	SessionID string
+	Liveness  string
 }
 
 // LiveCron is one durable job read from a role cwd.
