@@ -297,16 +297,18 @@ A cron is misplaced when the spec declares it on one role, the job
 was created by a session, and that session belongs to a different
 role. The session is the one in the agentbus handle. The job is the
 one with the same cron expression, not the same id. The suggestion
-names the role that owns the session. A liveness other than alive or
-unreachable, such as gone or dead, is a stale registration.
+names the role that owns the session. When that role has no live
+agentbus name, it instead says to register the tab running that
+session as the role, or to recreate the cron. A liveness other than
+alive or unreachable, such as gone or dead, is a stale registration.
 
 A pool with no patterns hides every tab in its workspace, and hides
-a name that starts with the pool key or whose agent is in that
-workspace. A namePattern or tabPattern limits
-that to matching workers. A namePattern also hides the tab whose
-pane holds that name. When both are set, the tab must match the tab
-glob and host a matching name. A tab that hosts a declared role is
-not an extra.
+a name that starts with the pool key, or whose handle pane is in
+that workspace. The herdr agent name on that pane can differ.
+A namePattern or tabPattern limits that to matching workers.
+A namePattern also hides the tab whose pane holds that name.
+When both are set, the tab must match the tab glob and host a
+matching name. A tab that hosts a declared role is not an extra.
 A role key stays a role. Each scheduled job is read once and reported
 once, including when several roles share its directory.
 When scope lists workspaces, tab drift reports only tabs in that

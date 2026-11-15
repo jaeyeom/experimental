@@ -125,10 +125,22 @@ func misplacedCrons(spec Spec, live Live) []string {
 				target = name
 			}
 			lines = append(lines, "! cron "+schedule.ID+" misplaced: move to role "+target)
-			lines = append(lines, "USER: recreate cron in role "+target)
+			lines = append(lines, cronMoveSuggestion(live, target, cron.CreatedBySessionID))
 		}
 	}
 	return lines
+}
+
+// cronMoveSuggestion tells the user how to put a misplaced job on target.
+// A role with a live agentbus name keeps the recreate line.
+// A role with no live name asks to register the creating session's tab.
+func cronMoveSuggestion(live Live, target, session string) string {
+	for _, item := range live.Names {
+		if item.Name == target {
+			return "USER: recreate cron in role " + target
+		}
+	}
+	return "USER: register the tab running session " + session + " as " + target + ", or recreate the cron in " + target
 }
 
 func cronKey(cron LiveCron) string {
@@ -341,6 +353,15 @@ func tabHostsPattern(live Live, tab LiveTab, pattern string) bool {
 }
 
 func agentInWorkspace(live Live, name, workspace string) bool {
+	for _, item := range live.Names {
+		if item.Name != name {
+			continue
+		}
+		agent, ok := paneAgent(live, item.Pane)
+		if ok && agent.Workspace == workspace {
+			return true
+		}
+	}
 	for _, agent := range live.Agents {
 		if agent.Name == name && agent.Workspace == workspace {
 			return true
