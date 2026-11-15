@@ -499,9 +499,14 @@ func (c *Client) Done(id, outcome string) (decide.Item, error) {
 	return c.item(Request{Op: OpDone, Item: id, Text: outcome})
 }
 
-// Archive marks a notification done with the outcome "archived".
-func (c *Client) Archive(id string) (decide.Item, error) {
-	return c.item(Request{Op: OpArchive, Item: id})
+// Archive marks a notification done with the outcome "archived" when
+// no message is newer than seen. A newer message is ErrNewerMessage.
+func (c *Client) Archive(id string, seen time.Time) (decide.Item, error) {
+	it, err := c.item(Request{Op: OpArchive, Item: id, Seen: &seen})
+	if err != nil && err.Error() == decide.ErrNewerMessage.Error() {
+		return decide.Item{}, decide.ErrNewerMessage
+	}
+	return it, err
 }
 
 // Withdraw withdraws item id with reason.

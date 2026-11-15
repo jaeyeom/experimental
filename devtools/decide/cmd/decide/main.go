@@ -633,6 +633,7 @@ func inboxOptions(cfg decide.Config, stdout io.Writer, snoozed bool) tui.Options
 		NoHyperlinks:      !cfg.HyperlinksOn(),
 		Clipboard:         cfg.UI.Clipboard,
 		FillColumn:        cfg.UI.FillColumn,
+		ArchiveGrace:      cfg.ArchiveGrace(),
 		HiddenContacts:    cfg.HiddenContacts,
 		ContactAliases:    cfg.ContactAliases,
 	}

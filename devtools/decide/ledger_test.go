@@ -1677,3 +1677,49 @@ func TestPlainReplyAfterAnswerClearsOptions(t *testing.T) {
 		t.Fatalf("reopened = state %s outcome %q options %+v", reopened.State, reopened.Outcome, reopened.Options)
 	}
 }
+
+func TestArchiveRefusesAMessageNewerThanSeen(t *testing.T) {
+	led, when, item := itemWithALaterMessage(t)
+
+	if _, err := led.Archive(item.ID, when); !errors.Is(err, ErrNewerMessage) {
+		t.Fatalf("Archive(seen old) = %v, want ErrNewerMessage", err)
+	}
+	stored, err := led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.State != StateOpen || stored.Outcome != "" {
+		t.Fatalf("refused archive = state %s outcome %q", stored.State, stored.Outcome)
+	}
+
+	got, err := led.Archive(item.ID, when.Add(time.Minute))
+	if err != nil || got.State != StateDone || got.Outcome != "archived" {
+		t.Fatalf("Archive(seen current) = state %s outcome %q err %v", got.State, got.Outcome, err)
+	}
+}
+
+func TestDoneWithArchivedSkipsTheSeenCheck(t *testing.T) {
+	led, _, item := itemWithALaterMessage(t)
+	got, err := led.Done(item.ID, "archived")
+	if err != nil || got.State != StateDone || got.Outcome != "archived" {
+		t.Fatalf("Done(archived) = state %s outcome %q err %v", got.State, got.Outcome, err)
+	}
+}
+
+// itemWithALaterMessage is an open note whose first message is at when
+// and whose second message is one minute later.
+func itemWithALaterMessage(t *testing.T) (*Ledger, time.Time, Item) {
+	t.Helper()
+	led, _ := openTemp(t)
+	when := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	led.now = func() time.Time { return when }
+	item, err := led.Create(&Item{Question: "note", Kind: KindRelay, Owner: "ada"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	led.now = func() time.Time { return when.Add(time.Minute) }
+	if _, err := led.Reply(item.ID, "", "later", nil, false); err != nil {
+		t.Fatal(err)
+	}
+	return led, when, item
+}

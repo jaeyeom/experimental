@@ -3941,6 +3941,8 @@ func TestYArchivesANotificationNotAQuestion(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := New(dir)
+	later := time.Now().Add(3 * time.Second)
+	m.Now = func() time.Time { return later }
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}

@@ -115,11 +115,18 @@ type InboxUI struct {
 	// StaleAnswerAfter is how long an answer sits before a follow-up,
 	// such as "30m". Empty is 30 minutes.
 	StaleAnswerAfter string `json:"staleAnswerAfter,omitempty"`
+	// ArchiveGrace is how long a new message holds inbox archive,
+	// such as "2s". Empty is 2 seconds.
+	ArchiveGrace string `json:"archiveGrace,omitempty"`
 }
 
 // DefaultStaleAnswerAfter is how long an answer sits before a follow-up
 // when ui.staleAnswerAfter is unset.
 const DefaultStaleAnswerAfter = 30 * time.Minute
+
+// DefaultArchiveGrace is how long a new message holds inbox archive
+// when ui.archiveGrace is unset.
+const DefaultArchiveGrace = 2 * time.Second
 
 // StaleAnswerAfter is ui.staleAnswerAfter, or DefaultStaleAnswerAfter
 // when it is unset. LoadConfig rejects an invalid duration.
@@ -131,15 +138,35 @@ func (c Config) StaleAnswerAfter() time.Duration {
 	return d
 }
 
+// ArchiveGrace is ui.archiveGrace, or DefaultArchiveGrace when it is
+// unset. LoadConfig rejects an invalid duration.
+func (c Config) ArchiveGrace() time.Duration {
+	d, err := parseArchiveGrace(c.UI.ArchiveGrace)
+	if err != nil || d <= 0 {
+		return DefaultArchiveGrace
+	}
+	return d
+}
+
 // parseStaleAnswerAfter parses ui.staleAnswerAfter. Empty is zero.
 func parseStaleAnswerAfter(raw string) (time.Duration, error) {
+	return parsePositiveDuration(raw, "staleAnswerAfter", "30m")
+}
+
+// parseArchiveGrace parses ui.archiveGrace. Empty is zero.
+func parseArchiveGrace(raw string) (time.Duration, error) {
+	return parsePositiveDuration(raw, "archiveGrace", "2s")
+}
+
+// parsePositiveDuration parses a ui duration. Empty is zero.
+func parsePositiveDuration(raw, field, example string) (time.Duration, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return 0, nil
 	}
 	d, err := time.ParseDuration(raw)
 	if err != nil || d <= 0 {
-		return 0, fmt.Errorf("decide config ui.staleAnswerAfter must be a positive duration, such as \"30m\"")
+		return 0, fmt.Errorf("decide config ui.%s must be a positive duration, such as %q", field, example)
 	}
 	return d, nil
 }
@@ -268,6 +295,9 @@ func parseConfig(data []byte, dir string) (Config, error) {
 		return Config{}, err
 	}
 	if _, err := parseStaleAnswerAfter(cfg.UI.StaleAnswerAfter); err != nil {
+		return Config{}, err
+	}
+	if _, err := parseArchiveGrace(cfg.UI.ArchiveGrace); err != nil {
 		return Config{}, err
 	}
 	resolveAvatarFiles(cfg.Avatars, dir)

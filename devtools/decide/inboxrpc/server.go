@@ -138,7 +138,13 @@ func (s *Server) itemOp(req Request) (Response, bool) {
 		OpAnswer:   func() (decide.Item, error) { return b.Answer(req.Item, req.Text) },
 		OpReply:    func() (decide.Item, error) { return b.Reply(req.Item, req.Text) },
 		OpDone:     func() (decide.Item, error) { return b.Done(req.Item, req.Text) },
-		OpArchive:  func() (decide.Item, error) { return b.Done(req.Item, "archived") },
+		OpArchive: func() (decide.Item, error) {
+			var seen time.Time
+			if req.Seen != nil {
+				seen = *req.Seen
+			}
+			return b.Archive(req.Item, seen)
+		},
 		OpWithdraw: func() (decide.Item, error) { return b.Withdraw(req.Item, req.Text) },
 		OpUnsnooze: func() (decide.Item, error) { return b.Unsnooze(req.Item) },
 		OpSnooze: func() (decide.Item, error) {

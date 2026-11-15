@@ -255,6 +255,26 @@ func TestStaleAnswerAfterRejectsABadDuration(t *testing.T) {
 	}
 }
 
+func TestArchiveGraceDefaultsAndRejectsABadDuration(t *testing.T) {
+	writeConfig(t, `{}`)
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ArchiveGrace() != DefaultArchiveGrace || DefaultArchiveGrace != 2*time.Second {
+		t.Fatalf("default = %s", cfg.ArchiveGrace())
+	}
+	writeConfig(t, `{"ui":{"archiveGrace":"5s"}}`)
+	cfg, err = LoadConfig()
+	if err != nil || cfg.ArchiveGrace() != 5*time.Second {
+		t.Fatalf("grace = %s err %v", cfg.ArchiveGrace(), err)
+	}
+	writeConfig(t, `{"ui":{"archiveGrace":"soon"}}`)
+	if _, err := LoadConfig(); err == nil || !strings.Contains(err.Error(), "archiveGrace") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestFollowStaleNewAnswerResetsTheResend(t *testing.T) {
 	f := herdrtest.Install(t)
 	fakeHerdrMachine(f, "local")

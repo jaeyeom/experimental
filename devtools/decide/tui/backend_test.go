@@ -65,6 +65,13 @@ func (f *fakeHub) Done(id, outcome string) (decide.Item, error) {
 	return f.hub.Done(id, outcome)
 }
 
+func (f *fakeHub) Archive(id string, seen time.Time) (decide.Item, error) {
+	if err := f.call("archive"); err != nil {
+		return decide.Item{}, err
+	}
+	return f.hub.Archive(id, seen)
+}
+
 func (f *fakeHub) Snooze(id string, until time.Time) (decide.Item, error) {
 	if err := f.call("snooze"); err != nil {
 		return decide.Item{}, err

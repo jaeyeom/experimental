@@ -18,8 +18,8 @@ import (
 
 // Version is the protocol version hello returns. Version 2 added
 // config. Version 3 added set-avatar. Version 4 added set-hidden.
-// Version 5 added set-contact-aliases.
-const Version = 5
+// Version 5 added set-contact-aliases. Version 6 added seen on archive.
+const Version = 6
 
 // Ops. Archive is done with the outcome "archived".
 const (
@@ -62,6 +62,9 @@ type Request struct {
 	// Text for set-contact-aliases is a JSON object of ledger name to agent.
 	Name   string `json:"name,omitempty"`
 	Choice string `json:"choice,omitempty"`
+	// Seen is the newest message time the client has rendered. Archive
+	// refuses a message newer than Seen. Nil is older than any message.
+	Seen *time.Time `json:"seen,omitempty"`
 }
 
 // Response is one line from the server. Error fails the request.
