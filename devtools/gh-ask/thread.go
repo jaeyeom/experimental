@@ -157,6 +157,7 @@ func (s *Server) noteClosed(id string, closed bool) {
 func (s *Server) serveStatus(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, statusPrefix)
 	if len(s.cfg.StatusCommand) == 0 || !validID(id) || !s.knownID(id) {
+		s.logReject(http.StatusNotFound, "unknown id", "", 0)
 		writeJSON(w, http.StatusNotFound, errorBody{"not found"})
 		return
 	}
@@ -332,27 +333,32 @@ func fitStatusBody(st ThreadStatus) ThreadStatus {
 // serveThread answers GET /thread?repo=&pr= from the state file. It runs
 // no command. reuse other than per-pr, and a PR with no stored id, are 404.
 func (s *Server) serveThread(w http.ResponseWriter, r *http.Request) {
+	repo, pr := queryRepoPR(r)
 	if s.cfg.Reuse != ReusePerPR {
+		s.logReject(http.StatusNotFound, "not found", repo, pr)
 		writeJSON(w, http.StatusNotFound, errorBody{"not found"})
 		return
 	}
 	q := r.URL.Query()
 	if !slices.Contains(s.cfg.Repos, q.Get("repo")) {
+		s.logReject(http.StatusForbidden, "repo not allowed", repo, pr)
 		writeJSON(w, http.StatusForbidden, errorBody{"repo not allowed"})
 		return
 	}
-	pr, err := strconv.Atoi(q.Get("pr"))
-	if err != nil || pr <= 0 {
+	parsed, err := strconv.Atoi(q.Get("pr"))
+	if err != nil || parsed <= 0 {
+		s.logReject(http.StatusBadRequest, "bad request", repo, 0)
 		writeJSON(w, http.StatusBadRequest, errorBody{"bad pr"})
 		return
 	}
-	id, ok, err := s.storedThreadID(q.Get("repo"), pr)
+	id, ok, err := s.storedThreadID(q.Get("repo"), parsed)
 	if err != nil {
 		s.logger.Error("gh-ask: state file", "err", err)
 		writeJSON(w, http.StatusBadGateway, errorBody{"state file"})
 		return
 	}
 	if !ok {
+		s.logReject(http.StatusNotFound, "not found", repo, parsed)
 		writeJSON(w, http.StatusNotFound, errorBody{"not found"})
 		return
 	}

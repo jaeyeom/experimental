@@ -396,6 +396,168 @@ func TestRateLimit(t *testing.T) {
 	assertStatus(t, resp, body, http.StatusOK)
 }
 
+func TestRejectedRequestLog(t *testing.T) {
+	const (
+		question  = "QUESTION-SECRET"
+		selection = "SELECTION-SECRET"
+		pageMark  = "PAGESECRET"
+		pageURL   = "https://github.com/octo/demo/pull/42/files#PAGESECRET"
+		badToken  = "s3cret-tokeX"
+	)
+	secrets := []string{question, selection, pageMark, pageURL, badToken, testToken}
+
+	t.Run("bad token", func(t *testing.T) {
+		env, logs := rejectLogEnv(t, nil)
+		req := validRequest()
+		req.Question = question
+		req.Selection = selection
+		req.PageURL = pageURL
+		resp, body := env.ask(t, req, withHeader(TokenHeader, badToken))
+		assertStatus(t, resp, body, http.StatusUnauthorized)
+		assertRejectLog(t, logs, http.StatusUnauthorized, "bad token", secrets...)
+	})
+
+	t.Run("origin", func(t *testing.T) {
+		env, logs := rejectLogEnv(t, nil)
+		req := validRequest()
+		req.Question = question
+		req.Selection = selection
+		req.PageURL = pageURL
+		resp, body := env.ask(t, req, withHeader("Origin", "https://evil.example"))
+		assertStatus(t, resp, body, http.StatusForbidden)
+		assertRejectLog(t, logs, http.StatusForbidden, "origin", secrets...)
+	})
+
+	t.Run("host", func(t *testing.T) {
+		env, logs := rejectLogEnv(t, nil)
+		resp, body := env.ask(t, validRequest(), withHost("evil.example:1"))
+		assertStatus(t, resp, body, http.StatusForbidden)
+		assertRejectLog(t, logs, http.StatusForbidden, "host", secrets...)
+	})
+
+	t.Run("preflight", func(t *testing.T) {
+		env, logs := rejectLogEnv(t, nil)
+		resp, body := env.do(t, http.MethodOptions, "/ask", nil,
+			withHeader("Origin", "https://github.com"),
+			withHeader("Access-Control-Request-Headers", TokenHeader))
+		assertStatus(t, resp, body, http.StatusMethodNotAllowed)
+		assertRejectLog(t, logs, http.StatusMethodNotAllowed, "preflight", secrets...)
+	})
+
+	t.Run("repo not allowed", func(t *testing.T) {
+		env, logs := rejectLogEnv(t, nil)
+		req := validRequest()
+		req.Repo = "octo/other"
+		req.Question = question
+		req.Selection = selection
+		resp, body := env.ask(t, req)
+		assertStatus(t, resp, body, http.StatusForbidden)
+		line := assertRejectLog(t, logs, http.StatusForbidden, "repo not allowed", secrets...)
+		if !strings.Contains(line, "repo=octo/other") || !strings.Contains(line, "pr=42") {
+			t.Errorf("log = %q, want repo and pr", line)
+		}
+	})
+
+	t.Run("rate limited", func(t *testing.T) {
+		env, logs := rejectLogEnv(t, func(c *Config) { c.RateLimit = 1 })
+		req := validRequest()
+		req.Question = question
+		req.Selection = selection
+		req.PageURL = pageURL
+		resp, body := env.ask(t, req)
+		assertStatus(t, resp, body, http.StatusOK)
+		if logs.Len() != 0 {
+			t.Fatalf("log = %q, want nothing for a successful ask", logs.String())
+		}
+		resp, body = env.ask(t, req)
+		assertStatus(t, resp, body, http.StatusTooManyRequests)
+		line := assertRejectLog(t, logs, http.StatusTooManyRequests, "rate limited", secrets...)
+		if !strings.Contains(line, "repo=octo/demo") || !strings.Contains(line, "pr=42") {
+			t.Errorf("log = %q, want repo and pr", line)
+		}
+	})
+
+	t.Run("too large", func(t *testing.T) {
+		env, logs := rejectLogEnv(t, nil)
+		req := validRequest()
+		req.Selection = strings.Repeat("S", MaxSelectionBytes+1)
+		resp, body := env.ask(t, req)
+		assertStatus(t, resp, body, http.StatusRequestEntityTooLarge)
+		line := assertRejectLog(t, logs, http.StatusRequestEntityTooLarge, "too large", "SSSS")
+		if len(line) > 400 {
+			t.Errorf("log line is %d bytes, want a short reason", len(line))
+		}
+	})
+
+	t.Run("unknown id", func(t *testing.T) {
+		env, logs := rejectLogEnv(t, nil)
+		resp, body := env.do(t, http.MethodGet, "/status/"+testToken, nil)
+		assertStatus(t, resp, body, http.StatusNotFound)
+		assertRejectLog(t, logs, http.StatusNotFound, "unknown id", testToken)
+	})
+
+	t.Run("method", func(t *testing.T) {
+		env, logs := rejectLogEnv(t, nil)
+		resp, body := env.do(t, http.MethodGet, "/ask", nil)
+		assertStatus(t, resp, body, http.StatusMethodNotAllowed)
+		assertRejectLog(t, logs, http.StatusMethodNotAllowed, "method", secrets...)
+	})
+
+	t.Run("bad request", func(t *testing.T) {
+		env, logs := rejectLogEnv(t, nil)
+		resp, body := env.do(t, http.MethodPost, "/ask", []byte(badToken))
+		assertStatus(t, resp, body, http.StatusBadRequest)
+		assertRejectLog(t, logs, http.StatusBadRequest, "bad request", secrets...)
+	})
+
+	t.Run("thread not stored", func(t *testing.T) {
+		env, logs := rejectLogEnv(t, nil)
+		resp, body := env.do(t, http.MethodGet, "/thread?repo=octo/demo&pr=42", nil)
+		assertStatus(t, resp, body, http.StatusNotFound)
+		line := assertRejectLog(t, logs, http.StatusNotFound, "not found", secrets...)
+		if !strings.Contains(line, "repo=octo/demo") || !strings.Contains(line, "pr=42") {
+			t.Errorf("log = %q, want repo and pr", line)
+		}
+	})
+}
+
+func rejectLogEnv(t *testing.T, mutate func(*Config)) (*testEnv, *bytes.Buffer) {
+	t.Helper()
+	env := newTestEnv(t, "thread-ab", 0, mutate)
+	logs := &bytes.Buffer{}
+	env.srv.logger = slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	return env, logs
+}
+
+func assertRejectLog(t *testing.T, logs *bytes.Buffer, status int, reason string, forbid ...string) string {
+	t.Helper()
+	text := strings.TrimRight(logs.String(), "\n")
+	lines := strings.Split(text, "\n")
+	if text == "" || len(lines) != 1 {
+		t.Fatalf("log lines = %q, want one warn line", logs.String())
+	}
+	line := lines[0]
+	if !strings.Contains(line, "level=WARN") || !strings.Contains(line, "msg=\"gh-ask: rejected\"") {
+		t.Errorf("log = %q, want a warn rejection", line)
+	}
+	if !strings.Contains(line, "status="+strconv.Itoa(status)) {
+		t.Errorf("log = %q, want status %d", line, status)
+	}
+	wantReason := "reason=" + reason
+	if strings.Contains(reason, " ") {
+		wantReason = `reason="` + reason + `"`
+	}
+	if !strings.Contains(line, wantReason) {
+		t.Errorf("log = %q, want %s", line, wantReason)
+	}
+	for _, secret := range forbid {
+		if secret != "" && strings.Contains(line, secret) {
+			t.Errorf("log = %q, contains %q", line, secret)
+		}
+	}
+	return line
+}
+
 func TestRejectedRequestsDoNotUseRateLimit(t *testing.T) {
 	env := newTestEnv(t, "thread-ab", 0, func(c *Config) { c.RateLimit = 1 })
 	for range 3 {

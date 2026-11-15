@@ -86,40 +86,104 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(r.URL.Path, statusPrefix):
 		method, handle = http.MethodGet, s.serveStatus
 	default:
+		s.logReject(http.StatusNotFound, "not found", "", 0)
 		writeJSON(w, http.StatusNotFound, errorBody{"not found"})
 		return
 	}
 	if r.Method != method {
 		w.Header().Set("Allow", method)
+		reason := "method"
+		if r.Method == http.MethodOptions {
+			reason = "preflight"
+		}
+		repo, pr := queryRepoPR(r)
+		s.logReject(http.StatusMethodNotAllowed, reason, repo, pr)
 		writeJSON(w, http.StatusMethodNotAllowed, errorBody{"method not allowed"})
 		return
 	}
+	repo, pr := queryRepoPR(r)
 	if !slices.Contains(s.hosts, r.Host) {
+		s.logReject(http.StatusForbidden, "host", repo, pr)
 		writeJSON(w, http.StatusForbidden, errorBody{"bad host"})
 		return
 	}
 	if !allowedOrigin(r.Header.Values("Origin")) {
+		s.logReject(http.StatusForbidden, "origin", repo, pr)
 		writeJSON(w, http.StatusForbidden, errorBody{"bad origin"})
 		return
 	}
 	if !s.tokenOK(r.Header.Get(TokenHeader)) {
+		s.logReject(http.StatusUnauthorized, "bad token", repo, pr)
 		writeJSON(w, http.StatusUnauthorized, errorBody{"bad token"})
 		return
 	}
 	handle(w, r)
 }
 
+// logReject writes one warn line for a rejected request.
+// It records status, reason, and repo and pr when those are known.
+// It does not record the token, the question, the selection, or the page URL.
+func (s *Server) logReject(status int, reason, repo string, pr int) {
+	if s.logger == nil {
+		return
+	}
+	args := []any{"status", status, "reason", reason}
+	if repoPattern.MatchString(repo) {
+		args = append(args, "repo", repo)
+	}
+	if pr > 0 {
+		args = append(args, "pr", pr)
+	}
+	s.logger.Warn("gh-ask: rejected", args...)
+}
+
+// queryRepoPR returns the repo and PR from a /thread query when they are safe to log.
+func queryRepoPR(r *http.Request) (string, int) {
+	if r == nil || r.URL == nil || r.URL.Path != "/thread" {
+		return "", 0
+	}
+	repo := r.URL.Query().Get("repo")
+	if !repoPattern.MatchString(repo) {
+		repo = ""
+	}
+	pr, err := strconv.Atoi(r.URL.Query().Get("pr"))
+	if err != nil || pr <= 0 {
+		return repo, 0
+	}
+	return repo, pr
+}
+
 func (s *Server) serveAsk(w http.ResponseWriter, r *http.Request) {
-	req, status, err := decodeRequest(w, r)
+	req, err := decodeAskJSON(w, r)
 	if err != nil {
+		status := http.StatusBadRequest
+		reason := "bad request"
+		if errors.Is(err, errBodyTooLarge) {
+			status = http.StatusRequestEntityTooLarge
+			reason = "too large"
+		}
+		s.logReject(status, reason, "", 0)
+		writeJSON(w, status, errorBody{err.Error()})
+		return
+	}
+	if err := req.Validate(); err != nil {
+		status := http.StatusBadRequest
+		reason := "bad request"
+		if isTooLarge(err) {
+			status = http.StatusRequestEntityTooLarge
+			reason = "too large"
+		}
+		s.logReject(status, reason, req.Repo, req.PR)
 		writeJSON(w, status, errorBody{err.Error()})
 		return
 	}
 	if !slices.Contains(s.cfg.Repos, req.Repo) {
+		s.logReject(http.StatusForbidden, "repo not allowed", req.Repo, req.PR)
 		writeJSON(w, http.StatusForbidden, errorBody{"repo not allowed"})
 		return
 	}
 	if !s.limiter.Allow() {
+		s.logReject(http.StatusTooManyRequests, "rate limited", req.Repo, req.PR)
 		writeJSON(w, http.StatusTooManyRequests, errorBody{"rate limit"})
 		return
 	}
@@ -154,23 +218,21 @@ func allowedOrigin(values []string) bool {
 	}
 }
 
-func decodeRequest(w http.ResponseWriter, r *http.Request) (AskRequest, int, error) {
+var errBodyTooLarge = errors.New("body too large")
+
+// decodeAskJSON reads the ask body. A body over the cap is errBodyTooLarge.
+// Validation is separate, so a decode error does not leave a request to log.
+func decodeAskJSON(w http.ResponseWriter, r *http.Request) (AskRequest, error) {
 	var req AskRequest
 	body := http.MaxBytesReader(w, r.Body, MaxBodyBytes)
 	if err := json.NewDecoder(body).Decode(&req); err != nil {
 		var tooBig *http.MaxBytesError
 		if errors.As(err, &tooBig) {
-			return req, http.StatusRequestEntityTooLarge, errors.New("body too large")
+			return AskRequest{}, errBodyTooLarge
 		}
-		return req, http.StatusBadRequest, errors.New("bad JSON")
+		return AskRequest{}, errors.New("bad JSON")
 	}
-	if err := req.Validate(); err != nil {
-		if isTooLarge(err) {
-			return req, http.StatusRequestEntityTooLarge, err
-		}
-		return req, http.StatusBadRequest, err
-	}
-	return req, 0, nil
+	return req, nil
 }
 
 // ask writes the message file and returns the thread id. With
