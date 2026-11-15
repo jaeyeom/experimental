@@ -5,12 +5,14 @@ to set one. This file is the hash, the shipped ids, and the write.
 
 * Built-in figures
 
-decide ships 48 original figures, each 10x6, in truecolor half-block
-and box characters. A space enclosed by the figure is painted with a
-background, and the eyes and mouth sit on that fill. A gap between
-parts, and every cell outside the outline, stays clear. The fill reads
-on light and dark themes. On a 256-color or 16-color terminal it is
-downsampled with the foreground. With no color it becomes a block.
+decide ships 48 original figures, each 10 by 6 terminal cells.
+~hand~ and ~gopher~ are pixel maps. The other figures are truecolor
+half-block and box characters. A space enclosed by an ANSI figure is
+painted with a background, and the eyes and mouth sit on that fill. A
+gap between parts, and every cell outside the outline, stays clear.
+The fill reads on light and dark themes. On a 256-color or 16-color
+terminal it is downsampled with the foreground. With no color it
+becomes a block.
 
 Preview them with ~decide avatars list~. ~--name <name>~ shows the
 figure that name gets. ~--ids~ prints the ids, which is the list to
@@ -38,7 +40,54 @@ Generation 3:
 The people tell apart by hat, hair, or what they hold. ~chat~,
 ~ticket~, and ~branch~ are generic pictures, not a product logo.
 ~gopher~ is an original pixel drawing. The Go gopher was designed by
-Renee French and is licensed CC BY 4.0.
+Renee French and is licensed CC BY 4.0. ~hand~ and ~gopher~ are pixel
+maps. The other figures are ANSI text.
+
+* Pixel maps
+
+A pixel map is =builtin/<id>.px=. It is 10 columns by 12 rows of
+palette letters. Two rows become one terminal cell, so the figure
+stays 10 by 6.
+
+- Two transparent pixels print a space.
+- One opaque pixel prints ~▀~ or ~▄~ with only a foreground colour, so
+  the terminal background shows through the other half.
+- Two opaque pixels print ~▀~ with a foreground and a background colour.
+  The upper pixel is the foreground.
+- With no colour, an opaque pair prints ~█~ and a single opaque pixel
+  prints ~▀~ or ~▄~.
+
+~.~ is transparent. A ~palette~ block names the other letters as
+~letter r g b~. A ~gaps~ block lists enclosed transparent pixels that
+stay clear, as ~row col~, with the top left at ~0 0~. Pixels that can
+reach the border are not enclosed. The ~map~ block is the 12 rows.
+A map with the wrong size, an unknown letter, or an enclosed
+transparent pixel that is not listed as a gap is rejected.
+
+The no-colour drawings, before and after the pixel maps:
+
+#+BEGIN_EXAMPLE
+hand before          hand after
+ ▌ ▌ ▌ ▌             ▄ █ █ ▄
+ ▐██████▌             ███████
+ ▐██████▌             ███████ ▄
+ ▐██████▌             ████████▀
+ ▐██████▌            ▀██████
+  ▀████▀               █████
+
+gopher before        gopher after
+ ▄▀████▀▄             ██▄▄▄▄██
+▐█ o  o █▌          ██████████
+▐█▄ ▄▄ ▄█▌          ██████████
+ ▐██████▌           ██████████
+ ▐█▌  ▐█▌            ████████
+  ▀▀▀▀▀▀             ▀██▀▀██▀
+#+END_EXAMPLE
+
+The after column is the no-colour half-block render. Trailing clear
+cells are left off the line. Colour uses the palette in the =.px=
+file, which is what keeps the gopher's eyes. ~line-chart~, ~chat~,
+~ticket~, and ~branch~ stay ANSI figures.
 
 The figure is hidden, and the layout matches an item with none, when
 no rule matches and ~avatarDefault~ is off, when the terminal is under

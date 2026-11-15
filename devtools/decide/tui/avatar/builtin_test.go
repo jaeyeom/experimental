@@ -61,7 +61,12 @@ func TestBuiltinIDs(t *testing.T) {
 	}
 }
 
-// source is the embedded text of the built-in id.
+func isPixelBuiltin(id string) bool {
+	_, ok := pixelSource(id)
+	return ok
+}
+
+// source is the embedded ANSI text of the built-in id.
 func source(t *testing.T, id string) string {
 	t.Helper()
 	text, ok := builtinSource(id)
@@ -73,6 +78,9 @@ func source(t *testing.T, id string) string {
 
 func TestBuiltinSourceShape(t *testing.T) {
 	for _, id := range BuiltinIDs() {
+		if isPixelBuiltin(id) {
+			continue
+		}
 		checkVisibleShape(t, id, source(t, id), builtinCols, builtinRows)
 	}
 }
@@ -88,6 +96,9 @@ func TestBuiltinRenderShape(t *testing.T) {
 		if !strings.Contains(strings.Join(lines, ""), "\x1b[38;2;") {
 			t.Errorf("%s has no truecolor escapes", id)
 		}
+		if isPixelBuiltin(id) {
+			continue
+		}
 		if got, want := stripANSI(strings.Join(lines, "\n")), strings.Join(visibleLines(source(t, id)), "\n"); got != want {
 			t.Errorf("%s render differs from its source\ngot:\n%s\nwant:\n%s", id, got, want)
 		}
@@ -100,7 +111,16 @@ func TestBuiltinLayoutsDiffer(t *testing.T) {
 	glyphs := map[string]string{}
 	shapes := map[string]string{}
 	for _, id := range BuiltinIDs() {
-		layout := stripANSI(source(t, id))
+		var layout string
+		if isPixelBuiltin(id) {
+			lines, err := Builtin(id, builtinCols, builtinRows, termenv.Ascii)
+			if err != nil {
+				t.Fatal(err)
+			}
+			layout = strings.Join(lines, "\n")
+		} else {
+			layout = stripANSI(source(t, id))
+		}
 		if other, ok := glyphs[layout]; ok {
 			t.Errorf("%s and %s have the same glyph layout", id, other)
 		}
@@ -144,6 +164,9 @@ var sgrPattern = regexp.MustCompile("\x1b\\[([0-9;]*)m")
 // contrast against both white and black.
 func TestBuiltinColors(t *testing.T) {
 	for _, id := range BuiltinIDs() {
+		if isPixelBuiltin(id) {
+			continue
+		}
 		text := source(t, id)
 		if n := strings.Count(text, "\x1b"); n != len(sgrPattern.FindAllString(text, -1)) {
 			t.Errorf("%s has escapes that are not SGR", id)
@@ -306,7 +329,9 @@ func TestGenerations(t *testing.T) {
 			t.Errorf("generation %d is empty", g+1)
 		}
 		for _, id := range ids {
-			if _, ok := builtinSource(id); !ok {
+			_, ansi := builtinSource(id)
+			_, px := pixelSource(id)
+			if !ansi && !px {
 				t.Errorf("generation %d id %q has no figure file", g+1, id)
 			}
 		}
@@ -319,8 +344,11 @@ func TestGenerations(t *testing.T) {
 	}
 	var files []string
 	for _, e := range entries {
-		files = append(files, strings.TrimSuffix(e.Name(), ".txt"))
+		name := strings.TrimSuffix(e.Name(), ".txt")
+		name = strings.TrimSuffix(name, ".px")
+		files = append(files, name)
 	}
+	slices.Sort(files)
 	if !slices.Equal(all, files) {
 		t.Errorf("generation ids %q differ from figure files %q", all, files)
 	}
@@ -513,6 +541,9 @@ func paintedBounds(row string) (left, right int, ok bool) {
 func TestBuiltinInteriorFill(t *testing.T) {
 	t.Setenv("NO_COLOR", "")
 	for _, id := range BuiltinIDs() {
+		if isPixelBuiltin(id) {
+			continue
+		}
 		lines, err := Builtin(id, builtinCols, builtinRows, termenv.TrueColor)
 		if err != nil {
 			t.Fatal(err)

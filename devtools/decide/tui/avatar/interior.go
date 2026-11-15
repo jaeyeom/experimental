@@ -40,7 +40,6 @@ var deliberateGaps = map[string]map[[2]int]bool{
 	"dog":        gap(0, 3, 0, 4, 0, 5, 0, 6),
 	"fox":        gap(0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7),
 	"frog":       gap(0, 4, 0, 5),
-	"hand":       gap(0, 2, 0, 4, 0, 6),
 	"jester":     gap(0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7),
 	"king":       gap(0, 3, 0, 6),
 	"lighthouse": gap(0, 2, 0, 7),
