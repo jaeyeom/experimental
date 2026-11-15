@@ -2,10 +2,18 @@ load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 
 go_library(
     name = "go_default_library",
-    srcs = ["main.go"],
+    srcs = [
+        "live.go",
+        "main.go",
+    ],
     importpath = "github.com/jaeyeom/experimental/devtools/orgctl/cmd/orgctl",
     visibility = ["//visibility:private"],
-    deps = ["//devtools/orgctl:go_default_library"],
+    deps = [
+        "//devtools/orgctl:go_default_library",
+        "//devtools/orgctl/adapter/agentbus:go_default_library",
+        "//devtools/orgctl/adapter/crons:go_default_library",
+        "//devtools/orgctl/adapter/herdr:go_default_library",
+    ],
 )
 
 go_binary(
@@ -19,4 +27,5 @@ go_test(
     size = "small",
     srcs = ["main_test.go"],
     embed = [":go_default_library"],
+    deps = ["//devtools/orgctl:go_default_library"],
 )
