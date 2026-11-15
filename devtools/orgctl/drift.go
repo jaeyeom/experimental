@@ -27,7 +27,7 @@ func extraTabs(spec Spec, live Live) []string {
 	}
 	tabs := make([]LiveTab, 0, len(live.Tabs))
 	for _, tab := range live.Tabs {
-		if !tabInScope(spec, tab.Workspace) || roleOwnsTab(spec, tab) || poolTab(tab, spec, live) {
+		if !tabInScope(spec, tab.Workspace) || roleOwnsTab(spec, tab) || roleHostsTab(spec, live, tab) || poolTab(tab, spec, live) {
 			continue
 		}
 		tabs = append(tabs, tab)
@@ -206,6 +206,32 @@ func roleOwnsTab(spec Spec, tab LiveTab) bool {
 	return false
 }
 
+func roleHostsTab(spec Spec, live Live, tab LiveTab) bool {
+	for _, item := range live.Names {
+		if _, ok := spec.Roles[item.Name]; !ok {
+			continue
+		}
+		agent, ok := paneAgent(live, item.Pane)
+		if ok && agent.Workspace == tab.Workspace && agent.Tab == tab.Label {
+			return true
+		}
+	}
+	return false
+}
+
+// paneAgent returns the herdr agent on a handle pane.
+func paneAgent(live Live, pane string) (LiveAgent, bool) {
+	if pane == "" {
+		return LiveAgent{}, false
+	}
+	for _, agent := range live.Agents {
+		if agent.Pane == pane {
+			return agent, true
+		}
+	}
+	return LiveAgent{}, false
+}
+
 func declaredCron(spec Spec, cron LiveCron) bool {
 	for _, role := range spec.Roles {
 		if roleDir(role) != cron.Cwd {
@@ -266,18 +292,31 @@ func poolTab(tab LiveTab, spec Spec, live Live) bool {
 		if pool.NamePattern == "" && pool.TabPattern == "" {
 			return true
 		}
-		if pool.TabPattern == "" || !globMatch(pool.TabPattern, tab.Label) {
+		labelOK := pool.TabPattern != "" && globMatch(pool.TabPattern, tab.Label)
+		nameOK := pool.NamePattern != "" && tabHostsPattern(live, tab, pool.NamePattern)
+		if pool.NamePattern != "" && pool.TabPattern != "" {
+			if labelOK && nameOK {
+				return true
+			}
 			continue
 		}
-		if pool.NamePattern != "" && !tabHasName(live, tab, pool.NamePattern) {
-			continue
+		if labelOK || nameOK {
+			return true
 		}
-		return true
 	}
 	return false
 }
 
 func nameTabMatches(live Live, name string, pool Pool) bool {
+	for _, item := range live.Names {
+		if item.Name != name {
+			continue
+		}
+		agent, ok := paneAgent(live, item.Pane)
+		if ok && agent.Workspace == pool.Workspace && globMatch(pool.TabPattern, agent.Tab) {
+			return true
+		}
+	}
 	for _, agent := range live.Agents {
 		if agent.Name == name && agent.Workspace == pool.Workspace && globMatch(pool.TabPattern, agent.Tab) {
 			return true
@@ -286,7 +325,16 @@ func nameTabMatches(live Live, name string, pool Pool) bool {
 	return false
 }
 
-func tabHasName(live Live, tab LiveTab, pattern string) bool {
+func tabHostsPattern(live Live, tab LiveTab, pattern string) bool {
+	for _, item := range live.Names {
+		if !globMatch(pattern, item.Name) {
+			continue
+		}
+		agent, ok := paneAgent(live, item.Pane)
+		if ok && agent.Workspace == tab.Workspace && agent.Tab == tab.Label {
+			return true
+		}
+	}
 	for _, agent := range live.Agents {
 		if agent.Workspace == tab.Workspace && agent.Tab == tab.Label && globMatch(pattern, agent.Name) {
 			return true

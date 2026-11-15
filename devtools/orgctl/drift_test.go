@@ -161,6 +161,73 @@ func TestDriftPoolPatterns(t *testing.T) {
 	}
 }
 
+func TestDriftNamePatternCoversTab(t *testing.T) {
+	spec := Spec{Pools: map[string]Pool{
+		"team": {Workspace: "W", NamePattern: "team/*"},
+	}}
+	live := Live{
+		Tabs: []LiveTab{
+			{Workspace: "W", Label: "X"},
+			{Workspace: "W", Label: "notes"},
+		},
+		Names: []LiveName{{Name: "team/x", Pane: "W:p1"}},
+		Agents: []LiveAgent{{
+			Pane: "W:p1", Workspace: "W", Tab: "X",
+		}},
+	}
+	got := strings.Join(Drift(spec, live), "\n")
+	if strings.Contains(got, "W/X") || strings.Contains(got, "team/x") {
+		t.Fatalf("matching name tab reported\n%s", got)
+	}
+	if !strings.Contains(got, "+ tab W/notes") {
+		t.Fatalf("unmatched tab missing\n%s", got)
+	}
+
+	both := Spec{Pools: map[string]Pool{
+		"team": {Workspace: "W", NamePattern: "team/*", TabPattern: "team-*"},
+	}}
+	bothLive := Live{
+		Tabs: []LiveTab{
+			{Workspace: "W", Label: "team-1"},
+			{Workspace: "W", Label: "X"},
+		},
+		Names: []LiveName{
+			{Name: "team/x", Pane: "p-team"},
+			{Name: "team/y", Pane: "p-other"},
+		},
+		Agents: []LiveAgent{
+			{Pane: "p-team", Workspace: "W", Tab: "team-1"},
+			{Pane: "p-other", Workspace: "W", Tab: "X"},
+		},
+	}
+	got = strings.Join(Drift(both, bothLive), "\n")
+	if strings.Contains(got, "W/team-1") || strings.Contains(got, "team/x") {
+		t.Fatalf("both-pattern worker reported\n%s", got)
+	}
+	if !strings.Contains(got, "+ tab W/X") {
+		t.Fatalf("tab glob miss missing\n%s", got)
+	}
+
+	role := Spec{Roles: map[string]Role{
+		"desk/clerk": {Workspace: "hq", Tab: "clerk"},
+	}}
+	roleLive := Live{
+		Tabs: []LiveTab{
+			{Workspace: "misc", Label: "notes"},
+			{Workspace: "misc", Label: "other"},
+		},
+		Names:  []LiveName{{Name: "desk/clerk", Pane: "p-clerk"}},
+		Agents: []LiveAgent{{Pane: "p-clerk", Workspace: "misc", Tab: "notes"}},
+	}
+	got = strings.Join(Drift(role, roleLive), "\n")
+	if strings.Contains(got, "misc/notes") {
+		t.Fatalf("role tab reported\n%s", got)
+	}
+	if !strings.Contains(got, "+ tab misc/other") {
+		t.Fatalf("other tab missing\n%s", got)
+	}
+}
+
 func TestDriftSeparatesGoneNames(t *testing.T) {
 	spec := Spec{Roles: map[string]Role{}}
 	live := Live{Names: []LiveName{

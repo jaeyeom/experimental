@@ -298,7 +298,10 @@ id. The suggestion names the role that owns the session.
 A pool with no patterns hides every tab in its workspace, and hides
 a name that starts with the pool key or whose agent is in that
 workspace. A namePattern or tabPattern limits
-that to matching workers. When both are set, a worker must match both.
+that to matching workers. A namePattern also hides the tab whose
+pane holds that name. When both are set, the tab must match the tab
+glob and host a matching name. A tab that hosts a declared role is
+not an extra.
 A role key stays a role. Each scheduled job is read once and reported
 once, including when several roles share its directory.
 When scope lists workspaces, tab drift reports only tabs in that
