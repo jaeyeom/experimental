@@ -120,3 +120,51 @@ func TestDriftExitCodes(t *testing.T) {
 		t.Fatalf("drift exit %d\n%s", code, stdout.String())
 	}
 }
+
+func TestImportRefusesOverwrite(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "org.pkl")
+	if err := os.WriteFile(out, []byte("keep\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	load := func(orgctl.Spec) (orgctl.Live, error) {
+		return orgctl.Live{
+			Names: []orgctl.LiveName{{Name: "coord/lead", When: "mornings", Server: "local"}},
+			Agents: []orgctl.LiveAgent{{
+				Name: "coord/lead", Machine: "local", Workspace: "hq", Tab: "lead",
+				Cwd: "/work/lead", Kind: "coordinator",
+			}},
+		}, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := runIO([]string{"import", "--out", out}, &stdout, &stderr, load)
+	if code == 0 || !strings.Contains(stderr.String(), "overwrite") {
+		t.Fatalf("refuse exit %d stderr %s", code, stderr.String())
+	}
+	body, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "keep\n" {
+		t.Fatalf("file changed without --force: %s", body)
+	}
+	stderr.Reset()
+	code = runIO([]string{"import", "--out", out, "--force"}, &stdout, &stderr, load)
+	if code != 0 {
+		t.Fatalf("force exit %d stderr %s", code, stderr.String())
+	}
+	body, err = os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "coord/lead") || string(body) == "keep\n" {
+		t.Fatalf("forced file = %s", body)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "org.pkl" {
+		t.Fatalf("dir entries = %v", entries)
+	}
+}

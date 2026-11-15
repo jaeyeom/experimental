@@ -33,8 +33,56 @@ func loadLive(spec orgctl.Spec) (orgctl.Live, error) {
 	if err := readNames(&live); err != nil {
 		return orgctl.Live{}, err
 	}
+	attachServers(&live)
 	readRoleFiles(spec, &live)
 	return live, nil
+}
+
+// loadImportLive reads herdr, agentbus and each agent cwd's cron file.
+// There is no spec yet. Nothing is written except by import's --out.
+func loadImportLive() (orgctl.Live, error) {
+	live := orgctl.Live{Now: time.Now().UTC()}
+	if err := readHerdr(&live); err != nil {
+		return orgctl.Live{}, err
+	}
+	if err := readNames(&live); err != nil {
+		return orgctl.Live{}, err
+	}
+	attachServers(&live)
+	readImportCrons(&live)
+	return live, nil
+}
+
+func attachServers(live *orgctl.Live) {
+	servers := make(map[string]string, len(live.Names))
+	for _, name := range live.Names {
+		servers[name.Name] = name.Server
+	}
+	for i, agent := range live.Agents {
+		if agent.Machine == "" {
+			live.Agents[i].Machine = servers[agent.Name]
+		}
+	}
+}
+
+func readImportCrons(live *orgctl.Live) {
+	seen := map[string]bool{}
+	for _, agent := range live.Agents {
+		if agent.Cwd == "" || seen[agent.Cwd] {
+			continue
+		}
+		seen[agent.Cwd] = true
+		jobs, _, warnings := crons.Read(agent.Cwd, nil, crons.Config{})
+		if cronUnreadable(warnings) {
+			continue
+		}
+		for _, job := range jobs {
+			live.Crons = append(live.Crons, orgctl.LiveCron{
+				Cwd: agent.Cwd, ID: job.ID, Cron: job.Cron, Prompt: job.Prompt,
+				ExpiresAt: job.ExpiresAt, CreatedBySessionID: job.CreatedBySessionID,
+			})
+		}
+	}
 }
 
 func localMachine(spec orgctl.Spec, host string) string {
@@ -74,10 +122,28 @@ func readHerdr(live *orgctl.Live) error {
 		}
 		live.Tabs = append(live.Tabs, orgctl.LiveTab{Workspace: workspace, Label: tab.Label})
 	}
+	paneCwd := make(map[string]string, len(snap.Panes))
+	for _, pane := range snap.Panes {
+		paneCwd[pane.ID] = pane.Cwd
+	}
+	tabByID := make(map[string]herdr.Tab, len(snap.Tabs))
+	for _, tab := range snap.Tabs {
+		tabByID[tab.ID] = tab
+	}
 	live.Agents = make([]orgctl.LiveAgent, 0, len(snap.Agents))
 	for _, agent := range snap.Agents {
+		cwd := paneCwd[agent.Pane]
+		if cwd == "" {
+			cwd = agent.Cwd
+		}
+		tab := tabByID[agent.Tab]
+		workspace := labels[tab.Workspace]
+		if workspace == "" {
+			workspace = tab.Workspace
+		}
 		live.Agents = append(live.Agents, orgctl.LiveAgent{
-			Name: agent.Name, Cwd: agent.Cwd, SessionID: agent.SessionID,
+			Name: agent.Name, Cwd: cwd, SessionID: agent.SessionID,
+			Kind: agent.Kind, Workspace: workspace, Tab: tab.Label,
 		})
 	}
 	return nil
@@ -95,7 +161,7 @@ func readNames(live *orgctl.Live) error {
 	}
 	live.Names = make([]orgctl.LiveName, 0, len(names))
 	for _, name := range names {
-		live.Names = append(live.Names, orgctl.LiveName{Name: name.Name, When: name.When})
+		live.Names = append(live.Names, orgctl.LiveName{Name: name.Name, When: name.When, Server: name.Server})
 	}
 	return nil
 }
@@ -128,7 +194,7 @@ func readCrons(role orgctl.Role, live *orgctl.Live) {
 	live.CronRead = append(live.CronRead, role.Cwd)
 	for _, job := range jobs {
 		live.Crons = append(live.Crons, orgctl.LiveCron{
-			Cwd: role.Cwd, ID: job.ID, Cron: job.Cron,
+			Cwd: role.Cwd, ID: job.ID, Cron: job.Cron, Prompt: job.Prompt,
 			ExpiresAt: job.ExpiresAt, CreatedBySessionID: job.CreatedBySessionID,
 		})
 	}
