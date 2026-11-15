@@ -1,40 +1,290 @@
 #+TITLE: gh-ask
-#+DATE: 2026-11-14
+#+DATE: 2026-11-15
 
-* Overview
+gh-ask adds an "Ask agent" button to GitHub pull request pages. You
+select lines or the whole pull request, type a question, and gh-ask
+passes it to a command you choose, usually a coding agent running
+locally on your machine. The answer shows in a side panel on the page
+and is never posted to GitHub. A small server listens only on
+127.0.0.1, and a browser userscript talks to it.
 
-~gh-ask~ lets a reviewer ask a question about a line range in a pull
-request diff from the browser. A local server on ~127.0.0.1~ takes the
-question and hands it to a command you configure, for example one that
-files the question for an agent and prints a thread id.
+A thread is the conversation id your ~ask_command~ prints. A later
+question on the same pull request can reuse that id. ~deep~ is a flag
+copied into the message file for your command to interpret; gh-ask
+does not. A follow-up is a later question on an open thread. gh-ask
+runs ~followup_command~ for it instead of starting another thread.
 
-The server has three endpoints, ~POST /ask~, ~GET /status/<id>~ and
-~GET /thread~. It is not a generic exec service: the commands are
-fixed in config, and the request text reaches them only through a file.
+#+BEGIN_EXAMPLE
+Files changed
+  pkg/a.go  line 10                         [Ask agent]
+                                            Asked in 3f2a · waiting
 
-* Install
+gh-ask panel
+  You    Why is this retried?
+  Agent  Because the write can fail.
+  Read-only. Nothing here is posted to GitHub.
+#+END_EXAMPLE
+
+* Setup
+
+Do these in order. The server will not start until the config and
+the token file both exist.
+
+1. [@1] Install the command:
 
 #+BEGIN_SRC bash
 go install github.com/jaeyeom/experimental/devtools/gh-ask/cmd/gh-ask@latest
 #+END_SRC
 
-* Usage
+2. [@2] Save the five-line program below as an executable. It needs no
+agent. gh-ask does not run a shell and does not expand a home
+shortcut, so the config names this file by its absolute path.
+~chmod +x~ it after you save it.
 
 #+BEGIN_SRC bash
-gh-ask token                                     # create the secret if missing and print it
-gh-ask serve --config ~/.config/gh-ask/config.toml
+#!/bin/sh
+n=$(date +%s)
+mkdir -p "$HOME/gh-ask-inbox"
+cp "$1" "$HOME/gh-ask-inbox/thread-$n.txt"
+printf 'thread-%s\n' "$n"
 #+END_SRC
 
-Both commands take ~--config~. The default is
-=$XDG_CONFIG_HOME/gh-ask/config.toml=, or
-=$HOME/.config/gh-ask/config.toml=.
+3. [@3] Write the config. The default path is
+=~/.config/gh-ask/config.toml=. When ~XDG_CONFIG_HOME~ is set, the
+file is =$XDG_CONFIG_HOME/gh-ask/config.toml= instead. ~repos~ lists
+the ~owner/name~ repositories the server accepts. ~id_pattern~ is
+required; without a capture group, the id is the whole match. Setting
+reuse to none means every question runs this program.
 
-~gh-ask token~ writes 32 random bytes, hex encoded, to the token file
-with mode ~0600~. It prints the existing token when the file already
-exists. ~gh-ask serve~ refuses to start without the token file, and
-refuses a token file that group or others can read.
+#+BEGIN_SRC toml
+repos = ["octo/demo"]
+ask_command = ["/ABSOLUTE/PATH/gh-ask-inbox", "{file}"]
+id_pattern = 'thread-[0-9]+'
+reuse = "none"
+#+END_SRC
 
-* Config
+Replace ~octo/demo~ with a repository you review, and replace the
+absolute path with the script. ~{file}~ is the message file gh-ask
+writes for this question.
+
+4. [@4] Create the token:
+
+#+BEGIN_SRC bash
+gh-ask token
+#+END_SRC
+
+That writes 32 random bytes, hex encoded, to a ~token~ file next to
+the config, mode ~0600~. It prints the existing token when the file
+is already there. Both ~gh-ask token~ and ~gh-ask serve~ take
+~--config~ when the file is not at the default path.
+
+5. [@5] Start the server:
+
+#+BEGIN_SRC bash
+gh-ask serve
+#+END_SRC
+
+It prints ~gh-ask: listening on 127.0.0.1:8765~ and stays in the
+foreground. It refuses to start without the token file, and it
+refuses a token file that group or others can read. The default
+listen address is ~127.0.0.1:8765~. Any other address is refused.
+
+6. [@6] Install the userscript in Violentmonkey or Tampermonkey.
+   - Open
+     =https://github.com/jaeyeom/experimental/raw/main/devtools/gh-ask/userscript/gh-ask.user.js=
+     and confirm the install, or paste
+     [[file:userscript/gh-ask.user.js][the userscript]] into a new
+     script.
+   - On a pull request page, open the userscript manager's menu and
+     pick "Set gh-ask token / port". Paste the output of ~gh-ask token~,
+     then enter the port, 8765 unless you changed ~listen~. An empty
+     token answer keeps the stored token.
+   - The token and port stay in the userscript manager. They are not
+     written into the page or into a URL.
+
+* Try it without an agent
+
+With ~gh-ask serve~ still running, send one whole-PR question. Use a
+repository that is listed in ~repos~. ~head_sha~ must be hex, 7 to 64
+characters; gh-ask does not check that the commit exists. ~page_url~
+must be an ~https://github.com/~ link.
+
+#+BEGIN_SRC bash
+curl -s -X POST http://127.0.0.1:8765/ask \
+  -H "Content-Type: application/json" \
+  -H "X-Gh-Ask-Token: $(gh-ask token)" \
+  -d '{"repo":"octo/demo","pr":42,"head_sha":"0123456789abcdef","question":"Is the retry in the right place?","deep":false,"page_url":"https://github.com/octo/demo/pull/42"}'
+#+END_SRC
+
+The body is one JSON object and a newline. The digits are the
+timestamp the script printed:
+
+#+BEGIN_EXAMPLE
+{"id":"thread-1710000000"}
+#+END_EXAMPLE
+
+The question is now in =~/gh-ask-inbox/thread-1710000000.txt=. gh-ask
+deletes its own temp copy when the script exits, so a command that
+hands the file to something asynchronous must copy it first. A
+successful ask does not print a server log line.
+
+* Using it on GitHub
+
+The userscript adds "Ask agent" on the pull request Files changed
+view, both ~/pull/<n>/files~ and the newer ~/pull/<n>/changes~ page.
+Hover a numbered diff line and the button sits on that line.
+Selecting text inside one file's diff puts the button at the end of
+the selection. A selection that crosses files is refused. "Ask about
+this PR", next to the pull request title, asks with no file or line.
+
+The button opens a popover with a question box, a ~deep~ checkbox,
+and Send. Cmd+Enter or Ctrl+Enter sends. Enter stays a newline. The
+popover stays inside the window.
+
+Send stores the question on the thread for that pull request. The
+line, or the title button, gets a chip: ~Asked in <id> · waiting~,
+then ~answered~ or ~closed~ when the status says so. The chip is
+polled every 20 seconds while the tab is visible, for at most 30
+minutes. A failed send stays in the popover so you can send it again.
+The chip and the popover show the failure: auth failure, forbidden,
+too large, rate limit, the command failed, or the server is down.
+
+A ~gh-ask~ button in the pull request title opens a read-only side
+panel. It is on every pull request tab, including Conversation and
+Commits, and it stays up when GitHub changes tabs without a reload.
+The diff buttons are only on the files and changes views.
+
+Opening the panel loads the stored thread. Each message shows You,
+Agent, or Note, and the time in local time, oldest first, newest at
+the bottom. A closed thread shows ~closed~. When nothing is stored
+yet, the panel says "No question yet" and still offers a follow-up
+box. Clicking a status chip opens the same panel. A chip on a line
+sends the follow-up as a line question; anything else sends the
+whole pull request. Cmd+Enter or Ctrl+Enter sends.
+
+The panel polls every 20 seconds while the tab is visible and the
+newest message is from you, and every 60 seconds otherwise. It stops
+after 30 minutes with no new message. Refresh starts that window
+again. Nothing is polled while the panel is closed, except a chip
+that is still waiting.
+
+Message text is plain. URLs stay text, and nothing in the panel is
+posted to GitHub. The footer is "Read-only. Nothing here is posted
+to GitHub."
+
+* Writing your own commands
+
+The commands are fixed in the config. gh-ask is not a generic exec
+service: request text reaches a command only through a file. Each
+command runs with no stdin, the server's environment, and
+~command_timeout~. ~ask_command~ and ~followup_command~ keep running
+if the browser disconnects. ~status_command~ is stopped when the
+browser disconnects.
+
+** ask_command
+
+~ask_command~ is an argv, not a shell command. Only ~{file}~, ~{pr}~,
+and ~{repo}~ are replaced. Unknown placeholders are errors. The
+program must print an id that ~id_pattern~ matches. When the pattern
+has a capture group, that group is the id. Otherwise the whole match
+is the id. The id is at most 256 bytes and has no control characters.
+Stdout with no match is a 502, ~ask_command printed no id~.
+
+** The message file
+
+The request is written to a mode-0600 temp file. A line question
+looks like this:
+
+#+BEGIN_EXAMPLE
+[gh-ask] PR 42 · pkg/a.go:10-12 (RIGHT) · deep=no
+
+Question:
+Why is this retried?
+
+Code:
+for i := 0; i < 3; i++ {
+
+Link:
+https://github.com/octo/demo/pull/42/files#diff-...
+#+END_EXAMPLE
+
+A whole-PR question omits the ~Code:~ block:
+
+#+BEGIN_EXAMPLE
+[gh-ask] PR 42 · whole PR · deep=no
+
+Question:
+Is this the right place for the retry?
+
+Link:
+https://github.com/octo/demo/pull/42/files
+#+END_EXAMPLE
+
+** Status
+
+~status_command~ is optional. Only ~{id}~ is replaced. Its stdout is
+one JSON object. ~state~, ~answered~, and ~closed~ are required.
+~state~ is a string of at most 256 bytes with no control characters.
+Other fields are dropped.
+
+#+BEGIN_SRC json
+{"state": "answered", "answered": true, "closed": false}
+#+END_SRC
+
+It may also print ~messages~, an array of objects:
+
+#+BEGIN_SRC json
+{"role": "you", "time": "2026-11-14T10:00:00Z", "text": "hello"}
+#+END_SRC
+
+~role~ is ~you~, ~agent~, or ~note~. ~time~ is RFC3339. ~text~ is a
+string. The server returns the array oldest first and keeps at most
+50 messages, the newest by time. Each ~text~ is cut to 16 KB on a
+UTF-8 boundary. Control characters in ~text~ are removed, except
+newline and tab. An unknown ~role~ is dropped. Unknown fields are
+dropped. The response body is at most 256 KB; older messages are
+dropped until it fits.
+
+If ~messages~ is missing or null, the response is the three fields
+only. If it is not an array of those objects, or a time is not
+RFC3339, the field is left out, the server logs one line, and
+~state~, ~answered~, and ~closed~ are still returned. A good result
+is cached for 10 seconds per id. A failure of the three required
+fields is not cached. Status requests do not use the ask rate limit.
+
+** Thread reuse
+
+~reuse = "per-pr"~ is the default. The server stores the id that
+~ask_command~ printed for each repository and pull request in
+=$XDG_STATE_HOME/gh-ask/threads.json=, or
+=~/.local/state/gh-ask/threads.json= when ~XDG_STATE_HOME~ is unset.
+It writes the file with mode ~0600~ to a temp file and renames it
+into place. This mode requires ~followup_command~.
+
+A later ask on the same pull request checks the stored id before
+reusing it. When ~status_command~ is set, the ask uses a cached
+status younger than about 10 seconds; otherwise it runs
+~status_command~. ~closed~ true runs ~ask_command~, and the new id
+replaces the stored one. If ~status_command~ fails, with a non-zero
+exit, a timeout, or invalid JSON, the ask logs the reason and starts
+a new thread too. When the status is still open, the ask runs
+~followup_command~ with ~{id}~ and the new ~{file}~, ignores that
+command's stdout, and returns the stored id. ~followup_command~
+replaces ~{id}~, ~{file}~, ~{pr}~, and ~{repo}~. Without
+~status_command~, a stored thread is reused until you remove it from
+the state file.
+
+Two asks on the same pull request at the same moment can both start
+a thread; the one that finishes last is stored.
+
+With ~reuse = "none"~, every ask runs ~ask_command~ and nothing is
+stored. ~followup_command~ is then optional.
+
+* Configuration
+
+The block in Setup is enough to run the inbox script. This is the
+full file. ~ask-agent~ is a placeholder. Replace it with your own
+program. Unknown keys are errors.
 
 #+BEGIN_SRC toml
 # Only 127.0.0.1:<port> is accepted. Default 127.0.0.1:8765.
@@ -49,46 +299,31 @@ id_pattern = 'thread-([0-9a-f]+)'
 # open. Only {id}, {file}, {pr} and {repo} are replaced. Required unless
 # reuse = "none".
 followup_command = ["ask-agent", "--thread", "{id}", "--message-file", "{file}"]
-# Optional.
-reuse = "per-pr"           # or "none": every ask runs ask_command
+# Optional. The default is per-pr. "none": every ask runs ask_command.
+reuse = "per-pr"
 status_command = ["ask-agent", "--status", "{id}"]  # only {id}; enables GET /status/<id>
 rate_limit = 10            # asks per hour
 command_timeout = "2m"     # applies to every command
 token_file = "token"       # relative to the config file's directory
 #+END_SRC
 
-Unknown keys and unknown placeholders are errors.
+~rate_limit~ defaults to 10 asks per hour. ~command_timeout~ defaults
+to ~2m~. ~token_file~ defaults to ~token~ next to the config. A
+relative ~token_file~ is joined to the config's directory.
 
-* Thread reuse
+* HTTP API
 
-With ~reuse = "per-pr"~, the default, the server stores the id that
-~ask_command~ printed for each ~(repo, pr)~ in
-=$XDG_STATE_HOME/gh-ask/threads.json=, or
-=$HOME/.local/state/gh-ask/threads.json=. It writes the file with mode
-~0600~ to a temp file and renames it into place.
+The server has three endpoints. Errors are ~{"error": "..."}~ with a
+short message; details go to the server log. On success, ~POST /ask~
+returns ~{"id": "..."}~.
 
-A later ask on the same PR checks the stored id before reusing it.
-When ~status_command~ is set, the ask uses a cached status younger
-than about 10 seconds; otherwise it runs ~status_command~. ~closed~
-true runs ~ask_command~, and the new id replaces the stored one. If
-~status_command~ fails, with a non-zero exit, a timeout, or invalid
-JSON, the ask logs the reason and starts a new thread too. A visible
-new thread is better than a question lost in a thread that might
-already be closed. When the status is still open, the ask runs
-~followup_command~ with the stored ~{id}~ and the new message ~{file}~,
-ignores that command's stdout, and returns the stored id. Without
-~status_command~, a stored thread is reused until you remove it from
-the state file.
+A whole-PR body, the same shape as the curl above:
 
-Two asks on the same PR at the same moment can both start a thread; the
-one that finishes last is stored.
+#+BEGIN_SRC json
+{"repo":"octo/demo","pr":42,"head_sha":"0123456789abcdef","question":"Is the retry in the right place?","deep":false,"page_url":"https://github.com/octo/demo/pull/42"}
+#+END_SRC
 
-With ~reuse = "none"~, every ask runs ~ask_command~ and nothing is
-stored.
-
-* POST /ask
-
-The body is JSON:
+** POST /ask
 
 | Field        | Notes                                        |
 |--------------+----------------------------------------------|
@@ -104,14 +339,11 @@ The body is JSON:
 | ~deep~       | boolean                                      |
 | ~page_url~   | an ~https://github.com/~ link, at most 2 KB  |
 
-~path~, ~side~, ~start_line~, ~end_line~ and ~selection~ are optional,
-and all-or-none. A request with none of them is a question about the
-whole pull request. A request with any of them must include a valid
-path, side, and line range; a partial location is a 400. ~selection~
-may still be empty on a line question.
-
-On success the response is ~{"id": "..."}~. Errors are
-~{"error": "..."}~ with a short message; details go to the server log.
+~path~, ~side~, ~start_line~, ~end_line~, and ~selection~ are
+optional, and all-or-none. A request with none of them is a question
+about the whole pull request. A request with any of them must include
+a valid path, side, and line range. A partial location is a 400.
+~selection~ may still be empty on a line question.
 
 | Status | Meaning                                                |
 |--------+--------------------------------------------------------|
@@ -124,44 +356,16 @@ On success the response is ~{"id": "..."}~. Errors are
 | 429    | over the rate limit                                    |
 | 502    | the command failed, timed out, or printed no id        |
 
-* GET /status/<id>
+** GET /status/<id>
 
 #+BEGIN_SRC bash
 curl -H "X-Gh-Ask-Token: $(gh-ask token)" http://127.0.0.1:8765/status/abc123
 #+END_SRC
 
-The server runs ~status_command~ with ~{id}~. The command must print
-one JSON object:
-
-#+BEGIN_SRC json
-{"state": "answered", "answered": true, "closed": false}
-#+END_SRC
-
-All three fields are required. ~state~ is a string of at most 256
-bytes with no control characters. Other fields are dropped, and the
-three are returned as the response body. A good result is cached for
-10 seconds per id; a failure of these three fields is not cached.
-Status requests do not use the ask rate limit.
-
-~status_command~ may also print ~messages~, an array of objects:
-
-#+BEGIN_SRC json
-{"role": "you", "time": "2026-11-14T10:00:00Z", "text": "hello"}
-#+END_SRC
-
-~role~ is ~you~, ~agent~ or ~note~. ~time~ is RFC3339. ~text~ is a
-string. The server returns the array oldest first. It keeps at most 50
-messages, the newest by time. Each ~text~ is cut to 16 KB on a UTF-8
-character boundary. Control characters in ~text~ are removed, except
-newline and tab. An unknown ~role~ is dropped. Unknown fields are
-dropped. The response body is at most 256 KB; older messages are
-dropped until it fits.
-
-If ~messages~ is missing or null, the response is the three fields
-only. If it is not an array of those objects, or a time is not
-RFC3339, the field is left out, the server logs one line, and ~state~,
-~answered~ and ~closed~ are still returned. That cleaned result is
-cached for 10 seconds, the same as any other good status.
+The server runs ~status_command~ with ~{id}~ and returns the cleaned
+JSON from the Status section. Only ids that ~ask_command~ printed
+answer: ids from this process, and with ~reuse = "per-pr"~, ids in
+the state file.
 
 | Status | Meaning                                                    |
 |--------+------------------------------------------------------------|
@@ -171,10 +375,7 @@ cached for 10 seconds, the same as any other good status.
 | 405    | any method other than ~GET~, including ~OPTIONS~           |
 | 502    | the command failed, timed out, or printed bad JSON         |
 
-Only ids that ~ask_command~ printed answer: ids from this process, and
-with ~reuse = "per-pr"~, ids in the state file.
-
-* GET /thread
+** GET /thread
 
 #+BEGIN_SRC bash
 curl -G -H "X-Gh-Ask-Token: $(gh-ask token)" \
@@ -182,10 +383,10 @@ curl -G -H "X-Gh-Ask-Token: $(gh-ask token)" \
   http://127.0.0.1:8765/thread
 #+END_SRC
 
-Returns the id stored for that pull request, ~{"id": "..."}~, including
-when the stored thread is closed. No command runs. With
-~reuse = "none"~, or when nothing is stored for that pull request, the
-response is 404.
+Returns the id stored for that pull request, ~{"id": "..."}~,
+including when the stored thread is closed. No command runs. With
+~reuse = "none"~, or when nothing is stored for that pull request,
+the response is 404.
 
 | Status | Meaning                                              |
 |--------+------------------------------------------------------|
@@ -200,7 +401,7 @@ response is 404.
 
 - The server binds only ~127.0.0.1~. Any other ~listen~ address is
   refused.
-- All three endpoints get the same token, ~Host~ and ~Origin~ checks.
+- All three endpoints get the same token, ~Host~, and ~Origin~ checks.
 - ~X-Gh-Ask-Token~ must match the token file. The compare runs in
   constant time.
 - No CORS headers are ever sent, and ~OPTIONS~ gets ~405~. A web page
@@ -209,147 +410,29 @@ response is 404.
 - ~Host~ must be ~127.0.0.1:<port>~ or ~localhost:<port>~. This blocks
   DNS rebinding.
 - ~Origin~, when present, must be ~https://github.com~ or a
-  ~chrome-extension://~, ~moz-extension://~ or
+  ~chrome-extension://~, ~moz-extension://~, or
   ~safari-web-extension://~ origin.
 - Requests rejected before the rate limit check do not use up the
   limit.
 
-* The message file
+* Limitations
 
-The request is rendered to a mode-0600 temp file:
+- GitHub's diff markup is not an API and changes without notice. When
+  the button stops appearing or the payload is wrong, the update
+  steps are under Development.
+- The script loads on every github.com page. A match limited to the
+  files URL never runs when you open Files changed from the pull
+  request list or the Conversation tab, because GitHub changes pages
+  without a full reload. Until the path is a pull request, the script
+  only checks the URL. The panel button is on every tab of that pull
+  request. The diff buttons appear only on the files and changes
+  views; leaving that view removes them and stops their polling.
+- The changes view re-renders rows, which can drop a chip.
+- A range covers one side of one file.
+- The panel shows the thread as plain text. URLs in a message are not
+  links. Nothing in the panel is posted to GitHub.
 
-#+BEGIN_EXAMPLE
-[gh-ask] PR 42 · pkg/a.go:10-12 (RIGHT) · deep=no
-
-Question:
-Why is this retried?
-
-Code:
-for i := 0; i < 3; i++ {
-
-Link:
-https://github.com/octo/demo/pull/42/files#diff-...
-#+END_EXAMPLE
-
-A whole-PR question omits the ~Code:~ block. Its first line is:
-
-#+BEGIN_EXAMPLE
-[gh-ask] PR 42 · whole PR · deep=no
-
-Question:
-Is this the right place for the retry?
-
-Link:
-https://github.com/octo/demo/pull/42/files
-#+END_EXAMPLE
-
-The file is deleted when the command exits. A command that hands the
-file to something asynchronous must copy it first.
-
-~ask_command~ and ~followup_command~ run with no stdin, the server's
-environment, and ~command_timeout~. They keep running if the browser
-disconnects. ~status_command~ runs the same way but is stopped when the
-browser disconnects.
-
-* Userscript
-
-[[file:userscript/gh-ask.user.js][userscript/gh-ask.user.js]] adds an "Ask agent" button to the pull
-request "Files changed" view, both the classic ~/pull/<n>/files~ page
-and the newer ~/pull/<n>/changes~ page. It also adds an "Ask about this
-PR" button next to the pull request title. It runs in Violentmonkey or
-Tampermonkey.
-
-** Install
-
-1. Install Violentmonkey or Tampermonkey in the browser.
-2. Open the raw file, for example
-   =https://github.com/jaeyeom/experimental/raw/main/devtools/gh-ask/userscript/gh-ask.user.js=,
-   and confirm the install. Or create a new script and paste the file.
-3. Start the server with ~gh-ask serve~, with the repos you review in
-   ~repos~.
-4. On a pull request page, open the userscript manager's menu and pick
-   "Set gh-ask token / port". Paste the output of ~gh-ask token~, then
-   enter the port from ~listen~, 8765 by default. An empty token answer
-   keeps the stored token.
-
-The token and port are stored with ~GM_setValue~, in the userscript
-manager's storage. They never go into the page DOM or a URL.
-
-** How it works
-
-- Hovering a numbered diff line shows the button on that line.
-  Selecting text inside one file's diff shows it at the end of the
-  selection.
-- The button opens a popover with a question box, a "deep" checkbox and
-  Send. Cmd+Enter or Ctrl+Enter sends, the same as the button; plain
-  Enter stays a newline. The popover and the button stay inside the window: a box that
-  would pass the right edge shifts left, one that would pass the bottom
-  opens above, and a narrow window shrinks the popover. Resizing the
-  window moves an open popover.
-- "Ask about this PR", next to the title, opens the same popover with
-  no file or line. ~page_url~ is the files or changes page without a
-  line anchor. The status chip sits next to that button. The question
-  joins the same per-PR thread as a line question.
-- Send builds the ~POST /ask~ body from the page:
-  - ~repo~ and ~pr~ from the URL.
-  - ~head_sha~ from a commit range in the URL, else the hidden
-    ~comparison_end_oid~ input (classic view), else ~headOid~ in the
-    page's embedded JSON (changes view). A tab with none of those, such
-    as Conversation, fetches ~/OWNER/REPO/pull/N/files~ on this origin
-    and reads the commit there. That result is cached for the pull
-    request until the URL changes or the page loads again. The panel
-    says "finding the head commit…" while the fetch runs. If it fails,
-    the panel says "couldn't find the head commit; open Files changed
-    and ask there" and does not call the local server.
-  - ~path~, ~side~ and the line range from the diff rows. A range takes
-    the side of the line where the selection ends.
-  - ~selection~ from the selected text, or the hunk around the line when
-    nothing is selected, cut to 4 KB.
-  - ~page_url~, the page link with the line anchor, such as
-    ~#diff-<hash>R10-R12~.
-- After the server answers, the line gets a chip, ~Asked in <id> ·
-  waiting~. The script polls ~GET /status/<id>~ every 20 seconds while
-  the tab is visible, for at most 30 minutes, and shows ~answered~ or
-  ~closed~ when the status says so.
-- Errors show in the chip and the popover: auth failure (401), forbidden
-  (403), too large (413), rate limit (429), command failed (502), and
-  server down when there is no response. The popover stays open after a
-  failed send so the question can be sent again.
-
-The script sends agent requests only with ~GM_xmlhttpRequest~, only to
-~http://127.0.0.1:<port>~, and with ~anonymous~ set so no cookies go
-along. ~@connect~ lists only ~127.0.0.1~ and ~localhost~. The head-commit
-lookup is a same-origin ~fetch~ of the files page, not
-~GM_xmlhttpRequest~, and it sends no token. Text from the server is
-shown with ~textContent~.
-
-** Answer panel
-
-A ~gh-ask~ button in the pull request title opens a read-only side
-panel. It is there on every pull request tab, including Conversation
-and Commits, and it stays up when GitHub moves between those tabs
-without a reload. The diff buttons are still only on the files and
-changes views.
-
-Opening the panel calls ~GET /thread?repo=&pr=~. A stored id loads that
-thread's ~messages~ from ~GET /status/<id>~, oldest first, newest at
-the bottom. Each one shows You, Agent or Note and the time in local
-time. A closed thread shows ~closed~. A 404 shows "No question yet"
-and the follow-up box. Clicking a status chip opens the same panel; a
-chip on a line sends the follow-up as a line question, and anything
-else sends the whole-PR question. Cmd+Enter or Ctrl+Enter sends.
-
-The panel polls ~GET /status/<id>~ every 20 seconds while the tab is
-visible and the newest message is from you, and every 60 seconds
-otherwise. It stops after 30 minutes with no new message. Refresh
-starts that window again. Nothing is polled while the panel is closed,
-except a chip that is still waiting.
-
-Message text is untrusted. It is set with ~textContent~ on an element
-with ~white-space: pre-wrap~. The panel does not render markdown and
-does not turn URLs into links; a URL stays plain text. The footer is
-"Read-only. Nothing here is posted to GitHub." The panel's CSS is
-added with ~GM_addStyle~.
+* Development
 
 ** Tests
 
@@ -358,43 +441,68 @@ node --test devtools/gh-ask/userscript/
 bazel test //devtools/gh-ask/userscript:userscript_test
 #+END_SRC
 
-The test runs the payload builder, URL and head commit parsing, error
+The test runs the payload builder, URL and head-commit parsing, error
 text, the poller, and the answer panel against sample diff markup in
 =userscript/testdata/=, one file per view. The whole-PR payload is
 checked from the title in those fixtures. The panel tests check that
-message text stays literal, the poll cadence, ~GET /thread~, and which
-ask form a follow-up uses. Popover placement is checked against fixed
-viewports, not a layout engine. It uses the host's ~node~ and fails
-when ~node~ is missing. The browser glue (button, popover, chip, panel)
-has no automated test. After changing it, check by hand on a real pull
+message text stays literal, the poll cadence, ~GET /thread~, and
+which ask form a follow-up uses. Popover placement is checked against
+fixed viewports, not a layout engine. It uses the host's ~node~ and
+fails when ~node~ is missing. The browser glue (button, popover,
+chip, panel) has no automated test.
+
+** Manual check
+
+After changing the browser glue, check by hand on a real pull
 request: the button on hover and on a selection, a send that reaches
 the server, the chip moving to ~answered~, the panel on the
 Conversation tab, and "auth failed" in the chip after setting a wrong
 token.
 
-Lint, when ~biome~ or ~oxlint~ is installed:
+** Lint
+
+When ~biome~ or ~oxlint~ is installed:
 
 #+BEGIN_SRC bash
 biome lint devtools/gh-ask/userscript/
 oxlint devtools/gh-ask/userscript/
 #+END_SRC
 
-** Limitations
+** Updating a fixture
 
-- GitHub's diff markup is not an API and changes without notice. Each
-  fixture in =userscript/testdata/= says which markup it copies. When the
-  button stops appearing or the payload is wrong, save the real page,
-  update the fixture, and fix the script against the test.
-- ~@match~ is ~https://github.com/*~. GitHub moves between pages
-  without a full reload, so a match limited to the files URL never runs
-  when the user opens "Files changed" from the pull request list or the
-  Conversation tab. The script loads on every github.com page and, until
-  the path is a pull request, only checks the URL. The ~gh-ask~ panel
-  button is on every tab of that pull request. The diff buttons appear
-  only on the files and changes views; leaving that view removes them
-  and stops their polling.
-- The changes view re-renders rows, which can drop a chip.
-- A range covers one side of one file. A selection across files is
-  refused.
-- The panel shows the thread as plain text. URLs in a message are not
-  links. Nothing in the panel is posted to GitHub.
+Each fixture in =userscript/testdata/= says which markup it copies.
+When the button stops appearing or the payload is wrong, save the
+real page, update the fixture, and fix the script against the test.
+
+** Userscript internals
+
+- ~repo~ and ~pr~ come from the URL.
+- ~head_sha~ comes from a commit range in the URL, else the hidden
+  ~comparison_end_oid~ input on the classic view, else ~headOid~ in
+  the page's embedded JSON on the changes view. A tab with none of
+  those, such as Conversation, fetches ~/OWNER/REPO/pull/N/files~ on
+  this origin and reads the commit there. That result is cached for
+  the pull request until the URL changes or the page loads again.
+  The panel says "finding the head commit…" while the fetch runs.
+  If it fails, the panel says "couldn't find the head commit; open
+  Files changed and ask there" and does not call the local server.
+- ~path~, ~side~, and the line range come from the diff rows. A range
+  takes the side of the line where the selection ends.
+- ~selection~ is the selected text, or the hunk around the line when
+  nothing is selected, cut to 4 KB.
+- ~page_url~ is the page link with the line anchor, such as
+  ~#diff-<hash>R10-R12~. For "Ask about this PR" it is the files or
+  changes page without a line anchor.
+- The popover and the button stay inside the window: a box that would
+  pass the right edge shifts left, one that would pass the bottom
+  opens above, and a narrow window shrinks the popover. Resizing the
+  window moves an open popover.
+- The script sends agent requests only with ~GM_xmlhttpRequest~, only
+  to ~http://127.0.0.1:<port>~, and with ~anonymous~ set so no cookies
+  go along. ~@connect~ lists only ~127.0.0.1~ and ~localhost~. The
+  head-commit lookup is a same-origin ~fetch~ of the files page, not
+  ~GM_xmlhttpRequest~, and it sends no token. Text from the server is
+  shown with ~textContent~. The panel uses ~white-space: pre-wrap~
+  and does not render markdown. Its CSS is added with ~GM_addStyle~.
+- The token and port are stored with ~GM_setValue~.
+- ~@match~ is ~https://github.com/*~.
