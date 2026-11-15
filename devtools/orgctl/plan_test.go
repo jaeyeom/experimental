@@ -16,9 +16,10 @@ func TestPlanMarkers(t *testing.T) {
 		Agents: []LiveAgent{{
 			Name: "changed/one", Cwd: "/work/other", Model: "desk-small",
 		}},
-		Names: []LiveName{{Name: "changed/one", When: "evenings"}},
+		Names: []LiveName{{Name: "changed/one", When: "evenings", SessionID: "sess-changed"}},
 		Crons: []LiveCron{{
-			Cwd: "/work/changed", ID: "daily", ExpiresAt: now.Add(24 * time.Hour),
+			Cwd: "/work/changed", ID: "aabbccdd", Cron: "0 8 * * *",
+			CreatedBySessionID: "sess-changed", ExpiresAt: now.Add(24 * time.Hour),
 		}},
 		CronRead:    []string{"/work/missing", "/work/changed"},
 		Briefs:      map[string]string{"changed/one": BriefEdited},
@@ -34,7 +35,7 @@ func TestPlanMarkers(t *testing.T) {
 		"! changed/one model unknown",
 		"+ missing/one tab hq/lead",
 		"+ missing/one agentbus",
-		"+ missing/one cron overnight",
+		"? missing/one cron overnight unverifiable",
 		"? missing/one cron ping unverifiable",
 		"! missing/one model unknown",
 		"? watch/night remote: not read",
@@ -90,7 +91,7 @@ func TestPlanUnreadableAndQuiet(t *testing.T) {
 		"coord/lead": {
 			Machine: "north", Workspace: "hq", Tab: "lead",
 			Cwd: "/work/lead", When: "mornings", Model: "desk-large",
-			Schedules: []Schedule{{ID: "daily", Durable: true}},
+			Schedules: []Schedule{{ID: "daily", Cron: "0 8 * * *", Durable: true}},
 			Needs:     Needs{Permissions: []string{"notes.read"}},
 		},
 	}}
@@ -110,8 +111,11 @@ func TestPlanUnreadableAndQuiet(t *testing.T) {
 		Agents: []LiveAgent{{
 			Name: "coord/lead", Cwd: "/work/lead", Model: "desk-large",
 		}},
-		Names:       []LiveName{{Name: "coord/lead", When: "mornings"}},
-		Crons:       []LiveCron{{Cwd: "/work/lead", ID: "daily", ExpiresAt: now.Add(10 * 24 * time.Hour)}},
+		Names: []LiveName{{Name: "coord/lead", When: "mornings", SessionID: "sess-lead"}},
+		Crons: []LiveCron{{
+			Cwd: "/work/lead", ID: "99887766", Cron: "0 8 * * *",
+			CreatedBySessionID: "sess-lead", ExpiresAt: now.Add(10 * 24 * time.Hour),
+		}},
 		CronRead:    []string{"/work/lead"},
 		Briefs:      map[string]string{"coord/lead": BriefOK},
 		KnownModels: []string{"desk-large"},
@@ -125,9 +129,105 @@ func TestPlanUnreadableAndQuiet(t *testing.T) {
 		t.Fatal("user steps are not changes")
 	}
 	soon := quiet
-	soon.Crons = []LiveCron{{Cwd: "/work/lead", ID: "daily", ExpiresAt: now.Add(48 * time.Hour)}}
+	soon.Crons = []LiveCron{{
+		Cwd: "/work/lead", ID: "11223344", Cron: "0 8 * * *",
+		CreatedBySessionID: "sess-lead", ExpiresAt: now.Add(48 * time.Hour),
+	}}
 	if !strings.Contains(strings.Join(Plan(spec, soon, PlanOptions{}), "\n"), "! coord/lead cron daily expiring") {
 		t.Fatal("cron at the window edge should be attention")
+	}
+}
+
+func TestPlanCronMatchByOwner(t *testing.T) {
+	now := time.Date(2026, 11, 14, 0, 0, 0, 0, time.UTC)
+	far := now.Add(10 * 24 * time.Hour)
+	const (
+		session = "sess-owner"
+		expr    = "0 9 * * 1-5"
+		promptA = "Read the overnight notes and file them."
+		promptB = "Check the mailbox and leave a summary."
+	)
+	spec := Spec{Roles: map[string]Role{
+		"desk/clerk": {
+			Machine: "local", Workspace: "front", Tab: "clerk", Cwd: "/work/desk",
+			Schedules: []Schedule{{
+				ID: "notes", Cron: expr, Prompt: promptA, Durable: true,
+			}},
+		},
+	}}
+	live := Live{
+		Local:    "local",
+		Now:      now,
+		Tabs:     []LiveTab{{Workspace: "front", Label: "clerk"}},
+		Names:    []LiveName{{Name: "desk/clerk", SessionID: session}},
+		Agents:   []LiveAgent{{Name: "desk/clerk", Cwd: "/work/desk"}},
+		CronRead: []string{"/work/desk"},
+	}
+	job := func(id, owner, prompt, cronExpr string) LiveCron {
+		return LiveCron{
+			Cwd: "/work/desk", ID: id, Cron: cronExpr, Prompt: prompt,
+			CreatedBySessionID: owner, ExpiresAt: far,
+		}
+	}
+	lines := func(crons []LiveCron, names []LiveName) string {
+		t.Helper()
+		next := live
+		next.Crons = crons
+		if names != nil {
+			next.Names = names
+		}
+		return strings.Join(Plan(spec, next, PlanOptions{}), "\n")
+	}
+
+	owned := lines([]LiveCron{job("1111aaaa", session, promptA, expr)}, nil)
+	if owned != "" {
+		t.Fatalf("owned job =\n%s", owned)
+	}
+	renewed := lines([]LiveCron{job("2222bbbb", session, promptA, expr)}, nil)
+	if renewed != "" {
+		t.Fatalf("renewed job =\n%s", renewed)
+	}
+	missing := lines(nil, nil)
+	if missing != "+ desk/clerk cron notes" {
+		t.Fatalf("missing =\n%s", missing)
+	}
+	other := lines([]LiveCron{job("3333cccc", "sess-other", promptA, expr)}, nil)
+	if strings.Contains(other, "+") || strings.Contains(other, "cron notes") {
+		t.Fatalf("other session =\n%s", other)
+	}
+	sameID := lines([]LiveCron{job("notes", session, promptA, "1 2 * * *")}, nil)
+	if sameID != "+ desk/clerk cron notes" {
+		t.Fatalf("same id, other cron =\n%s", sameID)
+	}
+	noHandle := lines(
+		[]LiveCron{job("4444dddd", session, promptA, expr)},
+		[]LiveName{{Name: "desk/clerk"}},
+	)
+	if noHandle != "? desk/clerk cron notes unverifiable" {
+		t.Fatalf("no handle =\n%s", noHandle)
+	}
+
+	two := spec
+	two.Roles["desk/clerk"] = Role{
+		Machine: "local", Workspace: "front", Tab: "clerk", Cwd: "/work/desk",
+		Schedules: []Schedule{
+			{ID: "notes", Cron: expr, Prompt: promptA, Durable: true},
+			{ID: "mail", Cron: expr, Prompt: promptB, Durable: true},
+		},
+	}
+	got := strings.Join(Plan(two, Live{
+		Local: "local", Now: now,
+		Tabs:     []LiveTab{{Workspace: "front", Label: "clerk"}},
+		Names:    []LiveName{{Name: "desk/clerk", SessionID: session}},
+		Agents:   []LiveAgent{{Name: "desk/clerk", Cwd: "/work/desk"}},
+		CronRead: []string{"/work/desk"},
+		Crons: []LiveCron{
+			job("5555eeee", session, promptA, expr),
+			job("6666ffff", session, promptB, expr),
+		},
+	}, PlanOptions{}), "\n")
+	if got != "" {
+		t.Fatalf("prompt prefix =\n%s", got)
 	}
 }
 

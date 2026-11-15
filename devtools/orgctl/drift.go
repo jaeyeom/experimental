@@ -94,8 +94,8 @@ func misplacedCrons(spec Spec, live Live) []string {
 		role := spec.Roles[name]
 		owner := roleSession(live, name)
 		for _, schedule := range role.Schedules {
-			cron, ok := findCron(live, role.Cwd, schedule.ID)
-			if !ok || cron.CreatedBySessionID == "" || owner == "" || cron.CreatedBySessionID == owner {
+			cron, hit := matchCron(live, role.Cwd, schedule, owner)
+			if hit != cronOther {
 				continue
 			}
 			target := sessionRole(spec, live, cron.CreatedBySessionID)
@@ -161,7 +161,7 @@ func declaredCron(spec Spec, cron LiveCron) bool {
 			continue
 		}
 		for _, schedule := range role.Schedules {
-			if schedule.ID == cron.ID {
+			if schedule.Cron != "" && schedule.Cron == cron.Cron {
 				return true
 			}
 		}

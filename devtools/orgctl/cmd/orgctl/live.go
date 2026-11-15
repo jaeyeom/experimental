@@ -161,7 +161,9 @@ func readNames(live *orgctl.Live) error {
 	}
 	live.Names = make([]orgctl.LiveName, 0, len(names))
 	for _, name := range names {
-		live.Names = append(live.Names, orgctl.LiveName{Name: name.Name, When: name.When, Server: name.Server})
+		live.Names = append(live.Names, orgctl.LiveName{
+			Name: name.Name, When: name.When, Server: name.Server, SessionID: name.SessionID,
+		})
 	}
 	return nil
 }
