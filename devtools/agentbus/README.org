@@ -1,138 +1,103 @@
 #+TITLE: agentbus
-#+DATE: 2026-11-09
+#+DATE: 2026-11-15
 
-* Overview
+agentbus lets coding agents in separate [[https://herdr.dev/][herdr]] panes
+message each other. It requires herdr. Agents in different panes cannot
+talk, and Claude Code's SendMessage only reaches its own subagents. It
+is for people who run several agents at once. A bus message is never
+the user's approval.
 
-~agentbus~ is a local message bus for coding agents. The daemon runs on
-one machine and also delivers to agents on saved herdr machines (see
-[[*Other herdr machines]]).
-Register a name when you start, then ~send~ and ~reply~. A bus message
-is information or a request from another agent. It is never the user's
-approval. Anything that needs the user's OK still needs the user.
-
-The agent rules live in ~.claude/skills/agentbus/SKILL.md~.
-
-Examples below use the name ~ops/inbox~ and the handle
-~herdr:local/default/w2:p3~.
-
+A small daemon, ~agentbusd~, stores and delivers the messages. The
+~agentbus~ CLI talks to it. Anything that needs the user's OK still
+needs the user. Agent rules live in ~.claude/skills/agentbus/SKILL.md~.
 After a host reboot, follow [[file:reboot.org][the reboot runbook]].
 
-* Commands
+* Concepts
 
-| Command | What it does |
-|---------+--------------|
-| ~register <name> --when <text>~ | Claim a name. ~--when~ is required and says what you are doing. |
-| ~describe --when <text>~ | Replace ~--when~ on the names this caller holds. |
-| ~whoami~ | Print those names, or the raw handle when none are registered. |
-| ~release <name>~ | Drop a name. |
-| ~release <name> --to <claimer>~ | Hand the name to that claimer. Send context first. |
-| ~list [--json] [--fresh]~ | Registered names, ~--when~, liveness, and transport. |
-| ~search [query]~ | Every reachable agent, registered or not. |
-| ~send <name or handle> [<body>]~ | Send. Also ~--file~, stdin, ~--ttl~, ~--wait~, ~--client-id~, and ~--json~. |
-| ~reply <id> [<body>]~ | Reply. ~to~ is the original sender and ~re~ is ~id~. Also ~--file~, stdin, ~--~, ~--client-id~, and ~--json~. |
-| ~show <id>~ | Print one stored message. |
-| ~thread <id>~ | Print the chain. |
-| ~status <id>~ | Print id, state, client id when set, and how long it has waited. ~<id>~ may be a client id. |
-| ~log~ | Read the daemon event log. |
-| ~lease <claim/extend/leave/status/check/release/adopt/pause/unshare/resume/hook/install-hook>~ | Hold the lease on a guarded checkout, or see who holds it; enforce it in Claude Code. See [[*Workdir lease]]. |
-| ~mem [--json]~ | Memory per local agent pane: process-tree RSS, long-lived jobs, names, and leases. See [[*Memory per agent]]. |
-| ~hibernate <name or handle>...~, ~hibernate --idle-over <d>~ | Stop idle agents on this machine but keep their panes and names. See [[*Hibernate idle agents]]. ~hibernate --policy~ runs the memory-pressure policy on a hub-mode client; see [[*On a hub-mode client]]. |
-| ~wake <name or handle>~ | Relaunch a hibernated agent now. A message to it wakes it too. ~--if-hibernated~ makes it safe before every prompt. See [[*Wake a hibernated agent]]. |
-| ~install~ | Install the supervisor and load it; in hub mode, the tunnel to the hub, and the ~hibernate --policy~ unit when ~hibernate_policy~ is on or ~dry-run~. |
-| ~install-hooks~ | Install the observe-only ~SendMessage~ hook and the merged-draft prompt guard. |
-| ~doctor --sandbox~ | Print the Claude Code sandbox allowlist this machine needs, then test each connection. See [[*Running inside an agent sandbox]]. |
+| Term        | Meaning                                                                                 |
+|-------------+-----------------------------------------------------------------------------------------|
+| name        | A short name an agent claims, such as ~ops/inbox~.                                      |
+| handle      | ~herdr:<machine>/<session>/<pane>~. ~<machine>~ is ~local~ or a saved herdr machine.    |
+| ~--when~    | What the agent is actually doing. ~register~ and ~describe~ require it.                 |
+| composer    | The input box. A message is held while that box is not empty.                           |
+| delivery    | ~queued~, ~held: <reason>~, ~delivered~, or ~expired~.                                  |
+| hub mode    | One daemon shared by several computers. See [[file:docs/multi-machine.org][hub mode]].  |
+| lease       | Which agent may change one shared git checkout. See [[file:docs/lease.org][the lease]]. |
+| hibernation | An idle agent is stopped. Its pane and names stay, and a message wakes it.              |
 
-~agentbus --help~ (or ~-h~, or ~help~) lists these commands.
-~agentbus help <command>~ or ~agentbus <command> --help~ prints that
-command's flags, their defaults, and an example, without contacting the
-daemon. ~agentbus~ with no arguments prints the command list, then
-starts ~agentbusd~ if needed and prints the daemon status.
-~agentbusd --help~ lists the daemon's environment variables.
+~--when~ has to name the work. ~reviewing the queue~ is a meaningful
+value. ~agent~ is not. Taking over a checkout can also open a
+[[file:../decide/README.org][decide]] item for the user. Herdr is the
+terminal multiplexer the panes run in.
 
-~--when~ has to say what the agent is actually doing. ~reviewing the
-queue~ is a meaningful value. ~agent~ is not.
+* Quick start
+
+You need herdr running, on Linux or macOS. On Linux, ~XDG_RUNTIME_DIR~
+must be set. Install both binaries into the same directory. ~agentbus~
+starts ~agentbusd~ from that directory when the daemon is down.
 
 #+BEGIN_SRC bash
-agentbus register ops/inbox --when "reviewing the queue"
-agentbus describe --when "waiting on a reply from ops/inbox"
-agentbus whoami
-agentbus list
-agentbus search inbox
-agentbus send ops/inbox "are you reviewing the queue?"
-agentbus send herdr:local/default/w2:p3 "please register as ops/inbox"
-agentbus reply m-7f3a "yes, the queue is in progress"
-agentbus status m-7f3a
-agentbus log --name ops/inbox
+go install github.com/jaeyeom/experimental/devtools/agentbus/cmd/agentbus@latest github.com/jaeyeom/experimental/devtools/agentbus/cmd/agentbusd@latest
 #+END_SRC
 
-~send~ and ~reply~ read the body from the argument, from ~--file~, or
-from stdin (no body words, or a body of ~-~). Exactly one of those. The
-body must not be empty. A token that starts with ~--~ and is not a known
-flag is a usage error, and it is not sent as text. Words after ~--~ are
-the body, so ~agentbus reply <id> -- --literal text~ sends ~--literal
-text~. A ~--~ flag after the body has started, such as ~see --help~, is
-still body text. ~--ttl 30m~ sets a deadline for that one
-message. ~--wait~ blocks until it is delivered or that deadline passes.
-Without ~--wait~, a message that passes the recipient, target-state, and
-composer checks is answered ~queued for delivery~ before the paste. That
-means it is stored and being pasted now. ~agentbus status <id>~ shows
-~delivered~ once the paste finishes. A precheck hold still answers
-~held: <reason>~ at once. ~reply~ answers the same way.
-~--client-id <machine>:<ulid>~ makes that accept idempotent for the
-sender handle. The id is at most 64 characters from ~[A-Za-z0-9._:-]~
-and contains a colon. Local ~send~ and ~reply~ generate one when
-~--client-id~ is omitted and reuse it if they redial a daemon that was
-not listening yet. A failure after the request was written is not sent
-again. The error names that call's client id, ~agentbus status <client-id>~,
-and for ~send~ also ~agentbus log --since 1m --name <recipient>~. ~reply~
-uses the original sender in that log command. A retry with the same id, body, and recipient
-returns the original message id and state and creates nothing. ~--json~
-prints ~id~, ~state~, and, on that retry, ~duplicate: true~. Text output
-stays ~<id> <state>~. A different body or recipient is a conflict and
-stores nothing. The id is kept with the message, including across a
-daemon restart, for as long as the message is retained and at least 7
-days. ~status <client-id>~ resolves to that message. ~status~ and ~show~
-print ~client_id~ when one is set. A repeated accept appends a ~dedupe~
-log event. A client can append log events through the daemon with their
-original timestamps; those lines are marked ~origin: client~.
-~search~ with no query lists everyone the daemon can see. A query is a
-case-sensitive substring of the name, ~--when~, tab label, or title.
+From a checkout of this repo, install ~./devtools/agentbus/cmd/agentbus~
+and ~./devtools/agentbus/cmd/agentbusd~. ~bazel build
+//devtools/agentbus/...~ builds both.
 
-~list --json~ prints a JSON array with one object per registered name,
-or ~[]~ when none are. Each object has these fields, which are stable:
+~agentbus install~ writes the supervisor and loads it. On macOS that is
+=~$HOME/Library/LaunchAgents/com.agentbus.agentbusd.plist=. On Linux it
+is the systemd user unit ~agentbus.service~ under
+=~$XDG_CONFIG_HOME/systemd/user/=, or under
+=~$HOME/.config/systemd/user/= when ~XDG_CONFIG_HOME~ is unset.
 
-| Field | Value |
-|-------+-------|
-| ~name~ | The registered name. |
-| ~when~ | Its ~--when~ text. |
-| ~liveness~ | ~alive~, ~dead~, ~hibernated~, or ~unknown~. |
-| ~liveness_age~ | Seconds since ~liveness~ was observed, or ~null~ when it never was. |
-| ~transport~ | The adapter that reaches it, such as ~herdr~. |
-| ~handle~ | The holder's raw handle. |
+In two herdr panes:
 
-~liveness~ folds the text words: ~alive~ and ~blocked~ are ~alive~,
-~gone~ is ~dead~, ~hibernated~ stays ~hibernated~ (see
-[[*Hibernate idle agents]]), and ~unreachable~ is ~unknown~. When the daemon cannot
-be reached, ~list --json~ prints nothing on stdout and exits non-zero.
+#+BEGIN_SRC bash
+# pane A
+agentbus register demo/a --when "trying agentbus"
+#+END_SRC
 
-~list~ answers from the daemon's cached liveness and makes no adapter
-calls, so it returns at once. The cache is kept from the periodic
-inventory snapshots, delivery results, and probes. When the last full
-probe is older than ~list_liveness_max_age~ (default ~15s~), a ~list~
-starts one background probe of every name, and only one runs at a time;
-that ~list~ still answers from the cache. A machine that cannot be
-reached marks only its own names ~unreachable~. ~list --fresh~ (also
-with ~--json~) probes every name now, as ~list~ did before, and refreshes
-the cache. ~search~ and ~register~ claims keep their own liveness checks.
+#+BEGIN_EXAMPLE
+registered demo/a
+#+END_EXAMPLE
 
-~log~ filters are ~--since~, ~--name~, ~--msg~, ~--event~, ~--follow~,
-and ~--json~. ~--since~ takes a duration ago (~30m~, ~6h~, ~2d~,
-~1d12h~), an RFC3339 time, or a ~YYYY-MM-DD~ date at local midnight. The files are daily JSONL under the state
-directory, so ~jq~ can read them too.
+#+BEGIN_SRC bash
+# pane B, which has not claimed a name
+agentbus send demo/a "hello"
+#+END_SRC
 
-* Names
+#+BEGIN_EXAMPLE
+m-7f3a queued for delivery
+#+END_EXAMPLE
 
-A live holder is not overridden. ~register~ then fails with text like:
+Pane A is idle and its input box is empty, so the paste arrives. The
+sender has no name, so the header shows its handle.
+
+#+BEGIN_EXAMPLE
+[agentbus m-7f3a from herdr:local/default/w1:p2 → demo/a · 15:04]
+hello
+↩ reply: agentbus reply m-7f3a "..."
+#+END_EXAMPLE
+
+#+BEGIN_SRC bash
+agentbus status m-7f3a
+#+END_SRC
+
+#+BEGIN_EXAMPLE
+id: m-7f3a
+state: delivered
+waited: 1s
+#+END_EXAMPLE
+
+~agentbus install-hooks~ is optional. It records Claude Code
+~SendMessage~ calls and blocks a prompt that pastes a bus message into
+a draft. See [[file:docs/delivery.org][delivery]].
+
+* Everyday use
+
+** Register and describe
+
+~register~ claims a name for this pane. A live holder is not overridden.
 
 #+BEGIN_EXAMPLE
 ops/inbox is held by herdr:local/default/w2:p3 (alive); message them with: agentbus send ops/inbox
@@ -141,1148 +106,180 @@ ops/inbox is held by herdr:local/default/w2:p3 (alive); message them with: agent
 Message that holder. Do not take the name. The holder hands off with
 ~release ops/inbox --to <claimer>~ only after sending the context: the
 work in progress, and what it was monitoring. ~release <name>~ without
-~--to~ drops the name and does not hand it off.
-
-~search~ can show an agent that has not registered. Its row has an empty
-name and a raw handle such as ~herdr:local/default/w2:p3~. ~send~
-accepts that handle. The bus does not invent a logical name from a title
-or a label.
-
-* Delivery and user drafts
-
-Paste delivery requires an *empty composer*. This is an adapter
-precondition, alongside "not blocked" and "has an agent". If the
-composer cannot be read, it counts as not empty. A hold for a user draft
-is temporary and expected. It never counts as a retry.
-
-The herdr adapter reads the pane with ~herdr agent read <pane> --source
-visible~ and parses the input box per agent kind. Claude Code is the
-only kind it parses now. The message stays queued, and ~status~ shows
-one of these:
-
-- ~held: user draft in composer~: the user has typed text and not
-  submitted it, or the box is in ~!~ shell mode.
-- ~held: draft-unknown~: the screen did not parse or could not be read,
-  including when the bottom of the buffer has no input box either.
-- ~held: pane scrolled up~: the visible read found no input box, and a
-  read of the bottom of the buffer (~herdr agent read <pane> --source
-  recent~) did. The box there may be empty. The message stays held
-  until the visible read finds the box. ~--source recent~ reads the
-  bottom of the buffer and does not follow the scrolled viewport.
-- ~held: pane focused~: an agent kind with no parser, while the pane is
-  focused. It is delivered once the pane is unfocused. A pane whose box
-  can be parsed is delivered even while focused.
-- ~held: ambiguous~: ~herdr agent prompt~ failed and the text may already
-  be on screen. The next pass reads ~herdr agent read <pane> --source
-  recent~ and the composer before it pastes again. This message's own
-  envelope header, ~[agentbus <id>~, is not a user draft. In the recent
-  scrollback, the message is ~delivered~ with
-  ~detail=confirmed-after-ambiguous~ and is not pasted again. In the
-  composer, not yet submitted, the retry presses Enter only. Nowhere on
-  screen, it pastes once more. ~[agentbus m-1~ does not match
-  ~[agentbus m-10~.
-- ~held: ambiguous-unverified~: that check could not read or parse the
-  screen, so the message is not pasted again. ~status~ shows the reason.
-  ~doctor~ prints ~ambiguous-unverified: <id> to <to>~.
-
-A composer that holds another message's envelope, or a real user draft,
-stays ~held: user draft in composer~. A retryable refusal
-(~transport refused~) is a definite miss and is pasted again.
-
-The composer is read again right before the paste. A draft that
-appeared in between holds the message until the next pass. The
-~deliver_attempt~ event with ~detail=composer-empty-at-check~ shows the
-check ran. The race narrows but cannot close. ~delivered~ logs how long
-the message was held. ~--ttl~ still applies to a held message.
-
-Messages queued behind a held message are ~held: waiting for an earlier
-message <id>~, where ~<id>~ is the message in front. That is the reason
-logged for them, including after the front message is released. They
-are not logged as a user draft.
-
-A hold that lasts ~hold_notice_after~ (default 10m; ~"0s"~ sends none)
-sends the sender one notice through the same path as an expiry notice.
-The notice names the message id, the recipient, the hold reason, and
-~agentbus status <id>~. A message waiting behind another uses its own
-waiting reason, which names the front id. An anonymous sender is not
-notified; the daemon logs ~hold_notice_skipped~. Each message is told
-at most once, and a restart does not send the notice again.
-
-The prompt guard from ~agentbus install-hooks~ catches what the race
-lets through. A Claude Code prompt with an envelope header
-(~[agentbus m-~) after other text is a bus message pasted into a user
-draft. The guard blocks that submit. Claude Code keeps the whole text in
-the input box, and the block reason tells the user to delete the
-~[agentbus m-…]~ part and submit again. The bus re-queues the message by
-its id, logs a ~requeued~ event, and holds it as ~held: user draft in
-composer~ until the box is empty. If the bus cannot re-queue it, the
-reason says so, and the copy in the input box is the only one. A prompt
-that starts with the envelope is a clean delivery and passes.
-
-* Other herdr machines
-
-A handle is ~herdr:<machine>/<session>/<pane>~. ~<machine>~ is ~local~
-or a herdr saved-machine label or id. For any other machine, every herdr
-call the adapter makes runs as ~herdr --machine <machine> ...~, so
-~send~, ~register~ claims, ~release --to~, and liveness all work with a
-remote handle. A pane missing from a reachable machine is ~gone~.
-
-List the machines whose agents ~search~ shows in
-~$XDG_CONFIG_HOME/agentbus/config.toml~ (default
-~~/.config/agentbus/config.toml~). agentbusd reads it at start.
-
-#+begin_src toml
-machines = ["linux2"]   # saved herdr machines to include in search
-remote_timeout = "5s"   # bound on each call to another machine (default 5s)
-list_liveness_max_age = "15s"  # list refreshes cached liveness older than this (default 15s)
-hold_notice_after = "10m"  # one notice to the sender after a hold this long; "0s" sends none
-#+end_src
-
-Every call to another machine has an overall deadline that kills herdr
-and its ssh, because SSH can hang on a locked key instead of failing. A
-machine that cannot be reached is one of two causes:
-
-- ~host unreachable~: the connection failed, or ~herdr machine status~
-  reports the machine down or disabled. Fix the network.
-- ~authentication locked (unlock your SSH/gpg agent)~: the host answers,
-  but the call failed with an auth error or hit the deadline. Unlock the
-  agent.
-
-A message to such a machine is held, never failed, and retried like a
-blocked pane; it does not count as a retry. ~status~ shows, for
-example, ~held: machine linux2 unreachable: host unreachable~. A name
-held by a pane on that machine stays held. ~search~ lists the other
-agents and prints one warning line per machine on stderr, and still
-exits 0. Each machine is flushed on its own, so a slow machine does not
-hold up local delivery.
-
-* Hub mode: a second machine
-
-One machine, the hub, runs agentbusd. A second machine reaches it over
-ssh and runs the same ~agentbus~ commands against the hub's daemon, so
-there is one bus. On the second machine, set the hub and this machine's
-herdr label as the hub knows it:
-
-#+begin_src toml
-hub = "me@hub"          # ssh target that runs agentbus (AGENTBUS_HUB overrides it)
-machine = "linux2"      # this machine's herdr saved-machine label on the hub
-remote_timeout = "5s"   # ssh connect timeout (default 5s)
-ssh_identity_agent = "~/.ssh/agent.sock"  # optional IdentityAgent for that ssh
-#+end_src
-
-Then every command except ~help~, ~install~, and ~install-hooks~ runs as
-~ssh -o BatchMode=yes -o ConnectTimeout=<n> <hub> agentbus <args>~,
-with each argument quoted. When ~ssh_identity_agent~ is set, that ssh
-also passes ~-o IdentityAgent=<path>~, with a leading ~~/~ expanded,
-and ~agentbus install~ writes the same option into the tunnel unit.
-Unset leaves ssh's own agent lookup. stdout, stderr, and the exit code come back
-unchanged. ~send~ and ~reply~ forward stdin, and read a ~--file~ path
-here and send its content, so the hub never needs the path. Commands that
-identify the caller (~register~, ~describe~, ~whoami~, ~release~,
-~send~, ~reply~) send ~herdr:<machine>/<session>/<pane>~ for this pane
-as ~AGENTBUS_AS_HANDLE~. The hub trusts it only when ~SSH_CONNECTION~
-shows the command came over ssh, and replies go back through
-~herdr --machine <machine>~. agentbusd refuses to start, and
-~agentbus install~ installs the tunnel below instead of a daemon.
-
-The hub must be reachable without a prompt:
-
-- an SSH key the agent holds, because ~BatchMode=yes~ never asks for a
-  passphrase. A passphrase key needs an agent. The launchd or systemd
-  tunnel does not inherit ~SSH_AUTH_SOCK~. Point ~ssh_identity_agent~
-  at a stable socket such as ~~/.ssh/agent.sock~, kept current from
-  the login shell (=ln -sf "$SSH_AUTH_SOCK" ~/.ssh/agent.sock=). zsh
-  reads ~~/.zprofile~ before ~~/.zshrc~, so that line has to follow
-  the agent start. Re-run ~agentbus install~. ~agentbus doctor~ says
-  so when the tunnel last exited 255, and says when that socket is a
-  dangling link or still points at a different agent;
-- ~agentbus~ on the hub's ~PATH~ for a non-interactive ssh command, and
-  ~XDG_RUNTIME_DIR~ set there, for example in ~~/.zshenv~;
-- a POSIX login shell (sh, bash, or zsh) on the hub, which runs the
-  quoted command;
-- this machine saved in the hub's herdr as ~machine~.
-
-The hub's shell writes a ready line before agentbus starts. Until it
-does, the call has a deadline of twice the connect timeout, which kills
-ssh if a locked key makes it hang. After that the command runs as long
-as it needs, so ~log --follow~ and ~send --wait~ work. A hub that
-cannot be reached fails the command with
-~agentbus: hub me@hub unreachable: host unreachable~ when a one-second
-TCP connect to its SSH port fails, or with
-~... unreachable: authentication locked (unlock your SSH/gpg agent)~
-when the host answers. agentbus never falls back to a local daemon. The
-installed hooks exit 0 on this error.
-
-A hook must not stall the agent, so ~hook~ and ~prompt-hook~ use a
-shorter deadline in hub mode: a 2s connect timeout and 3s for the
-whole call, the remote hook included. ~AGENTBUS_HOOK_TIMEOUT~, such as
-~5s~, sets the whole-call deadline; the connect timeout is the smaller
-of 2s and that value. A hook that runs out of time prints nothing and
-exits 0.
-
-** Share one SSH connection
-
-Each hub-mode command opens an ssh connection, and the installed hooks
-run on every SendMessage and every prompt. Let ssh reuse one
-connection to the hub, so a call skips the TCP and key exchange. On
-the second machine, in ~~/.ssh/config~:
-
-#+begin_example
-Host hub
-  HostName hub.example.com
-  User me
-  ControlMaster auto
-  ControlPath ~/.ssh/cm-%C
-  ControlPersist 10m
-#+end_example
-
-Then set ~hub = "hub"~. The first call opens the master connection, and
-calls in the next ten minutes reuse it. ~ssh -O exit hub~ closes it.
-
-** Talk to the hub daemon over a forwarded socket
-
-The hub's agentbusd also listens on ~$XDG_RUNTIME_DIR/agentbus/hub.sock~
-for callers on other machines. A request there must carry the caller's
-~herdr:<machine>/<session>/<pane>~ handle and the client's protocol
-version. The hub refuses a request without a handle, with a
-~herdr:local/...~ handle, or with another protocol version
-(~hub daemon speaks protocol N, this client speaks M~). It ignores the
-client's environment, so ~AGENTBUS_AS_HANDLE~ plays no part there. The
-local ~daemon.sock~ keeps its rules.
-
-On the second machine, forward that socket to
-~$XDG_RUNTIME_DIR/agentbus/tunnel.sock~. The client cannot know the
-hub's ~XDG_RUNTIME_DIR~, so name the hub's socket in the config:
-
-#+begin_src toml
-hub_socket = "/run/user/1000/agentbus/hub.sock"  # the hub's $XDG_RUNTIME_DIR/agentbus/hub.sock
-#+end_src
-
-Then run ~agentbus install~ on the second machine. In hub mode it writes
-and loads a tunnel unit instead of a daemon: the launchd job
-~com.agentbus.tunnel~ on macOS, or the systemd user unit
-~agentbus-tunnel.service~ on Linux. Without ~hub_socket~, install runs
-~agentbus paths --json~ on the hub over ssh, prints the path, and writes
-~hub_socket = "…"  # discovered from <hub>~ so later runs do not ask
-again. An explicit ~hub_socket~ is used as-is, with no query. If the hub
-cannot be asked, install refuses and names ~agentbus paths --json~ and
-~echo $XDG_RUNTIME_DIR/agentbus/hub.sock~. ~agentbus doctor~ reports when
-the configured path differs from the one the hub reports. The unit
-creates the socket's directory and runs
-
-#+begin_src sh
-ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes \
-  -o StreamLocalBindUnlink=yes -o ServerAliveInterval=30 \
-  -L "$XDG_RUNTIME_DIR/agentbus/tunnel.sock:/run/user/1000/agentbus/hub.sock" -- hub
-#+end_src
-
-and starts it again whenever it exits. ~StreamLocalBindUnlink=yes~
-removes a stale socket left by a dropped tunnel before it binds again.
-The ssh path is resolved when you run ~install~, and the unit runs
-without a terminal, so the key must work without a prompt. With
-~hibernate_policy~ on or ~dry-run~, ~install~ also writes and loads the
-unit of ~agentbus hibernate --policy~ (see [[*On a hub-mode client]]).
-~install~ also writes ~com.agentbus.outbox~ (macOS) or
-~agentbus-outbox.service~ (Linux), which runs ~agentbus outbox flush
---watch~ and retries queued sends when the tunnel answers.
-
-A send or reply that prints ~queued~ is not at the hub yet. Do not
-resend it. Check ~agentbus status <client-id>~.
-
-While the tunnel socket is there and the hub answers a ping on it in
-this protocol, a command from a herdr pane runs here and sends its
-requests over the socket: ~register~, ~describe~, ~whoami~, ~release~,
-~list~, ~search~, ~send~, ~reply~, ~show~, ~thread~, ~status~, ~log~,
-~hook~, and ~prompt-hook~, and the daemon requests of ~lease~ (see
-[[*Lease in hub mode]]). No ssh login or remote shell starts. ~log~
-streams the hub's event log from its daemon, and ~log --follow~ and
-~send --wait~ hold their connection without a deadline; the hub daemon
-serves other callers meanwhile. Otherwise the command uses ssh as
-above: when the socket is missing or nobody answers on it, when the
-caller is not in a herdr pane, and, after printing the version error,
-when the protocols differ. Inside an agent sandbox a tunnel socket that
-is there but fails is an error instead; see
-[[*Running inside an agent sandbox]].
-
-* Workdir lease
-
-Several agents can share one checkout. The lease says who may change
-it right now. Each machine lists its guarded checkouts, the git
-top-levels that need the lease, in its config:
-
-#+BEGIN_SRC toml
-lease_checkouts = ["/home/u/src/repo"]
-#+END_SRC
-
-Every ~lease~ subcommand but ~hook~ and ~install-hook~ takes ~--path~ (default: the current
-directory, resolved to its git top-level) and ~--json~. The checkout
-key is ~<machine>:<git top-level>~, such as ~local:/home/u/src/repo~.
-A path outside every guarded checkout, or in a separate repository or
-worktree nested inside one, is not guarded.
+~--to~ drops the name.
 
 #+BEGIN_SRC bash
-agentbus lease claim --for 40m --why "issue 623"
-agentbus lease extend --for 20m
-agentbus lease leave
-agentbus lease status --all
-agentbus lease check --path src/main.go
-agentbus lease release
-agentbus lease adopt
-agentbus lease pause --with w1:p2
-agentbus lease unshare w1:p2
-agentbus lease resume --as-is
-agentbus lease install-hook
+agentbus describe --when "waiting on a reply from ops/inbox"
+agentbus whoami
 #+END_SRC
 
-| Subcommand | What it does |
-|------------+--------------|
-| ~claim --for <d> [--urgent] [--why <text>]~ | Take a free checkout, or join its queue. Never blocks. Prints ~granted until HH:MM; checkout on <branch>~ (or ~checkout at <sha> (detached)~) or ~queued, position N (holder X, bid ends HH:MM)~. Re-claimed by the same holder within 1 hour of a release that switched branches, it adds ~(you were on <branch> when you released at HH:MM)~; ~--json~ adds ~branch~ and ~previous_branch~. |
-| ~extend --for <d>~ | Holder only. Move the soft deadline to now plus ~--for~. |
-| ~leave~ | Leave the queue. |
-| ~status [--all]~, ~status --guarded~ | Holder, deadline, state, and queue. ~--all~ lists every checkout the daemon has seen. ~--guarded~ only tells whether ~--path~ is in a guarded checkout, from this machine's ~lease_checkouts~, without contacting the daemon or hub; it exits 0 either way, and ~--json~ prints ~{"guarded": true, "checkout": "<key>"}~ or ~{"guarded": false}~. Tools such as prsync use it to skip unguarded checkouts. |
-| ~check~ | Exit 0 when you hold the lease or the path is not guarded, 1 with a one-line reason when you do not, 3 when it cannot tell. |
-| ~release~ | Holder only. Leave the checkout clean on the default branch and hand it to the next waiter. See [[*Release]]. |
-| ~adopt [--force]~ | The needs-adopt holder, or the user. Save leftovers to a backup ref, then reset the checkout. See [[*Takeover and adopt]]. |
-| ~pause [--with <pane or name>]...~ | The user only. Take the checkout, or go to the front of the queue and ask the holder to release. See [[*User pause and resume]]. |
-| ~unshare <pane or name>...~ | The user only. Take panes off the pause's ~--with~ list. |
-| ~resume [--as-is]~ | The user only. Release for the user. |
-| ~hook~ | The Claude Code ~PreToolUse~ hook. See [[*Enforcement hook]]. |
-| ~install-hook [--write]~ | Print the hook and its settings entry; ~--write~ installs them. |
+#+BEGIN_EXAMPLE
+described ops/inbox
+ops/inbox
+when: waiting on a reply from ops/inbox
+#+END_EXAMPLE
 
-The queue puts the user first, then ~--urgent~ claims, then the rest,
-each in arrival order. Claiming again as the holder or a waiter keeps
-the place and updates ~--for~ and ~--why~. A free checkout whose tree
-is dirty, or has a rebase, merge, cherry-pick, or revert in progress,
-is granted in state ~needs-adopt~; ~check~ refuses it until it is
-adopted. ~check~ on an unguarded path reads only the local config and
-never contacts the daemon.
+** Send and reply
 
-When a claim joins the queue of a ~held~ lease, the daemon tells the
-holder once, from ~agentbus~, with the queue length after the claim and
-the waiter's name (or handle), ~--why~, and ~--for~:
+The body comes from the argument, from ~--file~, or from stdin (no body
+words, or a body of ~-~). Exactly one of those, and it must not be
+empty. A token that starts with ~--~ and is not a known flag is a usage
+error and is not sent. Words after ~--~ are the body, even when they
+start with ~--~.
 
-#+BEGIN_SRC text
-[lease] 1 waiting for local:/home/u/src/repo: ops/bob (issue 624, for 30m). Release when you can: agentbus lease release
+~--ttl 30m~ sets a deadline for that one message. ~--wait~ blocks until
+it is delivered or the deadline passes. Without ~--wait~, a message
+that passes the checks prints ~<id> queued for delivery~. A hold prints
+~held: <reason>~ at once. ~reply~ answers the same way. ~to~ is the
+original sender and ~re~ is the id.
+
+#+BEGIN_SRC bash
+agentbus reply m-7f3a "yes, the queue is in progress"
 #+END_SRC
 
-Without ~--why~ the parentheses hold only ~for 30m~. Claiming again
-while queued tells nobody, and a holder granted later is not told about
-waiters already queued. The user's hold is never told, a holder past
-its bid gets the check-in instead (see [[*Soft deadline and check-in]]),
-and the user's own queued ~pause~ sends only its ask. Each notice is a
-~lease_notify_waiting~ event naming the holder, the waiter, and the
-queue length.
+#+BEGIN_EXAMPLE
+m-7f3b queued for delivery
+#+END_EXAMPLE
 
-A notice not sent is a ~lease_notify_skipped~ event, with the waiter as
-its actor and ~holder <holder>; reason <reason>; queue <n>~ as its
-detail. The reason is ~user-holder~ (the user holds or paused the
-checkout), ~past-deadline~ (the holder is past its bid), or ~repeat~
-(the waiter claimed again while queued). Each holder, waiter, and
-reason is logged once while that holder keeps the lease, so ten repeat
-claims leave one line; a new holder starts afresh, and a daemon restart
-may log one more. The user's own queued claim logs nothing. ~agentbus
-log --event lease_notify_skipped~ answers why a holder was not told.
+Drafts, ambiguous retries, and ~--client-id~ are in
+[[file:docs/delivery.org][delivery]].
 
-~status --json~ prints this shape, which other tools read and which
-stays stable. ~--all~ prints an array of them. ~state~ is ~free~,
-~held~, ~paused~, ~releasing~, or ~needs-adopt~. ~holder~ is absent
-when the checkout is free. ~name~ is the registered name, or empty.
-
-#+BEGIN_SRC json
-{"checkout": "local:/home/u/src/repo", "state": "held",
- "holder": {"handle": "...", "name": "...", "since": "RFC3339",
-            "deadline": "RFC3339", "why": "..."},
- "queue": [{"handle": "...", "name": "...", "urgent": false,
-            "for": "40m", "since": "RFC3339"}],
- "backup_ref": "... (only when there is one)",
- "with": ["... (panes the user's pause is shared with, when any)"]}
-#+END_SRC
-
-The daemon keeps lease state in ~leases.json~ in its state directory,
-so a restart keeps holders, queues, and deadlines. Every claim, grant,
-extend, leave, release, and skip is a ~lease_claim~, ~lease_grant~,
-~lease_extend~, ~lease_leave~, ~lease_release~, or ~lease_skip~ event
-in the event log, with the checkout key as its name, and so are the
-~lease_notify_waiting~ and ~lease_notify_skipped~ notice events above.
-A tool call the [[*Enforcement hook][enforcement hook]] denies is a
-~lease_hook_deny~ event.
-
-** Lease in hub mode
-
-On a second machine in hub mode, ~lease~ does not run on the hub. It
-runs here, on the checkout's machine: ~lease_checkouts~ is read from
-this machine's config, so an unguarded path costs no hub call, and the
-git top-level, the clean/mid-operation check, release's and adopt's git
-steps, and adopt's process check all run here. The checkout key is
-~<machine>:<top-level>~, such as ~linux2:/home/u/src/repo~. Only the
-lease request and what the CLI found (the tree state, a failed pull,
-the backup refs, the processes ~--force~ went past) go to the hub. The
-hub's daemon never runs git or looks at processes for a checkout on
-another machine.
-
-The request goes over the tunnel socket when the hub answers there,
-with the caller's handle, as for the other tunnelled commands.
-Otherwise it goes over ssh to ~agentbus lease forward~ on the hub, a
-hidden subcommand that reads the request as JSON on stdin, hands it to
-the hub's daemon with ~AGENTBUS_AS_HANDLE~ (from a herdr pane) as the
-caller, and prints the daemon's reply as JSON. The holder is the
-caller's handle as ~agentbus whoami~ resolves it in hub mode. ~pause
---with~ and ~unshare~ turn a pane id on this machine into its
-~herdr:<machine>/...~ handle first; names and handles go as they are.
-
-A hub that cannot be reached fails a lease command with ~hub <target>
-unreachable: host unreachable~ or ~authentication locked (unlock your
-SSH/gpg agent)~. ~lease check~ and the lease hook give up within 3
-seconds and allow, with that cause and ~allowing~ on stderr. The
-hook's cache is on this machine; ~release~, ~resume~ and ~unshare~
-drop it here, and a takeover on the hub leaves it to expire.
-
-** Release
-
-~lease release~ runs its git steps in the CLI, on the checkout's
-machine:
-
-1. Refuse when the tree is dirty (modified, staged, or untracked and
-   not ignored), listing the files. Unpushed commits on a branch are
-   fine.
-2. Refuse when a rebase, merge, cherry-pick, or revert is in progress.
-3. ~git switch~ to the default branch, the one ~origin/HEAD~ points at
-   (set it with ~git remote set-head origin --auto~), then ~git pull
-   --rebase --prune~. A failed pull is reported and the release goes
-   ahead; a pull that stops mid-rebase is aborted so the tree stays
-   clean. A failed switch keeps the lease with you.
-4. Tell the daemon, which grants the next waiter. While the git steps
-   run, the state is ~releasing~.
-
-The daemon grants the first waiter whose pane is not ~gone~ and drops
-the gone ones from the queue. The new holder gets an agentbus message
-from ~agentbus~:
-
-#+BEGIN_SRC text
-[lease] granted local:/home/u/src/repo until 10:40 (for: issue 624). Release with: agentbus lease release
-#+END_SRC
-
-With nobody waiting, the checkout becomes ~free~. A failed pull is
-the ~lease_release~ event's reason.
-
-** Soft deadline and check-in
-
-The ~--for~ bid is soft: it never cuts anyone off by itself. When a
-holder's bid ends, the daemon sends it a check-in from ~agentbus~:
-
-#+BEGIN_SRC text
-[lease] your bid on local:/home/u/src/repo ended. Run 'agentbus lease extend --for <d>' or 'agentbus lease release'.
-#+END_SRC
-
-Then, every check interval, it reads the holder's herdr state:
-
-- ~working~ or ~blocked~: extend the bid silently by one interval. The
-  check-in is sent again at most every ~lease_checkin_repeat~.
-- ~idle~, ~done~, or ~no-agent~, with no ~extend~ or ~release~ since
-  the check-in: start a silence timer. After ~lease_idle_grace~ of
-  continued idle and silence, take over.
-- ~unknown~ (the machine cannot be reached): never take over; keep
-  waiting. The silence timer starts over.
-
-With nobody queued, an overrun holder is checked in on once and then
-left alone. A holder whose pane herdr reports ~gone~ is taken over at
-once when a waiter is queued, without waiting for the bid to end. The
-user's hold is never checked in on. ~extend~ or claiming again resets
-the check-in. A lease left ~releasing~ by a release that died midway
-gets the same rules as ~held~, so it never blocks the queue; the holder
-can still run ~release~ again.
-
-Each check-in and silent extend is a ~lease_checkin~ or
-~lease_auto_extend~ event. The timers are kept in ~leases.json~, so
-they survive a daemon restart; a takeover decided but not carried out
-before a restart is carried out on the next check. All of this
-takeover runs only with ~lease_takeover = "on"~; see below.
-
-The daemon reads the timing from its config:
-
-#+BEGIN_SRC toml
-lease_check_interval = "2m"   # how often, and how far a working holder is extended
-lease_checkin_repeat = "15m"  # least time between check-ins
-lease_idle_grace = "5m"       # idle and silent this long: take over
-lease_takeover = "log"        # "on" carries out takeovers; "log" (default) only logs them
-#+END_SRC
-
-** Staged rollout: ~lease_takeover~
-
-agentbusd has no config reload, so turning on ~lease_checkouts~ needs a
-restart. ~lease_takeover~ keeps that restart from also turning on
-takeover. It is ~"log"~ by default, and takeover runs only when it is
-exactly ~"on"~. A missing key is ~"log"~; any other value is ~"log"~
-too, with a warning at start naming the key and the value, and the
-daemon still starts.
-
-With ~"log"~, a takeover the daemon would carry out is not: the state,
-the holder, and the queue stay as they are, no backup ref is named, and
-nobody gets a message or a decide note. Instead the daemon logs one
-~lease_would_take_over~ event with the checkout, the holder, the reason,
-and the first waiter. It logs it once per holder: again only after the
-holder claims or extends, the holder changes, or the lease is released.
-A takeover that a run with ~"on"~ decided but did not carry out is not
-carried out either. Everything else stays on: check-ins, silent
-auto-extend, granting a dirty free checkout as ~needs-adopt~, and ~lease
-adopt~ for any ~needs-adopt~ lease, including one left by an earlier run
-with ~"on"~.
-
-The effective mode is visible: agentbusd prints ~lease_takeover=<mode>~
-to stderr at start and records it in the ~start~ event, ~lease status~
-prints ~takeover: log~ or ~takeover: on~, and ~lease status --json~ has
-a top-level ~"takeover"~ field (with ~--all~, on each element).
-
-** Takeover and adopt
-
-A takeover never loses uncommitted work. The daemon runs no git: it
-names a backup ref, ~refs/lease-backup/<UTC time>-<old holder name or
-pane>~, tells the old holder
-
-#+BEGIN_SRC text
-[lease] taken over from you: local:/home/u/src/repo; your uncommitted work will be saved to refs/lease-backup/20261110T094500Z-ops-alice
-#+END_SRC
-
-and grants the first waiter whose pane is not ~gone~ in state
-~needs-adopt~, with a wake message that says to run ~agentbus lease
-adopt~ first. ~check~ refuses everyone, the adopter included, until
-the adopt is done. ~status --json~ carries ~backup_ref~ while the state
-is ~needs-adopt~. When ~decide~ is on the daemon's ~PATH~, the user
-also gets a relay item in the decide inbox (~decide ask --owner
-agentbus~) naming the checkout.
-
-If the adopter's pane goes ~gone~ before it adopts, the lease passes to
-the next waiter, still ~needs-adopt~ with the same backup ref. With
-nobody waiting it stays ~needs-adopt~ with no holder, and the next
-~claim~ gets it.
-
-~lease adopt~ runs on the checkout's machine:
-
-1. *Process check.* Refuse, keeping the lease ~needs-adopt~ with you,
-   while a process still has its working directory inside the checkout
-   (Linux: ~/proc/*/cwd~; macOS: ~lsof~), naming each one, such as
-   ~make (pid 4242)~. Ignored: interactive shells (~sh~, ~bash~, ~zsh~,
-   ~fish~), agent CLIs (~claude~, ~codex~, ~gemini~, and ~node~ or ~bun~
-   running one), editors and pagers (~emacs~, ~vim~, ~nvim~, ~less~),
-   ~agentbus~, and the adopt's own chain of parent processes.
-   ~lease_ignore_procs~ replaces that list. ~adopt --force~ prints the
-   processes and goes on.
-2. *Save leftovers.* When the tree is dirty or a rebase, merge,
-   cherry-pick, or revert is in progress, commit the whole working tree,
-   untracked files included, through a temporary index, to the backup
-   ref. Its parents are ~HEAD~ and the index as it was, and its message
-   records the branch, the operation's state, and the changed files.
-   Then abort the operation; if the abort brings back changes (a
-   rebase's autostash), save those too, as ~<ref>-2~. Ignored files are
-   neither saved nor removed. A ref is never overwritten, never a
-   branch, and ~git stash~ is never used.
-3. *Reset.* ~git reset --hard~, ~git clean -d~, switch to the default
-   branch, and ~git pull --rebase --prune~. A failed pull is reported
-   and the adopt goes ahead; any earlier failure leaves the lease
-   ~needs-adopt~ with you.
-4. The lease becomes ~held~ by you.
-
-The user may always run ~adopt~ from a pane with no agent or from
-outside herdr; the checkout is then held by ~user~, and an agent that
-was to adopt goes back to the front of the queue.
-
-~lease status~ lists the checkout's backup refs; the tool never deletes
-them. Look at one with ~git show <ref>~ or ~git log -p <ref>~, and get
-the files back with ~git restore --source <ref> -- <path>~. Takeovers
-and adopts are ~lease_takeover~ and ~lease_adopt~ events.
-
-#+BEGIN_SRC toml
-lease_ignore_procs = ["sh", "bash", "zsh", "fish", "claude", "codex", "gemini", "emacs", "vim", "nvim", "less", "agentbus"]
-#+END_SRC
-
-** User pause and resume
-
-The user takes the checkout with ~agentbus lease pause~ and gives it
-back with ~agentbus lease resume~. Both, and ~unshare~, are refused from
-a herdr pane that runs an agent (any state but ~no-agent~) and allowed
-from a plain terminal pane or from outside herdr. This guards against
-mistakes; it is not security.
-
-- ~pause~ on a free checkout makes it ~paused~, held by ~user~ with no
-  deadline.
-- ~pause~ while an agent holds it puts ~user~ at the front of the queue
-  and sends the holder, at once:
-
-  #+BEGIN_SRC text
-  [lease] the user asked for local:/home/u/src/repo; please finish up and release
-  #+END_SRC
-
-  The ask counts as the holder's check-in and its bid ends then, so the
-  check-in rules above follow: a working holder is extended, an idle
-  and silent one is taken over (with ~lease_takeover = "on"~). When the
-  checkout is later granted to the user, the user gets a decide note
-  when decide is on the daemon's ~PATH~.
-- The user's hold is never checked in on and never taken over, with
-  either ~lease_takeover~ mode.
-- ~pause --with <pane or name>~ (repeatable; a herdr pane id, a
-  registered name, or a handle) lets those agent panes edit under the
-  pause: ~check~ passes for them, but they cannot ~release~, ~extend~,
-  or ~resume~. ~pause --with X~ while already paused or queued adds X;
-  ~unshare X~ removes it. ~status~ shows the list as ~with~.
-- ~resume~ is ~release~ for the user: the same clean check, switch to
-  the default branch, and pull, so the next holder starts clean. The
-  ~with~ list clears and the next waiter is granted and woken.
-  ~resume --as-is~ skips the switch and pull, for a checkout the user
-  leaves on a branch on purpose; a dirty tree is still refused.
-  ~resume~ also works after the user adopted. While the user is still
-  queued, ~resume~ withdraws the pause without touching the tree.
-
-Pauses, resumes, ~--with~, and unshares are ~lease_pause~,
-~lease_resume~, ~lease_with~, and ~lease_unshare~ events. The ~with~
-list is kept in ~leases.json~.
-
-** Enforcement hook
-
-~agentbus lease hook~ is a Claude Code ~PreToolUse~ hook that refuses
-changes to a guarded checkout from a pane that does not hold its lease.
-You install it; no command edits your Claude Code settings on its own.
-~agentbus lease install-hook~ prints the script and the settings entry
-and writes nothing. ~agentbus lease install-hook --write~ saves the
-script as ~~/.claude/hooks/agentbus-lease.sh~ and adds this entry to
-~hooks.PreToolUse~ in ~~/.claude/settings.json~, once:
-
-#+BEGIN_SRC json
-{"matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
- "hooks": [{"type": "command", "command": "/home/u/.claude/hooks/agentbus-lease.sh"}]}
-#+END_SRC
-
-What it checks:
-
-- ~Edit~, ~Write~, ~MultiEdit~, and ~NotebookEdit~ on a file inside a
-  guarded checkout.
-- ~Bash~ that runs a git command that changes a checkout: ~checkout~,
-  ~switch~, ~commit~, ~merge~, ~rebase~, ~reset~, ~stash~ (not ~stash
-  list~ or ~show~), ~pull~, ~cherry-pick~, ~revert~, ~am~, ~apply~,
-  ~clean~, ~restore~, ~rm~, ~mv~, ~add~, ~tag~ (not a bare or ~-l~
-  listing), ~branch -d/-D/-m~ (and ~-M~, ~-c~, ~-C~, ~-f~), and
-  ~worktree~ (not ~worktree list~), in the tool's working directory, a
-  ~cd~ or ~pushd~ target, or a ~git -C~, ~--work-tree~, or ~--git-dir~
-  target. The reading is conservative: it splits at ~;~, ~&&~, ~||~,
-  ~|~, ~&~, parentheses, backticks, and newlines, skips ~NAME=value~,
-  ~env~, ~command~, ~exec~, ~nohup~, and ~time~, and reads ~sh -c~ and
-  ~bash -c~ scripts. A git command after a ~cd~ counts in both the
-  ~cd~ target and the starting directory, since a ~cd~ in a pipe or
-  subshell does not last. Read-only git (~status~, ~log~, ~diff~,
-  ~show~, ~fetch~, ...) and any other program pass.
-
-A matched call runs the ~lease check~ logic. When the caller does not
-hold the lease (and is not on the user's ~--with~ list), the call is
-denied with the reason and the hint ~agentbus lease claim --for
-<duration>~. A ~needs-adopt~ checkout is denied to everyone, the
-adopter too, until ~agentbus lease adopt~ succeeds.
-
-Each denial is a ~lease_hook_deny~ event, so ~agentbus log --event
-lease_hook_deny~ shows what the hook stopped. Its name is the checkout
-key, its actor the caller's pane handle, and its detail the holder, the
-lease state, the tool, and the target: the file path relative to the
-checkout root, or the git command, such as ~git switch~. In hub mode
-the hub logs it and adds the caller's machine. The event is written
-while answering the same check; a log that cannot be written does not
-change the answer. Allows, answers from the cache, and a plain ~lease
-check~ are not logged.
-
-It is fast and fails open:
-
-- A path outside every guarded checkout is decided from the local
-  config, with no daemon call.
-- "You hold it" is cached for 30 seconds per pane and checkout in
-  ~$XDG_RUNTIME_DIR/agentbus/lease-cache~. The daemon drops a
-  checkout's cache on ~release~, ~resume~, ~unshare~, and takeover. A
-  denial is never cached.
-- When agentbusd does not answer within 3 seconds, the call is allowed
-  with ~agentbus lease hook: ...; allowing~ on stderr. The hook never
-  starts the daemon. In hub mode the 3 seconds cover reaching the hub,
-  over the tunnel or ssh, and the warning names the cause, such as
-  ~host unreachable~ or ~authentication locked~.
-
-Not covered, by design: ~sed -i~ and other in-place edits by programs,
-shell redirects (~>~, ~>>~, ~tee~), and editors you run yourself. The
-hook guards Claude Code's edit tools and git, not every write.
-
-* Lost messages
+** Check on a message
 
 When something seems lost, check ~agentbus status <id>~ and
 ~agentbus log~ before resending. ~status~ prints the state and how long
 the message has waited. Resending first creates a second message.
 
-* Memory per agent
+** Find agents
 
-~agentbus mem [--json]~ shows where memory goes on this machine: one
-row per local herdr pane that has an agent, largest first. A shell-only
-pane is not listed.
+~list~ prints registered names. ~search~ with no query lists everyone
+the daemon can see. A query is a case-sensitive substring of the name,
+~--when~, tab label, or title. An agent that has not registered has an
+empty name and a raw handle. ~send~ accepts that handle. The bus does
+not invent a name from a title or a label.
 
-#+BEGIN_EXAMPLE
-PANE   TAB      NAMES  STATE    SINCE    RSS        JOBS  LEASE
-w1:p1  inbox    ops/x  idle     3h12m    471.0 MiB  1     queued local:/src/repo
-w1:p2  build    -      working  unknown  400.0 MiB  0     holds local:/src/repo
-total 871.0 MiB in 2 agents (idle 1, working 1); 8.0 GiB available; hibernate policy off
-#+END_EXAMPLE
-
-| Column | Value |
-|--------+-------|
-| ~PANE~, ~TAB~ | The herdr pane and its tab label. |
-| ~NAMES~ | The bus names registered on the pane's handle. |
-| ~STATE~ | herdr's agent state: ~idle~, ~done~, ~working~, ~blocked~, or ~unknown~. |
-| ~SINCE~ | For an ~idle~ or ~done~ row, how long the agent has been idle by the daemon's idle tracker, the time ~hibernate --idle-over~ and the policy use, such as ~3h12m~. ~>=40m~ means it was already idle when the tracker started 40 minutes ago, so at least that long. ~unknown~ for other states, when the daemon cannot be asked, or when the tracker has no time for the agent. |
-| ~RSS~ | The summed RSS of the pane's foreground processes (from ~herdr pane process-info~) and all their descendants. |
-| ~JOBS~ | Long-lived background jobs: children of a foreground process that have run at least 10s (an unknown age counts as old) and are not a known helper such as an MCP or language server, a status-line command, or the Claude Code sandbox's socat bridges. This is prsync's ~background-job~ rule, shared in ~devtools/pkg/procinfo~. |
-| ~LEASE~ | The checkouts the handle holds or is queued for. |
-
-The footer has the total agent RSS, the agent count by state, the
-available memory: ~MemAvailable~ from ~/proc/meminfo~ on Linux, and free
-plus inactive plus purgeable pages from ~vm_stat~ on macOS, and the
-[[*Hibernate under memory pressure][hibernation policy]] with its
-thresholds, such as ~hibernate policy on (below 1.5 GiB, target 3.0 GiB,
-min idle 30m0s)~.
-
-~--json~ prints one object with ~agents~, ~total_rss_bytes~,
-~available_bytes~, ~machine~ (the ~machine~ config label, else the host
-name), ~states~ (count by state), ~notes~, and ~hibernate_policy~ (~mode~,
-and unless it is ~off~, ~below_bytes~, ~target_bytes~, and
-~min_idle_seconds~). Each agent has ~pane~,
-~tab~, ~handle~, ~names~, ~state~, ~idle_since~ (an RFC 3339 time or
-~unknown~), with a time also ~idle_seconds~ and
-~idle_since_lower_bound: true~ for an at-least time, ~rss_bytes~, ~jobs~
-(each with ~pid~, ~age_seconds~, -1 when unknown, and ~command~),
-~leases~ (each with ~checkout~ and ~role~, ~holder~ or ~queued~),
-~session~ (herdr's ~agent_session.value~), and ~error~ when its
-process-info could not be read. Byte counts are integers;
-~available_bytes~ is left out when it cannot be read.
-
-One run makes one ~herdr agent list~ and one ~herdr tab list~ call, one
-~process-info~ call per agent pane, and one process-table read (~/proc~
-on Linux, one ~ps~ elsewhere). It does not start the daemon: when the
-daemon is down, the names and lease columns (and the JSON fields) are
-left out, ~SINCE~ is ~unknown~, and a note says why. The names, leases,
-and idle times come from one ~hibernate-state~ request to the daemon. When herdr cannot be reached, ~mem~
-exits non-zero.
-
-In hub mode the processes and memory are still read here, but the names
-and leases come from the hub: its ~list --json~ and ~lease status --all
---json~, over the tunnel when it answers, otherwise over ssh (the two
-calls run side by side). Only this machine's handles
-(~herdr:<machine>/...~) are kept and matched to its panes; names and
-leases of other machines and of the hub's own panes are not shown. The
-whole hub lookup gets the hooks' deadline, ~AGENTBUS_HOOK_TIMEOUT~
-(default 3s), so ~mem~ stays quick. When the hub cannot be reached in
-time, or ~machine~ is not set, the columns are left out and a note
-names the hub. The hub's idle times are not this machine's, so ~SINCE~
-comes from the idle times ~agentbus hibernate --policy~ saves here (see
-[[*On a hub-mode client]]), for the agents herdr still reports with the
-state and ~state_change_seq~ the runner saw; without a runner it is
-~unknown~.
-
-* Hibernate idle agents
-
-~agentbus hibernate <name or handle>...~ and ~agentbus hibernate
---idle-over <d> [--dry-run]~ stop idle agents on this machine but keep
-their herdr panes, their names, and a record of how to start them
-again. ~--idle-over 2h~ picks every agent the daemon has seen ~idle~ or
-~done~ for at least two hours.
+#+BEGIN_SRC bash
+agentbus list
+#+END_SRC
 
 #+BEGIN_EXAMPLE
-$ agentbus hibernate --idle-over 2h
-hibernated ops/x (320.0 MiB freed)
-refused ops/y: unsent text in the composer; holds the lease on local:/src/repo
+name: demo/a
+when: trying agentbus
+liveness: alive
+transport: herdr
+handle: herdr:local/default/w1:p1
 #+END_EXAMPLE
 
-An agent is stopped only when every check passes. A refusal names each
-check that failed:
+~list --json~ fields, and the other ~--json~ shapes, are in
+[[file:docs/json-reference.org][the JSON reference]].
 
-| Check | Refused when |
-|-------+--------------|
-| State | herdr's agent state is not ~idle~ or ~done~. |
-| Dialog | The screen shows a permission or question prompt. |
-| Background job | A long-lived child of the agent runs, by the rule of [[*Memory per agent]]. |
-| Build tool | A build-tool client (~bazel~, ~make~, ~go~, ~cargo~, and the rest of prsync's list, shared in ~devtools/pkg/procinfo~) runs with its cwd inside the agent's cwd and in the agent's own process tree: a descendant of the pane's shell or foreground (~own build tool pid N ...~). Another pane's build in a shared checkout counts only when the agent holds or is queued for a lease (~checkout build pid N ... (agent holds the lease)~). |
-| Composer | The input box holds unsent text, or cannot be read. Only Claude Code's is read; any other kind is refused. |
-| Lease | The agent holds a lease or is queued for one. The daemon checks again when it writes the record. |
-| Exempt | A name or the handle matches ~hibernate_exempt = ["ops/*", ...]~ in the config: names, handles, or globs. |
+* Commands
 
-Then hibernate writes a record to the daemon's state, keyed by handle:
-the agent kind, herdr's session id, the cwd and argv of the agent's
-foreground process, the time, the names on the handle, and the RSS of
-its process tree. It types the kind's exit input (~/exit~ and Enter for
-Claude Code, through ~herdr pane send-text~ and ~send-keys~) and waits
-up to 20s for the agent process to leave the pane's foreground. On
-success it prints ~agentbus: hibernated <name>; wakes on the next
-message or 'agentbus wake <name>'~ in the pane's shell and marks the
-record ~hibernated~. When the agent does not exit in time, the record
-stays as ~stop-failed~ and the agent is not killed.
+| Command                           | What it does                                                                                   |
+|-----------------------------------+------------------------------------------------------------------------------------------------|
+| ~register <name> --when <text>~   | Claim a name. ~--when~ is required and says what you are doing.                                |
+| ~describe --when <text>~          | Replace ~--when~ on the names this caller holds.                                               |
+| ~whoami~                          | Print those names, or the raw handle when none are registered.                                 |
+| ~release <name> [--to <claimer>]~ | Drop a name, or hand it to a claimer. Send context first.                                      |
+| ~list [--json] [--fresh]~         | Registered names, ~--when~, liveness, and transport.                                           |
+| ~search [query]~                  | Every reachable agent, registered or not.                                                      |
+| ~send <name or handle> [<body>]~  | Send. The body comes from the argument, ~--file~, or stdin.                                    |
+| ~reply <id> [<body>]~             | Reply. ~to~ is the original sender and ~re~ is ~id~.                                           |
+| ~show <id>~                       | Print one stored message.                                                                      |
+| ~thread <id>~                     | Print the chain.                                                                               |
+| ~status <id>~                     | Print id, state, client id when set, and how long it has waited.                               |
+| ~log~                             | Read the daemon event log.                                                                     |
+| ~outbox <ls|flush> [--watch]~     | List or flush hub-mode messages waiting on this machine.                                       |
+| ~lease <subcommand>~              | Guard a shared checkout. See [[file:docs/lease.org][the lease]].                               |
+| ~mem [--json]~                    | Memory per local agent pane. See [[file:docs/hibernate.org][memory]].                          |
+| ~hibernate <name or handle>...~   | Stop idle agents but keep their panes and names. See [[file:docs/hibernate.org][hibernation]]. |
+| ~wake <name or handle>~           | Relaunch a hibernated agent now. A message to it wakes it too.                                 |
+| ~install~                         | Install the supervisor and load it. In hub mode, install the tunnel.                           |
+| ~paths --json~                    | Print ~socket~, ~hub_socket~, ~tunnel_socket~, and ~state_dir~.                                |
+| ~doctor [--sandbox]~              | Other ~agentbusd~ processes; in hub mode, the tunnel, ssh, and outbox.                         |
+| ~install-hooks~                   | Install the observe-only ~SendMessage~ hook and the prompt guard.                              |
+| ~hook~                            | Internal. ~install-hooks~ runs it to record one ~SendMessage~ call.                            |
+| ~prompt-hook~                     | Internal. ~install-hooks~ runs it to block a message pasted into a draft.                      |
 
-A hibernated handle keeps its names. ~list~ and ~search~ show it as
-~hibernated~, a claim by another handle is refused as for a live
-holder, and a message to it wakes it first; see
-[[*Wake a hibernated agent]].
+~agentbus --help~ (or ~-h~, or ~help~) lists these commands.
+~agentbus help <command>~ prints that command's flags and an example
+without contacting the daemon. ~agentbus~ with no arguments prints the
+list, then starts ~agentbusd~ if needed and prints the daemon status.
+~agentbusd --help~ lists the daemon's environment variables.
 
-Output is one line per agent: ~hibernated <name> (<rss> freed)~,
-~refused <name>: <reasons>~, ~failed <name>: <reason>~, or with
-~--dry-run~, ~would hibernate <name> (<rss>)~. ~--dry-run~ writes no
-record, sends no input, and logs nothing. Flags may come before or
-after the names; ~--~ ends them. ~--json~ prints an array of
-objects with ~name~, ~handle~, ~pane~, ~outcome~ (~hibernated~,
-~refused~, ~would-hibernate~, or ~failed~), ~reasons~, ~rss_bytes~, and
-~warning~. The daemon logs ~agent_hibernated~ and
-~agent_hibernate_refused~ (detail ~stop-failed~ for a stop that timed
-out). The exit status is 1 when a stop failed or a named agent was
-refused; refusals under ~--idle-over~ exit 0.
+~doctor~ with no flag reports other ~agentbusd~ processes for this
+user. In hub mode it reports the tunnel, the ssh port, and the outbox
+instead of the local daemon socket. ~doctor --sandbox~ prints the
+Claude Code sandbox allowlist and tests each connection. See
+[[file:docs/sandbox.org][sockets and the sandbox]].
 
-The daemon learns how long an agent has been in its state from its
-inventory polls and herdr's ~state_change_seq~ (herdr reports no
-timestamps). It saves each agent's state, ~state_change_seq~, and since
-to ~seen.json~ in its state directory, at most once a minute and on
-shutdown. A restarted daemon keeps an agent's since while herdr still
-reports the same handle, state, and ~state_change_seq~, and starts it
-over otherwise. An agent it finds already in its state counts from the
-daemon start, a lower bound (~>=~ in ~agentbus mem~), unless the agent
-kind records its last turn: for Claude Code that is the modification
-time of the session transcript named by ~agent_session~,
-~~/.claude/projects/*/<session>.jsonl~ (under ~$CLAUDE_CONFIG_DIR~ when
-set), read only and ignored when it cannot be read. An agent the daemon
-has not seen is never picked by ~--idle-over~; name it instead.
+~log --since~ takes a duration ago (~30m~, ~6h~, ~2d~, ~1d12h~), an
+RFC3339 time, or a ~YYYY-MM-DD~ date at local midnight. ~hibernate
+--idle-over <duration>~ stops agents idle at least that long.
+~hibernate --policy~ runs the memory-pressure policy on a hub-mode
+client. ~hook~ and ~prompt-hook~ are internal: only ~install-hooks~
+should run them.
 
-Hibernate stops agents on this machine only. In hub mode it still runs
-here, since it reads this machine's panes and processes, and sends only
-its daemon requests to the hub, which owns the names, leases, and
-records: over the tunnel when it answers, else over ssh through
-~agentbus lease forward~. The hub accepts a record from a caller on
-another machine only for that machine's agents. ~--idle-over~ in hub
-mode needs the hub to poll this machine (~machines~ in the hub's
-config).
+* Configuration
 
-* Wake a hibernated agent
+agentbusd reads =~$XDG_CONFIG_HOME/agentbus/config.toml= at start, or
+=~$HOME/.config/agentbus/config.toml= when ~XDG_CONFIG_HOME~ is unset.
+A missing file means the defaults below. The daemon does not reload, so
+a change needs a restart. ~AGENTBUS_HUB~ overrides ~hub~.
 
-When the daemon is about to deliver to a handle that has a hibernation
-record, it first relaunches the agent in its pane. ~agentbus wake <name
-or handle>~ does the same with no message to deliver, prints ~woke
-<name> (<handle>)~, and ignores the backoff below. It returns once
-the agent is ready (step 3), so ~--wait~ is always in effect.
+#+BEGIN_SRC toml
+# Saved herdr machines search includes. Default: none. local is always included.
+# machines = ["linux2"]
+remote_timeout = "5s"             # bound on each call to another machine
+list_liveness_max_age = "15s"     # list refreshes cached liveness older than this
+hold_notice_after = "10m"         # one notice after a hold this long; "0s" sends none
 
-A tool that types prompts straight into a pane, such as prsync, calls
-~agentbus wake --if-hibernated~ before each prompt: a prompt typed into
-a hibernated pane lands in its shell. The target may be a name, a
-handle (~herdr:<machine>/<session>/<pane>~), or a pane id with
-~--machine <m>~ (~local~ for this machine); a pane with no hibernation
-record is not hibernated.
+# Hub mode. Default: unset, so this machine runs its own daemon.
+# hub = "me@hub"
+# machine = "linux2"              # this machine's herdr label on the hub
+# ssh_identity_agent = "~/.ssh/agent.sock"  # empty: ssh's own agent lookup
+# hub_socket = "/run/user/1000/agentbus/hub.sock"  # install can discover this
 
-| Exit | Meaning                                                    |
-|------+------------------------------------------------------------|
-|    0 | awake now, or not hibernated with ~--if-hibernated~ (silent) |
-|    1 | the wake failed or timed out, or the target is not hibernated |
-|    2 | unknown name or handle, or bad usage                       |
+# Lease. Default: no guarded checkouts, takeover only logged.
+# lease_checkouts = ["/home/u/src/repo"]
+lease_check_interval = "2m"       # how often, and how far a working holder is extended
+lease_checkin_repeat = "15m"      # least time between check-ins
+lease_idle_grace = "5m"           # idle and silent this long: take over
+lease_takeover = "log"            # "on" carries takeovers out; "log" only logs them
+lease_ignore_procs = ["sh", "bash", "zsh", "fish", "claude", "codex", "gemini", "emacs", "vim", "nvim", "less", "agentbus"]
 
-1. It reads the pane's processes. When the pane's foreground is not
-   its shell, someone reused the pane: nothing is launched, the record
-   is dropped (so the names are active again), the daemon logs
-   ~agent_wake_skipped~, and the senders of queued messages are told.
-2. It runs ~cd <cwd> && <argv>~ from the record through ~herdr pane
-   run~, in resume form. For Claude Code that is ~--resume <session
-   id>~ right after the program, in place of any ~--resume [id]~,
-   ~-r [id]~, ~--continue~, or ~-c~; every other argument is kept.
-   Other agent kinds have no resume form and fail to wake.
-3. It waits until herdr reports an agent in the pane ~idle~ or ~done~,
-   with the recorded session id when herdr reports one, and the agent
-   process owns the pane's foreground again. ~wake_timeout~ in the
-   daemon's config bounds the wait (default ~60s~).
-4. It drops the record, so ~list~ shows the names alive again, logs
-   ~agent_wake~, and delivers the queued messages in send order.
+wake_timeout = "60s"              # how long a relaunched agent has to get ready
+# hibernate_exempt = ["ops/*"]    # default: none
+hibernate_policy = "off"          # "dry-run" or "on"
+# hibernate_below = "1.5GiB"      # required before dry-run or on acts
+# hibernate_target = "3GiB"       # default: hibernate_below
+hibernate_min_idle = "30m"        # least idle time the policy will stop
+hibernate_interval = "1m"         # how often the policy reads available memory
+#+END_SRC
 
-#+begin_src toml
-wake_timeout = "60s"   # how long a relaunched agent has to get ready
-#+end_src
+* Troubleshooting
 
-~send~ does not wait for the wake: it prints ~held: waking~, and the
-message goes out once the agent is ready. Messages sent while a wake is
-in flight queue behind it; a handle never has two wakes at once.
+~agentbus doctor~ and ~agentbus log~ are the first checks. ~doctor
+--sandbox~ is the check when a sandboxed agent cannot connect. Common
+failures:
 
-When the relaunch fails or times out, the message stays queued, the
-record stays with status ~wake-failed~ and the error, the daemon logs
-~agent_wake_failed~, and each sender of a queued message gets
-~[agentbus] <name> is hibernated and failed to wake: <error>; your
-message is queued~ in its pane. The next delivery attempt tries again
-only after a backoff of 1m, doubled on each failure in a row up to 1h,
-so a broken session is not relaunched in a loop. Until then the message
-is ~held: wake failed~, and ~agentbus status <id>~ shows ~waiting: wake
-failed: <error>; next try after <time>~.
-
-In hub mode the record lives on the hub, and so does the wake: the
-hub's daemon reaches the pane with ~herdr --machine <machine>~, as it
-does to deliver, so ~agentbus wake~ runs on the hub like ~send~. Any
-caller may wake any agent, since a message would wake it anyway.
-
-* Hibernate under memory pressure
-
-The daemon can hibernate idle agents by itself when the machine runs
-low on memory. It is off unless the config turns it on:
-
-#+begin_src toml
-hibernate_policy = "dry-run"  # "off" (default), "dry-run", or "on"
-hibernate_below = "1.5GiB"    # act when available memory is under this
-hibernate_target = "3GiB"     # stop once it is back at this (default: hibernate_below)
-hibernate_min_idle = "30m"    # least idle time of an agent it stops (default: 30m)
-hibernate_interval = "1m"     # how often it reads available memory (default: 1m)
-hibernate_exempt = ["ops/*"]  # never stopped, as for agentbus hibernate
-#+end_src
-
-Every ~hibernate_interval~ the daemon reads the available memory, as
-~agentbus mem~ does. When it is under ~hibernate_below~, it takes this
-machine's agents it has seen ~idle~ or ~done~ for at least
-~hibernate_min_idle~ and that have no hibernation record, longest idle
-first, and hibernates them one at a time, each through every check of
-[[*Hibernate idle agents]]. A refused agent is skipped quietly. After
-each stop it reads the available memory again, and stops once it is at
-or above ~hibernate_target~ or no agent is left. With ~"dry-run"~ it
-stops nothing and counts each agent's RSS as freed instead.
-
-Sizes are a number and ~B~, ~KiB~, ~MiB~, ~GiB~, or ~TiB~, such as
-~"1.5GiB"~ or ~"512 MiB"~. A ~hibernate_policy~ other than the three
-values, or one without ~hibernate_below~, is off with a warning on
-agentbusd's stderr, which also prints the effective
-~hibernate_policy=<mode>~ at start. A ~hibernate_target~ under
-~hibernate_below~ is a config error.
-
-| Event | Detail |
-|-------+--------|
-| ~policy_hibernate~ | An agent it hibernated: its idle time, RSS, and the available memory before. ~agent_hibernated~ follows as for ~agentbus hibernate~. |
-| ~policy_would_hibernate~ | The same with ~"dry-run"~, once per agent per low episode. |
-| ~policy_no_candidate~ | Memory is low and no agent could be hibernated: once per low episode. |
-
-A low episode lasts from a reading under ~hibernate_below~ to the next
-one at or above it.
-
-A woken agent is not hibernated again right away: the daemon's idle
-time for it starts over when it comes back to its pane, so it must be
-idle ~hibernate_min_idle~ again. As for ~--idle-over~, the idle times
-survive a daemon restart while an agent's state and ~state_change_seq~
-stay.
-
-The policy runs in agentbusd and acts only on the machine it runs on:
-it reads that machine's memory and that machine's herdr panes
-(~herdr:local/...~), with the same hibernator as ~agentbus hibernate~,
-calling the daemon's hibernate ops in process. In hub mode agentbusd
-runs only on the hub, so there it covers the hub machine's own agents
-and never another machine's.
-
-** On a hub-mode client
-
-A machine with ~hub~ set runs no agentbusd, so it runs the same policy
-in ~agentbus hibernate --policy~, a long-running process, from its own
-config. It reads this machine's available memory and herdr panes, and
-sends the hibernate requests to the hub as ~agentbus hibernate~ does in
-hub mode: over the tunnel from a herdr pane, otherwise over ssh (as a
-service it has no pane, so ssh, and only while memory is low). The
-records and names stay on the hub, and only this machine's handles
-(~herdr:<machine>/...~) are candidates. The checks, the order, the
-target, ~"dry-run"~, and the once-per-episode rules are the daemon's.
-
-The hub keeps idle times only for the machines it polls, so the runner
-keeps its own: each ~hibernate_interval~ it reads ~herdr agent list~
-here and counts an agent idle from the first reading it saw it ~idle~
-or ~done~, the same rules as the daemon's. It saves them, as the daemon
-does, to ~policy-seen.json~ in this machine's state directory, so a
-restart keeps them and ~agentbus mem~ shows them. It needs no
-~machines~ entry on the hub. Its events
-and why a tick did nothing (herdr down, hub unreachable) go to its
-stderr, not to the hub's event log, as
-
-#+begin_example
-agentbus hibernate --policy: policy_hibernate ops/x: idle 41m0s, 400.0 MiB rss, 900.0 MiB available before
-agentbus hibernate --policy: agentbus daemon: hub me@hub: ...; nothing more hibernated until the next tick
-#+end_example
-
-When the hub cannot be reached nothing is stopped. ~agent_hibernated~
-still goes to the hub's log with each stop.
-
-~agentbus install~ in hub mode writes and loads a second unit for it
-when ~hibernate_policy~ is ~on~ or ~dry-run~, and none otherwise: the
-launchd job ~com.agentbus.hibernate-policy~, whose stderr goes to
-~$XDG_STATE_HOME/agentbus/hibernate-policy.log~, or the systemd user
-unit ~agentbus-hibernate-policy.service~, whose stderr goes to the
-journal. Both get the ~PATH~ of the ~install~ run, to find ~herdr~ and
-~ssh~, and restart it only when it fails. It reads the config at start:
-after changing a ~hibernate_*~ key, run ~agentbus install~ again or
-restart the unit. With ~hibernate_policy~ off it prints
-~hibernate_policy=off~ and exits 0, and stays stopped. ~agentbus mem~
-on the client shows the configured mode and thresholds.
-
-* Sandbox
-
-The CLI has to connect to the daemon socket. On Linux that socket is
-~$XDG_RUNTIME_DIR/agentbus/daemon.sock~, and ~XDG_RUNTIME_DIR~ is
-required. On macOS, when ~XDG_RUNTIME_DIR~ is unset, the sockets are
-under ~~/Library/Caches/agentbus/run/agentbus/~ (~daemon.sock~,
-~hub.sock~, and ~tunnel.sock~). That directory is created with mode 0700
-and is not ~$TMPDIR~. A socket path of 104 bytes or more,
-including the terminating NUL, is an error that names the path. When
-~XDG_RUNTIME_DIR~ is set, both systems use it and the macOS default
-directory is not created. The state directory is
-~$XDG_STATE_HOME/agentbus~, or ~$HOME/.local/state/agentbus~ when
-~XDG_STATE_HOME~ is unset. The CLI reports a missing state directory,
-or a missing Linux runtime directory, instead of guessing.
-
-The daemon needs that state directory. It also needs the ~herdr~
-command and the herdr socket for the local server the panes use. Without
-them it cannot see panes or deliver.
-
-A daemon that starts before the herdr server, as at boot when both are
-user services, does not need a restart. While herdr does not answer,
-the daemon tries it again after 1s, then twice as long each time, up to
-30s, running ~herdr~ afresh so the binary and the socket are looked up
-again. Meanwhile search is empty, names are ~unreachable~, and sends
-are held; once herdr answers, the next poll fills search and liveness,
-and held messages are delivered. The event log gets one ~adapter_error~
-(~herdr unreachable~) when herdr goes down and one ~adapter_reachable~
-(~herdr reachable~) when it comes back, not one per retry. While it is
-down, ~agentbus doctor~ prints ~herdr transport unreachable: <error>~,
-where herdr's error names the socket it tried.
-
-~agentbus install~ is the supervisor: a launchd plist on macOS, or a
-systemd user unit on Linux. The CLI still starts ~agentbusd~ itself when
-the daemon is down. That start is detached, in its own session. If the
-CLI cannot reach the daemon and cannot start it, the command fails and
-the error says so:
-
-- ~agentbus: agentbusd is not running and no daemon binary was given to start it~
-- ~agentbus: start agentbusd: ...~
-- ~agentbus: agentbusd did not become ready: ...~
 - ~agentbus: XDG_RUNTIME_DIR is not set; the agentbus daemon socket needs it~
-  (Linux; macOS uses ~~/Library/Caches/agentbus/run~ instead)
-- =agentbus: HOME is not set; agentbus state belongs in ~/.local/state/agentbus=
+  on Linux. macOS uses =~$HOME/Library/Caches/agentbus/run= instead.
+- ~agentbus: agentbusd is not running and no daemon binary was given to start it~
+- ~herdr transport unreachable: ...~ while the herdr server is down.
+  The daemon retries; it does not need a restart when herdr comes back.
+- ~agentbus: hub <target> unreachable: host unreachable~ or
+  ~authentication locked (unlock your SSH/gpg agent)~, in hub mode.
 
-~agentbusd~ is the binary next to ~agentbus~. A sandbox that cannot
-reach the socket and cannot execute that binary gets one of those
-errors.
+Socket paths, the state directory, and the sandbox allowlist are in
+[[file:docs/sandbox.org][sockets and the sandbox]].
 
-** Running inside an agent sandbox
+* Further reading
 
-An agent sandbox, such as Claude Code's sandbox (Seatbelt on macOS,
-bubblewrap on Linux), denies unix sockets and network hosts it does not
-list. A hub-mode command makes up to three kinds of connection, and
-each failure names its step, the socket or ssh target, and what to
-allow:
-
-1. *Identify the pane.* The ~herdr~ CLI connects to the herdr socket,
-   ~$HERDR_SOCKET_PATH~ (for example ~~/.config/herdr/herdr.sock~ on
-   macOS), to look up the pane's agent session. A denied connect fails
-   with
-   ~identify this pane: connect /path/herdr.sock: operation not permitted (sandbox? allow this unix socket)~.
-2. *Talk to the hub* over the tunnel socket, when it is there. On Linux
-   that is ~$XDG_RUNTIME_DIR/agentbus/tunnel.sock~ (usually
-   ~/run/user/<uid>~). On macOS it is that path when ~XDG_RUNTIME_DIR~
-   is set, and ~~/Library/Caches/agentbus/run/agentbus/tunnel.sock~
-   otherwise. ~agentbus doctor --sandbox~ prints the resolved path.
-3. *Otherwise run on the hub over ssh*, which needs network access to
-   the hub and read access to ~~/.ssh~.
-
-herdr exports ~HERDR_PANE_ID~, ~HERDR_TAB_ID~, ~HERDR_WORKSPACE_ID~ and
-~HERDR_SOCKET_PATH~ to each pane, but not the agent session, so the
-handle cannot be built from the environment alone. Instead, ~agentbus
-register~ in hub mode asks herdr for this pane's handle and caches it in
-~$XDG_RUNTIME_DIR/agentbus/panes/<pane-id>~ (mode 0600), or under
-~~/Library/Caches/agentbus/run/agentbus/panes/~ on macOS when
-~XDG_RUNTIME_DIR~ is unset. Later calls
-use the cached handle and ask herdr only when nothing is cached, so a
-sandboxed agent that registered once (or whose first register ran
-unsandboxed) needs no herdr socket. ~register~ always asks herdr again
-when it can, which refreshes the cache after the pane starts a new
-agent session; when herdr is denied it keeps the cached handle.
-
-Inside a sandbox, a tunnel socket that is there but fails (denied, not
-answering, or another protocol) fails the command with
-~reach the hub over the tunnel: ...; not falling back to ssh inside a sandbox~
-instead of falling back to ssh, so ~~/.ssh~ is never needed. Hooks
-still exit 0. agentbus counts as sandboxed when ~SANDBOX_RUNTIME~ is
-set (Claude Code's sandbox sets it), when ~AGENTBUS_SANDBOX=1~, or when
-a connect fails with "operation not permitted";
-~AGENTBUS_SANDBOX=0~ turns the environment check off. A failed ssh
-fallback inside a sandbox says what ssh needs and points at the tunnel.
-
-~agentbus doctor --sandbox~ prints the entries this machine needs in
-the shape of Claude Code's sandbox settings, then tests each
-connection:
-
-#+begin_example
-Claude Code sandbox settings this machine needs (merge into settings.json):
-{
-  "sandbox": {
-    "network": {
-      "allowUnixSockets": [
-        "/Users/me/.config/herdr/herdr.sock",
-        "/Users/me/Library/Caches/agentbus/run/agentbus/tunnel.sock"
-      ],
-      "allowedDomains": [
-        "hub"
-      ]
-    }
-  }
-}
-allowedDomains is only for the ssh fallback to me@hub, which also reads ~/.ssh; the tunnel needs neither.
-
-Checks:
-  herdr socket /Users/me/.config/herdr/herdr.sock: ok
-  tunnel socket /Users/me/Library/Caches/agentbus/run/agentbus/tunnel.sock: ok
-  ssh me@hub: ok (its ssh port answers)
-  outbox flusher: present (/Users/me/Library/LaunchAgents/com.agentbus.outbox.plist)
-  outbox: no pending entries
-#+end_example
-
-A hub-mode client does not list or check the local daemon socket.
-~doctor~ reports the tunnel, the ssh port, the outbox flusher unit, and
-pending outbox entries, and it exits 0 when those are healthy even
-though no local daemon socket exists. A machine that is not a hub
-client still lists the daemon socket. Each socket is ~ok~, ~missing~,
-~blocked (sandbox? allow this unix socket)~, or ~failed: <error>~. The
-ssh check only connects to the hub's ssh port; it does not log in. The
-hub entry is the host part of ~hub~, so for a ~Host~ alias in
-~~/.ssh/config~ allow its real ~HostName~ as well. doctor only prints
-the entries; it never edits your settings.
-
-* Install
-
-~agentbus install~ writes the supervisor unit and loads it. On macOS the
-file is ~$HOME/Library/LaunchAgents/com.agentbus.agentbusd.plist~. On Linux
-it is ~$XDG_CONFIG_HOME/systemd/user/agentbus.service~, or
-~$HOME/.config/systemd/user/agentbus.service~ when ~XDG_CONFIG_HOME~
-is unset. A macOS unit written without ~XDG_RUNTIME_DIR~ exports the
-default runtime directory, so the job and the CLI use the same sockets.
-When a ~herdr.service~ user unit sits in the same directory, the Linux
-unit adds ~After=herdr.service~ and ~Wants=herdr.service~, so the daemon
-starts after the herdr server. The daemon retries herdr without it.
-
-~agentbus install-hooks~ writes a Claude Code ~PreToolUse~ hook on
-~SendMessage~ to the user settings only, ~$HOME/.claude/settings.json~,
-and the script ~$HOME/.claude/hooks/agentbus-sendmessage.sh~. It does not write
-a project's ~.claude/settings.json~ or ~settings.local.json~. The hook
-lets the tool call proceed. It records a bypass event and exits 0. If
-~agentbus~ is not on ~PATH~, or the bus is down, the hook exits 0 and
-the tool call is unchanged.
-
-When the ~SendMessage~ target is a registered name, or the handle or
-pane id of an agent that holds one, the hook also prints a hint. It
-uses ~hookSpecificOutput.additionalContext~ with no permission
-decision, so Claude Code adds the hint to the agent's context and still
-runs the call:
-
-#+begin_example
-This recipient is coord/primary on agentbus. Next time use: agentbus send coord/primary "..."
-#+end_example
-
-A handle that holds several names gives the first in name order. A pane
-id held in two sessions, or any other target, gives no hint. The bypass
-event keeps the raw target in ~name~ and the bus name in ~resolved~, so
-~agentbus log --event bypass~ shows who should have been addressed. The
-lookup reads only the registry. If the daemon is down, fails, or takes
-longer than one second, the hook prints nothing and exits 0.
-
-The same command writes a ~UserPromptSubmit~ hook, the script
-~$HOME/.claude/hooks/agentbus-userpromptsubmit.sh~, which runs
-~agentbus prompt-hook~. It blocks a prompt only when an agentbus
-envelope follows other text, as described under "Delivery and user
-drafts". If ~agentbus~ is not on ~PATH~, the prompt goes through.
-Running ~install-hooks~ again updates both entries in place. Other
-hooks and settings are kept.
+- [[file:docs/delivery.org][Delivery]]: drafts, holds, retries, and the prompt guard.
+- [[file:docs/multi-machine.org][Other machines and hub mode]].
+- [[file:docs/lease.org][Workdir lease]].
+- [[file:docs/hibernate.org][Memory, hibernation, and wake]].
+- [[file:docs/sandbox.org][Sockets, state, and the sandbox]].
+- [[file:docs/json-reference.org][JSON shapes]] for ~list~, ~lease status~, ~mem~, and ~hibernate~.
+- [[file:reboot.org][Reboot runbook]].

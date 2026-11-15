@@ -1,0 +1,128 @@
+Read this when a message stays held, a retry might have sent it twice, or a paste landed in a draft.
+Everyday send and reply commands are in [[file:../README.org][the agentbus guide]].
+
+* Delivery and user drafts
+
+Paste delivery requires an *empty composer*. This is an adapter
+precondition, alongside "not blocked" and "has an agent". If the
+composer cannot be read, it counts as not empty. A hold for a user draft
+is temporary and expected. It never counts as a retry.
+
+The herdr adapter reads the pane with ~herdr agent read <pane> --source
+visible~ and parses the input box per agent kind. Claude Code is the
+only kind it parses now. The message stays queued, and ~status~ shows
+one of these:
+
+- ~held: user draft in composer~: the user has typed text and not
+  submitted it, or the box is in ~!~ shell mode.
+- ~held: draft-unknown~: the screen did not parse or could not be read,
+  including when the bottom of the buffer has no input box either.
+- ~held: pane scrolled up~: the visible read found no input box, and a
+  read of the bottom of the buffer (~herdr agent read <pane> --source
+  recent~) did. The box there may be empty. The message stays held
+  until the visible read finds the box. ~--source recent~ reads the
+  bottom of the buffer and does not follow the scrolled viewport.
+- ~held: pane focused~: an agent kind with no parser, while the pane is
+  focused. It is delivered once the pane is unfocused. A pane whose box
+  can be parsed is delivered even while focused.
+- ~held: ambiguous~: ~herdr agent prompt~ failed and the text may already
+  be on screen. The next pass reads ~herdr agent read <pane> --source
+  recent~ and the composer before it pastes again. This message's own
+  envelope header, ~[agentbus <id>~, is not a user draft. In the recent
+  scrollback, the message is ~delivered~ with
+  ~detail=confirmed-after-ambiguous~ and is not pasted again. In the
+  composer, not yet submitted, the retry presses Enter only. Nowhere on
+  screen, it pastes once more. ~[agentbus m-1~ does not match
+  ~[agentbus m-10~.
+- ~held: ambiguous-unverified~: that check could not read or parse the
+  screen, so the message is not pasted again. ~status~ shows the reason.
+  ~doctor~ prints ~ambiguous-unverified: <id> to <to>~.
+
+A composer that holds another message's envelope, or a real user draft,
+stays ~held: user draft in composer~. A retryable refusal
+(~transport refused~) is a definite miss and is pasted again.
+
+The composer is read again right before the paste. A draft that
+appeared in between holds the message until the next pass. The
+~deliver_attempt~ event with ~detail=composer-empty-at-check~ shows the
+check ran. The race narrows but cannot close. ~delivered~ logs how long
+the message was held. ~--ttl~ still applies to a held message.
+
+Messages queued behind a held message are ~held: waiting for an earlier
+message <id>~, where ~<id>~ is the message in front. That is the reason
+logged for them, including after the front message is released. They
+are not logged as a user draft.
+
+A hold that lasts ~hold_notice_after~ (default 10m; ~"0s"~ sends none)
+sends the sender one notice through the same path as an expiry notice.
+The notice names the message id, the recipient, the hold reason, and
+~agentbus status <id>~. A message waiting behind another uses its own
+waiting reason, which names the front id. An anonymous sender is not
+notified; the daemon logs ~hold_notice_skipped~. Each message is told
+at most once, and a restart does not send the notice again.
+
+The prompt guard from ~agentbus install-hooks~ catches what the race
+lets through. A Claude Code prompt with an envelope header
+(~[agentbus m-~) after other text is a bus message pasted into a user
+draft. The guard blocks that submit. Claude Code keeps the whole text in
+the input box, and the block reason tells the user to delete the
+~[agentbus m-…]~ part and submit again. The bus re-queues the message by
+its id, logs a ~requeued~ event, and holds it as ~held: user draft in
+composer~ until the box is empty. If the bus cannot re-queue it, the
+reason says so, and the copy in the input box is the only one. A prompt
+that starts with the envelope is a clean delivery and passes.
+
+* Retry keys (~--client-id~)
+
+~--client-id <machine>:<ulid>~ makes that accept idempotent for the
+sender handle. The id is at most 64 characters from ~[A-Za-z0-9._:-]~
+and contains a colon. Local ~send~ and ~reply~ generate one when
+~--client-id~ is omitted and reuse it if they redial a daemon that was
+not listening yet. A failure after the request was written is not sent
+again. The error names that call's client id, ~agentbus status <client-id>~,
+and for ~send~ also ~agentbus log --since 1m --name <recipient>~. ~reply~
+uses the original sender in that log command. A retry with the same id, body, and recipient
+returns the original message id and state and creates nothing. ~--json~
+prints ~id~, ~state~, and, on that retry, ~duplicate: true~. Text output
+stays ~<id> <state>~. A different body or recipient is a conflict and
+stores nothing. The id is kept with the message, including across a
+daemon restart, for as long as the message is retained and at least 7
+days. ~status <client-id>~ resolves to that message. ~status~ and ~show~
+print ~client_id~ when one is set. A repeated accept appends a ~dedupe~
+log event. A client can append log events through the daemon with their
+original timestamps; those lines are marked ~origin: client~.
+
+* SendMessage hook and prompt guard
+
+~agentbus install-hooks~ writes a Claude Code ~PreToolUse~ hook on
+~SendMessage~ to the user settings only, ~$HOME/.claude/settings.json~,
+and the script ~$HOME/.claude/hooks/agentbus-sendmessage.sh~. It does not write
+a project's ~.claude/settings.json~ or ~settings.local.json~. The hook
+lets the tool call proceed. It records a bypass event and exits 0. If
+~agentbus~ is not on ~PATH~, or the bus is down, the hook exits 0 and
+the tool call is unchanged.
+
+When the ~SendMessage~ target is a registered name, or the handle or
+pane id of an agent that holds one, the hook also prints a hint. It
+uses ~hookSpecificOutput.additionalContext~ with no permission
+decision, so Claude Code adds the hint to the agent's context and still
+runs the call:
+
+#+begin_example
+This recipient is coord/primary on agentbus. Next time use: agentbus send coord/primary "..."
+#+end_example
+
+A handle that holds several names gives the first in name order. A pane
+id held in two sessions, or any other target, gives no hint. The bypass
+event keeps the raw target in ~name~ and the bus name in ~resolved~, so
+~agentbus log --event bypass~ shows who should have been addressed. The
+lookup reads only the registry. If the daemon is down, fails, or takes
+longer than one second, the hook prints nothing and exits 0.
+
+The same command writes a ~UserPromptSubmit~ hook, the script
+~$HOME/.claude/hooks/agentbus-userpromptsubmit.sh~, which runs
+~agentbus prompt-hook~. It blocks a prompt only when an agentbus
+envelope follows other text, as described under "Delivery and user
+drafts". If ~agentbus~ is not on ~PATH~, the prompt goes through.
+Running ~install-hooks~ again updates both entries in place. Other
+hooks and settings are kept.

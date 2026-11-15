@@ -1,0 +1,188 @@
+Read this when agents on another herdr machine, or a second computer, should share one bus.
+A single machine with only local panes does not need it; everyday commands are in [[file:../README.org][the agentbus guide]].
+
+* Other herdr machines
+
+A handle is ~herdr:<machine>/<session>/<pane>~. ~<machine>~ is ~local~
+or a herdr saved-machine label or id. For any other machine, every herdr
+call the adapter makes runs as ~herdr --machine <machine> ...~, so
+~send~, ~register~ claims, ~release --to~, and liveness all work with a
+remote handle. A pane missing from a reachable machine is ~gone~.
+
+List the machines whose agents ~search~ shows in
+~$XDG_CONFIG_HOME/agentbus/config.toml~ (default
+~~/.config/agentbus/config.toml~). agentbusd reads it at start.
+
+#+begin_src toml
+machines = ["linux2"]   # saved herdr machines to include in search
+remote_timeout = "5s"   # bound on each call to another machine (default 5s)
+list_liveness_max_age = "15s"  # list refreshes cached liveness older than this (default 15s)
+hold_notice_after = "10m"  # one notice to the sender after a hold this long; "0s" sends none
+#+end_src
+
+Every call to another machine has an overall deadline that kills herdr
+and its ssh, because SSH can hang on a locked key instead of failing. A
+machine that cannot be reached is one of two causes:
+
+- ~host unreachable~: the connection failed, or ~herdr machine status~
+  reports the machine down or disabled. Fix the network.
+- ~authentication locked (unlock your SSH/gpg agent)~: the host answers,
+  but the call failed with an auth error or hit the deadline. Unlock the
+  agent.
+
+A message to such a machine is held, never failed, and retried like a
+blocked pane; it does not count as a retry. ~status~ shows, for
+example, ~held: machine linux2 unreachable: host unreachable~. A name
+held by a pane on that machine stays held. ~search~ lists the other
+agents and prints one warning line per machine on stderr, and still
+exits 0. Each machine is flushed on its own, so a slow machine does not
+hold up local delivery.
+
+* Hub mode: a second machine
+
+One machine, the hub, runs agentbusd. A second machine reaches it over
+ssh and runs the same ~agentbus~ commands against the hub's daemon, so
+there is one bus. On the second machine, set the hub and this machine's
+herdr label as the hub knows it:
+
+#+begin_src toml
+hub = "me@hub"          # ssh target that runs agentbus (AGENTBUS_HUB overrides it)
+machine = "linux2"      # this machine's herdr saved-machine label on the hub
+remote_timeout = "5s"   # ssh connect timeout (default 5s)
+ssh_identity_agent = "~/.ssh/agent.sock"  # optional IdentityAgent for that ssh
+#+end_src
+
+Then every command except ~help~, ~install~, and ~install-hooks~ runs as
+~ssh -o BatchMode=yes -o ConnectTimeout=<n> <hub> agentbus <args>~,
+with each argument quoted. When ~ssh_identity_agent~ is set, that ssh
+also passes ~-o IdentityAgent=<path>~, with a leading ~~/~ expanded,
+and ~agentbus install~ writes the same option into the tunnel unit.
+Unset leaves ssh's own agent lookup. stdout, stderr, and the exit code come back
+unchanged. ~send~ and ~reply~ forward stdin, and read a ~--file~ path
+here and send its content, so the hub never needs the path. Commands that
+identify the caller (~register~, ~describe~, ~whoami~, ~release~,
+~send~, ~reply~) send ~herdr:<machine>/<session>/<pane>~ for this pane
+as ~AGENTBUS_AS_HANDLE~. The hub trusts it only when ~SSH_CONNECTION~
+shows the command came over ssh, and replies go back through
+~herdr --machine <machine>~. agentbusd refuses to start, and
+~agentbus install~ installs the tunnel below instead of a daemon.
+
+The hub must be reachable without a prompt:
+
+- an SSH key the agent holds, because ~BatchMode=yes~ never asks for a
+  passphrase. A passphrase key needs an agent. The launchd or systemd
+  tunnel does not inherit ~SSH_AUTH_SOCK~. Point ~ssh_identity_agent~
+  at a stable socket such as ~~/.ssh/agent.sock~, kept current from
+  the login shell (=ln -sf "$SSH_AUTH_SOCK" ~/.ssh/agent.sock=). zsh
+  reads ~~/.zprofile~ before ~~/.zshrc~, so that line has to follow
+  the agent start. Re-run ~agentbus install~. ~agentbus doctor~ says
+  so when the tunnel last exited 255, and says when that socket is a
+  dangling link or still points at a different agent;
+- ~agentbus~ on the hub's ~PATH~ for a non-interactive ssh command, and
+  ~XDG_RUNTIME_DIR~ set there, for example in ~~/.zshenv~;
+- a POSIX login shell (sh, bash, or zsh) on the hub, which runs the
+  quoted command;
+- this machine saved in the hub's herdr as ~machine~.
+
+The hub's shell writes a ready line before agentbus starts. Until it
+does, the call has a deadline of twice the connect timeout, which kills
+ssh if a locked key makes it hang. After that the command runs as long
+as it needs, so ~log --follow~ and ~send --wait~ work. A hub that
+cannot be reached fails the command with
+~agentbus: hub me@hub unreachable: host unreachable~ when a one-second
+TCP connect to its SSH port fails, or with
+~... unreachable: authentication locked (unlock your SSH/gpg agent)~
+when the host answers. agentbus never falls back to a local daemon. The
+installed hooks exit 0 on this error.
+
+A hook must not stall the agent, so ~hook~ and ~prompt-hook~ use a
+shorter deadline in hub mode: a 2s connect timeout and 3s for the
+whole call, the remote hook included. ~AGENTBUS_HOOK_TIMEOUT~, such as
+~5s~, sets the whole-call deadline; the connect timeout is the smaller
+of 2s and that value. A hook that runs out of time prints nothing and
+exits 0.
+
+** Share one SSH connection
+
+Each hub-mode command opens an ssh connection, and the installed hooks
+run on every SendMessage and every prompt. Let ssh reuse one
+connection to the hub, so a call skips the TCP and key exchange. On
+the second machine, in ~~/.ssh/config~:
+
+#+begin_example
+Host hub
+  HostName hub.example.com
+  User me
+  ControlMaster auto
+  ControlPath ~/.ssh/cm-%C
+  ControlPersist 10m
+#+end_example
+
+Then set ~hub = "hub"~. The first call opens the master connection, and
+calls in the next ten minutes reuse it. ~ssh -O exit hub~ closes it.
+
+** Talk to the hub daemon over a forwarded socket
+
+The hub's agentbusd also listens on ~$XDG_RUNTIME_DIR/agentbus/hub.sock~
+for callers on other machines. A request there must carry the caller's
+~herdr:<machine>/<session>/<pane>~ handle and the client's protocol
+version. The hub refuses a request without a handle, with a
+~herdr:local/...~ handle, or with another protocol version
+(~hub daemon speaks protocol N, this client speaks M~). It ignores the
+client's environment, so ~AGENTBUS_AS_HANDLE~ plays no part there. The
+local ~daemon.sock~ keeps its rules.
+
+On the second machine, forward that socket to
+~$XDG_RUNTIME_DIR/agentbus/tunnel.sock~. The client cannot know the
+hub's ~XDG_RUNTIME_DIR~, so name the hub's socket in the config:
+
+#+begin_src toml
+hub_socket = "/run/user/1000/agentbus/hub.sock"  # the hub's $XDG_RUNTIME_DIR/agentbus/hub.sock
+#+end_src
+
+Then run ~agentbus install~ on the second machine. In hub mode it writes
+and loads a tunnel unit instead of a daemon: the launchd job
+~com.agentbus.tunnel~ on macOS, or the systemd user unit
+~agentbus-tunnel.service~ on Linux. Without ~hub_socket~, install runs
+~agentbus paths --json~ on the hub over ssh, prints the path, and writes
+~hub_socket = "…"  # discovered from <hub>~ so later runs do not ask
+again. An explicit ~hub_socket~ is used as-is, with no query. If the hub
+cannot be asked, install refuses and names ~agentbus paths --json~ and
+~echo $XDG_RUNTIME_DIR/agentbus/hub.sock~. ~agentbus doctor~ reports when
+the configured path differs from the one the hub reports. The unit
+creates the socket's directory and runs
+
+#+begin_src sh
+ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes \
+  -o StreamLocalBindUnlink=yes -o ServerAliveInterval=30 \
+  -L "$XDG_RUNTIME_DIR/agentbus/tunnel.sock:/run/user/1000/agentbus/hub.sock" -- hub
+#+end_src
+
+and starts it again whenever it exits. ~StreamLocalBindUnlink=yes~
+removes a stale socket left by a dropped tunnel before it binds again.
+The ssh path is resolved when you run ~install~, and the unit runs
+without a terminal, so the key must work without a prompt. With
+~hibernate_policy~ on or ~dry-run~, ~install~ also writes and loads the
+unit of ~agentbus hibernate --policy~ (see [[file:hibernate.org][On a hub-mode client]]).
+~install~ also writes ~com.agentbus.outbox~ (macOS) or
+~agentbus-outbox.service~ (Linux), which runs ~agentbus outbox flush
+--watch~ and retries queued sends when the tunnel answers.
+
+A send or reply that prints ~queued~ is not at the hub yet. Do not
+resend it. Check ~agentbus status <client-id>~.
+
+While the tunnel socket is there and the hub answers a ping on it in
+this protocol, a command from a herdr pane runs here and sends its
+requests over the socket: ~register~, ~describe~, ~whoami~, ~release~,
+~list~, ~search~, ~send~, ~reply~, ~show~, ~thread~, ~status~, ~log~,
+~hook~, and ~prompt-hook~, and the daemon requests of ~lease~ (see
+[[file:lease.org][Lease in hub mode]]). No ssh login or remote shell starts. ~log~
+streams the hub's event log from its daemon, and ~log --follow~ and
+~send --wait~ hold their connection without a deadline; the hub daemon
+serves other callers meanwhile. Otherwise the command uses ssh as
+above: when the socket is missing or nobody answers on it, when the
+caller is not in a herdr pane, and, after printing the version error,
+when the protocols differ. Inside an agent sandbox a tunnel socket that
+is there but fails is an error instead; see
+[[file:sandbox.org][Running inside an agent sandbox]].
+
