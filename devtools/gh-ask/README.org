@@ -315,6 +315,34 @@ The script sends requests only with ~GM_xmlhttpRequest~, only to
 along. ~@connect~ lists only ~127.0.0.1~ and ~localhost~. Text from the
 server is shown with ~textContent~.
 
+** Answer panel
+
+A ~gh-ask~ button in the pull request title opens a read-only side
+panel. It is there on every pull request tab, including Conversation
+and Commits, and it stays up when GitHub moves between those tabs
+without a reload. The diff buttons are still only on the files and
+changes views.
+
+Opening the panel calls ~GET /thread?repo=&pr=~. A stored id loads that
+thread's ~messages~ from ~GET /status/<id>~, oldest first, newest at
+the bottom. Each one shows You, Agent or Note and the time in local
+time. A closed thread shows ~closed~. A 404 shows "No question yet"
+and the follow-up box. Clicking a status chip opens the same panel; a
+chip on a line sends the follow-up as a line question, and anything
+else sends the whole-PR question. Cmd+Enter or Ctrl+Enter sends.
+
+The panel polls ~GET /status/<id>~ every 20 seconds while the tab is
+visible and the newest message is from you, and every 60 seconds
+otherwise. It stops after 30 minutes with no new message. Refresh
+starts that window again. Nothing is polled while the panel is closed,
+except a chip that is still waiting.
+
+Message text is untrusted. It is set with ~textContent~ on an element
+with ~white-space: pre-wrap~. The panel does not render markdown and
+does not turn URLs into links; a URL stays plain text. The footer is
+"Read-only. Nothing here is posted to GitHub." The panel's CSS is
+added with ~GM_addStyle~.
+
 ** Tests
 
 #+BEGIN_SRC bash
@@ -323,15 +351,18 @@ bazel test //devtools/gh-ask/userscript:userscript_test
 #+END_SRC
 
 The test runs the payload builder, URL and head commit parsing, error
-text, and the poller against sample diff markup in
+text, the poller, and the answer panel against sample diff markup in
 =userscript/testdata/=, one file per view. The whole-PR payload is
-checked from the title in those fixtures. Popover placement is checked
-against fixed viewports, not a layout engine. It uses the host's ~node~
-and fails when ~node~ is missing. The browser glue (button, popover,
-chip) has no automated test. After changing it, check by hand on a real pull
+checked from the title in those fixtures. The panel tests check that
+message text stays literal, the poll cadence, ~GET /thread~, and which
+ask form a follow-up uses. Popover placement is checked against fixed
+viewports, not a layout engine. It uses the host's ~node~ and fails
+when ~node~ is missing. The browser glue (button, popover, chip, panel)
+has no automated test. After changing it, check by hand on a real pull
 request: the button on hover and on a selection, a send that reaches
-the server, the chip moving to ~answered~, and "auth failed" in the
-chip after setting a wrong token.
+the server, the chip moving to ~answered~, the panel on the
+Conversation tab, and "auth failed" in the chip after setting a wrong
+token.
 
 Lint, when ~biome~ or ~oxlint~ is installed:
 
@@ -350,9 +381,12 @@ oxlint devtools/gh-ask/userscript/
   without a full reload, so a match limited to the files URL never runs
   when the user opens "Files changed" from the pull request list or the
   Conversation tab. The script loads on every github.com page and, until
-  the path is a pull request files or changes view, only checks the URL.
-  Leaving that view removes the buttons and stops polling.
+  the path is a pull request, only checks the URL. The ~gh-ask~ panel
+  button is on every tab of that pull request. The diff buttons appear
+  only on the files and changes views; leaving that view removes them
+  and stops their polling.
 - The changes view re-renders rows, which can drop a chip.
 - A range covers one side of one file. A selection across files is
   refused.
-- The answer text is not shown; read it where the agent posts it.
+- The panel shows the thread as plain text. URLs in a message are not
+  links. Nothing in the panel is posted to GitHub.

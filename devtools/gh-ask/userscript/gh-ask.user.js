@@ -1,13 +1,14 @@
 // ==UserScript==
 // @name         gh-ask
 // @namespace    https://github.com/jaeyeom/experimental/tree/main/devtools/gh-ask
-// @version      0.1.4
+// @version      0.1.5
 // @description  Ask a local agent about lines in a pull request diff, through gh-ask serve on 127.0.0.1.
 // @match        https://github.com/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
+// @grant        GM_addStyle
 // @connect      127.0.0.1
 // @connect      localhost
 // @run-at       document-idle
@@ -17,7 +18,7 @@
 // The first half of this file is pure: it reads a DOM-like tree through
 // tagName, getAttribute, parentElement, children and textContent only,
 // so gh-ask.test.js runs it in node against testdata/ fixtures. The
-// browser glue (registerMenu, main, and boot) is the only code that uses
+// browser glue (registerMenu, activatePanel, main, and boot) is the only code that uses
 // document, window, or GM_* functions. bindPage takes those as arguments
 // so tests can drive navigation without a browser. Requests go only to
 // http://127.0.0.1:<port>.
@@ -610,10 +611,274 @@ function placeInView(anchor, size, viewport) {
   return { left, top, width };
 }
 
+// A pull request page, including Conversation, Commits, Files and Checks.
+const PR_PATH_RE = /^\/([^/]+)\/([^/]+)\/pull\/(\d+)(\/|$)/;
+const PR_HREF_RE =
+  /^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/pull\/(\d+)(?:[/?#]|$)/;
+
+const PANEL_POLL_YOU_MS = 20_000;
+const PANEL_POLL_IDLE_MS = 60_000;
+const PANEL_EMPTY = "No question yet";
+const PANEL_FOOTER = "Read-only. Nothing here is posted to GitHub.";
+
 // isDiffPath reports a pull request files or changes view. GitHub's
 // soft navigation keeps one document, so the script matches every
-// github.com page and activates only for this path.
+// github.com page and turns on the diff buttons only for this path.
 const DIFF_PATH_RE = /^\/[^/]+\/[^/]+\/pull\/\d+\/(files|changes)(\/|$)/;
+
+function prKey(pathname) {
+  const m = PR_PATH_RE.exec(pathname || "");
+  if (!m) {
+    return null;
+  }
+  return `${m[1]}/${m[2]}#${m[3]}`;
+}
+
+function isPrPath(pathname) {
+  return prKey(pathname) !== null;
+}
+
+// parsePrPage reads repo and pr from any pull request tab. page has no
+// query or fragment.
+function parsePrPage(href) {
+  const m = PR_HREF_RE.exec(String(href || ""));
+  if (!m) {
+    return null;
+  }
+  return {
+    repo: `${m[1]}/${m[2]}`,
+    pr: Number(m[3]),
+    page: String(href).split(/[?#]/)[0],
+  };
+}
+
+function threadPath(repo, pr) {
+  const q = new URLSearchParams();
+  q.set("repo", String(repo));
+  q.set("pr", String(pr));
+  return `/thread?${q}`;
+}
+
+function roleLabel(role) {
+  return { you: "You", agent: "Agent", note: "Note" }[role] || role || "";
+}
+
+function formatMessageTime(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    return "";
+  }
+  return d.toLocaleString();
+}
+
+function panelMessages(body) {
+  if (!body || !Array.isArray(body.messages)) {
+    return [];
+  }
+  return body.messages.filter(
+    (m) =>
+      m &&
+      (m.role === "you" || m.role === "agent" || m.role === "note") &&
+      typeof m.time === "string" &&
+      typeof m.text === "string",
+  );
+}
+
+// panelView is what the side panel shows for a GET /thread response and
+// the thread's latest status. A miss is the empty state.
+function panelView(threadRes, statusBody) {
+  const id =
+    threadRes && threadRes.status === 200 && threadRes.body && typeof threadRes.body.id === "string"
+      ? threadRes.body.id
+      : "";
+  if (!id) {
+    return { empty: true, id: null, closed: false, messages: [] };
+  }
+  return {
+    empty: false,
+    id,
+    closed: Boolean(statusBody && statusBody.closed),
+    messages: panelMessages(statusBody),
+  };
+}
+
+// renderMessage builds one message from textContent only. The text is
+// untrusted and is never parsed as HTML.
+function renderMessage(doc, message) {
+  const row = doc.createElement("div");
+  row.className = "gh-ask-msg";
+  const meta = doc.createElement("div");
+  meta.className = "gh-ask-msg-meta";
+  meta.textContent = `${roleLabel(message.role)} · ${formatMessageTime(message.time)}`;
+  const text = doc.createElement("div");
+  text.className = "gh-ask-msg-text";
+  text.style.whiteSpace = "pre-wrap";
+  text.textContent = message.text;
+  row.append(meta, text);
+  return row;
+}
+
+function renderPanel(doc, view) {
+  const root = doc.createElement("div");
+  if (view.empty) {
+    const empty = doc.createElement("p");
+    empty.textContent = PANEL_EMPTY;
+    root.append(empty);
+  } else {
+    if (view.closed) {
+      const closed = doc.createElement("div");
+      closed.textContent = "closed";
+      root.append(closed);
+    }
+    for (const message of view.messages) {
+      root.append(renderMessage(doc, message));
+    }
+  }
+  const footer = doc.createElement("p");
+  footer.textContent = PANEL_FOOTER;
+  root.append(footer);
+  return root;
+}
+
+// panelPollInterval is 20s while the newest message is from you, and
+// 60s when the agent has answered or there is nothing to wait on.
+function panelPollInterval(messages) {
+  const last = messages && messages.length ? messages[messages.length - 1] : null;
+  return last && last.role === "you" ? PANEL_POLL_YOU_MS : PANEL_POLL_IDLE_MS;
+}
+
+function messageKey(messages) {
+  if (!messages || messages.length === 0) {
+    return "";
+  }
+  const last = messages[messages.length - 1];
+  return `${messages.length}\n${last.role}\n${last.time}\n${last.text}`;
+}
+
+// startPanelPolling fetches status on the panel cadence until 30 minutes
+// pass with no new message. refresh() starts that window over.
+// fetchStatus(done) calls done({status, body}).
+function startPanelPolling(opts) {
+  const maxMs = opts.maxMs ?? POLL_MAX_MS;
+  let messages = opts.messages ? opts.messages.slice() : [];
+  let closed = Boolean(opts.closed);
+  let lastChange = opts.now();
+  let timer = null;
+  let stopped = false;
+
+  function halt(error) {
+    stopped = true;
+    if (timer !== null) {
+      opts.clearTimeout(timer);
+      timer = null;
+    }
+    opts.onUpdate({ messages, closed, stopped: true, error });
+  }
+
+  function schedule() {
+    if (stopped) {
+      return;
+    }
+    const elapsed = opts.now() - lastChange;
+    const wait = panelPollInterval(messages);
+    if (elapsed >= maxMs || elapsed + wait > maxMs) {
+      halt(`stopped polling after ${Math.round(maxMs / 60_000)} min`);
+      return;
+    }
+    timer = opts.setTimeout(tick, wait);
+  }
+
+  function tick() {
+    timer = null;
+    if (stopped) {
+      return;
+    }
+    if (!opts.isVisible()) {
+      schedule();
+      return;
+    }
+    opts.fetchStatus((res) => {
+      if (stopped) {
+        return;
+      }
+      if (res.status === 200 && validStatus(res.body)) {
+        const next = panelMessages(res.body);
+        if (messageKey(next) !== messageKey(messages)) {
+          lastChange = opts.now();
+        }
+        messages = next;
+        closed = Boolean(res.body.closed);
+        opts.onUpdate({ messages, closed, stopped: false });
+      } else {
+        const msg = res.status === 200 ? "bad status reply" : askError(res.status, res.body?.error);
+        opts.onUpdate({ messages, closed, stopped: false, error: msg });
+        if ([-1, 401, 403, 404].includes(res.status)) {
+          stopped = true;
+          return;
+        }
+      }
+      schedule();
+    });
+  }
+
+  schedule();
+  return {
+    stop() {
+      stopped = true;
+      if (timer !== null) {
+        opts.clearTimeout(timer);
+        timer = null;
+      }
+    },
+    refresh() {
+      stopped = false;
+      lastChange = opts.now();
+      if (timer !== null) {
+        opts.clearTimeout(timer);
+        timer = null;
+      }
+      schedule();
+    },
+  };
+}
+
+// panelAsk is the follow-up POST /ask. With a line from a chip it sends
+// that line; otherwise it sends the whole pull request.
+function panelAsk({ href, headSha, question, deep, line }) {
+  const url = parsePrPage(href);
+  if (!url) {
+    return { error: "not a pull request page" };
+  }
+  if (!SHA_RE.test(headSha || "")) {
+    return { error: "could not find the head commit on this page" };
+  }
+  if (!question || question.trim() === "") {
+    return { error: "the question is empty" };
+  }
+  if (utf8Len(question) > MAX_QUESTION_BYTES) {
+    return { error: "the question is over 2 KB" };
+  }
+  let pageUrl = line && line.page_url ? line.page_url : url.page;
+  if (utf8Len(pageUrl) > MAX_PAGE_URL_BYTES) {
+    pageUrl = url.page;
+  }
+  const payload = {
+    repo: url.repo,
+    pr: url.pr,
+    head_sha: headSha,
+    question,
+    deep: Boolean(deep),
+    page_url: pageUrl,
+  };
+  if (line) {
+    payload.path = line.path;
+    payload.side = line.side;
+    payload.start_line = line.start_line;
+    payload.end_line = line.end_line;
+    payload.selection = line.selection || "";
+  }
+  return { payload };
+}
 
 function isDiffPath(pathname) {
   return DIFF_PATH_RE.test(pathname || "");
@@ -623,18 +888,40 @@ function isDiffPath(pathname) {
 const navDebounceMs = 100;
 const NAV_EVENT = "gh-ask:navigate";
 
-// bindPage watches pathname and calls activate() on a diff view.
-// activate returns a function that removes that session. A later diff
-// view deactivates the previous one first, so buttons are not duplicated.
-// Other pages only compare the path.
+// bindPage watches pathname. activate() runs on a diff view and
+// activatePanel(), when given, runs for the whole pull request so the
+// side panel stays up across its tabs. Each returns a stop function.
 function bindPage(page) {
   let activePath = null;
   let stopSession = null;
+  let panelKey = null;
+  let stopPanel = null;
   let timer = null;
 
-  function sync() {
-    timer = null;
-    const path = page.location.pathname || "";
+  function syncPanel(path) {
+    if (!page.activatePanel) {
+      return;
+    }
+    const key = prKey(path);
+    if (key) {
+      if (panelKey === key) {
+        return;
+      }
+      if (stopPanel) {
+        stopPanel();
+      }
+      stopPanel = page.activatePanel();
+      panelKey = key;
+      return;
+    }
+    if (stopPanel) {
+      stopPanel();
+      stopPanel = null;
+    }
+    panelKey = null;
+  }
+
+  function syncDiff(path) {
     if (isDiffPath(path)) {
       if (activePath === path) {
         return;
@@ -652,6 +939,13 @@ function bindPage(page) {
       stopSession = null;
     }
     activePath = null;
+  }
+
+  function sync() {
+    timer = null;
+    const path = page.location.pathname || "";
+    syncPanel(path);
+    syncDiff(path);
   }
 
   function schedule() {
@@ -699,6 +993,11 @@ function bindPage(page) {
         stopSession = null;
       }
       activePath = null;
+      if (stopPanel) {
+        stopPanel();
+        stopPanel = null;
+      }
+      panelKey = null;
     },
   };
 }
@@ -710,17 +1009,26 @@ const GhAsk = {
   buildWholePrPayload,
   chipText,
   findHeadSha,
+  formatMessageTime,
   isDiffPath,
+  isPrPath,
   lineInfo,
   navDebounceMs,
   onPopoverKey,
+  panelAsk,
+  panelPollInterval,
+  panelView,
   parsePrUrl,
   placeInView,
   prHeader,
+  renderMessage,
+  renderPanel,
   serverUrl,
+  startPanelPolling,
   startPolling,
   statusLabel,
   statusPath,
+  threadPath,
   truncateUtf8,
 };
 
@@ -737,9 +1045,309 @@ const CSS = `
 .gh-ask-pop .gh-ask-row { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
 .gh-ask-pop .gh-ask-err { color: #cf222e; margin-top: 6px; white-space: pre-wrap; }
 .gh-ask-chip { display: inline-block; margin-left: 8px; padding: 0 6px; font: 11px sans-serif;
-  border-radius: 10px; background: #ddf4ff; color: #0969da; white-space: nowrap; }
+  border-radius: 10px; background: #ddf4ff; color: #0969da; white-space: nowrap; cursor: pointer; }
 .gh-ask-chip.gh-ask-bad { background: #ffebe9; color: #cf222e; }
 `;
+
+const PANEL_CSS = `
+.gh-ask-panel { position: fixed; top: 0; right: 0; z-index: 200; width: 360px; max-width: 100%;
+  height: 100vh; box-sizing: border-box; display: flex; flex-direction: column;
+  background: #fff; color: #1f2328; border-left: 1px solid #d0d7de; font: 13px sans-serif; }
+.gh-ask-panel-log { flex: 1; overflow: auto; padding: 12px; }
+.gh-ask-msg { margin: 0 0 12px; }
+.gh-ask-msg-meta { font: 11px sans-serif; color: #59636e; }
+.gh-ask-msg-text { white-space: pre-wrap; }
+.gh-ask-panel-foot { padding: 8px 12px; border-top: 1px solid #d0d7de; }
+.gh-ask-panel-foot textarea { width: 100%; height: 72px; box-sizing: border-box; }
+.gh-ask-panel .gh-ask-row { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+.gh-ask-panel .gh-ask-err { color: #cf222e; margin-top: 6px; white-space: pre-wrap; }
+.gh-ask-note { color: #59636e; margin: 8px 0 0; }
+`;
+
+function el(tag, props, children) {
+  const e = document.createElement(tag);
+  Object.assign(e, props);
+  for (const c of children || []) {
+    e.append(c);
+  }
+  return e;
+}
+
+// loopbackRequest calls gh-ask serve. status 0 is no response, -1 missing settings.
+function loopbackRequest(method, path, body, done) {
+  const token = GM_getValue("token", "");
+  const port = GM_getValue("port", DEFAULT_PORT);
+  const url = serverUrl(port, path);
+  if (!url || !token) {
+    done({ status: -1 });
+    return;
+  }
+  const headers = { "X-Gh-Ask-Token": token };
+  if (body !== null) {
+    headers["Content-Type"] = "application/json";
+  }
+  GM_xmlhttpRequest({
+    method,
+    url,
+    headers,
+    data: body === null ? undefined : JSON.stringify(body),
+    anonymous: true,
+    timeout: 150_000,
+    onload: (r) => {
+      let parsed = null;
+      try {
+        parsed = JSON.parse(r.responseText);
+      } catch {
+        parsed = null;
+      }
+      done({ status: r.status, body: parsed });
+    },
+    onerror: () => done({ status: 0 }),
+    ontimeout: () => done({ status: 0 }),
+  });
+}
+
+let panelApi = null;
+let panelStyleAdded = false;
+
+// activatePanel mounts the read-only thread panel for one pull request.
+// It returns a function that removes the panel.
+function activatePanel() {
+  if (!panelStyleAdded) {
+    GM_addStyle(PANEL_CSS);
+    panelStyleAdded = true;
+  }
+  const doc = { createElement: (tag) => document.createElement(tag) };
+  const toggle = el("button", {
+    type: "button",
+    className: "gh-ask-btn gh-ask-header",
+    textContent: "gh-ask",
+  });
+  const log = el("div", { className: "gh-ask-panel-log" });
+  const question = el("textarea", { placeholder: "Follow-up for the agent" });
+  const deep = el("input", { type: "checkbox" });
+  const send = el("button", {
+    type: "button",
+    className: "btn btn-sm btn-primary",
+    textContent: "Send",
+    title: "Send (⌘↵ / Ctrl+↵)",
+  });
+  const refresh = el("button", { type: "button", className: "btn btn-sm", textContent: "Refresh" });
+  const err = el("div", { className: "gh-ask-err" });
+  const note = el("div", { className: "gh-ask-note", textContent: PANEL_FOOTER });
+  const foot = el("div", { className: "gh-ask-panel-foot" }, [
+    question,
+    el("div", { className: "gh-ask-row" }, [el("label", {}, [deep, " deep"]), send, refresh]),
+    err,
+    note,
+  ]);
+  const panel = el("aside", { className: "gh-ask-panel", hidden: true }, [log, foot]);
+  document.body.append(panel);
+
+  let watch = null;
+  let line = null;
+  let poll = null;
+  let sending = false;
+  let threadId = null;
+
+  function clearLog() {
+    while (log.firstChild) {
+      log.removeChild(log.firstChild);
+    }
+  }
+
+  function paint(view) {
+    clearLog();
+    if (view.empty) {
+      log.append(el("p", { textContent: PANEL_EMPTY }));
+    } else {
+      if (view.closed) {
+        log.append(el("div", { textContent: "closed" }));
+      }
+      for (const message of view.messages) {
+        log.append(renderMessage(doc, message));
+      }
+    }
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function stopPoll() {
+    if (poll) {
+      poll.stop();
+      poll = null;
+    }
+  }
+
+  function beginPoll(messages, closed) {
+    stopPoll();
+    poll = startPanelPolling({
+      now: () => Date.now(),
+      setTimeout: (fn, ms) => window.setTimeout(fn, ms),
+      clearTimeout: (t) => window.clearTimeout(t),
+      isVisible: () => document.visibilityState === "visible" && !panel.hidden,
+      messages,
+      closed,
+      fetchStatus: (done) => loopbackRequest("GET", statusPath(threadId), null, done),
+      onUpdate: ({ messages: msgs, closed: isClosed, error }) => {
+        if (!threadId) {
+          return;
+        }
+        paint(
+          panelView(
+            { status: 200, body: { id: threadId } },
+            {
+              state: "",
+              answered: false,
+              closed: Boolean(isClosed),
+              messages: msgs,
+            },
+          ),
+        );
+        err.textContent = error || "";
+      },
+    });
+  }
+
+  function loadThread() {
+    const page = parsePrPage(window.location.href);
+    if (!page) {
+      threadId = null;
+      stopPoll();
+      paint(panelView({ status: 404 }, null));
+      return;
+    }
+    loopbackRequest("GET", threadPath(page.repo, page.pr), null, (res) => {
+      if (panel.hidden) {
+        return;
+      }
+      const view = panelView(res, null);
+      if (view.empty) {
+        threadId = null;
+        stopPoll();
+        paint(view);
+        if (res.status !== 404 && res.status !== 200) {
+          err.textContent = askError(res.status, res.body && res.body.error);
+        }
+        return;
+      }
+      threadId = view.id;
+      loopbackRequest("GET", statusPath(threadId), null, (st) => {
+        if (panel.hidden) {
+          return;
+        }
+        const body =
+          st.status === 200 && validStatus(st.body)
+            ? st.body
+            : { state: "", answered: false, closed: false, messages: [] };
+        paint(panelView({ status: 200, body: { id: threadId } }, body));
+        beginPoll(panelMessages(body), Boolean(body.closed));
+        if (st.status !== 200) {
+          err.textContent = askError(st.status, st.body && st.body.error);
+        }
+      });
+    });
+  }
+
+  function open(nextLine) {
+    line = nextLine || null;
+    panel.hidden = false;
+    err.textContent = "";
+    loadThread();
+  }
+
+  function close() {
+    panel.hidden = true;
+    stopPoll();
+  }
+
+  function submit() {
+    if (sending) {
+      return;
+    }
+    const built = panelAsk({
+      href: window.location.href,
+      headSha: findHeadSha(document.documentElement, window.location.href),
+      question: question.value,
+      deep: deep.checked,
+      line,
+    });
+    if (built.error) {
+      err.textContent = built.error;
+      return;
+    }
+    sending = true;
+    send.disabled = true;
+    err.textContent = "";
+    loopbackRequest("POST", "/ask", built.payload, (res) => {
+      sending = false;
+      send.disabled = false;
+      if (panel.hidden) {
+        return;
+      }
+      if (res.status === 200 && res.body && typeof res.body.id === "string" && res.body.id !== "") {
+        question.value = "";
+        threadId = res.body.id;
+        loadThread();
+        return;
+      }
+      err.textContent =
+        res.status === 200
+          ? "the server returned no id"
+          : askError(res.status, res.body && res.body.error);
+    });
+  }
+
+  toggle.addEventListener("click", () => {
+    if (panel.hidden) {
+      open(null);
+    } else {
+      close();
+    }
+  });
+  refresh.addEventListener("click", () => {
+    err.textContent = "";
+    if (poll) {
+      poll.refresh();
+      return;
+    }
+    loadThread();
+  });
+  send.addEventListener("click", submit);
+  foot.addEventListener("keydown", (event) => {
+    onPopoverKey(event, { question: question.value, sending, send: submit, close });
+  });
+
+  function mountToggle() {
+    const title = prHeader(document.documentElement);
+    const host = title && title.parentElement;
+    if (!host) {
+      return false;
+    }
+    if (!host.contains(toggle)) {
+      host.append(toggle);
+    }
+    return true;
+  }
+  watch = new MutationObserver(() => {
+    mountToggle();
+  });
+  watch.observe(document.documentElement, { childList: true, subtree: true });
+  mountToggle();
+
+  panelApi = { open, close };
+  return function stop() {
+    if (panelApi && panelApi.open === open) {
+      panelApi = null;
+    }
+    stopPoll();
+    if (watch) {
+      watch.disconnect();
+      watch = null;
+    }
+    toggle.remove();
+    panel.remove();
+  };
+}
 
 function registerMenu() {
   const TOKEN_RE = /^[\x21-\x7e]{1,256}$/;
@@ -779,51 +1387,8 @@ function registerMenu() {
 // main installs the diff-view controls and returns a function that
 // removes them, their listeners, and any status polling.
 function main() {
-  function settings() {
-    return { token: GM_getValue("token", ""), port: GM_getValue("port", DEFAULT_PORT) };
-  }
-
-  // request sends one request to the loopback server and calls done
-  // with {status, body}. status 0 is no response, -1 missing settings.
   function request(method, path, body, done) {
-    const { token, port } = settings();
-    const url = serverUrl(port, path);
-    if (!url || !token) {
-      done({ status: -1 });
-      return;
-    }
-    const headers = { "X-Gh-Ask-Token": token };
-    if (body !== null) {
-      headers["Content-Type"] = "application/json";
-    }
-    GM_xmlhttpRequest({
-      method,
-      url,
-      headers,
-      data: body === null ? undefined : JSON.stringify(body),
-      anonymous: true,
-      timeout: 150_000,
-      onload: (r) => {
-        let parsed = null;
-        try {
-          parsed = JSON.parse(r.responseText);
-        } catch {
-          parsed = null;
-        }
-        done({ status: r.status, body: parsed });
-      },
-      onerror: () => done({ status: 0 }),
-      ontimeout: () => done({ status: 0 }),
-    });
-  }
-
-  function el(tag, props, children) {
-    const e = document.createElement(tag);
-    Object.assign(e, props);
-    for (const c of children || []) {
-      e.append(c);
-    }
-    return e;
+    loopbackRequest(method, path, body, done);
   }
 
   const style = el("style", { textContent: CSS });
@@ -1007,6 +1572,23 @@ function main() {
       }
       if (!chip) {
         chip = el("span", { className: "gh-ask-chip" });
+        const asked = built.payload;
+        const chipLine =
+          asked && asked.path
+            ? {
+                path: asked.path,
+                side: asked.side,
+                start_line: asked.start_line,
+                end_line: asked.end_line,
+                selection: asked.selection,
+                page_url: asked.page_url,
+              }
+            : null;
+        chip.addEventListener("click", () => {
+          if (panelApi) {
+            panelApi.open(chipLine);
+          }
+        });
         placeChip(chip);
       }
       setChip(chip, "Asking agent…", false);
@@ -1155,6 +1737,7 @@ function boot() {
     setTimeout: (fn, ms) => window.setTimeout(fn, ms),
     clearTimeout: (t) => window.clearTimeout(t),
     activate: () => main(),
+    activatePanel: () => activatePanel(),
   });
 }
 
