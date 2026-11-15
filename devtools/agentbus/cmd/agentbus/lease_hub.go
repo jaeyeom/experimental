@@ -48,6 +48,8 @@ func checkoutRoot(key string) string {
 type sshRoute struct {
 	hub    hubcall.Hub
 	handle string
+	env    []string
+	cfg    config.Config
 }
 
 type sshRouteKey struct{}
@@ -77,7 +79,7 @@ func leaseHubRoute(ctx context.Context, cfg config.Config, env []string, bound b
 	if ok {
 		return routed, nil
 	}
-	r := sshRoute{hub: agentHub(cfg)}
+	r := sshRoute{hub: agentHub(cfg), env: env, cfg: cfg}
 	if bound {
 		r.hub.ConnectTimeout = leaseHookTimeout / 3
 		r.hub.Deadline = leaseHookTimeout / 2
@@ -108,7 +110,7 @@ func (r sshRoute) call(ctx context.Context, req daemon.Request) (daemon.Response
 	}
 	code, err := r.hub.Run(ctx, call)
 	if err != nil {
-		return daemon.Response{}, fmt.Errorf("%w", err)
+		return daemon.Response{}, fmt.Errorf("over ssh: %w", sshHint(r.env, r.cfg, err))
 	}
 	if code != 0 {
 		return daemon.Response{}, fmt.Errorf("hub %s: agentbus lease forward exited %d: %s", r.hub.Target, code, strings.TrimSpace(stderr.String()))

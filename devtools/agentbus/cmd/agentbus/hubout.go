@@ -334,7 +334,7 @@ func attemptSSH(ctx context.Context, cfg config.Config, _ []string, e outbox.Ent
 	if kind != attemptTransport {
 		_, _ = io.Copy(stderr, &errBuf)
 	}
-	return attempt{kind: kind, code: code, err: err}
+	return attempt{kind: kind, code: code, err: fmt.Errorf("over ssh: %w", err)}
 }
 
 func classifySSH(err error, mismatch bool) string {
@@ -515,7 +515,7 @@ func crockford(n *big.Int) string {
 }
 
 func openBox(env []string) (outbox.Box, error) {
-	dir, err := paths.StateDir(env)
+	dir, err := paths.ClientStateDir(env)
 	if err != nil {
 		return outbox.Box{}, fmt.Errorf("locate the outbox: %w", err)
 	}

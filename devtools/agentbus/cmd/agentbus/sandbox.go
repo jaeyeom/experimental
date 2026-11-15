@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -184,6 +185,21 @@ type doctorSocket struct{ label, path string }
 // doctorDialTimeout bounds each socket check.
 const doctorDialTimeout = time.Second
 
+// doctorDirs resolves the runtime and state directories. A sandbox
+// report still names the sockets when creating the runtime directory
+// fails, as long as their paths can be located.
+func doctorDirs(env []string, sandbox bool) (paths.Dirs, error) {
+	dirs, err := paths.FromEnv(env)
+	if err == nil {
+		return dirs, nil
+	}
+	located, locErr := paths.Locate(env)
+	if !sandbox || locErr != nil {
+		return paths.Dirs{}, err //nolint:wrapcheck // doctor prints this text as the reason
+	}
+	return located, nil
+}
+
 func cmdDoctor(ctx context.Context, args, env []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -195,7 +211,7 @@ func cmdDoctor(ctx context.Context, args, env []string, stdout, stderr io.Writer
 		fmt.Fprintln(stderr, "usage: agentbus doctor [--sandbox]")
 		return 2
 	}
-	dirs, err := paths.FromEnv(env)
+	dirs, err := doctorDirs(env, *sandbox)
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus doctor: %s\n", err)
 		return 1
@@ -227,7 +243,11 @@ func cmdDoctor(ctx context.Context, args, env []string, stdout, stderr io.Writer
 	if cfg.Hub != "" {
 		network["allowedDomains"] = []string{hubHost(cfg.Hub)}
 	}
-	body, err := json.MarshalIndent(map[string]any{"sandbox": map[string]any{"network": network}}, "", "  ")
+	sandboxDoc := map[string]any{"network": network}
+	if writes := sandboxWritePaths(env, dirs); len(writes) > 0 {
+		sandboxDoc["filesystem"] = map[string]any{"write": map[string]any{"allowOnly": writes}}
+	}
+	body, err := json.MarshalIndent(map[string]any{"sandbox": sandboxDoc}, "", "  ")
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus doctor: %s\n", err)
 		return 1
@@ -498,6 +518,22 @@ func agentSockDiffers(env []string) bool {
 		want = live
 	}
 	return filepath.Clean(got) != filepath.Clean(want)
+}
+
+// sandboxWritePaths is every directory a hub client still writes.
+// allowOnly is the Claude Code filesystem.write setting.
+func sandboxWritePaths(env []string, dirs paths.Dirs) []string {
+	var out []string
+	if dir, err := paths.ClientStateDir(env); err == nil && dir != "" {
+		out = append(out, dir)
+	}
+	if dirs.SocketPath != "" {
+		runtimeDir := filepath.Dir(filepath.Dir(dirs.SocketPath))
+		if runtimeDir != "" && runtimeDir != "." && !slices.Contains(out, runtimeDir) {
+			out = append(out, runtimeDir)
+		}
+	}
+	return out
 }
 
 // doctorSockets is the sandbox allowlist. Hub mode has no local daemon.

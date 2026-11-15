@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -120,6 +121,34 @@ func hubStatus(t *testing.T, hubEnv []string) []lease.Status {
 		t.Fatalf("status --all --json = %s: %v", out, err)
 	}
 	return st
+}
+
+func TestLeaseClaimUsesTheTunnelWhenTheRuntimeDirCannotBeChmodded(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("the default runtime directory is darwin's")
+	}
+	h := newHubLeaseWorld(t)
+	home := shortRuntime(t)
+	runtimeDir := filepath.Join(home, "Library", "Caches", "agentbus", "run")
+	if err := os.MkdirAll(runtimeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	tunnel := filepath.Join(runtimeDir, "agentbus", "tunnel.sock")
+	h.startHub(t, tunnel)
+	env := slices.DeleteFunc(slices.Clone(h.base), func(kv string) bool {
+		return strings.HasPrefix(kv, "XDG_RUNTIME_DIR=") || strings.HasPrefix(kv, "HOME=")
+	})
+	env = append(env, "HOME="+home, "HERDR_PANE_ID=w1:p1")
+	code, stdout, stderr := runCmd([]string{"lease", "claim", "--path", h.repo, "--for", "40m"}, env)
+	if code != 0 {
+		t.Fatalf("claim = %d\nstdout %s\nstderr %s", code, stdout, stderr)
+	}
+	if !strings.HasPrefix(stdout, "granted until ") {
+		t.Fatalf("claim = %q", stdout)
+	}
+	if h.usedSSH() {
+		t.Fatalf("lease used ssh: %q", h.ssh.Lines("argv"))
+	}
 }
 
 func TestLeaseHubTunnelClaimAndReleaseRunGitHere(t *testing.T) {

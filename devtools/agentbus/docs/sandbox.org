@@ -11,9 +11,12 @@ under ~~/Library/Caches/agentbus/run/agentbus/~ (~daemon.sock~,
 and is not ~$TMPDIR~. A socket path of 104 bytes or more,
 including the terminating NUL, is an error that names the path. When
 ~XDG_RUNTIME_DIR~ is set, both systems use it and the macOS default
-directory is not created. The state directory is
+directory is not created. The daemon's state directory is
 ~$XDG_STATE_HOME/agentbus~, or ~$HOME/.local/state/agentbus~ when
-~XDG_STATE_HOME~ is unset. The CLI reports a missing state directory,
+~XDG_STATE_HOME~ is unset. A hub client's outbox on macOS is
+~~/Library/Caches/agentbus/state~ instead, so a sandbox allowlist can
+name one directory next to the run sockets. ~XDG_STATE_HOME~ still
+wins. The CLI reports a missing state directory,
 or a missing Linux runtime directory, instead of guessing.
 
 The daemon needs that state directory. It also needs the ~herdr~
@@ -109,6 +112,14 @@ Claude Code sandbox settings this machine needs (merge into settings.json):
       "allowedDomains": [
         "hub"
       ]
+    },
+    "filesystem": {
+      "write": {
+        "allowOnly": [
+          "/Users/me/Library/Caches/agentbus/state",
+          "/Users/me/Library/Caches/agentbus/run"
+        ]
+      }
     }
   }
 }
