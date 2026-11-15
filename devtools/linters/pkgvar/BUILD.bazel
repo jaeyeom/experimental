@@ -2,6 +2,8 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 # gazelle:exclude testdata
 
+exports_files(["analyzer.go"])
+
 go_library(
     name = "go_default_library",
     srcs = ["analyzer.go"],
