@@ -160,6 +160,25 @@ func TestDriftPoolPatterns(t *testing.T) {
 	}
 }
 
+func TestDriftSkipsPoolWorkspace(t *testing.T) {
+	spec := Spec{Pools: map[string]Pool{"hands": {Workspace: "workers"}}}
+	live := Live{
+		Tabs: []LiveTab{
+			{Workspace: "workers", Label: "a"},
+			{Workspace: "workers", Label: "b"},
+			{Workspace: "workers", Label: "c"},
+			{Workspace: "misc", Label: "stray"},
+		},
+		Names:  []LiveName{{Name: "worker/one"}, {Name: "other/name"}},
+		Agents: []LiveAgent{{Name: "worker/one", Workspace: "workers", Tab: "a"}},
+	}
+	got := strings.Join(Drift(spec, live), "\n")
+	want := "+ tab misc/stray\nUSER: close tab stray in misc\n+ name other/name\nmodule drift.stub\n\nname = \"other/name\"\n"
+	if got != want {
+		t.Fatalf("drift =\n%s\nwant\n%s", got, want)
+	}
+}
+
 func TestCheckPatterns(t *testing.T) {
 	err := (Spec{Pools: map[string]Pool{"hands": {NamePattern: "["}}}).CheckPatterns()
 	if err == nil || err.Error() != `pool hands: namePattern "[": syntax error in pattern` {

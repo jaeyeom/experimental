@@ -282,6 +282,7 @@ role. The job is the one with the same cron expression, not the same
 id. The suggestion names the role that owns the session.
 
 A pool with no patterns hides every tab in its workspace, and hides
-names that start with the pool key. A namePattern or tabPattern limits
+a name that starts with the pool key or whose agent is in that
+workspace. A namePattern or tabPattern limits
 that to matching workers. When both are set, a worker must match both.
 A role key stays a role.
