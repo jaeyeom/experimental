@@ -260,8 +260,11 @@ func (m *Model) mouseCommand() tea.Cmd {
 func (m *Model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// Shift+drag is the terminal's selection bypass. Leave it alone.
 	// Capture off lets a plain drag select in the terminal.
-	if !m.mouseOn || msg.Shift || m.snoozing || m.linkPick || m.avatarPick {
+	if !m.mouseOn || msg.Shift || m.snoozing || m.linkPick {
 		return m, nil
+	}
+	if m.avatarPick {
+		return m.updateAvatarMouse(msg)
 	}
 	switch msg.Button {
 	case tea.MouseButtonWheelDown:
@@ -277,6 +280,27 @@ func (m *Model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// Click keeps 1-based columns. Bubbletea mouse messages are 0-based.
 	if msg.Ctrl {
 		m.CtrlClick(msg.X+1, msg.Y+1)
+		return m, nil
+	}
+	if err := m.Click(msg.X+1, msg.Y+1); err != nil {
+		m.runErr = err
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+// updateAvatarMouse clicks a picker cell, cancels outside one, or
+// moves one row with the wheel. Ctrl+click stays a no-op.
+func (m *Model) updateAvatarMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	switch msg.Button {
+	case tea.MouseButtonWheelDown:
+		m.moveAvatarPick(m.avatarPerRow())
+		return m, nil
+	case tea.MouseButtonWheelUp:
+		m.moveAvatarPick(-m.avatarPerRow())
+		return m, nil
+	}
+	if msg.Ctrl || msg.Button != tea.MouseButtonLeft || msg.Action != tea.MouseActionPress {
 		return m, nil
 	}
 	if err := m.Click(msg.X+1, msg.Y+1); err != nil {

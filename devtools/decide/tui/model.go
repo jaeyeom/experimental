@@ -1388,7 +1388,7 @@ func (m *Model) statusLine() screenLine {
 		return screenLine{text: label + linkPickHint}
 	}
 	if m.avatarPick {
-		return screenLine{text: label + avatarPickHint}
+		return screenLine{text: label + m.avatarHint()}
 	}
 	if m.copyMenu {
 		hint := label + "m message  q question  t thread  i id  a answer  esc"

@@ -24,6 +24,14 @@ const (
 
 const avatarPickHint = "hjkl/arrows move  enter saves  esc cancels"
 
+// avatarHint is the picker footer. Mouse capture adds the click line.
+func (m *Model) avatarHint() string {
+	if !m.mouseOn {
+		return avatarPickHint
+	}
+	return avatarPickHint + "  click saves, outside cancels"
+}
+
 // SaveAvatar sets name's avatar in this machine's config to a built-in
 // id, "default" to drop name's exact rule, or "none" to hide it. It
 // returns the config's avatar rules after the write. The inbox picker
@@ -288,11 +296,44 @@ func (m *Model) avatarPickLines() []screenLine {
 				rows[k] += cell + strings.Repeat(" ", max(cellW-lipgloss.Width(cell), 0))
 			}
 		}
+		hits := avatarCellHits(len(cells), r, perRow)
 		for _, text := range rows {
-			lines = append(lines, screenLine{text: text})
+			lines = append(lines, screenLine{text: text, hits: append([]hit(nil), hits...)})
 		}
 	}
 	return boxLines(lines)
+}
+
+// avatarCellHits marks each cell on a grid row. n is the entry index.
+// Columns are 1-based inside the line, before the picker box.
+func avatarCellHits(nCells, gridRow, perRow int) []hit {
+	cellW := avatarCellWidth()
+	stride := cellW + len(avatarCellGap)
+	hits := make([]hit, nCells)
+	for c := range nCells {
+		x0 := c*stride + 1
+		hits[c] = hit{kind: hitAvatar, n: gridRow*perRow + c, x0: x0, x1: x0 + cellW - 1}
+	}
+	return hits
+}
+
+// clickAvatar saves the cell under x, y, or cancels when the click
+// misses every cell. Coordinates are 1-based and View has just run.
+func (m *Model) clickAvatar(x, y int) error {
+	if y >= 1 && y <= len(m.rows) {
+		for _, h := range m.rows[y-1] {
+			if h.kind != hitAvatar || (h.x1 != 0 && (x < h.x0 || x > h.x1)) {
+				continue
+			}
+			m.avatarCursor = h.n
+			m.avatarPick = false
+			m.saveAvatar(m.avatarOwner, avatarPickEntries()[h.n])
+			return nil
+		}
+	}
+	m.avatarPick = false
+	m.status = ""
+	return nil
 }
 
 // pickFigure is a built-in id's figure, or nil for default and none.

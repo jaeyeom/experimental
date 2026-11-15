@@ -16,6 +16,7 @@ const (
 	hitReply
 	hitOutcome
 	hitNote
+	hitAvatar
 )
 
 // hit is one clickable span on a screen row. x0 and x1 are 1-based columns.
@@ -35,6 +36,9 @@ type hit struct {
 // Click handles one left-button press at 1-based screen coordinates.
 func (m *Model) Click(x, y int) error {
 	m.View()
+	if m.avatarPick {
+		return m.clickAvatar(x, y)
+	}
 	if m.answerFocus && !m.onAnswerRow(x, y) {
 		m.answerFocus = false
 		m.free.Blur()

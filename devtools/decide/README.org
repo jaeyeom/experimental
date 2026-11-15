@@ -363,7 +363,9 @@ none: the status line says ~no avatar for <sender>~. ~A~ on a Contacts
 row opens it for that agent. Every
 built-in figure with its id under it, ~*~ on the figure shown now and
 ~>~ on the cursor. ~h~ ~j~ ~k~ ~l~ or the arrows move, ~Enter~ saves,
-and ~Esc~ cancels; the grid scrolls when it does not fit. Two extra
+and ~Esc~ cancels; the grid scrolls when it does not fit. With mouse
+capture on, a click on a cell saves it, a click outside the picker
+or on its border cancels, and the wheel moves one row. Two extra
 entries come first: ~default~ removes that name's exact rule, so glob
 rules or ~avatarDefault~ apply again, and ~none~ hides that name's
 avatar. The new avatar shows at once, and the status line says
