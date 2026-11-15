@@ -1,0 +1,10 @@
+load("//tools/org-lint:defs.bzl", "org_lint_tests")
+
+org_lint_tests([
+    "delivery.org",
+    "hibernate.org",
+    "json-reference.org",
+    "lease.org",
+    "multi-machine.org",
+    "sandbox.org",
+])

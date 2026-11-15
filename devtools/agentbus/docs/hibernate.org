@@ -1,0 +1,303 @@
+Read this to see where agent memory goes, or to stop idle agents without closing their panes.
+Sending a message does not require it; everyday commands are in [[file:../README.org][the agentbus guide]].
+
+* Memory per agent
+
+~agentbus mem [--json]~ shows where memory goes on this machine: one
+row per local herdr pane that has an agent, largest first. A shell-only
+pane is not listed.
+
+#+BEGIN_EXAMPLE
+PANE   TAB      NAMES  STATE    SINCE    RSS        JOBS  LEASE
+w1:p1  inbox    ops/x  idle     3h12m    471.0 MiB  1     queued local:/src/repo
+w1:p2  build    -      working  unknown  400.0 MiB  0     holds local:/src/repo
+total 871.0 MiB in 2 agents (idle 1, working 1); 8.0 GiB available; hibernate policy off
+#+END_EXAMPLE
+
+| Column | Value |
+|--------+-------|
+| ~PANE~, ~TAB~ | The herdr pane and its tab label. |
+| ~NAMES~ | The bus names registered on the pane's handle. |
+| ~STATE~ | herdr's agent state: ~idle~, ~done~, ~working~, ~blocked~, or ~unknown~. |
+| ~SINCE~ | For an ~idle~ or ~done~ row, how long the agent has been idle by the daemon's idle tracker, the time ~hibernate --idle-over~ and the policy use, such as ~3h12m~. ~>=40m~ means it was already idle when the tracker started 40 minutes ago, so at least that long. ~unknown~ for other states, when the daemon cannot be asked, or when the tracker has no time for the agent. |
+| ~RSS~ | The summed RSS of the pane's foreground processes (from ~herdr pane process-info~) and all their descendants. |
+| ~JOBS~ | Long-lived background jobs: children of a foreground process that have run at least 10s (an unknown age counts as old) and are not a known helper such as an MCP or language server, a status-line command, or the Claude Code sandbox's socat bridges. This is prsync's ~background-job~ rule, shared in ~devtools/pkg/procinfo~. |
+| ~LEASE~ | The checkouts the handle holds or is queued for. |
+
+The footer has the total agent RSS, the agent count by state, the
+available memory: ~MemAvailable~ from ~/proc/meminfo~ on Linux, and free
+plus inactive plus purgeable pages from ~vm_stat~ on macOS, and the
+[[*Hibernate under memory pressure][hibernation policy]] with its
+thresholds, such as ~hibernate policy on (below 1.5 GiB, target 3.0 GiB,
+min idle 30m0s)~.
+
+~--json~ prints one object with ~agents~, ~total_rss_bytes~,
+~available_bytes~, ~machine~ (the ~machine~ config label, else the host
+name), ~states~ (count by state), ~notes~, and ~hibernate_policy~ (~mode~,
+and unless it is ~off~, ~below_bytes~, ~target_bytes~, and
+~min_idle_seconds~). Each agent has ~pane~,
+~tab~, ~handle~, ~names~, ~state~, ~idle_since~ (an RFC 3339 time or
+~unknown~), with a time also ~idle_seconds~ and
+~idle_since_lower_bound: true~ for an at-least time, ~rss_bytes~, ~jobs~
+(each with ~pid~, ~age_seconds~, -1 when unknown, and ~command~),
+~leases~ (each with ~checkout~ and ~role~, ~holder~ or ~queued~),
+~session~ (herdr's ~agent_session.value~), and ~error~ when its
+process-info could not be read. Byte counts are integers;
+~available_bytes~ is left out when it cannot be read.
+
+One run makes one ~herdr agent list~ and one ~herdr tab list~ call, one
+~process-info~ call per agent pane, and one process-table read (~/proc~
+on Linux, one ~ps~ elsewhere). It does not start the daemon: when the
+daemon is down, the names and lease columns (and the JSON fields) are
+left out, ~SINCE~ is ~unknown~, and a note says why. The names, leases,
+and idle times come from one ~hibernate-state~ request to the daemon. When herdr cannot be reached, ~mem~
+exits non-zero.
+
+In hub mode the processes and memory are still read here, but the names
+and leases come from the hub: its ~list --json~ and ~lease status --all
+--json~, over the tunnel when it answers, otherwise over ssh (the two
+calls run side by side). Only this machine's handles
+(~herdr:<machine>/...~) are kept and matched to its panes; names and
+leases of other machines and of the hub's own panes are not shown. The
+whole hub lookup gets the hooks' deadline, ~AGENTBUS_HOOK_TIMEOUT~
+(default 3s), so ~mem~ stays quick. When the hub cannot be reached in
+time, or ~machine~ is not set, the columns are left out and a note
+names the hub. The hub's idle times are not this machine's, so ~SINCE~
+comes from the idle times ~agentbus hibernate --policy~ saves here (see
+[[*On a hub-mode client]]), for the agents herdr still reports with the
+state and ~state_change_seq~ the runner saw; without a runner it is
+~unknown~.
+
+* Hibernate idle agents
+
+~agentbus hibernate <name or handle>...~ and ~agentbus hibernate
+--idle-over <d> [--dry-run]~ stop idle agents on this machine but keep
+their herdr panes, their names, and a record of how to start them
+again. ~--idle-over 2h~ picks every agent the daemon has seen ~idle~ or
+~done~ for at least two hours.
+
+#+BEGIN_EXAMPLE
+$ agentbus hibernate --idle-over 2h
+hibernated ops/x (320.0 MiB freed)
+refused ops/y: unsent text in the composer; holds the lease on local:/src/repo
+#+END_EXAMPLE
+
+An agent is stopped only when every check passes. A refusal names each
+check that failed:
+
+| Check | Refused when |
+|-------+--------------|
+| State | herdr's agent state is not ~idle~ or ~done~. |
+| Dialog | The screen shows a permission or question prompt. |
+| Background job | A long-lived child of the agent runs, by the rule of [[*Memory per agent]]. |
+| Build tool | A build-tool client (~bazel~, ~make~, ~go~, ~cargo~, and the rest of prsync's list, shared in ~devtools/pkg/procinfo~) runs with its cwd inside the agent's cwd and in the agent's own process tree: a descendant of the pane's shell or foreground (~own build tool pid N ...~). Another pane's build in a shared checkout counts only when the agent holds or is queued for a lease (~checkout build pid N ... (agent holds the lease)~). |
+| Composer | The input box holds unsent text, or cannot be read. Only Claude Code's is read; any other kind is refused. |
+| Lease | The agent holds a lease or is queued for one. The daemon checks again when it writes the record. |
+| Exempt | A name or the handle matches ~hibernate_exempt = ["ops/*", ...]~ in the config: names, handles, or globs. |
+
+Then hibernate writes a record to the daemon's state, keyed by handle:
+the agent kind, herdr's session id, the cwd and argv of the agent's
+foreground process, the time, the names on the handle, and the RSS of
+its process tree. It types the kind's exit input (~/exit~ and Enter for
+Claude Code, through ~herdr pane send-text~ and ~send-keys~) and waits
+up to 20s for the agent process to leave the pane's foreground. On
+success it prints ~agentbus: hibernated <name>; wakes on the next
+message or 'agentbus wake <name>'~ in the pane's shell and marks the
+record ~hibernated~. When the agent does not exit in time, the record
+stays as ~stop-failed~ and the agent is not killed.
+
+A hibernated handle keeps its names. ~list~ and ~search~ show it as
+~hibernated~, a claim by another handle is refused as for a live
+holder, and a message to it wakes it first; see
+[[*Wake a hibernated agent]].
+
+Output is one line per agent: ~hibernated <name> (<rss> freed)~,
+~refused <name>: <reasons>~, ~failed <name>: <reason>~, or with
+~--dry-run~, ~would hibernate <name> (<rss>)~. ~--dry-run~ writes no
+record, sends no input, and logs nothing. Flags may come before or
+after the names; ~--~ ends them. ~--json~ prints an array of
+objects with ~name~, ~handle~, ~pane~, ~outcome~ (~hibernated~,
+~refused~, ~would-hibernate~, or ~failed~), ~reasons~, ~rss_bytes~, and
+~warning~. The daemon logs ~agent_hibernated~ and
+~agent_hibernate_refused~ (detail ~stop-failed~ for a stop that timed
+out). The exit status is 1 when a stop failed or a named agent was
+refused; refusals under ~--idle-over~ exit 0.
+
+The daemon learns how long an agent has been in its state from its
+inventory polls and herdr's ~state_change_seq~ (herdr reports no
+timestamps). It saves each agent's state, ~state_change_seq~, and since
+to ~seen.json~ in its state directory, at most once a minute and on
+shutdown. A restarted daemon keeps an agent's since while herdr still
+reports the same handle, state, and ~state_change_seq~, and starts it
+over otherwise. An agent it finds already in its state counts from the
+daemon start, a lower bound (~>=~ in ~agentbus mem~), unless the agent
+kind records its last turn: for Claude Code that is the modification
+time of the session transcript named by ~agent_session~,
+~~/.claude/projects/*/<session>.jsonl~ (under ~$CLAUDE_CONFIG_DIR~ when
+set), read only and ignored when it cannot be read. An agent the daemon
+has not seen is never picked by ~--idle-over~; name it instead.
+
+Hibernate stops agents on this machine only. In hub mode it still runs
+here, since it reads this machine's panes and processes, and sends only
+its daemon requests to the hub, which owns the names, leases, and
+records: over the tunnel when it answers, else over ssh through
+~agentbus lease forward~. The hub accepts a record from a caller on
+another machine only for that machine's agents. ~--idle-over~ in hub
+mode needs the hub to poll this machine (~machines~ in the hub's
+config).
+
+* Wake a hibernated agent
+
+When the daemon is about to deliver to a handle that has a hibernation
+record, it first relaunches the agent in its pane. ~agentbus wake <name
+or handle>~ does the same with no message to deliver, prints ~woke
+<name> (<handle>)~, and ignores the backoff below. It returns once
+the agent is ready (step 3), so ~--wait~ is always in effect.
+
+A tool that types prompts straight into a pane, such as prsync, calls
+~agentbus wake --if-hibernated~ before each prompt: a prompt typed into
+a hibernated pane lands in its shell. The target may be a name, a
+handle (~herdr:<machine>/<session>/<pane>~), or a pane id with
+~--machine <m>~ (~local~ for this machine); a pane with no hibernation
+record is not hibernated.
+
+| Exit | Meaning                                                    |
+|------+------------------------------------------------------------|
+|    0 | awake now, or not hibernated with ~--if-hibernated~ (silent) |
+|    1 | the wake failed or timed out, or the target is not hibernated |
+|    2 | unknown name or handle, or bad usage                       |
+
+1. It reads the pane's processes. When the pane's foreground is not
+   its shell, someone reused the pane: nothing is launched, the record
+   is dropped (so the names are active again), the daemon logs
+   ~agent_wake_skipped~, and the senders of queued messages are told.
+2. It runs ~cd <cwd> && <argv>~ from the record through ~herdr pane
+   run~, in resume form. For Claude Code that is ~--resume <session
+   id>~ right after the program, in place of any ~--resume [id]~,
+   ~-r [id]~, ~--continue~, or ~-c~; every other argument is kept.
+   Other agent kinds have no resume form and fail to wake.
+3. It waits until herdr reports an agent in the pane ~idle~ or ~done~,
+   with the recorded session id when herdr reports one, and the agent
+   process owns the pane's foreground again. ~wake_timeout~ in the
+   daemon's config bounds the wait (default ~60s~).
+4. It drops the record, so ~list~ shows the names alive again, logs
+   ~agent_wake~, and delivers the queued messages in send order.
+
+#+begin_src toml
+wake_timeout = "60s"   # how long a relaunched agent has to get ready
+#+end_src
+
+~send~ does not wait for the wake: it prints ~held: waking~, and the
+message goes out once the agent is ready. Messages sent while a wake is
+in flight queue behind it; a handle never has two wakes at once.
+
+When the relaunch fails or times out, the message stays queued, the
+record stays with status ~wake-failed~ and the error, the daemon logs
+~agent_wake_failed~, and each sender of a queued message gets
+~[agentbus] <name> is hibernated and failed to wake: <error>; your
+message is queued~ in its pane. The next delivery attempt tries again
+only after a backoff of 1m, doubled on each failure in a row up to 1h,
+so a broken session is not relaunched in a loop. Until then the message
+is ~held: wake failed~, and ~agentbus status <id>~ shows ~waiting: wake
+failed: <error>; next try after <time>~.
+
+In hub mode the record lives on the hub, and so does the wake: the
+hub's daemon reaches the pane with ~herdr --machine <machine>~, as it
+does to deliver, so ~agentbus wake~ runs on the hub like ~send~. Any
+caller may wake any agent, since a message would wake it anyway.
+
+* Hibernate under memory pressure
+
+The daemon can hibernate idle agents by itself when the machine runs
+low on memory. It is off unless the config turns it on:
+
+#+begin_src toml
+hibernate_policy = "dry-run"  # "off" (default), "dry-run", or "on"
+hibernate_below = "1.5GiB"    # act when available memory is under this
+hibernate_target = "3GiB"     # stop once it is back at this (default: hibernate_below)
+hibernate_min_idle = "30m"    # least idle time of an agent it stops (default: 30m)
+hibernate_interval = "1m"     # how often it reads available memory (default: 1m)
+hibernate_exempt = ["ops/*"]  # never stopped, as for agentbus hibernate
+#+end_src
+
+Every ~hibernate_interval~ the daemon reads the available memory, as
+~agentbus mem~ does. When it is under ~hibernate_below~, it takes this
+machine's agents it has seen ~idle~ or ~done~ for at least
+~hibernate_min_idle~ and that have no hibernation record, longest idle
+first, and hibernates them one at a time, each through every check of
+[[*Hibernate idle agents]]. A refused agent is skipped quietly. After
+each stop it reads the available memory again, and stops once it is at
+or above ~hibernate_target~ or no agent is left. With ~"dry-run"~ it
+stops nothing and counts each agent's RSS as freed instead.
+
+Sizes are a number and ~B~, ~KiB~, ~MiB~, ~GiB~, or ~TiB~, such as
+~"1.5GiB"~ or ~"512 MiB"~. A ~hibernate_policy~ other than the three
+values, or one without ~hibernate_below~, is off with a warning on
+agentbusd's stderr, which also prints the effective
+~hibernate_policy=<mode>~ at start. A ~hibernate_target~ under
+~hibernate_below~ is a config error.
+
+| Event | Detail |
+|-------+--------|
+| ~policy_hibernate~ | An agent it hibernated: its idle time, RSS, and the available memory before. ~agent_hibernated~ follows as for ~agentbus hibernate~. |
+| ~policy_would_hibernate~ | The same with ~"dry-run"~, once per agent per low episode. |
+| ~policy_no_candidate~ | Memory is low and no agent could be hibernated: once per low episode. |
+
+A low episode lasts from a reading under ~hibernate_below~ to the next
+one at or above it.
+
+A woken agent is not hibernated again right away: the daemon's idle
+time for it starts over when it comes back to its pane, so it must be
+idle ~hibernate_min_idle~ again. As for ~--idle-over~, the idle times
+survive a daemon restart while an agent's state and ~state_change_seq~
+stay.
+
+The policy runs in agentbusd and acts only on the machine it runs on:
+it reads that machine's memory and that machine's herdr panes
+(~herdr:local/...~), with the same hibernator as ~agentbus hibernate~,
+calling the daemon's hibernate ops in process. In hub mode agentbusd
+runs only on the hub, so there it covers the hub machine's own agents
+and never another machine's.
+
+** On a hub-mode client
+
+A machine with ~hub~ set runs no agentbusd, so it runs the same policy
+in ~agentbus hibernate --policy~, a long-running process, from its own
+config. It reads this machine's available memory and herdr panes, and
+sends the hibernate requests to the hub as ~agentbus hibernate~ does in
+hub mode: over the tunnel from a herdr pane, otherwise over ssh (as a
+service it has no pane, so ssh, and only while memory is low). The
+records and names stay on the hub, and only this machine's handles
+(~herdr:<machine>/...~) are candidates. The checks, the order, the
+target, ~"dry-run"~, and the once-per-episode rules are the daemon's.
+
+The hub keeps idle times only for the machines it polls, so the runner
+keeps its own: each ~hibernate_interval~ it reads ~herdr agent list~
+here and counts an agent idle from the first reading it saw it ~idle~
+or ~done~, the same rules as the daemon's. It saves them, as the daemon
+does, to ~policy-seen.json~ in this machine's state directory, so a
+restart keeps them and ~agentbus mem~ shows them. It needs no
+~machines~ entry on the hub. Its events
+and why a tick did nothing (herdr down, hub unreachable) go to its
+stderr, not to the hub's event log, as
+
+#+begin_example
+agentbus hibernate --policy: policy_hibernate ops/x: idle 41m0s, 400.0 MiB rss, 900.0 MiB available before
+agentbus hibernate --policy: agentbus daemon: hub me@hub: ...; nothing more hibernated until the next tick
+#+end_example
+
+When the hub cannot be reached nothing is stopped. ~agent_hibernated~
+still goes to the hub's log with each stop.
+
+~agentbus install~ in hub mode writes and loads a second unit for it
+when ~hibernate_policy~ is ~on~ or ~dry-run~, and none otherwise: the
+launchd job ~com.agentbus.hibernate-policy~, whose stderr goes to
+~$XDG_STATE_HOME/agentbus/hibernate-policy.log~, or the systemd user
+unit ~agentbus-hibernate-policy.service~, whose stderr goes to the
+journal. Both get the ~PATH~ of the ~install~ run, to find ~herdr~ and
+~ssh~, and restart it only when it fails. It reads the config at start:
+after changing a ~hibernate_*~ key, run ~agentbus install~ again or
+restart the unit. With ~hibernate_policy~ off it prints
+~hibernate_policy=off~ and exits 0, and stays stopped. ~agentbus mem~
+on the client shows the configured mode and thresholds.
+
