@@ -98,6 +98,10 @@ func handBack(h handOff, call func(op string) (*lease.Reply, bool), f leaseFlags
 		return 1
 	}
 	largs.PullError = steps.PullErr
+	largs.Branch = steps.ToBranch
+	if !steps.asIs && steps.FromBranch != steps.ToBranch {
+		largs.FromBranch = steps.FromBranch
+	}
 	r, ok := call(h.doneOp)
 	if !ok {
 		return 1

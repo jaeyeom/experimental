@@ -37,6 +37,7 @@ func (t *Table) Pause(a Args) (Reply, error) {
 		case h == nil:
 			rec.State = StatePaused
 			rec.Holder = &holder{Handle: UserHolder, Since: now}
+			rec.Released = nil
 			r.Result = ResultPaused
 			events = append(events, eventlog.Event{Event: eventlog.EventLeasePause, Actor: UserHolder, Detail: "paused"})
 		case h.Handle == UserHolder:

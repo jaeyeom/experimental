@@ -19,6 +19,9 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 )
 
+// currentBranch reads the branch a claim names; tests replace it.
+var currentBranch = checkout.Branch
+
 // localMachine is the machine part of a checkout key on the hub.
 const localMachine = "local"
 
@@ -34,9 +37,15 @@ const (
 // leaseFlagsHelp is the lease command's help: its subcommands and flags.
 const leaseFlagsHelp = `claim --for <duration> [--urgent] [--why <text>]
          take the checkout if it is free, else join the queue; never
-         blocks. Prints "granted until HH:MM" or "queued, position N
-         (holder X, bid ends HH:MM)". Claiming again updates --for and
-         --why. --urgent queues ahead of normal claims (default: false).
+         blocks. Prints "granted until HH:MM; checkout on <branch>"
+         ("checkout at <sha> (detached)"; left out when git cannot
+         tell) or "queued, position N (holder X, bid ends HH:MM)". The
+         same holder granted again within 1h of a release that switched
+         branches gets "(you were on <branch> when you released at
+         HH:MM)"; --json adds branch and previous_branch. The wake a
+         queued waiter gets names the branch too. Claiming again
+         updates --for and --why. --urgent queues ahead of normal
+         claims (default: false).
          A free checkout with a dirty or mid-rebase/merge tree is
          granted as needs-adopt.
 extend --for <duration>
@@ -321,7 +330,7 @@ func runLeaseOp(ctx context.Context, sub string, f leaseFlags, largs lease.Args,
 		fmt.Fprintf(stderr, "agentbus lease %s: %s\n", sub, resp.Error)
 		return failed
 	}
-	return printLease(sub, f, *resp.Lease, env, stdout, stderr)
+	return printLease(sub, f, *resp.Lease, largs.Branch, env, stdout, stderr)
 }
 
 // hubCheck is lease check in hub mode. Like the hook, it gives up within
@@ -413,6 +422,10 @@ func leaseArgs(sub string, f leaseFlags, env []string, stdout, stderr io.Writer)
 			return lease.Args{}, cfg, failed, false
 		}
 		largs.Tree = tree.Reason()
+		// A branch git cannot read is left out; the claim goes ahead.
+		if branch, err := currentBranch(checkoutRoot(largs.Checkout), env); err == nil {
+			largs.Branch = branch
+		}
 	}
 	return largs, cfg, 0, true
 }
@@ -519,7 +532,12 @@ type checkJSON struct {
 	Reason   string `json:"reason,omitempty"`
 }
 
-func printLease(sub string, f leaseFlags, r lease.Reply, env []string, stdout, stderr io.Writer) int {
+// printLease prints a lease reply. branch is the branch a claim read
+// before it, named when the claim is granted.
+func printLease(sub string, f leaseFlags, r lease.Reply, branch string, env []string, stdout, stderr io.Writer) int {
+	if r.Result != lease.ResultGranted {
+		branch = ""
+	}
 	switch {
 	case sub == "check":
 		return printCheck(f.jsonOut, r, stdout, stderr)
@@ -527,13 +545,22 @@ func printLease(sub string, f leaseFlags, r lease.Reply, env []string, stdout, s
 		printStatusReply(f, r, env, stdout)
 		return 0
 	case f.jsonOut:
-		writeJSON(stdout, r)
+		writeJSON(stdout, struct {
+			lease.Reply
+			Branch string `json:"branch,omitempty"`
+		}{r, branch})
 		return 0
 	}
 	s := r.Lease
 	switch r.Result {
 	case lease.ResultGranted:
 		line := "granted until " + clock(s.Holder.Deadline)
+		if on := lease.OnBranch(branch); on != "" {
+			line += "; " + on
+		}
+		if r.PreviousBranch != "" {
+			line += fmt.Sprintf(" (you were on %s when you released at %s)", r.PreviousBranch, clock(r.ReleasedAt))
+		}
 		if s.State == lease.StateNeedsAdopt {
 			line += " (needs-adopt: the tree is not clean; run agentbus lease adopt before changing it)"
 		}
