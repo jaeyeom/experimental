@@ -1,228 +1,117 @@
-#+TITLE: ASCII Art Tools for Code Documentation
+#+TITLE: box-renderer
+#+DATE: 2026-11-15
 
 * Overview
 
-ASCII art tools for creating visualizations in code comments and documentation.
-These tools help make test cases, timelines, and complex logic more
-understandable by embedding visual representations directly in source code.
+~box-renderer~ draws a bordered text box made of stacked sections
+joined by arrows, for a comment, a README, or a commit message.
+Give it sections with ~--section~, or pipe text on stdin.
+A sample box is in the Quick start below.
 
-** Benefits
-- More efficient than embedding image files in source code
-- Version control friendly (text-based)
-- Universal compatibility across editors and platforms
-- Improved code documentation and test case clarity
-- Uses basic ASCII characters for consistent fixed-width rendering across all fonts
+The default frame uses Unicode box-drawing characters.
+~--border ascii~ switches the frame to ~+~, ~-~ and ~|~.
+The arrow between sections stays ~│~ and ~▼~ until you change
+~--connector~. Add ~--prefix~ (for example ~// ~) to paste the box
+into a Go or C comment.
 
-* Tools
+* Install
 
-** GANTT Chart Generator (~gantt-chart~)
-
-Creates timeline visualizations for scheduling, task management, and temporal analysis.
-
-*** Features
-- Configurable time units (1s, 100ms, etc.)
-- Customizable characters for different fill patterns
-- Optional grid display with configurable intervals
-- Row text labels and descriptions
-- Configurable comment prefixes (~//~, ~#~, etc.)
-
-*** Example Output
-#+BEGIN_EXAMPLE
-        // Timeline: PRIORITY VS TIME ORDER - Priority Overrides Time Order
-        //
-        // BEFORE Resolution:
-        // Time:   0s    5s    10s   15s   20s
-        //         |-----|-----|-----|-----|
-        // Task_A  |#####|#####|     |     |   (0s-10s) Priority: 2 (MEDIUM) - starts first but lower priority
-        // Task_B  |     |#####|#####|     |   (5s-15s) Priority: 3 (LOWEST) - middle start time
-        // Task_C  |     |     |#####|#####|   (10s-20s) Priority: 1 (HIGHEST) - starts last but highest priority
-        //         |-----|-----|-----|-----|
-        //         Node_1: A∩B(5s-10s) + B∩C(10s-15s), but C has highest priority despite starting last ⚠️
-#+END_EXAMPLE
-
-*** Character Types
-- ~#~ - Full block (0 to 1)
-- ~<~ - Right side only (0.5 to 1)
-- ~>~ - Left side only (0 to 0.5)
-- ~X~ - Both ends filled but not full (e.g. 0 to 0.2 and 0.8 to 1)
-
-** Box Renderer (~box-renderer~)
-
-Renders bordered ASCII art boxes with multiple sections connected by arrow
-connectors. Useful for visualizing layered concepts, workflows, and
-architectural stacks in code comments.
-
-*** Features
-- Multiple sections with configurable connectors between them
-- Border styles: single, double, rounded, ASCII
-- Configurable left/right padding
-- Explicit or auto-calculated width
-- Comment prefix support (~//~, ~#~, etc.)
-- Stdin mode for piped input (sections separated by ~---~)
-
-*** Example Output
-#+BEGIN_EXAMPLE
-┌─────────────────────────────────────────────────────────┐
-│  gabyx-githooks-setup                                   │
-│  Shared Git hooks run automatically on commit and push  │
-│                            │                            │
-│                            ▼                            │
-│  makefile-workflow                                      │
-│  Hooks call `make check` — format, lint, test, build    │
-│                            │                            │
-│                            ▼                            │
-│  *-dev (e.g. go-dev)                                    │
-│  Language-specific conventions the checks enforce       │
-└─────────────────────────────────────────────────────────┘
-#+END_EXAMPLE
-
-*** CLI Usage
 #+BEGIN_SRC bash
-# Flag mode (| separates lines within a section)
-box-renderer \
-  --section "gabyx-githooks-setup|Shared Git hooks run automatically on commit and push" \
-  --section "makefile-workflow|Hooks call \`make check\` — format, lint, test, build" \
-  --section "*-dev (e.g. go-dev)|Language-specific conventions the checks enforce"
-
-# With comment prefix
-box-renderer --prefix "// " --section "Hello, World!"
-
-# Stdin mode (sections separated by ---)
-echo -e "Title\nDescription\n---\nAnother section" | box-renderer
+go install github.com/jaeyeom/experimental/devtools/ascii-art/cmd/box-renderer@latest
 #+END_SRC
 
-** Graph Visualizer (~graph-viz~)
+From this repo, ~bazel build //devtools/ascii-art/cmd/box-renderer~
+builds the same program.
 
-Creates node and edge diagrams for data structures, algorithms, and system
-architectures.
+* Quick start
 
-*** Features
-- Node positioning and labeling
-- Edge connections with optional labels
-- Directional arrows
-- Configurable comment prefixes
-- Multiple layout algorithms
-
-*** Example Output
-#+BEGIN_EXAMPLE
-        //     A ---> B
-        //     |      |
-        //     v      v
-        //     C ---> D
-        //
-        // Graph: A->B, A->C, B->D, C->D
-#+END_EXAMPLE
-
-* Directory Structure
+#+BEGIN_SRC bash
+box-renderer --section Request --section Auth --section Handler
+#+END_SRC
 
 #+BEGIN_EXAMPLE
-devtools/ascii-art/
-├── cmd/
-│   ├── box-renderer/       # CLI for box rendering
-│   │   ├── BUILD.bazel
-│   │   ├── main.go
-│   │   └── main_test.go
-│   ├── gantt-chart/        # CLI for GANTT chart generation
-│   │   ├── BUILD.bazel
-│   │   └── main.go
-│   └── graph-viz/          # CLI for graph visualization
-│       ├── BUILD.bazel
-│       └── main.go
-├── internal/
-│   ├── gantt/             # GANTT chart generation logic
-│   │   ├── BUILD.bazel
-│   │   ├── gantt.go
-│   │   └── gantt_test.go
-│   ├── graph/             # Graph visualization logic
-│   │   ├── BUILD.bazel
-│   │   ├── graph.go
-│   │   └── graph_test.go
-│   └── common/            # Shared ASCII art utilities
-│       ├── BUILD.bazel
-│       ├── prefix.go      # Comment prefix handling
-│       ├── grid.go        # Grid generation utilities
-│       └── charset.go     # Character set management
-└── README.org
+┌───────────┐
+│  Request  │
+│     │     │
+│     ▼     │
+│  Auth     │
+│     │     │
+│     ▼     │
+│  Handler  │
+└───────────┘
 #+END_EXAMPLE
 
-* Usage Examples
+A vertical bar inside one ~--section~ value starts a new line in
+that section.
 
-** Box Renderer CLI
 #+BEGIN_SRC bash
-# Render a multi-section box
-box-renderer \
-  --section "Title|Description" \
-  --section "Another|Section"
-
-# With options
-box-renderer --border rounded --padding 3 --prefix "// " \
-  --section "Hello, World!"
+box-renderer --section 'Request|the first step' --section Handler
 #+END_SRC
 
-** GANTT Chart CLI
-#+BEGIN_SRC bash
-# Generate a simple timeline
-gantt-chart --time-unit=1s --prefix="//" --grid-interval=5s \
-  --task="Task_A,0s,10s,#,Priority: 2 (MEDIUM)" \
-  --task="Task_B,5s,15s,#,Priority: 3 (LOWEST)" \
-  --task="Task_C,10s,20s,#,Priority: 1 (HIGHEST)"
+#+BEGIN_EXAMPLE
+┌──────────────────┐
+│  Request         │
+│  the first step  │
+│        │         │
+│        ▼         │
+│  Handler         │
+└──────────────────┘
+#+END_EXAMPLE
 
-# Output with custom characters for partial fills
-gantt-chart --time-unit=100ms --prefix="#" --chars="full:#,right:<,left:>,partial:X"
+* Options
+
+| Flag        | Default  | Meaning                                                         |
+|-------------+----------+-----------------------------------------------------------------|
+| --section   | none     | Section text. A vertical bar separates lines. Repeat the flag.  |
+| --connector | │ then ▼ | Characters between sections. A vertical bar splits those lines. |
+| --border    | single   | single, double, rounded, or ascii                               |
+| --padding   | 2        | Spaces inside the left and right edges                          |
+| --width     | 0        | Box width. ~0 = auto~ sizes the box to the text.                |
+| --prefix    | empty    | Text placed before every output line                            |
+
+The default ~--prefix~ is empty (~""~).
+The default ~--connector~ value is ~│|▼~: a vertical bar, then an arrow.
+~--border~ accepts ~single~, ~double~, ~rounded~, and ~ascii~.
+
+This is the same box with a plain-ASCII frame, an ASCII arrow, and a
+comment prefix.
+
+#+BEGIN_SRC bash
+box-renderer --border ascii --prefix '# ' --connector '+|v' --section Request --section Handler
 #+END_SRC
 
-** Graph Visualization CLI
+#+BEGIN_EXAMPLE
+# +-----------+
+# |  Request  |
+# |     +     |
+# |     v     |
+# |  Handler  |
+# +-----------+
+#+END_EXAMPLE
+
+* Reading from stdin
+
+With no ~--section~ flags, ~box-renderer~ reads stdin. A line that is
+only ~---~ starts a new section. Other newlines stay inside the
+current section.
+
 #+BEGIN_SRC bash
-# Generate a directed graph
-graph-viz --prefix="//" --layout=grid \
-  --node="A,0,0" --node="B,2,0" --node="C,0,2" --node="D,2,2" \
-  --edge="A,B" --edge="A,C" --edge="B,D" --edge="C,D"
+printf '%s\n' Request 'line two' --- Handler | box-renderer
 #+END_SRC
 
-* Configuration
-
-** Common Options
-- ~--prefix~: Comment prefix (default: "// ")
-- ~--indent~: Base indentation (default: 0 spaces)
-- ~--width~: Maximum output width (default: 80 characters)
-
-** GANTT Specific
-- ~--time-unit~: Time per character (default: "1s")
-- ~--grid-interval~: Grid line spacing (default: "5s")
-- ~--chars~: Character set for fills (default: "full:#,right:<,left:>,partial:X")
-
-** Graph Specific
-- ~--layout~: Layout algorithm (grid, force, circular)
-- ~--arrow-style~: Arrow character style (default: ascii for fixed-width compatibility)
-
-* Related Issues
-
-- GitHub Issue #45: Implementation tracking and requirements
+#+BEGIN_EXAMPLE
+┌────────────┐
+│  Request   │
+│  line two  │
+│     │      │
+│     ▼      │
+│  Handler   │
+└────────────┘
+#+END_EXAMPLE
 
 * Development
 
-** Building
 #+BEGIN_SRC bash
-# Build all tools
-bazel build //devtools/ascii-art/...
-
-# Build specific tool
-bazel build //devtools/ascii-art/cmd/gantt-chart:gantt-chart
-#+END_SRC
-
-** Testing
-#+BEGIN_SRC bash
-# Run all tests
+bazel build //devtools/ascii-art/cmd/box-renderer
 bazel test //devtools/ascii-art/...
-
-# Run specific package tests
-bazel test //devtools/ascii-art/internal/gantt:gantt_test
 #+END_SRC
-
-** Integration
-These tools are designed to be integrated into:
-- Code generation templates
-- Test documentation
-- Design documents
-- Algorithm explanations
-- System architecture diagrams
