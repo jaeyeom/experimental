@@ -72,6 +72,48 @@ func TestPlanUnmanagedBrief(t *testing.T) {
 	}
 }
 
+func TestPlanMissingBriefAndCwd(t *testing.T) {
+	spec := Spec{Roles: map[string]Role{
+		"desk/clerk": {
+			Machine: "local", Workspace: "front", Tab: "clerk", Cwd: "/work/desk",
+			Brief: Brief{File: "BRIEF.md", Text: "hello"},
+		},
+	}}
+	live := Live{
+		Local:    "local",
+		Tabs:     []LiveTab{{Workspace: "front", Label: "clerk"}},
+		Names:    []LiveName{{Name: "desk/clerk", SessionID: "sess"}},
+		Agents:   []LiveAgent{{Name: "desk/clerk", Cwd: "/work/desk"}},
+		CronRead: []string{"/work/desk"},
+		Briefs:   map[string]string{"desk/clerk": BriefMissing},
+	}
+	got := strings.Join(Plan(spec, live, PlanOptions{}), "\n")
+	if got != "+ desk/clerk brief missing" {
+		t.Fatalf("missing brief =\n%s", got)
+	}
+	if !PlanChanged(Plan(spec, live, PlanOptions{})) {
+		t.Fatal("a missing brief is a change")
+	}
+
+	gone := spec
+	role := gone.Roles["desk/clerk"]
+	role.Cwd = "/no/such"
+	role.Brief = Brief{}
+	role.Schedules = []Schedule{{ID: "daily", Cron: "0 8 * * *", Durable: true}}
+	gone.Roles["desk/clerk"] = role
+	missing := Live{
+		Local:      "local",
+		Tabs:       []LiveTab{{Workspace: "front", Label: "clerk"}},
+		Names:      []LiveName{{Name: "desk/clerk", SessionID: "sess"}},
+		Agents:     []LiveAgent{{Name: "desk/clerk", Cwd: "/no/such"}},
+		MissingCwd: []string{"/no/such"},
+	}
+	got = strings.Join(Plan(gone, missing, PlanOptions{}), "\n")
+	if got != "? desk/clerk cwd not found" {
+		t.Fatalf("missing cwd =\n%s", got)
+	}
+}
+
 func TestPlanFilters(t *testing.T) {
 	spec := planSpec()
 	live := Live{Local: "north", CronRead: []string{"/work/missing", "/work/changed"}}
