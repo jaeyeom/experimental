@@ -387,8 +387,11 @@ func TestDriftScopeLimitsTabs(t *testing.T) {
 	if !strings.Contains(got, "+ tab org-a/stray") {
 		t.Fatalf("missing scoped tab:\n%s", got)
 	}
-	if strings.Contains(got, "misc") || strings.Contains(got, "workers/other") {
-		t.Fatalf("out of scope or pool workspace reported:\n%s", got)
+	if strings.Contains(got, "misc") {
+		t.Fatalf("tab outside scope reported:\n%s", got)
+	}
+	if !strings.Contains(got, "+ tab workers/other") {
+		t.Fatalf("uncovered pool tab missing:\n%s", got)
 	}
 	want := "add to spec, or USER: close tab stray in org-a if it is no longer needed"
 	if !strings.Contains(got, want) {
@@ -404,6 +407,41 @@ func TestDriftScopeLimitsTabs(t *testing.T) {
 		if !strings.Contains(got, line) {
 			t.Fatalf("unset scope missing %q\n%s", line, got)
 		}
+	}
+}
+
+func TestDriftScopeReportsUncoveredTabs(t *testing.T) {
+	spec := Spec{
+		Scope: &Scope{Workspaces: []string{"W"}},
+		Pools: map[string]Pool{"team": {Workspace: "W", NamePattern: "team/*"}},
+	}
+	live := Live{
+		Tabs: []LiveTab{
+			{Workspace: "W", Label: "X"},
+			{Workspace: "W", Label: "member"},
+			{Workspace: "misc", Label: "notes"},
+		},
+		Agents: []LiveAgent{{Name: "team/x", Workspace: "W", Tab: "member"}},
+	}
+	got := strings.Join(Drift(spec, live), "\n")
+	if !strings.Contains(got, "+ tab W/X") {
+		t.Fatalf("uncovered tab missing:\n%s", got)
+	}
+	if strings.Contains(got, "W/member") || strings.Contains(got, "misc") {
+		t.Fatalf("member or out-of-scope tab reported:\n%s", got)
+	}
+
+	plain := Spec{
+		Scope: &Scope{Workspaces: []string{"W"}},
+		Pools: map[string]Pool{"hands": {Workspace: "W"}},
+	}
+	plainLive := Live{Tabs: []LiveTab{
+		{Workspace: "W", Label: "a"},
+		{Workspace: "W", Label: "b"},
+	}}
+	got = strings.Join(Drift(plain, plainLive), "\n")
+	if strings.Contains(got, "+ tab ") {
+		t.Fatalf("pattern-less pool reported tabs:\n%s", got)
 	}
 }
 

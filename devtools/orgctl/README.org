@@ -307,6 +307,8 @@ not an extra.
 A role key stays a role. Each scheduled job is read once and reported
 once, including when several roles share its directory.
 When scope lists workspaces, tab drift reports only tabs in that
-list, and still skips a pool workspace. Names and scheduled jobs
+list. A pattern-less pool still hides its whole workspace. A
+patterned pool hides only its member tabs, so an uncovered tab in
+a scoped workspace is still reported. Names and scheduled jobs
 stay global. An empty scope reports every workspace. check warns
 when a role or pool workspace is outside that list.

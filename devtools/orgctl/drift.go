@@ -50,15 +50,7 @@ func tabInScope(spec Spec, workspace string) bool {
 	if !scopeSet(spec.Scope) {
 		return true
 	}
-	if !slices.Contains(spec.Scope.Workspaces, workspace) {
-		return false
-	}
-	for _, pool := range spec.Pools {
-		if pool.Workspace == workspace {
-			return false
-		}
-	}
-	return true
+	return slices.Contains(spec.Scope.Workspaces, workspace)
 }
 
 func extraNames(spec Spec, live Live) []string {
