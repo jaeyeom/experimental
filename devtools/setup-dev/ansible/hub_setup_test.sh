@@ -11,10 +11,11 @@
 #     TOML keys go above an existing [section], both files are backed up,
 #     and a second run changes nothing.
 #   - hub-check: a failing command fails the play with its stderr.
-#   - hub-ssh-agent: opt-out changes nothing; opt-in writes the rc block
-#     and ssh_identity_agent once, leaves ~/.ssh/config alone, and a
-#     second run changes nothing. keychain in ~/.zshrc wins over an
-#     existing ~/.zprofile. An explicit rc that runs too early warns.
+#   - hub-ssh-agent: false changes nothing; the default writes the rc
+#     block and ssh_identity_agent once, leaves ~/.ssh/config alone,
+#     and a second run changes nothing. keychain in ~/.zshrc wins over
+#     an existing ~/.zprofile. An explicit rc that runs too early warns.
+#     The Apple keychain load is Darwin plus UseKeychain yes only.
 #   - Neither playbook names a host or user.
 set -eu
 
@@ -310,10 +311,9 @@ fake agentbus "${ROOT}/bin" 255
 run_fails "$CLIENT_PLAYBOOK" --tags hub-check $HUB_ARGS
 expect_out "hub-check unreachable" "agentbus: hub me@hub.example unreachable: host unreachable"
 
-# hub-ssh-agent is opt-in. The default writes no rc, no ssh config, and
-# no ssh_identity_agent key.
+# false opts out. It writes no rc, no ssh config, and no ssh_identity_agent key.
 # shellcheck disable=SC2086
-run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent $HUB_ARGS
+run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent -e hub_ssh_stable_agent=false $HUB_ARGS
 expect_no_change "stable agent opt-out"
 for _absent in "${HOME}/.zprofile" "${HOME}/.bash_profile" "${HOME}/.profile" "${HOME}/.ssh/config"; do
 	[ ! -e "$_absent" ] || fail "stable agent opt-out created ${_absent}"
@@ -329,8 +329,9 @@ printf '%s\n' 'not-this' >"${HOME}/.bash_profile"
 : >"${HOME}/Library/LaunchAgents/com.agentbus.tunnel.plist"
 _backups=$(find "$(dirname "$AGENTBUS_CONFIG")" -name 'config.toml.*~' | wc -l | tr -d ' ')
 
+# The default (no hub_ssh_stable_agent) writes the block and the config key.
 # shellcheck disable=SC2086
-run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent -e hub_ssh_stable_agent=true $HUB_ARGS
+run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent $HUB_ARGS
 expect_out "stable agent install hint" "agentbus install"
 # shellcheck disable=SC2016 # Match the literal rc block, including $.
 grep -qF 'if [ -n "$SSH_AUTH_SOCK" ] && [ -S "$SSH_AUTH_SOCK" ] && [ "$SSH_AUTH_SOCK" != "$HOME/.ssh/agent.sock" ]; then' "${HOME}/.zprofile" || fail "zprofile: agent block missing"
@@ -353,7 +354,7 @@ _backups_after=$(find "$(dirname "$AGENTBUS_CONFIG")" -name 'config.toml.*~' | w
 [ "$_backups_after" -gt "$_backups" ] || fail "agentbus config: no new backup"
 
 # shellcheck disable=SC2086
-run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent -e hub_ssh_stable_agent=true $HUB_ARGS
+run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent $HUB_ARGS
 expect_no_change "stable agent second run"
 [ "$(grep -c 'ln -sf' "${HOME}/.zprofile")" -eq 1 ] || fail "zprofile: block repeated"
 
@@ -403,5 +404,41 @@ _link=$(grep -n 'ln -sf' "${HOME}/.config/agent-start.sh" | head -1 | cut -d: -f
 # shellcheck disable=SC2086
 run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent -e hub_ssh_stable_agent=true $HUB_ARGS
 expect_no_change "sourced agent second run"
+
+# The Apple keychain line is only for Darwin with UseKeychain yes, and
+# only when the rc does not already have it.
+rm -f "${HOME}/.zprofile" "${HOME}/.zshrc" "${HOME}/.bash_profile" "${HOME}/.profile" "${HOME}/.bashrc" "${HOME}/.config/agent-start.sh"
+printf '%s\n' 'agent-start' >"${HOME}/.zprofile"
+printf '%s\n' 'Host *' '  UseKeychain yes' >"${HOME}/.ssh/config"
+# shellcheck disable=SC2086
+run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent -e ansible_system=Darwin $HUB_ARGS
+grep -qF 'ssh-add --apple-load-keychain -q 2>/dev/null || true' "${HOME}/.zprofile" || fail "darwin: keychain line missing"
+[ "$(grep -c 'ssh-add --apple-load-keychain' "${HOME}/.zprofile")" -eq 1 ] || fail "darwin: keychain line repeated"
+# shellcheck disable=SC2086
+run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent -e ansible_system=Darwin $HUB_ARGS
+expect_no_change "darwin keychain second run"
+[ "$(grep -c 'ssh-add --apple-load-keychain' "${HOME}/.zprofile")" -eq 1 ] || fail "darwin: keychain line repeated on second run"
+
+printf '%s\n' 'agent-start' 'ssh-add --apple-load-keychain -q 2>/dev/null || true' >"${HOME}/.zprofile"
+# shellcheck disable=SC2086
+run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent -e ansible_system=Darwin $HUB_ARGS
+[ "$(grep -c 'ssh-add --apple-load-keychain' "${HOME}/.zprofile")" -eq 1 ] || fail "darwin: existing keychain line was copied"
+
+printf '%s\n' 'agent-start' >"${HOME}/.zprofile"
+# shellcheck disable=SC2086
+run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent -e ansible_system=Linux $HUB_ARGS
+if grep -q 'apple-load-keychain' "${HOME}/.zprofile"; then
+	fail "linux: keychain line written"
+fi
+# shellcheck disable=SC2016 # Match the literal rc block, including $.
+grep -qF 'ln -sf "$SSH_AUTH_SOCK"' "${HOME}/.zprofile" || fail "linux: agent block missing"
+
+printf '%s\n' 'Host sentinel' >"${HOME}/.ssh/config"
+printf '%s\n' 'agent-start' >"${HOME}/.zprofile"
+# shellcheck disable=SC2086
+run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent -e ansible_system=Darwin $HUB_ARGS
+if grep -q 'apple-load-keychain' "${HOME}/.zprofile"; then
+	fail "darwin without UseKeychain wrote the keychain line"
+fi
 
 echo "PASS"

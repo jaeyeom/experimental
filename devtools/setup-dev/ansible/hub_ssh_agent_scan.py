@@ -19,7 +19,13 @@ _DEFAULT = (".zprofile", ".bash_profile", ".profile")
 _PATTERNS = ("keychain", "ssh-agent", 'eval "$(ssh-agent', "SSH_AUTH_SOCK=")
 _BEGIN = "BEGIN setup-dev hub ssh agent"
 _END = "END setup-dev hub ssh agent"
+_KEYCHAIN = "ssh-add --apple-load-keychain"
+_USEKEYCHAIN = re.compile(r"^[ \t]*UseKeychain[ \t]+yes\b", re.IGNORECASE)
 _SOURCE = re.compile(r"(?:^|&&|\|\||;|\||\()\s*(?:source|\.)\s+(\S+)")
+_AGENT_BLOCK = """\
+if [ -n "$SSH_AUTH_SOCK" ] && [ -S "$SSH_AUTH_SOCK" ] && [ "$SSH_AUTH_SOCK" != "$HOME/.ssh/agent.sock" ]; then
+  ln -sf "$SSH_AUTH_SOCK" "$HOME/.ssh/agent.sock"
+fi"""
 
 
 def _expand(token: str, home: str, base: str) -> str:
@@ -127,8 +133,54 @@ def choose(home: str, explicit: str) -> dict[str, str]:
     return {"rc": rc, "warn": ", ".join(later)}
 
 
+def keychain_outside(path: str) -> bool:
+    """Report the Apple keychain load outside the managed block."""
+    text = _lines(path)
+    if text is None:
+        return False
+    skip = False
+    for line in text:
+        if _BEGIN in line:
+            skip = True
+            continue
+        if skip:
+            if _END in line:
+                skip = False
+            continue
+        if _KEYCHAIN in line and not line.strip().startswith("#"):
+            return True
+    return False
+
+
+def use_keychain(path: str) -> bool:
+    """Report a ssh config that asks macOS to load the keychain."""
+    text = _lines(path)
+    if text is None:
+        return False
+    return any(_USEKEYCHAIN.search(line) for line in text)
+
+
+def agent_block(rc_path: str, system: str, ssh_config: str) -> str:
+    """Return the rc block. Darwin with UseKeychain adds ssh-add once."""
+    block = _AGENT_BLOCK
+    if (
+        system != "Darwin"
+        or not use_keychain(ssh_config)
+        or keychain_outside(rc_path)
+    ):
+        return block
+    return block + "\nssh-add --apple-load-keychain -q 2>/dev/null || true"
+
+
 def main(argv: list[str]) -> None:
     """Print the choice for HOME and an optional explicit rc."""
+    if len(argv) > 1 and argv[1] == "--block":
+        rc_path = argv[2] if len(argv) > 2 else ""
+        system = argv[3] if len(argv) > 3 else ""
+        ssh_config = argv[4] if len(argv) > 4 else ""
+        sys.stdout.write(agent_block(rc_path, system, ssh_config))
+        sys.stdout.write("\n")
+        return
     home = argv[1] if len(argv) > 1 else ""
     explicit = argv[2] if len(argv) > 2 else ""
     if home == "":

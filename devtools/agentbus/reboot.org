@@ -136,16 +136,13 @@ agentbus doctor
 
 Good: the tunnel socket line ends in ~ok~, and the ssh line is ~ssh <hub>: ok (its ssh port answers)~.
 
-A stale line can remain from the outage. The hint ~agentbus doctor~
-prints is ~tunnelAuthHint~ in ~cmd/agentbus/sandbox.go~, and it names
-this cause only: ssh probably could not authenticate because there
-was no agent for a passphrase key. The line begins:
-
-~tunnel unit exited 255: ssh probably could not authenticate (no agent for a passphrase key).~
-
-That leftover does not by itself mean the tunnel is still down.
-Confirm the tunnel unit has a running pid, and that ~agentbus list~
-works from this client.
+When the tunnel socket is up, an older exit 255 is labelled stale:
+the line says the tunnel is up and that the old exit is stale. When
+the tunnel is down, doctor names the missing piece
+(~ssh_identity_agent~ unset, ~~/.ssh/agent.sock~ missing, or the
+agent has no keys) and one fix command. That leftover does not by
+itself mean the tunnel is still down. Confirm the tunnel unit has a
+running pid, and that ~agentbus list~ works from this client.
 
 #+BEGIN_SRC bash
 systemctl --user show -p MainPID --value agentbus-tunnel.service

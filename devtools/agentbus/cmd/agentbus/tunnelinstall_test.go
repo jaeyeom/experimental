@@ -368,6 +368,155 @@ func TestDoctorHintsWhenTheAgentSocketDiffers(t *testing.T) {
 	}
 }
 
+func TestDiagnoseTunnelAuthNamesTheMissingPiece(t *testing.T) {
+	unset := diagnoseTunnelAuth(tunnelAuthFacts{Exit255: true})
+	if unset != tunnelAuthHint {
+		t.Fatalf("unset = %q", unset)
+	}
+	missing := diagnoseTunnelAuth(tunnelAuthFacts{Exit255: true, IdentitySet: true, SockMissing: true})
+	for _, want := range []string{"~/.ssh/agent.sock is missing", "run setup-hub-client, then agentbus install"} {
+		if !strings.Contains(missing, want) {
+			t.Errorf("missing piece lacks %q\n%s", want, missing)
+		}
+	}
+	mac := diagnoseTunnelAuth(tunnelAuthFacts{Exit255: true, IdentitySet: true, KeysKnown: true, GOOS: "darwin"})
+	if !strings.Contains(mac, "the agent has no keys") || !strings.Contains(mac, "run: ssh-add --apple-load-keychain") {
+		t.Fatalf("mac keys = %q", mac)
+	}
+	linux := diagnoseTunnelAuth(tunnelAuthFacts{Exit255: true, IdentitySet: true, KeysKnown: true, GOOS: "linux"})
+	if !strings.Contains(linux, "fix: run: ssh-add") || strings.Contains(linux, "apple-load-keychain") {
+		t.Fatalf("linux keys = %q", linux)
+	}
+	stale := diagnoseTunnelAuth(tunnelAuthFacts{Exit255: true, TunnelUp: true, IdentitySet: true, SockMissing: true})
+	if !strings.Contains(stale, "tunnel is up") || !strings.Contains(stale, "old") || strings.Contains(stale, "tunnel down") {
+		t.Fatalf("stale = %q", stale)
+	}
+	if diagnoseTunnelAuth(tunnelAuthFacts{TunnelUp: true}) != "" {
+		t.Fatal("an exit other than 255 was reported")
+	}
+}
+
+func TestDoctorMarksAnOldExitStaleWhenTheTunnelIsUp(t *testing.T) {
+	h := startHub(t, `hub = "me@hub"`)
+	runtimeDir := shortRuntime(t)
+	sockDir := filepath.Join(runtimeDir, "agentbus")
+	if err := os.MkdirAll(sockDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("unix", filepath.Join(sockDir, "tunnel.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	env := append([]string{}, h.env...)
+	for i, kv := range env {
+		if strings.HasPrefix(kv, "XDG_RUNTIME_DIR=") {
+			env[i] = "XDG_RUNTIME_DIR=" + runtimeDir
+		}
+	}
+	orig := tunnelExitStatus
+	tunnelExitStatus = func(context.Context, []string) (int, bool) { return 255, true }
+	t.Cleanup(func() { tunnelExitStatus = orig })
+	code, stdout, stderr := h.runEnv(t, env, "", "doctor")
+	if code != 0 {
+		t.Fatalf("doctor = %d, stderr %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "tunnel is up") || !strings.Contains(stdout, "old") || strings.Contains(stdout, "tunnel down") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestInstallPinsTheAgentSocket(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("install supports launchd and systemd")
+	}
+	h := startHub(t, `hub = "me@hub"`, `hub_socket = "/run/user/1000/agentbus/hub.sock"`)
+	home := strings.TrimPrefix(h.env[0], "HOME=")
+	dir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sock := filepath.Join(dir, "agent.sock")
+	if err := os.Symlink(filepath.Join(dir, "live"), sock); err != nil {
+		t.Fatal(err)
+	}
+	env := append(append([]string{}, h.env...), "AGENTBUS_INSTALL_NO_LOAD=1")
+	code, _, stderr := h.runEnv(t, env, "", "install")
+	if code != 0 || stderr != "" {
+		t.Fatalf("install = %d, stderr %q", code, stderr)
+	}
+	path, err := tunnelPath(runtime.GOOS, home, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(data), "SSH_AUTH_SOCK") || !strings.Contains(string(data), sock) {
+		t.Fatalf("unit = %s, %v", data, err)
+	}
+	cfgPath := filepath.Join(strings.TrimPrefix(h.env[1], "XDG_CONFIG_HOME="), "agentbus", "config.toml")
+	cfg, err := os.ReadFile(cfgPath)
+	if err != nil || strings.Count(string(cfg), "ssh_identity_agent") != 1 || !strings.Contains(string(cfg), "ssh_identity_agent = \"~/.ssh/agent.sock\"\n") {
+		t.Fatalf("config = %s, %v", cfg, err)
+	}
+	if code, _, stderr = h.runEnv(t, env, "", "install"); code != 0 || stderr != "" {
+		t.Fatalf("second install = %d, stderr %q", code, stderr)
+	}
+	cfg, err = os.ReadFile(cfgPath)
+	if err != nil || strings.Count(string(cfg), "ssh_identity_agent") != 1 {
+		t.Fatalf("config after second install = %s, %v", cfg, err)
+	}
+}
+
+func TestInstallHintsWhenTheAgentSocketIsMissing(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("install supports launchd and systemd")
+	}
+	h := startHub(t, `hub = "me@hub"`, `hub_socket = "/run/user/1000/agentbus/hub.sock"`)
+	home := strings.TrimPrefix(h.env[0], "HOME=")
+	cfgPath := filepath.Join(strings.TrimPrefix(h.env[1], "XDG_CONFIG_HOME="), "agentbus", "config.toml")
+	before, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := append(append([]string{}, h.env...), "AGENTBUS_INSTALL_NO_LOAD=1")
+	code, _, stderr := h.runEnv(t, env, "", "install")
+	if code != 0 {
+		t.Fatalf("install = %d, stderr %q", code, stderr)
+	}
+	if strings.Count(stderr, "\n") != 1 || !strings.Contains(stderr, "run setup-hub-client") {
+		t.Fatalf("stderr = %q", stderr)
+	}
+	after, err := os.ReadFile(cfgPath)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("config changed to %s, %v", after, err)
+	}
+	path, err := tunnelPath(runtime.GOOS, home, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || strings.Contains(string(data), "SSH_AUTH_SOCK") {
+		t.Fatalf("unit = %s, %v", data, err)
+	}
+}
+
+func TestTunnelBodyCarriesSSHAuthSock(t *testing.T) {
+	spec := tunnelSpec{
+		ssh: "/usr/bin/ssh", target: "me@hub",
+		local: "/rt/agentbus/tunnel.sock", remote: "/run/user/1000/agentbus/hub.sock",
+		identityAgent: "/home/u/.ssh/agent.sock",
+	}
+	vars := [][2]string{{"SSH_AUTH_SOCK", "/home/u/.ssh/agent.sock"}}
+	unit, err := tunnelBody("linux", spec, vars)
+	if err != nil || !strings.Contains(unit, "Environment=SSH_AUTH_SOCK=/home/u/.ssh/agent.sock\n") {
+		t.Fatalf("unit = %s, %v", unit, err)
+	}
+	plist, err := tunnelBody("darwin", spec, vars)
+	if err != nil || !strings.Contains(plist, "<key>SSH_AUTH_SOCK</key>") || !strings.Contains(plist, "<string>/home/u/.ssh/agent.sock</string>") {
+		t.Fatalf("plist = %s, %v", plist, err)
+	}
+}
+
 func TestParseTunnelExitStatus(t *testing.T) {
 	code, ok := parseLaunchdExit("\tstate = spawn scheduled\n\tlast exit code = 255\n")
 	if !ok || code != 255 {
