@@ -8,6 +8,7 @@ const (
 	hitAnswer
 	hitSubmit
 	hitMarkDone
+	hitClose
 	hitTarget
 	hitCompose
 	hitSend
@@ -230,6 +231,8 @@ func (m *Model) hit(h hit) error {
 		m.scroll = 0
 		m.beginOutcome()
 		return nil
+	case hitClose:
+		return m.closeSelected()
 	case hitSend:
 		return m.sendNote()
 	case hitLink:

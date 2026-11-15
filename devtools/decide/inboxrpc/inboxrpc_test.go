@@ -128,6 +128,71 @@ func (h *hub) create(t *testing.T, item *decide.Item) decide.Item {
 	return got
 }
 
+func TestServeFollowsUpAStaleAnswerWithoutAList(t *testing.T) {
+	h := newHub(t)
+	start := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	now := start
+	h.server.Backend.Now = func() time.Time { return now }
+	prev := h.server.Backend.Herdr
+	h.server.Backend.Herdr = func(ctx context.Context, machine string, args []string) (string, error) {
+		if len(args) > 0 && args[0] == "agent" {
+			return `{"result":{"agents":[{"pane_id":"w1:p1","agent_status":"idle"}]}}`, nil
+		}
+		return prev(ctx, machine, args)
+	}
+	led, err := decide.Open(h.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	led.SetClock(func() time.Time { return now })
+	item, err := led.Create(&decide.Item{
+		Question:   "ship",
+		Owner:      "ada",
+		Kind:       decide.KindRelay,
+		NotifyPane: "w1:p1",
+		Options:    []decide.Option{{Key: "a", Label: "Alpha"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := led.Answer(item.ID, "a", decide.ViaCLI); err != nil {
+		t.Fatal(err)
+	}
+	now = start.Add(31 * time.Minute)
+	h.server.FollowEvery = 15 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pr, pw := io.Pipe()
+	defer pw.Close()
+	errc := make(chan error, 1)
+	go func() {
+		errc <- h.server.Serve(ctx, pr, io.Discard)
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	var got decide.Item
+	for {
+		got, err = led.Get(item.ID)
+		resent := err == nil && len(got.Delivery) > 0 && got.Delivery[len(got.Delivery)-1].Outcome == decide.OutcomeResend
+		if resent {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("delivery = %+v err = %v", got.Delivery, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	_ = pw.Close()
+	select {
+	case err := <-errc:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("serve did not return")
+	}
+}
+
 func connect(t *testing.T, h *hub) *Client {
 	t.Helper()
 	c := &Client{Dial: h.dial, Label: "me@hub", Machine: "mac", HubMachine: "hub"}

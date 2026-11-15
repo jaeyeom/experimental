@@ -112,6 +112,18 @@ func (b *LocalBackend) with(fn func(*decide.Ledger) (decide.Item, error)) (decid
 	return fn(led)
 }
 
+// FollowDue follows up stale answers on this ledger.
+func (b *LocalBackend) FollowDue() error {
+	led, err := b.ledger()
+	if err != nil {
+		return err
+	}
+	if err := led.FollowStale(b.now(), io.Discard, b.Herdr); err != nil {
+		return fmt.Errorf("follow stale answers: %w", err)
+	}
+	return nil
+}
+
 // List implements Backend.
 func (b *LocalBackend) List() ([]decide.Item, error) {
 	led, err := b.ledger()
@@ -119,6 +131,7 @@ func (b *LocalBackend) List() ([]decide.Item, error) {
 		return nil, err
 	}
 	_ = led.RetryDue(b.now(), io.Discard)
+	_ = led.FollowStale(b.now(), io.Discard, b.Herdr)
 	all, err := led.List()
 	if err != nil {
 		return nil, fmt.Errorf("list decide ledger: %w", err)

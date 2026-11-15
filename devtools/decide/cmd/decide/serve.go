@@ -18,6 +18,10 @@ import (
 // hubInterval is how often a hub-mode inbox lists the hub's ledger.
 const hubInterval = time.Second
 
+// followEvery is how often the hub follows up a stale answer. The
+// serve process does it, so the item does not have to be open.
+const followEvery = time.Minute
+
 // cmdHubInbox runs the inbox here against the hub's ledger, over one
 // ssh session to `decide serve --stdio`. Links open here; ledger writes,
 // notifications, and compose sends run on the hub.
@@ -85,8 +89,9 @@ func cmdServe(args []string, stdout, stderr io.Writer) int {
 			Checkouts:    cfg.Checkouts,
 			Machine:      decide.LocalMachine(cfg),
 		},
-		Targets:  cfg.Targets,
-		Agentbus: cfg.Recipients.Agentbus,
+		Targets:     cfg.Targets,
+		Agentbus:    cfg.Recipients.Agentbus,
+		FollowEvery: followEvery,
 		Display: func() (decide.DisplaySettings, error) {
 			f, err := decide.LoadConfigFile()
 			if err != nil {
