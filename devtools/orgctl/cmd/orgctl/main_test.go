@@ -111,6 +111,18 @@ func TestCheckRejectsBadGlob(t *testing.T) {
 	}
 }
 
+func TestCheckWarnsOutsideScope(t *testing.T) {
+	path := writeSpec(t, `{"roles":{"desk/clerk":{"workspace":"misc"}},"pools":{"hands":{"workspace":"workers"}},"scope":{"workspaces":["org-a"]}}`)
+	var stderr bytes.Buffer
+	code := run([]string{"check", path}, &stderr)
+	if code != 0 || !strings.Contains(stderr.String(), `warning: role desk/clerk workspace "misc" is outside the scope`) {
+		t.Fatalf("exit %d, stderr %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), `warning: pool hands workspace "workers" is outside the scope`) {
+		t.Fatalf("stderr %s", stderr.String())
+	}
+}
+
 func TestCheckPrintsAllowWarning(t *testing.T) {
 	path := writeSpec(t, `{"roles":{"coord/lead":{"decides":["merge PRs"]}},"allowApprovalWords":["merge"]}`)
 	var stderr bytes.Buffer
@@ -195,7 +207,7 @@ func TestDriftExitCodes(t *testing.T) {
 	}
 	stdout.Reset()
 	code := runIO([]string{"drift", path}, &stdout, &stderr, extra)
-	if code != 2 || !strings.Contains(stdout.String(), "USER: close tab stray in hq") {
+	if code != 2 || !strings.Contains(stdout.String(), "add to spec, or USER: close tab stray in hq if it is no longer needed") {
 		t.Fatalf("drift exit %d\n%s", code, stdout.String())
 	}
 }

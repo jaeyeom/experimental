@@ -7,6 +7,21 @@ import (
 	"testing"
 )
 
+func TestImportEmitsScope(t *testing.T) {
+	live := Live{
+		Names: []LiveName{{Name: "b/two"}, {Name: "a/one"}},
+		Agents: []LiveAgent{
+			{Name: "b/two", Workspace: "misc", Tab: "t", Cwd: "/b", Kind: "agent", Machine: "local"},
+			{Name: "a/one", Workspace: "org-a", Tab: "t", Cwd: "/a", Kind: "agent", Machine: "local"},
+		},
+	}
+	stub := Import(live, "Org.pkl")
+	want := "scope {\n  workspaces {\n    \"misc\"\n    \"org-a\"\n  }\n}\n"
+	if !strings.Contains(stub, want) {
+		t.Fatalf("stub missing scope\n%s", stub)
+	}
+}
+
 func TestImportEvaluates(t *testing.T) {
 	live := Live{
 		Names: []LiveName{{Name: "coord/lead", When: "mornings", Server: "local"}},
@@ -54,5 +69,8 @@ func TestImportEvaluates(t *testing.T) {
 	}
 	if _, err := spec.CheckDecides(nil); err != nil {
 		t.Fatal(err)
+	}
+	if spec.Scope == nil || len(spec.Scope.Workspaces) != 1 || spec.Scope.Workspaces[0] != "hq" {
+		t.Fatalf("scope = %+v", spec.Scope)
 	}
 }

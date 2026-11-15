@@ -51,7 +51,7 @@ func TestDriftReportsLiveExtras(t *testing.T) {
 	got := strings.Join(lines, "\n")
 	for _, want := range []string{
 		"+ tab hq/stray",
-		"USER: close tab stray in hq",
+		"add to spec, or USER: close tab stray in hq if it is no longer needed",
 		"+ name extra/one",
 		"+ cron stray",
 		"! cron overnight misplaced: move to role review/desk",
@@ -245,7 +245,7 @@ func TestDriftSkipsPoolWorkspace(t *testing.T) {
 		Agents: []LiveAgent{{Name: "worker/one", Workspace: "workers", Tab: "a"}},
 	}
 	got := strings.Join(Drift(spec, live), "\n")
-	want := "+ tab misc/stray\nUSER: close tab stray in misc\n+ name other/name\nmodule drift.stub\n\nname = \"other/name\"\n"
+	want := "+ tab misc/stray\nadd to spec, or USER: close tab stray in misc if it is no longer needed\n+ name other/name\nmodule drift.stub\n\nname = \"other/name\"\n"
 	if got != want {
 		t.Fatalf("drift =\n%s\nwant\n%s", got, want)
 	}
@@ -258,6 +258,86 @@ func TestCheckPatterns(t *testing.T) {
 	}
 	if err := (Spec{Pools: map[string]Pool{"hands": {NamePattern: "adhoc/*"}}}).CheckPatterns(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDriftScopeLimitsTabs(t *testing.T) {
+	spec := Spec{
+		Roles: map[string]Role{
+			"desk/clerk": {Workspace: "org-a", Tab: "clerk"},
+		},
+		Pools: map[string]Pool{
+			"hands": {Workspace: "workers", TabPattern: "hands-*"},
+		},
+		Scope: &Scope{Workspaces: []string{"org-a", "workers"}},
+	}
+	live := Live{
+		Tabs: []LiveTab{
+			{Workspace: "org-a", Label: "clerk"},
+			{Workspace: "org-a", Label: "stray"},
+			{Workspace: "misc", Label: "notes"},
+			{Workspace: "workers", Label: "other"},
+		},
+		Names: []LiveName{{Name: "extra/one"}},
+		Crons: []LiveCron{{Cwd: "/work/other", ID: "bbbb0001", Cron: "15 8 * * *"}},
+	}
+	got := strings.Join(Drift(spec, live), "\n")
+	if !strings.Contains(got, "+ tab org-a/stray") {
+		t.Fatalf("missing scoped tab:\n%s", got)
+	}
+	if strings.Contains(got, "misc") || strings.Contains(got, "workers/other") {
+		t.Fatalf("out of scope or pool workspace reported:\n%s", got)
+	}
+	want := "add to spec, or USER: close tab stray in org-a if it is no longer needed"
+	if !strings.Contains(got, want) {
+		t.Fatalf("missing suggestion:\n%s", got)
+	}
+	if !strings.Contains(got, "+ name extra/one") || !strings.Contains(got, "+ cron bbbb0001") {
+		t.Fatalf("names and crons should stay global:\n%s", got)
+	}
+
+	spec.Scope = nil
+	got = strings.Join(Drift(spec, live), "\n")
+	for _, line := range []string{"+ tab org-a/stray", "+ tab misc/notes", "+ tab workers/other"} {
+		if !strings.Contains(got, line) {
+			t.Fatalf("unset scope missing %q\n%s", line, got)
+		}
+	}
+}
+
+func TestCheckScopeWarns(t *testing.T) {
+	spec := Spec{
+		Roles: map[string]Role{
+			"desk/clerk": {Workspace: "misc"},
+			"desk/lead":  {Workspace: "org-a"},
+		},
+		Pools: map[string]Pool{
+			"hands": {Workspace: "workers"},
+		},
+		Scope: &Scope{Workspaces: []string{"org-a"}},
+	}
+	got := spec.CheckScope()
+	want := []string{
+		`warning: role desk/clerk workspace "misc" is outside the scope`,
+		`warning: pool hands workspace "workers" is outside the scope`,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("warnings = %#v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("warnings = %#v", got)
+		}
+	}
+	spec.Roles["desk/clerk"] = Role{Workspace: "org-a"}
+	spec.Pools["hands"] = Pool{Workspace: "org-a"}
+	if warnings := spec.CheckScope(); len(warnings) != 0 {
+		t.Fatalf("inside scope warnings = %#v", warnings)
+	}
+	spec.Scope = nil
+	spec.Roles["desk/clerk"] = Role{Workspace: "misc"}
+	if warnings := spec.CheckScope(); len(warnings) != 0 {
+		t.Fatalf("unset scope warnings = %#v", warnings)
 	}
 }
 

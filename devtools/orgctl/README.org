@@ -267,15 +267,15 @@ Nothing is written. Each finding is followed by a suggestion. Extras
 are skipped when that source was not read, instead of failing the
 command.
 
-| Marker | Line                                     | Suggestion                         |
-|--------+------------------------------------------+------------------------------------|
-| +      | + tab WORKSPACE/LABEL                    | USER: close tab LABEL in WORKSPACE |
-| +      | + name NAME                              | a Pkl stub for that name           |
-|        | gone (stale registration): NAME          | USER: agentbus release NAME        |
-| +      | + cron ID                                | a Pkl stub for that cron           |
-| !      | ! cron ID misplaced: move to role TARGET | USER: recreate cron in role TARGET |
-| ~      | ~ ROLE when                              | a stub that sets the live when     |
-| !      | ! ROLE brief edited in place             | USER: review brief for ROLE        |
+| Marker | Line                                     | Suggestion                                                                   |
+|--------+------------------------------------------+------------------------------------------------------------------------------|
+| +      | + tab WORKSPACE/LABEL                    | add to spec, or USER: close tab LABEL in WORKSPACE if it is no longer needed |
+| +      | + name NAME                              | a Pkl stub for that name                                                     |
+|        | gone (stale registration): NAME          | USER: agentbus release NAME                                                  |
+| +      | + cron ID                                | a Pkl stub for that cron                                                     |
+| !      | ! cron ID misplaced: move to role TARGET | USER: recreate cron in role TARGET                                           |
+| ~      | ~ ROLE when                              | a stub that sets the live when                                               |
+| !      | ! ROLE brief edited in place             | USER: review brief for ROLE                                                  |
 
 A cron is misplaced when the spec declares it on one role, the job
 was created by a session, and that session belongs to a different
@@ -288,3 +288,7 @@ workspace. A namePattern or tabPattern limits
 that to matching workers. When both are set, a worker must match both.
 A role key stays a role. Each scheduled job is read once and reported
 once, including when several roles share its directory.
+When scope lists workspaces, tab drift reports only tabs in that
+list, and still skips a pool workspace. Names and scheduled jobs
+stay global. An empty scope reports every workspace. check warns
+when a role or pool workspace is outside that list.
