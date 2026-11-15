@@ -342,6 +342,8 @@ func promptPrefix(s string) string {
 	return string(r[:cronPromptPrefix])
 }
 
+// nameSession is the session in the role's agentbus handle.
+// Plan and drift both use it for job ownership.
 func nameSession(live Live, name string) string {
 	for _, item := range live.Names {
 		if item.Name == name {

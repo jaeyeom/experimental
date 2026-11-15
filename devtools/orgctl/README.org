@@ -292,8 +292,10 @@ command.
 
 A cron is misplaced when the spec declares it on one role, the job
 was created by a session, and that session belongs to a different
-role. The job is the one with the same cron expression, not the same
-id. The suggestion names the role that owns the session.
+role. The session is the one in the agentbus handle. The job is the
+one with the same cron expression, not the same id. The suggestion
+names the role that owns the session. A liveness other than alive or
+unreachable, such as gone or dead, is a stale registration.
 
 A pool with no patterns hides every tab in its workspace, and hides
 a name that starts with the pool key or whose agent is in that

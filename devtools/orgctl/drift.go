@@ -67,7 +67,7 @@ func extraNames(spec Spec, live Live) []string {
 	}
 	var names, gone []string
 	for _, item := range live.Names {
-		if item.Liveness == "gone" {
+		if staleLiveness(item.Liveness) {
 			gone = append(gone, item.Name)
 			continue
 		}
@@ -247,11 +247,16 @@ func declaredCron(spec Spec, cron LiveCron) bool {
 }
 
 func roleSession(live Live, name string) string {
-	agent, ok := liveAgent(live, name)
-	if !ok {
-		return ""
+	return nameSession(live, name)
+}
+
+func staleLiveness(value string) bool {
+	switch value {
+	case "", "alive", "unreachable":
+		return false
+	default:
+		return true
 	}
-	return agent.SessionID
 }
 
 func sessionRole(spec Spec, live Live, session string) string {
