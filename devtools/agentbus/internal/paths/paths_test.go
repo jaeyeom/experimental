@@ -91,6 +91,67 @@ func TestDarwinDefaultRuntimeDir(t *testing.T) {
 	}
 }
 
+func TestClientStateDir(t *testing.T) {
+	t.Parallel()
+	home := shortHome(t)
+	got, err := stateDir([]string{"HOME=" + home}, "darwin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, "Library", "Caches", "agentbus", "state"); got != want {
+		t.Fatalf("darwin client state = %s, want %s", got, want)
+	}
+	got, err = stateDir([]string{"HOME=" + home}, "linux")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, ".local", "state", "agentbus"); got != want {
+		t.Fatalf("linux client state = %s, want %s", got, want)
+	}
+	got, err = stateDir([]string{"HOME=" + home, "XDG_STATE_HOME=" + filepath.Join(home, "xdg")}, "darwin")
+	if err != nil || got != filepath.Join(home, "xdg", "agentbus") {
+		t.Fatalf("xdg client state = %s, %v", got, err)
+	}
+}
+
+func TestFromEnvSkipsChmodWhenTheRuntimeDirIsPrivate(t *testing.T) {
+	t.Parallel()
+	home := shortHome(t)
+	runtimeDir := filepath.Join(home, "Library", "Caches", "agentbus", "run")
+	if err := os.MkdirAll(runtimeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	chmodRefuse.Store(runtimeDir, true)
+	t.Cleanup(func() { chmodRefuse.Delete(runtimeDir) })
+
+	got, err := fromEnv([]string{"HOME=" + home, "XDG_STATE_HOME=" + filepath.Join(home, "state")}, "darwin")
+	if err != nil {
+		t.Fatalf("fromEnv: %v", err)
+	}
+	if got.TunnelSocketPath != filepath.Join(runtimeDir, "agentbus", "tunnel.sock") {
+		t.Fatalf("tunnel = %s", got.TunnelSocketPath)
+	}
+}
+
+func TestFromEnvKeepsSocketsWhenChmodFails(t *testing.T) {
+	t.Parallel()
+	home := shortHome(t)
+	runtimeDir := filepath.Join(home, "Library", "Caches", "agentbus", "run")
+	sockDir := filepath.Join(runtimeDir, "agentbus")
+	if err := os.MkdirAll(sockDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sockDir, "tunnel.sock"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	chmodRefuse.Store(runtimeDir, true)
+	t.Cleanup(func() { chmodRefuse.Delete(runtimeDir) })
+
+	if _, err := fromEnv([]string{"HOME=" + home, "XDG_STATE_HOME=" + filepath.Join(home, "state")}, "darwin"); err != nil {
+		t.Fatalf("fromEnv with a socket present: %v", err)
+	}
+}
+
 func TestDarwinHonorsRuntimeDir(t *testing.T) {
 	t.Parallel()
 	home := shortHome(t)

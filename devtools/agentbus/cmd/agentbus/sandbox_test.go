@@ -16,6 +16,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 	"github.com/jaeyeom/experimental/devtools/pkg/herdrtest"
 	"github.com/jaeyeom/experimental/devtools/pkg/remotecall"
 )
@@ -197,10 +198,18 @@ func TestDoctorSandboxListsTheSocketsAndChecksThem(t *testing.T) {
 		"ssh me@hub: blocked",
 		"outbox flusher: missing",
 		"outbox: no pending entries",
+		`"allowOnly"`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("doctor output lacks %q:\n%s", want, stdout)
 		}
+	}
+	state, err := paths.ClientStateDir(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, state) {
+		t.Errorf("doctor output lacks the outbox dir %s:\n%s", state, stdout)
 	}
 	if strings.Contains(stdout, daemonSock) || strings.Contains(stdout, "daemon socket") {
 		t.Fatalf("hub mode checked the local daemon socket:\n%s", stdout)

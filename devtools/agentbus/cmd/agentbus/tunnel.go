@@ -136,6 +136,11 @@ func openTunnel(ctx context.Context, cfg config.Config, name string, env []strin
 	}
 	dirs, err := paths.FromEnv(env)
 	if err != nil {
+		// A path error is not "no tunnel". Inside a sandbox it must not
+		// become an ssh fallback: the sandbox cannot use ssh.
+		if inSandbox(env) {
+			return ctx, false, fmt.Errorf("locate the tunnel: %w", err)
+		}
 		return ctx, false, nil
 	}
 	// A missing socket is the common case: check it before asking herdr.

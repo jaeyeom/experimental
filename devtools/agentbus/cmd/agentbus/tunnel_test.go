@@ -4,10 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -16,6 +20,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter/herdr"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
@@ -95,6 +100,48 @@ func (s *tunnelSetup) run(t *testing.T, env []string, stdin string, args ...stri
 
 func (s *tunnelSetup) usedSSH() bool {
 	return s.ssh.Read("argv") != ""
+}
+
+func TestOpenTunnelPathErrorInASandboxDoesNotSelectSSH(t *testing.T) {
+	cfg := config.Config{Hub: "me@hub", Machine: "linux2"}
+	env := []string{"HERDR_PANE_ID=w1:p1", "AGENTBUS_SANDBOX=1"}
+	ctx, ok, err := openTunnel(context.Background(), cfg, "lease", env, io.Discard)
+	if err == nil || ok {
+		t.Fatalf("openTunnel ok=%v err=%v", ok, err)
+	}
+	if _, ssh := sshRouteFrom(ctx); ssh {
+		t.Fatal("a path error selected ssh")
+	}
+	if !strings.Contains(err.Error(), "locate the tunnel") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestHubSendWritesTheOutboxUnderTheClientDir(t *testing.T) {
+	s := newTunnelSetup(t)
+	home := shortRuntime(t)
+	env := slices.DeleteFunc(slices.Clone(s.env), func(kv string) bool {
+		return strings.HasPrefix(kv, "XDG_STATE_HOME=") || strings.HasPrefix(kv, "HOME=")
+	})
+	env = append(env, "HOME="+home)
+	s.ssh.Write("down", "")
+	code, stdout, stderr := s.run(t, env, "", "send", "ops/x", "body")
+	local := filepath.Join(home, ".local")
+	if runtime.GOOS == "darwin" {
+		if _, err := os.Stat(local); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("created %s (stat %v)\nsend = %d\n%s%s", local, err, code, stdout, stderr)
+		}
+	}
+	client, err := paths.ClientStateDir(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(client, "outbox")); err != nil {
+		t.Fatalf("outbox under %s: %v\nsend = %d\n%s%s", client, err, code, stdout, stderr)
+	}
+	if strings.Contains(client, filepath.Join(".local", "state")) && runtime.GOOS == "darwin" {
+		t.Fatalf("darwin client dir is %s", client)
+	}
 }
 
 func TestTunnelSendCarriesTheCallerAndRepliesGoBackOverHerdr(t *testing.T) {
