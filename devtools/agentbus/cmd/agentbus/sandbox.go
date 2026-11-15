@@ -245,7 +245,7 @@ func cmdDoctor(ctx context.Context, args, env []string, stdout, stderr io.Writer
 	}
 	sandboxDoc := map[string]any{"network": network}
 	if writes := sandboxWritePaths(env, dirs); len(writes) > 0 {
-		sandboxDoc["filesystem"] = map[string]any{"write": map[string]any{"allowOnly": writes}}
+		sandboxDoc["filesystem"] = map[string]any{"allowWrite": writes}
 	}
 	body, err := json.MarshalIndent(map[string]any{"sandbox": sandboxDoc}, "", "  ")
 	if err != nil {
@@ -521,7 +521,7 @@ func agentSockDiffers(env []string) bool {
 }
 
 // sandboxWritePaths is every directory a hub client still writes.
-// allowOnly is the Claude Code filesystem.write setting.
+// allowWrite is Claude Code's sandbox.filesystem.allowWrite list.
 func sandboxWritePaths(env []string, dirs paths.Dirs) []string {
 	var out []string
 	if dir, err := paths.ClientStateDir(env); err == nil && dir != "" {

@@ -21,6 +21,10 @@
 #     claude_sandbox_os=Linux uses $XDG_RUNTIME_DIR, or /run/user/<uid>
 #     when that variable is unset. HERDR_SOCKET_PATH overrides the
 #     default herdr socket.
+#   - A hand-added allowWrite entry stays first. Darwin adds
+#     ~/Library/Caches/agentbus/state and ~/Library/Caches/agentbus/run.
+#     A second run changes nothing and writes no new backup. Linux does
+#     not add those two paths (jaeyeom/experimental#857).
 set -eu
 
 fail() {
@@ -351,6 +355,48 @@ if [ "$(backup_count)" != "$BEFORE" ]; then
 	fail "socket rerun wrote a new backup"
 fi
 
+# A hand-added allowWrite stays first. Darwin adds the two agentbus dirs.
+use_home writes
+unset HERDR_SOCKET_PATH
+unset XDG_RUNTIME_DIR
+mkdir -p "${HOME}/.claude"
+STATE="${HOME}/Library/Caches/agentbus/state"
+RUNDIR="${HOME}/Library/Caches/agentbus/run"
+python3 -c '
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+path.write_text(json.dumps({
+    "sandbox": {"filesystem": {"allowWrite": [sys.argv[2]]}},
+}))
+' "${HOME}/.claude/settings.json" /tmp/custom-write
+run -e claude_sandbox_os=Darwin
+python3 -c '
+import json, pathlib, sys
+data = json.loads(pathlib.Path(sys.argv[1]).read_text())
+got = data["sandbox"]["filesystem"]["allowWrite"]
+custom, state, rundir = sys.argv[2:]
+if not got or got[0] != custom:
+    sys.exit("custom write is not first: %s" % got)
+if got.count(custom) != 1 or got.count(state) != 1 or got.count(rundir) != 1:
+    sys.exit("write paths duplicated or missing: %s" % got)
+' "$(settings_file)" /tmp/custom-write "$STATE" "$RUNDIR"
+if [ "$(backup_count)" -ne 1 ]; then
+	fail "first write run made $(backup_count) backups, want 1"
+fi
+BEFORE=$(backup_count)
+SUM=$(cksum "$(settings_file)")
+run -e claude_sandbox_os=Darwin
+if ! grep -q 'changed=0 ' "$OUT"; then
+	cat "$OUT" >&2
+	fail "write rerun changed something"
+fi
+if [ "$(cksum "$(settings_file)")" != "$SUM" ]; then
+	fail "write rerun rewrote settings.json"
+fi
+if [ "$(backup_count)" != "$BEFORE" ]; then
+	fail "write rerun wrote a new backup"
+fi
+
 # Linux uses XDG_RUNTIME_DIR and HERDR_SOCKET_PATH when they are set.
 use_home linux-xdg
 export XDG_RUNTIME_DIR="${ROOT}/xdg"
@@ -363,6 +409,16 @@ assert_sockets "$(settings_file)" "$(printf '%s\n' \
 	"$HERDR_SOCKET_PATH" \
 	"${XDG_RUNTIME_DIR}/agentbus/daemon.sock" \
 	"${XDG_RUNTIME_DIR}/agentbus/tunnel.sock")"
+python3 -c '
+import json, pathlib, sys
+data = json.loads(pathlib.Path(sys.argv[1]).read_text())
+got = data["sandbox"]["filesystem"]["allowWrite"]
+for path in sys.argv[2:]:
+    if path in got:
+        sys.exit("linux allowWrite has %s" % path)
+' "$(settings_file)" \
+	"${HOME}/Library/Caches/agentbus/state" \
+	"${HOME}/Library/Caches/agentbus/run"
 
 # Linux without XDG_RUNTIME_DIR falls back to /run/user/<uid>.
 use_home linux-fallback

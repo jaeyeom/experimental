@@ -290,7 +290,10 @@
     # rules already in settings.json stay, in front, and the playbook
     # adds only the ones that are missing. allowUnixSockets is too:
     # existing sockets stay, then docker and the agentbus sockets from
-    # sandbox.go that are not already there.
+    # sandbox.go that are not already there. allowWrite is the same
+    # union: entries already in settings.json stay, in front, then this
+    # playbook. On macOS the two hub-client directories from agentbus
+    # doctor --sandbox are added as well.
     - name: Parse current settings and compute merged result
       vars:
         claude_current: "{{ current_settings_raw.content | b64decode | from_json }}"
@@ -313,6 +316,15 @@
           {{
             claude_existing_sockets
             + (claude_playbook_sockets | reject('in', claude_existing_sockets) | list)
+          }}
+        claude_filesystem: "{{ (claude_current.sandbox | default({})).filesystem | default({}) }}"
+        claude_existing_writes: "{{ claude_filesystem.allowWrite | default([], true) }}"
+        claude_agentbus_writes: "{{ [claude_home + '/Library/Caches/agentbus/state', claude_home + '/Library/Caches/agentbus/run'] if claude_os == 'Darwin' else [] }}"
+        claude_playbook_writes: "{{ sandbox_config.sandbox.filesystem.allowWrite + claude_agentbus_writes }}"
+        claude_merged_writes: >-
+          {{
+            claude_existing_writes
+            + (claude_playbook_writes | reject('in', claude_existing_writes) | list)
           }}
         claude_seen: "{{ claude_existing_domains + claude_existing_hosts }}"
         claude_merged_domains: >-
@@ -343,6 +355,9 @@
                 'network': {
                   'allowedDomains': claude_merged_domains,
                   'allowUnixSockets': claude_merged_sockets
+                },
+                'filesystem': {
+                  'allowWrite': claude_merged_writes
                 }
               },
               'permissions': {

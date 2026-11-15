@@ -198,10 +198,15 @@ func TestDoctorSandboxListsTheSocketsAndChecksThem(t *testing.T) {
 		"ssh me@hub: blocked",
 		"outbox flusher: missing",
 		"outbox: no pending entries",
-		`"allowOnly"`,
+		`"allowWrite"`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("doctor output lacks %q:\n%s", want, stdout)
+		}
+	}
+	for _, banned := range []string{`"allowOnly"`, `"write"`} {
+		if strings.Contains(stdout, banned) {
+			t.Errorf("doctor output has %q:\n%s", banned, stdout)
 		}
 	}
 	state, err := paths.ClientStateDir(env)

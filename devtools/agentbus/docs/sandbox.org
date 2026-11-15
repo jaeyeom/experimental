@@ -114,12 +114,10 @@ Claude Code sandbox settings this machine needs (merge into settings.json):
       ]
     },
     "filesystem": {
-      "write": {
-        "allowOnly": [
-          "/Users/me/Library/Caches/agentbus/state",
-          "/Users/me/Library/Caches/agentbus/run"
-        ]
-      }
+      "allowWrite": [
+        "/Users/me/Library/Caches/agentbus/state",
+        "/Users/me/Library/Caches/agentbus/run"
+      ]
     }
   }
 }
