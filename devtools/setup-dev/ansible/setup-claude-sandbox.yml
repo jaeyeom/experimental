@@ -94,6 +94,16 @@
             - objects.githubusercontent.com
             # Node.js downloads
             - nodejs.org
+          # Unioned with settings.json on rerun: sockets already there stay,
+          # in order, then these. docker is the only fixed path. herdr,
+          # the agentbus daemon, and the agentbus tunnel are computed in
+          # the merge task from HOME, HERDR_SOCKET_PATH, XDG_RUNTIME_DIR,
+          # and the OS. Keep them in step with agentbus doctor --sandbox
+          # (devtools/agentbus/cmd/agentbus/sandbox.go): herdr is
+          # HERDR_SOCKET_PATH or ~/.config/herdr/herdr.sock; macOS
+          # agentbus sockets are under ~/Library/Caches/agentbus/run;
+          # Linux uses $XDG_RUNTIME_DIR/agentbus, or /run/user/<uid>
+          # when XDG_RUNTIME_DIR is unset.
           allowUnixSockets:
             - /var/run/docker.sock
           allowLocalBinding: true
@@ -278,7 +288,9 @@
     # this playbook, first occurrence wins. Then drop allowedHosts.
     # permissions.allow and permissions.deny are the same kind of union:
     # rules already in settings.json stay, in front, and the playbook
-    # adds only the ones that are missing.
+    # adds only the ones that are missing. allowUnixSockets is too:
+    # existing sockets stay, then docker and the agentbus sockets from
+    # sandbox.go that are not already there.
     - name: Parse current settings and compute merged result
       vars:
         claude_current: "{{ current_settings_raw.content | b64decode | from_json }}"
@@ -286,6 +298,22 @@
         claude_existing_domains: "{{ claude_network.allowedDomains | default([], true) }}"
         claude_existing_hosts: "{{ claude_network.allowedHosts | default([], true) }}"
         claude_playbook_domains: "{{ sandbox_config.sandbox.network.allowedDomains }}"
+        claude_home: "{{ ansible_facts['env']['HOME'] }}"
+        claude_herdr_env: "{{ ansible_facts['env']['HERDR_SOCKET_PATH'] | default('', true) }}"
+        claude_herdr_socket: "{{ claude_herdr_env if (claude_herdr_env | length) > 0 else claude_home + '/.config/herdr/herdr.sock' }}"
+        claude_os: "{{ claude_sandbox_os | default(ansible_facts['system'], true) }}"
+        claude_xdg: "{{ ansible_facts['env']['XDG_RUNTIME_DIR'] | default('', true) }}"
+        claude_linux_runtime: "{{ claude_xdg if (claude_xdg | length) > 0 else ('/run/user/' + (ansible_facts['user_uid'] | string)) }}"
+        claude_runtime_dir: "{{ (claude_home + '/Library/Caches/agentbus/run') if claude_os == 'Darwin' else claude_linux_runtime }}"
+        claude_daemon_socket: "{{ claude_runtime_dir + '/agentbus/daemon.sock' }}"
+        claude_tunnel_socket: "{{ claude_runtime_dir + '/agentbus/tunnel.sock' }}"
+        claude_existing_sockets: "{{ claude_network.allowUnixSockets | default([], true) }}"
+        claude_playbook_sockets: "{{ sandbox_config.sandbox.network.allowUnixSockets + [claude_herdr_socket, claude_daemon_socket, claude_tunnel_socket] }}"
+        claude_merged_sockets: >-
+          {{
+            claude_existing_sockets
+            + (claude_playbook_sockets | reject('in', claude_existing_sockets) | list)
+          }}
         claude_seen: "{{ claude_existing_domains + claude_existing_hosts }}"
         claude_merged_domains: >-
           {{
@@ -313,7 +341,8 @@
             sandbox_config | combine({
               'sandbox': {
                 'network': {
-                  'allowedDomains': claude_merged_domains
+                  'allowedDomains': claude_merged_domains,
+                  'allowUnixSockets': claude_merged_sockets
                 }
               },
               'permissions': {

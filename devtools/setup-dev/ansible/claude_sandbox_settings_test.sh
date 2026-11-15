@@ -1,7 +1,8 @@
 #!/bin/sh
 # setup-claude-sandbox.yml writes sandbox.network.allowedDomains
-# (jaeyeom/experimental#759) and merges permissions.allow and
-# permissions.deny (jaeyeom/experimental#820). Only the
+# (jaeyeom/experimental#759), merges permissions.allow and
+# permissions.deny (jaeyeom/experimental#820), and unions
+# sandbox.network.allowUnixSockets (jaeyeom/experimental#850). Only the
 # claude-sandbox-settings tag runs, against a temp HOME, so the real
 # ~/.claude and the tool installers are left alone.
 #
@@ -12,6 +13,14 @@
 #   - A hand-added allow or deny rule stays, in front of the playbook's.
 #   - A rule the user already has is not added again.
 #   - A second run changes nothing and writes no new backup.
+#   - A hand-added socket and the tunnel socket stay, in that order, and
+#     docker, herdr, and the daemon socket follow. The tunnel is not
+#     duplicated. The first run makes one backup; the second changes
+#     nothing.
+#   - claude_sandbox_os=Darwin uses ~/Library/Caches/agentbus/run.
+#     claude_sandbox_os=Linux uses $XDG_RUNTIME_DIR, or /run/user/<uid>
+#     when that variable is unset. HERDR_SOCKET_PATH overrides the
+#     default herdr socket.
 set -eu
 
 fail() {
@@ -116,9 +125,10 @@ print("\n".join(out))
 ' "$1" "$2"
 }
 
-# run uses HOME for ~/.claude/settings.json.
+# run uses HOME for ~/.claude/settings.json. Extra ansible-playbook
+# arguments, such as -e claude_sandbox_os=Linux, come first.
 run() {
-	if ! ansible-playbook -i "$INVENTORY" --tags claude-sandbox-settings "$PLAYBOOK" >"$OUT" 2>&1; then
+	if ! ansible-playbook -i "$INVENTORY" --tags claude-sandbox-settings "$@" "$PLAYBOOK" >"$OUT" 2>&1; then
 		cat "$OUT" >&2
 		fail "ansible-playbook failed"
 	fi
@@ -161,6 +171,20 @@ if got != want:
     sys.exit("domains %s, want %s" % (got, want))
 if kind == "migrate" and data.get("theme") != "dark":
     sys.exit("theme lost: %s" % data.get("theme"))
+' "$@"
+}
+
+# assert_sockets PATH SOCKETS checks allowUnixSockets. SOCKETS is one
+# path per line.
+assert_sockets() {
+	python3 -c '
+import json, pathlib, sys
+path, raw = sys.argv[1], sys.argv[2]
+want = [line for line in raw.splitlines() if line]
+data = json.loads(pathlib.Path(path).read_text())
+got = data["sandbox"]["network"].get("allowUnixSockets")
+if got != want:
+    sys.exit("sockets %s, want %s" % (got, want))
 ' "$@"
 }
 
@@ -288,6 +312,73 @@ case "$GOT" in
 True") ;;
 *) fail "npm auth rule was not kept once: $GOT" ;;
 esac
+
+# Hand-added socket and the tunnel stay in front. Docker, herdr, and
+# the daemon follow. The tunnel equals a playbook socket, so it is not
+# duplicated. Darwin paths come from HOME, not from a literal.
+use_home sockets
+unset HERDR_SOCKET_PATH
+unset XDG_RUNTIME_DIR
+mkdir -p "${HOME}/.claude"
+HERDR="${HOME}/.config/herdr/herdr.sock"
+DAEMON="${HOME}/Library/Caches/agentbus/run/agentbus/daemon.sock"
+TUNNEL="${HOME}/Library/Caches/agentbus/run/agentbus/tunnel.sock"
+python3 -c '
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+path.write_text(json.dumps({
+    "theme": "dark",
+    "sandbox": {"network": {"allowUnixSockets": [sys.argv[2], sys.argv[3]]}},
+}))
+' "${HOME}/.claude/settings.json" /tmp/custom.sock "$TUNNEL"
+run -e claude_sandbox_os=Darwin
+assert_sockets "$(settings_file)" "$(printf '%s\n' /tmp/custom.sock "$TUNNEL" /var/run/docker.sock "$HERDR" "$DAEMON")"
+assert_settings "$(settings_file)" migrate "$DOMAINS"
+if [ "$(backup_count)" -ne 1 ]; then
+	fail "first socket run made $(backup_count) backups, want 1"
+fi
+BEFORE=$(backup_count)
+SUM=$(cksum "$(settings_file)")
+run -e claude_sandbox_os=Darwin
+if ! grep -q 'changed=0 ' "$OUT"; then
+	cat "$OUT" >&2
+	fail "socket rerun changed something"
+fi
+if [ "$(cksum "$(settings_file)")" != "$SUM" ]; then
+	fail "socket rerun rewrote settings.json"
+fi
+if [ "$(backup_count)" != "$BEFORE" ]; then
+	fail "socket rerun wrote a new backup"
+fi
+
+# Linux uses XDG_RUNTIME_DIR and HERDR_SOCKET_PATH when they are set.
+use_home linux-xdg
+export XDG_RUNTIME_DIR="${ROOT}/xdg"
+export HERDR_SOCKET_PATH="/tmp/herdr-from-env.sock"
+mkdir -p "${HOME}/.claude"
+printf '%s\n' '{}' >"${HOME}/.claude/settings.json"
+run -e claude_sandbox_os=Linux
+assert_sockets "$(settings_file)" "$(printf '%s\n' \
+	/var/run/docker.sock \
+	"$HERDR_SOCKET_PATH" \
+	"${XDG_RUNTIME_DIR}/agentbus/daemon.sock" \
+	"${XDG_RUNTIME_DIR}/agentbus/tunnel.sock")"
+
+# Linux without XDG_RUNTIME_DIR falls back to /run/user/<uid>.
+use_home linux-fallback
+unset HERDR_SOCKET_PATH
+unset XDG_RUNTIME_DIR
+mkdir -p "${HOME}/.claude"
+printf '%s\n' '{}' >"${HOME}/.claude/settings.json"
+USER_ID=$(id -u)
+run -e claude_sandbox_os=Linux
+assert_sockets "$(settings_file)" "$(printf '%s\n' \
+	/var/run/docker.sock \
+	"${HOME}/.config/herdr/herdr.sock" \
+	"/run/user/${USER_ID}/agentbus/daemon.sock" \
+	"/run/user/${USER_ID}/agentbus/tunnel.sock")"
+unset HERDR_SOCKET_PATH
+unset XDG_RUNTIME_DIR
 
 if [ -n "$REAL_SUM" ] && [ "$(cksum "$REAL_SETTINGS")" != "$REAL_SUM" ]; then
 	fail "real settings.json changed"
