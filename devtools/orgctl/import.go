@@ -11,6 +11,10 @@ import (
 // A longer prompt is read from prompts/<id>.txt.
 const importPromptLimit = 80
 
+// placeholderCwd is the cwd written when a name has no directory.
+// check accepts a path that starts with ~/.
+const placeholderCwd = "~/TODO"
+
 // RenderedImport is a Pkl stub plus prompt files it reads.
 // Files are keyed by a path relative to the stub.
 type RenderedImport struct {
@@ -81,7 +85,7 @@ func importRoles(live Live) ([]importRole, []string) {
 			continue
 		}
 		seen[item.Name] = true
-		if item.Liveness == "gone" {
+		if staleLiveness(item.Liveness) {
 			gone = append(gone, item.Name)
 			continue
 		}
@@ -126,7 +130,7 @@ func roleFrom(item LiveName, agent LiveAgent) importRole {
 	}
 	cwd := agent.Cwd
 	if cwd == "" {
-		cwd = "TODO"
+		cwd = placeholderCwd
 	}
 	return importRole{
 		name: item.Name, machine: machine, workspace: workspace,

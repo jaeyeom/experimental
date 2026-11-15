@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -209,6 +210,49 @@ func TestDriftExitCodes(t *testing.T) {
 	code := runIO([]string{"drift", path}, &stdout, &stderr, extra)
 	if code != 2 || !strings.Contains(stdout.String(), "add to spec, or USER: close tab stray in hq if it is no longer needed") {
 		t.Fatalf("drift exit %d\n%s", code, stdout.String())
+	}
+}
+
+func TestImportOutRoundTripsFullPrompt(t *testing.T) {
+	prompt := strings.Repeat("word ", 39) + "tails"
+	if len(prompt) != 200 {
+		t.Fatalf("prompt length %d, want 200", len(prompt))
+	}
+	cwd := t.TempDir()
+	dir := filepath.Join(cwd, ".claude")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	quoted, err := json.Marshal(prompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := `{"tasks":[{"id":"long","cron":"0 9 * * *","prompt":` + string(quoted) + `,"createdAt":1761955200000,"createdBySessionId":"sess-1"}]}`
+	if err := os.WriteFile(filepath.Join(dir, "scheduled_tasks.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	live := orgctl.Live{
+		Names: []orgctl.LiveName{{Name: "desk/one", SessionID: "sess-1", Server: "local"}},
+		Agents: []orgctl.LiveAgent{{
+			Name: "desk/one", Machine: "local", Workspace: "hq", Tab: "one",
+			Cwd: cwd, Kind: "grok",
+		}},
+	}
+	readImportCrons(&live)
+	load := func(orgctl.Spec) (orgctl.Live, error) { return live, nil }
+	outDir := t.TempDir()
+	out := filepath.Join(outDir, "org.pkl")
+	var stdout, stderr bytes.Buffer
+	code := runIO([]string{"import", "--out", out, "--schema", "Org.pkl"}, &stdout, &stderr, load)
+	if code != 0 {
+		t.Fatalf("exit %d\n%s", code, stderr.String())
+	}
+	got, err := os.ReadFile(filepath.Join(outDir, "prompts", "word-word-word-word.txt"))
+	if err != nil {
+		t.Fatalf("prompt file: %v", err)
+	}
+	if string(got) != prompt {
+		t.Fatalf("prompt length %d, want 200", len(got))
 	}
 }
 

@@ -58,6 +58,9 @@ func TestReadFixtureParsesJobsAndExpiry(t *testing.T) {
 	if got.Prompt != strings.Repeat("a", 79)+"é" {
 		t.Fatalf("prompt = %q, want 80 characters", got.Prompt)
 	}
+	if got.FullPrompt != longPrompt {
+		t.Fatalf("full prompt = %q, want the file text", got.FullPrompt)
+	}
 	if !got.CreatedAt.Equal(created) {
 		t.Fatalf("createdAt = %s", got.CreatedAt)
 	}

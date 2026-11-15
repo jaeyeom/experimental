@@ -31,11 +31,14 @@ type Schedule struct {
 }
 
 // Job is one task from scheduled_tasks.json.
-// Prompt is at most 80 characters. ExpiresAt is CreatedAt plus the lifetime.
+// Prompt is at most 80 characters, for matching.
+// FullPrompt is the prompt text from the file, with no length limit.
+// ExpiresAt is CreatedAt plus the lifetime.
 type Job struct {
 	ID                 string     `json:"id"`
 	Cron               string     `json:"cron"`
 	Prompt             string     `json:"prompt"`
+	FullPrompt         string     `json:"fullPrompt,omitempty"`
 	CreatedAt          time.Time  `json:"createdAt"`
 	LastFiredAt        *time.Time `json:"lastFiredAt,omitempty"`
 	CreatedBySessionID string     `json:"createdBySessionId,omitempty"`
@@ -139,6 +142,7 @@ func convert(task rawTask, life time.Duration) (Job, string) {
 		ID:                 task.ID,
 		Cron:               task.Cron,
 		Prompt:             firstChars(task.Prompt, promptLen),
+		FullPrompt:         task.Prompt,
 		CreatedAt:          created,
 		CreatedBySessionID: task.CreatedBySessionID,
 		ExpiresAt:          created.Add(life),

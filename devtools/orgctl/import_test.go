@@ -120,6 +120,62 @@ func TestImportUniquePlaceholders(t *testing.T) {
 	}
 }
 
+func TestImportDeadNameIsComment(t *testing.T) {
+	live := Live{
+		Names: []LiveName{
+			{Name: "desk/one", Liveness: "alive", Server: "local"},
+			{Name: "old/dead", Liveness: "dead", Server: "local"},
+			{Name: "old/away", Liveness: "unreachable", Server: "local"},
+		},
+		Agents: []LiveAgent{{
+			Name: "desk/one", Workspace: "hq", Tab: "one", Cwd: "/work", Kind: "grok", Machine: "local",
+		}},
+	}
+	stub := Import(live, "Org.pkl")
+	if strings.Contains(stub, `["old/dead"]`) {
+		t.Fatalf("dead name imported as a role\n%s", stub)
+	}
+	if !strings.Contains(stub, "// gone: old/dead") {
+		t.Fatalf("missing dead comment\n%s", stub)
+	}
+	if !strings.Contains(stub, `["desk/one"]`) || !strings.Contains(stub, `["old/away"]`) {
+		t.Fatalf("live names missing\n%s", stub)
+	}
+}
+
+func TestImportOutputPassesCheck(t *testing.T) {
+	live := Live{Names: []LiveName{{Name: "a/one", Server: "local"}}}
+	amends := filepath.Join(orgctlRoot(t), "pkl", "Org.pkl")
+	stub := Import(live, amends)
+	if !strings.Contains(stub, `cwd = "~/TODO"`) {
+		t.Fatalf("cwd placeholder\n%s", stub)
+	}
+	path := filepath.Join(t.TempDir(), "org.pkl")
+	if err := os.WriteFile(path, []byte(stub), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, code := evalPkl(t, path)
+	if code != 0 {
+		t.Fatalf("pkl eval exit %d\n%s\n%s", code, stderr, stub)
+	}
+	spec, err := Decode(stdout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := spec.CheckDecides(nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := spec.CheckCwd(); err != nil {
+		t.Fatal(err)
+	}
+	if err := spec.CheckPatterns(); err != nil {
+		t.Fatal(err)
+	}
+	if spec.Roles["a/one"].Cwd != "~/TODO" {
+		t.Fatalf("cwd = %q", spec.Roles["a/one"].Cwd)
+	}
+}
+
 func TestImportLongPrompt(t *testing.T) {
 	prompt := strings.Repeat("word ", 30) + "tail"
 	live := Live{
