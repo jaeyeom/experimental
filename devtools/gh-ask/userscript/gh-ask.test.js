@@ -418,9 +418,283 @@ test("the script only connects to loopback", () => {
 const POPOVER_W = 360;
 const MARGIN = 8;
 
-test("userscript version is 0.1.4", () => {
+test("userscript version is 0.1.5", () => {
   const src = fs.readFileSync(path.join(__dirname, "gh-ask.user.js"), "utf8");
-  assert.match(src, /^\/\/ @version\s+0\.1\.4$/m);
+  assert.match(src, /^\/\/ @version\s+0\.1\.5$/m);
+});
+
+function fakeDoc() {
+  function createElement(tag) {
+    return {
+      tag,
+      className: "",
+      style: {},
+      textContent: "",
+      children: [],
+      append(...kids) {
+        this.children.push(...kids);
+      },
+    };
+  }
+  return { createElement };
+}
+
+function leafText(el) {
+  if (!el.children || el.children.length === 0) {
+    return el.textContent ? [el.textContent] : [];
+  }
+  return el.children.flatMap(leafText);
+}
+
+function tags(el) {
+  return [el.tag, ...(el.children || []).flatMap(tags)];
+}
+
+test("message text is literal, with no element created from it", () => {
+  const text = '<img onerror="alert(1)"><a href="https://evil.example">x</a>';
+  const node = G.renderMessage(fakeDoc(), {
+    role: "agent",
+    time: "2026-11-14T10:00:00Z",
+    text,
+  });
+  const body = node.children.find((el) => el.className === "gh-ask-msg-text");
+  assert.equal(body.textContent, text);
+  assert.equal(body.style.whiteSpace, "pre-wrap");
+  assert.deepEqual(
+    tags(node).filter((tag) => tag === "img" || tag === "a"),
+    [],
+  );
+  assert.match(node.children[0].textContent, /^Agent · /);
+  assert.equal(
+    G.formatMessageTime("2026-11-14T10:00:00Z"),
+    new Date("2026-11-14T10:00:00Z").toLocaleString(),
+  );
+});
+
+test("thread lookup shows the thread, and a 404 is the empty state", () => {
+  assert.equal(G.threadPath("octo/demo", 42), "/thread?repo=octo%2Fdemo&pr=42");
+  const messages = [
+    { role: "you", time: "2026-11-14T10:00:00Z", text: "q" },
+    { role: "note", time: "2026-11-14T10:00:30Z", text: "later" },
+  ];
+  const hit = G.panelView(
+    { status: 200, body: { id: "aaa" } },
+    { state: "answered", answered: true, closed: true, messages },
+  );
+  assert.equal(hit.empty, false);
+  assert.equal(hit.id, "aaa");
+  assert.equal(hit.closed, true);
+  assert.deepEqual(
+    hit.messages.map((m) => m.text),
+    ["q", "later"],
+  );
+  const shown = G.renderPanel(fakeDoc(), hit);
+  const leaves = leafText(shown);
+  assert.deepEqual(
+    leaves.filter((t) => t === "q" || t === "later" || t === "closed"),
+    ["closed", "q", "later"],
+  );
+  assert.ok(leaves.includes("Read-only. Nothing here is posted to GitHub."));
+
+  const miss = G.panelView({ status: 404, body: { error: "not found" } }, null);
+  assert.equal(miss.empty, true);
+  const empty = leafText(G.renderPanel(fakeDoc(), miss));
+  assert.ok(empty.includes("No question yet"));
+  assert.equal(empty.includes("closed"), false);
+});
+
+test("panel polls 20s after you, 60s otherwise, then stops and refresh restarts", () => {
+  assert.equal(G.panelPollInterval([{ role: "you", text: "q" }]), 20_000);
+  assert.equal(
+    G.panelPollInterval([
+      { role: "you", text: "q" },
+      { role: "agent", text: "a" },
+    ]),
+    60_000,
+  );
+  assert.equal(G.panelPollInterval([]), 60_000);
+
+  const clock = fakeClock();
+  const you = [{ role: "you", time: "2026-11-14T10:00:00Z", text: "q" }];
+  const answered = [
+    { role: "you", time: "2026-11-14T10:00:00Z", text: "q" },
+    { role: "agent", time: "2026-11-14T10:00:20Z", text: "a" },
+  ];
+  const queued = [you, answered];
+  const calls = [];
+  const updates = [];
+  const handle = G.startPanelPolling({
+    now: clock.now,
+    setTimeout: clock.setTimeout,
+    clearTimeout: clock.clearTimeout,
+    isVisible: () => true,
+    messages: you,
+    fetchStatus(done) {
+      calls.push(clock.now());
+      const messages = queued.length > 1 ? queued.shift() : queued[0];
+      done({
+        status: 200,
+        body: { state: "working", answered: false, closed: false, messages },
+      });
+    },
+    onUpdate: (u) => updates.push(u),
+  });
+
+  clock.advance(19_999);
+  assert.deepEqual(calls, []);
+  clock.advance(1);
+  assert.deepEqual(calls, [20_000]);
+  clock.advance(20_000);
+  assert.deepEqual(calls, [20_000, 40_000]);
+  clock.advance(59_999);
+  assert.deepEqual(calls, [20_000, 40_000]);
+  clock.advance(1);
+  assert.deepEqual(calls, [20_000, 40_000, 100_000]);
+
+  clock.advance(60 * 60_000);
+  assert.equal(calls.at(-1), 40_000 + 30 * 60_000);
+  assert.equal(updates.at(-1).error, "stopped polling after 30 min");
+  assert.equal(clock.pending(), 0);
+  const stopped = calls.length;
+
+  handle.refresh();
+  const refreshedAt = clock.now();
+  clock.advance(59_999);
+  assert.equal(calls.length, stopped);
+  clock.advance(1);
+  assert.equal(calls.length, stopped + 1);
+  assert.equal(calls.at(-1), refreshedAt + 60_000);
+});
+
+test("panel follow-up sends the whole PR, or the line form from a chip", () => {
+  const headSha = "a".repeat(40);
+  const whole = G.panelAsk({
+    href: "https://github.com/octo/demo/pull/42",
+    headSha,
+    question: "why?",
+    deep: false,
+  });
+  assert.deepEqual(whole.payload, {
+    repo: "octo/demo",
+    pr: 42,
+    head_sha: headSha,
+    question: "why?",
+    deep: false,
+    page_url: "https://github.com/octo/demo/pull/42",
+  });
+
+  const fromChip = G.panelAsk({
+    href: "https://github.com/octo/demo/pull/42/files",
+    headSha,
+    question: "why this line?",
+    deep: true,
+    line: {
+      path: "pkg/a.go",
+      side: "RIGHT",
+      start_line: 10,
+      end_line: 12,
+      selection: "for i := 0",
+      page_url: "https://github.com/octo/demo/pull/42/files#diff-abcR10-R12",
+    },
+  });
+  assert.equal(fromChip.error, undefined);
+  assert.equal(fromChip.payload.path, "pkg/a.go");
+  assert.equal(fromChip.payload.side, "RIGHT");
+  assert.equal(fromChip.payload.start_line, 10);
+  assert.equal(fromChip.payload.end_line, 12);
+  assert.equal(fromChip.payload.selection, "for i := 0");
+  assert.equal(fromChip.payload.question, "why this line?");
+  assert.equal(fromChip.payload.deep, true);
+  assert.equal(
+    fromChip.payload.page_url,
+    "https://github.com/octo/demo/pull/42/files#diff-abcR10-R12",
+  );
+});
+
+test("the panel stays up across PR tabs", () => {
+  const clock = fakeClock();
+  const location = { pathname: "/o/r/pulls" };
+  const listeners = new Map();
+  const window = {
+    Event: class Event {
+      constructor(type) {
+        this.type = type;
+      }
+    },
+    addEventListener(type, fn) {
+      const list = listeners.get(type) ?? [];
+      list.push(fn);
+      listeners.set(type, list);
+    },
+    removeEventListener(type, fn) {
+      listeners.set(
+        type,
+        (listeners.get(type) ?? []).filter((f) => f !== fn),
+      );
+    },
+    dispatchEvent(event) {
+      for (const fn of listeners.get(event.type) ?? []) {
+        fn(event);
+      }
+    },
+  };
+  const history = {
+    pushState(_state, _title, url) {
+      location.pathname = String(url);
+    },
+    replaceState(_state, _title, url) {
+      location.pathname = String(url);
+    },
+  };
+  const panels = [];
+  const buttons = [];
+  function track(list, text) {
+    const node = {
+      text,
+      removed: false,
+      remove() {
+        this.removed = true;
+      },
+    };
+    list.push(node);
+    return () => node.remove();
+  }
+  G.bindPage({
+    location,
+    history,
+    window,
+    setTimeout: (fn, ms) => clock.setTimeout(fn, ms),
+    clearTimeout: (t) => clock.clearTimeout(t),
+    activate: () => track(buttons, "Ask agent"),
+    activatePanel: () => track(panels, "gh-ask"),
+  });
+  const live = (list) => list.filter((node) => !node.removed);
+  clock.advance(G.navDebounceMs);
+  assert.equal(live(panels).length, 0);
+
+  history.pushState({}, "", "/o/r/pull/1");
+  clock.advance(G.navDebounceMs);
+  assert.equal(live(panels).length, 1);
+  assert.equal(live(buttons).length, 0);
+
+  history.pushState({}, "", "/o/r/pull/1/files");
+  clock.advance(G.navDebounceMs);
+  assert.equal(live(panels).length, 1);
+  assert.equal(live(buttons).length, 1);
+
+  history.pushState({}, "", "/o/r/pull/1/commits");
+  clock.advance(G.navDebounceMs);
+  assert.equal(live(panels).length, 1);
+  assert.equal(live(buttons).length, 0);
+
+  history.pushState({}, "", "/o/r/pull/2");
+  clock.advance(G.navDebounceMs);
+  assert.equal(live(panels).length, 1);
+  assert.equal(panels.filter((node) => node.removed).length, 1);
+
+  history.pushState({}, "", "/o/r/pulls");
+  clock.advance(G.navDebounceMs);
+  assert.equal(live(panels).length, 0);
 });
 
 function keyEvent(extra) {
