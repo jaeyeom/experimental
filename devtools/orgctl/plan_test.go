@@ -50,6 +50,27 @@ func TestPlanMarkers(t *testing.T) {
 	}
 }
 
+func TestPlanUnmanagedBrief(t *testing.T) {
+	spec := Spec{Roles: map[string]Role{
+		"desk/clerk": {Machine: "local", Workspace: "front", Tab: "clerk", Cwd: "/work/desk"},
+	}}
+	live := Live{
+		Local:    "local",
+		Tabs:     []LiveTab{{Workspace: "front", Label: "clerk"}},
+		Names:    []LiveName{{Name: "desk/clerk"}},
+		Agents:   []LiveAgent{{Name: "desk/clerk", Cwd: "/work/desk"}},
+		CronRead: []string{"/work/desk"},
+		Briefs:   map[string]string{"desk/clerk": BriefUnmanaged},
+	}
+	got := Plan(spec, live, PlanOptions{})
+	if strings.Join(got, "\n") != "i desk/clerk brief unmanaged" {
+		t.Fatalf("plan =\n%s", strings.Join(got, "\n"))
+	}
+	if PlanChanged(got) {
+		t.Fatal("an unmanaged brief is not a change")
+	}
+}
+
 func TestPlanFilters(t *testing.T) {
 	spec := planSpec()
 	live := Live{Local: "north", CronRead: []string{"/work/missing", "/work/changed"}}

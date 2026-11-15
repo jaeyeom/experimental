@@ -32,6 +32,25 @@ func TestCheckApprovalWordFlag(t *testing.T) {
 	}
 }
 
+func TestPlanUnmanagedBriefStaysClean(t *testing.T) {
+	path := writeSpec(t, `{"roles":{"desk/clerk":{"machine":"local","workspace":"front","tab":"clerk","cwd":"/work/desk"}}}`)
+	load := func(orgctl.Spec) (orgctl.Live, error) {
+		return orgctl.Live{
+			Local:    "local",
+			Tabs:     []orgctl.LiveTab{{Workspace: "front", Label: "clerk"}},
+			Names:    []orgctl.LiveName{{Name: "desk/clerk"}},
+			Agents:   []orgctl.LiveAgent{{Name: "desk/clerk", Cwd: "/work/desk"}},
+			CronRead: []string{"/work/desk"},
+			Briefs:   map[string]string{"desk/clerk": orgctl.BriefUnmanaged},
+		}, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := runIO([]string{"plan", path}, &stdout, &stderr, load)
+	if code != 0 || !strings.Contains(stdout.String(), "i desk/clerk brief unmanaged") {
+		t.Fatalf("exit %d\n%s%s", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestCheckPrintsAllowWarning(t *testing.T) {
 	path := writeSpec(t, `{"roles":{"coord/lead":{"decides":["merge PRs"]}},"allowApprovalWords":["merge"]}`)
 	var stderr bytes.Buffer

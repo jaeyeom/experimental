@@ -121,8 +121,11 @@ func roleDiff(name string, role Role, live Live, window time.Duration) []string 
 	var lines []string
 	lines = append(lines, presenceLines(name, role, live)...)
 	lines = append(lines, cronLines(name, role, live, window)...)
-	if live.Briefs[name] == BriefEdited {
+	switch live.Briefs[name] {
+	case BriefEdited:
 		lines = append(lines, "! "+name+" brief edited in place")
+	case BriefUnmanaged:
+		lines = append(lines, "i "+name+" brief unmanaged")
 	}
 	if modelUnknown(role, live) {
 		lines = append(lines, "! "+name+" model unknown")
