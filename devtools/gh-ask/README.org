@@ -294,7 +294,13 @@ manager's storage. They never go into the page DOM or a URL.
   - ~repo~ and ~pr~ from the URL.
   - ~head_sha~ from a commit range in the URL, else the hidden
     ~comparison_end_oid~ input (classic view), else ~headOid~ in the
-    page's embedded JSON (changes view).
+    page's embedded JSON (changes view). A tab with none of those, such
+    as Conversation, fetches ~/OWNER/REPO/pull/N/files~ on this origin
+    and reads the commit there. That result is cached for the pull
+    request until the URL changes or the page loads again. The panel
+    says "finding the head commit…" while the fetch runs. If it fails,
+    the panel says "couldn't find the head commit; open Files changed
+    and ask there" and does not call the local server.
   - ~path~, ~side~ and the line range from the diff rows. A range takes
     the side of the line where the selection ends.
   - ~selection~ from the selected text, or the hunk around the line when
@@ -310,10 +316,12 @@ manager's storage. They never go into the page DOM or a URL.
   server down when there is no response. The popover stays open after a
   failed send so the question can be sent again.
 
-The script sends requests only with ~GM_xmlhttpRequest~, only to
+The script sends agent requests only with ~GM_xmlhttpRequest~, only to
 ~http://127.0.0.1:<port>~, and with ~anonymous~ set so no cookies go
-along. ~@connect~ lists only ~127.0.0.1~ and ~localhost~. Text from the
-server is shown with ~textContent~.
+along. ~@connect~ lists only ~127.0.0.1~ and ~localhost~. The head-commit
+lookup is a same-origin ~fetch~ of the files page, not
+~GM_xmlhttpRequest~, and it sends no token. Text from the server is
+shown with ~textContent~.
 
 ** Answer panel
 

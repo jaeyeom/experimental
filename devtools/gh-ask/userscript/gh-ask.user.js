@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         gh-ask
 // @namespace    https://github.com/jaeyeom/experimental/tree/main/devtools/gh-ask
-// @version      0.1.6
+// @version      0.1.7
 // @description  Ask a local agent about lines in a pull request diff, through gh-ask serve on 127.0.0.1.
 // @match        https://github.com/*
 // @grant        GM_xmlhttpRequest
@@ -20,8 +20,9 @@
 // so gh-ask.test.js runs it in node against testdata/ fixtures. The
 // browser glue (registerMenu, activatePanel, main, and boot) is the only code that uses
 // document, window, or GM_* functions. bindPage takes those as arguments
-// so tests can drive navigation without a browser. Requests go only to
-// http://127.0.0.1:<port>.
+// so tests can drive navigation without a browser. Agent requests go
+// only to http://127.0.0.1:<port>. A same-origin fetch of the pull
+// request's files page is the one exception, and it sends no token.
 
 // Limits from devtools/gh-ask/message.go.
 const MAX_SELECTION_BYTES = 4 << 10;
@@ -860,6 +861,95 @@ function startPanelPolling(opts) {
   };
 }
 
+const HEAD_FINDING = "finding the head commit…";
+const HEAD_MISSING = "couldn't find the head commit; open Files changed and ask there";
+
+// headCache is the head commit for each repo#pr while this page is up.
+// A URL change or a turbo load drops it, so a push is read again.
+const headCache = new Map();
+
+function forgetHeadSha() {
+  headCache.clear();
+}
+
+// headNavDropsCache reports whether this navigation makes a cached head
+// commit stale. The first observation has an empty previous URL. A
+// turbo:load refreshes the same URL, which is how a push shows up.
+function headNavDropsCache(prevHref, nextHref, eventType) {
+  if (eventType === "turbo:load") {
+    return true;
+  }
+  return Boolean(prevHref) && Boolean(nextHref) && prevHref !== nextHref;
+}
+
+function filesPagePath(page) {
+  return `/${page.repo}/pull/${page.pr}/files`;
+}
+
+// resolveHeadSha uses the commit on this page. When the page has none,
+// it fetches the files tab once and keeps the commit for this pull
+// request. fetchText(path) returns HTML or rejects. parseHtml turns
+// that HTML into a tree findHeadSha can read.
+async function resolveHeadSha(opts) {
+  const cache = opts.cache || headCache;
+  const page = parsePrPage(opts.href);
+  if (!page) {
+    return { error: "not a pull request page" };
+  }
+  const key = `${page.repo}#${page.pr}`;
+  const onPage = findHeadSha(opts.root, opts.href);
+  if (onPage) {
+    cache.set(key, onPage);
+    return { headSha: onPage };
+  }
+  const cached = cache.get(key);
+  if (cached) {
+    return { headSha: cached };
+  }
+  if (typeof opts.fetchText !== "function") {
+    return { error: HEAD_MISSING };
+  }
+  if (opts.onStatus) {
+    opts.onStatus(HEAD_FINDING);
+  }
+  let html = "";
+  try {
+    html = await opts.fetchText(filesPagePath(page));
+  } catch {
+    return { error: HEAD_MISSING };
+  }
+  const doc = opts.parseHtml ? opts.parseHtml(String(html ?? "")) : null;
+  const sha = doc ? findHeadSha(doc, `https://github.com${filesPagePath(page)}`) : "";
+  if (!sha) {
+    return { error: HEAD_MISSING };
+  }
+  cache.set(key, sha);
+  return { headSha: sha };
+}
+
+// askPanel resolves the head commit, then builds the panel's POST /ask.
+// request is the local server. It is not called when the head is missing.
+async function askPanel(opts) {
+  const head = await resolveHeadSha(opts);
+  if (head.error) {
+    return head;
+  }
+  const built = panelAsk({
+    href: opts.href,
+    headSha: head.headSha,
+    question: opts.question,
+    deep: opts.deep,
+    line: opts.line,
+  });
+  if (built.error || !built.payload) {
+    return built;
+  }
+  if (opts.request) {
+    opts.request(built.payload);
+  }
+  return built;
+}
+
 // panelAsk is the follow-up POST /ask. With a line from a chip it sends
 // that line; otherwise it sends the whole pull request.
 function panelAsk({ href, headSha, question, deep, line }) {
@@ -915,6 +1005,12 @@ function bindPage(page) {
   let panelKey = null;
   let stopPanel = null;
   let timer = null;
+  let seenHref = "";
+  let dropHead = false;
+
+  function locationHref() {
+    return page.location.href || page.location.pathname || "";
+  }
 
   function syncPanel(path) {
     if (!page.activatePanel) {
@@ -961,6 +1057,12 @@ function bindPage(page) {
 
   function sync() {
     timer = null;
+    const href = locationHref();
+    if (dropHead || headNavDropsCache(seenHref, href, "")) {
+      forgetHeadSha();
+    }
+    dropHead = false;
+    seenHref = href;
     const path = page.location.pathname || "";
     syncPanel(path);
     syncDiff(path);
@@ -987,7 +1089,11 @@ function bindPage(page) {
     };
   }
 
-  function onNav() {
+  function onNav(event) {
+    const type = event && event.type;
+    if (headNavDropsCache(seenHref, locationHref(), type)) {
+      dropHead = true;
+    }
     schedule();
   }
   for (const type of ["turbo:load", "turbo:render", "popstate", NAV_EVENT]) {
@@ -1022,12 +1128,14 @@ function bindPage(page) {
 
 const GhAsk = {
   askError,
+  askPanel,
   bindPage,
   buildPayload,
   buildWholePrPayload,
   chipText,
   findHeadSha,
   formatMessageTime,
+  headNavDropsCache,
   isDiffPath,
   isPrPath,
   lineInfo,
@@ -1089,6 +1197,20 @@ function el(tag, props, children) {
     e.append(c);
   }
   return e;
+}
+
+// fetchSameOrigin reads a path on this page's origin. The panel uses it
+// to load the files tab when the current tab has no head commit. A full
+// URL is refused so this cannot be pointed at another host.
+async function fetchSameOrigin(url) {
+  if (typeof url !== "string" || !url.startsWith("/") || url.startsWith("//")) {
+    throw new Error("refusing a non-relative fetch");
+  }
+  const res = await fetch(url, { credentials: "same-origin" });
+  if (!res.ok) {
+    throw new Error(String(res.status));
+  }
+  return res.text();
 }
 
 // loopbackRequest calls gh-ask serve. status 0 is no response, -1 missing settings.
@@ -1278,41 +1400,55 @@ function activatePanel() {
     stopPoll();
   }
 
-  function submit() {
+  async function submit() {
     if (sending) {
-      return;
-    }
-    const built = panelAsk({
-      href: window.location.href,
-      headSha: findHeadSha(document.documentElement, window.location.href),
-      question: question.value,
-      deep: deep.checked,
-      line,
-    });
-    if (built.error) {
-      err.textContent = built.error;
       return;
     }
     sending = true;
     send.disabled = true;
-    err.textContent = "";
-    loopbackRequest("POST", "/ask", built.payload, (res) => {
+    const built = await askPanel({
+      href: window.location.href,
+      root: document.documentElement,
+      question: question.value,
+      deep: deep.checked,
+      line,
+      cache: headCache,
+      onStatus: (msg) => {
+        err.textContent = msg;
+      },
+      fetchText: fetchSameOrigin,
+      parseHtml: (html) => new DOMParser().parseFromString(html, "text/html"),
+      request: (payload) => {
+        err.textContent = "";
+        loopbackRequest("POST", "/ask", payload, (res) => {
+          sending = false;
+          send.disabled = false;
+          if (panel.hidden) {
+            return;
+          }
+          if (
+            res.status === 200 &&
+            res.body &&
+            typeof res.body.id === "string" &&
+            res.body.id !== ""
+          ) {
+            question.value = "";
+            threadId = res.body.id;
+            loadThread();
+            return;
+          }
+          err.textContent =
+            res.status === 200
+              ? "the server returned no id"
+              : askError(res.status, res.body && res.body.error);
+        });
+      },
+    });
+    if (built.error) {
       sending = false;
       send.disabled = false;
-      if (panel.hidden) {
-        return;
-      }
-      if (res.status === 200 && res.body && typeof res.body.id === "string" && res.body.id !== "") {
-        question.value = "";
-        threadId = res.body.id;
-        loadThread();
-        return;
-      }
-      err.textContent =
-        res.status === 200
-          ? "the server returned no id"
-          : askError(res.status, res.body && res.body.error);
-    });
+      err.textContent = built.error;
+    }
   }
 
   toggle.addEventListener("click", () => {

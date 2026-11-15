@@ -408,7 +408,8 @@ test("the script only connects to loopback", () => {
   const src = fs.readFileSync(path.join(__dirname, "gh-ask.user.js"), "utf8");
   const connects = [...src.matchAll(/^\/\/ @connect\s+(\S+)/gm)].map((m) => m[1]);
   assert.deepEqual(connects.sort(), ["127.0.0.1", "localhost"]);
-  assert.doesNotMatch(src, /\bfetch\(|XMLHttpRequest\(|\.innerHTML\b|insertAdjacentHTML|\beval\(/);
+  assert.doesNotMatch(src, /XMLHttpRequest\(|\.innerHTML\b|insertAdjacentHTML|\beval\(/);
+  assert.doesNotMatch(src, /\bfetch\(\s*["'`]https?:/);
   assert.match(src, /^\/\/ @version\s+\d+\.\d+\.\d+$/m);
 });
 
@@ -418,9 +419,138 @@ test("the script only connects to loopback", () => {
 const POPOVER_W = 360;
 const MARGIN = 8;
 
-test("userscript version is 0.1.6", () => {
+test("userscript version is 0.1.7", () => {
   const src = fs.readFileSync(path.join(__dirname, "gh-ask.user.js"), "utf8");
-  assert.match(src, /^\/\/ @version\s+0\.1\.6$/m);
+  assert.match(src, /^\/\/ @version\s+0\.1\.7$/m);
+});
+
+const FILES_HEAD = "0123456789abcdef0123456789abcdef01234567";
+const CONVERSATION = "https://github.com/octo/demo/pull/42";
+const HEAD_FINDING = "finding the head commit…";
+const HEAD_MISSING = "couldn't find the head commit; open Files changed and ask there";
+
+test("conversation view has no head commit marker", () => {
+  assert.equal(G.findHeadSha(fixture("conversation-view.html"), CONVERSATION), "");
+});
+
+function panelAskOn(root, href, fetchText, cache, requests, statuses) {
+  return G.askPanel({
+    href,
+    root,
+    question: "why?",
+    deep: false,
+    fetchText,
+    parseHtml: (html) => parse(html),
+    cache,
+    onStatus: (msg) => statuses.push(msg),
+    request: (payload) => requests.push(payload),
+  });
+}
+
+test("panel ask loads the head commit from the files page and caches it", async () => {
+  const filesHtml = fs.readFileSync(path.join(__dirname, "testdata", "files-view.html"), "utf8");
+  const cache = new Map();
+  const requests = [];
+  const statuses = [];
+  let fetches = 0;
+  const fetchText = async (url) => {
+    fetches += 1;
+    assert.equal(url, "/octo/demo/pull/42/files");
+    return filesHtml;
+  };
+  const root = fixture("conversation-view.html");
+  const first = await panelAskOn(root, CONVERSATION, fetchText, cache, requests, statuses);
+  assert.equal(first.error, undefined);
+  assert.equal(first.payload.head_sha, FILES_HEAD);
+  assert.equal(first.payload.repo, "octo/demo");
+  assert.equal(first.payload.pr, 42);
+  assert.equal(fetches, 1);
+  assert.deepEqual(statuses, [HEAD_FINDING]);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].head_sha, FILES_HEAD);
+
+  const second = await panelAskOn(root, CONVERSATION, fetchText, cache, requests, statuses);
+  assert.equal(second.payload.head_sha, FILES_HEAD);
+  assert.equal(fetches, 1);
+  assert.equal(requests.length, 2);
+  assert.deepEqual(statuses, [HEAD_FINDING]);
+});
+
+test("panel ask reports a missing head and does not call the local server", async () => {
+  const requests = [];
+  const got = await panelAskOn(
+    fixture("conversation-view.html"),
+    CONVERSATION,
+    async () => {
+      throw new Error("network");
+    },
+    new Map(),
+    requests,
+    [],
+  );
+  assert.equal(got.error, HEAD_MISSING);
+  assert.deepEqual(requests, []);
+
+  const empty = await panelAskOn(
+    fixture("conversation-view.html"),
+    CONVERSATION,
+    async () => "<div>no commit here</div>",
+    new Map(),
+    requests,
+    [],
+  );
+  assert.equal(empty.error, HEAD_MISSING);
+  assert.deepEqual(requests, []);
+});
+
+test("files and changes views do not fetch the files page", async () => {
+  for (const v of views) {
+    let fetches = 0;
+    const requests = [];
+    const got = await panelAskOn(
+      fixture(v.file),
+      v.href,
+      async () => {
+        fetches += 1;
+        return "";
+      },
+      new Map(),
+      requests,
+      [],
+    );
+    assert.equal(fetches, 0, v.name);
+    assert.equal(got.payload.head_sha, v.head, v.name);
+    assert.equal(requests.length, 1, v.name);
+  }
+});
+
+test("a url change or a page load drops the cached head commit", () => {
+  assert.equal(
+    G.headNavDropsCache(
+      "https://github.com/octo/demo/pull/42",
+      "https://github.com/octo/demo/pull/42",
+      "turbo:render",
+    ),
+    false,
+  );
+  assert.equal(
+    G.headNavDropsCache(
+      "https://github.com/octo/demo/pull/42",
+      "https://github.com/octo/demo/pull/42/files",
+      "turbo:render",
+    ),
+    true,
+  );
+  assert.equal(
+    G.headNavDropsCache(
+      "https://github.com/octo/demo/pull/42",
+      "https://github.com/octo/demo/pull/42",
+      "turbo:load",
+    ),
+    true,
+  );
+  assert.equal(G.headNavDropsCache("", "/o/r/pull/1", "gh-ask:navigate"), false);
+  assert.equal(G.headNavDropsCache("/o/r/pull/1", "/o/r/pull/1/files", "gh-ask:navigate"), true);
 });
 
 function fakeDoc() {
