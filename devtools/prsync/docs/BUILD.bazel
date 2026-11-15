@@ -1,0 +1,21 @@
+load("//tools/org-lint:defs.bzl", "org_lint_tests")
+
+# Sibling and parent files are runfiles so [[file:]] links resolve before
+# these docs are committed. Emacs only follows a runfiles symlink back to
+# the checkout once git knows the file.
+_ORG = [
+    "gate.org",
+    "internals.org",
+    "multi-machine.org",
+    "reference.org",
+    "team-cover.org",
+]
+
+org_lint_tests(
+    _ORG,
+    data = _ORG + [
+        "//devtools/prsync:BUILD.bazel",
+        "//devtools/prsync:README.org",
+        "//devtools/prsync:prsync.config.example",
+    ],
+)

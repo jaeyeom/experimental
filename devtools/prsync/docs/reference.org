@@ -1,0 +1,530 @@
+#+TITLE: prsync reference
+
+The short guide is [[file:../README.org][the prsync README]].
+
+* Commands
+
+#+BEGIN_EXAMPLE
+prsync scan     [--config PATH] [--repo owner/repo ...] [--json] [--in-scope] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
+prsync tabs     --orphans [--config PATH] [--json] [--stdin] [--close-merged] [--go] [--force] [--tab-machine M]
+prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--ci-fix] [--hint TEXT] [--prompt-suffix TEXT] [--force] [--stdin] [--open-tabs] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
+prsync comment  [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--stdin] [--allow-duplicate] --body TEXT
+prsync gate     [--config PATH] [--tab-machine M]
+prsync logs     [--path]
+prsync version
+#+END_EXAMPLE
+
+| Flag | Commands | Effect |
+|------+----------+--------|
+| ~--log-level LEVEL~ | all except ~logs~ | ~debug~ / ~info~ / ~warn~ / ~error~. Default ~info~. Also ~PRSYNC_LOG~. JSONL under =$XDG_STATE_HOME/prsync/=; stdout is unchanged |
+| ~--config PATH~ | scan, tabs, dispatch, comment, gate | Use this file (must exist) |
+| ~--repo owner/repo~ | scan | Repeatable; replaces ~repos~ entirely |
+| ~--json~ | scan, tabs | Accepted no-op (stdout is always JSON) |
+| ~--in-scope~ | scan | Leave PRs marked ~out_of_scope~ out of the output. Overrides ~scan_in_scope_only~. See [[file:multi-machine.org::*One watcher per machine][One watcher per machine]] |
+| ~--orphans~ | tabs | Required; report live-agent tabs with no open/draft PR |
+| ~--close-merged~ | tabs | Close ~merged~-bucket orphan tabs (default is dry-run) |
+| ~--pr owner/repo#N~ | dispatch, comment | Repeatable. ~dispatch~ fetches only these PRs; ~comment~ limits candidates in the scan |
+| ~--all~ | dispatch, comment | Every PR in the scan document (default when no ~--pr~) |
+| ~--go~ | dispatch, comment, tabs | Live send / close (default is dry-run) |
+| ~--rebase~ | dispatch | Rebase-in-place prompt; skips the unaddressed-comment gate |
+| ~--ci-fix~ | dispatch | CI-fix prompt; skips the unaddressed-comment gate. Mutually exclusive with ~--rebase~ |
+| ~--hint TEXT~ | dispatch | Non-authoritative CI failure hint (requires ~--ci-fix~). The agent must verify it |
+| ~--prompt-suffix TEXT~ | dispatch | Append TEXT after a blank line to every prompt. Overrides ~dispatch_prompt_suffix~ for this run |
+| ~--force~ | dispatch, tabs | dispatch: re-dispatch even if dedupe would skip. tabs: allow ~--close-merged~ when every orphan is ~no_pr~ or ~unknown~ |
+| ~--stdin~ | tabs, dispatch, comment | Read a scan document from a pipe or redirected file. Absent a document: tabs self-resolve; comment and bare dispatch self-scan; ~dispatch --pr~ fetches those PRs |
+| ~--body TEXT~ | comment | Comment body to post (required) |
+| ~--allow-duplicate~ | comment | Post even if the same ~(repo, number, head_sha, body)~ was already recorded |
+| ~--path~ | logs | Print the run-log file path as JSON instead of dumping the file |
+| ~--tab-machine M~ | scan, dispatch, tabs, gate | Scope the run to PRs whose tab is on ~M~: ~local~ or one of ~machines~. ~gate~ (and dispatch's gate) then checks ~M~'s checkout and agents. Overrides ~tab_machine~. See [[file:multi-machine.org::*One watcher per machine][One watcher per machine]] |
+| ~--untabbed include~ / ~exclude~ | scan, dispatch | Whether PRs with no tab belong to this run. Overrides ~untabbed~ |
+| ~--skip JOB~ | scan, dispatch | Repeatable. Skip a machine-wide job this run (~team-cover~). Overrides ~skip_jobs~ |
+| ~--open-tabs~ | dispatch | Open a herdr tab and start an agent for an in-scope PR with no tab. Overrides ~open_missing_tabs~. See [[file:multi-machine.org::*Opening tabs for untabbed PRs][Opening tabs for untabbed PRs]] |
+
+Usage errors (exit 2): ~--pr~ with ~--all~; ~--ci-fix~ with ~--rebase~;
+~--hint~ without ~--ci-fix~; ~--go~ on ~tabs~ without ~--close-merged~;
+a ~--tab-machine~ that is neither ~local~ nor in ~machines~; an
+~--untabbed~ other than ~include~ or ~exclude~; an unknown ~--skip~ job.
+
+~--go~ always sends (or, with ~--close-merged~, closes). ~dry_run=false~
+in the config also sends / closes without ~--go~ (for cron); ~tabs~
+still needs ~--close-merged~ to close anything.
+
+~--stdin~ reads a scan document only from a FIFO or regular file (a
+pipe or redirected file). Sockets, TTYs, and other non-file stdin are
+ignored so they cannot hang. Decode errors are fatal. Without a
+stdin document, ~comment~ always self-scans. ~dispatch~ self-scans for
+~--all~ and when no ~--pr~ is given. A scan lists open PRs without
+~statusCheckRollup~ or ~latestReviews~, then loads each rollup with its
+own ~gh pr view~. The list request also asks for ~state~, a scalar on
+each pull request already loaded, so that adds no GraphQL node.
+~dispatch --pr~ fetches each named PR with one ~gh pr view~ that
+includes ~state~ and the rollup fields, loads review threads for
+those PRs only, and matches herdr tabs as a full scan does.
+
+#+BEGIN_SRC bash
+prsync scan --config ./prsync.config | prsync dispatch --stdin --config ./prsync.config
+prsync scan --config ./prsync.config | prsync comment --stdin --body "please retry" --config ./prsync.config
+#+END_SRC
+
+* Configuration
+
+Search order (first existing file wins):
+
+1. ~--config PATH~ (missing file → exit 2)
+2. ~./prsync.config~ (cwd; honors ~BUILD_WORKING_DIRECTORY~ under ~bazel run~)
+3. =$HOME/.config/prsync/prsync.config=
+
+If none exist, built-in defaults are used. That is not an error.
+
+The file is ~KEY=VALUE~, one assignment per line. Blank lines and ~#~
+comment lines are ignored. Inline comments (~key=value # comment~) are
+not supported. Unknown keys are ignored. The parser does not ~source~
+the file.
+
+~*_ms~ keys are integers in milliseconds (~2000~ is 2s, not 2µs).
+~true~ / ~false~ / ~1~ / ~0~ are accepted for booleans. ~state_file~,
+~gh_bin~, ~herdr_bin~, ~jira_bin~, and ~@/path~ values (prompt templates,
+~comment_strip_patterns~, and ~team_cover_exclude_logins~) expand a leading tilde.
+Environment variables are not expanded.
+
+** Keys
+
+| Key                             | Default                                                                                                                                                                                                                                      | Notes                                                                                                                                                           |
+|---------------------------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ~repos~                         | empty                                                                                                                                                                                                                                        | Space-separated ~owner/repo~. Empty = auto-discover from open PRs.                                                                                              |
+| ~author~                        | empty                                                                                                                                                                                                                                        | GitHub login. Empty = ~gh api user --jq .login~.                                                                                                                |
+| ~title_id_pattern~              | ~[A-Z]+-[0-9]+~                                                                                                                                                                                                                              | First match in the PR title is the identifier.                                                                                                                  |
+| ~tab_label_template~            | ~{id}~                                                                                                                                                                                                                                       | Herdr tab label after substituting ~{id}~. Exact, case-sensitive.                                                                                               |
+| ~herdr_bin~                     | ~herdr~                                                                                                                                                                                                                                      | herdr executable.                                                                                                                                               |
+| ~machines~                      | empty                                                                                                                                                                                                                                        | Saved herdr machines to search besides this one; empty means local only. See [[file:multi-machine.org::*machines][details]].                                    |
+| ~machine_timeout_ms~            | ~5000~                                                                                                                                                                                                                                       | Bound for each herdr call to one of ~machines~, except ~agent prompt~ and ~agent wait~, which use ~dispatch_timeout_ms~.                                        |
+| ~tab_machine~                   | empty                                                                                                                                                                                                                                        | Limit scan, dispatch, and tabs to PRs whose tab is on this machine. See [[file:multi-machine.org::*tab_machine][details]].                                      |
+| ~machine_checkouts~             | empty                                                                                                                                                                                                                                        | Each other machine's checkout, as ~machine=/path~, for the remote gate. See [[file:multi-machine.org::*machine_checkouts][details]].                            |
+| ~untabbed~                      | empty                                                                                                                                                                                                                                        | Whether a scoped run includes PRs that have no tab. See [[file:multi-machine.org::*untabbed][details]].                                                         |
+| ~scan_in_scope_only~            | ~false~                                                                                                                                                                                                                                      | When ~true~, ~scan~ leaves PRs marked ~out_of_scope~ out of its output, as ~--in-scope~ does. ~--in-scope=false~ overrides it.                                  |
+| ~review_threads_ttl~            | ~6h~                                                                                                                                                                                                                                         | How long review threads are reused while the PR head is unchanged. See [[file:internals.org::*review_threads_ttl][details]].                                    |
+| ~status_checks_ttl~             | ~6h~                                                                                                                                                                                                                                         | How long a settled status-check rollup is reused while the PR head is unchanged. See [[file:internals.org::*status_checks_ttl][details]].                       |
+| ~pr_view_closed_ttl~            | ~24h~                                                                                                                                                                                                                                        | How long a closed PR's state is reused for a ~#N~ tab. See [[file:internals.org::*pr_view_closed_ttl][details]].                                                |
+| ~skip_jobs~                     | empty                                                                                                                                                                                                                                        | Comma-separated jobs this run skips; the only name is ~team-cover~. See [[file:internals.org::*skip_jobs][details]].                                            |
+| ~open_missing_tabs~             | ~false~                                                                                                                                                                                                                                      | When true, dispatch opens a tab for an in-scope PR that has none. See [[file:multi-machine.org::*open_missing_tabs][details]].                                  |
+| ~open_tabs_workspace~           | empty                                                                                                                                                                                                                                        | Workspace label or id for a tab this run opens. See [[file:multi-machine.org::*open_tabs_workspace][details]].                                                  |
+| ~open_tabs_cwd~                 | empty                                                                                                                                                                                                                                        | Same form as ~open_tabs_workspace~; absolute paths on each machine. Falls back to ~machine_checkouts~, then (locally) the checkout of the PR's repo.            |
+| ~open_tabs_agent~               | ~claude~                                                                                                                                                                                                                                     | The herdr agent kind to start, then its arguments, space-separated.                                                                                             |
+| ~open_tabs_max_per_round~       | ~2~                                                                                                                                                                                                                                          | Most tabs one dispatch run opens. ~0~ opens none.                                                                                                               |
+| ~open_tabs_ready_timeout~       | ~90s~                                                                                                                                                                                                                                        | Go duration for starting the agent and waiting until herdr reports it ~idle~.                                                                                   |
+| ~gh_bin~                        | ~$GH_BIN~, else ~gh~                                                                                                                                                                                                                         | gh executable. Set it (or ~GH_BIN~) to a rate limiter such as ~gh-throttle~; see [[*Running gh through a rate limiter][Running gh through a rate limiter]].     |
+| ~jira_bin~                      | ~jira~                                                                                                                                                                                                                                       | jira executable. Used only for ~jira issue view~ after a live close.                                                                                            |
+| ~concurrency_wait_on~           | ~any~                                                                                                                                                                                                                                        | ~any~ = every ~working~ or ~blocked~ agent; ~managed~ = those on tabs matched in this scan (~managed~ runs a scan).                                             |
+| ~concurrency_ignore_blocked~    | ~false~                                                                                                                                                                                                                                      | When ~true~, a ~blocked~ status alone does not hold the gate. By default a ~blocked~ agent holds it, with signal ~blocked~ and detail ~blocked awaiting input~. |
+| ~concurrency_cwd~               | ~any~                                                                                                                                                                                                                                        | ~checkout~ counts an agent only inside the repo being dispatched. See [[file:gate.org::*concurrency_cwd][details]].                                             |
+| ~gate_poll_ms~                  | ~2000~                                                                                                                                                                                                                                       | Poll interval for the concurrency gate and post-send settle.                                                                                                    |
+| ~gate_timeout_ms~               | ~1800000~                                                                                                                                                                                                                                    | Live dispatch gives up waiting on the gate after this many ms (~gate_timeout~, exit 4).                                                                         |
+| ~gate_ignore_procs~             | MCP and language servers, ~caffeinate~, status-line commands (~statusline~, ~status-line~, ~claude-hud~), Claude Code sandbox bridges (~claude-http-~, ~*UNIX-LISTEN:*claude-*.sock*~); full list in [[file:gate.org::*Process patterns][Process patterns]] | Helper processes that are not a background job; setting this replaces the defaults. See [[file:gate.org::*gate_ignore_procs][details]].                         |
+| ~gate_job_min_age~              | ~10s~                                                                                                                                                                                                                                        | A child younger than this (a Go duration such as ~30s~ or ~2m~) is not a ~background-job~.                                                                      |
+| ~gate_build_tools~              | ~bazel,bazelisk,make,go,cargo,gradle,npm,pnpm~                                                                                                                                                                                               | Build-tool names that hold the checkout while they run there. See [[file:gate.org::*gate_build_tools][details]].                                                |
+| ~gate_build_tool_ignore~        | ~*--workspace_directory=*,*A-server.jar*,*--server*~                                                                                                                                                                                         | Patterns, matched like ~gate_ignore_procs~, for build processes that never count: long-lived build servers that keep the workspace path in ~argv~ while idle.   |
+| ~gate_pending_question~         | ~decide~                                                                                                                                                                                                                                     | ~decide~ holds a tab while one of its items is answered or newly open. See [[file:gate.org::*gate_pending_question][details]].                                  |
+| ~gate_lease~                    | ~auto~                                                                                                                                                                                                                                       | How the gate reads the agentbus workdir lease: ~auto~, ~required~, or ~off~. See [[file:gate.org::*gate_lease][details]].                                       |
+| ~gate_exempt_panes~             | empty                                                                                                                                                                                                                                        | Comma-separated pane-id globs (~w3:p2~) the gate never waits on.                                                                                                |
+| ~gate_exempt_tabs~              | empty                                                                                                                                                                                                                                        | Comma-separated tab-label globs (~pm*,merger~) the gate never waits on: coordinator tabs that never touch the checkout.                                         |
+| ~dispatch_timeout_ms~           | ~1800000~                                                                                                                                                                                                                                    | Bound for ~herdr agent prompt --wait~ (and leftover ~herdr agent wait~). Still ~working~/~blocked~ → ~dispatched_timeout~ (exit 4).                             |
+| ~wake_before_prompt~            | ~auto~                                                                                                                                                                                                                                       | ~auto~ wakes a hibernated agent before sending the prompt. See [[file:gate.org::*wake_before_prompt][details]].                                                 |
+| ~dispatch_prompt_template~      | built-in                                                                                                                                                                                                                                     | Review-comment prompt text, or ~@/path~ to load a file. See [[file:internals.org::*dispatch_prompt_template][details]].                                         |
+| ~rebase_prompt_template~        | built-in                                                                                                                                                                                                                                     | Same substitution. Used only with ~dispatch --rebase~.                                                                                                          |
+| ~ci_fix_prompt_template~        | built-in                                                                                                                                                                                                                                     | Same substitution, plus ~{hint}~. Used only with ~dispatch --ci-fix~.                                                                                           |
+| ~dispatch_prompt_suffix~        | empty                                                                                                                                                                                                                                        | Text appended to every dispatch prompt; it is not part of the dedupe key. See [[file:internals.org::*dispatch_prompt_suffix][details]].                         |
+| ~ci_ignore_checks~              | empty                                                                                                                                                                                                                                        | Check-name globs dropped from ~ci_state~ when ~ci_only_checks~ is empty. See [[file:internals.org::*ci_ignore_checks][details]].                                |
+| ~ci_only_checks~                | empty                                                                                                                                                                                                                                        | When set, this list wins: only matching checks feed ~ci_state~. Same glob rules as ~ci_ignore_checks~.                                                          |
+| ~dispatch_include_drafts~       | ~false~                                                                                                                                                                                                                                      | When true, ~dispatch~ may send to draft PRs. ~scan~ always includes drafts.                                                                                     |
+| ~dispatch_wait_until~           | ~idle done~                                                                                                                                                                                                                                  | Whitespace-separated settle tokens, passed as ~herdr agent prompt --until~. At least one required.                                                              |
+| ~state_file~                    | =$HOME/.config/prsync/state.json=                                                                                                                                                                                                            | Dispatch audit / dedupe log. Written on live ~dispatched~ / ~dispatched_timeout~, and when a later live evaluation records an unresolved scan count.            |
+| ~dedupe_ttl~                    | ~24h~                                                                                                                                                                                                                                        | How long the same unaddressed comments stay deduped. See [[file:internals.org::*dedupe_ttl][details]].                                                          |
+| ~dedupe_scans~                  | ~0~                                                                                                                                                                                                                                          | Later evaluations of those ids that expire dedupe, whichever comes first with ~dedupe_ttl~. ~0~ means the count does not expire it.                             |
+| ~dry_run~                       | ~true~                                                                                                                                                                                                                                       | ~--go~ overrides to live.                                                                                                                                       |
+| ~comment_strip_patterns~        | empty                                                                                                                                                                                                                                        | RE2 patterns removed from each comment body before it is shown. See [[file:internals.org::*comment_strip_patterns][details]].                                   |
+| ~comment_link_max_chars~        | ~500~                                                                                                                                                                                                                                        | Replace a markdown link with its label when the URL is longer than this. See [[file:internals.org::*comment_link_max_chars][details]].                          |
+| ~comment_body_max_chars~        | ~4000~                                                                                                                                                                                                                                       | Maximum characters kept from each comment body; ~0~ disables the cap. See [[file:internals.org::*comment_body_max_chars][details]].                             |
+| ~team_cover~                    | ~false~                                                                                                                                                                                                                                      | When true, scan suggests people for teams no member already covers. See [[file:team-cover.org::*team_cover][details]].                                          |
+| ~team_cover_per_team~           | ~1~                                                                                                                                                                                                                                          | How many people to suggest per uncovered team. Must be >= 1.                                                                                                    |
+| ~team_cover_skip_teams~         | empty                                                                                                                                                                                                                                        | Comma-separated ~org/slug~ teams to omit from the report.                                                                                                       |
+| ~team_cover_exclude_logins~     | empty                                                                                                                                                                                                                                        | Comma-separated logins, or ~@/path~ (one login per line; blank lines and ~#~ comments ignored). Those logins are never suggested.                               |
+| ~team_cover_signals~            | ~codeowners,history,load~                                                                                                                                                                                                                    | Ranking signals in priority order; empty leaves login order. See [[file:team-cover.org::*team_cover_signals][details]].                                         |
+| ~team_cover_history_days~       | ~90~                                                                                                                                                                                                                                         | How many days of commits and reviews to read for touched paths. See [[file:team-cover.org::*team_cover_history_days][details]].                                 |
+| ~team_cover_active_days~        | ~0~                                                                                                                                                                                                                                          | Drop members with no org event in this many days; ~0~ disables it. See [[file:team-cover.org::*team_cover_active_days][details]].                               |
+| ~team_cover_every~              | ~1~                                                                                                                                                                                                                                          | Run team-cover on every Nth round. See [[file:team-cover.org::*team_cover_every][details]].                                                                     |
+| ~team_cover_batch_paths~        | ~5~                                                                                                                                                                                                                                          | How many paths one history request asks for. See [[file:team-cover.org::*team_cover_batch_paths][details]].                                                     |
+| ~team_cover_history_ttl~        | ~6h~                                                                                                                                                                                                                                         | How long a path's commit and review history is reused. See [[file:team-cover.org::*team_cover_history_ttl][details]].                                           |
+| ~team_cover_history_slack_days~ | ~2~                                                                                                                                                                                                                                          | How many days earlier than today a stored history entry still counts. See [[file:team-cover.org::*team_cover_history_slack_days][details]].                     |
+| ~team_cover_refresh_max_calls~  | ~10~                                                                                                                                                                                                                                         | How many calls an unscoped scan may spend refreshing old history. See [[file:team-cover.org::*team_cover_refresh_max_calls][details]].                          |
+| ~team_cover_max_calls~          | ~40~                                                                                                                                                                                                                                         | Most GitHub calls team-cover makes in one round. See [[file:team-cover.org::*team_cover_max_calls][details]].                                                   |
+| ~team_cover_load_ttl~           | ~1h~                                                                                                                                                                                                                                         | How long a person's open-review count is reused. See [[file:team-cover.org::*team_cover_load_ttl][details]].                                                    |
+| ~team_cover_members_ttl~        | ~24h~                                                                                                                                                                                                                                        | How long a team's member list is reused. See [[file:team-cover.org::*team_cover_members_ttl][details]].                                                         |
+| ~team_cover_codeowners_ttl~     | ~6h~                                                                                                                                                                                                                                         | How long a repository CODEOWNERS file is reused. See [[file:team-cover.org::*team_cover_codeowners_ttl][details]].                                              |
+
+Default prompt text (checkout ~{head}~, mechanical vs judgment-call
+triage, reply on every thread and resolve unless that reply asks the
+reviewer a follow-up, re-request reviewers, rebase / CI-fix wording) is
+commented in [[file:../prsync.config.example][prsync.config.example]].
+
+** Running gh through a rate limiter
+
+prsync runs every GitHub call through the ~gh_bin~ executable. To send
+them through the client-side limiter ~gh-throttle~ (or any wrapper that
+accepts ~gh~'s arguments), set either:
+
+- ~gh_bin=gh-throttle~ in the config file, or
+- ~GH_BIN=gh-throttle~ in the environment. The ~gh-nudge~ tools read the
+  same variable, so one export covers both.
+
+~gh_bin~ wins over ~GH_BIN~, which wins over the default ~gh~.
+
+prsync makes no GitHub writes in parallel. ~team_cover~ only reports
+suggested reviewers (and the ~gh pr edit --add-reviewer~ line to run);
+it never adds them. The only parallel calls are reads: up to 4
+per-PR status-check views at a time during a scan.
+
+* Worked examples
+
+** version
+
+#+BEGIN_SRC bash
+prsync version
+#+END_SRC
+
+#+BEGIN_SRC json
+{"version":"0.1.0"}
+#+END_SRC
+
+** scan
+
+#+BEGIN_SRC bash
+prsync scan --config ./prsync.config
+#+END_SRC
+
+#+BEGIN_SRC json
+{
+  "generated_at": "2026-01-01T09:00:00Z",
+  "author": "alice",
+  "repos": ["acme/widgets"],
+  "prs": [
+    {
+      "repo": "acme/widgets",
+      "number": 123,
+      "title": "[PROJ-123] Fix the widget",
+      "url": "https://github.com/acme/widgets/pull/123",
+      "state": "open",
+      "identifier": "PROJ-123",
+      "base": "main",
+      "head": "fix-widget",
+      "head_sha": "abc123def456",
+      "merge_state_status": "CLEAN",
+      "mergeable": "MERGEABLE",
+      "is_draft": false,
+      "review_decision": "APPROVED",
+      "review_requests": ["User:reviewer-login", "Team:platform-reviewers"],
+      "ci_state": "green",
+      "bucket": "needs_you",
+      "unaddressed": true,
+      "blocking_comments": [
+        {
+          "thread_id": "PRRT_widget",
+          "comment_id": "PRRC_widget",
+          "author": "reviewer-login",
+          "path": "src/widget.go",
+          "line": 42,
+          "url": "https://github.com/acme/widgets/pull/123#discussion_r1",
+          "body": "This should handle the nil case."
+        }
+      ],
+      "tab": {
+        "tab_id": "w2:tC",
+        "pane_id": "w2:pC",
+        "workspace_id": "w2",
+        "label": "PROJ-123",
+        "agent_status": "idle"
+      }
+    }
+  ],
+  "inaccessible_repos": [],
+  "warnings": [],
+  "summary": {
+    "total": 1,
+    "tab_here": 1,
+    "off_machine": 0,
+    "no_identifier": 0,
+    "drafts": 0
+  }
+}
+#+END_SRC
+
+| Field | Meaning |
+|-------+---------|
+| ~state~ | ~open~ / ~closed~ / ~merged~, from the ~state~ scalar on the ~gh pr list~ or ~gh pr view~ that already loads the pull request. Empty when an older scan document omitted it. ~dispatch --pr~ can name a closed or merged pull request; a full scan lists open ones. |
+| ~ci_state~ | ~none~ / ~failing~ / ~pending~ / ~green~ / ~unknown~ over the rollup entries selected by ~ci_only_checks~ or ~ci_ignore_checks~. Both empty counts every check. If none remain, the state is ~none~. ~unknown~ means that pull request's rollup view failed. The PR stays in the document, the failure is a ~warnings~ entry, and the command still succeeds. ~unknown~ is not ready and is not a CI failure. |
+| ~bucket~ | ~needs_you~ / ~ready~ / ~waiting~ / ~draft~. ~APPROVED~ with leftover ~review_requests~ is ~needs_you~, not ready to merge |
+| ~is_draft~ | ~scan~ always includes drafts. ~dispatch~ skips them unless ~dispatch_include_drafts~ is true |
+| ~tab~ | ~null~ when no unique herdr tab matches. ~machine~ is present only for a tab on one of ~machines~ |
+| ~tab_unknown~ | Present only as ~machine unreachable~, when ~tab~ is ~null~ because a configured machine could not be searched. See [[file:multi-machine.org::*Other herdr machines][Other herdr machines]] |
+| ~out_of_scope~ | Present only with ~--tab-machine~, when the PR belongs to another machine's run: ~tab on <m>~, ~no tab~, or ~tab may be on <m> (unreachable)~. See [[file:multi-machine.org::*One watcher per machine][One watcher per machine]] |
+| ~summary~ | Rollup of ~prs~. Cross-check a "nothing is local" conclusion against ~summary.tab_here~. ~uncovered_teams~ is present only when ~team_cover~ produced suggestion entries. It counts entries whose ~covered_by~ is null, including teams that failed to list members. ~0~ is included. |
+| ~team_review_suggestions~ | Omitted when ~team_cover~ is off, on a round ~team_cover_every~ skips, or when every requested team was skipped. Each entry is ~team~ (~org/slug~), ~covered_by~ (one login, or null), ~suggest~ (logins and reasons; ~[]~ when covered or failed), ~error~ when members could not be listed, and ~uncovered_reason~ when an uncovered team has no suggestion: ~no members~, or ~all N members excluded (...)~ with a count per filter (author, bot, excluded login, approved, inactive). |
+
+With ~team_cover~ on, suggestions and a ready-to-run ~gh pr edit~
+line go to stderr. Ranking, batching, and the call cap are in
+[[file:team-cover.org][team cover]].
+
+** tabs --orphans
+
+Inverse of ~scan~: walk *this machine's* herdr tabs and flag those with
+a live agent (~working~ / ~idle~ / ~blocked~) but no open or draft PR.
+Usually the PR already merged — the tab, worktree, and gate slot can
+be reclaimed.
+
+Tabs whose labels yield tickets via ~title_id_pattern~ are resolved to
+the author's PRs (any state) and bucketed. A label that is exactly
+~#~ plus a pull request number (~#42~, not ~#1#2~ or ~#42 extra~)
+is resolved instead to that number in the github.com repository of the
+live agent's cwd (~git remote get-url origin~, then ~foreground_cwd~ if
+the shell cwd is not a GitHub checkout). That lookup is not limited to
+~author~, so a review tab for someone else's PR is included. ~--close-merged~
+closes it when the pull request is merged or closed, and re-checks with
+~gh pr view~ immediately before the close.
+
+| Bucket | Meaning |
+|--------+---------|
+| ~merged~ | Matching PR (ticket, or ~#N~) is merged or closed → *safe to close*. ~pr~ has number, repo, ~state~, ~merged_at~ (null if closed but unmerged) |
+| ~no_pr~ | No matching PR, agent is ~idle~ or ~blocked~ → *verify* (may be unpushed WIP, or ~#N~ is not a pull request in that repo). A ~working~ agent with no PR is omitted, not an orphan |
+| ~unknown~ | No chunk in the sweep matched a ticket, and more than one ticket was searched (broken or throttled sweep, not N genuine ~no_pr~). An empty chunk is ~no_pr~ when another chunk mapped a PR. A ~warnings~ entry is emitted; ~working~ agents are still surfaced |
+
+Skipped: tabs with an open/draft PR, agent-less scratch tabs, unparseable / non-ticket labels. A ~#N~ tab whose cwd is not a github.com checkout is skipped with a warning, not closed. A ~gh pr view~ error for one ~#N~ tab warns and skips that tab; it does not mark the sweep ~unknown~.
+
+#+BEGIN_SRC bash
+prsync tabs --orphans --config ./prsync.config
+#+END_SRC
+
+#+BEGIN_SRC json
+{
+  "generated_at": "2026-01-01T09:00:00Z",
+  "author": "alice",
+  "orphan_tabs": [
+    {
+      "tab_id": "w2:tA",
+      "workspace_id": "w2",
+      "label": "AP-1306",
+      "ticket": "AP-1306",
+      "agent_status": "idle",
+      "bucket": "merged",
+      "pr": {
+        "repo": "acme/widgets",
+        "number": 32347,
+        "url": "https://github.com/acme/widgets/pull/32347",
+        "state": "merged",
+        "merged_at": "2026-08-18T22:19:28Z"
+      }
+    },
+    {
+      "tab_id": "w2:tB",
+      "workspace_id": "w2",
+      "label": "AP-1287",
+      "ticket": "AP-1287",
+      "agent_status": "idle",
+      "bucket": "no_pr",
+      "pr": null
+    }
+  ],
+  "warnings": []
+}
+#+END_SRC
+
+~--close-merged~ closes only the ~merged~ bucket (dry-run by default;
+~--go~ actually closes). ~no_pr~ and ~unknown~ are never touched. If
+every orphan is ~no_pr~, or any is ~unknown~, the close refuses
+(exit 3) instead of a silent "nothing to close"; ~--force~ overrides.
+Each candidate is re-verified at close time so a race cannot close a
+tab that grew a new open PR. Only the local herdr socket is visible.
+
+#+BEGIN_SRC bash
+prsync tabs --orphans --close-merged --config ./prsync.config
+prsync tabs --orphans --close-merged --go --config ./prsync.config
+#+END_SRC
+
+#+BEGIN_SRC json
+{
+  "generated_at": "2026-01-01T09:00:00Z",
+  "dry_run": true,
+  "results": [
+    {
+      "tab_id": "w2:tA",
+      "workspace_id": "w2",
+      "ticket": "AP-1306",
+      "action": "would_close",
+      "pr": {
+        "repo": "acme/widgets",
+        "number": 32347,
+        "url": "https://github.com/acme/widgets/pull/32347",
+        "state": "merged",
+        "merged_at": "2026-08-18T22:19:28Z"
+      }
+    }
+  ],
+  "warnings": [],
+  "unblock": {
+    "status": "not_run",
+    "text": "",
+    "lines": []
+  }
+}
+#+END_SRC
+
+Live ~action~ values: ~closed~, ~skipped_not_merged~,
+~skipped_not_found~. Dry-run emits ~would_close~. A row counts as
+delivered only when ~action~ is ~closed~, ~ticket~ is set, and
+~pr.merged_at~ is set.
+
+Every close document includes ~unblock~, including a refused close.
+Dry-run, a refused close, and a ~--go~ round with no ~closed~ row set
+~status~ to ~not_run~ (~text~ and ~lines~ empty) and do not call Jira.
+After ~--go~ closes at least one tab, ~status~ is ~ok~ or ~failed~.
+~ok~ with no lines has text ~nothing newly unblocked~. With lines, ~text~
+starts with ~Newly unblocked by this round~ and then one line per
+ticket: a ticket clear to start, or a ticket still blocked by an open
+issue. ~failed~ text is ~unblock check could not run: …~, ~lines~ stays
+empty, and the close exit code is unchanged.
+
+Pipe a ~scan~ document with ~--stdin~ to reuse its open-PR↔tab matches
+(tabs that already have an open PR are skipped without a ~gh search~):
+
+#+BEGIN_SRC bash
+prsync scan --config ./prsync.config | prsync tabs --orphans --stdin --config ./prsync.config
+#+END_SRC
+
+Missing / unreachable / too-old herdr is a precondition failure
+(exit 3), since tabs are the whole input — unlike ~scan~, which
+degrades.
+
+** dispatch
+
+Dry-run (default). ~--pr~ fetches only those PRs instead of scanning
+every open PR. ~--all~ and a bare ~dispatch~ still self-scan. When a
+stdin document is present, it is used as given. Review ~rendered_prompt~
+and confirm ~pane_id~ is a pane (~w2:pC~), not a tab id (~w2:tC~):
+
+#+BEGIN_SRC bash
+prsync dispatch --config ./prsync.config
+prsync dispatch --config ./prsync.config --pr acme/widgets#123
+#+END_SRC
+
+#+BEGIN_SRC json
+{
+  "generated_at": "2026-01-01T09:00:00Z",
+  "dry_run": true,
+  "results": [
+    {
+      "repo": "acme/widgets",
+      "number": 123,
+      "action": "would_dispatch",
+      "pane_id": "w2:pC",
+      "rendered_prompt": "Get onto this PR's branch before editing: ... Address the unresolved review comments on PR #123 ... State: open."
+    }
+  ]
+}
+#+END_SRC
+
+Live send (~--go~) writes ~state_file~ on ~dispatched~ /
+~dispatched_timeout~, and when a later evaluation of the same
+unaddressed comment ids is still inside the dedupe window. That later
+run does not send. Its action is ~dispatched_unresolved~ and ~detail~
+includes the recorded time. ~prsync scan~ sets ~dispatch~ to that same
+marker. The window is ~dedupe_ttl~ (default 24h) or ~dedupe_scans~
+later evaluations, whichever comes first. ~dedupe_scans~ of 0 does not
+expire by count. A new unaddressed comment id is a fresh dispatch.
+~--force~ re-dispatches immediately. When the window expires, dispatch
+sends again and refreshes ~dispatched_at~ and the scan count. Gate /
+serial / wait: [[file:gate.org::*Live dispatch][Live dispatch]]. The prompt always goes to the PR's existing herdr
+tab (no new worktree). A scan ~merge-queue-fix~ action, with neither
+~--rebase~ nor ~--ci-fix~, sends that prompt instead and skips the
+unaddressed-comment gate. The prompt points at the RCA comment URL and
+asks the tab to fix the cause. When the ejection is a merge conflict,
+it asks for a rebase, regenerated lockfiles, and a push. The same head
+is not prompted again until the head changes.
+
+| Mode | Flag | Done when | Notes |
+|------+------+-----------+-------|
+| comments (default) | (none) | listed threads addressed | Dedupe on unaddressed comment ids until ~dedupe_ttl~ or ~dedupe_scans~, whichever comes first. While the window holds the action is ~dispatched_unresolved~ (not ~skipped_deduped~) and ~detail~ includes the recorded time. ~scan~ shows that marker on the pull request. |
+| rebase | ~--rebase~ | recorded ~dispatched_head_sha~ equals the current head, and merge state is not ~BEHIND~, ~DIRTY~, or ~UNKNOWN~, and ~mergeable~ is not ~CONFLICTING~ | A new head is a fresh decision. ~BEHIND~, ~DIRTY~, ~UNKNOWN~, and ~mergeable~ ~CONFLICTING~ retry even when the recorded sha matches. ~--all~ sends to every PR with a ready tab (auto-picking behind PRs is a follow-up). Missing ~merge_state_status~ keeps head-SHA dedupe. ~skipped_deduped~ sets ~detail~ to ~recorded at <sha>, merge_state=<status>~ |
+| CI-fix | ~--ci-fix~ | recorded ~dispatched_ci_fix_sha~ equals the current head, and ~ci_state~ is not ~failing~ | A new head is a fresh decision, including ~pending~, ~none~, and ~green~. A still-red check retries on the same head. ~--hint~ is a starting point the agent must verify; omit it to investigate from scratch. Caller chooses ~--ci-fix~ — ~prsync~ does not triage. Missing ~ci_state~ keeps head-SHA dedupe. ~skipped_deduped~ sets ~detail~ to ~recorded at <sha>, ci_state=<status>~ |
+| merge-queue-fix | (none; scan action ~merge-queue-fix~) | recorded ~dispatched_merge_queue_fix_sha~ equals the current head | Same draft, tab, agent, and busy gate as the other modes. Skips the unaddressed-comment gate. Not prompted again until the head changes, including when the pull request is still conflicting. ~--rebase~ and ~--ci-fix~ keep their own prompts. ~--force~ re-dispatches. ~skipped_deduped~ sets ~detail~ to ~recorded at <sha>~ |
+
+Cannot combine ~--rebase~ and ~--ci-fix~; rebase first, then CI-fix. If
+you also re-trigger CI, do that last (a new commit invalidates it).
+~--force~ re-dispatches even when dedupe would skip. A rebase or CI-fix
+recorded for this head, once the PR is no longer in a needs-work state,
+is ~skipped_deduped~ and ~detail~ says which sha and status were recorded.
+
+#+BEGIN_SRC bash
+prsync dispatch --config ./prsync.config --rebase --pr acme/widgets#123 --go
+prsync dispatch --config ./prsync.config --ci-fix --pr acme/widgets#123 \
+  --hint 'job X failed at step/target Y; key error: boom; looks real (not flake)'
+prsync dispatch --config ./prsync.config --ci-fix --pr acme/widgets#123 --go --force
+#+END_SRC
+
+** comment
+
+Posts a PR comment through ~gh pr comment~. No herdr tab, no agent, no
+gate — a ~tab~ of ~null~ is not a skip, so this works for off-machine
+PRs. Dry-run by default. ~--body~ is posted as-is. JSON matches the
+~dispatch~ result shape (~would_dispatch~ / ~dispatched~ /
+~skipped_not_found~ / ~skipped_deduped~), with the body in
+~rendered_prompt~.
+
+Live send (~--go~) records ~state_file~ on ~dispatched~, keyed on
+~(repo, number, head_sha, body)~. The same tuple is ~skipped_deduped~
+(including dry-run). A new ~head_sha~ allows the same body again.
+~--allow-duplicate~ posts anyway. Comment state does not clobber
+dispatch comment-id / rebase / CI-fix fields.
+
+#+BEGIN_SRC bash
+prsync comment --config ./prsync.config --pr acme/widgets#123 --body "please retry"
+prsync comment --config ./prsync.config --pr acme/widgets#123 --body "please retry" --go
+# same head SHA + body: skipped_deduped
+prsync comment --config ./prsync.config --pr acme/widgets#123 --body "please retry" --go
+prsync comment --config ./prsync.config --pr acme/widgets#123 --body "please retry" --go --allow-duplicate
+prsync comment --config ./prsync.config --all --body "please retry"
+#+END_SRC
+
+#+BEGIN_SRC json
+{
+  "generated_at": "2026-01-01T09:00:00Z",
+  "dry_run": true,
+  "results": [
+    {
+      "repo": "acme/widgets",
+      "number": 123,
+      "action": "would_dispatch",
+      "rendered_prompt": "please retry"
+    }
+  ]
+}
+#+END_SRC
+
+** logs
+
+Each run (except ~logs~ itself) appends JSON lines to
+=$XDG_STATE_HOME/prsync/prsync.jsonl= (or
+=~/.local/state/prsync/prsync.jsonl=). Rotates by size (~10 MiB~) and
+age (~14 days~). Default level ~info~; stdout JSON is unchanged.
+~--log-level~ overrides ~PRSYNC_LOG~.
+
+A dispatch line of investigation includes the target pane, send, each
+~agent_status~ transition, gate wait, settle decision, skip/dedupe
+outcome, and process exit. Startup records the resolved config path
+and ~concurrency_wait_on~.
+
+#+BEGIN_SRC bash
+prsync logs --path
+prsync logs
+#+END_SRC
+
+~--path~ prints ~{"path":"…"}~. Without it, ~logs~ dumps the JSONL file
+(empty stdout if no log exists yet).
+

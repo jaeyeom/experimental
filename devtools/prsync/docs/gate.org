@@ -1,0 +1,366 @@
+#+TITLE: prsync gate
+
+The short guide is [[file:../README.org][the prsync README]].
+
+* Live dispatch
+
+~dispatch --go~ does three things, one PR at a time:
+
+1. *Gate* — wait until no waited-on agent is ~working~ and no
+   [[*Busy signals][busy signal]] holds (a background job, a build in
+   the checkout, or an open decide question). A ~blocked~
+   agent holds the gate too, unless ~concurrency_ignore_blocked~ is
+   ~true~. A single idle sample is not enough (startup / mid-run flap
+   still counts as busy). When a ~blocked~ tab does hold the gate,
+   stderr names it, e.g. ~waiting on w2:tC — blocked awaiting your
+   input~. If it still holds at ~gate_timeout_ms~, the current PR is
+   ~gate_timeout~ and the rest are ~queued~ (exit 4, no prompt, no
+   state write). A dirty dispatch checkout (see [[*gate][gate]]) does not
+   wait: the current PR is ~gate_unsafe~ with the reason as ~detail~,
+   the rest are ~queued~ (exit 1, no prompt, no state write). A dry run
+   puts the same reason on each ~would_dispatch~ row.
+2. *Send* — first, with ~wake_before_prompt=auto~ (the default),
+   ~agentbus wake --if-hibernated --wait --machine <machine> <pane_id>~
+   (~local~ for a local tab). A prompt typed into a hibernated pane
+   would land in its shell, so a hibernated agent is relaunched and
+   ready before the prompt; the result then has ~"woke": true~, and
+   the run log a ~wake~ line and ~woke=true~ on the ~result~ line.
+   When ~agentbus~ is not installed the prompt is sent as before. When
+   the wake fails the PR is ~failed~ with ~detail~ ~wake before prompt:
+   <error>~ and no prompt is sent. A hibernated tab is idle to the
+   gate: nothing runs in its pane. Then
+   ~herdr agent prompt <pane_id> <prompt> --wait --until idle
+   --until done --timeout …~ (tokens from ~dispatch_wait_until~). From
+   a non-~working~ pane, herdr must observe ~working~ or ~blocked~
+   within five seconds (~agent_prompt_stalled~ otherwise). Pre-send
+   ~idle~/~done~ does not complete the wait.
+3. *Settle* — debounce-poll ~agent list~ until ~idle~/~done~ holds for
+   several consecutive samples. A transient ~idle~ after you answer a
+   ~blocked~ question is not completion. If the tab is still
+   ~working~/~blocked~, continue with ~herdr agent wait~ using remaining
+   ~dispatch_timeout_ms~. ~agent wait~ is never started from a *stable*
+   ~idle~/~done~.
+
+If the agent never picks up the prompt, or a wait expires while the tab
+is still ~working~/~blocked~, the result is ~dispatched_timeout~ (exit
+4; state is written so it is not retried blindly).
+~dispatched_blocked~ happens only when ~blocked~ is in
+~dispatch_wait_until~ *and* that status holds for the settle debounce:
+the batch stops, but dedupe state is not written, so a re-run can
+retry. Set ~dispatch_wait_until=idle~ only if you want to wait until
+herdr reports ~idle~ (can take ~30 minutes if the agent settles to
+~done~ instead).
+
+~prsync gate~ is the same busy-set check without debounce — a snapshot,
+not the wait ~dispatch --go~ uses.
+
+prsync claims nothing; the dispatched agent claims. For a checkout
+guarded by an agentbus workdir lease (see [[*Workdir lease][Workdir
+lease]]), the gate only reads the lease, and after a successful
+dispatch prsync does not run ~agentbus lease claim~. The agent it
+prompted claims the lease before it changes the checkout, and releases
+it when done.
+
+* gate
+
+One-shot busy-set check (no debounce). ~dispatch --go~ uses the
+debounced wait described under [[*Live dispatch][Live dispatch]].
+
+#+BEGIN_SRC bash
+prsync gate --config ./prsync.config
+#+END_SRC
+
+Safe:
+
+#+BEGIN_SRC json
+{
+  "safe": true,
+  "busy": []
+}
+#+END_SRC
+
+Unsafe (exit 1) when a working or blocked agent is in the busy set. A
+blocked agent is left out only when ~concurrency_ignore_blocked~ is
+~true~; exempt tabs are left out even when blocked.
+~agent_status~ distinguishes ~working~ (making progress) from ~blocked~
+(awaiting human input):
+
+#+BEGIN_SRC json
+{
+  "safe": false,
+  "busy": [
+    {
+      "pane_id": "w2:pC",
+      "tab_id": "w2:tC",
+      "agent_status": "blocked",
+      "signal": "blocked",
+      "detail": "blocked awaiting input"
+    }
+  ]
+}
+#+END_SRC
+
+Each busy entry has ~signal~, the reason it holds the gate (see
+[[*Busy signals][Busy signals]]), and ~detail~ for the signals below.
+
+** Busy signals
+
+A waited-on tab whose herdr status is ~working~ holds the gate with
+signal ~working~. One that is ~blocked~ holds it with signal ~blocked~
+and ~detail~ ~blocked awaiting input~, whether or not it has a decide
+item and whether or not ~decide~ is installed, unless
+~concurrency_ignore_blocked~ is ~true~.
+
+herdr reports some agents ~idle~ or ~done~ while work keeps running
+for them. The gate also holds a waited-on tab, whatever its status,
+for the first of these that is true:
+
+1. ~background-job~ — the tab's foreground agent (from ~herdr pane
+   process-info~) has a child process that matches none of
+   ~gate_ignore_procs~ and is at least ~gate_job_min_age~ old (10s by
+   default), such as a background shell or build. Inside the
+   ~dispatch --go~ wait loop the same pid must also be seen in the
+   previous sample; a one-shot ~prsync gate~ applies the age check
+   alone. So short-lived helpers an agent reruns on each UI refresh,
+   such as a status-line command, never count. The processes and their
+   start times come from =/proc= on Linux and ~ps~ elsewhere. ~detail~
+   is ~pid 4242 (2m13s) sh -c "bazel build ..."~, with the process age.
+2. ~pending-question~ — a decide item (~decide list --json~) with the
+   tab's pane as ~notifyPane~ is either answered but not done (the
+   agent is about to resume), with ~detail~ ~answered item D-17~, or
+   open and created after the round started (the ~dispatch~ run or the
+   ~gate~ check), with ~detail~ ~open item D-17~. An open item from
+   before the round is parked and does not hold the gate.
+   ~gate_pending_question=off~ turns it off. When ~decide~ is not
+   installed, the gate warns once and checks the other signals.
+
+These two signals hold only a tab that can touch the dispatch checkout.
+When the checkout is known (see the dirty-tree check below), a tab
+whose ~cwd~ and ~foreground_cwd~ are both outside it is not held by a
+pending question, and is held by a background job only when that
+child's own cwd is inside the checkout. So a design tab working in
+another repository does not hold the gate for its long-lived helper.
+Each skip is logged at debug level as ~gate_signal_out_of_checkout~,
+with no output entry. ~working~ and ~blocked~ still hold a tab
+anywhere, as ~concurrency_cwd=any~ says. With no known checkout, both
+signals apply to every waited-on tab. A remote tab follows the same
+rule with its paths on that machine: its ~cwd~ from ~agent list~ and
+the child's ~cwd~ from ~pane process-info~.
+
+A tab whose pane id matches ~gate_exempt_panes~, or whose label
+matches ~gate_exempt_tabs~, is skipped by every tab signal, including
+~working~ and ~blocked~, the same way as the runner pane. It is listed under
+~exempt~ with the rule that matched:
+
+#+BEGIN_SRC json
+"exempt": [
+  {"pane_id": "w3:p2", "tab_id": "w3:t2", "label": "pm", "rule": "gate_exempt_tabs=pm*"}
+]
+#+END_SRC
+
+Each child skipped by a ~gate_ignore_procs~ pattern is listed under
+~ignored~, and logged at debug level as ~gate_ignored~, so you can
+check that a pattern works:
+
+#+BEGIN_SRC json
+"ignored": [
+  {"pane": "w3:p2", "pid": 4242, "command": "/bin/sh -c \"claude-hud --x\"", "pattern": "claude-hud"}
+]
+#+END_SRC
+
+** Workdir lease
+
+When the dispatch checkout is guarded by an agentbus workdir lease
+(listed in agentbus ~lease_checkouts~), the lease, not the tabs,
+decides who may change it. The gate first asks ~agentbus lease status
+--guarded --json --path <checkout>~, which answers from the local
+agentbus config without contacting the daemon or hub, once per ~gate~
+check or ~dispatch --go~ wait. An unguarded checkout makes no lease
+call, and the tab signals above apply as before.
+
+For a guarded checkout the gate reads ~agentbus lease status --path
+<checkout> --json~ on each sample. The checkout holds the gate with
+signal ~lease~ unless the state is ~free~, and the tab signals
+(~working~, ~blocked~, ~background-job~, ~build-tool~,
+~pending-question~, and the remote-tab holds) are not checked. The
+~detail~ names the holder and the bid's end, in local time:
+
+| state | ~detail~ |
+|-------+----------|
+| ~held~ | ~held by pm/foo until 14:20~ (the holder's name, else its handle) |
+| ~paused~ | ~paused by user~ |
+| ~needs-adopt~ | ~needs-adopt by pm/foo~ |
+| ~releasing~ | ~releasing by pm/foo~ |
+
+#+BEGIN_SRC json
+{
+  "safe": false,
+  "busy": [
+    {
+      "pane_id": "",
+      "tab_id": "",
+      "agent_status": "",
+      "checkout": "/src/repo",
+      "signal": "lease",
+      "detail": "held by pm/foo until 14:20"
+    }
+  ]
+}
+#+END_SRC
+
+The dirty-tree check still applies. When ~agentbus~ is not installed,
+or ~lease status~ fails (the hub is unreachable, say), ~gate_lease=auto~
+falls back to the tab signals and lists ~lease~ under
+~signal_unavailable~ with the ~checkout~ and the error, logged once as
+~gate_lease_unavailable~. With ~gate_lease=required~ the checkout
+holds the gate instead, with ~detail~ ~cannot read the lease: <error>~,
+and the tab signals are checked too. ~gate_lease=off~ never runs
+agentbus.
+
+** Process patterns
+
+~gate_ignore_procs~ and ~gate_build_tool_ignore~ are comma-separated
+lists; whitespace around each entry is trimmed, so a pattern cannot
+contain a comma. Each pattern is checked against three fields: the
+process name, the base of ~argv[0]~, and the full command line (~argv~
+joined with spaces).
+
+- A plain pattern (no ~*~, ~?~, or ~[~) matches when it appears
+  anywhere in one of the fields: ~claude-hud~ matches
+  ~/bin/sh -c "bash -c 'cols=80; claude-hud'"~.
+- A pattern with ~*~, ~?~, or ~[...]~ is a glob that may match
+  anywhere in a field: ~*~ is any run of characters (including ~/~),
+  ~?~ one character, and ~[...]~ a class (~[!...]~ negated).
+  ~claude-hu?~ and ~*claude-hud*~ both match the command above.
+
+Setting ~gate_ignore_procs~ replaces the default list; it does not
+add to it. The defaults (also printed by ~prsync gate --help~) are:
+
+#+BEGIN_EXAMPLE
+gate_ignore_procs = caffeinate,gopls,rust-analyzer,clangd,pyright*,*language-server*,*langserver*,*mcp-server*,*mcp_server*,*modelcontextprotocol*,*-mcp,*-mcp *,statusline,status-line,claude-hud,claude-http-,*UNIX-LISTEN:*claude-*.sock*
+#+END_EXAMPLE
+
+~claude-http-~ and ~*UNIX-LISTEN:*claude-*.sock*~ cover the ~socat~
+bridges Claude Code's sandbox runs for the whole session, such as
+~socat UNIX-LISTEN:/tmp/claude/claude-http-<hex>.sock,fork,reuseaddr TCP:localhost:<port>~.
+
+To add a helper, copy that line into your config and append your
+pattern, then run ~prsync gate~: the process should appear under
+~ignored~ with your pattern.
+
+~build-tool~ holds the dispatch checkout rather than a tab: a
+build-tool client from ~gate_build_tools~, anywhere on the machine,
+whose cwd is the checkout or under it, even when its tab is exempt.
+Long-lived build servers (any process with ~--workspace_directory=~,
+~A-server.jar~, or ~--server~ in its ~argv~) never count, through
+~gate_build_tool_ignore~; while a build runs, its client is alive. This
+process and its ancestors never count, so a ~make~ that runs ~prsync~
+does not block itself. The entry has ~checkout~ instead of a tab:
+
+#+BEGIN_SRC json
+{
+  "safe": false,
+  "busy": [
+    {
+      "pane_id": "w3:p2",
+      "tab_id": "w3:t2",
+      "agent_status": "idle",
+      "signal": "background-job",
+      "detail": "pid 4242 (2m13s) sh -c \"bazel build //...\""
+    },
+    {
+      "pane_id": "",
+      "tab_id": "",
+      "agent_status": "",
+      "checkout": "/src/repo",
+      "signal": "build-tool",
+      "detail": "pid 5000 bazel build //... (cwd /src/repo)"
+    }
+  ]
+}
+#+END_SRC
+
+A signal the gate cannot evaluate (for example ~herdr pane
+process-info~ or ~decide~ fails) is listed under ~signal_unavailable~
+with ~tab_id~, ~pane_id~ (or ~checkout~), ~signal~, and ~error~. For a
+local tab it does not make the gate unsafe; a remote tab is held (see
+[[file:multi-machine.org::*Remote tabs][Remote tabs]]).
+
+~dispatch --go~ waits on these signals like ~working~, with the same
+debounce and ~gate_timeout_ms~; a timeout's ~detail~ names the last
+signal. Each change in the holds is logged as one ~gate_hold~ line, for
+example ~gate: busy tab w3:t2 (pane w3:p2): background-job pid 4242 (2m13s) sh
+-c "bazel build ..."~, or ~gate: busy checkout /src/repo: build-tool
+...~ for the checkout.
+
+The gate is also unsafe (exit 1) when the dispatch checkout is dirty,
+in every ~concurrency_cwd~ mode. The checkout is the git toplevel of
+the current directory when its origin is a configured repo (for
+~dispatch~, the repo being dispatched); if there is none, the check is
+skipped. ~reason~ is one of ~dirty tree: rebase in progress~, ~dirty
+tree: merge in progress~, or ~dirty tree: N files~ (staged or unstaged
+tracked paths; untracked files do not count). A clean tree omits
+~reason~:
+
+#+BEGIN_SRC json
+{
+  "safe": false,
+  "busy": [],
+  "reason": "dirty tree: 2 files"
+}
+#+END_SRC
+
+Self-exclusion uses ~HERDR_PANE_ID~ only. If that env var is empty,
+~gate~ does not call ~herdr pane current~ (that would drop the focused
+pane under cron).
+
+Remote tabs are in [[file:multi-machine.org::*Remote tabs][Remote tabs]].
+
+* Detail from the key table
+
+Each entry is the note that used to sit in the key table.
+
+** concurrency_cwd
+
+~any~ counts ~working~ and ~blocked~ agents in any directory;
+~background-job~ and ~pending-question~ still need the tab in the checkout
+(see [[*Busy signals][Busy signals]]). ~checkout~ counts an agent only when
+its ~cwd~ or ~foreground_cwd~ is inside the checkout of the repo being
+dispatched. The runner pane stays excluded.
+
+** gate_ignore_procs
+
+Comma-separated patterns for an agent's own helpers; see [[*Process
+patterns][Process patterns]]. A matching child and its children are not a
+~background-job~, and are listed under ~ignored~ in the gate JSON. Setting
+the key replaces the defaults, so copy them to add one. Empty = every child
+counts. See [[*Busy signals][Busy signals]].
+
+** gate_build_tools
+
+Comma-separated build-tool client names for ~build-tool~. A name matches the
+whole process name or ~argv[0]~ base (a glob with ~*~, ~?~, or ~[~ also
+works); it is not a substring, so ~go~ does not match ~gopls~. Empty turns
+the signal off.
+
+** gate_pending_question
+
+~decide~ holds a tab while a decide item for its pane is answered but not
+done, or was opened since the round started; ~off~ turns that off. A
+~blocked~ tab holds the gate by its status whatever this is set to, unless
+~concurrency_ignore_blocked~ is ~true~.
+
+** gate_lease
+
+~auto~ reads the agentbus workdir lease of a guarded dispatch checkout, and
+falls back to the tab signals when ~agentbus~ is missing or the hub is
+unreachable; ~required~ holds the gate instead when the lease cannot be
+read; ~off~ never asks agentbus. See [[*Workdir lease][Workdir lease]].
+
+** wake_before_prompt
+
+~auto~ runs ~agentbus wake --if-hibernated~ before each prompt when
+~agentbus~ is installed, so a hibernated agent is relaunched instead of the
+prompt landing in its shell; a failed wake fails the dispatch. ~off~ never
+runs agentbus. See [[*Live dispatch][Live dispatch]].
+

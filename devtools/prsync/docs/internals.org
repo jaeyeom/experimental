@@ -1,0 +1,204 @@
+#+TITLE: prsync internals
+
+The short guide is [[file:../README.org][the prsync README]].
+
+* Round cache
+
+GitHub also caps GraphQL CPU time per user, so prsync keeps its large
+queries small and skips calls whose answer cannot have changed since the
+last round. Results are kept in ~round-cache.json~, next to
+~state_file~: status checks for ~status_checks_ttl~, review threads for
+~review_threads_ttl~, merged PR states until no tab references them,
+closed PR states for ~pr_view_closed_ttl~, path history for up to
+~team_cover_history_ttl~ (each entry between half of that and the full
+TTL; at most a day when that is ~0~), review load for
+~team_cover_load_ttl~, team members for ~team_cover_members_ttl~,
+CODEOWNERS for ~team_cover_codeowners_ttl~, and changed files and review
+snapshots for at most a day. Expired entries, and entries whose key is not
+in the current format (such as head-keyed history while
+~team_cover_history_ttl~ is set), are dropped when the file is written.
+The file is only a cache: deleting it is safe, and a corrupt one is
+ignored with a warning in the run log.
+
+- *Status checks.* The open-PR search returns each PR's ~headRefOid~ and
+  ~updatedAt~. When both match the last round, every check had finished,
+  and the entry is younger than ~status_checks_ttl~, the scan reuses the
+  stored checks instead of running the per-PR status-check view. A pending
+  or empty rollup is never stored, because a check can finish without
+  changing ~updatedAt~. The run log records
+  ~scan: status checks N hits/M calls~ each round.
+- *Review threads.* Each PR's review threads are stored per repository
+  and number with its ~headRefOid~ and ~updatedAt~. While both match the
+  open-PR list and the entry is younger than ~review_threads_ttl~, the
+  scan reuses them instead of the per-PR GraphQL query. A failed fetch is
+  not stored, and a PR no longer in its repository's open list is
+  dropped. The run log records ~scan: review threads N hits/M calls~
+  each round.
+- *PR states.* ~tabs --orphans~ (and its ~--close-merged~ re-check)
+  looks up the PR on each ~#N~ tab with ~gh pr view~. A merged result is
+  stored per repository and number and reused with no call, since a
+  merged PR never changes state. A closed (not merged) result is reused
+  for ~pr_view_closed_ttl~, because it can be reopened. Open results,
+  errors, and not-found results are never stored. After a complete
+  orphan report, a PR no tab looked up is dropped. The run log records
+  ~tabs: pr view N hits/M calls~ each round.
+- *Team-cover history.* Each path's history is stored per repository,
+  base branch, path, and the history window's start day (a UTC date), and
+  reused for up to ~team_cover_history_ttl~ even when the base branch head
+  moves. A stored entry whose start day is up to
+  ~team_cover_history_slack_days~ earlier is still a hit; the newest day
+  wins, and a hit is not rewritten under the current day.
+  Each entry's lifetime is a deterministic hash of its key, between half
+  the TTL and the TTL, so a batch stored together lapses gradually and a
+  hit does not move the stored time. Nothing is reused past the TTL.
+  An unscoped ~scan~ that finishes with calls left under
+  ~team_cover_max_calls~ refetches the entries closest to expiry, oldest
+  first, through the same batched history requests, up to
+  ~team_cover_refresh_max_calls~. Those calls count toward the cap. A
+  scoped run does not refetch. Paths that miss are fetched
+  on the base branch in batched queries per repository and base. The run
+  log records ~team-cover cache~ with ~hits~ and ~misses~. With
+  ~team_cover_history_ttl=0~ the start day is replaced by the base
+  branch head commit, and history is not jittered or refreshed early:
+  each round looks up the head
+  of each base branch once (~GET repos/{owner}/{repo}/git/ref/heads/{base}~)
+  and reuses the stored history only while it has not moved; if the head
+  lookup fails, history is fetched on the branch and not stored.
+  The history request size that last worked is kept too (it does not
+  expire); see ~team_cover_batch_paths~.
+- *Team-cover load.* Each login's open-direct-request count is stored
+  per org and reused for ~team_cover_load_ttl~.
+- *Team-cover lookups.* Team members are stored per org and slug and
+  reused for ~team_cover_members_ttl~. A PR's changed files are stored
+  with its head commit, and its author and latest reviews with its head
+  commit and ~updatedAt~; each is reused while those are unchanged. A
+  PR's CODEOWNERS is stored per repository and base branch with the
+  location it was found at (~.github/~, the repository root, or ~docs/~)
+  and reused for ~team_cover_codeowners_ttl~; after that the known
+  location is requested first, so a missing one is not asked for every
+  time.
+
+~dispatch --pr~ has no search to compare against and always views each
+PR. Page sizes: the open-PR search loads 50 PRs per
+page; review requests and latest reviews load 20 per PR. A connection
+cut off at those sizes is logged as a warning (~github connection
+truncated~) in the run log.
+
+* Lock files
+
+Both watchers can share one ~state_file~. A scoped live dispatch holds
+~<state_file>.<machine>.lock~ for the run instead of
+~<state_file>.lock~, and writes each entry by re-reading the file under
+~<state_file>.lock~, so neither run drops the other's entries. An
+unscoped dispatch, ~comment~, and a scoped run's write all take
+~<state_file>.lock~, so do not mix an unscoped watcher with scoped ones
+on one state file: a scoped write waits about 5 s for the lock and then
+fails.
+* Manual smoke test
+
+Against a real herdr ≥ 0.8 and an authenticated ~gh~, run the typical
+loop from the overview plus:
+
+#+BEGIN_SRC bash
+prsync dispatch --config ./prsync.config --ci-fix
+prsync comment --config ./prsync.config --body "please retry"
+prsync comment --config ./prsync.config --body "please retry" --go
+prsync gate --config ./prsync.config
+prsync logs --path
+prsync logs
+#+END_SRC
+
+Confirm ~agent prompt~ targets a ~pane_id~ (~w2:pC~, not a tab id) and
+the default wait is ~--wait --until idle --until done~. README-only;
+CI uses fixture binaries, not live herdr.
+
+* Development
+
+#+BEGIN_SRC bash
+go test ./devtools/prsync/...
+bazel test //devtools/prsync/...
+#+END_SRC
+
+~org_lint_tests~ on this file lives in [[file:../BUILD.bazel][BUILD.bazel]].
+Run ~make check~ from the repo root before sending a change.
+
+* Detail from the key table
+
+Each entry is the note that used to sit in the key table.
+
+** review_threads_ttl
+
+Go duration. The longest a PR's review threads are reused across rounds,
+from the round cache, while its ~headRefOid~ and ~updatedAt~ are unchanged.
+It bounds staleness from changes that may not move ~updatedAt~, such as a
+resolved thread. ~0~ fetches them every round. Must be >= 0. See [[*Round
+cache][Round cache]].
+
+** status_checks_ttl
+
+Go duration. The longest a PR's settled status-check rollup is reused across
+rounds, from the round cache, while its ~headRefOid~ and ~updatedAt~ are
+unchanged. ~0~ fetches them every round. Must be >= 0. See [[*Round
+cache][Round cache]].
+
+** pr_view_closed_ttl
+
+Go duration. How long ~tabs --orphans~ reuses a closed (not merged) PR's
+state from the round cache for a ~#N~ tab, because a closed PR can be
+reopened. Merged PRs are reused until no tab references them. ~0~ fetches
+closed PRs every round. Must be >= 0. See [[*Round cache][Round cache]].
+
+** skip_jobs
+
+Comma-separated machine-wide jobs this run skips. The only job is
+~team-cover~. An unknown job is a config error. ~--skip~ overrides it.
+
+** dispatch_prompt_template
+
+Inline text, or ~@/path/to/file~. Substituted: ~{identifier}~ ~{number}~
+~{title}~ ~{repo}~ ~{url}~ ~{head}~ ~{base}~ ~{state}~ ~{comments}~.
+~{state}~ is ~open~, ~closed~, or ~merged~ (empty when unrecognized).
+Unknown placeholders are left literal.
+
+** dispatch_prompt_suffix
+
+Plain text appended after a blank line to every rendered dispatch prompt:
+comment, rebase, CI-fix, and merge-queue-fix. Empty leaves prompts
+unchanged. ~--prompt-suffix~ overrides it. Not part of the dedupe key, so
+changing only the suffix does not resend a prompt that was already
+dispatched.
+
+** ci_ignore_checks
+
+Comma-separated path globs (~path.Match~, case-sensitive; ~*~ does not cross
+~/~). Dropped from ~ci_state~ when ~ci_only_checks~ is empty. Matched
+against each CheckRun ~name~ and StatusContext ~context~. An invalid glob is
+a config error naming this key.
+
+** dedupe_ttl
+
+Go duration. The same unaddressed comment ids stay deduped until this age.
+~0~ expires immediately.
+
+** comment_strip_patterns
+
+One RE2 pattern per line (blank lines and ~#~ comments ignored). Inline, or
+~@/path~ (tilde expanded). Matches are removed from each comment body before
+~comment_link_max_chars~ and ~comment_body_max_chars~. After a removal,
+trailing whitespace is trimmed and runs of 3+ newlines become one blank
+line. An empty body is rendered as ~(boilerplate only; see <thread url>)~;
+the comment is still listed. Does not change unresolved threads,
+eligibility, or the dedupe key. An invalid pattern is a config error naming
+the key and the line. An unreadable ~@file~ is a config error naming the
+key.
+
+** comment_link_max_chars
+
+Rewrite ~[label](url)~ to ~label~ when ~len(url)~ exceeds this. ~0~
+disables. Length only, not host. Applied after ~comment_strip_patterns~.
+
+** comment_body_max_chars
+
+Cap each comment body after pattern stripping and link stripping. Appends ~… [truncated, see <thread url>]~.
+~0~ disables.
+
