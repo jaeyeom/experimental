@@ -221,27 +221,31 @@ agent is present. A missing brief is not a marker. An empty
 ~brief.text~ means the file is not managed: plan prints
 ~i ROLE brief unmanaged~ when that file exists, and that line
 does not change the exit code. ~+~ is only a tab,
-an agentbus name, or a durable cron. ~!~ on a brief means the file on
-disk was edited in place.
+an agentbus name, or a durable cron. A durable cron matches a live
+job by the role's agentbus session and the cron expression. The spec
+id is the label in the line, not the live id. Two jobs with the same
+cron are split by the prompt prefix. A job created by another session
+is not missing. A role with no live handle is unverifiable. ~!~ on a
+brief means the file on disk was edited in place.
 
 The command leaves the known-model list empty, so a normal plan does
 not print ~model unknown~. A snapshot that sets the list can.
 
-| Marker | Line                         | When                                       |
-|--------+------------------------------+--------------------------------------------|
-| +      | + ROLE tab WORKSPACE/LABEL   | herdr was read and the tab is absent       |
-| +      | + ROLE agentbus              | the agentbus name is absent                |
-| +      | + ROLE cron ID               | durable cron absent, and the file was read |
-| ~      | ~ ROLE when                  | the agentbus when string differs           |
-| ~      | ~ ROLE cwd                   | herdr was read and the cwd differs         |
-| ~      | ~ ROLE model                 | both models are set and they differ        |
-| !      | ! ROLE brief edited in place | the brief file differs from the spec       |
-| !      | ! ROLE cron ID expiring      | present, and inside the expiring window    |
-| !      | ! ROLE model unknown         | model is set and not in the known list     |
-| ?      | ? ROLE remote: not read      | the role's machine is not this host        |
-| ?      | ? ROLE herdr: not read       | herdr could not be read                    |
-| ?      | ? ROLE agentbus: not read    | agentbus names could not be read           |
-| ?      | ? ROLE cron ID unverifiable  | file not read, or absent and not durable   |
+| Marker | Line                         | When                                        |
+|--------+------------------------------+---------------------------------------------|
+| +      | + ROLE tab WORKSPACE/LABEL   | herdr was read and the tab is absent        |
+| +      | + ROLE agentbus              | the agentbus name is absent                 |
+| +      | + ROLE cron ID               | durable cron absent, file read, live handle |
+| ~      | ~ ROLE when                  | the agentbus when string differs            |
+| ~      | ~ ROLE cwd                   | herdr was read and the cwd differs          |
+| ~      | ~ ROLE model                 | both models are set and they differ         |
+| !      | ! ROLE brief edited in place | the brief file differs from the spec        |
+| !      | ! ROLE cron ID expiring      | owned job is inside the expiring window     |
+| !      | ! ROLE model unknown         | model is set and not in the known list      |
+| ?      | ? ROLE remote: not read      | the role's machine is not this host         |
+| ?      | ? ROLE herdr: not read       | herdr could not be read                     |
+| ?      | ? ROLE agentbus: not read    | agentbus names could not be read            |
+| ?      | ? ROLE cron ID unverifiable  | file not read, not durable, or no handle    |
 
 | Line                            | When              |
 |---------------------------------+-------------------|
@@ -266,4 +270,5 @@ command.
 
 A cron is misplaced when the spec declares it on one role, the job
 was created by a session, and that session belongs to a different
-role. The suggestion names the role that owns the session.
+role. The job is the one with the same cron expression, not the same
+id. The suggestion names the role that owns the session.

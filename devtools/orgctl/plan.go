@@ -43,10 +43,12 @@ type LiveAgent struct {
 }
 
 // LiveName is one agentbus name.
+// SessionID is the session in a herdr:<server>/<session>/<pane> handle.
 type LiveName struct {
-	Name   string
-	When   string
-	Server string
+	Name      string
+	When      string
+	Server    string
+	SessionID string
 }
 
 // LiveCron is one durable job read from a role cwd.
@@ -175,20 +177,25 @@ func cronLines(name string, role Role, live Live, window time.Duration) []string
 }
 
 func cronLine(name, cwd string, schedule Schedule, live Live, read bool, window time.Duration) string {
-	if !read {
+	owner := nameSession(live, name)
+	if !read || owner == "" {
 		return "? " + name + " cron " + schedule.ID + " unverifiable"
 	}
-	job, found := findCron(live, cwd, schedule.ID)
-	if !found {
+	job, hit := matchCron(live, cwd, schedule, owner)
+	switch hit {
+	case cronOwned:
+		if expiringSoon(job.ExpiresAt, live.Now, window) {
+			return "! " + name + " cron " + schedule.ID + " expiring"
+		}
+		return ""
+	case cronOther:
+		return ""
+	default:
 		if schedule.Durable {
 			return "+ " + name + " cron " + schedule.ID
 		}
 		return "? " + name + " cron " + schedule.ID + " unverifiable"
 	}
-	if expiringSoon(job.ExpiresAt, live.Now, window) {
-		return "! " + name + " cron " + schedule.ID + " expiring"
-	}
-	return ""
 }
 
 func userSteps(name string, role Role) []string {
@@ -244,13 +251,85 @@ func liveAgent(live Live, name string) (LiveAgent, bool) {
 	return LiveAgent{}, false
 }
 
-func findCron(live Live, cwd, id string) (LiveCron, bool) {
+// cronPromptPrefix is the prompt length stored on a live job.
+const cronPromptPrefix = 80
+
+type cronHit int
+
+const (
+	cronNone cronHit = iota
+	cronOwned
+	cronOther
+)
+
+// matchCron pairs a spec schedule with a live job by owner session and
+// cron expression. The spec id is not compared to the live id. Two jobs
+// with the same cron are split by the prompt prefix.
+func matchCron(live Live, cwd string, schedule Schedule, owner string) (LiveCron, cronHit) {
+	same := cronsWithExpr(live, cwd, schedule.Cron)
+	picked, ok := pickCron(same, schedule.Prompt)
+	if !ok {
+		return LiveCron{}, cronNone
+	}
+	if owner != "" && picked.CreatedBySessionID == owner {
+		return picked, cronOwned
+	}
+	if picked.CreatedBySessionID != "" && picked.CreatedBySessionID != owner {
+		return picked, cronOther
+	}
+	return LiveCron{}, cronNone
+}
+
+func cronsWithExpr(live Live, cwd, expr string) []LiveCron {
+	if expr == "" {
+		return nil
+	}
+	var out []LiveCron
 	for _, cron := range live.Crons {
-		if cron.Cwd == cwd && cron.ID == id {
-			return cron, true
+		if cron.Cwd == cwd && cron.Cron == expr {
+			out = append(out, cron)
 		}
 	}
-	return LiveCron{}, false
+	return out
+}
+
+func pickCron(jobs []LiveCron, prompt string) (LiveCron, bool) {
+	if len(jobs) == 0 {
+		return LiveCron{}, false
+	}
+	if len(jobs) == 1 {
+		return jobs[0], true
+	}
+	want := promptPrefix(prompt)
+	var found LiveCron
+	n := 0
+	for _, job := range jobs {
+		if job.Prompt == want {
+			found = job
+			n++
+		}
+	}
+	if n != 1 {
+		return LiveCron{}, false
+	}
+	return found, true
+}
+
+func promptPrefix(s string) string {
+	r := []rune(s)
+	if len(r) <= cronPromptPrefix {
+		return s
+	}
+	return string(r[:cronPromptPrefix])
+}
+
+func nameSession(live Live, name string) string {
+	for _, item := range live.Names {
+		if item.Name == name {
+			return item.SessionID
+		}
+	}
+	return ""
 }
 
 func cronWasRead(live Live, cwd string) bool {

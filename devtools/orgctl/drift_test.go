@@ -41,7 +41,7 @@ func TestDriftReportsLiveExtras(t *testing.T) {
 			{Name: "review/desk", SessionID: "sess-review"},
 		},
 		Crons: []LiveCron{
-			{Cwd: "/work/lead", ID: "overnight", Cron: "0 9 * * 1-5", CreatedBySessionID: "sess-review"},
+			{Cwd: "/work/lead", ID: "aa11bb22", Cron: "0 9 * * 1-5", CreatedBySessionID: "sess-review"},
 			{Cwd: "/work/other", ID: "stray", Cron: "15 8 * * *"},
 		},
 		Briefs: map[string]string{"coord/lead": BriefEdited},
@@ -62,8 +62,8 @@ func TestDriftReportsLiveExtras(t *testing.T) {
 			t.Errorf("missing %q\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "hands") {
-		t.Fatalf("pool item reported:\n%s", got)
+	if strings.Contains(got, "hands") || strings.Contains(got, "+ cron aa11bb22") {
+		t.Fatalf("pool item or declared cron reported:\n%s", got)
 	}
 	if !PlanChanged(lines) {
 		t.Fatal("drift should count as changes")
