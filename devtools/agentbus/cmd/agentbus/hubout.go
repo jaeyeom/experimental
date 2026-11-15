@@ -94,7 +94,7 @@ func dispatchHub(ctx context.Context, cfg config.Config, env []string, e outbox.
 		if att.passthrough {
 			return 0
 		}
-		return printAccepted(stdout, stderr, att.resp.Name, att.resp.State, asJSON, att.resp.Duplicate)
+		return printAccepted(stdout, stderr, att.resp.Name, att.resp.State, asJSON, att.resp.Duplicate, att.resp.Unreachable, att.resp.AnonHerdr)
 	case attemptRefusal:
 		return refuseHub(stderr, att)
 	case attemptHard:
@@ -218,7 +218,7 @@ func waitDelivered(env []string, id string, stdout, stderr io.Writer) (int, bool
 	if state == "" {
 		state = "delivered"
 	}
-	return printAccepted(stdout, stderr, got.MsgID, state, false, false), true
+	return printAccepted(stdout, stderr, got.MsgID, state, false, false, false, false), true
 }
 
 func sleepWait(ctx context.Context, limited bool, deadline time.Time) bool {

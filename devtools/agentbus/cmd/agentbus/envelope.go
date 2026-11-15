@@ -139,7 +139,7 @@ func finishSend(ctx context.Context, env []string, req daemon.Request, asJSON bo
 		fmt.Fprintf(stderr, "agentbus: %s\n", resp.Error)
 		return 1
 	}
-	return printAccepted(stdout, stderr, resp.Name, resp.State, asJSON, resp.Duplicate)
+	return printAccepted(stdout, stderr, resp.Name, resp.State, asJSON, resp.Duplicate, resp.Unreachable, resp.AnonHerdr)
 }
 
 // localClientID is the retry key for a local send or reply. An explicit
@@ -153,7 +153,7 @@ func localClientID(env []string) (string, error) {
 	return mintClientID(machine)
 }
 
-func printAccepted(stdout, stderr io.Writer, id, state string, asJSON, dup bool) int {
+func printAccepted(stdout, stderr io.Writer, id, state string, asJSON, dup, unreachable, anonHerdr bool) int {
 	if asJSON {
 		err := json.NewEncoder(stdout).Encode(struct {
 			ID        string `json:"id"`
@@ -168,11 +168,21 @@ func printAccepted(stdout, stderr io.Writer, id, state string, asJSON, dup bool)
 		fmt.Fprintf(stderr, "agentbus: %s\n", err)
 		return 1
 	}
-	noteHeld(stderr, state)
-	return 0
+	return noteHeld(stderr, state, unreachable, anonHerdr)
 }
 
-func noteHeld(stderr io.Writer, state string) {
+// exitHeld means the message was stored but the transport is unreachable.
+const exitHeld = 3
+
+func noteHeld(stderr io.Writer, state string, unreachable, anonHerdr bool) int {
+	if unreachable || mailbox.UnreachableHold(state) {
+		reason := strings.TrimPrefix(state, "held: ")
+		fmt.Fprintf(stderr, "agentbus: held: the daemon can't reach herdr (%s); the message will be delivered when it recovers. See: agentbus doctor\n", reason)
+		if anonHerdr {
+			fmt.Fprintln(stderr, "sent as anonymous: the daemon couldn't identify this pane (herdr unreachable)")
+		}
+		return exitHeld
+	}
 	switch state {
 	case "held: " + mailbox.HoldHibernated:
 		fmt.Fprintf(stderr, "agentbus: the agent is hibernated; the message is queued until it wakes\n")
@@ -181,6 +191,10 @@ func noteHeld(stderr io.Writer, state string) {
 	case "held: " + mailbox.HoldWakeFailed:
 		fmt.Fprintf(stderr, "agentbus: the agent is hibernated and its last wake failed; the message is queued until a wake succeeds\n")
 	}
+	if anonHerdr {
+		fmt.Fprintln(stderr, "sent as anonymous: the daemon couldn't identify this pane (herdr unreachable)")
+	}
+	return 0
 }
 
 type sendParse struct {

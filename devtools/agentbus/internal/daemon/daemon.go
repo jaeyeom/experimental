@@ -193,6 +193,15 @@ type Response struct {
 	Lease *lease.Reply `json:"lease,omitempty"`
 	// Hibernate is the answer to a hibernate-* op.
 	Hibernate *hibernate.Reply `json:"hibernate,omitempty"`
+	// Unreachable is set when a stored send is held because the transport
+	// cannot be reached. The CLI exits 3.
+	Unreachable bool `json:"unreachable,omitempty"`
+	// AnonHerdr is set when HERDR_PANE_ID was set and herdr could not
+	// identify the pane.
+	AnonHerdr bool `json:"anonHerdr,omitempty"`
+	// Transport lists live "name transport unreachable: reason" lines
+	// from op transport-status. Empty means every adapter answered.
+	Transport []string `json:"transport,omitempty"`
 }
 
 // Serve listens on dirs.SocketPath until ctx is cancelled. It creates
@@ -498,9 +507,29 @@ func (s *server) handle(conn net.Conn, hub bool) {
 		scoped.streamLog(conn, req, reply)
 		return
 	}
-	_ = reply(scoped.dispatch(req, peerPID(conn)))
+	resp := scoped.dispatch(req, peerPID(conn))
+	resp, watched := scoped.finishAccept(req, resp)
+	_ = reply(resp)
 	// The paste follows the bytes, so a slow delivery does not hold the reply.
-	scoped.box.DeliverDeferred(scoped.ctx)
+	// finishAccept already started it when it watched for a fast hold.
+	if !watched {
+		scoped.box.DeliverDeferred(scoped.ctx)
+	}
+}
+
+// finishAccept watches a queued send or reply for a fast unreachable hold.
+// watched means the deferred paste was started here.
+func (s *server) finishAccept(req Request, resp Response) (Response, bool) {
+	if !resp.OK || req.Wait || (req.Op != "send" && req.Op != "reply") {
+		return resp, false
+	}
+	next, watched := s.box.AbsorbFastHold(s.ctx, resp.Name)
+	if !watched {
+		return resp, false
+	}
+	resp.State = next.State
+	resp.Unreachable = next.Unreachable
+	return resp, true
 }
 
 // forwarded checks a request from the hub socket and returns the server
@@ -566,6 +595,8 @@ func (s *server) dispatch(req Request, pid int) Response {
 	switch req.Op {
 	case "ping":
 		return Response{OK: true}
+	case "transport-status":
+		return s.transportStatus()
 	case "register":
 		return s.register(req)
 	case "describe":
@@ -1243,7 +1274,15 @@ func (s *server) send(req Request, pid int) Response {
 	if err != nil {
 		return Response{Error: err.Error()}
 	}
-	return Response{OK: true, Name: result.ID, State: result.State, Duplicate: result.Duplicate}
+	return Response{OK: true, Name: result.ID, State: result.State, Duplicate: result.Duplicate, Unreachable: result.Unreachable, AnonHerdr: result.AnonHerdr}
+}
+
+func (s *server) transportStatus() Response {
+	lines, err := s.reg.LiveTransportProblems(s.ctx)
+	if err != nil {
+		return Response{Error: err.Error()}
+	}
+	return Response{OK: true, Transport: lines}
 }
 
 func positiveDuration(raw string) (time.Duration, error) {
@@ -1262,7 +1301,7 @@ func (s *server) reply(req Request, pid int) Response {
 	if err != nil {
 		return Response{Error: err.Error()}
 	}
-	return Response{OK: true, Name: result.ID, State: result.State, Duplicate: result.Duplicate}
+	return Response{OK: true, Name: result.ID, State: result.State, Duplicate: result.Duplicate, Unreachable: result.Unreachable, AnonHerdr: result.AnonHerdr}
 }
 
 func (s *server) show(req Request) Response {

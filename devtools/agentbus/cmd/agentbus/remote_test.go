@@ -64,10 +64,20 @@ func (b *remoteBus) env(pane string) []string {
 
 func sendID(t *testing.T, env []string, target, body string) (string, string) {
 	t.Helper()
-	out, _ := mustCmd(t, []string{"send", target, body}, env)
+	code, out, stderr := runCmd([]string{"send", target, body}, env)
 	id, state, ok := strings.Cut(strings.TrimSpace(out), " ")
 	if !ok {
-		t.Fatalf("send = %q", out)
+		t.Fatalf("send = %d %q %q", code, out, stderr)
+	}
+	if strings.Contains(state, "unreachable") {
+		note := "agentbus: held: the daemon can't reach herdr (" + strings.TrimPrefix(state, "held: ") + ")"
+		if code != 3 || !strings.Contains(stderr, note) || !strings.Contains(stderr, "See: agentbus doctor") {
+			t.Fatalf("unreachable send = %d\nstdout %s\nstderr %s", code, out, stderr)
+		}
+		return id, state
+	}
+	if code != 0 {
+		t.Fatalf("send = %d\nstdout %s\nstderr %s", code, out, stderr)
 	}
 	return id, state
 }

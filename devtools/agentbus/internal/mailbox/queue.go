@@ -29,6 +29,13 @@ const (
 	// defaultHoldNotice is how long a hold waits before one sender notice.
 	defaultHoldNotice = 10 * time.Minute
 	waitTick          = 15 * time.Millisecond
+	// holdWatch is how long a queued send watches for a fast unreachable
+	// hold before it answers. A paste still running after
+	// holdClassifyGrace is in progress, so a slow delivery does not wait
+	// out the whole window.
+	holdWatch         = time.Second
+	holdClassifyGrace = 50 * time.Millisecond
+	holdWatchPoll     = 5 * time.Millisecond
 )
 
 // HoldHibernated is the hold reason of a message to a hibernated agent.
@@ -164,6 +171,101 @@ func (m *Mailbox) DeliverDeferred(ctx context.Context) {
 	}
 }
 
+// AbsorbFastHold runs the deferred paste far enough to see a fast
+// unreachable hold. watched is false when id is not a queued reply-first
+// message, and the caller should run DeliverDeferred itself.
+// A paste that stays inside Deliver for holdClassifyGrace is in progress:
+// the answer stays queued so a slow delivery does not use the whole window.
+func (m *Mailbox) AbsorbFastHold(ctx context.Context, id string) (Result, bool) {
+	if id == "" {
+		return Result{}, false
+	}
+	cur, err := m.resultOf(id)
+	if err != nil || cur.State != stateQueued {
+		return Result{}, false
+	}
+	done := make(chan struct{})
+	go func() {
+		m.DeliverDeferred(ctx)
+		close(done)
+	}()
+	deadline := time.NewTimer(holdWatch)
+	defer deadline.Stop()
+	tick := time.NewTicker(holdWatchPoll)
+	defer tick.Stop()
+	var pastingSince time.Time
+	for {
+		res, err := m.resultOf(id)
+		if err != nil {
+			return Result{}, true
+		}
+		if held, ok := settledHold(res); ok {
+			return held, true
+		}
+		if m.isPasting(id) {
+			if pastingSince.IsZero() {
+				pastingSince = time.Now()
+			}
+			if time.Since(pastingSince) >= holdClassifyGrace {
+				return queuedAnswer(res), true
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return queuedAnswer(res), true
+		case <-done:
+			return watchedAnswer(m.resultOf(id))
+		case <-deadline.C:
+			return queuedAnswer(res), true
+		case <-tick.C:
+		}
+	}
+}
+
+// watchedAnswer is the reply once the deferred paste has finished.
+// Only an unreachable hold replaces the queued answer.
+func watchedAnswer(res Result, err error) (Result, bool) {
+	if err != nil {
+		return Result{}, true
+	}
+	if held, ok := settledHold(res); ok {
+		return held, true
+	}
+	return queuedAnswer(res), true
+}
+
+// settledHold returns an unreachable hold the caller should report now.
+// A delivered paste, and a hold that is not a dead transport, keep the
+// queued answer: the later status is where that hold shows up.
+func settledHold(res Result) (Result, bool) {
+	if unreachableState(res.State) {
+		return res, true
+	}
+	return Result{}, false
+}
+
+func queuedAnswer(res Result) Result {
+	res.State = stateQueued
+	res.Unreachable = false
+	return res
+}
+
+func (m *Mailbox) isPasting(id string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.pasting[id]
+}
+
+func (m *Mailbox) setPasting(id string, on bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if on {
+		m.pasting[id] = true
+		return
+	}
+	delete(m.pasting, id)
+}
+
 func (m *Mailbox) noteDeferred(handle string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -264,7 +366,7 @@ func (m *Mailbox) absorbLocked(msg message) (Result, error) {
 	}); err != nil {
 		return Result{}, err
 	}
-	return Result{ID: prev.ID, State: prev.State, Duplicate: true}, nil
+	return Result{ID: prev.ID, State: prev.State, Duplicate: true, Unreachable: unreachableState(prev.State)}, nil
 }
 
 func (m *Mailbox) resultOf(id string) (Result, error) {
@@ -272,7 +374,21 @@ func (m *Mailbox) resultOf(id string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	return Result{ID: msg.ID, State: msg.State}, nil
+	return Result{ID: msg.ID, State: msg.State, Unreachable: unreachableState(msg.State)}, nil
+}
+
+// UnreachableHold reports a stored hold whose reason is a transport the
+// daemon cannot reach.
+func UnreachableHold(state string) bool {
+	return unreachableState(state)
+}
+
+func unreachableState(state string) bool {
+	reason, ok := strings.CutPrefix(state, "held: ")
+	if !ok {
+		return false
+	}
+	return strings.Contains(reason, "unreachable")
 }
 
 // flushQuiet starts a flush for each machine that is not already
@@ -550,7 +666,7 @@ func (m *Mailbox) attempt(ctx context.Context, msg message, deliver bool) outcom
 		Detail:      "composer-empty-at-check",
 		TargetState: string(state),
 	})
-	return m.deliverOutcome(ctx, ad, msg.Handle, text, state)
+	return m.deliverOutcome(ctx, ad, msg.ID, msg.Handle, text, state)
 }
 
 // SetPasteBound limits one paste. Zero uses defaultPasteBound.
@@ -655,12 +771,14 @@ func hasEnvelope(text, id string) bool {
 // ctx does not start a new paste. A transport error or a failed result
 // is ambiguous: the text may already be on screen. A retryable refusal
 // is definite, and so is an unreachable machine.
-func (m *Mailbox) deliverOutcome(ctx context.Context, ad adapter.Adapter, handle, text string, state adapter.State) outcome {
+func (m *Mailbox) deliverOutcome(ctx context.Context, ad adapter.Adapter, id, handle, text string, state adapter.State) outcome {
 	paste, cancel, ok := m.pasteContext(ctx)
 	if !ok {
 		return outcome{deferred: true}
 	}
 	defer cancel()
+	m.setPasting(id, true)
+	defer m.setPasting(id, false)
 	result, err := ad.Deliver(paste, handle, text)
 	if ue := remotecall.AsUnreachable(err); ue != nil {
 		return unreachableOutcome(ue)

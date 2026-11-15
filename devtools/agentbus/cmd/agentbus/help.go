@@ -88,8 +88,11 @@ func commands() []command {
 				"--ttl <duration>    deadline for this message, such as 30m (default: none, no deadline)\n" +
 				"--wait              block until delivered or the deadline passes (default: false).\n" +
 				"                    Without it, a message that passes the recipient, state, and\n" +
-				"                    composer checks prints \"queued for delivery\": stored and\n" +
-				"                    being pasted. agentbus status <id> then shows delivered\n" +
+				"                    composer checks prints \"queued for delivery\" and exits 0:\n" +
+				"                    stored and being pasted. agentbus status <id> then shows delivered.\n" +
+				"                    A stored message whose transport is unreachable exits 3 and prints:\n" +
+				"                    agentbus: held: the daemon can't reach herdr (<reason>); the message will be delivered when it recovers. See: agentbus doctor\n" +
+				"                    --wait does not use that exit\n" +
 				"--client-id <id>    retry key, <machine>:<ulid>, up to 64 [A-Za-z0-9._:-] with a colon (default: a generated <machine>:<ulid>)\n" +
 				"--json              print id, state, and duplicate as JSON (default: false)\n" +
 				"--                   end of flags; the next words are the body, even if they start with --",

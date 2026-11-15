@@ -67,6 +67,7 @@ go_test(
         "earlyreply_test.go",
         "envelope_test.go",
         "flags_test.go",
+        "held_test.go",
         "help_test.go",
         "herdrdiag_test.go",
         "hibernate_test.go",
