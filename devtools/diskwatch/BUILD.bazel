@@ -42,10 +42,12 @@ go_test(
         "check_test.go",
         "config_test.go",
         "paths_test.go",
+        "readme_test.go",
         "state_test.go",
         "status_test.go",
         "summary_test.go",
     ],
+    data = ["README.org"],
     embed = [":go_default_library"],
 )
 

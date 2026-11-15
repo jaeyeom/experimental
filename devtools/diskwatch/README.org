@@ -1,65 +1,34 @@
 #+TITLE: diskwatch
-#+DATE: 2026-11-13
+#+DATE: 2026-11-15
 
-* Overview
+diskwatch warns you before a disk fills up. A timer runs it every few
+minutes. When free space on a mount you named drops below a threshold,
+it lists the largest directories under paths you choose and runs a
+command of yours, for example a desktop notification, with that list.
+It never deletes anything. It alerts once per low-space episode
+instead of on every run.
 
-~diskwatch~ watches free space on the filesystems you name. When a
-filesystem gets low, it lists where the space is going and runs a
-command you configure. It never deletes anything.
+* Quick start
 
-Free space has no portable change event. ~inotify~ and ~FSEvents~ report
-name and content changes, not ~statfs~ updates, so the check is a poll.
-
-* Hysteresis and cooldown
-
-Each mount has ~low~, ~high~, and an optional ~urgent~ threshold. A
-threshold is a percent (~15%~) or a size (~40G~, powers of 1024).
-
-- The mount starts armed. Free space below ~low~ runs ~on_low~ once and
-  disarms the mount.
-- It stays quiet until free space rises above ~high~, which arms it
-  again.
-- After a trigger, the same mount waits ~cooldown~ (default 6 hours)
-  before it can trigger again.
-- Free space below ~urgent~ runs ~on_low~ even during that wait, and
-  even while the mount is disarmed. The action then runs on later
-  checks until free space rises above ~urgent~.
-- A failed action is logged and retried on the next check. It does not
-  start the cooldown.
-
-* Install
+** Install
 
 #+BEGIN_SRC bash
 go install github.com/jaeyeom/experimental/devtools/diskwatch/cmd/diskwatch@latest
 #+END_SRC
 
-~devtools/setup-dev/ansible/diskwatch.yml~ installs the binary and a
-periodic runner. The runner is not enabled unless a config file exists.
+** Config
 
-- Linux: a systemd user timer every 5 minutes and a oneshot
-  ~diskwatch.service~.
-- macOS: a launchd agent, ~com.jaeyeom.diskwatch~, whose
-  ~StartInterval~ is 300 seconds.
-
-* Config
-
-The file is =$XDG_CONFIG_HOME/diskwatch/config.toml= when that variable
-is set. Otherwise it is =$HOME/.config/diskwatch/config.toml=, or
-=$HOME/Library/Application Support/diskwatch/config.toml= on macOS.
-
-State is =$XDG_STATE_HOME/diskwatch/state.json=, or
-=$HOME/Library/Application Support/diskwatch/state.json= on macOS when
-~XDG_STATE_HOME~ is unset. It is written by creating a temporary file
-and renaming it into place.
-
-There are no default paths. ~cooldown~ defaults to ~6h~ and
-~summary_top~ defaults to 10.
+There are no default mounts. Create the config before the first run.
+On Linux the file is =~/.config/diskwatch/config.toml=. On macOS it
+is =~/Library/Application Support/diskwatch/config.toml=. When
+~XDG_CONFIG_HOME~ is set, the file is
+=$XDG_CONFIG_HOME/diskwatch/config.toml= on either OS.
 
 #+BEGIN_SRC toml
 cooldown = "6h"
 summary_top = 8
 report_paths = ["~/src/**"]
-on_low = ["~/bin/diskwatch-notify"]
+on_low = ["/ABSOLUTE/PATH/diskwatch-notify"]
 
 [[mounts]]
 path = "/"
@@ -68,24 +37,75 @@ high = "25%"
 urgent = "5%"
 #+END_SRC
 
-diskwatch expands a leading =~/~ in ~report_paths~. ~on_low~ is
-executed as written, so its first element should be an absolute path.
+~low~, ~high~, and ~urgent~ are a percent (~15%~) or a size (~40G~,
+powers of 1024). ~low~ must be below ~high~, in the same unit.
+~urgent~, when set, must be below ~low~. ~on_low~ is an argv list and
+must not be empty. diskwatch does not run a shell and does not expand
+a home shortcut in ~on_low~, so the first element is an absolute path.
+A leading =~/~ in ~report_paths~ is expanded. ~cooldown~ defaults to
+~6h~ and ~summary_top~ defaults to 10. The script in Writing an
+~on_low~ command is one that only notifies.
 
-~low~ must be below ~high~, in the same unit. ~urgent~, when set, must
-be below ~low~. ~on_low~ is an argv list and must not be empty.
+** Dry run
+
+#+BEGIN_SRC bash
+diskwatch check --dry-run
+#+END_SRC
+
+A quiet mount prints nothing. A mount that would alert prints a
+trigger line and the largest paths. ~--dry-run~ does not run
+~on_low~ and does not record the alert. This is the shape of that
+output, with a byte count, a tab, and a path:
+
+#+BEGIN_EXAMPLE
+dry-run / low free 14.00%
+1048576	/home/me/src/big
+#+END_EXAMPLE
+
+~--config~ selects another config file. An invalid config exits 2
+and names the problem.
+
+** Enable the timer
+
+From ~devtools/setup-dev/ansible~, run ~./ensure.sh diskwatch~. That
+playbook installs the binary and a periodic runner. The runner is
+not enabled unless a config file exists. Details are under Running
+on a schedule.
+
+* Config
+
+| OS    | Config                                                | State                                                |
+|-------+-------------------------------------------------------+------------------------------------------------------|
+| Linux | =~/.config/diskwatch/config.toml=                     | =~/.local/state/diskwatch/state.json=                |
+| macOS | =~/Library/Application Support/diskwatch/config.toml= | =~/Library/Application Support/diskwatch/state.json= |
+
+On Linux, when ~XDG_STATE_HOME~ is unset, state is
+=~/.local/state/diskwatch/state.json=. When ~XDG_STATE_HOME~ is set,
+on either OS, state is =$XDG_STATE_HOME/diskwatch/state.json=. The
+file is written by creating a temporary file and renaming it into
+place. A missing state file means every mount is ready to alert.
 
 * Commands
 
-| Command | Behavior |
-|---------+----------|
-| ~diskwatch check~ | One pass over the configured mounts. |
-| ~diskwatch check --dry-run~ | Print what would trigger, with the summary, and do not run the action or record a trigger. |
-| ~diskwatch status~ | Free space, armed or cooldown state, last trigger, and last action result. |
-| ~diskwatch status --json~ | The same report as JSON. |
-| ~diskwatch hook~ | The same check as ~check~, and at most once a minute. |
+| Command                     | Behavior                                                                                         |
+|-----------------------------+--------------------------------------------------------------------------------------------------|
+| ~diskwatch check~           | One pass over the configured mounts.                                                             |
+| ~diskwatch check --dry-run~ | Print what would trigger, with the summary, and do not run the action or record a trigger.       |
+| ~diskwatch status~          | Free space, whether the mount is ready to alert, cooldown, last trigger, and last action result. |
+| ~diskwatch status --json~   | The same report as JSON.                                                                         |
+| ~diskwatch hook~            | The same check as ~check~, and at most once a minute.                                            |
 
-~--config~ selects a config file. An invalid config exits 2 and names
-the problem.
+~diskwatch status~ prints one line per mount:
+
+#+BEGIN_EXAMPLE
+/ free 40.00% (400000000/1000000000) armed ready last-trigger never action none
+#+END_EXAMPLE
+
+~armed~ means this mount will alert when free space drops below
+~low~. ~disarmed~ means it already alerted and is waiting for free
+space to rise above ~high~. ~ready~ means the cooldown has elapsed.
+A mount that cannot be read prints ~<path> error <message>~ and the
+command exits 1.
 
 ~hook~ is meant to run just after something that spends disk, such as
 creating a worktree:
@@ -95,34 +115,55 @@ git worktree add ../feature-branch
 diskwatch hook
 #+END_SRC
 
-* Usage summary
+A second ~hook~ less than a minute after the previous one prints
+~diskwatch: hook skipped~ and does not check. ~hook~ rejects
+~--dry-run~ with ~diskwatch: hook does not take --dry-run~ and
+exits 2.
 
-On a trigger, diskwatch measures each ~report_paths~ match with a
-bounded walk. The walk does not follow symlinks and does not enter
-another filesystem. It stops at a time limit (5 seconds) and still
-reports what it counted. A short walk is a partial summary, not a
-failure. Rows are largest first, limited to ~summary_top~.
+| Code | Meaning                                                                             |
+|------+-------------------------------------------------------------------------------------|
+| 0    | the check finished, or ~status~ read every mount; a skipped hook is also 0          |
+| 1    | a mount could not be read, the action failed, or state could not be loaded or saved |
+| 2    | bad usage, an unknown command, ~hook --dry-run~, or an invalid config               |
 
-* The on_low contract
+* When it alerts
 
-~on_low~ is executed directly. diskwatch does not invoke a shell.
-The timer's ~PATH~ is small, so the first argument should be an
-absolute path. Exit 0 counts as delivered and starts the cooldown.
-Any other exit is logged and retried next time.
+Each mount starts ready to alert. With ~low = 15%~ and ~high = 25%~:
+
+- Free space drops to 14%. diskwatch alerts once and goes quiet.
+- It stays at 13%. The next runs are quiet, so you do not get an
+  alert every few minutes.
+- It rises to 26%. The mount is ready to alert again.
+- It drops to 14% during the cooldown (default 6 hours). Still quiet.
+- The cooldown ends and free space is again below ~low~. It alerts
+  again.
+
+Below ~urgent~, diskwatch alerts even during that quiet period, and
+it alerts again on later checks until free space rises above
+~urgent~. A failed action is logged and retried on the next check.
+It does not start the cooldown.
+
+* Writing an on_low command
+
+~on_low~ is executed directly. The timer's ~PATH~ is small, so the
+first argument should be an absolute path. Exit 0 counts as delivered
+and starts the cooldown. Any other exit is logged and retried next
+time.
 
 The command receives the current environment plus:
 
-| Variable | Value |
-|----------+-------|
-| ~DISKWATCH_MOUNT~ | Mount path from the config. |
-| ~DISKWATCH_FREE_BYTES~ | Free bytes (~statfs~ available). |
-| ~DISKWATCH_FREE_PCT~ | Free space as a percent with two decimals. |
-| ~DISKWATCH_TOTAL_BYTES~ | Filesystem size in bytes. |
-| ~DISKWATCH_HOST~ | Host name. |
-| ~DISKWATCH_SUMMARY~ | Usage summary as text, largest first. |
-| ~DISKWATCH_SUMMARY_FILE~ | The same summary as JSON. |
+| Variable                 | Value                                       |
+|--------------------------+---------------------------------------------|
+| ~DISKWATCH_MOUNT~        | Mount path from the config.                 |
+| ~DISKWATCH_FREE_BYTES~   | Free bytes available on the filesystem.     |
+| ~DISKWATCH_FREE_PCT~     | Free space as a percent with two decimals.  |
+| ~DISKWATCH_TOTAL_BYTES~  | Filesystem size in bytes.                   |
+| ~DISKWATCH_HOST~         | Host name.                                  |
+| ~DISKWATCH_SUMMARY~      | Usage summary as text, largest first.       |
+| ~DISKWATCH_SUMMARY_FILE~ | Path to a JSON file containing the summary. |
 
-This script only notifies. It does not delete files.
+The JSON file has ~mount~, ~entries~ (~path~ and ~bytes~), and
+~partial~. This script only notifies. It does not delete files.
 
 #+BEGIN_SRC sh
 #!/bin/sh
@@ -136,3 +177,44 @@ else
 fi
 printf '%s\n' "$DISKWATCH_SUMMARY" >&2
 #+END_SRC
+
+* Disk usage report
+
+On an alert, diskwatch measures each ~report_paths~ match with a
+bounded walk. ~**~ is a recursive glob: each matching file or
+directory is its own row, and a directory's count includes what is
+under it. The walk does not follow symlinks and does not enter
+another filesystem. It stops after 5 seconds and still reports what
+it counted. A short walk adds a ~partial~ line. That is a partial
+summary, not a failure. Rows are largest first, limited to
+~summary_top~.
+
+* Running on a schedule
+
+[[file:../setup-dev/README.org][setup-dev]] installs the runner. From
+~devtools/setup-dev/ansible~:
+
+#+BEGIN_SRC bash
+./ensure.sh diskwatch
+#+END_SRC
+
+The runner is not enabled unless a config file exists. Running the
+playbook again with no config disables it.
+
+- Linux: a systemd user timer, ~diskwatch.timer~, every 5 minutes,
+  and a oneshot ~diskwatch.service~ whose command is ~diskwatch check~.
+  The units live in =~/.config/systemd/user/=.
+- macOS: a launchd agent, ~com.jaeyeom.diskwatch~, in
+  =~/Library/LaunchAgents/com.jaeyeom.diskwatch.plist=, whose
+  ~StartInterval~ is 300 seconds. Termux is skipped.
+
+To run it without the playbook, install the same timer yourself: a
+systemd user timer that starts ~diskwatch check~ every 5 minutes, or
+a launchd agent with ~StartInterval~ 300. Leave it disabled until
+the config file exists.
+
+* Why it polls
+
+Free space has no portable change event. ~inotify~ and ~FSEvents~
+report name and content changes, not ~statfs~ updates, so the check
+is a poll.
