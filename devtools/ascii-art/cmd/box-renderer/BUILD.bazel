@@ -20,6 +20,10 @@ go_binary(
 go_test(
     name = "go_default_test",
     size = "small",
-    srcs = ["main_test.go"],
+    srcs = [
+        "main_test.go",
+        "readme_test.go",
+    ],
+    data = ["//devtools/ascii-art:README.org"],
     embed = [":go_default_library"],
 )
