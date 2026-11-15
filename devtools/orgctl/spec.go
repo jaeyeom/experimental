@@ -23,7 +23,8 @@ type Spec struct {
 
 // Scope limits tab drift to a set of workspaces.
 // An empty Workspaces list reports every workspace.
-// Pool workspaces are skipped even when listed.
+// A pattern-less pool still hides its whole workspace.
+// A patterned pool hides only its member tabs.
 type Scope struct {
 	Workspaces []string `json:"workspaces"`
 }

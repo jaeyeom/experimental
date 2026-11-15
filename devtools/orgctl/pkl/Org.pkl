@@ -158,7 +158,7 @@ class Pool {
 /// Workspaces whose undeclared tabs drift may report.
 class Scope {
   /// Workspace labels. Empty reports every workspace.
-  /// Pool workspaces are skipped even when listed.
+  /// A pattern-less pool still hides its whole workspace.
   workspaces: Listing<String> = new {}
 }
 
