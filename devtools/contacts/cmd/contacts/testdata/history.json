@@ -1,0 +1,52 @@
+{
+  "person": "ada",
+  "events": [
+    {
+      "id": 3,
+      "person": "ada",
+      "date": "2026-03-01",
+      "channel": "chat",
+      "link": "https://mail.example/m/3",
+      "summary": "sent the review notes",
+      "reporter": "ops/inbox",
+      "createdAt": "2026-03-10T09:30:00Z"
+    },
+    {
+      "id": 2,
+      "person": "ada",
+      "date": "2026-02-10",
+      "channel": "chat",
+      "link": "https://chat.example/x/2",
+      "summary": "agreed to split the API change",
+      "reporter": "ops/inbox",
+      "createdAt": "2026-03-10T09:30:00Z"
+    },
+    {
+      "id": 1,
+      "person": "ada",
+      "date": "2026-01-05",
+      "channel": "chat",
+      "link": "https://chat.example/x/1",
+      "summary": "kickoff for the API change",
+      "reporter": "ops/inbox",
+      "createdAt": "2026-03-10T09:30:00Z"
+    }
+  ],
+  "commitments": [
+    {
+      "id": 1,
+      "person": "ada",
+      "direction": "theirs",
+      "text": "review the API",
+      "due": "2026-03-12",
+      "status": "open",
+      "link": "",
+      "reporter": "ops",
+      "note": "",
+      "createdAt": "2026-03-10T09:30:00Z",
+      "closedAt": "",
+      "overdue": false
+    }
+  ],
+  "notes": "$DATA/people/ada.md"
+}

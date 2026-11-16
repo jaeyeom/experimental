@@ -73,3 +73,53 @@ func TestNoEventUpdatePath(t *testing.T) {
 		}
 	}
 }
+
+func TestHistoryOrderFiltersLimit(t *testing.T) {
+	s := newStore(t)
+	ada := mustAdd(t, s, Person{Name: "Ada"})
+	bob := mustAdd(t, s, Person{Name: "Bob"})
+	for i, e := range []struct{ person, date, summary string }{
+		{ada, "2026-01-05", "kickoff for the API change"},
+		{ada, "2026-02-10", "agreed to split the api change"},
+		{ada, "2026-02-10", "lunch"},
+		{ada, "2026-03-01", "review of the plan"},
+		{bob, "2026-02-11", "api question"},
+	} {
+		ev := Event{
+			PersonID: e.person, Date: e.date, Channel: "chat", Summary: e.summary, Reporter: "ops",
+			Link: "https://chat.example/x/" + string(rune('a'+i)),
+		}
+		if _, _, err := s.Report(ev, DefaultSummaryMax); err != nil {
+			t.Fatal(err)
+		}
+	}
+	summaries := func(q HistoryQuery) []string {
+		t.Helper()
+		q.PersonID = ada
+		es, err := s.History(q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, e := range es {
+			out = append(out, e.Summary)
+		}
+		return out
+	}
+	if got := summaries(HistoryQuery{}); strings.Join(got, "|") !=
+		"review of the plan|lunch|agreed to split the api change|kickoff for the API change" {
+		t.Errorf("order = %v", got)
+	}
+	if got := summaries(HistoryQuery{Topic: "API"}); len(got) != 2 {
+		t.Errorf("topic = %v", got)
+	}
+	if got := summaries(HistoryQuery{Since: "2026-02-10", Until: "2026-02-10"}); len(got) != 2 {
+		t.Errorf("since/until = %v", got)
+	}
+	if got := summaries(HistoryQuery{Limit: 1}); len(got) != 1 || got[0] != "review of the plan" {
+		t.Errorf("limit = %v", got)
+	}
+	if _, err := s.History(HistoryQuery{PersonID: ada, Since: "last week"}); err == nil {
+		t.Error("bad since accepted")
+	}
+}
