@@ -192,10 +192,14 @@ type Model struct {
 	// hidden is the display setting of contact names Contacts does not
 	// show. showHidden is the session's H toggle. confirmKind is a y/n
 	// prompt, and confirmName is the agent a release would name.
-	hidden      []string
-	showHidden  bool
-	confirmKind int
-	confirmName string
+	// confirmSend is the send a bus-down prompt holds, and confirmCancel
+	// is whether its Cancel has the focus.
+	hidden        []string
+	showHidden    bool
+	confirmKind   int
+	confirmName   string
+	confirmSend   func() error
+	confirmCancel bool
 	// aliases maps a ledger name to a canonical agent. aliasPick is the
 	// bus-name picker that stores one pair, from aliasFrom.
 	aliases     map[string]string
@@ -1214,6 +1218,9 @@ func (m *Model) submitReply() error {
 	if strings.TrimSpace(text) == "" {
 		return nil
 	}
+	if m.askBusDown(replyOnBus(m.detail), m.submitReply) {
+		return nil
+	}
 	updated, err := m.store().Reply(m.detail.ID, text)
 	var notifyErr *NotifyError
 	switch {
@@ -1350,6 +1357,9 @@ func (m *Model) allLines() []screenLine {
 		}
 	}
 	status := m.statusLine()
+	if m.confirmKind == confirmBusDown {
+		status = m.busDownLine()
+	}
 	if w := m.contentWidth(); w > 0 {
 		status = fitLine(status, w)
 	}

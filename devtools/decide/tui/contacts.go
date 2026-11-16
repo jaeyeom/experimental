@@ -27,6 +27,7 @@ const (
 	confirmNone = iota
 	confirmHideDead
 	confirmRelease
+	confirmBusDown
 )
 
 // contact is one row of the Contacts folder. OnBus is a name the last
@@ -665,8 +666,12 @@ type hiddenHub interface {
 	SetHidden(names []string) (decide.DisplaySettings, error)
 }
 
-// confirmKey answers a hide-dead or release prompt.
+// confirmKey answers a hide-dead or release prompt, and hands the
+// bus-down prompt to busDownKey.
 func (m *Model) confirmKey(r rune) (bool, error) {
+	if m.confirmKind == confirmBusDown {
+		return false, m.busDownKey(r)
+	}
 	switch r {
 	case 'y', 'Y':
 		kind := m.confirmKind

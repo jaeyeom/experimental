@@ -70,7 +70,7 @@ func (m *Model) composerFocused() bool {
 
 func (m *Model) composerKind() (composerKind, bool) {
 	switch {
-	case m.help || m.linkPick || m.avatarPick:
+	case m.help || m.linkPick || m.avatarPick || m.confirmKind != confirmNone:
 		return composerNone, false
 	case m.replyFocus:
 		return composerReply, true

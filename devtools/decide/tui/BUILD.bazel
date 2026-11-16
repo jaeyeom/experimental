@@ -67,6 +67,7 @@ go_test(
         "avatarpick_test.go",
         "avatarview_test.go",
         "backend_test.go",
+        "busconfirm_test.go",
         "bushealth_test.go",
         "chord_test.go",
         "color_test.go",
