@@ -1,0 +1,189 @@
+#+TITLE: contacts
+#+DATE: 2026-11-16
+
+A personal contact and relationship store that coding agents can query.
+Any handle resolves to one person. An agent can ask who someone is and
+what happened with them before, and can append what happened now. The
+core is deterministic: a CLI over SQLite, with no LLM.
+
+* Overview
+
+- ~contacts resolve~ turns a chat id, code-host login, tracker account,
+  email or name into one person.
+- ~contacts history~ lists what happened with a person: links and
+  one-line summaries, never message text. Every read is logged with a
+  reason.
+- ~contacts report~ appends one event. Events are never edited.
+- ~contacts commit~ and ~contacts close~ track promises both ways.
+- ~contacts age~ compacts old events, so the store stays small.
+
+* Install
+
+#+begin_src sh
+go install github.com/jaeyeom/experimental/devtools/contacts/cmd/contacts@latest
+contacts init
+#+end_src
+
+Bazel builds the same binary with ~bazel build //devtools/contacts/cmd/contacts~.
+
+* The model
+
+| Store              | Holds                                                                                                                            |
+|--------------------+----------------------------------------------------------------------------------------------------------------------------------|
+| ~people~           | id, display name, aliases, team, role, timezone, preferred channel                                                               |
+| handles            | ~kind:value~, kind one of ~chat~, ~code~, ~tracker~, ~email~ or ~other:<label>~; each handle belongs to one person               |
+| ~events~           | person, date, channel, link, one-line summary, reporter (the agent), created at                                                  |
+| ~commitments~      | person, direction (~mine~ or ~theirs~), text, due date, status (~open~, ~done~, ~dropped~), link, note                            |
+| ~access_log~       | time, caller, command, person id, reason                                                                                         |
+| ~people/<id>.md~   | free-form notes the user writes                                                                                                  |
+
+SQLite is the source of truth for anything an agent queries. The notes
+file is the user's own: the database links to it by id, and nothing in
+the database is copied into it. Commands print its path, never its
+contents.
+
+A person's id is a slug of the name given to ~contacts add~, made unique
+with a number (~ada-lovelace~, ~ada-lovelace-2~). It never changes.
+
+Wherever a command takes ~<person>~, it accepts an id, a name, an alias
+or a handle, case-insensitively. A handle is ~kind:value~ or a bare
+value with or without a leading ~@~. A handle match wins over an id,
+and an id over a name or alias. ~contacts resolve~ then tries a prefix.
+A query that matches several people is an error that lists them.
+
+* Walkthrough
+
+A fictional session. The commands below run as written in
+~TestReadmeWalkthrough~, against a fixed clock of 2026-03-10 09:30 UTC
+and the default config.
+
+#+NAME: walkthrough
+#+begin_src sh
+contacts init
+contacts add "Mina Park" --handle chat:mina.p --handle code:minapark --team payments --tz Europe/Berlin --channel chat --by me
+contacts resolve @mina.p --reason "who pinged me" --by ops/inbox
+contacts resolve code:minapark --by ops/review
+contacts report mina.p --channel chat --link https://chat.example/c/42 --summary "agreed to split the refund API change" --date 2026-03-09 --by ops/inbox
+contacts report minapark --channel code --link https://code.example/pr/7 --summary "reviewed the refund PR, asked for tests" --date 2025-01-15 --by ops/review
+contacts commit mina.p --direction mine --text "send the split plan" --due 2026-03-12 --link https://chat.example/c/42 --by ops/inbox
+contacts history mina.p --reason "prep for the Thursday sync" --by ops/inbox
+contacts close 1 --status done --note "sent in chat" --by ops/inbox
+contacts age
+contacts history mina.p --reason "check after aging" --by ops/inbox
+#+end_src
+
+Its output:
+
+#+NAME: walkthrough-output
+#+begin_example
+$ contacts init
+initialized ~/.local/share/contacts
+$ contacts add "Mina Park" --handle chat:mina.p --handle code:minapark --team payments --tz Europe/Berlin --channel chat --by me
+mina-park
+$ contacts resolve @mina.p --reason "who pinged me" --by ops/inbox
+id:       mina-park
+name:     Mina Park
+team:     payments
+timezone: Europe/Berlin (now 2026-03-10 10:30 +01:00)
+channel:  chat
+handles:  chat:mina.p, code:minapark
+$ contacts resolve code:minapark --by ops/review
+id:       mina-park
+name:     Mina Park
+team:     payments
+timezone: Europe/Berlin (now 2026-03-10 10:30 +01:00)
+channel:  chat
+handles:  chat:mina.p, code:minapark
+$ contacts report mina.p --channel chat --link https://chat.example/c/42 --summary "agreed to split the refund API change" --date 2026-03-09 --by ops/inbox
+1
+$ contacts report minapark --channel code --link https://code.example/pr/7 --summary "reviewed the refund PR, asked for tests" --date 2025-01-15 --by ops/review
+2
+$ contacts commit mina.p --direction mine --text "send the split plan" --due 2026-03-12 --link https://chat.example/c/42 --by ops/inbox
+1
+$ contacts history mina.p --reason "prep for the Thursday sync" --by ops/inbox
+2026-03-09	chat	https://chat.example/c/42	agreed to split the refund API change	ops/inbox
+2025-01-15	code	https://code.example/pr/7	reviewed the refund PR, asked for tests	ops/review
+
+open commitments:
+1	mina-park	mine	open	2026-03-12	send the split plan	https://chat.example/c/42
+$ contacts close 1 --status done --note "sent in chat" --by ops/inbox
+1 done
+$ contacts age
+compacted 1 events into 1 summaries
+$ contacts history mina.p --reason "check after aging" --by ops/inbox
+2026-03-09	chat	https://chat.example/c/42	agreed to split the refund API change	ops/inbox
+2025-01-15	code	https://code.example/pr/7	1 events, channels: code	contacts age
+#+end_example
+
+The second ~report~ is older than the 365-day retention period, so
+~contacts age~ folded it into a summary event that keeps its link.
+
+* Rules for agents
+
+- Answer with links and one-line summaries. Never copy message text
+  into a summary, and never paste it into an answer.
+- Always pass ~--reason~ to ~history~ (it is required) and to ~resolve~
+  and ~commitments~ when you can. Always pass ~--by~ with your agent
+  name, or set ~CONTACTS_CALLER~.
+- Never write to ~people/*.md~. The notes files belong to the user.
+- To correct an event, report a new one. There is no edit.
+
+* Config and storage
+
+The config is TOML at ~$CONTACTS_CONFIG~, else
+~$XDG_CONFIG_HOME/contacts/config.toml~ (default
+=~/.config/contacts/config.toml=). ~--config~ overrides both. A missing
+file means all defaults.
+
+#+begin_src toml
+data_dir = "~/.local/share/contacts"   # default $XDG_DATA_HOME/contacts
+retention_days = 365                  # age events and log rows after this
+summary_max = 200                     # longest event summary, in characters
+#+end_src
+
+- ~data_dir~ holds ~contacts.db~ and ~people/~. A ~data_dir~ inside a
+  git work tree is refused, so contact data never lands in a repository.
+- ~contacts init~ creates the directory and ~people/~ with mode ~0700~
+  and the database with mode ~0600~.
+- The database uses WAL with a busy timeout, so two agents can use it at
+  once. Migrations are forward-only and run on open.
+- ~contacts age~ is safe to run from a timer. It takes a lock file in
+  ~data_dir~; when another run holds it, it says so and exits 0. Each
+  person's events of one month older than ~retention_days~ become one
+  summary event (~N events, channels: ...~) with the newest link;
+  ~--drop~ deletes them instead. Closed commitments and access-log rows
+  older than the retention period are deleted. Open commitments stay.
+  ~age~ writes no access-log row, so a second run changes nothing.
+- Back up by copying ~data_dir~ while no command runs.
+
+* Access log
+
+Every read (~resolve~, ~history~, ~commitments~) and every write (~add~,
+~edit~, ~merge~, ~delete~, ~report~, ~commit~, ~close~) writes one row:
+time, caller (~--by~, else ~$CONTACTS_CALLER~, else ~unknown~), command,
+person id and reason. The log never stores names, so it keeps only the
+id of a deleted person. ~contacts log [--caller C] [--person P] [--since
+YYYY-MM-DD] [--json]~ reads it, newest first, and is not logged itself.
+
+* Commands and exit codes
+
+Every command exits 0 on success, 1 on an error (such as a duplicate
+handle or a database problem) and 2 on a usage error (a missing or bad
+flag). A ~<person>~ that matches nobody exits 2; one that matches
+several exits 3 and lists them.
+
+| Command                                                                                   | Prints                               | Also                                       |
+|-------------------------------------------------------------------------------------------+--------------------------------------+--------------------------------------------|
+| ~init~                                                                                    | the data directory                   |                                            |
+| ~add <name> [--alias A]... [--handle kind:value]... [--team] [--role] [--tz] [--channel]~ | the new id                           |                                            |
+| ~edit <person> [add flags] [--remove-handle kind:value]... [--remove-alias A]...~         | the id                               |                                            |
+| ~merge <keep> <drop>~                                                                     | what was merged                      | 1 while both have different chat, code or tracker handles |
+| ~delete <person> --yes~                                                                   | what was deleted                     | 2 without ~--yes~                          |
+| ~resolve <handle-or-name> [--json] [--reason R]~                                          | the person, or the candidates        | 2 no match, 3 several                      |
+| ~history <person> [--since D] [--until D] [--topic T] [--limit N] --reason R [--json]~    | events newest first, open commitments | 2 without ~--reason~                       |
+| ~report <person> --channel C --link URL --summary S [--date D] --by agent~                | the event id                         | a repeat prints the existing id            |
+| ~commit <person> --direction mine/theirs --text T [--due D] [--link URL] --by agent~      | the commitment id                    |                                            |
+| ~close <id> --status done/dropped [--note N]~                                             | the id and status                    | 1 when already closed                      |
+| ~commitments [<person>] [--open] [--overdue] [--json]~                                    | commitments, overdue flagged         |                                            |
+| ~age [--dry-run] [--drop]~                                                                | what changed                         | 0 when another run holds the lock          |
+| ~log [--caller C] [--person P] [--since D] [--json]~                                      | access-log rows newest first         |                                            |
