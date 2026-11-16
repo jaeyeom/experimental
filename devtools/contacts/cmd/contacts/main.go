@@ -38,12 +38,20 @@ type app struct {
 
 // commands maps each command name to its handler.
 var commands = map[string]func(a *app, args []string) int{
-	"init": (*app).cmdInit,
+	"init":   (*app).cmdInit,
+	"add":    (*app).cmdAdd,
+	"edit":   (*app).cmdEdit,
+	"merge":  (*app).cmdMerge,
+	"delete": (*app).cmdDelete,
 }
 
 // usages holds one usage line per command, in help order.
 var usages = []struct{ name, line string }{
 	{"init", "contacts init"},
+	{"add", "contacts add <name> [--alias A]... [--handle kind:value]... [--team T] [--role R] [--tz Z] [--channel C]"},
+	{"edit", "contacts edit <person> [add flags] [--remove-handle kind:value]... [--remove-alias A]..."},
+	{"merge", "contacts merge <keep> <drop>"},
+	{"delete", "contacts delete <person> --yes"},
 }
 
 func usageOf(name string) string {
