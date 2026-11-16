@@ -33,9 +33,10 @@ go_test(
         "log_test.go",
         "main_test.go",
         "people_test.go",
+        "readme_test.go",
         "report_test.go",
         "resolve_test.go",
     ],
-    data = glob(["testdata/**"]),
+    data = glob(["testdata/**"]) + ["//devtools/contacts:README.org"],
     embed = [":go_default_library"],
 )
