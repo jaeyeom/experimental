@@ -207,7 +207,8 @@ func TestInstallWritesSupervisorWithoutLoading(t *testing.T) {
 func TestInstallPinsHerdrAndLeavesAnUnchangedUnit(t *testing.T) {
 	stubDaemon(t)
 	home := t.TempDir()
-	binDir := t.TempDir()
+	// install writes the cleaned directory; TMPDIR may contain "//".
+	binDir := filepath.Clean(t.TempDir())
 	herdr := filepath.Join(binDir, "herdr")
 	if err := os.WriteFile(herdr, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil { //nolint:gosec // G306: the fake herdr has to be executable
 		t.Fatal(err)
