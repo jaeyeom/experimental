@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "accesslog.go",
         "config.go",
+        "events.go",
         "people.go",
         "resolve.go",
         "store.go",
@@ -22,6 +23,7 @@ go_test(
     size = "small",
     srcs = [
         "accesslog_test.go",
+        "events_test.go",
         "people_test.go",
         "resolve_test.go",
         "store_test.go",

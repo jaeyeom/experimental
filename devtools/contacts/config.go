@@ -25,6 +25,8 @@ type Config struct {
 	DataDir string `toml:"data_dir"`
 	// RetentionDays is the age, in days, past which contacts age acts.
 	RetentionDays int `toml:"retention_days"`
+	// SummaryMax caps an event summary, in characters.
+	SummaryMax int `toml:"summary_max"`
 }
 
 // ConfigPath returns flagPath when it is set, else
@@ -63,6 +65,12 @@ func LoadConfig(path string, getenv func(string) string) (Config, error) {
 	}
 	if c.RetentionDays == 0 {
 		c.RetentionDays = DefaultRetentionDays
+	}
+	if c.SummaryMax == 0 {
+		c.SummaryMax = DefaultSummaryMax
+	}
+	if c.SummaryMax < 0 {
+		return c, fmt.Errorf("config %s: summary_max must be positive", path)
 	}
 	if c.RetentionDays < 0 {
 		return c, fmt.Errorf("config %s: retention_days must be positive", path)
