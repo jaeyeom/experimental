@@ -65,7 +65,10 @@ type coverCache struct {
 	// deferredPRs the PRs left without suggestions.
 	deferred      map[string]bool
 	deferredTeams map[string]bool
-	deferredPRs   int
+	// heads is each repository and base's head, looked up once a round;
+	// empty when the lookup failed.
+	heads       map[string]string
+	deferredPRs int
 	// listed, needed and hits count paths for the round summary.
 	// slackHits are the hits whose start day is earlier than this round's.
 	listed, needed, hits, slackHits int
@@ -123,6 +126,7 @@ func newCoverCache(cfg config.Config, now time.Time) *coverCache {
 		maxCalls:      cfg.TeamCoverMaxCalls,
 		refreshMax:    cfg.TeamCoverRefreshMaxCalls,
 		deferred:      map[string]bool{},
+		heads:         map[string]string{},
 	}
 }
 
@@ -200,6 +204,8 @@ type prCover struct {
 	facts   coverFacts
 	ranking bool
 	history bool
+	// tier is the PR's place in the work order; see workOrder.
+	tier int
 }
 
 // coverTeams runs in three passes so path history can be batched: each PR
@@ -226,14 +232,15 @@ func coverTeams(ctx context.Context, deps Deps, cfg config.Config, doc *Document
 		cache.batch = min(cache.stored.HistoryBatch(), cache.maxBatch)
 	}
 	ctx = gh.WithCallBudget(ctx, cache.budget)
-	covers, err := cache.prepareAll(ctx, client, cfg, doc)
+	order := cache.workOrder(cfg, doc.PRs)
+	covers, err := cache.prepareAll(ctx, client, cfg, doc, order)
 	if err != nil {
 		return err
 	}
-	if err := cache.loadHistory(ctx, client, doc, covers); err != nil {
+	if err := cache.loadHistory(ctx, client, doc, covers, order); err != nil {
 		return err
 	}
-	if err := cache.finishAll(ctx, client, cfg, doc, covers); err != nil {
+	if err := cache.finishAll(ctx, client, cfg, doc, covers, order); err != nil {
 		return err
 	}
 	if err := cache.refreshHistory(ctx, client, doc); err != nil {
@@ -247,34 +254,128 @@ func coverTeams(ctx context.Context, deps Deps, cfg config.Config, doc *Document
 	return nil
 }
 
-// prepareAll runs prepare for each PR until the round stops. A PR left
-// unprepared gets no suggestions.
-func (c *coverCache) prepareAll(ctx context.Context, client GH, cfg config.Config, doc *Document) ([]prCover, error) {
-	covers := make([]prCover, len(doc.PRs))
-	for i := range doc.PRs {
-		covers[i] = prCover{pr: doc.PRs[i], final: true}
+// workItem is one PR's place in the round's work order: its index in
+// doc.PRs and its tier.
+type workItem struct {
+	index int
+	tier  int
+}
+
+// Work tiers, in the order their PRs spend calls.
+const (
+	tierUncovered = iota
+	tierUnknown
+	tierCovered
+)
+
+// workOrder is the order the round spends calls on doc.PRs, from the
+// stored cache alone, with no calls. PRs with an uncovered requested team
+// come first: most uncovered teams, then newest, then listed order. Then
+// PRs whose coverage the cache cannot tell, then covered ones, each in
+// listed order. The document keeps its own order.
+func (c *coverCache) workOrder(cfg config.Config, prs []PR) []workItem {
+	order := make([]workItem, len(prs))
+	uncovered := make([]int, len(prs))
+	for i, pr := range prs {
+		order[i] = workItem{index: i, tier: tierUnknown}
+		if n, ok := c.cachedUncovered(cfg, pr); ok {
+			uncovered[i] = n
+			order[i].tier = tierCovered
+			if n > 0 {
+				order[i].tier = tierUncovered
+			}
+		}
 	}
-	for i := range doc.PRs {
+	slices.SortStableFunc(order, func(a, b workItem) int {
+		if a.tier != b.tier {
+			return a.tier - b.tier
+		}
+		if a.tier != tierUncovered {
+			return 0
+		}
+		if n := uncovered[b.index] - uncovered[a.index]; n != 0 {
+			return n
+		}
+		return prCreated(prs[b.index]).Compare(prCreated(prs[a.index]))
+	})
+	return order
+}
+
+// cachedUncovered counts pr's requested teams, not skipped, that the stored
+// review snapshot and team members show uncovered. ok is false when the
+// cache lacks either. An invalid team counts as covered: it is never ranked.
+func (c *coverCache) cachedUncovered(cfg config.Config, pr PR) (int, bool) {
+	org, err := repoOrg(pr.Repo)
+	if err != nil {
+		return 0, false
+	}
+	teams, requested := teamRequests(pr.ReviewRequests, org, cfg.TeamCoverSkipTeams)
+	if len(teams) == 0 {
+		return 0, true
+	}
+	if c.stored == nil || c.membersTTL <= 0 {
+		return 0, false
+	}
+	_, reviews, ok := c.stored.ReviewSnapshot(pr.Repo, pr.Number, pr.HeadSHA, pr.UpdatedAt)
+	if !ok {
+		return 0, false
+	}
+	n := 0
+	for _, team := range teams {
+		teamOrg, slug, valid := strings.Cut(team, "/")
+		if !valid || teamOrg == "" || slug == "" {
+			continue
+		}
+		members, ok := c.stored.TeamMembers(teamOrg, slug)
+		if !ok {
+			return 0, false
+		}
+		if coveredBy(members, requested, reviews) == "" {
+			n++
+		}
+	}
+	return n, true
+}
+
+// prCreated is pr's creation time; zero, so oldest, when unknown.
+func prCreated(pr PR) time.Time {
+	created, err := time.Parse(time.RFC3339, pr.CreatedAt)
+	if err != nil {
+		return time.Time{}
+	}
+	return created
+}
+
+// prepareAll runs prepare for each PR in order until the round stops. A PR
+// left unprepared gets no suggestions. covers keep the document's order.
+func (c *coverCache) prepareAll(ctx context.Context, client GH, cfg config.Config, doc *Document, order []workItem) ([]prCover, error) {
+	covers := make([]prCover, len(doc.PRs))
+	for _, item := range order {
+		covers[item.index] = prCover{pr: doc.PRs[item.index], final: true, tier: item.tier}
+	}
+	for k, item := range order {
 		if err := ctx.Err(); err != nil {
 			return nil, fmt.Errorf("team cover: %w", err)
 		}
-		cover, err := c.prepare(ctx, client, cfg, doc, doc.PRs[i])
+		cover, err := c.prepare(ctx, client, cfg, doc, doc.PRs[item.index])
 		if errors.Is(err, errStopped) {
-			c.deferRest(doc.PRs[i:], cfg)
+			c.deferRest(doc, order[k:], cfg)
 			break
 		}
 		if err != nil {
 			return nil, err
 		}
-		covers[i] = cover
+		cover.tier = item.tier
+		covers[item.index] = cover
 	}
 	return covers, nil
 }
 
-// finishAll sets each PR's suggestions; a PR that must wait keeps none.
-func (c *coverCache) finishAll(ctx context.Context, client GH, cfg config.Config, doc *Document, covers []prCover) error {
-	for i := range covers {
-		suggestions, err := c.finish(ctx, client, cfg, doc, &covers[i])
+// finishAll sets each PR's suggestions, in order; a PR that must wait
+// keeps none.
+func (c *coverCache) finishAll(ctx context.Context, client GH, cfg config.Config, doc *Document, covers []prCover, order []workItem) error {
+	for _, item := range order {
+		suggestions, err := c.finish(ctx, client, cfg, doc, &covers[item.index])
 		if errors.Is(err, errStopped) {
 			c.deferredPRs++
 			continue
@@ -282,15 +383,16 @@ func (c *coverCache) finishAll(ctx context.Context, client GH, cfg config.Config
 		if err != nil {
 			return err
 		}
-		doc.PRs[i].TeamReviewSuggestions = suggestions
+		doc.PRs[item.index].TeamReviewSuggestions = suggestions
 	}
 	return nil
 }
 
-// deferRest counts prs, left unprepared, that request a team, and their
-// teams whose members were not looked up.
-func (c *coverCache) deferRest(prs []PR, cfg config.Config) {
-	for _, pr := range prs {
+// deferRest counts the PRs of rest, left unprepared, that request a team,
+// and their teams whose members were not looked up.
+func (c *coverCache) deferRest(doc *Document, rest []workItem, cfg config.Config) {
+	for _, item := range rest {
+		pr := doc.PRs[item.index]
 		org, err := repoOrg(pr.Repo)
 		if err != nil {
 			continue
@@ -544,13 +646,14 @@ type historyGroup struct {
 }
 
 // loadHistory fetches history for every path of every PR that ranks by
-// history, once per path, in one batched call per repository and base.
+// history, once per path, in work order: one batched call per tier,
+// repository and base, so earlier tiers' paths are fetched first.
 // With a stored cache, a path is reused while its entry is fresh: keyed by
 // the window's start day under team_cover_history_ttl, else by the base
 // head. Once the round stops, paths not stored are deferred. It logs how
 // many listed paths need history, and the cache hits and misses.
-func (c *coverCache) loadHistory(ctx context.Context, client GH, doc *Document, covers []prCover) error {
-	groups := historyGroups(covers)
+func (c *coverCache) loadHistory(ctx context.Context, client GH, doc *Document, covers []prCover, order []workItem) error {
+	groups := historyGroups(covers, order)
 	c.listed = listedPaths(covers)
 	for _, group := range groups {
 		c.needed += len(group.paths)
@@ -581,15 +684,19 @@ func listedPaths(covers []prCover) int {
 	return len(seen)
 }
 
-func historyGroups(covers []prCover) []historyGroup {
+// historyGroups groups the paths of covers that rank by history by tier,
+// repository and base, in order. A path is listed once, in the first
+// group that needs it.
+func historyGroups(covers []prCover, order []workItem) []historyGroup {
 	var groups []historyGroup
 	index := map[string]int{}
 	seen := map[string]struct{}{}
-	for _, cover := range covers {
+	for _, item := range order {
+		cover := covers[item.index]
 		if !cover.history {
 			continue
 		}
-		key := cover.pr.Repo + "@" + cover.pr.Base
+		key := fmt.Sprintf("%d\x00%s@%s", cover.tier, cover.pr.Repo, cover.pr.Base)
 		i, ok := index[key]
 		if !ok {
 			i = len(groups)
@@ -816,12 +923,21 @@ func (c *coverCache) historyVersion(ctx context.Context, client GH, doc *Documen
 	if c.historyTTL > 0 {
 		return "since:" + c.historySince.UTC().Format(time.DateOnly), group.base, nil
 	}
-	if c.stop != "" {
-		return "", "", errStopped
+	key := group.repo + "@" + group.base
+	head, ok := c.heads[key]
+	if !ok {
+		if c.stop != "" {
+			return "", "", errStopped
+		}
+		var err error
+		head, err = c.baseHead(ctx, client, doc, group)
+		if err != nil {
+			return "", "", err
+		}
+		c.heads[key] = head
 	}
-	head, err := c.baseHead(ctx, client, doc, group)
-	if err != nil || head == "" {
-		return "", group.base, err
+	if head == "" {
+		return "", group.base, nil
 	}
 	return head, head, nil
 }

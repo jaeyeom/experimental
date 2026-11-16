@@ -38,8 +38,10 @@ type PR struct {
 	Base       string  `json:"base"`
 	Head       string  `json:"head"`
 	HeadSHA    string  `json:"head_sha"` //nolint:tagliatelle // brief outbound contract
-	// UpdatedAt keys the team-cover review snapshot cache. Not in scan JSON.
+	// UpdatedAt keys the team-cover review snapshot cache, and CreatedAt
+	// orders team-cover work. Neither is in scan JSON.
 	UpdatedAt        string    `json:"-"`
+	CreatedAt        string    `json:"-"`
 	MergeStateStatus string    `json:"merge_state_status"` //nolint:tagliatelle // brief outbound contract
 	Mergeable        string    `json:"mergeable"`
 	IsDraft          bool      `json:"is_draft"`        //nolint:tagliatelle // brief outbound contract

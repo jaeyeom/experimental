@@ -65,6 +65,7 @@ type PRListItem struct {
 	BaseRefName       string         `json:"baseRefName"`
 	HeadRefName       string         `json:"headRefName"`
 	HeadRefOid        string         `json:"headRefOid"`
+	CreatedAt         string         `json:"createdAt"`
 	UpdatedAt         string         `json:"updatedAt"`
 	Mergeable         string         `json:"mergeable"`
 	MergeStateStatus  string         `json:"mergeStateStatus"`

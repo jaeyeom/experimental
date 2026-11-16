@@ -150,6 +150,16 @@ the step that was cut short and what it left: ~team-cover: call cap 40 reached d
 or ~during team members; 12 teams deferred~; other steps (~reviews~,
 ~files~, ~codeowners~, ~activity~, ~load~) count deferred PRs. Must be >= 1.
 
+The cap goes to the PRs that need it most. Before any call, the round
+cache's review snapshots and team members sort the PRs into three tiers.
+First come PRs with a requested team that nobody covers, not counting
+~team_cover_skip_teams~: the most uncovered teams first, then the newest
+PR, then listed order. Next come PRs the cache cannot classify, and last
+the covered ones, each in listed order. Path history follows the same
+order, so a path an earlier tier needs is fetched first and a shared path
+once. The early history refresh still comes last. ~team_review_suggestions~
+stay in the listed PR order.
+
 ** team_cover_load_ttl
 
 Go duration. How long a login's open-direct-request count (the ~load~
