@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "accesslog.go",
+        "age.go",
         "commitments.go",
         "config.go",
         "events.go",
@@ -16,6 +17,7 @@ go_library(
     deps = [
         "//devtools/pkg/sqlitedb:go_default_library",
         "@com_github_pelletier_go_toml_v2//:go_default_library",
+        "@org_golang_x_sys//unix:go_default_library",
     ],
 )
 
@@ -24,6 +26,7 @@ go_test(
     size = "small",
     srcs = [
         "accesslog_test.go",
+        "age_test.go",
         "commitments_test.go",
         "events_test.go",
         "people_test.go",

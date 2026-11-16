@@ -25,6 +25,9 @@ type Event struct {
 	Summary   string `json:"summary"`
 	Reporter  string `json:"reporter"`
 	CreatedAt string `json:"createdAt"`
+	// Compacted is how many aged events this summary stands for; 0 for an
+	// ordinary event.
+	Compacted int `json:"compacted,omitempty"`
 }
 
 // ValidateEvent checks e before it is reported. summaryMax caps the summary
@@ -121,7 +124,7 @@ func (s *Store) History(q HistoryQuery) ([]Event, error) {
 	if limit <= 0 {
 		limit = -1
 	}
-	rows, err := s.db.Query(`SELECT id, person_id, date, channel, link, summary, reporter, created_at FROM events
+	rows, err := s.db.Query(`SELECT id, person_id, date, channel, link, summary, reporter, created_at, compacted FROM events
 		WHERE person_id = ?1 AND (?2 = '' OR date >= ?2) AND (?3 = '' OR date <= ?3)
 			AND (?4 = '' OR instr(lower(summary), lower(?4)) > 0)
 		ORDER BY date DESC, id DESC LIMIT ?5`, q.PersonID, q.Since, q.Until, q.Topic, limit)
@@ -132,7 +135,7 @@ func (s *Store) History(q HistoryQuery) ([]Event, error) {
 	out := []Event{}
 	for rows.Next() {
 		var e Event
-		if err := rows.Scan(&e.ID, &e.PersonID, &e.Date, &e.Channel, &e.Link, &e.Summary, &e.Reporter, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.PersonID, &e.Date, &e.Channel, &e.Link, &e.Summary, &e.Reporter, &e.CreatedAt, &e.Compacted); err != nil {
 			return nil, fmt.Errorf("history: %w", err)
 		}
 		out = append(out, e)
