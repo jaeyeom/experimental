@@ -44,6 +44,7 @@ var commands = map[string]func(a *app, args []string) int{
 	"merge":   (*app).cmdMerge,
 	"delete":  (*app).cmdDelete,
 	"resolve": (*app).cmdResolve,
+	"report":  (*app).cmdReport,
 	"log":     (*app).cmdLog,
 }
 
@@ -55,6 +56,7 @@ var usages = []struct{ name, line string }{
 	{"merge", "contacts merge <keep> <drop> [--by agent]"},
 	{"delete", "contacts delete <person> --yes [--by agent]"},
 	{"resolve", "contacts resolve <handle-or-name> [--json] [--reason R] [--by agent]"},
+	{"report", "contacts report <person> --channel C --link URL --summary S [--date YYYY-MM-DD] --by agent"},
 	{"log", "contacts log [--caller C] [--person P] [--since YYYY-MM-DD] [--json]"},
 }
 
