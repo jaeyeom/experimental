@@ -184,5 +184,8 @@ func migrate(db *sql.DB, steps []string) error {
 
 func (s *Store) timestamp() string { return s.now().UTC().Format(timeLayout) }
 
-// timeLayout is fixed-width UTC, so timestamps sort as strings.
-const timeLayout = "2006-01-02T15:04:05Z"
+const (
+	dateLayout = "2006-01-02"
+	// timeLayout is fixed-width UTC, so timestamps sort as strings.
+	timeLayout = "2006-01-02T15:04:05Z"
+)

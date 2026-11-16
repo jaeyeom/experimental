@@ -21,6 +21,7 @@ go_test(
     name = "go_default_test",
     size = "small",
     srcs = [
+        "accesslog_test.go",
         "people_test.go",
         "resolve_test.go",
         "store_test.go",

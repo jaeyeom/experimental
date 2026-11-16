@@ -86,6 +86,7 @@ func (a *app) find(s *contacts.Store, query string) (p contacts.Person, code int
 
 func (a *app) cmdAdd(args []string) int {
 	fs := a.flags("add")
+	caller := a.callerFlag(fs)
 	var pf personFlags
 	pf.register(fs)
 	pos, ok := a.parse(fs, args, 1, 1)
@@ -109,12 +110,14 @@ func (a *app) cmdAdd(args []string) int {
 	if err != nil {
 		return a.fail(err)
 	}
+	a.logAccess(s, caller(), "add", id, "")
 	fmt.Fprintln(a.stdout, id)
 	return exitOK
 }
 
 func (a *app) cmdEdit(args []string) int {
 	fs := a.flags("edit")
+	caller := a.callerFlag(fs)
 	var pf personFlags
 	pf.register(fs)
 	var removeAliases, removeHandles stringList
@@ -159,12 +162,14 @@ func (a *app) cmdEdit(args []string) int {
 	if err := s.Edit(p.ID, patch); err != nil {
 		return a.fail(err)
 	}
+	a.logAccess(s, caller(), "edit", p.ID, "")
 	fmt.Fprintln(a.stdout, p.ID)
 	return exitOK
 }
 
 func (a *app) cmdMerge(args []string) int {
 	fs := a.flags("merge")
+	caller := a.callerFlag(fs)
 	pos, ok := a.parse(fs, args, 2, 2)
 	if !ok {
 		return exitUsage
@@ -185,12 +190,14 @@ func (a *app) cmdMerge(args []string) int {
 	if err := s.Merge(keep.ID, drop.ID); err != nil {
 		return a.fail(err)
 	}
+	a.logAccess(s, caller(), "merge", keep.ID, "")
 	fmt.Fprintf(a.stdout, "merged %s into %s\n", drop.ID, keep.ID)
 	return exitOK
 }
 
 func (a *app) cmdDelete(args []string) int {
 	fs := a.flags("delete")
+	caller := a.callerFlag(fs)
 	yes := fs.Bool("yes", false, "confirm the deletion")
 	pos, ok := a.parse(fs, args, 1, 1)
 	if !ok {
@@ -212,6 +219,7 @@ func (a *app) cmdDelete(args []string) int {
 	if err := s.Delete(p.ID); err != nil {
 		return a.fail(err)
 	}
+	a.logAccess(s, caller(), "delete", p.ID, "")
 	fmt.Fprintf(a.stdout, "deleted %s\n", p.ID)
 	return exitOK
 }
