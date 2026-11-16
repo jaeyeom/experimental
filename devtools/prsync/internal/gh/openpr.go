@@ -30,7 +30,8 @@ const openPRSearchPage = 50
 // statusCheckRollup stays off the search: one page that includes it exceeds
 // GitHub's resource limit once many open PRs carry a large rollup.
 // updatedAt with headRefOid tells a later round that a pull request is unchanged.
-const openPRScalarFields = "number title url state baseRefName headRefName headRefOid updatedAt mergeable mergeStateStatus isDraft reviewDecision"
+// createdAt orders team-cover work among PRs with equal need.
+const openPRScalarFields = "number title url state baseRefName headRefName headRefOid createdAt updatedAt mergeable mergeStateStatus isDraft reviewDecision"
 
 // reviewerSelection is the requestedReviewer fragment for the open-PR search
 // and the single-PR view. User and Bot select login. Team selects name and
@@ -276,6 +277,7 @@ type gqlPR struct {
 	BaseRefName       string               `json:"baseRefName"`
 	HeadRefName       string               `json:"headRefName"`
 	HeadRefOid        string               `json:"headRefOid"`
+	CreatedAt         nullableString       `json:"createdAt"`
 	UpdatedAt         nullableString       `json:"updatedAt"`
 	Mergeable         string               `json:"mergeable"`
 	MergeStateStatus  string               `json:"mergeStateStatus"`
@@ -359,6 +361,7 @@ func (p *gqlPR) toPRListItem() PRListItem {
 		BaseRefName:       p.BaseRefName,
 		HeadRefName:       p.HeadRefName,
 		HeadRefOid:        p.HeadRefOid,
+		CreatedAt:         string(p.CreatedAt),
 		UpdatedAt:         string(p.UpdatedAt),
 		Mergeable:         p.Mergeable,
 		MergeStateStatus:  p.MergeStateStatus,
