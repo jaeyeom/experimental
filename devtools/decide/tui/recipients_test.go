@@ -443,3 +443,42 @@ func TestSendToBusNameFailureKeepsTheDraft(t *testing.T) {
 		t.Fatalf("a failed send left a thread: %+v", items)
 	}
 }
+
+func TestConfiguredAgentbusTargetMergesWithItsBusEntry(t *testing.T) {
+	m := busModel(t, &fakeBus{list: "[]"})
+	m.Targets = []Target{{Name: "A", Pane: "agentbus:x"}, {Name: "B", Pane: "w9:p9"}}
+	m.busNames = []Target{
+		{Name: "x", Pane: "herdr:local/default/w1:p1", Bus: true, When: "doing x", Live: "alive"},
+		{Name: "y", Pane: "herdr:local/default/w1:p2", Bus: true, When: "doing y", Live: "alive"},
+	}
+	cands := m.candidates()
+	if got := strings.Join(candidateNames(m), ","); got != "x,B,y" {
+		t.Fatalf("candidates = %s, want x,B,y", got)
+	}
+	if want := m.busNames[0]; cands[0] != want {
+		t.Fatalf("merged entry = %+v, want the bus entry %+v", cands[0], want)
+	}
+	m.pickFilter = "doing x"
+	if got := strings.Join(visibleNames(m), ","); got != "x" {
+		t.Fatalf("filter on --when = %s, want x", got)
+	}
+
+	m.composeDead = []Target{{Name: "x", Pane: "agentbus:x", Bus: true, Dead: true}}
+	m.pickFilter = ""
+	if got := strings.Join(candidateNames(m), ","); got != "x,B,y" {
+		t.Fatalf("with composeDead x, candidates = %s, want x,B,y", got)
+	}
+}
+
+func TestConfiguredAgentbusTargetWithoutBusEntryStaysOnce(t *testing.T) {
+	m := busModel(t, &fakeBus{list: "[]"})
+	m.Targets = []Target{{Name: "Z", Pane: "agentbus:z"}}
+	m.busNames = []Target{{Name: "y", Pane: "herdr:local/default/w1:p2", Bus: true, Live: "alive"}}
+	cands := m.candidates()
+	if got := strings.Join(candidateNames(m), ","); got != "Z,y" {
+		t.Fatalf("candidates = %s, want Z,y", got)
+	}
+	if cands[0] != m.Targets[0] || cands[0].Live == "alive" {
+		t.Fatalf("unmatched configured entry = %+v, want it unchanged and not live", cands[0])
+	}
+}
