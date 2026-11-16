@@ -34,6 +34,7 @@ var tunnelCommands = map[string]bool{
 	"show":        true,
 	"thread":      true,
 	"status":      true,
+	"health":      true,
 	"wake":        true,
 	"hook":        true,
 	"prompt-hook": true,
@@ -106,6 +107,8 @@ func hubCommand(ctx context.Context, cfg config.Config, args, env []string, stdi
 		return cmdInstallTunnel(ctx, cfg, args[1:], env, stdout, stderr), true
 	case "send", "reply":
 		return hubDeliver(ctx, cfg, args, env, stdin, stdout, stderr), true
+	case "health":
+		return hubHealth(ctx, cfg, args, env, stdout, stderr), true
 	case "hook":
 		return hubRecordHook(ctx, cfg, args[1:], env, stdin, stdout, stderr), true
 	case "status":

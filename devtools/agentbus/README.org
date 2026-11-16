@@ -203,6 +203,7 @@ handle: herdr:local/default/w1:p1
 | ~install~                         | Install the supervisor and load it. In hub mode, install the tunnel.                           |
 | ~paths --json~                    | Print ~socket~, ~hub_socket~, ~tunnel_socket~, and ~state_dir~.                                |
 | ~doctor [--sandbox]~              | Other ~agentbusd~ processes; in hub mode, the tunnel, ssh, and outbox.                         |
+| ~health [--json]~                 | Whether the bus can deliver now. Exit 0 ok, 1 daemon unreachable, 4 a transport down.          |
 | ~install-hooks~                   | Install the observe-only ~SendMessage~ hook and the prompt guard.                              |
 | ~hook~                            | Internal. ~install-hooks~ runs it to record one ~SendMessage~ call.                            |
 | ~prompt-hook~                     | Internal. ~install-hooks~ runs it to block a message pasted into a draft.                      |
@@ -218,6 +219,22 @@ user. In hub mode it reports the tunnel, the ssh port, and the outbox
 instead of the local daemon socket. ~doctor --sandbox~ prints the
 Claude Code sandbox allowlist and tests each connection. See
 [[file:docs/sandbox.org][sockets and the sandbox]].
+
+~health~ is the cheap check for scripts and UIs. It makes one request
+to the daemon, within 2s, and the daemon tests each transport now. It
+never starts the daemon. In hub mode it asks the hub's daemon, over the
+tunnel or ssh. It prints ~ok~, or one line per problem, such as
+~herdr transport unreachable: <reason>~. ~health --json~ prints one
+object:
+
+#+begin_src json
+{"daemon":"up","transport":"ok","problems":[]}
+#+end_src
+
+~daemon~ is ~up~ or ~down~. ~transport~ is ~ok~, ~down~, or ~unknown~
+(the daemon, or the hub, cannot be reached, or cannot report). It exits 0
+when everything is ok, 1 when the daemon is unreachable or cannot
+report, and 4 when the daemon is up but a transport is down.
 
 ~log --since~ takes a duration ago (~30m~, ~6h~, ~2d~, ~1d12h~), an
 RFC3339 time, or a ~YYYY-MM-DD~ date at local midnight. ~hibernate
