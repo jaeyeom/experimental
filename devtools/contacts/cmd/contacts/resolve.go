@@ -33,6 +33,11 @@ func (a *app) logAccess(s *contacts.Store, caller, command, personID, reason str
 	}
 }
 
+// printRow prints fields tab-separated, without trailing empty fields.
+func (a *app) printRow(fields ...string) {
+	fmt.Fprintln(a.stdout, strings.TrimRight(strings.Join(fields, "\t"), "\t"))
+}
+
 func (a *app) printJSON(v any) {
 	enc := json.NewEncoder(a.stdout)
 	enc.SetIndent("", "  ")
@@ -64,7 +69,7 @@ func (a *app) cmdResolve(args []string) int {
 			a.printJSON(map[string]any{"candidates": amb.Candidates})
 		} else {
 			for _, c := range amb.Candidates {
-				fmt.Fprintf(a.stdout, "%s\t%s\t%s\n", c.ID, c.Name, c.Team)
+				a.printRow(c.ID, c.Name, c.Team)
 			}
 		}
 		return exitAmbiguous

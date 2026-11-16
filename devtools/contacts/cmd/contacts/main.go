@@ -38,14 +38,17 @@ type app struct {
 
 // commands maps each command name to its handler.
 var commands = map[string]func(a *app, args []string) int{
-	"init":    (*app).cmdInit,
-	"add":     (*app).cmdAdd,
-	"edit":    (*app).cmdEdit,
-	"merge":   (*app).cmdMerge,
-	"delete":  (*app).cmdDelete,
-	"resolve": (*app).cmdResolve,
-	"report":  (*app).cmdReport,
-	"log":     (*app).cmdLog,
+	"init":        (*app).cmdInit,
+	"add":         (*app).cmdAdd,
+	"edit":        (*app).cmdEdit,
+	"merge":       (*app).cmdMerge,
+	"delete":      (*app).cmdDelete,
+	"resolve":     (*app).cmdResolve,
+	"report":      (*app).cmdReport,
+	"commit":      (*app).cmdCommit,
+	"close":       (*app).cmdClose,
+	"commitments": (*app).cmdCommitments,
+	"log":         (*app).cmdLog,
 }
 
 // usages holds one usage line per command, in help order.
@@ -57,6 +60,9 @@ var usages = []struct{ name, line string }{
 	{"delete", "contacts delete <person> --yes [--by agent]"},
 	{"resolve", "contacts resolve <handle-or-name> [--json] [--reason R] [--by agent]"},
 	{"report", "contacts report <person> --channel C --link URL --summary S [--date YYYY-MM-DD] --by agent"},
+	{"commit", "contacts commit <person> --direction mine|theirs --text T [--due YYYY-MM-DD] [--link URL] --by agent"},
+	{"close", "contacts close <commitment-id> --status done|dropped [--note N] [--by agent]"},
+	{"commitments", "contacts commitments [<person>] [--open] [--overdue] [--json] [--reason R] [--by agent]"},
 	{"log", "contacts log [--caller C] [--person P] [--since YYYY-MM-DD] [--json]"},
 }
 
