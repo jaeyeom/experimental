@@ -183,7 +183,7 @@ func TestInstallWritesSupervisorWithoutLoading(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	exe, err := os.Executable()
+	exe, err := executable()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -580,17 +580,16 @@ func installedPath(home string) string {
 	return filepath.Join(home, "Library", "LaunchAgents", launchdLabel+".plist")
 }
 
+// stubDaemon makes install see a fake agentbusd beside a fake agentbus in
+// a temp dir, not beside the test binary, whose directory is read-only
+// under Bazel.
 func stubDaemon(t *testing.T) {
 	t.Helper()
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(filepath.Dir(exe), "agentbusd")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Remove(path) })
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "agentbusd"), []byte("#!/bin/sh\nexit 0\n"))
+	orig := executable
+	executable = func() (string, error) { return filepath.Join(dir, "agentbus"), nil }
+	t.Cleanup(func() { executable = orig })
 }
 
 func writeFile(t *testing.T, path string, data []byte) {

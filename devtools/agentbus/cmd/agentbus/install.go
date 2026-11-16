@@ -56,6 +56,10 @@ agentbus prompt-hook || exit 0
 exit 0
 `
 
+// executable is os.Executable. Tests point it at a directory they can write,
+// since the test binary's own directory is read-only under Bazel.
+var executable = os.Executable
+
 func cmdInstall(ctx context.Context, args, env []string, stdout, stderr io.Writer) int {
 	if len(args) != 0 {
 		fmt.Fprintf(stderr, "agentbus install: unexpected arguments\n")
@@ -70,7 +74,7 @@ func cmdInstall(ctx context.Context, args, env []string, stdout, stderr io.Write
 		fmt.Fprintf(stderr, "agentbus install: %s\n", err)
 		return 1
 	}
-	exe, err := os.Executable()
+	exe, err := executable()
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus install: cannot find this executable: %s\n", err)
 		return 1
