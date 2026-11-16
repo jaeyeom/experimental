@@ -276,6 +276,26 @@ func TestArchiveGraceDefaultsAndRejectsABadDuration(t *testing.T) {
 	}
 }
 
+func TestBusHealthIntervalDefaultsAndRejectsABadDuration(t *testing.T) {
+	writeConfig(t, `{}`)
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BusHealthInterval() != DefaultBusHealthInterval || DefaultBusHealthInterval != 15*time.Second {
+		t.Fatalf("default = %s", cfg.BusHealthInterval())
+	}
+	writeConfig(t, `{"ui":{"busHealthInterval":"1m"}}`)
+	cfg, err = LoadConfig()
+	if err != nil || cfg.BusHealthInterval() != time.Minute {
+		t.Fatalf("interval = %s err %v", cfg.BusHealthInterval(), err)
+	}
+	writeConfig(t, `{"ui":{"busHealthInterval":"often"}}`)
+	if _, err := LoadConfig(); err == nil || !strings.Contains(err.Error(), "busHealthInterval") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestFollowStaleNewAnswerResetsTheResend(t *testing.T) {
 	f := herdrtest.Install(t)
 	fakeHerdrMachine(f, "local")

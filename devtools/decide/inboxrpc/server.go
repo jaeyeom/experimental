@@ -2,6 +2,7 @@ package inboxrpc
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -89,6 +90,8 @@ func (s *Server) handle(ctx context.Context, req Request) Response {
 		return Response{Targets: s.Targets, Agentbus: s.Agentbus}
 	case OpBusList:
 		return s.busList(ctx)
+	case OpBusHealth:
+		return s.busHealth(ctx)
 	case OpConfig:
 		return s.config()
 	case OpSetAvatar:
@@ -212,13 +215,27 @@ func (s *Server) config() Response {
 	return Response{Display: &settings}
 }
 
-func (s *Server) busList(ctx context.Context) Response {
-	run := s.Backend.BusRun
-	if run == nil {
-		run = decide.ExecAgentbus
+func (s *Server) busRun() decide.AgentbusRunner {
+	if s.Backend.BusRun != nil {
+		return s.Backend.BusRun
 	}
-	out, err := run(ctx, []string{"list", "--json"})
+	return decide.ExecAgentbus
+}
+
+func (s *Server) busList(ctx context.Context) Response {
+	out, err := s.busRun()(ctx, []string{"list", "--json"})
 	if err != nil {
+		return failed(err)
+	}
+	return Response{Output: string(out)}
+}
+
+// busHealth runs `agentbus health --json` on the hub, where agent
+// messages are sent. Health exits nonzero while the bus is down, so
+// its report goes back whenever it printed one.
+func (s *Server) busHealth(ctx context.Context) Response {
+	out, err := s.busRun()(ctx, []string{"health", "--json"})
+	if err != nil && len(bytes.TrimSpace(out)) == 0 {
 		return failed(err)
 	}
 	return Response{Output: string(out)}
