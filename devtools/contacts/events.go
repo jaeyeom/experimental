@@ -96,3 +96,49 @@ func (s *Store) Report(e Event, summaryMax int) (id int64, dup bool, err error) 
 	})
 	return id, dup, err
 }
+
+// HistoryQuery selects one person's events. Since and Until are inclusive
+// YYYY-MM-DD dates; Topic matches the summary case-insensitively; Limit 0
+// means no limit.
+type HistoryQuery struct {
+	PersonID     string
+	Since, Until string
+	Topic        string
+	Limit        int
+}
+
+// History returns matching events, newest first.
+func (s *Store) History(q HistoryQuery) ([]Event, error) {
+	for _, d := range []string{q.Since, q.Until} {
+		if d == "" {
+			continue
+		}
+		if _, err := time.Parse(dateLayout, d); err != nil {
+			return nil, fmt.Errorf("date %q: want YYYY-MM-DD", d)
+		}
+	}
+	limit := q.Limit
+	if limit <= 0 {
+		limit = -1
+	}
+	rows, err := s.db.Query(`SELECT id, person_id, date, channel, link, summary, reporter, created_at FROM events
+		WHERE person_id = ?1 AND (?2 = '' OR date >= ?2) AND (?3 = '' OR date <= ?3)
+			AND (?4 = '' OR instr(lower(summary), lower(?4)) > 0)
+		ORDER BY date DESC, id DESC LIMIT ?5`, q.PersonID, q.Since, q.Until, q.Topic, limit)
+	if err != nil {
+		return nil, fmt.Errorf("history: %w", err)
+	}
+	defer rows.Close()
+	out := []Event{}
+	for rows.Next() {
+		var e Event
+		if err := rows.Scan(&e.ID, &e.PersonID, &e.Date, &e.Channel, &e.Link, &e.Summary, &e.Reporter, &e.CreatedAt); err != nil {
+			return nil, fmt.Errorf("history: %w", err)
+		}
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("history: %w", err)
+	}
+	return out, nil
+}

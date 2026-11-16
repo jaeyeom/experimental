@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "commitments.go",
+        "history.go",
         "log.go",
         "main.go",
         "people.go",
@@ -26,6 +27,7 @@ go_test(
     size = "small",
     srcs = [
         "commitments_test.go",
+        "history_test.go",
         "log_test.go",
         "main_test.go",
         "people_test.go",

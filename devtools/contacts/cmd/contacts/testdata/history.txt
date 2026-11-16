@@ -1,0 +1,8 @@
+2026-03-01	chat	https://mail.example/m/3	sent the review notes	ops/inbox
+2026-02-10	chat	https://chat.example/x/2	agreed to split the API change	ops/inbox
+2026-01-05	chat	https://chat.example/x/1	kickoff for the API change	ops/inbox
+
+open commitments:
+1	ada	theirs	open	2026-03-12	review the API
+
+notes: $DATA/people/ada.md
