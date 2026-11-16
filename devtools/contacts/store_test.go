@@ -10,7 +10,8 @@ import (
 	"github.com/jaeyeom/experimental/devtools/pkg/sqlitedb"
 )
 
-var fixedNow = time.Date(2026, 3, 10, 9, 30, 0, 0, time.UTC)
+// fixedNow is the tests' clock: 2026-03-10 09:30 UTC.
+func fixedNow() time.Time { return time.Date(2026, 3, 10, 9, 30, 0, 0, time.UTC) }
 
 func newStore(t *testing.T) *Store {
 	t.Helper()
@@ -18,7 +19,7 @@ func newStore(t *testing.T) *Store {
 	if err := Init(dir); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
-	s, err := Open(dir, func() time.Time { return fixedNow })
+	s, err := Open(dir, fixedNow)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

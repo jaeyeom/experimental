@@ -7,7 +7,7 @@ import (
 
 func TestAccessLogFiltersNewestFirst(t *testing.T) {
 	s := newStore(t)
-	now := fixedNow
+	now := fixedNow()
 	s.now = func() time.Time { return now }
 	for _, a := range []Access{
 		{Caller: "ops", Command: "resolve", PersonID: "ada"},
