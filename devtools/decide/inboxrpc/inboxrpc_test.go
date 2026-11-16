@@ -628,6 +628,53 @@ func TestSetHiddenWritesTheHubAndASecondClientSeesIt(t *testing.T) {
 	}
 }
 
+func TestSetFavoritesWritesTheHubAndASecondClientSeesIt(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", home)
+	path := filepath.Join(home, "decide", "config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newHub(t)
+	h.server.Display = func() (decide.DisplaySettings, error) {
+		f, err := decide.LoadConfigFile()
+		if err != nil {
+			return decide.DisplaySettings{}, fmt.Errorf("load config: %w", err)
+		}
+		return f.Display(), nil
+	}
+	first := connect(t, h)
+	second := connect(t, h)
+	settings, err := first.SetFavorites([]string{"ops/inbox", "builder"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(settings.Keys["favoriteContacts"]); !strings.Contains(got, "ops/inbox") {
+		t.Fatalf("display = %s", got)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(data), "builder") {
+		t.Fatalf("hub config = %s, %v", data, err)
+	}
+	if _, err := second.List(); err != nil {
+		t.Fatal(err)
+	}
+	got, gen := second.Display()
+	if gen < 2 || !strings.Contains(string(got.Keys["favoriteContacts"]), "builder") {
+		t.Fatalf("second client gen %d display %s", gen, got.Keys["favoriteContacts"])
+	}
+	if _, err := first.SetFavorites(nil); err != nil {
+		t.Fatal(err)
+	}
+	data, err = os.ReadFile(path)
+	if err != nil || strings.Contains(string(data), "builder") {
+		t.Fatalf("cleared config = %s, %v", data, err)
+	}
+}
+
 func TestSetAliasesWritesTheHubAndASecondClientSeesIt(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", home)

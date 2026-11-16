@@ -24,6 +24,8 @@ type Target struct {
 	Dead bool
 	// Live is the bus liveness word: alive, dead, hibernated, or unknown.
 	Live string
+	// Fav marks a starred name, listed first.
+	Fav bool
 }
 
 // onBus reports a target delivered with `agentbus send`: a bus name, or

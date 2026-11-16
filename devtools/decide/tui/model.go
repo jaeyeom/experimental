@@ -195,6 +195,8 @@ type Model struct {
 	agentFilter   string
 	contacts      []contact
 	contactCursor int
+	// favorites are starred names, in the order they were starred.
+	favorites []string
 	// hidden is the display setting of contact names Contacts does not
 	// show. showHidden is the session's H toggle. confirmKind is a y/n
 	// prompt, and confirmName is the agent a release would name.
@@ -2532,6 +2534,7 @@ func (m *Model) helpLines() []screenLine {
 			"enter filters every folder to this agent",
 			"esc clears the agent filter",
 			"c compose",
+			"* stars this contact; starred names lead the recipient list",
 			"A picks this agent's avatar",
 			"a aliases this contact to a bus name",
 			"x hides this contact",

@@ -50,6 +50,8 @@ type Options struct {
 	NoHyperlinks bool
 	// HiddenContacts are agent names Contacts does not show.
 	HiddenContacts []string
+	// FavoriteContacts are starred names the recipient list shows first.
+	FavoriteContacts []string
 	// ContactAliases maps a ledger name to a canonical agent name.
 	ContactAliases map[string]string
 	// UTC shows times in UTC. False uses the clock's zone, which is
@@ -149,6 +151,7 @@ func prepare(opts Options) (*Model, error) {
 	m.OpenCommand = opts.OpenCommand
 	m.NoHyperlinks = opts.NoHyperlinks
 	m.hidden = append([]string(nil), opts.HiddenContacts...)
+	m.favorites = append([]string(nil), opts.FavoriteContacts...)
 	m.aliases = cloneAliases(opts.ContactAliases)
 	m.UTC = opts.UTC
 	m.clipboard = opts.Clipboard

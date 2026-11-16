@@ -89,6 +89,9 @@ type Config struct {
 	// HiddenContacts are agent names the Contacts folder does not show.
 	// A name that is active again is dropped from the list.
 	HiddenContacts []string `json:"hiddenContacts,omitempty"`
+	// FavoriteContacts are starred names the compose recipient list
+	// shows first, in the order they were starred.
+	FavoriteContacts []string `json:"favoriteContacts,omitempty"`
 	// ContactAliases maps a ledger name to a canonical agent name when
 	// the pane and suffix rules cannot.
 	ContactAliases map[string]string `json:"contactAliases,omitempty"`

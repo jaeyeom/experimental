@@ -37,7 +37,7 @@ func TestDisplaySettingsExportOnlyDisplayKeys(t *testing.T) {
 		"optionsOnly": true, "colors": {"human": "2"}, "ui": {"utc": true},
 		"avatarDefault": true, "avatarMono": "hide", "recipients": {"agentbus": true},
 		"recipientsTimeout": "5s", "targets": [{"name": "builder", "pane": "w2:p3"}],
-		"hyperlinks": false, "hiddenContacts": ["zed"], "contactAliases": {"primary": "coord/primary"},
+		"hyperlinks": false, "hiddenContacts": ["zed"], "favoriteContacts": ["ada"], "contactAliases": {"primary": "coord/primary"},
 		"messageAvatars": false,
 		"avatars": [{"match": "ada", "builtin": "owl"}]
 	}`)
@@ -47,7 +47,7 @@ func TestDisplaySettingsExportOnlyDisplayKeys(t *testing.T) {
 		keys = append(keys, k)
 	}
 	slices.Sort(keys)
-	want := []string{"avatarDefault", "avatarMono", "avatars", "contactAliases", "hiddenContacts", "hyperlinks", "messageAvatars", "recipients", "recipientsTimeout", "targets"}
+	want := []string{"avatarDefault", "avatarMono", "avatars", "contactAliases", "favoriteContacts", "hiddenContacts", "hyperlinks", "messageAvatars", "recipients", "recipientsTimeout", "targets"}
 	if !slices.Equal(keys, want) {
 		t.Fatalf("keys = %q, want %q", keys, want)
 	}

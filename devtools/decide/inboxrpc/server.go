@@ -97,6 +97,8 @@ func (s *Server) handle(ctx context.Context, req Request) Response {
 		return s.setAvatar(req)
 	case OpSetHidden:
 		return s.setHidden(req)
+	case OpSetFavorites:
+		return s.setFavorites(req)
 	case OpSetAliases:
 		return s.setAliases(req)
 	case OpSend:
@@ -199,6 +201,19 @@ func (s *Server) setHidden(req Request) Response {
 		return failed(fmt.Errorf("hidden contacts: %w", err))
 	}
 	if _, err := decide.SetHiddenContacts(names); err != nil {
+		return failed(err)
+	}
+	return s.config()
+}
+
+// setFavorites replaces the hub's favoriteContacts list and returns the
+// display settings. Text is a JSON array of names.
+func (s *Server) setFavorites(req Request) Response {
+	var names []string
+	if err := json.Unmarshal([]byte(req.Text), &names); err != nil {
+		return failed(fmt.Errorf("favorite contacts: %w", err))
+	}
+	if _, err := decide.SetFavoriteContacts(names); err != nil {
 		return failed(err)
 	}
 	return s.config()

@@ -27,7 +27,7 @@ const (
 )
 
 // pickerHint is the footer while the recipient list is focused.
-const pickerHint = "type to filter  ↑/↓ C-n/C-p move  Enter pick  Esc clear/cancel  Tab text"
+const pickerHint = "type to filter  ↑/↓ C-n/C-p move  Enter pick  * star  Esc clear/cancel  Tab text"
 
 // BusRunner runs `agentbus` with args and returns its stdout.
 type BusRunner = decide.AgentbusRunner
@@ -165,10 +165,16 @@ func ParseBusList(out []byte) ([]Target, error) {
 	return names, nil
 }
 
-// candidates are the configured targets, then live bus names, then dead
-// ones. A configured target whose pane a bus name holds is left out.
-// composeDead names follow, unless the bus already lists them.
+// candidates are the starred names, then the configured targets, then
+// live bus names, then dead ones. A configured target whose pane a bus
+// name holds is left out. composeDead names follow, unless the bus
+// already lists them.
 func (m *Model) candidates() []Target {
+	return m.withFavorites(m.unstarredCandidates())
+}
+
+// unstarredCandidates are the candidates in their own sections.
+func (m *Model) unstarredCandidates() []Target {
 	out := m.listedCandidates()
 	if len(m.composeDead) == 0 {
 		return out
@@ -291,6 +297,8 @@ func (m *Model) selectName(name string) bool {
 // clears a filter first and leaves compose second.
 func (m *Model) pickerKey(r rune) bool {
 	switch {
+	case r == '*':
+		m.starPicked()
 	case r == '\x1b' && m.pickFilter != "":
 		m.pickFilter = ""
 	case r == '\x7f' || r == '\b':
@@ -381,10 +389,12 @@ func (m *Model) pickerCount(matches, total int, scrolls bool) []screenLine {
 	return []screenLine{{text: mutedPicker(label)}}
 }
 
-// targetGroup is a candidate's dropdown group: configured targets, the
-// name's prefix up to its first slash, or dead names.
+// targetGroup is a candidate's dropdown group: favorites, configured
+// targets, the name's prefix up to its first slash, or dead names.
 func targetGroup(tg Target) string {
 	switch {
+	case tg.Fav:
+		return "favorites"
 	case !tg.Bus:
 		return "targets"
 	case tg.Dead:
@@ -398,6 +408,9 @@ func targetGroup(tg Target) string {
 
 func (m *Model) targetLabel(tg Target, selected bool) string {
 	label := tg.Name
+	if tg.Fav {
+		label = favoriteMark + " " + label
+	}
 	if selected {
 		label = "[" + label + "]"
 		if m.composeFocus == focusRecipient {
