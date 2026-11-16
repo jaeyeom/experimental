@@ -44,16 +44,18 @@ var commands = map[string]func(a *app, args []string) int{
 	"merge":   (*app).cmdMerge,
 	"delete":  (*app).cmdDelete,
 	"resolve": (*app).cmdResolve,
+	"log":     (*app).cmdLog,
 }
 
 // usages holds one usage line per command, in help order.
 var usages = []struct{ name, line string }{
 	{"init", "contacts init"},
-	{"add", "contacts add <name> [--alias A]... [--handle kind:value]... [--team T] [--role R] [--tz Z] [--channel C]"},
-	{"edit", "contacts edit <person> [add flags] [--remove-handle kind:value]... [--remove-alias A]..."},
-	{"merge", "contacts merge <keep> <drop>"},
-	{"delete", "contacts delete <person> --yes"},
+	{"add", "contacts add <name> [--alias A]... [--handle kind:value]... [--team T] [--role R] [--tz Z] [--channel C] [--by agent]"},
+	{"edit", "contacts edit <person> [add flags] [--remove-handle kind:value]... [--remove-alias A]... [--by agent]"},
+	{"merge", "contacts merge <keep> <drop> [--by agent]"},
+	{"delete", "contacts delete <person> --yes [--by agent]"},
 	{"resolve", "contacts resolve <handle-or-name> [--json] [--reason R] [--by agent]"},
+	{"log", "contacts log [--caller C] [--person P] [--since YYYY-MM-DD] [--json]"},
 }
 
 func usageOf(name string) string {

@@ -1,0 +1,23 @@
+[
+  {
+    "time": "2026-03-10T09:30:00Z",
+    "caller": "ops",
+    "command": "delete",
+    "person": "bob",
+    "reason": ""
+  },
+  {
+    "time": "2026-03-10T09:30:00Z",
+    "caller": "ops",
+    "command": "resolve",
+    "person": "bob",
+    "reason": "prep"
+  },
+  {
+    "time": "2026-03-10T09:30:00Z",
+    "caller": "inbox",
+    "command": "add",
+    "person": "bob",
+    "reason": ""
+  }
+]
