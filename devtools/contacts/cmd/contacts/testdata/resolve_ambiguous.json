@@ -1,0 +1,14 @@
+{
+  "candidates": [
+    {
+      "id": "sam-lee",
+      "name": "Sam Lee",
+      "team": "core"
+    },
+    {
+      "id": "sam-lee-2",
+      "name": "Sam Lee",
+      "team": "infra"
+    }
+  ]
+}

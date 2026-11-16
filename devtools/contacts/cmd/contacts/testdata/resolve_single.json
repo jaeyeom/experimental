@@ -1,0 +1,23 @@
+{
+  "id": "ada-lovelace",
+  "name": "Ada Lovelace",
+  "aliases": [
+    "countess"
+  ],
+  "handles": [
+    {
+      "kind": "chat",
+      "value": "ada.l"
+    },
+    {
+      "kind": "code",
+      "value": "ada-l"
+    }
+  ],
+  "team": "core",
+  "role": "lead",
+  "tz": "Asia/Seoul",
+  "channel": "chat",
+  "localTime": "2026-03-10 18:30 +09:00",
+  "notes": "$DATA/people/ada-lovelace.md"
+}

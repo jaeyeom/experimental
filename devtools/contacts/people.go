@@ -441,11 +441,25 @@ func removeIfExists(path string) error {
 // a value of any kind, with or without a leading @), else an id, else a
 // name or alias, all case-insensitive.
 func (s *Store) Find(query string) (Person, error) {
+	return s.lookup(query, false)
+}
+
+// Resolve is Find, then a case-insensitive prefix match on ids, names,
+// aliases and handle values when nothing matched exactly.
+func (s *Store) Resolve(query string) (Person, error) {
+	return s.lookup(query, true)
+}
+
+func (s *Store) lookup(query string, prefix bool) (Person, error) {
 	q := strings.TrimSpace(query)
 	if q == "" {
 		return Person{}, ErrNotFound
 	}
-	for _, step := range []func(string) ([]string, error){s.byHandle, s.byID, s.byName} {
+	steps := []func(string) ([]string, error){s.byHandle, s.byID, s.byName}
+	if prefix {
+		steps = append(steps, s.byPrefix)
+	}
+	for _, step := range steps {
 		ids, err := step(q)
 		if err != nil {
 			return Person{}, err
@@ -476,6 +490,14 @@ func (s *Store) byID(q string) ([]string, error) {
 func (s *Store) byName(q string) ([]string, error) {
 	return s.ids(`SELECT id FROM people WHERE lower(name) = lower(?)
 		UNION SELECT person_id FROM aliases WHERE alias = ?`, q, q)
+}
+
+func (s *Store) byPrefix(q string) ([]string, error) {
+	return s.ids(`SELECT id FROM people WHERE substr(lower(id), 1, length(?1)) = lower(?1)
+			OR substr(lower(name), 1, length(?1)) = lower(?1)
+		UNION SELECT person_id FROM aliases WHERE substr(lower(alias), 1, length(?1)) = lower(?1)
+		UNION SELECT person_id FROM handles WHERE substr(lower(value), 1, length(?2)) = lower(?2)`,
+		q, strings.TrimPrefix(q, "@"))
 }
 
 func (s *Store) ids(query string, args ...any) ([]string, error) {
