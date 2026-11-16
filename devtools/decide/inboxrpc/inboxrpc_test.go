@@ -393,6 +393,31 @@ func TestSlowBusListKeepsTheSession(t *testing.T) {
 	}
 }
 
+func TestBusHealthRunsOnTheHub(t *testing.T) {
+	h := newHub(t)
+	down := `{"daemon":"down","transport":"unknown","problems":["daemon unreachable"]}`
+	h.server.Backend.BusRun = func(_ context.Context, args []string) ([]byte, error) {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		h.bus = append(h.bus, args)
+		return []byte(down + "\n"), errors.New("agentbus health: exit status 1")
+	}
+	c := connect(t, h)
+	out, err := c.BusRunner(context.Background(), []string{"health", "--json"})
+	if err != nil || strings.TrimSpace(string(out)) != down {
+		t.Fatalf("health = %q, %v", out, err)
+	}
+	if len(h.bus) != 1 || strings.Join(h.bus[0], " ") != "health --json" {
+		t.Fatalf("hub agentbus calls = %q", h.bus)
+	}
+	h.server.Backend.BusRun = func(context.Context, []string) ([]byte, error) {
+		return nil, errors.New("agentbus: not found")
+	}
+	if _, err := c.BusRunner(context.Background(), []string{"health", "--json"}); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("missing agentbus on the hub = %v", err)
+	}
+}
+
 func TestOwnerLocationIsSeenFromThisMachine(t *testing.T) {
 	c := &Client{Label: "me@hub", Machine: "mac", HubMachine: "hub"}
 	cases := []struct {

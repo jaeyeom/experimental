@@ -2,6 +2,8 @@ package tui
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"io"
 	"os"
 	"reflect"
@@ -168,6 +170,10 @@ func TestCtrlEnterSendsNoteThroughProgram(t *testing.T) {
 			count++
 			sent <- struct{}{}
 			return nil
+		}
+		// Init checks bus health; no real agentbus runs in tests.
+		m.busRun = func(context.Context, []string) ([]byte, error) {
+			return nil, errors.New("agentbus is not run in tests")
 		}
 		r, w := io.Pipe()
 		var out bytes.Buffer

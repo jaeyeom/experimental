@@ -169,6 +169,14 @@ type Model struct {
 	// did not report is offline. busWant asks Update to start a load.
 	busKnown bool
 	busWant  bool
+	// busHealth is the last `agentbus health --json` that could report.
+	// It is polled every healthEvery, each check bounded by
+	// healthTimeout. healthLogged is set once a check that could not
+	// report was logged.
+	busHealth     busHealthReport
+	healthEvery   time.Duration
+	healthTimeout time.Duration
+	healthLogged  bool
 	// composeDead are dead names Contacts opened compose for that the
 	// bus does not list. candidates offers them until the bus does.
 	composeDead []Target
@@ -1337,6 +1345,9 @@ func (m *Model) allLines() []screenLine {
 		}
 	} else {
 		lines = m.mailLines()
+		if banner, ok := m.busBanner(); ok {
+			lines = append([]screenLine{banner}, lines...)
+		}
 	}
 	status := m.statusLine()
 	if w := m.contentWidth(); w > 0 {
@@ -2011,7 +2022,7 @@ func (m *Model) layoutBudget() (int, int) {
 	if m.framed() {
 		frame = 2
 	}
-	chrome := folderChrome + 1 + frame + m.headerChrome()
+	chrome := folderChrome + 1 + frame + m.headerChrome() + m.bannerRows()
 	box := 0
 	if !m.composing && (m.listFocused() || m.detailFocused()) {
 		box = 2

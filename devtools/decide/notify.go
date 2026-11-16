@@ -118,6 +118,9 @@ type InboxUI struct {
 	// ArchiveGrace is how long a new message holds inbox archive,
 	// such as "2s". Empty is 2 seconds.
 	ArchiveGrace string `json:"archiveGrace,omitempty"`
+	// BusHealthInterval is how often the inbox runs `agentbus health
+	// --json` for its bus-down banner, such as "15s". Empty is 15 seconds.
+	BusHealthInterval string `json:"busHealthInterval,omitempty"`
 }
 
 // DefaultStaleAnswerAfter is how long an answer sits before a follow-up
@@ -127,6 +130,25 @@ const DefaultStaleAnswerAfter = 30 * time.Minute
 // DefaultArchiveGrace is how long a new message holds inbox archive
 // when ui.archiveGrace is unset.
 const DefaultArchiveGrace = 2 * time.Second
+
+// DefaultBusHealthInterval is how often the inbox checks the bus when
+// ui.busHealthInterval is unset.
+const DefaultBusHealthInterval = 15 * time.Second
+
+// BusHealthInterval is ui.busHealthInterval, or DefaultBusHealthInterval
+// when it is unset. LoadConfig rejects an invalid duration.
+func (c Config) BusHealthInterval() time.Duration {
+	d, err := parseBusHealthInterval(c.UI.BusHealthInterval)
+	if err != nil || d <= 0 {
+		return DefaultBusHealthInterval
+	}
+	return d
+}
+
+// parseBusHealthInterval parses ui.busHealthInterval. Empty is zero.
+func parseBusHealthInterval(raw string) (time.Duration, error) {
+	return parsePositiveDuration(raw, "busHealthInterval", "15s")
+}
 
 // StaleAnswerAfter is ui.staleAnswerAfter, or DefaultStaleAnswerAfter
 // when it is unset. LoadConfig rejects an invalid duration.
@@ -298,6 +320,9 @@ func parseConfig(data []byte, dir string) (Config, error) {
 		return Config{}, err
 	}
 	if _, err := parseArchiveGrace(cfg.UI.ArchiveGrace); err != nil {
+		return Config{}, err
+	}
+	if _, err := parseBusHealthInterval(cfg.UI.BusHealthInterval); err != nil {
 		return Config{}, err
 	}
 	resolveAvatarFiles(cfg.Avatars, dir)

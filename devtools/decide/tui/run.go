@@ -61,6 +61,9 @@ type Options struct {
 	FillColumn int
 	// ArchiveGrace is how long a new message holds archive. Zero is 2s.
 	ArchiveGrace time.Duration
+	// BusHealthInterval is how often the inbox runs `agentbus health
+	// --json` through BusRunner. Zero is decide.DefaultBusHealthInterval.
+	BusHealthInterval time.Duration
 	// Backend replaces the local ledger in Dir, such as the hub's in
 	// hub mode. It is reloaded off the update loop.
 	Backend Backend
@@ -151,6 +154,7 @@ func prepare(opts Options) (*Model, error) {
 	m.clipboard = opts.Clipboard
 	m.fillColumn = opts.FillColumn
 	m.archiveGrace = opts.ArchiveGrace
+	m.healthEvery = opts.BusHealthInterval
 	if opts.Backend != nil {
 		m.backend = opts.Backend
 		m.asyncReload = true

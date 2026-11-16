@@ -19,7 +19,8 @@ import (
 // Version is the protocol version hello returns. Version 2 added
 // config. Version 3 added set-avatar. Version 4 added set-hidden.
 // Version 5 added set-contact-aliases. Version 6 added seen on archive.
-const Version = 6
+// Version 7 added bus-health.
+const Version = 7
 
 // Ops. Archive is done with the outcome "archived".
 const (
@@ -37,6 +38,7 @@ const (
 	OpStatus     = "status"
 	OpTargets    = "targets"
 	OpBusList    = "bus-list"
+	OpBusHealth  = "bus-health"
 	OpSend       = "send"
 	OpLocate     = "locate"
 	OpConfig     = "config"
@@ -69,7 +71,8 @@ type Request struct {
 
 // Response is one line from the server. Error fails the request.
 // NotifyError is a write that was stored whose notification failed.
-// Output is the raw `agentbus list --json` of bus-list. Display is the
+// Output is the raw `agentbus list --json` of bus-list, or the raw
+// `agentbus health --json` of bus-health. Display is the
 // hub's display settings, from config.
 type Response struct {
 	ID          int64                   `json:"id"`

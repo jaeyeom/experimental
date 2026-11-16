@@ -306,6 +306,15 @@ compose does not wait. ~recipientsTimeout~ bounds a load (default 3s).
 Dead names come last. A slow load says ~agentbus: slow (>3s)~. A failure
 says ~agentbus: unavailable~ and keeps the last good names.
 
+While the bus cannot deliver, the inbox's top line says ~Bus down:
+messages to agents are waiting.~, then the first problem, dimmed and
+cut to the screen width. The inbox runs ~agentbus health --json~ in the
+background every ~ui.busHealthInterval~ (default 15s), and the line
+goes on the first check after the bus recovers. A check that is slow
+(over 5s), or an agentbus that is missing or has no ~health~, shows no
+line and is logged once at debug level. In hub mode the check runs on
+the hub, where agent messages are sent.
+
 ~decide status~ uses ~status.json~. ~set --agent~ writes one row. A new
 row with no ~--state~ is ~working~, and a later set keeps the state.
 ~list~ prints name, state, age, and text. A row older than five minutes
@@ -391,34 +400,35 @@ the config or ~DECIDE_HUB~ is set. For a hub only in Emacs, set
 One JSON object. Keys you do not set keep the default. ~ui~ is this
 machine only. A hub does not send it.
 
-| Key                   | Default                     | Meaning                                                                        |
-|-----------------------+-----------------------------+--------------------------------------------------------------------------------|
-| ~notifyTemplate~      | empty                       | Shell command after a local relay answer. Empty runs nothing.                  |
-| ~notifyPane~          | empty                       | Pane used when the item has none.                                              |
-| ~optionsOnly~         | false                       | A relay ask rejects free text unless ~--free-text~.                            |
-| ~sendTemplate~        | ~herdr agent prompt {pane}~ | Compose send command. ~{pane}~ is replaced.                                    |
-| ~targets~             | none                        | Compose recipients. Each entry has ~name~ and ~pane~.                          |
-| ~colors~              | theme indexes               | ~requester~, ~human~, ~agent~, ~time~, ~badge~, ~muted~. ANSI index or ~#hex~. |
-| ~recipients.agentbus~ | false                       | Add ~agentbus list~ names to compose.                                          |
-| ~recipientsTimeout~   | ~3s~                        | Bound on each bus-name load.                                                   |
-| ~hub~                 | empty                       | Ssh target of the ledger machine. ~DECIDE_HUB~ wins.                           |
-| ~hubTimeout~          | ~5s~                        | Ssh connect timeout.                                                           |
-| ~machine~             | empty                       | This machine's herdr label. ~DECIDE_MACHINE~ wins.                             |
-| ~hubMachine~          | empty                       | The hub's herdr label on this machine.                                         |
-| ~avatars~             | none                        | Rules mapping a name to a file or a built-in id.                               |
-| ~avatarDefault~       | false                       | A built-in figure for every name with no rule.                                 |
-| ~avatarMono~          | empty                       | ~hide~ hides avatars when the terminal has no color.                           |
-| ~messageAvatars~      | on                          | A sender figure beside each message. ~false~ turns it off.                     |
-| ~checkouts~           | none                        | Resource name, optional ~machine~, and checkout ~path~.                        |
-| ~openCommand~         | ~xdg-open~ or ~open~        | Argv that opens a link. The URL is the last argument.                          |
-| ~hyperlinks~          | on                          | OSC 8 links in the item view. ~false~ turns them off.                          |
-| ~hiddenContacts~      | none                        | Names the Contacts folder hides.                                               |
-| ~contactAliases~      | none                        | Ledger name to canonical agent name.                                           |
-| ~ui.utc~              | false                       | Inbox stamps in UTC.                                                           |
-| ~ui.clipboard~        | ~auto~                      | ~auto~, ~osc52~, ~command~, or ~off~.                                          |
-| ~ui.fillColumn~       | 72                          | Compose fill width. Never wider than the box.                                  |
-| ~ui.staleAnswerAfter~ | ~30m~                       | How long an answer sits before one follow-up.                                  |
-| ~ui.archiveGrace~     | ~2s~                        | How long a new message holds archive.                                          |
+| Key                    | Default                     | Meaning                                                                        |
+|------------------------+-----------------------------+--------------------------------------------------------------------------------|
+| ~notifyTemplate~       | empty                       | Shell command after a local relay answer. Empty runs nothing.                  |
+| ~notifyPane~           | empty                       | Pane used when the item has none.                                              |
+| ~optionsOnly~          | false                       | A relay ask rejects free text unless ~--free-text~.                            |
+| ~sendTemplate~         | ~herdr agent prompt {pane}~ | Compose send command. ~{pane}~ is replaced.                                    |
+| ~targets~              | none                        | Compose recipients. Each entry has ~name~ and ~pane~.                          |
+| ~colors~               | theme indexes               | ~requester~, ~human~, ~agent~, ~time~, ~badge~, ~muted~. ANSI index or ~#hex~. |
+| ~recipients.agentbus~  | false                       | Add ~agentbus list~ names to compose.                                          |
+| ~recipientsTimeout~    | ~3s~                        | Bound on each bus-name load.                                                   |
+| ~hub~                  | empty                       | Ssh target of the ledger machine. ~DECIDE_HUB~ wins.                           |
+| ~hubTimeout~           | ~5s~                        | Ssh connect timeout.                                                           |
+| ~machine~              | empty                       | This machine's herdr label. ~DECIDE_MACHINE~ wins.                             |
+| ~hubMachine~           | empty                       | The hub's herdr label on this machine.                                         |
+| ~avatars~              | none                        | Rules mapping a name to a file or a built-in id.                               |
+| ~avatarDefault~        | false                       | A built-in figure for every name with no rule.                                 |
+| ~avatarMono~           | empty                       | ~hide~ hides avatars when the terminal has no color.                           |
+| ~messageAvatars~       | on                          | A sender figure beside each message. ~false~ turns it off.                     |
+| ~checkouts~            | none                        | Resource name, optional ~machine~, and checkout ~path~.                        |
+| ~openCommand~          | ~xdg-open~ or ~open~        | Argv that opens a link. The URL is the last argument.                          |
+| ~hyperlinks~           | on                          | OSC 8 links in the item view. ~false~ turns them off.                          |
+| ~hiddenContacts~       | none                        | Names the Contacts folder hides.                                               |
+| ~contactAliases~       | none                        | Ledger name to canonical agent name.                                           |
+| ~ui.utc~               | false                       | Inbox stamps in UTC.                                                           |
+| ~ui.clipboard~         | ~auto~                      | ~auto~, ~osc52~, ~command~, or ~off~.                                          |
+| ~ui.fillColumn~        | 72                          | Compose fill width. Never wider than the box.                                  |
+| ~ui.staleAnswerAfter~  | ~30m~                       | How long an answer sits before one follow-up.                                  |
+| ~ui.archiveGrace~      | ~2s~                        | How long a new message holds archive.                                          |
+| ~ui.busHealthInterval~ | ~15s~                       | How often the inbox checks ~agentbus health~ for its banner.                   |
 
 * Using two machines
 

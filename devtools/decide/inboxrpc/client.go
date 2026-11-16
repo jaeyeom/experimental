@@ -550,13 +550,19 @@ func (c *Client) Targets() ([]tui.Target, bool, error) {
 	return out, resp.Agentbus, nil
 }
 
-// BusRunner runs `agentbus list --json` on the hub, the only agentbus
-// call the inbox makes outside the backend.
+// BusRunner runs `agentbus list --json` or `agentbus health --json` on
+// the hub, the only agentbus calls the inbox makes outside the backend.
 func (c *Client) BusRunner(ctx context.Context, args []string) ([]byte, error) {
-	if !slices.Equal(args, []string{"list", "--json"}) {
+	var op string
+	switch {
+	case slices.Equal(args, []string{"list", "--json"}):
+		op = OpBusList
+	case slices.Equal(args, []string{"health", "--json"}):
+		op = OpBusHealth
+	default:
 		return nil, fmt.Errorf("agentbus %s does not run on the hub from the inbox", strings.Join(args, " "))
 	}
-	resp, err := c.callCtx(ctx, Request{Op: OpBusList})
+	resp, err := c.callCtx(ctx, Request{Op: op})
 	if err != nil {
 		return nil, err
 	}

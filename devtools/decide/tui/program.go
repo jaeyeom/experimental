@@ -48,10 +48,10 @@ func keyRune(k tea.KeyMsg) (rune, bool) {
 	}
 }
 
-// Init starts the ledger reload tick and the first background load of
-// the bus names.
+// Init starts the ledger reload tick, the first background load of
+// the bus names, and the first bus health check.
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(m.scheduleReload(), m.busLoad())
+	return tea.Batch(m.scheduleReload(), m.busLoad(), m.healthCheck())
 }
 
 // Update drives the existing inbox behavior from bubbletea messages.
@@ -114,14 +114,17 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case listMsg:
 		return m.finishList(msg)
 	default:
-		m.updateResult(msg)
-		return m, nil
+		return m, m.updateResult(msg)
 	}
 }
 
 // updateResult records what a background command found: an owner
-// location, a tab focus, a link opener's result, or the bus names.
-func (m *Model) updateResult(msg tea.Msg) {
+// location, a tab focus, a link opener's result, the bus names, or the
+// bus health. It returns the next health command.
+func (m *Model) updateResult(msg tea.Msg) tea.Cmd {
+	if cmd, ok := m.updateHealth(msg); ok {
+		return cmd
+	}
 	switch msg := msg.(type) {
 	case locationMsg:
 		m.setLocation(msg)
@@ -132,6 +135,7 @@ func (m *Model) updateResult(msg tea.Msg) {
 	case busListMsg:
 		m.finishBusLoad(msg)
 	}
+	return nil
 }
 
 // updateKeyMsg routes one key: the external-editor prefix, then composer
