@@ -352,23 +352,24 @@ func parseConfig(data []byte, dir string) (Config, error) {
 // or text that says the pane or agent was not found, was not delivered.
 // A held or queued agentbus send was accepted for later delivery.
 func Notify(item *Item, out io.Writer) error {
-	_, _, err := notifyAttempt(item, out)
+	_, err := notifyAttempt(item, out)
 	return err
 }
 
-// notifyAttempt runs one answer notification.
+// notifyAttempt runs one answer notification and describes it as a
+// Delivery with Target, Outcome, Error, BusID, and Reason set.
 // An empty outcome with a nil error means nothing was sent.
-// outcome is OutcomeDelivered, OutcomeFailed, or OutcomeQueued.
-func notifyAttempt(item *Item, out io.Writer) (target, outcome string, err error) {
+// The outcome is OutcomeDelivered, OutcomeFailed, or OutcomeWaiting.
+func notifyAttempt(item *Item, out io.Writer) (Delivery, error) {
 	if item == nil || item.NotifyClosed {
-		return "", "", nil
+		return Delivery{}, nil
 	}
 	if out == nil {
 		out = io.Discard
 	}
 	cfg, err := LoadConfig()
 	if err != nil {
-		return "", OutcomeFailed, err
+		return failedDelivery("", err), err
 	}
 	pane, machine := NotifyTarget(item, cfg)
 	if name, ok := strings.CutPrefix(pane, BusPanePrefix); ok {
@@ -378,12 +379,27 @@ func notifyAttempt(item *Item, out io.Writer) (target, outcome string, err error
 		return notifyRemote(item, pane, machine, cfg)
 	}
 	if strings.TrimSpace(cfg.NotifyTemplate) == "" {
-		return "", "", nil
+		return Delivery{}, nil
 	}
 	return notifyLocal(item, pane, cfg, out)
 }
 
-func notifyLocal(item *Item, pane string, cfg Config, out io.Writer) (string, string, error) {
+// failedDelivery is a failed attempt at target with err as its error.
+func failedDelivery(target string, err error) Delivery {
+	return Delivery{Target: target, Outcome: OutcomeFailed, Error: err.Error()}
+}
+
+// SentDelivery is the attempt at target that runErr ended. A nil runErr
+// was delivered now. A failure is logged under id.
+func SentDelivery(id, target string, runErr error) (Delivery, error) {
+	if runErr != nil {
+		err := logDelivery(id, runErr)
+		return failedDelivery(target, err), err
+	}
+	return Delivery{Target: target, Outcome: OutcomeDelivered}, nil
+}
+
+func notifyLocal(item *Item, pane string, cfg Config, out io.Writer) (Delivery, error) {
 	answer, answeredBy := answerFields(item)
 	// The template is operator config. Fields stay in the environment.
 	// Parent values come first. os/exec keeps the last value for a duplicate
@@ -409,43 +425,48 @@ func notifyLocal(item *Item, pane string, cfg Config, out io.Writer) (string, st
 	cmd.Stdout = io.MultiWriter(out, &stdout)
 	cmd.Stderr = out
 	if err := cmd.Run(); err != nil {
-		return pane, OutcomeFailed, logDelivery(item.ID, fmt.Errorf("notify: %w", err))
+		return SentDelivery(item.ID, pane, fmt.Errorf("notify: %w", err))
 	}
 	if err := stdoutDeliveryError(stdout.String()); err != nil {
-		return pane, OutcomeFailed, logDelivery(item.ID, fmt.Errorf("notify: %w", err))
+		return SentDelivery(item.ID, pane, fmt.Errorf("notify: %w", err))
 	}
-	return pane, OutcomeDelivered, nil
+	return SentDelivery(item.ID, pane, nil)
 }
 
 // notifyRemote delivers the answer note to a pane on another machine.
 // The user's notify template is not run. The send command sees
 // DECIDE_DELIVERY_KEY.
-func notifyRemote(item *Item, pane, machine string, cfg Config) (string, string, error) {
+func notifyRemote(item *Item, pane, machine string, cfg Config) (Delivery, error) {
 	target := pane + "@" + machine
 	answer, answeredBy := answerFields(item)
 	note := DeliveryNote(item.ID, answeredBy, answer)
 	argv := MachineArgv(SendArgv(cfg.SendTemplate, pane, note), machine)
 	env := append(os.Environ(), "DECIDE_DELIVERY_KEY="+DeliveryKey(item))
 	if err := runSend(argv, env); err != nil {
-		return target, OutcomeFailed, logDelivery(item.ID, fmt.Errorf("notify: %w", err))
+		return SentDelivery(item.ID, target, fmt.Errorf("notify: %w", err))
 	}
-	return target, OutcomeDelivered, nil
+	return SentDelivery(item.ID, target, nil)
 }
 
 // notifyBus delivers the answer note to an agentbus name. The user's
-// notify template is not run. The client id is the answer's delivery key.
-// A held or queued state is queued, not a failure.
-func notifyBus(item *Item, name string) (string, string, error) {
+// notify template is not run. The client id is the answer's delivery
+// key. A held or queued state is waiting, not a failure. BusID is the
+// message id send printed, else the client id.
+func notifyBus(item *Item, name string) (Delivery, error) {
 	target := BusPanePrefix + name
 	if name == "" {
-		return target, OutcomeFailed, logDelivery(item.ID, fmt.Errorf("notify: agentbus name is empty"))
+		return SentDelivery(item.ID, target, fmt.Errorf("notify: agentbus name is empty"))
 	}
 	answer, answeredBy := answerFields(item)
 	out, err := ExecAgentbus(context.Background(), []string{
 		"send", name, DeliveryNote(item.ID, answeredBy, answer),
 		"--client-id", DeliveryKey(item),
 	})
-	return busSendOutcome(target, item.ID, string(out), err)
+	d, err := busSendOutcome(target, item.ID, string(out), err)
+	if err == nil && d.BusID == "" {
+		d.BusID = DeliveryKey(item)
+	}
+	return d, err
 }
 
 func answerFields(item *Item) (value, by string) {
@@ -457,23 +478,26 @@ func answerFields(item *Item) (value, by string) {
 
 // deliverBus runs agentbus send for a compose follow-up. Acceptance is
 // classifyBusSend, the same rule as an answer notification.
-func deliverBus(id, name, text string) error {
+func deliverBus(id, name, text string) (Delivery, error) {
 	out, err := ExecAgentbus(context.Background(), []string{"send", name, text})
-	_, _, accErr := busSendOutcome("", id, string(out), err)
-	return accErr
+	return busSendOutcome(BusPanePrefix+name, id, string(out), err)
 }
 
-// busSendOutcome applies classifyBusSend. A held or queued message is
-// OutcomeQueued with a nil error. id is only used when logging a failure.
-func busSendOutcome(target, id, stdout string, runErr error) (string, string, error) {
+// busSendOutcome applies classifyBusSend to one agentbus send. A held
+// or queued message is OutcomeWaiting with a nil error. BusID is the
+// message id send printed. id is only used when logging a failure.
+func busSendOutcome(target, id, stdout string, runErr error) (Delivery, error) {
 	queued, err := classifyBusSend(stdout, runErr)
 	if err != nil {
-		return target, OutcomeFailed, logDelivery(id, fmt.Errorf("notify: %w", err))
+		return SentDelivery(id, target, fmt.Errorf("notify: %w", err))
 	}
+	d, _ := SentDelivery(id, target, nil)
+	d.BusID = busSendID(stdout)
 	if queued {
-		return target, OutcomeQueued, nil
+		d.Outcome = OutcomeWaiting
+		d.Reason = sendHeldReason(stdout, runErr)
 	}
-	return target, OutcomeDelivered, nil
+	return d, nil
 }
 
 func logDelivery(id string, err error) error {

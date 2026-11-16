@@ -364,10 +364,36 @@ A pane on another herdr machine does not run ~notifyTemplate~. Decide
 sends the header, the answer, and the reply hint with the compose
 command and ~--machine~. An ~agentbus:<name>~ pane uses ~agentbus send
 --client-id <key>~ with the same ~DECIDE_DELIVERY_KEY~. ~held~ or
-~queued~ is ~delivered (queued)~ and is not retried. Any other failure
+~queued~ is ~waiting~ and is not retried. Any other failure
 is stored as ~notifyError~ until a later delivery works. Each attempt is
 a ~delivery~ entry (~at~, ~target~, ~outcome~, ~error~). The inbox shows
 ~not delivered~ when the latest attempt failed.
+
+** Delivery marks
+
+Every message you send to an agent gets a ~delivery~ entry: an answer, a
+reply (~decide send --id~ or ~0~ in the inbox), and the first note of a
+new thread. The entry names the message (~message~, its time), keeps the
+agentbus message id that ~agentbus send~ printed (~busId~), and has one
+of three outcomes. The thread view shows it after the message header:
+
+- ~waiting~ means agentbus stored the message and has not delivered it.
+  The reason follows when agentbus gives one: ~waiting: bus down~ (the
+  transport is unreachable), ~waiting: target composer busy~, or another
+  agentbus ~held_reason~. A waiting message is never shown as delivered.
+- ~delivered 14:05~ is when the target got it. ~, 7 min late~ follows
+  when it waited first.
+- ~failed: <error>~ is a send that failed, or a wake agentbus is still
+  retrying.
+
+While any message waits, or failed while agentbus retries it, the inbox
+checks them every 10s with one ~agentbus status --json <id>...~ call. It
+does not check when nothing waits. In hub mode the check runs on the hub
+(protocol version 8). A pane reached by the send template is delivered
+when the command succeeds and is never waiting. A ~delivered (queued)~
+entry written by an older decide reads as ~waiting~; the check asks
+agentbus about it by its client id, ~<id>:<answeredAt>~. ~decide show~
+prints each entry as ~delivery: <at> <target> <state> <busId>~.
 
 A failure is retried on the ledger machine after 5s, then after 20s,
 then it stops. Three attempts is the cap. An answer the owner has not

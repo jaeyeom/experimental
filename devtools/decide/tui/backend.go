@@ -155,6 +155,24 @@ func (b *LocalBackend) FollowLoop(ctx context.Context, every time.Duration, repo
 	}
 }
 
+// DeliveryChecker is a backend that can refresh the delivery marks of
+// messages agentbus has not delivered yet, where the ledger lives.
+type DeliveryChecker interface {
+	// CheckDeliveries runs one batched `agentbus status --json` for the
+	// pending deliveries, or nothing when none is pending.
+	CheckDeliveries(ctx context.Context) error
+}
+
+// CheckDeliveries implements DeliveryChecker.
+func (b *LocalBackend) CheckDeliveries(ctx context.Context) error {
+	led, err := b.ledger()
+	if err != nil {
+		return err
+	}
+	_, err = led.CheckDeliveries(ctx, b.busRunner())
+	return err //nolint:wrapcheck // CheckDeliveries names agentbus status
+}
+
 // List implements Backend.
 func (b *LocalBackend) List() ([]decide.Item, error) {
 	led, err := b.ledger()
@@ -211,12 +229,34 @@ func (b *LocalBackend) Reply(id, text string) (decide.Item, error) {
 	if err != nil {
 		return decide.Item{}, err
 	}
-	if err := b.notifyThread(&updated, text); err != nil {
+	if updated.NotifyClosed {
+		updated.NotifyError = b.recordNotifyError(updated.ID, nil)
+		return updated, nil
+	}
+	d, err := b.notifyThread(&updated, text)
+	if d.Outcome != "" {
+		updated = b.recordCompose(updated, d)
+	} else {
 		updated.NotifyError = b.recordNotifyError(updated.ID, err)
+	}
+	if err != nil {
 		return updated, &NotifyError{Err: err}
 	}
-	updated.NotifyError = b.recordNotifyError(updated.ID, nil)
 	return updated, nil
+}
+
+// recordCompose stores d as the delivery of item's newest message, the
+// one just sent. A ledger error keeps item as it was.
+func (b *LocalBackend) recordCompose(item decide.Item, d decide.Delivery) decide.Item {
+	if len(item.Messages) == 0 {
+		return item
+	}
+	at := item.Messages[len(item.Messages)-1].Time
+	got, err := b.with(func(led *decide.Ledger) (decide.Item, error) { return led.RecordCompose(item.ID, at, d) })
+	if err != nil {
+		return item
+	}
+	return got
 }
 
 // recordNotifyError stores err on id and returns the stored text.
@@ -236,32 +276,34 @@ func (b *LocalBackend) recordNotifyError(id string, err error) string {
 
 // notifyThread runs the compose command so the owner pane sees the
 // thread header, the original text, and the reply hint. A pane on
-// another machine is reached through `--machine`.
-func (b *LocalBackend) notifyThread(item *decide.Item, text string) error {
-	if item.NotifyClosed {
-		return nil
-	}
+// another machine is reached through `--machine`. The attempt comes back
+// as a Delivery; one with no outcome never reached a send.
+func (b *LocalBackend) notifyThread(item *decide.Item, text string) (decide.Delivery, error) {
 	cfg, err := decide.LoadConfig()
 	if err != nil {
-		return fmt.Errorf("load decide config: %w", err)
+		return decide.Delivery{}, fmt.Errorf("load decide config: %w", err)
 	}
 	pane, machine := decide.NotifyTarget(item, cfg)
 	if strings.TrimSpace(pane) == "" {
-		return fmt.Errorf("decide compose pane is empty")
+		return decide.Delivery{}, fmt.Errorf("decide compose pane is empty")
 	}
 	if name, ok := strings.CutPrefix(pane, busPanePrefix); ok {
-		_, err := decide.SendBus(context.Background(), b.busRunner(), name, decide.DeliveryNote(item.ID, "human", text))
-		return err //nolint:wrapcheck // SendBus returns agentbus's error, which the status line prints
+		return decide.SendBus(context.Background(), b.busRunner(), name, decide.DeliveryNote(item.ID, "human", text)) //nolint:wrapcheck // SendBus returns agentbus's error, which the status line prints
 	}
 	template := b.SendTemplate
 	if strings.TrimSpace(template) == "" {
 		template = cfg.SendTemplate
 	}
+	target := pane
+	if machine != "" {
+		target = pane + "@" + machine
+	}
 	argv := decide.MachineArgv(decide.SendArgv(template, pane, decide.DeliveryNote(item.ID, "human", text)), machine)
 	if err := b.runSend(argv); err != nil {
-		return fmt.Errorf("decide send: %w", err)
+		err = fmt.Errorf("decide send: %w", err)
+		return decide.Delivery{Target: target, Outcome: decide.OutcomeFailed, Error: err.Error()}, err
 	}
-	return nil
+	return decide.Delivery{Target: target, Outcome: decide.OutcomeDelivered}, nil
 }
 
 func (b *LocalBackend) runSend(argv []string) error {
@@ -341,6 +383,9 @@ func (b *LocalBackend) Send(forward string, tg Target, text string) error {
 			return fmt.Errorf("%w; %w", err, derr)
 		}
 		return err
+	}
+	if _, err := led.RecordCompose(item.ID, item.Messages[0].Time, decide.Delivery{Target: tg.Pane, Outcome: decide.OutcomeDelivered}); err != nil {
+		return fmt.Errorf("record delivery: %w", err)
 	}
 	if err := decide.AppendSend(b.Dir, tg.Name, tg.Pane, text); err != nil {
 		return fmt.Errorf("record decide send: %w", err)

@@ -102,7 +102,7 @@ func TestDeliveryHeldIsQueuedAndDoesNotRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := mustGet(t, led, item.ID)
-	if len(got.Delivery) != 1 || got.Delivery[0].Outcome != OutcomeQueued || got.NotifyError != "" {
+	if len(got.Delivery) != 1 || got.Delivery[0].Outcome != OutcomeWaiting || got.NotifyError != "" {
 		t.Fatalf("delivery = %+v notifyError = %q", got.Delivery, got.NotifyError)
 	}
 	if err := led.RetryDue(clock.Add(time.Hour), nil); err != nil {

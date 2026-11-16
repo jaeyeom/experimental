@@ -525,6 +525,33 @@ func TestComposeBusSendAcceptance(t *testing.T) {
 	}
 }
 
+func TestComposeRecordsTheBusDelivery(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	bin := filepath.Join(t.TempDir(), "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\nprintf '%s\\n' 'm-7 queued for delivery'\n"
+	if err := os.WriteFile(filepath.Join(bin, "agentbus"), []byte(script), 0o755); err != nil { //nolint:gosec // test sentinel script
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	id := askRelay(t, []string{"--notify-pane", "agentbus:ops/x"}, "bus target")
+	if _, stderr, code := runCLI("send", "--id", id, "follow up"); code != 0 {
+		t.Fatalf("send --id = %d\n%s", code, stderr)
+	}
+	got := showJSON(t, id)
+	if len(got.Delivery) != 1 || got.Delivery[0].BusID != "m-7" || !got.Delivery[0].Compose || got.Delivery[0].State() != decide.OutcomeWaiting {
+		t.Fatalf("delivery = %+v", got.Delivery)
+	}
+	stdout, stderr, code := runCLI("show", id)
+	if code != 0 || !strings.Contains(stdout, "agentbus:ops/x waiting m-7") {
+		t.Fatalf("show = %d\n%s%s", code, stdout, stderr)
+	}
+}
+
 func TestAnswerBusFailureIsOnShow(t *testing.T) {
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)

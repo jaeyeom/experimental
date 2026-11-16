@@ -49,9 +49,10 @@ func keyRune(k tea.KeyMsg) (rune, bool) {
 }
 
 // Init starts the ledger reload tick, the first background load of
-// the bus names, and the first bus health check.
+// the bus names, the first bus health check, and the delivery poll when
+// a delivery is pending.
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(m.scheduleReload(), m.busLoad(), m.healthCheck())
+	return tea.Batch(m.scheduleReload(), m.busLoad(), m.healthCheck(), m.startDeliveryPoll())
 }
 
 // Update drives the existing inbox behavior from bubbletea messages.
@@ -123,6 +124,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // bus health. It returns the next health command.
 func (m *Model) updateResult(msg tea.Msg) tea.Cmd {
 	if cmd, ok := m.updateHealth(msg); ok {
+		return cmd
+	}
+	if cmd, ok := m.updateDelivery(msg); ok {
 		return cmd
 	}
 	switch msg := msg.(type) {
@@ -357,7 +361,8 @@ func (m *Model) finishList(msg listMsg) (tea.Model, tea.Cmd) {
 	return m.reloaded()
 }
 
-// reloaded refreshes an open status view and schedules the next reload.
+// reloaded refreshes an open status view, schedules the next reload,
+// and starts the delivery poll when a delivery became pending.
 func (m *Model) reloaded() (tea.Model, tea.Cmd) {
 	if m.mode == modeStatus {
 		if err := m.loadStatus(); err != nil {
@@ -367,7 +372,7 @@ func (m *Model) reloaded() (tea.Model, tea.Cmd) {
 	if m.mode == modeContacts {
 		m.rebuildContacts()
 	}
-	return m, m.scheduleReload()
+	return m, tea.Batch(m.scheduleReload(), m.startDeliveryPoll())
 }
 
 func scrollKeyType(t tea.KeyType) bool {

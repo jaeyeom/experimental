@@ -11,8 +11,12 @@ const (
 	OutcomeDelivered = "delivered"
 	// OutcomeFailed is a definite delivery failure.
 	OutcomeFailed = "failed"
-	// OutcomeQueued is an agentbus hold. The bus delivers one copy later.
-	OutcomeQueued = "delivered (queued)"
+	// OutcomeWaiting is a message agentbus stored but has not delivered
+	// yet. It is never shown as delivered.
+	OutcomeWaiting = "waiting"
+	// OutcomeLegacyQueued is how records before waiting stored a bus
+	// hold. It reads as OutcomeWaiting.
+	OutcomeLegacyQueued = "delivered (queued)"
 	// OutcomeResend is the one follow-up of an answer the owner had not taken up.
 	OutcomeResend = "resend"
 
@@ -20,12 +24,34 @@ const (
 	MaxDeliveryAttempts = 3
 )
 
-// Delivery is one attempt to deliver an answer.
+// Delivery is one attempt to deliver a human message to an agent: an
+// answer, a reply, or the first note of a new thread.
+// Message is the Time of the thread message it carries. A record from
+// before that field is an answer delivery. Compose marks a reply or a
+// new thread, which RetryDue does not retry. BusID is the agentbus
+// message id that send printed, or the client id for an answer. Reason
+// is the agentbus held_reason while waiting. DeliveredAt is when the
+// target got it. Retrying marks a failure agentbus is still retrying.
 type Delivery struct {
-	At      time.Time `json:"at"`
-	Target  string    `json:"target"`
-	Outcome string    `json:"outcome"`
-	Error   string    `json:"error,omitempty"`
+	At          time.Time `json:"at"`
+	Target      string    `json:"target"`
+	Outcome     string    `json:"outcome"`
+	Error       string    `json:"error,omitempty"`
+	Message     time.Time `json:"message,omitzero"`
+	Compose     bool      `json:"compose,omitempty"`
+	BusID       string    `json:"busId,omitempty"`
+	Reason      string    `json:"reason,omitempty"`
+	DeliveredAt time.Time `json:"deliveredAt,omitzero"`
+	Retrying    bool      `json:"retrying,omitempty"`
+}
+
+// State is the delivery state: OutcomeWaiting, OutcomeDelivered,
+// OutcomeFailed, or OutcomeResend. A legacy queued record is waiting.
+func (d Delivery) State() string {
+	if d.Outcome == OutcomeLegacyQueued {
+		return OutcomeWaiting
+	}
+	return d.Outcome
 }
 
 // DeliveryKey is the stable retry key for item's current answer,
@@ -47,7 +73,7 @@ func DeliveryBackoff(attempts int) time.Duration {
 }
 
 // Undelivered is the error on an answered item whose latest attempt
-// for this answer failed. A delivered or queued attempt is not undelivered.
+// for this answer failed. A delivered or waiting attempt is not undelivered.
 func Undelivered(item *Item) (string, bool) {
 	attempts := attemptsSinceAnswer(item)
 	if len(attempts) == 0 {
@@ -62,34 +88,38 @@ func Undelivered(item *Item) (string, bool) {
 
 // DeliverAnswer notifies item and appends one delivery record.
 // A definite failure is recorded and returned. A held agentbus target
-// is recorded as queued and is not an error. An empty local template
-// records nothing.
+// is recorded as waiting and is not an error. An empty local template
+// records nothing. The record is for the answer message and keeps the
+// agentbus message id.
 func (l *Ledger) DeliverAnswer(item *Item, out io.Writer) (Item, error) {
 	if item == nil {
 		return Item{}, fmt.Errorf("decide item is nil")
 	}
-	target, outcome, nerr := notifyAttempt(item, out)
-	if outcome == "" && nerr == nil {
+	d, nerr := notifyAttempt(item, out)
+	if d.Outcome == "" && nerr == nil {
 		stored, err := l.Get(item.ID)
 		if err != nil {
 			return Item{}, err
 		}
 		return stored, nil
 	}
-	msg := ""
-	if nerr != nil {
-		msg = nerr.Error()
-	}
-	updated, err := l.appendDelivery(item.ID, Delivery{
-		At:      l.clock().UTC(),
-		Target:  target,
-		Outcome: outcome,
-		Error:   msg,
-	})
+	d.At = l.clock().UTC()
+	d.Message = item.AnsweredAt
+	updated, err := l.appendDelivery(item.ID, d)
 	if err != nil {
 		return Item{}, err
 	}
 	return updated, nerr //nolint:wrapcheck // the notify error is already wrapped
+}
+
+// RecordCompose stores d as the delivery of the human message at
+// msgAt on id, a reply or the first note of a new thread. The time is
+// now. A failure is also id's notifyError; any other outcome clears it.
+func (l *Ledger) RecordCompose(id string, msgAt time.Time, d Delivery) (Item, error) {
+	d.At = l.clock().UTC()
+	d.Message = msgAt.UTC()
+	d.Compose = true
+	return l.appendDelivery(id, d)
 }
 
 // RetryDue delivers again for answered items whose latest attempt failed,
@@ -125,7 +155,7 @@ func (l *Ledger) appendDelivery(id string, d Delivery) (Item, error) {
 			it.NotifyError = d.Error
 		case OutcomeResend:
 			it.NotifyError = d.Error
-		case OutcomeDelivered, OutcomeQueued:
+		case OutcomeDelivered, OutcomeWaiting:
 			it.NotifyError = ""
 		}
 		updated = *it
@@ -147,22 +177,24 @@ func deliveryDue(it *Item, now time.Time) bool {
 		return false
 	}
 	last := attempts[n-1]
-	if last.Outcome != OutcomeFailed {
+	if last.Outcome != OutcomeFailed || last.Retrying {
 		return false
 	}
 	return !now.Before(last.At.Add(DeliveryBackoff(n)))
 }
 
+// attemptsSinceAnswer is the answer deliveries of the current answer.
+// A reply or new-thread record is not one.
 func attemptsSinceAnswer(it *Item) []Delivery {
 	if it == nil {
 		return nil
 	}
-	if it.AnsweredAt.IsZero() {
-		return append([]Delivery(nil), it.Delivery...)
-	}
 	var out []Delivery
 	for _, d := range it.Delivery {
-		if !d.At.Before(it.AnsweredAt) {
+		if d.Compose {
+			continue
+		}
+		if it.AnsweredAt.IsZero() || !d.At.Before(it.AnsweredAt) {
 			out = append(out, d)
 		}
 	}

@@ -79,6 +79,9 @@ func (s *Server) handle(ctx context.Context, req Request) Response {
 	if resp, ok := s.itemOp(req); ok {
 		return resp
 	}
+	if resp, ok := s.busOp(ctx, req); ok {
+		return resp
+	}
 	switch req.Op {
 	case OpHello:
 		return Response{Version: Version}
@@ -88,10 +91,6 @@ func (s *Server) handle(ctx context.Context, req Request) Response {
 		return s.status()
 	case OpTargets:
 		return Response{Targets: s.Targets, Agentbus: s.Agentbus}
-	case OpBusList:
-		return s.busList(ctx)
-	case OpBusHealth:
-		return s.busHealth(ctx)
 	case OpConfig:
 		return s.config()
 	case OpSetAvatar:
@@ -107,6 +106,20 @@ func (s *Server) handle(ctx context.Context, req Request) Response {
 	default:
 		return Response{Error: fmt.Sprintf("unknown op %q", req.Op)}
 	}
+}
+
+// busOp answers an op that runs agentbus on the hub and reports whether
+// req is one.
+func (s *Server) busOp(ctx context.Context, req Request) (Response, bool) {
+	switch req.Op {
+	case OpBusList:
+		return s.busList(ctx), true
+	case OpBusHealth:
+		return s.busHealth(ctx), true
+	case OpDeliveries:
+		return s.checkDeliveries(ctx), true
+	}
+	return Response{}, false
 }
 
 // itemOp answers an op on one item and reports whether req is one.
@@ -239,6 +252,15 @@ func (s *Server) busHealth(ctx context.Context) Response {
 		return failed(err)
 	}
 	return Response{Output: string(out)}
+}
+
+// checkDeliveries runs the batched `agentbus status --json` on the hub,
+// where the ledger and the bus messages are, and stores what it says.
+func (s *Server) checkDeliveries(ctx context.Context) Response {
+	if err := s.Backend.CheckDeliveries(ctx); err != nil {
+		return failed(err)
+	}
+	return Response{}
 }
 
 // send resolves the recipient on the hub: a configured target by name,
