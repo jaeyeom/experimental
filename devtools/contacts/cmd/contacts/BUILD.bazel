@@ -3,6 +3,7 @@ load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 go_library(
     name = "go_default_library",
     srcs = [
+        "commitments.go",
         "log.go",
         "main.go",
         "people.go",
@@ -24,6 +25,7 @@ go_test(
     name = "go_default_test",
     size = "small",
     srcs = [
+        "commitments_test.go",
         "log_test.go",
         "main_test.go",
         "people_test.go",

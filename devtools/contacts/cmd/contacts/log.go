@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/contacts"
@@ -52,7 +51,7 @@ func (a *app) cmdLog(args []string) int {
 		return exitOK
 	}
 	for _, r := range rows {
-		fmt.Fprintf(a.stdout, "%s\t%s\t%s\t%s\t%s\n", r.Time, r.Caller, r.Command, r.PersonID, r.Reason)
+		a.printRow(r.Time, r.Caller, r.Command, r.PersonID, r.Reason)
 	}
 	return exitOK
 }

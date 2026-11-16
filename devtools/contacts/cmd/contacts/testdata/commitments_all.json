@@ -1,0 +1,44 @@
+[
+  {
+    "id": 1,
+    "person": "ada",
+    "direction": "mine",
+    "text": "send the draft",
+    "due": "2026-03-09",
+    "status": "open",
+    "link": "https://chat.example/x/2",
+    "reporter": "ops",
+    "note": "",
+    "createdAt": "2026-03-10T09:30:00Z",
+    "closedAt": "",
+    "overdue": true
+  },
+  {
+    "id": 2,
+    "person": "ada",
+    "direction": "theirs",
+    "text": "review the API",
+    "due": "2026-03-12",
+    "status": "open",
+    "link": "",
+    "reporter": "ops",
+    "note": "",
+    "createdAt": "2026-03-10T09:30:00Z",
+    "closedAt": "",
+    "overdue": false
+  },
+  {
+    "id": 3,
+    "person": "bob",
+    "direction": "theirs",
+    "text": "share the logs",
+    "due": "",
+    "status": "done",
+    "link": "",
+    "reporter": "ops",
+    "note": "got them",
+    "createdAt": "2026-03-10T09:30:00Z",
+    "closedAt": "2026-03-10T09:30:00Z",
+    "overdue": false
+  }
+]

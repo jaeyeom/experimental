@@ -19,12 +19,12 @@ func TestEveryCommandWritesOneLogRow(t *testing.T) {
 
 	out := ta.mustRun("log")
 	want := []string{
-		"ops\tdelete\tada\t",
-		"ops\tmerge\tada\t",
+		"ops\tdelete\tada",
+		"ops\tmerge\tada",
 		"inbox\tresolve\tada\twho is this",
-		"ops\tedit\tada\t",
-		"env-agent\tadd\tbob\t",
-		"ops\tadd\tada\t",
+		"ops\tedit\tada",
+		"env-agent\tadd\tbob",
+		"ops\tadd\tada",
 	}
 	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
 	if len(lines) != len(want) {
