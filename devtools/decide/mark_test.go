@@ -269,3 +269,91 @@ func TestCheckDeliveriesRunsNothingWhenNothingWaits(t *testing.T) {
 		t.Fatalf("agentbus ran with nothing waiting: %q", bus.calls)
 	}
 }
+
+func lateNotes(it *Item) []string {
+	var notes []string
+	for _, msg := range it.Messages {
+		if msg.Author == "system" && strings.HasPrefix(msg.Text, "delivered after") {
+			notes = append(notes, msg.Text)
+		}
+	}
+	return notes
+}
+
+func TestHeldThenDeliveredAddsOneLateNote(t *testing.T) {
+	writeConfig(t, `{}`)
+	installProgram(t, "agentbus", "#!/bin/sh\nprintf '%s\\n' 'm-1 queued for delivery'\n")
+	clock := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	led := openDeliveryLedger(t, t.TempDir(), &clock)
+	item := answeredRelay(t, led, "agentbus:ops/x", "")
+	if _, err := led.DeliverAnswer(&item, nil); err != nil {
+		t.Fatal(err)
+	}
+	bus := &statusBus{reports: []string{`{"id":"m-1","state":"held","held_reason":"transport unreachable"}`}}
+	if _, err := led.CheckDeliveries(context.Background(), bus.run); err != nil {
+		t.Fatal(err)
+	}
+	if notes := lateNotes(ptr(mustGet(t, led, item.ID))); len(notes) != 0 {
+		t.Fatalf("held message has notes %q", notes)
+	}
+	unread := mustGet(t, led, item.ID).Unread
+
+	bus.reports = []string{`{"id":"m-1","state":"delivered","delivered_at":"2026-11-14T12:07:00.000Z"}`}
+	for range 3 {
+		if _, err := led.CheckDeliveries(context.Background(), bus.run); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := mustGet(t, led, item.ID)
+	if notes := lateNotes(&got); len(notes) != 1 || notes[0] != "delivered after 7 min." {
+		t.Fatalf("notes = %q", notes)
+	}
+	if got.Unread != unread {
+		t.Fatalf("the note changed unread to %v", got.Unread)
+	}
+	if last := got.Messages[len(got.Messages)-1]; !last.Time.Equal(time.Date(2026, 11, 14, 12, 7, 0, 0, time.UTC)) {
+		t.Fatalf("note time = %v, want the delivery time", last.Time)
+	}
+}
+
+func TestShortHoldSaysUnderAMinute(t *testing.T) {
+	writeConfig(t, `{}`)
+	installProgram(t, "agentbus", "#!/bin/sh\nprintf '%s\\n' 'm-1 queued for delivery'\n")
+	clock := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	led := openDeliveryLedger(t, t.TempDir(), &clock)
+	item := answeredRelay(t, led, "agentbus:ops/x", "")
+	if _, err := led.DeliverAnswer(&item, nil); err != nil {
+		t.Fatal(err)
+	}
+	bus := &statusBus{reports: []string{`{"id":"m-1","state":"delivered","delivered_at":"2026-11-14T12:00:20.000Z"}`}}
+	if _, err := led.CheckDeliveries(context.Background(), bus.run); err != nil {
+		t.Fatal(err)
+	}
+	if notes := lateNotes(ptr(mustGet(t, led, item.ID))); len(notes) != 1 || notes[0] != "delivered after <1 min." {
+		t.Fatalf("notes = %q", notes)
+	}
+}
+
+func TestDirectDeliveryAddsNoNote(t *testing.T) {
+	writeConfig(t, `{}`)
+	installProgram(t, "agentbus", "#!/bin/sh\nprintf '%s\\n' 'm-1 delivered'\n")
+	clock := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	led := openDeliveryLedger(t, t.TempDir(), &clock)
+	item := answeredRelay(t, led, "agentbus:ops/x", "")
+	if _, err := led.DeliverAnswer(&item, nil); err != nil {
+		t.Fatal(err)
+	}
+	got := mustGet(t, led, item.ID)
+	if mark, _ := MessageMark(&got, answerMessage(t, &got)); mark.State != OutcomeDelivered {
+		t.Fatalf("mark = %+v, want delivered at send", mark)
+	}
+	bus := &statusBus{reports: []string{`{"id":"m-1","state":"delivered","delivered_at":"2026-11-14T12:07:00.000Z"}`}}
+	if _, err := led.CheckDeliveries(context.Background(), bus.run); err != nil {
+		t.Fatal(err)
+	}
+	if notes := lateNotes(ptr(mustGet(t, led, item.ID))); len(notes) != 0 {
+		t.Fatalf("direct delivery has notes %q", notes)
+	}
+}
+
+func ptr[T any](v T) *T { return &v }

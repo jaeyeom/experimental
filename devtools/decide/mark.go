@@ -225,17 +225,42 @@ func pendingIDs(items []Item) []string {
 }
 
 // applyReports applies reports to it's pending deliveries and reports
-// whether one changed.
+// whether one changed. A waiting delivery that is now delivered adds a
+// late note to the thread.
 func applyReports(it *Item, reports map[string]busReport) bool {
 	changed := false
+	var notes []Message
 	for j := range it.Delivery {
 		d := &it.Delivery[j]
 		r, ok := reports[statusID(it, *d)]
-		if ok && d.Pending() && applyReport(d, r) {
+		if !ok || !d.Pending() {
+			continue
+		}
+		waited := d.State() == OutcomeWaiting
+		if applyReport(d, r) {
 			changed = true
+			if waited && d.State() == OutcomeDelivered {
+				notes = append(notes, lateNote(*d))
+			}
 		}
 	}
+	if len(notes) > 0 {
+		ensureMessages(it)
+		it.Messages = append(it.Messages, notes...)
+	}
 	return changed
+}
+
+// lateNote is the system note for a held message that d now delivered:
+// "delivered after N min.", or "<1 min" for a shorter wait. It is stored
+// in the thread only; it is not sent and does not mark the item unread.
+func lateNote(d Delivery) Message {
+	m := markOf(d)
+	wait := "<1 min"
+	if mins := int(m.Late.Round(time.Minute) / time.Minute); mins > 0 {
+		wait = fmt.Sprintf("%d min", mins)
+	}
+	return Message{Author: "system", Time: m.DeliveredAt, Text: "delivered after " + wait + "."}
 }
 
 func parseReports(out string) map[string]busReport {
