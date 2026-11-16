@@ -383,7 +383,11 @@ of three outcomes. The thread view shows it after the message header:
   transport is unreachable), ~waiting: target composer busy~, or another
   agentbus ~held_reason~. A waiting message is never shown as delivered.
 - ~delivered 14:05~ is when the target got it. ~, 7 min late~ follows
-  when it waited first.
+  when it waited first. A waiting message that is then delivered also
+  adds one system note to the thread, at the delivery time: ~delivered
+  after 7 min.~, or ~delivered after <1 min.~ for a shorter wait. The
+  note stays in the thread: it is not sent to the agent and does not
+  mark the item unread. A message delivered at once adds no note.
 - ~failed: <error>~ is a send that failed, or a wake agentbus is still
   retrying.
 
