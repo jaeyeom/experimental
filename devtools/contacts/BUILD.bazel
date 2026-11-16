@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "config.go",
+        "people.go",
         "store.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/contacts",
@@ -17,7 +18,10 @@ go_library(
 go_test(
     name = "go_default_test",
     size = "small",
-    srcs = ["store_test.go"],
+    srcs = [
+        "people_test.go",
+        "store_test.go",
+    ],
     embed = [":go_default_library"],
     deps = ["//devtools/pkg/sqlitedb:go_default_library"],
 )
