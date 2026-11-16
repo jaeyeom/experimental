@@ -49,6 +49,7 @@ var commands = map[string]func(a *app, args []string) int{
 	"commit":      (*app).cmdCommit,
 	"close":       (*app).cmdClose,
 	"commitments": (*app).cmdCommitments,
+	"age":         (*app).cmdAge,
 	"log":         (*app).cmdLog,
 }
 
@@ -65,6 +66,7 @@ var usages = []struct{ name, line string }{
 	{"commit", "contacts commit <person> --direction mine|theirs --text T [--due YYYY-MM-DD] [--link URL] --by agent"},
 	{"close", "contacts close <commitment-id> --status done|dropped [--note N] [--by agent]"},
 	{"commitments", "contacts commitments [<person>] [--open] [--overdue] [--json] [--reason R] [--by agent]"},
+	{"age", "contacts age [--dry-run] [--drop]"},
 	{"log", "contacts log [--caller C] [--person P] [--since YYYY-MM-DD] [--json]"},
 }
 

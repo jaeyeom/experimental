@@ -79,6 +79,9 @@ var migrations = []string{
 		reason    TEXT NOT NULL DEFAULT ''
 	);
 	CREATE INDEX access_log_time ON access_log(time);`,
+	// compacted is how many events a contacts age summary stands for; 0
+	// for an ordinary event.
+	`ALTER TABLE events ADD COLUMN compacted INTEGER NOT NULL DEFAULT 0;`,
 }
 
 // Store is an open contacts database plus its data directory.
