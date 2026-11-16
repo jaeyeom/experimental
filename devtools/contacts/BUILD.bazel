@@ -1,0 +1,23 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "config.go",
+        "store.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/contacts",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//devtools/pkg/sqlitedb:go_default_library",
+        "@com_github_pelletier_go_toml_v2//:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    size = "small",
+    srcs = ["store_test.go"],
+    embed = [":go_default_library"],
+    deps = ["//devtools/pkg/sqlitedb:go_default_library"],
+)
