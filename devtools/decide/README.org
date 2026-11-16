@@ -251,6 +251,7 @@ Any other second key says ~unknown go-to key~.
 | ~o~                          | item                         | Focus the owner's herdr tab.                               |
 | ~M~                          | any                          | Toggle mouse capture.                                      |
 | ~x~ / ~H~ / ~X~ / ~R~ / ~a~  | contacts                     | Hide, show hidden, hide dead, release, alias.              |
+| ~*~                          | contacts, compose recipients | Star or unstar the name. Starred names lead the list.      |
 | Enter                        | contacts                     | Filter every folder to that agent.                         |
 | Tab / Shift-Tab              | compose                      | Move among recipient, text, and Send.                      |
 | Enter                        | compose                      | Newline in the text. Send on the Send button.              |
@@ -456,6 +457,7 @@ machine only. A hub does not send it.
 | ~openCommand~          | ~xdg-open~ or ~open~        | Argv that opens a link. The URL is the last argument.                          |
 | ~hyperlinks~           | on                          | OSC 8 links in the item view. ~false~ turns them off.                          |
 | ~hiddenContacts~       | none                        | Names the Contacts folder hides.                                               |
+| ~favoriteContacts~     | none                        | Starred names the recipient list shows first, in starred order.                |
 | ~contactAliases~       | none                        | Ledger name to canonical agent name.                                           |
 | ~ui.utc~               | false                       | Inbox stamps in UTC.                                                           |
 | ~ui.clipboard~         | ~auto~                      | ~auto~, ~osc52~, ~command~, or ~off~.                                          |
@@ -492,9 +494,9 @@ off from one second to 30. A write while disconnected is not queued.
 
 Display keys come from the hub, and a key set locally wins: ~avatars~,
 ~avatarDefault~, ~avatarMono~, ~recipients~, ~recipientsTimeout~,
-~targets~, ~hyperlinks~, ~hiddenContacts~, ~contactAliases~. ~hub~,
-~machine~, ~openCommand~, ~checkouts~, ~ui~, and the templates stay
-local. ~decide config show --effective~ prints each key, ~local~ or
+~targets~, ~hyperlinks~, ~hiddenContacts~, ~favoriteContacts~,
+~contactAliases~. ~hub~, ~machine~, ~openCommand~, ~checkouts~, ~ui~,
+and the templates stay local. ~decide config show --effective~ prints each key, ~local~ or
 ~hub~, and the value, tab-separated.
 
 The hub needs a ~BatchMode=yes~ key, ~decide~ on ~PATH~, and a POSIX
@@ -528,7 +530,12 @@ and sender. ~human~ and ~system~ are not contacts. ~active~ is alive,
 known only from the ledger. ~x~ hides a row until it is active again.
 ~H~ shows hidden rows for this session. ~X~ hides every dead contact
 after a confirm. ~R~ runs ~agentbus release~ for a name the bus lists
-as dead. ~a~ stores a ~contactAliases~ entry. ~decide contacts prune
+as dead. ~a~ stores a ~contactAliases~ entry. ~*~ stars a contact, here or in
+the compose recipient list: starred names come first in that list,
+marked ~★~, in the order they were starred, and are not repeated
+below. A starred name that is not live still shows there, marked dead.
+Hidden and starred do not conflict: the name stays hidden in Contacts
+and is still listed first when composing. ~decide contacts prune
 --dead~ prints names and writes nothing unless ~--yes~. ~--release~
 also releases those bus names.
 

@@ -422,9 +422,12 @@ func (m *Model) ensureComposeDead(c contact) {
 	})
 }
 
-// contactsHideKey handles hide, show-hidden, hide-dead, and release.
+// contactsHideKey handles hide, show-hidden, hide-dead, release, alias,
+// and star.
 func (m *Model) contactsHideKey(r rune) bool {
 	switch r {
+	case '*':
+		m.starContact()
 	case 'x':
 		m.hideSelected()
 	case 'H':
@@ -592,6 +595,14 @@ func (m *Model) contactCell(row contact, dimAka bool) string {
 	return row.Name + " " + dimNav.Render(akaSuffix(row))
 }
 
+// starredCell is the name column with the favorite mark.
+func (m *Model) starredCell(row contact, dimAka bool) string {
+	if m.isFavorite(row.Name) {
+		return favoriteMark + " " + m.contactCell(row, dimAka)
+	}
+	return m.contactCell(row, dimAka)
+}
+
 // contactRowStyle is the highlight for contact row i. dimAka is true
 // when that highlight does not already style the whole line.
 func (m *Model) contactRowStyle(row contact, i int) (style lipgloss.Style, dimAka bool) {
@@ -617,7 +628,7 @@ func (m *Model) contactTable(width int, now time.Time, rows []contact) []screenL
 		styles[i] = style
 		cells[i] = []string{
 			m.avatarMark(row.Name),
-			m.contactCell(row, dimAka),
+			m.starredCell(row, dimAka),
 			row.stateLabel(),
 			row.liveLabel(),
 			strconv.Itoa(row.Open),

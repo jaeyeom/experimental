@@ -25,28 +25,29 @@ const Version = 8
 // Ops. Archive is done with the outcome "archived". Deliveries refreshes
 // the pending delivery marks on the hub.
 const (
-	OpHello      = "hello"
-	OpList       = "list"
-	OpShow       = "show"
-	OpMarkRead   = "mark-read"
-	OpAnswer     = "answer"
-	OpReply      = "reply"
-	OpDone       = "done"
-	OpArchive    = "archive"
-	OpWithdraw   = "withdraw"
-	OpSnooze     = "snooze"
-	OpUnsnooze   = "unsnooze"
-	OpStatus     = "status"
-	OpTargets    = "targets"
-	OpBusList    = "bus-list"
-	OpBusHealth  = "bus-health"
-	OpSend       = "send"
-	OpLocate     = "locate"
-	OpConfig     = "config"
-	OpSetAvatar  = "set-avatar"
-	OpSetHidden  = "set-hidden"
-	OpSetAliases = "set-contact-aliases"
-	OpDeliveries = "check-deliveries"
+	OpHello        = "hello"
+	OpList         = "list"
+	OpShow         = "show"
+	OpMarkRead     = "mark-read"
+	OpAnswer       = "answer"
+	OpReply        = "reply"
+	OpDone         = "done"
+	OpArchive      = "archive"
+	OpWithdraw     = "withdraw"
+	OpSnooze       = "snooze"
+	OpUnsnooze     = "unsnooze"
+	OpStatus       = "status"
+	OpTargets      = "targets"
+	OpBusList      = "bus-list"
+	OpBusHealth    = "bus-health"
+	OpSend         = "send"
+	OpLocate       = "locate"
+	OpConfig       = "config"
+	OpSetAvatar    = "set-avatar"
+	OpSetHidden    = "set-hidden"
+	OpSetAliases   = "set-contact-aliases"
+	OpSetFavorites = "set-favorites"
+	OpDeliveries   = "check-deliveries"
 )
 
 // Request is one line from the client. Item is the item id. Text is the
@@ -64,6 +65,7 @@ type Request struct {
 	// Name and Choice are a set-avatar: a built-in id, "default", or "none".
 	// Text for set-hidden is a JSON array of hidden contact names.
 	// Text for set-contact-aliases is a JSON object of ledger name to agent.
+	// Text for set-favorites is a JSON array of starred contact names.
 	Name   string `json:"name,omitempty"`
 	Choice string `json:"choice,omitempty"`
 	// Seen is the newest message time the client has rendered. Archive
@@ -94,16 +96,17 @@ type Response struct {
 // writeOps change the ledger or send something. While the hub is
 // unreachable they fail at once and are never queued.
 var writeOps = map[string]bool{
-	OpMarkRead:   true,
-	OpAnswer:     true,
-	OpReply:      true,
-	OpDone:       true,
-	OpArchive:    true,
-	OpWithdraw:   true,
-	OpSnooze:     true,
-	OpUnsnooze:   true,
-	OpSend:       true,
-	OpSetAvatar:  true,
-	OpSetHidden:  true,
-	OpSetAliases: true,
+	OpMarkRead:     true,
+	OpAnswer:       true,
+	OpReply:        true,
+	OpDone:         true,
+	OpArchive:      true,
+	OpWithdraw:     true,
+	OpSnooze:       true,
+	OpUnsnooze:     true,
+	OpSend:         true,
+	OpSetAvatar:    true,
+	OpSetHidden:    true,
+	OpSetAliases:   true,
+	OpSetFavorites: true,
 }

@@ -668,6 +668,7 @@ func inboxOptions(cfg decide.Config, stdout io.Writer, snoozed bool) tui.Options
 		ArchiveGrace:      cfg.ArchiveGrace(),
 		BusHealthInterval: cfg.BusHealthInterval(),
 		HiddenContacts:    cfg.HiddenContacts,
+		FavoriteContacts:  cfg.FavoriteContacts,
 		ContactAliases:    cfg.ContactAliases,
 	}
 }

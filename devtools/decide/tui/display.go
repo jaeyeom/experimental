@@ -22,6 +22,7 @@ type Display struct {
 	NoHyperlinks      bool
 	AvatarFiles       map[string]decide.AvatarFile
 	HiddenContacts    []string
+	FavoriteContacts  []string
 	ContactAliases    map[string]string
 	Note              string
 }
@@ -59,6 +60,7 @@ func (m *Model) applyDisplay(d Display) {
 	m.NoHyperlinks = d.NoHyperlinks
 	prevHidden := strings.Join(m.hidden, "\x00")
 	m.hidden = append([]string(nil), d.HiddenContacts...)
+	m.favorites = append([]string(nil), d.FavoriteContacts...)
 	hiddenChanged := strings.Join(m.hidden, "\x00") != prevHidden
 	aliasesChanged := !sameAliases(m.aliases, d.ContactAliases)
 	m.aliases = cloneAliases(d.ContactAliases)

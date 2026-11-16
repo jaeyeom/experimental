@@ -416,6 +416,31 @@ func (c *Client) SetHidden(names []string) (decide.DisplaySettings, error) {
 	return *resp.Display, nil
 }
 
+// SetFavorites saves the starred contact list on the hub and returns its
+// display settings. A hub that does not know the op says to update
+// decide there. A nil names list clears the key.
+func (c *Client) SetFavorites(names []string) (decide.DisplaySettings, error) {
+	if names == nil {
+		names = []string{}
+	}
+	raw, err := json.Marshal(names)
+	if err != nil {
+		return decide.DisplaySettings{}, fmt.Errorf("favorite contacts: %w", err)
+	}
+	resp, err := c.call(Request{Op: OpSetFavorites, Text: string(raw)})
+	if err != nil {
+		if strings.HasPrefix(err.Error(), "unknown op ") {
+			return decide.DisplaySettings{}, fmt.Errorf("hub %s: %s; update decide on the hub", c.Label, err.Error())
+		}
+		return decide.DisplaySettings{}, err
+	}
+	if resp.Display == nil {
+		return decide.DisplaySettings{}, fmt.Errorf("hub %s: set-favorites returned no display settings", c.Label)
+	}
+	c.noteDisplay(*resp.Display)
+	return *resp.Display, nil
+}
+
 // SetAliases saves contact aliases on the hub and returns its display
 // settings. A hub that does not know the op says to update decide there.
 // A nil map clears the key.
