@@ -186,18 +186,35 @@ func (m *Model) candidates() []Target {
 	return append(append([]Target{}, out...), extra...)
 }
 
-// listedCandidates are the configured targets and the last bus list.
+// listedCandidates are the configured targets and the last bus list. A
+// configured agentbus:<name> target is replaced, at its config position,
+// by the bus entry <name>, which then leaves the bus section.
 func (m *Model) listedCandidates() []Target {
 	if len(m.busNames) == 0 {
 		return m.Targets
 	}
 	out := make([]Target, 0, len(m.Targets)+len(m.busNames))
+	merged := make(map[string]bool)
 	for _, tg := range m.Targets {
+		if r, ok := decide.AgentbusPaneRecipient(tg.Pane); ok {
+			if i := slices.IndexFunc(m.busNames, func(b Target) bool { return b.Name == r.Name }); i >= 0 {
+				if !merged[r.Name] {
+					merged[r.Name] = true
+					out = append(out, m.busNames[i])
+				}
+				continue
+			}
+		}
 		if !slices.ContainsFunc(m.busNames, func(b Target) bool { return decide.SamePane(b.Pane, tg.Pane) }) {
 			out = append(out, tg)
 		}
 	}
-	return append(out, m.busNames...)
+	for _, b := range m.busNames {
+		if !merged[b.Name] {
+			out = append(out, b)
+		}
+	}
+	return out
 }
 
 // samePane reports whether bus handle holds the configured pane. A herdr
