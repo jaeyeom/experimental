@@ -315,6 +315,14 @@ goes on the first check after the bus recovers. A check that is slow
 line and is logged once at debug level. In hub mode the check runs on
 the hub, where agent messages are sent.
 
+While that line is up, sending a reply or a compose note to an agent
+on the bus (a bus name, or a pane that starts with ~agentbus:~) first
+asks ~The bus is down. This message will wait until it's fixed.~ with
+~[Send anyway]~ focused and ~Cancel~. Enter picks the focused choice,
+Tab moves the focus, ~y~ sends, and ~n~ or Esc cancels. Cancel keeps the
+draft. The prompt uses the last background check and runs none of its
+own. A local pane target sends without asking.
+
 ~decide status~ uses ~status.json~. ~set --agent~ writes one row. A new
 row with no ~--state~ is ~working~, and a later set keeps the state.
 ~list~ prints name, state, age, and text. A row older than five minutes

@@ -263,8 +263,9 @@ func (m *Model) mouseCommand() tea.Cmd {
 
 func (m *Model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// Shift+drag is the terminal's selection bypass. Leave it alone.
-	// Capture off lets a plain drag select in the terminal.
-	if !m.mouseOn || msg.Shift || m.snoozing || m.linkPick {
+	// Capture off lets a plain drag select in the terminal. The bus-down
+	// prompt takes only keys.
+	if !m.mouseOn || msg.Shift || m.snoozing || m.linkPick || m.confirmKind == confirmBusDown {
 		return m, nil
 	}
 	if m.avatarPick {

@@ -26,6 +26,13 @@ type Target struct {
 	Live string
 }
 
+// onBus reports a target delivered with `agentbus send`: a bus name, or
+// a pane that starts with agentbus:, as LocalBackend.Send routes it.
+func (tg Target) onBus() bool {
+	_, ok := decide.AgentbusPaneRecipient(tg.Pane)
+	return tg.Bus || ok
+}
+
 type sendRecord struct {
 	Target string `json:"target"`
 	Pane   string `json:"pane"`
@@ -132,6 +139,9 @@ func (m *Model) sendNote() error {
 	tg, ok := m.selectedTarget()
 	if !ok {
 		m.status = "no compose target"
+		return nil
+	}
+	if m.askBusDown(tg.onBus(), m.sendNote) {
 		return nil
 	}
 	if err := m.store().Send(m.forward, tg, m.note); err != nil {

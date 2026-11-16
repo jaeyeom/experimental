@@ -136,3 +136,72 @@ func (m *Model) busBanner() (screenLine, bool) {
 	}
 	return line, true
 }
+
+// busDownPrompt asks before a send to an agent while the bus is down.
+const busDownPrompt = "The bus is down. This message will wait until it's fixed."
+
+// askBusDown holds send behind the bus-down prompt when the target is
+// on the bus and the last health check said down. It reads the cached
+// report and runs no check. It reports whether send is held. The held
+// send runs while the prompt is still set, so it does not ask again.
+func (m *Model) askBusDown(onBus bool, send func() error) bool {
+	if !onBus || !m.busHealth.down() || m.confirmKind == confirmBusDown {
+		return false
+	}
+	m.confirmKind = confirmBusDown
+	m.confirmSend = send
+	m.confirmCancel = false
+	return true
+}
+
+// busDownKey answers the bus-down prompt. Enter picks the focused
+// choice, Send anyway at first, and Tab moves the focus. y sends; n and
+// Esc cancel. Cancel leaves the draft and its composer as they were.
+func (m *Model) busDownKey(r rune) error {
+	switch r {
+	case '\t':
+		m.confirmCancel = !m.confirmCancel
+		return nil
+	case '\r':
+		if m.confirmCancel {
+			m.clearBusDown()
+			return nil
+		}
+	case 'y', 'Y':
+	case 'n', 'N', '\x1b':
+		m.clearBusDown()
+		return nil
+	default:
+		return nil
+	}
+	send := m.confirmSend
+	err := send()
+	m.clearBusDown()
+	return err
+}
+
+func (m *Model) clearBusDown() {
+	m.confirmKind = confirmNone
+	m.confirmSend = nil
+	m.confirmCancel = false
+}
+
+// busDownLine is the footer while the prompt is up. Brackets mark the
+// focused choice.
+func (m *Model) busDownLine() screenLine {
+	send, cancel := "[Send anyway]", " Cancel "
+	if m.confirmCancel {
+		send, cancel = " Send anyway ", "[Cancel]"
+	}
+	return screenLine{text: busDownPrompt + "  " + send + " " + cancel + "  tab switch  y/n"}
+}
+
+// replyOnBus reports a reply to item goes through `agentbus send`, as
+// LocalBackend.notifyThread routes it.
+func replyOnBus(item *decide.Item) bool {
+	if item.NotifyClosed {
+		return false
+	}
+	_, ok := decide.AgentbusPaneRecipient(item.NotifyPane)
+	return ok
+}
