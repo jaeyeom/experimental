@@ -1,0 +1,9 @@
+id:       ada-lovelace
+name:     Ada Lovelace
+aliases:  countess
+team:     core
+role:     lead
+timezone: Asia/Seoul (now 2026-03-10 18:30 +09:00)
+channel:  chat
+handles:  chat:ada.l, code:ada-l
+notes:    $DATA/people/ada-lovelace.md

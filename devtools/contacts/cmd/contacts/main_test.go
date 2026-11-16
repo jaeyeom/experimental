@@ -2,12 +2,15 @@ package main
 
 import (
 	"bytes"
+	"flag"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+var updateGolden = flag.Bool("update", false, "rewrite testdata golden files")
 
 // fixedNow is 2026-03-10 18:30 in Seoul, 09:30 UTC.
 var fixedNow = time.Date(2026, 3, 10, 9, 30, 0, 0, time.UTC)
@@ -56,6 +59,31 @@ func (ta *testApp) mustRun(args ...string) string {
 		ta.t.Fatalf("contacts %s: exit %d\nstdout: %s\nstderr: %s", strings.Join(args, " "), code, out, errOut)
 	}
 	return out
+}
+
+// golden compares got, with the data directory replaced by $DATA, to
+// testdata/<name>, rewriting the file under -update.
+func (ta *testApp) golden(name, got string) {
+	t := ta.t
+	t.Helper()
+	got = strings.ReplaceAll(got, ta.dataDir, "$DATA")
+	path := filepath.Join("testdata", name)
+	if *updateGolden {
+		if err := os.MkdirAll("testdata", 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(got), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read golden (run with -update to create): %v", err)
+	}
+	if got != string(want) {
+		t.Errorf("%s mismatch\n--- got ---\n%s\n--- want ---\n%s", name, got, want)
+	}
 }
 
 func TestInit(t *testing.T) {
