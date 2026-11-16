@@ -230,6 +230,18 @@ func commands() []command {
 			run:     noStdin(cmdDoctor),
 		},
 		{
+			name: "health",
+			summary: "Report whether the bus can deliver now, in one round trip to the daemon (the hub's in hub mode) " +
+				"that tests each transport. It never starts the daemon. Exit 0: ok; 1: the daemon is unreachable or cannot report; " +
+				"4: the daemon is up but a transport is down.",
+			usage: "agentbus health [--json]",
+			flags: "--json  print {\"daemon\":\"up\"|\"down\",\"transport\":\"ok\"|\"down\"|\"unknown\",\"problems\":[...]}\n" +
+				"        (default: false, text: ok, or one line per problem such as\n" +
+				"        <adapter> transport unreachable: <reason>)",
+			example: "agentbus health --json",
+			run:     noStdin(cmdHealth),
+		},
+		{
 			name:    "install-hooks",
 			summary: "Install the observe-only SendMessage hook and the merged-draft prompt guard.",
 			usage:   "agentbus install-hooks",
