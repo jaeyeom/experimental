@@ -19,6 +19,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/mailbox"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/outbox"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 	"github.com/jaeyeom/experimental/devtools/pkg/hubcall"
@@ -967,6 +968,71 @@ func outboxStatus(env []string, id string) (string, bool) {
 		return "", false
 	}
 	return outbox.StatusLine(e, outboxNow()), true
+}
+
+// outboxReport is the status --json object of an entry the hub has not
+// stored. ok is false when the hub should answer: the id is not in the
+// outbox, or the hub accepted it.
+func outboxReport(env []string, id string) (mailbox.Report, bool) {
+	box, err := openBox(env)
+	if err != nil {
+		return mailbox.Report{}, false
+	}
+	e, ok, err := box.Get(id)
+	if err != nil || !ok {
+		return mailbox.Report{}, false
+	}
+	r := mailbox.Report{ID: id, StoredAt: mailbox.ReportTime(e.EnqueuedAt)}
+	switch e.State {
+	case outbox.StatePending:
+		r.State = "held"
+		r.HeldReason = mailbox.HeldTransportUnreachable
+	case outbox.StateExpired:
+		r.State = "expired"
+	default:
+		return mailbox.Report{}, false
+	}
+	return r, true
+}
+
+// hubMessageStatus answers ids still in the local outbox here. done is false
+// when the caller should forward the whole command. With --json, the
+// local answers come first and the hub answers the rest.
+func hubMessageStatus(ctx context.Context, cfg config.Config, args, env []string, stdout, stderr io.Writer) (int, bool) {
+	asJSON, ids, ok := parseStatus(args[1:], stderr)
+	if !ok {
+		return 2, true
+	}
+	if !asJSON {
+		line, ok := outboxStatus(env, ids[0])
+		if !ok {
+			return 0, false
+		}
+		fmt.Fprintln(stdout, line)
+		return 0, true
+	}
+	var local []mailbox.Report
+	var rest []string
+	for _, id := range ids {
+		if r, ok := outboxReport(env, id); ok {
+			local = append(local, r)
+		} else {
+			rest = append(rest, id)
+		}
+	}
+	if code := printReports(stdout, stderr, local); code != 0 || len(rest) == 0 {
+		return code, true
+	}
+	fwd := append([]string{"--json"}, rest...)
+	tunnelled, ok, err := openTunnel(ctx, cfg, "status", env, stderr)
+	if err != nil && !errors.Is(err, errProtocolMismatch) {
+		fmt.Fprintf(stderr, "agentbus: %s\n", err)
+		return 1, true
+	}
+	if ok {
+		return cmdStatus(tunnelled, fwd, env, stdout, stderr), true
+	}
+	return runOnHub(ctx, cfg, append([]string{"status"}, fwd...), env, nil, stdout, stderr), true
 }
 
 func reportStaleOutbox(env []string, stdout io.Writer) {

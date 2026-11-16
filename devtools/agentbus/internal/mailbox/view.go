@@ -62,14 +62,7 @@ func (m *Mailbox) walk(id string, seen map[string]bool, parts *[]string) {
 
 // Status flushes the message's queue, then prints its state and how long it waited.
 func (m *Mailbox) Status(ctx context.Context, id string) (string, error) {
-	msg, err := m.get(id)
-	if err != nil {
-		return "", err
-	}
-	if err := m.flushHandle(ctx, msg.Handle); err != nil {
-		return "", err
-	}
-	msg, err = m.get(id)
+	msg, err := m.flushed(ctx, id)
 	if err != nil {
 		return "", err
 	}
@@ -78,6 +71,18 @@ func (m *Mailbox) Status(ctx context.Context, id string) (string, error) {
 		client = "client_id: " + msg.ClientID + "\n"
 	}
 	return fmt.Sprintf("id: %s\nstate: %s\n%s%swaited: %s\n", msg.ID, msg.State, client, m.wakeStatus(msg), m.waited(msg)), nil
+}
+
+// flushed flushes the queue of message id, then reads it again.
+func (m *Mailbox) flushed(ctx context.Context, id string) (message, error) {
+	msg, err := m.get(id)
+	if err != nil {
+		return message{}, err
+	}
+	if err := m.flushHandle(ctx, msg.Handle); err != nil {
+		return message{}, err
+	}
+	return m.get(id)
 }
 
 // Held lists queued messages in send order, with how long each has waited.

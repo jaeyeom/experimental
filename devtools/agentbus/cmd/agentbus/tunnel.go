@@ -112,15 +112,7 @@ func hubCommand(ctx context.Context, cfg config.Config, args, env []string, stdi
 	case "hook":
 		return hubRecordHook(ctx, cfg, args[1:], env, stdin, stdout, stderr), true
 	case "status":
-		if len(args) < 2 {
-			return 0, false
-		}
-		line, ok := outboxStatus(env, args[1])
-		if !ok {
-			return 0, false
-		}
-		fmt.Fprintln(stdout, line)
-		return 0, true
+		return hubMessageStatus(ctx, cfg, args, env, stdout, stderr)
 	default:
 		return 0, false
 	}

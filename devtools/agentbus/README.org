@@ -193,7 +193,7 @@ handle: herdr:local/default/w1:p1
 | ~reply <id> [<body>]~             | Reply. ~to~ is the original sender and ~re~ is ~id~.                                           |
 | ~show <id>~                       | Print one stored message.                                                                      |
 | ~thread <id>~                     | Print the chain.                                                                               |
-| ~status <id>~                     | Print id, state, client id when set, and how long it has waited.                               |
+| ~status [--json] <id>...~         | Print id, state, client id when set, and how long it has waited. ~--json~ takes several ids.   |
 | ~log~                             | Read the daemon event log.                                                                     |
 | ~outbox <ls|flush> [--watch]~     | List or flush hub-mode messages waiting on this machine.                                       |
 | ~lease <subcommand>~              | Guard a shared checkout. See [[file:docs/lease.org][the lease]].                               |
@@ -235,6 +235,25 @@ object:
 (the daemon, or the hub, cannot be reached, or cannot report). It exits 0
 when everything is ok, 1 when the daemon is unreachable or cannot
 report, and 4 when the daemon is up but a transport is down.
+
+~status --json <id>...~ is for a UI that shows delivery state per
+message. It takes several ids, message or client ids, in one call, and
+prints one object per line in the order given:
+
+#+begin_src json
+{"id":"m-7f3a","state":"held","held_reason":"transport unreachable","stored_at":"2026-11-16T17:08:06.123Z"}
+#+end_src
+
+~state~ is ~queued~, ~held~, ~delivered~, ~failed~ (the agent's wake
+failed; the message stays queued and the wake is retried), ~expired~,
+or ~unknown~ (no such id). Fields that do not apply are omitted.
+~held_reason~ is one of ~transport unreachable~, ~composer busy~ (the
+target's composer is not empty, or the pane is scrolled up or focused),
+~target not ready~, ~earlier message held~, ~hibernated~, ~delivery
+unconfirmed~, or ~other~. ~stored_at~ and ~delivered_at~ are RFC3339 in
+UTC. ~error~ says why a ~failed~ message failed. An unknown id is not an
+error; only bad usage exits 2. In hub mode, an id still in this
+machine's outbox is answered here, first, and the hub answers the rest.
 
 ~log --since~ takes a duration ago (~30m~, ~6h~, ~2d~, ~1d12h~), an
 RFC3339 time, or a ~YYYY-MM-DD~ date at local midnight. ~hibernate

@@ -94,6 +94,7 @@ go_test(
         "remote_test.go",
         "resend_test.go",
         "sandbox_test.go",
+        "status_test.go",
         "tunnel_test.go",
         "tunnelinstall_test.go",
         "wake_test.go",
