@@ -234,7 +234,8 @@ func (l *Ledger) resendAnswer(it *Item, now time.Time, out io.Writer) error {
 	if err != nil || !claimed {
 		return err
 	}
-	target, _, nerr := notifyAttempt(&cur, out)
+	sent, nerr := notifyAttempt(&cur, out)
+	target := sent.Target
 	msg := ""
 	if nerr != nil {
 		msg = nerr.Error()

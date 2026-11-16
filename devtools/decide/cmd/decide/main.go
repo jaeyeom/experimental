@@ -249,6 +249,10 @@ func deliverNewThread(led *decide.Ledger, dir, template string, rec decide.SendR
 		}
 		return decide.Item{}, err //nolint:wrapcheck // RunSend names the send
 	}
+	item, err = led.RecordCompose(item.ID, item.Messages[0].Time, decide.Delivery{Target: rec.Pane, Outcome: decide.OutcomeDelivered})
+	if err != nil {
+		return decide.Item{}, err //nolint:wrapcheck // RecordCompose names the ledger failure
+	}
 	if err := decide.AppendSend(dir, rec.Name, rec.Pane, text); err != nil {
 		return decide.Item{}, err //nolint:wrapcheck // AppendSend names the history
 	}
@@ -298,12 +302,27 @@ func cmdCompose(id, text, via, by string, jsonOut bool, stdout, stderr io.Writer
 	if item.NotifyClosed {
 		return 0
 	}
-	if err := decide.NotifyOwner(pane, machine, item.ID, text); err != nil {
-		recordNotifyError(item.ID, err)
+	d, err := decide.NotifyOwner(pane, machine, item.ID, text)
+	recordCompose(&item, d, err)
+	if err != nil {
 		return fail(stderr, err, 1)
 	}
-	recordNotifyError(item.ID, nil)
 	return 0
+}
+
+// recordCompose stores the delivery of item's newest message, the one
+// just composed. A send that failed before it had a target stores only
+// notifyError. A ledger error leaves the send result unchanged.
+func recordCompose(item *decide.Item, d decide.Delivery, err error) {
+	if d.Outcome == "" || len(item.Messages) == 0 {
+		recordNotifyError(item.ID, err)
+		return
+	}
+	led, oerr := openLedger()
+	if oerr != nil {
+		return
+	}
+	_, _ = led.RecordCompose(item.ID, item.Messages[len(item.Messages)-1].Time, d)
 }
 
 // cmdReassign moves an item to a new owner, notify pane, or both.
@@ -1181,7 +1200,13 @@ func writeShow(w io.Writer, it *decide.Item) {
 	writeField(w, "notifyError", it.NotifyError)
 	writeField(w, "follow-up", it.FollowUp)
 	for _, d := range it.Delivery {
-		line := d.Outcome
+		line := d.State()
+		if d.BusID != "" {
+			line += " " + d.BusID
+		}
+		if d.Reason != "" {
+			line += " (" + d.Reason + ")"
+		}
 		if d.Error != "" {
 			line += ": " + d.Error
 		}

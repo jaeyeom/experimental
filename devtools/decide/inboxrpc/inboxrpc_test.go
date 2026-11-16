@@ -418,6 +418,41 @@ func TestBusHealthRunsOnTheHub(t *testing.T) {
 	}
 }
 
+func TestDeliveryCheckRunsOnTheHub(t *testing.T) {
+	h := newHub(t)
+	c := connect(t, h)
+	if err := c.Send("", tui.Target{Name: "coord/primary", Bus: true}, "hello"); err != nil {
+		t.Fatal(err)
+	}
+	led, err := decide.Open(h.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := led.List()
+	if err != nil || len(items) != 1 || !decide.HasPending(&items[0]) {
+		t.Fatalf("items = %+v, %v", items, err)
+	}
+	h.server.Backend.BusRun = func(_ context.Context, args []string) ([]byte, error) {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		h.bus = append(h.bus, args)
+		return []byte(`{"id":"m-1","state":"delivered","delivered_at":"2026-11-14T12:05:00.000Z"}` + "\n"), nil
+	}
+	if err := c.CheckDeliveries(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if last := h.bus[len(h.bus)-1]; strings.Join(last, " ") != "status --json m-1" {
+		t.Fatalf("hub agentbus calls = %q", h.bus)
+	}
+	got, err := led.Get(items[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mark, ok := decide.MessageMark(&got, got.Messages[0]); !ok || mark.State != decide.OutcomeDelivered {
+		t.Fatalf("mark = %+v, %v", mark, ok)
+	}
+}
+
 func TestOwnerLocationIsSeenFromThisMachine(t *testing.T) {
 	c := &Client{Label: "me@hub", Machine: "mac", HubMachine: "hub"}
 	cases := []struct {

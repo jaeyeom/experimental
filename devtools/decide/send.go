@@ -334,28 +334,34 @@ func runOnMachine(ctx context.Context, machine, program string, args, env []stri
 // thread header, the original text, and the reply hint. The author is
 // human. An empty machine is this machine. An empty template uses
 // DefaultSendTemplate. The text stored on the thread is not changed here.
-func NotifyOwner(pane, machine, id, text string) error {
+// The attempt comes back as a Delivery for Ledger.RecordCompose.
+func NotifyOwner(pane, machine, id, text string) (Delivery, error) {
 	if strings.TrimSpace(pane) == "" {
-		return fmt.Errorf("decide compose pane is empty")
+		return Delivery{}, fmt.Errorf("decide compose pane is empty")
 	}
 	if strings.TrimSpace(id) == "" {
-		return fmt.Errorf("decide compose id is empty")
+		return Delivery{}, fmt.Errorf("decide compose id is empty")
 	}
 	if name, ok := strings.CutPrefix(pane, BusPanePrefix); ok {
 		return deliverBus(id, strings.TrimSpace(name), DeliveryNote(id, "human", text))
 	}
 	cfg, err := LoadConfig()
 	if err != nil {
-		return err
+		return Delivery{}, err
 	}
-	return RunSend(MachineArgv(SendArgv(cfg.SendTemplate, pane, DeliveryNote(id, "human", text)), machine))
+	target := pane
+	if machine != "" {
+		target = pane + "@" + machine
+	}
+	return SentDelivery(id, target, RunSend(MachineArgv(SendArgv(cfg.SendTemplate, pane, DeliveryNote(id, "human", text)), machine)))
 }
 
-// SendBus runs `agentbus send name note` and returns the message id, the
-// first word of stdout. A nil run uses ExecAgentbus. Held or queued
-// stdout is still success: the id is that first word. A nil ctx uses
+// SendBus runs `agentbus send name note` and describes it as a Delivery.
+// BusID is the message id, the first word of stdout. Held or queued
+// stdout, including the held exit 3, is waiting, not a failure. A failure
+// returns agentbus's error. A nil run uses ExecAgentbus. A nil ctx uses
 // context.Background. The call is bounded by BusSendTimeout.
-func SendBus(ctx context.Context, run AgentbusRunner, name, note string) (string, error) {
+func SendBus(ctx context.Context, run AgentbusRunner, name, note string) (Delivery, error) {
 	if run == nil {
 		run = ExecAgentbus
 	}
@@ -365,33 +371,57 @@ func SendBus(ctx context.Context, run AgentbusRunner, name, note string) (string
 	ctx, cancel := context.WithTimeout(ctx, BusSendTimeout)
 	defer cancel()
 	out, err := run(ctx, []string{"send", name, note})
-	if err != nil {
-		return "", err //nolint:wrapcheck // the inbox status line prints agentbus's error
+	target := BusPanePrefix + name
+	if _, cerr := classifyBusSend(string(out), err); cerr != nil {
+		if err == nil {
+			err = cerr
+		}
+		return failedDelivery(target, err), err
 	}
-	id, _, _ := strings.Cut(strings.TrimSpace(string(out)), " ")
-	return id, nil
+	return busSendOutcome(target, "", string(out), err)
+}
+
+// busSendID is the message id agentbus send printed: the first word of
+// text output, or the id of JSON output.
+func busSendID(stdout string) string {
+	raw := strings.TrimSpace(stdout)
+	if strings.HasPrefix(raw, "{") {
+		var body struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal([]byte(raw), &body); err != nil {
+			return ""
+		}
+		return body.ID
+	}
+	id, _, _ := strings.Cut(raw, " ")
+	return id
 }
 
 // OpenBusThread stores a thread addressed to an agentbus name and delivers
 // text with SendBus. via is ViaCLI or ViaUI. An empty forward starts a
 // new thread; otherwise the note names that item. A failed send deletes
-// the thread. The returned item includes the bus message id.
+// the thread. The returned item includes the bus message id and the
+// delivery record of its first message.
 func OpenBusThread(led *Ledger, dir, forward, name, text, via string, run AgentbusRunner) (Item, error) {
 	pane := BusPanePrefix + name
 	item, err := led.ForwardThread(forward, name, pane, text, via)
 	if err != nil {
 		return Item{}, fmt.Errorf("store decide thread: %w", err)
 	}
-	msgID, err := SendBus(context.Background(), run, name, busDeliveryNote(item.ID, forward, text))
+	d, err := SendBus(context.Background(), run, name, busDeliveryNote(item.ID, forward, text))
 	if err != nil {
 		if derr := led.Delete(item.ID); derr != nil {
 			return Item{}, fmt.Errorf("%w; %w", err, derr)
 		}
 		return Item{}, err //nolint:wrapcheck // the inbox status line prints agentbus's error
 	}
-	updated, err := led.SetBusMessage(item.ID, msgID)
-	if err != nil {
+	if _, err := led.SetBusMessage(item.ID, d.BusID); err != nil {
 		return Item{}, fmt.Errorf("record bus message: %w", err)
+	}
+	updated, err := led.RecordCompose(item.ID, item.Messages[0].Time, d)
+	if err != nil {
+		return Item{}, fmt.Errorf("record delivery: %w", err)
 	}
 	if err := AppendSend(dir, name, pane, text); err != nil {
 		return Item{}, fmt.Errorf("record decide send: %w", err)

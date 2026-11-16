@@ -569,6 +569,13 @@ func (c *Client) BusRunner(ctx context.Context, args []string) ([]byte, error) {
 	return []byte(resp.Output), nil
 }
 
+// CheckDeliveries implements tui.DeliveryChecker. The hub runs the
+// status check against its ledger.
+func (c *Client) CheckDeliveries(ctx context.Context) error {
+	_, err := c.callCtx(ctx, Request{Op: OpDeliveries})
+	return err
+}
+
 // Send implements tui.Backend. The hub looks the recipient up by name.
 func (c *Client) Send(forward string, tg tui.Target, text string) error {
 	_, err := c.call(Request{Op: OpSend, To: tg.Name, Bus: tg.Bus, Forward: forward, Text: text})

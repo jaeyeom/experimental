@@ -177,6 +177,12 @@ type Model struct {
 	healthEvery   time.Duration
 	healthTimeout time.Duration
 	healthLogged  bool
+	// deliveryPolling is set while a delivery check is scheduled. It
+	// runs every deliveryEvery and only while a delivery is pending.
+	// deliveryLogged is set once a failed check was logged.
+	deliveryPolling bool
+	deliveryEvery   time.Duration
+	deliveryLogged  bool
 	// composeDead are dead names Contacts opened compose for that the
 	// bus does not list. candidates offers them until the bus does.
 	composeDead []Target
@@ -2736,7 +2742,7 @@ func (m *Model) threadLines(it *decide.Item, width int, re *regexp.Regexp) []scr
 			lines = append(lines, messageRule(ruleWidth, reserve, name != prev))
 		}
 		block := []screenLine{{
-			text:   messageHeader(msg, now, loc, i == last, i == m.message),
+			text:   messageHeader(msg, now, loc, i == last, i == m.message, m.messageMark(it, msg)),
 			header: i + 1,
 		}}
 		for _, line := range questionLines(msg.Text, bodyWidth, re, !m.NoHyperlinks) {
@@ -2812,9 +2818,10 @@ func (m *Model) messageAvatarName(msg decide.Message) string {
 	return name
 }
 
-// messageHeader is one line: author, stamp, option keys, and latest.
-// Human and agent authors use two theme colors. The time uses the time color.
-func messageHeader(msg decide.Message, now time.Time, loc *time.Location, latest, current bool) string {
+// messageHeader is one line: author, stamp, option keys, the delivery
+// mark of a message sent to an agent, and latest. Human and agent
+// authors use two theme colors. The time uses the time color.
+func messageHeader(msg decide.Message, now time.Time, loc *time.Location, latest, current bool, mark string) string {
 	colors := loadColors()
 	r := paletteRenderer()
 	authorStyle := paletteStyle(colors.Agent, paletteAgent)
@@ -2830,6 +2837,9 @@ func messageHeader(msg decide.Message, now time.Time, loc *time.Location, latest
 	}
 	if keys := optionKeys(msg.Options); keys != "" {
 		parts = append(parts, paletteStyle(colors.Time, paletteTime).Render(keys))
+	}
+	if mark != "" {
+		parts = append(parts, paletteStyle(colors.Time, paletteTime).Render(mark))
 	}
 	if latest {
 		parts = append(parts, "latest")

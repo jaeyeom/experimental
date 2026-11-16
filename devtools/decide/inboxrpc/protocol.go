@@ -19,10 +19,11 @@ import (
 // Version is the protocol version hello returns. Version 2 added
 // config. Version 3 added set-avatar. Version 4 added set-hidden.
 // Version 5 added set-contact-aliases. Version 6 added seen on archive.
-// Version 7 added bus-health.
-const Version = 7
+// Version 7 added bus-health. Version 8 added check-deliveries.
+const Version = 8
 
-// Ops. Archive is done with the outcome "archived".
+// Ops. Archive is done with the outcome "archived". Deliveries refreshes
+// the pending delivery marks on the hub.
 const (
 	OpHello      = "hello"
 	OpList       = "list"
@@ -45,6 +46,7 @@ const (
 	OpSetAvatar  = "set-avatar"
 	OpSetHidden  = "set-hidden"
 	OpSetAliases = "set-contact-aliases"
+	OpDeliveries = "check-deliveries"
 )
 
 // Request is one line from the client. Item is the item id. Text is the

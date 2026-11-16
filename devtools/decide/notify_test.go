@@ -64,7 +64,7 @@ func TestNotifyAndOwnerShareAcceptedBusSend(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			installProgram(t, "agentbus", tc.script)
 			nerr := Notify(item, &strings.Builder{})
-			oerr := NotifyOwner("agentbus:ops/x", "", "D-7", "hello")
+			_, oerr := NotifyOwner("agentbus:ops/x", "", "D-7", "hello")
 			if (nerr != nil) != tc.wantErr || (oerr != nil) != tc.wantErr {
 				t.Fatalf("notify err %v, owner err %v, want error %v", nerr, oerr, tc.wantErr)
 			}
@@ -200,7 +200,7 @@ func TestNotifyOwnerRoutesAgentbus(t *testing.T) {
 	writeConfig(t, `{"sendTemplate":"false {pane}"}`)
 	args := filepath.Join(dir, "args")
 	installProgram(t, "agentbus", "#!/bin/sh\nprintf '%s\\n' \"$1\" \"$2\" \"$3\" > '"+args+"'\nprintf '%s\\n' 'm-1 delivered'\n")
-	if err := NotifyOwner("agentbus:ops/x", "mac", "D-7", "hello"); err != nil {
+	if _, err := NotifyOwner("agentbus:ops/x", "mac", "D-7", "hello"); err != nil {
 		t.Fatal(err)
 	}
 	got := readText(t, args)
