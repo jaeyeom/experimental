@@ -10,10 +10,16 @@ import (
 	"time"
 )
 
-var updateGolden = flag.Bool("update", false, "rewrite testdata golden files")
+var updateGolden *bool
 
-// fixedNow is 2026-03-10 18:30 in Seoul, 09:30 UTC.
-var fixedNow = time.Date(2026, 3, 10, 9, 30, 0, 0, time.UTC)
+func TestMain(m *testing.M) {
+	updateGolden = flag.Bool("update", false, "rewrite testdata golden files and the README walkthrough output")
+	flag.Parse()
+	os.Exit(m.Run())
+}
+
+// fixedNow is the tests' clock: 2026-03-10 09:30 UTC.
+func fixedNow() time.Time { return time.Date(2026, 3, 10, 9, 30, 0, 0, time.UTC) }
 
 // testApp is an app with a fresh, initialized data directory and a fixed
 // clock.
@@ -46,7 +52,7 @@ func (ta *testApp) run(args ...string) (int, string, string) {
 		stdout: &out,
 		stderr: &errOut,
 		getenv: func(k string) string { return ta.env[k] },
-		now:    func() time.Time { return fixedNow },
+		now:    fixedNow,
 	}
 	code := a.run(args)
 	return code, out.String(), errOut.String()
