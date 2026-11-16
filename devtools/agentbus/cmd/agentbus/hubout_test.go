@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -332,6 +333,10 @@ func TestWaitPastTheDeadlineStaysQueued(t *testing.T) {
 	s := newTunnelSetup(t)
 	s.ssh.Write("locked", "")
 	id := pinClientID(t, idA)
+	// The deadline should bound only the wait, not the first exec of
+	// the freshly written fakes, which macOS can take 300ms or more to
+	// assess.
+	warmFakes(t, []string{"herdr", "--version"}, []string{"ssh", "-G", "hub"})
 	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
 	defer cancel()
 	var stdout, stderr bytes.Buffer
@@ -345,6 +350,17 @@ func TestWaitPastTheDeadlineStaysQueued(t *testing.T) {
 	}
 	if pendingCount(t, s.env) != 1 {
 		t.Fatal("the wait removed the queued message")
+	}
+}
+
+// warmFakes runs each fake command once, so its first-exec cost is
+// not charged to a deadline that comes after.
+func warmFakes(t *testing.T, calls ...[]string) {
+	t.Helper()
+	for _, call := range calls {
+		if out, err := exec.Command(call[0], call[1:]...).CombinedOutput(); err != nil { //nolint:gosec // G204: a fake installed by this test
+			t.Fatalf("warm %v: %v: %s", call, err, out)
+		}
 	}
 }
 
