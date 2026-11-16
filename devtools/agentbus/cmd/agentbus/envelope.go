@@ -97,8 +97,60 @@ func cmdThread(ctx context.Context, args, env []string, stdout, stderr io.Writer
 	return cmdMessageText(ctx, args, env, "thread", stdout, stderr)
 }
 
+const statusUsage = "usage: agentbus status <id> | agentbus status --json <id> [<id>...]"
+
+// parseStatus takes --json anywhere among the ids. Text takes one id,
+// --json one or more.
+func parseStatus(args []string, stderr io.Writer) (bool, []string, bool) {
+	asJSON := false
+	var ids []string
+	for _, arg := range args {
+		switch {
+		case arg == "--json" || arg == "-json":
+			asJSON = true
+		case strings.HasPrefix(arg, "-"):
+			fmt.Fprintf(stderr, "agentbus status: unknown flag %s\n%s\n", arg, statusUsage)
+			return false, nil, false
+		default:
+			ids = append(ids, arg)
+		}
+	}
+	if len(ids) == 0 || (!asJSON && len(ids) != 1) {
+		fmt.Fprintf(stderr, "agentbus status: %s\n", statusUsage)
+		return false, nil, false
+	}
+	return asJSON, ids, true
+}
+
 func cmdStatus(ctx context.Context, args, env []string, stdout, stderr io.Writer) int {
-	return cmdMessageText(ctx, args, env, "status", stdout, stderr)
+	asJSON, ids, ok := parseStatus(args, stderr)
+	if !ok {
+		return 2
+	}
+	if !asJSON {
+		return cmdMessageText(ctx, ids, env, "status", stdout, stderr)
+	}
+	resp, code := callDaemon(ctx, env, daemon.Request{Op: "status-report", IDs: ids}, stderr)
+	if code != 0 {
+		return code
+	}
+	if !resp.OK {
+		fmt.Fprintf(stderr, "agentbus: %s\n", resp.Error)
+		return 1
+	}
+	return printReports(stdout, stderr, resp.Reports)
+}
+
+// printReports writes one status --json object per line.
+func printReports(stdout, stderr io.Writer, reports []mailbox.Report) int {
+	enc := json.NewEncoder(stdout)
+	for _, r := range reports {
+		if err := enc.Encode(r); err != nil {
+			fmt.Fprintf(stderr, "agentbus status: %s\n", err)
+			return 1
+		}
+	}
+	return 0
 }
 
 func cmdMessageText(ctx context.Context, args, env []string, op string, stdout, stderr io.Writer) int {

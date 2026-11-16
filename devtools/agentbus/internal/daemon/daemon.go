@@ -126,6 +126,8 @@ type Request struct {
 	Machine string `json:"machine,omitempty"`
 	// ClientID is the caller's retry key for send and reply.
 	ClientID string `json:"clientId,omitempty"`
+	// IDs are the message or client ids of op status-report.
+	IDs []string `json:"ids,omitempty"`
 	// LogName is the recipient named in a lost-reply hint. It is not sent.
 	LogName string `json:"-"`
 	// Events are client log lines for op log-append.
@@ -202,6 +204,8 @@ type Response struct {
 	// Transport lists live "name transport unreachable: reason" lines
 	// from op transport-status. Empty means every adapter answered.
 	Transport []string `json:"transport,omitempty"`
+	// Reports answers op status-report, one per requested id, in order.
+	Reports []mailbox.Report `json:"reports,omitempty"`
 }
 
 // Serve listens on dirs.SocketPath until ctx is cancelled. It creates
@@ -655,6 +659,8 @@ func (s *server) dispatchMessage(req Request, pid int) Response {
 		return s.thread(req)
 	case "status":
 		return s.status(req)
+	case "status-report":
+		return s.statusReport(req)
 	case "bypass":
 		return s.bypass(req)
 	case "requeue":
@@ -1326,6 +1332,18 @@ func (s *server) status(req Request) Response {
 		return Response{Error: err.Error()}
 	}
 	return Response{OK: true, Name: req.Name, Text: text}
+}
+
+// statusReport reports each of req.IDs. An unknown id is a report too.
+func (s *server) statusReport(req Request) Response {
+	if len(req.IDs) == 0 {
+		return Response{Error: "status-report needs ids"}
+	}
+	reports := make([]mailbox.Report, 0, len(req.IDs))
+	for _, id := range req.IDs {
+		reports = append(reports, s.box.Report(s.ctx, id))
+	}
+	return Response{OK: true, Reports: reports}
 }
 
 func (s *server) release(req Request) Response {

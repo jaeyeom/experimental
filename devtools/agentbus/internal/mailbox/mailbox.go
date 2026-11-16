@@ -347,7 +347,7 @@ func (m *Mailbox) lookupLocked(id string) (message, error) {
 		return msg, nil
 	}
 	if !strings.Contains(id, ":") {
-		return message{}, fmt.Errorf("unknown message %s", id)
+		return message{}, fmt.Errorf("%w %s", errUnknownMessage, id)
 	}
 	var found message
 	n := 0
@@ -362,11 +362,14 @@ func (m *Mailbox) lookupLocked(id string) (message, error) {
 	case 1:
 		return found, nil
 	case 0:
-		return message{}, fmt.Errorf("unknown message %s", id)
+		return message{}, fmt.Errorf("%w %s", errUnknownMessage, id)
 	default:
 		return message{}, fmt.Errorf("client id %s matches more than one message", id)
 	}
 }
+
+// errUnknownMessage is the lookup error for an id no message has.
+var errUnknownMessage = errors.New("unknown message")
 
 type dedupeKey struct {
 	sender   string
