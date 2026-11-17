@@ -46,12 +46,22 @@ type Args struct {
 	// lists live jobs only.
 	State string `json:"state,omitempty"`
 	All   bool   `json:"all,omitempty"`
+	// Items are an enqueued job's work items, or on park the items a
+	// child job takes.
+	Items []string `json:"items,omitempty"`
+	// Decide, Saved, and Tab are a park's decide item, saved branch
+	// ref, and the parking agent's pane, which the daemon sets.
+	Decide string `json:"decide,omitempty"`
+	Saved  string `json:"saved,omitempty"`
+	Tab    string `json:"tab,omitempty"`
 }
 
 // Reply is the jobs part of a daemon response.
 type Reply struct {
 	Job  *Job  `json:"job,omitempty"`
 	Jobs []Job `json:"jobs,omitempty"`
+	// Child is the gated job a partial park made.
+	Child *Job `json:"child,omitempty"`
 	// Duplicate is an enqueue that matched a live job, returned in Job.
 	Duplicate bool `json:"duplicate,omitempty"`
 	// Held is a claim refused because jobs are on hold.
@@ -238,18 +248,17 @@ func (s *Store) Enqueue(a Args) (Reply, error) {
 		if gate == GateOff {
 			return nil, fmt.Errorf("kind %s is off in the jobs policy", a.Kind)
 		}
-		for _, j := range s.doc.Jobs {
-			if j.Dedupe == key && !j.State.Final() {
-				r = Reply{Job: clone(j), Duplicate: true}
-				return nil, nil
-			}
+		items, dup := s.unparked(a.Kind, subject, key, a.Items)
+		if dup != nil {
+			r = Reply{Job: clone(dup), Duplicate: true}
+			return nil, nil
 		}
 		s.doc.Seq++
 		k := s.cfg.Kind(a.Kind)
 		j := &Job{
 			ID: fmt.Sprintf("j-%d", s.doc.Seq), Kind: a.Kind, Subject: subject, Head: a.Head,
 			Dedupe: key, Needs: needs, Priority: a.Priority, State: StateQueued,
-			MaxAttempts: k.MaxAttempts, Created: now, Updated: now, Note: a.Note,
+			MaxAttempts: k.MaxAttempts, Created: now, Updated: now, Note: a.Note, Items: items,
 			History: []Entry{{At: now, To: StateQueued, Actor: "producer", Note: a.Note}},
 		}
 		s.doc.Jobs = append(s.doc.Jobs, j)
@@ -353,6 +362,9 @@ func (s *Store) pick(a Args, now time.Time) (*Job, string) {
 func (s *Store) blockedSubjects() map[string]bool {
 	out := map[string]bool{}
 	for _, j := range s.doc.Jobs {
+		if j.ParkedOn != "" {
+			continue
+		}
 		if (j.State == StateGated || j.State == StateUnknown) && s.cfg.Kind(j.Kind).OnBlocked == OnBlockedBlock {
 			out[j.Subject] = true
 		}
@@ -808,6 +820,7 @@ func (s *Store) save() error {
 func clone(j *Job) *Job {
 	c := *j
 	c.History = slices.Clone(j.History)
+	c.Items = slices.Clone(j.Items)
 	if j.Exit != nil {
 		e := *j.Exit
 		c.Exit = &e

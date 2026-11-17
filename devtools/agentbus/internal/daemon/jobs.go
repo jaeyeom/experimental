@@ -63,6 +63,9 @@ func (s *server) otherJobsOp(req Request, a jobs.Args) (jobs.Reply, error) {
 		if err = s.claimMachine(req, &a); err == nil {
 			r, err = s.jobs.Claim(a)
 		}
+	case "jobs-park":
+		a.Tab = s.parkTab(req.Env)
+		r, err = s.jobs.Park(a)
 	case "jobs-ls":
 		r, err = s.jobs.List(a)
 	case "jobs-show":
@@ -97,6 +100,22 @@ func (s *server) watchJobs(ctx context.Context, ticks <-chan time.Time, hook job
 			jobs.RunGate(ctx, s.jobs, decider)
 		}
 	}
+}
+
+// parkTab is the pane of the agent that parks a job, which a resume
+// goes back to, or empty for a caller outside an agent pane.
+func (s *server) parkTab(env []string) string {
+	if caller, remote := s.remoteCaller(env); remote {
+		return caller
+	}
+	if envValue(env, "HERDR_PANE_ID") == "" {
+		return ""
+	}
+	handle, _, err := s.reg.WhoAmI(s.ctx, env)
+	if err != nil {
+		return ""
+	}
+	return handle
 }
 
 // claimMachine holds a runner on another machine to its own machine, so

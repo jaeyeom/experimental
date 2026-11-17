@@ -58,6 +58,8 @@ type Panes interface {
 	// Prompt sends text to target as an agentbus message under the
 	// retry key key, so a repeat is never stored twice.
 	Prompt(ctx context.Context, target, key, text string) error
+	// Live reports whether target's pane still runs its agent.
+	Live(ctx context.Context, target string) (bool, error)
 }
 
 // Runner runs jobs on one machine. Set the fields, then call Run, or
@@ -403,6 +405,13 @@ func (r *Runner) plan(ctx context.Context, kinds []string) {
 // what says how the runner would run j.
 func (r *Runner) what(j jobs.Job) string {
 	k := r.Config.Kinds[j.Kind]
+	if j.Saved != "" {
+		how := "resume from " + j.Saved + " in a new agent"
+		if j.Tab != "" {
+			how = "resume in tab " + j.Tab + " if it lives, else from " + j.Saved + " in a new agent"
+		}
+		return how
+	}
 	switch j.Needs.Executor {
 	case "tab":
 		return "prompt " + Expand(k.Target, j, r.Name, "") + " unless it shows a dialog"
@@ -454,26 +463,46 @@ func (r *Runner) finish(res result) {
 	r.results = append(r.results, res)
 }
 
-// execute runs one job with its executor.
+// execute runs one job with its executor. A job resumed from a park
+// goes back to the tab it parked from while that tab lives, and
+// otherwise to a new agent started from its saved ref.
 func (r *Runner) execute(ctx context.Context, j jobs.Job, k Kind) result {
+	if j.Saved != "" {
+		if j.Tab != "" {
+			if live, err := r.Panes.Live(ctx, j.Tab); err == nil && live {
+				return r.tab(ctx, j, j.Tab)
+			}
+		}
+		return r.newTab(ctx, j, k)
+	}
 	switch j.Needs.Executor {
 	case "tab":
-		return r.tab(ctx, j, k)
+		target := Expand(k.Target, j, r.Name, "")
+		if target == "" {
+			return result{out: outFail, note: "the runner has no target for a tab " + j.Kind + " job"}
+		}
+		return r.tab(ctx, j, target)
 	case "new-tab":
-		if len(k.Command) == 0 {
-			return result{out: outFail, note: "the runner has no command for a new-tab " + j.Kind + " job"}
-		}
-		res := r.command(ctx, j, k, r.prompt(j))
-		if res.out == outDone {
-			return result{out: outWait, note: "agent started; waiting for its report"}
-		}
-		return res
+		return r.newTab(ctx, j, k)
 	default:
 		if len(k.Command) == 0 {
 			return result{out: outFail, note: "the runner has no command for a cli " + j.Kind + " job"}
 		}
 		return r.command(ctx, j, k, "")
 	}
+}
+
+// newTab starts an agent with the kind's command and the prompt, and
+// waits for its report.
+func (r *Runner) newTab(ctx context.Context, j jobs.Job, k Kind) result {
+	if len(k.Command) == 0 {
+		return result{out: outFail, note: "the runner has no command for a new-tab " + j.Kind + " job"}
+	}
+	res := r.command(ctx, j, k, r.prompt(j))
+	if res.out == outDone {
+		return result{out: outWait, note: "agent started; waiting for its report"}
+	}
+	return res
 }
 
 func (r *Runner) command(ctx context.Context, j jobs.Job, k Kind, prompt string) result {
@@ -485,7 +514,7 @@ func (r *Runner) command(ctx context.Context, j jobs.Job, k Kind, prompt string)
 	}
 	env := []string{
 		"JOB_ID=" + j.ID, "JOB_KIND=" + j.Kind, "JOB_SUBJECT=" + j.Subject, "JOB_HEAD=" + j.Head,
-		"JOB_CHECKOUT=" + j.Needs.Checkout, "JOB_RUNNER=" + r.Name,
+		"JOB_CHECKOUT=" + j.Needs.Checkout, "JOB_RUNNER=" + r.Name, "JOB_SAVED=" + j.Saved,
 	}
 	if prompt != "" {
 		env = append(env, "JOB_PROMPT="+prompt)
@@ -502,11 +531,7 @@ func (r *Runner) command(ctx context.Context, j jobs.Job, k Kind, prompt string)
 
 // tab prompts the target agent, unless it shows a dialog: then the job
 // is gated and the dialog is left for the user.
-func (r *Runner) tab(ctx context.Context, j jobs.Job, k Kind) result {
-	target := Expand(k.Target, j, r.Name, "")
-	if target == "" {
-		return result{out: outFail, note: "the runner has no target for a tab " + j.Kind + " job"}
-	}
+func (r *Runner) tab(ctx context.Context, j jobs.Job, target string) result {
 	dialog, err := r.Panes.Dialog(ctx, target)
 	if err != nil {
 		return result{out: outFail, note: "cannot read target " + target + ": " + err.Error()}
@@ -535,17 +560,20 @@ func (r *Runner) prompt(j jobs.Job) string {
 	if j.Needs.Checkout != "none" {
 		b.WriteString(" in " + j.Needs.Checkout)
 	}
+	if j.Saved != "" {
+		fmt.Fprintf(&b, ".\nIt was parked: resume from branch %s. Resume note: %s", j.Saved, j.Resume)
+	}
 	fmt.Fprintf(&b, ".\nWhen you finish, run: agentbus jobs done %s --runner %s --note <what you did>\n"+
 		"If you cannot, run: agentbus jobs fail %s --runner %s --note <why>", j.ID, r.Name, j.ID, r.Name)
 	return b.String()
 }
 
 // Expand fills a template's placeholders from j: {id}, {kind},
-// {subject}, {head}, {checkout}, {runner}, and {prompt}.
+// {subject}, {head}, {checkout}, {saved}, {runner}, and {prompt}.
 func Expand(tmpl string, j jobs.Job, runner, prompt string) string {
 	return strings.NewReplacer(
 		"{id}", j.ID, "{kind}", j.Kind, "{subject}", j.Subject, "{head}", j.Head,
-		"{checkout}", j.Needs.Checkout, "{runner}", runner, "{prompt}", prompt,
+		"{checkout}", j.Needs.Checkout, "{saved}", j.Saved, "{runner}", runner, "{prompt}", prompt,
 	).Replace(tmpl)
 }
 

@@ -234,6 +234,18 @@ func (p busPanes) Dialog(ctx context.Context, target string) (string, error) {
 	return dialog, nil
 }
 
+func (p busPanes) Live(ctx context.Context, target string) (bool, error) {
+	h, err := p.handle(ctx, target)
+	if err != nil {
+		return false, err
+	}
+	_, ok, err := (&herdr.Adapter{}).PaneAgent(ctx, h)
+	if err != nil {
+		return false, fmt.Errorf("read %s: %w", h, err)
+	}
+	return ok, nil
+}
+
 func (p busPanes) Prompt(ctx context.Context, target, key, text string) error {
 	var errs bytes.Buffer
 	resp, code := callDaemon(ctx, p.env, daemon.Request{Op: "send", Name: target, Body: text, Env: p.env, ClientID: key, LogName: target}, &errs)

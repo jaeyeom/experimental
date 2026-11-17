@@ -144,7 +144,22 @@ type Job struct {
 	Asked bool `json:"asked,omitempty"`
 	// Decide is the decide item that asks the user to let a gated job
 	// run.
-	Decide  string    `json:"decide,omitempty"`
+	Decide string `json:"decide,omitempty"`
+	// Items are the producer's work items the job handles, such as
+	// review comment ids. Empty is the whole subject.
+	Items []string `json:"items,omitempty"`
+	// ParkedOn is the decide item a job parked mid-run, or its child,
+	// waits on. The user's answer there makes it ready again.
+	ParkedOn string `json:"parkedOn,omitempty"`
+	// Saved is the branch ref that holds a parked job's work, and Resume
+	// the note its holder left for whoever resumes it. Never a stash.
+	Saved  string `json:"saved,omitempty"`
+	Resume string `json:"resume,omitempty"`
+	// Tab is the agent pane the job parked from. A resume goes back to
+	// it while it lives.
+	Tab string `json:"tab,omitempty"`
+	// Parent is the job a child was parked out of.
+	Parent  string    `json:"parent,omitempty"`
 	Created time.Time `json:"created"`
 	Updated time.Time `json:"updated"`
 	History []Entry   `json:"history"`

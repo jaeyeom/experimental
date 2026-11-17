@@ -212,7 +212,14 @@ type prompt struct{ target, key, text string }
 type fakePanes struct {
 	mu      sync.Mutex
 	dialogs map[string]string
+	dead    map[string]bool
 	prompts []prompt
+}
+
+func (p *fakePanes) Live(_ context.Context, target string) (bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return !p.dead[target], nil
 }
 
 func (p *fakePanes) Dialog(_ context.Context, target string) (string, error) {
@@ -257,7 +264,7 @@ func newWorld(t *testing.T, cfg Config) *world {
 	}
 	w := &world{
 		q: &storeQueue{s: s}, host: &fakeHost{exits: map[string]int{}, dirty: map[string]bool{}},
-		panes: &fakePanes{dialogs: map[string]string{}}, clock: c, log: &strings.Builder{},
+		panes: &fakePanes{dialogs: map[string]string{}, dead: map[string]bool{}}, clock: c, log: &strings.Builder{},
 	}
 	w.r = &Runner{Name: runnerName, Machine: machine, Config: cfg, Queue: w.q, Host: w.host, Panes: w.panes, Now: c.now, Log: w.log}
 	return w
@@ -570,5 +577,71 @@ func TestHoldIsHonoured(t *testing.T) {
 	w.settle()
 	if !strings.Contains(w.log.String(), "dry-run: on hold: release day") {
 		t.Fatalf("dry-run log:\n%s", w.log)
+	}
+}
+
+// resumed is a fix-ci job an agent in pane tab parked on branch
+// park/ci and the user's answer made ready again.
+func resumed(t *testing.T, w *world, tab string) jobs.Job {
+	t.Helper()
+	j := w.enqueue(t, jobs.Args{Kind: "fix-ci", Subject: "o/r#1", Needs: jobs.Needs{Executor: "new-tab", Checkout: "/src/repo"}})
+	if _, err := w.q.s.Claim(jobs.Args{Runner: "other-runner", Machine: machine}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.q.s.Park(jobs.Args{ID: j.ID, Runner: "other-runner", Decide: "d1", Saved: "park/ci", Note: "tests fixed; lint left", Tab: tab}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.q.s.Resume(j.ID, "d1", "answered"); err != nil {
+		t.Fatal(err)
+	}
+	return j
+}
+
+func resumeWorld(t *testing.T) *world {
+	t.Helper()
+	return newWorld(t, Config{Kinds: map[string]Kind{
+		"fix-ci": {Command: []string{"launch", "--branch", "{saved}", "--prompt", "{prompt}"}},
+	}})
+}
+
+func TestResumeGoesBackToTheParkedTab(t *testing.T) {
+	w := resumeWorld(t)
+	j := resumed(t, w, "tiger/w1/p2")
+	w.settle()
+	if w.host.count() != 0 {
+		t.Fatalf("started a new agent while the parked tab lives: %q", w.host.runs)
+	}
+	if len(w.panes.prompts) != 1 {
+		t.Fatalf("prompts = %+v, want one", w.panes.prompts)
+	}
+	p := w.panes.prompts[0]
+	if p.target != "tiger/w1/p2" || !strings.Contains(p.text, "park/ci") || !strings.Contains(p.text, "tests fixed; lint left") ||
+		!strings.Contains(p.text, "agentbus jobs done "+j.ID) {
+		t.Fatalf("prompt = %+v", p)
+	}
+	if got := w.state(t, j.ID); got.State != jobs.StateRunning || got.Holder != runnerName {
+		t.Fatalf("job = %s by %s, want running for the agent", got.State, got.Holder)
+	}
+}
+
+func TestResumeStartsANewTabFromTheSavedRefWhenTheTabIsDead(t *testing.T) {
+	for _, tab := range []string{"tiger/w1/p2", ""} {
+		w := resumeWorld(t)
+		w.panes.dead["tiger/w1/p2"] = true
+		j := resumed(t, w, tab)
+		w.settle()
+		if len(w.panes.prompts) != 0 {
+			t.Fatalf("tab %q: prompted %+v", tab, w.panes.prompts)
+		}
+		if w.host.count() != 1 {
+			t.Fatalf("tab %q: runs = %q, want one new agent", tab, w.host.runs)
+		}
+		argv, env := w.host.runs[0], w.host.envs[0]
+		if argv[2] != "park/ci" || envOf(env, "JOB_SAVED") != "park/ci" || !strings.Contains(argv[4], "tests fixed; lint left") {
+			t.Fatalf("tab %q: argv = %q", tab, argv)
+		}
+		if got := w.state(t, j.ID); got.State != jobs.StateRunning {
+			t.Fatalf("tab %q: job = %s, want running while its agent works", tab, got.State)
+		}
 	}
 }

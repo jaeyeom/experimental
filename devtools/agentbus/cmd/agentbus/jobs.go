@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os/exec"
 	"slices"
 	"strconv"
 	"strings"
@@ -28,11 +29,13 @@ var jobsLogPoll = time.Second
 
 const jobsFlagsHelp = `enqueue --kind <k> --subject <s> [--head <sha>] [--priority <n>]
         [--machine <m>|any] [--affinity tab|lane|owner]
-        [--checkout <path>|none] [--executor cli|tab|new-tab] [--note <text>] [--json]
+        [--checkout <path>|none] [--executor cli|tab|new-tab] [--item <id>]...
+        [--note <text>] [--json]
     add a job; one live job per kind + subject + head, so a repeat
     prints the live job with "(duplicate)". There is no --gate: gates
     come only from the user's jobs policy. An ask kind waits gated for
-    the user's answer in decide; an off kind is refused
+    the user's answer in decide; an off kind is refused. --item lists
+    the job's work items; items a live job holds parked are dropped
 claim --runner <name> [--kind <k>]... [--machine <m>] [--json]
     take the next ready job, and the lease on its checkout on this
     machine with it. Exit 3: none ready; 4: jobs are on hold
@@ -45,6 +48,13 @@ fail <id> [--runner <name>] [--exit <code>] [--note <text>]
 gate <id> --runner <name> --note <why>
     the holder hands a running job it has not acted on to the user: it
     is gated, lets go of its lease, and the user is asked in decide
+park <id> --runner <name> --decide <item> --saved <branch> --note <resume note>
+        [--item <id>]...
+    the holder parks a running job while the user answers decide item
+    <item>: its work is on branch <branch>, never a stash, and its
+    checkout must be clean. With --item the handled part is done and a
+    gated child job holds those items. The user's answer in the inbox
+    makes it ready again, for its tab, or a new agent from <branch>
 runner --name <unit> [--machine <m>] [--config <path>] [--dry-run]
     run jobs on this machine until stopped; see docs/jobs.org
 ls [--state <s>] [--kind <k>] [--subject <s>] [--all] [--json]
@@ -89,18 +99,20 @@ func (o *optionalInt) Set(s string) error {
 type jobsFlags struct {
 	a       jobs.Args
 	kinds   kindList
+	items   kindList
 	exit    optionalInt
 	jsonOut bool
 	follow  bool
 }
 
 var jobsSubFlags = map[string][]string{
-	"enqueue":   {"kind", "subject", "head", "priority", "machine", "affinity", "checkout", "executor", "note", "json"},
+	"enqueue":   {"kind", "subject", "head", "priority", "machine", "affinity", "checkout", "executor", "item", "note", "json"},
 	"claim":     {"runner", "kind", "machine", "json"},
 	"heartbeat": {"runner"},
 	"done":      {"runner", "note"},
 	"fail":      {"runner", "exit", "note"},
 	"gate":      {"runner", "note"},
+	"park":      {"runner", "decide", "saved", "note", "item"},
 	"ls":        {"state", "kind", "subject", "all", "json"},
 	"show":      {"json"},
 	"log":       {"follow"},
@@ -110,11 +122,11 @@ var jobsSubFlags = map[string][]string{
 }
 
 // jobsNeedID are the subcommands that take one job id.
-var jobsNeedID = map[string]bool{"heartbeat": true, "done": true, "fail": true, "gate": true, "show": true, "log": true}
+var jobsNeedID = map[string]bool{"heartbeat": true, "done": true, "fail": true, "gate": true, "park": true, "show": true, "log": true}
 
 func runJobs(ctx context.Context, args, env []string, _ io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintf(stderr, "agentbus jobs: want a subcommand: enqueue, claim, heartbeat, done, fail, gate, runner, ls, show, log, stats, hold, unhold\n")
+		fmt.Fprintf(stderr, "agentbus jobs: want a subcommand: enqueue, claim, heartbeat, done, fail, gate, park, runner, ls, show, log, stats, hold, unhold\n")
 		return 2
 	}
 	sub := args[0]
@@ -136,6 +148,8 @@ func runJobs(ctx context.Context, args, env []string, _ io.Reader, stdout, stder
 		return jobsLog(ctx, f, env, stdout, stderr)
 	case "claim":
 		return jobsClaim(ctx, f, env, stdout, stderr)
+	case "park":
+		return jobsPark(ctx, f, env, stdout, stderr)
 	}
 	r, code := jobsCall(ctx, sub, f.a, env, stderr)
 	if code != 0 {
@@ -162,6 +176,9 @@ func parseJobsFlags(sub string, allowed, args []string, stderr io.Writer) (jobsF
 	fs.StringVar(&f.a.State, "state", "", "list only jobs in this state")
 	fs.BoolVar(&f.a.All, "all", false, "list final jobs too")
 	fs.Var(&f.kinds, "kind", "job kind")
+	fs.Var(&f.items, "item", "a work item of the job")
+	fs.StringVar(&f.a.Decide, "decide", "", "the decide item a parked job waits on")
+	fs.StringVar(&f.a.Saved, "saved", "", "the branch that holds a parked job's work")
 	fs.Var(&f.exit, "exit", "the job's exit code")
 	fs.BoolVar(&f.jsonOut, "json", false, "print JSON")
 	fs.BoolVar(&f.follow, "follow", false, "wait for new history")
@@ -191,7 +208,7 @@ func parseJobsFlags(sub string, allowed, args []string, stderr io.Writer) (jobsF
 	if jobsNeedID[sub] && id == "" {
 		return f, errors.New("want a job id")
 	}
-	f.a.ID, f.a.Exit = id, f.exit.v
+	f.a.ID, f.a.Exit, f.a.Items = id, f.exit.v, f.items
 	if err := jobsRequired(sub, &f); err != nil {
 		return f, err
 	}
@@ -212,14 +229,8 @@ func jobsRequired(sub string, f *jobsFlags) error {
 			return errors.New("want --runner")
 		}
 		f.a.Kinds, f.a.Machine, f.a.Needs = f.kinds, f.a.Needs.Machine, jobs.Needs{}
-	case "heartbeat":
-		if f.a.Runner == "" {
-			return errors.New("want --runner")
-		}
-	case "gate":
-		if f.a.Runner == "" || strings.TrimSpace(f.a.Note) == "" {
-			return errors.New("want --runner and --note")
-		}
+	case "heartbeat", "gate", "park":
+		return holderRequired(sub, f.a)
 	case "ls":
 		if len(f.kinds) > 1 {
 			return errors.New("want at most one --kind")
@@ -227,6 +238,20 @@ func jobsRequired(sub string, f *jobsFlags) error {
 		if len(f.kinds) == 1 {
 			f.a.Kind = f.kinds[0]
 		}
+	}
+	return nil
+}
+
+// holderRequired checks the flags of the ops a job's holder runs.
+func holderRequired(sub string, a jobs.Args) error {
+	note := strings.TrimSpace(a.Note) != ""
+	switch {
+	case a.Runner == "":
+		return errors.New("want --runner")
+	case sub == "gate" && !note:
+		return errors.New("want --runner and --note")
+	case sub == "park" && (a.Decide == "" || a.Saved == "" || !note):
+		return errors.New("want --runner, --decide, --saved, and --note")
 	}
 	return nil
 }
@@ -307,7 +332,7 @@ func printJobTable(w io.Writer, list []jobs.Job) {
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(tw, "ID\tSTATE\tKIND\tSUBJECT\tHEAD\tATTEMPTS\tHOLDER")
 	for _, j := range list {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%d/%d\t%s\n", j.ID, j.State, j.Kind, j.Subject, dash(j.Head), j.Attempts, j.MaxAttempts, dash(j.Holder))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%d/%d\t%s\n", j.ID, stateLabel(j), j.Kind, j.Subject, dash(j.Head), j.Attempts, j.MaxAttempts, dash(j.Holder))
 	}
 	_ = tw.Flush()
 }
@@ -319,12 +344,23 @@ func dash(s string) string {
 	return s
 }
 
-func printJob(w io.Writer, j jobs.Job) {
+// stateLabel tells a parked job, clean and waiting on a decide item,
+// from a job its runner gated because the pane is blocked.
+func stateLabel(j jobs.Job) string {
 	state := string(j.State)
-	if j.ParkedFrom != "" {
+	switch {
+	case j.ParkedOn != "":
+		state += " on " + j.ParkedOn
+	case j.ParkedFrom != "":
 		state += " (from " + string(j.ParkedFrom) + ")"
+	case j.State == jobs.StateGated && len(j.History) > 0 && j.History[len(j.History)-1].From == jobs.StateRunning:
+		state += " (blocked)"
 	}
-	fmt.Fprintf(w, "id: %s\nstate: %s\nkind: %s\nsubject: %s\n", j.ID, state, j.Kind, j.Subject)
+	return state
+}
+
+func printJob(w io.Writer, j jobs.Job) {
+	fmt.Fprintf(w, "id: %s\nstate: %s\nkind: %s\nsubject: %s\n", j.ID, stateLabel(j), j.Kind, j.Subject)
 	if j.Head != "" {
 		fmt.Fprintf(w, "head: %s\n", j.Head)
 	}
@@ -344,6 +380,17 @@ func printJob(w io.Writer, j jobs.Job) {
 	}
 	if j.Decide != "" {
 		fmt.Fprintf(w, "decide: %s\n", j.Decide)
+	}
+	for _, f := range [][2]string{
+		{"saved", j.Saved},
+		{"resume", j.Resume},
+		{"tab", j.Tab},
+		{"items", strings.Join(j.Items, ", ")},
+		{"parent", j.Parent},
+	} {
+		if f[1] != "" {
+			fmt.Fprintf(w, "%s: %s\n", f[0], f[1])
+		}
 	}
 	if j.Exit != nil {
 		fmt.Fprintf(w, "exit: %d\n", *j.Exit)
@@ -387,4 +434,53 @@ func jobsLog(ctx context.Context, f jobsFlags, env []string, stdout, stderr io.W
 		case <-time.After(jobsLogPoll):
 		}
 	}
+}
+
+// jobsPark parks a job after checking its checkout, and prints the job
+// and the child a partial park made.
+func jobsPark(ctx context.Context, f jobsFlags, env []string, stdout, stderr io.Writer) int {
+	if code := jobsParkCheck(ctx, f.a, env, stderr); code != 0 {
+		return code
+	}
+	r, code := jobsCall(ctx, "park", f.a, env, stderr)
+	if code != 0 {
+		return code
+	}
+	fmt.Fprintf(stdout, "%s %s\n", r.Job.ID, stateLabel(*r.Job))
+	if r.Child != nil {
+		fmt.Fprintf(stdout, "%s %s\n", r.Child.ID, stateLabel(*r.Child))
+	}
+	return 0
+}
+
+// jobsParkCheck refuses a park whose checkout has uncommitted changes,
+// or whose saved branch is not there: the park releases the checkout's
+// lease, and the work must be on the branch, never in a stash.
+func jobsParkCheck(ctx context.Context, a jobs.Args, env []string, stderr io.Writer) int {
+	r, code := jobsCall(ctx, "show", jobs.Args{ID: a.ID}, env, stderr)
+	if code != 0 {
+		return code
+	}
+	checkout := r.Job.Needs.Checkout
+	if checkout == "none" {
+		return 0
+	}
+	// The ref is the caller's own branch name, passed after
+	// --end-of-options.
+	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
+	verify := exec.CommandContext(ctx, "git", "-C", checkout, "rev-parse", "--verify", "--quiet", "--end-of-options", a.Saved+"^{commit}") //nolint:gosec // see above
+	if err := verify.Run(); err != nil {
+		fmt.Fprintf(stderr, "agentbus jobs park: no branch %s in %s; commit the work there first\n", a.Saved, checkout)
+		return 1
+	}
+	dirty, err := localHost{env: env}.Dirty(ctx, checkout)
+	switch {
+	case err != nil:
+		fmt.Fprintf(stderr, "agentbus jobs park: cannot read checkout %s: %s\n", checkout, err)
+		return 1
+	case dirty:
+		fmt.Fprintf(stderr, "agentbus jobs park: checkout %s has uncommitted changes; commit them to %s first. Park never stashes\n", checkout, a.Saved)
+		return 1
+	}
+	return 0
 }
