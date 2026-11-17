@@ -25,6 +25,7 @@ go_test(
     name = "go_default_test",
     srcs = [
         "ambiguous_test.go",
+        "gone_test.go",
         "hibernate_test.go",
         "hold_test.go",
         "liveness_test.go",
@@ -40,5 +41,6 @@ go_test(
         "//devtools/agentbus/internal/eventlog:go_default_library",
         "//devtools/agentbus/internal/hibernate:go_default_library",
         "//devtools/agentbus/internal/registry:go_default_library",
+        "//devtools/pkg/remotecall:go_default_library",
     ],
 )

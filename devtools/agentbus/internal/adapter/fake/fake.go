@@ -14,9 +14,11 @@ import (
 // PaneHandles, when non-nil, identifies the caller from HERDR_PANE_ID.
 // InventoryAgents, when non-nil, is the inventory instead of Reach.
 type Adapter struct {
-	AdapterName     string
-	SelfTestErr     error
-	Reach           map[string]adapter.State
+	AdapterName string
+	SelfTestErr error
+	Reach       map[string]adapter.State
+	// StateErr, when it has the handle, is State's error for it.
+	StateErr        map[string]error
 	Result          map[string]adapter.Result
 	PaneHandles     map[string]string
 	InventoryAgents []adapter.Agent
@@ -104,8 +106,11 @@ func envValue(env []string, key string) string {
 	return ""
 }
 
-// State reports a configured handle, or gone.
+// State reports a configured error or handle, or gone.
 func (a *Adapter) State(_ context.Context, handle string) (adapter.State, error) {
+	if err, ok := a.StateErr[handle]; ok {
+		return "", err
+	}
 	state, ok := a.Reach[handle]
 	if !ok {
 		return adapter.StateGone, nil

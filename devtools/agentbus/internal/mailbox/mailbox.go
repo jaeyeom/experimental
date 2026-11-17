@@ -75,6 +75,11 @@ type message struct {
 	ClosedAt     *time.Time `json:"closedAt,omitempty"`
 	// HoldNotice is set once a long-hold notice was claimed for this message.
 	HoldNotice bool `json:"holdNoticeSent,omitempty"`
+	// GoneSince is when every adapter began to report a raw handle
+	// target gone. Any other answer clears it.
+	GoneSince *time.Time `json:"goneSince,omitempty"`
+	// ExpireReason is why an expired message closed: ExpireTTL or ExpireGone.
+	ExpireReason string `json:"expireReason,omitempty"`
 }
 
 type file struct {
@@ -123,6 +128,9 @@ type Mailbox struct {
 	// Zero with noticeOff false uses defaultHoldNotice. noticeOff sends none.
 	noticeAfter time.Duration
 	noticeOff   bool
+	// goneAfter is how long a raw handle target stays gone before its
+	// message expires. Nil uses defaultGoneAfter.
+	goneAfter *time.Duration
 }
 
 // Open loads messages. A missing file is an empty mailbox.

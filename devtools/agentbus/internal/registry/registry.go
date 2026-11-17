@@ -164,6 +164,14 @@ func (r *Registry) NamesOf(handle string) []string {
 	return r.heldBy(handle)
 }
 
+// HasName reports whether target is a registered name.
+func (r *Registry) HasName(target string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, ok := r.names[target]
+	return ok
+}
+
 // Resolve returns the handle for a registered name or a raw handle.
 func (r *Registry) Resolve(target string) (string, error) {
 	r.mu.Lock()

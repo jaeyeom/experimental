@@ -131,10 +131,11 @@ func commands() []command {
 				"With --json, take several ids and print one object per line; an unknown id is state unknown, not an error.",
 			usage: "agentbus status <id>\n       agentbus status --json <id> [<id>...]",
 			flags: "--json  print {\"id\",\"state\":\"queued\"|\"held\"|\"delivered\"|\"failed\"|\"expired\"|\"unknown\",\n" +
-				"        \"held_reason\",\"stored_at\",\"delivered_at\",\"error\"} per id; fields that do\n" +
-				"        not apply are omitted. held_reason: transport unreachable, composer busy,\n" +
-				"        target not ready, earlier message held, hibernated, delivery unconfirmed,\n" +
-				"        or other. Times are RFC3339. (default: false)",
+				"        \"held_reason\",\"reason\",\"stored_at\",\"delivered_at\",\"error\"} per id; fields\n" +
+				"        that do not apply are omitted. held_reason: transport unreachable, composer\n" +
+				"        busy, target not ready, earlier message held, hibernated, delivery\n" +
+				"        unconfirmed, or other. reason, for expired: ttl or gone. Times are\n" +
+				"        RFC3339. (default: false)",
 			example: "agentbus status --json m-7f3a m-7f3b",
 			run:     noStdin(cmdStatus),
 		},
