@@ -207,6 +207,7 @@ drafts created with ~slackwatch post~.
 | ~post.agent~ | none | Handoff target for approved posts, resolved through ~targets~. |
 | ~post.expectUser~ | none | Slack user id every post must come from. |
 | ~post.decideOwner~ | ~"slackwatch"~ | Owner of the decide approval items. |
+| ~post.decideNotifyPane~ | none | Passed as ~--notify-pane~ to every ~decide ask~, so answers notify that target instead of decide's default pane. Any target decide accepts, such as ~"agentbus:<name>"~. |
 | ~post.writeTokenFile~ | none | Direct mode: file holding only the write token. |
 | ~post.footer~ | none | Direct mode: text appended to every post. When set, startup checks that normalizing "text" plus the footer yields "text". |
 | ~post.pinSalt~ | none | Direct mode: salt of the token pin. ~slackwatch pin~ sets it. |

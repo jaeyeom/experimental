@@ -1254,3 +1254,12 @@ VALUES ('U123', ?, ?, 'agent-1', 'announce release', 'failed', 'D-1', 1700000100
 		t.Fatalf("conversations.open = %v", e.opens)
 	}
 }
+
+func TestNewDeciderPassesDecideNotifyPane(t *testing.T) {
+	var cfg slackwatch.Config
+	cfg.Post.DecideNotifyPane = "agentbus:ops"
+	d, ok := newDecider(cfg).(slackwatch.DecideCLI)
+	if !ok || d.NotifyPane != "agentbus:ops" {
+		t.Errorf("newDecider = %#v", newDecider(cfg))
+	}
+}

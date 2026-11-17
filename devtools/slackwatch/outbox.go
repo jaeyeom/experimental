@@ -369,9 +369,12 @@ type decideSenderKey struct{}
 // DecideCLI runs the decide command through Run, which returns its
 // standard output. ExecDecide makes the real Run. Owner is the decide
 // owner a reply is recorded as. Ask's owner argument is separate.
+// NotifyPane, when set, is the --notify-pane of every ask. A reply
+// reuses the item, so it keeps that pane.
 type DecideCLI struct {
-	Run   func(ctx context.Context, args ...string) ([]byte, error)
-	Owner string
+	Run        func(ctx context.Context, args ...string) ([]byte, error)
+	Owner      string
+	NotifyPane string
 }
 
 // decideChoiceArgs is the post and drop options shared by ask and a
@@ -385,11 +388,15 @@ func decideChoiceArgs() []string {
 }
 
 // askArgs is a decide ask for question. ownerOnly sets the flag that
-// refuses replies from anyone but the item owner.
-func askArgs(owner, question string, ownerOnly bool) []string {
+// refuses replies from anyone but the item owner. A non-empty pane is
+// passed as --notify-pane.
+func askArgs(owner, pane, question string, ownerOnly bool) []string {
 	args := []string{"ask", "--owner", owner}
 	if ownerOnly {
 		args = append(args, "--owner-replies-only")
+	}
+	if pane != "" {
+		args = append(args, "--notify-pane", pane)
 	}
 	args = append(args, "--kind", "relay")
 	args = append(args, decideChoiceArgs()...)
@@ -401,11 +408,11 @@ func askArgs(owner, question string, ownerOnly bool) []string {
 // retries once without it when the flag is unknown. An unknown flag is
 // rejected before an item is created.
 func (d DecideCLI) Ask(ctx context.Context, owner, question string) (string, error) {
-	id, err := d.ask(ctx, askArgs(owner, question, true))
+	id, err := d.ask(ctx, askArgs(owner, d.NotifyPane, question, true))
 	if err == nil || !strings.Contains(err.Error(), "flag provided but not defined: -owner-replies-only") {
 		return id, err
 	}
-	return d.ask(ctx, askArgs(owner, question, false))
+	return d.ask(ctx, askArgs(owner, d.NotifyPane, question, false))
 }
 
 func (d DecideCLI) ask(ctx context.Context, args []string) (string, error) {
