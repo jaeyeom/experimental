@@ -53,7 +53,9 @@ func (t *Table) Pause(a Args) (Reply, error) {
 			r.Result = ResultQueued
 			if rec.find(UserHolder) < 0 {
 				t.doc.Seq++
-				r.Asked = h.Handle
+				if !IsJobHolder(h.Handle) {
+					r.Asked = h.Handle
+				}
 				events = queuePause(rec, now, t.doc.Seq)
 			}
 			r.Position = rec.find(UserHolder) + 1

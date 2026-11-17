@@ -83,13 +83,41 @@ type file struct {
 // methods are safe for concurrent use; claims are serialized, so two
 // claimers never get the same job.
 type Store struct {
-	mu   sync.Mutex
-	dir  string
-	doc  file
-	log  EventLog
-	now  func() time.Time
-	cfg  Config
-	hold func() (bool, string)
+	mu     sync.Mutex
+	dir    string
+	doc    file
+	log    EventLog
+	now    func() time.Time
+	cfg    Config
+	hold   func() (bool, string)
+	leases Leaser
+	// frees are the leases the change under way lets go of. mutate
+	// releases them once the change is saved.
+	frees []heldLease
+}
+
+// Leaser is the checkout lease table as the job queue uses it.
+type Leaser interface {
+	// Take takes the checkout lease job j needs for runner on machine,
+	// and returns the lease key. It never queues: an error leaves j
+	// ready. It is called with the queue locked, so it must not call
+	// back into the queue.
+	Take(j Job, machine, runner string) (string, error)
+	// Free releases the lease key that job id holds. It is called with
+	// the queue unlocked.
+	Free(key, id string)
+}
+
+// heldLease is a lease key and the job that holds it.
+type heldLease struct{ key, id string }
+
+// SetLeaser makes claims of a job that needs a checkout take its lease
+// with the claim, and the job's end release it. Without one no lease is
+// taken.
+func (s *Store) SetLeaser(l Leaser) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.leases = l
 }
 
 // Open loads the store from dir. A missing file is an empty queue.
@@ -226,7 +254,9 @@ func (s *Store) Enqueue(a Args) (Reply, error) {
 // Claim gives runner the next ready job, or none. Jobs on hold, not
 // before their notBefore, of other kinds or machines, or on a subject a
 // blocked job holds are skipped. Higher priority goes first, then the
-// oldest.
+// oldest. A job that needs a checkout takes its lease, keyed to the
+// runner's machine, in the same step: if the lease is not free the job
+// stays ready and the next one is tried.
 func (s *Store) Claim(a Args) (Reply, error) {
 	if strings.TrimSpace(a.Runner) == "" {
 		return Reply{}, errors.New("claim needs --runner")
@@ -234,37 +264,71 @@ func (s *Store) Claim(a Args) (Reply, error) {
 	if held, why := s.Held(); held {
 		return Reply{Held: true, HoldNote: why}, nil
 	}
-	var r Reply
+	var (
+		r     Reply
+		taken heldLease
+	)
 	err := s.mutate(func(now time.Time) ([]eventlog.Event, error) {
-		blocked := s.blockedSubjects()
-		var pick *Job
-		for _, j := range s.doc.Jobs {
-			if j.State != StateReady || now.Before(j.NotBefore) || blocked[j.Subject] {
-				continue
-			}
-			if len(a.Kinds) > 0 && !slices.Contains(a.Kinds, j.Kind) {
-				continue
-			}
-			if j.Needs.Machine != "any" && j.Needs.Machine != a.Machine {
-				continue
-			}
-			if pick == nil || j.Priority > pick.Priority {
-				pick = j
-			}
-		}
+		pick, key := s.pick(a, now)
 		if pick == nil {
 			return nil, nil
+		}
+		if key != "" {
+			taken = heldLease{key: key, id: pick.ID}
 		}
 		ev, err := s.move(pick, StateRunning, a.Runner, "", now)
 		if err != nil {
 			return nil, err
 		}
 		pick.Holder, pick.Heartbeat, pick.NotBefore, pick.Asked = a.Runner, now, time.Time{}, false
+		pick.Lease = key
 		pick.Attempts++
 		r = Reply{Job: clone(pick)}
 		return []eventlog.Event{ev}, nil
 	})
+	if err != nil && taken.key != "" && !s.holds(taken) {
+		// The claim was not saved, so neither is the lease.
+		s.leaser().Free(taken.key, taken.id)
+	}
 	return r, err
+}
+
+// holds reports whether the store has the job holding the lease.
+func (s *Store) holds(l heldLease) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	j := s.find(l.id)
+	return j != nil && j.Lease == l.key
+}
+
+// pick is the job a claims and the lease key it took, if it needs one.
+// The caller holds s.mu.
+func (s *Store) pick(a Args, now time.Time) (*Job, string) {
+	blocked := s.blockedSubjects()
+	var cands []*Job
+	for _, j := range s.doc.Jobs {
+		if j.State != StateReady || now.Before(j.NotBefore) || blocked[j.Subject] {
+			continue
+		}
+		if len(a.Kinds) > 0 && !slices.Contains(a.Kinds, j.Kind) {
+			continue
+		}
+		if j.Needs.Machine != "any" && j.Needs.Machine != a.Machine {
+			continue
+		}
+		cands = append(cands, j)
+	}
+	// Stable, so the oldest goes first among equal priorities.
+	slices.SortStableFunc(cands, func(x, y *Job) int { return y.Priority - x.Priority })
+	for _, j := range cands {
+		if j.Needs.Checkout == "none" || s.leases == nil {
+			return j, ""
+		}
+		if key, err := s.leases.Take(*clone(j), a.Machine, a.Runner); err == nil {
+			return j, key
+		}
+	}
+	return nil, ""
 }
 
 // blockedSubjects are the subjects with a gated or unknown job whose
@@ -528,6 +592,12 @@ func (s *Store) move(j *Job, to State, who, note string, now time.Time) (eventlo
 	if to != StateParked {
 		j.ParkedFrom = ""
 	}
+	// A job holds its lease while it runs, and while it is unknown: a
+	// lost runner may have left the checkout half changed.
+	if j.Lease != "" && to != StateRunning && to != StateUnknown {
+		s.frees = append(s.frees, heldLease{key: j.Lease, id: j.ID})
+		j.Lease = ""
+	}
 	j.State, j.Updated = to, now
 	if note != "" {
 		j.Note = note
@@ -562,14 +632,33 @@ func (s *Store) update(id string, change func(*Job, time.Time) ([]eventlog.Event
 	return r, err
 }
 
-// mutate runs change under the lock, saves, then logs its events. A
+// mutate runs change under the lock, saves, then logs its events and,
+// with the lock released, releases the leases the change let go of. A
 // change that fails, or a save that fails, leaves the store as it was.
 func (s *Store) mutate(change func(now time.Time) ([]eventlog.Event, error)) error {
+	frees, err := s.mutateLocked(change)
+	for _, f := range frees {
+		s.leaser().Free(f.key, f.id)
+	}
+	return err
+}
+
+func (s *Store) leaser() Leaser {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.leases
+}
+
+// mutateLocked is mutate up to the lease releases, which it returns
+// once the change is saved.
+func (s *Store) mutateLocked(change func(now time.Time) ([]eventlog.Event, error)) ([]heldLease, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.frees = nil
+	defer func() { s.frees = nil }()
 	before, err := json.Marshal(s.doc)
 	if err != nil {
-		return fmt.Errorf("encode jobs: %w", err)
+		return nil, fmt.Errorf("encode jobs: %w", err)
 	}
 	restore := func() {
 		var doc file
@@ -580,26 +669,30 @@ func (s *Store) mutate(change func(now time.Time) ([]eventlog.Event, error)) err
 	events, err := change(s.now().UTC())
 	if err != nil {
 		restore()
-		return err
+		return nil, err
 	}
 	after, err := json.Marshal(s.doc)
 	if err != nil {
 		restore()
-		return fmt.Errorf("encode jobs: %w", err)
+		return nil, fmt.Errorf("encode jobs: %w", err)
 	}
 	if string(after) == string(before) {
-		return nil
+		return nil, nil
 	}
 	if err := s.save(); err != nil {
 		restore()
-		return err
+		return nil, err
+	}
+	frees := s.frees
+	if s.leases == nil {
+		frees = nil
 	}
 	for _, ev := range events {
 		if err := s.log.Append(ev); err != nil {
-			return fmt.Errorf("log job event: %w", err)
+			return frees, fmt.Errorf("log job event: %w", err)
 		}
 	}
-	return nil
+	return frees, nil
 }
 
 // save writes the queue to a temp file and renames it into place, so a

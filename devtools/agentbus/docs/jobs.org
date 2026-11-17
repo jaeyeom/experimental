@@ -25,8 +25,8 @@ agentbus jobs unhold
 
 | Subcommand | What it does |
 |------------+--------------|
-| ~enqueue --kind <k> --subject <s> [--head <sha>]~ | Add a job. The subject is ~owner/repo#N~ or a work-item key. Prints ~<id> <state>~. Only one live job has a kind, subject, and head; a repeat prints that job with ~(duplicate)~ and changes nothing. ~--priority~, ~--machine~ (default ~any~), ~--affinity tab|lane|owner~, ~--checkout~ (default ~none~), ~--executor cli|tab|new-tab~ (default ~cli~), and ~--note~ are optional. There is no ~--gate~. |
-| ~claim --runner <name>~ | Take the next ready job: highest priority, then oldest. ~--kind~ (repeatable) and ~--machine~ narrow it; a job that needs one machine goes only to a runner naming it. Prints ~<id> <kind> <subject> <head>~. Exit 3 when no job is ready, 4 when jobs are on hold. |
+| ~enqueue --kind <k> --subject <s> [--head <sha>]~ | Add a job. The subject is ~owner/repo#N~ or a work-item key. Prints ~<id> <state>~. Only one live job has a kind, subject, and head; a repeat prints that job with ~(duplicate)~ and changes nothing. ~--priority~, ~--machine~ (default ~any~), ~--affinity tab|lane|owner~, ~--checkout <abs path>~ (default ~none~; see [[*Checkout lease]]), ~--executor cli|tab|new-tab~ (default ~cli~), and ~--note~ are optional. There is no ~--gate~. |
+| ~claim --runner <name>~ | Take the next ready job: highest priority, then oldest. ~--kind~ (repeatable) and ~--machine~ narrow it; a job that needs one machine goes only to a runner naming it. A job that needs a checkout also takes its lease. Prints ~<id> <kind> <subject> <head>~. Exit 3 when no job is ready, 4 when jobs are on hold. |
 | ~heartbeat <id> --runner <name>~ | The holder is still at it. |
 | ~done <id>~, ~fail <id> [--exit <code>]~ | With ~--runner~, the holder closes its running job. Without it, the user settles an ~unknown~ or ~parked~ job. |
 | ~ls~ | Live jobs. ~--all~ adds final ones; ~--state~, ~--kind~, and ~--subject~ filter. |
@@ -79,6 +79,29 @@ read, every job passes as ~auto~.
   the decide status resource ~jobs~ is busy
   (~decide status set --resource jobs busy~). If decide is installed
   and its status cannot be read, jobs are held too.
+
+** Checkout lease
+
+A job enqueued with ~--checkout <path>~ needs that checkout to itself.
+The claim takes the checkout's [[file:lease.org][lease]] in the same
+step: both succeed, or neither does. If the lease is not free (an
+agent, the user, or another job holds it) the job stays ~ready~, joins
+no queue, and the claim moves on to the next ready job.
+
+- *Key.* The lease is the checkout on the claiming runner's machine:
+  ~<machine>:<path>~, where the machine is the runner's ~--machine~, or
+  ~local~ without one. A runner on another machine claims through the
+  hub as itself: its ~--machine~ defaults to its own machine and may not
+  name another, so it takes only its own machine's leases. Nothing on
+  the hub takes a lease on its own.
+- *Holder.* ~lease status~ shows ~holder: job:<id>~, with ~why: runner
+  <name> on <machine>~. ~jobs show~ prints ~lease: <key>~.
+- *Release.* Done, fail (a retry included), park, or a lost idempotent
+  job going back to ~ready~ releases the lease and wakes the next
+  waiter. No git steps run: the runner leaves the checkout as it found
+  it. A lost outward job (~unknown~) keeps the lease, since its runner
+  may have left the checkout half changed, until it is settled with
+  ~jobs done~ or ~jobs fail~.
 
 ** Kinds
 

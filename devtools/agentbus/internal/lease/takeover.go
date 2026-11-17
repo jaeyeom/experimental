@@ -92,7 +92,7 @@ func (t *Table) TakeOver(w Watch, reason string, gone func(handle string) bool) 
 	var tk Takeover
 	r, err := t.update(w.Checkout, func(rec *record, now time.Time) (Reply, []eventlog.Event, error) {
 		h := rec.Holder
-		if h == nil || h.Handle != w.Holder || h.Handle == UserHolder || !takeable(rec.State) {
+		if !paneHolder(h) || h.Handle != w.Holder || !takeable(rec.State) {
 			return Reply{}, nil, nil
 		}
 		tk = Takeover{Done: true, From: h.Handle, FromHeld: rec.State != StateNeedsAdopt}

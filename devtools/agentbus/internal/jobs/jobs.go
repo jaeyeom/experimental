@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"time"
@@ -75,7 +76,8 @@ type Needs struct {
 	Machine string `json:"machine"`
 	// Affinity is tab, lane, or owner; empty when the producer gave none.
 	Affinity string `json:"affinity,omitempty"`
-	// Checkout is "none", or a checkout path taken through the lease.
+	// Checkout is "none", or the absolute path of a checkout on the
+	// claiming runner's machine, taken through the lease with the claim.
 	Checkout string `json:"checkout"`
 	// Executor is cli, tab, or new-tab.
 	Executor string `json:"executor"`
@@ -96,6 +98,9 @@ func (n *Needs) normalize() error {
 	}
 	if !slices.Contains([]string{"cli", "tab", "new-tab"}, n.Executor) {
 		return fmt.Errorf("executor %q: want cli, tab, or new-tab", n.Executor)
+	}
+	if n.Checkout != "none" && (!filepath.IsAbs(n.Checkout) || filepath.Clean(n.Checkout) != n.Checkout) {
+		return fmt.Errorf("checkout %q: want none or a clean absolute path", n.Checkout)
 	}
 	return nil
 }
@@ -128,6 +133,9 @@ type Job struct {
 	NotBefore   time.Time `json:"notBefore,omitzero"`
 	Holder      string    `json:"holder,omitempty"`
 	Heartbeat   time.Time `json:"heartbeat,omitzero"`
+	// Lease is the checkout lease key the job holds, <machine>:<path>,
+	// while it runs, and while it is unknown until it is settled.
+	Lease string `json:"lease,omitempty"`
 	// Exit is the exit code the last fail reported.
 	Exit *int `json:"exit,omitempty"`
 	// Note is the last note given with a change.

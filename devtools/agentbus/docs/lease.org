@@ -73,8 +73,9 @@ queue length.
 A notice not sent is a ~lease_notify_skipped~ event, with the waiter as
 its actor and ~holder <holder>; reason <reason>; queue <n>~ as its
 detail. The reason is ~user-holder~ (the user holds or paused the
-checkout), ~past-deadline~ (the holder is past its bid), or ~repeat~
-(the waiter claimed again while queued). Each holder, waiter, and
+checkout), ~job-holder~ (a job holds it; see below), ~past-deadline~
+(the holder is past its bid), or ~repeat~ (the waiter claimed again
+while queued). Each holder, waiter, and
 reason is logged once while that holder keeps the lease, so ten repeat
 claims leave one line; a new holder starts afresh, and a daemon restart
 may log one more. The user's own queued claim logs nothing. ~agentbus
@@ -134,6 +135,22 @@ seconds and allow, with that cause and ~allowing~ on stderr. The
 hook's cache is on this machine; ~release~, ~resume~ and ~unshare~
 drop it here, and a takeover on the hub leaves it to expire.
 
+** Job holder
+
+A job that needs a checkout holds its lease while it runs (see
+[[file:jobs.org::*Checkout lease][the job queue]]). The holder is
+~job:<id>~, with ~why~ naming the runner and its machine:
+
+#+BEGIN_SRC text
+local:/home/u/src/repo: held
+holder: job:j-42, since 10:02, why: runner tiger-runner on local
+#+END_SRC
+
+A job has no pane and no bid: it is never checked in on, taken over, or
+told of waiters, and the user's ~pause~ queues without an ask. Agents
+queue behind it as usual; when the job ends, the next waiter is granted
+and woken. Only the job queue releases it.
+
 ** Release
 
 ~lease release~ runs its git steps in the CLI, on the checkout's
@@ -184,7 +201,7 @@ Then, every check interval, it reads the holder's herdr state:
 With nobody queued, an overrun holder is checked in on once and then
 left alone. A holder whose pane herdr reports ~gone~ is taken over at
 once when a waiter is queued, without waiting for the bid to end. The
-user's hold is never checked in on. ~extend~ or claiming again resets
+user's hold and a job's are never checked in on. ~extend~ or claiming again resets
 the check-in. A lease left ~releasing~ by a release that died midway
 gets the same rules as ~held~, so it never blocks the queue; the holder
 can still run ~release~ again.

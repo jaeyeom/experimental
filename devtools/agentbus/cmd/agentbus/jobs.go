@@ -33,7 +33,8 @@ const jobsFlagsHelp = `enqueue --kind <k> --subject <s> [--head <sha>] [--priori
     prints the live job with "(duplicate)". There is no --gate: gates
     come only from the user's policy
 claim --runner <name> [--kind <k>]... [--machine <m>] [--json]
-    take the next ready job. Exit 3: none ready; 4: jobs are on hold
+    take the next ready job, and the lease on its checkout on this
+    machine with it. Exit 3: none ready; 4: jobs are on hold
 heartbeat <id> --runner <name>
     tell the daemon the holder is still at it
 done <id> [--runner <name>] [--note <text>]
@@ -323,6 +324,9 @@ func printJob(w io.Writer, j jobs.Job) {
 	}
 	if j.Holder != "" {
 		fmt.Fprintf(w, "holder: %s\nheartbeat: %s\n", j.Holder, j.Heartbeat.Format(time.RFC3339))
+	}
+	if j.Lease != "" {
+		fmt.Fprintf(w, "lease: %s\n", j.Lease)
 	}
 	if j.Exit != nil {
 		fmt.Fprintf(w, "exit: %d\n", *j.Exit)
