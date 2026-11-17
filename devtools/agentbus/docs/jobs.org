@@ -20,6 +20,7 @@ agentbus jobs ls --all
 agentbus jobs show j-7
 agentbus jobs log j-7 --follow
 agentbus jobs stats
+agentbus jobs reserve --calls 12
 agentbus jobs hold --note "release day"
 agentbus jobs unhold
 #+END_SRC
@@ -35,10 +36,11 @@ agentbus jobs unhold
 | ~runner --name <unit>~ | Run jobs on this machine until stopped. See [[*Runner]]. |
 | ~ls~ | Live jobs. ~--all~ adds final ones; ~--state~, ~--kind~, and ~--subject~ filter. |
 | ~show <id>~, ~log <id> [--follow]~ | One job, or its state history; ~show~ prints the gate's ~decide:~ item, and a parked job's ~saved:~, ~resume:~, ~tab:~, ~items:~, and ~parent:~. ~--follow~ waits until the job is final. |
-| ~stats~ | Jobs per state, and the hold. |
+| ~stats~ | Jobs per state, the hold, and the [[*GitHub budget][GitHub budget]]. |
+| ~reserve --calls <n>~ | Take ~n~ GitHub API calls from the [[*GitHub budget][shared budget]] before making them. ~--kind~ applies that kind's floor exemption. Exit 3 when they do not fit. |
 | ~hold [--note <text>]~, ~unhold~ | Stop or restart every claim. |
 
-~enqueue~, ~claim~, ~show~, ~ls~, and ~stats~ take ~--json~. A refused
+~enqueue~, ~claim~, ~show~, ~ls~, ~stats~, and ~reserve~ take ~--json~. A refused
 change exits 1 with the reason; bad usage exits 2.
 
 ** States
@@ -240,9 +242,50 @@ included, is an error.
 | ~backoff~     | ~1m~      | Wait before the first retry.                    |
 | ~onBlocked~   | ~block~   | ~block~ holds its subject; ~park~ parks the job. |
 | ~reconcile~   | none      | Argv that checks a lost job's real state.       |
+| ~cost~        | ~0~       | GitHub API calls one run spends; see [[*GitHub budget]]. |
+| ~belowFloor~  | ~false~   | The kind may spend the budget below its floor.  |
 
 ~heartbeatTimeout~ defaults to ~2m~. The daemon checks it every 15
 seconds.
+
+** GitHub budget
+
+One GitHub API budget is shared by the scanner and every runner. It
+lives in the daemon (the hub in hub mode), and callers reserve calls
+before they make them. Without ~budget~ in =jobs.json= there is no
+limit.
+
+#+BEGIN_SRC json
+{
+  "budget": {"limit": 4000, "window": "1h", "floor": 500},
+  "kinds": {
+    "rebase": {"cost": 4},
+    "merge":  {"cost": 3, "belowFloor": true}
+  }
+}
+#+END_SRC
+
+| Key      | Default  | Meaning                                                   |
+|----------+----------+-----------------------------------------------------------|
+| ~limit~  | required | Calls per window.                                         |
+| ~window~ | ~1h~     | How long a window lasts from its first reservation.       |
+| ~floor~  | ~0~      | Calls kept back for kinds with ~belowFloor~.              |
+
+- *Claims.* A claim reserves the job's kind ~cost~ in the same step. A
+  ready job whose cost would leave less than ~floor~ calls (less than
+  zero for a ~belowFloor~ kind) is deferred: its ~notBefore~ becomes
+  the window's reset, a ~job~ event says ~deferred to <time>~, and the
+  claim tries the next job. A retry reserves again.
+- *Scanner.* A caller outside the queue runs ~agentbus jobs reserve
+  --calls <n>~ before its calls. Exit 0 grants them; exit 3 refuses
+  and prints when the budget resets.
+- *Never overspent.* Reservations and claims are serialized in the
+  daemon, so they never hand out more than ~limit~ calls in a window.
+  The window is saved with the queue, so a restart does not reset it.
+- *No refunds.* Calls a job or caller reserved stay spent, even when
+  it made fewer.
+- ~jobs stats~ prints ~budget: <left> of <limit> left, floor <n>,
+  resets <time>~, or ~budget: none~.
 
 ** Anomalies
 

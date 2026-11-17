@@ -54,6 +54,8 @@ type Args struct {
 	Decide string `json:"decide,omitempty"`
 	Saved  string `json:"saved,omitempty"`
 	Tab    string `json:"tab,omitempty"`
+	// Calls is the GitHub API calls a reserve takes from the budget.
+	Calls int `json:"calls,omitempty"`
 }
 
 // Reply is the jobs part of a daemon response.
@@ -68,6 +70,10 @@ type Reply struct {
 	Held     bool   `json:"held,omitempty"`
 	HoldNote string `json:"holdNote,omitempty"`
 	Stats    *Stats `json:"stats,omitempty"`
+	// Reserved is a reserve the budget granted. Budget is the budget
+	// after it, nil when there is none.
+	Reserved bool    `json:"reserved,omitempty"`
+	Budget   *Budget `json:"budget,omitempty"`
 }
 
 // Stats counts jobs by state.
@@ -75,6 +81,8 @@ type Stats struct {
 	States   map[State]int `json:"states"`
 	Held     bool          `json:"held"`
 	HoldNote string        `json:"holdNote,omitempty"`
+	// Budget is the shared GitHub API budget, nil when there is none.
+	Budget *Budget `json:"budget,omitempty"`
 }
 
 // EventLog is where a Store logs its events.
@@ -89,6 +97,8 @@ type file struct {
 	Jobs []*Job `json:"jobs"`
 	// Reported are the keys of the anomalies reported and still active.
 	Reported []string `json:"anomalies,omitempty"`
+	// Budget is the GitHub API budget's current window.
+	Budget budgetState `json:"budget,omitzero"`
 }
 
 // Store is the job queue, persisted in the daemon state directory. All
@@ -284,9 +294,11 @@ func (s *Store) Enqueue(a Args) (Reply, error) {
 // Claim gives runner the next ready job, or none. Jobs on hold, not
 // before their notBefore, of other kinds or machines, or on a subject a
 // blocked job holds are skipped. Higher priority goes first, then the
-// oldest. A job that needs a checkout takes its lease, keyed to the
-// runner's machine, in the same step: if the lease is not free the job
-// stays ready and the next one is tried.
+// oldest. A job whose kind's cost does not fit the GitHub budget is
+// deferred to the budget's reset, and the next one is tried; the claim
+// reserves the cost of the job it gives. A job that needs a checkout
+// takes its lease, keyed to the runner's machine, in the same step: if
+// the lease is not free the job stays ready and the next one is tried.
 func (s *Store) Claim(a Args) (Reply, error) {
 	if strings.TrimSpace(a.Runner) == "" {
 		return Reply{}, errors.New("claim needs --runner")
@@ -299,10 +311,11 @@ func (s *Store) Claim(a Args) (Reply, error) {
 		taken heldLease
 	)
 	err := s.mutate(func(now time.Time) ([]eventlog.Event, error) {
-		pick, key := s.pick(a, now)
+		pick, key, events := s.pick(a, now)
 		if pick == nil {
-			return nil, nil
+			return events, nil
 		}
+		s.spend(s.cfg.Kind(pick.Kind).Cost)
 		if key != "" {
 			taken = heldLease{key: key, id: pick.ID}
 		}
@@ -314,7 +327,7 @@ func (s *Store) Claim(a Args) (Reply, error) {
 		pick.Lease = key
 		pick.Attempts++
 		r = Reply{Job: clone(pick)}
-		return []eventlog.Event{ev}, nil
+		return append(events, ev), nil
 	})
 	if err != nil && taken.key != "" && !s.holds(taken) {
 		// The claim was not saved, so neither is the lease.
@@ -331,9 +344,10 @@ func (s *Store) holds(l heldLease) bool {
 	return j != nil && j.Lease == l.key
 }
 
-// pick is the job a claims and the lease key it took, if it needs one.
-// The caller holds s.mu.
-func (s *Store) pick(a Args, now time.Time) (*Job, string) {
+// pick is the job a claims and the lease key it took, if it needs one,
+// and the events of the jobs it deferred for the budget. The caller
+// holds s.mu.
+func (s *Store) pick(a Args, now time.Time) (*Job, string, []eventlog.Event) {
 	blocked := s.blockedSubjects()
 	var cands []*Job
 	for _, j := range s.doc.Jobs {
@@ -350,15 +364,20 @@ func (s *Store) pick(a Args, now time.Time) (*Job, string) {
 	}
 	// Stable, so the oldest goes first among equal priorities.
 	slices.SortStableFunc(cands, func(x, y *Job) int { return y.Priority - x.Priority })
+	var deferred []eventlog.Event
 	for _, j := range cands {
+		if k := s.cfg.Kind(j.Kind); !s.budgetFits(k.Cost, k.BelowFloor, now) {
+			deferred = append(deferred, s.deferJob(j))
+			continue
+		}
 		if j.Needs.Checkout == "none" || s.leases == nil {
-			return j, ""
+			return j, "", deferred
 		}
 		if key, err := s.leases.Take(*clone(j), a.Machine, a.Runner); err == nil {
-			return j, key
+			return j, key, deferred
 		}
 	}
-	return nil, ""
+	return nil, "", deferred
 }
 
 // blockedSubjects are the subjects with a gated or unknown job whose
@@ -666,6 +685,7 @@ func (s *Store) Stats() (Reply, error) {
 	st := &Stats{States: map[State]int{}, Held: held, HoldNote: why}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	st.Budget = s.budgetAt(s.now().UTC())
 	for _, j := range s.doc.Jobs {
 		st.States[j.State]++
 	}

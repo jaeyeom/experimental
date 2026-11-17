@@ -194,6 +194,11 @@ type Kind struct {
 	OnBlocked string
 	// Reconcile is the argv that checks a lost job's real state.
 	Reconcile []string
+	// Cost is the GitHub API calls one run of the kind spends. A claim
+	// reserves it from the shared budget.
+	Cost int
+	// BelowFloor lets the kind spend the budget below its floor.
+	BelowFloor bool
 }
 
 // Defaults for a kind and for the heartbeat.
@@ -210,6 +215,8 @@ type Config struct {
 	HeartbeatTimeout time.Duration
 	// Anomalies are the anomaly rules' role and thresholds.
 	Anomalies AnomalyConfig
+	// Budget is the shared GitHub API budget. Zero is no budget.
+	Budget BudgetConfig
 }
 
 // Kind returns the behavior of name. An undeclared kind is outward,
@@ -243,12 +250,15 @@ type kindFile struct {
 	Backoff     string   `json:"backoff"`
 	OnBlocked   string   `json:"onBlocked"`
 	Reconcile   []string `json:"reconcile"`
+	Cost        int      `json:"cost"`
+	BelowFloor  bool     `json:"belowFloor"`
 }
 
 type configFile struct {
 	HeartbeatTimeout string              `json:"heartbeatTimeout"`
 	Kinds            map[string]kindFile `json:"kinds"`
 	Anomalies        *anomalyFile        `json:"anomalies"`
+	Budget           *budgetFile         `json:"budget"`
 }
 
 var kindPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
@@ -292,6 +302,13 @@ func ParseConfig(data []byte) (Config, error) {
 		}
 		cfg.Anomalies = a
 	}
+	if f.Budget != nil {
+		b, err := budgetFromFile(*f.Budget)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.Budget = b
+	}
 	return cfg, nil
 }
 
@@ -299,9 +316,15 @@ func kindFromFile(name string, kf kindFile) (Kind, error) {
 	if err := checkKind(name); err != nil {
 		return Kind{}, err
 	}
-	k := Kind{Idempotent: kf.Idempotent, MaxAttempts: kf.MaxAttempts, RetryExits: kf.RetryExits, OnBlocked: kf.OnBlocked, Reconcile: kf.Reconcile}
+	k := Kind{
+		Idempotent: kf.Idempotent, MaxAttempts: kf.MaxAttempts, RetryExits: kf.RetryExits, OnBlocked: kf.OnBlocked,
+		Reconcile: kf.Reconcile, Cost: kf.Cost, BelowFloor: kf.BelowFloor,
+	}
 	if kf.MaxAttempts < 0 {
 		return Kind{}, fmt.Errorf("kind %s: maxAttempts must be at least 1", name)
+	}
+	if kf.Cost < 0 {
+		return Kind{}, fmt.Errorf("kind %s: cost %d: want 0 or more calls", name, kf.Cost)
 	}
 	if kf.Backoff != "" {
 		d, err := time.ParseDuration(kf.Backoff)
