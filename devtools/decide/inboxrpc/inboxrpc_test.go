@@ -226,7 +226,7 @@ func TestEveryOpRoundTrips(t *testing.T) {
 	if got, err := c.MarkRead(relay.ID); err != nil || got.Unread {
 		t.Fatalf("mark read = %+v, %v", got, err)
 	}
-	if got, err := c.Reply(relay.ID, "why?"); err != nil || got.Messages[len(got.Messages)-1].Text != "why?" || got.Messages[len(got.Messages)-1].Via != decide.ViaUI || len(h.sends) != 1 {
+	if got, err := c.Reply(relay.ID, "why?", ""); err != nil || got.Messages[len(got.Messages)-1].Text != "why?" || got.Messages[len(got.Messages)-1].Via != decide.ViaUI || len(h.sends) != 1 {
 		t.Fatalf("reply = %+v, %v, sends %q", got, err, h.sends)
 	}
 	if got, err := c.Answer(relay.ID, "y"); err != nil || got.Answer == nil || got.Answer.Via != decide.ViaUI || got.Messages[len(got.Messages)-1].Via != decide.ViaUI {
@@ -301,12 +301,31 @@ func TestEveryOpRoundTrips(t *testing.T) {
 	}
 }
 
+func TestReplyRouteReachesTheWorkerThroughTheHub(t *testing.T) {
+	h := newHub(t)
+	it := h.create(t, &decide.Item{Question: "q", Owner: "ada", NotifyPane: "w1:p1"})
+	led, err := decide.Open(h.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := led.Assign(it.ID, decide.Assign{Worker: "bea", Pane: "w2:p3"}); err != nil {
+		t.Fatal(err)
+	}
+	c := connect(t, h)
+	if _, err := c.Reply(it.ID, "hi", decide.RouteWorker); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.sends) != 1 || h.sends[0][len(h.sends[0])-2] != "w2:p3" {
+		t.Fatalf("sends = %q", h.sends)
+	}
+}
+
 func TestNotifyFailureKeepsTheWrite(t *testing.T) {
 	h := newHub(t)
 	h.server.Backend.RunSend = func([]string) error { return errors.New("pane gone") }
 	it := h.create(t, &decide.Item{Question: "q", NotifyPane: "w1:p1"})
 	c := connect(t, h)
-	got, err := c.Reply(it.ID, "hi")
+	got, err := c.Reply(it.ID, "hi", "")
 	var notify *tui.NotifyError
 	if !errors.As(err, &notify) || !strings.Contains(err.Error(), "pane gone") || len(got.Messages) == 0 {
 		t.Fatalf("reply = %+v, %v", got, err)

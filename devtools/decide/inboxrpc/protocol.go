@@ -71,6 +71,8 @@ type Request struct {
 	// Seen is the newest message time the client has rendered. Archive
 	// refuses a message newer than Seen. Nil is older than any message.
 	Seen *time.Time `json:"seen,omitempty"`
+	// Route is a reply's owner, worker, or both choice. Empty is the owner.
+	Route string `json:"route,omitempty"`
 }
 
 // Response is one line from the server. Error fails the request.

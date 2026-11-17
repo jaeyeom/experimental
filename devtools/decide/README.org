@@ -162,6 +162,7 @@ that hub for one invocation.
 | ~decide send --id~               | Append a message to an existing thread.                        |
 | ~decide reply~                   | Post the agent's message on a thread.                          |
 | ~decide reassign~                | Point an item at another owner or notify pane.                 |
+| ~decide assign~                  | Record who is working on an item. ~--clear~ removes it.        |
 | ~decide skill~                   | Print the agent instructions.                                  |
 | ~decide avatars list~            | Show the built-in figures. ~--ids~ prints ids only.            |
 | ~decide avatars set~             | Save a figure, ~default~, or ~none~ for one name.              |
@@ -197,6 +198,28 @@ archive. A withdrawn item is refused. ~decide send --to~ prints ~sent
 to <name> as <id>~. An unknown name exits 2. An empty note sends
 nothing. ~decide reassign~ points the item at a new owner or pane when
 the owning tab is retired.
+
+** Owner and worker
+
+The owner is the agent that filed the item, and it stays the owner
+until the item is closed. When another agent takes over the work,
+~decide assign <id> <agent>~ records that agent as the item's worker.
+The worker is notified at ~agentbus:<agent>~ unless ~--notify-pane~
+names another pane. ~decide assign <id> --clear~ removes it. Each change
+adds a system message to the thread. A done or withdrawn item is
+refused. ~decide show~ prints ~working on it: <agent>~ under the owner,
+the inbox header shows ~Working on it~, and ~show --json~ and ~list
+--json~ carry ~worker~, ~workerNotifyPane~, and ~workerNotifyMachine~.
+
+A human reply still goes to the owner. On an item whose worker is not
+the owner, ~decide send --id~ warns on stderr, for example ~This reply
+goes to ada (owner); bea is working on it.~, and notifies the owner as
+before. ~--to worker~ notifies only the worker, ~--to both~ notifies
+both, and ~--to owner~ notifies the owner without the warning. ~--to
+worker~ or ~--to both~ on an item without such a worker is refused.
+The inbox shows the same warning when you send a reply there and asks:
+~w~ sends to the worker, ~b~ to both, ~o~ to the owner only, and ~Esc~
+keeps the draft. An item without a worker behaves as before.
 
 ~decide snooze~ takes ~2h30m~, ~HH:MM~ (today, or tomorrow once that
 time has passed), ~YYYY-MM-DD HH:MM~, or ~mon 9:00~, in local time. A
@@ -354,6 +377,7 @@ The environment is how a template reads the answer:
 - ~DECIDE_ANSWER_LABEL~ is the label that option had when it was picked.
   It is empty for free text.
 - ~DECIDE_OWNER~ is the item owner.
+- ~DECIDE_WORKER~ is the agent ~decide assign~ recorded, or empty.
 - ~DECIDE_PANE~ is the notify pane. The item's pane overrides the config.
 - ~DECIDE_KIND~ is ~relay~ or ~type-in~.
 - ~DECIDE_QUESTION~ is the first line of the question, at most 200

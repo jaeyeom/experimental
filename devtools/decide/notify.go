@@ -20,10 +20,12 @@ import (
 // Config is the decide config file. An absent file runs no command.
 // OptionsOnly makes relay asks reject free text unless --free-text is set.
 // NotifyTemplate is a shell command. It reads "$DECIDE_ID", "$DECIDE_ANSWER",
-// "$DECIDE_ANSWER_LABEL", "$DECIDE_OWNER", "$DECIDE_PANE", "$DECIDE_KIND",
-// "$DECIDE_QUESTION", "$DECIDE_ANSWERED_AT", "$DECIDE_ANSWERED_BY",
-// "$DECIDE_THREAD_HEADER", "$DECIDE_REPLY_HINT", "$DECIDE_MACHINE",
-// and "$DECIDE_DELIVERY_KEY".
+// "$DECIDE_ANSWER_LABEL", "$DECIDE_OWNER", "$DECIDE_WORKER", "$DECIDE_PANE",
+// "$DECIDE_KIND", "$DECIDE_QUESTION", "$DECIDE_ANSWERED_AT",
+// "$DECIDE_ANSWERED_BY", "$DECIDE_THREAD_HEADER", "$DECIDE_REPLY_HINT",
+// "$DECIDE_MACHINE", and "$DECIDE_DELIVERY_KEY".
+// DECIDE_WORKER is the agent working on the item, set by decide assign, or
+// empty.
 // DECIDE_THREAD_HEADER is one line such as "[decide D-123 from human]",
 // with the thread id and the author.
 // DECIDE_REPLY_HINT is one line.
@@ -339,9 +341,10 @@ func parseConfig(data []byte, dir string) (Config, error) {
 // command and `--machine`, and the template is not run. The template only
 // ever sees a pane on this machine.
 // The command reads "$DECIDE_ID", "$DECIDE_ANSWER", "$DECIDE_ANSWER_LABEL",
-// "$DECIDE_OWNER", "$DECIDE_PANE", "$DECIDE_KIND", "$DECIDE_QUESTION",
-// "$DECIDE_ANSWERED_AT", "$DECIDE_ANSWERED_BY", "$DECIDE_THREAD_HEADER",
-// "$DECIDE_REPLY_HINT", "$DECIDE_MACHINE", and "$DECIDE_DELIVERY_KEY".
+// "$DECIDE_OWNER", "$DECIDE_WORKER", "$DECIDE_PANE", "$DECIDE_KIND",
+// "$DECIDE_QUESTION", "$DECIDE_ANSWERED_AT", "$DECIDE_ANSWERED_BY",
+// "$DECIDE_THREAD_HEADER", "$DECIDE_REPLY_HINT", "$DECIDE_MACHINE", and
+// "$DECIDE_DELIVERY_KEY". DECIDE_WORKER is empty when no agent is assigned.
 // DECIDE_THREAD_HEADER is one line such as "[decide D-123 from human]",
 // with the thread id and the author.
 // DECIDE_REPLY_HINT is one line.
@@ -414,6 +417,7 @@ func notifyLocal(item *Item, pane string, cfg Config, out io.Writer) (Delivery, 
 		"DECIDE_ANSWER="+answer,
 		"DECIDE_ANSWER_LABEL="+AnswerLabel(item),
 		"DECIDE_OWNER="+item.Owner,
+		"DECIDE_WORKER="+item.Worker,
 		"DECIDE_PANE="+pane,
 		"DECIDE_KIND="+item.Kind,
 		"DECIDE_QUESTION="+questionLine(item.Question),

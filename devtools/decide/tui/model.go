@@ -88,7 +88,10 @@ type Model struct {
 	reply        string
 	replyFocus   bool
 	// replySend marks the reply [Send] button focused.
-	replySend    bool
+	replySend bool
+	// replyRoute is the owner, worker, or both choice for the reply being
+	// sent. It is empty until the route prompt is answered.
+	replyRoute   string
 	detail       *decide.Item
 	height       int
 	width        int
@@ -1258,6 +1261,8 @@ func (m *Model) writeAnswer(value string) error {
 
 // submitReply appends a human message, the same result as decide send --id.
 // The owner pane receives the thread header, the original text, and the reply hint.
+// When another agent is working on the item, the route prompt first asks
+// whether the owner, the worker, or both are notified.
 func (m *Model) submitReply() error {
 	if m.detail == nil {
 		return nil
@@ -1266,10 +1271,15 @@ func (m *Model) submitReply() error {
 	if strings.TrimSpace(text) == "" {
 		return nil
 	}
-	if m.askBusDown(replyOnBus(m.detail), m.submitReply) {
+	if m.askRoute(m.detail) {
 		return nil
 	}
-	updated, err := m.store().Reply(m.detail.ID, text)
+	route := m.replyRoute
+	if m.askBusDown(replyOnBus(m.detail, route), m.submitReply) {
+		return nil
+	}
+	m.replyRoute = ""
+	updated, err := m.store().Reply(m.detail.ID, text, route)
 	var notifyErr *NotifyError
 	switch {
 	case errors.As(err, &notifyErr):
@@ -2717,6 +2727,11 @@ func headerLines(it *decide.Item, now time.Time, loc *time.Location, owner strin
 	}
 	rows = append(rows,
 		struct{ label, value string }{"Owner", owner},
+	)
+	if it.Worker != "" {
+		rows = append(rows, struct{ label, value string }{"Working on it", it.Worker})
+	}
+	rows = append(rows,
 		struct{ label, value string }{"Kind", it.Kind},
 		struct{ label, value string }{"State", it.State},
 		struct{ label, value string }{"Created", stamp(it.CreatedAt, now, loc)},

@@ -38,6 +38,7 @@ go_test(
     name = "go_default_test",
     size = "medium",
     srcs = [
+        "assign_test.go",
         "avatars_test.go",
         "display_test.go",
         "follow_test.go",

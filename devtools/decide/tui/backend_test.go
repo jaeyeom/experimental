@@ -51,11 +51,11 @@ func (f *fakeHub) Answer(id, value string) (decide.Item, error) {
 	return f.hub.Answer(id, value)
 }
 
-func (f *fakeHub) Reply(id, text string) (decide.Item, error) {
+func (f *fakeHub) Reply(id, text, route string) (decide.Item, error) {
 	if err := f.call("reply"); err != nil {
 		return decide.Item{}, err
 	}
-	return f.hub.Reply(id, text)
+	return f.hub.Reply(id, text, route)
 }
 
 func (f *fakeHub) Done(id, outcome string) (decide.Item, error) {
