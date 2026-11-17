@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/jobs"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 	"github.com/jaeyeom/experimental/devtools/decide"
@@ -209,5 +210,56 @@ func waitFor(t *testing.T, cond func() bool) {
 			t.Fatal("condition not met within 2s")
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestJobsWatcherSendsAnomaliesToTheRoleOnce(t *testing.T) {
+	dirs := jobsDirs(t)
+	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+	var mu sync.Mutex
+	clock := func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		return now
+	}
+	ticks := make(chan time.Time)
+	stop := startWith(t, dirs, Config{
+		Now:       clock,
+		JobTicks:  ticks,
+		JobPolicy: autoJobs,
+		Jobs:      jobs.Config{Anomalies: jobs.AnomalyConfig{Role: "coord/lead", RunnerSilent: time.Minute}},
+	})
+	defer stop()
+	if r := jobsCall(t, dirs.SocketPath, "jobs-beat", jobs.Args{Runner: "r1", Machine: "tiger"}); !r.OK {
+		t.Fatalf("beat = %+v", r)
+	}
+	mu.Lock()
+	now = now.Add(2 * time.Minute)
+	mu.Unlock()
+	// The role is not registered here, so the message is rejected as an
+	// unknown target; the rejection shows the daemon sent it to the role.
+	toRole := func() int {
+		lines, err := eventlog.Open(dirs.StateDir).Read(eventlog.Filter{Name: "coord/lead"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(lines)
+	}
+	ticks <- now
+	waitFor(t, func() bool { return toRole() == 1 })
+	ticks <- now
+	ticks <- now
+	lines, err := eventlog.Open(dirs.StateDir).Read(eventlog.Filter{Event: eventlog.EventJob})
+	if err != nil {
+		t.Fatal(err)
+	}
+	anomalies := 0
+	for _, l := range lines {
+		if strings.Contains(l, "anomaly runner-silent r1") {
+			anomalies++
+		}
+	}
+	if anomalies != 1 || toRole() != 1 {
+		t.Fatalf("anomaly events = %d, messages to the role = %d; want one each", anomalies, toRole())
 	}
 }

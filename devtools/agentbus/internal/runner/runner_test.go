@@ -85,7 +85,7 @@ func (q *storeQueue) changes() []string {
 	defer q.mu.Unlock()
 	var out []string
 	for _, c := range q.calls {
-		if !strings.HasPrefix(c, "show") && !strings.HasPrefix(c, "list") && !strings.HasPrefix(c, "held") {
+		if !strings.HasPrefix(c, "show") && !strings.HasPrefix(c, "list") && !strings.HasPrefix(c, "held") && !strings.HasPrefix(c, "beat") {
 			out = append(out, c)
 		}
 	}
@@ -96,6 +96,24 @@ func (q *storeQueue) Claim(_ context.Context, kinds []string) (*jobs.Job, bool, 
 	q.call("claim " + strings.Join(kinds, ","))
 	r, err := q.s.Claim(jobs.Args{Runner: runnerName, Machine: machine, Kinds: kinds})
 	return r.Job, r.Held, r.HoldNote, wrap(err)
+}
+
+func (q *storeQueue) Beat(context.Context) error {
+	q.call("beat")
+	_, err := q.s.Beat(jobs.Args{Runner: runnerName, Machine: machine})
+	return wrap(err)
+}
+
+func (q *storeQueue) beats() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	n := 0
+	for _, c := range q.calls {
+		if c == "beat" {
+			n++
+		}
+	}
+	return n
 }
 
 func (q *storeQueue) Heartbeat(_ context.Context, id string) error {
@@ -560,6 +578,20 @@ func TestDryRunMakesNoChanges(t *testing.T) {
 	}
 	if strings.Count(w.log.String(), "would claim") != 1 {
 		t.Fatalf("an idle poll repeats itself:\n%s", w.log)
+	}
+}
+
+func TestEveryTickBeatsEvenIdleHeldOrDryRun(t *testing.T) {
+	w := newWorld(t, Config{Kinds: map[string]Kind{"rebase": cliKind(1)}})
+	w.settle()
+	if err := w.q.s.Hold("release day"); err != nil {
+		t.Fatal(err)
+	}
+	w.settle()
+	w.r.DryRun = true
+	w.settle()
+	if got := w.q.beats(); got != 6 {
+		t.Fatalf("beats = %d over six ticks, want one each", got)
 	}
 }
 

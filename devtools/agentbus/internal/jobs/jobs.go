@@ -208,6 +208,8 @@ const (
 type Config struct {
 	Kinds            map[string]Kind
 	HeartbeatTimeout time.Duration
+	// Anomalies are the anomaly rules' role and thresholds.
+	Anomalies AnomalyConfig
 }
 
 // Kind returns the behavior of name. An undeclared kind is outward,
@@ -246,6 +248,7 @@ type kindFile struct {
 type configFile struct {
 	HeartbeatTimeout string              `json:"heartbeatTimeout"`
 	Kinds            map[string]kindFile `json:"kinds"`
+	Anomalies        *anomalyFile        `json:"anomalies"`
 }
 
 var kindPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
@@ -281,6 +284,13 @@ func ParseConfig(data []byte) (Config, error) {
 			return Config{}, err
 		}
 		cfg.Kinds[name] = k
+	}
+	if f.Anomalies != nil {
+		a, err := anomalyFromFile(*f.Anomalies)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.Anomalies = a
 	}
 	return cfg, nil
 }
