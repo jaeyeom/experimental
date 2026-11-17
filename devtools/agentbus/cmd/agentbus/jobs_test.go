@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -135,6 +137,10 @@ func TestJobsCLIUsage(t *testing.T) {
 		{"jobs", "heartbeat", "j-1"},
 		{"jobs", "gate", "j-1", "--runner", "tiger"},
 		{"jobs", "gate", "j-1", "--note", "dialog"},
+		{"jobs", "park", "j-1", "--runner", "tiger", "--saved", "park/x", "--note", "n"},
+		{"jobs", "park", "j-1", "--runner", "tiger", "--decide", "d1", "--note", "n"},
+		{"jobs", "park", "j-1", "--runner", "tiger", "--decide", "d1", "--saved", "park/x"},
+		{"jobs", "park", "j-1", "--decide", "d1", "--saved", "park/x", "--note", "n"},
 		{"jobs", "fail", "j-1", "--exit", "x"},
 		{"jobs", "show", "j-1", "j-2"},
 		{"jobs", "enqueue", "--kind", "a", "--subject", "s", "--gate", "auto"},
@@ -188,5 +194,64 @@ func TestJobsCLIClaimHoldsTheCheckoutLeaseUntilDone(t *testing.T) {
 	stdout, _ = mustCmd(t, []string{"lease", "status", "--all"}, env)
 	if !strings.Contains(stdout, "local:/src/repo: free") {
 		t.Fatalf("lease status after done =\n%s", stdout)
+	}
+}
+
+func TestJobsCLIParkNeedsACleanCheckoutAndASavedRef(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	env := jobsWorld(t)
+	repo, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...) //nolint:gosec // G204: test git in a temp repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q", "-b", "main")
+	writeFile(t, filepath.Join(repo, "a.txt"), []byte("a\n"))
+	git("add", "a.txt")
+	git("commit", "-q", "-m", "init")
+
+	mustCmd(t, []string{"jobs", "enqueue", "--kind", "review", "--subject", "o/r#1", "--checkout", repo, "--item", "c1", "--item", "c2"}, env)
+	mustCmd(t, []string{"jobs", "claim", "--runner", "tiger"}, env)
+	park := []string{"jobs", "park", "j-1", "--runner", "tiger", "--decide", "d9", "--saved", "park/r1", "--note", "c1 answered"}
+
+	if code, _, stderr := runCmd(park, env); code != 1 || !strings.Contains(stderr, "park/r1") {
+		t.Fatalf("park with no such branch = %d %q", code, stderr)
+	}
+	git("branch", "park/r1")
+	writeFile(t, filepath.Join(repo, "a.txt"), []byte("half done\n"))
+	if code, _, stderr := runCmd(park, env); code != 1 || !strings.Contains(stderr, "uncommitted") {
+		t.Fatalf("park of a dirty checkout = %d %q", code, stderr)
+	}
+	stdout, _ := mustCmd(t, []string{"jobs", "show", "j-1"}, env)
+	if !strings.Contains(stdout, "state: running") || !strings.Contains(stdout, "lease: local:"+repo) {
+		t.Fatalf("a refused park changed the job:\n%s", stdout)
+	}
+
+	git("checkout", "-q", "a.txt")
+	stdout, _ = mustCmd(t, append(park, "--item", "c2"), env)
+	if stdout != "j-1 done\nj-2 gated on d9\n" {
+		t.Fatalf("partial park = %q", stdout)
+	}
+	stdout, _ = mustCmd(t, []string{"jobs", "show", "j-2"}, env)
+	for _, want := range []string{"state: gated on d9", "saved: park/r1", "resume: c1 answered", "items: c2", "parent: j-1"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("show of the child lacks %q:\n%s", want, stdout)
+		}
+	}
+	stdout, _ = mustCmd(t, []string{"lease", "status", "--all"}, env)
+	if !strings.Contains(stdout, "local:"+repo+": free") {
+		t.Fatalf("the park kept the lease:\n%s", stdout)
+	}
+	stdout, _ = mustCmd(t, []string{"jobs", "enqueue", "--kind", "review", "--subject", "o/r#1", "--head", "def", "--item", "c2"}, env)
+	if stdout != "j-2 gated (duplicate)\n" {
+		t.Fatalf("enqueue of a parked item at a new head = %q", stdout)
 	}
 }

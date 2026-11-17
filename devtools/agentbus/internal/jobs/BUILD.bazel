@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "gate.go",
         "jobs.go",
+        "park.go",
         "policy.go",
         "reconcile.go",
         "store.go",
@@ -24,6 +25,7 @@ go_test(
         "config_test.go",
         "gate_test.go",
         "lease_test.go",
+        "park_test.go",
         "policy_test.go",
         "reconcile_test.go",
         "store_test.go",

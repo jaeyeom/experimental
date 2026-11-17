@@ -27,14 +27,28 @@ type Decider interface {
 // gets one. A job whose item has the user's own answer to every
 // question goes to ready; a reject from the user fails it. Anything
 // else leaves it gated. Without a Decider every gated job waits.
-// Decide runs with the store unlocked.
+// A job parked on an agent's decide item, or its gated child, is
+// resumed once the user answers that item. Decide runs with the store
+// unlocked.
 func RunGate(ctx context.Context, s *Store, d Decider) {
 	if d == nil {
 		return
 	}
+	for _, j := range s.ParkedOnItems() {
+		if ctx.Err() != nil {
+			return
+		}
+		if it, err := d.Show(ctx, j.ParkedOn); err == nil && answeredByUser(it) {
+			// One that moved meanwhile is left as it is.
+			_ = s.Resume(j.ID, j.ParkedOn, "the user answered decide "+j.ParkedOn)
+		}
+	}
 	for _, j := range s.Gated() {
 		if ctx.Err() != nil {
 			return
+		}
+		if j.ParkedOn != "" {
+			continue
 		}
 		if j.Decide == "" {
 			askGate(ctx, s, d, j)
@@ -135,6 +149,21 @@ func gateVerdict(it decide.Item) verdict {
 		return waiting
 	}
 	return approved
+}
+
+// answeredByUser reports whether the user answered an agent's item in
+// the inbox: the answer, and the last message the user wrote, came from
+// the user there, not from an agent writing as the user.
+func answeredByUser(it decide.Item) bool {
+	if !it.Answer.HumanUI() {
+		return false
+	}
+	for i := len(it.Messages) - 1; i >= 0; i-- {
+		if m := it.Messages[i]; m.Author == decide.Human {
+			return m.HumanUI()
+		}
+	}
+	return false
 }
 
 // rejectNote is the user's own text in the item, or that it was
