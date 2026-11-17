@@ -33,6 +33,12 @@ Close an item with `decide done` and an outcome. A follow-up is a reply in the e
 
 Reply in the same thread when the user picks "draft a message for me", with the full draft text and options such as `send`, `edit`, and `don't send`. The user answers or requests edits inside decide.
 
+## Item IDs are private
+
+An item ID such as D-123 exists only in this user's inbox. No one else can open it.
+
+Use item IDs only in decide itself and in messages to other local agents. Never put one in a shared place: issue trackers, GitHub issues or comments, PR titles or descriptions, commit messages, code, or chat posts. Write what was decided there instead, in plain words.
+
 ## Write for the inbox
 
 Short lines. A one-line summary first.
