@@ -88,7 +88,8 @@ type SettingsConfig struct {
 	// enqueues. Empty makes queue refuse unless --allow-no-required-checks is
 	// set. Names match exactly.
 	RequiredChecks []string `yaml:"required_checks"`
-	// FlakeSignatures are regular expressions matched against a failing log.
+	// FlakeSignatures are regular expressions matched against the failing
+	// output: the lines FailureLogPattern selects and failing test output.
 	// A match is a hint, not a verdict.
 	FlakeSignatures []string `yaml:"flake_signatures"`
 	// RCAMarker is a comment template. Placeholders are {event_id} and {class}.

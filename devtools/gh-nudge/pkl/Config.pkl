@@ -73,7 +73,9 @@ class SettingsConfig {
   /// Empty makes queue refuse unless --allow-no-required-checks is set.
   /// Names match exactly, including case.
   required_checks: Listing<String> = new {}
-  /// Regular expressions matched against a failing merge-queue log.
+  /// Regular expressions matched against a failing merge-queue job's
+  /// failure output: the log lines failure_log_pattern selects and the
+  /// failing tests' output. The rest of the log gives no hints.
   /// A match is a hint, not a verdict. Empty means no hints.
   flake_signatures: Listing<String> = new {}
   /// Comment template that must match before a removed pull request can be

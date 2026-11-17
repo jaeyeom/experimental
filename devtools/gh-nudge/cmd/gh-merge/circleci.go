@@ -25,19 +25,27 @@ const circleTokenEnv = "CIRCLE_TOKEN"
 // failureReport is the evidence text printed for a failure. Suggested is an
 // RCA class the evidence points to, such as "infra", or empty. Log is the
 // failing step log without ANSI escapes. The CircleCI path also fills the
-// job, its workflow, its sibling jobs, and, with details, its failing tests.
+// job, its workflow, its sibling jobs, and, with details, its failing tests
+// and their output.
 type failureReport struct {
-	Text       string
-	Suggested  string
-	Log        string
-	Infra      bool
-	JobID      string
-	JobName    string
-	JobURL     string
-	WorkflowID string
-	Workflow   string
-	Siblings   []github.JobOutcome
-	Tests      []string
+	Text        string
+	Suggested   string
+	Log         string
+	Infra       bool
+	JobID       string
+	JobName     string
+	JobURL      string
+	WorkflowID  string
+	Workflow    string
+	Siblings    []github.JobOutcome
+	Tests       []string
+	TestOutputs []testOutput
+}
+
+// testOutput is a failing test's name and its failure output.
+type testOutput struct {
+	Name   string
+	Output string
 }
 
 // evidenceOut writes failure evidence text to w. details also fetches facts
@@ -221,7 +229,7 @@ type circleLog struct {
 	workflowID string
 	workflow   string
 	siblings   []github.JobOutcome
-	tests      []string
+	tests      []testOutput
 }
 
 const rcaClassInfra = "infra"
@@ -238,7 +246,10 @@ func (e evidenceOut) printCircleLog(log circleLog) (failureReport, error) {
 	report.WorkflowID = log.workflowID
 	report.Workflow = log.workflow
 	report.Siblings = log.siblings
-	report.Tests = log.tests
+	for _, test := range log.tests {
+		report.Tests = append(report.Tests, test.Name)
+	}
+	report.TestOutputs = log.tests
 	return report, nil
 }
 
@@ -320,15 +331,41 @@ func (e evidenceOut) printCircleText(body string) (failureReport, error) {
 
 // failureLines returns the lines of text that failure_log_pattern matches.
 func failureLines(cfg *config.Config, text string) ([]string, error) {
+	numbered, err := failureLogLines(cfg, text)
+	if err != nil {
+		return nil, err
+	}
+	var lines []string
+	for _, line := range numbered {
+		lines = append(lines, line.text)
+	}
+	return lines, nil
+}
+
+// logLine is a log line and its 1-based line number.
+type logLine struct {
+	number int
+	text   string
+}
+
+// failureLogLines returns the lines of text that failure_log_pattern
+// matches, with their line numbers.
+func failureLogLines(cfg *config.Config, text string) ([]logLine, error) {
 	pattern := cfg.Settings.FailureLogPattern
 	if pattern == "" {
 		pattern = config.DefaultFailureLogPattern
 	}
-	lines, err := linesMatching(text, pattern)
+	re, err := regexp.Compile(pattern)
 	if err != nil {
 		return nil, fmt.Errorf("failure_log_pattern %q: %w", pattern, err)
 	}
-	return lines, nil
+	var matched []logLine
+	for i, line := range strings.Split(text, "\n") {
+		if line != "" && re.MatchString(line) {
+			matched = append(matched, logLine{number: i + 1, text: line})
+		}
+	}
+	return matched, nil
 }
 
 func (e evidenceOut) printNoFailedJob(workflow string, statuses []github.CommitStatus) {
@@ -479,20 +516,6 @@ func circleStepSucceeded(outcome string) bool {
 	default:
 		return false
 	}
-}
-
-func linesMatching(text, pattern string) ([]string, error) {
-	re, err := regexp.Compile(pattern)
-	if err != nil {
-		return nil, fmt.Errorf("compile failure log pattern: %w", err)
-	}
-	var matched []string
-	for _, line := range strings.Split(text, "\n") {
-		if line != "" && re.MatchString(line) {
-			matched = append(matched, line)
-		}
-	}
-	return matched, nil
 }
 
 func isCircleURL(raw string) bool {
@@ -838,10 +861,10 @@ func fetchCircleJob(org, repo string, jobNumber int, token string) (circleJobDet
 	return job, nil
 }
 
-// circleFailingTests returns the job's failed test names from CircleCI test
-// metadata. Test results are optional, so a job without them, or a failed
-// request, returns none.
-func circleFailingTests(org, repo string, jobNumber int, token string) []string {
+// circleFailingTests returns the job's failed tests, with their failure
+// messages, from CircleCI test metadata. Test results are optional, so a job
+// without them, or a failed request, returns none.
+func circleFailingTests(org, repo string, jobNumber int, token string) []testOutput {
 	raw := fmt.Sprintf(
 		"https://circleci.com/api/v2/project/gh/%s/%s/%d/tests",
 		url.PathEscape(org), url.PathEscape(repo), jobNumber,
@@ -851,12 +874,13 @@ func circleFailingTests(org, repo string, jobNumber int, token string) []string 
 			Classname string `json:"classname"`
 			Name      string `json:"name"`
 			Result    string `json:"result"`
+			Message   string `json:"message"`
 		} `json:"items"`
 	}
 	if err := circleJSON(raw, token, &resp); err != nil {
 		return nil
 	}
-	var names []string
+	var tests []testOutput
 	for _, item := range resp.Items {
 		switch strings.ToLower(item.Result) {
 		case "failure", "failed", "error":
@@ -867,9 +891,9 @@ func circleFailingTests(org, repo string, jobNumber int, token string) []string 
 		if item.Classname != "" {
 			name = item.Classname + "." + item.Name
 		}
-		names = append(names, name)
+		tests = append(tests, testOutput{Name: name, Output: item.Message})
 	}
-	return names
+	return tests
 }
 
 // addCLIWorkflow names the job, its workflow, and the workflow's other jobs

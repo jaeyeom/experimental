@@ -290,7 +290,7 @@ func TestQueueRemovalPrintsEvidenceAndFlakeHint(t *testing.T) {
 			CheckRunURL: "https://github.com/acme/widgets/runs/1",
 			JobURL:      "https://github.com/acme/widgets/actions/runs/9/job/8",
 			StepName:    "test",
-			Log:         "setup ok\nconnection reset by peer\nexit 1",
+			Log:         "setup ok\nERROR: connection reset by peer\nexit 1",
 		},
 		landed:   github.StackPR{Number: 10},
 		landedOK: true,
@@ -4904,5 +4904,60 @@ func TestPendingOnly(t *testing.T) {
 				t.Fatalf("pendingOnly() = %v, want %v (problems %q)", got, tc.want, problems)
 			}
 		})
+	}
+}
+
+func flakeHintConfig() *config.Config {
+	return &config.Config{Settings: config.SettingsConfig{FlakeSignatures: []string{"connection reset"}}}
+}
+
+func TestFlakeHintsIgnoreSignatureOutsideFailingOutput(t *testing.T) {
+	report := failureReport{Log: "connection reset while warming the cache\nERROR: TestParse failed\nexit 1"}
+	hints, err := flakeHints(flakeHintConfig(), report)
+	if err != nil {
+		t.Fatalf("flakeHints() error = %v", err)
+	}
+	if len(hints) != 0 {
+		t.Fatalf("hints = %+v, want none", hints)
+	}
+}
+
+func TestFlakeHintsMatchFailingOutputOnce(t *testing.T) {
+	report := failureReport{Log: "setup ok\nERROR: dial tcp: connection reset by peer\nERROR: connection reset again\nexit 1"}
+	hints, err := flakeHints(flakeHintConfig(), report)
+	if err != nil {
+		t.Fatalf("flakeHints() error = %v", err)
+	}
+	want := []flakeHint{{
+		Pattern:  "connection reset",
+		Match:    "connection reset",
+		Line:     "ERROR: dial tcp: connection reset by peer",
+		Location: "log line 2",
+	}}
+	if !slices.Equal(hints, want) {
+		t.Fatalf("hints = %+v, want %+v", hints, want)
+	}
+	if got, wantText := hints[0].text(), `Flake hint: pattern "connection reset" matched "connection reset" (not a verdict)`; got != wantText {
+		t.Fatalf("text() = %q, want %q", got, wantText)
+	}
+}
+
+func TestFlakeHintsMatchFailingTestOutput(t *testing.T) {
+	report := failureReport{
+		Log:         "connection reset while warming the cache\nexit 1",
+		TestOutputs: []testOutput{{Name: "pkg/net.TestDial", Output: "dial_test.go:9: read: connection reset by peer"}},
+	}
+	hints, err := flakeHints(flakeHintConfig(), report)
+	if err != nil {
+		t.Fatalf("flakeHints() error = %v", err)
+	}
+	want := []flakeHint{{
+		Pattern:  "connection reset",
+		Match:    "connection reset",
+		Line:     "dial_test.go:9: read: connection reset by peer",
+		Location: "test pkg/net.TestDial",
+	}}
+	if !slices.Equal(hints, want) {
+		t.Fatalf("hints = %+v, want %+v", hints, want)
 	}
 }

@@ -43,7 +43,9 @@ type SettingsConfig struct {
 	// Names match exactly, including case.
 	RequiredChecks []string `pkl:"required_checks"`
 
-	// Regular expressions matched against a failing merge-queue log.
+	// Regular expressions matched against a failing merge-queue job's
+	// failure output: the log lines failure_log_pattern selects and the
+	// failing tests' output. The rest of the log gives no hints.
 	// A match is a hint, not a verdict. Empty means no hints.
 	FlakeSignatures []string `pkl:"flake_signatures"`
 
