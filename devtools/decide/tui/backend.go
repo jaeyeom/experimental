@@ -22,9 +22,10 @@ type Backend interface {
 	// Answer records value with via ui and runs the notify command of a
 	// relay item. A failed notify is a *NotifyError; the answer stands.
 	Answer(id, value string) (decide.Item, error)
-	// Reply appends a human message with via ui and sends the owner
-	// pane the thread note. A failed send is a *NotifyError.
-	Reply(id, text string) (decide.Item, error)
+	// Reply appends a human message with via ui and sends the thread
+	// note to the agents route names, as decide.ReplyTargets resolves
+	// them. An empty route is the owner. A failed send is a *NotifyError.
+	Reply(id, text, route string) (decide.Item, error)
 	Done(id, outcome string) (decide.Item, error)
 	// Archive marks a notification done with outcome archived when no
 	// message is newer than seen.
@@ -224,23 +225,41 @@ func (b *LocalBackend) Answer(id, value string) (decide.Item, error) {
 }
 
 // Reply implements Backend.
-func (b *LocalBackend) Reply(id, text string) (decide.Item, error) {
+func (b *LocalBackend) Reply(id, text, route string) (decide.Item, error) {
+	if route != "" {
+		if err := decide.CheckRoute(route); err != nil {
+			return decide.Item{}, err //nolint:wrapcheck // CheckRoute names the route
+		}
+	}
 	updated, err := b.with(func(led *decide.Ledger) (decide.Item, error) { return led.Compose(id, text, decide.ViaUI, "") })
 	if err != nil {
 		return decide.Item{}, err
 	}
-	if updated.NotifyClosed {
+	cfg, err := decide.LoadConfig()
+	if err != nil {
+		err = fmt.Errorf("load decide config: %w", err)
+		updated.NotifyError = b.recordNotifyError(updated.ID, err)
+		return updated, &NotifyError{Err: err}
+	}
+	targets := decide.ReplyTargets(&updated, cfg, route)
+	if len(targets) == 0 {
 		updated.NotifyError = b.recordNotifyError(updated.ID, nil)
 		return updated, nil
 	}
-	d, err := b.notifyThread(&updated, text)
-	if d.Outcome != "" {
-		updated = b.recordCompose(updated, d)
-	} else {
-		updated.NotifyError = b.recordNotifyError(updated.ID, err)
+	var first error
+	for _, tg := range targets {
+		d, err := b.notifyThread(&updated, cfg, tg, text)
+		if d.Outcome != "" {
+			updated = b.recordCompose(updated, d)
+		} else {
+			updated.NotifyError = b.recordNotifyError(updated.ID, err)
+		}
+		if err != nil && first == nil {
+			first = err
+		}
 	}
-	if err != nil {
-		return updated, &NotifyError{Err: err}
+	if first != nil {
+		return updated, &NotifyError{Err: first}
 	}
 	return updated, nil
 }
@@ -274,16 +293,12 @@ func (b *LocalBackend) recordNotifyError(id string, err error) string {
 	return message
 }
 
-// notifyThread runs the compose command so the owner pane sees the
-// thread header, the original text, and the reply hint. A pane on
-// another machine is reached through `--machine`. The attempt comes back
-// as a Delivery; one with no outcome never reached a send.
-func (b *LocalBackend) notifyThread(item *decide.Item, text string) (decide.Delivery, error) {
-	cfg, err := decide.LoadConfig()
-	if err != nil {
-		return decide.Delivery{}, fmt.Errorf("load decide config: %w", err)
-	}
-	pane, machine := decide.NotifyTarget(item, cfg)
+// notifyThread runs the compose command so tg's pane sees the thread
+// header, the original text, and the reply hint. A pane on another
+// machine is reached through `--machine`. The attempt comes back as a
+// Delivery; one with no outcome never reached a send.
+func (b *LocalBackend) notifyThread(item *decide.Item, cfg decide.Config, tg decide.ReplyTarget, text string) (decide.Delivery, error) {
+	pane, machine := tg.Pane, tg.Machine
 	if strings.TrimSpace(pane) == "" {
 		return decide.Delivery{}, fmt.Errorf("decide compose pane is empty")
 	}

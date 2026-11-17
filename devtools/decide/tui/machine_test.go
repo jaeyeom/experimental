@@ -16,15 +16,14 @@ func TestNotifyThreadSendsToTheItemMachine(t *testing.T) {
 		return nil
 	}
 	item := &decide.Item{ID: "D-1", NotifyPane: "p3", NotifyMachine: "m2"}
-	if _, err := b.notifyThread(item, "hi"); err != nil {
+	if _, err := b.notifyThread(item, decide.Config{}, decide.ReplyTarget{Pane: "p3", Machine: "m2"}, "hi"); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"herdr", "--machine", "m2", "agent", "prompt", "p3", decide.DeliveryNote("D-1", "human", "hi")}
 	if !slices.Equal(got, want) {
 		t.Fatalf("argv = %q, want %q", got, want)
 	}
-	item.NotifyMachine = ""
-	if _, err := b.notifyThread(item, "hi"); err != nil {
+	if _, err := b.notifyThread(item, decide.Config{}, decide.ReplyTarget{Pane: "p3"}, "hi"); err != nil {
 		t.Fatal(err)
 	}
 	if got[1] != "agent" {

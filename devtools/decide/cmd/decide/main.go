@@ -46,6 +46,7 @@ var itemCommands = map[string]func([]string, io.Writer, io.Writer) int{
 	"snooze":   cmdSnooze,
 	"unsnooze": cmdUnsnooze,
 	"reassign": cmdReassign,
+	"assign":   cmdAssign,
 }
 
 // ledgerCommands run against this machine's ledger until stopped: the
@@ -117,9 +118,11 @@ func usage(w io.Writer) {
   decide status clear --resource <name>
   decide targets [--json]
   decide send --to <name> [--json] [--via cli|ui] <text>
-  decide send --id <id> [--json] [--via cli|ui] <text>
+  decide send --id <id> [--to owner|worker|both] [--json] [--via cli|ui] <text>
   decide reply <id> [--option key:label ...] [--rec key] [--free-text] [--json] <text>
   decide reassign <id> [--owner <label>] [--notify-pane <pane>] [--json]
+  decide assign <id> <agent> [--notify-pane <pane>] [--json]
+  decide assign <id> --clear [--json]
   decide skill
   decide avatars list [--name <name>] [--ids]
   decide avatars set [--local] <name> <id|default|none>
@@ -131,6 +134,10 @@ func usage(w io.Writer) {
 
 Text for ask, reply, send, done, withdraw, and status set may be a positional argument, --text-file <path>, or - for stdin.
 Use reassign when the owning tab is retired, or for a handoff to another agent.
+Use assign when another agent works on an item while its owner stays; the
+worker is notified at agentbus:<agent> unless --notify-pane says otherwise.
+send --id on an item with a worker warns on stderr and notifies the owner;
+--to worker or --to both reaches the worker.
 `)
 }
 
@@ -148,7 +155,7 @@ func cmdSend(args []string, stdout, stderr io.Writer) int {
 	}
 	fs := flag.NewFlagSet("send", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	to := fs.String("to", "", "recipient name")
+	to := fs.String("to", "", "recipient name; with --id, owner, worker, or both")
 	id := fs.String("id", "", "thread to append a human message")
 	jsonOut := fs.Bool("json", false, "print JSON")
 	via := fs.String("via", decide.ViaCLI, "where the message came from: cli, or ui for the inbox front ends only")
@@ -160,15 +167,19 @@ func cmdSend(args []string, stdout, stderr io.Writer) int {
 	}
 	hasTo := strings.TrimSpace(*to) != ""
 	hasID := strings.TrimSpace(*id) != ""
-	if hasTo == hasID {
+	if !hasTo && !hasID {
 		return fail(stderr, fmt.Errorf("decide send requires --to or --id"), 2)
+	}
+	route, err := composeRoute(*to, hasID)
+	if err != nil {
+		return fail(stderr, err, 2)
 	}
 	text, err := bodyFrom(fs.Args(), file, "text")
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
 	if hasID {
-		return cmdCompose(strings.TrimSpace(*id), text, *via, senderOf(context.Background()), *jsonOut, stdout, stderr)
+		return cmdCompose(strings.TrimSpace(*id), text, *via, senderOf(context.Background()), route, *jsonOut, stdout, stderr)
 	}
 	cfg, err := decide.LoadConfig()
 	if err != nil {
@@ -272,7 +283,23 @@ func printSent(stdout, stderr io.Writer, name, text, id string, jsonOut bool) in
 	return 0
 }
 
-func cmdCompose(id, text, via, by string, jsonOut bool, stdout, stderr io.Writer) int {
+// composeRoute is the --to of send --id: owner, worker, both, or empty.
+// Without --id, --to is a recipient name and the route is empty.
+func composeRoute(to string, hasID bool) (string, error) {
+	route := strings.TrimSpace(to)
+	if !hasID || route == "" {
+		return "", nil
+	}
+	if err := decide.CheckRoute(route); err != nil {
+		return "", fmt.Errorf("decide send --id takes --to owner, worker, or both: %w", err)
+	}
+	return route, nil
+}
+
+// cmdCompose appends a human message to id and notifies the agents route
+// names. An empty route notifies the owner and warns on stderr when
+// another agent is working on the item.
+func cmdCompose(id, text, via, by, route string, jsonOut bool, stdout, stderr io.Writer) int {
 	cfg, err := decide.LoadConfig()
 	if err != nil {
 		return fail(stderr, err, 1)
@@ -288,6 +315,9 @@ func cmdCompose(id, text, via, by string, jsonOut bool, stdout, stderr io.Writer
 				return decide.Item{}, err //nolint:wrapcheck // the refusal sentence is printed unchanged
 			}
 		}
+		if (route == decide.RouteWorker || route == decide.RouteBoth) && !cur.HasOtherWorker() {
+			return decide.Item{}, fmt.Errorf("decide item %s has no worker other than its owner", id)
+		}
 		got, err := led.Compose(id, text, via, by)
 		if err != nil {
 			return decide.Item{}, fmt.Errorf("compose decide item: %w", err)
@@ -298,16 +328,30 @@ func cmdCompose(id, text, via, by string, jsonOut bool, stdout, stderr io.Writer
 	if code != 0 {
 		return code
 	}
-	pane, machine := decide.NotifyTarget(&item, cfg)
-	if item.NotifyClosed {
-		return 0
-	}
-	d, err := decide.NotifyOwner(pane, machine, item.ID, text)
-	recordCompose(&item, d, err)
-	if err != nil {
+	if err := notifyCompose(&item, cfg, route, text, stderr); err != nil {
 		return fail(stderr, err, 1)
 	}
 	return 0
+}
+
+// notifyCompose sends text to the agents route names and records each
+// delivery. An empty route warns on stderr when another agent is working
+// on item. The first failure is returned after every send was tried.
+func notifyCompose(item *decide.Item, cfg decide.Config, route, text string, stderr io.Writer) error {
+	if route == "" {
+		if warning := decide.RouteWarning(item); warning != "" {
+			fmt.Fprintf(stderr, "decide: %s Use --to worker or --to both to reach %s.\n", warning, item.Worker)
+		}
+	}
+	var first error
+	for _, tg := range decide.ReplyTargets(item, cfg, route) {
+		d, err := decide.NotifyOwner(tg.Pane, tg.Machine, item.ID, text)
+		recordCompose(item, d, err)
+		if err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
 }
 
 // recordCompose stores the delivery of item's newest message, the one
@@ -323,6 +367,47 @@ func recordCompose(item *decide.Item, d decide.Delivery, err error) {
 		return
 	}
 	_, _ = led.RecordCompose(item.ID, item.Messages[len(item.Messages)-1].Time, d)
+}
+
+// cmdAssign sets or clears the agent working on an item. The owner stays.
+func cmdAssign(args []string, stdout, stderr io.Writer) int {
+	args = hoistFlags(args, map[string]bool{"notify-pane": true})
+	fs := flag.NewFlagSet("assign", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	jsonOut := fs.Bool("json", false, "print the item as JSON")
+	clearWorker := fs.Bool("clear", false, "remove the worker")
+	pane := fs.String("notify-pane", "", "worker notify pane (default: agentbus:<agent>)")
+	if code, stop := stopped(parseFlags(fs, args)); stop {
+		return code
+	}
+	rest := fs.Args()
+	var id, worker string
+	var err error
+	switch {
+	case *clearWorker && strings.TrimSpace(*pane) != "":
+		return fail(stderr, fmt.Errorf("decide assign --clear does not take --notify-pane"), 2)
+	case *clearWorker:
+		id, err = oneArg(rest, "id")
+	default:
+		id, worker, err = twoArgs(rest, "id", "agent")
+	}
+	if err != nil {
+		return fail(stderr, err, 2)
+	}
+	machine, err := machineForNotifyPane(*pane)
+	if err != nil {
+		return fail(stderr, err, 1)
+	}
+	by := senderOf(context.Background())
+	return withItem(stdout, stderr, *jsonOut, false, func(led *decide.Ledger) (decide.Item, error) {
+		return led.Assign(id, decide.Assign{
+			Worker:  strings.TrimSpace(worker),
+			Pane:    *pane,
+			Machine: machine,
+			Clear:   *clearWorker,
+			By:      by,
+		})
+	})
 }
 
 // cmdReassign moves an item to a new owner, notify pane, or both.
@@ -1170,6 +1255,7 @@ func writeShow(w io.Writer, it *decide.Item) {
 	fmt.Fprintf(w, "id: %s\n", it.ID)
 	fmt.Fprintf(w, "question: %s\n", it.Question)
 	fmt.Fprintf(w, "owner: %s\n", it.Owner)
+	writeField(w, "working on it", it.Worker)
 	if it.ForwardedFrom != "" {
 		fmt.Fprintf(w, "forwarded from %s\n", it.ForwardedFrom)
 	}
@@ -1207,6 +1293,8 @@ func writeShow(w io.Writer, it *decide.Item) {
 	}
 	writeField(w, "notifyPane", it.NotifyPane)
 	writeField(w, "notifyMachine", it.NotifyMachine)
+	writeField(w, "workerNotifyPane", it.WorkerNotifyPane)
+	writeField(w, "workerNotifyMachine", it.WorkerNotifyMachine)
 	writeField(w, "notifyError", it.NotifyError)
 	writeField(w, "follow-up", it.FollowUp)
 	for _, d := range it.Delivery {

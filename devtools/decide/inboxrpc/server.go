@@ -131,7 +131,7 @@ func (s *Server) itemOp(req Request) (Response, bool) {
 		OpShow:     func() (decide.Item, error) { return b.Get(req.Item) },
 		OpMarkRead: func() (decide.Item, error) { return b.MarkRead(req.Item) },
 		OpAnswer:   func() (decide.Item, error) { return b.Answer(req.Item, req.Text) },
-		OpReply:    func() (decide.Item, error) { return b.Reply(req.Item, req.Text) },
+		OpReply:    func() (decide.Item, error) { return b.Reply(req.Item, req.Text, req.Route) },
 		OpDone:     func() (decide.Item, error) { return b.Done(req.Item, req.Text) },
 		OpArchive: func() (decide.Item, error) {
 			var seen time.Time

@@ -515,8 +515,8 @@ func (c *Client) Answer(id, value string) (decide.Item, error) {
 }
 
 // Reply implements tui.Backend.
-func (c *Client) Reply(id, text string) (decide.Item, error) {
-	return c.item(Request{Op: OpReply, Item: id, Text: text})
+func (c *Client) Reply(id, text, route string) (decide.Item, error) {
+	return c.item(Request{Op: OpReply, Item: id, Text: text, Route: route})
 }
 
 // Done implements tui.Backend.

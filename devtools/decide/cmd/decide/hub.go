@@ -26,10 +26,12 @@ var localCommands = map[string]bool{
 }
 
 // callerCommands send the hub-mode caller's handle and agentbus names: an
-// ask or reassign, to be notified, and a reply or send, to record its sender.
+// ask or reassign, to be notified, and an assign, reply, or send, to record
+// its sender.
 var callerCommands = map[string]bool{
 	"ask":      true,
 	"reassign": true,
+	"assign":   true,
 	"reply":    true,
 	"send":     true,
 }

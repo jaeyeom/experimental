@@ -184,6 +184,7 @@ func (m *Model) clearBusDown() {
 	m.confirmKind = confirmNone
 	m.confirmSend = nil
 	m.confirmCancel = false
+	m.replyRoute = ""
 }
 
 // busDownLine is the footer while the prompt is up. Brackets mark the
@@ -196,12 +197,13 @@ func (m *Model) busDownLine() screenLine {
 	return screenLine{text: busDownPrompt + "  " + send + " " + cancel + "  tab switch  y/n"}
 }
 
-// replyOnBus reports a reply to item goes through `agentbus send`, as
-// LocalBackend.notifyThread routes it.
-func replyOnBus(item *decide.Item) bool {
-	if item.NotifyClosed {
-		return false
+// replyOnBus reports a reply to item on route goes through `agentbus
+// send` for any agent it notifies, as LocalBackend.Reply routes it.
+func replyOnBus(item *decide.Item, route string) bool {
+	for _, tg := range decide.ReplyTargets(item, decide.Config{}, route) {
+		if _, ok := decide.AgentbusPaneRecipient(tg.Pane); ok {
+			return true
+		}
 	}
-	_, ok := decide.AgentbusPaneRecipient(item.NotifyPane)
-	return ok
+	return false
 }

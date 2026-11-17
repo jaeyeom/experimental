@@ -140,11 +140,18 @@ type Item struct {
 	NotifyMachine string `json:"notifyMachine,omitempty"`
 	// NotifyClosed is set when reassign clears the pane, so nothing is
 	// routed. An empty NotifyPane without it still uses the config pane.
-	NotifyClosed bool   `json:"notifyClosed,omitempty"`
-	TypeText     string `json:"typeText,omitempty"`
-	Where        string `json:"where,omitempty"`
-	Reason       string `json:"reason,omitempty"`
-	Outcome      string `json:"outcome,omitempty"`
+	NotifyClosed bool `json:"notifyClosed,omitempty"`
+	// Worker is the agent working on the item for its owner, set by
+	// decide assign. The owner does not change. WorkerNotifyPane is where
+	// a reply routed to the worker goes, agentbus:<Worker> by default, and
+	// WorkerNotifyMachine is the herdr machine of a pane id there.
+	Worker              string `json:"worker,omitempty"`
+	WorkerNotifyPane    string `json:"workerNotifyPane,omitempty"`
+	WorkerNotifyMachine string `json:"workerNotifyMachine,omitempty"`
+	TypeText            string `json:"typeText,omitempty"`
+	Where               string `json:"where,omitempty"`
+	Reason              string `json:"reason,omitempty"`
+	Outcome             string `json:"outcome,omitempty"`
 	// ForwardedFrom is the item id a forwarded thread was started from.
 	ForwardedFrom string `json:"forwardedFrom,omitempty"`
 	// BusMessage is the agentbus message id of a note sent to a bus name.
