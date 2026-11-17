@@ -68,6 +68,9 @@ func validateScope(c Config) error {
 			return &KeyError{Key: "skip_jobs", Reason: fmt.Sprintf("unknown job %q; want one of %s", job, strings.Join(Jobs, ", "))}
 		}
 	}
+	if err := validateJobs(c); err != nil {
+		return err
+	}
 	return validateOpenTabs(c)
 }
 

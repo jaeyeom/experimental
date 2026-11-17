@@ -38,6 +38,8 @@ type Client struct {
 	openPRPage atomic.Int32
 	// rollups keeps settled status checks between rounds; nil keeps none.
 	rollups RollupCache
+	// labels adds label names to the open-PR search and view.
+	labels bool
 }
 
 // RollupCache keeps a pull request's status checks between rounds, keyed by
@@ -51,6 +53,13 @@ type RollupCache interface {
 // request whose head and updatedAt match a stored settled rollup.
 func (c *Client) WithRollupCache(cache RollupCache) *Client {
 	c.rollups = cache
+	return c
+}
+
+// WithLabels makes the open-PR search and view load label names, for
+// job lanes. Other clients do not pay for them.
+func (c *Client) WithLabels() *Client {
+	c.labels = true
 	return c
 }
 

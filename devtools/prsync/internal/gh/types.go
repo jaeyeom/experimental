@@ -74,6 +74,9 @@ type PRListItem struct {
 	ReviewRequests    []ReviewReq    `json:"reviewRequests"`
 	LatestReviews     []LatestReview `json:"latestReviews"`
 	StatusCheckRollup []StatusCheck  `json:"statusCheckRollup"`
+	// Labels are the pull request's label names, loaded only by a client
+	// WithLabels.
+	Labels []string `json:"labels,omitempty"`
 	// StatusCheckError is set when the per-PR rollup view failed.
 	// StatusCheckRollup is then nil and is not "no checks".
 	StatusCheckError string `json:"-"`

@@ -6,6 +6,7 @@ load("//tools/org-lint:defs.bzl", "org_lint_tests")
 _ORG = [
     "gate.org",
     "internals.org",
+    "jobs.org",
     "multi-machine.org",
     "reference.org",
     "team-cover.org",

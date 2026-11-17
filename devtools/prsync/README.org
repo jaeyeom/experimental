@@ -118,9 +118,9 @@ The global flag ~--log-level~ is ~debug~, ~info~, ~warn~, or ~error~
 it. Stdout stays JSON.
 
 #+begin_example
-prsync scan     [--config PATH] [--repo owner/repo ...] [--json] [--in-scope] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
+prsync scan     [--config PATH] [--repo owner/repo ...] [--json] [--in-scope] [--emit-jobs] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
 prsync tabs     --orphans [--config PATH] [--json] [--stdin] [--close-merged] [--go] [--force] [--tab-machine M]
-prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--merge] [--ci-fix] [--hint TEXT] [--prompt-suffix TEXT] [--force] [--stdin] [--open-tabs] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
+prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--merge] [--ci-fix] [--hint TEXT] [--prompt-suffix TEXT] [--force] [--stdin] [--open-tabs] [--job ID] [--runner NAME] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
 prsync comment  [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--stdin] [--allow-duplicate] --body TEXT
 prsync gate     [--config PATH] [--tab-machine M]
 prsync logs     [--path]
@@ -190,5 +190,6 @@ Every other key is in the [[file:docs/reference.org][reference]].
 - [[file:docs/reference.org][Reference]] — every flag, config key, and JSON field.
 - [[file:docs/multi-machine.org][More than one machine]] — remote herdr servers, one watcher each, and opening tabs.
 - [[file:docs/gate.org][Gate]] — busy signals, the workdir lease, and what ~dispatch --go~ waits for.
+- [[file:docs/jobs.org][Jobs]] — ~scan --emit-jobs~, ~dispatch --job~, and the rebase on GitHub.
 - [[file:docs/team-cover.org][Team cover]] — suggested reviewers. Off until ~team_cover=true~.
 - [[file:docs/internals.org][Internals]] — the round cache, lock files, the smoke test, and development.

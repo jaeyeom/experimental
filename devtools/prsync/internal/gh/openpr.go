@@ -48,10 +48,35 @@ const openPRViewQuery = `query($owner:String!,$repo:String!,$num:Int!){repositor
 	openPRScalarFields + ` ` + reviewerSelection +
 	` latestReviews(first:20){pageInfo{hasNextPage}nodes{author{login} state submittedAt}} statusCheckRollup{contexts(first:100){nodes{... on CheckRun{name status conclusion} ... on StatusContext{context state}}}}}}}`
 
+// labelSelection is the labels fragment of a client WithLabels. The
+// default queries leave it out, so a scan that needs no labels pays
+// nothing for them.
+const labelSelection = `labels(first:20){pageInfo{hasNextPage}nodes{name}}`
+
+// openPRSearchQueryFor is the open-PR search, with labels when asked.
+func openPRSearchQueryFor(labels bool) string {
+	if !labels {
+		return openPRSearchQuery
+	}
+	return strings.Replace(openPRSearchQuery, reviewerSelection, reviewerSelection+` `+labelSelection, 1)
+}
+
+// openPRViewQueryFor is the single-PR view, with labels when asked.
+func openPRViewQueryFor(labels bool) string {
+	if !labels {
+		return openPRViewQuery
+	}
+	return strings.Replace(openPRViewQuery, reviewerSelection, reviewerSelection+` `+labelSelection, 1)
+}
+
 func openPRSearchArgs(repo, author string, page int, after string) []string {
+	return openPRSearchArgsFor(openPRSearchQuery, repo, author, page, after)
+}
+
+func openPRSearchArgsFor(query, repo, author string, page int, after string) []string {
 	args := []string{
 		"api", "graphql",
-		"-f", "query=" + openPRSearchQuery,
+		"-f", "query=" + query,
 		"-F", "q=" + openPRSearchText(repo, author),
 		"-F", "first=" + strconv.Itoa(page),
 	}
@@ -66,13 +91,17 @@ func openPRSearchText(repo, author string) string {
 }
 
 func openPRViewArgs(repo string, number int) ([]string, error) {
+	return openPRViewArgsFor(openPRViewQuery, repo, number)
+}
+
+func openPRViewArgsFor(query, repo string, number int) ([]string, error) {
 	owner, name, err := splitOwnerRepo(repo)
 	if err != nil {
 		return nil, err
 	}
 	return []string{
 		"api", "graphql",
-		"-f", "query=" + openPRViewQuery,
+		"-f", "query=" + query,
 		"-F", "owner=" + owner,
 		"-F", "repo=" + name,
 		"-F", "num=" + strconv.Itoa(number),
@@ -166,10 +195,10 @@ func (c *Client) listOpenPRSearch(ctx context.Context, repo, author, after strin
 		httpBackoffs: ghListHTTPRetryBackoffs,
 		nextHTTPArgs: func(ctx context.Context, failErr error) []string {
 			reason := transientHTTPRE.FindString(strings.ToLower(failErr.Error()))
-			return openPRSearchArgs(repo, author, c.halveOpenPRPage(ctx, reason), after)
+			return openPRSearchArgsFor(openPRSearchQueryFor(c.labels), repo, author, c.halveOpenPRPage(ctx, reason), after)
 		},
 	}
-	result, err := c.executeRetry(ctx, defaultCallTimeout, validJSONOutput, policy, openPRSearchArgs(repo, author, c.currentOpenPRPage(), after)...)
+	result, err := c.executeRetry(ctx, defaultCallTimeout, validJSONOutput, policy, openPRSearchArgsFor(openPRSearchQueryFor(c.labels), repo, author, c.currentOpenPRPage(), after)...)
 	if err != nil {
 		return openPRSearchResult{}, err
 	}
@@ -180,7 +209,7 @@ func (c *Client) listOpenPRSearch(ctx context.Context, repo, author, after strin
 }
 
 func (c *Client) viewOpenPR(ctx context.Context, repo string, number int) (PRListItem, error) {
-	args, err := openPRViewArgs(repo, number)
+	args, err := openPRViewArgsFor(openPRViewQueryFor(c.labels), repo, number)
 	if err != nil {
 		return PRListItem{}, err
 	}
@@ -286,6 +315,14 @@ type gqlPR struct {
 	ReviewRequests    gqlReviewRequests    `json:"reviewRequests"`
 	LatestReviews     *gqlLatestReviews    `json:"latestReviews"`
 	StatusCheckRollup gqlStatusCheckRollup `json:"statusCheckRollup"`
+	Labels            *gqlLabels           `json:"labels"`
+}
+
+type gqlLabels struct {
+	PageInfo gqlHasNextPage `json:"pageInfo"`
+	Nodes    []struct {
+		Name string `json:"name"`
+	} `json:"nodes"`
 }
 
 // gqlStatusCheckRollup is statusCheckRollup.contexts.nodes.
@@ -375,6 +412,12 @@ func (p *gqlPR) toPRListItem() PRListItem {
 	if p.LatestReviews != nil {
 		item.LatestReviews = latestReviewsFrom(p.LatestReviews.Nodes)
 		truncated.note("latestReviews", p.LatestReviews.PageInfo.HasNextPage)
+	}
+	if p.Labels != nil {
+		for _, node := range p.Labels.Nodes {
+			item.Labels = append(item.Labels, node.Name)
+		}
+		truncated.note("labels", p.Labels.PageInfo.HasNextPage)
 	}
 	item.Truncated = truncated
 	return item

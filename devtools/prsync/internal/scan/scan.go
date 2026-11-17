@@ -381,6 +381,7 @@ func classifyPR(ctx context.Context, client GH, lookup *threadLookup, cfg config
 		HeadSHA:          item.HeadRefOid,
 		UpdatedAt:        item.UpdatedAt,
 		CreatedAt:        item.CreatedAt,
+		Labels:           item.Labels,
 		MergeStateStatus: item.MergeStateStatus,
 		Mergeable:        item.Mergeable,
 		IsDraft:          item.IsDraft,

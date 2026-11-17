@@ -70,6 +70,9 @@ type PR struct {
 	// covers these unaddressed ids. Omitted otherwise. Rebase, CI-fix, and
 	// merge-queue-fix stay skipped_deduped on dispatch, not in this field.
 	Dispatch string `json:"dispatch,omitempty"`
+	// Labels are the label names, loaded only for job lanes. Not in scan
+	// JSON.
+	Labels []string `json:"-"`
 }
 
 // ActionMergeQueueFix is the scan action for an our-code merge-queue ejection.

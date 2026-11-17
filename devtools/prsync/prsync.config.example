@@ -48,6 +48,10 @@
 # Leave PRs marked out_of_scope out of scan output (scan --in-scope).
 # Default false: scan lists every PR and marks the out-of-scope ones.
 # scan_in_scope_only=true
+# scan --emit-jobs: each machine's name in the agentbus job queue (a plain
+# value names local), and PR labels that pin jobs to a machine's lane.
+# job_machines=tiger, linux2=turtle
+# job_lanes=needs-linux=linux2
 # Machine-wide jobs this run skips (comma-separated): team-cover. Run
 # gh-nudge next to the watcher that does not skip.
 # skip_jobs=team-cover

@@ -1,0 +1,135 @@
+#+TITLE: prsync and the agentbus job queue
+
+The short guide is [[file:../README.org][the prsync README]]. The queue
+itself, its runner, and its gate policy are in agentbus's
+=docs/jobs.org=.
+
+prsync can produce jobs for the agentbus job queue and run them, instead
+of sending prompts itself. Without ~--emit-jobs~ and ~--job~, ~scan~ and
+~dispatch~ behave as before.
+
+* scan --emit-jobs
+
+~prsync scan --emit-jobs~ runs the usual scan and writes job specs to
+stdout instead of the scan document. It sends nothing and enqueues
+nothing; a caller enqueues each spec. A failed scan writes no specs.
+
+#+BEGIN_SRC json
+{
+  "jobs": [
+    {
+      "kind": "comment",
+      "subject": "acme/widgets#123",
+      "head": "abc123def456",
+      "machine": "tiger",
+      "affinity": "tab",
+      "executor": "tab",
+      "items": ["PRRC_widget"]
+    }
+  ]
+}
+#+END_SRC
+
+Each field is the ~agentbus jobs enqueue~ flag of the same name;
+~items~ is one ~--item~ each.
+
+** Kinds
+
+Each open pull request gets, in this order:
+
+| Kind              | When                                                     | Executor |
+|-------------------+----------------------------------------------------------+----------|
+| ~merge-queue-fix~ | The scan has a ~merge-queue-fix~ action.                 | agent    |
+| ~comment~         | Unaddressed review comments; ~items~ are their ids.      | agent    |
+| ~ci-fix~          | ~ci_state~ is ~failing~.                                 | agent    |
+| ~rebase~          | ~BEHIND~ or ~DIRTY~, or ~mergeable~ is ~CONFLICTING~.    | ~cli~    |
+
+An agent job runs in its tab (~tab~) when it has tab affinity, and in a
+new tab (~new-tab~) otherwise. A draft gets no job unless
+~include_drafts~ is set, nor does a PR whose tab could not be searched
+(~tab_unknown~).
+
+** Affinity
+
+Most specific first:
+
+1. *Tab.* The PR has an agent tab: that tab's machine.
+2. *Lane.* A PR label is in ~job_lanes~: that lane's machine. Labels
+   are tried by name.
+3. *Owner.* The machine whose agent tab last worked the PR.
+4. *Any.* ~machine~ is ~any~ and ~affinity~ is left out.
+
+One scan covers every machine's tabs: ~tab_machine~ scope does not drop
+jobs, so run a single ~--emit-jobs~ scan, on the hub.
+
+The owner comes from =job-owners.json= beside ~state_file~. Each
+~--emit-jobs~ scan records the machine of every agent tab it sees, and
+forgets PRs of the scanned repositories that are no longer open.
+
+Machine names are herdr names (~local~ or one of ~machines~) until
+~job_machines~ renames them for the queue:
+
+#+BEGIN_EXAMPLE
+machines=linux2
+job_machines=tiger, linux2=turtle
+job_lanes=needs-linux=linux2, needs-mac=local
+#+END_EXAMPLE
+
+A plain ~job_machines~ value names the local machine. Labels are
+loaded only for an ~--emit-jobs~ scan with ~job_lanes~ set, so other
+scans pay nothing for them.
+
+* dispatch --job
+
+~prsync dispatch --job <id>~ runs one queued job, live, and reports it
+with ~agentbus jobs done <id>~ or ~agentbus jobs fail <id>~. The report
+names ~--runner~, which defaults to =$JOB_RUNNER= (the runner sets it
+for a command). It prints the result and exits 0 once the report is in,
+whatever the result; it exits 3 when it cannot read the job or report
+it.
+
+#+BEGIN_SRC json
+{
+  "job": "j-7",
+  "kind": "rebase",
+  "subject": "acme/widgets#12",
+  "result": "done",
+  "note": "rebase conflicts with the base; queued conflict job j-8",
+  "queued": "j-8"
+}
+#+END_SRC
+
+| Kind                                   | What it does                                                       |
+|----------------------------------------+--------------------------------------------------------------------|
+| ~rebase~                               | The rebase on GitHub below.                                        |
+| ~comment~, ~ci-fix~, ~merge-queue-fix~ | The prompt ~dispatch~ would send, to the PR's tab, without dedupe. |
+| ~conflict~                             | The ~--rebase~ prompt, or the ~--merge~ prompt (below).            |
+
+A conflict job uses the ~--merge~ prompt when ~dispatch_catchup=merge~
+or the prompt suffix forbids a force-push. A prompt job is ~done~ once the prompt was sent (~dispatched~,
+~dispatched_timeout~, ~dispatched_blocked~, or
+~opened_tab_and_dispatched~), and ~fail~ with the dispatch action as the
+note otherwise. Any other kind fails. ~--job~ cannot be combined with
+~--pr~, ~--all~, ~--rebase~, ~--merge~, ~--ci-fix~, ~--hint~, ~--force~,
+or ~--stdin~.
+
+Under a runner's ~cli~ executor the runner reports the command's exit
+too. That second report is refused, since the job is already closed,
+and the runner only logs it.
+
+** Rebase on GitHub
+
+A ~rebase~ job rebases the branch on GitHub with the
+~updatePullRequestBranch~ API (~updateMethod: REBASE~), with no checkout
+and no ~git~. ~expectedHeadOid~ is the job's head, so a branch that
+moved since the scan is refused. The call is made once and never
+retried: a push runs at most once.
+
+- *Clean.* The job is ~done~: ~rebased on GitHub to <head>~.
+- *Conflict.* GitHub reports a conflict. prsync enqueues one ~conflict~
+  job for the PR with the rebase job's machine and affinity (executor
+  ~tab~ for tab affinity, else ~new-tab~), and the rebase job is ~done~
+  with its id in ~queued~.
+- *Refused.* Any other error, such as a repository that does not allow
+  it, a moved head, or a missing permission: the job fails with
+  GitHub's message.
