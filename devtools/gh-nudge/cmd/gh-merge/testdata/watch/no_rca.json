@@ -1,0 +1,11 @@
+[
+  {
+    "pullRequest": "acme/widgets#12",
+    "result": "failed_checks",
+    "config": "testdata/config.pkl",
+    "settingsFrom": "global",
+    "event_id": "EVT1",
+    "commit": "deadbeef",
+    "rca_class": "unclassified"
+  }
+]
