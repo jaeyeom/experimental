@@ -189,9 +189,18 @@ func finishSend(ctx context.Context, env []string, req daemon.Request, asJSON bo
 	}
 	if !resp.OK {
 		fmt.Fprintf(stderr, "agentbus: %s\n", resp.Error)
-		return 1
+		return refusedCode(resp)
 	}
 	return printAccepted(stdout, stderr, resp.Name, resp.State, asJSON, resp.Duplicate, resp.Unreachable, resp.AnonHerdr)
+}
+
+// refusedCode is the exit code of a send or reply the daemon refused:
+// 2 for a target that names no agent, else 1.
+func refusedCode(resp daemon.Response) int {
+	if resp.State == daemon.UnknownTarget {
+		return 2
+	}
+	return 1
 }
 
 // localClientID is the retry key for a local send or reply. An explicit

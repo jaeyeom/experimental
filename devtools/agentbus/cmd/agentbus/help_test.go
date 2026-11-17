@@ -178,3 +178,15 @@ func TestUnknownCommandHints(t *testing.T) {
 		}
 	}
 }
+
+func TestSendAndReplyHelpListTheExitCodes(t *testing.T) {
+	noDaemon(t)
+	for _, cmd := range []string{"send", "reply"} {
+		_, stdout, _ := runHelp(cmd, "--help")
+		for _, want := range []string{"Exit 0: stored", "1: bus, daemon or transport error", "2: unknown target or bad usage", "3: stored, but the daemon can't reach the transport"} {
+			if !strings.Contains(stdout, want) {
+				t.Errorf("%s help is missing %q: %q", cmd, want, stdout)
+			}
+		}
+	}
+}

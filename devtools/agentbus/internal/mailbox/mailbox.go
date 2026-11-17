@@ -197,7 +197,7 @@ func (m *Mailbox) send(ctx context.Context, from, sender string, replyable, anon
 		}); logErr != nil {
 			return Result{}, logErr
 		}
-		return Result{}, fmt.Errorf("resolve target: %w", err)
+		return Result{}, fmt.Errorf("resolve target: %w", unknownTarget{err})
 	}
 	msg, err := m.newMessage(from, target, "", body, replyable, handle)
 	if err != nil {
@@ -232,7 +232,7 @@ func (m *Mailbox) Reply(ctx context.Context, env []string, peerPID int, id, body
 	from, sender, replyable, anonHerdr := m.stamp(ctx, env, peerPID)
 	handle, err := m.reg.Resolve(orig.From)
 	if err != nil {
-		return Result{}, fmt.Errorf("resolve reply target: %w", err)
+		return Result{}, fmt.Errorf("resolve reply target: %w", unknownTarget{err})
 	}
 	msg, err := m.newMessage(from, orig.From, id, body, replyable, handle)
 	if err != nil {
@@ -247,6 +247,16 @@ func (m *Mailbox) Reply(ctx context.Context, env []string, peerPID int, id, body
 	res.AnonHerdr = anonHerdr
 	return res, nil
 }
+
+// unknownTarget is a resolve failure. It keeps the resolver's text and
+// matches ErrUnknownTarget.
+type unknownTarget struct{ err error }
+
+func (e unknownTarget) Error() string { return e.err.Error() }
+
+func (e unknownTarget) Unwrap() error { return e.err }
+
+func (e unknownTarget) Is(target error) bool { return target == ErrUnknownTarget }
 
 func (m *Mailbox) newMessage(from, to, re, body string, replyable bool, handle string) (message, error) {
 	id, err := newID()

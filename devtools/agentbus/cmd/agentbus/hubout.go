@@ -277,7 +277,7 @@ func attemptTunnel(ctx context.Context, e outbox.Entry, wait bool) (attempt, boo
 		return attempt{kind: classifyDial(err), code: 1, err: err}, true
 	}
 	if !resp.OK {
-		return attempt{kind: attemptRefusal, code: 1, resp: resp}, true
+		return attempt{kind: attemptRefusal, code: refusedCode(resp), resp: resp}, true
 	}
 	return attempt{kind: attemptOK, resp: resp}, true
 }

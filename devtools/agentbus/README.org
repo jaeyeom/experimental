@@ -139,6 +139,16 @@ could not identify it also prints
 ~--wait~ does not use exit 3. ~reply~ answers the same way. ~to~ is the
 original sender and ~re~ is the id.
 
+Exit codes of ~send~ and ~reply~:
+
+- ~0~: stored (queued, delivered, or held).
+- ~1~: bus, daemon or transport error.
+- ~2~: unknown target or bad usage. A name that is not registered says
+  ~<name> is not registered; try agentbus search~, and so does a reply
+  whose original sender no longer resolves. Nothing is sent.
+- ~3~: stored, but the daemon can't reach the transport (not with
+  ~--wait~).
+
 A target whose pane is gone is held as ~held: gone~. For a registered
 name the message keeps waiting, with no limit but ~--ttl~. For a raw
 pane handle that no name holds, nothing can accept it once the pane is
