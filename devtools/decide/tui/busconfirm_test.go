@@ -121,8 +121,8 @@ func TestBusDownPromptsBeforeReplyToABusThread(t *testing.T) {
 	// The prompt takes the keys: typing does not edit the draft.
 	sendKey(t, m, tea.KeyMsg{Type: tea.KeyBackspace})
 	sendKey(t, m, tea.KeyMsg{Type: tea.KeyEsc})
-	if n := sendCalls(bus); n != 1 || m.reply != "again" || !m.replyFocus {
-		t.Fatalf("cancel: sends %d reply %q focus %v", n, m.reply, m.replyFocus)
+	if n := sendCalls(bus); n != 1 || m.reply != "again" || !m.replySend {
+		t.Fatalf("cancel: sends %d reply %q on [Send] %v", n, m.reply, m.replySend)
 	}
 	sendKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if m.confirmKind != confirmBusDown {
@@ -163,7 +163,7 @@ func TestBusDownDoesNotPromptForAPaneTarget(t *testing.T) {
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
-	press(t, m, "o0again\r")
+	press(t, m, "o0again\t\r")
 	if m.confirmKind != confirmNone || !strings.HasPrefix(m.status, "replied ") {
 		t.Fatalf("reply: confirm %d status %q", m.confirmKind, m.status)
 	}

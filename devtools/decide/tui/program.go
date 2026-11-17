@@ -453,7 +453,7 @@ func (m *Model) listNav(k tea.KeyMsg) {
 }
 
 func (m *Model) itemScroll() bool {
-	return m.mode == modeDetail && !m.help && !m.composing && !m.answerFocus && !m.replyFocus && !m.linkPick && !m.avatarPick
+	return m.mode == modeDetail && !m.help && !m.composing && !m.answerFocus && !m.replyFocus && !m.replySend && !m.linkPick && !m.avatarPick
 }
 
 func (m *Model) scrollNav(k tea.KeyMsg) {

@@ -912,7 +912,7 @@ func TestDetailFreeTextSubmitsOnlyWhenSet(t *testing.T) {
 	if !strings.Contains(m.View(), "reply: custom words") {
 		t.Fatalf("text box missing draft\n%s", m.View())
 	}
-	press(t, m, "\r")
+	press(t, m, "\t\r")
 	got, err := led.Get(openFree.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -1770,7 +1770,7 @@ func TestFreeTextIsRowZero(t *testing.T) {
 	if got.Answer != nil || !m.replyFocus || !strings.Contains(m.View(), "reply:") || !strings.Contains(m.View(), cursorOn) {
 		t.Fatalf("click submitted or hid the cursor\n%s", m.View())
 	}
-	press(t, m, "1\r")
+	press(t, m, "1\t\r")
 	got, err = led.Get(two.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -1904,7 +1904,7 @@ func TestClickAnswersOptionAndFreeText(t *testing.T) {
 	if !m.replyFocus || !strings.Contains(m.View(), "reply:") {
 		t.Fatalf("composer was not focused\n%s", m.View())
 	}
-	press(t, m, "custom words\r")
+	press(t, m, "custom words\t\r")
 	got, err = led.Get(free.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -2701,7 +2701,7 @@ func TestPaneDeliveryUsesTheThreadNote(t *testing.T) {
 		t.Fatal(err)
 	}
 	press(t, replyModel, "o")
-	press(t, replyModel, "0follow up\r")
+	press(t, replyModel, "0follow up\t\r")
 	assertPaneNote(t, replyNote, during.ID, "follow up")
 	led, err := decide.Open(dir)
 	if err != nil {
@@ -3931,7 +3931,7 @@ func TestThreadViewShowsTheDraftAndReplies(t *testing.T) {
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
-	press(t, m, "o0edits\r")
+	press(t, m, "o0edits\t\r")
 	edited, err := led.Get(again.ID)
 	if err != nil {
 		t.Fatal(err)

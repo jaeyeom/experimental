@@ -81,7 +81,7 @@ func TestInboxReplyGetsAWaitingMarkWithTheBusID(t *testing.T) {
 	bus := &markBus{send: "m-5 held: herdr unreachable"}
 	m := markModel(t, dir, bus)
 	press(t, m, "o")
-	press(t, m, "0hello\r")
+	press(t, m, "0hello\t\r")
 
 	got, err := openLedger(t, dir).Get(item.ID)
 	if err != nil {

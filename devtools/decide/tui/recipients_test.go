@@ -413,7 +413,7 @@ func TestSendToBusNameRunsAgentbusSend(t *testing.T) {
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
-	press(t, m, "o0again\r")
+	press(t, m, "o0again\t\r")
 	if len(bus.calls) != 3 {
 		t.Fatalf("reply calls = %q status %q", bus.calls, m.status)
 	}
