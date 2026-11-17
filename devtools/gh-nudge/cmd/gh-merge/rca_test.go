@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -395,5 +396,28 @@ func TestRCAManualRefusedForFailedChecksRemoval(t *testing.T) {
 	}
 	if client.commentCalls != 0 {
 		t.Fatalf("commentCalls = %d", client.commentCalls)
+	}
+}
+
+func TestWatchJSONReportsEjectionRCAGolden(t *testing.T) {
+	tests := []struct {
+		name     string
+		comments []string
+	}{
+		{name: "no_rca.json"},
+		{name: "flake_rca.json", comments: []string{"Flaky.\nRCA EVT1 class=flake"}},
+		{name: "our_code_rca.json", comments: []string{"Flaky.\nRCA EVT1 class=flake", "Ours.\nRCA EVT1 class=our-code"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pr := removedPR()
+			pr.Comments = tt.comments
+			client := &fakeQueue{pr: pr}
+			output := captureStdout(t, func() {
+				err := watchPullRequests(client, []string{"acme/widgets#12"}, watchOptions{timeout: 0, asJSON: true, cfg: rcaConfig()})
+				assertWatchExit(t, err, 2)
+			})
+			assertGoldenFile(t, filepath.Join("testdata", "watch", tt.name), output)
+		})
 	}
 }

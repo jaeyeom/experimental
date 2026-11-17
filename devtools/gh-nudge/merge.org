@@ -98,7 +98,22 @@ A flake-signature match is printed as a hint, not a verdict. ~gh-merge watch~
 decides merged, ejected, or timeout from the timeline. ~isInMergeQueue=false~
 alone is not an ejection. ~--json~ prints one result per pull request:
 ~merged~, ~ejected:<reason>~, or ~timeout~. The command exits non-zero unless
-every pull request merged.
+every pull request merged. For an ejection, ~--json~ also prints ~event_id~
+(the removal event), ~commit~ (the merge-group commit), and ~rca_class~: the
+class of the gh-merge RCA marker for that event (~our-code~, ~flake~,
+~infra~, or ~manual~), or ~unclassified~ when none matches. Pass ~event_id~
+to ~gh-merge rca --event~.
+
+~watch~ exits with the code of the first pull request that did not merge:
+
+| code | meaning                     |
+|------+-----------------------------|
+|    0 | every pull request merged   |
+|    2 | ejected for failed checks   |
+|    3 | ejected for merge conflict  |
+|    4 | removed by hand (~manual~)  |
+|    5 | timeout                     |
+|    1 | other ejections and errors  |
 
 ~gh-merge evidence~ prints the same removal evidence as ~queue~ for the
 latest removal, or for ~--event <id>~. It skips checks cancelled after the

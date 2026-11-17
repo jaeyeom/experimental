@@ -66,6 +66,11 @@ type watchResult struct {
 	Result       string `json:"result"`
 	Config       string `json:"config"`
 	SettingsFrom string `json:"settingsFrom"`
+	// EventID, Commit, and RCAClass describe a removal. RCAClass is the
+	// class of the gh-merge RCA marker, or "unclassified" when none matches.
+	EventID  string `json:"event_id,omitempty"`  //nolint:tagliatelle // issue #886 names these keys
+	Commit   string `json:"commit,omitempty"`    //nolint:tagliatelle // issue #886 names these keys
+	RCAClass string `json:"rca_class,omitempty"` //nolint:tagliatelle // issue #886 names these keys
 	// RCAContext lists the RCA markers other tools wrote for the removal.
 	RCAContext []rcaContext `json:"rcaContext,omitempty"`
 }
@@ -1493,20 +1498,15 @@ func watchPullRequests(client watchAPI, refs []string, opt watchOptions) error {
 	results := make([]watchResult, 0, len(refs))
 	var exitCode int
 	for _, ref := range refs {
-		result, others, err := watchOne(client, ref, opt)
+		result, err := watchOne(client, ref, opt)
 		if err != nil {
 			return err
 		}
-		path, from := watchSettings(opt.cfg, ref)
-		results = append(results, watchResult{
-			PullRequest:  ref,
-			Result:       result,
-			Config:       path,
-			SettingsFrom: from,
-			RCAContext:   others,
-		})
+		result.PullRequest = ref
+		result.Config, result.SettingsFrom = watchSettings(opt.cfg, ref)
+		results = append(results, result)
 		if exitCode == 0 {
-			exitCode = watchExitCode(result)
+			exitCode = watchExitCode(result.Result)
 		}
 	}
 	if err := printWatchResults(results, opt.asJSON); err != nil {
@@ -1518,47 +1518,60 @@ func watchPullRequests(client watchAPI, refs []string, opt watchOptions) error {
 	return nil
 }
 
-// watchOne returns the watch result for ref and, for a removal, the RCA
-// markers other tools wrote for it.
-func watchOne(client watchAPI, ref string, opt watchOptions) (string, []rcaContext, error) {
+// watchOne returns the watch result for ref. For a removal it also sets the
+// event, its commit, the recorded RCA class, and the RCA markers other tools
+// wrote for it.
+func watchOne(client watchAPI, ref string, opt watchOptions) (watchResult, error) {
 	deadline := opt.now().Add(opt.timeout)
 	for {
 		pr, err := client.LoadPullRequest(ref)
 		if err != nil {
 			if wait, ok := watchTransientWait(err, opt.interval); ok {
 				if !opt.now().Before(deadline) {
-					return "timeout", nil, nil
+					return watchResult{Result: "timeout"}, nil
 				}
 				opt.sleep(wait)
 				continue
 			}
-			return "", nil, fmt.Errorf("watch %s: %w", ref, err)
+			return watchResult{}, fmt.Errorf("watch %s: %w", ref, err)
 		}
 		// isInMergeQueue false is not enough: it flickers during a merge.
 		if pr.Merged {
-			return "merged", nil, nil
+			return watchResult{Result: "merged"}, nil
 		}
 		if event, ok := latestQueueEvent(pr.Events); ok && event.Kind == github.QueueEventRemoved {
 			if !opt.asJSON && opt.cfg != nil {
 				if err := printRemovalEvidence(client, opt.cfg, pr); err != nil {
-					return "", nil, err
+					return watchResult{}, err
 				}
 			}
-			if opt.cfg == nil {
-				return event.Reason, nil, nil
-			}
-			marker := opt.cfg.ForRepository(pr.Ref.Owner, pr.Ref.Repo).Settings.RCAMarker
-			others, err := otherRCAs(marker, event.ID, pr.Comments)
-			if err != nil {
-				return "", nil, err
-			}
-			return event.Reason, others, nil
+			return watchRemoval(opt.cfg, pr, event)
 		}
 		if !opt.now().Before(deadline) {
-			return "timeout", nil, nil
+			return watchResult{Result: "timeout"}, nil
 		}
 		opt.sleep(opt.interval)
 	}
+}
+
+// watchRemoval describes a removal event for watch.
+func watchRemoval(cfg *config.Config, pr github.QueuePullRequest, event github.QueueEvent) (watchResult, error) {
+	result := watchResult{Result: event.Reason, EventID: event.ID, Commit: event.CommitSHA, RCAClass: "unclassified"}
+	if cfg == nil {
+		return result, nil
+	}
+	marker := cfg.ForRepository(pr.Ref.Owner, pr.Ref.Repo).Settings.RCAMarker
+	class, matched, err := rcaClass(marker, event.ID, pr.Comments)
+	if err != nil {
+		return watchResult{}, err
+	}
+	if matched {
+		result.RCAClass = class
+	}
+	if result.RCAContext, err = otherRCAs(marker, event.ID, pr.Comments); err != nil {
+		return watchResult{}, err
+	}
+	return result, nil
 }
 
 var watchTransientHTTP = regexp.MustCompile(`(?i)\bhttp\s+50[24]\b`)
