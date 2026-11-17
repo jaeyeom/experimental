@@ -212,8 +212,8 @@ type prCover struct {
 // that needs ranking collects its files, then history is fetched once per
 // repository and base for every collected path, then each PR is ranked.
 // Its GitHub calls are capped by team_cover_max_calls; on the cap or a rate
-// limit the round stops, and a PR not ranked yet gets no suggestions and
-// waits for the next round.
+// limit the round stops, and a PR not ranked yet waits for the next round.
+// Its uncovered teams are marked skipped; see skippedSuggestions.
 func coverTeams(ctx context.Context, deps Deps, cfg config.Config, doc *Document, now time.Time) error {
 	if !cfg.TeamCover || cfg.Skips(config.JobTeamCover) {
 		return nil
@@ -347,7 +347,7 @@ func prCreated(pr PR) time.Time {
 }
 
 // prepareAll runs prepare for each PR in order until the round stops. A PR
-// left unprepared gets no suggestions. covers keep the document's order.
+// left unprepared is marked skipped. covers keep the document's order.
 func (c *coverCache) prepareAll(ctx context.Context, client GH, cfg config.Config, doc *Document, order []workItem) ([]prCover, error) {
 	covers := make([]prCover, len(doc.PRs))
 	for _, item := range order {
@@ -359,7 +359,7 @@ func (c *coverCache) prepareAll(ctx context.Context, client GH, cfg config.Confi
 		}
 		cover, err := c.prepare(ctx, client, cfg, doc, doc.PRs[item.index])
 		if errors.Is(err, errStopped) {
-			c.deferRest(doc, order[k:], cfg)
+			c.deferRest(cfg, covers, order[k:])
 			break
 		}
 		if err != nil {
@@ -371,13 +371,14 @@ func (c *coverCache) prepareAll(ctx context.Context, client GH, cfg config.Confi
 	return covers, nil
 }
 
-// finishAll sets each PR's suggestions, in order; a PR that must wait
-// keeps none.
+// finishAll sets each PR's suggestions, in order; a PR that must wait is
+// marked skipped.
 func (c *coverCache) finishAll(ctx context.Context, client GH, cfg config.Config, doc *Document, covers []prCover, order []workItem) error {
 	for _, item := range order {
 		suggestions, err := c.finish(ctx, client, cfg, doc, &covers[item.index])
 		if errors.Is(err, errStopped) {
 			c.deferredPRs++
+			doc.PRs[item.index].TeamReviewSuggestions = skippedSuggestions(covers[item.index].facts, c.skippedReason())
 			continue
 		}
 		if err != nil {
@@ -389,21 +390,76 @@ func (c *coverCache) finishAll(ctx context.Context, client GH, cfg config.Config
 }
 
 // deferRest counts the PRs of rest, left unprepared, that request a team,
-// and their teams whose members were not looked up.
-func (c *coverCache) deferRest(doc *Document, rest []workItem, cfg config.Config) {
+// and their teams whose members were not looked up, and marks them skipped.
+func (c *coverCache) deferRest(cfg config.Config, covers []prCover, rest []workItem) {
 	for _, item := range rest {
-		pr := doc.PRs[item.index]
-		org, err := repoOrg(pr.Repo)
+		cover := &covers[item.index]
+		org, err := repoOrg(cover.pr.Repo)
 		if err != nil {
 			continue
 		}
-		teams, _ := teamRequests(pr.ReviewRequests, org, cfg.TeamCoverSkipTeams)
+		teams, requested := teamRequests(cover.pr.ReviewRequests, org, cfg.TeamCoverSkipTeams)
 		if len(teams) == 0 {
 			continue
 		}
 		c.deferredPRs++
 		c.deferTeams(teams)
+		cover.suggest = skippedSuggestions(c.knownFacts(cover.pr, teams, requested), c.skippedReason())
 	}
+}
+
+// skippedReason is the uncovered_reason of a team the stopped round left
+// uncovered: "skipped: call cap" or "skipped: rate limited".
+func (c *coverCache) skippedReason() string {
+	return "skipped: " + c.stop
+}
+
+// knownFacts is what the round already holds about pr's coverage, with no
+// calls: members looked up this round or stored, and a stored review
+// snapshot. A team whose members are unknown counts as uncovered.
+func (c *coverCache) knownFacts(pr PR, teams, requested []string) coverFacts {
+	facts := coverFacts{requested: requested, teams: teams, members: map[string][]gh.TeamMember{}, memberErr: map[string]string{}}
+	if c.stored != nil {
+		if _, reviews, ok := c.stored.ReviewSnapshot(pr.Repo, pr.Number, pr.HeadSHA, pr.UpdatedAt); ok {
+			facts.reviews = reviews
+		}
+	}
+	for _, team := range teams {
+		if cached, ok := c.members[team]; ok {
+			if cached.err != "" {
+				facts.memberErr[team] = cached.err
+			} else {
+				facts.members[team] = cached.members
+			}
+			continue
+		}
+		org, slug, ok := strings.Cut(team, "/")
+		if ok && c.stored != nil && c.membersTTL > 0 {
+			if members, ok := c.stored.TeamMembers(org, slug); ok {
+				facts.members[team] = members
+			}
+		}
+	}
+	return facts
+}
+
+// skippedSuggestions is the entries of a PR the stopped round did not rank:
+// a covered team, or one whose members could not be listed, keeps its
+// normal entry; every other team is uncovered with reason and no suggestion.
+func skippedSuggestions(facts coverFacts, reason string) []TeamReviewSuggestion {
+	out := make([]TeamReviewSuggestion, len(facts.teams))
+	for i, team := range facts.teams {
+		item := TeamReviewSuggestion{Team: team, Suggest: []SuggestedReviewer{}}
+		if msg := facts.memberErr[team]; msg != "" {
+			item.Error = msg
+		} else if covered := coveredBy(facts.members[team], facts.requested, facts.reviews); covered != "" {
+			item.CoveredBy = stringPtr(covered)
+		} else {
+			item.UncoveredReason = reason
+		}
+		out[i] = item
+	}
+	return out
 }
 
 func (c *coverCache) deferTeams(teams []string) {

@@ -117,6 +117,12 @@ func TestTeamCoverWorkOrder(t *testing.T) {
 // PR that ranks spends a files and a CODEOWNERS call in its first pass.
 func orderRound(t *testing.T, cache HistoryCache, maxCalls int, prs ...gh.PRListItem) (*scriptGH, Document) {
 	t.Helper()
+	return orderRoundSkip(t, cache, maxCalls, nil, prs...)
+}
+
+// orderRoundSkip is orderRound with team_cover_skip_teams set to skip.
+func orderRoundSkip(t *testing.T, cache HistoryCache, maxCalls int, skip []string, prs ...gh.PRListItem) (*scriptGH, Document) {
+	t.Helper()
 	g := teamCoverGH(map[string]memberCall{
 		"acme/foo": {members: []gh.TeamMember{{Login: "bob", Type: "User"}, {Login: "carol", Type: "User"}}},
 		"acme/bar": {members: []gh.TeamMember{{Login: "bob", Type: "User"}, {Login: "carol", Type: "User"}}},
@@ -131,6 +137,7 @@ func orderRound(t *testing.T, cache HistoryCache, maxCalls int, prs ...gh.PRList
 	cfg.TeamCoverSignals = []string{"codeowners"}
 	cfg.TeamCoverActiveDays = 0
 	cfg.TeamCoverMaxCalls = maxCalls
+	cfg.TeamCoverSkipTeams = skip
 	deps := depsWith(g, fixtureHerdr{})
 	deps.History = cache
 	doc, err := Run(context.Background(), deps, cfg, []string{"acme/widgets"}, fixtureNow)
@@ -183,9 +190,7 @@ func TestRunTeamCoverCapDefersUnknownPRBeforeUncovered(t *testing.T) {
 	if got := doc.PRs[1].TeamReviewSuggestions; len(got) != 1 || len(got[0].Suggest) != 1 {
 		t.Fatalf("uncovered PR suggestions = %+v, want one suggestion", got)
 	}
-	if got := doc.PRs[0].TeamReviewSuggestions; got != nil {
-		t.Fatalf("unknown PR suggestions = %+v, want none until next round", got)
-	}
+	assertSkipped(t, doc.PRs[0].TeamReviewSuggestions, "skipped: call cap", "acme/bar")
 	want := "team-cover: call cap 2 reached during reviews; 1 PRs deferred"
 	if !slices.Contains(doc.TeamCoverNotes, want) {
 		t.Fatalf("notes = %q, want %q", doc.TeamCoverNotes, want)
@@ -213,4 +218,54 @@ func TestRunTeamCoverKeepsDocumentOrder(t *testing.T) {
 	if !slices.Equal(numbers, []int{1, 2, 3}) || !slices.Equal(teams, []string{"acme/cov", "acme/bar", "acme/foo"}) {
 		t.Fatalf("output = %v %q, want the listed order with each PR's own team", numbers, teams)
 	}
+}
+
+// assertSkipped checks that got is one uncovered entry per team, in order,
+// with no suggestion and reason.
+func assertSkipped(t *testing.T, got []TeamReviewSuggestion, reason string, teams ...string) {
+	t.Helper()
+	if len(got) != len(teams) {
+		t.Fatalf("suggestions = %+v, want one entry for each of %q", got, teams)
+	}
+	for i, team := range teams {
+		item := got[i]
+		if item.Team != team || item.CoveredBy != nil || item.Suggest == nil || len(item.Suggest) != 0 ||
+			item.Error != "" || item.UncoveredReason != reason {
+			t.Fatalf("entry %d = %+v, want %s uncovered with %q and suggest []", i, item, team, reason)
+		}
+	}
+}
+
+func TestRunTeamCoverMarksPRTheCapDeferred(t *testing.T) {
+	t.Parallel()
+
+	cache := orderCache(t)
+	// The cap fits PR 2's two calls. PR 1 is deferred unprepared: acme/cov
+	// is known covered by the pending "someone", acme/bar is not, and
+	// acme/skip is skip-listed.
+	_, doc := orderRoundSkip(t, cache, 2, []string{"acme/skip"},
+		listPR(cache, 1, false, "cov", "bar", "skip"), listPR(cache, 2, true, "foo"))
+	got := doc.PRs[0].TeamReviewSuggestions
+	if len(got) != 2 || got[0].Team != "acme/cov" || got[0].CoveredBy == nil || *got[0].CoveredBy != "someone" ||
+		got[0].UncoveredReason != "" {
+		t.Fatalf("deferred PR suggestions = %+v, want acme/cov covered by someone first", got)
+	}
+	assertSkipped(t, got[1:], "skipped: call cap", "acme/bar")
+	if got := doc.PRs[1].TeamReviewSuggestions; len(got) != 1 || len(got[0].Suggest) != 1 || got[0].UncoveredReason != "" {
+		t.Fatalf("ranked PR suggestions = %+v, want one suggestion and no reason", got)
+	}
+}
+
+func TestRunTeamCoverUncappedNoCandidateKeepsReason(t *testing.T) {
+	t.Parallel()
+
+	// Not deferred, nothing to suggest: the reason is today's, not skipped.
+	g := teamCoverGH(map[string]memberCall{"acme/foo": {members: []gh.TeamMember{}}})
+	cfg := teamCoverCfg()
+	cfg.TeamCoverMaxCalls = 40
+	doc, err := Run(context.Background(), depsWith(g, fixtureHerdr{}), cfg, []string{"acme/widgets"}, fixtureNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertSkipped(t, doc.PRs[0].TeamReviewSuggestions, "no members", "acme/foo")
 }

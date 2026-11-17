@@ -144,8 +144,13 @@ Caps team-cover's GitHub calls in one round: history, search and REST calls,
 retries included. Round-cache hits make no call and do not count. A history
 request is not sent unless a call is left for its pull requests' reviews. At
 the cap the remaining paths and teams wait for the next round, and the cache
-fills over several rounds; a PR whose history is incomplete gets no
-~team_review_suggestions~ that round. The round output and the warnings name
+fills over several rounds. A PR the round stopped before ranking, such as
+one whose history is incomplete, gets no suggestion that round: each of its
+requested teams, not counting ~team_cover_skip_teams~, gets an entry with
+~covered_by: null~, ~suggest: []~ and ~uncovered_reason: "skipped: call cap"~,
+or ~"skipped: rate limited"~ when a rate limit stopped the round. A team the
+round already knows is covered, or whose members could not be listed, keeps
+its usual entry. The stderr hint lines show the same reason. The round output and the warnings name
 the step that was cut short and what it left: ~team-cover: call cap 40 reached during history; 120 paths deferred~,
 or ~during team members; 12 teams deferred~; other steps (~reviews~,
 ~files~, ~codeowners~, ~activity~, ~load~) count deferred PRs. Must be >= 1.

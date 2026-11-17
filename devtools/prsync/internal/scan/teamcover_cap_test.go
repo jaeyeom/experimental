@@ -55,9 +55,8 @@ func TestRunTeamCoverCallCapDefersPathsToNextRound(t *testing.T) {
 	if !slices.Contains(doc.TeamCoverNotes, "team-cover: call cap 40 reached during history; 115 paths deferred") {
 		t.Fatalf("notes = %q, want the cap line", doc.TeamCoverNotes)
 	}
-	if got := doc.PRs[0].TeamReviewSuggestions; got != nil {
-		t.Fatalf("suggestions = %+v, want none until the history is complete", got)
-	}
+	// The PR waits for its history, so its team is marked skipped.
+	assertSkipped(t, doc.PRs[0].TeamReviewSuggestions, "skipped: call cap", "acme/foo")
 
 	second, doc := capRound(t, cache, paths)
 	if len(second.historyPaths) != 1 || !slices.Equal(second.historyPaths[0], paths[185:]) {
@@ -96,9 +95,7 @@ func TestRunTeamCoverRateLimitStopsRound(t *testing.T) {
 		t.Fatalf("calls = %d, want none after the rate limit", g.coverCalls)
 	}
 	for _, pr := range doc.PRs {
-		if pr.TeamReviewSuggestions != nil {
-			t.Fatalf("pr %d suggestions = %+v, want none this round", pr.Number, pr.TeamReviewSuggestions)
-		}
+		assertSkipped(t, pr.TeamReviewSuggestions, "skipped: rate limited", "acme/foo")
 	}
 	if !slices.Contains(doc.TeamCoverNotes, "team-cover: stopped (rate limited)") {
 		t.Fatalf("notes = %q, want the stopped line", doc.TeamCoverNotes)
