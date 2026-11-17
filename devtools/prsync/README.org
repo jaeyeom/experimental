@@ -85,11 +85,13 @@ prsync dispatch --config ./prsync.config --pr acme/widgets#123
 prsync dispatch --config ./prsync.config --pr acme/widgets#123 --go
 #+end_src
 
-Ask the agent to rebase, or to fix red CI. ~--hint~ is a guess the
-agent must check. Do not combine ~--rebase~ and ~--ci-fix~:
+Ask the agent to rebase (and force-push), to merge the base branch (and
+push normally), or to fix red CI. ~--hint~ is a guess the agent must
+check. ~--rebase~, ~--merge~, and ~--ci-fix~ do not combine:
 
 #+begin_src bash
 prsync dispatch --config ./prsync.config --rebase --pr acme/widgets#123 --go
+prsync dispatch --config ./prsync.config --merge --pr acme/widgets#123 --go
 prsync dispatch --config ./prsync.config --ci-fix --hint 'job X failed: boom' --pr acme/widgets#123 --go
 #+end_src
 
@@ -118,7 +120,7 @@ it. Stdout stays JSON.
 #+begin_example
 prsync scan     [--config PATH] [--repo owner/repo ...] [--json] [--in-scope] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
 prsync tabs     --orphans [--config PATH] [--json] [--stdin] [--close-merged] [--go] [--force] [--tab-machine M]
-prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--ci-fix] [--hint TEXT] [--prompt-suffix TEXT] [--force] [--stdin] [--open-tabs] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
+prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--merge] [--ci-fix] [--hint TEXT] [--prompt-suffix TEXT] [--force] [--stdin] [--open-tabs] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
 prsync comment  [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--stdin] [--allow-duplicate] --body TEXT
 prsync gate     [--config PATH] [--tab-machine M]
 prsync logs     [--path]
@@ -152,6 +154,8 @@ are ~KEY=VALUE~. A ~#~ starts a comment. Unknown keys are ignored.
 | ~dry_run~                  | ~true~          | Without ~--go~, commands only print. ~false~ is for cron.   |
 | ~dispatch_prompt_template~ | built-in        | Review-comment prompt, or ~@/path~ to a file.               |
 | ~rebase_prompt_template~   | built-in        | Prompt used with ~dispatch --rebase~.                       |
+| ~merge_prompt_template~    | built-in        | Prompt used with ~dispatch --merge~.                        |
+| ~dispatch_catchup~         | ~rebase~        | ~merge~: merge-queue-fix conflicts merge, not rebase.       |
 | ~ci_fix_prompt_template~   | built-in        | Prompt used with ~dispatch --ci-fix~.                       |
 | ~ci_ignore_checks~         | empty           | Check names left out of ~ci_state~.                         |
 | ~ci_only_checks~           | empty           | When set, only these checks feed ~ci_state~.                |

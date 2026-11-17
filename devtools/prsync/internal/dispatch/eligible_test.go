@@ -440,7 +440,7 @@ func TestEligibleSkipReasons(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := Evaluate(tc.c, tc.cfg, tc.st, tc.rebase, tc.ciFix, tc.force, now)
+			got := Evaluate(tc.c, tc.cfg, tc.st, Request{Rebase: tc.rebase, CIFix: tc.ciFix, Force: tc.force}, now)
 			if got.Action != tc.want {
 				t.Fatalf("action = %q, want %q", got.Action, tc.want)
 			}

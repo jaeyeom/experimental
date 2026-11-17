@@ -26,6 +26,7 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 		all        bool
 		goLive     bool
 		rebase     bool
+		merge      bool
 		ciFix      bool
 		hint       string
 		force      bool
@@ -36,7 +37,7 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "dispatch",
-		Short: "Send a review-comment, rebase, CI-fix, or merge-queue-fix prompt to the matched herdr agent",
+		Short: "Send a review-comment, rebase, merge, CI-fix, or merge-queue-fix prompt to the matched herdr agent",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := dispatch.WithStatusWriter(cmd.Context(), cmd.ErrOrStderr())
@@ -50,7 +51,8 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 				}
 				return scope.apply(cmd, cfg)
 			}
-			return runDispatch(ctx, stdout, exec, configPath, prs, all, goLive, rebase, ciFix, hint, force, readStdin, promptSuffix, applyScope)
+			modes := dispatchModes{rebase: rebase, merge: merge, ciFix: ciFix}
+			return runDispatch(ctx, stdout, exec, configPath, prs, all, goLive, modes, hint, force, readStdin, promptSuffix, applyScope)
 		},
 	}
 	addScopeFlags(cmd, &scope)
@@ -59,6 +61,7 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	cmd.Flags().BoolVar(&all, "all", false, "dispatch every PR in the scan document")
 	cmd.Flags().BoolVar(&goLive, "go", false, "send prompts (default is dry-run)")
 	cmd.Flags().BoolVar(&rebase, "rebase", false, "dispatch a rebase-in-place prompt (skips the unaddressed-comment gate)")
+	cmd.Flags().BoolVar(&merge, "merge", false, "dispatch a merge catch-up prompt: merge the base branch and push normally (skips the unaddressed-comment gate)")
 	cmd.Flags().BoolVar(&ciFix, "ci-fix", false, "dispatch a CI-fix prompt (skips the unaddressed-comment gate)")
 	cmd.Flags().StringVar(&hint, "hint", "", "non-authoritative CI failure hint (requires --ci-fix)")
 	cmd.Flags().BoolVar(&force, "force", false, "re-dispatch even if dedupe state would skip")
@@ -74,14 +77,25 @@ var promptWaker = func(exec executor.Executor) dispatch.Waker {
 	return dispatch.AgentbusWaker{Exec: exec, Bin: "agentbus"}
 }
 
-func validateDispatchFlags(prs []string, all, rebase, ciFix bool, hint string) error {
+// dispatchModes are the mutually exclusive prompt-mode flags.
+type dispatchModes struct {
+	rebase, merge, ciFix bool
+}
+
+func validateDispatchFlags(prs []string, all bool, m dispatchModes, hint string) error {
 	if all && len(prs) > 0 {
 		return &ExitError{Code: ExitUsage, Err: errors.New("cannot combine --pr and --all")}
 	}
-	if rebase && ciFix {
+	if m.rebase && m.ciFix {
 		return &ExitError{Code: ExitUsage, Err: errors.New("cannot combine --ci-fix and --rebase")}
 	}
-	if hint != "" && !ciFix {
+	if m.merge && m.rebase {
+		return &ExitError{Code: ExitUsage, Err: errors.New("cannot combine --merge and --rebase")}
+	}
+	if m.merge && m.ciFix {
+		return &ExitError{Code: ExitUsage, Err: errors.New("cannot combine --ci-fix and --merge")}
+	}
+	if hint != "" && !m.ciFix {
 		return &ExitError{Code: ExitUsage, Err: errors.New("--hint requires --ci-fix")}
 	}
 	for _, p := range prs {
@@ -92,8 +106,8 @@ func validateDispatchFlags(prs []string, all, rebase, ciFix bool, hint string) e
 	return nil
 }
 
-func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, configPath string, prs []string, all, goLive, rebase, ciFix bool, hint string, force, readStdin bool, promptSuffix *string, applyScope func(*config.Config) error) error {
-	if err := validateDispatchFlags(prs, all, rebase, ciFix, hint); err != nil {
+func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, configPath string, prs []string, all, goLive bool, modes dispatchModes, hint string, force, readStdin bool, promptSuffix *string, applyScope func(*config.Config) error) error {
+	if err := validateDispatchFlags(prs, all, modes, hint); err != nil {
 		return err
 	}
 	cfg, err := config.Load(configPath)
@@ -109,6 +123,11 @@ func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, 
 	if promptSuffix != nil {
 		cfg.PromptSuffix = *promptSuffix
 	}
+	if modes.rebase {
+		if phrase := dispatch.RebaseSuffixConflict(cfg.PromptSuffix); phrase != "" {
+			return &ExitError{Code: ExitUsage, Err: fmt.Errorf("--rebase rebases and force-pushes, but the prompt suffix says %q; use --merge or set dispatch_catchup = \"merge\"", phrase)}
+		}
+	}
 	logStartup(ctx, "dispatch", cfg)
 	doc, err := loadDispatchDoc(ctx, cfg, exec, readStdin, prs)
 	if err != nil {
@@ -120,8 +139,9 @@ func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, 
 		Doc:        doc,
 		PRs:        prs,
 		RunnerPane: h.RunnerPane(ctx),
-		Rebase:     rebase,
-		CIFix:      ciFix,
+		Rebase:     modes.rebase,
+		Merge:      modes.merge,
+		CIFix:      modes.ciFix,
 		Hint:       hint,
 		Force:      force,
 		Remote:     func(machine string) dispatch.Herdr { return machineHerdr(exec, cfg, machine) },

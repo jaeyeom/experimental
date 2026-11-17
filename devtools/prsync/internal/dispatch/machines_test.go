@@ -102,7 +102,7 @@ func TestEvaluateTabUnknownIsSkippedNotNoTab(t *testing.T) {
 	pr := fixtureEligiblePR()
 	pr.Tab = nil
 	pr.TabUnknown = scan.TabUnknownMachineUnreachable
-	got := Evaluate(Candidate{Repo: pr.Repo, Number: pr.Number, PR: &pr}, config.Defaults(), State{}, false, false, false, fixtureNow)
+	got := Evaluate(Candidate{Repo: pr.Repo, Number: pr.Number, PR: &pr}, config.Defaults(), State{}, Request{}, fixtureNow)
 	if got.Action != ActionSkippedTabUnknown || got.Detail != "unknown tab (machine unreachable)" {
 		t.Fatalf("Evaluate = %+v, want skipped_tab_unknown", got)
 	}

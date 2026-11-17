@@ -16,7 +16,7 @@ func TestEvaluateOutOfScopeIsSkippedWithItsReason(t *testing.T) {
 
 	pr := fixtureEligiblePR()
 	pr.OutOfScope = "tab on local"
-	got := Evaluate(Candidate{Repo: pr.Repo, Number: pr.Number, PR: &pr}, config.Defaults(), State{}, false, false, false, fixtureNow)
+	got := Evaluate(Candidate{Repo: pr.Repo, Number: pr.Number, PR: &pr}, config.Defaults(), State{}, Request{}, fixtureNow)
 	if got.Action != ActionSkippedOutOfScope || got.Detail != "tab on local" {
 		t.Fatalf("Evaluate = %+v, want skipped_out_of_scope (tab on local)", got)
 	}

@@ -533,6 +533,30 @@ func TestLoadWakeBeforePrompt(t *testing.T) {
 	}
 }
 
+func TestLoadDispatchCatchupAndMergePrompt(t *testing.T) {
+	def := Defaults()
+	if def.DispatchCatchup != "rebase" {
+		t.Fatalf("default dispatch_catchup = %q, want rebase", def.DispatchCatchup)
+	}
+	for _, want := range []string{"Merge origin/{base} into {head}. Do not rebase.", "Push normally. Do not force-push."} {
+		if !strings.Contains(def.MergePromptTemplate, want) {
+			t.Fatalf("default merge prompt missing %q: %q", want, def.MergePromptTemplate)
+		}
+	}
+	if strings.Contains(def.MergePromptTemplate, "--force-with-lease") {
+		t.Fatalf("default merge prompt force-pushes: %q", def.MergePromptTemplate)
+	}
+	path := filepath.Join(t.TempDir(), "prsync.config")
+	mustWrite(t, path, "dispatch_catchup= merge\nmerge_prompt_template=custom merge {number}\n")
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.DispatchCatchup != "merge" || got.MergePromptTemplate != "custom merge {number}" {
+		t.Fatalf("catchup = %q, merge prompt = %q", got.DispatchCatchup, got.MergePromptTemplate)
+	}
+}
+
 func TestLoadGateIgnoreProcsSplitsOnCommas(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "prsync.config")
 	mustWrite(t, path, "gate_ignore_procs=a, b ,c\n")
@@ -795,6 +819,8 @@ func TestLoadValidationErrors(t *testing.T) {
 		{name: "bad pending question", body: "gate_pending_question=maybe\n", key: "gate_pending_question"},
 		{name: "bad gate lease", body: "gate_lease=maybe\n", key: "gate_lease"},
 		{name: "bad wake before prompt", body: "wake_before_prompt=always\n", key: "wake_before_prompt"},
+		{name: "bad dispatch catchup", body: "dispatch_catchup=squash\n", key: "dispatch_catchup"},
+		{name: "missing merge prompt file", body: "merge_prompt_template=@/no/such/merge\n", key: "merge_prompt_template"},
 		{name: "bad ignore glob", body: "gate_ignore_procs=[mcp\n", key: "gate_ignore_procs"},
 		{name: "bad job age", body: "gate_job_min_age=soon\n", key: "gate_job_min_age"},
 		{name: "negative job age", body: "gate_job_min_age=-1s\n", key: "gate_job_min_age"},

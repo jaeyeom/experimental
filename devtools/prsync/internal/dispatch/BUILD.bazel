@@ -41,6 +41,7 @@ go_test(
         "lease_test.go",
         "log_test.go",
         "machines_test.go",
+        "merge_test.go",
         "opentab_test.go",
         "probes_test.go",
         "prompt_test.go",

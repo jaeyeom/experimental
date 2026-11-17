@@ -22,15 +22,47 @@ var newlineRun = regexp.MustCompile(`\n{3,}`)
 const emptyHint = "(none; investigate from scratch)"
 
 // mergeQueueFixPrompt is sent for a scan merge-queue-fix action.
-// {comment_url} is the RCA comment. The conflict sentence asks for a rebase,
-// regenerated lockfiles, and a push when that is the ejection.
+// {comment_url} is the RCA comment. {catchup} is the conflict sentence:
+// how to bring the branch up to date when a conflict is the ejection.
 const mergeQueueFixPrompt = `The merge queue ejected PR #{number} ({url}). State: {state}.
 Read the RCA comment and fix the cause:
 {comment_url}
 
-When the ejection is a merge conflict, rebase onto origin/{base}, regenerate lockfiles, and push.
+When the ejection is a merge conflict, {catchup}
 
 Do not touch other PRs.`
+
+// Conflict sentences for mergeQueueFixPrompt, by dispatch_catchup.
+const (
+	rebaseCatchup = "rebase onto origin/{base}, regenerate lockfiles, and push."
+	mergeCatchup  = "merge origin/{base} into {head}, regenerate lockfiles, and push normally. Do not rebase or force-push."
+)
+
+// rebaseSuffixPhrases are prompt-suffix phrases that contradict the
+// --rebase prompt (rebase, then push with --force-with-lease). They are
+// matched case-insensitively as whole words.
+var rebaseSuffixPhrases = []string{
+	"merge",
+	"push normally",
+	"no force",
+	"do not force-push",
+	"do not force push",
+	"don't force-push",
+	"don't force push",
+}
+
+// RebaseSuffixConflict returns the first rebaseSuffixPhrases entry found in
+// suffix, or "" when the suffix does not contradict a rebase.
+func RebaseSuffixConflict(suffix string) string {
+	lower := strings.ToLower(suffix)
+	for _, phrase := range rebaseSuffixPhrases {
+		re := regexp.MustCompile(`\b` + regexp.QuoteMeta(phrase) + `\b`)
+		if re.MatchString(lower) {
+			return phrase
+		}
+	}
+	return ""
+}
 
 // Render substitutes prompt template variables with PR fields.
 // Replacement is literal strings.ReplaceAll, longest key first.
@@ -76,7 +108,11 @@ func RenderHint(tmpl string, pr scan.PR, cfg config.Config, hint string) string 
 // last so it stays literal.
 func renderMergeQueueFix(pr scan.PR, cfg config.Config) string {
 	action, _ := mergeQueueAction(pr)
-	rendered := Render(mergeQueueFixPrompt, pr, cfg)
+	catchup := rebaseCatchup
+	if cfg.DispatchCatchup == "merge" {
+		catchup = mergeCatchup
+	}
+	rendered := Render(strings.ReplaceAll(mergeQueueFixPrompt, "{catchup}", catchup), pr, cfg)
 	return strings.ReplaceAll(rendered, "{comment_url}", action.CommentURL)
 }
 
