@@ -845,10 +845,19 @@ func writeShowJSON(id string, stdout, stderr io.Writer) int {
 		return fail(stderr, err, 1)
 	}
 	locs := decide.LocationResolver{}.Resolve(context.Background(), []decide.OwnerLocation{decide.OwnerPane(&item, decide.LocalMachine(cfg))})
-	return writeJSON(stdout, stderr, struct {
-		decide.Item
-		OwnerLocation decide.OwnerLocation `json:"ownerLocation"`
-	}{item, locs[0]})
+	itemJSON, err := json.Marshal(item)
+	if err != nil {
+		return fail(stderr, fmt.Errorf("encode json: %w", err), 1)
+	}
+	locJSON, err := json.Marshal(locs[0])
+	if err != nil {
+		return fail(stderr, fmt.Errorf("encode json: %w", err), 1)
+	}
+	// Item has its own MarshalJSON, so embedding it in a struct would
+	// drop ownerLocation. Append the field to the item object instead.
+	itemJSON = append(itemJSON[:len(itemJSON)-1], `,"ownerLocation":`...)
+	itemJSON = append(append(itemJSON, locJSON...), '}')
+	return writeJSON(stdout, stderr, json.RawMessage(itemJSON))
 }
 
 func cmdWithdraw(args []string, stdout, stderr io.Writer) int {

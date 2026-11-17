@@ -164,6 +164,31 @@ type Item struct {
 	OwnerRepliesOnly bool `json:"ownerRepliesOnly,omitempty"`
 }
 
+// LastMessageAt is when the newest message in the thread was sent, or
+// CreatedAt when the thread has no newer message.
+func (it *Item) LastMessageAt() time.Time {
+	last := it.CreatedAt
+	for _, m := range it.Messages {
+		if m.Time.After(last) {
+			last = m.Time
+		}
+	}
+	return last
+}
+
+// MarshalJSON adds lastMessageAt, so JSON readers can see the sort key.
+func (it Item) MarshalJSON() ([]byte, error) {
+	type plain Item
+	data, err := json.Marshal(struct {
+		plain
+		LastMessageAt time.Time `json:"lastMessageAt"`
+	}{plain(it), it.LastMessageAt()})
+	if err != nil {
+		return nil, fmt.Errorf("marshal decide item %s: %w", it.ID, err)
+	}
+	return data, nil
+}
+
 // Ledger is the on-disk decision store for one directory.
 type Ledger struct {
 	dir string
@@ -690,8 +715,7 @@ func openQuestion(it *Item) bool {
 	return it.Kind == KindRelay && it.State == StateOpen && (len(it.Options) > 0 || it.FreeText)
 }
 
-// Select returns items in state that are not snoozed. Deadline order is
-// soonest first, then items with no deadline, then newest created time.
+// Select returns items in state that are not snoozed, in Sort order.
 // An empty state means open.
 func Select(items []Item, state string) ([]Item, error) {
 	if state == "" {
@@ -713,7 +737,7 @@ func Select(items []Item, state string) ([]Item, error) {
 }
 
 // Sort orders items by soonest deadline, then no deadline, then newest
-// created time. Equal times break toward the higher id.
+// LastMessageAt. Equal times break toward the higher id.
 func Sort(items []Item) {
 	sort.SliceStable(items, func(i, j int) bool {
 		return before(&items[i], &items[j])
@@ -959,8 +983,9 @@ func before(a, b *Item) bool {
 }
 
 func newer(a, b *Item) bool {
-	if !a.CreatedAt.Equal(b.CreatedAt) {
-		return a.CreatedAt.After(b.CreatedAt)
+	at, bt := a.LastMessageAt(), b.LastMessageAt()
+	if !at.Equal(bt) {
+		return at.After(bt)
 	}
 	ai, _ := parseID(a.ID)
 	bi, _ := parseID(b.ID)
