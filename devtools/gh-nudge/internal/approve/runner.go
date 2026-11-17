@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 
@@ -30,6 +31,7 @@ const (
 type Client interface {
 	ViewerLogin() (string, error)
 	SearchUserReviewRequested() ([]github.PullRef, error)
+	SearchReviewRequested() ([]github.PullRef, error)
 	LoadApprovalPullRequest(ref github.PullRef) (github.ApprovalPullRequest, error)
 	PullRequestHeadSHA(ref github.PullRef) (string, error)
 	PullRequestDiff(ref github.PullRef) (string, error)
@@ -153,7 +155,11 @@ func (r *Runner) targets(opts Options) ([]github.PullRef, bool, error) {
 		}
 		return []github.PullRef{ref}, true, nil
 	}
-	refs, err := r.Client.SearchUserReviewRequested()
+	search := r.Client.SearchUserReviewRequested
+	if slices.ContainsFunc(r.Config.Rules, func(rule config.ApproveRule) bool { return rule.RequestedViaTeam }) {
+		search = r.Client.SearchReviewRequested
+	}
+	refs, err := search()
 	if err != nil {
 		return nil, false, fmt.Errorf("search review requests: %w", err)
 	}
@@ -173,22 +179,23 @@ func (r *Runner) decide(ref github.PullRef, viewer string, opts Options, single 
 		return entry, false
 	}
 	entry.URL, entry.Title, entry.HeadSHA, entry.Author = pr.URL, pr.Title, pr.HeadSHA, pr.Author
-	if !containsFold(pr.RequestedUsers, viewer) {
-		entry.Action, entry.Reason = ActionSkipped, errNotRequested.Error()
+	rules, viaTeam, reason := r.scope(pr, viewer)
+	if reason != "" {
+		entry.Action, entry.Reason = ActionSkipped, reason
 		return entry, !single
 	}
 	skipReason := r.skipReason(pr, viewer)
 	var agent AgentFunc
 	if skipReason == "" {
 		agent = r.agent(pr)
-		if needsOwnership(r.Config.Rules) {
+		if needsOwnership(rules) {
 			pr.Ownership = r.loadOwnership(pr, viewer)
 		}
-		if needsCommentPatches(r.Config.Rules) {
+		if needsCommentPatches(rules) {
 			r.loadCommentPatches(&pr)
 		}
 	}
-	results, matched := Evaluate(r.Config.Rules, pr, agent)
+	results, matched := Evaluate(rules, pr, agent)
 	entry.Rules = results
 	if matched != "" {
 		entry.Rule = &matched
@@ -203,10 +210,63 @@ func (r *Runner) decide(ref github.PullRef, viewer string, opts Options, single 
 	case !opts.Apply:
 		entry.Action = ActionWouldApprove
 	default:
-		entry.Action, entry.Reason = r.approve(ref, pr.HeadSHA, matched)
+		entry.Action, entry.Reason = r.approve(pr, r.rule(matched))
+	}
+	if viaTeam != "" && entry.Action == ActionManual {
+		entry.Action = ActionSkipped
+		entry.Reason = "requested only through " + viaTeam + "; no requested_via_team rule matched"
+		return entry, !single && !opts.Explain
 	}
 	r.markViewed(&entry, pr, viewer, opts.Apply)
 	return entry, false
+}
+
+// scope returns the rules that may take pr and, for a team-only request,
+// the team. reason is set when no rule may take it.
+func (r *Runner) scope(pr github.ApprovalPullRequest, viewer string) ([]config.ApproveRule, string, string) {
+	if containsFold(pr.RequestedUsers, viewer) {
+		return r.Config.Rules, "", ""
+	}
+	team, reason := r.requestingTeam(pr, viewer)
+	if team == "" {
+		return nil, "", reason
+	}
+	return teamRules(r.Config.Rules), team, ""
+}
+
+// requestingTeam returns a requested team, as @org/slug, that includes the
+// viewer, when a rule sets requested_via_team. Otherwise it returns "" and
+// why the pull request is skipped.
+func (r *Runner) requestingTeam(pr github.ApprovalPullRequest, viewer string) (string, string) {
+	if len(teamRules(r.Config.Rules)) == 0 {
+		return "", errNotRequested.Error()
+	}
+	var errs []string
+	for _, slug := range pr.RequestedTeams {
+		members, err := r.teamMembers(pr.Ref.Owner, slug)
+		if err != nil {
+			errs = append(errs, err.Error())
+			continue
+		}
+		if containsFold(members, viewer) {
+			return "@" + pr.Ref.Owner + "/" + slug, ""
+		}
+	}
+	if len(errs) > 0 {
+		return "", errNotRequested.Error() + "; " + strings.Join(errs, "; ")
+	}
+	return "", errNotRequested.Error()
+}
+
+// teamRules returns the rules that set requested_via_team.
+func teamRules(rules []config.ApproveRule) []config.ApproveRule {
+	var out []config.ApproveRule
+	for _, rule := range rules {
+		if rule.RequestedViaTeam {
+			out = append(out, rule)
+		}
+	}
+	return out
 }
 
 // loadCommentPatches fetches REST patches for the deletions-and-comments
@@ -268,7 +328,8 @@ func (r *Runner) agent(pr github.ApprovalPullRequest) AgentFunc {
 	}
 }
 
-func (r *Runner) approve(ref github.PullRef, evaluatedSHA, rule string) (string, string) {
+func (r *Runner) approve(pr github.ApprovalPullRequest, rule config.ApproveRule) (string, string) {
+	ref, evaluatedSHA := pr.Ref, pr.HeadSHA
 	head, err := r.Client.PullRequestHeadSHA(ref)
 	if err != nil {
 		return ActionError, err.Error()
@@ -276,11 +337,29 @@ func (r *Runner) approve(ref github.PullRef, evaluatedSHA, rule string) (string,
 	if head != evaluatedSHA {
 		return ActionSkipped, fmt.Sprintf("head moved from %s to %s since evaluation", evaluatedSHA, head)
 	}
-	body := fmt.Sprintf("%s\n\n<!-- gh-approve: %s -->", r.Config.Body, rule)
-	if err := r.Client.ApprovePullRequest(ref, evaluatedSHA, body); err != nil {
+	if err := r.Client.ApprovePullRequest(ref, evaluatedSHA, approvalBody(r.Config.Body, rule, pr)); err != nil {
 		return ActionError, err.Error()
 	}
 	return ActionApproved, ""
+}
+
+// approvalBody is the rule's body, or the global body when the rule sets
+// none. A body without placeholders gets the rule name appended. A body
+// with placeholders is used as written, with them filled in.
+func approvalBody(global string, rule config.ApproveRule, pr github.ApprovalPullRequest) string {
+	if len(config.BodyPlaceholders(rule.Body)) == 0 {
+		body := rule.Body
+		if body == "" {
+			body = global
+		}
+		return fmt.Sprintf("%s\n\n<!-- gh-approve: %s -->", body, rule.Name)
+	}
+	files, owners := myFiles(pr)
+	return strings.NewReplacer(
+		"{"+config.PlaceholderMyFiles+"}", strings.Join(files, ", "),
+		"{"+config.PlaceholderMyTeams+"}", strings.Join(owners, ", "),
+		"{"+config.PlaceholderRule+"}", rule.Name,
+	).Replace(rule.Body)
 }
 
 // agentKeyText is the short cache key, or "none" when the cache was bypassed.

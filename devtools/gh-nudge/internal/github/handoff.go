@@ -25,6 +25,13 @@ type FileOwnership struct {
 	// Blocker says which owner keeps the file with the viewer, or "" when
 	// the file may be handed off without matching paths_any_match.
 	Blocker string
+	// MineOwners are the owners that are the viewer or include the viewer.
+	MineOwners []string
+	// Unknown are owners whose membership could not be read, with the reason.
+	Unknown []string
+	// Entry is the CODEOWNERS line that owns the file, one per section, such
+	// as "/docs/** @acme/docs". Empty when no line matches.
+	Entry string
 }
 
 // Values of ReviewRequestEvent.Event.

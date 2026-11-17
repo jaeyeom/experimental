@@ -34,6 +34,7 @@ go_test(
         "conditions_test.go",
         "handoff_test.go",
         "history_test.go",
+        "mine_test.go",
         "runner_test.go",
         "viewed_test.go",
     ],

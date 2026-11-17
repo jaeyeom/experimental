@@ -101,13 +101,27 @@ query($q: String!, $after: String) {
   }
 }`
 
+// reviewRequestedQuery also finds pull requests that request a team the
+// viewer belongs to.
+const reviewRequestedQuery = "is:pr is:open archived:false review-requested:@me"
+
 // SearchUserReviewRequested lists open pull requests that request the viewer
 // as an individual, across all pages.
 func (c *Client) SearchUserReviewRequested() ([]PullRef, error) {
+	return c.searchPullRequests(userReviewRequestedQuery)
+}
+
+// SearchReviewRequested lists open pull requests that request the viewer as
+// an individual or through a team, across all pages.
+func (c *Client) SearchReviewRequested() ([]PullRef, error) {
+	return c.searchPullRequests(reviewRequestedQuery)
+}
+
+func (c *Client) searchPullRequests(query string) ([]PullRef, error) {
 	var refs []PullRef
 	after := ""
 	for {
-		fields := []string{"-f", "q=" + userReviewRequestedQuery}
+		fields := []string{"-f", "q=" + query}
 		if after != "" {
 			fields = append(fields, "-f", "after="+after)
 		}

@@ -124,6 +124,52 @@ approve {
 	}
 }
 
+func TestLoadPklMineCommentsOnlyRule(t *testing.T) {
+	cfg, err := LoadConfig(writeApprovePkl(t, `
+approve {
+  rules {
+    new {
+      name = "my-comments"
+      requested_via_team = true
+      mine_comments_only = true
+      body = "Comment-only change in {my_files} ({my_teams}); approving for those files only. Rule {rule}."
+    }
+    new { name = "plain"; body = "Fine by me" }
+    new { name = "defaults" }
+  }
+}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule := cfg.Approve.Rules[0]
+	if !rule.RequestedViaTeam || !rule.MineCommentsOnly || !strings.HasPrefix(rule.Body, "Comment-only change in {my_files}") {
+		t.Fatalf("rule = %+v", rule)
+	}
+	if cfg.Approve.Rules[1].Body != "Fine by me" {
+		t.Fatalf("plain = %+v", cfg.Approve.Rules[1])
+	}
+	defaults := cfg.Approve.Rules[2]
+	if defaults.RequestedViaTeam || defaults.MineCommentsOnly || defaults.Body != "" {
+		t.Fatalf("defaults = %+v", defaults)
+	}
+}
+
+func TestBodyPlaceholders(t *testing.T) {
+	tests := map[string]string{
+		"LGTM":                        "",
+		"{my_files} by {my_teams}":    "my_files,my_teams",
+		"{rule} {rule}":               "rule,rule",
+		"json {\"a\": 1} stays plain": "",
+		"{nope}":                      "nope",
+	}
+	for body, want := range tests {
+		if got := strings.Join(BodyPlaceholders(body), ","); got != want {
+			t.Errorf("BodyPlaceholders(%q) = %q, want %q", body, got, want)
+		}
+	}
+}
+
 func TestLoadPklApproveDefaults(t *testing.T) {
 	cfg, err := LoadConfig(writeApprovePkl(t, ""))
 	if err != nil {
@@ -215,6 +261,12 @@ func TestLoadPklApproveRejectsBadConfig(t *testing.T) {
 		"bad paths_none_match glob": {`viewed { rules { new { name = "r"; paths_match { "a" }; paths_none_match { "a/[" } } } }`, `viewed rule "r": paths_none_match`},
 		"bad except_paths glob":     {`viewed { rules { new { name = "r"; codeowners_not_mine = true; except_paths { "a/[" } } } }`, `viewed rule "r": paths_none_match`},
 		"bad never_mark glob":       {`viewed { never_mark { "a/[" } }`, `never_mark glob "a/["`},
+		"unknown body placeholder":  {`approve { rules { new { name = "r"; mine_comments_only = true; body = "ok {nope}" } } }`, `unknown body placeholder {nope}`},
+		"my_files without mine":     {`approve { rules { new { name = "r"; body = "ok {my_files}" } } }`, "mine_comments_only"},
+		"my_teams without mine":     {`approve { rules { new { name = "r"; body = "ok {my_teams}" } } }`, "mine_comments_only"},
+		"empty rule body":           {`approve { rules { new { name = "r"; body = "" } } }`, "body"},
+		"team request on handoff":   {`approve { rules { new { name = "r"; action = "handoff"; reviewers { "bob" }; requested_via_team = true } } }`, "requested_via_team"},
+		"body on handoff":           {`approve { rules { new { name = "r"; action = "handoff"; reviewers { "bob" }; body = "x" } } }`, "body"},
 		"both exclusion keys":       {`viewed { rules { new { name = "r"; paths_match { "a" }; paths_none_match { "docs/**" }; except_paths { "vendor/**" } } } }`, `viewed rule "r" sets both`},
 	}
 	for name, tt := range tests {

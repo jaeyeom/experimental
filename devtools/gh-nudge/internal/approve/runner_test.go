@@ -23,22 +23,24 @@ type approval struct {
 }
 
 type fakeClient struct {
-	viewer     string
-	search     []github.PullRef
-	searched   int
-	prs        map[int]github.ApprovalPullRequest
-	loadErr    map[int]error
-	heads      map[int]string
-	headReads  int
-	approveErr error
-	approvals  []approval
-	markErr    error
-	marks      []viewedMark
-	diffErr    error
-	diffReads  int
-	patchReads int
-	patchErr   error
-	patches    map[int][]github.PullFile
+	viewer   string
+	search   []github.PullRef
+	searched int
+	// teamSearched counts SearchReviewRequested calls. Both searches return search.
+	teamSearched int
+	prs          map[int]github.ApprovalPullRequest
+	loadErr      map[int]error
+	heads        map[int]string
+	headReads    int
+	approveErr   error
+	approvals    []approval
+	markErr      error
+	marks        []viewedMark
+	diffErr      error
+	diffReads    int
+	patchReads   int
+	patchErr     error
+	patches      map[int][]github.PullFile
 	// diff overrides the default diff of every pull request.
 	diff string
 	handoffFake
@@ -48,6 +50,11 @@ func (f *fakeClient) ViewerLogin() (string, error) { return f.viewer, nil }
 
 func (f *fakeClient) SearchUserReviewRequested() ([]github.PullRef, error) {
 	f.searched++
+	return f.search, nil
+}
+
+func (f *fakeClient) SearchReviewRequested() ([]github.PullRef, error) {
+	f.teamSearched++
 	return f.search, nil
 }
 

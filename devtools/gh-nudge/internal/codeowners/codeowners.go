@@ -149,6 +149,33 @@ func ParseSections(r io.Reader) *Codeowners {
 	return &Codeowners{Sections: sections}
 }
 
+// RulesFor returns, for each section, the last rule that matches file, in
+// section order. Sections with no matching rule are left out.
+func (c *Codeowners) RulesFor(file string) []Rule {
+	var rules []Rule
+	for _, section := range c.Sections {
+		var last *Rule
+		for i := range section.Rules {
+			if matchPattern(section.Rules[i].Pattern, file) {
+				last = &section.Rules[i]
+			}
+		}
+		if last != nil {
+			rules = append(rules, *last)
+		}
+	}
+	return rules
+}
+
+// String returns the rule as a CODEOWNERS line.
+func (r Rule) String() string {
+	parts := []string{r.Pattern}
+	for _, owner := range r.Owners {
+		parts = append(parts, owner.String())
+	}
+	return strings.Join(parts, " ")
+}
+
 // OwnersFor returns the union of the last-matching owners from each section for
 // the given file. For each section, it finds the last rule that matches the
 // file and includes those owners. The result is a deduplicated list of all
@@ -156,14 +183,8 @@ func ParseSections(r io.Reader) *Codeowners {
 // file, an empty slice is returned.
 func (c *Codeowners) OwnersFor(file string) []Owner {
 	ownerSet := make(map[string]Owner)
-	for _, section := range c.Sections {
-		var lastOwners []Owner
-		for _, rule := range section.Rules {
-			if matchPattern(rule.Pattern, file) {
-				lastOwners = rule.Owners // Always overwrite, so only the last match in the section is kept
-			}
-		}
-		for _, o := range lastOwners {
+	for _, rule := range c.RulesFor(file) {
+		for _, o := range rule.Owners {
 			ownerSet[o.String()] = o
 		}
 	}

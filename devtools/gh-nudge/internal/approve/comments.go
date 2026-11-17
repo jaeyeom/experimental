@@ -30,7 +30,7 @@ type syntax struct {
 // needsCommentPatches reports whether any rule reads file patches.
 func needsCommentPatches(rules []config.ApproveRule) bool {
 	for _, rule := range rules {
-		if rule.DeletionsAndCommentsOnly {
+		if rule.DeletionsAndCommentsOnly || rule.MineCommentsOnly {
 			return true
 		}
 	}
@@ -81,6 +81,47 @@ func fileCommentAdditions(file github.PullFile) (int, string, bool) {
 	return n, "", true
 }
 
+// commentOnlyChange reports whether every added and deleted line of file
+// is a comment or blank. The reason is set when it is not.
+func commentOnlyChange(file github.PullFile) (string, bool) {
+	switch {
+	case !file.PatchSet:
+		return "patch unavailable for " + file.Path, false
+	case file.Status == "renamed":
+		return file.Path + " is renamed from " + file.Previous, false
+	}
+	lang, known := syntaxFor(file.Path)
+	lines := parsePatch(file.Patch)
+	adds, line, text, ok := scanLines(lines, lang, known)
+	if !ok {
+		return fmt.Sprintf("%s:+%d is code: %s", file.Path, line, quoteExcerpt(text)), false
+	}
+	dels, line, text, ok := scanLines(oldSide(lines), lang, known)
+	if !ok {
+		return fmt.Sprintf("%s:-%d is code: %s", file.Path, line, quoteExcerpt(text)), false
+	}
+	if file.Additions > adds || file.Deletions > dels {
+		return "patch unavailable for " + file.Path, false
+	}
+	return "", true
+}
+
+// oldSide turns the deleted lines of a patch into added lines numbered in
+// the old file, so scanLines classifies them. Added lines are dropped.
+func oldSide(lines []patchLine) []patchLine {
+	out := make([]patchLine, 0, len(lines))
+	for _, ln := range lines {
+		switch {
+		case ln.added:
+		case ln.deleted:
+			out = append(out, patchLine{added: true, text: ln.text, newLine: ln.oldLine})
+		default:
+			out = append(out, patchLine{text: ln.text, newLine: ln.oldLine})
+		}
+	}
+	return out
+}
+
 func codeReason(path string, line int, text string) string {
 	return fmt.Sprintf("deletions_and_comments_only: %s:+%d is code: %s", path, line, quoteExcerpt(text))
 }
@@ -112,11 +153,16 @@ type patchLine struct {
 	deleted bool
 	text    string
 	newLine int
+	oldLine int
 }
 
 func scanPatch(patch string, lang syntax, known bool) (adds, line int, text string, ok bool) {
+	return scanLines(parsePatch(patch), lang, known)
+}
+
+func scanLines(lines []patchLine, lang syntax, known bool) (adds, line int, text string, ok bool) {
 	state := blockNone
-	for _, ln := range parsePatch(patch) {
+	for _, ln := range lines {
 		if ln.deleted {
 			continue
 		}
@@ -269,13 +315,14 @@ func trimLeftSpace(s string) string {
 
 func parsePatch(patch string) []patchLine {
 	var out []patchLine
-	newLine := 0
+	newLine, oldLine := 0, 0
 	inHunk := false
 	for _, raw := range strings.Split(patch, "\n") {
 		if strings.HasPrefix(raw, "@@") {
 			n, ok := hunkNewStart(raw)
 			if ok {
 				newLine = n
+				oldLine, _ = hunkStart(raw, " -")
 				inHunk = true
 			}
 			continue
@@ -289,21 +336,28 @@ func parsePatch(patch string) []patchLine {
 			out = append(out, patchLine{added: true, text: raw[1:], newLine: newLine})
 			newLine++
 		case strings.HasPrefix(raw, "-"):
-			out = append(out, patchLine{deleted: true, text: raw[1:]})
+			out = append(out, patchLine{deleted: true, text: raw[1:], oldLine: oldLine})
+			oldLine++
 		default:
-			out = append(out, patchLine{text: strings.TrimPrefix(raw, " "), newLine: newLine})
+			out = append(out, patchLine{text: strings.TrimPrefix(raw, " "), newLine: newLine, oldLine: oldLine})
 			newLine++
+			oldLine++
 		}
 	}
 	return out
 }
 
 func hunkNewStart(header string) (int, bool) {
-	plus := strings.Index(header, " +")
-	if plus < 0 {
+	return hunkStart(header, " +")
+}
+
+// hunkStart returns the start line after marker, " -" or " +", in a hunk header.
+func hunkStart(header, marker string) (int, bool) {
+	at := strings.Index(header, marker)
+	if at < 0 {
 		return 0, false
 	}
-	rest := header[plus+2:]
+	rest := header[at+len(marker):]
 	end := 0
 	for end < len(rest) && rest[end] >= '0' && rest[end] <= '9' {
 		end++
