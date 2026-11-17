@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Example launchd agent for gh-outbox poll watch on macOS.
+
+  Replace USER with your login name, then:
+    cp gh-outbox.plist ~/Library/LaunchAgents/com.github.jaeyeom.gh-outbox.plist
+    launchctl load ~/Library/LaunchAgents/com.github.jaeyeom.gh-outbox.plist
+
+  PATH must contain gh, decide and agentbus.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.github.jaeyeom.gh-outbox</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/USER/go/bin/gh-outbox</string>
+    <string>poll</string>
+    <string>--watch</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/USER/go/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardErrorPath</key>
+  <string>/tmp/gh-outbox.log</string>
+</dict>
+</plist>

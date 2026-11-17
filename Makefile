@@ -47,6 +47,7 @@ INSTALL_CMDS := \
 	./devtools/devcheck/cmd/devcheck \
 	./devtools/docsync/cmd/docsync \
 	./devtools/gh-ask/cmd/gh-ask \
+	./devtools/gh-outbox/cmd/gh-outbox \
 	./devtools/gh-nudge/cmd/gh-approve \
 	./devtools/gh-nudge/cmd/gh-codeowners \
 	./devtools/gh-nudge/cmd/gh-merge \

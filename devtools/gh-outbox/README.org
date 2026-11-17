@@ -1,0 +1,183 @@
+#+TITLE: gh-outbox
+#+DATE: 2026-11-16
+
+gh-outbox is an approval gate for GitHub pull request comments and
+reviews that coding agents draft. An agent submits a draft. gh-outbox
+checks it for internal wording, shows you the exact post in a decide
+item, and posts it with your gh account only after you pick *post* in
+the decide UI.
+
+*Agents never call gh to post to a pull request directly.* They submit
+to gh-outbox. Reading with gh is fine.
+
+#+BEGIN_EXAMPLE
+agent --submit--> lint --> decide item: post | edit | cancel
+                                          |
+                    gh-outbox poll <------+  (only your own UI answer)
+                          |
+                          +--> gh api (discussion thread or review)
+                          +--> agentbus notice to the agent, with links
+#+END_EXAMPLE
+
+* Setup
+
+1. [@1] Install the command:
+
+#+BEGIN_SRC bash
+go install github.com/jaeyeom/experimental/devtools/gh-outbox/cmd/gh-outbox@latest
+#+END_SRC
+
+2. [@2] Make sure =gh auth status= shows the account to post as, and
+   that =decide= and =agentbus= are on PATH.
+
+3. [@3] Optionally write a config file (see [[*Config][Config]]). Without one,
+   the defaults apply.
+
+4. [@4] Run the poller. Either run =gh-outbox poll --watch= in a
+   terminal, or install one of the example service files in
+   [[file:contrib/gh-outbox.service][contrib/gh-outbox.service]] (systemd user unit) or
+   [[file:contrib/gh-outbox.plist][contrib/gh-outbox.plist]] (launchd agent). The files say how to install
+   them.
+
+* Commands
+
+** submit
+
+#+BEGIN_SRC bash
+gh-outbox submit --repo owner/name --pr N --owner AGENT \
+  [--kind thread|comment|request-changes|approve] \
+  [--body-file FILE] [--line path:line=FILE]... \
+  [--ref REF] [--edit ID] [--lint-only]
+#+END_SRC
+
+It prints the draft id.
+
+- With no =--kind=, each =--line path:line=FILE= becomes its own
+  discussion thread on that line of the head diff (=--kind thread=).
+  Nothing goes to the main conversation.
+- A review in the main conversation (=comment=, =request-changes=,
+  =approve=) is used only when you pass that =--kind=. Its line
+  comments are part of the review.
+- =--body-file= without =--line= and without a review =--kind= is a
+  usage error. gh-outbox never turns a draft into a main-conversation
+  review on its own. A discussion thread has no body, so =--body-file=
+  with =--kind thread= is also an error.
+- The body and the line texts are stored byte for byte. Line breaks
+  stay exactly as written.
+- =--owner= is the submitting agent's agentbus name. It owns the
+  decide item and gets the outcome.
+- =--ref= is the agent's own reference. It is echoed in the notices.
+- =--edit ID= replaces an existing post. With =--kind thread= (the
+  default) ID is a review comment id and there is exactly one =--line=,
+  which carries the new text. With a review kind, ID is a review id and
+  =--body-file= is the new body. The approval shows the old and new
+  text.
+- =--lint-only= checks the text and exits without submitting.
+
+The PR head SHA is recorded at submit time.
+
+** ls and show
+
+=gh-outbox ls= lists every draft with its state. =gh-outbox show ID=
+prints the state, the outcome, posted links and the approval text.
+=--json= prints the stored record.
+
+States: =pending= (waiting for you), =posting=, =posted=,
+=needs-redraft= (you picked edit), =cancelled=, and =uncertain= (the
+poller stopped during a GitHub call; see [[*Posting][Posting]]).
+
+** poll
+
+=gh-outbox poll= checks every pending draft once. =--watch= repeats
+every =poll_interval= until stopped. Only one poll runs at a time per
+data dir.
+
+* Lint
+
+Before any decide item is created, the draft is checked against the
+deny rules. A hit is refused with its location (=body line N= or
+=path:line=), the matched text and the rule. The command exits 1 and
+nothing is filed.
+
+Default rules:
+
+- decide ids such as =D-123=;
+- every name =agentbus list= prints, such as =coord/primary=, when
+  agentbus is available;
+- the phrases "per the user", "on behalf of", "agent" and "routing",
+  as whole words in any case.
+
+* Approval
+
+Each submission is its own decide item: =decide ask --kind relay=,
+owner = =--owner=, with =--notify-pane= from the config. The item text
+starts with the destination in plain words, one line per thread
+(=discussion thread on PATH line N=) or
+=review (main conversation): comment|request changes|approve=, then the
+target (=owner/name#N=), the head SHA, the body, and every line
+comment with its =path:line=.
+
+The options are:
+
+- *post*: post exactly this.
+- *edit*: nothing is posted. Your free-text notes go back to the owner
+  as a redraft notice over agentbus, and the draft becomes
+  =needs-redraft=. The agent submits a new draft.
+- *cancel*: nothing is posted and the draft is closed.
+
+Free text without an option counts as edit notes. Closing the decide
+item without an answer cancels the draft.
+
+* Posting
+
+Only your own answer posts: =decide show --json= must report
+=answeredBy=human= and =via=ui= with the post option, and the latest
+message from you (not one an agent sent from the command line) must be
+that post pick. A peer, an agent, or a bus message never counts.
+
+- =thread= posts one review comment per line on the recorded head SHA.
+  A review kind posts one review with its event and line comments.
+  gh-outbox never posts anywhere other than the destination shown.
+- If the head moved since the draft, it does not post. It closes the
+  old decide item and files a fresh one with the new SHA.
+- After posting, it tells the owner over agentbus with the links, and
+  closes the decide item with the outcome and the links.
+- Each part is posted at most once. Before each GitHub call, the draft
+  records which part is in flight. If the poller stops during that call,
+  the next poll does not resend it; the draft becomes =uncertain=, and
+  the owner is told to check the pull request. A GitHub error leaves
+  the draft =posting= and the next poll retries the parts not yet
+  posted.
+
+* Config
+
+The config is TOML at =$XDG_CONFIG_HOME/gh-outbox/config.toml=, or
+=~/.config/gh-outbox/config.toml=. Every command takes =--config PATH=.
+A missing file means the defaults. Unknown keys are errors.
+
+#+BEGIN_SRC toml
+# Drafts, one JSON file each. Default: $XDG_STATE_HOME/gh-outbox or
+# ~/.local/state/gh-outbox. A relative path is relative to this file.
+data_dir = ""
+
+# Passed to decide ask --notify-pane when set.
+notify_pane = ""
+
+# Commands, as argv. These are the defaults.
+decide_command = ["decide"]
+agentbus_command = ["agentbus"]
+gh_command = ["gh"]
+
+poll_interval = "30s"
+
+[lint]
+# The decide id rule and the default phrases.
+defaults = true
+# Refuse every name agentbus list prints.
+agentbus_names = true
+# A regexp for agentbus names, such as '\b(?:coord|pm|ops)/[a-z0-9-]+\b'.
+agent_pattern = ""
+# Extra regexps and literal phrases.
+patterns = []
+phrases = []
+#+END_SRC
