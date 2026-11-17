@@ -39,6 +39,7 @@ type fakeQueue struct {
 	comments     []string
 	commentCalls int
 	commentRef   string
+	edited       map[int64]string
 	dequeueCalls int
 	dequeued     []string
 	landed       github.StackPR
@@ -94,6 +95,14 @@ func (f *fakeQueue) CommentOnPullRequest(owner, repo string, number int, body st
 	f.commentCalls++
 	f.commentRef = fmt.Sprintf("%s/%s#%d", owner, repo, number)
 	f.comments = append(f.comments, body)
+	return nil
+}
+
+func (f *fakeQueue) EditPullRequestComment(_, _ string, id int64, body string) error {
+	if f.edited == nil {
+		f.edited = map[int64]string{}
+	}
+	f.edited[id] = body
 	return nil
 }
 

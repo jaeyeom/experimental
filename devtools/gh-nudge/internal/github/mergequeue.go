@@ -56,8 +56,10 @@ type QueuePullRequest struct {
 	Checks            []QueueCheck
 	UnresolvedThreads int
 	Comments          []string
-	Events            []QueueEvent
-	Merged            bool
+	// CommentIDs[i] is the REST id of Comments[i].
+	CommentIDs []int64
+	Events     []QueueEvent
+	Merged     bool
 	// InMergeQueue flickers while a merge is still in progress.
 	// Callers must not treat false by itself as an ejection.
 	InMergeQueue bool
@@ -194,7 +196,7 @@ query($owner: String!, $name: String!, $number: Int!) {
           }
         }
       }
-      comments(last: 100) { nodes { body } }
+      comments(last: 100) { nodes { databaseId body } }
       timelineItems(last: 100, itemTypes: [ADDED_TO_MERGE_QUEUE_EVENT, REMOVED_FROM_MERGE_QUEUE_EVENT]) {
         nodes {
           __typename
@@ -428,6 +430,22 @@ func (c *Client) CommentOnPullRequest(owner, repo string, number int, body strin
 	return nil
 }
 
+// EditPullRequestComment replaces the body of one issue comment.
+func (c *Client) EditPullRequestComment(owner, repo string, id int64, body string) error {
+	payload, err := json.Marshal(struct {
+		Body string `json:"body"`
+	}{Body: body})
+	if err != nil {
+		return fmt.Errorf("encode comment: %w", err)
+	}
+	path := fmt.Sprintf("repos/%s/%s/issues/comments/%d", owner, repo, id)
+	out, err := c.executor.ExecuteWithStdin(string(payload), "gh", "api", "--method", "PATCH", path, "--input", "-")
+	if err != nil {
+		return fmt.Errorf("edit comment %d on %s/%s: %w\n%s", id, owner, repo, err, out)
+	}
+	return nil
+}
+
 // MergeAsync enqueues with PUT merge-async, merge_action=merge_queue, and sha.
 func (c *Client) MergeAsync(owner, repo string, number int, sha string) error {
 	body := fmt.Sprintf("{\"merge_action\":\"merge_queue\",\"sha\":%q}", sha)
@@ -543,7 +561,8 @@ type queuePRJSON struct {
 	} `json:"commits"`
 	Comments struct {
 		Nodes []struct {
-			Body string `json:"body"`
+			DatabaseID int64  `json:"databaseId"`
+			Body       string `json:"body"`
 		} `json:"nodes"`
 	} `json:"comments"`
 	TimelineItems struct {
@@ -617,6 +636,7 @@ func convertQueuePR(raw *queuePRJSON, ref PullRef) QueuePullRequest {
 	pr.ForcePushedAt = forcePushTimes(raw.ForcePushes.Nodes)
 	for _, comment := range raw.Comments.Nodes {
 		pr.Comments = append(pr.Comments, comment.Body)
+		pr.CommentIDs = append(pr.CommentIDs, comment.DatabaseID)
 	}
 	pr.Events = eventsFrom(raw.TimelineItems.Nodes)
 	return pr

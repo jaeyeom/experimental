@@ -41,6 +41,13 @@
 //	# Post an RCA marker for the latest removal
 //	gh-merge rca acme/widgets#12 --class flake --file body.md
 //
+//	# Correct that RCA: edit it in place, or post a superseding one
+//	gh-merge rca acme/widgets#12 --update --class infra --file body.md
+//	gh-merge rca acme/widgets#12 --supersedes --class infra --file body.md
+//
+//	# Report whether the latest removal has an RCA, without posting
+//	gh-merge rca --check acme/widgets#12 --json
+//
 //	# Print the failure evidence for the latest removal, or one --event, as JSON
 //	gh-merge evidence acme/widgets#12 --json
 //

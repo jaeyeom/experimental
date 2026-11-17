@@ -145,6 +145,29 @@ under ~rcaContext~.
 Another tool can write a marker for gh-merge readers with at least the event
 id, ~class=~, and ~tool=~.
 
+*** One RCA per removal
+
+~gh-merge rca~ posts at most one RCA comment for a removal. When a gh-merge
+marker for the latest removal already exists, it refuses and names the
+current class. Markers with ~tool=<other>~ are not ours and never count. To
+correct an RCA, pass one of:
+
+- ~--update~ edits our latest RCA comment for the removal in place, with the
+  new body and class. A ~supersedes=~ key on that marker is kept.
+- ~--supersedes~ posts a new comment whose marker carries
+  ~supersedes=<comment id>~, the id of our latest RCA comment for the
+  removal. The newest superseding marker's class wins for that removal.
+
+Both refuse when there is no RCA to correct. They cannot be used together.
+
+~gh-merge rca --check <owner/repo#n|url|number> [--event <id>] [--json]~
+reports the RCA for the latest removal, or for ~--event~, and never posts.
+It prints ~RCA for <id>: <class>~, ~RCA for <id>: none~, or
+~RCA for <id>: <class> (superseded)~ when a gh-merge marker for the removal
+carries ~supersedes=~, followed by any other-tool markers as context.
+~--json~ prints ~pullRequest~, ~eventId~, ~exists~, ~class~ (omitted when
+none), ~superseded~, and ~rcaContext~.
+
 ** Configuration and Setup
 
 Please see [[file:README.org][README.org]] file for the full configuration.
