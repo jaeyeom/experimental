@@ -42,11 +42,11 @@ var AllStates = []State{
 
 // transitions are the allowed moves. Running goes back to ready only
 // for a retry or a lost idempotent job, and to gated when the runner
-// finds it cannot go on without the user. Unknown never goes back to
-// ready.
+// finds it cannot go on without the user. Gated goes to failed when
+// the user rejects it. Unknown never goes back to ready.
 var transitions = map[State][]State{
 	StateQueued:  {StateGated, StateReady, StateDead},
-	StateGated:   {StateReady, StateParked, StateDead},
+	StateGated:   {StateReady, StateFailed, StateParked, StateDead},
 	StateReady:   {StateRunning, StateParked, StateDead},
 	StateRunning: {StateDone, StateFailed, StateDead, StateUnknown, StateReady, StateGated, StateParked},
 	StateUnknown: {StateDone, StateFailed, StateDead, StateParked},
@@ -141,7 +141,10 @@ type Job struct {
 	// Note is the last note given with a change.
 	Note string `json:"note,omitempty"`
 	// Asked is set once a decide item was raised for an unsettled job.
-	Asked   bool      `json:"asked,omitempty"`
+	Asked bool `json:"asked,omitempty"`
+	// Decide is the decide item that asks the user to let a gated job
+	// run.
+	Decide  string    `json:"decide,omitempty"`
 	Created time.Time `json:"created"`
 	Updated time.Time `json:"updated"`
 	History []Entry   `json:"history"`

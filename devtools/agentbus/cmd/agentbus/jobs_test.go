@@ -22,7 +22,7 @@ func jobsWorld(t *testing.T) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(startDaemon(t, dirs, daemon.Config{}))
+	t.Cleanup(startDaemon(t, dirs, daemon.Config{JobPolicy: jobs.Policy{Default: jobs.GateAuto}}))
 	return env
 }
 

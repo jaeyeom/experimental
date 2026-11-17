@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jaeyeom/experimental/devtools/decide"
 )
 
 // Decide option keys on an approval item.
@@ -16,42 +18,17 @@ const (
 	OptionCancel = "cancel"
 )
 
-const (
-	decideHuman = "human"
-	decideViaUI = "ui"
+// DecideAnswer, DecideMessage and DecideItem are decide's own types, as
+// decide show --json prints them.
+type (
+	DecideAnswer  = decide.Answer
+	DecideMessage = decide.Message
+	DecideItem    = decide.Item
 )
 
-// DecideAnswer is the answer of a decide item as decide show --json
-// prints it.
-type DecideAnswer struct {
-	Value      string `json:"value"`
-	Key        string `json:"key,omitempty"`
-	AnsweredBy string `json:"answeredBy"`
-	Via        string `json:"via,omitempty"`
+func closed(it DecideItem) bool {
+	return it.State == decide.StateDone || it.State == decide.StateWithdrawn
 }
-
-// DecideMessage is one message of a decide thread. By is set when an
-// agent sent it from the command line, even when Author is "human".
-type DecideMessage struct {
-	Author    string    `json:"author"`
-	Time      time.Time `json:"time"`
-	Text      string    `json:"text"`
-	OptionKey string    `json:"optionKey,omitempty"`
-	Via       string    `json:"via,omitempty"`
-	By        string    `json:"by,omitempty"`
-}
-
-func (m DecideMessage) human() bool { return m.Author == decideHuman && m.By == "" }
-
-// DecideItem is the part of decide show --json gh-outbox reads.
-type DecideItem struct {
-	ID       string          `json:"id"`
-	State    string          `json:"state"`
-	Answer   *DecideAnswer   `json:"answer,omitempty"`
-	Messages []DecideMessage `json:"messages,omitempty"`
-}
-
-func (it DecideItem) closed() bool { return it.State == "done" || it.State == "withdrawn" }
 
 // Decider files, reads, and closes decide items.
 type Decider interface {
@@ -262,7 +239,7 @@ func decideVerdict(it DecideItem) verdict {
 		notes []string
 	)
 	for _, m := range it.Messages {
-		if !m.human() {
+		if !m.FromHuman() {
 			continue
 		}
 		last, found = m, true
@@ -276,7 +253,7 @@ func decideVerdict(it DecideItem) verdict {
 	switch last.OptionKey {
 	case OptionPost:
 		a := it.Answer
-		if last.Via == decideViaUI && a != nil && a.Key == OptionPost && a.AnsweredBy == decideHuman && a.Via == decideViaUI {
+		if last.HumanUI() && a.HumanUI() && a.Key == OptionPost {
 			return verdict{action: OptionPost}
 		}
 	case OptionCancel:
@@ -302,7 +279,7 @@ func (o *Outbox) pending(ctx context.Context, r *Record) error {
 	case OptionCancel:
 		r.State, r.Outcome = StateCancelled, "cancelled; nothing was posted"
 	default:
-		if !it.closed() {
+		if !closed(it) {
 			return nil
 		}
 		r.State, r.DecideClosed = StateCancelled, true

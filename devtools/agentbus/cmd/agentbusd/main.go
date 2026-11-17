@@ -109,6 +109,12 @@ A lost outward job that its kind's reconcile hook cannot settle goes to
 the decide inbox the same way. While the decide status resource "jobs" is
 busy (decide status set --resource jobs busy), no job is claimed.
 
+Jobs policy (jobs_policy in config.toml, default
+$XDG_CONFIG_HOME/agentbus/jobs-policy.json): the user's gate per job kind,
+auto, ask, or off. A job of an ask kind waits gated until the user approves
+it in the decide inbox. A missing policy, or one that is not the user's own
+or that others can write, asks for every kind. See the jobs doc.
+
 Example:
   agentbusd
 `
@@ -158,6 +164,7 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), unix.SIGINT, unix.SIGTERM)
 	defer stop()
 	ad := &herdr.Adapter{Machines: cfg.Machines, Timeout: cfg.RemoteTimeout, HerdrPath: cfg.HerdrPath}
+	notify := decideNotifier(exec.LookPath, runQuiet, stderr)
 	if err := daemon.Serve(ctx, dirs, daemon.Config{
 		RetentionDays:      days,
 		Adapters:           []adapter.Adapter{ad},
@@ -166,7 +173,7 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 		ListLivenessMaxAge: cfg.ListLivenessMaxAge,
 		HubCaller:          herdr.HubCaller,
 		LeaseTiming:        leaseTiming(cfg, stderr),
-		Notify:             decideNotifier(exec.LookPath, runQuiet, stderr),
+		Notify:             notify,
 		// The policy runs only in this daemon, so only on a machine that
 		// is not in hub mode: it measures and stops this machine's agents.
 		HibernatePolicy: hibernatePolicy(cfg, stderr),
@@ -177,6 +184,8 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 		Jobs:            jobsCfg,
 		JobHook:         jobs.ExecHook(reconcileTimeout, nil),
 		JobHold:         decideHold(exec.LookPath, runOutput),
+		JobPolicy:       jobsPolicy(env, cfg, stderr, notify),
+		JobDecider:      gateDecider(exec.LookPath, runOutput),
 	}); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(stderr, "agentbusd: %s\n", err)
 		if errors.Is(err, daemon.ErrAlreadyRunning) {

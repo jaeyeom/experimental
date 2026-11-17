@@ -31,7 +31,8 @@ const jobsFlagsHelp = `enqueue --kind <k> --subject <s> [--head <sha>] [--priori
         [--checkout <path>|none] [--executor cli|tab|new-tab] [--note <text>] [--json]
     add a job; one live job per kind + subject + head, so a repeat
     prints the live job with "(duplicate)". There is no --gate: gates
-    come only from the user's policy
+    come only from the user's jobs policy. An ask kind waits gated for
+    the user's answer in decide; an off kind is refused
 claim --runner <name> [--kind <k>]... [--machine <m>] [--json]
     take the next ready job, and the lease on its checkout on this
     machine with it. Exit 3: none ready; 4: jobs are on hold
@@ -327,6 +328,9 @@ func printJob(w io.Writer, j jobs.Job) {
 	}
 	if j.Lease != "" {
 		fmt.Fprintf(w, "lease: %s\n", j.Lease)
+	}
+	if j.Decide != "" {
+		fmt.Fprintf(w, "decide: %s\n", j.Decide)
 	}
 	if j.Exit != nil {
 		fmt.Fprintf(w, "exit: %d\n", *j.Exit)

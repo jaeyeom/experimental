@@ -90,6 +90,7 @@ type Store struct {
 	now    func() time.Time
 	cfg    Config
 	hold   func() (bool, string)
+	policy Policy
 	leases Leaser
 	// frees are the leases the change under way lets go of. mutate
 	// releases them once the change is saved.
@@ -118,6 +119,14 @@ func (s *Store) SetLeaser(l Leaser) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.leases = l
+}
+
+// SetPolicy sets the user's gate policy for jobs enqueued from now on.
+// Until it is set, every kind is ask.
+func (s *Store) SetPolicy(p Policy) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.policy = p
 }
 
 // Open loads the store from dir. A missing file is an empty queue.
@@ -207,7 +216,9 @@ func (s *Store) logEvent(actor, detail, reason string) error {
 
 // Enqueue adds a job, or returns the live job with the same kind,
 // subject, and head as a duplicate. The job starts queued and passes
-// its gate. The producer never sets the gate.
+// the gate the user's policy sets for its kind: auto goes to ready, ask
+// waits in gated for the user, and off is refused. The producer never
+// sets the gate.
 func (s *Store) Enqueue(a Args) (Reply, error) {
 	if err := checkKind(a.Kind); err != nil {
 		return Reply{}, err
@@ -223,6 +234,10 @@ func (s *Store) Enqueue(a Args) (Reply, error) {
 	key := a.Kind + " " + subject + " " + a.Head
 	var r Reply
 	err := s.mutate(func(now time.Time) ([]eventlog.Event, error) {
+		gate := s.policy.Gate(a.Kind)
+		if gate == GateOff {
+			return nil, fmt.Errorf("kind %s is off in the jobs policy", a.Kind)
+		}
 		for _, j := range s.doc.Jobs {
 			if j.Dedupe == key && !j.State.Final() {
 				r = Reply{Job: clone(j), Duplicate: true}
@@ -239,9 +254,11 @@ func (s *Store) Enqueue(a Args) (Reply, error) {
 		}
 		s.doc.Jobs = append(s.doc.Jobs, j)
 		events := []eventlog.Event{jobEvent(j, "", "producer", a.Note)}
-		// The gate comes from the user's policy. Until one is set every
-		// job passes as auto.
-		ev, err := s.move(j, StateReady, "daemon", "", now)
+		to, note := StateReady, ""
+		if gate == GateAsk {
+			to, note = StateGated, "the jobs policy asks the user first"
+		}
+		ev, err := s.move(j, to, "policy", note, now)
 		if err != nil {
 			return nil, err
 		}
@@ -521,6 +538,53 @@ func (s *Store) MarkAsked(id string) error {
 		}
 		j.Asked = true
 		return nil, nil
+	})
+	return err
+}
+
+// Gated returns the gated jobs.
+func (s *Store) Gated() []Job {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []Job
+	for _, j := range s.doc.Jobs {
+		if j.State == StateGated {
+			out = append(out, *clone(j))
+		}
+	}
+	return out
+}
+
+// errNotGated is a gate change on a job that left gated meanwhile, or
+// whose decide item is another.
+var errNotGated = errors.New("job is not waiting on this decide item")
+
+// SetDecide records the decide item that asks the user about a gated
+// job that has none.
+func (s *Store) SetDecide(id, item string) error {
+	_, err := s.update(id, func(j *Job, _ time.Time) ([]eventlog.Event, error) {
+		if j.State != StateGated || j.Decide != "" {
+			return nil, errNotGated
+		}
+		j.Decide = item
+		return nil, nil
+	})
+	return err
+}
+
+// Ungate moves a gated job on the user's answer in its decide item:
+// approved to ready, rejected to failed with note.
+func (s *Store) Ungate(id, item string, approved bool, note string) error {
+	to := StateFailed
+	if approved {
+		to = StateReady
+	}
+	_, err := s.update(id, func(j *Job, now time.Time) ([]eventlog.Event, error) {
+		if j.State != StateGated || j.Decide != item {
+			return nil, errNotGated
+		}
+		ev, err := s.move(j, to, "decide", note, now)
+		return []eventlog.Event{ev}, err
 	})
 	return err
 }

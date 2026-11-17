@@ -3,23 +3,34 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "go_default_library",
     srcs = [
+        "gate.go",
         "jobs.go",
+        "policy.go",
         "reconcile.go",
         "store.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/agentbus/internal/jobs",
     visibility = ["//devtools/agentbus:__subpackages__"],
-    deps = ["//devtools/agentbus/internal/eventlog:go_default_library"],
+    deps = [
+        "//devtools/agentbus/internal/eventlog:go_default_library",
+        "//devtools/decide:go_default_library",
+        "@org_golang_x_sys//unix:go_default_library",
+    ],
 )
 
 go_test(
     name = "go_default_test",
     srcs = [
         "config_test.go",
+        "gate_test.go",
         "lease_test.go",
+        "policy_test.go",
         "reconcile_test.go",
         "store_test.go",
     ],
     embed = [":go_default_library"],
-    deps = ["//devtools/agentbus/internal/eventlog:go_default_library"],
+    deps = [
+        "//devtools/agentbus/internal/eventlog:go_default_library",
+        "//devtools/decide:go_default_library",
+    ],
 )
