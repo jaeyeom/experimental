@@ -100,6 +100,12 @@ type Config struct {
 	// JobHold, when not nil, is a hold besides the pause file, such as
 	// the user's decide status.
 	JobHold func() (bool, string)
+	// JobPolicy is the user's gate policy. The zero policy asks for
+	// every kind.
+	JobPolicy jobs.Policy
+	// JobDecider files and reads the ask gate's decide items. Nil
+	// leaves every gated job waiting.
+	JobDecider jobs.Decider
 }
 
 // ProtocolVersion is the request format a hub-socket client must speak.
@@ -342,7 +348,7 @@ func hubListener(socks []socketFile) net.Listener {
 }
 
 // startWatchers runs the polls, the lease check, the socket-inode check,
-// the job heartbeat and reconcile check, and, when configured, the
+// the job heartbeat, reconcile, and ask gate checks, and, when configured, the
 // hibernation policy, until ctx ends.
 func startWatchers(ctx context.Context, watching *sync.WaitGroup, srv *server, cfg Config, ticks, sockTicks <-chan time.Time, socks []socketFile, lost func()) {
 	watching.Add(5)
@@ -366,7 +372,7 @@ func startWatchers(ctx context.Context, watching *sync.WaitGroup, srv *server, c
 	go func() {
 		defer stopJobTicks()
 		defer watching.Done()
-		srv.watchJobs(ctx, jobTicks, cfg.JobHook)
+		srv.watchJobs(ctx, jobTicks, cfg.JobHook, cfg.JobDecider)
 	}()
 	if cfg.HibernatePolicy == nil {
 		return
@@ -409,6 +415,7 @@ func newServer(ctx context.Context, stateDir string, cfg Config, lg *eventlog.Lo
 		return nil, fmt.Errorf("open jobs: %w", err)
 	}
 	queue.SetExternalHold(cfg.JobHold)
+	queue.SetPolicy(cfg.JobPolicy)
 	srv := &server{
 		ctx: ctx, reg: reg, box: box, log: lg, leases: leases, jobs: queue,
 		adapters: cfg.Adapters, timing: cfg.LeaseTiming.WithDefaults(), notify: cfg.Notify,

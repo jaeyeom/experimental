@@ -29,7 +29,7 @@ func newJobLeaseWorld(t *testing.T) *jobLeaseWorld {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	srv, err := newServer(ctx, dir, Config{Adapters: []adapter.Adapter{ad}, Now: (&clock{now: ciT0()}).Now}, eventlog.Open(dir))
+	srv, err := newServer(ctx, dir, Config{Adapters: []adapter.Adapter{ad}, Now: (&clock{now: ciT0()}).Now, JobPolicy: autoJobs}, eventlog.Open(dir))
 	if err != nil {
 		t.Fatal(err)
 	}

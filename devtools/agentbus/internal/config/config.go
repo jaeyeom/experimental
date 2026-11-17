@@ -68,6 +68,10 @@ type Config struct {
 	// HerdrPath is the herdr binary. It wins over AGENTBUS_HERDR.
 	// Load expands a leading "~/" against HOME.
 	HerdrPath string
+	// JobsPolicy is the user's jobs gate policy file. Empty is
+	// jobs-policy.json beside this file. Load expands a leading "~/"
+	// against HOME.
+	JobsPolicy string
 	// LeaseCheckouts are this machine's guarded checkouts: absolute
 	// paths of git top-levels that need the lease before a change.
 	LeaseCheckouts []string
@@ -205,22 +209,25 @@ func Load(env []string) (Config, error) {
 	if err := cfg.expandIdentity(env); err != nil {
 		return Config{}, fmt.Errorf("%s: %w", path, err)
 	}
-	if err := cfg.expandHerdr(env); err != nil {
+	if err := expandHome(env, "herdr_path", &cfg.HerdrPath); err != nil {
+		return Config{}, fmt.Errorf("%s: %w", path, err)
+	}
+	if err := expandHome(env, "jobs_policy", &cfg.JobsPolicy); err != nil {
 		return Config{}, fmt.Errorf("%s: %w", path, err)
 	}
 	return cfg, nil
 }
 
-// expandHerdr rewrites a "~/..." herdr_path against HOME.
-func (c *Config) expandHerdr(env []string) error {
-	if !strings.HasPrefix(c.HerdrPath, "~/") {
+// expandHome rewrites a "~/..." path of key against HOME.
+func expandHome(env []string, key string, path *string) error {
+	if !strings.HasPrefix(*path, "~/") {
 		return nil
 	}
 	home := envGet(env, "HOME")
 	if home == "" {
-		return errors.New(`HOME is not set; herdr_path starts with "~/"`)
+		return fmt.Errorf(`HOME is not set; %s starts with "~/"`, key)
 	}
-	c.HerdrPath = filepath.Join(home, c.HerdrPath[2:])
+	*path = filepath.Join(home, (*path)[2:])
 	return nil
 }
 
@@ -289,7 +296,7 @@ func parseLine(cfg *Config, line string) error {
 		return parseLeaseIgnoreProcs(cfg, value)
 	case "hibernate_exempt":
 		return parseHibernateExempt(cfg, value)
-	case "hub", "machine", "hub_socket", "ssh_identity_agent", "herdr_path":
+	case "hub", "machine", "hub_socket", "ssh_identity_agent", "herdr_path", "jobs_policy":
 		return parseHubKey(cfg, key, value)
 	default:
 		return fmt.Errorf("unknown key %s", key)
@@ -487,24 +494,28 @@ func parseIdentityAgent(cfg *Config, value string) error {
 	return nil
 }
 
-// parseHerdrPath reads herdr_path, an absolute path or one starting
-// with "~/".
-func parseHerdrPath(cfg *Config, value string) error {
-	path, err := parseName("herdr_path", value)
+// parseHomePath reads key into dst: an absolute path or one starting
+// with "~/", such as example.
+func parseHomePath(dst *string, key, value, example string) error {
+	path, err := parseName(key, value)
 	if err != nil {
 		return err
 	}
 	if !filepath.IsAbs(path) && !strings.HasPrefix(path, "~/") {
-		return errors.New(`herdr_path must be an absolute path or start with "~/", such as "~/.local/bin/herdr"`)
+		return fmt.Errorf(`%s must be an absolute path or start with "~/", such as %q`, key, example)
 	}
-	cfg.HerdrPath = path
+	*dst = path
 	return nil
 }
 
-// parseHubKey reads hub, machine, hub_socket, ssh_identity_agent, or herdr_path.
+// parseHubKey reads hub, machine, hub_socket, ssh_identity_agent, and
+// the paths herdr_path and jobs_policy.
 func parseHubKey(cfg *Config, key, value string) error {
+	if key == "jobs_policy" {
+		return parseHomePath(&cfg.JobsPolicy, key, value, "~/.config/agentbus/jobs-policy.json")
+	}
 	if key == "herdr_path" {
-		return parseHerdrPath(cfg, value)
+		return parseHomePath(&cfg.HerdrPath, key, value, "~/.local/bin/herdr")
 	}
 	if key == "ssh_identity_agent" {
 		return parseIdentityAgent(cfg, value)

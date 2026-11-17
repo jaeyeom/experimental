@@ -77,6 +77,25 @@ func TestLoadExpandsHerdrPath(t *testing.T) {
 	}
 }
 
+func TestParseAndLoadJobsPolicy(t *testing.T) {
+	if _, err := Parse("jobs_policy = \"policy.json\"\n"); err == nil {
+		t.Fatal("relative jobs_policy was accepted")
+	}
+	home := t.TempDir()
+	dir := filepath.Join(home, ".config", "agentbus")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("jobs_policy = \"~/private/jobs-policy.json\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load([]string{"HOME=" + home})
+	want := filepath.Join(home, "private", "jobs-policy.json")
+	if err != nil || got.JobsPolicy != want {
+		t.Fatalf("Load = %q, %v; want %q", got.JobsPolicy, err, want)
+	}
+}
+
 func TestParseLeaseCheckouts(t *testing.T) {
 	got, err := Parse(`lease_checkouts = ["/home/u/src/repo", "/home/u/src/other/"]  # guarded
 `)

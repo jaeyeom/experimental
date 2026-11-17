@@ -37,6 +37,8 @@ func newStore(t *testing.T, cfg Config) (*Store, *clock, *memLog) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Most tests are about what happens past the gate.
+	s.SetPolicy(Policy{Default: GateAuto})
 	return s, c, lg
 }
 
@@ -127,7 +129,7 @@ func TestEnqueueRefusesBadArgs(t *testing.T) {
 func TestTransitions(t *testing.T) {
 	allowed := map[State][]State{
 		StateQueued:  {StateGated, StateReady, StateDead},
-		StateGated:   {StateReady, StateParked, StateDead},
+		StateGated:   {StateReady, StateFailed, StateParked, StateDead},
 		StateReady:   {StateRunning, StateParked, StateDead},
 		StateRunning: {StateDone, StateFailed, StateDead, StateUnknown, StateReady, StateGated, StateParked},
 		StateUnknown: {StateDone, StateFailed, StateDead, StateParked},
@@ -408,12 +410,14 @@ func TestStorePersistsAcrossOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	s.SetPolicy(Policy{Default: GateAuto})
 	j := mustEnqueue(t, s, Args{Kind: "rebase", Subject: "o/r#1", Head: "abc"})
 	mustClaim(t, s, "r1")
 	s2, err := Open(dir, &memLog{}, c.now, Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	s2.SetPolicy(Policy{Default: GateAuto})
 	got := show(t, s2, j.ID)
 	if got.State != StateRunning || got.Holder != "r1" {
 		t.Fatalf("reopened job = %+v", got)

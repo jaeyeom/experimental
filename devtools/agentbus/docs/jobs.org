@@ -25,12 +25,12 @@ agentbus jobs unhold
 
 | Subcommand | What it does |
 |------------+--------------|
-| ~enqueue --kind <k> --subject <s> [--head <sha>]~ | Add a job. The subject is ~owner/repo#N~ or a work-item key. Prints ~<id> <state>~. Only one live job has a kind, subject, and head; a repeat prints that job with ~(duplicate)~ and changes nothing. ~--priority~, ~--machine~ (default ~any~), ~--affinity tab|lane|owner~, ~--checkout <abs path>~ (default ~none~; see [[*Checkout lease]]), ~--executor cli|tab|new-tab~ (default ~cli~), and ~--note~ are optional. There is no ~--gate~. |
+| ~enqueue --kind <k> --subject <s> [--head <sha>]~ | Add a job. The subject is ~owner/repo#N~ or a work-item key. Prints ~<id> <state>~. Only one live job has a kind, subject, and head; a repeat prints that job with ~(duplicate)~ and changes nothing. ~--priority~, ~--machine~ (default ~any~), ~--affinity tab|lane|owner~, ~--checkout <abs path>~ (default ~none~; see [[*Checkout lease]]), ~--executor cli|tab|new-tab~ (default ~cli~), and ~--note~ are optional. There is no ~--gate~: the [[*Gate policy][gate policy]] sets it, and an ~off~ kind is refused. |
 | ~claim --runner <name>~ | Take the next ready job: highest priority, then oldest. ~--kind~ (repeatable) and ~--machine~ narrow it; a job that needs one machine goes only to a runner naming it. A job that needs a checkout also takes its lease. Prints ~<id> <kind> <subject> <head>~. Exit 3 when no job is ready, 4 when jobs are on hold. |
 | ~heartbeat <id> --runner <name>~ | The holder is still at it. |
 | ~done <id>~, ~fail <id> [--exit <code>]~ | With ~--runner~, the holder closes its running job. Without it, the user settles an ~unknown~ or ~parked~ job. |
 | ~ls~ | Live jobs. ~--all~ adds final ones; ~--state~, ~--kind~, and ~--subject~ filter. |
-| ~show <id>~, ~log <id> [--follow]~ | One job, or its state history. ~--follow~ waits until the job is final. |
+| ~show <id>~, ~log <id> [--follow]~ | One job, or its state history; ~show~ prints the gate's ~decide:~ item. ~--follow~ waits until the job is final. |
 | ~stats~ | Jobs per state, and the hold. |
 | ~hold [--note <text>]~, ~unhold~ | Stop or restart every claim. |
 
@@ -44,16 +44,16 @@ change exits 1 with the reason; bad usage exits 2.
 | From      | To                                                          |
 |-----------+-------------------------------------------------------------|
 | ~queued~  | ~gated~, ~ready~, ~dead~                                    |
-| ~gated~   | ~ready~, ~parked~, ~dead~                                   |
+| ~gated~   | ~ready~, ~failed~, ~parked~, ~dead~                         |
 | ~ready~   | ~running~, ~parked~, ~dead~                                 |
 | ~running~ | ~done~, ~failed~, ~dead~, ~unknown~, ~ready~, ~gated~, ~parked~ |
 | ~unknown~ | ~done~, ~failed~, ~dead~, ~parked~                          |
 | ~parked~  | ~ready~, ~done~, ~failed~, ~dead~                           |
 
 ~done~, ~failed~, and ~dead~ are final. Any other move is refused. A
-new job is ~queued~ and passes its gate at once. The gate comes only
-from the user's policy, never from the producer; until the policy is
-read, every job passes as ~auto~.
+new job is ~queued~ and passes its gate at once: ~auto~ goes to
+~ready~, ~ask~ to ~gated~ (see [[*Ask gate]]). The gate comes only from
+the user's [[*Gate policy][policy]], never from the producer.
 
 - *Retry.* A ~fail --exit <code>~ whose code the kind lists in
   ~retryExits~ goes back to ~ready~ after the backoff, which doubles
@@ -79,6 +79,68 @@ read, every job passes as ~auto~.
   the decide status resource ~jobs~ is busy
   (~decide status set --resource jobs busy~). If decide is installed
   and its status cannot be read, jobs are held too.
+
+** Gate policy
+
+The gate of each kind comes from the user's policy file, and only from
+it: the queue, producers, and runners never write it, and ~jobs.json~
+refuses a ~gate~ key. The daemon reads it at start from ~jobs_policy~
+in =config.toml= (an absolute path or one starting with =~/=), or
+=jobs-policy.json= beside =config.toml=.
+
+#+BEGIN_SRC json
+{
+  "default": "auto",
+  "kinds": {"comment": "ask", "push": "off"},
+  "floor": ["merge", "push", "comment", "review"]
+}
+#+END_SRC
+
+| Key       | Meaning                                                    |
+|-----------+------------------------------------------------------------|
+| ~default~ | Gate of a kind not in ~kinds~. Missing is ~ask~.           |
+| ~kinds~   | Gate per kind: ~auto~, ~ask~, or ~off~.                    |
+| ~floor~   | Kinds that are never ~auto~: an ~auto~ gate for one is ~ask~. |
+
+~auto~ runs the job without asking. ~ask~ waits for the user's answer
+in decide. ~off~ refuses the enqueue with ~kind <k> is off in the jobs
+policy~. An unknown key or gate is an error.
+
+The file must be a regular file owned by the user that runs the
+daemon, and no group or other user may write it. A missing file asks
+for every kind. A file that is refused, unreadable, or not valid also
+asks for every kind: the daemon prints a ~WARNING~ to stderr and puts
+the reason in the user's decide inbox. Fix it and restart the daemon.
+
+** Ask gate
+
+A job whose gate is ~ask~ stays ~gated~ and blocks its subject. On its
+next check (every 15 seconds) the daemon raises one decide item for it:
+
+#+BEGIN_SRC bash
+decide ask --owner agentbus --kind relay --option "approve:Run it" \
+  --option "reject:Reject" --free-text --json "agentbus job j-7 (merge owner/repo#12 at 1a2b3c4) waits for you: ..."
+#+END_SRC
+
+The item names no pane, so the answer changes the queue only; it never
+types into an agent. ~jobs show~ prints it as ~decide: <id>~.
+
+- *Questions.* Each message in the item that offers options is a
+  question: the ask, and any follow-up an agent adds with ~decide reply
+  --option~.
+- *Approve.* The job goes to ~ready~ only when every question has an
+  option the user picked in the decide inbox (TUI or Emacs) after it and
+  before the next question, and the item's answer is that inbox answer
+  by the user. A partial answer keeps it ~gated~.
+- *Reject.* A ~reject~ pick by the user, on any question, moves the job
+  to ~failed~. The note is the text the user wrote in the item, or
+  ~rejected in decide <id>~.
+- *Not counted.* A message an agent wrote, even as the user from the
+  command line, and the user's own ~decide answer~ from the command line,
+  change nothing.
+
+Once the job moves, the daemon closes the item with ~decide done~.
+Without decide on PATH, a gated job waits.
 
 ** Checkout lease
 

@@ -60,10 +60,11 @@ func (s *server) jobsOp(req Request) Response {
 	return Response{OK: true, Jobs: &r}
 }
 
-// watchJobs applies heartbeat loss and reconciles lost outward jobs on
-// every tick until ctx ends. An unclear reconcile is put in the user's
-// decide inbox through notify.
-func (s *server) watchJobs(ctx context.Context, ticks <-chan time.Time, hook jobs.Hook) {
+// watchJobs applies heartbeat loss, reconciles lost outward jobs, and
+// runs the ask gate on every tick until ctx ends. An unclear reconcile
+// is put in the user's decide inbox through notify; a gated job's
+// question goes there through decider.
+func (s *server) watchJobs(ctx context.Context, ticks <-chan time.Time, hook jobs.Hook, decider jobs.Decider) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -72,6 +73,7 @@ func (s *server) watchJobs(ctx context.Context, ticks <-chan time.Time, hook job
 			// A save that fails is tried again on the next tick.
 			_, _ = s.jobs.Expire()
 			jobs.Reconcile(ctx, s.jobs, hook, s.notify)
+			jobs.RunGate(ctx, s.jobs, decider)
 		}
 	}
 }

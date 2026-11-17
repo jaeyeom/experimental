@@ -3,13 +3,16 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"path/filepath"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/jobs"
+	"github.com/jaeyeom/experimental/devtools/decide"
 )
 
 const (
@@ -32,6 +35,94 @@ func jobsConfig(env []string) (jobs.Config, error) {
 		return jobs.Config{}, fmt.Errorf("%w", err)
 	}
 	return cfg, nil
+}
+
+// jobsPolicy reads the user's gate policy: jobs_policy in config.toml,
+// or jobs-policy.json beside it. A missing, refused, or unreadable file
+// asks for every kind. It says which on stderr; a refused or unreadable
+// file also goes to the user through notify, when there is one.
+func jobsPolicy(env []string, cfg config.Config, stderr io.Writer, notify func(string)) jobs.Policy {
+	path := cfg.JobsPolicy
+	if path == "" {
+		cfgPath, err := config.Path(env)
+		if err != nil {
+			fmt.Fprintf(stderr, "agentbusd: WARNING: locate the jobs policy: %s; every job kind asks in decide first\n", err)
+			return jobs.Policy{}
+		}
+		path = filepath.Join(filepath.Dir(cfgPath), "jobs-policy.json")
+	}
+	p, err := jobs.LoadPolicy(path)
+	switch {
+	case errors.Is(err, jobs.ErrNoPolicy):
+		fmt.Fprintf(stderr, "agentbusd: jobs policy %s is missing; every job kind asks in decide first\n", path)
+	case err != nil:
+		msg := fmt.Sprintf("agentbusd jobs policy refused: %s. Every job kind asks in decide first until it is fixed and agentbusd restarts.", err)
+		fmt.Fprintf(stderr, "agentbusd: WARNING: %s\n", msg)
+		if notify != nil {
+			notify(msg)
+		}
+	default:
+		fmt.Fprintf(stderr, "agentbusd: jobs policy %s\n", path)
+	}
+	return p
+}
+
+// decideGate is the ask gate's Decider over the decide command.
+type decideGate struct {
+	decide string
+	output func(ctx context.Context, argv []string) ([]byte, error)
+}
+
+// gateDecider is the ask gate's Decider, or nil when decide is not
+// installed.
+func gateDecider(lookPath func(string) (string, error), output func(ctx context.Context, argv []string) ([]byte, error)) jobs.Decider {
+	path, err := lookPath("decide")
+	if err != nil {
+		return nil
+	}
+	return decideGate{decide: path, output: output}
+}
+
+func (d decideGate) run(ctx context.Context, it *decide.Item, args ...string) error {
+	ctx, cancel := context.WithTimeout(ctx, decideTimeout)
+	defer cancel()
+	out, err := d.output(ctx, append([]string{d.decide}, args...))
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(out, it); err != nil {
+		return fmt.Errorf("decide %s: parse output: %w", args[0], err)
+	}
+	return nil
+}
+
+// Ask files a relay item owned by agentbus with approve and reject
+// options and free text for a note. It names no pane, so nothing is
+// typed into an agent.
+func (d decideGate) Ask(ctx context.Context, question string) (string, error) {
+	var it decide.Item
+	if err := d.run(ctx, &it, "ask", "--owner", "agentbus", "--kind", "relay",
+		"--option", jobs.OptionApprove+":Run it", "--option", jobs.OptionReject+":Reject",
+		"--free-text", "--json", question); err != nil {
+		return "", err
+	}
+	if it.ID == "" {
+		return "", errors.New("decide ask printed no id")
+	}
+	return it.ID, nil
+}
+
+// Show reads an item.
+func (d decideGate) Show(ctx context.Context, id string) (decide.Item, error) {
+	var it decide.Item
+	err := d.run(ctx, &it, "show", "--json", id)
+	return it, err
+}
+
+// Done closes an item with outcome.
+func (d decideGate) Done(ctx context.Context, id, outcome string) error {
+	var it decide.Item
+	return d.run(ctx, &it, "done", "--json", id, outcome)
 }
 
 // decideHold holds the jobs queue while the decide status resource
