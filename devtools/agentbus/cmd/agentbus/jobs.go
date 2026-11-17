@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/jobs"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
 )
 
 // Exit codes of jobs claim and reserve besides 0, 1, and 2.
@@ -64,6 +66,9 @@ ls [--state <s>] [--kind <k>] [--subject <s>] [--all] [--json]
 show <id> [--json]
 log <id> [--follow]   state history; --follow waits until the job is final
 stats [--json]        jobs per state, the hold, and the GitHub budget
+status [--json]
+    per machine: its leases, and the count and oldest age of its
+    queued (and ready), running, gated, parked, and unknown jobs
 reserve --calls <n> [--kind <k>] [--json]
     take n GitHub API calls from the shared budget before making them.
     With --kind the kind's floor exemption applies. Exit 3: they do
@@ -124,6 +129,7 @@ var jobsSubFlags = map[string][]string{
 	"show":      {"json"},
 	"log":       {"follow"},
 	"stats":     {"json"},
+	"status":    {"json"},
 	"reserve":   {"calls", "kind", "json"},
 	"hold":      {"note"},
 	"unhold":    {},
@@ -134,7 +140,7 @@ var jobsNeedID = map[string]bool{"heartbeat": true, "done": true, "fail": true, 
 
 func runJobs(ctx context.Context, args, env []string, _ io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintf(stderr, "agentbus jobs: want a subcommand: enqueue, claim, heartbeat, done, fail, gate, park, runner, ls, show, log, stats, reserve, hold, unhold\n")
+		fmt.Fprintf(stderr, "agentbus jobs: want a subcommand: enqueue, claim, heartbeat, done, fail, gate, park, runner, ls, show, log, stats, status, reserve, hold, unhold\n")
 		return 2
 	}
 	sub := args[0]
@@ -160,6 +166,8 @@ func runJobs(ctx context.Context, args, env []string, _ io.Reader, stdout, stder
 		return jobsPark(ctx, f, env, stdout, stderr)
 	case "reserve":
 		return jobsReserve(ctx, f, env, stdout, stderr)
+	case "status":
+		return jobsStatus(ctx, f, env, stdout, stderr)
 	}
 	r, code := jobsCall(ctx, sub, f.a, env, stderr)
 	if code != 0 {
@@ -346,6 +354,54 @@ func printJobStats(w io.Writer, st *jobs.Stats) {
 		fmt.Fprintf(w, "%s %d\n", s, st.States[s])
 	}
 	fmt.Fprintf(w, "budget: %s\n", budgetText(st.Budget))
+}
+
+func jobsStatus(ctx context.Context, f jobsFlags, env []string, stdout, stderr io.Writer) int {
+	r, code := jobsCall(ctx, "status", f.a, env, stderr)
+	switch {
+	case code != 0:
+		return code
+	case r.Status == nil:
+		fmt.Fprintln(stderr, "agentbus jobs status: the daemon sent no status; is it older than this agentbus?")
+		return 1
+	case f.jsonOut:
+		writeJSON(stdout, r.Status)
+	default:
+		printJobStatus(stdout, *r.Status)
+	}
+	return 0
+}
+
+// printJobStatus prints one row per machine: each state's job count
+// and the oldest job's time in that state, and the leases that are not
+// free.
+func printJobStatus(w io.Writer, v jobs.StatusView) {
+	if len(v.Machines) == 0 {
+		fmt.Fprintln(w, "no jobs or leases")
+		return
+	}
+	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+	fmt.Fprint(tw, "MACHINE")
+	for _, st := range jobs.StatusStates {
+		fmt.Fprintf(tw, "\t%s", strings.ToUpper(string(st)))
+	}
+	fmt.Fprintln(tw, "\tLEASES")
+	for _, m := range v.Machines {
+		fmt.Fprint(tw, m.Machine)
+		for _, st := range jobs.StatusStates {
+			cell := "-"
+			if c := m.Jobs[st]; c.Count > 0 {
+				cell = fmt.Sprintf("%d (%s)", c.Count, lease.Short(v.At.Sub(c.Oldest).Truncate(time.Second)))
+			}
+			fmt.Fprintf(tw, "\t%s", cell)
+		}
+		leases := make([]string, 0, len(m.Leases))
+		for _, l := range m.Leases {
+			leases = append(leases, l.Checkout+" "+l.State+" by "+cmp.Or(l.Holder, "nobody"))
+		}
+		fmt.Fprintf(tw, "\t%s\n", dash(strings.Join(leases, ", ")))
+	}
+	_ = tw.Flush()
 }
 
 // budgetText is the GitHub budget's calls left, floor, and reset.

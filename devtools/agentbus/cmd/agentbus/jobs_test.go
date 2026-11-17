@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -297,5 +299,62 @@ func TestJobsCLIBudget(t *testing.T) {
 	}
 	if code, _, _ := runCmd([]string{"jobs", "reserve"}, env); code != 2 {
 		t.Fatalf("reserve without --calls = %d, want 2", code)
+	}
+}
+
+func TestJobsStatusGolden(t *testing.T) {
+	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+	var mu sync.Mutex
+	advance := func(d time.Duration) {
+		mu.Lock()
+		defer mu.Unlock()
+		now = now.Add(d)
+	}
+	env := []string{
+		"XDG_RUNTIME_DIR=" + shortRuntime(t),
+		"XDG_STATE_HOME=" + t.TempDir(),
+		"HOME=" + t.TempDir(),
+	}
+	dirs, err := paths.FromEnv(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(startDaemon(t, dirs, daemon.Config{
+		Now: func() time.Time {
+			mu.Lock()
+			defer mu.Unlock()
+			return now
+		},
+		JobPolicy: jobs.Policy{Default: jobs.GateAuto, Kinds: map[string]jobs.Gate{"merge": jobs.GateAsk}},
+	}))
+	mustCmd(t, []string{"jobs", "enqueue", "--kind", "rebase", "--subject", "o/r#1", "--checkout", "/w/a"}, env)
+	mustCmd(t, []string{"jobs", "claim", "--runner", "tiger-runner", "--machine", "tiger"}, env)
+	advance(time.Minute)
+	mustCmd(t, []string{"jobs", "enqueue", "--kind", "merge", "--subject", "o/r#2"}, env)
+	advance(9 * time.Minute)
+	mustCmd(t, []string{"jobs", "enqueue", "--kind", "rebase", "--subject", "o/r#3", "--machine", "tiger"}, env)
+	advance(5 * time.Minute)
+
+	text, _ := mustCmd(t, []string{"jobs", "status"}, env)
+	js, _ := mustCmd(t, []string{"jobs", "status", "--json"}, env)
+	got := text + js
+	golden := filepath.Join("testdata", "jobs_status.golden")
+	if os.Getenv("UPDATE_GOLDEN") != "" {
+		writeFile(t, golden, []byte(got))
+	}
+	want, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != string(want) {
+		t.Fatalf("jobs status =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestJobsStatusEmpty(t *testing.T) {
+	env := jobsWorld(t)
+	stdout, _ := mustCmd(t, []string{"jobs", "status"}, env)
+	if stdout != "no jobs or leases\n" {
+		t.Fatalf("status = %q", stdout)
 	}
 }

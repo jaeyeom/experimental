@@ -155,3 +155,42 @@ func TestJobsPolicyLoadsTheConfiguredFile(t *testing.T) {
 		t.Fatalf("gate = %s, want auto", p.Gate("rebase"))
 	}
 }
+
+func TestDecideStatusSinkIsNilWithoutDecide(t *testing.T) {
+	sink := decideStatusSink(func(string) (string, error) { return "", errors.New("not found") },
+		func(context.Context, []string) ([]byte, error) { t.Fatal("ran decide"); return nil, nil })
+	if sink != nil {
+		t.Fatal("a status sink without decide on PATH")
+	}
+}
+
+func TestDecideStatusSinkSetsAndClearsAgentRows(t *testing.T) {
+	var argvs [][]string
+	fail := false
+	sink := decideStatusSink(func(name string) (string, error) { return "/bin/" + name, nil },
+		func(_ context.Context, a []string) ([]byte, error) {
+			argvs = append(argvs, a)
+			if fail {
+				return nil, errors.New("exit status 1")
+			}
+			return nil, nil
+		})
+	ctx := context.Background()
+	if err := sink.Set(ctx, "jobs@tiger", "working", "queued 1 since 2026-11-16T12:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sink.Clear(ctx, "jobs@lion"); err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{
+		{"/bin/decide", "status", "set", "--agent", "jobs@tiger", "--state", "working", "--", "queued 1 since 2026-11-16T12:00:00Z"},
+		{"/bin/decide", "status", "clear", "--agent", "jobs@lion"},
+	}
+	if !slices.EqualFunc(argvs, want, slices.Equal) {
+		t.Fatalf("argv = %q, want %q", argvs, want)
+	}
+	fail = true
+	if err := sink.Set(ctx, "jobs@tiger", "idle", "lease /w/a held by user"); err == nil {
+		t.Fatal("a failed decide status set reported no error")
+	}
+}

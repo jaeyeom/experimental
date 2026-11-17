@@ -217,6 +217,8 @@ type Config struct {
 	Anomalies AnomalyConfig
 	// Budget is the shared GitHub API budget. Zero is no budget.
 	Budget BudgetConfig
+	// Status is how often the status view may be published.
+	Status StatusConfig
 }
 
 // Kind returns the behavior of name. An undeclared kind is outward,
@@ -259,6 +261,7 @@ type configFile struct {
 	Kinds            map[string]kindFile `json:"kinds"`
 	Anomalies        *anomalyFile        `json:"anomalies"`
 	Budget           *budgetFile         `json:"budget"`
+	Status           *statusFile         `json:"status"`
 }
 
 var kindPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
@@ -308,6 +311,13 @@ func ParseConfig(data []byte) (Config, error) {
 			return Config{}, err
 		}
 		cfg.Budget = b
+	}
+	if f.Status != nil {
+		st, err := statusFromFile(*f.Status)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.Status = st
 	}
 	return cfg, nil
 }

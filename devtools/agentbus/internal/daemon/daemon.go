@@ -106,6 +106,9 @@ type Config struct {
 	// JobDecider files and reads the ask gate's decide items. Nil
 	// leaves every gated job waiting.
 	JobDecider jobs.Decider
+	// JobStatus, when not nil, gets the jobs status view, one row per
+	// machine, when it changes and at most once per Jobs.StatusInterval.
+	JobStatus jobs.StatusSink
 }
 
 // ProtocolVersion is the request format a hub-socket client must speak.
@@ -372,7 +375,7 @@ func startWatchers(ctx context.Context, watching *sync.WaitGroup, srv *server, c
 	go func() {
 		defer stopJobTicks()
 		defer watching.Done()
-		srv.watchJobs(ctx, jobTicks, cfg.JobHook, cfg.JobDecider)
+		srv.watchJobs(ctx, jobTicks, cfg.JobHook, cfg.JobDecider, statusPublisher(cfg))
 	}()
 	if cfg.HibernatePolicy == nil {
 		return
