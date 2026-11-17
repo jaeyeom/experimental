@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "anomaly.go",
+        "budget.go",
         "gate.go",
         "jobs.go",
         "park.go",
@@ -24,6 +25,7 @@ go_test(
     name = "go_default_test",
     srcs = [
         "anomaly_test.go",
+        "budget_test.go",
         "config_test.go",
         "gate_test.go",
         "lease_test.go",

@@ -65,3 +65,38 @@ func TestLoadConfigMissingFileIsDefaults(t *testing.T) {
 		t.Fatalf("LoadConfig = %+v, %v", cfg, err)
 	}
 }
+
+func TestParseConfigBudget(t *testing.T) {
+	cfg, err := ParseConfig([]byte(`{
+  "budget": {"limit": 5000, "window": "30m", "floor": 500},
+  "kinds": {"rebase": {"cost": 3}, "merge": {"cost": 2, "belowFloor": true}}
+}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := cfg.Budget; b.Limit != 5000 || b.Window != 30*time.Minute || b.Floor != 500 {
+		t.Errorf("budget = %+v", b)
+	}
+	if k := cfg.Kind("rebase"); k.Cost != 3 || k.BelowFloor {
+		t.Errorf("rebase = %+v", k)
+	}
+	if k := cfg.Kind("merge"); k.Cost != 2 || !k.BelowFloor {
+		t.Errorf("merge = %+v", k)
+	}
+	cfg, err = ParseConfig([]byte(`{"budget": {"limit": 10}}`))
+	if err != nil || cfg.Budget.Window != DefaultBudgetWindow {
+		t.Errorf("default window = %+v, %v", cfg.Budget, err)
+	}
+	for _, text := range []string{
+		`{"budget": {"limit": 0}}`,
+		`{"budget": {"limit": 10, "floor": 11}}`,
+		`{"budget": {"limit": 10, "floor": -1}}`,
+		`{"budget": {"limit": 10, "window": "soon"}}`,
+		`{"budget": {"limit": 10, "remaining": 3}}`,
+		`{"kinds": {"x": {"cost": -1}}}`,
+	} {
+		if _, err := ParseConfig([]byte(text)); err == nil {
+			t.Errorf("ParseConfig(%s) succeeded, want an error", text)
+		}
+	}
+}

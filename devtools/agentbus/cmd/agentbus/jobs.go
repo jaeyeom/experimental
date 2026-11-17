@@ -17,10 +17,12 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/jobs"
 )
 
-// Exit codes of jobs claim besides 0, 1, and 2.
+// Exit codes of jobs claim and reserve besides 0, 1, and 2.
 const (
 	jobsNoneReady = 3
 	jobsHeld      = 4
+	// jobsNoBudget is a reserve the GitHub budget refused.
+	jobsNoBudget = 3
 )
 
 // jobsLogPoll is how often log --follow asks for new history; tests
@@ -61,7 +63,11 @@ ls [--state <s>] [--kind <k>] [--subject <s>] [--all] [--json]
     live jobs; --all adds done, failed, and dead ones
 show <id> [--json]
 log <id> [--follow]   state history; --follow waits until the job is final
-stats [--json]        jobs per state, and the hold
+stats [--json]        jobs per state, the hold, and the GitHub budget
+reserve --calls <n> [--kind <k>] [--json]
+    take n GitHub API calls from the shared budget before making them.
+    With --kind the kind's floor exemption applies. Exit 3: they do
+    not fit; the budget resets at the time printed
 hold [--note <text>]  stop every claim until unhold
 unhold`
 
@@ -101,6 +107,7 @@ type jobsFlags struct {
 	kinds   kindList
 	items   kindList
 	exit    optionalInt
+	calls   int
 	jsonOut bool
 	follow  bool
 }
@@ -117,6 +124,7 @@ var jobsSubFlags = map[string][]string{
 	"show":      {"json"},
 	"log":       {"follow"},
 	"stats":     {"json"},
+	"reserve":   {"calls", "kind", "json"},
 	"hold":      {"note"},
 	"unhold":    {},
 }
@@ -126,7 +134,7 @@ var jobsNeedID = map[string]bool{"heartbeat": true, "done": true, "fail": true, 
 
 func runJobs(ctx context.Context, args, env []string, _ io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintf(stderr, "agentbus jobs: want a subcommand: enqueue, claim, heartbeat, done, fail, gate, park, runner, ls, show, log, stats, hold, unhold\n")
+		fmt.Fprintf(stderr, "agentbus jobs: want a subcommand: enqueue, claim, heartbeat, done, fail, gate, park, runner, ls, show, log, stats, reserve, hold, unhold\n")
 		return 2
 	}
 	sub := args[0]
@@ -150,6 +158,8 @@ func runJobs(ctx context.Context, args, env []string, _ io.Reader, stdout, stder
 		return jobsClaim(ctx, f, env, stdout, stderr)
 	case "park":
 		return jobsPark(ctx, f, env, stdout, stderr)
+	case "reserve":
+		return jobsReserve(ctx, f, env, stdout, stderr)
 	}
 	r, code := jobsCall(ctx, sub, f.a, env, stderr)
 	if code != 0 {
@@ -180,6 +190,7 @@ func parseJobsFlags(sub string, allowed, args []string, stderr io.Writer) (jobsF
 	fs.StringVar(&f.a.Decide, "decide", "", "the decide item a parked job waits on")
 	fs.StringVar(&f.a.Saved, "saved", "", "the branch that holds a parked job's work")
 	fs.Var(&f.exit, "exit", "the job's exit code")
+	fs.IntVar(&f.calls, "calls", 0, "GitHub API calls to reserve")
 	fs.BoolVar(&f.jsonOut, "json", false, "print JSON")
 	fs.BoolVar(&f.follow, "follow", false, "wait for new history")
 	var id string
@@ -231,6 +242,14 @@ func jobsRequired(sub string, f *jobsFlags) error {
 		f.a.Kinds, f.a.Machine, f.a.Needs = f.kinds, f.a.Needs.Machine, jobs.Needs{}
 	case "heartbeat", "gate", "park":
 		return holderRequired(sub, f.a)
+	case "reserve":
+		if f.calls < 1 || len(f.kinds) > 1 {
+			return errors.New("want --calls of at least 1 and at most one --kind")
+		}
+		f.a.Calls = f.calls
+		if len(f.kinds) == 1 {
+			f.a.Kind = f.kinds[0]
+		}
 	case "ls":
 		if len(f.kinds) > 1 {
 			return errors.New("want at most one --kind")
@@ -326,6 +345,38 @@ func printJobStats(w io.Writer, st *jobs.Stats) {
 	for _, s := range jobs.AllStates {
 		fmt.Fprintf(w, "%s %d\n", s, st.States[s])
 	}
+	fmt.Fprintf(w, "budget: %s\n", budgetText(st.Budget))
+}
+
+// budgetText is the GitHub budget's calls left, floor, and reset.
+func budgetText(b *jobs.Budget) string {
+	if b == nil {
+		return "none"
+	}
+	text := fmt.Sprintf("%d of %d left, floor %d", b.Remaining, b.Limit, b.Floor)
+	if !b.Reset.IsZero() {
+		text += ", resets " + b.Reset.Format(time.RFC3339)
+	}
+	return text
+}
+
+// jobsReserve takes calls from the GitHub budget, or exits 3 when they
+// do not fit.
+func jobsReserve(ctx context.Context, f jobsFlags, env []string, stdout, stderr io.Writer) int {
+	r, code := jobsCall(ctx, "reserve", f.a, env, stderr)
+	switch {
+	case code != 0:
+		return code
+	case f.jsonOut:
+		writeJSON(stdout, r)
+	case r.Reserved:
+		fmt.Fprintf(stdout, "reserved %d: %s\n", f.a.Calls, budgetText(r.Budget))
+	}
+	if !r.Reserved {
+		fmt.Fprintf(stderr, "agentbus jobs reserve: %d calls do not fit: %s\n", f.a.Calls, budgetText(r.Budget))
+		return jobsNoBudget
+	}
+	return 0
 }
 
 func printJobTable(w io.Writer, list []jobs.Job) {

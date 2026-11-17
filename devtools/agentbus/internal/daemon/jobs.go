@@ -76,6 +76,8 @@ func (s *server) otherJobsOp(req Request, a jobs.Args) (jobs.Reply, error) {
 		r, err = s.jobs.Show(a.ID)
 	case "jobs-stats":
 		r, err = s.jobs.Stats()
+	case "jobs-reserve":
+		r, err = s.jobs.Reserve(a)
 	case "jobs-hold":
 		err = s.jobs.Hold(a.Note)
 		r.Held, r.HoldNote = s.jobs.Held()

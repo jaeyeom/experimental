@@ -255,3 +255,47 @@ func TestJobsCLIParkNeedsACleanCheckoutAndASavedRef(t *testing.T) {
 		t.Fatalf("enqueue of a parked item at a new head = %q", stdout)
 	}
 }
+
+func TestJobsCLIBudget(t *testing.T) {
+	env := []string{
+		"XDG_RUNTIME_DIR=" + shortRuntime(t),
+		"XDG_STATE_HOME=" + t.TempDir(),
+		"HOME=" + t.TempDir(),
+	}
+	dirs, err := paths.FromEnv(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(startDaemon(t, dirs, daemon.Config{
+		JobPolicy: jobs.Policy{Default: jobs.GateAuto},
+		Jobs: jobs.Config{
+			Budget: jobs.BudgetConfig{Limit: 100, Window: time.Hour, Floor: 20},
+			Kinds:  map[string]jobs.Kind{"merge": {Cost: 5, BelowFloor: true}},
+		},
+	}))
+	stdout, _ := mustCmd(t, []string{"jobs", "stats"}, env)
+	if !strings.Contains(stdout, "budget: 100 of 100 left, floor 20\n") {
+		t.Fatalf("stats = %q", stdout)
+	}
+	stdout, _ = mustCmd(t, []string{"jobs", "reserve", "--calls", "75"}, env)
+	if !strings.HasPrefix(stdout, "reserved 75: 25 of 100 left, floor 20, resets ") {
+		t.Fatalf("reserve = %q", stdout)
+	}
+	code, _, stderr := runCmd([]string{"jobs", "reserve", "--calls", "10"}, env)
+	if code != 3 || !strings.Contains(stderr, "10 calls do not fit: 25 of 100 left, floor 20, resets ") {
+		t.Fatalf("reserve below the floor = %d %q, want 3", code, stderr)
+	}
+	stdout, _ = mustCmd(t, []string{"jobs", "reserve", "--calls", "10", "--kind", "merge", "--json"}, env)
+	var r jobs.Reply
+	if err := json.Unmarshal([]byte(stdout), &r); err != nil || !r.Reserved || r.Budget.Remaining != 15 {
+		t.Fatalf("reserve --kind merge --json = %q, %v", stdout, err)
+	}
+	stdout, _ = mustCmd(t, []string{"jobs", "stats", "--json"}, env)
+	var st jobs.Stats
+	if err := json.Unmarshal([]byte(stdout), &st); err != nil || st.Budget == nil || st.Budget.Used != 85 {
+		t.Fatalf("stats --json = %q, %v", stdout, err)
+	}
+	if code, _, _ := runCmd([]string{"jobs", "reserve"}, env); code != 2 {
+		t.Fatalf("reserve without --calls = %d, want 2", code)
+	}
+}
