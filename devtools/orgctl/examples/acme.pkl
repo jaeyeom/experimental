@@ -99,3 +99,14 @@ pools {
     source = "the staffing note"
   }
 }
+
+jobs {
+  policy = "~/.config/jobs/policy.json"
+  anomalyRole = "coord/lead"
+  runners {
+    ["jobs-runner"] {
+      machine = "north"
+      kinds { "rebase" "merge" }
+    }
+  }
+}

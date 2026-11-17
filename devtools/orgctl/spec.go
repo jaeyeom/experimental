@@ -19,6 +19,23 @@ type Spec struct {
 	ApprovalWords      []string           `json:"approvalWords"`
 	AllowApprovalWords []string           `json:"allowApprovalWords"`
 	Scope              *Scope             `json:"scope,omitempty"`
+	Jobs               *Jobs              `json:"jobs,omitempty"`
+}
+
+// Jobs declares the job runners and where anomaly events go.
+// Policy is the path of the user-owned gate policy file. orgctl only
+// checks that it exists and never reads it.
+type Jobs struct {
+	Policy      string            `json:"policy"`
+	AnomalyRole string            `json:"anomalyRole"`
+	Runners     map[string]Runner `json:"runners"`
+}
+
+// Runner is one per-machine jobs runner, keyed in [Jobs.Runners] by the
+// name of its unit. See [RunnerUnit].
+type Runner struct {
+	Machine string   `json:"machine"`
+	Kinds   []string `json:"kinds"`
 }
 
 // Scope limits tab drift to a set of workspaces.

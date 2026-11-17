@@ -162,6 +162,31 @@ class Scope {
   workspaces: Listing<String> = new {}
 }
 
+/// One per-machine jobs runner, keyed in `runners` by its unit name.
+/// The user installs the unit. orgctl only checks that it exists:
+/// ~/.config/systemd/user/NAME.service, or on macOS
+/// ~/Library/LaunchAgents/NAME.plist.
+class Runner {
+  /// Key in `machines`.
+  machine: String(!isEmpty)
+
+  /// Job kinds this runner takes.
+  kinds: Listing<String>(!isEmpty)
+}
+
+/// The jobs layer: runners and where anomaly events go.
+class Jobs {
+  /// Path of the user-owned gate policy file. A leading ~ is the home
+  /// directory. orgctl checks that it exists and never reads it.
+  policy: String(!isEmpty)
+
+  /// Agentbus name of the role that receives anomaly events. A key in `roles`.
+  anomalyRole: String(!isEmpty)
+
+  /// Runners keyed by unit name.
+  runners: Mapping<String, Runner> = new {}
+}
+
 /// Organization name.
 org: String(!isEmpty)
 
@@ -185,6 +210,9 @@ pools: Mapping<String, Pool> = new {}
 
 /// Tab drift scope. An empty list reports every workspace.
 scope: Scope = new {}
+
+/// Job runners and the anomaly role. Null when the org runs no jobs.
+jobs: Jobs?
 
 local ruleIds: List<String> = rules.toList().map((rule) -> rule.id)
 
@@ -220,6 +248,10 @@ local function rendered(): Dynamic =
     throw("role names an unknown machine")
   else if (!machinesExist(pools.keys.fold(List(), (acc, name) -> acc.add(pools[name].machine))))
     throw("pool names an unknown machine")
+  else if (jobs != null && !machinesExist(jobs.runners.keys.fold(List(), (acc, name) -> acc.add(jobs.runners[name].machine))))
+    throw("runner names an unknown machine")
+  else if (jobs != null && !roles.containsKey(jobs.anomalyRole))
+    throw("anomalyRole does not name a role")
   else
     new Dynamic {
       org = module.org
@@ -230,6 +262,7 @@ local function rendered(): Dynamic =
       approvalWords = module.approvalWords
       allowApprovalWords = module.allowApprovalWords
       scope = module.scope
+      jobs = module.jobs
     }
 
 output {

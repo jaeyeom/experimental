@@ -304,3 +304,83 @@ func planSpec() Spec {
 		},
 	}
 }
+
+func jobsSpec() Spec {
+	return Spec{
+		Machines: map[string]Machine{"north": {}, "south": {}},
+		Jobs: &Jobs{
+			Policy:      "~/jobs/policy.json",
+			AnomalyRole: "coord/lead",
+			Runners: map[string]Runner{
+				"r-north": {Machine: "north", Kinds: []string{"merge"}},
+				"r-other": {Machine: "north", Kinds: []string{"rebase"}},
+				"r-south": {Machine: "south", Kinds: []string{"merge"}},
+			},
+		},
+	}
+}
+
+func TestPlanJobs(t *testing.T) {
+	t.Setenv("HOME", "/home/test")
+	spec := jobsSpec()
+	unit := func(name string) string { return "/home/test/.config/systemd/user/" + name + ".service" }
+
+	missing := Live{Local: "north", Found: map[string]bool{
+		unit("r-north"): false, unit("r-other"): true, "/home/test/jobs/policy.json": false,
+	}}
+	got := Plan(spec, missing, PlanOptions{})
+	want := strings.Join([]string{
+		"+ runner r-north unit ~/.config/systemd/user/r-north.service",
+		"? runner r-south remote: not read",
+		"+ jobs policy ~/jobs/policy.json",
+	}, "\n")
+	if strings.Join(got, "\n") != want {
+		t.Fatalf("plan =\n%s\nwant\n%s", strings.Join(got, "\n"), want)
+	}
+	if !PlanChanged(got) {
+		t.Fatal("a missing unit is a change")
+	}
+
+	present := Live{Local: "north", Found: map[string]bool{
+		unit("r-north"): true, unit("r-other"): true, "/home/test/jobs/policy.json": true,
+	}}
+	got = Plan(spec, present, PlanOptions{Machine: "north"})
+	if len(got) != 0 {
+		t.Fatalf("all present: plan =\n%s", strings.Join(got, "\n"))
+	}
+
+	unchecked := Live{Local: "north"}
+	got = Plan(spec, unchecked, PlanOptions{Machine: "north"})
+	want = strings.Join([]string{
+		"? runner r-north unit not checked",
+		"? runner r-other unit not checked",
+		"? jobs policy not checked",
+	}, "\n")
+	if strings.Join(got, "\n") != want {
+		t.Fatalf("unchecked: plan =\n%s\nwant\n%s", strings.Join(got, "\n"), want)
+	}
+}
+
+func TestPlanJobsFilters(t *testing.T) {
+	spec := jobsSpec()
+	live := Live{Local: "north"}
+	if got := Plan(spec, live, PlanOptions{Role: "coord/lead"}); len(got) != 0 {
+		t.Errorf("--role: plan =\n%s", strings.Join(got, "\n"))
+	}
+	got := strings.Join(Plan(spec, live, PlanOptions{Machine: "south"}), "\n")
+	if got != "? runner r-south remote: not read" {
+		t.Errorf("--machine south: plan =\n%s", got)
+	}
+	if got := Plan(Spec{}, live, PlanOptions{}); len(got) != 0 {
+		t.Errorf("no jobs: plan =\n%s", strings.Join(got, "\n"))
+	}
+}
+
+func TestRunnerUnit(t *testing.T) {
+	if got := RunnerUnit("jobs-runner", "linux"); got != "~/.config/systemd/user/jobs-runner.service" {
+		t.Errorf("linux = %q", got)
+	}
+	if got := RunnerUnit("jobs-runner", "darwin"); got != "~/Library/LaunchAgents/jobs-runner.plist" {
+		t.Errorf("darwin = %q", got)
+	}
+}

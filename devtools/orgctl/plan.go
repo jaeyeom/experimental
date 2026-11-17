@@ -23,7 +23,12 @@ type Live struct {
 	KnownModels  []string
 	// MissingCwd lists expanded role directories that were not found.
 	MissingCwd []string
-	Now        time.Time
+	// GOOS picks the runner unit path. See [RunnerUnit].
+	GOOS string
+	// Found records whether a runner unit or the policy file exists,
+	// keyed by expanded path. A path that was not checked is absent.
+	Found map[string]bool
+	Now   time.Time
 }
 
 // LiveTab is a tab label in a workspace.
@@ -90,7 +95,66 @@ func Plan(spec Spec, live Live, opts PlanOptions) []string {
 		lines = append(lines, roleDiff(name, role, live, opts.Expiring)...)
 		steps = append(steps, userSteps(name, role)...)
 	}
+	lines = append(lines, jobsDiff(spec.Jobs, live, opts)...)
 	return append(lines, steps...)
+}
+
+// RunnerUnit is the unit file a runner is installed as: a launchd agent
+// on darwin and a systemd user unit elsewhere.
+func RunnerUnit(name, goos string) string {
+	if goos == "darwin" {
+		return "~/Library/LaunchAgents/" + name + ".plist"
+	}
+	return "~/.config/systemd/user/" + name + ".service"
+}
+
+// jobsDiff reports missing runner units, then a missing policy file.
+// The policy is checked only when a selected runner is on this machine.
+// A --role filter selects no runners.
+func jobsDiff(jobs *Jobs, live Live, opts PlanOptions) []string {
+	if jobs == nil || opts.Role != "" {
+		return nil
+	}
+	var lines []string
+	local := false
+	for _, name := range mapKeys(jobs.Runners) {
+		runner := jobs.Runners[name]
+		if opts.Machine != "" && runner.Machine != opts.Machine {
+			continue
+		}
+		if runner.Machine != live.Local {
+			lines = append(lines, "? runner "+name+" remote: not read")
+			continue
+		}
+		local = true
+		unit := RunnerUnit(name, live.GOOS)
+		lines = append(lines, fileLine("runner "+name+" unit", unit, live)...)
+	}
+	if local {
+		lines = append(lines, fileLine("jobs policy", jobs.Policy, live)...)
+	}
+	return lines
+}
+
+func fileLine(label, path string, live Live) []string {
+	found, checked := live.Found[expandOrKeep(path)]
+	switch {
+	case !checked:
+		return []string{"? " + label + " not checked"}
+	case !found:
+		return []string{"+ " + label + " " + path}
+	default:
+		return nil
+	}
+}
+
+// expandOrKeep expands a leading ~. A home lookup error keeps path.
+func expandOrKeep(path string) string {
+	expanded, err := ExpandPath(path)
+	if err != nil {
+		return path
+	}
+	return expanded
 }
 
 // PlanChanged reports whether lines contain a diff marker.

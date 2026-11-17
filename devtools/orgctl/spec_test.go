@@ -51,6 +51,34 @@ func TestExampleJSONDecodes(t *testing.T) {
 	if pool.Max != 3 || pool.Starter != "coord/lead" || pool.Machine != "south" {
 		t.Errorf("pool hands = %+v", pool)
 	}
+	if spec.Jobs == nil {
+		t.Fatal("jobs missing")
+	}
+	if spec.Jobs.Policy != "~/.config/jobs/policy.json" || spec.Jobs.AnomalyRole != "coord/lead" {
+		t.Errorf("jobs = %+v", spec.Jobs)
+	}
+	runner := spec.Jobs.Runners["jobs-runner"]
+	if runner.Machine != "north" || !slices.Equal(runner.Kinds, []string{"rebase", "merge"}) {
+		t.Errorf("runner jobs-runner = %+v", runner)
+	}
+}
+
+func TestDecodeJobs(t *testing.T) {
+	spec, err := Decode([]byte(`{"jobs":{"policy":"/p.json","anomalyRole":"a/one",` +
+		`"runners":{"r1":{"machine":"one","kinds":["merge"]}}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.Jobs == nil || spec.Jobs.Policy != "/p.json" || spec.Jobs.AnomalyRole != "a/one" {
+		t.Fatalf("jobs = %+v", spec.Jobs)
+	}
+	if r := spec.Jobs.Runners["r1"]; r.Machine != "one" || !slices.Equal(r.Kinds, []string{"merge"}) {
+		t.Errorf("runner r1 = %+v", r)
+	}
+	none, err := Decode([]byte(`{"jobs":null}`))
+	if err != nil || none.Jobs != nil {
+		t.Errorf("null jobs = %+v, %v", none.Jobs, err)
+	}
 }
 
 func TestConstraintFixturesFail(t *testing.T) {
@@ -64,6 +92,8 @@ func TestConstraintFixturesFail(t *testing.T) {
 		{name: "unknown reportsTo", file: "pkl/testdata/unknown-reports.pkl", want: "reportsTo"},
 		{name: "pool schedules", file: "pkl/testdata/pool-schedules.pkl", want: "schedules"},
 		{name: "unknown machine", file: "pkl/testdata/unknown-machine.pkl", want: "unknown machine"},
+		{name: "unknown runner machine", file: "pkl/testdata/unknown-runner-machine.pkl", want: "runner names an unknown machine"},
+		{name: "unknown anomaly role", file: "pkl/testdata/unknown-anomaly-role.pkl", want: "anomalyRole does not name a role"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
