@@ -24,6 +24,7 @@ After a host reboot, follow [[file:reboot.org][the reboot runbook]].
 | hub mode    | One daemon shared by several computers. See [[file:docs/multi-machine.org][hub mode]].  |
 | lease       | Which agent may change one shared git checkout. See [[file:docs/lease.org][the lease]]. |
 | hibernation | An idle agent is stopped. Its pane and names stay, and a message wakes it.              |
+| job         | Work on the daemon's queue that a runner claims. See [[file:docs/jobs.org][the job queue]].                     |
 
 ~--when~ has to name the work. ~reviewing the queue~ is a meaningful
 value. ~agent~ is not. Taking over a checkout can also open a
@@ -221,6 +222,7 @@ handle: herdr:local/default/w1:p1
 | ~log~                             | Read the daemon event log.                                                                     |
 | ~outbox <ls|flush> [--watch]~     | List or flush hub-mode messages waiting on this machine.                                       |
 | ~lease <subcommand>~              | Guard a shared checkout. See [[file:docs/lease.org][the lease]].                               |
+| ~jobs <subcommand>~               | Enqueue, claim, and settle jobs; hold the queue. See [[file:docs/jobs.org][the job queue]].   |
 | ~mem [--json]~                    | Memory per local agent pane. See [[file:docs/hibernate.org][memory]].                          |
 | ~hibernate <name or handle>...~   | Stop idle agents but keep their panes and names. See [[file:docs/hibernate.org][hibernation]]. |
 | ~wake <name or handle>~           | Relaunch a hibernated agent now. A message to it wakes it too.                                 |
@@ -349,6 +351,7 @@ Socket paths, the state directory, and the sandbox allowlist are in
 - [[file:docs/delivery.org][Delivery]]: drafts, holds, retries, and the prompt guard.
 - [[file:docs/multi-machine.org][Other machines and hub mode]].
 - [[file:docs/lease.org][Workdir lease]].
+- [[file:docs/jobs.org][Job queue]]: the jobs CLI, states, kinds, and the hold.
 - [[file:docs/hibernate.org][Memory, hibernation, and wake]].
 - [[file:docs/sandbox.org][Sockets, state, and the sandbox]].
 - [[file:docs/json-reference.org][JSON shapes]] for ~list~, ~lease status~, ~mem~, and ~hibernate~.

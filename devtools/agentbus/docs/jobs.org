@@ -1,0 +1,110 @@
+The job queue on the agentbus daemon. Producers put work on it and
+per-machine runners claim it; everyday commands are in
+[[file:../README.org][the agentbus guide]].
+
+* Job queue
+
+~agentbus jobs~ keeps one queue in the daemon, in =jobs.json= in its
+state directory. In hub mode the command runs on the hub, so every
+machine shares the hub's queue. The daemon keeps state and logs each
+change as a ~job~ event. Running a job is the runner's work.
+
+#+BEGIN_SRC bash
+agentbus jobs enqueue --kind rebase --subject owner/repo#12 --head 1a2b3c4
+agentbus jobs claim --runner tiger-runner --kind rebase --machine tiger
+agentbus jobs heartbeat j-7 --runner tiger-runner
+agentbus jobs done j-7 --runner tiger-runner --note "rebased onto main"
+agentbus jobs fail j-7 --runner tiger-runner --exit 75
+agentbus jobs ls --all
+agentbus jobs show j-7
+agentbus jobs log j-7 --follow
+agentbus jobs stats
+agentbus jobs hold --note "release day"
+agentbus jobs unhold
+#+END_SRC
+
+| Subcommand | What it does |
+|------------+--------------|
+| ~enqueue --kind <k> --subject <s> [--head <sha>]~ | Add a job. The subject is ~owner/repo#N~ or a work-item key. Prints ~<id> <state>~. Only one live job has a kind, subject, and head; a repeat prints that job with ~(duplicate)~ and changes nothing. ~--priority~, ~--machine~ (default ~any~), ~--affinity tab|lane|owner~, ~--checkout~ (default ~none~), ~--executor cli|tab|new-tab~ (default ~cli~), and ~--note~ are optional. There is no ~--gate~. |
+| ~claim --runner <name>~ | Take the next ready job: highest priority, then oldest. ~--kind~ (repeatable) and ~--machine~ narrow it; a job that needs one machine goes only to a runner naming it. Prints ~<id> <kind> <subject> <head>~. Exit 3 when no job is ready, 4 when jobs are on hold. |
+| ~heartbeat <id> --runner <name>~ | The holder is still at it. |
+| ~done <id>~, ~fail <id> [--exit <code>]~ | With ~--runner~, the holder closes its running job. Without it, the user settles an ~unknown~ or ~parked~ job. |
+| ~ls~ | Live jobs. ~--all~ adds final ones; ~--state~, ~--kind~, and ~--subject~ filter. |
+| ~show <id>~, ~log <id> [--follow]~ | One job, or its state history. ~--follow~ waits until the job is final. |
+| ~stats~ | Jobs per state, and the hold. |
+| ~hold [--note <text>]~, ~unhold~ | Stop or restart every claim. |
+
+~enqueue~, ~claim~, ~show~, ~ls~, and ~stats~ take ~--json~. A refused
+change exits 1 with the reason; bad usage exits 2.
+
+** States
+
+~queued → gated → ready → running → done | failed | dead | unknown | parked~
+
+| From      | To                                                          |
+|-----------+-------------------------------------------------------------|
+| ~queued~  | ~gated~, ~ready~, ~dead~                                    |
+| ~gated~   | ~ready~, ~parked~, ~dead~                                   |
+| ~ready~   | ~running~, ~parked~, ~dead~                                 |
+| ~running~ | ~done~, ~failed~, ~dead~, ~unknown~, ~ready~, ~gated~, ~parked~ |
+| ~unknown~ | ~done~, ~failed~, ~dead~, ~parked~                          |
+| ~parked~  | ~ready~, ~done~, ~failed~, ~dead~                           |
+
+~done~, ~failed~, and ~dead~ are final. Any other move is refused. A
+new job is ~queued~ and passes its gate at once. The gate comes only
+from the user's policy, never from the producer; until the policy is
+read, every job passes as ~auto~.
+
+- *Retry.* A ~fail --exit <code>~ whose code the kind lists in
+  ~retryExits~ goes back to ~ready~ after the backoff, which doubles
+  each attempt up to an hour. Once ~attempts~ reaches ~maxAttempts~ it
+  is ~dead~. Any other fail is ~failed~.
+- *Lost runner.* A running job with no heartbeat for
+  ~heartbeatTimeout~ is lost. An idempotent kind goes back to ~ready~
+  (or ~dead~ when attempts are used up). Any other kind is outward
+  (push, merge, comment, review, CI trigger): it goes to ~unknown~ and
+  is never run again.
+- *Reconcile.* The daemon runs the kind's ~reconcile~ argv for an
+  ~unknown~ job, with ~JOB_ID~, ~JOB_KIND~, ~JOB_SUBJECT~, and
+  ~JOB_HEAD~ set. If the first line of its output is ~done~ (the work is
+  there) or ~failed~ (it is not), the job is settled that way; the rest
+  of the line is the note. Any other output, a non-zero exit, or a kind
+  with no hook puts one item in the user's decide inbox, and the job
+  waits for ~agentbus jobs done~ or ~fail~.
+- *Blocked.* A ~gated~ or ~unknown~ job blocks the other jobs on its
+  subject: none of them is claimed until it is settled. A kind with
+  ~onBlocked = "park"~ is ~parked~ instead and does not block.
+- *Hold.* No job is claimed while =jobs.hold= exists in the state
+  directory (~jobs hold~ writes it, ~jobs unhold~ removes it), or while
+  the decide status resource ~jobs~ is busy
+  (~decide status set --resource jobs busy~). If decide is installed
+  and its status cannot be read, jobs are held too.
+
+** Kinds
+
+The daemon reads =jobs.json= beside =config.toml= at start. A missing
+file means every kind uses the defaults. An unknown key, ~gate~
+included, is an error.
+
+#+BEGIN_SRC json
+{
+  "heartbeatTimeout": "2m",
+  "kinds": {
+    "rebase":  {"idempotent": true, "maxAttempts": 3, "retryExits": [75], "backoff": "1m"},
+    "merge":   {"reconcile": ["prsync", "reconcile-merge"]},
+    "comment": {"onBlocked": "park", "reconcile": ["prsync", "reconcile-comment"]}
+  }
+}
+#+END_SRC
+
+| Key           | Default   | Meaning                                         |
+|---------------+-----------+-------------------------------------------------|
+| ~idempotent~  | ~false~   | A lost runner sends it back to ~ready~.         |
+| ~maxAttempts~ | ~1~       | Claims one job may have.                        |
+| ~retryExits~  | none      | Exit codes a ~fail~ retries.                    |
+| ~backoff~     | ~1m~      | Wait before the first retry.                    |
+| ~onBlocked~   | ~block~   | ~block~ holds its subject; ~park~ parks the job. |
+| ~reconcile~   | none      | Argv that checks a lost job's real state.       |
+
+~heartbeatTimeout~ defaults to ~2m~. The daemon checks it every 15
+seconds.
