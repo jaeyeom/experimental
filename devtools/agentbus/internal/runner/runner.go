@@ -28,6 +28,9 @@ type Queue interface {
 	// Claim takes the next ready job of kinds. held is true while jobs
 	// are on hold, with why.
 	Claim(ctx context.Context, kinds []string) (job *jobs.Job, held bool, why string, err error)
+	// Beat is the runner's own heartbeat, sent every tick whether or
+	// not it holds a job, so the daemon can tell a silent runner.
+	Beat(ctx context.Context) error
 	Heartbeat(ctx context.Context, id string) error
 	Done(ctx context.Context, id, note string) error
 	Fail(ctx context.Context, id string, exit *int, note string) error
@@ -136,9 +139,12 @@ func (r *Runner) Run(ctx context.Context) error {
 // Wait blocks until every command and prompt under way has ended.
 func (r *Runner) Wait() { r.wg.Wait() }
 
-// Tick reports finished jobs, heartbeats held ones, and claims more
-// while limits allow.
+// Tick beats, reports finished jobs, heartbeats held ones, and claims
+// more while limits allow.
 func (r *Runner) Tick(ctx context.Context) {
+	if err := r.Queue.Beat(ctx); err != nil {
+		r.logChange("beat: " + err.Error())
+	}
 	r.report(ctx)
 	r.heartbeat(ctx)
 	if ctx.Err() == nil {

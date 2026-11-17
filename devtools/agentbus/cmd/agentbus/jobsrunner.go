@@ -105,6 +105,11 @@ func (q busQueue) Claim(ctx context.Context, kinds []string) (*jobs.Job, bool, s
 	return r.Job, r.Held, r.HoldNote, err
 }
 
+func (q busQueue) Beat(ctx context.Context) error {
+	_, err := q.call(ctx, "beat", jobs.Args{Runner: q.runner, Machine: q.machine})
+	return err
+}
+
 func (q busQueue) Heartbeat(ctx context.Context, id string) error {
 	_, err := q.call(ctx, "heartbeat", jobs.Args{ID: id, Runner: q.runner})
 	return err

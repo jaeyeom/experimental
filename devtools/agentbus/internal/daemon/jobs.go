@@ -63,6 +63,10 @@ func (s *server) otherJobsOp(req Request, a jobs.Args) (jobs.Reply, error) {
 		if err = s.claimMachine(req, &a); err == nil {
 			r, err = s.jobs.Claim(a)
 		}
+	case "jobs-beat":
+		if err = s.claimMachine(req, &a); err == nil {
+			r, err = s.jobs.Beat(a)
+		}
 	case "jobs-park":
 		a.Tab = s.parkTab(req.Env)
 		r, err = s.jobs.Park(a)
@@ -84,10 +88,10 @@ func (s *server) otherJobsOp(req Request, a jobs.Args) (jobs.Reply, error) {
 	return r, err //nolint:wrapcheck // the store's own message is the reply
 }
 
-// watchJobs applies heartbeat loss, reconciles lost outward jobs, and
-// runs the ask gate on every tick until ctx ends. An unclear reconcile
-// is put in the user's decide inbox through notify; a gated job's
-// question goes there through decider.
+// watchJobs applies heartbeat loss, reconciles lost outward jobs, runs
+// the ask gate, and reports anomalies on every tick until ctx ends. An
+// unclear reconcile is put in the user's decide inbox through notify; a
+// gated job's question goes there through decider.
 func (s *server) watchJobs(ctx context.Context, ticks <-chan time.Time, hook jobs.Hook, decider jobs.Decider) {
 	for {
 		select {
@@ -98,7 +102,23 @@ func (s *server) watchJobs(ctx context.Context, ticks <-chan time.Time, hook job
 			_, _ = s.jobs.Expire()
 			jobs.Reconcile(ctx, s.jobs, hook, s.notify)
 			jobs.RunGate(ctx, s.jobs, decider)
+			s.reportAnomalies(ctx)
 		}
+	}
+}
+
+// reportAnomalies sends each new anomaly to the anomaly role as an
+// agentbus message, once. A message that cannot be queued, such as to a
+// role nobody has claimed, is logged by the mailbox and not sent again.
+func (s *server) reportAnomalies(ctx context.Context) {
+	fired, err := s.jobs.CheckAnomalies()
+	if err != nil {
+		// The next tick tries again.
+		return
+	}
+	role := s.jobs.Config().Anomalies.Role
+	for _, a := range fired {
+		_, _ = s.box.Post(ctx, "agentbus", role, a.Text)
 	}
 }
 

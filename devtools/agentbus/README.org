@@ -354,7 +354,7 @@ Socket paths, the state directory, and the sandbox allowlist are in
 - [[file:docs/delivery.org][Delivery]]: drafts, holds, retries, and the prompt guard.
 - [[file:docs/multi-machine.org][Other machines and hub mode]].
 - [[file:docs/lease.org][Workdir lease]].
-- [[file:docs/jobs.org][Job queue]]: the jobs CLI, states, the gate policy and ask gate, kinds, the hold, and the per-machine runner with its example unit files.
+- [[file:docs/jobs.org][Job queue]]: the jobs CLI, states, the gate policy and ask gate, kinds, anomaly rules and their config keys, the hold, and the per-machine runner with its example unit files.
 - [[file:docs/hibernate.org][Memory, hibernation, and wake]].
 - [[file:docs/sandbox.org][Sockets, state, and the sandbox]].
 - [[file:docs/json-reference.org][JSON shapes]] for ~list~, ~lease status~, ~mem~, and ~hibernate~.

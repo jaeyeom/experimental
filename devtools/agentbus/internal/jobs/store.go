@@ -87,6 +87,8 @@ type file struct {
 	// Seq is the last job number given. It keeps growing across restarts.
 	Seq  uint64 `json:"seq"`
 	Jobs []*Job `json:"jobs"`
+	// Reported are the keys of the anomalies reported and still active.
+	Reported []string `json:"anomalies,omitempty"`
 }
 
 // Store is the job queue, persisted in the daemon state directory. All
@@ -105,6 +107,8 @@ type Store struct {
 	// frees are the leases the change under way lets go of. mutate
 	// releases them once the change is saved.
 	frees []heldLease
+	// runners are the runners' last beats, kept in memory only.
+	runners map[string]runnerSeen
 }
 
 // Leaser is the checkout lease table as the job queue uses it.

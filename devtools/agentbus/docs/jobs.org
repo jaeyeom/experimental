@@ -244,6 +244,57 @@ included, is an error.
 ~heartbeatTimeout~ defaults to ~2m~. The daemon checks it every 15
 seconds.
 
+** Anomalies
+
+The daemon checks the queue for anomalies every 15 seconds and sends
+each one to the anomaly role as an agentbus message from ~agentbus~.
+The role is an agentbus name, such as the ~jobs.anomalyRole~ that
+~orgctl~ declares. Without ~anomalies.role~ in =jobs.json= no rule
+runs.
+
+#+BEGIN_SRC json
+{
+  "anomalies": {
+    "role": "coord/lead",
+    "queueAge": {"after": "1h", "kinds": {"rebase": "15m"}},
+    "runnerSilent": "5m",
+    "subjectFailures": 3,
+    "leaseOverrun": {"after": "1h", "kinds": {"review": "3h"}},
+    "gateUnanswered": "24h",
+    "unknownUnsettled": "1h"
+  }
+}
+#+END_SRC
+
+| Rule                | Active while                                                    | Config key         | Default |
+|---------------------+-----------------------------------------------------------------+--------------------+---------|
+| ~dead~              | The latest job of a kind and subject is ~dead~.                 | none               |         |
+| ~queue-age~         | A ~ready~ job of the kind waited longer than this.              | ~queueAge~         | ~1h~    |
+| ~runner-silent~     | A runner sent no heartbeat for this long.                       | ~runnerSilent~     | ~5m~    |
+| ~subject-failures~  | The last this many jobs to end on a subject all failed or died. | ~subjectFailures~  | ~3~     |
+| ~lease-overrun~     | A job held its checkout lease this long since its claim.        | ~leaseOverrun~     | ~1h~    |
+| ~gate-unanswered~   | A job waited in ~gated~ this long.                              | ~gateUnanswered~   | ~24h~   |
+| ~unknown-unsettled~ | A lost outward job stayed ~unknown~ this long, not reconciled.  | ~unknownUnsettled~ | ~1h~    |
+
+~queueAge~ and ~leaseOverrun~ take ~after~ and per-kind overrides in
+~kinds~. The others take a duration, or a count for ~subjectFailures~.
+A missing key is the default. An unknown key is an error.
+
+- *Once.* Each anomaly is sent once while it stays active, and its key
+  is saved with the queue, so a daemon restart does not send it again.
+  When it clears, it is forgotten; if it recurs, it is sent again.
+  ~dead~ clears when a newer job of the kind and subject is not dead,
+  ~subject-failures~ when a job on the subject is ~done~.
+- *Log.* Each new anomaly is a ~job~ event ~anomaly <rule> <key>~, and
+  each cleared one ~anomaly cleared <rule> <key>~.
+- *Runner heartbeat.* A runner sends its own heartbeat (~jobs-beat~)
+  on every poll, held, idle, or in ~--dry-run~. The daemon keeps beats
+  in memory, so after a restart a runner counts again only once it
+  beats.
+- *Not delivered.* A message the mailbox cannot queue, such as to a
+  role nobody has claimed, is logged as ~rejected~ and is not sent
+  again.
+
 * Runner
 
 ~agentbus jobs runner~ is the per-machine service that claims and runs
@@ -349,7 +400,8 @@ lost runner never resends either.
 - *Hold.* A [[*States][hold]] stops every claim; the runner logs it and
   waits.
 - *Dry run.* ~--dry-run~ logs the job a claim would take and how it
-  would run it, and claims, runs, and heartbeats nothing.
+  would run it, and claims, runs, and heartbeats no job. It still
+  sends the runner's own heartbeat (see [[*Anomalies]]).
 
 ** Rollout
 
