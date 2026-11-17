@@ -52,7 +52,7 @@ func newestOurCodeFix(marker string, evidence gh.MarkerComments) (Action, bool, 
 		class   string
 	)
 	for _, comment := range evidence.Comments {
-		id, got, matched, err := rcamarker.Match(marker, comment.Body)
+		m, matched, err := rcamarker.Match(marker, comment.Body)
 		if err != nil {
 			return Action{}, false, fmt.Errorf("match rca marker: %w", err)
 		}
@@ -62,8 +62,8 @@ func newestOurCodeFix(marker string, evidence gh.MarkerComments) (Action, bool, 
 		if !found || comment.CreatedAt.After(best.CreatedAt) {
 			found = true
 			best = comment
-			eventID = id
-			class = got
+			eventID = m.EventID
+			class = m.Class
 		}
 	}
 	if !found || class != "our-code" {
