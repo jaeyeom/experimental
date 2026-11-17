@@ -235,7 +235,7 @@ environment variable and is never written into the command string.
 
 | Variable | Value |
 |----------+-------|
-| ~SLACKWATCH_EVENT~ | ~reply~, ~unowned~, ~orphaned~, ~channel~, ~reopened~, ~inbound~, or an outbox event below |
+| ~SLACKWATCH_EVENT~ | ~reply~, ~unowned~, ~orphaned~, ~channel~, ~reopened~, ~inbound~, ~thread-deleted~, or an outbox event below |
 | ~SLACKWATCH_OWNER~ | The owner name as stored. |
 | ~SLACKWATCH_TARGET~ | The resolved address. |
 | ~SLACKWATCH_POST_LINK~ | Permalink of the watched post. |
@@ -392,6 +392,27 @@ RFC 3339, or a duration such as ~72h~.
   ~https://acme.slack.com/archives/C0123/p1700000005000200?thread_ts=1700000000.000100&cid=C0123~
   for a thread reply. Until ~serve~ or a catch-up has run ~auth.test~, the
   workspace URL is unknown and links are left out.
+
+*** When a watched thread is deleted
+
+Slack answers ~conversations.replies~ with ~thread_not_found~ or
+~message_not_found~ once a watched thread's parent message is deleted.
+Catch-up then marks the watch gone and never fetches it again, even
+inside ~reopenWindow~. It is not reported as a catch-up or sweep error.
+
+- An open, unowned, or orphaned watch is closed with the reason
+  ~thread deleted (thread_not_found)~ or ~thread deleted
+  (message_not_found)~, as Slack said. Its owner gets one
+  ~thread-deleted~ notification with the link, and slackwatch logs one
+  warning.
+- A watch that was already closed keeps its state and close reason. Its
+  owner gets a short ~thread-deleted~ note only when it closed less than
+  a day ago. Otherwise only the warning is logged.
+- ~status~ lists the watches found deleted in the last day under a
+  ~closed: thread deleted~ line, and ~status --json~ has them as
+  ~threadsDeleted~. They do not make ~status~ exit 1.
+- A ~dm~ watch has no parent message, so the same error there is still
+  reported.
 
 ** Channel subscriptions
 

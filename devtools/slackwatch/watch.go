@@ -50,6 +50,8 @@ type Watch struct {
 	// Flag marks a problem with the watched post, such as a posted text
 	// that does not match the approved outbox text.
 	Flag string `json:"flag,omitempty"`
+	// GoneAt is when catch-up found the watched thread deleted.
+	GoneAt time.Time `json:"goneAt,omitzero"`
 }
 
 // WatchUpdate holds the fields a command sets on a watch. Nil fields are
@@ -95,7 +97,7 @@ type Reaction struct {
 }
 
 const watchCols = `id, channel, thread_ts, kind, since_ts, state, owner, purpose, refs,
-source, until, last_activity, created_at, closed_at, close_reason, permalink, flag`
+source, until, last_activity, created_at, closed_at, close_reason, permalink, flag, gone_at`
 
 // Refs are stored newline-separated.
 const refsSep = "\n"
@@ -107,17 +109,17 @@ const (
 )
 
 type watchRow struct {
-	w                   Watch
-	refs                string
-	until, last, closed sql.NullInt64
-	created             int64
+	w                         Watch
+	refs                      string
+	until, last, closed, gone sql.NullInt64
+	created                   int64
 }
 
 func (r *watchRow) dest(extra ...any) []any {
 	return append([]any{
 		&r.w.ID, &r.w.Channel, &r.w.ThreadTS, &r.w.Kind, &r.w.SinceTS, &r.w.State,
 		&r.w.Owner, &r.w.Purpose, &r.refs, &r.w.Source, &r.until, &r.last,
-		&r.created, &r.closed, &r.w.CloseReason, &r.w.Permalink, &r.w.Flag,
+		&r.created, &r.closed, &r.w.CloseReason, &r.w.Permalink, &r.w.Flag, &r.gone,
 	}, extra...)
 }
 
@@ -131,6 +133,7 @@ func (r *watchRow) watch() Watch {
 	w.LastActivity = unixTime(r.last)
 	w.CreatedAt = time.Unix(r.created, 0).UTC()
 	w.ClosedAt = unixTime(r.closed)
+	w.GoneAt = unixTime(r.gone)
 	return w
 }
 

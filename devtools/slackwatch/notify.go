@@ -22,6 +22,9 @@ const (
 	EventChannel  = "channel"
 	EventReopened = "reopened"
 	EventInbound  = "inbound"
+	// EventThreadDeleted tells the owner that a watched thread's parent
+	// message was deleted and the watch is closed.
+	EventThreadDeleted = "thread-deleted"
 
 	// Outbox events. Ready goes to post.agent in handoff mode, posting
 	// disabled to the fallback target, and the others to the owner of

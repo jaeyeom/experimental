@@ -237,6 +237,11 @@ CREATE TABLE users (
 	seen_at INTEGER NOT NULL
 );
 `,
+	// gone_at is set when catch-up found a thread watch's parent message
+	// deleted. Catch-up no longer fetches the watch.
+	`
+ALTER TABLE watches ADD COLUMN gone_at INTEGER;
+`,
 }
 
 // Store is the slackwatch SQLite database. The server and the CLI each

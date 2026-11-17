@@ -399,3 +399,145 @@ func TestSweepExpiresWithoutNotify(t *testing.T) {
 		t.Errorf("sweep notified: %+v", f.rec.notes)
 	}
 }
+
+// threadGoneErr is how the Slack client reports a deleted thread parent.
+func threadGoneErr(apiErr string) error {
+	return fmt.Errorf("slack conversations.replies: %s: %w", apiErr, ErrMessageNotFound)
+}
+
+func (f *catchUpFixture) callsFor(prefix string) int {
+	n := 0
+	for _, c := range f.slack.calls {
+		if strings.HasPrefix(c, prefix) {
+			n++
+		}
+	}
+	return n
+}
+
+func (f *catchUpFixture) notesFor(event string) []Notification {
+	var out []Notification
+	for _, n := range f.rec.notes {
+		if n.Event == event {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+func TestRunClosesWatchWhoseThreadIsDeleted(t *testing.T) {
+	for _, apiErr := range []string{"thread_not_found", "message_not_found"} {
+		t.Run(apiErr, func(t *testing.T) {
+			f := newCatchUpFixture(t)
+			f.slack.errs["C1/"+threadTS] = []error{threadGoneErr(apiErr)}
+			f.slack.history["D1"] = []Fetched{fetched(Message{Channel: "D1", TS: "1700000009.000400", User: "U9", Text: "sure"})}
+			if err := f.c.Run(context.Background()); err != nil {
+				t.Fatalf("Run = %v, want nil", err)
+			}
+			w := f.watch(t, f.thread.ID)
+			if want := "thread deleted (" + apiErr + ")"; w.State != StateClosed || w.CloseReason != want {
+				t.Errorf("watch = %s %q, want closed %q", w.State, w.CloseReason, want)
+			}
+			if w.GoneAt.IsZero() || !w.ClosedAt.Equal(f.now) {
+				t.Errorf("gone at %v closed at %v, want both set to now", w.GoneAt, w.ClosedAt)
+			}
+			notes := f.notesFor(EventThreadDeleted)
+			if len(notes) != 1 || notes[0].Owner != "agent-1" || notes[0].WatchID != f.thread.ID ||
+				!strings.Contains(notes[0].Message, "deleted") || notes[0].PostLink == "" ||
+				!strings.Contains(notes[0].Message, notes[0].PostLink) {
+				t.Errorf("deleted notes = %+v, want one to agent-1 with the link", notes)
+			}
+			if got := f.notesFor(EventReply); len(got) != 1 || got[0].WatchID != f.dm.ID {
+				t.Errorf("reply notes = %+v, want the dm watch still caught up", got)
+			}
+
+			f.slack.calls = nil
+			if err := f.c.Run(context.Background()); err != nil {
+				t.Fatalf("second Run = %v", err)
+			}
+			if n := f.callsFor("replies C1/"); n != 0 {
+				t.Errorf("second run fetched the deleted thread %d times, want 0", n)
+			}
+			if got := len(f.notesFor(EventThreadDeleted)); got != 1 {
+				t.Errorf("deleted notes after two runs = %d, want 1", got)
+			}
+		})
+	}
+}
+
+func TestRunMarksClosedWatchGoneWhenThreadIsDeleted(t *testing.T) {
+	tests := []struct {
+		name      string
+		closedAgo time.Duration
+		notes     int
+	}{
+		{"closed recently", time.Hour, 1},
+		{"closed long ago", 2 * DeletedThreadWindow, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newCatchUpFixture(t)
+			closedAt := f.now.Add(-tt.closedAgo)
+			if _, err := f.store.CloseWatch(f.thread.ID, "done", closedAt); err != nil {
+				t.Fatal(err)
+			}
+			f.slack.errs["C1/"+threadTS] = []error{threadGoneErr("thread_not_found")}
+			if err := f.c.Run(context.Background()); err != nil {
+				t.Fatalf("Run = %v, want nil", err)
+			}
+			if f.callsFor("replies C1/") != 1 {
+				t.Fatalf("calls = %q, want the closed watch fetched once", f.slack.calls)
+			}
+			w := f.watch(t, f.thread.ID)
+			if w.State != StateClosed || w.CloseReason != "done" || !w.ClosedAt.Equal(closedAt) || w.GoneAt.IsZero() {
+				t.Errorf("watch = %+v, want closed %q at %v and gone", w, "done", closedAt)
+			}
+			if got := len(f.notesFor(EventThreadDeleted)); got != tt.notes {
+				t.Errorf("deleted notes = %d, want %d", got, tt.notes)
+			}
+			f.slack.calls = nil
+			if err := f.c.Run(context.Background()); err != nil {
+				t.Fatalf("second Run = %v", err)
+			}
+			if n := f.callsFor("replies C1/"); n != 0 {
+				t.Errorf("second run fetched the gone watch %d times, want 0", n)
+			}
+		})
+	}
+}
+
+func TestRunReportsMissingMessageOnDMWatch(t *testing.T) {
+	f := newCatchUpFixture(t)
+	f.slack.errs["D1"] = []error{fmt.Errorf("slack conversations.history: %w", ErrMessageNotFound)}
+	err := f.c.Run(context.Background())
+	if !errors.Is(err, ErrMessageNotFound) || !strings.Contains(err.Error(), fmt.Sprintf("watch %d", f.dm.ID)) {
+		t.Errorf("Run = %v, want the dm watch error", err)
+	}
+	if w := f.watch(t, f.dm.ID); w.State != StateOpen || !w.GoneAt.IsZero() {
+		t.Errorf("dm watch = %+v, want open and not gone", w)
+	}
+	if got := f.notesFor(EventThreadDeleted); len(got) != 0 {
+		t.Errorf("deleted notes = %+v, want none", got)
+	}
+}
+
+func TestThreadsDeletedListsRecentlyGoneWatches(t *testing.T) {
+	f := newCatchUpFixture(t)
+	if err := f.store.SetTeamURL(f.proc.TeamURL); err != nil {
+		t.Fatal(err)
+	}
+	f.slack.errs["C1/"+threadTS] = []error{threadGoneErr("thread_not_found")}
+	if err := f.c.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got, err := f.store.ThreadsDeleted(f.now.Add(-DeletedThreadWindow))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != f.thread.ID || got[0].Permalink == "" {
+		t.Errorf("ThreadsDeleted = %+v, want the deleted thread watch with a link", got)
+	}
+	if got, err := f.store.ThreadsDeleted(f.now.Add(time.Second)); err != nil || len(got) != 0 {
+		t.Errorf("ThreadsDeleted after the window = %+v, %v, want none", got, err)
+	}
+}

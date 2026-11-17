@@ -122,8 +122,12 @@ func cmdStatus(configPath string, args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err)
 	}
 	defer store.Close()
-	st, err := store.ReadStatus(time.Now())
+	now := time.Now()
+	st, err := store.ReadStatus(now)
 	if err != nil {
+		return fail(stderr, err)
+	}
+	if st.ThreadsDeleted, err = store.ThreadsDeleted(now.Add(-slackwatch.DeletedThreadWindow)); err != nil {
 		return fail(stderr, err)
 	}
 	if st.Outbox, err = store.OutboxCounts(); err != nil {
@@ -174,6 +178,16 @@ func printStatus(w io.Writer, st slackwatch.Status) {
 		fmt.Fprintf(w, "outbox poll: failing since %s: %s\n", localTime(p.FailingSince), p.LastError)
 	case p.OK:
 		fmt.Fprintf(w, "outbox poll: ok %s\n", localTime(p.LastOK))
+	}
+	if len(st.ThreadsDeleted) > 0 {
+		fmt.Fprintln(w, "closed: thread deleted")
+		for _, d := range st.ThreadsDeleted {
+			where := d.Permalink
+			if where == "" {
+				where = d.Channel + " " + d.ThreadTS
+			}
+			fmt.Fprintf(w, "  watch %d %s\n", d.ID, where)
+		}
 	}
 }
 
