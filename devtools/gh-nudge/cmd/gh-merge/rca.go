@@ -53,8 +53,8 @@ func postRCA(client rcaAPI, cfg *config.Config, args []string) error {
 	if !ok {
 		return errors.New("pull request has no removal event")
 	}
-	if parsed.class == "manual" && event.Reason != "manual" {
-		return fmt.Errorf("rca class manual needs a manual removal; removal %s reason is %s", event.ID, event.Reason)
+	if err := checkManualRCA(parsed.class, event); err != nil {
+		return err
 	}
 	existing, err := ourRCAs(cfg.Settings.RCAMarker, event.ID, pr)
 	if err != nil {
@@ -63,13 +63,10 @@ func postRCA(client rcaAPI, cfg *config.Config, args []string) error {
 	if err := allowRCA(cfg.Settings.RCAMarker, event.ID, pr, parsed, existing); err != nil {
 		return err
 	}
-	found, err := rcaEvidence(client, cfg, pr, event)
+	body, err := rcaBody(client, cfg, pr, event, parsed.class, fileBody, correctionKeys(parsed, existing)...)
 	if err != nil {
 		return err
 	}
-	keys := append(rcaKeys(event, found), correctionKeys(parsed, existing)...)
-	marker := rcamarker.Render(cfg.Settings.RCAMarker, event.ID, parsed.class, keys...)
-	body := rcaComment(fileBody, marker)
 	if parsed.update {
 		last := existing[len(existing)-1]
 		if err := client.EditPullRequestComment(pr.Ref.Owner, pr.Ref.Repo, last.id, body); err != nil {
@@ -81,6 +78,25 @@ func postRCA(client rcaAPI, cfg *config.Config, args []string) error {
 		return fmt.Errorf("comment on %s: %w", pr.Ref.Raw, err)
 	}
 	return printRCAResult(pr.Ref.Raw, cfg, "Commented on")
+}
+
+// checkManualRCA refuses class manual for a removal whose reason is not manual.
+func checkManualRCA(class string, event github.QueueEvent) error {
+	if class == "manual" && event.Reason != "manual" {
+		return fmt.Errorf("rca class manual needs a manual removal; removal %s reason is %s", event.ID, event.Reason)
+	}
+	return nil
+}
+
+// rcaBody loads the evidence for event and returns the RCA comment: fileBody
+// followed by the marker with the evidence keys and extra.
+func rcaBody(client removalAPI, cfg *config.Config, pr github.QueuePullRequest, event github.QueueEvent, class, fileBody string, extra ...rcamarker.Key) (string, error) {
+	found, err := rcaEvidence(client, cfg, pr, event)
+	if err != nil {
+		return "", err
+	}
+	keys := append(rcaKeys(event, found), extra...)
+	return rcaComment(fileBody, rcamarker.Render(cfg.Settings.RCAMarker, event.ID, class, keys...)), nil
 }
 
 func readRCAFile(parsed parsedRCA) (string, error) {

@@ -158,7 +158,21 @@ func watchUsage() string {
 }
 
 func queuePullRequest(client queueAPI, cfg *config.Config, ref string, includeDownstack bool) error {
-	pr, cfg, above, baseProblem, err := prepareQueue(client, cfg, ref)
+	resolved, err := resolvePullRef(ref)
+	if err != nil {
+		return err
+	}
+	pr, err := client.LoadPullRequest(resolved)
+	if err != nil {
+		return fmt.Errorf("load pull request %s: %w", resolved, err)
+	}
+	return queueLoaded(client, cfg, pr, includeDownstack, true)
+}
+
+// queueLoaded runs queue on a pull request that is already loaded. It prints
+// the removal evidence only when evidence is true.
+func queueLoaded(client queueAPI, cfg *config.Config, pr github.QueuePullRequest, includeDownstack, evidence bool) error {
+	cfg, above, baseProblem, err := prepareQueue(client, cfg, pr, evidence)
 	if err != nil {
 		return err
 	}
@@ -169,27 +183,21 @@ func queuePullRequest(client queueAPI, cfg *config.Config, ref string, includeDo
 	return finishQueue(client, pr, cfg, above, problems, includeDownstack)
 }
 
-func prepareQueue(client queueAPI, cfg *config.Config, ref string) (github.QueuePullRequest, *config.Config, []int, string, error) {
-	resolved, err := resolvePullRef(ref)
-	if err != nil {
-		return github.QueuePullRequest{}, nil, nil, "", err
-	}
-	pr, err := client.LoadPullRequest(resolved)
-	if err != nil {
-		return github.QueuePullRequest{}, nil, nil, "", fmt.Errorf("load pull request %s: %w", resolved, err)
-	}
+func prepareQueue(client queueAPI, cfg *config.Config, pr github.QueuePullRequest, evidence bool) (*config.Config, []int, string, error) {
 	cfg = cfg.ForRepository(pr.Ref.Owner, pr.Ref.Repo)
 	above, baseProblem, err := reportStackedAbove(client, pr)
 	if err != nil {
-		return github.QueuePullRequest{}, nil, nil, "", err
+		return nil, nil, "", err
 	}
 	if !jsonOutput {
 		fmt.Println(stackedAboveLine(above))
 	}
-	if err := printRemovalEvidence(client, cfg, pr); err != nil {
-		return github.QueuePullRequest{}, nil, nil, "", err
+	if evidence {
+		if err := printRemovalEvidence(client, cfg, pr); err != nil {
+			return nil, nil, "", err
+		}
 	}
-	return pr, cfg, above, baseProblem, nil
+	return cfg, above, baseProblem, nil
 }
 
 // queuePreflight runs every gate that queue and queue -dry-run share, on the
@@ -231,8 +239,12 @@ func refuseRequeue(pr github.QueuePullRequest, cfg *config.Config, above []int, 
 			return err
 		}
 	}
-	return errors.New(refusal)
+	return fmt.Errorf("%w: %s", errQueueRefused, requeue.Reason)
 }
+
+// errQueueRefused marks a refusal by the queue preflight or the RCA gate, as
+// opposed to a failure to decide.
+var errQueueRefused = errors.New("refusing to enqueue")
 
 // queueMergeable re-reads an UNKNOWN mergeable state with backoff. It does
 // not wait when wait is false, since other problems already refuse.
@@ -634,7 +646,7 @@ func refuseWithProblems(pr github.QueuePullRequest, cfg *config.Config, above []
 		if err := writeQueueResult(pr, cfg, problems, above, "refused", ""); err != nil {
 			return err
 		}
-		return fmt.Errorf("refusing to enqueue %s", pr.Ref.Raw)
+		return fmt.Errorf("%w %s", errQueueRefused, pr.Ref.Raw)
 	}
 	for _, line := range effectiveConfigLines(cfg) {
 		fmt.Println(line)
@@ -643,7 +655,7 @@ func refuseWithProblems(pr github.QueuePullRequest, cfg *config.Config, above []
 	for _, problem := range problems {
 		fmt.Printf("- %s\n", problem)
 	}
-	return fmt.Errorf("refusing to enqueue %s", pr.Ref.Raw)
+	return fmt.Errorf("%w %s", errQueueRefused, pr.Ref.Raw)
 }
 
 func readyLines(pr github.QueuePullRequest, settings config.SettingsConfig) []string {
@@ -672,6 +684,10 @@ func readyLines(pr github.QueuePullRequest, settings config.SettingsConfig) []st
 	return lines
 }
 
+// queueResultSink, when set, receives the queue JSON result instead of
+// stdout. handle-ejection uses it to report the queue step in its own JSON.
+var queueResultSink func(queueJSONResult)
+
 func writeQueueResult(pr github.QueuePullRequest, cfg *config.Config, lines []string, above []int, result, text string) error {
 	return writeQueueResultWith(pr, cfg, lines, above, result, text, nil)
 }
@@ -686,12 +702,7 @@ func writeQueueResultWith(pr github.QueuePullRequest, cfg *config.Config, lines 
 		above = []int{}
 	}
 	if jsonOutput {
-		// Signatures mask values as <n>, <hex>, <path>, and <ts>; keep them
-		// readable instead of escaping < and >.
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		enc.SetIndent("", "  ")
-		err := enc.Encode(queueJSONResult{
+		out := queueJSONResult{
 			PullRequest:      pr.Ref.Raw,
 			Readiness:        lines,
 			Config:           cfg.Path,
@@ -702,8 +713,17 @@ func writeQueueResultWith(pr github.QueuePullRequest, cfg *config.Config, lines 
 			SettingsFrom:     settingsSource(cfg),
 			Gate:             gateLine(pr, cfg.Settings),
 			Requeue:          requeue,
-		})
-		if err != nil {
+		}
+		if queueResultSink != nil {
+			queueResultSink(out)
+			return nil
+		}
+		// Signatures mask values as <n>, <hex>, <path>, and <ts>; keep them
+		// readable instead of escaping < and >.
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetEscapeHTML(false)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(out); err != nil {
 			return fmt.Errorf("encode queue result: %w", err)
 		}
 		return nil
