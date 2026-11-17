@@ -259,7 +259,9 @@ machine's outbox is answered here, first, and the hub answers the rest.
 RFC3339 time, or a ~YYYY-MM-DD~ date at local midnight. ~hibernate
 --idle-over <duration>~ stops agents idle at least that long.
 ~hibernate --policy~ runs the memory-pressure policy on a hub-mode
-client. ~hook~ and ~prompt-hook~ are internal: only ~install-hooks~
+client. In hub mode, ~mem~ reads idle times from the file that runner
+saves (=policy-seen.json= in the state directory), and adds a note when
+the file is missing or stale. ~hook~ and ~prompt-hook~ are internal: only ~install-hooks~
 should run them.
 
 * Configuration

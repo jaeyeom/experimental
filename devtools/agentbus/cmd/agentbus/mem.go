@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -100,8 +101,11 @@ func memInput(ctx context.Context, env []string) (memreport.Input, error) {
 		in.Machine, _ = os.Hostname()
 	}
 	if cfg.Hub != "" {
-		if in.Idle, err = memPolicySeen(env, in.Now, agents); err != nil {
+		var note string
+		if in.Idle, note, err = memPolicySeen(env, in.Now, agents, cfg.Policy().Interval); err != nil {
 			in.Notes = append(in.Notes, "idle times unknown: "+err.Error())
+		} else if note != "" {
+			in.Notes = append(in.Notes, note)
 		}
 		bus, err := memHubBus(ctx, cfg, env)
 		if err != nil {
@@ -121,19 +125,39 @@ func memInput(ctx context.Context, env []string) (memreport.Input, error) {
 	return in, nil
 }
 
+// memSeenStaleSaves is how many save intervals old the policy runner's
+// file may be before mem says the runner looks stopped.
+const memSeenStaleSaves = 3
+
 // memPolicySeen are the idle times the policy runner of a hub-mode
 // client saved, for the agents herdr still reports in the state it saw.
-// Without a runner there are none.
-func memPolicySeen(env []string, now time.Time, agents []adapter.Agent) (map[string]memreport.Idle, error) {
+// Without a runner there are none. The note says why when the file is
+// missing, or when it is older than a few of the runner's saves, which
+// come at most once a minute and once per policy interval.
+func memPolicySeen(env []string, now time.Time, agents []adapter.Agent, interval time.Duration) (map[string]memreport.Idle, string, error) {
 	dirs, err := paths.FromEnv(env)
 	if err != nil {
-		return nil, fmt.Errorf("%w", err)
+		return nil, "", fmt.Errorf("%w", err)
 	}
-	seen, err := hibernate.LoadSeen(filepath.Join(dirs.StateDir, policySeenFile), now, agents)
+	path := filepath.Join(dirs.StateDir, policySeenFile)
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, "idle times unknown: no hibernate policy runner has saved them (" + policySeenFile +
+			" missing); run it with hibernate_policy = \"dry-run\" or \"on\" and agentbus install", nil
+	}
 	if err != nil {
-		return nil, fmt.Errorf("%w", err)
+		return nil, "", fmt.Errorf("%w", err)
 	}
-	return memIdle(seen), nil
+	seen, err := hibernate.LoadSeen(path, now, agents)
+	if err != nil {
+		return nil, "", fmt.Errorf("%w", err)
+	}
+	var note string
+	if age := now.Sub(info.ModTime()); age > memSeenStaleSaves*max(time.Minute, interval) {
+		note = fmt.Sprintf("idle times are from %s (%s ago); the hibernate policy runner looks stopped",
+			info.ModTime().Format(time.DateTime), age.Round(time.Minute))
+	}
+	return memIdle(seen), note, nil
 }
 
 func memIdle(seen map[string]hibernate.Seen) map[string]memreport.Idle {

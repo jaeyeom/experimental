@@ -414,6 +414,7 @@ func mustOut(t *testing.T, args, env []string) string {
 func TestMemHubNamesAndLeasesOverSSH(t *testing.T) {
 	ssh, env := setupMemHub(t)
 	ssh.Reachable()
+	savePolicySeen(t, env)
 	got := decodeMem(t, mustOut(t, []string{"mem", "--json"}, env))
 	if len(got.Agents) != 2 || len(got.Notes) != 0 {
 		t.Fatalf("mem = %+v, want two rows and no note", got)
@@ -480,6 +481,7 @@ func TestMemHubDeadline(t *testing.T) {
 	ssh, env := setupMemHub(t)
 	ssh.Write("hang", "")
 	ssh.Reachable()
+	savePolicySeen(t, env)
 	env = append(env, "AGENTBUS_HOOK_TIMEOUT=500ms")
 	start := time.Now()
 	got := decodeMem(t, mustOut(t, []string{"mem", "--json"}, env))
@@ -526,13 +528,85 @@ func TestMemHubIdleSinceFromThePolicyRunner(t *testing.T) {
 	if row := memRow(t, stdout, "w1:p1"); !strings.Contains(row, " 3h0m ") {
 		t.Fatalf("w1:p1 = %q, want the runner's 3h0m", row)
 	}
+	if strings.Contains(stdout, "note:") {
+		t.Fatalf("output = %q, want no note with a fresh runner file", stdout)
+	}
 	got := decodeMem(t, mustOut(t, []string{"mem", "--json"}, env))
+	if len(got.Notes) != 0 {
+		t.Fatalf("notes = %q, want none", got.Notes)
+	}
 	if first := got.Agents[0]; first.IdleSecs == nil || *first.IdleSecs != 10800 || first.LowerBound {
 		t.Fatalf("w1:p1 = %+v, want idle_seconds 10800", first)
 	}
 	// w1:p2 is working now, not what the runner saw.
 	if second := got.Agents[1]; second.IdleSince != "unknown" {
 		t.Fatalf("w1:p2 = %+v, want unknown", second)
+	}
+}
+
+// policySeenPath is the policy runner's file in env's state directory.
+func policySeenPath(t *testing.T, env []string) string {
+	t.Helper()
+	dirs, err := paths.FromEnv(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(dirs.StateDir, policySeenFile)
+}
+
+func TestMemHubNoPolicyRunnerSaysWhy(t *testing.T) {
+	ssh, env := setupMemHub(t)
+	ssh.Reachable()
+	stdout := mustOut(t, []string{"mem"}, env)
+	if row := memRow(t, stdout, "w1:p1"); !strings.Contains(row, " unknown ") {
+		t.Fatalf("w1:p1 = %q, want unknown with no policy runner", row)
+	}
+	if !strings.Contains(stdout, "note: idle times unknown: no hibernate policy runner has saved them (policy-seen.json missing)") ||
+		!strings.Contains(stdout, "agentbus install") {
+		t.Fatalf("output = %q, want a note naming the missing runner", stdout)
+	}
+	got := decodeMem(t, mustOut(t, []string{"mem", "--json"}, env))
+	if len(got.Notes) != 1 || !strings.Contains(got.Notes[0], "policy-seen.json missing") {
+		t.Fatalf("notes = %q, want the missing runner", got.Notes)
+	}
+}
+
+func TestMemHubStalePolicyRunnerSaysWhen(t *testing.T) {
+	ssh, env := setupMemHub(t)
+	ssh.Reachable()
+	savePolicySeen(t, env)
+	saved := time.Now().Add(-10 * time.Minute).Truncate(time.Second)
+	if err := os.Chtimes(policySeenPath(t, env), saved, saved); err != nil {
+		t.Fatal(err)
+	}
+	stdout := mustOut(t, []string{"mem"}, env)
+	when := saved.Format(time.DateTime)
+	if !strings.Contains(stdout, "note: idle times are from "+when) || !strings.Contains(stdout, "runner looks stopped") {
+		t.Fatalf("output = %q, want a stale note from %s", stdout, when)
+	}
+	// The saved status and seq still match, so w1:p1 keeps its time.
+	if row := memRow(t, stdout, "w1:p1"); !strings.Contains(row, " 3h0m ") {
+		t.Fatalf("w1:p1 = %q, want the runner's 3h0m", row)
+	}
+	got := decodeMem(t, mustOut(t, []string{"mem", "--json"}, env))
+	if len(got.Notes) != 1 || !strings.Contains(got.Notes[0], when) {
+		t.Fatalf("notes = %q, want the stale note", got.Notes)
+	}
+}
+
+func TestMemHubStaleByThePolicyInterval(t *testing.T) {
+	ssh, env := setupMemHub(t)
+	ssh.Reachable()
+	writeFile(t, filepath.Join(envGet(env, "HOME"), ".config", "agentbus", "config.toml"),
+		[]byte("hub = \"me@hub\"\nmachine = \"mac\"\nhibernate_policy = \"dry-run\"\nhibernate_interval = \"5m\"\n"))
+	savePolicySeen(t, env)
+	saved := time.Now().Add(-10 * time.Minute)
+	if err := os.Chtimes(policySeenPath(t, env), saved, saved); err != nil {
+		t.Fatal(err)
+	}
+	got := decodeMem(t, mustOut(t, []string{"mem", "--json"}, env))
+	if len(got.Notes) != 0 {
+		t.Fatalf("notes = %q, want none: a 5m runner saves every 5m", got.Notes)
 	}
 }
 
@@ -570,6 +644,7 @@ func TestMemHubOverTheTunnel(t *testing.T) {
 		return daemon.Response{Error: "unexpected op " + req.Op}, nil
 	}
 	env = append(env, "HERDR_PANE_ID=w1:p2")
+	savePolicySeen(t, env)
 	got := decodeMem(t, mustOut(t, []string{"mem", "--json"}, env))
 	if len(got.Agents) != 2 || len(got.Notes) != 0 {
 		t.Fatalf("mem = %+v", got)
@@ -581,8 +656,8 @@ func TestMemHubOverTheTunnel(t *testing.T) {
 	if second.Leases == nil || len(*second.Leases) != 1 || (*second.Leases)[0].Checkout != "mac:/src/repo" {
 		t.Fatalf("leases = %+v", second.Leases)
 	}
-	if first.IdleSince != "unknown" {
-		t.Fatalf("w1:p1 = %+v, want unknown: the hub does not track this machine", first)
+	if first.IdleSince == "unknown" || first.IdleSecs == nil || *first.IdleSecs != 10800 {
+		t.Fatalf("w1:p1 = %+v, want the runner's 3h, not the hub's 1h: the hub does not track this machine", first)
 	}
 	for _, socket := range sockets {
 		if socket != dirs.TunnelSocketPath {
