@@ -36,6 +36,7 @@ go_test(
         "evidence_test.go",
         "main_test.go",
         "queue_test.go",
+        "rca_test.go",
     ],
     data = glob(["testdata/**"]),
     embed = [":go_default_library"],

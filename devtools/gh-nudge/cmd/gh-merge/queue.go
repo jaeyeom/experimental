@@ -66,6 +66,8 @@ type watchResult struct {
 	Result       string `json:"result"`
 	Config       string `json:"config"`
 	SettingsFrom string `json:"settingsFrom"`
+	// RCAContext lists the RCA markers other tools wrote for the removal.
+	RCAContext []rcaContext `json:"rcaContext,omitempty"`
 }
 
 type enqueueKind int
@@ -691,21 +693,23 @@ func printRemovalEvidence(client removalAPI, cfg *config.Config, pr github.Queue
 	if !ok || event.Kind != github.QueueEventRemoved {
 		return nil
 	}
-	return printEventEvidence(client, cfg, pr, event, func() (github.FailureEvidence, error) {
+	_, err := printEventEvidence(client, evidenceOut{cfg: cfg, w: os.Stdout}, pr, event, func() (github.FailureEvidence, error) {
 		return client.FailureEvidence(pr.Ref.Owner, pr.Ref.Repo, event.CommitSHA)
 	})
+	return err
 }
 
 // printEventEvidence prints the evidence for one removal event, and for a
 // merge conflict the pull request that landed first.
-func printEventEvidence(client landedFirstAPI, cfg *config.Config, pr github.QueuePullRequest, event github.QueueEvent, fetch func() (github.FailureEvidence, error)) error {
-	if _, err := (evidenceOut{cfg: cfg, w: os.Stdout}).event(pr, event, fetch); err != nil {
-		return err
+func printEventEvidence(client landedFirstAPI, out evidenceOut, pr github.QueuePullRequest, event github.QueueEvent, fetch func() (github.FailureEvidence, error)) (eventEvidence, error) {
+	found, err := out.event(pr, event, fetch)
+	if err != nil {
+		return eventEvidence{}, err
 	}
 	if event.CommitSHA == "" || event.Reason != "merge_conflict" {
-		return nil
+		return found, nil
 	}
-	return printLandedFirst(client, pr, event.CommitSHA)
+	return found, printLandedFirst(client, pr, event.CommitSHA)
 }
 
 // eventEvidence is what evidenceOut.event found for one removal event.
@@ -1378,7 +1382,7 @@ func watchPullRequests(client watchAPI, refs []string, opt watchOptions) error {
 	results := make([]watchResult, 0, len(refs))
 	var exitCode int
 	for _, ref := range refs {
-		result, err := watchOne(client, ref, opt)
+		result, others, err := watchOne(client, ref, opt)
 		if err != nil {
 			return err
 		}
@@ -1388,6 +1392,7 @@ func watchPullRequests(client watchAPI, refs []string, opt watchOptions) error {
 			Result:       result,
 			Config:       path,
 			SettingsFrom: from,
+			RCAContext:   others,
 		})
 		if exitCode == 0 {
 			exitCode = watchExitCode(result)
@@ -1402,34 +1407,44 @@ func watchPullRequests(client watchAPI, refs []string, opt watchOptions) error {
 	return nil
 }
 
-func watchOne(client watchAPI, ref string, opt watchOptions) (string, error) {
+// watchOne returns the watch result for ref and, for a removal, the RCA
+// markers other tools wrote for it.
+func watchOne(client watchAPI, ref string, opt watchOptions) (string, []rcaContext, error) {
 	deadline := opt.now().Add(opt.timeout)
 	for {
 		pr, err := client.LoadPullRequest(ref)
 		if err != nil {
 			if wait, ok := watchTransientWait(err, opt.interval); ok {
 				if !opt.now().Before(deadline) {
-					return "timeout", nil
+					return "timeout", nil, nil
 				}
 				opt.sleep(wait)
 				continue
 			}
-			return "", fmt.Errorf("watch %s: %w", ref, err)
+			return "", nil, fmt.Errorf("watch %s: %w", ref, err)
 		}
 		// isInMergeQueue false is not enough: it flickers during a merge.
 		if pr.Merged {
-			return "merged", nil
+			return "merged", nil, nil
 		}
 		if event, ok := latestQueueEvent(pr.Events); ok && event.Kind == github.QueueEventRemoved {
 			if !opt.asJSON && opt.cfg != nil {
 				if err := printRemovalEvidence(client, opt.cfg, pr); err != nil {
-					return "", err
+					return "", nil, err
 				}
 			}
-			return event.Reason, nil
+			if opt.cfg == nil {
+				return event.Reason, nil, nil
+			}
+			marker := opt.cfg.ForRepository(pr.Ref.Owner, pr.Ref.Repo).Settings.RCAMarker
+			others, err := otherRCAs(marker, event.ID, pr.Comments)
+			if err != nil {
+				return "", nil, err
+			}
+			return event.Reason, others, nil
 		}
 		if !opt.now().Before(deadline) {
-			return "timeout", nil
+			return "timeout", nil, nil
 		}
 		opt.sleep(opt.interval)
 	}

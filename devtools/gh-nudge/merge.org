@@ -109,6 +109,42 @@ ejection. ~--json~ prints one object: ~event_id~, ~reason~, ~commit~, the
 the other jobs of the workflow as ~siblings~, ~infra~, and ~flake_hints~.
 Log text has ANSI escapes removed in both text and JSON output.
 
+*** RCA marker format
+
+~gh-merge rca~ ends its comment with the ~rca_marker~ template, for example
+~<!-- gh-merge-rca {event_id} class={class} -->~. After the last placeholder
+the marker may carry optional ~ key=value~ tokens, before the rest of the
+template:
+
+#+begin_example
+<!-- gh-merge-rca <event_id> class=<class> [tool=<name>] [commit=<sha>] [job=<job>] [test=<test>] [supersedes=<comment id>] -->
+#+end_example
+
+- ~class~ is ~our-code~, ~flake~, or ~infra~.
+- ~tool~ names the tool that wrote the marker. A marker without ~tool=~ was
+  written by gh-merge. ~gh-merge rca~ never writes it.
+- ~commit~, ~job~, and ~test~ are the merge-group commit, the failed job, and
+  the first failing test. ~gh-merge rca~ adds each one the evidence has.
+- ~supersedes~ marks a correction of an earlier RCA comment.
+
+A key is a letter followed by letters, digits, ~_~, or ~-~. A value has no
+spaces and no ~-->~; ~gh-merge rca~ turns whitespace into ~_~ and ~-->~ into
+~--~. Unknown keys are ignored. A malformed token, such as a bare word or an
+empty value, makes the line not a marker. When the template ends with a
+placeholder, the marker must end its line. Markers without keys match as
+before.
+
+The requeue gate reads only gh-merge markers. For one removal, a marker with
+~supersedes=~ replaces every earlier marker for it. Otherwise ~our-code~ wins
+over ~flake~ and ~infra~, and the last class is used. A marker with
+~tool=<other>~ never satisfies the gate and is never counted as a requeue.
+~evidence~ prints it as ~RCA from <tool>: <class> (context, not counted)~,
+~evidence --json~ lists it under ~rca_context~, and ~watch --json~ lists it
+under ~rcaContext~.
+
+Another tool can write a marker for gh-merge readers with at least the event
+id, ~class=~, and ~tool=~.
+
 ** Configuration and Setup
 
 Please see [[file:README.org][README.org]] file for the full configuration.

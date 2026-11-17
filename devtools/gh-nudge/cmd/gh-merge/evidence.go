@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -54,6 +55,7 @@ type evidenceJSON struct {
 	Siblings     []evidenceJob    `json:"siblings"`
 	Infra        bool             `json:"infra"`
 	FlakeHints   []flakeHint      `json:"flake_hints"`
+	RCAContext   []rcaContext     `json:"rca_context"`
 }
 
 //nolint:tagliatelle // evidence JSON keys are snake_case by design
@@ -138,8 +140,16 @@ func evidenceCommand(client evidenceAPI, cfg *config.Config, args []string) erro
 	fetch := func() (github.FailureEvidence, error) {
 		return client.EjectionEvidence(pr.Ref.Owner, pr.Ref.Repo, event.CommitSHA, event.CreatedAt)
 	}
+	others, err := otherRCAs(cfg.Settings.RCAMarker, event.ID, pr.Comments)
+	if err != nil {
+		return err
+	}
 	if !parsed.asJSON {
-		return printEventEvidence(client, cfg, pr, event, fetch)
+		if _, err := printEventEvidence(client, evidenceOut{cfg: cfg, w: os.Stdout}, pr, event, fetch); err != nil {
+			return err
+		}
+		printOtherRCAs(os.Stdout, others)
+		return nil
 	}
 	found, err := evidenceOut{cfg: cfg, w: io.Discard, details: true}.event(pr, event, fetch)
 	if err != nil {
@@ -149,6 +159,7 @@ func evidenceCommand(client evidenceAPI, cfg *config.Config, args []string) erro
 	if err != nil {
 		return err
 	}
+	result.RCAContext = others
 	encoded, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode evidence: %w", err)
