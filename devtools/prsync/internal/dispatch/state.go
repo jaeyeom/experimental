@@ -51,6 +51,7 @@ type Entry struct {
 	DispatchedHeadSHA          string   `json:"dispatched_head_sha,omitempty"`            //nolint:tagliatelle // brief outbound contract
 	DispatchedCIFixSHA         string   `json:"dispatched_ci_fix_sha,omitempty"`          //nolint:tagliatelle // brief outbound contract
 	DispatchedMergeQueueFixSHA string   `json:"dispatched_merge_queue_fix_sha,omitempty"` //nolint:tagliatelle // brief outbound contract
+	DispatchedMergeSHA         string   `json:"dispatched_merge_sha,omitempty"`           //nolint:tagliatelle // brief outbound contract
 	PostedHeadSHA              string   `json:"posted_head_sha,omitempty"`                //nolint:tagliatelle // brief outbound contract
 	PostedBody                 string   `json:"posted_body,omitempty"`                    //nolint:tagliatelle // brief outbound contract
 	DispatchedAt               string   `json:"dispatched_at"`                            //nolint:tagliatelle // brief outbound contract
@@ -245,6 +246,7 @@ func (s State) Record(key string, commentIDs []string, at time.Time) {
 		DispatchedHeadSHA:          prev.DispatchedHeadSHA,
 		DispatchedCIFixSHA:         prev.DispatchedCIFixSHA,
 		DispatchedMergeQueueFixSHA: prev.DispatchedMergeQueueFixSHA,
+		DispatchedMergeSHA:         prev.DispatchedMergeSHA,
 		PostedHeadSHA:              prev.PostedHeadSHA,
 		PostedBody:                 prev.PostedBody,
 		DispatchedAt:               at.UTC().Format(time.RFC3339),
@@ -283,6 +285,7 @@ func (s State) RecordHead(key, sha string, at time.Time) {
 		DispatchedHeadSHA:          sha,
 		DispatchedCIFixSHA:         prev.DispatchedCIFixSHA,
 		DispatchedMergeQueueFixSHA: prev.DispatchedMergeQueueFixSHA,
+		DispatchedMergeSHA:         prev.DispatchedMergeSHA,
 		PostedHeadSHA:              prev.PostedHeadSHA,
 		PostedBody:                 prev.PostedBody,
 		DispatchedAt:               at.UTC().Format(time.RFC3339),
@@ -309,6 +312,7 @@ func (s State) RecordCIFix(key, sha string, at time.Time) {
 		DispatchedHeadSHA:          prev.DispatchedHeadSHA,
 		DispatchedCIFixSHA:         sha,
 		DispatchedMergeQueueFixSHA: prev.DispatchedMergeQueueFixSHA,
+		DispatchedMergeSHA:         prev.DispatchedMergeSHA,
 		PostedHeadSHA:              prev.PostedHeadSHA,
 		PostedBody:                 prev.PostedBody,
 		DispatchedAt:               at.UTC().Format(time.RFC3339),
@@ -335,11 +339,31 @@ func (s State) RecordMergeQueueFix(key, sha string, at time.Time) {
 		DispatchedHeadSHA:          prev.DispatchedHeadSHA,
 		DispatchedCIFixSHA:         prev.DispatchedCIFixSHA,
 		DispatchedMergeQueueFixSHA: sha,
+		DispatchedMergeSHA:         prev.DispatchedMergeSHA,
 		PostedHeadSHA:              prev.PostedHeadSHA,
 		PostedBody:                 prev.PostedBody,
 		DispatchedAt:               at.UTC().Format(time.RFC3339),
 		DedupeScanCount:            prev.DedupeScanCount,
 	}
+}
+
+// DedupedMerge reports whether the current head SHA matches the last merge
+// catch-up send. An empty SHA is never treated as a match.
+func (s State) DedupedMerge(key, sha string) bool {
+	if s == nil || sha == "" {
+		return false
+	}
+	entry, ok := s[key]
+	return ok && entry.DispatchedMergeSHA == sha
+}
+
+// RecordMerge stores the head SHA for merge catch-up dedupe. Every other
+// field is preserved.
+func (s State) RecordMerge(key, sha string, at time.Time) {
+	entry := s[key]
+	entry.DispatchedMergeSHA = sha
+	entry.DispatchedAt = at.UTC().Format(time.RFC3339)
+	s[key] = entry
 }
 
 // DedupedPosted reports whether the last posted comment matches sha and body.
@@ -361,6 +385,7 @@ func (s State) RecordPosted(key, sha, body string, at time.Time) {
 		DispatchedHeadSHA:          prev.DispatchedHeadSHA,
 		DispatchedCIFixSHA:         prev.DispatchedCIFixSHA,
 		DispatchedMergeQueueFixSHA: prev.DispatchedMergeQueueFixSHA,
+		DispatchedMergeSHA:         prev.DispatchedMergeSHA,
 		PostedHeadSHA:              sha,
 		PostedBody:                 body,
 		DispatchedAt:               at.UTC().Format(time.RFC3339),

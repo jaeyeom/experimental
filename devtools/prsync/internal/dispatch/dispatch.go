@@ -40,9 +40,11 @@ type Request struct {
 	PRs        []string
 	RunnerPane string
 	Rebase     bool
-	CIFix      bool
-	Hint       string
-	Force      bool
+	// Merge sends the merge catch-up prompt (--merge).
+	Merge bool
+	CIFix bool
+	Hint  string
+	Force bool
 	// Remote returns the herdr client for a tab on another machine. The
 	// prompt, wait, and settle polls for such a tab run there. Nil cannot
 	// send to a remote tab.
@@ -115,11 +117,30 @@ func Candidates(doc scan.Document, prs []string) ([]Candidate, error) {
 	return out, nil
 }
 
+// promptKind is the prompt a candidate gets: --ci-fix, --rebase, and
+// --merge first, then a scan merge-queue-fix action, then comments.
+func promptKind(pr scan.PR, req Request) string {
+	switch {
+	case req.CIFix:
+		return KindCIFix
+	case req.Rebase:
+		return KindRebase
+	case req.Merge:
+		return KindMerge
+	}
+	if _, ok := mergeQueueAction(pr); ok {
+		return KindMergeQueueFix
+	}
+	return KindComment
+}
+
 // Evaluate returns the skip action for a candidate, or a zero Action if eligible.
-// Rebase, CI-fix, and a scan merge-queue-fix action skip the unaddressed-comment
-// gate. --rebase and --ci-fix keep their own prompts when that action is also
-// present. A rebase is deduped only when dispatched_head_sha equals the current
-// head and the PR is not behind, dirty, unknown, or mergeable CONFLICTING. A
+// Rebase, merge, CI-fix, and a scan merge-queue-fix action skip the
+// unaddressed-comment gate. --rebase, --merge, and --ci-fix keep their own
+// prompts when that action is also present. A rebase is deduped only when
+// dispatched_head_sha equals the current head and the PR is not behind,
+// dirty, unknown, or mergeable CONFLICTING; a merge follows the same rule
+// with dispatched_merge_sha. A
 // CI-fix is deduped only when dispatched_ci_fix_sha equals the current head and
 // CI is not failing. A merge-queue-fix is deduped when
 // dispatched_merge_queue_fix_sha equals the current head, and is not prompted
@@ -128,30 +149,38 @@ func Candidates(doc scan.Document, prs []string) ([]Candidate, error) {
 // recorded SHA. Comment dedupe holds while the same unaddressed ids are
 // inside dedupe_ttl and, when dedupe_scans is non-zero, under that many
 // later evaluations. That hold is dispatched_unresolved, does not send, and
-// sets Detail to the recorded time. force skips comment, rebase, CI-fix, and
+// sets Detail to the recorded time. force skips comment, rebase, merge, CI-fix, and
 // merge-queue-fix dedupe. A PR out of the run's tab_machine scope is
 // skipped_out_of_scope before any other check.
-func Evaluate(c Candidate, cfg config.Config, st State, rebase, ciFix, force bool, now time.Time) Item {
+func Evaluate(c Candidate, cfg config.Config, st State, req Request, now time.Time) Item {
 	var item Item
 	if c.PR != nil && c.PR.OutOfScope != "" {
 		item = Item{Action: ActionSkippedOutOfScope, Detail: c.PR.OutOfScope}
 	} else {
-		item = skipReason(c, cfg, st, rebase, ciFix, force, now)
+		item = skipReason(c, cfg, st, req, now)
 	}
 	item.Repo = c.Repo
 	item.Number = c.Number
+	item.Kind = candidateKind(c, req)
 	return item
 }
 
-func skipReason(c Candidate, cfg config.Config, st State, rebase, ciFix, force bool, now time.Time) Item {
+func candidateKind(c Candidate, req Request) string {
+	if c.PR == nil {
+		return promptKind(scan.PR{}, req)
+	}
+	return promptKind(*c.PR, req)
+}
+
+func skipReason(c Candidate, cfg config.Config, st State, req Request, now time.Time) Item {
 	if c.PR == nil {
 		return Item{Action: ActionSkippedNotFound}
 	}
 	pr := *c.PR
 	key := prKey(c.Repo, c.Number)
-	queueFix := mergeQueueFixMode(pr, rebase, ciFix)
+	kind := promptKind(pr, req)
 	switch {
-	case !rebase && !ciFix && !queueFix && !pr.Unaddressed:
+	case kind == KindComment && !pr.Unaddressed:
 		return Item{Action: ActionSkippedAddressed}
 	case pr.IsDraft && !cfg.IncludeDrafts:
 		return Item{Action: ActionSkippedDraft}
@@ -164,7 +193,7 @@ func skipReason(c Candidate, cfg config.Config, st State, rebase, ciFix, force b
 	case !readyStatus(pr.Tab.AgentStatus):
 		return Item{Action: ActionSkippedBusy}
 	default:
-		if action, detail := dedupeAction(st, key, pr, rebase, ciFix, force, now, cfg); action != "" {
+		if action, detail := dedupeAction(st, key, pr, kind, req.Force, now, cfg); action != "" {
 			return Item{Action: action, Detail: detail}
 		}
 		return Item{}
@@ -211,18 +240,19 @@ func MarkUnresolved(doc *scan.Document, st State, cfg config.Config, now time.Ti
 	}
 }
 
-func dedupeDetail(st State, key string, pr scan.PR, rebase, ciFix bool) string {
+func dedupeDetail(st State, key string, pr scan.PR, kind string) string {
 	if st == nil {
 		return ""
 	}
 	entry := st[key]
-	switch {
-	case rebase:
+	switch kind {
+	case KindRebase:
 		return fmt.Sprintf("recorded at %s, merge_state=%s", entry.DispatchedHeadSHA, pr.MergeStateStatus)
-	case ciFix:
+	case KindMerge:
+		return fmt.Sprintf("recorded at %s, merge_state=%s", entry.DispatchedMergeSHA, pr.MergeStateStatus)
+	case KindCIFix:
 		return fmt.Sprintf("recorded at %s, ci_state=%s", entry.DispatchedCIFixSHA, pr.CIState)
-	}
-	if mergeQueueFixMode(pr, rebase, ciFix) {
+	case KindMergeQueueFix:
 		return fmt.Sprintf("recorded at %s", entry.DispatchedMergeQueueFixSHA)
 	}
 	return ""
@@ -238,55 +268,40 @@ func mergeQueueAction(pr scan.PR) (scan.Action, bool) {
 	return scan.Action{}, false
 }
 
-// mergeQueueFixMode reports whether this candidate is dispatched as a
-// merge-queue-fix. Explicit rebase and CI-fix modes keep their own prompts.
-func mergeQueueFixMode(pr scan.PR, rebase, ciFix bool) bool {
-	if rebase || ciFix {
-		return false
-	}
-	_, ok := mergeQueueAction(pr)
-	return ok
-}
-
-func dedupeAction(st State, key string, pr scan.PR, rebase, ciFix, force bool, now time.Time, cfg config.Config) (string, string) {
+func dedupeAction(st State, key string, pr scan.PR, kind string, force bool, now time.Time, cfg config.Config) (string, string) {
 	if force {
 		return "", ""
 	}
-	switch {
-	case rebase:
-		if rebaseDeduped(st, key, pr) {
-			return ActionSkippedDeduped, dedupeDetail(st, key, pr, rebase, ciFix)
-		}
-		return "", ""
-	case ciFix:
-		if ciFixDeduped(st, key, pr) {
-			return ActionSkippedDeduped, dedupeDetail(st, key, pr, rebase, ciFix)
-		}
-		return "", ""
+	var deduped bool
+	switch kind {
+	case KindRebase:
+		deduped = !rebaseIncomplete(pr) && st.DedupedHead(key, pr.HeadSHA)
+	case KindMerge:
+		deduped = !rebaseIncomplete(pr) && st.DedupedMerge(key, pr.HeadSHA)
+	case KindCIFix:
+		deduped = ciFixDeduped(st, key, pr)
+	case KindMergeQueueFix:
+		deduped = st.DedupedMergeQueueFix(key, pr.HeadSHA)
+	default:
+		return commentDedupe(st, key, pr, now, cfg)
 	}
-	if mergeQueueFixMode(pr, rebase, ciFix) {
-		if st.DedupedMergeQueueFix(key, pr.HeadSHA) {
-			return ActionSkippedDeduped, dedupeDetail(st, key, pr, rebase, ciFix)
-		}
-		return "", ""
+	if deduped {
+		return ActionSkippedDeduped, dedupeDetail(st, key, pr, kind)
 	}
+	return "", ""
+}
+
+func commentDedupe(st State, key string, pr scan.PR, now time.Time, cfg config.Config) (string, string) {
 	if open, at := commentWindowOpen(st, key, commentIDs(pr), now, cfg.DedupeTTL, cfg.DedupeScans); open {
 		return ActionDispatchedUnresolved, fmt.Sprintf("recorded at %s", at)
 	}
 	return "", ""
 }
 
-// rebaseDeduped reports whether a prior rebase dispatch on this head is
-// already satisfied. BEHIND, DIRTY, UNKNOWN, and mergeable CONFLICTING always
-// retry. Any other merge state, including empty, is satisfied only when
-// dispatched_head_sha equals the current head.
-func rebaseDeduped(st State, key string, pr scan.PR) bool {
-	if rebaseIncomplete(pr) {
-		return false
-	}
-	return st.DedupedHead(key, pr.HeadSHA)
-}
-
+// rebaseIncomplete reports whether a rebase or merge catch-up on this head
+// still needs to run. BEHIND, DIRTY, UNKNOWN, and mergeable CONFLICTING
+// always retry. Any other merge state, including empty, is satisfied only
+// when the recorded SHA equals the current head.
 func rebaseIncomplete(pr scan.PR) bool {
 	switch pr.MergeStateStatus {
 	case "BEHIND", "DIRTY", "UNKNOWN":
@@ -334,9 +349,27 @@ func Run(ctx context.Context, h Herdr, store StateStore, cfg config.Config, req 
 		return doc, err
 	}
 	if cfg.DryRun {
-		return runDry(ctx, h, store, cfg, req, cands, doc, now)
+		doc, err = runDry(ctx, h, store, cfg, req, cands, doc, now)
+	} else {
+		doc, err = runLive(ctx, h, store, cfg, req, now, cands, doc)
 	}
-	return runLive(ctx, h, store, cfg, req, now, cands, doc)
+	labelKinds(&doc, cands, req)
+	return doc, err
+}
+
+// labelKinds sets Kind on results built outside Evaluate, such as queued,
+// gate_timeout, and sent results.
+func labelKinds(doc *Document, cands []Candidate, req Request) {
+	kinds := make(map[string]string, len(cands))
+	for _, c := range cands {
+		kinds[prKey(c.Repo, c.Number)] = candidateKind(c, req)
+	}
+	for i := range doc.Results {
+		item := &doc.Results[i]
+		if item.Kind == "" {
+			item.Kind = kinds[prKey(item.Repo, item.Number)]
+		}
+	}
 }
 
 func runDry(ctx context.Context, h Herdr, store StateStore, cfg config.Config, req Request, cands []Candidate, doc Document, now time.Time) (Document, error) {
@@ -409,7 +442,7 @@ func dispatchCandidate(ctx context.Context, h Herdr, store StateStore, cfg confi
 		doc.Results = append(doc.Results, failItem(c, err))
 		return doc, liveStep{done: true, err: fmt.Errorf("dispatch: %w", err)}
 	}
-	item := Evaluate(c, cfg, st, req.Rebase, req.CIFix, req.Force, now)
+	item := Evaluate(c, cfg, st, req, now)
 	c, item, openedTab := openIfUntabbed(ctx, cfg, st, req, now, c, item, budget)
 	if item.Action != "" {
 		logResult(ctx, item)
@@ -503,12 +536,14 @@ func recordsDispatch(action string) bool {
 
 func recordDispatch(st State, c Candidate, req Request, now time.Time) {
 	key := prKey(c.Repo, c.Number)
-	switch {
-	case req.CIFix:
+	switch promptKind(*c.PR, req) {
+	case KindCIFix:
 		st.RecordCIFix(key, c.PR.HeadSHA, now)
-	case req.Rebase:
+	case KindRebase:
 		st.RecordHead(key, c.PR.HeadSHA, now)
-	case mergeQueueFixMode(*c.PR, req.Rebase, req.CIFix):
+	case KindMerge:
+		st.RecordMerge(key, c.PR.HeadSHA, now)
+	case KindMergeQueueFix:
 		st.RecordMergeQueueFix(key, c.PR.HeadSHA, now)
 	default:
 		st.Record(key, commentIDs(*c.PR), now)
@@ -807,7 +842,7 @@ func saveState(store StateStore, st State) error {
 }
 
 func evaluateDry(c Candidate, cfg config.Config, st State, req Request, now time.Time, budget *tabBudget) Item {
-	r := Evaluate(c, cfg, st, req.Rebase, req.CIFix, req.Force, now)
+	r := Evaluate(c, cfg, st, req, now)
 	if r.Action == ActionSkippedNoTab {
 		return wouldOpenTab(c, cfg, st, req, now, r, budget)
 	}
@@ -833,13 +868,14 @@ func renderPrompt(cfg config.Config, req Request, pr scan.PR) string {
 }
 
 func renderPromptBody(cfg config.Config, req Request, pr scan.PR) string {
-	switch {
-	case req.CIFix:
+	switch promptKind(pr, req) {
+	case KindCIFix:
 		return RenderHint(cfg.CIFixPromptTemplate, pr, cfg, req.Hint)
-	case req.Rebase:
+	case KindRebase:
 		return RenderHint(cfg.RebasePromptTemplate, pr, cfg, req.Hint)
-	}
-	if mergeQueueFixMode(pr, req.Rebase, req.CIFix) {
+	case KindMerge:
+		return RenderHint(cfg.MergePromptTemplate, pr, cfg, req.Hint)
+	case KindMergeQueueFix:
 		return renderMergeQueueFix(pr, cfg)
 	}
 	return RenderHint(cfg.PromptTemplate, pr, cfg, req.Hint)

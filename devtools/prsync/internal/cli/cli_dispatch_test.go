@@ -453,6 +453,95 @@ func TestDispatchCIFixAndRebase(t *testing.T) {
 	}
 }
 
+func TestDispatchMergeExclusiveFlags(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		args []string
+		want string
+	}{
+		{args: []string{"dispatch", "--merge", "--rebase"}, want: "cannot combine --merge and --rebase"},
+		{args: []string{"dispatch", "--merge", "--ci-fix"}, want: "cannot combine --ci-fix and --merge"},
+	} {
+		var stdout, stderr bytes.Buffer
+		code := Execute(context.Background(), tt.args, &stdout, &stderr, executor.NewBasicExecutor())
+		if code != ExitUsage {
+			t.Fatalf("%v: exit = %d, want %d, stderr=%q", tt.args, code, ExitUsage, stderr.String())
+		}
+		if !strings.Contains(stderr.String(), tt.want) {
+			t.Fatalf("%v: stderr = %q, want %q", tt.args, stderr.String(), tt.want)
+		}
+	}
+}
+
+func TestDispatchMergeAddressedWouldDispatchWithSuffix(t *testing.T) {
+	_, herdrBin := fixtureBins(t)
+	cfgPath := writeScanConfig(t, strings.Join([]string{
+		"herdr_bin=" + herdrBin,
+		"author=alice",
+		"state_file=" + filepath.Join(t.TempDir(), "state.json"),
+	}, "\n")+"\n")
+	doc := stdinEligibleDoc()
+	doc.PRs[0].Unaddressed = false
+	doc.PRs[0].BlockingComments = nil
+	doc.PRs[0].Head = "fix-widget"
+	doc.PRs[0].Base = "main"
+	restore := swapStdin(t, string(mustScanJSON(t, doc)))
+	defer restore()
+
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"dispatch", "--stdin", "--merge", "--prompt-suffix", "Merge, do not force-push.", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitOK {
+		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	got := decodeDispatch(t, stdout.Bytes())
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionWouldDispatch || got.Results[0].Kind != dispatch.KindMerge {
+		t.Fatalf("results = %+v, want would_dispatch merge", got.Results)
+	}
+	prompt := got.Results[0].RenderedPrompt
+	if !strings.Contains(prompt, "Merge origin/main into fix-widget") || !strings.HasSuffix(prompt, "\n\nMerge, do not force-push.") {
+		t.Fatalf("rendered_prompt = %q", prompt)
+	}
+}
+
+func TestDispatchRebaseRefusesContradictingSuffix(t *testing.T) {
+	_, herdrBin := fixtureBins(t)
+	for _, tt := range []struct {
+		name   string
+		cfg    string
+		args   []string
+		phrase string
+	}{
+		{name: "flag merge", args: []string{"--prompt-suffix", "Merge the base branch and push normally."}, phrase: "merge"},
+		{name: "flag force", args: []string{"--force", "--prompt-suffix", "Do not force-push."}, phrase: "do not force-push"},
+		{name: "config", cfg: "dispatch_prompt_suffix=\"No force pushing\"", phrase: "no force"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			lines := []string{
+				"herdr_bin=" + herdrBin,
+				"author=alice",
+				"state_file=" + filepath.Join(t.TempDir(), "state.json"),
+			}
+			if tt.cfg != "" {
+				lines = append(lines, tt.cfg)
+			}
+			cfgPath := writeScanConfig(t, strings.Join(lines, "\n")+"\n")
+			args := append([]string{"dispatch", "--rebase", "--pr", "acme/widgets#123", "--config", cfgPath}, tt.args...)
+			var stdout, stderr bytes.Buffer
+			code := Execute(context.Background(), args, &stdout, &stderr, executor.NewBasicExecutor())
+			if code != ExitUsage {
+				t.Fatalf("exit = %d, want %d, stderr=%q", code, ExitUsage, stderr.String())
+			}
+			msg := stderr.String()
+			if !strings.Contains(msg, "--merge") || !strings.Contains(msg, `dispatch_catchup = "merge"`) || !strings.Contains(msg, strconvQuote(tt.phrase)) {
+				t.Fatalf("stderr = %q", msg)
+			}
+		})
+	}
+}
+
+func strconvQuote(s string) string { return `"` + s + `"` }
+
 func TestDispatchHintRequiresCIFix(t *testing.T) {
 	t.Parallel()
 

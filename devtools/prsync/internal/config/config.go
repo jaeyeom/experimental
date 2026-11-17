@@ -72,6 +72,16 @@ const defaultRebasePromptTemplate = `Rebase PR #{number} ({url}) onto origin/{ba
 
 Do not touch other PRs.`
 
+const defaultMergePromptTemplate = `Bring PR #{number} ({url}) up to date with origin/{base} in this working directory. State: {state}. Do not create a new worktree.
+
+1. Check out {head}.
+2. Fetch origin.
+3. Merge origin/{base} into {head}. Do not rebase.
+4. Resolve any conflicts and commit the merge.
+5. Push normally. Do not force-push.
+
+Do not touch other PRs.`
+
 const defaultCIFixPromptTemplate = branchSwitchPreamble + `
 
 Fix the failing CI on PR #{number} ({url}). State: {state}. Stay scoped to this PR.
@@ -160,7 +170,13 @@ type Config struct {
 	GateTimeout          time.Duration
 	PromptTemplate       string
 	RebasePromptTemplate string
-	CIFixPromptTemplate  string
+	// MergePromptTemplate is the --merge catch-up prompt.
+	MergePromptTemplate string
+	CIFixPromptTemplate string
+	// DispatchCatchup is rebase or merge: how a catch-up a scan action
+	// asks for (the merge-queue-fix conflict sentence) brings a branch up
+	// to date. --rebase and --merge choose explicitly.
+	DispatchCatchup string
 	// PromptSuffix is appended after a blank line to every rendered dispatch
 	// prompt. Empty leaves prompts unchanged. It is not part of dedupe.
 	PromptSuffix string
@@ -322,6 +338,8 @@ func Defaults() Config {
 		GateTimeout:               1800000 * time.Millisecond,
 		PromptTemplate:            defaultPromptTemplate,
 		RebasePromptTemplate:      defaultRebasePromptTemplate,
+		MergePromptTemplate:       defaultMergePromptTemplate,
+		DispatchCatchup:           "rebase",
 		CIFixPromptTemplate:       defaultCIFixPromptTemplate,
 		WaitUntil:                 []string{"idle", "done"},
 		DispatchTimeout:           1800000 * time.Millisecond,
@@ -449,6 +467,9 @@ func validateConcurrency(c Config) error {
 	if c.WakeBeforePrompt != "auto" && c.WakeBeforePrompt != "off" {
 		return &KeyError{Key: "wake_before_prompt", Reason: fmt.Sprintf("invalid value %q", c.WakeBeforePrompt)}
 	}
+	if c.DispatchCatchup != "rebase" && c.DispatchCatchup != "merge" {
+		return &KeyError{Key: "dispatch_catchup", Reason: fmt.Sprintf("invalid value %q", c.DispatchCatchup)}
+	}
 	return nil
 }
 
@@ -564,7 +585,7 @@ func applyKey(cfg *Config, key, val string) error {
 		return applyConcurrency(cfg, key, val)
 	case "gate_poll_ms", "gate_timeout_ms", "dispatch_timeout_ms", "machine_timeout_ms":
 		return applyMillis(cfg, key, val)
-	case "dispatch_prompt_template", "rebase_prompt_template", "ci_fix_prompt_template":
+	case "dispatch_prompt_template", "rebase_prompt_template", "merge_prompt_template", "ci_fix_prompt_template":
 		return applyPrompt(cfg, key, val)
 	case "dispatch_include_drafts":
 		return applyIncludeDrafts(cfg, val)
@@ -628,6 +649,9 @@ func applyOtherKey(cfg *Config, key, val string) error {
 		return applyOpenTabsKey(cfg, key, val)
 	case "wake_before_prompt":
 		cfg.WakeBeforePrompt = strings.TrimSpace(val)
+		return nil
+	case "dispatch_catchup":
+		cfg.DispatchCatchup = strings.TrimSpace(val)
 		return nil
 	case "comment_link_max_chars", "comment_body_max_chars", "comment_strip_patterns":
 		return applyCommentKey(cfg, key, val)
@@ -982,6 +1006,8 @@ func applyPrompt(cfg *Config, key, val string) error {
 	switch key {
 	case "rebase_prompt_template":
 		cfg.RebasePromptTemplate = text
+	case "merge_prompt_template":
+		cfg.MergePromptTemplate = text
 	case "ci_fix_prompt_template":
 		cfg.CIFixPromptTemplate = text
 	default:

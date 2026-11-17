@@ -42,6 +42,15 @@ const (
 	ActionSkippedOpenTabCap = "skipped_open_tab_cap"
 )
 
+// Kind values in a dispatch result: which prompt the PR gets.
+const (
+	KindComment       = "comment"
+	KindRebase        = "rebase"
+	KindMerge         = "merge"
+	KindCIFix         = "ci-fix"
+	KindMergeQueueFix = "merge-queue-fix"
+)
+
 // Document is the outbound dispatch JSON document.
 type Document struct {
 	GeneratedAt string `json:"generated_at"` //nolint:tagliatelle // brief outbound contract
@@ -54,6 +63,9 @@ type Item struct {
 	Repo   string `json:"repo"`
 	Number int    `json:"number"`
 	Action string `json:"action"`
+	// Kind is the prompt kind: comment, rebase, merge, ci-fix, or
+	// merge-queue-fix. Every dispatch result sets it; comment results omit it.
+	Kind   string `json:"kind,omitempty"`
 	PaneID string `json:"pane_id,omitempty"` //nolint:tagliatelle // brief outbound contract
 	// Machine is the saved herdr machine of the pane. Omitted for the
 	// local server.

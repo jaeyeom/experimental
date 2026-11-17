@@ -63,7 +63,7 @@ func planOpen(c Candidate, cfg config.Config, st State, req Request, now time.Ti
 	if !cfg.OpenMissingTabs || item.Action != ActionSkippedNoTab || !cfg.IncludeUntabbed() {
 		return openPlan{}, item, false
 	}
-	if probe := Evaluate(withTab(c, scan.Tab{AgentStatus: "idle"}), cfg, st, req.Rebase, req.CIFix, req.Force, now); probe.Action != "" {
+	if probe := Evaluate(withTab(c, scan.Tab{AgentStatus: "idle"}), cfg, st, req, now); probe.Action != "" {
 		return openPlan{}, probe, false
 	}
 	if c.PR.Identifier == nil {

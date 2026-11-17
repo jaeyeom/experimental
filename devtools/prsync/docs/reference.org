@@ -7,7 +7,7 @@ The short guide is [[file:../README.org][the prsync README]].
 #+BEGIN_EXAMPLE
 prsync scan     [--config PATH] [--repo owner/repo ...] [--json] [--in-scope] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
 prsync tabs     --orphans [--config PATH] [--json] [--stdin] [--close-merged] [--go] [--force] [--tab-machine M]
-prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--ci-fix] [--hint TEXT] [--prompt-suffix TEXT] [--force] [--stdin] [--open-tabs] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
+prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--merge] [--ci-fix] [--hint TEXT] [--prompt-suffix TEXT] [--force] [--stdin] [--open-tabs] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
 prsync comment  [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--stdin] [--allow-duplicate] --body TEXT
 prsync gate     [--config PATH] [--tab-machine M]
 prsync logs     [--path]
@@ -26,8 +26,9 @@ prsync version
 | ~--pr owner/repo#N~ | dispatch, comment | Repeatable. ~dispatch~ fetches only these PRs; ~comment~ limits candidates in the scan |
 | ~--all~ | dispatch, comment | Every PR in the scan document (default when no ~--pr~) |
 | ~--go~ | dispatch, comment, tabs | Live send / close (default is dry-run) |
-| ~--rebase~ | dispatch | Rebase-in-place prompt; skips the unaddressed-comment gate |
-| ~--ci-fix~ | dispatch | CI-fix prompt; skips the unaddressed-comment gate. Mutually exclusive with ~--rebase~ |
+| ~--rebase~ | dispatch | Rebase-in-place prompt (push with ~--force-with-lease~); skips the unaddressed-comment gate. Refused when the prompt suffix asks for a merge or no force-push (see [[*dispatch][dispatch]]) |
+| ~--merge~ | dispatch | Merge catch-up prompt: merge ~origin/{base}~ and push normally; skips the unaddressed-comment gate. Mutually exclusive with ~--rebase~ |
+| ~--ci-fix~ | dispatch | CI-fix prompt; skips the unaddressed-comment gate. Mutually exclusive with ~--rebase~ and ~--merge~ |
 | ~--hint TEXT~ | dispatch | Non-authoritative CI failure hint (requires ~--ci-fix~). The agent must verify it |
 | ~--prompt-suffix TEXT~ | dispatch | Append TEXT after a blank line to every prompt. Overrides ~dispatch_prompt_suffix~ for this run |
 | ~--force~ | dispatch, tabs | dispatch: re-dispatch even if dedupe would skip. tabs: allow ~--close-merged~ when every orphan is ~no_pr~ or ~unknown~ |
@@ -40,7 +41,9 @@ prsync version
 | ~--skip JOB~ | scan, dispatch | Repeatable. Skip a machine-wide job this run (~team-cover~). Overrides ~skip_jobs~ |
 | ~--open-tabs~ | dispatch | Open a herdr tab and start an agent for an in-scope PR with no tab. Overrides ~open_missing_tabs~. See [[file:multi-machine.org::*Opening tabs for untabbed PRs][Opening tabs for untabbed PRs]] |
 
-Usage errors (exit 2): ~--pr~ with ~--all~; ~--ci-fix~ with ~--rebase~;
+Usage errors (exit 2): ~--pr~ with ~--all~; any two of ~--rebase~,
+~--merge~, and ~--ci-fix~; ~--rebase~ with a prompt suffix that asks for
+a merge or no force-push (~--force~ does not bypass it);
 ~--hint~ without ~--ci-fix~; ~--go~ on ~tabs~ without ~--close-merged~;
 a ~--tab-machine~ that is neither ~local~ nor in ~machines~; an
 ~--untabbed~ other than ~include~ or ~exclude~; an unknown ~--skip~ job.
@@ -131,6 +134,8 @@ Environment variables are not expanded.
 | ~wake_before_prompt~            | ~auto~                                                                                                                                                                                                                                       | ~auto~ wakes a hibernated agent before sending the prompt. See [[file:gate.org::*wake_before_prompt][details]].                                                 |
 | ~dispatch_prompt_template~      | built-in                                                                                                                                                                                                                                     | Review-comment prompt text, or ~@/path~ to load a file. See [[file:internals.org::*dispatch_prompt_template][details]].                                         |
 | ~rebase_prompt_template~        | built-in                                                                                                                                                                                                                                     | Same substitution. Used only with ~dispatch --rebase~.                                                                                                          |
+| ~merge_prompt_template~         | built-in                                                                                                                                                                                                                                     | Same substitution. Used only with ~dispatch --merge~. The built-in text merges ~origin/{base}~ into ~{head}~ and pushes without force.                          |
+| ~dispatch_catchup~              | ~rebase~                                                                                                                                                                                                                                     | ~rebase~ or ~merge~. How the merge-queue-fix prompt asks to resolve a conflict ejection. ~--rebase~ and ~--merge~ choose explicitly.                            |
 | ~ci_fix_prompt_template~        | built-in                                                                                                                                                                                                                                     | Same substitution, plus ~{hint}~. Used only with ~dispatch --ci-fix~.                                                                                           |
 | ~dispatch_prompt_suffix~        | empty                                                                                                                                                                                                                                        | Text appended to every dispatch prompt; it is not part of the dedupe key. See [[file:internals.org::*dispatch_prompt_suffix][details]].                         |
 | ~ci_ignore_checks~              | empty                                                                                                                                                                                                                                        | Check-name globs dropped from ~ci_state~ when ~ci_only_checks~ is empty. See [[file:internals.org::*ci_ignore_checks][details]].                                |
@@ -423,6 +428,7 @@ prsync dispatch --config ./prsync.config --pr acme/widgets#123
       "repo": "acme/widgets",
       "number": 123,
       "action": "would_dispatch",
+      "kind": "comment",
       "pane_id": "w2:pC",
       "rendered_prompt": "Get onto this PR's branch before editing: ... Address the unresolved review comments on PR #123 ... State: open."
     }
@@ -441,25 +447,42 @@ expire by count. A new unaddressed comment id is a fresh dispatch.
 ~--force~ re-dispatches immediately. When the window expires, dispatch
 sends again and refreshes ~dispatched_at~ and the scan count. Gate /
 serial / wait: [[file:gate.org::*Live dispatch][Live dispatch]]. The prompt always goes to the PR's existing herdr
-tab (no new worktree). A scan ~merge-queue-fix~ action, with neither
-~--rebase~ nor ~--ci-fix~, sends that prompt instead and skips the
+tab (no new worktree). A scan ~merge-queue-fix~ action, with none of
+~--rebase~, ~--merge~, or ~--ci-fix~, sends that prompt instead and skips the
 unaddressed-comment gate. The prompt points at the RCA comment URL and
 asks the tab to fix the cause. When the ejection is a merge conflict,
-it asks for a rebase, regenerated lockfiles, and a push. The same head
-is not prompted again until the head changes.
+it asks for a rebase, regenerated lockfiles, and a push; with
+~dispatch_catchup = "merge"~ it asks to merge ~origin/{base}~ and push
+normally instead. The same head is not prompted again until the head
+changes.
+
+Each result has a ~kind~: ~comment~, ~rebase~, ~merge~, ~ci-fix~, or
+~merge-queue-fix~, the prompt the pull request gets.
 
 | Mode | Flag | Done when | Notes |
 |------+------+-----------+-------|
 | comments (default) | (none) | listed threads addressed | Dedupe on unaddressed comment ids until ~dedupe_ttl~ or ~dedupe_scans~, whichever comes first. While the window holds the action is ~dispatched_unresolved~ (not ~skipped_deduped~) and ~detail~ includes the recorded time. ~scan~ shows that marker on the pull request. |
 | rebase | ~--rebase~ | recorded ~dispatched_head_sha~ equals the current head, and merge state is not ~BEHIND~, ~DIRTY~, or ~UNKNOWN~, and ~mergeable~ is not ~CONFLICTING~ | A new head is a fresh decision. ~BEHIND~, ~DIRTY~, ~UNKNOWN~, and ~mergeable~ ~CONFLICTING~ retry even when the recorded sha matches. ~--all~ sends to every PR with a ready tab (auto-picking behind PRs is a follow-up). Missing ~merge_state_status~ keeps head-SHA dedupe. ~skipped_deduped~ sets ~detail~ to ~recorded at <sha>, merge_state=<status>~ |
+| merge | ~--merge~ | recorded ~dispatched_merge_sha~ equals the current head, and merge state is not ~BEHIND~, ~DIRTY~, or ~UNKNOWN~, and ~mergeable~ is not ~CONFLICTING~ | Same rule as rebase, with its own recorded field, so a rebase on the same head does not dedupe a merge. Also the conflict-only use: catch up or fix conflicts without the comment gate. ~skipped_deduped~ sets ~detail~ to ~recorded at <sha>, merge_state=<status>~ |
 | CI-fix | ~--ci-fix~ | recorded ~dispatched_ci_fix_sha~ equals the current head, and ~ci_state~ is not ~failing~ | A new head is a fresh decision, including ~pending~, ~none~, and ~green~. A still-red check retries on the same head. ~--hint~ is a starting point the agent must verify; omit it to investigate from scratch. Caller chooses ~--ci-fix~ — ~prsync~ does not triage. Missing ~ci_state~ keeps head-SHA dedupe. ~skipped_deduped~ sets ~detail~ to ~recorded at <sha>, ci_state=<status>~ |
-| merge-queue-fix | (none; scan action ~merge-queue-fix~) | recorded ~dispatched_merge_queue_fix_sha~ equals the current head | Same draft, tab, agent, and busy gate as the other modes. Skips the unaddressed-comment gate. Not prompted again until the head changes, including when the pull request is still conflicting. ~--rebase~ and ~--ci-fix~ keep their own prompts. ~--force~ re-dispatches. ~skipped_deduped~ sets ~detail~ to ~recorded at <sha>~ |
+| merge-queue-fix | (none; scan action ~merge-queue-fix~) | recorded ~dispatched_merge_queue_fix_sha~ equals the current head | Same draft, tab, agent, and busy gate as the other modes. Skips the unaddressed-comment gate. Not prompted again until the head changes, including when the pull request is still conflicting. ~--rebase~, ~--merge~, and ~--ci-fix~ keep their own prompts. ~--force~ re-dispatches. ~skipped_deduped~ sets ~detail~ to ~recorded at <sha>~ |
 
-Cannot combine ~--rebase~ and ~--ci-fix~; rebase first, then CI-fix. If
+Cannot combine ~--rebase~, ~--merge~, and ~--ci-fix~; catch up first,
+then CI-fix. If
 you also re-trigger CI, do that last (a new commit invalidates it).
 ~--force~ re-dispatches even when dedupe would skip. A rebase or CI-fix
 recorded for this head, once the PR is no longer in a needs-work state,
 is ~skipped_deduped~ and ~detail~ says which sha and status were recorded.
+
+With ~--rebase~, ~dispatch~ refuses (exit 2) a prompt suffix
+(~--prompt-suffix~ or ~dispatch_prompt_suffix~) that contradicts the
+rebase prompt, rather than send two conflicting instructions. The
+phrases, matched case-insensitively as whole words, are ~merge~, ~push
+normally~, ~no force~, ~do not force-push~, ~do not force push~, ~don't
+force-push~, and ~don't force push~. Use ~--merge~ (or
+~dispatch_catchup = "merge"~ for merge-queue-fix conflicts) instead.
+~--force~ does not bypass this check. The list is ~rebaseSuffixPhrases~
+in ~internal/dispatch/prompt.go~.
 
 #+BEGIN_SRC bash
 prsync dispatch --config ./prsync.config --rebase --pr acme/widgets#123 --go
