@@ -10,9 +10,12 @@
     claude_toolbox_marketplace: claude-toolbox
     # sandbox-helpers tells Claude Code to retry with
     # dangerouslyDisableSandbox, so it is Claude Code-only.
+    # fork-keeper is the reviewer fork-keeper.sh runs as
+    # `claude -p /fork-keeper:fork-keeper sync ...` (experimental#598).
     claude_toolbox_claude_plugins:
       - git-guardrails
       - sandbox-helpers
+      - fork-keeper
     claude_toolbox_agent_plugins:
       - git-guardrails
     claude_settings_file: "{{ ansible_facts['env']['HOME'] }}/.claude/settings.json"
