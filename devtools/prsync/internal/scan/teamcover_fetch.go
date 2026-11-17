@@ -65,11 +65,15 @@ type coverCache struct {
 	// deferredPRs the PRs left without suggestions.
 	deferred      map[string]bool
 	deferredTeams map[string]bool
+	// stale are the paths, by history key, whose expired history the
+	// round uses because no call was left to refetch it.
+	stale map[string]staleUse
 	// heads is each repository and base's head, looked up once a round;
 	// empty when the lookup failed.
 	heads       map[string]string
 	deferredPRs int
-	// listed, needed and hits count paths for the round summary.
+	// listed, needed and hits count paths for the round summary; needed
+	// is the paths with no fresh entry.
 	// slackHits are the hits whose start day is earlier than this round's.
 	listed, needed, hits, slackHits int
 	// memberLookups, fileLookups and reviewLookups count stored-cache hits
@@ -126,6 +130,7 @@ func newCoverCache(cfg config.Config, now time.Time) *coverCache {
 		maxCalls:      cfg.TeamCoverMaxCalls,
 		refreshMax:    cfg.TeamCoverRefreshMaxCalls,
 		deferred:      map[string]bool{},
+		stale:         map[string]staleUse{},
 		heads:         map[string]string{},
 	}
 }
@@ -608,13 +613,31 @@ func (c *coverCache) finish(ctx context.Context, client GH, cfg config.Config, d
 	}
 	suggestions := suggestTeams(*facts)
 	if deferred > 0 {
-		notePartialHistory(suggestions, fmt.Sprintf("history partial (%d of %d paths deferred)", deferred, len(facts.files)))
+		noteHistory(suggestions, fmt.Sprintf("history partial (%d of %d paths deferred)", deferred, len(facts.files)))
+	}
+	if cover.history {
+		if at, ok := c.staleSince(cover.pr, facts.files); ok {
+			noteHistory(suggestions, "history as of "+at.UTC().Format(time.DateOnly))
+		}
 	}
 	return suggestions, nil
 }
 
-// notePartialHistory adds reason to each suggested reviewer.
-func notePartialHistory(suggestions []TeamReviewSuggestion, reason string) {
+// staleSince is when the oldest expired history pr's files use was stored.
+func (c *coverCache) staleSince(pr PR, files []string) (time.Time, bool) {
+	var oldest time.Time
+	found := false
+	for _, file := range files {
+		use, ok := c.stale[historyKey(pr.Repo, pr.Base, file)]
+		if ok && (!found || use.at.Before(oldest)) {
+			oldest, found = use.at, true
+		}
+	}
+	return oldest, found
+}
+
+// noteHistory adds reason to each suggested reviewer.
+func noteHistory(suggestions []TeamReviewSuggestion, reason string) {
 	for i := range suggestions {
 		for k := range suggestions[i].Suggest {
 			item := &suggestions[i].Suggest[k]
@@ -716,6 +739,13 @@ func (c *coverCache) deferPaths(group historyGroup, paths []string) {
 	}
 }
 
+// staleUse is a path whose expired history the round uses, and when
+// that history was stored.
+type staleUse struct {
+	repo, base, path string
+	at               time.Time
+}
+
 // historyGroup is the paths one repository and base need history for.
 type historyGroup struct {
 	repo, base string
@@ -727,26 +757,33 @@ type historyGroup struct {
 // repository and base, so earlier tiers' paths are fetched first.
 // With a stored cache, a path is reused while its entry is fresh: keyed by
 // the window's start day under team_cover_history_ttl, else by the base
-// head. Once the round stops, paths not stored are deferred. It logs how
-// many listed paths need history, and the cache hits and misses.
+// head. A path whose entry expired within team_cover_history_max_stale
+// uses that entry at first; it is refetched by refetchStale once every
+// path with no entry is fetched. Once the round stops, paths with neither
+// are deferred. It logs how many listed paths have no fresh entry, and
+// the cache hits and misses.
 func (c *coverCache) loadHistory(ctx context.Context, client GH, doc *Document, covers []prCover, order []workItem) error {
 	groups := historyGroups(covers, order)
 	c.listed = listedPaths(covers)
+	var stale []staleGroup
 	for _, group := range groups {
-		c.needed += len(group.paths)
+		sg, err := c.loadGroup(ctx, client, doc, group)
+		if len(sg.paths) > 0 {
+			stale = append(stale, sg)
+		}
+		if err != nil && !errors.Is(err, errStopped) {
+			return err
+		}
+	}
+	if err := c.refetchStale(ctx, client, doc, stale); err != nil {
+		return err
 	}
 	if c.listed > 0 {
 		runlog.FromContext(ctx).Info(fmt.Sprintf("team-cover: %d of %d paths need history", c.needed, c.listed))
 	}
-	if len(groups) == 0 {
-		return nil
+	if len(groups) > 0 {
+		runlog.FromContext(ctx).Info("team-cover cache", "hits", c.hits, "misses", c.needed)
 	}
-	for _, group := range groups {
-		if err := c.loadGroup(ctx, client, doc, group); err != nil && !errors.Is(err, errStopped) {
-			return err
-		}
-	}
-	runlog.FromContext(ctx).Info("team-cover cache", "hits", c.hits, "misses", c.needed-c.hits)
 	return nil
 }
 
@@ -792,44 +829,130 @@ func historyGroups(covers []prCover, order []workItem) []historyGroup {
 	return groups
 }
 
-func (c *coverCache) loadGroup(ctx context.Context, client GH, doc *Document, group historyGroup) error {
+// staleGroup is the paths of one repository and base that use expired
+// history, with the version and ref their refetch is stored under.
+type staleGroup struct {
+	historyGroup
+	version, ref string
+}
+
+// loadGroup fetches the paths of group with no usable stored entry and
+// returns those that use an expired one.
+func (c *coverCache) loadGroup(ctx context.Context, client GH, doc *Document, group historyGroup) (staleGroup, error) {
 	if len(group.paths) == 0 {
-		return nil
+		return staleGroup{}, nil
 	}
 	version, ref, err := c.historyVersion(ctx, client, doc, group)
 	if err != nil {
+		c.needed += len(group.paths)
 		if errors.Is(err, errStopped) {
 			c.deferPaths(group, group.paths)
 		}
-		return err
+		return staleGroup{}, err
 	}
 	missing := c.storedHistory(group, version)
+	c.needed += len(missing)
+	stale, missing := c.staleHistory(group, version, missing)
+	sg := staleGroup{historyGroup: historyGroup{repo: group.repo, base: group.base, paths: stale}, version: version, ref: ref}
 	if len(missing) == 0 {
-		return nil
+		return sg, nil
 	}
 	if c.stop != "" {
 		c.deferPaths(group, missing)
-		return errStopped
+		return sg, errStopped
 	}
 	got, err := client.PathHistories(ctx, group.repo, ref, missing, c.historySince, c.batch, c.maxBatch)
 	if err != nil {
 		if stop := contextStop(ctx, err); stop != nil {
-			return stop
+			return sg, stop
 		}
 		if c.halted(stepHistory, err) {
 			c.deferPaths(group, missing)
-			return errStopped
+			return sg, errStopped
 		}
 		loud(doc, fmt.Sprintf("team cover history unavailable for %s %s: %s", group.repo, group.base, err.Error()))
-		return nil
+		return sg, nil
 	}
 	c.keepHistory(group, version, got)
 	if len(got.Deferred) > 0 {
 		c.deferPaths(group, got.Deferred)
 		c.halted(stepHistory, gh.ErrCallCap)
-		return errStopped
+		return sg, errStopped
+	}
+	return sg, nil
+}
+
+// staleHistory takes the paths of missing with an expired entry within
+// team_cover_history_max_stale, which the round uses unless refetchStale
+// renews it, and returns them and the others.
+func (c *coverCache) staleHistory(group historyGroup, version string, missing []string) (stale, rest []string) {
+	if version == "" {
+		return nil, missing
+	}
+	for _, path := range missing {
+		hist, at, ok := staleNear(c.stored, group.repo, group.base, path, version, c.historySlack)
+		if !ok {
+			rest = append(rest, path)
+			continue
+		}
+		key := historyKey(group.repo, group.base, path)
+		c.history[key] = hist
+		c.stale[key] = staleUse{repo: group.repo, base: group.base, path: path, at: at}
+		stale = append(stale, path)
+	}
+	return stale, rest
+}
+
+// refetchStale renews the expired history the round uses, in work order,
+// with the calls left once every path with no entry is fetched. When the
+// round refreshes history it keeps team_cover_refresh_max_calls of them for
+// refreshHistory, which takes what is left oldest first. Past those calls
+// a path keeps its expired history; nothing is deferred and the round does
+// not stop.
+func (c *coverCache) refetchStale(ctx context.Context, client GH, doc *Document, groups []staleGroup) error {
+	if len(groups) == 0 || c.stop != "" {
+		return nil
+	}
+	if left := c.budget.Left(); left >= 0 {
+		spare := left - c.refreshShare()
+		if spare <= 0 {
+			return nil
+		}
+		restore := c.budget.Narrow(spare)
+		defer restore()
+	}
+	for _, group := range groups {
+		if c.budget.Left() == 0 {
+			return nil
+		}
+		got, err := client.PathHistories(ctx, group.repo, group.ref, group.paths, c.historySince, c.batch, c.maxBatch)
+		if err != nil {
+			if stop := contextStop(ctx, err); stop != nil {
+				return stop
+			}
+			if errors.Is(err, gh.ErrCallCap) {
+				return nil
+			}
+			if c.halted(stepHistory, err) {
+				return nil
+			}
+			loud(doc, fmt.Sprintf("team cover history unavailable for %s %s: %s", group.repo, group.base, err.Error()))
+			continue
+		}
+		c.keepHistory(group.historyGroup, group.version, got)
+		if len(got.Deferred) > 0 {
+			return nil
+		}
 	}
 	return nil
+}
+
+// refreshShare is how many calls refreshHistory may spend this round.
+func (c *coverCache) refreshShare() int {
+	if !c.refresh || c.historyTTL <= 0 || c.stored == nil {
+		return 0
+	}
+	return max(c.refreshMax, 0)
 }
 
 // storedHistory takes group's paths stored under version, or a UTC start
@@ -878,6 +1001,28 @@ func historyNear(stored HistoryCache, repo, ref, path, version string, slack int
 	return gh.PathHistory{}, false, false
 }
 
+// staleNear is historyNear for expired entries within max stale: the
+// newest day that has one, and when it was stored.
+func staleNear(stored HistoryCache, repo, ref, path, version string, slack int) (gh.PathHistory, time.Time, bool) {
+	if stored == nil {
+		return gh.PathHistory{}, time.Time{}, false
+	}
+	if hist, at, ok := stored.StalePathHistory(repo, ref, path, version); ok {
+		return hist, at, true
+	}
+	day, ok := sinceDay(version)
+	if !ok || slack <= 0 {
+		return gh.PathHistory{}, time.Time{}, false
+	}
+	for i := 1; i <= slack; i++ {
+		earlier := "since:" + day.AddDate(0, 0, -i).Format(time.DateOnly)
+		if hist, at, ok := stored.StalePathHistory(repo, ref, path, earlier); ok {
+			return hist, at, true
+		}
+	}
+	return gh.PathHistory{}, time.Time{}, false
+}
+
 // sinceDay is the UTC date in a "since:YYYY-MM-DD" history version.
 func sinceDay(version string) (time.Time, bool) {
 	raw, ok := strings.CutPrefix(version, "since:")
@@ -897,9 +1042,11 @@ type refreshPath struct {
 }
 
 // refreshHistory spends calls still under the cap refetching stored path
-// history closest to expiry, oldest first, in the same batched requests.
-// Reading an entry does not renew it; this is the renewal. Head-keyed
-// history is left alone. Suggestions already chosen are not changed.
+// history, in the same batched requests: first the expired history the
+// round used, oldest first, then the entries closest to expiry, oldest
+// first. Reading an entry does not renew it; this is the renewal.
+// Head-keyed history is left alone. Suggestions already chosen are not
+// changed.
 func (c *coverCache) refreshHistory(ctx context.Context, client GH, doc *Document) error {
 	if !c.refresh || c.historyTTL <= 0 || c.stored == nil || c.stop != "" || c.budget.Left() == 0 {
 		return nil
@@ -913,7 +1060,7 @@ func (c *coverCache) refreshHistory(ctx context.Context, client GH, doc *Documen
 	before := c.budget.Used()
 	defer func() { c.refreshCalls = c.budget.Used() - before }()
 	version := "since:" + c.historySince.UTC().Format(time.DateOnly)
-	var paths []refreshPath
+	paths := c.staleRefresh()
 	c.stored.NearestPathHistory(0, func(repo, ref, path, ver string) bool {
 		if ver == version {
 			paths = append(paths, refreshPath{repo: repo, ref: ref, path: path})
@@ -930,6 +1077,25 @@ func (c *coverCache) refreshHistory(ctx context.Context, client GH, doc *Documen
 		}
 	}
 	return nil
+}
+
+// staleRefresh is the expired history the round still uses, oldest first.
+func (c *coverCache) staleRefresh() []refreshPath {
+	uses := make([]staleUse, 0, len(c.stale))
+	for _, use := range c.stale {
+		uses = append(uses, use)
+	}
+	slices.SortFunc(uses, func(a, b staleUse) int {
+		if n := a.at.Compare(b.at); n != 0 {
+			return n
+		}
+		return strings.Compare(historyKey(a.repo, a.base, a.path), historyKey(b.repo, b.base, b.path))
+	})
+	paths := make([]refreshPath, len(uses))
+	for i, use := range uses {
+		paths[i] = refreshPath{repo: use.repo, ref: use.base, path: use.path}
+	}
+	return paths
 }
 
 // refreshGroups batches only paths that are adjacent in expiry order and
@@ -979,7 +1145,9 @@ func (c *coverCache) keepHistory(group historyGroup, version string, got gh.Path
 		}
 	}
 	for path, hist := range got.Histories {
-		c.history[historyKey(group.repo, group.base, path)] = hist
+		key := historyKey(group.repo, group.base, path)
+		c.history[key] = hist
+		delete(c.stale, key)
 		if version != "" {
 			c.stored.PutPathHistory(group.repo, group.base, path, version, hist)
 		}

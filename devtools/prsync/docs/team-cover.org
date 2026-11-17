@@ -77,7 +77,9 @@ cut-off list is logged as a warning. Only paths of PRs with an uncovered
 team that still has a member to rank are queried; M being the paths of PRs
 whose files were listed, the round output (stderr) and the run log end with
 ~team-cover: paths N/M need history (X hits); team members A hits/B calls; files C/D; reviews E/F; refresh R; calls Y (cap Z)~,
-where each pair is round-cache hits and real calls. A path's result is
+where each pair is round-cache hits and real calls; N counts only the
+paths with no fresh round-cache entry, so N plus X is every path asked
+for. A path's result is
 reused for ~team_cover_history_ttl~ (see Round cache). Must be >= 0.
 
 ** team_cover_active_days
@@ -115,6 +117,8 @@ finishes with calls left under ~team_cover_max_calls~ refetches the entries
 closest to expiry, oldest first, in the same batched history requests, up to
 ~team_cover_refresh_max_calls~. Those calls count toward
 ~team_cover_max_calls~ and the summary names them as ~refresh R~.
+An entry past its lifetime may still be used; see
+~team_cover_history_max_stale~.
 ~dispatch~, ~gate~, ~scan --repo~, ~scan --in-scope~, and a single-PR scan
 do not refetch. A window of weeks barely changes in a few hours, so a
 slightly stale list is accepted. Each entry is dropped on its own lifetime
@@ -131,9 +135,24 @@ Writes always use the current start day, and the older entry keeps its own
 TTL. ~0~ requires the exact day. The round summary counts these inside ~X hits~
 and, when any were used, adds ~(Y across days)~. Must be >= 0.
 
+** team_cover_history_max_stale
+
+Go duration. How old a path-history entry may be and still be used after
+its lifetime (see ~team_cover_history_ttl~) ends. A round first fetches
+the paths that have no usable entry. Then, with the calls left, it
+refetches the expired entries its PRs use, in work order; an unscoped
+~scan~ holds back ~team_cover_refresh_max_calls~ of them for the refresh
+below. A path whose refetch the call cap stops keeps its expired entry
+instead of being deferred, and each suggestion ranked on it gets the
+reason ~history as of YYYY-MM-DD~ (the UTC day the oldest such entry was
+fetched). With no entry, or one older than this, the path is deferred as
+before. The round cache keeps an entry this long. ~0~ never uses expired
+history. Ignored when ~team_cover_history_ttl~ is ~0~. Must be >= 0.
+
 ** team_cover_refresh_max_calls
 
-How many calls an unscoped ~scan~ may spend refetching stored path history
+How many calls an unscoped ~scan~ may spend refetching stored path history:
+first the expired entries the round used, oldest first, then the entries
 closest to expiry. The calls count toward ~team_cover_max_calls~. A scoped
 run (~dispatch~, ~gate~, ~scan --repo~, ~scan --in-scope~, or one pull
 request) refetches nothing. Must be >= 1.

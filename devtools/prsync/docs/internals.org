@@ -11,7 +11,8 @@ last round. Results are kept in ~round-cache.json~, next to
 ~review_threads_ttl~, merged PR states until no tab references them,
 closed PR states for ~pr_view_closed_ttl~, path history for up to
 ~team_cover_history_ttl~ (each entry between half of that and the full
-TTL; at most a day when that is ~0~), review load for
+TTL; at most a day when that is ~0~; expired entries are kept up to
+~team_cover_history_max_stale~), review load for
 ~team_cover_load_ttl~, team members for ~team_cover_members_ttl~,
 CODEOWNERS for ~team_cover_codeowners_ttl~, and changed files and review
 snapshots for at most a day. Expired entries, and entries whose key is not
@@ -50,10 +51,17 @@ ignored with a warning in the run log.
   wins, and a hit is not rewritten under the current day.
   Each entry's lifetime is a deterministic hash of its key, between half
   the TTL and the TTL, so a batch stored together lapses gradually and a
-  hit does not move the stored time. Nothing is reused past the TTL.
+  hit does not move the stored time. Nothing is reused past the TTL as
+  a hit. An expired entry younger than ~team_cover_history_max_stale~ is
+  kept when the file is written; a round uses it for a path when the
+  call cap stops the path's refetch, and says ~history as of~ the day
+  it was fetched. Paths with no usable entry are fetched first, then
+  expired entries in use, in work order, with the calls left beyond the
+  refresh share.
   An unscoped ~scan~ that finishes with calls left under
-  ~team_cover_max_calls~ refetches the entries closest to expiry, oldest
-  first, through the same batched history requests, up to
+  ~team_cover_max_calls~ refetches the expired entries it used, oldest
+  first, then the entries closest to expiry, oldest first, through the
+  same batched history requests, up to
   ~team_cover_refresh_max_calls~. Those calls count toward the cap. A
   scoped run does not refetch. Paths that miss are fetched
   on the base branch in batched queries per repository and base. The run

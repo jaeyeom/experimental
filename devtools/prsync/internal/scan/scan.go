@@ -64,6 +64,10 @@ type ThreadCache interface {
 type HistoryCache interface {
 	PathHistory(repo, ref, path, version string) (gh.PathHistory, bool)
 	PutPathHistory(repo, ref, path, version string, history gh.PathHistory)
+	// StalePathHistory returns an entry past its lifetime but within
+	// team_cover_history_max_stale, and when it was stored. A fresh entry
+	// is not returned.
+	StalePathHistory(repo, ref, path, version string) (gh.PathHistory, time.Time, bool)
 	// NearestPathHistory yields fresh entries closest to expiry, oldest
 	// first, and stops when yield returns false. At most n are yielded;
 	// n <= 0 yields every fresh one. A cache that does not track expiry

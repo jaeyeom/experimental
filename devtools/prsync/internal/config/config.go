@@ -233,6 +233,10 @@ type Config struct {
 	// TeamCoverHistoryTTL is how long a path's history is reused, keyed by
 	// the history window's start day. Zero keys it by the base branch head.
 	TeamCoverHistoryTTL time.Duration
+	// TeamCoverHistoryMaxStale is how old a stored history entry may be
+	// and still be used past its TTL when the call cap stops its refetch.
+	// Zero never uses expired history.
+	TeamCoverHistoryMaxStale time.Duration
 	// TeamCoverHistorySlackDays is how many UTC days earlier than the
 	// current window start a stored history entry may be and still count
 	// as a hit. Zero requires the same start day.
@@ -354,6 +358,7 @@ func Defaults() Config {
 		TeamCoverEvery:            1,
 		TeamCoverBatchPaths:       5,
 		TeamCoverHistoryTTL:       6 * time.Hour,
+		TeamCoverHistoryMaxStale:  72 * time.Hour,
 		TeamCoverHistorySlackDays: 2,
 		TeamCoverMaxCalls:         40,
 		TeamCoverRefreshMaxCalls:  10,
@@ -664,6 +669,7 @@ func applyOtherKey(cfg *Config, key, val string) error {
 		"team_cover_exclude_logins", "team_cover_signals",
 		"team_cover_history_days", "team_cover_active_days", "team_cover_every",
 		"team_cover_batch_paths", "team_cover_history_ttl", "team_cover_history_slack_days",
+		"team_cover_history_max_stale",
 		"team_cover_max_calls",
 		"team_cover_refresh_max_calls", "team_cover_load_ttl",
 		"team_cover_members_ttl", "team_cover_codeowners_ttl":
@@ -713,6 +719,8 @@ func teamCoverTTL(cfg *Config, key string) *time.Duration {
 	switch key {
 	case "team_cover_history_ttl":
 		return &cfg.TeamCoverHistoryTTL
+	case "team_cover_history_max_stale":
+		return &cfg.TeamCoverHistoryMaxStale
 	case "team_cover_load_ttl":
 		return &cfg.TeamCoverLoadTTL
 	case "team_cover_members_ttl":

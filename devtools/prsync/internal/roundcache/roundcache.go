@@ -1,7 +1,8 @@
 // Package roundcache keeps GitHub results between prsync rounds in one JSON
 // file, so a round can skip calls whose answer cannot have changed.
 // Entries expire after their TTL (the status-checks TTL for status checks,
-// the per-key history lifetime for path history, the load TTL for review
+// the per-key history lifetime for path history (kept up to the max stale
+// age, see SetHistoryMaxStale), the load TTL for review
 // load, the members TTL for team members, the CODEOWNERS TTL for
 // CODEOWNERS bodies, the threads TTL for review threads, the closed TTL for closed
 // pull-request views, and KeepTTL for changed files, review snapshots and
@@ -76,7 +77,11 @@ type Cache struct {
 	historyTTL time.Duration
 	// byDay is set when path history is keyed by the window's start day,
 	// so head-keyed entries are of an old format, and the reverse.
-	byDay           bool
+	byDay bool
+	// historyMaxStale is how old a day-keyed entry may be and still be
+	// served past its lifetime by StalePathHistory; Save keeps it that
+	// long. Zero serves nothing stale.
+	historyMaxStale time.Duration
 	loadTTL         time.Duration
 	membersTTL      time.Duration
 	codeownersTTL   time.Duration
@@ -245,6 +250,15 @@ func (c *Cache) SetHistoryTTL(ttl time.Duration) {
 	c.historyTTL = ttl
 }
 
+// SetHistoryMaxStale sets how old a day-keyed path-history entry may be
+// and still be returned by StalePathHistory after its lifetime; Save keeps
+// such entries until then. A d <= 0 serves nothing stale.
+func (c *Cache) SetHistoryMaxStale(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.historyMaxStale = max(d, 0)
+}
+
 // SetLoadTTL sets how long a review-load count is reused; Save drops
 // older entries. A ttl <= 0 restores LoadTTL.
 func (c *Cache) SetLoadTTL(ttl time.Duration) {
@@ -408,6 +422,27 @@ func (c *Cache) PathHistory(repo, ref, path, version string) (gh.PathHistory, bo
 		return gh.PathHistory{}, false
 	}
 	return entry.History, true
+}
+
+// StalePathHistory returns the stored history of path on ref for version
+// and the time it was stored, once it is past its lifetime but younger
+// than the max stale age (see SetHistoryMaxStale). A fresh entry, or
+// head-keyed history, is not returned.
+func (c *Cache) StalePathHistory(repo, ref, path, version string) (gh.PathHistory, time.Time, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	key := historyKey(repo, ref, path, version)
+	entry, ok := c.data.History[key]
+	if !ok || !c.byDay || c.historyFresh(key, entry.At) || !c.fresh(entry.At, c.historyMaxStale) {
+		return gh.PathHistory{}, time.Time{}, false
+	}
+	return entry.History, entry.At, true
+}
+
+// historyKept reports whether Save keeps key: while it is fresh or, when
+// day-keyed, younger than the max stale age.
+func (c *Cache) historyKept(key string, at time.Time) bool {
+	return c.historyFresh(key, at) || (c.byDay && c.fresh(at, c.historyMaxStale))
 }
 
 // pathHistoryItem is one fresh path-history entry, nearest expiry first.
@@ -768,14 +803,14 @@ func (c *Cache) PutHistoryBatch(n int) {
 	c.dirty = true
 }
 
-// Save drops expired entries and those whose key is not in the current
-// format, and writes the file atomically. A cache with no new entries
+// Save drops expired entries (path history past the max stale age too)
+// and those whose key is not in the current format, and writes the file atomically. A cache with no new entries
 // since Load is not written.
 func (c *Cache) Save() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for key, entry := range c.data.History {
-		if !c.historyFresh(key, entry.At) || !c.knownHistoryKey(key) {
+		if !c.historyKept(key, entry.At) || !c.knownHistoryKey(key) {
 			delete(c.data.History, key)
 			c.dirty = true
 		}
