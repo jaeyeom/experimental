@@ -196,6 +196,8 @@ var ErrPostingOff = errors.New("posting is disabled: set post.mode to handoff or
 // direct; empty disables posting. Agent is the handoff target. ExpectUser
 // is the Slack user id posts must come from. PinSalt, TokenPin,
 // WriteTokenFile, and Footer apply to direct mode only.
+// DecideNotifyPane, when set, is passed as --notify-pane to every
+// decide ask, so answers notify that target and not decide's default.
 type PostConfig struct {
 	Mode           string `json:"mode"`
 	Agent          string `json:"agent"`
@@ -205,6 +207,8 @@ type PostConfig struct {
 	WriteTokenFile string `json:"writeTokenFile"`
 	Footer         string `json:"footer"`
 	DecideOwner    string `json:"decideOwner"`
+	// DecideNotifyPane is any target decide accepts for --notify-pane.
+	DecideNotifyPane string `json:"decideNotifyPane"`
 }
 
 // DecideOwnerOrDefault is the owner of the decide items slackwatch

@@ -164,6 +164,17 @@ func TestLoadConfigInbound(t *testing.T) {
 	}
 }
 
+func TestLoadConfigPostDecideNotifyPane(t *testing.T) {
+	path := writeFile(t, "config.json", `{"post": {"decideNotifyPane": "agentbus:ops"}}`, 0o600)
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Post.DecideNotifyPane != "agentbus:ops" {
+		t.Errorf("Post.DecideNotifyPane = %q", cfg.Post.DecideNotifyPane)
+	}
+}
+
 func TestLoadConfigRejectsUnknownKeys(t *testing.T) {
 	path := writeFile(t, "config.json", `{"notifyTemplate": "x", "botToken": "xoxb"}`, 0o600)
 	_, err := LoadConfig(path)

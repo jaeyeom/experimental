@@ -1682,6 +1682,27 @@ func TestDecideCLI(t *testing.T) {
 	}
 }
 
+func TestAskPassesNotifyPane(t *testing.T) {
+	var calls [][]string
+	d := DecideCLI{NotifyPane: "agentbus:ops", Run: func(_ context.Context, args ...string) ([]byte, error) {
+		calls = append(calls, append([]string(nil), args...))
+		if slicesHas(args, "--owner-replies-only") {
+			return nil, errors.New("decide ask: exit status 2: flag provided but not defined: -owner-replies-only")
+		}
+		return []byte(`{"id":"D-3","state":"open"}`), nil
+	}}
+	if id, err := d.Ask(context.Background(), "slackwatch", "Post?"); err != nil || id != "D-3" {
+		t.Fatalf("Ask = %q, %v", id, err)
+	}
+	want := [][]string{
+		{"ask", "--owner", "slackwatch", "--owner-replies-only", "--notify-pane", "agentbus:ops", "--kind", "relay", "--option", "post:Post as written", "--option", "drop:Don't post", "--rec", "post", "--free-text", "--json", "Post?"},
+		{"ask", "--owner", "slackwatch", "--notify-pane", "agentbus:ops", "--kind", "relay", "--option", "post:Post as written", "--option", "drop:Don't post", "--rec", "post", "--free-text", "--json", "Post?"},
+	}
+	if fmt.Sprint(calls) != fmt.Sprint(want) {
+		t.Errorf("calls = %q\nwant %q", calls, want)
+	}
+}
+
 // failedDirect is a direct-mode record whose post failed, with the
 // writer ready for another attempt.
 func failedDirect(t *testing.T) (*outboxFixture, OutboxRecord) {

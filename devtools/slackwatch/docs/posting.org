@@ -34,6 +34,8 @@ refuses and asks for the user id. ~im:write~ is not used.
    - ~--owner <post.decideOwner>~
    - ~--owner-replies-only~ when this decide accepts that flag, and the
      same command without it when it does not
+   - ~--notify-pane <post.decideNotifyPane>~ when that key is set. A
+     later ~decide reply~ reuses the item and keeps its pane.
    - ~--kind relay~
    - ~--option post:"Post as written"~
    - ~--option drop:"Don't post"~
