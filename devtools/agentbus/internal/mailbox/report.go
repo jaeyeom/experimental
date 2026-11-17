@@ -26,7 +26,8 @@ const (
 type Report struct {
 	ID          string `json:"id"`
 	State       string `json:"state"`
-	HeldReason  string `json:"held_reason,omitempty"`  //nolint:tagliatelle // status --json shape
+	HeldReason  string `json:"held_reason,omitempty"` //nolint:tagliatelle // status --json shape
+	Reason      string `json:"reason,omitempty"`
 	StoredAt    string `json:"stored_at,omitempty"`    //nolint:tagliatelle // status --json shape
 	DeliveredAt string `json:"delivered_at,omitempty"` //nolint:tagliatelle // status --json shape
 	Error       string `json:"error,omitempty"`
@@ -54,8 +55,11 @@ func (m *Mailbox) Report(ctx context.Context, id string) Report {
 	}
 	reason, held := strings.CutPrefix(msg.State, "held: ")
 	switch {
-	case msg.State == stateDelivered, msg.State == stateExpired:
+	case msg.State == stateDelivered:
 		r.State = msg.State
+	case msg.State == stateExpired:
+		r.State = msg.State
+		r.Reason = msg.ExpireReason
 	case held && reason == HoldWakeFailed:
 		r.State = "failed"
 		r.Error = m.wakeError(msg)

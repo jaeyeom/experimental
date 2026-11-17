@@ -176,6 +176,24 @@ func TestParseHibernateExempt(t *testing.T) {
 	}
 }
 
+func TestParseGoneAfter(t *testing.T) {
+	got, err := Parse("gone_after = \"2h\"\n")
+	if err != nil || got.GoneAfter == nil || *got.GoneAfter != 2*time.Hour {
+		t.Fatalf("Parse = %+v, %v", got, err)
+	}
+	zero, err := Parse("gone_after = \"0s\"\n")
+	if err != nil || zero.GoneAfter == nil || *zero.GoneAfter != 0 {
+		t.Fatalf("zero = %+v, %v", zero, err)
+	}
+	unset, err := Parse("machines = [\"linux2\"]\n")
+	if err != nil || unset.GoneAfter != nil {
+		t.Fatalf("unset = %+v, %v", unset, err)
+	}
+	if _, err := Parse("gone_after = \"-1s\"\n"); err == nil || !strings.Contains(err.Error(), `gone_after must be a duration of at least 0s, such as "1h"`) {
+		t.Fatalf("negative: %v", err)
+	}
+}
+
 func TestParseHoldNoticeAfter(t *testing.T) {
 	got, err := Parse("hold_notice_after = \"10m\"\n")
 	if err != nil || got.HoldNoticeAfter == nil || *got.HoldNoticeAfter != 10*time.Minute {

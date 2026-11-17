@@ -28,7 +28,10 @@ const (
 	defaultPasteBound = 5 * time.Second
 	// defaultHoldNotice is how long a hold waits before one sender notice.
 	defaultHoldNotice = 10 * time.Minute
-	waitTick          = 15 * time.Millisecond
+	// defaultGoneAfter is how long a raw handle target stays gone
+	// before its message expires.
+	defaultGoneAfter = time.Hour
+	waitTick         = 15 * time.Millisecond
 	// holdWatch is how long a queued send watches for a fast unreachable
 	// hold before it answers. A paste still running after
 	// holdClassifyGrace is in progress, so a slow delivery does not wait
@@ -41,6 +44,15 @@ const (
 // HoldHibernated is the hold reason of a message to a hibernated agent.
 const HoldHibernated = "hibernated"
 
+// The reasons an expired message closed.
+const (
+	// ExpireTTL is a message whose --ttl ran out.
+	ExpireTTL = "ttl"
+	// ExpireGone is a message to a raw handle whose pane stayed gone
+	// for gone_after.
+	ExpireGone = "gone"
+)
+
 type outcome struct {
 	accepted bool
 	tried    bool
@@ -50,6 +62,9 @@ type outcome struct {
 	detail string
 	// deferred means the precheck passed and the paste has not run.
 	deferred bool
+	// gone means every adapter answered that a raw handle target, one
+	// no registered name holds, is gone.
+	gone bool
 }
 
 // Poll delivers queued mail immediately, then again on each tick.
@@ -501,7 +516,7 @@ func (m *Mailbox) step(ctx context.Context, handle string, deliver bool) (bool, 
 	}
 	msg := m.msgs[id]
 	if m.expired(msg) {
-		cont, err := m.finishExpire(ctx, handle, msg)
+		cont, err := m.finishExpire(ctx, handle, msg, ExpireTTL)
 		return cont, err
 	}
 	m.inflight[id] = true
@@ -532,14 +547,19 @@ func (m *Mailbox) step(ctx context.Context, handle string, deliver bool) (bool, 
 		}
 		return true, nil
 	}
-	if m.expired(m.msgs[id]) {
-		return m.finishExpire(ctx, handle, m.msgs[id])
+	reason, err := m.expireReason(id, outcome)
+	if err != nil {
+		m.mu.Unlock()
+		return false, err
+	}
+	if reason != "" {
+		return m.finishExpire(ctx, handle, m.msgs[id], reason)
 	}
 	if err := m.holdFront(id, outcome); err != nil {
 		m.mu.Unlock()
 		return false, err
 	}
-	err := m.holdTail(handle)
+	err = m.holdTail(handle)
 	m.mu.Unlock()
 	if err != nil {
 		return false, err
@@ -602,9 +622,59 @@ func (m *Mailbox) insert(msg message) {
 	m.queue[msg.Handle] = slices.Insert(ids, at, msg.ID)
 }
 
-func (m *Mailbox) finishExpire(ctx context.Context, handle string, msg message) (bool, error) {
+// expireReason is why front message id expires after outcome, or "".
+// The caller holds m.mu.
+func (m *Mailbox) expireReason(id string, o outcome) (string, error) {
+	if m.expired(m.msgs[id]) {
+		return ExpireTTL, nil
+	}
+	gone, err := m.trackGone(id, o)
+	if err != nil || !gone {
+		return "", err
+	}
+	return ExpireGone, nil
+}
+
+// trackGone starts or clears the gone clock of front message id and
+// reports whether it has run for gone_after. Only a positive gone moves
+// it; any other answer, unreachable included, clears it. The caller
+// holds m.mu.
+func (m *Mailbox) trackGone(id string, o outcome) (bool, error) {
+	msg := m.msgs[id]
+	if !o.gone {
+		if msg.GoneSince == nil {
+			return false, nil
+		}
+		msg.GoneSince = nil
+		m.msgs[id] = msg
+		return false, m.save()
+	}
+	now := m.now().UTC()
+	if msg.GoneSince == nil {
+		msg.GoneSince = &now
+		m.msgs[id] = msg
+		if err := m.save(); err != nil {
+			return false, err
+		}
+	}
+	after := defaultGoneAfter
+	if m.goneAfter != nil {
+		after = *m.goneAfter
+	}
+	return now.Sub(*msg.GoneSince) >= after, nil
+}
+
+// SetGoneAfter sets how long a raw handle target stays gone before its
+// message expires. Nil uses one hour. Zero expires at the first gone check.
+func (m *Mailbox) SetGoneAfter(d *time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.goneAfter = d
+}
+
+func (m *Mailbox) finishExpire(ctx context.Context, handle string, msg message, reason string) (bool, error) {
 	m.pop(handle)
-	closed, err := m.markExpired(msg)
+	closed, err := m.markExpired(msg, reason)
 	m.mu.Unlock()
 	if err != nil {
 		return false, err
@@ -633,9 +703,9 @@ func (m *Mailbox) attempt(ctx context.Context, msg message, deliver bool) outcom
 		// Its pane runs a shell now. The message waits for a wake.
 		return m.wakeOutcome(ctx, rec)
 	}
-	state, ad, err := m.observe(ctx, ads, msg.Handle)
+	state, ad, answered, err := m.observe(ctx, ads, msg.Handle)
 	if err != nil || ad == nil || !canDeliver(state) {
-		return m.holdOutcome(state, err)
+		return m.notReadyOutcome(msg, state, answered, err)
 	}
 	if ambiguousHold(msg.State) {
 		if !deliver {
@@ -819,6 +889,14 @@ func unreachableOutcome(ue *remotecall.UnreachableError) outcome {
 	return outcome{reason: ue.Error(), target: "unreachable"}
 }
 
+// notReadyOutcome holds a target that cannot take msg. It is gone only
+// when every adapter answered gone for a raw handle no name holds.
+func (m *Mailbox) notReadyOutcome(msg message, state adapter.State, answered bool, err error) outcome {
+	o := m.holdOutcome(state, err)
+	o.gone = err == nil && answered && state == adapter.StateGone && !m.reg.HasName(msg.To)
+	return o
+}
+
 func (m *Mailbox) holdOutcome(state adapter.State, err error) outcome {
 	if ue := remotecall.AsUnreachable(err); ue != nil {
 		return unreachableOutcome(ue)
@@ -831,9 +909,11 @@ func (m *Mailbox) holdOutcome(state adapter.State, err error) outcome {
 
 // observe asks ads, the adapters that pass their self-test, for
 // handle's state. With every adapter down the target is unreachable.
-func (m *Mailbox) observe(ctx context.Context, ads []adapter.Adapter, handle string) (adapter.State, adapter.Adapter, error) {
+// answered is true when at least one adapter was asked and every one
+// answered without an error.
+func (m *Mailbox) observe(ctx context.Context, ads []adapter.Adapter, handle string) (adapter.State, adapter.Adapter, bool, error) {
 	if len(ads) == 0 && len(m.adapters) > 0 {
-		return "", nil, errors.New("no adapter is reachable")
+		return "", nil, false, errors.New("no adapter is reachable")
 	}
 	var fallback adapter.State
 	var sawErr error
@@ -847,15 +927,15 @@ func (m *Mailbox) observe(ctx context.Context, ads []adapter.Adapter, handle str
 			fallback = prefer(fallback, state)
 			continue
 		}
-		return state, item, nil
+		return state, item, true, nil
 	}
 	if fallback == "" && sawErr != nil {
-		return "", nil, sawErr
+		return "", nil, false, sawErr
 	}
 	if fallback == "" {
 		fallback = adapter.StateGone
 	}
-	return fallback, nil, nil
+	return fallback, nil, len(ads) > 0 && sawErr == nil, nil
 }
 
 func prefer(current, next adapter.State) adapter.State {
@@ -912,9 +992,10 @@ func (m *Mailbox) markDelivered(id, detail string) error {
 	return m.save()
 }
 
-func (m *Mailbox) markExpired(msg message) (message, error) {
+func (m *Mailbox) markExpired(msg message, reason string) (message, error) {
 	now := m.now().UTC()
 	msg.State = stateExpired
+	msg.ExpireReason = reason
 	msg.ClosedAt = &now
 	m.msgs[msg.ID] = msg
 	if err := m.logEvent(eventlog.Event{
@@ -923,7 +1004,7 @@ func (m *Mailbox) markExpired(msg message) (message, error) {
 		MsgID:  msg.ID,
 		Name:   msg.To,
 		Detail: "waited " + waitString(now.Sub(msg.SentAt)),
-		Reason: "ttl",
+		Reason: reason,
 	}); err != nil {
 		return msg, err
 	}
@@ -1114,6 +1195,9 @@ func (m *Mailbox) sendHoldNotice(ctx context.Context, n holdNotice) {
 // the notice, and it skips anonymous or unreachable senders.
 func (m *Mailbox) notifyExpired(ctx context.Context, msg message) {
 	text := fmt.Sprintf("agentbus: message %s to %s expired\n", msg.ID, msg.To)
+	if msg.ExpireReason == ExpireGone {
+		text = fmt.Sprintf("agentbus: message %s to %s not delivered: target pane is gone\n", msg.ID, msg.To)
+	}
 	m.notifySender(ctx, msg.ID, msg.From, text, "expiry notice not sent")
 }
 
@@ -1133,7 +1217,7 @@ func (m *Mailbox) notifySender(ctx context.Context, id, from, text, unsent strin
 	if err != nil {
 		return
 	}
-	state, ad, err := m.observe(ctx, ads, handle)
+	state, ad, _, err := m.observe(ctx, ads, handle)
 	if err != nil || ad == nil || !canDeliver(state) {
 		return
 	}

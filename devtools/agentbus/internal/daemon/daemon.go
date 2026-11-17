@@ -84,6 +84,9 @@ type Config struct {
 	// HoldNoticeAfter is how long a held message waits before one notice
 	// to its sender. Nil uses 10 minutes. A pointer to zero sends none.
 	HoldNoticeAfter *time.Duration
+	// GoneAfter is how long a message to a raw pane handle waits after
+	// the pane is gone before it expires. Nil uses one hour.
+	GoneAfter *time.Duration
 }
 
 // ProtocolVersion is the request format a hub-socket client must speak.
@@ -455,6 +458,7 @@ func openState(dir string, cfg Config, lg *eventlog.Log) (*registry.Registry, *m
 		return nil, nil, fmt.Errorf("open mailbox: %w", err)
 	}
 	box.SetHoldNoticeAfter(cfg.HoldNoticeAfter)
+	box.SetGoneAfter(cfg.GoneAfter)
 	return reg, box, nil
 }
 

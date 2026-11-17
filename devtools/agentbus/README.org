@@ -139,6 +139,20 @@ could not identify it also prints
 ~--wait~ does not use exit 3. ~reply~ answers the same way. ~to~ is the
 original sender and ~re~ is the id.
 
+A target whose pane is gone is held as ~held: gone~. For a registered
+name the message keeps waiting, with no limit but ~--ttl~. For a raw
+pane handle that no name holds, nothing can accept it once the pane is
+gone, so it expires after the pane has been gone for ~gone_after~
+(default 1h; ~"0s"~ expires it at the first gone check). The event log
+gets one ~expired~ event with ~reason=gone~, ~status --json~ shows
+~"state":"expired","reason":"gone"~, and the sender is told
+~agentbus: message <id> to <handle> not delivered: target pane is gone~.
+Only a positive ~gone~ from every adapter counts: a machine or
+transport that cannot be reached, or an ~unknown~ state, keeps the
+message held, and any answer other than ~gone~ restarts the clock. A
+hold is logged once as a ~held~ event, and again only when its reason
+changes.
+
 #+BEGIN_SRC bash
 agentbus reply m-7f3a "yes, the queue is in progress"
 #+END_SRC
@@ -251,7 +265,8 @@ or ~unknown~ (no such id). Fields that do not apply are omitted.
 target's composer is not empty, or the pane is scrolled up or focused),
 ~target not ready~, ~earlier message held~, ~hibernated~, ~delivery
 unconfirmed~, or ~other~. ~stored_at~ and ~delivered_at~ are RFC3339 in
-UTC. ~error~ says why a ~failed~ message failed. An unknown id is not an
+UTC. ~error~ says why a ~failed~ message failed. ~reason~ says why an
+~expired~ message closed: ~ttl~ or ~gone~. An unknown id is not an
 error; only bad usage exits 2. In hub mode, an id still in this
 machine's outbox is answered here, first, and the hub answers the rest.
 
@@ -277,6 +292,7 @@ a change needs a restart. ~AGENTBUS_HUB~ overrides ~hub~.
 remote_timeout = "5s"             # bound on each call to another machine
 list_liveness_max_age = "15s"     # list refreshes cached liveness older than this
 hold_notice_after = "10m"         # one notice after a hold this long; "0s" sends none
+gone_after = "1h"                 # a raw pane handle gone this long: its message expires; "0s" at once
 
 # Hub mode. Default: unset, so this machine runs its own daemon.
 # hub = "me@hub"
