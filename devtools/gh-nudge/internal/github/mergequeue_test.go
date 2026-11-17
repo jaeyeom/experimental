@@ -96,7 +96,7 @@ func TestLoadPullRequestParsesQueueState(t *testing.T) {
 					{"name": "ci", "conclusion": "SUCCESS", "status": "COMPLETED"},
 					{"context": "lint", "state": "FAILURE"}
 				]}}}}]},
-				"comments": {"nodes": [{"body": "RCA EVT class=flake"}]},
+				"comments": {"nodes": [{"databaseId": 101, "body": "RCA EVT class=flake"}]},
 				"timelineItems": {"nodes": [
 					{"__typename": "AddedToMergeQueueEvent", "id": "A1", "createdAt": "2026-01-01T00:00:00Z"},
 					{"__typename": "RemovedFromMergeQueueEvent", "id": "EVT", "createdAt": "2026-01-01T01:00:00Z", "reason": "failed_checks", "beforeCommit": {"oid": "deadbeef"}}
@@ -126,6 +126,12 @@ func TestLoadPullRequestParsesQueueState(t *testing.T) {
 	}
 	if len(pr.Events) != 2 || pr.Events[1].Kind != QueueEventRemoved || pr.Events[1].CommitSHA != "deadbeef" {
 		t.Errorf("events = %+v", pr.Events)
+	}
+	if len(pr.Comments) != 1 || len(pr.CommentIDs) != 1 || pr.CommentIDs[0] != 101 {
+		t.Errorf("comments = %q, ids = %v", pr.Comments, pr.CommentIDs)
+	}
+	if !strings.Contains(exec.calls[0], "databaseId") {
+		t.Errorf("query does not ask for comment ids: %s", exec.calls[0])
 	}
 	if !strings.Contains(exec.calls[0], "enqueuePullRequest") && !strings.Contains(exec.calls[0], "REMOVED_FROM_MERGE_QUEUE_EVENT") {
 		t.Errorf("call = %s", exec.calls[0])
@@ -640,6 +646,20 @@ func TestMergeAsyncSendsQueueActionAndSHA(t *testing.T) {
 		t.Errorf("stdin = %q", exec.stdin)
 	}
 	if !strings.Contains(exec.calls[0], "repos/acme/widgets/pulls/12/merge-async") || !strings.Contains(exec.calls[0], "--method PUT") {
+		t.Errorf("call = %s", exec.calls[0])
+	}
+}
+
+func TestEditPullRequestCommentPatchesIssueComment(t *testing.T) {
+	exec := &routeExec{route: map[string]string{"issues/comments/101": `{}`}}
+	client := NewClientWithExecutor(exec)
+	if err := client.EditPullRequestComment("acme", "widgets", 101, "new body"); err != nil {
+		t.Fatalf("EditPullRequestComment() error = %v", err)
+	}
+	if len(exec.stdin) != 1 || exec.stdin[0] != `{"body":"new body"}` {
+		t.Errorf("stdin = %q", exec.stdin)
+	}
+	if !strings.Contains(exec.calls[0], "repos/acme/widgets/issues/comments/101") || !strings.Contains(exec.calls[0], "--method PATCH") {
 		t.Errorf("call = %s", exec.calls[0])
 	}
 }
