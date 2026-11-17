@@ -51,6 +51,10 @@
 //	# Print the failure evidence for the latest removal, or one --event, as JSON
 //	gh-merge evidence acme/widgets#12 --json
 //
+//	# After an ejection: post the RCA if missing, then requeue if the gate
+//	# allows it. Rerunning does nothing new; exit 2 means the gate refused.
+//	gh-merge handle-ejection acme/widgets#12 --class flake --file body.md
+//
 //	# Remove one pull request from the merge queue
 //	gh-merge dequeue acme/widgets#12
 //
@@ -104,7 +108,7 @@ func registerFlags() {
 	flag.BoolVar(&verbose, "v", false, "Verbose output")
 	flag.BoolVar(&force, "force", false, "Merge even if CI checks have failed or are pending")
 	flag.BoolVar(&includeDownstack, "include-downstack", false, "Also enqueue open pull requests below a stack")
-	flag.BoolVar(&jsonOutput, "json", false, "Print queue, watch, rca, and evidence results as JSON")
+	flag.BoolVar(&jsonOutput, "json", false, "Print queue, watch, rca, evidence, and handle-ejection results as JSON")
 	flag.DurationVar(&watchTimeout, "timeout", defaultWatchTimeout, timeoutHelp())
 	flag.BoolVar(&whenGreen, "when-green", false, whenGreenHelp())
 	flag.BoolVar(&allowNoRequiredChecks, "allow-no-required-checks", false, "Queue even when required_checks is empty or the repository is not configured")
@@ -120,6 +124,7 @@ func registerFlags() {
 		fmt.Fprintf(os.Stderr, "  rca     %s\n", rcaCommandHelp())
 		fmt.Fprintf(os.Stderr, "  evidence %s\n", evidenceCommandHelp())
 		fmt.Fprintf(os.Stderr, "  dequeue %s\n", dequeueCommandHelp())
+		fmt.Fprintf(os.Stderr, "  handle-ejection %s\n", handleEjectionCommandHelp())
 	}
 }
 
@@ -641,6 +646,8 @@ func main() {
 		exitOnUsage(cmdErr, errEvidenceUsage, evidenceUsage())
 	case "dequeue":
 		cmdErr = dequeueCommand(githubClient, args[1:])
+	case "handle-ejection":
+		cmdErr = handleEjectionCommand(githubClient, cfg, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
 		flag.Usage()

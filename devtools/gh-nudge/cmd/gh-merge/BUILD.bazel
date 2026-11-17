@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "circleci.go",
         "dequeue.go",
+        "ejection.go",
         "evidence.go",
         "main.go",
         "queue.go",
@@ -34,6 +35,7 @@ go_test(
     size = "small",
     srcs = [
         "circleci_test.go",
+        "ejection_test.go",
         "evidence_test.go",
         "main_test.go",
         "queue_test.go",

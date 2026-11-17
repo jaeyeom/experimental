@@ -174,6 +174,36 @@ carries ~supersedes=~, followed by any other-tool markers as context.
 ~--json~ prints ~pullRequest~, ~eventId~, ~exists~, ~class~ (omitted when
 none), ~superseded~, and ~rcaContext~.
 
+*** Handle an ejection
+
+#+begin_example
+gh-merge handle-ejection <owner/repo#n|url|number> --class our-code|flake|infra|manual --file body.md [--event <id>] [--when-green] [--dry-run] [--json]
+#+end_example
+
+~handle-ejection~ runs the mechanical steps after an ejection in order. The
+caller still picks the class and writes the RCA text.
+
+1. It resolves the removal: ~--event~, or the latest removal.
+2. If the removal has no gh-merge RCA, it posts one the same way as ~rca~.
+   If it has one with the same class, it leaves it. If it has one with a
+   different class, it refuses and suggests ~rca --supersedes~.
+3. Unless the pull request merged, is in the merge queue, or was added to it
+   after the removal, it runs the ~queue~ preflight and RCA gate and enqueues
+   once when they allow it. ~--when-green~ passes through. For ~our-code~ on
+   an unchanged head the gate refuses and the message says to push a fix
+   first. ~manual~ requeues outside ~max_requeues~, as with ~queue~.
+
+Running it again for the same removal posts nothing and enqueues nothing.
+~--dry-run~ posts nothing and enqueues nothing; the gate still decides as if
+the RCA were posted. It exits 0 when it acted or had nothing to do, 2 when
+the queue preflight or RCA gate refused, and 1 on errors, including a class
+mismatch. ~--json~ prints one object with ~pullRequest~, ~eventId~,
+~class~, ~dryRun~, and ~steps~. Each step has a ~name~ (~event~, ~rca~, or
+~queue~), an ~action~, such as ~posted~, ~would-post~, ~kept~, ~refused~,
+~enqueued~, ~would-enqueue~, or ~already-queued~, and a ~detail~. The
+~queue~ step also carries the ~queue --json~ result, with its ~requeue~
+decision. Other output goes to stderr.
+
 ** Configuration and Setup
 
 Please see [[file:README.org][README.org]] file for the full configuration.
