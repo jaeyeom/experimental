@@ -78,7 +78,7 @@ settings {
   flake_signatures {
     "connection reset"
   }
-  // Placeholders: {event_id} and {class}. Class is our-code, flake, or infra.
+  // Placeholders: {event_id} and {class}. Class is our-code, flake, infra, or manual.
   rca_marker = "RCA {event_id} class={class}"
   // Refuse another flake or infra requeue when the timeline count is greater than this.
   max_requeues = 2

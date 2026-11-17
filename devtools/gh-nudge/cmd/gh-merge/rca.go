@@ -29,7 +29,7 @@ func rcaCommandHelp() string {
 }
 
 func rcaUsage() string {
-	return "rca <owner/repo#n|url|number> --class our-code|flake|infra --file body.md [--update|--supersedes]\n" +
+	return "rca <owner/repo#n|url|number> --class our-code|flake|infra|manual --file body.md [--update|--supersedes]\n" +
 		"       rca --check <owner/repo#n|url|number> [--event <id>] [--json]"
 }
 
@@ -52,6 +52,9 @@ func postRCA(client rcaAPI, cfg *config.Config, args []string) error {
 	event, ok := latestRemoval(pr.Events)
 	if !ok {
 		return errors.New("pull request has no removal event")
+	}
+	if parsed.class == "manual" && event.Reason != "manual" {
+		return fmt.Errorf("rca class manual needs a manual removal; removal %s reason is %s", event.ID, event.Reason)
 	}
 	existing, err := ourRCAs(cfg.Settings.RCAMarker, event.ID, pr)
 	if err != nil {
@@ -82,7 +85,7 @@ func postRCA(client rcaAPI, cfg *config.Config, args []string) error {
 
 func readRCAFile(parsed parsedRCA) (string, error) {
 	if !validRCAClass(parsed.class) {
-		return "", errors.New("rca class must be our-code, flake, or infra")
+		return "", errors.New("rca class must be our-code, flake, infra, or manual")
 	}
 	fileBody, err := os.ReadFile(parsed.file)
 	if err != nil {
@@ -330,7 +333,7 @@ func (p parsedRCA) consistent() bool {
 }
 
 func validRCAClass(class string) bool {
-	return class == "our-code" || class == "flake" || class == "infra"
+	return class == "our-code" || class == "flake" || class == "infra" || class == "manual"
 }
 
 func latestRemoval(events []github.QueueEvent) (github.QueueEvent, bool) {

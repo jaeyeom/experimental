@@ -92,7 +92,7 @@ type SettingsConfig struct {
 	// A match is a hint, not a verdict.
 	FlakeSignatures []string `yaml:"flake_signatures"`
 	// RCAMarker is a comment template. Placeholders are {event_id} and {class}.
-	// Class is our-code, flake, or infra. Empty matches nothing.
+	// Class is our-code, flake, infra, or manual. Empty matches nothing.
 	RCAMarker string `yaml:"rca_marker"`
 	// MaxRequeues is how many earlier flake or infra requeues are allowed.
 	// Nil means the default, 2. Zero means none are allowed.
