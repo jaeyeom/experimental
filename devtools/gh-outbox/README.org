@@ -110,7 +110,9 @@ Default rules:
 * Approval
 
 Each submission is its own decide item: =decide ask --kind relay=,
-owner = =--owner=, with =--notify-pane= from the config. The item text
+owner = =--owner=, with =--notify-pane= from the config, and
+=--long-lines= so the quoted body passes decide's line limit (a decide
+without that flag gets the same ask without it). The item text
 starts with the destination in plain words, one line per thread
 (=discussion thread on PATH line N=) or
 =review (main conversation): comment|request changes|approve=, then the

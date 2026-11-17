@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1673,7 +1674,7 @@ func TestDecideCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := [][]string{
-		{"ask", "--owner", "slackwatch", "--owner-replies-only", "--kind", "relay", "--option", "post:Post as written", "--option", "drop:Don't post", "--rec", "post", "--free-text", "--json", "Post?"},
+		{"ask", "--long-lines", "--owner", "slackwatch", "--owner-replies-only", "--kind", "relay", "--option", "post:Post as written", "--option", "drop:Don't post", "--rec", "post", "--free-text", "--json", "Post?"},
 		{"show", "--json", "D-7"},
 		{"done", "--json", "D-7", "posted"},
 	}
@@ -1695,8 +1696,8 @@ func TestAskPassesNotifyPane(t *testing.T) {
 		t.Fatalf("Ask = %q, %v", id, err)
 	}
 	want := [][]string{
-		{"ask", "--owner", "slackwatch", "--owner-replies-only", "--notify-pane", "agentbus:ops", "--kind", "relay", "--option", "post:Post as written", "--option", "drop:Don't post", "--rec", "post", "--free-text", "--json", "Post?"},
-		{"ask", "--owner", "slackwatch", "--notify-pane", "agentbus:ops", "--kind", "relay", "--option", "post:Post as written", "--option", "drop:Don't post", "--rec", "post", "--free-text", "--json", "Post?"},
+		{"ask", "--long-lines", "--owner", "slackwatch", "--owner-replies-only", "--notify-pane", "agentbus:ops", "--kind", "relay", "--option", "post:Post as written", "--option", "drop:Don't post", "--rec", "post", "--free-text", "--json", "Post?"},
+		{"ask", "--long-lines", "--owner", "slackwatch", "--notify-pane", "agentbus:ops", "--kind", "relay", "--option", "post:Post as written", "--option", "drop:Don't post", "--rec", "post", "--free-text", "--json", "Post?"},
 	}
 	if fmt.Sprint(calls) != fmt.Sprint(want) {
 		t.Errorf("calls = %q\nwant %q", calls, want)
@@ -2433,5 +2434,56 @@ func TestAutoRetryChecksRunOnce(t *testing.T) {
 	}
 	if n := strings.Count(logs.String(), "hash"); n != 1 {
 		t.Errorf("refused retries logged %d times, want 1:\n%s", n, logs.String())
+	}
+}
+
+// TestDecideCLIPassesLongLines checks each ask and reply slackwatch
+// writes itself passes --long-lines, and is sent again without it when
+// this decide does not know the flag.
+func TestDecideCLIPassesLongLines(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		call func(DecideCLI) error
+	}{
+		{"ask", func(d DecideCLI) error {
+			_, err := d.Ask(context.Background(), "slackwatch", "Post?")
+			return err
+		}},
+		{"reply", func(d DecideCLI) error { return d.Reply(context.Background(), "D-1", "Posted") }},
+		{"reply options", func(d DecideCLI) error { return d.ReplyOptions(context.Background(), "D-1", "Post?") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls [][]string
+			d := DecideCLI{Run: func(_ context.Context, args ...string) ([]byte, error) {
+				calls = append(calls, append([]string(nil), args...))
+				return []byte(`{"id":"D-1","state":"open"}`), nil
+			}}
+			if err := tc.call(d); err != nil {
+				t.Fatal(err)
+			}
+			if len(calls) != 1 || !slicesHas(calls[0], "--long-lines") {
+				t.Fatalf("calls = %q", calls)
+			}
+		})
+		t.Run(tc.name+" on an older decide", func(t *testing.T) {
+			var calls [][]string
+			d := DecideCLI{Run: func(_ context.Context, args ...string) ([]byte, error) {
+				calls = append(calls, append([]string(nil), args...))
+				if slicesHas(args, "--long-lines") {
+					return nil, errors.New("decide " + args[0] + ": exit status 2: flag provided but not defined: -long-lines")
+				}
+				return []byte(`{"id":"D-1","state":"open"}`), nil
+			}}
+			if err := tc.call(d); err != nil {
+				t.Fatal(err)
+			}
+			last := calls[len(calls)-1]
+			if len(calls) != 2 || slicesHas(last, "--long-lines") {
+				t.Fatalf("calls = %q", calls)
+			}
+			if fmt.Sprint(last) != fmt.Sprint(slices.DeleteFunc(slices.Clone(calls[0]), func(a string) bool { return a == "--long-lines" })) {
+				t.Fatalf("retry changed more than the flag: %q", calls)
+			}
+		})
 	}
 }

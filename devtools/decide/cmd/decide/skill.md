@@ -43,6 +43,8 @@ Use item IDs only in decide itself and in messages to other local agents. Never 
 
 Short lines. A one-line summary first.
 
+`ask` and `reply` reject a line over 160 characters. Write the essence first, then short bullets. `--long-lines` is for the rare intended case.
+
 Numbered steps or bullets for details.
 
 The exact command run and the exact error, each on its own indented lines.

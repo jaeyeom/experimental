@@ -91,7 +91,7 @@ func TestGateDeciderAsksWithoutAPaneAndReadsTheItem(t *testing.T) {
 		t.Fatalf("Ask = %q, %v", id, err)
 	}
 	want := []string{
-		"/bin/decide", "ask", "--owner", "agentbus", "--kind", "relay",
+		"/bin/decide", "ask", "--long-lines", "--owner", "agentbus", "--kind", "relay",
 		"--option", "approve:Run it", "--option", "reject:Reject", "--free-text", "--json", "agentbus job j-1 waits for you",
 	}
 	if !slices.Equal(argvs[0], want) {
@@ -109,6 +109,35 @@ func TestGateDeciderAsksWithoutAPaneAndReadsTheItem(t *testing.T) {
 	}
 	if !slices.Equal(argvs[2], []string{"/bin/decide", "done", "--json", "d7", "approved"}) {
 		t.Fatalf("done argv = %q", argvs[2])
+	}
+}
+
+func TestGateDeciderAskRetriesWithoutLongLinesOnAnOlderDecide(t *testing.T) {
+	var argvs [][]string
+	d := gateDecider(func(name string) (string, error) { return "/bin/" + name, nil },
+		func(_ context.Context, a []string) ([]byte, error) {
+			argvs = append(argvs, a)
+			if slices.Contains(a, "--long-lines") {
+				return nil, errors.New("/bin/decide: exit status 2: decide: flag provided but not defined: -long-lines")
+			}
+			return []byte(`{"id":"d8"}`), nil
+		})
+	id, err := d.Ask(context.Background(), "agentbus job j-1 waits for you")
+	if err != nil || id != "d8" {
+		t.Fatalf("Ask = %q, %v", id, err)
+	}
+	if len(argvs) != 2 || slices.Contains(argvs[1], "--long-lines") {
+		t.Fatalf("argvs = %q", argvs)
+	}
+	if !slices.Equal(argvs[1], withoutLongLines(argvs[0])) {
+		t.Fatalf("retry changed more than the flag: %q", argvs)
+	}
+}
+
+func TestRunOutputErrorCarriesStderr(t *testing.T) {
+	_, err := runOutput(context.Background(), []string{"sh", "-c", "echo 'flag provided but not defined: -long-lines' >&2; exit 2"})
+	if !olderDecide(err) {
+		t.Fatalf("err = %v", err)
 	}
 }
 

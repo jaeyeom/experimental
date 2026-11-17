@@ -172,12 +172,13 @@ A job whose gate is ~ask~ stays ~gated~ and blocks its subject. On its
 next check (every 15 seconds) the daemon raises one decide item for it:
 
 #+BEGIN_SRC bash
-decide ask --owner agentbus --kind relay --option "approve:Run it" \
+decide ask --long-lines --owner agentbus --kind relay --option "approve:Run it" \
   --option "reject:Reject" --free-text --json "agentbus job j-7 (merge owner/repo#12 at 1a2b3c4) waits for you: ..."
 #+END_SRC
 
 The item names no pane, so the answer changes the queue only; it never
-types into an agent. ~jobs show~ prints it as ~decide: <id>~.
+types into an agent. ~--long-lines~ lets the one-line question past decide's
+line limit; a decide without that flag gets the same ask without it. ~jobs show~ prints it as ~decide: <id>~.
 
 - *Questions.* Each message in the item that offers options is a
   question: the ask, and any follow-up an agent adds with ~decide reply

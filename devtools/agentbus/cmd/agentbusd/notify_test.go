@@ -22,6 +22,40 @@ func TestDecideArgvOffersAdoptOnlyForANeedsAdoptNote(t *testing.T) {
 	}
 }
 
+func TestDecideArgvPassesLongLines(t *testing.T) {
+	argv := decideArgv("decide", lease.PausedNote("local:/repo"))
+	if len(argv) < 3 || argv[1] != "ask" || argv[2] != "--long-lines" {
+		t.Fatalf("argv = %q", argv)
+	}
+}
+
+func TestDecideNotifierRetriesWithoutLongLinesOnAnOlderDecide(t *testing.T) {
+	var argvs [][]string
+	var stderr strings.Builder
+	notify := decideNotifier(func(string) (string, error) { return "decide", nil },
+		func(_ context.Context, argv []string) error {
+			argvs = append(argvs, argv)
+			if slices.Contains(argv, "--long-lines") {
+				return errors.New("decide: exit status 2: flag provided but not defined: -long-lines")
+			}
+			return nil
+		}, &stderr)
+	notify("note")
+	if len(argvs) != 2 || slices.Contains(argvs[1], "--long-lines") || argvs[1][len(argvs[1])-1] != "note" {
+		t.Fatalf("argvs = %q", argvs)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestRunQuietErrorCarriesStderr(t *testing.T) {
+	err := runQuiet(context.Background(), []string{"sh", "-c", "echo 'flag provided but not defined: -long-lines' >&2; exit 2"})
+	if !olderDecide(err) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestDecideNotifierIsNilWithoutDecide(t *testing.T) {
 	ran := false
 	notify := decideNotifier(func(string) (string, error) { return "", errors.New("not found") },
