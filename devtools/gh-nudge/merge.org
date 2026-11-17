@@ -120,7 +120,7 @@ template:
 <!-- gh-merge-rca <event_id> class=<class> [tool=<name>] [commit=<sha>] [job=<job>] [test=<test>] [supersedes=<comment id>] -->
 #+end_example
 
-- ~class~ is ~our-code~, ~flake~, or ~infra~.
+- ~class~ is ~our-code~, ~flake~, ~infra~, or ~manual~.
 - ~tool~ names the tool that wrote the marker. A marker without ~tool=~ was
   written by gh-merge. ~gh-merge rca~ never writes it.
 - ~commit~, ~job~, and ~test~ are the merge-group commit, the failed job, and
@@ -136,11 +136,17 @@ before.
 
 The requeue gate reads only gh-merge markers. For one removal, a marker with
 ~supersedes=~ replaces every earlier marker for it. Otherwise ~our-code~ wins
-over ~flake~ and ~infra~, and the last class is used. A marker with
+over the other classes, and the last class is used. A marker with
 ~tool=<other>~ never satisfies the gate and is never counted as a requeue.
 ~evidence~ prints it as ~RCA from <tool>: <class> (context, not counted)~,
 ~evidence --json~ lists it under ~rca_context~, and ~watch --json~ lists it
 under ~rcaContext~.
+
+~manual~ is for a pull request someone removed from the queue by hand
+(removal reason ~manual~). It allows the requeue, needs no CI evidence, and,
+like ~our-code~, the requeue after it does not count toward ~max_requeues~.
+~gh-merge rca --class manual~ refuses unless the removal's reason is
+~manual~.
 
 Another tool can write a marker for gh-merge readers with at least the event
 id, ~class=~, and ~tool=~.

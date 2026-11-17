@@ -962,8 +962,11 @@ func requeueAllowed(class string, matched bool, earlier, limit int) error {
 	if class == "our-code" {
 		return errors.New("refusing to enqueue: RCA class is our-code")
 	}
+	if class == "manual" {
+		return nil
+	}
 	if class != "flake" && class != "infra" {
-		return fmt.Errorf("refusing to enqueue: RCA class %q is not flake or infra", class)
+		return fmt.Errorf("refusing to enqueue: RCA class %q is not flake, infra, or manual", class)
 	}
 	if earlier > limit {
 		return fmt.Errorf("refusing to enqueue: %d earlier requeues is greater than max_requeues %d", earlier, limit)
@@ -998,7 +1001,7 @@ func earlierRequeues(marker string, comments []string, events []github.QueueEven
 		if err != nil {
 			return 0, err
 		}
-		if matched && class == "our-code" {
+		if matched && (class == "our-code" || class == "manual") {
 			continue
 		}
 		count++

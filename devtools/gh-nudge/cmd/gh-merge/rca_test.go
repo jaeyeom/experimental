@@ -304,3 +304,96 @@ func TestRCACheckUnknownEvent(t *testing.T) {
 		t.Fatal("rca --check --event NOPE succeeded")
 	}
 }
+
+func TestManualRCARequeuesOutsideMaxRequeues(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	added := func(id string, at time.Time) github.QueueEvent {
+		return github.QueueEvent{ID: id, Kind: github.QueueEventAdded, CreatedAt: at}
+	}
+	removed := func(id, reason string, at time.Time) github.QueueEvent {
+		return github.QueueEvent{ID: id, Kind: github.QueueEventRemoved, CreatedAt: at, Reason: reason}
+	}
+	events := []github.QueueEvent{
+		added("A0", base),
+		removed("R1", "failed_checks", base.Add(time.Minute)),
+		added("A1", base.Add(2*time.Minute)),
+		removed("R2", "failed_checks", base.Add(3*time.Minute)),
+		added("A2", base.Add(4*time.Minute)),
+		removed("MAN", "manual", base.Add(5*time.Minute)),
+	}
+	comments := []string{"RCA R1 class=flake", "RCA R2 class=infra"}
+	limit := 2
+	cfg := rcaConfig()
+	cfg.Settings.MaxRequeues = &limit
+	pr := readyPR()
+	pr.Events = events
+	pr.Comments = comments
+
+	before, err := earlierRequeues(cfg.Settings.RCAMarker, pr.Comments, pr.Events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := writeRCAFile(t, "Dequeued by hand to land a fix first.\n")
+	client := &fakeQueue{pr: pr}
+	captureStdout(t, func() {
+		if err := postRCA(client, cfg, []string{"acme/widgets#12", "--class", "manual", "--file", path}); err != nil {
+			t.Fatalf("postRCA() error = %v", err)
+		}
+	})
+	if client.commentCalls != 1 || !strings.Contains(client.comments[0], "RCA MAN class=manual") {
+		t.Fatalf("comments = %q", client.comments)
+	}
+	pr.Comments = append(pr.Comments, client.comments[0])
+	after, err := earlierRequeues(cfg.Settings.RCAMarker, pr.Comments, pr.Events)
+	if err != nil || after != before {
+		t.Fatalf("earlierRequeues() = %d, %v, want unchanged %d", after, err, before)
+	}
+	client = &fakeQueue{pr: pr}
+	captureStdout(t, func() {
+		if err := queuePullRequest(client, cfg, pr.Ref.Raw, false); err != nil {
+			t.Fatalf("queue after a manual removal error = %v", err)
+		}
+	})
+	if client.enqueueCalls != 1 {
+		t.Fatalf("enqueueCalls = %d, want the manual requeue allowed", client.enqueueCalls)
+	}
+
+	// The manual requeue A3 does not count: a flake after it is still at the cap.
+	pr.Events = append(pr.Events,
+		added("A3", base.Add(6*time.Minute)),
+		removed("EVT", "failed_checks", base.Add(7*time.Minute)),
+	)
+	pr.Comments = append(pr.Comments, "RCA EVT class=flake")
+	got, err := earlierRequeues(cfg.Settings.RCAMarker, pr.Comments, pr.Events)
+	if err != nil || got != 2 {
+		t.Fatalf("earlierRequeues() = %d, %v, want 2", got, err)
+	}
+	client = &fakeQueue{pr: pr}
+	captureStdout(t, func() {
+		if err := queuePullRequest(client, cfg, pr.Ref.Raw, false); err != nil {
+			t.Fatalf("queue at the flake cap error = %v", err)
+		}
+	})
+	if client.enqueueCalls != 1 {
+		t.Fatalf("enqueueCalls = %d, want the flake requeue allowed", client.enqueueCalls)
+	}
+}
+
+func TestRCAManualRefusedForFailedChecksRemoval(t *testing.T) {
+	path := writeRCAFile(t, "Not really manual.\n")
+	pr := readyPR()
+	pr.Events = []github.QueueEvent{{
+		ID: "EVT", Kind: github.QueueEventRemoved, CreatedAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC), Reason: "failed_checks",
+	}}
+	client := &fakeQueue{pr: pr}
+	var err error
+	captureStdout(t, func() {
+		err = postRCA(client, rcaConfig(), []string{"acme/widgets#12", "--class", "manual", "--file", path})
+	})
+	if err == nil || !strings.Contains(err.Error(), "failed_checks") {
+		t.Fatalf("postRCA() error = %v, want refusal naming the reason", err)
+	}
+	if client.commentCalls != 0 {
+		t.Fatalf("commentCalls = %d", client.commentCalls)
+	}
+}

@@ -11,7 +11,7 @@ func TestRenderDefaultMarker(t *testing.T) {
 
 func TestParseAcceptsClasses(t *testing.T) {
 	const marker = "RCA {event_id} class={class}"
-	for _, class := range []string{"our-code", "flake", "infra"} {
+	for _, class := range []string{"our-code", "flake", "infra", "manual"} {
 		t.Run(class, func(t *testing.T) {
 			comment := "note\n" + Render(marker, "EVT", class)
 			got, matched, err := Parse(marker, "EVT", []string{comment})

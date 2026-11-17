@@ -78,7 +78,7 @@ class SettingsConfig {
   flake_signatures: Listing<String> = new {}
   /// Comment template that must match before a removed pull request can be
   /// queued again. Placeholders are {event_id} and {class}.
-  /// Class is our-code, flake, or infra. Empty matches nothing.
+  /// Class is our-code, flake, infra, or manual. Empty matches nothing.
   rca_marker: String = ""
   /// How many earlier flake or infra requeues are allowed.
   /// gh-merge queue refuses when the timeline count is greater than this.

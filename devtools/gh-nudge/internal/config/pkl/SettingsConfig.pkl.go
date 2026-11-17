@@ -49,7 +49,7 @@ type SettingsConfig struct {
 
 	// Comment template that must match before a removed pull request can be
 	// queued again. Placeholders are {event_id} and {class}.
-	// Class is our-code, flake, or infra. Empty matches nothing.
+	// Class is our-code, flake, infra, or manual. Empty matches nothing.
 	RcaMarker string `pkl:"rca_marker"`
 
 	// How many earlier flake or infra requeues are allowed.

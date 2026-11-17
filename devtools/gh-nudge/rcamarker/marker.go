@@ -32,7 +32,7 @@ const GHMerge = "gh-merge"
 var knownKeys = map[string]bool{KeyTool: true, KeyCommit: true, KeyJob: true, KeyTest: true, KeySupersedes: true}
 
 const (
-	classPattern = `our-code|flake|infra`
+	classPattern = `our-code|flake|infra|manual`
 	keysGroup    = `(?P<keys>(?: [A-Za-z][A-Za-z0-9_-]*=\S+)*)`
 )
 
@@ -92,7 +92,7 @@ func cleanValue(value string) string {
 // Parse reports the RCA class gh-merge decides from for eventID in comments,
 // oldest first. Markers from other tools are ignored. A marker with
 // supersedes= replaces every earlier marker for the event. Among the rest,
-// our-code wins over flake and infra; otherwise the last class is used.
+// our-code wins over the other classes; otherwise the last class is used.
 // matched is false when marker is empty, lacks a placeholder, or no comment matches.
 func Parse(marker, eventID string, comments []string) (string, bool, error) {
 	markers, err := Find(marker, eventID, comments)
@@ -152,7 +152,7 @@ func Find(marker, eventID string, comments []string) ([]Marker, error) {
 }
 
 // Match reports the first marker in comment. The event id is the text
-// captured for {event_id}. Class is our-code, flake, or infra.
+// captured for {event_id}. Class is our-code, flake, infra, or manual.
 func Match(marker, comment string) (Marker, bool, error) {
 	if !markerReady(marker) {
 		return Marker{}, false, nil
