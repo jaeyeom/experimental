@@ -213,7 +213,8 @@ type prCover struct {
 // repository and base for every collected path, then each PR is ranked.
 // Its GitHub calls are capped by team_cover_max_calls; on the cap or a rate
 // limit the round stops, and a PR not ranked yet waits for the next round.
-// Its uncovered teams are marked skipped; see skippedSuggestions.
+// Its uncovered teams are marked skipped; see skippedSuggestions. Last,
+// explainTeams gives any team still without an entry one.
 func coverTeams(ctx context.Context, deps Deps, cfg config.Config, doc *Document, now time.Time) error {
 	if !cfg.TeamCover || cfg.Skips(config.JobTeamCover) {
 		return nil
@@ -224,6 +225,7 @@ func coverTeams(ctx context.Context, deps Deps, cfg config.Config, doc *Document
 	if !anyTeamRequest(doc.PRs, cfg) {
 		return nil
 	}
+	defer explainTeams(cfg, doc)
 	client := deps.GH
 	cache := newCoverCache(cfg, now)
 	cache.stored = deps.History
@@ -576,8 +578,9 @@ func (c *coverCache) prepare(ctx context.Context, client GH, cfg config.Config, 
 }
 
 // finish is the last pass: history from loadHistory, activity, load, and
-// the suggestions. A PR waits (errStopped) after a rate limit, while some
-// of its paths are deferred, or when the cap stops a call it needs.
+// the suggestions. A PR waits (errStopped) after a rate limit, while all
+// of its paths are deferred, or when the cap stops a call it needs. With
+// only some deferred it ranks on the rest, and each suggestion says so.
 func (c *coverCache) finish(ctx context.Context, client GH, cfg config.Config, doc *Document, cover *prCover) ([]TeamReviewSuggestion, error) {
 	if cover.final {
 		return cover.suggest, nil
@@ -586,9 +589,11 @@ func (c *coverCache) finish(ctx context.Context, client GH, cfg config.Config, d
 		return nil, errStopped
 	}
 	facts := &cover.facts
+	deferred := 0
 	if cover.ranking {
 		if cover.history {
-			if c.anyDeferred(cover.pr, facts.files) {
+			deferred = c.countDeferred(cover.pr, facts.files)
+			if deferred > 0 && deferred == len(facts.files) {
 				return nil, errStopped
 			}
 			c.fillHistory(cover.pr, facts)
@@ -601,7 +606,21 @@ func (c *coverCache) finish(ctx context.Context, client GH, cfg config.Config, d
 			return nil, err
 		}
 	}
-	return suggestTeams(*facts), nil
+	suggestions := suggestTeams(*facts)
+	if deferred > 0 {
+		notePartialHistory(suggestions, fmt.Sprintf("history partial (%d of %d paths deferred)", deferred, len(facts.files)))
+	}
+	return suggestions, nil
+}
+
+// notePartialHistory adds reason to each suggested reviewer.
+func notePartialHistory(suggestions []TeamReviewSuggestion, reason string) {
+	for i := range suggestions {
+		for k := range suggestions[i].Suggest {
+			item := &suggestions[i].Suggest[k]
+			item.Reasons = append(item.Reasons, reason)
+		}
+	}
 }
 
 func (c *coverCache) fillCodeowners(ctx context.Context, client GH, doc *Document, pr PR, facts *coverFacts) error {
@@ -680,13 +699,15 @@ func historyKey(repo, base, path string) string {
 	return repo + "@" + base + "\x00" + path
 }
 
-func (c *coverCache) anyDeferred(pr PR, files []string) bool {
+// countDeferred counts the files of pr whose history the round deferred.
+func (c *coverCache) countDeferred(pr PR, files []string) int {
+	n := 0
 	for _, file := range files {
 		if c.deferred[historyKey(pr.Repo, pr.Base, file)] {
-			return true
+			n++
 		}
 	}
-	return false
+	return n
 }
 
 func (c *coverCache) deferPaths(group historyGroup, paths []string) {
@@ -1392,4 +1413,39 @@ func contextStop(ctx context.Context, err error) error {
 func loud(doc *Document, msg string) {
 	_, _ = fmt.Fprintf(os.Stderr, "prsync: %s\n", msg)
 	warn(doc, msg)
+}
+
+// notEvaluated is the uncovered_reason explainTeams gives a team that no
+// pass gave an entry.
+const notEvaluated = "not evaluated this round"
+
+// explainTeams makes sure each PR has one entry per requested team, not
+// skip-listed, with a cover, a suggestion, an error or a reason. A team
+// left without one is marked notEvaluated with a warning, so a gap shows
+// in the output instead of an empty list.
+func explainTeams(cfg config.Config, doc *Document) {
+	for i := range doc.PRs {
+		pr := &doc.PRs[i]
+		org, err := repoOrg(pr.Repo)
+		if err != nil {
+			continue
+		}
+		teams, _ := teamRequests(pr.ReviewRequests, org, cfg.TeamCoverSkipTeams)
+		for _, team := range teams {
+			k := slices.IndexFunc(pr.TeamReviewSuggestions, func(item TeamReviewSuggestion) bool { return item.Team == team })
+			if k >= 0 && explained(pr.TeamReviewSuggestions[k]) {
+				continue
+			}
+			if k < 0 {
+				pr.TeamReviewSuggestions = append(pr.TeamReviewSuggestions, TeamReviewSuggestion{Team: team, Suggest: []SuggestedReviewer{}})
+				k = len(pr.TeamReviewSuggestions) - 1
+			}
+			pr.TeamReviewSuggestions[k].UncoveredReason = notEvaluated
+			warn(doc, fmt.Sprintf("team-cover: %s#%d %s %s", pr.Repo, pr.Number, team, notEvaluated))
+		}
+	}
+}
+
+func explained(item TeamReviewSuggestion) bool {
+	return item.CoveredBy != nil || len(item.Suggest) > 0 || item.Error != "" || item.UncoveredReason != ""
 }

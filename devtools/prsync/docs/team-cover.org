@@ -144,8 +144,11 @@ Caps team-cover's GitHub calls in one round: history, search and REST calls,
 retries included. Round-cache hits make no call and do not count. A history
 request is not sent unless a call is left for its pull requests' reviews. At
 the cap the remaining paths and teams wait for the next round, and the cache
-fills over several rounds. A PR the round stopped before ranking, such as
-one whose history is incomplete, gets no suggestion that round: each of its
+fills over several rounds. A PR with only some of its paths deferred
+still ranks, on the history it has, and each of its suggestions adds the
+reason ~history partial (N of M paths deferred)~, in the JSON and the
+stderr hint line. A PR the round stopped before ranking, such as one whose
+paths were all deferred, gets no suggestion that round: each of its
 requested teams, not counting ~team_cover_skip_teams~, gets an entry with
 ~covered_by: null~, ~suggest: []~ and ~uncovered_reason: "skipped: call cap"~,
 or ~"skipped: rate limited"~ when a rate limit stopped the round. A team the

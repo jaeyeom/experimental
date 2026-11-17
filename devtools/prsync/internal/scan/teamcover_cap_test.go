@@ -2,13 +2,16 @@ package scan
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/gh"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/roundcache"
 )
@@ -25,14 +28,21 @@ func manyPaths(n int) []string {
 // for acme/foo, ranking by history with team_cover_max_calls=40.
 func capRound(t *testing.T, cache HistoryCache, paths []string) (*scriptGH, Document) {
 	t.Helper()
+	return historyCapRound(t, cache, paths, paths[len(paths)-1], 40)
+}
+
+// historyCapRound is capRound with carol the author of authored and the
+// cap at maxCalls.
+func historyCapRound(t *testing.T, cache HistoryCache, paths []string, authored string, maxCalls int) (*scriptGH, Document) {
+	t.Helper()
 	g := teamCoverGH(map[string]memberCall{
 		"acme/foo": {members: []gh.TeamMember{{Login: "bob", Type: "User"}, {Login: "carol", Type: "User"}}},
 	})
 	g.files = map[string][]string{"acme/widgets#1": paths}
-	g.history = map[string]gh.PathHistory{"acme/widgets\x00" + paths[len(paths)-1]: {Authors: []string{"carol"}}}
+	g.history = map[string]gh.PathHistory{"acme/widgets\x00" + authored: {Authors: []string{"carol"}}}
 	cfg := teamCoverCfg()
 	cfg.TeamCoverSignals = []string{"history"}
-	cfg.TeamCoverMaxCalls = 40
+	cfg.TeamCoverMaxCalls = maxCalls
 	deps := depsWith(g, fixtureHerdr{})
 	deps.History = cache
 	doc, err := Run(context.Background(), deps, cfg, []string{"acme/widgets"}, fixtureNow)
@@ -55,8 +65,12 @@ func TestRunTeamCoverCallCapDefersPathsToNextRound(t *testing.T) {
 	if !slices.Contains(doc.TeamCoverNotes, "team-cover: call cap 40 reached during history; 115 paths deferred") {
 		t.Fatalf("notes = %q, want the cap line", doc.TeamCoverNotes)
 	}
-	// The PR waits for its history, so its team is marked skipped.
-	assertSkipped(t, doc.PRs[0].TeamReviewSuggestions, "skipped: call cap", "acme/foo")
+	// The PR ranks with the history it has and says what is missing.
+	partial := doc.PRs[0].TeamReviewSuggestions
+	if len(partial) != 1 || len(partial[0].Suggest) != 1 || partial[0].Suggest[0].Login != "bob" ||
+		!slices.Equal(partial[0].Suggest[0].Reasons, []string{"history partial (115 of 300 paths deferred)"}) {
+		t.Fatalf("suggestions = %+v, want bob on partial history", partial)
+	}
 
 	second, doc := capRound(t, cache, paths)
 	if len(second.historyPaths) != 1 || !slices.Equal(second.historyPaths[0], paths[185:]) {
@@ -385,4 +399,155 @@ func TestRunTeamCoverSummaryNote(t *testing.T) {
 			t.Fatalf("warnings = %q, want the summary only in the round output", doc.Warnings)
 		}
 	}
+}
+
+func TestRunTeamCoverRanksWithPartialHistory(t *testing.T) {
+	t.Parallel()
+
+	cache := &mapHistoryCache{entries: map[string]gh.PathHistory{}}
+	paths := manyPaths(5)
+	// The first round stores the history of four paths.
+	historyCapRound(t, cache, paths[:4], paths[0], 40)
+	// Snapshot, members and files use the cap of 3; the fifth path waits.
+	_, doc := historyCapRound(t, cache, paths, paths[0], 3)
+	if !slices.Contains(doc.TeamCoverNotes, "team-cover: call cap 3 reached during history; 1 paths deferred") {
+		t.Fatalf("notes = %q, want the cap line", doc.TeamCoverNotes)
+	}
+	got := doc.PRs[0].TeamReviewSuggestions
+	want := []string{"authored 1 recent change", "history partial (1 of 5 paths deferred)"}
+	if len(got) != 1 || got[0].UncoveredReason != "" || len(got[0].Suggest) != 1 ||
+		got[0].Suggest[0].Login != "carol" || !slices.Equal(got[0].Suggest[0].Reasons, want) {
+		t.Fatalf("suggestions = %+v, want carol with %q", got, want)
+	}
+}
+
+func TestRunTeamCoverAllHistoryDeferredSkipsPR(t *testing.T) {
+	t.Parallel()
+
+	paths := manyPaths(5)
+	_, doc := historyCapRound(t, &mapHistoryCache{entries: map[string]gh.PathHistory{}}, paths, paths[0], 3)
+	assertSkipped(t, doc.PRs[0].TeamReviewSuggestions, "skipped: call cap", "acme/foo")
+}
+
+// assertTeamsExplained checks that every requested team of each PR, not
+// skip-listed, has exactly one entry with a cover, a suggestion, an error
+// or a reason.
+func assertTeamsExplained(t *testing.T, cfg config.Config, doc Document) {
+	t.Helper()
+	for _, pr := range doc.PRs {
+		org, _, _ := splitRepo(pr.Repo)
+		teams, _ := teamRequests(pr.ReviewRequests, org, cfg.TeamCoverSkipTeams)
+		if len(pr.TeamReviewSuggestions) != len(teams) {
+			t.Fatalf("%s#%d entries = %+v, want one for each of %q", pr.Repo, pr.Number, pr.TeamReviewSuggestions, teams)
+		}
+		for _, team := range teams {
+			n := 0
+			for _, item := range pr.TeamReviewSuggestions {
+				if item.Team != team {
+					continue
+				}
+				n++
+				if item.CoveredBy == nil && len(item.Suggest) == 0 && item.Error == "" && item.UncoveredReason == "" {
+					t.Fatalf("%s#%d %s entry = %+v, want a cover, suggestion, error or reason", pr.Repo, pr.Number, team, item)
+				}
+			}
+			if n != 1 {
+				t.Fatalf("%s#%d %s entries = %d, want 1", pr.Repo, pr.Number, team, n)
+			}
+		}
+	}
+}
+
+func TestRunTeamCoverExplainsEveryTeam(t *testing.T) {
+	t.Parallel()
+
+	twoMembers := []gh.TeamMember{{Login: "bob", Type: "User"}, {Login: "carol", Type: "User"}}
+	cases := []struct {
+		name  string
+		setup func(g *scriptGH, cfg *config.Config)
+	}{
+		{"call cap", func(g *scriptGH, cfg *config.Config) {
+			g.list["acme/widgets"] = listResult{prs: []gh.PRListItem{teamPRSlug(1, "foo", "bar"), teamPR(2)}}
+			cfg.TeamCoverMaxCalls = 2
+		}},
+		{"history cap", func(g *scriptGH, cfg *config.Config) {
+			g.files = map[string][]string{"acme/widgets#1": manyPaths(5)}
+			cfg.TeamCoverSignals = []string{"history"}
+			cfg.TeamCoverMaxCalls = 3
+		}},
+		{"rate limit", func(g *scriptGH, _ *config.Config) {
+			g.list["acme/widgets"] = listResult{prs: []gh.PRListItem{teamPR(1), teamPR(2)}}
+			g.snapshots = map[string]snapResult{
+				"acme/widgets#1": {err: fmt.Errorf("%w: secondary rate limit", gh.ErrRateLimited)},
+			}
+		}},
+		{"review snapshot error", func(g *scriptGH, _ *config.Config) {
+			g.snapshots = map[string]snapResult{"acme/widgets#1": {err: errors.New("HTTP 500")}}
+		}},
+		{"member error", func(g *scriptGH, _ *config.Config) {
+			g.members["acme/foo"] = memberCall{err: errors.New("HTTP 404")}
+		}},
+		{"all excluded", func(g *scriptGH, _ *config.Config) {
+			g.members["acme/foo"] = memberCall{members: []gh.TeamMember{{Login: "alice", Type: "User"}}}
+		}},
+		{"no members", func(g *scriptGH, _ *config.Config) {
+			g.members["acme/foo"] = memberCall{members: []gh.TeamMember{}}
+		}},
+		{"skip-listed team", func(g *scriptGH, cfg *config.Config) {
+			g.list["acme/widgets"] = listResult{prs: []gh.PRListItem{teamPRSlug(1, "foo", "bar")}}
+			cfg.TeamCoverSkipTeams = []string{"acme/bar"}
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			g := teamCoverGH(map[string]memberCall{
+				"acme/foo": {members: twoMembers},
+				"acme/bar": {members: twoMembers},
+			})
+			cfg := teamCoverCfg()
+			tc.setup(g, &cfg)
+			doc, err := Run(context.Background(), depsWith(g, fixtureHerdr{}), cfg, []string{"acme/widgets"}, fixtureNow)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertTeamsExplained(t, cfg, doc)
+		})
+	}
+}
+
+func TestExplainTeamsFillsAGap(t *testing.T) {
+	t.Parallel()
+
+	cfg := teamCoverCfg()
+	cfg.TeamCoverSkipTeams = []string{"acme/skip"}
+	reason := "no members"
+	doc := Document{PRs: []PR{
+		{Repo: "acme/widgets", Number: 1, ReviewRequests: []string{"User:someone", "Team:foo", "Team:skip"}},
+		{Repo: "acme/widgets", Number: 2, ReviewRequests: []string{"Team:foo", "Team:bar"}, TeamReviewSuggestions: []TeamReviewSuggestion{
+			{Team: "acme/foo", Suggest: []SuggestedReviewer{}, UncoveredReason: reason},
+		}},
+		{Repo: "acme/widgets", Number: 3, ReviewRequests: []string{"User:someone"}},
+	}}
+	explainTeams(cfg, &doc)
+	assertTeamsExplained(t, cfg, doc)
+	gap := TeamReviewSuggestion{Suggest: []SuggestedReviewer{}, UncoveredReason: "not evaluated this round"}
+	want := [][]TeamReviewSuggestion{
+		{withTeam(gap, "acme/foo")},
+		{{Team: "acme/foo", Suggest: []SuggestedReviewer{}, UncoveredReason: reason}, withTeam(gap, "acme/bar")},
+		nil,
+	}
+	for i, pr := range doc.PRs {
+		if !reflect.DeepEqual(pr.TeamReviewSuggestions, want[i]) {
+			t.Fatalf("PR %d entries = %+v, want %+v", pr.Number, pr.TeamReviewSuggestions, want[i])
+		}
+	}
+	if countSubstr(doc.Warnings, "not evaluated this round") != 2 {
+		t.Fatalf("warnings = %q, want one for each gap", doc.Warnings)
+	}
+}
+
+func withTeam(item TeamReviewSuggestion, team string) TeamReviewSuggestion {
+	item.Team = team
+	return item
 }
