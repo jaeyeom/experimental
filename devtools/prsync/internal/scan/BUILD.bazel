@@ -56,6 +56,7 @@ go_test(
         "teamcover_cap_test.go",
         "teamcover_order_test.go",
         "teamcover_slack_test.go",
+        "teamcover_stale_test.go",
         "teamcover_test.go",
         "threads_cache_test.go",
         "unblock_test.go",

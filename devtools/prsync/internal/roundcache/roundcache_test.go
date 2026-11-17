@@ -855,3 +855,79 @@ func TestPrunePRViewsKeepsOnlyReferenced(t *testing.T) {
 		t.Fatalf("pr view keys = %q, want only acme/widgets#7", got)
 	}
 }
+
+func TestStalePathHistoryWithinMaxStale(t *testing.T) {
+	t.Parallel()
+
+	clk := newClock()
+	c, _ := Load(filepath.Join(t.TempDir(), "cache.json"), clk.now)
+	const ttl = 6 * time.Hour
+	const maxStale = 72 * time.Hour
+	const version = "since:2026-08-03"
+	c.SetHistoryTTL(ttl)
+	c.SetHistoryMaxStale(maxStale)
+	start := clk.t
+	want := gh.PathHistory{Authors: []string{"alice"}}
+	c.PutPathHistory("acme/widgets", "main", "src/a.go", version, want)
+
+	if _, _, ok := c.StalePathHistory("acme/widgets", "main", "src/a.go", version); ok {
+		t.Fatal("stale hit on a fresh entry")
+	}
+
+	clk.t = start.Add(ttl)
+	if _, ok := c.PathHistory("acme/widgets", "main", "src/a.go", version); ok {
+		t.Fatal("fresh hit past the TTL")
+	}
+	got, at, ok := c.StalePathHistory("acme/widgets", "main", "src/a.go", version)
+	if !ok || !at.Equal(start) || !slices.Equal(got.Authors, want.Authors) {
+		t.Fatalf("stale = %+v, %v, %v; want the entry stored at %v", got, at, ok, start)
+	}
+	if _, _, ok := c.StalePathHistory("acme/widgets", "main", "src/b.go", version); ok {
+		t.Fatal("stale hit on a path never stored")
+	}
+
+	// Save keeps an expired entry while it is within max stale.
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if len(c.data.History) != 1 {
+		t.Fatalf("Save kept %d entries, want the stale one", len(c.data.History))
+	}
+
+	clk.t = start.Add(maxStale)
+	if _, _, ok := c.StalePathHistory("acme/widgets", "main", "src/a.go", version); ok {
+		t.Fatal("stale hit past max stale")
+	}
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if len(c.data.History) != 0 {
+		t.Fatalf("Save kept %d entries past max stale, want none", len(c.data.History))
+	}
+}
+
+func TestStalePathHistoryOffWithoutMaxStale(t *testing.T) {
+	t.Parallel()
+
+	clk := newClock()
+	c, _ := Load(filepath.Join(t.TempDir(), "cache.json"), clk.now)
+	const ttl = 6 * time.Hour
+	const version = "since:2026-08-03"
+	c.SetHistoryTTL(ttl)
+	c.PutPathHistory("acme/widgets", "main", "src/a.go", version, gh.PathHistory{Authors: []string{"alice"}})
+	clk.t = clk.t.Add(ttl)
+	if _, _, ok := c.StalePathHistory("acme/widgets", "main", "src/a.go", version); ok {
+		t.Fatal("stale hit with no max stale set")
+	}
+
+	// Head-keyed history is never served stale.
+	head := newClock()
+	h, _ := Load(filepath.Join(t.TempDir(), "cache.json"), head.now)
+	h.SetHistoryTTL(0)
+	h.SetHistoryMaxStale(72 * time.Hour)
+	h.PutPathHistory("acme/widgets", "main", "src/a.go", "head1", gh.PathHistory{Authors: []string{"alice"}})
+	head.t = head.t.Add(HistoryTTL)
+	if _, _, ok := h.StalePathHistory("acme/widgets", "main", "src/a.go", "head1"); ok {
+		t.Fatal("stale hit on head-keyed history")
+	}
+}

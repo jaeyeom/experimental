@@ -83,7 +83,7 @@ func TestRunTeamCoverCallCapDefersPathsToNextRound(t *testing.T) {
 	if len(got) != 1 || len(got[0].Suggest) != 1 || got[0].Suggest[0].Login != "carol" {
 		t.Fatalf("suggestions = %+v, want carol once the history is complete", got)
 	}
-	want := "team-cover: paths 300/300 need history (185 hits); team members 0 hits/1 calls; files 0/1; reviews 0/1; refresh 0; calls 26 (cap 40)"
+	want := "team-cover: paths 115/300 need history (185 hits); team members 0 hits/1 calls; files 0/1; reviews 0/1; refresh 0; calls 26 (cap 40)"
 	if !slices.Contains(doc.TeamCoverNotes, want) {
 		t.Fatalf("notes = %q, want %q", doc.TeamCoverNotes, want)
 	}

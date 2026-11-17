@@ -617,6 +617,11 @@ func (m *mapHistoryCache) PutPathHistory(repo, ref, path, head string, h gh.Path
 	m.entries[repo+"@"+ref+"\x00"+path+"\x00"+head] = h
 }
 
+// StalePathHistory finds nothing: this fake does not track expiry.
+func (m *mapHistoryCache) StalePathHistory(string, string, string, string) (gh.PathHistory, time.Time, bool) {
+	return gh.PathHistory{}, time.Time{}, false
+}
+
 // NearestPathHistory yields nothing: this fake does not track expiry.
 func (m *mapHistoryCache) NearestPathHistory(int, func(string, string, string, string) bool) {
 }

@@ -144,6 +144,7 @@ func loadRoundCache(ctx context.Context, cfg config.Config) (*roundcache.Cache, 
 		logger.Warn("round cache ignored", "err", err.Error())
 	}
 	cache.SetHistoryTTL(cfg.TeamCoverHistoryTTL)
+	cache.SetHistoryMaxStale(cfg.TeamCoverHistoryMaxStale)
 	cache.SetLoadTTL(cfg.TeamCoverLoadTTL)
 	cache.SetMembersTTL(cfg.TeamCoverMembersTTL)
 	cache.SetCodeownersTTL(cfg.TeamCoverCodeownersTTL)

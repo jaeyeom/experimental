@@ -736,6 +736,18 @@ func TestLoadTeamCoverHistoryTTLZero(t *testing.T) {
 	}
 }
 
+func TestLoadTeamCoverHistoryMaxStale(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "prsync.config")
+	mustWrite(t, path, "team_cover_history_max_stale=24h\n")
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.TeamCoverHistoryMaxStale != 24*time.Hour {
+		t.Fatalf("history max stale=%v, want 24h", got.TeamCoverHistoryMaxStale)
+	}
+}
+
 func TestLoadTeamCoverInlineExcludeAndEmptySignals(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "prsync.config")
 	mustWrite(t, path, "team_cover_exclude_logins=left, away\nteam_cover_signals=\n")
@@ -853,6 +865,7 @@ func TestLoadValidationErrors(t *testing.T) {
 		{name: "zero team cover batch paths", body: "team_cover_batch_paths=0\n", key: "team_cover_batch_paths"},
 		{name: "bad team cover history ttl", body: "team_cover_history_ttl=6\n", key: "team_cover_history_ttl"},
 		{name: "negative team cover history ttl", body: "team_cover_history_ttl=-1h\n", key: "team_cover_history_ttl"},
+		{name: "negative team cover history max stale", body: "team_cover_history_max_stale=-1h\n", key: "team_cover_history_max_stale"},
 		{name: "zero team cover max calls", body: "team_cover_max_calls=0\n", key: "team_cover_max_calls"},
 		{name: "zero team cover refresh max calls", body: "team_cover_refresh_max_calls=0\n", key: "team_cover_refresh_max_calls"},
 		{name: "bad team cover load ttl", body: "team_cover_load_ttl=1\n", key: "team_cover_load_ttl"},
@@ -1021,6 +1034,9 @@ func TestDefaults(t *testing.T) {
 	}
 	if got.TeamCoverHistoryTTL != 6*time.Hour {
 		t.Fatalf("TeamCoverHistoryTTL = %v, want 6h", got.TeamCoverHistoryTTL)
+	}
+	if got.TeamCoverHistoryMaxStale != 72*time.Hour {
+		t.Fatalf("TeamCoverHistoryMaxStale = %v, want 72h", got.TeamCoverHistoryMaxStale)
 	}
 	if got.TeamCoverHistorySlackDays != 2 {
 		t.Fatalf("TeamCoverHistorySlackDays = %d, want 2", got.TeamCoverHistorySlackDays)
