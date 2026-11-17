@@ -19,9 +19,24 @@ type teamMembers struct {
 	err     error
 }
 
-// needsOwnership reports whether any rule sets codeowners_covered.
+// needsOwnership reports whether any rule sets codeowners_covered or
+// mine_comments_only.
 func needsOwnership(rules []config.ApproveRule) bool {
-	return slices.ContainsFunc(rules, func(r config.ApproveRule) bool { return r.CodeownersCovered })
+	return slices.ContainsFunc(rules, func(r config.ApproveRule) bool { return r.CodeownersCovered || r.MineCommentsOnly })
+}
+
+// teamMembers returns the members of org/slug. They are cached per run.
+func (r *Runner) teamMembers(org, slug string) ([]string, error) {
+	key := strings.ToLower(org + "/" + slug)
+	if r.teams == nil {
+		r.teams = map[string]teamMembers{}
+	}
+	got, ok := r.teams[key]
+	if !ok {
+		got.members, got.err = r.Client.TeamMembers(org, slug)
+		r.teams[key] = got
+	}
+	return got.members, got.err
 }
 
 // loadOwnership reads CODEOWNERS on the base branch and the members of
@@ -35,19 +50,7 @@ func (r *Runner) loadOwnership(pr github.ApprovalPullRequest, viewer string) *gi
 		return &github.Ownership{Err: err.Error()}
 	}
 	owners := codeowners.ParseSections(strings.NewReader(text))
-	members := func(org, slug string) ([]string, error) {
-		key := strings.ToLower(org + "/" + slug)
-		if r.teams == nil {
-			r.teams = map[string]teamMembers{}
-		}
-		got, ok := r.teams[key]
-		if !ok {
-			got.members, got.err = r.Client.TeamMembers(org, slug)
-			r.teams[key] = got
-		}
-		return got.members, got.err
-	}
-	return computeOwnership(owners, pr, viewer, members)
+	return computeOwnership(owners, pr, viewer, r.teamMembers)
 }
 
 // computeOwnership decides, for each changed file, whether an owner is the
@@ -59,14 +62,24 @@ func computeOwnership(co *codeowners.Codeowners, pr github.ApprovalPullRequest, 
 	out := &github.Ownership{}
 	for _, file := range pr.Files {
 		got := github.FileOwnership{Path: file.Path}
-		var blockers []string
+		var blockers, entries []string
+		for _, rule := range co.RulesFor(file.Path) {
+			entries = append(entries, rule.String())
+		}
+		got.Entry = strings.Join(entries, "; ")
 		for _, owner := range co.OwnersFor(file.Path) {
 			got.Owners = append(got.Owners, owner.String())
 		}
 		slices.Sort(got.Owners)
 		for _, raw := range got.Owners {
-			mine, blocker := ownerVerdict(codeowners.ParseOwner(raw), pr, viewer, members)
+			mine, blocker, unknown := ownerVerdict(codeowners.ParseOwner(raw), pr, viewer, members)
 			got.Mine = got.Mine || mine
+			if mine {
+				got.MineOwners = append(got.MineOwners, raw)
+			}
+			if unknown {
+				got.Unknown = append(got.Unknown, blocker)
+			}
 			if blocker != "" {
 				blockers = append(blockers, blocker)
 			}
@@ -78,33 +91,34 @@ func computeOwnership(co *codeowners.Codeowners, pr github.ApprovalPullRequest, 
 }
 
 // ownerVerdict reports whether owner is the viewer or includes the viewer,
-// and why it keeps the file with the viewer, or "".
+// and why it keeps the file with the viewer, or "". unknown is true when it
+// cannot tell whether owner includes the viewer; the reason is the blocker.
 func ownerVerdict(owner codeowners.Owner, pr github.ApprovalPullRequest, viewer string,
 	members func(org, slug string) ([]string, error),
-) (bool, string) {
+) (mine bool, blocker string, unknown bool) {
 	switch o := owner.(type) {
 	case codeowners.User:
 		if strings.EqualFold(o.Name, viewer) {
-			return true, o.String() + " is you"
+			return true, o.String() + " is you", false
 		}
-		return false, ""
+		return false, "", false
 	case codeowners.Team:
 		list, err := members(o.Org, o.Name)
 		if err != nil {
-			return false, o.String() + ": " + err.Error()
+			return false, o.String() + ": " + err.Error(), true
 		}
 		if !containsFold(list, viewer) {
-			return false, ""
+			return false, "", false
 		}
 		if !slices.ContainsFunc(list, func(m string) bool { return !strings.EqualFold(m, viewer) }) {
-			return true, o.String() + ": you are its only member"
+			return true, o.String() + ": you are its only member", false
 		}
 		if !strings.EqualFold(o.Org, pr.Ref.Owner) || !containsFold(pr.RequestedTeams, o.Name) {
-			return true, o.String() + ": includes you and is not a requested reviewer"
+			return true, o.String() + ": includes you and is not a requested reviewer", false
 		}
-		return true, ""
+		return true, "", false
 	default:
-		return false, owner.String() + ": cannot tell whether this owner is you"
+		return false, owner.String() + ": cannot tell whether this owner is you", true
 	}
 }
 

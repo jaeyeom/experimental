@@ -11,7 +11,8 @@ run a command of yours as a last check. See [[*Agent command][Agent command]].
 
 It looks only at open pull requests that request you *as an individual*. It
 finds them with the search ~user-review-requested:@me~. It ignores a pull
-request that requests only a team you belong to.
+request that requests only a team you belong to, unless a rule sets
+~requested_via_team~. See [[*Approve for your own files][Approve for your own files]].
 
 #+begin_src shell
   # Dry run (the default): print what would be approved. Nothing is approved.
@@ -82,6 +83,9 @@ condition is optional. An empty list or an unset limit adds no condition.
 | ~agent_command~          | A command, as argv, that must print ~approve~. Runs last. See below               |
 | ~agent_timeout~          | Default ~120.s~. How long ~agent_command~ may run                                 |
 | ~agent_cache~            | Default ~true~. ~false~ runs ~agent_command~ every time, without the cache        |
+| ~requested_via_team~     | Default ~false~. Also run when you are requested only through a team of yours     |
+| ~mine_comments_only~     | Default ~false~. Your CODEOWNERS files change only comments or blank lines        |
+| ~body~                   | Approval body for this rule, overriding the global ~body~. See below              |
 
 Globs use ~**~ for any number of directories. Logins match without regard to
 case. Labels match exactly, including case. For ~required_approvals_by~, a
@@ -98,7 +102,7 @@ Comment markers for ~deletions_and_comments_only~ are under
 Global settings:
 
 - ~body~ is the approval body. Default ~LGTM~. The matching rule name is
-  appended as ~<!-- gh-approve: <rule> -->~.
+  appended as ~<!-- gh-approve: <rule> -->~. A rule's own ~body~ overrides it.
 - ~skip_already_approved~ skips a pull request you already approved at the
   current head. Default ~true~.
 - ~agent_cache_ttl~ is how long a cached ~agent_command~ decision is reused.
@@ -209,6 +213,46 @@ request stays with you. gh-approve reads the pull request's
 your own account ever removed you from the pull request, it never hands it off
 again and reports ~manual~ with ~re-requested after hand-off~. The timeline is
 the source of truth, so this works without local state and across machines.
+
+** Approve for your own files
+
+You may be requested, as an individual or through a team, on a large pull
+request where the only files you own change nothing but comments, and other
+code owners cover the rest. These three rule fields approve for your files
+only. Each is off by default.
+
+#+begin_src pkl
+  new {
+    name = "my-comments"
+    requested_via_team = true
+    mine_comments_only = true
+    body = "Comment-only change in {my_files} ({my_teams}); approving for those files only. Other files not reviewed by me."
+    checks = "green"
+  }
+#+end_src
+
+- ~requested_via_team~ also runs the rule when you are requested only through
+  a team you belong to. gh-approve then searches with ~review-requested:@me~,
+  which includes team requests. Rules that do not set it still skip such a
+  pull request, and it is reported as ~skipped~ (shown with ~--pr~ or
+  ~--explain~) when no opted-in rule matches. Not allowed on a hand-off rule.
+- ~mine_comments_only~ looks at "my files": the changed files whose owners
+  include you or a team of yours, from the base branch's CODEOWNERS (the last
+  matching line). There must be at least one, and every one must change only
+  comment or blank lines, by the same line classifier as
+  ~deletions_and_comments_only~ (see [[*Comment markers][Comment markers]]).
+  Deleted lines are classified too: deleting a comment is fine, deleting code
+  is not. A file your team owns jointly with others is still yours, so the
+  approval never counts as code-owner review of code you did not read. If
+  CODEOWNERS, a team's members, or a patch cannot be read, the condition
+  fails. ~--explain~ lists each of your files with its CODEOWNERS line and why
+  it passed or failed.
+- ~body~ overrides the global ~body~ for the rule. It may use ~{my_files}~
+  (comma-separated paths of your files), ~{my_teams}~ (your teams that own
+  them, or your login), and ~{rule}~ (the rule name). ~{my_files}~ and
+  ~{my_teams}~ need ~mine_comments_only~. An unknown placeholder is a config
+  error. A body with placeholders is used as written. A plain body gets the
+  rule name appended, as the global body does. Not allowed on a hand-off rule.
 
 ** Agent command
 

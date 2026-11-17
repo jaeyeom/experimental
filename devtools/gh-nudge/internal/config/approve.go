@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -125,6 +126,35 @@ type ApproveRule struct {
 	AgentTimeout time.Duration
 	// AgentCacheDisabled runs AgentCommand on every pass, without the cache.
 	AgentCacheDisabled bool
+	// RequestedViaTeam also runs the rule when the user is requested only
+	// through a team they belong to.
+	RequestedViaTeam bool
+	// MineCommentsOnly requires at least one changed file owned by the user
+	// or a team of the user, and every such file to change only comment or
+	// blank lines.
+	MineCommentsOnly bool
+	// Body overrides ApproveConfig.Body for this rule. Empty uses the global
+	// body. See BodyPlaceholders.
+	Body string
+}
+
+// Placeholders an approve rule's body may contain.
+const (
+	PlaceholderMyFiles = "my_files"
+	PlaceholderMyTeams = "my_teams"
+	PlaceholderRule    = "rule"
+)
+
+var placeholderPattern = regexp.MustCompile(`\{([A-Za-z0-9_]+)\}`)
+
+// BodyPlaceholders returns the names of the {name} placeholders in body, in
+// order. A body with none is used as the global body is.
+func BodyPlaceholders(body string) []string {
+	var names []string
+	for _, m := range placeholderPattern.FindAllStringSubmatch(body, -1) {
+		names = append(names, m[1])
+	}
+	return names
 }
 
 func convertApprove(src pklconfig.ApproveConfig) ApproveConfig {
@@ -168,6 +198,11 @@ func convertApprove(src pklconfig.ApproveConfig) ApproveConfig {
 			AgentCommand:             cloneStrings(rule.AgentCommand),
 			AgentTimeout:             rule.AgentTimeout.GoDuration(),
 			AgentCacheDisabled:       !rule.AgentCache,
+			RequestedViaTeam:         rule.RequestedViaTeam,
+			MineCommentsOnly:         rule.MineCommentsOnly,
+		}
+		if rule.Body != nil {
+			converted.Body = *rule.Body
 		}
 		if rule.Checks != nil {
 			converted.Checks = *rule.Checks
@@ -272,17 +307,8 @@ func validateApproveRule(rule ApproveRule) error {
 			}
 		}
 	}
-	switch rule.Action {
-	case ActionApprove:
-		if len(rule.Reviewers) > 0 {
-			return fmt.Errorf("reviewers is only allowed on a handoff rule")
-		}
-	case ActionHandoff:
-		if len(rule.Reviewers) == 0 {
-			return fmt.Errorf("reviewers is required on a handoff rule")
-		}
-	default:
-		return fmt.Errorf("action %q is not approve or handoff", rule.Action)
+	if err := validateAction(rule); err != nil {
+		return err
 	}
 	switch rule.Checks {
 	case "", ChecksGreen, ChecksAllowPending:
@@ -300,6 +326,43 @@ func validateApproveRule(rule ApproveRule) error {
 	}
 	if rule.MaxUnresolvedThreads < 0 {
 		return fmt.Errorf("max_unresolved_threads must be >= 0")
+	}
+	return validateBody(rule)
+}
+
+func validateAction(rule ApproveRule) error {
+	switch rule.Action {
+	case ActionApprove:
+		if len(rule.Reviewers) > 0 {
+			return fmt.Errorf("reviewers is only allowed on a handoff rule")
+		}
+	case ActionHandoff:
+		if len(rule.Reviewers) == 0 {
+			return fmt.Errorf("reviewers is required on a handoff rule")
+		}
+		if rule.RequestedViaTeam {
+			return fmt.Errorf("requested_via_team is only allowed on an approve rule")
+		}
+		if rule.Body != "" {
+			return fmt.Errorf("body is only allowed on an approve rule")
+		}
+	default:
+		return fmt.Errorf("action %q is not approve or handoff", rule.Action)
+	}
+	return nil
+}
+
+func validateBody(rule ApproveRule) error {
+	for _, name := range BodyPlaceholders(rule.Body) {
+		switch name {
+		case PlaceholderRule:
+		case PlaceholderMyFiles, PlaceholderMyTeams:
+			if !rule.MineCommentsOnly {
+				return fmt.Errorf("body placeholder {%s} needs mine_comments_only", name)
+			}
+		default:
+			return fmt.Errorf("unknown body placeholder {%s}", name)
+		}
 	}
 	return nil
 }

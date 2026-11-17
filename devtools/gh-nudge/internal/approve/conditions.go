@@ -74,6 +74,7 @@ var conditions = []condition{
 	{name: "not_draft", active: func(r config.ApproveRule) bool { return r.NotDraft }, check: checkNotDraft},
 	{name: "max_unresolved_threads", active: func(config.ApproveRule) bool { return true }, check: checkUnresolvedThreads},
 	{name: "codeowners_covered", active: func(r config.ApproveRule) bool { return r.CodeownersCovered }, detail: checkCodeownersCovered},
+	{name: "mine_comments_only", active: func(r config.ApproveRule) bool { return r.MineCommentsOnly }, detail: checkMineCommentsOnly},
 }
 
 // EvaluateRule evaluates every condition the rule sets.
@@ -254,6 +255,97 @@ func checkCodeownersCovered(rule config.ApproveRule, pr github.ApprovalPullReque
 		return false, "not covered: " + strings.Join(blocked, ", "), details
 	}
 	return true, fmt.Sprintf("all %d files covered", len(pr.Ownership.Files)), details
+}
+
+// checkMineCommentsOnly passes when at least one changed file is owned by
+// the viewer or a team of the viewer, and each such file changes only
+// comment or blank lines. Any owner whose membership cannot be read fails it.
+func checkMineCommentsOnly(_ config.ApproveRule, pr github.ApprovalPullRequest) (bool, string, []string) {
+	if reason := mineUnreadable(pr); reason != "" {
+		pass, saw := unreadable(reason)
+		return pass, saw, nil
+	}
+	patches := make(map[string]github.PullFile, len(pr.Patches))
+	for _, file := range pr.Patches {
+		patches[file.Path] = file
+	}
+	var unknown, failed, mine, details []string
+	for _, file := range pr.Ownership.Files {
+		if len(file.Unknown) > 0 {
+			unknown = append(unknown, file.Unknown...)
+			details = append(details, "FAIL "+file.Path+": cannot tell whether you own it: "+strings.Join(file.Unknown, "; "))
+			continue
+		}
+		if !file.Mine {
+			continue
+		}
+		mine = append(mine, file.Path)
+		label := file.Path + " (" + file.Entry + ")"
+		patch, ok := patches[file.Path]
+		why, pass := "patch unavailable for "+file.Path, false
+		if ok {
+			why, pass = commentOnlyChange(patch)
+		}
+		if !pass {
+			failed = append(failed, why)
+			details = append(details, "FAIL "+label+": "+why)
+			continue
+		}
+		details = append(details, "pass "+label+": comment or blank lines only")
+	}
+	switch {
+	case len(unknown) > 0:
+		return false, "unreadable: team data: " + strings.Join(dedupe(unknown), "; "), details
+	case len(failed) > 0:
+		return false, strings.Join(failed, "; "), details
+	case len(mine) == 0:
+		return false, "no changed file is owned by you or your teams", details
+	}
+	return true, "comment-only: " + strings.Join(mine, ", "), details
+}
+
+// mineUnreadable returns why mine_comments_only cannot read its data, or "".
+func mineUnreadable(pr github.ApprovalPullRequest) string {
+	switch {
+	case pr.FilesErr != "":
+		return pr.FilesErr
+	case pr.Ownership == nil:
+		return "CODEOWNERS not read"
+	case pr.Ownership.Err != "":
+		return pr.Ownership.Err
+	case pr.PatchesErr != "":
+		return pr.PatchesErr
+	case pr.Patches == nil:
+		return "patches not loaded"
+	}
+	return ""
+}
+
+// myFiles returns the changed files the viewer or a team of the viewer owns,
+// and those owners, in first-seen order.
+func myFiles(pr github.ApprovalPullRequest) ([]string, []string) {
+	if pr.Ownership == nil {
+		return nil, nil
+	}
+	var files, owners []string
+	for _, file := range pr.Ownership.Files {
+		if file.Mine {
+			files = append(files, file.Path)
+			owners = append(owners, file.MineOwners...)
+		}
+	}
+	return files, dedupe(owners)
+}
+
+// dedupe drops repeated items and keeps the first of each.
+func dedupe(items []string) []string {
+	var out []string
+	for _, item := range items {
+		if !slices.Contains(out, item) {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 func checkLimit(value, limit int, unit string) (bool, string) {

@@ -64,6 +64,24 @@ func TestSearchUserReviewRequestedUsesIndividualQualifier(t *testing.T) {
 	}
 }
 
+func TestSearchReviewRequestedIncludesTeamRequests(t *testing.T) {
+	exec := &routeExec{route: map[string]string{
+		"archived:false review-requested:@me": `{"data":{"search":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[
+			{"number": 7, "url": "https://github.com/acme/widgets/pull/7", "repository": {"nameWithOwner": "acme/widgets"}}
+		]}}}`,
+	}}
+	refs, err := NewClientWithExecutor(exec).SearchReviewRequested()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refs) != 1 || refs[0].Number != 7 {
+		t.Fatalf("refs = %+v", refs)
+	}
+	if !strings.Contains(exec.calls[0], "q=is:pr is:open archived:false review-requested:@me") {
+		t.Fatalf("search call = %s", exec.calls[0])
+	}
+}
+
 func TestSearchUserReviewRequestedReportsGraphQLError(t *testing.T) {
 	exec := &routeExec{route: map[string]string{"search": `{"errors":[{"message":"rate limited"}]}`}}
 	if _, err := NewClientWithExecutor(exec).SearchUserReviewRequested(); err == nil || !strings.Contains(err.Error(), "rate limited") {

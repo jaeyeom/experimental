@@ -96,4 +96,24 @@ type ApproveRule struct {
 	// Cache agent_command's approve and defer decisions by input hash. Set
 	// false to run the command on every pass.
 	AgentCache bool `pkl:"agent_cache"`
+
+	// When true, the rule also runs when you are requested only through a
+	// team you belong to. Other rules still skip such a pull request. Not
+	// allowed on a hand-off rule.
+	RequestedViaTeam bool `pkl:"requested_via_team"`
+
+	// When true, "my files" are the changed files whose CODEOWNERS owners
+	// (base branch, last matching line) include you or a team of yours.
+	// At least one must exist, and each must change only comment or blank
+	// lines, deleted lines included. Unreadable CODEOWNERS, team data, or
+	// patches fail it. Team membership needs the read:org scope.
+	MineCommentsOnly bool `pkl:"mine_comments_only"`
+
+	// Approval body for this rule, overriding approve.body. Placeholders:
+	// {my_files} (paths of my files), {my_teams} (your owning teams, or your
+	// login), and {rule} (the rule name). {my_files} and {my_teams} need
+	// mine_comments_only. An unknown placeholder is a config error. A body
+	// with placeholders is used as written; one without gets the rule name
+	// appended as approve.body does. Not allowed on a hand-off rule.
+	Body *string `pkl:"body"`
 }

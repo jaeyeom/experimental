@@ -77,6 +77,20 @@ package.json                                                        @myorg/packa
 	}
 }
 
+func TestRulesForKeepsLastMatchPerSection(t *testing.T) {
+	co := ParseSections(strings.NewReader("** @org/all\n/docs/** @org/docs @bob\n\n## LANG\n**/*.md @org/writers\n"))
+	var got []string
+	for _, rule := range co.RulesFor("docs/a.md") {
+		got = append(got, rule.String())
+	}
+	if strings.Join(got, "; ") != "/docs/** @org/docs @bob; **/*.md @org/writers" {
+		t.Fatalf("RulesFor = %q", got)
+	}
+	if rules := co.RulesFor("src/a.go"); len(rules) != 1 || rules[0].Pattern != "**" {
+		t.Fatalf("RulesFor(src/a.go) = %+v", rules)
+	}
+}
+
 func TestParseOwner(t *testing.T) {
 	testCases := []struct {
 		input    string
