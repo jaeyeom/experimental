@@ -108,6 +108,9 @@ behavior of 'agentbus jobs' and the heartbeat timeout. See the jobs doc.
 A lost outward job that its kind's reconcile hook cannot settle goes to
 the decide inbox the same way. While the decide status resource "jobs" is
 busy (decide status set --resource jobs busy), no job is claimed.
+The daemon publishes the jobs status view as one decide status agent row
+per machine, jobs@<machine>, when it changes and at most once per
+status.interval in jobs.json (default 1m).
 
 Jobs policy (jobs_policy in config.toml, default
 $XDG_CONFIG_HOME/agentbus/jobs-policy.json): the user's gate per job kind,
@@ -186,6 +189,7 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 		JobHold:         decideHold(exec.LookPath, runOutput),
 		JobPolicy:       jobsPolicy(env, cfg, stderr, notify),
 		JobDecider:      gateDecider(exec.LookPath, runOutput),
+		JobStatus:       decideStatusSink(exec.LookPath, runOutput),
 	}); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(stderr, "agentbusd: %s\n", err)
 		if errors.Is(err, daemon.ErrAlreadyRunning) {

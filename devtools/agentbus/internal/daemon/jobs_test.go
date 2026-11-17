@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -261,5 +262,89 @@ func TestJobsWatcherSendsAnomaliesToTheRoleOnce(t *testing.T) {
 	}
 	if anomalies != 1 || toRole() != 1 {
 		t.Fatalf("anomaly events = %d, messages to the role = %d; want one each", anomalies, toRole())
+	}
+}
+
+// statusSink records the rows the daemon publishes.
+type statusSink struct {
+	mu   sync.Mutex
+	rows []string
+}
+
+func (s *statusSink) Set(_ context.Context, name, state, text string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.rows = append(s.rows, name+" "+state+" "+text)
+	return nil
+}
+
+func (s *statusSink) Clear(_ context.Context, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.rows = append(s.rows, "clear "+name)
+	return nil
+}
+
+func (s *statusSink) published() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.rows)
+}
+
+func TestJobsStatusShowsLeasesAndPublishesOnChange(t *testing.T) {
+	dirs := jobsDirs(t)
+	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+	var mu sync.Mutex
+	clock := func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		return now
+	}
+	advance := func(d time.Duration) time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		now = now.Add(d)
+		return now
+	}
+	ticks := make(chan time.Time)
+	sink := &statusSink{}
+	stop := startWith(t, dirs, Config{
+		Now:       clock,
+		JobTicks:  ticks,
+		JobPolicy: autoJobs,
+		JobStatus: sink,
+		Jobs:      jobs.Config{Status: jobs.StatusConfig{Interval: time.Minute}},
+	})
+	defer stop()
+	jobsCall(t, dirs.SocketPath, "jobs-enqueue", jobs.Args{Kind: "rebase", Subject: "o/r#1", Needs: jobs.Needs{Checkout: "/w/a"}})
+	if r := jobsCall(t, dirs.SocketPath, "jobs-claim", jobs.Args{Runner: "r1", Machine: "tiger"}); r.Jobs.Job == nil {
+		t.Fatalf("claim = %+v", r)
+	}
+	r := jobsCall(t, dirs.SocketPath, "jobs-status", jobs.Args{})
+	if !r.OK || r.Jobs.Status == nil || len(r.Jobs.Status.Machines) != 1 {
+		t.Fatalf("status = %+v", r)
+	}
+	m := r.Jobs.Status.Machines[0]
+	if m.Machine != "tiger" || m.Jobs[jobs.StateRunning].Count != 1 || len(m.Leases) != 1 || m.Leases[0].Checkout != "/w/a" || m.Leases[0].Holder != "job:j-1" {
+		t.Fatalf("tiger = %+v", m)
+	}
+
+	want := "jobs@tiger working running 1 since 2026-11-16T12:00:00Z; lease /w/a held by job:j-1"
+	ticks <- advance(time.Second)
+	waitFor(t, func() bool { return len(sink.published()) == 1 })
+	if got := sink.published(); got[0] != want {
+		t.Fatalf("published %q, want %q", got[0], want)
+	}
+	ticks <- advance(time.Second)
+	jobsCall(t, dirs.SocketPath, "jobs-enqueue", jobs.Args{Kind: "rebase", Subject: "o/r#2", Needs: jobs.Needs{Machine: "tiger"}})
+	ticks <- advance(time.Second)
+	ticks <- advance(time.Second)
+	if got := sink.published(); len(got) != 1 {
+		t.Fatalf("published within the interval: %q", got)
+	}
+	ticks <- advance(time.Minute)
+	waitFor(t, func() bool { return len(sink.published()) == 2 })
+	if got := sink.published()[1]; !strings.HasPrefix(got, "jobs@tiger working queued 1 since 2026-11-16T12:00:02Z, running 1") {
+		t.Fatalf("second publish = %q", got)
 	}
 }

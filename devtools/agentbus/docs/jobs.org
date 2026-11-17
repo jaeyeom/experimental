@@ -20,6 +20,7 @@ agentbus jobs ls --all
 agentbus jobs show j-7
 agentbus jobs log j-7 --follow
 agentbus jobs stats
+agentbus jobs status
 agentbus jobs reserve --calls 12
 agentbus jobs hold --note "release day"
 agentbus jobs unhold
@@ -37,10 +38,11 @@ agentbus jobs unhold
 | ~ls~ | Live jobs. ~--all~ adds final ones; ~--state~, ~--kind~, and ~--subject~ filter. |
 | ~show <id>~, ~log <id> [--follow]~ | One job, or its state history; ~show~ prints the gate's ~decide:~ item, and a parked job's ~saved:~, ~resume:~, ~tab:~, ~items:~, and ~parent:~. ~--follow~ waits until the job is final. |
 | ~stats~ | Jobs per state, the hold, and the [[*GitHub budget][GitHub budget]]. |
+| ~status~ | Per machine: leases and job counts with the oldest age. See [[*Status view]]. |
 | ~reserve --calls <n>~ | Take ~n~ GitHub API calls from the [[*GitHub budget][shared budget]] before making them. ~--kind~ applies that kind's floor exemption. Exit 3 when they do not fit. |
 | ~hold [--note <text>]~, ~unhold~ | Stop or restart every claim. |
 
-~enqueue~, ~claim~, ~show~, ~ls~, ~stats~, and ~reserve~ take ~--json~. A refused
+~enqueue~, ~claim~, ~show~, ~ls~, ~stats~, ~status~, and ~reserve~ take ~--json~. A refused
 change exits 1 with the reason; bad usage exits 2.
 
 ** States
@@ -337,6 +339,41 @@ A missing key is the default. An unknown key is an error.
 - *Not delivered.* A message the mailbox cannot queue, such as to a
   role nobody has claimed, is logged as ~rejected~ and is not sent
   again.
+
+** Status view
+
+~agentbus jobs status~ prints one row per machine: how many of its
+jobs are ~queued~ (ready ones included: a job leaves ~queued~ as soon
+as it passes its gate), ~running~, ~gated~, ~parked~, and ~unknown~,
+with the age of the oldest in each, and its checkout leases that are
+not free, of jobs and agents alike. A job is on the machine of its
+lease, else of the runner that holds it, else the machine it needs,
+which may be ~any~.
+
+#+BEGIN_SRC text
+MACHINE  QUEUED  RUNNING  GATED    PARKED  UNKNOWN  LEASES
+any      -       -        1 (14m)  -       -        -
+tiger    1 (5m)  1 (15m)  -        -       -        /w/a held by job:j-1
+#+END_SRC
+
+~--json~ prints ~at~ and ~machines~: each with ~machine~, ~leases~
+(~checkout~ path, ~state~, ~holder~), and ~jobs~ by state (~count~,
+and ~oldest~, when the longest-waiting job entered the state).
+
+When decide is on PATH, the daemon also publishes the view on the
+decide status board, so a coordinator can spot stalls: one agent row
+~jobs@<machine>~ per machine, set with ~decide status set --agent~. It
+is ~blocked~ while a job there is gated, parked, or unknown,
+~working~ while one is queued or running, else ~idle~. Its text names
+each state's count and when its oldest job entered it, then the
+leases, so it changes only when the queue or leases do. The daemon
+looks every 15 seconds and publishes only the rows that changed, at
+most once per ~status.interval~ in =jobs.json= (default ~1m~). A
+machine with no jobs or leases left has its row cleared.
+
+#+BEGIN_SRC json
+{"status": {"interval": "1m"}}
+#+END_SRC
 
 * Runner
 

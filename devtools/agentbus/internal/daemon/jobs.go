@@ -76,6 +76,9 @@ func (s *server) otherJobsOp(req Request, a jobs.Args) (jobs.Reply, error) {
 		r, err = s.jobs.Show(a.ID)
 	case "jobs-stats":
 		r, err = s.jobs.Stats()
+	case "jobs-status":
+		v := s.jobsStatus()
+		r.Status = &v
 	case "jobs-reserve":
 		r, err = s.jobs.Reserve(a)
 	case "jobs-hold":
@@ -91,10 +94,11 @@ func (s *server) otherJobsOp(req Request, a jobs.Args) (jobs.Reply, error) {
 }
 
 // watchJobs applies heartbeat loss, reconciles lost outward jobs, runs
-// the ask gate, and reports anomalies on every tick until ctx ends. An
-// unclear reconcile is put in the user's decide inbox through notify; a
-// gated job's question goes there through decider.
-func (s *server) watchJobs(ctx context.Context, ticks <-chan time.Time, hook jobs.Hook, decider jobs.Decider) {
+// the ask gate, reports anomalies, and publishes the status view through
+// pub, when it is not nil, on every tick until ctx ends. An unclear
+// reconcile is put in the user's decide inbox through notify; a gated
+// job's question goes there through decider.
+func (s *server) watchJobs(ctx context.Context, ticks <-chan time.Time, hook jobs.Hook, decider jobs.Decider, pub *jobs.StatusPublisher) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -105,8 +109,35 @@ func (s *server) watchJobs(ctx context.Context, ticks <-chan time.Time, hook job
 			jobs.Reconcile(ctx, s.jobs, hook, s.notify)
 			jobs.RunGate(ctx, s.jobs, decider)
 			s.reportAnomalies(ctx)
+			if pub != nil {
+				pub.Publish(ctx, s.jobsStatus())
+			}
 		}
 	}
+}
+
+// statusPublisher publishes the jobs status view to cfg.JobStatus, or
+// is nil without one.
+func statusPublisher(cfg Config) *jobs.StatusPublisher {
+	if cfg.JobStatus == nil {
+		return nil
+	}
+	return jobs.NewStatusPublisher(cfg.JobStatus, cfg.Jobs.StatusInterval())
+}
+
+// jobsStatus is the jobs status view with the lease table's leases.
+func (s *server) jobsStatus() jobs.StatusView {
+	var leases []jobs.LeaseView
+	if r, err := s.leases.Status(lease.Args{All: true}); err == nil {
+		for _, l := range r.Leases {
+			v := jobs.LeaseView{Checkout: l.Checkout, State: string(l.State)}
+			if h := l.Holder; h != nil {
+				v.Holder = cmp.Or(h.Name, h.Handle)
+			}
+			leases = append(leases, v)
+		}
+	}
+	return s.jobs.Status(leases)
 }
 
 // reportAnomalies sends each new anomaly to the anomaly role as an

@@ -163,6 +163,42 @@ func decideHold(lookPath func(string) (string, error), output func(ctx context.C
 	}
 }
 
+// decideStatus publishes the jobs status view as decide status agent
+// rows.
+type decideStatus struct {
+	decide string
+	output func(ctx context.Context, argv []string) ([]byte, error)
+}
+
+// decideStatusSink is the jobs status view's sink over the decide
+// command, or nil when decide is not installed.
+func decideStatusSink(lookPath func(string) (string, error), output func(ctx context.Context, argv []string) ([]byte, error)) jobs.StatusSink {
+	path, err := lookPath("decide")
+	if err != nil {
+		return nil
+	}
+	return decideStatus{decide: path, output: output}
+}
+
+func (d decideStatus) run(ctx context.Context, args ...string) error {
+	ctx, cancel := context.WithTimeout(ctx, decideTimeout)
+	defer cancel()
+	if _, err := d.output(ctx, append([]string{d.decide, "status"}, args...)); err != nil {
+		return fmt.Errorf("decide status %s: %w", args[0], err)
+	}
+	return nil
+}
+
+// Set writes the agent row name.
+func (d decideStatus) Set(ctx context.Context, name, state, text string) error {
+	return d.run(ctx, "set", "--agent", name, "--state", state, "--", text)
+}
+
+// Clear removes the agent row name.
+func (d decideStatus) Clear(ctx context.Context, name string) error {
+	return d.run(ctx, "clear", "--agent", name)
+}
+
 // runOutput runs argv and returns its standard output.
 func runOutput(ctx context.Context, argv []string) ([]byte, error) {
 	// argv[0] is decide from PATH with fixed arguments.

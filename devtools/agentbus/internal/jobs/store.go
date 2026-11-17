@@ -74,6 +74,8 @@ type Reply struct {
 	// after it, nil when there is none.
 	Reserved bool    `json:"reserved,omitempty"`
 	Budget   *Budget `json:"budget,omitempty"`
+	// Status is the per-machine status view.
+	Status *StatusView `json:"status,omitempty"`
 }
 
 // Stats counts jobs by state.
