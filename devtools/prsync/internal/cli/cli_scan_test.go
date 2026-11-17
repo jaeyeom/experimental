@@ -185,7 +185,7 @@ func TestTeamCoverHintsNameUncoveredReason(t *testing.T) {
 			{Team: "acme/gone", Suggest: []scan.SuggestedReviewer{}, UncoveredReason: "all 2 members excluded (1 author, 1 inactive)"},
 			{Team: "acme/missing", Suggest: []scan.SuggestedReviewer{}, Error: "cannot list members of acme/missing: HTTP 403"},
 			{Team: "acme/later", Suggest: []scan.SuggestedReviewer{}, UncoveredReason: "skipped: call cap"},
-			{Team: "acme/live", Suggest: []scan.SuggestedReviewer{{Login: "carol", Reasons: []string{}}}},
+			{Team: "acme/live", Suggest: []scan.SuggestedReviewer{{Login: "carol", Reasons: []string{"history partial (1 of 5 paths deferred)"}}}},
 		},
 	}}}
 	var out bytes.Buffer
@@ -197,7 +197,7 @@ func TestTeamCoverHintsNameUncoveredReason(t *testing.T) {
 		"acme/widgets#7 acme/gone: uncovered: all 2 members excluded (1 author, 1 inactive)\n" +
 		"acme/widgets#7 acme/missing: uncovered: cannot list members of acme/missing: HTTP 403\n" +
 		"acme/widgets#7 acme/later: uncovered: skipped: call cap\n" +
-		"acme/widgets#7 acme/live: suggest carol\n" +
+		"acme/widgets#7 acme/live: suggest carol (history partial (1 of 5 paths deferred))\n" +
 		"gh pr edit 7 --repo acme/widgets --add-reviewer carol\n"
 	if out.String() != want {
 		t.Fatalf("hints =\n%s\nwant\n%s", out.String(), want)
