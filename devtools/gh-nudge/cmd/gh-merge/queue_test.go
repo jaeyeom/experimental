@@ -36,18 +36,20 @@ type fakeQueue struct {
 	headErr      error
 	downCalls    int
 	evidence     github.FailureEvidence
-	comments     []string
-	commentCalls int
-	commentRef   string
-	edited       map[int64]string
-	dequeueCalls int
-	dequeued     []string
-	landed       github.StackPR
-	landedOK     bool
-	mergedAsync  []string
-	loads        int
-	snapshots    []github.QueuePullRequest
-	loadErrs     []error
+	// evidenceBySHA, when set, answers FailureEvidence by merge-group commit.
+	evidenceBySHA map[string]github.FailureEvidence
+	comments      []string
+	commentCalls  int
+	commentRef    string
+	edited        map[int64]string
+	dequeueCalls  int
+	dequeued      []string
+	landed        github.StackPR
+	landedOK      bool
+	mergedAsync   []string
+	loads         int
+	snapshots     []github.QueuePullRequest
+	loadErrs      []error
 }
 
 func (f *fakeQueue) LoadPullRequest(ref string) (github.QueuePullRequest, error) {
@@ -154,7 +156,10 @@ func (f *fakeQueue) OpenByHead(_, _, head string) ([]github.BranchPull, error) {
 	return f.byHead[head], nil
 }
 
-func (f *fakeQueue) FailureEvidence(_, _, _ string) (github.FailureEvidence, error) {
+func (f *fakeQueue) FailureEvidence(_, _, sha string) (github.FailureEvidence, error) {
+	if evidence, ok := f.evidenceBySHA[sha]; ok {
+		return evidence, nil
+	}
 	return f.evidence, nil
 }
 

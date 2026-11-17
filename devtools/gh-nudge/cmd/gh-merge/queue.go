@@ -87,6 +87,8 @@ type queueJSONResult struct {
 	StackedAbove     []int    `json:"stackedAbove"`
 	SettingsFrom     string   `json:"settingsFrom"`
 	Gate             string   `json:"gate"`
+	// Requeue is the RCA gate's decision for the latest removal.
+	Requeue *requeueDecision `json:"requeue,omitempty"`
 }
 
 // baseRefusalDoc describes the queue refusal for a pull request that is not in
@@ -193,13 +195,14 @@ func prepareQueue(client queueAPI, cfg *config.Config, ref string) (github.Queue
 // queuePreflight runs every gate that queue and queue -dry-run share, on the
 // same loaded data, before either branches on dryRun. pending is true when
 // --when-green should keep waiting because mergeable is still UNKNOWN.
-func queuePreflight(client queueAPI, pr github.QueuePullRequest, cfg *config.Config, above []int, problems []string) (pending bool, err error) {
+// requeue is the RCA gate's decision, nil when the PR was not removed.
+func queuePreflight(client queueAPI, pr github.QueuePullRequest, cfg *config.Config, above []int, problems []string) (pending bool, requeue *requeueDecision, err error) {
 	if !jsonOutput {
 		fmt.Println(gateLine(pr, cfg.Settings))
 	}
 	state, err := queueMergeable(client, pr, len(problems) == 0)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 	switch {
 	case state == "CONFLICTING":
@@ -208,12 +211,27 @@ func queuePreflight(client queueAPI, pr github.QueuePullRequest, cfg *config.Con
 		problems = append(problems, mergeableUnknownProblem)
 	}
 	if len(problems) > 0 {
-		return false, refuseWithProblems(pr, cfg, above, problems)
+		return false, nil, refuseWithProblems(pr, cfg, above, problems)
 	}
-	if err := refuseRCA(pr, cfg.Settings); err != nil {
-		return false, err
+	requeue, err = requeueGate(client, pr, cfg)
+	if err != nil {
+		return false, nil, err
 	}
-	return state == "UNKNOWN", nil
+	if requeue != nil && !requeue.Allowed {
+		return false, requeue, refuseRequeue(pr, cfg, above, requeue)
+	}
+	return state == "UNKNOWN", requeue, nil
+}
+
+// refuseRequeue reports the RCA gate's refusal, with the decision in JSON.
+func refuseRequeue(pr github.QueuePullRequest, cfg *config.Config, above []int, requeue *requeueDecision) error {
+	refusal := "refusing to enqueue: " + requeue.Reason
+	if jsonOutput {
+		if err := writeQueueResultWith(pr, cfg, []string{refusal}, above, "refused", "", requeue); err != nil {
+			return err
+		}
+	}
+	return errors.New(refusal)
 }
 
 // queueMergeable re-reads an UNKNOWN mergeable state with backoff. It does
@@ -233,16 +251,16 @@ func queueMergeable(client queueAPI, pr github.QueuePullRequest, wait bool) (str
 }
 
 func finishQueue(client queueAPI, pr github.QueuePullRequest, cfg *config.Config, above []int, problems []string, includeDownstack bool) error {
-	pending, err := queuePreflight(client, pr, cfg, above, problems)
+	pending, requeue, err := queuePreflight(client, pr, cfg, above, problems)
 	if err != nil {
 		return err
 	}
 	if pending {
-		return waitUntilGreen(client, pr, cfg, above, []string{"mergeable state is UNKNOWN"}, includeDownstack)
+		return waitUntilGreen(client, pr, cfg, above, []string{"mergeable state is UNKNOWN"}, includeDownstack, requeue)
 	}
 	lines := readyLines(pr, cfg.Settings)
 	if dryRun {
-		return writeQueueResult(pr, cfg, lines, above, "would-enqueue", fmt.Sprintf("Would enqueue %s.\n", pr.Ref.Raw))
+		return writeQueueResultWith(pr, cfg, lines, above, "would-enqueue", fmt.Sprintf("Would enqueue %s.\n", pr.Ref.Raw), requeue)
 	}
 	kind, err := enqueuePR(client, pr, includeDownstack)
 	if err != nil {
@@ -252,22 +270,23 @@ func finishQueue(client queueAPI, pr github.QueuePullRequest, cfg *config.Config
 	if kind == enqueueAsync {
 		text = fmt.Sprintf("Enqueued %s with merge-async.\n", pr.Ref.Raw)
 	}
-	return writeQueueResult(pr, cfg, lines, above, "enqueued", text)
+	return writeQueueResultWith(pr, cfg, lines, above, "enqueued", text, requeue)
 }
 
 func waitForPendingChecks(client queueAPI, pr github.QueuePullRequest, cfg *config.Config, above []int, problems []string, includeDownstack bool) error {
 	// problems are only pending required checks here; the wait handles them.
-	if _, err := queuePreflight(client, pr, cfg, above, nil); err != nil {
+	_, requeue, err := queuePreflight(client, pr, cfg, above, nil)
+	if err != nil {
 		return err
 	}
-	return waitUntilGreen(client, pr, cfg, above, problems, includeDownstack)
+	return waitUntilGreen(client, pr, cfg, above, problems, includeDownstack, requeue)
 }
 
 // waitUntilGreen polls until the pending problems clear, or reports that a
 // dry run would wait.
-func waitUntilGreen(client queueAPI, pr github.QueuePullRequest, cfg *config.Config, above []int, problems []string, includeDownstack bool) error {
+func waitUntilGreen(client queueAPI, pr github.QueuePullRequest, cfg *config.Config, above []int, problems []string, includeDownstack bool, requeue *requeueDecision) error {
 	if dryRun {
-		return writeQueueResult(pr, cfg, problems, above, "would-wait", fmt.Sprintf("Would wait for %s.\n", pr.Ref.Raw))
+		return writeQueueResultWith(pr, cfg, problems, above, "would-wait", fmt.Sprintf("Would wait for %s.\n", pr.Ref.Raw), requeue)
 	}
 	return pollUntilGreen(client, pr, cfg, above, includeDownstack)
 }
@@ -654,6 +673,12 @@ func readyLines(pr github.QueuePullRequest, settings config.SettingsConfig) []st
 }
 
 func writeQueueResult(pr github.QueuePullRequest, cfg *config.Config, lines []string, above []int, result, text string) error {
+	return writeQueueResultWith(pr, cfg, lines, above, result, text, nil)
+}
+
+// writeQueueResultWith is writeQueueResult with the RCA gate's decision,
+// which JSON reports as requeue.
+func writeQueueResultWith(pr github.QueuePullRequest, cfg *config.Config, lines []string, above []int, result, text string, requeue *requeueDecision) error {
 	if lines == nil {
 		lines = []string{}
 	}
@@ -661,7 +686,12 @@ func writeQueueResult(pr github.QueuePullRequest, cfg *config.Config, lines []st
 		above = []int{}
 	}
 	if jsonOutput {
-		encoded, err := json.MarshalIndent(queueJSONResult{
+		// Signatures mask values as <n>, <hex>, <path>, and <ts>; keep them
+		// readable instead of escaping < and >.
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetEscapeHTML(false)
+		enc.SetIndent("", "  ")
+		err := enc.Encode(queueJSONResult{
 			PullRequest:      pr.Ref.Raw,
 			Readiness:        lines,
 			Config:           cfg.Path,
@@ -671,11 +701,11 @@ func writeQueueResult(pr github.QueuePullRequest, cfg *config.Config, lines []st
 			StackedAbove:     above,
 			SettingsFrom:     settingsSource(cfg),
 			Gate:             gateLine(pr, cfg.Settings),
-		}, "", "  ")
+			Requeue:          requeue,
+		})
 		if err != nil {
 			return fmt.Errorf("encode queue result: %w", err)
 		}
-		fmt.Printf("%s\n", encoded)
 		return nil
 	}
 	for _, line := range effectiveConfigLines(cfg) {
@@ -880,32 +910,48 @@ func failedRequiredReason(checks []github.QueueCheck, required []string) (string
 	return strings.Join(reasons, "; "), true
 }
 
-func refuseRCA(pr github.QueuePullRequest, settings config.SettingsConfig) error {
+// requeueGate decides whether the latest removal may be requeued. It returns
+// nil when the latest queue event is not a removal. A refusal is a decision
+// with Allowed false; err is only for a failure to decide.
+func requeueGate(client removalAPI, pr github.QueuePullRequest, cfg *config.Config) (*requeueDecision, error) {
+	settings := cfg.Settings
 	event, ok := latestQueueEvent(pr.Events)
 	if !ok || event.Kind != github.QueueEventRemoved {
-		return nil
+		return nil, nil
 	}
 	class, matched, err := rcaClass(settings.RCAMarker, event.ID, pr.Comments)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	earlier, err := earlierRequeues(settings.RCAMarker, pr.Comments, pr.Events)
+	if err != nil {
+		return nil, err
+	}
+	d := &requeueDecision{Allowed: true, Used: earlier, Limit: settings.RequeueLimit()}
 	if matched && class == "our-code" {
 		at := event.CreatedAt.Format(time.RFC3339)
 		moved, decided := ourCodeHeadMoved(pr, event)
 		if !decided {
-			return errors.New("refusing to enqueue: our-code removal; head change could not be decided")
+			return d.refuse("our-code removal; head change could not be decided"), nil
 		}
 		if !moved {
-			return fmt.Errorf("refusing to enqueue: our-code removal and head %s unchanged since %s", pr.HeadSHA, at)
+			return d.refuse(fmt.Sprintf("our-code removal and head %s unchanged since %s", pr.HeadSHA, at)), nil
 		}
-		fmt.Printf("our-code ejection at %s; head %s pushed since, proceeding\n", at, pr.HeadSHA)
-		return nil
+		d.Reason = fmt.Sprintf("our-code ejection at %s; head %s pushed since", at, pr.HeadSHA)
+		fmt.Printf("%s, proceeding\n", d.Reason)
+		return d, nil
 	}
-	earlier, err := earlierRequeues(settings.RCAMarker, pr.Comments, pr.Events)
-	if err != nil {
-		return err
+	if reason := requeueRefusal(class, matched, earlier, d.Limit); reason != "" {
+		return d.refuse(reason), nil
 	}
-	return requeueAllowed(class, matched, earlier, settings.RequeueLimit())
+	d.Reason = fmt.Sprintf("%s RCA", class)
+	if class == "manual" {
+		return d, nil
+	}
+	if err := sameFailure(client, cfg, pr, event, d); err != nil {
+		return nil, err
+	}
+	return d, nil
 }
 
 // gateLine names the latest queue event the RCA gate decides from and, for a
@@ -955,23 +1001,25 @@ func ourCodeHeadMoved(pr github.QueuePullRequest, event github.QueueEvent) (move
 	return committedAfter, true
 }
 
-func requeueAllowed(class string, matched bool, earlier, limit int) error {
+// requeueRefusal returns why the RCA class refuses a requeue, or "" when it
+// allows one.
+func requeueRefusal(class string, matched bool, earlier, limit int) string {
 	if !matched {
-		return errors.New("refusing to enqueue: no RCA comment for that removal")
+		return "no RCA comment for that removal"
 	}
 	if class == "our-code" {
-		return errors.New("refusing to enqueue: RCA class is our-code")
+		return "RCA class is our-code"
 	}
 	if class == "manual" {
-		return nil
+		return ""
 	}
 	if class != "flake" && class != "infra" {
-		return fmt.Errorf("refusing to enqueue: RCA class %q is not flake, infra, or manual", class)
+		return fmt.Sprintf("RCA class %q is not flake, infra, or manual", class)
 	}
 	if earlier > limit {
-		return fmt.Errorf("refusing to enqueue: %d earlier requeues is greater than max_requeues %d", earlier, limit)
+		return fmt.Sprintf("%d earlier requeues is greater than max_requeues %d", earlier, limit)
 	}
-	return nil
+	return ""
 }
 
 func rcaClass(marker, eventID string, comments []string) (string, bool, error) {

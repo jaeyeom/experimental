@@ -115,7 +115,11 @@ func runEvidence(t *testing.T, client *fakeQueue, args ...string) string {
 
 func assertGolden(t *testing.T, name, got string) {
 	t.Helper()
-	path := filepath.Join("testdata", "evidence", name)
+	assertGoldenFile(t, filepath.Join("testdata", "evidence", name), got)
+}
+
+func assertGoldenFile(t *testing.T, path, got string) {
+	t.Helper()
 	want, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read golden: %v", err)
