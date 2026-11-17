@@ -41,6 +41,9 @@
 //	# Post an RCA marker for the latest removal
 //	gh-merge rca acme/widgets#12 --class flake --file body.md
 //
+//	# Print the failure evidence for the latest removal, or one --event, as JSON
+//	gh-merge evidence acme/widgets#12 --json
+//
 //	# Remove one pull request from the merge queue
 //	gh-merge dequeue acme/widgets#12
 //
@@ -94,7 +97,7 @@ func registerFlags() {
 	flag.BoolVar(&verbose, "v", false, "Verbose output")
 	flag.BoolVar(&force, "force", false, "Merge even if CI checks have failed or are pending")
 	flag.BoolVar(&includeDownstack, "include-downstack", false, "Also enqueue open pull requests below a stack")
-	flag.BoolVar(&jsonOutput, "json", false, "Print queue, watch, and rca results as JSON")
+	flag.BoolVar(&jsonOutput, "json", false, "Print queue, watch, rca, and evidence results as JSON")
 	flag.DurationVar(&watchTimeout, "timeout", defaultWatchTimeout, timeoutHelp())
 	flag.BoolVar(&whenGreen, "when-green", false, whenGreenHelp())
 	flag.BoolVar(&allowNoRequiredChecks, "allow-no-required-checks", false, "Queue even when required_checks is empty or the repository is not configured")
@@ -108,6 +111,7 @@ func registerFlags() {
 		fmt.Fprintf(os.Stderr, "  queue   %s\n", queueCommandHelp())
 		fmt.Fprintf(os.Stderr, "  watch   %s\n", watchCommandHelp())
 		fmt.Fprintf(os.Stderr, "  rca     %s\n", rcaCommandHelp())
+		fmt.Fprintf(os.Stderr, "  evidence %s\n", evidenceCommandHelp())
 		fmt.Fprintf(os.Stderr, "  dequeue %s\n", dequeueCommandHelp())
 	}
 }
@@ -566,6 +570,14 @@ func configFileExists(path string) bool {
 	return err == nil
 }
 
+// exitOnUsage prints usage and exits 1 when err is the usage error.
+func exitOnUsage(err, usageErr error, usage string) {
+	if errors.Is(err, usageErr) {
+		fmt.Fprintf(os.Stderr, "Usage: %s %s\n", os.Args[0], usage)
+		os.Exit(1)
+	}
+}
+
 func main() {
 	registerFlags()
 	flag.Parse()
@@ -616,10 +628,10 @@ func main() {
 		cmdErr = watchCommand(githubClient, cfg, args[1:])
 	case "rca":
 		cmdErr = postRCA(githubClient, cfg, args[1:])
-		if errors.Is(cmdErr, errRCAUsage) {
-			fmt.Fprintf(os.Stderr, "Usage: %s %s\n", os.Args[0], rcaUsage())
-			os.Exit(1)
-		}
+		exitOnUsage(cmdErr, errRCAUsage, rcaUsage())
+	case "evidence":
+		cmdErr = evidenceCommand(githubClient, cfg, args[1:])
+		exitOnUsage(cmdErr, errEvidenceUsage, evidenceUsage())
 	case "dequeue":
 		cmdErr = dequeueCommand(githubClient, args[1:])
 	default:

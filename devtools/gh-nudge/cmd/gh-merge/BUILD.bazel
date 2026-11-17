@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "circleci.go",
         "dequeue.go",
+        "evidence.go",
         "main.go",
         "queue.go",
         "rca.go",
@@ -32,9 +33,11 @@ go_test(
     size = "small",
     srcs = [
         "circleci_test.go",
+        "evidence_test.go",
         "main_test.go",
         "queue_test.go",
     ],
+    data = glob(["testdata/**"]),
     embed = [":go_default_library"],
     deps = [
         "//devtools/gh-nudge/internal/config:go_default_library",

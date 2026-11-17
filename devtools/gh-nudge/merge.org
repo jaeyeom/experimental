@@ -47,6 +47,10 @@ merge these PRs and optionally delete the source branch after merging.
   # Wait until each pull request merges, is ejected, or times out.
   gh-merge watch acme/widgets#12 acme/widgets#13
   gh-merge --json watch acme/widgets#12
+
+  # Print the failure evidence for the latest removal, or one removal event.
+  gh-merge evidence acme/widgets#12
+  gh-merge evidence acme/widgets#12 --event <id> --json
 #+end_src
 
 A pull request is not merged when it has any label listed in
@@ -95,6 +99,15 @@ decides merged, ejected, or timeout from the timeline. ~isInMergeQueue=false~
 alone is not an ejection. ~--json~ prints one result per pull request:
 ~merged~, ~ejected:<reason>~, or ~timeout~. The command exits non-zero unless
 every pull request merged.
+
+~gh-merge evidence~ prints the same removal evidence as ~queue~ for the
+latest removal, or for ~--event <id>~. It skips checks cancelled after the
+ejection. ~--json~ prints one object: ~event_id~, ~reason~, ~commit~, the
+~check~ name and URLs, the ~workflow~, the failed ~job~, ~failing_tests~
+(from CircleCI test results when available), an ~excerpt~ of the lines
+~failure_log_pattern~ matches (at most 50 lines and 8 KiB, with a ~log_url~),
+the other jobs of the workflow as ~siblings~, ~infra~, and ~flake_hints~.
+Log text has ANSI escapes removed in both text and JSON output.
 
 ** Configuration and Setup
 

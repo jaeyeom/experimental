@@ -643,3 +643,62 @@ func TestMergeAsyncSendsQueueActionAndSHA(t *testing.T) {
 		t.Errorf("call = %s", exec.calls[0])
 	}
 }
+
+func TestEjectionEvidenceCarriesJobWorkflowAndSiblings(t *testing.T) {
+	exec := &routeExec{route: map[string]string{
+		"check-runs": `{"check_runs":[
+			{"id":7,"name":"test (arm64)","conclusion":"success","completed_at":"2026-01-01T23:50:00Z","html_url":"https://github.com/acme/widgets/runs/7","details_url":"https://github.com/acme/widgets/actions/runs/9/job/7","check_suite":{"id":100}},
+			{"id":8,"name":"test (amd64)","conclusion":"failure","completed_at":"2026-01-01T23:55:00Z","html_url":"https://github.com/acme/widgets/runs/8","details_url":"https://github.com/acme/widgets/actions/runs/9/job/8","check_suite":{"id":100}},
+			{"id":3,"name":"lint","conclusion":"success","html_url":"https://github.com/acme/widgets/runs/3","details_url":"https://github.com/acme/widgets/actions/runs/5/job/3","check_suite":{"id":200}}
+		]}`,
+		"commits/deadbeef/status": `{"statuses":[]}`,
+		"actions/jobs/8/logs":     "##[group]Run tests\nFAIL\n",
+		"actions/jobs/8":          `{"name":"test (amd64)","workflow_name":"CI","run_id":9,"steps":[{"name":"Run tests","conclusion":"failure"}]}`,
+	}}
+	client := NewClientWithExecutor(exec)
+	got, err := client.EjectionEvidence("acme", "widgets", "deadbeef", time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("EjectionEvidence() error = %v", err)
+	}
+	if got.JobID != "8" || got.JobName != "test (amd64)" || got.Workflow != "CI" || got.WorkflowID != "9" {
+		t.Fatalf("job = %q %q workflow = %q %q", got.JobID, got.JobName, got.Workflow, got.WorkflowID)
+	}
+	want := []JobOutcome{{
+		ID:          "7",
+		Name:        "test (arm64)",
+		Outcome:     "success",
+		URL:         "https://github.com/acme/widgets/actions/runs/9/job/7",
+		CompletedAt: time.Date(2026, 1, 1, 23, 50, 0, 0, time.UTC),
+	}}
+	if len(got.Siblings) != len(want) || got.Siblings[0] != want[0] {
+		t.Fatalf("siblings = %+v, want %+v", got.Siblings, want)
+	}
+}
+
+func TestEjectionEvidenceIgnoresChecksCancelledAfterEjection(t *testing.T) {
+	ejected := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name      string
+		completed string
+		wantName  string
+	}{
+		{name: "cancelled after", completed: "2026-01-02T00:01:00Z", wantName: ""},
+		{name: "cancelled before", completed: "2026-01-01T23:59:00Z", wantName: "build"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			exec := &routeExec{route: map[string]string{
+				"check-runs":              `{"check_runs":[{"id":4,"name":"build","conclusion":"cancelled","completed_at":"` + tc.completed + `","html_url":"https://github.com/acme/widgets/runs/4","details_url":"https://example.com/build"}]}`,
+				"commits/deadbeef/status": `{"statuses":[]}`,
+			}}
+			client := NewClientWithExecutor(exec)
+			got, err := client.EjectionEvidence("acme", "widgets", "deadbeef", ejected)
+			if err != nil {
+				t.Fatalf("EjectionEvidence() error = %v", err)
+			}
+			if got.Name != tc.wantName {
+				t.Fatalf("chosen = %q, want %q", got.Name, tc.wantName)
+			}
+		})
+	}
+}

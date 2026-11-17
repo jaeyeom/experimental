@@ -104,7 +104,9 @@ type CommitStatus struct {
 // CheckRunURL empty. A check-run link is copied only when that target URL is
 // empty. Log is the Actions failing-step log when TargetURL is a GitHub
 // Actions job URL. Statuses lists commit statuses in state failure or error,
-// with descriptions.
+// with descriptions. JobID, JobName, Workflow, and WorkflowID name the
+// GitHub Actions job when the winner is one. Siblings are the other check
+// runs in the winner's check suite.
 type FailureEvidence struct {
 	Name        string
 	TargetURL   string
@@ -113,6 +115,20 @@ type FailureEvidence struct {
 	StepName    string
 	Log         string
 	Statuses    []CommitStatus
+	JobID       string
+	JobName     string
+	Workflow    string
+	WorkflowID  string
+	Siblings    []JobOutcome
+}
+
+// JobOutcome is one CI job and how it ended. CompletedAt is zero when unknown.
+type JobOutcome struct {
+	ID          string
+	Name        string
+	Outcome     string
+	URL         string
+	CompletedAt time.Time
 }
 
 // ParsePullRef accepts owner/repo#n or a github.com pull request URL.
@@ -334,6 +350,12 @@ func (c *Client) listStacks(owner, repo string, number int) ([]stackResponse, er
 // FailureEvidence ranks check runs and commit statuses, then reads an Actions
 // job log when the winner's target URL points at one.
 func (c *Client) FailureEvidence(owner, repo, sha string) (FailureEvidence, error) {
+	return c.EjectionEvidence(owner, repo, sha, time.Time{})
+}
+
+// EjectionEvidence is FailureEvidence that skips check runs cancelled after
+// ejectedAt. A zero ejectedAt skips none.
+func (c *Client) EjectionEvidence(owner, repo, sha string, ejectedAt time.Time) (FailureEvidence, error) {
 	checks, err := c.listCheckRuns(owner, repo, sha)
 	if err != nil {
 		return FailureEvidence{}, err
@@ -342,7 +364,7 @@ func (c *Client) FailureEvidence(owner, repo, sha string) (FailureEvidence, erro
 	if err != nil {
 		return FailureEvidence{}, err
 	}
-	chosen, ok := pickFailure(checks, statuses)
+	chosen, ok := pickFailure(liveChecks(checks, ejectedAt), statuses)
 	if !ok {
 		return FailureEvidence{}, nil
 	}
@@ -352,17 +374,24 @@ func (c *Client) FailureEvidence(owner, repo, sha string) (FailureEvidence, erro
 		CheckRunURL: chosen.checkHTML,
 		JobURL:      chosen.jobURL,
 		Statuses:    failingStatuses(statuses),
+		Siblings:    suiteSiblings(checks, chosen),
 	}
 	jobID, ok := jobIDFromURL(chosen.targetURL)
 	if !ok {
 		return evidence, nil
 	}
-	step, log, err := c.failingStepLog(owner, repo, jobID)
+	job, log, err := c.failingStepLog(owner, repo, jobID)
 	if err != nil {
 		return FailureEvidence{}, err
 	}
-	evidence.StepName = step
+	evidence.StepName = failingStepName(job)
 	evidence.Log = log
+	evidence.JobID = strconv.FormatInt(jobID, 10)
+	evidence.JobName = job.Name
+	evidence.Workflow = job.WorkflowName
+	if job.RunID != 0 {
+		evidence.WorkflowID = strconv.FormatInt(job.RunID, 10)
+	}
 	if evidence.JobURL == "" {
 		evidence.JobURL = chosen.targetURL
 	}
@@ -745,10 +774,64 @@ type checkRunsResponse struct {
 }
 
 type checkRunJSON struct {
-	Name       string `json:"name"`
-	Conclusion string `json:"conclusion"`
-	HTMLURL    string `json:"html_url"`    //nolint:tagliatelle // GitHub API uses snake_case
-	DetailsURL string `json:"details_url"` //nolint:tagliatelle // GitHub API uses snake_case
+	ID          int64      `json:"id"`
+	Name        string     `json:"name"`
+	Conclusion  string     `json:"conclusion"`
+	HTMLURL     string     `json:"html_url"`     //nolint:tagliatelle // GitHub API uses snake_case
+	DetailsURL  string     `json:"details_url"`  //nolint:tagliatelle // GitHub API uses snake_case
+	CompletedAt *time.Time `json:"completed_at"` //nolint:tagliatelle // GitHub API uses snake_case
+	CheckSuite  *struct {
+		ID int64 `json:"id"`
+	} `json:"check_suite"` //nolint:tagliatelle // GitHub API uses snake_case
+}
+
+func (r checkRunJSON) suiteID() int64 {
+	if r.CheckSuite == nil {
+		return 0
+	}
+	return r.CheckSuite.ID
+}
+
+// liveChecks drops check runs cancelled after ejectedAt. Ejecting a merge
+// group cancels its remaining checks, which are not the cause.
+func liveChecks(checks []checkRunJSON, ejectedAt time.Time) []checkRunJSON {
+	if ejectedAt.IsZero() {
+		return checks
+	}
+	out := make([]checkRunJSON, 0, len(checks))
+	for _, run := range checks {
+		if strings.EqualFold(run.Conclusion, "cancelled") && run.CompletedAt != nil && run.CompletedAt.After(ejectedAt) {
+			continue
+		}
+		out = append(out, run)
+	}
+	return out
+}
+
+// suiteSiblings returns the other check runs in the chosen check run's suite.
+func suiteSiblings(checks []checkRunJSON, chosen failureChoice) []JobOutcome {
+	if chosen.checkID == 0 || chosen.suiteID == 0 {
+		return nil
+	}
+	var out []JobOutcome
+	for _, run := range checks {
+		if run.ID == chosen.checkID || run.suiteID() != chosen.suiteID {
+			continue
+		}
+		link := run.DetailsURL
+		if link == "" {
+			link = run.HTMLURL
+		}
+		sibling := JobOutcome{Name: run.Name, Outcome: run.Conclusion, URL: link}
+		if id, ok := jobIDFromURL(run.DetailsURL); ok {
+			sibling.ID = strconv.FormatInt(id, 10)
+		}
+		if run.CompletedAt != nil {
+			sibling.CompletedAt = *run.CompletedAt
+		}
+		out = append(out, sibling)
+	}
+	return out
 }
 
 type statusJSON struct {
@@ -774,6 +857,8 @@ type failureChoice struct {
 	targetURL string
 	checkHTML string
 	jobURL    string
+	checkID   int64
+	suiteID   int64
 	rank      int
 }
 
@@ -827,6 +912,8 @@ func pickFailure(checks []checkRunJSON, statuses []statusJSON) (failureChoice, b
 			targetURL: target,
 			checkHTML: run.HTMLURL,
 			jobURL:    run.DetailsURL,
+			checkID:   run.ID,
+			suiteID:   run.suiteID(),
 		})
 	}
 	for _, status := range statuses {
@@ -906,29 +993,31 @@ func failingStatuses(statuses []statusJSON) []CommitStatus {
 }
 
 type actionsJobJSON struct {
-	Steps []struct {
+	Name         string `json:"name"`
+	WorkflowName string `json:"workflow_name"` //nolint:tagliatelle // GitHub API uses snake_case
+	RunID        int64  `json:"run_id"`        //nolint:tagliatelle // GitHub API uses snake_case
+	Steps        []struct {
 		Name       string `json:"name"`
 		Conclusion string `json:"conclusion"`
 	} `json:"steps"`
 }
 
-func (c *Client) failingStepLog(owner, repo string, jobID int64) (string, string, error) {
+func (c *Client) failingStepLog(owner, repo string, jobID int64) (actionsJobJSON, string, error) {
 	jobPath := fmt.Sprintf("repos/%s/%s/actions/jobs/%d", owner, repo, jobID)
 	jobOut, err := c.runGHJSON("api", jobPath)
 	if err != nil {
-		return "", "", fmt.Errorf("get job %d: %w", jobID, err)
+		return actionsJobJSON{}, "", fmt.Errorf("get job %d: %w", jobID, err)
 	}
 	var job actionsJobJSON
 	if err := jobOut.decode(&job); err != nil {
-		return "", "", fmt.Errorf("parse job %d: %w", jobID, err)
+		return actionsJobJSON{}, "", fmt.Errorf("parse job %d: %w", jobID, err)
 	}
 	logPath := jobPath + "/logs"
 	logOut, err := c.executor.Execute("gh", "api", logPath)
 	if err != nil {
-		return "", "", fmt.Errorf("get job %d logs: %w", jobID, err)
+		return actionsJobJSON{}, "", fmt.Errorf("get job %d logs: %w", jobID, err)
 	}
-	step := failingStepName(job)
-	return step, stepLog(logOut, step), nil
+	return job, stepLog(logOut, failingStepName(job)), nil
 }
 
 func failingStepName(job actionsJobJSON) string {
