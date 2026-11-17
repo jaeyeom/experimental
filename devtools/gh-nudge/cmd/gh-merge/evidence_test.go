@@ -69,7 +69,7 @@ func evidenceTestFailure() circleAPIFixture {
 		jobs:   `[{"job_number":8,"name":"test-amd64","status":"failed","stopped_at":"2026-01-01T23:58:00Z"}]`,
 		build:  `{"status":"failed",` + evidenceBuild8 + `,"steps":[{"actions":[{"status":"failed","exit_code":1,"output_url":"https://circleci.com/output/8"}]}]}`,
 		output: "compiling\n\x1b[31mERROR: TestParse failed\x1b[0m\nconnection reset by peer\nexit 1\n",
-		tests:  `{"items":[{"classname":"pkg/parse","name":"TestParse","result":"failure"},{"classname":"pkg/parse","name":"TestOK","result":"success"}]}`,
+		tests:  `{"items":[{"classname":"pkg/parse","name":"TestParse","result":"failure","message":"parse_test.go:12: read: connection reset by peer"},{"classname":"pkg/parse","name":"TestOK","result":"success"}]}`,
 	}
 }
 
@@ -149,6 +149,8 @@ func TestEvidenceJSONGolden(t *testing.T) {
 	}
 }
 
+// The "connection reset" line is outside the failing output, so it gives no
+// flake hint. Text evidence does not fetch test output.
 func TestEvidenceTextMatchesQueueAndStripsANSI(t *testing.T) {
 	withEvidenceCircleAPI(t, evidenceTestFailure())
 	pr := removedPR()
@@ -157,8 +159,7 @@ func TestEvidenceTextMatchesQueueAndStripsANSI(t *testing.T) {
 	want := "Removal reason: failed_checks\n" +
 		"ci/circleci " + infraTargetURL + "\n" +
 		"compiling\nERROR: TestParse failed\nconnection reset by peer\nexit 1\n" +
-		"ERROR: TestParse failed\n" +
-		"Flake hint: pattern \"connection reset\" matched \"connection reset\" (not a verdict)\n"
+		"ERROR: TestParse failed\n"
 	if output != want {
 		t.Fatalf("output:\n%q\nwant:\n%q", output, want)
 	}

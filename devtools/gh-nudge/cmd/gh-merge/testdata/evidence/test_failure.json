@@ -31,7 +31,9 @@
   "flake_hints": [
     {
       "pattern": "connection reset",
-      "match": "connection reset"
+      "match": "connection reset",
+      "line": "parse_test.go:12: read: connection reset by peer",
+      "location": "test pkg/parse.TestParse"
     }
   ],
   "rca_context": []

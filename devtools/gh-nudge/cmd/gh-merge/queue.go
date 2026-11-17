@@ -762,7 +762,7 @@ func (e evidenceOut) event(pr github.QueuePullRequest, event github.QueueEvent, 
 	if err != nil {
 		return eventEvidence{}, err
 	}
-	hints, err := flakeHints(e.cfg.Settings.FlakeSignatures, report.Text)
+	hints, err := flakeHints(e.cfg, report)
 	if err != nil {
 		return eventEvidence{}, err
 	}
@@ -1072,30 +1072,70 @@ func sortQueueEvents(events []github.QueueEvent) {
 	})
 }
 
-// flakeHint is one flake_signatures pattern and the text it matched.
+// flakeHint is one flake_signatures pattern, the text it matched, the
+// failing output line holding that text, and where that line was found.
 type flakeHint struct {
-	Pattern string `json:"pattern"`
-	Match   string `json:"match"`
+	Pattern  string `json:"pattern"`
+	Match    string `json:"match"`
+	Line     string `json:"line"`
+	Location string `json:"location"`
 }
 
 func (h flakeHint) text() string {
 	return fmt.Sprintf("Flake hint: pattern %q matched %q (not a verdict)", h.Pattern, h.Match)
 }
 
-func flakeHints(patterns []string, log string) ([]flakeHint, error) {
+// flakeHints matches flake_signatures only against the failing output: the
+// log lines failure_log_pattern selects and the failing tests' output. Lines
+// elsewhere in the log also appear in healthy runs, so they give no hint.
+// Each pattern gives at most one hint, for its first matching line.
+func flakeHints(cfg *config.Config, report failureReport) ([]flakeHint, error) {
+	if len(cfg.Settings.FlakeSignatures) == 0 {
+		return nil, nil
+	}
+	output, err := failingOutput(cfg, report)
+	if err != nil {
+		return nil, err
+	}
 	var hints []flakeHint
-	for _, pattern := range patterns {
+	for _, pattern := range cfg.Settings.FlakeSignatures {
 		re, err := regexp.Compile(pattern)
 		if err != nil {
 			return nil, fmt.Errorf("flake_signatures %q: %w", pattern, err)
 		}
-		hit := re.FindString(log)
-		if hit == "" {
-			continue
+		for _, line := range output {
+			if hit := re.FindString(line.text); hit != "" {
+				hints = append(hints, flakeHint{Pattern: pattern, Match: hit, Line: line.text, Location: line.location})
+				break
+			}
 		}
-		hints = append(hints, flakeHint{Pattern: pattern, Match: hit})
 	}
 	return hints, nil
+}
+
+// outputLine is one line of failing output and where it was found.
+type outputLine struct {
+	text     string
+	location string
+}
+
+func failingOutput(cfg *config.Config, report failureReport) ([]outputLine, error) {
+	logLines, err := failureLogLines(cfg, report.Log)
+	if err != nil {
+		return nil, err
+	}
+	var output []outputLine
+	for _, line := range logLines {
+		output = append(output, outputLine{text: line.text, location: fmt.Sprintf("log line %d", line.number)})
+	}
+	for _, test := range report.TestOutputs {
+		for _, line := range strings.Split(test.Output, "\n") {
+			if line != "" {
+				output = append(output, outputLine{text: line, location: "test " + test.Name})
+			}
+		}
+	}
+	return output, nil
 }
 
 func tailText(text string, n int) string {
