@@ -699,8 +699,12 @@ func TestSupersedeRefusesFinished(t *testing.T) {
 	if err != nil || !moved {
 		t.Fatalf("move = %v, %v", moved, err)
 	}
-	if _, err := submitReplacing(t, f, old.ID); err == nil || !strings.Contains(err.Error(), OutboxPosted) {
+	_, err = submitReplacing(t, f, old.ID)
+	if err == nil || !strings.Contains(err.Error(), OutboxPosted) {
 		t.Fatalf("err = %v, want a refusal naming posted", err)
+	}
+	if want := "only needs-redraft, pending, awaiting-handoff, rejected, cancelled, dropped, mismatch, or failed records can be superseded"; !strings.Contains(err.Error(), want) {
+		t.Errorf("err = %v, want it to list %q", err, want)
 	}
 	recs, err := f.store.ListOutbox("")
 	if err != nil {
@@ -721,6 +725,105 @@ func TestSupersedeRefusesFinished(t *testing.T) {
 	}
 	if recs, err = approved.store.ListOutbox(""); err != nil || len(recs) != 1 {
 		t.Fatalf("records = %+v, %v", recs, err)
+	}
+
+	posting := newOutboxFixture(t, PostModeDirect)
+	r = posting.submit(t)
+	moved, err = posting.store.moveOutbox(r.ID, []string{OutboxPending}, outboxUpdate{state: OutboxPosting}, testNow())
+	if err != nil || !moved {
+		t.Fatalf("move = %v, %v", moved, err)
+	}
+	if _, err := submitReplacing(t, posting, r.ID); err == nil || !strings.Contains(err.Error(), OutboxPosting) {
+		t.Fatalf("err = %v, want a refusal naming posting", err)
+	}
+	if got := posting.get(t, r.ID); got.State != OutboxPosting {
+		t.Errorf("posting old state = %s", got.State)
+	}
+}
+
+// finishAs submits a draft and moves it to state with reason.
+func finishAs(t *testing.T, f *outboxFixture, state, reason string) OutboxRecord {
+	t.Helper()
+	r := f.submit(t)
+	moved, err := f.store.moveOutbox(r.ID, []string{OutboxPending}, outboxUpdate{state: state, reason: &reason}, testNow())
+	if err != nil || !moved {
+		t.Fatalf("move to %s = %v, %v", state, moved, err)
+	}
+	return f.get(t, r.ID)
+}
+
+func TestSupersedeFinishedKeepsOld(t *testing.T) {
+	for _, state := range []string{OutboxRejected, OutboxCancelled, OutboxDropped, OutboxMismatch} {
+		t.Run(state, func(t *testing.T) {
+			f := newOutboxFixture(t, PostModeHandoff)
+			old := finishAs(t, f, state, "the old outcome")
+			neu, err := submitReplacing(t, f, old.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if neu.Supersedes != old.ID || neu.State != OutboxPending {
+				t.Fatalf("new = %+v", neu)
+			}
+			if got := f.get(t, old.ID); got.State != state || got.Reason != "the old outcome" {
+				t.Fatalf("old = %+v, want %s with its outcome kept", got, state)
+			}
+			if by, err := f.store.SupersededBy(old.ID); err != nil || by != neu.ID {
+				t.Errorf("SupersededBy = %d, %v", by, err)
+			}
+		})
+	}
+}
+
+func TestSupersedeFailedClosesRetry(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	old := finishAs(t, f, OutboxFailed, "slack down")
+	neu, err := submitReplacing(t, f, old.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if neu.Supersedes != old.ID {
+		t.Fatalf("new = %+v", neu)
+	}
+	want := fmt.Sprintf("not posted: superseded by %d", neu.ID)
+	if got := f.get(t, old.ID); got.State != OutboxCancelled || got.Reason != want {
+		t.Fatalf("old = %+v, want cancelled with %q", got, want)
+	}
+	if by, err := f.store.SupersededBy(old.ID); err != nil || by != neu.ID {
+		t.Errorf("SupersededBy = %d, %v", by, err)
+	}
+	if _, err := f.ob.Retry(context.Background(), old.ID); err == nil {
+		t.Fatal("retry of a superseded failed record succeeded")
+	}
+	if got := f.get(t, old.ID); got.State != OutboxCancelled {
+		t.Errorf("old state after retry = %s", got.State)
+	}
+}
+
+func TestSupersedeTwiceRefused(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	old := finishAs(t, f, OutboxRejected, "picked from the CLI")
+	first, err := submitReplacing(t, f, old.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = submitReplacing(t, f, old.ID)
+	want := fmt.Sprintf("outbox %d is already superseded by %d", old.ID, first.ID)
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("err = %v, want %q", err, want)
+	}
+	recs, err := f.store.ListOutbox("")
+	if err != nil || len(recs) != 2 {
+		t.Fatalf("records = %d, %v; want 2", len(recs), err)
+	}
+
+	f = newOutboxFixture(t, PostModeHandoff)
+	open := redraft(t, f)
+	first, err = submitReplacing(t, f, open.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := submitReplacing(t, f, open.ID); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("superseded by %d", first.ID)) {
+		t.Fatalf("err = %v, want a refusal naming %d", err, first.ID)
 	}
 }
 

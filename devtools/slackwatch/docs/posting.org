@@ -9,7 +9,7 @@ off until ~post.mode~ is set; without it, ~post~ refuses.
 
 | Command | Does |
 |---------+------|
-| ~post --to DEST --text-file F --owner T --purpose S [--ref R ...] [--supersedes ID] [--owner-unchecked] [--json]~ | Store the draft and file its decide item. Prints the outbox id. ~--supersedes~ cancels that older draft once this one is stored. |
+| ~post --to DEST --text-file F --owner T --purpose S [--ref R ...] [--supersedes ID] [--owner-unchecked] [--json]~ | Store the draft and file its decide item. Prints the outbox id. ~--supersedes~ links an older draft that is still open or finished without a post (rejected, cancelled, dropped, mismatch, failed) once this one is stored; an open or failed one is cancelled. |
 | ~outbox ls [--state S] [--json]~ | List outbox records. |
 | ~outbox show <id> [--json]~ | Show a record, ending with its exact text. |
 | ~outbox posted [--manual] <id> <permalink>~ | Report a handoff post, or with ~--manual~ a post made by hand. |
@@ -86,6 +86,7 @@ refuses and asks for the user id. ~im:write~ is not used.
    - Any other ~post~ pick, such as one given with the decide CLI,
      makes the record ~rejected~ and alerts the owner and
      ~fallbackTarget~.
+     The owner can submit the draft again with ~--supersedes <id>~.
    - A decide item closed or withdrawn before an accepted pick makes
      the record ~cancelled~.
    - Every outcome closes the decide item with ~decide done~, except

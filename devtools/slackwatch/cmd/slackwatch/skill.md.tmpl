@@ -13,7 +13,7 @@ Do not post to Slack yourself. Write the exact text to a file and submit it:
 
     slackwatch post --to <channel-id|#name|@name|user-id|thread-permalink> --text-file <file> --owner <you> --purpose "..." --ref <ref>
 
-It prints an outbox id. The user approves the exact text and destination in decide. slackwatch then posts it and registers the watch with you as owner. If the user asks for changes instead, an outbox-redraft notification carries their notes: redraft and submit again with `--supersedes <id>`. If a direct post fails, run `slackwatch outbox retry <id>` after the cause is fixed; a new post pick from the user in decide also retries it once. Run `slackwatch outbox show <id>` to check a draft.
+It prints an outbox id. The user approves the exact text and destination in decide. slackwatch then posts it and registers the watch with you as owner. If the user asks for changes instead, an outbox-redraft notification carries their notes: redraft and submit again with `--supersedes <id>`. If a direct post fails, run `slackwatch outbox retry <id>` after the cause is fixed; a new post pick from the user in decide also retries it once. After a rejection or failure you can also submit a new draft with `--supersedes <id>`; a failed draft it replaces is then closed to retries. Run `slackwatch outbox show <id>` to check a draft.
 
 `--owner` must be a config target or a name from `agentbus list`. `--owner-unchecked` accepts another name.
 
