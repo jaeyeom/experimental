@@ -35,7 +35,8 @@ type Waker interface {
 }
 
 // Errors of a Wake that starts no relaunch: the target names no agent,
-// or its agent is not hibernated.
+// or its agent is not hibernated. Send and Reply also return
+// ErrUnknownTarget when the target names no agent.
 var (
 	ErrUnknownTarget = errors.New("unknown target")
 	ErrNotHibernated = errors.New("not hibernated")

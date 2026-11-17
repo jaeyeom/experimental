@@ -355,3 +355,12 @@ func TestTunnelLogFollowStreamsWithoutADeadline(t *testing.T) {
 		t.Fatalf("log --follow ran ssh: %q", s.ssh.Lines("argv"))
 	}
 }
+
+func TestTunnelSendToAnUnregisteredNameExitsTwo(t *testing.T) {
+	s := newTunnelSetup(t)
+	s.startHubDaemon(t)
+	code, stdout, stderr := s.run(t, s.env, "", "send", "ops/nobody", "hello")
+	if code != 2 || stdout != "" || !strings.Contains(stderr, "ops/nobody is not registered") {
+		t.Fatalf("send = %d, stdout %q, stderr %q", code, stdout, stderr)
+	}
+}

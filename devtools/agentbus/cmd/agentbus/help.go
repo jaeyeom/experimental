@@ -25,6 +25,10 @@ func noStdin(f func(ctx context.Context, args, env []string, stdout, stderr io.W
 	}
 }
 
+// sendExitCodes are the exit codes of send and reply.
+const sendExitCodes = "Exit 0: stored (queued, delivered, or held); 1: bus, daemon or transport error; " +
+	"2: unknown target or bad usage; 3: stored, but the daemon can't reach the transport (not with --wait)."
+
 func commands() []command {
 	return []command{
 		{
@@ -82,7 +86,7 @@ func commands() []command {
 		},
 		{
 			name:    "send",
-			summary: "Send. The body comes from the argument, --file, or stdin.",
+			summary: "Send. The body comes from the argument, --file, or stdin. " + sendExitCodes,
 			usage:   "agentbus send <name|handle> [<body>] [--file <path>] [--ttl <duration>] [--wait] [--client-id <id>] [--json]",
 			flags: "--file <path>       read the body from this file (default: none)\n" +
 				"--ttl <duration>    deadline for this message, such as 30m (default: none, no deadline)\n" +
@@ -101,7 +105,7 @@ func commands() []command {
 		},
 		{
 			name:    "reply",
-			summary: "Reply. The body comes from the argument, --file, or stdin. to is the original sender and re is id.",
+			summary: "Reply. The body comes from the argument, --file, or stdin. to is the original sender and re is id. " + sendExitCodes,
 			usage:   "agentbus reply <id> [<body>] [--file <path>] [--client-id <id>] [--json]",
 			flags: "--file <path>       read the body from this file (default: none)\n" +
 				"stdin               the body, when no body words are given or the body is - (default: none)\n" +

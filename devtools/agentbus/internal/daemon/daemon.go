@@ -1282,9 +1282,18 @@ func (s *server) send(req Request, pid int) Response {
 		TTL: ttl, Wait: req.Wait, ClientID: req.ClientID, ReplyFirst: !req.Wait,
 	})
 	if err != nil {
-		return Response{Error: err.Error()}
+		return sendError(err)
 	}
 	return Response{OK: true, Name: result.ID, State: result.State, Duplicate: result.Duplicate, Unreachable: result.Unreachable, AnonHerdr: result.AnonHerdr}
+}
+
+// sendError is a refused send or reply. An unknown target's State is
+// UnknownTarget, so the CLI can exit 2 without matching the text.
+func sendError(err error) Response {
+	if errors.Is(err, mailbox.ErrUnknownTarget) {
+		return Response{Error: err.Error(), State: UnknownTarget}
+	}
+	return Response{Error: err.Error()}
 }
 
 func (s *server) transportStatus() Response {
@@ -1309,7 +1318,7 @@ func positiveDuration(raw string) (time.Duration, error) {
 func (s *server) reply(req Request, pid int) Response {
 	result, err := s.box.Reply(s.ctx, req.Env, pid, req.Name, req.Body, mailbox.Options{ClientID: req.ClientID, ReplyFirst: true})
 	if err != nil {
-		return Response{Error: err.Error()}
+		return sendError(err)
 	}
 	return Response{OK: true, Name: result.ID, State: result.State, Duplicate: result.Duplicate, Unreachable: result.Unreachable, AnonHerdr: result.AnonHerdr}
 }

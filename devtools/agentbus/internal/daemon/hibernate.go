@@ -158,8 +158,12 @@ func (s *server) wakeAgent(req Request) Response {
 // The States of a wake that relaunched nothing.
 const (
 	WakeNotHibernated = "not-hibernated"
-	WakeUnknown       = "unknown"
+	WakeUnknown       = UnknownTarget
 )
+
+// UnknownTarget is the State of a refused wake, send or reply whose
+// target names no agent.
+const UnknownTarget = "unknown"
 
 // agentName is handle's first name, else handle.
 func (s *server) agentName(handle string) string {

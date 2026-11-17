@@ -206,3 +206,48 @@ func logged(t *testing.T, dir, event string) bool {
 	}
 	return len(lines) > 0
 }
+
+func TestSendToAnUnregisteredNameExitsTwo(t *testing.T) {
+	env, _ := heldWorld(t, nil)
+	code, stdout, stderr := runCmd([]string{"send", "ops/nobody", "hello"}, env("p1"))
+	if code != 2 || stdout != "" || !strings.Contains(stderr, "ops/nobody is not registered") {
+		t.Fatalf("send = %d\nstdout %q\nstderr %q", code, stdout, stderr)
+	}
+}
+
+func TestReplyToASenderNoLongerRegisteredExitsTwo(t *testing.T) {
+	env, _ := heldWorld(t, nil)
+	mustCmd(t, []string{"register", "ops/gone", "--when", "tests"}, env("p1"))
+	out, _ := mustCmd(t, []string{"send", heldReviewer, "question"}, env("p1"))
+	id := firstID(t, out)
+	mustCmd(t, []string{"release", "ops/gone"}, env("p1"))
+	code, stdout, stderr := runCmd([]string{"reply", id, "answer"}, env("p2"))
+	if code != 2 || stdout != "" || !strings.Contains(stderr, "ops/gone is not registered") {
+		t.Fatalf("reply = %d\nstdout %q\nstderr %q", code, stdout, stderr)
+	}
+}
+
+func TestSendAndReplyExitOneOnADaemonError(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		resp daemon.Response
+		err  error
+	}{
+		{name: "unreachable", err: errors.New("connect: connection refused")},
+		{name: "refused", resp: daemon.Response{Error: "mailbox is full"}},
+	} {
+		orig := dialDaemon
+		dialDaemon = func(context.Context, string, daemon.Request) (daemon.Response, error) {
+			return tc.resp, tc.err
+		}
+		ensure := ensureDaemonUp
+		ensureDaemonUp = func(context.Context, paths.Dirs, []string) error { return nil }
+		for _, args := range [][]string{{"send", "ops/x", "hi"}, {"reply", "m-1", "hi"}} {
+			if code, _, stderr := runCmd(args, resendEnv(t)); code != 1 {
+				t.Errorf("%s %q = %d %q, want 1", tc.name, args, code, stderr)
+			}
+		}
+		dialDaemon = orig
+		ensureDaemonUp = ensure
+	}
+}
