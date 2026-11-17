@@ -610,8 +610,9 @@ type Draft struct {
 	Purpose     string
 	Refs        []string
 	// Supersedes is an outbox id this draft replaces. 0 means none.
-	// It must be needs-redraft, pending, or awaiting-handoff. That
-	// record is cancelled only after this draft is stored.
+	// It must not be posted, approved, or posting, nor already
+	// superseded. An open or failed record is cancelled only after this
+	// draft is stored; one that finished without a post is only linked.
 	Supersedes int64
 }
 
@@ -664,8 +665,9 @@ func (o *Outbox) logger() *slog.Logger {
 }
 
 // Submit stores d as a pending record and files its decide item.
-// When Supersedes is set, that older record is cancelled only after
-// this one is stored. A failed submit leaves the older record as it was.
+// When Supersedes is set, that older record is linked, and cancelled if
+// it is open or failed, only after this one is stored. A failed submit
+// leaves the older record as it was.
 func (o *Outbox) Submit(ctx context.Context, d Draft) (OutboxRecord, error) {
 	if err := o.Config.CheckPost(); err != nil {
 		return OutboxRecord{}, err
@@ -729,9 +731,13 @@ func (o *Outbox) submitted(ctx context.Context, id int64) (OutboxRecord, error) 
 	return rec, nil
 }
 
+// supersedeRefused is the error tail when a record cannot be superseded.
+const supersedeRefused = "only needs-redraft, pending, awaiting-handoff, rejected, cancelled, dropped, mismatch, or failed records can be superseded"
+
 // checkSupersedes reports an error when id cannot be replaced. 0 is fine.
-// A record that is posted, cancelled, or otherwise finished is refused,
-// and so is anything that is not still a draft.
+// A still-open draft or one that finished without a post can be replaced.
+// A record that is posted, approved, or posting is refused, and so is
+// one another draft already replaces.
 func (o *Outbox) checkSupersedes(id int64) error {
 	if id == 0 {
 		return nil
@@ -740,22 +746,40 @@ func (o *Outbox) checkSupersedes(id int64) error {
 	if err != nil {
 		return err
 	}
+	by, err := o.Store.SupersededBy(id)
+	if err != nil {
+		return err
+	}
+	if by != 0 {
+		return fmt.Errorf("outbox %d is already superseded by %d", id, by)
+	}
 	switch old.State {
-	case OutboxNeedsRedraft, OutboxPending, OutboxAwaitingHandoff:
+	case OutboxNeedsRedraft, OutboxPending, OutboxAwaitingHandoff, OutboxFailed,
+		OutboxRejected, OutboxCancelled, OutboxDropped, OutboxMismatch:
 		return nil
 	default:
-		return fmt.Errorf("outbox %d is %s; only needs-redraft, pending, or awaiting-handoff records can be superseded", id, old.State)
+		return fmt.Errorf("outbox %d is %s; %s", id, old.State, supersedeRefused)
 	}
 }
 
-// supersede links newID back to oldID and cancels oldID. newID is already stored.
+// supersede links newID back to oldID. newID is already stored. An open
+// or failed oldID is cancelled, so it can neither be posted nor retried;
+// one that already finished without a post keeps its state and outcome.
 func (o *Outbox) supersede(ctx context.Context, oldID, newID int64) error {
 	if _, err := o.Store.db.Exec(`UPDATE outbox SET supersedes = ? WHERE id = ?`, oldID, newID); err != nil {
 		return fmt.Errorf("link outbox %d to %d: %w", newID, oldID, err)
 	}
+	old, err := o.Store.GetOutbox(oldID)
+	if err != nil {
+		return err
+	}
+	switch old.State {
+	case OutboxRejected, OutboxCancelled, OutboxDropped, OutboxMismatch:
+		return nil
+	}
 	outcome := fmt.Sprintf("not posted: superseded by %d", newID)
-	_, err := o.cancelIn(ctx, oldID, []string{OutboxNeedsRedraft, OutboxPending, OutboxAwaitingHandoff}, outcome, outcome,
-		"only needs-redraft, pending, or awaiting-handoff records can be superseded")
+	_, err = o.cancelIn(ctx, oldID, []string{OutboxNeedsRedraft, OutboxPending, OutboxAwaitingHandoff, OutboxFailed}, outcome, outcome,
+		supersedeRefused)
 	return err
 }
 
