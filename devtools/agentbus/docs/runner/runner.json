@@ -1,0 +1,9 @@
+{
+  "poll": "10s",
+  "kinds": {
+    "rebase": {"command": ["prsync", "rebase", "{subject}", "{head}"], "parallel": 2, "timeout": "20m"},
+    "review": {"target": "pr-{subject}", "prompt": "Answer the review comments on {subject}.", "timeout": "2h"},
+    "start-item": {"command": ["factory", "start", "--apply", "{subject}"], "start": true, "parallel": 2}
+  },
+  "start": {"minSpacing": "5m", "maxInFlight": 3, "laneCap": 2, "minFreeDiskMb": 10240}
+}

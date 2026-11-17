@@ -3,6 +3,7 @@ package daemon
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -26,6 +27,35 @@ func (s *server) jobsOp(req Request) Response {
 		r   jobs.Reply
 		err error
 	)
+	if op, ok := holderOps[req.Op]; ok {
+		r, err = op(s.jobs, a)
+	} else {
+		r, err = s.otherJobsOp(req, a)
+	}
+	if errors.Is(err, errUnknownOp) {
+		return Response{Error: "unknown op"}
+	}
+	if err != nil {
+		return Response{Error: err.Error()}
+	}
+	return Response{OK: true, Jobs: &r}
+}
+
+// holderOps are the ops a job's holder uses on its running job.
+var holderOps = map[string]func(*jobs.Store, jobs.Args) (jobs.Reply, error){
+	"jobs-heartbeat": (*jobs.Store).Heartbeat,
+	"jobs-done":      (*jobs.Store).Done,
+	"jobs-fail":      (*jobs.Store).Fail,
+	"jobs-gate":      (*jobs.Store).Gate,
+}
+
+var errUnknownOp = errors.New("unknown op")
+
+func (s *server) otherJobsOp(req Request, a jobs.Args) (jobs.Reply, error) {
+	var (
+		r   jobs.Reply
+		err error
+	)
 	switch req.Op {
 	case "jobs-enqueue":
 		r, err = s.jobs.Enqueue(a)
@@ -33,12 +63,6 @@ func (s *server) jobsOp(req Request) Response {
 		if err = s.claimMachine(req, &a); err == nil {
 			r, err = s.jobs.Claim(a)
 		}
-	case "jobs-heartbeat":
-		r, err = s.jobs.Heartbeat(a)
-	case "jobs-done":
-		r, err = s.jobs.Done(a)
-	case "jobs-fail":
-		r, err = s.jobs.Fail(a)
 	case "jobs-ls":
 		r, err = s.jobs.List(a)
 	case "jobs-show":
@@ -52,12 +76,9 @@ func (s *server) jobsOp(req Request) Response {
 		err = s.jobs.Unhold()
 		r.Held, r.HoldNote = s.jobs.Held()
 	default:
-		return Response{Error: "unknown op"}
+		return r, errUnknownOp
 	}
-	if err != nil {
-		return Response{Error: err.Error()}
-	}
-	return Response{OK: true, Jobs: &r}
+	return r, err //nolint:wrapcheck // the store's own message is the reply
 }
 
 // watchJobs applies heartbeat loss, reconciles lost outward jobs, and

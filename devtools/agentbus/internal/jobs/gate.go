@@ -80,6 +80,12 @@ func gateText(j Job) string {
 	if j.Head != "" {
 		what += " at " + j.Head
 	}
+	if n := len(j.History); n > 0 && j.History[n-1].From == StateRunning {
+		last := j.History[n-1]
+		return fmt.Sprintf("agentbus job %s (%s) waits for you: runner %s stopped it before it acted: %s. "+
+			"The runner never answers a dialog. Settle it yourself, then approve to let a runner take the job again, or reject to fail it.",
+			j.ID, what, last.Actor, last.Note)
+	}
 	return fmt.Sprintf("agentbus job %s (%s) waits for you: the jobs policy asks before a %s job runs. "+
 		"Approve to let a runner take it, or reject to fail it. A note you write before rejecting is kept with the job.",
 		j.ID, what, j.Kind)
