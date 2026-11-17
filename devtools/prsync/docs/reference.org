@@ -5,9 +5,9 @@ The short guide is [[file:../README.org][the prsync README]].
 * Commands
 
 #+BEGIN_EXAMPLE
-prsync scan     [--config PATH] [--repo owner/repo ...] [--json] [--in-scope] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
+prsync scan     [--config PATH] [--repo owner/repo ...] [--json] [--in-scope] [--emit-jobs] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
 prsync tabs     --orphans [--config PATH] [--json] [--stdin] [--close-merged] [--go] [--force] [--tab-machine M]
-prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--merge] [--ci-fix] [--hint TEXT] [--prompt-suffix TEXT] [--force] [--stdin] [--open-tabs] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
+prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--merge] [--ci-fix] [--hint TEXT] [--prompt-suffix TEXT] [--force] [--stdin] [--open-tabs] [--job ID] [--runner NAME] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
 prsync comment  [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--stdin] [--allow-duplicate] --body TEXT
 prsync gate     [--config PATH] [--tab-machine M]
 prsync logs     [--path]
@@ -39,6 +39,9 @@ prsync version
 | ~--tab-machine M~ | scan, dispatch, tabs, gate | Scope the run to PRs whose tab is on ~M~: ~local~ or one of ~machines~. ~gate~ (and dispatch's gate) then checks ~M~'s checkout and agents. Overrides ~tab_machine~. See [[file:multi-machine.org::*One watcher per machine][One watcher per machine]] |
 | ~--untabbed include~ / ~exclude~ | scan, dispatch | Whether PRs with no tab belong to this run. Overrides ~untabbed~ |
 | ~--skip JOB~ | scan, dispatch | Repeatable. Skip a machine-wide job this run (~team-cover~). Overrides ~skip_jobs~ |
+| ~--emit-jobs~ | scan | Write agentbus job specs instead of the scan document. See [[file:jobs.org::*scan --emit-jobs][scan --emit-jobs]] |
+| ~--job ID~ | dispatch | Run one agentbus job, live, and report it with ~agentbus jobs done~ or ~fail~. See [[file:jobs.org::*dispatch --job][dispatch --job]] |
+| ~--runner NAME~ | dispatch | The job's runner for the report (requires ~--job~). Default =$JOB_RUNNER= |
 | ~--open-tabs~ | dispatch | Open a herdr tab and start an agent for an in-scope PR with no tab. Overrides ~open_missing_tabs~. See [[file:multi-machine.org::*Opening tabs for untabbed PRs][Opening tabs for untabbed PRs]] |
 
 Usage errors (exit 2): ~--pr~ with ~--all~; any two of ~--rebase~,
@@ -46,7 +49,9 @@ Usage errors (exit 2): ~--pr~ with ~--all~; any two of ~--rebase~,
 a merge or no force-push (~--force~ does not bypass it);
 ~--hint~ without ~--ci-fix~; ~--go~ on ~tabs~ without ~--close-merged~;
 a ~--tab-machine~ that is neither ~local~ nor in ~machines~; an
-~--untabbed~ other than ~include~ or ~exclude~; an unknown ~--skip~ job.
+~--untabbed~ other than ~include~ or ~exclude~; an unknown ~--skip~ job;
+~--job~ with ~--pr~, ~--all~, a prompt-mode flag, ~--hint~, ~--force~,
+or ~--stdin~; ~--runner~ without ~--job~.
 
 ~--go~ always sends (or, with ~--close-merged~, closes). ~dry_run=false~
 in the config also sends / closes without ~--go~ (for cron); ~tabs~
@@ -103,6 +108,8 @@ Environment variables are not expanded.
 | ~machine_timeout_ms~            | ~5000~                                                                                                                                                                                                                                       | Bound for each herdr call to one of ~machines~, except ~agent prompt~ and ~agent wait~, which use ~dispatch_timeout_ms~.                                        |
 | ~tab_machine~                   | empty                                                                                                                                                                                                                                        | Limit scan, dispatch, and tabs to PRs whose tab is on this machine. See [[file:multi-machine.org::*tab_machine][details]].                                      |
 | ~machine_checkouts~             | empty                                                                                                                                                                                                                                        | Each other machine's checkout, as ~machine=/path~, for the remote gate. See [[file:multi-machine.org::*machine_checkouts][details]].                            |
+| ~job_machines~                  | empty                                                                                                                                                                                                                                        | Queue names for ~scan --emit-jobs~, as ~machine=name~; a plain value names ~local~. See [[file:jobs.org::*Affinity][details]].                                  |
+| ~job_lanes~                     | empty                                                                                                                                                                                                                                        | Lane labels for ~scan --emit-jobs~, as ~label=machine~. See [[file:jobs.org::*Affinity][details]].                                                              |
 | ~untabbed~                      | empty                                                                                                                                                                                                                                        | Whether a scoped run includes PRs that have no tab. See [[file:multi-machine.org::*untabbed][details]].                                                         |
 | ~scan_in_scope_only~            | ~false~                                                                                                                                                                                                                                      | When ~true~, ~scan~ leaves PRs marked ~out_of_scope~ out of its output, as ~--in-scope~ does. ~--in-scope=false~ overrides it.                                  |
 | ~review_threads_ttl~            | ~6h~                                                                                                                                                                                                                                         | How long review threads are reused while the PR head is unchanged. See [[file:internals.org::*review_threads_ttl][details]].                                    |

@@ -131,6 +131,13 @@ type Config struct {
 	// dispatch repo. The gate of a TabMachine run on another machine
 	// uses it instead of the local checkout.
 	MachineCheckouts map[string]string
+	// JobMachines maps local or one of Machines to its machine name in
+	// the agentbus job queue, for scan --emit-jobs. A missing machine
+	// keeps its own name.
+	JobMachines map[string]string
+	// JobLanes maps a pull-request label to the machine (local or one of
+	// Machines) whose lane it is, for scan --emit-jobs.
+	JobLanes map[string]string
 	// Untabbed is include or exclude for PRs with no tab. Empty means
 	// only the local run includes them.
 	Untabbed string
@@ -635,8 +642,8 @@ func applyOtherKey(cfg *Config, key, val string) error {
 	switch key {
 	case "machines":
 		return applyMachines(cfg, val)
-	case "machine_checkouts":
-		return applyMachineCheckouts(cfg, val)
+	case "machine_checkouts", "job_machines", "job_lanes":
+		return applyMachineKey(cfg, key, val)
 	case "tab_machine", "untabbed", "skip_jobs":
 		applyScopeKey(cfg, key, val)
 		return nil

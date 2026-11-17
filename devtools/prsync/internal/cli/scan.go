@@ -31,6 +31,7 @@ func newScanCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 		repos      []string
 		jsonFlag   bool
 		inScope    bool
+		emit       bool
 		scope      scopeFlags
 	)
 	cmd := &cobra.Command{
@@ -55,6 +56,9 @@ func newScanCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 			logStartup(cmd.Context(), "scan", cfg)
 			deps, saveCache := scanDeps(cmd.Context(), exec, cfg, herdr.NewClient(exec, cfg.HerdrBin))
 			deps.HistoryRefresh = historyRefresh(repos, cfg.ScanInScopeOnly)
+			if emit {
+				loadLabelsForLanes(deps, cfg)
+			}
 			now := time.Now()
 			doc, err := scan.Run(cmd.Context(), deps, cfg, repos, now)
 			saveCache()
@@ -66,7 +70,7 @@ func newScanCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 				if cfg.ScanInScopeOnly {
 					scan.DropOutOfScope(&doc)
 				}
-				if werr := writeJSON(stdout, doc); werr != nil {
+				if werr := writeScanOutput(stdout, doc, cfg, emit, err); werr != nil {
 					return werr
 				}
 				if werr := writeTeamCoverHints(cmd.ErrOrStderr(), doc); werr != nil {
@@ -85,9 +89,30 @@ func newScanCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
 	cmd.Flags().StringArrayVar(&repos, "repo", nil, "replace repos list (repeatable owner/repo)")
 	cmd.Flags().BoolVar(&jsonFlag, "json", false, "accepted, no-op (stdout is always JSON)")
+	cmd.Flags().BoolVar(&emit, "emit-jobs", false, "write agentbus job specs instead of the scan document (nothing after a failed scan)")
 	cmd.Flags().BoolVar(&inScope, "in-scope", false, "leave PRs marked out_of_scope out of the output (overrides scan_in_scope_only)")
 	addScopeFlags(cmd, &scope)
 	return cmd
+}
+
+// loadLabelsForLanes makes the scan load PR labels when job_lanes needs
+// them.
+func loadLabelsForLanes(deps scan.Deps, cfg config.Config) {
+	if c, ok := deps.GH.(*gh.Client); ok && len(cfg.JobLanes) > 0 {
+		c.WithLabels()
+	}
+}
+
+// writeScanOutput writes the scan document, or with emit its job specs.
+// A failed scan emits no jobs.
+func writeScanOutput(w io.Writer, doc scan.Document, cfg config.Config, emit bool, scanErr error) error {
+	if !emit {
+		return writeJSON(w, doc)
+	}
+	if scanErr != nil {
+		return nil
+	}
+	return emitJobs(w, doc, cfg)
 }
 
 // historyRefresh reports whether this scan is the unscoped round that

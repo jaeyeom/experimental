@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "config.go",
+        "joblanes.go",
         "opentabs.go",
         "parse.go",
         "scope.go",
@@ -20,6 +21,7 @@ go_test(
     name = "go_default_test",
     srcs = [
         "config_test.go",
+        "joblanes_test.go",
         "opentabs_test.go",
         "scope_test.go",
     ],

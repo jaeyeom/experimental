@@ -33,6 +33,8 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 		readStdin  bool
 		suffix     string
 		openTabs   bool
+		job        string
+		runner     string
 		scope      scopeFlags
 	)
 	cmd := &cobra.Command{
@@ -51,6 +53,16 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 				}
 				return scope.apply(cmd, cfg)
 			}
+			if err := validateJobFlags(cmd); err != nil {
+				return err
+			}
+			if job != "" {
+				cfg, err := loadDispatchConfig(configPath, promptSuffix, applyScope)
+				if err != nil {
+					return err
+				}
+				return runJob(ctx, stdout, exec, cfg, job, runner)
+			}
 			modes := dispatchModes{rebase: rebase, merge: merge, ciFix: ciFix}
 			return runDispatch(ctx, stdout, exec, configPath, prs, all, goLive, modes, hint, force, readStdin, promptSuffix, applyScope)
 		},
@@ -67,6 +79,8 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	cmd.Flags().BoolVar(&force, "force", false, "re-dispatch even if dedupe state would skip")
 	cmd.Flags().StringVar(&suffix, "prompt-suffix", "", "text appended after a blank line to every prompt (overrides dispatch_prompt_suffix)")
 	cmd.Flags().BoolVar(&readStdin, "stdin", false, "read a scan document from stdin (otherwise self-scan, or fetch --pr targets)")
+	cmd.Flags().StringVar(&job, "job", "", "run one agentbus job by id, live, and report it with agentbus jobs done or fail")
+	cmd.Flags().StringVar(&runner, "runner", "", "the job's runner, for the report (requires --job; default $JOB_RUNNER)")
 	cmd.Flags().BoolVar(&openTabs, "open-tabs", false, "open a herdr tab and start an agent for an in-scope PR with no tab (overrides open_missing_tabs)")
 	return cmd
 }
@@ -110,18 +124,12 @@ func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, 
 	if err := validateDispatchFlags(prs, all, modes, hint); err != nil {
 		return err
 	}
-	cfg, err := config.Load(configPath)
+	cfg, err := loadDispatchConfig(configPath, promptSuffix, applyScope)
 	if err != nil {
-		return fmt.Errorf("load config: %w", err)
-	}
-	if err := applyScope(&cfg); err != nil {
 		return err
 	}
 	if goLive {
 		cfg.DryRun = false
-	}
-	if promptSuffix != nil {
-		cfg.PromptSuffix = *promptSuffix
 	}
 	if modes.rebase {
 		if phrase := dispatch.RebaseSuffixConflict(cfg.PromptSuffix); phrase != "" {
@@ -129,9 +137,26 @@ func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, 
 		}
 	}
 	logStartup(ctx, "dispatch", cfg)
+	out, err := dispatchPRs(ctx, exec, cfg, prs, modes, hint, force, readStdin)
+	if out == nil {
+		return err
+	}
+	if writeErr := writeDispatchJSON(stdout, *out); writeErr != nil {
+		return writeErr
+	}
+	if err != nil {
+		return dispatchExit(err, cfg)
+	}
+	return nil
+}
+
+// dispatchPRs loads the scan document and runs dispatch on it. The
+// document is nil when dispatch did not start; err is then the exit
+// error.
+func dispatchPRs(ctx context.Context, exec executor.Executor, cfg config.Config, prs []string, modes dispatchModes, hint string, force, readStdin bool) (*dispatch.Document, error) {
 	doc, err := loadDispatchDoc(ctx, cfg, exec, readStdin, prs)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	h := herdr.NewClient(exec, cfg.HerdrBin)
 	ctx = withGateProbes(ctx, exec, cfg, h)
@@ -156,13 +181,21 @@ func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, 
 		req.Waker = promptWaker(exec)
 	}
 	out, err := dispatch.Run(ctx, h, dispatch.FileStore{Path: cfg.StateFile, Scope: cfg.TabMachine}, cfg, req, time.Now())
-	if writeErr := writeDispatchJSON(stdout, out); writeErr != nil {
-		return writeErr
-	}
+	return &out, err //nolint:wrapcheck // dispatchExit classifies it
+}
+
+func loadDispatchConfig(configPath string, promptSuffix *string, applyScope func(*config.Config) error) (config.Config, error) {
+	cfg, err := config.Load(configPath)
 	if err != nil {
-		return dispatchExit(err, cfg)
+		return config.Config{}, fmt.Errorf("load config: %w", err)
 	}
-	return nil
+	if err := applyScope(&cfg); err != nil {
+		return config.Config{}, err
+	}
+	if promptSuffix != nil {
+		cfg.PromptSuffix = *promptSuffix
+	}
+	return cfg, nil
 }
 
 func loadScanDoc(ctx context.Context, cfg config.Config, exec executor.Executor, readStdin bool) (scan.Document, error) {

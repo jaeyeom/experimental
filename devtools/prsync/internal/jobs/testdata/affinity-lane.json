@@ -1,0 +1,24 @@
+{
+  "jobs": [
+    {
+      "kind": "comment",
+      "subject": "acme/widgets#2",
+      "head": "abc123",
+      "machine": "turtle",
+      "affinity": "lane",
+      "executor": "new-tab",
+      "items": [
+        "c1",
+        "c2"
+      ]
+    },
+    {
+      "kind": "rebase",
+      "subject": "acme/widgets#2",
+      "head": "abc123",
+      "machine": "turtle",
+      "affinity": "lane",
+      "executor": "cli"
+    }
+  ]
+}
