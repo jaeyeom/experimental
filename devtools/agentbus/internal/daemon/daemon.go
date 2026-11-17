@@ -20,6 +20,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/hibernate"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/jobs"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/leasecache"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/mailbox"
@@ -87,6 +88,18 @@ type Config struct {
 	// GoneAfter is how long a message to a raw pane handle waits after
 	// the pane is gone before it expires. Nil uses one hour.
 	GoneAfter *time.Duration
+	// Jobs is the jobs config: per-kind behavior and the heartbeat
+	// timeout.
+	Jobs jobs.Config
+	// JobTicks, when not nil, drives the heartbeat and reconcile checks
+	// instead of a ticker every 15 seconds.
+	JobTicks <-chan time.Time
+	// JobHook runs a kind's reconcile argv. Nil runs none, so every lost
+	// outward job goes to the user through Notify.
+	JobHook jobs.Hook
+	// JobHold, when not nil, is a hold besides the pause file, such as
+	// the user's decide status.
+	JobHold func() (bool, string)
 }
 
 // ProtocolVersion is the request format a hub-socket client must speak.
@@ -120,6 +133,8 @@ type Request struct {
 	Follow bool `json:"follow,omitempty"`
 	// Lease carries the arguments of the lease-* ops.
 	Lease *lease.Args `json:"lease,omitempty"`
+	// Jobs carries the arguments of the jobs-* ops.
+	Jobs *jobs.Args `json:"jobs,omitempty"`
 	// Hibernate carries the arguments of the hibernate-* ops.
 	Hibernate *hibernate.Args `json:"hibernate,omitempty"`
 	// Fresh makes list probe liveness now instead of answering from
@@ -196,6 +211,8 @@ type Response struct {
 	End bool `json:"end,omitempty"`
 	// Lease is the answer to a lease-* op.
 	Lease *lease.Reply `json:"lease,omitempty"`
+	// Jobs is the answer to a jobs-* op.
+	Jobs *jobs.Reply `json:"jobs,omitempty"`
 	// Hibernate is the answer to a hibernate-* op.
 	Hibernate *hibernate.Reply `json:"hibernate,omitempty"`
 	// Unreachable is set when a stored send is held because the transport
@@ -325,9 +342,10 @@ func hubListener(socks []socketFile) net.Listener {
 }
 
 // startWatchers runs the polls, the lease check, the socket-inode check,
-// and, when configured, the hibernation policy, until ctx ends.
+// the job heartbeat and reconcile check, and, when configured, the
+// hibernation policy, until ctx ends.
 func startWatchers(ctx context.Context, watching *sync.WaitGroup, srv *server, cfg Config, ticks, sockTicks <-chan time.Time, socks []socketFile, lost func()) {
-	watching.Add(4)
+	watching.Add(5)
 	go func() {
 		defer watching.Done()
 		srv.reg.Poll(ctx, cfg.PollInterval)
@@ -344,6 +362,12 @@ func startWatchers(ctx context.Context, watching *sync.WaitGroup, srv *server, c
 		defer watching.Done()
 		watchSockets(ctx, socks, sockTicks, lost)
 	}()
+	jobTicks, stopJobTicks := tickerOr(cfg.JobTicks, defaultJobInterval)
+	go func() {
+		defer stopJobTicks()
+		defer watching.Done()
+		srv.watchJobs(ctx, jobTicks, cfg.JobHook)
+	}()
 	if cfg.HibernatePolicy == nil {
 		return
 	}
@@ -357,7 +381,8 @@ func startWatchers(ctx context.Context, watching *sync.WaitGroup, srv *server, c
 	}()
 }
 
-// newServer opens the registry, mailbox, and lease table in stateDir.
+// newServer opens the registry, mailbox, lease table, and job store in
+// stateDir.
 func newServer(ctx context.Context, stateDir string, cfg Config, lg *eventlog.Log) (*server, error) {
 	reg, box, err := openState(stateDir, cfg, lg)
 	if err != nil {
@@ -379,8 +404,13 @@ func newServer(ctx context.Context, stateDir string, cfg Config, lg *eventlog.Lo
 	if err != nil {
 		return nil, fmt.Errorf("open leases: %w", err)
 	}
+	queue, err := jobs.Open(stateDir, lg, cfg.Now, cfg.Jobs)
+	if err != nil {
+		return nil, fmt.Errorf("open jobs: %w", err)
+	}
+	queue.SetExternalHold(cfg.JobHold)
 	return &server{
-		ctx: ctx, reg: reg, box: box, log: lg, leases: leases,
+		ctx: ctx, reg: reg, box: box, log: lg, leases: leases, jobs: queue,
 		adapters: cfg.Adapters, timing: cfg.LeaseTiming.WithDefaults(), notify: cfg.Notify,
 		clock: cfg.Now,
 	}, nil
@@ -468,6 +498,7 @@ type server struct {
 	box       *mailbox.Mailbox
 	log       *eventlog.Log
 	leases    *lease.Table
+	jobs      *jobs.Store
 	adapters  []adapter.Adapter
 	hubCaller func(string) (string, error)
 	timing    lease.Timing
@@ -677,6 +708,9 @@ func (s *server) dispatchMessage(req Request, pid int) Response {
 		}
 		if strings.HasPrefix(req.Op, "hibernate-") {
 			return s.hibernateOp(req)
+		}
+		if strings.HasPrefix(req.Op, "jobs-") {
+			return s.jobsOp(req)
 		}
 		return Response{Error: "unknown op"}
 	}

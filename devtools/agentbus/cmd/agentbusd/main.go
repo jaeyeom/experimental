@@ -17,6 +17,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/hibernate"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/jobs"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lastturn"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/memreport"
@@ -102,6 +103,12 @@ When decide is on PATH, a checkout that needs 'agentbus lease adopt' after a
 takeover, and a queued 'agentbus lease pause' that is granted, are put in the
 user's decide inbox (decide ask --owner agentbus).
 
+Jobs config ($XDG_CONFIG_HOME/agentbus/jobs.json, optional): per-kind
+behavior of 'agentbus jobs' and the heartbeat timeout. See the jobs doc.
+A lost outward job that its kind's reconcile hook cannot settle goes to
+the decide inbox the same way. While the decide status resource "jobs" is
+busy (decide status set --resource jobs busy), no job is claimed.
+
 Example:
   agentbusd
 `
@@ -139,6 +146,11 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "agentbusd: %s\n", err)
 		return 1
 	}
+	jobsCfg, err := jobsConfig(env)
+	if err != nil {
+		fmt.Fprintf(stderr, "agentbusd: %s\n", err)
+		return 1
+	}
 	if hub := hubTarget(env, cfg); hub != "" {
 		fmt.Fprintf(stderr, "agentbusd: this machine uses the hub %s; run the daemon there\n", hub)
 		return 1
@@ -162,6 +174,9 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 		LastTurn:        lastturn.Claude(lastturn.ClaudeProjectsDir(env)),
 		HoldNoticeAfter: cfg.HoldNoticeAfter,
 		GoneAfter:       cfg.GoneAfter,
+		Jobs:            jobsCfg,
+		JobHook:         jobs.ExecHook(reconcileTimeout, nil),
+		JobHold:         decideHold(exec.LookPath, runOutput),
 	}); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(stderr, "agentbusd: %s\n", err)
 		if errors.Is(err, daemon.ErrAlreadyRunning) {

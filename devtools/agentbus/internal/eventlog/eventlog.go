@@ -106,6 +106,9 @@ const (
 	// EventPolicyNoCandidate is low memory with no agent to hibernate,
 	// once per low episode.
 	EventPolicyNoCandidate = "policy_no_candidate"
+	// EventJob is a job queue change: a job's state change, or the
+	// user's hold or unhold.
+	EventJob = "job"
 )
 
 // OriginClient marks a line a client asked the daemon to append.
@@ -447,7 +450,8 @@ func knownEvent(name string) bool {
 		EventLeasePause, EventLeaseResume, EventLeaseWith, EventLeaseUnshare,
 		EventLeaseNotifyWaiting, EventLeaseNotifySkipped, EventLeaseHookDeny,
 		EventHibernated, EventHibernateRefused, EventWake, EventWakeFailed, EventWakeSkipped,
-		EventPolicyHibernate, EventPolicyWouldHibernate, EventPolicyNoCandidate:
+		EventPolicyHibernate, EventPolicyWouldHibernate, EventPolicyNoCandidate,
+		EventJob:
 		return true
 	default:
 		return false

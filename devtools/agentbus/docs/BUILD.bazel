@@ -8,3 +8,8 @@ org_lint_tests([
     "multi-machine.org",
     "sandbox.org",
 ])
+
+org_lint_tests(
+    ["jobs.org"],
+    data = ["//devtools/agentbus:README.org"],
+)

@@ -3,6 +3,7 @@ load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 go_library(
     name = "go_default_library",
     srcs = [
+        "jobs.go",
         "main.go",
         "notify.go",
     ],
@@ -14,6 +15,7 @@ go_library(
         "//devtools/agentbus/internal/config:go_default_library",
         "//devtools/agentbus/internal/daemon:go_default_library",
         "//devtools/agentbus/internal/hibernate:go_default_library",
+        "//devtools/agentbus/internal/jobs:go_default_library",
         "//devtools/agentbus/internal/lastturn:go_default_library",
         "//devtools/agentbus/internal/lease:go_default_library",
         "//devtools/agentbus/internal/memreport:go_default_library",
@@ -32,6 +34,7 @@ go_binary(
 go_test(
     name = "go_default_test",
     srcs = [
+        "jobs_test.go",
         "main_test.go",
         "notify_test.go",
     ],
