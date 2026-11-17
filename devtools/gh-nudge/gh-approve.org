@@ -25,6 +25,9 @@ request that requests only a team you belong to, unless a rule sets
   gh-approve --pr acme/widgets#12 --explain
   gh-approve --pr https://github.com/acme/widgets/pull/12
 
+  # Keep colors when relaying the output to a terminal
+  gh-approve --color=always
+
   # Run agent commands without the decision cache
   gh-approve --no-agent-cache
 
@@ -50,9 +53,36 @@ approve {
 #+end_src
 
 
-The output is a table with the pull request, the action, the matched rule, and
-the title. When no rule matches, the rule column shows ~manual~. Then, for each
-rule, it shows the first condition that failed.
+The output is a table with the status, the pull request, the action, the
+matched rule, and the title. When no rule matches, the rule column shows
+~manual~. Then, for each rule, it shows the first condition that failed.
+
+The status is a marker and a word for the outcome group: ✅ approved, 🤝
+handed off, 👀 left for you (~manual~, ~mark_viewed~), ⏭️ skipped, or ❌
+error. A dry-run action adds ~(dry run)~. Rows print as each pull request is
+evaluated. At the end, a summary lists the pull requests in each non-empty
+group with a count: left for you, approved, handed off, errors, then skipped.
+Each line has the title and the first reason from its row.
+
+#+begin_example
+STATUS                    PR                               ACTION             RULE                 TITLE
+✅ approved (dry run)     acme/widgets#1                   would_approve      dashboard            Tidy dashboard
+👀 left for you           acme/widgets#2                   manual             manual               Bump infra
+    dashboard: paths_all_match failed (outside globs: infra/main.tf)
+
+👀 Left for you (1)
+  acme/widgets#2  Bump infra - dashboard: paths_all_match failed (outside globs: infra/main.tf)
+
+✅ Approved (1)
+  acme/widgets#1  Tidy dashboard (dry run)
+#+end_example
+
+The marker and word are colored: green approved, cyan handed off, yellow left
+for you, dim skipped, red error. ~--color=auto~, the default, colors only
+when stdout is a terminal. ~--color=never~ turns color off, and so does a
+non-empty ~NO_COLOR~. ~--color=always~ colors even through a pipe, for a
+caller that relays the output to a terminal. The audit log never has colors
+or markers.
 
 ** Rules
 
