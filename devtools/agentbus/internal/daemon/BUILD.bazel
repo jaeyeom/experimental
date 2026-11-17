@@ -42,6 +42,7 @@ go_test(
         "hibernate_test.go",
         "hub_test.go",
         "jobs_test.go",
+        "jobslease_test.go",
         "leasecache_test.go",
         "leasehook_test.go",
         "listcache_test.go",

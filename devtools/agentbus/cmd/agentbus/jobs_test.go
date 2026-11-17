@@ -152,3 +152,22 @@ func TestJobsLogFollowEndsWhenTheJobIsFinal(t *testing.T) {
 		t.Fatal("log --follow did not end at done")
 	}
 }
+
+func TestJobsCLIClaimHoldsTheCheckoutLeaseUntilDone(t *testing.T) {
+	env := jobsWorld(t)
+	mustCmd(t, []string{"jobs", "enqueue", "--kind", "rebase", "--subject", "o/r#1", "--checkout", "/src/repo"}, env)
+	mustCmd(t, []string{"jobs", "claim", "--runner", "tiger-runner"}, env)
+	stdout, _ := mustCmd(t, []string{"jobs", "show", "j-1"}, env)
+	if !strings.Contains(stdout, "lease: local:/src/repo") {
+		t.Fatalf("show lacks the lease:\n%s", stdout)
+	}
+	stdout, _ = mustCmd(t, []string{"lease", "status", "--all"}, env)
+	if !strings.Contains(stdout, "local:/src/repo: held") || !strings.Contains(stdout, "holder: job:j-1") || !strings.Contains(stdout, "runner tiger-runner on local") {
+		t.Fatalf("lease status =\n%s", stdout)
+	}
+	mustCmd(t, []string{"jobs", "done", "j-1", "--runner", "tiger-runner"}, env)
+	stdout, _ = mustCmd(t, []string{"lease", "status", "--all"}, env)
+	if !strings.Contains(stdout, "local:/src/repo: free") {
+		t.Fatalf("lease status after done =\n%s", stdout)
+	}
+}

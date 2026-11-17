@@ -409,11 +409,13 @@ func newServer(ctx context.Context, stateDir string, cfg Config, lg *eventlog.Lo
 		return nil, fmt.Errorf("open jobs: %w", err)
 	}
 	queue.SetExternalHold(cfg.JobHold)
-	return &server{
+	srv := &server{
 		ctx: ctx, reg: reg, box: box, log: lg, leases: leases, jobs: queue,
 		adapters: cfg.Adapters, timing: cfg.LeaseTiming.WithDefaults(), notify: cfg.Notify,
 		clock: cfg.Now,
-	}, nil
+	}
+	queue.SetLeaser(jobLeases{srv})
+	return srv, nil
 }
 
 // serve handles connections on ln and, when it is not nil, hubLn, each

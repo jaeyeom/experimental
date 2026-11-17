@@ -522,15 +522,16 @@ func grantNext(rec *record, now time.Time, gone func(handle string) bool, r *Rep
 // Reasons a lease_notify_skipped event gives.
 const (
 	skipUserHolder   = "user-holder"
+	skipJobHolder    = "job-holder"
 	skipPastDeadline = "past-deadline"
 	skipRepeat       = "repeat"
 )
 
 // waitingNotice is the message that tells rec's holder caller newly
 // queued behind it, or nil and why it was skipped. Only an agent holding
-// a held lease with time left is told: the user is not, and a holder
-// past its deadline gets the check-in instead. The user's own queued
-// claim asks the holder already.
+// a held lease with time left is told: the user and a job, which has no
+// pane, are not, and a holder past its deadline gets the check-in
+// instead. The user's own queued claim asks the holder already.
 func (t *Table) waitingNotice(rec *record, checkout, caller string, d time.Duration, why string, now time.Time) (*Notice, string) {
 	h := rec.Holder
 	switch {
@@ -538,6 +539,8 @@ func (t *Table) waitingNotice(rec *record, checkout, caller string, d time.Durat
 		return nil, ""
 	case h.Handle == UserHolder:
 		return nil, skipUserHolder
+	case IsJobHolder(h.Handle):
+		return nil, skipJobHolder
 	case rec.State != StateHeld:
 		return nil, ""
 	case !now.Before(h.Deadline):

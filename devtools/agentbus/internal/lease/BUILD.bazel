@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "checkin.go",
+        "job.go",
         "lease.go",
         "takeover.go",
         "user.go",
@@ -18,6 +19,7 @@ go_test(
     srcs = [
         "branch_test.go",
         "checkin_test.go",
+        "job_test.go",
         "lease_test.go",
         "release_test.go",
         "skipped_test.go",

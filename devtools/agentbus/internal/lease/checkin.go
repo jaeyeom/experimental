@@ -92,7 +92,7 @@ func CheckInText(checkout string) string {
 // with a waiter queued, and those past their deadline who have not been
 // checked in on yet. A releasing holder counts as held. An adopter of a
 // needs-adopt checkout is watched while someone waits, in case its pane
-// goes gone. The user is never watched, and a holder marked for
+// goes gone. The user and a job are never watched, and a holder marked for
 // takeover only while someone still waits.
 func (t *Table) Watched() []Watch {
 	t.mu.Lock()
@@ -101,7 +101,7 @@ func (t *Table) Watched() []Watch {
 	var out []Watch
 	for k, rec := range t.doc.Leases {
 		h := rec.Holder
-		if h == nil || h.Handle == UserHolder {
+		if !paneHolder(h) {
 			continue
 		}
 		waiting := len(rec.Queue) > 0
@@ -137,7 +137,7 @@ func (t *Table) Observe(w Watch, p Pane, tm Timing) (Decision, error) {
 	tm = tm.WithDefaults()
 	return t.decide(w.Checkout, func(rec *record, now time.Time) (Decision, []eventlog.Event) {
 		h := rec.Holder
-		if !takeable(rec.State) || h == nil || h.Handle != w.Holder || h.Handle == UserHolder {
+		if !takeable(rec.State) || !paneHolder(h) || h.Handle != w.Holder {
 			return Decision{}, nil
 		}
 		d, events := softDeadline(rec, w.Checkout, p, tm, now)
