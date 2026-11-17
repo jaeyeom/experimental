@@ -48,11 +48,16 @@ func keyRune(k tea.KeyMsg) (rune, bool) {
 	}
 }
 
-// Init starts the ledger reload tick, the first background load of
-// the bus names, the first bus health check, and the delivery poll when
-// a delivery is pending.
+// Init starts the first ledger list in the background, or the reload
+// tick once it has loaded, the first background load of the bus names,
+// the first bus health check, and the delivery poll when a delivery is
+// pending.
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(m.scheduleReload(), m.busLoad(), m.healthCheck(), m.startDeliveryPoll())
+	reload := m.scheduleReload()
+	if m.loading {
+		reload = m.listCmd()
+	}
+	return tea.Batch(reload, m.busLoad(), m.healthCheck(), m.startDeliveryPoll())
 }
 
 // Update drives the existing inbox behavior from bubbletea messages.
@@ -325,16 +330,22 @@ type listMsg struct {
 	err error
 }
 
+// listCmd reads the ledger off the update loop.
+func (m *Model) listCmd() tea.Cmd {
+	store := m.store()
+	return func() tea.Msg {
+		all, err := store.List()
+		return listMsg{all: all, err: err}
+	}
+}
+
 // updateReload reloads the ledger. A backend that may be slow, such as
-// a hub's, is read off the update loop: the view keeps the last good
-// data until the read returns, and the next tick waits for it.
+// a hub's, and the first list are read off the update loop: the view
+// keeps the last good data until the read returns, and the next tick
+// waits for it.
 func (m *Model) updateReload() (tea.Model, tea.Cmd) {
-	if m.asyncReload {
-		store := m.store()
-		return m, func() tea.Msg {
-			all, err := store.List()
-			return listMsg{all: all, err: err}
-		}
+	if m.asyncReload || m.loading {
+		return m, m.listCmd()
 	}
 	if err := m.Reload(); err != nil {
 		m.runErr = err
@@ -343,19 +354,23 @@ func (m *Model) updateReload() (tea.Model, tea.Cmd) {
 	return m.reloaded()
 }
 
+// finishList applies a background read. A failed first list shows its
+// error on the status line and retries on the next tick.
 func (m *Model) finishList(msg listMsg) (tea.Model, tea.Cmd) {
-	err := msg.err
-	if err == nil {
-		err = m.applyList(msg.all)
-	} else {
-		err = m.reloadFailed(err)
+	if msg.err != nil {
+		if err := m.reloadFailed(msg.err); err != nil {
+			if !m.loading {
+				m.runErr = err
+				return m, tea.Quit
+			}
+			m.status = err.Error()
+			m.loadErr = m.status
+		}
+		return m, m.scheduleReload()
 	}
-	if err != nil {
+	if err := m.applyList(msg.all); err != nil {
 		m.runErr = err
 		return m, tea.Quit
-	}
-	if msg.err != nil {
-		return m, m.scheduleReload()
 	}
 	m.pollDisplay()
 	return m.reloaded()

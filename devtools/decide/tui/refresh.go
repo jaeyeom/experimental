@@ -81,8 +81,15 @@ func sameMessage(old, fresh []decide.Message, index int) int {
 	return max(min(index, len(fresh)-1), 0)
 }
 
-// footerStatus is the status text with the new-message marker in front.
+// loadingStatus is the status line until the first list arrives.
+const loadingStatus = "Loading…"
+
+// footerStatus is the status text with the new-message marker in front,
+// or Loading… until the first list arrives.
 func (m *Model) footerStatus() string {
+	if m.loading && m.status == "" {
+		return loadingStatus
+	}
 	if m.newMessages == 0 {
 		return m.status
 	}

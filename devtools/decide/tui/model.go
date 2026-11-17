@@ -270,6 +270,10 @@ type Model struct {
 	backend     Backend
 	asyncReload bool
 	hubDown     bool
+	// loading is set until the first list arrives. loadErr is the
+	// status a failed first list showed.
+	loading bool
+	loadErr string
 	// display supplies display settings that change on a reconnect.
 	display DisplaySource
 	// localConfig is this machine's config, so a local avatar rule can
@@ -315,6 +319,11 @@ func (m *Model) reloadFailed(err error) error {
 // applyList shows a fresh ledger read: the open item, the folder
 // counts, and the current folder.
 func (m *Model) applyList(all []decide.Item) error {
+	m.loading = false
+	if m.loadErr != "" && m.status == m.loadErr {
+		m.status = ""
+	}
+	m.loadErr = ""
 	if m.hubDown {
 		m.hubDown = false
 		m.status = "hub reconnected"

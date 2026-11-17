@@ -277,11 +277,20 @@ func (m *Model) showFolder(n int) error {
 	m.scroll = 0
 	if n == m.folder {
 		if !wasList {
-			return m.Reload()
+			return m.reloadLoaded()
 		}
 		return nil
 	}
 	m.folder = n
 	m.cursor = 0
+	return m.reloadLoaded()
+}
+
+// reloadLoaded reloads once the first list has arrived. Until then the
+// background first list shows the folder.
+func (m *Model) reloadLoaded() error {
+	if m.loading {
+		return nil
+	}
 	return m.Reload()
 }
