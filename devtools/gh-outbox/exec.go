@@ -59,13 +59,18 @@ func runJSON(ctx context.Context, run Runner, stdin []byte, v any, args ...strin
 	return nil
 }
 
+// longLinesFlag lets decide ask take the question gh-outbox builds,
+// with its quoted draft, past decide's line limit for agents. An older
+// decide without the flag gets the same ask again without it.
+const longLinesFlag = "--long-lines"
+
 // DecideCLI is the Decider that runs the decide command.
 type DecideCLI struct{ Run Runner }
 
 // Ask files a relay item with the post, edit and cancel options and free
 // text for edit notes.
 func (d DecideCLI) Ask(ctx context.Context, owner, notifyPane, question string) (string, error) {
-	args := []string{"ask", "--owner", owner}
+	args := []string{"ask", longLinesFlag, "--owner", owner}
 	if notifyPane != "" {
 		args = append(args, "--notify-pane", notifyPane)
 	}
@@ -75,7 +80,12 @@ func (d DecideCLI) Ask(ctx context.Context, owner, notifyPane, question string) 
 		"--option", OptionCancel+":Cancel",
 		"--free-text", "--json", question)
 	var it DecideItem
-	if err := runJSON(ctx, d.Run, nil, &it, args...); err != nil {
+	err := runJSON(ctx, d.Run, nil, &it, args...)
+	if err != nil && strings.Contains(err.Error(), "flag provided but not defined: -long-lines") {
+		args = slices.DeleteFunc(args, func(a string) bool { return a == longLinesFlag })
+		err = runJSON(ctx, d.Run, nil, &it, args...)
+	}
+	if err != nil {
 		return "", err
 	}
 	if it.ID == "" {

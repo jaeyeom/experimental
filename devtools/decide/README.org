@@ -199,6 +199,15 @@ to <name> as <id>~. An unknown name exits 2. An empty note sends
 nothing. ~decide reassign~ points the item at a new owner or pane when
 the owning tab is retired.
 
+~decide ask~ and ~decide reply~ reject text with a line longer than
+~ui.maxLineLength~ characters, 160 by default. A line that is only a
+URL, a quoted line starting with ~> ~, and a line in a fenced code block
+do not count. Nothing is stored and the exit is 2. The error names the
+line, its length, and the limit, and asks for the essence on the first
+line, then short bullet lines, with multi-line text from a file or
+stdin. ~--long-lines~ sends the text unchanged. Answers and messages a
+person gives in the inbox are not checked.
+
 ** Owner and worker
 
 The owner is the agent that filed the item, and it stays the owner
@@ -499,6 +508,7 @@ machine only. A hub does not send it.
 | ~ui.staleAnswerAfter~  | ~30m~                       | How long an answer sits before one follow-up.                                  |
 | ~ui.archiveGrace~      | ~2s~                        | How long a new message holds archive.                                          |
 | ~ui.busHealthInterval~ | ~15s~                       | How often the inbox checks ~agentbus health~ for its banner.                   |
+| ~ui.maxLineLength~     | 160                         | Longest line ~ask~ and ~reply~ accept. 0 turns the check off.                  |
 
 * Using two machines
 

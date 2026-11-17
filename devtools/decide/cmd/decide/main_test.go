@@ -384,7 +384,7 @@ func TestNotifyExportsQuestionAndLabel(t *testing.T) {
 	t.Run("long question", func(t *testing.T) {
 		dump := setupNotifyDump(t)
 		head := strings.Repeat("Q", 199) + "한" + "TAIL"
-		id := askChoice(t, head+"\nnext-line", "--notify-pane", "pane-9")
+		id := askChoice(t, head+"\nnext-line", "--long-lines", "--notify-pane", "pane-9")
 		if _, stderr, code := runCLI("answer", id, "a"); code != 0 {
 			t.Fatalf("answer code = %d\n%s", code, stderr)
 		}

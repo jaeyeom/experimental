@@ -126,6 +126,22 @@ type InboxUI struct {
 	// BusHealthInterval is how often the inbox runs `agentbus health
 	// --json` for its bus-down banner, such as "15s". Empty is 15 seconds.
 	BusHealthInterval string `json:"busHealthInterval,omitempty"`
+	// MaxLineLength is the longest line, in characters, that decide ask
+	// and decide reply accept from an agent. Nil is
+	// DefaultMaxLineLength; zero turns the check off.
+	MaxLineLength *int `json:"maxLineLength,omitempty"`
+}
+
+// DefaultMaxLineLength is the line limit when ui.maxLineLength is unset.
+const DefaultMaxLineLength = 160
+
+// MaxLineLength is ui.maxLineLength, or DefaultMaxLineLength when it is
+// unset. Zero means no limit. LoadConfig rejects a negative value.
+func (c Config) MaxLineLength() int {
+	if c.UI.MaxLineLength == nil {
+		return DefaultMaxLineLength
+	}
+	return *c.UI.MaxLineLength
 }
 
 // DefaultStaleAnswerAfter is how long an answer sits before a follow-up
@@ -329,6 +345,9 @@ func parseConfig(data []byte, dir string) (Config, error) {
 	}
 	if _, err := parseBusHealthInterval(cfg.UI.BusHealthInterval); err != nil {
 		return Config{}, err
+	}
+	if cfg.MaxLineLength() < 0 {
+		return Config{}, fmt.Errorf("decide config ui.maxLineLength must be 0 or more")
 	}
 	resolveAvatarFiles(cfg.Avatars, dir)
 	return cfg, nil

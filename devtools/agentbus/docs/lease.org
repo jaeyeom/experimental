@@ -262,8 +262,9 @@ and grants the first waiter whose pane is not ~gone~ in state
 adopt~ first. ~check~ refuses everyone, the adopter included, until
 the adopt is done. ~status --json~ carries ~backup_ref~ while the state
 is ~needs-adopt~. When ~decide~ is on the daemon's ~PATH~, the user
-also gets a relay item in the decide inbox (~decide ask --owner
-agentbus~) naming the checkout.
+also gets a relay item in the decide inbox (~decide ask --long-lines
+--owner agentbus~) naming the checkout. A decide without
+~--long-lines~ gets the same ask without it.
 
 If the adopter's pane goes ~gone~ before it adopts, the lease passes to
 the next waiter, still ~needs-adopt~ with the same backup ref. With

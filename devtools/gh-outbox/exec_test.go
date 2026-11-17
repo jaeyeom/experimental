@@ -3,6 +3,8 @@ package ghoutbox
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -101,7 +103,7 @@ func TestDecideCLIAsk(t *testing.T) {
 		t.Fatalf("id = %q err = %v", id, err)
 	}
 	got := strings.Join(f.calls[0].args, "|")
-	want := "ask|--owner|pm/x|--notify-pane|pane-1|--kind|relay|--option|post:Post exactly this|--option|edit:Edit (write notes for a redraft)|--option|cancel:Cancel|--free-text|--json|Q?\n\nbody"
+	want := "ask|--long-lines|--owner|pm/x|--notify-pane|pane-1|--kind|relay|--option|post:Post exactly this|--option|edit:Edit (write notes for a redraft)|--option|cancel:Cancel|--free-text|--json|Q?\n\nbody"
 	if got != want {
 		t.Errorf("args = %q\nwant   %q", got, want)
 	}
@@ -111,6 +113,27 @@ func TestDecideCLIAsk(t *testing.T) {
 	}
 	if strings.Contains(strings.Join(f.calls[0].args, " "), "--notify-pane") {
 		t.Errorf("args = %q, want no --notify-pane", f.calls[0].args)
+	}
+}
+
+func TestDecideCLIAskRetriesWithoutLongLinesOnAnOlderDecide(t *testing.T) {
+	var calls [][]string
+	run := func(_ context.Context, _ []byte, args ...string) ([]byte, error) {
+		calls = append(calls, append([]string(nil), args...))
+		if slices.Contains(args, "--long-lines") {
+			return nil, errors.New("decide ask: exit status 2: flag provided but not defined: -long-lines")
+		}
+		return []byte(`{"id":"D-9"}`), nil
+	}
+	id, err := DecideCLI{Run: run}.Ask(context.Background(), "pm/x", "", "Q")
+	if err != nil || id != "D-9" {
+		t.Fatalf("id = %q err = %v", id, err)
+	}
+	if len(calls) != 2 || slices.Contains(calls[1], "--long-lines") {
+		t.Fatalf("calls = %q", calls)
+	}
+	if !slices.Equal(calls[1], slices.DeleteFunc(slices.Clone(calls[0]), func(a string) bool { return a == "--long-lines" })) {
+		t.Fatalf("retry changed more than the flag: %q", calls)
 	}
 }
 

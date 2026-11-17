@@ -417,7 +417,7 @@ func (d DecideCLI) Ask(ctx context.Context, owner, question string) (string, err
 
 func (d DecideCLI) ask(ctx context.Context, args []string) (string, error) {
 	var it DecideItem
-	if err := d.runJSON(ctx, &it, args...); err != nil {
+	if err := d.runLongLines(ctx, &it, args...); err != nil {
 		return "", err
 	}
 	if it.ID == "" {
@@ -442,7 +442,7 @@ func (d DecideCLI) Done(ctx context.Context, id, outcome string) error {
 // Reply posts text on an item's thread.
 func (d DecideCLI) Reply(ctx context.Context, id, text string) error {
 	var it DecideItem
-	return d.runJSON(d.asOwner(ctx), &it, "reply", "--json", id, text)
+	return d.runLongLines(d.asOwner(ctx), &it, "reply", "--json", id, text)
 }
 
 // ReplyOptions posts text and puts the post and drop options back, with
@@ -451,7 +451,20 @@ func (d DecideCLI) ReplyOptions(ctx context.Context, id, text string) error {
 	var it DecideItem
 	args := append([]string{"reply"}, decideChoiceArgs()...)
 	args = append(args, "--json", id, text)
-	return d.runJSON(d.asOwner(ctx), &it, args...)
+	return d.runLongLines(d.asOwner(ctx), &it, args...)
+}
+
+// runLongLines runs a decide ask or reply whose text slackwatch writes
+// itself, such as a quoted draft or a permalink, with --long-lines so
+// decide's line limit for agents does not refuse it. A decide without
+// the flag gets the same command again without it.
+func (d DecideCLI) runLongLines(ctx context.Context, v any, args ...string) error {
+	withFlag := append([]string{args[0], "--long-lines"}, args[1:]...)
+	err := d.runJSON(ctx, v, withFlag...)
+	if err == nil || !strings.Contains(err.Error(), "flag provided but not defined: -long-lines") {
+		return err
+	}
+	return d.runJSON(ctx, v, args...)
 }
 
 // asOwner marks ctx so ExecDecide records a reply as Owner.

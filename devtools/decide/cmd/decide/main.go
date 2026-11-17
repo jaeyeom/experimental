@@ -101,7 +101,7 @@ func usage(w io.Writer) {
   decide ask [--owner <label>] [--owner-replies-only] --kind relay|type-in \
     --option key:label --rec key [--free-text] [--options-only] [--deadline RFC3339] \
     [--link url] [--notify-pane pane] [--type-text text] [--where place] \
-    [--json] <question>
+    [--long-lines] [--json] <question>
   decide list [--state open|answered|done|withdrawn] [--snoozed] [--json]
   decide show [--json] <id>
   decide withdraw [--json] <id> <reason>
@@ -119,7 +119,7 @@ func usage(w io.Writer) {
   decide targets [--json]
   decide send --to <name> [--json] [--via cli|ui] <text>
   decide send --id <id> [--to owner|worker|both] [--json] [--via cli|ui] <text>
-  decide reply <id> [--option key:label ...] [--rec key] [--free-text] [--json] <text>
+  decide reply <id> [--option key:label ...] [--rec key] [--free-text] [--long-lines] [--json] <text>
   decide reassign <id> [--owner <label>] [--notify-pane <pane>] [--json]
   decide assign <id> <agent> [--notify-pane <pane>] [--json]
   decide assign <id> --clear [--json]
@@ -133,6 +133,7 @@ func usage(w io.Writer) {
   decide [--remote <user@host>] config show [--effective]
 
 Text for ask, reply, send, done, withdraw, and status set may be a positional argument, --text-file <path>, or - for stdin.
+ask and reply reject a line over ui.maxLineLength (160) characters; --long-lines sends it anyway.
 Use reassign when the owning tab is retired, or for a handoff to another agent.
 Use assign when another agent works on an item while its owner stays; the
 worker is notified at agentbus:<agent> unless --notify-pane says otherwise.
@@ -464,6 +465,7 @@ func cmdReply(args []string, stdout, stderr io.Writer) int {
 	jsonOut := fs.Bool("json", false, "print the thread as JSON")
 	rec := fs.String("rec", "", "recommended option key")
 	freeText := fs.Bool("free-text", false, "allow an answer that is not an option")
+	longLines := fs.Bool("long-lines", false, "send lines over ui.maxLineLength unchanged")
 	var options stringList
 	fs.Var(&options, "option", "option as key:label (repeatable)")
 	if code, stop := stopped(parseFlags(fs, args)); stop {
@@ -472,6 +474,11 @@ func cmdReply(args []string, stdout, stderr io.Writer) int {
 	id, text, err := pairBody(fs.Args(), "id", "text", file)
 	if err != nil {
 		return fail(stderr, err, 2)
+	}
+	if !*longLines {
+		if code, ok := replyLineCheck(text, stderr); !ok {
+			return code
+		}
 	}
 	opts, err := parseOptions([]string(options))
 	if err != nil {
@@ -488,6 +495,18 @@ func cmdReply(args []string, stdout, stderr io.Writer) int {
 	return withItem(stdout, stderr, *jsonOut, false, func(led *decide.Ledger) (decide.Item, error) {
 		return led.Reply(id, by, text, opts, allowFree)
 	})
+}
+
+// replyLineCheck applies ui.maxLineLength to a reply's text.
+func replyLineCheck(text string, stderr io.Writer) (int, bool) {
+	cfg, err := decide.LoadConfig()
+	if err != nil {
+		return fail(stderr, err, 1), false
+	}
+	if err := checkLineLength(text, cfg.MaxLineLength()); err != nil {
+		return fail(stderr, err, 2), false
+	}
+	return 0, true
 }
 
 func cmdTargets(args []string, stdout, stderr io.Writer) int {
@@ -783,6 +802,7 @@ func cmdAsk(args []string, stdout, stderr io.Writer) int {
 	freeText := fs.Bool("free-text", false, "allow an answer that is not an option")
 	optionsOnly := fs.Bool("options-only", false, "reject an answer that is not an option")
 	ownerRepliesOnly := fs.Bool("owner-replies-only", false, "only the owner may reply or send on this item")
+	longLines := fs.Bool("long-lines", false, "send lines over ui.maxLineLength unchanged")
 	deadline := fs.String("deadline", "", "deadline in RFC3339")
 	notifyPane := fs.String("notify-pane", "", "pane stored for a later notify command")
 	typeText := fs.String("type-text", "", "exact text to type")
@@ -801,6 +821,11 @@ func cmdAsk(args []string, stdout, stderr io.Writer) int {
 	cfg, err := decide.LoadConfig()
 	if err != nil {
 		return fail(stderr, err, 1)
+	}
+	if !*longLines {
+		if err := checkLineLength(question, cfg.MaxLineLength()); err != nil {
+			return fail(stderr, err, 2)
+		}
 	}
 	allowFree := relayFreeText(*kind, *freeText, *optionsOnly, cfg.OptionsOnly)
 	who := askOwner(*owner, askerOf(context.Background()), stderr)

@@ -41,6 +41,10 @@ refuses and asks for the user id. ~im:write~ is not used.
    - ~--option drop:"Don't post"~
    - ~--rec post~
    - ~--free-text~
+   - ~--long-lines~, on this ask and on each ~decide reply~ slackwatch
+     writes, so decide's line limit for agents does not refuse text
+     slackwatch builds itself. A decide without the flag gets the same
+     command again without it.
 
    The question shows the destination (and the thread permalink), the
    text in a quoted block, the owner, the purpose, and the first 8 hex

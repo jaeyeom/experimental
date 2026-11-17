@@ -8,6 +8,7 @@ import (
 	"io"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
@@ -101,9 +102,16 @@ func (d decideGate) run(ctx context.Context, it *decide.Item, args ...string) er
 // typed into an agent.
 func (d decideGate) Ask(ctx context.Context, question string) (string, error) {
 	var it decide.Item
-	if err := d.run(ctx, &it, "ask", "--owner", "agentbus", "--kind", "relay",
-		"--option", jobs.OptionApprove+":Run it", "--option", jobs.OptionReject+":Reject",
-		"--free-text", "--json", question); err != nil {
+	args := []string{
+		"ask", longLinesFlag, "--owner", "agentbus", "--kind", "relay",
+		"--option", jobs.OptionApprove + ":Run it", "--option", jobs.OptionReject + ":Reject",
+		"--free-text", "--json", question,
+	}
+	err := d.run(ctx, &it, args...)
+	if olderDecide(err) {
+		err = d.run(ctx, &it, withoutLongLines(args)...)
+	}
+	if err != nil {
 		return "", err
 	}
 	if it.ID == "" {
@@ -204,6 +212,10 @@ func runOutput(ctx context.Context, argv []string) ([]byte, error) {
 	// argv[0] is decide from PATH with fixed arguments.
 	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	out, err := exec.CommandContext(ctx, argv[0], argv[1:]...).Output() //nolint:gosec // G204: see above
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return nil, fmt.Errorf("%s: %w: %s", argv[0], err, strings.TrimSpace(string(exitErr.Stderr)))
+	}
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", argv[0], err)
 	}
