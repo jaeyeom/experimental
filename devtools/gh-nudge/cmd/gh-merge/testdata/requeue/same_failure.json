@@ -1,0 +1,8 @@
+{
+  "allowed": false,
+  "reason": "same failure as the previous ejection (job=test; line=ERROR: <path>:<n>: TestParse failed at <ts> (run <hex>)); likely our-code",
+  "used": 1,
+  "limit": 2,
+  "signature": "job=test; line=ERROR: <path>:<n>: TestParse failed at <ts> (run <hex>)",
+  "previous_signature": "job=test; line=ERROR: <path>:<n>: TestParse failed at <ts> (run <hex>)"
+}

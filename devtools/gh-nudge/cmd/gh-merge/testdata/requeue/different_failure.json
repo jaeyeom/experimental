@@ -1,0 +1,8 @@
+{
+  "allowed": true,
+  "reason": "flake RCA",
+  "used": 1,
+  "limit": 2,
+  "signature": "job=test; line=ERROR: TestOther failed",
+  "previous_signature": "job=test; line=ERROR: <path>:<n>: TestParse failed at <ts> (run <hex>)"
+}
