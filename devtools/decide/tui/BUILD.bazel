@@ -97,6 +97,7 @@ go_test(
         "sendkey_test.go",
         "snooze_test.go",
         "stamp_test.go",
+        "startup_test.go",
         "thread_test.go",
     ],
     data = glob(["testdata/**"]),

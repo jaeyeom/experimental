@@ -217,6 +217,12 @@ this machine's config, shows stamps in UTC. Otherwise times follow the
 machine running the inbox, including in hub mode. ~show~ and the ledger
 stay UTC. ~--remote user@host~ and ~--snoozed~ are the other flags.
 
+The inbox draws at once and loads the ledger in the background, locally
+and from a hub. Until the first list arrives, the list is empty and the
+status line says ~Loading…~. Quit, help, compose, and the folder keys
+work meanwhile. A failed first list shows its error on the status line
+and is retried on the next tick.
+
 The sidebar folders are Inbox, Snoozed, Answered, Done, Withdrawn, then
 Status and Contacts. ~g~ waits for a second key. Esc cancels the chord.
 Any other second key says ~unknown go-to key~.

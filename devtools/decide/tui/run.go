@@ -172,8 +172,6 @@ func prepare(opts Options) (*Model, error) {
 	if opts.Snoozed {
 		m.folder = snoozedFolder
 	}
-	if err := m.Reload(); err != nil {
-		return nil, err
-	}
+	m.loading = true
 	return m, nil
 }

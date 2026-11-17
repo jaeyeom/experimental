@@ -133,6 +133,9 @@ func hubModel(t *testing.T) (*Model, *fakeHub, decide.Item, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
 	m.width, m.height = 100, 30
 	return m, fake, item, local
 }
