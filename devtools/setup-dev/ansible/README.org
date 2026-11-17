@@ -247,6 +247,44 @@ tunnel sockets from ~agentbus doctor --sandbox~. On macOS,
 =~/Library/Caches/agentbus/run=. Other settings keys are left as they
 are.
 
+~allowWrite~ also gains the bazel output user root, so bazel and the
+pre-commit hooks that run it can write their output base. The playbook
+picks the first of these:
+
+1. The variable ~claude_bazel_output_user_root~.
+2. The last ~startup --output_user_root=~ in =~/.bazelrc=, then in
+   ~claude_bazel_system_rc~ (default =/etc/bazel.bazelrc=). A
+   workspace =.bazelrc= is not read.
+3. The platform default: =/var/tmp/_bazel_<user>= on macOS,
+   =~/.cache/bazel/_bazel_<user>= elsewhere.
+
+~bazel info output_user_root~ is not used, because it fails outside a
+workspace. On macOS a path under =/var= is also added in its
+=/private/var= form, since =/var= is a symlink. =~/.cache/bazel= stays.
+
+~sandbox.excludedCommands~ is the same kind of union: entries already
+in =settings.json= stay, in front, then the playbook's. Each entry is a
+~Bash(...)~ rule pattern ([[https://code.claude.com/docs/en/settings-reference#sandbox-excludedcommands][Claude Code settings reference]]). A pattern
+with no wildcard is an exact match, so a bare ~git~ matches only ~git~
+with no arguments. That is why ~git switch -c x origin/main~ ran
+sandboxed and could not write =.git/config=. The playbook now writes
+~git *~ and the other tools in the same form. Bare names left from
+older runs are harmless and can be deleted by hand. Claude Code also
+keeps a call sandboxed unless every command in it matches, and always
+keeps these sandboxed: a ~cd~, a redirect to a file or a heredoc, a
+command substitution or subshell, ~if~ / ~for~, and a ~sudo~ or
+~xargs~ prefix. A ~make~ target or script that runs ~git~ inside does
+not match ~git *~. So run these tools as a single command, for example
+~git -C dir status~ instead of ~cd dir && git status~. When a call
+still has to leave the sandbox, the fallback is a retry with
+~dangerouslyDisableSandbox~, which ~allowUnsandboxedCommands: true~
+permits. Do not add =.git/config= to ~allowWrite~.
+
+~claude_sandbox_exclude_tls_clients~ (default ~true~ on macOS, ~false~
+elsewhere) adds ~gh *~ and ~jira *~ to ~excludedCommands~. Go binaries
+verify TLS certificates through the macOS Security framework, which
+the sandbox blocks, so they fail TLS inside it.
+
 * Hand-written playbooks
 
 A ~.yml~ file without the ~AUTO-GENERATED~ header is maintained by

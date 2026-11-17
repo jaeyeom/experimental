@@ -25,6 +25,13 @@
 #     ~/Library/Caches/agentbus/state and ~/Library/Caches/agentbus/run.
 #     A second run changes nothing and writes no new backup. Linux does
 #     not add those two paths (jaeyeom/experimental#857).
+#   - allowWrite gains the bazel output user root: the explicit variable,
+#     else startup --output_user_root from ~/.bazelrc, then the system
+#     rc, else the platform default. macOS adds the /private form of a
+#     /var path. excludedCommands is a union that keeps hand-added
+#     entries first; gh and jira join it when
+#     claude_sandbox_exclude_tls_clients is on, which is the default on
+#     Darwin only (jaeyeom/experimental#875).
 set -eu
 
 fail() {
@@ -435,6 +442,144 @@ assert_sockets "$(settings_file)" "$(printf '%s\n' \
 	"/run/user/${USER_ID}/agentbus/tunnel.sock")"
 unset HERDR_SOCKET_PATH
 unset XDG_RUNTIME_DIR
+
+# assert_list PATH KEY WANT MISSING checks a sandbox list. KEY is
+# excludedCommands or allowWrite. WANT is one entry per line and must
+# appear in that order, not necessarily adjacent. MISSING is one entry
+# per line that must not appear. No entry may appear twice.
+assert_list() {
+	python3 -c '
+import json, pathlib, sys
+path, key, want_raw, missing_raw = sys.argv[1:]
+data = json.loads(pathlib.Path(path).read_text())
+sandbox = data["sandbox"]
+got = sandbox["filesystem"]["allowWrite"] if key == "allowWrite" else sandbox[key]
+if len(got) != len(set(got)):
+    sys.exit("%s has duplicates: %s" % (key, got))
+pos = -1
+for item in [line for line in want_raw.splitlines() if line]:
+    if item not in got:
+        sys.exit("%s is missing %s: %s" % (key, item, got))
+    if got.index(item) < pos:
+        sys.exit("%s has %s out of order: %s" % (key, item, got))
+    pos = got.index(item)
+for item in [line for line in missing_raw.splitlines() if line]:
+    if item in got:
+        sys.exit("%s has %s: %s" % (key, item, got))
+' "$@"
+}
+
+# assert_rerun_clean LABEL ARGS... reruns with ARGS and checks that
+# nothing changed and no backup was written.
+assert_rerun_clean() {
+	label=$1
+	shift
+	BEFORE=$(backup_count)
+	SUM=$(cksum "$(settings_file)")
+	run "$@"
+	if ! grep -q 'changed=0 ' "$OUT"; then
+		cat "$OUT" >&2
+		fail "${label} rerun changed something"
+	fi
+	if [ "$(cksum "$(settings_file)")" != "$SUM" ]; then
+		fail "${label} rerun rewrote settings.json"
+	fi
+	if [ "$(backup_count)" != "$BEFORE" ]; then
+		fail "${label} rerun wrote a new backup"
+	fi
+}
+
+# The bazel output user root joins allowWrite (jaeyeom/experimental#875).
+# NO_SYSTEM_RC keeps a real /etc/bazel.bazelrc out of the test.
+USER_NAME=$(id -un)
+NO_SYSTEM_RC="${ROOT}/no-system-bazelrc"
+
+# Darwin without a bazelrc uses /var/tmp and its /private form.
+use_home bazel-darwin
+mkdir -p "${HOME}/.claude"
+printf '%s\n' '{}' >"${HOME}/.claude/settings.json"
+run -e claude_sandbox_os=Darwin -e "claude_bazel_system_rc=${NO_SYSTEM_RC}"
+assert_list "$(settings_file)" allowWrite "$(printf '%s\n' \
+	"${HOME}/.cache/bazel" \
+	"/var/tmp/_bazel_${USER_NAME}" \
+	"/private/var/tmp/_bazel_${USER_NAME}")" ""
+if [ "$(backup_count)" -ne 1 ]; then
+	fail "first bazel run made $(backup_count) backups, want 1"
+fi
+assert_rerun_clean "bazel darwin" -e claude_sandbox_os=Darwin -e "claude_bazel_system_rc=${NO_SYSTEM_RC}"
+
+# Linux without a bazelrc uses ~/.cache/bazel/_bazel_<user>.
+use_home bazel-linux
+mkdir -p "${HOME}/.claude"
+printf '%s\n' '{}' >"${HOME}/.claude/settings.json"
+run -e claude_sandbox_os=Linux -e "claude_bazel_system_rc=${NO_SYSTEM_RC}"
+assert_list "$(settings_file)" allowWrite "$(printf '%s\n' \
+	"${HOME}/.cache/bazel" \
+	"${HOME}/.cache/bazel/_bazel_${USER_NAME}")" \
+	"/var/tmp/_bazel_${USER_NAME}"
+
+# ~/.bazelrc --output_user_root wins over the system rc and the default.
+use_home bazel-rc
+mkdir -p "${HOME}/.claude"
+printf '%s\n' '{}' >"${HOME}/.claude/settings.json"
+printf '%s\n' 'startup --output_user_root=/opt/system-root' >"${ROOT}/system.bazelrc"
+printf '%s\n' '# comment' 'build --config=x' 'startup --output_user_root=/opt/bazel-root' >"${HOME}/.bazelrc"
+run -e claude_sandbox_os=Darwin -e "claude_bazel_system_rc=${ROOT}/system.bazelrc"
+assert_list "$(settings_file)" allowWrite "/opt/bazel-root" "$(printf '%s\n' \
+	/opt/system-root \
+	"/var/tmp/_bazel_${USER_NAME}")"
+
+# The system rc applies when ~/.bazelrc does not set it.
+use_home bazel-system-rc
+mkdir -p "${HOME}/.claude"
+printf '%s\n' '{}' >"${HOME}/.claude/settings.json"
+run -e claude_sandbox_os=Linux -e "claude_bazel_system_rc=${ROOT}/system.bazelrc"
+assert_list "$(settings_file)" allowWrite "/opt/system-root" \
+	"${HOME}/.cache/bazel/_bazel_${USER_NAME}"
+
+# An explicit claude_bazel_output_user_root wins over everything.
+use_home bazel-explicit
+mkdir -p "${HOME}/.claude"
+printf '%s\n' '{}' >"${HOME}/.claude/settings.json"
+printf '%s\n' 'startup --output_user_root=/opt/bazel-root' >"${HOME}/.bazelrc"
+run -e claude_sandbox_os=Darwin -e "claude_bazel_system_rc=${NO_SYSTEM_RC}" \
+	-e claude_bazel_output_user_root=/var/folders/explicit
+assert_list "$(settings_file)" allowWrite "$(printf '%s\n' \
+	/var/folders/explicit \
+	/private/var/folders/explicit)" "/opt/bazel-root"
+
+# excludedCommands is a union: hand-added entries stay first. Entries use
+# the "name *" form, because a bare name matches only a call with no
+# arguments. On Darwin the TLS flag defaults on and adds gh and jira.
+use_home excluded-darwin
+mkdir -p "${HOME}/.claude"
+python3 -c '
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+path.write_text(json.dumps({"sandbox": {"excludedCommands": ["mytool *", "git *"]}}))
+' "${HOME}/.claude/settings.json"
+run -e claude_sandbox_os=Darwin -e "claude_bazel_system_rc=${NO_SYSTEM_RC}"
+assert_list "$(settings_file)" excludedCommands "$(printf '%s\n' \
+	'mytool *' 'git *' 'bazel *' 'gh *' 'jira *')" "$(printf '%s\n' git gh)"
+assert_rerun_clean "excluded darwin" -e claude_sandbox_os=Darwin -e "claude_bazel_system_rc=${NO_SYSTEM_RC}"
+
+# The flag off on Darwin leaves jira out.
+use_home excluded-darwin-off
+mkdir -p "${HOME}/.claude"
+printf '%s\n' '{}' >"${HOME}/.claude/settings.json"
+run -e claude_sandbox_os=Darwin -e "claude_bazel_system_rc=${NO_SYSTEM_RC}" \
+	-e claude_sandbox_exclude_tls_clients=false
+assert_list "$(settings_file)" excludedCommands "$(printf '%s\n' 'bazel *' 'git *')" 'jira *'
+
+# Linux defaults the flag off. Turning it on adds jira.
+use_home excluded-linux
+mkdir -p "${HOME}/.claude"
+printf '%s\n' '{}' >"${HOME}/.claude/settings.json"
+run -e claude_sandbox_os=Linux -e "claude_bazel_system_rc=${NO_SYSTEM_RC}"
+assert_list "$(settings_file)" excludedCommands "$(printf '%s\n' 'bazel *' 'git *')" 'jira *'
+run -e claude_sandbox_os=Linux -e "claude_bazel_system_rc=${NO_SYSTEM_RC}" \
+	-e claude_sandbox_exclude_tls_clients=true
+assert_list "$(settings_file)" excludedCommands "$(printf '%s\n' 'gh *' 'jira *')" ""
 
 if [ -n "$REAL_SUM" ] && [ "$(cksum "$REAL_SETTINGS")" != "$REAL_SUM" ]; then
 	fail "real settings.json changed"
