@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -46,6 +47,10 @@ const (
 	searchLookback = 24 * time.Hour
 	// searchScope is the cursor scope of the search catch-up.
 	searchScope = "search"
+	// DeletedThreadWindow is how long status lists a watch whose thread
+	// was deleted, and how recently a closed watch must have closed for
+	// its owner to hear that the thread is gone.
+	DeletedThreadWindow = 24 * time.Hour
 )
 
 // CatchUp fetches traffic missed while no events arrived and runs it
@@ -62,7 +67,8 @@ func watchScope(id int64) string { return "watch:" + strconv.FormatInt(id, 10) }
 
 // CatchUpWatch fetches messages after the watch's cursor (initially its
 // since_ts): thread replies for a thread watch, channel history for a dm
-// watch.
+// watch. A thread watch whose parent message is deleted is marked gone
+// instead of failing; see threadGone.
 func (c *CatchUp) CatchUpWatch(ctx context.Context, w Watch) error {
 	scope := watchScope(w.ID)
 	cursor, err := c.Proc.Store.cursor(scope, w.SinceTS)
@@ -78,6 +84,9 @@ func (c *CatchUp) CatchUpWatch(ctx context.Context, w Watch) error {
 		}
 		return err //nolint:wrapcheck // Wrapped below; retry needs the *RateLimitError.
 	})
+	if w.Kind == KindThread && errors.Is(err, ErrMessageNotFound) {
+		return c.threadGone(ctx, w, err)
+	}
 	if err == nil {
 		err = c.handle(ctx, scope, cursor, msgs)
 	}
@@ -85,6 +94,54 @@ func (c *CatchUp) CatchUpWatch(ctx context.Context, w Watch) error {
 		return fmt.Errorf("catch up watch %d: %w", w.ID, err)
 	}
 	return nil
+}
+
+// threadGone marks a thread watch whose parent message was deleted, so
+// catch-up stops fetching it. An open watch is closed with the API error
+// as the reason and its owner is told. A watch that was already closed
+// keeps its state and reason, and its owner is told only when it closed
+// within DeletedThreadWindow.
+func (c *CatchUp) threadGone(ctx context.Context, w Watch, cause error) error {
+	p := c.Proc
+	now := p.Now()
+	apiErr := "thread_not_found"
+	if strings.Contains(cause.Error(), "message_not_found") {
+		apiErr = "message_not_found"
+	}
+	reason := "thread deleted (" + apiErr + ")"
+	if _, err := p.Store.markGone(w.ID, reason, now); err != nil {
+		return err
+	}
+	wasClosed := w.State == StateClosed
+	p.logger().Warn("slackwatch: watched thread deleted, no longer checked",
+		"watch", w.ID, "channel", w.Channel, "thread", w.ThreadTS, "error", apiErr, "alreadyClosed", wasClosed)
+	if wasClosed && now.Sub(w.ClosedAt) >= DeletedThreadWindow {
+		return nil
+	}
+	link := w.link(p.TeamURL)
+	var b strings.Builder
+	fmt.Fprintf(&b, "Slack thread deleted: watch %d in %s", w.ID, w.Channel)
+	if w.Purpose != "" {
+		fmt.Fprintf(&b, " (purpose: %q)", w.Purpose)
+	}
+	if wasClosed {
+		b.WriteString(" was already closed and is no longer checked.")
+	} else {
+		b.WriteString(" is closed.")
+	}
+	if link != "" {
+		fmt.Fprintf(&b, " Link: %s.", link)
+	}
+	return p.notify(ctx, Notification{
+		Event:    EventThreadDeleted,
+		WatchID:  w.ID,
+		Owner:    w.Owner,
+		Channel:  w.Channel,
+		PostLink: link,
+		Purpose:  w.Purpose,
+		Refs:     w.Refs,
+		Message:  b.String(),
+	})
 }
 
 // searchQueries find the token owner's own posts (for footers) and
@@ -227,7 +284,8 @@ func (c *CatchUp) Sweep(ctx context.Context) error {
 }
 
 // catchUpWatches returns the watches that are not closed or closed within
-// reopenWindow of now, since a reply to those reopens them.
+// reopenWindow of now, since a reply to those reopens them. A watch whose
+// thread is gone is left out.
 func (s *Store) catchUpWatches(now time.Time, reopenWindow time.Duration) ([]Watch, error) {
 	var out []Watch
 	err := s.queryEach(func(rows *sql.Rows) error {
@@ -237,10 +295,45 @@ func (s *Store) catchUpWatches(now time.Time, reopenWindow time.Duration) ([]Wat
 		}
 		out = append(out, r.watch())
 		return nil
-	}, `SELECT `+watchCols+` FROM watches WHERE state <> ? OR closed_at >= ? ORDER BY id`,
+	}, `SELECT `+watchCols+` FROM watches
+WHERE gone_at IS NULL AND (state <> ? OR closed_at >= ?) ORDER BY id`,
 		StateClosed, now.Add(-reopenWindow).Unix())
 	if err != nil {
 		return nil, fmt.Errorf("list watches to catch up: %w", err)
+	}
+	return out, nil
+}
+
+// markGone records that watch id's thread is deleted. An open watch is
+// also closed with reason; a closed one keeps its state and reason.
+func (s *Store) markGone(id int64, reason string, now time.Time) (Watch, error) {
+	return s.execWatch(id, `UPDATE watches SET gone_at = ?1,
+	close_reason = CASE WHEN state = ?3 THEN close_reason ELSE ?2 END,
+	closed_at = CASE WHEN state = ?3 THEN closed_at ELSE ?1 END,
+	state = ?3
+WHERE id = ?4`, now.Unix(), reason, StateClosed)
+}
+
+// ThreadsDeleted returns the watches whose thread was found deleted at or
+// after since, with permalinks when the team URL is known.
+func (s *Store) ThreadsDeleted(since time.Time) ([]Watch, error) {
+	teamURL, err := s.TeamURL()
+	if err != nil {
+		return nil, err
+	}
+	out := []Watch{}
+	err = s.queryEach(func(rows *sql.Rows) error {
+		var r watchRow
+		if err := rows.Scan(r.dest()...); err != nil {
+			return err //nolint:wrapcheck // Wrapped by queryEach.
+		}
+		w := r.watch()
+		w.Permalink = w.link(teamURL)
+		out = append(out, w)
+		return nil
+	}, `SELECT `+watchCols+` FROM watches WHERE gone_at >= ? ORDER BY id`, since.Unix())
+	if err != nil {
+		return nil, fmt.Errorf("list deleted threads: %w", err)
 	}
 	return out, nil
 }

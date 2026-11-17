@@ -225,3 +225,44 @@ func TestHeartbeatTracksServe(t *testing.T) {
 		t.Errorf("after stop = %+v", st)
 	}
 }
+
+func TestStatusShowsDeletedThreadWithoutFailing(t *testing.T) {
+	cfg := noTokenConfig(t)
+	store := testStore(t, cfg)
+	now := time.Now()
+	w, _, err := store.AddWatch(slackwatch.PostRef{Channel: "C1", TS: "1700000000.000100"},
+		slackwatch.WatchUpdate{}, now.Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB().Exec(`UPDATE watches SET state = 'closed', closed_at = ?1, gone_at = ?1,
+close_reason = 'thread deleted (thread_not_found)' WHERE id = ?2`, now.Unix(), w.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WriteStatus(slackwatch.Status{
+		PID: 4242, StartedAt: now.Add(-time.Hour), HeartbeatAt: now,
+		HeartbeatInterval: slackwatch.Duration{Duration: time.Minute}, Connection: slackwatch.ConnConnected,
+		LastCatchUpAt: now, LastSweepAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errOut := runSW(cfg, "status")
+	if code != 0 {
+		t.Fatalf("status = %d, stdout %q stderr %q", code, out, errOut)
+	}
+	if !strings.Contains(out, "closed: thread deleted\n  watch "+strconv.FormatInt(w.ID, 10)) {
+		t.Errorf("stdout = %q, want the deleted thread watch listed", out)
+	}
+	if strings.Contains(out, "failed") {
+		t.Errorf("stdout = %q, want no catch-up or sweep error", out)
+	}
+	code, out, _ = runSW(cfg, "status", "--json")
+	var st slackwatch.Status
+	if err := json.Unmarshal([]byte(out), &st); err != nil {
+		t.Fatalf("decode %q: %v", out, err)
+	}
+	if code != 0 || len(st.ThreadsDeleted) != 1 || st.ThreadsDeleted[0].ID != w.ID ||
+		st.LastCatchUpError != "" || st.LastSweepError != "" {
+		t.Errorf("status --json = %d %+v", code, st)
+	}
+}

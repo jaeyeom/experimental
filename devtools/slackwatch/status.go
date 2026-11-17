@@ -42,6 +42,9 @@ type Status struct {
 	// OutboxPoll is the result of serve's last outbox poll, zero when
 	// it has not polled.
 	OutboxPoll OutboxPoll `json:"outboxPoll,omitzero"`
+	// ThreadsDeleted are the watches whose thread catch-up found deleted
+	// within DeletedThreadWindow. The status command fills it.
+	ThreadsDeleted []Watch `json:"threadsDeleted,omitempty"`
 }
 
 // OutboxPoll is the result of the last outbox poll. LastOK is the time
