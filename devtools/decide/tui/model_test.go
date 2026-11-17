@@ -1287,6 +1287,44 @@ func TestItemViewScrollKeys(t *testing.T) {
 	}
 }
 
+func TestCursorStaysOnItemAfterNewMessageResorts(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	older := mustCreate(t, led, &decide.Item{
+		Question:  "older",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	})
+	newer := mustCreate(t, led, &decide.Item{
+		Question:  "newer",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		CreatedAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC),
+	})
+	m := New(dir)
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if m.cursorID() != newer.ID {
+		t.Fatalf("cursor = %s, want %s first", m.cursorID(), newer.ID)
+	}
+	if _, err := led.Reply(older.ID, "bot", "a new message", nil, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if m.items[0].ID != older.ID {
+		t.Fatalf("first = %s, want %s after its new message", m.items[0].ID, older.ID)
+	}
+	if m.cursorID() != newer.ID {
+		t.Fatalf("cursor = %s, want it to stay on %s", m.cursorID(), newer.ID)
+	}
+}
+
 func TestListCursorStaysVisible(t *testing.T) {
 	dir := t.TempDir()
 	led := openLedger(t, dir)

@@ -315,6 +315,76 @@ func TestSelectOrdersDeadlineThenNewest(t *testing.T) {
 	}
 }
 
+func TestSelectOrdersByLastMessage(t *testing.T) {
+	day := func(d int) time.Time { return time.Date(2026, 11, d, 0, 0, 0, 0, time.UTC) }
+	soon := day(20)
+	items := []Item{
+		{
+			ID: "D-001", State: StateOpen, Question: "old but active", CreatedAt: day(1),
+			Messages: []Message{{Author: "ada", Time: day(1)}, {Author: "bot", Time: day(9)}},
+		},
+		{
+			ID: "D-002", State: StateOpen, Question: "newer quiet", CreatedAt: day(5),
+			Messages: []Message{{Author: "ada", Time: day(5)}},
+		},
+		{ID: "D-003", State: StateOpen, Question: "deadline", Deadline: &soon, CreatedAt: day(2)},
+		{ID: "D-004", State: StateOpen, Question: "tie low id", CreatedAt: day(3)},
+		{
+			ID: "D-005", State: StateOpen, Question: "tie high id", CreatedAt: day(1),
+			Messages: []Message{{Author: "bot", Time: day(3)}},
+		},
+	}
+	got, err := Select(items, StateOpen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, it := range got {
+		ids = append(ids, it.ID)
+	}
+	want := []string{"D-003", "D-001", "D-002", "D-005", "D-004"}
+	if strings.Join(ids, ",") != strings.Join(want, ",") {
+		t.Fatalf("order = %v, want %v", ids, want)
+	}
+}
+
+func TestItemJSONHasLastMessageAt(t *testing.T) {
+	created := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	reply := time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name string
+		item Item
+		want time.Time
+	}{
+		{"no messages", Item{ID: "D-001", CreatedAt: created}, created},
+		{"newest message", Item{ID: "D-002", CreatedAt: created, Messages: []Message{{Author: "a", Time: reply}, {Author: "b", Time: created}}}, reply},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := json.Marshal(tc.item)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got struct {
+				ID            string    `json:"id"`
+				LastMessageAt time.Time `json:"lastMessageAt"`
+			}
+			if err := json.Unmarshal(data, &got); err != nil {
+				t.Fatal(err)
+			}
+			if got.ID != tc.item.ID || !got.LastMessageAt.Equal(tc.want) {
+				t.Fatalf("json = %s, want lastMessageAt %v", data, tc.want)
+			}
+			var back Item
+			if err := json.Unmarshal(data, &back); err != nil {
+				t.Fatal(err)
+			}
+			if back.ID != tc.item.ID || !back.CreatedAt.Equal(created) {
+				t.Fatalf("round trip = %+v", back)
+			}
+		})
+	}
+}
+
 func TestTwoProcessesCreate(t *testing.T) {
 	led, dir := openTemp(t)
 	held, err := led.acquire()
