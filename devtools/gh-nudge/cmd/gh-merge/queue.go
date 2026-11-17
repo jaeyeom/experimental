@@ -44,6 +44,11 @@ type watchAPI interface {
 // request that landed first. queue, watch, and rca all use it.
 type removalAPI interface {
 	FailureEvidence(owner, repo, sha string) (github.FailureEvidence, error)
+	landedFirstAPI
+}
+
+// landedFirstAPI finds the pull request that landed first on a merge group.
+type landedFirstAPI interface {
 	LandedFirst(owner, repo, sha string, self int) (github.StackPR, bool, error)
 }
 
@@ -686,32 +691,54 @@ func printRemovalEvidence(client removalAPI, cfg *config.Config, pr github.Queue
 	if !ok || event.Kind != github.QueueEventRemoved {
 		return nil
 	}
-	fmt.Printf("Removal reason: %s\n", event.Reason)
-	if event.CommitSHA == "" {
-		return nil
-	}
-	evidence, err := client.FailureEvidence(pr.Ref.Owner, pr.Ref.Repo, event.CommitSHA)
-	if err != nil {
-		return fmt.Errorf("failure evidence for %s: %w", pr.Ref.Raw, err)
-	}
-	report, err := printFailureEvidence(cfg, evidence)
-	if err != nil {
+	return printEventEvidence(client, cfg, pr, event, func() (github.FailureEvidence, error) {
+		return client.FailureEvidence(pr.Ref.Owner, pr.Ref.Repo, event.CommitSHA)
+	})
+}
+
+// printEventEvidence prints the evidence for one removal event, and for a
+// merge conflict the pull request that landed first.
+func printEventEvidence(client landedFirstAPI, cfg *config.Config, pr github.QueuePullRequest, event github.QueueEvent, fetch func() (github.FailureEvidence, error)) error {
+	if _, err := (evidenceOut{cfg: cfg, w: os.Stdout}).event(pr, event, fetch); err != nil {
 		return err
 	}
-	hints, err := flakeHints(cfg.Settings.FlakeSignatures, report.Text)
-	if err != nil {
-		return err
-	}
-	for _, hint := range hints {
-		fmt.Println(hint)
-	}
-	if event.Reason != "merge_conflict" {
+	if event.CommitSHA == "" || event.Reason != "merge_conflict" {
 		return nil
 	}
 	return printLandedFirst(client, pr, event.CommitSHA)
 }
 
-func printLandedFirst(client removalAPI, pr github.QueuePullRequest, sha string) error {
+// eventEvidence is what evidenceOut.event found for one removal event.
+type eventEvidence struct {
+	evidence github.FailureEvidence
+	report   failureReport
+	hints    []flakeHint
+}
+
+func (e evidenceOut) event(pr github.QueuePullRequest, event github.QueueEvent, fetch func() (github.FailureEvidence, error)) (eventEvidence, error) {
+	fmt.Fprintf(e.w, "Removal reason: %s\n", event.Reason)
+	if event.CommitSHA == "" {
+		return eventEvidence{}, nil
+	}
+	evidence, err := fetch()
+	if err != nil {
+		return eventEvidence{}, fmt.Errorf("failure evidence for %s: %w", pr.Ref.Raw, err)
+	}
+	report, err := e.failure(evidence)
+	if err != nil {
+		return eventEvidence{}, err
+	}
+	hints, err := flakeHints(e.cfg.Settings.FlakeSignatures, report.Text)
+	if err != nil {
+		return eventEvidence{}, err
+	}
+	for _, hint := range hints {
+		fmt.Fprintln(e.w, hint.text())
+	}
+	return eventEvidence{evidence: evidence, report: report, hints: hints}, nil
+}
+
+func printLandedFirst(client landedFirstAPI, pr github.QueuePullRequest, sha string) error {
 	landed, found, err := client.LandedFirst(pr.Ref.Owner, pr.Ref.Repo, sha, pr.Ref.Number)
 	if err != nil {
 		return fmt.Errorf("landed first for %s: %w", pr.Ref.Raw, err)
@@ -990,8 +1017,18 @@ func sortQueueEvents(events []github.QueueEvent) {
 	})
 }
 
-func flakeHints(patterns []string, log string) ([]string, error) {
-	var hints []string
+// flakeHint is one flake_signatures pattern and the text it matched.
+type flakeHint struct {
+	Pattern string `json:"pattern"`
+	Match   string `json:"match"`
+}
+
+func (h flakeHint) text() string {
+	return fmt.Sprintf("Flake hint: pattern %q matched %q (not a verdict)", h.Pattern, h.Match)
+}
+
+func flakeHints(patterns []string, log string) ([]flakeHint, error) {
+	var hints []flakeHint
 	for _, pattern := range patterns {
 		re, err := regexp.Compile(pattern)
 		if err != nil {
@@ -1001,7 +1038,7 @@ func flakeHints(patterns []string, log string) ([]string, error) {
 		if hit == "" {
 			continue
 		}
-		hints = append(hints, fmt.Sprintf("Flake hint: pattern %q matched %q (not a verdict)", pattern, hit))
+		hints = append(hints, flakeHint{Pattern: pattern, Match: hit})
 	}
 	return hints, nil
 }

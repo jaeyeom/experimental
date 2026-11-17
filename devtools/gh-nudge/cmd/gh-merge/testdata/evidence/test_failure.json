@@ -1,0 +1,37 @@
+{
+  "pull_request": "acme/widgets#12",
+  "event_id": "EVT1",
+  "reason": "failed_checks",
+  "commit": "deadbeef",
+  "check": {
+    "name": "ci/circleci",
+    "url": "https://app.circleci.com/pipelines/github/acme/widgets/42"
+  },
+  "workflow": {
+    "id": "wf-1",
+    "name": "build-test"
+  },
+  "job": {
+    "id": "8",
+    "name": "test-amd64",
+    "url": "https://circleci.com/gh/acme/widgets/8"
+  },
+  "failing_tests": [
+    "pkg/parse.TestParse"
+  ],
+  "excerpt": {
+    "lines": [
+      "ERROR: TestParse failed"
+    ],
+    "truncated": false,
+    "log_url": "https://circleci.com/gh/acme/widgets/8"
+  },
+  "siblings": [],
+  "infra": false,
+  "flake_hints": [
+    {
+      "pattern": "connection reset",
+      "match": "connection reset"
+    }
+  ]
+}
