@@ -1,0 +1,31 @@
+# Example systemd user unit for gh-outbox poll --watch.
+#
+# go install puts the binary in ~/go/bin, or in $GOBIN when that is set.
+# ExecStart uses %h/go/bin. If GOBIN is somewhere else, edit ExecStart.
+#
+# Install:
+#   cp gh-outbox.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now gh-outbox.service
+#   journalctl --user -u gh-outbox.service -f
+#
+# systemd does not read your shell profile, so PATH below must contain
+# gh, decide and agentbus. Otherwise set gh_command, decide_command and
+# agentbus_command in the config to absolute paths. gh posts as the
+# account gh auth status shows for this user.
+
+[Unit]
+Description=gh-outbox: post decide-approved GitHub pull request comments
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Environment=PATH=%h/go/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/go/bin/gh-outbox poll --watch
+Restart=on-failure
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
