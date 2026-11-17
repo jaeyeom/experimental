@@ -108,8 +108,9 @@ An answer it gives to an open question is recorded as from the UI."
   (list "send" "--id" id "--via" "ui" "--json" text))
 
 (defun decide--done-args (id outcome)
-  "Argument list that marks ID done with OUTCOME."
-  (list "done" "--json" id outcome))
+  "Argument list that marks ID done with OUTCOME, recorded as from the UI.
+The user's own done closes the item even when a message is unread."
+  (list "done" "--json" "--via" "ui" id outcome))
 
 (defun decide--submit-args (action id text)
   "Argument list for ACTION, or nil when nothing should be sent.

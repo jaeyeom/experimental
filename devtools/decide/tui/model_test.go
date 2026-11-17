@@ -3871,7 +3871,7 @@ func TestThreadViewShowsTheDraftAndReplies(t *testing.T) {
 	if strings.Contains(lineContaining(list, replied.ID), "*") {
 		t.Fatalf("a thread that needs an answer was marked as a notification\n%s", list)
 	}
-	if _, err := led.Done(note.ID, "read"); err != nil {
+	if _, err := led.DoneVia(note.ID, "read", decide.ViaUI); err != nil {
 		t.Fatal(err)
 	}
 	if err := m.Reload(); err != nil {

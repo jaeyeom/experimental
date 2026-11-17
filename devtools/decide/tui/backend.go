@@ -328,9 +328,10 @@ func (b *LocalBackend) runSend(argv []string) error {
 	return decide.RunSend(argv) //nolint:wrapcheck // RunSend names the send in its errors
 }
 
-// Done implements Backend.
+// Done implements Backend. It is the user's own done, so it closes the
+// item at once, even when a message is unread.
 func (b *LocalBackend) Done(id, outcome string) (decide.Item, error) {
-	return b.with(func(led *decide.Ledger) (decide.Item, error) { return led.Done(id, outcome) })
+	return b.with(func(led *decide.Ledger) (decide.Item, error) { return led.DoneVia(id, outcome, decide.ViaUI) })
 }
 
 // Archive implements Backend.

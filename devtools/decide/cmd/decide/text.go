@@ -269,6 +269,8 @@ func textValued(args []string) map[string]bool {
 		return map[string]bool{"to": true, "id": true, "via": true}
 	case "reply":
 		return map[string]bool{"option": true, "rec": true}
+	case "done":
+		return map[string]bool{"via": true}
 	case "status":
 		return map[string]bool{"agent": true, "resource": true, "state": true}
 	default:

@@ -80,6 +80,7 @@ go_test(
         "delivery_test.go",
         "deliverymark_test.go",
         "display_test.go",
+        "done_unread_test.go",
         "editor_test.go",
         "favorites_test.go",
         "field_test.go",

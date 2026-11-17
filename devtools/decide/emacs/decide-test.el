@@ -15,6 +15,10 @@
     (should (equal (decide--answer-args "D-001" text)
                    (list "answer" "--json" "--via" "ui" "D-001" text)))))
 
+(ert-deftest decide-done-args-are-the-users-own-done ()
+  (should (equal (decide--done-args "D-001" "archived")
+                 (list "done" "--json" "--via" "ui" "D-001" "archived"))))
+
 (ert-deftest decide-answer-cancel-builds-no-command ()
   (should (null (decide--submit-args 'cancel "D-001" "hello\nthere"))))
 
@@ -501,7 +505,7 @@
             (setq calls nil)
             (with-current-buffer "*decide D-002*"
               (call-interactively #'decide-archive))
-            (should (equal (car calls) '("done" "--json" "D-002" "archived"))))
+            (should (equal (car calls) '("done" "--json" "--via" "ui" "D-002" "archived"))))
         (dolist (name '("*decide D-001*" "*decide D-002*"
                         "*decide reply D-001*" "*decide answer D-001*"))
           (when (get-buffer name)

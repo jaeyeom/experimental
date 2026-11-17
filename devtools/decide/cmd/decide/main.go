@@ -976,9 +976,34 @@ func cmdWithdraw(args []string, stdout, stderr io.Writer) int {
 	})
 }
 
+// cmdDone closes an item. The default, an agent's done, keeps an item
+// with an unread message in the user's inbox as done-unread. --via ui is
+// the user's own done from an inbox front end and closes it at once.
 func cmdDone(args []string, stdout, stderr io.Writer) int {
-	return cmdText(args, stdout, stderr, "done", "outcome", func(led *decide.Ledger, id, text string) (decide.Item, error) {
-		return led.Done(id, text)
+	file, args, err := pullTextFile(args)
+	if err != nil {
+		return fail(stderr, err, 2)
+	}
+	fs := flag.NewFlagSet("done", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	jsonOut := fs.Bool("json", false, "print JSON")
+	via := fs.String("via", decide.ViaCLI, "who closes it: cli for an agent, or ui for the inbox front ends only")
+	if code, stop := stopped(parseFlags(fs, args)); stop {
+		return code
+	}
+	if err := decide.CheckVia(*via); err != nil {
+		return fail(stderr, err, 2)
+	}
+	id, text, err := pairBody(fs.Args(), "id", "outcome", file)
+	if err != nil {
+		return fail(stderr, err, 2)
+	}
+	return withItem(stdout, stderr, *jsonOut, false, func(led *decide.Ledger) (decide.Item, error) {
+		item, err := led.DoneVia(id, text, *via)
+		if err == nil && item.State == decide.StateDoneUnread {
+			fmt.Fprintf(stderr, "decide: %s has a message the user has not read; it stays in the inbox until the user reads it\n", id)
+		}
+		return item, err //nolint:wrapcheck // DoneVia names the item in its errors
 	})
 }
 

@@ -632,7 +632,7 @@ func TestDoneAndWithdrawSkipNotify(t *testing.T) {
 	writeNotifyConfig(t, `notifier "$DECIDE_ID"`, "pane")
 
 	typeIn := askTypeIn(t, "ship the note", "the form")
-	if _, stderr, code := runCLI("done", typeIn, "typed it"); code != 0 {
+	if _, stderr, code := runCLI("done", "--via", "ui", typeIn, "typed it"); code != 0 {
 		t.Fatalf("done code = %d\n%s", code, stderr)
 	}
 	relay := askRelay(t, nil, "withdraw me")
@@ -664,7 +664,7 @@ func TestWithdrawAndDoneStoreText(t *testing.T) {
 	}
 
 	doneID := askTypeIn(t, "ship the note", "the form")
-	if _, stderr, code := runCLI("done", doneID, "typed it"); code != 0 {
+	if _, stderr, code := runCLI("done", "--via", "ui", doneID, "typed it"); code != 0 {
 		t.Fatalf("done code = %d\n%s", code, stderr)
 	}
 	if _, stderr, code := runCLI("done", doneID, "again"); code == 0 {

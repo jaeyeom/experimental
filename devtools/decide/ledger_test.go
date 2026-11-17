@@ -255,7 +255,7 @@ func TestAnswerDoneAndWithdraw(t *testing.T) {
 	if _, err := led.Answer(typed.ID, "ship", ViaCLI); err == nil {
 		t.Fatal("type-in answer succeeded")
 	}
-	done, err := led.Done(typed.ID, "typed it")
+	done, err := led.DoneVia(typed.ID, "typed it", ViaUI)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -771,6 +771,9 @@ func TestAnswerReplyAndComposeKeepTheThread(t *testing.T) {
 	}
 	if note.Messages[len(note.Messages)-1].Text != "shipped" || len(note.Messages[len(note.Messages)-1].Options) != 0 {
 		t.Fatalf("notification message = %+v", note.Messages[len(note.Messages)-1])
+	}
+	if _, err := led.MarkRead(item.ID); err != nil {
+		t.Fatal(err)
 	}
 	done, err := led.Done(item.ID, "sent")
 	if err != nil {
@@ -1768,9 +1771,9 @@ func TestArchiveRefusesAMessageNewerThanSeen(t *testing.T) {
 	}
 }
 
-func TestDoneWithArchivedSkipsTheSeenCheck(t *testing.T) {
+func TestUIDoneWithArchivedSkipsTheSeenCheck(t *testing.T) {
 	led, _, item := itemWithALaterMessage(t)
-	got, err := led.Done(item.ID, "archived")
+	got, err := led.DoneVia(item.ID, "archived", ViaUI)
 	if err != nil || got.State != StateDone || got.Outcome != "archived" {
 		t.Fatalf("Done(archived) = state %s outcome %q err %v", got.State, got.Outcome, err)
 	}

@@ -42,6 +42,7 @@ go_test(
         "assign_test.go",
         "avatars_test.go",
         "display_test.go",
+        "done_unread_test.go",
         "follow_test.go",
         "hub_test.go",
         "longline_test.go",

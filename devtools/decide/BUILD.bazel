@@ -43,6 +43,7 @@ go_test(
         "config_test.go",
         "delivery_test.go",
         "display_test.go",
+        "done_unread_test.go",
         "favorite_test.go",
         "follow_test.go",
         "lease_test.go",
