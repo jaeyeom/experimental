@@ -17,6 +17,7 @@ const (
 	hitOutcome
 	hitNote
 	hitAvatar
+	hitReplySend
 )
 
 // hit is one clickable span on a screen row. x0 and x1 are 1-based columns.
@@ -45,11 +46,8 @@ func (m *Model) Click(x, y int) error {
 		return nil
 	}
 	field, onField := m.fieldRow(y)
-	if m.replyFocus && field.kind != hitReply {
-		m.replyFocus = false
-		if !onField {
-			return nil
-		}
+	if m.leaveReply(field, onField, x, y) {
+		return nil
 	}
 	if onField {
 		m.clickField(field, x)
@@ -65,6 +63,20 @@ func (m *Model) Click(x, y int) error {
 		return m.hit(h)
 	}
 	return nil
+}
+
+// leaveReply unfocuses the reply box and its [Send] for a click
+// elsewhere. It reports true when the click only left the reply box.
+func (m *Model) leaveReply(field hit, onField bool, x, y int) bool {
+	onReplySend := m.onHitRow(x, y, hitReplySend)
+	if !onReplySend {
+		m.replySend = false
+	}
+	if !m.replyFocus || field.kind == hitReply {
+		return false
+	}
+	m.replyFocus = false
+	return !onField && !onReplySend
 }
 
 // CtrlClick opens the link under 1-based screen coordinates. Off a link
@@ -239,6 +251,8 @@ func (m *Model) hit(h hit) error {
 		return m.closeSelected()
 	case hitSend:
 		return m.sendNote()
+	case hitReplySend:
+		return m.submitReply()
 	case hitLink:
 		m.openURL(h.url)
 		return nil

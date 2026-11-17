@@ -51,6 +51,11 @@ func (m *Model) ShiftEnter() {
 
 // ShiftTab moves compose focus back from [Send] to the text to the recipient.
 func (m *Model) ShiftTab() {
+	if m.replySend && !m.help {
+		m.focusReply()
+		m.replyField.Focus()
+		return
+	}
 	if m.help || m.answerFocus || !m.composing {
 		return
 	}
@@ -94,10 +99,13 @@ func isSendKey(k tea.KeyMsg) bool {
 }
 
 // sendComposer sends the draft of composer kind: Tab then Enter in the
-// note composer, Enter in the others.
+// note and reply composers, Enter in the others.
 func (m *Model) sendComposer(kind composerKind) tea.Cmd {
-	if kind == composerNote {
+	switch kind {
+	case composerNote:
 		m.advanceCompose()
+	case composerReply:
+		m.focusReplySend()
 	}
 	return m.applyRune('\r')
 }

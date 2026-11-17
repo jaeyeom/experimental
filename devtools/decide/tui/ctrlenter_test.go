@@ -11,6 +11,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/jaeyeom/experimental/devtools/decide"
 )
 
 // chunk is one Read worth of terminal input. A late chunk is not ready
@@ -149,12 +150,21 @@ func TestProgramInputKeepsTerminalFile(t *testing.T) {
 	}
 }
 
-// TestCtrlEnterSendsNoteThroughProgram feeds each Ctrl+Enter sequence
-// through the program input and checks it sends the note draft, the same
-// as Tab then Enter.
-func TestCtrlEnterSendsNoteThroughProgram(t *testing.T) {
-	m, led, item := composerModel(t, composerNote)
+// TestCtrlEnterSendsThroughProgram feeds each Ctrl+Enter sequence
+// through the program input and checks it sends the whole multi-line
+// note or reply draft, the same as Tab then Enter.
+func TestCtrlEnterSendsThroughProgram(t *testing.T) {
+	for _, kind := range []composerKind{composerNote, composerReply} {
+		ctrlEnterSends(t, kind)
+	}
+}
+
+func ctrlEnterSends(t *testing.T, kind composerKind) {
+	t.Helper()
+	m, led, item := composerModel(t, kind)
 	sends := typeDraft(t, m)
+	sendKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	sendKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("there")})
 	sendKey(t, m, tea.KeyMsg{Type: tea.KeyTab})
 	sendKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	want := sendResult(t, m, led, item.ID, *sends)
@@ -163,7 +173,7 @@ func TestCtrlEnterSendsNoteThroughProgram(t *testing.T) {
 		"modifyOtherKeys": "\x1b[27;5;13~",
 		"kitty":           "\x1b[13;5u",
 	} {
-		m, led, item := composerModel(t, composerNote)
+		m, led, item := composerModel(t, kind)
 		sent := make(chan struct{}, 1)
 		count := 0
 		m.runSend = func([]string) error {
@@ -183,13 +193,17 @@ func TestCtrlEnterSendsNoteThroughProgram(t *testing.T) {
 			_, err := p.Run()
 			done <- err
 		}()
-		if _, err := w.Write([]byte("hi" + seq)); err != nil {
+		if _, err := w.Write([]byte("hi\rthere" + seq)); err != nil {
 			t.Fatal(err)
 		}
-		select {
-		case <-sent:
-		case <-time.After(5 * time.Second):
-			t.Fatalf("%s: note was not sent", name)
+		// A note runs a pane command. A reply to this item runs none, so
+		// wait for its message in the ledger.
+		deadline := time.Now().Add(5 * time.Second)
+		for !draftSent(t, sent, led, item.ID) {
+			if time.Now().After(deadline) {
+				t.Fatalf("%v %s: draft was not sent", kind, name)
+			}
+			time.Sleep(10 * time.Millisecond)
 		}
 		if err := w.Close(); err != nil {
 			t.Fatal(err)
@@ -199,7 +213,22 @@ func TestCtrlEnterSendsNoteThroughProgram(t *testing.T) {
 			t.Fatal(err)
 		}
 		if got := sendResult(t, m, led, item.ID, count); got != want {
-			t.Errorf("%s:\n got %s\nwant %s", name, got, want)
+			t.Errorf("%v %s:\n got %s\nwant %s", kind, name, got, want)
 		}
 	}
+}
+
+// draftSent reports a pane command on sent or a second message on item id.
+func draftSent(t *testing.T, sent <-chan struct{}, led *decide.Ledger, id string) bool {
+	t.Helper()
+	select {
+	case <-sent:
+		return true
+	default:
+	}
+	it, err := led.Get(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(it.Messages) > 1
 }

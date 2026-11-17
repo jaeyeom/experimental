@@ -27,14 +27,14 @@ func TestTUIAppendsOnAThreeMessageThread(t *testing.T) {
 		dir := t.TempDir()
 		id, before := seedTUIThread(t, dir)
 		m := openThread(t, dir)
-		press(t, m, "0more\r")
+		press(t, m, "0more\t\r")
 		assertTUIAppended(t, dir, id, before, "human", "more")
 	})
 	t.Run("compose", func(t *testing.T) {
 		dir := t.TempDir()
 		id, before := seedTUIThread(t, dir)
 		m := openThread(t, dir)
-		press(t, m, "0note\r")
+		press(t, m, "0note\t\r")
 		assertTUIAppended(t, dir, id, before, "human", "note")
 	})
 }
@@ -72,7 +72,7 @@ func TestZeroTypesOneHumanMessage(t *testing.T) {
 				if strings.Contains(m.View(), "free text is not allowed") || strings.Contains(m.View(), "0  answer:") {
 					t.Fatalf("composer is a second row\n%s", m.View())
 				}
-				press(t, m, key+`say "hi"`+"\r")
+				press(t, m, key+`say "hi"`+"\t\r")
 				if strings.Contains(m.View(), "free text is not allowed") {
 					t.Fatalf("status rejected the composer\n%s", m.View())
 				}
@@ -112,7 +112,7 @@ func TestZeroTypesOneHumanMessage(t *testing.T) {
 		if err := m.Reload(); err != nil {
 			t.Fatal(err)
 		}
-		press(t, m, "gao0later\r")
+		press(t, m, "gao0later\t\r")
 		got, err := led.Get(item.ID)
 		if err != nil {
 			t.Fatal(err)
@@ -135,7 +135,7 @@ func TestZeroTypesOneHumanMessage(t *testing.T) {
 			Options:  []decide.Option{{Key: "a", Label: "Alpha"}},
 		})
 		m := openThread(t, dir)
-		press(t, m, "0\r")
+		press(t, m, "0\t\r\x1b")
 		press(t, m, "0nope\x1b")
 		got, err := led.Get(item.ID)
 		if err != nil {

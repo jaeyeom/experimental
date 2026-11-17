@@ -87,6 +87,8 @@ type Model struct {
 	draft        string
 	reply        string
 	replyFocus   bool
+	// replySend marks the reply [Send] button focused.
+	replySend    bool
 	detail       *decide.Item
 	height       int
 	width        int
@@ -396,6 +398,9 @@ func (m *Model) Key(r rune) (bool, error) {
 	if m.replyFocus {
 		return m.replyKey(r)
 	}
+	if m.replySend {
+		return m.replySendKey(r)
+	}
 	if m.mode == modeOutcome {
 		return m.outcomeKey(r)
 	}
@@ -630,6 +635,7 @@ func (m *Model) showStatus() error {
 	m.composing = false
 	m.answerFocus = false
 	m.replyFocus = false
+	m.replySend = false
 	m.mode = modeStatus
 	m.scroll = 0
 	m.agentCursor = 0
@@ -939,20 +945,44 @@ func (m *Model) clearNote() {
 
 func (m *Model) focusReply() {
 	m.replyFocus = true
+	m.replySend = false
 	m.answerFocus = false
 	m.free.Blur()
 }
 
-// replyKey edits the reply box. Esc leaves it and keeps the draft.
+// replyKey edits the reply box like the note box: Enter inserts a
+// newline and Tab moves to [Send]. Esc leaves it and keeps the draft.
 func (m *Model) replyKey(r rune) (bool, error) {
 	switch r {
 	case '\x1b':
 		m.replyFocus = false
 		return false, nil
+	case '\t':
+		m.focusReplySend()
+		return false, nil
+	case '\r':
+		r = '\n'
+	}
+	m.typeRune(r)
+	return false, nil
+}
+
+func (m *Model) focusReplySend() {
+	m.reply = m.composerText(composerReply)
+	m.replyFocus = false
+	m.replyField.Blur()
+	m.replySend = true
+}
+
+// replySendKey handles keys while the reply [Send] is focused. Enter
+// sends and Esc leaves it with the draft kept.
+func (m *Model) replySendKey(r rune) (bool, error) {
+	switch r {
+	case '\x1b':
+		m.replySend = false
 	case '\r':
 		return false, m.submitReply()
 	}
-	m.typeRune(r)
 	return false, nil
 }
 
@@ -1060,6 +1090,7 @@ func (m *Model) openRow() error {
 	m.reply = ""
 	m.answerFocus = false
 	m.replyFocus = false
+	m.replySend = false
 	m.closeLinkPick()
 	m.linkURL = ""
 	m.resetFields()
@@ -1252,6 +1283,7 @@ func (m *Model) submitReply() error {
 	m.detail = &updated
 	m.reply = ""
 	m.replyFocus = false
+	m.replySend = false
 	// The new message is last. clipLines clamps this onto that end.
 	m.scroll = 1 << 20
 	return m.Reload()
@@ -1306,6 +1338,7 @@ func (m *Model) backToList() {
 	m.reply = ""
 	m.answerFocus = false
 	m.replyFocus = false
+	m.replySend = false
 	m.closeLinkPick()
 	m.linkURL = ""
 	m.copyMenu = false
@@ -2562,6 +2595,9 @@ func (m *Model) helpLines() []screenLine {
 		text = slices.Insert(text, i+1, composerHelp...)
 	}
 	if m.mode == modeDetail || m.mode == modeOutcome {
+		if i := slices.Index(text, "enter on text inserts a newline"); i >= 0 {
+			text[i] = "enter in the reply or note text inserts a newline, tab reaches [Send]"
+		}
 		for i, line := range text {
 			if strings.HasPrefix(line, "j/k move") {
 				text[i] = "j/k up/down line  pgup/pgdn page  home/end/G  n/p"
@@ -2889,19 +2925,42 @@ func indentLine(line screenLine) screenLine {
 	return line
 }
 
+// replyLines is the reply box and, once it is in use, its [Send]. The
+// box grows with its text up to a third of the screen and then scrolls
+// to keep the cursor in view.
 func (m *Model) replyLines(width int) []screenLine {
 	const label = "reply: "
 	wrap := width - len(label)
-	body := []screenLine{{text: "___"}}
-	if m.reply != "" || m.replyFocus {
-		body = fieldLines(m.reply, &m.replyField, m.replyFocus, wrap)
+	if m.reply == "" && !m.replyFocus && !m.replySend {
+		return labeledLines(label, []screenLine{{text: "___"}}, hitReply, wrap)
 	}
-	return labeledLines(label, body, hitReply, wrap)
+	body := fieldLines(m.reply, &m.replyField, m.replyFocus, wrap)
+	first := 0
+	if limit := max(m.height/3, 1); m.height > 0 && len(body) > limit {
+		body, first = windowDraft(body, limit)
+	}
+	lines := labeledLinesFrom(label, body, hitReply, first, wrap)
+	send := "[Send]"
+	if m.replySend {
+		send = "> [Send]"
+	}
+	useStyles()
+	return append(lines, screenLine{
+		text: plainText(strings.Repeat(" ", len(label))) + optionButton.Render(send),
+		hits: []hit{{kind: hitReplySend}},
+	})
 }
 
 // labeledLines puts label before the first composer line and lines the
 // rest up under it. Every line is a composer row of hit kind.
 func labeledLines(label string, body []screenLine, kind, wrap int) []screenLine {
+	return labeledLinesFrom(label, body, kind, 0, wrap)
+}
+
+// labeledLinesFrom is labeledLines for a box whose first line shows
+// visual row first of the wrapped text. The label stays on the first
+// line shown.
+func labeledLinesFrom(label string, body []screenLine, kind, first, wrap int) []screenLine {
 	pad := strings.Repeat(" ", len(label))
 	out := make([]screenLine, len(body))
 	for i, line := range body {
@@ -2911,7 +2970,7 @@ func labeledLines(label string, body []screenLine, kind, wrap int) []screenLine 
 		}
 		out[i] = screenLine{text: plainText(prefix + line.text)}
 	}
-	return fieldRows(out, kind, 0, len(label), wrap)
+	return fieldRows(out, kind, first, len(label), wrap)
 }
 
 func plainText(s string) string {

@@ -91,6 +91,7 @@ func (m *Model) showContacts() error {
 	m.composing = false
 	m.answerFocus = false
 	m.replyFocus = false
+	m.replySend = false
 	m.mode = modeContacts
 	m.scroll = 0
 	m.contactCursor = 0

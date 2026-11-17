@@ -135,10 +135,10 @@ func TestComposerEditingKeys(t *testing.T) {
 	}
 }
 
-func TestReplyCtrlJInsertsNewlineAndEnterSends(t *testing.T) {
+func TestReplyEnterInsertsNewline(t *testing.T) {
 	m, led, item := composerModel(t, composerReply)
 	press(t, m, "abc")
-	sendKey(t, m, tea.KeyMsg{Type: tea.KeyCtrlJ})
+	sendKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	press(t, m, "def")
 	if !m.replyFocus || m.reply != "abc\ndef" {
 		t.Fatalf("reply %q focus %v", m.reply, m.replyFocus)
@@ -147,14 +147,76 @@ func TestReplyCtrlJInsertsNewlineAndEnterSends(t *testing.T) {
 	if !strings.Contains(view, "reply: abc") || !strings.Contains(visibleLine(view), "def") {
 		t.Fatalf("reply lines not shown\n%s", view)
 	}
-	sendKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	got, err := led.Get(item.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	last := got.Messages[len(got.Messages)-1]
-	if m.replyFocus || m.reply != "" || last.Text != "abc\ndef" {
-		t.Fatalf("enter focus %v reply %q last %+v", m.replyFocus, m.reply, last)
+	if len(got.Messages) != 1 {
+		t.Fatalf("enter sent the reply: %+v", got.Messages)
+	}
+}
+
+func TestReplyTabReachesSend(t *testing.T) {
+	m, led, item := composerModel(t, composerReply)
+	m.width, m.height = 80, 30
+	press(t, m, "abc\t")
+	if m.replyFocus || !m.replySend {
+		t.Fatalf("tab focus %v send %v", m.replyFocus, m.replySend)
+	}
+	if !strings.Contains(visibleLine(m.View()), "> [Send]") {
+		t.Fatalf("[Send] not focused\n%s", visibleLine(m.View()))
+	}
+	sendKey(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})
+	if !m.replyFocus || m.replySend {
+		t.Fatalf("shift+tab focus %v send %v", m.replyFocus, m.replySend)
+	}
+	press(t, m, "d")
+	clickOn(t, m, "[Send]", 1)
+	got, err := led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last := got.Messages[len(got.Messages)-1]; last.Text != "abcd" || m.reply != "" {
+		t.Fatalf("click [Send]: last %q reply %q", last.Text, m.reply)
+	}
+}
+
+// replyRows counts the screen rows of the reply box.
+func replyRows(m *Model) int {
+	m.View()
+	n := 0
+	for _, row := range m.rows {
+		for _, h := range row {
+			if h.kind == hitReply {
+				n++
+				break
+			}
+		}
+	}
+	return n
+}
+
+func TestReplyBoxGrowsUpToAThirdOfTheScreen(t *testing.T) {
+	m, _, _ := composerModel(t, composerReply)
+	m.width, m.height = 80, 30
+	const limit = 10
+	for i := range 20 {
+		if i > 0 {
+			sendKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+		}
+		press(t, m, fmt.Sprintf("r%02d", i))
+		if got, want := replyRows(m), min(i+1, limit); got != want {
+			t.Fatalf("after %d lines the box has %d rows, want %d", i+1, got, want)
+		}
+	}
+	view := m.View()
+	if screenRow(view, "r19") == 0 || screenRow(view, "r00") != 0 {
+		t.Fatalf("box did not scroll to the cursor\n%s", visibleLine(view))
+	}
+	clickOn(t, m, "r15", 1)
+	press(t, m, "X")
+	if !strings.Contains(m.reply, "\nrX15\n") {
+		t.Fatalf("reply %q, want X inside r15", m.reply)
 	}
 }
 
@@ -175,7 +237,7 @@ func TestComposerCtrlXCtrlEStillOpensEditor(t *testing.T) {
 func TestComposerHintsListEditingKeys(t *testing.T) {
 	const keys = "C-a/C-e line  C-k kill  C-j newline  C-o open  C-x C-e/C-g editor"
 	for kind, send := range map[composerKind]string{
-		composerReply:   "Enter send  Esc cancel",
+		composerReply:   "Ctrl+Enter / Alt+Enter send  Tab [Send]  Esc cancel",
 		composerOutcome: "Enter send  Esc cancel",
 		composerNote:    "Ctrl+Enter / Alt+Enter send  Tab [Send]  Esc cancel",
 	} {
@@ -198,6 +260,7 @@ func TestComposerHintsListEditingKeys(t *testing.T) {
 		"C-d delete  C-k kill  C-j newline  C-o open",
 		"C-x C-e or C-g edits the draft",
 		"Alt+q fill",
+		"enter in the reply or note text inserts a newline, tab reaches [Send]",
 	} {
 		if !strings.Contains(help, needle) {
 			t.Fatalf("help missing %q\n%s", needle, help)

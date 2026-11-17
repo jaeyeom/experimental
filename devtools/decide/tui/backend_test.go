@@ -156,7 +156,7 @@ func TestHubBackendCarriesEveryInboxWrite(t *testing.T) {
 	if m.mode != modeDetail {
 		t.Fatalf("not opened: %q", m.status)
 	}
-	press(t, m, "0again\r")
+	press(t, m, "0again\t\r")
 	if m.status != "replied "+item.ID {
 		t.Fatalf("reply status %q", m.status)
 	}

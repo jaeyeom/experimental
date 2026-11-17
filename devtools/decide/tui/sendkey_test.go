@@ -50,9 +50,9 @@ func typeDraft(t *testing.T, m *Model) *int {
 
 func TestSendKeysSendFromEveryComposer(t *testing.T) {
 	// The reference is what the composer already does to send: Tab then
-	// Enter in the note composer, Enter in the others.
+	// Enter in the note and reply composers, Enter in the others.
 	reference := map[composerKind][]tea.KeyMsg{
-		composerReply:   {{Type: tea.KeyEnter}},
+		composerReply:   {{Type: tea.KeyTab}, {Type: tea.KeyEnter}},
 		composerAnswer:  {{Type: tea.KeyEnter}},
 		composerOutcome: {{Type: tea.KeyEnter}},
 		composerNote:    {{Type: tea.KeyTab}, {Type: tea.KeyEnter}},
@@ -83,19 +83,49 @@ func TestSendKeysSendFromEveryComposer(t *testing.T) {
 	}
 }
 
-func TestEnterAndCtrlJDoNotSendNote(t *testing.T) {
-	for name, k := range map[string]tea.KeyMsg{
-		"Enter": {Type: tea.KeyEnter},
-		"C-j":   {Type: tea.KeyCtrlJ},
-	} {
-		m, _, _ := composerModel(t, composerNote)
-		sends := typeDraft(t, m)
-		sendKey(t, m, k)
-		if *sends != 0 || m.note != "hi\n" {
-			t.Errorf("%s: sends=%d note=%q, want a newline and no send", name, *sends, m.note)
+func TestEnterAndCtrlJDoNotSendNoteOrReply(t *testing.T) {
+	for _, kind := range []composerKind{composerNote, composerReply} {
+		for name, k := range map[string]tea.KeyMsg{
+			"Enter": {Type: tea.KeyEnter},
+			"C-j":   {Type: tea.KeyCtrlJ},
+		} {
+			m, led, item := composerModel(t, kind)
+			sends := typeDraft(t, m)
+			sendKey(t, m, k)
+			_, text := m.composerField()
+			if *sends != 0 || text == nil || *text != "hi\n" {
+				t.Errorf("%v %s: sends=%d, want a newline and no send", kind, name, *sends)
+			}
+			if got, ok := m.composerKind(); !ok || got != kind {
+				t.Errorf("%v: %s left the composer", kind, name)
+			}
+			if got, err := led.Get(item.ID); err != nil || len(got.Messages) != 1 {
+				t.Errorf("%v %s: messages %+v err %v", kind, name, got.Messages, err)
+			}
 		}
-		if kind, ok := m.composerKind(); !ok || kind != composerNote {
-			t.Errorf("%s left the note composer", name)
+	}
+}
+
+func TestReplySendKeysSendMultiLineText(t *testing.T) {
+	for name, keys := range map[string][]tea.KeyMsg{
+		"Alt+Enter":  {{Type: tea.KeyEnter, Alt: true}},
+		"C-s":        {{Type: tea.KeyCtrlS}},
+		"Tab [Send]": {{Type: tea.KeyTab}, {Type: tea.KeyEnter}},
+	} {
+		m, led, item := composerModel(t, composerReply)
+		press(t, m, "abc")
+		sendKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+		press(t, m, "def")
+		for _, k := range keys {
+			sendKey(t, m, k)
+		}
+		got, err := led.Get(item.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		last := got.Messages[len(got.Messages)-1]
+		if last.Text != "abc\ndef" || m.reply != "" || m.replyFocus || m.replySend {
+			t.Errorf("%s: last %q reply %q focus %v send %v", name, last.Text, m.reply, m.replyFocus, m.replySend)
 		}
 	}
 }
