@@ -1716,6 +1716,13 @@ func TestSkill(t *testing.T) {
 		"An inbox answer may not count as approval for an outward action, such as posting to chat, writing to a tracker, or merging, when that agent's own check requires a typed approval.",
 		"type this in tab X",
 		"include the exact text.",
+		"## Item IDs are private",
+		"An item ID such as D-123 exists only in this user's inbox. No one else can open it.",
+		"Use item IDs only in decide itself and in messages to other local agents.",
+		"Never put one in a shared place: issue trackers, GitHub issues or comments, PR titles or descriptions, commit messages, code, or chat posts.",
+		"Write what was decided there instead, in plain words.",
+		"decide reply D-123 --text-file /path/to/msg.txt",
+		"decide reply D-1 --text-file msg.txt",
 	} {
 		if !strings.Contains(stdout, phrase) {
 			t.Fatalf("skill missing %q\n%s", phrase, stdout)
