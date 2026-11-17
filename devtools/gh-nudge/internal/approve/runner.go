@@ -53,6 +53,8 @@ type Options struct {
 	Explain bool
 	// PR evaluates one pull request, owner/repo#N or a URL, instead of searching.
 	PR string
+	// Color colors each row's and summary heading's marker and group word.
+	Color bool
 }
 
 // LogEntry is one audit log line.
@@ -124,11 +126,13 @@ func (r *Runner) Run(opts Options) error {
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(r.Out, "%-32s %-18s %-20s %s\n", "PR", "ACTION", "RULE", "TITLE"); err != nil {
+	// The status column holds a two-column marker, a space, and the word.
+	if _, err := fmt.Fprintf(r.Out, "%-*s %-32s %-18s %-20s %s\n", statusWidth+3, "STATUS", "PR", "ACTION", "RULE", "TITLE"); err != nil {
 		return fmt.Errorf("write output: %w", err)
 	}
 	r.marksLeft = r.Viewed.MaxMarksPerRun
 	failed := 0
+	var reported []LogEntry
 	for _, ref := range refs {
 		entry, skip := r.decide(ref, viewer, opts, single)
 		if skip {
@@ -137,9 +141,13 @@ func (r *Runner) Run(opts Options) error {
 		if entry.Action == ActionError {
 			failed++
 		}
-		if err := r.report(entry, opts.Explain); err != nil {
+		if err := r.report(entry, opts); err != nil {
 			return err
 		}
+		reported = append(reported, entry)
+	}
+	if err := writeSummary(r.Out, reported, opts.Color); err != nil {
+		return err
 	}
 	if failed > 0 {
 		return fmt.Errorf("%d pull request(s) failed", failed)
@@ -370,7 +378,7 @@ func agentKeyText(a AgentResult) string {
 	return a.CacheKey
 }
 
-func (r *Runner) report(entry LogEntry, explain bool) error {
+func (r *Runner) report(entry LogEntry, opts Options) error {
 	line, err := json.Marshal(entry)
 	if err != nil {
 		return fmt.Errorf("encode audit log: %w", err)
@@ -378,8 +386,16 @@ func (r *Runner) report(entry LogEntry, explain bool) error {
 	if _, err := r.Log.Write(append(line, '\n')); err != nil {
 		return fmt.Errorf("write audit log: %w", err)
 	}
+	row := fmt.Sprintf("%s %-32s %-18s %-20s %s\n", statusCell(entry.Action, opts.Color), entry.PR, entry.Action, ruleColumn(entry), entry.Title)
+	if _, err := io.WriteString(r.Out, row+details(entry, opts.Explain)); err != nil {
+		return fmt.Errorf("write output: %w", err)
+	}
+	return nil
+}
+
+// details are the indented lines under a row.
+func details(entry LogEntry, explain bool) string {
 	var out strings.Builder
-	fmt.Fprintf(&out, "%-32s %-18s %-20s %s\n", entry.PR, entry.Action, ruleColumn(entry), entry.Title)
 	if entry.Reason != "" {
 		fmt.Fprintf(&out, "    %s\n", entry.Reason)
 	}
@@ -396,10 +412,7 @@ func (r *Runner) report(entry LogEntry, explain bool) error {
 			fmt.Fprintf(&out, "    %s\n", result.Agent.Summary())
 		}
 	}
-	if _, err := io.WriteString(r.Out, out.String()); err != nil {
-		return fmt.Errorf("write output: %w", err)
-	}
-	return nil
+	return out.String()
 }
 
 // ruleColumn is the RULE cell. A pull request no approve rule took says manual.

@@ -21,6 +21,9 @@
 //	# Evaluate one pull request and print every condition
 //	gh-approve --pr acme/widgets#12 --explain
 //
+//	# Keep colors when relaying the output to a terminal
+//	gh-approve --color=always
+//
 //	# List recent decisions, with each pull request's current state
 //	gh-approve history
 //
@@ -86,14 +89,16 @@ func main() {
 		configPath   string
 		opts         approve.Options
 		noAgentCache bool
+		color        string
 	)
 	flag.StringVar(&configPath, "config", "", "Path to config file (default ~/.config/gh-nudge/config.pkl)")
 	flag.BoolVar(&opts.Apply, "apply", false, "Approve, hand off, and mark files viewed for real. Without it, gh-approve is a dry run")
 	flag.StringVar(&opts.PR, "pr", "", "Evaluate one pull request: owner/repo#N or a URL")
 	flag.BoolVar(&opts.Explain, "explain", false, "Print every condition of every rule with the value it saw")
 	flag.BoolVar(&noAgentCache, "no-agent-cache", false, "Run agent commands without reading or writing the decision cache")
+	flag.StringVar(&color, "color", approve.ColorAuto, "Color the status markers: auto (only on a terminal), always, or never. NO_COLOR turns color off")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [--apply] [--pr <owner/repo#N | URL>] [--explain] [--no-agent-cache] [--config <path>]\n       %s history [--days N] [--action approved|handoff|mark_viewed|all] [--rule NAME] [--json] [--no-state]\n\n", os.Args[0], os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s [--apply] [--pr <owner/repo#N | URL>] [--explain] [--no-agent-cache] [--color auto|always|never] [--config <path>]\n       %s history [--days N] [--action approved|handoff|mark_viewed|all] [--rule NAME] [--json] [--no-state]\n\n", os.Args[0], os.Args[0])
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -101,7 +106,14 @@ func main() {
 		flag.Usage()
 		os.Exit(2)
 	}
-	if err := run(configPath, opts, noAgentCache); err != nil {
+	useColor, err := approve.UseColor(color, os.Stdout, os.Getenv("NO_COLOR"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gh-approve: %v\n", err)
+		flag.Usage()
+		os.Exit(2)
+	}
+	opts.Color = useColor
+	if err = run(configPath, opts, noAgentCache); err != nil {
 		fmt.Fprintf(os.Stderr, "gh-approve: %v\n", err)
 		os.Exit(1)
 	}
