@@ -508,9 +508,8 @@ func TestRunTeamCoverPermissionAndRateLimit(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := doc.PRs[0].TeamReviewSuggestions; got != nil {
-			t.Fatalf("suggestion = %+v, want none: the team waits for the next round", got)
-		}
+		// The team waits for the next round, marked skipped.
+		assertSkipped(t, doc.PRs[0].TeamReviewSuggestions, "skipped: rate limited", "acme/foo")
 		if g.loadCalls != 1 {
 			t.Fatalf("load searches = %d, want none after the rate limit", g.loadCalls)
 		}
@@ -981,9 +980,8 @@ func TestRunTeamCoverHistoryRateLimitStopsRound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := doc.PRs[0].TeamReviewSuggestions; got != nil {
-		t.Fatalf("suggestions = %+v, want none: the team waits for the next round", got)
-	}
+	// The team waits for the next round, marked skipped.
+	assertSkipped(t, doc.PRs[0].TeamReviewSuggestions, "skipped: rate limited", "acme/foo")
 	if countSubstr(doc.Warnings, "team-cover: stopped (rate limited)") != 1 {
 		t.Fatalf("warnings = %#v", doc.Warnings)
 	}

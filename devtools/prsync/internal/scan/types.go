@@ -91,7 +91,9 @@ type TeamReviewSuggestion struct {
 	Suggest   []SuggestedReviewer `json:"suggest"`
 	Error     string              `json:"error,omitempty"`
 	// UncoveredReason says why an uncovered team has no suggestion, such
-	// as "no members" or which filters excluded every member. Omitted
+	// as "no members", which filters excluded every member, or
+	// "skipped: call cap" / "skipped: rate limited" when the round
+	// stopped before ranking the PR. Omitted
 	// when the team is covered, has a suggestion, or Error is set.
 	UncoveredReason string `json:"uncovered_reason,omitempty"` //nolint:tagliatelle // brief outbound contract
 }
