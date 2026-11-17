@@ -341,7 +341,7 @@ func (m *Model) applyList(all []decide.Item) error {
 	m.folderRows = make([][]decide.Item, len(Folders))
 	for _, it := range all {
 		for i, folder := range Folders {
-			if folder.Snoozed == it.Snoozed() && (folder.Snoozed || it.State == folder.State) {
+			if folder.Snoozed == it.Snoozed() && (folder.Snoozed || decide.InState(&it, folder.State)) {
 				m.counts[i]++
 				m.folderTexts[i] = append(m.folderTexts[i], searchText(&it))
 				m.folderRows[i] = append(m.folderRows[i], it)

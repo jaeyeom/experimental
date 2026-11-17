@@ -34,6 +34,10 @@ const (
 	StateAnswered = "answered"
 	// StateDone is finished.
 	StateDone = "done"
+	// StateDoneUnread is done for the agent but still in the user's
+	// inbox: an agent's done came while the user had not read a message.
+	// The user's archive or answer takes it out.
+	StateDoneUnread = "done-unread"
 	// StateWithdrawn was withdrawn. Its id is never reused.
 	StateWithdrawn = "withdrawn"
 
@@ -323,7 +327,7 @@ func (l *Ledger) List() ([]Item, error) {
 }
 
 // Withdraw marks id withdrawn, stores reason, and keeps the record.
-// The id is not reused. A withdrawn or done item is refused.
+// The id is not reused. A withdrawn, done, or done-unread item is refused.
 func (l *Ledger) Withdraw(id, reason string) (Item, error) {
 	reason = strings.TrimSpace(reason)
 	if reason == "" {
@@ -332,19 +336,108 @@ func (l *Ledger) Withdraw(id, reason string) (Item, error) {
 	return l.finish(id, StateWithdrawn, reason)
 }
 
-// Done marks id done and stores outcome. A withdrawn or done item is refused.
-// An explicit outcome, including "archived", does not check message times.
+// Done is an agent's done: DoneVia with ViaCLI.
 func (l *Ledger) Done(id, outcome string) (Item, error) {
+	return l.DoneVia(id, outcome, ViaCLI)
+}
+
+// DoneVia marks id done and stores outcome. A withdrawn or done item is
+// refused. via is ViaUI for the user's own done from an inbox front end,
+// which closes the item at once and does not check message times. On a
+// done-unread item, the outcome "archived" keeps the agent's outcome.
+//
+// ViaCLI is an agent's done. An agent cannot remove an unread item from
+// the user's inbox: when the item is unread, or an agent message is newer
+// than both readAt and the last human message, the item becomes
+// done-unread. It stays in the inbox, marked unread, with the outcome
+// appended to the thread as the owner's closing note. A done-unread item
+// done again re-checks, and the same outcome adds no second note.
+func (l *Ledger) DoneVia(id, outcome, via string) (Item, error) {
 	outcome = strings.TrimSpace(outcome)
 	if outcome == "" {
 		return Item{}, fmt.Errorf("decide outcome is empty")
 	}
-	return l.finish(id, StateDone, outcome)
+	if err := CheckVia(via); err != nil {
+		return Item{}, err
+	}
+	var updated Item
+	err := l.locked(true, func(st *store) error {
+		it, err := findItem(st, id)
+		if err != nil {
+			return err
+		}
+		if it.State == StateWithdrawn || it.State == StateDone {
+			return fmt.Errorf("decide item %s is %s", id, it.State)
+		}
+		now := l.clock().UTC()
+		switch {
+		case via == ViaUI:
+			if it.State != StateDoneUnread || outcome != "archived" {
+				it.Outcome = outcome
+			}
+			if it.State != StateDoneUnread {
+				it.DoneAt = now
+			}
+			it.State = StateDone
+			clearSnooze(it)
+		case it.State == StateDoneUnread && it.Outcome == outcome:
+		case hasUnread(it):
+			ensureMessages(it)
+			it.Messages = append(it.Messages, Message{
+				Author: it.Owner,
+				Time:   now,
+				Text:   "done: " + outcome,
+			})
+			it.State = StateDoneUnread
+			it.Unread = true
+			it.DoneAt = now
+			it.Outcome = outcome
+			wakeOnMessage(it)
+		default:
+			it.State = StateDone
+			clearSnooze(it)
+			it.DoneAt = now
+			it.Outcome = outcome
+		}
+		updated = *it
+		return nil
+	})
+	if err != nil {
+		return Item{}, err
+	}
+	return updated, nil
+}
+
+// hasUnread reports whether it has a message the user has not read: the
+// item is marked unread, or an agent message is newer than both readAt
+// and the last human message. A human message reads what came before
+// it. A system note is not an agent message.
+func hasUnread(it *Item) bool {
+	if it.Unread {
+		return true
+	}
+	ensureMessages(it)
+	var seen time.Time
+	if it.ReadAt != nil {
+		seen = *it.ReadAt
+	}
+	for _, m := range it.Messages {
+		if m.Author == "human" && m.Time.After(seen) {
+			seen = m.Time
+		}
+	}
+	for _, m := range it.Messages {
+		if m.Author != "human" && m.Author != "system" && m.Time.After(seen) {
+			return true
+		}
+	}
+	return false
 }
 
 // Archive marks id done with outcome archived when every message is at
 // or before seen. A message newer than seen returns ErrNewerMessage and
 // leaves the item open. The check and the write share one lock.
+// A done-unread item keeps the agent's outcome and done time.
 func (l *Ledger) Archive(id string, seen time.Time) (Item, error) {
 	var updated Item
 	err := l.locked(true, func(st *store) error {
@@ -360,10 +453,12 @@ func (l *Ledger) Archive(id string, seen time.Time) (Item, error) {
 				return ErrNewerMessage
 			}
 		}
+		if it.State != StateDoneUnread {
+			it.DoneAt = l.clock().UTC()
+			it.Outcome = "archived"
+		}
 		it.State = StateDone
 		clearSnooze(it)
-		it.DoneAt = l.clock().UTC()
-		it.Outcome = "archived"
 		updated = *it
 		return nil
 	})
@@ -582,7 +677,8 @@ func (it *Item) RejectForeignSender(by string) error {
 // Options replace the pending options and freeText. A reply with no options
 // keeps them while the item is open, and clears options only when reopening
 // an answered or done item. text is stored unchanged.
-// An answered or done thread returns to the inbox. A withdrawn thread is refused.
+// An answered, done, or done-unread thread returns to the inbox. A withdrawn
+// thread is refused.
 // OwnerRepliesOnly refuses a sender other than the owner.
 func (l *Ledger) Reply(id, by, text string, options []Option, freeText bool) (Item, error) {
 	if strings.TrimSpace(text) == "" {
@@ -614,7 +710,7 @@ func (l *Ledger) Reply(id, by, text string, options []Option, freeText bool) (It
 			msg.Options = append([]Option(nil), options...)
 			it.Options = append([]Option(nil), options...)
 			it.FreeText = freeText
-		} else if it.State == StateAnswered || it.State == StateDone {
+		} else if it.State == StateAnswered || it.State == StateDone || it.State == StateDoneUnread {
 			it.Options = nil
 		}
 		it.Messages = append(it.Messages, msg)
@@ -645,7 +741,7 @@ type Reassign struct {
 }
 
 // Reassign moves id to a new owner, notify pane, or both.
-// A done or withdrawn item is refused. The thread gains one system
+// A done, done-unread, or withdrawn item is refused. The thread gains one system
 // message. Earlier messages and the answer stay as they were.
 func (l *Ledger) Reassign(id string, change Reassign) (Item, error) {
 	if !change.SetOwner && !change.SetPane {
@@ -661,7 +757,7 @@ func (l *Ledger) Reassign(id string, change Reassign) (Item, error) {
 		if err != nil {
 			return err
 		}
-		if it.State == StateDone || it.State == StateWithdrawn {
+		if it.State == StateDone || it.State == StateDoneUnread || it.State == StateWithdrawn {
 			return fmt.Errorf("decide item %s is %s", id, it.State)
 		}
 		ensureMessages(it)
@@ -723,24 +819,31 @@ func openQuestion(it *Item) bool {
 }
 
 // Select returns items in state that are not snoozed, in Sort order.
-// An empty state means open.
+// An empty state means open. Open is the inbox, which also holds
+// done-unread items.
 func Select(items []Item, state string) ([]Item, error) {
 	if state == "" {
 		state = StateOpen
 	}
 	switch state {
-	case StateOpen, StateAnswered, StateDone, StateWithdrawn:
+	case StateOpen, StateAnswered, StateDone, StateDoneUnread, StateWithdrawn:
 	default:
 		return nil, fmt.Errorf("decide state %q is invalid", state)
 	}
 	out := make([]Item, 0)
 	for _, it := range items {
-		if it.State == state && !it.Snoozed() {
+		if InState(&it, state) && !it.Snoozed() {
 			out = append(out, it)
 		}
 	}
 	Sort(out)
 	return out, nil
+}
+
+// InState reports whether it belongs in the list for state. The open
+// list, the inbox, also holds done-unread items.
+func InState(it *Item, state string) bool {
+	return it.State == state || (state == StateOpen && it.State == StateDoneUnread)
 }
 
 // Sort orders items by soonest deadline, then no deadline, then newest
@@ -884,7 +987,7 @@ func (l *Ledger) finish(id, state, text string) (Item, error) {
 		if err != nil {
 			return err
 		}
-		if it.State == StateWithdrawn || it.State == StateDone {
+		if it.State == StateWithdrawn || it.State == StateDone || it.State == StateDoneUnread {
 			return fmt.Errorf("decide item %s is %s", id, it.State)
 		}
 		it.State = state

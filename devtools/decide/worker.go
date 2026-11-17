@@ -52,7 +52,7 @@ func (l *Ledger) Assign(id string, change Assign) (Item, error) {
 		if err != nil {
 			return err
 		}
-		if it.State == StateDone || it.State == StateWithdrawn {
+		if it.State == StateDone || it.State == StateDoneUnread || it.State == StateWithdrawn {
 			return fmt.Errorf("decide item %s is %s", id, it.State)
 		}
 		ensureMessages(it)

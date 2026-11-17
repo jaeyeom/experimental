@@ -69,7 +69,7 @@ func TestSnoozeRejectsBadInput(t *testing.T) {
 	if _, _, code := runCLI("snooze", id); code == 0 {
 		t.Fatal("snooze without a time succeeded")
 	}
-	if _, _, code := runCLI("done", id, "ok"); code != 0 {
+	if _, _, code := runCLI("done", "--via", "ui", id, "ok"); code != 0 {
 		t.Fatal("done failed")
 	}
 	if _, stderr, code := runCLI("snooze", id, "1h"); code == 0 || !strings.Contains(stderr, "done") {

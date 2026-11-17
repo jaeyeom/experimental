@@ -26,8 +26,11 @@ type (
 	DecideItem    = decide.Item
 )
 
+// closed reports whether an approval item no longer takes an answer. An
+// agent's done on an item the user has not read leaves it done-unread in
+// the user's inbox, which is closed here too.
 func closed(it DecideItem) bool {
-	return it.State == decide.StateDone || it.State == decide.StateWithdrawn
+	return it.State == decide.StateDone || it.State == decide.StateDoneUnread || it.State == decide.StateWithdrawn
 }
 
 // Decider files, reads, and closes decide items.

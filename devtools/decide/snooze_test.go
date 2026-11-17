@@ -135,7 +135,7 @@ func TestSnoozeRefusesFinishedItemsAndPastTimes(t *testing.T) {
 	if _, err := led.Snooze(item.ID, clock.t.Add(-time.Minute)); err == nil {
 		t.Fatal("snooze into the past succeeded")
 	}
-	if _, err := led.Done(item.ID, "ok"); err != nil {
+	if _, err := led.DoneVia(item.ID, "ok", ViaUI); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := led.Snooze(item.ID, clock.t.Add(time.Hour)); err == nil || !strings.Contains(err.Error(), "done") {

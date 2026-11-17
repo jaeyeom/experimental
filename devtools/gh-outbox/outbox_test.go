@@ -370,6 +370,18 @@ func TestClosedItemWithoutAnswerCancels(t *testing.T) {
 	}
 }
 
+// An agent's done on an approval the user has not read leaves it in the
+// inbox as done-unread. It is closed for the outbox.
+func TestDoneUnreadItemWithoutAnswerCancels(t *testing.T) {
+	h := newHarness(t)
+	rec := h.submit(t, threadDraft())
+	h.dec.items[rec.DecideID].State = "done-unread"
+	h.poll(t)
+	if got := h.state(t, rec.ID); got.State != StateCancelled || h.gh.calls != 0 {
+		t.Errorf("state = %q calls = %d", got.State, h.gh.calls)
+	}
+}
+
 func TestRestartDoesNotDoublePost(t *testing.T) {
 	h := newHarness(t)
 	rec := h.submit(t, threadDraft())

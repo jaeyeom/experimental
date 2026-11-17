@@ -49,13 +49,16 @@ var OutboxStates = []string{
 
 // Decide option keys and the message fields the acceptance rule needs.
 const (
-	decideKeyPost   = "post"
-	decideKeyDrop   = "drop"
-	decideOpen      = "open"
-	decideDone      = "done"
-	decideWithdrawn = "withdrawn"
-	decideHuman     = "human"
-	decideViaUI     = "ui"
+	decideKeyPost = "post"
+	decideKeyDrop = "drop"
+	decideOpen    = "open"
+	decideDone    = "done"
+	// decideDoneUnread is an agent's done on an item the user has not
+	// read. It stays in the user's inbox, but it is closed for us.
+	decideDoneUnread = "done-unread"
+	decideWithdrawn  = "withdrawn"
+	decideHuman      = "human"
+	decideViaUI      = "ui"
 )
 
 // DefaultOutboxPoll is how often serve polls decide for answers.
@@ -1095,7 +1098,7 @@ func (o *Outbox) process(ctx context.Context, cfg Config, r OutboxRecord) error 
 	if err != nil {
 		return fmt.Errorf("outbox %d: %w", r.ID, err)
 	}
-	if item.State == decideDone || item.State == decideWithdrawn {
+	if decideClosed(item.State) {
 		return o.finish(ctx, r, end{
 			state: OutboxCancelled, reason: "decide item " + item.State + " without an accepted answer",
 			event: EventOutboxCancelled, closed: true,
@@ -1205,6 +1208,12 @@ func (o *Outbox) notify(ctx context.Context, r OutboxRecord, event, owner, messa
 	return nil
 }
 
+// decideClosed reports whether a decide item in state no longer takes
+// an answer for the outbox: done, done-unread, or withdrawn.
+func decideClosed(state string) bool {
+	return state == decideDone || state == decideDoneUnread || state == decideWithdrawn
+}
+
 // closeDecide closes r's decide item with its outcome. A failure is
 // logged and retried by the next poll. An item someone else closed
 // counts as closed.
@@ -1219,7 +1228,7 @@ func (o *Outbox) closeDecide(ctx context.Context, r OutboxRecord) {
 	}
 	if err := o.Decide.Done(ctx, r.DecideID, outcome); err != nil {
 		item, serr := o.Decide.Show(ctx, r.DecideID)
-		if serr != nil || (item.State != decideDone && item.State != decideWithdrawn) {
+		if serr != nil || !decideClosed(item.State) {
 			o.logger().Warn("slackwatch outbox: close decide item", "outbox", r.ID, "decide", r.DecideID, "error", err)
 			return
 		}

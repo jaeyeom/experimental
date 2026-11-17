@@ -102,6 +102,18 @@ decide done D-001 "merged"
 
 That prints the item again with ~state: done~ and ~outcome: merged~.
 
+An agent cannot remove an unread item from the user's inbox. When the
+item is unread, or an agent message is newer than both ~readAt~
+(opening the item in the inbox marks it read) and the user's last
+message, ~decide done~ stores
+the outcome and the done time, appends ~done: <outcome>~ to the thread,
+and sets ~state: done-unread~. The item stays in the inbox, marked
+unread, until the user reads and archives it or answers it. The command
+prints that on stderr and exits 0. Archiving keeps the agent's outcome.
+~decide done --via ui~ is the user's own done from the inbox and Emacs.
+It closes the item at once. Agents have no bypass, and ~decide
+withdraw~ refuses a done-unread item.
+
 * Concepts
 
 - An *item* is one question or note, id ~D-001~ and up. Its *thread*
@@ -116,8 +128,11 @@ That prints the item again with ~state: done~ and ~outcome: merged~.
   unless ~--options-only~ is set or ~optionsOnly~ is true in the config.
   *type-in* is "type this exact text". It needs ~--type-text~ and
   ~--where~.
-- *States* are ~open~, ~answered~, ~done~, and ~withdrawn~. Snoozed is
-  not a state: the item keeps its state and is hidden until it wakes.
+- *States* are ~open~, ~answered~, ~done~, ~done-unread~, and
+  ~withdrawn~. ~done-unread~ is done for the agent but still in the
+  user's inbox: ~decide list~ (open) and the inbox show it, and it is
+  not counted as the owner's open work. Snoozed is not a state: the
+  item keeps its state and is hidden until it wakes.
 - The *ledger* is ~ledger.json~ in ~$XDG_STATE_HOME/decide~, or
   =~/.local/state/decide= when ~XDG_STATE_HOME~ is unset. ~status.json~
   in that same directory holds agent and resource rows, separate from
@@ -146,7 +161,7 @@ that hub for one invocation.
 | ~decide list~                    | List items in one state. ~--snoozed~ lists only snoozed items. |
 | ~decide show~                    | Print one item. ~--json~ adds ~ownerLocation~.                 |
 | ~decide withdraw~                | Withdraw an item and store the reason.                         |
-| ~decide done~                    | Mark an item done and store the outcome.                       |
+| ~decide done~                    | Mark an item done and store the outcome. ~--via ui~: inbox.    |
 | ~decide answer~                  | Record an answer. ~--via ui~ is for the inbox and Emacs.       |
 | ~decide snooze~                  | Hide an item until a time without changing its state.          |
 | ~decide unsnooze~                | Show a snoozed item again.                                     |
@@ -310,7 +325,8 @@ move, Enter saves, and Esc cancels. Mouse behavior is under
 
 Archive waits while a message is unseen or newer than ~ui.archiveGrace~
 (default 2s). The status line says ~new message: not archived~. Pending
-options still need an answer. ~decide done~ does not check that grace.
+options still need an answer. ~decide done --via ui~ does not check
+that grace.
 Snooze offers ~1h~, ~3h~, ~tomorrow 9:00~, ~next Monday 9:00~, or a
 custom time. The item stays out of every folder but Snoozed until that
 time, or until a message lands, and then it is unread.

@@ -576,6 +576,19 @@ func TestWithdrawnDecideItemCancels(t *testing.T) {
 	}
 }
 
+// An agent's done on an item the user has not read leaves it in the
+// inbox as done-unread. The agent has ended it, so the draft is not
+// posted.
+func TestDoneUnreadDecideItemCancels(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	r := f.submit(t)
+	f.dec.items[r.DecideID].State = "done-unread"
+	f.poll(t)
+	if got := f.get(t, r.ID); got.State != OutboxCancelled {
+		t.Errorf("state = %s, want cancelled", got.State)
+	}
+}
+
 func TestCancel(t *testing.T) {
 	f := newOutboxFixture(t, PostModeHandoff)
 	r := f.submit(t)
