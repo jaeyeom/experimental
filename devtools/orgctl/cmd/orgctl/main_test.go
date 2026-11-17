@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -318,5 +319,75 @@ func TestImportRefusesOverwrite(t *testing.T) {
 	}
 	if len(entries) != 1 || entries[0].Name() != "org.pkl" {
 		t.Fatalf("dir entries = %v", entries)
+	}
+}
+
+func TestReadJobFilesNeverReadsPolicy(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	unit, err := orgctl.ExpandPath(orgctl.RunnerUnit("r-local", runtime.GOOS))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(unit), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unit, []byte("[Unit]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	policy := filepath.Join(home, "policy.json")
+	if err := os.WriteFile(policy, []byte("POLICY-CONTENTS"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Mode 000: any attempt to open the file fails, so only a stat can see it.
+	if err := os.Chmod(policy, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(policy, 0o600) })
+	spec := orgctl.Spec{Jobs: &orgctl.Jobs{
+		Policy: "~/policy.json",
+		Runners: map[string]orgctl.Runner{
+			"r-local":  {Machine: "here"},
+			"r-gone":   {Machine: "here"},
+			"r-remote": {Machine: "there"},
+		},
+	}}
+	live := orgctl.Live{Local: "here"}
+	readJobFiles(spec, &live)
+	if live.GOOS != runtime.GOOS {
+		t.Errorf("GOOS = %q", live.GOOS)
+	}
+	gone, err := orgctl.ExpandPath(orgctl.RunnerUnit("r-gone", runtime.GOOS))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{unit: true, gone: false, policy: true}
+	if len(live.Found) != len(want) {
+		t.Fatalf("found = %#v", live.Found)
+	}
+	for path, ok := range want {
+		if got, seen := live.Found[path]; !seen || got != ok {
+			t.Errorf("found[%s] = %v, %v; want %v", path, got, seen, ok)
+		}
+	}
+	out := strings.Join(orgctl.Plan(spec, live, orgctl.PlanOptions{}), "\n")
+	if strings.Contains(out, "POLICY-CONTENTS") || strings.Contains(out, "jobs policy") {
+		t.Errorf("plan =\n%s", out)
+	}
+	if !strings.Contains(out, "+ runner r-gone unit") {
+		t.Errorf("plan lacks the missing unit:\n%s", out)
+	}
+
+	if err := os.Chmod(policy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(policy); err != nil {
+		t.Fatal(err)
+	}
+	live = orgctl.Live{Local: "here"}
+	readJobFiles(spec, &live)
+	out = strings.Join(orgctl.Plan(spec, live, orgctl.PlanOptions{}), "\n")
+	if !strings.Contains(out, "+ jobs policy ~/policy.json") {
+		t.Errorf("plan lacks the missing policy:\n%s", out)
 	}
 }

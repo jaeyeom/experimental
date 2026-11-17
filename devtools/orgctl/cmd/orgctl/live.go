@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -36,7 +37,45 @@ func loadLive(spec orgctl.Spec) (orgctl.Live, error) {
 	}
 	attachServers(&live)
 	readRoleFiles(spec, &live)
+	readJobFiles(spec, &live)
 	return live, nil
+}
+
+// readJobFiles checks that each local runner's unit file and the policy
+// file exist. It only stats them. The policy file is never opened.
+func readJobFiles(spec orgctl.Spec, live *orgctl.Live) {
+	live.GOOS = runtime.GOOS
+	if spec.Jobs == nil {
+		return
+	}
+	local := false
+	for name, runner := range spec.Jobs.Runners {
+		if runner.Machine != live.Local {
+			continue
+		}
+		local = true
+		statPath(orgctl.RunnerUnit(name, live.GOOS), live)
+	}
+	if local && spec.Jobs.Policy != "" {
+		statPath(spec.Jobs.Policy, live)
+	}
+}
+
+// statPath records whether path exists. An error other than not-exist
+// leaves the path unchecked.
+func statPath(path string, live *orgctl.Live) {
+	expanded, err := orgctl.ExpandPath(path)
+	if err != nil {
+		return
+	}
+	_, err = os.Stat(expanded)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return
+	}
+	if live.Found == nil {
+		live.Found = map[string]bool{}
+	}
+	live.Found[expanded] = err == nil
 }
 
 // loadImportLive reads herdr, agentbus and each agent cwd's cron file.
