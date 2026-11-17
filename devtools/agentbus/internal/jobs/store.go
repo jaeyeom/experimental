@@ -413,6 +413,24 @@ func (s *Store) Fail(a Args) (Reply, error) {
 	})
 }
 
+// Gate hands a running job to the user: its holder found it cannot go
+// on without them, such as a dialog on the target pane. The job is
+// gated, lets go of its lease, and the ask gate raises a new decide
+// item naming the note.
+func (s *Store) Gate(a Args) (Reply, error) {
+	return s.update(a.ID, func(j *Job, now time.Time) ([]eventlog.Event, error) {
+		if err := holds(j, a.Runner); err != nil {
+			return nil, err
+		}
+		ev, err := s.move(j, StateGated, a.Runner, a.Note, now)
+		if err != nil {
+			return nil, err
+		}
+		j.Holder, j.Heartbeat, j.Decide = "", time.Time{}, ""
+		return []eventlog.Event{ev}, nil
+	})
+}
+
 // backoff is base doubled for each attempt after the first, up to an
 // hour.
 func backoff(base time.Duration, attempts int) time.Duration {

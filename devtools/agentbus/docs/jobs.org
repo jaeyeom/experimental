@@ -29,6 +29,8 @@ agentbus jobs unhold
 | ~claim --runner <name>~ | Take the next ready job: highest priority, then oldest. ~--kind~ (repeatable) and ~--machine~ narrow it; a job that needs one machine goes only to a runner naming it. A job that needs a checkout also takes its lease. Prints ~<id> <kind> <subject> <head>~. Exit 3 when no job is ready, 4 when jobs are on hold. |
 | ~heartbeat <id> --runner <name>~ | The holder is still at it. |
 | ~done <id>~, ~fail <id> [--exit <code>]~ | With ~--runner~, the holder closes its running job. Without it, the user settles an ~unknown~ or ~parked~ job. |
+| ~gate <id> --runner <name> --note <why>~ | The holder hands a running job it has not acted on to the user: the job is ~gated~, lets go of its lease, and the [[*Ask gate][ask gate]] raises a new decide item naming the note. |
+| ~runner --name <unit>~ | Run jobs on this machine until stopped. See [[*Runner]]. |
 | ~ls~ | Live jobs. ~--all~ adds final ones; ~--state~, ~--kind~, and ~--subject~ filter. |
 | ~show <id>~, ~log <id> [--follow]~ | One job, or its state history; ~show~ prints the gate's ~decide:~ item. ~--follow~ waits until the job is final. |
 | ~stats~ | Jobs per state, and the hold. |
@@ -193,3 +195,118 @@ included, is an error.
 
 ~heartbeatTimeout~ defaults to ~2m~. The daemon checks it every 15
 seconds.
+
+* Runner
+
+~agentbus jobs runner~ is the per-machine service that claims and runs
+jobs. The user installs it as a systemd user unit or a launchd agent;
+it is not an agent's cron job. Installing it stays a manual step: copy
+an example from [[file:runner/jobs-runner.service][jobs-runner.service]]
+(Linux, to =~/.config/systemd/user/=) or
+[[file:runner/jobs-runner.plist][jobs-runner.plist]] (macOS, to
+=~/Library/LaunchAgents/=), and adjust its paths. The file name and
+~--name~ match: the runner's name is its unit name, as
+~orgctl plan~ expects.
+
+#+BEGIN_SRC bash
+agentbus jobs runner --name jobs-runner --dry-run
+#+END_SRC
+
+| Flag             | Default                                      | Meaning                                    |
+|------------------+----------------------------------------------+--------------------------------------------|
+| ~--name~         | required                                     | The runner's name in the queue.            |
+| ~--machine~      | ~machine~ in =config.toml= in hub mode, else ~local~ | The machine it claims for.         |
+| ~--config~       | =runner.json= beside =config.toml=           | The runner config. A missing file is an error. |
+| ~--dry-run~      | off                                          | Log what it would claim and run; change nothing. |
+
+It claims only the kinds in its config, on its own machine, and logs
+to stderr. On SIGTERM it stops claiming, waits for the commands and
+prompts under way, reports them, and exits.
+
+** Runner config
+
+[[file:runner/runner.json][An example]]:
+
+#+BEGIN_SRC json
+{
+  "poll": "10s",
+  "kinds": {
+    "rebase": {"command": ["prsync", "rebase", "{subject}", "{head}"], "parallel": 2, "timeout": "20m"},
+    "review": {"target": "pr-{subject}", "prompt": "Answer the review comments on {subject}.", "timeout": "2h"},
+    "start-item": {"command": ["factory", "start", "--apply", "{subject}"], "start": true, "parallel": 2}
+  },
+  "start": {"minSpacing": "5m", "maxInFlight": 3, "laneCap": 2, "minFreeDiskMb": 10240}
+}
+#+END_SRC
+
+| Key                    | Default | Meaning                                                    |
+|------------------------+---------+------------------------------------------------------------|
+| ~poll~                 | ~10s~   | How often it reports, heartbeats, and claims.              |
+| ~kinds.<k>.command~    | none    | The argv of a ~cli~ job, or the argv that starts a ~new-tab~ job's agent. |
+| ~kinds.<k>.target~     | none    | The agentbus name or handle a ~tab~ job's prompt goes to.  |
+| ~kinds.<k>.prompt~     | none    | Text put before the job line of a ~tab~ or ~new-tab~ prompt. |
+| ~kinds.<k>.parallel~   | ~1~     | Jobs of the kind it runs at once.                          |
+| ~kinds.<k>.start~      | ~false~ | Put the kind under the start pacing.                       |
+| ~kinds.<k>.timeout~    | ~1h~    | Bound on a command, and on how long it waits for an agent. |
+| ~start.minSpacing~     | none    | Least time between two starts on this runner.              |
+| ~start.maxInFlight~    | none    | Cap on start jobs running in the queue, on every machine.  |
+| ~start.laneCap~        | none    | Cap on start jobs this runner runs. Its lane is its machine. |
+| ~start.minFreeDiskMb~  | none    | Least free space on ~start.diskPath~ (default =$HOME=).    |
+
+A command and a target take the placeholders ~{id}~, ~{kind}~,
+~{subject}~, ~{head}~, ~{checkout}~, ~{runner}~, and, in a ~new-tab~
+command, ~{prompt}~. A command runs without a shell, in the job's
+checkout when it has one, with ~JOB_ID~, ~JOB_KIND~, ~JOB_SUBJECT~,
+~JOB_HEAD~, ~JOB_CHECKOUT~, ~JOB_RUNNER~, and for ~new-tab~
+~JOB_PROMPT~ set. An unknown key, a gate included, is an error.
+
+** Executors
+
+The job's ~--executor~ picks how it runs.
+
+- *cli.* Run the kind's command. Exit 0 is ~done~; any other exit is
+  ~fail --exit <code>~, which retries only for the kind's ~retryExits~.
+- *tab.* Read the target's pane. If it shows a dialog (a permission or
+  question prompt, or herdr reports the agent blocked), the job is
+  gated with ~jobs gate~ and the user is asked in decide; the runner
+  never answers the dialog. Otherwise it sends the prompt once as an
+  agentbus message, with retry key ~<machine>:job-<id>-<attempt>~, so
+  it is never stored twice. The agent ends with ~agentbus jobs done
+  <id> --runner <name>~ or ~jobs fail~, as the prompt says.
+- *new-tab.* Run the kind's command to start an agent with the prompt.
+  A non-zero exit fails the job; exit 0 waits for the agent's report
+  as for ~tab~.
+
+While it waits for an agent, the runner heartbeats the job. Past the
+kind's ~timeout~ it stops, and the daemon settles the job as lost: an
+outward job goes to ~unknown~ and is never sent again. A dead tab or a
+lost runner never resends either.
+
+** Limits and pacing
+
+- *Per kind.* At most ~parallel~ jobs of a kind run at once, agent
+  jobs waiting for a report included.
+- *Checkout.* Jobs on one checkout run one at a time: the claim takes
+  the [[*Checkout lease][checkout lease]], and a job whose checkout is
+  held stays ~ready~.
+- *Start pacing.* A start kind is claimed only when the last start on
+  this runner is ~minSpacing~ ago, fewer than ~maxInFlight~ start jobs
+  run in the queue, fewer than ~laneCap~ run on this runner, and the
+  disk has ~minFreeDiskMb~ free. When not, the runner logs why once.
+- *Dirty checkout.* A start job whose checkout has uncommitted changes
+  fails with a note that says so. The runner never stashes.
+- *Hold.* A [[*States][hold]] stops every claim; the runner logs it and
+  waits.
+- *Dry run.* ~--dry-run~ logs the job a claim would take and how it
+  would run it, and claims, runs, and heartbeats nothing.
+
+** Rollout
+
+1. A shadow week with every runner in ~--dry-run~.
+2. GitHub-only ~cli~ jobs.
+3. Agent jobs: ~tab~ and ~new-tab~.
+4. Retire the per-machine watcher tabs.
+
+Rollback is to stop the runners. The runner never writes agent
+settings, hooks, permissions, or sandbox allowlists, and never types
+into a pane as the user.

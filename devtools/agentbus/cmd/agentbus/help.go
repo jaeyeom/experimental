@@ -176,9 +176,9 @@ func commands() []command {
 		},
 		{
 			name: "jobs",
-			summary: "The job queue: enqueue with dedupe, claim, heartbeat, done, fail; ls, show, log, stats; " +
-				"hold or unhold every claim. In hub mode it runs on the hub.",
-			usage:   "agentbus jobs <enqueue|claim|heartbeat|done|fail|ls|show|log|stats|hold|unhold> [flags]",
+			summary: "The job queue: enqueue with dedupe, claim, heartbeat, done, fail, gate; ls, show, log, stats; " +
+				"hold or unhold every claim; runner runs jobs on this machine. In hub mode the queue is on the hub.",
+			usage:   "agentbus jobs <enqueue|claim|heartbeat|done|fail|gate|runner|ls|show|log|stats|hold|unhold> [flags]",
 			flags:   jobsFlagsHelp,
 			example: "agentbus jobs enqueue --kind rebase --subject owner/repo#12 --head 1a2b3c4",
 			run:     runJobs,

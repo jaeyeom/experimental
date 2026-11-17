@@ -107,6 +107,23 @@ func TestJobsCLIFailWithExit(t *testing.T) {
 	}
 }
 
+func TestJobsCLIGateHandsTheJobToTheUser(t *testing.T) {
+	env := jobsWorld(t)
+	mustCmd(t, []string{"jobs", "enqueue", "--kind", "review", "--subject", "o/r#1", "--executor", "tab"}, env)
+	mustCmd(t, []string{"jobs", "claim", "--runner", "tiger"}, env)
+	if code, _, stderr := runCmd([]string{"jobs", "gate", "j-1", "--runner", "lion", "--note", "dialog"}, env); code != 1 || !strings.Contains(stderr, "held by tiger") {
+		t.Fatalf("gate by another runner = %d %q", code, stderr)
+	}
+	stdout, _ := mustCmd(t, []string{"jobs", "gate", "j-1", "--runner", "tiger", "--note", "the target pane shows a permission prompt"}, env)
+	if stdout != "j-1 gated\n" {
+		t.Fatalf("gate = %q", stdout)
+	}
+	stdout, _ = mustCmd(t, []string{"jobs", "show", "j-1"}, env)
+	if !strings.Contains(stdout, "state: gated") || !strings.Contains(stdout, "note: the target pane shows a permission prompt") {
+		t.Fatalf("show =\n%s", stdout)
+	}
+}
+
 func TestJobsCLIUsage(t *testing.T) {
 	env := jobsWorld(t)
 	for _, args := range [][]string{
@@ -116,6 +133,8 @@ func TestJobsCLIUsage(t *testing.T) {
 		{"jobs", "claim"},
 		{"jobs", "done"},
 		{"jobs", "heartbeat", "j-1"},
+		{"jobs", "gate", "j-1", "--runner", "tiger"},
+		{"jobs", "gate", "j-1", "--note", "dialog"},
 		{"jobs", "fail", "j-1", "--exit", "x"},
 		{"jobs", "show", "j-1", "j-2"},
 		{"jobs", "enqueue", "--kind", "a", "--subject", "s", "--gate", "auto"},

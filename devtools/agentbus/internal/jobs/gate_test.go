@@ -241,3 +241,41 @@ func TestAskGateDoesNothingWithoutDecide(t *testing.T) {
 		t.Fatalf("job = %s %q, want gated with no item", got.State, got.Decide)
 	}
 }
+
+func TestRunnerGateHandsARunningJobToTheUser(t *testing.T) {
+	s, _, f := leaseStore(t, Config{})
+	// A job that passed an ask gate before keeps its old decide item.
+	s.SetPolicy(Policy{Default: GateAsk})
+	j := mustEnqueue(t, s, Args{Kind: "review", Subject: "o/r#1", Needs: Needs{Checkout: "/src/repo", Executor: "tab"}})
+	d := newFakeDecide()
+	RunGate(context.Background(), s, d)
+	d.pick("d1", OptionApprove, decide.ViaUI, "")
+	RunGate(context.Background(), s, d)
+	if _, err := s.Claim(Args{Runner: "tiger-runner", Machine: "tiger"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Gate(Args{ID: j.ID, Runner: "lion-runner", Note: "x"}); err == nil {
+		t.Fatal("a runner that does not hold the job gated it")
+	}
+	r, err := s.Gate(Args{ID: j.ID, Runner: "tiger-runner", Note: "the target pane shows a permission prompt"})
+	if err != nil {
+		t.Fatalf("Gate: %v", err)
+	}
+	got := *r.Job
+	if got.State != StateGated || got.Holder != "" || got.Lease != "" || got.Decide != "" {
+		t.Fatalf("gated job = %+v", got)
+	}
+	if f.holder("tiger:/src/repo") != "" {
+		t.Fatal("the checkout lease is still held")
+	}
+	RunGate(context.Background(), s, d)
+	if len(d.asked) != 2 || !strings.Contains(d.asked[1], "permission prompt") {
+		t.Fatalf("asked = %q, want a second item naming the dialog", d.asked)
+	}
+	if got := show(t, s, j.ID); got.Decide != "d2" {
+		t.Fatalf("decide = %q, want d2", got.Decide)
+	}
+	if _, err := s.Gate(Args{ID: j.ID, Runner: "tiger-runner"}); err == nil {
+		t.Fatal("gated a job that is not running")
+	}
+}

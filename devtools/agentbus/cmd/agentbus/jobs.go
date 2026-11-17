@@ -42,6 +42,11 @@ done <id> [--runner <name>] [--note <text>]
 fail <id> [--runner <name>] [--exit <code>] [--note <text>]
     close a running job as its holder, or settle an unknown or parked
     job without --runner. A retryable --exit retries after the backoff
+gate <id> --runner <name> --note <why>
+    the holder hands a running job it has not acted on to the user: it
+    is gated, lets go of its lease, and the user is asked in decide
+runner --name <unit> [--machine <m>] [--config <path>] [--dry-run]
+    run jobs on this machine until stopped; see docs/jobs.org
 ls [--state <s>] [--kind <k>] [--subject <s>] [--all] [--json]
     live jobs; --all adds done, failed, and dead ones
 show <id> [--json]
@@ -95,6 +100,7 @@ var jobsSubFlags = map[string][]string{
 	"heartbeat": {"runner"},
 	"done":      {"runner", "note"},
 	"fail":      {"runner", "exit", "note"},
+	"gate":      {"runner", "note"},
 	"ls":        {"state", "kind", "subject", "all", "json"},
 	"show":      {"json"},
 	"log":       {"follow"},
@@ -104,14 +110,17 @@ var jobsSubFlags = map[string][]string{
 }
 
 // jobsNeedID are the subcommands that take one job id.
-var jobsNeedID = map[string]bool{"heartbeat": true, "done": true, "fail": true, "show": true, "log": true}
+var jobsNeedID = map[string]bool{"heartbeat": true, "done": true, "fail": true, "gate": true, "show": true, "log": true}
 
 func runJobs(ctx context.Context, args, env []string, _ io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintf(stderr, "agentbus jobs: want a subcommand: enqueue, claim, heartbeat, done, fail, ls, show, log, stats, hold, unhold\n")
+		fmt.Fprintf(stderr, "agentbus jobs: want a subcommand: enqueue, claim, heartbeat, done, fail, gate, runner, ls, show, log, stats, hold, unhold\n")
 		return 2
 	}
 	sub := args[0]
+	if sub == "runner" {
+		return jobsRunner(ctx, args[1:], env, stderr)
+	}
 	allowed, ok := jobsSubFlags[sub]
 	if !ok {
 		fmt.Fprintf(stderr, "agentbus jobs: unknown subcommand %q\n", sub)
@@ -206,6 +215,10 @@ func jobsRequired(sub string, f *jobsFlags) error {
 	case "heartbeat":
 		if f.a.Runner == "" {
 			return errors.New("want --runner")
+		}
+	case "gate":
+		if f.a.Runner == "" || strings.TrimSpace(f.a.Note) == "" {
+			return errors.New("want --runner and --note")
 		}
 	case "ls":
 		if len(f.kinds) > 1 {
