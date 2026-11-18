@@ -198,3 +198,69 @@ func TestRenderAgentsMDRejectsEscapingClassNames(t *testing.T) {
 		}
 	}
 }
+
+func TestCompareAndPlanDriftAgentsMD(t *testing.T) {
+	spec := Spec{
+		Org:   "Acme",
+		Rules: []Rule{{ID: "r1", Text: "Rule one.", Source: "handbook"}},
+		Classes: map[string]Class{
+			"ops": {Description: "Ops"},
+		},
+	}
+
+	// No root -> nil status, no lines in Plan or Drift.
+	status, err := CompareAgentsMD(spec, "")
+	if err != nil || status != nil {
+		t.Fatalf("empty root: status=%v err=%v", status, err)
+	}
+	if got := Plan(spec, Live{}, PlanOptions{}); len(got) != 0 {
+		t.Fatalf("Plan with no root = %v", got)
+	}
+	if got := Drift(spec, Live{}); len(got) != 0 {
+		t.Fatalf("Drift with no root = %v", got)
+	}
+
+	root := t.TempDir()
+	// Missing files -> + agents-md <path>.
+	status, err = CompareAgentsMD(spec, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planLines := Plan(spec, Live{AgentsMD: status}, PlanOptions{})
+	wantMissing := []string{"+ agents-md AGENTS.md", "+ agents-md roles/ops/AGENTS.md"}
+	if !slices.Equal(planLines, wantMissing) {
+		t.Fatalf("Plan missing = %v, want %v", planLines, wantMissing)
+	}
+
+	// Clean root -> no lines in Plan or Drift.
+	if _, err := RenderAgentsMD(spec, root, false); err != nil {
+		t.Fatal(err)
+	}
+	status, err = CompareAgentsMD(spec, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := Plan(spec, Live{AgentsMD: status}, PlanOptions{}); len(got) != 0 {
+		t.Fatalf("Plan clean = %v", got)
+	}
+	if got := Drift(spec, Live{AgentsMD: status}); len(got) != 0 {
+		t.Fatalf("Drift clean = %v", got)
+	}
+
+	// Hand-edited file -> ~ agents-md <path> edited in place.
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("hand edit\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	status, err = CompareAgentsMD(spec, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planLines = Plan(spec, Live{AgentsMD: status}, PlanOptions{})
+	if !slices.Equal(planLines, []string{"~ agents-md AGENTS.md edited in place"}) {
+		t.Fatalf("Plan edited = %v", planLines)
+	}
+	driftLines := Drift(spec, Live{AgentsMD: status})
+	if len(driftLines) != 2 || driftLines[0] != "~ agents-md AGENTS.md edited in place" || !strings.Contains(driftLines[1], "re-render") {
+		t.Fatalf("Drift edited = %v", driftLines)
+	}
+}

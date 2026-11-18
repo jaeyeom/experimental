@@ -21,6 +21,7 @@ type Spec struct {
 	AllowApprovalWords []string           `json:"allowApprovalWords"`
 	Scope              *Scope             `json:"scope,omitempty"`
 	Jobs               *Jobs              `json:"jobs,omitempty"`
+	AgentsMDRoot       string             `json:"agentsMdRoot,omitempty"`
 }
 
 // Jobs declares the job runners and where anomaly events go.

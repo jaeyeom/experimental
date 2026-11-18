@@ -229,6 +229,10 @@ scope: Scope = new {}
 /// Job runners and the anomaly role. Null when the org runs no jobs.
 jobs: Jobs?
 
+/// Directory root where `orgctl render agents-md` writes AGENTS.md files.
+/// Empty when unmanaged.
+agentsMdRoot: String = ""
+
 local ruleIds: List<String> = rules.toList().map((rule) -> rule.id)
 
 local function uniqueTabs(items: Mapping<String, Role>): Boolean =
@@ -291,6 +295,7 @@ local function rendered(): Dynamic =
       allowApprovalWords = module.allowApprovalWords
       scope = module.scope
       jobs = module.jobs
+      agentsMdRoot = module.agentsMdRoot
     }
 
 output {

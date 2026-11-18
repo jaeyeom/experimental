@@ -191,6 +191,63 @@ func TestRenderAgentsMDCLI(t *testing.T) {
 	}
 }
 
+func TestPlanAndDriftAgentsMDRoot(t *testing.T) {
+	root := t.TempDir()
+	specPath := writeSpec(t, `{"org":"Acme","rules":[{"id":"r1","text":"Be clear.","source":"handbook"}],"agentsMdRoot":`+mustJSON(t, root)+`}`)
+	loadClean := func(orgctl.Spec) (orgctl.Live, error) {
+		return orgctl.Live{Local: "north"}, nil
+	}
+
+	// Missing files -> plan and drift report + agents-md AGENTS.md and exit 2.
+	var stdout, stderr bytes.Buffer
+	code := runIO([]string{"plan", specPath}, &stdout, &stderr, loadClean)
+	if code != 2 || !strings.Contains(stdout.String(), "+ agents-md AGENTS.md") {
+		t.Fatalf("plan missing: exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	code = runIO([]string{"drift", specPath}, &stdout, &stderr, loadClean)
+	if code != 2 || !strings.Contains(stdout.String(), "+ agents-md AGENTS.md") {
+		t.Fatalf("drift missing: exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+
+	// Render -> plan and drift exit 0 with no lines.
+	stdout.Reset()
+	stderr.Reset()
+	if code := runIO([]string{"render", "agents-md", "--root", root, specPath}, &stdout, &stderr, nil); code != 0 {
+		t.Fatalf("render: exit %d\nstderr:\n%s", code, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := runIO([]string{"plan", specPath}, &stdout, &stderr, loadClean); code != 0 || stdout.Len() != 0 {
+		t.Fatalf("plan clean: exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if code := runIO([]string{"drift", specPath}, &stdout, &stderr, loadClean); code != 0 || stdout.Len() != 0 {
+		t.Fatalf("drift clean: exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+
+	// Flag overrides config root and detects hand edit.
+	otherRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(otherRoot, "AGENTS.md"), []byte("edited\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	code = runIO([]string{"plan", "--agents-md-root", otherRoot, specPath}, &stdout, &stderr, loadClean)
+	if code != 2 || !strings.Contains(stdout.String(), "~ agents-md AGENTS.md edited in place") {
+		t.Fatalf("plan edited: exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+}
+
+func mustJSON(t *testing.T, v any) string {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
 func TestPlanExitCodes(t *testing.T) {
 	body := `{"machines":{"north":{"host":"north.example"}},"roles":{"coord/lead":{"machine":"north","workspace":"hq","tab":"lead","cwd":"/work"}}}`
 	path := writeSpec(t, body)

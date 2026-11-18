@@ -18,6 +18,7 @@ func Drift(spec Spec, live Live) []string {
 	lines = append(lines, misplacedCrons(spec, live)...)
 	lines = append(lines, whenDrift(spec, live)...)
 	lines = append(lines, briefDrift(spec, live)...)
+	lines = append(lines, agentsMDDrift(live)...)
 	return lines
 }
 
@@ -188,6 +189,21 @@ func briefDrift(spec Spec, live Live) []string {
 		}
 		lines = append(lines, "! "+name+" brief edited in place")
 		lines = append(lines, "USER: review brief for "+name)
+	}
+	return lines
+}
+
+func agentsMDDrift(live Live) []string {
+	var lines []string
+	for _, path := range mapKeys(live.AgentsMD) {
+		switch live.AgentsMD[path] {
+		case BriefEdited:
+			lines = append(lines, "~ agents-md "+path+" edited in place")
+			lines = append(lines, "USER: move changes into the spec or re-render "+path)
+		case BriefMissing:
+			lines = append(lines, "+ agents-md "+path)
+			lines = append(lines, "re-render "+path+" with orgctl render agents-md")
+		}
 	}
 	return lines
 }
