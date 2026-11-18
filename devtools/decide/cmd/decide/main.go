@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -102,7 +103,7 @@ func usage(w io.Writer) {
     --option key:label --rec key [--free-text] [--options-only] [--deadline RFC3339] \
     [--link url] [--notify-pane pane] [--type-text text] [--where place] \
     [--long-lines] [--json] <question>
-  decide list [--state open|answered|done|withdrawn] [--snoozed] [--json]
+  decide list [--state open|answered|done|withdrawn] [--snoozed] [--off-line] [--json]
   decide show [--json] <id>
   decide withdraw [--json] <id> <reason>
   decide done [--json] <id> <outcome>
@@ -870,6 +871,7 @@ func cmdList(args []string, stdout, stderr io.Writer) int {
 	jsonOut := fs.Bool("json", false, "print items as JSON")
 	state := fs.String("state", decide.StateOpen, "state to list")
 	snoozed := fs.Bool("snoozed", false, "list only snoozed items, soonest wake first")
+	offLine := fs.Bool("off-line", false, "list only items tagged off-line")
 	if code, stop := stopped(parseFlags(fs, args)); stop {
 		return code
 	}
@@ -891,6 +893,9 @@ func cmdList(args []string, stdout, stderr io.Writer) int {
 	if *snoozed {
 		selected = decide.SelectSnoozed(items)
 	}
+	if *offLine {
+		selected = filterByTag(selected, decide.TagOffLine)
+	}
 	if *jsonOut {
 		return writeJSON(stdout, stderr, selected)
 	}
@@ -906,6 +911,16 @@ func cmdList(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, line)
 	}
 	return 0
+}
+
+func filterByTag(items []decide.Item, tag string) []decide.Item {
+	out := make([]decide.Item, 0)
+	for _, it := range items {
+		if slices.Contains(it.Tags, tag) {
+			out = append(out, it)
+		}
+	}
+	return out
 }
 
 // cmdSnooze hides an item until a time. The time may be split across

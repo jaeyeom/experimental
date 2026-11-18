@@ -218,3 +218,92 @@ func TestReplyToExistingItemByDisallowedOwnerAllowed(t *testing.T) {
 		})
 	}
 }
+
+func TestListOffLine(t *testing.T) {
+	writeDecideConfig(t, `{
+		"owners": {
+			"mode": "warn",
+			"allowed": ["lead/*"],
+			"managers": {"team/*": "lead/planner"}
+		}
+	}`)
+
+	// Create an untagged item (allowed owner).
+	allowedOut, stderr, code := runCLI("ask", "--owner", "lead/planner", "--kind", "relay", "--option", "a:Yes", "--option", "b:No", "--rec", "a", "Allowed open?")
+	if code != 0 {
+		t.Fatalf("ask allowed = %d, stderr=%q", code, stderr)
+	}
+	allowedID := strings.TrimSpace(allowedOut)
+
+	// With no off-line items, list --off-line is empty and exits 0.
+	stdout, stderr, code := runCLI("list", "--off-line")
+	if code != 0 {
+		t.Fatalf("list --off-line (empty) = %d, stderr=%q", code, stderr)
+	}
+	if stdout != "" {
+		t.Errorf("list --off-line (empty) stdout = %q, want empty", stdout)
+	}
+	stdout, stderr, code = runCLI("list", "--off-line", "--json")
+	if code != 0 {
+		t.Fatalf("list --off-line --json (empty) = %d, stderr=%q", code, stderr)
+	}
+	if strings.TrimSpace(stdout) != "[]" {
+		t.Errorf("list --off-line --json (empty) = %q, want []", stdout)
+	}
+
+	// Create two off-line items (disallowed owners in warn mode).
+	offOpenOut, _, code := runCLI("ask", "--owner", "team/bob", "--kind", "relay", "--option", "a:Yes", "--option", "b:No", "--rec", "a", "Off-line open?")
+	if code != 0 {
+		t.Fatalf("ask off-line 1 = %d", code)
+	}
+	offOpenID := strings.TrimSpace(offOpenOut)
+
+	offAnsweredOut, _, code := runCLI("ask", "--owner", "team/alice", "--kind", "relay", "--option", "a:Yes", "--option", "b:No", "--rec", "a", "Off-line answered?")
+	if code != 0 {
+		t.Fatalf("ask off-line 2 = %d", code)
+	}
+	offAnsweredID := strings.TrimSpace(offAnsweredOut)
+
+	// Answer one off-line item and the allowed item so both states have tagged + untagged items.
+	if _, stderr, code := runCLI("answer", "--via", "ui", offAnsweredID, "a"); code != 0 {
+		t.Fatalf("answer off-line = %d, stderr=%q", code, stderr)
+	}
+	if _, stderr, code := runCLI("answer", "--via", "ui", allowedID, "a"); code != 0 {
+		t.Fatalf("answer allowed = %d, stderr=%q", code, stderr)
+	}
+
+	// Default state (open): only offOpenID is listed.
+	stdout, stderr, code = runCLI("list", "--off-line")
+	if code != 0 {
+		t.Fatalf("list --off-line = %d, stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, offOpenID) || strings.Contains(stdout, offAnsweredID) || strings.Contains(stdout, allowedID) {
+		t.Errorf("list --off-line = %q, want only %s", stdout, offOpenID)
+	}
+
+	// --json includes the off-line tag.
+	stdout, stderr, code = runCLI("list", "--off-line", "--json")
+	if code != 0 {
+		t.Fatalf("list --off-line --json = %d, stderr=%q", code, stderr)
+	}
+	var openItems []decide.Item
+	if err := json.Unmarshal([]byte(stdout), &openItems); err != nil {
+		t.Fatalf("unmarshal list --off-line --json: %v", err)
+	}
+	if len(openItems) != 1 || openItems[0].ID != offOpenID || !slices.Contains(openItems[0].Tags, decide.TagOffLine) {
+		t.Errorf("list --off-line --json = %+v, want 1 item %s with tag %q", openItems, offOpenID, decide.TagOffLine)
+	}
+
+	// Combines with --state: answered lists only offAnsweredID, not allowedID or offOpenID.
+	stdout, stderr, code = runCLI("list", "--off-line", "--state", "answered", "--json")
+	if code != 0 {
+		t.Fatalf("list --off-line --state answered --json = %d, stderr=%q", code, stderr)
+	}
+	var answeredItems []decide.Item
+	if err := json.Unmarshal([]byte(stdout), &answeredItems); err != nil {
+		t.Fatalf("unmarshal list --off-line --state answered --json: %v", err)
+	}
+	if len(answeredItems) != 1 || answeredItems[0].ID != offAnsweredID || !slices.Contains(answeredItems[0].Tags, decide.TagOffLine) {
+		t.Errorf("list --off-line --state answered --json = %+v, want 1 item %s with tag %q", answeredItems, offAnsweredID, decide.TagOffLine)
+	}
+}
