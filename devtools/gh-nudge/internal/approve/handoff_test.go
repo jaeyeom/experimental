@@ -23,10 +23,51 @@ type handoffFake struct {
 	requestErr      error
 	removeErr       error
 	writes          []string
+	// viewerTeams maps a lowercase org to the viewer's team slugs. A nil map
+	// makes ViewerTeams fail, which sends the runner to member lists.
+	viewerTeams     map[string][]string
+	viewerTeamsErr  error
+	viewerTeamReads int
+	teamCountReads  int
+	teamListReads   int
+	// onCall is told each read the fake serves, to drive a fake clock.
+	onCall func(op string)
+}
+
+func (f *handoffFake) called(op string) {
+	if f.onCall != nil {
+		f.onCall(op)
+	}
+}
+
+func (f *handoffFake) ViewerTeams(org, _ string) ([]string, error) {
+	f.viewerTeamReads++
+	f.called("teams")
+	if f.viewerTeamsErr != nil {
+		return nil, f.viewerTeamsErr
+	}
+	if f.viewerTeams == nil {
+		return nil, errors.New("viewer teams unavailable")
+	}
+	return f.viewerTeams[org], nil
+}
+
+func (f *handoffFake) TeamMemberCount(org, slug string) (int, error) {
+	f.teamCountReads++
+	f.called("teams")
+	if err := f.teamErr[org+"/"+slug]; err != nil {
+		return 0, err
+	}
+	members, ok := f.teams[org+"/"+slug]
+	if !ok {
+		return 0, errors.New("unexpected team " + org + "/" + slug)
+	}
+	return len(members), nil
 }
 
 func (f *handoffFake) CodeownersFile(_ github.PullRef, _ string) (string, string, error) {
 	f.codeownersReads++
+	f.called("codeowners")
 	if f.codeownersErr != nil {
 		return "", "", f.codeownersErr
 	}
@@ -34,6 +75,8 @@ func (f *handoffFake) CodeownersFile(_ github.PullRef, _ string) (string, string
 }
 
 func (f *handoffFake) TeamMembers(org, slug string) ([]string, error) {
+	f.teamListReads++
+	f.called("teams")
 	if err := f.teamErr[org+"/"+slug]; err != nil {
 		return nil, err
 	}

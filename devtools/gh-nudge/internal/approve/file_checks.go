@@ -180,7 +180,7 @@ func runBuiltinFileCheck(
 		return out
 	case config.FileCheckDeletionsAndCommentsOnly:
 		if pr.PatchesErr != "" {
-			out.Reason = "unreadable: " + pr.PatchesErr
+			out.Reason = unreadableText(pr.PatchesErr)
 			return out
 		}
 		patch, ok := patches[file.Path]
@@ -218,7 +218,7 @@ func runScriptFileCheck(
 ) fileCheckOutcome {
 	out := fileCheckOutcome{Pattern: pattern, Check: filepath.Base(argv[0])}
 	if pr.PatchesErr != "" {
-		out.Reason = "unreadable: " + pr.PatchesErr
+		out.Reason = unreadableText(pr.PatchesErr)
 		return out
 	}
 	patch, ok := patches[file.Path]

@@ -25,6 +25,8 @@ approve {
   body = "Looks fine"
   agent_cache_ttl = 2.d
   agent_cache_max_mb = 10
+  patch_max_files = 40
+  patch_max_added_lines = 900
   rules {
     new {
       name = "dashboard"
@@ -64,6 +66,9 @@ approve {
 	}
 	if approve.AgentCacheTTL != 48*time.Hour || approve.AgentCacheMaxMB != 10 {
 		t.Fatalf("approve agent cache = %v %d", approve.AgentCacheTTL, approve.AgentCacheMaxMB)
+	}
+	if approve.PatchMaxFiles != 40 || approve.PatchMaxAddedLines != 900 {
+		t.Fatalf("approve patch cap = %d %d", approve.PatchMaxFiles, approve.PatchMaxAddedLines)
 	}
 	rule := approve.Rules[0]
 	if rule.Name != "dashboard" || strings.Join(rule.Repos, ",") != "acme/*" ||
@@ -182,6 +187,10 @@ func TestLoadPklApproveDefaults(t *testing.T) {
 		cfg.Approve.AgentCacheMaxMB != DefaultAgentCacheMaxMB || DefaultAgentCacheMaxMB != 50 {
 		t.Fatalf("approve agent cache = %v %d", cfg.Approve.AgentCacheTTL, cfg.Approve.AgentCacheMaxMB)
 	}
+	if cfg.Approve.PatchMaxFiles != DefaultPatchMaxFiles || DefaultPatchMaxFiles != 300 ||
+		cfg.Approve.PatchMaxAddedLines != DefaultPatchMaxAddedLines || DefaultPatchMaxAddedLines != 5000 {
+		t.Fatalf("approve patch cap = %d %d", cfg.Approve.PatchMaxFiles, cfg.Approve.PatchMaxAddedLines)
+	}
 	if cfg.Viewed.Enabled || cfg.Viewed.MaxMarksPerRun != DefaultMaxMarksPerRun || DefaultMaxMarksPerRun != 200 || len(cfg.Viewed.Rules) != 0 {
 		t.Fatalf("viewed = %+v", cfg.Viewed)
 	}
@@ -247,6 +256,8 @@ func TestLoadPklApproveRejectsBadConfig(t *testing.T) {
 		"zero agent timeout":          {`approve { rules { new { name = "r"; agent_timeout = 0.s } } }`, "agent_timeout"},
 		"zero cache ttl":              {`approve { agent_cache_ttl = 0.s }`, "agent_cache_ttl"},
 		"zero cache size":             {`approve { agent_cache_max_mb = 0 }`, "agent_cache_max_mb"},
+		"zero patch file cap":         {`approve { patch_max_files = 0 }`, "patch_max_files"},
+		"zero patch added line cap":   {`approve { patch_max_added_lines = 0 }`, "patch_max_added_lines"},
 		"handoff without reviewers":   {`approve { rules { new { name = "r"; action = "handoff" } } }`, "reviewers"},
 		"approve with reviewers":      {`approve { rules { new { name = "r"; reviewers { "bob" } } } }`, "reviewers"},
 		"unknown action":              {`approve { rules { new { name = "r"; action = "merge" } } }`, "action"},

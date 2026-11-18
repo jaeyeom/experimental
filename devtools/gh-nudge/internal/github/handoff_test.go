@@ -87,6 +87,75 @@ func TestTeamMembersErrorMentionsReadOrg(t *testing.T) {
 	}
 }
 
+func TestViewerTeamsPaginates(t *testing.T) {
+	exec := &routeExec{route: map[string]string{
+		"viewer=me":             `{"data":{"organization":{"teams":{"pageInfo":{"hasNextPage":true,"endCursor":"C1"},"nodes":[{"slug":"core"}]}}}}`,
+		"viewer=me -f after=C1": `{"data":{"organization":{"teams":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[{"slug":"infra"}]}}}}`,
+	}}
+	slugs, err := NewClientWithExecutor(exec).ViewerTeams("acme", "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(slugs, ",") != "core,infra" {
+		t.Fatalf("slugs = %v", slugs)
+	}
+	if !strings.Contains(exec.calls[0], "userLogins") {
+		t.Fatalf("call = %s", exec.calls[0])
+	}
+}
+
+func TestViewerTeamsIncludeAncestors(t *testing.T) {
+	exec := &routeExec{route: map[string]string{"viewer=me": `{"data":{"organization":{"teams":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[
+		{"slug":"widgets-core","ancestors":{"pageInfo":{"hasNextPage":false},"nodes":[{"slug":"widgets"}]}}
+	]}}}}`}}
+	slugs, err := NewClientWithExecutor(exec).ViewerTeams("acme", "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(slugs, ",") != "widgets-core,widgets" {
+		t.Fatalf("slugs = %v", slugs)
+	}
+}
+
+func TestViewerTeamsTruncatedAncestorsFail(t *testing.T) {
+	exec := &routeExec{route: map[string]string{"viewer=me": `{"data":{"organization":{"teams":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[
+		{"slug":"widgets-core","ancestors":{"pageInfo":{"hasNextPage":true},"nodes":[{"slug":"widgets"}]}}
+	]}}}}`}}
+	if _, err := NewClientWithExecutor(exec).ViewerTeams("acme", "me"); err == nil {
+		t.Fatal("error = nil")
+	}
+}
+
+func TestViewerTeamsErrorMentionsReadOrg(t *testing.T) {
+	tests := map[string]*routeExec{
+		"org not visible": {route: map[string]string{"viewer=me": `{"data":{"organization":null}}`}},
+		"graphql error":   {route: map[string]string{"viewer=me": `{"errors":[{"message":"forbidden"}]}`}},
+	}
+	for name, exec := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := NewClientWithExecutor(exec).ViewerTeams("acme", "me")
+			if err == nil || !strings.Contains(err.Error(), "read:org") {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
+func TestTeamMemberCountReadsTotalOnly(t *testing.T) {
+	exec := &routeExec{route: map[string]string{"slug=core": `{"data":{"organization":{"team":{"members":{"totalCount":42}}}}}`}}
+	n, err := NewClientWithExecutor(exec).TeamMemberCount("acme", "core")
+	if err != nil || n != 42 {
+		t.Fatalf("TeamMemberCount() = %d, %v", n, err)
+	}
+	if len(exec.calls) != 1 || !strings.Contains(exec.calls[0], "totalCount") || strings.Contains(exec.calls[0], "nodes") {
+		t.Fatalf("calls = %v", exec.calls)
+	}
+	missing := &routeExec{route: map[string]string{"slug=core": `{"data":{"organization":{"team":null}}}`}}
+	if _, err := NewClientWithExecutor(missing).TeamMemberCount("acme", "core"); err == nil || !strings.Contains(err.Error(), "@acme/core") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestReviewRequestTimeline(t *testing.T) {
 	exec := &routeExec{route: map[string]string{"REVIEW_REQUESTED_EVENT": `{"data":{"repository":{"pullRequest":{"timelineItems":{
 		"pageInfo": {"hasNextPage": false, "endCursor": ""},
