@@ -14,6 +14,7 @@ type Spec struct {
 	Org                string             `json:"org"`
 	Machines           map[string]Machine `json:"machines"`
 	Rules              []Rule             `json:"rules"`
+	Classes            map[string]Class   `json:"classes"`
 	Roles              map[string]Role    `json:"roles"`
 	Pools              map[string]Pool    `json:"pools"`
 	ApprovalWords      []string           `json:"approvalWords"`
@@ -53,11 +54,17 @@ type Machine struct {
 	Timezone    string `json:"timezone"`
 }
 
-// Rule is one org-wide rule.
+// Rule is one org-wide or class rule.
 type Rule struct {
 	ID     string `json:"id"`
 	Text   string `json:"text"`
 	Source string `json:"source"`
+}
+
+// Class is one role class, keyed in [Spec.Classes] by its prefix.
+type Class struct {
+	Description string `json:"description"`
+	Rules       []Rule `json:"rules"`
 }
 
 // Brief is the note a role reads when it starts.
@@ -105,6 +112,7 @@ type Role struct {
 	State         []string   `json:"state"`
 	Needs         Needs      `json:"needs"`
 	Rules         []string   `json:"rules"`
+	Class         string     `json:"class,omitempty"`
 }
 
 // Pool is a worker pool. It has no schedules.
@@ -118,6 +126,42 @@ type Pool struct {
 	Starter     string `json:"starter"`
 	Max         int    `json:"max"`
 	Source      string `json:"source"`
+}
+
+// CheckRules rejects duplicate rule IDs across org rules and class rules.
+func (s Spec) CheckRules() error {
+	seen := make(map[string]string, len(s.Rules))
+	for _, rule := range s.Rules {
+		if where, dup := seen[rule.ID]; dup {
+			return fmt.Errorf("duplicate rule id %q (in %s and org rules)", rule.ID, where)
+		}
+		seen[rule.ID] = "org rules"
+	}
+	for _, name := range mapKeys(s.Classes) {
+		where := fmt.Sprintf("class %s", name)
+		for _, rule := range s.Classes[name].Rules {
+			if prev, dup := seen[rule.ID]; dup {
+				return fmt.Errorf("duplicate rule id %q (in %s and %s)", rule.ID, prev, where)
+			}
+			seen[rule.ID] = where
+		}
+	}
+	return nil
+}
+
+// CheckClasses rejects a role whose class does not exist in [Spec.Classes].
+// Roles without a class are allowed.
+func (s Spec) CheckClasses() error {
+	for _, name := range mapKeys(s.Roles) {
+		className := s.Roles[name].Class
+		if className == "" {
+			continue
+		}
+		if _, ok := s.Classes[className]; !ok {
+			return fmt.Errorf("role %s: unknown class %q", name, className)
+		}
+	}
+	return nil
 }
 
 // CheckPatterns rejects a pool glob that filepath.Match cannot compile.

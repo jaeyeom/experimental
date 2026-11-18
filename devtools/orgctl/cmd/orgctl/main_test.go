@@ -134,6 +134,26 @@ func TestCheckPrintsAllowWarning(t *testing.T) {
 	}
 }
 
+func TestCheckRejectsDuplicateRuleIDAndUnknownClass(t *testing.T) {
+	dupPath := writeSpec(t, `{"rules":[{"id":"r1","text":"a","source":"s"}],"classes":{"ops":{"description":"ops","rules":[{"id":"r1","text":"b","source":"s"}]}}}`)
+	var stderr bytes.Buffer
+	if code := run([]string{"check", dupPath}, &stderr); code != 1 || !strings.Contains(stderr.String(), `duplicate rule id "r1"`) {
+		t.Fatalf("dup rule: exit %d, stderr %s", code, stderr.String())
+	}
+
+	unknownPath := writeSpec(t, `{"classes":{"ops":{"description":"ops"}},"roles":{"ops/inbox":{"cwd":"/work","class":"missing"}}}`)
+	stderr.Reset()
+	if code := run([]string{"check", unknownPath}, &stderr); code != 1 || !strings.Contains(stderr.String(), `unknown class "missing"`) {
+		t.Fatalf("unknown class: exit %d, stderr %s", code, stderr.String())
+	}
+
+	noClassPath := writeSpec(t, `{"classes":{"ops":{"description":"ops"}},"roles":{"misc/helper":{"cwd":"/work"}}}`)
+	stderr.Reset()
+	if code := run([]string{"check", noClassPath}, &stderr); code != 0 {
+		t.Fatalf("no class: exit %d, stderr %s", code, stderr.String())
+	}
+}
+
 func TestPlanExitCodes(t *testing.T) {
 	body := `{"machines":{"north":{"host":"north.example"}},"roles":{"coord/lead":{"machine":"north","workspace":"hq","tab":"lead","cwd":"/work"}}}`
 	path := writeSpec(t, body)
