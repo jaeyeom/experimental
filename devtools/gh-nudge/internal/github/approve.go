@@ -520,16 +520,31 @@ func (c *Client) PullRequestFilePatches(ref PullRef) ([]PullFile, error) {
 
 // PullRequestHeadSHA reads the current head SHA through the REST API.
 func (c *Client) PullRequestHeadSHA(ref PullRef) (string, error) {
+	name := fmt.Sprintf("%s/%s#%d", ref.Owner, ref.Repo, ref.Number)
 	path := fmt.Sprintf("repos/%s/%s/pulls/%d", ref.Owner, ref.Repo, ref.Number)
-	out, err := c.executor.Execute("gh", "api", path, "--jq", ".head.sha")
+	out, err := c.runGHOnce([]string{"api", path, "--jq", ".head.sha"})
 	if err != nil {
-		return "", fmt.Errorf("read head of %s/%s#%d: %w\n%s", ref.Owner, ref.Repo, ref.Number, err, out)
+		return "", fmt.Errorf("read head of %s: %w\n%s", name, err, out.stderr)
 	}
-	sha := strings.TrimSpace(out)
-	if sha == "" {
-		return "", fmt.Errorf("read head of %s/%s#%d: empty head SHA", ref.Owner, ref.Repo, ref.Number)
+	sha := strings.TrimSpace(out.stdout)
+	if !isCommitSHA(sha) {
+		return "", fmt.Errorf("read head of %s: expected a commit SHA on stdout, found %q (stderr: %q)",
+			name, firstLine(sha), firstLine(out.stderr))
 	}
 	return sha, nil
+}
+
+// isCommitSHA reports whether s is a full hex commit id (SHA-1 or SHA-256).
+func isCommitSHA(s string) bool {
+	if len(s) != 40 && len(s) != 64 {
+		return false
+	}
+	for _, r := range s {
+		if !strings.ContainsRune("0123456789abcdef", r) {
+			return false
+		}
+	}
+	return true
 }
 
 // PullRequestDiff reads the pull request's unified diff through the REST API.

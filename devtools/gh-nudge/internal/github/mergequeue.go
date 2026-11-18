@@ -1033,9 +1033,9 @@ func (c *Client) failingStepLog(owner, repo string, jobID int64) (actionsJobJSON
 		return actionsJobJSON{}, "", fmt.Errorf("parse job %d: %w", jobID, err)
 	}
 	logPath := jobPath + "/logs"
-	logOut, err := c.executor.Execute("gh", "api", logPath)
+	logOut, logErr, err := c.executeSeparated("gh", "api", logPath)
 	if err != nil {
-		return actionsJobJSON{}, "", fmt.Errorf("get job %d logs: %w", jobID, err)
+		return actionsJobJSON{}, "", fmt.Errorf("get job %d logs: %w\n%s", jobID, err, logErr)
 	}
 	return job, stepLog(logOut, failingStepName(job)), nil
 }
