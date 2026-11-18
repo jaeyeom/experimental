@@ -154,6 +154,43 @@ func TestCheckRejectsDuplicateRuleIDAndUnknownClass(t *testing.T) {
 	}
 }
 
+func TestRenderAgentsMDCLI(t *testing.T) {
+	specPath := writeSpec(t, `{"org":"Acme","rules":[{"id":"r1","text":"Be clear.","source":"handbook"}],"classes":{"ops":{"description":"Ops"}}}`)
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+
+	// --check before render exits 2 with paths and writes nothing.
+	code := runIO([]string{"render", "agents-md", "--root", root, "--check", specPath}, &stdout, &stderr, nil)
+	if code != 2 || !strings.Contains(stdout.String(), "AGENTS.md") || !strings.Contains(stdout.String(), "roles/ops/AGENTS.md") {
+		t.Fatalf("check before render: exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+
+	// Render exits 0.
+	stdout.Reset()
+	stderr.Reset()
+	if code := runIO([]string{"render", "agents-md", "--root", root, specPath}, &stdout, &stderr, nil); code != 0 {
+		t.Fatalf("render: exit %d\nstderr:\n%s", code, stderr.String())
+	}
+
+	// --check after render exits 0.
+	stdout.Reset()
+	stderr.Reset()
+	if code := runIO([]string{"render", "agents-md", "--root", root, "--check", specPath}, &stdout, &stderr, nil); code != 0 {
+		t.Fatalf("check after render: exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+
+	// Hand edit causes --check to exit 2 with the edited path.
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("edited\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	code = runIO([]string{"render", "agents-md", "--root", root, "--check", specPath}, &stdout, &stderr, nil)
+	if code != 2 || strings.TrimSpace(stdout.String()) != "AGENTS.md" {
+		t.Fatalf("check after edit: exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestPlanExitCodes(t *testing.T) {
 	body := `{"machines":{"north":{"host":"north.example"}},"roles":{"coord/lead":{"machine":"north","workspace":"hq","tab":"lead","cwd":"/work"}}}`
 	path := writeSpec(t, body)

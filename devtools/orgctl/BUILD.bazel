@@ -10,6 +10,7 @@ exports_files([
 go_library(
     name = "go_default_library",
     srcs = [
+        "agentsmd.go",
         "brief.go",
         "decides.go",
         "drift.go",
@@ -26,6 +27,7 @@ go_test(
     name = "go_default_test",
     size = "small",
     srcs = [
+        "agentsmd_test.go",
         "brief_test.go",
         "decides_test.go",
         "drift_test.go",
