@@ -29,7 +29,14 @@ func TestExampleJSONDecodes(t *testing.T) {
 	if len(spec.Roles) != 3 {
 		t.Fatalf("roles = %d, want 3", len(spec.Roles))
 	}
+	reviewClass, ok := spec.Classes["review"]
+	if !ok || reviewClass.Description == "" || len(reviewClass.Rules) != 1 || reviewClass.Rules[0].ID != "cite-line" {
+		t.Errorf("classes[review] = %+v", reviewClass)
+	}
 	lead := spec.Roles["coord/lead"]
+	if lead.Class != "" {
+		t.Errorf("coord/lead class = %q, want empty", lead.Class)
+	}
 	if lead.ReportsTo != nil {
 		t.Errorf("coord/lead reportsTo = %q, want none", *lead.ReportsTo)
 	}
@@ -37,6 +44,9 @@ func TestExampleJSONDecodes(t *testing.T) {
 		t.Errorf("coord/lead rules = %#v", lead.Rules)
 	}
 	review := spec.Roles["review/desk"]
+	if review.Class != "review" {
+		t.Errorf("review/desk class = %q, want review", review.Class)
+	}
 	if review.ReportsTo == nil || *review.ReportsTo != "coord/lead" {
 		t.Errorf("review/desk reportsTo = %v", review.ReportsTo)
 	}
@@ -111,6 +121,118 @@ func TestConstraintFixturesFail(t *testing.T) {
 func TestDecodeRejectsBadJSON(t *testing.T) {
 	if _, err := Decode([]byte("{")); err == nil {
 		t.Fatal("Decode accepted invalid JSON")
+	}
+}
+
+func TestClassesAndRoleResolution(t *testing.T) {
+	amends := filepath.Join(orgctlRoot(t), "pkl", "Org.pkl")
+	src := `amends "` + amends + `"
+
+org = "Fixture"
+
+machines {
+  ["one"] { host = "one.example"; herdrHandle = "one"; timezone = "UTC" }
+}
+
+rules {
+  new { id = "org-rule"; text = "Org rule."; source = "handbook" }
+}
+
+classes {
+  ["ops"] {
+    description = "Operations roles."
+    rules {
+      new { id = "ops-rule"; text = "Ops rule."; source = "ops guide" }
+    }
+  }
+  ["special"] {
+    description = "Special roles."
+  }
+}
+
+roles {
+  ["ops/inbox"] {
+    machine = "one"; workspace = "hq"; tab = "inbox"; cwd = "/work"; agent = "coder"
+  }
+  ["ops/override"] {
+    machine = "one"; workspace = "hq"; tab = "override"; cwd = "/work"; agent = "coder"
+    ` + "`class`" + ` = "special"
+  }
+  ["misc/helper"] {
+    machine = "one"; workspace = "hq"; tab = "helper"; cwd = "/work"; agent = "coder"
+  }
+  ["solo"] {
+    machine = "one"; workspace = "hq"; tab = "solo"; cwd = "/work"; agent = "coder"
+  }
+}
+`
+	path := filepath.Join(t.TempDir(), "org.pkl")
+	if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, code := evalPkl(t, path)
+	if code != 0 {
+		t.Fatalf("pkl eval exit %d\n%s", code, stderr)
+	}
+	spec, err := Decode(stdout)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if got := spec.Roles["ops/inbox"].Class; got != "ops" {
+		t.Errorf("ops/inbox class = %q, want ops", got)
+	}
+	if got := spec.Roles["ops/override"].Class; got != "special" {
+		t.Errorf("ops/override class = %q, want special", got)
+	}
+	if got := spec.Roles["misc/helper"].Class; got != "" {
+		t.Errorf("misc/helper class = %q, want empty", got)
+	}
+	if got := spec.Roles["solo"].Class; got != "" {
+		t.Errorf("solo class = %q, want empty", got)
+	}
+	if err := spec.CheckRules(); err != nil {
+		t.Errorf("CheckRules: %v", err)
+	}
+	if err := spec.CheckClasses(); err != nil {
+		t.Errorf("CheckClasses: %v", err)
+	}
+}
+
+func TestCheckRulesAndClasses(t *testing.T) {
+	dupOrgClass := Spec{
+		Rules: []Rule{{ID: "shared", Text: "a", Source: "s"}},
+		Classes: map[string]Class{
+			"ops": {Description: "ops", Rules: []Rule{{ID: "shared", Text: "b", Source: "s"}}},
+		},
+	}
+	if err := dupOrgClass.CheckRules(); err == nil {
+		t.Error("CheckRules accepted duplicate id across org and class rules")
+	}
+
+	dupTwoClasses := Spec{
+		Classes: map[string]Class{
+			"a": {Description: "a", Rules: []Rule{{ID: "r1", Text: "a", Source: "s"}}},
+			"b": {Description: "b", Rules: []Rule{{ID: "r1", Text: "b", Source: "s"}}},
+		},
+	}
+	if err := dupTwoClasses.CheckRules(); err == nil {
+		t.Error("CheckRules accepted duplicate id across two classes")
+	}
+
+	unknownClass := Spec{
+		Classes: map[string]Class{"ops": {Description: "ops"}},
+		Roles:   map[string]Role{"ops/inbox": {Class: "missing"}},
+	}
+	if err := unknownClass.CheckClasses(); err == nil {
+		t.Error("CheckClasses accepted unknown explicit class")
+	}
+
+	noClass := Spec{
+		Classes: map[string]Class{"ops": {Description: "ops"}},
+		Roles:   map[string]Role{"misc/helper": {}},
+	}
+	if err := noClass.CheckClasses(); err != nil {
+		t.Errorf("CheckClasses rejected role without class: %v", err)
 	}
 }
 

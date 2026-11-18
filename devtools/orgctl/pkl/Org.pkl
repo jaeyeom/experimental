@@ -15,7 +15,7 @@ class Machine {
   timezone: String(!isEmpty)
 }
 
-/// One org-wide rule.
+/// One org-wide or class rule.
 class Rule {
   /// Stable id. Roles name rules by this id.
   id: String(!isEmpty)
@@ -25,6 +25,15 @@ class Rule {
 
   /// Where the rule came from. Informational.
   source: String(!isEmpty)
+}
+
+/// One role class, keyed in `classes` by its prefix.
+class RoleClass {
+  /// Short description of the class.
+  description: String
+
+  /// Rules for roles in this class.
+  rules: Listing<Rule> = new {}
 }
 
 /// The note a role reads when it starts.
@@ -127,6 +136,9 @@ class Role {
 
   /// Rule ids. Null means every org rule.
   rules: Listing<String>?
+
+  /// Role class name. Null derives the class from the prefix before `/`.
+  `class`: String(!isEmpty)?
 }
 
 /// A worker pool. It has no schedules. A schedule's owner is always a role.
@@ -202,6 +214,9 @@ machines: Mapping<String, Machine>
 /// Org-wide rules.
 rules: Listing<Rule>
 
+/// Role classes keyed by prefix.
+classes: Mapping<String, RoleClass> = new {}
+
 /// Roles keyed by agentbus name.
 roles: Mapping<String, Role>
 
@@ -226,13 +241,25 @@ local function reportsExist(items: Mapping<String, Role>): Boolean =
 local function machinesExist(names: List<String>): Boolean =
   names.every((name) -> machines.containsKey(name))
 
-/// A missing `rules` list means every org rule. The class default stays null
+local function rolePrefix(name: String): String =
+  if (name.contains("/")) name.split("/")[0] else ""
+
+local function resolvedClass(name: String, role: Role): String? =
+  if (role.`class` != null)
+    role.`class`
+  else
+    let (prefix = rolePrefix(name))
+      if (classes.containsKey(prefix)) prefix else null
+
+/// A missing `rules` list means every org rule. A missing `class` means the
+/// prefix before `/` when `classes` defines it. The class defaults stay null
 /// so an amend can still tell "omitted" from "set".
-local function withRules(items: Mapping<String, Role>): Mapping<String, Role> =
+local function resolveRoles(items: Mapping<String, Role>): Mapping<String, Role> =
   (items) {
     for (name in items.keys) {
       [name] {
         rules = if (items[name].rules == null) new Listing { for (id in ruleIds) { id } } else items[name].rules
+        `class` = resolvedClass(name, items[name])
       }
     }
   }
@@ -257,7 +284,8 @@ local function rendered(): Dynamic =
       org = module.org
       machines = module.machines
       rules = module.rules
-      roles = withRules(module.roles)
+      classes = module.classes
+      roles = resolveRoles(module.roles)
       pools = module.pools
       approvalWords = module.approvalWords
       allowApprovalWords = module.allowApprovalWords

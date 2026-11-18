@@ -28,6 +28,19 @@ rules {
   }
 }
 
+classes {
+  ["review"] {
+    description = "Desk reviewers who read proposed changes before sign-off."
+    rules {
+      new {
+        id = "cite-line"
+        text = "Point to the exact line or section that is unclear."
+        source = "reviewers guide"
+      }
+    }
+  }
+}
+
 roles {
   ["coord/lead"] {
     machine = "north"
