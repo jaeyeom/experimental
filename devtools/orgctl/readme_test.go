@@ -76,6 +76,14 @@ func TestOrgctlDocs(t *testing.T) {
 	if !strings.Contains(index, "| orgctl") {
 		t.Error("devtools README does not list orgctl")
 	}
+	for _, want := range []string{"render agents-md", "CLAUDE.md", "examples/acme.pkl", "# Role Class: review"} {
+		if !strings.Contains(readme, want) {
+			t.Errorf("README does not document %q", want)
+		}
+	}
+	if !strings.Contains(reference, "agents-md PATH edited in place") {
+		t.Error("reference does not document agents-md drift lines")
+	}
 }
 
 func section(doc, start, end string) string {
