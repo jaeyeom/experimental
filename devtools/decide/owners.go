@@ -15,6 +15,9 @@ const (
 	OwnersEnforce = "enforce"
 )
 
+// TagOffLine is added to items opened by a non-allowed owner in warn mode.
+const TagOffLine = "off-line"
+
 // OwnersConfig configures the allow-list of owners who may open items.
 //
 // Mode is "off" (default), "warn", or "enforce". Allowed lists owner names
@@ -67,6 +70,23 @@ func LookupManager(managers map[string]string, owner string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// CheckOwner checks whether owner may open a new item under o.
+// If o is off or owner matches o.Allowed, it returns ("", false).
+// Otherwise it returns the message to print on stderr and whether the
+// caller must refuse (true in enforce mode, false in warn mode).
+func CheckOwner(o OwnersConfig, owner string) (msg string, enforce bool) {
+	mode := o.EffectiveMode()
+	if mode == OwnersOff || MatchOwner(o.Allowed, owner) {
+		return "", false
+	}
+	target := "your manager"
+	if mgr, ok := LookupManager(o.Managers, owner); ok {
+		target = mgr
+	}
+	msg = fmt.Sprintf("owner %s is not a direct report; ask %s instead", owner, target)
+	return msg, mode == OwnersEnforce
 }
 
 func compareOwnerPatterns(a, b string) int {

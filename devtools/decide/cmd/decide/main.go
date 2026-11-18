@@ -182,13 +182,21 @@ func cmdSend(args []string, stdout, stderr io.Writer) int {
 	if hasID {
 		return cmdCompose(strings.TrimSpace(*id), text, *via, senderOf(context.Background()), route, *jsonOut, stdout, stderr)
 	}
+	return sendNewThread(*to, text, *via, *jsonOut, stdout, stderr)
+}
+
+func sendNewThread(to, text, via string, jsonOut bool, stdout, stderr io.Writer) int {
 	cfg, err := decide.LoadConfig()
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
-	rec, code, err := resolveSendTo(cfg, *to)
+	rec, code, err := resolveSendTo(cfg, to)
 	if err != nil {
 		return fail(stderr, err, code)
+	}
+	offLine, code := enforceOrWarnOwner(cfg, rec.Name, via, stderr)
+	if code != 0 {
+		return code
 	}
 	dir, err := decide.DefaultDir()
 	if err != nil {
@@ -198,11 +206,16 @@ func cmdSend(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
-	item, err := deliverNewThread(led, dir, cfg.SendTemplate, rec, text, *via)
+	item, err := deliverNewThread(led, dir, cfg.SendTemplate, rec, text, via)
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
-	return printSent(stdout, stderr, rec.Name, text, item.ID, *jsonOut)
+	if offLine {
+		if item, err = led.AddTag(item.ID, decide.TagOffLine); err != nil {
+			return fail(stderr, err, 1)
+		}
+	}
+	return printSent(stdout, stderr, rec.Name, text, item.ID, jsonOut)
 }
 
 // resolveSendTo finds name on the same recipient list the inbox uses.
@@ -833,6 +846,13 @@ func cmdAsk(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
+	offLine, code := enforceOrWarnOwner(cfg, item.Owner, decide.ViaCLI, stderr)
+	if code != 0 {
+		return code
+	}
+	if offLine {
+		item.Tags = append(item.Tags, decide.TagOffLine)
+	}
 	if err := notifyHubCaller(&item); err != nil {
 		return fail(stderr, err, 1)
 	}
@@ -1323,9 +1343,8 @@ func writeShow(w io.Writer, it *decide.Item) {
 		}
 		fmt.Fprintf(w, "option: %s: %s%s\n", opt.Key, opt.Label, mark)
 	}
-	for _, link := range it.Links {
-		fmt.Fprintf(w, "link: %s\n", link)
-	}
+	writeList(w, "link", it.Links)
+	writeList(w, "tag", it.Tags)
 	if it.Deadline != nil {
 		fmt.Fprintf(w, "deadline: %s\n", it.Deadline.Format(time.RFC3339))
 	}
@@ -1387,9 +1406,33 @@ func writeField(w io.Writer, name, value string) {
 	fmt.Fprintf(w, "%s: %s\n", name, value)
 }
 
+func writeList(w io.Writer, name string, values []string) {
+	for _, v := range values {
+		fmt.Fprintf(w, "%s: %s\n", name, v)
+	}
+}
+
 func fail(stderr io.Writer, err error, code int) int {
 	fmt.Fprintf(stderr, "decide: %v\n", err)
 	return code
+}
+
+// enforceOrWarnOwner checks whether owner may open a new item when via is
+// not ViaUI. In enforce mode it prints the error on stderr and returns exit 3.
+// In warn mode it prints the warning on stderr and returns offLine=true.
+func enforceOrWarnOwner(cfg decide.Config, owner, via string, stderr io.Writer) (offLine bool, code int) {
+	if via == decide.ViaUI {
+		return false, 0
+	}
+	msg, enforce := decide.CheckOwner(cfg.Owners, owner)
+	if msg == "" {
+		return false, 0
+	}
+	if enforce {
+		return false, fail(stderr, errors.New(msg), 3)
+	}
+	fmt.Fprintf(stderr, "decide: %s\n", msg)
+	return true, 0
 }
 
 // setString is a flag that records whether it was passed, including empty.
