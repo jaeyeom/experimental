@@ -61,6 +61,44 @@ func RenderAgentsMD(spec Spec, root string, check bool) ([]string, error) {
 	return nil, nil
 }
 
+// CompareAgentsMD compares each rendered AGENTS.md file under root with what
+// [RenderAgentsMD] would write. An empty root returns nil.
+// Status values reuse [BriefOK], [BriefEdited], and [BriefMissing].
+func CompareAgentsMD(spec Spec, root string) (map[string]string, error) {
+	if root == "" {
+		return nil, nil
+	}
+	expanded, err := ExpandPath(root)
+	if err != nil {
+		return nil, err
+	}
+	files, err := planAgentsMDFiles(spec)
+	if err != nil {
+		return nil, err
+	}
+	status := make(map[string]string)
+	for _, f := range files {
+		if !strings.HasSuffix(f.relPath, "AGENTS.md") {
+			continue
+		}
+		target := filepath.Join(expanded, filepath.FromSlash(f.relPath))
+		existing, err := os.ReadFile(target) //nolint:gosec // G304: target is validated under root
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				status[f.relPath] = BriefMissing
+				continue
+			}
+			return nil, fmt.Errorf("read %s: %w", f.relPath, err)
+		}
+		if bytes.Equal(existing, f.content) {
+			status[f.relPath] = BriefOK
+		} else {
+			status[f.relPath] = BriefEdited
+		}
+	}
+	return status, nil
+}
+
 func planAgentsMDFiles(spec Spec) ([]renderedFile, error) {
 	files := []renderedFile{
 		{relPath: "AGENTS.md", content: []byte(renderOrgAgentsMD(spec))},

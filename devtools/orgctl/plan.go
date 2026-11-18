@@ -20,6 +20,7 @@ type Live struct {
 	Crons        []LiveCron
 	CronRead     []string
 	Briefs       map[string]string
+	AgentsMD     map[string]string
 	KnownModels  []string
 	// MissingCwd lists expanded role directories that were not found.
 	MissingCwd []string
@@ -96,7 +97,23 @@ func Plan(spec Spec, live Live, opts PlanOptions) []string {
 		steps = append(steps, userSteps(name, role)...)
 	}
 	lines = append(lines, jobsDiff(spec.Jobs, live, opts)...)
+	if opts.Role == "" {
+		lines = append(lines, agentsMDDiff(live)...)
+	}
 	return append(lines, steps...)
+}
+
+func agentsMDDiff(live Live) []string {
+	var lines []string
+	for _, path := range mapKeys(live.AgentsMD) {
+		switch live.AgentsMD[path] {
+		case BriefEdited:
+			lines = append(lines, "~ agents-md "+path+" edited in place")
+		case BriefMissing:
+			lines = append(lines, "+ agents-md "+path)
+		}
+	}
+	return lines
 }
 
 // RunnerUnit is the unit file a runner is installed as: a launchd agent

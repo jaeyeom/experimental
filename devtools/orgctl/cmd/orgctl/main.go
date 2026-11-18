@@ -27,8 +27,8 @@ import (
 )
 
 const usage = "usage: orgctl check [--approval-word WORD]... SPEC.json\n" +
-	"       orgctl plan [--machine NAME] [--role NAME] [--expiring 2d] SPEC.json\n" +
-	"       orgctl drift SPEC.json\n" +
+	"       orgctl plan [--machine NAME] [--role NAME] [--expiring 2d] [--agents-md-root DIR] SPEC.json\n" +
+	"       orgctl drift [--agents-md-root DIR] SPEC.json\n" +
 	"       orgctl import [--out FILE] [--force] [--schema PATH]\n" +
 	"       orgctl render agents-md --root DIR [--check] SPEC.json"
 
@@ -162,11 +162,12 @@ func runPlan(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (or
 	machine := fs.String("machine", "", "machine key to include")
 	role := fs.String("role", "", "role name to include")
 	expiring := fs.String("expiring", "2d", "how soon a cron counts as attention")
+	agentsMDRoot := fs.String("agents-md-root", "", "directory root where AGENTS.md files are rendered")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 1
 	}
 	if fs.NArg() != 1 {
-		fmt.Fprintln(stderr, "usage: orgctl plan [--machine NAME] [--role NAME] [--expiring 2d] SPEC.json")
+		fmt.Fprintln(stderr, "usage: orgctl plan [--machine NAME] [--role NAME] [--expiring 2d] [--agents-md-root DIR] SPEC.json")
 		return 1
 	}
 	window, err := parseExpiring(*expiring)
@@ -192,6 +193,14 @@ func runPlan(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (or
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	if root := firstNonEmpty(*agentsMDRoot, spec.AgentsMDRoot); root != "" && live.AgentsMD == nil {
+		agentsMD, err := orgctl.CompareAgentsMD(spec, root)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		live.AgentsMD = agentsMD
+	}
 	lines := orgctl.Plan(spec, live, orgctl.PlanOptions{
 		Machine:  *machine,
 		Role:     *role,
@@ -209,11 +218,12 @@ func runPlan(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (or
 func runDrift(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (orgctl.Live, error)) int {
 	fs := flag.NewFlagSet("drift", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	agentsMDRoot := fs.String("agents-md-root", "", "directory root where AGENTS.md files are rendered")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 1
 	}
 	if fs.NArg() != 1 {
-		fmt.Fprintln(stderr, "usage: orgctl drift SPEC.json")
+		fmt.Fprintln(stderr, "usage: orgctl drift [--agents-md-root DIR] SPEC.json")
 		return 1
 	}
 	data, err := os.ReadFile(fs.Arg(0)) //nolint:gosec // G304: the operator named the spec file
@@ -234,6 +244,22 @@ func runDrift(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (o
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	if root := firstNonEmpty(*agentsMDRoot, spec.AgentsMDRoot); root != "" && live.AgentsMD == nil {
+		agentsMD, err := orgctl.CompareAgentsMD(spec, root)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		live.AgentsMD = agentsMD
+	}
+	if root := firstNonEmpty(*agentsMDRoot, spec.AgentsMDRoot); root != "" && live.AgentsMD == nil {
+		agentsMD, err := orgctl.CompareAgentsMD(spec, root)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		live.AgentsMD = agentsMD
+	}
 	lines := orgctl.Drift(spec, live)
 	for _, line := range lines {
 		fmt.Fprintln(stdout, line)
@@ -242,6 +268,13 @@ func runDrift(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (o
 		return 2
 	}
 	return 0
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
 
 func runImport(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (orgctl.Live, error)) int {
