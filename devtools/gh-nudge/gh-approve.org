@@ -312,9 +312,14 @@ Each changed file is matched against the patterns, and the most specific
 pattern wins: an exact path beats any glob, then the pattern with more literal
 path segments, then the longer literal text. A specificity tie is a config
 error at load time. A file that a pattern covers is judged only by its check;
-uncovered files are left to the rule's other file-level conditions. A rule
-whose files are all covered and all approved needs no other file condition.
-Pull-request-level conditions (~checks~, ~authors_allow~, ~labels_required~,
+an uncovered file fails ~file_checks~ (~<path>: not covered by file_checks~),
+unless the rule also sets ~paths_all_match~, ~codeowners_covered~ or
+~mine_comments_only~. Those conditions then judge the uncovered files, and
+~--explain~ shows ~not covered (accepted by <condition>)~ for each. A pull
+request with no covered file never passes ~file_checks~. A rule whose files
+are all covered and all approved needs no other file condition. Loading a
+config that sets ~file_checks~ without one of those three conditions logs a
+warning, because uncovered files fail the rule. Pull-request-level conditions (~checks~, ~authors_allow~, ~labels_required~,
 and so on) still apply.
 
 A check is either:
