@@ -32,6 +32,8 @@ type RuleResult struct {
 	Conditions []ConditionResult `json:"conditions"`
 	// Agent is set when the rule's agent command ran.
 	Agent *AgentResult `json:"agent,omitempty"`
+	// FileCheckPasses holds files whose file_checks check approved.
+	FileCheckPasses []FileCheckPass `json:"-"`
 }
 
 // FirstFailure returns the first condition that failed.
@@ -48,23 +50,24 @@ func (r RuleResult) FirstFailure() (ConditionResult, bool) {
 // entry to conditions. active reports whether the rule sets the condition.
 // A condition sets check, or detail when it reports per-item verdicts.
 type condition struct {
-	name   string
-	active func(rule config.ApproveRule) bool
-	check  func(rule config.ApproveRule, pr github.ApprovalPullRequest) (bool, string)
-	detail func(rule config.ApproveRule, pr github.ApprovalPullRequest) (bool, string, []string)
+	name      string
+	fileLevel bool
+	active    func(rule config.ApproveRule) bool
+	check     func(rule config.ApproveRule, pr github.ApprovalPullRequest) (bool, string)
+	detail    func(rule config.ApproveRule, pr github.ApprovalPullRequest) (bool, string, []string)
 }
 
 // conditions are evaluated in this order. The first failure is reported.
 var conditions = []condition{
 	{name: "repos", active: func(r config.ApproveRule) bool { return len(r.Repos) > 0 }, check: checkRepos},
-	{name: "paths_all_match", active: func(r config.ApproveRule) bool { return len(r.PathsAllMatch) > 0 }, check: checkPathsAllMatch},
-	{name: "paths_none_match", active: func(r config.ApproveRule) bool { return len(r.PathsNoneMatch) > 0 }, check: checkPathsNoneMatch},
-	{name: "paths_any_match", active: func(r config.ApproveRule) bool { return len(r.PathsAnyMatch) > 0 }, check: checkPathsAnyMatch},
-	{name: "max_changed_lines", active: func(r config.ApproveRule) bool { return r.MaxChangedLines != nil }, check: checkMaxChangedLines},
-	{name: "max_added_lines", active: func(r config.ApproveRule) bool { return r.MaxAddedLines != nil }, check: checkMaxAddedLines},
-	{name: "max_files", active: func(r config.ApproveRule) bool { return r.MaxFiles != nil }, check: checkMaxFiles},
-	{name: "pure_deletion", active: func(r config.ApproveRule) bool { return r.PureDeletion }, check: checkPureDeletion},
-	{name: "deletions_and_comments_only", active: func(r config.ApproveRule) bool { return r.DeletionsAndCommentsOnly }, check: checkDeletionsAndCommentsOnly},
+	{name: "paths_all_match", fileLevel: true, active: func(r config.ApproveRule) bool { return len(r.PathsAllMatch) > 0 }, check: checkPathsAllMatch},
+	{name: "paths_none_match", fileLevel: true, active: func(r config.ApproveRule) bool { return len(r.PathsNoneMatch) > 0 }, check: checkPathsNoneMatch},
+	{name: "paths_any_match", fileLevel: true, active: func(r config.ApproveRule) bool { return len(r.PathsAnyMatch) > 0 }, check: checkPathsAnyMatch},
+	{name: "max_changed_lines", fileLevel: true, active: func(r config.ApproveRule) bool { return r.MaxChangedLines != nil }, check: checkMaxChangedLines},
+	{name: "max_added_lines", fileLevel: true, active: func(r config.ApproveRule) bool { return r.MaxAddedLines != nil }, check: checkMaxAddedLines},
+	{name: "max_files", fileLevel: true, active: func(r config.ApproveRule) bool { return r.MaxFiles != nil }, check: checkMaxFiles},
+	{name: "pure_deletion", fileLevel: true, active: func(r config.ApproveRule) bool { return r.PureDeletion }, check: checkPureDeletion},
+	{name: "deletions_and_comments_only", fileLevel: true, active: func(r config.ApproveRule) bool { return r.DeletionsAndCommentsOnly }, check: checkDeletionsAndCommentsOnly},
 	{name: "authors_allow", active: func(r config.ApproveRule) bool { return len(r.AuthorsAllow) > 0 }, check: checkAuthorsAllow},
 	{name: "authors_deny", active: func(r config.ApproveRule) bool { return len(r.AuthorsDeny) > 0 }, check: checkAuthorsDeny},
 	{name: "labels_required", active: func(r config.ApproveRule) bool { return len(r.LabelsRequired) > 0 }, check: checkLabelsRequired},
@@ -73,29 +76,113 @@ var conditions = []condition{
 	{name: "checks", active: func(r config.ApproveRule) bool { return r.Checks != "" }, check: checkChecks},
 	{name: "not_draft", active: func(r config.ApproveRule) bool { return r.NotDraft }, check: checkNotDraft},
 	{name: "max_unresolved_threads", active: func(config.ApproveRule) bool { return true }, check: checkUnresolvedThreads},
-	{name: "codeowners_covered", active: func(r config.ApproveRule) bool { return r.CodeownersCovered }, detail: checkCodeownersCovered},
-	{name: "mine_comments_only", active: func(r config.ApproveRule) bool { return r.MineCommentsOnly }, detail: checkMineCommentsOnly},
+	{name: "codeowners_covered", fileLevel: true, active: func(r config.ApproveRule) bool { return r.CodeownersCovered }, detail: checkCodeownersCovered},
+	{name: "mine_comments_only", fileLevel: true, active: func(r config.ApproveRule) bool { return r.MineCommentsOnly }, detail: checkMineCommentsOnly},
 }
 
 // EvaluateRule evaluates every condition the rule sets.
 func EvaluateRule(rule config.ApproveRule, pr github.ApprovalPullRequest) RuleResult {
+	return evaluateRule(rule, pr, nil)
+}
+
+func evaluateRule(rule config.ApproveRule, pr github.ApprovalPullRequest, fileCheck FileCheckFunc) RuleResult {
 	result := RuleResult{Rule: rule.Name, Matched: true}
+	var uncoveredPR github.ApprovalPullRequest
+	allCovered := false
+	hasFileChecks := len(rule.FileChecks) > 0
+	if hasFileChecks {
+		uncoveredPR, allCovered = filterUncoveredPR(rule, pr)
+	}
+	reposPassed := true
 	for _, cond := range conditions {
 		if !cond.active(rule) {
 			continue
 		}
 		got := ConditionResult{Condition: cond.name}
+		targetPR := pr
+		if hasFileChecks && cond.fileLevel {
+			if allCovered && pr.FilesErr == "" {
+				got.Pass = true
+				got.Saw = "all files covered by file_checks"
+				result.Conditions = append(result.Conditions, got)
+				continue
+			}
+			targetPR = uncoveredPR
+		}
 		if cond.detail != nil {
-			got.Pass, got.Saw, got.Details = cond.detail(rule, pr)
+			got.Pass, got.Saw, got.Details = cond.detail(rule, targetPR)
 		} else {
-			got.Pass, got.Saw = cond.check(rule, pr)
+			got.Pass, got.Saw = cond.check(rule, targetPR)
+		}
+		if cond.name == "repos" {
+			reposPassed = got.Pass
 		}
 		result.Conditions = append(result.Conditions, got)
 		if !got.Pass {
 			result.Matched = false
 		}
 	}
+	if hasFileChecks {
+		got := ConditionResult{Condition: fileChecksCondition}
+		if !reposPassed {
+			got.Saw = "not run: repos did not match"
+			result.Matched = false
+		} else {
+			if fileCheck == nil {
+				fileCheck = func(r config.ApproveRule, p github.ApprovalPullRequest) (bool, string, []string, []FileCheckPass) {
+					return evaluateFileChecks(r, p, ExecFileCheckCommand, nil)
+				}
+			}
+			got.Pass, got.Saw, got.Details, result.FileCheckPasses = fileCheck(rule, pr)
+			if !got.Pass {
+				result.Matched = false
+			}
+		}
+		result.Conditions = append(result.Conditions, got)
+	}
 	return result
+}
+
+// filterUncoveredPR returns a copy of pr containing only files not covered by
+// rule.FileChecks, and reports whether all files in pr were covered.
+func filterUncoveredPR(rule config.ApproveRule, pr github.ApprovalPullRequest) (github.ApprovalPullRequest, bool) {
+	if pr.FilesErr != "" {
+		return pr, false
+	}
+	uncovered := pr
+	uncovered.Files = nil
+	uncovered.Additions = 0
+	uncovered.Deletions = 0
+	uncoveredSet := make(map[string]bool)
+	for _, f := range pr.Files {
+		if _, _, covered := config.MatchFileCheck(rule.FileChecks, f.Path); covered {
+			continue
+		}
+		uncovered.Files = append(uncovered.Files, f)
+		uncovered.Additions += f.Additions
+		uncovered.Deletions += f.Deletions
+		uncoveredSet[f.Path] = true
+	}
+	uncovered.ChangedFiles = len(uncovered.Files)
+	if pr.Patches != nil {
+		uncovered.Patches = make([]github.PullFile, 0, len(uncovered.Files))
+		for _, p := range pr.Patches {
+			if uncoveredSet[p.Path] {
+				uncovered.Patches = append(uncovered.Patches, p)
+			}
+		}
+	}
+	if pr.Ownership != nil {
+		own := *pr.Ownership
+		own.Files = nil
+		for _, f := range pr.Ownership.Files {
+			if uncoveredSet[f.Path] {
+				own.Files = append(own.Files, f)
+			}
+		}
+		uncovered.Ownership = &own
+	}
+	return uncovered, len(uncovered.Files) == 0
 }
 
 // AgentFunc runs a rule's agent command.
@@ -106,10 +193,14 @@ type AgentFunc func(rule config.ApproveRule) AgentResult
 // its other conditions passed and no earlier rule matched. A nil agent runs
 // no agent command, and a rule that sets one does not match.
 func Evaluate(rules []config.ApproveRule, pr github.ApprovalPullRequest, agent AgentFunc) ([]RuleResult, string) {
+	return evaluateWithFileChecks(rules, pr, agent, nil)
+}
+
+func evaluateWithFileChecks(rules []config.ApproveRule, pr github.ApprovalPullRequest, agent AgentFunc, fileCheck FileCheckFunc) ([]RuleResult, string) {
 	results := make([]RuleResult, 0, len(rules))
 	matched := ""
 	for _, rule := range rules {
-		result := EvaluateRule(rule, pr)
+		result := evaluateRule(rule, pr, fileCheck)
 		if len(rule.AgentCommand) > 0 {
 			run := agent
 			if matched != "" {

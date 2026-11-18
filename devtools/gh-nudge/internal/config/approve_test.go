@@ -236,38 +236,41 @@ viewed {
 
 func TestLoadPklApproveRejectsBadConfig(t *testing.T) {
 	tests := map[string]struct{ approve, want string }{
-		"unknown rule key":          {`approve { rules { new { name = "r"; max_lines = 3 } } }`, "max_lines"},
-		"unknown approve key":       {`approve { dry_run = false }`, "dry_run"},
-		"bad checks":                {`approve { rules { new { name = "r"; checks = "red" } } }`, "checks"},
-		"bad glob":                  {`approve { rules { new { name = "r"; paths_all_match { "a/[" } } } }`, "paths_all_match"},
-		"bad repo glob":             {`approve { rules { new { name = "r"; repos { "acme/[" } } } }`, "repos"},
-		"duplicate name":            {`approve { rules { new { name = "r" } new { name = "r" } } }`, "twice"},
-		"empty name":                {`approve { rules { new { name = "" } } }`, "name"},
-		"empty agent argv0":         {`approve { rules { new { name = "r"; agent_command { "" } } } }`, "agent_command"},
-		"zero agent timeout":        {`approve { rules { new { name = "r"; agent_timeout = 0.s } } }`, "agent_timeout"},
-		"zero cache ttl":            {`approve { agent_cache_ttl = 0.s }`, "agent_cache_ttl"},
-		"zero cache size":           {`approve { agent_cache_max_mb = 0 }`, "agent_cache_max_mb"},
-		"handoff without reviewers": {`approve { rules { new { name = "r"; action = "handoff" } } }`, "reviewers"},
-		"approve with reviewers":    {`approve { rules { new { name = "r"; reviewers { "bob" } } } }`, "reviewers"},
-		"unknown action":            {`approve { rules { new { name = "r"; action = "merge" } } }`, "action"},
-		"empty reviewer":            {`approve { rules { new { name = "r"; action = "handoff"; reviewers { "" } } } }`, "reviewers"},
-		"bad any glob":              {`approve { rules { new { name = "r"; paths_any_match { "a/[" } } } }`, "paths_any_match"},
-		"unknown handoff key":       {`approve { rules { new { name = "r"; action = "handoff"; reviewers { "bob" }; team_reviewers { "x" } } } }`, "team_reviewers"},
-		"unknown viewed key":        {`viewed { nope = true }`, "nope"},
-		"unknown viewed rule key":   {`viewed { rules { new { name = "r"; paths = "go.sum" } } }`, "paths"},
-		"viewed rule marks nothing": {`viewed { rules { new { name = "r" } } }`, "paths_match"},
-		"duplicate viewed rule":     {`viewed { rules { new { name = "r"; paths_match { "a" } } new { name = "r"; paths_match { "b" } } } }`, "twice"},
-		"bad viewed glob":           {`viewed { rules { new { name = "r"; paths_match { "a/[" } } } }`, "paths_match"},
-		"bad paths_none_match glob": {`viewed { rules { new { name = "r"; paths_match { "a" }; paths_none_match { "a/[" } } } }`, `viewed rule "r": paths_none_match`},
-		"bad except_paths glob":     {`viewed { rules { new { name = "r"; codeowners_not_mine = true; except_paths { "a/[" } } } }`, `viewed rule "r": paths_none_match`},
-		"bad never_mark glob":       {`viewed { never_mark { "a/[" } }`, `never_mark glob "a/["`},
-		"unknown body placeholder":  {`approve { rules { new { name = "r"; mine_comments_only = true; body = "ok {nope}" } } }`, `unknown body placeholder {nope}`},
-		"my_files without mine":     {`approve { rules { new { name = "r"; body = "ok {my_files}" } } }`, "mine_comments_only"},
-		"my_teams without mine":     {`approve { rules { new { name = "r"; body = "ok {my_teams}" } } }`, "mine_comments_only"},
-		"empty rule body":           {`approve { rules { new { name = "r"; body = "" } } }`, "body"},
-		"team request on handoff":   {`approve { rules { new { name = "r"; action = "handoff"; reviewers { "bob" }; requested_via_team = true } } }`, "requested_via_team"},
-		"body on handoff":           {`approve { rules { new { name = "r"; action = "handoff"; reviewers { "bob" }; body = "x" } } }`, "body"},
-		"both exclusion keys":       {`viewed { rules { new { name = "r"; paths_match { "a" }; paths_none_match { "docs/**" }; except_paths { "vendor/**" } } } }`, `viewed rule "r" sets both`},
+		"unknown rule key":            {`approve { rules { new { name = "r"; max_lines = 3 } } }`, "max_lines"},
+		"unknown approve key":         {`approve { dry_run = false }`, "dry_run"},
+		"bad checks":                  {`approve { rules { new { name = "r"; checks = "red" } } }`, "checks"},
+		"bad glob":                    {`approve { rules { new { name = "r"; paths_all_match { "a/[" } } } }`, "paths_all_match"},
+		"bad repo glob":               {`approve { rules { new { name = "r"; repos { "acme/[" } } } }`, "repos"},
+		"duplicate name":              {`approve { rules { new { name = "r" } new { name = "r" } } }`, "twice"},
+		"empty name":                  {`approve { rules { new { name = "" } } }`, "name"},
+		"empty agent argv0":           {`approve { rules { new { name = "r"; agent_command { "" } } } }`, "agent_command"},
+		"zero agent timeout":          {`approve { rules { new { name = "r"; agent_timeout = 0.s } } }`, "agent_timeout"},
+		"zero cache ttl":              {`approve { agent_cache_ttl = 0.s }`, "agent_cache_ttl"},
+		"zero cache size":             {`approve { agent_cache_max_mb = 0 }`, "agent_cache_max_mb"},
+		"handoff without reviewers":   {`approve { rules { new { name = "r"; action = "handoff" } } }`, "reviewers"},
+		"approve with reviewers":      {`approve { rules { new { name = "r"; reviewers { "bob" } } } }`, "reviewers"},
+		"unknown action":              {`approve { rules { new { name = "r"; action = "merge" } } }`, "action"},
+		"empty reviewer":              {`approve { rules { new { name = "r"; action = "handoff"; reviewers { "" } } } }`, "reviewers"},
+		"bad any glob":                {`approve { rules { new { name = "r"; paths_any_match { "a/[" } } } }`, "paths_any_match"},
+		"unknown handoff key":         {`approve { rules { new { name = "r"; action = "handoff"; reviewers { "bob" }; team_reviewers { "x" } } } }`, "team_reviewers"},
+		"unknown viewed key":          {`viewed { nope = true }`, "nope"},
+		"unknown viewed rule key":     {`viewed { rules { new { name = "r"; paths = "go.sum" } } }`, "paths"},
+		"viewed rule marks nothing":   {`viewed { rules { new { name = "r" } } }`, "paths_match"},
+		"duplicate viewed rule":       {`viewed { rules { new { name = "r"; paths_match { "a" } } new { name = "r"; paths_match { "b" } } } }`, "twice"},
+		"bad viewed glob":             {`viewed { rules { new { name = "r"; paths_match { "a/[" } } } }`, "paths_match"},
+		"bad paths_none_match glob":   {`viewed { rules { new { name = "r"; paths_match { "a" }; paths_none_match { "a/[" } } } }`, `viewed rule "r": paths_none_match`},
+		"bad except_paths glob":       {`viewed { rules { new { name = "r"; codeowners_not_mine = true; except_paths { "a/[" } } } }`, `viewed rule "r": paths_none_match`},
+		"bad never_mark glob":         {`viewed { never_mark { "a/[" } }`, `never_mark glob "a/["`},
+		"unknown body placeholder":    {`approve { rules { new { name = "r"; mine_comments_only = true; body = "ok {nope}" } } }`, `unknown body placeholder {nope}`},
+		"my_files without mine":       {`approve { rules { new { name = "r"; body = "ok {my_files}" } } }`, "mine_comments_only"},
+		"my_teams without mine":       {`approve { rules { new { name = "r"; body = "ok {my_teams}" } } }`, "mine_comments_only"},
+		"empty rule body":             {`approve { rules { new { name = "r"; body = "" } } }`, "body"},
+		"team request on handoff":     {`approve { rules { new { name = "r"; action = "handoff"; reviewers { "bob" }; requested_via_team = true } } }`, "requested_via_team"},
+		"body on handoff":             {`approve { rules { new { name = "r"; action = "handoff"; reviewers { "bob" }; body = "x" } } }`, "body"},
+		"both exclusion keys":         {`viewed { rules { new { name = "r"; paths_match { "a" }; paths_none_match { "docs/**" }; except_paths { "vendor/**" } } } }`, `viewed rule "r" sets both`},
+		"bad file_checks glob":        {`approve { rules { new { name = "r"; file_checks { ["a/["] = "only-deletions" } } } }`, "file_checks"},
+		"zero file_checks_timeout":    {`approve { rules { new { name = "r"; file_checks_timeout = 0.s } } }`, "file_checks_timeout"},
+		"file_checks specificity tie": {`approve { rules { new { name = "r"; file_checks { ["a/**"] = "only-deletions"; ["**/b"] = "only-deletions" } } } }`, "tied specificity"},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -304,5 +307,94 @@ func TestExampleConfigLoadsApproveRules(t *testing.T) {
 	}
 	if !cfg.Approve.Rules[2].DeletionsAndCommentsOnly || cfg.Approve.Rules[1].DeletionsAndCommentsOnly {
 		t.Fatalf("comment-cleanup = %+v, pure-deletion = %+v", cfg.Approve.Rules[2], cfg.Approve.Rules[1])
+	}
+}
+
+func TestLoadPklFileChecks(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	schema, err := filepath.Abs(circleConfigPkl(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	content := fmt.Sprintf(`amends %q
+
+github {
+  repos { "widgets" }
+}
+
+approve {
+  rules {
+    new {
+      name = "fc"
+      file_checks {
+        ["**/baseline.txt"] = "only-deletions"
+        ["checkers/size/baseline.txt"] = "./check-shrink"
+        ["docs/*.md"] = new Listing { "~/bin/check-docs"; "--strict" }
+      }
+      file_checks_timeout = 15.s
+      mark_viewed_on_pass = false
+    }
+    new {
+      name = "defaults"
+    }
+  }
+}
+`, schema)
+	path := writeConfig(t, dir, "config.pkl", content)
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule := cfg.Approve.Rules[0]
+	if rule.FileChecksTimeout != 15*time.Second || rule.MarkViewedOnPass {
+		t.Fatalf("file_checks settings = %v %v", rule.FileChecksTimeout, rule.MarkViewedOnPass)
+	}
+	if got := rule.FileChecks["**/baseline.txt"]; got.Builtin != FileCheckOnlyDeletions || len(got.Argv) != 0 {
+		t.Fatalf("builtin = %+v", got)
+	}
+	if got := rule.FileChecks["checkers/size/baseline.txt"]; len(got.Argv) != 1 || got.Argv[0] != filepath.Join(dir, "check-shrink") {
+		t.Fatalf("relative script = %+v (dir=%s)", got, dir)
+	}
+	if got := rule.FileChecks["docs/*.md"]; len(got.Argv) != 2 || got.Argv[0] != filepath.Join(home, "bin", "check-docs") || got.Argv[1] != "--strict" {
+		t.Fatalf("tilde argv = %+v", got)
+	}
+	defaults := cfg.Approve.Rules[1]
+	if defaults.FileChecksTimeout != DefaultFileCheckTimeout || !defaults.MarkViewedOnPass {
+		t.Fatalf("defaults = %v %v", defaults.FileChecksTimeout, defaults.MarkViewedOnPass)
+	}
+}
+
+func TestMatchFileCheckSpecificity(t *testing.T) {
+	checks := map[string]FileCheck{
+		"*.txt":                      {Builtin: FileCheckOnlyDeletions},
+		"*_baseline.txt":             {Builtin: FileCheckOnlyDeletions},
+		"**/baseline.txt":            {Builtin: FileCheckOnlyDeletions},
+		"checkers/*/baseline.txt":    {Builtin: FileCheckOnlyDeletions},
+		"checkers/size/baseline.txt": {Argv: []string{"./exact"}},
+	}
+	tests := []struct {
+		path    string
+		wantPat string
+	}{
+		{"checkers/size/baseline.txt", "checkers/size/baseline.txt"},
+		{"checkers/lint/baseline.txt", "checkers/*/baseline.txt"},
+		{"other/dir/baseline.txt", "**/baseline.txt"},
+		{"foo_baseline.txt", "*_baseline.txt"},
+		{"notes.txt", "*.txt"},
+		{"main.go", ""},
+	}
+	for _, tc := range tests {
+		pat, _, ok := MatchFileCheck(checks, tc.path)
+		if tc.wantPat == "" {
+			if ok {
+				t.Errorf("MatchFileCheck(%q) = %q, want no match", tc.path, pat)
+			}
+			continue
+		}
+		if !ok || pat != tc.wantPat {
+			t.Errorf("MatchFileCheck(%q) = (%q, %v), want %q", tc.path, pat, ok, tc.wantPat)
+		}
 	}
 }

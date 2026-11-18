@@ -83,9 +83,14 @@ type LogEntry struct {
 	Steps []string `json:"steps,omitempty"`
 	// Paths are the files this run marked viewed, or would mark in a dry run.
 	Paths []string `json:"paths,omitempty"`
+	// FileCheckPatterns maps each marked path from file_checks to the pattern that passed.
+	FileCheckPatterns map[string]string `json:"fileCheckPatterns,omitempty"`
 	// Exclusions are explain lines for files a selector matched and an
 	// exclusion kept visible. They are not part of the audit log.
 	Exclusions []string `json:"-"`
+	// ExtraLogs are additional audit log entries (e.g. mark_viewed alongside
+	// approved) written to the log for this pull request.
+	ExtraLogs []LogEntry `json:"-"`
 }
 
 // Runner evaluates review requests and approves the ones a rule matches.
@@ -102,6 +107,8 @@ type Runner struct {
 	Now func() time.Time
 	// RunCommand runs agent commands. Nil means ExecCommand.
 	RunCommand CommandRunner
+	// RunFileCheckCommand runs file_checks scripts. Nil means ExecFileCheckCommand.
+	RunFileCheckCommand FileCheckRunner
 	// AgentCache caches agent command decisions. Nil bypasses the cache.
 	AgentCache *AgentCache
 
@@ -203,7 +210,7 @@ func (r *Runner) decide(ref github.PullRef, viewer string, opts Options, single 
 			r.loadCommentPatches(&pr)
 		}
 	}
-	results, matched := Evaluate(rules, pr, agent)
+	results, matched := evaluateWithFileChecks(rules, pr, agent, r.fileChecker())
 	entry.Rules = results
 	if matched != "" {
 		entry.Rule = &matched
@@ -379,16 +386,28 @@ func agentKeyText(a AgentResult) string {
 }
 
 func (r *Runner) report(entry LogEntry, opts Options) error {
-	line, err := json.Marshal(entry)
-	if err != nil {
-		return fmt.Errorf("encode audit log: %w", err)
+	if err := writeLogEntry(r.Log, entry); err != nil {
+		return err
 	}
-	if _, err := r.Log.Write(append(line, '\n')); err != nil {
-		return fmt.Errorf("write audit log: %w", err)
+	for _, extra := range entry.ExtraLogs {
+		if err := writeLogEntry(r.Log, extra); err != nil {
+			return err
+		}
 	}
 	row := fmt.Sprintf("%s %-32s %-18s %-20s %s\n", statusCell(entry.Action, opts.Color), entry.PR, entry.Action, ruleColumn(entry), entry.Title)
 	if _, err := io.WriteString(r.Out, row+details(entry, opts.Explain)); err != nil {
 		return fmt.Errorf("write output: %w", err)
+	}
+	return nil
+}
+
+func writeLogEntry(w io.Writer, entry LogEntry) error {
+	line, err := json.Marshal(entry)
+	if err != nil {
+		return fmt.Errorf("encode audit log: %w", err)
+	}
+	if _, err := w.Write(append(line, '\n')); err != nil {
+		return fmt.Errorf("write audit log: %w", err)
 	}
 	return nil
 }
@@ -443,9 +462,15 @@ func leftForHuman(entry LogEntry) bool {
 func writeViewed(out *strings.Builder, entry LogEntry, explain bool) {
 	var verb string
 	switch entry.Action {
-	case ActionWouldMarkViewed:
+	case ActionWouldMarkViewed, ActionWouldApprove, ActionWouldHandoff:
+		if len(entry.Paths) == 0 {
+			return
+		}
 		verb = ActionWouldMarkViewed
-	case ActionMarkViewed:
+	case ActionMarkViewed, ActionApproved, ActionHandoff:
+		if len(entry.Paths) == 0 {
+			return
+		}
 		verb = ActionMarkViewed
 	default:
 		return

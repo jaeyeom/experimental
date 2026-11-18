@@ -82,6 +82,12 @@ func RunIO(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, name 
 	return runIO(ctx, nil, stdin, stdout, stderr, name, args...)
 }
 
+// RunIOEnv is RunIO with env as the child's environment.
+// Nil env keeps the process environment.
+func RunIOEnv(ctx context.Context, env []string, stdin io.Reader, stdout, stderr io.Writer, name string, args ...string) (Result, error) {
+	return runIO(ctx, env, stdin, stdout, stderr, name, args...)
+}
+
 func runIO(ctx context.Context, env []string, stdin io.Reader, stdout, stderr io.Writer, name string, args ...string) (Result, error) {
 	// The caller names the binary, such as herdr or ssh, and passes an
 	// argument list, not a shell line.
