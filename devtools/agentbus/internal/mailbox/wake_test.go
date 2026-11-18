@@ -3,6 +3,7 @@ package mailbox
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter/fake"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/hibernate"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/registry"
@@ -26,6 +28,7 @@ type fakeWaker struct {
 	mu      sync.Mutex
 	ad      *fake.Adapter
 	recs    []hibernate.Record
+	models  []string
 	err     error
 	hold    bool
 	started chan struct{}
@@ -33,8 +36,13 @@ type fakeWaker struct {
 }
 
 func (w *fakeWaker) Wake(ctx context.Context, rec hibernate.Record) error {
+	return w.WakeWithModel(ctx, rec, "")
+}
+
+func (w *fakeWaker) WakeWithModel(ctx context.Context, rec hibernate.Record, model string) error {
 	w.mu.Lock()
 	w.recs = append(w.recs, rec)
+	w.models = append(w.models, model)
 	hold, err := w.hold, w.err
 	w.mu.Unlock()
 	if hold {
@@ -339,5 +347,112 @@ func TestWakeIgnoresTheBackoff(t *testing.T) {
 	}
 	if w.waker.calls() != 2 {
 		t.Fatalf("relaunched %d times, want 2", w.waker.calls())
+	}
+}
+
+func TestWakeModelPrecedenceAndLogging(t *testing.T) {
+	w := newWakeWorld(t)
+	// Update sleeper's record argv to have --model opus.
+	if err := w.reg.ClearHibernation(sleeper); err != nil {
+		t.Fatal(err)
+	}
+	origArgv := []string{"claude", "--model", "opus"}
+	if _, err := w.reg.BeginHibernation(hibernate.Record{
+		Handle: sleeper, Pane: "w1:p1", Kind: "claude", Session: "s1",
+		Cwd: "/src", Argv: origArgv, Names: []string{"ops/x"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.reg.EndHibernation(sleeper, hibernate.StatusHibernated, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// Per-name rule wins over wake_model; first match wins.
+	w.box.SetWakeModel("haiku", []config.WakeModelRule{
+		{Pattern: "ops/*", Model: "sonnet"},
+		{Pattern: "ops/x", Model: "haiku"},
+	})
+	if _, err := w.box.Wake(context.Background(), "ops/x"); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(w.waker.models, []string{"sonnet"}) {
+		t.Fatalf("models = %q, want [sonnet]", w.waker.models)
+	}
+	evs := w.events(t, eventlog.EventWake)
+	if len(evs) != 1 || !strings.Contains(evs[0].Detail, "model sonnet, was opus") {
+		t.Fatalf("wake event = %+v", evs)
+	}
+}
+
+func TestWakeModelKeepAndOverrideAndRecordPreserved(t *testing.T) {
+	w := newWakeWorld(t)
+	if err := w.reg.ClearHibernation(sleeper); err != nil {
+		t.Fatal(err)
+	}
+	origArgv := []string{"claude", "--model", "opus"}
+	if _, err := w.reg.BeginHibernation(hibernate.Record{
+		Handle: sleeper, Pane: "w1:p1", Kind: "claude", Session: "s1",
+		Cwd: "/src", Argv: origArgv, Names: []string{"ops/x"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.reg.EndHibernation(sleeper, hibernate.StatusHibernated, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// Rule says keep; fail the first wake to verify record keeps original argv
+	// and failed wake event names the model.
+	w.box.SetWakeModel("haiku", []config.WakeModelRule{{Pattern: "ops/*", Model: "keep"}})
+	w.waker.err = errors.New("timeout")
+	if _, err := w.box.Wake(context.Background(), "ops/x"); err == nil {
+		t.Fatal("expected wake failure")
+	}
+	if !slices.Equal(w.waker.models, []string{"keep"}) {
+		t.Fatalf("models = %q, want [keep]", w.waker.models)
+	}
+	rec, ok := w.reg.Hibernation(sleeper)
+	if !ok || !slices.Equal(rec.Argv, origArgv) {
+		t.Fatalf("record argv after wake = %q, want %q", rec.Argv, origArgv)
+	}
+	failEvs := w.events(t, eventlog.EventWakeFailed)
+	if len(failEvs) != 1 || !strings.Contains(failEvs[0].Detail, "model opus") {
+		t.Fatalf("wake failed event = %+v", failEvs)
+	}
+
+	// Explicit WakeWithModel ("wake --model") wins over config.
+	w.waker.err = nil
+	if _, err := w.box.WakeWithModel(context.Background(), "ops/x", "sonnet"); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(w.waker.models, []string{"keep", "sonnet"}) {
+		t.Fatalf("models = %q, want [keep sonnet]", w.waker.models)
+	}
+}
+
+func TestWakeModelNonClaudeKindIgnoredWithLogLine(t *testing.T) {
+	w := newWakeWorld(t)
+	if err := w.reg.ClearHibernation(sleeper); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.reg.BeginHibernation(hibernate.Record{
+		Handle: sleeper, Pane: "w1:p1", Kind: "codex", Session: "s1",
+		Cwd: "/src", Argv: []string{"codex"}, Names: []string{"ops/x"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.reg.EndHibernation(sleeper, hibernate.StatusHibernated, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	w.box.SetWakeModel("sonnet", nil)
+	if _, err := w.box.Wake(context.Background(), "ops/x"); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(w.waker.models, []string{""}) {
+		t.Fatalf("models = %q, want [\"\"] for non-claude", w.waker.models)
+	}
+	ignored := w.events(t, eventlog.EventWakeModelIgnored)
+	if len(ignored) != 1 || !strings.Contains(ignored[0].Detail, "codex") {
+		t.Fatalf("ignored events = %+v", ignored)
 	}
 }

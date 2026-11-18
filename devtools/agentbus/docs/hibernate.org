@@ -185,7 +185,19 @@ record is not hibernated.
 
 #+begin_src toml
 wake_timeout = "60s"   # how long a relaunched agent has to get ready
+# wake_model = "sonnet"
+# wake_model_by_name = {"ops/*" = "keep", "routine/*" = "haiku"}
 #+end_src
+
+For Claude Code agents, ~wake_model~ and ~wake_model_by_name~ override
+~--model~ in the resume command (the hibernation record keeps the
+original ~argv~). ~wake_model_by_name~ matches names, handles, or globs
+in file order (first match wins), then ~wake_model~, then ~keep~. The
+value ~keep~ preserves the original model. ~agentbus wake --model <m>~
+overrides the config for a manual wake (~--model keep~ forces the
+original). For other kinds, a set wake model is ignored with one log
+line. In hub mode, the hub daemon reads these keys; a client-side
+~wake_model~ is not consulted.
 
 ~send~ does not wait for the wake: it prints ~held: waking~, and the
 message goes out once the agent is ready. Messages sent while a wake is

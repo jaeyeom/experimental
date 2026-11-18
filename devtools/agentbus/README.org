@@ -225,7 +225,7 @@ handle: herdr:local/default/w1:p1
 | ~jobs <subcommand>~               | Enqueue, claim, and settle jobs; hold the queue; ~jobs runner~ runs them. See [[file:docs/jobs.org][the job queue]]. |
 | ~mem [--json]~                    | Memory per local agent pane. See [[file:docs/hibernate.org][memory]].                          |
 | ~hibernate <name or handle>...~   | Stop idle agents but keep their panes and names. See [[file:docs/hibernate.org][hibernation]]. |
-| ~wake <name or handle>~           | Relaunch a hibernated agent now. A message to it wakes it too.                                 |
+| ~wake [--model <m>] <name or handle>~ | Relaunch a hibernated agent now (~--model keep~ keeps original). A message to it wakes it too. |
 | ~install~                         | Install the supervisor and load it. In hub mode, install the tunnel.                           |
 | ~paths --json~                    | Print ~socket~, ~hub_socket~, ~tunnel_socket~, and ~state_dir~.                                |
 | ~doctor [--sandbox]~              | Other ~agentbusd~ processes; in hub mode, the tunnel, ssh, and outbox.                         |
@@ -321,6 +321,8 @@ lease_takeover = "log"            # "on" carries takeovers out; "log" only logs 
 lease_ignore_procs = ["sh", "bash", "zsh", "fish", "claude", "codex", "gemini", "emacs", "vim", "nvim", "less", "agentbus"]
 
 wake_timeout = "60s"              # how long a relaunched agent has to get ready
+# wake_model = "sonnet"           # model a woken Claude Code agent resumes on ("keep" keeps original)
+# wake_model_by_name = {"ops/*" = "keep", "routine/*" = "haiku"}  # first match wins
 # hibernate_exempt = ["ops/*"]    # default: none
 hibernate_policy = "off"          # "dry-run" or "on"
 # hibernate_below = "1.5GiB"      # required before dry-run or on acts
@@ -330,6 +332,18 @@ hibernate_interval = "1m"         # how often the policy reads available memory
 
 # Jobs. Default: jobs-policy.json beside this file; missing asks for every kind.
 # jobs_policy = "~/.config/agentbus/jobs-policy.json"
+#+END_SRC
+
+For ~wake_model~ and ~wake_model_by_name~, the daemon that performs
+the wake (the hub in hub mode) reads the config; a client-side
+~wake_model~ is not consulted. Rules in ~wake_model_by_name~ match
+names, handles, or globs in file order (first match wins), then
+~wake_model~, then ~keep~. ~agentbus wake --model <m>~ overrides both
+for a manual wake (~--model keep~ forces the original). Example:
+
+#+BEGIN_SRC toml
+wake_model = "sonnet"
+wake_model_by_name = {"ops/*" = "keep", "routine/*" = "haiku"}
 #+END_SRC
 
 * Troubleshooting

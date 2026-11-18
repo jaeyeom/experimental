@@ -77,12 +77,17 @@ func TestWakeTakesANameAfterDoubleDash(t *testing.T) {
 }
 
 func TestWakeFlagsAfterThePane(t *testing.T) {
-	w, err := parseWake([]string{"w1:p1", "--if-hibernated", "--wait", "--machine", "mini"}, io.Discard)
-	if err != nil || w.target != "w1:p1" || !w.ifHibernated || w.machine != "mini" {
+	w, err := parseWake([]string{"w1:p1", "--if-hibernated", "--wait", "--machine", "mini", "--model", "sonnet"}, io.Discard)
+	if err != nil || w.target != "w1:p1" || !w.ifHibernated || w.machine != "mini" || w.model != "sonnet" {
 		t.Fatalf("wake = %+v, err = %v", w, err)
 	}
 	if _, err := parseWake([]string{"ops/x", "--wait=false"}, io.Discard); err == nil {
 		t.Fatal("want an error for --wait=false: a wake always waits")
+	}
+	for _, bad := range [][]string{{"ops/x", "--model", ""}, {"ops/x", "--model", "-bad"}} {
+		if _, err := parseWake(bad, io.Discard); err == nil {
+			t.Fatalf("parseWake(%q) succeeded, want error", bad)
+		}
 	}
 }
 

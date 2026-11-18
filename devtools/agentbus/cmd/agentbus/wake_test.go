@@ -18,15 +18,21 @@ import (
 
 // cmdWaker counts the wakes the daemon asks for and fails them with err.
 type cmdWaker struct {
-	mu   sync.Mutex
-	recs []hibernate.Record
-	err  error
+	mu     sync.Mutex
+	recs   []hibernate.Record
+	models []string
+	err    error
 }
 
-func (w *cmdWaker) Wake(_ context.Context, rec hibernate.Record) error {
+func (w *cmdWaker) Wake(ctx context.Context, rec hibernate.Record) error {
+	return w.WakeWithModel(ctx, rec, "")
+}
+
+func (w *cmdWaker) WakeWithModel(_ context.Context, rec hibernate.Record, model string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.recs = append(w.recs, rec)
+	w.models = append(w.models, model)
 	return w.err
 }
 
@@ -187,5 +193,16 @@ func TestSendToAHibernatedNameSaysItIsWaking(t *testing.T) {
 func TestWakeRunsOnTheHub(t *testing.T) {
 	if !tunnelCommands["wake"] || localCommands["wake"] {
 		t.Fatal("wake must go to the hub's daemon in hub mode")
+	}
+}
+
+func TestWakeCommandModelFlagOverridesDaemonConfig(t *testing.T) {
+	env, waker := startWakeBus(t)
+	mustCmd(t, []string{"wake", "ops/x", "--model", "haiku"}, env)
+	waker.mu.Lock()
+	got := append([]string(nil), waker.models...)
+	waker.mu.Unlock()
+	if len(got) != 1 || got[0] != "haiku" {
+		t.Fatalf("models = %q, want [haiku]", got)
 	}
 }

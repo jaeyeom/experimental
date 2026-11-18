@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/hibernate"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/jobs"
@@ -61,6 +62,10 @@ type Config struct {
 	// to it or `agentbus wake` names it. Nil holds such messages as
 	// hibernated.
 	Waker mailbox.Waker
+	// WakeModel and WakeModelByName choose the model a woken agent
+	// resumes on.
+	WakeModel       string
+	WakeModelByName []config.WakeModelRule
 	// HibernatePolicy, when not nil, makes the memory-pressure
 	// hibernation policy from the daemon's own hibernate ops. Serve runs
 	// it on PolicyTicks, or every PolicyInterval.
@@ -151,6 +156,8 @@ type Request struct {
 	Fresh bool `json:"fresh,omitempty"`
 	// Machine makes a wake's Name a herdr pane id on that machine.
 	Machine string `json:"machine,omitempty"`
+	// Model overrides wake_model for a single wake.
+	Model string `json:"model,omitempty"`
 	// ClientID is the caller's retry key for send and reply.
 	ClientID string `json:"clientId,omitempty"`
 	// IDs are the message or client ids of op status-report.
@@ -403,6 +410,7 @@ func newServer(ctx context.Context, stateDir string, cfg Config, lg *eventlog.Lo
 	if cfg.Waker != nil {
 		box.SetWaker(cfg.Waker)
 	}
+	box.SetWakeModel(cfg.WakeModel, cfg.WakeModelByName)
 	box.SetPasteBound(cfg.PasteBound)
 	leases, err := lease.Open(stateDir, lg, cfg.Now, func(handle string) string {
 		if names := reg.NamesOf(handle); len(names) > 0 {

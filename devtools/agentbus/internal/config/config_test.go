@@ -244,6 +244,68 @@ func TestParseWakeTimeout(t *testing.T) {
 	}
 }
 
+func TestParseWakeModel(t *testing.T) {
+	got, err := Parse("wake_model = \"sonnet\"  # cheaper\n")
+	if err != nil || got.WakeModel != "sonnet" {
+		t.Fatalf("Parse = %+v, %v", got, err)
+	}
+	for _, bad := range []string{
+		"wake_model = \"\"\n",
+		"wake_model = \"-bad\"\n",
+		"wake_model = \"--dangerously-skip-permissions\"\n",
+		"wake_model = sonnet\n",
+	} {
+		if _, err := Parse(bad); err == nil {
+			t.Fatalf("Parse(%q) succeeded, want error", bad)
+		}
+	}
+}
+
+func TestParseWakeModelByNameInlineAndSection(t *testing.T) {
+	got, err := Parse(`wake_model = "sonnet"
+wake_model_by_name = {"ops/*" = "keep", "routine/*" = "haiku"} # order kept
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []WakeModelRule{
+		{Pattern: "ops/*", Model: "keep"},
+		{Pattern: "routine/*", Model: "haiku"},
+	}
+	if got.WakeModel != "sonnet" || !reflect.DeepEqual(got.WakeModelByName, want) {
+		t.Fatalf("got = %+v, want %+v", got, want)
+	}
+
+	gotSec, err := Parse(`wake_model = "sonnet"
+[wake_model_by_name]
+"ops/*" = "keep"
+routine = "haiku"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantSec := []WakeModelRule{
+		{Pattern: "ops/*", Model: "keep"},
+		{Pattern: "routine", Model: "haiku"},
+	}
+	if !reflect.DeepEqual(gotSec.WakeModelByName, wantSec) {
+		t.Fatalf("gotSec = %+v, want %+v", gotSec.WakeModelByName, wantSec)
+	}
+
+	for _, bad := range []string{
+		`wake_model_by_name = {"ops/*" = ""}`,
+		`wake_model_by_name = {"ops/*" = "-bad"}`,
+		`wake_model_by_name = {"" = "sonnet"}`,
+		`wake_model_by_name = ["ops/*"]`,
+		"[wake_model_by_name]\n\"ops/*\" = \"-bad\"\n",
+		"[other]\na = \"b\"\n",
+	} {
+		if _, err := Parse(bad); err == nil {
+			t.Fatalf("Parse(%q) succeeded, want error", bad)
+		}
+	}
+}
+
 func TestParseListLivenessMaxAge(t *testing.T) {
 	got, err := Parse("list_liveness_max_age = \"30s\"\n")
 	if err != nil || got.ListLivenessMaxAge != 30*time.Second {

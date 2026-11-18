@@ -15,6 +15,10 @@ import (
 // when wake_timeout is not set.
 const DefaultWakeTimeout = 60 * time.Second
 
+// WakeModelKeep is the wake_model / wake --model value that preserves the
+// agent's original model.
+const WakeModelKeep = "keep"
+
 // WakePanes are the pane calls a wake makes, by handle, on the agent's
 // own machine.
 type WakePanes interface {
@@ -49,7 +53,13 @@ func (e *PaneReusedError) Error() string {
 // idle or done, with rec's session when herdr reports one. A pane that
 // runs something else is a *PaneReusedError and nothing is launched.
 func (w *Waker) Wake(ctx context.Context, rec Record) error {
-	command, err := WakeCommand(rec)
+	return w.WakeWithModel(ctx, rec, "")
+}
+
+// WakeWithModel is Wake with an optional model override (empty or "keep"
+// preserves rec's original model).
+func (w *Waker) WakeWithModel(ctx context.Context, rec Record, model string) error {
+	command, err := WakeCommandWithModel(rec, model)
 	if err != nil {
 		return err
 	}
@@ -133,7 +143,13 @@ func foreground(info herdr.ProcessInfo) string {
 // WakeCommand is the shell line that starts rec's agent again: cd to
 // its cwd, then its argv in resume form.
 func WakeCommand(rec Record) (string, error) {
-	argv, err := ResumeArgv(rec.Kind, rec.Argv, rec.Session)
+	return WakeCommandWithModel(rec, "")
+}
+
+// WakeCommandWithModel is WakeCommand with an optional model override
+// (empty or "keep" preserves rec's original model).
+func WakeCommandWithModel(rec Record, model string) (string, error) {
+	argv, err := ResumeArgv(rec.Kind, rec.Argv, rec.Session, model)
 	if err != nil {
 		return "", err
 	}
@@ -147,10 +163,39 @@ func WakeCommand(rec Record) (string, error) {
 	return "cd " + shellQuote(rec.Cwd) + " && " + strings.Join(quoted, " "), nil
 }
 
+// SupportsWakeModel reports whether kind's resume form supports a
+// model flag.
+func SupportsWakeModel(kind string) bool {
+	return kind == "claude"
+}
+
+// ArgvModel returns the model flag value in argv for kind, or "" if
+// none or unsupported.
+func ArgvModel(kind string, argv []string) string {
+	if !SupportsWakeModel(kind) || len(argv) < 2 {
+		return ""
+	}
+	var model string
+	rest := argv[1:]
+	for i := 0; i < len(rest); i++ {
+		arg := rest[i]
+		switch {
+		case strings.HasPrefix(arg, "--model="):
+			model = strings.TrimPrefix(arg, "--model=")
+		case arg == "--model" && i+1 < len(rest) && !strings.HasPrefix(rest[i+1], "-"):
+			model = rest[i+1]
+			i++
+		}
+	}
+	return model
+}
+
 // ResumeArgv is argv in a kind's resume form. For Claude Code it is
 // --resume <session> right after the program, with any --resume [id],
 // -r [id], --continue, or -c dropped and every other argument kept.
-func ResumeArgv(kind string, argv []string, session string) ([]string, error) {
+// When model is non-empty and not "keep", any --model X or --model=X is
+// replaced with --model <model> (or added when absent).
+func ResumeArgv(kind string, argv []string, session, model string) ([]string, error) {
 	switch {
 	case kind != "claude":
 		return nil, fmt.Errorf("no resume form for a %s agent", kind)
@@ -160,20 +205,30 @@ func ResumeArgv(kind string, argv []string, session string) ([]string, error) {
 		return nil, errors.New("the record has no argv")
 	}
 	out := []string{argv[0], "--resume", session}
-	rest := argv[1:]
+	replaceModel := model != "" && model != WakeModelKeep
+	if replaceModel {
+		out = append(out, "--model", model)
+	}
+	return append(out, filterClaudeResumeArgs(argv[1:], replaceModel)...), nil
+}
+
+func filterClaudeResumeArgs(rest []string, dropModel bool) []string {
+	var out []string
 	for i := 0; i < len(rest); i++ {
 		arg := rest[i]
-		switch {
-		case arg == "--continue" || arg == "-c":
-		case strings.HasPrefix(arg, "--resume=") || strings.HasPrefix(arg, "-r="):
-		case arg == "--resume" || arg == "-r":
-			// The id is optional; a next argument that is a flag is not it.
+		if arg == "--continue" || arg == "-c" || strings.HasPrefix(arg, "--resume=") || strings.HasPrefix(arg, "-r=") {
+			continue
+		}
+		if arg == "--resume" || arg == "-r" || (dropModel && arg == "--model") {
 			if i+1 < len(rest) && !strings.HasPrefix(rest[i+1], "-") {
 				i++
 			}
-		default:
-			out = append(out, arg)
+			continue
 		}
+		if dropModel && strings.HasPrefix(arg, "--model=") {
+			continue
+		}
+		out = append(out, arg)
 	}
-	return out, nil
+	return out
 }

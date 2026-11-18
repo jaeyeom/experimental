@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/hibernate"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
@@ -143,7 +144,12 @@ func (s *server) wakeAgent(req Request) Response {
 		}
 		target = handle
 	}
-	handle, err := s.box.Wake(s.ctx, target)
+	if req.Model != "" {
+		if err := config.ValidateWakeModel(req.Model); err != nil {
+			return Response{Error: err.Error()}
+		}
+	}
+	handle, err := s.box.WakeWithModel(s.ctx, target, req.Model)
 	switch {
 	case errors.Is(err, mailbox.ErrUnknownTarget):
 		return Response{Error: err.Error(), State: WakeUnknown}
