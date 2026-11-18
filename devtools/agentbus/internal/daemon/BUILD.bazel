@@ -20,6 +20,7 @@ go_library(
     visibility = ["//devtools/agentbus:__subpackages__"],
     deps = [
         "//devtools/agentbus/internal/adapter:go_default_library",
+        "//devtools/agentbus/internal/config:go_default_library",
         "//devtools/agentbus/internal/eventlog:go_default_library",
         "//devtools/agentbus/internal/hibernate:go_default_library",
         "//devtools/agentbus/internal/jobs:go_default_library",

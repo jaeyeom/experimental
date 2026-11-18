@@ -78,6 +78,10 @@ Config file ($XDG_CONFIG_HOME/agentbus/config.toml, optional):
   wake_timeout = "60s"    how long a hibernated agent relaunched on
                           delivery or by 'agentbus wake' has to become idle
                           or done in its pane (default: 60s)
+  wake_model = "sonnet"   model a woken Claude Code agent resumes on
+                          ("keep" keeps the original)
+  wake_model_by_name = {"ops/*" = "keep"}
+                          per-name/handle/glob overrides for wake_model
   hibernate_policy = "off"
                           "on" hibernates idle agents on this machine while
                           its available memory is low; "dry-run" only logs
@@ -172,6 +176,8 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 		RetentionDays:      days,
 		Adapters:           []adapter.Adapter{ad},
 		Waker:              &hibernate.Waker{Panes: ad, Clock: hibernate.RealClock{}, Timeout: cfg.WakeTimeout},
+		WakeModel:          cfg.WakeModel,
+		WakeModelByName:    cfg.WakeModelByName,
 		InlineBytes:        inline,
 		ListLivenessMaxAge: cfg.ListLivenessMaxAge,
 		HubCaller:          herdr.HubCaller,

@@ -97,6 +97,9 @@ const (
 	// EventWakeSkipped is a wake not tried because the pane runs
 	// something other than its shell; the record was dropped.
 	EventWakeSkipped = "agent_wake_skipped"
+	// EventWakeModelIgnored is a configured or requested wake model
+	// ignored because the agent kind's resume form has no model flag.
+	EventWakeModelIgnored = "agent_wake_model_ignored"
 	// EventPolicyHibernate is an agent the memory-pressure policy
 	// hibernated.
 	EventPolicyHibernate = "policy_hibernate"
@@ -449,7 +452,7 @@ func knownEvent(name string) bool {
 		EventLeaseTakeover, EventLeaseAdopt, EventLeaseWouldTakeOver,
 		EventLeasePause, EventLeaseResume, EventLeaseWith, EventLeaseUnshare,
 		EventLeaseNotifyWaiting, EventLeaseNotifySkipped, EventLeaseHookDeny,
-		EventHibernated, EventHibernateRefused, EventWake, EventWakeFailed, EventWakeSkipped,
+		EventHibernated, EventHibernateRefused, EventWake, EventWakeFailed, EventWakeSkipped, EventWakeModelIgnored,
 		EventPolicyHibernate, EventPolicyWouldHibernate, EventPolicyNoCandidate,
 		EventJob:
 		return true

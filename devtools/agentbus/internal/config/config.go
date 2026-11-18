@@ -19,6 +19,8 @@
 //	lease_ignore_procs = ["zsh", "claude"]  # adopt's process check ignores these
 //	hibernate_exempt = ["ops/*"]  # names, handles, or globs hibernate never stops
 //	wake_timeout = "60s"          # how long a woken agent has to get ready
+//	wake_model = "sonnet"         # model a woken Claude Code agent resumes on
+//	wake_model_by_name = {"ops/*" = "keep", "routine/*" = "haiku"}
 //	hold_notice_after = "10m"    # one notice after a hold this long; "0s" sends none
 //	gone_after = "1h"            # a raw handle gone this long: its message expires
 //	hibernate_policy = "dry-run"  # "on" hibernates under memory pressure; "dry-run" only logs
@@ -98,6 +100,12 @@ type Config struct {
 	// WakeTimeout is how long the daemon waits for a hibernated agent it
 	// relaunched to get ready. Zero is the default, 60s.
 	WakeTimeout time.Duration
+	// WakeModel is the default model a woken Claude Code agent resumes on.
+	// Empty or "keep" keeps the original model.
+	WakeModel string
+	// WakeModelByName overrides WakeModel for matching names, handles, or
+	// globs, in file order (first match wins).
+	WakeModelByName []WakeModelRule
 	// HibernatePolicy is hibernate_policy as written when it is "off",
 	// "dry-run", or "on", else empty. Read it through Policy.
 	HibernatePolicy string
@@ -119,6 +127,24 @@ type Config struct {
 	// Warnings are problems that did not fail the load, such as an
 	// invalid lease_takeover.
 	Warnings []string
+}
+
+// WakeModelRule maps a name, handle, or glob pattern to a wake model.
+type WakeModelRule struct {
+	Pattern string
+	Model   string
+}
+
+// ValidateWakeModel rejects an empty model or one starting with "-" to
+// prevent flag injection when passed to argv.
+func ValidateWakeModel(m string) error {
+	if m == "" {
+		return errors.New("wake model must not be empty")
+	}
+	if strings.HasPrefix(m, "-") {
+		return errors.New("wake model must not start with -")
+	}
+	return nil
 }
 
 // TakeoverMode is "on" when lease_takeover is exactly "on", else "log":
@@ -248,12 +274,51 @@ func (c *Config) expandIdentity(env []string) error {
 
 // Parse reads the config text.
 func Parse(text string) (Config, error) {
-	var cfg Config
-	for i, line := range strings.Split(text, "\n") {
-		if err := parseLine(&cfg, line); err != nil {
+	var (
+		cfg                 Config
+		section             string
+		seenWakeModelByName bool
+	)
+	for i, rawLine := range strings.Split(text, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if err := parseConfigLine(&cfg, line, &section, &seenWakeModelByName); err != nil {
 			return Config{}, fmt.Errorf("line %d: %w", i+1, err)
 		}
 	}
+	return finalizeConfig(cfg)
+}
+
+func parseConfigLine(cfg *Config, line string, section *string, seenWakeModelByName *bool) error {
+	if strings.HasPrefix(line, "[") {
+		sec, err := parseSectionHeader(line)
+		if err != nil {
+			return err
+		}
+		if sec != "wake_model_by_name" {
+			return fmt.Errorf("unknown section [%s]", sec)
+		}
+		if *seenWakeModelByName {
+			return errors.New("duplicate wake_model_by_name")
+		}
+		*section = sec
+		*seenWakeModelByName = true
+		return nil
+	}
+	if *section == "wake_model_by_name" {
+		rule, err := parseWakeModelEntry(line)
+		if err != nil {
+			return err
+		}
+		cfg.WakeModelByName = append(cfg.WakeModelByName, rule)
+		return nil
+	}
+	return parseLine(cfg, line, seenWakeModelByName)
+}
+
+func finalizeConfig(cfg Config) (Config, error) {
 	if cfg.HibernateTarget > 0 && cfg.HibernateTarget < cfg.HibernateBelow {
 		return Config{}, errors.New("hibernate_target must be at least hibernate_below")
 	}
@@ -263,11 +328,7 @@ func Parse(text string) (Config, error) {
 	return cfg, nil
 }
 
-func parseLine(cfg *Config, line string) error {
-	line = strings.TrimSpace(line)
-	if line == "" || strings.HasPrefix(line, "#") {
-		return nil
-	}
+func parseLine(cfg *Config, line string, seenWakeModelByName *bool) error {
 	key, value, ok := strings.Cut(line, "=")
 	if !ok {
 		return errors.New("want key = value")
@@ -280,13 +341,16 @@ func parseLine(cfg *Config, line string) error {
 	case "remote_timeout", "list_liveness_max_age", "lease_check_interval", "lease_checkin_repeat", "lease_idle_grace", "wake_timeout",
 		"hibernate_min_idle", "hibernate_interval", "hold_notice_after", "gone_after":
 		return parseDurationKey(cfg, key, value)
-	case "hibernate_policy":
-		parseHibernatePolicy(cfg, value)
-		return nil
-	case "hibernate_below":
-		return parseSizeKey(&cfg.HibernateBelow, key, value)
-	case "hibernate_target":
-		return parseSizeKey(&cfg.HibernateTarget, key, value)
+	case "wake_model":
+		return parseWakeModel(cfg, value)
+	case "wake_model_by_name":
+		if *seenWakeModelByName {
+			return errors.New("duplicate wake_model_by_name")
+		}
+		*seenWakeModelByName = true
+		return parseWakeModelByName(cfg, value)
+	case "hibernate_policy", "hibernate_below", "hibernate_target", "hibernate_exempt":
+		return parseHibernateKey(cfg, key, value)
 	case "lease_checkouts":
 		return parseLeaseCheckouts(cfg, value)
 	case "lease_takeover":
@@ -294,13 +358,134 @@ func parseLine(cfg *Config, line string) error {
 		return nil
 	case "lease_ignore_procs":
 		return parseLeaseIgnoreProcs(cfg, value)
-	case "hibernate_exempt":
-		return parseHibernateExempt(cfg, value)
 	case "hub", "machine", "hub_socket", "ssh_identity_agent", "herdr_path", "jobs_policy":
 		return parseHubKey(cfg, key, value)
 	default:
 		return fmt.Errorf("unknown key %s", key)
 	}
+}
+
+func parseHibernateKey(cfg *Config, key, value string) error {
+	switch key {
+	case "hibernate_policy":
+		parseHibernatePolicy(cfg, value)
+		return nil
+	case "hibernate_below":
+		return parseSizeKey(&cfg.HibernateBelow, key, value)
+	case "hibernate_target":
+		return parseSizeKey(&cfg.HibernateTarget, key, value)
+	default:
+		return parseHibernateExempt(cfg, value)
+	}
+}
+
+// parseWakeModel reads wake_model, a non-empty model string not starting with -.
+func parseWakeModel(cfg *Config, value string) error {
+	raw, rest, ok := parseString(value)
+	if !ok || !blankOrComment(rest) {
+		return errors.New(`wake_model must be a string, such as "sonnet"`)
+	}
+	if err := ValidateWakeModel(raw); err != nil {
+		return fmt.Errorf("wake_model: %w", err)
+	}
+	cfg.WakeModel = raw
+	return nil
+}
+
+// parseWakeModelByName reads wake_model_by_name = {"ops/*" = "keep", ...}.
+func parseWakeModelByName(cfg *Config, value string) error {
+	rest, ok := strings.CutPrefix(value, "{")
+	if !ok {
+		return errors.New(`wake_model_by_name must be an inline table, such as {"ops/*" = "keep"}`)
+	}
+	for {
+		rest = strings.TrimSpace(rest)
+		if after, done := strings.CutPrefix(rest, "}"); done {
+			if !blankOrComment(after) {
+				return errors.New(`wake_model_by_name must be an inline table, such as {"ops/*" = "keep"}`)
+			}
+			return nil
+		}
+		pattern, after, ok := parseTableKey(rest)
+		if !ok || pattern == "" {
+			return errors.New(`wake_model_by_name keys must be non-empty strings, such as "ops/*"`)
+		}
+		after = strings.TrimSpace(after)
+		after, ok = strings.CutPrefix(after, "=")
+		if !ok {
+			return errors.New(`wake_model_by_name entries must be pattern = "model"`)
+		}
+		model, after, ok := parseString(strings.TrimSpace(after))
+		if !ok {
+			return errors.New(`wake_model_by_name values must be quoted strings, such as "sonnet"`)
+		}
+		if err := ValidateWakeModel(model); err != nil {
+			return fmt.Errorf("wake_model_by_name[%q]: %w", pattern, err)
+		}
+		cfg.WakeModelByName = append(cfg.WakeModelByName, WakeModelRule{Pattern: pattern, Model: model})
+		rest = strings.TrimSpace(after)
+		if after, more := strings.CutPrefix(rest, ","); more {
+			rest = after
+		} else if !strings.HasPrefix(rest, "}") {
+			return errors.New(`wake_model_by_name must be an inline table, such as {"ops/*" = "keep"}`)
+		}
+	}
+}
+
+func parseSectionHeader(line string) (string, error) {
+	rest, ok := strings.CutPrefix(line, "[")
+	if !ok {
+		return "", errors.New("expected [section]")
+	}
+	sec, after, ok := strings.Cut(rest, "]")
+	if !ok || !blankOrComment(after) {
+		return "", errors.New("expected [section]")
+	}
+	sec = strings.TrimSpace(sec)
+	if sec == "" {
+		return "", errors.New("empty section name")
+	}
+	return sec, nil
+}
+
+func parseWakeModelEntry(line string) (WakeModelRule, error) {
+	pattern, after, ok := parseTableKey(line)
+	if !ok || pattern == "" {
+		return WakeModelRule{}, errors.New(`wake_model_by_name keys must be non-empty strings, such as "ops/*"`)
+	}
+	after = strings.TrimSpace(after)
+	after, ok = strings.CutPrefix(after, "=")
+	if !ok {
+		return WakeModelRule{}, errors.New("want key = value")
+	}
+	model, rest, ok := parseString(strings.TrimSpace(after))
+	if !ok || !blankOrComment(rest) {
+		return WakeModelRule{}, errors.New(`wake_model_by_name values must be quoted strings, such as "sonnet"`)
+	}
+	if err := ValidateWakeModel(model); err != nil {
+		return WakeModelRule{}, fmt.Errorf("wake_model_by_name[%q]: %w", pattern, err)
+	}
+	return WakeModelRule{Pattern: pattern, Model: model}, nil
+}
+
+// parseTableKey reads either a "quoted" key or a bare TOML key [A-Za-z0-9_-]+.
+func parseTableKey(s string) (string, string, bool) {
+	if strings.HasPrefix(s, `"`) {
+		return parseString(s)
+	}
+	i := 0
+	for i < len(s) {
+		c := s[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-' {
+			i++
+		} else {
+			break
+		}
+	}
+	if i == 0 {
+		return "", "", false
+	}
+	return s[:i], s[i:], true
 }
 
 // parseOptionalDuration reads a duration of at least 0s into dst. A

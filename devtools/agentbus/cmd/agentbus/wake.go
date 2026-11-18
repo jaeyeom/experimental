@@ -8,17 +8,19 @@ import (
 	"io"
 	"strings"
 
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 )
 
 // wakeUsage is the usage line of agentbus wake.
-const wakeUsage = "agentbus wake [--if-hibernated] [--wait] [--machine <m>] <name|handle|pane>"
+const wakeUsage = "agentbus wake [--if-hibernated] [--wait] [--machine <m>] [--model <m>] <name|handle|pane>"
 
 // wakeArgs are the parsed arguments of agentbus wake.
 type wakeArgs struct {
 	target string
 	// machine makes target a herdr pane id on that machine.
 	machine      string
+	model        string
 	ifHibernated bool
 }
 
@@ -35,7 +37,7 @@ func cmdWake(ctx context.Context, args, env []string, stdout, stderr io.Writer) 
 		fmt.Fprintln(stderr, "agentbus wake: usage: "+wakeUsage)
 		return 2
 	}
-	resp, code := callDaemon(ctx, env, daemon.Request{Op: "wake", Name: w.target, Machine: w.machine}, stderr)
+	resp, code := callDaemon(ctx, env, daemon.Request{Op: "wake", Name: w.target, Machine: w.machine, Model: w.model}, stderr)
 	if code != 0 {
 		return code
 	}
@@ -74,9 +76,21 @@ func parseWake(args []string, stderr io.Writer) (wakeArgs, error) {
 	fs.BoolVar(&w.ifHibernated, "if-hibernated", false, "exit 0 quietly when the target is not hibernated")
 	wait := fs.Bool("wait", true, "return once the agent is ready")
 	fs.StringVar(&w.machine, "machine", "", "the target is a herdr pane id on this machine")
+	fs.StringVar(&w.model, "model", "", "override wake_model for this wake (\"keep\" keeps the original)")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
 		return wakeArgs{}, err
+	}
+	modelSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "model" {
+			modelSet = true
+		}
+	})
+	if modelSet {
+		if err := config.ValidateWakeModel(w.model); err != nil {
+			return wakeArgs{}, fmt.Errorf("model: %w", err)
+		}
 	}
 	if !*wait {
 		return wakeArgs{}, errors.New("a wake always waits for the agent")

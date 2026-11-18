@@ -220,7 +220,8 @@ func commands() []command {
 			flags: "--if-hibernated  exit 0 and print nothing when the target is not hibernated,\n" +
 				"                 so a dispatch tool can call it before every prompt\n" +
 				"--wait           return once the agent is ready (always the case)\n" +
-				"--machine <m>    the target is a herdr pane id on machine m (local for this one)",
+				"--machine <m>    the target is a herdr pane id on machine m (local for this one)\n" +
+				"--model <m>      override wake_model for this wake (\"keep\" keeps the original)",
 			example: "agentbus wake --if-hibernated --machine local w1:p1",
 			run:     noStdin(cmdWake),
 		},
@@ -371,6 +372,10 @@ Config ($XDG_CONFIG_HOME/agentbus/config.toml):
                           names, handles, or globs hibernate never stops
   wake_timeout = "60s"    read by the daemon: how long a hibernated agent
                           it relaunches has to become idle or done
+  wake_model = "sonnet"   read by the daemon: model a woken Claude Code agent
+                          resumes on ("keep" keeps the original)
+  wake_model_by_name = {"ops/*" = "keep"}
+                          per-name/handle/glob overrides for wake_model (first match wins)
 
 In hub mode a hub that cannot be reached fails the command with
 "agentbus: hub <target> unreachable: <cause>", except send and reply,

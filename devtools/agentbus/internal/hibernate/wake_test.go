@@ -14,22 +14,27 @@ import (
 
 func TestResumeArgv(t *testing.T) {
 	for _, tt := range []struct {
-		name string
-		argv []string
-		want []string
+		name  string
+		argv  []string
+		model string
+		want  []string
 	}{
-		{"adds resume, keeps flags", []string{"claude", "--model", "opus", "--dangerously-skip-permissions"}, []string{"claude", "--resume", "s1", "--model", "opus", "--dangerously-skip-permissions"}},
-		{"replaces resume", []string{"claude", "--resume", "old", "--model", "opus"}, []string{"claude", "--resume", "s1", "--model", "opus"}},
-		{"replaces resume=", []string{"claude", "--resume=old", "--model", "opus"}, []string{"claude", "--resume", "s1", "--model", "opus"}},
-		{"replaces -r", []string{"/usr/local/bin/claude", "-r", "old"}, []string{"/usr/local/bin/claude", "--resume", "s1"}},
-		{"replaces --continue", []string{"claude", "--continue", "--model", "opus"}, []string{"claude", "--resume", "s1", "--model", "opus"}},
-		{"replaces -c", []string{"claude", "-c"}, []string{"claude", "--resume", "s1"}},
-		{"bare resume before a flag", []string{"claude", "--resume", "--model", "opus"}, []string{"claude", "--resume", "s1", "--model", "opus"}},
+		{"adds resume, keeps flags", []string{"claude", "--model", "opus", "--dangerously-skip-permissions"}, "", []string{"claude", "--resume", "s1", "--model", "opus", "--dangerously-skip-permissions"}},
+		{"replaces resume", []string{"claude", "--resume", "old", "--model", "opus"}, "", []string{"claude", "--resume", "s1", "--model", "opus"}},
+		{"replaces resume=", []string{"claude", "--resume=old", "--model", "opus"}, "", []string{"claude", "--resume", "s1", "--model", "opus"}},
+		{"replaces -r", []string{"/usr/local/bin/claude", "-r", "old"}, "", []string{"/usr/local/bin/claude", "--resume", "s1"}},
+		{"replaces --continue", []string{"claude", "--continue", "--model", "opus"}, "", []string{"claude", "--resume", "s1", "--model", "opus"}},
+		{"replaces -c", []string{"claude", "-c"}, "", []string{"claude", "--resume", "s1"}},
+		{"bare resume before a flag", []string{"claude", "--resume", "--model", "opus"}, "", []string{"claude", "--resume", "s1", "--model", "opus"}},
+		{"replaces --model X", []string{"claude", "--model", "opus", "--dangerously-skip-permissions"}, "sonnet", []string{"claude", "--resume", "s1", "--model", "sonnet", "--dangerously-skip-permissions"}},
+		{"replaces --model=X", []string{"claude", "--model=opus", "--dangerously-skip-permissions"}, "sonnet", []string{"claude", "--resume", "s1", "--model", "sonnet", "--dangerously-skip-permissions"}},
+		{"adds --model when absent", []string{"claude", "--dangerously-skip-permissions"}, "haiku", []string{"claude", "--resume", "s1", "--model", "haiku", "--dangerously-skip-permissions"}},
+		{"keep leaves --model unchanged", []string{"claude", "--model", "opus", "--dangerously-skip-permissions"}, "keep", []string{"claude", "--resume", "s1", "--model", "opus", "--dangerously-skip-permissions"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ResumeArgv("claude", tt.argv, "s1")
+			got, err := ResumeArgv("claude", tt.argv, "s1", tt.model)
 			if err != nil || !slices.Equal(got, tt.want) {
-				t.Fatalf("ResumeArgv(%q) = %q, %v; want %q", tt.argv, got, err, tt.want)
+				t.Fatalf("ResumeArgv(%q, model=%q) = %q, %v; want %q", tt.argv, tt.model, got, err, tt.want)
 			}
 		})
 	}
@@ -41,7 +46,7 @@ func TestResumeArgv(t *testing.T) {
 		{"no session", "claude", "", []string{"claude"}},
 		{"no argv", "claude", "s1", nil},
 	} {
-		if _, err := ResumeArgv(tt.kind, tt.argv, tt.session); err == nil {
+		if _, err := ResumeArgv(tt.kind, tt.argv, tt.session, ""); err == nil {
 			t.Errorf("%s: ResumeArgv succeeded", tt.name)
 		}
 	}

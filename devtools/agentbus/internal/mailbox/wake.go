@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/hibernate"
+	"github.com/jaeyeom/experimental/devtools/pkg/procinfo"
 )
 
 // Hold reasons of a message to a hibernated agent the daemon wakes.
@@ -34,6 +37,12 @@ type Waker interface {
 	Wake(ctx context.Context, rec hibernate.Record) error
 }
 
+// ModelWaker is an optional Waker extension that accepts a resolved
+// wake model (empty or "keep" preserves the agent's original model).
+type ModelWaker interface {
+	WakeWithModel(ctx context.Context, rec hibernate.Record, model string) error
+}
+
 // Errors of a Wake that starts no relaunch: the target names no agent,
 // or its agent is not hibernated. Send and Reply also return
 // ErrUnknownTarget when the target names no agent.
@@ -55,6 +64,13 @@ func (m *Mailbox) SetWaker(w Waker) {
 	m.waker = w
 }
 
+// SetWakeModel configures the default wake model and per-name rules.
+// Call it before the mailbox is used.
+func (m *Mailbox) SetWakeModel(defaultModel string, byName []config.WakeModelRule) {
+	m.wakeModel = defaultModel
+	m.wakeModelByName = slices.Clone(byName)
+}
+
 // Wake relaunches target's hibernated agent now, with no message, and
 // waits for the outcome. It ignores the backoff of a failed wake and
 // joins a wake already in flight. It returns target's handle. A target
@@ -62,6 +78,11 @@ func (m *Mailbox) SetWaker(w Waker) {
 // ErrNotHibernated; neither starts a wake. An agent still stopping is
 // neither: it is about to be hibernated.
 func (m *Mailbox) Wake(ctx context.Context, target string) (string, error) {
+	return m.WakeWithModel(ctx, target, "")
+}
+
+// WakeWithModel is Wake with an optional per-call model override.
+func (m *Mailbox) WakeWithModel(ctx context.Context, target, model string) (string, error) {
 	handle, err := m.reg.Resolve(target)
 	if err != nil {
 		return "", fmt.Errorf("resolve %s: %w: %w", target, ErrUnknownTarget, err)
@@ -77,7 +98,7 @@ func (m *Mailbox) Wake(ctx context.Context, target string) (string, error) {
 	case m.waker == nil:
 		return handle, errors.New("this daemon has no waker")
 	}
-	call := m.startWake(ctx, rec)
+	call := m.startWake(ctx, rec, model)
 	select {
 	case <-call.done:
 		return handle, call.err
@@ -99,14 +120,14 @@ func (m *Mailbox) wakeOutcome(ctx context.Context, rec hibernate.Record) outcome
 	if !inFlight && rec.Status == hibernate.StatusWakeFailed && m.now().Before(rec.RetryAt) {
 		return outcome{reason: HoldWakeFailed, target: target}
 	}
-	m.startWake(ctx, rec)
+	m.startWake(ctx, rec, "")
 	return outcome{reason: HoldWaking, target: target}
 }
 
 // startWake starts a wake of rec's agent, or returns the one in flight:
 // a handle never has two. When it ends, the handle's queue is flushed,
 // so messages sent meanwhile go out in order.
-func (m *Mailbox) startWake(ctx context.Context, rec hibernate.Record) *wakeCall {
+func (m *Mailbox) startWake(ctx context.Context, rec hibernate.Record, override string) *wakeCall {
 	handle := rec.Handle
 	m.mu.Lock()
 	if call, ok := m.waking[handle]; ok {
@@ -117,7 +138,7 @@ func (m *Mailbox) startWake(ctx context.Context, rec hibernate.Record) *wakeCall
 	m.waking[handle] = call
 	m.mu.Unlock()
 	m.wakes.Go(func() {
-		call.err = m.runWake(ctx, rec)
+		call.err = m.runWake(ctx, rec, override)
 		m.mu.Lock()
 		delete(m.waking, handle)
 		m.mu.Unlock()
@@ -139,10 +160,11 @@ func (m *Mailbox) startWake(ctx context.Context, rec hibernate.Record) *wakeCall
 // it too and is not launched into; a failed wake keeps it as
 // wake-failed with a backoff. The senders of queued messages hear of a
 // failure or a reused pane.
-func (m *Mailbox) runWake(ctx context.Context, rec hibernate.Record) error {
+func (m *Mailbox) runWake(ctx context.Context, rec hibernate.Record, override string) error {
 	handle := rec.Handle
 	name := m.agentName(handle)
-	err := m.waker.Wake(ctx, rec)
+	resolved, usedModel, origModel := m.prepareWakeModel(rec, name, override)
+	err := m.invokeWaker(ctx, rec, resolved)
 	if err != nil && ctx.Err() != nil {
 		// Shutdown cut the wake short; the record stays as it was.
 		return fmt.Errorf("wake %s: %w", name, err)
@@ -161,15 +183,75 @@ func (m *Mailbox) runWake(ctx context.Context, rec hibernate.Record) error {
 		if _, recErr := m.reg.FailWake(handle, err.Error(), m.now().Add(wakeDelay(failures))); recErr != nil {
 			return fmt.Errorf("%w; mark the record: %w", err, recErr)
 		}
-		_ = m.logEvent(eventlog.Event{Event: eventlog.EventWakeFailed, Actor: wakeActor, Name: name, Detail: fmt.Sprintf("failure %d", failures), Reason: err.Error()})
+		detail := fmt.Sprintf("failure %d", failures)
+		if md := wakeModelDetail(usedModel, origModel); md != "" {
+			detail += " (" + md + ")"
+		}
+		_ = m.logEvent(eventlog.Event{Event: eventlog.EventWakeFailed, Actor: wakeActor, Name: name, Detail: detail, Reason: err.Error()})
 		m.notifyQueued(ctx, handle, fmt.Sprintf("[agentbus] %s is hibernated and failed to wake: %s; your message is queued", name, err))
 		return fmt.Errorf("wake %s: %w", name, err)
 	}
 	if err := m.reg.ClearHibernation(handle); err != nil {
 		return fmt.Errorf("woke %s, but the record could not be cleared: %w", name, err)
 	}
-	_ = m.logEvent(eventlog.Event{Event: eventlog.EventWake, Actor: wakeActor, Name: name, Detail: "relaunched session " + rec.Session})
+	detail := "relaunched session " + rec.Session
+	if md := wakeModelDetail(usedModel, origModel); md != "" {
+		detail += " (" + md + ")"
+	}
+	_ = m.logEvent(eventlog.Event{Event: eventlog.EventWake, Actor: wakeActor, Name: name, Detail: detail})
 	return nil
+}
+
+func (m *Mailbox) prepareWakeModel(rec hibernate.Record, name, override string) (resolved, used, orig string) {
+	resolved = m.resolveWakeModel(rec, override)
+	if resolved != "" && resolved != hibernate.WakeModelKeep && !hibernate.SupportsWakeModel(rec.Kind) {
+		_ = m.logEvent(eventlog.Event{
+			Event:  eventlog.EventWakeModelIgnored,
+			Actor:  wakeActor,
+			Name:   name,
+			Detail: fmt.Sprintf("wake model %q ignored for %s agent", resolved, rec.Kind),
+		})
+		resolved = ""
+	}
+	orig = hibernate.ArgvModel(rec.Kind, rec.Argv)
+	used = orig
+	if resolved != "" && resolved != hibernate.WakeModelKeep {
+		used = resolved
+	}
+	return resolved, used, orig
+}
+
+func (m *Mailbox) invokeWaker(ctx context.Context, rec hibernate.Record, model string) error {
+	if mw, ok := m.waker.(ModelWaker); ok {
+		return mw.WakeWithModel(ctx, rec, model) //nolint:wrapcheck // waker errors are wrapped by runWake
+	}
+	return m.waker.Wake(ctx, rec) //nolint:wrapcheck // waker errors are wrapped by runWake
+}
+
+func (m *Mailbox) resolveWakeModel(rec hibernate.Record, override string) string {
+	if override != "" {
+		return override
+	}
+	keys := append([]string{rec.Handle}, m.reg.NamesOf(rec.Handle)...)
+	keys = append(keys, rec.Names...)
+	for _, rule := range m.wakeModelByName {
+		re := procinfo.Glob(rule.Pattern, true)
+		if slices.ContainsFunc(keys, re.MatchString) {
+			return rule.Model
+		}
+	}
+	return m.wakeModel
+}
+
+func wakeModelDetail(used, orig string) string {
+	switch {
+	case used != "" && orig != "" && used != orig:
+		return fmt.Sprintf("model %s, was %s", used, orig)
+	case used != "":
+		return "model " + used
+	default:
+		return ""
+	}
 }
 
 // wakeDelay is the backoff after the nth failed wake in a row.

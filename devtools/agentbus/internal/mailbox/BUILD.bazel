@@ -14,9 +14,11 @@ go_library(
     visibility = ["//devtools/agentbus:__subpackages__"],
     deps = [
         "//devtools/agentbus/internal/adapter:go_default_library",
+        "//devtools/agentbus/internal/config:go_default_library",
         "//devtools/agentbus/internal/eventlog:go_default_library",
         "//devtools/agentbus/internal/hibernate:go_default_library",
         "//devtools/agentbus/internal/registry:go_default_library",
+        "//devtools/pkg/procinfo:go_default_library",
         "//devtools/pkg/remotecall:go_default_library",
     ],
 )
@@ -38,6 +40,7 @@ go_test(
     deps = [
         "//devtools/agentbus/internal/adapter:go_default_library",
         "//devtools/agentbus/internal/adapter/fake:go_default_library",
+        "//devtools/agentbus/internal/config:go_default_library",
         "//devtools/agentbus/internal/eventlog:go_default_library",
         "//devtools/agentbus/internal/hibernate:go_default_library",
         "//devtools/agentbus/internal/registry:go_default_library",

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/registry"
 )
@@ -108,7 +109,9 @@ type Mailbox struct {
 	flushing map[string]bool
 	adapters []adapter.Adapter
 	// waker relaunches hibernated agents; nil holds their messages.
-	waker Waker
+	waker           Waker
+	wakeModel       string
+	wakeModelByName []config.WakeModelRule
 	// waking is the wake in flight per handle, and wakes every wake
 	// goroutine.
 	waking map[string]*wakeCall
