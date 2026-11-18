@@ -158,7 +158,7 @@ that hub for one invocation.
 | Command                          | Does                                                           |
 |----------------------------------+----------------------------------------------------------------|
 | ~decide ask~                     | File a question for a human to answer.                         |
-| ~decide list~                    | List items in one state. ~--snoozed~ lists only snoozed items. |
+| ~decide list~                    | List items in one state. ~--snoozed~ or ~--off-line~ filters.  |
 | ~decide show~                    | Print one item. ~--json~ adds ~ownerLocation~.                 |
 | ~decide withdraw~                | Withdraw an item and store the reason.                         |
 | ~decide done~                    | Mark an item done and store the outcome. ~--via ui~: inbox.    |
@@ -518,6 +518,7 @@ machine only. A hub does not send it.
 | ~hiddenContacts~       | none                        | Names the Contacts folder hides.                                               |
 | ~favoriteContacts~     | none                        | Starred names the recipient list shows first, in starred order.                |
 | ~contactAliases~       | none                        | Ledger name to canonical agent name.                                           |
+| ~owners~               | ~mode: off~                 | Allow-list of owners who may open items (~mode~, ~allowed~, ~managers~).       |
 | ~ui.utc~               | false                       | Inbox stamps in UTC.                                                           |
 | ~ui.clipboard~         | ~auto~                      | ~auto~, ~osc52~, ~command~, or ~off~.                                          |
 | ~ui.fillColumn~        | 72                          | Compose fill width. Never wider than the box.                                  |
@@ -561,6 +562,49 @@ and the templates stay local. ~decide config show --effective~ prints each key, 
 
 The hub needs a ~BatchMode=yes~ key, ~decide~ on ~PATH~, and a POSIX
 login shell. Failure starts with ~decide: hub me@hub unreachable~.
+
+* Who may open items
+
+In a multi-agent setup, only a few lead agents report directly to the
+user; everyone else should ask its manager instead of opening a new
+inbox item. ~owners~ configures who may open items via ~decide ask~ and
+~decide send --to~:
+
+#+begin_src json
+{
+  "owners": {
+    "mode": "warn",
+    "allowed": ["lead/*"],
+    "managers": {
+      "team/*": "lead/planner"
+    }
+  }
+}
+#+end_src
+
+~allowed~ lists owner names or ~path.Match~ globs (~*~ matches within a
+segment, not across ~/~). ~managers~ optionally maps an owner pattern to
+the manager named in warning and error messages (most specific pattern
+wins). When ~mode~ is ~warn~ or ~enforce~, ~allowed~ must be non-empty.
+
+- ~off~ (the default): every owner may open items.
+- ~warn~: non-allowed owners still open the item, get a warning on
+  stderr (~decide: owner <name> is not a direct report; ask <manager>
+  instead~), and the item is tagged ~off-line~.
+- ~enforce~: non-allowed owners get the same message on stderr, nothing
+  is opened, and ~decide~ exits with status 3.
+
+Replies on existing items (~decide reply~, ~decide send --id~) and items
+opened from the UI (~--via ui~, such as the inbox or Emacs) are always
+allowed.
+
+Run ~decide list --off-line~ (with optional ~--json~) for health checks
+to find items tagged ~off-line~ under ~warn~ mode. For hub-mode clients,
+the hub's ~owners~ config decides (and overrides any local ~owners~
+setting).
+
+Non-goals: ~owners~ does not change tool-approval flows or touch Claude
+settings.
 
 * Customizing
 
