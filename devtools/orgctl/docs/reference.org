@@ -27,6 +27,9 @@ uses 2 for usage, not for a difference.
 | drift   | 2    | a diff marker is present                 |
 | import  | 0    | the stub was written                     |
 | import  | 1    | a flag, a read, or a refused overwrite   |
+| render  | 0    | files written, or --check found no diff  |
+| render  | 1    | the spec, a flag, or a write failed      |
+| render  | 2    | usage, or --check found missing/edited   |
 | (none)  | 2    | usage, or an unknown command             |
 
 A diff marker is a line whose first character is ~+~, a tilde, ~!~,
@@ -98,6 +101,8 @@ install units or write the policy. ~--role~ selects no runners.
 | ?      | ? runner NAME remote: not read | the runner's machine is not this host       |
 | ?      | ? runner NAME unit not checked | the unit file could not be checked          |
 | ?      | ? jobs policy not checked      | the policy file could not be checked        |
+| +      | + agents-md PATH               | rendered AGENTS.md is missing under root    |
+| ~      | ~ agents-md PATH edited in place | rendered AGENTS.md differs from the spec  |
 
 | Line                            | When              |
 |---------------------------------+-------------------|
@@ -120,6 +125,8 @@ command.
 | !      | ! cron ID misplaced: move to role TARGET | USER: recreate cron in role TARGET                                            |
 | ~      | ~ ROLE when                              | a stub that sets the live when                                                |
 | !      | ! ROLE brief edited in place             | USER: review brief for ROLE                                                   |
+| +      | + agents-md PATH                         | re-render PATH with orgctl render agents-md                                   |
+| ~      | ~ agents-md PATH edited in place         | USER: move changes into the spec or re-render PATH                            |
 
 A cron is misplaced when the spec declares it on one role, the job
 was created by a session, and that session belongs to a different
