@@ -2,7 +2,11 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -16,6 +20,23 @@ const DefaultApproveBody = "LGTM"
 // DefaultAgentTimeout bounds an approve rule's agent command when config
 // omits agent_timeout.
 const DefaultAgentTimeout = 120 * time.Second
+
+// DefaultFileCheckTimeout bounds a file_checks script when config omits
+// file_checks_timeout.
+const DefaultFileCheckTimeout = 30 * time.Second
+
+// Built-in file_checks names.
+const (
+	FileCheckOnlyDeletions            = "only-deletions"
+	FileCheckDeletionsAndCommentsOnly = "deletions-and-comments-only"
+)
+
+// FileCheck is one entry in ApproveRule.FileChecks: either a built-in name
+// or a script argv list.
+type FileCheck struct {
+	Builtin string
+	Argv    []string
+}
 
 // Defaults of the agent_command decision cache when config omits them.
 const (
@@ -136,6 +157,15 @@ type ApproveRule struct {
 	// Body overrides ApproveConfig.Body for this rule. Empty uses the global
 	// body. See BodyPlaceholders.
 	Body string
+	// FileChecks maps a glob pattern to a built-in check or script argv.
+	// Matched files are judged only by their most specific pattern's check.
+	FileChecks map[string]FileCheck
+	// FileChecksTimeout bounds each file_checks script. Zero means
+	// DefaultFileCheckTimeout.
+	FileChecksTimeout time.Duration
+	// MarkViewedOnPass marks files whose file_checks check returns approve
+	// as viewed on the pull request.
+	MarkViewedOnPass bool
 }
 
 // Placeholders an approve rule's body may contain.
@@ -157,7 +187,7 @@ func BodyPlaceholders(body string) []string {
 	return names
 }
 
-func convertApprove(src pklconfig.ApproveConfig) ApproveConfig {
+func convertApprove(src pklconfig.ApproveConfig, configDir string) ApproveConfig {
 	out := ApproveConfig{
 		Body:                src.Body,
 		SkipAlreadyApproved: src.SkipAlreadyApproved,
@@ -200,6 +230,9 @@ func convertApprove(src pklconfig.ApproveConfig) ApproveConfig {
 			AgentCacheDisabled:       !rule.AgentCache,
 			RequestedViaTeam:         rule.RequestedViaTeam,
 			MineCommentsOnly:         rule.MineCommentsOnly,
+			FileChecks:               convertFileChecks(rule.FileChecks, configDir),
+			FileChecksTimeout:        rule.FileChecksTimeout.GoDuration(),
+			MarkViewedOnPass:         rule.MarkViewedOnPass,
 		}
 		if rule.Body != nil {
 			converted.Body = *rule.Body
@@ -327,6 +360,9 @@ func validateApproveRule(rule ApproveRule) error {
 	if rule.MaxUnresolvedThreads < 0 {
 		return fmt.Errorf("max_unresolved_threads must be >= 0")
 	}
+	if err := validateFileChecks(rule.FileChecks); err != nil {
+		return err
+	}
 	return validateBody(rule)
 }
 
@@ -363,6 +399,191 @@ func validateBody(rule ApproveRule) error {
 		default:
 			return fmt.Errorf("unknown body placeholder {%s}", name)
 		}
+	}
+	return nil
+}
+
+func convertFileChecks(src map[string]any, configDir string) map[string]FileCheck {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make(map[string]FileCheck, len(src))
+	for pattern, raw := range src {
+		out[pattern] = convertFileCheckValue(raw, configDir)
+	}
+	return out
+}
+
+func convertFileCheckValue(raw any, configDir string) FileCheck {
+	switch v := raw.(type) {
+	case string:
+		switch v {
+		case FileCheckOnlyDeletions, FileCheckDeletionsAndCommentsOnly:
+			return FileCheck{Builtin: v}
+		default:
+			return FileCheck{Argv: []string{resolveScriptPath(v, configDir, true)}}
+		}
+	case []string:
+		argv := cloneStrings(v)
+		if len(argv) > 0 {
+			argv[0] = resolveScriptPath(argv[0], configDir, false)
+		}
+		return FileCheck{Argv: argv}
+	case []any:
+		argv := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				argv = append(argv, s)
+			}
+		}
+		if len(argv) > 0 {
+			argv[0] = resolveScriptPath(argv[0], configDir, false)
+		}
+		return FileCheck{Argv: argv}
+	default:
+		return FileCheck{}
+	}
+}
+
+// resolveScriptPath expands a leading ~ and resolves relative paths against
+// configDir. Bare command names without a slash are left for PATH lookup
+// unless preferConfigDir is true and the file exists in configDir.
+func resolveScriptPath(p, configDir string, preferConfigDir bool) string {
+	if p == "" {
+		return ""
+	}
+	if p == "~" || strings.HasPrefix(p, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			if p == "~" {
+				return home
+			}
+			return filepath.Join(home, p[2:])
+		}
+	}
+	if filepath.IsAbs(p) || configDir == "" {
+		return p
+	}
+	if strings.ContainsRune(p, '/') || strings.ContainsRune(p, filepath.Separator) {
+		return filepath.Join(configDir, p)
+	}
+	if preferConfigDir {
+		joined := filepath.Join(configDir, p)
+		if _, err := os.Stat(joined); err == nil {
+			return joined
+		}
+	}
+	return p
+}
+
+// PatternSpec ranks a file_checks glob pattern's specificity: exact paths beat
+// globs, then more literal path segments, then longer literal text.
+type PatternSpec struct {
+	Exact           bool
+	LiteralSegments int
+	LiteralLen      int
+}
+
+// FileCheckSpecificity computes the specificity of a file_checks pattern.
+func FileCheckSpecificity(pattern string) PatternSpec {
+	exact := !hasGlobMeta(pattern)
+	litSegs := 0
+	for _, seg := range strings.Split(pattern, "/") {
+		if seg != "" && !hasGlobMeta(seg) {
+			litSegs++
+		}
+	}
+	return PatternSpec{
+		Exact:           exact,
+		LiteralSegments: litSegs,
+		LiteralLen:      literalTextLen(pattern),
+	}
+}
+
+func hasGlobMeta(s string) bool {
+	return strings.ContainsAny(s, "*?[{")
+}
+
+func literalTextLen(pattern string) int {
+	n := 0
+	for i := 0; i < len(pattern); i++ {
+		switch pattern[i] {
+		case '/', '*', '?':
+		case '[':
+			if end := strings.IndexByte(pattern[i+1:], ']'); end >= 0 {
+				i += end + 1
+			}
+		case '{':
+			if end := strings.IndexByte(pattern[i+1:], '}'); end >= 0 {
+				i += end + 1
+			}
+		default:
+			n++
+		}
+	}
+	return n
+}
+
+func moreSpecific(a, b PatternSpec) bool {
+	if a.Exact != b.Exact {
+		return a.Exact
+	}
+	if a.LiteralSegments != b.LiteralSegments {
+		return a.LiteralSegments > b.LiteralSegments
+	}
+	return a.LiteralLen > b.LiteralLen
+}
+
+// MatchFileCheck returns the most specific pattern in checks that matches
+// path, along with its check.
+func MatchFileCheck(checks map[string]FileCheck, path string) (string, FileCheck, bool) {
+	var (
+		bestPat   string
+		bestCheck FileCheck
+		bestSpec  PatternSpec
+		found     bool
+	)
+	for pattern, check := range checks {
+		ok, err := doublestar.Match(pattern, path)
+		if err != nil || !ok {
+			continue
+		}
+		spec := FileCheckSpecificity(pattern)
+		if !found || moreSpecific(spec, bestSpec) {
+			bestPat = pattern
+			bestCheck = check
+			bestSpec = spec
+			found = true
+		}
+	}
+	return bestPat, bestCheck, found
+}
+
+func validateFileChecks(checks map[string]FileCheck) error {
+	if len(checks) == 0 {
+		return nil
+	}
+	patterns := make([]string, 0, len(checks))
+	for pattern, check := range checks {
+		if pattern == "" || !doublestar.ValidatePattern(pattern) {
+			return fmt.Errorf("file_checks glob %q is invalid", pattern)
+		}
+		switch {
+		case check.Builtin == FileCheckOnlyDeletions || check.Builtin == FileCheckDeletionsAndCommentsOnly:
+		case check.Builtin != "":
+			return fmt.Errorf("file_checks %q: unknown built-in %q", pattern, check.Builtin)
+		case len(check.Argv) == 0 || check.Argv[0] == "":
+			return fmt.Errorf("file_checks %q: script must not be empty", pattern)
+		}
+		patterns = append(patterns, pattern)
+	}
+	sort.Strings(patterns)
+	bySpec := make(map[PatternSpec]string, len(patterns))
+	for _, pattern := range patterns {
+		spec := FileCheckSpecificity(pattern)
+		if prev, exists := bySpec[spec]; exists {
+			return fmt.Errorf("file_checks patterns %q and %q have tied specificity", prev, pattern)
+		}
+		bySpec[spec] = pattern
 	}
 	return nil
 }

@@ -46,9 +46,15 @@ type AgentCache struct {
 type agentCacheEntry struct {
 	Decision string    `json:"decision"`
 	Reason   string    `json:"reason"`
+	Stderr   string    `json:"stderr,omitempty"`
 	Time     time.Time `json:"time"`
 	// DurationMs is how long the original run took.
 	DurationMs int64 `json:"durationMs"`
+}
+
+// fileCheckCacheKey is the hex sha256 of a file_checks script and file diff.
+func fileCheckCacheKey(diff []byte, argv []string) string {
+	return agentCacheKey(diff, argv, "file_check")
 }
 
 // agentCacheKey is the hex sha256 of the agent input: stdin, argv, and the

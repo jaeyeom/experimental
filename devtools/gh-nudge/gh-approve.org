@@ -116,6 +116,9 @@ condition is optional. An empty list or an unset limit adds no condition.
 | ~requested_via_team~     | Default ~false~. Also run when you are requested only through a team of yours     |
 | ~mine_comments_only~     | Default ~false~. Your CODEOWNERS files change only comments or blank lines        |
 | ~body~                   | Approval body for this rule, overriding the global ~body~. See below              |
+| ~file_checks~            | Map from glob pattern to built-in check or script. See below                      |
+| ~file_checks_timeout~    | Default ~30.s~. How long a ~file_checks~ script may run                           |
+| ~mark_viewed_on_pass~    | Default ~true~. Mark files whose ~file_checks~ check returns ~approve~ as viewed  |
 
 Globs use ~**~ for any number of directories. Logins match without regard to
 case. Labels match exactly, including case. For ~required_approvals_by~, a
@@ -283,6 +286,63 @@ only. Each is off by default.
   ~{my_teams}~ need ~mine_comments_only~. An unknown placeholder is a config
   error. A body with placeholders is used as written. A plain body gets the
   rule name appended, as the global body does. Not allowed on a hand-off rule.
+
+** Per-file checks (~file_checks~)
+
+A rule may set ~file_checks~, mapping a glob pattern to a check:
+
+#+begin_src pkl
+  new {
+    name = "reviewer-code-plus-shrink-baseline"
+    codeowners_covered = true
+    checks = "green"
+    file_checks {
+      ["**/baseline.txt"] = "only-deletions"
+      ["checkers/size/baseline.txt"] = "./check-shrink"
+    }
+  }
+#+end_src
+
+For example, a rule can allow code changes owned by the reviewer, plus
+~checkers/size/baseline.txt~ where ~./check-shrink~ approves only removed lines
+or lowered numbers. A pull request that lowers one entry and fixes the code
+approves; one that raises a number defers.
+
+Each changed file is matched against the patterns, and the most specific
+pattern wins: an exact path beats any glob, then the pattern with more literal
+path segments, then the longer literal text. A specificity tie is a config
+error at load time. A file that a pattern covers is judged only by its check;
+uncovered files are left to the rule's other file-level conditions. A rule
+whose files are all covered and all approved needs no other file condition.
+Pull-request-level conditions (~checks~, ~authors_allow~, ~labels_required~,
+and so on) still apply.
+
+A check is either:
+
+- A *built-in* name:
+  - ~only-deletions~: the file's diff removes lines and adds none.
+  - ~deletions-and-comments-only~: reuses the comment classifier under
+    [[*Comment markers][Comment markers]].
+- A *script*: a path (relative to the config file, ~~~ expanded) or an argv
+  list, run directly without a shell:
+  - *Stdin*: that one file's unified diff.
+  - *Env*: ~GH_APPROVE_REPO~, ~GH_APPROVE_PR~, ~GH_APPROVE_PATH~,
+    ~GH_APPROVE_HEAD_SHA~, ~GH_APPROVE_BASE_REF~.
+  - *Stdout*: the first word must be ~approve~ or ~defer~. Anything else, a
+    non-zero exit, or a timeout (~file_checks_timeout~, default ~30.s~) means
+    ~defer~. Output is capped, and stderr goes to ~--explain~.
+  - *Cache*: each script decision is cached per ~(script, file diff hash)~ in
+    the agent cache.
+
+~--explain~ lists each changed file with its pattern, its check and the result
+(~approve~, ~defer~ and why), or ~not covered~.
+
+When ~mark_viewed_on_pass~ is ~true~ (the default), any file whose check returns
+~approve~ is marked Viewed on the pull request via ~markFileAsViewed~ (even if
+the pull request as a whole is left for a human). ~viewed.never_mark~ still
+wins, marking happens only with ~--apply~ (dry run reports
+~would_mark_viewed~), it shares ~viewed.max_marks_per_run~, and each mark is
+logged as ~mark_viewed~ with the passing ~file_checks~ pattern.
 
 ** Agent command
 

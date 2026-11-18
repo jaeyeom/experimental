@@ -264,7 +264,7 @@ func loadPklConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to evaluate pkl config: %w", err)
 	}
 
-	cfg := convertPklConfig(&pklCfg)
+	cfg := convertPklConfigInDir(&pklCfg, filepath.Dir(path))
 	if err := validateConfig(cfg); err != nil {
 		return nil, err
 	}
@@ -272,6 +272,10 @@ func loadPklConfig(path string) (*Config, error) {
 }
 
 func convertPklConfig(pklCfg *pklconfig.Config) *Config {
+	return convertPklConfigInDir(pklCfg, "")
+}
+
+func convertPklConfigInDir(pklCfg *pklconfig.Config, configDir string) *Config {
 	// Convert map[string]string to slack.UserIDMapping
 	userIDMapping := make(slack.UserIDMapping)
 	for k, v := range pklCfg.Slack.UserIdMapping {
@@ -312,7 +316,7 @@ func convertPklConfig(pklCfg *pklconfig.Config) *Config {
 			CircleCILog:                pklCfg.Settings.CircleciLog,
 		},
 		RepoSettings: convertRepoSettings(pklCfg.RepoSettings),
-		Approve:      convertApprove(pklCfg.Approve),
+		Approve:      convertApprove(pklCfg.Approve, configDir),
 		Viewed:       convertViewed(pklCfg.Viewed),
 	}
 	normalizeSettings(&cfg.Settings)

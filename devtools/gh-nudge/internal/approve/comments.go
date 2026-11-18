@@ -30,7 +30,7 @@ type syntax struct {
 // needsCommentPatches reports whether any rule reads file patches.
 func needsCommentPatches(rules []config.ApproveRule) bool {
 	for _, rule := range rules {
-		if rule.DeletionsAndCommentsOnly || rule.MineCommentsOnly {
+		if rule.DeletionsAndCommentsOnly || rule.MineCommentsOnly || len(rule.FileChecks) > 0 {
 			return true
 		}
 	}

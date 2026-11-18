@@ -116,4 +116,17 @@ type ApproveRule struct {
 	// with placeholders is used as written; one without gets the rule name
 	// appended as approve.body does. Not allowed on a hand-off rule.
 	Body *string `pkl:"body"`
+
+	// Per-file checks, mapping a glob pattern to a built-in name
+	// ("only-deletions" or "deletions-and-comments-only") or a script
+	// (a path relative to the config file with ~ expanded, or an argv list
+	// run without a shell). The most specific matching pattern wins.
+	FileChecks map[string]any `pkl:"file_checks"`
+
+	// How long a file_checks script may run. Its process group is killed after that.
+	FileChecksTimeout pkl.Duration `pkl:"file_checks_timeout"`
+
+	// When true, files whose file_checks check returns approve are marked
+	// viewed on the pull request (subject to viewed.never_mark and max_marks_per_run).
+	MarkViewedOnPass bool `pkl:"mark_viewed_on_pass"`
 }
