@@ -97,6 +97,8 @@ type Config struct {
 	// ContactAliases maps a ledger name to a canonical agent name when
 	// the pane and suffix rules cannot.
 	ContactAliases map[string]string `json:"contactAliases,omitempty"`
+	// Owners configures who may open items (mode: off, warn, enforce).
+	Owners OwnersConfig `json:"owners,omitempty"`
 	// UI is this machine's inbox display. A hub does not send it.
 	UI InboxUI `json:"ui,omitempty"`
 }
@@ -326,6 +328,9 @@ func parseConfig(data []byte, dir string) (Config, error) {
 		return Config{}, fmt.Errorf("parse decide config: %w", err)
 	}
 	if err := checkAvatarRules(cfg.Avatars); err != nil {
+		return Config{}, err
+	}
+	if err := checkOwnersConfig(cfg.Owners); err != nil {
 		return Config{}, err
 	}
 	if len(cfg.OpenCommand) > 0 && cfg.OpenCommand[0] == "" {

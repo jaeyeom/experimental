@@ -29,7 +29,7 @@ const (
 // DisplayKeys are the config keys a hub shares with its clients. A key
 // not listed here is never exported.
 func DisplayKeys() []string {
-	return []string{"avatarDefault", "avatarMono", "avatars", "contactAliases", "favoriteContacts", "hiddenContacts", "hyperlinks", "messageAvatars", "recipients", "recipientsTimeout", "targets"}
+	return []string{"avatarDefault", "avatarMono", "avatars", "contactAliases", "favoriteContacts", "hiddenContacts", "hyperlinks", "messageAvatars", "owners", "recipients", "recipientsTimeout", "targets"}
 }
 
 // copyDisplayKey sets dst's field for display key key from src.
@@ -51,6 +51,8 @@ func copyDisplayKey(key string, dst, src *Config) {
 		dst.Hyperlinks = src.Hyperlinks
 	case "messageAvatars":
 		dst.MessageAvatars = src.MessageAvatars
+	case "owners":
+		dst.Owners = src.Owners
 	case "recipients":
 		dst.Recipients = src.Recipients
 	case "recipientsTimeout":
@@ -194,7 +196,7 @@ func MergeDisplay(local ConfigFile, hub DisplaySettings) (Effective, error) {
 			continue
 		}
 		eff.HubKeys = append(eff.HubKeys, key)
-		if _, set := local.Keys[key]; set {
+		if _, set := local.Keys[key]; set && key != "owners" {
 			eff.Overrides = append(eff.Overrides, key)
 			continue
 		}
@@ -215,6 +217,9 @@ func MergeDisplay(local ConfigFile, hub DisplaySettings) (Effective, error) {
 		return Effective{}, fmt.Errorf("hub display settings: %w", err)
 	}
 	if _, err := parseRecipientsTimeout(hc.RecipientsTimeout); err != nil {
+		return Effective{}, fmt.Errorf("hub display settings: %w", err)
+	}
+	if err := checkOwnersConfig(hc.Owners); err != nil {
 		return Effective{}, fmt.Errorf("hub display settings: %w", err)
 	}
 	for key, raw := range used {
