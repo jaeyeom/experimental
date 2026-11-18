@@ -110,15 +110,53 @@ func (m *Model) composerField() (*textarea.Model, *string) {
 // editComposerKey applies k to the focused composer. It reports false
 // when no composer is focused.
 func (m *Model) editComposerKey(k tea.KeyMsg) bool {
-	field, text := m.composerField()
+	kind, ok := m.composerKind()
+	if !ok {
+		return false
+	}
+	field, text := m.fieldFor(kind)
 	if field == nil {
 		return false
 	}
 	syncField(field, *text)
 	field.Focus()
-	editField(field, k)
+	switch k.Type {
+	case tea.KeyPgUp:
+		pageField(field, -m.composerPageStep(kind))
+	case tea.KeyPgDown:
+		pageField(field, m.composerPageStep(kind))
+	default:
+		editField(field, k)
+	}
 	*text = field.Value()
 	return true
+}
+
+func pageField(field *textarea.Model, delta int) {
+	if delta < 0 {
+		for range -delta {
+			field.CursorUp()
+		}
+		return
+	}
+	for range delta {
+		field.CursorDown()
+	}
+}
+
+func (m *Model) composerPageStep(kind composerKind) int {
+	switch kind {
+	case composerReply:
+		return max(m.replyBoxHeight(), 1)
+	case composerNote:
+		if m.height > 0 {
+			budget := max(m.height-3, 3)
+			pickerLines, _ := m.pickerLines()
+			_, textLines := composeBoxHeights(len(pickerLines), budget)
+			return max(textLines, 1)
+		}
+	}
+	return max(m.height/3, 1)
 }
 
 func (m *Model) composerText(kind composerKind) string {

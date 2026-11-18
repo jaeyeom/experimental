@@ -909,8 +909,8 @@ func TestDetailFreeTextSubmitsOnlyWhenSet(t *testing.T) {
 		t.Fatal(err)
 	}
 	press(t, m, "\r0custom words")
-	if !strings.Contains(m.View(), "reply: custom words") {
-		t.Fatalf("text box missing draft\n%s", m.View())
+	if view := m.View(); !strings.Contains(view, "reply:") || !strings.Contains(view, "custom words") {
+		t.Fatalf("text box missing draft\n%s", view)
 	}
 	press(t, m, "\t\r")
 	got, err := led.Get(openFree.ID)
@@ -1815,8 +1815,8 @@ func TestFreeTextIsRowZero(t *testing.T) {
 		t.Fatalf("esc focus %v draft %q answer %+v", m.replyFocus, m.reply, got.Answer)
 	}
 	press(t, m, "0")
-	if !strings.Contains(m.View(), "reply: keep") || !strings.Contains(m.View(), cursorOn) {
-		t.Fatalf("draft was dropped\n%s", m.View())
+	if view := m.View(); !strings.Contains(view, "reply:") || !strings.Contains(view, "keep") || !strings.Contains(view, cursorOn) {
+		t.Fatalf("draft was dropped\n%s", view)
 	}
 	if err := m.Click(1, screenRow(m.View(), "keep draft?")); err != nil {
 		t.Fatal(err)
@@ -3162,7 +3162,7 @@ func TestFocusedElementHasOneBorder(t *testing.T) {
 		m = updateRune(t, m, r)
 	}
 	view = m.View()
-	if !m.replyFocus || m.reply != "H1?" || m.help || strings.Contains(view, "0  answer:") || !strings.Contains(view, "reply: H1?") {
+	if !m.replyFocus || m.reply != "H1?" || m.help || strings.Contains(view, "0  answer:") || !strings.Contains(view, "reply:") || !strings.Contains(view, "H1?") {
 		t.Fatalf("composer note %q focus %v help %v\n%s", m.reply, m.replyFocus, m.help, view)
 	}
 	got, err = led.Get(item.ID)
@@ -4166,8 +4166,8 @@ func TestFocusedTextShowsACursor(t *testing.T) {
 		t.Fatalf("reply cursor\n%s", m.View())
 	}
 	press(t, m, "Z")
-	if !strings.Contains(visibleLine(lineContaining(m.View(), "reply:")), "Z") {
-		t.Fatalf("reply text\n%s", m.View())
+	if view := m.View(); !strings.Contains(view, "reply:") || !strings.Contains(visibleLine(lineContaining(view, "Z")), "Z") {
+		t.Fatalf("reply text\n%s", view)
 	}
 
 	press(t, m, "\x1bd")

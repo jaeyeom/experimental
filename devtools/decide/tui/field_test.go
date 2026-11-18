@@ -144,7 +144,7 @@ func TestReplyEnterInsertsNewline(t *testing.T) {
 		t.Fatalf("reply %q focus %v", m.reply, m.replyFocus)
 	}
 	view := m.View()
-	if !strings.Contains(view, "reply: abc") || !strings.Contains(visibleLine(view), "def") {
+	if !strings.Contains(view, "reply:") || !strings.Contains(visibleLine(view), "abc") || !strings.Contains(visibleLine(view), "def") {
 		t.Fatalf("reply lines not shown\n%s", view)
 	}
 	got, err := led.Get(item.ID)
@@ -196,7 +196,7 @@ func replyRows(m *Model) int {
 	return n
 }
 
-func TestReplyBoxGrowsUpToAThirdOfTheScreen(t *testing.T) {
+func TestReplyBoxSizesToTerminalAndScrolls(t *testing.T) {
 	m, _, _ := composerModel(t, composerReply)
 	m.width, m.height = 80, 30
 	const limit = 10
@@ -205,8 +205,8 @@ func TestReplyBoxGrowsUpToAThirdOfTheScreen(t *testing.T) {
 			sendKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 		}
 		press(t, m, fmt.Sprintf("r%02d", i))
-		if got, want := replyRows(m), min(i+1, limit); got != want {
-			t.Fatalf("after %d lines the box has %d rows, want %d", i+1, got, want)
+		if got := replyRows(m); got != limit {
+			t.Fatalf("after %d lines the box has %d rows, want %d", i+1, got, limit)
 		}
 	}
 	view := m.View()
@@ -341,7 +341,7 @@ func TestClickReplyPrefixClampsToLineStart(t *testing.T) {
 	m, _, _ := composerModel(t, composerReply)
 	m.width, m.height = 80, 30
 	press(t, m, "abc")
-	if err := m.Click(1, screenRow(m.View(), "reply: abc")); err != nil {
+	if err := m.Click(1, screenRow(m.View(), "abc")); err != nil {
 		t.Fatal(err)
 	}
 	press(t, m, "X")
@@ -443,5 +443,91 @@ func TestDetailHintNamesQuit(t *testing.T) {
 	m.help = true
 	if !strings.Contains(m.View(), "q quit") {
 		t.Fatalf("item help lacks q quit\n%s", m.View())
+	}
+}
+
+func TestBoxedEditorScrollsOnTypePasteArrowAndPage(t *testing.T) {
+	for _, kind := range []composerKind{composerReply, composerNote} {
+		t.Run(fmt.Sprint(kind), func(t *testing.T) {
+			m, _, _ := composerModel(t, kind)
+			m.width, m.height = 80, 18
+
+			// Paste 20 lines in one KeyRunes message; the cursor stays visible at the bottom.
+			var lines []string
+			for i := range 20 {
+				lines = append(lines, fmt.Sprintf("line-%02d", i))
+			}
+			sendKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(strings.Join(lines, "\n")), Paste: true})
+
+			view := m.View()
+			if !strings.Contains(view, cursorOn) {
+				t.Fatalf("cursor not visible after paste\n%s", visibleLine(view))
+			}
+			if screenRow(view, "line-19") == 0 || screenRow(view, "line-00") != 0 {
+				t.Fatalf("did not scroll to bottom after paste\n%s", visibleLine(view))
+			}
+
+			// Move back up with PageUp and Up until line-00 is visible.
+			for range 5 {
+				sendKey(t, m, tea.KeyMsg{Type: tea.KeyPgUp})
+			}
+			for range 5 {
+				sendKey(t, m, tea.KeyMsg{Type: tea.KeyUp})
+			}
+			view = m.View()
+			if !strings.Contains(view, cursorOn) {
+				t.Fatalf("cursor not visible after moving up\n%s", visibleLine(view))
+			}
+			if screenRow(view, "line-00") == 0 || screenRow(view, "line-19") != 0 {
+				t.Fatalf("did not scroll back up\n%s", visibleLine(view))
+			}
+
+			// Move back down with PageDown and Down until line-19 is visible.
+			for range 5 {
+				sendKey(t, m, tea.KeyMsg{Type: tea.KeyPgDown})
+			}
+			for range 5 {
+				sendKey(t, m, tea.KeyMsg{Type: tea.KeyDown})
+			}
+			view = m.View()
+			if !strings.Contains(view, cursorOn) {
+				t.Fatalf("cursor not visible after moving down\n%s", visibleLine(view))
+			}
+			if screenRow(view, "line-19") == 0 || screenRow(view, "line-00") != 0 {
+				t.Fatalf("did not scroll back down\n%s", visibleLine(view))
+			}
+		})
+	}
+}
+
+func TestBoxedEditorSmallTerminal(t *testing.T) {
+	for _, kind := range []composerKind{composerReply, composerNote} {
+		t.Run(fmt.Sprint(kind)+"/cursor_fits", func(t *testing.T) {
+			m, _, _ := composerModel(t, kind)
+			m.width, m.height = 80, 8
+			for i := range 6 {
+				if i > 0 {
+					sendKey(t, m, tea.KeyMsg{Type: tea.KeyCtrlJ})
+				}
+				press(t, m, fmt.Sprintf("s%02d", i))
+			}
+			view := m.View()
+			if !strings.Contains(view, cursorOn) {
+				t.Fatalf("cursor not visible at height 8\n%s", visibleLine(view))
+			}
+		})
+
+		t.Run(fmt.Sprint(kind)+"/cursor_marker_when_too_small", func(t *testing.T) {
+			m, _, _ := composerModel(t, kind)
+			m.width, m.height = 80, 2
+			if kind == composerNote {
+				m.height = 5
+			}
+			press(t, m, "hello")
+			view := m.View()
+			if !strings.Contains(view, cursorOn) && !strings.Contains(view, "↓ cursor below") {
+				t.Fatalf("neither cursor nor offscreen marker visible at height %d\n%s", m.height, visibleLine(view))
+			}
+		})
 	}
 }

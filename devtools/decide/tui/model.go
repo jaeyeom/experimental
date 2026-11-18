@@ -87,6 +87,7 @@ type Model struct {
 	draft        string
 	reply        string
 	replyFocus   bool
+	replyScroll  int
 	// replySend marks the reply [Send] button focused.
 	replySend bool
 	// replyRoute is the owner, worker, or both choice for the reply being
@@ -111,6 +112,7 @@ type Model struct {
 	help         bool
 	answerFocus  bool
 	note         string
+	noteScroll   int
 	forward      string
 	runSend      func([]string) error
 	runOpen      OpenRunner
@@ -1374,6 +1376,8 @@ type screenLine struct {
 	header int
 	// match reports that the line paints a search match.
 	match bool
+	// cursor reports that the line carries the focused composer cursor.
+	cursor bool
 }
 
 // View renders the sidebar, list, detail, compose panel, and status bar.
@@ -1381,7 +1385,13 @@ type screenLine struct {
 func (m *Model) View() string {
 	lines := m.allLines()
 	if m.height > 0 && len(lines) > m.height {
-		lines = append([]screenLine(nil), lines[:m.height]...)
+		visible := append([]screenLine(nil), lines[:m.height]...)
+		if m.composerFocused() && cursorLineIndex(visible) < 0 {
+			if cur := cursorLineIndex(lines); cur >= 0 {
+				visible = markCursorOffscreen(visible, m.width, cur >= len(visible))
+			}
+		}
+		lines = visible
 	}
 	m.rows = make([][]hit, len(lines))
 	parts := make([]string, len(lines))
@@ -1390,6 +1400,31 @@ func (m *Model) View() string {
 		m.rows[i] = line.hits
 	}
 	return strings.Join(parts, "\n")
+}
+
+func cursorLineIndex(lines []screenLine) int {
+	for i, line := range lines {
+		if line.cursor {
+			return i
+		}
+	}
+	return -1
+}
+
+func markCursorOffscreen(visible []screenLine, width int, below bool) []screenLine {
+	if len(visible) == 0 {
+		return visible
+	}
+	marker := "↑ cursor above"
+	if below {
+		marker = "↓ cursor below"
+	}
+	line := screenLine{text: plainText(marker)}
+	if width > 0 {
+		line = fitLine(line, width)
+	}
+	visible[len(visible)-1] = line
+	return visible
 }
 
 func (m *Model) allLines() []screenLine {
@@ -1835,6 +1870,15 @@ func (m *Model) clipList(list []screenLine) []screenLine {
 func (m *Model) openedScreen(width int) []screenLine {
 	detail := m.detailLines(m.detailInnerWidth(width))
 	_, detailN := m.layoutBudget()
+	if (m.replyFocus || m.mode == modeOutcome) && detailN > 0 {
+		if cur := cursorLineIndex(detail); cur >= 0 {
+			if cur < m.scroll {
+				m.scroll = cur
+			} else if cur >= m.scroll+detailN {
+				m.scroll = cur - detailN + 1
+			}
+		}
+	}
 	if threadEnd(len(detail), m.scroll, detailN) {
 		m.newMessages = 0
 	}
@@ -2438,8 +2482,9 @@ func boxWithinStyled(lines []screenLine, width int, focused bool) []screenLine {
 			}
 		}
 		out = append(out, screenLine{
-			text: left + fitted.text + right,
-			hits: hits,
+			text:   left + fitted.text + right,
+			hits:   hits,
+			cursor: fitted.cursor,
 		})
 	}
 	out = append(out, screenLine{text: bot})
@@ -2452,6 +2497,36 @@ func (m *Model) frameLines(lines []screenLine) []screenLine {
 	}
 	innerW := m.width - 2
 	innerH := m.height - 2
+	body, offscreen := clipFrameBody(lines, innerH, m.composerFocused())
+	for len(body) < innerH {
+		body = append(body, screenLine{})
+	}
+	useStyles()
+	rule := strings.Repeat("─", innerW)
+	out := make([]screenLine, 0, innerH+2)
+	out = append(out, screenLine{text: focusMark.Render("┌" + rule + "┐")})
+	for _, line := range body {
+		fitted := fitLine(line, innerW)
+		hits := shiftLineHits(fitted.hits)
+		out = append(out, screenLine{
+			text:   "│" + fitted.text + "│",
+			hits:   hits,
+			cursor: fitted.cursor,
+		})
+	}
+	bot := focusMark.Render("└" + rule + "┘")
+	if offscreen && innerH < 1 {
+		bot = fitLine(screenLine{text: plainText("↓ cursor below")}, m.width).text
+	}
+	out = append(out, screenLine{text: bot})
+	return out
+}
+
+func clipFrameBody(lines []screenLine, innerH int, checkCursor bool) ([]screenLine, bool) {
+	cur := -1
+	if checkCursor {
+		cur = cursorLineIndex(lines)
+	}
 	body := lines
 	if innerH < 1 {
 		body = nil
@@ -2463,33 +2538,27 @@ func (m *Model) frameLines(lines []screenLine) []screenLine {
 			body = append(append([]screenLine(nil), body[:innerH-1]...), status)
 		}
 	}
-	for len(body) < innerH {
-		body = append(body, screenLine{})
+	offscreen := cur >= 0 && cursorLineIndex(body) < 0
+	if offscreen && len(body) > 0 {
+		idx := max(len(body)-2, 0)
+		body[idx] = screenLine{text: plainText("↓ cursor below")}
 	}
-	useStyles()
-	rule := strings.Repeat("─", innerW)
-	out := make([]screenLine, 0, innerH+2)
-	out = append(out, screenLine{text: focusMark.Render("┌" + rule + "┐")})
-	for _, line := range body {
-		fitted := fitLine(line, innerW)
-		hits := fitted.hits
-		if len(hits) > 0 {
-			hits = append([]hit(nil), hits...)
-			for i := range hits {
-				if hits[i].x1 == 0 {
-					continue
-				}
-				hits[i].x0++
-				hits[i].x1++
-			}
+	return body, offscreen
+}
+
+func shiftLineHits(hits []hit) []hit {
+	if len(hits) == 0 {
+		return nil
+	}
+	shifted := append([]hit(nil), hits...)
+	for i := range shifted {
+		if shifted[i].x1 == 0 {
+			continue
 		}
-		out = append(out, screenLine{
-			text: "│" + fitted.text + "│",
-			hits: hits,
-		})
+		shifted[i].x0++
+		shifted[i].x1++
 	}
-	out = append(out, screenLine{text: focusMark.Render("└" + rule + "┘")})
-	return out
+	return shifted
 }
 
 func boxLines(lines []screenLine) []screenLine {
@@ -2522,8 +2591,9 @@ func boxLines(lines []screenLine) []screenLine {
 			}
 		}
 		out = append(out, screenLine{
-			text: "│" + line.text + strings.Repeat(" ", pad) + "│",
-			hits: hits,
+			text:   "│" + line.text + strings.Repeat(" ", pad) + "│",
+			hits:   hits,
+			cursor: line.cursor,
 		})
 	}
 	out = append(out, screenLine{text: focusMark.Render("└" + rule + "┘")})
@@ -2940,30 +3010,36 @@ func indentLine(line screenLine) screenLine {
 	return line
 }
 
-// replyLines is the reply box and, once it is in use, its [Send]. The
-// box grows with its text up to a third of the screen and then scrolls
-// to keep the cursor in view.
+// replyLines is the reply box and, once it is in use, its [Send].
 func (m *Model) replyLines(width int) []screenLine {
 	const label = "reply: "
-	wrap := width - len(label)
 	if m.reply == "" && !m.replyFocus && !m.replySend {
-		return labeledLines(label, []screenLine{{text: "___"}}, hitReply, wrap)
+		return labeledLines(label, []screenLine{{text: "___"}}, hitReply, width-len(label))
 	}
-	body := fieldLines(m.reply, &m.replyField, m.replyFocus, wrap)
-	first := 0
-	if limit := max(m.height/3, 1); m.height > 0 && len(body) > limit {
-		body, first = windowDraft(body, limit)
-	}
-	lines := labeledLinesFrom(label, body, hitReply, first, wrap)
+	lines := []screenLine{{text: plainText("reply:")}}
+	lines = append(lines, boxedEditor(m.reply, &m.replyField, m.replyFocus, hitReply, width, m.replyBoxHeight(), &m.replyScroll)...)
 	send := "[Send]"
 	if m.replySend {
 		send = "> [Send]"
 	}
 	useStyles()
 	return append(lines, screenLine{
-		text: plainText(strings.Repeat(" ", len(label))) + optionButton.Render(send),
+		text: optionButton.Render(send),
 		hits: []hit{{kind: hitReplySend}},
 	})
+}
+
+func (m *Model) replyBoxHeight() int {
+	if m.height <= 0 {
+		return 5
+	}
+	limit := max(m.height/3, 3)
+	if _, detailN := m.layoutBudget(); detailN > 0 {
+		if avail := max(detailN-4, 1); limit > avail {
+			limit = avail
+		}
+	}
+	return limit
 }
 
 // labeledLines puts label before the first composer line and lines the
@@ -2983,7 +3059,7 @@ func labeledLinesFrom(label string, body []screenLine, kind, first, wrap int) []
 		if i == 0 {
 			prefix = label
 		}
-		out[i] = screenLine{text: plainText(prefix + line.text)}
+		out[i] = screenLine{text: plainText(prefix + line.text), cursor: line.cursor}
 	}
 	return fieldRows(out, kind, first, len(label), wrap)
 }
