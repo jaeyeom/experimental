@@ -86,7 +86,7 @@ class Role {
   /// Workspace label.
   workspace: String(!isEmpty)
 
-  /// Tab label. Unique within the workspace.
+  /// Tab label. Unique within the workspace on its machine.
   tab: String(!isEmpty)
 
   /// Working directory.
@@ -236,7 +236,7 @@ agentsMdRoot: String = ""
 local ruleIds: List<String> = rules.toList().map((rule) -> rule.id)
 
 local function uniqueTabs(items: Mapping<String, Role>): Boolean =
-  let (labels = items.keys.fold(List(), (acc, name) -> acc.add(items[name].workspace + "\t" + items[name].tab)))
+  let (labels = items.keys.fold(List(), (acc, name) -> acc.add(items[name].machine + "\t" + items[name].workspace + "\t" + items[name].tab)))
     labels.length == labels.toSet().length
 
 local function reportsExist(items: Mapping<String, Role>): Boolean =
@@ -272,7 +272,7 @@ local function resolveRoles(items: Mapping<String, Role>): Mapping<String, Role>
 /// Inside `Dynamic`, a bare name would read the property being defined.
 local function rendered(): Dynamic =
   if (!uniqueTabs(roles))
-    throw("duplicate tab label in a workspace")
+    throw("duplicate tab label in a workspace on one machine")
   else if (!reportsExist(roles))
     throw("reportsTo does not name a role")
   else if (!machinesExist(roles.keys.fold(List(), (acc, name) -> acc.add(roles[name].machine))))

@@ -1,0 +1,37 @@
+amends "../Org.pkl"
+
+org = "Fixture"
+
+machines {
+  ["a"] {
+    host = "a.example"
+    herdrHandle = "a"
+    timezone = "UTC"
+  }
+  ["b"] {
+    host = "b.example"
+    herdrHandle = "b"
+    timezone = "UTC"
+  }
+}
+
+rules {
+  new { id = "plain-words"; text = "Be clear."; source = "fixture" }
+}
+
+roles {
+  ["a/watcher"] {
+    machine = "a"
+    workspace = "ops"
+    tab = "watcher"
+    cwd = "/work"
+    agent = "coder"
+  }
+  ["b/watcher"] {
+    machine = "b"
+    workspace = "ops"
+    tab = "watcher"
+    cwd = "/work"
+    agent = "coder"
+  }
+}

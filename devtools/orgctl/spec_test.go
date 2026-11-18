@@ -98,7 +98,7 @@ func TestConstraintFixturesFail(t *testing.T) {
 		file string
 		want string
 	}{
-		{name: "duplicate tab", file: "pkl/testdata/duplicate-tab.pkl", want: "duplicate tab"},
+		{name: "duplicate tab", file: "pkl/testdata/duplicate-tab.pkl", want: "duplicate tab label in a workspace on one machine"},
 		{name: "unknown reportsTo", file: "pkl/testdata/unknown-reports.pkl", want: "reportsTo"},
 		{name: "pool schedules", file: "pkl/testdata/pool-schedules.pkl", want: "schedules"},
 		{name: "unknown machine", file: "pkl/testdata/unknown-machine.pkl", want: "unknown machine"},
@@ -115,6 +115,32 @@ func TestConstraintFixturesFail(t *testing.T) {
 				t.Errorf("stderr missing %q:\n%s", tc.want, stderr)
 			}
 		})
+	}
+}
+
+func TestSameTabDifferentMachinesPasses(t *testing.T) {
+	stdout, stderr, code := evalPkl(t, filepath.Join(orgctlRoot(t), "pkl/testdata/same-tab-different-machines.pkl"))
+	if code != 0 {
+		t.Fatalf("pkl eval exit %d\n%s", code, stderr)
+	}
+	spec, err := Decode(stdout)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if warnings, err := spec.CheckDecides(nil); err != nil || len(warnings) != 0 {
+		t.Errorf("CheckDecides = %v, %v", warnings, err)
+	}
+	if err := spec.CheckCwd(); err != nil {
+		t.Errorf("CheckCwd: %v", err)
+	}
+	if err := spec.CheckPatterns(); err != nil {
+		t.Errorf("CheckPatterns: %v", err)
+	}
+	if err := spec.CheckRules(); err != nil {
+		t.Errorf("CheckRules: %v", err)
+	}
+	if err := spec.CheckClasses(); err != nil {
+		t.Errorf("CheckClasses: %v", err)
 	}
 }
 
