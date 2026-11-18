@@ -136,6 +136,25 @@ func TestTeamMembershipUsesOneViewerTeamsQueryPerOrg(t *testing.T) {
 	}
 }
 
+// The client adds the ancestors of the viewer's direct teams to the set, so a
+// parent of a child team the viewer is in is mine without a member listing.
+func TestParentOfViewersChildTeamIsMine(t *testing.T) {
+	pr := handoffPR("widgets/a.go")
+	pr.RequestedTeams = []string{"widgets"}
+	fake := handoffFakeFor(pr)
+	fake.codeowners = "/widgets/** @acme/widgets\n"
+	fake.teams["acme/widgets"] = []string{"me", "bob"}
+	fake.viewerTeams = map[string][]string{"acme": {"widgets-core", "widgets"}}
+	rule := config.ApproveRule{Name: "covered", CodeownersCovered: true}
+	cond := coverage(t, run(t, fake, []config.ApproveRule{rule}, Options{Explain: true}))
+	if !cond.Pass || !strings.Contains(strings.Join(cond.Details, "\n"), "your owning teams are requested and have other members") {
+		t.Fatalf("coverage = %+v", cond)
+	}
+	if fake.teamListReads != 0 || fake.viewerTeamReads != 1 {
+		t.Fatalf("lists %d, viewer teams %d", fake.teamListReads, fake.viewerTeamReads)
+	}
+}
+
 func TestViewerTeamsFallbackReadsMemberLists(t *testing.T) {
 	first := coveredPR(1)
 	viaViewer := viewerTeamsFake(first)
@@ -193,7 +212,7 @@ func TestPatchesAboveTheCapAreNotFetched(t *testing.T) {
 				t.Fatalf("patch reads = %d, want %d", fake.patchReads, tt.fetched)
 			}
 			cond := conditionResult(t, res.log[0].Rules[0], "deletions_and_comments_only")
-			if tt.fetched == 0 && (cond.Pass || !strings.Contains(cond.Saw, "too large to check")) {
+			if tt.fetched == 0 && (cond.Pass || !strings.HasPrefix(cond.Saw, "too large to check")) {
 				t.Fatalf("condition = %+v", cond)
 			}
 		})
@@ -208,7 +227,7 @@ func TestMineCommentsOnlyOverTheCapReportsTooLarge(t *testing.T) {
 	if fake.patchReads != 0 {
 		t.Fatalf("patch reads = %d", fake.patchReads)
 	}
-	if cond := mineCondition(t, res); cond.Pass || !strings.Contains(cond.Saw, "too large to check") {
+	if cond := mineCondition(t, res); cond.Pass || !strings.HasPrefix(cond.Saw, "too large to check") {
 		t.Fatalf("condition = %+v", cond)
 	}
 }

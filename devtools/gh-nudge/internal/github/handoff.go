@@ -175,13 +175,21 @@ query($org: String!, $viewer: String!, $after: String) {
   organization(login: $org) {
     teams(first: 100, after: $after, userLogins: [$viewer]) {
       pageInfo { hasNextPage endCursor }
-      nodes { slug }
+      nodes {
+        slug
+        ancestors(first: 100) {
+          pageInfo { hasNextPage }
+          nodes { slug }
+        }
+      }
     }
   }
 }`
 
 // ViewerTeams lists the slugs of the organization's teams that include
-// viewer, in one paged query. It needs the read:org scope.
+// viewer, in one paged query. The viewer's direct teams come back with
+// their ancestors, because membership of a child team is membership of its
+// parents. A truncated ancestor list is an error. It needs the read:org scope.
 func (c *Client) ViewerTeams(org, viewer string) ([]string, error) {
 	action := fmt.Sprintf("read teams of %s in %s (needs the read:org scope)", viewer, org)
 	var slugs []string
@@ -204,7 +212,15 @@ func (c *Client) ViewerTeams(org, viewer string) ([]string, error) {
 							EndCursor   string `json:"endCursor"`
 						} `json:"pageInfo"`
 						Nodes []struct {
-							Slug string `json:"slug"`
+							Slug      string `json:"slug"`
+							Ancestors struct {
+								PageInfo struct {
+									HasNextPage bool `json:"hasNextPage"`
+								} `json:"pageInfo"`
+								Nodes []struct {
+									Slug string `json:"slug"`
+								} `json:"nodes"`
+							} `json:"ancestors"`
 						} `json:"nodes"`
 					} `json:"teams"`
 				} `json:"organization"`
@@ -218,7 +234,13 @@ func (c *Client) ViewerTeams(org, viewer string) ([]string, error) {
 		}
 		page := resp.Data.Organization.Teams
 		for _, node := range page.Nodes {
+			if node.Ancestors.PageInfo.HasNextPage {
+				return nil, fmt.Errorf("%s: too many parent teams of %s", action, node.Slug)
+			}
 			slugs = append(slugs, node.Slug)
+			for _, ancestor := range node.Ancestors.Nodes {
+				slugs = append(slugs, ancestor.Slug)
+			}
 		}
 		if !page.PageInfo.HasNextPage || page.PageInfo.EndCursor == "" {
 			return slugs, nil

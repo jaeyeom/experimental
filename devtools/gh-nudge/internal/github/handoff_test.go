@@ -104,6 +104,28 @@ func TestViewerTeamsPaginates(t *testing.T) {
 	}
 }
 
+func TestViewerTeamsIncludeAncestors(t *testing.T) {
+	exec := &routeExec{route: map[string]string{"viewer=me": `{"data":{"organization":{"teams":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[
+		{"slug":"widgets-core","ancestors":{"pageInfo":{"hasNextPage":false},"nodes":[{"slug":"widgets"}]}}
+	]}}}}`}}
+	slugs, err := NewClientWithExecutor(exec).ViewerTeams("acme", "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(slugs, ",") != "widgets-core,widgets" {
+		t.Fatalf("slugs = %v", slugs)
+	}
+}
+
+func TestViewerTeamsTruncatedAncestorsFail(t *testing.T) {
+	exec := &routeExec{route: map[string]string{"viewer=me": `{"data":{"organization":{"teams":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[
+		{"slug":"widgets-core","ancestors":{"pageInfo":{"hasNextPage":true},"nodes":[{"slug":"widgets"}]}}
+	]}}}}`}}
+	if _, err := NewClientWithExecutor(exec).ViewerTeams("acme", "me"); err == nil {
+		t.Fatal("error = nil")
+	}
+}
+
 func TestViewerTeamsErrorMentionsReadOrg(t *testing.T) {
 	tests := map[string]*routeExec{
 		"org not visible": {route: map[string]string{"viewer=me": `{"data":{"organization":null}}`}},

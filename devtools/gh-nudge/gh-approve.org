@@ -428,7 +428,8 @@ reported as ~skip~ in ~--explain~ and as ~not evaluated: <condition> failed~.
   run.
 - *Teams.* gh-approve reads your own teams once per organization in a run,
   with one paged query, and decides from that set whether you are in a team.
-  A team still counts only when it has other members and is a requested
+  The query also reads the parents of each of your teams, so a parent team
+  counts when you are in one of its child teams. A team still counts only when it has other members and is a requested
   reviewer. For that it reads the member count of a team of yours, never the
   member list. When your teams cannot be read, it falls back to listing the
   team's members. Counts and lists are cached for the run too.

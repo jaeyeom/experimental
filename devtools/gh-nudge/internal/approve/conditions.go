@@ -370,8 +370,17 @@ func withAgent(result RuleResult, rule config.ApproveRule, agent AgentFunc) Rule
 	return result
 }
 
+// unreadable fails a condition whose data could not be read. A pull request
+// over the patch size cap says so without the prefix.
 func unreadable(reason string) (bool, string) {
-	return false, "unreadable: " + reason
+	return false, unreadableText(reason)
+}
+
+func unreadableText(reason string) string {
+	if strings.HasPrefix(reason, tooLarge) {
+		return reason
+	}
+	return "unreadable: " + reason
 }
 
 func firstGlob(patterns []string, value string) string {

@@ -88,6 +88,9 @@ func (r *Runner) ownershipFor(pr github.ApprovalPullRequest, viewer string) *git
 	return st.ownership
 }
 
+// tooLarge starts the reason of a pull request over the patch size cap.
+const tooLarge = "too large to check"
+
 // patchCapReason returns why pr is too large to fetch patches for, or "".
 func (r *Runner) patchCapReason(pr github.ApprovalPullRequest) string {
 	maxFiles, maxAdded := r.Config.PatchMaxFiles, r.Config.PatchMaxAddedLines
@@ -99,9 +102,9 @@ func (r *Runner) patchCapReason(pr github.ApprovalPullRequest) string {
 	}
 	switch {
 	case pr.ChangedFiles > maxFiles:
-		return fmt.Sprintf("too large to check: %d files (patch_max_files %d)", pr.ChangedFiles, maxFiles)
+		return fmt.Sprintf(tooLarge+": %d files (patch_max_files %d)", pr.ChangedFiles, maxFiles)
 	case pr.Additions > maxAdded:
-		return fmt.Sprintf("too large to check: %d added lines (patch_max_added_lines %d)", pr.Additions, maxAdded)
+		return fmt.Sprintf(tooLarge+": %d added lines (patch_max_added_lines %d)", pr.Additions, maxAdded)
 	}
 	return ""
 }
