@@ -245,9 +245,9 @@ func TestLoadApprovalPullRequestNotFound(t *testing.T) {
 }
 
 func TestPullRequestHeadSHA(t *testing.T) {
-	exec := &routeExec{route: map[string]string{"repos/acme/widgets/pulls/12": "head2\n"}}
+	exec := &routeExec{route: map[string]string{"repos/acme/widgets/pulls/12": "b1e40324aa2f3c1d5e6f708192a3b4c5d6e7f809\n"}}
 	sha, err := NewClientWithExecutor(exec).PullRequestHeadSHA(PullRef{Owner: "acme", Repo: "widgets", Number: 12})
-	if err != nil || sha != "head2" {
+	if err != nil || sha != "b1e40324aa2f3c1d5e6f708192a3b4c5d6e7f809" {
 		t.Fatalf("PullRequestHeadSHA() = %q, %v", sha, err)
 	}
 	exec = &routeExec{route: map[string]string{"repos/acme/widgets/pulls/12": "\n"}}
@@ -328,5 +328,76 @@ func TestMarkFileAsViewed(t *testing.T) {
 	exec = &routeExec{route: map[string]string{"markFileAsViewed": `{"errors":[{"message":"forbidden"}]}`}}
 	if err := NewClientWithExecutor(exec).MarkFileAsViewed(ref, "PR_node", "go.sum"); err == nil || !strings.Contains(err.Error(), "forbidden") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+// ghHint is the kind of advice newer gh releases print on stderr after a
+// successful pull request read.
+const ghHint = "hint: if you need to wait for this pull request, use this instead of polling:\n" +
+	"    gh event listen --resource https://github.com/acme/widgets/pull/12\n" +
+	"  - It prints the first event as a JSON line on stdout and exits.\n"
+
+// hintExec answers like the real executor: stdout and stderr apart from
+// ExecuteSeparated, and combined from Execute.
+type hintExec struct {
+	route map[string]string
+	calls []string
+}
+
+func (h *hintExec) stdout(args []string) string {
+	joined := strings.Join(args, " ")
+	h.calls = append(h.calls, joined)
+	if key := longestRouteKey(joined, h.route); key != "" {
+		return h.route[key]
+	}
+	return ""
+}
+
+func (h *hintExec) Execute(_ string, args ...string) (string, error) {
+	return h.stdout(args) + ghHint, nil
+}
+
+func (h *hintExec) ExecuteWithStdin(_, _ string, args ...string) (string, error) {
+	return h.stdout(args) + ghHint, nil
+}
+
+func (h *hintExec) ExecuteSeparated(_ string, args ...string) (string, string, error) {
+	return h.stdout(args), ghHint, nil
+}
+
+func TestPullRequestHeadSHAIgnoresStderrHint(t *testing.T) {
+	const sha = "b1e40324aa2f3c1d5e6f708192a3b4c5d6e7f809"
+	exec := &hintExec{route: map[string]string{"repos/acme/widgets/pulls/12": sha + "\n"}}
+	got, err := NewClientWithExecutor(exec).PullRequestHeadSHA(PullRef{Owner: "acme", Repo: "widgets", Number: 12})
+	if err != nil || got != sha {
+		t.Fatalf("PullRequestHeadSHA() = %q, %v; want %q", got, err, sha)
+	}
+}
+
+func TestPullRequestHeadSHARejectsNonSHA(t *testing.T) {
+	exec := &hintExec{route: map[string]string{"repos/acme/widgets/pulls/12": "not a sha\n"}}
+	_, err := NewClientWithExecutor(exec).PullRequestHeadSHA(PullRef{Owner: "acme", Repo: "widgets", Number: 12})
+	if err == nil {
+		t.Fatal("error = nil, want a non-SHA error")
+	}
+	if !strings.Contains(err.Error(), "not a sha") || !strings.Contains(err.Error(), "hint:") {
+		t.Fatalf("error = %v, want the stdout and the first stderr line", err)
+	}
+}
+
+func TestFailingStepLogIgnoresStderrHint(t *testing.T) {
+	exec := &hintExec{route: map[string]string{
+		"actions/jobs/8/logs": "##[group]Run tests\nFAIL\n",
+		"actions/jobs/8":      `{"steps":[{"name":"Run tests","conclusion":"failure"}]}`,
+	}}
+	_, log, err := NewClientWithExecutor(exec).failingStepLog("acme", "widgets", 8)
+	if err != nil {
+		t.Fatalf("failingStepLog() error = %v", err)
+	}
+	if strings.Contains(log, "hint:") || strings.Contains(log, "gh event listen") {
+		t.Fatalf("log = %q, want no stderr text", log)
+	}
+	if !strings.Contains(log, "FAIL") {
+		t.Fatalf("log = %q, want the step output", log)
 	}
 }
