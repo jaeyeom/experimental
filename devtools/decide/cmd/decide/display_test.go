@@ -116,3 +116,16 @@ func TestConfigShowWithoutAHubIsLocal(t *testing.T) {
 		t.Fatalf("output = %q", stdout.String())
 	}
 }
+
+func TestConfigShowEffectiveUsesHubOwners(t *testing.T) {
+	setupHub(t, `{"hub": "me@hub", "owners": {"mode": "off"}}`)
+	hubDecide(t, `{"owners": {"mode": "warn", "allowed": ["lead/*"], "managers": {"*": "ops/inbox"}}}`)
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"config", "show", "--effective"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("config show = %d, stderr %q", code, stderr.String())
+	}
+	want := "owners\thub\t{\"mode\":\"warn\",\"allowed\":[\"lead/*\"],\"managers\":{\"*\":\"ops/inbox\"}}\n"
+	if !strings.Contains(stdout.String(), want) {
+		t.Fatalf("output lacks %q:\n%s", want, stdout.String())
+	}
+}
