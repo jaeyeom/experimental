@@ -29,7 +29,8 @@ import (
 const usage = "usage: orgctl check [--approval-word WORD]... SPEC.json\n" +
 	"       orgctl plan [--machine NAME] [--role NAME] [--expiring 2d] SPEC.json\n" +
 	"       orgctl drift SPEC.json\n" +
-	"       orgctl import [--out FILE] [--force] [--schema PATH]"
+	"       orgctl import [--out FILE] [--force] [--schema PATH]\n" +
+	"       orgctl render agents-md --root DIR [--check] SPEC.json"
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stderr))
@@ -57,6 +58,8 @@ func runIO(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (orgc
 		return runDrift(args, stdout, stderr, load)
 	case "import":
 		return runImport(args, stdout, stderr, load)
+	case "render":
+		return runRender(args, stdout, stderr)
 	default:
 		fmt.Fprintln(stderr, usage)
 		return 2
@@ -109,6 +112,46 @@ func runCheck(args []string, stderr io.Writer) int {
 	if err := spec.CheckClasses(); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
+	}
+	return 0
+}
+
+func runRender(args []string, stdout, stderr io.Writer) int {
+	if len(args) < 2 || args[1] != "agents-md" {
+		fmt.Fprintln(stderr, "usage: orgctl render agents-md --root DIR [--check] SPEC.json")
+		return 2
+	}
+	fs := flag.NewFlagSet("render agents-md", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	root := fs.String("root", "", "output root directory")
+	check := fs.Bool("check", false, "check whether rendered files are up to date")
+	if err := fs.Parse(args[2:]); err != nil {
+		return 2
+	}
+	if *root == "" || fs.NArg() != 1 {
+		fmt.Fprintln(stderr, "usage: orgctl render agents-md --root DIR [--check] SPEC.json")
+		return 2
+	}
+	data, err := os.ReadFile(fs.Arg(0)) //nolint:gosec // G304: the operator named the spec file
+	if err != nil {
+		fmt.Fprintf(stderr, "read spec: %v\n", err)
+		return 1
+	}
+	spec, err := orgctl.Decode(data)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	diffs, err := orgctl.RenderAgentsMD(spec, *root, *check)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if *check && len(diffs) > 0 {
+		for _, p := range diffs {
+			fmt.Fprintln(stdout, p)
+		}
+		return 2
 	}
 	return 0
 }
