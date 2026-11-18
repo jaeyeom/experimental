@@ -1,0 +1,139 @@
+#+title: authwatch
+
+~authwatch~ monitors agent CLI OAuth token expiry metadata and notifies outside
+the agents before a login expires or when a refresh starts failing. It runs
+without an LLM, from cron or a user service.
+
+* What is read (metadata only)
+
+~authwatch~ reads only the access-token expiry (~claudeAiOauth.expiresAt~) and
+refresh-token expiry (~claudeAiOauth.refreshTokenExpiresAt~) timestamps. Token
+values (~accessToken~, ~refreshToken~) and all other fields are dropped in
+memory during parsing and are never printed, logged, stored in ~state.json~, or
+passed to notifier commands.
+
+If a required field is missing or changes type, ~authwatch~ enters the
+~unknown-format~ level (exit code 4) with a message naming the field and
+expected type (never its value) and notifies once.
+
+* Credential sources
+
+- *Linux*: reads ~<config_dir>/.credentials.json~. Each profile sets
+  ~config_dir~ (default: ~$CLAUDE_CONFIG_DIR~ if set, otherwise =~/.claude=),
+  or overrides the path directly with ~credentials_file~.
+- *macOS*: reads the login keychain item in memory via
+  ~security find-generic-password -w -s <service>~. By default, =~/.claude= uses
+  ~Claude Code-credentials~ and custom ~config_dir~ paths use
+  ~Claude Code-credentials-<sha256[:8]>~; ~keychain_service~ overrides this.
+- *Missing vs unreadable*: a missing file or keychain item (~ErrNotFound~ / exit
+  code 44) reports ~logged-out~ (exit code 3). An unreadable store (e.g.
+  permission denied or I/O failure) returns an operational error (exit code 5).
+
+* Configuration
+
+Config lives at ~$XDG_CONFIG_HOME/authwatch/config.toml~ (default
+=~/.config/authwatch/config.toml= on Linux,
+=~/Library/Application Support/authwatch/config.toml= on macOS).
+
+Example (fictional):
+
+#+begin_src toml
+warn_within = "72h"
+critical_within = "24h"
+failing_after = "10m"
+use_cli_status = false
+cli_command = "claude"
+notify = ["notify-send", "authwatch: {profile}", "{level} (left: {time_left}, since: {since})"]
+
+[[profiles]]
+name = "work"
+config_dir = "~/.claude-work"
+
+[[profiles]]
+name = "personal"
+config_dir = "~/.claude-personal"
+#+end_src
+
+* Levels and exit codes
+
+| Level            | Condition                                                      | Exit code |
+|------------------+----------------------------------------------------------------+-----------|
+| ~ok~             | Refresh token outside thresholds, access token healthy         |         0 |
+| ~warn~           | Refresh token expires within ~warn_within~ (default 72h)       |         1 |
+| ~critical~       | Refresh token expires within ~critical_within~ (default 24h)   |         2 |
+| ~failing~        | Access token past expiry by ~failing_after~ (default 10m), or  |         3 |
+|                  | reported via ~authwatch report-failure~                        |           |
+| ~logged-out~     | Missing store, or ~use_cli_status = true~ and CLI exited 1     |         3 |
+| ~unknown-format~ | Required expiry field missing or wrong type                    |         4 |
+| (error)          | Config, state, or unreadable store error                       |         5 |
+
+* Notifier contract
+
+On each level change (including recovery to ~ok~), ~authwatch~ executes ~notify~
+directly (argv, without a shell) once per transition. State is persisted in the
+XDG state dir so restarts do not re-alert.
+
+- If ~notify~ contains placeholders (~{profile}~, ~{level}~, ~{time_left}~,
+  ~{since}~), they are substituted in argv.
+- Otherwise, ~profile~, ~level~, ~time_left~, and ~since~ are appended as
+  positional arguments.
+- Environment variables ~AUTHWATCH_PROFILE~, ~AUTHWATCH_LEVEL~,
+  ~AUTHWATCH_TIME_LEFT~, and ~AUTHWATCH_SINCE~ are also set.
+
+* State file
+
+State is written atomically to ~$XDG_STATE_HOME/authwatch/state.json~ (default
+=~/.local/state/authwatch/state.json= on Linux,
+=~/Library/Application Support/authwatch/state.json= on macOS):
+
+#+begin_src json
+{
+  "profiles": {
+    "work": {
+      "level": "ok",
+      "since": "2026-11-18T12:00:00Z",
+      "accessExpiresAt": "2026-11-18T16:00:00Z",
+      "refreshExpiresAt": "2026-12-18T12:00:00Z",
+      "lastCheck": "2026-11-18T12:00:00Z",
+      "lastNotifiedLevel": "ok"
+    }
+  }
+}
+#+end_src
+
+Other tools can read ~state.json~ to check ~level~, ~since~, and expiries before
+dispatching work to an agent.
+
+* Commands and hooks
+
+- ~authwatch check [--config PATH]~ — run one pass (for cron).
+- ~authwatch run [--every 5m] [--config PATH]~ — loop on an interval (for a service).
+- ~authwatch status [--profile P] [--json] [--line]~ — print current status.
+- ~authwatch report-failure --profile P~ — record ~failing~ with the current time.
+
+~authwatch~ never edits agent CLI settings itself. Example fictional hook snippet
+for an agent CLI stop-failure hook:
+
+#+begin_src json
+{
+  "hooks": {
+    "StopFailure": [
+      {
+        "matcher": "authentication",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "authwatch report-failure --profile work"
+          }
+        ]
+      }
+    ]
+  }
+}
+#+end_src
+
+* Example service files
+
+Example user service definitions are provided under =devtools/authwatch/examples/=:
+- =authwatch.service= (systemd user service)
+- =com.jaeyeom.authwatch.plist= (macOS launchd user agent)

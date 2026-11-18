@@ -1,0 +1,39 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+load("//tools/org-lint:defs.bzl", "org_lint_tests")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "check.go",
+        "cli_status.go",
+        "config.go",
+        "level.go",
+        "notify.go",
+        "paths.go",
+        "state.go",
+        "store.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/authwatch",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_google_renameio_v2//:go_default_library",
+        "@com_github_pelletier_go_toml_v2//:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    size = "small",
+    srcs = [
+        "check_test.go",
+        "config_test.go",
+        "paths_test.go",
+        "readme_test.go",
+        "state_test.go",
+        "store_test.go",
+    ],
+    data = ["README.org"],
+    embed = [":go_default_library"],
+)
+
+org_lint_tests(["README.org"])
