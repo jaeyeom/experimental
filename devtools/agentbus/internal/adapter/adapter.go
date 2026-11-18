@@ -99,6 +99,19 @@ func AsPasteConfirmer(ad Adapter) (PasteConfirmer, bool) {
 	return probe, ok
 }
 
+// ComposerReader is optional. Adapters that can read the unsubmitted
+// composer text and tab label implement it so long draft holds can
+// report unchanged composer text.
+type ComposerReader interface {
+	ComposerInfo(ctx context.Context, handle string) (text, tabLabel string, ok bool, err error)
+}
+
+// AsComposerReader returns ad's composer reader when implemented.
+func AsComposerReader(ad Adapter) (ComposerReader, bool) {
+	r, ok := ad.(ComposerReader)
+	return r, ok
+}
+
 // Adapter is one transport. Identify reads the caller's environment.
 // The caller does not type its own handle.
 //

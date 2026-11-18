@@ -226,6 +226,8 @@ handle: herdr:local/default/w1:p1
 | ~mem [--json]~                    | Memory per local agent pane. See [[file:docs/hibernate.org][memory]].                          |
 | ~hibernate <name or handle>...~   | Stop idle agents but keep their panes and names. See [[file:docs/hibernate.org][hibernation]]. |
 | ~wake [--model <m>] <name or handle>~ | Relaunch a hibernated agent now (~--model keep~ keeps original). A message to it wakes it too. |
+| ~release-held <name>~             | Clear a login-expired hold on a recipient and flush held messages.                             |
+| ~replay [flags]~                  | Resend ~delivered-unprocessed~ messages in order (~--to~, ~--since~, ~--reason~, ~--dry-run~, ~--force~). |
 | ~install~                         | Install the supervisor and load it. In hub mode, install the tunnel.                           |
 | ~paths --json~                    | Print ~socket~, ~hub_socket~, ~tunnel_socket~, and ~state_dir~.                                |
 | ~doctor [--sandbox]~              | Other ~agentbusd~ processes; in hub mode, the tunnel, ssh, and outbox.                         |
@@ -270,15 +272,21 @@ prints one object per line in the order given:
 {"id":"m-7f3a","state":"held","held_reason":"transport unreachable","stored_at":"2026-11-16T17:08:06.123Z"}
 #+end_src
 
-~state~ is ~queued~, ~held~, ~delivered~, ~failed~ (the agent's wake
-failed; the message stays queued and the wake is retried), ~expired~,
-or ~unknown~ (no such id). Fields that do not apply are omitted.
-~held_reason~ is one of ~transport unreachable~, ~composer busy~ (the
-target's composer is not empty, or the pane is scrolled up or focused),
-~target not ready~, ~earlier message held~, ~hibernated~, ~delivery
-unconfirmed~, or ~other~. ~stored_at~ and ~delivered_at~ are RFC3339 in
-UTC. ~error~ says why a ~failed~ message failed. ~reason~ says why an
-~expired~ message closed: ~ttl~ or ~gone~. An unknown id is not an
+~state~ is ~queued~, ~held~, ~delivered~, ~delivered-unprocessed~ (the
+target's transcript showed an auth error reply or no turn started within
+~verify_delivery_within~; ~reason~ is ~auth~ or ~no-turn~), ~failed~ (the
+agent's wake failed; the message stays queued and the wake is retried),
+~expired~, or ~unknown~ (no such id). Fields that do not apply are
+omitted. ~held_reason~ is one of ~transport unreachable~, ~composer busy~
+(the target's composer is not empty, or the pane is scrolled up or
+focused), ~target not ready~ (including ~held: target login expired~,
+which holds later bus messages to that recipient until a later turn
+succeeds or ~agentbus release-held <name>~ is run; schedulers inside the
+agent's own session are not paused by agentbus), ~earlier message held~,
+~hibernated~, ~delivery unconfirmed~, or ~other~. ~stored_at~ and
+~delivered_at~ are RFC3339 in UTC. ~error~ says why a ~failed~ message
+failed. ~reason~ says why an ~expired~ message closed (~ttl~ or ~gone~)
+or why a ~delivered-unprocessed~ message was marked (~auth~ or ~no-turn~). An unknown id is not an
 error; only bad usage exits 2. In hub mode, an id still in this
 machine's outbox is answered here, first, and the hub answers the rest.
 
@@ -304,7 +312,11 @@ a change needs a restart. ~AGENTBUS_HUB~ overrides ~hub~.
 remote_timeout = "5s"             # bound on each call to another machine
 list_liveness_max_age = "15s"     # list refreshes cached liveness older than this
 hold_notice_after = "10m"         # one notice after a hold this long; "0s" sends none
+stale_composer_after = "10m"      # one notice per tab for unchanged composer text; "0s" sends none
 gone_after = "1h"                 # a raw pane handle gone this long: its message expires; "0s" at once
+verify_delivery_within = "60s"    # check readable transcript after delivery; "0s" disables
+# auth_error_patterns = ["Login expired", "Please run /login", "Not logged in", "Invalid API key"]
+# composer_placeholders = ["Once fixed, resend your message"]
 
 # Hub mode. Default: unset, so this machine runs its own daemon.
 # hub = "me@hub"

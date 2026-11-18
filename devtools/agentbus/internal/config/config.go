@@ -124,6 +124,20 @@ type Config struct {
 	// its pane is gone before it expires. Nil means one hour. A pointer
 	// to zero expires it at the first gone check.
 	GoneAfter *time.Duration
+	// VerifyDeliveryWithin is how long after delivery the daemon checks
+	// a readable transcript for an auth error or no-turn. Nil means 60s.
+	// A pointer to zero disables verification.
+	VerifyDeliveryWithin *time.Duration
+	// AuthErrorPatterns are substrings matched (case-insensitively)
+	// against an assistant reply right after delivery. Nil uses defaults.
+	AuthErrorPatterns []string
+	// ComposerPlaceholders are whole-line strings treated as an empty
+	// composer when style info is unavailable. Nil uses defaults.
+	ComposerPlaceholders []string
+	// StaleComposerAfter is how long unchanged composer text holds a
+	// message before notifying the sender once per tab. Nil means 10m.
+	// A pointer to zero disables the notice.
+	StaleComposerAfter *time.Duration
 	// Warnings are problems that did not fail the load, such as an
 	// invalid lease_takeover.
 	Warnings []string
@@ -339,8 +353,12 @@ func parseLine(cfg *Config, line string, seenWakeModelByName *bool) error {
 	case "machines":
 		return parseMachines(cfg, value)
 	case "remote_timeout", "list_liveness_max_age", "lease_check_interval", "lease_checkin_repeat", "lease_idle_grace", "wake_timeout",
-		"hibernate_min_idle", "hibernate_interval", "hold_notice_after", "gone_after":
+		"hibernate_min_idle", "hibernate_interval", "hold_notice_after", "gone_after", "verify_delivery_within", "stale_composer_after":
 		return parseDurationKey(cfg, key, value)
+	case "auth_error_patterns":
+		return parseStringList(&cfg.AuthErrorPatterns, key, value, `["Login expired", "Please run /login"]`)
+	case "composer_placeholders":
+		return parseStringList(&cfg.ComposerPlaceholders, key, value, `["Once fixed, resend your message"]`)
 	case "wake_model":
 		return parseWakeModel(cfg, value)
 	case "wake_model_by_name":
@@ -522,6 +540,15 @@ func parseLeaseIgnoreProcs(cfg *Config, value string) error {
 	return nil
 }
 
+func parseStringList(dst *[]string, key, value, example string) error {
+	items, ok := parseList(value)
+	if !ok {
+		return fmt.Errorf("%s must be a list of strings, such as %s", key, example)
+	}
+	*dst = items
+	return nil
+}
+
 // parseDurationKey reads one of the duration keys.
 func parseDurationKey(cfg *Config, key, value string) error {
 	switch key {
@@ -543,6 +570,10 @@ func parseDurationKey(cfg *Config, key, value string) error {
 		return parseOptionalDuration(&cfg.HoldNoticeAfter, key, value, "10m")
 	case "gone_after":
 		return parseOptionalDuration(&cfg.GoneAfter, key, value, "1h")
+	case "verify_delivery_within":
+		return parseOptionalDuration(&cfg.VerifyDeliveryWithin, key, value, "60s")
+	case "stale_composer_after":
+		return parseOptionalDuration(&cfg.StaleComposerAfter, key, value, "10m")
 	default:
 		return parseDuration(&cfg.WakeTimeout, key, value, "60s")
 	}

@@ -59,7 +59,7 @@ func TestRemoteCallsUseMachine(t *testing.T) {
 	if err != nil || !empty {
 		t.Fatalf("remote composer = %v, %v", empty, err)
 	}
-	want := []string{"--machine m2 agent list", "--machine m2 agent read w2:p3 --source visible"}
+	want := []string{"--machine m2 agent list", "--machine m2 agent read w2:p3 --source visible --format ansi"}
 	if got := f.Argv(); strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("remote composer argv = %q, want %q", got, want)
 	}

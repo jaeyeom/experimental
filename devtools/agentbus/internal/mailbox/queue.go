@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	stateDelivered = "delivered"
-	stateExpired   = "expired"
+	stateDelivered            = "delivered"
+	stateDeliveredUnprocessed = "delivered-unprocessed"
+	stateExpired              = "expired"
 	// stateQueued is the send and reply answer when the paste has not
 	// run. The stored state becomes delivered once the paste is accepted.
 	stateQueued = "queued for delivery"
@@ -31,7 +32,13 @@ const (
 	// defaultGoneAfter is how long a raw handle target stays gone
 	// before its message expires.
 	defaultGoneAfter = time.Hour
-	waitTick         = 15 * time.Millisecond
+	// defaultVerifyWithin is how long post-delivery verification watches
+	// a readable transcript for an auth error or no-turn.
+	defaultVerifyWithin = 60 * time.Second
+	// defaultStaleComposerAfter is how long unchanged composer text holds
+	// a message before notifying the sender once per tab.
+	defaultStaleComposerAfter = 10 * time.Minute
+	waitTick                  = 15 * time.Millisecond
 	// holdWatch is how long a queued send watches for a fast unreachable
 	// hold before it answers. A paste still running after
 	// holdClassifyGrace is in progress, so a slow delivery does not wait
@@ -43,6 +50,15 @@ const (
 
 // HoldHibernated is the hold reason of a message to a hibernated agent.
 const HoldHibernated = "hibernated"
+
+// HoldLoginExpired is the hold reason when the target's login has expired.
+const HoldLoginExpired = "target login expired"
+
+// Reasons a delivered message was marked delivered-unprocessed.
+const (
+	ReasonAuth   = "auth"
+	ReasonNoTurn = "no-turn"
+)
 
 // The reasons an expired message closed.
 const (
@@ -65,6 +81,15 @@ type outcome struct {
 	// gone means every adapter answered that a raw handle target, one
 	// no registered name holds, is gone.
 	gone bool
+	// composerText / composerTabLabel are populated on HoldDraft when
+	// the adapter implements adapter.ComposerReader.
+	composerText     string
+	composerTabLabel string
+	// verifyPending / verifyStatus / verifyStateSeq are populated on
+	// accepted deliveries when the target has a readable transcript.
+	verifyPending  bool
+	verifyStatus   string
+	verifyStateSeq int64
 }
 
 // Poll delivers queued mail immediately, then again on each tick.
@@ -476,6 +501,9 @@ func (m *Mailbox) flushHandle(ctx context.Context, handle string) error {
 	if handle == "" {
 		return nil
 	}
+	if err := m.checkVerifications(ctx, handle); err != nil {
+		return err
+	}
 	for {
 		if ctx.Err() != nil {
 			return nil
@@ -540,7 +568,7 @@ func (m *Mailbox) step(ctx context.Context, handle string, deliver bool) (bool, 
 		return true, nil
 	}
 	if outcome.accepted {
-		err := m.markDelivered(id, outcome.detail)
+		err := m.markDelivered(id, outcome)
 		m.mu.Unlock()
 		if err != nil {
 			return false, err
@@ -703,6 +731,9 @@ func (m *Mailbox) attempt(ctx context.Context, msg message, deliver bool) outcom
 		// Its pane runs a shell now. The message waits for a wake.
 		return m.wakeOutcome(ctx, rec)
 	}
+	if m.isAuthOutage(msg.Handle) {
+		return outcome{reason: HoldLoginExpired, target: HoldLoginExpired}
+	}
 	state, ad, answered, err := m.observe(ctx, ads, msg.Handle)
 	if err != nil || ad == nil || !canDeliver(state) {
 		return m.notReadyOutcome(msg, state, answered, err)
@@ -717,7 +748,7 @@ func (m *Mailbox) attempt(ctx context.Context, msg message, deliver bool) outcom
 		}
 	}
 	if reason, held := composerHold(ctx, ad, msg.Handle); held {
-		return outcome{reason: reason, target: string(state)}
+		return m.draftHoldOutcome(ctx, ad, msg.Handle, reason, state)
 	}
 	if !deliver {
 		return outcome{deferred: true}
@@ -726,7 +757,7 @@ func (m *Mailbox) attempt(ctx context.Context, msg message, deliver bool) outcom
 	// Re-read right before the paste: a draft that appeared since the
 	// check means the user is typing. The race narrows but cannot close.
 	if reason, held := composerHold(ctx, ad, msg.Handle); held {
-		return outcome{reason: reason, target: string(state)}
+		return m.draftHoldOutcome(ctx, ad, msg.Handle, reason, state)
 	}
 	_ = m.logEvent(eventlog.Event{
 		Event:       eventlog.EventDeliverAttempt,
@@ -736,7 +767,11 @@ func (m *Mailbox) attempt(ctx context.Context, msg message, deliver bool) outcom
 		Detail:      "composer-empty-at-check",
 		TargetState: string(state),
 	})
-	return m.deliverOutcome(ctx, ad, msg.ID, msg.Handle, text, state)
+	o := m.deliverOutcome(ctx, ad, msg.ID, msg.Handle, text, state)
+	if o.accepted {
+		m.attachVerifyInfo(ctx, msg.Handle, &o)
+	}
+	return o
 }
 
 // SetPasteBound limits one paste. Zero uses defaultPasteBound.
@@ -966,14 +1001,28 @@ func holdReason(state adapter.State) string {
 	}
 }
 
-func (m *Mailbox) markDelivered(id, detail string) error {
+func (m *Mailbox) markDelivered(id string, o outcome) error {
 	msg := m.msgs[id]
 	now := m.now().UTC()
 	msg.State = stateDelivered
 	msg.DeliveredAt = &now
 	msg.ClosedAt = &now
+	msg.ComposerText = ""
+	msg.ComposerTextSince = nil
+	msg.ComposerTabLabel = ""
+	msg.StaleComposerNotice = false
+	if o.verifyPending {
+		within := m.verifyWithinDuration()
+		deadline := now.Add(within)
+		msg.VerifyPending = true
+		msg.VerifyDeadline = &deadline
+		msg.VerifyStatus = o.verifyStatus
+		msg.VerifyStateSeq = o.verifyStateSeq
+		msg.VerifyStateChanged = false
+	}
 	m.msgs[id] = msg
 	m.pop(msg.Handle)
+	detail := o.detail
 	if detail == "" {
 		detail = "accepted"
 		if msg.HeldAt != nil {
@@ -1020,6 +1069,7 @@ func (m *Mailbox) holdFront(id string, outcome outcome) error {
 	prev := msg.State
 	msg.State = next
 	m.markHeld(&msg)
+	m.updateComposerTrack(&msg, outcome)
 	m.msgs[id] = msg
 	switch {
 	case outcome.tried && strings.HasPrefix(prev, "held:"):
@@ -1120,6 +1170,7 @@ type holdNotice struct {
 // maybeHoldNotices sends at most one notice per message that has been
 // held for the configured duration. The caller does not hold m.mu.
 func (m *Mailbox) maybeHoldNotices(ctx context.Context, handle string) error {
+	m.maybeStaleComposerNotice(ctx, handle)
 	due, err := m.claimHoldNotices(handle)
 	if err != nil {
 		return err
@@ -1148,6 +1199,9 @@ func (m *Mailbox) claimHoldNotices(handle string) ([]holdNotice, error) {
 	for _, id := range m.queue[handle] {
 		msg := m.msgs[id]
 		if msg.HoldNotice || msg.HeldAt == nil || now.Sub(*msg.HeldAt) < after {
+			continue
+		}
+		if msg.State == "held: "+adapter.HoldDraft && msg.ComposerText != "" && m.staleComposerEnabled() {
 			continue
 		}
 		msg.HoldNotice = true
@@ -1282,7 +1336,7 @@ func (m *Mailbox) expired(msg message) bool {
 }
 
 func terminal(state string) bool {
-	return state == stateDelivered || state == stateExpired
+	return state == stateDelivered || state == stateDeliveredUnprocessed || state == stateExpired
 }
 
 func rebuild(msgs map[string]message) map[string][]string {

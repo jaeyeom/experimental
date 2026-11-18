@@ -167,6 +167,11 @@ func TestComposerEmpty(t *testing.T) {
 		{name: "claude read fails", kind: "claude", focused: "false", readErr: true, reason: adapter.HoldDraftUnknown, wantErr: true},
 		{name: "unknown kind focused", kind: "codex", focused: "true", reason: adapter.HoldFocused},
 		{name: "unknown kind unfocused", kind: "codex", focused: "false", empty: true},
+		{name: "dim placeholder on empty input", kind: "claude", focused: "false", screen: claudeScreen("❯ \x1b[2mOnce fixed, resend your message\x1b[0m"), empty: true},
+		{name: "known placeholder without style info", kind: "claude", focused: "false", screen: claudeScreen("❯ Once fixed, resend your message"), empty: true},
+		{name: "placeholder plus typed text", kind: "claude", focused: "false", screen: claudeScreen("❯ Once fixed, resend your message extra"), reason: adapter.HoldDraft},
+		{name: "dim placeholder plus normal typed text", kind: "claude", focused: "false", screen: claudeScreen("❯ \x1b[2mOnce fixed, resend your message\x1b[0mhello"), reason: adapter.HoldDraft},
+		{name: "normal typed text", kind: "claude", focused: "false", screen: claudeScreen("❯ \x1b[0mhello"), reason: adapter.HoldDraft},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -177,7 +182,7 @@ func TestComposerEmpty(t *testing.T) {
 				switch strings.Join(args, " ") {
 				case "agent list":
 					return list, "", 0, nil
-				case "agent read w2:p3 --source visible":
+				case "agent read w2:p3 --source visible --format ansi":
 					if tt.readErr {
 						return "", "boom", 1, nil
 					}

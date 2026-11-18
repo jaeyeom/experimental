@@ -70,7 +70,14 @@ func (m *Mailbox) Status(ctx context.Context, id string) (string, error) {
 	if msg.ClientID != "" {
 		client = "client_id: " + msg.ClientID + "\n"
 	}
-	return fmt.Sprintf("id: %s\nstate: %s\n%s%swaited: %s\n", msg.ID, msg.State, client, m.wakeStatus(msg), m.waited(msg)), nil
+	extra := ""
+	if msg.State == stateDeliveredUnprocessed && msg.UnprocessedReason != "" {
+		extra += "reason: " + msg.UnprocessedReason + "\n"
+	}
+	if detail := m.staleComposerDetail(msg); detail != "" {
+		extra += "detail: " + detail + "\n"
+	}
+	return fmt.Sprintf("id: %s\nstate: %s\n%s%s%swaited: %s\n", msg.ID, msg.State, client, extra, m.wakeStatus(msg), m.waited(msg)), nil
 }
 
 // flushed flushes the queue of message id, then reads it again.
@@ -124,6 +131,9 @@ func formatMessage(msg message) string {
 	fmt.Fprintf(&b, "from: %s\nto: %s\n", msg.From, msg.To)
 	if msg.Re != "" {
 		fmt.Fprintf(&b, "re: %s\n", msg.Re)
+	}
+	if msg.ResendOf != "" {
+		fmt.Fprintf(&b, "resend_of: %s\n", msg.ResendOf)
 	}
 	fmt.Fprintf(&b, "sent_at: %s\nbody:\n%s\n", msg.SentAt.UTC().Format(timeLayout), msg.Body)
 	return b.String()

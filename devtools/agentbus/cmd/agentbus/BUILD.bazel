@@ -27,6 +27,7 @@ go_library(
         "policy.go",
         "prompthook.go",
         "registry.go",
+        "replay.go",
         "sandbox.go",
         "tunnel.go",
         "tunnelinstall.go",

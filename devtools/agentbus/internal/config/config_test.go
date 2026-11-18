@@ -234,6 +234,35 @@ func TestParseHoldNoticeAfter(t *testing.T) {
 	}
 }
 
+func TestParseDeliveryVerifyAndPlaceholderKeys(t *testing.T) {
+	got, err := Parse("verify_delivery_within = \"45s\"\nstale_composer_after = \"15m\"\nauth_error_patterns = [\"Login expired\"]\ncomposer_placeholders = [\"Once fixed, resend your message\"]\n")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got.VerifyDeliveryWithin == nil || *got.VerifyDeliveryWithin != 45*time.Second {
+		t.Fatalf("VerifyDeliveryWithin = %v", got.VerifyDeliveryWithin)
+	}
+	if got.StaleComposerAfter == nil || *got.StaleComposerAfter != 15*time.Minute {
+		t.Fatalf("StaleComposerAfter = %v", got.StaleComposerAfter)
+	}
+	if len(got.AuthErrorPatterns) != 1 || got.AuthErrorPatterns[0] != "Login expired" {
+		t.Fatalf("AuthErrorPatterns = %v", got.AuthErrorPatterns)
+	}
+	if len(got.ComposerPlaceholders) != 1 || got.ComposerPlaceholders[0] != "Once fixed, resend your message" {
+		t.Fatalf("ComposerPlaceholders = %v", got.ComposerPlaceholders)
+	}
+	zero, err := Parse("verify_delivery_within = \"0s\"\nstale_composer_after = \"0s\"\n")
+	if err != nil {
+		t.Fatalf("Parse zero: %v", err)
+	}
+	if zero.VerifyDeliveryWithin == nil || *zero.VerifyDeliveryWithin != 0 {
+		t.Fatalf("zero VerifyDeliveryWithin = %v", zero.VerifyDeliveryWithin)
+	}
+	if zero.StaleComposerAfter == nil || *zero.StaleComposerAfter != 0 {
+		t.Fatalf("zero StaleComposerAfter = %v", zero.StaleComposerAfter)
+	}
+}
+
 func TestParseWakeTimeout(t *testing.T) {
 	got, err := Parse("wake_timeout = \"90s\"  # slow machine\n")
 	if err != nil || got.WakeTimeout != 90*time.Second {

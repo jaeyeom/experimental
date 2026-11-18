@@ -19,6 +19,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lastturn"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/registry"
 )
 
@@ -81,10 +82,36 @@ type message struct {
 	GoneSince *time.Time `json:"goneSince,omitempty"`
 	// ExpireReason is why an expired message closed: ExpireTTL or ExpireGone.
 	ExpireReason string `json:"expireReason,omitempty"`
+	// UnprocessedReason is why a delivered message was marked
+	// delivered-unprocessed: "auth" or "no-turn".
+	UnprocessedReason string `json:"unprocessedReason,omitempty"`
+	// ResendOf is the original message id when this message is a replay.
+	ResendOf string `json:"resendOf,omitempty"`
+	// ReplayedAt is when this delivered-unprocessed message was replayed.
+	ReplayedAt *time.Time `json:"replayedAt,omitempty"`
+	// VerifyPending is true while post-delivery transcript verification is running.
+	VerifyPending      bool       `json:"verifyPending,omitempty"`
+	VerifyDeadline     *time.Time `json:"verifyDeadline,omitempty"`
+	VerifyStatus       string     `json:"verifyStatus,omitempty"`
+	VerifyStateSeq     int64      `json:"verifyStateSeq,omitempty"`
+	VerifyStateChanged bool       `json:"verifyStateChanged,omitempty"`
+	// ComposerText / ComposerTextSince / ComposerTabLabel track unchanged
+	// composer text during HoldDraft holds.
+	ComposerText        string     `json:"composerText,omitempty"`
+	ComposerTextSince   *time.Time `json:"composerTextSince,omitempty"`
+	ComposerTabLabel    string     `json:"composerTabLabel,omitempty"`
+	StaleComposerNotice bool       `json:"staleComposerNoticeSent,omitempty"`
+}
+
+type authOutageRecord struct {
+	Since         time.Time       `json:"since"`
+	TurnsAtOutage int             `json:"turnsAtOutage"`
+	Noticed       map[string]bool `json:"noticed,omitempty"`
 }
 
 type file struct {
-	Messages []message `json:"messages"`
+	Messages   []message                   `json:"messages"`
+	AuthOutage map[string]authOutageRecord `json:"authOutage,omitempty"`
 }
 
 // Mailbox persists messages in the daemon state directory.
@@ -134,6 +161,23 @@ type Mailbox struct {
 	// goneAfter is how long a raw handle target stays gone before its
 	// message expires. Nil uses defaultGoneAfter.
 	goneAfter *time.Duration
+	// transcript reads an agent's transcript turns for post-delivery verification.
+	transcript func(adapter.Agent) ([]lastturn.Turn, bool)
+	// verifyWithin bounds post-delivery verification. Zero with verifyOff false
+	// uses defaultVerifyWithin. verifyOff disables verification.
+	verifyWithin time.Duration
+	verifyOff    bool
+	// authPatterns are case-insensitive substrings matched against an
+	// assistant reply to detect expired login. Nil uses DefaultAuthErrorPatterns.
+	authPatterns []string
+	// staleComposerAfter is how long unchanged composer text holds a message
+	// before notifying the sender once per tab.
+	staleComposerAfter time.Duration
+	staleComposerOff   bool
+	// authOutage tracks handles currently held due to an auth error.
+	authOutage map[string]authOutageRecord
+	// staleComposerNoticed tracks handle -> composerText already noticed.
+	staleComposerNoticed map[string]string
 }
 
 // Open loads messages. A missing file is an empty mailbox.
@@ -142,25 +186,30 @@ func Open(dir string, reg *registry.Registry, adapters []adapter.Adapter, log *e
 	if inline <= 0 {
 		inline = defaultInline
 	}
-	msgs, err := load(dir)
+	msgs, outage, err := loadWithOutage(dir)
 	if err != nil {
 		return nil, err
 	}
+	if outage == nil {
+		outage = map[string]authOutageRecord{}
+	}
 	box := &Mailbox{
-		dir:       dir,
-		reg:       reg,
-		log:       log,
-		inline:    inline,
-		now:       time.Now,
-		msgs:      msgs,
-		byClient:  indexClients(msgs),
-		queue:     rebuild(msgs),
-		inflight:  map[string]bool{},
-		flushing:  map[string]bool{},
-		holdPaste: map[string]bool{},
-		pasting:   map[string]bool{},
-		adapters:  adapters,
-		waking:    map[string]*wakeCall{},
+		dir:                  dir,
+		reg:                  reg,
+		log:                  log,
+		inline:               inline,
+		now:                  time.Now,
+		msgs:                 msgs,
+		byClient:             indexClients(msgs),
+		queue:                rebuild(msgs),
+		inflight:             map[string]bool{},
+		flushing:             map[string]bool{},
+		holdPaste:            map[string]bool{},
+		pasting:              map[string]bool{},
+		adapters:             adapters,
+		waking:               map[string]*wakeCall{},
+		authOutage:           outage,
+		staleComposerNoticed: map[string]string{},
 	}
 	box.cv = sync.NewCond(&box.mu)
 	return box, nil
@@ -472,26 +521,34 @@ func UnverifiedHolds(dir string) ([]string, error) {
 }
 
 func load(dir string) (map[string]message, error) {
+	msgs, _, err := loadWithOutage(dir)
+	return msgs, err
+}
+
+func loadWithOutage(dir string) (map[string]message, map[string]authOutageRecord, error) {
 	data, err := os.ReadFile(filepath.Join(dir, mailboxFile))
 	if errors.Is(err, os.ErrNotExist) {
-		return map[string]message{}, nil
+		return map[string]message{}, nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read messages: %w", err)
+		return nil, nil, fmt.Errorf("read messages: %w", err)
 	}
 	var doc file
 	if err := json.Unmarshal(data, &doc); err != nil {
-		return nil, fmt.Errorf("decode messages: %w", err)
+		return nil, nil, fmt.Errorf("decode messages: %w", err)
 	}
 	out := make(map[string]message, len(doc.Messages))
 	for _, msg := range doc.Messages {
 		out[msg.ID] = msg
 	}
-	return out, nil
+	return out, doc.AuthOutage, nil
 }
 
 func (m *Mailbox) save() error {
-	doc := file{Messages: make([]message, 0, len(m.msgs))}
+	doc := file{
+		Messages:   make([]message, 0, len(m.msgs)),
+		AuthOutage: m.authOutage,
+	}
 	for _, msg := range m.msgs {
 		doc.Messages = append(doc.Messages, msg)
 	}

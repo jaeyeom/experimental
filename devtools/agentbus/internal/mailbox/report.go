@@ -57,6 +57,9 @@ func (m *Mailbox) Report(ctx context.Context, id string) Report {
 	switch {
 	case msg.State == stateDelivered:
 		r.State = msg.State
+	case msg.State == stateDeliveredUnprocessed:
+		r.State = msg.State
+		r.Reason = msg.UnprocessedReason
 	case msg.State == stateExpired:
 		r.State = msg.State
 		r.Reason = msg.ExpireReason
@@ -99,7 +102,7 @@ func heldReason(reason string) string {
 	switch reason {
 	case adapter.HoldDraft, adapter.HoldDraftUnknown, adapter.HoldScrolled, adapter.HoldFocused:
 		return HeldComposerBusy
-	case string(adapter.StateBlocked), string(adapter.StateNoAgent), string(adapter.StateUnknown), string(adapter.StateGone):
+	case string(adapter.StateBlocked), string(adapter.StateNoAgent), string(adapter.StateUnknown), string(adapter.StateGone), HoldLoginExpired:
 		return HeldTargetNotReady
 	case HoldHibernated, HoldWaking:
 		return HeldHibernated
