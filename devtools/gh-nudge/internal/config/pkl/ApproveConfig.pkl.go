@@ -18,6 +18,14 @@ type ApproveConfig struct {
 	// evicted first.
 	AgentCacheMaxMb int `pkl:"agent_cache_max_mb"`
 
+	// A pull request with more changed files than this has no file patches
+	// fetched. A condition that needs patches then fails with "too large to
+	// check".
+	PatchMaxFiles int `pkl:"patch_max_files"`
+
+	// Like patch_max_files, for the number of added lines in the pull request.
+	PatchMaxAddedLines int `pkl:"patch_max_added_lines"`
+
 	// Rules. A pull request that matches none of them is left for a human.
 	Rules []ApproveRule `pkl:"rules"`
 }

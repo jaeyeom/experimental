@@ -7,7 +7,6 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/github"
 )
 
@@ -25,16 +24,6 @@ type syntax struct {
 	line2 string
 	open  string
 	close string
-}
-
-// needsCommentPatches reports whether any rule reads file patches.
-func needsCommentPatches(rules []config.ApproveRule) bool {
-	for _, rule := range rules {
-		if rule.DeletionsAndCommentsOnly || rule.MineCommentsOnly || len(rule.FileChecks) > 0 {
-			return true
-		}
-	}
-	return false
 }
 
 func syntaxFor(path string) (syntax, bool) {

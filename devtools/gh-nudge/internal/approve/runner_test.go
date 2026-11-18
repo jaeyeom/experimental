@@ -43,6 +43,8 @@ type fakeClient struct {
 	patches      map[int][]github.PullFile
 	// diff overrides the default diff of every pull request.
 	diff string
+	// onCall is told each pull request and patch read, to drive a fake clock.
+	onCall func(op string)
 	handoffFake
 }
 
@@ -59,6 +61,9 @@ func (f *fakeClient) SearchReviewRequested() ([]github.PullRef, error) {
 }
 
 func (f *fakeClient) LoadApprovalPullRequest(ref github.PullRef) (github.ApprovalPullRequest, error) {
+	if f.onCall != nil {
+		f.onCall("pull request")
+	}
 	if err := f.loadErr[ref.Number]; err != nil {
 		return github.ApprovalPullRequest{}, err
 	}
@@ -79,6 +84,9 @@ func (f *fakeClient) PullRequestHeadSHA(ref github.PullRef) (string, error) {
 
 func (f *fakeClient) PullRequestFilePatches(ref github.PullRef) ([]github.PullFile, error) {
 	f.patchReads++
+	if f.onCall != nil {
+		f.onCall("patches")
+	}
 	if f.patchErr != nil {
 		return nil, f.patchErr
 	}

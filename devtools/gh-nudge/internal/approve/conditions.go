@@ -23,6 +23,9 @@ type ConditionResult struct {
 	Saw       string `json:"saw"`
 	// Details are per-item verdicts, such as one line per changed file.
 	Details []string `json:"details,omitempty"`
+	// NotEvaluated is set on an expensive condition left unread because a
+	// cheaper condition of the rule already failed. Pass is false then.
+	NotEvaluated bool `json:"notEvaluated,omitempty"`
 }
 
 // RuleResult is one rule's verdict. Conditions are in evaluation order.
@@ -39,7 +42,7 @@ type RuleResult struct {
 // FirstFailure returns the first condition that failed.
 func (r RuleResult) FirstFailure() (ConditionResult, bool) {
 	for _, cond := range r.Conditions {
-		if !cond.Pass {
+		if !cond.Pass && !cond.NotEvaluated {
 			return cond, true
 		}
 	}
@@ -52,12 +55,25 @@ func (r RuleResult) FirstFailure() (ConditionResult, bool) {
 type condition struct {
 	name      string
 	fileLevel bool
-	active    func(rule config.ApproveRule) bool
-	check     func(rule config.ApproveRule, pr github.ApprovalPullRequest) (bool, string)
-	detail    func(rule config.ApproveRule, pr github.ApprovalPullRequest) (bool, string, []string)
+	// needs is the data the condition loads on demand. A condition that
+	// needs some is evaluated after the rule's other conditions passed.
+	needs loadNeeds
+	// skipLoad reports that the condition fails without reading its data.
+	skipLoad func(pr github.ApprovalPullRequest) bool
+	active   func(rule config.ApproveRule) bool
+	check    func(rule config.ApproveRule, pr github.ApprovalPullRequest) (bool, string)
+	detail   func(rule config.ApproveRule, pr github.ApprovalPullRequest) (bool, string, []string)
 }
 
-// conditions are evaluated in this order. The first failure is reported.
+// loadNeeds is a set of data a condition loads on demand.
+type loadNeeds int
+
+const (
+	needOwnership loadNeeds = 1 << iota
+	needPatches
+)
+
+// conditions are reported in this order. The first failure is reported.
 var conditions = []condition{
 	{name: "repos", active: func(r config.ApproveRule) bool { return len(r.Repos) > 0 }, check: checkRepos},
 	{name: "paths_all_match", fileLevel: true, active: func(r config.ApproveRule) bool { return len(r.PathsAllMatch) > 0 }, check: checkPathsAllMatch},
@@ -67,7 +83,7 @@ var conditions = []condition{
 	{name: "max_added_lines", fileLevel: true, active: func(r config.ApproveRule) bool { return r.MaxAddedLines != nil }, check: checkMaxAddedLines},
 	{name: "max_files", fileLevel: true, active: func(r config.ApproveRule) bool { return r.MaxFiles != nil }, check: checkMaxFiles},
 	{name: "pure_deletion", fileLevel: true, active: func(r config.ApproveRule) bool { return r.PureDeletion }, check: checkPureDeletion},
-	{name: "deletions_and_comments_only", fileLevel: true, active: func(r config.ApproveRule) bool { return r.DeletionsAndCommentsOnly }, check: checkDeletionsAndCommentsOnly},
+	{name: "deletions_and_comments_only", fileLevel: true, needs: needPatches, skipLoad: func(pr github.ApprovalPullRequest) bool { return pr.Deletions <= 0 }, active: func(r config.ApproveRule) bool { return r.DeletionsAndCommentsOnly }, check: checkDeletionsAndCommentsOnly},
 	{name: "authors_allow", active: func(r config.ApproveRule) bool { return len(r.AuthorsAllow) > 0 }, check: checkAuthorsAllow},
 	{name: "authors_deny", active: func(r config.ApproveRule) bool { return len(r.AuthorsDeny) > 0 }, check: checkAuthorsDeny},
 	{name: "labels_required", active: func(r config.ApproveRule) bool { return len(r.LabelsRequired) > 0 }, check: checkLabelsRequired},
@@ -76,71 +92,185 @@ var conditions = []condition{
 	{name: "checks", active: func(r config.ApproveRule) bool { return r.Checks != "" }, check: checkChecks},
 	{name: "not_draft", active: func(r config.ApproveRule) bool { return r.NotDraft }, check: checkNotDraft},
 	{name: "max_unresolved_threads", active: func(config.ApproveRule) bool { return true }, check: checkUnresolvedThreads},
-	{name: "codeowners_covered", fileLevel: true, active: func(r config.ApproveRule) bool { return r.CodeownersCovered }, detail: checkCodeownersCovered},
-	{name: "mine_comments_only", fileLevel: true, active: func(r config.ApproveRule) bool { return r.MineCommentsOnly }, detail: checkMineCommentsOnly},
+	{name: "codeowners_covered", fileLevel: true, needs: needOwnership, active: func(r config.ApproveRule) bool { return r.CodeownersCovered }, detail: checkCodeownersCovered},
+	{name: "mine_comments_only", fileLevel: true, needs: needOwnership | needPatches, active: func(r config.ApproveRule) bool { return r.MineCommentsOnly }, detail: checkMineCommentsOnly},
 }
 
-// EvaluateRule evaluates every condition the rule sets.
+// EvaluateRule evaluates every condition the rule sets. It reads only what
+// pr already holds.
 func EvaluateRule(rule config.ApproveRule, pr github.ApprovalPullRequest) RuleResult {
-	return evaluateRule(rule, pr, nil)
+	return evaluateRule(rule, pr, nil, nil)
 }
 
-func evaluateRule(rule config.ApproveRule, pr github.ApprovalPullRequest, fileCheck FileCheckFunc) RuleResult {
-	result := RuleResult{Rule: rule.Name, Matched: true}
-	var uncoveredPR github.ApprovalPullRequest
-	allCovered := false
-	hasFileChecks := len(rule.FileChecks) > 0
-	if hasFileChecks {
-		uncoveredPR, allCovered = filterUncoveredPR(rule, pr)
+// lazyLoads loads the data of the expensive conditions the first time a
+// rule needs it. Each function memoizes, so a pull request loads each at
+// most once however many rules need it.
+type lazyLoads struct {
+	ownership func() *github.Ownership
+	// patches returns the patches, or why there are none.
+	patches func() ([]github.PullFile, string)
+}
+
+// apply fills pr with the data in need that it does not hold yet and
+// reports whether it changed pr.
+func (l *lazyLoads) apply(pr *github.ApprovalPullRequest, need loadNeeds) bool {
+	if l == nil {
+		return false
 	}
-	reposPassed := true
+	changed := false
+	if need&needOwnership != 0 && pr.Ownership == nil && l.ownership != nil {
+		pr.Ownership = l.ownership()
+		changed = true
+	}
+	if need&needPatches != 0 && pr.Patches == nil && pr.PatchesErr == "" && l.patches != nil {
+		pr.Patches, pr.PatchesErr = l.patches()
+		changed = true
+	}
+	return changed
+}
+
+// fileChecksNeedPatches reports whether a file_checks check on a changed
+// file reads its patch.
+func fileChecksNeedPatches(rule config.ApproveRule, pr github.ApprovalPullRequest) bool {
+	if pr.FilesErr != "" {
+		return false
+	}
+	for _, file := range pr.Files {
+		if _, check, ok := config.MatchFileCheck(rule.FileChecks, file.Path); ok && check.Builtin != config.FileCheckOnlyDeletions {
+			return true
+		}
+	}
+	return false
+}
+
+// evaluateRule evaluates the rule's cheap conditions first. The expensive
+// ones, which need CODEOWNERS or patches, load their data through loads only
+// when every cheap condition passed. They are reported in table order, and
+// as not evaluated when a cheap one failed. With nil loads, pr already holds
+// the data and every condition is evaluated.
+func evaluateRule(rule config.ApproveRule, pr github.ApprovalPullRequest, fileCheck FileCheckFunc, loads *lazyLoads) RuleResult {
+	ev := &ruleEval{rule: rule, pr: pr, loads: loads, hasFileChecks: len(rule.FileChecks) > 0}
+	ev.refilter()
+	cheap := make(map[string]ConditionResult)
+	cheapFailed := ""
+	for _, cond := range conditions {
+		if !cond.active(rule) || cond.needs != 0 {
+			continue
+		}
+		got := ev.evaluate(cond)
+		cheap[cond.name] = got
+		if !got.Pass && cheapFailed == "" {
+			cheapFailed = cond.name
+		}
+	}
+	result := RuleResult{Rule: rule.Name, Matched: true}
 	for _, cond := range conditions {
 		if !cond.active(rule) {
 			continue
 		}
-		got := ConditionResult{Condition: cond.name}
-		targetPR := pr
-		if hasFileChecks && cond.fileLevel {
-			if allCovered && pr.FilesErr == "" {
-				got.Pass = true
-				got.Saw = "all files covered by file_checks"
-				result.Conditions = append(result.Conditions, got)
-				continue
-			}
-			targetPR = uncoveredPR
-		}
-		if cond.detail != nil {
-			got.Pass, got.Saw, got.Details = cond.detail(rule, targetPR)
-		} else {
-			got.Pass, got.Saw = cond.check(rule, targetPR)
-		}
-		if cond.name == "repos" {
-			reposPassed = got.Pass
+		got, ok := cheap[cond.name]
+		switch {
+		case ok:
+		case cheapFailed != "" && loads != nil:
+			got = ConditionResult{Condition: cond.name, Saw: "not evaluated: " + cheapFailed + " failed", NotEvaluated: true}
+		default:
+			ev.load(cond)
+			got = ev.evaluate(cond)
 		}
 		result.Conditions = append(result.Conditions, got)
 		if !got.Pass {
 			result.Matched = false
 		}
 	}
-	if hasFileChecks {
-		got := ConditionResult{Condition: fileChecksCondition}
-		if !reposPassed {
-			got.Saw = "not run: repos did not match"
-			result.Matched = false
-		} else {
-			if fileCheck == nil {
-				fileCheck = func(r config.ApproveRule, p github.ApprovalPullRequest) (bool, string, []string, []FileCheckPass) {
-					return evaluateFileChecks(r, p, ExecFileCheckCommand, nil)
-				}
-			}
-			got.Pass, got.Saw, got.Details, result.FileCheckPasses = fileCheck(rule, pr)
-			if !got.Pass {
-				result.Matched = false
-			}
+	if ev.hasFileChecks {
+		reposPassed := true
+		if got, ok := cheap["repos"]; ok {
+			reposPassed = got.Pass
 		}
+		got := ev.fileChecks(&result, reposPassed, fileCheck)
 		result.Conditions = append(result.Conditions, got)
 	}
 	return result
+}
+
+// ruleEval is one rule's evaluation of one pull request. pr gains the data
+// the expensive conditions load.
+type ruleEval struct {
+	rule          config.ApproveRule
+	pr            github.ApprovalPullRequest
+	loads         *lazyLoads
+	hasFileChecks bool
+	// uncoveredPR is pr without the files file_checks covers.
+	uncoveredPR github.ApprovalPullRequest
+	allCovered  bool
+}
+
+// refilter recomputes uncoveredPR after pr changed.
+func (e *ruleEval) refilter() {
+	if e.hasFileChecks {
+		e.uncoveredPR, e.allCovered = filterUncoveredPR(e.rule, e.pr)
+	}
+}
+
+// allFilesCovered reports that file_checks covers every changed file, so a
+// file-level condition has nothing left to judge.
+func (e *ruleEval) allFilesCovered(cond condition) bool {
+	return e.hasFileChecks && cond.fileLevel && e.allCovered && e.pr.FilesErr == ""
+}
+
+// load fills pr with the data cond needs, unless cond fails without it.
+func (e *ruleEval) load(cond condition) {
+	if e.allFilesCovered(cond) || (cond.skipLoad != nil && cond.skipLoad(e.pr)) {
+		return
+	}
+	if e.loads.apply(&e.pr, cond.needs) {
+		e.refilter()
+	}
+}
+
+// evaluate runs one condition on pr, or on the files file_checks does not
+// cover when cond is file-level.
+func (e *ruleEval) evaluate(cond condition) ConditionResult {
+	got := ConditionResult{Condition: cond.name}
+	targetPR := e.pr
+	if e.hasFileChecks && cond.fileLevel {
+		if e.allFilesCovered(cond) {
+			got.Pass = true
+			got.Saw = "all files covered by file_checks"
+			return got
+		}
+		targetPR = e.uncoveredPR
+	}
+	if cond.detail != nil {
+		got.Pass, got.Saw, got.Details = cond.detail(e.rule, targetPR)
+	} else {
+		got.Pass, got.Saw = cond.check(e.rule, targetPR)
+	}
+	return got
+}
+
+// fileChecks runs the rule's file_checks condition. It loads patches only
+// when a check reads one.
+func (e *ruleEval) fileChecks(result *RuleResult, reposPassed bool, fileCheck FileCheckFunc) ConditionResult {
+	got := ConditionResult{Condition: fileChecksCondition}
+	if !reposPassed {
+		got.Saw = "not run: repos did not match"
+		result.Matched = false
+		return got
+	}
+	if fileChecksNeedPatches(e.rule, e.pr) {
+		e.loads.apply(&e.pr, needPatches)
+	}
+	if fileCheck == nil {
+		fileCheck = func(r config.ApproveRule, p github.ApprovalPullRequest) (bool, string, []string, []FileCheckPass) {
+			return evaluateFileChecks(r, p, ExecFileCheckCommand, nil)
+		}
+	}
+	got.Pass, got.Saw, got.Details, result.FileCheckPasses = fileCheck(e.rule, e.pr)
+	if !got.Pass {
+		result.Matched = false
+	}
+	return got
 }
 
 // filterUncoveredPR returns a copy of pr containing only files not covered by
@@ -197,10 +327,14 @@ func Evaluate(rules []config.ApproveRule, pr github.ApprovalPullRequest, agent A
 }
 
 func evaluateWithFileChecks(rules []config.ApproveRule, pr github.ApprovalPullRequest, agent AgentFunc, fileCheck FileCheckFunc) ([]RuleResult, string) {
+	return evaluateRules(rules, pr, agent, fileCheck, nil)
+}
+
+func evaluateRules(rules []config.ApproveRule, pr github.ApprovalPullRequest, agent AgentFunc, fileCheck FileCheckFunc, loads *lazyLoads) ([]RuleResult, string) {
 	results := make([]RuleResult, 0, len(rules))
 	matched := ""
 	for _, rule := range rules {
-		result := evaluateRule(rule, pr, fileCheck)
+		result := evaluateRule(rule, pr, fileCheck, loads)
 		if len(rule.AgentCommand) > 0 {
 			run := agent
 			if matched != "" {
@@ -236,8 +370,17 @@ func withAgent(result RuleResult, rule config.ApproveRule, agent AgentFunc) Rule
 	return result
 }
 
+// unreadable fails a condition whose data could not be read. A pull request
+// over the patch size cap says so without the prefix.
 func unreadable(reason string) (bool, string) {
-	return false, "unreadable: " + reason
+	return false, unreadableText(reason)
+}
+
+func unreadableText(reason string) string {
+	if strings.HasPrefix(reason, tooLarge) {
+		return reason
+	}
+	return "unreadable: " + reason
 }
 
 func firstGlob(patterns []string, value string) string {

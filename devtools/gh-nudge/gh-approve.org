@@ -411,6 +411,45 @@ additions~.
 | ~.el~ ~.lisp~ ~.clj~ | ~;~ |
 
 
+** Lazy loading and caches
+
+Some conditions need data that costs extra calls: CODEOWNERS and the viewer's
+teams (~codeowners_covered~, ~mine_comments_only~, and the ~codeowners_not_mine~
+mark-viewed selector), and file patches (~deletions_and_comments_only~,
+~mine_comments_only~, and ~file_checks~ checks that read a diff).
+gh-approve loads them only when a rule reaches such a condition, after every
+cheaper condition of that rule passed, and at most once per pull request. A
+pull request that a cheap condition rejects, such as ~repos~, ~authors_allow~,
+~labels_required~, ~max_files~, ~not_draft~ or ~checks~, makes no CODEOWNERS,
+team or patch call. A condition not reached because a cheaper one failed is
+reported as ~skip~ in ~--explain~ and as ~not evaluated: <condition> failed~.
+
+- *CODEOWNERS* is read and parsed once per repository and base branch in a
+  run.
+- *Teams.* gh-approve reads your own teams once per organization in a run,
+  with one paged query, and decides from that set whether you are in a team.
+  The query also reads the parents of each of your teams, so a parent team
+  counts when you are in one of its child teams. A team still counts only when it has other members and is a requested
+  reviewer. For that it reads the member count of a team of yours, never the
+  member list. When your teams cannot be read, it falls back to listing the
+  team's members. Counts and lists are cached for the run too.
+- *Patches* are not fetched for a pull request with more than
+  ~patch_max_files~ changed files (default ~300~) or more than
+  ~patch_max_added_lines~ added lines (default ~5000~), both set in the
+  ~approve~ block. A condition that needs them then fails with ~too large to
+  check~, and the pull request is left for a human.
+
+~--explain~ prints one line per pull request, such as:
+
+#+begin_example
+  timing: total 1.2s; pull request 310ms; CODEOWNERS 420ms; teams 95ms; patches 760ms; agent command skipped
+#+end_example
+
+It gives the total time and the time of each load: the pull request, CODEOWNERS,
+teams, patches and the agent command. A load reads ~skipped~ when no rule needed
+it (or, for patches, ~skipped (too large)~), and ~cache hit~ when the run
+already had it, or, for the agent command, when its decision cache answered.
+
 ** Agent decision cache
 
 An agent command can be expensive, such as an LLM review, so gh-approve caches

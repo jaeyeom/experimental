@@ -19,12 +19,6 @@ type teamMembers struct {
 	err     error
 }
 
-// needsOwnership reports whether any rule sets codeowners_covered or
-// mine_comments_only.
-func needsOwnership(rules []config.ApproveRule) bool {
-	return slices.ContainsFunc(rules, func(r config.ApproveRule) bool { return r.CodeownersCovered || r.MineCommentsOnly })
-}
-
 // teamMembers returns the members of org/slug. They are cached per run.
 func (r *Runner) teamMembers(org, slug string) ([]string, error) {
 	key := strings.ToLower(org + "/" + slug)
@@ -33,31 +27,161 @@ func (r *Runner) teamMembers(org, slug string) ([]string, error) {
 	}
 	got, ok := r.teams[key]
 	if !ok {
-		got.members, got.err = r.Client.TeamMembers(org, slug)
+		r.measure(&r.state().teams, func() { got.members, got.err = r.Client.TeamMembers(org, slug) })
 		r.teams[key] = got
 	}
 	return got.members, got.err
 }
 
-// loadOwnership reads CODEOWNERS on the base branch and the members of
-// every team that owns a changed file. Team members are cached per run.
+// viewerTeamSet is the slugs, lowercase, of the teams of one organization
+// that include the viewer, or why they could not be read.
+type viewerTeamSet struct {
+	slugs map[string]bool
+	err   error
+}
+
+// viewerTeamsOf returns the viewer's teams in org. They are read in one
+// paged query per organization and cached per run.
+func (r *Runner) viewerTeamsOf(org, viewer string) viewerTeamSet {
+	key := strings.ToLower(org)
+	if r.viewerTeams == nil {
+		r.viewerTeams = map[string]viewerTeamSet{}
+	}
+	got, ok := r.viewerTeams[key]
+	if !ok {
+		r.measure(&r.state().teams, func() {
+			slugs, err := r.Client.ViewerTeams(org, viewer)
+			got.err = err
+			if err == nil {
+				got.slugs = make(map[string]bool, len(slugs))
+				for _, slug := range slugs {
+					got.slugs[strings.ToLower(slug)] = true
+				}
+			}
+		})
+		r.viewerTeams[key] = got
+	}
+	return got
+}
+
+// teamCount is a team's member count, or why it could not be read.
+type teamCount struct {
+	n   int
+	err error
+}
+
+// teamMemberCount returns how many members org/slug has, cached per run.
+func (r *Runner) teamMemberCount(org, slug string) (int, error) {
+	key := strings.ToLower(org + "/" + slug)
+	if r.teamCounts == nil {
+		r.teamCounts = map[string]teamCount{}
+	}
+	got, ok := r.teamCounts[key]
+	if !ok {
+		r.measure(&r.state().teams, func() { got.n, got.err = r.Client.TeamMemberCount(org, slug) })
+		r.teamCounts[key] = got
+	}
+	return got.n, got.err
+}
+
+// viewerInTeam reports whether the viewer is in org/slug. It reads the
+// viewer's teams and falls back to the team's member list when they cannot
+// be read.
+func (r *Runner) viewerInTeam(org, slug, viewer string) (bool, error) {
+	r.state().teams.used = true
+	if set := r.viewerTeamsOf(org, viewer); set.err == nil {
+		return set.slugs[strings.ToLower(slug)], nil
+	}
+	members, err := r.teamMembers(org, slug)
+	if err != nil {
+		return false, err
+	}
+	return containsFold(members, viewer), nil
+}
+
+// teamView is what ownership needs to know of a team.
+type teamView struct {
+	// viewerIn is true when the viewer is in the team.
+	viewerIn bool
+	// others is true when the team has a member besides the viewer.
+	others bool
+}
+
+// teamViewFor says whether the viewer is in org/slug and whether it has
+// other members. With the viewer's teams it reads a member count, not the
+// member list.
+func (r *Runner) teamViewFor(org, slug, viewer string) (teamView, error) {
+	r.state().teams.used = true
+	if set := r.viewerTeamsOf(org, viewer); set.err == nil {
+		if !set.slugs[strings.ToLower(slug)] {
+			return teamView{}, nil
+		}
+		n, err := r.teamMemberCount(org, slug)
+		if err != nil {
+			return teamView{}, err
+		}
+		return teamView{viewerIn: true, others: n > 1}, nil
+	}
+	members, err := r.teamMembers(org, slug)
+	if err != nil {
+		return teamView{}, err
+	}
+	return teamView{
+		viewerIn: containsFold(members, viewer),
+		others:   slices.ContainsFunc(members, func(m string) bool { return !strings.EqualFold(m, viewer) }),
+	}, nil
+}
+
+// codeownersEntry is a parsed CODEOWNERS file, or why it could not be read.
+type codeownersEntry struct {
+	owners *codeowners.Codeowners
+	err    error
+}
+
+// codeownersOf returns the parsed CODEOWNERS on pr's base branch. It is read
+// once per repository and base ref in a run.
+func (r *Runner) codeownersOf(pr github.ApprovalPullRequest) (*codeowners.Codeowners, error) {
+	key := strings.ToLower(pr.Ref.Owner+"/"+pr.Ref.Repo) + "@" + pr.BaseRef
+	if r.codeowners == nil {
+		r.codeowners = map[string]codeownersEntry{}
+	}
+	r.state().codeowners.used = true
+	got, ok := r.codeowners[key]
+	if !ok {
+		r.measure(&r.state().codeowners, func() {
+			_, text, err := r.Client.CodeownersFile(pr.Ref, pr.BaseRef)
+			if err != nil {
+				got.err = err
+				return
+			}
+			got.owners = codeowners.ParseSections(strings.NewReader(text))
+		})
+		r.codeowners[key] = got
+	}
+	return got.owners, got.err
+}
+
+// loadOwnership reads CODEOWNERS on the base branch and decides, for every
+// team that owns a changed file, whether the viewer is in it. CODEOWNERS and
+// team data are cached per run.
 func (r *Runner) loadOwnership(pr github.ApprovalPullRequest, viewer string) *github.Ownership {
 	if pr.FilesErr != "" {
 		return &github.Ownership{Err: pr.FilesErr}
 	}
-	_, text, err := r.Client.CodeownersFile(pr.Ref, pr.BaseRef)
+	owners, err := r.codeownersOf(pr)
 	if err != nil {
 		return &github.Ownership{Err: err.Error()}
 	}
-	owners := codeowners.ParseSections(strings.NewReader(text))
-	return computeOwnership(owners, pr, viewer, r.teamMembers)
+	return computeOwnership(owners, pr, viewer, func(org, slug string) (teamView, error) {
+		return r.teamViewFor(org, slug, viewer)
+	})
 }
 
 // computeOwnership decides, for each changed file, whether an owner is the
 // viewer or a team of the viewer, and which owner keeps the file with the
 // viewer. A team counts only when it has other members and is requested.
 func computeOwnership(co *codeowners.Codeowners, pr github.ApprovalPullRequest, viewer string,
-	members func(org, slug string) ([]string, error),
+	team func(org, slug string) (teamView, error),
 ) *github.Ownership {
 	out := &github.Ownership{}
 	for _, file := range pr.Files {
@@ -72,7 +196,7 @@ func computeOwnership(co *codeowners.Codeowners, pr github.ApprovalPullRequest, 
 		}
 		slices.Sort(got.Owners)
 		for _, raw := range got.Owners {
-			mine, blocker, unknown := ownerVerdict(codeowners.ParseOwner(raw), pr, viewer, members)
+			mine, blocker, unknown := ownerVerdict(codeowners.ParseOwner(raw), pr, viewer, team)
 			got.Mine = got.Mine || mine
 			if mine {
 				got.MineOwners = append(got.MineOwners, raw)
@@ -94,7 +218,7 @@ func computeOwnership(co *codeowners.Codeowners, pr github.ApprovalPullRequest, 
 // and why it keeps the file with the viewer, or "". unknown is true when it
 // cannot tell whether owner includes the viewer; the reason is the blocker.
 func ownerVerdict(owner codeowners.Owner, pr github.ApprovalPullRequest, viewer string,
-	members func(org, slug string) ([]string, error),
+	team func(org, slug string) (teamView, error),
 ) (mine bool, blocker string, unknown bool) {
 	switch o := owner.(type) {
 	case codeowners.User:
@@ -103,14 +227,14 @@ func ownerVerdict(owner codeowners.Owner, pr github.ApprovalPullRequest, viewer 
 		}
 		return false, "", false
 	case codeowners.Team:
-		list, err := members(o.Org, o.Name)
+		view, err := team(o.Org, o.Name)
 		if err != nil {
 			return false, o.String() + ": " + err.Error(), true
 		}
-		if !containsFold(list, viewer) {
+		if !view.viewerIn {
 			return false, "", false
 		}
-		if !slices.ContainsFunc(list, func(m string) bool { return !strings.EqualFold(m, viewer) }) {
+		if !view.others {
 			return true, o.String() + ": you are its only member", false
 		}
 		if !strings.EqualFold(o.Org, pr.Ref.Owner) || !containsFold(pr.RequestedTeams, o.Name) {
