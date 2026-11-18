@@ -15,6 +15,9 @@ func render(msg message, preview bool) string {
 	if msg.Re != "" {
 		fmt.Fprintf(&b, " · re %s", msg.Re)
 	}
+	if msg.ResendOf != "" {
+		fmt.Fprintf(&b, " · resend of %s", msg.ResendOf)
+	}
 	fmt.Fprintf(&b, " · %s]\n", msg.SentAt.Local().Format("15:04"))
 	switch {
 	case preview:

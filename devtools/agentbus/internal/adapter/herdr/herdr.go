@@ -38,6 +38,23 @@ type Adapter struct {
 	// HerdrPath is the herdr binary from herdr_path. It wins over
 	// AGENTBUS_HERDR. Empty uses that variable, then "herdr" on PATH.
 	HerdrPath string
+	// Placeholders are whole-line strings treated as an empty composer
+	// when style information is not available. Nil uses
+	// DefaultComposerPlaceholders.
+	Placeholders []string
+}
+
+// DefaultComposerPlaceholders are the known post-error and idle
+// placeholder suggestions treated as empty when style info is absent.
+var DefaultComposerPlaceholders = []string{
+	"Once fixed, resend your message",
+}
+
+func (a *Adapter) placeholders() []string {
+	if a.Placeholders != nil {
+		return a.Placeholders
+	}
+	return DefaultComposerPlaceholders
 }
 
 // Name is the adapter name used when a self-test fails.
@@ -232,16 +249,21 @@ func (a *Adapter) ComposerEmpty(ctx context.Context, raw string) (bool, string, 
 			}
 			return true, "", nil
 		}
-		stdout, stderr, code, err := a.exec(ctx, machine, []string{"agent", "read", pane, "--source", "visible"})
+		stdout, stderr, code, err := a.exec(ctx, machine, []string{"agent", "read", pane, "--source", "visible", "--format", "ansi"})
 		if err != nil {
 			return false, adapter.HoldDraftUnknown, err
 		}
 		if code != 0 {
 			return false, adapter.HoldDraftUnknown, fmt.Errorf("herdr agent read: exit %d: %s", code, firstText(stderr, stdout))
 		}
-		empty, ok := match(stdout)
+		var empty, parsed bool
+		if item.Agent == "claude" {
+			empty, parsed = claudeComposerEmptyWithPlaceholders(stdout, a.placeholders())
+		} else {
+			empty, parsed = match(stdout)
+		}
 		switch {
-		case !ok:
+		case !parsed:
 			return a.scrolledOrUnknown(ctx, machine, pane, match)
 		case !empty:
 			return false, adapter.HoldDraft, nil
@@ -250,6 +272,44 @@ func (a *Adapter) ComposerEmpty(ctx context.Context, raw string) (bool, string, 
 		}
 	}
 	return false, adapter.HoldDraftUnknown, nil
+}
+
+// ComposerInfo reads the unsubmitted composer text (with dim placeholder
+// text removed) and tab label for handle.
+func (a *Adapter) ComposerInfo(ctx context.Context, raw string) (string, string, bool, error) {
+	machine, _, pane, err := parseHandle(raw)
+	if err != nil {
+		return "", "", false, err
+	}
+	agents, err := a.agents(ctx, machine)
+	if err != nil {
+		return "", "", false, err
+	}
+	for _, item := range agents {
+		if item.PaneID != pane {
+			continue
+		}
+		if item.Agent != "claude" {
+			return "", "", false, nil
+		}
+		tabLabel := item.TabID
+		if labels, lerr := a.tabLabels(ctx, machine); lerr == nil && labels[item.TabID] != "" {
+			tabLabel = labels[item.TabID]
+		}
+		stdout, stderr, code, err := a.exec(ctx, machine, []string{"agent", "read", pane, "--source", "visible", "--format", "ansi"})
+		if err != nil {
+			return "", tabLabel, false, err
+		}
+		if code != 0 {
+			return "", tabLabel, false, fmt.Errorf("herdr agent read: exit %d: %s", code, firstText(stderr, stdout))
+		}
+		text, ok := claudeComposerDraftText(stdout, a.placeholders())
+		if !ok {
+			return "", tabLabel, false, nil
+		}
+		return strings.TrimSpace(text), tabLabel, true, nil
+	}
+	return "", "", false, nil
 }
 
 // scrolledOrUnknown reads the bottom of the buffer when the visible
@@ -333,7 +393,11 @@ const promptMarker = "❯"
 // last two horizontal rules, the first starting with the prompt marker.
 // The shell-mode marker "!" always counts as a draft.
 func claudeComposerEmpty(screen string) (empty, ok bool) {
-	text, ok := claudeComposerText(screen)
+	return claudeComposerEmptyWithPlaceholders(screen, DefaultComposerPlaceholders)
+}
+
+func claudeComposerEmptyWithPlaceholders(screen string, placeholders []string) (empty, ok bool) {
+	text, ok := claudeComposerDraftText(screen, placeholders)
 	if !ok {
 		return false, false
 	}
@@ -351,7 +415,7 @@ func claudeComposerEmpty(screen string) (empty, ok bool) {
 // claudeComposerText is the input box with the prompt marker removed.
 // Shell mode keeps the "!" line. ok is false when the screen does not parse.
 func claudeComposerText(screen string) (string, bool) {
-	lines := strings.Split(screen, "\n")
+	lines := strings.Split(stripANSI(screen), "\n")
 	bottom := lastRule(lines, len(lines))
 	if bottom < 0 {
 		return "", false
@@ -369,6 +433,158 @@ func claudeComposerText(screen string) (string, bool) {
 	}
 	box[0] = strings.TrimPrefix(box[0], promptMarker)
 	return strings.Join(box, "\n"), true
+}
+
+// claudeComposerDraftText extracts Claude Code's input box while ignoring
+// dim/faint ANSI-styled text, or known placeholder strings when style
+// information is unavailable.
+func claudeComposerDraftText(screen string, placeholders []string) (string, bool) {
+	rawLines := strings.Split(screen, "\n")
+	plainLines := make([]string, len(rawLines))
+	for i, l := range rawLines {
+		plainLines[i] = stripANSI(l)
+	}
+	bottom := lastRule(plainLines, len(plainLines))
+	if bottom < 0 {
+		return "", false
+	}
+	top := lastRule(plainLines, bottom)
+	if top < 0 || top+1 >= bottom {
+		return "", false
+	}
+	firstPlain := plainLines[top+1]
+	switch {
+	case strings.HasPrefix(firstPlain, "!"):
+		return strings.Join(plainLines[top+1:bottom], "\n"), true
+	case !strings.HasPrefix(firstPlain, promptMarker):
+		return "", false
+	}
+	hadStyle := strings.Contains(screen, "\x1b[")
+	out := make([]string, 0, bottom-top-1)
+	for i := top + 1; i < bottom; i++ {
+		noDim, lineStyle := stripDimANSI(rawLines[i])
+		if lineStyle {
+			hadStyle = true
+		}
+		if i == top+1 {
+			noDim = strings.TrimPrefix(noDim, promptMarker)
+		}
+		out = append(out, noDim)
+	}
+	joined := strings.Join(out, "\n")
+	if !hadStyle && isPlaceholderOnly(out, placeholders) {
+		return "", true
+	}
+	return joined, true
+}
+
+func isPlaceholderOnly(lines, placeholders []string) bool {
+	var nonBlank []string
+	for _, l := range lines {
+		if !blank(l) {
+			nonBlank = append(nonBlank, strings.TrimFunc(l, unicode.IsSpace))
+		}
+	}
+	if len(nonBlank) != 1 {
+		return false
+	}
+	for _, p := range placeholders {
+		if p != "" && nonBlank[0] == p {
+			return true
+		}
+	}
+	return false
+}
+
+// stripANSI removes CSI and OSC escape sequences from s.
+func stripANSI(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); {
+		if s[i] == '\x1b' {
+			i = skipEscape(s, i)
+			continue
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	return b.String()
+}
+
+// stripDimANSI removes ANSI escape sequences and any text styled with the
+// dim/faint SGR attribute (code 2). hadStyle is true when an SGR sequence
+// was seen.
+func stripDimANSI(s string) (string, bool) {
+	var b strings.Builder
+	b.Grow(len(s))
+	dim := false
+	hadStyle := false
+	for i := 0; i < len(s); {
+		if s[i] == '\x1b' {
+			if i+1 < len(s) && s[i+1] == '[' {
+				next := skipCSI(s, i)
+				if next > i+2 && s[next-1] == 'm' {
+					hadStyle = true
+					dim = applySGRDim(dim, s[i+2:next-1])
+				}
+				i = next
+				continue
+			}
+			i = skipEscape(s, i)
+			continue
+		}
+		if !dim {
+			b.WriteByte(s[i])
+		}
+		i++
+	}
+	return b.String(), hadStyle
+}
+
+func applySGRDim(dim bool, params string) bool {
+	if params == "" {
+		return false
+	}
+	for _, part := range strings.Split(params, ";") {
+		switch part {
+		case "", "0", "22":
+			dim = false
+		case "2":
+			dim = true
+		}
+	}
+	return dim
+}
+
+func skipEscape(s string, i int) int {
+	if i+1 >= len(s) {
+		return i + 1
+	}
+	switch s[i+1] {
+	case '[':
+		return skipCSI(s, i)
+	case ']':
+		for j := i + 2; j < len(s); j++ {
+			if s[j] == '\x07' {
+				return j + 1
+			}
+			if s[j] == '\x1b' && j+1 < len(s) && s[j+1] == '\\' {
+				return j + 2
+			}
+		}
+		return len(s)
+	default:
+		return i + 2
+	}
+}
+
+func skipCSI(s string, i int) int {
+	for j := i + 2; j < len(s); j++ {
+		if s[j] >= 0x40 && s[j] <= 0x7e {
+			return j + 1
+		}
+	}
+	return len(s)
 }
 
 func lastRule(lines []string, before int) int {

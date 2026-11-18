@@ -22,6 +22,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/hibernate"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/jobs"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lastturn"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/leasecache"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/mailbox"
@@ -93,6 +94,18 @@ type Config struct {
 	// GoneAfter is how long a message to a raw pane handle waits after
 	// the pane is gone before it expires. Nil uses one hour.
 	GoneAfter *time.Duration
+	// Transcript reads an agent's transcript turns for post-delivery
+	// verification. Nil disables transcript verification.
+	Transcript func(adapter.Agent) ([]lastturn.Turn, bool)
+	// VerifyDeliveryWithin bounds post-delivery transcript verification.
+	// Nil uses 60s; zero disables it.
+	VerifyDeliveryWithin *time.Duration
+	// AuthErrorPatterns are case-insensitive substrings matched against
+	// an assistant reply. Nil uses mailbox defaults.
+	AuthErrorPatterns []string
+	// StaleComposerAfter is how long unchanged composer text holds a
+	// message before notifying the sender once per tab.
+	StaleComposerAfter *time.Duration
 	// Jobs is the jobs config: per-kind behavior and the heartbeat
 	// timeout.
 	Jobs jobs.Config
@@ -167,6 +180,10 @@ type Request struct {
 	// Events are client log lines for op log-append.
 	// Origin on each line is ignored; the daemon records origin client.
 	Events []ClientEvent `json:"events,omitempty"`
+	// Reason, DryRun, and Force are for op replay.
+	Reason string `json:"reason,omitempty"`
+	DryRun bool   `json:"dryRun,omitempty"`
+	Force  bool   `json:"force,omitempty"`
 }
 
 // ClientEvent is one log line a client asks the daemon to append.
@@ -242,6 +259,10 @@ type Response struct {
 	Transport []string `json:"transport,omitempty"`
 	// Reports answers op status-report, one per requested id, in order.
 	Reports []mailbox.Report `json:"reports,omitempty"`
+	// Released is the number of held messages released by op release-held.
+	Released int `json:"released,omitempty"`
+	// Replayed are the messages replayed (or matched in dry-run) by op replay.
+	Replayed []mailbox.ReplayEntry `json:"replayed,omitempty"`
 }
 
 // Serve listens on dirs.SocketPath until ctx is cancelled. It creates
@@ -509,6 +530,10 @@ func openState(dir string, cfg Config, lg *eventlog.Log) (*registry.Registry, *m
 	}
 	box.SetHoldNoticeAfter(cfg.HoldNoticeAfter)
 	box.SetGoneAfter(cfg.GoneAfter)
+	box.SetTranscript(cfg.Transcript)
+	box.SetVerifyWithin(cfg.VerifyDeliveryWithin)
+	box.SetAuthErrorPatterns(cfg.AuthErrorPatterns)
+	box.SetStaleComposerAfter(cfg.StaleComposerAfter)
 	return reg, box, nil
 }
 
@@ -716,6 +741,8 @@ func (s *server) dispatchMessage(req Request, pid int) Response {
 		return s.status(req)
 	case "status-report":
 		return s.statusReport(req)
+	case "release-held", "replay":
+		return s.dispatchDeliveryRecovery(req)
 	case "bypass":
 		return s.bypass(req)
 	case "requeue":
@@ -734,6 +761,47 @@ func (s *server) dispatchMessage(req Request, pid int) Response {
 		}
 		return Response{Error: "unknown op"}
 	}
+}
+
+func (s *server) dispatchDeliveryRecovery(req Request) Response {
+	if req.Op == "release-held" {
+		return s.releaseHeld(req)
+	}
+	return s.replay(req)
+}
+
+func (s *server) releaseHeld(req Request) Response {
+	target := req.To
+	if target == "" {
+		target = req.Name
+	}
+	n, err := s.box.ReleaseHeld(s.ctx, target)
+	if err != nil {
+		return Response{Error: err.Error()}
+	}
+	return Response{OK: true, Released: n}
+}
+
+func (s *server) replay(req Request) Response {
+	var since time.Time
+	if req.Since != "" {
+		t, err := time.Parse(time.RFC3339Nano, req.Since)
+		if err != nil {
+			return Response{Error: "invalid since: " + err.Error()}
+		}
+		since = t
+	}
+	entries, err := s.box.Replay(s.ctx, mailbox.ReplayOptions{
+		To:     req.To,
+		Since:  since,
+		Reason: req.Reason,
+		DryRun: req.DryRun,
+		Force:  req.Force,
+	})
+	if err != nil {
+		return Response{Error: err.Error()}
+	}
+	return Response{OK: true, Replayed: entries}
 }
 
 // lease handles the lease-* ops, each only on a checkout sameMachine

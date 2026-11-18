@@ -34,6 +34,7 @@ const (
 	EventDedupe         = "dedupe"
 	EventDeliverAttempt = "deliver_attempt"
 	EventDelivered      = "delivered"
+	EventUnprocessed    = "unprocessed"
 	EventHeld           = "held"
 	EventRetry          = "retry"
 	EventRequeued       = "requeued"
@@ -444,7 +445,7 @@ func validate(e Event) error {
 func knownEvent(name string) bool {
 	switch name {
 	case EventRegister, EventDescribe, EventRelease, EventHandoff, EventClaimRefused,
-		EventSend, EventQueued, EventDedupe, EventDeliverAttempt, EventDelivered, EventHeld,
+		EventSend, EventQueued, EventDedupe, EventDeliverAttempt, EventDelivered, EventUnprocessed, EventHeld,
 		EventHoldNoticeSkipped, EventRetry,
 		EventRequeued, EventExpired, EventRejected, EventAdapterError, EventAdapterReachable, EventBypass, EventStart, EventStop,
 		EventLeaseClaim, EventLeaseGrant, EventLeaseExtend, EventLeaseLeave,

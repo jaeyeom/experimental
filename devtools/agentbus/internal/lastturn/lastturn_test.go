@@ -61,3 +61,29 @@ func TestClaudeWithoutADirKnowsNothing(t *testing.T) {
 		t.Fatal("Claude(\"\") found a transcript")
 	}
 }
+
+func TestClaudeTranscriptReadsUserAndAssistantTurns(t *testing.T) {
+	dir := t.TempDir()
+	transcript := filepath.Join(dir, "-src-repo", "sess-1.jsonl")
+	if err := os.MkdirAll(filepath.Dir(transcript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"type":"user","message":{"role":"user","content":"[agentbus m-1 from a -> b · 10:00]\nhello"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Login expired - Please run /login"}]}}
+{"type":"system","message":{"role":"system","content":"ignored"}}
+`
+	if err := os.WriteFile(transcript, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reader := ClaudeTranscript(dir)
+	turns, ok := reader(adapter.Agent{Handle: "herdr:local/sess-1/w1:p1", Kind: "claude", SessionID: "sess-1"})
+	if !ok || len(turns) != 2 {
+		t.Fatalf("ClaudeTranscript = %+v, %v", turns, ok)
+	}
+	if turns[0].Role != "user" || turns[1].Role != "assistant" || turns[1].Text != "Login expired - Please run /login" {
+		t.Fatalf("unexpected turns: %+v", turns)
+	}
+	if _, ok := reader(adapter.Agent{Handle: "herdr:local/sess-1/w1:p1", Kind: "codex", SessionID: "sess-1"}); ok {
+		t.Fatal("codex should not have a transcript")
+	}
+}

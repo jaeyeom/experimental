@@ -57,6 +57,18 @@ func (a *Adapter) ComposerEmpty(_ context.Context, handle string) (bool, string,
 	return true, "", nil
 }
 
+// ComposerInfo returns ComposerText and the agent's TabLabel when available.
+func (a *Adapter) ComposerInfo(_ context.Context, handle string) (string, string, bool, error) {
+	label := ""
+	for _, ag := range a.InventoryAgents {
+		if ag.Handle == handle {
+			label = ag.TabLabel
+			break
+		}
+	}
+	return strings.TrimSpace(a.ComposerText), label, true, nil
+}
+
 // Name is the adapter name recorded on adapter_error.
 func (a *Adapter) Name() string { return a.AdapterName }
 

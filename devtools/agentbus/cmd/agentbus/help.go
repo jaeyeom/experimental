@@ -226,6 +226,25 @@ func commands() []command {
 			run:     noStdin(cmdWake),
 		},
 		{
+			name:    "release-held",
+			summary: "Clear a login-expired hold on a recipient and flush held messages.",
+			usage:   "agentbus release-held <name>",
+			example: "agentbus release-held ops/reviewer",
+			run:     noStdin(cmdReleaseHeld),
+		},
+		{
+			name:    "replay",
+			summary: "Resend delivered-unprocessed messages in their original order.",
+			usage:   "agentbus replay [--to NAME] [--since TIME] [--reason auth|no-turn] [--dry-run] [--force]",
+			flags: "--to <name>      filter by recipient name or handle\n" +
+				"--since <time>   include messages sent at or after this time\n" +
+				"--reason <r>     filter by reason: auth or no-turn\n" +
+				"--dry-run        list matching messages without sending\n" +
+				"--force          replay messages even if already replayed",
+			example: "agentbus replay --to ops/reviewer --reason auth --dry-run",
+			run:     noStdin(cmdReplay),
+		},
+		{
 			name:    "install",
 			summary: "Install the supervisor and load it; in hub mode, the tunnel to the hub.",
 			usage:   "agentbus install",

@@ -170,7 +170,12 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), unix.SIGINT, unix.SIGTERM)
 	defer stop()
-	ad := &herdr.Adapter{Machines: cfg.Machines, Timeout: cfg.RemoteTimeout, HerdrPath: cfg.HerdrPath}
+	ad := &herdr.Adapter{
+		Machines:     cfg.Machines,
+		Timeout:      cfg.RemoteTimeout,
+		HerdrPath:    cfg.HerdrPath,
+		Placeholders: cfg.ComposerPlaceholders,
+	}
 	notify := decideNotifier(exec.LookPath, runQuiet, stderr)
 	if err := daemon.Serve(ctx, dirs, daemon.Config{
 		RetentionDays:      days,
@@ -185,17 +190,21 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 		Notify:             notify,
 		// The policy runs only in this daemon, so only on a machine that
 		// is not in hub mode: it measures and stops this machine's agents.
-		HibernatePolicy: hibernatePolicy(cfg, stderr),
-		PolicyInterval:  cfg.Policy().Interval,
-		LastTurn:        lastturn.Claude(lastturn.ClaudeProjectsDir(env)),
-		HoldNoticeAfter: cfg.HoldNoticeAfter,
-		GoneAfter:       cfg.GoneAfter,
-		Jobs:            jobsCfg,
-		JobHook:         jobs.ExecHook(reconcileTimeout, nil),
-		JobHold:         decideHold(exec.LookPath, runOutput),
-		JobPolicy:       jobsPolicy(env, cfg, stderr, notify),
-		JobDecider:      gateDecider(exec.LookPath, runOutput),
-		JobStatus:       decideStatusSink(exec.LookPath, runOutput),
+		HibernatePolicy:      hibernatePolicy(cfg, stderr),
+		PolicyInterval:       cfg.Policy().Interval,
+		LastTurn:             lastturn.Claude(lastturn.ClaudeProjectsDir(env)),
+		Transcript:           lastturn.ClaudeTranscript(lastturn.ClaudeProjectsDir(env)),
+		HoldNoticeAfter:      cfg.HoldNoticeAfter,
+		GoneAfter:            cfg.GoneAfter,
+		VerifyDeliveryWithin: cfg.VerifyDeliveryWithin,
+		AuthErrorPatterns:    cfg.AuthErrorPatterns,
+		StaleComposerAfter:   cfg.StaleComposerAfter,
+		Jobs:                 jobsCfg,
+		JobHook:              jobs.ExecHook(reconcileTimeout, nil),
+		JobHold:              decideHold(exec.LookPath, runOutput),
+		JobPolicy:            jobsPolicy(env, cfg, stderr, notify),
+		JobDecider:           gateDecider(exec.LookPath, runOutput),
+		JobStatus:            decideStatusSink(exec.LookPath, runOutput),
 	}); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(stderr, "agentbusd: %s\n", err)
 		if errors.Is(err, daemon.ErrAlreadyRunning) {
