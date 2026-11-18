@@ -1,0 +1,11 @@
+[Unit]
+Description=authwatch OAuth token expiry monitor
+
+[Service]
+Type=simple
+ExecStart=%h/go/bin/authwatch run --every 5m
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target
