@@ -20,6 +20,7 @@ bazel-testlogs
 
 # User's .bazelrc
 .bazelrc.user
+.bazelrc.local
 
 # Added by Task Master AI
 # Logs
