@@ -248,7 +248,7 @@ func (r *Runner) viewedOwnership(pr github.ApprovalPullRequest, viewer string, r
 	}
 	own := pr.Ownership
 	if own == nil {
-		own = r.loadOwnership(pr, viewer)
+		own = r.ownershipFor(pr, viewer)
 	}
 	if own.Err != "" {
 		return nil, fmt.Errorf("read CODEOWNERS: %s", own.Err)
@@ -269,18 +269,26 @@ func (r *Runner) viewedOwnership(pr github.ApprovalPullRequest, viewer string, r
 }
 
 func (r *Runner) teamReadErr() error {
-	keys := make([]string, 0, len(r.teams))
+	errs := map[string]error{}
 	for key, got := range r.teams {
 		if got.err != nil {
-			keys = append(keys, key)
+			errs[key] = got.err
 		}
 	}
-	if len(keys) == 0 {
+	for key, got := range r.teamCounts {
+		if got.err != nil && errs[key] == nil {
+			errs[key] = got.err
+		}
+	}
+	if len(errs) == 0 {
 		return nil
 	}
+	keys := make([]string, 0, len(errs))
+	for key := range errs {
+		keys = append(keys, key)
+	}
 	slices.Sort(keys)
-	key := keys[0]
-	return fmt.Errorf("read members of %s: %w", key, r.teams[key].err)
+	return fmt.Errorf("read members of %s: %w", keys[0], errs[keys[0]])
 }
 
 func viewedRulesFor(rules []config.ViewedRule, pr github.ApprovalPullRequest) []config.ViewedRule {

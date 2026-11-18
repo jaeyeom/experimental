@@ -44,6 +44,12 @@ const (
 	DefaultAgentCacheMaxMB = 50
 )
 
+// Defaults of the patch size cap when config omits it.
+const (
+	DefaultPatchMaxFiles      = 300
+	DefaultPatchMaxAddedLines = 5000
+)
+
 // Values of ApproveRule.Checks.
 const (
 	// ChecksGreen requires no failed check and every required check passed.
@@ -108,6 +114,12 @@ type ApproveConfig struct {
 	AgentCacheTTL time.Duration `yaml:"-"`
 	// AgentCacheMaxMB bounds the agent_command decision cache in MiB.
 	AgentCacheMaxMB int `yaml:"-"`
+	// PatchMaxFiles is the most changed files a pull request may have for
+	// its patches to be fetched. Zero means DefaultPatchMaxFiles.
+	PatchMaxFiles int `yaml:"-"`
+	// PatchMaxAddedLines is the most added lines a pull request may have for
+	// its patches to be fetched. Zero means DefaultPatchMaxAddedLines.
+	PatchMaxAddedLines int `yaml:"-"`
 	// Rules are ORed. A pull request that matches none is left for a human.
 	Rules []ApproveRule `yaml:"-"`
 }
@@ -193,6 +205,8 @@ func convertApprove(src pklconfig.ApproveConfig, configDir string) ApproveConfig
 		SkipAlreadyApproved: src.SkipAlreadyApproved,
 		AgentCacheTTL:       src.AgentCacheTtl.GoDuration(),
 		AgentCacheMaxMB:     src.AgentCacheMaxMb,
+		PatchMaxFiles:       src.PatchMaxFiles,
+		PatchMaxAddedLines:  src.PatchMaxAddedLines,
 	}
 	if out.Body == "" {
 		out.Body = DefaultApproveBody
@@ -202,6 +216,12 @@ func convertApprove(src pklconfig.ApproveConfig, configDir string) ApproveConfig
 	}
 	if out.AgentCacheMaxMB <= 0 {
 		out.AgentCacheMaxMB = DefaultAgentCacheMaxMB
+	}
+	if out.PatchMaxFiles <= 0 {
+		out.PatchMaxFiles = DefaultPatchMaxFiles
+	}
+	if out.PatchMaxAddedLines <= 0 {
+		out.PatchMaxAddedLines = DefaultPatchMaxAddedLines
 	}
 	for _, rule := range src.Rules {
 		converted := ApproveRule{

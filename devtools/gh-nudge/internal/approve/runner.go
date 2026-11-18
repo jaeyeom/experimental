@@ -40,6 +40,8 @@ type Client interface {
 	MarkFileAsViewed(ref github.PullRef, pullRequestID, path string) error
 	CodeownersFile(ref github.PullRef, baseRef string) (string, string, error)
 	TeamMembers(org, slug string) ([]string, error)
+	ViewerTeams(org, viewer string) ([]string, error)
+	TeamMemberCount(org, slug string) (int, error)
 	ReviewRequestTimeline(ref github.PullRef) ([]github.ReviewRequestEvent, error)
 	RequestReviewers(ref github.PullRef, logins []string) error
 	RemoveRequestedReviewer(ref github.PullRef, login string) error
@@ -91,6 +93,8 @@ type LogEntry struct {
 	// ExtraLogs are additional audit log entries (e.g. mark_viewed alongside
 	// approved) written to the log for this pull request.
 	ExtraLogs []LogEntry `json:"-"`
+	// Timing is the --explain timing line. It is not part of the audit log.
+	Timing string `json:"-"`
 }
 
 // Runner evaluates review requests and approves the ones a rule matches.
@@ -114,6 +118,14 @@ type Runner struct {
 
 	// teams caches team members for the run, keyed by lowercase org/slug.
 	teams map[string]teamMembers
+	// teamCounts caches team member counts, keyed like teams.
+	teamCounts map[string]teamCount
+	// viewerTeams caches the viewer's teams per lowercase organization.
+	viewerTeams map[string]viewerTeamSet
+	// codeowners caches parsed CODEOWNERS files, keyed by repository and base ref.
+	codeowners map[string]codeownersEntry
+	// cur is the pull request being decided.
+	cur *prState
 	// marksLeft is how many files this run may still mark viewed.
 	marksLeft int
 }
@@ -183,12 +195,16 @@ func (r *Runner) targets(opts Options) ([]github.PullRef, bool, error) {
 
 // decide evaluates one pull request and approves or hands it off when allowed.
 // skip is true for a search result that only requests a team.
-func (r *Runner) decide(ref github.PullRef, viewer string, opts Options, single bool) (LogEntry, bool) {
-	entry := LogEntry{
+func (r *Runner) decide(ref github.PullRef, viewer string, opts Options, single bool) (entry LogEntry, skip bool) {
+	r.cur = &prState{start: r.Now()}
+	defer func() { entry.Timing = r.timingLine() }()
+	entry = LogEntry{
 		Time: r.Now().UTC(),
 		PR:   fmt.Sprintf("%s/%s#%d", ref.Owner, ref.Repo, ref.Number),
 	}
+	loadStart := r.Now()
 	pr, err := r.Client.LoadApprovalPullRequest(ref)
+	r.cur.pullRequest = r.Now().Sub(loadStart)
 	if err != nil {
 		entry.Action, entry.Reason = ActionError, err.Error()
 		return entry, false
@@ -201,16 +217,15 @@ func (r *Runner) decide(ref github.PullRef, viewer string, opts Options, single 
 	}
 	skipReason := r.skipReason(pr, viewer)
 	var agent AgentFunc
+	var loads *lazyLoads
 	if skipReason == "" {
-		agent = r.agent(pr)
-		if needsOwnership(rules) {
-			pr.Ownership = r.loadOwnership(pr, viewer)
-		}
-		if needsCommentPatches(rules) {
-			r.loadCommentPatches(&pr)
-		}
+		agent = r.timedAgent(r.agent(pr))
+		loads = r.loads(pr, viewer)
 	}
-	results, matched := evaluateWithFileChecks(rules, pr, agent, r.fileChecker())
+	results, matched := evaluateRules(rules, pr, agent, r.fileChecker(), loads)
+	if r.cur.ownershipDone {
+		pr.Ownership = r.cur.ownership
+	}
 	entry.Rules = results
 	if matched != "" {
 		entry.Rule = &matched
@@ -258,12 +273,12 @@ func (r *Runner) requestingTeam(pr github.ApprovalPullRequest, viewer string) (s
 	}
 	var errs []string
 	for _, slug := range pr.RequestedTeams {
-		members, err := r.teamMembers(pr.Ref.Owner, slug)
+		in, err := r.viewerInTeam(pr.Ref.Owner, slug, viewer)
 		if err != nil {
 			errs = append(errs, err.Error())
 			continue
 		}
-		if containsFold(members, viewer) {
+		if in {
 			return "@" + pr.Ref.Owner + "/" + slug, ""
 		}
 	}
@@ -282,18 +297,6 @@ func teamRules(rules []config.ApproveRule) []config.ApproveRule {
 		}
 	}
 	return out
-}
-
-// loadCommentPatches fetches REST patches for the deletions-and-comments
-// condition. A transport error is stored on pr. The condition reports a
-// missing patch itself.
-func (r *Runner) loadCommentPatches(pr *github.ApprovalPullRequest) {
-	files, err := r.Client.PullRequestFilePatches(pr.Ref)
-	if err != nil {
-		pr.PatchesErr = err.Error()
-		return
-	}
-	pr.Patches = files
 }
 
 // rule returns the rule named name.
@@ -418,6 +421,9 @@ func details(entry LogEntry, explain bool) string {
 	if entry.Reason != "" {
 		fmt.Fprintf(&out, "    %s\n", entry.Reason)
 	}
+	if explain && entry.Timing != "" {
+		fmt.Fprintf(&out, "    %s\n", entry.Timing)
+	}
 	writeHandoff(&out, entry, explain)
 	writeViewed(&out, entry, explain)
 	writeExclusions(&out, entry, explain)
@@ -517,7 +523,10 @@ func writeExplain(out *strings.Builder, result RuleResult) {
 	fmt.Fprintf(out, "    rule %s: %s\n", result.Rule, verdict)
 	for _, cond := range result.Conditions {
 		mark := "pass"
-		if !cond.Pass {
+		switch {
+		case cond.NotEvaluated:
+			mark = "skip"
+		case !cond.Pass:
 			mark = "FAIL"
 		}
 		fmt.Fprintf(out, "      %s %s: %s\n", mark, cond.Condition, cond.Saw)

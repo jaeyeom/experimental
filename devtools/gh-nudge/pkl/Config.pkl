@@ -278,6 +278,12 @@ class ApproveConfig {
   /// Size limit of the agent_command decision cache. The oldest entries are
   /// evicted first.
   agent_cache_max_mb: Int(this > 0) = 50
+  /// A pull request with more changed files than this has no file patches
+  /// fetched. A condition that needs patches then fails with "too large to
+  /// check".
+  patch_max_files: Int(this > 0) = 300
+  /// Like patch_max_files, for the number of added lines in the pull request.
+  patch_max_added_lines: Int(this > 0) = 5000
   /// Rules. A pull request that matches none of them is left for a human.
   rules: Listing<ApproveRule> = new {}
 }

@@ -170,6 +170,100 @@ func (c *Client) TeamMembers(org, slug string) ([]string, error) {
 	}
 }
 
+const viewerTeamsQuery = `
+query($org: String!, $viewer: String!, $after: String) {
+  organization(login: $org) {
+    teams(first: 100, after: $after, userLogins: [$viewer]) {
+      pageInfo { hasNextPage endCursor }
+      nodes { slug }
+    }
+  }
+}`
+
+// ViewerTeams lists the slugs of the organization's teams that include
+// viewer, in one paged query. It needs the read:org scope.
+func (c *Client) ViewerTeams(org, viewer string) ([]string, error) {
+	action := fmt.Sprintf("read teams of %s in %s (needs the read:org scope)", viewer, org)
+	var slugs []string
+	after := ""
+	for {
+		fields := []string{"-f", "org=" + org, "-f", "viewer=" + viewer}
+		if after != "" {
+			fields = append(fields, "-f", "after="+after)
+		}
+		body, callErr := c.graphqlQuery(viewerTeamsQuery, fields)
+		if err := graphqlCallError(action, body, callErr); err != nil {
+			return nil, err
+		}
+		var resp struct {
+			Data struct {
+				Organization *struct {
+					Teams struct {
+						PageInfo struct {
+							HasNextPage bool   `json:"hasNextPage"`
+							EndCursor   string `json:"endCursor"`
+						} `json:"pageInfo"`
+						Nodes []struct {
+							Slug string `json:"slug"`
+						} `json:"nodes"`
+					} `json:"teams"`
+				} `json:"organization"`
+			} `json:"data"`
+		}
+		if err := body.decode(&resp); err != nil {
+			return nil, fmt.Errorf("%s: %w", action, err)
+		}
+		if resp.Data.Organization == nil {
+			return nil, fmt.Errorf("%s: organization not visible", action)
+		}
+		page := resp.Data.Organization.Teams
+		for _, node := range page.Nodes {
+			slugs = append(slugs, node.Slug)
+		}
+		if !page.PageInfo.HasNextPage || page.PageInfo.EndCursor == "" {
+			return slugs, nil
+		}
+		after = page.PageInfo.EndCursor
+	}
+}
+
+const teamMemberCountQuery = `
+query($org: String!, $slug: String!) {
+  organization(login: $org) {
+    team(slug: $slug) {
+      members(first: 1, membership: ALL) { totalCount }
+    }
+  }
+}`
+
+// TeamMemberCount returns how many members a team has, including child team
+// members, without listing them. It needs the read:org scope.
+func (c *Client) TeamMemberCount(org, slug string) (int, error) {
+	action := fmt.Sprintf("count members of @%s/%s (needs the read:org scope)", org, slug)
+	body, callErr := c.graphqlQuery(teamMemberCountQuery, []string{"-f", "org=" + org, "-f", "slug=" + slug})
+	if err := graphqlCallError(action, body, callErr); err != nil {
+		return 0, err
+	}
+	var resp struct {
+		Data struct {
+			Organization *struct {
+				Team *struct {
+					Members struct {
+						TotalCount int `json:"totalCount"`
+					} `json:"members"`
+				} `json:"team"`
+			} `json:"organization"`
+		} `json:"data"`
+	}
+	if err := body.decode(&resp); err != nil {
+		return 0, fmt.Errorf("%s: %w", action, err)
+	}
+	if resp.Data.Organization == nil || resp.Data.Organization.Team == nil {
+		return 0, fmt.Errorf("%s: team not visible", action)
+	}
+	return resp.Data.Organization.Team.Members.TotalCount, nil
+}
+
 const reviewRequestTimelineQuery = `
 query($owner: String!, $name: String!, $number: Int!, $after: String) {
   repository(owner: $owner, name: $name) {
