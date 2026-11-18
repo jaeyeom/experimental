@@ -254,14 +254,27 @@ func (m *Model) composeBody() []screenLine {
 	if reserve {
 		picker = besideAvatar(av, picker, width-2-avatarColumn)
 	}
-	wrap := composeDraftWidth(width-2, m.composeFocus == focusText)
-	draft, first := windowDraft(m.draftLines(wrap), textLines)
-	draft = fieldRows(draft, hitNote, first, 0, wrap)
+	textFocused := m.composeFocus == focusText
+	noteBox := boxedEditor(m.note, &m.noteField, textFocused, hitNote, width, textLines, &m.noteScroll)
 	return stackRegions(width,
 		panelBox(picker, width, m.composeFocus == focusRecipient),
-		panelBox(draft, width, m.composeFocus == focusText),
+		noteBox,
 		panelBox([]screenLine{m.sendLine()}, width, m.composeFocus == focusSend),
 	)
+}
+
+// boxedEditor renders a bordered multi-line textarea of width columns and
+// height inner text rows. It keeps the cursor line in view using scroll
+// (when non-nil) and marks each text row with hitKind.
+func boxedEditor(text string, field *textarea.Model, focused bool, hitKind, width, height int, scroll *int) []screenLine {
+	wrap := 0
+	if width > 0 {
+		wrap = composeDraftWidth(width-2, focused)
+	}
+	lines := fieldLines(text, field, focused, wrap)
+	lines, first := windowDraftScroll(lines, height, focused, scroll)
+	lines = fieldRows(lines, hitKind, first, 0, wrap)
+	return panelBox(lines, width, focused)
 }
 
 // composeBoxHeights sizes the recipient and message boxes inside budget rows.
@@ -303,23 +316,42 @@ func composeDraftWidth(inner int, textFocus bool) int {
 	return inner
 }
 
-// windowDraft keeps the caret line on screen and pads the message to limit
-// rows. It also returns the index of the first row shown.
-func windowDraft(draft []screenLine, limit int) ([]screenLine, int) {
+// windowDraftScroll keeps the cursor line within limit visible rows,
+// updating scroll only when the cursor moves past the top or bottom of
+// the window. An unfocused box shows its top rows.
+func windowDraftScroll(draft []screenLine, limit int, focused bool, scroll *int) ([]screenLine, int) {
 	if limit < 1 {
 		limit = 1
 	}
 	start := 0
 	if len(draft) > limit {
-		cursor := 0
-		for i, line := range draft {
-			if strings.Contains(line.text, cursorOn) {
-				cursor = i
-				break
+		if !focused {
+			if scroll != nil {
+				*scroll = 0
+			}
+		} else {
+			cursor := max(cursorLineIndex(draft), 0)
+			if scroll != nil {
+				start = *scroll
+				if cursor < start {
+					start = cursor
+				} else if cursor >= start+limit {
+					start = cursor - limit + 1
+				}
+				if maxStart := len(draft) - limit; start > maxStart {
+					start = max(maxStart, 0)
+				}
+				if start < 0 {
+					start = 0
+				}
+				*scroll = start
+			} else {
+				start = max(cursor-limit+1, 0)
 			}
 		}
-		start = max(cursor-limit+1, 0)
 		draft = draft[start : start+limit]
+	} else if scroll != nil {
+		*scroll = 0
 	}
 	for len(draft) < limit {
 		draft = append(draft, screenLine{})
@@ -384,11 +416,10 @@ func fieldLines(text string, field *textarea.Model, focused bool, width int) []s
 		col = field.LineInfo().CharOffset
 	}
 	if text == "" {
-		line := ""
 		if row >= 0 {
-			line = withCursor("", col)
+			return []screenLine{{text: withCursor("", col), cursor: true}}
 		}
-		return []screenLine{{text: line}}
+		return []screenLine{{text: ""}}
 	}
 	parts := strings.Split(text, "\n")
 	var lines []screenLine
@@ -412,7 +443,7 @@ func fieldLines(text string, field *textarea.Model, focused bool, width int) []s
 // unwrapped line that chunks came from.
 func cursorChunks(chunks []textChunk, col int) []screenLine {
 	if len(chunks) == 0 {
-		return []screenLine{{text: withCursor("", 0)}}
+		return []screenLine{{text: withCursor("", 0), cursor: true}}
 	}
 	lines := make([]screenLine, len(chunks))
 	seen := 0
@@ -420,7 +451,7 @@ func cursorChunks(chunks []textChunk, col int) []screenLine {
 	for i, ch := range chunks {
 		w := lipgloss.Width(ch.text)
 		if !placed && col <= seen+w {
-			lines[i] = screenLine{text: withCursor(ch.text, col-seen)}
+			lines[i] = screenLine{text: withCursor(ch.text, col-seen), cursor: true}
 			placed = true
 			continue
 		}
@@ -430,6 +461,7 @@ func cursorChunks(chunks []textChunk, col int) []screenLine {
 	if !placed {
 		last := len(lines) - 1
 		lines[last].text = withCursor(chunks[last].text, lipgloss.Width(chunks[last].text))
+		lines[last].cursor = true
 	}
 	return lines
 }
