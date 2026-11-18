@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -343,6 +344,9 @@ func validateApprove(approve ApproveConfig) error {
 			return fmt.Errorf("approve rule %q: %w", rule.Name, err)
 		}
 	}
+	for _, warning := range FileChecksWarnings(approve.Rules) {
+		slog.Warn(warning)
+	}
 	return nil
 }
 
@@ -384,6 +388,36 @@ func validateApproveRule(rule ApproveRule) error {
 		return err
 	}
 	return validateBody(rule)
+}
+
+// UncoveredLimitedBy returns the names of the rule's conditions that limit
+// which files not covered by file_checks may change: paths_all_match,
+// codeowners_covered and mine_comments_only. When the rule sets none, a file
+// no file_checks pattern covers fails file_checks.
+func (r ApproveRule) UncoveredLimitedBy() []string {
+	var names []string
+	if len(r.PathsAllMatch) > 0 {
+		names = append(names, "paths_all_match")
+	}
+	if r.CodeownersCovered {
+		names = append(names, "codeowners_covered")
+	}
+	if r.MineCommentsOnly {
+		names = append(names, "mine_comments_only")
+	}
+	return names
+}
+
+// FileChecksWarnings returns a warning for each rule that sets file_checks
+// without a condition that limits the files file_checks does not cover.
+func FileChecksWarnings(rules []ApproveRule) []string {
+	var out []string
+	for _, rule := range rules {
+		if len(rule.FileChecks) > 0 && len(rule.UncoveredLimitedBy()) == 0 {
+			out = append(out, fmt.Sprintf("approve rule %q sets file_checks without paths_all_match, codeowners_covered or mine_comments_only: a changed file that no file_checks pattern covers fails the rule", rule.Name))
+		}
+	}
+	return out
 }
 
 func validateAction(rule ApproveRule) error {

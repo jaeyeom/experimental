@@ -101,6 +101,9 @@ func evaluateFileChecks(rule config.ApproveRule, pr github.ApprovalPullRequest, 
 	for _, p := range pr.Patches {
 		patches[p.Path] = p
 	}
+	// A file no pattern covers fails, unless another condition of the rule
+	// limits which files may change.
+	limits := rule.UncoveredLimitedBy()
 	var (
 		details []string
 		passed  []FileCheckPass
@@ -110,7 +113,12 @@ func evaluateFileChecks(rule config.ApproveRule, pr github.ApprovalPullRequest, 
 	for _, file := range pr.Files {
 		pattern, check, ok := config.MatchFileCheck(rule.FileChecks, file.Path)
 		if !ok {
-			details = append(details, file.Path+": not covered")
+			if len(limits) > 0 {
+				details = append(details, file.Path+": not covered (accepted by "+strings.Join(limits, ", ")+")")
+			} else {
+				details = append(details, "FAIL "+file.Path+": not covered by file_checks")
+				failed = append(failed, file.Path+" (not covered by file_checks)")
+			}
 			continue
 		}
 		covered++
@@ -124,6 +132,9 @@ func evaluateFileChecks(rule config.ApproveRule, pr github.ApprovalPullRequest, 
 	}
 	if len(failed) > 0 {
 		return false, "deferred: " + strings.Join(failed, "; "), details, passed
+	}
+	if covered == 0 {
+		return false, "no changed file is covered by file_checks", details, passed
 	}
 	return true, fmt.Sprintf("%d/%d covered files approved", covered, len(pr.Files)), details, passed
 }

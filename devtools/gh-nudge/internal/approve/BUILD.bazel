@@ -42,6 +42,7 @@ go_test(
         "lazy_test.go",
         "mine_test.go",
         "runner_test.go",
+        "uncovered_test.go",
         "viewed_test.go",
     ],
     embed = [":go_default_library"],
