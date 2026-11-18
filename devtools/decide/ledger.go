@@ -173,6 +173,8 @@ type Item struct {
 	// the sender is Owner. A human reply from the inbox and an answer
 	// are still allowed.
 	OwnerRepliesOnly bool `json:"ownerRepliesOnly,omitempty"`
+	// Tags are optional labels on the item (such as "off-line").
+	Tags []string `json:"tags,omitempty"`
 }
 
 // LastMessageAt is when the newest message in the thread was sent, or
@@ -301,6 +303,26 @@ func (l *Ledger) MarkRead(id string) (Item, error) {
 		it.Unread = false
 		now := l.clock().UTC()
 		it.ReadAt = &now
+		updated = *it
+		return nil
+	})
+	if err != nil {
+		return Item{}, err
+	}
+	return updated, nil
+}
+
+// AddTag adds tag to id if it is not already present.
+func (l *Ledger) AddTag(id, tag string) (Item, error) {
+	var updated Item
+	err := l.locked(true, func(st *store) error {
+		it, err := findItem(st, id)
+		if err != nil {
+			return err
+		}
+		if !slices.Contains(it.Tags, tag) {
+			it.Tags = append(it.Tags, tag)
+		}
 		updated = *it
 		return nil
 	})
@@ -1156,6 +1178,9 @@ func cloneItem(src *Item) Item {
 	}
 	if src.Links != nil {
 		item.Links = append([]string(nil), src.Links...)
+	}
+	if src.Tags != nil {
+		item.Tags = append([]string(nil), src.Tags...)
 	}
 	if src.Deadline != nil {
 		t := *src.Deadline

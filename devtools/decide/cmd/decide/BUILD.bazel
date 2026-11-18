@@ -49,6 +49,7 @@ go_test(
         "machine_test.go",
         "main_test.go",
         "owner_test.go",
+        "owners_test.go",
         "reassign_test.go",
         "send_test.go",
         "sender_test.go",

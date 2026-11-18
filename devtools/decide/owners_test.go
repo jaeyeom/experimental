@@ -149,3 +149,59 @@ func TestMergeDisplayHubOwnersOverridesLocal(t *testing.T) {
 		t.Fatalf("owners = %+v, source = %q, want hub enforce", eff.Config.Owners, eff.Sources["owners"])
 	}
 }
+
+func TestCheckOwner(t *testing.T) {
+	managers := map[string]string{"team/*": "lead/planner"}
+	cases := []struct {
+		name        string
+		cfg         OwnersConfig
+		owner       string
+		wantMsg     string
+		wantEnforce bool
+	}{
+		{
+			name:  "off",
+			cfg:   OwnersConfig{Mode: OwnersOff, Allowed: []string{"lead/*"}, Managers: managers},
+			owner: "team/bob",
+		},
+		{
+			name:  "allowed",
+			cfg:   OwnersConfig{Mode: OwnersEnforce, Allowed: []string{"lead/*"}, Managers: managers},
+			owner: "lead/planner",
+		},
+		{
+			name:    "warn with manager",
+			cfg:     OwnersConfig{Mode: OwnersWarn, Allowed: []string{"lead/*"}, Managers: managers},
+			owner:   "team/bob",
+			wantMsg: "owner team/bob is not a direct report; ask lead/planner instead",
+		},
+		{
+			name:    "warn without manager",
+			cfg:     OwnersConfig{Mode: OwnersWarn, Allowed: []string{"lead/*"}, Managers: managers},
+			owner:   "other/bob",
+			wantMsg: "owner other/bob is not a direct report; ask your manager instead",
+		},
+		{
+			name:        "enforce with manager",
+			cfg:         OwnersConfig{Mode: OwnersEnforce, Allowed: []string{"lead/*"}, Managers: managers},
+			owner:       "team/bob",
+			wantMsg:     "owner team/bob is not a direct report; ask lead/planner instead",
+			wantEnforce: true,
+		},
+		{
+			name:        "enforce without manager",
+			cfg:         OwnersConfig{Mode: OwnersEnforce, Allowed: []string{"lead/*"}, Managers: managers},
+			owner:       "other/bob",
+			wantMsg:     "owner other/bob is not a direct report; ask your manager instead",
+			wantEnforce: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			msg, enforce := CheckOwner(tc.cfg, tc.owner)
+			if msg != tc.wantMsg || enforce != tc.wantEnforce {
+				t.Errorf("CheckOwner(%q) = (%q, %v), want (%q, %v)", tc.owner, msg, enforce, tc.wantMsg, tc.wantEnforce)
+			}
+		})
+	}
+}
