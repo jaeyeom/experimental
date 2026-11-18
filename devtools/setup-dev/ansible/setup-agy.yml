@@ -6,6 +6,9 @@
   vars:
     agy_settings_dir: "{{ ansible_facts['env']['HOME'] }}/.gemini/antigravity-cli"
     agy_settings_file: "{{ agy_settings_dir }}/settings.json"
+    agy_gemini_config_dir: "{{ ansible_facts['env']['HOME'] }}/.gemini/config"
+    agy_gemini_skills_dir: "{{ agy_gemini_config_dir }}/skills"
+    agy_claude_skills_dir: "{{ ansible_facts['env']['HOME'] }}/.claude/skills"
     # "auto" has a model evaluate commands that need to run outside the
     # terminal sandbox and pause only on risky or irreversible ones;
     # sandboxed commands are approved by default.
@@ -59,6 +62,49 @@
           set_fact:
             setup_agy_playbook_imported: true
           when: setup_agy_playbook_imported is not defined
+
+    - name: Create Gemini config directory
+      file:
+        path: "{{ agy_gemini_config_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Create Claude skills directory
+      file:
+        path: "{{ agy_claude_skills_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Check if Gemini skills path exists
+      stat:
+        path: "{{ agy_gemini_skills_dir }}"
+      register: agy_gemini_skills_stat
+
+    - name: Find entries in existing Gemini skills directory
+      find:
+        paths: "{{ agy_gemini_skills_dir }}"
+        recurse: false
+        hidden: true
+        file_type: any
+      register: agy_gemini_skills_entries
+      when:
+        - agy_gemini_skills_stat.stat.isdir | default(false)
+        - not (agy_gemini_skills_stat.stat.islnk | default(false))
+
+    - name: Remove empty Gemini skills directory before linking
+      file:
+        path: "{{ agy_gemini_skills_dir }}"
+        state: absent
+      when:
+        - agy_gemini_skills_stat.stat.isdir | default(false)
+        - not (agy_gemini_skills_stat.stat.islnk | default(false))
+        - agy_gemini_skills_entries.matched == 0
+
+    - name: Link Gemini skills to Claude skills
+      file:
+        src: "{{ agy_claude_skills_dir }}"
+        dest: "{{ agy_gemini_skills_dir }}"
+        state: link
 
     - name: Create agy settings directory
       file:
