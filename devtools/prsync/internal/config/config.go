@@ -36,15 +36,14 @@ Unaddressed threads:
 Triage each thread before editing or pushing:
 - Mechanical / unambiguous (typo, nil check, rename, obvious bug): make the
   change without asking the user, and continue.
-- Design decision, tradeoff, or disagreement: pause and ask the user how to
-  proceed, with a recommended option. Do not edit, reply to the reviewer,
-  resolve, or push for that thread until they answer.
+- Design decision, tradeoff, or disagreement: {ask}. Do not edit, reply to the
+  reviewer, resolve, or push for that thread until an answer arrives.
 
-Push after the mechanical threads are done (and after the user answers any
-questions).
+Push after the mechanical threads are done and any design questions have an
+answer.
 
 Reply on every listed thread once its outcome is known: right away for a
-mechanical thread, and after the user answers for any other. Post the reply
+mechanical thread, and after the answer arrives for any other. Post the reply
 on that review thread, not as a new top-level PR comment. Then mark the
 thread resolved, unless the reply asks the reviewer a follow-up question.
 Leave a follow-up open so the reviewer can answer. A reply that closes the
@@ -172,11 +171,13 @@ type Config struct {
 	ConcurrencyCwd string
 	// Checkout is the dispatch repo's checkout. It is not a file key.
 	// checkout mode counts an agent only when cwd or foreground_cwd is inside it.
-	Checkout             string
-	GatePoll             time.Duration
-	GateTimeout          time.Duration
-	PromptTemplate       string
-	RebasePromptTemplate string
+	Checkout               string
+	GatePoll               time.Duration
+	GateTimeout            time.Duration
+	PromptTemplate         string
+	DispatchAskInstruction string
+	DispatchAskTo          string
+	RebasePromptTemplate   string
 	// MergePromptTemplate is the --merge catch-up prompt.
 	MergePromptTemplate string
 	CIFixPromptTemplate string
@@ -348,6 +349,7 @@ func Defaults() Config {
 		GatePoll:                  2000 * time.Millisecond,
 		GateTimeout:               1800000 * time.Millisecond,
 		PromptTemplate:            defaultPromptTemplate,
+		DispatchAskInstruction:    "ask how to proceed through your configured channel, with a recommended option, and do not wait silently in your own screen; keep working on the other threads",
 		RebasePromptTemplate:      defaultRebasePromptTemplate,
 		MergePromptTemplate:       defaultMergePromptTemplate,
 		DispatchCatchup:           "rebase",
@@ -653,8 +655,8 @@ func applyOtherKey(cfg *Config, key, val string) error {
 		return err
 	case "review_threads_ttl", "status_checks_ttl", "pr_view_closed_ttl":
 		return applyCacheTTL(cfg, key, val)
-	case "dispatch_prompt_suffix":
-		cfg.PromptSuffix = val
+	case "dispatch_prompt_suffix", "dispatch_ask_instruction", "dispatch_ask_to":
+		applyDispatchPromptOption(cfg, key, val)
 		return nil
 	case "open_missing_tabs", "open_tabs_workspace", "open_tabs_cwd", "open_tabs_agent",
 		"open_tabs_max_per_round", "open_tabs_ready_timeout":
@@ -683,6 +685,17 @@ func applyOtherKey(cfg *Config, key, val string) error {
 		return applyTeamCover(cfg, key, val)
 	default:
 		return nil
+	}
+}
+
+func applyDispatchPromptOption(cfg *Config, key, val string) {
+	switch key {
+	case "dispatch_prompt_suffix":
+		cfg.PromptSuffix = val
+	case "dispatch_ask_instruction":
+		cfg.DispatchAskInstruction = val
+	case "dispatch_ask_to":
+		cfg.DispatchAskTo = val
 	}
 }
 
