@@ -538,6 +538,18 @@ func TestLoadWakeBeforePrompt(t *testing.T) {
 	}
 }
 
+func TestLoadDispatchParkMode(t *testing.T) {
+	if got := Defaults().DispatchParkMode; got != "off" {
+		t.Fatalf("default dispatch_park_mode = %q, want off", got)
+	}
+	path := filepath.Join(t.TempDir(), "prsync.config")
+	mustWrite(t, path, "dispatch_park_mode= on\ndispatch_ask_to=review-manager\n")
+	got, err := Load(path)
+	if err != nil || got.DispatchParkMode != "on" || got.DispatchAskTo != "review-manager" {
+		t.Fatalf("Load = %q %q, %v; want on, review-manager", got.DispatchParkMode, got.DispatchAskTo, err)
+	}
+}
+
 func TestLoadDispatchCatchupAndMergePrompt(t *testing.T) {
 	def := Defaults()
 	if def.DispatchCatchup != "rebase" {
@@ -837,6 +849,8 @@ func TestLoadValidationErrors(t *testing.T) {
 		{name: "bad gate lease", body: "gate_lease=maybe\n", key: "gate_lease"},
 		{name: "bad wake before prompt", body: "wake_before_prompt=always\n", key: "wake_before_prompt"},
 		{name: "bad dispatch catchup", body: "dispatch_catchup=squash\n", key: "dispatch_catchup"},
+		{name: "bad park mode", body: "dispatch_park_mode=maybe\n", key: "dispatch_park_mode"},
+		{name: "park mode with nobody to ask", body: "dispatch_park_mode=on\n", key: "dispatch_park_mode"},
 		{name: "missing merge prompt file", body: "merge_prompt_template=@/no/such/merge\n", key: "merge_prompt_template"},
 		{name: "bad ignore glob", body: "gate_ignore_procs=[mcp\n", key: "gate_ignore_procs"},
 		{name: "bad job age", body: "gate_job_min_age=soon\n", key: "gate_job_min_age"},

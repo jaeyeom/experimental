@@ -623,7 +623,7 @@ func resumed(t *testing.T, w *world, tab string) jobs.Job {
 	if _, err := w.q.s.Park(jobs.Args{ID: j.ID, Runner: "other-runner", Decide: "d1", Saved: "park/ci", Note: "tests fixed; lint left", Tab: tab}); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.q.s.Resume(j.ID, "d1", "answered"); err != nil {
+	if err := w.q.s.Resume(j.ID, "d1", "answered", ""); err != nil {
 		t.Fatal(err)
 	}
 	return j

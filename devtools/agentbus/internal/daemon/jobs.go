@@ -10,6 +10,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/jobs"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/mailbox"
 	"github.com/jaeyeom/experimental/devtools/pkg/hubcall"
 )
 
@@ -67,9 +68,8 @@ func (s *server) otherJobsOp(req Request, a jobs.Args) (jobs.Reply, error) {
 		if err = s.claimMachine(req, &a); err == nil {
 			r, err = s.jobs.Beat(a)
 		}
-	case "jobs-park":
-		a.Tab = s.parkTab(req.Env)
-		r, err = s.jobs.Park(a)
+	case "jobs-park", "jobs-regate":
+		r, err = s.parkOp(req, a)
 	case "jobs-ls":
 		r, err = s.jobs.List(a)
 	case "jobs-show":
@@ -107,6 +107,7 @@ func (s *server) watchJobs(ctx context.Context, ticks <-chan time.Time, hook job
 			// A save that fails is tried again on the next tick.
 			_, _ = s.jobs.Expire()
 			jobs.Reconcile(ctx, s.jobs, hook, s.notify)
+			jobs.RunAsk(ctx, s.jobs, busReplies{s.box})
 			jobs.RunGate(ctx, s.jobs, decider)
 			s.reportAnomalies(ctx)
 			if pub != nil {
@@ -169,6 +170,49 @@ func (s *server) parkTab(env []string) string {
 		return ""
 	}
 	return handle
+}
+
+// parkOp parks a job, on a decide item or an agentbus message, or
+// regates one parked on a message onto a decide item.
+func (s *server) parkOp(req Request, a jobs.Args) (jobs.Reply, error) {
+	if req.Op == "jobs-regate" {
+		return s.jobs.Regate(a.ID, a.Decide) //nolint:wrapcheck // the store's own message is the reply
+	}
+	a.Tab = s.parkTab(req.Env)
+	if err := s.askTo(&a); err != nil {
+		return jobs.Reply{}, err
+	}
+	return s.jobs.Park(a) //nolint:wrapcheck // the store's own message is the reply
+}
+
+// askTo sets the name a park's agent bus message was sent to, from the
+// mailbox; the parking agent does not say it.
+func (s *server) askTo(a *jobs.Args) error {
+	a.AskTo = ""
+	if a.AskMsg == "" {
+		return nil
+	}
+	to, err := s.box.Recipient(a.AskMsg)
+	if err != nil {
+		return fmt.Errorf("park on message %s: %w", a.AskMsg, err)
+	}
+	a.AskTo = to
+	return nil
+}
+
+// busReplies reads the replies to a park's message from the mailbox.
+type busReplies struct{ box *mailbox.Mailbox }
+
+func (b busReplies) Replies(_ context.Context, msg string) ([]jobs.BusReply, error) {
+	answers, err := b.box.Replies(msg)
+	if err != nil {
+		return nil, fmt.Errorf("replies to %s: %w", msg, err)
+	}
+	out := make([]jobs.BusReply, 0, len(answers))
+	for _, a := range answers {
+		out = append(out, jobs.BusReply{ID: a.ID, From: a.From, Addressed: a.Addressed, Text: a.Text})
+	}
+	return out, nil
 }
 
 // claimMachine holds a runner on another machine to its own machine, so

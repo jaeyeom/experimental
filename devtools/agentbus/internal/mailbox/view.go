@@ -3,6 +3,7 @@ package mailbox
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -13,6 +14,49 @@ func (m *Mailbox) Show(id string) (string, error) {
 		return "", err
 	}
 	return formatMessage(msg), nil
+}
+
+// Recipient is the name or handle message id was sent to.
+func (m *Mailbox) Recipient(id string) (string, error) {
+	msg, err := m.get(id)
+	if err != nil {
+		return "", err
+	}
+	return msg.To, nil
+}
+
+// Answer is one reply to a message. Addressed is a reply from the name
+// the message was sent to, or from whoever holds that name now.
+type Answer struct {
+	ID        string
+	From      string
+	Text      string
+	Addressed bool
+}
+
+// Replies returns the direct replies to message id, oldest first.
+func (m *Mailbox) Replies(id string) ([]Answer, error) {
+	m.mu.Lock()
+	orig, err := m.lookupLocked(id)
+	var kids []message
+	for _, msg := range m.msgs {
+		if err == nil && msg.Re == orig.ID {
+			kids = append(kids, msg)
+		}
+	}
+	m.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	sortMessages(kids)
+	holder, herr := m.reg.Resolve(orig.To)
+	out := make([]Answer, 0, len(kids))
+	for _, k := range kids {
+		addressed := slices.Contains(strings.Split(k.From, ", "), orig.To) ||
+			(herr == nil && k.SenderHandle != "" && k.SenderHandle == holder)
+		out = append(out, Answer{ID: k.ID, From: k.From, Text: k.Body, Addressed: addressed})
+	}
+	return out, nil
 }
 
 // Thread prints the reply chain that contains id, root first.

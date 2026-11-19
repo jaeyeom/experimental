@@ -136,6 +136,10 @@
 # comment_link_max_chars / comment_body_max_chars).
 # The ask route can be configured independently of this template:
 # dispatch_ask_to=review-manager
+# With dispatch_park_mode=on (default off; needs dispatch_ask_to), a review
+# job (dispatch --job) parks design threads and asks {ask_to} over the
+# agent bus instead of waiting in its tab. See docs/jobs.org.
+# dispatch_park_mode=on
 # dispatch_ask_instruction="send the question with a recommended option to {ask_to} over the message bus; never wait silently in your own screen"
 # Default: check out {head} (via `gh pr checkout {number}` if needed),
 # bring it up to date with origin/{base}, then apply mechanical /

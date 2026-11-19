@@ -177,7 +177,11 @@ type Config struct {
 	PromptTemplate         string
 	DispatchAskInstruction string
 	DispatchAskTo          string
-	RebasePromptTemplate   string
+	// DispatchParkMode is on or off. on tells the agent of a review job
+	// (dispatch --job) to park design-decision threads, ask
+	// DispatchAskTo over the agent bus, and never wait in its tab.
+	DispatchParkMode     string
+	RebasePromptTemplate string
 	// MergePromptTemplate is the --merge catch-up prompt.
 	MergePromptTemplate string
 	CIFixPromptTemplate string
@@ -350,6 +354,7 @@ func Defaults() Config {
 		GateTimeout:               1800000 * time.Millisecond,
 		PromptTemplate:            defaultPromptTemplate,
 		DispatchAskInstruction:    "ask how to proceed through your configured channel, with a recommended option, and do not wait silently in your own screen; keep working on the other threads",
+		DispatchParkMode:          "off",
 		RebasePromptTemplate:      defaultRebasePromptTemplate,
 		MergePromptTemplate:       defaultMergePromptTemplate,
 		DispatchCatchup:           "rebase",
@@ -483,6 +488,16 @@ func validateConcurrency(c Config) error {
 	}
 	if c.DispatchCatchup != "rebase" && c.DispatchCatchup != "merge" {
 		return &KeyError{Key: "dispatch_catchup", Reason: fmt.Sprintf("invalid value %q", c.DispatchCatchup)}
+	}
+	return validateParkMode(c)
+}
+
+func validateParkMode(c Config) error {
+	switch {
+	case c.DispatchParkMode != "on" && c.DispatchParkMode != "off":
+		return &KeyError{Key: "dispatch_park_mode", Reason: fmt.Sprintf("invalid value %q", c.DispatchParkMode)}
+	case c.DispatchParkMode == "on" && strings.TrimSpace(c.DispatchAskTo) == "":
+		return &KeyError{Key: "dispatch_park_mode", Reason: "on needs dispatch_ask_to, the agent bus name to ask"}
 	}
 	return nil
 }
@@ -655,7 +670,7 @@ func applyOtherKey(cfg *Config, key, val string) error {
 		return err
 	case "review_threads_ttl", "status_checks_ttl", "pr_view_closed_ttl":
 		return applyCacheTTL(cfg, key, val)
-	case "dispatch_prompt_suffix", "dispatch_ask_instruction", "dispatch_ask_to":
+	case "dispatch_prompt_suffix", "dispatch_ask_instruction", "dispatch_ask_to", "dispatch_park_mode":
 		applyDispatchPromptOption(cfg, key, val)
 		return nil
 	case "open_missing_tabs", "open_tabs_workspace", "open_tabs_cwd", "open_tabs_agent",
@@ -696,6 +711,8 @@ func applyDispatchPromptOption(cfg *Config, key, val string) {
 		cfg.DispatchAskInstruction = val
 	case "dispatch_ask_to":
 		cfg.DispatchAskTo = val
+	case "dispatch_park_mode":
+		cfg.DispatchParkMode = strings.TrimSpace(val)
 	}
 }
 

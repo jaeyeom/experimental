@@ -40,7 +40,7 @@ func RunGate(ctx context.Context, s *Store, d Decider) {
 		}
 		if it, err := d.Show(ctx, j.ParkedOn); err == nil && answeredByUser(it) {
 			// One that moved meanwhile is left as it is.
-			_ = s.Resume(j.ID, j.ParkedOn, "the user answered decide "+j.ParkedOn)
+			_ = s.Resume(j.ID, j.ParkedOn, "the user answered decide "+j.ParkedOn, it.Answer.Value)
 		}
 	}
 	for _, j := range s.Gated() {

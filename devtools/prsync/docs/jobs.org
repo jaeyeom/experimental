@@ -117,6 +117,52 @@ Under a runner's ~cli~ executor the runner reports the command's exit
 too. That second report is refused, since the job is already closed,
 and the runner only logs it.
 
+** Park mode
+
+A review job whose thread needs a design decision would otherwise wait
+in its tab, often overnight, holding the checkout. Park mode parks it
+instead and asks the agent's manager first:
+
+#+BEGIN_EXAMPLE
+dispatch_park_mode=on
+dispatch_ask_to=review-manager
+#+END_EXAMPLE
+
+~on~ needs ~dispatch_ask_to~, the manager's agent bus name. With it, the
+prompt of a ~comment~ job gets park steps after the review prompt. The
+agent:
+
+1. finishes, pushes, and replies on the mechanical threads first;
+2. sends every design question, each with a recommended option, to
+   ~review-manager~ with ~agentbus send~, and notes the message id;
+3. commits any work on those threads to a branch (never a stash), so
+   the checkout is clean, and parks them as a gated child job:
+   ~agentbus jobs park j-7 --runner tiger-runner --ask-msg m-5c1e --saved park/pr-42 --note "c2 waits" --item c2~;
+4. stops. It never waits in its tab, and does not act on a reply that
+   lands there.
+
+The prompt lists each thread's comment id for ~--item~. With every
+thread parked, or without ~--item~, the whole job parks. A job the
+agent parked is not reported: ~dispatch --job~ prints ~"result":
+"parked"~ and leaves the job as the park left it.
+
+When ~review-manager~ replies to ~m-5c1e~ (~agentbus reply m-5c1e "Keep
+the old API, add a deprecation note."~), the child job is ready again.
+Its prompt is the review prompt plus a resume section with the saved
+branch, the parked threads, and the answer: apply it, reply on each
+parked thread, resolve it unless the reply asks the reviewer a
+follow-up, push, and re-request review. A job resumed from a decide
+item gets the user's answer the same way.
+
+A manager that cannot decide files a decide item for the user and runs
+~agentbus jobs regate j-8 --decide d-31~. Only the user's own answer in
+the inbox resumes the job after that. *A manager's reply resumes the
+work. It is never the user's approval.* A decision that needs the user
+must be re-gated onto a decide item. See ~Ask a manager first~ in the
+agentbus [[file:../../agentbus/docs/jobs.org][jobs]] doc.
+
+With ~dispatch_park_mode=off~ (the default) the prompt is unchanged.
+
 ** Rebase on GitHub
 
 A ~rebase~ job rebases the branch on GitHub with the

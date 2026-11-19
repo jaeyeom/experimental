@@ -33,7 +33,8 @@ agentbus jobs unhold
 | ~heartbeat <id> --runner <name>~ | The holder is still at it. |
 | ~done <id>~, ~fail <id> [--exit <code>]~ | With ~--runner~, the holder closes its running job. Without it, the user settles an ~unknown~ or ~parked~ job. |
 | ~gate <id> --runner <name> --note <why>~ | The holder hands a running job it has not acted on to the user: the job is ~gated~, lets go of its lease, and the [[*Ask gate][ask gate]] raises a new decide item naming the note. |
-| ~park <id> --runner <name> --decide <item> --saved <branch> --note <text>~ | The holder parks its running job while the user answers decide item ~<item>~. See [[*Park]]. |
+| ~park <id> --runner <name> --decide <item> --saved <branch> --note <text>~ | The holder parks its running job while the user answers decide item ~<item>~. With ~--ask-msg <msg-id>~ instead of ~--decide~, it waits on a reply to that agentbus message. See [[*Park]] and [[*Ask a manager first]]. |
+| ~regate <id> --decide <item>~ | Move a job parked on an agentbus message onto decide item ~<item>~. See [[*Ask a manager first]]. |
 | ~runner --name <unit>~ | Run jobs on this machine until stopped. See [[*Runner]]. |
 | ~ls~ | Live jobs. ~--all~ adds final ones; ~--state~, ~--kind~, and ~--subject~ filter. |
 | ~show <id>~, ~log <id> [--follow]~ | One job, or its state history; ~show~ prints the gate's ~decide:~ item, and a parked job's ~saved:~, ~resume:~, ~tab:~, ~items:~, and ~parent:~. ~--follow~ waits until the job is final. |
@@ -107,7 +108,9 @@ agentbus jobs park j-7 --runner tiger-runner --decide d-12 \
   change. Otherwise it refuses with exit 1 and the job keeps running
   with its lease. The park releases the lease.
 - *Whole park.* Without ~--item~ the job goes from ~running~ to
-  ~parked~. ~ls~ and ~show~ print it as ~parked on <item>~.
+  ~parked~. ~ls~ and ~show~ print what it waits on and for how long,
+  as ~parked (decision <item>, 2h)~, or ~parked (asked <name>, 2h)~
+  for a park on an agentbus message.
 - *Partial completion.* With ~--item <id>~ (repeatable) the handled
   part is ~done~, and a child job is created ~gated~ holding those
   items, with the same kind, subject, needs, and saved branch. Its
@@ -133,6 +136,46 @@ agentbus jobs park j-7 --runner tiger-runner --decide d-12 \
   does not block its subject. A job its runner gated because the pane
   showed a dialog does, and ~ls~ and ~show~ print it as ~gated
   (blocked)~: its checkout may be dirty and it waits in the pane.
+
+** Ask a manager first
+
+In a team of agents a design question goes to the agent's manager
+first, over the agent bus. Only some agents may file decide items, so
+the user's inbox is the last step. The agent sends the question, then
+parks on the message instead of a decide item:
+
+#+BEGIN_SRC bash
+agentbus send review-manager "PR acme/widgets#42, thread c2: keep the old API or
+switch to the new one? I recommend keeping it, with a deprecation note."
+# m-5c1e queued for delivery
+agentbus jobs park j-7 --runner tiger-runner --ask-msg m-5c1e \
+  --saved park/pr-42 --note "c1 fixed and pushed; c2 waits" --item c2
+#+END_SRC
+
+The park checks the clean checkout and the saved branch as any park
+does. The daemon records whom the message was sent to (~review-manager~),
+and ~ls~ shows the child as ~gated (asked review-manager, 5m)~.
+
+- *Resume on a reply.* On its next check the daemon reads the replies
+  to the message. The first reply from the addressed name, or from
+  whoever holds that name now, makes the job ~ready~: the reply's text
+  becomes its note and its ~answer~, and the state history logs the
+  sender. The resumed prompt carries the answer.
+- *Other replies.* A reply from any other name is ignored, and logged
+  once with its sender in the event log.
+- *Re-gate.* A manager that cannot answer escalates: it files a decide
+  item for the user and attaches it to the job:
+
+  #+BEGIN_SRC bash
+  agentbus jobs regate j-8 --decide d-31
+  #+END_SRC
+
+  From then on the job waits on ~d-31~ (~gated (decision d-31, 0s)~).
+  Only a verified human answer through the [[*Ask gate][ask gate]]
+  resumes it. A later reply to the message is ignored and logged.
+
+*A manager's reply resumes the work. It is never the user's approval.*
+A decision that needs the user must be re-gated onto a decide item.
 
 ** Gate policy
 

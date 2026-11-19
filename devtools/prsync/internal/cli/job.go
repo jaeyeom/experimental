@@ -23,6 +23,9 @@ import (
 const (
 	jobDone = "done"
 	jobFail = "fail"
+	// jobParked is a review job its agent parked while it ran. The park
+	// already settled it, so it is not reported.
+	jobParked = "parked"
 )
 
 // jobResult is the dispatch --job output: how the job ended, as
@@ -70,7 +73,13 @@ func runJob(ctx context.Context, stdout io.Writer, exec executor.Executor, cfg c
 	if err != nil {
 		return &ExitError{Code: ExitPrecondition, Err: err}
 	}
-	res := runJobKind(ctx, exec, cfg, q, j)
+	res := runJobKind(ctx, exec, cfg, q, j, runner)
+	if res.Result == jobDone && parkedMeanwhile(ctx, cfg, q, j) {
+		// The agent parked the job itself; it is no longer ours to
+		// report.
+		res.Result, res.Note = jobParked, "the agent parked the job; "+res.Note
+		return writeJobJSON(stdout, res)
+	}
 	var reportErr error
 	if res.Result == jobDone {
 		reportErr = q.Done(ctx, j.ID, runner, res.Note)
@@ -86,7 +95,17 @@ func runJob(ctx context.Context, stdout io.Writer, exec executor.Executor, cfg c
 	return nil
 }
 
-func runJobKind(ctx context.Context, exec executor.Executor, cfg config.Config, q jobs.Queue, j jobs.Job) jobResult {
+// parkedMeanwhile reports whether, in park mode, the agent parked
+// review job j while it ran: it is no longer running.
+func parkedMeanwhile(ctx context.Context, cfg config.Config, q jobs.Queue, j jobs.Job) bool {
+	if cfg.DispatchParkMode != "on" || j.Kind != dispatch.KindComment {
+		return false
+	}
+	now, err := q.Show(ctx, j.ID)
+	return err == nil && now.State != "" && now.State != "running"
+}
+
+func runJobKind(ctx context.Context, exec executor.Executor, cfg config.Config, q jobs.Queue, j jobs.Job, runner string) jobResult {
 	res := jobResult{Job: j.ID, Kind: j.Kind, Subject: j.Subject}
 	repo, number, err := dispatch.ParsePR(j.Subject)
 	if err != nil {
@@ -96,7 +115,7 @@ func runJobKind(ctx context.Context, exec executor.Executor, cfg config.Config, 
 	case dispatch.KindRebase:
 		return rebaseJob(ctx, gh.NewClient(exec, cfg.GHBin), q, j, repo, number, res)
 	case dispatch.KindComment, dispatch.KindCIFix, dispatch.KindMergeQueueFix, jobs.KindConflict:
-		return promptJob(ctx, exec, cfg, j, res)
+		return promptJob(ctx, exec, cfg, j, runner, res)
 	}
 	return failed(res, fmt.Sprintf("prsync runs no %q job", j.Kind))
 }
@@ -138,7 +157,7 @@ func rebaseJob(ctx context.Context, client *gh.Client, q jobs.Queue, j jobs.Job,
 
 // promptJob sends the job's prompt to the PR's agent as dispatch does,
 // without dedupe: the queue already deduped the job.
-func promptJob(ctx context.Context, exec executor.Executor, cfg config.Config, j jobs.Job, res jobResult) jobResult {
+func promptJob(ctx context.Context, exec executor.Executor, cfg config.Config, j jobs.Job, runner string, res jobResult) jobResult {
 	var modes dispatchModes
 	switch j.Kind {
 	case dispatch.KindCIFix:
@@ -147,6 +166,7 @@ func promptJob(ctx context.Context, exec executor.Executor, cfg config.Config, j
 		modes.merge = cfg.DispatchCatchup == "merge" || dispatch.RebaseSuffixConflict(cfg.PromptSuffix) != ""
 		modes.rebase = !modes.merge
 	}
+	modes.job = &dispatch.Job{ID: j.ID, Runner: runner, Items: j.Items, Saved: j.Saved, Answer: j.Answer}
 	out, err := dispatchPRs(ctx, exec, cfg, []string{j.Subject}, modes, "", true, false)
 	if out == nil {
 		return failed(res, err.Error())
