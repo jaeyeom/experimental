@@ -284,6 +284,9 @@ class ApproveConfig {
   patch_max_files: Int(this > 0) = 300
   /// Like patch_max_files, for the number of added lines in the pull request.
   patch_max_added_lines: Int(this > 0) = 5000
+  /// Stop starting new pull requests after this limit; the current one finishes.
+  /// Null means no run limit.
+  max_duration: Duration(value > 0)? = null
   /// Rules. A pull request that matches none of them is left for a human.
   rules: Listing<ApproveRule> = new {}
 }

@@ -27,20 +27,22 @@ type fakeClient struct {
 	search   []github.PullRef
 	searched int
 	// teamSearched counts SearchReviewRequested calls. Both searches return search.
-	teamSearched int
-	prs          map[int]github.ApprovalPullRequest
-	loadErr      map[int]error
-	heads        map[int]string
-	headReads    int
-	approveErr   error
-	approvals    []approval
-	markErr      error
-	marks        []viewedMark
-	diffErr      error
-	diffReads    int
-	patchReads   int
-	patchErr     error
-	patches      map[int][]github.PullFile
+	teamSearched  int
+	teamLabelSets [][]string
+	prs           map[int]github.ApprovalPullRequest
+	loadErr       map[int]error
+	loadReads     int
+	heads         map[int]string
+	headReads     int
+	approveErr    error
+	approvals     []approval
+	markErr       error
+	marks         []viewedMark
+	diffErr       error
+	diffReads     int
+	patchReads    int
+	patchErr      error
+	patches       map[int][]github.PullFile
 	// diff overrides the default diff of every pull request.
 	diff string
 	// onCall is told each pull request and patch read, to drive a fake clock.
@@ -60,7 +62,76 @@ func (f *fakeClient) SearchReviewRequested() ([]github.PullRef, error) {
 	return f.search, nil
 }
 
+func (f *fakeClient) SearchApprovalCandidates() ([]github.ApprovalCandidate, error) {
+	f.searched++
+	var refs []github.PullRef
+	for _, ref := range f.search {
+		if containsFold(f.prs[ref.Number].RequestedUsers, f.viewer) {
+			refs = append(refs, ref)
+		}
+	}
+	return f.candidates(refs), nil
+}
+
+func (f *fakeClient) SearchTeamApprovalCandidates(labelSets [][]string) ([]github.ApprovalCandidate, error) {
+	f.teamSearched++
+	f.teamLabelSets = append([][]string(nil), labelSets...)
+	var refs []github.PullRef
+	seen := map[int]bool{}
+	for _, labels := range labelSets {
+		for _, ref := range f.search {
+			pr := f.prs[ref.Number]
+			matches := true
+			for _, required := range labels {
+				if !containsFold(pr.Labels, required) {
+					matches = false
+					break
+				}
+			}
+			if matches && !seen[ref.Number] {
+				seen[ref.Number] = true
+				refs = append(refs, ref)
+			}
+		}
+	}
+	return f.candidates(refs), nil
+}
+
+func TestTeamSearchUsesLabelSetsOnlyWhenEveryTeamRuleRequiresLabels(t *testing.T) {
+	newRunner := func(rules ...config.ApproveRule) (*Runner, *fakeClient) {
+		fake := newFake()
+		return &Runner{Client: fake, Config: config.ApproveConfig{Rules: rules}}, fake
+	}
+	setRule := func(name string, labels ...string) config.ApproveRule {
+		return config.ApproveRule{Name: name, RequestedViaTeam: true, LabelsRequired: labels}
+	}
+	runner, fake := newRunner(setRule("ready", "ready"), setRule("docs", "docs"))
+	if _, _, err := runner.targets(Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.teamLabelSets) != 2 || strings.Join(fake.teamLabelSets[0], ",") != "ready" || strings.Join(fake.teamLabelSets[1], ",") != "docs" {
+		t.Fatalf("label sets = %q", fake.teamLabelSets)
+	}
+	runner, fake = newRunner(setRule("ready", "ready"), setRule("any"))
+	if _, _, err := runner.targets(Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.teamLabelSets) != 1 || len(fake.teamLabelSets[0]) != 0 {
+		t.Fatalf("label sets with an unfiltered rule = %q, want one unfiltered query", fake.teamLabelSets)
+	}
+}
+
+func (f *fakeClient) candidates(refs []github.PullRef) []github.ApprovalCandidate {
+	candidates := make([]github.ApprovalCandidate, 0, len(refs))
+	for _, ref := range refs {
+		pr := f.prs[ref.Number]
+		candidates = append(candidates, github.ApprovalCandidate{Ref: ref, URL: pr.URL, Title: pr.Title, Author: pr.Author, Draft: pr.Draft, Additions: pr.Additions, Deletions: pr.Deletions, ChangedFiles: pr.ChangedFiles, Labels: pr.Labels})
+	}
+	return candidates
+}
+
 func (f *fakeClient) LoadApprovalPullRequest(ref github.PullRef) (github.ApprovalPullRequest, error) {
+	f.loadReads++
 	if f.onCall != nil {
 		f.onCall("pull request")
 	}
@@ -72,6 +143,93 @@ func (f *fakeClient) LoadApprovalPullRequest(ref github.PullRef) (github.Approva
 		return github.ApprovalPullRequest{}, errors.New("unexpected pull request")
 	}
 	return pr, nil
+}
+
+func TestCheapConditionsSkipPullRequestLoadAndExplainFailures(t *testing.T) {
+	pr := prNumber(51)
+	pr.Draft = true
+	pr.Author = "blocked"
+	pr.ChangedFiles = 5
+	pr.Additions, pr.Deletions = 80, 30
+	pr.Labels = []string{"other"}
+	fake := newFake(pr)
+	rule := config.ApproveRule{Name: "cheap", LabelsRequired: []string{"ready"}, AuthorsAllow: []string{"alice"}, NotDraft: true, MaxFiles: intPtr(2), MaxChangedLines: intPtr(50)}
+	res := run(t, fake, []config.ApproveRule{rule}, Options{Explain: true})
+	if fake.loadReads != 0 || fake.patchReads != 0 {
+		t.Fatalf("loads = %d, patch reads = %d", fake.loadReads, fake.patchReads)
+	}
+	for _, condition := range []string{"labels_required", "authors_allow", "not_draft", "max_files", "max_changed_lines"} {
+		if !strings.Contains(res.out, "FAIL "+condition) {
+			t.Errorf("explain output does not name %s: %s", condition, res.out)
+		}
+	}
+	if !strings.Contains(res.out, "Candidates: 1; skipped by cheap conditions: 1; fully loaded: 0;") {
+		t.Fatalf("pass totals = %s", res.out)
+	}
+}
+
+func TestMineCommentsSizeCapSkipsLoadAndNamesReason(t *testing.T) {
+	pr := prNumber(52)
+	pr.ChangedFiles, pr.Additions, pr.Deletions = 8, 30, 25
+	fake := newFake(pr)
+	rule := config.ApproveRule{Name: "mine", MineCommentsOnly: true, MaxFiles: intPtr(4)}
+	res := run(t, fake, []config.ApproveRule{rule}, Options{Explain: true})
+	if fake.loadReads != 0 || fake.patchReads != 0 {
+		t.Fatalf("loads = %d, patch reads = %d", fake.loadReads, fake.patchReads)
+	}
+	want := "too large to check (8 files, 55 changed lines)"
+	if !strings.Contains(res.out, want) {
+		t.Fatalf("output lacks %q: %s", want, res.out)
+	}
+}
+
+func TestMineCommentsSizeCapForSinglePRDoesNotFetchPatches(t *testing.T) {
+	pr := prNumber(53)
+	pr.ChangedFiles, pr.Additions, pr.Deletions = 8, 30, 25
+	fake := newFake(pr)
+	rule := config.ApproveRule{Name: "mine", MineCommentsOnly: true, MaxFiles: intPtr(4)}
+	res := run(t, fake, []config.ApproveRule{rule}, Options{PR: "acme/widgets#53", Explain: true})
+	if fake.loadReads != 1 || fake.patchReads != 0 {
+		t.Fatalf("loads = %d, patch reads = %d", fake.loadReads, fake.patchReads)
+	}
+	if !strings.Contains(res.out, "too large to check (8 files, 55 changed lines)") {
+		t.Fatalf("output lacks size cap reason: %s", res.out)
+	}
+}
+
+func TestMineCommentsChangedLineCapSkipsPatchFetch(t *testing.T) {
+	pr := prNumber(54)
+	pr.ChangedFiles, pr.Additions, pr.Deletions = 3, 30, 25
+	fake := newFake(pr)
+	rule := config.ApproveRule{Name: "mine", MineCommentsOnly: true, MaxChangedLines: intPtr(50)}
+	res := run(t, fake, []config.ApproveRule{rule}, Options{Explain: true})
+	if fake.loadReads != 0 || fake.patchReads != 0 {
+		t.Fatalf("loads = %d, patch reads = %d", fake.loadReads, fake.patchReads)
+	}
+	if !strings.Contains(res.out, "too large to check (3 files, 55 changed lines)") {
+		t.Fatalf("output lacks size cap reason: %s", res.out)
+	}
+}
+
+func TestMaxDurationStopsStartingCandidatesAndReportsSummary(t *testing.T) {
+	fake := newFake(prNumber(61), prNumber(62), prNumber(63))
+	now := fixedNow()
+	fake.onCall = func(op string) {
+		if op == "pull request" {
+			now = now.Add(6 * time.Minute)
+		}
+	}
+	var out, logBuf bytes.Buffer
+	runner := &Runner{Client: fake, Config: config.ApproveConfig{Rules: []config.ApproveRule{}}, Out: &out, Log: &logBuf, Now: func() time.Time { return now }}
+	if err := runner.Run(Options{MaxDuration: 5 * time.Minute}); err != nil {
+		t.Fatal(err)
+	}
+	if fake.loadReads != 1 {
+		t.Fatalf("loaded %d pull requests, want 1", fake.loadReads)
+	}
+	if !strings.Contains(out.String(), "Candidates: 3;") || !strings.Contains(out.String(), "fully loaded: 1") || !strings.Contains(out.String(), "2 candidate(s) not evaluated") {
+		t.Fatalf("summary = %s", out.String())
+	}
 }
 
 func (f *fakeClient) PullRequestHeadSHA(ref github.PullRef) (string, error) {
@@ -532,14 +690,14 @@ func TestRunAgentNotRunWhenAnotherConditionFails(t *testing.T) {
 	if len(agent.calls) != 0 || fake.diffReads != 0 {
 		t.Fatalf("agent calls = %d diff reads = %d, want none", len(agent.calls), fake.diffReads)
 	}
-	if res.log[0].Action != ActionManual || res.log[0].Rules[0].Agent != nil {
+	if res.log[0].Action != ActionSkipped || res.log[0].Rules[0].Agent != nil {
 		t.Fatalf("entry = %+v", res.log[0])
 	}
 	if first, _ := res.log[0].Rules[0].FirstFailure(); first.Condition != "not_draft" {
 		t.Fatalf("first failure = %+v", first)
 	}
-	if !strings.Contains(res.out, "agent_command: not run") {
-		t.Fatalf("out = %s", res.out)
+	if !strings.Contains(res.out, "FAIL not_draft") {
+		t.Fatalf("explain output does not name failed condition: %s", res.out)
 	}
 }
 

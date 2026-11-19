@@ -31,6 +31,9 @@ request that requests only a team you belong to, unless a rule sets
   # Run agent commands without the decision cache
   gh-approve --no-agent-cache
 
+  # Stop starting pull requests after five minutes; the current one finishes
+  gh-approve --max-duration 5m
+
   # Recent decisions. --action defaults to approved. --days defaults to 7.
   gh-approve history
   gh-approve history --days 30 --action all --rule dashboard --json
@@ -83,6 +86,21 @@ when stdout is a terminal. ~--color=never~ turns color off, and so does a
 non-empty ~NO_COLOR~. ~--color=always~ colors even through a pipe, for a
 caller that relays the output to a terminal. The audit log never has colors
 or markers.
+
+The search includes labels, draft state, author, changed-file count, additions,
+and deletions. When every rule that can match a team request requires labels,
+gh-approve adds those labels to the GitHub search query. Different required
+label sets use separate queries, and duplicate pull requests are merged.
+Rules that do not require labels keep the unfiltered team search. Before it
+loads a pull request's full metadata, gh-approve checks labels, draft state,
+author, and size limits from the search result. Candidates that fail every
+rule are skipped, with the failed conditions still shown by ~--explain~.
+
+The pass summary reports candidate, cheaply skipped, and fully loaded counts
+with elapsed time. ~--max-duration~ stops new pull requests from starting;
+the pull request already in progress finishes, then the usual summary reports
+how many candidates were left unevaluated. Set ~approve.max_duration~ in
+config to apply the limit without a command-line flag. The default is no limit.
 
 ** Rules
 

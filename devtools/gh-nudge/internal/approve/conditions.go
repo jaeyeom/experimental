@@ -168,15 +168,7 @@ func evaluateRule(rule config.ApproveRule, pr github.ApprovalPullRequest, fileCh
 		if !cond.active(rule) {
 			continue
 		}
-		got, ok := cheap[cond.name]
-		switch {
-		case ok:
-		case cheapFailed != "" && loads != nil:
-			got = ConditionResult{Condition: cond.name, Saw: "not evaluated: " + cheapFailed + " failed", NotEvaluated: true}
-		default:
-			ev.load(cond)
-			got = ev.evaluate(cond)
-		}
+		got := ev.conditionResult(rule, cond, cheap, cheapFailed)
 		result.Conditions = append(result.Conditions, got)
 		if !got.Pass {
 			result.Matched = false
@@ -191,6 +183,22 @@ func evaluateRule(rule config.ApproveRule, pr github.ApprovalPullRequest, fileCh
 		result.Conditions = append(result.Conditions, got)
 	}
 	return result
+}
+
+func (e *ruleEval) conditionResult(rule config.ApproveRule, cond condition, cheap map[string]ConditionResult, cheapFailed string) ConditionResult {
+	if got, ok := cheap[cond.name]; ok {
+		return got
+	}
+	if cheapFailed != "" && cond.name == "mine_comments_only" {
+		if reason := mineCommentsSizeReason(rule, e.pr); reason != "" {
+			return ConditionResult{Condition: cond.name, Saw: reason}
+		}
+	}
+	if cheapFailed != "" && e.loads != nil {
+		return ConditionResult{Condition: cond.name, Saw: "not evaluated: " + cheapFailed + " failed", NotEvaluated: true}
+	}
+	e.load(cond)
+	return e.evaluate(cond)
 }
 
 // ruleEval is one rule's evaluation of one pull request. pr gains the data

@@ -26,6 +26,10 @@ type ApproveConfig struct {
 	// Like patch_max_files, for the number of added lines in the pull request.
 	PatchMaxAddedLines int `pkl:"patch_max_added_lines"`
 
+	// Stop starting new pull requests after this limit; the current one finishes.
+	// Null means no run limit.
+	MaxDuration *pkl.Duration `pkl:"max_duration"`
+
 	// Rules. A pull request that matches none of them is left for a human.
 	Rules []ApproveRule `pkl:"rules"`
 }
