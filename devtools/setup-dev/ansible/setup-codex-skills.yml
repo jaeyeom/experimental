@@ -1,0 +1,111 @@
+---
+- name: Share Claude skills with Codex
+  hosts: all
+  vars:
+    codex_agents_dir: "{{ ansible_facts['env']['HOME'] }}/.agents"
+    codex_agents_skills_dir: "{{ codex_agents_dir }}/skills"
+    codex_claude_skills_dir: "{{ ansible_facts['env']['HOME'] }}/.claude/skills"
+  tasks:
+    - name: Include guard for setup-codex-skills playbook
+      block:
+        - name: Stop early if the setup-codex-skills playbook is already included
+          meta: end_play
+          when: setup_codex_skills_playbook_imported is defined
+        - name: Ensure the setup-codex-skills playbook is not included
+          set_fact:
+            setup_codex_skills_playbook_imported: true
+          when: setup_codex_skills_playbook_imported is not defined
+
+    - name: Create Codex agents directory
+      file:
+        path: "{{ codex_agents_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Create Claude skills directory
+      file:
+        path: "{{ codex_claude_skills_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Check existing Codex skills path
+      stat:
+        path: "{{ codex_agents_skills_dir }}"
+      register: codex_agents_skills_stat
+
+    - name: Reject a non-directory Codex skills path
+      fail:
+        msg: >-
+          {{ codex_agents_skills_dir }} exists but is not a directory or symlink;
+          leaving it unchanged.
+      when:
+        - codex_agents_skills_stat.stat.exists
+        - not (codex_agents_skills_stat.stat.isdir | default(false))
+        - not (codex_agents_skills_stat.stat.islnk | default(false))
+
+    - name: Reject an existing Codex skills symlink to another location
+      fail:
+        msg: >-
+          {{ codex_agents_skills_dir }} already links to
+          {{ codex_agents_skills_stat.stat.lnk_source }}; leaving it unchanged.
+      when:
+        - codex_agents_skills_stat.stat.islnk | default(false)
+        - codex_agents_skills_stat.stat.lnk_source != codex_claude_skills_dir
+
+    - name: Find existing Codex skills entries
+      find:
+        paths: "{{ codex_agents_skills_dir }}"
+        recurse: false
+        hidden: true
+        file_type: any
+      register: codex_agents_skills_entries
+      when:
+        - codex_agents_skills_stat.stat.isdir | default(false)
+        - not (codex_agents_skills_stat.stat.islnk | default(false))
+
+    - name: Find existing Claude skills entries
+      find:
+        paths: "{{ codex_claude_skills_dir }}"
+        recurse: false
+        hidden: true
+        file_type: any
+      register: codex_claude_skills_entries
+
+    - name: Check that existing Codex skills do not collide with Claude skills
+      assert:
+        that:
+          - >-
+            (codex_agents_skills_entries.files | map(attribute='path') | map('basename') | list
+            | intersect(codex_claude_skills_entries.files | map(attribute='path') | map('basename') | list)
+            | length) == 0
+        fail_msg: >-
+          A Codex skill has the same directory name as a Claude skill. Resolve the
+          collision before sharing the directories; no existing skills were moved.
+      when:
+        - codex_agents_skills_stat.stat.isdir | default(false)
+        - not (codex_agents_skills_stat.stat.islnk | default(false))
+
+    - name: Move existing Codex skills into the shared Claude skills directory
+      command:
+        argv:
+          - mv
+          - "{{ item.path }}"
+          - "{{ codex_claude_skills_dir }}/{{ item.path | basename }}"
+      loop: "{{ codex_agents_skills_entries.files | default([]) }}"
+      when:
+        - codex_agents_skills_stat.stat.isdir | default(false)
+        - not (codex_agents_skills_stat.stat.islnk | default(false))
+
+    - name: Remove empty Codex skills directory before linking
+      file:
+        path: "{{ codex_agents_skills_dir }}"
+        state: absent
+      when:
+        - codex_agents_skills_stat.stat.isdir | default(false)
+        - not (codex_agents_skills_stat.stat.islnk | default(false))
+
+    - name: Link Codex skills to Claude skills
+      file:
+        src: "{{ codex_claude_skills_dir }}"
+        dest: "{{ codex_agents_skills_dir }}"
+        state: link
