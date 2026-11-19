@@ -435,9 +435,9 @@ func claudeComposerText(screen string) (string, bool) {
 	return strings.Join(box, "\n"), true
 }
 
-// claudeComposerDraftText extracts Claude Code's input box while ignoring
-// dim/faint ANSI-styled text, or known placeholder strings when style
-// information is unavailable.
+// claudeComposerDraftText extracts Claude Code's input box, removes ANSI
+// styling, and treats a known placeholder as empty. Dim styling alone does
+// not make composer text empty: Claude also dims collapsed pasted text.
 func claudeComposerDraftText(screen string, placeholders []string) (string, bool) {
 	rawLines := strings.Split(screen, "\n")
 	plainLines := make([]string, len(rawLines))
@@ -459,20 +459,16 @@ func claudeComposerDraftText(screen string, placeholders []string) (string, bool
 	case !strings.HasPrefix(firstPlain, promptMarker):
 		return "", false
 	}
-	hadStyle := strings.Contains(screen, "\x1b[")
 	out := make([]string, 0, bottom-top-1)
 	for i := top + 1; i < bottom; i++ {
-		noDim, lineStyle := stripDimANSI(rawLines[i])
-		if lineStyle {
-			hadStyle = true
-		}
+		plain := stripANSI(rawLines[i])
 		if i == top+1 {
-			noDim = strings.TrimPrefix(noDim, promptMarker)
+			plain = strings.TrimPrefix(plain, promptMarker)
 		}
-		out = append(out, noDim)
+		out = append(out, plain)
 	}
 	joined := strings.Join(out, "\n")
-	if !hadStyle && isPlaceholderOnly(out, placeholders) {
+	if isPlaceholderOnly(out, placeholders) {
 		return "", true
 	}
 	return joined, true
@@ -509,51 +505,6 @@ func stripANSI(s string) string {
 		i++
 	}
 	return b.String()
-}
-
-// stripDimANSI removes ANSI escape sequences and any text styled with the
-// dim/faint SGR attribute (code 2). hadStyle is true when an SGR sequence
-// was seen.
-func stripDimANSI(s string) (string, bool) {
-	var b strings.Builder
-	b.Grow(len(s))
-	dim := false
-	hadStyle := false
-	for i := 0; i < len(s); {
-		if s[i] == '\x1b' {
-			if i+1 < len(s) && s[i+1] == '[' {
-				next := skipCSI(s, i)
-				if next > i+2 && s[next-1] == 'm' {
-					hadStyle = true
-					dim = applySGRDim(dim, s[i+2:next-1])
-				}
-				i = next
-				continue
-			}
-			i = skipEscape(s, i)
-			continue
-		}
-		if !dim {
-			b.WriteByte(s[i])
-		}
-		i++
-	}
-	return b.String(), hadStyle
-}
-
-func applySGRDim(dim bool, params string) bool {
-	if params == "" {
-		return false
-	}
-	for _, part := range strings.Split(params, ";") {
-		switch part {
-		case "", "0", "22":
-			dim = false
-		case "2":
-			dim = true
-		}
-	}
-	return dim
 }
 
 func skipEscape(s string, i int) int {

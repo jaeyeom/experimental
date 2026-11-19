@@ -123,6 +123,8 @@ func TestClaudeComposerFixtures(t *testing.T) {
 		{"empty box with cursor", claudeScreen("❯  "), true, true},
 		{"one line", claudeScreen("❯ please hold on"), false, true},
 		{"multi line", claudeScreen("❯ first line", "  second line"), false, true},
+		{"two collapsed pasted blocks", claudeScreen("❯ [Pasted text #1 +3 lines]", "  [Pasted text #2 +5 lines]"), false, true},
+		{"two dim collapsed pasted blocks", claudeScreen("❯ \x1b[2m[Pasted text #1 +3 lines]\x1b[0m", "  \x1b[2m[Pasted text #2 +5 lines]\x1b[0m"), false, true},
 		{"multi line blank first", claudeScreen("❯ ", "  second line"), false, true},
 		{"shell mode draft", claudeScreen("! git pull --ff-only"), false, true},
 		{"shell mode empty", claudeScreen("! "), false, true},
@@ -160,6 +162,8 @@ func TestComposerEmpty(t *testing.T) {
 	}{
 		{name: "claude empty and focused", kind: "claude", focused: "true", screen: claudeScreen("❯ "), empty: true},
 		{name: "claude draft", kind: "claude", focused: "false", screen: claudeScreen("❯ ! git pull"), reason: adapter.HoldDraft},
+		{name: "claude two collapsed pasted blocks", kind: "claude", focused: "false", screen: claudeScreen("❯ [Pasted text #1 +3 lines]", "  [Pasted text #2 +5 lines]"), reason: adapter.HoldDraft},
+		{name: "claude two dim collapsed pasted blocks", kind: "claude", focused: "false", screen: claudeScreen("❯ \x1b[2m[Pasted text #1 +3 lines]\x1b[0m", "  \x1b[2m[Pasted text #2 +5 lines]\x1b[0m"), reason: adapter.HoldDraft},
 		{name: "claude unparseable", kind: "claude", focused: "false", screen: "garbage\n", wantRecent: 1, reason: adapter.HoldDraftUnknown},
 		{name: "claude scrolled empty box", kind: "claude", focused: "false", screen: "garbage\n", recent: claudeScreen("❯ "), wantRecent: 1, reason: adapter.HoldScrolled},
 		{name: "claude scrolled draft box", kind: "claude", focused: "false", screen: "garbage\n", recent: claudeScreen("❯ please hold"), wantRecent: 1, reason: adapter.HoldScrolled},
