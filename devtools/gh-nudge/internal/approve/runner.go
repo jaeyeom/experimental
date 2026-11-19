@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"slices"
 	"strings"
 	"time"
 
@@ -30,8 +29,8 @@ const (
 // Client is the gh access gh-approve needs. *github.Client implements it.
 type Client interface {
 	ViewerLogin() (string, error)
-	SearchUserReviewRequested() ([]github.PullRef, error)
-	SearchReviewRequested() ([]github.PullRef, error)
+	SearchApprovalCandidates() ([]github.ApprovalCandidate, error)
+	SearchTeamApprovalCandidates(labelSets [][]string) ([]github.ApprovalCandidate, error)
 	LoadApprovalPullRequest(ref github.PullRef) (github.ApprovalPullRequest, error)
 	PullRequestHeadSHA(ref github.PullRef) (string, error)
 	PullRequestDiff(ref github.PullRef) (string, error)
@@ -57,6 +56,8 @@ type Options struct {
 	PR string
 	// Color colors each row's and summary heading's marker and group word.
 	Color bool
+	// MaxDuration stops starting new pull requests after this much time.
+	MaxDuration time.Duration
 }
 
 // LogEntry is one audit log line.
@@ -137,11 +138,12 @@ var errNotRequested = errors.New("not requested as an individual reviewer")
 // Run evaluates the pull requests and returns an error when any of them had
 // an error. A failed pull request does not stop the others.
 func (r *Runner) Run(opts Options) error {
+	started := r.now()
 	viewer, err := r.Client.ViewerLogin()
 	if err != nil {
 		return fmt.Errorf("read gh user: %w", err)
 	}
-	refs, single, err := r.targets(opts)
+	candidates, single, err := r.targets(opts)
 	if err != nil {
 		return err
 	}
@@ -150,47 +152,217 @@ func (r *Runner) Run(opts Options) error {
 		return fmt.Errorf("write output: %w", err)
 	}
 	r.marksLeft = r.Viewed.MaxMarksPerRun
-	failed := 0
-	var reported []LogEntry
-	for _, ref := range refs {
-		entry, skip := r.decide(ref, viewer, opts, single)
-		if skip {
-			continue
-		}
-		if entry.Action == ActionError {
-			failed++
-		}
-		if err := r.report(entry, opts); err != nil {
-			return err
-		}
-		reported = append(reported, entry)
+	limit := opts.MaxDuration
+	if limit <= 0 {
+		limit = r.Config.MaxDuration
 	}
-	if err := writeSummary(r.Out, reported, opts.Color); err != nil {
+	totals, err := r.processCandidates(candidates, viewer, opts, single, started, limit)
+	if err != nil {
 		return err
 	}
-	if failed > 0 {
-		return fmt.Errorf("%d pull request(s) failed", failed)
+	if err := writeSummary(r.Out, totals.reported, opts.Color); err != nil {
+		return err
+	}
+	if err := r.writePassStats(len(candidates), started, limit, single, totals); err != nil {
+		return err
+	}
+	if totals.failed > 0 {
+		return fmt.Errorf("%d pull request(s) failed", totals.failed)
 	}
 	return nil
 }
 
-func (r *Runner) targets(opts Options) ([]github.PullRef, bool, error) {
+type runTotals struct {
+	reported     []LogEntry
+	failed       int
+	loaded       int
+	cheapSkipped int
+	stoppedAt    int
+}
+
+func (r *Runner) processCandidates(candidates []github.ApprovalCandidate, viewer string, opts Options, single bool, started time.Time, limit time.Duration) (runTotals, error) {
+	totals := runTotals{stoppedAt: -1}
+	for i, candidate := range candidates {
+		if !single && limit > 0 && r.now().Sub(started) >= limit {
+			totals.stoppedAt = i
+			break
+		}
+		r.cur = &prState{start: r.now()}
+		if !single {
+			if reason, rules := cheapFailure(r.Config.Rules, candidate); reason != "" {
+				entry := LogEntry{Time: r.now().UTC(), PR: fmt.Sprintf("%s/%s#%d", candidate.Ref.Owner, candidate.Ref.Repo, candidate.Ref.Number), URL: candidate.URL, Title: candidate.Title, Author: candidate.Author, Action: ActionSkipped, Reason: reason, Rules: rules}
+				if opts.Explain {
+					entry.Timing = r.timingLine()
+				}
+				if err := r.report(entry, opts); err != nil {
+					return totals, err
+				}
+				totals.reported = append(totals.reported, entry)
+				totals.cheapSkipped++
+				continue
+			}
+		}
+		totals.loaded++
+		entry, skip := r.decide(candidate.Ref, viewer, opts, single)
+		if skip {
+			continue
+		}
+		if entry.Action == ActionError {
+			totals.failed++
+		}
+		if err := r.report(entry, opts); err != nil {
+			return totals, err
+		}
+		totals.reported = append(totals.reported, entry)
+	}
+	return totals, nil
+}
+
+func (r *Runner) writePassStats(candidates int, started time.Time, limit time.Duration, single bool, totals runTotals) error {
+	if single {
+		return nil
+	}
+	if _, err := fmt.Fprintf(r.Out, "Candidates: %d; skipped by cheap conditions: %d; fully loaded: %d; wall time: %s\n", candidates, totals.cheapSkipped, totals.loaded, r.now().Sub(started)); err != nil {
+		return fmt.Errorf("write output: %w", err)
+	}
+	if totals.stoppedAt < 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintf(r.Out, "Run limit %s reached; %d candidate(s) not evaluated.\n", limit, candidates-totals.stoppedAt); err != nil {
+		return fmt.Errorf("write output: %w", err)
+	}
+	return nil
+}
+
+func (r *Runner) targets(opts Options) ([]github.ApprovalCandidate, bool, error) {
 	if opts.PR != "" {
 		ref, err := github.ParsePullRef(opts.PR)
 		if err != nil {
 			return nil, true, fmt.Errorf("--pr: %w", err)
 		}
-		return []github.PullRef{ref}, true, nil
+		return []github.ApprovalCandidate{{Ref: ref}}, true, nil
 	}
-	search := r.Client.SearchUserReviewRequested
-	if slices.ContainsFunc(r.Config.Rules, func(rule config.ApproveRule) bool { return rule.RequestedViaTeam }) {
-		search = r.Client.SearchReviewRequested
+	teamScopedRules := teamRules(r.Config.Rules)
+	var candidates []github.ApprovalCandidate
+	if len(teamScopedRules) == 0 || len(teamScopedRules) < len(r.Config.Rules) {
+		individual, err := r.Client.SearchApprovalCandidates()
+		if err != nil {
+			return nil, false, fmt.Errorf("search review requests: %w", err)
+		}
+		candidates = append(candidates, individual...)
 	}
-	refs, err := search()
-	if err != nil {
-		return nil, false, fmt.Errorf("search review requests: %w", err)
+	if len(teamScopedRules) > 0 {
+		sets := make([][]string, 0)
+		seenSets := make(map[string]bool)
+		allHaveLabels := true
+		for _, rule := range teamScopedRules {
+			if len(rule.LabelsRequired) == 0 {
+				allHaveLabels = false
+				break
+			}
+		}
+		if allHaveLabels {
+			for _, rule := range teamScopedRules {
+				key := strings.Join(rule.LabelsRequired, "\x00")
+				if !seenSets[key] {
+					seenSets[key] = true
+					sets = append(sets, append([]string(nil), rule.LabelsRequired...))
+				}
+			}
+		} else {
+			sets = append(sets, []string{})
+		}
+		team, err := r.Client.SearchTeamApprovalCandidates(sets)
+		if err != nil {
+			return nil, false, fmt.Errorf("search team review requests: %w", err)
+		}
+		candidates = append(candidates, team...)
 	}
-	return refs, false, nil
+	unique := make([]github.ApprovalCandidate, 0, len(candidates))
+	seen := make(map[string]bool)
+	for _, candidate := range candidates {
+		key := fmt.Sprintf("%s/%s#%d", candidate.Ref.Owner, candidate.Ref.Repo, candidate.Ref.Number)
+		if !seen[key] {
+			seen[key] = true
+			unique = append(unique, candidate)
+		}
+	}
+	return unique, false, nil
+}
+
+// cheapFailure rejects a search candidate only when every rule fails a
+// condition that can be evaluated from the search response.
+func cheapFailure(rules []config.ApproveRule, candidate github.ApprovalCandidate) (string, []RuleResult) {
+	pr := github.ApprovalPullRequest{
+		Ref: candidate.Ref, URL: candidate.URL, Title: candidate.Title,
+		Author: candidate.Author, Draft: candidate.Draft, Labels: candidate.Labels,
+		Additions: candidate.Additions, Deletions: candidate.Deletions,
+		ChangedFiles: candidate.ChangedFiles,
+	}
+	cheapNames := map[string]bool{
+		"max_changed_lines": true, "max_added_lines": true, "max_files": true,
+		"authors_allow": true, "authors_deny": true, "labels_required": true,
+		"labels_forbidden": true, "not_draft": true,
+	}
+	results := make([]RuleResult, 0, len(rules))
+	allFail := len(rules) > 0
+	var tooLargeReason string
+	for _, rule := range rules {
+		result := RuleResult{Rule: rule.Name, Matched: true}
+		failed := false
+		for _, cond := range conditions {
+			if !cond.active(rule) {
+				continue
+			}
+			got := ConditionResult{Condition: cond.name, NotEvaluated: true, Saw: "not evaluated before per-pull-request load"}
+			if cheapNames[cond.name] {
+				got.Pass, got.Saw = cond.check(rule, pr)
+				got.NotEvaluated = false
+				if !got.Pass {
+					failed, result.Matched = true, false
+					if tooLargeReason == "" {
+						tooLargeReason = mineCommentsSizeReason(rule, pr)
+					}
+				}
+			}
+			result.Conditions = append(result.Conditions, got)
+		}
+		if !failed {
+			allFail = false
+		}
+		results = append(results, result)
+	}
+	if !allFail {
+		return "", nil
+	}
+	if tooLargeReason != "" {
+		return tooLargeReason, results
+	}
+	return "all rules failed cheap conditions", results
+}
+
+func mineCommentsSizeReason(rule config.ApproveRule, pr github.ApprovalPullRequest) string {
+	if !rule.MineCommentsOnly {
+		return ""
+	}
+	tooManyFiles := rule.MaxFiles != nil && pr.ChangedFiles > *rule.MaxFiles
+	tooManyLines := rule.MaxChangedLines != nil && pr.Additions+pr.Deletions > *rule.MaxChangedLines
+	if tooManyFiles || tooManyLines {
+		return fmt.Sprintf("too large to check (%d files, %d changed lines)", pr.ChangedFiles, pr.Additions+pr.Deletions)
+	}
+	return ""
+}
+
+func mineCommentsLimitFailure(matched string, rules []config.ApproveRule, pr github.ApprovalPullRequest) string {
+	if matched != "" {
+		return ""
+	}
+	for _, rule := range rules {
+		if reason := mineCommentsSizeReason(rule, pr); reason != "" {
+			return reason
+		}
+	}
+	return ""
 }
 
 // decide evaluates one pull request and approves or hands it off when allowed.
@@ -223,6 +395,7 @@ func (r *Runner) decide(ref github.PullRef, viewer string, opts Options, single 
 		loads = r.loads(pr, viewer)
 	}
 	results, matched := evaluateRules(rules, pr, agent, r.fileChecker(), loads)
+	entry.Reason = mineCommentsLimitFailure(matched, rules, pr)
 	if r.cur.ownershipDone {
 		pr.Ownership = r.cur.ownership
 	}

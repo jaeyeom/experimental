@@ -121,6 +121,8 @@ type ApproveConfig struct {
 	// PatchMaxAddedLines is the most added lines a pull request may have for
 	// its patches to be fetched. Zero means DefaultPatchMaxAddedLines.
 	PatchMaxAddedLines int `yaml:"-"`
+	// MaxDuration stops a pass from starting pull requests after this limit.
+	MaxDuration time.Duration `yaml:"-"`
 	// Rules are ORed. A pull request that matches none is left for a human.
 	Rules []ApproveRule `yaml:"-"`
 }
@@ -208,6 +210,9 @@ func convertApprove(src pklconfig.ApproveConfig, configDir string) ApproveConfig
 		AgentCacheMaxMB:     src.AgentCacheMaxMb,
 		PatchMaxFiles:       src.PatchMaxFiles,
 		PatchMaxAddedLines:  src.PatchMaxAddedLines,
+	}
+	if src.MaxDuration != nil {
+		out.MaxDuration = src.MaxDuration.GoDuration()
 	}
 	if out.Body == "" {
 		out.Body = DefaultApproveBody

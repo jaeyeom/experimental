@@ -52,6 +52,20 @@ type ApprovalPullRequest struct {
 	Ownership *Ownership
 }
 
+// ApprovalCandidate is the search data used to reject a pull request before
+// loading its full approval metadata.
+type ApprovalCandidate struct {
+	Ref          PullRef
+	URL          string
+	Title        string
+	Author       string
+	Draft        bool
+	Additions    int
+	Deletions    int
+	ChangedFiles int
+	Labels       []string
+}
+
 // ApprovalReview is one submitted review, oldest first.
 type ApprovalReview struct {
 	Author    string
@@ -96,7 +110,12 @@ query($q: String!, $after: String) {
   search(query: $q, type: ISSUE, first: 100, after: $after) {
     pageInfo { hasNextPage endCursor }
     nodes {
-      ... on PullRequest { number url repository { nameWithOwner } }
+      ... on PullRequest {
+        number url title isDraft author { login }
+        changedFiles additions deletions
+        labels(first: 100) { nodes { name } }
+        repository { nameWithOwner }
+      }
     }
   }
 }`
@@ -108,17 +127,61 @@ const reviewRequestedQuery = "is:pr is:open archived:false review-requested:@me"
 // SearchUserReviewRequested lists open pull requests that request the viewer
 // as an individual, across all pages.
 func (c *Client) SearchUserReviewRequested() ([]PullRef, error) {
-	return c.searchPullRequests(userReviewRequestedQuery)
+	candidates, err := c.searchApprovalCandidates(userReviewRequestedQuery)
+	return candidateRefs(candidates), err
 }
 
 // SearchReviewRequested lists open pull requests that request the viewer as
 // an individual or through a team, across all pages.
 func (c *Client) SearchReviewRequested() ([]PullRef, error) {
-	return c.searchPullRequests(reviewRequestedQuery)
+	candidates, err := c.searchApprovalCandidates(reviewRequestedQuery)
+	return candidateRefs(candidates), err
 }
 
-func (c *Client) searchPullRequests(query string) ([]PullRef, error) {
-	var refs []PullRef
+// SearchApprovalCandidates searches individual requests and returns the
+// metadata needed for cheap rule checks with each result.
+func (c *Client) SearchApprovalCandidates() ([]ApprovalCandidate, error) {
+	return c.searchApprovalCandidates(userReviewRequestedQuery)
+}
+
+// SearchTeamApprovalCandidates searches the viewer's team requests. Each
+// label set gets its own search; an empty set preserves the unfiltered search.
+func (c *Client) SearchTeamApprovalCandidates(labelSets [][]string) ([]ApprovalCandidate, error) {
+	if len(labelSets) == 0 {
+		labelSets = [][]string{{}}
+	}
+	var candidates []ApprovalCandidate
+	seen := make(map[string]bool)
+	for _, labels := range labelSets {
+		query := reviewRequestedQuery
+		for _, label := range labels {
+			query += " label:\"" + strings.ReplaceAll(label, "\"", "\\\"") + "\""
+		}
+		found, err := c.searchApprovalCandidates(query)
+		if err != nil {
+			return nil, err
+		}
+		for _, candidate := range found {
+			key := fmt.Sprintf("%s/%s#%d", candidate.Ref.Owner, candidate.Ref.Repo, candidate.Ref.Number)
+			if !seen[key] {
+				seen[key] = true
+				candidates = append(candidates, candidate)
+			}
+		}
+	}
+	return candidates, nil
+}
+
+func candidateRefs(candidates []ApprovalCandidate) []PullRef {
+	refs := make([]PullRef, 0, len(candidates))
+	for _, candidate := range candidates {
+		refs = append(refs, candidate.Ref)
+	}
+	return refs
+}
+
+func (c *Client) searchApprovalCandidates(query string) ([]ApprovalCandidate, error) {
+	var candidates []ApprovalCandidate
 	after := ""
 	for {
 		fields := []string{"-f", "q=" + query}
@@ -137,8 +200,21 @@ func (c *Client) searchPullRequests(query string) ([]PullRef, error) {
 						EndCursor   string `json:"endCursor"`
 					} `json:"pageInfo"`
 					Nodes []struct {
-						Number     int    `json:"number"`
-						URL        string `json:"url"`
+						Number  int    `json:"number"`
+						URL     string `json:"url"`
+						Title   string `json:"title"`
+						IsDraft bool   `json:"isDraft"`
+						Author  *struct {
+							Login string `json:"login"`
+						} `json:"author"`
+						ChangedFiles int `json:"changedFiles"`
+						Additions    int `json:"additions"`
+						Deletions    int `json:"deletions"`
+						Labels       struct {
+							Nodes []struct {
+								Name string `json:"name"`
+							} `json:"nodes"`
+						} `json:"labels"`
 						Repository struct {
 							NameWithOwner string `json:"nameWithOwner"`
 						} `json:"repository"`
@@ -154,11 +230,19 @@ func (c *Client) searchPullRequests(query string) ([]PullRef, error) {
 			if node.Number == 0 || !ok {
 				continue
 			}
-			refs = append(refs, PullRef{Owner: owner, Repo: repo, Number: node.Number, Raw: node.URL})
+			ref := PullRef{Owner: owner, Repo: repo, Number: node.Number, Raw: node.URL}
+			candidate := ApprovalCandidate{Ref: ref, URL: node.URL, Title: node.Title, Draft: node.IsDraft, ChangedFiles: node.ChangedFiles, Additions: node.Additions, Deletions: node.Deletions}
+			if node.Author != nil {
+				candidate.Author = node.Author.Login
+			}
+			for _, label := range node.Labels.Nodes {
+				candidate.Labels = append(candidate.Labels, label.Name)
+			}
+			candidates = append(candidates, candidate)
 		}
 		page := resp.Data.Search.PageInfo
 		if !page.HasNextPage || page.EndCursor == "" {
-			return refs, nil
+			return candidates, nil
 		}
 		after = page.EndCursor
 	}
