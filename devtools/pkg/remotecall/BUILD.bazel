@@ -54,6 +54,7 @@ go_test(
     srcs = [
         "herdr_test.go",
         "machine_test.go",
+        "pgroup_unix_test.go",
         "remotecall_test.go",
     ],
     embed = [":go_default_library"],

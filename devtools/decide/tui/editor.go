@@ -1,11 +1,13 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
@@ -53,13 +55,30 @@ func (e *externalEdit) Run() error {
 	cmd.Stdin = e.stdin
 	cmd.Stdout = e.stdout
 	cmd.Stderr = e.stderr
-	if err := cmd.Run(); err != nil {
+	// A reader that is not a file is copied into the editor by a
+	// goroutine that Wait would wait on until the next key. Stop waiting
+	// once the editor has exited.
+	cmd.WaitDelay = editorWaitDelay
+	if err := cmd.Run(); err != nil && !errors.Is(err, exec.ErrWaitDelay) {
 		return fmt.Errorf("run editor: %w", err)
 	}
 	return nil
 }
 
-func (e *externalEdit) SetStdin(r io.Reader)  { e.stdin = r }
+// editorWaitDelay bounds the wait for the editor's I/O after it exits.
+const editorWaitDelay = 100 * time.Millisecond
+
+// SetStdin gives the editor the terminal file itself. Bubbletea passes
+// its input, which wraps the terminal; as a plain reader exec would copy
+// it through a pipe, which a terminal editor cannot use, and the copy
+// would hold the inbox until a key arrives after the editor exits.
+func (e *externalEdit) SetStdin(r io.Reader) {
+	if f, ok := r.(ctrlEnterFile); ok {
+		r = f.File
+	}
+	e.stdin = r
+}
+
 func (e *externalEdit) SetStdout(w io.Writer) { e.stdout = w }
 func (e *externalEdit) SetStderr(w io.Writer) { e.stderr = w }
 
@@ -249,6 +268,17 @@ func (m *Model) finishExternalEdit(err error) {
 		return
 	}
 	m.setComposerText(edit.kind, string(body))
+}
+
+// abandonExternalEdit removes the draft of an edit whose result never
+// arrived, such as when the inbox exits while the editor is open. The
+// composer keeps its text.
+func (m *Model) abandonExternalEdit() {
+	if m.editor == nil {
+		return
+	}
+	_ = os.Remove(m.editor.path)
+	m.editor = nil
 }
 
 // editorCommand is $VISUAL, otherwise $EDITOR, otherwise nano.

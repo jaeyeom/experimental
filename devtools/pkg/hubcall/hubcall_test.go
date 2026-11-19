@@ -71,7 +71,8 @@ func TestRunForwardsArgsStdinAndResult(t *testing.T) {
 		t.Fatalf("remote handle = %q", got)
 	}
 	argv := fake.Lines("argv")
-	for _, want := range []string{"BatchMode=yes", "ConnectTimeout=7", "me@hub"} {
+	// -T: the hub command never gets a terminal, whatever ssh_config says.
+	for _, want := range []string{"-T", "BatchMode=yes", "ConnectTimeout=7", "me@hub"} {
 		if !slices.Contains(argv, want) {
 			t.Fatalf("ssh argv %q lacks %q", argv, want)
 		}

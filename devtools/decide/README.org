@@ -553,14 +553,18 @@ machine. It then stores the caller's pane as ~notifyPane~ and the
 caller's machine as ~notifyMachine~.
 
 Every command except ~help~, ~skill~, ~avatars~, and ~inbox~ runs over
-~ssh -o BatchMode=yes~. ~--remote user@host~ wins for one invocation.
-The local ledger is never created.
+~ssh -T -o BatchMode=yes~. ~--remote user@host~ wins for one invocation.
+The local ledger is never created. Ssh runs in its own session with no
+terminal, so it never reads the terminal or gets its signals.
 
 ~decide inbox~ draws here and keeps one ssh session to ~decide serve
 --stdio~ on the hub. Links still open here. If the hub stops answering,
 the status line says ~hub unreachable; retrying~ and the inbox backs
 off from one second to 30. A write while disconnected is not queued.
-~hubMachine~ lets ~o~ focus a pane on the hub.
+~hubMachine~ lets ~o~ focus a pane on the hub. The external editor
+(~C-x C-e~ or ~C-g~ in a compose box) returns as soon as it exits, even
+while the hub is slow or reconnecting; its temp draft is removed after
+an editor error and when the inbox exits with the editor open.
 
 Display keys come from the hub, and a key set locally wins: ~avatars~,
 ~avatarDefault~, ~avatarMono~, ~recipients~, ~recipientsTimeout~,

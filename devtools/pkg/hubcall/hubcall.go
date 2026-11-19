@@ -92,7 +92,10 @@ func (h Hub) Run(ctx context.Context, c Call) (int, error) {
 	if deadline <= 0 {
 		deadline = 2 * connect
 	}
+	// -T and a new session keep ssh off the terminal, which may belong to
+	// an editor the inbox runs while a hub session is open.
 	args := []string{
+		"-T",
 		"-o", "BatchMode=yes",
 		"-o", "ConnectTimeout=" + strconv.Itoa(int((connect+time.Second-1)/time.Second)),
 	}
@@ -109,7 +112,7 @@ func (h Hub) Run(ctx context.Context, c Call) (int, error) {
 		}
 	})
 	defer timer.Stop()
-	res, err := remotecall.RunIO(callCtx, c.Stdin, writerOr(c.Stdout), stderr, ssh, args...)
+	res, err := remotecall.RunIOEnvNoTerminal(callCtx, nil, c.Stdin, writerOr(c.Stdout), stderr, ssh, args...)
 	stderr.flush()
 	if err != nil {
 		return 1, fmt.Errorf("hub %s: %w", h.Target, err)
