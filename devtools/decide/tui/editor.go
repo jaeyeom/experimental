@@ -147,7 +147,7 @@ func pageField(field *textarea.Model, delta int) {
 func (m *Model) composerPageStep(kind composerKind) int {
 	switch kind {
 	case composerReply:
-		return max(m.replyBoxHeight(), 1)
+		return max(m.replyBoxHeight(m.detailInnerWidth(m.width)), 1)
 	case composerNote:
 		if m.height > 0 {
 			budget := max(m.height-3, 3)

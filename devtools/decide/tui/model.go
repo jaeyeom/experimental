@@ -1294,6 +1294,8 @@ func (m *Model) submitReply() error {
 	}
 	m.detail = &updated
 	m.reply = ""
+	m.replyField.Reset()
+	m.replyScroll = 0
 	m.replyFocus = false
 	m.replySend = false
 	// The new message is last. clipLines clamps this onto that end.
@@ -3017,7 +3019,7 @@ func (m *Model) replyLines(width int) []screenLine {
 		return labeledLines(label, []screenLine{{text: "___"}}, hitReply, width-len(label))
 	}
 	lines := []screenLine{{text: plainText("reply:")}}
-	lines = append(lines, boxedEditor(m.reply, &m.replyField, m.replyFocus, hitReply, width, m.replyBoxHeight(), &m.replyScroll)...)
+	lines = append(lines, boxedEditor(m.reply, &m.replyField, m.replyFocus, hitReply, width, m.replyBoxHeight(width), &m.replyScroll)...)
 	send := "[Send]"
 	if m.replySend {
 		send = "> [Send]"
@@ -3029,17 +3031,22 @@ func (m *Model) replyLines(width int) []screenLine {
 	})
 }
 
-func (m *Model) replyBoxHeight() int {
+func (m *Model) replyBoxHeight(width int) int {
 	if m.height <= 0 {
-		return 5
+		return max(m.replyVisualLines(width), 1)
 	}
-	limit := max(m.height/3, 3)
+	limit := max(m.height/2, 1)
 	if _, detailN := m.layoutBudget(); detailN > 0 {
 		if avail := max(detailN-4, 1); limit > avail {
 			limit = avail
 		}
 	}
-	return limit
+	return min(max(m.replyVisualLines(width), 1), limit)
+}
+
+func (m *Model) replyVisualLines(width int) int {
+	wrap := composeDraftWidth(width-2, m.replyFocus)
+	return len(fieldLines(m.reply, &m.replyField, m.replyFocus, wrap))
 }
 
 // labeledLines puts label before the first composer line and lines the
