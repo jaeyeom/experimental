@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -273,7 +274,7 @@ func TestCheckDeliveriesRunsNothingWhenNothingWaits(t *testing.T) {
 func lateNotes(it *Item) []string {
 	var notes []string
 	for _, msg := range it.Messages {
-		if msg.Author == "system" && strings.HasPrefix(msg.Text, "delivered after") {
+		if msg.Author == "system" && strings.HasPrefix(msg.Text, "delivered late:") {
 			notes = append(notes, msg.Text)
 		}
 	}
@@ -305,7 +306,7 @@ func TestHeldThenDeliveredAddsOneLateNote(t *testing.T) {
 		}
 	}
 	got := mustGet(t, led, item.ID)
-	if notes := lateNotes(&got); len(notes) != 1 || notes[0] != "delivered after 7 min." {
+	if notes := lateNotes(&got); len(notes) != 1 || notes[0] != "delivered late: 7 min" {
 		t.Fatalf("notes = %q", notes)
 	}
 	if got.Unread != unread {
@@ -316,7 +317,7 @@ func TestHeldThenDeliveredAddsOneLateNote(t *testing.T) {
 	}
 }
 
-func TestShortHoldSaysUnderAMinute(t *testing.T) {
+func TestDeliveryWithinThresholdAddsNoLateNote(t *testing.T) {
 	writeConfig(t, `{}`)
 	installProgram(t, "agentbus", "#!/bin/sh\nprintf '%s\\n' 'm-1 queued for delivery'\n")
 	clock := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
@@ -329,8 +330,46 @@ func TestShortHoldSaysUnderAMinute(t *testing.T) {
 	if _, err := led.CheckDeliveries(context.Background(), bus.run); err != nil {
 		t.Fatal(err)
 	}
-	if notes := lateNotes(ptr(mustGet(t, led, item.ID))); len(notes) != 1 || notes[0] != "delivered after <1 min." {
+	if notes := lateNotes(ptr(mustGet(t, led, item.ID))); len(notes) != 0 {
 		t.Fatalf("notes = %q", notes)
+	}
+}
+
+func TestPendingPastThresholdGetsOneUnreadMarkerAndClears(t *testing.T) {
+	writeConfig(t, `{"ui":{"lateDeliveryAfter":"5m"}}`)
+	installProgram(t, "agentbus", "#!/bin/sh\nprintf '%s\\n' 'm-1 queued for delivery'\n")
+	clock := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	led := openDeliveryLedger(t, t.TempDir(), &clock)
+	item := answeredRelay(t, led, "agentbus:ops/x", "")
+	if _, err := led.DeliverAnswer(&item, nil); err != nil {
+		t.Fatal(err)
+	}
+	bus := &statusBus{reports: []string{`{"id":"m-1","state":"held","held_reason":"transport unreachable"}`}}
+	if _, err := led.CheckDeliveries(context.Background(), bus.run); err != nil {
+		t.Fatal(err)
+	}
+	clock = clock.Add(6 * time.Minute)
+	if _, err := led.CheckDeliveries(context.Background(), bus.run); err != nil {
+		t.Fatal(err)
+	}
+	got := mustGet(t, led, item.ID)
+	if got.DeliveryNotice != "not delivered yet (6 min) to ops/x" || !got.Unread || !slices.Contains(got.Tags, TagUndelivered) {
+		t.Fatalf("late item = notice %q unread %v tags %v", got.DeliveryNotice, got.Unread, got.Tags)
+	}
+	if _, err := led.CheckDeliveries(context.Background(), bus.run); err != nil {
+		t.Fatal(err)
+	}
+	got = mustGet(t, led, item.ID)
+	if got.DeliveryNotice != "not delivered yet (6 min) to ops/x" {
+		t.Fatalf("repeated marker = %q", got.DeliveryNotice)
+	}
+	bus.reports = []string{`{"id":"m-1","state":"delivered","delivered_at":"2026-11-14T12:07:00.000Z"}`}
+	if _, err := led.CheckDeliveries(context.Background(), bus.run); err != nil {
+		t.Fatal(err)
+	}
+	got = mustGet(t, led, item.ID)
+	if got.DeliveryNotice != "" || slices.Contains(got.Tags, TagUndelivered) || len(lateNotes(&got)) != 1 {
+		t.Fatalf("delivered item = notice %q tags %v notes %v", got.DeliveryNotice, got.Tags, lateNotes(&got))
 	}
 }
 

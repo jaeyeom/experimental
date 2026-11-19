@@ -42,6 +42,10 @@ func TestInboxShowsNotDeliveredAndRetriesWithTheSameKey(t *testing.T) {
 	if !strings.Contains(row, "not delivered") || !strings.Contains(row, "exit status 1") {
 		t.Fatalf("list row = %q", row)
 	}
+	got, err := led.Get(item.ID)
+	if err != nil || !got.Unread || got.DeliveryNotice != "not delivered: notify: exit status 1" || !strings.Contains(searchText(&got), "not delivered") {
+		t.Fatalf("failed delivery marker = %+v, err %v", got, err)
+	}
 	press(t, m, "\r")
 	header := visibleLine(m.View())
 	if !strings.Contains(header, "not delivered") || !strings.Contains(header, "exit status 1") {

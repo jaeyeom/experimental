@@ -158,7 +158,7 @@ that hub for one invocation.
 | Command                          | Does                                                           |
 |----------------------------------+----------------------------------------------------------------|
 | ~decide ask~                     | File a question for a human to answer.                         |
-| ~decide list~                    | List items in one state. ~--snoozed~ or ~--off-line~ filters.  |
+| ~decide list~                    | List items in one state. ~--snoozed~, ~--off-line~, or ~--undelivered~ filters. |
 | ~decide show~                    | Print one item. ~--json~ adds ~ownerLocation~.                 |
 | ~decide withdraw~                | Withdraw an item and store the reason.                         |
 | ~decide done~                    | Mark an item done and store the outcome. ~--via ui~: inbox.    |
@@ -439,12 +439,20 @@ of three outcomes. The thread view shows it after the message header:
   agentbus ~held_reason~. A waiting message is never shown as delivered.
 - ~delivered 14:05~ is when the target got it. ~, 7 min late~ follows
   when it waited first. A waiting message that is then delivered also
-  adds one system note to the thread, at the delivery time: ~delivered
-  after 7 min.~, or ~delivered after <1 min.~ for a shorter wait. The
-  note stays in the thread: it is not sent to the agent and does not
-  mark the item unread. A message delivered at once adds no note.
+  adds one system note to the thread when the wait reaches
+  ~ui.lateDeliveryAfter~ (five minutes by default), at the delivery time:
+  ~delivered late: 7 min~. A shorter wait adds no note. The note stays
+  in the thread: it is not sent to the agent and does not mark the item
+  unread. A message delivered at once adds no note.
 - ~failed: <error>~ is a send that failed, or a wake agentbus is still
   retrying.
+
+After a bus message waits past the threshold, the item gets one
+~not delivered yet (N min) to <recipient>~ marker in the list and thread.
+It becomes unread and is tagged ~undelivered~; delivery clears the marker.
+A failed delivery gets ~not delivered: <reason>~. Search for either
+marker in the inbox, or run ~decide list --undelivered~. The marker is
+added once, even while the inbox refreshes.
 
 While any message waits, or failed while agentbus retries it, the inbox
 checks them every 10s with one ~agentbus status --json <id>...~ call. It
@@ -523,6 +531,7 @@ machine only. A hub does not send it.
 | ~ui.clipboard~         | ~auto~                      | ~auto~, ~osc52~, ~command~, or ~off~.                                          |
 | ~ui.fillColumn~        | 72                          | Compose fill width. Never wider than the box.                                  |
 | ~ui.staleAnswerAfter~  | ~30m~                       | How long an answer sits before one follow-up.                                  |
+| ~ui.lateDeliveryAfter~ | ~5m~                        | How long a bus message waits before it needs attention.                         |
 | ~ui.archiveGrace~      | ~2s~                        | How long a new message holds archive.                                          |
 | ~ui.busHealthInterval~ | ~15s~                       | How often the inbox checks ~agentbus health~ for its banner.                   |
 | ~ui.maxLineLength~     | 160                         | Longest line ~ask~ and ~reply~ accept. 0 turns the check off.                  |

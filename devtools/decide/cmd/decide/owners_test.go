@@ -41,6 +41,34 @@ func TestAskAndSendOwnerAllowListAllowedAndOff(t *testing.T) {
 	}
 }
 
+func TestListUndeliveredFindsMarkedItems(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	writeDecideConfig(t, `{}`)
+	id := askRelay(t, nil, "delivery needs attention")
+	dir, err := decide.DefaultDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	led, err := decide.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := led.SetNotifyError(id, "agentbus down"); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, code := runCLI("list", "--undelivered", "--json")
+	if code != 0 {
+		t.Fatalf("list code = %d, stderr = %q", code, stderr)
+	}
+	var got []decide.Item
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != id || got[0].DeliveryNotice != "not delivered: agentbus down" || !got[0].Unread {
+		t.Fatalf("list = %+v", got)
+	}
+}
+
 func TestAskOwnerAllowListWarn(t *testing.T) {
 	cases := []struct {
 		name    string

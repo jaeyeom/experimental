@@ -103,7 +103,7 @@ func usage(w io.Writer) {
     --option key:label --rec key [--free-text] [--options-only] [--deadline RFC3339] \
     [--link url] [--notify-pane pane] [--type-text text] [--where place] \
     [--long-lines] [--json] <question>
-  decide list [--state open|answered|done|withdrawn] [--snoozed] [--off-line] [--json]
+  decide list [--state open|answered|done|withdrawn] [--snoozed] [--off-line] [--undelivered] [--json]
   decide show [--json] <id>
   decide withdraw [--json] <id> <reason>
   decide done [--json] <id> <outcome>
@@ -770,6 +770,7 @@ func inboxOptions(cfg decide.Config, stdout io.Writer, snoozed bool) tui.Options
 		Out:               stdout,
 		Targets:           inboxTargets(cfg),
 		SendTemplate:      cfg.SendTemplate,
+		LateDeliveryAfter: cfg.LateDeliveryAfter(),
 		Agentbus:          cfg.Recipients.Agentbus,
 		RecipientsTimeout: cfg.BusListTimeout(),
 		Snoozed:           snoozed,
@@ -872,6 +873,7 @@ func cmdList(args []string, stdout, stderr io.Writer) int {
 	state := fs.String("state", decide.StateOpen, "state to list")
 	snoozed := fs.Bool("snoozed", false, "list only snoozed items, soonest wake first")
 	offLine := fs.Bool("off-line", false, "list only items tagged off-line")
+	undelivered := fs.Bool("undelivered", false, "list only items with delivery problems")
 	if code, stop := stopped(parseFlags(fs, args)); stop {
 		return code
 	}
@@ -882,19 +884,26 @@ func cmdList(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
+	cfg, err := decide.LoadConfig()
+	if err != nil {
+		return fail(stderr, err, 1)
+	}
+	if _, err := led.MarkLateDeliveries(cfg.LateDeliveryAfter()); err != nil {
+		return fail(stderr, err, 1)
+	}
 	items, err := led.List()
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
-	selected, err := decide.Select(items, *state)
+	stateSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "state" {
+			stateSet = true
+		}
+	})
+	selected, err := listSelection(items, *state, stateSet, *snoozed, *offLine, *undelivered)
 	if err != nil {
 		return fail(stderr, err, 2)
-	}
-	if *snoozed {
-		selected = decide.SelectSnoozed(items)
-	}
-	if *offLine {
-		selected = filterByTag(selected, decide.TagOffLine)
 	}
 	if *jsonOut {
 		return writeJSON(stdout, stderr, selected)
@@ -911,6 +920,29 @@ func cmdList(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, line)
 	}
 	return 0
+}
+
+func listSelection(items []decide.Item, state string, stateSet, snoozed, offLine, undelivered bool) ([]decide.Item, error) {
+	var selected []decide.Item
+	if undelivered && !stateSet {
+		selected = append([]decide.Item(nil), items...)
+	} else {
+		var err error
+		selected, err = decide.Select(items, state)
+		if err != nil {
+			return nil, fmt.Errorf("select decide list: %w", err)
+		}
+	}
+	if snoozed {
+		selected = decide.SelectSnoozed(items)
+	}
+	if offLine {
+		selected = filterByTag(selected, decide.TagOffLine)
+	}
+	if undelivered {
+		selected = filterByTag(selected, decide.TagUndelivered)
+	}
+	return selected, nil
 }
 
 func filterByTag(items []decide.Item, tag string) []decide.Item {

@@ -81,6 +81,23 @@ func TestLoadConfigUIUTC(t *testing.T) {
 	}
 }
 
+func TestLateDeliveryAfterDefaultsAndHonorsConfig(t *testing.T) {
+	writeConfig(t, `{}`)
+	cfg, err := LoadConfig()
+	if err != nil || cfg.LateDeliveryAfter() != 5*time.Minute {
+		t.Fatalf("default = %s, err %v", cfg.LateDeliveryAfter(), err)
+	}
+	writeConfig(t, `{"ui":{"lateDeliveryAfter":"90s"}}`)
+	cfg, err = LoadConfig()
+	if err != nil || cfg.LateDeliveryAfter() != 90*time.Second {
+		t.Fatalf("configured = %s, err %v", cfg.LateDeliveryAfter(), err)
+	}
+	writeConfig(t, `{"ui":{"lateDeliveryAfter":"soon"}}`)
+	if _, err := LoadConfig(); err == nil || !strings.Contains(err.Error(), "lateDeliveryAfter") {
+		t.Fatalf("invalid duration error = %v", err)
+	}
+}
+
 func TestLoadConfigClipboard(t *testing.T) {
 	for _, mode := range []string{"auto", "osc52", "command", "off"} {
 		writeConfig(t, `{"ui": {"clipboard": "`+mode+`"}}`)
