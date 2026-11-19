@@ -5,7 +5,7 @@ description: Edit the Spacemacs .spacemacs configuration, add packages/layers, w
 
 # Spacemacs Configuration Skill
 
-Read `spacemacs/CLAUDE.md` for all conventions, naming rules, keybinding prefixes, elisp style, and validation steps before making changes.
+Read `spacemacs/AGENTS.md` for all conventions, naming rules, keybinding prefixes, elisp style, and validation steps before making changes.
 
 ## Quick Reference
 

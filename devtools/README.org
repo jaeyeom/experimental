@@ -130,6 +130,6 @@ bazel build //devtools/ascii-art/cmd/box-renderer
 :CUSTOM_ID: contributing
 :END:
 
-Build, test, and review rules live in [[file:../CLAUDE.md][CLAUDE.md]]. The
+Build, test, and review rules live in [[file:../AGENTS.md][AGENTS.md]]. The
 devtools-specific rule is to add a row to the table above when you
 add a tool.
