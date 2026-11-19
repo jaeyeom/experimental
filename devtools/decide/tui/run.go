@@ -18,15 +18,16 @@ import (
 // Checkouts map status resources to checkouts whose lease the status
 // board shows.
 type Options struct {
-	Dir          string
-	In           io.Reader
-	Out          io.Writer
-	Interval     time.Duration
-	Now          func() time.Time
-	Targets      []Target
-	SendTemplate string
-	Agentbus     bool
-	BusRunner    BusRunner
+	Dir               string
+	In                io.Reader
+	Out               io.Writer
+	Interval          time.Duration
+	Now               func() time.Time
+	Targets           []Target
+	SendTemplate      string
+	LateDeliveryAfter time.Duration
+	Agentbus          bool
+	BusRunner         BusRunner
 	// RecipientsTimeout bounds the background `agentbus list --json`.
 	// Zero is decide.DefaultBusListTimeout.
 	RecipientsTimeout time.Duration
@@ -135,6 +136,7 @@ func prepare(opts Options) (*Model, error) {
 	m := New(opts.Dir)
 	m.Targets = opts.Targets
 	m.SendTemplate = opts.SendTemplate
+	m.LateDeliveryAfter = opts.LateDeliveryAfter
 	m.busOn = opts.Agentbus
 	m.busRun = opts.BusRunner
 	m.busTimeout = opts.RecipientsTimeout

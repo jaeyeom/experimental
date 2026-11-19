@@ -75,19 +75,20 @@ var Folders = []struct {
 // Model is the inbox list and the open row's detail view. Tests drive it
 // with Key and Reload.
 type Model struct {
-	Dir          string
-	Now          func() time.Time
-	Targets      []Target
-	SendTemplate string
-	folder       int
-	cursor       int
-	items        []decide.Item
-	status       string
-	mode         int
-	draft        string
-	reply        string
-	replyFocus   bool
-	replyScroll  int
+	Dir               string
+	Now               func() time.Time
+	Targets           []Target
+	SendTemplate      string
+	LateDeliveryAfter time.Duration
+	folder            int
+	cursor            int
+	items             []decide.Item
+	status            string
+	mode              int
+	draft             string
+	reply             string
+	replyFocus        bool
+	replyScroll       int
 	// replySend marks the reply [Send] button focused.
 	replySend bool
 	// replyRoute is the owner, worker, or both choice for the reply being
@@ -1324,13 +1325,14 @@ func (m *Model) store() Backend {
 		return m.backend
 	}
 	return &LocalBackend{
-		Dir:          m.Dir,
-		Now:          m.Now,
-		SendTemplate: m.SendTemplate,
-		RunSend:      m.runSend,
-		BusRun:       m.busRun,
-		Checkouts:    m.Checkouts,
-		Machine:      m.Machine,
+		Dir:               m.Dir,
+		Now:               m.Now,
+		SendTemplate:      m.SendTemplate,
+		LateDeliveryAfter: m.LateDeliveryAfter,
+		RunSend:           m.runSend,
+		BusRun:            m.busRun,
+		Checkouts:         m.Checkouts,
+		Machine:           m.Machine,
 	}
 }
 
@@ -2812,7 +2814,9 @@ func headerLines(it *decide.Item, now time.Time, loc *time.Location, owner strin
 	if it.SnoozedUntil != nil {
 		rows = append(rows, struct{ label, value string }{"Snoozed", "until " + stamp(*it.SnoozedUntil, now, loc)})
 	}
-	if msg, ok := decide.Undelivered(it); ok {
+	if it.DeliveryNotice != "" {
+		rows = append(rows, struct{ label, value string }{"Delivery", it.DeliveryNotice})
+	} else if msg, ok := decide.Undelivered(it); ok {
 		rows = append(rows, struct{ label, value string }{"Delivery", undeliveredText(msg)})
 	}
 	if it.FollowUp != "" {
@@ -3287,6 +3291,9 @@ func rowMark(it decide.Item) string {
 }
 
 func rowSnippet(it decide.Item) string {
+	if it.DeliveryNotice != "" {
+		return it.DeliveryNotice
+	}
 	text := it.Question
 	if n := len(it.Messages); n > 0 {
 		text = it.Messages[n-1].Text

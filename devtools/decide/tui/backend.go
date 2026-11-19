@@ -72,14 +72,15 @@ func (e *NotifyError) Unwrap() error { return e.Err }
 // and Herdr replace decide.RunSend, decide.ExecAgentbus, and
 // decide.ExecHerdr. Machine is this machine's herdr label.
 type LocalBackend struct {
-	Dir          string
-	Now          func() time.Time
-	SendTemplate string
-	RunSend      func([]string) error
-	BusRun       BusRunner
-	Herdr        decide.HerdrCall
-	Checkouts    []decide.ConfigCheckout
-	Machine      string
+	Dir               string
+	Now               func() time.Time
+	SendTemplate      string
+	LateDeliveryAfter time.Duration
+	RunSend           func([]string) error
+	BusRun            BusRunner
+	Herdr             decide.HerdrCall
+	Checkouts         []decide.ConfigCheckout
+	Machine           string
 }
 
 func (b *LocalBackend) ledger() (*decide.Ledger, error) {
@@ -179,6 +180,13 @@ func (b *LocalBackend) List() ([]decide.Item, error) {
 	led, err := b.ledger()
 	if err != nil {
 		return nil, err
+	}
+	threshold := b.LateDeliveryAfter
+	if threshold <= 0 {
+		threshold = decide.DefaultLateDeliveryAfter
+	}
+	if _, err := led.MarkLateDeliveries(threshold); err != nil {
+		return nil, fmt.Errorf("mark late deliveries: %w", err)
 	}
 	_ = led.RetryDue(b.now(), io.Discard)
 	_ = led.FollowStale(b.now(), io.Discard, b.Herdr)

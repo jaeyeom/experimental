@@ -163,6 +163,9 @@ type Item struct {
 	// NotifyError is why the last notification was not delivered.
 	// Empty means it was delivered, or no notification ran.
 	NotifyError string `json:"notifyError,omitempty"`
+	// DeliveryNotice is the once-per-delivery attention marker shown in
+	// the list and thread while a message is late or has failed.
+	DeliveryNotice string `json:"deliveryNotice,omitempty"`
 	// Delivery is each attempt to deliver an answer, oldest first.
 	Delivery []Delivery `json:"delivery,omitempty"`
 	// SnoozedUntil hides the item until that time. SnoozedAt is when the
@@ -596,6 +599,17 @@ func (l *Ledger) SetNotifyError(id, message string) (Item, error) {
 			return err
 		}
 		it.NotifyError = message
+		wasMarked := it.DeliveryNotice != ""
+		if message != "" {
+			it.DeliveryNotice = "not delivered: " + message
+			it.Tags = addTagValue(it.Tags, TagUndelivered)
+			if !wasMarked {
+				it.Unread = true
+			}
+		} else {
+			it.DeliveryNotice = ""
+			it.Tags = removeTagValue(it.Tags, TagUndelivered)
+		}
 		updated = *it
 		return nil
 	})
@@ -603,6 +617,17 @@ func (l *Ledger) SetNotifyError(id, message string) (Item, error) {
 		return Item{}, err
 	}
 	return updated, nil
+}
+
+func addTagValue(tags []string, tag string) []string {
+	if slices.Contains(tags, tag) {
+		return tags
+	}
+	return append(tags, tag)
+}
+
+func removeTagValue(tags []string, tag string) []string {
+	return slices.DeleteFunc(tags, func(v string) bool { return v == tag })
 }
 
 // SetBusMessage stores the agentbus message id that delivered id.

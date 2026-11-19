@@ -172,13 +172,22 @@ type busReport struct {
 // `agentbus status --json <id>...` and stores what it reports. With
 // nothing pending it runs nothing. It reports whether a record changed.
 func (l *Ledger) CheckDeliveries(ctx context.Context, run AgentbusRunner) (bool, error) {
+	cfg, err := LoadConfig()
+	if err != nil {
+		return false, err
+	}
 	items, err := l.List()
+	if err != nil {
+		return false, err
+	}
+	threshold := cfg.LateDeliveryAfter()
+	changed, err := l.MarkLateDeliveries(threshold)
 	if err != nil {
 		return false, err
 	}
 	ids := pendingIDs(items)
 	if len(ids) == 0 {
-		return false, nil
+		return changed, nil
 	}
 	if run == nil {
 		run = ExecAgentbus
@@ -193,10 +202,9 @@ func (l *Ledger) CheckDeliveries(ctx context.Context, run AgentbusRunner) (bool,
 		}
 		return false, fmt.Errorf("agentbus status: %w", runErr)
 	}
-	changed := false
 	err = l.locked(true, func(st *store) error {
 		for i := range st.Items {
-			if applyReports(&st.Items[i], reports) {
+			if applyReports(&st.Items[i], reports, threshold) {
 				changed = true
 			}
 		}
@@ -206,6 +214,36 @@ func (l *Ledger) CheckDeliveries(ctx context.Context, run AgentbusRunner) (bool,
 		return false, err
 	}
 	return changed, nil
+}
+
+// MarkLateDeliveries stores the attention marker for pending bus messages
+// that have waited past threshold. The marker is added only once.
+func (l *Ledger) MarkLateDeliveries(threshold time.Duration) (bool, error) {
+	items, err := l.List()
+	if err != nil {
+		return false, err
+	}
+	now := l.clock().UTC()
+	possible := false
+	for i := range items {
+		if markLateDelivery(&items[i], now, threshold) {
+			possible = true
+			break
+		}
+	}
+	if !possible {
+		return false, nil
+	}
+	changed := false
+	err = l.locked(true, func(st *store) error {
+		for i := range st.Items {
+			if markLateDelivery(&st.Items[i], now, threshold) {
+				changed = true
+			}
+		}
+		return nil
+	})
+	return changed, err
 }
 
 // pendingIDs is the status id of each pending delivery, once each.
@@ -227,7 +265,7 @@ func pendingIDs(items []Item) []string {
 // applyReports applies reports to it's pending deliveries and reports
 // whether one changed. A waiting delivery that is now delivered adds a
 // late note to the thread.
-func applyReports(it *Item, reports map[string]busReport) bool {
+func applyReports(it *Item, reports map[string]busReport, threshold time.Duration) bool {
 	changed := false
 	var notes []Message
 	for j := range it.Delivery {
@@ -239,8 +277,20 @@ func applyReports(it *Item, reports map[string]busReport) bool {
 		waited := d.State() == OutcomeWaiting
 		if applyReport(d, r) {
 			changed = true
-			if waited && d.State() == OutcomeDelivered {
-				notes = append(notes, lateNote(*d))
+			switch d.State() {
+			case OutcomeDelivered:
+				it.DeliveryNotice = ""
+				it.Tags = removeTagValue(it.Tags, TagUndelivered)
+				if waited && markOf(*d).Late >= threshold {
+					notes = append(notes, lateNote(*d))
+				}
+			case OutcomeFailed:
+				marked := it.DeliveryNotice != ""
+				it.DeliveryNotice = "not delivered: " + d.Error
+				it.Tags = addTagValue(it.Tags, TagUndelivered)
+				if !marked {
+					it.Unread = true
+				}
 			}
 		}
 	}
@@ -251,16 +301,34 @@ func applyReports(it *Item, reports map[string]busReport) bool {
 	return changed
 }
 
-// lateNote is the system note for a held message that d now delivered:
-// "delivered after N min.", or "<1 min" for a shorter wait. It is stored
-// in the thread only; it is not sent and does not mark the item unread.
+// lateNote is the system note for a held message that d now delivered
+// past the threshold. It is stored in the thread only; it is not sent
+// and does not mark the item unread.
 func lateNote(d Delivery) Message {
 	m := markOf(d)
-	wait := "<1 min"
-	if mins := int(m.Late.Round(time.Minute) / time.Minute); mins > 0 {
-		wait = fmt.Sprintf("%d min", mins)
+	mins := int(m.Late.Round(time.Minute) / time.Minute)
+	wait := fmt.Sprintf("%d min", mins)
+	return Message{Author: "system", Time: m.DeliveredAt, Text: "delivered late: " + wait}
+}
+
+// markLateDelivery records the attention marker once, when a pending bus
+// delivery has waited past threshold.
+func markLateDelivery(it *Item, now time.Time, threshold time.Duration) bool {
+	if it.DeliveryNotice != "" {
+		return false
 	}
-	return Message{Author: "system", Time: m.DeliveredAt, Text: "delivered after " + wait + "."}
+	for _, d := range it.Delivery {
+		if !d.Pending() || now.Sub(d.At) < threshold {
+			continue
+		}
+		to := strings.TrimPrefix(d.Target, BusPanePrefix)
+		mins := int(now.Sub(d.At).Round(time.Minute) / time.Minute)
+		it.DeliveryNotice = fmt.Sprintf("not delivered yet (%d min) to %s", mins, to)
+		it.Tags = addTagValue(it.Tags, TagUndelivered)
+		it.Unread = true
+		return true
+	}
+	return false
 }
 
 func parseReports(out string) map[string]busReport {

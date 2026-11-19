@@ -152,11 +152,19 @@ func (l *Ledger) appendDelivery(id string, d Delivery) (Item, error) {
 		it.Delivery = append(it.Delivery, d)
 		switch d.Outcome {
 		case OutcomeFailed:
+			marked := it.DeliveryNotice != ""
 			it.NotifyError = d.Error
+			it.DeliveryNotice = "not delivered: " + d.Error
+			it.Tags = addTagValue(it.Tags, TagUndelivered)
+			if !marked {
+				it.Unread = true
+			}
 		case OutcomeResend:
 			it.NotifyError = d.Error
 		case OutcomeDelivered, OutcomeWaiting:
 			it.NotifyError = ""
+			it.DeliveryNotice = ""
+			it.Tags = removeTagValue(it.Tags, TagUndelivered)
 		}
 		updated = *it
 		return nil
