@@ -88,10 +88,12 @@ func main() {
 	var (
 		configPath   string
 		opts         approve.Options
+		maxDuration  time.Duration
 		noAgentCache bool
 		color        string
 	)
 	flag.StringVar(&configPath, "config", "", "Path to config file (default ~/.config/gh-nudge/config.pkl)")
+	flag.DurationVar(&maxDuration, "max-duration", 0, "Stop starting pull requests after this duration (also configurable as approve.max_duration)")
 	flag.BoolVar(&opts.Apply, "apply", false, "Approve, hand off, and mark files viewed for real. Without it, gh-approve is a dry run")
 	flag.StringVar(&opts.PR, "pr", "", "Evaluate one pull request: owner/repo#N or a URL")
 	flag.BoolVar(&opts.Explain, "explain", false, "Print every condition of every rule with the value it saw")
@@ -102,6 +104,7 @@ func main() {
 		flag.PrintDefaults()
 	}
 	flag.Parse()
+	opts.MaxDuration = maxDuration
 	if flag.NArg() > 0 {
 		flag.Usage()
 		os.Exit(2)

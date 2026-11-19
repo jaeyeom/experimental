@@ -82,6 +82,43 @@ func TestSearchReviewRequestedIncludesTeamRequests(t *testing.T) {
 	}
 }
 
+func TestSearchTeamApprovalCandidatesFiltersAndDeduplicatesLabelSets(t *testing.T) {
+	response := `{"data":{"search":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[
+		{"number":7,"url":"https://github.com/acme/widgets/pull/7","title":"Tidy","isDraft":false,"author":{"login":"alice"},"changedFiles":2,"additions":3,"deletions":1,"labels":{"nodes":[{"name":"ready"},{"name":"docs"}]},"repository":{"nameWithOwner":"acme/widgets"}}
+	]}}}`
+	exec := &routeExec{route: map[string]string{
+		`review-requested:@me label:"ready"`: response,
+		`review-requested:@me label:"docs"`:  response,
+	}}
+	candidates, err := NewClientWithExecutor(exec).SearchTeamApprovalCandidates([][]string{{"ready"}, {"docs"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 || candidates[0].ChangedFiles != 2 || candidates[0].Additions != 3 || candidates[0].Author != "alice" || len(candidates[0].Labels) != 2 {
+		t.Fatalf("candidates = %+v", candidates)
+	}
+	if len(exec.calls) != 2 {
+		t.Fatalf("calls = %d, want one search per label set", len(exec.calls))
+	}
+	for _, call := range exec.calls {
+		if !strings.Contains(call, `q=is:pr is:open archived:false review-requested:@me label:`) {
+			t.Errorf("search lacks request scope and label qualifier: %s", call)
+		}
+	}
+}
+
+func TestSearchTeamApprovalCandidatesWithoutLabelSetsKeepsUnfilteredScope(t *testing.T) {
+	exec := &routeExec{route: map[string]string{
+		`review-requested:@me`: `{"data":{"search":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[]}}}`,
+	}}
+	if _, err := NewClientWithExecutor(exec).SearchTeamApprovalCandidates([][]string{{}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(exec.calls) != 1 || !strings.Contains(exec.calls[0], `q=is:pr is:open archived:false review-requested:@me`) || strings.Contains(exec.calls[0], `label:`) {
+		t.Fatalf("unfiltered search = %q", exec.calls)
+	}
+}
+
 func TestSearchUserReviewRequestedReportsGraphQLError(t *testing.T) {
 	exec := &routeExec{route: map[string]string{"search": `{"errors":[{"message":"rate limited"}]}`}}
 	if _, err := NewClientWithExecutor(exec).SearchUserReviewRequested(); err == nil || !strings.Contains(err.Error(), "rate limited") {

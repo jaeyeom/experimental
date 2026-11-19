@@ -302,7 +302,7 @@ func TestTimingLineShowsSkippedLoads(t *testing.T) {
 	fake := newFake(pr)
 	rules := []config.ApproveRule{{Name: "mine", MineCommentsOnly: true, AuthorsAllow: []string{"zed"}}}
 	out := runTimed(t, fake, rules, true)
-	want := "timing: total 100ms; pull request 100ms; CODEOWNERS skipped; teams skipped; patches skipped; agent command skipped"
+	want := "timing: total 0s; pull request 0s; CODEOWNERS skipped; teams skipped; patches skipped; agent command skipped"
 	if got := timingLines(out); len(got) != 1 || got[0] != want {
 		t.Fatalf("timing lines = %q, want %q", got, want)
 	}

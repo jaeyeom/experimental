@@ -191,7 +191,7 @@ func TestTeamOnlyRequestEvaluatedWithOptIn(t *testing.T) {
 	if res.err != nil {
 		t.Fatal(res.err)
 	}
-	if fake.teamSearched != 1 || fake.searched != 0 {
+	if fake.teamSearched != 1 || fake.searched != 1 {
 		t.Fatalf("searches: team %d, individual %d", fake.teamSearched, fake.searched)
 	}
 	if len(res.log) != 1 || res.log[0].Rule == nil || *res.log[0].Rule != "team-comments" || res.log[0].Action != ActionApproved {

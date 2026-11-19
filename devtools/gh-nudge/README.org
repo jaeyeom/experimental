@@ -21,6 +21,16 @@ owners. ~gh-storage~ manages the local store.
 | ~gh-throttle~   | Share one GitHub rate-limit queue across every gh call            | no           | [[file:gh-throttle.org][gh-throttle.org]] |
 | ~gh-storage~    | Back up and inspect the local review store                        | no           | [[file:storage.org][storage.org]]         |
 
+~gh-approve~ uses search-result labels and size counts to skip rules that
+cannot match before loading full pull request metadata. Team-requested rules
+with ~labels_required~ also add label qualifiers to the GitHub search; differing
+label sets use separate searches. For ~mine_comments_only~, a pull request
+over the rule's ~max_files~ or ~max_changed_lines~ limit reports ~too large to
+check (<files> files, <lines> changed lines)~ without fetching patches. Use
+~gh-approve --max-duration 5m~ or ~approve.max_duration = 5.min~ to stop a pass
+from starting new pull requests after a time limit. See
+[[file:gh-approve.org][gh-approve.org]] for details.
+
 * Install
 
 Requires ~gh auth login~. From a checkout of this repository, ~make install~
