@@ -179,6 +179,22 @@ func TestReplyTabReachesSend(t *testing.T) {
 	if last := got.Messages[len(got.Messages)-1]; last.Text != "abcd" || m.reply != "" {
 		t.Fatalf("click [Send]: last %q reply %q", last.Text, m.reply)
 	}
+	if m.replyField.Value() != "" || m.replyScroll != 0 {
+		t.Fatalf("sent reply left field %q at scroll %d", m.replyField.Value(), m.replyScroll)
+	}
+}
+
+func TestReplySendResetsFieldAndScroll(t *testing.T) {
+	m, _, _ := composerModel(t, composerReply)
+	m.reply = "first\nsecond"
+	m.replyField.SetValue(m.reply)
+	m.replyScroll = 1
+	if err := m.submitReply(); err != nil {
+		t.Fatal(err)
+	}
+	if m.reply != "" || m.replyField.Value() != "" || m.replyScroll != 0 {
+		t.Fatalf("sent reply left draft %q, field %q, scroll %d", m.reply, m.replyField.Value(), m.replyScroll)
+	}
 }
 
 // replyRows counts the screen rows of the reply box.
@@ -199,14 +215,21 @@ func replyRows(m *Model) int {
 func TestReplyBoxSizesToTerminalAndScrolls(t *testing.T) {
 	m, _, _ := composerModel(t, composerReply)
 	m.width, m.height = 80, 30
-	const limit = 10
+	limit := max(m.height/2, 1)
+	if _, detailN := m.layoutBudget(); detailN > 0 {
+		limit = min(limit, max(detailN-4, 1))
+	}
+	if got := replyRows(m); got != 1 {
+		t.Fatalf("empty reply box has %d rows, want 1", got)
+	}
 	for i := range 20 {
 		if i > 0 {
 			sendKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 		}
 		press(t, m, fmt.Sprintf("r%02d", i))
-		if got := replyRows(m); got != limit {
-			t.Fatalf("after %d lines the box has %d rows, want %d", i+1, got, limit)
+		want := min(i+1, limit)
+		if got := replyRows(m); got != want {
+			t.Fatalf("after %d lines the box has %d rows, want %d", i+1, got, want)
 		}
 	}
 	view := m.View()
@@ -217,6 +240,35 @@ func TestReplyBoxSizesToTerminalAndScrolls(t *testing.T) {
 	press(t, m, "X")
 	if !strings.Contains(m.reply, "\nrX15\n") {
 		t.Fatalf("reply %q, want X inside r15", m.reply)
+	}
+}
+
+func TestReplyBoxGrowsWrapsAndShrinks(t *testing.T) {
+	m, _, _ := composerModel(t, composerReply)
+	m.width, m.height = 12, 40
+	if got := replyRows(m); got != 1 {
+		t.Fatalf("empty reply box has %d rows, want 1", got)
+	}
+	press(t, m, "abc")
+	if got := replyRows(m); got != 1 {
+		t.Fatalf("one line has %d rows, want 1", got)
+	}
+	sendKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	press(t, m, "def")
+	sendKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	press(t, m, "ghi")
+	if got := replyRows(m); got != 3 {
+		t.Fatalf("three lines have %d rows, want 3", got)
+	}
+	press(t, m, "12345678901234567890")
+	if got := replyRows(m); got <= 3 {
+		t.Fatalf("wrapped line did not grow the box: %d rows", got)
+	}
+	for range 3 {
+		sendKey(t, m, tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	if got := replyRows(m); got <= 1 {
+		t.Fatalf("deleting text should shrink wrapped rows, got %d", got)
 	}
 }
 
