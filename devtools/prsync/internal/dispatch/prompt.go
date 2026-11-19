@@ -98,6 +98,8 @@ func RenderHint(tmpl string, pr scan.PR, cfg config.Config, hint string) string 
 	for _, v := range vars {
 		out = strings.ReplaceAll(out, v.key, v.val)
 	}
+	out = strings.ReplaceAll(out, "{ask}", cfg.DispatchAskInstruction)
+	out = strings.ReplaceAll(out, "{ask_to}", cfg.DispatchAskTo)
 	if strings.TrimSpace(hint) == "" {
 		hint = emptyHint
 	}

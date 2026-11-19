@@ -121,11 +121,14 @@ func TestRenderDefaultTemplate(t *testing.T) {
 	if !strings.Contains(strings.ToLower(got), "unless the reply asks the reviewer a follow-up") {
 		t.Fatalf("missing follow-up resolve exception: %q", got)
 	}
-	if !strings.Contains(got, "Do not edit, reply to the reviewer,") || !strings.Contains(got, "resolve, or push for that thread until they answer.") {
+	if !regexp.MustCompile(`(?is)do not edit, reply to the\s+reviewer, resolve, or push for that thread until an answer arrives\.`).MatchString(got) {
 		t.Fatalf("missing hold-reply until the user answers: %q", got)
 	}
-	if !strings.Contains(strings.ToLower(got), "ask the user") {
-		t.Fatalf("missing ask-the-user: %q", got)
+	if strings.Count(got, config.Defaults().DispatchAskInstruction) != 1 {
+		t.Fatalf("default ask instruction count = %d, want 1: %q", strings.Count(got, config.Defaults().DispatchAskInstruction), got)
+	}
+	if strings.Contains(strings.ToLower(got), "ask the user") {
+		t.Fatalf("default prompt contains ask-the-user wording: %q", got)
 	}
 	if !strings.Contains(strings.ToLower(got), "recommend") {
 		t.Fatalf("missing recommended option: %q", got)
@@ -155,6 +158,21 @@ func TestRenderDefaultTemplate(t *testing.T) {
 	idxRerequest := strings.Index(got, "gh pr edit 123 --add-reviewer")
 	if idxPush < 0 || idxRerequest < 0 || idxPush > idxRerequest {
 		t.Fatalf("re-request not after push: %q", got)
+	}
+}
+
+func TestRenderDispatchAskPlaceholders(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.DispatchAskInstruction = "send the question to {ask_to} over the message bus"
+	cfg.DispatchAskTo = "manager-7"
+	if got := Render("{ask}", fixtureEligiblePR(), cfg); got != "send the question to manager-7 over the message bus" {
+		t.Fatalf("render ask = %q", got)
+	}
+	if got := Render("custom {number} template", fixtureEligiblePR(), cfg); got != "custom 123 template" {
+		t.Fatalf("template without ask changed unexpectedly: %q", got)
+	}
+	if got := Render("unknown {other}", fixtureEligiblePR(), cfg); got != "unknown {other}" {
+		t.Fatalf("unknown placeholder changed: %q", got)
 	}
 }
 

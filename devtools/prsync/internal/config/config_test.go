@@ -295,6 +295,8 @@ func TestLoadAppliesKnownKeys(t *testing.T) {
 		"gate_poll_ms=5",
 		"gate_timeout_ms=50",
 		"dispatch_prompt_template=@" + promptFile,
+		"dispatch_ask_instruction=send the question to {ask_to}",
+		"dispatch_ask_to=review-manager",
 		"rebase_prompt_template=@" + rebaseFile,
 		"ci_fix_prompt_template=@" + ciFixFile,
 		"dispatch_include_drafts=1",
@@ -335,6 +337,9 @@ func TestLoadAppliesKnownKeys(t *testing.T) {
 	}
 	if got.PromptTemplate != "from-file" {
 		t.Fatalf("PromptTemplate = %q", got.PromptTemplate)
+	}
+	if got.DispatchAskInstruction != "send the question to {ask_to}" || got.DispatchAskTo != "review-manager" {
+		t.Fatalf("ask instruction = %q, ask to = %q", got.DispatchAskInstruction, got.DispatchAskTo)
 	}
 	if got.RebasePromptTemplate != "rebase-from-file" {
 		t.Fatalf("RebasePromptTemplate = %q", got.RebasePromptTemplate)
@@ -1104,14 +1109,20 @@ func TestDefaults(t *testing.T) {
 	if !regexp.MustCompile(`(?i)unless the reply asks the reviewer a follow-up`).MatchString(got.PromptTemplate) {
 		t.Fatalf("PromptTemplate missing follow-up resolve exception: %q", got.PromptTemplate)
 	}
-	if !regexp.MustCompile(`(?is)do not edit, reply to the reviewer,\s+resolve, or push`).MatchString(got.PromptTemplate) {
-		t.Fatalf("PromptTemplate missing hold-reply until the user answers: %q", got.PromptTemplate)
+	if !regexp.MustCompile(`(?is)do not edit, reply to the\s+reviewer, resolve, or push for that thread until an answer arrives`).MatchString(got.PromptTemplate) {
+		t.Fatalf("PromptTemplate missing hold-reply until an answer arrives: %q", got.PromptTemplate)
 	}
-	if !regexp.MustCompile(`(?i)ask the user`).MatchString(got.PromptTemplate) {
-		t.Fatalf("PromptTemplate missing ask-the-user: %q", got.PromptTemplate)
+	if strings.Contains(strings.ToLower(got.PromptTemplate), "ask the user") {
+		t.Fatalf("PromptTemplate contains ask-the-user wording: %q", got.PromptTemplate)
 	}
-	if !regexp.MustCompile(`(?i)recommend`).MatchString(got.PromptTemplate) {
-		t.Fatalf("PromptTemplate missing recommended option: %q", got.PromptTemplate)
+	if !strings.Contains(got.PromptTemplate, "{ask}") {
+		t.Fatalf("PromptTemplate missing ask placeholder: %q", got.PromptTemplate)
+	}
+	if got.DispatchAskInstruction != "ask how to proceed through your configured channel, with a recommended option, and do not wait silently in your own screen; keep working on the other threads" {
+		t.Fatalf("DispatchAskInstruction = %q", got.DispatchAskInstruction)
+	}
+	if !regexp.MustCompile(`(?i)recommend`).MatchString(got.DispatchAskInstruction) {
+		t.Fatalf("DispatchAskInstruction missing recommended option: %q", got.DispatchAskInstruction)
 	}
 	if regexp.MustCompile(`make the change \(or reply if you`).MatchString(got.PromptTemplate) {
 		t.Fatalf("PromptTemplate still instructs autonomous resolve: %q", got.PromptTemplate)
