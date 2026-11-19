@@ -27,7 +27,7 @@ rules:
 
   - match: [".gitignore"]
     docs:
-      - path: CLAUDE.md
+      - path: AGENTS.md
         section: "## Temp File Handling"
         why: "project-local .tmp/ is gitignored"
 
@@ -77,7 +77,7 @@ rules:
       - path: README.org
         section: "** GNU Make"
         why: "make format / check-format drive //tools/format"
-      - path: CLAUDE.md
+      - path: AGENTS.md
         section: "## Automation & Workflow"
         why: "use make format instead of gofmt/goimports directly"
 
@@ -101,11 +101,9 @@ rules:
       - ".github/workflows/strip-pr-html-comments.yml"
       - ".github/pull_request_template.md"
     docs:
-      - path: CLAUDE.md
+      - path: AGENTS.md
         section: "## Pull requests"
         why: "squash-merge copies HTML comments; reusable strip workflow"
-      - path: AGENTS.md
-        why: "omit template HTML comments from PR bodies"
 
   - match: [".github/workflows/bazel-test.yml"]
     docs:
@@ -775,7 +773,7 @@ rules:
       - path: .claude/skills/ansible-dev-setup/SKILL.md
         section: "## Important Files"
         why: "packages_data.go is the file to edit"
-      - path: devtools/setup-dev/ansible/CLAUDE.md
+      - path: devtools/setup-dev/ansible/AGENTS.md
         section: "## Key Files"
         why: "packages_data.go"
 
@@ -793,7 +791,7 @@ rules:
         why: "generator, templates, types"
       - path: devtools/setup-dev/ansible/README.org
         why: "generator, playbook list"
-      - path: devtools/setup-dev/ansible/CLAUDE.md
+      - path: devtools/setup-dev/ansible/AGENTS.md
         section: "## Quick Commands"
         why: "make generate-ansible"
 
@@ -828,7 +826,7 @@ rules:
       - path: devtools/setup-dev/README.org
         section: "* Quick start"
         why: "./ensure.sh all"
-      - path: devtools/setup-dev/ansible/CLAUDE.md
+      - path: devtools/setup-dev/ansible/AGENTS.md
         section: "## Shell Installer Verification"
         why: "verified-run for curl|bash installers"
       - path: devtools/setup-dev/ansible/macos.org
@@ -866,13 +864,13 @@ rules:
       - path: spacemacs/README.org
         section: "** .spacemacs"
         why: ".spacemacs deployment"
-      - path: spacemacs/CLAUDE.md
+      - path: spacemacs/AGENTS.md
         section: "## Sync Workflow"
         why: "upstream ediff merge"
-      - path: spacemacs/CLAUDE.md
+      - path: spacemacs/AGENTS.md
         section: "## Platform Detection"
         why: "crostini/termux/macos"
-      - path: spacemacs/CLAUDE.md
+      - path: spacemacs/AGENTS.md
         section: "## Conventions"
         why: "naming, keybindings, layers"
       - path: .claude/skills/spacemacs/SKILL.md
@@ -883,13 +881,13 @@ rules:
       - path: spacemacs/README.org
         section: "* Setup"
         why: "ensure.sh spacemacs setup"
-      - path: spacemacs/CLAUDE.md
+      - path: spacemacs/AGENTS.md
         section: "## Local Validation"
         why: "make byte-compile"
 
   - match: ["spacemacs/private/local/*.el"]
     docs:
-      - path: spacemacs/CLAUDE.md
+      - path: spacemacs/AGENTS.md
         section: "### Custom Elisp Files"
         why: "custom elisp conventions"
       - path: spacemacs/README.org

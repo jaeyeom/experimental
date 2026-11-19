@@ -1,59 +1,15 @@
-# Claude Code Configuration
+@AGENTS.md
 
-This file guides Claude Code's behavior.
+# Claude Code
 
-## Core Principles
-1.  **Simplicity**: Prioritize the simplest solution.
-2.  **No Duplication**: Reuse existing functionality.
-3.  **TDD**: Practice Test-Driven Development. Understand desired behavior -> Test -> Implement.
+Claude Code-specific notes. Shared project instructions are in `AGENTS.md`.
 
-## Automation & Workflow
--   **ALWAYS run `make check`** before requesting a commit.
-    -   This runs formatters, linters, tests, and generators.
-    -   If `make check` changes files, include them in the commit.
--   **Use `make` targets**: `make test`, `make lint`, `make fix`, `make format`.
--   **Use `make format`** instead of individual formatting tools (e.g., `gofmt`, `goimports`).
-
-## Git Workflow
--   **Keep main branch history flat** (no merge commits).
--   **Use rebase** to integrate upstream changes (`git pull --rebase`).
--   **Use fast-forward merges** to main (`git merge --ff-only`).
-
-## Pull requests
-This repository squash-merges with the pull request title and description
-as the commit message. HTML comments (`<!-- ... -->`) in the PR body are
-copied into `git log` even though GitHub hides them in the rendered
-description.
-
-When creating or updating a PR:
-- Do not copy `<!-- ... -->` hints from `.github/pull_request_template.md`
-  into the submitted body. They are compose-time hints only.
-- Delete unused optional sections instead of leaving them empty.
-
-A workflow strips leftover comments from the stored body as a backstop.
-Other repositories can call the same workflow (pin the SHA):
-
-```yaml
-jobs:
-  strip:
-    permissions:
-      contents: read
-      pull-requests: write
-    uses: jaeyeom/experimental/.github/workflows/strip-pr-html-comments.yml@<sha>
-```
-
-## Temp File Handling
+## Sandbox $TMPDIR
 -   **`$TMPDIR` differs between sandbox and unsandbox modes.** Sandbox uses
     `/tmp/claude`, unsandbox uses `/var/folders/.../T//claude`. Files created
     in one mode are invisible via `$TMPDIR` in the other.
--   **For multi-step workflows**: use the project-local `.tmp/` directory
-    (gitignored) instead of `$TMPDIR` when a temp file must be referenced
-    across multiple Bash calls that might switch sandbox modes.
-    ```sh
-    mkdir -p .tmp
-    echo "data" > .tmp/myfile
-    # Safe to reference .tmp/myfile in any subsequent command
-    ```
+-   Use the project-local `.tmp/` directory (see `AGENTS.md`) when a temp
+    file must survive a switch between sandbox modes.
 -   **If you must use `$TMPDIR`**: capture the resolved absolute path on first
     use and pass the literal path (not `$TMPDIR`) to subsequent commands.
 
