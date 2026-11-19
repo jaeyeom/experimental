@@ -523,8 +523,9 @@ func (c *Client) PullRequestHeadSHA(ref PullRef) (string, error) {
 	name := fmt.Sprintf("%s/%s#%d", ref.Owner, ref.Repo, ref.Number)
 	path := fmt.Sprintf("repos/%s/%s/pulls/%d", ref.Owner, ref.Repo, ref.Number)
 	out, err := c.runGHOnce([]string{"api", path, "--jq", ".head.sha"})
+	stderr := out.stderr
 	if err != nil {
-		return "", fmt.Errorf("read head of %s: %w\n%s", name, err, out.stderr)
+		return "", fmt.Errorf("read head of %s: %w\n%s", name, err, stderr)
 	}
 	sha := strings.TrimSpace(out.stdout)
 	if !isCommitSHA(sha) {
