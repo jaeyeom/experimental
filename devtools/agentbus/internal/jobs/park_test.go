@@ -182,7 +182,7 @@ func TestResumedJobWaitsItsTurnForTheCheckout(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.refuse["tiger:/src/repo"] = true
-	if err := s.Resume(j.ID, "d9", "answered"); err != nil {
+	if err := s.Resume(j.ID, "d9", "answered", ""); err != nil {
 		t.Fatal(err)
 	}
 	if r, _ := s.Claim(Args{Runner: "r1", Machine: "tiger"}); r.Job != nil {
@@ -195,7 +195,7 @@ func TestResumedJobWaitsItsTurnForTheCheckout(t *testing.T) {
 	if got := mustClaimOn(t, s, "r1", "tiger"); got.ID != j.ID || got.Lease != "tiger:/src/repo" {
 		t.Fatalf("claim once free = %+v", got)
 	}
-	if err := s.Resume(j.ID, "d9", "again"); err == nil {
+	if err := s.Resume(j.ID, "d9", "again", ""); err == nil {
 		t.Fatal("resumed a running job")
 	}
 }

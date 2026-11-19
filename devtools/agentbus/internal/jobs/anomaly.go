@@ -388,6 +388,8 @@ func decideNote(j *Job) string {
 	switch {
 	case j.Decide != "":
 		return "; decide item " + j.Decide + " is unanswered"
+	case j.waitsOnBus():
+		return "; message " + j.AskMsg + " to " + j.AskTo + " is unanswered"
 	case j.ParkedOn != "":
 		return "; decide item " + j.ParkedOn + " is unanswered"
 	default:

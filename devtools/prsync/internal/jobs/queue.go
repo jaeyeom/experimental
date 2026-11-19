@@ -21,6 +21,11 @@ type Job struct {
 	Head    string   `json:"head"`
 	Needs   Needs    `json:"needs"`
 	Items   []string `json:"items"`
+	State   string   `json:"state"`
+	// Saved and Answer are a resumed job's branch and the answer that
+	// resumed it.
+	Saved  string `json:"saved"`
+	Answer string `json:"answer"`
 }
 
 // Needs is a job's machine, affinity, and executor.

@@ -56,6 +56,10 @@ type Request struct {
 	// PR (open_missing_tabs) on machine, empty for the local server. Nil
 	// cannot open a tab.
 	Opener func(machine string) TabOpener
+	// Job is the agentbus job a dispatch --job runs. A review job's
+	// prompt gets the park steps (dispatch_park_mode) or, resumed with
+	// an answer, the resume steps. Nil is a plain dispatch.
+	Job *Job
 }
 
 // Candidate is one PR considered for dispatch.
@@ -860,7 +864,7 @@ func evaluateDry(c Candidate, cfg config.Config, st State, req Request, now time
 // renderPrompt renders the prompt body and appends dispatch_prompt_suffix
 // after a blank line when it is set.
 func renderPrompt(cfg config.Config, req Request, pr scan.PR) string {
-	body := renderPromptBody(cfg, req, pr)
+	body := renderJobPrompt(renderPromptBody(cfg, req, pr), cfg, req, pr)
 	if cfg.PromptSuffix == "" {
 		return body
 	}

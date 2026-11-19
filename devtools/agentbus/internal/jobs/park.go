@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"slices"
@@ -10,12 +11,18 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 )
 
-// checkPark checks a park's arguments: the decide item it waits on, the
-// saved branch ref, and the resume note.
+// checkPark checks a park's arguments: the decide item, or the agent
+// bus message and its addressed name, it waits on; the saved branch
+// ref; and the resume note.
 func checkPark(a Args) error {
+	decide, ask := strings.TrimSpace(a.Decide) != "", strings.TrimSpace(a.AskMsg) != ""
 	switch {
-	case strings.TrimSpace(a.Decide) == "":
-		return errors.New("park needs the decide item the job waits on")
+	case decide && ask:
+		return errors.New("park waits on a decide item or an agent bus message, not both")
+	case !decide && !ask:
+		return errors.New("park needs the decide item or the agent bus message the job waits on")
+	case ask && strings.TrimSpace(a.AskTo) == "":
+		return fmt.Errorf("park cannot tell who message %s was sent to", a.AskMsg)
 	case strings.TrimSpace(a.Note) == "":
 		return errors.New("park needs a resume note")
 	}
@@ -40,12 +47,13 @@ func checkSaved(ref string) error {
 }
 
 // Park takes a running job off its runner mid-run, by its holder,
-// while the user answers decide item a.Decide. The work is saved on
+// while the user answers decide item a.Decide, or a.AskTo replies to
+// agent bus message a.AskMsg. The work is saved on
 // branch a.Saved with resume note a.Note; the caller checks that the
 // checkout is clean first, since the park releases its lease. Without
 // a.Items the job is parked. With them, the handled part is done and a
 // gated child job holds the parked items. Either waits until the user
-// answers the item.
+// answers the item, or the addressed name replies.
 func (s *Store) Park(a Args) (Reply, error) {
 	if err := checkPark(a); err != nil {
 		return Reply{}, err
@@ -65,7 +73,7 @@ func (s *Store) Park(a Args) (Reply, error) {
 				return nil, err
 			}
 			j.Holder, j.Heartbeat = "", time.Time{}
-			setParked(j, a)
+			setParked(j, a, now)
 			r = Reply{Job: clone(j)}
 			return []eventlog.Event{ev}, nil
 		}
@@ -74,7 +82,7 @@ func (s *Store) Park(a Args) (Reply, error) {
 				return nil, fmt.Errorf("job %s has no item %s", j.ID, it)
 			}
 		}
-		note := fmt.Sprintf("parked %s on decide %s", strings.Join(a.Items, ", "), a.Decide)
+		note := fmt.Sprintf("parked %s on %s", strings.Join(a.Items, ", "), parkWhat(a))
 		ev, err := s.move(j, StateDone, a.Runner, note, now)
 		if err != nil {
 			return nil, err
@@ -89,15 +97,24 @@ func (s *Store) Park(a Args) (Reply, error) {
 	return r, err
 }
 
-func setParked(j *Job, a Args) {
-	j.ParkedOn, j.Saved, j.Resume, j.Tab = a.Decide, a.Saved, a.Note, a.Tab
+func setParked(j *Job, a Args, now time.Time) {
+	j.ParkedOn, j.Saved, j.Resume, j.Tab, j.ParkedAt = cmp.Or(a.Decide, a.AskMsg), a.Saved, a.Note, a.Tab, now
+	j.AskMsg, j.AskTo = a.AskMsg, a.AskTo
+}
+
+// parkWhat names what a park waits on.
+func parkWhat(a Args) string {
+	if a.AskMsg != "" {
+		return "message " + a.AskMsg + " to " + a.AskTo
+	}
+	return "decide " + a.Decide
 }
 
 // child is the gated job that holds the items parked out of parent. A
 // live child parked on the same item takes the new items instead. The
 // caller holds s.mu.
 func (s *Store) child(parent *Job, a Args, now time.Time) (*Job, []eventlog.Event, error) {
-	key := parent.Kind + " " + parent.Subject + " parked on " + a.Decide
+	key := parent.Kind + " " + parent.Subject + " parked on " + cmp.Or(a.Decide, a.AskMsg)
 	for _, c := range s.doc.Jobs {
 		if c.Dedupe == key && !c.State.Final() {
 			for _, it := range a.Items {
@@ -110,7 +127,7 @@ func (s *Store) child(parent *Job, a Args, now time.Time) (*Job, []eventlog.Even
 		}
 	}
 	s.doc.Seq++
-	note := fmt.Sprintf("parked out of %s on decide %s", parent.ID, a.Decide)
+	note := fmt.Sprintf("parked out of %s on %s", parent.ID, parkWhat(a))
 	c := &Job{
 		ID: fmt.Sprintf("j-%d", s.doc.Seq), Kind: parent.Kind, Subject: parent.Subject, Head: parent.Head,
 		Dedupe: key, Needs: parent.Needs, Priority: parent.Priority, State: StateQueued,
@@ -118,7 +135,7 @@ func (s *Store) child(parent *Job, a Args, now time.Time) (*Job, []eventlog.Even
 		Items: slices.Clone(a.Items), Parent: parent.ID,
 		History: []Entry{{At: now, To: StateQueued, Actor: a.Runner, Note: note}},
 	}
-	setParked(c, a)
+	setParked(c, a, now)
 	s.doc.Jobs = append(s.doc.Jobs, c)
 	ev, err := s.move(c, StateGated, a.Runner, a.Note, now)
 	if err != nil {
@@ -180,7 +197,7 @@ func (s *Store) ParkedOnItems() []Job {
 	defer s.mu.Unlock()
 	var out []Job
 	for _, j := range s.doc.Jobs {
-		if j.ParkedOn != "" && (j.State == StateParked || j.State == StateGated) {
+		if j.parked() && !j.waitsOnBus() {
 			out = append(out, *clone(j))
 		}
 	}
@@ -189,18 +206,68 @@ func (s *Store) ParkedOnItems() []Job {
 
 // Resume makes a job parked on decide item ready again: it waits its
 // turn for a runner and its checkout like any ready job, and keeps its
-// saved ref and tab for the runner.
-func (s *Store) Resume(id, item, note string) error {
+// saved ref and tab for the runner, and answer for its resume prompt.
+func (s *Store) Resume(id, item, note, answer string) error {
 	_, err := s.update(id, func(j *Job, now time.Time) ([]eventlog.Event, error) {
-		if j.ParkedOn == "" || j.ParkedOn != item || (j.State != StateParked && j.State != StateGated) {
+		if j.ParkedOn != item || j.waitsOnBus() || !j.parked() {
 			return nil, fmt.Errorf("job %s is %s, not parked on %s", j.ID, j.State, item)
 		}
-		ev, err := s.move(j, StateReady, "decide", note, now)
-		if err != nil {
-			return nil, err
-		}
-		j.ParkedOn = ""
-		return []eventlog.Event{ev}, nil
+		return resumed(s, j, "decide", note, answer, now)
 	})
 	return err
+}
+
+// resumed makes parked job j ready with note, and keeps answer for its
+// resume prompt. The caller holds s.mu.
+func resumed(s *Store, j *Job, who, note, answer string, now time.Time) ([]eventlog.Event, error) {
+	ev, err := s.move(j, StateReady, who, note, now)
+	if err != nil {
+		return nil, err
+	}
+	j.ParkedOn, j.AskMsg, j.AskTo, j.AskSeen, j.ParkedAt = "", "", "", nil, time.Time{}
+	j.Answer = answer
+	return []eventlog.Event{ev}, nil
+}
+
+// parked reports whether j waits on a park: parked whole, or a gated
+// child.
+func (j *Job) parked() bool {
+	return j.ParkedOn != "" && (j.State == StateParked || j.State == StateGated)
+}
+
+// waitsOnBus reports whether j waits on a reply to its agent bus
+// message rather than on a decide item.
+func (j *Job) waitsOnBus() bool {
+	return j.AskMsg != "" && j.ParkedOn == j.AskMsg
+}
+
+// ParkTarget is what a parked job waits on: "asked <name>" for an
+// agent bus reply, "decision <item>" for a decide item, or empty.
+func (j Job) ParkTarget() string {
+	switch {
+	case !j.parked():
+		return ""
+	case j.waitsOnBus():
+		return "asked " + j.AskTo
+	default:
+		return "decision " + j.ParkedOn
+	}
+}
+
+// Regate moves a job parked on an agent bus message onto decide item
+// item: from then on only the user's verified answer there resumes it,
+// and a reply on the bus is ignored. A manager that cannot answer
+// regates the job onto the item it filed.
+func (s *Store) Regate(id, item string) (Reply, error) {
+	if strings.TrimSpace(item) == "" {
+		return Reply{}, errors.New("regate needs the decide item the job waits on")
+	}
+	return s.update(id, func(j *Job, now time.Time) ([]eventlog.Event, error) {
+		if !j.waitsOnBus() || !j.parked() {
+			return nil, fmt.Errorf("job %s is %s, not parked on an agent bus message", j.ID, j.State)
+		}
+		j.ParkedOn, j.ParkedAt, j.Updated = item, now, now
+		note := "regated from message " + j.AskMsg + " to " + j.AskTo + " onto decide " + item
+		return []eventlog.Event{jobEvent(j, "", "regate", note)}, nil
+	})
 }

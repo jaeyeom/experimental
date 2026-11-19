@@ -148,9 +148,22 @@ type Job struct {
 	// Items are the producer's work items the job handles, such as
 	// review comment ids. Empty is the whole subject.
 	Items []string `json:"items,omitempty"`
-	// ParkedOn is the decide item a job parked mid-run, or its child,
-	// waits on. The user's answer there makes it ready again.
+	// ParkedOn is what a job parked mid-run, or its child, waits on: a
+	// decide item, where the user's answer makes it ready again, or
+	// AskMsg while it waits on a reply over the agent bus.
 	ParkedOn string `json:"parkedOn,omitempty"`
+	// AskMsg is the agent bus message a park asked, and AskTo the name
+	// it was sent to. A reply from that name, or from whoever holds it
+	// now, makes the job ready, until a regate moves ParkedOn to a
+	// decide item. AskSeen are the replies already read.
+	AskMsg  string   `json:"askMsg,omitempty"`
+	AskTo   string   `json:"askTo,omitempty"`
+	AskSeen []string `json:"askSeen,omitempty"`
+	// ParkedAt is when the job began to wait on ParkedOn.
+	ParkedAt time.Time `json:"parkedAt,omitzero"`
+	// Answer is the answer that resumed a parked job, for its resume
+	// prompt.
+	Answer string `json:"answer,omitempty"`
 	// Saved is the branch ref that holds a parked job's work, and Resume
 	// the note its holder left for whoever resumes it. Never a stash.
 	Saved  string `json:"saved,omitempty"`

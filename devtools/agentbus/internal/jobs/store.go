@@ -54,6 +54,11 @@ type Args struct {
 	Decide string `json:"decide,omitempty"`
 	Saved  string `json:"saved,omitempty"`
 	Tab    string `json:"tab,omitempty"`
+	// AskMsg is the agent bus message a park waits on a reply to,
+	// instead of a decide item, and AskTo the name it was sent to,
+	// which the daemon sets.
+	AskMsg string `json:"askMsg,omitempty"`
+	AskTo  string `json:"askTo,omitempty"`
 	// Calls is the GitHub API calls a reserve takes from the budget.
 	Calls int `json:"calls,omitempty"`
 }
@@ -847,6 +852,7 @@ func clone(j *Job) *Job {
 	c := *j
 	c.History = slices.Clone(j.History)
 	c.Items = slices.Clone(j.Items)
+	c.AskSeen = slices.Clone(j.AskSeen)
 	if j.Exit != nil {
 		e := *j.Exit
 		c.Exit = &e

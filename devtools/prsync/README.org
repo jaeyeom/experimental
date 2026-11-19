@@ -155,6 +155,7 @@ are ~KEY=VALUE~. A ~#~ starts a comment. Unknown keys are ignored.
 | ~dispatch_prompt_template~ | built-in        | Review-comment prompt, or ~@/path~ to a file.               |
 | ~dispatch_ask_instruction~ | route-neutral   | Text substituted for ~{ask}~ in the review-thread prompt.   |
 | ~dispatch_ask_to~          | empty           | Name substituted for ~{ask_to}~ in the ask instruction.    |
+| ~dispatch_park_mode~       | ~off~           | ~on~: a review job parks design threads and asks ~dispatch_ask_to~. |
 | ~rebase_prompt_template~   | built-in        | Prompt used with ~dispatch --rebase~.                       |
 | ~merge_prompt_template~    | built-in        | Prompt used with ~dispatch --merge~.                        |
 | ~dispatch_catchup~         | ~rebase~        | ~merge~: merge-queue-fix conflicts merge, not rebase.       |
@@ -170,6 +171,13 @@ For example, a team using an agent manager can set
 ~dispatch_ask_to=review-manager~ and
 ~dispatch_ask_instruction=send the question with a recommended option to {ask_to} over the message bus; never wait silently in your own screen~.
 Custom dispatch prompt templates can use ~{ask}~ and ~{ask_to}~ too.
+
+With ~dispatch_park_mode=on~ as well, a review job (~dispatch --job~)
+does not wait in its tab for a design answer: the agent pushes the
+mechanical threads, asks ~review-manager~ over the agent bus, and parks
+the design threads until it replies. A manager's reply resumes the
+work; it is never the user's approval. See
+[[file:docs/jobs.org::*Park mode][Park mode]].
 
 * Exit codes
 

@@ -52,13 +52,19 @@ fail <id> [--runner <name>] [--exit <code>] [--note <text>]
 gate <id> --runner <name> --note <why>
     the holder hands a running job it has not acted on to the user: it
     is gated, lets go of its lease, and the user is asked in decide
-park <id> --runner <name> --decide <item> --saved <branch> --note <resume note>
-        [--item <id>]...
+park <id> --runner <name> (--decide <item>|--ask-msg <msg-id>) --saved <branch>
+        --note <resume note> [--item <id>]...
     the holder parks a running job while the user answers decide item
-    <item>: its work is on branch <branch>, never a stash, and its
+    <item>, or until the name agentbus message <msg-id> was sent to
+    replies: its work is on branch <branch>, never a stash, and its
     checkout must be clean. With --item the handled part is done and a
-    gated child job holds those items. The user's answer in the inbox
-    makes it ready again, for its tab, or a new agent from <branch>
+    gated child job holds those items. The user's answer in the inbox,
+    or the reply, whose text becomes the note, makes it ready again,
+    for its tab, or a new agent from <branch>
+regate <id> --decide <item>
+    move a job parked on an agentbus message onto decide item <item>:
+    only the user's answer there resumes it, and later replies are
+    ignored. A manager's reply is never the user's approval
 runner --name <unit> [--machine <m>] [--config <path>] [--dry-run]
     run jobs on this machine until stopped; see docs/jobs.org
 ls [--state <s>] [--kind <k>] [--subject <s>] [--all] [--json]
@@ -124,7 +130,8 @@ var jobsSubFlags = map[string][]string{
 	"done":      {"runner", "note"},
 	"fail":      {"runner", "exit", "note"},
 	"gate":      {"runner", "note"},
-	"park":      {"runner", "decide", "saved", "note", "item"},
+	"park":      {"runner", "decide", "ask-msg", "saved", "note", "item"},
+	"regate":    {"decide"},
 	"ls":        {"state", "kind", "subject", "all", "json"},
 	"show":      {"json"},
 	"log":       {"follow"},
@@ -136,11 +143,11 @@ var jobsSubFlags = map[string][]string{
 }
 
 // jobsNeedID are the subcommands that take one job id.
-var jobsNeedID = map[string]bool{"heartbeat": true, "done": true, "fail": true, "gate": true, "park": true, "show": true, "log": true}
+var jobsNeedID = map[string]bool{"heartbeat": true, "done": true, "fail": true, "gate": true, "park": true, "regate": true, "show": true, "log": true}
 
 func runJobs(ctx context.Context, args, env []string, _ io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintf(stderr, "agentbus jobs: want a subcommand: enqueue, claim, heartbeat, done, fail, gate, park, runner, ls, show, log, stats, status, reserve, hold, unhold\n")
+		fmt.Fprintf(stderr, "agentbus jobs: want a subcommand: enqueue, claim, heartbeat, done, fail, gate, park, regate, runner, ls, show, log, stats, status, reserve, hold, unhold\n")
 		return 2
 	}
 	sub := args[0]
@@ -196,6 +203,7 @@ func parseJobsFlags(sub string, allowed, args []string, stderr io.Writer) (jobsF
 	fs.Var(&f.kinds, "kind", "job kind")
 	fs.Var(&f.items, "item", "a work item of the job")
 	fs.StringVar(&f.a.Decide, "decide", "", "the decide item a parked job waits on")
+	fs.StringVar(&f.a.AskMsg, "ask-msg", "", "the agentbus message a parked job waits on a reply to")
 	fs.StringVar(&f.a.Saved, "saved", "", "the branch that holds a parked job's work")
 	fs.Var(&f.exit, "exit", "the job's exit code")
 	fs.IntVar(&f.calls, "calls", 0, "GitHub API calls to reserve")
@@ -248,7 +256,7 @@ func jobsRequired(sub string, f *jobsFlags) error {
 			return errors.New("want --runner")
 		}
 		f.a.Kinds, f.a.Machine, f.a.Needs = f.kinds, f.a.Needs.Machine, jobs.Needs{}
-	case "heartbeat", "gate", "park":
+	case "heartbeat", "gate", "park", "regate":
 		return holderRequired(sub, f.a)
 	case "reserve":
 		if f.calls < 1 || len(f.kinds) > 1 {
@@ -269,16 +277,21 @@ func jobsRequired(sub string, f *jobsFlags) error {
 	return nil
 }
 
-// holderRequired checks the flags of the ops a job's holder runs.
+// holderRequired checks the flags of the ops a job's holder runs, and
+// of regate, which a manager runs on a parked job.
 func holderRequired(sub string, a jobs.Args) error {
 	note := strings.TrimSpace(a.Note) != ""
 	switch {
+	case sub == "regate" && a.Decide == "":
+		return errors.New("want --decide")
+	case sub == "regate":
+		return nil
 	case a.Runner == "":
 		return errors.New("want --runner")
 	case sub == "gate" && !note:
 		return errors.New("want --runner and --note")
-	case sub == "park" && (a.Decide == "" || a.Saved == "" || !note):
-		return errors.New("want --runner, --decide, --saved, and --note")
+	case sub == "park" && ((a.Decide == "") == (a.AskMsg == "") || a.Saved == "" || !note):
+		return errors.New("want --runner, one of --decide or --ask-msg, --saved, and --note")
 	}
 	return nil
 }
@@ -317,7 +330,7 @@ func printJobs(sub string, f jobsFlags, r jobs.Reply, stdout io.Writer) int {
 	case sub == "ls" && f.jsonOut:
 		writeJSON(stdout, r.Jobs)
 	case sub == "ls":
-		printJobTable(stdout, r.Jobs)
+		printJobTable(stdout, r.Jobs, time.Now())
 	case sub == "stats" && f.jsonOut:
 		writeJSON(stdout, r.Stats)
 	case sub == "stats":
@@ -328,7 +341,7 @@ func printJobs(sub string, f jobsFlags, r jobs.Reply, stdout io.Writer) int {
 	case f.jsonOut:
 		writeJSON(stdout, r.Job)
 	case sub == "show":
-		printJob(stdout, *r.Job)
+		printJob(stdout, *r.Job, time.Now())
 	case sub == "claim":
 		j := r.Job
 		fmt.Fprintf(stdout, "%s %s %s %s\n", j.ID, j.Kind, j.Subject, j.Head)
@@ -435,11 +448,11 @@ func jobsReserve(ctx context.Context, f jobsFlags, env []string, stdout, stderr 
 	return 0
 }
 
-func printJobTable(w io.Writer, list []jobs.Job) {
+func printJobTable(w io.Writer, list []jobs.Job, now time.Time) {
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(tw, "ID\tSTATE\tKIND\tSUBJECT\tHEAD\tATTEMPTS\tHOLDER")
 	for _, j := range list {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%d/%d\t%s\n", j.ID, stateLabel(j), j.Kind, j.Subject, dash(j.Head), j.Attempts, j.MaxAttempts, dash(j.Holder))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%d/%d\t%s\n", j.ID, stateLabel(j, now), j.Kind, j.Subject, dash(j.Head), j.Attempts, j.MaxAttempts, dash(j.Holder))
 	}
 	_ = tw.Flush()
 }
@@ -451,13 +464,17 @@ func dash(s string) string {
 	return s
 }
 
-// stateLabel tells a parked job, clean and waiting on a decide item,
-// from a job its runner gated because the pane is blocked.
-func stateLabel(j jobs.Job) string {
+// stateLabel tells a parked job, clean and waiting on an agent bus
+// reply or a decide item, from a job its runner gated because the pane
+// is blocked. A parked job's label has the time it has waited at now,
+// unless now is zero.
+func stateLabel(j jobs.Job, now time.Time) string {
 	state := string(j.State)
-	switch {
-	case j.ParkedOn != "":
-		state += " on " + j.ParkedOn
+	switch target := j.ParkTarget(); {
+	case target != "" && !now.IsZero() && !j.ParkedAt.IsZero():
+		state += " (" + target + ", " + lease.Short(now.Sub(j.ParkedAt).Truncate(time.Second)) + ")"
+	case target != "":
+		state += " (" + target + ")"
 	case j.ParkedFrom != "":
 		state += " (from " + string(j.ParkedFrom) + ")"
 	case j.State == jobs.StateGated && len(j.History) > 0 && j.History[len(j.History)-1].From == jobs.StateRunning:
@@ -466,8 +483,8 @@ func stateLabel(j jobs.Job) string {
 	return state
 }
 
-func printJob(w io.Writer, j jobs.Job) {
-	fmt.Fprintf(w, "id: %s\nstate: %s\nkind: %s\nsubject: %s\n", j.ID, stateLabel(j), j.Kind, j.Subject)
+func printJob(w io.Writer, j jobs.Job, now time.Time) {
+	fmt.Fprintf(w, "id: %s\nstate: %s\nkind: %s\nsubject: %s\n", j.ID, stateLabel(j, now), j.Kind, j.Subject)
 	if j.Head != "" {
 		fmt.Fprintf(w, "head: %s\n", j.Head)
 	}
@@ -553,9 +570,9 @@ func jobsPark(ctx context.Context, f jobsFlags, env []string, stdout, stderr io.
 	if code != 0 {
 		return code
 	}
-	fmt.Fprintf(stdout, "%s %s\n", r.Job.ID, stateLabel(*r.Job))
+	fmt.Fprintf(stdout, "%s %s\n", r.Job.ID, stateLabel(*r.Job, time.Time{}))
 	if r.Child != nil {
-		fmt.Fprintf(stdout, "%s %s\n", r.Child.ID, stateLabel(*r.Child))
+		fmt.Fprintf(stdout, "%s %s\n", r.Child.ID, stateLabel(*r.Child, time.Time{}))
 	}
 	return 0
 }

@@ -94,6 +94,8 @@ var promptWaker = func(exec executor.Executor) dispatch.Waker {
 // dispatchModes are the mutually exclusive prompt-mode flags.
 type dispatchModes struct {
 	rebase, merge, ciFix bool
+	// job is the agentbus job a dispatch --job runs, nil otherwise.
+	job *dispatch.Job
 }
 
 func validateDispatchFlags(prs []string, all bool, m dispatchModes, hint string) error {
@@ -169,6 +171,7 @@ func dispatchPRs(ctx context.Context, exec executor.Executor, cfg config.Config,
 		CIFix:      modes.ciFix,
 		Hint:       hint,
 		Force:      force,
+		Job:        modes.job,
 		Remote:     func(machine string) dispatch.Herdr { return machineHerdr(exec, cfg, machine) },
 		Opener: func(machine string) dispatch.TabOpener {
 			if machine == "" {

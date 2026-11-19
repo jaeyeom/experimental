@@ -143,6 +143,10 @@ func TestJobsCLIUsage(t *testing.T) {
 		{"jobs", "park", "j-1", "--runner", "tiger", "--decide", "d1", "--note", "n"},
 		{"jobs", "park", "j-1", "--runner", "tiger", "--decide", "d1", "--saved", "park/x"},
 		{"jobs", "park", "j-1", "--decide", "d1", "--saved", "park/x", "--note", "n"},
+		{"jobs", "park", "j-1", "--runner", "tiger", "--ask-msg", "m-1", "--note", "n"},
+		{"jobs", "park", "j-1", "--runner", "tiger", "--ask-msg", "m-1", "--decide", "d1", "--saved", "park/x", "--note", "n"},
+		{"jobs", "regate", "j-1"},
+		{"jobs", "regate", "--decide", "d1"},
 		{"jobs", "fail", "j-1", "--exit", "x"},
 		{"jobs", "show", "j-1", "j-2"},
 		{"jobs", "enqueue", "--kind", "a", "--subject", "s", "--gate", "auto"},
@@ -223,14 +227,19 @@ func TestJobsCLIParkNeedsACleanCheckoutAndASavedRef(t *testing.T) {
 	mustCmd(t, []string{"jobs", "enqueue", "--kind", "review", "--subject", "o/r#1", "--checkout", repo, "--item", "c1", "--item", "c2"}, env)
 	mustCmd(t, []string{"jobs", "claim", "--runner", "tiger"}, env)
 	park := []string{"jobs", "park", "j-1", "--runner", "tiger", "--decide", "d9", "--saved", "park/r1", "--note", "c1 answered"}
+	ask := []string{"jobs", "park", "j-1", "--runner", "tiger", "--ask-msg", "m-1", "--saved", "park/r1", "--note", "c1 answered"}
 
-	if code, _, stderr := runCmd(park, env); code != 1 || !strings.Contains(stderr, "park/r1") {
-		t.Fatalf("park with no such branch = %d %q", code, stderr)
+	for _, args := range [][]string{park, ask} {
+		if code, _, stderr := runCmd(args, env); code != 1 || !strings.Contains(stderr, "park/r1") {
+			t.Fatalf("%q with no such branch = %d %q", args, code, stderr)
+		}
 	}
 	git("branch", "park/r1")
 	writeFile(t, filepath.Join(repo, "a.txt"), []byte("half done\n"))
-	if code, _, stderr := runCmd(park, env); code != 1 || !strings.Contains(stderr, "uncommitted") {
-		t.Fatalf("park of a dirty checkout = %d %q", code, stderr)
+	for _, args := range [][]string{park, ask} {
+		if code, _, stderr := runCmd(args, env); code != 1 || !strings.Contains(stderr, "uncommitted") {
+			t.Fatalf("%q of a dirty checkout = %d %q", args, code, stderr)
+		}
 	}
 	stdout, _ := mustCmd(t, []string{"jobs", "show", "j-1"}, env)
 	if !strings.Contains(stdout, "state: running") || !strings.Contains(stdout, "lease: local:"+repo) {
@@ -238,12 +247,15 @@ func TestJobsCLIParkNeedsACleanCheckoutAndASavedRef(t *testing.T) {
 	}
 
 	git("checkout", "-q", "a.txt")
+	if code, _, stderr := runCmd(ask, env); code != 1 || !strings.Contains(stderr, "m-1") {
+		t.Fatalf("park on a message the bus does not have = %d %q", code, stderr)
+	}
 	stdout, _ = mustCmd(t, append(park, "--item", "c2"), env)
-	if stdout != "j-1 done\nj-2 gated on d9\n" {
+	if stdout != "j-1 done\nj-2 gated (decision d9)\n" {
 		t.Fatalf("partial park = %q", stdout)
 	}
 	stdout, _ = mustCmd(t, []string{"jobs", "show", "j-2"}, env)
-	for _, want := range []string{"state: gated on d9", "saved: park/r1", "resume: c1 answered", "items: c2", "parent: j-1"} {
+	for _, want := range []string{"state: gated (decision d9, ", "saved: park/r1", "resume: c1 answered", "items: c2", "parent: j-1"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("show of the child lacks %q:\n%s", want, stdout)
 		}
@@ -255,6 +267,27 @@ func TestJobsCLIParkNeedsACleanCheckoutAndASavedRef(t *testing.T) {
 	stdout, _ = mustCmd(t, []string{"jobs", "enqueue", "--kind", "review", "--subject", "o/r#1", "--head", "def", "--item", "c2"}, env)
 	if stdout != "j-2 gated (duplicate)\n" {
 		t.Fatalf("enqueue of a parked item at a new head = %q", stdout)
+	}
+	if code, _, stderr := runCmd([]string{"jobs", "regate", "j-2", "--decide", "d10"}, env); code != 1 || !strings.Contains(stderr, "agent bus message") {
+		t.Fatalf("regate of a job parked on a decide item = %d %q", code, stderr)
+	}
+}
+
+func TestJobsStateLabelShowsTheParkTargetAndAge(t *testing.T) {
+	at := time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC)
+	now := at.Add(3*time.Hour + 20*time.Minute)
+	for _, tt := range []struct {
+		j    jobs.Job
+		want string
+	}{
+		{jobs.Job{State: jobs.StateParked, ParkedOn: "m-1", AskMsg: "m-1", AskTo: "manager", ParkedAt: at}, "parked (asked manager, 3h20m)"},
+		{jobs.Job{State: jobs.StateGated, ParkedOn: "d9", AskMsg: "m-1", AskTo: "manager", ParkedAt: at}, "gated (decision d9, 3h20m)"},
+		{jobs.Job{State: jobs.StateGated, ParkedOn: "d9"}, "gated (decision d9)"},
+		{jobs.Job{State: jobs.StateReady}, "ready"},
+	} {
+		if got := stateLabel(tt.j, now); got != tt.want {
+			t.Errorf("stateLabel = %q, want %q", got, tt.want)
+		}
 	}
 }
 
