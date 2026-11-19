@@ -165,8 +165,17 @@ Comma-separated machine-wide jobs this run skips. The only job is
 
 Inline text, or ~@/path/to/file~. Substituted: ~{identifier}~ ~{number}~
 ~{title}~ ~{repo}~ ~{url}~ ~{head}~ ~{base}~ ~{state}~ ~{comments}~.
+~{ask}~ is the configured ~dispatch_ask_instruction~ and ~{ask_to}~ is
+~dispatch_ask_to~. The default route-neutral instruction asks through the
+configured channel, recommends an option, and keeps work moving on other
+threads. A custom template can use either placeholder.
 ~{state}~ is ~open~, ~closed~, or ~merged~ (empty when unrecognized).
 Unknown placeholders are left literal.
+
+~dispatch_ask_to~ is a name available inside ~dispatch_ask_instruction~.
+For example, set it to ~review-manager~ and set
+~dispatch_ask_instruction~ to ~send the question with a recommended option to
+{ask_to} over the message bus; never wait silently in your own screen~.
 
 ** dispatch_prompt_suffix
 
