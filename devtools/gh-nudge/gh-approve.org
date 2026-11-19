@@ -315,7 +315,8 @@ error at load time. A file that a pattern covers is judged only by its check;
 an uncovered file fails ~file_checks~ (~<path>: not covered by file_checks~),
 unless the rule also sets ~paths_all_match~, ~codeowners_covered~ or
 ~mine_comments_only~. Those conditions then judge the uncovered files, and
-~--explain~ shows ~not covered (accepted by <condition>)~ for each. A pull
+~--explain~ shows ~not covered (left to <condition>)~ for each, with
+~which passed~ or ~which failed~ when the condition was evaluated. A pull
 request with no covered file never passes ~file_checks~. A rule whose files
 are all covered and all approved needs no other file condition. Loading a
 config that sets ~file_checks~ without one of those three conditions logs a

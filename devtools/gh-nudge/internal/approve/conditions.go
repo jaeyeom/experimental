@@ -267,10 +267,44 @@ func (e *ruleEval) fileChecks(result *RuleResult, reposPassed bool, fileCheck Fi
 		}
 	}
 	got.Pass, got.Saw, got.Details, result.FileCheckPasses = fileCheck(e.rule, e.pr)
+	got.Details = explainUncoveredFiles(got.Details, e.rule.UncoveredLimitedBy(), result.Conditions)
 	if !got.Pass {
 		result.Matched = false
 	}
 	return got
+}
+
+// explainUncoveredFiles reports which conditions judge files that file_checks
+// does not cover, including their outcomes when those conditions were run.
+func explainUncoveredFiles(details, limits []string, conditions []ConditionResult) []string {
+	if len(limits) == 0 {
+		return details
+	}
+	outcomes := make(map[string]ConditionResult, len(conditions))
+	for _, cond := range conditions {
+		outcomes[cond.Condition] = cond
+	}
+	var label strings.Builder
+	for i, name := range limits {
+		if i > 0 {
+			label.WriteString(", ")
+		}
+		label.WriteString(name)
+		if cond, ok := outcomes[name]; ok && !cond.NotEvaluated {
+			if cond.Pass {
+				label.WriteString(", which passed")
+			} else {
+				label.WriteString(", which failed")
+			}
+		}
+	}
+	old := "not covered (accepted by " + strings.Join(limits, ", ") + ")"
+	newLabel := "not covered (left to " + label.String() + ")"
+	result := make([]string, len(details))
+	for i, detail := range details {
+		result[i] = strings.Replace(detail, old, newLabel, 1)
+	}
+	return result
 }
 
 // filterUncoveredPR returns a copy of pr containing only files not covered by

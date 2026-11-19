@@ -63,15 +63,15 @@ func TestFileChecksAllowUncoveredFileWhenAnotherConditionLimitsIt(t *testing.T) 
 	}{
 		"paths_all_match": {
 			mutate: func(r *config.ApproveRule) { r.PathsAllMatch = []string{"src/**"} },
-			want:   "accepted by paths_all_match",
+			want:   "left to paths_all_match, which passed",
 		},
 		"codeowners_covered": {
 			mutate: func(r *config.ApproveRule) { r.CodeownersCovered = true },
-			want:   "accepted by codeowners_covered",
+			want:   "left to codeowners_covered, which failed",
 		},
 		"mine_comments_only": {
 			mutate: func(r *config.ApproveRule) { r.MineCommentsOnly = true },
-			want:   "accepted by mine_comments_only",
+			want:   "left to mine_comments_only, which failed",
 		},
 	}
 	for name, tt := range tests {
@@ -87,6 +87,17 @@ func TestFileChecksAllowUncoveredFileWhenAnotherConditionLimitsIt(t *testing.T) 
 				t.Fatalf("details = %v", got.Details)
 			}
 		})
+	}
+}
+
+func TestFileChecksExplainUncoveredFileWhenPathsAllMatchFails(t *testing.T) {
+	rule := uncoveredRule(func(r *config.ApproveRule) { r.PathsAllMatch = []string{"docs/**"} })
+	pr := prNumber(1)
+	pr.Labels = []string{"cleanup"}
+	pr.Files = uncoveredPR("src/main.go")
+	got := conditionResult(t, EvaluateRule(rule, pr), fileChecksCondition)
+	if !strings.Contains(strings.Join(got.Details, "\n"), "src/main.go: not covered (left to paths_all_match, which failed)") {
+		t.Fatalf("details = %v", got.Details)
 	}
 }
 
