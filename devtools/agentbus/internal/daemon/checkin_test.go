@@ -257,6 +257,8 @@ func TestServeRunsLeaseChecksOnEachTick(t *testing.T) {
 		Result:      map[string]adapter.Result{ciAlice: adapter.ResultAccepted},
 		PaneHandles: map[string]string{"p1": ciAlice},
 	}
+	delivered := make(chan struct{}, 1)
+	ad.OnDeliver = func(string) { delivered <- struct{}{} }
 	c := &clock{now: ciT0()}
 	ticks := make(chan time.Time)
 	cfg := Config{Adapters: []adapter.Adapter{ad}, PollInterval: time.Hour, Now: c.Now, LeaseTicks: ticks}
@@ -282,6 +284,12 @@ func TestServeRunsLeaseChecksOnEachTick(t *testing.T) {
 			t.Fatal("no check-in after a tick")
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+	select {
+	case <-delivered:
+	case <-time.After(2 * time.Second):
+		stop()
+		t.Fatal("no check-in delivery after a tick")
 	}
 	stop()
 	if len(ad.Texts) != 1 || !strings.Contains(ad.Texts[0], lease.CheckInText(ciKey)) {

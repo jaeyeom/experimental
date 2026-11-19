@@ -17,15 +17,19 @@ import (
 // err when it is set.
 type gateHub struct {
 	*fakeHub
-	release chan struct{}
-	mu      sync.Mutex
-	err     error
+	release     chan struct{}
+	finished    chan struct{}
+	releaseOnce sync.Once
+	finishOnce  sync.Once
+	mu          sync.Mutex
+	err         error
 }
 
 func (g *gateHub) List() ([]decide.Item, error) {
 	if g.release != nil {
 		<-g.release
 	}
+	defer g.finishOnce.Do(func() { close(g.finished) })
 	g.mu.Lock()
 	err := g.err
 	g.mu.Unlock()
@@ -33,6 +37,10 @@ func (g *gateHub) List() ([]decide.Item, error) {
 		return nil, err
 	}
 	return g.fakeHub.List()
+}
+
+func (g *gateHub) unblock() {
+	g.releaseOnce.Do(func() { close(g.release) })
 }
 
 type lockedBuffer struct {
@@ -85,7 +93,11 @@ func gatedHub(t *testing.T, question string, state string) *gateHub {
 	mustCreate(t, openLedger(t, hubDir), &decide.Item{
 		Question: question, Owner: "ada", Kind: decide.KindRelay, State: state,
 	})
-	return &gateHub{fakeHub: &fakeHub{hub: &LocalBackend{Dir: hubDir}}, release: make(chan struct{})}
+	return &gateHub{
+		fakeHub:  &fakeHub{hub: &LocalBackend{Dir: hubDir}},
+		release:  make(chan struct{}),
+		finished: make(chan struct{}),
+	}
 }
 
 func TestRunDrawsLoadingBeforeFirstList(t *testing.T) {
@@ -100,7 +112,7 @@ func TestRunDrawsLoadingBeforeFirstList(t *testing.T) {
 	if strings.Contains(out.String(), "ship the startup fix?") {
 		t.Fatalf("items drew before List returned:\n%s", out.String())
 	}
-	close(hub.release)
+	hub.unblock()
 	waitOutput(t, out, "ship the startup fix?")
 	if _, err := w.Write([]byte{'q'}); err != nil {
 		t.Fatal(err)
@@ -111,7 +123,7 @@ func TestRunDrawsLoadingBeforeFirstList(t *testing.T) {
 
 func TestRunQuitsWhileLoading(t *testing.T) {
 	hub := gatedHub(t, "never shown", decide.StateOpen)
-	defer close(hub.release)
+	defer hub.unblock()
 	r, w := io.Pipe()
 	defer w.Close()
 	out := &lockedBuffer{}
@@ -124,6 +136,8 @@ func TestRunQuitsWhileLoading(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitRun(t, done)
+	hub.unblock()
+	<-hub.finished
 }
 
 func TestFirstListErrorShowsAndRetries(t *testing.T) {
