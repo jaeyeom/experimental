@@ -18,6 +18,9 @@ const (
 // TagOffLine is added to items opened by a non-allowed owner in warn mode.
 const TagOffLine = "off-line"
 
+// TagUndelivered marks an item whose agent notification needs attention.
+const TagUndelivered = "undelivered"
+
 // OwnersConfig configures the allow-list of owners who may open items.
 //
 // Mode is "off" (default), "warn", or "enforce". Allowed lists owner names

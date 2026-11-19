@@ -33,6 +33,7 @@ func matchesAny(re *regexp.Regexp, fields ...string) bool {
 // text. NUL separators keep a match inside one field.
 func searchText(it *decide.Item) string {
 	fields := []string{it.ID, it.Owner, it.Question}
+	fields = append(fields, it.DeliveryNotice)
 	for _, msg := range it.Messages {
 		fields = append(fields, msg.Text)
 	}

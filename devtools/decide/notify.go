@@ -122,6 +122,9 @@ type InboxUI struct {
 	// StaleAnswerAfter is how long an answer sits before a follow-up,
 	// such as "30m". Empty is 30 minutes.
 	StaleAnswerAfter string `json:"staleAnswerAfter,omitempty"`
+	// LateDeliveryAfter is how long a bus message may wait before it
+	// needs attention. Empty is five minutes.
+	LateDeliveryAfter string `json:"lateDeliveryAfter,omitempty"`
 	// ArchiveGrace is how long a new message holds inbox archive,
 	// such as "2s". Empty is 2 seconds.
 	ArchiveGrace string `json:"archiveGrace,omitempty"`
@@ -157,6 +160,22 @@ const DefaultArchiveGrace = 2 * time.Second
 // DefaultBusHealthInterval is how often the inbox checks the bus when
 // ui.busHealthInterval is unset.
 const DefaultBusHealthInterval = 15 * time.Second
+
+// DefaultLateDeliveryAfter is when an undelivered bus message needs attention.
+const DefaultLateDeliveryAfter = 5 * time.Minute
+
+// LateDeliveryAfter is ui.lateDeliveryAfter, or the five minute default.
+func (c Config) LateDeliveryAfter() time.Duration {
+	d, err := parseLateDeliveryAfter(c.UI.LateDeliveryAfter)
+	if err != nil || d <= 0 {
+		return DefaultLateDeliveryAfter
+	}
+	return d
+}
+
+func parseLateDeliveryAfter(raw string) (time.Duration, error) {
+	return parsePositiveDuration(raw, "lateDeliveryAfter", "5m")
+}
 
 // BusHealthInterval is ui.busHealthInterval, or DefaultBusHealthInterval
 // when it is unset. LoadConfig rejects an invalid duration.
@@ -343,6 +362,9 @@ func parseConfig(data []byte, dir string) (Config, error) {
 		return Config{}, err
 	}
 	if _, err := parseStaleAnswerAfter(cfg.UI.StaleAnswerAfter); err != nil {
+		return Config{}, err
+	}
+	if _, err := parseLateDeliveryAfter(cfg.UI.LateDeliveryAfter); err != nil {
 		return Config{}, err
 	}
 	if _, err := parseArchiveGrace(cfg.UI.ArchiveGrace); err != nil {

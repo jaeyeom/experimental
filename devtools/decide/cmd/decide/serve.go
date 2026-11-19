@@ -72,10 +72,11 @@ func ledgerBackend() (*tui.LocalBackend, decide.Config, error) {
 		return nil, decide.Config{}, err //nolint:wrapcheck // LoadConfig names the config
 	}
 	return &tui.LocalBackend{
-		Dir:          dir,
-		SendTemplate: cfg.SendTemplate,
-		Checkouts:    cfg.Checkouts,
-		Machine:      decide.LocalMachine(cfg),
+		Dir:               dir,
+		SendTemplate:      cfg.SendTemplate,
+		LateDeliveryAfter: cfg.LateDeliveryAfter(),
+		Checkouts:         cfg.Checkouts,
+		Machine:           decide.LocalMachine(cfg),
 	}, cfg, nil
 }
 
