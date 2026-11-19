@@ -1,12 +1,15 @@
 package tui
 
 import (
+	"context"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/jaeyeom/experimental/devtools/decide"
@@ -395,4 +398,145 @@ func markdownArg(t *testing.T, log string) string {
 		t.Fatalf("no markdown path\n%s", body)
 	}
 	return found
+}
+
+// TestHubEditorReturnsThroughProgram runs the editor through a real
+// program on a hub client. The program input is an idle file, as a
+// terminal is while the editor runs, so a stdin copy into the editor
+// would block until the next key. The fake editor exits at once.
+func TestHubEditorReturnsThroughProgram(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		mode string
+		slow bool
+		want string
+	}{
+		{name: "ready hub", mode: "replace", want: "replaced"},
+		{name: "slow hub", mode: "replace", slow: true, want: "replaced"},
+		{name: "editor error", mode: "dirty", want: "draft"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tmp := t.TempDir()
+			t.Setenv("TMPDIR", tmp)
+			m, fake, _, _ := hubModel(t)
+			m.busRun = func(context.Context, []string) ([]byte, error) {
+				return nil, errors.New("agentbus is not run in tests")
+			}
+			log := filepath.Join(t.TempDir(), "editor.log")
+			t.Setenv("VISUAL", writeEditorScript(t, t.TempDir(), log, tc.mode))
+			t.Setenv("EDITOR", "")
+			press(t, m, "o0draft")
+			if !m.replyFocus || m.reply != "draft" {
+				t.Fatalf("composer %q focus %v", m.reply, m.replyFocus)
+			}
+			if tc.slow {
+				// Every hub call now waits, as during a reconnect.
+				m.interval = 10 * time.Millisecond
+				fake.block = make(chan struct{})
+				defer close(fake.block)
+			}
+
+			r, w, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer r.Close()
+			defer w.Close()
+			p := newProgram(m, r, io.Discard, nil)
+			done := make(chan error, 1)
+			go func() {
+				_, err := p.Run()
+				done <- err
+			}()
+			if _, err := w.Write([]byte{0x07}); err != nil { // Ctrl+G
+				t.Fatal(err)
+			}
+			waitEditorDone(t, log, tmp)
+			p.Quit()
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(5 * time.Second):
+				p.Kill()
+				t.Fatal("the program did not stop after the editor")
+			}
+			if m.reply != tc.want || m.editor != nil {
+				t.Fatalf("composer %q, edit still open %v", m.reply, m.editor != nil)
+			}
+		})
+	}
+}
+
+// waitEditorDone waits until the editor ran and its temp draft in tmp
+// is gone, which finishExternalEdit does.
+func waitEditorDone(t *testing.T, log, tmp string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		_, logErr := os.Stat(log)
+		drafts, _ := filepath.Glob(filepath.Join(tmp, "decide-*.md"))
+		if logErr == nil && len(drafts) == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the editor did not return: log err %v, drafts %v", logErr, drafts)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TestEditorRunDoesNotWaitForInput gives the editor the program input
+// bubbletea passes, a terminal that has no key to read. Run must return
+// when the editor exits, not at the next key.
+func TestEditorRunDoesNotWaitForInput(t *testing.T) {
+	m, _, _ := editorFixture(t)
+	log := filepath.Join(t.TempDir(), "editor.log")
+	t.Setenv("VISUAL", writeEditorScript(t, t.TempDir(), log, "replace"))
+	t.Setenv("EDITOR", "")
+	press(t, m, "o0draft")
+	if editorKeys(m, tea.KeyCtrlG) == nil || m.editor == nil {
+		t.Fatal("editor did not start")
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+	m.editor.SetStdin(programInput(r, nil))
+	m.editor.SetStdout(io.Discard)
+	m.editor.SetStderr(io.Discard)
+	ran := make(chan error, 1)
+	go func() { ran <- m.editor.Run() }()
+	select {
+	case err := <-ran:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run waited for input after the editor exited")
+	}
+}
+
+// TestEditorDraftRemovedWhenProgramEnds covers an inbox that exits
+// while an edit is open: no editorDoneMsg arrives, and the draft goes.
+func TestEditorDraftRemovedWhenProgramEnds(t *testing.T) {
+	m, _, _ := editorFixture(t)
+	t.Setenv("TMPDIR", t.TempDir())
+	t.Setenv("VISUAL", writeEditorScript(t, t.TempDir(), filepath.Join(t.TempDir(), "log"), "replace"))
+	t.Setenv("EDITOR", "")
+	press(t, m, "o0draft")
+	if editorKeys(m, tea.KeyCtrlG) == nil || m.editor == nil {
+		t.Fatal("editor did not start")
+	}
+	path := m.editor.path
+	m.abandonExternalEdit()
+	if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("draft %s err %v", path, err)
+	}
+	if m.editor != nil || m.reply != "draft" {
+		t.Fatalf("edit open %v composer %q", m.editor != nil, m.reply)
+	}
 }

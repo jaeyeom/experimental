@@ -70,7 +70,7 @@ func Run(ctx context.Context, name string, args ...string) (Result, error) {
 // Nil env keeps the process environment.
 func RunEnv(ctx context.Context, env []string, name string, args ...string) (Result, error) {
 	var stdout, stderr bytes.Buffer
-	res, err := runIO(ctx, env, nil, &stdout, &stderr, name, args...)
+	res, err := runIO(ctx, env, false, nil, &stdout, &stderr, name, args...)
 	res.Stdout = stdout.String()
 	res.Stderr = stderr.String()
 	return res, err
@@ -79,27 +79,34 @@ func RunEnv(ctx context.Context, env []string, name string, args ...string) (Res
 // RunIO is Run with the caller's stdin, stdout, and stderr. The Result
 // carries Code and TimedOut; its Stdout and Stderr stay empty.
 func RunIO(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, name string, args ...string) (Result, error) {
-	return runIO(ctx, nil, stdin, stdout, stderr, name, args...)
+	return runIO(ctx, nil, false, stdin, stdout, stderr, name, args...)
 }
 
 // RunIOEnv is RunIO with env as the child's environment.
 // Nil env keeps the process environment.
 func RunIOEnv(ctx context.Context, env []string, stdin io.Reader, stdout, stderr io.Writer, name string, args ...string) (Result, error) {
-	return runIO(ctx, env, stdin, stdout, stderr, name, args...)
+	return runIO(ctx, env, false, stdin, stdout, stderr, name, args...)
 }
 
-func runIO(ctx context.Context, env []string, stdin io.Reader, stdout, stderr io.Writer, name string, args ...string) (Result, error) {
+// RunIOEnvNoTerminal is RunIOEnv in a new session with no controlling
+// terminal, so the child cannot open the terminal, take it from an
+// editor or TUI in the foreground, or get its signals.
+func RunIOEnvNoTerminal(ctx context.Context, env []string, stdin io.Reader, stdout, stderr io.Writer, name string, args ...string) (Result, error) {
+	return runIO(ctx, env, true, stdin, stdout, stderr, name, args...)
+}
+
+func runIO(ctx context.Context, env []string, detach bool, stdin io.Reader, stdout, stderr io.Writer, name string, args ...string) (Result, error) {
 	// The caller names the binary, such as herdr or ssh, and passes an
 	// argument list, not a shell line.
 	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // G702: argv from the caller, not a shell line
 	if len(env) > 0 {
 		cmd.Env = env
 	}
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	setProcessGroup(cmd)
+	setProcessGroup(cmd, detach)
 	cmd.WaitDelay = waitDelay
 	err := cmd.Run()
 	res := Result{TimedOut: errors.Is(ctx.Err(), context.DeadlineExceeded)}

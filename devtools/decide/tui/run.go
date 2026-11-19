@@ -107,6 +107,7 @@ func Run(opts Options) error {
 		inputLog = keyLog
 	}
 	final, err := newProgram(m, opts.In, opts.Out, inputLog).Run()
+	m.abandonExternalEdit()
 	if err != nil {
 		return fmt.Errorf("decide inbox: %w", err)
 	}

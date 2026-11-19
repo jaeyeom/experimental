@@ -6,6 +6,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,14 +16,24 @@ import (
 
 // fakeHub is a hub backend in memory: a LocalBackend on the hub's
 // directory that records each call and fails every call while down.
+// A non-nil block holds every call until it is closed, as a slow or
+// reconnecting hub connection does, and then fails it.
 type fakeHub struct {
 	hub   *LocalBackend
+	mu    sync.Mutex
 	ops   []string
 	down  bool
 	focus []decide.OwnerLocation
+	block chan struct{}
 }
 
 func (f *fakeHub) call(op string) error {
+	if f.block != nil {
+		<-f.block
+		return fmt.Errorf("hub me@hub reconnecting; %s not sent: %w", op, ErrUnreachable)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.ops = append(f.ops, op)
 	if f.down {
 		return fmt.Errorf("hub me@hub unreachable; %s not sent: %w", op, ErrUnreachable)
@@ -105,7 +116,9 @@ func (f *fakeHub) OwnerPane(it *decide.Item) decide.OwnerLocation {
 }
 
 func (f *fakeHub) Locate(_ context.Context, it *decide.Item) decide.OwnerLocation {
+	f.mu.Lock()
 	f.ops = append(f.ops, "locate")
+	f.mu.Unlock()
 	return decide.OwnerLocation{Machine: "hub", Pane: it.NotifyPane, State: decide.LocationLive, Workspace: "exp", Tab: "review", WorkspaceID: "w1", TabID: "w1:t1"}
 }
 
