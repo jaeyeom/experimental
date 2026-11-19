@@ -297,9 +297,10 @@ func commands() []command {
 		},
 		{
 			name:    "prompt-hook",
-			summary: "Block a Claude Code prompt where a bus message was pasted after a user draft, and re-queue it. The install-hooks script runs it.",
-			usage:   "agentbus prompt-hook < hook-input.json",
-			example: "agentbus prompt-hook < hook-input.json",
+			summary: "Guard merged drafts submitted to Claude Code, or disable the guard temporarily.",
+			usage:   "agentbus prompt-hook < hook-input.json | off [--session <id>] | on [--session <id>]",
+			flags:   "off/on  disable or restore blocking globally, or for one session",
+			example: "agentbus prompt-hook off --session 1234",
 			run:     cmdPromptHook,
 		},
 	}

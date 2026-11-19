@@ -234,7 +234,7 @@ handle: herdr:local/default/w1:p1
 | ~health [--json]~                 | Whether the bus can deliver now. Exit 0 ok, 1 daemon unreachable, 4 a transport down.          |
 | ~install-hooks~                   | Install the observe-only ~SendMessage~ hook and the prompt guard.                              |
 | ~hook~                            | Internal. ~install-hooks~ runs it to record one ~SendMessage~ call.                            |
-| ~prompt-hook~                     | Internal. ~install-hooks~ runs it to block a message pasted into a draft.                      |
+| ~prompt-hook~                     | Guard merged drafts; ~prompt-hook off [--session <id>]~ disables it until ~on~.                  |
 
 ~agentbus --help~ (or ~-h~, or ~help~) lists these commands.
 ~agentbus help <command>~ prints that command's flags and an example
@@ -296,8 +296,25 @@ RFC3339 time, or a ~YYYY-MM-DD~ date at local midnight. ~hibernate
 ~hibernate --policy~ runs the memory-pressure policy on a hub-mode
 client. In hub mode, ~mem~ reads idle times from the file that runner
 saves (=policy-seen.json= in the state directory), and adds a note when
-the file is missing or stale. ~hook~ and ~prompt-hook~ are internal: only ~install-hooks~
-should run them.
+the file is missing or stale. ~hook~ and ~prompt-hook~ without arguments
+are internal: only ~install-hooks~ should run them. ~prompt-hook off
+[--session <id>]~ disables blocking globally or for one session;
+~prompt-hook on [--session <id>]~ restores it.
+
+*** Prompt-hook recovery
+
+The installed Claude Code ~UserPromptSubmit~ hook lets prompts through when
+they contain only agentbus deliveries, including surrounding whitespace. If a
+delivery was pasted after your own draft, the hook blocks it once, re-queues
+the bus message, and tells you to press ~Ctrl+U~ to clear the input box. The
+bus keeps the message and redelivers it only after the composer is confirmed
+empty. If re-queueing fails, the hook says the copy in the box is the only
+one; save it before clearing.
+
+If the client restores the blocked draft after a restart, submitting it again
+passes through with context for the agent to separate your text from the
+already re-queued delivery. You can also start a prompt with
+~!agentbus-pass~ to bypass the guard once.
 
 * Configuration
 
