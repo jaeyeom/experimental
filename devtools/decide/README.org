@@ -294,7 +294,7 @@ Any other second key says ~unknown go-to key~.
 | ~/~                          | any                          | Filter the list, or highlight an item. Empty Enter clears. |
 | Esc                          | list                         | Clear the agent filter.                                    |
 | ~1~-~9~                      | item                         | Answer with that option.                                   |
-| ~0~                          | item                         | Free-text reply.                                           |
+| ~0~                          | item                         | Focus the pinned reply box.                                |
 | ~f~                          | item                         | Forward the item.                                          |
 | ~l~                          | item                         | Open the only link, or pick one.                           |
 | ~L~                          | item                         | Copy the link.                                             |
@@ -322,6 +322,12 @@ with no borders or ANSI codes. ~ui.clipboard~ is ~auto~ (OSC 52, plus
 stops above 100 KB. In the avatar picker, ~h~ ~j~ ~k~ ~l~ or the arrows
 move, Enter saves, and Esc cancels. Mouse behavior is under
 [[*Customizing]].
+
+The reply box is pinned to the bottom of the item pane outside the
+scrolling thread, so scrolling the thread never jumps back to the box.
+When unfocused and empty it collapses to one hint line (~reply: ___~);
+when focused or holding a draft it grows with the text up to the cap,
+shrinking the thread area above it, and keeps ~[Send]~ at the bottom.
 
 Archive waits while a message is unseen or newer than ~ui.archiveGrace~
 (default 2s). The status line says ~new message: not archived~. Pending

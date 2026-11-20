@@ -200,7 +200,7 @@ func (m *Model) scrollPage(down bool) {
 }
 
 func (m *Model) threadPage() int {
-	_, n := m.layoutBudget()
+	n, _ := m.detailLayout(m.contentWidth())
 	if n < 1 {
 		return 1
 	}
