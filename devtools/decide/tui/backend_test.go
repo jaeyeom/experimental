@@ -2,7 +2,9 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"slices"
 	"strings"
@@ -363,5 +365,94 @@ func TestLocalSendTemplateFailureDropsTheThread(t *testing.T) {
 	}
 	if len(items) != 0 {
 		t.Fatalf("items = %+v", items)
+	}
+}
+
+type replicaFakeHub struct {
+	*fakeHub
+	mu        sync.Mutex
+	connected bool
+	syncedAt  time.Time
+}
+
+func (r *replicaFakeHub) SyncStatus() SyncStatus {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return SyncStatus{Connected: r.connected, SyncedAt: r.syncedAt}
+}
+
+func (r *replicaFakeHub) MarkRead(id string) (decide.Item, error) {
+	// Replica marks read locally without waiting on the hub.
+	return r.hub.MarkRead(id)
+}
+
+func TestReplicaFreshnessTextAndImmediateOpen(t *testing.T) {
+	hubDir := t.TempDir()
+	item := mustCreate(t, openLedger(t, hubDir), &decide.Item{
+		Question: "ship it?", Owner: "ada", Kind: decide.KindRelay, State: decide.StateOpen, Unread: true,
+		Options: []decide.Option{{Key: "y", Label: "Yes"}},
+	})
+	loc := time.FixedZone("PST", -8*3600)
+	now := time.Date(2026, 11, 20, 14, 17, 0, 0, loc)
+	fake := &replicaFakeHub{
+		fakeHub:   &fakeHub{hub: &LocalBackend{Dir: hubDir}},
+		connected: true,
+		syncedAt:  now.Add(-12 * time.Second),
+	}
+	m, err := prepare(Options{
+		Dir:     t.TempDir(),
+		In:      strings.NewReader(""),
+		Out:     &strings.Builder{},
+		Backend: fake,
+		Now:     func() time.Time { return now },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	m.width, m.height = 100, 30
+	if view := m.View(); !strings.Contains(view, "synced 12s ago") {
+		t.Fatalf("synced view missing freshness:\n%s", view)
+	}
+
+	fake.mu.Lock()
+	fake.connected = false
+	fake.syncedAt = time.Date(2026, 11, 20, 14, 5, 0, 0, loc)
+	fake.mu.Unlock()
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if view := m.View(); !strings.Contains(view, "hub unreachable; showing copy from 14:05") {
+		t.Fatalf("unreachable view missing copy time:\n%s", view)
+	}
+
+	// Open renders at once from the replica even when hub writes are down.
+	fake.down = true
+	press(t, m, "\r")
+	if m.mode != modeDetail || m.detail == nil || m.detail.ID != item.ID {
+		t.Fatalf("open while hub down: mode=%d detail=%v status=%q", m.mode, m.detail, m.status)
+	}
+}
+
+func TestLocalInboxMakesNoReplica(t *testing.T) {
+	cacheDir := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheDir)
+	dir := t.TempDir()
+	mustCreate(t, openLedger(t, dir), &decide.Item{
+		Question: "local item", Owner: "ada", Kind: decide.KindRelay, State: decide.StateOpen, Unread: true,
+	})
+	m, err := prepare(Options{Dir: dir, In: strings.NewReader(""), Out: &strings.Builder{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	m.width, m.height = 100, 30
+	press(t, m, "\r")
+	if _, err := os.Stat(cacheDir + "/decide/replicas"); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("local inbox created replica directory: %v", err)
 	}
 }

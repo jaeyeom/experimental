@@ -56,6 +56,18 @@ type StatusBoard struct {
 // could not be reached. The inbox keeps its view and says so.
 var ErrUnreachable = errors.New("hub unreachable")
 
+// SyncStatus reports the hub replica's connection state and last sync time.
+type SyncStatus struct {
+	Connected bool
+	SyncedAt  time.Time
+}
+
+// ReplicaBackend is a backend that serves reads from a local replica
+// and reports its sync freshness.
+type ReplicaBackend interface {
+	SyncStatus() SyncStatus
+}
+
 // unreachableStatus is the status line while the hub is unreachable.
 const unreachableStatus = "hub unreachable; retrying"
 

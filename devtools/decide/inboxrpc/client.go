@@ -109,7 +109,8 @@ func (e *endedReader) Read(p []byte) (int, error) {
 // messages. Machine is this machine's herdr label, and HubMachine the
 // hub's label in this machine's herdr; an owner pane on the hub is
 // focused through `herdr --machine <HubMachine>`. Herdr replaces
-// decide.ExecHerdr and Now time.Now.
+// decide.ExecHerdr and Now time.Now. CacheDir overrides the replica
+// cache directory when set.
 type Client struct {
 	Dial       Dialer
 	Label      string
@@ -118,10 +119,12 @@ type Client struct {
 	Herdr      decide.HerdrCall
 	Timeout    time.Duration
 	Now        func() time.Time
+	CacheDir   string
 
 	mu      sync.Mutex
 	sess    *session
 	dialing bool
+	closed  bool
 	nextID  int64
 	retryAt time.Time
 	backoff time.Duration
@@ -129,6 +132,18 @@ type Client struct {
 	// and displayGen counts the connects that fetched them.
 	display    decide.DisplaySettings
 	displayGen uint64
+
+	replicaOnce sync.Once
+	replica     *replicaStore
+	replicaErr  error
+
+	wg sync.WaitGroup
+
+	markReadMu      sync.Mutex
+	markReadQueue   []string
+	markReadQueued  map[string]bool
+	markReadRunning bool
+	markReadWake    chan struct{}
 }
 
 var _ tui.Backend = (*Client)(nil)
@@ -146,27 +161,69 @@ func (e *hubError) Unwrap() error { return e.err }
 
 func (e *hubError) Is(target error) bool { return target == tui.ErrUnreachable }
 
-// Connect starts the session and checks the server's protocol.
+func (c *Client) ensureReplica() (*replicaStore, error) {
+	c.replicaOnce.Do(func() {
+		c.replica, c.replicaErr = newReplicaStore(c.CacheDir, c.Label)
+	})
+	return c.replica, c.replicaErr
+}
+
+// Connect starts the session, checks the server's protocol, and syncs
+// the local replica from its last sequence number.
 func (c *Client) Connect() error {
+	if _, err := c.ensureReplica(); err != nil {
+		return err
+	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.sess != nil {
+		c.mu.Unlock()
 		return nil
 	}
-	sess, display, err := c.open()
+	c.mu.Unlock()
+	sess, display, watchCh, err := c.open()
 	if err != nil {
 		return err
 	}
-	c.connected(sess, display)
+	c.mu.Lock()
+	c.connected(sess, display, watchCh)
+	c.mu.Unlock()
 	return nil
 }
 
-// connected keeps sess and the display settings it fetched. The caller
-// holds c.mu.
-func (c *Client) connected(sess *session, display decide.DisplaySettings) {
+// connected keeps sess, the display settings it fetched, and starts the
+// watch loop. The caller holds c.mu.
+func (c *Client) connected(sess *session, display decide.DisplaySettings, watchCh <-chan Response) {
 	c.sess = sess
 	c.display = display
 	c.displayGen++
+	if watchCh != nil {
+		c.wg.Add(1)
+		go func() {
+			defer c.wg.Done()
+			c.watchLoop(sess, watchCh)
+		}()
+	}
+	c.kickMarkRead()
+}
+
+// isConnected reports whether the hub session is currently up.
+func (c *Client) isConnected() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.sess != nil
+}
+
+// SyncStatus implements tui.ReplicaBackend.
+func (c *Client) SyncStatus() tui.SyncStatus {
+	rep, err := c.ensureReplica()
+	var syncedAt time.Time
+	if err == nil && rep != nil {
+		syncedAt = rep.syncedAt()
+	}
+	return tui.SyncStatus{
+		Connected: c.isConnected(),
+		SyncedAt:  syncedAt,
+	}
 }
 
 // Display is the hub's display settings from the latest connect, and a
@@ -178,14 +235,18 @@ func (c *Client) Display() (decide.DisplaySettings, uint64) {
 	return c.display, c.displayGen
 }
 
-// Close ends the session.
+// Close ends the session and waits for background client goroutines.
 func (c *Client) Close() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.sess != nil {
-		c.sess.close(errors.New("closed"))
-		c.sess = nil
+	c.closed = true
+	sess := c.sess
+	c.sess = nil
+	c.mu.Unlock()
+	if sess != nil {
+		sess.close(errors.New("closed"))
 	}
+	c.kickMarkRead()
+	c.wg.Wait()
 }
 
 func (c *Client) now() time.Time {
@@ -202,38 +263,73 @@ func (c *Client) timeout() time.Duration {
 	return DefaultTimeout
 }
 
-// open dials, says hello, and fetches the hub's display settings. The
-// caller holds c.mu or owns c.dialing. Both requests use id 0, one
-// after the other, before any other request is on the session.
-func (c *Client) open() (*session, decide.DisplaySettings, error) {
+// open dials, says hello, fetches display settings, and starts watch
+// from the replica's last sequence number.
+func (c *Client) open() (*session, decide.DisplaySettings, <-chan Response, error) {
 	var none decide.DisplaySettings
+	rep, err := c.ensureReplica()
+	if err != nil {
+		return nil, none, nil, err
+	}
 	conn, err := c.Dial()
 	if err != nil {
-		return nil, none, c.unreachable(err)
+		return nil, none, nil, c.unreachable(err)
 	}
 	sess := newSession(conn)
 	resp, err := sess.do(context.Background(), Request{ID: 0, Op: OpHello}, c.timeout())
 	if err != nil {
 		sess.close(err)
-		return nil, none, c.unreachable(err)
+		return nil, none, nil, c.unreachable(err)
 	}
 	if err := protocolMismatch(c.Label, resp); err != nil {
 		sess.close(errors.New("protocol"))
-		return nil, none, err
+		return nil, none, nil, err
 	}
 	resp, err = sess.do(context.Background(), Request{ID: 0, Op: OpConfig}, c.timeout())
 	if err != nil {
 		sess.close(err)
-		return nil, none, c.unreachable(err)
+		return nil, none, nil, c.unreachable(err)
 	}
 	if resp.Error != "" {
 		sess.close(errors.New("config"))
-		return nil, none, fmt.Errorf("hub %s: display settings: %s", c.Label, resp.Error)
+		return nil, none, nil, fmt.Errorf("hub %s: display settings: %s", c.Label, resp.Error)
 	}
-	if resp.Display == nil {
-		return sess, none, nil
+	display := none
+	if resp.Display != nil {
+		display = *resp.Display
 	}
-	return sess, *resp.Display, nil
+	watchResp, watchCh, err := sess.startWatch(context.Background(), c.allocID(), rep.seq(), c.timeout())
+	if err != nil {
+		sess.close(err)
+		return nil, none, nil, c.unreachable(err)
+	}
+	if watchResp.Error != "" {
+		if strings.HasPrefix(watchResp.Error, "unknown op ") {
+			return sess, display, nil, nil
+		}
+		sess.close(errors.New("watch"))
+		return nil, none, nil, fmt.Errorf("hub %s: watch: %s", c.Label, watchResp.Error)
+	}
+	if rep.applySync(watchResp, c.now()) {
+		watchResp, watchCh, err = sess.startWatch(context.Background(), c.allocID(), 0, c.timeout())
+		if err != nil {
+			sess.close(err)
+			return nil, none, nil, c.unreachable(err)
+		}
+		if watchResp.Error != "" {
+			sess.close(errors.New("watch"))
+			return nil, none, nil, fmt.Errorf("hub %s: watch: %s", c.Label, watchResp.Error)
+		}
+		rep.applySync(watchResp, c.now())
+	}
+	return sess, display, watchCh, nil
+}
+
+func (c *Client) allocID() int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.nextID++
+	return c.nextID
 }
 
 // protocolMismatch reports a hello the two sides cannot share. A hub
@@ -263,8 +359,8 @@ func (c *Client) unreachable(err error) error {
 }
 
 // session is the connected session. While there is none, a write fails
-// at once. A list, the inbox's periodic read, dials again once the
-// backoff has passed.
+// at once. A non-write op returns unreachable and triggers a background
+// reconnect once the backoff has passed.
 func (c *Client) session(op string) (*session, error) {
 	c.mu.Lock()
 	if c.sess != nil {
@@ -275,23 +371,77 @@ func (c *Client) session(op string) (*session, error) {
 		c.mu.Unlock()
 		return nil, &hubError{msg: fmt.Sprintf("hub %s unreachable; %s not sent", c.Label, op)}
 	}
-	if op != OpList || c.dialing || c.now().Before(c.retryAt) {
+	c.mu.Unlock()
+	c.maybeReconnect()
+	return nil, &hubError{msg: fmt.Sprintf("hub %s unreachable; retrying", c.Label)}
+}
+
+// maybeReconnect starts a background reconnect if disconnected and past backoff.
+func (c *Client) maybeReconnect() {
+	c.mu.Lock()
+	if c.sess != nil || c.closed || c.dialing || c.now().Before(c.retryAt) {
 		c.mu.Unlock()
-		return nil, &hubError{msg: fmt.Sprintf("hub %s unreachable; retrying", c.Label)}
+		return
 	}
 	c.dialing = true
+	c.wg.Add(1)
 	c.mu.Unlock()
-	sess, display, err := c.open()
+	go func() {
+		defer c.wg.Done()
+		c.reconnect()
+	}()
+}
+
+func (c *Client) reconnect() {
+	sess, display, watchCh, err := c.open()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.dialing = false
 	if err != nil {
 		c.failed()
-		return nil, err
+		return
 	}
-	c.connected(sess, display)
+	if c.closed {
+		sess.close(errors.New("closed"))
+		return
+	}
+	c.connected(sess, display, watchCh)
 	c.backoff = 0
-	return sess, nil
+}
+
+func (c *Client) watchLoop(sess *session, watchCh <-chan Response) {
+	rep, err := c.ensureReplica()
+	if err != nil {
+		return
+	}
+	for {
+		select {
+		case <-sess.done:
+			sess.mu.Lock()
+			serr := sess.err
+			sess.mu.Unlock()
+			c.drop(sess, serr)
+			return
+		case resp := <-watchCh:
+			if resp.Error != "" {
+				c.drop(sess, errors.New(resp.Error))
+				return
+			}
+			if rep.applySync(resp, c.now()) {
+				resyncResp, newCh, err := sess.startWatch(context.Background(), c.allocID(), 0, c.timeout())
+				if err != nil {
+					c.drop(sess, err)
+					return
+				}
+				if resyncResp.Error != "" {
+					c.drop(sess, errors.New(resyncResp.Error))
+					return
+				}
+				rep.applySync(resyncResp, c.now())
+				watchCh = newCh
+			}
+		}
+	}
 }
 
 // failed schedules the next reconnect. The caller holds c.mu.
@@ -356,20 +506,38 @@ func (c *Client) item(req Request) (decide.Item, error) {
 		return decide.Item{}, fmt.Errorf("hub %s: %s returned no item", c.Label, req.Op)
 	}
 	if resp.NotifyError != "" {
+		if rep, rerr := c.ensureReplica(); rerr == nil && rep != nil {
+			rep.upsertLocal(*resp.Item)
+		}
 		return *resp.Item, &tui.NotifyError{Err: errors.New(resp.NotifyError)}
+	}
+	if rep, rerr := c.ensureReplica(); rerr == nil && rep != nil {
+		rep.upsertLocal(*resp.Item)
 	}
 	return *resp.Item, nil
 }
 
-// List implements tui.Backend. It refreshes the cached display settings
-// first, so another client's avatar save shows up on this poll.
+// List implements tui.Backend. It reads from the local replica without
+// waiting on the hub, and triggers a background reconnect when down.
 func (c *Client) List() ([]decide.Item, error) {
-	c.refreshDisplay()
-	resp, err := c.call(Request{Op: OpList})
+	rep, err := c.ensureReplica()
 	if err != nil {
 		return nil, err
 	}
-	return resp.Items, nil
+	c.mu.Lock()
+	connected := c.sess != nil
+	closed := c.closed
+	c.mu.Unlock()
+	if connected && !closed {
+		c.wg.Add(1)
+		go func() {
+			defer c.wg.Done()
+			c.refreshDisplay()
+		}()
+	} else {
+		c.maybeReconnect()
+	}
+	return rep.items(), nil
 }
 
 // SetAvatar saves choice for name on the hub and returns its display
@@ -499,14 +667,115 @@ func displaySame(a, b decide.DisplaySettings) bool {
 	return errA == nil && errB == nil && bytes.Equal(left, right)
 }
 
-// Get is one item.
+// Get returns one item from the local replica without waiting on the hub.
 func (c *Client) Get(id string) (decide.Item, error) {
-	return c.item(Request{Op: OpShow, Item: id})
+	rep, err := c.ensureReplica()
+	if err != nil {
+		return decide.Item{}, err
+	}
+	it, ok := rep.get(id)
+	if !ok {
+		return decide.Item{}, fmt.Errorf("decide item %s not found", id)
+	}
+	return it, nil
 }
 
-// MarkRead implements tui.Backend.
+// MarkRead implements tui.Backend. It updates the local replica at once
+// and sends mark-read to the hub in the background, retrying on failure.
 func (c *Client) MarkRead(id string) (decide.Item, error) {
-	return c.item(Request{Op: OpMarkRead, Item: id})
+	rep, err := c.ensureReplica()
+	if err != nil {
+		return decide.Item{}, err
+	}
+	it, ok := rep.markReadLocal(id)
+	if !ok {
+		return decide.Item{}, fmt.Errorf("decide item %s not found", id)
+	}
+	c.enqueueMarkRead(id)
+	return it, nil
+}
+
+func (c *Client) enqueueMarkRead(id string) {
+	c.markReadMu.Lock()
+	if c.markReadQueued == nil {
+		c.markReadQueued = make(map[string]bool)
+	}
+	if !c.markReadQueued[id] {
+		c.markReadQueued[id] = true
+		c.markReadQueue = append(c.markReadQueue, id)
+	}
+	startWorker := false
+	if !c.markReadRunning {
+		c.markReadRunning = true
+		if c.markReadWake == nil {
+			c.markReadWake = make(chan struct{}, 1)
+		}
+		startWorker = true
+	}
+	c.markReadMu.Unlock()
+	if startWorker {
+		c.wg.Add(1)
+		go func() {
+			defer c.wg.Done()
+			c.markReadWorker()
+		}()
+	}
+	c.kickMarkRead()
+}
+
+func (c *Client) kickMarkRead() {
+	c.markReadMu.Lock()
+	ch := c.markReadWake
+	c.markReadMu.Unlock()
+	if ch == nil {
+		return
+	}
+	select {
+	case ch <- struct{}{}:
+	default:
+	}
+}
+
+func (c *Client) markReadWorker() {
+	const retryInterval = 250 * time.Millisecond
+	for {
+		c.mu.Lock()
+		closed := c.closed
+		c.mu.Unlock()
+		if closed {
+			return
+		}
+		c.markReadMu.Lock()
+		if len(c.markReadQueue) == 0 {
+			c.markReadRunning = false
+			c.markReadMu.Unlock()
+			return
+		}
+		id := c.markReadQueue[0]
+		wake := c.markReadWake
+		c.markReadMu.Unlock()
+
+		_, err := c.call(Request{Op: OpMarkRead, Item: id})
+		if err == nil {
+			if rep, rerr := c.ensureReplica(); rerr == nil && rep != nil {
+				rep.clearPendingMarkRead(id)
+			}
+			c.markReadMu.Lock()
+			if len(c.markReadQueue) > 0 && c.markReadQueue[0] == id {
+				c.markReadQueue = c.markReadQueue[1:]
+				delete(c.markReadQueued, id)
+			}
+			c.markReadMu.Unlock()
+			continue
+		}
+		c.maybeReconnect()
+		timer := time.NewTimer(retryInterval)
+		select {
+		case <-wake:
+			timer.Stop()
+		case <-timer.C:
+		}
+	}
 }
 
 // Answer implements tui.Backend. The hub records via ui.
@@ -549,16 +818,14 @@ func (c *Client) Unsnooze(id string) (decide.Item, error) {
 	return c.item(Request{Op: OpUnsnooze, Item: id})
 }
 
-// Status implements tui.Backend.
+// Status implements tui.Backend. It reads from the local replica without
+// waiting on the hub.
 func (c *Client) Status() (tui.StatusBoard, error) {
-	resp, err := c.call(Request{Op: OpStatus})
+	rep, err := c.ensureReplica()
 	if err != nil {
 		return tui.StatusBoard{}, err
 	}
-	if resp.Status == nil {
-		return tui.StatusBoard{}, nil
-	}
-	return *resp.Status, nil
+	return rep.status(), nil
 }
 
 // Targets are the hub's configured recipients and whether it adds
@@ -664,6 +931,8 @@ type session struct {
 	wmu     sync.Mutex
 	mu      sync.Mutex
 	pending map[int64]chan Response
+	watchID int64
+	watchCh chan Response
 	done    chan struct{}
 	err     error
 	once    sync.Once
@@ -684,6 +953,15 @@ func (s *session) read() {
 			continue
 		}
 		s.mu.Lock()
+		if s.watchCh != nil && resp.ID == s.watchID {
+			wch := s.watchCh
+			s.mu.Unlock()
+			select {
+			case wch <- resp:
+			case <-s.done:
+			}
+			continue
+		}
 		ch := s.pending[resp.ID]
 		delete(s.pending, resp.ID)
 		s.mu.Unlock()
@@ -746,6 +1024,44 @@ func (s *session) do(ctx context.Context, req Request, timeout time.Duration) (R
 		delete(s.pending, req.ID)
 		s.mu.Unlock()
 		return Response{}, &callerGaveUp{err: ctx.Err()}
+	}
+}
+
+func (s *session) startWatch(ctx context.Context, id, since int64, timeout time.Duration) (Response, <-chan Response, error) {
+	req := Request{ID: id, Op: OpWatch, Since: since}
+	line, err := json.Marshal(req)
+	if err != nil {
+		return Response{}, nil, fmt.Errorf("encode request: %w", err)
+	}
+	wch := make(chan Response, 64)
+	s.mu.Lock()
+	if s.err != nil {
+		err := s.err
+		s.mu.Unlock()
+		return Response{}, nil, err
+	}
+	s.watchID = id
+	s.watchCh = wch
+	s.mu.Unlock()
+	s.wmu.Lock()
+	_, err = s.conn.W.Write(append(line, '\n'))
+	s.wmu.Unlock()
+	if err != nil {
+		return Response{}, nil, fmt.Errorf("send request: %w", err)
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case resp := <-wch:
+		return resp, wch, nil
+	case <-s.done:
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return Response{}, nil, s.err
+	case <-timer.C:
+		return Response{}, nil, fmt.Errorf("no answer in %s", timeout)
+	case <-ctx.Done():
+		return Response{}, nil, &callerGaveUp{err: ctx.Err()}
 	}
 }
 
