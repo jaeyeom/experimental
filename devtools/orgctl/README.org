@@ -236,6 +236,25 @@ user
     └── [pool] typists (max 3)
 #+END_EXAMPLE
 
+~diff~ compares two rendered specs, for example the JSON of a proposed
+branch against main, and prints one line per change, grouped by role.
+Rules and schedules are matched by id and list items by value, so
+something that only moved is not reported. A long text such as a
+schedule prompt shows a word diff, at most three hunks unless ~--full~.
+
+#+BEGIN_SRC bash
+orgctl diff main.json proposed.json
+#+END_SRC
+
+#+BEGIN_EXAMPLE
++ role desk/night (new)
+~ desk/clerk: reportsTo desk/lead -> (none)
+~ desk/clerk: + decides "refund under $50"
+~ desk/clerk: schedule morning cron "0 8 * * *" -> "0 9 * * *"
+~ desk/clerk: schedule morning prompt changed (+2 -0 words)
+    Check the {+refund+} queue and file
+#+END_EXAMPLE
+
 * Commands
 
 #+BEGIN_EXAMPLE
@@ -245,9 +264,10 @@ orgctl drift  [--agents-md-root DIR] SPEC.json
 orgctl import [--out FILE] [--force] [--schema PATH]
 orgctl render agents-md --root DIR [--check] SPEC.json
 orgctl tree   [--root ROLE] [--root-label TEXT] [--depth N] [--live] [--json] [--ascii] SPEC.json
+orgctl diff   [--full] [--json] OLD.json NEW.json
 #+END_EXAMPLE
 
-~check~, ~plan~, ~drift~, ~import~, and ~tree~ only read. ~tree~ reads
+~check~, ~plan~, ~drift~, ~import~, ~tree~, and ~diff~ only read. ~tree~ reads
 live state only with ~--live~. ~render agents-md~ writes
 only ~AGENTS.md~ and ~CLAUDE.md~ files under ~--root~ (unless ~--check~ is set).
 
@@ -269,6 +289,8 @@ only ~AGENTS.md~ and ~CLAUDE.md~ files under ~--root~ (unless ~--check~ is set).
 | --live               | tree              | add alive, hibernated, dead, or missing  |
 | --json               | tree              | nested label/kind/max/live/children      |
 | --ascii              | tree              | draw with pipes and backquotes           |
+| --full               | diff              | every word-diff hunk of a long text      |
+| --json               | diff              | the changes as a list for other tools    |
 
 ~--machine~ and ~--role~ are both applied. Empty means no filter.
 ~--expiring~ defaults to ~2d~, which is 48 hours. ~Nd~ is a whole

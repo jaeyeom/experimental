@@ -33,6 +33,9 @@ uses 2 for usage, not for a difference.
 | tree    | 0    | the chart was printed                    |
 | tree    | 1    | the spec, a reportsTo cycle, or a read   |
 | tree    | 2    | usage, including an unknown --root       |
+| diff    | 0    | the specs have no difference             |
+| diff    | 1    | a difference was printed                 |
+| diff    | 2    | usage, an unreadable file, or bad JSON   |
 | (none)  | 2    | usage, or an unknown command             |
 
 A diff marker is a line whose first character is ~+~, a tilde, ~!~,

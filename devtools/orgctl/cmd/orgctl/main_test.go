@@ -575,3 +575,34 @@ func TestTreeAndCheckRejectCycle(t *testing.T) {
 		t.Fatalf("check exit %d: %s", code, stderr.String())
 	}
 }
+
+func TestDiffExitCodesAndJSON(t *testing.T) {
+	a := writeSpec(t, `{"roles":{"review/lead":{"reportsTo":"desk/head"}}}`)
+	b := writeSpec(t, `{"roles":{"review/lead":{"reportsTo":"desk/chief"},"review/triage":{}}}`)
+	var stdout, stderr bytes.Buffer
+	if code := runIO([]string{"diff", a, a}, &stdout, &stderr, noLive(t)); code != 0 || stdout.Len() != 0 {
+		t.Fatalf("same spec: exit %d\n%s%s", code, stdout.String(), stderr.String())
+	}
+	if code := runIO([]string{"diff", a, b}, &stdout, &stderr, noLive(t)); code != 1 ||
+		stdout.String() != "~ review/lead: reportsTo desk/head -> desk/chief\n+ role review/triage (new)\n" {
+		t.Fatalf("diff: exit %d\n%s%s", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	if code := runIO([]string{"diff", "--json", a, b}, &stdout, &stderr, noLive(t)); code != 1 {
+		t.Fatalf("json: exit %d: %s", code, stderr.String())
+	}
+	var changes []orgctl.Change
+	if err := json.Unmarshal(stdout.Bytes(), &changes); err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 2 || changes[0].Field != "reportsTo" || changes[0].Old != "desk/head" || changes[0].New != "desk/chief" || changes[1].Kind != orgctl.ChangeAdd {
+		t.Fatalf("changes %+v", changes)
+	}
+	bad := writeSpec(t, `{not json`)
+	for _, args := range [][]string{{"diff", a}, {"diff", a, bad}, {"diff", a, filepath.Join(t.TempDir(), "missing.json")}} {
+		stderr.Reset()
+		if code := runIO(args, &stdout, &stderr, noLive(t)); code != 2 {
+			t.Errorf("%v: exit %d, want 2", args, code)
+		}
+	}
+}
