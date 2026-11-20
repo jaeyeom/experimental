@@ -282,6 +282,126 @@ rules:
         section: "## Usage"
         why: "bazel test //tools/org-lint:all_org_lint_tests"
 
+  # --- devtools README.md entry points ---
+  - match: ["devtools/agentbus/**"]
+    docs:
+      - path: devtools/agentbus/README.md
+        why: "tool overview and installation entry point"
+
+  - match: ["devtools/ascii-art/**"]
+    docs:
+      - path: devtools/ascii-art/README.md
+        why: "tool overview and installation entry point"
+
+  - match: ["devtools/authwatch/**"]
+    docs:
+      - path: devtools/authwatch/README.md
+        why: "tool overview and installation entry point"
+
+  - match: ["devtools/claude-usage/**"]
+    docs:
+      - path: devtools/claude-usage/README.md
+        why: "tool overview and installation entry point"
+
+  - match: ["devtools/contacts/**"]
+    docs:
+      - path: devtools/contacts/README.md
+        why: "tool overview and installation entry point"
+
+  - match: ["devtools/decide/**"]
+    docs:
+      - path: devtools/decide/README.md
+        why: "tool overview and installation entry point"
+
+  - match: ["devtools/devcheck/**"]
+    docs:
+      - path: devtools/devcheck/README.md
+        why: "tool overview and installation entry point"
+
+  - match: ["devtools/diskwatch/**"]
+    docs:
+      - path: devtools/diskwatch/README.md
+        why: "tool overview and installation entry point"
+
+  - match: ["devtools/docsync/**"]
+    docs:
+      - path: devtools/docsync/README.md
+        why: "tool overview and installation entry point"
+
+  - match: ["devtools/fork-keeper/**"]
+    docs:
+      - path: devtools/fork-keeper/README.md
+        why: "tool overview and installation entry point"
+
+  - match: ["devtools/gh-ask/**"]
+    docs:
+      - path: devtools/gh-ask/README.md
+        why: "tool overview and installation entry point"
+
+  - match: ["devtools/gh-nudge/**"]
+    docs:
+      - path: devtools/gh-nudge/README.md
+        why: "tool overview and installation entry point"
+
+  - match: ["devtools/gh-outbox/**"]
+    docs:
+      - path: devtools/gh-outbox/README.md
+        why: "tool overview and installation entry point"
+
+  - match: ["devtools/linters/**"]
+    docs:
+      - path: devtools/linters/README.md
+        why: "tool overview and installation entry point"
+
+  - match: ["devtools/magit/**"]
+    docs:
+      - path: devtools/magit/README.md
+        why: "tool overview and installation entry point"
+
+  - match: ["devtools/orgctl/**"]
+    docs:
+      - path: devtools/orgctl/README.md
+        why: "tool overview and installation entry point"
+
+  - match: ["devtools/pkg/**"]
+    docs:
+      - path: devtools/pkg/README.md
+        why: "shared package overview"
+
+  - match: ["devtools/prsync/**"]
+    docs:
+      - path: devtools/prsync/README.md
+        why: "tool overview and installation entry point"
+
+  - match: ["devtools/quotapace/**"]
+    docs:
+      - path: devtools/quotapace/README.md
+        why: "tool overview and installation entry point"
+
+  - match: ["devtools/rename-jira-keys/**"]
+    docs:
+      - path: devtools/rename-jira-keys/README.md
+        why: "tool overview and installation entry point"
+
+  - match: ["devtools/repo-sync/**"]
+    docs:
+      - path: devtools/repo-sync/README.md
+        why: "tool overview and installation entry point"
+
+  - match: ["devtools/reviewpush/**"]
+    docs:
+      - path: devtools/reviewpush/README.md
+        why: "tool overview and installation entry point"
+
+  - match: ["devtools/setup-dev/**"]
+    docs:
+      - path: devtools/setup-dev/README.md
+        why: "tool overview and installation entry point"
+
+  - match: ["devtools/slackwatch/**"]
+    docs:
+      - path: devtools/slackwatch/README.md
+        why: "tool overview and installation entry point"
   # --- devtools catalog summaries (any source change in the package) ---
   - match: ["devtools/devcheck/**/*.go"]
     docs:
