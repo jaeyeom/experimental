@@ -411,6 +411,7 @@ var platformSpecificTools = []PlatformSpecificTool{
 		Imports: []Import{
 			{Playbook: "setup-codex-termux", When: WhenTermux, PostInstall: true},
 			{Playbook: "setup-codex-skills", PostInstall: true},
+			{Playbook: "setup-codex-rules", PostInstall: true},
 		},
 	},
 	{

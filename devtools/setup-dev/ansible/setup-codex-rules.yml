@@ -1,0 +1,41 @@
+---
+# Codex execpolicy rules. Every *.rules file under ~/.codex/rules is
+# loaded, so this playbook owns only no-worktree.rules and leaves any
+# other rule file alone.
+- name: Install Codex command rules
+  hosts: all
+  vars:
+    codex_rules_dir: "{{ ansible_facts['env']['HOME'] }}/.codex/rules"
+    codex_no_worktree_rules: "{{ codex_rules_dir }}/no-worktree.rules"
+  tasks:
+    - name: Include guard for setup-codex-rules playbook
+      block:
+        - name: Stop early if the setup-codex-rules playbook is already included
+          meta: end_play
+          when: setup_codex_rules_playbook_imported is defined
+        - name: Ensure the setup-codex-rules playbook is not included
+          set_fact:
+            setup_codex_rules_playbook_imported: true
+          when: setup_codex_rules_playbook_imported is not defined
+
+    - name: Create Codex rules directory
+      file:
+        path: "{{ codex_rules_dir }}"
+        state: directory
+        mode: "0755"
+      tags: codex-rules
+
+    # Work in the existing checkout: no git worktrees
+    # (jaeyeom/experimental#982).
+    - name: Forbid git worktree in Codex
+      copy:
+        dest: "{{ codex_no_worktree_rules }}"
+        mode: "0644"
+        content: |
+          # Managed by setup-dev setup-codex-rules.yml. Edits are overwritten.
+          prefix_rule(
+              pattern = ["git", "worktree"],
+              decision = "forbidden",
+              justification = "Work in the existing checkout; git worktrees are not allowed.",
+          )
+      tags: codex-rules

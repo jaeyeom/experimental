@@ -66,3 +66,4 @@
 - import_playbook: setup-codex-termux.yml
   when: ansible_facts['env']['TERMUX_VERSION'] is defined
 - import_playbook: setup-codex-skills.yml
+- import_playbook: setup-codex-rules.yml

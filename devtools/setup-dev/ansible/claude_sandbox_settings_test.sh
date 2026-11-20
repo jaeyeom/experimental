@@ -32,6 +32,8 @@
 #     entries first; gh and jira join it when
 #     claude_sandbox_exclude_tls_clients is on, which is the default on
 #     Darwin only (jaeyeom/experimental#875).
+#   - permissions.deny bans git worktree and EnterWorktree
+#     (jaeyeom/experimental#982).
 set -eu
 
 fail() {
@@ -210,6 +212,11 @@ if [ -z "$ALLOW" ] || [ -z "$DENY" ]; then
 	fail "playbook permission lists are empty"
 fi
 printf '%s\n' "$ALLOW" | grep -F -x "$NPM_RULE" >/dev/null || fail "playbook allow is missing the npm auth rule"
+# Worktrees are banned (jaeyeom/experimental#982). The fresh-settings
+# check below confirms both rules reach settings.json.
+for rule in 'Bash(git worktree *)' 'EnterWorktree'; do
+	printf '%s\n' "$DENY" | grep -F -x "$rule" >/dev/null || fail "playbook deny is missing $rule"
+done
 
 # Fresh settings.
 use_home fresh
