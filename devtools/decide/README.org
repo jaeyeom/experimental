@@ -656,6 +656,27 @@ and is still listed first when composing. ~decide contacts prune
 --dead~ prints names and writes nothing unless ~--yes~. ~--release~
 also releases those bus names.
 
+The list starts with the name. A panel shows the contact under the
+cursor in full: its avatar as the thread shows it, its state, its
+liveness and when agentbus last saw it, its whole ~when~ text, its
+open, answered, done, and withdrawn item counts, its last activity, and
+how many messages to it are still waiting or failed to deliver. On a
+wide screen the panel is to the right of the list. Below 80 columns it
+is hidden; ~i~ shows it below the list and hides it again, and the
+footer names the key.
+
+#+BEGIN_EXAMPLE
+name     state        liveness   open activity      desk/ada
+desk/ada active       alive      1    14:40 · 20m   state      active
+desk/bo  unresponsive hibernated 0                  liveness   alive, seen 14:58 · 2m ago
+                                                    when       Ask me about the front desk
+                                                               queue and refunds.
+                                                    items      1 open, 2 answered, 1 done,
+                                                               1 withdrawn
+                                                    activity   14:40 · 20m ago
+                                                    deliveries 1 waiting, 1 failed
+#+END_EXAMPLE
+
 * Troubleshooting
 
 ~DECIDE_KEYDEBUG=/tmp/decide-keys.log decide inbox~ logs each key.

@@ -8,6 +8,7 @@ go_library(
         "backend.go",
         "bushealth.go",
         "compose.go",
+        "contactdetail.go",
         "contacts.go",
         "contacts_alias.go",
         "contacts_resolve.go",

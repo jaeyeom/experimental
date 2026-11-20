@@ -203,6 +203,9 @@ type Model struct {
 	agentFilter   string
 	contacts      []contact
 	contactCursor int
+	// contactDetail shows the contact detail panel on a narrow screen,
+	// below the list. A wide screen always shows it beside the list.
+	contactDetail bool
 	// favorites are starred names, in the order they were starred.
 	favorites []string
 	// hidden is the display setting of contact names Contacts does not
@@ -1549,6 +1552,9 @@ func (m *Model) browseHint(label string) string {
 	case modeStatus:
 		return label + "g go to  u list  c  tab/text/[Send]  ? help"
 	case modeContacts:
+		if m.narrow() {
+			return label + "g go to  u list  enter filter  i details  ? help"
+		}
 		return label + "g go to  u list  enter filter  A avatar  ? help"
 	case modeDetail, modeOutcome:
 		return label + "0 reply  f forward  u list  q quit  e/y archive  j/k pgup/pgdn home/end  n/p  ? help"
@@ -2662,6 +2668,7 @@ func (m *Model) helpLines() []screenLine {
 			"c compose",
 			"* stars this contact; starred names lead the recipient list",
 			"A picks this agent's avatar",
+			"i shows or hides the details on a narrow screen",
 			"a aliases this contact to a bus name",
 			"x hides this contact",
 			"H shows hidden contacts",

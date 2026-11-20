@@ -38,6 +38,8 @@ type busAgent struct {
 	When     string `json:"when"`
 	Liveness string `json:"liveness"`
 	Handle   string `json:"handle"`
+	// LivenessAge is the seconds since agentbus observed the liveness.
+	LivenessAge *int64 `json:"liveness_age"` //nolint:tagliatelle // the stable list --json field name
 }
 
 func (m *Model) busRunner() BusRunner {
@@ -149,9 +151,14 @@ func ParseBusList(out []byte) ([]Target, error) {
 		if strings.TrimSpace(a.Name) == "" {
 			continue
 		}
-		names = append(names, Target{
+		tg := Target{
 			Name: a.Name, Pane: a.Handle, Bus: true, When: a.When, Dead: a.Liveness == "dead", Live: a.Liveness,
-		})
+		}
+		if a.LivenessAge != nil {
+			age := time.Duration(*a.LivenessAge) * time.Second
+			tg.LiveAge = &age
+		}
+		names = append(names, tg)
 	}
 	slices.SortStableFunc(names, func(a, b Target) int {
 		if a.Dead != b.Dead {

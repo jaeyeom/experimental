@@ -1,16 +1,16 @@
 [1m┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐[0m
-│Inbox        2 avatar name                      state  liveness open activity                                         │
-│Snoozed      0 [7m-      coord/primary aka primary active alive    1    today 15:01 · in 1m                              [0m│
-│Answered     0 -      coord/backup [2maka backup[0m   active alive    1    15:00 · now                                      │
-│Done         0                                                                                                        │
-│Withdrawn    0                                                                                                        │
-│Status                                                                                                                │
-│[Contacts]   2                                                                                                        │
+│Inbox        1 name     state        liveness   open activity                 [1mdesk/ada[0m                                │
+│Snoozed      0 [7mdesk/ada active       alive      1    14:40 · 20m ago         [0m state      active                       │
+│Answered     2 [2mdesk/bo  unresponsive hibernated 0                            [0m liveness   alive, seen 14:58 · 2m ago   │
+│Done         1                                                                when       Ask me about the front desk  │
+│Withdrawn    1                                                                           queue, refunds, and anything │
+│Status                                                                                   a customer left at the       │
+│[Contacts]   1                                                                           counter overnight.           │
+│                                                                              items      1 open, 2 answered, 1 done,  │
+│                                                                                         1 withdrawn                  │
+│                                                                              activity   14:40 · 20m ago              │
+│                                                                              deliveries 1 waiting, 1 failed          │
 │contacts  mouse on  g go to  u list  enter filter  A avatar  /find  ? help                                            │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │

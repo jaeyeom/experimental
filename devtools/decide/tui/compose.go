@@ -24,6 +24,9 @@ type Target struct {
 	Dead bool
 	// Live is the bus liveness word: alive, dead, hibernated, or unknown.
 	Live string
+	// LiveAge is how long before the bus list agentbus observed Live;
+	// nil when it never did.
+	LiveAge *time.Duration
 	// Fav marks a starred name, listed first.
 	Fav bool
 }
