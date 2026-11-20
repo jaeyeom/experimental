@@ -161,8 +161,9 @@ func cmdAdd(configPath string, args []string, stdout, stderr io.Writer) int {
 	var wf watchFlags
 	wf.register(fs)
 	until := fs.String("until", "", "keep the watch open until this date")
-	var source optString
+	var source, reopenOn optString
 	fs.Var(&source, "source", "outbox, hook, or manual (default manual)")
+	fs.Var(&reopenOn, "reopen-on", "reopen filter for this watch: any or addressed")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
 		return 2
@@ -179,6 +180,10 @@ func cmdAdd(configPath string, args []string, stdout, stderr io.Writer) int {
 		return usageErr(stderr, fmt.Errorf("--source must be one of %s", strings.Join(sources, ", ")))
 	}
 	u.Source = source.ptr()
+	if reopenOn.set && !slackwatch.ValidReopenOn(reopenOn.v) {
+		return usageErr(stderr, fmt.Errorf("--reopen-on must be %s or %s", slackwatch.ReopenOnAny, slackwatch.ReopenOnAddressed))
+	}
+	u.ReopenOn = reopenOn.ptr()
 	now := time.Now()
 	if *until != "" {
 		t, err := parseUntil(*until, now)
@@ -253,12 +258,24 @@ func cmdClaim(configPath string, args []string, stdout, stderr io.Writer) int {
 func cmdDone(configPath string, args []string, stdout, stderr io.Writer) int {
 	fs := newFlagSet("done", stderr)
 	reason := fs.String("reason", "", "why the watch is closed")
+	mute := fs.Bool("mute", false, "never reopen this watch")
+	noReopen := fs.Bool("no-reopen", false, "alias for --mute")
+	var reopenOn optString
+	fs.Var(&reopenOn, "reopen-on", "reopen filter for this watch: any or addressed")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
 		return 2
 	}
+	if reopenOn.set && !slackwatch.ValidReopenOn(reopenOn.v) {
+		return usageErr(stderr, fmt.Errorf("--reopen-on must be %s or %s", slackwatch.ReopenOnAny, slackwatch.ReopenOnAddressed))
+	}
+	opts := slackwatch.CloseOptions{
+		Reason:   *reason,
+		ReopenOn: reopenOn.ptr(),
+		Mute:     *mute || *noReopen,
+	}
 	return withWatch(configPath, pos, stderr, func(s *slackwatch.Store, w slackwatch.Watch) error {
-		if _, err := s.CloseWatch(w.ID, *reason, time.Now()); err != nil {
+		if _, err := s.CloseWatchWith(w.ID, opts, time.Now()); err != nil {
 			return err //nolint:wrapcheck // Already descriptive.
 		}
 		fmt.Fprintf(stdout, "watch %d closed\n", w.ID)
@@ -321,7 +338,7 @@ func cmdLs(configPath string, args []string, stdout, stderr io.Writer) int {
 	if f.State != "" && !slices.Contains(states, f.State) {
 		return usageErr(stderr, fmt.Errorf("--state must be one of %s", strings.Join(states, ", ")))
 	}
-	_, store, err := openStore(configPath)
+	cfg, store, err := openStore(configPath)
 	if err != nil {
 		return fail(stderr, err)
 	}
@@ -334,7 +351,7 @@ func cmdLs(configPath string, args []string, stdout, stderr io.Writer) int {
 		return writeJSON(stdout, stderr, rows)
 	}
 	tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tSTATE\tOWNER\tPURPOSE\tREFS\tCHANNEL\tREPLIES\tLAST REPLY\tUNACKED\tUNDELIVERED")
+	fmt.Fprintln(tw, "ID\tSTATE\tOWNER\tPURPOSE\tREFS\tCHANNEL\tREPLIES\tLAST REPLY\tUNACKED\tUNDELIVERED\tREOPEN\tMUTED")
 	for _, r := range rows {
 		last := ""
 		if r.LastReplyTS != "" {
@@ -344,8 +361,16 @@ func cmdLs(configPath string, args []string, stdout, stderr io.Writer) int {
 		if r.Undelivered {
 			undelivered = "yes"
 		}
-		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%d\t%s\n", r.ID, r.State, r.Owner, r.Purpose,
-			strings.Join(r.Refs, ","), r.Channel, r.Replies, last, r.Unacked, undelivered)
+		reopen := r.ReopenOn
+		if reopen == "" {
+			reopen = cfg.ReopenMode()
+		}
+		muted := ""
+		if r.Muted {
+			muted = "yes"
+		}
+		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%d\t%s\t%s\t%s\n", r.ID, r.State, r.Owner, r.Purpose,
+			strings.Join(r.Refs, ","), r.Channel, r.Replies, last, r.Unacked, undelivered, reopen, muted)
 	}
 	if err := tw.Flush(); err != nil {
 		return fail(stderr, err)
@@ -360,6 +385,10 @@ func cmdShow(configPath string, args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return 2
 	}
+	cfg, err := slackwatch.LoadConfig(configPath)
+	if err != nil {
+		return fail(stderr, err)
+	}
 	var d slackwatch.WatchDetail
 	code := withWatch(configPath, pos, stderr, func(s *slackwatch.Store, w slackwatch.Watch) error {
 		d, err = s.ShowWatch(w.ID)
@@ -371,17 +400,25 @@ func cmdShow(configPath string, args []string, stdout, stderr io.Writer) int {
 	if *asJSON {
 		return writeJSON(stdout, stderr, d)
 	}
-	printDetail(stdout, d)
+	printDetail(stdout, d, cfg.ReopenMode())
 	return 0
 }
 
-func printDetail(w io.Writer, d slackwatch.WatchDetail) {
+func printDetail(w io.Writer, d slackwatch.WatchDetail, defaultReopen string) {
 	fmt.Fprintf(w, "watch %d  %s  %s %s  thread %s  since %s\n", d.ID, d.State, d.Kind, d.Channel, d.ThreadTS, d.SinceTS)
 	if d.Permalink != "" {
 		fmt.Fprintf(w, "link: %s\n", d.Permalink)
 	}
-	fmt.Fprintf(w, "owner: %s\npurpose: %s\nrefs: %s\nsource: %s\ncreated: %s\n",
-		d.Owner, d.Purpose, strings.Join(d.Refs, ", "), d.Source, d.CreatedAt.Local().Format(time.RFC3339))
+	reopen := d.ReopenOn
+	if reopen == "" {
+		reopen = defaultReopen + " (default)"
+	}
+	muted := "no"
+	if d.Muted {
+		muted = "yes"
+	}
+	fmt.Fprintf(w, "owner: %s\npurpose: %s\nrefs: %s\nsource: %s\nreopen: %s\nmuted: %s\ncreated: %s\n",
+		d.Owner, d.Purpose, strings.Join(d.Refs, ", "), d.Source, reopen, muted, d.CreatedAt.Local().Format(time.RFC3339))
 	if !d.Until.IsZero() {
 		fmt.Fprintf(w, "until: %s\n", d.Until.Local().Format(time.RFC3339))
 	}

@@ -195,6 +195,7 @@ drafts created with ~slackwatch post~.
 | ~sweepInterval~ | ~"6h"~ | Time between slow sweeps. |
 | ~quietExpiry~ | ~"336h"~ | A watch with no reply from others for this long closes. |
 | ~reopenWindow~ | ~"720h"~ | A reply this soon after a watch closes reopens it. |
+| ~reopenOn~ | ~"any"~ | Which replies reopen a closed thread watch: ~any~ (all replies) or ~addressed~ (mentions ~<@user>~ or replies in a thread whose root post is the user's). |
 | ~unownedGrace~ | ~"10s"~ | Wait this long before the ~unowned~ notification for a footer post. |
 | ~excerptLimit~ | ~300~ | Maximum characters of reply text in a notification. |
 | ~dbPath~ | ~${XDG_STATE_HOME:-~/.local/state}/slackwatch/slackwatch.db~ | SQLite database. |
@@ -398,9 +399,9 @@ running.
 
 | Command | Does |
 |---------+------|
-| ~add <post> [--owner T] [--purpose S] [--ref R ...] [--until DATE] [--source SRC]~ | Watch a post. ~SRC~ is ~outbox~, ~hook~, or ~manual~ (default). |
+| ~add <post> [--owner T] [--purpose S] [--ref R ...] [--until DATE] [--source SRC] [--reopen-on MODE]~ | Watch a post. ~SRC~ is ~outbox~, ~hook~, or ~manual~ (default). ~MODE~ overrides ~reopenOn~ (~any~ or ~addressed~). |
 | ~claim <post> --owner T [--purpose S] [--ref R ...]~ | Take an ~unowned~ or ~orphaned~ watch and open it. |
-| ~done <post> [--reason S]~ | Close a watch. |
+| ~done <post> [--reason S] [--mute\vert--no-reopen] [--reopen-on MODE]~ | Close a watch. ~--mute~ (~--no-reopen~) keeps it closed forever. |
 | ~snooze <post> --until DATE~ | Keep a watch open until ~DATE~. |
 | ~ack <post>~ | Mark every stored reply acknowledged. |
 | ~ls [--owner T] [--state S] [--unacked] [--json]~ | One row per watch. |
@@ -422,10 +423,17 @@ RFC 3339, or a duration such as ~72h~.
   ~unowned~ watch claims it, as ~claim~ does, and opens it.
 - After registering, ~add~ catches up on the watch when a token is
   available. Without a token it skips catch-up quietly.
-- ~ls~ counts unacknowledged replies by others and flags a watch that has an
-  undelivered notification.
-- ~show~ prints a ~link:~ line with the watched post's permalink and a
-  permalink on each reply line. ~show --json~ has ~permalink~ on the watch
+- ~ls~ counts unacknowledged replies by others, flags a watch that has an
+  undelivered notification, and shows each watch's reopen mode and whether
+  it is muted.
+- ~show~ prints a ~link:~ line with the watched post's permalink, the reopen
+  mode and muted state, and a permalink on each reply line.
+- A closed watch reopens on a reply within ~reopenWindow~ unless it was
+  closed with ~--mute~ (~--no-reopen~) or filtered by ~reopenOn~ (or a
+  per-watch ~--reopen-on~ override). With ~addressed~, only replies that
+  mention the configured user or land in a thread whose root message was
+  posted by the user reopen the watch. Mentions in muted or filtered
+  threads still arrive as ~inbound~ mentions. ~show --json~ has ~permalink~ on the watch
   and on each reply, and ~ls --json~ has it on each watch. Plain ~ls~ shows
   no links. A watch added from a permalink keeps that link. Otherwise the
   link is built from the stored workspace URL, such as

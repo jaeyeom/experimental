@@ -301,10 +301,41 @@ func TestCommandsRejectUnknownPost(t *testing.T) {
 		{"snooze", topLink},
 		{"claim", topLink},
 		{"ls", "--state", "bogus"},
+		{"add", topLink, "--reopen-on", "bogus"},
+		{"done", topLink, "--reopen-on", "bogus"},
 	} {
 		var stdout, stderr bytes.Buffer
 		if code := run(append([]string{"--config", cfg}, args...), &stdout, &stderr); code == 0 {
 			t.Errorf("slackwatch %q succeeded", args)
 		}
+	}
+}
+
+func TestReopenOnAndMuteCLI(t *testing.T) {
+	cfg := noTokenConfig(t)
+	sw(t, cfg, "add", topLink, "--owner", "a", "--reopen-on", "addressed")
+	sw(t, cfg, "add", "C0999", "1700000000.000100", "--owner", "b")
+	sw(t, cfg, "done", "1", "--reason", "settled", "--mute")
+	sw(t, cfg, "done", "2", "--no-reopen", "--reopen-on", "addressed")
+
+	rows := lsJSON(t, cfg)
+	if len(rows) != 2 {
+		t.Fatalf("ls = %+v, want 2 watches", rows)
+	}
+	for _, r := range rows {
+		if r.ReopenOn != slackwatch.ReopenOnAddressed || !r.Muted {
+			t.Errorf("row %d = %+v, want reopenOn=addressed and muted=true", r.ID, r)
+		}
+	}
+
+	lsOut := sw(t, cfg, "ls")
+	if !strings.Contains(lsOut, "REOPEN") || !strings.Contains(lsOut, "MUTED") ||
+		!strings.Contains(lsOut, "addressed") || !strings.Contains(lsOut, "yes") {
+		t.Errorf("ls output missing reopen/muted:\n%s", lsOut)
+	}
+
+	showOut := sw(t, cfg, "show", "1")
+	if !strings.Contains(showOut, "reopen: addressed\n") || !strings.Contains(showOut, "muted: yes\n") {
+		t.Errorf("show output missing reopen/muted:\n%s", showOut)
 	}
 }

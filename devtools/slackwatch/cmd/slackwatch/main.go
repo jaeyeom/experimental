@@ -74,11 +74,11 @@ func usage(w io.Writer) {
 
 Commands:
   slackwatch serve    run the watcher (Socket Mode, catch-up, sweep)
-  slackwatch add <post> [--owner T] [--purpose S] [--ref R ...] [--until DATE] [--source outbox|hook|manual]
+  slackwatch add <post> [--owner T] [--purpose S] [--ref R ...] [--until DATE] [--source outbox|hook|manual] [--reopen-on any|addressed]
                       watch a post; a thread reply is watched on its parent thread
   slackwatch claim <post> --owner T [--purpose S] [--ref R ...]
                       take an unowned or orphaned watch
-  slackwatch done <post> [--reason S]
+  slackwatch done <post> [--reason S] [--mute|--no-reopen] [--reopen-on any|addressed]
   slackwatch snooze <post> --until DATE
   slackwatch ack <post>
                       mark every stored reply acknowledged

@@ -1775,6 +1775,9 @@ func (o *Outbox) registerRetryRead(ctx context.Context, r OutboxRecord, ts, link
 // decide item.
 func (o *Outbox) registerPosted(ctx context.Context, r OutboxRecord, from []string, p PostRef, mismatch, postedText string, manual bool) error {
 	u := WatchUpdate{Owner: &r.Owner, Purpose: &r.Purpose, Source: ptr(SourceOutbox)}
+	if p.ThreadTS == "" && o.Config.Post.ExpectUser != "" {
+		u.RootAuthor = ptr(o.Config.Post.ExpectUser)
+	}
 	if len(r.Refs) > 0 {
 		u.Refs = r.Refs
 	}
@@ -2426,6 +2429,9 @@ func (s *Store) SetPostingDisabled(reason string) error {
 // unowned footer watch.
 func (p *Processor) linkOutbox(m Message, r OutboxRecord, now time.Time) error {
 	u := WatchUpdate{Owner: &r.Owner, Purpose: &r.Purpose, Source: ptr(SourceOutbox)}
+	if !m.threaded() && m.User != "" {
+		u.RootAuthor = ptr(m.User)
+	}
 	if len(r.Refs) > 0 {
 		u.Refs = r.Refs
 	}

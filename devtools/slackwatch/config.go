@@ -33,7 +33,17 @@ const (
 	// the first and second notify retries.
 	DefaultNotifyRetry1 = 2 * time.Second
 	DefaultNotifyRetry2 = 5 * time.Second
+
+	// ReopenOnAny and ReopenOnAddressed control which replies reopen a
+	// closed thread watch within reopenWindow.
+	ReopenOnAny       = "any"
+	ReopenOnAddressed = "addressed"
 )
+
+// ValidReopenOn reports whether v is a valid non-empty reopenOn value.
+func ValidReopenOn(v string) bool {
+	return v == ReopenOnAny || v == ReopenOnAddressed
+}
 
 // Config is ~/.config/slackwatch/config.json. Tokens are never stored here.
 // TokenFile names a separate file that only the user can read.
@@ -54,6 +64,7 @@ type Config struct {
 	SweepInterval    Duration          `json:"sweepInterval"`
 	QuietExpiry      Duration          `json:"quietExpiry"`
 	ReopenWindow     Duration          `json:"reopenWindow"`
+	ReopenOn         string            `json:"reopenOn"`
 	UnownedGrace     Duration          `json:"unownedGrace"`
 	ExcerptLimit     int               `json:"excerptLimit"`
 	DBPath           string            `json:"dbPath"`
@@ -269,6 +280,14 @@ func (c Config) checkFooterRemoved() error {
 	return fmt.Errorf("footerPattern does not fully remove post.footer %q: NormalizePosted leaves %q; refusing to post", c.Post.Footer, strings.TrimPrefix(got, probe))
 }
 
+// ReopenMode returns ReopenOn, or ReopenOnAny when it is unset.
+func (c Config) ReopenMode() string {
+	if c.ReopenOn == "" {
+		return ReopenOnAny
+	}
+	return c.ReopenOn
+}
+
 // Target resolves name through the targets map. An unknown name is used
 // as a raw address.
 func (c Config) Target(name string) string {
@@ -376,6 +395,7 @@ func defaultConfig() Config {
 		SweepInterval: Duration{DefaultSweepInterval},
 		QuietExpiry:   Duration{DefaultQuietExpiry},
 		ReopenWindow:  Duration{DefaultReopenWindow},
+		ReopenOn:      ReopenOnAny,
 		UnownedGrace:  Duration{DefaultUnownedGrace},
 		ExcerptLimit:  DefaultExcerptLimit,
 		NotifyTimeout: Duration{DefaultNotifyTimeout},
@@ -407,6 +427,9 @@ func LoadConfig(path string) (Config, error) {
 	}
 	if err := cfg.Inbound.normalize(); err != nil {
 		return Config{}, fmt.Errorf("parse slackwatch config %s: %w", path, err)
+	}
+	if cfg.ReopenOn != "" && !ValidReopenOn(cfg.ReopenOn) {
+		return Config{}, fmt.Errorf("parse slackwatch config %s: reopenOn %q must be %s or %s", path, cfg.ReopenOn, ReopenOnAny, ReopenOnAddressed)
 	}
 	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return Config{}, fmt.Errorf("parse slackwatch config %s: trailing data after JSON object", path)
