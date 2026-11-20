@@ -9,6 +9,7 @@ go_library(
         "conditions.go",
         "display.go",
         "file_checks.go",
+        "generated.go",
         "handoff.go",
         "history.go",
         "lazy.go",
@@ -24,6 +25,7 @@ go_library(
         "//devtools/gh-nudge/internal/models:go_default_library",
         "//devtools/pkg/remotecall:go_default_library",
         "@com_github_bmatcuk_doublestar_v4//:go_default_library",
+        "@in_gopkg_yaml_v3//:go_default_library",
     ],
 )
 
@@ -37,6 +39,7 @@ go_test(
         "conditions_test.go",
         "display_test.go",
         "file_checks_test.go",
+        "generated_test.go",
         "handoff_test.go",
         "history_test.go",
         "lazy_test.go",

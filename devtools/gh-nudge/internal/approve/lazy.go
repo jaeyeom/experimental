@@ -141,6 +141,7 @@ func (r *Runner) loads(pr github.ApprovalPullRequest, viewer string) *lazyLoads 
 	return &lazyLoads{
 		ownership: func() *github.Ownership { return r.ownershipFor(pr, viewer) },
 		patches:   func() ([]github.PullFile, string) { return r.patchesFor(pr) },
+		generated: func() ([]string, string) { return r.generatedListFor(pr) },
 	}
 }
 

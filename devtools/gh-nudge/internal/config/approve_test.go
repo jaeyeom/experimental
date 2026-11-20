@@ -409,3 +409,66 @@ func TestMatchFileCheckSpecificity(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadPklGeneratedLists(t *testing.T) {
+	cfg, err := LoadConfig(writeApprovePkl(t, `
+generated_lists {
+  ["acme/widgets"] = "tools/generated_files.yaml"
+}
+approve {
+  rules {
+    new {
+      name = "gen"
+      repos { "acme/widgets" }
+      paths_all_match { "@generated"; "**/*.lock" }
+      file_checks { ["@generated"] = "only-deletions" }
+    }
+  }
+}
+viewed {
+  rules {
+    new {
+      name = "gen-viewed"
+      repos { "acme/widgets" }
+      paths_match { "@generated" }
+      except_paths { "@generated" }
+    }
+  }
+}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.GeneratedLists["acme/widgets"] != "tools/generated_files.yaml" {
+		t.Fatalf("GeneratedLists = %+v", cfg.GeneratedLists)
+	}
+}
+
+func TestLoadPklGeneratedListsRejectsUnconfiguredRepo(t *testing.T) {
+	tests := map[string]string{
+		"approve paths_all_match without generated_lists": `
+approve { rules { new { name = "r"; repos { "acme/widgets" }; paths_all_match { "@generated" } } } }`,
+		"approve paths_any_match without generated_lists": `
+approve { rules { new { name = "r"; repos { "acme/widgets" }; paths_any_match { "@generated" } } } }`,
+		"approve paths_none_match without generated_lists": `
+approve { rules { new { name = "r"; repos { "acme/widgets" }; paths_none_match { "@generated" } } } }`,
+		"approve file_checks without generated_lists": `
+approve { rules { new { name = "r"; repos { "acme/widgets" }; file_checks { ["@generated"] = "only-deletions" } } } }`,
+		"approve empty repos and empty generated_lists": `
+approve { rules { new { name = "r"; paths_all_match { "@generated" } } } }`,
+		"approve repo missing from non-empty generated_lists": `
+generated_lists { ["acme/other"] = "gen.yaml" }
+approve { rules { new { name = "r"; repos { "acme/widgets" }; paths_all_match { "@generated" } } } }`,
+		"viewed paths_match without generated_lists": `
+viewed { rules { new { name = "r"; repos { "acme/widgets" }; paths_match { "@generated" } } } }`,
+		"viewed except_paths without generated_lists": `
+viewed { rules { new { name = "r"; repos { "acme/widgets" }; codeowners_not_mine = true; except_paths { "@generated" } } } }`,
+	}
+	for name, content := range tests {
+		t.Run(name, func(t *testing.T) {
+			if _, err := LoadConfig(writeApprovePkl(t, content)); err == nil {
+				t.Fatalf("expected error for %s", name)
+			}
+		})
+	}
+}

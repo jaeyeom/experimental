@@ -32,6 +32,9 @@ const (
 	FileCheckDeletionsAndCommentsOnly = "deletions-and-comments-only"
 )
 
+// GeneratedListRef is the pseudo-glob referencing a repository's generated_lists entry.
+const GeneratedListRef = "@generated"
+
 // FileCheck is one entry in ApproveRule.FileChecks: either a built-in name
 // or a script argv list.
 type FileCheck struct {
@@ -638,6 +641,9 @@ func validateFileChecks(checks map[string]FileCheck) error {
 	sort.Strings(patterns)
 	bySpec := make(map[PatternSpec]string, len(patterns))
 	for _, pattern := range patterns {
+		if pattern == GeneratedListRef {
+			continue
+		}
 		spec := FileCheckSpecificity(pattern)
 		if prev, exists := bySpec[spec]; exists {
 			return fmt.Errorf("file_checks patterns %q and %q have tied specificity", prev, pattern)
@@ -645,4 +651,149 @@ func validateFileChecks(checks map[string]FileCheck) error {
 		bySpec[spec] = pattern
 	}
 	return nil
+}
+
+// UsesGeneratedList reports whether patterns contains GeneratedListRef.
+func UsesGeneratedList(patterns []string) bool {
+	for _, p := range patterns {
+		if p == GeneratedListRef {
+			return true
+		}
+	}
+	return false
+}
+
+// FileChecksUsesGeneratedList reports whether checks has a GeneratedListRef key.
+func FileChecksUsesGeneratedList(checks map[string]FileCheck) bool {
+	_, ok := checks[GeneratedListRef]
+	return ok
+}
+
+// LookupGeneratedList returns the configured generated list path for repo
+// (owner/name), matching case-insensitively when an exact key is absent.
+func LookupGeneratedList(lists map[string]string, repo string) (string, bool) {
+	if path, ok := lists[repo]; ok && path != "" {
+		return path, true
+	}
+	for k, path := range lists {
+		if strings.EqualFold(k, repo) && path != "" {
+			return path, true
+		}
+	}
+	return "", false
+}
+
+func cloneStringMap(m map[string]string) map[string]string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
+func validateGeneratedLists(cfg *Config) error {
+	for k, v := range cfg.GeneratedLists {
+		if k == "" {
+			return fmt.Errorf("generated_lists key must not be empty")
+		}
+		if v == "" {
+			return fmt.Errorf("generated_lists %q path must not be empty", k)
+		}
+	}
+	for _, rule := range cfg.Approve.Rules {
+		if UsesGeneratedList(rule.PathsAllMatch) ||
+			UsesGeneratedList(rule.PathsAnyMatch) ||
+			UsesGeneratedList(rule.PathsNoneMatch) ||
+			FileChecksUsesGeneratedList(rule.FileChecks) {
+			if err := validateGeneratedRepos("approve rule", rule.Name, rule.Repos, cfg.GeneratedLists); err != nil {
+				return err
+			}
+		}
+	}
+	for _, rule := range cfg.Viewed.Rules {
+		if UsesGeneratedList(rule.PathsMatch) || UsesGeneratedList(rule.PathsNoneMatch) {
+			if err := validateGeneratedRepos("viewed rule", rule.Name, rule.Repos, cfg.GeneratedLists); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateGeneratedRepos(kind, name string, repos []string, lists map[string]string) error {
+	if len(repos) == 0 {
+		if len(lists) == 0 {
+			return fmt.Errorf("%s %q uses %s, but generated_lists is empty", kind, name, GeneratedListRef)
+		}
+		return nil
+	}
+	for _, repo := range repos {
+		if !hasGlobMeta(repo) {
+			if _, ok := LookupGeneratedList(lists, repo); !ok {
+				return fmt.Errorf("%s %q uses %s for repository %q with no generated_lists entry", kind, name, GeneratedListRef, repo)
+			}
+			continue
+		}
+		matched := false
+		for key := range lists {
+			if ok, err := doublestar.Match(repo, key); err == nil && ok {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return fmt.Errorf("%s %q uses %s for repository glob %q with no matching generated_lists entry", kind, name, GeneratedListRef, repo)
+		}
+	}
+	return nil
+}
+
+// MatchFileCheckWithGenerated returns the most specific pattern in checks
+// (expanding GeneratedListRef with generatedPatterns) that matches path, along
+// with its check and whether it matched via GeneratedListRef.
+func MatchFileCheckWithGenerated(checks map[string]FileCheck, generatedPatterns []string, path string) (string, FileCheck, bool, bool) {
+	var (
+		bestPat     string
+		bestCheck   FileCheck
+		bestSpec    PatternSpec
+		bestFromGen bool
+		found       bool
+	)
+	for pattern, check := range checks {
+		if pattern == GeneratedListRef {
+			continue
+		}
+		ok, err := doublestar.Match(pattern, path)
+		if err != nil || !ok {
+			continue
+		}
+		spec := FileCheckSpecificity(pattern)
+		if !found || moreSpecific(spec, bestSpec) {
+			bestPat = pattern
+			bestCheck = check
+			bestSpec = spec
+			bestFromGen = false
+			found = true
+		}
+	}
+	if genCheck, hasGen := checks[GeneratedListRef]; hasGen {
+		for _, gp := range generatedPatterns {
+			ok, err := doublestar.Match(gp, path)
+			if err != nil || !ok {
+				continue
+			}
+			spec := FileCheckSpecificity(gp)
+			if !found || moreSpecific(spec, bestSpec) {
+				bestPat = gp
+				bestCheck = genCheck
+				bestSpec = spec
+				bestFromGen = true
+				found = true
+			}
+		}
+	}
+	return bestPat, bestCheck, bestFromGen, found
 }

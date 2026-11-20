@@ -47,9 +47,17 @@ type ApprovalPullRequest struct {
 	ChecksErr string
 	// BaseRef is the base branch name.
 	BaseRef string
+	// BaseSHA is the base branch commit OID.
+	BaseSHA string
 	// Ownership is set by gh-approve when a rule sets codeowners_covered.
 	// Nil means it was not read.
 	Ownership *Ownership
+	// GeneratedPatterns holds globs from the repository's generated_lists file.
+	GeneratedPatterns []string
+	// GeneratedErr holds why the generated list could not be loaded or parsed.
+	GeneratedErr string
+	// GeneratedLoaded reports whether GeneratedPatterns was populated.
+	GeneratedLoaded bool
 }
 
 // ApprovalCandidate is the search data used to reject a pull request before
@@ -253,7 +261,7 @@ query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     nameWithOwner
     pullRequest(number: $number) {
-      id number url title state isDraft headRefOid baseRefName
+      id number url title state isDraft headRefOid baseRefName baseRefOid
       author { login }
       additions deletions changedFiles
       files(first: 100) { pageInfo { hasNextPage } nodes { path additions deletions viewerViewedState } }
@@ -297,6 +305,7 @@ type approvalPRJSON struct {
 	IsDraft     bool   `json:"isDraft"`
 	HeadRefOid  string `json:"headRefOid"`
 	BaseRefName string `json:"baseRefName"`
+	BaseRefOid  string `json:"baseRefOid"`
 	Author      *struct {
 		Login string `json:"login"`
 	} `json:"author"`
@@ -401,6 +410,7 @@ func convertApprovalPR(raw *approvalPRJSON, ref PullRef) ApprovalPullRequest {
 		HeadSHA:      raw.HeadRefOid,
 		NodeID:       raw.ID,
 		BaseRef:      raw.BaseRefName,
+		BaseSHA:      raw.BaseRefOid,
 		Draft:        raw.IsDraft,
 		Additions:    raw.Additions,
 		Deletions:    raw.Deletions,

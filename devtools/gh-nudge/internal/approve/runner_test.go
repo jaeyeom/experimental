@@ -46,8 +46,31 @@ type fakeClient struct {
 	// diff overrides the default diff of every pull request.
 	diff string
 	// onCall is told each pull request and patch read, to drive a fake clock.
-	onCall func(op string)
+	onCall        func(op string)
+	repoFiles     map[string]string
+	repoFileErr   error
+	repoFileReads int
+	repoFileRevs  []string
 	handoffFake
+}
+
+func (f *fakeClient) RepoFile(ref github.PullRef, rev, path string) (string, error) {
+	f.repoFileReads++
+	f.repoFileRevs = append(f.repoFileRevs, rev)
+	if f.repoFileErr != nil {
+		return "", f.repoFileErr
+	}
+	key := ref.Owner + "/" + ref.Repo + "@" + rev + ":" + path
+	if text, ok := f.repoFiles[key]; ok {
+		return text, nil
+	}
+	if text, ok := f.repoFiles[rev+":"+path]; ok {
+		return text, nil
+	}
+	if text, ok := f.repoFiles[path]; ok {
+		return text, nil
+	}
+	return "", fmt.Errorf("not found at %s", rev)
 }
 
 func (f *fakeClient) ViewerLogin() (string, error) { return f.viewer, nil }

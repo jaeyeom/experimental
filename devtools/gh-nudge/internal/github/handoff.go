@@ -109,6 +109,50 @@ func (c *Client) CodeownersFile(ref PullRef, baseRef string) (string, string, er
 	return "", "", fmt.Errorf("read CODEOWNERS of %s: no CODEOWNERS file on %s", name, baseRef)
 }
 
+const repoFileQuery = `
+query($owner: String!, $name: String!, $expr: String!) {
+  repository(owner: $owner, name: $name) {
+    object(expression: $expr) { ... on Blob { text isTruncated } }
+  }
+}`
+
+// RepoFile reads path at rev (commit SHA or branch ref) from ref's repository.
+func (c *Client) RepoFile(ref PullRef, rev, path string) (string, error) {
+	name := fmt.Sprintf("%s/%s", ref.Owner, ref.Repo)
+	if rev == "" {
+		return "", fmt.Errorf("base SHA unknown")
+	}
+	body, callErr := c.graphqlQuery(repoFileQuery, []string{
+		"-f", "owner=" + ref.Owner,
+		"-f", "name=" + ref.Repo,
+		"-f", "expr=" + rev + ":" + path,
+	})
+	if err := graphqlCallError("read "+path+" of "+name, body, callErr); err != nil {
+		return "", err
+	}
+	var resp struct {
+		Data struct {
+			Repository *struct {
+				Object *blobJSON `json:"object"`
+			} `json:"repository"`
+		} `json:"data"`
+	}
+	if err := body.decode(&resp); err != nil {
+		return "", fmt.Errorf("read %s of %s: %w", path, name, err)
+	}
+	if resp.Data.Repository == nil || resp.Data.Repository.Object == nil {
+		return "", fmt.Errorf("not found at %s", rev)
+	}
+	blob := resp.Data.Repository.Object
+	switch {
+	case blob.Text == nil:
+		return "", fmt.Errorf("not a text file at %s", rev)
+	case blob.IsTruncated:
+		return "", fmt.Errorf("file truncated at %s", rev)
+	}
+	return *blob.Text, nil
+}
+
 const teamMembersQuery = `
 query($org: String!, $slug: String!, $after: String) {
   organization(login: $org) {
