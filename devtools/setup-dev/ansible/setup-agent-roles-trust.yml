@@ -1,0 +1,28 @@
+---
+- name: Trust and pre-authorize agent roles directory for AI coding CLIs
+  hosts: all
+  vars:
+    agent_roles_dir: "{{ ansible_facts['env']['HOME'] }}/agents/roles"
+  tasks:
+    - name: Include guard for setup-agent-roles-trust playbook
+      block:
+        - name: Stop early if the setup-agent-roles-trust playbook is already included
+          meta: end_play
+          when: setup_agent_roles_trust_playbook_imported is defined
+        - name: Ensure the setup-agent-roles-trust playbook is not included
+          set_fact:
+            setup_agent_roles_trust_playbook_imported: true
+          when: setup_agent_roles_trust_playbook_imported is not defined
+
+    - name: Configure AI coding CLIs to trust {{ agent_roles_dir }}
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/agent_roles_trust.py"
+          - --roles-dir
+          - "{{ agent_roles_dir }}"
+      environment:
+        PATH: "{{ ansible_facts['env']['HOME'] }}/.local/shims/bin:{{ ansible_facts['env']['HOME'] }}/.local/bin:{{ ansible_facts['env']['PATH'] }}"
+      register: agent_roles_trust_result
+      changed_when: "'AGENT_ROLES_TRUST_CHANGED' in agent_roles_trust_result.stdout"
+      tags: agent-roles-trust

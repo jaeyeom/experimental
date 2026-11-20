@@ -214,6 +214,20 @@ sh_test(
 )
 
 sh_test(
+    name = "agent_roles_trust_test",
+    srcs = ["agent_roles_trust_test.sh"],
+    data = [
+        "agent_roles_trust.py",
+        "inventory.ini",
+        "setup-agent-roles-trust.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "claude_sandbox_settings_test",
     # The test runs many ansible-playbook scenarios.
     timeout = "long",
@@ -432,6 +446,7 @@ sh_test(
         "rustup.yml",
         "sed.yml",
         "semgrep.yml",
+        "setup-agent-roles-trust.yml",
         "setup-bazel.yml",
         "setup-cargo.yml",
         "setup-cicd.yml",
@@ -3004,6 +3019,17 @@ sh_test(
 )
 
 sh_test(
+    name = "setup-agent-roles-trust_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-agent-roles-trust.yml"],
+    data = ["setup-agent-roles-trust.yml"],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "setup-agy_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-agy.yml"],
@@ -5008,6 +5034,7 @@ test_suite(
         ":rustup_syntax_test",
         ":sed_syntax_test",
         ":semgrep_syntax_test",
+        ":setup-agent-roles-trust_syntax_test",
         ":setup-agy_syntax_test",
         ":setup-bazel_syntax_test",
         ":setup-cargo_syntax_test",
