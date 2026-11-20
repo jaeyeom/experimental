@@ -2,13 +2,11 @@ package orgctl
 
 import (
 	"bytes"
-	"cmp"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 )
 
@@ -168,12 +166,10 @@ func renderClassAgentsMD(name string, class Class) string {
 	return b.String()
 }
 
+// writeRulesSection writes rules in spec order. check rejects duplicate
+// ids, so the output is deterministic.
 func writeRulesSection(b *strings.Builder, rules []Rule) {
-	sorted := slices.Clone(rules)
-	slices.SortFunc(sorted, func(a, c Rule) int {
-		return cmp.Compare(a.ID, c.ID)
-	})
-	for _, rule := range sorted {
+	for _, rule := range rules {
 		b.WriteByte('\n')
 		b.WriteString("## ")
 		b.WriteString(rule.ID)
