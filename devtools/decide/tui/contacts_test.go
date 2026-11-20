@@ -112,7 +112,7 @@ func TestContactsMergeBusAndLedger(t *testing.T) {
 	for _, needle := range []string{
 		"c contacts", "c compose", "enter filters every folder", "esc clears the agent filter", "A picks this agent's avatar",
 		"x hides this contact", "H shows hidden contacts", "X hides every dead contact", "R releases a dead bus name",
-		"a aliases this contact to a bus name",
+		"a aliases this contact to a bus name", "i shows or hides the details",
 	} {
 		if !strings.Contains(help, needle) {
 			t.Fatalf("help missing %q\n%s", needle, help)
@@ -733,9 +733,13 @@ func TestMergedRowSelectionRunsToTheEnd(t *testing.T) {
 		{"name":"coord/primary","liveness":"alive"}
 	]`)
 	selectContact(t, m, "coord/primary")
+	// Wide enough that the row has padding beside the detail panel.
+	m.width = 140
 	view := m.View()
-	selected := lineContaining(view, "coord/primary")
-	other := lineContaining(view, "coord/backup")
+	// The detail panel also names the selected contact, so find the rows
+	// by their aka suffix.
+	selected := lineContaining(view, "aka primary")
+	other := lineContaining(view, "aka backup")
 	if selected == "" || other == "" || selected == other {
 		t.Fatalf("merged rows\n%s", view)
 	}
@@ -746,7 +750,7 @@ func TestMergedRowSelectionRunsToTheEnd(t *testing.T) {
 	if got := sgrBeforeLine(t, other, "aka backup"); !sgrFaint(got) {
 		t.Fatalf("aka sgr %q\n%s", got, other)
 	}
-	checkGolden(t, "contacts_merged_120.golden", view)
+	checkGolden(t, "contacts_merged_140.golden", view)
 }
 
 func TestComposeToLiveContactFocusesTheText(t *testing.T) {
@@ -873,5 +877,84 @@ func assertReverseRunsThrough(t *testing.T, line, needle string) {
 	body := rest[:j]
 	if strings.Contains(body, "\x1b[") || !strings.Contains(body, needle) || strings.TrimRight(body, " ") == body {
 		t.Fatalf("reverse does not cover %q and the padding\n%s", needle, line)
+	}
+}
+
+func TestContactDetailPanel(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	now := time.Date(2026, 11, 12, 15, 0, 0, 0, time.UTC)
+	for i, state := range []string{decide.StateOpen, decide.StateAnswered, decide.StateDone, decide.StateWithdrawn} {
+		mustCreate(t, led, &decide.Item{
+			Question: "q" + state, Owner: "desk/ada", Kind: decide.KindRelay, State: state,
+			CreatedAt: now.Add(-time.Duration(i+1) * time.Hour),
+		})
+	}
+	sent := now.Add(-30 * time.Minute)
+	failed := now.Add(-20 * time.Minute)
+	mustCreate(t, led, &decide.Item{
+		Question: "sent", Owner: "desk/ada", Kind: decide.KindRelay, State: decide.StateAnswered,
+		CreatedAt: now.Add(-40 * time.Minute),
+		Messages: []decide.Message{
+			{Author: "human", Time: sent, Text: "first"},
+			{Author: "human", Time: failed, Text: "second"},
+		},
+		Delivery: []decide.Delivery{
+			{At: sent, Target: "agentbus:desk/ada", Outcome: decide.OutcomeWaiting, Message: sent},
+			{At: failed, Target: "agentbus:desk/ada", Outcome: decide.OutcomeFailed, Message: failed, Error: "pane gone"},
+		},
+	})
+	bus := &fakeBus{list: `[
+		{"name":"desk/ada","liveness":"alive","liveness_age":120,
+		 "when":"Ask me about the front desk queue, refunds, and anything a customer left at the counter overnight."},
+		{"name":"desk/bo","liveness":"hibernated"}
+	]`}
+	m := New(dir)
+	m.Now = func() time.Time { return now }
+	m.UTC = true
+	m.busOn = false
+	m.busRun = bus.run
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	m.width = 120
+	m.height = 24
+	cmd := pressUpdate(t, m, "gc")
+	m.Update(cmd())
+
+	c, ok := m.selectedContact()
+	if !ok || c.Name != "desk/ada" {
+		t.Fatalf("selected %+v", c)
+	}
+	if c.Open != 1 || c.Answered != 2 || c.Done != 1 || c.Withdrawn != 1 || c.Waiting != 1 || c.Failed != 1 {
+		t.Fatalf("counts %+v", c)
+	}
+	view := m.View()
+	for _, want := range []string{"liveness   alive, seen 14:58 · 2m ago", "items      1 open, 2 answered, 1 done,", "deliveries 1 waiting, 1 failed", "overnight."} {
+		if !strings.Contains(view, want) {
+			t.Errorf("wide view lacks %q", want)
+		}
+	}
+	if strings.Contains(view, "avatar name") {
+		t.Error("the avatar column is still shown")
+	}
+	checkGolden(t, "contacts_detail_120.golden", view)
+
+	m.width = 70
+	view = m.View()
+	if strings.Contains(view, "deliveries") || !strings.Contains(view, "i details") {
+		t.Fatalf("narrow view shows the panel or lacks the key\n%s", view)
+	}
+	checkGolden(t, "contacts_detail_70.golden", view)
+	press(t, m, "i")
+	view = m.View()
+	if !strings.Contains(view, "deliveries 1 waiting, 1 failed") {
+		t.Fatalf("i did not show the panel\n%s", view)
+	}
+	checkGolden(t, "contacts_detail_70_shown.golden", view)
+	press(t, m, "i")
+	if strings.Contains(m.View(), "deliveries") {
+		t.Fatal("i did not hide the panel")
 	}
 }

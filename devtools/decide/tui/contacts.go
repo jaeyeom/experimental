@@ -10,7 +10,6 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jaeyeom/experimental/devtools/decide"
-	"github.com/jaeyeom/experimental/devtools/decide/tui/avatar"
 )
 
 // Contact states. Active is an agentbus name reported alive.
@@ -42,6 +41,15 @@ type contact struct {
 	Last     time.Time
 	// Aka are the ledger names that resolved to Name, other than Name.
 	Aka []string
+	// When is the bus name's --when text. LiveAge is how long before the
+	// bus list agentbus observed Liveness; nil when unknown.
+	When    string
+	LiveAge *time.Duration
+	// Answered, Done, and Withdrawn count items in those states.
+	Answered, Done, Withdrawn int
+	// Waiting and Failed count messages to this agent whose latest
+	// delivery is waiting or failed.
+	Waiting, Failed int
 }
 
 func (c contact) liveLabel() string {
@@ -202,6 +210,8 @@ func (s *contactSet) addBus(bus []Target) {
 		}
 		c.OnBus = true
 		c.Liveness = tg.Live
+		c.When = tg.When
+		c.LiveAge = tg.LiveAge
 	}
 }
 
@@ -213,19 +223,26 @@ func (s *contactSet) addItems(items []decide.Item, res nameResolver) {
 
 func (s *contactSet) addItem(it decide.Item, res nameResolver) {
 	seen := map[string]bool{}
-	last := itemActivity(it)
-	open := it.State == decide.StateOpen && !it.Snoozed()
-	s.note(it.Owner, res.canonical(it.Owner, &it), open, last, seen)
+	tally := itemTally{last: itemActivity(it), open: it.State == decide.StateOpen && !it.Snoozed(), state: it.State}
+	s.note(it.Owner, res.canonical(it.Owner, &it), tally, seen)
 	for _, msg := range it.Messages {
 		name := msg.Sender()
-		s.note(name, res.canonical(name, nil), open, last, seen)
+		s.note(name, res.canonical(name, nil), tally, seen)
 	}
 	if bus, ok := res.notifyBus(it.NotifyPane); ok {
-		s.note("", bus, open, last, seen)
+		s.note("", bus, tally, seen)
 	}
+	s.addDeliveries(&it, res)
 }
 
-func (s *contactSet) note(raw, canon string, open bool, last time.Time, seen map[string]bool) {
+// itemTally is what one item adds to each contact it involves.
+type itemTally struct {
+	last  time.Time
+	open  bool
+	state string
+}
+
+func (s *contactSet) note(raw, canon string, tally itemTally, seen map[string]bool) {
 	if canon == "" {
 		return
 	}
@@ -237,11 +254,47 @@ func (s *contactSet) note(raw, canon string, open bool, last time.Time, seen map
 		return
 	}
 	seen[canon] = true
-	if open {
+	if tally.open {
 		c.Open++
 	}
-	if last.After(c.Last) {
-		c.Last = last
+	switch tally.state {
+	case decide.StateAnswered:
+		c.Answered++
+	case decide.StateDone:
+		c.Done++
+	case decide.StateWithdrawn:
+		c.Withdrawn++
+	}
+	if tally.last.After(c.Last) {
+		c.Last = tally.last
+	}
+}
+
+// addDeliveries counts the item's human messages whose latest delivery
+// is waiting or failed, under the agent the delivery went to.
+func (s *contactSet) addDeliveries(it *decide.Item, res nameResolver) {
+	for _, msg := range it.Messages {
+		d, ok := decide.MessageDelivery(it, msg)
+		if !ok {
+			continue
+		}
+		state := d.State()
+		if state != decide.OutcomeWaiting && state != decide.OutcomeFailed {
+			continue
+		}
+		name, ok := res.notifyBus(d.Target)
+		if !ok {
+			name = res.canonical(d.Target, it)
+		}
+		c := s.add(name)
+		if c == nil {
+			continue
+		}
+		if state == decide.OutcomeWaiting {
+			c.Waiting++
+		} else {
+			c.Failed++
+		}
 	}
 }
 
@@ -425,7 +478,7 @@ func (m *Model) ensureComposeDead(c contact) {
 }
 
 // contactsHideKey handles hide, show-hidden, hide-dead, release, alias,
-// and star.
+// star, and the narrow-screen details toggle.
 func (m *Model) contactsHideKey(r rune) bool {
 	switch r {
 	case '*':
@@ -446,6 +499,8 @@ func (m *Model) contactsHideKey(r rune) bool {
 		m.askRelease()
 	case 'a':
 		m.beginAliasPick()
+	case 'i':
+		m.contactDetail = !m.contactDetail
 	default:
 		return false
 	}
@@ -485,7 +540,7 @@ func (m *Model) revealContactCursor() {
 		return
 	}
 	m.clampContactCursor()
-	_, limit := m.layoutBudget()
+	limit := m.contactListLimit(m.contactsWidth())
 	// The contact table starts with a header row.
 	m.scroll = revealRow(m.scroll, m.contactCursor+1, limit)
 }
@@ -516,23 +571,18 @@ func (m *Model) clearAgentFilter() {
 	}
 }
 
-// avatarMark is the Contacts avatar column: the built-in id, "file",
-// or "-" when the name has no avatar.
-func (m *Model) avatarMark(name string) string {
-	if rule, ok := decide.MatchAvatar(m.Avatars, name); ok {
-		switch {
-		case rule.Hide:
-			return "-"
-		case rule.Builtin != "":
-			return rule.Builtin
-		case rule.File != "":
-			return "file"
-		}
+// contactsWidth is the width contactsScreen gets, as contactsMail lays
+// it out; 0 when the width is unknown.
+func (m *Model) contactsWidth() int {
+	if m.width <= 0 {
+		return 0
 	}
-	if m.AvatarDefault {
-		return avatar.PickBuiltin(name)
+	pane := m.contentWidth()
+	if m.narrow() {
+		return pane
 	}
-	return "-"
+	_, mainW := listColumnWidths(maxWidth(m.sidebarLines()), pane)
+	return mainW
 }
 
 func (m *Model) contactsMail(pane int) []screenLine {
@@ -556,16 +606,28 @@ func (m *Model) contactsScreen(width int) []screenLine {
 		return m.aliasPickScreen(width)
 	}
 	rows := m.visibleContacts()
+	side, below := m.contactPanelPlace(width)
+	listW := width
+	if side {
+		listW = width - contactPanelWidth - 1
+	}
 	var lines []screenLine
 	if len(rows) == 0 {
 		lines = append(lines, screenLine{text: m.emptyText("no contacts")})
 	} else {
 		useStyles()
-		lines = append(lines, m.contactTable(width, m.now(), rows)...)
+		lines = append(lines, m.contactTable(listW, m.now(), rows)...)
 	}
-	_, limit := m.layoutBudget()
+	limit := m.contactListLimit(width)
 	lines, m.scroll = clipLines(lines, m.scroll, limit)
 	lines = m.withFilterHeader(lines)
+	switch {
+	case side:
+		panel, _ := clipLines(m.contactPanel(contactPanelWidth), 0, limit)
+		lines = zipFixed([][]screenLine{lines, panel}, []int{listW, contactPanelWidth})
+	case below:
+		lines = append(append(lines, screenLine{}), m.contactPanel(width)...)
+	}
 	if width > 0 {
 		return fitColumnLines(lines, width)
 	}
@@ -621,7 +683,7 @@ func (m *Model) contactRowStyle(row contact, i int) (style lipgloss.Style, dimAk
 }
 
 func (m *Model) contactTable(width int, now time.Time, rows []contact) []screenLine {
-	headers := []string{"avatar", "name", "state", "liveness", "open", "activity"}
+	headers := []string{"name", "state", "liveness", "open", "activity"}
 	cells := make([][]string, len(rows))
 	styles := make([]lipgloss.Style, len(rows))
 	loc := m.zone()
@@ -629,7 +691,6 @@ func (m *Model) contactTable(width int, now time.Time, rows []contact) []screenL
 		style, dimAka := m.contactRowStyle(row, i)
 		styles[i] = style
 		cells[i] = []string{
-			m.avatarMark(row.Name),
 			m.starredCell(row, dimAka),
 			row.stateLabel(),
 			row.liveLabel(),

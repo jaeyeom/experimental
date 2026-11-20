@@ -1,13 +1,13 @@
 [1m┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐[0m
-│Inbox        2 avatar name state  liveness  open activity                                                             │
-│Snoozed      0 -      ada  active alive     1    13:00 · 2h ago                                                       │
-│Answered     0 [7m-      cara dead   (offline) 1    14:00 · 1h ago                                                       [0m│
-│Done         0 [2m-      zed  dead   dead      0                                                                         [0m│
-│Withdrawn    0                                                                                                        │
-│Status                                                                                                                │
-│[Contacts]   1                                                                                                        │
+│Inbox        2 name state  liveness  open activity                            [1mcara[0m                                    │
+│Snoozed      0 ada  active alive     1    13:00 · 2h ago                      state      dead                         │
+│Answered     0 [7mcara dead   (offline) 1    14:00 · 1h ago                     [0m liveness   (offline)                    │
+│Done         0 [2mzed  dead   dead      0                                       [0m when       -                            │
+│Withdrawn    0                                                                items      1 open, 0 answered, 0 done,  │
+│Status                                                                                   0 withdrawn                  │
+│[Contacts]   1                                                                activity   14:00 · 1h ago               │
+│                                                                              deliveries 0 waiting, 0 failed          │
 │contacts  mouse on  g go to  u list  enter filter  A avatar  /find  ? help                                            │
-│                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │

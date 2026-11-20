@@ -36,17 +36,27 @@ type Mark struct {
 // record from before Delivery.Message belongs to the answer message.
 // A message with no record, such as an agent message, has no mark.
 func MessageMark(it *Item, msg Message) (Mark, bool) {
-	if it == nil || msg.Author != "human" || msg.Time.IsZero() {
+	d, ok := MessageDelivery(it, msg)
+	if !ok {
 		return Mark{}, false
+	}
+	return markOf(d), true
+}
+
+// MessageDelivery is the latest delivery record of msg on it, the one
+// MessageMark reads. A message with no record has none.
+func MessageDelivery(it *Item, msg Message) (Delivery, bool) {
+	if it == nil || msg.Author != "human" || msg.Time.IsZero() {
+		return Delivery{}, false
 	}
 	for i := len(it.Delivery) - 1; i >= 0; i-- {
 		d := it.Delivery[i]
 		if d.State() == OutcomeResend || !deliveryFor(it, d, msg.Time) {
 			continue
 		}
-		return markOf(d), true
+		return d, true
 	}
-	return Mark{}, false
+	return Delivery{}, false
 }
 
 func deliveryFor(it *Item, d Delivery, at time.Time) bool {
