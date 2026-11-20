@@ -116,6 +116,29 @@ func (r slackReader) ListUsers(ctx context.Context, cursor string) (slackwatch.U
 	return page, nil
 }
 
+// UserInfo reads one user with users.info. The name is the real name,
+// else the handle; Display is the profile display name.
+func (r slackReader) UserInfo(ctx context.Context, id string) (slackwatch.NamedUser, error) {
+	u, err := r.api.GetUserInfoContext(ctx, id)
+	if err != nil {
+		if se, ok := errors.AsType[slack.SlackErrorResponse](err); ok && (se.Err == "user_not_found" || se.Err == "users_not_found") {
+			return slackwatch.NamedUser{}, fmt.Errorf("slack users.info %s: %w", id, slackwatch.ErrUserNotFound)
+		}
+		return slackwatch.NamedUser{}, apiError("users.info", err)
+	}
+	if u == nil || u.ID == "" {
+		return slackwatch.NamedUser{}, fmt.Errorf("slack users.info %s: %w", id, slackwatch.ErrUserNotFound)
+	}
+	name := u.RealName
+	if name == "" {
+		name = u.Profile.RealName
+	}
+	if name == "" {
+		name = u.Name
+	}
+	return slackwatch.NamedUser{ID: u.ID, Name: name, Display: u.Profile.DisplayName}, nil
+}
+
 // UserByEmail resolves an email with users.lookupByEmail.
 func (r slackReader) UserByEmail(ctx context.Context, email string) (string, error) {
 	u, err := r.api.GetUserByEmailContext(ctx, email)
@@ -294,9 +317,10 @@ func newProcessor(ctx context.Context, api *slack.Client, cfg slackwatch.Config,
 			return nil, err //nolint:wrapcheck // Already descriptive.
 		}
 	}
+	names := slackwatch.NewNames(cfg.Names, store, slackReader{api: api}, logger)
 	return &slackwatch.Processor{
 		Store:    store,
-		Notifier: &slackwatch.Notifier{Store: store, Config: cfg, Logger: logger},
+		Notifier: &slackwatch.Notifier{Store: store, Config: cfg, Logger: logger, Names: names},
 		Config:   cfg,
 		Self:     auth.UserID,
 		TeamURL:  auth.URL,

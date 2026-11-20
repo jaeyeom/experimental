@@ -241,7 +241,7 @@ func cmdInbound(configPath string, args []string, stdout, stderr io.Writer) int 
 			return usageErr(stderr, err)
 		}
 	}
-	_, store, err := openStore(configPath)
+	cfg, store, err := openStore(configPath)
 	if err != nil {
 		return fail(stderr, err)
 	}
@@ -253,10 +253,16 @@ func cmdInbound(configPath string, args []string, stdout, stderr io.Writer) int 
 	if *asJSON {
 		return writeJSON(stdout, stderr, rows)
 	}
+	// The table shows cached names only; listing never calls Slack or
+	// the resolver command.
+	names := slackwatch.NewNames(cfg.Names, store, nil, nil)
+	names.Command = nil
+	ctx := context.Background()
 	tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "TIME\tKIND\tCHANNEL\tTS\tAUTHOR\tTEXT")
 	for _, in := range rows {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", tsTime(in.TS), in.Kind, in.Channel, in.TS, in.Author, strings.Join(strings.Fields(in.Text), " "))
+		text := strings.Join(strings.Fields(names.Mentions(ctx, in.Text)), " ")
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", tsTime(in.TS), in.Kind, in.Channel, in.TS, names.Label(ctx, in.Author), text)
 	}
 	if err := tw.Flush(); err != nil {
 		return fail(stderr, err)

@@ -242,6 +242,15 @@ CREATE TABLE users (
 	`
 ALTER TABLE watches ADD COLUMN gone_at INTEGER;
 `,
+	// user_names caches a user id to its name for notices. An empty
+	// name records that nothing knew the id.
+	`
+CREATE TABLE user_names (
+	id      TEXT PRIMARY KEY,
+	name    TEXT NOT NULL DEFAULT '',
+	seen_at INTEGER NOT NULL
+);
+`,
 }
 
 // Store is the slackwatch SQLite database. The server and the CLI each

@@ -58,7 +58,10 @@ type Notification struct {
 	Purpose   string
 	Refs      []string
 	Author    string
-	Text      string
+	// AuthorName is the author's name, filled by Notify from Names.
+	// Empty means it is not known and the bare id is shown.
+	AuthorName string
+	Text       string
 	// OutboxID is the outbox record an outbox event is about.
 	OutboxID int64
 	// Message, when set, is SLACKWATCH_MESSAGE in place of the text
@@ -78,6 +81,9 @@ type Notifier struct {
 	Store  *Store
 	Config Config
 	Logger *slog.Logger
+	// Names, when set, shows user names next to ids in the notice. Nil
+	// shows bare ids.
+	Names *Names
 }
 
 // Notify delivers note to its owner's target. A failed or timed out
@@ -88,6 +94,7 @@ type Notifier struct {
 // logged at error level and left as an undelivered row. The returned
 // error is a store failure or a cancelled context.
 func (n *Notifier) Notify(ctx context.Context, note Notification) error {
+	note = n.withNames(ctx, note)
 	if note.Owner == "" {
 		return n.deliverFallback(ctx, note, 1)
 	}
@@ -292,6 +299,28 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 
 func (n *Notifier) target(name string) string { return n.Config.Target(name) }
 
+// withNames fills the author's name and rewrites <@U…> mentions in the
+// shown text to @Name. The note is a copy; the stored message keeps its
+// raw text.
+func (n *Notifier) withNames(ctx context.Context, note Notification) Notification {
+	if n.Names == nil {
+		return note
+	}
+	if note.AuthorName == "" {
+		note.AuthorName = n.Names.Name(ctx, note.Author)
+	}
+	note.Text = n.Names.Mentions(ctx, note.Text)
+	return note
+}
+
+// authorLabel is "Name (U…)", or the bare id when the name is unknown.
+func authorLabel(note Notification) string {
+	if note.AuthorName == "" {
+		return note.Author
+	}
+	return note.AuthorName + " (" + note.Author + ")"
+}
+
 func (n *Notifier) env(note Notification, target, notifyID string) []string {
 	text := excerpt(note.Text, n.Config.ExcerptLimit)
 	watchID, outboxID := "", ""
@@ -313,6 +342,7 @@ func (n *Notifier) env(note Notification, target, notifyID string) []string {
 		"SLACKWATCH_PURPOSE="+note.Purpose,
 		"SLACKWATCH_REFS="+strings.Join(note.Refs, " "),
 		"SLACKWATCH_AUTHOR="+note.Author,
+		"SLACKWATCH_AUTHOR_NAME="+note.AuthorName,
 		"SLACKWATCH_TEXT="+text,
 		"SLACKWATCH_WATCH_ID="+watchID,
 		"SLACKWATCH_OUTBOX_ID="+outboxID,
@@ -413,7 +443,7 @@ func message(note Notification, text string) string {
 	default:
 		b.WriteString("New Slack reply")
 	}
-	fmt.Fprintf(&b, " from %s in %s", note.Author, note.Channel)
+	fmt.Fprintf(&b, " from %s in %s", authorLabel(note), note.Channel)
 	if note.Purpose != "" {
 		fmt.Fprintf(&b, " (purpose: %q)", note.Purpose)
 	}
