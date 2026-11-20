@@ -130,9 +130,20 @@ func (m *Model) rebuildContacts() {
 	m.clampContactCursor()
 }
 
-// visibleContacts is the contact list. Hidden names stay out unless H
-// is showing them. The / query filters while Contacts is open.
+// visibleContacts is the contact list, in tree order while the org
+// tree is shown.
 func (m *Model) visibleContacts() []contact {
+	rows := m.filteredContacts()
+	if m.orgActive() {
+		rows, _ = orgLayout(m.orgRoot, rows)
+	}
+	return rows
+}
+
+// filteredContacts is the contact list in contact order. Hidden names
+// stay out unless H is showing them. The / query filters while
+// Contacts is open.
+func (m *Model) filteredContacts() []contact {
 	rows := m.contacts
 	if !m.showHidden {
 		if hide := m.hiddenSet(); len(hide) > 0 {
@@ -478,7 +489,7 @@ func (m *Model) ensureComposeDead(c contact) {
 }
 
 // contactsHideKey handles hide, show-hidden, hide-dead, release, alias,
-// star, and the narrow-screen details toggle.
+// star, the narrow-screen details toggle, and the org tree toggle.
 func (m *Model) contactsHideKey(r rune) bool {
 	switch r {
 	case '*':
@@ -501,6 +512,8 @@ func (m *Model) contactsHideKey(r rune) bool {
 		m.beginAliasPick()
 	case 'i':
 		m.contactDetail = !m.contactDetail
+	case 't':
+		m.toggleOrgTree()
 	default:
 		return false
 	}
@@ -541,8 +554,15 @@ func (m *Model) revealContactCursor() {
 	}
 	m.clampContactCursor()
 	limit := m.contactListLimit(m.contactsWidth())
-	// The contact table starts with a header row.
-	m.scroll = revealRow(m.scroll, m.contactCursor+1, limit)
+	row := m.contactCursor
+	if m.orgActive() {
+		row = m.orgCursorRow()
+	}
+	// The contact table starts with a header row, after any note.
+	if m.orgNote != "" {
+		row++
+	}
+	m.scroll = revealRow(m.scroll, row+1, limit)
 }
 
 // applyAgentFilter keeps, in every folder, items name owns or sent a
@@ -612,6 +632,10 @@ func (m *Model) contactsScreen(width int) []screenLine {
 		listW = width - contactPanelWidth - 1
 	}
 	var lines []screenLine
+	if m.orgNote != "" {
+		useStyles()
+		lines = append(lines, screenLine{text: dimNav.Render(m.orgNote)})
+	}
 	if len(rows) == 0 {
 		lines = append(lines, screenLine{text: m.emptyText("no contacts")})
 	} else {
@@ -684,18 +708,37 @@ func (m *Model) contactRowStyle(row contact, i int) (style lipgloss.Style, dimAk
 
 func (m *Model) contactTable(width int, now time.Time, rows []contact) []screenLine {
 	headers := []string{"name", "state", "liveness", "open", "activity"}
-	cells := make([][]string, len(rows))
-	styles := make([]lipgloss.Style, len(rows))
 	loc := m.zone()
-	for i, row := range rows {
+	cell := func(row contact, i int) ([]string, lipgloss.Style) {
 		style, dimAka := m.contactRowStyle(row, i)
-		styles[i] = style
-		cells[i] = []string{
+		return []string{
 			m.starredCell(row, dimAka),
 			row.stateLabel(),
 			row.liveLabel(),
 			strconv.Itoa(row.Open),
 			stamp(row.Last, now, loc),
+		}, style
+	}
+	var cells [][]string
+	var styles []lipgloss.Style
+	if m.orgActive() {
+		_, tree := orgLayout(m.orgRoot, m.filteredContacts())
+		for _, r := range tree {
+			if r.contact < 0 {
+				cells = append(cells, []string{r.prefix + r.label, "", "", "", ""})
+				styles = append(styles, dimNav)
+				continue
+			}
+			c, style := cell(rows[r.contact], r.contact)
+			c[0] = r.prefix + c[0]
+			cells = append(cells, c)
+			styles = append(styles, style)
+		}
+	} else {
+		for i, row := range rows {
+			c, style := cell(row, i)
+			cells = append(cells, c)
+			styles = append(styles, style)
 		}
 	}
 	return styledStatusRows(headers, cells, width, func(i int) lipgloss.Style {

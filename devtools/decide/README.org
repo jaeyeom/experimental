@@ -534,6 +534,8 @@ machine only. A hub does not send it.
 | ~ui.lateDeliveryAfter~ | ~5m~                        | How long a bus message waits before it needs attention.                         |
 | ~ui.archiveGrace~      | ~2s~                        | How long a new message holds archive.                                          |
 | ~ui.busHealthInterval~ | ~15s~                       | How often the inbox checks ~agentbus health~ for its banner.                   |
+| ~ui.orgTree~           | false                       | Let ~t~ show Contacts as the org tree of ~ui.orgSpec~.                         |
+| ~ui.orgSpec~           | empty                       | Rendered org spec JSON that ~orgctl tree --json~ reads.                        |
 | ~ui.maxLineLength~     | 160                         | Longest line ~ask~ and ~reply~ accept. 0 turns the check off.                  |
 
 * Using two machines
@@ -664,6 +666,18 @@ how many messages to it are still waiting or failed to deliver. On a
 wide screen the panel is to the right of the list. Below 80 columns it
 is hidden; ~i~ shows it below the list and hides it again, and the
 footer names the key.
+
+With ~ui.orgTree~ on, ~t~ switches Contacts between the list and the
+org tree from ~orgctl tree --json~ on ~ui.orgSpec~: you, then direct
+reports, then their reports, with each pool under the role that starts
+it. Roles with no contact and pools are dimmed and cannot be selected.
+Contacts the spec does not name are in an ~other~ group at the bottom.
+If ~orgctl~ is missing or fails, the list stays flat with one line
+saying why. With ~ui.orgTree~ off, decide never runs ~orgctl~.
+
+#+begin_src json
+{"ui": {"orgTree": true, "orgSpec": "/home/me/org/desk.json"}}
+#+end_src
 
 #+BEGIN_EXAMPLE
 name     state        liveness   open activity      desk/ada

@@ -206,6 +206,15 @@ type Model struct {
 	// contactDetail shows the contact detail panel on a narrow screen,
 	// below the list. A wide screen always shows it beside the list.
 	contactDetail bool
+	// orgTreeOn is ui.orgTree and orgSpec ui.orgSpec. orgView is the t
+	// toggle, orgRoot the last `orgctl tree --json`, and orgNote why the
+	// tree could not be shown. orgRun replaces orgctl in tests.
+	orgTreeOn bool
+	orgSpec   string
+	orgView   bool
+	orgRoot   *orgNode
+	orgNote   string
+	orgRun    OrgctlRunner
 	// favorites are starred names, in the order they were starred.
 	favorites []string
 	// hidden is the display setting of contact names Contacts does not
@@ -2669,6 +2678,7 @@ func (m *Model) helpLines() []screenLine {
 			"* stars this contact; starred names lead the recipient list",
 			"A picks this agent's avatar",
 			"i shows or hides the details on a narrow screen",
+			"t switches between the list and the org tree (ui.orgTree)",
 			"a aliases this contact to a bus name",
 			"x hides this contact",
 			"H shows hidden contacts",

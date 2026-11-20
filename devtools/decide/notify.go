@@ -131,6 +131,10 @@ type InboxUI struct {
 	// BusHealthInterval is how often the inbox runs `agentbus health
 	// --json` for its bus-down banner, such as "15s". Empty is 15 seconds.
 	BusHealthInterval string `json:"busHealthInterval,omitempty"`
+	// OrgTree lets Contacts switch to the org tree of OrgSpec, a rendered
+	// org spec JSON read with `orgctl tree --json`. Off never runs orgctl.
+	OrgTree bool   `json:"orgTree,omitempty"`
+	OrgSpec string `json:"orgSpec,omitempty"`
 	// MaxLineLength is the longest line, in characters, that decide ask
 	// and decide reply accept from an agent. Nil is
 	// DefaultMaxLineLength; zero turns the check off.
