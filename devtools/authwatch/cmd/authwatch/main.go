@@ -39,30 +39,26 @@ func realRuntime() appRuntime {
 
 func run(args []string, stdout, stderr io.Writer, env []string, rt appRuntime) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: authwatch check|run|status|report-failure")
+		writeUsage(stderr)
 		return errExitCode
 	}
 	switch args[0] {
-	case "check":
-		return cmdCheck(args[1:], stdout, stderr, env, rt)
-	case "run":
-		return cmdRun(args[1:], stdout, stderr, env, rt)
-	case "status":
-		return cmdStatus(args[1:], stdout, stderr, env, rt)
-	case "report-failure":
-		return cmdReportFailure(args[1:], stdout, stderr, env, rt)
-	default:
-		fmt.Fprintf(stderr, "authwatch: unknown command %q\n", args[0])
-		return errExitCode
+	case "help", "-h", "--help":
+		return runHelp(args[1:], stdout, stderr, env, rt)
 	}
+	if c, ok := findCommand(args[0]); ok {
+		return c.run(args[1:], stdout, stderr, env, rt)
+	}
+	fmt.Fprintf(stderr, "authwatch: unknown command %q\n\n", args[0])
+	writeUsage(stderr)
+	return errExitCode
 }
 
 func cmdCheck(args []string, stdout, stderr io.Writer, env []string, rt appRuntime) int {
 	fs := flag.NewFlagSet("authwatch check", flag.ContinueOnError)
-	fs.SetOutput(stderr)
 	configPath := fs.String("config", "", "config file")
-	if err := fs.Parse(args); err != nil {
-		return errExitCode
+	if code, done := parseFlags(fs, args, stdout, stderr); done {
+		return code
 	}
 	return runOnce(context.Background(), stdout, stderr, env, rt, *configPath)
 }
@@ -95,11 +91,10 @@ func runOnce(ctx context.Context, stdout, stderr io.Writer, env []string, rt app
 
 func cmdRun(args []string, stdout, stderr io.Writer, env []string, rt appRuntime) int {
 	fs := flag.NewFlagSet("authwatch run", flag.ContinueOnError)
-	fs.SetOutput(stderr)
 	every := fs.Duration("every", 5*time.Minute, "check interval")
 	configPath := fs.String("config", "", "config file")
-	if err := fs.Parse(args); err != nil {
-		return errExitCode
+	if code, done := parseFlags(fs, args, stdout, stderr); done {
+		return code
 	}
 	if *every <= 0 {
 		fmt.Fprintln(stderr, "authwatch: --every must be positive")
@@ -123,13 +118,12 @@ func cmdRun(args []string, stdout, stderr io.Writer, env []string, rt appRuntime
 
 func cmdStatus(args []string, stdout, stderr io.Writer, env []string, rt appRuntime) int {
 	fs := flag.NewFlagSet("authwatch status", flag.ContinueOnError)
-	fs.SetOutput(stderr)
 	profile := fs.String("profile", "", "profile name")
 	asJSON := fs.Bool("json", false, "print JSON")
 	oneLine := fs.Bool("line", false, "print one line for status bars")
 	configPath := fs.String("config", "", "config file")
-	if err := fs.Parse(args); err != nil {
-		return errExitCode
+	if code, done := parseFlags(fs, args, stdout, stderr); done {
+		return code
 	}
 	if *asJSON && *oneLine {
 		fmt.Fprintln(stderr, "authwatch: --json and --line are mutually exclusive")
@@ -167,11 +161,10 @@ func cmdStatus(args []string, stdout, stderr io.Writer, env []string, rt appRunt
 
 func cmdReportFailure(args []string, stdout, stderr io.Writer, env []string, rt appRuntime) int {
 	fs := flag.NewFlagSet("authwatch report-failure", flag.ContinueOnError)
-	fs.SetOutput(stderr)
 	profile := fs.String("profile", "", "profile name")
 	configPath := fs.String("config", "", "config file")
-	if err := fs.Parse(args); err != nil {
-		return errExitCode
+	if code, done := parseFlags(fs, args, stdout, stderr); done {
+		return code
 	}
 	cfg, paths, code := load(stderr, env, *configPath)
 	if code != 0 {

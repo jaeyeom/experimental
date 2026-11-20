@@ -2,7 +2,10 @@ load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 
 go_library(
     name = "go_default_library",
-    srcs = ["main.go"],
+    srcs = [
+        "help.go",
+        "main.go",
+    ],
     importpath = "github.com/jaeyeom/experimental/devtools/authwatch/cmd/authwatch",
     visibility = ["//visibility:private"],
     deps = [
@@ -20,7 +23,10 @@ go_binary(
 go_test(
     name = "go_default_test",
     size = "small",
-    srcs = ["main_test.go"],
+    srcs = [
+        "help_test.go",
+        "main_test.go",
+    ],
     embed = [":go_default_library"],
     deps = [
         "//devtools/authwatch:go_default_library",
