@@ -26,6 +26,8 @@ const (
 	EventDescribe     = "describe"
 	EventRelease      = "release"
 	EventHandoff      = "handoff"
+	EventTakeover     = "takeover"
+	EventForget       = "forget"
 	EventClaimRefused = "claim_refused"
 	EventSend         = "send"
 	// EventQueued is a client outbox accept, not yet at the hub.
@@ -444,7 +446,7 @@ func validate(e Event) error {
 
 func knownEvent(name string) bool {
 	switch name {
-	case EventRegister, EventDescribe, EventRelease, EventHandoff, EventClaimRefused,
+	case EventRegister, EventDescribe, EventRelease, EventHandoff, EventTakeover, EventForget, EventClaimRefused,
 		EventSend, EventQueued, EventDedupe, EventDeliverAttempt, EventDelivered, EventUnprocessed, EventHeld,
 		EventHoldNoticeSkipped, EventRetry,
 		EventRequeued, EventExpired, EventRejected, EventAdapterError, EventAdapterReachable, EventBypass, EventStart, EventStop,

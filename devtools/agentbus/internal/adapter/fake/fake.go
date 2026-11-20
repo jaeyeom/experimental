@@ -44,6 +44,18 @@ type Adapter struct {
 	Submits int
 	// SubmitErr is Submit's error.
 	SubmitErr error
+	// PaneShell, when non-nil, maps handle to whether its pane is at a shell prompt.
+	PaneShell map[string]bool
+}
+
+// PaneAtShell reports whether handle's pane is at its shell prompt.
+func (a *Adapter) PaneAtShell(_ context.Context, handle string) (bool, error) {
+	if a.PaneShell != nil {
+		if atShell, ok := a.PaneShell[handle]; ok {
+			return atShell, nil
+		}
+	}
+	return true, nil
 }
 
 // ComposerEmpty calls Composer, or reports ComposerText as a user draft.

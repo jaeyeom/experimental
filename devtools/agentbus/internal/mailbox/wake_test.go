@@ -316,6 +316,30 @@ func TestAReusedPaneIsNotRelaunched(t *testing.T) {
 	}
 }
 
+func TestWakeIntoPaneRunningAnotherSessionRefusesLogsAndKeepsQueued(t *testing.T) {
+	w := newWakeWorld(t)
+	wantReason := "pane runs another session; not waking " + sleeper
+	w.waker.err = &hibernate.PaneReusedError{Handle: sleeper, Reason: wantReason}
+	res := w.send(t, "wake up")
+	w.box.wakes.Wait()
+	if _, ok := w.reg.Hibernation(sleeper); ok {
+		t.Fatal("the record of a busy pane was kept")
+	}
+	evs := w.events(t, eventlog.EventWakeSkipped)
+	if len(evs) != 1 || evs[0].Reason != wantReason {
+		t.Fatalf("agent_wake_skipped events = %+v, want reason %q", evs, wantReason)
+	}
+	if textsWith(w.ad.Texts, "wake up") != 0 {
+		t.Fatalf("pasted into a busy pane: %q", w.ad.Texts)
+	}
+	if got := w.state(t, res.ID); !strings.HasPrefix(got, "held:") {
+		t.Fatalf("state = %q, want held", got)
+	}
+	if textsWith(w.ad.Texts, wantReason) != 1 {
+		t.Fatalf("sender notice missing %q in %q", wantReason, w.ad.Texts)
+	}
+}
+
 func TestWakeWithNoMessageRelaunchesAndClearsTheRecord(t *testing.T) {
 	w := newWakeWorld(t)
 	handle, err := w.box.Wake(context.Background(), "ops/x")

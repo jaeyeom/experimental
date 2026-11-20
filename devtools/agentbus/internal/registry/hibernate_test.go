@@ -8,6 +8,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter/fake"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/hibernate"
 )
 
@@ -83,7 +84,13 @@ func TestAStoppingRecordAlsoKeepsTheName(t *testing.T) {
 
 func TestSearchShowsAHibernatedAgentOutOfTheInventory(t *testing.T) {
 	reg, ad, alice, bob := hibernateWorld(t)
-	hibernateAlice(t, reg, ad, alice)
+	if _, err := reg.BeginHibernation(hibernate.Record{Handle: alice, Pane: "w1:p1", Kind: "claude", Session: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.EndHibernation(alice, hibernate.StatusHibernated, ""); err != nil {
+		t.Fatal(err)
+	}
+	ad.Reach[alice] = adapter.StateNoAgent
 	ad.InventoryAgents = []adapter.Agent{{Handle: bob, PaneID: "w1:p2", Status: "idle"}}
 	rows, err := reg.Search(context.Background(), "ops")
 	if err != nil {
@@ -96,7 +103,13 @@ func TestSearchShowsAHibernatedAgentOutOfTheInventory(t *testing.T) {
 
 func TestHibernationRecordsSurviveARestart(t *testing.T) {
 	reg, ad, alice, _ := hibernateWorld(t)
-	hibernateAlice(t, reg, ad, alice)
+	if _, err := reg.BeginHibernation(hibernate.Record{Handle: alice, Pane: "w1:p1", Kind: "claude", Session: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.EndHibernation(alice, hibernate.StatusHibernated, ""); err != nil {
+		t.Fatal(err)
+	}
+	ad.Reach[alice] = adapter.StateNoAgent
 	again, err := Open(reg.dir, []adapter.Adapter{ad}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -109,7 +122,13 @@ func TestHibernationRecordsSurviveARestart(t *testing.T) {
 
 func TestAFailedWakeKeepsTheRecordAndTheName(t *testing.T) {
 	reg, ad, alice, _ := hibernateWorld(t)
-	hibernateAlice(t, reg, ad, alice)
+	if _, err := reg.BeginHibernation(hibernate.Record{Handle: alice, Pane: "w1:p1", Kind: "claude", Session: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.EndHibernation(alice, hibernate.StatusHibernated, ""); err != nil {
+		t.Fatal(err)
+	}
+	ad.Reach[alice] = adapter.StateNoAgent
 	retry := time.Date(2026, 11, 11, 9, 1, 0, 0, time.UTC)
 	rec, err := reg.FailWake(alice, "relaunched agent not ready within 1m0s", retry)
 	if err != nil {
@@ -134,7 +153,13 @@ func TestAFailedWakeKeepsTheRecordAndTheName(t *testing.T) {
 
 func TestAWakeClearsTheRecordAndTheNameIsActiveAgain(t *testing.T) {
 	reg, ad, alice, _ := hibernateWorld(t)
-	hibernateAlice(t, reg, ad, alice)
+	if _, err := reg.BeginHibernation(hibernate.Record{Handle: alice, Pane: "w1:p1", Kind: "claude", Session: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.EndHibernation(alice, hibernate.StatusHibernated, ""); err != nil {
+		t.Fatal(err)
+	}
+	ad.Reach[alice] = adapter.StateNoAgent
 	if err := reg.ClearHibernation(alice); err != nil {
 		t.Fatal(err)
 	}
@@ -278,5 +303,166 @@ func TestSeenBoundsAnUntrackedIdleAgentByItsLastTurn(t *testing.T) {
 	reg.pollOnce(context.Background())
 	if got := reg.Seen()[alice]; got != (hibernate.Seen{Status: "idle", For: 3 * time.Hour}) {
 		t.Fatalf("alice = %+v, want idle 3h from her last turn", got)
+	}
+}
+
+func TestNewSessionInSamePaneTakesOverHibernatedNameAndLogsTakeover(t *testing.T) {
+	dir := t.TempDir()
+	alice := "herdr:local/s1/w1:p1"
+	fresh := "herdr:local/s3/w1:p1"
+	ad := &fake.Adapter{
+		AdapterName: "herdr",
+		Reach:       map[string]adapter.State{alice: adapter.StateIdle},
+		PaneHandles: map[string]string{"p1": alice},
+	}
+	lg := eventlog.Open(dir)
+	reg, err := Open(dir, []adapter.Adapter{ad}, lg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := reg.Register(ctx, envPane("p1"), "review/lead", "reviewing"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.Register(ctx, envPane("p1"), "review/triage", "triaging"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.BeginHibernation(hibernate.Record{Handle: alice, Pane: "w1:p1", Kind: "claude", Session: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.EndHibernation(alice, hibernate.StatusHibernated, ""); err != nil {
+		t.Fatal(err)
+	}
+	ad.Reach[alice] = adapter.StateNoAgent
+
+	// New session starts in the same pane w1:p1.
+	ad.PaneHandles["p1"] = fresh
+	ad.Reach[fresh] = adapter.StateIdle
+	ad.InventoryAgents = []adapter.Agent{{Handle: fresh, PaneID: "w1:p1", SessionID: "s3", Kind: "claude", Status: "idle"}}
+
+	gotHandle, err := reg.Register(ctx, envPane("p1"), "review/lead", "fresh session")
+	if err != nil {
+		t.Fatalf("Register() = %v, want takeover to succeed", err)
+	}
+	if gotHandle != fresh {
+		t.Fatalf("handle = %q, want %q", gotHandle, fresh)
+	}
+	if _, ok := reg.Hibernation(alice); ok {
+		t.Fatal("hibernation record for alice was not dropped")
+	}
+	if got := reg.NamesOf(fresh); len(got) != 2 || got[0] != "review/lead" || got[1] != "review/triage" {
+		t.Fatalf("names of fresh = %q, want both names moved", got)
+	}
+	lines, err := lg.Read(eventlog.Filter{Event: eventlog.EventTakeover})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("takeover events = %d, want 1: %q", len(lines), lines)
+	}
+	ev, err := eventlog.Parse(lines[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{alice, fresh, "review/lead", "review/triage"} {
+		if !strings.Contains(ev.Detail, want) {
+			t.Errorf("takeover detail %q missing %q", ev.Detail, want)
+		}
+	}
+}
+
+func TestStopFailedWhoseProcessIsGoneIsHandledTheSameWay(t *testing.T) {
+	dir := t.TempDir()
+	alice := "herdr:local/s1/w1:p1"
+	fresh := "herdr:local/s3/w1:p1"
+	ad := &fake.Adapter{
+		AdapterName: "herdr",
+		Reach:       map[string]adapter.State{alice: adapter.StateIdle},
+		PaneHandles: map[string]string{"p1": alice},
+	}
+	lg := eventlog.Open(dir)
+	reg, err := Open(dir, []adapter.Adapter{ad}, lg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := reg.Register(ctx, envPane("p1"), "review/lead", "reviewing"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.BeginHibernation(hibernate.Record{Handle: alice, Pane: "w1:p1", Kind: "claude", Session: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.EndHibernation(alice, hibernate.StatusStopFailed, "timed out"); err != nil {
+		t.Fatal(err)
+	}
+
+	// While alice is still alive, a claim from another pane is refused.
+	ad.PaneHandles["p2"] = "herdr:local/s2/w1:p2"
+	ad.Reach["herdr:local/s2/w1:p2"] = adapter.StateIdle
+	if _, err := reg.Register(ctx, envPane("p2"), "review/lead", "steal"); err == nil {
+		t.Fatal("claim over a live stop-failed holder succeeded")
+	}
+
+	// Once alice's process exits and a new session starts in p1, register takes over.
+	ad.Reach[alice] = adapter.StateNoAgent
+	ad.PaneHandles["p1"] = fresh
+	ad.Reach[fresh] = adapter.StateIdle
+	ad.InventoryAgents = []adapter.Agent{{Handle: fresh, PaneID: "w1:p1", SessionID: "s3", Kind: "claude", Status: "idle"}}
+	if _, err := reg.Register(ctx, envPane("p1"), "review/lead", "fresh session"); err != nil {
+		t.Fatalf("Register() after stop-failed exit = %v", err)
+	}
+	if _, ok := reg.Hibernation(alice); ok {
+		t.Fatal("stop-failed record was not dropped")
+	}
+	lines, err := lg.Read(eventlog.Filter{Event: eventlog.EventTakeover})
+	if err != nil || len(lines) != 1 {
+		t.Fatalf("takeover events = %q, err = %v", lines, err)
+	}
+}
+
+func TestReusedPaneHibernatedRecordGivesWay(t *testing.T) {
+	reg, ad, alice, bob := hibernateWorld(t)
+	if _, err := reg.BeginHibernation(hibernate.Record{Handle: alice, Pane: "w1:p1", Kind: "claude", Session: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.EndHibernation(alice, hibernate.StatusHibernated, ""); err != nil {
+		t.Fatal(err)
+	}
+	ad.Reach[alice] = adapter.StateNoAgent
+	ad.PaneShell = map[string]bool{alice: false}
+	if _, err := reg.Register(context.Background(), envPane("p2"), "ops/x", "take over reused"); err != nil {
+		t.Fatalf("Register() over reused pane = %v", err)
+	}
+	if got := reg.NamesOf(bob); len(got) != 1 || got[0] != "ops/x" {
+		t.Fatalf("names of bob = %q", got)
+	}
+	if _, ok := reg.Hibernation(alice); ok {
+		t.Fatal("hibernation record was not dropped")
+	}
+}
+
+func TestForgetDropsDeadRecordAndRefusesLiveOne(t *testing.T) {
+	reg, ad, alice, _ := hibernateWorld(t)
+	if _, err := reg.BeginHibernation(hibernate.Record{Handle: alice, Pane: "w1:p1", Kind: "claude", Session: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.EndHibernation(alice, hibernate.StatusStopFailed, "timed out"); err != nil {
+		t.Fatal(err)
+	}
+	// Live holder is refused.
+	if _, err := reg.Forget(context.Background(), alice); err == nil || !strings.Contains(err.Error(), "alive") {
+		t.Fatalf("Forget(live) = %v, want refusal naming alive", err)
+	}
+	if _, ok := reg.Hibernation(alice); !ok {
+		t.Fatal("live record was dropped")
+	}
+	// Dead record is dropped.
+	ad.Reach[alice] = adapter.StateNoAgent
+	got, err := reg.Forget(context.Background(), alice)
+	if err != nil || got != alice {
+		t.Fatalf("Forget(dead) = %q, %v", got, err)
+	}
+	if _, ok := reg.Hibernation(alice); ok {
+		t.Fatal("dead record was not dropped")
 	}
 }

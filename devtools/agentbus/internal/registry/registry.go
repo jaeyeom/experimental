@@ -288,19 +288,16 @@ func (r *Registry) Release(ctx context.Context, env []string, name, to string) (
 func (r *Registry) claim(ctx context.Context, handle, name, when string) error {
 	rec, ok := r.names[name]
 	if ok && rec.Handle != handle {
-		live := r.claimLiveness(ctx, rec.Handle)
-		if live != "gone" {
-			msg := fmt.Sprintf("%s is held by %s (%s); message them with: agentbus send %s", name, rec.Handle, live, name)
-			if err := r.logEvent(eventlog.Event{
-				Event:  eventlog.EventClaimRefused,
-				Actor:  handle,
-				Name:   name,
-				Detail: rec.Handle,
-				Reason: msg,
-			}); err != nil {
-				return err
+		oldHandle := rec.Handle
+		if _, hasHib := r.hibernated[oldHandle]; hasHib {
+			if !r.hibernatedDead(ctx, oldHandle, handle) {
+				return r.refuseClaim(handle, name, oldHandle, livenessHibernated)
 			}
-			return errors.New(msg)
+			return r.takeoverHibernated(oldHandle, handle, name, when)
+		}
+		live := r.claimLiveness(ctx, oldHandle)
+		if live != "gone" {
+			return r.refuseClaim(handle, name, oldHandle, live)
 		}
 	}
 	r.names[name] = record{Handle: handle, When: when}
@@ -310,6 +307,54 @@ func (r *Registry) claim(ctx context.Context, handle, name, when string) error {
 	return r.logEvent(eventlog.Event{
 		Event:  eventlog.EventRegister,
 		Actor:  handle,
+		Name:   name,
+		Detail: when,
+	})
+}
+
+func (r *Registry) refuseClaim(actor, name, holder, live string) error {
+	msg := fmt.Sprintf("%s is held by %s (%s); message them with: agentbus send %s", name, holder, live, name)
+	if err := r.logEvent(eventlog.Event{
+		Event:  eventlog.EventClaimRefused,
+		Actor:  actor,
+		Name:   name,
+		Detail: holder,
+		Reason: msg,
+	}); err != nil {
+		return err
+	}
+	return errors.New(msg)
+}
+
+func (r *Registry) takeoverHibernated(oldHandle, newHandle, name, when string) error {
+	moved := []string{name}
+	if samePaneDifferentSession(oldHandle, newHandle) {
+		moved = r.heldBy(oldHandle)
+		for _, n := range moved {
+			if n == name {
+				r.names[n] = record{Handle: newHandle, When: when}
+			} else {
+				r.names[n] = record{Handle: newHandle, When: r.names[n].When}
+			}
+		}
+	} else {
+		r.names[name] = record{Handle: newHandle, When: when}
+	}
+	delete(r.hibernated, oldHandle)
+	if err := r.save(); err != nil {
+		return err
+	}
+	if err := r.logEvent(eventlog.Event{
+		Event:  eventlog.EventTakeover,
+		Actor:  newHandle,
+		Name:   name,
+		Detail: fmt.Sprintf("from %s to %s (%s)", oldHandle, newHandle, strings.Join(moved, ", ")),
+	}); err != nil {
+		return err
+	}
+	return r.logEvent(eventlog.Event{
+		Event:  eventlog.EventRegister,
+		Actor:  newHandle,
 		Name:   name,
 		Detail: when,
 	})

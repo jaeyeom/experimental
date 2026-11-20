@@ -37,14 +37,19 @@ type Waker struct {
 }
 
 // PaneReusedError is a wake refused because the pane's foreground is not
-// its shell: someone runs something else there now.
+// its shell, or an agent is already running there.
 type PaneReusedError struct {
 	Handle string
 	// Command is what the pane runs instead.
 	Command string
+	// Reason overrides the default error message when set.
+	Reason string
 }
 
 func (e *PaneReusedError) Error() string {
+	if e.Reason != "" {
+		return e.Reason
+	}
 	return fmt.Sprintf("the pane of %s now runs %s, not its shell", e.Handle, e.Command)
 }
 
@@ -62,6 +67,16 @@ func (w *Waker) WakeWithModel(ctx context.Context, rec Record, model string) err
 	command, err := WakeCommandWithModel(rec, model)
 	if err != nil {
 		return err
+	}
+	a, listed, err := w.Panes.PaneAgent(ctx, rec.Handle)
+	if err != nil {
+		return fmt.Errorf("read the pane's agent: %w", err)
+	}
+	if listed && a.Kind != "" {
+		return &PaneReusedError{
+			Handle: rec.Handle,
+			Reason: fmt.Sprintf("pane runs another session; not waking %s", rec.Handle),
+		}
 	}
 	info, err := w.Panes.PaneProcessInfo(ctx, rec.Handle)
 	if err != nil {

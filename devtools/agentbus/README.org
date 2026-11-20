@@ -181,6 +181,29 @@ When something seems lost, check ~agentbus status <id>~ and
 ~agentbus log~ before resending. ~status~ prints the state and how long
 the message has waited. Resending first creates a second message.
 
+** Restart an agent fresh in its pane
+
+To replace a hibernated (or ~stop-failed~) session with a fresh one in
+the same pane:
+
+1. Hibernate the old session (~agentbus hibernate <name>~). Its pane
+   returns to a shell prompt and the old handle keeps its names.
+2. Start a new agent session in that same pane (for example ~claude~
+   without ~--resume~).
+3. In the new session, run ~agentbus register <name> --when "<text>"~.
+   Because the pane now runs a new session, the dead hibernation record
+   gives way: the record is dropped, the new session takes over the old
+   session's names, and a ~takeover~ event is logged.
+
+If a message arrives before the new session runs ~register~, wake checks
+the pane before launching the resume command. When the pane already runs
+another session (or another foreground program), wake refuses
+(~pane runs another session; not waking <handle>~), drops the dead
+record, logs ~agent_wake_skipped~, and leaves the message queued while
+notifying the sender. You can also drop a dead hibernation record by
+hand with ~agentbus forget <name or handle>~ (which refuses a live
+holder).
+
 ** Find agents
 
 ~list~ prints registered names. ~search~ with no query lists everyone
@@ -226,6 +249,7 @@ handle: herdr:local/default/w1:p1
 | ~mem [--json]~                    | Memory per local agent pane. See [[file:docs/hibernate.org][memory]].                          |
 | ~hibernate <name or handle>...~   | Stop idle agents but keep their panes and names. See [[file:docs/hibernate.org][hibernation]]. |
 | ~wake [--model <m>] <name or handle>~ | Relaunch a hibernated agent now (~--model keep~ keeps original). A message to it wakes it too. |
+| ~forget <name or handle>~         | Drop a dead hibernation record by hand. Refuses a live holder.                                  |
 | ~release-held <name>~             | Clear a login-expired hold on a recipient and flush held messages.                             |
 | ~replay [flags]~                  | Resend ~delivered-unprocessed~ messages in order (~--to~, ~--since~, ~--reason~, ~--dry-run~, ~--force~). |
 | ~install~                         | Install the supervisor and load it. In hub mode, install the tunnel.                           |

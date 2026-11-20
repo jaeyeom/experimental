@@ -158,3 +158,29 @@ func TestWakeRefusesAReusedPane(t *testing.T) {
 		t.Fatalf("launched into a reused pane: %q", panes.ran)
 	}
 }
+
+type busyAgentPanes struct {
+	wakePanes
+	running adapter.Agent
+}
+
+func (p *busyAgentPanes) PaneAgent(context.Context, string) (adapter.Agent, bool, error) {
+	return p.running, true, nil
+}
+
+func TestWakeRefusesPaneRunningAnotherSession(t *testing.T) {
+	panes := &busyAgentPanes{
+		wakePanes: wakePanes{info: shellInfo()},
+		running:   adapter.Agent{Kind: "claude", Status: "idle", SessionID: "s2"},
+	}
+	w := &Waker{Panes: panes, Clock: &fakeClock{now: t0()}}
+	err := w.Wake(context.Background(), sleepingRecord())
+	var reused *PaneReusedError
+	want := "pane runs another session; not waking " + alice
+	if !errors.As(err, &reused) || err.Error() != want {
+		t.Fatalf("Wake() = %v, want %q", err, want)
+	}
+	if len(panes.ran) != 0 {
+		t.Fatalf("resume command sent into busy pane: %q", panes.ran)
+	}
+}
