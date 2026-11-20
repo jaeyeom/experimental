@@ -505,3 +505,73 @@ func TestReadJobFilesNeverReadsPolicy(t *testing.T) {
 		t.Errorf("plan lacks the missing policy:\n%s", out)
 	}
 }
+
+const treeCLISpec = `{"roles":{"desk/lead":{},"desk/clerk":{"reportsTo":"desk/lead"}},` +
+	`"pools":{"typists":{"starter":"desk/lead","max":2}}}`
+
+func noLive(t *testing.T) func(orgctl.Spec) (orgctl.Live, error) {
+	return func(orgctl.Spec) (orgctl.Live, error) {
+		t.Fatal("tree without --live read live state")
+		return orgctl.Live{}, nil
+	}
+}
+
+func TestTreePrintsChart(t *testing.T) {
+	path := writeSpec(t, treeCLISpec)
+	var stdout, stderr bytes.Buffer
+	code := runIO([]string{"tree", "--ascii", "--root-label", "me", path}, &stdout, &stderr, noLive(t))
+	want := "me\n`-- desk/lead\n    |-- desk/clerk\n    `-- [pool] typists (max 2)\n"
+	if code != 0 || stdout.String() != want {
+		t.Fatalf("exit %d\n%s%s", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestTreeJSONAndDepth(t *testing.T) {
+	path := writeSpec(t, treeCLISpec)
+	var stdout, stderr bytes.Buffer
+	code := runIO([]string{"tree", "--json", "--depth", "1", path}, &stdout, &stderr, noLive(t))
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+	var node orgctl.TreeNode
+	if err := json.Unmarshal(stdout.Bytes(), &node); err != nil {
+		t.Fatal(err)
+	}
+	if node.Kind != "root" || len(node.Children) != 1 || len(node.Children[0].Children) != 0 {
+		t.Fatalf("tree = %+v", node)
+	}
+}
+
+func TestTreeLiveReadsSnapshot(t *testing.T) {
+	path := writeSpec(t, treeCLISpec)
+	load := func(orgctl.Spec) (orgctl.Live, error) {
+		return orgctl.Live{Names: []orgctl.LiveName{{Name: "desk/lead", Liveness: "hibernated"}}}, nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := runIO([]string{"tree", "--live", "--root", "desk/lead", path}, &stdout, &stderr, load)
+	want := "desk/lead (hibernated)\n├── desk/clerk (missing)\n└── [pool] typists (max 2)\n"
+	if code != 0 || stdout.String() != want {
+		t.Fatalf("exit %d\n%s%s", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestTreeUnknownRootIsUsageError(t *testing.T) {
+	path := writeSpec(t, treeCLISpec)
+	var stdout, stderr bytes.Buffer
+	code := runIO([]string{"tree", "--root", "desk/ghost", path}, &stdout, &stderr, noLive(t))
+	if code != 2 || !strings.Contains(stderr.String(), `unknown role "desk/ghost"`) {
+		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+}
+
+func TestTreeAndCheckRejectCycle(t *testing.T) {
+	path := writeSpec(t, `{"roles":{"a":{"reportsTo":"b"},"b":{"reportsTo":"a"}}}`)
+	var stdout, stderr bytes.Buffer
+	if code := runIO([]string{"tree", path}, &stdout, &stderr, noLive(t)); code != 1 || !strings.Contains(stderr.String(), "reportsTo cycle: a → b → a") {
+		t.Fatalf("tree exit %d: %s", code, stderr.String())
+	}
+	stderr.Reset()
+	if code := run([]string{"check", path}, &stderr); code != 1 || !strings.Contains(stderr.String(), "reportsTo cycle: a → b → a") {
+		t.Fatalf("check exit %d: %s", code, stderr.String())
+	}
+}
