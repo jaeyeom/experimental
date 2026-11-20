@@ -110,6 +110,7 @@ dispatching work to an agent.
 - ~authwatch run [--every 5m] [--config PATH]~ — loop on an interval (for a service).
 - ~authwatch status [--profile P] [--json] [--line]~ — print current status.
 - ~authwatch report-failure --profile P~ — record ~failing~ with the current time.
+- ~authwatch help [command]~ — print every command, or one command's flags, on stdout. ~-h~ and ~--help~ work too, alone or after a command.
 
 ~authwatch~ never edits agent CLI settings itself. Example fictional hook snippet
 for an agent CLI stop-failure hook:
