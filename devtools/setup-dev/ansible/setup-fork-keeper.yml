@@ -73,6 +73,16 @@
         upstream_url: https://github.com/mbrt/gmailctl.git
         branch: master
         agent: "{{ fork_keeper_agent }}"
+      - name: cplt
+        repo: jaeyeom/cplt
+        upstream_url: https://github.com/navikt/cplt.git
+        branch: main
+        agent: "{{ fork_keeper_agent }}"
+      - name: jira-cli
+        repo: jaeyeom/jira-cli
+        upstream_url: https://github.com/ankitpokhrel/jira-cli.git
+        branch: main
+        agent: "{{ fork_keeper_agent }}"
   tasks:
     - name: Include guard for setup-fork-keeper playbook
       block:
