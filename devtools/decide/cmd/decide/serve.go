@@ -26,13 +26,16 @@ const followEvery = time.Minute
 // ssh session to `decide serve --stdio`. Links open here; ledger writes,
 // notifications, and compose sends run on the hub.
 func cmdHubInbox(settings hubSettings, args []string, stdout, stderr io.Writer) int {
-	snoozed, utc, code, ok := inboxFlags(args, stderr)
+	snoozed, utc, printKeys, code, ok := inboxFlags(args, stderr)
 	if !ok {
 		return code
 	}
 	local, err := decide.LoadConfigFile()
 	if err != nil {
 		return fail(stderr, err, 1)
+	}
+	if printKeys {
+		return printKeyMap(local.Config, false, stdout, stderr)
 	}
 	client := &inboxrpc.Client{
 		Dial:       inboxrpc.HubDialer(settings.hub),

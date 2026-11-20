@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/jaeyeom/experimental/devtools/decide"
 )
 
 const (
@@ -106,20 +107,21 @@ func TestGoToUnknownKeyReportsAndClears(t *testing.T) {
 }
 
 func TestGoToTableCoversMenuHelpAndChords(t *testing.T) {
+	_, goToChords := (&Model{}).goToChordItems()
 	if len(goToChords) == 0 {
 		t.Fatal("empty go-to table")
 	}
 	keys := ""
 	for _, c := range goToChords {
-		keys += string(c.key)
-		if !strings.Contains(goToMenuWide, string(c.key)+" "+c.name) {
-			t.Fatalf("menu misses %c %s", c.key, c.name)
+		keys += c.key
+		if !strings.Contains(goToMenuWide, c.key+" "+c.name) {
+			t.Fatalf("menu misses %s %s", c.key, c.name)
 		}
 	}
 	if keys != "izadwscg" {
 		t.Fatalf("table keys %q", keys)
 	}
-	if got := goToMenu(0); got != goToMenuWide {
+	if got := (&Model{chordPrefix: decide.KeyStroke{Key: "g"}}).goToMenu(0); got != goToMenuWide {
 		t.Fatalf("menu %q", got)
 	}
 	for _, mode := range []string{"list", "status", "item"} {
@@ -134,17 +136,17 @@ func TestGoToTableCoversMenuHelpAndChords(t *testing.T) {
 		help := m.View()
 		line := lineContaining(help, "g then")
 		for _, c := range goToChords {
-			if !strings.Contains(line, string(c.key)+" "+c.name) {
-				t.Fatalf("%s help line %q misses %c %s", mode, line, c.key, c.name)
+			if !strings.Contains(line, c.key+" "+c.name) {
+				t.Fatalf("%s help line %q misses %s %s", mode, line, c.key, c.name)
 			}
 		}
 	}
 	for _, c := range goToChords {
 		m, _, _, _ := snoozeModel(t)
 		m.status = ""
-		press(t, m, "g"+string(c.key))
+		press(t, m, "g"+c.key)
 		if m.chord || m.status == "unknown go-to key" {
-			t.Fatalf("g%c chord %v status %q", c.key, m.chord, m.status)
+			t.Fatalf("g%s chord %v status %q", c.key, m.chord, m.status)
 		}
 	}
 	for _, r := range "befhjklmnopqrtuvxy" {

@@ -45,6 +45,7 @@ go_test(
         "done_unread_test.go",
         "follow_test.go",
         "hub_test.go",
+        "keys_test.go",
         "longline_test.go",
         "machine_test.go",
         "main_test.go",

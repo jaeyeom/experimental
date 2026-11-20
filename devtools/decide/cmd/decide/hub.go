@@ -23,6 +23,7 @@ var localCommands = map[string]bool{
 	"--help":  true,
 	"skill":   true,
 	"avatars": true,
+	"keys":    true,
 }
 
 // callerCommands send the hub-mode caller's handle and agentbus names: an

@@ -82,6 +82,8 @@ type Options struct {
 	// Display, when set, replaces the display settings above at start
 	// and whenever it reports a change after a ledger read.
 	Display DisplaySource
+	// Keys overrides default inbox key bindings from ui.keys.
+	Keys map[string][]string
 }
 
 // Run draws the inbox until q or EOF. It reloads the ledger on Interval,
@@ -175,6 +177,13 @@ func prepare(opts Options) (*Model, error) {
 	m.localConfig = opts.LocalConfig
 	m.avatarProfile = termenv.NewOutput(opts.Out).EnvColorProfile()
 	m.display = opts.Display
+	if len(opts.Keys) > 0 {
+		km, err := decide.ResolveKeyMap(opts.Keys)
+		if err != nil {
+			return nil, err //nolint:wrapcheck // ResolveKeyMap names ui.keys
+		}
+		m.SetKeys(km)
+	}
 	m.pollDisplay()
 	if opts.Now != nil {
 		m.Now = opts.Now

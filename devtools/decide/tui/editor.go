@@ -139,13 +139,13 @@ func (m *Model) editComposerKey(k tea.KeyMsg) bool {
 	}
 	syncField(field, *text)
 	field.Focus()
-	switch k.Type {
-	case tea.KeyPgUp:
+	switch {
+	case m.matchAction("editor", k, "edit.pageUp"):
 		pageField(field, -m.composerPageStep(kind))
-	case tea.KeyPgDown:
+	case m.matchAction("editor", k, "edit.pageDown"):
 		pageField(field, m.composerPageStep(kind))
 	default:
-		editField(field, k)
+		m.editField(field, k)
 	}
 	*text = field.Value()
 	return true
@@ -195,31 +195,6 @@ func (m *Model) setComposerText(kind composerKind, text string) {
 	*draft = text
 	field.SetValue(text)
 	field.Focus()
-}
-
-// handleEditorKey starts an external edit from a focused composer.
-// Ctrl+X then Ctrl+E, or Ctrl+G alone, opens the editor. Any other key
-// after Ctrl+X is dropped and is not inserted.
-func (m *Model) handleEditorKey(k tea.KeyMsg) (tea.Cmd, bool) {
-	if m.editPrefix {
-		m.editPrefix = false
-		if k.Type == tea.KeyCtrlE && m.composerFocused() {
-			return m.startExternalEdit(), true
-		}
-		return nil, true
-	}
-	if !m.composerFocused() {
-		return nil, false
-	}
-	switch k.Type {
-	case tea.KeyCtrlX:
-		m.editPrefix = true
-		return nil, true
-	case tea.KeyCtrlG:
-		return m.startExternalEdit(), true
-	default:
-		return nil, false
-	}
 }
 
 func (m *Model) startExternalEdit() tea.Cmd {

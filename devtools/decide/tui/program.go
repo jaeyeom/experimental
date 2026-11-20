@@ -150,41 +150,139 @@ func (m *Model) updateResult(msg tea.Msg) tea.Cmd {
 // updateKeyMsg routes one key: the external-editor prefix, then composer
 // editing keys, then chords, scrolling, and rune shortcuts.
 func (m *Model) updateKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if cmd, ok := m.handleEditorKey(msg); ok {
+	if cmd, ok := m.updateFocusedComposerKey(msg); ok {
 		return m, cmd
 	}
-	if kind, ok := m.composerKind(); ok && isSendKey(msg) {
-		return m, m.sendComposer(kind)
-	}
-	if m.composerFocused() && isFillKey(msg) {
-		m.fillComposer()
-		return m, nil
-	}
-	if isEditKey(msg) && m.editComposerKey(msg) {
-		return m, nil
-	}
-	if m.popupArrow(msg) {
-		return m, nil
-	}
-	switch msg.Type {
-	case tea.KeyCtrlN:
-		m.pickerArrow(1)
-		return m, nil
-	case tea.KeyCtrlP:
-		m.pickerArrow(-1)
+	if m.popupArrow(msg) || m.updatePickerKey(msg) {
 		return m, nil
 	}
 	if m.chord {
-		if _, ok := keyRune(msg); !ok {
-			m.expireChord(m.chordSeq)
-			return m, nil
-		}
-		return m.updateKey(msg)
+		return m.updateChordKey(msg)
+	}
+	if cmd, handled := m.updateComposerNavKey(msg); handled {
+		return m, cmd
 	}
 	if m.handleScrollKey(msg) {
 		return m, nil
 	}
+	if !m.modalOpen() && !m.inComposerState() {
+		if next, cmd, handled := m.updateBrowseKey(msg); handled {
+			return next, cmd
+		}
+	}
 	return m.updateKey(msg)
+}
+
+func (m *Model) updateFocusedComposerKey(msg tea.KeyMsg) (tea.Cmd, bool) {
+	if cmd, ok := m.handleEditorKey(msg); ok {
+		return cmd, true
+	}
+	if kind, ok := m.composerKind(); ok && m.isSendKey(msg) {
+		return m.sendComposer(kind), true
+	}
+	if m.composerFocused() && m.isFillKey(msg) {
+		m.fillComposer()
+		return nil, true
+	}
+	if m.isEditKey(msg) && m.editComposerKey(msg) {
+		return nil, true
+	}
+	return nil, false
+}
+
+func (m *Model) updatePickerKey(msg tea.KeyMsg) bool {
+	if !m.composing || m.composeFocus != focusRecipient || m.modalOpen() {
+		return false
+	}
+	switch {
+	case m.matchAction("picker", msg, "compose.pickerNext"):
+		m.pickerArrow(1)
+	case m.matchAction("picker", msg, "compose.pickerPrev"):
+		m.pickerArrow(-1)
+	case m.matchAction("picker", msg, "compose.pickerStar"):
+		m.starPicked()
+	default:
+		return false
+	}
+	return true
+}
+
+func (m *Model) updateChordKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	s, ok := keyStrokeFromTea(msg)
+	if !ok {
+		m.expireChord(m.chordSeq)
+		return m, nil
+	}
+	quit, err := m.finishChordStroke(s)
+	if err != nil {
+		m.runErr = err
+		return m, tea.Quit
+	}
+	if quit {
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m *Model) updateComposerNavKey(msg tea.KeyMsg) (tea.Cmd, bool) {
+	if m.composerFocused() && (m.matchAction("editor", msg, "edit.pageUp") || m.matchAction("editor", msg, "edit.pageDown")) {
+		if m.editComposerKey(msg) {
+			return nil, true
+		}
+	}
+	if !m.inComposerState() || m.modalOpen() {
+		return nil, false
+	}
+	if m.matchAction("compose", msg, "compose.prevField") {
+		m.ShiftTab()
+		return nil, true
+	}
+	if m.matchAction("compose", msg, "compose.nextField") {
+		if m.replyFocus {
+			m.focusReplySend()
+			return nil, true
+		}
+		if m.composing {
+			m.advanceCompose()
+			return nil, true
+		}
+	}
+	if m.matchAction("compose", msg, "compose.cancel") {
+		return m.applyRune('\x1b'), true
+	}
+	return nil, false
+}
+
+func (m *Model) updateBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
+	s, ok := keyStrokeFromTea(msg)
+	if !ok {
+		return nil, nil, false
+	}
+	seq := m.chordSeq
+	quit, err := m.dispatchBrowseKey(s)
+	if err != nil {
+		m.runErr = err
+		return m, tea.Quit, true
+	}
+	if quit {
+		return m, tea.Quit, true
+	}
+	if m.mouseSync {
+		m.mouseSync = false
+		return m, m.mouseCommand(), true
+	}
+	if m.chord && m.chordSeq != seq {
+		return m, m.scheduleChord(), true
+	}
+	return m, nil, true
+}
+
+func (m *Model) modalOpen() bool {
+	return m.confirmKind != confirmNone || m.chord || m.copyMenu || m.snoozing || m.searching || m.help || m.aliasPick || m.pickerOpen()
+}
+
+func (m *Model) inComposerState() bool {
+	return m.answerFocus || m.replyFocus || m.replySend || m.mode == modeOutcome || m.composing
 }
 
 // popupArrow moves the snooze popup or the link picker with up and
