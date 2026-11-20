@@ -1,0 +1,410 @@
+{
+  "version": 1,
+  "now": "2026-11-17T00:30:00Z",
+  "profiles": [
+    {
+      "profile": "home",
+      "offset": 0,
+      "windows": [
+        {
+          "window": "7d",
+          "state": "green",
+          "latest": {
+            "at": "2026-11-16T22:00:00Z",
+            "percent": 5,
+            "resetsAt": "2026-11-21T00:00:00Z",
+            "source": "test",
+            "ageSeconds": 9000
+          },
+          "plan": {
+            "implicit": true,
+            "baselineAt": "2026-11-14T00:00:00Z",
+            "baseline": 0,
+            "resetsAt": "2026-11-21T00:00:00Z",
+            "target": 100,
+            "amber": 5,
+            "onTrack": 43.154761904761905,
+            "amberLine": 48.154761904761905,
+            "limit": 100,
+            "nextCheckpoint": {
+              "at": "2026-11-18T00:00:00Z",
+              "onTrack": 57.14285714285714,
+              "amberLine": 62.14285714285714,
+              "limit": 100,
+              "actual": null,
+              "actualAt": null
+            }
+          },
+          "projection": {
+            "at": "2026-11-16T22:00:00Z",
+            "percent": 5,
+            "onTrack": 41.66666666666667,
+            "amberLine": 46.66666666666667,
+            "limit": 100,
+            "paceSoFar": 0.07142857142857142,
+            "paceRecent": null,
+            "projectedAtReset": 12,
+            "hoursTo100": 1330,
+            "neededPace": 0.9693877551020408,
+            "state": "green"
+          },
+          "history": {
+            "readings": [
+              {
+                "at": "2026-11-16T22:00:00Z",
+                "profile": "home",
+                "window": "7d",
+                "percent": 5,
+                "resetsAt": "2026-11-21T00:00:00Z",
+                "source": "test"
+              }
+            ],
+            "checkpoints": [
+              {
+                "at": "2026-11-15T00:00:00Z",
+                "onTrack": 14.285714285714285,
+                "amberLine": 19.285714285714285,
+                "limit": 100,
+                "actual": null,
+                "actualAt": null
+              },
+              {
+                "at": "2026-11-16T00:00:00Z",
+                "onTrack": 28.57142857142857,
+                "amberLine": 33.57142857142857,
+                "limit": 100,
+                "actual": null,
+                "actualAt": null
+              },
+              {
+                "at": "2026-11-17T00:00:00Z",
+                "onTrack": 42.857142857142854,
+                "amberLine": 47.857142857142854,
+                "limit": 100,
+                "actual": 5,
+                "actualAt": "2026-11-16T22:00:00Z",
+                "state": "green"
+              },
+              {
+                "at": "2026-11-18T00:00:00Z",
+                "onTrack": 57.14285714285714,
+                "amberLine": 62.14285714285714,
+                "limit": 100,
+                "actual": null,
+                "actualAt": null
+              },
+              {
+                "at": "2026-11-19T00:00:00Z",
+                "onTrack": 71.42857142857143,
+                "amberLine": 76.42857142857143,
+                "limit": 100,
+                "actual": null,
+                "actualAt": null
+              },
+              {
+                "at": "2026-11-20T00:00:00Z",
+                "onTrack": 85.71428571428571,
+                "amberLine": 90.71428571428571,
+                "limit": 100,
+                "actual": null,
+                "actualAt": null
+              },
+              {
+                "at": "2026-11-21T00:00:00Z",
+                "onTrack": 100,
+                "amberLine": 105,
+                "limit": 100,
+                "actual": null,
+                "actualAt": null
+              }
+            ],
+            "closedPlans": []
+          }
+        }
+      ]
+    },
+    {
+      "profile": "work",
+      "offset": 0,
+      "windows": [
+        {
+          "window": "5h",
+          "state": "green",
+          "latest": {
+            "at": "2026-11-16T23:00:00Z",
+            "percent": 12,
+            "resetsAt": "2026-11-17T01:00:00Z",
+            "source": "claude-usage",
+            "ageSeconds": 5400
+          },
+          "plan": {
+            "implicit": true,
+            "baselineAt": "2026-11-16T20:00:00Z",
+            "baseline": 0,
+            "resetsAt": "2026-11-17T01:00:00Z",
+            "target": 100,
+            "amber": 5,
+            "onTrack": 90,
+            "amberLine": 95,
+            "limit": 100,
+            "nextCheckpoint": {
+              "at": "2026-11-17T01:00:00Z",
+              "onTrack": 100,
+              "amberLine": 105,
+              "limit": 100,
+              "actual": null,
+              "actualAt": null
+            }
+          },
+          "projection": {
+            "at": "2026-11-16T23:00:00Z",
+            "percent": 12,
+            "onTrack": 60,
+            "amberLine": 65,
+            "limit": 100,
+            "paceSoFar": 4,
+            "paceRecent": null,
+            "projectedAtReset": 20,
+            "hoursTo100": 22,
+            "neededPace": 44,
+            "state": "green"
+          },
+          "history": {
+            "readings": [
+              {
+                "at": "2026-11-16T23:00:00Z",
+                "profile": "work",
+                "window": "5h",
+                "percent": 12,
+                "resetsAt": "2026-11-17T01:00:00Z",
+                "source": "claude-usage"
+              }
+            ],
+            "checkpoints": [
+              {
+                "at": "2026-11-16T21:00:00Z",
+                "onTrack": 20,
+                "amberLine": 25,
+                "limit": 100,
+                "actual": null,
+                "actualAt": null
+              },
+              {
+                "at": "2026-11-16T22:00:00Z",
+                "onTrack": 40,
+                "amberLine": 45,
+                "limit": 100,
+                "actual": null,
+                "actualAt": null
+              },
+              {
+                "at": "2026-11-16T23:00:00Z",
+                "onTrack": 60,
+                "amberLine": 65,
+                "limit": 100,
+                "actual": 12,
+                "actualAt": "2026-11-16T23:00:00Z",
+                "state": "green"
+              },
+              {
+                "at": "2026-11-17T00:00:00Z",
+                "onTrack": 80,
+                "amberLine": 85,
+                "limit": 100,
+                "actual": null,
+                "actualAt": null
+              },
+              {
+                "at": "2026-11-17T01:00:00Z",
+                "onTrack": 100,
+                "amberLine": 105,
+                "limit": 100,
+                "actual": null,
+                "actualAt": null
+              }
+            ],
+            "closedPlans": []
+          }
+        },
+        {
+          "window": "7d",
+          "state": "green",
+          "latest": {
+            "at": "2026-11-17T00:00:00Z",
+            "percent": 33,
+            "resetsAt": "2026-11-21T00:00:00Z",
+            "source": "test",
+            "ageSeconds": 1800
+          },
+          "plan": {
+            "implicit": false,
+            "baselineAt": "2026-11-15T23:00:00Z",
+            "baseline": 22,
+            "resetsAt": "2026-11-21T00:00:00Z",
+            "target": 95,
+            "amber": 5,
+            "onTrack": 37.38429752066116,
+            "amberLine": 42.38429752066116,
+            "limit": 100,
+            "nextCheckpoint": {
+              "at": "2026-11-17T21:00:00+09:00",
+              "onTrack": 44.32231404958677,
+              "amberLine": 49.32231404958677,
+              "limit": 100,
+              "actual": null,
+              "actualAt": null
+            }
+          },
+          "projection": {
+            "at": "2026-11-17T00:00:00Z",
+            "percent": 33,
+            "onTrack": 37.082644628099175,
+            "amberLine": 42.082644628099175,
+            "limit": 100,
+            "paceSoFar": 0.44,
+            "paceRecent": 0.5,
+            "projectedAtReset": 81,
+            "hoursTo100": 134,
+            "neededPace": 0.6458333333333334,
+            "state": "green"
+          },
+          "history": {
+            "readings": [
+              {
+                "at": "2026-11-15T23:00:00Z",
+                "profile": "work",
+                "window": "7d",
+                "percent": 22,
+                "resetsAt": "2026-11-21T00:00:00Z",
+                "source": "test"
+              },
+              {
+                "at": "2026-11-16T18:00:00Z",
+                "profile": "work",
+                "window": "7d",
+                "percent": 30,
+                "resetsAt": "2026-11-21T00:00:00Z",
+                "source": "test"
+              },
+              {
+                "at": "2026-11-17T00:00:00Z",
+                "profile": "work",
+                "window": "7d",
+                "percent": 33,
+                "resetsAt": "2026-11-21T00:00:00Z",
+                "source": "test"
+              }
+            ],
+            "checkpoints": [
+              {
+                "at": "2026-11-16T09:00:00+09:00",
+                "onTrack": 22.60330578512397,
+                "amberLine": 27.60330578512397,
+                "limit": 100,
+                "actual": null,
+                "actualAt": null
+              },
+              {
+                "at": "2026-11-16T21:00:00+09:00",
+                "onTrack": 29.84297520661157,
+                "amberLine": 34.84297520661157,
+                "limit": 100,
+                "actual": null,
+                "actualAt": null
+              },
+              {
+                "at": "2026-11-17T09:00:00+09:00",
+                "onTrack": 37.082644628099175,
+                "amberLine": 42.082644628099175,
+                "limit": 100,
+                "actual": 33,
+                "actualAt": "2026-11-17T00:00:00Z",
+                "state": "green"
+              },
+              {
+                "at": "2026-11-17T21:00:00+09:00",
+                "onTrack": 44.32231404958677,
+                "amberLine": 49.32231404958677,
+                "limit": 100,
+                "actual": null,
+                "actualAt": null
+              },
+              {
+                "at": "2026-11-18T09:00:00+09:00",
+                "onTrack": 51.56198347107438,
+                "amberLine": 56.56198347107438,
+                "limit": 100,
+                "actual": null,
+                "actualAt": null
+              },
+              {
+                "at": "2026-11-18T21:00:00+09:00",
+                "onTrack": 58.80165289256198,
+                "amberLine": 63.80165289256198,
+                "limit": 100,
+                "actual": null,
+                "actualAt": null
+              },
+              {
+                "at": "2026-11-19T09:00:00+09:00",
+                "onTrack": 66.04132231404958,
+                "amberLine": 71.04132231404958,
+                "limit": 100,
+                "actual": null,
+                "actualAt": null
+              },
+              {
+                "at": "2026-11-19T21:00:00+09:00",
+                "onTrack": 73.28099173553719,
+                "amberLine": 78.28099173553719,
+                "limit": 100,
+                "actual": null,
+                "actualAt": null
+              },
+              {
+                "at": "2026-11-20T09:00:00+09:00",
+                "onTrack": 80.52066115702479,
+                "amberLine": 85.52066115702479,
+                "limit": 100,
+                "actual": null,
+                "actualAt": null
+              },
+              {
+                "at": "2026-11-20T21:00:00+09:00",
+                "onTrack": 87.7603305785124,
+                "amberLine": 92.7603305785124,
+                "limit": 100,
+                "actual": null,
+                "actualAt": null
+              },
+              {
+                "at": "2026-11-21T00:00:00Z",
+                "onTrack": 95,
+                "amberLine": 100,
+                "limit": 100,
+                "actual": null,
+                "actualAt": null
+              }
+            ],
+            "closedPlans": [
+              {
+                "window": "7d",
+                "startedAt": "2026-11-14T20:00:00Z",
+                "baselineAt": "2026-11-14T00:00:00Z",
+                "baseline": 0,
+                "resetsAt": "2026-11-21T00:00:00Z",
+                "target": 100,
+                "amber": 5,
+                "closed": {
+                  "at": "2026-11-15T23:00:00Z",
+                  "final": 33,
+                  "reason": "rebaselined"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

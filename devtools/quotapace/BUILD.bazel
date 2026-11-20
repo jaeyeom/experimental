@@ -1,0 +1,26 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+load("//tools/org-lint:defs.bzl", "org_lint_tests")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "check.go",
+        "checkpoint.go",
+        "pace.go",
+        "quotapace.go",
+        "status.go",
+        "store.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/quotapace",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "go_default_test",
+    size = "small",
+    srcs = ["quotapace_test.go"],
+    data = glob(["testdata/**"]),
+    embed = [":go_default_library"],
+)
+
+org_lint_tests(["README.org"])

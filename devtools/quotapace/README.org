@@ -1,0 +1,215 @@
+#+TITLE: quotapace
+
+* What it is
+
+~quotapace~ tracks usage of rolling quota windows, such as a coding
+agent's 5-hour and 7-day limits. You record the percent used and the
+reset time. It projects whether you will pass the limit before the
+reset, compares usage with a plan, and fills in a checkpoint table.
+It is a CLI and a Go library. Any agent or script can feed it.
+
+Tracking issue: [[https://github.com/jaeyeom/experimental/issues/937][#937]].
+
+* Install
+
+#+BEGIN_SRC bash
+go install github.com/jaeyeom/experimental/devtools/quotapace/cmd/quotapace@latest
+#+END_SRC
+
+* Concepts
+
+- Reading :: a percent of one window at one time, with the reset time,
+  the profile, and the source. Readings are appended to a log.
+- Profile :: an account or a machine. Each profile has its own log and
+  plans. Profiles are never added together.
+- Plan :: a straight on-track line from a baseline to a target at the
+  reset. The amber line is a number of points above it. The limit is
+  100%. Without a plan, the whole window from 0% to 100% is used.
+- Offset :: points added to every reading of a profile, to correct a
+  known gap between the CLI and the vendor's usage page.
+- Pace :: points per hour. The pace so far runs from the baseline. The
+  recent pace runs over the last ~--recent~ hours (default 6h). The
+  current pace is the recent pace when there is one.
+- State :: green at or under on track; red when the percent at reset,
+  at the current pace, passes 100%; amber otherwise; missing when the
+  latest reading is older than ~--stale~ (default 6h) or the window
+  has reset since.
+
+* Example
+
+A fictional account, ~work~, reads 40% of its 7-day window with 4 days
+to the reset. That is 72 hours into the window.
+
+#+BEGIN_SRC bash
+quotapace record --profile work --window 7d --percent 40 --resets-in 4d --source statusline
+quotapace status --profile work
+#+END_SRC
+
+#+BEGIN_EXAMPLE
+7d 40% (on track 43%) green, projected 93%
+#+END_EXAMPLE
+
+To spend only 95% by the reset, and to see checkpoints at 09:00 and
+21:00 in Seoul, start a plan from the current 40%:
+
+#+BEGIN_SRC bash
+quotapace plan start --profile work --window 7d --baseline 40 \
+  --target 95 --checkpoints 09:00,21:00 --tz Asia/Seoul
+quotapace report --profile work
+#+END_SRC
+
+~report~ prints Markdown: the plan, the percent now, the paces, the
+projection at reset, the hours until 100%, the pace that ends at the
+target, then one table row per checkpoint with on track, amber, the
+limit, the actual reading, and its state.
+
+* Commands
+
+#+BEGIN_EXAMPLE
+quotapace record --profile P --window W --percent N (--resets-in D | --resets-at T) [--source S] [--at T] [--auto-start]
+quotapace record --profile P [--format jsonl|claude-usage] [--auto-start] < input
+quotapace plan start --profile P --window W [--baseline N [--at T]] [--resets-at T | --resets-in D]
+                     [--offset N] [--target N] [--amber N] [--every D] [--checkpoints HH:MM,...] [--tz Area/City]
+quotapace status [--profile P] [--json] [--recent 6h] [--stale 6h]
+quotapace report [--profile P] [--window W] [--json] [--recent 6h] [--stale 6h]
+quotapace check  [--profile P] [--stale 6h] [--repeat 6h] [--notify-cmd CMD] [--recent 6h]
+#+END_EXAMPLE
+
+Windows and durations take whole days (~7d~), a Go duration (~5h~,
+~90m~), or both (~6d5h~). Times are RFC 3339.
+
+- ~record~ :: appends a reading. Without ~--percent~ it reads standard
+  input: JSON lines (~window~, ~percent~, ~resetsAt~ or ~resetsIn~, and
+  optionally ~profile~, ~at~, ~source~), or with ~--format claude-usage~
+  the object ~claude-usage --json~ prints. A reading after the plan's
+  reset time, with a reset more than an hour later than the plan's, or
+  20 points below the previous reading means the window reset. The
+  plan is closed with its last percent. ~--auto-start~ starts a fresh
+  plan for the new window with the same target and checkpoints;
+  otherwise ~record~ prints the command to start one.
+- ~plan start~ :: starts a plan. Without ~--baseline~ it starts at the
+  window start at 0%. With ~--baseline N~ it starts at ~--at~ (default
+  now) with N%, a re-baseline. The reset time defaults to the latest
+  reading's. An existing plan for the window is closed as
+  ~rebaselined~ and kept in the history. ~--offset~ sets the
+  profile's offset. Checkpoints fall on the ~--checkpoints~ clock times
+  each day in ~--tz~ (default UTC), so a DST change keeps the wall-clock
+  time. Without them, they fall every ~--every~ from the baseline
+  (default a day for windows of two days or more, otherwise an hour).
+  The reset is always the last checkpoint.
+- ~status~ :: one line per window, such as
+  ~7d 31% (on track 33%) green, projected 91%~. Without ~--profile~
+  every profile is shown, each line prefixed by the profile.
+- ~report~ :: the Markdown report of each window.
+- ~check~ :: for cron. It is silent when every window is green. On
+  amber, red, or a missing or stale reading it prints one line per
+  problem and runs the notify command once with those lines on
+  standard input. It does so only when a state changed, or after
+  ~--repeat~ (default 6h, ~0~ never). The notify command comes from
+  ~--notify-cmd~ or ~QUOTAPACE_NOTIFY_CMD~. It is split on spaces and
+  run without a shell, with a 30-second limit.
+
+** Exit codes
+
+| Code | status, report, check                      | Other commands |
+|------+--------------------------------------------+----------------|
+| 0    | every window green                         | success        |
+| 1    | the worst window is amber                  |                |
+| 2    | the worst window is red                    |                |
+| 3    | a reading is missing or stale              |                |
+| 64   | usage error                                | usage error    |
+| 70   | any other error, such as an unreadable log | other error    |
+
+The code is the highest one among the selected windows.
+
+* status --json
+
+~status --json~ (and ~report --json~) prints one object. Without
+~--profile~ it covers every profile. The schema is versioned; fields
+are only added within a version.
+
+#+BEGIN_SRC json
+{
+  "version": 1,
+  "now": "2026-11-17T00:30:00Z",
+  "profiles": [
+    {
+      "profile": "work",
+      "offset": 0,
+      "windows": [
+        {
+          "window": "7d",
+          "state": "green",
+          "latest": {"at": "…", "percent": 33, "resetsAt": "…", "source": "statusline", "ageSeconds": 1800},
+          "plan": {
+            "implicit": false, "baselineAt": "…", "baseline": 22, "resetsAt": "…",
+            "target": 95, "amber": 5,
+            "onTrack": 37.4, "amberLine": 42.4, "limit": 100,
+            "nextCheckpoint": {"at": "…", "onTrack": 44.0, "amberLine": 49.0, "limit": 100, "actual": null, "actualAt": null}
+          },
+          "projection": {
+            "at": "…", "percent": 33, "onTrack": 37.1, "amberLine": 42.1, "limit": 100,
+            "paceSoFar": 0.44, "paceRecent": 0.5, "projectedAtReset": 81,
+            "hoursTo100": 134, "neededPace": 0.65, "state": "green"
+          },
+          "history": {
+            "readings": [],
+            "checkpoints": [],
+            "closedPlans": []
+          }
+        }
+      ]
+    }
+  ]
+}
+#+END_SRC
+
+- ~latest~ is null when the window has no reading. ~plan~ and
+  ~projection~ are null when there is nothing to project. ~plan~ lines
+  are at ~now~; ~projection~ lines are at the latest reading.
+- ~paceRecent~, ~hoursTo100~, and ~neededPace~ are null when they
+  cannot be computed, for example at zero pace.
+- ~history.readings~ and ~history.checkpoints~ belong to the active
+  plan. A checkpoint's ~actual~ is the last reading since the previous
+  checkpoint, and its ~state~ uses the pace so far at that reading.
+  ~closedPlans~ carry ~closed.at~, ~closed.final~, and ~closed.reason~
+  (~reset time passed~, ~new window~, ~percent dropped~, or
+  ~rebaselined~).
+
+* Cron example for check
+
+#+BEGIN_SRC bash
+# Every 30 minutes: read Claude Code usage, then alert on a problem.
+*/30 * * * * claude-usage --json | quotapace record --profile work --format claude-usage --auto-start && quotapace check --notify-cmd 'mail -s quotapace you@example.com'
+#+END_SRC
+
+Any command that reads standard input works as the notify command.
+
+* Sources
+
+quotapace does not call a vendor itself. Feed it from whatever shows
+the numbers.
+
+- Claude Code :: the ~/usage~ command shows the 5-hour and 7-day
+  percent and reset times. In this repository, ~claude-usage --json~
+  ([[file:../claude-usage/README.org][README]]) reads the same numbers
+  for a subscription login; pipe it to
+  ~quotapace record --format claude-usage~, which records ~5h~ and
+  ~7d~.
+- Antigravity CLI (~agy~) :: read the percent and the time to reset
+  from its usage display and pass them to ~record~ with ~--percent~
+  and ~--resets-in~. There is no collector for it yet.
+
+When the CLI and the vendor's usage page disagree by a steady amount,
+set the profile's offset with ~plan start --offset~.
+
+* Data layout
+
+Data lives under ~$XDG_DATA_HOME/quotapace~, or
+=~/.local/share/quotapace= when ~XDG_DATA_HOME~ is unset.
+
+| Path                                | Contents                                |
+|-------------------------------------+-----------------------------------------|
+| ~profiles/<profile>/readings.jsonl~ | append-only readings, one JSON per line |
+| ~profiles/<profile>/plans.json~     | offset, active plans, closed plans      |
+| ~check.json~                        | the state ~check~ last notified         |

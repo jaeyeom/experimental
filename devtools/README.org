@@ -53,6 +53,7 @@ tool has its own README. Start with the one-line summaries below.
 | magit            | Open magit-status in a running Emacs from the terminal     | active       | ./ensure.sh magit                                 | [[file:magit/README.org][README]]            |
 | orgctl           | Compare a written agent-team spec with live tabs and names | experimental | go install ./devtools/orgctl/cmd/orgctl           | [[file:orgctl/README.org][README]]           |
 | prsync           | Match your open pull requests to herdr agent tabs          | experimental | make install                                      | [[file:prsync/README.org][README]]           |
+| quotapace        | Project usage of rolling quota windows against a plan      | experimental | go install ./devtools/quotapace/cmd/quotapace     | [[file:quotapace/README.org][README]]        |
 | rename-jira-keys | Rename Jira ticket keys in file names and contents         | experimental | make install                                      | [[file:rename-jira-keys/README.org][README]] |
 | repo-sync        | Sync selected project files across machines with git       | inactive     | bazel build //devtools/repo-sync/cmd/repo-sync    | [[file:repo-sync/README.org][README]]        |
 | reviewpush       | Have Codex review local commits, then push them            | experimental | make install                                      | [[file:reviewpush/README.md][README]]        |
