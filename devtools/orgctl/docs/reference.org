@@ -17,7 +17,7 @@ uses 2 for usage, not for a difference.
 | Command | Code | Meaning                                  |
 |---------+------+------------------------------------------|
 | check   | 0    | the spec passes                          |
-| check   | 1    | the spec or an approval verb is rejected |
+| check   | 1    | spec, approval verb, or cycle rejected   |
 | check   | 2    | usage                                    |
 | plan    | 0    | no diff marker                           |
 | plan    | 1    | the spec, a flag, or a read failed       |
@@ -30,6 +30,9 @@ uses 2 for usage, not for a difference.
 | render  | 0    | files written, or --check found no diff  |
 | render  | 1    | the spec, a flag, or a write failed      |
 | render  | 2    | usage, or --check found missing/edited   |
+| tree    | 0    | the chart was printed                    |
+| tree    | 1    | the spec, a reportsTo cycle, or a read   |
+| tree    | 2    | usage, including an unknown --root       |
 | (none)  | 2    | usage, or an unknown command             |
 
 A diff marker is a line whose first character is ~+~, a tilde, ~!~,

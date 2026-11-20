@@ -18,6 +18,7 @@ go_library(
         "path.go",
         "plan.go",
         "spec.go",
+        "tree.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/orgctl",
     visibility = ["//visibility:public"],
@@ -36,6 +37,7 @@ go_test(
         "plan_test.go",
         "readme_test.go",
         "spec_test.go",
+        "tree_test.go",
     ],
     data = glob(["**/*.pkl"]) + [
         "README.org",

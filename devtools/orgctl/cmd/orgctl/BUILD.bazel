@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "live.go",
         "main.go",
+        "tree.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/orgctl/cmd/orgctl",
     visibility = ["//visibility:private"],

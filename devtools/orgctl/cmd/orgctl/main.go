@@ -2,6 +2,7 @@
 //
 //	orgctl check [--approval-word WORD]... SPEC.json
 //	orgctl plan [--machine NAME] [--role NAME] [--expiring 2d] SPEC.json
+//	orgctl tree [--root ROLE] [--depth N] [--live] [--json] [--ascii] SPEC.json
 //
 // --approval-word extends the default approval-word list. The spec's
 // approvalWords field does the same. allowApprovalWords drops a default
@@ -29,6 +30,7 @@ import (
 const usage = "usage: orgctl check [--approval-word WORD]... SPEC.json\n" +
 	"       orgctl plan [--machine NAME] [--role NAME] [--expiring 2d] [--agents-md-root DIR] SPEC.json\n" +
 	"       orgctl drift [--agents-md-root DIR] SPEC.json\n" +
+	"       " + treeUsage + "\n" +
 	"       orgctl import [--out FILE] [--force] [--schema PATH]\n" +
 	"       orgctl render agents-md --root DIR [--check] SPEC.json"
 
@@ -60,6 +62,8 @@ func runIO(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (orgc
 		return runImport(args, stdout, stderr, load)
 	case "render":
 		return runRender(args, stdout, stderr)
+	case "tree":
+		return runTree(args, stdout, stderr, load)
 	default:
 		fmt.Fprintln(stderr, usage)
 		return 2
@@ -110,6 +114,10 @@ func runCheck(args []string, stderr io.Writer) int {
 		return 1
 	}
 	if err := spec.CheckClasses(); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if err := spec.CheckReports(); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
