@@ -1,0 +1,27 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "main.go",
+        "record.go",
+        "status.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/quotapace/cmd/quotapace",
+    visibility = ["//visibility:private"],
+    deps = ["//devtools/quotapace:go_default_library"],
+)
+
+go_binary(
+    name = "quotapace",
+    embed = [":go_default_library"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "go_default_test",
+    size = "small",
+    srcs = ["main_test.go"],
+    embed = [":go_default_library"],
+    deps = ["//devtools/quotapace:go_default_library"],
+)
