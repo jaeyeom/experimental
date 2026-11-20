@@ -423,6 +423,16 @@ var platformSpecificTools = []PlatformSpecificTool{
 		},
 		Imports: nil,
 	},
+	{
+		// cplt is a kernel-enforced sandbox wrapper for AI coding agents
+		// (macOS Seatbelt, Linux Landlock). Termux is omitted.
+		command: "cplt",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     CargoInstallMethod{Name: "cplt", Git: "https://github.com/jaeyeom/cplt.git"},
+			PlatformDebianLike: CargoInstallMethod{Name: "cplt", Git: "https://github.com/jaeyeom/cplt.git"},
+		},
+		Imports: nil,
+	},
 	GoTool("decide", "github.com/jaeyeom/experimental/devtools/decide/cmd/decide@latest"),
 	{
 		command: "delta",

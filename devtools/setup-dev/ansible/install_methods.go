@@ -370,6 +370,7 @@ func (r RustupComponentMethod) RenderBlockInstallTask(command string) string {
 // Includes update logic using cargo-install-update.
 type CargoInstallMethod struct {
 	Name string
+	Git  string
 }
 
 func (c CargoInstallMethod) GetMethodType() string {
@@ -389,6 +390,12 @@ func (c CargoInstallMethod) RenderSetupTasks(_ string) string {
 
 func (c CargoInstallMethod) RenderInstallTask(command string) string {
 	commandID := strings.ReplaceAll(command, "-", "_")
+	installCmd := "cargo install " + c.Name
+	updateCmd := "cargo install-update " + c.Name
+	if c.Git != "" {
+		installCmd = "cargo install --git " + c.Git
+		updateCmd = "cargo install-update -g " + c.Name
+	}
 	task := `    - name: Check if ` + command + ` is installed
       shell: command -v ` + command + `
       register: ` + commandID + `_installed
@@ -398,7 +405,7 @@ func (c CargoInstallMethod) RenderInstallTask(command string) string {
         PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
 
     - name: Install ` + command + ` using Cargo
-      command: cargo install ` + c.Name + `
+      command: ` + installCmd + `
       when: ` + commandID + `_installed.rc != 0
       vars:
         cargo_base_env:
@@ -408,7 +415,7 @@ func (c CargoInstallMethod) RenderInstallTask(command string) string {
       environment: "{{ cargo_base_env | combine(cargo_termux_env if ansible_facts['env']['TERMUX_VERSION'] is defined else {}) }}"
 
     - name: Update ` + command + ` to latest version
-      command: cargo install-update ` + c.Name + `
+      command: ` + updateCmd + `
       register: ` + commandID + `_update_result
       changed_when: "` + commandID + `_update_result.stdout is search('Overall updated [1-9]')"
       when: ` + commandID + `_installed.rc == 0

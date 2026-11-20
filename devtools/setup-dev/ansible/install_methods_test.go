@@ -398,6 +398,15 @@ func TestCargoInstallMethod(t *testing.T) {
 		"rg_update_result",
 		"CARGO_BUILD_JOBS",
 	})
+
+	gitMethod := CargoInstallMethod{Name: "cplt", Git: "https://github.com/jaeyeom/cplt.git"}
+	gitGot := gitMethod.RenderInstallTask("cplt")
+	assertContains(t, gitGot, []string{
+		"cplt_installed",
+		"cargo install --git https://github.com/jaeyeom/cplt.git",
+		"cargo install-update -g cplt",
+		"cplt_update_result",
+	})
 }
 
 func TestNpmInstallMethod(t *testing.T) {
