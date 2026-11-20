@@ -303,6 +303,129 @@ func TestHandleMessage(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "reopenOn addressed keeps watch closed on unrelated third-party reply",
+			setup: func(t *testing.T, f *eventFixture) {
+				f.proc.Config.ReopenOn = ReopenOnAddressed
+				if _, err := f.store.CloseWatch(f.thread.ID, "done", f.now.Add(-time.Hour)); err != nil {
+					t.Fatal(err)
+				}
+			},
+			msgs: []Message{threadReply("U9", "1700000009.000300", "I finished sign off")},
+			check: func(t *testing.T, f *eventFixture) {
+				if w := f.watch(t, f.thread.ID); w.State != StateClosed {
+					t.Errorf("state = %s, want closed", w.State)
+				}
+				if len(f.rec.notes) != 0 {
+					t.Errorf("notes = %+v, want none", f.rec.notes)
+				}
+				if got := f.count(t, `SELECT COUNT(*) FROM replies WHERE watch_id = ?`, f.thread.ID); got != 0 {
+					t.Errorf("replies = %d, want 0", got)
+				}
+			},
+		},
+		{
+			name: "reopenOn addressed reopens when reply mentions user",
+			setup: func(t *testing.T, f *eventFixture) {
+				f.proc.Config.ReopenOn = ReopenOnAddressed
+				if _, err := f.store.CloseWatch(f.thread.ID, "done", f.now.Add(-time.Hour)); err != nil {
+					t.Fatal(err)
+				}
+			},
+			msgs: []Message{threadReply("U9", "1700000009.000300", "hey <@"+selfID+"> ptal")},
+			check: func(t *testing.T, f *eventFixture) {
+				if w := f.watch(t, f.thread.ID); w.State != StateOpen {
+					t.Errorf("state = %s, want open", w.State)
+				}
+				if got := f.events(); !reflect.DeepEqual(got, []string{EventReopened}) {
+					t.Errorf("events = %v, want [reopened]", got)
+				}
+			},
+		},
+		{
+			name: "reopenOn addressed reopens when thread root was posted by user",
+			setup: func(t *testing.T, f *eventFixture) {
+				f.proc.Config.ReopenOn = ReopenOnAddressed
+				if err := f.store.setRootAuthor(f.thread.ID, selfID); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := f.store.CloseWatch(f.thread.ID, "done", f.now.Add(-time.Hour)); err != nil {
+					t.Fatal(err)
+				}
+			},
+			msgs: []Message{threadReply("U9", "1700000009.000300", "sounds good")},
+			check: func(t *testing.T, f *eventFixture) {
+				if w := f.watch(t, f.thread.ID); w.State != StateOpen {
+					t.Errorf("state = %s, want open", w.State)
+				}
+				if got := f.events(); !reflect.DeepEqual(got, []string{EventReopened}) {
+					t.Errorf("events = %v, want [reopened]", got)
+				}
+			},
+		},
+		{
+			name: "per-watch reopenOn addressed beats global any",
+			setup: func(t *testing.T, f *eventFixture) {
+				f.proc.Config.ReopenOn = ReopenOnAny
+				mode := ReopenOnAddressed
+				if _, err := f.store.CloseWatchWith(f.thread.ID, CloseOptions{Reason: "done", ReopenOn: &mode}, f.now.Add(-time.Hour)); err != nil {
+					t.Fatal(err)
+				}
+			},
+			msgs: []Message{threadReply("U9", "1700000009.000300", "unrelated")},
+			check: func(t *testing.T, f *eventFixture) {
+				if w := f.watch(t, f.thread.ID); w.State != StateClosed {
+					t.Errorf("state = %s, want closed", w.State)
+				}
+				if len(f.rec.notes) != 0 {
+					t.Errorf("notes = %+v, want none", f.rec.notes)
+				}
+			},
+		},
+		{
+			name: "per-watch reopenOn any beats global addressed",
+			setup: func(t *testing.T, f *eventFixture) {
+				f.proc.Config.ReopenOn = ReopenOnAddressed
+				mode := ReopenOnAny
+				if _, err := f.store.CloseWatchWith(f.thread.ID, CloseOptions{Reason: "done", ReopenOn: &mode}, f.now.Add(-time.Hour)); err != nil {
+					t.Fatal(err)
+				}
+			},
+			msgs: []Message{threadReply("U9", "1700000009.000300", "unrelated")},
+			check: func(t *testing.T, f *eventFixture) {
+				if w := f.watch(t, f.thread.ID); w.State != StateOpen {
+					t.Errorf("state = %s, want open", w.State)
+				}
+				if got := f.events(); !reflect.DeepEqual(got, []string{EventReopened}) {
+					t.Errorf("events = %v, want [reopened]", got)
+				}
+			},
+		},
+		{
+			name: "muted watch never reopens and delivers mention as inbound",
+			setup: func(t *testing.T, f *eventFixture) {
+				f.proc.Config.ReopenOn = ReopenOnAny
+				f.proc.Config.Inbound = &InboundConfig{Target: "triage"}
+				if err := f.store.setRootAuthor(f.thread.ID, selfID); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := f.store.CloseWatchWith(f.thread.ID, CloseOptions{Reason: "done", Mute: true}, f.now.Add(-time.Hour)); err != nil {
+					t.Fatal(err)
+				}
+			},
+			msgs: []Message{threadReply("U9", "1700000009.000300", "hey <@"+selfID+"> check this")},
+			check: func(t *testing.T, f *eventFixture) {
+				if w := f.watch(t, f.thread.ID); w.State != StateClosed || !w.Muted {
+					t.Errorf("watch = %+v, want closed and muted", w)
+				}
+				if got := f.events(); !reflect.DeepEqual(got, []string{EventInbound}) {
+					t.Errorf("events = %v, want [inbound]", got)
+				}
+				if got := f.count(t, `SELECT COUNT(*) FROM inbound WHERE kind = 'mention' AND author = 'U9'`); got != 1 {
+					t.Errorf("inbound mention = %d, want 1", got)
+				}
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

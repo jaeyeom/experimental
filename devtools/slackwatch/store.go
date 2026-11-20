@@ -251,6 +251,15 @@ CREATE TABLE user_names (
 	seen_at INTEGER NOT NULL
 );
 `,
+	// reopen_on overrides the global reopenOn config per watch. muted
+	// prevents a closed watch from reopening. root_author records the
+	// thread root's Slack user id so reopenOn=addressed can tell whether
+	// the thread root is ours.
+	`
+ALTER TABLE watches ADD COLUMN reopen_on TEXT NOT NULL DEFAULT '' CHECK (reopen_on IN ('', 'any', 'addressed'));
+ALTER TABLE watches ADD COLUMN muted INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE watches ADD COLUMN root_author TEXT NOT NULL DEFAULT '';
+`,
 }
 
 // Store is the slackwatch SQLite database. The server and the CLI each

@@ -43,6 +43,9 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.ReopenWindow.Duration != 720*time.Hour {
 		t.Errorf("ReopenWindow = %v", cfg.ReopenWindow)
 	}
+	if cfg.ReopenOn != ReopenOnAny {
+		t.Errorf("ReopenOn = %q, want %q", cfg.ReopenOn, ReopenOnAny)
+	}
 	if cfg.ExcerptLimit != 300 {
 		t.Errorf("ExcerptLimit = %d", cfg.ExcerptLimit)
 	}
@@ -257,5 +260,18 @@ func TestLoadTokens(t *testing.T) {
 		if strings.Contains(err.Error(), "secret") {
 			t.Errorf("%s: error leaks token: %v", name, err)
 		}
+	}
+}
+
+func TestLoadConfigReopenOn(t *testing.T) {
+	cfg, err := LoadConfig(writeFile(t, "ok.json", `{"reopenOn": "addressed"}`, 0o600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ReopenOn != ReopenOnAddressed || cfg.ReopenMode() != ReopenOnAddressed {
+		t.Errorf("ReopenOn = %q, ReopenMode = %q", cfg.ReopenOn, cfg.ReopenMode())
+	}
+	if _, err := LoadConfig(writeFile(t, "bad.json", `{"reopenOn": "bogus"}`, 0o600)); err == nil {
+		t.Fatal("invalid reopenOn should be rejected")
 	}
 }

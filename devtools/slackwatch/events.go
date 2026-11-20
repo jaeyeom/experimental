@@ -110,7 +110,7 @@ func classify(m Message, st msgState, self string, cfg Config, now time.Time) de
 
 func classifyAct(m Message, st msgState, self string, cfg Config, now time.Time) decision {
 	isSelf := m.User == self
-	if d, ok := classifyWatched(m, st, isSelf, cfg, now); ok {
+	if d, ok := classifyWatched(m, st, self, cfg, now); ok {
 		return d
 	}
 	if isSelf {
@@ -135,13 +135,14 @@ func classifyAct(m Message, st msgState, self string, cfg Config, now time.Time)
 
 // classifyWatched matches a reply to an active or recently closed thread
 // watch, or a top-level DM after a dm watch.
-func classifyWatched(m Message, st msgState, isSelf bool, cfg Config, now time.Time) (decision, bool) {
+func classifyWatched(m Message, st msgState, self string, cfg Config, now time.Time) (decision, bool) {
+	isSelf := m.User == self
 	notify := !isSelf || cfg.NotifySelf
 	if w := st.thread; w != nil && m.threaded() && CompareTS(m.TS, w.SinceTS) > 0 {
 		if w.State != StateClosed {
 			return decision{act: actReply, watch: *w, notify: notify}, true
 		}
-		if now.Sub(w.ClosedAt) <= cfg.ReopenWindow.Duration {
+		if shouldReopen(w, m, self, cfg, now) {
 			return decision{act: actReopen, watch: *w, notify: notify}, true
 		}
 	}
@@ -149,6 +150,20 @@ func classifyWatched(m Message, st msgState, isSelf bool, cfg Config, now time.T
 		return decision{act: actReply, watch: *w, notify: true}, true
 	}
 	return decision{}, false
+}
+
+func shouldReopen(w *Watch, m Message, self string, cfg Config, now time.Time) bool {
+	if w.Muted || now.Sub(w.ClosedAt) > cfg.ReopenWindow.Duration {
+		return false
+	}
+	mode := w.ReopenOn
+	if mode == "" {
+		mode = cfg.ReopenMode()
+	}
+	if mode == ReopenOnAddressed {
+		return mentions(m.Text, self) || (self != "" && w.RootAuthor == self)
+	}
+	return true
 }
 
 func mentions(text, user string) bool {
@@ -204,8 +219,11 @@ func (p *Processor) apply(ctx context.Context, m Message, d decision, now time.T
 	case actReply, actReopen:
 		return p.storeReply(ctx, m, d, now)
 	case actFooter:
-		w, created, err := p.Store.AddWatch(PostRef{Channel: m.Channel, TS: m.TS, ThreadTS: m.ThreadTS},
-			WatchUpdate{Source: ptr(SourceFooter)}, now)
+		u := WatchUpdate{Source: ptr(SourceFooter)}
+		if !m.threaded() && m.User != "" {
+			u.RootAuthor = ptr(m.User)
+		}
+		w, created, err := p.Store.AddWatch(PostRef{Channel: m.Channel, TS: m.TS, ThreadTS: m.ThreadTS}, u, now)
 		if err != nil || !created {
 			return "", err
 		}

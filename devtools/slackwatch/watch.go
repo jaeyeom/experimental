@@ -52,16 +52,24 @@ type Watch struct {
 	Flag string `json:"flag,omitempty"`
 	// GoneAt is when catch-up found the watched thread deleted.
 	GoneAt time.Time `json:"goneAt,omitzero"`
+	// ReopenOn overrides Config.ReopenOn for this watch when non-empty.
+	ReopenOn string `json:"reopenOn,omitempty"`
+	// Muted prevents a closed watch from reopening.
+	Muted bool `json:"muted,omitempty"`
+	// RootAuthor is the Slack user id of the thread's root message.
+	RootAuthor string `json:"rootAuthor,omitempty"`
 }
 
 // WatchUpdate holds the fields a command sets on a watch. Nil fields are
 // left unchanged.
 type WatchUpdate struct {
-	Owner   *string
-	Purpose *string
-	Refs    []string
-	Source  *string
-	Until   *time.Time
+	Owner      *string
+	Purpose    *string
+	Refs       []string
+	Source     *string
+	Until      *time.Time
+	ReopenOn   *string
+	RootAuthor *string
 }
 
 // WatchSummary is one row of ls.
@@ -97,7 +105,8 @@ type Reaction struct {
 }
 
 const watchCols = `id, channel, thread_ts, kind, since_ts, state, owner, purpose, refs,
-source, until, last_activity, created_at, closed_at, close_reason, permalink, flag, gone_at`
+source, until, last_activity, created_at, closed_at, close_reason, permalink, flag, gone_at,
+reopen_on, muted, root_author`
 
 // Refs are stored newline-separated.
 const refsSep = "\n"
@@ -120,6 +129,7 @@ func (r *watchRow) dest(extra ...any) []any {
 		&r.w.ID, &r.w.Channel, &r.w.ThreadTS, &r.w.Kind, &r.w.SinceTS, &r.w.State,
 		&r.w.Owner, &r.w.Purpose, &r.refs, &r.w.Source, &r.until, &r.last,
 		&r.created, &r.closed, &r.w.CloseReason, &r.w.Permalink, &r.w.Flag, &r.gone,
+		&r.w.ReopenOn, &r.w.Muted, &r.w.RootAuthor,
 	}, extra...)
 }
 
@@ -313,8 +323,9 @@ func updateWatch(tx *sql.Tx, id int64, u WatchUpdate) error {
 	}
 	_, err := tx.Exec(`UPDATE watches SET
 owner = COALESCE(?, owner), purpose = COALESCE(?, purpose), refs = COALESCE(?, refs),
-source = COALESCE(?, source), until = COALESCE(?, until)
-WHERE id = ?`, u.Owner, u.Purpose, refs, u.Source, until, id)
+source = COALESCE(?, source), until = COALESCE(?, until),
+reopen_on = COALESCE(?, reopen_on), root_author = COALESCE(?, root_author)
+WHERE id = ?`, u.Owner, u.Purpose, refs, u.Source, until, u.ReopenOn, u.RootAuthor, id)
 	if err != nil {
 		return fmt.Errorf("update watch %d: %w", id, err)
 	}
@@ -374,10 +385,35 @@ func (s *Store) execWatch(id int64, query string, args ...any) (Watch, error) {
 	return getWatch(s.db, id)
 }
 
+// CloseOptions configures CloseWatchWith.
+type CloseOptions struct {
+	Reason   string
+	ReopenOn *string
+	Mute     bool
+}
+
 // CloseWatch closes a watch with an optional reason.
 func (s *Store) CloseWatch(id int64, reason string, now time.Time) (Watch, error) {
-	return s.execWatch(id, `UPDATE watches SET state = ?, closed_at = ?, close_reason = ? WHERE id = ?`,
-		StateClosed, now.Unix(), reason)
+	return s.CloseWatchWith(id, CloseOptions{Reason: reason}, now)
+}
+
+// CloseWatchWith closes a watch with the given options.
+func (s *Store) CloseWatchWith(id int64, opts CloseOptions, now time.Time) (Watch, error) {
+	var muted int
+	if opts.Mute {
+		muted = 1
+	}
+	return s.execWatch(id, `UPDATE watches SET state = ?, closed_at = ?, close_reason = ?,
+	reopen_on = COALESCE(?, reopen_on), muted = CASE WHEN ? = 1 THEN 1 ELSE muted END
+WHERE id = ?`,
+		StateClosed, now.Unix(), opts.Reason, opts.ReopenOn, muted)
+}
+
+func (s *Store) setRootAuthor(id int64, author string) error {
+	if _, err := s.db.Exec(`UPDATE watches SET root_author = ? WHERE id = ? AND root_author = ''`, author, id); err != nil {
+		return fmt.Errorf("set root_author of watch %d: %w", id, err)
+	}
+	return nil
 }
 
 // SnoozeWatch sets the time until which a watch stays open.

@@ -541,3 +541,74 @@ func TestThreadsDeletedListsRecentlyGoneWatches(t *testing.T) {
 		t.Errorf("ThreadsDeleted after the window = %+v, %v, want none", got, err)
 	}
 }
+
+func TestCatchUpFollowsReopenOnAndMuteRules(t *testing.T) {
+	t.Run("addressed keeps non-mentioning third-party reply closed", func(t *testing.T) {
+		f := newCatchUpFixture(t)
+		f.proc.Config.ReopenOn = ReopenOnAddressed
+		if _, err := f.store.CloseWatch(f.thread.ID, "done", f.now.Add(-time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+		f.slack.replies["C1/"+threadTS] = []Fetched{
+			fetched(Message{Channel: "C1", TS: threadTS, ThreadTS: threadTS, User: "U8", Text: "root"}),
+			fetched(threadReply("U9", "1700000009.000300", "unrelated")),
+		}
+		if err := f.c.Run(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if w := f.watch(t, f.thread.ID); w.State != StateClosed || w.RootAuthor != "U8" {
+			t.Errorf("watch = %+v, want closed with rootAuthor U8", w)
+		}
+		if len(f.rec.notes) != 0 {
+			t.Errorf("notes = %+v, want none", f.rec.notes)
+		}
+	})
+
+	t.Run("addressed reopens when root message is user's", func(t *testing.T) {
+		f := newCatchUpFixture(t)
+		f.proc.Config.ReopenOn = ReopenOnAddressed
+		if _, err := f.store.CloseWatch(f.thread.ID, "done", f.now.Add(-time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+		f.slack.replies["C1/"+threadTS] = []Fetched{
+			fetched(Message{Channel: "C1", TS: threadTS, ThreadTS: threadTS, User: selfID, Text: "my post"}),
+			fetched(threadReply("U9", "1700000009.000300", "reply")),
+		}
+		if err := f.c.Run(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if w := f.watch(t, f.thread.ID); w.State != StateOpen || w.RootAuthor != selfID {
+			t.Errorf("watch = %+v, want open with rootAuthor %s", w, selfID)
+		}
+		if got := f.events(); !reflect.DeepEqual(got, []string{EventReopened}) {
+			t.Errorf("events = %v, want [reopened]", got)
+		}
+	})
+
+	t.Run("muted watch is skipped and mention in search arrives as inbound", func(t *testing.T) {
+		f := newCatchUpFixture(t)
+		f.proc.Config.Inbound = &InboundConfig{Target: "triage"}
+		if _, err := f.store.CloseWatchWith(f.thread.ID, CloseOptions{Reason: "done", Mute: true}, f.now.Add(-time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+		mentionTS := tsAt(f.now.Add(-30 * time.Minute))
+		f.slack.replies["C1/"+threadTS] = []Fetched{
+			fetched(threadReply("U9", mentionTS, "hey <@"+selfID+">")),
+		}
+		f.slack.search = []Fetched{
+			fetched(Message{Channel: "C1", TS: mentionTS, ThreadTS: threadTS, User: "U9", Text: "hey <@" + selfID + ">"}),
+		}
+		if err := f.c.Run(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if n := f.callsFor("replies C1/"); n != 0 {
+			t.Errorf("muted watch fetched %d times, want 0", n)
+		}
+		if w := f.watch(t, f.thread.ID); w.State != StateClosed || !w.Muted {
+			t.Errorf("watch = %+v, want closed and muted", w)
+		}
+		if got := f.events(); !reflect.DeepEqual(got, []string{EventInbound}) {
+			t.Errorf("events = %v, want [inbound]", got)
+		}
+	})
+}

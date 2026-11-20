@@ -87,6 +87,14 @@ func (c *CatchUp) CatchUpWatch(ctx context.Context, w Watch) error {
 	if w.Kind == KindThread && errors.Is(err, ErrMessageNotFound) {
 		return c.threadGone(ctx, w, err)
 	}
+	if err == nil && w.Kind == KindThread && w.RootAuthor == "" {
+		for _, m := range msgs {
+			if m.TS == w.ThreadTS && m.User != "" {
+				err = c.Proc.Store.setRootAuthor(w.ID, m.User)
+				break
+			}
+		}
+	}
 	if err == nil {
 		err = c.handle(ctx, scope, cursor, msgs)
 	}
@@ -283,9 +291,9 @@ func (c *CatchUp) Sweep(ctx context.Context) error {
 	return errors.Join(err, expErr)
 }
 
-// catchUpWatches returns the watches that are not closed or closed within
-// reopenWindow of now, since a reply to those reopens them. A watch whose
-// thread is gone is left out.
+// catchUpWatches returns the watches that are not closed or are unmuted
+// and closed within reopenWindow of now, since a reply to those reopens
+// them. A watch whose thread is gone is left out.
 func (s *Store) catchUpWatches(now time.Time, reopenWindow time.Duration) ([]Watch, error) {
 	var out []Watch
 	err := s.queryEach(func(rows *sql.Rows) error {
@@ -296,7 +304,7 @@ func (s *Store) catchUpWatches(now time.Time, reopenWindow time.Duration) ([]Wat
 		out = append(out, r.watch())
 		return nil
 	}, `SELECT `+watchCols+` FROM watches
-WHERE gone_at IS NULL AND (state <> ? OR closed_at >= ?) ORDER BY id`,
+WHERE gone_at IS NULL AND (state <> ? OR (muted = 0 AND closed_at >= ?)) ORDER BY id`,
 		StateClosed, now.Add(-reopenWindow).Unix())
 	if err != nil {
 		return nil, fmt.Errorf("list watches to catch up: %w", err)

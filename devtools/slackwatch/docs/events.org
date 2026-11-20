@@ -17,7 +17,15 @@ Each new message is handled by the first rule that matches.
    ~dm~ watch counts as a reply to the latest such watch. It is not
    recorded as inbound.
 3. A reply in a closed watch's thread within ~reopenWindow~ of closing
-   reopens the watch and notifies ~reopened~.
+   reopens the watch and notifies ~reopened~, unless the watch is muted
+   (~done --mute~ / ~--no-reopen~) or the reopen filter rejects it.
+   The effective filter is the watch's ~reopenOn~ override if set,
+   otherwise ~reopenOn~ from config (~any~ by default). With ~addressed~,
+   only a reply that mentions the token owner (~<@user>~) or belongs to a
+   thread whose root message was posted by the token owner reopens the
+   watch. Replies in muted or filtered threads that mention the token
+   owner fall through to rule 5 as ~inbound~ mentions; other replies
+   leave the watch closed and send no notice.
 4. A post by the token owner that matches ~footerPattern~ and has no watch
    is registered like ~add~, as ~unowned~ with source ~footer~. If it is
    still ~unowned~ after ~unownedGrace~, ~fallbackTarget~ gets an
@@ -60,8 +68,8 @@ replies are stored for ~show~. None of these notify.
 reconnect) and every ~sweepInterval~. ~add~ also catches up its one
 watch when a token is available. A sweep:
 
-1. Catches up every watch that is not closed, or was closed within
-   ~reopenWindow~: ~conversations.replies~ for a thread watch and
+1. Catches up every watch that is not closed, or is unmuted and was closed
+   within ~reopenWindow~: ~conversations.replies~ for a thread watch and
    ~conversations.history~ for a ~dm~ watch, after the watch's cursor
    (initially its ~since_ts~).
 2. Runs ~search.messages~ for the token owner's own posts (~from:me~),
