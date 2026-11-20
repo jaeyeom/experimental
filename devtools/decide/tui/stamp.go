@@ -42,8 +42,11 @@ func calendarDays(t, now time.Time) int {
 	return int(a.Sub(b) / (24 * time.Hour)) //nolint:gosec // G115: a date span fits in int
 }
 
+// sameDay treats a time less than a minute ahead as now, so a stamp from
+// a clock slightly ahead does not flip between the future and past
+// forms from one redraw to the next.
 func sameDay(clock string, ago time.Duration) string {
-	if ago >= 0 {
+	if ago > -time.Minute {
 		return clock + " · " + pastPhrase(ago)
 	}
 	return "today " + clock + " · " + futurePhrase(-ago)
