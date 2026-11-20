@@ -363,8 +363,10 @@ A check is either:
 
 When ~mark_viewed_on_pass~ is ~true~ (the default), any file whose check returns
 ~approve~ is marked Viewed on the pull request via ~markFileAsViewed~ (even if
-the pull request as a whole is left for a human). ~viewed.never_mark~ still
-wins, marking happens only with ~--apply~ (dry run reports
+the pull request as a whole is left for a human). ~DISMISSED~ files (changed
+since last viewed) are re-marked when they pass on the new diff, and logged
+with ~re-mark after change~. ~VIEWED~ files are skipped, ~viewed.never_mark~
+still wins, marking happens only with ~--apply~ (dry run reports
 ~would_mark_viewed~), it shares ~viewed.max_marks_per_run~, and each mark is
 logged as ~mark_viewed~ with the passing ~file_checks~ pattern.
 
@@ -636,9 +638,11 @@ rule marks nothing. With ~--explain~, each file matched through the list prints
   visible is named with ~excluded by rule <name> paths_none_match <glob>~ or
   ~excluded by viewed.never_mark <glob>~. The audit log does not record that
   file as marked.
-- Only a file whose ~viewerViewedState~ is ~UNVIEWED~ is marked. ~VIEWED~ and
-  ~DISMISSED~ are left alone. ~DISMISSED~ means the file changed since you
-  viewed it. Nothing is ever unmarked.
+- Only a file whose ~viewerViewedState~ is ~UNVIEWED~ is marked by default.
+  ~VIEWED~ and ~DISMISSED~ are left alone (~DISMISSED~ means the file changed
+  since you viewed it). Set ~viewed.remark_dismissed = true~ to let viewed
+  rules re-mark ~DISMISSED~ files as well (logged as ~re-mark after change~).
+  Nothing is ever unmarked.
 - The same pull requests as approve rules: you are requested as an individual,
   it is open, and it is not a draft. Never your own. A pull request an approve
   or hand-off rule took is not marked.

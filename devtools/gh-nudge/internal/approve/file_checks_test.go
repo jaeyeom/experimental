@@ -450,4 +450,72 @@ func TestFileChecksExplainAndMarkViewed(t *testing.T) {
 			t.Fatalf("marks = %+v, want none", res.fake.marks)
 		}
 	})
+
+	t.Run("DISMISSED passing file is re-marked and logged with note", func(t *testing.T) {
+		pr := prNumber(8)
+		pr.NodeID = "PR_8"
+		fDismissed := fcFile("gen/baseline.txt", 0, 3)
+		fDismissed.ViewerViewedState = models.ViewerDismissed
+		fViewed := fcFile("other/baseline.txt", 0, 2)
+		fViewed.ViewerViewedState = models.ViewerViewed
+		pr.Files = []models.File{
+			fDismissed,
+			fViewed,
+			fcFile("outside/app.go", 1, 0),
+		}
+		cfg := config.ApproveConfig{Body: "LGTM", SkipAlreadyApproved: true, Rules: []config.ApproveRule{makeRule(true)}}
+		viewed := config.ViewedConfig{MaxMarksPerRun: config.DefaultMaxMarksPerRun}
+		res := runConfig(t, newFake(pr), cfg, viewed, Options{Apply: true, Explain: true}, nil)
+		if res.err != nil {
+			t.Fatal(res.err)
+		}
+		if len(res.fake.marks) != 1 || res.fake.marks[0].path != "gen/baseline.txt" {
+			t.Fatalf("marks = %+v, want only gen/baseline.txt", res.fake.marks)
+		}
+		if res.log[0].Action != ActionMarkViewed || res.log[0].PathNotes["gen/baseline.txt"] != "re-mark after change" {
+			t.Fatalf("entry = %+v", res.log[0])
+		}
+		if !strings.Contains(res.out, "gen/baseline.txt (re-mark after change)") {
+			t.Fatalf("explain output missing re-mark note:\n%s", res.out)
+		}
+	})
+
+	t.Run("DISMISSED file matching never_mark is not marked", func(t *testing.T) {
+		pr := prNumber(9)
+		pr.NodeID = "PR_9"
+		fDismissed := fcFile("gen/baseline.txt", 0, 3)
+		fDismissed.ViewerViewedState = models.ViewerDismissed
+		pr.Files = []models.File{fDismissed}
+		cfg := config.ApproveConfig{Body: "LGTM", SkipAlreadyApproved: true, Rules: []config.ApproveRule{makeRule(true)}}
+		viewed := config.ViewedConfig{
+			MaxMarksPerRun: config.DefaultMaxMarksPerRun,
+			NeverMark:      []string{"**/baseline.txt"},
+		}
+		res := runConfig(t, newFake(pr), cfg, viewed, Options{Apply: true, Explain: true}, nil)
+		if len(res.fake.marks) != 0 {
+			t.Fatalf("marks = %+v, want none", res.fake.marks)
+		}
+		if !strings.Contains(res.out, "excluded by viewed.never_mark") {
+			t.Fatalf("explain output missing exclusion:\n%s", res.out)
+		}
+	})
+
+	t.Run("re-marks count toward mark cap", func(t *testing.T) {
+		pr := prNumber(10)
+		pr.NodeID = "PR_10"
+		f1 := fcFile("a/baseline.txt", 0, 1)
+		f1.ViewerViewedState = models.ViewerDismissed
+		f2 := fcFile("b/baseline.txt", 0, 1)
+		f2.ViewerViewedState = models.ViewerDismissed
+		pr.Files = []models.File{f1, f2, fcFile("outside/app.go", 1, 0)}
+		cfg := config.ApproveConfig{Body: "LGTM", SkipAlreadyApproved: true, Rules: []config.ApproveRule{makeRule(true)}}
+		viewed := config.ViewedConfig{MaxMarksPerRun: 1}
+		res := runConfig(t, newFake(pr), cfg, viewed, Options{Apply: true}, nil)
+		if len(res.fake.marks) != 1 || res.fake.marks[0].path != "a/baseline.txt" {
+			t.Fatalf("marks = %+v, want 1", res.fake.marks)
+		}
+		if res.log[0].Reason != "mark cap reached" {
+			t.Fatalf("reason = %q, want mark cap reached", res.log[0].Reason)
+		}
+	})
 }

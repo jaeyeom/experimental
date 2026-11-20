@@ -59,6 +59,35 @@ func TestViewedMarksOnlyUnviewed(t *testing.T) {
 	}
 }
 
+func TestViewedRemarkDismissed(t *testing.T) {
+	pr := viewedPR(1,
+		viewedFile("go.sum", models.ViewerUnviewed),
+		viewedFile("pnpm-lock.yaml", models.ViewerViewed),
+		viewedFile("yarn.lock", models.ViewerDismissed),
+	)
+	viewed := lockRules()
+	viewed.RemarkDismissed = true
+	res := runViewed(t, newFake(pr), viewed, Options{Apply: true, Explain: true})
+	if res.err != nil {
+		t.Fatal(res.err)
+	}
+	if res.log[0].Action != ActionMarkViewed || strings.Join(res.log[0].Paths, ",") != "go.sum,yarn.lock" {
+		t.Fatalf("entry = %+v", res.log[0])
+	}
+	if res.log[0].PathNotes["yarn.lock"] != "re-mark after change" {
+		t.Fatalf("pathNotes = %+v", res.log[0].PathNotes)
+	}
+	if _, ok := res.log[0].PathNotes["go.sum"]; ok {
+		t.Fatalf("unexpected note on UNVIEWED file: %+v", res.log[0].PathNotes)
+	}
+	if !strings.Contains(res.out, "yarn.lock (re-mark after change)") {
+		t.Fatalf("explain output missing re-mark note:\n%s", res.out)
+	}
+	if len(res.fake.marks) != 2 || res.fake.marks[0].path != "go.sum" || res.fake.marks[1].path != "yarn.lock" {
+		t.Fatalf("marks = %+v", res.fake.marks)
+	}
+}
+
 func TestViewedDryRunIssuesNoMutations(t *testing.T) {
 	pr := viewedPR(1, viewedFile("go.sum", models.ViewerUnviewed), viewedFile("yarn.lock", models.ViewerUnviewed))
 	res := runViewed(t, newFake(pr), lockRules(), Options{Explain: true})
