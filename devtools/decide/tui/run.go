@@ -47,6 +47,12 @@ type Options struct {
 	// OpenCommand is the link opener argv; the URL is appended. Empty
 	// is xdg-open, or open on macOS.
 	OpenCommand []string
+	// OrgTree lets t show Contacts as the org tree of OrgSpec, read with
+	// `orgctl tree --json`. Off never runs orgctl. Orgctl replaces the
+	// orgctl binary in tests.
+	OrgTree bool
+	OrgSpec string
+	Orgctl  OrgctlRunner
 	// NoHyperlinks drops the OSC 8 hyperlinks around URLs.
 	NoHyperlinks bool
 	// HiddenContacts are agent names Contacts does not show.
@@ -152,6 +158,7 @@ func prepare(opts Options) (*Model, error) {
 	m.Checkouts = opts.Checkouts
 	m.Machine = opts.Machine
 	m.OpenCommand = opts.OpenCommand
+	m.orgTreeOn, m.orgSpec, m.orgRun = opts.OrgTree, opts.OrgSpec, opts.Orgctl
 	m.NoHyperlinks = opts.NoHyperlinks
 	m.hidden = append([]string(nil), opts.HiddenContacts...)
 	m.favorites = append([]string(nil), opts.FavoriteContacts...)
