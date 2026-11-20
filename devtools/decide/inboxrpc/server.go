@@ -8,6 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
+	"reflect"
 	"sync"
 	"time"
 
@@ -30,7 +33,12 @@ type Server struct {
 	// Zero does not. The hub sets it so a session follows up without a
 	// list request and without the item open.
 	FollowEvery time.Duration
+	// WatchEvery is how often Serve polls the ledger for external changes
+	// while a watch is active. Zero defaults to 100ms.
+	WatchEvery time.Duration
 }
+
+const defaultWatchEvery = 100 * time.Millisecond
 
 // Serve answers each request line from r on w until r ends. Requests
 // run concurrently; each response is one line.
@@ -53,6 +61,18 @@ func (s *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 		defer mu.Unlock()
 		_ = enc.Encode(resp) // a closed client has nobody to tell
 	}
+	watcher := &connWatcher{
+		server: s,
+		reply:  reply,
+		wake:   make(chan struct{}, 1),
+	}
+	if s.Backend != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			watcher.loop(loopCtx)
+		}()
+	}
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64<<10), maxLine)
 	for sc.Scan() {
@@ -61,12 +81,19 @@ func (s *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 			reply(Response{Error: "decode request: " + err.Error()})
 			continue
 		}
+		if req.Op == OpWatch {
+			watcher.start(req)
+			continue
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			resp := s.handle(ctx, req)
 			resp.ID = req.ID
 			reply(resp)
+			if writeOps[req.Op] {
+				watcher.signal()
+			}
 		}()
 	}
 	if err := sc.Err(); err != nil {
@@ -308,4 +335,140 @@ func itemResponse(it decide.Item, err error) Response {
 
 func failed(err error) Response {
 	return Response{Error: err.Error()}
+}
+
+type connWatcher struct {
+	server *Server
+	reply  func(Response)
+	wake   chan struct{}
+
+	mu         sync.Mutex
+	watchID    int64
+	lastSeq    int64
+	lastStatus tui.StatusBoard
+	hasStatus  bool
+	statusAt   time.Time
+	statusMod  time.Time
+}
+
+func (w *connWatcher) signal() {
+	select {
+	case w.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (w *connWatcher) ledger() (*decide.Ledger, error) {
+	led, err := decide.Open(w.server.Backend.Dir)
+	if err != nil {
+		return nil, fmt.Errorf("open decide ledger: %w", err)
+	}
+	if w.server.Backend.Now != nil {
+		led.SetClock(w.server.Backend.Now)
+	}
+	return led, nil
+}
+
+func (w *connWatcher) start(req Request) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.server.Backend == nil {
+		w.reply(Response{ID: req.ID, Error: "no backend"})
+		return
+	}
+	led, err := w.ledger()
+	if err != nil {
+		w.reply(Response{ID: req.ID, Error: err.Error()})
+		return
+	}
+	seq, changes, items, resync, err := led.ChangesSince(req.Since)
+	if err != nil {
+		w.reply(Response{ID: req.ID, Error: err.Error()})
+		return
+	}
+	resp := Response{
+		ID:      req.ID,
+		Seq:     seq,
+		Resync:  resync,
+		Items:   items,
+		Changes: changes,
+	}
+	if board, err := w.server.Backend.Status(); err == nil {
+		resp.Status = &board
+		w.lastStatus = board
+		w.hasStatus = true
+	}
+	w.statusAt = time.Now()
+	w.statusMod = w.statStatusMod()
+	w.watchID = req.ID
+	w.lastSeq = seq
+	w.reply(resp)
+}
+
+func (w *connWatcher) statStatusMod() time.Time {
+	info, err := os.Stat(filepath.Join(w.server.Backend.Dir, "status.json"))
+	if err != nil {
+		return time.Time{}
+	}
+	return info.ModTime()
+}
+
+func (w *connWatcher) loop(ctx context.Context) {
+	every := w.server.WatchEvery
+	if every <= 0 {
+		every = defaultWatchEvery
+	}
+	tick := time.NewTicker(every)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-w.wake:
+			w.poll()
+		case <-tick.C:
+			w.poll()
+		}
+	}
+}
+
+func (w *connWatcher) poll() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.watchID == 0 || w.server.Backend == nil {
+		return
+	}
+	led, err := w.ledger()
+	if err != nil {
+		return
+	}
+	seq, changes, items, resync, err := led.ChangesSince(w.lastSeq)
+	if err != nil {
+		return
+	}
+	var statusPtr *tui.StatusBoard
+	mod := w.statStatusMod()
+	if !mod.Equal(w.statusMod) || time.Since(w.statusAt) >= time.Second {
+		w.statusMod = mod
+		w.statusAt = time.Now()
+		if board, err := w.server.Backend.Status(); err == nil {
+			if !w.hasStatus || !reflect.DeepEqual(w.lastStatus, board) {
+				statusPtr = &board
+				w.lastStatus = board
+				w.hasStatus = true
+			}
+		}
+	}
+	if !resync && len(changes) == 0 && statusPtr == nil {
+		return
+	}
+	w.lastSeq = seq
+	w.reply(Response{
+		ID:      w.watchID,
+		Seq:     seq,
+		Resync:  resync,
+		Items:   items,
+		Changes: changes,
+		Status:  statusPtr,
+	})
 }

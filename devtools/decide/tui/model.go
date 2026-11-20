@@ -348,7 +348,14 @@ func (m *Model) applyList(all []decide.Item) error {
 		m.status = ""
 	}
 	m.loadErr = ""
-	if m.hubDown {
+	if rb, ok := m.store().(ReplicaBackend); ok {
+		if !rb.SyncStatus().Connected {
+			m.hubDown = true
+		} else if m.hubDown {
+			m.hubDown = false
+			m.status = "hub reconnected"
+		}
+	} else if m.hubDown {
 		m.hubDown = false
 		m.status = "hub reconnected"
 	}

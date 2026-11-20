@@ -30,8 +30,18 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	cacheDir, err := os.MkdirTemp("", "inboxrpc-cache")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := os.Setenv("XDG_CACHE_HOME", cacheDir); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	code := m.Run()
 	_ = os.RemoveAll(dir)
+	_ = os.RemoveAll(cacheDir)
 	os.Exit(code)
 }
 
@@ -46,11 +56,21 @@ type hub struct {
 	herdr  []string
 	dials  int
 	conns  []*Conn
+	wg     sync.WaitGroup
 }
 
 func newHub(t *testing.T) *hub {
 	t.Helper()
 	h := &hub{dir: t.TempDir()}
+	t.Cleanup(func() {
+		h.mu.Lock()
+		conns := append([]*Conn(nil), h.conns...)
+		h.mu.Unlock()
+		for _, conn := range conns {
+			conn.Close()
+		}
+		h.wg.Wait()
+	})
 	h.server = &Server{
 		Backend: &tui.LocalBackend{
 			Dir: h.dir,
@@ -83,8 +103,9 @@ func newHub(t *testing.T) *hub {
 				}
 			},
 		},
-		Targets:  []decide.ConfigTarget{{Name: "builder", Pane: "w2:p3"}},
-		Agentbus: true,
+		Targets:    []decide.ConfigTarget{{Name: "builder", Pane: "w2:p3"}},
+		Agentbus:   true,
+		WatchEvery: 5 * time.Millisecond,
 	}
 	return h
 }
@@ -93,7 +114,9 @@ func newHub(t *testing.T) *hub {
 func (h *hub) dial() (*Conn, error) {
 	reqR, reqW := io.Pipe()
 	respR, respW := io.Pipe()
+	h.wg.Add(1)
 	go func() {
+		defer h.wg.Done()
 		err := h.server.Serve(context.Background(), reqR, respW)
 		respW.CloseWithError(err)
 	}()
@@ -195,12 +218,23 @@ func TestServeFollowsUpAStaleAnswerWithoutAList(t *testing.T) {
 
 func connect(t *testing.T, h *hub) *Client {
 	t.Helper()
-	c := &Client{Dial: h.dial, Label: "me@hub", Machine: "mac", HubMachine: "hub"}
+	c := &Client{Dial: h.dial, Label: "me@hub", Machine: "mac", HubMachine: "hub", CacheDir: t.TempDir()}
 	if err := c.Connect(); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(c.Close)
 	return c
+}
+
+func eventually(t *testing.T, cond func() bool, msg string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatal(msg)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func TestEveryOpRoundTrips(t *testing.T) {
@@ -239,9 +273,10 @@ func TestEveryOpRoundTrips(t *testing.T) {
 	if _, err := led.Reply(relay.ID, "ops/bot", "agent note", nil, false); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := c.Get(relay.ID); err != nil || got.Messages[len(got.Messages)-1].By != "ops/bot" {
-		t.Fatalf("show by = %+v, %v", got.Messages, err)
-	}
+	eventually(t, func() bool {
+		got, gerr := c.Get(relay.ID)
+		return gerr == nil && len(got.Messages) > 0 && got.Messages[len(got.Messages)-1].By == "ops/bot"
+	}, "replica did not receive pushed reply")
 	if got, err := c.Done(relay.ID, "shipped"); err != nil || got.State != decide.StateDone || got.Outcome != "shipped" {
 		t.Fatalf("done = %+v, %v", got, err)
 	}
@@ -336,28 +371,37 @@ func TestDisconnectFailsWritesAndListReconnectsAfterBackoff(t *testing.T) {
 	h := newHub(t)
 	it := h.create(t, &decide.Item{Question: "q", Options: []decide.Option{{Key: "y", Label: "Yes"}}})
 	now := time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC)
-	c := &Client{Dial: h.dial, Label: "me@hub", Now: func() time.Time { return now }, Timeout: 2 * time.Second}
+	var mu sync.Mutex
+	c := &Client{Dial: h.dial, Label: "me@hub", CacheDir: t.TempDir(), Now: func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		return now
+	}, Timeout: 2 * time.Second}
 	if err := c.Connect(); err != nil {
 		t.Fatal(err)
 	}
 	defer c.Close()
 
 	h.conns[0].Close() // the ssh session drops
-	if _, err := c.List(); !errors.Is(err, tui.ErrUnreachable) {
-		t.Fatalf("list after drop = %v", err)
+	eventually(t, func() bool { return !c.SyncStatus().Connected }, "client did not notice drop")
+	items, err := c.List()
+	if err != nil || len(items) != 1 {
+		t.Fatalf("list from replica after drop = %d items, %v", len(items), err)
 	}
-	_, err := c.Answer(it.ID, "y")
+	_, err = c.Answer(it.ID, "y")
 	if !errors.Is(err, tui.ErrUnreachable) || err.Error() != "hub me@hub unreachable; answer not sent" {
 		t.Fatalf("answer while down = %v", err)
 	}
-	if _, err := c.List(); !errors.Is(err, tui.ErrUnreachable) || h.dials != 1 {
-		t.Fatalf("list within backoff = %v, dials %d", err, h.dials)
+	if items, err := c.List(); err != nil || len(items) != 1 || h.dials != 1 {
+		t.Fatalf("list within backoff = %d items, %v, dials %d", len(items), err, h.dials)
 	}
+	mu.Lock()
 	now = now.Add(firstBackoff)
-	items, err := c.List()
-	if err != nil || len(items) != 1 || h.dials != 2 {
-		t.Fatalf("list after backoff = %d items, %v, dials %d", len(items), err, h.dials)
+	mu.Unlock()
+	if _, err := c.List(); err != nil {
+		t.Fatalf("list after backoff = %v", err)
 	}
+	eventually(t, func() bool { return c.SyncStatus().Connected && h.dials == 2 }, "client did not reconnect after backoff")
 	if got, err := c.Answer(it.ID, "y"); err != nil || got.State != decide.StateAnswered {
 		t.Fatalf("answer after reconnect = %+v, %v", got, err)
 	}
@@ -369,24 +413,48 @@ func TestDisconnectFailsWritesAndListReconnectsAfterBackoff(t *testing.T) {
 
 func TestBackoffGrowsWhileTheHubStaysDown(t *testing.T) {
 	now := time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC)
+	var nowMu sync.Mutex
+	var dialMu sync.Mutex
 	dials := 0
-	c := &Client{Label: "me@hub", Now: func() time.Time { return now }, Dial: func() (*Conn, error) {
+	c := &Client{Label: "me@hub", CacheDir: t.TempDir(), Now: func() time.Time {
+		nowMu.Lock()
+		defer nowMu.Unlock()
+		return now
+	}, Dial: func() (*Conn, error) {
+		dialMu.Lock()
 		dials++
+		dialMu.Unlock()
 		return nil, errors.New("host unreachable")
 	}}
-	for _, wait := range []time.Duration{0, time.Second, 2 * time.Second, 4 * time.Second} {
+	for i, wait := range []time.Duration{0, time.Second, 2 * time.Second, 4 * time.Second} {
+		nowMu.Lock()
 		now = now.Add(wait)
-		if _, err := c.List(); !errors.Is(err, tui.ErrUnreachable) {
+		nowMu.Unlock()
+		if _, err := c.List(); err != nil {
 			t.Fatalf("list = %v", err)
 		}
+		want := i + 1
+		eventually(t, func() bool {
+			dialMu.Lock()
+			defer dialMu.Unlock()
+			return dials == want
+		}, fmt.Sprintf("dials did not reach %d", want))
+		// Wait for the failed dial to record its next retryAt before advancing now.
+		eventually(t, func() bool {
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			return !c.dialing
+		}, "dial still in progress")
 	}
-	if dials != 4 {
-		t.Fatalf("dials = %d", dials)
-	}
+	nowMu.Lock()
 	now = now.Add(7 * time.Second)
+	nowMu.Unlock()
 	_, _ = c.List()
-	if dials != 4 {
-		t.Fatalf("dialed before the 8s backoff: %d", dials)
+	dialMu.Lock()
+	gotDials := dials
+	dialMu.Unlock()
+	if gotDials != 4 {
+		t.Fatalf("dialed before the 8s backoff: %d", gotDials)
 	}
 }
 
@@ -594,10 +662,10 @@ func TestSetAvatarWritesTheHubAndASecondClientSeesIt(t *testing.T) {
 	if _, err := second.List(); err != nil {
 		t.Fatal(err)
 	}
-	got, gen := second.Display()
-	if gen < 2 || !strings.Contains(string(got.Keys["avatars"]), "owl") {
-		t.Fatalf("second client gen %d display %s", gen, got.Keys["avatars"])
-	}
+	eventually(t, func() bool {
+		got, gen := second.Display()
+		return gen >= 2 && strings.Contains(string(got.Keys["avatars"]), "owl")
+	}, "second client did not refresh avatar display")
 }
 
 func TestSetHiddenWritesTheHubAndASecondClientSeesIt(t *testing.T) {
@@ -634,10 +702,10 @@ func TestSetHiddenWritesTheHubAndASecondClientSeesIt(t *testing.T) {
 	if _, err := second.List(); err != nil {
 		t.Fatal(err)
 	}
-	got, gen := second.Display()
-	if gen < 2 || !strings.Contains(string(got.Keys["hiddenContacts"]), "zed") {
-		t.Fatalf("second client gen %d display %s", gen, got.Keys["hiddenContacts"])
-	}
+	eventually(t, func() bool {
+		got, gen := second.Display()
+		return gen >= 2 && strings.Contains(string(got.Keys["hiddenContacts"]), "zed")
+	}, "second client did not refresh hiddenContacts display")
 	if _, err := first.SetHidden(nil); err != nil {
 		t.Fatal(err)
 	}
@@ -681,10 +749,10 @@ func TestSetFavoritesWritesTheHubAndASecondClientSeesIt(t *testing.T) {
 	if _, err := second.List(); err != nil {
 		t.Fatal(err)
 	}
-	got, gen := second.Display()
-	if gen < 2 || !strings.Contains(string(got.Keys["favoriteContacts"]), "builder") {
-		t.Fatalf("second client gen %d display %s", gen, got.Keys["favoriteContacts"])
-	}
+	eventually(t, func() bool {
+		got, gen := second.Display()
+		return gen >= 2 && strings.Contains(string(got.Keys["favoriteContacts"]), "builder")
+	}, "second client did not refresh favoriteContacts display")
 	if _, err := first.SetFavorites(nil); err != nil {
 		t.Fatal(err)
 	}
@@ -805,24 +873,32 @@ func TestReconnectFetchesTheDisplaySettingsAgain(t *testing.T) {
 		return decide.DisplaySettings{Keys: map[string]json.RawMessage{"avatarDefault": json.RawMessage(value)}}, nil
 	}
 	now := time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC)
-	c := &Client{Dial: h.dial, Label: "me@hub", Now: func() time.Time { return now }, Timeout: 2 * time.Second}
+	var nowMu sync.Mutex
+	c := &Client{Dial: h.dial, Label: "me@hub", CacheDir: t.TempDir(), Now: func() time.Time {
+		nowMu.Lock()
+		defer nowMu.Unlock()
+		return now
+	}, Timeout: 2 * time.Second}
 	if err := c.Connect(); err != nil {
 		t.Fatal(err)
 	}
 	defer c.Close()
 	h.conns[0].Close()
+	eventually(t, func() bool { return !c.SyncStatus().Connected }, "client did not notice drop")
 	_, _ = c.List()
 	mu.Lock()
 	value = "true"
 	mu.Unlock()
+	nowMu.Lock()
 	now = now.Add(firstBackoff)
+	nowMu.Unlock()
 	if _, err := c.List(); err != nil {
 		t.Fatal(err)
 	}
-	got, gen := c.Display()
-	if gen != 2 || string(got.Keys["avatarDefault"]) != "true" {
-		t.Fatalf("display after reconnect = %+v, generation %d", got, gen)
-	}
+	eventually(t, func() bool {
+		got, gen := c.Display()
+		return gen == 2 && string(got.Keys["avatarDefault"]) == "true"
+	}, "display after reconnect did not update")
 }
 
 func TestArchiveRPCRefusesStaleSeen(t *testing.T) {
@@ -844,4 +920,325 @@ func TestArchiveRPCRefusesStaleSeen(t *testing.T) {
 	if got, err := c.Archive(item.ID, seen); err != nil || got.State != decide.StateDone || got.Outcome != "archived" {
 		t.Fatalf("current seen = %+v %v", got, err)
 	}
+}
+
+func TestReplicaReadsAndMarkReadDoNotWaitOnBlockedHub(t *testing.T) {
+	item := decide.Item{ID: "D-001", Question: "ship?", Owner: "ada", Kind: decide.KindRelay, State: decide.StateOpen, Unread: true}
+	block := make(chan struct{})
+	defer close(block)
+	var dialMu sync.Mutex
+	var encMu sync.Mutex
+	var watchID int64
+	c := &Client{
+		Label:    "me@hub",
+		CacheDir: t.TempDir(),
+		Timeout:  5 * time.Second,
+		Dial: func() (*Conn, error) {
+			reqR, reqW := io.Pipe()
+			respR, respW := io.Pipe()
+			enc := json.NewEncoder(respW)
+			send := func(r Response) {
+				encMu.Lock()
+				defer encMu.Unlock()
+				_ = enc.Encode(r)
+			}
+			go func() {
+				sc := bufio.NewScanner(reqR)
+				for sc.Scan() {
+					var req Request
+					if err := json.Unmarshal(sc.Bytes(), &req); err != nil {
+						continue
+					}
+					switch req.Op {
+					case OpHello:
+						send(Response{ID: req.ID, Version: Version})
+					case OpConfig:
+						send(Response{ID: req.ID, Display: &decide.DisplaySettings{}})
+					case OpWatch:
+						dialMu.Lock()
+						watchID = req.ID
+						dialMu.Unlock()
+						send(Response{
+							ID:     req.ID,
+							Seq:    1,
+							Resync: true,
+							Items:  []decide.Item{item},
+							Status: &tui.StatusBoard{Agents: []decide.AgentStatus{{Name: "ada", State: decide.StatusWorking}}},
+						})
+					default:
+						// Block all other RPCs (like mark-read or show) to simulate a stalled link.
+						<-block
+					}
+				}
+			}()
+			return &Conn{W: reqW, R: respR, Close: func() {
+				_ = reqW.Close()
+				_ = respR.Close()
+				_ = respW.Close()
+			}}, nil
+		},
+	}
+	if err := c.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	dialMu.Lock()
+	gotWatchID := watchID
+	dialMu.Unlock()
+	if gotWatchID == 0 {
+		t.Fatal("watch was not started")
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		items, err := c.List()
+		if err != nil || len(items) != 1 || items[0].ID != "D-001" {
+			t.Errorf("List = %+v, %v", items, err)
+		}
+		got, err := c.Get("D-001")
+		if err != nil || got.Question != "ship?" {
+			t.Errorf("Get = %+v, %v", got, err)
+		}
+		st, err := c.Status()
+		if err != nil || len(st.Agents) != 1 || st.Agents[0].Name != "ada" {
+			t.Errorf("Status = %+v, %v", st, err)
+		}
+		mr, err := c.MarkRead("D-001")
+		if err != nil || mr.Unread {
+			t.Errorf("MarkRead = %+v, %v", mr, err)
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("reads or mark-read blocked on stalled hub")
+	}
+}
+
+func TestReplicaPushedChangesApplyInSequenceOrder(t *testing.T) {
+	h := newHub(t)
+	first := h.create(t, &decide.Item{Question: "one"})
+	c := connect(t, h)
+
+	second := h.create(t, &decide.Item{Question: "two"})
+	led, err := decide.Open(h.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := led.Reply(first.ID, "ops/bot", "follow up", nil, false); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, func() bool {
+		items, lerr := c.List()
+		if lerr != nil || len(items) != 2 {
+			return false
+		}
+		got1, err1 := c.Get(first.ID)
+		got2, err2 := c.Get(second.ID)
+		return err1 == nil && err2 == nil && len(got1.Messages) == 2 && got2.Question == "two"
+	}, "pushed changes did not apply in sequence order")
+}
+
+func TestReplicaSequenceGapTriggersFullResync(t *testing.T) {
+	item1 := decide.Item{ID: "D-001", Question: "one", Owner: "ada", Kind: decide.KindRelay, State: decide.StateOpen}
+	item2 := decide.Item{ID: "D-002", Question: "two", Owner: "ada", Kind: decide.KindRelay, State: decide.StateOpen}
+	item3 := decide.Item{ID: "D-003", Question: "three", Owner: "ada", Kind: decide.KindRelay, State: decide.StateOpen}
+
+	var mu sync.Mutex
+	var watchSinces []int64
+	var sendFn func(Response)
+	var watchID int64
+
+	c := &Client{
+		Label:    "me@hub",
+		CacheDir: t.TempDir(),
+		Timeout:  2 * time.Second,
+		Dial: func() (*Conn, error) {
+			reqR, reqW := io.Pipe()
+			respR, respW := io.Pipe()
+			enc := json.NewEncoder(respW)
+			var encMu sync.Mutex
+			send := func(r Response) {
+				encMu.Lock()
+				defer encMu.Unlock()
+				_ = enc.Encode(r)
+			}
+			mu.Lock()
+			sendFn = send
+			mu.Unlock()
+			go func() {
+				sc := bufio.NewScanner(reqR)
+				for sc.Scan() {
+					var req Request
+					if err := json.Unmarshal(sc.Bytes(), &req); err != nil {
+						continue
+					}
+					switch req.Op {
+					case OpHello:
+						send(Response{ID: req.ID, Version: Version})
+					case OpConfig:
+						send(Response{ID: req.ID, Display: &decide.DisplaySettings{}})
+					case OpWatch:
+						mu.Lock()
+						watchSinces = append(watchSinces, req.Since)
+						watchID = req.ID
+						n := len(watchSinces)
+						mu.Unlock()
+						if n == 1 {
+							send(Response{ID: req.ID, Seq: 1, Resync: true, Items: []decide.Item{item1}})
+						} else {
+							send(Response{ID: req.ID, Seq: 3, Resync: true, Items: []decide.Item{item1, item2, item3}})
+						}
+					}
+				}
+			}()
+			return &Conn{W: reqW, R: respR, Close: func() {
+				_ = reqW.Close()
+				_ = respR.Close()
+				_ = respW.Close()
+			}}, nil
+		},
+	}
+	if err := c.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	// Push a change with seq=3 when client is at seq=1 (gap: missing seq 2).
+	mu.Lock()
+	wid := watchID
+	send := sendFn
+	mu.Unlock()
+	send(Response{
+		ID:      wid,
+		Seq:     3,
+		Changes: []decide.LedgerChange{{Seq: 3, ID: item3.ID, Item: &item3}},
+	})
+
+	eventually(t, func() bool {
+		items, err := c.List()
+		return err == nil && len(items) == 3
+	}, "sequence gap did not trigger full resync")
+
+	mu.Lock()
+	sinces := append([]int64(nil), watchSinces...)
+	mu.Unlock()
+	if !slices.Equal(sinces, []int64{0, 0}) {
+		t.Fatalf("watch sinces = %v, want [0 0]", sinces)
+	}
+}
+
+func TestReplicaSurvivesClientRestartAndResumesFromSeq(t *testing.T) {
+	h := newHub(t)
+	first := h.create(t, &decide.Item{Question: "one"})
+	cacheDir := t.TempDir()
+
+	c1 := &Client{Dial: h.dial, Label: "me@hub", CacheDir: cacheDir, Timeout: 2 * time.Second}
+	if err := c1.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	items, err := c1.List()
+	if err != nil || len(items) != 1 || items[0].ID != first.ID {
+		t.Fatalf("c1 list = %+v, %v", items, err)
+	}
+	c1.Close()
+
+	// Hub creates a second item while client is stopped.
+	second := h.create(t, &decide.Item{Question: "two"})
+
+	// Wrap h.dial to record the watch Since sent on restart.
+	var sinces []int64
+	var mu sync.Mutex
+	recordingDial := func() (*Conn, error) {
+		conn, err := h.dial()
+		if err != nil {
+			return nil, err
+		}
+		origW := conn.W
+		pr, pw := io.Pipe()
+		go func() {
+			sc := bufio.NewScanner(pr)
+			for sc.Scan() {
+				line := sc.Bytes()
+				var req Request
+				if json.Unmarshal(line, &req) == nil && req.Op == OpWatch {
+					mu.Lock()
+					sinces = append(sinces, req.Since)
+					mu.Unlock()
+				}
+				if _, werr := origW.Write(append(line, '\n')); werr != nil {
+					return
+				}
+			}
+		}()
+		origClose := conn.Close
+		conn.W = pw
+		conn.Close = func() {
+			_ = pw.Close()
+			origClose()
+		}
+		return conn, nil
+	}
+
+	c2 := &Client{Dial: recordingDial, Label: "me@hub", CacheDir: cacheDir, Timeout: 2 * time.Second}
+	if err := c2.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer c2.Close()
+
+	mu.Lock()
+	gotSinces := append([]int64(nil), sinces...)
+	mu.Unlock()
+	if len(gotSinces) != 1 || gotSinces[0] != 1 {
+		t.Fatalf("watch since on restart = %v, want [1]", gotSinces)
+	}
+	items2, err := c2.List()
+	if err != nil || len(items2) != 2 {
+		t.Fatalf("c2 list = %+v, %v", items2, err)
+	}
+	if got, err := c2.Get(second.ID); err != nil || got.Question != "two" {
+		t.Fatalf("c2 get second = %+v, %v", got, err)
+	}
+}
+
+func TestMarkReadRetriesInBackgroundAndDoesNotError(t *testing.T) {
+	h := newHub(t)
+	item := h.create(t, &decide.Item{Question: "unread", Unread: true})
+	now := time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC)
+	var nowMu sync.Mutex
+	c := &Client{Dial: h.dial, Label: "me@hub", CacheDir: t.TempDir(), Now: func() time.Time {
+		nowMu.Lock()
+		defer nowMu.Unlock()
+		return now
+	}, Timeout: 2 * time.Second}
+	if err := c.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	// Drop the hub connection before MarkRead.
+	h.conns[0].Close()
+	eventually(t, func() bool { return !c.SyncStatus().Connected }, "client did not notice drop")
+
+	got, err := c.MarkRead(item.ID)
+	if err != nil || got.Unread {
+		t.Fatalf("MarkRead while down = %+v, %v", got, err)
+	}
+
+	// Reconnect after backoff and verify background retry marks it read on the hub.
+	nowMu.Lock()
+	now = now.Add(firstBackoff)
+	nowMu.Unlock()
+	_, _ = c.List()
+
+	led, err := decide.Open(h.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, func() bool {
+		hubItem, gerr := led.Get(item.ID)
+		return gerr == nil && !hubItem.Unread
+	}, "background mark-read retry did not update hub ledger")
 }

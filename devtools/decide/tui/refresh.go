@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/decide"
 )
@@ -84,21 +86,65 @@ func sameMessage(old, fresh []decide.Message, index int) int {
 // loadingStatus is the status line until the first list arrives.
 const loadingStatus = "Loading…"
 
-// footerStatus is the status text with the new-message marker in front,
-// or Loading… until the first list arrives.
+// footerStatus is the status text with the new-message marker in front
+// and any hub replica freshness text, or Loading… until the first list arrives.
 func (m *Model) footerStatus() string {
 	if m.loading && m.status == "" {
 		return loadingStatus
 	}
+	status := m.status
+	if fresh := m.freshnessStatus(); fresh != "" {
+		switch {
+		case status == "":
+			status = fresh
+		case !strings.Contains(status, "unreachable"):
+			status += "  " + fresh
+		}
+	}
 	if m.newMessages == 0 {
-		return m.status
+		return status
 	}
 	marker := fmt.Sprintf("↓ %d new message", m.newMessages)
 	if m.newMessages > 1 {
 		marker += "s"
 	}
-	if m.status == "" {
+	if status == "" {
 		return marker
 	}
-	return marker + "  " + m.status
+	return marker + "  " + status
+}
+
+func (m *Model) freshnessStatus() string {
+	rb, ok := m.store().(ReplicaBackend)
+	if !ok {
+		return ""
+	}
+	st := rb.SyncStatus()
+	if st.Connected {
+		if st.SyncedAt.IsZero() {
+			return ""
+		}
+		return formatSyncedAgo(m.now().Sub(st.SyncedAt))
+	}
+	if st.SyncedAt.IsZero() {
+		return unreachableStatus
+	}
+	return "hub unreachable; showing copy from " + st.SyncedAt.In(m.zone()).Format("15:04")
+}
+
+func formatSyncedAgo(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	secs := int(d / time.Second)
+	switch {
+	case secs < 60:
+		return fmt.Sprintf("synced %ds ago", secs)
+	case secs < 3600:
+		return fmt.Sprintf("synced %dm ago", secs/60)
+	case secs < 86400:
+		return fmt.Sprintf("synced %dh ago", secs/3600)
+	default:
+		return fmt.Sprintf("synced %dd ago", secs/86400)
+	}
 }

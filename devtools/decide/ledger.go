@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
 	"strconv"
@@ -46,8 +47,9 @@ const (
 	// ViaCLI is an answer given with the decide command line.
 	ViaCLI = "cli"
 
-	ledgerName = "ledger.json"
-	lockName   = "ledger.lock"
+	ledgerName  = "ledger.json"
+	changesName = "changes.json"
+	lockName    = "ledger.lock"
 )
 
 // ErrNotFound is returned when an id is not in the ledger.
@@ -213,6 +215,22 @@ type Ledger struct {
 	now func() time.Time
 }
 
+// maxChangeLog is how many recent ledger changes are kept for incremental sync.
+const maxChangeLog = 1000
+
+// LedgerChange records one item mutation at monotonic sequence Seq.
+type LedgerChange struct {
+	Seq     int64  `json:"seq"`
+	ID      string `json:"id"`
+	Item    *Item  `json:"item,omitempty"`
+	Deleted bool   `json:"deleted,omitempty"`
+}
+
+type changeLog struct {
+	Seq     int64          `json:"seq"`
+	Changes []LedgerChange `json:"changes,omitempty"`
+}
+
 type store struct {
 	Next  int    `json:"next"`
 	Items []Item `json:"items"`
@@ -363,6 +381,51 @@ func (l *Ledger) List() ([]Item, error) {
 		items = []Item{}
 	}
 	return items, nil
+}
+
+// ChangesSince returns the ledger changes after since, or a full resync
+// when since is 0, ahead of the ledger, or older than the retained log.
+func (l *Ledger) ChangesSince(since int64) (seq int64, changes []LedgerChange, items []Item, resync bool, err error) {
+	err = l.locked(false, func(st *store) error {
+		cl, cerr := loadChanges(filepath.Join(l.dir, changesName))
+		if cerr != nil {
+			return cerr
+		}
+		seq = cl.Seq
+		if since == 0 || since > cl.Seq {
+			resync = true
+			items = cloneItems(st.Items)
+			return nil
+		}
+		if since == cl.Seq {
+			return nil
+		}
+		if len(cl.Changes) == 0 || since < cl.Changes[0].Seq-1 {
+			resync = true
+			items = cloneItems(st.Items)
+			return nil
+		}
+		for _, ch := range cl.Changes {
+			if ch.Seq > since {
+				c := ch
+				if ch.Item != nil {
+					cloned := cloneItem(ch.Item)
+					c.Item = &cloned
+				}
+				changes = append(changes, c)
+			}
+		}
+		return nil
+	})
+	return seq, changes, items, resync, err
+}
+
+func cloneItems(src []Item) []Item {
+	out := make([]Item, len(src))
+	for i := range src {
+		out[i] = cloneItem(&src[i])
+	}
+	return out
 }
 
 // Withdraw marks id withdrawn, stores reason, and keeps the record.
@@ -965,6 +1028,7 @@ func (l *Ledger) locked(write bool, fn func(*store) error) (err error) {
 	if err != nil {
 		return err
 	}
+	before := snapshotItems(st.Items)
 	migrated := migrateStore(st)
 	if wakeStore(st, l.clock()) {
 		migrated = true
@@ -973,6 +1037,10 @@ func (l *Ledger) locked(write bool, fn func(*store) error) (err error) {
 		if err = save(l.dir, st); err != nil {
 			return err
 		}
+		if err = l.saveDelta(before, st.Items); err != nil {
+			return err
+		}
+		before = snapshotItems(st.Items)
 	}
 	if err = fn(st); err != nil {
 		return err
@@ -980,7 +1048,84 @@ func (l *Ledger) locked(write bool, fn func(*store) error) (err error) {
 	if !write {
 		return nil
 	}
-	return save(l.dir, st)
+	if err = save(l.dir, st); err != nil {
+		return err
+	}
+	return l.saveDelta(before, st.Items)
+}
+
+func (l *Ledger) saveDelta(before map[string]Item, after []Item) error {
+	cl, err := loadChanges(filepath.Join(l.dir, changesName))
+	if err != nil {
+		return err
+	}
+	if !recordChanges(cl, before, after) {
+		return nil
+	}
+	return saveChanges(l.dir, cl)
+}
+
+func snapshotItems(items []Item) map[string]Item {
+	snap := make(map[string]Item, len(items))
+	for i := range items {
+		snap[items[i].ID] = cloneItem(&items[i])
+	}
+	return snap
+}
+
+func recordChanges(cl *changeLog, before map[string]Item, after []Item) bool {
+	changed := false
+	seen := make(map[string]bool, len(after))
+	for i := range after {
+		it := &after[i]
+		seen[it.ID] = true
+		prev, ok := before[it.ID]
+		if !ok || !reflect.DeepEqual(prev, *it) {
+			cl.Seq++
+			cloned := cloneItem(it)
+			cl.Changes = append(cl.Changes, LedgerChange{Seq: cl.Seq, ID: it.ID, Item: &cloned})
+			changed = true
+		}
+	}
+	for id := range before {
+		if !seen[id] {
+			cl.Seq++
+			cl.Changes = append(cl.Changes, LedgerChange{Seq: cl.Seq, ID: id, Deleted: true})
+			changed = true
+		}
+	}
+	if len(cl.Changes) > maxChangeLog {
+		cl.Changes = cl.Changes[len(cl.Changes)-maxChangeLog:]
+	}
+	return changed
+}
+
+func loadChanges(path string) (*changeLog, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // operator-local state file
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return &changeLog{}, nil
+		}
+		return nil, fmt.Errorf("read decide changes: %w", err)
+	}
+	var cl changeLog
+	if err := json.Unmarshal(data, &cl); err != nil {
+		return nil, fmt.Errorf("decode decide changes: %w", err)
+	}
+	return &cl, nil
+}
+
+func saveChanges(dir string, cl *changeLog) error {
+	data, err := json.Marshal(cl)
+	if err != nil {
+		return fmt.Errorf("encode decide changes: %w", err)
+	}
+	data = append(data, '\n')
+	path := filepath.Join(dir, changesName)
+	if err := renameio.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("write decide changes: %w", err)
+	}
+	return nil
 }
 
 func (l *Ledger) acquire() (*os.File, error) {

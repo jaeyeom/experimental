@@ -20,7 +20,8 @@ import (
 // config. Version 3 added set-avatar. Version 4 added set-hidden.
 // Version 5 added set-contact-aliases. Version 6 added seen on archive.
 // Version 7 added bus-health. Version 8 added check-deliveries.
-const Version = 8
+// Version 9 added watch for the hub-client replica.
+const Version = 9
 
 // Ops. Archive is done with the outcome "archived". Deliveries refreshes
 // the pending delivery marks on the hub.
@@ -48,6 +49,7 @@ const (
 	OpSetAliases   = "set-contact-aliases"
 	OpSetFavorites = "set-favorites"
 	OpDeliveries   = "check-deliveries"
+	OpWatch        = "watch"
 )
 
 // Request is one line from the client. Item is the item id. Text is the
@@ -73,6 +75,8 @@ type Request struct {
 	Seen *time.Time `json:"seen,omitempty"`
 	// Route is a reply's owner, worker, or both choice. Empty is the owner.
 	Route string `json:"route,omitempty"`
+	// Since is the client replica's last known ledger sequence for watch.
+	Since int64 `json:"since,omitempty"`
 }
 
 // Response is one line from the server. Error fails the request.
@@ -93,6 +97,9 @@ type Response struct {
 	Output      string                  `json:"output,omitempty"`
 	Location    *decide.OwnerLocation   `json:"location,omitempty"`
 	Display     *decide.DisplaySettings `json:"display,omitempty"`
+	Seq         int64                   `json:"seq,omitempty"`
+	Resync      bool                    `json:"resync,omitempty"`
+	Changes     []decide.LedgerChange   `json:"changes,omitempty"`
 }
 
 // writeOps change the ledger or send something. While the hub is

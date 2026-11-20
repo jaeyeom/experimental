@@ -643,9 +643,20 @@ The local ledger is never created. Ssh runs in its own session with no
 terminal, so it never reads the terminal or gets its signals.
 
 ~decide inbox~ draws here and keeps one ssh session to ~decide serve
---stdio~ on the hub. Links still open here. If the hub stops answering,
-the status line says ~hub unreachable; retrying~ and the inbox backs
-off from one second to 30. A write while disconnected is not queued.
+--stdio~ on the hub. On connect it syncs an on-disk replica under the
+user cache directory (~$XDG_CACHE_HOME/decide/replicas~, or the platform
+cache directory, one file per hub) from its last sequence number using
+the ~watch~ protocol op, and the hub pushes subsequent ledger and status
+changes in monotonic sequence order. Any sequence gap or unknown
+sequence triggers a full resync. Reads (open, scroll, search, contacts,
+and the status page) render from the replica without waiting on the hub,
+and ~mark-read~ is sent in the background and retried on failure without
+showing an error. Live writes (~answer~, ~reply~, ~done~, ~archive~,
+~snooze~, ~send~, and settings) go straight to the hub and fail at once
+when disconnected (never queued). The status line shows freshness
+(~synced 12s ago~, or ~hub unreachable; showing copy from 14:05~ while
+disconnected) and the inbox backs off from one second to 30. Links
+still open here.
 ~hubMachine~ lets ~o~ focus a pane on the hub. The external editor
 (~C-x C-e~ or ~C-g~ in a compose box) returns as soon as it exits, even
 while the hub is slow or reconnecting; its temp draft is removed after
