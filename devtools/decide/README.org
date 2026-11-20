@@ -214,14 +214,25 @@ to <name> as <id>~. An unknown name exits 2. An empty note sends
 nothing. ~decide reassign~ points the item at a new owner or pane when
 the owning tab is retired.
 
-~decide ask~ and ~decide reply~ reject text with a line longer than
-~ui.maxLineLength~ characters, 160 by default. A line that is only a
-URL, a quoted line starting with ~> ~, and a line in a fenced code block
-do not count. Nothing is stored and the exit is 2. The error names the
-line, its length, and the limit, and asks for the essence on the first
-line, then short bullet lines, with multi-line text from a file or
-stdin. ~--long-lines~ sends the text unchanged. Answers and messages a
-person gives in the inbox are not checked.
+Author text stored in the ledger or status board (questions, replies,
+option labels, ~done~ outcomes, and status text) must follow inbox shape
+rules. The first line is the verdict (at most ~ui.maxFirstLineLength~
+characters, 100 by default) and stands alone (followed by a blank line, a
+bullet, or the end of the text). No prose paragraph exceeds
+~ui.maxParagraphLines~ consecutive non-bullet lines (3 by default), no line
+exceeds ~ui.maxLineLength~ characters (160 by default), and the message is
+at most ~ui.maxMessageChars~ characters (1200 by default). A line that is
+only a URL, a quoted line starting with ~> ~, and a line in a fenced code
+block do not count toward line length. Nothing is stored and the exit is 2
+when a check fails; the error names each failed check and explains the
+expected shape. ~--long-lines~ was removed and no flag skips the checks.
+Answers and messages a person gives in the inbox UI are not checked.
+
+For an exact draft that will be posted elsewhere as written, pass
+~--verbatim-file <path>~ (or ~--verbatim <text>~) on ~ask~ or ~reply~.
+It is stored byte for byte in ~verbatim~ without shape checks and shown in
+the inbox as a marked quote block ("will be posted as written"), while
+the author's own question or reply around it is still checked.
 
 ** Owner and worker
 
@@ -542,7 +553,10 @@ machine only. A hub does not send it.
 | ~ui.busHealthInterval~ | ~15s~                       | How often the inbox checks ~agentbus health~ for its banner.                   |
 | ~ui.orgTree~           | false                       | Let ~t~ show Contacts as the org tree of ~ui.orgSpec~.                         |
 | ~ui.orgSpec~           | empty                       | Rendered org spec JSON that ~orgctl tree --json~ reads.                        |
-| ~ui.maxLineLength~     | 160                         | Longest line ~ask~ and ~reply~ accept. 0 turns the check off.                  |
+| ~ui.maxLineLength~      | 160                         | Longest non-exempt line accepted in author text. 0 turns the check off.        |
+| ~ui.maxFirstLineLength~ | 100                         | Longest first line (and run-on check) in author text. 0 turns the check off.   |
+| ~ui.maxParagraphLines~  | 3                           | Most consecutive non-bullet lines in author text. 0 turns the check off.       |
+| ~ui.maxMessageChars~    | 1200                        | Longest author message in characters. 0 turns the check off.                   |
 
 * Using two machines
 

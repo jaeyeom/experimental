@@ -353,7 +353,7 @@ func TestParentDecideEnvDoesNotOverrideNotify(t *testing.T) {
 func TestNotifyExportsQuestionAndLabel(t *testing.T) {
 	t.Run("option", func(t *testing.T) {
 		dump := setupNotifyDump(t)
-		id := askChoice(t, "Ship the change?\ndetails", "--notify-pane", "pane-9")
+		id := askChoice(t, "Ship the change?\n\n- details", "--notify-pane", "pane-9")
 		if _, stderr, code := runCLI("answer", id, "a"); code != 0 {
 			t.Fatalf("answer code = %d\n%s", code, stderr)
 		}
@@ -367,7 +367,7 @@ func TestNotifyExportsQuestionAndLabel(t *testing.T) {
 	t.Run("free text", func(t *testing.T) {
 		dump := setupNotifyDump(t)
 		raw := "say \"hi\"\n$(uname)"
-		id := askChoice(t, "first line only\nsecond line", "--free-text", "--notify-pane", "pane-9")
+		id := askChoice(t, "first line only\n\nsecond line", "--free-text", "--notify-pane", "pane-9")
 		if _, stderr, code := runCLI("answer", id, raw); code != 0 {
 			t.Fatalf("answer code = %d\n%s", code, stderr)
 		}
@@ -383,8 +383,17 @@ func TestNotifyExportsQuestionAndLabel(t *testing.T) {
 
 	t.Run("long question", func(t *testing.T) {
 		dump := setupNotifyDump(t)
+		cfgPath := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "decide", "config.json")
+		rawCfg, err := os.ReadFile(cfgPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		updatedCfg := strings.Replace(string(rawCfg), "{", `{"ui":{"maxLineLength":0,"maxFirstLineLength":0},`, 1)
+		if err := os.WriteFile(cfgPath, []byte(updatedCfg), 0o600); err != nil {
+			t.Fatal(err)
+		}
 		head := strings.Repeat("Q", 199) + "한" + "TAIL"
-		id := askChoice(t, head+"\nnext-line", "--long-lines", "--notify-pane", "pane-9")
+		id := askChoice(t, head+"\n\nnext-line", "--notify-pane", "pane-9")
 		if _, stderr, code := runCLI("answer", id, "a"); code != 0 {
 			t.Fatalf("answer code = %d\n%s", code, stderr)
 		}
@@ -1102,7 +1111,7 @@ func TestSendKeepsTheNoteAsOneArgument(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	const note = "hello\nthere"
+	const note = "hello\n\nthere"
 	stdout, stderr, code := runCLI("send", "--to", "alpha", "--json", note)
 	if code != 0 {
 		t.Fatalf("send code = %d\n%s", code, stderr)
@@ -1161,7 +1170,7 @@ func TestDraftReplyReturnsToInbox(t *testing.T) {
 	if code != 0 || strings.Contains(openList, id) {
 		t.Fatalf("answered item stayed in the inbox\n%s", openList)
 	}
-	const draft = "Hello \"there\"\nplease send this draft"
+	const draft = "Hello \"there\"\n\nplease send this draft"
 	stdout, stderr, code := runCLI(
 		"reply", id,
 		"--option", "send:send",

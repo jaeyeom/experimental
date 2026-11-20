@@ -55,12 +55,12 @@ func TestAskTextFileKeepsInternalNewlines(t *testing.T) {
 func TestReplyStdinReadsTheBody(t *testing.T) {
 	useState(t)
 	id := askRelay(t, nil, "root")
-	withStdin(t, "line1\nline2\n\n")
+	withStdin(t, "line1\n\nline2\n\n")
 	if _, stderr, code := runCLI("reply", id, "-"); code != 0 {
 		t.Fatalf("reply = %d\n%s", code, stderr)
 	}
 	msgs := showJSON(t, id).Messages
-	if len(msgs) == 0 || msgs[len(msgs)-1].Text != "line1\nline2" {
+	if len(msgs) == 0 || msgs[len(msgs)-1].Text != "line1\n\nline2" {
 		t.Fatalf("messages = %+v", msgs)
 	}
 }
@@ -92,11 +92,11 @@ func TestEmptyTextFileIsAnError(t *testing.T) {
 func TestDoneAndWithdrawReadTextFiles(t *testing.T) {
 	useState(t)
 	id := askRelay(t, nil, "root")
-	outcome := writeBody(t, "shipped\nit\n")
+	outcome := writeBody(t, "shipped\n\nit\n")
 	if _, stderr, code := runCLI("done", id, "--text-file", outcome); code != 0 {
 		t.Fatalf("done = %d\n%s", code, stderr)
 	}
-	if got := showJSON(t, id).Outcome; got != "shipped\nit" {
+	if got := showJSON(t, id).Outcome; got != "shipped\n\nit" {
 		t.Fatalf("outcome = %q", got)
 	}
 
@@ -120,12 +120,12 @@ func TestSendTextFileStartsTheThread(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), body, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	path := writeBody(t, "hello\nthere\n")
+	path := writeBody(t, "hello\n\nthere\n")
 	if _, stderr, code := runCLI("send", "--to", "alpha", "--text-file", path); code != 0 {
 		t.Fatalf("send = %d\n%s", code, stderr)
 	}
 	items := showThreads(t)
-	if len(items) != 1 || items[0].Question != "hello\nthere" || items[0].Messages[0].Text != "hello\nthere" {
+	if len(items) != 1 || items[0].Question != "hello\n\nthere" || items[0].Messages[0].Text != "hello\n\nthere" {
 		t.Fatalf("threads = %+v", items)
 	}
 }

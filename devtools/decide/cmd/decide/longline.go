@@ -2,54 +2,39 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
-	"unicode/utf8"
 )
 
-// longLineExcerpt is how many characters of a long line the error shows.
-const longLineExcerpt = 60
-
-// checkLineLength rejects agent text with a line longer than limit
-// characters. A line that is only a URL, a quoted line, and a line in a
-// fenced code block do not count. A limit of 0 or less checks nothing.
-func checkLineLength(text string, limit int) error {
-	if limit <= 0 {
-		return nil
-	}
-	fenced := false
-	for i, line := range strings.Split(text, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "```") {
-			fenced = !fenced
-			continue
+// rejectLongLinesFlag returns a usage error when --long-lines is passed.
+func rejectLongLinesFlag(args []string) error {
+	for _, a := range args {
+		if a == "--" {
+			return nil
 		}
-		if fenced || exemptLine(trimmed) {
-			continue
-		}
-		if n := utf8.RuneCountInString(line); n > limit {
-			return longLineError(i+1, n, limit, line)
+		if a == "--long-lines" || a == "-long-lines" || strings.HasPrefix(a, "--long-lines=") || strings.HasPrefix(a, "-long-lines=") {
+			return fmt.Errorf(`--long-lines was removed; no flag skips inbox shape checks
+A person reads this in an inbox, often at a glance. Expected shape:
+  - First line: the verdict (max 100 chars), readable alone, followed by a blank line or bullet.
+  - Details as short bullet lines (no paragraph over 3 lines, max 160 chars per line, max 1200 chars total).
+  - Pass multi-line text through --text-file or stdin, and exact post drafts through --verbatim-file`)
 		}
 	}
 	return nil
 }
 
-func exemptLine(trimmed string) bool {
-	if strings.HasPrefix(trimmed, "> ") || trimmed == ">" {
-		return true
+// resolveVerbatim returns the verbatim draft from --verbatim or --verbatim-file.
+// The file is read byte for byte. Passing both is a usage error.
+func resolveVerbatim(verbatim, verbatimFile string) (string, error) {
+	if verbatim != "" && verbatimFile != "" {
+		return "", fmt.Errorf("decide verbatim comes from --verbatim or --verbatim-file, not both")
 	}
-	isURL := strings.HasPrefix(trimmed, "https://") || strings.HasPrefix(trimmed, "http://")
-	return isURL && !strings.ContainsAny(trimmed, " \t")
-}
-
-func longLineError(num, length, limit int, line string) error {
-	excerpt := line
-	if utf8.RuneCountInString(line) > longLineExcerpt {
-		excerpt = string([]rune(line)[:longLineExcerpt]) + "…"
+	if verbatimFile == "" {
+		return verbatim, nil
 	}
-	return fmt.Errorf(`not sent: line %d is %d characters (limit %d): %q
-A person reads this in an inbox, often at a glance. Rewrite it for them:
-  - First line: the essence (the verdict, answer, or what you need), readable alone.
-  - Then details as short bullet lines, one point each.
-  - Pass multi-line text from a file or stdin, not one quoted string.
-If the long line is really intended, resend with --long-lines`, num, length, limit, excerpt)
+	raw, err := os.ReadFile(verbatimFile) //nolint:gosec // G304: user-specified draft file path
+	if err != nil {
+		return "", fmt.Errorf("decide verbatim file: %w", err)
+	}
+	return string(raw), nil
 }

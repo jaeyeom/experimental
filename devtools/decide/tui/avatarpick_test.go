@@ -233,9 +233,9 @@ func TestAvatarPickerDefaultFallsBack(t *testing.T) {
 }
 
 func TestAvatarPickerBrokenConfig(t *testing.T) {
+	m := opsItem(t)
 	broken := `{"avatars": [`
 	path := pickConfig(t, broken)
-	m := opsItem(t)
 	press(t, m, "A")
 	pickEntry(t, m, "owl")
 	if !strings.HasPrefix(m.status, "avatar for ops/x: ") || !strings.Contains(m.status, "parse decide config") {

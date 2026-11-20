@@ -55,7 +55,7 @@ func TestClientsAppendOnAThreeMessageThread(t *testing.T) {
 func TestReplyArgumentOrdersAppendTheBody(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	body := "line one\n---\nline two"
+	body := "line one\n\n---\nline two"
 	opts := []string{"--option", "a:One", "--option", "b:Two", "--option", "c:Three"}
 	cases := []struct {
 		name string

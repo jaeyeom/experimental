@@ -357,13 +357,13 @@ type DecideItem struct {
 // Decider files, reads, and closes decide items. DecideCLI is the real
 // one.
 type Decider interface {
-	Ask(ctx context.Context, owner, question string) (string, error)
+	Ask(ctx context.Context, owner, question, verbatim string) (string, error)
 	Show(ctx context.Context, id string) (DecideItem, error)
 	Done(ctx context.Context, id, outcome string) error
 	Reply(ctx context.Context, id, text string) error
 	// ReplyOptions posts text and puts the post and drop options back
 	// on an open item.
-	ReplyOptions(ctx context.Context, id, text string) error
+	ReplyOptions(ctx context.Context, id, text, verbatim string) error
 }
 
 // decideSenderKey carries DecideCLI.Owner into ExecDecide for a reply.
@@ -393,13 +393,16 @@ func decideChoiceArgs() []string {
 // askArgs is a decide ask for question. ownerOnly sets the flag that
 // refuses replies from anyone but the item owner. A non-empty pane is
 // passed as --notify-pane.
-func askArgs(owner, pane, question string, ownerOnly bool) []string {
+func askArgs(owner, pane, question, verbatim string, ownerOnly bool) []string {
 	args := []string{"ask", "--owner", owner}
 	if ownerOnly {
 		args = append(args, "--owner-replies-only")
 	}
 	if pane != "" {
 		args = append(args, "--notify-pane", pane)
+	}
+	if verbatim != "" {
+		args = append(args, "--verbatim", verbatim)
 	}
 	args = append(args, "--kind", "relay")
 	args = append(args, decideChoiceArgs()...)
@@ -410,17 +413,17 @@ func askArgs(owner, pane, question string, ownerOnly bool) []string {
 // It passes --owner-replies-only when this decide accepts the flag, and
 // retries once without it when the flag is unknown. An unknown flag is
 // rejected before an item is created.
-func (d DecideCLI) Ask(ctx context.Context, owner, question string) (string, error) {
-	id, err := d.ask(ctx, askArgs(owner, d.NotifyPane, question, true))
+func (d DecideCLI) Ask(ctx context.Context, owner, question, verbatim string) (string, error) {
+	id, err := d.ask(ctx, askArgs(owner, d.NotifyPane, question, verbatim, true))
 	if err == nil || !strings.Contains(err.Error(), "flag provided but not defined: -owner-replies-only") {
 		return id, err
 	}
-	return d.ask(ctx, askArgs(owner, d.NotifyPane, question, false))
+	return d.ask(ctx, askArgs(owner, d.NotifyPane, question, verbatim, false))
 }
 
 func (d DecideCLI) ask(ctx context.Context, args []string) (string, error) {
 	var it DecideItem
-	if err := d.runLongLines(ctx, &it, args...); err != nil {
+	if err := d.runJSON(ctx, &it, args...); err != nil {
 		return "", err
 	}
 	if it.ID == "" {
@@ -445,29 +448,19 @@ func (d DecideCLI) Done(ctx context.Context, id, outcome string) error {
 // Reply posts text on an item's thread.
 func (d DecideCLI) Reply(ctx context.Context, id, text string) error {
 	var it DecideItem
-	return d.runLongLines(d.asOwner(ctx), &it, "reply", "--json", id, text)
+	return d.runJSON(d.asOwner(ctx), &it, "reply", "--json", id, text)
 }
 
 // ReplyOptions posts text and puts the post and drop options back, with
 // post recommended and free text allowed. The text is the approval question.
-func (d DecideCLI) ReplyOptions(ctx context.Context, id, text string) error {
+func (d DecideCLI) ReplyOptions(ctx context.Context, id, text, verbatim string) error {
 	var it DecideItem
 	args := append([]string{"reply"}, decideChoiceArgs()...)
-	args = append(args, "--json", id, text)
-	return d.runLongLines(d.asOwner(ctx), &it, args...)
-}
-
-// runLongLines runs a decide ask or reply whose text slackwatch writes
-// itself, such as a quoted draft or a permalink, with --long-lines so
-// decide's line limit for agents does not refuse it. A decide without
-// the flag gets the same command again without it.
-func (d DecideCLI) runLongLines(ctx context.Context, v any, args ...string) error {
-	withFlag := append([]string{args[0], "--long-lines"}, args[1:]...)
-	err := d.runJSON(ctx, v, withFlag...)
-	if err == nil || !strings.Contains(err.Error(), "flag provided but not defined: -long-lines") {
-		return err
+	if verbatim != "" {
+		args = append(args, "--verbatim", verbatim)
 	}
-	return d.runJSON(ctx, v, args...)
+	args = append(args, "--json", id, text)
+	return d.runJSON(d.asOwner(ctx), &it, args...)
 }
 
 // asOwner marks ctx so ExecDecide records a reply as Owner.
@@ -722,7 +715,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	if err != nil {
 		return OutboxRecord{}, fmt.Errorf("add outbox record: %w", err)
 	}
-	decideID, err := o.Decide.Ask(ctx, o.Config.Post.DecideOwnerOrDefault(), question(id, d, hash))
+	decideID, err := o.Decide.Ask(ctx, o.Config.Post.DecideOwnerOrDefault(), question(id, d, hash), d.Text)
 	if err != nil {
 		if _, merr := o.Store.moveOutbox(id, []string{OutboxPending}, outboxUpdate{state: OutboxFailed, reason: ptr(err.Error())}, now); merr != nil {
 			return OutboxRecord{}, errors.Join(err, merr)
@@ -814,28 +807,21 @@ func question(id int64, d Draft, hash string) string {
 	if d.DestName != "" {
 		dest = d.DestName + " (" + d.Channel + ")"
 	}
-	fmt.Fprintf(&b, "Destination: %s\n", dest)
+	fmt.Fprintf(&b, "- Destination: %s\n", dest)
 	if d.ThreadTS != "" {
 		link := d.ParentLink
 		if link == "" {
 			link = d.Channel + " " + d.ThreadTS
 		}
-		fmt.Fprintf(&b, "In thread: %s\n", link)
+		fmt.Fprintf(&b, "- In thread: %s\n", link)
 	}
-	fmt.Fprintf(&b, "Requested by: %s\n", d.Owner)
-	fmt.Fprintf(&b, "Purpose: %s\n", d.Purpose)
+	fmt.Fprintf(&b, "- Requested by: %s\n", d.Owner)
+	fmt.Fprintf(&b, "- Purpose: %s\n", d.Purpose)
 	if len(d.Refs) > 0 {
-		fmt.Fprintf(&b, "Refs: %s\n", strings.Join(d.Refs, ", "))
+		fmt.Fprintf(&b, "- Refs: %s\n", strings.Join(d.Refs, ", "))
 	}
-	fmt.Fprintf(&b, "Text hash: %s (outbox %d)\n\n", hash[:8], id)
-	for _, line := range strings.Split(d.Text, "\n") {
-		if line == "" {
-			b.WriteString(">\n")
-			continue
-		}
-		b.WriteString("> " + line + "\n")
-	}
-	return strings.TrimSuffix(b.String(), "\n")
+	fmt.Fprintf(&b, "- Text hash: %s (outbox %d)", hash[:8], id)
+	return b.String()
 }
 
 // draftFrom rebuilds the draft a record was asked with, so a re-attached
@@ -922,7 +908,7 @@ func (o *Outbox) ensureOptions(ctx context.Context, r OutboxRecord, item DecideI
 	if o.lostOptionsNoted(r.DecideID) {
 		return nil
 	}
-	if err := o.Decide.ReplyOptions(ctx, r.DecideID, question(r.ID, draftFrom(r), r.TextHash)); err != nil {
+	if err := o.Decide.ReplyOptions(ctx, r.DecideID, question(r.ID, draftFrom(r), r.TextHash), r.Text); err != nil {
 		return fmt.Errorf("outbox %d: re-attach decide options: %w", r.ID, err)
 	}
 	o.logger().Warn("slackwatch outbox: decide item lost its options; re-attached", "outbox", r.ID, "decide", r.DecideID)
@@ -1552,7 +1538,7 @@ func (o *Outbox) failPost(ctx context.Context, r OutboxRecord, postErr error) er
 	if err != nil || r.DecideID == "" {
 		return err
 	}
-	if rerr := o.Decide.ReplyOptions(ctx, r.DecideID, "Post failed: "+notice+"; reply post to retry"); rerr != nil {
+	if rerr := o.Decide.ReplyOptions(ctx, r.DecideID, "Post failed: "+notice+"; reply post to retry", ""); rerr != nil {
 		o.logger().Warn("slackwatch outbox: reply with the post failure", "outbox", r.ID, "error", rerr)
 	}
 	return nil
@@ -1641,6 +1627,7 @@ func destinationUnchanged(r OutboxRecord, it DecideItem) bool {
 	var dest, thread string
 	for _, m := range it.Messages {
 		for _, line := range strings.Split(m.Text, "\n") {
+			line = strings.TrimPrefix(line, "- ")
 			if v, ok := strings.CutPrefix(line, "Destination: "); ok {
 				dest = v
 			}

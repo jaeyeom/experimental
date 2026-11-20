@@ -109,8 +109,15 @@ func (s *Status) SetAgent(name, state, text string) (AgentStatus, error) {
 	if state != "" && !validAgentState(state) {
 		return AgentStatus{}, fmt.Errorf("decide status state %q is invalid", state)
 	}
+	limits, err := loadShapeLimits()
+	if err != nil {
+		return AgentStatus{}, err
+	}
+	if err := CheckShape(text, limits); err != nil {
+		return AgentStatus{}, err
+	}
 	var saved AgentStatus
-	err := s.locked(true, func(data *statusFileData) error {
+	err = s.locked(true, func(data *statusFileData) error {
 		idx := agentIndex(data.Agents, name)
 		if state == "" {
 			if idx >= 0 {
@@ -163,6 +170,15 @@ func (s *Status) SetResource(name, availability, note string) (ResourceStatus, e
 	}
 	if availability != ResourceFree && availability != ResourceBusy {
 		return ResourceStatus{}, fmt.Errorf("decide status availability %q is invalid", availability)
+	}
+	if strings.TrimSpace(note) != "" {
+		limits, err := loadShapeLimits()
+		if err != nil {
+			return ResourceStatus{}, err
+		}
+		if err := CheckShape(note, limits); err != nil {
+			return ResourceStatus{}, err
+		}
 	}
 	var saved ResourceStatus
 	err := s.locked(true, func(data *statusFileData) error {

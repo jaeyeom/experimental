@@ -23,11 +23,12 @@ import (
 type cmdFakeDecider struct {
 	items     map[string]*slackwatch.DecideItem
 	questions map[string]string
+	verbatims map[string]string
 	outcomes  map[string]string
 	replies   []string
 }
 
-func (d *cmdFakeDecider) Ask(_ context.Context, _, question string) (string, error) {
+func (d *cmdFakeDecider) Ask(_ context.Context, _, question, verbatim string) (string, error) {
 	id := fmt.Sprintf("D-%d", len(d.items)+1)
 	d.items[id] = &slackwatch.DecideItem{
 		ID: id, State: "open",
@@ -37,6 +38,10 @@ func (d *cmdFakeDecider) Ask(_ context.Context, _, question string) (string, err
 		},
 	}
 	d.questions[id] = question
+	if d.verbatims == nil {
+		d.verbatims = map[string]string{}
+	}
+	d.verbatims[id] = verbatim
 	return id, nil
 }
 
@@ -48,7 +53,7 @@ func (d *cmdFakeDecider) Show(_ context.Context, id string) (slackwatch.DecideIt
 	return *it, nil
 }
 
-func (d *cmdFakeDecider) ReplyOptions(_ context.Context, id, text string) error {
+func (d *cmdFakeDecider) ReplyOptions(_ context.Context, id, text, _ string) error {
 	it, ok := d.items[id]
 	if !ok {
 		return errors.New("no such item")
@@ -367,10 +372,13 @@ func TestPostHandoffFlow(t *testing.T) {
 	e := newPostEnv(t, handoffPost)
 	e.submit()
 	q := e.dec.questions["D-1"]
-	for _, want := range []string{"#general (C0123)", "> Release is out & ready.", "agent-1", "announce release", slackwatch.TextHash(cmdText)[:8]} {
+	for _, want := range []string{"#general (C0123)", "agent-1", "announce release", slackwatch.TextHash(cmdText)[:8]} {
 		if !strings.Contains(q, want) {
 			t.Errorf("question missing %q:\n%s", want, q)
 		}
+	}
+	if v := e.dec.verbatims["D-1"]; v != cmdText {
+		t.Errorf("verbatim = %q, want %q", v, cmdText)
 	}
 	if r := e.record(); r.State != slackwatch.OutboxPending || r.Text != cmdText || r.DestName != "#general" {
 		t.Fatalf("record = %+v", r)

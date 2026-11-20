@@ -200,11 +200,15 @@ func trimBody(raw string) (string, error) {
 	return text, nil
 }
 
-// expandHubText reads --text-file or a positional "-" locally and replaces
-// it with that text. Args with neither are returned unchanged.
+// expandHubText reads --text-file, --verbatim-file, or a positional "-" locally
+// and replaces it with that text. Args with none are returned unchanged.
 func expandHubText(args []string) ([]string, error) {
 	if !hubTextCommand(args) {
 		return args, nil
+	}
+	args, err := expandHubVerbatimFile(args)
+	if err != nil {
+		return nil, err
 	}
 	file, stripped, err := pullTextFile(args)
 	if err != nil {
@@ -214,6 +218,43 @@ func expandHubText(args []string) ([]string, error) {
 		return args, nil
 	}
 	return rebuildTextArgs(stripped, file)
+}
+
+func expandHubVerbatimFile(args []string) ([]string, error) {
+	if len(args) == 0 || (args[0] != "ask" && args[0] != "reply") {
+		return args, nil
+	}
+	out := make([]string, 0, len(args))
+	seen := false
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			out = append(out, args[i:]...)
+			break
+		}
+		path, eq := strings.CutPrefix(a, "--verbatim-file=")
+		if !eq && a != "--verbatim-file" {
+			out = append(out, a)
+			continue
+		}
+		if seen {
+			return nil, fmt.Errorf("--verbatim-file was given twice")
+		}
+		seen = true
+		if !eq {
+			if i+1 >= len(args) || args[i+1] == "--" {
+				return nil, fmt.Errorf("--verbatim-file needs a path")
+			}
+			i++
+			path = args[i]
+		}
+		raw, err := os.ReadFile(path) //nolint:gosec // G304: user-specified draft file path
+		if err != nil {
+			return nil, fmt.Errorf("decide verbatim file: %w", err)
+		}
+		out = append(out, "--verbatim="+string(raw))
+	}
+	return out, nil
 }
 
 func hubTextCommand(args []string) bool {
@@ -263,12 +304,12 @@ func textValued(args []string) map[string]bool {
 		return map[string]bool{
 			"owner": true, "kind": true, "option": true, "rec": true,
 			"deadline": true, "link": true, "notify-pane": true,
-			"type-text": true, "where": true,
+			"type-text": true, "where": true, "verbatim": true, "verbatim-file": true,
 		}
 	case "send":
 		return map[string]bool{"to": true, "id": true, "via": true}
 	case "reply":
-		return map[string]bool{"option": true, "rec": true}
+		return map[string]bool{"option": true, "rec": true, "verbatim": true, "verbatim-file": true}
 	case "done":
 		return map[string]bool{"via": true}
 	case "status":

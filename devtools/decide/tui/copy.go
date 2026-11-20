@@ -106,7 +106,14 @@ func selectedMessageText(it *decide.Item, index int) string {
 	if index < 0 || index >= len(it.Messages) {
 		index = len(it.Messages) - 1
 	}
-	return it.Messages[index].Text
+	msg := it.Messages[index]
+	if msg.Verbatim == "" {
+		return msg.Text
+	}
+	if msg.Text == "" {
+		return msg.Verbatim
+	}
+	return msg.Text + "\n\n" + msg.Verbatim
 }
 
 // threadCopy is the thread as plain text: sender, local time, then the
@@ -126,13 +133,30 @@ func (m *Model) threadCopy(it *decide.Item) string {
 
 func messageCopyBlock(msg decide.Message, now time.Time, loc *time.Location) string {
 	head := strings.TrimSpace(msg.Sender() + " " + stamp(msg.Time, now, loc))
-	if msg.Text == "" {
+	body := msg.Text
+	if msg.Verbatim != "" {
+		var quoted []string
+		for _, line := range strings.Split(strings.ReplaceAll(msg.Verbatim, "\r\n", "\n"), "\n") {
+			if line == "" {
+				quoted = append(quoted, ">")
+			} else {
+				quoted = append(quoted, "> "+line)
+			}
+		}
+		quoteBlock := "will be posted as written:\n" + strings.Join(quoted, "\n")
+		if body == "" {
+			body = quoteBlock
+		} else {
+			body = body + "\n\n" + quoteBlock
+		}
+	}
+	if body == "" {
 		return head
 	}
 	if head == "" {
-		return msg.Text
+		return body
 	}
-	return head + "\n" + msg.Text
+	return head + "\n" + body
 }
 
 // writeClipboard writes text the way ui.clipboard asks. off writes nothing.

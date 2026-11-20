@@ -77,6 +77,7 @@ type Message struct {
 	Author      string    `json:"author"`
 	Time        time.Time `json:"time"`
 	Text        string    `json:"text"`
+	Verbatim    string    `json:"verbatim,omitempty"`
 	Options     []Option  `json:"options,omitempty"`
 	OptionKey   string    `json:"optionKey,omitempty"`
 	OptionLabel string    `json:"optionLabel,omitempty"`
@@ -118,6 +119,7 @@ func CheckVia(via string) error {
 type Item struct {
 	ID          string     `json:"id"`
 	Question    string     `json:"question"`
+	Verbatim    string     `json:"verbatim,omitempty"`
 	Messages    []Message  `json:"messages,omitempty"`
 	Options     []Option   `json:"options,omitempty"`
 	FreeText    bool       `json:"freeText"`
@@ -258,6 +260,18 @@ func (l *Ledger) Create(item *Item) (Item, error) {
 	if err := validate(&stored); err != nil {
 		return Item{}, err
 	}
+	if !isUICreated(&stored) {
+		limits, err := loadShapeLimits()
+		if err != nil {
+			return Item{}, err
+		}
+		if err := CheckShape(stored.Question, limits); err != nil {
+			return Item{}, err
+		}
+		if err := checkOptionsShape(stored.Options, limits); err != nil {
+			return Item{}, err
+		}
+	}
 	if stored.State == "" {
 		stored.State = StateOpen
 	}
@@ -385,6 +399,9 @@ func (l *Ledger) DoneVia(id, outcome, via string) (Item, error) {
 	if err := CheckVia(via); err != nil {
 		return Item{}, err
 	}
+	if err := checkAuthorShape(outcome, via); err != nil {
+		return Item{}, err
+	}
 	var updated Item
 	err := l.locked(true, func(st *store) error {
 		it, err := findItem(st, id)
@@ -395,35 +412,7 @@ func (l *Ledger) DoneVia(id, outcome, via string) (Item, error) {
 			return fmt.Errorf("decide item %s is %s", id, it.State)
 		}
 		now := l.clock().UTC()
-		switch {
-		case via == ViaUI:
-			if it.State != StateDoneUnread || outcome != "archived" {
-				it.Outcome = outcome
-			}
-			if it.State != StateDoneUnread {
-				it.DoneAt = now
-			}
-			it.State = StateDone
-			clearSnooze(it)
-		case it.State == StateDoneUnread && it.Outcome == outcome:
-		case hasUnread(it):
-			ensureMessages(it)
-			it.Messages = append(it.Messages, Message{
-				Author: it.Owner,
-				Time:   now,
-				Text:   "done: " + outcome,
-			})
-			it.State = StateDoneUnread
-			it.Unread = true
-			it.DoneAt = now
-			it.Outcome = outcome
-			wakeOnMessage(it)
-		default:
-			it.State = StateDone
-			clearSnooze(it)
-			it.DoneAt = now
-			it.Outcome = outcome
-		}
+		applyDone(it, outcome, via, now)
 		updated = *it
 		return nil
 	})
@@ -431,6 +420,38 @@ func (l *Ledger) DoneVia(id, outcome, via string) (Item, error) {
 		return Item{}, err
 	}
 	return updated, nil
+}
+
+func applyDone(it *Item, outcome, via string, now time.Time) {
+	switch {
+	case via == ViaUI:
+		if it.State != StateDoneUnread || outcome != "archived" {
+			it.Outcome = outcome
+		}
+		if it.State != StateDoneUnread {
+			it.DoneAt = now
+		}
+		it.State = StateDone
+		clearSnooze(it)
+	case it.State == StateDoneUnread && it.Outcome == outcome:
+	case hasUnread(it):
+		ensureMessages(it)
+		it.Messages = append(it.Messages, Message{
+			Author: it.Owner,
+			Time:   now,
+			Text:   "done: " + outcome,
+		})
+		it.State = StateDoneUnread
+		it.Unread = true
+		it.DoneAt = now
+		it.Outcome = outcome
+		wakeOnMessage(it)
+	default:
+		it.State = StateDone
+		clearSnooze(it)
+		it.DoneAt = now
+		it.Outcome = outcome
+	}
 }
 
 // hasUnread reports whether it has a message the user has not read: the
@@ -676,6 +697,9 @@ func (l *Ledger) Compose(id, text, via, by string) (Item, error) {
 	if err := CheckVia(via); err != nil {
 		return Item{}, err
 	}
+	if err := checkAuthorShape(text, via); err != nil {
+		return Item{}, err
+	}
 	var updated Item
 	err := l.locked(true, func(st *store) error {
 		it, err := findItem(st, id)
@@ -719,23 +743,40 @@ func (it *Item) RejectForeignSender(by string) error {
 	return fmt.Errorf("item %s accepts replies only from its owner %s; message the owner instead", it.ID, it.Owner)
 }
 
-// Reply appends an agent message. The author is the thread owner, and by,
-// which may be empty, is who wrote it, as in Message.By.
-// Options replace the pending options and freeText. A reply with no options
-// keeps them while the item is open, and clears options only when reopening
-// an answered or done item. text is stored unchanged.
+// Reply appends an agent message. See ReplyVerbatim.
+func (l *Ledger) Reply(id, by, text string, options []Option, freeText bool) (Item, error) {
+	return l.ReplyVerbatim(id, by, text, "", options, freeText)
+}
+
+// ReplyVerbatim appends an agent message with an optional verbatim quote
+// block that is stored byte for byte without shape checks. The author's own
+// text and option labels are shape-checked.
+// The author is the thread owner, and by, which may be empty, is who wrote it,
+// as in Message.By. Options replace the pending options and freeText. A reply
+// with no options keeps them while the item is open, and clears options only
+// when reopening an answered or done item.
 // An answered, done, or done-unread thread returns to the inbox. A withdrawn
 // thread is refused.
 // OwnerRepliesOnly refuses a sender other than the owner.
-func (l *Ledger) Reply(id, by, text string, options []Option, freeText bool) (Item, error) {
+func (l *Ledger) ReplyVerbatim(id, by, text, verbatim string, options []Option, freeText bool) (Item, error) {
 	if strings.TrimSpace(text) == "" {
 		return Item{}, fmt.Errorf("decide text is empty")
 	}
 	if err := oneRecommended(options); err != nil {
 		return Item{}, err
 	}
+	limits, err := loadShapeLimits()
+	if err != nil {
+		return Item{}, err
+	}
+	if err := CheckShape(text, limits); err != nil {
+		return Item{}, err
+	}
+	if err := checkOptionsShape(options, limits); err != nil {
+		return Item{}, err
+	}
 	var updated Item
-	err := l.locked(true, func(st *store) error {
+	err = l.locked(true, func(st *store) error {
 		it, err := findItem(st, id)
 		if err != nil {
 			return err
@@ -748,10 +789,11 @@ func (l *Ledger) Reply(id, by, text string, options []Option, freeText bool) (It
 		}
 		ensureMessages(it)
 		msg := Message{
-			Author: it.Owner,
-			Time:   l.clock().UTC(),
-			Text:   text,
-			By:     by,
+			Author:   it.Owner,
+			Time:     l.clock().UTC(),
+			Text:     text,
+			Verbatim: verbatim,
+			By:       by,
 		}
 		if len(options) > 0 {
 			msg.Options = append([]Option(nil), options...)
@@ -1268,9 +1310,10 @@ func ensureMessages(it *Item) {
 		return
 	}
 	msg := Message{
-		Author: it.Owner,
-		Time:   it.CreatedAt.UTC(),
-		Text:   it.Question,
+		Author:   it.Owner,
+		Time:     it.CreatedAt.UTC(),
+		Text:     it.Question,
+		Verbatim: it.Verbatim,
 	}
 	if len(it.Options) > 0 {
 		msg.Options = append([]Option(nil), it.Options...)
@@ -1303,4 +1346,8 @@ func migrateStore(st *store) bool {
 		changed = true
 	}
 	return changed
+}
+
+func isUICreated(item *Item) bool {
+	return len(item.Messages) == 1 && item.Messages[0].Author == "human" && item.Messages[0].Via == ViaUI
 }
