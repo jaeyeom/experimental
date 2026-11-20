@@ -43,7 +43,7 @@ func TestInboxShowsOpenItemsInOrderAndBoldsUnread(t *testing.T) {
 	soon := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
 	later := time.Date(2026, 12, 2, 0, 0, 0, 0, time.UTC)
 	mustCreate(t, led, &decide.Item{
-		Question:  "later\ndeadline",
+		Question:  "later\n\ndeadline",
 		Owner:     "ada",
 		Kind:      decide.KindRelay,
 		State:     decide.StateOpen,
@@ -1144,7 +1144,7 @@ func TestItemViewScrollKeys(t *testing.T) {
 
 	dir := t.TempDir()
 	led := openLedger(t, dir)
-	body := strings.Repeat("scroll-line\n", 40) + "thread-bottom"
+	body := "scroll header\n\n" + strings.Repeat("- scroll-line\n", 40) + "- thread-bottom"
 	first := mustCreate(t, led, &decide.Item{
 		Question:  body,
 		Owner:     "ada",
@@ -3259,6 +3259,14 @@ func TestGmailLayoutNarrowAndWide(t *testing.T) {
 }
 
 func TestWindowSizeFitsEveryPanel(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	if err := os.MkdirAll(filepath.Join(cfg, "decide"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "decide", "config.json"), []byte(`{"ui":{"maxLineLength":0,"maxFirstLineLength":0}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	question := strings.Repeat("Q", 180)
@@ -3830,6 +3838,14 @@ func TestThreadViewShowsTheDraftAndReplies(t *testing.T) {
 		fmt.Fprintf(&words, "draftword%d ", i)
 	}
 	draft := words.String() + "draftend"
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	if err := os.MkdirAll(filepath.Join(cfg, "decide"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "decide", "config.json"), []byte(`{"ui":{"maxLineLength":0,"maxFirstLineLength":0}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	replied, err := led.Reply(item.ID, "", draft, []decide.Option{
 		{Key: "send", Label: "send"},
 		{Key: "edit", Label: "edit"},
@@ -4021,6 +4037,14 @@ func TestYArchivesANotificationNotAQuestion(t *testing.T) {
 }
 
 func TestOpenItemWrapsQuestionOptionsAndLinks(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	if err := os.MkdirAll(filepath.Join(cfg, "decide"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "decide", "config.json"), []byte(`{"ui":{"maxLineLength":0,"maxFirstLineLength":0}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	var words strings.Builder
@@ -4279,6 +4303,14 @@ func lineContaining(view, needle string) string {
 }
 
 func TestStatusBoardShowsAgentsResourcesAndDimsStale(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	if err := os.MkdirAll(filepath.Join(cfg, "decide"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "decide", "config.json"), []byte(`{"ui":{"maxLineLength":0,"maxFirstLineLength":0}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	dir := t.TempDir()
 	if _, err := decide.Open(dir); err != nil {
 		t.Fatal(err)
@@ -4506,4 +4538,33 @@ func borderRows(view, mark string) []int {
 
 func borderHighlighted(line string) bool {
 	return strings.Contains(line, boldOn) && strings.Contains(visibleLine(line), "┌")
+}
+
+func TestItemViewShowsVerbatimQuoteBlock(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	mustCreate(t, led, &decide.Item{
+		Question: "Post this to Slack?",
+		Verbatim: "Exact line one\nExact line two",
+		Owner:    "slackwatch",
+		Kind:     decide.KindRelay,
+		State:    decide.StateOpen,
+		Options: []decide.Option{
+			{Key: "post", Label: "Post", Recommended: true},
+			{Key: "drop", Label: "Drop"},
+		},
+	})
+	m := New(dir)
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "o")
+	view := visibleLine(m.View())
+	for _, want := range []string{"will be posted as written:", "> Exact line one", "> Exact line two"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("item view missing %q:\n%s", want, view)
+		}
+	}
 }

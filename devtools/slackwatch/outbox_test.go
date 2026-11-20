@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +18,7 @@ import (
 type fakeDecider struct {
 	items         map[string]*DecideItem
 	questions     map[string]string
+	verbatims     map[string]string
 	owners        map[string]string
 	outcomes      map[string]string
 	replies       []string
@@ -34,10 +34,10 @@ type fakeDecider struct {
 }
 
 func newFakeDecider() *fakeDecider {
-	return &fakeDecider{items: map[string]*DecideItem{}, questions: map[string]string{}, owners: map[string]string{}, outcomes: map[string]string{}}
+	return &fakeDecider{items: map[string]*DecideItem{}, questions: map[string]string{}, verbatims: map[string]string{}, owners: map[string]string{}, outcomes: map[string]string{}}
 }
 
-func (d *fakeDecider) Ask(_ context.Context, owner, question string) (string, error) {
+func (d *fakeDecider) Ask(_ context.Context, owner, question, verbatim string) (string, error) {
 	if d.askErr != nil {
 		return "", d.askErr
 	}
@@ -52,6 +52,7 @@ func (d *fakeDecider) Ask(_ context.Context, owner, question string) (string, er
 		Messages: []DecideMessage{{Author: owner, Text: question}},
 	}
 	d.questions[id] = question
+	d.verbatims[id] = verbatim
 	d.owners[id] = owner
 	return id, nil
 }
@@ -76,7 +77,7 @@ func (d *fakeDecider) Reply(_ context.Context, id, text string) error {
 	return nil
 }
 
-func (d *fakeDecider) ReplyOptions(_ context.Context, id, text string) error {
+func (d *fakeDecider) ReplyOptions(_ context.Context, id, text, _ string) error {
 	it, ok := d.items[id]
 	if !ok {
 		return errors.New("no such item")
@@ -292,10 +293,14 @@ func TestSubmitFilesDecideItem(t *testing.T) {
 		t.Errorf("decide owner = %q", f.dec.owners["D-1"])
 	}
 	q := f.dec.questions["D-1"]
-	for _, want := range []string{"#general", "> Deploy is done & <@U5> can check.\n> See <https://example.com|notes>.", "agent-1", "announce deploy", r.TextHash[:8]} {
+	for _, want := range []string{"#general", "agent-1", "announce deploy", r.TextHash[:8]} {
 		if !strings.Contains(q, want) {
 			t.Errorf("question missing %q:\n%s", want, q)
 		}
+	}
+	wantVerb := "Deploy is done & <@U5> can check.\nSee <https://example.com|notes>."
+	if f.dec.verbatims["D-1"] != wantVerb {
+		t.Errorf("verbatim = %q, want %q", f.dec.verbatims["D-1"], wantVerb)
 	}
 }
 
@@ -1670,7 +1675,7 @@ func TestDecideCLI(t *testing.T) {
 		calls = append(calls, args)
 		return []byte(out[args[0]]), nil
 	}}
-	id, err := d.Ask(context.Background(), "slackwatch", "Post?")
+	id, err := d.Ask(context.Background(), "slackwatch", "Post?", "hello")
 	if err != nil || id != "D-7" {
 		t.Fatalf("Ask = %q, %v", id, err)
 	}
@@ -1687,7 +1692,7 @@ func TestDecideCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := [][]string{
-		{"ask", "--long-lines", "--owner", "slackwatch", "--owner-replies-only", "--kind", "relay", "--option", "post:Post as written", "--option", "drop:Don't post", "--rec", "post", "--free-text", "--json", "Post?"},
+		{"ask", "--owner", "slackwatch", "--owner-replies-only", "--verbatim", "hello", "--kind", "relay", "--option", "post:Post as written", "--option", "drop:Don't post", "--rec", "post", "--free-text", "--json", "Post?"},
 		{"show", "--json", "D-7"},
 		{"done", "--json", "D-7", "posted"},
 	}
@@ -1705,12 +1710,12 @@ func TestAskPassesNotifyPane(t *testing.T) {
 		}
 		return []byte(`{"id":"D-3","state":"open"}`), nil
 	}}
-	if id, err := d.Ask(context.Background(), "slackwatch", "Post?"); err != nil || id != "D-3" {
+	if id, err := d.Ask(context.Background(), "slackwatch", "Post?", ""); err != nil || id != "D-3" {
 		t.Fatalf("Ask = %q, %v", id, err)
 	}
 	want := [][]string{
-		{"ask", "--long-lines", "--owner", "slackwatch", "--owner-replies-only", "--notify-pane", "agentbus:ops", "--kind", "relay", "--option", "post:Post as written", "--option", "drop:Don't post", "--rec", "post", "--free-text", "--json", "Post?"},
-		{"ask", "--long-lines", "--owner", "slackwatch", "--notify-pane", "agentbus:ops", "--kind", "relay", "--option", "post:Post as written", "--option", "drop:Don't post", "--rec", "post", "--free-text", "--json", "Post?"},
+		{"ask", "--owner", "slackwatch", "--owner-replies-only", "--notify-pane", "agentbus:ops", "--kind", "relay", "--option", "post:Post as written", "--option", "drop:Don't post", "--rec", "post", "--free-text", "--json", "Post?"},
+		{"ask", "--owner", "slackwatch", "--notify-pane", "agentbus:ops", "--kind", "relay", "--option", "post:Post as written", "--option", "drop:Don't post", "--rec", "post", "--free-text", "--json", "Post?"},
 	}
 	if fmt.Sprint(calls) != fmt.Sprint(want) {
 		t.Errorf("calls = %q\nwant %q", calls, want)
@@ -1933,7 +1938,7 @@ func TestAskPassesOwnerOnlyWhenDecideSupportsIt(t *testing.T) {
 		}
 		return []byte(`{"id":"D-1","state":"open"}`), nil
 	}}
-	if id, err := d.Ask(context.Background(), "slackwatch", "Post?"); err != nil || id != "D-1" {
+	if id, err := d.Ask(context.Background(), "slackwatch", "Post?", ""); err != nil || id != "D-1" {
 		t.Fatalf("Ask = %q, %v", id, err)
 	}
 	if len(calls) != 1 || !slicesHas(calls[0], "--owner-replies-only") {
@@ -1950,7 +1955,7 @@ func TestAskOmitsOwnerOnlyWhenDecideRejectsIt(t *testing.T) {
 		}
 		return []byte(`{"id":"D-2","state":"open"}`), nil
 	}}
-	if id, err := d.Ask(context.Background(), "slackwatch", "Post?"); err != nil || id != "D-2" {
+	if id, err := d.Ask(context.Background(), "slackwatch", "Post?", ""); err != nil || id != "D-2" {
 		t.Fatalf("Ask = %q, %v", id, err)
 	}
 	if len(calls) != 2 || !slicesHas(calls[0], "--owner-replies-only") || slicesHas(calls[1], "--owner-replies-only") {
@@ -2450,20 +2455,20 @@ func TestAutoRetryChecksRunOnce(t *testing.T) {
 	}
 }
 
-// TestDecideCLIPassesLongLines checks each ask and reply slackwatch
-// writes itself passes --long-lines, and is sent again without it when
-// this decide does not know the flag.
-func TestDecideCLIPassesLongLines(t *testing.T) {
+// TestDecideCLIPassesVerbatimAndNoLongLines checks that ask and reply options
+// pass --verbatim for the draft and never pass --long-lines.
+func TestDecideCLIPassesVerbatimAndNoLongLines(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		call func(DecideCLI) error
+		name     string
+		wantVerb bool
+		call     func(DecideCLI) error
 	}{
-		{"ask", func(d DecideCLI) error {
-			_, err := d.Ask(context.Background(), "slackwatch", "Post?")
+		{"ask", true, func(d DecideCLI) error {
+			_, err := d.Ask(context.Background(), "slackwatch", "Post?", "draft body")
 			return err
 		}},
-		{"reply", func(d DecideCLI) error { return d.Reply(context.Background(), "D-1", "Posted") }},
-		{"reply options", func(d DecideCLI) error { return d.ReplyOptions(context.Background(), "D-1", "Post?") }},
+		{"reply", false, func(d DecideCLI) error { return d.Reply(context.Background(), "D-1", "Posted") }},
+		{"reply options", true, func(d DecideCLI) error { return d.ReplyOptions(context.Background(), "D-1", "Post?", "draft body") }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var calls [][]string
@@ -2474,28 +2479,11 @@ func TestDecideCLIPassesLongLines(t *testing.T) {
 			if err := tc.call(d); err != nil {
 				t.Fatal(err)
 			}
-			if len(calls) != 1 || !slicesHas(calls[0], "--long-lines") {
+			if len(calls) != 1 || slicesHas(calls[0], "--long-lines") {
 				t.Fatalf("calls = %q", calls)
 			}
-		})
-		t.Run(tc.name+" on an older decide", func(t *testing.T) {
-			var calls [][]string
-			d := DecideCLI{Run: func(_ context.Context, args ...string) ([]byte, error) {
-				calls = append(calls, append([]string(nil), args...))
-				if slicesHas(args, "--long-lines") {
-					return nil, errors.New("decide " + args[0] + ": exit status 2: flag provided but not defined: -long-lines")
-				}
-				return []byte(`{"id":"D-1","state":"open"}`), nil
-			}}
-			if err := tc.call(d); err != nil {
-				t.Fatal(err)
-			}
-			last := calls[len(calls)-1]
-			if len(calls) != 2 || slicesHas(last, "--long-lines") {
-				t.Fatalf("calls = %q", calls)
-			}
-			if fmt.Sprint(last) != fmt.Sprint(slices.DeleteFunc(slices.Clone(calls[0]), func(a string) bool { return a == "--long-lines" })) {
-				t.Fatalf("retry changed more than the flag: %q", calls)
+			if tc.wantVerb && !slicesHas(calls[0], "--verbatim") {
+				t.Fatalf("calls = %q, want --verbatim", calls)
 			}
 		})
 	}

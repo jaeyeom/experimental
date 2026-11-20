@@ -24,11 +24,11 @@ func itemLinks(it *decide.Item) []string {
 		seen[s] = true
 		out = append(out, s)
 	}
-	texts := []string{it.Question}
+	texts := []string{it.Question, it.Verbatim}
 	if len(it.Messages) > 0 {
 		texts = texts[:0]
 		for _, msg := range it.Messages {
-			texts = append(texts, msg.Text)
+			texts = append(texts, msg.Text, msg.Verbatim)
 		}
 	}
 	for _, text := range texts {

@@ -102,7 +102,7 @@ func usage(w io.Writer) {
   decide ask [--owner <label>] [--owner-replies-only] --kind relay|type-in \
     --option key:label --rec key [--free-text] [--options-only] [--deadline RFC3339] \
     [--link url] [--notify-pane pane] [--type-text text] [--where place] \
-    [--long-lines] [--json] <question>
+    [--verbatim-file path] [--json] <question>
   decide list [--state open|answered|done|withdrawn] [--snoozed] [--off-line] [--undelivered] [--json]
   decide show [--json] <id>
   decide withdraw [--json] <id> <reason>
@@ -120,7 +120,7 @@ func usage(w io.Writer) {
   decide targets [--json]
   decide send --to <name> [--json] [--via cli|ui] <text>
   decide send --id <id> [--to owner|worker|both] [--json] [--via cli|ui] <text>
-  decide reply <id> [--option key:label ...] [--rec key] [--free-text] [--long-lines] [--json] <text>
+  decide reply <id> [--option key:label ...] [--rec key] [--free-text] [--verbatim-file path] [--json] <text>
   decide reassign <id> [--owner <label>] [--notify-pane <pane>] [--json]
   decide assign <id> <agent> [--notify-pane <pane>] [--json]
   decide assign <id> --clear [--json]
@@ -134,7 +134,8 @@ func usage(w io.Writer) {
   decide [--remote <user@host>] config show [--effective]
 
 Text for ask, reply, send, done, withdraw, and status set may be a positional argument, --text-file <path>, or - for stdin.
-ask and reply reject a line over ui.maxLineLength (160) characters; --long-lines sends it anyway.
+Author text must follow inbox shape rules: verdict on the first line (max 100 chars, followed by a blank line or bullet), no paragraph over 3 lines, max 160 chars per line, and max 1200 chars total.
+Pass --verbatim-file <path> on ask or reply for an exact post draft (shown as a quote block without shape checks).
 Use reassign when the owning tab is retired, or for a handoff to another agent.
 Use assign when another agent works on an item while its owner stays; the
 worker is notified at agentbus:<agent> unless --notify-pane says otherwise.
@@ -469,17 +470,21 @@ func cmdReassign(args []string, stdout, stderr io.Writer) int {
 }
 
 func cmdReply(args []string, stdout, stderr io.Writer) int {
+	if err := rejectLongLinesFlag(args); err != nil {
+		return fail(stderr, err, 2)
+	}
 	file, args, err := pullTextFile(args)
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
-	args = hoistFlags(args, map[string]bool{"option": true, "rec": true})
+	args = hoistFlags(args, map[string]bool{"option": true, "rec": true, "verbatim": true, "verbatim-file": true})
 	fs := flag.NewFlagSet("reply", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	jsonOut := fs.Bool("json", false, "print the thread as JSON")
 	rec := fs.String("rec", "", "recommended option key")
 	freeText := fs.Bool("free-text", false, "allow an answer that is not an option")
-	longLines := fs.Bool("long-lines", false, "send lines over ui.maxLineLength unchanged")
+	verbatim := fs.String("verbatim", "", "exact post draft shown as a quote block without shape checks")
+	verbatimFile := fs.String("verbatim-file", "", "file containing exact post draft shown as a quote block without shape checks")
 	var options stringList
 	fs.Var(&options, "option", "option as key:label (repeatable)")
 	if code, stop := stopped(parseFlags(fs, args)); stop {
@@ -489,10 +494,9 @@ func cmdReply(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
-	if !*longLines {
-		if code, ok := replyLineCheck(text, stderr); !ok {
-			return code
-		}
+	verb, err := resolveVerbatim(*verbatim, *verbatimFile)
+	if err != nil {
+		return fail(stderr, err, 2)
 	}
 	opts, err := parseOptions([]string(options))
 	if err != nil {
@@ -507,20 +511,8 @@ func cmdReply(args []string, stdout, stderr io.Writer) int {
 	allowFree := len(opts) > 0 && *freeText
 	by := senderOf(context.Background())
 	return withItem(stdout, stderr, *jsonOut, false, func(led *decide.Ledger) (decide.Item, error) {
-		return led.Reply(id, by, text, opts, allowFree)
+		return led.ReplyVerbatim(id, by, text, verb, opts, allowFree)
 	})
-}
-
-// replyLineCheck applies ui.maxLineLength to a reply's text.
-func replyLineCheck(text string, stderr io.Writer) (int, bool) {
-	cfg, err := decide.LoadConfig()
-	if err != nil {
-		return fail(stderr, err, 1), false
-	}
-	if err := checkLineLength(text, cfg.MaxLineLength()); err != nil {
-		return fail(stderr, err, 2), false
-	}
-	return 0, true
 }
 
 func cmdTargets(args []string, stdout, stderr io.Writer) int {
@@ -806,6 +798,9 @@ func inboxTargets(cfg decide.Config) []tui.Target {
 }
 
 func cmdAsk(args []string, stdout, stderr io.Writer) int {
+	if err := rejectLongLinesFlag(args); err != nil {
+		return fail(stderr, err, 2)
+	}
 	file, args, err := pullTextFile(args)
 	if err != nil {
 		return fail(stderr, err, 2)
@@ -819,7 +814,8 @@ func cmdAsk(args []string, stdout, stderr io.Writer) int {
 	freeText := fs.Bool("free-text", false, "allow an answer that is not an option")
 	optionsOnly := fs.Bool("options-only", false, "reject an answer that is not an option")
 	ownerRepliesOnly := fs.Bool("owner-replies-only", false, "only the owner may reply or send on this item")
-	longLines := fs.Bool("long-lines", false, "send lines over ui.maxLineLength unchanged")
+	verbatim := fs.String("verbatim", "", "exact post draft shown as a quote block without shape checks")
+	verbatimFile := fs.String("verbatim-file", "", "file containing exact post draft shown as a quote block without shape checks")
 	deadline := fs.String("deadline", "", "deadline in RFC3339")
 	notifyPane := fs.String("notify-pane", "", "pane stored for a later notify command")
 	typeText := fs.String("type-text", "", "exact text to type")
@@ -835,18 +831,17 @@ func cmdAsk(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
+	verb, err := resolveVerbatim(*verbatim, *verbatimFile)
+	if err != nil {
+		return fail(stderr, err, 2)
+	}
 	cfg, err := decide.LoadConfig()
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
-	if !*longLines {
-		if err := checkLineLength(question, cfg.MaxLineLength()); err != nil {
-			return fail(stderr, err, 2)
-		}
-	}
 	allowFree := relayFreeText(*kind, *freeText, *optionsOnly, cfg.OptionsOnly)
 	who := askOwner(*owner, askerOf(context.Background()), stderr)
-	item, err := buildAsk(who, *kind, *rec, allowFree, *ownerRepliesOnly, *deadline, *notifyPane, *typeText, *where, []string(options), []string(links), question)
+	item, err := buildAsk(who, *kind, *rec, allowFree, *ownerRepliesOnly, *deadline, *notifyPane, *typeText, *where, []string(options), []string(links), question, verb)
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
@@ -1157,6 +1152,9 @@ func withItem(stdout, stderr io.Writer, jsonOut, idOnly bool, fn func(*decide.Le
 	}
 	item, err := fn(led)
 	if err != nil {
+		if errors.Is(err, decide.ErrShape) {
+			return fail(stderr, err, 2)
+		}
 		return fail(stderr, err, 1)
 	}
 	if jsonOut {
@@ -1212,7 +1210,7 @@ func relayFreeText(kind string, freeText, optionsOnly, configOptionsOnly bool) b
 	return true
 }
 
-func buildAsk(owner, kind, rec string, freeText, ownerRepliesOnly bool, deadline, notifyPane, typeText, where string, options, links []string, question string) (decide.Item, error) {
+func buildAsk(owner, kind, rec string, freeText, ownerRepliesOnly bool, deadline, notifyPane, typeText, where string, options, links []string, question, verbatim string) (decide.Item, error) {
 	if strings.TrimSpace(owner) == "" {
 		return decide.Item{}, fmt.Errorf("decide owner is required")
 	}
@@ -1252,6 +1250,7 @@ func buildAsk(owner, kind, rec string, freeText, ownerRepliesOnly bool, deadline
 	}
 	return decide.Item{
 		Question:         question,
+		Verbatim:         verbatim,
 		Options:          opts,
 		FreeText:         freeText,
 		Owner:            owner,
@@ -1373,6 +1372,7 @@ func writeJSON(stdout, stderr io.Writer, v any) int {
 func writeShow(w io.Writer, it *decide.Item) {
 	fmt.Fprintf(w, "id: %s\n", it.ID)
 	fmt.Fprintf(w, "question: %s\n", it.Question)
+	writeField(w, "verbatim", it.Verbatim)
 	fmt.Fprintf(w, "owner: %s\n", it.Owner)
 	writeField(w, "working on it", it.Worker)
 	if it.ForwardedFrom != "" {
@@ -1438,6 +1438,9 @@ func writeShow(w io.Writer, it *decide.Item) {
 			when = msg.Time.Format(time.RFC3339Nano)
 		}
 		fmt.Fprintf(w, "message: %s %s %s\n", when, msg.Sender(), msg.Text)
+		if msg.Verbatim != "" {
+			fmt.Fprintf(w, "verbatim: %s\n", msg.Verbatim)
+		}
 	}
 }
 

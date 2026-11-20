@@ -56,7 +56,7 @@ func TestDecideCommandIsUsed(t *testing.T) {
 			}
 			d := DecideCLI{Run: ExecDecide(cfg.DecideArgv())}
 			ctx := context.Background()
-			if id, err := d.Ask(ctx, "slackwatch", "Post?"); err != nil || id != "D-9" {
+			if id, err := d.Ask(ctx, "slackwatch", "Post?", ""); err != nil || id != "D-9" {
 				t.Fatalf("Ask = %q, %v", id, err)
 			}
 			if _, err := d.Show(ctx, "D-9"); err != nil {
@@ -101,7 +101,7 @@ echo '{"id":"D-1","state":"open"}'
 	t.Setenv("DECIDE_AS_HANDLE", "herdr:laptop/s/w1:p2")
 	t.Setenv("SLACKWATCH_KEEP", "yes")
 	d := DecideCLI{Run: ExecDecide([]string{script})}
-	if _, err := d.Ask(context.Background(), "slackwatch", "Post?"); err != nil {
+	if _, err := d.Ask(context.Background(), "slackwatch", "Post?", ""); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(log)
@@ -134,7 +134,7 @@ echo '{"id":"D-1","state":"open"}'
 	if err := d.Reply(context.Background(), "D-1", "still here"); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.ReplyOptions(context.Background(), "D-1", "Post this?"); err != nil {
+	if err := d.ReplyOptions(context.Background(), "D-1", "Post this?", ""); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(log)

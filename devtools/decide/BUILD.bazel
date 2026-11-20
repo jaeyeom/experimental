@@ -21,6 +21,7 @@ go_library(
         "notify.go",
         "owners.go",
         "send.go",
+        "shape.go",
         "snooze.go",
         "status.go",
         "verify.go",

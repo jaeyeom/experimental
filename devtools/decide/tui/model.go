@@ -2919,13 +2919,7 @@ func (m *Model) threadLines(it *decide.Item, width int, re *regexp.Regexp) []scr
 		if i > 0 {
 			lines = append(lines, messageRule(ruleWidth, reserve, name != prev))
 		}
-		block := []screenLine{{
-			text:   messageHeader(msg, now, loc, i == last, i == m.message, m.messageMark(it, msg)),
-			header: i + 1,
-		}}
-		for _, line := range questionLines(msg.Text, bodyWidth, re, !m.NoHyperlinks) {
-			block = append(block, indentLine(line))
-		}
+		block := m.messageBlock(it, msg, i, last, bodyWidth, re, now, loc)
 		var av []string
 		if reserve && name != "" && name != prev {
 			av = m.avatarLines(name)
@@ -2941,6 +2935,26 @@ func (m *Model) threadLines(it *decide.Item, width int, re *regexp.Regexp) []scr
 		lines = append(lines, block...)
 	}
 	return lines
+}
+
+func (m *Model) messageBlock(it *decide.Item, msg decide.Message, i, last, bodyWidth int, re *regexp.Regexp, now time.Time, loc *time.Location) []screenLine {
+	block := []screenLine{{
+		text:   messageHeader(msg, now, loc, i == last, i == m.message, m.messageMark(it, msg)),
+		header: i + 1,
+	}}
+	for _, line := range questionLines(msg.Text, bodyWidth, re, !m.NoHyperlinks) {
+		block = append(block, indentLine(line))
+	}
+	if msg.Verbatim != "" {
+		if msg.Text != "" {
+			block = append(block, screenLine{})
+		}
+		block = append(block, indentLine(screenLine{text: plainText("will be posted as written:")}))
+		for _, line := range verbatimLines(msg.Verbatim, bodyWidth, re, !m.NoHyperlinks) {
+			block = append(block, indentLine(line))
+		}
+	}
+	return block
 }
 
 // messageRule is the line between messages. When the thread reserves an
@@ -3128,6 +3142,20 @@ func questionLines(q string, width int, re *regexp.Regexp, links bool) []screenL
 	lines := make([]screenLine, 0, len(parts))
 	for _, part := range parts {
 		lines = append(lines, linkLines(part, width, re, links)...)
+	}
+	return lines
+}
+
+func verbatimLines(v string, width int, re *regexp.Regexp, links bool) []screenLine {
+	normalized := strings.ReplaceAll(v, "\r\n", "\n")
+	parts := strings.Split(normalized, "\n")
+	lines := make([]screenLine, 0, len(parts))
+	for _, part := range parts {
+		quoted := ">"
+		if part != "" {
+			quoted = "> " + part
+		}
+		lines = append(lines, linkLines(quoted, width, re, links)...)
 	}
 	return lines
 }

@@ -26,7 +26,7 @@ func wrappedLinkItem(t *testing.T) *Model {
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	mustCreate(t, led, &decide.Item{
-		Question:  "spec " + longLink + " ok",
+		Question:  "spec\n\n" + longLink,
 		Owner:     "ada",
 		Kind:      decide.KindRelay,
 		State:     decide.StateOpen,

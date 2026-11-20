@@ -32,10 +32,10 @@ func matchesAny(re *regexp.Regexp, fields ...string) bool {
 // searchText is the lowercase id, owner, question, and every message
 // text. NUL separators keep a match inside one field.
 func searchText(it *decide.Item) string {
-	fields := []string{it.ID, it.Owner, it.Question}
+	fields := []string{it.ID, it.Owner, it.Question, it.Verbatim}
 	fields = append(fields, it.DeliveryNotice)
 	for _, msg := range it.Messages {
-		fields = append(fields, msg.Text)
+		fields = append(fields, msg.Text, msg.Verbatim)
 	}
 	return strings.ToLower(strings.Join(fields, "\x00"))
 }

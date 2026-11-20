@@ -135,14 +135,34 @@ type InboxUI struct {
 	// org spec JSON read with `orgctl tree --json`. Off never runs orgctl.
 	OrgTree bool   `json:"orgTree,omitempty"`
 	OrgSpec string `json:"orgSpec,omitempty"`
-	// MaxLineLength is the longest line, in characters, that decide ask
-	// and decide reply accept from an agent. Nil is
-	// DefaultMaxLineLength; zero turns the check off.
+	// MaxLineLength is the longest line, in characters, that decide
+	// accepts from an author. Nil is DefaultMaxLineLength; zero turns
+	// the check off.
 	MaxLineLength *int `json:"maxLineLength,omitempty"`
+	// MaxFirstLineLength is the longest first line, in characters, that
+	// decide accepts from an author. Nil is DefaultMaxFirstLineLength;
+	// zero turns the verdict-first check off.
+	MaxFirstLineLength *int `json:"maxFirstLineLength,omitempty"`
+	// MaxParagraphLines is the most consecutive non-bullet lines that
+	// decide accepts from an author. Nil is DefaultMaxParagraphLines;
+	// zero turns the check off.
+	MaxParagraphLines *int `json:"maxParagraphLines,omitempty"`
+	// MaxMessageChars is the longest message, in characters, that
+	// decide accepts from an author. Nil is DefaultMaxMessageChars;
+	// zero turns the check off.
+	MaxMessageChars *int `json:"maxMessageChars,omitempty"`
 }
 
-// DefaultMaxLineLength is the line limit when ui.maxLineLength is unset.
-const DefaultMaxLineLength = 160
+const (
+	// DefaultMaxLineLength is the line limit when ui.maxLineLength is unset.
+	DefaultMaxLineLength = 160
+	// DefaultMaxFirstLineLength is the first-line limit when ui.maxFirstLineLength is unset.
+	DefaultMaxFirstLineLength = 100
+	// DefaultMaxParagraphLines is the paragraph limit when ui.maxParagraphLines is unset.
+	DefaultMaxParagraphLines = 3
+	// DefaultMaxMessageChars is the message size limit when ui.maxMessageChars is unset.
+	DefaultMaxMessageChars = 1200
+)
 
 // MaxLineLength is ui.maxLineLength, or DefaultMaxLineLength when it is
 // unset. Zero means no limit. LoadConfig rejects a negative value.
@@ -151,6 +171,33 @@ func (c Config) MaxLineLength() int {
 		return DefaultMaxLineLength
 	}
 	return *c.UI.MaxLineLength
+}
+
+// MaxFirstLineLength is ui.maxFirstLineLength, or DefaultMaxFirstLineLength
+// when it is unset. Zero means no limit. LoadConfig rejects a negative value.
+func (c Config) MaxFirstLineLength() int {
+	if c.UI.MaxFirstLineLength == nil {
+		return DefaultMaxFirstLineLength
+	}
+	return *c.UI.MaxFirstLineLength
+}
+
+// MaxParagraphLines is ui.maxParagraphLines, or DefaultMaxParagraphLines
+// when it is unset. Zero means no limit. LoadConfig rejects a negative value.
+func (c Config) MaxParagraphLines() int {
+	if c.UI.MaxParagraphLines == nil {
+		return DefaultMaxParagraphLines
+	}
+	return *c.UI.MaxParagraphLines
+}
+
+// MaxMessageChars is ui.maxMessageChars, or DefaultMaxMessageChars
+// when it is unset. Zero means no limit. LoadConfig rejects a negative value.
+func (c Config) MaxMessageChars() int {
+	if c.UI.MaxMessageChars == nil {
+		return DefaultMaxMessageChars
+	}
+	return *c.UI.MaxMessageChars
 }
 
 // DefaultStaleAnswerAfter is how long an answer sits before a follow-up
@@ -377,11 +424,28 @@ func parseConfig(data []byte, dir string) (Config, error) {
 	if _, err := parseBusHealthInterval(cfg.UI.BusHealthInterval); err != nil {
 		return Config{}, err
 	}
-	if cfg.MaxLineLength() < 0 {
-		return Config{}, fmt.Errorf("decide config ui.maxLineLength must be 0 or more")
+	if err := checkShapeConfig(cfg); err != nil {
+		return Config{}, err
 	}
 	resolveAvatarFiles(cfg.Avatars, dir)
 	return cfg, nil
+}
+
+func checkShapeConfig(cfg Config) error {
+	for _, item := range []struct {
+		name string
+		val  int
+	}{
+		{"ui.maxLineLength", cfg.MaxLineLength()},
+		{"ui.maxFirstLineLength", cfg.MaxFirstLineLength()},
+		{"ui.maxParagraphLines", cfg.MaxParagraphLines()},
+		{"ui.maxMessageChars", cfg.MaxMessageChars()},
+	} {
+		if item.val < 0 {
+			return fmt.Errorf("decide config %s must be 0 or more", item.name)
+		}
+	}
+	return nil
 }
 
 // Notify runs the configured template after a relay answer is saved.

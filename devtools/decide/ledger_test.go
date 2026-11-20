@@ -721,7 +721,7 @@ func TestAnswerReplyAndComposeKeepTheThread(t *testing.T) {
 		t.Fatalf("answer message = %+v", answered.Messages)
 	}
 
-	const draft = "Hello \"there\"\nplease send this draft"
+	const draft = "Hello \"there\"\n\nplease send this draft"
 	opts := []Option{
 		{Key: "send", Label: "send", Recommended: true},
 		{Key: "edit", Label: "edit"},
@@ -858,7 +858,7 @@ func TestComposeAnswersAnOpenQuestion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := "say \"hi\"\nnext"
+	text := "say \"hi\"\n\nnext"
 	got, err := led.Compose(item.ID, text, ViaCLI, "")
 	if err != nil {
 		t.Fatal(err)
@@ -959,7 +959,7 @@ func TestLegacyAnswerKeepsThePreviousAnswer(t *testing.T) {
 
 func TestStartThreadStoresTheHumanNote(t *testing.T) {
 	led, _ := openTemp(t)
-	const note = "hello\nthere"
+	const note = "hello\n\nthere"
 	got, err := led.StartThread("alpha", "pane-a", note, ViaCLI)
 	if err != nil {
 		t.Fatal(err)
