@@ -84,6 +84,9 @@ type ViewedConfig struct {
 	// NeverMark are globs. A changed file matching any of them is never
 	// marked, by any rule. This wins over every rule's selectors.
 	NeverMark []string
+	// RemarkDismissed re-marks DISMISSED files matched by viewed rules.
+	// By default, viewed rules only mark UNVIEWED files.
+	RemarkDismissed bool
 	// Rules select the files. A file is marked when any rule selects it
 	// and NeverMark does not.
 	Rules []ViewedRule
@@ -276,9 +279,10 @@ func convertApprove(src pklconfig.ApproveConfig, configDir string) ApproveConfig
 
 func convertViewed(src pklconfig.ViewedConfig) ViewedConfig {
 	out := ViewedConfig{
-		Enabled:        src.Enabled,
-		MaxMarksPerRun: src.MaxMarksPerRun,
-		NeverMark:      cloneStrings(src.NeverMark),
+		Enabled:         src.Enabled,
+		MaxMarksPerRun:  src.MaxMarksPerRun,
+		NeverMark:       cloneStrings(src.NeverMark),
+		RemarkDismissed: src.RemarkDismissed,
 	}
 	for _, rule := range src.Rules {
 		out.Rules = append(out.Rules, ViewedRule{

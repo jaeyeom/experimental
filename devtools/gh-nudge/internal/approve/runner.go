@@ -89,6 +89,8 @@ type LogEntry struct {
 	Paths []string `json:"paths,omitempty"`
 	// FileCheckPatterns maps each marked path from file_checks to the pattern that passed.
 	FileCheckPatterns map[string]string `json:"fileCheckPatterns,omitempty"`
+	// PathNotes maps each re-marked path to a note such as "re-mark after change".
+	PathNotes map[string]string `json:"pathNotes,omitempty"`
 	// Exclusions are explain lines for files a selector matched and an
 	// exclusion kept visible. They are not part of the audit log.
 	Exclusions []string `json:"-"`
@@ -668,11 +670,14 @@ func writeViewed(out *strings.Builder, entry LogEntry, explain bool) {
 		return
 	}
 	for _, path := range entry.Paths {
+		line := path
 		if pat := entry.GeneratedMatches[path]; pat != "" {
-			fmt.Fprintf(out, "      %s\n", formatGeneratedMatch(path, pat))
-			continue
+			line = formatGeneratedMatch(path, pat)
 		}
-		fmt.Fprintf(out, "      %s\n", path)
+		if note := entry.PathNotes[path]; note != "" {
+			line = fmt.Sprintf("%s (%s)", line, note)
+		}
+		fmt.Fprintf(out, "      %s\n", line)
 	}
 }
 

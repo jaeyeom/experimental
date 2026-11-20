@@ -191,7 +191,7 @@ func TestLoadPklApproveDefaults(t *testing.T) {
 		cfg.Approve.PatchMaxAddedLines != DefaultPatchMaxAddedLines || DefaultPatchMaxAddedLines != 5000 {
 		t.Fatalf("approve patch cap = %d %d", cfg.Approve.PatchMaxFiles, cfg.Approve.PatchMaxAddedLines)
 	}
-	if cfg.Viewed.Enabled || cfg.Viewed.MaxMarksPerRun != DefaultMaxMarksPerRun || DefaultMaxMarksPerRun != 200 || len(cfg.Viewed.Rules) != 0 {
+	if cfg.Viewed.Enabled || cfg.Viewed.MaxMarksPerRun != DefaultMaxMarksPerRun || DefaultMaxMarksPerRun != 200 || cfg.Viewed.RemarkDismissed || len(cfg.Viewed.Rules) != 0 {
 		t.Fatalf("viewed = %+v", cfg.Viewed)
 	}
 }
@@ -202,6 +202,7 @@ viewed {
   enabled = true
   max_marks_per_run = 5
   never_mark { "**/*.go"; "**/*.py"; "**/*.proto" }
+  remark_dismissed = true
   rules {
     new { name = "locks"; repos { "acme/*" }; paths_match { "**/*.lock"; "**/go.sum" } }
     new { name = "not-mine"; codeowners_not_mine = true; paths_none_match { "docs/**" } }
@@ -211,7 +212,7 @@ viewed {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !cfg.Viewed.Enabled || cfg.Viewed.MaxMarksPerRun != 5 || len(cfg.Viewed.Rules) != 2 {
+	if !cfg.Viewed.Enabled || cfg.Viewed.MaxMarksPerRun != 5 || !cfg.Viewed.RemarkDismissed || len(cfg.Viewed.Rules) != 2 {
 		t.Fatalf("viewed = %+v", cfg.Viewed)
 	}
 	if strings.Join(cfg.Viewed.NeverMark, ",") != "**/*.go,**/*.py,**/*.proto" {

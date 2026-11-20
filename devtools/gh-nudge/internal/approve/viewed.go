@@ -57,15 +57,17 @@ func (r *Runner) markViewed(entry *LogEntry, pr github.ApprovalPullRequest, view
 		marked = paths
 		r.marksLeft -= len(paths)
 	}
-	r.recordMarkedViewed(entry, marked, fcPatterns, apply, capped, err)
+	notes := dismissedNotes(pr.Files, marked)
+	r.recordMarkedViewed(entry, marked, fcPatterns, notes, apply, capped, err)
 }
 
-func (r *Runner) recordMarkedViewed(entry *LogEntry, marked []string, fcPatterns map[string]string, apply, capped bool, markErr error) {
+func (r *Runner) recordMarkedViewed(entry *LogEntry, marked []string, fcPatterns, notes map[string]string, apply, capped bool, markErr error) {
 	patterns := filterPatterns(fcPatterns, marked)
 	if markErr != nil {
 		if entry.Action == ActionManual {
 			entry.Paths = marked
 			entry.FileCheckPatterns = patterns
+			entry.PathNotes = notes
 			entry.Action, entry.Reason = ActionError, markErr.Error()
 		} else {
 			entry.Reason = markErr.Error()
@@ -80,6 +82,7 @@ func (r *Runner) recordMarkedViewed(entry *LogEntry, marked []string, fcPatterns
 		entry.Action = markAction
 		entry.Paths = marked
 		entry.FileCheckPatterns = patterns
+		entry.PathNotes = notes
 		if capped {
 			entry.Reason = "mark cap reached"
 		}
@@ -87,6 +90,7 @@ func (r *Runner) recordMarkedViewed(entry *LogEntry, marked []string, fcPatterns
 	}
 	entry.Paths = marked
 	entry.FileCheckPatterns = patterns
+	entry.PathNotes = notes
 	extra := LogEntry{
 		Time:              entry.Time,
 		PR:                entry.PR,
@@ -98,11 +102,36 @@ func (r *Runner) recordMarkedViewed(entry *LogEntry, marked []string, fcPatterns
 		Action:            markAction,
 		Paths:             marked,
 		FileCheckPatterns: patterns,
+		PathNotes:         notes,
 	}
 	if capped {
 		extra.Reason = "mark cap reached"
 	}
 	entry.ExtraLogs = append(entry.ExtraLogs, extra)
+}
+
+const remarkAfterChangeNote = "re-mark after change"
+
+func dismissedNotes(files []models.File, marked []string) map[string]string {
+	if len(marked) == 0 {
+		return nil
+	}
+	dismissed := make(map[string]bool)
+	for _, f := range files {
+		if f.ViewerViewedState == models.ViewerDismissed {
+			dismissed[f.Path] = true
+		}
+	}
+	var notes map[string]string
+	for _, p := range marked {
+		if dismissed[p] {
+			if notes == nil {
+				notes = make(map[string]string)
+			}
+			notes[p] = remarkAfterChangeNote
+		}
+	}
+	return notes
 }
 
 func (r *Runner) fileCheckViewedPaths(entry *LogEntry, pr github.ApprovalPullRequest) ([]string, map[string]string, []string) {
@@ -118,7 +147,7 @@ func (r *Runner) fileCheckViewedPaths(entry *LogEntry, pr github.ApprovalPullReq
 			continue
 		}
 		for _, pass := range res.FileCheckPasses {
-			if st := states[pass.Path]; st == models.ViewerViewed || st == models.ViewerDismissed {
+			if st := states[pass.Path]; st == models.ViewerViewed {
 				continue
 			}
 			if glob := firstGlob(r.Viewed.NeverMark, pass.Path); glob != "" {
@@ -236,7 +265,7 @@ func (r *Runner) viewedPaths(pr github.ApprovalPullRequest, viewer string) ([]st
 	var paths, exclusions []string
 	var genMatches map[string]string
 	for _, file := range pr.Files {
-		if file.ViewerViewedState != models.ViewerUnviewed {
+		if file.ViewerViewedState != models.ViewerUnviewed && (!r.Viewed.RemarkDismissed || file.ViewerViewedState != models.ViewerDismissed) {
 			continue
 		}
 		mark, genPat, reason := viewedDecision(r.Viewed.NeverMark, rules, genPatterns, file.Path, mine)
