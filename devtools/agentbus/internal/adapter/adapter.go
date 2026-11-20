@@ -112,6 +112,19 @@ func AsComposerReader(ad Adapter) (ComposerReader, bool) {
 	return r, ok
 }
 
+// PaneProcessChecker is optional. Adapters that can report whether a
+// handle's pane is at its shell prompt (vs reused for another process)
+// implement it.
+type PaneProcessChecker interface {
+	PaneAtShell(ctx context.Context, handle string) (atShell bool, err error)
+}
+
+// AsPaneProcessChecker returns ad's pane-at-shell check when implemented.
+func AsPaneProcessChecker(ad Adapter) (PaneProcessChecker, bool) {
+	c, ok := ad.(PaneProcessChecker)
+	return c, ok
+}
+
 // Adapter is one transport. Identify reads the caller's environment.
 // The caller does not type its own handle.
 //

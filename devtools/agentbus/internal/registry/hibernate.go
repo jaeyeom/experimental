@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/hibernate"
 )
 
@@ -84,6 +85,41 @@ func (r *Registry) ClearHibernation(handle string) error {
 	return r.save()
 }
 
+// Forget drops a dead hibernation record by hand, accepting a registered
+// name or a handle. It refuses a live holder.
+func (r *Registry) Forget(ctx context.Context, target string) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	handle := target
+	if rec, ok := r.names[target]; ok && rec.Handle != "" {
+		handle = rec.Handle
+	}
+	if _, ok := r.hibernated[handle]; !ok {
+		return "", fmt.Errorf("%s has no hibernation record", target)
+	}
+	if r.liveness(ctx, handle) == "alive" {
+		return "", fmt.Errorf("%s is alive; cannot forget a live holder", handle)
+	}
+	names := r.heldBy(handle)
+	delete(r.hibernated, handle)
+	if err := r.save(); err != nil {
+		return "", err
+	}
+	name := handle
+	if len(names) > 0 {
+		name = names[0]
+	}
+	if err := r.logEvent(eventlog.Event{
+		Event:  eventlog.EventForget,
+		Actor:  "agentbus",
+		Name:   name,
+		Detail: "forgot " + handle,
+	}); err != nil {
+		return "", err
+	}
+	return handle, nil
+}
+
 // Hibernation is handle's record.
 func (r *Registry) Hibernation(handle string) (hibernate.Record, bool) {
 	r.mu.Lock()
@@ -145,12 +181,67 @@ func (r *Registry) Names() map[string][]string {
 }
 
 // claimLiveness is liveness for a claim: a handle with a hibernation
-// record, in any status, keeps its names. The caller holds r.mu.
+// record, in any status, keeps its names unless it is dead. The caller
+// holds r.mu.
 func (r *Registry) claimLiveness(ctx context.Context, handle string) string {
 	if _, ok := r.hibernated[handle]; ok {
 		return livenessHibernated
 	}
 	return r.liveness(ctx, handle)
+}
+
+// hibernatedDead reports whether oldHandle's hibernation record is dead:
+// its pane now runs a different agent session, its pane is gone, or its
+// process is gone and the pane has been reused. A live holder is never
+// dead. The caller holds r.mu.
+func (r *Registry) hibernatedDead(ctx context.Context, oldHandle, callerHandle string) bool {
+	live := r.liveness(ctx, oldHandle)
+	if live == "alive" {
+		return false
+	}
+	if callerHandle != "" && samePaneDifferentSession(oldHandle, callerHandle) {
+		return true
+	}
+	if live != "gone" {
+		return false
+	}
+	ads, err := r.usable(ctx)
+	if err != nil {
+		return false
+	}
+	for _, ad := range ads {
+		agents, invErr := ad.Inventory(ctx)
+		if invErr == nil && sessionReplaced(oldHandle, agents) {
+			return true
+		}
+		if state, sErr := ad.State(ctx, oldHandle); sErr == nil && state == adapter.StateGone {
+			return true
+		}
+		if checker, ok := adapter.AsPaneProcessChecker(ad); ok {
+			if atShell, pErr := checker.PaneAtShell(ctx, oldHandle); pErr == nil && !atShell {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func samePaneDifferentSession(oldHandle, newHandle string) bool {
+	s1, m1, sess1, p1, ok1 := splitHandleFull(oldHandle)
+	s2, m2, sess2, p2, ok2 := splitHandleFull(newHandle)
+	return ok1 && ok2 && s1 == s2 && m1 == m2 && p1 == p2 && sess1 != sess2
+}
+
+func splitHandleFull(handle string) (scheme, machine, session, pane string, ok bool) {
+	scheme, rest, found := strings.Cut(handle, ":")
+	if !found || scheme == "" || rest == "" {
+		return "", "", "", "", false
+	}
+	parts := strings.SplitN(rest, "/", 3)
+	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+		return "", "", "", "", false
+	}
+	return scheme, parts[0], parts[1], parts[2], true
 }
 
 // hibernatedRows are search rows for hibernated handles the inventory

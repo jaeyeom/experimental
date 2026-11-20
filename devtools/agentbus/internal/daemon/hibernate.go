@@ -161,6 +161,18 @@ func (s *server) wakeAgent(req Request) Response {
 	return Response{OK: true, Name: req.Name, Handle: handle}
 }
 
+// forgetAgent drops a dead hibernation record by hand, refusing a live holder.
+func (s *server) forgetAgent(req Request) Response {
+	if req.Name == "" {
+		return Response{Error: "forget needs a name or handle"}
+	}
+	handle, err := s.reg.Forget(s.ctx, req.Name)
+	if err != nil {
+		return Response{Error: err.Error()}
+	}
+	return Response{OK: true, Name: req.Name, Handle: handle}
+}
+
 // The States of a wake that relaunched nothing.
 const (
 	WakeNotHibernated = "not-hibernated"

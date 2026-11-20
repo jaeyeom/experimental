@@ -68,6 +68,16 @@ func (a *Adapter) PaneProcessInfo(ctx context.Context, raw string) (ProcessInfo,
 	return a.processInfoOn(ctx, machine, pane)
 }
 
+// PaneAtShell reports whether the pane of handle raw has its shell in
+// the foreground.
+func (a *Adapter) PaneAtShell(ctx context.Context, raw string) (bool, error) {
+	info, err := a.PaneProcessInfo(ctx, raw)
+	if err != nil {
+		return false, err
+	}
+	return info.AtShell(), nil
+}
+
 // PaneRun is RunInPane for the pane of the handle raw.
 func (a *Adapter) PaneRun(ctx context.Context, raw, command string) error {
 	machine, _, pane, err := parseHandle(raw)

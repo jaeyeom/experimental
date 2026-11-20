@@ -245,6 +245,13 @@ func commands() []command {
 			run:     noStdin(cmdReplay),
 		},
 		{
+			name:    "forget",
+			summary: "Drop a dead hibernation record by hand. Refuses a live holder.",
+			usage:   "agentbus forget <name|handle>",
+			example: "agentbus forget herdr:local/s1/w1:p1",
+			run:     noStdin(cmdForget),
+		},
+		{
 			name:    "install",
 			summary: "Install the supervisor and load it; in hub mode, the tunnel to the hub.",
 			usage:   "agentbus install",

@@ -219,3 +219,21 @@ func (b busClient) Refused(ctx context.Context, handle string, reasons []string)
 	_, err := b.call(ctx, "hibernate-refused", &hibernate.Args{Handle: handle, Reasons: reasons})
 	return err
 }
+
+// cmdForget drops a dead hibernation record by hand. It refuses a live holder.
+func cmdForget(ctx context.Context, args, env []string, stdout, stderr io.Writer) int {
+	if len(args) != 1 || args[0] == "" {
+		fmt.Fprintln(stderr, "agentbus forget: usage: agentbus forget <name|handle>")
+		return 2
+	}
+	resp, code := callDaemon(ctx, env, daemon.Request{Op: "forget", Name: args[0]}, stderr)
+	if code != 0 {
+		return code
+	}
+	if !resp.OK {
+		fmt.Fprintf(stderr, "agentbus forget: %s\n", resp.Error)
+		return 1
+	}
+	fmt.Fprintf(stdout, "forgot %s\n", resp.Handle)
+	return 0
+}

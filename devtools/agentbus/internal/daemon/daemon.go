@@ -747,8 +747,8 @@ func (s *server) dispatchMessage(req Request, pid int) Response {
 		return s.bypass(req)
 	case "requeue":
 		return s.requeue(req)
-	case "wake":
-		return s.wakeAgent(req)
+	case "wake", "forget":
+		return s.dispatchWake(req)
 	default:
 		if strings.HasPrefix(req.Op, "lease-") {
 			return s.lease(req)
@@ -761,6 +761,13 @@ func (s *server) dispatchMessage(req Request, pid int) Response {
 		}
 		return Response{Error: "unknown op"}
 	}
+}
+
+func (s *server) dispatchWake(req Request) Response {
+	if req.Op == "forget" {
+		return s.forgetAgent(req)
+	}
+	return s.wakeAgent(req)
 }
 
 func (s *server) dispatchDeliveryRecovery(req Request) Response {
