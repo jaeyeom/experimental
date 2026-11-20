@@ -19,6 +19,10 @@ func TestStamp(t *testing.T) {
 		at   time.Time
 		want string
 	}{
+		{name: "two seconds ahead", at: now.Add(2 * time.Second), want: "14:00 · now"},
+		{name: "two seconds ago", at: now.Add(-2 * time.Second), want: "13:59 · now"},
+		{name: "59 seconds ahead", at: now.Add(59 * time.Second), want: "14:00 · now"},
+		{name: "two minutes ahead", at: now.Add(2 * time.Minute), want: "today 14:02 · in 2m"},
 		{name: "three minutes ago", at: now.Add(-3 * time.Minute), want: "13:57 · 3m ago"},
 		{name: "two hours ago", at: now.Add(-2 * time.Hour), want: "12:00 · 2h ago"},
 		{name: "yesterday evening", at: time.Date(2026, 11, 11, 18, 2, 0, 0, loc), want: "yesterday 18:02"},
