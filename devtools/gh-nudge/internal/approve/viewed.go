@@ -20,15 +20,19 @@ func (r *Runner) markViewed(entry *LogEntry, pr github.ApprovalPullRequest, view
 	entry.Exclusions = append(entry.Exclusions, fcExclusions...)
 
 	var viewedPaths []string
+	var genMatches map[string]string
 	if r.Viewed.Enabled && entry.Action == ActionManual && entry.Rule == nil && !pr.Draft {
-		paths, exclusions, err := r.viewedPaths(pr, viewer)
+		paths, matches, exclusions, err := r.viewedPaths(pr, viewer)
 		if err != nil {
 			entry.Action, entry.Reason = ActionError, err.Error()
 			return
 		}
 		entry.Exclusions = append(entry.Exclusions, exclusions...)
+		entry.GeneratedMatches = matches
 		viewedPaths = paths
+		genMatches = matches
 	}
+	_ = genMatches
 
 	paths := mergeViewedPaths(pr.Files, fcPaths, viewedPaths)
 	if len(paths) == 0 || r.marksLeft <= 0 {
@@ -209,32 +213,57 @@ func (r *Runner) markPaths(pr github.ApprovalPullRequest, paths []string) ([]str
 	return marked, nil
 }
 
-// viewedPaths returns the UNVIEWED files a rule selects, in pull request order.
-// Unreadable CODEOWNERS or team data fails the pull request closed.
-func (r *Runner) viewedPaths(pr github.ApprovalPullRequest, viewer string) ([]string, []string, error) {
+// viewedPaths returns the UNVIEWED files a rule selects, in pull request order,
+// along with any @generated patterns that matched. Unreadable CODEOWNERS, team
+// data, or generated list fails the pull request closed.
+func (r *Runner) viewedPaths(pr github.ApprovalPullRequest, viewer string) ([]string, map[string]string, []string, error) {
 	rules := viewedRulesFor(r.Viewed.Rules, pr)
 	if len(rules) == 0 {
-		return nil, nil, nil
+		return nil, nil, nil, nil
+	}
+	var genPatterns []string
+	if viewedRulesUseGenerated(rules) {
+		var genErr string
+		genPatterns, genErr = r.generatedListFor(pr)
+		if genErr != "" {
+			return nil, nil, nil, fmt.Errorf("%s", genErr)
+		}
 	}
 	mine, err := r.viewedOwnership(pr, viewer, rules)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	var paths, exclusions []string
+	var genMatches map[string]string
 	for _, file := range pr.Files {
 		if file.ViewerViewedState != models.ViewerUnviewed {
 			continue
 		}
-		mark, reason := viewedDecision(r.Viewed.NeverMark, rules, file.Path, mine)
+		mark, genPat, reason := viewedDecision(r.Viewed.NeverMark, rules, genPatterns, file.Path, mine)
 		if mark {
 			paths = append(paths, file.Path)
+			if genPat != "" {
+				if genMatches == nil {
+					genMatches = make(map[string]string)
+				}
+				genMatches[file.Path] = genPat
+			}
 			continue
 		}
 		if reason != "" {
 			exclusions = append(exclusions, file.Path+": "+reason)
 		}
 	}
-	return paths, exclusions, nil
+	return paths, genMatches, exclusions, nil
+}
+
+func viewedRulesUseGenerated(rules []config.ViewedRule) bool {
+	for _, rule := range rules {
+		if config.UsesGeneratedList(rule.PathsMatch) || config.UsesGeneratedList(rule.PathsNoneMatch) {
+			return true
+		}
+	}
+	return false
 }
 
 // viewedOwnership loads CODEOWNERS when a rule needs it. mine is nil when
@@ -302,41 +331,52 @@ func viewedRulesFor(rules []config.ViewedRule, pr github.ApprovalPullRequest) []
 	return out
 }
 
-// viewedDecision reports whether path is marked, or why an exclusion kept
-// it visible. A reason is empty when no selector matched. never_mark wins
-// over a rule's paths_none_match. mine is nil when no rule uses codeowners.
-func viewedDecision(never []string, rules []config.ViewedRule, path string, mine map[string]bool) (bool, string) {
-	if glob := firstGlob(never, path); glob != "" && viewedSelectorAny(rules, path, mine) {
-		return false, "excluded by viewed.never_mark " + glob
+// viewedDecision reports whether path is marked, the matching @generated
+// pattern if selected via @generated, or why an exclusion kept it visible.
+// A reason is empty when no selector matched. never_mark wins over a rule's
+// paths_none_match. mine is nil when no rule uses codeowners.
+func viewedDecision(never []string, rules []config.ViewedRule, genPatterns []string, path string, mine map[string]bool) (bool, string, string) {
+	if glob := firstGlob(never, path); glob != "" && viewedSelectorAny(rules, genPatterns, path, mine) {
+		return false, "", "excluded by viewed.never_mark " + glob
 	}
 	var blocked string
 	for _, rule := range rules {
-		if !viewedSelector(rule, path, mine) {
+		matched, genPat := viewedSelector(rule, genPatterns, path, mine)
+		if !matched {
 			continue
 		}
-		if glob := firstGlob(rule.PathsNoneMatch, path); glob != "" {
+		if glob, fromGen, ok := matchGlobsInList(rule.PathsNoneMatch, genPatterns, path); ok {
 			if blocked == "" {
+				if fromGen {
+					glob = fmt.Sprintf("%s %q", config.GeneratedListRef, glob)
+				}
 				blocked = fmt.Sprintf("excluded by rule %s paths_none_match %s", rule.Name, glob)
 			}
 			continue
 		}
-		return true, ""
+		return true, genPat, ""
 	}
-	return false, blocked
+	return false, "", blocked
 }
 
 // viewedSelector reports whether a rule's selectors match path, before
-// paths_none_match. mine is nil when no rule uses codeowners.
-func viewedSelector(rule config.ViewedRule, path string, mine map[string]bool) bool {
-	if len(rule.PathsMatch) > 0 && matchesAny(rule.PathsMatch, path) {
-		return true
+// paths_none_match, and the @generated pattern if matched via @generated.
+// mine is nil when no rule uses codeowners.
+func viewedSelector(rule config.ViewedRule, genPatterns []string, path string, mine map[string]bool) (bool, string) {
+	if len(rule.PathsMatch) > 0 {
+		if pat, fromGen, ok := matchGlobsInList(rule.PathsMatch, genPatterns, path); ok {
+			if fromGen {
+				return true, pat
+			}
+			return true, ""
+		}
 	}
-	return rule.CodeownersNotMine && mine != nil && !mine[path]
+	return rule.CodeownersNotMine && mine != nil && !mine[path], ""
 }
 
-func viewedSelectorAny(rules []config.ViewedRule, path string, mine map[string]bool) bool {
+func viewedSelectorAny(rules []config.ViewedRule, genPatterns []string, path string, mine map[string]bool) bool {
 	for _, rule := range rules {
-		if viewedSelector(rule, path, mine) {
+		if ok, _ := viewedSelector(rule, genPatterns, path, mine); ok {
 			return true
 		}
 	}

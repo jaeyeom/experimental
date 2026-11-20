@@ -57,7 +57,8 @@ type condition struct {
 	fileLevel bool
 	// needs is the data the condition loads on demand. A condition that
 	// needs some is evaluated after the rule's other conditions passed.
-	needs loadNeeds
+	needs    loadNeeds
+	needsFor func(rule config.ApproveRule) loadNeeds
 	// skipLoad reports that the condition fails without reading its data.
 	skipLoad func(pr github.ApprovalPullRequest) bool
 	active   func(rule config.ApproveRule) bool
@@ -71,14 +72,32 @@ type loadNeeds int
 const (
 	needOwnership loadNeeds = 1 << iota
 	needPatches
+	needGenerated
 )
+
+func condNeeds(cond condition, rule config.ApproveRule) loadNeeds {
+	n := cond.needs
+	if cond.needsFor != nil {
+		n |= cond.needsFor(rule)
+	}
+	return n
+}
+
+func generatedNeedFor(patterns ...[]string) loadNeeds {
+	for _, list := range patterns {
+		if config.UsesGeneratedList(list) {
+			return needGenerated
+		}
+	}
+	return 0
+}
 
 // conditions are reported in this order. The first failure is reported.
 var conditions = []condition{
 	{name: "repos", active: func(r config.ApproveRule) bool { return len(r.Repos) > 0 }, check: checkRepos},
-	{name: "paths_all_match", fileLevel: true, active: func(r config.ApproveRule) bool { return len(r.PathsAllMatch) > 0 }, check: checkPathsAllMatch},
-	{name: "paths_none_match", fileLevel: true, active: func(r config.ApproveRule) bool { return len(r.PathsNoneMatch) > 0 }, check: checkPathsNoneMatch},
-	{name: "paths_any_match", fileLevel: true, active: func(r config.ApproveRule) bool { return len(r.PathsAnyMatch) > 0 }, check: checkPathsAnyMatch},
+	{name: "paths_all_match", fileLevel: true, needsFor: func(r config.ApproveRule) loadNeeds { return generatedNeedFor(r.PathsAllMatch) }, active: func(r config.ApproveRule) bool { return len(r.PathsAllMatch) > 0 }, detail: checkPathsAllMatch},
+	{name: "paths_none_match", fileLevel: true, needsFor: func(r config.ApproveRule) loadNeeds { return generatedNeedFor(r.PathsNoneMatch) }, active: func(r config.ApproveRule) bool { return len(r.PathsNoneMatch) > 0 }, detail: checkPathsNoneMatch},
+	{name: "paths_any_match", fileLevel: true, needsFor: func(r config.ApproveRule) loadNeeds { return generatedNeedFor(r.PathsAnyMatch) }, active: func(r config.ApproveRule) bool { return len(r.PathsAnyMatch) > 0 }, detail: checkPathsAnyMatch},
 	{name: "max_changed_lines", fileLevel: true, active: func(r config.ApproveRule) bool { return r.MaxChangedLines != nil }, check: checkMaxChangedLines},
 	{name: "max_added_lines", fileLevel: true, active: func(r config.ApproveRule) bool { return r.MaxAddedLines != nil }, check: checkMaxAddedLines},
 	{name: "max_files", fileLevel: true, active: func(r config.ApproveRule) bool { return r.MaxFiles != nil }, check: checkMaxFiles},
@@ -92,7 +111,7 @@ var conditions = []condition{
 	{name: "checks", active: func(r config.ApproveRule) bool { return r.Checks != "" }, check: checkChecks},
 	{name: "not_draft", active: func(r config.ApproveRule) bool { return r.NotDraft }, check: checkNotDraft},
 	{name: "max_unresolved_threads", active: func(config.ApproveRule) bool { return true }, check: checkUnresolvedThreads},
-	{name: "codeowners_covered", fileLevel: true, needs: needOwnership, active: func(r config.ApproveRule) bool { return r.CodeownersCovered }, detail: checkCodeownersCovered},
+	{name: "codeowners_covered", fileLevel: true, needs: needOwnership, needsFor: func(r config.ApproveRule) loadNeeds { return generatedNeedFor(r.PathsAnyMatch) }, active: func(r config.ApproveRule) bool { return r.CodeownersCovered }, detail: checkCodeownersCovered},
 	{name: "mine_comments_only", fileLevel: true, needs: needOwnership | needPatches, active: func(r config.ApproveRule) bool { return r.MineCommentsOnly }, detail: checkMineCommentsOnly},
 }
 
@@ -108,7 +127,8 @@ func EvaluateRule(rule config.ApproveRule, pr github.ApprovalPullRequest) RuleRe
 type lazyLoads struct {
 	ownership func() *github.Ownership
 	// patches returns the patches, or why there are none.
-	patches func() ([]github.PullFile, string)
+	patches   func() ([]github.PullFile, string)
+	generated func() ([]string, string)
 }
 
 // apply fills pr with the data in need that it does not hold yet and
@@ -126,6 +146,11 @@ func (l *lazyLoads) apply(pr *github.ApprovalPullRequest, need loadNeeds) bool {
 		pr.Patches, pr.PatchesErr = l.patches()
 		changed = true
 	}
+	if need&needGenerated != 0 && !pr.GeneratedLoaded && pr.GeneratedErr == "" && l.generated != nil {
+		pr.GeneratedPatterns, pr.GeneratedErr = l.generated()
+		pr.GeneratedLoaded = true
+		changed = true
+	}
 	return changed
 }
 
@@ -135,8 +160,11 @@ func fileChecksNeedPatches(rule config.ApproveRule, pr github.ApprovalPullReques
 	if pr.FilesErr != "" {
 		return false
 	}
+	if config.FileChecksUsesGeneratedList(rule.FileChecks) && (!pr.GeneratedLoaded || pr.GeneratedErr != "") {
+		return false
+	}
 	for _, file := range pr.Files {
-		if _, check, ok := config.MatchFileCheck(rule.FileChecks, file.Path); ok && check.Builtin != config.FileCheckOnlyDeletions {
+		if _, check, _, ok := config.MatchFileCheckWithGenerated(rule.FileChecks, pr.GeneratedPatterns, file.Path); ok && check.Builtin != config.FileCheckOnlyDeletions {
 			return true
 		}
 	}
@@ -154,13 +182,22 @@ func evaluateRule(rule config.ApproveRule, pr github.ApprovalPullRequest, fileCh
 	cheap := make(map[string]ConditionResult)
 	cheapFailed := ""
 	for _, cond := range conditions {
-		if !cond.active(rule) || cond.needs != 0 {
+		if !cond.active(rule) || condNeeds(cond, rule) != 0 {
 			continue
 		}
 		got := ev.evaluate(cond)
 		cheap[cond.name] = got
 		if !got.Pass && cheapFailed == "" {
 			cheapFailed = cond.name
+		}
+	}
+	reposPassed := true
+	if got, ok := cheap["repos"]; ok {
+		reposPassed = got.Pass
+	}
+	if ev.hasFileChecks && config.FileChecksUsesGeneratedList(rule.FileChecks) && reposPassed {
+		if ev.loads.apply(&ev.pr, needGenerated) {
+			ev.refilter()
 		}
 	}
 	result := RuleResult{Rule: rule.Name, Matched: true}
@@ -175,10 +212,6 @@ func evaluateRule(rule config.ApproveRule, pr github.ApprovalPullRequest, fileCh
 		}
 	}
 	if ev.hasFileChecks {
-		reposPassed := true
-		if got, ok := cheap["repos"]; ok {
-			reposPassed = got.Pass
-		}
 		got := ev.fileChecks(&result, reposPassed, fileCheck)
 		result.Conditions = append(result.Conditions, got)
 	}
@@ -231,7 +264,7 @@ func (e *ruleEval) load(cond condition) {
 	if e.allFilesCovered(cond) || (cond.skipLoad != nil && cond.skipLoad(e.pr)) {
 		return
 	}
-	if e.loads.apply(&e.pr, cond.needs) {
+	if e.loads.apply(&e.pr, condNeeds(cond, e.rule)) {
 		e.refilter()
 	}
 }
@@ -321,13 +354,16 @@ func filterUncoveredPR(rule config.ApproveRule, pr github.ApprovalPullRequest) (
 	if pr.FilesErr != "" {
 		return pr, false
 	}
+	if config.FileChecksUsesGeneratedList(rule.FileChecks) && (!pr.GeneratedLoaded || pr.GeneratedErr != "") {
+		return pr, false
+	}
 	uncovered := pr
 	uncovered.Files = nil
 	uncovered.Additions = 0
 	uncovered.Deletions = 0
 	uncoveredSet := make(map[string]bool)
 	for _, f := range pr.Files {
-		if _, _, covered := config.MatchFileCheck(rule.FileChecks, f.Path); covered {
+		if _, _, _, covered := config.MatchFileCheckWithGenerated(rule.FileChecks, pr.GeneratedPatterns, f.Path); covered {
 			continue
 		}
 		uncovered.Files = append(uncovered.Files, f)
@@ -447,48 +483,78 @@ func checkRepos(rule config.ApproveRule, pr github.ApprovalPullRequest) (bool, s
 	return matchesAny(rule.Repos, repo), repo
 }
 
-func checkPathsAllMatch(rule config.ApproveRule, pr github.ApprovalPullRequest) (bool, string) {
+func checkPathsAllMatch(rule config.ApproveRule, pr github.ApprovalPullRequest) (bool, string, []string) {
 	if pr.FilesErr != "" {
-		return unreadable(pr.FilesErr)
+		pass, saw := unreadable(pr.FilesErr)
+		return pass, saw, nil
 	}
-	var outside []string
+	if reason := generatedListError(rule.PathsAllMatch, pr); reason != "" {
+		return false, reason, nil
+	}
+	var outside, details []string
 	for _, file := range pr.Files {
-		if !matchesAny(rule.PathsAllMatch, file.Path) {
+		matched, fromGen, ok := matchGlobsWithGenerated(rule.PathsAllMatch, pr, file.Path)
+		if !ok {
 			outside = append(outside, file.Path)
+			continue
+		}
+		if fromGen {
+			details = append(details, formatGeneratedMatch(file.Path, matched))
 		}
 	}
 	if len(outside) > 0 {
-		return false, "outside globs: " + strings.Join(outside, ", ")
+		return false, "outside globs: " + strings.Join(outside, ", "), details
 	}
-	return true, fmt.Sprintf("all %d files match", len(pr.Files))
+	return true, fmt.Sprintf("all %d files match", len(pr.Files)), details
 }
 
-func checkPathsNoneMatch(rule config.ApproveRule, pr github.ApprovalPullRequest) (bool, string) {
+func checkPathsNoneMatch(rule config.ApproveRule, pr github.ApprovalPullRequest) (bool, string, []string) {
 	if pr.FilesErr != "" {
-		return unreadable(pr.FilesErr)
+		pass, saw := unreadable(pr.FilesErr)
+		return pass, saw, nil
 	}
-	var inside []string
+	if reason := generatedListError(rule.PathsNoneMatch, pr); reason != "" {
+		return false, reason, nil
+	}
+	var inside, details []string
 	for _, file := range pr.Files {
-		if matchesAny(rule.PathsNoneMatch, file.Path) {
+		if matched, fromGen, ok := matchGlobsWithGenerated(rule.PathsNoneMatch, pr, file.Path); ok {
 			inside = append(inside, file.Path)
+			if fromGen {
+				details = append(details, formatGeneratedMatch(file.Path, matched))
+			}
 		}
 	}
 	if len(inside) > 0 {
-		return false, "matched: " + strings.Join(inside, ", ")
+		return false, "matched: " + strings.Join(inside, ", "), details
 	}
-	return true, fmt.Sprintf("none of %d files match", len(pr.Files))
+	return true, fmt.Sprintf("none of %d files match", len(pr.Files)), nil
 }
 
-func checkPathsAnyMatch(rule config.ApproveRule, pr github.ApprovalPullRequest) (bool, string) {
+func checkPathsAnyMatch(rule config.ApproveRule, pr github.ApprovalPullRequest) (bool, string, []string) {
 	if pr.FilesErr != "" {
-		return unreadable(pr.FilesErr)
+		pass, saw := unreadable(pr.FilesErr)
+		return pass, saw, nil
 	}
+	if reason := generatedListError(rule.PathsAnyMatch, pr); reason != "" {
+		return false, reason, nil
+	}
+	var firstMatch string
+	var details []string
 	for _, file := range pr.Files {
-		if matchesAny(rule.PathsAnyMatch, file.Path) {
-			return true, "matched: " + file.Path
+		if matched, fromGen, ok := matchGlobsWithGenerated(rule.PathsAnyMatch, pr, file.Path); ok {
+			if firstMatch == "" {
+				firstMatch = file.Path
+			}
+			if fromGen {
+				details = append(details, formatGeneratedMatch(file.Path, matched))
+			}
 		}
 	}
-	return false, fmt.Sprintf("none of %d files match", len(pr.Files))
+	if firstMatch != "" {
+		return true, "matched: " + firstMatch, details
+	}
+	return false, fmt.Sprintf("none of %d files match", len(pr.Files)), nil
 }
 
 // checkCodeownersCovered passes when every changed file is in
@@ -509,15 +575,23 @@ func checkCodeownersCovered(rule config.ApproveRule, pr github.ApprovalPullReque
 		pass, saw := unreadable(reason)
 		return pass, saw, nil
 	}
+	if genErr := generatedListError(rule.PathsAnyMatch, pr); genErr != "" {
+		return false, genErr, nil
+	}
 	var blocked, details []string
 	for _, file := range pr.Ownership.Files {
 		owners := strings.Join(file.Owners, " ")
 		if owners == "" {
 			owners = "none"
 		}
+		matchedAny, fromGen, inAny := matchGlobsWithGenerated(rule.PathsAnyMatch, pr, file.Path)
 		switch {
-		case matchesAny(rule.PathsAnyMatch, file.Path):
-			details = append(details, "pass "+file.Path+": in paths_any_match")
+		case inAny:
+			if fromGen {
+				details = append(details, "pass "+formatGeneratedMatch(file.Path, matchedAny)+" (in paths_any_match)")
+			} else {
+				details = append(details, "pass "+file.Path+": in paths_any_match")
+			}
 		case file.Blocker != "":
 			blocked = append(blocked, file.Path+" ("+file.Blocker+")")
 			details = append(details, "FAIL "+file.Path+": blocked by "+file.Blocker)

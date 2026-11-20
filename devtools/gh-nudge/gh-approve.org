@@ -588,6 +588,50 @@ viewed {
   Setting both names on one rule is a config error.
 - ~never_mark~ is a glob list on ~viewed~. A file matching any of them is
   never marked by any rule. It wins over every rule's selectors.
+- ~@generated~ works in ~paths_match~, ~paths_none_match~, and ~except_paths~
+  the same way as in approve rules.
+
+** Generated file lists (~@generated~)
+
+Instead of copying generated-file globs into ~config.pkl~ by hand, you can point
+~generated_lists~ at a YAML file checked into the reviewed repository:
+
+#+begin_src pkl
+generated_lists {
+  ["example-org/example-repo"] = "tools/generated_files.yaml"
+}
+#+end_src
+
+The list file in the repository is a YAML sequence of entries, one per glob:
+
+#+begin_src yaml
+- pattern: "**/*.pb.go"
+  regenerate: "make proto"
+  bazel_generated: true
+  source: "proto/"
+#+end_src
+
+Only ~pattern~ is required by ~gh-approve~; other keys are ignored so the file
+can be shared with CI or other tools. An entry without ~pattern~ is a parse
+error. ~gh-approve~ reads the file from the pull request's base SHA through the
+GitHub API and caches it per repository and base SHA for the run.
+
+Any rule glob list (~paths_all_match~, ~paths_any_match~, ~paths_none_match~,
+~file_checks~ keys, and ~viewed~'s ~paths_match~, ~paths_none_match~, and
+~except_paths~) can include ~"@generated"~, combined as a union with inline
+globs:
+
+#+begin_src pkl
+paths_all_match { "@generated"; "**/*.lock" }
+#+end_src
+
+Referencing ~@generated~ for a repository without a ~generated_lists~ entry is
+a config error at load time. At runtime, ~gh-approve~ fails closed: if the list
+file is missing on the base branch, cannot be fetched, or fails to parse, every
+condition referencing ~@generated~ fails with the reason (such as
+~generated list tools/generated_files.yaml: not found at <sha>~) and a ~viewed~
+rule marks nothing. With ~--explain~, each file matched through the list prints
+~<path>: @generated "<pattern>"~.
 - With ~--explain~, a file a selector would have marked and an exclusion kept
   visible is named with ~excluded by rule <name> paths_none_match <glob>~ or
   ~excluded by viewed.never_mark <glob>~. The audit log does not record that

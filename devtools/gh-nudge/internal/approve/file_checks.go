@@ -97,6 +97,14 @@ func evaluateFileChecks(rule config.ApproveRule, pr github.ApprovalPullRequest, 
 		pass, saw := unreadable(pr.FilesErr)
 		return pass, saw, nil, nil
 	}
+	if config.FileChecksUsesGeneratedList(rule.FileChecks) {
+		if pr.GeneratedErr != "" {
+			return false, pr.GeneratedErr, nil, nil
+		}
+		if !pr.GeneratedLoaded {
+			return false, "generated list not loaded", nil, nil
+		}
+	}
 	patches := make(map[string]github.PullFile, len(pr.Patches))
 	for _, p := range pr.Patches {
 		patches[p.Path] = p
@@ -111,7 +119,7 @@ func evaluateFileChecks(rule config.ApproveRule, pr github.ApprovalPullRequest, 
 		covered int
 	)
 	for _, file := range pr.Files {
-		pattern, check, ok := config.MatchFileCheck(rule.FileChecks, file.Path)
+		pattern, check, fromGen, ok := config.MatchFileCheckWithGenerated(rule.FileChecks, pr.GeneratedPatterns, file.Path)
 		if !ok {
 			if len(limits) > 0 {
 				details = append(details, file.Path+": not covered (accepted by "+strings.Join(limits, ", ")+")")
@@ -120,6 +128,9 @@ func evaluateFileChecks(rule config.ApproveRule, pr github.ApprovalPullRequest, 
 				failed = append(failed, file.Path+" (not covered by file_checks)")
 			}
 			continue
+		}
+		if fromGen {
+			pattern = fmt.Sprintf("%s %q", config.GeneratedListRef, pattern)
 		}
 		covered++
 		out := runSingleFileCheck(rule, pr, file, pattern, check, patches, run, cache)

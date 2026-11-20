@@ -141,13 +141,14 @@ func run(configPath string, opts approve.Options, noAgentCache bool) (err error)
 		}
 	}()
 	runner := &approve.Runner{
-		Client:     github.NewClient(context.Background(), github.GHExecutor(executor.NewBasicExecutor())),
-		Config:     cfg.Approve,
-		Viewed:     cfg.Viewed,
-		Out:        os.Stdout,
-		Log:        logFile,
-		Now:        time.Now,
-		AgentCache: newAgentCache(cfg.Approve, noAgentCache, home, os.Getenv("XDG_CACHE_HOME")),
+		Client:         github.NewClient(context.Background(), github.GHExecutor(executor.NewBasicExecutor())),
+		Config:         cfg.Approve,
+		Viewed:         cfg.Viewed,
+		GeneratedLists: cfg.GeneratedLists,
+		Out:            os.Stdout,
+		Log:            logFile,
+		Now:            time.Now,
+		AgentCache:     newAgentCache(cfg.Approve, noAgentCache, home, os.Getenv("XDG_CACHE_HOME")),
 	}
 	if err := runner.Run(opts); err != nil {
 		return fmt.Errorf("run: %w", err)

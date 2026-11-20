@@ -303,3 +303,6 @@ repo_settings: Mapping<String, RepoSettings> = new {}
 approve: ApproveConfig = new {}
 /// gh-approve "mark viewed" rules. Off unless enabled.
 viewed: ViewedConfig = new {}
+/// Per-repository paths to YAML files listing generated-file globs,
+/// keyed by <owner>/<repo>. Rules can reference the list with "@generated".
+generated_lists: Mapping<String, String(!isEmpty)> = new {}

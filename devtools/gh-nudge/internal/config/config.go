@@ -32,6 +32,9 @@ type Config struct {
 	Approve ApproveConfig `yaml:"-"`
 	// Viewed holds gh-approve "mark viewed" settings. Only Pkl config supports it.
 	Viewed ViewedConfig `yaml:"-"`
+	// GeneratedLists maps <owner>/<repo> to the repository path of a YAML
+	// file listing generated-file globs. Only Pkl config supports it.
+	GeneratedLists map[string]string `yaml:"-"`
 	// Path is the file gh-merge selected. It is not read from the file.
 	Path string `yaml:"-"`
 	// SettingsFrom is the repo_settings key that applied, or SettingsFromGlobal.
@@ -315,9 +318,10 @@ func convertPklConfigInDir(pklCfg *pklconfig.Config, configDir string) *Config {
 			FailureLogPattern:          pklCfg.Settings.FailureLogPattern,
 			CircleCILog:                pklCfg.Settings.CircleciLog,
 		},
-		RepoSettings: convertRepoSettings(pklCfg.RepoSettings),
-		Approve:      convertApprove(pklCfg.Approve, configDir),
-		Viewed:       convertViewed(pklCfg.Viewed),
+		RepoSettings:   convertRepoSettings(pklCfg.RepoSettings),
+		Approve:        convertApprove(pklCfg.Approve, configDir),
+		Viewed:         convertViewed(pklCfg.Viewed),
+		GeneratedLists: cloneStringMap(pklCfg.GeneratedLists),
 	}
 	normalizeSettings(&cfg.Settings)
 
@@ -430,6 +434,9 @@ func validateConfig(cfg *Config) error {
 		return err
 	}
 	if err := validateViewed(&cfg.Viewed); err != nil {
+		return err
+	}
+	if err := validateGeneratedLists(cfg); err != nil {
 		return err
 	}
 	return validateRepoSettings(cfg.RepoSettings)

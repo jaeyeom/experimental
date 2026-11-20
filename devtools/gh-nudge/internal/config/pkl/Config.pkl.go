@@ -25,6 +25,10 @@ type Config struct {
 
 	// gh-approve "mark viewed" rules. Off unless enabled.
 	Viewed ViewedConfig `pkl:"viewed"`
+
+	// Per-repository paths to YAML files listing generated-file globs,
+	// keyed by <owner>/<repo>. Rules can reference the list with "@generated".
+	GeneratedLists map[string]string `pkl:"generated_lists"`
 }
 
 // LoadFromPath loads the pkl module at the given path and evaluates it into a Config

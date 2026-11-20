@@ -38,6 +38,7 @@ type Client interface {
 	ApprovePullRequest(ref github.PullRef, commitSHA, body string) error
 	MarkFileAsViewed(ref github.PullRef, pullRequestID, path string) error
 	CodeownersFile(ref github.PullRef, baseRef string) (string, string, error)
+	RepoFile(ref github.PullRef, rev, path string) (string, error)
 	TeamMembers(org, slug string) ([]string, error)
 	ViewerTeams(org, viewer string) ([]string, error)
 	TeamMemberCount(org, slug string) (int, error)
@@ -91,6 +92,9 @@ type LogEntry struct {
 	// Exclusions are explain lines for files a selector matched and an
 	// exclusion kept visible. They are not part of the audit log.
 	Exclusions []string `json:"-"`
+	// GeneratedMatches maps each marked path matched via @generated to its
+	// matching pattern for --explain output.
+	GeneratedMatches map[string]string `json:"-"`
 	// ExtraLogs are additional audit log entries (e.g. mark_viewed alongside
 	// approved) written to the log for this pull request.
 	ExtraLogs []LogEntry `json:"-"`
@@ -105,6 +109,9 @@ type Runner struct {
 	// Viewed is the mark-viewed config. It is separate from Config because
 	// the pkl block is a sibling of approve.
 	Viewed config.ViewedConfig
+	// GeneratedLists maps <owner>/<repo> to the repository path of a YAML
+	// file listing generated-file globs.
+	GeneratedLists map[string]string
 	// Out receives the human-readable table.
 	Out io.Writer
 	// Log receives one JSON line per evaluated pull request.
@@ -125,6 +132,8 @@ type Runner struct {
 	viewerTeams map[string]viewerTeamSet
 	// codeowners caches parsed CODEOWNERS files, keyed by repository and base ref.
 	codeowners map[string]codeownersEntry
+	// generatedLists caches parsed generated-file globs, keyed by repository and base SHA.
+	generatedLists map[string]generatedListEntry
 	// cur is the pull request being decided.
 	cur *prState
 	// marksLeft is how many files this run may still mark viewed.
@@ -659,6 +668,10 @@ func writeViewed(out *strings.Builder, entry LogEntry, explain bool) {
 		return
 	}
 	for _, path := range entry.Paths {
+		if pat := entry.GeneratedMatches[path]; pat != "" {
+			fmt.Fprintf(out, "      %s\n", formatGeneratedMatch(path, pat))
+			continue
+		}
 		fmt.Fprintf(out, "      %s\n", path)
 	}
 }
