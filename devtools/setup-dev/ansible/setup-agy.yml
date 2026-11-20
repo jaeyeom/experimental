@@ -52,6 +52,10 @@
       - "command(uniq)"
       - "command(wc)"
       - "command(which)"
+    # Commands agy must never run. Work in the existing checkout: no git
+    # worktrees (jaeyeom/experimental#982).
+    agy_denied_commands:
+      - "command(git worktree)"
   tasks:
     - name: Include guard for setup-agy playbook
       block:
@@ -129,20 +133,22 @@
         src: "{{ agy_settings_file }}"
       register: agy_settings_raw
 
-    # Union the allow list so rules saved from agy's permission prompts and
-    # the other settings keys (e.g. trustedWorkspaces) are kept.
+    # Union the allow and deny lists so rules saved from agy's permission
+    # prompts and the other settings keys (e.g. trustedWorkspaces) are kept.
     - name: Compute merged agy settings
       vars:
         agy_current: "{{ agy_settings_raw.content | b64decode | from_json }}"
         agy_current_allow: "{{ (agy_current.permissions | default({})).allow | default([]) }}"
+        agy_current_deny: "{{ (agy_current.permissions | default({})).deny | default([]) }}"
       set_fact:
         agy_current_settings: "{{ agy_current }}"
         agy_desired_settings: >-
-          {{ agy_current | combine({'agentMode': agy_agent_mode, 'permissions': {'allow':
-          agy_current_allow + (agy_allowed_commands | reject('in', agy_current_allow) | list)}},
+          {{ agy_current | combine({'agentMode': agy_agent_mode, 'permissions': {
+          'allow': agy_current_allow + (agy_allowed_commands | reject('in', agy_current_allow) | list),
+          'deny': agy_current_deny + (agy_denied_commands | reject('in', agy_current_deny) | list)}},
           recursive=True) }}
 
-    - name: Update agy settings.json if agent mode or allow list changed
+    - name: Update agy settings.json if agent mode or permissions changed
       copy:
         content: "{{ agy_desired_settings | to_nice_json(indent=2) }}\n"
         dest: "{{ agy_settings_file }}"

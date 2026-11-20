@@ -285,6 +285,24 @@ elsewhere) adds ~gh *~ and ~jira *~ to ~excludedCommands~. Go binaries
 verify TLS certificates through the macOS Security framework, which
 the sandbox blocks, so they fail TLS inside it.
 
+** No git worktrees for agents
+
+Agents work in the existing checkout; worktree creation is denied in
+each agent CLI ([[https://github.com/jaeyeom/experimental/issues/982][#982]]).
+
+- Claude Code :: ~setup-claude-sandbox.yml~ adds ~Bash(git worktree *)~
+  and ~EnterWorktree~ to ~permissions.deny~, unioned with the rules
+  already there. A deny rule cannot see the Agent tool's ~isolation~
+  argument, so a subagent started with ~isolation: "worktree"~ is not
+  blocked; denying ~Agent~ would block every subagent.
+- Antigravity CLI (~agy~) :: ~setup-agy.yml~ adds
+  ~command(git worktree)~ to ~permissions.deny~ in
+  =~/.gemini/antigravity-cli/settings.json=, unioned the same way.
+- Codex :: ~setup-codex-rules.yml~, imported by ~codex.yml~, writes
+  =~/.codex/rules/no-worktree.rules=, a ~prefix_rule~ that forbids
+  ~git worktree~. It owns only that file; other rule files are left
+  alone.
+
 * Hand-written playbooks
 
 A ~.yml~ file without the ~AUTO-GENERATED~ header is maintained by

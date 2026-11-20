@@ -176,6 +176,12 @@
           - "WebSearch"    # Read-only web search, low risk
         deny:
           - "Bash(eval *)"      # Shell eval
+          # Work in the existing checkout: no git worktrees and no
+          # worktree session (jaeyeom/experimental#982). A deny rule
+          # cannot see the Agent tool's isolation argument, so a
+          # subagent started with isolation "worktree" is not blocked.
+          - "Bash(git worktree *)"
+          - "EnterWorktree"
           - "Bash(source *)"    # Source scripts
           - "Bash(xargs *)"     # Can execute arbitrary commands
           - "Read(.envrc)"
