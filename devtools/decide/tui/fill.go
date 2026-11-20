@@ -6,7 +6,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -374,11 +373,6 @@ func contentStart(line, prefix string) int {
 		return len([]rune(line))
 	}
 	return n
-}
-
-// isFillKey reports Alt+q, the compose fill-paragraph binding.
-func isFillKey(k tea.KeyMsg) bool {
-	return k.Alt && k.Type == tea.KeyRunes && len(k.Runes) == 1 && k.Runes[0] == 'q'
 }
 
 // fillComposer refills the focused composer's paragraph.

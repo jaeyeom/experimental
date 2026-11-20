@@ -299,6 +299,10 @@ type Model struct {
 	// localConfig is this machine's config, so a local avatar rule can
 	// hide a hub save.
 	localConfig decide.ConfigFile
+	// keys holds the resolved inbox keymap, or nil for the default.
+	keys             *decide.KeyMap
+	chordPrefix      decide.KeyStroke
+	editPrefixStroke decide.KeyStroke
 }
 
 // New returns an inbox positioned on the open folder.
@@ -425,18 +429,11 @@ func (m *Model) Key(r rune) (bool, error) {
 	if m.composing {
 		return m.composeKey(r)
 	}
-	if r == 'M' {
-		m.toggleMouse()
-		return false, nil
+	k := runeKey(r)
+	if s, ok := keyStrokeFromTea(k); ok {
+		return m.dispatchBrowseKey(s)
 	}
-	if r == '?' {
-		m.help = true
-		return false, nil
-	}
-	if handled, quit, err := m.modeKey(r); handled {
-		return quit, err
-	}
-	return m.listKey(r)
+	return false, nil
 }
 
 // overlayKey handles a modal that sits above the folder keys.
@@ -470,48 +467,6 @@ func (m *Model) overlayKey(r rune) (bool, bool, error) {
 	default:
 		return false, false, nil
 	}
-}
-
-// modeKey handles a key in the detail, status, or contacts view.
-// handled is false when the list should take the key.
-func (m *Model) modeKey(r rune) (handled bool, quit bool, err error) {
-	switch m.mode {
-	case modeDetail:
-		quit, err = m.detailKey(r)
-		return true, quit, err
-	case modeStatus:
-		quit, err = m.statusKey(r)
-		return true, quit, err
-	case modeContacts:
-		quit, err = m.contactsKey(r)
-		return true, quit, err
-	default:
-		return false, false, nil
-	}
-}
-
-func (m *Model) statusKey(r rune) (bool, error) {
-	switch r {
-	case 'q':
-		return true, nil
-	case 'g':
-		m.beginChord()
-	case 'u':
-		m.backToList()
-	case 'j':
-		m.moveAgent(1)
-	case 'k':
-		m.moveAgent(-1)
-	case 'G':
-		m.jumpList(m.listLen() - 1)
-	case 'c':
-		m.composeFromStatus()
-	case '/':
-		m.beginSearch()
-	case '\x1b':
-		m.clearAgentFilter()
-	}
-	return false, nil
 }
 
 func (m *Model) moveAgent(delta int) {
@@ -686,69 +641,34 @@ func (m *Model) clampAgentCursor() {
 	}
 }
 
-func (m *Model) beginChord() {
+func (m *Model) beginChord(prefix decide.KeyStroke) {
 	m.chord = true
+	m.chordPrefix = prefix
 	m.chordSeq++
 }
 
-// goToChord is one second key after g. The table drives finishChord, the
-// footer menu, and the ? help line, so the three cannot drift.
-type goToChord struct {
-	key  rune
-	name string
-	run  func(m *Model) error
-}
-
-var goToChords = []goToChord{
-	{'i', "inbox", func(m *Model) error { return m.showFolder(0) }},
-	{'z', "snoozed", func(m *Model) error { return m.showFolder(snoozedFolder) }},
-	{'a', "answered", func(m *Model) error { return m.showFolder(2) }},
-	{'d', "done", func(m *Model) error { return m.showFolder(3) }},
-	{'w', "withdrawn", func(m *Model) error { return m.showFolder(4) }},
-	{'s', "status", func(m *Model) error { return m.showStatus() }},
-	{'c', "contacts", func(m *Model) error { return m.showContacts() }},
-	{'g', "top", func(m *Model) error {
-		if m.mode == modeList || m.mode == modeStatus || m.mode == modeContacts {
-			m.jumpList(0)
-		}
-		return nil
-	}},
-}
-
-// goToMenu is the footer while a g chord is pending. When the full menu is
-// wider than width, it keeps only the keys. A width of 0 means unmeasured.
-func goToMenu(width int) string {
-	names := make([]string, len(goToChords))
-	keys := make([]string, len(goToChords))
-	for i, c := range goToChords {
-		keys[i] = string(c.key)
-		names[i] = keys[i] + " " + c.name
-	}
-	wide := "go to: " + strings.Join(names, " · ") + " · esc cancel"
-	if width <= 0 || lipgloss.Width(wide) <= width {
-		return wide
-	}
-	return "go to: " + strings.Join(keys, " ")
-}
-
-// goToHelp is the ? help line for the g chords.
-func goToHelp() string {
-	names := make([]string, len(goToChords))
-	for i, c := range goToChords {
-		names[i] = string(c.key) + " " + c.name
-	}
-	return "g then " + strings.Join(names, ", ")
+// goToMenu is the footer while a chord is pending.
+func (m *Model) goToMenu(width int) string {
+	return m.goToMenuLine(width)
 }
 
 func (m *Model) finishChord(r rune) (bool, error) {
-	m.chord = false
-	if r == '\x1b' {
+	k := runeKey(r)
+	s, ok := keyStrokeFromTea(k)
+	if !ok {
+		m.chord = false
 		return false, nil
 	}
-	for _, c := range goToChords {
-		if c.key == r {
-			return false, c.run(m)
-		}
+	return m.finishChordStroke(s)
+}
+
+func (m *Model) finishChordStroke(s decide.KeyStroke) (bool, error) {
+	m.chord = false
+	if s.Key == "esc" && !s.Ctrl && !s.Alt {
+		return false, nil
+	}
+	if action, ok := m.keyMap().MatchChord(m.browseScope(), m.chordPrefix, s); ok {
+		return m.runAction(action)
 	}
 	m.status = "unknown go-to key"
 	return false, nil
@@ -761,135 +681,21 @@ func (m *Model) expireChord(seq int) {
 	m.chord = false
 }
 
-func (m *Model) listKey(r rune) (bool, error) {
-	switch r {
-	case 'q':
-		return true, nil
-	case 'j':
-		m.moveList(1)
-	case 'k':
-		m.moveList(-1)
-	case 'G':
-		m.jumpList(m.listLen() - 1)
-	case 'g':
-		m.beginChord()
-	case 'o', '\r', '\n':
-		if err := m.openRow(); err != nil {
-			return false, err
-		}
-	case 'c':
-		m.focusCompose()
-	case 'e', 'y':
-		return false, m.archiveSelected()
-	case 'b':
-		m.beginSnooze()
-	case '/':
-		m.beginSearch()
-	case '\x1b':
-		m.clearAgentFilter()
-	}
-	return false, nil
-}
-
 func (m *Model) helpKey(r rune) (bool, error) {
-	switch r {
-	case '\x1b', '?':
+	k := runeKey(r)
+	if s, ok := keyStrokeFromTea(k); ok {
+		if act, matched := m.keyMap().Match(m.browseScope(), s); matched {
+			switch act {
+			case "help":
+				m.help = false
+				return false, nil
+			case "quit":
+				return true, nil
+			}
+		}
+	}
+	if r == '\x1b' {
 		m.help = false
-	case 'q':
-		return true, nil
-	}
-	return false, nil
-}
-
-func (m *Model) detailKey(r rune) (bool, error) {
-	switch r {
-	case 'q':
-		return true, nil
-	case '\x1b', 'u':
-		m.backToList()
-		return false, nil
-	case 'j':
-		m.Wheel(true)
-		return false, nil
-	case 'k':
-		m.Wheel(false)
-		return false, nil
-	case 'n':
-		m.moveMessage(1)
-		return false, nil
-	case 'p':
-		m.moveMessage(-1)
-		return false, nil
-	case 'g':
-		m.beginChord()
-		return false, nil
-	case 'e', 'y':
-		return false, m.archiveSelected()
-	case 'b':
-		m.beginSnooze()
-		return false, nil
-	case 'l':
-		return false, m.openSelectedLink()
-	case '/':
-		m.beginSearch()
-		return false, nil
-	case 'G':
-		m.scrollEnd()
-		return false, nil
-	}
-	if m.detailOutside(r) || m.detailComposer(r) {
-		return false, nil
-	}
-	return m.detailText(r)
-}
-
-// detailOutside runs an item-view key that acts outside the inbox:
-// Y opens the copy menu, L copies the link, V toggles the plain view,
-// o jumps to the owner's tab, and A sets the selected sender's avatar,
-// saved to config. The opening message still sets the owner's.
-func (m *Model) detailOutside(r rune) bool {
-	switch r {
-	case 'A':
-		m.beginAvatarPick()
-	case 'Y':
-		m.openCopyMenu()
-	case 'L':
-		m.copyCurrentLink()
-	case 'V':
-		m.togglePlain()
-	case 'o':
-		m.jumpToOwner()
-	default:
-		return false
-	}
-	return true
-}
-
-// detailComposer opens the composer an item-view key names: c compose,
-// f forward, d outcome, or 0 reply.
-func (m *Model) detailComposer(r rune) bool {
-	switch r {
-	case 'c':
-		m.focusCompose()
-	case 'f':
-		m.forwardItem()
-	case 'd':
-		m.beginOutcome()
-	case '0':
-		m.focusReply()
-	default:
-		return false
-	}
-	return true
-}
-
-// detailText answers a numbered option. Any other printable key is unbound.
-func (m *Model) detailText(r rune) (bool, error) {
-	if r >= '1' && r <= '9' {
-		return false, m.answerOption(int(r - '1'))
-	}
-	if r >= ' ' {
-		m.status = "unknown key, ? for help"
 	}
 	return false, nil
 }
@@ -1530,11 +1336,11 @@ func (m *Model) statusLine() screenLine {
 		return screenLine{text: hint}
 	}
 	if m.chord {
-		return screenLine{text: goToMenu(m.contentWidth())}
+		return screenLine{text: m.goToMenu(m.contentWidth())}
 	}
 	status := m.footerStatus()
 	if kind, ok := m.composerKind(); ok {
-		hint := label + composerHint(kind)
+		hint := label + m.composerHintLine(kind)
 		if status == "" {
 			return screenLine{text: hint}
 		}
@@ -1557,35 +1363,15 @@ func (m *Model) statusLine() screenLine {
 
 // browseHint is the footer shortcut list for the current view.
 func (m *Model) browseHint(label string) string {
-	switch m.mode {
-	case modeStatus:
-		return label + "g go to  u list  c  tab/text/[Send]  ? help"
-	case modeContacts:
-		if m.narrow() {
-			return label + "g go to  u list  enter filter  i details  ? help"
-		}
-		return label + "g go to  u list  enter filter  A avatar  ? help"
-	case modeDetail, modeOutcome:
-		return label + "0 reply  f forward  u list  q quit  e/y archive  j/k pgup/pgdn home/end  n/p  ? help"
-	default:
-		return label + "g go to  o open  u list  c  tab/text/[Send]  ? help"
-	}
+	return m.browseHintLine(label)
 }
 
-// withOptionalHints adds d outcome in an open item, then /find, then
-// b snooze, then g go to and o owner in an open item, before "? help"
-// while each fits, so a narrow footer keeps "? help".
+// withOptionalHints adds optional hints before the help hint while each fits,
+// so a narrow footer keeps the help hint.
 func (m *Model) withOptionalHints(text string) string {
-	extras := []string{"/find", "b snooze"}
-	switch m.mode {
-	case modeStatus, modeContacts:
-		extras = extras[:1]
-	case modeDetail, modeOutcome:
-		extras = append([]string{"d outcome"}, extras...)
-		extras = append(extras, "g go to", "o owner")
-	}
-	for _, extra := range extras {
-		wide := strings.TrimSuffix(text, "? help") + extra + "  ? help"
+	helpHint := m.helpHintLabel()
+	for _, extra := range m.optionalHintExtras() {
+		wide := strings.TrimSuffix(text, helpHint) + extra + "  " + helpHint
 		if w := m.contentWidth(); w <= 0 || lipgloss.Width(wide) <= w {
 			text = wide
 		}
@@ -2644,97 +2430,7 @@ func boxLines(lines []screenLine) []screenLine {
 }
 
 func (m *Model) helpLines() []screenLine {
-	text := []string{
-		"shortcuts",
-		"q quit",
-		"j/k move  pgup/pgdn  home/end  gg/G",
-		goToHelp(),
-		"o or enter opens    u returns to the list",
-		"c compose",
-		"tab moves recipient, text, [Send]",
-		"shift+tab moves back",
-		"typing filters recipients  up/down or C-n/C-p move  enter picks",
-		"enter on text inserts a newline",
-		"enter on [Send] sends",
-		"esc keeps the draft",
-		"1-9 answer  0 reply  f forward  e/y archive  d outcome  b snooze",
-		"/ filters as you type, esc restores, empty enter clears",
-		"l opens a link, or picks one: j/k or a number, enter opens",
-		"L copies the link   Y copy menu   V plain view   A — set avatar for the selected sender",
-		"shift+drag selects text",
-		"M toggles mouse capture",
-		"esc back",
-		"click folder, row, option, target, or [Send]",
-		"wheel scroll",
-		"? or esc close",
-	}
-	if m.mode == modeStatus {
-		text = []string{
-			"shortcuts",
-			"q quit",
-			"j/k move  pgup/pgdn  home/end  gg/G",
-			goToHelp(),
-			"u returns to the list",
-			"c compose",
-			"tab moves recipient, text, [Send]",
-			"shift+tab moves back",
-			"typing filters recipients  up/down or C-n/C-p move  enter picks",
-			"enter on text inserts a newline",
-			"enter on [Send] sends",
-			"esc keeps the draft",
-			"/ filters as you type, esc restores, empty enter clears",
-			"shift+drag selects text",
-			"M toggles mouse capture",
-			"click folder, target, or [Send]",
-			"wheel scroll",
-			"? or esc close",
-		}
-	}
-	if m.mode == modeContacts {
-		text = []string{
-			"shortcuts",
-			"q quit",
-			"j/k move  pgup/pgdn  home/end  gg/G",
-			goToHelp(),
-			"enter filters every folder to this agent",
-			"esc clears the agent filter",
-			"c compose",
-			"* stars this contact; starred names lead the recipient list",
-			"A picks this agent's avatar",
-			"i shows or hides the details on a narrow screen",
-			"t switches between the list and the org tree (ui.orgTree)",
-			"a aliases this contact to a bus name",
-			"x hides this contact",
-			"H shows hidden contacts",
-			"X hides every dead contact",
-			"R releases a dead bus name",
-			"u returns to the list",
-			"/ filters as you type, esc restores, empty enter clears",
-			"M toggles mouse capture",
-			"click a folder",
-			"wheel scroll",
-			"? or esc close",
-		}
-	}
-	if i := slices.Index(text, "esc keeps the draft"); i >= 0 {
-		text = slices.Insert(text, i+1, composerHelp...)
-	}
-	if m.mode == modeDetail || m.mode == modeOutcome {
-		if i := slices.Index(text, "enter on text inserts a newline"); i >= 0 {
-			text[i] = "enter in the reply or note text inserts a newline, tab reaches [Send]"
-		}
-		for i, line := range text {
-			if strings.HasPrefix(line, "j/k move") {
-				text[i] = "j/k up/down line  pgup/pgdn page  home/end/G  n/p"
-			}
-			if strings.HasPrefix(line, "/ filters") {
-				text[i] = "/ highlights as you type, esc restores, empty enter clears"
-			}
-		}
-		if i := slices.Index(text, "o or enter opens    u returns to the list"); i >= 0 {
-			text[i] = "o jumps to the owner's herdr tab    u returns to the list"
-		}
-	}
+	text := m.helpTextLines()
 	lines := make([]screenLine, len(text))
 	for i, line := range text {
 		lines[i] = screenLine{text: plainText(line)}

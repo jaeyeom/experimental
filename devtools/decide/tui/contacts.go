@@ -421,41 +421,6 @@ func itemInvolves(it decide.Item, name string) bool {
 	return false
 }
 
-func (m *Model) contactsKey(r rune) (bool, error) {
-	if m.contactsHideKey(r) {
-		return false, nil
-	}
-	switch r {
-	case 'q':
-		return true, nil
-	case 'g':
-		m.beginChord()
-	case 'u':
-		m.backToList()
-	case 'j':
-		m.moveContact(1)
-	case 'k':
-		m.moveContact(-1)
-	case 'G':
-		m.jumpList(m.listLen() - 1)
-	case '\r', '\n':
-		if c, ok := m.selectedContact(); ok {
-			m.applyAgentFilter(c.Name)
-		}
-	case '\x1b':
-		m.clearAgentFilter()
-	case 'A':
-		if c, ok := m.selectedContact(); ok {
-			m.openAvatarPick(c.Name)
-		}
-	case 'c':
-		m.composeFromContact()
-	case '/':
-		m.beginSearch()
-	}
-	return false, nil
-}
-
 // composeFromContact opens the compose view on the selected contact.
 // The recipient is the canonical name, and the cursor starts in the
 // text box. A dead name the bus does not list is still selected, and
@@ -486,38 +451,6 @@ func (m *Model) ensureComposeDead(c contact) {
 	m.composeDead = append(m.composeDead, Target{
 		Name: c.Name, Bus: true, Dead: true, Live: "dead",
 	})
-}
-
-// contactsHideKey handles hide, show-hidden, hide-dead, release, alias,
-// star, the narrow-screen details toggle, and the org tree toggle.
-func (m *Model) contactsHideKey(r rune) bool {
-	switch r {
-	case '*':
-		m.starContact()
-	case 'x':
-		m.hideSelected()
-	case 'H':
-		m.showHidden = !m.showHidden
-		if m.showHidden {
-			m.status = "showing hidden contacts"
-		} else {
-			m.status = "hiding hidden contacts"
-		}
-		m.clampContactCursor()
-	case 'X':
-		m.askHideDead()
-	case 'R':
-		m.askRelease()
-	case 'a':
-		m.beginAliasPick()
-	case 'i':
-		m.contactDetail = !m.contactDetail
-	case 't':
-		m.toggleOrgTree()
-	default:
-		return false
-	}
-	return true
 }
 
 func (m *Model) selectedContact() (contact, bool) {

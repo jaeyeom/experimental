@@ -55,6 +55,7 @@ var itemCommands = map[string]func([]string, io.Writer, io.Writer) int{
 var ledgerCommands = map[string]func([]string, io.Writer, io.Writer) int{
 	"serve":  cmdServe,
 	"follow": cmdFollow,
+	"keys":   cmdKeys,
 }
 
 func runLocal(args []string, stdout, stderr io.Writer) int {
@@ -110,7 +111,8 @@ func usage(w io.Writer) {
   decide answer [--json] [--via cli|ui] <id> <option|text>
   decide snooze [--json] <id> <2h30m|HH:MM|YYYY-MM-DD HH:MM|mon 9:00>
   decide unsnooze [--json] <id>
-  decide [--remote <user@host>] inbox [--snoozed] [--utc]
+  decide [--remote <user@host>] inbox [--snoozed] [--utc] [--print-keys]
+  decide keys [--json]
   decide follow [--every 1m] [--once]
   decide status set --agent <name> [--state working|idle|paused|blocked] <text>
   decide status set --resource <name> free|busy [<note>]
@@ -719,9 +721,16 @@ func statusAge(d time.Duration) string {
 var runInbox = tui.Run
 
 func cmdInbox(args []string, stdout, stderr io.Writer) int {
-	snoozed, utc, code, ok := inboxFlags(args, stderr)
+	snoozed, utc, printKeys, code, ok := inboxFlags(args, stderr)
 	if !ok {
 		return code
+	}
+	if printKeys {
+		cfg, err := decide.LoadConfig()
+		if err != nil {
+			return fail(stderr, err, 1)
+		}
+		return printKeyMap(cfg, false, stdout, stderr)
 	}
 	dir, err := decide.DefaultDir()
 	if err != nil {
@@ -740,19 +749,54 @@ func cmdInbox(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func cmdKeys(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("keys", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	jsonOut := fs.Bool("json", false, "print the active keymap as JSON")
+	if code, stop := stopped(parseFlags(fs, args)); stop {
+		return code
+	}
+	if len(fs.Args()) != 0 {
+		return fail(stderr, fmt.Errorf("decide keys does not take arguments"), 2)
+	}
+	cfg, err := decide.LoadConfig()
+	if err != nil {
+		return fail(stderr, err, 1)
+	}
+	return printKeyMap(cfg, *jsonOut, stdout, stderr)
+}
+
+func printKeyMap(cfg decide.Config, jsonOut bool, stdout, stderr io.Writer) int {
+	km, err := decide.ResolveKeyMap(cfg.UI.Keys)
+	if err != nil {
+		return fail(stderr, err, 1)
+	}
+	if jsonOut {
+		data, err := decide.FormatKeyMapJSON(km)
+		if err != nil {
+			return fail(stderr, err, 1)
+		}
+		_, _ = stdout.Write(data)
+		return 0
+	}
+	_, _ = io.WriteString(stdout, decide.FormatKeyMapText(km))
+	return 0
+}
+
 // inboxFlags parses the inbox flags and reports whether to go on.
-func inboxFlags(args []string, stderr io.Writer) (snoozed, utc bool, code int, ok bool) {
+func inboxFlags(args []string, stderr io.Writer) (snoozed, utc, printKeys bool, code int, ok bool) {
 	fs := flag.NewFlagSet("inbox", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	snoozedFlag := fs.Bool("snoozed", false, "open on the Snoozed folder")
 	utcFlag := fs.Bool("utc", false, "show times in UTC")
+	printKeysFlag := fs.Bool("print-keys", false, "print the active keymap and exit")
 	if code, stop := stopped(parseFlags(fs, args)); stop {
-		return false, false, code, false
+		return false, false, false, code, false
 	}
 	if len(fs.Args()) != 0 {
-		return false, false, fail(stderr, fmt.Errorf("decide inbox does not take arguments"), 2), false
+		return false, false, false, fail(stderr, fmt.Errorf("decide inbox does not take arguments"), 2), false
 	}
-	return *snoozedFlag, *utcFlag, 0, true
+	return *snoozedFlag, *utcFlag, *printKeysFlag, 0, true
 }
 
 // inboxOptions are the inbox settings from this machine's config.
@@ -783,6 +827,7 @@ func inboxOptions(cfg decide.Config, stdout io.Writer, snoozed bool) tui.Options
 		HiddenContacts:    cfg.HiddenContacts,
 		FavoriteContacts:  cfg.FavoriteContacts,
 		ContactAliases:    cfg.ContactAliases,
+		Keys:              cfg.UI.Keys,
 	}
 }
 

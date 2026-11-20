@@ -14,6 +14,7 @@ go_library(
         "favorite.go",
         "follow.go",
         "hidden.go",
+        "keys.go",
         "lease.go",
         "ledger.go",
         "location.go",
@@ -48,6 +49,7 @@ go_test(
         "done_unread_test.go",
         "favorite_test.go",
         "follow_test.go",
+        "keys_test.go",
         "lease_test.go",
         "ledger_test.go",
         "location_test.go",
@@ -59,6 +61,7 @@ go_test(
         "verify_test.go",
         "worker_test.go",
     ],
+    data = ["README.org"],
     embed = [":go_default_library"],
     deps = ["//devtools/pkg/herdrtest:go_default_library"],
 )

@@ -151,6 +151,8 @@ type InboxUI struct {
 	// decide accepts from an author. Nil is DefaultMaxMessageChars;
 	// zero turns the check off.
 	MaxMessageChars *int `json:"maxMessageChars,omitempty"`
+	// Keys maps inbox action names to key sequences, overriding defaults.
+	Keys map[string][]string `json:"keys,omitempty"`
 }
 
 const (
@@ -425,6 +427,9 @@ func parseConfig(data []byte, dir string) (Config, error) {
 		return Config{}, err
 	}
 	if err := checkShapeConfig(cfg); err != nil {
+		return Config{}, err
+	}
+	if _, err := ResolveKeyMap(cfg.UI.Keys); err != nil {
 		return Config{}, err
 	}
 	resolveAvatarFiles(cfg.Avatars, dir)
