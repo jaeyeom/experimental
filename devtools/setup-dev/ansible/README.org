@@ -303,6 +303,34 @@ each agent CLI ([[https://github.com/jaeyeom/experimental/issues/982][#982]]).
   ~git worktree~. It owns only that file; other rule files are left
   alone.
 
+** Trusting ~/agents/roles for AI coding CLIs
+
+~setup-agent-roles-trust.yml~ (imported by ~all.yml~) marks
+~agent_roles_dir~ (default =~/agents/roles=) as trusted and
+read/write-allowed for each installed AI coding CLI, merging into
+existing config files without overwriting other state. Tools not found
+in ~PATH~ are skipped cleanly.
+
+- Claude Code (~claude~) :: Sets
+  ~projects["<path>"].hasTrustDialogAccepted = true~ in =~/.claude.json=,
+  adds ~<path>~ to ~permissions.additionalDirectories~ and ~Read~ /
+  ~Edit~ rules to ~permissions.allow~ in =~/.claude/settings.json=, and
+  adds ~<path>~ to ~sandbox.filesystem.allowWrite~ when the sandbox is
+  enabled.
+- Codex CLI (~codex~) :: Sets ~[projects."<path>"] trust_level =
+  "trusted"~ and adds ~<path>~ to
+  ~[sandbox_workspace_write] writable_roots~ in =~/.codex/config.toml~
+  (or =$CODEX_HOME/config.toml=).
+- Antigravity CLI (~agy~) :: Adds ~<path>~ to ~trustedWorkspaces~ and
+  ~read_file(<path>)~ / ~write_file(<path>)~ to ~permissions.allow~ in
+  =~/.gemini/antigravity-cli/settings.json=.
+- Grok Build (~grok~) :: Sets ~[folders."<path>"] trusted = true~ in
+  =~/.grok/trusted_folders.toml~ (or =$GROK_HOME/trusted_folders.toml=).
+  Grok's default sandbox profile is ~off~ (unrestricted), so no global
+  writable-roots setting is needed; custom profiles in
+  =~/.grok/sandbox.toml= use per-profile ~read_write~ lists and are left
+  untouched.
+
 * Hand-written playbooks
 
 A ~.yml~ file without the ~AUTO-GENERATED~ header is maintained by
