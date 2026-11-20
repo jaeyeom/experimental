@@ -57,7 +57,7 @@ func (m *Model) atThreadEnd() bool {
 		return true
 	}
 	lines := m.detailLines(m.detailInnerWidth(m.contentWidth()))
-	_, limit := m.layoutBudget()
+	limit, _ := m.detailLayout(m.contentWidth())
 	return threadEnd(len(lines), m.scroll, limit)
 }
 

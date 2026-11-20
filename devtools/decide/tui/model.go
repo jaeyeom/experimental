@@ -1886,24 +1886,48 @@ func (m *Model) clipList(list []screenLine) []screenLine {
 	return list
 }
 
+// detailLayout returns the row budget for the scrolling thread area above
+// the pinned reply box, and the rendered reply box lines themselves.
+func (m *Model) detailLayout(width int) (threadN int, reply []screenLine) {
+	reply = m.replyLines(m.detailInnerWidth(width))
+	_, detailN := m.layoutBudget()
+	if detailN <= 0 {
+		return 0, reply
+	}
+	threadN = max(detailN-len(reply), 0)
+	return threadN, reply
+}
+
 func (m *Model) openedScreen(width int) []screenLine {
 	detail := m.detailLines(m.detailInnerWidth(width))
+	threadN, reply := m.detailLayout(width)
 	_, detailN := m.layoutBudget()
-	if (m.replyFocus || m.mode == modeOutcome) && detailN > 0 {
+	if m.mode == modeOutcome && threadN > 0 {
 		if cur := cursorLineIndex(detail); cur >= 0 {
 			if cur < m.scroll {
 				m.scroll = cur
-			} else if cur >= m.scroll+detailN {
-				m.scroll = cur - detailN + 1
+			} else if cur >= m.scroll+threadN {
+				m.scroll = cur - threadN + 1
 			}
 		}
 	}
-	if threadEnd(len(detail), m.scroll, detailN) {
+	if threadEnd(len(detail), m.scroll, threadN) {
 		m.newMessages = 0
 	}
-	var scroll int
-	detail, scroll = clipLines(detail, m.scroll, detailN)
-	m.scroll = scroll
+	if detailN > 0 {
+		if threadN == 0 {
+			detail = nil
+			m.scroll = 0
+		} else {
+			var scroll int
+			detail, scroll = clipLines(detail, m.scroll, threadN)
+			m.scroll = scroll
+		}
+		for len(detail) < threadN {
+			detail = append(detail, screenLine{})
+		}
+	}
+	detail = append(detail, reply...)
 	if width <= 0 {
 		if m.answerFocus {
 			return boxAnswer(detail)
@@ -2778,9 +2802,7 @@ func (m *Model) detailLines(width int) []screenLine {
 			screenLine{text: plainText("where: " + it.Where)},
 			screenLine{text: plainText("mark done"), hits: []hit{{kind: hitMarkDone}}},
 		)
-		lines = append(lines, m.replyLines(width)...)
 	} else {
-		lines = append(lines, m.replyLines(width)...)
 		lines = append(lines, m.relayLines(it, width)...)
 	}
 	if m.mode == modeOutcome {

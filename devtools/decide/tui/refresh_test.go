@@ -250,7 +250,7 @@ func TestLiveRefreshKeepsDeletedItem(t *testing.T) {
 	if m.mode != modeDetail || m.detail == nil || m.detail.ID != item.ID {
 		t.Fatalf("mode %d detail %+v", m.mode, m.detail)
 	}
-	if !strings.Contains(view, "item no longer in ledger") || !strings.Contains(view, "message 5") {
+	if !strings.Contains(view, "item no longer in ledger") || !strings.Contains(view, "message 4") {
 		t.Fatalf("missing deleted status\n%s", view)
 	}
 }
