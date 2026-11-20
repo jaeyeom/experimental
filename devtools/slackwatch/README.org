@@ -216,6 +216,11 @@ drafts created with ~slackwatch post~.
 | ~inbound.kinds~ | ~dm~ and ~mention~ | Which stored inbound messages to notify. |
 | ~inbound.ignoreAuthors~ | none | Authors, such as bots, that are stored but not notified. |
 | ~inbound.ignoreChannels~ | none | Channels dropped entirely: not stored, not notified, and not logged beyond a count. |
+| ~names.command~ | none | Argv template run to name a user id; ~{id}~ is replaced. See [[*User names][User names]]. |
+| ~names.timeout~ | ~"5s"~ | Limit on one ~names.command~ run. |
+| ~names.users_info~ | ~true~ | Ask Slack ~users.info~ with the read token when the command has no answer. |
+| ~names.cacheTtl~ | ~"24h"~ | How long a name, or a no-match, is cached. |
+| ~names.maxWait~ | ~"10s"~ | Longest one lookup waits out Slack rate limits before showing the id. |
 
 Durations use Go syntax, such as ~"90m"~ or ~"6h"~.
 
@@ -244,8 +249,9 @@ environment variable and is never written into the command string.
 | ~SLACKWATCH_CHANNEL~ | Channel id. |
 | ~SLACKWATCH_PURPOSE~ | The watch purpose. |
 | ~SLACKWATCH_REFS~ | Refs, separated by spaces. |
-| ~SLACKWATCH_AUTHOR~ | Reply author. |
-| ~SLACKWATCH_TEXT~ | Reply text, cut to ~excerptLimit~ characters. |
+| ~SLACKWATCH_AUTHOR~ | Reply author's user id. |
+| ~SLACKWATCH_AUTHOR_NAME~ | The author's name, empty when it is not known. See [[*User names][User names]]. |
+| ~SLACKWATCH_TEXT~ | Reply text, cut to ~excerptLimit~ characters, with ~<@U…>~ mentions shown as ~@Name~. |
 | ~SLACKWATCH_WATCH_ID~ | Watch id, empty for a channel subscription. |
 | ~SLACKWATCH_OUTBOX_ID~ | Outbox record id for an outbox event, else empty. |
 | ~SLACKWATCH_NOTIFY_ID~ | Idempotency key for this attempt chain, ~slackwatch:<watch>:<event>:<ulid>~. Retries of one note reuse it. |
@@ -346,6 +352,39 @@ A file per target, so each owner reads its own inbox:
   that tolerate a repeat.
 - Acks, reactions, edits, and deletes never notify. The token owner's
   own replies notify only with ~notifySelf~.
+
+
+* User names
+
+Notices show a user as ~Name (U…)~ instead of a bare id, and a mention
+~<@U…>~ in the excerpt as ~@Name~. Only the shown text changes; the
+stored and posted text keeps the raw ids. ~slackwatch inbound~ shows
+names already cached and never looks one up.
+
+A name is looked up in this order:
+
+1. ~names.command~, when set. The argv runs without a shell, ~{id}~
+   replaced by the user id, for at most ~names.timeout~.
+   - Exit 0 with JSON such as ~{"name": "Ada Lovelace"}~ on stdout:
+     ~.name~ is the name.
+   - Exit 2: no match; go on to the next step.
+   - Any other exit, bad JSON, or a timeout: a warning is logged and
+     the next step runs.
+2. Slack ~users.info~ with the read token, unless ~names.users_info~ is
+   ~false~: the profile display name, else the real name. Guests and
+   bots are covered. A rate limit is waited out for at most
+   ~names.maxWait~ in total; then the id is shown.
+3. Otherwise the bare id, as before.
+
+Answers are cached by id for ~names.cacheTtl~, including a no-match, so
+neither the command nor Slack is asked again within that time. A
+failed or rate-limited lookup is not cached. With
+~"names": {"users_info": false}~ and no command, notices are as they
+were before names.
+
+#+begin_src json
+{"names": {"command": ["directory-lookup", "--slack-id", "{id}"], "cacheTtl": "12h"}}
+#+end_src
 
 * Commands
 

@@ -76,6 +76,9 @@ type Config struct {
 	// Inbound, when set, notifies an agent about new DMs and mentions.
 	// Nil stores those messages and does not notify.
 	Inbound *InboundConfig `json:"inbound"`
+	// Names shows user names next to ids in notices. The zero value asks
+	// Slack users.info.
+	Names NamesConfig `json:"names"`
 }
 
 // InboundConfig is the optional "inbound" config object. Target is
