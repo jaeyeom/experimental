@@ -26,6 +26,7 @@ type Options struct {
 	Targets           []Target
 	SendTemplate      string
 	LateDeliveryAfter time.Duration
+	OutboxStaleAfter  time.Duration
 	Agentbus          bool
 	BusRunner         BusRunner
 	// RecipientsTimeout bounds the background `agentbus list --json`.
@@ -146,6 +147,7 @@ func prepare(opts Options) (*Model, error) {
 	m.Targets = opts.Targets
 	m.SendTemplate = opts.SendTemplate
 	m.LateDeliveryAfter = opts.LateDeliveryAfter
+	m.OutboxStaleAfter = opts.OutboxStaleAfter
 	m.busOn = opts.Agentbus
 	m.busRun = opts.BusRunner
 	m.busTimeout = opts.RecipientsTimeout

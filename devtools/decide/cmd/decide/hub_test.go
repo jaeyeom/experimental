@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/decide"
 	"github.com/jaeyeom/experimental/devtools/decide/tui"
@@ -135,6 +136,7 @@ func stubInbox(t *testing.T, check func(tui.Options)) *tui.Options {
 }
 
 func TestHubInboxRunsLocallyAgainstTheHub(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	_, state := setupHub(t, `{"hub": "me@hub", "machine": "mac", "hubMachine": "hub"}`)
 	hubDir, bin, _ := hubDecide(t, `{"targets": [{"name": "builder", "pane": "w2:p3"}]}`)
 	led, err := decide.Open(hubDir)
@@ -154,6 +156,15 @@ func TestHubInboxRunsLocallyAgainstTheHub(t *testing.T) {
 		}
 		if _, err := opts.Backend.Answer(item.ID, "y"); err != nil {
 			t.Errorf("hub answer: %v", err)
+		}
+		if ob, ok := opts.Backend.(tui.OutboxBackend); ok && ob.OutboxEnabled() {
+			deadline := time.Now().Add(2 * time.Second)
+			for len(ob.Outbox()) > 0 && time.Now().Before(deadline) {
+				time.Sleep(10 * time.Millisecond)
+			}
+			if rem := ob.Outbox(); len(rem) > 0 {
+				t.Errorf("outbox did not drain: %+v", rem)
+			}
 		}
 	})
 	var stderr bytes.Buffer

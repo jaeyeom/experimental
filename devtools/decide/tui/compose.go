@@ -147,6 +147,18 @@ func (m *Model) sendNote() error {
 		m.status = "no compose target"
 		return nil
 	}
+	if m.outboxEditing != "" {
+		if ob, ok := m.outboxBackend(); ok {
+			if err := ob.EditOutbox(m.outboxEditing, m.note); err != nil {
+				m.status = err.Error()
+				return nil
+			}
+			m.status = "updated " + m.outboxEditing
+			m.outboxEditing = ""
+			m.clearNote()
+			return nil
+		}
+	}
 	if m.askBusDown(tg.onBus(), m.sendNote) {
 		return nil
 	}

@@ -42,6 +42,7 @@ func cmdHubInbox(settings hubSettings, args []string, stdout, stderr io.Writer) 
 		Label:      settings.hub.Target,
 		Machine:    settings.machine,
 		HubMachine: settings.hubMachine,
+		UseOutbox:  true,
 	}
 	if err := client.Connect(); err != nil {
 		return fail(stderr, err, 1)

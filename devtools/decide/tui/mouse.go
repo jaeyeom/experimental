@@ -229,7 +229,7 @@ func (m *Model) hit(h hit) error {
 	m.blurCompose()
 	switch h.kind {
 	case hitFolder:
-		return m.showFolder(h.n)
+		return m.openNavFolder(h.n)
 	case hitRow:
 		if h.n < 0 || h.n >= len(m.items) {
 			return nil

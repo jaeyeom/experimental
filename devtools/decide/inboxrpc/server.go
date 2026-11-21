@@ -154,11 +154,15 @@ func (s *Server) busOp(ctx context.Context, req Request) (Response, bool) {
 // itemOp answers an op on one item and reports whether req is one.
 func (s *Server) itemOp(req Request) (Response, bool) {
 	b := s.Backend
+	var writtenAt time.Time
+	if req.WrittenAt != nil {
+		writtenAt = *req.WrittenAt
+	}
 	ops := map[string]func() (decide.Item, error){
 		OpShow:     func() (decide.Item, error) { return b.Get(req.Item) },
 		OpMarkRead: func() (decide.Item, error) { return b.MarkRead(req.Item) },
-		OpAnswer:   func() (decide.Item, error) { return b.Answer(req.Item, req.Text) },
-		OpReply:    func() (decide.Item, error) { return b.Reply(req.Item, req.Text, req.Route) },
+		OpAnswer:   func() (decide.Item, error) { return b.AnswerAt(req.Item, req.Text, writtenAt) },
+		OpReply:    func() (decide.Item, error) { return b.ReplyAt(req.Item, req.Text, req.Route, writtenAt) },
 		OpDone:     func() (decide.Item, error) { return b.Done(req.Item, req.Text) },
 		OpArchive: func() (decide.Item, error) {
 			var seen time.Time
@@ -180,7 +184,34 @@ func (s *Server) itemOp(req Request) (Response, bool) {
 	if !ok {
 		return Response{}, false
 	}
+	if req.ConflictCheck {
+		if cur, err := b.Get(req.Item); err == nil {
+			var baseLast time.Time
+			if req.BaseLastMessageAt != nil {
+				baseLast = *req.BaseLastMessageAt
+			}
+			if reason := detectConflict(req.Op, req.BaseState, req.BaseMessageCount, baseLast, req.BaseAnswered, cur); reason != "" {
+				return Response{Conflict: reason, Item: &cur}, true
+			}
+		}
+	}
 	return itemResponse(op()), true
+}
+
+func detectConflict(op, baseState string, baseCount int, baseLast time.Time, baseAnswered bool, cur decide.Item) string {
+	if cur.State == decide.StateWithdrawn && baseState != decide.StateWithdrawn {
+		return "item was withdrawn"
+	}
+	if (cur.State == decide.StateDone || cur.State == decide.StateDoneUnread) && baseState != cur.State {
+		return "item was marked done"
+	}
+	if op == OpAnswer && (cur.State == decide.StateAnswered || cur.Answer != nil) && !baseAnswered {
+		return "item was already answered"
+	}
+	if len(cur.Messages) > baseCount || (!baseLast.IsZero() && cur.LastMessageAt().After(baseLast)) {
+		return "new message arrived"
+	}
+	return ""
 }
 
 func (s *Server) list() Response {
@@ -316,7 +347,11 @@ func (s *Server) send(req Request) Response {
 		}
 		tg = tui.Target{Name: found.Name, Pane: found.Pane}
 	}
-	if err := s.Backend.Send(req.Forward, tg, req.Text); err != nil {
+	var writtenAt time.Time
+	if req.WrittenAt != nil {
+		writtenAt = *req.WrittenAt
+	}
+	if err := s.Backend.SendAt(req.Forward, tg, req.Text, writtenAt); err != nil {
 		return failed(err)
 	}
 	return Response{}

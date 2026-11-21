@@ -814,6 +814,7 @@ func inboxOptions(cfg decide.Config, stdout io.Writer, snoozed bool) tui.Options
 		Targets:           inboxTargets(cfg),
 		SendTemplate:      cfg.SendTemplate,
 		LateDeliveryAfter: cfg.LateDeliveryAfter(),
+		OutboxStaleAfter:  cfg.OutboxStaleAfter(),
 		Agentbus:          cfg.Recipients.Agentbus,
 		RecipientsTimeout: cfg.BusListTimeout(),
 		Snoozed:           snoozed,

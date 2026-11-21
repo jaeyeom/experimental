@@ -68,6 +68,50 @@ type ReplicaBackend interface {
 	SyncStatus() SyncStatus
 }
 
+// OutboxStatus is the state of one queued write on a hub client.
+type OutboxStatus string
+
+const (
+	OutboxPending OutboxStatus = "pending"
+	OutboxHeld    OutboxStatus = "held"
+	OutboxFailed  OutboxStatus = "failed"
+)
+
+// OutboxEntry is one queued write on a hub client.
+type OutboxEntry struct {
+	ID                string       `json:"id"`
+	Op                string       `json:"op"`
+	ItemID            string       `json:"itemId,omitempty"`
+	Text              string       `json:"text,omitempty"`
+	Route             string       `json:"route,omitempty"`
+	Until             *time.Time   `json:"until,omitempty"`
+	Seen              *time.Time   `json:"seen,omitempty"`
+	To                string       `json:"to,omitempty"`
+	Bus               bool         `json:"bus,omitempty"`
+	Forward           string       `json:"forward,omitempty"`
+	Name              string       `json:"name,omitempty"`
+	Choice            string       `json:"choice,omitempty"`
+	WrittenAt         time.Time    `json:"writtenAt"`
+	Status            OutboxStatus `json:"status"`
+	Error             string       `json:"error,omitempty"`
+	HoldReason        string       `json:"holdReason,omitempty"`
+	BaseState         string       `json:"baseState,omitempty"`
+	BaseMessageCount  int          `json:"baseMessageCount,omitempty"`
+	BaseLastMessageAt time.Time    `json:"baseLastMessageAt,omitempty"`
+	BaseAnswered      bool         `json:"baseAnswered,omitempty"`
+	Force             bool         `json:"force,omitempty"`
+}
+
+// OutboxBackend is a backend that queues writes locally on a hub client.
+type OutboxBackend interface {
+	OutboxEnabled() bool
+	Outbox() []OutboxEntry
+	EditOutbox(id, text string) error
+	CancelOutbox(id string) error
+	SendOutbox(id string) error
+	DismissFailedOutbox(id string) error
+}
+
 // unreachableStatus is the status line while the hub is unreachable.
 const unreachableStatus = "hub unreachable; retrying"
 
@@ -227,7 +271,14 @@ func (b *LocalBackend) MarkRead(id string) (decide.Item, error) {
 
 // Answer implements Backend.
 func (b *LocalBackend) Answer(id, value string) (decide.Item, error) {
-	updated, err := b.with(func(led *decide.Ledger) (decide.Item, error) { return led.Answer(id, value, decide.ViaUI) })
+	return b.AnswerAt(id, value, time.Time{})
+}
+
+// AnswerAt is Answer with an optional client writtenAt timestamp.
+func (b *LocalBackend) AnswerAt(id, value string, writtenAt time.Time) (decide.Item, error) {
+	updated, err := b.with(func(led *decide.Ledger) (decide.Item, error) {
+		return led.AnswerAt(id, value, decide.ViaUI, writtenAt)
+	})
 	if err != nil {
 		return decide.Item{}, err
 	}
@@ -246,12 +297,19 @@ func (b *LocalBackend) Answer(id, value string) (decide.Item, error) {
 
 // Reply implements Backend.
 func (b *LocalBackend) Reply(id, text, route string) (decide.Item, error) {
+	return b.ReplyAt(id, text, route, time.Time{})
+}
+
+// ReplyAt is Reply with an optional client writtenAt timestamp.
+func (b *LocalBackend) ReplyAt(id, text, route string, writtenAt time.Time) (decide.Item, error) {
 	if route != "" {
 		if err := decide.CheckRoute(route); err != nil {
 			return decide.Item{}, err //nolint:wrapcheck // CheckRoute names the route
 		}
 	}
-	updated, err := b.with(func(led *decide.Ledger) (decide.Item, error) { return led.Compose(id, text, decide.ViaUI, "") })
+	updated, err := b.with(func(led *decide.Ledger) (decide.Item, error) {
+		return led.ComposeAt(id, text, decide.ViaUI, "", writtenAt)
+	})
 	if err != nil {
 		return decide.Item{}, err
 	}
@@ -397,6 +455,11 @@ func (b *LocalBackend) Status() (StatusBoard, error) {
 // A bus name, and a pane that starts with agentbus:, gets `agentbus send`.
 // A failed send drops the thread it opened.
 func (b *LocalBackend) Send(forward string, tg Target, text string) error {
+	return b.SendAt(forward, tg, text, time.Time{})
+}
+
+// SendAt is Send with an optional client writtenAt timestamp.
+func (b *LocalBackend) SendAt(forward string, tg Target, text string, writtenAt time.Time) error {
 	if tg.Bus {
 		return b.sendBus(forward, tg, text)
 	}
@@ -410,7 +473,7 @@ func (b *LocalBackend) Send(forward string, tg Target, text string) error {
 	if err != nil {
 		return err
 	}
-	item, err := led.ForwardThread(forward, tg.Name, tg.Pane, text, decide.ViaUI)
+	item, err := led.ForwardThreadAt(forward, tg.Name, tg.Pane, text, decide.ViaUI, writtenAt)
 	if err != nil {
 		return fmt.Errorf("store decide thread: %w", err)
 	}
