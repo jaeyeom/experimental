@@ -13,6 +13,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/prreview"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/storage"
+	"github.com/jaeyeom/experimental/devtools/pkg/version"
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 
@@ -49,10 +50,6 @@ func newCommandHandler(storageHome string) (*prreview.CommandHandler, error) {
 
 	return prreview.NewCommandHandler(ghStorage, prClient, gitClient, storageHome), nil
 }
-
-const (
-	version = "1.0.0"
-)
 
 // autoDetectOwnerRepo gets the default owner/repo using gh CLI.
 func autoDetectOwnerRepo() (string, error) {
@@ -260,7 +257,7 @@ func executeCommand(command string, args []string) {
 	}
 
 	if command == "version" {
-		fmt.Printf("gh-pr-review version %s\n", version)
+		fmt.Printf("gh-pr-review version %s\n", version.Resolve())
 		return
 	}
 

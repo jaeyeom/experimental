@@ -40,8 +40,8 @@ func TestVersionJSON(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("json: %v\n%s", err, stdout.String())
 	}
-	if got["version"] != version.Version {
-		t.Fatalf("version = %q, want %q", got["version"], version.Version)
+	if got["version"] != version.Resolve() {
+		t.Fatalf("version = %q, want %q", got["version"], version.Resolve())
 	}
 }
 

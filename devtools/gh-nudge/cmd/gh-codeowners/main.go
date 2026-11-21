@@ -38,17 +38,13 @@ import (
 	"strings"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/codeowners"
+	pkgversion "github.com/jaeyeom/experimental/devtools/pkg/version"
 )
 
 var (
 	codeownersFile string
 	verbose        bool
 	version        bool
-)
-
-const (
-	// Version of the gh-codeowners tool.
-	Version = "0.1.0"
 )
 
 func registerFlags() {
@@ -106,7 +102,7 @@ func processFiles(input io.Reader, owners *codeowners.Codeowners, output io.Writ
 func run() error {
 	// Handle version flag
 	if version {
-		fmt.Printf("gh-codeowners version %s\n", Version)
+		fmt.Printf("gh-codeowners version %s\n", pkgversion.Resolve())
 		return nil
 	}
 

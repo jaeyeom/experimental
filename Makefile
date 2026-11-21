@@ -64,8 +64,18 @@ INSTALL_CMDS := \
 	./devtools/reviewpush/cmd/review-and-push-loop \
 	./devtools/slackwatch/cmd/slackwatch
 
+VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
+VERSION_LDFLAGS := -ldflags "-X github.com/jaeyeom/experimental/devtools/pkg/version.Version=$(VERSION)"
+
 install:
-	GOPACKAGESDRIVER= go install $(INSTALL_CMDS)
+	GOPACKAGESDRIVER= go install $(VERSION_LDFLAGS) $(INSTALL_CMDS)
+
+.PHONY: tag
+tag:
+	@if [ -z "$(TAG)" ]; then echo "Usage: make tag TAG=vX.Y.Z"; exit 1; fi
+	@echo "$(TAG)" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$$' || { echo "Error: TAG must match vMAJOR.MINOR.PATCH"; exit 1; }
+	git tag -a "$(TAG)" -m "Release $(TAG)"
+	@echo "Created tag $(TAG). Push with: git push origin $(TAG)"
 
 # Go targets
 .PHONY: lint-golangci fix-golangci verify-golangci-config check-bazel-go-files

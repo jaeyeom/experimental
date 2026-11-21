@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+
+	"github.com/jaeyeom/experimental/devtools/pkg/version"
 )
 
 // Companion describes a companion binary installed alongside the main tool.
@@ -119,14 +121,11 @@ func (t *Tool) buildInfo() BuildInfo {
 func readRuntimeBuildInfo() BuildInfo {
 	bi, ok := debug.ReadBuildInfo()
 	if !ok {
-		return BuildInfo{Version: "(devel)"}
+		return BuildInfo{Version: version.Resolve()}
 	}
 	info := BuildInfo{
 		ModulePath: bi.Main.Path,
-		Version:    bi.Main.Version,
-	}
-	if info.Version == "" {
-		info.Version = "(devel)"
+		Version:    version.Resolve(),
 	}
 	for _, s := range bi.Settings {
 		switch s.Key {

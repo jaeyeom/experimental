@@ -160,7 +160,8 @@ func tflintReleaseInstall(goos string) ShellInstallMethod {
 
 // ghNudgeVersion is the version every gh-nudge command installs. The
 // family shares one pkl/Config.pkl, and an older binary warns about
-// unknown fields.
+// unknown fields. "latest" resolves to the latest monorepo vMAJOR.MINOR.PATCH
+// release tag (or can be pinned to a specific vX.Y.Z tag).
 const ghNudgeVersion = "latest"
 
 func ghNudgeTool(name string) PlatformSpecificTool {

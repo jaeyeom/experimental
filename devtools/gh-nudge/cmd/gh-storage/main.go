@@ -9,10 +9,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/argparser"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/storage"
-)
-
-const (
-	version = "1.0.0"
+	"github.com/jaeyeom/experimental/devtools/pkg/version"
 )
 
 func main() {
@@ -40,7 +37,7 @@ func executeCommand(command string, args []string) {
 	}
 
 	if command == "version" {
-		fmt.Printf("gh-storage version %s\n", version)
+		fmt.Printf("gh-storage version %s\n", version.Resolve())
 		return
 	}
 
