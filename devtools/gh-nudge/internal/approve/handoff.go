@@ -20,16 +20,20 @@ type teamMembers struct {
 }
 
 // teamMembers returns the members of org/slug. They are cached per run.
-func (r *Runner) teamMembers(org, slug string) ([]string, error) {
+func (r *Runner) teamMembers(org, slug string, st *prState, pool *loadPool) ([]string, error) {
 	key := strings.ToLower(org + "/" + slug)
-	if r.teams == nil {
-		r.teams = map[string]teamMembers{}
-	}
-	got, ok := r.teams[key]
-	if !ok {
-		r.measure(&r.state().teams, func() { got.members, got.err = r.Client.TeamMembers(org, slug) })
-		r.teams[key] = got
-	}
+	got, _ := r.teams.getOrLoad(key, func() teamMembers {
+		var res teamMembers
+		r.measure(&st.teams, func() {
+			err := pool.callWithRetry(func() error {
+				var callErr error
+				res.members, callErr = r.Client.TeamMembers(org, slug)
+				return callErr //nolint:wrapcheck // caller records team member error
+			})
+			res.err = err
+		})
+		return res
+	})
 	return got.members, got.err
 }
 
@@ -37,30 +41,36 @@ func (r *Runner) teamMembers(org, slug string) ([]string, error) {
 // that include the viewer, or why they could not be read.
 type viewerTeamSet struct {
 	slugs map[string]bool
+	hash  string
 	err   error
 }
 
 // viewerTeamsOf returns the viewer's teams in org. They are read in one
 // paged query per organization and cached per run.
-func (r *Runner) viewerTeamsOf(org, viewer string) viewerTeamSet {
+func (r *Runner) viewerTeamsOf(org, viewer string, st *prState, pool *loadPool) viewerTeamSet {
 	key := strings.ToLower(org)
-	if r.viewerTeams == nil {
-		r.viewerTeams = map[string]viewerTeamSet{}
-	}
-	got, ok := r.viewerTeams[key]
-	if !ok {
-		r.measure(&r.state().teams, func() {
-			slugs, err := r.Client.ViewerTeams(org, viewer)
-			got.err = err
+	got, _ := r.viewerTeams.getOrLoad(key, func() viewerTeamSet {
+		var res viewerTeamSet
+		r.measure(&st.teams, func() {
+			var slugs []string
+			err := pool.callWithRetry(func() error {
+				var callErr error
+				slugs, callErr = r.Client.ViewerTeams(org, viewer)
+				return callErr //nolint:wrapcheck // caller records viewer teams error
+			})
+			res.err = err
 			if err == nil {
-				got.slugs = make(map[string]bool, len(slugs))
+				res.slugs = make(map[string]bool, len(slugs))
 				for _, slug := range slugs {
-					got.slugs[strings.ToLower(slug)] = true
+					res.slugs[strings.ToLower(slug)] = true
 				}
+				res.hash = hashViewerTeams(res.slugs, true)
+			} else {
+				res.hash = hashViewerTeams(nil, false)
 			}
 		})
-		r.viewerTeams[key] = got
-	}
+		return res
+	})
 	return got
 }
 
@@ -71,28 +81,32 @@ type teamCount struct {
 }
 
 // teamMemberCount returns how many members org/slug has, cached per run.
-func (r *Runner) teamMemberCount(org, slug string) (int, error) {
+func (r *Runner) teamMemberCount(org, slug string, st *prState, pool *loadPool) (int, error) {
 	key := strings.ToLower(org + "/" + slug)
-	if r.teamCounts == nil {
-		r.teamCounts = map[string]teamCount{}
-	}
-	got, ok := r.teamCounts[key]
-	if !ok {
-		r.measure(&r.state().teams, func() { got.n, got.err = r.Client.TeamMemberCount(org, slug) })
-		r.teamCounts[key] = got
-	}
+	got, _ := r.teamCounts.getOrLoad(key, func() teamCount {
+		var res teamCount
+		r.measure(&st.teams, func() {
+			err := pool.callWithRetry(func() error {
+				var callErr error
+				res.n, callErr = r.Client.TeamMemberCount(org, slug)
+				return callErr //nolint:wrapcheck // caller records team count error
+			})
+			res.err = err
+		})
+		return res
+	})
 	return got.n, got.err
 }
 
 // viewerInTeam reports whether the viewer is in org/slug. It reads the
 // viewer's teams and falls back to the team's member list when they cannot
 // be read.
-func (r *Runner) viewerInTeam(org, slug, viewer string) (bool, error) {
-	r.state().teams.used = true
-	if set := r.viewerTeamsOf(org, viewer); set.err == nil {
+func (r *Runner) viewerInTeam(org, slug, viewer string, st *prState, pool *loadPool) (bool, error) {
+	st.teams.used = true
+	if set := r.viewerTeamsOf(org, viewer, st, pool); set.err == nil {
 		return set.slugs[strings.ToLower(slug)], nil
 	}
-	members, err := r.teamMembers(org, slug)
+	members, err := r.teamMembers(org, slug, st, pool)
 	if err != nil {
 		return false, err
 	}
@@ -110,19 +124,19 @@ type teamView struct {
 // teamViewFor says whether the viewer is in org/slug and whether it has
 // other members. With the viewer's teams it reads a member count, not the
 // member list.
-func (r *Runner) teamViewFor(org, slug, viewer string) (teamView, error) {
-	r.state().teams.used = true
-	if set := r.viewerTeamsOf(org, viewer); set.err == nil {
+func (r *Runner) teamViewFor(org, slug, viewer string, st *prState, pool *loadPool) (teamView, error) {
+	st.teams.used = true
+	if set := r.viewerTeamsOf(org, viewer, st, pool); set.err == nil {
 		if !set.slugs[strings.ToLower(slug)] {
 			return teamView{}, nil
 		}
-		n, err := r.teamMemberCount(org, slug)
+		n, err := r.teamMemberCount(org, slug, st, pool)
 		if err != nil {
 			return teamView{}, err
 		}
 		return teamView{viewerIn: true, others: n > 1}, nil
 	}
-	members, err := r.teamMembers(org, slug)
+	members, err := r.teamMembers(org, slug, st, pool)
 	if err != nil {
 		return teamView{}, err
 	}
@@ -134,46 +148,53 @@ func (r *Runner) teamViewFor(org, slug, viewer string) (teamView, error) {
 
 // codeownersEntry is a parsed CODEOWNERS file, or why it could not be read.
 type codeownersEntry struct {
-	owners *codeowners.Codeowners
-	err    error
+	owners  *codeowners.Codeowners
+	blobSHA string
+	err     error
 }
 
-// codeownersOf returns the parsed CODEOWNERS on pr's base branch. It is read
-// once per repository and base ref in a run.
-func (r *Runner) codeownersOf(pr github.ApprovalPullRequest) (*codeowners.Codeowners, error) {
+// codeownersOf returns the parsed CODEOWNERS on pr's base branch and its blob
+// SHA. It is read once per repository and base ref in a run.
+func (r *Runner) codeownersOf(pr github.ApprovalPullRequest, st *prState, pool *loadPool) (*codeowners.Codeowners, string, error) {
 	key := strings.ToLower(pr.Ref.Owner+"/"+pr.Ref.Repo) + "@" + pr.BaseRef
-	if r.codeowners == nil {
-		r.codeowners = map[string]codeownersEntry{}
-	}
-	r.state().codeowners.used = true
-	got, ok := r.codeowners[key]
-	if !ok {
-		r.measure(&r.state().codeowners, func() {
-			_, text, err := r.Client.CodeownersFile(pr.Ref, pr.BaseRef)
+	st.codeowners.used = true
+	got, _ := r.codeowners.getOrLoad(key, func() codeownersEntry {
+		var res codeownersEntry
+		r.measure(&st.codeowners, func() {
+			var blob github.CodeownersBlob
+			err := pool.callWithRetry(func() error {
+				var callErr error
+				blob, callErr = r.Client.CodeownersBlob(pr.Ref, pr.BaseRef)
+				return callErr //nolint:wrapcheck // caller records CODEOWNERS error
+			})
 			if err != nil {
-				got.err = err
+				res.err = err
 				return
 			}
-			got.owners = codeowners.ParseSections(strings.NewReader(text))
+			res.blobSHA = blob.OID
+			res.owners = codeowners.ParseSections(strings.NewReader(blob.Text))
 		})
-		r.codeowners[key] = got
-	}
-	return got.owners, got.err
+		return res
+	})
+	return got.owners, got.blobSHA, got.err
 }
 
 // loadOwnership reads CODEOWNERS on the base branch and decides, for every
 // team that owns a changed file, whether the viewer is in it. CODEOWNERS and
 // team data are cached per run.
-func (r *Runner) loadOwnership(pr github.ApprovalPullRequest, viewer string) *github.Ownership {
+func (r *Runner) loadOwnership(pr github.ApprovalPullRequest, viewer string, st *prState, pool *loadPool) *github.Ownership {
 	if pr.FilesErr != "" {
 		return &github.Ownership{Err: pr.FilesErr}
 	}
-	owners, err := r.codeownersOf(pr)
+	owners, blobSHA, err := r.codeownersOf(pr, st, pool)
 	if err != nil {
 		return &github.Ownership{Err: err.Error()}
 	}
+	st.loadedCodeownersSHA = blobSHA
+	set := r.viewerTeamsOf(pr.Ref.Owner, viewer, st, pool)
+	st.loadedTeamsHash = set.hash
 	return computeOwnership(owners, pr, viewer, func(org, slug string) (teamView, error) {
-		return r.teamViewFor(org, slug, viewer)
+		return r.teamViewFor(org, slug, viewer, st, pool)
 	})
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config"
@@ -37,7 +38,7 @@ type Client interface {
 	PullRequestFilePatches(ref github.PullRef) ([]github.PullFile, error)
 	ApprovePullRequest(ref github.PullRef, commitSHA, body string) error
 	MarkFileAsViewed(ref github.PullRef, pullRequestID, path string) error
-	CodeownersFile(ref github.PullRef, baseRef string) (string, string, error)
+	CodeownersBlob(ref github.PullRef, baseRef string) (github.CodeownersBlob, error)
 	RepoFile(ref github.PullRef, rev, path string) (string, error)
 	TeamMembers(org, slug string) ([]string, error)
 	ViewerTeams(org, viewer string) ([]string, error)
@@ -59,6 +60,8 @@ type Options struct {
 	Color bool
 	// MaxDuration stops starting new pull requests after this much time.
 	MaxDuration time.Duration
+	// LoadConcurrency bounds concurrent uncached PR loads. Zero uses Config.LoadConcurrency.
+	LoadConcurrency int
 }
 
 // LogEntry is one audit log line.
@@ -125,19 +128,23 @@ type Runner struct {
 	RunFileCheckCommand FileCheckRunner
 	// AgentCache caches agent command decisions. Nil bypasses the cache.
 	AgentCache *AgentCache
+	// PRCache caches per-commit PR facts across passes. Nil bypasses the cache.
+	PRCache *PRCache
+	// Sleep waits during rate-limit backoff. Nil means time.Sleep.
+	Sleep func(time.Duration)
+	// BackoffBase is the initial secondary rate-limit backoff. Zero means defaultBackoffBase.
+	BackoffBase time.Duration
 
 	// teams caches team members for the run, keyed by lowercase org/slug.
-	teams map[string]teamMembers
+	teams syncCache[teamMembers]
 	// teamCounts caches team member counts, keyed like teams.
-	teamCounts map[string]teamCount
+	teamCounts syncCache[teamCount]
 	// viewerTeams caches the viewer's teams per lowercase organization.
-	viewerTeams map[string]viewerTeamSet
+	viewerTeams syncCache[viewerTeamSet]
 	// codeowners caches parsed CODEOWNERS files, keyed by repository and base ref.
-	codeowners map[string]codeownersEntry
+	codeowners syncCache[codeownersEntry]
 	// generatedLists caches parsed generated-file globs, keyed by repository and base SHA.
-	generatedLists map[string]generatedListEntry
-	// cur is the pull request being decided.
-	cur *prState
+	generatedLists syncCache[generatedListEntry]
 	// marksLeft is how many files this run may still mark viewed.
 	marksLeft int
 }
@@ -191,42 +198,188 @@ type runTotals struct {
 	stoppedAt    int
 }
 
-func (r *Runner) processCandidates(candidates []github.ApprovalCandidate, viewer string, opts Options, single bool, started time.Time, limit time.Duration) (runTotals, error) {
-	totals := runTotals{stoppedAt: -1}
+type evalOutcome struct {
+	cheapSkipped bool
+	skip         bool
+	needsAction  bool
+	entry        LogEntry
+	pr           github.ApprovalPullRequest
+	matched      string
+	viaTeam      string
+	st           *prState
+}
+
+func (r *Runner) effectiveConcurrency(opts Options, single bool, n int) int {
+	if single || n <= 1 {
+		return 1
+	}
+	c := opts.LoadConcurrency
+	if c <= 0 {
+		c = r.Config.LoadConcurrency
+	}
+	if c <= 0 {
+		c = config.DefaultLoadConcurrency
+	}
+	return c
+}
+
+type outcomeQueue struct {
+	mu        sync.Mutex
+	readyCond *sync.Cond
+	slots     []*evalOutcome
+	stoppedAt int
+}
+
+func newOutcomeQueue(n int) *outcomeQueue {
+	q := &outcomeQueue{
+		slots:     make([]*evalOutcome, n),
+		stoppedAt: -1,
+	}
+	q.readyCond = sync.NewCond(&q.mu)
+	return q
+}
+
+func (q *outcomeQueue) set(idx int, res *evalOutcome) {
+	q.mu.Lock()
+	q.slots[idx] = res
+	q.readyCond.Broadcast()
+	q.mu.Unlock()
+}
+
+func (q *outcomeQueue) stopAt(idx int) {
+	q.mu.Lock()
+	q.stoppedAt = idx
+	q.readyCond.Broadcast()
+	q.mu.Unlock()
+}
+
+func (q *outcomeQueue) next(idx int) (*evalOutcome, int) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for q.slots[idx] == nil && (q.stoppedAt < 0 || idx < q.stoppedAt) {
+		q.readyCond.Wait()
+	}
+	if q.stoppedAt >= 0 && idx >= q.stoppedAt {
+		return nil, q.stoppedAt
+	}
+	return q.slots[idx], -1
+}
+
+func (r *Runner) cheapSkipOutcome(candidate github.ApprovalCandidate, explain bool) *evalOutcome {
+	reason, rules := cheapFailure(r.Config.Rules, candidate)
+	if reason == "" {
+		return nil
+	}
+	st := &prState{start: r.now()}
+	entry := LogEntry{
+		Time:   r.now().UTC(),
+		PR:     fmt.Sprintf("%s/%s#%d", candidate.Ref.Owner, candidate.Ref.Repo, candidate.Ref.Number),
+		URL:    candidate.URL,
+		Title:  candidate.Title,
+		Author: candidate.Author,
+		Action: ActionSkipped,
+		Reason: reason,
+		Rules:  rules,
+	}
+	if explain {
+		entry.Timing = r.timingLine(st)
+	}
+	return &evalOutcome{cheapSkipped: true, entry: entry, st: st}
+}
+
+func (r *Runner) dispatchCandidates(candidates []github.ApprovalCandidate, viewer string, opts Options, single bool, started time.Time, limit time.Duration, pool *loadPool, queue *outcomeQueue) {
+	var wg sync.WaitGroup
+	canStart := func() bool {
+		return single || limit <= 0 || r.now().Sub(started) < limit
+	}
 	for i, candidate := range candidates {
-		if !single && limit > 0 && r.now().Sub(started) >= limit {
-			totals.stoppedAt = i
+		if !canStart() {
+			queue.stopAt(i)
 			break
 		}
-		r.cur = &prState{start: r.now()}
 		if !single {
-			if reason, rules := cheapFailure(r.Config.Rules, candidate); reason != "" {
-				entry := LogEntry{Time: r.now().UTC(), PR: fmt.Sprintf("%s/%s#%d", candidate.Ref.Owner, candidate.Ref.Repo, candidate.Ref.Number), URL: candidate.URL, Title: candidate.Title, Author: candidate.Author, Action: ActionSkipped, Reason: reason, Rules: rules}
-				if opts.Explain {
-					entry.Timing = r.timingLine()
-				}
-				if err := r.report(entry, opts); err != nil {
-					return totals, err
-				}
-				totals.reported = append(totals.reported, entry)
-				totals.cheapSkipped++
+			if skipped := r.cheapSkipOutcome(candidate, opts.Explain); skipped != nil {
+				queue.set(i, skipped)
 				continue
 			}
 		}
-		totals.loaded++
-		entry, skip := r.decide(candidate.Ref, viewer, opts, single)
-		if skip {
+		if !pool.acquire(canStart) {
+			queue.stopAt(i)
+			break
+		}
+		wg.Add(1)
+		go func(idx int, cand github.ApprovalCandidate) {
+			defer wg.Done()
+			defer pool.release()
+			queue.set(idx, r.loadAndEvaluate(cand.Ref, viewer, single, pool))
+		}(i, candidate)
+	}
+	wg.Wait()
+}
+
+func (r *Runner) processCandidates(candidates []github.ApprovalCandidate, viewer string, opts Options, single bool, started time.Time, limit time.Duration) (runTotals, error) {
+	totals := runTotals{stoppedAt: -1}
+	if len(candidates) == 0 {
+		return totals, nil
+	}
+	pool := newLoadPool(r.effectiveConcurrency(opts, single, len(candidates)), r.BackoffBase, r.now, r.Sleep)
+	queue := newOutcomeQueue(len(candidates))
+	dispatchDone := make(chan struct{})
+	go func() {
+		defer close(dispatchDone)
+		r.dispatchCandidates(candidates, viewer, opts, single, started, limit, pool, queue)
+	}()
+
+	var reportErr error
+	for i := range candidates {
+		res, stoppedAt := queue.next(i)
+		if stoppedAt >= 0 {
+			totals.stoppedAt = stoppedAt
+			break
+		}
+		if res.cheapSkipped {
+			if err := r.report(res.entry, opts); err != nil {
+				reportErr = err
+				break
+			}
+			totals.reported = append(totals.reported, res.entry)
+			totals.cheapSkipped++
 			continue
 		}
-		if entry.Action == ActionError {
+		totals.loaded++
+		if res.skip {
+			continue
+		}
+		if res.needsAction && r.applyOutcome(res, viewer, opts, single) {
+			continue
+		}
+		res.entry.Timing = r.timingLine(res.st)
+		if res.entry.Action == ActionError {
 			totals.failed++
 		}
-		if err := r.report(entry, opts); err != nil {
-			return totals, err
+		if err := r.report(res.entry, opts); err != nil {
+			reportErr = err
+			break
 		}
-		totals.reported = append(totals.reported, entry)
+		totals.reported = append(totals.reported, res.entry)
 	}
+	<-dispatchDone
+	if reportErr != nil {
+		return totals, reportErr
+	}
+	r.prunePRCache(candidates, single, totals.stoppedAt)
 	return totals, nil
+}
+
+func (r *Runner) prunePRCache(candidates []github.ApprovalCandidate, single bool, stoppedAt int) {
+	if single || r.PRCache == nil || stoppedAt >= 0 {
+		return
+	}
+	active := make(map[string]bool, len(candidates))
+	for _, c := range candidates {
+		active[prCacheKey(c.Ref)] = true
+	}
+	_ = r.PRCache.prune(active)
 }
 
 func (r *Runner) writePassStats(candidates int, started time.Time, limit time.Duration, single bool, totals runTotals) error {
@@ -376,72 +529,162 @@ func mineCommentsLimitFailure(matched string, rules []config.ApproveRule, pr git
 	return ""
 }
 
-// decide evaluates one pull request and approves or hands it off when allowed.
-// skip is true for a search result that only requests a team.
-func (r *Runner) decide(ref github.PullRef, viewer string, opts Options, single bool) (entry LogEntry, skip bool) {
-	r.cur = &prState{start: r.Now()}
-	defer func() { entry.Timing = r.timingLine() }()
-	entry = LogEntry{
-		Time: r.Now().UTC(),
+// loadAndEvaluate loads one pull request's metadata and per-commit facts
+// (from PRCache when valid, otherwise from GitHub) and evaluates the rules.
+// Write actions (approve, handoff, mark_viewed) are deferred to applyOutcome.
+func (r *Runner) loadAndEvaluate(ref github.PullRef, viewer string, single bool, pool *loadPool) *evalOutcome {
+	st := &prState{start: r.now()}
+	entry := LogEntry{
+		Time: r.now().UTC(),
 		PR:   fmt.Sprintf("%s/%s#%d", ref.Owner, ref.Repo, ref.Number),
 	}
-	loadStart := r.Now()
-	pr, err := r.Client.LoadApprovalPullRequest(ref)
-	r.cur.pullRequest = r.Now().Sub(loadStart)
+	loadStart := r.now()
+	var pr github.ApprovalPullRequest
+	err := pool.callWithRetry(func() error {
+		var callErr error
+		pr, callErr = r.Client.LoadApprovalPullRequest(ref)
+		return callErr //nolint:wrapcheck // caller records pull request load error
+	})
+	st.pullRequest = r.now().Sub(loadStart)
 	if err != nil {
 		entry.Action, entry.Reason = ActionError, err.Error()
-		return entry, false
+		return &evalOutcome{entry: entry, st: st}
 	}
 	entry.URL, entry.Title, entry.HeadSHA, entry.Author = pr.URL, pr.Title, pr.HeadSHA, pr.Author
-	rules, viaTeam, reason := r.scope(pr, viewer)
+
+	cached, hasCached := r.restorePRCache(ref, &pr, st)
+
+	rules, viaTeam, reason := r.scope(pr, viewer, st, pool)
 	if reason != "" {
 		entry.Action, entry.Reason = ActionSkipped, reason
-		return entry, !single
+		return &evalOutcome{entry: entry, st: st, skip: !single}
 	}
 	skipReason := r.skipReason(pr, viewer)
 	var agent AgentFunc
 	var loads *lazyLoads
 	if skipReason == "" {
-		agent = r.timedAgent(r.agent(pr))
-		loads = r.loads(pr, viewer)
+		agent = r.timedAgent(r.agent(pr), st)
+		loads = r.loads(pr, viewer, st, pool)
 	}
 	results, matched := evaluateRules(rules, pr, agent, r.fileChecker(), loads)
 	entry.Reason = mineCommentsLimitFailure(matched, rules, pr)
-	if r.cur.ownershipDone {
-		pr.Ownership = r.cur.ownership
+	if st.ownershipDone {
+		pr.Ownership = st.ownership
 	}
 	entry.Rules = results
 	if matched != "" {
 		entry.Rule = &matched
 	}
-	switch {
-	case skipReason != "":
+
+	r.savePRCache(ref, pr, st, cached, hasCached)
+
+	if skipReason != "" {
 		entry.Action, entry.Reason = ActionSkipped, skipReason
-	case matched == "":
-		entry.Action = ActionManual
-	case r.rule(matched).Action == config.ActionHandoff:
-		r.handoff(&entry, pr, r.rule(matched), viewer, opts.Apply)
+		st.end = r.now()
+		return &evalOutcome{entry: entry, st: st}
+	}
+	st.end = r.now()
+	return &evalOutcome{
+		needsAction: true,
+		entry:       entry,
+		pr:          pr,
+		matched:     matched,
+		viaTeam:     viaTeam,
+		st:          st,
+	}
+}
+
+func (r *Runner) restorePRCache(ref github.PullRef, pr *github.ApprovalPullRequest, st *prState) (prCacheEntry, bool) {
+	if r.PRCache == nil {
+		return prCacheEntry{}, false
+	}
+	cached, missReason := r.PRCache.get(ref, pr.HeadSHA)
+	if missReason != "" {
+		st.cacheStatus = "miss (" + missReason + ")"
+		st.cacheDirty = true
+		return prCacheEntry{}, false
+	}
+	st.cacheStatus = "hit"
+	r.PRCache.touch(ref)
+	if len(pr.Files) == 0 && pr.FilesErr == "" && cached.HasFiles {
+		pr.Files = cached.Files
+		pr.FilesErr = cached.FilesErr
+	}
+	if cached.HasPatches {
+		st.patchFiles = cached.Patches
+		st.patchErr = cached.PatchesErr
+		st.patchesDone = true
+		st.patches.used = true
+		st.patches.calls = 0
+	}
+	if cached.HasOwnership && cached.Ownership != nil {
+		st.hasCachedOwnership = true
+		st.cachedOwnership = cached.Ownership
+		st.cachedCodeownersSHA = cached.CodeownersBlobSHA
+		st.cachedTeamsHash = cached.ViewerTeamsHash
+	}
+	return cached, true
+}
+
+func (r *Runner) savePRCache(ref github.PullRef, pr github.ApprovalPullRequest, st *prState, cached prCacheEntry, hasCached bool) {
+	if r.PRCache == nil || !st.cacheDirty || pr.HeadSHA == "" {
+		return
+	}
+	toSave := cached
+	toSave.Owner = ref.Owner
+	toSave.Repo = ref.Repo
+	toSave.Number = ref.Number
+	toSave.HeadSHA = pr.HeadSHA
+	if pr.FilesErr == "" && len(pr.Files) > 0 {
+		toSave.Files = pr.Files
+		toSave.FilesErr = pr.FilesErr
+		toSave.HasFiles = true
+	}
+	if st.patchesDone && st.patchErr == "" {
+		toSave.Patches = st.patchFiles
+		toSave.PatchesErr = ""
+		toSave.HasPatches = true
+	}
+	if st.ownershipDone && st.ownership != nil && st.ownership.Err == "" {
+		toSave.Ownership = st.ownership
+		toSave.CodeownersBlobSHA = st.loadedCodeownersSHA
+		toSave.ViewerTeamsHash = st.loadedTeamsHash
+		toSave.HasOwnership = true
+	}
+	if !hasCached || toSave.HasFiles || toSave.HasPatches || toSave.HasOwnership {
+		_ = r.PRCache.put(toSave)
+	}
+}
+
+// applyOutcome performs sequential write actions (handoff, approve, mark_viewed)
+// after a PR's facts have been loaded and evaluated.
+func (r *Runner) applyOutcome(res *evalOutcome, viewer string, opts Options, single bool) bool {
+	switch {
+	case res.matched == "":
+		res.entry.Action = ActionManual
+	case r.rule(res.matched).Action == config.ActionHandoff:
+		r.handoff(&res.entry, res.pr, r.rule(res.matched), viewer, opts.Apply)
 	case !opts.Apply:
-		entry.Action = ActionWouldApprove
+		res.entry.Action = ActionWouldApprove
 	default:
-		entry.Action, entry.Reason = r.approve(pr, r.rule(matched))
+		res.entry.Action, res.entry.Reason = r.approve(res.pr, r.rule(res.matched))
 	}
-	if viaTeam != "" && entry.Action == ActionManual {
-		entry.Action = ActionSkipped
-		entry.Reason = "requested only through " + viaTeam + "; no requested_via_team rule matched"
-		return entry, !single && !opts.Explain
+	if res.viaTeam != "" && res.entry.Action == ActionManual {
+		res.entry.Action = ActionSkipped
+		res.entry.Reason = "requested only through " + res.viaTeam + "; no requested_via_team rule matched"
+		return !single && !opts.Explain
 	}
-	r.markViewed(&entry, pr, viewer, opts.Apply)
-	return entry, false
+	r.markViewed(&res.entry, res.pr, viewer, opts.Apply, res.st, nil)
+	return false
 }
 
 // scope returns the rules that may take pr and, for a team-only request,
 // the team. reason is set when no rule may take it.
-func (r *Runner) scope(pr github.ApprovalPullRequest, viewer string) ([]config.ApproveRule, string, string) {
+func (r *Runner) scope(pr github.ApprovalPullRequest, viewer string, st *prState, pool *loadPool) ([]config.ApproveRule, string, string) {
 	if containsFold(pr.RequestedUsers, viewer) {
 		return r.Config.Rules, "", ""
 	}
-	team, reason := r.requestingTeam(pr, viewer)
+	team, reason := r.requestingTeam(pr, viewer, st, pool)
 	if team == "" {
 		return nil, "", reason
 	}
@@ -451,13 +694,13 @@ func (r *Runner) scope(pr github.ApprovalPullRequest, viewer string) ([]config.A
 // requestingTeam returns a requested team, as @org/slug, that includes the
 // viewer, when a rule sets requested_via_team. Otherwise it returns "" and
 // why the pull request is skipped.
-func (r *Runner) requestingTeam(pr github.ApprovalPullRequest, viewer string) (string, string) {
+func (r *Runner) requestingTeam(pr github.ApprovalPullRequest, viewer string, st *prState, pool *loadPool) (string, string) {
 	if len(teamRules(r.Config.Rules)) == 0 {
 		return "", errNotRequested.Error()
 	}
 	var errs []string
 	for _, slug := range pr.RequestedTeams {
-		in, err := r.viewerInTeam(pr.Ref.Owner, slug, viewer)
+		in, err := r.viewerInTeam(pr.Ref.Owner, slug, viewer, st, pool)
 		if err != nil {
 			errs = append(errs, err.Error())
 			continue

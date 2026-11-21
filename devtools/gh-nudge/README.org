@@ -28,8 +28,13 @@ label sets use separate searches. For ~mine_comments_only~, a pull request
 over the rule's ~max_files~ or ~max_changed_lines~ limit reports ~too large to
 check (<files> files, <lines> changed lines)~ without fetching patches. Use
 ~gh-approve --max-duration 5m~ or ~approve.max_duration = 5.min~ to stop a pass
-from starting new pull requests after a time limit. See
-[[file:gh-approve.org][gh-approve.org]] for details.
+from starting new pull requests after a time limit. Per-commit PR facts
+(files, patches, CODEOWNERS ownership) are cached by ~owner/repo~, PR number,
+head SHA, and schema version under ~$XDG_CACHE_HOME/gh-approve/facts/~
+(default =~/.cache/gh-approve/facts/=) and invalidated on head SHA, CODEOWNERS
+blob SHA, viewer team list, or schema changes (~--no-cache~ bypasses it).
+Uncached PRs are loaded with a bounded worker pool (~approve.load_concurrency~
+/ ~--load-concurrency~, default 4). See [[file:gh-approve.org][gh-approve.org]] for details.
 
 * Install
 

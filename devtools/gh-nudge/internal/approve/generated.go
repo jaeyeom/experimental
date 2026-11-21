@@ -42,7 +42,7 @@ func parseGeneratedList(data string) ([]string, error) {
 
 // generatedListFor returns the parsed generated-file globs for pr's repository
 // at pr.BaseSHA, caching the result per repository and base SHA.
-func (r *Runner) generatedListFor(pr github.ApprovalPullRequest) ([]string, string) {
+func (r *Runner) generatedListFor(pr github.ApprovalPullRequest, pool *loadPool) ([]string, string) {
 	repo := pr.Ref.Owner + "/" + pr.Ref.Repo
 	listPath, ok := config.LookupGeneratedList(r.GeneratedLists, repo)
 	if !ok {
@@ -52,25 +52,26 @@ func (r *Runner) generatedListFor(pr github.ApprovalPullRequest) ([]string, stri
 		return nil, fmt.Sprintf("generated list %s: base SHA unknown", listPath)
 	}
 	key := strings.ToLower(repo) + "@" + pr.BaseSHA
-	if r.generatedLists == nil {
-		r.generatedLists = make(map[string]generatedListEntry)
-	}
-	if got, cached := r.generatedLists[key]; cached {
-		return got.patterns, got.err
-	}
-	var got generatedListEntry
-	text, err := r.Client.RepoFile(pr.Ref, pr.BaseSHA, listPath)
-	if err != nil {
-		got.err = fmt.Sprintf("generated list %s: %v", listPath, err)
-	} else {
+	got, _ := r.generatedLists.getOrLoad(key, func() generatedListEntry {
+		var res generatedListEntry
+		var text string
+		err := pool.callWithRetry(func() error {
+			var callErr error
+			text, callErr = r.Client.RepoFile(pr.Ref, pr.BaseSHA, listPath)
+			return callErr //nolint:wrapcheck // caller formats generated list error
+		})
+		if err != nil {
+			res.err = fmt.Sprintf("generated list %s: %v", listPath, err)
+			return res
+		}
 		patterns, parseErr := parseGeneratedList(text)
 		if parseErr != nil {
-			got.err = fmt.Sprintf("generated list %s: %v", listPath, parseErr)
-		} else {
-			got.patterns = patterns
+			res.err = fmt.Sprintf("generated list %s: %v", listPath, parseErr)
+			return res
 		}
-	}
-	r.generatedLists[key] = got
+		res.patterns = patterns
+		return res
+	})
 	return got.patterns, got.err
 }
 

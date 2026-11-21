@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -55,19 +56,23 @@ type fakeClient struct {
 }
 
 func (f *fakeClient) RepoFile(ref github.PullRef, rev, path string) (string, error) {
+	f.mu.Lock()
 	f.repoFileReads++
 	f.repoFileRevs = append(f.repoFileRevs, rev)
-	if f.repoFileErr != nil {
-		return "", f.repoFileErr
+	err := f.repoFileErr
+	files := f.repoFiles
+	f.mu.Unlock()
+	if err != nil {
+		return "", err
 	}
 	key := ref.Owner + "/" + ref.Repo + "@" + rev + ":" + path
-	if text, ok := f.repoFiles[key]; ok {
+	if text, ok := files[key]; ok {
 		return text, nil
 	}
-	if text, ok := f.repoFiles[rev+":"+path]; ok {
+	if text, ok := files[rev+":"+path]; ok {
 		return text, nil
 	}
-	if text, ok := f.repoFiles[path]; ok {
+	if text, ok := files[path]; ok {
 		return text, nil
 	}
 	return "", fmt.Errorf("not found at %s", rev)
@@ -154,14 +159,18 @@ func (f *fakeClient) candidates(refs []github.PullRef) []github.ApprovalCandidat
 }
 
 func (f *fakeClient) LoadApprovalPullRequest(ref github.PullRef) (github.ApprovalPullRequest, error) {
+	f.mu.Lock()
 	f.loadReads++
-	if f.onCall != nil {
-		f.onCall("pull request")
+	err := f.loadErr[ref.Number]
+	pr, ok := f.prs[ref.Number]
+	onCall := f.onCall
+	f.mu.Unlock()
+	if onCall != nil {
+		onCall("pull request")
 	}
-	if err := f.loadErr[ref.Number]; err != nil {
+	if err != nil {
 		return github.ApprovalPullRequest{}, err
 	}
-	pr, ok := f.prs[ref.Number]
 	if !ok {
 		return github.ApprovalPullRequest{}, errors.New("unexpected pull request")
 	}
@@ -236,15 +245,28 @@ func TestMineCommentsChangedLineCapSkipsPatchFetch(t *testing.T) {
 
 func TestMaxDurationStopsStartingCandidatesAndReportsSummary(t *testing.T) {
 	fake := newFake(prNumber(61), prNumber(62), prNumber(63))
+	var mu sync.Mutex
 	now := fixedNow()
 	fake.onCall = func(op string) {
 		if op == "pull request" {
+			mu.Lock()
 			now = now.Add(6 * time.Minute)
+			mu.Unlock()
 		}
 	}
 	var out, logBuf bytes.Buffer
-	runner := &Runner{Client: fake, Config: config.ApproveConfig{Rules: []config.ApproveRule{}}, Out: &out, Log: &logBuf, Now: func() time.Time { return now }}
-	if err := runner.Run(Options{MaxDuration: 5 * time.Minute}); err != nil {
+	runner := &Runner{
+		Client: fake,
+		Config: config.ApproveConfig{Rules: []config.ApproveRule{}},
+		Out:    &out,
+		Log:    &logBuf,
+		Now: func() time.Time {
+			mu.Lock()
+			defer mu.Unlock()
+			return now
+		},
+	}
+	if err := runner.Run(Options{MaxDuration: 5 * time.Minute, LoadConcurrency: 1}); err != nil {
 		t.Fatal(err)
 	}
 	if fake.loadReads != 1 {
@@ -256,6 +278,8 @@ func TestMaxDurationStopsStartingCandidatesAndReportsSummary(t *testing.T) {
 }
 
 func (f *fakeClient) PullRequestHeadSHA(ref github.PullRef) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.headReads++
 	if sha, ok := f.heads[ref.Number]; ok {
 		return sha, nil
@@ -264,14 +288,19 @@ func (f *fakeClient) PullRequestHeadSHA(ref github.PullRef) (string, error) {
 }
 
 func (f *fakeClient) PullRequestFilePatches(ref github.PullRef) ([]github.PullFile, error) {
+	f.mu.Lock()
 	f.patchReads++
-	if f.onCall != nil {
-		f.onCall("patches")
+	err := f.patchErr
+	patches := f.patches[ref.Number]
+	onCall := f.onCall
+	f.mu.Unlock()
+	if onCall != nil {
+		onCall("patches")
 	}
-	if f.patchErr != nil {
-		return nil, f.patchErr
+	if err != nil {
+		return nil, err
 	}
-	return f.patches[ref.Number], nil
+	return patches, nil
 }
 
 func (f *fakeClient) PullRequestDiff(ref github.PullRef) (string, error) {

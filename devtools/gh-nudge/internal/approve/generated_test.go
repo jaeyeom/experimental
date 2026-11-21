@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -90,7 +91,9 @@ func TestGeneratedListReadFromBaseSHAAndCachedPerBaseSHA(t *testing.T) {
 	if fake.repoFileReads != 2 {
 		t.Fatalf("repoFileReads = %d, want 2 (once per base SHA)", fake.repoFileReads)
 	}
-	if strings.Join(fake.repoFileRevs, ",") != "sha-base-1,sha-base-2" {
+	revs := slices.Clone(fake.repoFileRevs)
+	slices.Sort(revs)
+	if strings.Join(revs, ",") != "sha-base-1,sha-base-2" {
 		t.Fatalf("repoFileRevs = %v, want [sha-base-1 sha-base-2]", fake.repoFileRevs)
 	}
 	for i, entry := range res.log {

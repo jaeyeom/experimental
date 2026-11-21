@@ -60,23 +60,41 @@ var codeownersLocations = []struct{ alias, path string }{
 const codeownersQuery = `
 query($owner: String!, $name: String!, $github: String!, $root: String!, $docs: String!) {
   repository(owner: $owner, name: $name) {
-    github: object(expression: $github) { ... on Blob { text isTruncated } }
-    root: object(expression: $root) { ... on Blob { text isTruncated } }
-    docs: object(expression: $docs) { ... on Blob { text isTruncated } }
+    github: object(expression: $github) { ... on Blob { oid text isTruncated } }
+    root: object(expression: $root) { ... on Blob { oid text isTruncated } }
+    docs: object(expression: $docs) { ... on Blob { oid text isTruncated } }
   }
 }`
 
 type blobJSON struct {
+	OID         string  `json:"oid"`
 	Text        *string `json:"text"`
 	IsTruncated bool    `json:"isTruncated"`
+}
+
+// CodeownersBlob is a CODEOWNERS file's path, content, and Git blob OID.
+type CodeownersBlob struct {
+	Path string
+	Text string
+	OID  string
 }
 
 // CodeownersFile reads the CODEOWNERS file GitHub uses on baseRef and
 // returns its path and text. A missing or unreadable file is an error.
 func (c *Client) CodeownersFile(ref PullRef, baseRef string) (string, string, error) {
+	blob, err := c.CodeownersBlob(ref, baseRef)
+	if err != nil {
+		return "", "", err
+	}
+	return blob.Path, blob.Text, nil
+}
+
+// CodeownersBlob reads the CODEOWNERS file GitHub uses on baseRef and
+// returns its path, text, and blob OID. A missing or unreadable file is an error.
+func (c *Client) CodeownersBlob(ref PullRef, baseRef string) (CodeownersBlob, error) {
 	name := fmt.Sprintf("%s/%s", ref.Owner, ref.Repo)
 	if baseRef == "" {
-		return "", "", fmt.Errorf("read CODEOWNERS of %s: base branch unknown", name)
+		return CodeownersBlob{}, fmt.Errorf("read CODEOWNERS of %s: base branch unknown", name)
 	}
 	fields := []string{"-f", "owner=" + ref.Owner, "-f", "name=" + ref.Repo}
 	for _, loc := range codeownersLocations {
@@ -84,7 +102,7 @@ func (c *Client) CodeownersFile(ref PullRef, baseRef string) (string, string, er
 	}
 	body, callErr := c.graphqlQuery(codeownersQuery, fields)
 	if err := graphqlCallError("read CODEOWNERS of "+name, body, callErr); err != nil {
-		return "", "", err
+		return CodeownersBlob{}, err
 	}
 	var resp struct {
 		Data struct {
@@ -92,7 +110,7 @@ func (c *Client) CodeownersFile(ref PullRef, baseRef string) (string, string, er
 		} `json:"data"`
 	}
 	if err := body.decode(&resp); err != nil {
-		return "", "", fmt.Errorf("read CODEOWNERS of %s: %w", name, err)
+		return CodeownersBlob{}, fmt.Errorf("read CODEOWNERS of %s: %w", name, err)
 	}
 	for _, loc := range codeownersLocations {
 		blob := resp.Data.Repository[loc.alias]
@@ -100,13 +118,13 @@ func (c *Client) CodeownersFile(ref PullRef, baseRef string) (string, string, er
 		case blob == nil:
 			continue
 		case blob.Text == nil:
-			return "", "", fmt.Errorf("read %s of %s: not a text file", loc.path, name)
+			return CodeownersBlob{}, fmt.Errorf("read %s of %s: not a text file", loc.path, name)
 		case blob.IsTruncated:
-			return "", "", fmt.Errorf("read %s of %s: file truncated", loc.path, name)
+			return CodeownersBlob{}, fmt.Errorf("read %s of %s: file truncated", loc.path, name)
 		}
-		return loc.path, *blob.Text, nil
+		return CodeownersBlob{Path: loc.path, Text: *blob.Text, OID: blob.OID}, nil
 	}
-	return "", "", fmt.Errorf("read CODEOWNERS of %s: no CODEOWNERS file on %s", name, baseRef)
+	return CodeownersBlob{}, fmt.Errorf("read CODEOWNERS of %s: no CODEOWNERS file on %s", name, baseRef)
 }
 
 const repoFileQuery = `
