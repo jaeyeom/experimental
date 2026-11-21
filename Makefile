@@ -4,6 +4,21 @@
 # Cross-platform sed in-place edit
 SED_INPLACE := $(shell if [ "$$(uname)" = "Darwin" ]; then echo "sed -i ''"; else echo "sed -i"; fi)
 
+# Stable PATH for Bazel tests under --incompatible_strict_action_env.
+# Built from host tool locations in a canonical order so caller PATH
+# reordering or extra entries do not invalidate Bazel's test cache.
+BAZEL_TEST_PATH := $(shell \
+	extra=$$(for t in ansible-playbook emacs go lsof node pkl python3 shellcheck; do \
+		p=$$(command -v "$$t" 2>/dev/null || true); \
+		[ -n "$$p" ] && dirname "$$p"; \
+	done | grep -vxE '/usr/local/bin|/usr/bin|/bin|/usr/sbin|/sbin' | LC_ALL=C sort -u | paste -sd: -); \
+	if [ -n "$$extra" ]; then \
+		printf '%s:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin' "$$extra"; \
+	else \
+		printf '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin'; \
+	fi)
+BAZEL_TEST_ENV := --test_env=PATH=$(BAZEL_TEST_PATH)
+
 # Phased targets for make -j safe parallel execution.
 # Each $(MAKE) line runs its targets in parallel; lines run sequentially.
 all:
@@ -31,10 +46,10 @@ check-whitespace:
 
 check-format: check-whitespace
 	goimports -l .
-	bazel test --test_summary=terse //tools/format:format_test
+	bazel test --test_summary=terse $(BAZEL_TEST_ENV) //tools/format:format_test
 
 test:
-	bazel test --test_summary=terse //...
+	bazel test --test_summary=terse $(BAZEL_TEST_ENV) //...
 
 lint: lint-golangci lint-ruff lint-mypy lint-shellcheck check-spacemacs
 
@@ -197,7 +212,7 @@ check-generated:
 coverage:
 	@echo "Generating coverage report..."
 	@mkdir -p coverage
-	bazel coverage --combined_report=lcov //...
+	bazel coverage --combined_report=lcov $(BAZEL_TEST_ENV) //...
 	@OUTPUT_PATH=$$(bazel info output_path); \
 	COVERAGE_FILE="$$OUTPUT_PATH/_coverage/_coverage_report.dat"; \
 	if [ -f "$$COVERAGE_FILE" ]; then \

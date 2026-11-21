@@ -18,6 +18,7 @@ build --verbose_failures
 
 # General build safety
 build --incompatible_disallow_empty_glob  # Fail if glob patterns match no files
+build --incompatible_strict_action_env   # Keep caller PATH out of action/test cache keys
 
 # Go-specific settings
 build --@rules_go//go/config:race=false   # Race detector (enable for debugging concurrency)
