@@ -439,7 +439,12 @@ func (l *Ledger) Withdraw(id, reason string) (Item, error) {
 	if reason == "" {
 		return Item{}, fmt.Errorf("decide reason is empty")
 	}
-	return l.finish(id, StateWithdrawn, reason)
+	updated, err := l.finish(id, StateWithdrawn, reason)
+	if err != nil {
+		return Item{}, err
+	}
+	l.clearItemDrafts(id)
+	return updated, nil
 }
 
 // Done is an agent's done: DoneVia with ViaCLI.
@@ -486,6 +491,7 @@ func (l *Ledger) DoneVia(id, outcome, via string) (Item, error) {
 	if err != nil {
 		return Item{}, err
 	}
+	l.clearItemDrafts(id)
 	return updated, nil
 }
 
@@ -578,6 +584,7 @@ func (l *Ledger) Archive(id string, seen time.Time) (Item, error) {
 	if err != nil {
 		return Item{}, err
 	}
+	l.clearItemDrafts(id)
 	return updated, nil
 }
 
@@ -766,7 +773,7 @@ func (l *Ledger) SetBusMessage(id, msg string) (Item, error) {
 // Delete removes id. It is for a thread whose first note was never
 // delivered. The id is not reused.
 func (l *Ledger) Delete(id string) error {
-	return l.locked(true, func(st *store) error {
+	err := l.locked(true, func(st *store) error {
 		i := slices.IndexFunc(st.Items, func(it Item) bool { return it.ID == id })
 		if i < 0 {
 			return fmt.Errorf("%w: %s", ErrNotFound, id)
@@ -774,6 +781,20 @@ func (l *Ledger) Delete(id string) error {
 		st.Items = slices.Delete(st.Items, i, i+1)
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	l.clearItemDrafts(id)
+	return nil
+}
+
+func (l *Ledger) clearItemDrafts(id string) {
+	ds, err := OpenDraftStore(l.dir)
+	if err != nil {
+		return
+	}
+	_ = ds.Delete(ReplyDraftKey(id), "")
+	_ = ds.Delete(AnswerDraftKey(id), "")
 }
 
 // Compose appends a human message on id.

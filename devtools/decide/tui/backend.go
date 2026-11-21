@@ -112,6 +112,13 @@ type OutboxBackend interface {
 	DismissFailedOutbox(id string) error
 }
 
+// DraftBackend is an optional backend capability for persisting unsent drafts.
+type DraftBackend interface {
+	ListDrafts() ([]decide.Draft, error)
+	PutDraft(d decide.Draft, baseRev int64) (decide.Draft, bool, error)
+	DeleteDraft(key, conflictID string) error
+}
+
 // unreachableStatus is the status line while the hub is unreachable.
 const unreachableStatus = "hub unreachable; retrying"
 
@@ -523,4 +530,56 @@ func (b *LocalBackend) Locate(ctx context.Context, it *decide.Item) decide.Owner
 // Focus implements Backend.
 func (b *LocalBackend) Focus(ctx context.Context, loc decide.OwnerLocation) string {
 	return decide.LocationResolver{Run: b.Herdr}.Focus(ctx, loc)
+}
+
+func (b *LocalBackend) draftStore() (*decide.DraftStore, error) {
+	ds, err := decide.OpenDraftStore(b.Dir)
+	if err != nil {
+		return nil, fmt.Errorf("open decide drafts: %w", err)
+	}
+	if b.Now != nil {
+		ds.SetClock(b.Now)
+	}
+	return ds, nil
+}
+
+// ListDrafts implements DraftBackend.
+func (b *LocalBackend) ListDrafts() ([]decide.Draft, error) {
+	ds, err := b.draftStore()
+	if err != nil {
+		return nil, err
+	}
+	_, drafts, err := ds.List()
+	if err != nil {
+		return nil, fmt.Errorf("list decide drafts: %w", err)
+	}
+	return drafts, nil
+}
+
+// PutDraft implements DraftBackend.
+func (b *LocalBackend) PutDraft(d decide.Draft, baseRev int64) (decide.Draft, bool, error) {
+	ds, err := b.draftStore()
+	if err != nil {
+		return decide.Draft{}, false, err
+	}
+	if d.UpdatedBy == "" {
+		d.UpdatedBy = b.Machine
+	}
+	saved, conflict, err := ds.Put(d, baseRev)
+	if err != nil {
+		return decide.Draft{}, false, fmt.Errorf("put decide draft: %w", err)
+	}
+	return saved, conflict, nil
+}
+
+// DeleteDraft implements DraftBackend.
+func (b *LocalBackend) DeleteDraft(key, conflictID string) error {
+	ds, err := b.draftStore()
+	if err != nil {
+		return err
+	}
+	if err := ds.Delete(key, conflictID); err != nil {
+		return fmt.Errorf("delete decide draft: %w", err)
+	}
+	return nil
 }

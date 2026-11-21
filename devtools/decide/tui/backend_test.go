@@ -456,3 +456,42 @@ func TestLocalInboxMakesNoReplica(t *testing.T) {
 		t.Fatalf("local inbox created replica directory: %v", err)
 	}
 }
+
+func TestLocalBackendDraftBackend(t *testing.T) {
+	dir := t.TempDir()
+	var b Backend = &LocalBackend{Dir: dir, Machine: "dragon"}
+	db, ok := b.(DraftBackend)
+	if !ok {
+		t.Fatal("*LocalBackend does not implement DraftBackend")
+	}
+
+	saved, conflict, err := db.PutDraft(decide.Draft{
+		Key:  decide.ReplyDraftKey("D-001"),
+		Text: "hello",
+	}, 0)
+	if err != nil {
+		t.Fatalf("PutDraft() error = %v", err)
+	}
+	if conflict || saved.Rev != 1 || saved.UpdatedBy != "dragon" {
+		t.Fatalf("saved = %+v, conflict=%v", saved, conflict)
+	}
+
+	list, err := db.ListDrafts()
+	if err != nil {
+		t.Fatalf("ListDrafts() error = %v", err)
+	}
+	if len(list) != 1 || list[0].Text != "hello" {
+		t.Fatalf("ListDrafts() = %+v", list)
+	}
+
+	if err := db.DeleteDraft(decide.ReplyDraftKey("D-001"), ""); err != nil {
+		t.Fatalf("DeleteDraft() error = %v", err)
+	}
+	list, err = db.ListDrafts()
+	if err != nil {
+		t.Fatalf("ListDrafts() after delete error = %v", err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("ListDrafts() after delete = %+v, want empty", list)
+	}
+}
