@@ -2089,9 +2089,9 @@ func TestComposeTargetChangesBeforeSend(t *testing.T) {
 	}
 	m.SendTemplate = "tool {pane}"
 	press(t, m, "\tnote-b\t")
-	sendRow := screenRow(m.View(), "[Send]")
+	sendRow := screenRow(m.View(), "[Send ^⏎]")
 	sendLine := strings.Split(m.View(), "\n")[sendRow-1]
-	if err := m.Click(visibleCol(sendLine, "[Send]"), sendRow); err != nil {
+	if err := m.Click(visibleCol(sendLine, "[Send ^⏎]"), sendRow); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"tool", "pane-1", threadNote(t, dir, "note-b")}
@@ -3248,9 +3248,9 @@ func TestGmailLayoutNarrowAndWide(t *testing.T) {
 		return nil
 	}
 	press(t, m, "c\thello")
-	row := screenRow(m.View(), "[Send]")
+	row := screenRow(m.View(), "[Send ^⏎]")
 	line := strings.Split(m.View(), "\n")[row-1]
-	if err := m.Click(visibleCol(line, "[Send]"), row); err != nil {
+	if err := m.Click(visibleCol(line, "[Send ^⏎]"), row); err != nil {
 		t.Fatal(err)
 	}
 	if m.status != "sent to alpha" || len(sent) == 0 || sent[len(sent)-1] != threadNote(t, dir, "hello") {
@@ -3595,7 +3595,7 @@ func TestOpenItemFullScreenAndCompose(t *testing.T) {
 	}
 	view = m.View()
 	start := screenRow(view, "> [alpha]")
-	end := screenRow(view, "[Send]")
+	end := screenRow(view, "[Send ^⏎]")
 	if start == 0 || end-start+1 < m.height/2 {
 		t.Fatalf("compose rows %d-%d\n%s", start, end, view)
 	}
@@ -3668,9 +3668,9 @@ func TestOpenItemFullScreenAndCompose(t *testing.T) {
 	if m.note != "keep\nme" || m.target != 0 {
 		t.Fatalf("click draft %q target %d", m.note, m.target)
 	}
-	row = screenRow(m.View(), "[Send]")
+	row = screenRow(m.View(), "[Send ^⏎]")
 	line = strings.Split(m.View(), "\n")[row-1]
-	if err := m.Click(visibleCol(line, "[Send]"), row); err != nil {
+	if err := m.Click(visibleCol(line, "[Send ^⏎]"), row); err != nil {
 		t.Fatal(err)
 	}
 	want = sendArgv("", "pane-a", threadNote(t, dir, "keep\nme"))
@@ -4490,7 +4490,7 @@ func TestStatusComposeFromHighlightedAgent(t *testing.T) {
 		t.Fatal("help stayed open")
 	}
 	press(t, m, "c")
-	if !m.composing || m.composeFocus != focusRecipient || m.target != 0 || !strings.Contains(m.View(), "> [alpha]") || !strings.Contains(m.View(), "[Send]") {
+	if !m.composing || m.composeFocus != focusRecipient || m.target != 0 || !strings.Contains(m.View(), "> [alpha]") || !strings.Contains(m.View(), "[Send ^⏎]") {
 		t.Fatalf("compose target %d focus %d\n%s", m.target, m.composeFocus, m.View())
 	}
 	if _, err := m.Key('\x1b'); err != nil || m.composing {

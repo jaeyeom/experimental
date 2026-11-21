@@ -71,6 +71,99 @@ func (s KeyStroke) HelpString() string {
 	}
 }
 
+// ButtonString formats a key sequence for display inside a button label.
+// When ascii is false, Ctrl is rendered as ^ and Enter as ⏎ (e.g. ^⏎, ^G, ⏎).
+// When ascii is true, ASCII notation is used (e.g. C-Enter, C-g, Enter).
+func (seq KeySeq) ButtonString(ascii bool) string {
+	parts := make([]string, len(seq))
+	for i, s := range seq {
+		parts[i] = s.ButtonString(ascii)
+	}
+	return strings.Join(parts, " ")
+}
+
+// ButtonString formats a single key stroke for display inside a button label.
+func (s KeyStroke) ButtonString(ascii bool) string {
+	// Ctrl+Enter is normalized to Alt+Enter by ParseKeySeq and programInput.
+	if s.Key == "enter" && s.Alt && !s.Ctrl {
+		if ascii {
+			return "C-Enter"
+		}
+		return "^⏎"
+	}
+	if s.Ctrl && !s.Alt {
+		if ascii {
+			return "C-" + asciiButtonKey(s.Key)
+		}
+		if len(s.Key) == 1 && s.Key[0] >= 'a' && s.Key[0] <= 'z' {
+			return "^" + string(s.Key[0]-'a'+'A')
+		}
+		return "^" + unicodeButtonKey(s.Key)
+	}
+	var prefix string
+	if s.Ctrl {
+		if ascii {
+			prefix += "C-"
+		} else {
+			prefix += "^"
+		}
+	}
+	if s.Alt {
+		prefix += "M-"
+	}
+	if ascii {
+		return prefix + asciiButtonKey(s.Key)
+	}
+	return prefix + unicodeButtonKey(s.Key)
+}
+
+func unicodeButtonKey(key string) string {
+	switch key {
+	case "enter":
+		return "⏎"
+	case "esc":
+		return "Esc"
+	case "tab":
+		return "Tab"
+	case "shift+tab":
+		return "S-Tab"
+	case "space":
+		return "Space"
+	case "up":
+		return "↑"
+	case "down":
+		return "↓"
+	case "left":
+		return "←"
+	case "right":
+		return "→"
+	default:
+		if len(key) == 1 && key[0] >= 'a' && key[0] <= 'z' {
+			return key
+		}
+		return key
+	}
+}
+
+func asciiButtonKey(key string) string {
+	switch key {
+	case "enter":
+		return "Enter"
+	case "esc":
+		return "Esc"
+	case "tab":
+		return "Tab"
+	case "shift+tab":
+		return "S-Tab"
+	case "space":
+		return "Space"
+	case "up", "down", "left", "right", "pgup", "pgdn", "home", "end", "backspace", "delete":
+		return strings.ToUpper(key[:1]) + key[1:]
+	default:
+		return key
+	}
+}
+
 func lookupNamedKey(tok string) (string, bool) {
 	names := map[string]string{
 		"enter":     "enter",
@@ -470,6 +563,16 @@ func checkPrefixClashes(scopeExact map[string]map[string]string, scopePrefixes m
 // Bindings returns the key sequences bound to action.
 func (km *KeyMap) Bindings(action string) []KeySeq {
 	return km.bindings[action]
+}
+
+// PrimaryButtonString formats the primary key binding for action as a button
+// hint, or "" when action has no bindings.
+func (km *KeyMap) PrimaryButtonString(action string, ascii bool) string {
+	seqs := km.bindings[action]
+	if len(seqs) == 0 {
+		return ""
+	}
+	return seqs[0].ButtonString(ascii)
 }
 
 // ConfigKeys returns the canonical key strings for action.
