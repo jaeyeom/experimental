@@ -76,6 +76,7 @@ go_test(
         "backend_test.go",
         "busconfirm_test.go",
         "bushealth_test.go",
+        "button_test.go",
         "chord_test.go",
         "color_test.go",
         "contacts_test.go",

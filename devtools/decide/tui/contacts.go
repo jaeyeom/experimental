@@ -850,7 +850,7 @@ func (m *Model) askHideDead() {
 		return
 	}
 	m.confirmKind = confirmHideDead
-	m.status = "hide every dead contact? y/n"
+	m.status = "hide every dead contact? " + buttonLabel("Yes", "y", false, 0) + " " + buttonLabel("No", "n", false, 0)
 }
 
 func (m *Model) hideDead() {
@@ -883,7 +883,7 @@ func (m *Model) askRelease() {
 	default:
 		m.confirmKind = confirmRelease
 		m.confirmName = c.Name
-		m.status = fmt.Sprintf("release %s? y/n", c.Name)
+		m.status = fmt.Sprintf("release %s? %s %s", c.Name, buttonLabel("Yes", "y", false, 0), buttonLabel("No", "n", false, 0))
 	}
 }
 

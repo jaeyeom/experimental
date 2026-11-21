@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os"
 	"slices"
 	"strings"
 
@@ -16,6 +17,58 @@ func (m *Model) keyMap() *decide.KeyMap {
 		return m.keys
 	}
 	return decide.DefaultKeyMap()
+}
+
+func isUTF8Locale() bool {
+	for _, name := range []string{"LC_ALL", "LC_CTYPE", "LANG"} {
+		if v := os.Getenv(name); v != "" {
+			lower := strings.ToLower(v)
+			return strings.Contains(lower, "utf-8") || strings.Contains(lower, "utf8")
+		}
+	}
+	return true
+}
+
+func (m *Model) useASCIIKeys() bool {
+	return m.ASCIIKeys || !isUTF8Locale()
+}
+
+func (m *Model) buttonKey(action string) string {
+	if action == "" {
+		return ""
+	}
+	return m.keyMap().PrimaryButtonString(action, m.useASCIIKeys())
+}
+
+// buttonLabel formats a button "[name hint]" (or "> [name hint]" when focused)
+// fitting within maxWidth when maxWidth > 0. When the full label with hint
+// exceeds maxWidth, the hint is dropped first; only if "[name]" still
+// exceeds maxWidth is the label truncated.
+func buttonLabel(name, hint string, focused bool, maxWidth int) string {
+	return formatButton("[", "]", name, hint, focused, maxWidth)
+}
+
+func formatButton(open, closeBracket, name, hint string, focused bool, maxWidth int) string {
+	prefix := ""
+	if focused {
+		prefix = "> "
+	}
+	plain := prefix + open + name + closeBracket
+	full := plain
+	if hint != "" {
+		full = prefix + open + name + " " + hint + closeBracket
+	}
+	if maxWidth <= 0 || lipgloss.Width(full) <= maxWidth {
+		return full
+	}
+	if hint != "" && lipgloss.Width(plain) <= maxWidth {
+		return plain
+	}
+	return truncateVisible(plain, maxWidth)
+}
+
+func (m *Model) actionButton(name, action string, focused bool, maxWidth int) string {
+	return buttonLabel(name, m.buttonKey(action), focused, maxWidth)
 }
 
 // SetKeys installs a custom keymap on m and updates all composer fields.

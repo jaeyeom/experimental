@@ -147,3 +147,55 @@ func writeTestConfig(t *testing.T, xdgDir, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestPrimaryButtonString(t *testing.T) {
+	cases := []struct {
+		name      string
+		overrides map[string][]string
+		action    string
+		wantUTF8  string
+		wantASCII string
+	}{
+		{
+			name:      "default compose.send",
+			action:    "compose.send",
+			wantUTF8:  "^⏎",
+			wantASCII: "C-Enter",
+		},
+		{
+			name:      "remapped to ctrl+g",
+			overrides: map[string][]string{"compose.send": {"ctrl+g"}, "edit.external": {"ctrl+x ctrl+e"}},
+			action:    "compose.send",
+			wantUTF8:  "^G",
+			wantASCII: "C-g",
+		},
+		{
+			name:      "remapped to enter",
+			overrides: map[string][]string{"compose.send": {"enter"}},
+			action:    "compose.send",
+			wantUTF8:  "⏎",
+			wantASCII: "Enter",
+		},
+		{
+			name:      "unbound action",
+			overrides: map[string][]string{"compose.send": {}},
+			action:    "compose.send",
+			wantUTF8:  "",
+			wantASCII: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			km, err := ResolveKeyMap(tc.overrides)
+			if err != nil {
+				t.Fatalf("ResolveKeyMap: %v", err)
+			}
+			if got := km.PrimaryButtonString(tc.action, false); got != tc.wantUTF8 {
+				t.Errorf("UTF8 = %q, want %q", got, tc.wantUTF8)
+			}
+			if got := km.PrimaryButtonString(tc.action, true); got != tc.wantASCII {
+				t.Errorf("ASCII = %q, want %q", got, tc.wantASCII)
+			}
+		})
+	}
+}

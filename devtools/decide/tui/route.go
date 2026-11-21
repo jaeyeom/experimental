@@ -3,7 +3,13 @@ package tui
 import "github.com/jaeyeom/experimental/devtools/decide"
 
 // routeChoices is the key help after the reply route warning.
-const routeChoices = "  w worker  b both  o owner only  esc cancel"
+func routeChoices() string {
+	return "  " +
+		buttonLabel("worker", "w", false, 0) + "  " +
+		buttonLabel("both", "b", false, 0) + "  " +
+		buttonLabel("owner only", "o", false, 0) + "  " +
+		buttonLabel("cancel", "Esc", false, 0)
+}
 
 // askRoute holds a reply to item behind the route prompt when another
 // agent is working on it and no route was picked for this reply yet.
@@ -12,7 +18,7 @@ func (m *Model) askRoute(item *decide.Item) bool {
 		return false
 	}
 	m.confirmKind = confirmRoute
-	m.status = decide.RouteWarning(item) + routeChoices
+	m.status = decide.RouteWarning(item) + routeChoices()
 	return true
 }
 

@@ -267,7 +267,7 @@ func (m *Model) composeBody() []screenLine {
 	return stackRegions(width,
 		panelBox(picker, width, m.composeFocus == focusRecipient),
 		noteBox,
-		panelBox([]screenLine{m.sendLine()}, width, m.composeFocus == focusSend),
+		panelBox([]screenLine{m.sendLine(width - 2)}, width, m.composeFocus == focusSend),
 	)
 }
 
@@ -370,7 +370,7 @@ func windowDraftScroll(draft []screenLine, limit int, focused bool, scroll *int)
 func (m *Model) composeStack(width int) []screenLine {
 	picker, _ := m.pickerLines()
 	draft := m.draftLines(width)
-	send := m.sendLine()
+	send := m.sendLine(width)
 	minH := m.composeMinHeight()
 	for len(picker)+len(draft)+1 < minH {
 		draft = append(draft, screenLine{})
@@ -474,11 +474,12 @@ func cursorChunks(chunks []textChunk, col int) []screenLine {
 	return lines
 }
 
-func (m *Model) sendLine() screenLine {
+func (m *Model) sendLine(width int) screenLine {
 	useStyles()
-	label := "[Send]"
-	if m.composeFocus == focusSend {
-		label = "> [Send]"
+	label := m.actionButton("Send", "compose.send", m.composeFocus == focusSend, width)
+	rendered := optionButton.Render(label)
+	return screenLine{
+		text: rendered,
+		hits: []hit{{kind: hitSend, x0: 1, x1: lipgloss.Width(rendered)}},
 	}
-	return screenLine{text: optionButton.Render(label), hits: []hit{{kind: hitSend}}}
 }

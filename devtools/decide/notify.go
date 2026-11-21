@@ -156,6 +156,9 @@ type InboxUI struct {
 	MaxMessageChars *int `json:"maxMessageChars,omitempty"`
 	// Keys maps inbox action names to key sequences, overriding defaults.
 	Keys map[string][]string `json:"keys,omitempty"`
+	// ASCIIKeys uses ASCII key labels (such as C-Enter) on buttons instead
+	// of Unicode symbols (such as ^⏎).
+	ASCIIKeys bool `json:"asciiKeys,omitempty"`
 }
 
 const (

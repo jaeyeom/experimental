@@ -188,13 +188,29 @@ func (m *Model) clearBusDown() {
 }
 
 // busDownLine is the footer while the prompt is up. Brackets mark the
-// focused choice.
-func (m *Model) busDownLine() screenLine {
-	send, cancel := "[Send anyway]", " Cancel "
-	if m.confirmCancel {
-		send, cancel = " Send anyway ", "[Cancel]"
+// focused choice. When the full line does not fit width, button key
+// hints are dropped before truncating.
+func (m *Model) busDownLine(width int) screenLine {
+	format := func(withHints bool) string {
+		sendHint, cancelHint := "", ""
+		if withHints {
+			sendHint, cancelHint = "y", "n"
+		}
+		var send, cancel string
+		if m.confirmCancel {
+			send = formatButton(" ", " ", "Send anyway", sendHint, false, 0)
+			cancel = formatButton("[", "]", "Cancel", cancelHint, false, 0)
+		} else {
+			send = formatButton("[", "]", "Send anyway", sendHint, false, 0)
+			cancel = formatButton(" ", " ", "Cancel", cancelHint, false, 0)
+		}
+		return busDownPrompt + "  " + send + " " + cancel + "  tab switch"
 	}
-	return screenLine{text: busDownPrompt + "  " + send + " " + cancel + "  tab switch  y/n"}
+	text := format(true)
+	if width > 0 && len([]rune(text)) > width {
+		text = format(false)
+	}
+	return screenLine{text: text}
 }
 
 // replyOnBus reports a reply to item on route goes through `agentbus

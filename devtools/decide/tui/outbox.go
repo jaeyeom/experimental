@@ -485,7 +485,7 @@ func (m *Model) requestQuit() (bool, error) {
 			if n != 1 {
 				word = "entries"
 			}
-			m.status = fmt.Sprintf("outbox has %d pending %s; quit anyway? y/n", n, word)
+			m.status = fmt.Sprintf("outbox has %d pending %s; quit anyway? %s %s", n, word, buttonLabel("Yes", "y", false, 0), buttonLabel("No", "n", false, 0))
 			return false, nil
 		}
 	}

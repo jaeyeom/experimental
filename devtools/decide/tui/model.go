@@ -253,6 +253,7 @@ type Model struct {
 	AvatarDefault  bool
 	AvatarMono     string
 	MessageAvatars bool
+	ASCIIKeys      bool
 	avatarProfile  termenv.Profile
 	avatarRender   *avatar.Renderer
 	avatarFailed   map[string]bool
@@ -1334,7 +1335,7 @@ func (m *Model) allLines() []screenLine {
 	}
 	status := m.statusLine()
 	if m.confirmKind == confirmBusDown {
-		status = m.busDownLine()
+		status = m.busDownLine(m.contentWidth())
 	}
 	if w := m.contentWidth(); w > 0 {
 		status = fitLine(status, w)
@@ -2571,10 +2572,11 @@ func (m *Model) detailLines(width int) []screenLine {
 	lines = append(lines, screenLine{})
 	lines = append(lines, m.threadLines(it, width, re)...)
 	if it.Kind == decide.KindTypeIn {
+		markDone := m.actionButton("mark done", "detail.outcome", false, width)
 		lines = append(lines,
 			screenLine{text: plainText("type: " + it.TypeText)},
 			screenLine{text: plainText("where: " + it.Where)},
-			screenLine{text: plainText("mark done"), hits: []hit{{kind: hitMarkDone}}},
+			screenLine{text: plainText(markDone), hits: []hit{{kind: hitMarkDone}}},
 		)
 	} else {
 		lines = append(lines, m.relayLines(it, width)...)
@@ -2852,14 +2854,12 @@ func (m *Model) replyLines(width int) []screenLine {
 	}
 	lines := []screenLine{{text: plainText("reply:")}}
 	lines = append(lines, boxedEditor(m.reply, &m.replyField, m.replyFocus, hitReply, width, m.replyBoxHeight(width), &m.replyScroll)...)
-	send := "[Send]"
-	if m.replySend {
-		send = "> [Send]"
-	}
+	send := m.actionButton("Send", "compose.send", m.replySend, width)
 	useStyles()
+	rendered := optionButton.Render(send)
 	return append(lines, screenLine{
-		text: optionButton.Render(send),
-		hits: []hit{{kind: hitReplySend}},
+		text: rendered,
+		hits: []hit{{kind: hitReplySend, x0: 1, x1: lipgloss.Width(rendered)}},
 	})
 }
 

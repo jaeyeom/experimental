@@ -85,6 +85,8 @@ type Options struct {
 	Display DisplaySource
 	// Keys overrides default inbox key bindings from ui.keys.
 	Keys map[string][]string
+	// ASCIIKeys uses ASCII key labels (such as C-Enter) on buttons.
+	ASCIIKeys bool
 }
 
 // Run draws the inbox until q or EOF. It reloads the ledger on Interval,
@@ -179,6 +181,7 @@ func prepare(opts Options) (*Model, error) {
 	m.localConfig = opts.LocalConfig
 	m.avatarProfile = termenv.NewOutput(opts.Out).EnvColorProfile()
 	m.display = opts.Display
+	m.ASCIIKeys = opts.ASCIIKeys
 	if len(opts.Keys) > 0 {
 		km, err := decide.ResolveKeyMap(opts.Keys)
 		if err != nil {
