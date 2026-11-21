@@ -392,6 +392,8 @@ func ActionCatalog() []ActionDef {
 
 		// Compose navigation and recipient picker.
 		{Name: "compose.send", View: "compose", Scopes: []string{"editor", "compose"}, Default: []string{"alt+enter", "ctrl+s"}, Description: "Send the draft from any focused composer.", Where: "every composer"},
+		{Name: "compose.sendAndArchive", View: "compose", Scopes: []string{"editor", "compose"}, Default: []string{"alt+e"}, Description: "Send the reply and archive the thread.", Where: "reply box"},
+		{Name: "compose.discard", View: "compose", Scopes: []string{"editor", "compose"}, Default: []string{"alt+d"}, Description: "Discard the reply draft.", Where: "reply box"},
 		{Name: "compose.nextField", View: "compose", Scopes: []string{"editor", "compose", "picker"}, Default: []string{"tab"}, Description: "Move to the next compose field.", Where: "compose"},
 		{Name: "compose.prevField", View: "compose", Scopes: []string{"editor", "compose", "picker"}, Default: []string{"shift+tab"}, Description: "Move to the previous compose field.", Where: "compose"},
 		{Name: "compose.cancel", View: "compose", Scopes: []string{"editor", "compose", "picker"}, Default: []string{"esc"}, Description: "Leave the composer and keep the draft.", Where: "compose"},
@@ -734,6 +736,8 @@ func FormatReadmeKeyTable(km *KeyMap) string {
 		{formatKeys("compose.nextField") + " / " + formatKeys("compose.prevField"), "compose", "Move among recipient, text, and Send."},
 		{"~enter~", "compose", "Newline in the text. Send on the Send button."},
 		{"~Ctrl+Enter~, " + formatKeys("compose.send"), "every composer", "Send the draft."},
+		{formatKeys("compose.sendAndArchive"), "reply box", "Send the reply and archive the thread."},
+		{formatKeys("compose.discard"), "reply box", "Discard the reply draft."},
 		{formatKeys("edit.fill"), "compose", "Fill the paragraph at the cursor."},
 		{formatKeys("edit.external"), "compose", "Edit the draft in an external editor."},
 		{formatKeys("compose.pickerPrev") + " / " + formatKeys("compose.pickerNext"), "compose recipients", "Move in the filtered list."},

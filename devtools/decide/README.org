@@ -54,8 +54,10 @@ age, the kind, and the latest message:
 #+end_example
 
 Enter opens the item. Press ~y~ to pick the Yes option, or answer from
-the shell. ~--via ui~ records that a person answered in the inbox or
-Emacs; a bare ~decide answer~ records ~cli~.
+the shell. Answering records the answer and marks the item ~answered~;
+it never closes the thread (~done~ stays the owner's step). ~--via ui~
+records that a person answered in the inbox or Emacs; a bare ~decide
+answer~ records ~cli~.
 
 #+begin_src sh
 decide answer --via ui D-001 y
@@ -327,6 +329,8 @@ Any other second key says ~unknown go-to key~.
 | ~tab~ / ~shift+tab~                   | compose                      | Move among recipient, text, and Send.                      |
 | ~enter~                               | compose                      | Newline in the text. Send on the Send button.              |
 | ~Ctrl+Enter~, ~Alt+Enter~ / ~C-s~     | every composer               | Send the draft.                                            |
+| ~Alt+e~                               | reply box                    | Send the reply and archive the thread.                     |
+| ~Alt+d~                               | reply box                    | Discard the reply draft.                                   |
 | ~Alt+q~                               | compose                      | Fill the paragraph at the cursor.                          |
 | ~C-x C-e~ / ~C-g~                     | compose                      | Edit the draft in an external editor.                      |
 | ~up~ / ~C-p~ / ~down~ / ~C-n~         | compose recipients           | Move in the filtered list.                                 |
@@ -348,7 +352,19 @@ The reply box is pinned to the bottom of the item pane outside the
 scrolling thread, so scrolling the thread never jumps back to the box.
 When unfocused and empty it collapses to one hint line (~reply: ___~);
 when focused or holding a draft it grows with the text up to the cap,
-shrinking the thread area above it, and keeps ~[Send]~ at the bottom.
+shrinking the thread area above it, and keeps the action buttons at the
+bottom: ~[Send ^⏎]~, ~[Send and archive M-e]~ (shown on notes,
+notifications, and already-answered threads, never on an open question),
+and ~[Discard M-d]~. ~Discard~ clears a short draft at once and asks
+first when the draft is longer than 3 lines; ~Esc~ leaves the box and
+keeps the draft.
+
+~ui.answerAction~ controls what picking an option (~1~-~9~ or click)
+does: ~stay~ (default) sends the answer and stays in the thread; ~list~
+sends and goes back to the list; ~edit~ puts the option's text into the
+reply box so you can add text before sending, recording the option key
+as the answer and posting the added text as a human message right after
+it. Answering never closes a thread.
 
 Archive waits while a message is unseen or newer than ~ui.archiveGrace~
 (default 2s). The status line says ~new message: not archived~. Pending
@@ -582,6 +598,7 @@ machine only. A hub does not send it.
 | ~owners~               | ~mode: off~                 | Allow-list of owners who may open items (~mode~, ~allowed~, ~managers~).       |
 | ~ui.utc~               | false                       | Inbox stamps in UTC.                                                           |
 | ~ui.clipboard~         | ~auto~                      | ~auto~, ~osc52~, ~command~, or ~off~.                                          |
+| ~ui.answerAction~      | ~stay~                      | ~stay~, ~list~, or ~edit~.                                                     |
 | ~ui.fillColumn~        | 72                          | Compose fill width. Never wider than the box.                                  |
 | ~ui.staleAnswerAfter~  | ~30m~                       | How long an answer sits before one follow-up.                                  |
 | ~ui.lateDeliveryAfter~ | ~5m~                        | How long a bus message waits before it needs attention.                         |
@@ -645,9 +662,9 @@ Action names are grouped by view:
   ~contacts.hide~, ~contacts.showHidden~, ~contacts.hideDead~,
   ~contacts.release~, ~contacts.alias~, ~contacts.details~,
   ~contacts.orgTree~
-- ~compose~: ~compose.send~, ~compose.nextField~, ~compose.prevField~,
-  ~compose.cancel~, ~compose.pickerNext~, ~compose.pickerPrev~,
-  ~compose.pickerStar~
+- ~compose~: ~compose.send~, ~compose.sendAndArchive~, ~compose.discard~,
+  ~compose.nextField~, ~compose.prevField~, ~compose.cancel~,
+  ~compose.pickerNext~, ~compose.pickerPrev~, ~compose.pickerStar~
 - ~editor~: ~edit.charForward~, ~edit.charBackward~, ~edit.lineNext~,
   ~edit.linePrev~, ~edit.lineStart~, ~edit.lineEnd~,
   ~edit.deleteForward~, ~edit.deleteBackward~, ~edit.killLine~,

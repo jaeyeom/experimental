@@ -55,8 +55,7 @@ func (m *Model) ShiftEnter() {
 // ShiftTab moves compose focus back from [Send] to the text to the recipient.
 func (m *Model) ShiftTab() {
 	if m.replySend && !m.help {
-		m.focusReply()
-		m.replyField.Focus()
+		m.prevReplyButton()
 		return
 	}
 	if m.help || m.answerFocus || !m.composing {

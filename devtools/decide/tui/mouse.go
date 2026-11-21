@@ -18,6 +18,8 @@ const (
 	hitNote
 	hitAvatar
 	hitReplySend
+	hitReplySendAndArchive
+	hitReplyDiscard
 )
 
 // hit is one clickable span on a screen row. x0 and x1 are 1-based columns.
@@ -65,18 +67,19 @@ func (m *Model) Click(x, y int) error {
 	return nil
 }
 
-// leaveReply unfocuses the reply box and its [Send] for a click
+// leaveReply unfocuses the reply box and its buttons for a click
 // elsewhere. It reports true when the click only left the reply box.
 func (m *Model) leaveReply(field hit, onField bool, x, y int) bool {
-	onReplySend := m.onHitRow(x, y, hitReplySend)
-	if !onReplySend {
+	onReplyBtn := m.onHitRow(x, y, hitReplySend) || m.onHitRow(x, y, hitReplySendAndArchive) || m.onHitRow(x, y, hitReplyDiscard)
+	if !onReplyBtn {
 		m.replySend = false
+		m.replyBtn = replyBtnSend
 	}
 	if !m.replyFocus || field.kind == hitReply {
 		return false
 	}
 	m.replyFocus = false
-	return !onField && !onReplySend
+	return !onField && !onReplyBtn
 }
 
 // CtrlClick opens the link under 1-based screen coordinates. Off a link
@@ -251,13 +254,28 @@ func (m *Model) hit(h hit) error {
 		return m.closeSelected()
 	case hitSend:
 		return m.sendNote()
-	case hitReplySend:
-		return m.submitReply()
 	case hitLink:
 		m.openURL(h.url)
 		return nil
 	default:
+		if handled, err := m.hitReplyButton(h.kind); handled {
+			return err
+		}
 		return nil
+	}
+}
+
+func (m *Model) hitReplyButton(kind int) (bool, error) {
+	switch kind {
+	case hitReplySend:
+		return true, m.submitReply()
+	case hitReplySendAndArchive:
+		return true, m.submitReplyAndArchive()
+	case hitReplyDiscard:
+		m.discardReply()
+		return true, nil
+	default:
+		return false, nil
 	}
 }
 
