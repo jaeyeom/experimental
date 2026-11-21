@@ -301,11 +301,71 @@ func statusExitCode(status CheckStatus) int {
 }
 
 func printDoctorHuman(w io.Writer, checks []CheckResult) {
+	printDoctorHumanColored(w, checks, useColor(w))
+}
+
+func printDoctorHumanColored(w io.Writer, checks []CheckResult, color bool) {
+	const minNameWidth = 18
+	nameWidth := minNameWidth
 	for _, c := range checks {
-		if c.Status != StatusOK && c.Hint != "" {
-			_, _ = fmt.Fprintf(w, "%-4s  %-18s  %s; hint: %s\n", c.Status, c.Name, c.Detail, c.Hint)
-			continue
+		if len(c.Name) > nameWidth {
+			nameWidth = len(c.Name)
 		}
-		_, _ = fmt.Fprintf(w, "%-4s  %-18s  %s\n", c.Status, c.Name, c.Detail)
 	}
+	// Icon (2 display cols) + space + status (4) + 2 spaces + nameWidth + 2 spaces.
+	hintIndent := strings.Repeat(" ", 11+nameWidth)
+
+	for _, c := range checks {
+		icon, ansi := statusStyle(c.Status)
+		badge := paint(fmt.Sprintf("%s %-4s", icon, c.Status), ansi, color)
+		_, _ = fmt.Fprintf(w, "%s  %-*s  %s\n", badge, nameWidth, c.Name, c.Detail)
+		if c.Status != StatusOK && c.Hint != "" {
+			hint := paint("hint: "+c.Hint, ansiDim, color)
+			_, _ = fmt.Fprintf(w, "%s%s\n", hintIndent, hint)
+		}
+	}
+}
+
+const (
+	ansiReset  = "\x1b[0m"
+	ansiDim    = "\x1b[2m"
+	ansiRed    = "\x1b[31m"
+	ansiGreen  = "\x1b[32m"
+	ansiYellow = "\x1b[33m"
+)
+
+func statusStyle(status CheckStatus) (icon, ansi string) {
+	switch status {
+	case StatusOK:
+		return "✅", ansiGreen
+	case StatusWarn:
+		return "⚠️", ansiYellow
+	case StatusFail:
+		return "❌", ansiRed
+	default:
+		return " ", ""
+	}
+}
+
+func paint(text, ansi string, color bool) string {
+	if !color || ansi == "" {
+		return text
+	}
+	return ansi + text + ansiReset
+}
+
+func useColor(w io.Writer) bool {
+	if os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb" {
+		return false
+	}
+	return isTerminal(w)
+}
+
+func isTerminal(w io.Writer) bool {
+	file, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := file.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }

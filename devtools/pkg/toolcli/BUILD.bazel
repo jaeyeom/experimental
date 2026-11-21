@@ -17,6 +17,9 @@ go_library(
 
 go_test(
     name = "go_default_test",
-    srcs = ["toolcli_test.go"],
+    srcs = [
+        "doctor_test.go",
+        "toolcli_test.go",
+    ],
     embed = [":go_default_library"],
 )
