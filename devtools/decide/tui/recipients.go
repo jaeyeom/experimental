@@ -289,6 +289,9 @@ func (m *Model) selectTarget(i int) {
 	if cands[i].Dead {
 		m.status = cands[i].Name + " is dead: the bus holds the note until the name is claimed"
 	}
+	if m.composing && m.forward == "" && m.outboxEditing == "" && strings.TrimSpace(m.note) != "" {
+		m.markDraftDirty(composerNote)
+	}
 }
 
 // selectName picks the candidate called name and reports whether one is.

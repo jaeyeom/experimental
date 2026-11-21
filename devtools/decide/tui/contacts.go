@@ -739,6 +739,7 @@ func (m *Model) confirmKey(r rune) (bool, error) {
 		case confirmRelease:
 			m.releaseContact(name)
 		case confirmQuit:
+			m.flushAllDrafts()
 			return true, nil
 		case confirmDiscard:
 			m.clearReplyDraft()

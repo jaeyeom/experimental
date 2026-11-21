@@ -489,5 +489,6 @@ func (m *Model) requestQuit() (bool, error) {
 			return false, nil
 		}
 	}
+	m.flushAllDrafts()
 	return true, nil
 }

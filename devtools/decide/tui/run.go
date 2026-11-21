@@ -121,6 +121,9 @@ func Run(opts Options) error {
 	}
 	final, err := newProgram(m, opts.In, opts.Out, inputLog).Run()
 	m.abandonExternalEdit()
+	if done, ok := final.(*Model); ok {
+		done.flushAllDrafts()
+	}
 	if err != nil {
 		return fmt.Errorf("decide inbox: %w", err)
 	}

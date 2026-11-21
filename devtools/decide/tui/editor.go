@@ -11,6 +11,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/jaeyeom/experimental/devtools/decide"
 )
 
 type composerKind int
@@ -36,6 +37,8 @@ type externalEdit struct {
 	path     string
 	original string
 	kind     composerKind
+	draftKey string
+	baseRev  int64
 	stdin    io.Reader
 	stdout   io.Writer
 	stderr   io.Writer
@@ -147,7 +150,14 @@ func (m *Model) editComposerKey(k tea.KeyMsg) bool {
 	default:
 		m.editField(field, k)
 	}
+	prev := *text
 	*text = field.Value()
+	if *text != prev {
+		m.markDraftDirty(kind)
+		if kind == composerNote && m.note != "" {
+			m.composeRestorePrompt = false
+		}
+	}
 	return true
 }
 
@@ -202,6 +212,7 @@ func (m *Model) startExternalEdit() tea.Cmd {
 	if !ok {
 		return nil
 	}
+	m.flushDraft(kind)
 	original := m.composerText(kind)
 	path, err := writeEditorFile(original)
 	if err != nil {
@@ -214,6 +225,10 @@ func (m *Model) startExternalEdit() tea.Cmd {
 		m.status = "editor not found"
 		return nil
 	}
+	var baseRev int64
+	if st := m.draftStateFor(kind); st != nil {
+		baseRev = st.baseRev
+	}
 	edit := &externalEdit{
 		m:        m,
 		prog:     prog,
@@ -221,6 +236,8 @@ func (m *Model) startExternalEdit() tea.Cmd {
 		path:     path,
 		original: original,
 		kind:     kind,
+		draftKey: m.draftKey(kind),
+		baseRev:  baseRev,
 	}
 	m.editor = edit
 	return tea.Exec(edit, func(err error) tea.Msg {
@@ -242,7 +259,58 @@ func (m *Model) finishExternalEdit(err error) {
 	if readErr != nil || string(body) == edit.original {
 		return
 	}
-	m.setComposerText(edit.kind, string(body))
+	text := string(body)
+	m.setComposerText(edit.kind, text)
+	m.saveExternalEditDraft(edit, text)
+}
+
+func (m *Model) saveExternalEditDraft(edit *externalEdit, text string) {
+	m.cancelDraftDebounce(edit.kind)
+	if edit.draftKey == "" {
+		return
+	}
+	db, ok := m.draftBackend()
+	if !ok {
+		return
+	}
+	st := m.draftStateFor(edit.kind)
+	if st != nil {
+		st.key = edit.draftKey
+		st.baseRev = edit.baseRev
+	}
+	if strings.TrimSpace(text) == "" {
+		if edit.baseRev > 0 || m.drafts[edit.draftKey].Key != "" {
+			if derr := db.DeleteDraft(edit.draftKey, ""); derr != nil {
+				m.status = derr.Error()
+				return
+			}
+			delete(m.drafts, edit.draftKey)
+			if st != nil {
+				st.baseRev = 0
+			}
+		}
+		return
+	}
+	d := m.buildDraft(edit.kind, edit.draftKey, text)
+	saved, conflict, perr := db.PutDraft(d, edit.baseRev)
+	if perr != nil {
+		if errors.Is(perr, decide.ErrDraftTooLarge) {
+			m.status = "draft exceeds 64 KiB limit; kept in memory"
+			return
+		}
+		m.status = perr.Error()
+		return
+	}
+	if m.drafts == nil {
+		m.drafts = make(map[string]decide.Draft)
+	}
+	m.drafts[edit.draftKey] = saved
+	if st != nil {
+		st.baseRev = saved.Rev
+	}
+	if conflict {
+		m.status = "draft conflict detected"
+	}
 }
 
 // abandonExternalEdit removes the draft of an edit whose result never

@@ -387,6 +387,9 @@ func (m *Model) fillComposer() {
 	*text = next
 	field.SetValue(next)
 	setFieldCursor(field, line, col)
+	if kind, ok := m.composerKind(); ok {
+		m.markDraftDirty(kind)
+	}
 }
 
 // composerTextWidth is the column the focused compose box wraps to.

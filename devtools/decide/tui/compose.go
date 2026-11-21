@@ -75,6 +75,29 @@ func (m *Model) ShiftTab() {
 }
 
 func (m *Model) composeKey(r rune) (bool, error) {
+	if m.composeRestorePrompt {
+		switch r {
+		case 'r', 'R':
+			m.restoreComposeDraft()
+			return false, nil
+		case 'd', 'D':
+			m.discardComposeDraft()
+			return false, nil
+		}
+	}
+	if m.composeFocus == focusSend && m.hasDraftConflict(composerNote) {
+		switch r {
+		case 'k', 'K':
+			m.resolveConflict(composerNote, conflictKeepCurrent)
+			return false, nil
+		case 'u', 'U':
+			m.resolveConflict(composerNote, conflictUseOther)
+			return false, nil
+		case 'm', 'M':
+			m.resolveConflict(composerNote, conflictMergeBoth)
+			return false, nil
+		}
+	}
 	if r == '\t' {
 		m.advanceCompose()
 		return false, nil
@@ -165,6 +188,9 @@ func (m *Model) sendNote() error {
 		m.status = err.Error()
 		return nil
 	}
+	if m.forward == "" && m.outboxEditing == "" {
+		m.deleteDraft(composerNote)
+	}
 	m.clearNote()
 	m.status = "sent to " + tg.Name
 	return nil
@@ -177,6 +203,7 @@ func (m *Model) forwardItem() {
 		return
 	}
 	m.focusCompose()
+	m.composeRestorePrompt = false
 	m.forward = m.detail.ID
 	m.note = forwardPrefill(m.detail, m.message, m.now(), m.zone())
 	m.composeFocus = focusText
@@ -243,7 +270,9 @@ func (m *Model) composeBody() []screenLine {
 	if !m.framed() || width < 2 {
 		return m.composeStack(width)
 	}
-	budget := m.height - 3
+	banner := m.composeRestoreLines(width)
+	banner = append(banner, m.conflictBannerLines(composerNote, width)...)
+	budget := m.height - 3 - len(banner)
 	if budget < 3 {
 		budget = 3
 	}
@@ -263,11 +292,16 @@ func (m *Model) composeBody() []screenLine {
 	}
 	textFocused := m.composeFocus == focusText
 	noteBox := boxedEditor(m.note, &m.noteField, textFocused, hitNote, width, textLines, &m.noteScroll)
-	return stackRegions(width,
+	regions := make([][]screenLine, 0, 4)
+	if len(banner) > 0 {
+		regions = append(regions, banner)
+	}
+	regions = append(regions,
 		panelBox(picker, width, m.composeFocus == focusRecipient),
 		noteBox,
 		panelBox([]screenLine{m.sendLine(width - 2)}, width, m.composeFocus == focusSend),
 	)
+	return stackRegions(width, regions...)
 }
 
 // boxedEditor renders a bordered multi-line textarea of width columns and
@@ -367,15 +401,18 @@ func windowDraftScroll(draft []screenLine, limit int, focused bool, scroll *int)
 }
 
 func (m *Model) composeStack(width int) []screenLine {
+	banner := m.composeRestoreLines(width)
+	banner = append(banner, m.conflictBannerLines(composerNote, width)...)
 	picker, _ := m.pickerLines()
 	draft := m.draftLines(width)
 	send := m.sendLine(width)
 	minH := m.composeMinHeight()
-	for len(picker)+len(draft)+1 < minH {
+	for len(banner)+len(picker)+len(draft)+1 < minH {
 		draft = append(draft, screenLine{})
 	}
 	draft = fieldRows(draft, hitNote, 0, 0, width)
-	lines := make([]screenLine, 0, len(picker)+len(draft)+1)
+	lines := make([]screenLine, 0, len(banner)+len(picker)+len(draft)+1)
+	lines = append(lines, banner...)
 	lines = append(lines, picker...)
 	lines = append(lines, draft...)
 	lines = append(lines, send)

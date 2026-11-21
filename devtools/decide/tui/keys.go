@@ -260,18 +260,34 @@ func (m *Model) dispatchBrowseKey(s decide.KeyStroke) (bool, error) {
 		return m.runAction(action)
 	}
 	if scope == "detail" && !s.Ctrl && !s.Alt {
-		runes := []rune(s.Key)
-		if len(runes) == 1 {
-			r := runes[0]
-			if r >= '1' && r <= '9' {
-				return false, m.answerOption(int(r - '1'))
-			}
-			if r >= ' ' {
-				m.status = m.unknownKeyStatus()
-			}
-		}
+		return false, m.dispatchDetailUnboundKey(s)
 	}
 	return false, nil
+}
+
+func (m *Model) dispatchDetailUnboundKey(s decide.KeyStroke) error {
+	runes := []rune(s.Key)
+	if len(runes) != 1 {
+		return nil
+	}
+	r := runes[0]
+	if r >= '1' && r <= '9' {
+		return m.answerOption(int(r - '1'))
+	}
+	if m.hasDraftConflict(composerReply) {
+		switch r {
+		case 'K':
+			m.resolveConflict(composerReply, conflictKeepCurrent)
+			return nil
+		case 'U':
+			m.resolveConflict(composerReply, conflictUseOther)
+			return nil
+		}
+	}
+	if r >= ' ' {
+		m.status = m.unknownKeyStatus()
+	}
+	return nil
 }
 
 func (m *Model) runAction(action string) (bool, error) {

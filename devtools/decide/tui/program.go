@@ -78,6 +78,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if bus := m.takeBusCmd(); bus != nil {
 		cmd = tea.Batch(cmd, bus)
 	}
+	if draft := m.draftTick(); draft != nil {
+		cmd = tea.Batch(cmd, draft)
+	}
 	return next, cmd
 }
 
@@ -135,6 +138,8 @@ func (m *Model) updateResult(msg tea.Msg) tea.Cmd {
 		return cmd
 	}
 	switch msg := msg.(type) {
+	case draftTickMsg:
+		m.finishDraftDebounce(msg.kind, msg.seq)
 	case locationMsg:
 		m.setLocation(msg)
 	case focusMsg:
@@ -468,8 +473,10 @@ func (m *Model) updateAvatarMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 // listMsg is a ledger read made off the update loop.
 type listMsg struct {
-	all []decide.Item
-	err error
+	all       []decide.Item
+	drafts    []decide.Draft
+	hasDrafts bool
+	err       error
 }
 
 // listCmd reads the ledger off the update loop.
@@ -477,7 +484,16 @@ func (m *Model) listCmd() tea.Cmd {
 	store := m.store()
 	return func() tea.Msg {
 		all, err := store.List()
-		return listMsg{all: all, err: err}
+		msg := listMsg{all: all, err: err}
+		if err == nil {
+			if db, ok := store.(DraftBackend); ok {
+				if drafts, derr := db.ListDrafts(); derr == nil {
+					msg.drafts = drafts
+					msg.hasDrafts = true
+				}
+			}
+		}
+		return msg
 	}
 }
 
@@ -513,6 +529,9 @@ func (m *Model) finishList(msg listMsg) (tea.Model, tea.Cmd) {
 	if err := m.applyList(msg.all); err != nil {
 		m.runErr = err
 		return m, tea.Quit
+	}
+	if msg.hasDrafts {
+		m.applyDrafts(msg.drafts)
 	}
 	m.pollDisplay()
 	return m.reloaded()

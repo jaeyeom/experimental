@@ -320,12 +320,17 @@ type Model struct {
 	// hide a hub save.
 	localConfig decide.ConfigFile
 	// keys holds the resolved inbox keymap, or nil for the default.
-	keys             *decide.KeyMap
-	chordPrefix      decide.KeyStroke
-	editPrefixStroke decide.KeyStroke
-	outboxCursor     int
-	outboxEditing    string
-	restoredFailed   map[string]bool
+	keys                 *decide.KeyMap
+	chordPrefix          decide.KeyStroke
+	editPrefixStroke     decide.KeyStroke
+	outboxCursor         int
+	outboxEditing        string
+	restoredFailed       map[string]bool
+	drafts               map[string]decide.Draft
+	replyDraft           draftState
+	answerDraft          draftState
+	composeDraft         draftState
+	composeRestorePrompt bool
 }
 
 // New returns an inbox positioned on the open folder.
@@ -349,7 +354,11 @@ func (m *Model) Reload() error {
 	if err != nil {
 		return m.reloadFailed(err)
 	}
-	return m.applyList(all)
+	if err := m.applyList(all); err != nil {
+		return err
+	}
+	m.loadDrafts()
+	return nil
 }
 
 // reloadFailed keeps the view when the hub is unreachable and says so.
@@ -637,6 +646,7 @@ func (m *Model) composeFromStatus() {
 }
 
 func (m *Model) showStatus() error {
+	m.flushAllDrafts()
 	m.composing = false
 	m.answerFocus = false
 	m.replyFocus = false
@@ -722,6 +732,7 @@ func (m *Model) helpKey(r rune) (bool, error) {
 				m.help = false
 				return false, nil
 			case "quit":
+				m.flushAllDrafts()
 				return true, nil
 			}
 		}
@@ -768,11 +779,13 @@ func (m *Model) focusCompose() {
 	m.free.Blur()
 	m.pullNote()
 	m.noteField.Blur()
+	m.checkComposeRestore()
 }
 
 // blurCompose leaves the compose box and keeps the draft. A forward's
 // draft is discarded with its prefill.
 func (m *Model) blurCompose() {
+	m.composeRestorePrompt = false
 	if m.forward != "" {
 		m.clearNote()
 		return
@@ -780,6 +793,7 @@ func (m *Model) blurCompose() {
 	if m.noteField.Focused() {
 		m.note = m.noteField.Value()
 	}
+	m.flushDraft(composerNote)
 	m.composing = false
 	m.noteField.Blur()
 }
@@ -880,6 +894,18 @@ func (m *Model) replySendKey(r rune) (bool, error) {
 		default:
 			return false, m.submitReply()
 		}
+	case 'k', 'K':
+		if m.hasDraftConflict(composerReply) {
+			m.resolveConflict(composerReply, conflictKeepCurrent)
+		}
+	case 'u', 'U':
+		if m.hasDraftConflict(composerReply) {
+			m.resolveConflict(composerReply, conflictUseOther)
+		}
+	case 'm', 'M':
+		if m.hasDraftConflict(composerReply) {
+			m.resolveConflict(composerReply, conflictMergeBoth)
+		}
 	}
 	return false, nil
 }
@@ -894,6 +920,8 @@ func dropLastRune(s string) string {
 
 func (m *Model) focusAnswer() {
 	m.answerFocus = true
+	m.replyFocus = false
+	m.replyField.Blur()
 	m.composing = false
 	m.outcome.Blur()
 	m.free.SetValue(m.draft)
@@ -976,6 +1004,7 @@ func (m *Model) openRow() error {
 	if len(m.items) == 0 {
 		return nil
 	}
+	m.flushAllDrafts()
 	id := m.items[m.cursor].ID
 	updated, err := m.store().MarkRead(id)
 	if err != nil {
@@ -1005,6 +1034,7 @@ func (m *Model) openRow() error {
 	m.newMessages = 0
 	m.detailGone = false
 	m.restoreFailedOutbox()
+	m.restoreOpenDetailDrafts(id)
 	m.status = "opened " + id
 	return m.Reload()
 }
@@ -1206,6 +1236,7 @@ func (m *Model) writeAnswer(value string) error {
 	default:
 		m.status = "answered " + id
 	}
+	m.deleteDraft(composerAnswer)
 	if m.effectiveAnswerAction() == decide.AnswerActionList {
 		m.backToList()
 		return m.Reload()
@@ -1383,6 +1414,9 @@ func (m *Model) replyNeedsDiscardConfirm() bool {
 }
 
 func (m *Model) clearReplyDraft() {
+	if m.outboxEditing == "" {
+		m.deleteDraft(composerReply)
+	}
 	m.reply = ""
 	m.replyField.Reset()
 	m.replyScroll = 0
@@ -1451,6 +1485,8 @@ func (m *Model) writeFailed(err error) error {
 }
 
 func (m *Model) backToList() {
+	m.flushDraft(composerReply)
+	m.flushDraft(composerAnswer)
 	m.mode = modeList
 	m.detail = nil
 	m.highlight = ""
@@ -2760,6 +2796,9 @@ func (m *Model) rowLines(width int) []screenLine {
 	cells := make([][]string, len(m.items))
 	for i, it := range m.items {
 		cells[i] = inboxCells(it, now, loc)
+		if mark := m.itemDraftMark(it.ID); mark != "" {
+			cells[i][3] = cells[i][3] + " " + mark
+		}
 	}
 	widths := inboxColumnWidths(cells, width)
 	styles := inboxStyles()
@@ -2820,6 +2859,8 @@ func (m *Model) detailLines(width int) []screenLine {
 		wrap := width - len(label)
 		body := fieldLines(m.draft, &m.outcome, m.outcome.Focused(), wrap)
 		lines = append(lines, labeledLines(label, body, hitOutcome, wrap)...)
+	} else {
+		lines = append(lines, m.conflictBannerLines(composerAnswer, width)...)
 	}
 	return lines
 }
@@ -3083,10 +3124,12 @@ func indentLine(line screenLine) screenLine {
 // replyLines is the reply box and, once it is in use, its action buttons.
 func (m *Model) replyLines(width int) []screenLine {
 	const label = "reply: "
-	if m.reply == "" && !m.replyFocus && !m.replySend {
+	conflict := m.conflictBannerLines(composerReply, width)
+	if m.reply == "" && !m.replyFocus && !m.replySend && len(conflict) == 0 {
 		return labeledLines(label, []screenLine{{text: "___"}}, hitReply, width-len(label))
 	}
 	lines := []screenLine{{text: plainText("reply:")}}
+	lines = append(lines, conflict...)
 	lines = append(lines, boxedEditor(m.reply, &m.replyField, m.replyFocus, hitReply, width, m.replyBoxHeight(width), &m.replyScroll)...)
 	useStyles()
 	var parts []string

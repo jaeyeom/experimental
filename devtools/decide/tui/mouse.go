@@ -20,6 +20,11 @@ const (
 	hitReplySend
 	hitReplySendAndArchive
 	hitReplyDiscard
+	hitComposeRestore
+	hitComposeDiscard
+	hitConflictKeep
+	hitConflictUse
+	hitConflictMerge
 )
 
 // hit is one clickable span on a screen row. x0 and x1 are 1-based columns.
@@ -286,6 +291,21 @@ func (m *Model) hitCompose(h hit) bool {
 		return true
 	case hitCompose:
 		m.focusCompose()
+		return true
+	case hitComposeRestore:
+		m.restoreComposeDraft()
+		return true
+	case hitComposeDiscard:
+		m.discardComposeDraft()
+		return true
+	case hitConflictKeep:
+		m.resolveConflict(composerKind(h.n), conflictKeepCurrent)
+		return true
+	case hitConflictUse:
+		m.resolveConflict(composerKind(h.n), conflictUseOther)
+		return true
+	case hitConflictMerge:
+		m.resolveConflict(composerKind(h.n), conflictMergeBoth)
 		return true
 	default:
 		return false
