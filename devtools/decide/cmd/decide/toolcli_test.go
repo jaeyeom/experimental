@@ -54,3 +54,78 @@ func TestDecideExtraDoctorChecks(t *testing.T) {
 		t.Fatalf("expected warn for unconfigured notify target, got %+v", notifyRes)
 	}
 }
+
+func TestCheckDecideAgentbus(t *testing.T) {
+	t.Run("found on PATH", func(t *testing.T) {
+		bin := t.TempDir()
+		bus := filepath.Join(bin, "agentbus")
+		if err := os.WriteFile(bus, []byte("#!/bin/sh\n"), 0o755); err != nil { //nolint:gosec // test executable
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", bin)
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+		got := checkDecideAgentbus(context.Background(), true)
+		if got.Status != toolcli.StatusOK || got.Name != "agentbus" || got.Detail != bus {
+			t.Fatalf("got %+v, want StatusOK with detail %q", got, bus)
+		}
+	})
+
+	cases := []struct {
+		name       string
+		configJSON string
+		want       toolcli.CheckStatus
+	}{
+		{
+			name: "missing and no config",
+			want: toolcli.StatusWarn,
+		},
+		{
+			name:       "missing and non-agentbus config",
+			configJSON: `{"notifyPane":"p1","targets":[{"name":"a","pane":"w1:p1"}]}`,
+			want:       toolcli.StatusWarn,
+		},
+		{
+			name:       "missing with recipients.agentbus",
+			configJSON: `{"recipients":{"agentbus":true}}`,
+			want:       toolcli.StatusFail,
+		},
+		{
+			name:       "missing with checkouts",
+			configJSON: `{"checkouts":[{"resource":"repo","path":"/tmp/repo"}]}`,
+			want:       toolcli.StatusFail,
+		},
+		{
+			name:       "missing with agentbus target",
+			configJSON: `{"targets":[{"name":"ops","pane":"agentbus:ops"}]}`,
+			want:       toolcli.StatusFail,
+		},
+		{
+			name:       "missing with agentbus notifyPane",
+			configJSON: `{"notifyPane":"agentbus:ops"}`,
+			want:       toolcli.StatusFail,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("PATH", t.TempDir())
+			xdg := t.TempDir()
+			t.Setenv("XDG_CONFIG_HOME", xdg)
+			if tc.configJSON != "" {
+				dir := filepath.Join(xdg, "decide")
+				if err := os.MkdirAll(dir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(tc.configJSON), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			got := checkDecideAgentbus(context.Background(), true)
+			if got.Status != tc.want || got.Name != "agentbus" {
+				t.Fatalf("got %+v, want status %q", got, tc.want)
+			}
+		})
+	}
+}
