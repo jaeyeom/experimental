@@ -5,6 +5,7 @@ package toolcli
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -80,6 +81,15 @@ type Tool struct {
 	CheckConfig       func() error
 	RequiredCommands  []string
 	ExtraDoctorChecks []DoctorCheck
+
+	// DoctorUsage, when non-empty, overrides the usage line printed when
+	// `doctor` receives unexpected positional arguments.
+	DoctorUsage string
+	// RegisterDoctorFlags, when non-nil, registers tool-specific flags on
+	// `doctor`'s FlagSet and returns an optional handler called after flag
+	// parsing. If the handler returns (code, true), cmdDoctor returns code
+	// without running the standard doctor output.
+	RegisterDoctorFlags func(fs *flag.FlagSet) func(ctx context.Context, stdout, stderr io.Writer) (int, bool)
 
 	// Optional dependency-injection hooks (default to OS/runtime implementations).
 	ReadBuildInfo func() BuildInfo

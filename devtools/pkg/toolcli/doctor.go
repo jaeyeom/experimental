@@ -24,11 +24,23 @@ func (t *Tool) cmdDoctor(ctx context.Context, args []string, stdout, stderr io.W
 	fs.SetOutput(stderr)
 	jsonOut := fs.Bool("json", false, "output JSON")
 	offline := fs.Bool("offline", false, "skip network-dependent checks")
+	var customHandler func(ctx context.Context, stdout, stderr io.Writer) (int, bool)
+	if t.RegisterDoctorFlags != nil {
+		customHandler = t.RegisterDoctorFlags(fs)
+	}
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if fs.NArg() != 0 {
+		if t.DoctorUsage != "" {
+			return failMsg(stderr, "usage: "+t.DoctorUsage, 2)
+		}
 		return failMsg(stderr, "doctor does not take positional arguments", 2)
+	}
+	if customHandler != nil {
+		if code, handled := customHandler(ctx, stdout, stderr); handled {
+			return code
+		}
 	}
 
 	checks := t.runDoctorChecks(ctx, *offline)

@@ -271,10 +271,13 @@ func commands() []command {
 			summary: "Report other agentbusd processes for this user. In hub mode, report the tunnel, the ssh port, " +
 				"the outbox flusher, and pending outbox entries instead of the local daemon socket. With --sandbox, " +
 				"print the Claude Code sandbox allowlist this machine needs and test each connection.",
-			usage:   "agentbus doctor [--sandbox]",
+			usage:   "agentbus doctor [--sandbox] [--json] [--offline]",
 			flags:   "--sandbox  also print the sandbox settings entries and report each connection ok or blocked",
 			example: "agentbus doctor --sandbox",
-			run:     noStdin(cmdDoctor),
+			run: noStdin(func(ctx context.Context, args, env []string, stdout, stderr io.Writer) int {
+				code, _ := newAgentbusToolWithEnv(env).Handle(ctx, append([]string{"doctor"}, args...), stdout, stderr)
+				return code
+			}),
 		},
 		{
 			name: "health",

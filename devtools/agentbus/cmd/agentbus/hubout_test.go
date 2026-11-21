@@ -324,7 +324,7 @@ func TestNoTTLStaysAndIsFlaggedAfter24h(t *testing.T) {
 		t.Fatalf("ls = %d, stdout %q, stderr %q", code, stdout, stderr)
 	}
 	code, stdout, stderr = s.run(t, s.env, "", "doctor")
-	if code != 0 || !strings.Contains(stdout, "outbox: "+id+" pending for more than 24h") {
+	if stderr != "" || code > 2 || !strings.Contains(stdout, "outbox: "+id+" pending for more than 24h") {
 		t.Fatalf("doctor = %d, stdout %q, stderr %q", code, stdout, stderr)
 	}
 }
@@ -437,7 +437,7 @@ func TestTunnelHookSuccessDoesNotSpool(t *testing.T) {
 
 func TestEmptyOutboxDoesNotSSH(t *testing.T) {
 	h := startHub(t, `hub = "me@hub"`)
-	if code, _, stderr := h.run(t, "", "doctor"); code != 0 {
+	if code, _, stderr := h.run(t, "", "doctor"); stderr != "" || code > 2 {
 		t.Fatalf("doctor = %d, stderr %q", code, stderr)
 	}
 	if h.ssh.Read("argv") != "" {

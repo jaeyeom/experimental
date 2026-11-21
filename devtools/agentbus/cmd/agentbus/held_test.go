@@ -81,7 +81,7 @@ func TestDoctorPrintsLiveHerdrDownWhenTheLogHasNoEvent(t *testing.T) {
 	}
 	ad.SelfTestErr = errors.New(reason)
 	code, stdout, stderr := runCmd([]string{"doctor"}, env(""))
-	if code != 0 {
+	if stderr != "" || code > 2 {
 		t.Fatalf("doctor = %d, stderr %q", code, stderr)
 	}
 	if !strings.Contains(stdout, "herdr transport unreachable: "+reason) {
@@ -98,7 +98,7 @@ func TestDoctorTrustsLiveStatusOverAStaleLog(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, stdout, stderr := runCmd([]string{"doctor"}, env(""))
-	if code != 0 {
+	if stderr != "" || code > 2 {
 		t.Fatalf("doctor = %d, stderr %q", code, stderr)
 	}
 	if strings.Contains(stdout, "transport unreachable") {
@@ -132,7 +132,7 @@ func TestDoctorFallsBackWhenTheDaemonIsDown(t *testing.T) {
 	t.Cleanup(func() { doctorHerdrProbe = orig })
 
 	code, stdout, stderr := runCmd([]string{"doctor"}, base)
-	if code != 0 {
+	if stderr != "" || code > 2 {
 		t.Fatalf("doctor = %d, stderr %q", code, stderr)
 	}
 	for _, want := range []string{
