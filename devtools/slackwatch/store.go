@@ -260,6 +260,13 @@ ALTER TABLE watches ADD COLUMN reopen_on TEXT NOT NULL DEFAULT '' CHECK (reopen_
 ALTER TABLE watches ADD COLUMN muted INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE watches ADD COLUMN root_author TEXT NOT NULL DEFAULT '';
 `,
+	// decide_replied is 1 once the outcome reply was sent to the decide
+	// thread. Already-closed rows are marked replied so an upgrade only
+	// retries rows whose decide item was never closed.
+	`
+ALTER TABLE outbox ADD COLUMN decide_replied INTEGER NOT NULL DEFAULT 0;
+UPDATE outbox SET decide_replied = 1 WHERE decide_closed = 1;
+`,
 }
 
 // Store is the slackwatch SQLite database. The server and the CLI each

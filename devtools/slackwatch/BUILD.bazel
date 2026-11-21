@@ -49,6 +49,7 @@ go_test(
     ],
     embed = [":go_default_library"],
     embedsrcs = ["contrib/slackwatch.service"],
+    deps = ["//devtools/decide:go_default_library"],
 )
 
 org_lint_tests(["README.org"])

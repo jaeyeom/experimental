@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jaeyeom/experimental/devtools/decide"
 )
 
 // fakeDecider is an in-memory decide ledger.
@@ -30,6 +32,8 @@ type fakeDecider struct {
 	at                  time.Time
 	dropRestoredOptions bool
 	askErr              error
+	replyErr            error
+	doneErr             error
 	next                int
 }
 
@@ -40,6 +44,9 @@ func newFakeDecider() *fakeDecider {
 func (d *fakeDecider) Ask(_ context.Context, owner, question, verbatim string) (string, error) {
 	if d.askErr != nil {
 		return "", d.askErr
+	}
+	if err := decide.CheckShape(question, decide.Config{}.ShapeLimits()); err != nil {
+		return "", fmt.Errorf("decide shape: %w", err)
 	}
 	d.next++
 	id := fmt.Sprintf("D-%d", d.next)
@@ -66,6 +73,12 @@ func (d *fakeDecider) Show(_ context.Context, id string) (DecideItem, error) {
 }
 
 func (d *fakeDecider) Reply(_ context.Context, id, text string) error {
+	if d.replyErr != nil {
+		return d.replyErr
+	}
+	if err := decide.CheckShape(text, decide.Config{}.ShapeLimits()); err != nil {
+		return fmt.Errorf("decide shape: %w", err)
+	}
 	it, ok := d.items[id]
 	if !ok {
 		return errors.New("no such item")
@@ -78,6 +91,9 @@ func (d *fakeDecider) Reply(_ context.Context, id, text string) error {
 }
 
 func (d *fakeDecider) ReplyOptions(_ context.Context, id, text, _ string) error {
+	if err := decide.CheckShape(text, decide.Config{}.ShapeLimits()); err != nil {
+		return fmt.Errorf("decide shape: %w", err)
+	}
 	it, ok := d.items[id]
 	if !ok {
 		return errors.New("no such item")
@@ -95,6 +111,12 @@ func (d *fakeDecider) ReplyOptions(_ context.Context, id, text, _ string) error 
 }
 
 func (d *fakeDecider) Done(_ context.Context, id, outcome string) error {
+	if d.doneErr != nil {
+		return d.doneErr
+	}
+	if err := decide.CheckShape(outcome, decide.Config{}.ShapeLimits()); err != nil {
+		return fmt.Errorf("decide shape: %w", err)
+	}
 	it, ok := d.items[id]
 	if !ok {
 		return errors.New("no such item")
@@ -394,8 +416,9 @@ func TestAcceptanceDirectPostsOnceWithFooter(t *testing.T) {
 	if w.Owner != "agent-1" || w.Source != SourceOutbox || w.Purpose != "announce deploy" || w.State != StateOpen {
 		t.Errorf("watch = %+v", w)
 	}
-	if f.dec.outcomes[r.DecideID] != got.Permalink {
-		t.Errorf("decide outcome = %q, want %q", f.dec.outcomes[r.DecideID], got.Permalink)
+	wantOutcome := "Posted to #general.\n\n- " + got.Permalink
+	if f.dec.outcomes[r.DecideID] != wantOutcome {
+		t.Errorf("decide outcome = %q, want %q", f.dec.outcomes[r.DecideID], wantOutcome)
 	}
 }
 
@@ -694,7 +717,8 @@ func TestSupersedePendingAndAwaitingHandoff(t *testing.T) {
 	if got := f.get(t, old.ID); got.State != OutboxCancelled || got.Reason != want {
 		t.Fatalf("pending old = %+v", got)
 	}
-	if f.dec.outcomes[old.DecideID] != want || f.dec.items[old.DecideID].State != "done" {
+	wantOutcome := supersededOutcome(neu.ID)
+	if f.dec.outcomes[old.DecideID] != wantOutcome || f.dec.items[old.DecideID].State != "done" {
 		t.Errorf("decide outcome = %q, item %+v", f.dec.outcomes[old.DecideID], f.dec.items[old.DecideID])
 	}
 
@@ -920,7 +944,8 @@ func TestHandoffPostedMatches(t *testing.T) {
 			if w.Owner != "agent-1" || w.Source != SourceOutbox || w.Flag != "" || w.Permalink != postedLink {
 				t.Errorf("watch = %+v", w)
 			}
-			if f.dec.items[r.DecideID].State != "done" || f.dec.outcomes[r.DecideID] != postedLink {
+			wantOutcome := "Posted to #general.\n\n- " + postedLink
+			if f.dec.items[r.DecideID].State != "done" || f.dec.outcomes[r.DecideID] != wantOutcome {
 				t.Errorf("decide = %+v outcome %q", f.dec.items[r.DecideID], f.dec.outcomes[r.DecideID])
 			}
 			if len(f.rec.notes) != 0 {
@@ -1009,7 +1034,8 @@ func TestRecheck(t *testing.T) {
 		if len(f.writer.posts) != posts {
 			t.Fatalf("posts = %d, want %d", len(f.writer.posts), posts)
 		}
-		if n := len(f.dec.replies); n == 0 || f.dec.replies[n-1] != "Posted: "+postedLink {
+		wantReply := "Posted to #general.\n\n- " + postedLink
+		if n := len(f.dec.replies); n == 0 || f.dec.replies[n-1] != wantReply {
 			t.Fatalf("replies = %q", f.dec.replies)
 		}
 		w, err := f.store.FindWatch(PostRef{WatchID: got.WatchID})
@@ -1082,7 +1108,8 @@ func TestManualPostedPendingWithUIApproval(t *testing.T) {
 			if w.Owner != "agent-1" || w.Source != SourceOutbox || w.Flag != "" {
 				t.Errorf("watch = %+v", w)
 			}
-			if f.dec.items[r.DecideID].State != "done" || f.dec.outcomes[r.DecideID] != postedLink {
+			wantOutcome := "Posted to #general.\n\n- " + postedLink
+			if f.dec.items[r.DecideID].State != "done" || f.dec.outcomes[r.DecideID] != wantOutcome {
 				t.Errorf("decide = %+v outcome %q", f.dec.items[r.DecideID], f.dec.outcomes[r.DecideID])
 			}
 			f.poll(t)
@@ -2143,7 +2170,8 @@ func TestOutcomeReplyPostedBeforeDone(t *testing.T) {
 	if got.State != OutboxPosted {
 		t.Fatalf("state = %s", got.State)
 	}
-	want := []string{"reply: Posted: " + got.Permalink, "done: " + got.Permalink}
+	wantMsg := "Posted to #general.\n\n- " + got.Permalink
+	want := []string{"reply: " + wantMsg, "done: " + wantMsg}
 	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
 		t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
 	}
@@ -2156,10 +2184,8 @@ func TestOutcomeReplyMismatchBeforeDone(t *testing.T) {
 	if _, err := f.ob.Posted(context.Background(), r.ID, postedLink); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{
-		"reply: Posted, but the text differs from the approved draft: " + postedLink + " (the posted text differs from the approved text)",
-		"done: posted with a mismatch: " + postedLink,
-	}
+	wantMsg := "Posted with a mismatch.\n\n- " + postedLink + "\n- the posted text differs from the approved text"
+	want := []string{"reply: " + wantMsg, "done: " + wantMsg}
 	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
 		t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
 	}
@@ -2173,7 +2199,8 @@ func TestOutcomeReplyManualPosted(t *testing.T) {
 	if _, err := f.ob.PostedManual(context.Background(), r.ID, postedLink); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"reply: Posted: " + postedLink, "done: " + postedLink}
+	wantMsg := "Posted to #general.\n\n- " + postedLink
+	want := []string{"reply: " + wantMsg, "done: " + wantMsg}
 	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
 		t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
 	}
@@ -2189,7 +2216,7 @@ func TestOutcomeReplyFailedLeavesItemOpen(t *testing.T) {
 	if got := f.get(t, r.ID); got.State != OutboxFailed {
 		t.Fatalf("state = %s", got.State)
 	}
-	want := []string{"options: Post failed: chat.postMessage: fatal_error; reply post to retry"}
+	want := []string{"options: Post failed.\n\n- chat.postMessage: fatal_error\n- Reply post to retry."}
 	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
 		t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
 	}
@@ -2207,7 +2234,8 @@ func TestOutcomeReplyManualRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"reply: Posted: " + got.Permalink, "done: " + got.Permalink}
+	wantMsg := "Posted to #general.\n\n- " + got.Permalink
+	want := []string{"reply: " + wantMsg, "done: " + wantMsg}
 	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
 		t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
 	}
@@ -2232,7 +2260,8 @@ func TestOutcomeReplyRecheck(t *testing.T) {
 		if _, err := f.ob.Recheck(context.Background(), r.ID); err != nil {
 			t.Fatal(err)
 		}
-		want := []string{"reply: Posted: " + postedLink, "done: " + postedLink}
+		wantMsg := "Posted to #general.\n\n- " + postedLink
+		want := []string{"reply: " + wantMsg, "done: " + wantMsg}
 		if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
 			t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
 		}
@@ -2242,10 +2271,8 @@ func TestOutcomeReplyRecheck(t *testing.T) {
 		if _, err := f.ob.Recheck(context.Background(), r.ID); err == nil {
 			t.Fatal("recheck passed")
 		}
-		want := []string{
-			"reply: Posted, but the text differs from the approved draft: " + postedLink + " (the posted text differs from the approved text)",
-			"done: posted with a mismatch: " + postedLink,
-		}
+		wantMsg := "Posted with a mismatch.\n\n- " + postedLink + "\n- the posted text differs from the approved text"
+		want := []string{"reply: " + wantMsg, "done: " + wantMsg}
 		if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
 			t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
 		}
@@ -2282,8 +2309,8 @@ func TestRecheckPostDeleted(t *testing.T) {
 		t.Fatalf("posts = %d, want %d", len(f.writer.posts), posts)
 	}
 	want := []string{
-		"reply: The posted message " + postedLink + " was deleted; outbox " + fmt.Sprint(r.ID) + " is cancelled: post deleted",
-		"done: cancelled: post deleted",
+		"reply: Cancelled: post deleted.\n\n- Outbox " + fmt.Sprint(r.ID) + "\n- " + postedLink,
+		"done: Cancelled.\n\n- post deleted",
 	}
 	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
 		t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
@@ -2320,7 +2347,7 @@ func TestCancelMismatch(t *testing.T) {
 	if got.State != OutboxCancelled || got.Reason != "post deleted" {
 		t.Fatalf("record = %+v", got)
 	}
-	want := []string{"reply: Cancelled: post deleted", "done: cancelled: post deleted"}
+	want := []string{"reply: Cancelled.\n\n- post deleted", "done: Cancelled.\n\n- post deleted"}
 	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
 		t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
 	}
@@ -2355,7 +2382,7 @@ func TestCancelPosted(t *testing.T) {
 	if got.State != OutboxCancelled || got.Reason != "post deleted" {
 		t.Fatalf("record = %+v", got)
 	}
-	want := []string{"reply: Cancelled: post deleted", "done: cancelled: post deleted"}
+	want := []string{"reply: Cancelled.\n\n- post deleted", "done: Cancelled.\n\n- post deleted"}
 	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
 		t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
 	}
@@ -2385,7 +2412,8 @@ func TestAutoRetryOnFreshPost(t *testing.T) {
 	if got.State != OutboxPosted || f.writer.attempts != 1 {
 		t.Fatalf("state %s attempts %d", got.State, f.writer.attempts)
 	}
-	want := []string{"reply: Posted: " + got.Permalink, "done: " + got.Permalink}
+	wantMsg := "Posted to #general.\n\n- " + got.Permalink
+	want := []string{"reply: " + wantMsg, "done: " + wantMsg}
 	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
 		t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
 	}
@@ -2432,7 +2460,7 @@ func TestAutoRetryFailsOnce(t *testing.T) {
 	if got := f.get(t, r.ID); got.State != OutboxFailed || f.writer.attempts != 1 {
 		t.Fatalf("state %s attempts %d", got.State, f.writer.attempts)
 	}
-	want := []string{"options: Post failed: chat.postMessage: fatal_error; reply post to retry"}
+	want := []string{"options: Post failed.\n\n- chat.postMessage: fatal_error\n- Reply post to retry."}
 	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
 		t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
 	}
@@ -2486,5 +2514,133 @@ func TestDecideCLIPassesVerbatimAndNoLongLines(t *testing.T) {
 				t.Fatalf("calls = %q, want --verbatim", calls)
 			}
 		})
+	}
+}
+
+func TestDecideMessagesPassShapeCheckWithWorstCaseValues(t *testing.T) {
+	limits := decide.Config{}.ShapeLimits()
+	longThreadLink := "https://my-very-long-workspace.slack.com/archives/C0123456789/p1700000100000100?thread_ts=1700000000.000000&cid=C0123456789"
+	if len(longThreadLink) < 120 {
+		t.Fatalf("test permalink length = %d, want >= 120", len(longThreadLink))
+	}
+	hugeThreadLink := longThreadLink + "&extra=" + strings.Repeat("x", 100)
+	longChannel := "#" + strings.Repeat("release-announcements-", 6)
+	longOwner := strings.Repeat("agent-owner-", 11)
+	longPurpose := "Announce release\nwith details: " + strings.Repeat("word ", 60)
+	longReason := "Refused because\n" + strings.Repeat("detail ", 60)
+	longRefs := []string{strings.Repeat("https://github.com/org/repo/issues/12345 ", 5)}
+
+	for name, msg := range map[string]string{
+		"question":             question(99, Draft{Channel: "C0123456789", ThreadTS: "1700000000.000000", DestName: longChannel, ParentLink: hugeThreadLink, Text: "hi", Owner: longOwner, Purpose: longPurpose, Refs: longRefs}, strings.Repeat("a", 64)),
+		"posted thread 120+":   postedOutcome(OutboxRecord{Channel: "C0123456789", DestName: "#general"}, longThreadLink, ""),
+		"posted thread 200+":   postedOutcome(OutboxRecord{Channel: "C0123456789", DestName: longChannel}, hugeThreadLink, ""),
+		"posted mismatch":      postedOutcome(OutboxRecord{Channel: "C0123456789", DestName: longChannel}, longThreadLink, longReason),
+		"superseded":           supersededOutcome(42),
+		"dropped":              droppedOutcome,
+		"redraft":              redraftOutcome(longOwner),
+		"rejected":             rejectedOutcome(longReason),
+		"fail post":            failPostReply(postFailureNotice(OutboxRecord{ID: 99, Channel: "C0123456789"}, "chat.postMessage: "+longReason)),
+		"cancelled":            cancelledOutcome(longReason),
+		"cancelled empty":      cancelledOutcome(""),
+		"cancelled post":       cancelledPostOutcome(longReason),
+		"cancelled post empty": cancelledPostOutcome(""),
+		"recheck deleted":      recheckDeletedReply(99, longThreadLink),
+		"recheck deleted huge": recheckDeletedReply(99, hugeThreadLink),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := decide.CheckShape(msg, limits); err != nil {
+				t.Errorf("%s failed decide.CheckShape: %v\nmessage:\n%s", name, err, msg)
+			}
+		})
+	}
+
+	// End-to-end thread post with 120+ char permalink passes both Reply and Done.
+	f := newOutboxFixture(t, PostModeDirect)
+	if err := f.store.SetTeamURL("https://my-very-long-workspace.slack.com"); err != nil {
+		t.Fatal(err)
+	}
+	f.reader.msg = Message{User: expectUser, Text: postedBody()}
+	r, err := f.ob.Submit(context.Background(), Draft{
+		Channel: "C0123456789", ThreadTS: "1700000000.000000", DestName: "#general",
+		ParentLink: longThreadLink, Text: approvedText, Owner: "agent-1", Purpose: longPurpose,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.dec.answer(r.DecideID, uiPost)
+	f.poll(t)
+	got := f.get(t, r.ID)
+	if got.State != OutboxPosted || !got.DecideClosed {
+		t.Fatalf("record = %+v, want posted with closed decide item", got)
+	}
+	if len(f.dec.replies) == 0 || f.dec.outcomes[r.DecideID] == "" {
+		t.Fatalf("replies = %v, outcome = %q", f.dec.replies, f.dec.outcomes[r.DecideID])
+	}
+}
+
+func TestRefusedOutcomeRetriedOnNextPoll(t *testing.T) {
+	f := newOutboxFixture(t, PostModeDirect)
+	var logs bytes.Buffer
+	f.ob.Logger = slog.New(slog.NewTextHandler(&logs, nil))
+	f.reader.msg = Message{User: expectUser, Text: postedBody()}
+	r := f.submit(t)
+	f.dec.answer(r.DecideID, uiPost)
+
+	// Simulate both reply and done being refused on the first attempt.
+	f.dec.replyErr = decide.ErrShape
+	f.dec.doneErr = decide.ErrShape
+	f.poll(t)
+
+	got := f.get(t, r.ID)
+	if got.State != OutboxPosted || got.DecideClosed {
+		t.Fatalf("after refused outcome: state=%s decideClosed=%v", got.State, got.DecideClosed)
+	}
+	if f.dec.items[r.DecideID].State == "done" {
+		t.Fatalf("decide item should still be open after refused done")
+	}
+	if !strings.Contains(logs.String(), fmt.Sprintf("outbox=%d", r.ID)) {
+		t.Errorf("logs missing outbox id:\n%s", logs.String())
+	}
+
+	// Next poll retries both reply and done and closes the item.
+	f.dec.replyErr = nil
+	f.dec.doneErr = nil
+	f.poll(t)
+
+	got = f.get(t, r.ID)
+	if !got.DecideClosed {
+		t.Fatalf("expected decideClosed=true after retry poll")
+	}
+	if f.dec.items[r.DecideID].State != "done" || f.dec.outcomes[r.DecideID] == "" {
+		t.Fatalf("decide item = %+v, outcome = %q", f.dec.items[r.DecideID], f.dec.outcomes[r.DecideID])
+	}
+	if len(f.dec.replies) != 1 {
+		t.Fatalf("replies = %d, want 1", len(f.dec.replies))
+	}
+}
+
+func TestUpgradeClosesUnclosedOutboxEntries(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	r := approveHandoff(t, f)
+	longThreadLink := "https://my-very-long-workspace.slack.com/archives/C0123456789/p1700000100000100?thread_ts=1700000000.000000&cid=C0123456789"
+	// Simulate a pre-upgrade row that was posted with an unshaped >100-char
+	// thread permalink as decide_outcome and left unclosed.
+	if _, err := f.store.DB().Exec(`UPDATE outbox
+SET state = ?, permalink = ?, post_ts = ?, decide_outcome = ?, decide_closed = 0, decide_replied = 0
+WHERE id = ?`, OutboxPosted, longThreadLink, "1700000100.000100", longThreadLink, r.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	f.poll(t)
+
+	got := f.get(t, r.ID)
+	if !got.DecideClosed {
+		t.Fatalf("expected decideClosed=true after upgrade poll")
+	}
+	if f.dec.items[r.DecideID].State != "done" {
+		t.Fatalf("decide item state = %s, want done", f.dec.items[r.DecideID].State)
+	}
+	if !strings.Contains(f.dec.outcomes[r.DecideID], longThreadLink) {
+		t.Errorf("outcome = %q, want link %q", f.dec.outcomes[r.DecideID], longThreadLink)
 	}
 }

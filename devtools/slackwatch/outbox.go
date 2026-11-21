@@ -793,35 +793,211 @@ func (o *Outbox) supersede(ctx context.Context, oldID, newID int64) error {
 	case OutboxRejected, OutboxCancelled, OutboxDropped, OutboxMismatch:
 		return nil
 	}
-	outcome := fmt.Sprintf("not posted: superseded by %d", newID)
-	_, err = o.cancelIn(ctx, oldID, []string{OutboxNeedsRedraft, OutboxPending, OutboxAwaitingHandoff, OutboxFailed}, outcome, outcome,
+	reason := fmt.Sprintf("not posted: superseded by %d", newID)
+	_, err = o.cancelIn(ctx, oldID, []string{OutboxNeedsRedraft, OutboxPending, OutboxAwaitingHandoff, OutboxFailed}, reason, supersededOutcome(newID),
 		supersedeRefused)
 	return err
 }
 
+// Decide inbox shape limits (mirrored from devtools/decide).
+// Tests verify every message against decide.CheckShape directly.
+const (
+	decideMaxFirstLine = 100
+	decideMaxLine      = 160
+	decideMaxChars     = 1200
+)
+
+func singleLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+func truncateRunes(s string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	if utf8.RuneCountInString(s) <= limit {
+		return s
+	}
+	if limit == 1 {
+		return "…"
+	}
+	return string([]rune(s)[:limit-1]) + "…"
+}
+
+func shapeBullet(label, value string) string {
+	v := singleLine(value)
+	if v == "" {
+		return ""
+	}
+	prefix := "- "
+	if label != "" {
+		prefix += label + ": "
+	}
+	return truncateRunes(prefix+v, decideMaxLine)
+}
+
+func linkLine(link string) string {
+	if link == "" {
+		return ""
+	}
+	if utf8.RuneCountInString("- "+link) <= decideMaxLine {
+		return "- " + link
+	}
+	// Bare URLs without spaces are exempt from decide's line-length limit.
+	return singleLine(link)
+}
+
+func shapeMessage(header string, bullets ...string) string {
+	h := truncateRunes(singleLine(header), decideMaxFirstLine)
+	var kept []string
+	for _, b := range bullets {
+		if b != "" {
+			kept = append(kept, b)
+		}
+	}
+	if len(kept) == 0 {
+		return h
+	}
+	msg := h + "\n\n" + strings.Join(kept, "\n")
+	if utf8.RuneCountInString(msg) <= decideMaxChars {
+		return msg
+	}
+	// Trim trailing bullets from the end if the combined message is too long.
+	for len(kept) > 1 && utf8.RuneCountInString(h+"\n\n"+strings.Join(kept, "\n")) > decideMaxChars {
+		kept = kept[:len(kept)-1]
+	}
+	msg = h + "\n\n" + strings.Join(kept, "\n")
+	return truncateRunes(msg, decideMaxChars)
+}
+
+const droppedOutcome = "Not posted: dropped."
+
+func supersededOutcome(newID int64) string {
+	return shapeMessage("Not posted: superseded.", fmt.Sprintf("- Superseded by outbox %d.", newID))
+}
+
+func redraftOutcome(owner string) string {
+	return shapeMessage("Not posted: redraft requested.", shapeBullet("", "Notes sent to "+singleLine(owner)+"."))
+}
+
+func rejectedOutcome(reason string) string {
+	return shapeMessage("Not posted: rejected.", shapeBullet("", reason))
+}
+
+func cancelledOutcome(reason string) string {
+	if singleLine(reason) == "" {
+		return "Not posted: cancelled."
+	}
+	return shapeMessage("Not posted: cancelled.", shapeBullet("", reason))
+}
+
+func cancelledPostOutcome(reason string) string {
+	if singleLine(reason) == "" {
+		return "Cancelled."
+	}
+	return shapeMessage("Cancelled.", shapeBullet("", reason))
+}
+
+func failPostReply(notice string) string {
+	return shapeMessage("Post failed.", shapeBullet("", notice), "- Reply post to retry.")
+}
+
+func recheckDeletedReply(id int64, link string) string {
+	return shapeMessage("Cancelled: post deleted.", fmt.Sprintf("- Outbox %d", id), linkLine(link))
+}
+
+func postedOutcome(r OutboxRecord, link, mismatch string) string {
+	if mismatch != "" {
+		return shapeMessage("Posted with a mismatch.", linkLine(link), shapeBullet("", mismatch))
+	}
+	header := "Posted."
+	dest := singleLine(r.DestName)
+	if dest == "" {
+		dest = singleLine(r.Channel)
+	}
+	if dest != "" {
+		if h := "Posted to " + dest + "."; utf8.RuneCountInString(h) <= decideMaxFirstLine {
+			header = h
+		}
+	}
+	return shapeMessage(header, linkLine(link))
+}
+
+func shapedOutcomeForRecord(r OutboxRecord, storedOutcome string) string {
+	switch r.State {
+	case OutboxPosted:
+		link := postLink(PostRef{Channel: r.Channel, TS: r.PostTS, ThreadTS: r.ThreadTS, Permalink: r.Permalink})
+		return postedOutcome(r, link, "")
+	case OutboxMismatch:
+		link := postLink(PostRef{Channel: r.Channel, TS: r.PostTS, ThreadTS: r.ThreadTS, Permalink: r.Permalink})
+		mismatch := r.Reason
+		if mismatch == "" {
+			mismatch = "mismatch"
+		}
+		return postedOutcome(r, link, mismatch)
+	case OutboxDropped:
+		return droppedOutcome
+	case OutboxNeedsRedraft:
+		return redraftOutcome(r.Owner)
+	case OutboxRejected:
+		return rejectedOutcome(r.Reason)
+	case OutboxCancelled:
+		if strings.HasPrefix(storedOutcome, "Not posted: superseded.") {
+			return storedOutcome
+		}
+		if rest, ok := strings.CutPrefix(r.Reason, "not posted: superseded by "); ok {
+			if id, err := strconv.ParseInt(rest, 10, 64); err == nil {
+				return supersededOutcome(id)
+			}
+		}
+		if rest, ok := strings.CutPrefix(storedOutcome, "not posted: superseded by "); ok {
+			if id, err := strconv.ParseInt(rest, 10, 64); err == nil {
+				return supersededOutcome(id)
+			}
+		}
+		if r.PostTS != "" {
+			return cancelledPostOutcome(r.Reason)
+		}
+		return cancelledOutcome(r.Reason)
+	default:
+		return storedOutcome
+	}
+}
+
 // question is the decide question for a draft.
 func question(id int64, d Draft, hash string) string {
-	var b strings.Builder
-	b.WriteString("Post this to Slack as written?\n\n")
 	dest := d.Channel
 	if d.DestName != "" {
 		dest = d.DestName + " (" + d.Channel + ")"
 	}
-	fmt.Fprintf(&b, "- Destination: %s\n", dest)
+	bullets := []string{shapeBullet("Destination", dest)}
 	if d.ThreadTS != "" {
-		link := d.ParentLink
+		link := singleLine(d.ParentLink)
 		if link == "" {
 			link = d.Channel + " " + d.ThreadTS
 		}
-		fmt.Fprintf(&b, "- In thread: %s\n", link)
+		line := "- In thread: " + link
+		if utf8.RuneCountInString(line) > decideMaxLine {
+			// Quote lines are exempt from decide's line-length limit.
+			line = "> In thread: " + link
+		}
+		bullets = append(bullets, line)
 	}
-	fmt.Fprintf(&b, "- Requested by: %s\n", d.Owner)
-	fmt.Fprintf(&b, "- Purpose: %s\n", d.Purpose)
+	bullets = append(bullets,
+		shapeBullet("Requested by", d.Owner),
+		shapeBullet("Purpose", d.Purpose),
+	)
 	if len(d.Refs) > 0 {
-		fmt.Fprintf(&b, "- Refs: %s\n", strings.Join(d.Refs, ", "))
+		bullets = append(bullets, shapeBullet("Refs", strings.Join(d.Refs, ", ")))
 	}
-	fmt.Fprintf(&b, "- Text hash: %s (outbox %d)", hash[:8], id)
-	return b.String()
+	// Keep Text hash last and untruncated so verifiedPost always finds it.
+	hashLine := fmt.Sprintf("- Text hash: %s (outbox %d)", hash[:8], id)
+	bullets = append(bullets, hashLine)
+	msg := shapeMessage("Post this to Slack as written?", bullets...)
+	if !strings.Contains(msg, hashLine) {
+		msg = "Post this to Slack as written?\n\n" + bullets[0] + "\n" + hashLine
+	}
+	return msg
 }
 
 // draftFrom rebuilds the draft a record was asked with, so a re-attached
@@ -977,6 +1153,14 @@ func (o *Outbox) Poll(ctx context.Context) error {
 	for _, r := range failed {
 		errs = append(errs, o.autoRetry(ctx, r))
 	}
+	unreplied, err := o.Store.unrepliedOutbox()
+	if err != nil {
+		return err
+	}
+	for _, r := range unreplied {
+		link := postLink(PostRef{Channel: r.Channel, TS: r.PostTS, ThreadTS: r.ThreadTS, Permalink: r.Permalink})
+		o.replyOutcome(ctx, r, postedOutcome(r, link, r.Reason))
+	}
 	unclosed, err := o.Store.unclosedOutbox()
 	if err != nil {
 		return err
@@ -1100,13 +1284,13 @@ func (o *Outbox) process(ctx context.Context, cfg Config, r OutboxRecord) error 
 		return nil
 	case m.OptionKey == decideKeyDrop:
 		return o.finish(ctx, r, end{
-			state: OutboxDropped, outcome: "not posted: dropped", event: EventOutboxDropped,
+			state: OutboxDropped, outcome: droppedOutcome, event: EventOutboxDropped,
 			message: fmt.Sprintf("The user chose not to post Slack draft outbox %d (purpose: %q).", r.ID, r.Purpose),
 		})
 	case m.OptionKey == "":
 		return o.finish(ctx, r, end{
 			state: OutboxNeedsRedraft, answer: m.Text, text: m.Text,
-			outcome: "not posted: notes sent to " + r.Owner + " for a redraft", event: EventOutboxRedraft,
+			outcome: redraftOutcome(r.Owner), event: EventOutboxRedraft,
 			message: fmt.Sprintf("The user asked for changes to Slack draft outbox %d (purpose: %q) instead of approving it. "+
 				"Their notes: %q. Redraft and submit it again with `slackwatch post`.", r.ID, r.Purpose, m.Text),
 		})
@@ -1175,7 +1359,7 @@ func (o *Outbox) finishFrom(ctx context.Context, r OutboxRecord, from string, e 
 // reject refuses to post r and alerts its owner and the fallback target.
 func (o *Outbox) reject(ctx context.Context, r OutboxRecord, from, reason string) error {
 	return o.finishFrom(ctx, r, from, end{
-		state: OutboxRejected, reason: reason, outcome: "not posted: " + reason,
+		state: OutboxRejected, reason: reason, outcome: rejectedOutcome(reason),
 		event: EventOutboxRejected, alert: true,
 		message: fmt.Sprintf("Slack draft outbox %d (purpose: %q) was not posted: %s.", r.ID, r.Purpose, reason),
 	})
@@ -1212,6 +1396,7 @@ func (o *Outbox) closeDecide(ctx context.Context, r OutboxRecord) {
 	if r.DecideID == "" || outcome == "" {
 		return
 	}
+	outcome = shapedOutcomeForRecord(r, outcome)
 	if err := o.Decide.Done(ctx, r.DecideID, outcome); err != nil {
 		item, serr := o.Decide.Show(ctx, r.DecideID)
 		if serr != nil || !decideClosed(item.State) {
@@ -1538,7 +1723,7 @@ func (o *Outbox) failPost(ctx context.Context, r OutboxRecord, postErr error) er
 	if err != nil || r.DecideID == "" {
 		return err
 	}
-	if rerr := o.Decide.ReplyOptions(ctx, r.DecideID, "Post failed: "+notice+"; reply post to retry", ""); rerr != nil {
+	if rerr := o.Decide.ReplyOptions(ctx, r.DecideID, failPostReply(notice), ""); rerr != nil {
 		o.logger().Warn("slackwatch outbox: reply with the post failure", "outbox", r.ID, "error", rerr)
 	}
 	return nil
@@ -1627,7 +1812,7 @@ func destinationUnchanged(r OutboxRecord, it DecideItem) bool {
 	var dest, thread string
 	for _, m := range it.Messages {
 		for _, line := range strings.Split(m.Text, "\n") {
-			line = strings.TrimPrefix(line, "- ")
+			line = strings.TrimPrefix(strings.TrimPrefix(line, "- "), "> ")
 			if v, ok := strings.CutPrefix(line, "Destination: "); ok {
 				dest = v
 			}
@@ -1786,9 +1971,9 @@ func (o *Outbox) registerPosted(ctx context.Context, r OutboxRecord, from []stri
 		return err
 	}
 	link := postLink(p)
-	state, outcome := OutboxPosted, link
+	state, outcome := OutboxPosted, postedOutcome(r, link, "")
 	if mismatch != "" {
-		state, outcome = OutboxMismatch, "posted with a mismatch: "+link
+		state, outcome = OutboxMismatch, postedOutcome(r, link, mismatch)
 		if _, err := o.Store.FlagWatch(w.ID, fmt.Sprintf("outbox %d mismatch: %s", r.ID, mismatch)); err != nil {
 			return err
 		}
@@ -1814,7 +1999,7 @@ func (o *Outbox) registerPosted(ctx context.Context, r OutboxRecord, from []stri
 			}
 		}
 	}
-	o.replyOutcome(ctx, r, postedReply(link, mismatch))
+	o.replyOutcome(ctx, r, outcome)
 	o.closeDecide(ctx, r)
 	return nil
 }
@@ -1827,23 +2012,19 @@ func postLink(p PostRef) string {
 	return p.Channel + " " + p.TS
 }
 
-// postedReply is the decide reply for a post at link. mismatch is the
-// read-back problems, empty when the post matches.
-func postedReply(link, mismatch string) string {
-	if mismatch == "" {
-		return "Posted: " + link
-	}
-	return fmt.Sprintf("Posted, but the text differs from the approved draft: %s (%s)", link, mismatch)
-}
-
 // replyOutcome tells the user r's result in its decide thread before the
-// item is closed. A failure is logged; the close goes ahead.
+// item is closed. A failure is logged and retried on the next poll; the
+// close still goes ahead.
 func (o *Outbox) replyOutcome(ctx context.Context, r OutboxRecord, text string) {
 	if r.DecideID == "" {
 		return
 	}
 	if err := o.Decide.Reply(ctx, r.DecideID, text); err != nil {
 		o.logger().Warn("slackwatch outbox: reply with the outcome", "outbox", r.ID, "decide", r.DecideID, "error", err)
+		return
+	}
+	if _, err := o.Store.db.Exec(`UPDATE outbox SET decide_replied = 1 WHERE id = ?`, r.ID); err != nil {
+		o.logger().Error("slackwatch outbox: mark decide replied", "outbox", r.ID, "error", err)
 	}
 }
 
@@ -2024,8 +2205,7 @@ func (o *Outbox) Recheck(ctx context.Context, id int64) (OutboxRecord, error) {
 	link := postLink(p)
 	m, err := o.Reader.Message(ctx, r.Channel, r.PostTS, r.ThreadTS)
 	if errors.Is(err, ErrMessageNotFound) {
-		return o.cancelPost(ctx, r, postDeleted,
-			fmt.Sprintf("The posted message %s was deleted; outbox %d is cancelled: %s", link, id, postDeleted))
+		return o.cancelPost(ctx, r, postDeleted, recheckDeletedReply(id, link))
 	}
 	if err != nil {
 		return OutboxRecord{}, fmt.Errorf("read back %s: %w", r.Permalink, err)
@@ -2033,13 +2213,14 @@ func (o *Outbox) Recheck(ctx context.Context, id int64) (OutboxRecord, error) {
 	problems := readBackProblems(cfg, r, m, p)
 	if len(problems) > 0 {
 		mismatch := strings.Join(problems, "; ")
-		o.replyOutcome(ctx, r, postedReply(link, mismatch))
+		o.replyOutcome(ctx, r, postedOutcome(r, link, mismatch))
 		o.closeDecide(ctx, r)
 		return r, fmt.Errorf("outbox %d mismatch: %s", id, mismatch)
 	}
 	empty := ""
+	outcome := postedOutcome(r, link, "")
 	moved, err := o.Store.moveOutbox(id, []string{OutboxMismatch}, outboxUpdate{
-		state: OutboxPosted, reason: &empty, decideOutcome: &link, decideClosed: ptr(false),
+		state: OutboxPosted, reason: &empty, decideOutcome: &outcome, decideClosed: ptr(false),
 	}, o.Now())
 	if err != nil {
 		return OutboxRecord{}, err
@@ -2052,7 +2233,8 @@ func (o *Outbox) Recheck(ctx context.Context, id int64) (OutboxRecord, error) {
 			return OutboxRecord{}, err
 		}
 	}
-	o.replyOutcome(ctx, r, postedReply(link, ""))
+	r.State = OutboxPosted
+	o.replyOutcome(ctx, r, outcome)
 	o.closeDecide(ctx, r)
 	return o.Store.GetOutbox(id)
 }
@@ -2067,10 +2249,7 @@ func (o *Outbox) Cancel(ctx context.Context, id int64, reason string) (OutboxRec
 	if err != nil {
 		return OutboxRecord{}, err
 	}
-	reply := "Cancelled"
-	if reason != "" {
-		reply += ": " + reason
-	}
+	reply := cancelledPostOutcome(reason)
 	switch r.State {
 	case OutboxMismatch:
 		return o.cancelPost(ctx, r, reason, reply)
@@ -2080,11 +2259,7 @@ func (o *Outbox) Cancel(ctx context.Context, id int64, reason string) (OutboxRec
 		}
 		return o.cancelPost(ctx, r, reason, reply)
 	}
-	outcome := "not posted: cancelled"
-	if reason != "" {
-		outcome += ": " + reason
-	}
-	return o.cancelIn(ctx, id, []string{OutboxPending, OutboxApproved, OutboxAwaitingHandoff, OutboxNeedsRedraft}, reason, outcome,
+	return o.cancelIn(ctx, id, []string{OutboxPending, OutboxApproved, OutboxAwaitingHandoff, OutboxNeedsRedraft}, reason, cancelledOutcome(reason),
 		"only pending, approved, awaiting-handoff, needs-redraft, or mismatch records, or posted records whose message is gone, can be cancelled")
 }
 
@@ -2105,12 +2280,9 @@ func (o *Outbox) postGone(ctx context.Context, r OutboxRecord) error {
 
 // cancelPost moves r, a record with a post, from its state to cancelled
 // with reason, clears its watch flag, replies reply on its decide item,
-// and closes the item with "cancelled: reason". Nothing is posted.
+// and closes the item with the cancelled outcome. Nothing is posted.
 func (o *Outbox) cancelPost(ctx context.Context, r OutboxRecord, reason, reply string) (OutboxRecord, error) {
-	outcome := "cancelled"
-	if reason != "" {
-		outcome += ": " + reason
-	}
+	outcome := cancelledPostOutcome(reason)
 	moved, err := o.Store.moveOutbox(r.ID, []string{r.State}, outboxUpdate{
 		state: OutboxCancelled, reason: &reason, decideOutcome: &outcome, decideClosed: ptr(false),
 	}, o.Now())
@@ -2125,6 +2297,7 @@ func (o *Outbox) cancelPost(ctx context.Context, r OutboxRecord, reason, reply s
 			return OutboxRecord{}, err
 		}
 	}
+	r.State, r.Reason = OutboxCancelled, reason
 	o.replyOutcome(ctx, r, reply)
 	o.closeDecide(ctx, r)
 	return o.Store.GetOutbox(r.ID)
@@ -2374,6 +2547,12 @@ func (s *Store) listOutbox(where string, args ...any) ([]OutboxRecord, error) {
 // is empty, ordered by id.
 func (s *Store) ListOutbox(state string) ([]OutboxRecord, error) {
 	return s.listOutbox(`?1 = '' OR state = ?1`, state)
+}
+
+// unrepliedOutbox returns posted or mismatch records whose outcome reply
+// has not been sent to decide yet.
+func (s *Store) unrepliedOutbox() ([]OutboxRecord, error) {
+	return s.listOutbox(`decide_replied = 0 AND decide_id <> '' AND state IN (?, ?)`, OutboxPosted, OutboxMismatch)
 }
 
 // unclosedOutbox returns finished records whose decide item still needs
