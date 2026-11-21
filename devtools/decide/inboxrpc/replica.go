@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -19,12 +20,21 @@ import (
 	"github.com/jaeyeom/experimental/devtools/decide/tui"
 )
 
+type pendingDraftEdit struct {
+	Draft   decide.Draft `json:"draft"`
+	BaseRev int64        `json:"baseRev"`
+	Gen     int64        `json:"gen,omitempty"`
+}
+
 type replicaData struct {
-	Hub      string          `json:"hub"`
-	Seq      int64           `json:"seq"`
-	SyncedAt time.Time       `json:"syncedAt,omitempty"`
-	Items    []decide.Item   `json:"items"`
-	Status   tui.StatusBoard `json:"status"`
+	Hub           string                      `json:"hub"`
+	Seq           int64                       `json:"seq"`
+	SyncedAt      time.Time                   `json:"syncedAt,omitempty"`
+	Items         []decide.Item               `json:"items"`
+	Status        tui.StatusBoard             `json:"status"`
+	Drafts        []decide.Draft              `json:"drafts,omitempty"`
+	DraftSeq      int64                       `json:"draftSeq,omitempty"`
+	PendingDrafts map[string]pendingDraftEdit `json:"pendingDrafts,omitempty"`
 }
 
 // ReplicaPath returns the on-disk replica file path for hub label under
@@ -111,6 +121,9 @@ func (r *replicaStore) ensureLoaded() {
 	if decoded.Items == nil {
 		decoded.Items = []decide.Item{}
 	}
+	if decoded.Drafts == nil {
+		decoded.Drafts = []decide.Draft{}
+	}
 	r.data = decoded
 }
 
@@ -180,6 +193,25 @@ func (r *replicaStore) applySync(resp Response, now time.Time) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.ensureLoaded()
+	if r.applyItemSyncLocked(resp) {
+		return true
+	}
+	if resp.Status != nil {
+		r.data.Status = tui.StatusBoard{
+			Agents:    append([]decide.AgentStatus(nil), resp.Status.Agents...),
+			Resources: append([]decide.ResourceStatus(nil), resp.Status.Resources...),
+		}
+	}
+	if resp.Drafts != nil || resp.DraftSeq > 0 {
+		r.data.Drafts = cloneDraftsSlice(resp.Drafts)
+		r.data.DraftSeq = resp.DraftSeq
+	}
+	r.data.SyncedAt = now
+	r.save()
+	return false
+}
+
+func (r *replicaStore) applyItemSyncLocked(resp Response) bool {
 	switch {
 	case resp.Resync:
 		r.data.Items = append([]decide.Item(nil), resp.Items...)
@@ -216,14 +248,6 @@ func (r *replicaStore) applySync(resp Response, now time.Time) bool {
 	case resp.Seq > r.data.Seq:
 		return true
 	}
-	if resp.Status != nil {
-		r.data.Status = tui.StatusBoard{
-			Agents:    append([]decide.AgentStatus(nil), resp.Status.Agents...),
-			Resources: append([]decide.ResourceStatus(nil), resp.Status.Resources...),
-		}
-	}
-	r.data.SyncedAt = now
-	r.save()
 	return false
 }
 
@@ -262,4 +286,140 @@ func (r *replicaStore) clearPendingMarkRead(id string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.pendingMarkRead, id)
+}
+
+func cloneDraft(d decide.Draft) decide.Draft {
+	if len(d.Conflicts) > 0 {
+		c := make([]decide.DraftConflict, len(d.Conflicts))
+		copy(c, d.Conflicts)
+		d.Conflicts = c
+	}
+	return d
+}
+
+func cloneDraftsSlice(in []decide.Draft) []decide.Draft {
+	out := make([]decide.Draft, len(in))
+	for i, d := range in {
+		out[i] = cloneDraft(d)
+	}
+	return out
+}
+
+func (r *replicaStore) drafts() []decide.Draft {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ensureLoaded()
+	byKey := make(map[string]decide.Draft, len(r.data.Drafts)+len(r.data.PendingDrafts))
+	for _, d := range r.data.Drafts {
+		byKey[d.Key] = cloneDraft(d)
+	}
+	for k, p := range r.data.PendingDrafts {
+		byKey[k] = cloneDraft(p.Draft)
+	}
+	out := make([]decide.Draft, 0, len(byKey))
+	for _, d := range byKey {
+		out = append(out, d)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Key < out[j].Key
+	})
+	return out
+}
+
+func (r *replicaStore) upsertDraftLocked(d decide.Draft) {
+	i := slices.IndexFunc(r.data.Drafts, func(existing decide.Draft) bool { return existing.Key == d.Key })
+	if i >= 0 {
+		r.data.Drafts[i] = cloneDraft(d)
+		return
+	}
+	r.data.Drafts = append(r.data.Drafts, cloneDraft(d))
+}
+
+func (r *replicaStore) upsertDraftLocal(d decide.Draft) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ensureLoaded()
+	r.upsertDraftLocked(d)
+	delete(r.data.PendingDrafts, d.Key)
+	r.save()
+}
+
+func (r *replicaStore) deleteDraftLocal(key, conflictID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ensureLoaded()
+	if conflictID == "" {
+		r.data.Drafts = slices.DeleteFunc(r.data.Drafts, func(d decide.Draft) bool {
+			return d.Key == key
+		})
+		delete(r.data.PendingDrafts, key)
+	} else {
+		for i := range r.data.Drafts {
+			if r.data.Drafts[i].Key == key {
+				r.data.Drafts[i].Conflicts = slices.DeleteFunc(r.data.Drafts[i].Conflicts, func(c decide.DraftConflict) bool {
+					return c.ID == conflictID
+				})
+				break
+			}
+		}
+	}
+	r.save()
+}
+
+func (r *replicaStore) queuePendingDraft(d decide.Draft, baseRev int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ensureLoaded()
+	if r.data.PendingDrafts == nil {
+		r.data.PendingDrafts = make(map[string]pendingDraftEdit)
+	}
+	var gen int64 = 1
+	if existing, ok := r.data.PendingDrafts[d.Key]; ok {
+		baseRev = existing.BaseRev
+		gen = existing.Gen + 1
+	}
+	r.data.PendingDrafts[d.Key] = pendingDraftEdit{
+		Draft:   cloneDraft(d),
+		BaseRev: baseRev,
+		Gen:     gen,
+	}
+	r.save()
+}
+
+func (r *replicaStore) hasPendingDrafts() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ensureLoaded()
+	return len(r.data.PendingDrafts) > 0
+}
+
+func (r *replicaStore) pendingDrafts() []pendingDraftEdit {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ensureLoaded()
+	out := make([]pendingDraftEdit, 0, len(r.data.PendingDrafts))
+	for _, p := range r.data.PendingDrafts {
+		out = append(out, pendingDraftEdit{
+			Draft:   cloneDraft(p.Draft),
+			BaseRev: p.BaseRev,
+			Gen:     p.Gen,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Draft.Key < out[j].Draft.Key
+	})
+	return out
+}
+
+func (r *replicaStore) resolvePendingDraft(key string, gen int64, saved *decide.Draft) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ensureLoaded()
+	if p, ok := r.data.PendingDrafts[key]; ok && p.Gen == gen {
+		delete(r.data.PendingDrafts, key)
+	}
+	if saved != nil {
+		r.upsertDraftLocked(*saved)
+	}
+	r.save()
 }

@@ -152,11 +152,16 @@ type Client struct {
 	markReadQueued  map[string]bool
 	markReadRunning bool
 	markReadWake    chan struct{}
+
+	draftFlushMu      sync.Mutex
+	draftFlushRunning bool
+	draftFlushWake    chan struct{}
 }
 
 var (
 	_ tui.Backend       = (*Client)(nil)
 	_ tui.OutboxBackend = (*Client)(nil)
+	_ tui.DraftBackend  = (*Client)(nil)
 )
 
 // hubError is a call the hub did not take because it could not be
@@ -231,6 +236,7 @@ func (c *Client) connected(sess *session, display decide.DisplaySettings, watchC
 		}()
 	}
 	c.kickMarkRead()
+	c.kickDraftFlush()
 	if c.UseOutbox {
 		c.startOutboxIfPending()
 	}
@@ -276,6 +282,7 @@ func (c *Client) Close() {
 		sess.close(errors.New("closed"))
 	}
 	c.kickMarkRead()
+	c.kickDraftFlush()
 	c.kickOutbox()
 	c.wg.Wait()
 }
@@ -780,6 +787,7 @@ func (c *Client) enqueueMarkRead(id string) {
 		}()
 	}
 	c.kickMarkRead()
+	c.kickDraftFlush()
 	if c.UseOutbox {
 		c.startOutboxIfPending()
 	}
@@ -912,6 +920,157 @@ func (c *Client) Status() (tui.StatusBoard, error) {
 		return tui.StatusBoard{}, err
 	}
 	return rep.status(), nil
+}
+
+// ListDrafts implements tui.DraftBackend. It reads from the local replica
+// without waiting on the hub, and triggers a background reconnect when down.
+func (c *Client) ListDrafts() ([]decide.Draft, error) {
+	rep, err := c.ensureReplica()
+	if err != nil {
+		return nil, err
+	}
+	if !c.isConnected() {
+		c.maybeReconnect()
+	}
+	return rep.drafts(), nil
+}
+
+// PutDraft implements tui.DraftBackend. It sends live to the hub and updates
+// the local replica on success. If the hub is unreachable, it stores the
+// pending edit in the local replica and flushes it on reconnect.
+func (c *Client) PutDraft(d decide.Draft, baseRev int64) (decide.Draft, bool, error) {
+	rep, err := c.ensureReplica()
+	if err != nil {
+		return decide.Draft{}, false, err
+	}
+	if d.UpdatedBy == "" {
+		d.UpdatedBy = c.Machine
+	}
+	if d.UpdatedAt.IsZero() {
+		d.UpdatedAt = c.now().UTC()
+	} else {
+		d.UpdatedAt = d.UpdatedAt.UTC()
+	}
+	resp, err := c.call(Request{Op: OpPutDraft, Draft: &d, BaseRev: baseRev})
+	if err == nil {
+		if resp.Draft == nil {
+			return decide.Draft{}, false, fmt.Errorf("hub %s: put-draft returned no draft", c.Label)
+		}
+		rep.upsertDraftLocal(*resp.Draft)
+		return *resp.Draft, resp.DraftConflict, nil
+	}
+	if errors.Is(err, tui.ErrUnreachable) {
+		rep.queuePendingDraft(d, baseRev)
+		c.maybeReconnect()
+		return d, false, nil
+	}
+	return decide.Draft{}, false, err
+}
+
+// DeleteDraft implements tui.DraftBackend. It sends live to the hub and updates
+// the local replica on success.
+func (c *Client) DeleteDraft(key, conflictID string) error {
+	rep, err := c.ensureReplica()
+	if err != nil {
+		return err
+	}
+	if _, err := c.call(Request{Op: OpDeleteDraft, Item: key, ConflictID: conflictID}); err != nil {
+		return err
+	}
+	rep.deleteDraftLocal(key, conflictID)
+	return nil
+}
+
+func (c *Client) kickDraftFlush() {
+	rep, err := c.ensureReplica()
+	if err != nil || rep == nil {
+		return
+	}
+	c.draftFlushMu.Lock()
+	var wake chan struct{}
+	startWorker := false
+	if !c.draftFlushRunning {
+		if !c.closed && rep.hasPendingDrafts() {
+			c.draftFlushRunning = true
+			if c.draftFlushWake == nil {
+				c.draftFlushWake = make(chan struct{}, 1)
+			}
+			startWorker = true
+		}
+	}
+	wake = c.draftFlushWake
+	c.draftFlushMu.Unlock()
+	if startWorker {
+		c.wg.Add(1)
+		go func() {
+			defer c.wg.Done()
+			c.draftFlushWorker()
+		}()
+	}
+	if wake != nil {
+		select {
+		case wake <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (c *Client) draftFlushWorker() {
+	const retryInterval = 250 * time.Millisecond
+	for {
+		c.mu.Lock()
+		closed := c.closed
+		c.mu.Unlock()
+		if closed {
+			c.draftFlushMu.Lock()
+			c.draftFlushRunning = false
+			c.draftFlushMu.Unlock()
+			return
+		}
+		rep, err := c.ensureReplica()
+		if err != nil || rep == nil {
+			c.draftFlushMu.Lock()
+			c.draftFlushRunning = false
+			c.draftFlushMu.Unlock()
+			return
+		}
+		pending := rep.pendingDrafts()
+		if len(pending) == 0 {
+			c.draftFlushMu.Lock()
+			c.draftFlushRunning = false
+			c.draftFlushMu.Unlock()
+			return
+		}
+		c.draftFlushMu.Lock()
+		wake := c.draftFlushWake
+		c.draftFlushMu.Unlock()
+
+		unreachable := false
+		for _, p := range pending {
+			d := p.Draft
+			resp, err := c.call(Request{Op: OpPutDraft, Draft: &d, BaseRev: p.BaseRev})
+			if err == nil {
+				rep.resolvePendingDraft(d.Key, p.Gen, resp.Draft)
+				continue
+			}
+			if errors.Is(err, tui.ErrUnreachable) {
+				unreachable = true
+				break
+			}
+			// Non-transient error (e.g. validation/limit); drop so we don't loop forever.
+			rep.resolvePendingDraft(d.Key, p.Gen, nil)
+		}
+		if !unreachable {
+			continue
+		}
+		c.maybeReconnect()
+		timer := time.NewTimer(retryInterval)
+		select {
+		case <-wake:
+			timer.Stop()
+		case <-timer.C:
+		}
+	}
 }
 
 // Targets are the hub's configured recipients and whether it adds

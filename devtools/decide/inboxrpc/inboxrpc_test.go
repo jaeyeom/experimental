@@ -1242,3 +1242,238 @@ func TestMarkReadRetriesInBackgroundAndDoesNotError(t *testing.T) {
 		return gerr == nil && !hubItem.Unread
 	}, "background mark-read retry did not update hub ledger")
 }
+
+func TestDraftSyncAcrossClientsViaWatch(t *testing.T) {
+	h := newHub(t)
+	cA := &Client{Dial: h.dial, Label: "me@hub", Machine: "alpha", CacheDir: t.TempDir(), Timeout: 2 * time.Second}
+	cB := &Client{Dial: h.dial, Label: "me@hub", Machine: "beta", CacheDir: t.TempDir(), Timeout: 2 * time.Second}
+	if err := cA.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer cA.Close()
+	if err := cB.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer cB.Close()
+
+	key := decide.ReplyDraftKey("D-001")
+	saved, conflict, err := cA.PutDraft(decide.Draft{
+		Key:  key,
+		Text: "hello from A",
+	}, 0)
+	if err != nil {
+		t.Fatalf("PutDraft() error = %v", err)
+	}
+	if conflict || saved.Rev != 1 || saved.UpdatedBy != "alpha" {
+		t.Fatalf("PutDraft() = %+v, conflict=%v", saved, conflict)
+	}
+
+	eventually(t, func() bool {
+		drafts, err := cB.ListDrafts()
+		return err == nil && len(drafts) == 1 && drafts[0].Key == key && drafts[0].Text == "hello from A" && drafts[0].Rev == 1
+	}, "client B did not receive draft via watch")
+}
+
+func TestDraftConcurrentPutCreatesConflictVisibleOnBothClients(t *testing.T) {
+	h := newHub(t)
+	cA := &Client{Dial: h.dial, Label: "me@hub", Machine: "alpha", CacheDir: t.TempDir(), Timeout: 2 * time.Second}
+	cB := &Client{Dial: h.dial, Label: "me@hub", Machine: "beta", CacheDir: t.TempDir(), Timeout: 2 * time.Second}
+	if err := cA.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer cA.Close()
+	if err := cB.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer cB.Close()
+
+	key := decide.ReplyDraftKey("D-002")
+	initial, _, err := cA.PutDraft(decide.Draft{Key: key, Text: "v1"}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, func() bool {
+		drafts, err := cB.ListDrafts()
+		return err == nil && len(drafts) == 1 && drafts[0].Rev == initial.Rev
+	}, "client B did not receive initial draft")
+
+	// Both clients edit against baseRev = initial.Rev (1).
+	savedA, conflictA, err := cA.PutDraft(decide.Draft{Key: key, Text: "edit from A"}, initial.Rev)
+	if err != nil || conflictA || savedA.Rev != 2 {
+		t.Fatalf("client A PutDraft() = %+v, conflict=%v, err=%v", savedA, conflictA, err)
+	}
+	savedB, conflictB, err := cB.PutDraft(decide.Draft{Key: key, Text: "edit from B"}, initial.Rev)
+	if err != nil || !conflictB {
+		t.Fatalf("client B PutDraft() = %+v, conflict=%v, err=%v (want conflict)", savedB, conflictB, err)
+	}
+	if savedB.Text != "edit from A" || len(savedB.Conflicts) != 1 || savedB.Conflicts[0].Text != "edit from B" {
+		t.Fatalf("unexpected conflict draft on B: %+v", savedB)
+	}
+
+	eventually(t, func() bool {
+		drafts, err := cA.ListDrafts()
+		return err == nil && len(drafts) == 1 && len(drafts[0].Conflicts) == 1 && drafts[0].Conflicts[0].Text == "edit from B"
+	}, "client A did not receive conflict copy via watch")
+}
+
+func TestListDraftsReadsFromReplicaWhenHubUnreachable(t *testing.T) {
+	h := newHub(t)
+	cacheDir := t.TempDir()
+	c := &Client{Dial: h.dial, Label: "me@hub", Machine: "alpha", CacheDir: cacheDir, Timeout: 2 * time.Second}
+	if err := c.Connect(); err != nil {
+		t.Fatal(err)
+	}
+
+	key := decide.AnswerDraftKey("D-003")
+	if _, _, err := c.PutDraft(decide.Draft{Key: key, Text: "cached draft"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+
+	// Restart client with a dialer that blocks/fails immediately; ListDrafts must
+	// return immediately from the local replica without blocking.
+	offline := &Client{
+		Dial: func() (*Conn, error) {
+			return nil, errors.New("network down")
+		},
+		Label:    "me@hub",
+		Machine:  "alpha",
+		CacheDir: cacheDir,
+		Timeout:  2 * time.Second,
+	}
+	defer offline.Close()
+
+	done := make(chan []decide.Draft, 1)
+	go func() {
+		drafts, err := offline.ListDrafts()
+		if err != nil {
+			t.Errorf("ListDrafts() error = %v", err)
+			return
+		}
+		done <- drafts
+	}()
+
+	select {
+	case drafts := <-done:
+		if len(drafts) != 1 || drafts[0].Key != key || drafts[0].Text != "cached draft" {
+			t.Fatalf("offline ListDrafts() = %+v", drafts)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("ListDrafts() blocked while hub unreachable")
+	}
+}
+
+func TestOfflineDraftEditSurvivesRestartAndDetectsConflictOnReconnect(t *testing.T) {
+	h := newHub(t)
+	cacheDirA := t.TempDir()
+	cA := &Client{Dial: h.dial, Label: "me@hub", Machine: "alpha", CacheDir: cacheDirA, Timeout: 2 * time.Second}
+	cB := &Client{Dial: h.dial, Label: "me@hub", Machine: "beta", CacheDir: t.TempDir(), Timeout: 2 * time.Second}
+	if err := cA.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cB.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer cB.Close()
+
+	key := decide.ReplyDraftKey("D-004")
+	v1, _, err := cA.PutDraft(decide.Draft{Key: key, Text: "shared v1"}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, func() bool {
+		drafts, err := cB.ListDrafts()
+		return err == nil && len(drafts) == 1 && drafts[0].Rev == v1.Rev
+	}, "client B did not receive v1")
+
+	// Client A goes offline.
+	cA.Close()
+
+	offlineA := &Client{
+		Dial: func() (*Conn, error) {
+			return nil, errors.New("offline")
+		},
+		Label:    "me@hub",
+		Machine:  "alpha",
+		CacheDir: cacheDirA,
+		Timeout:  2 * time.Second,
+	}
+	if _, _, err := offlineA.PutDraft(decide.Draft{Key: key, Text: "offline edit A"}, v1.Rev); err != nil {
+		t.Fatalf("offline PutDraft() error = %v", err)
+	}
+	drafts, err := offlineA.ListDrafts()
+	if err != nil || len(drafts) != 1 || drafts[0].Text != "offline edit A" {
+		t.Fatalf("offline ListDrafts() = %+v, %v", drafts, err)
+	}
+	offlineA.Close()
+
+	// Meanwhile client B updates the same draft on the hub.
+	if _, _, err := cB.PutDraft(decide.Draft{Key: key, Text: "online edit B"}, v1.Rev); err != nil {
+		t.Fatalf("client B PutDraft() error = %v", err)
+	}
+
+	// Client A restarts and reconnects to the hub; the pending edit from the
+	// replica must flush on reconnect and trigger conflict detection.
+	restartedA := &Client{Dial: h.dial, Label: "me@hub", Machine: "alpha", CacheDir: cacheDirA, Timeout: 2 * time.Second}
+	if err := restartedA.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer restartedA.Close()
+
+	eventually(t, func() bool {
+		ds, err := restartedA.ListDrafts()
+		return err == nil && len(ds) == 1 && ds[0].Text == "online edit B" && len(ds[0].Conflicts) == 1 && ds[0].Conflicts[0].Text == "offline edit A"
+	}, "restarted client A did not flush pending draft and detect conflict")
+
+	eventually(t, func() bool {
+		ds, err := cB.ListDrafts()
+		return err == nil && len(ds) == 1 && len(ds[0].Conflicts) == 1 && ds[0].Conflicts[0].Text == "offline edit A"
+	}, "client B did not receive conflict from restarted client A")
+}
+
+func TestDeleteDraftRemovesDraftAndConflictCopyAcrossClients(t *testing.T) {
+	h := newHub(t)
+	cA := &Client{Dial: h.dial, Label: "me@hub", Machine: "alpha", CacheDir: t.TempDir(), Timeout: 2 * time.Second}
+	cB := &Client{Dial: h.dial, Label: "me@hub", Machine: "beta", CacheDir: t.TempDir(), Timeout: 2 * time.Second}
+	if err := cA.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer cA.Close()
+	if err := cB.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer cB.Close()
+
+	key := decide.ReplyDraftKey("D-005")
+	v1, _, err := cA.PutDraft(decide.Draft{Key: key, Text: "base"}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = cA.PutDraft(decide.Draft{Key: key, Text: "from A"}, v1.Rev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, conflict, err := cB.PutDraft(decide.Draft{Key: key, Text: "from B"}, v1.Rev)
+	if err != nil || !conflict || len(saved.Conflicts) != 1 {
+		t.Fatalf("PutDraft conflict = %+v, conflict=%v, err=%v", saved, conflict, err)
+	}
+	conflictID := saved.Conflicts[0].ID
+
+	// Delete only the conflict copy from client A.
+	if err := cA.DeleteDraft(key, conflictID); err != nil {
+		t.Fatalf("DeleteDraft(conflict) error = %v", err)
+	}
+	eventually(t, func() bool {
+		ds, err := cB.ListDrafts()
+		return err == nil && len(ds) == 1 && len(ds[0].Conflicts) == 0 && ds[0].Text == "from A"
+	}, "client B did not see conflict copy deleted")
+
+	// Delete the entire draft from client B.
+	if err := cB.DeleteDraft(key, ""); err != nil {
+		t.Fatalf("DeleteDraft(whole) error = %v", err)
+	}
+	eventually(t, func() bool {
+		ds, err := cA.ListDrafts()
+		return err == nil && len(ds) == 0
+	}, "client A did not see whole draft deleted")
+}

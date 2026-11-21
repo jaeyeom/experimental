@@ -109,6 +109,12 @@ func (s *Server) handle(ctx context.Context, req Request) Response {
 	if resp, ok := s.busOp(ctx, req); ok {
 		return resp
 	}
+	if resp, ok := s.draftOp(req); ok {
+		return resp
+	}
+	if resp, ok := s.settingsOp(req); ok {
+		return resp
+	}
 	switch req.Op {
 	case OpHello:
 		return Response{Version: Version}
@@ -120,14 +126,6 @@ func (s *Server) handle(ctx context.Context, req Request) Response {
 		return Response{Targets: s.Targets, Agentbus: s.Agentbus}
 	case OpConfig:
 		return s.config()
-	case OpSetAvatar:
-		return s.setAvatar(req)
-	case OpSetHidden:
-		return s.setHidden(req)
-	case OpSetFavorites:
-		return s.setFavorites(req)
-	case OpSetAliases:
-		return s.setAliases(req)
 	case OpSend:
 		return s.send(req)
 	case OpLocate:
@@ -135,6 +133,32 @@ func (s *Server) handle(ctx context.Context, req Request) Response {
 	default:
 		return Response{Error: fmt.Sprintf("unknown op %q", req.Op)}
 	}
+}
+
+func (s *Server) settingsOp(req Request) (Response, bool) {
+	switch req.Op {
+	case OpSetAvatar:
+		return s.setAvatar(req), true
+	case OpSetHidden:
+		return s.setHidden(req), true
+	case OpSetFavorites:
+		return s.setFavorites(req), true
+	case OpSetAliases:
+		return s.setAliases(req), true
+	}
+	return Response{}, false
+}
+
+func (s *Server) draftOp(req Request) (Response, bool) {
+	switch req.Op {
+	case OpListDrafts:
+		return s.listDrafts(), true
+	case OpPutDraft:
+		return s.putDraft(req), true
+	case OpDeleteDraft:
+		return s.deleteDraft(req), true
+	}
+	return Response{}, false
 }
 
 // busOp answers an op that runs agentbus on the hub and reports whether
@@ -357,6 +381,50 @@ func (s *Server) send(req Request) Response {
 	return Response{}
 }
 
+func (s *Server) draftStore() (*decide.DraftStore, error) {
+	ds, err := decide.OpenDraftStore(s.Backend.Dir)
+	if err != nil {
+		return nil, fmt.Errorf("open decide draft store: %w", err)
+	}
+	if s.Backend.Now != nil {
+		ds.SetClock(s.Backend.Now)
+	}
+	return ds, nil
+}
+
+func (s *Server) listDrafts() Response {
+	ds, err := s.draftStore()
+	if err != nil {
+		return failed(err)
+	}
+	seq, drafts, err := ds.List()
+	if err != nil {
+		return failed(err)
+	}
+	if drafts == nil {
+		drafts = []decide.Draft{}
+	}
+	return Response{Drafts: drafts, DraftSeq: seq}
+}
+
+func (s *Server) putDraft(req Request) Response {
+	if req.Draft == nil {
+		return Response{Error: "put-draft needs a draft"}
+	}
+	saved, conflict, err := s.Backend.PutDraft(*req.Draft, req.BaseRev)
+	if err != nil {
+		return failed(err)
+	}
+	return Response{Draft: &saved, DraftConflict: conflict}
+}
+
+func (s *Server) deleteDraft(req Request) Response {
+	if err := s.Backend.DeleteDraft(req.Item, req.ConflictID); err != nil {
+		return failed(err)
+	}
+	return Response{}
+}
+
 func itemResponse(it decide.Item, err error) Response {
 	var notify *tui.NotifyError
 	if errors.As(err, &notify) {
@@ -377,13 +445,17 @@ type connWatcher struct {
 	reply  func(Response)
 	wake   chan struct{}
 
-	mu         sync.Mutex
-	watchID    int64
-	lastSeq    int64
-	lastStatus tui.StatusBoard
-	hasStatus  bool
-	statusAt   time.Time
-	statusMod  time.Time
+	mu           sync.Mutex
+	watchID      int64
+	lastSeq      int64
+	lastStatus   tui.StatusBoard
+	hasStatus    bool
+	statusAt     time.Time
+	statusMod    time.Time
+	lastDraftSeq int64
+	hasDrafts    bool
+	draftsAt     time.Time
+	draftsMod    time.Time
 }
 
 func (w *connWatcher) signal() {
@@ -435,9 +507,37 @@ func (w *connWatcher) start(req Request) {
 	}
 	w.statusAt = time.Now()
 	w.statusMod = w.statStatusMod()
+	if dseq, drafts, err := w.listDrafts(); err == nil {
+		resp.Drafts = drafts
+		resp.DraftSeq = dseq
+		w.lastDraftSeq = dseq
+		w.hasDrafts = true
+	}
+	w.draftsAt = time.Now()
+	w.draftsMod = w.statDraftsMod()
 	w.watchID = req.ID
 	w.lastSeq = seq
 	w.reply(resp)
+}
+
+func (w *connWatcher) listDrafts() (int64, []decide.Draft, error) {
+	ds, err := w.server.draftStore()
+	if err != nil {
+		return 0, nil, err
+	}
+	seq, drafts, err := ds.List()
+	if err != nil {
+		return 0, nil, fmt.Errorf("list decide drafts: %w", err)
+	}
+	return seq, drafts, nil
+}
+
+func (w *connWatcher) statDraftsMod() time.Time {
+	info, err := os.Stat(filepath.Join(w.server.Backend.Dir, "drafts.json"))
+	if err != nil {
+		return time.Time{}
+	}
+	return info.ModTime()
 }
 
 func (w *connWatcher) statStatusMod() time.Time {
@@ -481,29 +581,61 @@ func (w *connWatcher) poll() {
 	if err != nil {
 		return
 	}
-	var statusPtr *tui.StatusBoard
-	mod := w.statStatusMod()
-	if !mod.Equal(w.statusMod) || time.Since(w.statusAt) >= time.Second {
-		w.statusMod = mod
-		w.statusAt = time.Now()
-		if board, err := w.server.Backend.Status(); err == nil {
-			if !w.hasStatus || !reflect.DeepEqual(w.lastStatus, board) {
-				statusPtr = &board
-				w.lastStatus = board
-				w.hasStatus = true
-			}
-		}
-	}
-	if !resync && len(changes) == 0 && statusPtr == nil {
+	statusPtr := w.pollStatus()
+	draftsPtr, draftSeq := w.pollDrafts()
+	if !resync && len(changes) == 0 && statusPtr == nil && draftsPtr == nil {
 		return
 	}
 	w.lastSeq = seq
-	w.reply(Response{
+	resp := Response{
 		ID:      w.watchID,
 		Seq:     seq,
 		Resync:  resync,
 		Items:   items,
 		Changes: changes,
 		Status:  statusPtr,
-	})
+	}
+	if draftsPtr != nil {
+		resp.Drafts = *draftsPtr
+		resp.DraftSeq = draftSeq
+	}
+	w.reply(resp)
+}
+
+func (w *connWatcher) pollStatus() *tui.StatusBoard {
+	mod := w.statStatusMod()
+	if mod.Equal(w.statusMod) && time.Since(w.statusAt) < time.Second {
+		return nil
+	}
+	w.statusMod = mod
+	w.statusAt = time.Now()
+	board, err := w.server.Backend.Status()
+	if err != nil {
+		return nil
+	}
+	if w.hasStatus && reflect.DeepEqual(w.lastStatus, board) {
+		return nil
+	}
+	w.lastStatus = board
+	w.hasStatus = true
+	return &board
+}
+
+func (w *connWatcher) pollDrafts() (*[]decide.Draft, int64) {
+	dmod := w.statDraftsMod()
+	if dmod.Equal(w.draftsMod) && time.Since(w.draftsAt) < time.Second {
+		return nil, 0
+	}
+	w.draftsMod = dmod
+	w.draftsAt = time.Now()
+	dseq, drafts, err := w.listDrafts()
+	if err != nil {
+		return nil, 0
+	}
+	if w.hasDrafts && dseq == w.lastDraftSeq {
+		return nil, 0
+	}
+	w.lastDraftSeq = dseq
+	w.hasDrafts = true
+	return &drafts, dseq
 }
