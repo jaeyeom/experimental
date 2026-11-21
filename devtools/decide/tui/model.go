@@ -347,6 +347,15 @@ func New(dir string) *Model {
 	}
 }
 
+// NewWithBackend returns an inbox backed by b instead of a local ledger
+// directory.
+func NewWithBackend(b Backend) *Model {
+	m := New("")
+	m.backend = b
+	m.asyncReload = true
+	return m
+}
+
 // Reload reads the current folder from disk. The cursor stays on the same id
 // when that id is still present.
 func (m *Model) Reload() error {

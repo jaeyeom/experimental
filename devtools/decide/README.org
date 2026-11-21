@@ -359,6 +359,41 @@ and ~[Discard M-d]~. ~Discard~ clears a short draft at once and asks
 first when the draft is longer than 3 lines; ~Esc~ leaves the box and
 keeps the draft.
 
+** Persistent drafts
+
+Unsent reply, free-text answer, and compose drafts are saved to
+=drafts.json= alongside =ledger.json= (in =$XDG_STATE_HOME/decide/= or
+=~/.local/state/decide/=). In hub mode, =drafts.json= lives on the hub
+and syncs across hub clients through the ~watch~ stream and each
+client's local replica, so a draft started on one machine appears on
+another.
+
+- *List mark and compose restore*: threads with a saved reply or answer
+  draft show a ~draft~ mark in the list, or ~draft!~ when an unresolved
+  conflict exists. Opening compose (~c~) when a saved compose draft
+  exists shows a ~[r] Restore~ / ~[d] Discard~ prompt; forwarding (~f~)
+  does not overwrite that saved draft.
+- *Save timing and cleanup*: drafts auto-save 1.5s after typing stops
+  (and when changing the compose recipient while text is non-empty),
+  flush immediately when leaving a thread or compose view or exiting the
+  inbox, and flush before suspending for ~$EDITOR~ (~C-x C-e~ / ~C-g~)
+  and save on return. Sending (~Ctrl+Enter~, ~Alt+Enter~, ~C-s~, or
+  ~Alt+e~), discarding (~Alt+d~), or clearing text to empty or
+  whitespace deletes the draft immediately.
+- *Conflicts*: drafts use optimistic concurrency (~baseRev~) so
+  concurrent edits from two clients never silently overwrite each other.
+  Both versions are preserved, the list shows ~draft!~, and opening the
+  draft shows a conflict banner with ~[k] Keep current~, ~[u] Use
+  other~, and ~[m] Merge both~ (inserting git-style conflict markers).
+- *Limits and lifecycle*: draft text is capped at 64 KiB (oversized
+  saves warn on the status line while keeping the in-memory text) and at
+  most 10 conflict copies per draft. Reply and answer drafts are deleted
+  automatically when the thread is archived, marked done, withdrawn, or
+  deleted.
+
+Design details, RPC ops, and replica behavior are in
+[[file:docs/drafts.org][docs/drafts.org]].
+
 ~ui.answerAction~ controls what picking an option (~1~-~9~ or click)
 does: ~stay~ (default) sends the answer and stays in the thread; ~list~
 sends and goes back to the list; ~edit~ puts the option's text into the
