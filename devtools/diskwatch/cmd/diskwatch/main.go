@@ -33,6 +33,9 @@ func realRuntime() runtime {
 }
 
 func run(args []string, stdout, stderr io.Writer, env []string, rt runtime) int {
+	if code, ok := newDiskwatchTool().Handle(context.Background(), args, stdout, stderr); ok {
+		return code
+	}
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "usage: diskwatch check|status|hook")
 		return 2

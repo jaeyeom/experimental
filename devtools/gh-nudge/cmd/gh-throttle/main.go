@@ -44,6 +44,9 @@ const (
 )
 
 func main() {
+	if code, ok := handleToolCLI(context.Background(), os.Args[0], os.Args[1:], os.Stdout, os.Stderr); ok {
+		os.Exit(code)
+	}
 	self, err := os.Executable()
 	if err != nil {
 		self = os.Args[0]

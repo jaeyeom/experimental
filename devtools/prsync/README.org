@@ -124,7 +124,10 @@ prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase
 prsync comment  [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--stdin] [--allow-duplicate] --body TEXT
 prsync gate     [--config PATH] [--tab-machine M]
 prsync logs     [--path]
-prsync version
+prsync version  [--json]
+prsync update   [--check] [--ref REF] [--json]
+prsync doctor   [--json] [--offline]
+prsync skill    [install|uninstall|status] [--agent A] [--scope S] [--dir D] [--dry-run] [--force] [--json]
 #+end_example
 
 | Flag                | Effect                                                                          |

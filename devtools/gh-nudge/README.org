@@ -176,6 +176,13 @@ Setup, ~--stats~, and the limits are in [[file:gh-throttle.org][gh-throttle]].
 
 * Development
 
+All 8 binaries (~gh-nudge~, ~gh-approve~, ~gh-codeowners~, ~gh-merge~,
+~gh-pr-review~, ~gh-slack~, ~gh-storage~, and ~gh-throttle~) implement
+the standard ~toolcli~ protocol subcommands: ~version [--json]~, ~update
+[--check] [--ref <ref>] [--json]~, ~doctor [--json] [--offline]~, and
+~skill [install|uninstall|status ...]~ (when invoked via a ~gh~ symlink,
+~gh-throttle~ passes all commands through to ~gh~).
+
 From the repository root, ~make check~.
 
 The tools are MIT licensed.

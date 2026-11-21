@@ -287,6 +287,9 @@ func firstReviewRequestAllowsNudge(pr models.PullRequest, reviewer models.Review
 }
 
 func main() {
+	if code, ok := newGHNudgeTool().Handle(context.Background(), os.Args[1:], os.Stdout, os.Stderr); ok {
+		os.Exit(code)
+	}
 	registerFlags()
 	flag.Parse()
 

@@ -57,6 +57,10 @@ func run(ctx context.Context, args, env []string, stdin io.Reader, stdout, stder
 			return 0
 		}
 	}
+	if shouldHandleToolCLI(args) {
+		code, _ := newAgentbusTool().Handle(ctx, args, stdout, stderr)
+		return code
+	}
 	cfg, cfgErr := hubSettings(env)
 	maybeFlush(ctx, cfg, cfgErr, env)
 	if len(args) == 0 || !localCommands[args[0]] {

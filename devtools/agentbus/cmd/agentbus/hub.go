@@ -46,7 +46,10 @@ var localCommands = map[string]bool{
 	// paths prints this machine's sockets. install asks the hub to run it.
 	"paths": true,
 	// outbox is this machine's queue of hub sends.
-	"outbox": true,
+	"outbox":  true,
+	"version": true,
+	"update":  true,
+	"skill":   true,
 }
 
 // stdinCommands read stdin, so hub mode forwards it.

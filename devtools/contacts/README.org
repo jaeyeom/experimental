@@ -187,3 +187,7 @@ several exits 3 and lists them.
 | ~commitments [<person>] [--open] [--overdue] [--json]~                                    | commitments, overdue flagged         |                                            |
 | ~age [--dry-run] [--drop]~                                                                | what changed                         | 0 when another run holds the lock          |
 | ~log [--caller C] [--person P] [--since D] [--json]~                                      | access-log rows newest first         |                                            |
+
+* Standard CLI protocol
+
+~contacts~ implements ~version [--json]~, ~update [--check] [--ref <ref>] [--json]~, ~doctor [--json] [--offline]~, and ~skill [install|uninstall|status ...]~.

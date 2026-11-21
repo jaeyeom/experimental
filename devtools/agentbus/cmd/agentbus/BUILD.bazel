@@ -29,10 +29,13 @@ go_library(
         "registry.go",
         "replay.go",
         "sandbox.go",
+        "skill.go",
+        "toolcli.go",
         "tunnel.go",
         "tunnelinstall.go",
         "wake.go",
     ],
+    embedsrcs = ["skill.md"],
     importpath = "github.com/jaeyeom/experimental/devtools/agentbus/cmd/agentbus",
     visibility = ["//visibility:private"],
     deps = [
@@ -56,6 +59,7 @@ go_library(
         "//devtools/agentbus/internal/runner:go_default_library",
         "//devtools/pkg/hubcall:go_default_library",
         "//devtools/pkg/procinfo:go_default_library",
+        "//devtools/pkg/toolcli:go_default_library",
         "@org_golang_x_sys//unix:go_default_library",
     ],
 )
@@ -102,6 +106,7 @@ go_test(
         "resend_test.go",
         "sandbox_test.go",
         "status_test.go",
+        "toolcli_test.go",
         "tunnel_test.go",
         "tunnelinstall_test.go",
         "wake_test.go",
@@ -128,6 +133,7 @@ go_test(
         "//devtools/pkg/hubcall/sshtest:go_default_library",
         "//devtools/pkg/procinfo:go_default_library",
         "//devtools/pkg/remotecall:go_default_library",
+        "//devtools/pkg/toolcli:go_default_library",
         "@org_golang_x_sys//unix:go_default_library",
     ],
 )

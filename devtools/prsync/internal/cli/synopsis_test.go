@@ -36,7 +36,7 @@ func TestSynopsisListsRegisteredFlags(t *testing.T) {
 
 	syn := synopsisLines(t, readme)
 	var logFile *runlog.File
-	root := newRoot(io.Discard, nil, &logFile)
+	root := newRoot(io.Discard, io.Discard, nil, &logFile)
 	for _, cmd := range root.Commands() {
 		line, ok := syn[cmd.Name()]
 		if !ok {

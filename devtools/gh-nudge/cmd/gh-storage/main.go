@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,7 +10,6 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/argparser"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/storage"
-	"github.com/jaeyeom/experimental/devtools/pkg/version"
 )
 
 func main() {
@@ -36,9 +36,8 @@ func executeCommand(command string, args []string) {
 		return
 	}
 
-	if command == "version" {
-		fmt.Printf("gh-storage version %s\n", version.Resolve())
-		return
+	if code, ok := newGHStorageTool().Handle(context.Background(), append([]string{command}, args...), os.Stdout, os.Stderr); ok {
+		os.Exit(code)
 	}
 
 	fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)

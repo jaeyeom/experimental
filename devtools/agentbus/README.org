@@ -402,7 +402,11 @@ wake_model_by_name = {"ops/*" = "keep", "routine/*" = "haiku"}
 * Troubleshooting
 
 ~agentbus doctor~ and ~agentbus log~ are the first checks. ~doctor
---sandbox~ is the check when a sandboxed agent cannot connect. Common
+--sandbox~ is the check when a sandboxed agent cannot connect. ~agentbus~
+also implements the standard ~toolcli~ protocol subcommands: ~version
+[--json]~, ~update [--check] [--ref <ref>] [--json]~ (which also updates
+~agentbusd~), ~doctor [--json] [--offline]~, and ~skill
+[install|uninstall|status ...]~. Common
 failures:
 
 - ~agentbus: XDG_RUNTIME_DIR is not set; the agentbus daemon socket needs it~

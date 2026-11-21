@@ -29,6 +29,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -143,6 +144,9 @@ func run() error {
 }
 
 func main() {
+	if code, ok := newGHCodeownersTool().Handle(context.Background(), os.Args[1:], os.Stdout, os.Stderr); ok {
+		os.Exit(code)
+	}
 	registerFlags()
 	flag.Parse()
 

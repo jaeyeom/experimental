@@ -2,11 +2,17 @@ load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 
 go_library(
     name = "go_default_library",
-    srcs = ["main.go"],
+    srcs = [
+        "main.go",
+        "skill.go",
+        "toolcli.go",
+    ],
+    embedsrcs = ["skill.md"],
     importpath = "github.com/jaeyeom/experimental/devtools/gh-ask/cmd/gh-ask",
     visibility = ["//visibility:private"],
     deps = [
         "//devtools/gh-ask:go_default_library",
+        "//devtools/pkg/toolcli:go_default_library",
         "@org_golang_x_sys//unix:go_default_library",
     ],
 )
@@ -20,6 +26,10 @@ go_binary(
 go_test(
     name = "go_default_test",
     size = "small",
-    srcs = ["main_test.go"],
+    srcs = [
+        "main_test.go",
+        "toolcli_test.go",
+    ],
     embed = [":go_default_library"],
+    deps = ["//devtools/pkg/toolcli:go_default_library"],
 )

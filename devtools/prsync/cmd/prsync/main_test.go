@@ -23,11 +23,11 @@ func TestRunVersionExitOK(t *testing.T) {
 	t.Parallel()
 
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"version"}, &stdout, &stderr)
+	code := run([]string{"version", "--json"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("exit = %d, stderr=%q", code, stderr.String())
 	}
-	var got map[string]string
+	var got map[string]any
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("json: %v\n%s", err, stdout.String())
 	}

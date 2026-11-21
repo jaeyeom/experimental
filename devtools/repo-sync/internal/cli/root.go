@@ -69,6 +69,7 @@ func registerCommands() {
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(verifyCmd)
+	addToolCLICommands(rootCmd)
 }
 
 // initConfig reads in config file and ENV variables if set.
@@ -78,14 +79,13 @@ func initConfig() {
 	} else {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			slog.Error("Failed to get home directory", "error", err)
-			os.Exit(1)
+			slog.Debug("Skipping default config path; home directory unavailable", "error", err)
+		} else {
+			configDir := fmt.Sprintf("%s/.config/repo-sync", home)
+			viper.AddConfigPath(configDir)
+			viper.SetConfigType("yaml")
+			viper.SetConfigName("config")
 		}
-
-		configDir := fmt.Sprintf("%s/.config/repo-sync", home)
-		viper.AddConfigPath(configDir)
-		viper.SetConfigType("yaml")
-		viper.SetConfigName("config")
 	}
 
 	viper.AutomaticEnv()

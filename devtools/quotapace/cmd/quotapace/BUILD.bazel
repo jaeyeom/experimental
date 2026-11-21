@@ -5,11 +5,17 @@ go_library(
     srcs = [
         "main.go",
         "record.go",
+        "skill.go",
         "status.go",
+        "toolcli.go",
     ],
+    embedsrcs = ["skill.md"],
     importpath = "github.com/jaeyeom/experimental/devtools/quotapace/cmd/quotapace",
     visibility = ["//visibility:private"],
-    deps = ["//devtools/quotapace:go_default_library"],
+    deps = [
+        "//devtools/pkg/toolcli:go_default_library",
+        "//devtools/quotapace:go_default_library",
+    ],
 )
 
 go_binary(
@@ -21,7 +27,13 @@ go_binary(
 go_test(
     name = "go_default_test",
     size = "small",
-    srcs = ["main_test.go"],
+    srcs = [
+        "main_test.go",
+        "toolcli_test.go",
+    ],
     embed = [":go_default_library"],
-    deps = ["//devtools/quotapace:go_default_library"],
+    deps = [
+        "//devtools/pkg/toolcli:go_default_library",
+        "//devtools/quotapace:go_default_library",
+    ],
 )

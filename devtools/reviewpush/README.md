@@ -270,3 +270,12 @@ advertises: `--ask-for-approval` (`never`, or `--full-auto` when that
 flag is absent), `--sandbox` (`workspace-write`, or
 `danger-full-access` when `TERMUX_VERSION` is set), `--ephemeral`,
 `--color` (`never`), `--output-schema`, and `--output-last-message`.
+
+## Standard CLI protocol
+
+`review-and-push-loop` also implements `devtools/pkg/toolcli` subcommands:
+
+- `review-and-push-loop version [--json]`
+- `review-and-push-loop update [--check] [--ref <ref>] [--json]`
+- `review-and-push-loop doctor [--json] [--offline]`
+- `review-and-push-loop skill [install|uninstall|status ...]`

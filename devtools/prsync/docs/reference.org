@@ -204,12 +204,15 @@ per-PR status-check views at a time during a scan.
 ** version
 
 #+BEGIN_SRC bash
-prsync version
+prsync version --json
 #+END_SRC
 
 #+BEGIN_SRC json
-{"version":"0.1.0"}
+{"tool":"prsync","modulePath":"github.com/jaeyeom/experimental","version":"0.1.0","vcsRevision":"...","vcsModified":false,"buildTime":"..."}
 #+END_SRC
+
+~prsync~ also implements ~update [--check] [--ref <ref>] [--json]~,
+~doctor [--json] [--offline]~, and ~skill [install|uninstall|status ...]~.
 
 ** scan
 

@@ -310,6 +310,38 @@ func commands() []command {
 			example: "agentbus prompt-hook off --session 1234",
 			run:     cmdPromptHook,
 		},
+		{
+			name:    "version",
+			summary: "Print build version and VCS revision.",
+			usage:   "agentbus version [--json]",
+			flags:   "--json  emit JSON output (default: false)",
+			example: "agentbus version --json",
+			run: func(ctx context.Context, args, _ []string, _ io.Reader, stdout, stderr io.Writer) int {
+				code, _ := newAgentbusTool().Handle(ctx, append([]string{"version"}, args...), stdout, stderr)
+				return code
+			},
+		},
+		{
+			name:    "update",
+			summary: "Check for or install the latest agentbus and agentbusd binaries.",
+			usage:   "agentbus update [--check] [--ref <ref>] [--json]",
+			flags:   "--check  check only without installing (default: false)\n--ref <ref>  target branch, tag, or version (default: latest)\n--json  emit JSON output (default: false)",
+			example: "agentbus update --check",
+			run: func(ctx context.Context, args, _ []string, _ io.Reader, stdout, stderr io.Writer) int {
+				code, _ := newAgentbusTool().Handle(ctx, append([]string{"update"}, args...), stdout, stderr)
+				return code
+			},
+		},
+		{
+			name:    "skill",
+			summary: "Print or install the embedded agentbus skill.",
+			usage:   "agentbus skill [install|uninstall|status ...]",
+			example: "agentbus skill status --json",
+			run: func(ctx context.Context, args, _ []string, _ io.Reader, stdout, stderr io.Writer) int {
+				code, _ := newAgentbusTool().Handle(ctx, append([]string{"skill"}, args...), stdout, stderr)
+				return code
+			},
+		},
 	}
 }
 

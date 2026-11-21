@@ -218,3 +218,7 @@ the config file exists.
 Free space has no portable change event. ~inotify~ and ~FSEvents~
 report name and content changes, not ~statfs~ updates, so the check
 is a poll.
+
+* Standard CLI protocol
+
+~diskwatch~ implements ~version [--json]~, ~update [--check] [--ref <ref>] [--json]~, ~doctor [--json] [--offline]~, and ~skill [install|uninstall|status ...]~.

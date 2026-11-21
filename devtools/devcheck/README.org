@@ -135,3 +135,7 @@ full targets. A type is skipped when no changed files match that tool.
 
 Dry-run always exits 0 after a successful detect/plan, even if the commands
 would fail when run.
+
+* Standard CLI protocol
+
+~devcheck~ implements ~version [--json]~, ~update [--check] [--ref <ref>] [--json]~, ~doctor [--json] [--offline]~, and ~skill [install|uninstall|status ...]~.

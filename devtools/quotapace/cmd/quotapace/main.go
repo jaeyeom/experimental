@@ -62,6 +62,9 @@ func run(args []string, e env) int {
 		fmt.Fprintln(e.stderr, usage)
 		return exitUsage
 	}
+	if code, ok := newQuotapaceTool().Handle(context.Background(), args, e.stdout, e.stderr); ok {
+		return code
+	}
 	dir, err := quotapace.DataDir(e.getenv)
 	if err != nil {
 		fmt.Fprintln(e.stderr, "quotapace:", err)

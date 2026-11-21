@@ -5,8 +5,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 
@@ -15,11 +17,19 @@ import (
 )
 
 func main() {
-	var cfg reviewpush.Config
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
 
-	flag.Usage = func() {
-		out := flag.CommandLine.Output()
-		fmt.Fprintf(out, `Usage of %s:
+func run(args []string, stdout, stderr io.Writer) int {
+	if code, ok := newReviewPushTool().Handle(context.Background(), args, stdout, stderr); ok {
+		return code
+	}
+
+	var cfg reviewpush.Config
+	fs := flag.NewFlagSet("review-and-push-loop", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		fmt.Fprintf(stderr, `Usage of %s:
   review-and-push-loop reviews local commits ahead of the remote base branch
   and pushes them one at a time after a read-only Codex review pass.
 
@@ -37,22 +47,27 @@ Environment:
 
 Flags:
 `, os.Args[0])
-		flag.PrintDefaults()
+		fs.PrintDefaults()
 	}
 
-	flag.StringVar(&cfg.RepoDir, "repo", ".", "Repository directory")
-	flag.StringVar(&cfg.BaseBranchOverride, "base", "", "Override base branch detection")
-	flag.IntVar(&cfg.MaxIterations, "max-iterations", 100, "Maximum loop iterations")
-	flag.StringVar(&cfg.OutputMode, "output", reviewpush.OutputModeHuman, "Output mode: human or compact")
-	flag.Parse()
+	fs.StringVar(&cfg.RepoDir, "repo", ".", "Repository directory")
+	fs.StringVar(&cfg.BaseBranchOverride, "base", "", "Override base branch detection")
+	fs.IntVar(&cfg.MaxIterations, "max-iterations", 100, "Maximum loop iterations")
+	fs.StringVar(&cfg.OutputMode, "output", reviewpush.OutputModeHuman, "Output mode: human or compact")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
 
 	if cfg.MaxIterations <= 0 {
-		fmt.Fprintf(os.Stderr, "Error: --max-iterations must be greater than zero\n")
-		os.Exit(1)
+		fmt.Fprintf(stderr, "Error: --max-iterations must be greater than zero\n")
+		return 1
 	}
 	if cfg.OutputMode != reviewpush.OutputModeHuman && cfg.OutputMode != reviewpush.OutputModeCompact {
-		fmt.Fprintf(os.Stderr, "Error: --output must be %q or %q\n", reviewpush.OutputModeHuman, reviewpush.OutputModeCompact)
-		os.Exit(1)
+		fmt.Fprintf(stderr, "Error: --output must be %q or %q\n", reviewpush.OutputModeHuman, reviewpush.OutputModeCompact)
+		return 1
 	}
 
 	cfg.GitBin = envOrDefault("GIT_BIN", "git")
@@ -61,8 +76,8 @@ Flags:
 	timeoutStr := envOrDefault("CODEX_TIMEOUT_SECONDS", "300")
 	timeout, err := strconv.Atoi(timeoutStr)
 	if err != nil || timeout < 0 {
-		fmt.Fprintf(os.Stderr, "Error: CODEX_TIMEOUT_SECONDS must be a non-negative integer\n")
-		os.Exit(1)
+		fmt.Fprintf(stderr, "Error: CODEX_TIMEOUT_SECONDS must be a non-negative integer\n")
+		return 1
 	}
 	cfg.CodexTimeoutSecs = timeout
 
@@ -70,13 +85,12 @@ Flags:
 	codex := &reviewpush.RealCodexRunner{
 		CodexBin:     cfg.CodexBin,
 		TimeoutSecs:  cfg.CodexTimeoutSecs,
-		Stderr:       os.Stderr,
+		Stderr:       stderr,
 		StreamStderr: cfg.OutputMode != reviewpush.OutputModeCompact,
 	}
 
 	runner := reviewpush.NewRunner(cfg, exec, codex)
-	exitCode := runner.Run(context.Background())
-	os.Exit(exitCode)
+	return runner.Run(context.Background())
 }
 
 func envOrDefault(key, defaultVal string) string {

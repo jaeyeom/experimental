@@ -6,8 +6,11 @@ go_library(
         "diff.go",
         "live.go",
         "main.go",
+        "skill.go",
+        "toolcli.go",
         "tree.go",
     ],
+    embedsrcs = ["skill.md"],
     importpath = "github.com/jaeyeom/experimental/devtools/orgctl/cmd/orgctl",
     visibility = ["//visibility:private"],
     deps = [
@@ -15,6 +18,7 @@ go_library(
         "//devtools/orgctl/adapter/agentbus:go_default_library",
         "//devtools/orgctl/adapter/crons:go_default_library",
         "//devtools/orgctl/adapter/herdr:go_default_library",
+        "//devtools/pkg/toolcli:go_default_library",
     ],
 )
 
@@ -27,7 +31,13 @@ go_binary(
 go_test(
     name = "go_default_test",
     size = "small",
-    srcs = ["main_test.go"],
+    srcs = [
+        "main_test.go",
+        "toolcli_test.go",
+    ],
     embed = [":go_default_library"],
-    deps = ["//devtools/orgctl:go_default_library"],
+    deps = [
+        "//devtools/orgctl:go_default_library",
+        "//devtools/pkg/toolcli:go_default_library",
+    ],
 )

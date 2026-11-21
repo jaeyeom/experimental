@@ -117,3 +117,7 @@ go run ./devtools/claude-usage/cmd/claude-usage --json
 Unit tests cover formatting, the Keychain service name, credential
 parsing, and HTTP status mapping. They use fake transports, so CI does
 not touch a Keychain or the network.
+
+* Standard CLI protocol
+
+~claude-usage~ implements ~version [--json]~, ~update [--check] [--ref <ref>] [--json]~, ~doctor [--json] [--offline]~, and ~skill [install|uninstall|status ...]~.
