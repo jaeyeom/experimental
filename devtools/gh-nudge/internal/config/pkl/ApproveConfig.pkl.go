@@ -30,6 +30,12 @@ type ApproveConfig struct {
 	// Null means no run limit.
 	MaxDuration *pkl.Duration `pkl:"max_duration"`
 
+	// Maximum concurrent uncached pull request loads.
+	LoadConcurrency int `pkl:"load_concurrency"`
+
+	// How long per-commit PR facts are kept for PRs that are no longer candidates.
+	PrCacheTtl pkl.Duration `pkl:"pr_cache_ttl"`
+
 	// Rules. A pull request that matches none of them is left for a human.
 	Rules []ApproveRule `pkl:"rules"`
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -233,9 +234,16 @@ func TestMineCommentsOnlyOverTheCapReportsTooLarge(t *testing.T) {
 }
 
 // stepClock moves only when a fake client call advances it.
-type stepClock struct{ now time.Time }
+type stepClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
 
-func (c *stepClock) Now() time.Time { return c.now }
+func (c *stepClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
 
 func (c *stepClock) advance(op string) {
 	steps := map[string]time.Duration{
@@ -244,7 +252,9 @@ func (c *stepClock) advance(op string) {
 		"teams":        10 * time.Millisecond,
 		"patches":      300 * time.Millisecond,
 	}
+	c.mu.Lock()
 	c.now = c.now.Add(steps[op])
+	c.mu.Unlock()
 }
 
 func runTimed(t *testing.T, fake *fakeClient, rules []config.ApproveRule, explain bool) string {
@@ -255,7 +265,7 @@ func runTimed(t *testing.T, fake *fakeClient, rules []config.ApproveRule, explai
 	var out, logBuf bytes.Buffer
 	runner := &Runner{
 		Client: fake,
-		Config: config.ApproveConfig{Body: "LGTM", SkipAlreadyApproved: true, Rules: rules},
+		Config: config.ApproveConfig{Body: "LGTM", SkipAlreadyApproved: true, Rules: rules, LoadConcurrency: 1},
 		Out:    &out,
 		Log:    &logBuf,
 		Now:    clock.Now,

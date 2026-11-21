@@ -81,30 +81,57 @@ func newAgentCache(cfg config.ApproveConfig, disabled bool, home, xdgCacheHome s
 	}
 }
 
+// newPRCache returns the per-commit PR facts cache, or nil when disabled.
+// It lives under xdgCacheHome, or home/.cache when xdgCacheHome is empty.
+func newPRCache(cfg config.ApproveConfig, disabled bool, home, xdgCacheHome string) *approve.PRCache {
+	if disabled {
+		return nil
+	}
+	base := xdgCacheHome
+	if base == "" {
+		base = filepath.Join(home, ".cache")
+	}
+	return &approve.PRCache{
+		Dir: filepath.Join(base, "gh-approve", "facts"),
+		TTL: cfg.PRCacheTTL,
+		Now: time.Now,
+	}
+}
+
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "history" {
 		os.Exit(runHistory(os.Args[2:]))
 	}
 	var (
-		configPath   string
-		opts         approve.Options
-		maxDuration  time.Duration
-		noAgentCache bool
-		color        string
+		configPath      string
+		opts            approve.Options
+		maxDuration     time.Duration
+		loadConcurrency int
+		noAgentCache    bool
+		noCache         bool
+		color           string
 	)
 	flag.StringVar(&configPath, "config", "", "Path to config file (default ~/.config/gh-nudge/config.pkl)")
 	flag.DurationVar(&maxDuration, "max-duration", 0, "Stop starting pull requests after this duration (also configurable as approve.max_duration)")
+	flag.IntVar(&loadConcurrency, "load-concurrency", 0, "Maximum concurrent uncached PR loads (default from approve.load_concurrency, 4)")
 	flag.BoolVar(&opts.Apply, "apply", false, "Approve, hand off, and mark files viewed for real. Without it, gh-approve is a dry run")
 	flag.StringVar(&opts.PR, "pr", "", "Evaluate one pull request: owner/repo#N or a URL")
 	flag.BoolVar(&opts.Explain, "explain", false, "Print every condition of every rule with the value it saw")
 	flag.BoolVar(&noAgentCache, "no-agent-cache", false, "Run agent commands without reading or writing the decision cache")
+	flag.BoolVar(&noCache, "no-cache", false, "Bypass the per-commit PR facts cache")
 	flag.StringVar(&color, "color", approve.ColorAuto, "Color the status markers: auto (only on a terminal), always, or never. NO_COLOR turns color off")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [--apply] [--pr <owner/repo#N | URL>] [--explain] [--no-agent-cache] [--color auto|always|never] [--config <path>]\n       %s history [--days N] [--action approved|handoff|mark_viewed|all] [--rule NAME] [--json] [--no-state]\n\n", os.Args[0], os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s [--apply] [--pr <owner/repo#N | URL>] [--explain] [--no-cache] [--no-agent-cache] [--load-concurrency N] [--color auto|always|never] [--config <path>]\n       %s history [--days N] [--action approved|handoff|mark_viewed|all] [--rule NAME] [--json] [--no-state]\n\n", os.Args[0], os.Args[0])
 		flag.PrintDefaults()
 	}
 	flag.Parse()
+	if loadConcurrency < 0 {
+		fmt.Fprintf(os.Stderr, "gh-approve: --load-concurrency must be >= 0\n")
+		flag.Usage()
+		os.Exit(2)
+	}
 	opts.MaxDuration = maxDuration
+	opts.LoadConcurrency = loadConcurrency
 	if flag.NArg() > 0 {
 		flag.Usage()
 		os.Exit(2)
@@ -116,13 +143,13 @@ func main() {
 		os.Exit(2)
 	}
 	opts.Color = useColor
-	if err = run(configPath, opts, noAgentCache); err != nil {
+	if err = run(configPath, opts, noAgentCache, noCache); err != nil {
 		fmt.Fprintf(os.Stderr, "gh-approve: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(configPath string, opts approve.Options, noAgentCache bool) (err error) {
+func run(configPath string, opts approve.Options, noAgentCache, noCache bool) (err error) {
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -140,6 +167,7 @@ func run(configPath string, opts approve.Options, noAgentCache bool) (err error)
 			err = fmt.Errorf("close audit log: %w", closeErr)
 		}
 	}()
+	xdgCacheHome := os.Getenv("XDG_CACHE_HOME")
 	runner := &approve.Runner{
 		Client:         github.NewClient(context.Background(), github.GHExecutor(executor.NewBasicExecutor())),
 		Config:         cfg.Approve,
@@ -148,7 +176,8 @@ func run(configPath string, opts approve.Options, noAgentCache bool) (err error)
 		Out:            os.Stdout,
 		Log:            logFile,
 		Now:            time.Now,
-		AgentCache:     newAgentCache(cfg.Approve, noAgentCache, home, os.Getenv("XDG_CACHE_HOME")),
+		AgentCache:     newAgentCache(cfg.Approve, noAgentCache, home, xdgCacheHome),
+		PRCache:        newPRCache(cfg.Approve, noCache, home, xdgCacheHome),
 	}
 	if err := runner.Run(opts); err != nil {
 		return fmt.Errorf("run: %w", err)

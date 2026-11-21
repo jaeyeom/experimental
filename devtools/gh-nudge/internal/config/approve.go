@@ -48,6 +48,12 @@ const (
 	DefaultAgentCacheMaxMB = 50
 )
 
+// Defaults of the per-commit PR facts cache and parallel loader.
+const (
+	DefaultLoadConcurrency = 4
+	DefaultPRCacheTTL      = 7 * 24 * time.Hour
+)
+
 // Defaults of the patch size cap when config omits it.
 const (
 	DefaultPatchMaxFiles      = 300
@@ -129,6 +135,11 @@ type ApproveConfig struct {
 	PatchMaxAddedLines int `yaml:"-"`
 	// MaxDuration stops a pass from starting pull requests after this limit.
 	MaxDuration time.Duration `yaml:"-"`
+	// LoadConcurrency bounds concurrent uncached pull request loads.
+	LoadConcurrency int `yaml:"-"`
+	// PRCacheTTL is how long cached per-commit PR facts are kept when a PR
+	// is no longer a candidate.
+	PRCacheTTL time.Duration `yaml:"-"`
 	// Rules are ORed. A pull request that matches none is left for a human.
 	Rules []ApproveRule `yaml:"-"`
 }
@@ -216,6 +227,8 @@ func convertApprove(src pklconfig.ApproveConfig, configDir string) ApproveConfig
 		AgentCacheMaxMB:     src.AgentCacheMaxMb,
 		PatchMaxFiles:       src.PatchMaxFiles,
 		PatchMaxAddedLines:  src.PatchMaxAddedLines,
+		LoadConcurrency:     src.LoadConcurrency,
+		PRCacheTTL:          src.PrCacheTtl.GoDuration(),
 	}
 	if src.MaxDuration != nil {
 		out.MaxDuration = src.MaxDuration.GoDuration()
@@ -228,6 +241,12 @@ func convertApprove(src pklconfig.ApproveConfig, configDir string) ApproveConfig
 	}
 	if out.AgentCacheMaxMB <= 0 {
 		out.AgentCacheMaxMB = DefaultAgentCacheMaxMB
+	}
+	if out.LoadConcurrency <= 0 {
+		out.LoadConcurrency = DefaultLoadConcurrency
+	}
+	if out.PRCacheTTL <= 0 {
+		out.PRCacheTTL = DefaultPRCacheTTL
 	}
 	if out.PatchMaxFiles <= 0 {
 		out.PatchMaxFiles = DefaultPatchMaxFiles

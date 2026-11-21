@@ -1,8 +1,11 @@
 package approve
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config"
@@ -13,7 +16,9 @@ import (
 // handoffFake is the hand-off part of fakeClient. writes records every write
 // call in order.
 type handoffFake struct {
+	mu              sync.Mutex
 	codeowners      string
+	codeownersOID   string
 	codeownersErr   error
 	codeownersReads int
 	teams           map[string][]string
@@ -41,46 +46,67 @@ func (f *handoffFake) called(op string) {
 }
 
 func (f *handoffFake) ViewerTeams(org, _ string) ([]string, error) {
+	f.mu.Lock()
 	f.viewerTeamReads++
+	err := f.viewerTeamsErr
+	vt := f.viewerTeams
+	f.mu.Unlock()
 	f.called("teams")
-	if f.viewerTeamsErr != nil {
-		return nil, f.viewerTeamsErr
+	if err != nil {
+		return nil, err
 	}
-	if f.viewerTeams == nil {
+	if vt == nil {
 		return nil, errors.New("viewer teams unavailable")
 	}
-	return f.viewerTeams[org], nil
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return vt[org], nil
 }
 
 func (f *handoffFake) TeamMemberCount(org, slug string) (int, error) {
+	f.mu.Lock()
 	f.teamCountReads++
+	err := f.teamErr[org+"/"+slug]
+	members, ok := f.teams[org+"/"+slug]
+	f.mu.Unlock()
 	f.called("teams")
-	if err := f.teamErr[org+"/"+slug]; err != nil {
+	if err != nil {
 		return 0, err
 	}
-	members, ok := f.teams[org+"/"+slug]
 	if !ok {
 		return 0, errors.New("unexpected team " + org + "/" + slug)
 	}
 	return len(members), nil
 }
 
-func (f *handoffFake) CodeownersFile(_ github.PullRef, _ string) (string, string, error) {
+func (f *handoffFake) CodeownersBlob(_ github.PullRef, _ string) (github.CodeownersBlob, error) {
+	f.mu.Lock()
 	f.codeownersReads++
+	err := f.codeownersErr
+	text := f.codeowners
+	oid := f.codeownersOID
+	f.mu.Unlock()
 	f.called("codeowners")
-	if f.codeownersErr != nil {
-		return "", "", f.codeownersErr
+	if err != nil {
+		return github.CodeownersBlob{}, err
 	}
-	return "CODEOWNERS", f.codeowners, nil
+	if oid == "" {
+		sum := sha256.Sum256([]byte(text))
+		oid = hex.EncodeToString(sum[:])
+	}
+	return github.CodeownersBlob{Path: "CODEOWNERS", Text: text, OID: oid}, nil
 }
 
 func (f *handoffFake) TeamMembers(org, slug string) ([]string, error) {
+	f.mu.Lock()
 	f.teamListReads++
+	err := f.teamErr[org+"/"+slug]
+	members, ok := f.teams[org+"/"+slug]
+	f.mu.Unlock()
 	f.called("teams")
-	if err := f.teamErr[org+"/"+slug]; err != nil {
+	if err != nil {
 		return nil, err
 	}
-	members, ok := f.teams[org+"/"+slug]
 	if !ok {
 		return nil, errors.New("unexpected team " + org + "/" + slug)
 	}

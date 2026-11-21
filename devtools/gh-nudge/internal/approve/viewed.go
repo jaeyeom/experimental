@@ -12,7 +12,7 @@ import (
 // markViewed marks UNVIEWED files a viewed rule or passing file_checks
 // selects. A dry run records the paths and writes nothing. The per-run cap
 // stops the run from marking more.
-func (r *Runner) markViewed(entry *LogEntry, pr github.ApprovalPullRequest, viewer string, apply bool) {
+func (r *Runner) markViewed(entry *LogEntry, pr github.ApprovalPullRequest, viewer string, apply bool, st *prState, pool *loadPool) {
 	if entry.Action == ActionSkipped || entry.Action == ActionError {
 		return
 	}
@@ -22,7 +22,7 @@ func (r *Runner) markViewed(entry *LogEntry, pr github.ApprovalPullRequest, view
 	var viewedPaths []string
 	var genMatches map[string]string
 	if r.Viewed.Enabled && entry.Action == ActionManual && entry.Rule == nil && !pr.Draft {
-		paths, matches, exclusions, err := r.viewedPaths(pr, viewer)
+		paths, matches, exclusions, err := r.viewedPaths(pr, viewer, st, pool)
 		if err != nil {
 			entry.Action, entry.Reason = ActionError, err.Error()
 			return
@@ -245,7 +245,7 @@ func (r *Runner) markPaths(pr github.ApprovalPullRequest, paths []string) ([]str
 // viewedPaths returns the UNVIEWED files a rule selects, in pull request order,
 // along with any @generated patterns that matched. Unreadable CODEOWNERS, team
 // data, or generated list fails the pull request closed.
-func (r *Runner) viewedPaths(pr github.ApprovalPullRequest, viewer string) ([]string, map[string]string, []string, error) {
+func (r *Runner) viewedPaths(pr github.ApprovalPullRequest, viewer string, st *prState, pool *loadPool) ([]string, map[string]string, []string, error) {
 	rules := viewedRulesFor(r.Viewed.Rules, pr)
 	if len(rules) == 0 {
 		return nil, nil, nil, nil
@@ -253,12 +253,12 @@ func (r *Runner) viewedPaths(pr github.ApprovalPullRequest, viewer string) ([]st
 	var genPatterns []string
 	if viewedRulesUseGenerated(rules) {
 		var genErr string
-		genPatterns, genErr = r.generatedListFor(pr)
+		genPatterns, genErr = r.generatedListFor(pr, pool)
 		if genErr != "" {
 			return nil, nil, nil, fmt.Errorf("%s", genErr)
 		}
 	}
-	mine, err := r.viewedOwnership(pr, viewer, rules)
+	mine, err := r.viewedOwnership(pr, viewer, rules, st, pool)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -297,7 +297,7 @@ func viewedRulesUseGenerated(rules []config.ViewedRule) bool {
 
 // viewedOwnership loads CODEOWNERS when a rule needs it. mine is nil when
 // no rule needs it. A read error marks nothing.
-func (r *Runner) viewedOwnership(pr github.ApprovalPullRequest, viewer string, rules []config.ViewedRule) (map[string]bool, error) {
+func (r *Runner) viewedOwnership(pr github.ApprovalPullRequest, viewer string, rules []config.ViewedRule, st *prState, pool *loadPool) (map[string]bool, error) {
 	if !slices.ContainsFunc(rules, func(rule config.ViewedRule) bool { return rule.CodeownersNotMine }) {
 		return nil, nil
 	}
@@ -306,7 +306,7 @@ func (r *Runner) viewedOwnership(pr github.ApprovalPullRequest, viewer string, r
 	}
 	own := pr.Ownership
 	if own == nil {
-		own = r.ownershipFor(pr, viewer)
+		own = r.ownershipFor(pr, viewer, st, pool)
 	}
 	if own.Err != "" {
 		return nil, fmt.Errorf("read CODEOWNERS: %s", own.Err)
@@ -328,12 +328,12 @@ func (r *Runner) viewedOwnership(pr github.ApprovalPullRequest, viewer string, r
 
 func (r *Runner) teamReadErr() error {
 	errs := map[string]error{}
-	for key, got := range r.teams {
+	for key, got := range r.teams.snapshot() {
 		if got.err != nil {
 			errs[key] = got.err
 		}
 	}
-	for key, got := range r.teamCounts {
+	for key, got := range r.teamCounts.snapshot() {
 		if got.err != nil && errs[key] == nil {
 			errs[key] = got.err
 		}

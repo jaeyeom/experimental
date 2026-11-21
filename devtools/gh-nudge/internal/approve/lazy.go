@@ -39,25 +39,27 @@ func (s loadStat) String() string {
 // Each load happens at most once per pull request.
 type prState struct {
 	start       time.Time
+	end         time.Time
 	pullRequest time.Duration
 	codeowners  loadStat
 	teams       loadStat
 	patches     loadStat
 	agent       loadStat
 
+	cacheStatus         string
+	cacheDirty          bool
+	hasCachedOwnership  bool
+	cachedOwnership     *github.Ownership
+	cachedCodeownersSHA string
+	cachedTeamsHash     string
+	loadedCodeownersSHA string
+	loadedTeamsHash     string
+
 	ownership     *github.Ownership
 	ownershipDone bool
 	patchFiles    []github.PullFile
 	patchErr      string
 	patchesDone   bool
-}
-
-// state returns the state of the pull request being decided.
-func (r *Runner) state() *prState {
-	if r.cur == nil {
-		r.cur = &prState{start: r.now()}
-	}
-	return r.cur
 }
 
 // now is the injectable clock.
@@ -79,12 +81,37 @@ func (r *Runner) measure(stat *loadStat, call func()) {
 
 // ownershipFor loads the pull request's ownership the first time and returns
 // it after that.
-func (r *Runner) ownershipFor(pr github.ApprovalPullRequest, viewer string) *github.Ownership {
-	st := r.state()
-	if !st.ownershipDone {
-		st.ownership = r.loadOwnership(pr, viewer)
-		st.ownershipDone = true
+func (r *Runner) ownershipFor(pr github.ApprovalPullRequest, viewer string, st *prState, pool *loadPool) *github.Ownership {
+	if st.ownershipDone {
+		return st.ownership
 	}
+	if st.hasCachedOwnership && st.cachedOwnership != nil {
+		_, blobSHA, err := r.codeownersOf(pr, st, pool)
+		if err == nil {
+			if blobSHA == st.cachedCodeownersSHA {
+				set := r.viewerTeamsOf(pr.Ref.Owner, viewer, st, pool)
+				if set.err == nil && set.hash == st.cachedTeamsHash {
+					st.ownership = st.cachedOwnership
+					st.ownershipDone = true
+					st.loadedCodeownersSHA = blobSHA
+					st.loadedTeamsHash = set.hash
+					st.codeowners.used = true
+					st.codeowners.calls = 0
+					st.teams.used = true
+					st.teams.calls = 0
+					return st.ownership
+				}
+				if set.err == nil && set.hash != st.cachedTeamsHash {
+					st.cacheStatus = "miss (teams changed)"
+				}
+			} else {
+				st.cacheStatus = "miss (CODEOWNERS changed)"
+			}
+		}
+	}
+	st.ownership = r.loadOwnership(pr, viewer, st, pool)
+	st.ownershipDone = true
+	st.cacheDirty = true
 	return st.ownership
 }
 
@@ -113,8 +140,7 @@ func (r *Runner) patchCapReason(pr github.ApprovalPullRequest) string {
 // request over the size cap fetches none and reports why. A transport error
 // is returned as the reason too. The conditions report a missing patch
 // themselves.
-func (r *Runner) patchesFor(pr github.ApprovalPullRequest) ([]github.PullFile, string) {
-	st := r.state()
+func (r *Runner) patchesFor(pr github.ApprovalPullRequest, st *prState, pool *loadPool) ([]github.PullFile, string) {
 	if st.patchesDone {
 		return st.patchFiles, st.patchErr
 	}
@@ -125,33 +151,39 @@ func (r *Runner) patchesFor(pr github.ApprovalPullRequest) ([]github.PullFile, s
 		return nil, reason
 	}
 	r.measure(&st.patches, func() {
-		files, err := r.Client.PullRequestFilePatches(pr.Ref)
+		var files []github.PullFile
+		err := pool.callWithRetry(func() error {
+			var callErr error
+			files, callErr = r.Client.PullRequestFilePatches(pr.Ref)
+			return callErr //nolint:wrapcheck // caller records patch error string
+		})
 		if err != nil {
 			st.patchErr = err.Error()
 			return
 		}
 		st.patchFiles = files
+		st.cacheDirty = true
 	})
 	return st.patchFiles, st.patchErr
 }
 
 // loads returns the loaders the rules of pr use for the data only some
 // conditions need.
-func (r *Runner) loads(pr github.ApprovalPullRequest, viewer string) *lazyLoads {
+func (r *Runner) loads(pr github.ApprovalPullRequest, viewer string, st *prState, pool *loadPool) *lazyLoads {
 	return &lazyLoads{
-		ownership: func() *github.Ownership { return r.ownershipFor(pr, viewer) },
-		patches:   func() ([]github.PullFile, string) { return r.patchesFor(pr) },
-		generated: func() ([]string, string) { return r.generatedListFor(pr) },
+		ownership: func() *github.Ownership { return r.ownershipFor(pr, viewer, st, pool) },
+		patches:   func() ([]github.PullFile, string) { return r.patchesFor(pr, st, pool) },
+		generated: func() ([]string, string) { return r.generatedListFor(pr, pool) },
 	}
 }
 
 // timedAgent wraps agent to time its runs. A run answered from the decision
 // cache counts as a cache hit.
-func (r *Runner) timedAgent(agent AgentFunc) AgentFunc {
+func (r *Runner) timedAgent(agent AgentFunc, st *prState) AgentFunc {
 	if agent == nil {
 		return nil
 	}
-	stat := &r.state().agent
+	stat := &st.agent
 	return func(rule config.ApproveRule) AgentResult {
 		start := r.now()
 		got := agent(rule)
@@ -166,15 +198,21 @@ func (r *Runner) timedAgent(agent AgentFunc) AgentFunc {
 
 // timingLine is the --explain line with the time of the whole pull request
 // and of each load.
-func (r *Runner) timingLine() string {
-	st := r.state()
+func (r *Runner) timingLine(st *prState) string {
+	end := st.end
+	if end.IsZero() {
+		end = r.now()
+	}
 	parts := []string{
-		"total " + r.now().Sub(st.start).String(),
+		"total " + end.Sub(st.start).String(),
 		"pull request " + st.pullRequest.String(),
 		"CODEOWNERS " + st.codeowners.String(),
 		"teams " + st.teams.String(),
 		"patches " + st.patches.String(),
 		"agent command " + st.agent.String(),
+	}
+	if st.cacheStatus != "" {
+		parts = append(parts, "cache: "+st.cacheStatus)
 	}
 	return "timing: " + strings.Join(parts, "; ")
 }

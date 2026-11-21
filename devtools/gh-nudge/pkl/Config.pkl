@@ -291,6 +291,10 @@ class ApproveConfig {
   /// Stop starting new pull requests after this limit; the current one finishes.
   /// Null means no run limit.
   max_duration: Duration(value > 0)? = null
+  /// Maximum concurrent uncached pull request loads.
+  load_concurrency: Int(this > 0) = 4
+  /// How long per-commit PR facts are kept for PRs that are no longer candidates.
+  pr_cache_ttl: Duration(value > 0) = 7.d
   /// Rules. A pull request that matches none of them is left for a human.
   rules: Listing<ApproveRule> = new {}
 }

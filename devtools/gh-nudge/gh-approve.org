@@ -28,6 +28,12 @@ request that requests only a team you belong to, unless a rule sets
   # Keep colors when relaying the output to a terminal
   gh-approve --color=always
 
+  # Run without the per-commit PR facts cache
+  gh-approve --no-cache
+
+  # Bound concurrent uncached PR loads (default 4)
+  gh-approve --load-concurrency 4
+
   # Run agent commands without the decision cache
   gh-approve --no-agent-cache
 
@@ -160,6 +166,9 @@ Global settings:
   Default ~7.d~.
 - ~agent_cache_max_mb~ bounds the ~agent_command~ decision cache. Default ~50~.
   See [[*Agent decision cache][Agent decision cache]].
+- ~load_concurrency~ bounds concurrent uncached PR loads. Default ~4~.
+- ~pr_cache_ttl~ is how long per-commit PR facts are kept after a PR leaves
+  the candidate list. Default ~7.d~.
 - gh-approve never approves a pull request you authored. This is always on and
   cannot be configured.
 
@@ -468,13 +477,48 @@ reported as ~skip~ in ~--explain~ and as ~not evaluated: <condition> failed~.
 ~--explain~ prints one line per pull request, such as:
 
 #+begin_example
-  timing: total 1.2s; pull request 310ms; CODEOWNERS 420ms; teams 95ms; patches 760ms; agent command skipped
+  timing: total 1.2s; pull request 310ms; CODEOWNERS 420ms; teams 95ms; patches 760ms; agent command skipped; cache: hit
 #+end_example
 
 It gives the total time and the time of each load: the pull request, CODEOWNERS,
 teams, patches and the agent command. A load reads ~skipped~ when no rule needed
 it (or, for patches, ~skipped (too large)~), and ~cache hit~ when the run
 already had it, or, for the agent command, when its decision cache answered.
+When the per-commit PR facts cache is enabled, it ends with ~cache: hit~ or
+~cache: miss (<reason>)~.
+
+*** Per-commit PR facts cache and parallel loading
+
+gh-approve caches expensive per-commit facts across passes under
+=$XDG_CACHE_HOME/gh-approve/facts/= (default =~/.cache/gh-approve/facts/=),
+next to the agent decision cache:
+
+- Changed file list and per-file stats;
+- REST file patches;
+- CODEOWNERS ownership for those files and the viewer's team membership used
+  for ownership.
+
+Each entry is keyed by ~owner/repo~, pull request number, head SHA, and a
+schema version. Mutable state (labels, draft state, author, review requests,
+reviews, checks, and unresolved threads) is never cached and is always read
+and evaluated live on each pass.
+
+An entry is invalidated and reloaded when any of these change:
+
+- the head SHA;
+- the CODEOWNERS blob SHA on the base branch;
+- the hash of the viewer's team list;
+- the cache schema version.
+
+Corrupt or unreadable entries count as a miss and are removed. Entries for pull
+requests that are no longer candidates are pruned after ~approve.pr_cache_ttl~
+(default ~7.d~). Pass ~--no-cache~ to bypass the cache.
+
+Uncached candidates are loaded with a bounded worker pool (~approve.load_concurrency~,
+default ~4~, overridable with ~--load-concurrency~). Output order always matches
+candidate order, and approvals, hand-offs, and file marks still run
+sequentially. On a GitHub secondary rate-limit response, gh-approve backs off,
+reduces worker concurrency, and retries without failing the pass.
 
 ** Agent decision cache
 
