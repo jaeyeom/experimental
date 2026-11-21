@@ -180,6 +180,12 @@ that hub for one invocation.
 | ~decide reassign~                | Point an item at another owner or notify pane.                 |
 | ~decide assign~                  | Record who is working on an item. ~--clear~ removes it.        |
 | ~decide skill~                   | Print the agent instructions.                                  |
+| ~decide skill install~           | Install the agent skill for ~claude~, ~codex~, ~antigravity~, ~grok~, or ~all~. |
+| ~decide skill uninstall~         | Remove an installed agent skill.                               |
+| ~decide skill status~            | List installed agent skills and whether they are current.      |
+| ~decide version~                 | Print module path, version, VCS revision, and build time.      |
+| ~decide update~                  | Update ~decide~ (or ~--check~ for newer revision).             |
+| ~decide doctor~                  | Run standard, config, hub, and notify-target diagnostics.      |
 | ~decide avatars list~            | Show the built-in figures. ~--ids~ prints ids only.            |
 | ~decide avatars set~             | Save a figure, ~default~, or ~none~ for one name.              |
 | ~decide contacts hide~           | Hide one contact.                                              |

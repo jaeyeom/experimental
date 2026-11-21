@@ -373,6 +373,11 @@ func configPath() (string, bool) {
 	return filepath.Join(dir, "decide", "config.json"), true
 }
 
+// ConfigPath returns the decide config file path and whether it could be resolved.
+func ConfigPath() (string, bool) {
+	return configPath()
+}
+
 // LoadConfig reads the decide config file. A missing file is an empty config.
 func LoadConfig() (Config, error) {
 	path, ok := configPath()
