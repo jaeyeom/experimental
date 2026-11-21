@@ -137,6 +137,29 @@ func TestLoadConfigFillColumn(t *testing.T) {
 	}
 }
 
+func TestLoadConfigAnswerAction(t *testing.T) {
+	for _, action := range []string{"stay", "list", "edit"} {
+		writeConfig(t, `{"ui": {"answerAction": "`+action+`"}}`)
+		cfg, err := LoadConfig()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.UI.AnswerAction != action {
+			t.Fatalf("answerAction %q, want %q", cfg.UI.AnswerAction, action)
+		}
+	}
+	writeConfig(t, `{}`)
+	cfg, err := LoadConfig()
+	if err != nil || cfg.UI.AnswerAction != "" {
+		t.Fatalf("default answerAction %q err %v", cfg.UI.AnswerAction, err)
+	}
+	writeConfig(t, `{"ui": {"answerAction": "close"}}`)
+	_, err = LoadConfig()
+	if err == nil || !strings.Contains(err.Error(), "ui.answerAction") || !strings.Contains(err.Error(), "close") {
+		t.Fatalf("err = %v, want a ui.answerAction error naming close", err)
+	}
+}
+
 func TestLoadConfigRecipientsTimeoutMustBePositive(t *testing.T) {
 	for _, data := range []string{`{"recipientsTimeout": "soon"}`, `{"recipientsTimeout": "0s"}`} {
 		writeConfig(t, data)

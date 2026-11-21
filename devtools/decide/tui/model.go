@@ -49,6 +49,15 @@ const (
 	focusSend
 )
 
+const (
+	replyBtnSend = iota
+	replyBtnSendAndArchive
+	replyBtnDiscard
+)
+
+// discardConfirmLines is the line threshold above which Discard asks first.
+const discardConfirmLines = 3
+
 // snoozedFolder is the index of Snoozed in Folders.
 const snoozedFolder = 1
 
@@ -91,8 +100,15 @@ type Model struct {
 	reply             string
 	replyFocus        bool
 	replyScroll       int
-	// replySend marks the reply [Send] button focused.
+	// replySend marks the reply button bar focused; replyBtn selects which button.
 	replySend bool
+	replyBtn  int
+	// replyAndArchive archives the thread after the pending reply sends.
+	replyAndArchive bool
+	// pendingAnswerKey and pendingAnswerPrefill hold an option chosen under
+	// ui.answerAction=edit until the user sends or discards the reply box.
+	pendingAnswerKey     string
+	pendingAnswerPrefill string
 	// replyRoute is the owner, worker, or both choice for the reply being
 	// sent. It is empty until the route prompt is answered.
 	replyRoute   string
@@ -254,6 +270,7 @@ type Model struct {
 	AvatarMono     string
 	MessageAvatars bool
 	ASCIIKeys      bool
+	answerAction   string
 	avatarProfile  termenv.Profile
 	avatarRender   *avatar.Renderer
 	avatarFailed   map[string]bool
@@ -785,6 +802,7 @@ func (m *Model) clearNote() {
 func (m *Model) focusReply() {
 	m.replyFocus = true
 	m.replySend = false
+	m.replyBtn = replyBtnSend
 	m.answerFocus = false
 	m.free.Blur()
 }
@@ -811,16 +829,57 @@ func (m *Model) focusReplySend() {
 	m.replyFocus = false
 	m.replyField.Blur()
 	m.replySend = true
+	m.replyBtn = replyBtnSend
 }
 
-// replySendKey handles keys while the reply [Send] is focused. Enter
-// sends and Esc leaves it with the draft kept.
+func (m *Model) advanceReplyButton() {
+	switch m.replyBtn {
+	case replyBtnSend:
+		if m.canSendAndArchive() {
+			m.replyBtn = replyBtnSendAndArchive
+		} else {
+			m.replyBtn = replyBtnDiscard
+		}
+	case replyBtnSendAndArchive:
+		m.replyBtn = replyBtnDiscard
+	}
+}
+
+func (m *Model) prevReplyButton() {
+	switch m.replyBtn {
+	case replyBtnDiscard:
+		if m.canSendAndArchive() {
+			m.replyBtn = replyBtnSendAndArchive
+		} else {
+			m.replyBtn = replyBtnSend
+		}
+	case replyBtnSendAndArchive:
+		m.replyBtn = replyBtnSend
+	default:
+		m.focusReply()
+		m.replyField.Focus()
+	}
+}
+
+// replySendKey handles keys while a reply button is focused. Enter
+// activates the focused button and Esc leaves it with the draft kept.
 func (m *Model) replySendKey(r rune) (bool, error) {
 	switch r {
 	case '\x1b':
 		m.replySend = false
+		m.replyBtn = replyBtnSend
+	case '\t':
+		m.advanceReplyButton()
 	case '\r':
-		return false, m.submitReply()
+		switch m.replyBtn {
+		case replyBtnSendAndArchive:
+			return false, m.submitReplyAndArchive()
+		case replyBtnDiscard:
+			m.discardReply()
+			return false, nil
+		default:
+			return false, m.submitReply()
+		}
 	}
 	return false, nil
 }
@@ -930,6 +989,14 @@ func (m *Model) openRow() error {
 	m.answerFocus = false
 	m.replyFocus = false
 	m.replySend = false
+	m.replyBtn = replyBtnSend
+	m.replyAndArchive = false
+	m.pendingAnswerKey = ""
+	m.pendingAnswerPrefill = ""
+	m.replyBtn = replyBtnSend
+	m.replyAndArchive = false
+	m.pendingAnswerKey = ""
+	m.pendingAnswerPrefill = ""
 	m.closeLinkPick()
 	m.linkURL = ""
 	m.resetFields()
@@ -1053,6 +1120,27 @@ func (m *Model) selectedItem() (decide.Item, bool) {
 	return decide.Item{}, false
 }
 
+func (m *Model) effectiveAnswerAction() string {
+	if m.answerAction == "" {
+		return decide.AnswerActionStay
+	}
+	return m.answerAction
+}
+
+func isOpenQuestion(it *decide.Item) bool {
+	return it != nil && it.Kind == decide.KindRelay && it.State == decide.StateOpen && (len(it.Options) > 0 || it.FreeText)
+}
+
+func (m *Model) canSendAndArchive() bool {
+	if m.detail == nil || m.pendingAnswerKey != "" {
+		return false
+	}
+	if m.detail.State == decide.StateDone || m.detail.State == decide.StateWithdrawn {
+		return false
+	}
+	return !isOpenQuestion(m.detail)
+}
+
 func (m *Model) answerOption(index int) error {
 	if m.detail == nil {
 		return nil
@@ -1065,7 +1153,19 @@ func (m *Model) answerOption(index int) error {
 		m.status = "no such option"
 		return nil
 	}
-	return m.writeAnswer(m.detail.Options[index].Key)
+	opt := m.detail.Options[index]
+	if m.effectiveAnswerAction() == decide.AnswerActionEdit {
+		m.pendingAnswerKey = opt.Key
+		m.pendingAnswerPrefill = opt.Label
+		m.reply = opt.Label
+		syncField(&m.replyField, m.reply)
+		m.replyField.CursorEnd()
+		m.focusReply()
+		m.replyField.Focus()
+		m.status = "editing answer " + opt.Key
+		return nil
+	}
+	return m.writeAnswer(opt.Key)
 }
 
 func (m *Model) submitFreeText() error {
@@ -1095,7 +1195,7 @@ func (m *Model) writeAnswer(value string) error {
 		}
 	}
 	id := m.detail.ID
-	_, err := m.store().Answer(id, value)
+	updated, err := m.store().Answer(id, value)
 	var notifyErr *NotifyError
 	switch {
 	case errors.As(err, &notifyErr):
@@ -1106,8 +1206,37 @@ func (m *Model) writeAnswer(value string) error {
 	default:
 		m.status = "answered " + id
 	}
-	m.backToList()
+	if m.effectiveAnswerAction() == decide.AnswerActionList {
+		m.backToList()
+		return m.Reload()
+	}
+	m.detail = &updated
+	m.answerFocus = false
+	m.draft = ""
+	m.free.Reset()
+	m.scroll = 1 << 20
 	return m.Reload()
+}
+
+func addedReplyText(text, prefill string) string {
+	if prefill != "" && strings.HasPrefix(text, prefill) {
+		return strings.TrimSpace(strings.TrimPrefix(text, prefill))
+	}
+	return strings.TrimSpace(text)
+}
+
+func (m *Model) submitReplyAndArchive() error {
+	if m.detail == nil || !m.canSendAndArchive() {
+		return nil
+	}
+	if m.replyFocus {
+		m.reply = m.composerText(composerReply)
+	}
+	if strings.TrimSpace(m.reply) == "" {
+		return nil
+	}
+	m.replyAndArchive = true
+	return m.submitReply()
 }
 
 // submitReply appends a human message, the same result as decide send --id.
@@ -1116,11 +1245,19 @@ func (m *Model) writeAnswer(value string) error {
 // whether the owner, the worker, or both are notified.
 func (m *Model) submitReply() error {
 	if m.detail == nil {
+		m.replyAndArchive = false
 		return nil
+	}
+	if m.replyFocus {
+		m.reply = m.composerText(composerReply)
 	}
 	text := m.reply
 	if strings.TrimSpace(text) == "" {
+		m.replyAndArchive = false
 		return nil
+	}
+	if m.pendingAnswerKey != "" {
+		return m.submitEditedAnswer(text)
 	}
 	if m.askRoute(m.detail) {
 		return nil
@@ -1130,6 +1267,8 @@ func (m *Model) submitReply() error {
 		return nil
 	}
 	m.replyRoute = ""
+	andArchive := m.replyAndArchive
+	m.replyAndArchive = false
 	if m.outboxEditing != "" {
 		if ob, ok := m.outboxBackend(); ok {
 			if err := ob.EditOutbox(m.outboxEditing, text); err != nil {
@@ -1138,11 +1277,7 @@ func (m *Model) submitReply() error {
 			}
 			m.status = "updated " + m.outboxEditing
 			m.outboxEditing = ""
-			m.reply = ""
-			m.replyField.Reset()
-			m.replyScroll = 0
-			m.replyFocus = false
-			m.replySend = false
+			m.clearReplyDraft()
 			return m.Reload()
 		}
 	}
@@ -1157,15 +1292,106 @@ func (m *Model) submitReply() error {
 	default:
 		m.status = "replied " + updated.ID
 	}
+	m.clearReplyDraft()
+	if andArchive {
+		seen, _ := newestMessage(updated)
+		if _, aerr := m.store().Archive(updated.ID, seen); aerr != nil {
+			m.detail = &updated
+			m.status = aerr.Error()
+			return m.Reload()
+		}
+		m.status = "done " + updated.ID
+		m.backToList()
+		return m.Reload()
+	}
 	m.detail = &updated
+	// The new message is last. clipLines clamps this onto that end.
+	m.scroll = 1 << 20
+	return m.Reload()
+}
+
+func (m *Model) submitEditedAnswer(text string) error {
+	added := addedReplyText(text, m.pendingAnswerPrefill)
+	var route string
+	if added != "" {
+		if m.askRoute(m.detail) {
+			return nil
+		}
+		route = m.replyRoute
+		if m.askBusDown(replyOnBus(m.detail, route), m.submitReply) {
+			return nil
+		}
+		m.replyRoute = ""
+	}
+	id := m.detail.ID
+	key := m.pendingAnswerKey
+	updated, err := m.store().Answer(id, key)
+	var notifyErr *NotifyError
+	switch {
+	case errors.As(err, &notifyErr):
+		m.status = err.Error()
+	case err != nil:
+		m.status = err.Error()
+		return nil
+	default:
+		m.status = "answered " + id
+	}
+	m.pendingAnswerKey = ""
+	m.pendingAnswerPrefill = ""
+	if added != "" {
+		replyUpdated, rerr := m.store().Reply(id, added, route)
+		switch {
+		case errors.As(rerr, &notifyErr):
+			updated = replyUpdated
+			m.status = rerr.Error()
+		case rerr != nil:
+			m.detail = &updated
+			m.clearReplyDraft()
+			m.status = rerr.Error()
+			return m.Reload()
+		default:
+			updated = replyUpdated
+		}
+	}
+	m.clearReplyDraft()
+	m.detail = &updated
+	m.scroll = 1 << 20
+	return m.Reload()
+}
+
+func (m *Model) discardReply() {
+	if m.replyFocus {
+		m.reply = m.composerText(composerReply)
+	}
+	if m.replyNeedsDiscardConfirm() {
+		m.confirmKind = confirmDiscard
+		m.status = fmt.Sprintf("discard draft? %s %s", buttonLabel("Yes", "y", false, 0), buttonLabel("No", "n", false, 0))
+		return
+	}
+	m.clearReplyDraft()
+	m.status = "discarded draft"
+}
+
+func (m *Model) replyNeedsDiscardConfirm() bool {
+	if strings.Count(m.reply, "\n") >= discardConfirmLines {
+		return true
+	}
+	if m.width > 0 {
+		return m.replyVisualLines(m.detailInnerWidth(m.contentWidth())) > discardConfirmLines
+	}
+	return false
+}
+
+func (m *Model) clearReplyDraft() {
 	m.reply = ""
 	m.replyField.Reset()
 	m.replyScroll = 0
 	m.replyFocus = false
 	m.replySend = false
-	// The new message is last. clipLines clamps this onto that end.
-	m.scroll = 1 << 20
-	return m.Reload()
+	m.replyBtn = replyBtnSend
+	m.replyAndArchive = false
+	m.pendingAnswerKey = ""
+	m.pendingAnswerPrefill = ""
 }
 
 func (m *Model) submitOutcome() error {
@@ -1233,6 +1459,14 @@ func (m *Model) backToList() {
 	m.answerFocus = false
 	m.replyFocus = false
 	m.replySend = false
+	m.replyBtn = replyBtnSend
+	m.replyAndArchive = false
+	m.pendingAnswerKey = ""
+	m.pendingAnswerPrefill = ""
+	m.replyBtn = replyBtnSend
+	m.replyAndArchive = false
+	m.pendingAnswerKey = ""
+	m.pendingAnswerPrefill = ""
 	m.closeLinkPick()
 	m.linkURL = ""
 	m.copyMenu = false
@@ -2846,7 +3080,7 @@ func indentLine(line screenLine) screenLine {
 	return line
 }
 
-// replyLines is the reply box and, once it is in use, its [Send].
+// replyLines is the reply box and, once it is in use, its action buttons.
 func (m *Model) replyLines(width int) []screenLine {
 	const label = "reply: "
 	if m.reply == "" && !m.replyFocus && !m.replySend {
@@ -2854,13 +3088,42 @@ func (m *Model) replyLines(width int) []screenLine {
 	}
 	lines := []screenLine{{text: plainText("reply:")}}
 	lines = append(lines, boxedEditor(m.reply, &m.replyField, m.replyFocus, hitReply, width, m.replyBoxHeight(width), &m.replyScroll)...)
-	send := m.actionButton("Send", "compose.send", m.replySend, width)
 	useStyles()
-	rendered := optionButton.Render(send)
-	return append(lines, screenLine{
-		text: rendered,
-		hits: []hit{{kind: hitReplySend, x0: 1, x1: lipgloss.Width(rendered)}},
-	})
+	var parts []string
+	var hits []hit
+	col := 1
+	flush := func() {
+		if len(parts) == 0 {
+			return
+		}
+		lines = append(lines, screenLine{
+			text: strings.Join(parts, " "),
+			hits: hits,
+		})
+		parts = nil
+		hits = nil
+		col = 1
+	}
+	addBtn := func(label string, kind int) {
+		rendered := optionButton.Render(label)
+		w := lipgloss.Width(rendered)
+		if width > 0 && len(parts) > 0 && col+w > width {
+			flush()
+		}
+		if len(parts) > 0 {
+			col++
+		}
+		parts = append(parts, rendered)
+		hits = append(hits, hit{kind: kind, x0: col, x1: col + w - 1})
+		col += w
+	}
+	addBtn(m.actionButton("Send", "compose.send", m.replySend && m.replyBtn == replyBtnSend, width), hitReplySend)
+	if m.canSendAndArchive() {
+		addBtn(m.actionButton("Send and archive", "compose.sendAndArchive", m.replySend && m.replyBtn == replyBtnSendAndArchive, width), hitReplySendAndArchive)
+	}
+	addBtn(m.actionButton("Discard", "compose.discard", m.replySend && m.replyBtn == replyBtnDiscard, width), hitReplyDiscard)
+	flush()
+	return lines
 }
 
 func (m *Model) replyBoxHeight(width int) int {

@@ -111,12 +111,21 @@ const (
 	ClipboardOff     = "off"
 )
 
+// Answer action values of InboxUI.AnswerAction. Empty means stay.
+const (
+	AnswerActionStay = "stay"
+	AnswerActionList = "list"
+	AnswerActionEdit = "edit"
+)
+
 // InboxUI is local inbox display. UTC shows times in UTC instead of
 // the machine's zone. Clipboard chooses how the inbox copies text.
 type InboxUI struct {
 	UTC bool `json:"utc,omitempty"`
 	// Clipboard is auto, osc52, command, or off. Empty is auto.
 	Clipboard string `json:"clipboard,omitempty"`
+	// AnswerAction is stay, list, or edit. Empty is stay.
+	AnswerAction string `json:"answerAction,omitempty"`
 	// FillColumn is the compose fill width. Zero is 72.
 	FillColumn int `json:"fillColumn,omitempty"`
 	// StaleAnswerAfter is how long an answer sits before a follow-up,
@@ -321,6 +330,17 @@ func CheckClipboard(mode string) error {
 	}
 }
 
+// CheckAnswerAction reports an error when action is not an answer action.
+// Empty is stay.
+func CheckAnswerAction(action string) error {
+	switch action {
+	case "", AnswerActionStay, AnswerActionList, AnswerActionEdit:
+		return nil
+	default:
+		return fmt.Errorf("decide config ui.answerAction %q must be stay, list, or edit", action)
+	}
+}
+
 // HyperlinksOn reports whether the inbox writes OSC 8 hyperlinks.
 func (c Config) HyperlinksOn() bool {
 	return c.Hyperlinks == nil || *c.Hyperlinks
@@ -439,6 +459,9 @@ func parseConfig(data []byte, dir string) (Config, error) {
 		return Config{}, err
 	}
 	if err := CheckClipboard(cfg.UI.Clipboard); err != nil {
+		return Config{}, err
+	}
+	if err := CheckAnswerAction(cfg.UI.AnswerAction); err != nil {
 		return Config{}, err
 	}
 	if err := checkUIDurations(cfg.UI); err != nil {

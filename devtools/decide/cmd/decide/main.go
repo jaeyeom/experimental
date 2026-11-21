@@ -837,6 +837,7 @@ func inboxOptions(cfg decide.Config, stdout io.Writer, snoozed bool) tui.Options
 		ContactAliases:    cfg.ContactAliases,
 		Keys:              cfg.UI.Keys,
 		ASCIIKeys:         cfg.UI.ASCIIKeys,
+		AnswerAction:      cfg.UI.AnswerAction,
 	}
 }
 

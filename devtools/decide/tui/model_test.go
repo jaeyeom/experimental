@@ -1891,6 +1891,7 @@ func TestClickAnswersOptionAndFreeText(t *testing.T) {
 		t.Fatalf("option click = %+v", got.Answer)
 	}
 
+	press(t, m, "u")
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
@@ -2532,6 +2533,7 @@ func TestInboxRelayAnswerRunsNotifyOnce(t *testing.T) {
 		TypeText: "ship it",
 		Where:    "the pane",
 	})
+	press(t, m, "u")
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
@@ -3925,7 +3927,8 @@ func TestThreadViewShowsTheDraftAndReplies(t *testing.T) {
 		t.Fatalf("answer = %+v state %s", got.Answer, got.State)
 	}
 
-	// The answered thread left the inbox. Reopen a fresh draft to reply with edits.
+	// Stayed in the answered thread; return to the list to open a fresh draft.
+	press(t, m, "u")
 	again, err := led.Create(&decide.Item{
 		Question:   "what should I send?",
 		Owner:      "ada",

@@ -87,6 +87,8 @@ type Options struct {
 	Keys map[string][]string
 	// ASCIIKeys uses ASCII key labels (such as C-Enter) on buttons.
 	ASCIIKeys bool
+	// AnswerAction is stay, list, or edit. Empty is stay.
+	AnswerAction string
 }
 
 // Run draws the inbox until q or EOF. It reloads the ledger on Interval,
@@ -182,6 +184,7 @@ func prepare(opts Options) (*Model, error) {
 	m.avatarProfile = termenv.NewOutput(opts.Out).EnvColorProfile()
 	m.display = opts.Display
 	m.ASCIIKeys = opts.ASCIIKeys
+	m.answerAction = opts.AnswerAction
 	if len(opts.Keys) > 0 {
 		km, err := decide.ResolveKeyMap(opts.Keys)
 		if err != nil {
