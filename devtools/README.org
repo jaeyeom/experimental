@@ -45,7 +45,7 @@ tool has its own README. Start with the one-line summaries below.
 | devcheck         | Run the format, lint, and test tools a repo already has    | experimental | make install                                      | [[file:devcheck/README.org][README]]         |
 | diskwatch        | Warn when a filesystem is low, without deleting files      | experimental | go install ./devtools/diskwatch/cmd/diskwatch     | [[file:diskwatch/README.org][README]]        |
 | docsync          | List the docs a code change is likely to have made stale   | experimental | make install                                      | [[file:docsync/README.org][README]]          |
-| fork-keeper      | Rebase a personal fork on upstream and open a review       | experimental | devtools/fork-keeper/fork-keeper.sh               | no README                                    |
+| fork-keeper      | Rebase a personal fork on upstream and open a review       | experimental | make install                                      | [[file:fork-keeper/README.md][README]]       |
 | gh-ask           | Hand a question about a pull-request range to a command    | experimental | make install                                      | [[file:gh-ask/README.org][README]]           |
 | gh-outbox        | Post agent-drafted PR comments only after decide approval  | experimental | make install                                      | [[file:gh-outbox/README.org][README]]        |
 | gh-nudge         | Review reminders, Slack posts, merge, and CODEOWNERS       | active       | make install                                      | [[file:gh-nudge/README.org][README]]         |
@@ -67,7 +67,6 @@ commands (=org-lint=, =pkgvar=, and
 =unnecessary-interface-assertion-linter=). =./ensure.sh= is
 =devtools/setup-dev/ansible/ensure.sh=. The agentbus daemon is a
 second binary: =go install ./devtools/agentbus/cmd/agentbusd=.
-fork-keeper is a shell script and has no README.
 
 * Agent workflow
 :PROPERTIES:

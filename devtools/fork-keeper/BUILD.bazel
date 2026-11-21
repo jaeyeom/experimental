@@ -1,28 +1,34 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
 # testdata/claude-toolbox holds pinned copies of review-range.sh and
 # validate-verdict.sh from jaeyeom/claude-toolbox
 # plugins/fork-keeper/skills/fork-keeper/scripts at commit ea7bc3a, so the
 # tests exercise the real contract without network access. At runtime
-# fork-keeper.sh reads them from FORK_KEEPER_SCRIPTS instead. Refresh these
+# fork-keeper reads them from FORK_KEEPER_SCRIPTS instead. Refresh these
 # copies whenever the contract changes.
 
-sh_test(
-    name = "tripwires_test",
-    srcs = ["tripwires_test.sh"],
-    data = [
-        "testdata/claude-toolbox/review-range.sh",
-        "testlib.sh",
-        "tripwires.sh",
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "config.go",
+        "scheduler.go",
+        "tripwires.go",
     ],
+    importpath = "github.com/jaeyeom/experimental/devtools/fork-keeper",
+    visibility = ["//visibility:public"],
 )
 
-sh_test(
-    name = "fork_keeper_test",
-    srcs = ["fork_keeper_test.sh"],
+go_test(
+    name = "go_default_test",
+    size = "medium",
+    srcs = [
+        "scheduler_test.go",
+        "testlib_test.go",
+        "tripwires_test.go",
+    ],
     data = [
-        "fork-keeper.sh",
         "testdata/claude-toolbox/review-range.sh",
         "testdata/claude-toolbox/validate-verdict.sh",
-        "testlib.sh",
-        "tripwires.sh",
     ],
+    embed = [":go_default_library"],
 )

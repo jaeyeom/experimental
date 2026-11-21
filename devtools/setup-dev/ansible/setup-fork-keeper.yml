@@ -40,7 +40,6 @@
     fork_keeper_cron_hour: "6"
     fork_keeper_cron_weekday: "*"
     fork_keeper_home: "{{ ansible_facts['env']['HOME'] }}"
-    fork_keeper_install_dir: "{{ fork_keeper_home }}/.local/share/fork-keeper"
     fork_keeper_config_file: "{{ fork_keeper_home }}/.config/fork-keeper/forks.json"
     fork_keeper_log_file: "{{ fork_keeper_home }}/.cache/fork-keeper/cron.log"
     # review-range.sh and validate-verdict.sh come from the claude-toolbox
@@ -141,18 +140,8 @@
             state: directory
             mode: "0700"
           loop:
-            - "{{ fork_keeper_install_dir }}"
             - "{{ fork_keeper_config_file | dirname }}"
             - "{{ fork_keeper_log_file | dirname }}"
-
-        - name: Install the fork-keeper scheduler scripts
-          ansible.builtin.copy:
-            src: "{{ playbook_dir }}/../../fork-keeper/{{ item }}"
-            dest: "{{ fork_keeper_install_dir }}/{{ item }}"
-            mode: "0755"
-          loop:
-            - fork-keeper.sh
-            - tripwires.sh
 
         - name: Write the fork-keeper fork list
           ansible.builtin.copy:
@@ -170,6 +159,6 @@
               PATH='{{ fork_keeper_path }}'
               FORK_KEEPER_CONFIG='{{ fork_keeper_config_file }}'
               FORK_KEEPER_SCRIPTS='{{ fork_keeper_scripts_dir }}'
-              '{{ fork_keeper_install_dir }}/fork-keeper.sh'
+              '{{ user_bin_directory }}/fork-keeper'
               >>'{{ fork_keeper_log_file }}' 2>&1
           tags: fork_keeper_cron

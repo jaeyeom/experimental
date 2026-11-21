@@ -46,6 +46,7 @@ INSTALL_CMDS := \
 	./devtools/claude-usage/cmd/claude-usage \
 	./devtools/devcheck/cmd/devcheck \
 	./devtools/docsync/cmd/docsync \
+	./devtools/fork-keeper/cmd/fork-keeper \
 	./devtools/gh-ask/cmd/gh-ask \
 	./devtools/gh-outbox/cmd/gh-outbox \
 	./devtools/gh-nudge/cmd/gh-approve \
