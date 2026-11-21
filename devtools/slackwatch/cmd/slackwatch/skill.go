@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	_ "embed"
 	"fmt"
 	"io"
@@ -32,41 +33,20 @@ type triageData struct {
 	Target string
 }
 
-// cmdSkill prints the agent skill, or the inbound triage role when the
-// argument is triage. It reads only the optional config file.
-func cmdSkill(configPath string, args []string, stdout, stderr io.Writer) int {
-	triage := false
-	switch {
-	case len(args) == 0:
-	case len(args) == 1 && args[0] == "triage":
-		triage = true
-	default:
-		fmt.Fprintln(stderr, "slackwatch: skill does not take arguments")
-		return 2
-	}
-	cfg, err := slackwatch.LoadConfig(configPath)
-	if err != nil {
-		return fail(stderr, err)
-	}
-	if triage {
-		return renderTriage(cfg, stdout, stderr)
-	}
-	return renderSkill(cfg, stdout, stderr)
-}
-
-func renderSkill(cfg slackwatch.Config, stdout, stderr io.Writer) int {
+func renderSkillString(cfg slackwatch.Config) (string, error) {
 	tmpl, err := template.New("skill").Parse(skillTemplateText)
 	if err != nil {
-		return fail(stderr, fmt.Errorf("parse skill template: %w", err))
+		return "", fmt.Errorf("parse skill template: %w", err)
 	}
 	data := skillData{Outbox: cfg.Outbox, PostMode: cfg.Post.Mode, DecideOwner: cfg.Post.DecideOwnerOrDefault()}
 	if cfg.Inbound != nil {
 		data.InboundTarget = cfg.Inbound.Target
 	}
-	if err := tmpl.Execute(stdout, data); err != nil {
-		return fail(stderr, fmt.Errorf("render skill: %w", err))
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return "", fmt.Errorf("render skill: %w", err)
 	}
-	return 0
+	return buf.String(), nil
 }
 
 func renderTriage(cfg slackwatch.Config, stdout, stderr io.Writer) int {

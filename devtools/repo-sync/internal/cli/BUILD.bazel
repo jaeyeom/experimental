@@ -1,4 +1,4 @@
-load("@rules_go//go:def.bzl", "go_library")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "go_default_library",
@@ -8,16 +8,27 @@ go_library(
         "init.go",
         "remove.go",
         "root.go",
+        "skill.go",
         "status.go",
         "sync.go",
+        "toolcli.go",
     ],
+    embedsrcs = ["skill.md"],
     importpath = "github.com/jaeyeom/experimental/devtools/repo-sync/internal/cli",
     visibility = ["//devtools/repo-sync:__subpackages__"],
     deps = [
+        "//devtools/pkg/toolcli:go_default_library",
         "//devtools/repo-sync/internal/config:go_default_library",
         "//devtools/repo-sync/internal/database:go_default_library",
         "//devtools/repo-sync/internal/reposync:go_default_library",
         "@com_github_spf13_cobra//:go_default_library",
         "@com_github_spf13_viper//:go_default_library",
     ],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = ["toolcli_test.go"],
+    embed = [":go_default_library"],
+    deps = ["//devtools/pkg/toolcli:go_default_library"],
 )

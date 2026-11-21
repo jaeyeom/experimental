@@ -13,7 +13,6 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/dispatch"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/runlog"
-	"github.com/jaeyeom/experimental/devtools/prsync/internal/version"
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 
@@ -68,19 +67,19 @@ func TestVersionWritesRunLogWithoutChangingStdout(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", state)
 
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"version"}, &stdout, &stderr, nil)
+	code := Execute(context.Background(), []string{"version", "--json"}, &stdout, &stderr, nil)
 	if code != ExitOK {
 		t.Fatalf("exit = %d, stderr=%q", code, stderr.String())
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
-	var got map[string]string
+	var got map[string]any
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("stdout json: %v\n%s", err, stdout.String())
 	}
-	if got["version"] != version.Resolve() {
-		t.Fatalf("version = %q, want %q", got["version"], version.Resolve())
+	if got["tool"] != "prsync" {
+		t.Fatalf("tool = %v, want %q", got["tool"], "prsync")
 	}
 
 	recs := readRunLog(t, state)

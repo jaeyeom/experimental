@@ -14,6 +14,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -49,6 +50,9 @@ func run(args []string, stderr io.Writer) int {
 }
 
 func runIO(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (orgctl.Live, error)) int {
+	if code, ok := newOrgctlTool().Handle(context.Background(), args, stdout, stderr); ok {
+		return code
+	}
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, usage)
 		return 2

@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -38,6 +39,19 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "help", "-h", "--help":
 		usage(stderr)
 		return 0
+	case "version", "update", "doctor":
+		code, _ := newSlackwatchTool(configPath).Handle(context.Background(), args, stdout, stderr)
+		return code
+	case "skill":
+		if len(args) == 2 && args[1] == "triage" {
+			cfg, err := slackwatch.LoadConfig(configPath)
+			if err != nil {
+				return fail(stderr, err)
+			}
+			return renderTriage(cfg, stdout, stderr)
+		}
+		code, _ := newSlackwatchTool(configPath).Handle(context.Background(), args, stdout, stderr)
+		return code
 	}
 	cmd, ok := commands[args[0]]
 	if !ok {
@@ -62,7 +76,6 @@ var commands = map[string]func(configPath string, args []string, stdout, stderr 
 	"subs":    cmdSubs,
 	"status":  cmdStatus,
 	"inbound": cmdInbound,
-	"skill":   cmdSkill,
 	"post":    cmdPost,
 	"outbox":  cmdOutbox,
 	"pin":     cmdPin,
@@ -118,8 +131,11 @@ Commands:
                       ones onto those DM channels. Does not call Slack.
                       im:write is not required to post a user id
   slackwatch pin      check the write token with auth.test and pin it in config
-  slackwatch skill [triage]
-                      print the agent skill, or the inbound triage role
+  slackwatch skill [triage | install|uninstall|status ...]
+                      print or install the agent skill, or print the inbound triage role
+  slackwatch version [--json]
+  slackwatch update [--check] [--ref <ref>] [--json]
+  slackwatch doctor [--json] [--offline]
   slackwatch help     show this help
 
 <post> is a Slack permalink, a channel and ts, or a watch id.

@@ -5,11 +5,15 @@ go_library(
     srcs = [
         "help.go",
         "main.go",
+        "skill.go",
+        "toolcli.go",
     ],
+    embedsrcs = ["skill.md"],
     importpath = "github.com/jaeyeom/experimental/devtools/authwatch/cmd/authwatch",
     visibility = ["//visibility:private"],
     deps = [
         "//devtools/authwatch:go_default_library",
+        "//devtools/pkg/toolcli:go_default_library",
         "@org_golang_x_sys//unix:go_default_library",
     ],
 )
@@ -26,10 +30,12 @@ go_test(
     srcs = [
         "help_test.go",
         "main_test.go",
+        "toolcli_test.go",
     ],
     embed = [":go_default_library"],
     deps = [
         "//devtools/authwatch:go_default_library",
+        "//devtools/pkg/toolcli:go_default_library",
         "@org_golang_x_sys//unix:go_default_library",
     ],
 )

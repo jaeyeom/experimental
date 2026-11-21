@@ -13,7 +13,6 @@ import (
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/prreview"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/storage"
-	"github.com/jaeyeom/experimental/devtools/pkg/version"
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 
@@ -256,9 +255,8 @@ func executeCommand(command string, args []string) {
 		return
 	}
 
-	if command == "version" {
-		fmt.Printf("gh-pr-review version %s\n", version.Resolve())
-		return
+	if code, ok := newGHPrReviewTool().Handle(context.Background(), append([]string{command}, args...), os.Stdout, os.Stderr); ok {
+		os.Exit(code)
 	}
 
 	fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)

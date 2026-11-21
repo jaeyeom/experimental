@@ -138,3 +138,7 @@ for an agent CLI stop-failure hook:
 Example user service definitions are provided under =devtools/authwatch/examples/=:
 - =authwatch.service= (systemd user service)
 - =com.jaeyeom.authwatch.plist= (macOS launchd user agent)
+
+* Standard CLI protocol
+
+~authwatch~ implements ~version [--json]~, ~update [--check] [--ref <ref>] [--json]~, ~doctor [--json] [--offline]~, and ~skill [install|uninstall|status ...]~.

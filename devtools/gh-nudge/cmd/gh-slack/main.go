@@ -40,6 +40,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -130,6 +131,9 @@ func processMessage(githubUsername, msgContent string, slackClient *slack.Client
 }
 
 func main() {
+	if code, ok := newGHSlackTool().Handle(context.Background(), os.Args[1:], os.Stdout, os.Stderr); ok {
+		os.Exit(code)
+	}
 	registerFlags()
 	flag.Parse()
 

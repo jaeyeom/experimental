@@ -99,6 +99,9 @@ func newPRCache(cfg config.ApproveConfig, disabled bool, home, xdgCacheHome stri
 }
 
 func main() {
+	if code, ok := newGHApproveTool().Handle(context.Background(), os.Args[1:], os.Stdout, os.Stderr); ok {
+		os.Exit(code)
+	}
 	if len(os.Args) > 1 && os.Args[1] == "history" {
 		os.Exit(runHistory(os.Args[2:]))
 	}

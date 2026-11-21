@@ -591,6 +591,13 @@ func exitOnUsage(err, usageErr error, usage string) {
 }
 
 func main() {
+	if code, ok := newGHMergeTool().Handle(context.Background(), os.Args[1:], os.Stdout, os.Stderr); ok {
+		os.Exit(code)
+	}
+	os.Exit(runMain())
+}
+
+func runMain() int {
 	registerFlags()
 	flag.Parse()
 	applyQueueTimeoutFlag()
@@ -602,12 +609,12 @@ func main() {
 	path, err := resolveMergeConfigPath(configPath)
 	if err != nil {
 		slog.Error("Failed to resolve configuration path", "error", err)
-		os.Exit(1)
+		return 1
 	}
 	cfg, err := config.LoadConfig(path)
 	if err != nil {
 		slog.Error("Failed to load configuration", "error", err)
-		os.Exit(1)
+		return 1
 	}
 	cfg.Path = path
 
@@ -623,39 +630,43 @@ func main() {
 		command = args[0]
 	}
 
-	// Execute command
-	var cmdErr error
+	if err := dispatchCommand(command, args, githubClient, cfg); err != nil {
+		slog.Error("Command failed", "command", command, "error", err)
+		return 1
+	}
+	return 0
+}
+
+func dispatchCommand(command string, args []string, githubClient *github.Client, cfg *config.Config) error {
 	switch command {
 	case "list":
-		cmdErr = listMergeablePRs(githubClient, cfg)
+		return listMergeablePRs(githubClient, cfg)
 	case "merge":
-		cmdErr = mergePRs(githubClient, cfg)
+		return mergePRs(githubClient, cfg)
 	case "queue":
 		if len(args) != 2 {
 			fmt.Fprintf(os.Stderr, "Usage: %s %s\n", os.Args[0], queueUsage())
 			os.Exit(1)
 		}
-		cmdErr = queuePullRequest(githubClient, cfg, args[1], includeDownstack)
+		return queuePullRequest(githubClient, cfg, args[1], includeDownstack)
 	case "watch":
-		cmdErr = watchCommand(githubClient, cfg, args[1:])
+		return watchCommand(githubClient, cfg, args[1:])
 	case "rca":
-		cmdErr = postRCA(githubClient, cfg, args[1:])
-		exitOnUsage(cmdErr, errRCAUsage, rcaUsage())
+		err := postRCA(githubClient, cfg, args[1:])
+		exitOnUsage(err, errRCAUsage, rcaUsage())
+		return err
 	case "evidence":
-		cmdErr = evidenceCommand(githubClient, cfg, args[1:])
-		exitOnUsage(cmdErr, errEvidenceUsage, evidenceUsage())
+		err := evidenceCommand(githubClient, cfg, args[1:])
+		exitOnUsage(err, errEvidenceUsage, evidenceUsage())
+		return err
 	case "dequeue":
-		cmdErr = dequeueCommand(githubClient, args[1:])
+		return dequeueCommand(githubClient, args[1:])
 	case "handle-ejection":
-		cmdErr = handleEjectionCommand(githubClient, cfg, args[1:])
+		return handleEjectionCommand(githubClient, cfg, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
 		flag.Usage()
 		os.Exit(1)
-	}
-
-	if cmdErr != nil {
-		slog.Error("Command failed", "command", command, "error", cmdErr)
-		os.Exit(1)
+		return nil
 	}
 }

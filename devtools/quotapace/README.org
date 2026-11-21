@@ -213,3 +213,7 @@ Data lives under ~$XDG_DATA_HOME/quotapace~, or
 | ~profiles/<profile>/readings.jsonl~ | append-only readings, one JSON per line |
 | ~profiles/<profile>/plans.json~     | offset, active plans, closed plans      |
 | ~check.json~                        | the state ~check~ last notified         |
+
+* Standard CLI protocol
+
+~quotapace~ implements ~version [--json]~, ~update [--check] [--ref <ref>] [--json]~, ~doctor [--json] [--offline]~, and ~skill [install|uninstall|status ...]~.

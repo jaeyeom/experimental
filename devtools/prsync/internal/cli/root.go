@@ -13,7 +13,7 @@ import (
 // Execute runs the prsync CLI with injected IO and returns an exit code.
 func Execute(ctx context.Context, args []string, stdout, stderr io.Writer, exec executor.Executor) int {
 	var logFile *runlog.File
-	root := newRoot(stdout, exec, &logFile)
+	root := newRoot(stdout, stderr, exec, &logFile)
 	root.SetArgs(args)
 	root.SetOut(stdout)
 	root.SetErr(stderr)
@@ -36,7 +36,7 @@ const twoWatcherExample = `  # Two watchers, one per herdr machine (machines=lin
   prsync dispatch --tab-machine local  --untabbed include
   prsync dispatch --tab-machine linux2 --untabbed exclude --skip team-cover`
 
-func newRoot(stdout io.Writer, exec executor.Executor, logFile **runlog.File) *cobra.Command {
+func newRoot(stdout, stderr io.Writer, exec executor.Executor, logFile **runlog.File) *cobra.Command {
 	var logLevel string
 	root := &cobra.Command{
 		Use:           "prsync",
@@ -49,7 +49,7 @@ func newRoot(stdout io.Writer, exec executor.Executor, logFile **runlog.File) *c
 		},
 	}
 	root.PersistentFlags().StringVar(&logLevel, "log-level", "", "log verbosity (debug, info, warn, error); default info; also PRSYNC_LOG")
-	root.AddCommand(newVersionCmd(stdout))
+	addToolCLICommands(root, stdout, stderr)
 	root.AddCommand(newScanCmd(stdout, exec))
 	root.AddCommand(newTabsCmd(stdout, exec))
 	root.AddCommand(newDispatchCmd(stdout, exec))

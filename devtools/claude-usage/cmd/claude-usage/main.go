@@ -38,6 +38,9 @@ func defaultFetcher() usage.Fetcher {
 }
 
 func run(args []string, stdout, stderr io.Writer, fetcher usage.Fetcher) int {
+	if code, ok := newClaudeUsageTool().Handle(context.Background(), args, stdout, stderr); ok {
+		return code
+	}
 	fs := flag.NewFlagSet("claude-usage", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	wantJSON := fs.Bool("json", false, "print raw JSON instead of the human-readable table")

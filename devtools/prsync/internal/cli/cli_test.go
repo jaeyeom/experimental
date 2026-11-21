@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
-	"github.com/jaeyeom/experimental/devtools/prsync/internal/version"
 )
 
 func TestMain(m *testing.M) {
@@ -29,19 +28,22 @@ func TestVersionJSON(t *testing.T) {
 	t.Parallel()
 
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"version"}, &stdout, &stderr, nil)
+	code := Execute(context.Background(), []string{"version", "--json"}, &stdout, &stderr, nil)
 	if code != ExitOK {
 		t.Fatalf("exit = %d, stderr=%q", code, stderr.String())
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
-	var got map[string]string
+	var got map[string]any
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("json: %v\n%s", err, stdout.String())
 	}
-	if got["version"] != version.Resolve() {
-		t.Fatalf("version = %q, want %q", got["version"], version.Resolve())
+	if got["tool"] != "prsync" {
+		t.Fatalf("tool = %v, want %q", got["tool"], "prsync")
+	}
+	if got["version"] == "" {
+		t.Fatalf("missing version in %s", stdout.String())
 	}
 }
 

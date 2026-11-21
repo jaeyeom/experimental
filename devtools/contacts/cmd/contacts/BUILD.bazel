@@ -11,10 +11,16 @@ go_library(
         "people.go",
         "report.go",
         "resolve.go",
+        "skill.go",
+        "toolcli.go",
     ],
+    embedsrcs = ["skill.md"],
     importpath = "github.com/jaeyeom/experimental/devtools/contacts/cmd/contacts",
     visibility = ["//visibility:private"],
-    deps = ["//devtools/contacts:go_default_library"],
+    deps = [
+        "//devtools/contacts:go_default_library",
+        "//devtools/pkg/toolcli:go_default_library",
+    ],
 )
 
 go_binary(
@@ -36,7 +42,9 @@ go_test(
         "readme_test.go",
         "report_test.go",
         "resolve_test.go",
+        "toolcli_test.go",
     ],
     data = glob(["testdata/**"]) + ["//devtools/contacts:README.org"],
     embed = [":go_default_library"],
+    deps = ["//devtools/pkg/toolcli:go_default_library"],
 )

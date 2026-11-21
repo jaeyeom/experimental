@@ -35,6 +35,9 @@ func main() {
 }
 
 func run(args []string, stdout, stderr io.Writer, env []string) int {
+	if code, ok := newGHAskTool().Handle(context.Background(), args, stdout, stderr); ok {
+		return code
+	}
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)
 		return 2

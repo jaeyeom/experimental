@@ -9,7 +9,10 @@ Optional posting is approved in [[file:../decide/README.org][decide]] first.
 
 * Overview
 
-One binary is both the server (~slackwatch serve~) and the CLI.
+One binary is both the server (~slackwatch serve~) and the CLI. It also
+implements the standard ~toolcli~ protocol subcommands (~version
+[--json]~, ~update [--check] [--ref <ref>] [--json]~, ~doctor [--json]
+[--offline]~, and ~skill [triage | install|uninstall|status ...]~).
 
 What it does not do:
 

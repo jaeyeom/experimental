@@ -72,6 +72,9 @@ func realOutbox(cfg ghoutbox.Config) *ghoutbox.Outbox {
 }
 
 func (a app) run(ctx context.Context, args []string) int {
+	if code, ok := newGHOutboxTool().Handle(ctx, args, a.stdout, a.stderr); ok {
+		return code
+	}
 	if len(args) == 0 {
 		fmt.Fprint(a.stderr, usage)
 		return 2

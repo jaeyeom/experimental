@@ -1,8 +1,13 @@
-load("@rules_go//go:def.bzl", "go_binary", "go_library")
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 
 go_library(
     name = "go_default_library",
-    srcs = ["main.go"],
+    srcs = [
+        "main.go",
+        "skill.go",
+        "toolcli.go",
+    ],
+    embedsrcs = ["skill.md"],
     importpath = "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-pr-review",
     visibility = ["//visibility:private"],
     deps = [
@@ -12,7 +17,7 @@ go_library(
         "//devtools/gh-nudge/internal/models:go_default_library",
         "//devtools/gh-nudge/internal/prreview:go_default_library",
         "//devtools/gh-nudge/internal/storage:go_default_library",
-        "//devtools/pkg/version:go_default_library",
+        "//devtools/pkg/toolcli:go_default_library",
         "@com_github_jaeyeom_go_cmdexec//:go_default_library",
     ],
 )
@@ -21,6 +26,13 @@ go_binary(
     name = "gh-pr-review",
     embed = [":go_default_library"],
     visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = ["toolcli_test.go"],
+    embed = [":go_default_library"],
+    deps = ["//devtools/pkg/toolcli:go_default_library"],
 )
 
 exports_files(

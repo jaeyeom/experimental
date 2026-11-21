@@ -417,3 +417,7 @@ does not implement yet.
 - [[file:database-schema.org][database-schema.org]]
 - [[file:error-handling.org][error-handling.org]]
 - [[file:IMPLEMENTATION_PLAN.md][IMPLEMENTATION_PLAN.md]]
+
+* Standard CLI protocol
+
+~repo-sync~ implements ~version [--json]~, ~update [--check] [--ref <ref>] [--json]~, ~doctor [--json] [--offline]~, and ~skill [install|uninstall|status ...]~.

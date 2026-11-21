@@ -183,3 +183,7 @@ agent_pattern = ""
 patterns = []
 phrases = []
 #+END_SRC
+
+* Standard CLI protocol
+
+~gh-outbox~ implements ~version [--json]~, ~update [--check] [--ref <ref>] [--json]~, ~doctor [--json] [--offline]~, and ~skill [install|uninstall|status ...]~.

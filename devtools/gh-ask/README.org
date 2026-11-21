@@ -510,3 +510,7 @@ real page, update the fixture, and fix the script against the test.
   and does not render markdown. Its CSS is added with ~GM_addStyle~.
 - The token and port are stored with ~GM_setValue~.
 - ~@match~ is ~https://github.com/*~.
+
+* Standard CLI protocol
+
+~gh-ask~ implements ~version [--json]~, ~update [--check] [--ref <ref>] [--json]~, ~doctor [--json] [--offline]~, and ~skill [install|uninstall|status ...]~.

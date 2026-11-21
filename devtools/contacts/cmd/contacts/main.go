@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -98,6 +99,9 @@ func (a *app) run(args []string) int {
 	if args[0] == "help" {
 		a.usage()
 		return exitOK
+	}
+	if code, ok := newContactsTool(a.configFlag, a.getenv).Handle(context.Background(), args, a.stdout, a.stderr); ok {
+		return code
 	}
 	cmd, ok := commands[args[0]]
 	if !ok {

@@ -315,3 +315,7 @@ From [[https://github.com/jaeyeom/experimental/issues/771][the tracking issue]],
 
 Plan lines, drift lines, pools and scope, import, and exit codes are
 in the [[file:docs/reference.org][reference]].
+
+* Standard CLI protocol
+
+~orgctl~ implements ~version [--json]~, ~update [--check] [--ref <ref>] [--json]~, ~doctor [--json] [--offline]~, and ~skill [install|uninstall|status ...]~.

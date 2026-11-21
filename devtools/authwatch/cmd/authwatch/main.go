@@ -46,6 +46,9 @@ func run(args []string, stdout, stderr io.Writer, env []string, rt appRuntime) i
 	case "help", "-h", "--help":
 		return runHelp(args[1:], stdout, stderr, env, rt)
 	}
+	if code, ok := newAuthwatchTool().Handle(context.Background(), args, stdout, stderr); ok {
+		return code
+	}
 	if c, ok := findCommand(args[0]); ok {
 		return c.run(args[1:], stdout, stderr, env, rt)
 	}

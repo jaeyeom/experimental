@@ -34,6 +34,9 @@ func realMain() int {
 }
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer, exec executor.Executor) int {
+	if code, ok := newDevcheckTool().Handle(ctx, args, stdout, stderr); ok {
+		return code
+	}
 	opts, err := parseArgs(args, stderr)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
