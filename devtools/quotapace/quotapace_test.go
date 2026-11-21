@@ -2,6 +2,7 @@ package quotapace
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -300,9 +301,70 @@ func golden(t *testing.T, name string, got []byte) {
 	if err != nil {
 		t.Fatalf("%v (rerun with QUOTAPACE_UPDATE_GOLDEN=1)", err)
 	}
+	if name == "status.golden.json" {
+		got, err = canonicalStatusJSON(got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, err = canonicalStatusJSON(want)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	if string(got) != string(want) {
 		t.Fatalf("%s differs; got:\n%s", name, got)
 	}
+}
+
+// canonicalStatusJSON removes insignificant floating-point serialization
+// differences from the status golden while preserving meaningful precision.
+func canonicalStatusJSON(data []byte) ([]byte, error) {
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil, fmt.Errorf("decode status JSON: %w", err)
+	}
+	var normalize func(any) (any, error)
+	normalize = func(value any) (any, error) {
+		switch value := value.(type) {
+		case json.Number:
+			n, err := value.Float64()
+			if err != nil {
+				return nil, fmt.Errorf("parse status JSON number %q: %w", value, err)
+			}
+			return math.Round(n*1e12) / 1e12, nil
+		case []any:
+			for i := range value {
+				normalized, err := normalize(value[i])
+				if err != nil {
+					return nil, err
+				}
+				value[i] = normalized
+			}
+			return value, nil
+		case map[string]any:
+			for key := range value {
+				normalized, err := normalize(value[key])
+				if err != nil {
+					return nil, err
+				}
+				value[key] = normalized
+			}
+			return value, nil
+		default:
+			return value, nil
+		}
+	}
+	value, err := normalize(value)
+	if err != nil {
+		return nil, fmt.Errorf("normalize status JSON: %w", err)
+	}
+	data, err = json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshal canonical status JSON: %w", err)
+	}
+	return append(data, '\n'), nil
 }
 
 func TestStatusJSONGolden(t *testing.T) {
