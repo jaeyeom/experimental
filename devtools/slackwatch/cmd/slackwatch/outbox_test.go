@@ -403,8 +403,9 @@ func TestPostHandoffFlow(t *testing.T) {
 	if r.State != slackwatch.OutboxPosted || r.WatchID == 0 {
 		t.Fatalf("record = %+v", r)
 	}
-	if e.dec.outcomes["D-1"] != cmdPostedLink {
-		t.Errorf("decide outcome = %q", e.dec.outcomes["D-1"])
+	wantOutcome := "Posted to #general.\n\n- " + cmdPostedLink
+	if e.dec.outcomes["D-1"] != wantOutcome {
+		t.Errorf("decide outcome = %q, want %q", e.dec.outcomes["D-1"], wantOutcome)
 	}
 	if ls := e.ok("ls", "--owner", "agent-1"); !strings.Contains(ls, "announce release") {
 		t.Errorf("ls = %q", ls)
@@ -435,8 +436,9 @@ func TestOutboxPostedManual(t *testing.T) {
 	if r.State != slackwatch.OutboxPosted || r.WatchID == 0 || !r.Manual {
 		t.Fatalf("record = %+v", r)
 	}
-	if e.dec.outcomes["D-1"] != cmdPostedLink {
-		t.Errorf("decide outcome = %q", e.dec.outcomes["D-1"])
+	wantOutcome := "Posted to #general.\n\n- " + cmdPostedLink
+	if e.dec.outcomes["D-1"] != wantOutcome {
+		t.Errorf("decide outcome = %q, want %q", e.dec.outcomes["D-1"], wantOutcome)
 	}
 	if show := e.ok("outbox", "show", "1"); !strings.Contains(show, "\nmanual: true\n") {
 		t.Errorf("show does not note manual:\n%s", show)
@@ -520,8 +522,9 @@ func TestOutboxRecheck(t *testing.T) {
 	if len(e.posts) != posts {
 		t.Fatalf("posts = %d, want %d", len(e.posts), posts)
 	}
-	if n := len(e.dec.replies); n == 0 || e.dec.replies[n-1] != "Posted: "+cmdPostedLink {
-		t.Fatalf("replies = %q", e.dec.replies)
+	wantReply := "Posted to #general.\n\n- " + cmdPostedLink
+	if n := len(e.dec.replies); n == 0 || e.dec.replies[n-1] != wantReply {
+		t.Fatalf("replies = %q, want last %q", e.dec.replies, wantReply)
 	}
 }
 
@@ -554,7 +557,7 @@ func TestOutboxRecheckPostDeleted(t *testing.T) {
 	if len(e.posts) != posts {
 		t.Fatalf("posts = %d, want %d", len(e.posts), posts)
 	}
-	if e.dec.outcomes["D-1"] != "cancelled: post deleted" {
+	if e.dec.outcomes["D-1"] != "Cancelled.\n\n- post deleted" {
 		t.Fatalf("outcome = %q", e.dec.outcomes["D-1"])
 	}
 }
@@ -568,7 +571,7 @@ func TestOutboxCancelMismatch(t *testing.T) {
 	if r := e.record(); r.State != slackwatch.OutboxCancelled || r.Reason != "post deleted" {
 		t.Fatalf("record = %+v", r)
 	}
-	if e.dec.outcomes["D-1"] != "cancelled: post deleted" {
+	if e.dec.outcomes["D-1"] != "Cancelled.\n\n- post deleted" {
 		t.Fatalf("outcome = %q", e.dec.outcomes["D-1"])
 	}
 	if _, errOut, code := e.run("outbox", "cancel", "1", "a", "--reason", "b"); code != 2 {
