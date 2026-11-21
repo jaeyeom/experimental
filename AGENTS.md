@@ -19,6 +19,22 @@ These instructions apply to every coding agent working in this repository.
 -   **Use rebase** to integrate upstream changes (`git pull --rebase`).
 -   **Use fast-forward merges** to main (`git merge --ff-only`).
 
+## Versioning
+-   **Single module, single tag**: This repository uses a single root `go.mod`
+    and a single monorepo-wide Semantic Versioning tag (`vMAJOR.MINOR.PATCH`) at
+    the repository root. Do not create per-tool tags or split `devtools/` into
+    separate Go submodules.
+-   **Bump rules**:
+    -   `MAJOR`: Any breaking change in a released tool or shared package (`devtools/pkg/...`).
+    -   `MINOR`: Backwards-compatible new features or tools.
+    -   `PATCH`: Backwards-compatible fixes or internal/documentation updates.
+-   **Shared version**: Unchanged tools sharing a bumped version (and being
+    byte-identical across consecutive releases) is expected and acceptable.
+-   **Binary version reporting**: Go binaries under `devtools/` should report
+    their version via `github.com/jaeyeom/experimental/devtools/pkg/version`
+    (`-ldflags "-X github.com/jaeyeom/experimental/devtools/pkg/version.Version=..."`
+    with `runtime/debug.ReadBuildInfo()` fallback).
+
 ## Pull requests
 This repository squash-merges with the pull request title and description
 as the commit message. HTML comments (`<!-- ... -->`) in the PR body are

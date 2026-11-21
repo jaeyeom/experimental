@@ -110,6 +110,26 @@ windows. After a reboot, follow
 - *GitHub CLI (gh)*, for the gh-nudge commands.
 - *Ansible*, for setup-dev.
 
+** Versioning and releases
+
+All tools share a single monorepo Semantic Versioning tag
+(=vMAJOR.MINOR.PATCH=) at the repository root. You can install a
+specific release of any Go tool with:
+
+#+BEGIN_SRC bash
+go install github.com/jaeyeom/experimental/devtools/<tool>/cmd/<tool>@vX.Y.Z
+#+END_SRC
+
+=make install= builds every binary in =INSTALL_CMDS= with =-ldflags=
+embedding the latest git tag (or =dev= when untagged), and Go binaries
+fall back to =runtime/debug.ReadBuildInfo()= when installed via
+=go install ...@vX.Y.Z=. To cut a release tag:
+
+#+BEGIN_SRC bash
+make tag TAG=vX.Y.Z
+git push origin vX.Y.Z
+#+END_SRC
+
 ** gh-nudge commands
 
 =devtools/gh-nudge/cmd/= holds =gh-approve=, =gh-codeowners=,
