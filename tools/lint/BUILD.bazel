@@ -33,6 +33,12 @@ ADDITIONAL_GOVET = [
     "@org_golang_x_tools//go/analysis/passes/unusedwrite:go_default_library",
 ]
 
+EXTRA_ANALYZERS = [
+    "//devtools/linters/gochecknoinits:go_default_library",
+    "//devtools/linters/godot:go_default_library",
+    "@com_github_gordonklaus_ineffassign//pkg/ineffassign:go_default_library",
+]
+
 nogo(
     name = "platform_nogo",
     config = "nogo.json",
@@ -40,6 +46,6 @@ nogo(
     # Use --//tools/lint:skip_nogo=true or --config=termux to skip analyzers
     deps = select({
         ":skip_nogo_enabled": [],
-        "//conditions:default": TOOLS_NOGO + ADDITIONAL_GOVET + staticcheck_analyzers(ANALYZERS),
+        "//conditions:default": TOOLS_NOGO + ADDITIONAL_GOVET + EXTRA_ANALYZERS + staticcheck_analyzers(ANALYZERS),
     }),
 )

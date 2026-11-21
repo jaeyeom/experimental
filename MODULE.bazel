@@ -27,6 +27,11 @@ go_deps.module(
     sum = "h1:ryxg4U63oaUYk7uOLTF37n43f4qgtGvqV4Ioit1BaEs=",
     version = "v0.52.0",
 )
+go_deps.module(
+    path = "github.com/gordonklaus/ineffassign",
+    sum = "h1:Uths4KnmwxNJNzq87fwQQDDnbNb7De00VOk9Nu0TySs=",
+    version = "v0.2.0",
+)
 
 # All Go dependencies referenced by BUILD files must be listed explicitly.
 # Note: This includes both direct and indirect dependencies from go.mod.
@@ -39,6 +44,7 @@ use_repo(
     "com_github_charmbracelet_bubbletea",
     "com_github_charmbracelet_lipgloss",
     "com_github_google_renameio_v2",
+    "com_github_gordonklaus_ineffassign",
     "com_github_jaeyeom_go_cmdexec",
     "com_github_jaeyeom_godernize",
     "com_github_jaeyeom_sugo",
@@ -49,6 +55,7 @@ use_repo(
     "com_github_slack_go_slack",
     "com_github_spf13_cobra",
     "com_github_spf13_viper",
+    "com_github_tetafro_godot",
     "in_gopkg_yaml_v3",
     "org_golang_x_image",
     "org_golang_x_sys",

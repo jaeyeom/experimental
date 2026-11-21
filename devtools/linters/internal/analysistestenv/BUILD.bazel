@@ -1,0 +1,8 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["env.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/linters/internal/analysistestenv",
+    visibility = ["//devtools/linters:__subpackages__"],
+)

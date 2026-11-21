@@ -4,13 +4,10 @@ linters:
     - cyclop
     - depguard
     - errcheck
-    - gochecknoinits
     - gocritic
-    - godot
     - gosec
     - govet
     - iface
-    - ineffassign
     - revive
     - staticcheck
     - tagliatelle
@@ -81,6 +78,7 @@ linters:
             - github.com/google/renameio/v2
             - github.com/muesli/termenv
             - github.com/pelletier/go-toml/v2
+            - github.com/tetafro/godot
           deny:
             - pkg: "github.com/leanovate/gopter"
               desc: gopter is for test only

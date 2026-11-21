@@ -1,0 +1,35 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+# gazelle:exclude testdata
+
+go_library(
+    name = "go_default_library",
+    srcs = ["analyzer.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/linters/gochecknoinits",
+    visibility = ["//tools/lint:__pkg__"],
+    deps = [
+        "@org_golang_x_tools//go/analysis:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = ["analyzer_test.go"],
+    data = glob(["testdata/**"]) + [
+        "@go_sdk//:files",  # keep
+    ],
+    deps = [
+        ":go_default_library",
+        "//devtools/linters/internal/analysistestenv:go_default_library",
+        "@org_golang_x_tools//go/analysis/analysistest:go_default_library",
+    ],
+)
+
+# Fixture library exists so check-bazel-src-files sees the testdata .go file.
+go_library(
+    name = "a_fixture",
+    srcs = ["testdata/src/a/a.go"],  # keep
+    importpath = "a",
+    tags = ["manual"],
+    visibility = ["//visibility:private"],
+)
