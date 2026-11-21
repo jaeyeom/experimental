@@ -69,6 +69,9 @@ func runLocal(args []string, stdout, stderr io.Writer) int {
 	if cmd, ok := ledgerCommands[args[0]]; ok {
 		return cmd(args[1:], stdout, stderr)
 	}
+	if code, handled := newDecideTool().Handle(context.Background(), args, stdout, stderr); handled {
+		return code
+	}
 	switch args[0] {
 	case "ask":
 		return cmdAsk(args[1:], stdout, stderr)
@@ -82,8 +85,6 @@ func runLocal(args []string, stdout, stderr io.Writer) int {
 		return cmdTargets(args[1:], stdout, stderr)
 	case "send", "reply":
 		return cmdSendOrReply(args, stdout, stderr)
-	case "skill":
-		return cmdSkill(args[1:], stdout, stderr)
 	case "avatars":
 		return cmdAvatars(args[1:], stdout, stderr)
 	case "contacts":
@@ -127,6 +128,12 @@ func usage(w io.Writer) {
   decide assign <id> <agent> [--notify-pane <pane>] [--json]
   decide assign <id> --clear [--json]
   decide skill
+  decide skill install --agent <claude|codex|antigravity|grok|all> [--scope user|project] [--dir D] [--dry-run] [--force]
+  decide skill uninstall --agent <claude|codex|antigravity|grok|all> [--scope user|project] [--dir D] [--dry-run]
+  decide skill status [--json]
+  decide version [--json]
+  decide update [--check] [--ref <ref>] [--json]
+  decide doctor [--json] [--offline]
   decide avatars list [--name <name>] [--ids]
   decide avatars set [--local] <name> <id|default|none>
   decide contacts hide <name>
