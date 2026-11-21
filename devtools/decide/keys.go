@@ -226,6 +226,7 @@ func ActionCatalog() []ActionDef {
 		{Name: "goto.withdrawn", View: "global", Scopes: browse, Default: []string{"g w"}, Description: "Go to Withdrawn.", Where: "any"},
 		{Name: "goto.status", View: "global", Scopes: browse, Default: []string{"g s"}, Description: "Go to Status.", Where: "any"},
 		{Name: "goto.contacts", View: "global", Scopes: browse, Default: []string{"g c"}, Description: "Go to Contacts.", Where: "any"},
+		{Name: "goto.outbox", View: "global", Scopes: browse, Default: []string{"g o"}, Description: "Go to Outbox.", Where: "any"},
 		{Name: "goto.top", View: "global", Scopes: browse, Default: []string{"g g"}, Description: "Top of the list.", Where: "list, status, contacts"},
 
 		// List view.

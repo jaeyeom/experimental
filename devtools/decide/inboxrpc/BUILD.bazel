@@ -4,6 +4,8 @@ go_library(
     name = "go_default_library",
     srcs = [
         "client.go",
+        "outbox.go",
+        "outbox_client.go",
         "protocol.go",
         "replica.go",
         "server.go",
@@ -20,7 +22,10 @@ go_library(
 
 go_test(
     name = "go_default_test",
-    srcs = ["inboxrpc_test.go"],
+    srcs = [
+        "inboxrpc_test.go",
+        "outbox_test.go",
+    ],
     embed = [":go_default_library"],
     deps = [
         "//devtools/decide:go_default_library",

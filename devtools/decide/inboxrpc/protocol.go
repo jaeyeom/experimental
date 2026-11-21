@@ -21,7 +21,8 @@ import (
 // Version 5 added set-contact-aliases. Version 6 added seen on archive.
 // Version 7 added bus-health. Version 8 added check-deliveries.
 // Version 9 added watch for the hub-client replica.
-const Version = 9
+// Version 10 added outbox writtenAt and conflict checks.
+const Version = 10
 
 // Ops. Archive is done with the outcome "archived". Deliveries refreshes
 // the pending delivery marks on the hub.
@@ -77,6 +78,15 @@ type Request struct {
 	Route string `json:"route,omitempty"`
 	// Since is the client replica's last known ledger sequence for watch.
 	Since int64 `json:"since,omitempty"`
+	// WrittenAt is when an outbox entry was written on the client.
+	WrittenAt *time.Time `json:"writtenAt,omitempty"`
+	// ConflictCheck, when true, holds the write if the item changed since
+	// the recorded baseline.
+	ConflictCheck     bool       `json:"conflictCheck,omitempty"`
+	BaseState         string     `json:"baseState,omitempty"`
+	BaseMessageCount  int        `json:"baseMessageCount,omitempty"`
+	BaseLastMessageAt *time.Time `json:"baseLastMessageAt,omitempty"`
+	BaseAnswered      bool       `json:"baseAnswered,omitempty"`
 }
 
 // Response is one line from the server. Error fails the request.
@@ -100,6 +110,7 @@ type Response struct {
 	Seq         int64                   `json:"seq,omitempty"`
 	Resync      bool                    `json:"resync,omitempty"`
 	Changes     []decide.LedgerChange   `json:"changes,omitempty"`
+	Conflict    string                  `json:"conflict,omitempty"`
 }
 
 // writeOps change the ledger or send something. While the hub is

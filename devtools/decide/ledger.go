@@ -76,15 +76,17 @@ type Option struct {
 // agentbus name, else its herdr tab label, else its pane handle. It is
 // empty when unknown. Author stays the thread owner on an agent reply.
 type Message struct {
-	Author      string    `json:"author"`
-	Time        time.Time `json:"time"`
-	Text        string    `json:"text"`
-	Verbatim    string    `json:"verbatim,omitempty"`
-	Options     []Option  `json:"options,omitempty"`
-	OptionKey   string    `json:"optionKey,omitempty"`
-	OptionLabel string    `json:"optionLabel,omitempty"`
-	Via         string    `json:"via,omitempty"`
-	By          string    `json:"by,omitempty"`
+	Author      string     `json:"author"`
+	Time        time.Time  `json:"time"`
+	WrittenAt   *time.Time `json:"writtenAt,omitempty"`
+	ReceivedAt  *time.Time `json:"receivedAt,omitempty"`
+	Text        string     `json:"text"`
+	Verbatim    string     `json:"verbatim,omitempty"`
+	Options     []Option   `json:"options,omitempty"`
+	OptionKey   string     `json:"optionKey,omitempty"`
+	OptionLabel string     `json:"optionLabel,omitempty"`
+	Via         string     `json:"via,omitempty"`
+	By          string     `json:"by,omitempty"`
 }
 
 // Sender is who to show for this message: By when it is set, else Author.
@@ -102,11 +104,13 @@ func (m Message) Sender() string {
 // Via is ViaUI or ViaCLI. It is empty on an answer stored before via
 // existed, which does not count as ViaUI.
 type Answer struct {
-	Value      string `json:"value"`
-	Key        string `json:"key,omitempty"`
-	Label      string `json:"label,omitempty"`
-	AnsweredBy string `json:"answeredBy"`
-	Via        string `json:"via,omitempty"`
+	Value      string     `json:"value"`
+	Key        string     `json:"key,omitempty"`
+	Label      string     `json:"label,omitempty"`
+	AnsweredBy string     `json:"answeredBy"`
+	Via        string     `json:"via,omitempty"`
+	WrittenAt  *time.Time `json:"writtenAt,omitempty"`
+	ReceivedAt *time.Time `json:"receivedAt,omitempty"`
 }
 
 // CheckVia reports an error unless via is ViaUI or ViaCLI.
@@ -583,6 +587,12 @@ func (l *Ledger) Archive(id string, seen time.Time) (Item, error) {
 // Free text is stored as given, including quotes and punctuation.
 // A type-in, withdrawn, or done item is refused.
 func (l *Ledger) Answer(id, value, via string) (Item, error) {
+	return l.AnswerAt(id, value, via, time.Time{})
+}
+
+// AnswerAt is Answer with an optional client writtenAt timestamp. When
+// writtenAt is non-zero, both WrittenAt and ReceivedAt (hub clock) are stored.
+func (l *Ledger) AnswerAt(id, value, via string, writtenAt time.Time) (Item, error) {
 	if strings.TrimSpace(value) == "" {
 		return Item{}, fmt.Errorf("decide answer is empty")
 	}
@@ -611,15 +621,24 @@ func (l *Ledger) Answer(id, value, via string) (Item, error) {
 		// Capture a legacy thread before replacing the answer. Otherwise the
 		// rebuild treats the new answer as the previous one and drops it.
 		ensureMessages(it)
+		receivedAt := l.clock().UTC()
 		it.State = StateAnswered
-		it.AnsweredAt = l.clock().UTC()
+		it.AnsweredAt = receivedAt
 		it.FollowUp = ""
 		it.Answer = &Answer{Value: stored, AnsweredBy: "human", Via: via}
 		msg := Message{
 			Author: "human",
-			Time:   it.AnsweredAt,
+			Time:   receivedAt,
 			Text:   stored,
 			Via:    via,
+		}
+		if !writtenAt.IsZero() {
+			w := writtenAt.UTC()
+			r := receivedAt
+			it.Answer.WrittenAt = &w
+			it.Answer.ReceivedAt = &r
+			msg.WrittenAt = &w
+			msg.ReceivedAt = &r
 		}
 		if label, ok := optionLabel(it.Options, stored); ok {
 			it.Answer.Key, it.Answer.Label = stored, label
@@ -647,6 +666,11 @@ func (l *Ledger) StartThread(owner, pane, text, via string) (Item, error) {
 // ForwardThread is StartThread for a note forwarded from item from.
 // An empty from starts a plain thread.
 func (l *Ledger) ForwardThread(from, owner, pane, text, via string) (Item, error) {
+	return l.ForwardThreadAt(from, owner, pane, text, via, time.Time{})
+}
+
+// ForwardThreadAt is ForwardThread with an optional client writtenAt timestamp.
+func (l *Ledger) ForwardThreadAt(from, owner, pane, text, via string, writtenAt time.Time) (Item, error) {
 	if strings.TrimSpace(owner) == "" {
 		return Item{}, fmt.Errorf("decide owner is empty")
 	}
@@ -657,6 +681,18 @@ func (l *Ledger) ForwardThread(from, owner, pane, text, via string) (Item, error
 		return Item{}, err
 	}
 	now := l.clock().UTC()
+	msg := Message{
+		Author: "human",
+		Time:   now,
+		Text:   text,
+		Via:    via,
+	}
+	if !writtenAt.IsZero() {
+		w := writtenAt.UTC()
+		r := now
+		msg.WrittenAt = &w
+		msg.ReceivedAt = &r
+	}
 	return l.Create(&Item{
 		Question:      text,
 		Owner:         owner,
@@ -664,12 +700,7 @@ func (l *Ledger) ForwardThread(from, owner, pane, text, via string) (Item, error
 		NotifyPane:    pane,
 		CreatedAt:     now,
 		ForwardedFrom: from,
-		Messages: []Message{{
-			Author: "human",
-			Time:   now,
-			Text:   text,
-			Via:    via,
-		}},
+		Messages:      []Message{msg},
 	})
 }
 
@@ -754,6 +785,11 @@ func (l *Ledger) Delete(id string) error {
 // via is stored on the message and with an answer, as in Answer.
 // by is who sent it, as in Message.By, and may be empty.
 func (l *Ledger) Compose(id, text, via, by string) (Item, error) {
+	return l.ComposeAt(id, text, via, by, time.Time{})
+}
+
+// ComposeAt is Compose with an optional client writtenAt timestamp.
+func (l *Ledger) ComposeAt(id, text, via, by string, writtenAt time.Time) (Item, error) {
 	if strings.TrimSpace(text) == "" {
 		return Item{}, fmt.Errorf("decide text is empty")
 	}
@@ -774,17 +810,30 @@ func (l *Ledger) Compose(id, text, via, by string) (Item, error) {
 		}
 		ensureMessages(it)
 		now := l.clock().UTC()
-		it.Messages = append(it.Messages, Message{
+		msg := Message{
 			Author: "human",
 			Time:   now,
 			Text:   text,
 			Via:    via,
 			By:     by,
-		})
+		}
+		if !writtenAt.IsZero() {
+			w := writtenAt.UTC()
+			r := now
+			msg.WrittenAt = &w
+			msg.ReceivedAt = &r
+		}
+		it.Messages = append(it.Messages, msg)
 		if openQuestion(it) {
 			it.State = StateAnswered
 			it.AnsweredAt = now
 			it.Answer = &Answer{Value: text, AnsweredBy: "human", Via: via}
+			if !writtenAt.IsZero() {
+				w := writtenAt.UTC()
+				r := now
+				it.Answer.WrittenAt = &w
+				it.Answer.ReceivedAt = &r
+			}
 		}
 		wakeOnMessage(it)
 		updated = *it

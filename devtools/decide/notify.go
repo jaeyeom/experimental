@@ -125,6 +125,9 @@ type InboxUI struct {
 	// LateDeliveryAfter is how long a bus message may wait before it
 	// needs attention. Empty is five minutes.
 	LateDeliveryAfter string `json:"lateDeliveryAfter,omitempty"`
+	// OutboxStaleAfter is how long an outbox entry may wait before the
+	// inbox shows a status-line warning. Empty is five minutes.
+	OutboxStaleAfter string `json:"outboxStaleAfter,omitempty"`
 	// ArchiveGrace is how long a new message holds inbox archive,
 	// such as "2s". Empty is 2 seconds.
 	ArchiveGrace string `json:"archiveGrace,omitempty"`
@@ -216,6 +219,22 @@ const DefaultBusHealthInterval = 15 * time.Second
 
 // DefaultLateDeliveryAfter is when an undelivered bus message needs attention.
 const DefaultLateDeliveryAfter = 5 * time.Minute
+
+// DefaultOutboxStaleAfter is when a pending outbox entry warns on the status line.
+const DefaultOutboxStaleAfter = 5 * time.Minute
+
+// OutboxStaleAfter is ui.outboxStaleAfter, or the five minute default.
+func (c Config) OutboxStaleAfter() time.Duration {
+	d, err := parseOutboxStaleAfter(c.UI.OutboxStaleAfter)
+	if err != nil || d <= 0 {
+		return DefaultOutboxStaleAfter
+	}
+	return d
+}
+
+func parseOutboxStaleAfter(raw string) (time.Duration, error) {
+	return parsePositiveDuration(raw, "outboxStaleAfter", "5m")
+}
 
 // LateDeliveryAfter is ui.lateDeliveryAfter, or the five minute default.
 func (c Config) LateDeliveryAfter() time.Duration {
@@ -419,16 +438,7 @@ func parseConfig(data []byte, dir string) (Config, error) {
 	if err := CheckClipboard(cfg.UI.Clipboard); err != nil {
 		return Config{}, err
 	}
-	if _, err := parseStaleAnswerAfter(cfg.UI.StaleAnswerAfter); err != nil {
-		return Config{}, err
-	}
-	if _, err := parseLateDeliveryAfter(cfg.UI.LateDeliveryAfter); err != nil {
-		return Config{}, err
-	}
-	if _, err := parseArchiveGrace(cfg.UI.ArchiveGrace); err != nil {
-		return Config{}, err
-	}
-	if _, err := parseBusHealthInterval(cfg.UI.BusHealthInterval); err != nil {
+	if err := checkUIDurations(cfg.UI); err != nil {
 		return Config{}, err
 	}
 	if err := checkShapeConfig(cfg); err != nil {
@@ -439,6 +449,21 @@ func parseConfig(data []byte, dir string) (Config, error) {
 	}
 	resolveAvatarFiles(cfg.Avatars, dir)
 	return cfg, nil
+}
+
+func checkUIDurations(ui InboxUI) error {
+	for _, fn := range []func() error{
+		func() error { _, err := parseStaleAnswerAfter(ui.StaleAnswerAfter); return err },
+		func() error { _, err := parseLateDeliveryAfter(ui.LateDeliveryAfter); return err },
+		func() error { _, err := parseOutboxStaleAfter(ui.OutboxStaleAfter); return err },
+		func() error { _, err := parseArchiveGrace(ui.ArchiveGrace); return err },
+		func() error { _, err := parseBusHealthInterval(ui.BusHealthInterval); return err },
+	} {
+		if err := fn(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func checkShapeConfig(cfg Config) error {

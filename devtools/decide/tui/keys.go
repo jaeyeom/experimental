@@ -187,6 +187,16 @@ func (m *Model) unknownKeyStatus() string {
 }
 
 func (m *Model) dispatchBrowseKey(s decide.KeyStroke) (bool, error) {
+	if m.mode == modeOutbox {
+		if handled, err := m.handleOutboxKey(s); handled {
+			return false, err
+		}
+	}
+	if m.mode == modeDetail {
+		if handled, err := m.handleDetailOutboxKey(s); handled {
+			return false, err
+		}
+	}
 	scope := m.browseScope()
 	km := m.keyMap()
 	if km.IsPrefix(scope, s) {
@@ -213,7 +223,7 @@ func (m *Model) dispatchBrowseKey(s decide.KeyStroke) (bool, error) {
 
 func (m *Model) runAction(action string) (bool, error) {
 	handlers := map[string]func() (bool, error){
-		"quit":                 func() (bool, error) { return true, nil },
+		"quit":                 func() (bool, error) { return m.requestQuit() },
 		"help":                 func() (bool, error) { m.help = true; return false, nil },
 		"mouse":                func() (bool, error) { m.toggleMouse(); return false, nil },
 		"search":               func() (bool, error) { m.beginSearch(); return false, nil },
@@ -224,6 +234,7 @@ func (m *Model) runAction(action string) (bool, error) {
 		"goto.withdrawn":       func() (bool, error) { return false, m.showFolder(4) },
 		"goto.status":          func() (bool, error) { return false, m.showStatus() },
 		"goto.contacts":        func() (bool, error) { return false, m.showContacts() },
+		"goto.outbox":          func() (bool, error) { return false, m.showOutbox() },
 		"goto.top":             func() (bool, error) { return m.runGoToTop() },
 		"list.next":            func() (bool, error) { m.moveList(1); return false, nil },
 		"list.prev":            func() (bool, error) { m.moveList(-1); return false, nil },
@@ -509,6 +520,18 @@ func (m *Model) goToChordItems() (prefix string, items []struct{ key, name strin
 		{"goto.status", "status"},
 		{"goto.contacts", "contacts"},
 		{"goto.top", "top"},
+	}
+	if m.hasOutbox() {
+		gotoActions = append(gotoActions[:len(gotoActions)-1],
+			struct {
+				action string
+				name   string
+			}{"goto.outbox", "outbox"},
+			struct {
+				action string
+				name   string
+			}{"goto.top", "top"},
+		)
 	}
 	for _, ga := range gotoActions {
 		for _, seq := range m.keyMap().Bindings(ga.action) {

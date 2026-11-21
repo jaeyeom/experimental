@@ -509,6 +509,32 @@ environment name does not win. The systemd unit and the launchd agent
 are in [[file:docs/follow.org][docs/follow.org]]. The service needs
 ~decide~, the notify command, and herdr on ~PATH~.
 
+** Outbox, Answered, delivery marks, and Done
+
+Four distinct stages track a write from your keyboard to the agent:
+
+- *Outbox* (hub mode only): the local queue on the client machine
+  (~$XDG_CACHE_HOME/decide/outbox~) that accepts writes immediately so
+  the UI never blocks on a slow or disconnected hub. A thread shows
+  ~in outbox~ on pending messages, and the *Outbox* folder (~g~ then
+  ~o~) lists all pending, held, and failed entries. A pending entry can
+  be edited (~e~) or cancelled (~x~). If the item changed on the hub
+  before delivery (a new message arrived, or the item was withdrawn,
+  marked done, or already answered), the entry is held and offers
+  ~[s] send~, ~[e] edit~, or ~[x] cancel~. A permanent error marks the
+  entry ~failed: <reason>~ in red and restores its text to the composer.
+- *Answered*: the ledger on the hub (or local machine) recorded your
+  answer (~state: answered~, ~via: ui~, and for outbox entries both
+  ~writtenAt~ and ~receivedAt~). The entry leaves the outbox and the
+  inbox begins notifying the agent.
+- *Delivery mark*: whether the agent's transport (~agentbus~ or pane
+  command) actually received the message (~waiting~, ~delivered HH:MM~,
+  or ~failed: <error>~).
+- *Done*: the item is closed (~state: done~, or ~done-unread~ if an
+  agent closed it while unread), either by the agent (~decide done~) or
+  by you (~d~ or archive ~e~ / ~y~). Archive from the outbox still
+  checks against the last message time seen when the entry was written.
+
 * Emacs
 
 ~devtools/decide/emacs/decide.el~ is a plain Emacs frontend. Load it and
@@ -559,6 +585,7 @@ machine only. A hub does not send it.
 | ~ui.fillColumn~        | 72                          | Compose fill width. Never wider than the box.                                  |
 | ~ui.staleAnswerAfter~  | ~30m~                       | How long an answer sits before one follow-up.                                  |
 | ~ui.lateDeliveryAfter~ | ~5m~                        | How long a bus message waits before it needs attention.                         |
+| ~ui.outboxStaleAfter~  | ~5m~                        | How long a pending outbox entry waits before a status warning.                 |
 | ~ui.archiveGrace~      | ~2s~                        | How long a new message holds archive.                                          |
 | ~ui.busHealthInterval~ | ~15s~                       | How often the inbox checks ~agentbus health~ for its banner.                   |
 | ~ui.orgTree~           | false                       | Let ~t~ show Contacts as the org tree of ~ui.orgSpec~.                         |
@@ -598,7 +625,7 @@ Action names are grouped by view:
 
 - ~global~: ~quit~, ~help~, ~mouse~, ~search~, ~goto.inbox~,
   ~goto.snoozed~, ~goto.answered~, ~goto.done~, ~goto.withdrawn~,
-  ~goto.status~, ~goto.contacts~, ~goto.top~
+  ~goto.status~, ~goto.contacts~, ~goto.outbox~, ~goto.top~
 - ~list~: ~list.next~, ~list.prev~, ~list.pageDown~, ~list.pageUp~,
   ~list.top~, ~list.bottom~, ~list.open~, ~list.compose~,
   ~list.archive~, ~list.snooze~, ~list.clearFilter~
@@ -657,9 +684,12 @@ changes in monotonic sequence order. Any sequence gap or unknown
 sequence triggers a full resync. Reads (open, scroll, search, contacts,
 and the status page) render from the replica without waiting on the hub,
 and ~mark-read~ is sent in the background and retried on failure without
-showing an error. Live writes (~answer~, ~reply~, ~done~, ~archive~,
-~snooze~, ~send~, and settings) go straight to the hub and fail at once
-when disconnected (never queued). The status line shows freshness
+showing an error. Writes (~answer~, ~reply~, ~done~, ~archive~, ~snooze~,
+~unsnooze~, ~send~, and settings) append to an on-disk outbox per hub
+(~$XDG_CACHE_HOME/decide/outbox~) so the UI returns at once, and a
+background sender drains them in order (surviving quit and crash,
+holding on conflict, and warning after ~ui.outboxStaleAfter~). The status
+line shows freshness
 (~synced 12s ago~, or ~hub unreachable; showing copy from 14:05~ while
 disconnected) and the inbox backs off from one second to 30. Links
 still open here.

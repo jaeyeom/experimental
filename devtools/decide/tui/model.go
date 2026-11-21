@@ -40,6 +40,7 @@ const (
 	modeOutcome
 	modeStatus
 	modeContacts
+	modeOutbox
 )
 
 const (
@@ -80,6 +81,7 @@ type Model struct {
 	Targets           []Target
 	SendTemplate      string
 	LateDeliveryAfter time.Duration
+	OutboxStaleAfter  time.Duration
 	folder            int
 	cursor            int
 	items             []decide.Item
@@ -303,6 +305,9 @@ type Model struct {
 	keys             *decide.KeyMap
 	chordPrefix      decide.KeyStroke
 	editPrefixStroke decide.KeyStroke
+	outboxCursor     int
+	outboxEditing    string
+	restoredFailed   map[string]bool
 }
 
 // New returns an inbox positioned on the open folder.
@@ -375,6 +380,8 @@ func (m *Model) applyList(all []decide.Item) error {
 		}
 	}
 	m.rebuildContacts()
+	m.restoreFailedOutbox()
+	m.clampOutboxCursor()
 	if Folders[m.folder].Snoozed {
 		m.setFolder(decide.SelectSnoozed(all), keep)
 		return nil
@@ -929,6 +936,7 @@ func (m *Model) openRow() error {
 	m.message = 0
 	m.newMessages = 0
 	m.detailGone = false
+	m.restoreFailedOutbox()
 	m.status = "opened " + id
 	return m.Reload()
 }
@@ -1071,6 +1079,20 @@ func (m *Model) writeAnswer(value string) error {
 	if m.detail == nil {
 		return nil
 	}
+	if m.outboxEditing != "" {
+		if ob, ok := m.outboxBackend(); ok {
+			if err := ob.EditOutbox(m.outboxEditing, value); err != nil {
+				m.status = err.Error()
+				return nil
+			}
+			m.status = "updated " + m.outboxEditing
+			m.outboxEditing = ""
+			m.answerFocus = false
+			m.draft = ""
+			m.free.Reset()
+			return m.Reload()
+		}
+	}
 	id := m.detail.ID
 	_, err := m.store().Answer(id, value)
 	var notifyErr *NotifyError
@@ -1107,6 +1129,22 @@ func (m *Model) submitReply() error {
 		return nil
 	}
 	m.replyRoute = ""
+	if m.outboxEditing != "" {
+		if ob, ok := m.outboxBackend(); ok {
+			if err := ob.EditOutbox(m.outboxEditing, text); err != nil {
+				m.status = err.Error()
+				return nil
+			}
+			m.status = "updated " + m.outboxEditing
+			m.outboxEditing = ""
+			m.reply = ""
+			m.replyField.Reset()
+			m.replyScroll = 0
+			m.replyFocus = false
+			m.replySend = false
+			return m.Reload()
+		}
+	}
 	updated, err := m.store().Reply(m.detail.ID, text, route)
 	var notifyErr *NotifyError
 	switch {
@@ -1132,6 +1170,20 @@ func (m *Model) submitReply() error {
 func (m *Model) submitOutcome() error {
 	if m.detail == nil {
 		return nil
+	}
+	if m.outboxEditing != "" {
+		if ob, ok := m.outboxBackend(); ok {
+			if err := ob.EditOutbox(m.outboxEditing, m.draft); err != nil {
+				m.status = err.Error()
+				return nil
+			}
+			m.status = "updated " + m.outboxEditing
+			m.outboxEditing = ""
+			m.mode = modeDetail
+			m.draft = ""
+			m.outcome.Reset()
+			return m.Reload()
+		}
 	}
 	id := m.detail.ID
 	if _, err := m.store().Done(id, m.draft); err != nil {
@@ -1407,6 +1459,9 @@ func (m *Model) mailLines() []screenLine {
 	}
 	if m.mode == modeContacts {
 		return m.contactsMail(pane)
+	}
+	if m.mode == modeOutbox {
+		return m.outboxMail(pane)
 	}
 	if m.mode != modeList {
 		return m.openedScreen(pane)
@@ -1768,6 +1823,9 @@ func (m *Model) fitDetail(lines []screenLine, width int) []screenLine {
 }
 
 func (m *Model) navLen() int {
+	if m.hasOutbox() {
+		return len(Folders) + 3
+	}
 	return len(Folders) + 2
 }
 
@@ -1777,6 +1835,8 @@ func (m *Model) navSelected(i int) bool {
 		return i == len(Folders)
 	case modeContacts:
 		return i == len(Folders)+1
+	case modeOutbox:
+		return m.hasOutbox() && i == m.outboxNavIndex()
 	default:
 		return i == m.folder
 	}
@@ -1789,6 +1849,8 @@ func (m *Model) navName(i int) string {
 		name = Folders[i].Name
 	case i == len(Folders):
 		name = "Status"
+	case m.hasOutbox() && i == m.outboxNavIndex():
+		name = "Outbox"
 	}
 	if m.navSelected(i) {
 		return "[" + name + "]"
@@ -1830,6 +1892,15 @@ func (m *Model) navCountText(i int) (string, bool) {
 		}
 		matches := len(m.agents) + len(m.resources)
 		return fmt.Sprintf("%d/%d", matches, m.statusTotal), matches == 0
+	}
+	if m.hasOutbox() && i == m.outboxNavIndex() {
+		ob, _ := m.outboxBackend()
+		all := ob.Outbox()
+		if q == "" {
+			return fmt.Sprintf("%d", len(all)), false
+		}
+		matches := len(m.outboxEntries())
+		return fmt.Sprintf("%d/%d", matches, len(all)), matches == 0
 	}
 	if i > len(Folders) {
 		total, matches := m.activeContactMatches()
@@ -1959,7 +2030,7 @@ func (m *Model) layoutBudget() (int, int) {
 		return 0, 0
 	}
 	folderChrome := 0
-	if !m.composing && (m.mode == modeList || m.mode == modeStatus || m.mode == modeContacts) {
+	if !m.composing && (m.mode == modeList || m.mode == modeStatus || m.mode == modeContacts || m.mode == modeOutbox) {
 		folderChrome = m.navLen()
 		if m.width > 0 {
 			folderChrome = 0
@@ -2637,6 +2708,7 @@ func (m *Model) threadLines(it *decide.Item, width int, re *regexp.Regexp) []scr
 		}
 		lines = append(lines, block...)
 	}
+	lines = append(lines, m.outboxThreadLines(it, textWidth, now, loc)...)
 	return lines
 }
 

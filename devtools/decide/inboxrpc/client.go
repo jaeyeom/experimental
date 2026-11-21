@@ -120,6 +120,7 @@ type Client struct {
 	Timeout    time.Duration
 	Now        func() time.Time
 	CacheDir   string
+	UseOutbox  bool
 
 	mu      sync.Mutex
 	sess    *session
@@ -137,6 +138,13 @@ type Client struct {
 	replica     *replicaStore
 	replicaErr  error
 
+	outboxOnce    sync.Once
+	outbox        *outboxStore
+	outboxErr     error
+	outboxMu      sync.Mutex
+	outboxRunning bool
+	outboxWake    chan struct{}
+
 	wg sync.WaitGroup
 
 	markReadMu      sync.Mutex
@@ -146,7 +154,10 @@ type Client struct {
 	markReadWake    chan struct{}
 }
 
-var _ tui.Backend = (*Client)(nil)
+var (
+	_ tui.Backend       = (*Client)(nil)
+	_ tui.OutboxBackend = (*Client)(nil)
+)
 
 // hubError is a call the hub did not take because it could not be
 // reached. It matches tui.ErrUnreachable.
@@ -168,11 +179,23 @@ func (c *Client) ensureReplica() (*replicaStore, error) {
 	return c.replica, c.replicaErr
 }
 
+func (c *Client) ensureOutbox() (*outboxStore, error) {
+	c.outboxOnce.Do(func() {
+		c.outbox, c.outboxErr = newOutboxStore(c.CacheDir, c.Label)
+	})
+	return c.outbox, c.outboxErr
+}
+
 // Connect starts the session, checks the server's protocol, and syncs
 // the local replica from its last sequence number.
 func (c *Client) Connect() error {
 	if _, err := c.ensureReplica(); err != nil {
 		return err
+	}
+	if c.UseOutbox {
+		if _, err := c.ensureOutbox(); err != nil {
+			return err
+		}
 	}
 	c.mu.Lock()
 	if c.sess != nil {
@@ -193,6 +216,10 @@ func (c *Client) Connect() error {
 // connected keeps sess, the display settings it fetched, and starts the
 // watch loop. The caller holds c.mu.
 func (c *Client) connected(sess *session, display decide.DisplaySettings, watchCh <-chan Response) {
+	if c.sess != nil || c.closed {
+		sess.close(errors.New("superseded"))
+		return
+	}
 	c.sess = sess
 	c.display = display
 	c.displayGen++
@@ -204,6 +231,9 @@ func (c *Client) connected(sess *session, display decide.DisplaySettings, watchC
 		}()
 	}
 	c.kickMarkRead()
+	if c.UseOutbox {
+		c.startOutboxIfPending()
+	}
 }
 
 // isConnected reports whether the hub session is currently up.
@@ -246,6 +276,7 @@ func (c *Client) Close() {
 		sess.close(errors.New("closed"))
 	}
 	c.kickMarkRead()
+	c.kickOutbox()
 	c.wg.Wait()
 }
 
@@ -544,6 +575,13 @@ func (c *Client) List() ([]decide.Item, error) {
 // settings. A hub that does not know the op says to update decide there.
 // A transport failure is a hub error and does not write locally.
 func (c *Client) SetAvatar(name, choice string) (decide.DisplaySettings, error) {
+	if c.UseOutbox {
+		if _, err := c.enqueueOutbox(tui.OutboxEntry{Op: OpSetAvatar, Name: name, Choice: choice}); err != nil {
+			return decide.DisplaySettings{}, err
+		}
+		d, _ := c.Display()
+		return d, nil
+	}
 	resp, err := c.call(Request{Op: OpSetAvatar, Name: name, Choice: choice})
 	if err != nil {
 		if strings.HasPrefix(err.Error(), "unknown op ") {
@@ -570,6 +608,13 @@ func (c *Client) SetHidden(names []string) (decide.DisplaySettings, error) {
 	if err != nil {
 		return decide.DisplaySettings{}, fmt.Errorf("hidden contacts: %w", err)
 	}
+	if c.UseOutbox {
+		if _, err := c.enqueueOutbox(tui.OutboxEntry{Op: OpSetHidden, Text: string(raw)}); err != nil {
+			return decide.DisplaySettings{}, err
+		}
+		d, _ := c.Display()
+		return d, nil
+	}
 	resp, err := c.call(Request{Op: OpSetHidden, Text: string(raw)})
 	if err != nil {
 		if strings.HasPrefix(err.Error(), "unknown op ") {
@@ -595,6 +640,13 @@ func (c *Client) SetFavorites(names []string) (decide.DisplaySettings, error) {
 	if err != nil {
 		return decide.DisplaySettings{}, fmt.Errorf("favorite contacts: %w", err)
 	}
+	if c.UseOutbox {
+		if _, err := c.enqueueOutbox(tui.OutboxEntry{Op: OpSetFavorites, Text: string(raw)}); err != nil {
+			return decide.DisplaySettings{}, err
+		}
+		d, _ := c.Display()
+		return d, nil
+	}
 	resp, err := c.call(Request{Op: OpSetFavorites, Text: string(raw)})
 	if err != nil {
 		if strings.HasPrefix(err.Error(), "unknown op ") {
@@ -619,6 +671,13 @@ func (c *Client) SetAliases(aliases map[string]string) (decide.DisplaySettings, 
 	raw, err := json.Marshal(aliases)
 	if err != nil {
 		return decide.DisplaySettings{}, fmt.Errorf("contact aliases: %w", err)
+	}
+	if c.UseOutbox {
+		if _, err := c.enqueueOutbox(tui.OutboxEntry{Op: OpSetAliases, Text: string(raw)}); err != nil {
+			return decide.DisplaySettings{}, err
+		}
+		d, _ := c.Display()
+		return d, nil
 	}
 	resp, err := c.call(Request{Op: OpSetAliases, Text: string(raw)})
 	if err != nil {
@@ -721,6 +780,9 @@ func (c *Client) enqueueMarkRead(id string) {
 		}()
 	}
 	c.kickMarkRead()
+	if c.UseOutbox {
+		c.startOutboxIfPending()
+	}
 }
 
 func (c *Client) kickMarkRead() {
@@ -780,22 +842,35 @@ func (c *Client) markReadWorker() {
 
 // Answer implements tui.Backend. The hub records via ui.
 func (c *Client) Answer(id, value string) (decide.Item, error) {
+	if c.UseOutbox {
+		return c.enqueueOutbox(tui.OutboxEntry{Op: OpAnswer, ItemID: id, Text: value})
+	}
 	return c.item(Request{Op: OpAnswer, Item: id, Text: value})
 }
 
 // Reply implements tui.Backend.
 func (c *Client) Reply(id, text, route string) (decide.Item, error) {
+	if c.UseOutbox {
+		return c.enqueueOutbox(tui.OutboxEntry{Op: OpReply, ItemID: id, Text: text, Route: route})
+	}
 	return c.item(Request{Op: OpReply, Item: id, Text: text, Route: route})
 }
 
 // Done implements tui.Backend.
 func (c *Client) Done(id, outcome string) (decide.Item, error) {
+	if c.UseOutbox {
+		return c.enqueueOutbox(tui.OutboxEntry{Op: OpDone, ItemID: id, Text: outcome})
+	}
 	return c.item(Request{Op: OpDone, Item: id, Text: outcome})
 }
 
 // Archive marks a notification done with the outcome "archived" when
 // no message is newer than seen. A newer message is ErrNewerMessage.
 func (c *Client) Archive(id string, seen time.Time) (decide.Item, error) {
+	if c.UseOutbox {
+		s := seen
+		return c.enqueueOutbox(tui.OutboxEntry{Op: OpArchive, ItemID: id, Seen: &s})
+	}
 	it, err := c.item(Request{Op: OpArchive, Item: id, Seen: &seen})
 	if err != nil && err.Error() == decide.ErrNewerMessage.Error() {
 		return decide.Item{}, decide.ErrNewerMessage
@@ -810,11 +885,22 @@ func (c *Client) Withdraw(id, reason string) (decide.Item, error) {
 
 // Snooze implements tui.Backend.
 func (c *Client) Snooze(id string, until time.Time) (decide.Item, error) {
+	if c.UseOutbox {
+		u := until
+		it, err := c.enqueueOutbox(tui.OutboxEntry{Op: OpSnooze, ItemID: id, Until: &u})
+		if err == nil {
+			it.SnoozedUntil = &u
+		}
+		return it, err
+	}
 	return c.item(Request{Op: OpSnooze, Item: id, Until: &until})
 }
 
 // Unsnooze implements tui.Backend.
 func (c *Client) Unsnooze(id string) (decide.Item, error) {
+	if c.UseOutbox {
+		return c.enqueueOutbox(tui.OutboxEntry{Op: OpUnsnooze, ItemID: id})
+	}
 	return c.item(Request{Op: OpUnsnooze, Item: id})
 }
 
@@ -870,6 +956,10 @@ func (c *Client) CheckDeliveries(ctx context.Context) error {
 
 // Send implements tui.Backend. The hub looks the recipient up by name.
 func (c *Client) Send(forward string, tg tui.Target, text string) error {
+	if c.UseOutbox {
+		_, err := c.enqueueOutbox(tui.OutboxEntry{Op: OpSend, To: tg.Name, Bus: tg.Bus, Forward: forward, Text: text})
+		return err
+	}
 	_, err := c.call(Request{Op: OpSend, To: tg.Name, Bus: tg.Bus, Forward: forward, Text: text})
 	return err
 }

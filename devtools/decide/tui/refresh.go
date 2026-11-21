@@ -93,6 +93,13 @@ func (m *Model) footerStatus() string {
 		return loadingStatus
 	}
 	status := m.status
+	if ob := m.outboxStatus(); ob != "" {
+		if status == "" {
+			status = ob
+		} else {
+			status += "  " + ob
+		}
+	}
 	if fresh := m.freshnessStatus(); fresh != "" {
 		switch {
 		case status == "":

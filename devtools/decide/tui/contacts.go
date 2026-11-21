@@ -28,6 +28,7 @@ const (
 	confirmRelease
 	confirmBusDown
 	confirmRoute
+	confirmQuit
 )
 
 // contact is one row of the Contacts folder. OnBus is a name the last
@@ -736,6 +737,8 @@ func (m *Model) confirmKey(r rune) (bool, error) {
 			m.hideDead()
 		case confirmRelease:
 			m.releaseContact(name)
+		case confirmQuit:
+			return true, nil
 		}
 	case 'n', 'N', '\x1b':
 		m.confirmKind = confirmNone
