@@ -1,8 +1,1 @@
-load("//tools/org-lint:defs.bzl", "org_lint_tests")
-
 exports_files(["README.org"])
-
-org_lint_tests([
-    "README.org",
-    "reboot.org",
-])

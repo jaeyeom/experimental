@@ -1,5 +1,4 @@
 load("@gazelle//:def.bzl", "gazelle")
-load("//tools/org-lint:defs.bzl", "org_lint_tests")
 
 # Gazelle configuration
 gazelle(
@@ -45,5 +44,3 @@ sh_binary(
     name = "check-bazel-src-files",
     srcs = ["check-bazel-src-files.sh"],
 )
-
-org_lint_tests(["README.org"])

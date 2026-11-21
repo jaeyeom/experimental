@@ -242,7 +242,6 @@ go test ./devtools/docsync/...
 bazel test //devtools/docsync/...
 #+END_SRC
 
-~org_lint_tests~ on this file lives in [[file:BUILD.bazel][BUILD.bazel]].
 Run ~make check~ from the repo root before sending a change.
 
 * Non-goals

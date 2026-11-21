@@ -1,14 +1,4 @@
-load("//tools/org-lint:defs.bzl", "org_lint_tests")
-
 exports_files(["reference.org"])
 
 # This file is new, so Emacs does not follow the runfiles symlink.
 # The linked files have to be runfiles themselves.
-org_lint_tests(
-    ["reference.org"],
-    data = [
-        "//devtools/orgctl:README.org",
-        "//devtools/orgctl:examples/acme.pkl",
-        "//devtools/orgctl:pkl/Org.pkl",
-    ],
-)

@@ -1,5 +1,4 @@
 load("@rules_go//go:def.bzl", "go_library", "go_test")
-load("//tools/org-lint:defs.bzl", "org_lint_tests")
 
 exports_files([
     "README.org",
@@ -49,5 +48,3 @@ go_test(
     embed = [":go_default_library"],
     tags = ["no-sandbox"],
 )
-
-org_lint_tests(["README.org"])

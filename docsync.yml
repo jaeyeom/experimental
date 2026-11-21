@@ -69,8 +69,6 @@ rules:
       - path: README.org
         section: "** GNU Make"
         why: "make check-bazel-go-files runs check-bazel-src-files.sh"
-      - path: tools/org-lint/README.md
-        why: "same completeness-check pattern as org_lint_tests"
 
   - match: ["tools/format/**"]
     docs:
@@ -253,34 +251,6 @@ rules:
       - path: codelab/dart/shyaml/README.org
         section: "** Key Rules"
         why: "CSV-to-YAML key rules"
-
-  # --- tools/org-lint ---
-  - match: ["tools/org-lint/defs.bzl"]
-    docs:
-      - path: tools/org-lint/README.md
-        section: "### The Starlark macro (defs.bzl)"
-        why: "org_lint_tests macro"
-      - path: tools/org-lint/README.md
-        section: "## Files"
-        why: "defs.bzl in the file list"
-
-  - match: ["tools/org-lint/test_org_lint.sh"]
-    docs:
-      - path: tools/org-lint/README.md
-        section: "### The test wrapper (test_org_lint.sh)"
-        why: "Bazel test wrapper around org-lint"
-
-  - match: ["tools/org-lint/check-org-lint-tests.sh"]
-    docs:
-      - path: tools/org-lint/README.md
-        section: "### The validation check (check-org-lint-tests.sh)"
-        why: "coverage check that every .org has a test"
-
-  - match: ["tools/org-lint/BUILD.bazel"]
-    docs:
-      - path: tools/org-lint/README.md
-        section: "## Usage"
-        why: "bazel test //tools/org-lint:all_org_lint_tests"
 
   # --- devtools README.md entry points ---
   - match: ["devtools/agentbus/**"]

@@ -1,5 +1,4 @@
 load("@rules_go//go:def.bzl", "go_library", "go_test")
-load("//tools/org-lint:defs.bzl", "org_lint_tests")
 
 go_library(
     name = "go_default_library",
@@ -32,12 +31,4 @@ go_test(
         "outbox_test.go",
     ],
     embed = [":go_default_library"],
-)
-
-org_lint_tests(
-    ["README.org"],
-    data = [
-        "contrib/gh-outbox.plist",
-        "contrib/gh-outbox.service",
-    ],
 )

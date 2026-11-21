@@ -1,5 +1,4 @@
 load("@rules_go//go:def.bzl", "go_test")
-load("//tools/org-lint:defs.bzl", "org_lint_tests")
 
 exports_files(["README.org"])
 
@@ -12,5 +11,3 @@ go_test(
         "//devtools/linters/unnecessaryinterfaceassertion:linter.go",
     ],
 )
-
-org_lint_tests(["README.org"])

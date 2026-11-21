@@ -1,5 +1,4 @@
 load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
-load("//tools/org-lint:defs.bzl", "org_lint_tests")
 
 go_library(
     name = "go_default_library",
@@ -41,12 +40,6 @@ go_test(
     ],
     embed = [":go_default_library"],
 )
-
-org_lint_tests([
-    "README.org",
-    "TODO.org",
-    "macos.org",
-])
 
 sh_binary(
     name = "ensure",

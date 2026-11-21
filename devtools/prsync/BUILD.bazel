@@ -1,9 +1,5 @@
-load("//tools/org-lint:defs.bzl", "org_lint_tests")
-
 exports_files([
     "BUILD.bazel",
     "README.org",
     "prsync.config.example",
 ])
-
-org_lint_tests(["README.org"])

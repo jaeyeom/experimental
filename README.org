@@ -26,7 +26,7 @@ through a single Make + Bazel workflow.
 | =my-ts-project/= | TypeScript learning project with a Mocha test suite.                         |
 | =spacemacs/=     | Emacs/Spacemacs configuration and setup playbooks. See [[file:spacemacs/README.org][spacemacs/README.org]]. |
 | =text/=          | Text rendering and TUI layout libraries (canvas, table, gantt, box, wrap).   |
-| =tools/=         | Build, lint, and format tooling (org-lint, format driver, nogo linters).     |
+| =tools/=         | Build, lint, and format tooling (format driver, nogo linters).               |
 | =v3/=            | Bazel module/cache proto definitions (generated metadata, not source).       |
 
 The most actively developed area is =devtools/=, which includes =gh-nudge=

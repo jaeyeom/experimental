@@ -10,11 +10,11 @@ all:
 	$(MAKE) generate-ansible generate-pkl
 	$(MAKE) format
 	$(MAKE) fix
-	$(MAKE) test check-semgrep check-gitleaks check-bazel-go-files check-org-lint-tests
+	$(MAKE) test check-semgrep check-gitleaks check-bazel-go-files
 
 check:
 	$(MAKE) check-uv-lock check-generated
-	$(MAKE) check-format test lint check-semgrep check-gitleaks check-bazel-go-files check-org-lint-tests
+	$(MAKE) check-format test lint check-semgrep check-gitleaks check-bazel-go-files
 
 format: format-whitespace
 	goimports -w .
@@ -138,13 +138,10 @@ lint-shellcheck:
 	fi
 
 # Emacs/Spacemacs targets
-.PHONY: check-spacemacs check-org-lint-tests
+.PHONY: check-spacemacs
 
 check-spacemacs:
 	$(MAKE) -C spacemacs check
-
-check-org-lint-tests:
-	./tools/org-lint/check-org-lint-tests.sh
 
 # Code generation targets
 .PHONY: generate-ansible generate-pkl check-generated

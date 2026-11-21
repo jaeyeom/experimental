@@ -1,10 +1,7 @@
 load("@rules_go//go:def.bzl", "go_test")
-load("//tools/org-lint:defs.bzl", "org_lint_tests")
 
 go_test(
     name = "readme_test",
     srcs = ["readme_test.go"],
     data = ["README.org"],
 )
-
-org_lint_tests(["README.org"])

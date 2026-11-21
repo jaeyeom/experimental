@@ -9,7 +9,7 @@ CI. The two Go linters catch patterns ~golangci-lint~ doesn't: interface
 assertions that guard nothing, and package-level variables that should be
 constants or that run code at init time.
 
-~make lint~ runs ~pkgvar~. ~make check~ runs the org-lint tests.
+~make lint~ runs ~pkgvar~.
 [[file:../devcheck/README.org][devcheck]] runs
 ~unnecessary-interface-assertion-linter~ when it falls back to Go tools.
 Emacs packages for ~org-lint~ come from
@@ -21,7 +21,7 @@ Go 1.26 or later.
 
 | Tool                                   | Checks                                                       | Language | Typical use                    |
 |----------------------------------------+--------------------------------------------------------------+----------+--------------------------------|
-| org-lint                               | Org-mode syntax and source blocks, via Emacs org-lint        | Org      | make check, on .org files      |
+| org-lint                               | Org-mode syntax and source blocks, via Emacs org-lint        | Org      | CLI, on .org files             |
 | unnecessary-interface-assertion-linter | var _ I = (*T)(nil) when that assertion adds nothing         | Go       | devcheck's Go fallback         |
 | pkgvar                                 | package-level var that should be const, or that runs at init | Go       | make lint, via go vet -vettool |
 

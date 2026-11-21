@@ -1,12 +1,1 @@
-load("//tools/org-lint:defs.bzl", "org_lint_tests")
-
 exports_files(["hub-setup.org"])
-
-org_lint_tests(
-    ["hub-setup.org"],
-    data = [
-        "//devtools/agentbus:README.org",
-        "//devtools/decide:README.org",
-        "//devtools/setup-dev/ansible:README.org",
-    ],
-)

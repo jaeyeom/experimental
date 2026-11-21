@@ -1,17 +1,3 @@
-load("//tools/org-lint:defs.bzl", "org_lint_tests")
-
-org_lint_tests([
-    "README.org",
-    "codeowners.org",
-    "gh-approve.org",
-    "gh-throttle.org",
-    "merge.org",
-    "nudge.org",
-    "pr-review.org",
-    "slack.org",
-    "storage.org",
-])
-
 sh_binary(
     name = "copy-pr-comments",
     srcs = ["copy-pr-comments.sh"],

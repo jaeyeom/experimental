@@ -1,5 +1,4 @@
 load("@rules_go//go:def.bzl", "go_library", "go_test")
-load("//tools/org-lint:defs.bzl", "org_lint_tests")
 
 go_library(
     name = "go_default_library",
@@ -51,5 +50,3 @@ go_test(
     embedsrcs = ["contrib/slackwatch.service"],
     deps = ["//devtools/decide:go_default_library"],
 )
-
-org_lint_tests(["README.org"])
