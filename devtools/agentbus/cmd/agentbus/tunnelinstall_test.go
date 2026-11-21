@@ -289,7 +289,7 @@ func TestDoctorHintsWhenTheTunnelExits255(t *testing.T) {
 	tunnelExitStatus = func(context.Context, []string) (int, bool) { return 255, true }
 	t.Cleanup(func() { tunnelExitStatus = orig })
 	code, stdout, stderr := h.run(t, "", "doctor")
-	if code != 0 {
+	if stderr != "" || code > 2 {
 		t.Fatalf("doctor = %d, stderr %q", code, stderr)
 	}
 	if !strings.Contains(stdout, tunnelAuthHint) || strings.Contains(stdout, "dangling") || strings.Contains(stdout, tunnelOrderHint) {
@@ -310,7 +310,7 @@ func TestDoctorSaysTheAgentSocketIsDangling(t *testing.T) {
 	tunnelExitStatus = func(context.Context, []string) (int, bool) { return 255, true }
 	t.Cleanup(func() { tunnelExitStatus = orig })
 	code, stdout, stderr := h.run(t, "", "doctor")
-	if code != 0 {
+	if stderr != "" || code > 2 {
 		t.Fatalf("doctor = %d, stderr %q", code, stderr)
 	}
 	if !strings.Contains(stdout, tunnelDanglingHint) || !strings.Contains(stdout, tunnelOrderHint) || strings.Contains(stdout, "ssh probably could not authenticate") {
@@ -350,7 +350,7 @@ func TestDoctorHintsWhenTheAgentSocketDiffers(t *testing.T) {
 	t.Cleanup(func() { tunnelExitStatus = orig })
 	env := append(append([]string{}, h.env...), "SSH_AUTH_SOCK="+liveSock.Addr().String())
 	code, stdout, stderr := h.runEnv(t, env, "", "doctor")
-	if code != 0 {
+	if stderr != "" || code > 2 {
 		t.Fatalf("doctor = %d, stderr %q", code, stderr)
 	}
 	if !strings.Contains(stdout, tunnelAuthHint) || !strings.Contains(stdout, tunnelOrderHint) || strings.Contains(stdout, "dangling") {
@@ -363,7 +363,7 @@ func TestDoctorHintsWhenTheAgentSocketDiffers(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, stdout, stderr = h.runEnv(t, env, "", "doctor")
-	if code != 0 || strings.Contains(stdout, tunnelOrderHint) {
+	if stderr != "" || code > 2 || strings.Contains(stdout, tunnelOrderHint) {
 		t.Fatalf("matching doctor = %d, stdout %q, stderr %q", code, stdout, stderr)
 	}
 }
@@ -418,7 +418,7 @@ func TestDoctorMarksAnOldExitStaleWhenTheTunnelIsUp(t *testing.T) {
 	tunnelExitStatus = func(context.Context, []string) (int, bool) { return 255, true }
 	t.Cleanup(func() { tunnelExitStatus = orig })
 	code, stdout, stderr := h.runEnv(t, env, "", "doctor")
-	if code != 0 {
+	if stderr != "" || code > 2 {
 		t.Fatalf("doctor = %d, stderr %q", code, stderr)
 	}
 	if !strings.Contains(stdout, "tunnel is up") || !strings.Contains(stdout, "old") || strings.Contains(stdout, "tunnel down") {
@@ -538,7 +538,7 @@ func TestDoctorReportsAHubSocketMismatch(t *testing.T) {
 	h := startHub(t, `hub = "me@hub"`, `hub_socket = "/run/user/1/agentbus/hub.sock"`)
 	h.ssh.Write("agentbus.stdout", `{"hub_socket":"/run/user/1000/agentbus/hub.sock"}`+"\n")
 	code, stdout, stderr := h.run(t, "", "doctor")
-	if code != 0 {
+	if stderr != "" || code > 2 {
 		t.Fatalf("doctor = %d, stderr %q", code, stderr)
 	}
 	want := "hub_socket: configured /run/user/1/agentbus/hub.sock but the hub reports /run/user/1000/agentbus/hub.sock\n"
@@ -547,7 +547,7 @@ func TestDoctorReportsAHubSocketMismatch(t *testing.T) {
 	}
 	h.ssh.Write("agentbus.stdout", `{"hub_socket":"/run/user/1/agentbus/hub.sock"}`+"\n")
 	code, stdout, stderr = h.run(t, "", "doctor")
-	if code != 0 || strings.Contains(stdout, "but the hub reports") {
+	if stderr != "" || code > 2 || strings.Contains(stdout, "but the hub reports") {
 		t.Fatalf("matching doctor = %d, stdout %q, stderr %q", code, stdout, stderr)
 	}
 }

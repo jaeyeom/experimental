@@ -253,7 +253,7 @@ func TestDoctorHubModeNeedsNoLocalDaemon(t *testing.T) {
 	t.Cleanup(func() { doctorProbe = orig })
 
 	code, stdout, stderr := h.runEnv(t, env, "", "doctor")
-	if code != 0 {
+	if stderr != "" || code > 2 {
 		t.Fatalf("doctor = %d, stderr %q", code, stderr)
 	}
 	if h.ssh.Read("argv") != "" {
@@ -323,7 +323,7 @@ func TestDoctorListsAnExtraDaemon(t *testing.T) {
 	daemonLockHolder = func(string) (int, bool, error) { return holder, true, nil }
 
 	code, stdout, stderr := h.run(t, "", "doctor")
-	if code != 0 {
+	if stderr != "" || code > 2 {
 		t.Fatalf("doctor = %d, stderr %q", code, stderr)
 	}
 	for _, want := range []string{
@@ -357,7 +357,7 @@ func TestDoctorReportsAnUnverifiedHold(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, stdout, stderr := h.run(t, "", "doctor")
-	if code != 0 {
+	if stderr != "" || code > 2 {
 		t.Fatalf("doctor = %d, stderr %q", code, stderr)
 	}
 	if !strings.Contains(stdout, "ambiguous-unverified: m-9 to ops/x\n") || strings.Contains(stdout, "m-8") {
@@ -383,7 +383,7 @@ func TestDoctorReportsAnUnreachableHerdrTransport(t *testing.T) {
 		}
 	}
 	code, stdout, stderr := h.run(t, "", "doctor")
-	if code != 0 {
+	if stderr != "" || code > 2 {
 		t.Fatalf("doctor = %d, stderr %q", code, stderr)
 	}
 	want := "herdr transport unreachable: herdr agent list: exit 1: no herdr server is running at /run/user/1000/herdr.sock\n"
@@ -413,7 +413,7 @@ func TestDoctorReportsHerdrMissingFromPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, stdout, stderr := h.run(t, "", "doctor")
-	if code != 0 {
+	if stderr != "" || code > 2 {
 		t.Fatalf("doctor = %d, stderr %q", code, stderr)
 	}
 	for _, want := range []string{

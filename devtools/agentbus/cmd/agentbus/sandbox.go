@@ -1,10 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -28,6 +28,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/registry"
 	"github.com/jaeyeom/experimental/devtools/pkg/hubcall"
 	"github.com/jaeyeom/experimental/devtools/pkg/procinfo"
+	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
 )
 
 // sandboxEnv forces sandbox detection on ("1") or off ("0").
@@ -200,18 +201,8 @@ func doctorDirs(env []string, sandbox bool) (paths.Dirs, error) {
 	return located, nil
 }
 
-func cmdDoctor(ctx context.Context, args, env []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	sandbox := fs.Bool("sandbox", false, "print the sandbox allowlist this machine needs and test each connection")
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-	if len(fs.Args()) != 0 {
-		fmt.Fprintln(stderr, "usage: agentbus doctor [--sandbox]")
-		return 2
-	}
-	dirs, err := doctorDirs(env, *sandbox)
+func runDoctorSandbox(ctx context.Context, env []string, stdout, stderr io.Writer) int {
+	dirs, err := doctorDirs(env, true)
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus doctor: %s\n", err)
 		return 1
@@ -225,9 +216,6 @@ func cmdDoctor(ctx context.Context, args, env []string, stdout, stderr io.Writer
 	lines := reportTransports(ctx, env, dirs.StateDir, stdout)
 	reportInstallHealth(ctx, env, dirs, stdout, lines)
 	reportHubSocket(ctx, env, stdout)
-	if !*sandbox {
-		return plainDoctor(ctx, env, dirs, stdout)
-	}
 	cfg, err := hubSettings(env)
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus doctor: %s\n", err)
@@ -264,18 +252,225 @@ func cmdDoctor(ctx context.Context, args, env []string, stdout, stderr io.Writer
 	return 0
 }
 
-// plainDoctor reports a hub-mode client's tunnel, ssh, and outbox.
-// It does not check the local daemon socket.
-func plainDoctor(ctx context.Context, env []string, dirs paths.Dirs, stdout io.Writer) int {
-	cfg, err := hubSettings(env)
-	if err != nil || cfg.Hub == "" {
-		return 0
+func agentbusDoctorChecks(env []string) []toolcli.DoctorCheck {
+	return []toolcli.DoctorCheck{
+		func(ctx context.Context, _ bool) toolcli.CheckResult {
+			return checkExtraDaemons(ctx, env)
+		},
+		func(_ context.Context, _ bool) toolcli.CheckResult {
+			return checkStaleOutbox(env)
+		},
+		func(_ context.Context, _ bool) toolcli.CheckResult {
+			return checkUnverifiedHolds(env)
+		},
+		func(ctx context.Context, _ bool) toolcli.CheckResult {
+			return checkTransports(ctx, env)
+		},
+		func(ctx context.Context, _ bool) toolcli.CheckResult {
+			return checkInstallHealth(ctx, env)
+		},
+		func(ctx context.Context, offline bool) toolcli.CheckResult {
+			return checkHubSocket(ctx, env, offline)
+		},
+		func(ctx context.Context, _ bool) toolcli.CheckResult {
+			return checkTunnelSocket(ctx, env)
+		},
+		func(ctx context.Context, offline bool) toolcli.CheckResult {
+			return checkSSHProbe(ctx, env, offline)
+		},
+		func(ctx context.Context, _ bool) toolcli.CheckResult {
+			return checkTunnelExit(ctx, env)
+		},
+		func(_ context.Context, _ bool) toolcli.CheckResult {
+			return checkOutboxStatus(env)
+		},
 	}
-	fmt.Fprintf(stdout, "  tunnel socket %s: %s\n", dirs.TunnelSocketPath, checkSocket(ctx, dirs.TunnelSocketPath))
-	fmt.Fprintln(stdout, sshProbeLine(ctx, cfg))
-	reportTunnelExit(ctx, env, stdout)
-	reportOutboxStatus(env, stdout)
-	return 0
+}
+
+func checkExtraDaemons(ctx context.Context, env []string) toolcli.CheckResult {
+	dirs, err := doctorDirs(env, false)
+	if err != nil {
+		return toolcli.CheckResult{Name: "extra-daemons", Status: toolcli.StatusFail, Detail: err.Error()}
+	}
+	var buf bytes.Buffer
+	if err := reportExtraDaemons(ctx, dirs.StateDir, &buf); err != nil {
+		return toolcli.CheckResult{Name: "extra-daemons", Status: toolcli.StatusFail, Detail: err.Error()}
+	}
+	msg := strings.TrimSpace(buf.String())
+	if msg == "agentbusd: no extra daemon processes" {
+		return toolcli.CheckResult{Name: "extra-daemons", Status: toolcli.StatusOK, Detail: "no extra daemon processes"}
+	}
+	return toolcli.CheckResult{Name: "extra-daemons", Status: toolcli.StatusWarn, Detail: msg}
+}
+
+func checkStaleOutbox(env []string) toolcli.CheckResult {
+	var buf bytes.Buffer
+	reportStaleOutbox(env, &buf)
+	msg := strings.TrimSpace(buf.String())
+	if msg == "" {
+		return toolcli.CheckResult{Name: "stale-outbox", Status: toolcli.StatusOK, Detail: "none"}
+	}
+	return toolcli.CheckResult{Name: "stale-outbox", Status: toolcli.StatusWarn, Detail: msg}
+}
+
+func checkUnverifiedHolds(env []string) toolcli.CheckResult {
+	dirs, err := doctorDirs(env, false)
+	if err != nil {
+		return toolcli.CheckResult{Name: "unverified-holds", Status: toolcli.StatusFail, Detail: err.Error()}
+	}
+	var buf bytes.Buffer
+	reportUnverifiedHolds(dirs.StateDir, &buf)
+	msg := strings.TrimSpace(buf.String())
+	if msg == "" {
+		return toolcli.CheckResult{Name: "unverified-holds", Status: toolcli.StatusOK, Detail: "none"}
+	}
+	return toolcli.CheckResult{Name: "unverified-holds", Status: toolcli.StatusWarn, Detail: msg}
+}
+
+func collectTransportLines(ctx context.Context, env []string, dir string, probe bool) []string {
+	lines, asked := liveTransportLines(ctx, env)
+	if !asked {
+		if logged, err := registry.TransportProblems(dir); err == nil {
+			lines = logged
+		}
+		if probe {
+			if err := doctorHerdrProbe(ctx, env); err != nil {
+				lines = appendTransport(lines, "herdr transport unreachable: "+err.Error())
+			}
+		}
+	}
+	return lines
+}
+
+func checkTransports(ctx context.Context, env []string) toolcli.CheckResult {
+	dirs, err := doctorDirs(env, false)
+	if err != nil {
+		return toolcli.CheckResult{Name: "transports", Status: toolcli.StatusFail, Detail: err.Error()}
+	}
+	lines := collectTransportLines(ctx, env, dirs.StateDir, true)
+	if len(lines) == 0 {
+		return toolcli.CheckResult{Name: "transports", Status: toolcli.StatusOK, Detail: "ok"}
+	}
+	return toolcli.CheckResult{Name: "transports", Status: toolcli.StatusWarn, Detail: strings.Join(lines, "\n")}
+}
+
+func checkInstallHealth(ctx context.Context, env []string) toolcli.CheckResult {
+	dirs, err := doctorDirs(env, false)
+	if err != nil {
+		return toolcli.CheckResult{Name: "install-health", Status: toolcli.StatusFail, Detail: err.Error()}
+	}
+	lines := collectTransportLines(ctx, env, dirs.StateDir, false)
+	var buf bytes.Buffer
+	reportInstallHealth(ctx, env, dirs, &buf, lines)
+	msg := strings.TrimSpace(buf.String())
+	if msg == "" {
+		return toolcli.CheckResult{Name: "install-health", Status: toolcli.StatusOK, Detail: "ok"}
+	}
+	return toolcli.CheckResult{Name: "install-health", Status: toolcli.StatusWarn, Detail: msg}
+}
+
+func checkHubSocket(ctx context.Context, env []string, offline bool) toolcli.CheckResult {
+	cfg, err := hubSettings(env)
+	if err != nil {
+		return toolcli.CheckResult{Name: "hub-socket", Status: toolcli.StatusFail, Detail: err.Error()}
+	}
+	if cfg.Hub == "" || cfg.HubSocket == "" {
+		return toolcli.CheckResult{Name: "hub-socket", Status: toolcli.StatusOK, Detail: "not configured"}
+	}
+	if offline {
+		return toolcli.CheckResult{
+			Name:   "hub-socket",
+			Status: toolcli.StatusWarn,
+			Detail: "skipped (--offline)",
+			Hint:   "run without --offline to verify hub_socket",
+		}
+	}
+	got, err := queryHubSocket(ctx, cfg)
+	if err != nil || got == cfg.HubSocket {
+		return toolcli.CheckResult{Name: "hub-socket", Status: toolcli.StatusOK, Detail: cfg.HubSocket}
+	}
+	return toolcli.CheckResult{
+		Name:   "hub-socket",
+		Status: toolcli.StatusWarn,
+		Detail: fmt.Sprintf("hub_socket: configured %s but the hub reports %s", cfg.HubSocket, got),
+	}
+}
+
+func checkTunnelSocket(ctx context.Context, env []string) toolcli.CheckResult {
+	cfg, err := hubSettings(env)
+	if err != nil {
+		return toolcli.CheckResult{Name: "tunnel-socket", Status: toolcli.StatusFail, Detail: err.Error()}
+	}
+	if cfg.Hub == "" {
+		return toolcli.CheckResult{Name: "tunnel-socket", Status: toolcli.StatusOK, Detail: "not in hub mode"}
+	}
+	dirs, err := doctorDirs(env, false)
+	if err != nil {
+		return toolcli.CheckResult{Name: "tunnel-socket", Status: toolcli.StatusFail, Detail: err.Error()}
+	}
+	state := checkSocket(ctx, dirs.TunnelSocketPath)
+	detail := fmt.Sprintf("tunnel socket %s: %s", dirs.TunnelSocketPath, state)
+	if state == "ok" {
+		return toolcli.CheckResult{Name: "tunnel-socket", Status: toolcli.StatusOK, Detail: detail}
+	}
+	return toolcli.CheckResult{Name: "tunnel-socket", Status: toolcli.StatusWarn, Detail: detail}
+}
+
+func checkSSHProbe(ctx context.Context, env []string, offline bool) toolcli.CheckResult {
+	cfg, err := hubSettings(env)
+	if err != nil {
+		return toolcli.CheckResult{Name: "ssh-probe", Status: toolcli.StatusFail, Detail: err.Error()}
+	}
+	if cfg.Hub == "" {
+		return toolcli.CheckResult{Name: "ssh-probe", Status: toolcli.StatusOK, Detail: "not in hub mode"}
+	}
+	if offline {
+		return toolcli.CheckResult{
+			Name:   "ssh-probe",
+			Status: toolcli.StatusWarn,
+			Detail: "skipped (--offline)",
+			Hint:   "run without --offline to probe hub ssh port",
+		}
+	}
+	line := strings.TrimSpace(sshProbeLine(ctx, cfg))
+	if strings.Contains(line, ": ok ") {
+		return toolcli.CheckResult{Name: "ssh-probe", Status: toolcli.StatusOK, Detail: line}
+	}
+	return toolcli.CheckResult{Name: "ssh-probe", Status: toolcli.StatusWarn, Detail: line}
+}
+
+func checkTunnelExit(ctx context.Context, env []string) toolcli.CheckResult {
+	cfg, err := hubSettings(env)
+	if err != nil {
+		return toolcli.CheckResult{Name: "tunnel-exit", Status: toolcli.StatusFail, Detail: err.Error()}
+	}
+	if cfg.Hub == "" {
+		return toolcli.CheckResult{Name: "tunnel-exit", Status: toolcli.StatusOK, Detail: "not in hub mode"}
+	}
+	var buf bytes.Buffer
+	reportTunnelExit(ctx, env, &buf)
+	msg := strings.TrimSpace(buf.String())
+	if msg == "" {
+		return toolcli.CheckResult{Name: "tunnel-exit", Status: toolcli.StatusOK, Detail: "ok"}
+	}
+	return toolcli.CheckResult{Name: "tunnel-exit", Status: toolcli.StatusWarn, Detail: msg}
+}
+
+func checkOutboxStatus(env []string) toolcli.CheckResult {
+	cfg, err := hubSettings(env)
+	if err != nil {
+		return toolcli.CheckResult{Name: "outbox", Status: toolcli.StatusFail, Detail: err.Error()}
+	}
+	if cfg.Hub == "" {
+		return toolcli.CheckResult{Name: "outbox", Status: toolcli.StatusOK, Detail: "not in hub mode"}
+	}
+	flusher := outboxFlusherStatus(env)
+	pending := pendingOutboxLine(env)
+	detail := fmt.Sprintf("outbox flusher: %s; %s", flusher, pending)
+	if strings.HasPrefix(flusher, "present") && pending == "outbox: no pending entries" {
+		return toolcli.CheckResult{Name: "outbox", Status: toolcli.StatusOK, Detail: detail}
+	}
+	return toolcli.CheckResult{Name: "outbox", Status: toolcli.StatusWarn, Detail: detail}
 }
 
 // tunnelExitStatus reports the tunnel unit's last exit code. ok is
@@ -620,15 +815,7 @@ var doctorHerdrProbe = func(ctx context.Context, env []string) error {
 // the event log and a direct herdr probe. The lines are also returned
 // so the install diagnosis can see a live "executable file not found".
 func reportTransports(ctx context.Context, env []string, dir string, stdout io.Writer) []string {
-	lines, asked := liveTransportLines(ctx, env)
-	if !asked {
-		if logged, err := registry.TransportProblems(dir); err == nil {
-			lines = logged
-		}
-		if err := doctorHerdrProbe(ctx, env); err != nil {
-			lines = appendTransport(lines, "herdr transport unreachable: "+err.Error())
-		}
-	}
+	lines := collectTransportLines(ctx, env, dir, true)
 	for _, line := range lines {
 		fmt.Fprintln(stdout, line)
 	}

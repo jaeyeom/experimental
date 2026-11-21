@@ -13,6 +13,8 @@ func TestAgentbusToolCLIConformance(t *testing.T) {
 		NewTool: func(homeDir, workDir string, inst toolcli.Installer) toolcli.Tool {
 			t.Setenv("HOME", homeDir)
 			t.Setenv("XDG_CONFIG_HOME", filepath.Join(homeDir, ".config"))
+			t.Setenv("XDG_RUNTIME_DIR", shortRuntime(t))
+			t.Setenv("XDG_STATE_HOME", t.TempDir())
 			exe := filepath.Join(t.TempDir(), "agentbus")
 			if err := os.WriteFile(exe, []byte("bin"), 0o600); err != nil {
 				t.Fatal(err)
@@ -44,11 +46,11 @@ func TestShouldHandleToolCLI(t *testing.T) {
 		{[]string{"update", "--check"}, true},
 		{[]string{"skill"}, true},
 		{[]string{"skill", "status", "--json"}, true},
-		{[]string{"doctor"}, false},
-		{[]string{"doctor", "extra"}, false},
-		{[]string{"doctor", "--sandbox"}, false},
-		{[]string{"doctor", "--json", "--sandbox"}, false},
-		{[]string{"doctor", "--offline", "--sandbox"}, false},
+		{[]string{"doctor"}, true},
+		{[]string{"doctor", "extra"}, true},
+		{[]string{"doctor", "--sandbox"}, true},
+		{[]string{"doctor", "--json", "--sandbox"}, true},
+		{[]string{"doctor", "--offline", "--sandbox"}, true},
 		{[]string{"doctor", "--json"}, true},
 		{[]string{"doctor", "--offline"}, true},
 		{[]string{"doctor", "--offline", "--json"}, true},

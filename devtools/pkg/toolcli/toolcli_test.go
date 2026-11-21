@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
+	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -199,6 +202,32 @@ func TestDoctorExitCodesAndFormat(t *testing.T) {
 		}
 		if !strings.Contains(out.String(), "fail  config") {
 			t.Fatalf("expected fail config line, got:\n%s", out.String())
+		}
+	})
+
+	t.Run("custom_doctor_flag_and_usage", func(t *testing.T) {
+		tool := newTestTool(t, home, work, inst)
+		tool.DoctorUsage = "mytool doctor [--custom]"
+		tool.RegisterDoctorFlags = func(fs *flag.FlagSet) func(context.Context, io.Writer, io.Writer) (int, bool) {
+			custom := fs.Bool("custom", false, "custom mode")
+			return func(_ context.Context, stdout, _ io.Writer) (int, bool) {
+				if !*custom {
+					return 0, false
+				}
+				_, _ = fmt.Fprintln(stdout, "custom-ok")
+				return 0, true
+			}
+		}
+		var out, errBuf bytes.Buffer
+		code, _ := tool.Handle(context.Background(), []string{"doctor", "--custom"}, &out, &errBuf)
+		if code != 0 || !strings.Contains(out.String(), "custom-ok") {
+			t.Fatalf("custom flag: code=%d out=%q err=%q", code, out.String(), errBuf.String())
+		}
+		out.Reset()
+		errBuf.Reset()
+		code, _ = tool.Handle(context.Background(), []string{"doctor", "extra"}, &out, &errBuf)
+		if code != 2 || !strings.Contains(errBuf.String(), "--custom") {
+			t.Fatalf("extra arg: code=%d err=%q", code, errBuf.String())
 		}
 	})
 }
