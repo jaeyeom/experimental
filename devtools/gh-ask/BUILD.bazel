@@ -20,7 +20,7 @@ go_library(
 
 go_test(
     name = "go_default_test",
-    size = "small",
+    size = "medium",
     srcs = [
         "command_test.go",
         "config_test.go",
