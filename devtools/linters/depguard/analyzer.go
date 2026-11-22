@@ -45,6 +45,7 @@ func settings() *depguard.LinterSettings {
 				"github.com/jaeyeom/go-cmdexec",
 				"github.com/jaeyeom/sugo",
 				"github.com/bkielbasa/cyclop",
+				"github.com/go-critic/go-critic",
 				"github.com/kisielk/errcheck",
 				"github.com/ldez/tagliatelle",
 				"github.com/mattn/go-sqlite3",

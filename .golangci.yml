@@ -1,7 +1,6 @@
 version: "2"
 linters:
   enable:
-    - gocritic
     - govet
     - revive
     - staticcheck
@@ -54,6 +53,7 @@ linters:
             - github.com/charmbracelet/bubbletea
             - github.com/charmbracelet/bubbles
             - github.com/charmbracelet/lipgloss
+            - github.com/go-critic/go-critic
             - github.com/google/renameio/v2
             - github.com/bkielbasa/cyclop
             - github.com/kisielk/errcheck
