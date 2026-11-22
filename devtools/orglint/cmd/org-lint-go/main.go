@@ -14,7 +14,7 @@ import (
 )
 
 func main() {
-	found, err := orglint.Run(os.Stdout, os.Args[1:], orglint.Checkers)
+	found, err := orglint.Run(os.Stdout, os.Args[1:], orglint.Checkers())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "org-lint-go:", err)
 		os.Exit(2)

@@ -58,8 +58,8 @@ func TestUnclosed(t *testing.T) {
 	if len(d.Blocks) != 1 || d.Blocks[0].EndLine != 0 {
 		t.Errorf("blocks = %+v", d.Blocks)
 	}
-	if len(d.Headlines) != 0 {
-		t.Errorf("block should swallow rest: %+v", d.Headlines)
+	if len(d.Headlines) != 1 || len(d.Drawers) != 1 {
+		t.Errorf("an unclosed block is plain text: %+v %+v", d.Headlines, d.Drawers)
 	}
 	d = ParseString("* H\n:DRAWER:\ntext\n* H2\n")
 	if len(d.Headlines) != 2 || len(d.Drawers) != 1 || d.Drawers[0].EndLine != 0 {

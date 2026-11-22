@@ -20,7 +20,9 @@ type Checker struct {
 }
 
 // Checkers is the list of enabled checkers.
-var Checkers = linkCheckers
+func Checkers() []Checker {
+	return append(append([]Checker{}, linkCheckers...), structureCheckers...)
+}
 
 // LintFile parses the named file and runs the checkers on it. Findings carry
 // the name as given.

@@ -228,9 +228,7 @@ func (d *Document) element(n int, text string) opened {
 	case headlineRE.MatchString(text):
 		d.addHeadline(n, text)
 	case blockRE.MatchString(text):
-		m := blockRE.FindStringSubmatch(text)
-		d.Blocks = append(d.Blocks, Block{Line: n, Name: strings.ToUpper(m[1]), Params: m[2]})
-		return openedBlock
+		return d.openBlock(n, text)
 	case keywordRE.MatchString(text):
 		m := keywordRE.FindStringSubmatch(text)
 		key := strings.ToUpper(m[1])
@@ -240,9 +238,7 @@ func (d *Document) element(n int, text string) opened {
 	case strings.HasPrefix(trimmed, ": ") || trimmed == ":":
 		// fixed-width area
 	case drawerRE.MatchString(text) && !strings.EqualFold(trimmed, ":END:"):
-		m := drawerRE.FindStringSubmatch(text)
-		d.Drawers = append(d.Drawers, Drawer{Line: n, Name: m[1]})
-		return openedDrawer
+		return d.openDrawer(n, text)
 	case planningRE.MatchString(text):
 		d.Plannings = append(d.Plannings, Planning{n, strings.TrimSpace(text)})
 	default:
@@ -250,6 +246,45 @@ func (d *Document) element(n int, text string) opened {
 		d.inline(n, text)
 	}
 	return openedNothing
+}
+
+// openBlock records the block that starts on a line. An unclosed block is
+// plain text.
+func (d *Document) openBlock(n int, text string) opened {
+	m := blockRE.FindStringSubmatch(text)
+	d.Blocks = append(d.Blocks, Block{Line: n, Name: strings.ToUpper(m[1]), Params: m[2]})
+	if d.closes(n, func(l string) bool {
+		e := endRE.FindStringSubmatch(l)
+		return e != nil && strings.EqualFold(e[1], m[1])
+	}, false) {
+		return openedBlock
+	}
+	return openedNothing
+}
+
+// openDrawer records the drawer that starts on a line. An unclosed drawer is
+// plain text.
+func (d *Document) openDrawer(n int, text string) opened {
+	m := drawerRE.FindStringSubmatch(text)
+	d.Drawers = append(d.Drawers, Drawer{Line: n, Name: m[1]})
+	if d.closes(n, func(l string) bool { return strings.EqualFold(strings.TrimSpace(l), ":END:") }, true) {
+		return openedDrawer
+	}
+	return openedNothing
+}
+
+// closes reports whether a line after line n satisfies isEnd. If stopAtHeadline
+// is set, the search ends at the next headline.
+func (d *Document) closes(n int, isEnd func(string) bool, stopAtHeadline bool) bool {
+	for _, l := range d.Lines[n:] {
+		if stopAtHeadline && headlineRE.MatchString(l) {
+			return false
+		}
+		if isEnd(l) {
+			return true
+		}
+	}
+	return false
 }
 
 func (d *Document) addHeadline(n int, text string) {

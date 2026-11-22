@@ -12,8 +12,15 @@ import (
 // TestLinkCheckersMatchGoldens lints every parity fixture and compares the
 // findings of the link checkers with the Emacs goldens.
 func TestLinkCheckersMatchGoldens(t *testing.T) {
+	checkGoldens(t, linkCheckers)
+}
+
+// checkGoldens lints every parity fixture and compares the findings of the
+// given checkers with the matching findings in the Emacs goldens.
+func checkGoldens(t *testing.T, checkers []Checker) {
+	t.Helper()
 	names := map[string]bool{}
-	for _, c := range linkCheckers {
+	for _, c := range checkers {
 		names[c.Name] = true
 	}
 	fixtures, _ := filepath.Glob("../linters/testdata/orglint/*.orgtest")
@@ -36,7 +43,7 @@ func TestLinkCheckersMatchGoldens(t *testing.T) {
 				want = append(want, f)
 			}
 		}
-		got, err := LintFile(fx, linkCheckers)
+		got, err := LintFile(fx, checkers)
 		if err != nil {
 			t.Fatal(err)
 		}
