@@ -85,9 +85,13 @@ only), extra findings (Go only) and line differences, for every tracked
 
 #+BEGIN_SRC bash
 make org-lint-parity                      # survey, and check goldens against Emacs
-make org-lint-parity GO_LINT=./org-lint-go
+go build -o .tmp/org-lint-go ./devtools/orglint/cmd/org-lint-go
+make org-lint-parity GO_LINT=.tmp/org-lint-go
 make org-lint-parity-update               # regenerate the fixture goldens
 #+END_SRC
+
+The Go linter lives in ~devtools/orglint~ (a small org parser plus the
+checker list, empty for now) with the command ~org-lint-go~.
 
 Fixtures are in ~testdata/orglint/~. Each ~NAME.orgtest~ triggers the
 checker ~NAME~ (some also trigger a second one). The extension keeps

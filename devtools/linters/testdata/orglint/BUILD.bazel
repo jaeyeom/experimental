@@ -4,5 +4,8 @@ filegroup(
         "*.orgtest",
         "*.golden",
     ]),
-    visibility = ["//devtools/linters:__subpackages__"],
+    visibility = [
+        "//devtools/linters:__subpackages__",
+        "//devtools/orglint:__pkg__",
+    ],
 )

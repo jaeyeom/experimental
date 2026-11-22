@@ -1,0 +1,20 @@
+#+TITLE: Sample
+#+NAME: intro
+#+CAPTION: A caption
+
+* TODO Top heading :a:b:
+SCHEDULED: <2026-01-01 Thu>
+:PROPERTIES:
+:CUSTOM_ID: top
+:END:
+See [[#top][the top]] and [[https://example.com]] or <https://example.org>
+plus https://example.net/x. A note[fn:1].
+** Child
+- item one
+  1. nested
+- [X] done
+#+BEGIN_SRC go :tangle no
+fmt.Println("[[not-a-link]]")
+#+END_SRC
+* Next
+[fn:1] The note.
