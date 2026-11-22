@@ -75,11 +75,33 @@ func matchCount(texts []string, q string) int {
 	return n
 }
 
-// refilter applies the agent filter and m.filter to the cached folder rows.
+// refilter applies the class filter, agent filter, and m.filter to the cached
+// folder rows.
 func (m *Model) refilter(keep string) {
 	q := strings.ToLower(m.filter)
+	if m.isInboxFolder() {
+		entries := decide.InboxEntries(m.folderItems, m.classFilter)
+		m.entries = make([]decide.InboxEntry, 0, len(entries))
+		m.items = make([]decide.Item, 0, len(entries))
+		for _, e := range entries {
+			if !m.agentKeeps(e.Item) {
+				continue
+			}
+			if q != "" && !strings.Contains(searchText(&e.Item), q) {
+				continue
+			}
+			m.entries = append(m.entries, e)
+			m.items = append(m.items, e.Item)
+		}
+		m.cursor = max(slices.IndexFunc(m.items, func(it decide.Item) bool { return it.ID == keep }), 0)
+		return
+	}
+	m.entries = nil
 	m.items = make([]decide.Item, 0, len(m.folderItems))
 	for i, it := range m.folderItems {
+		if len(m.classFilter) > 0 && !slices.Contains(m.classFilter, it.EffectiveClass()) {
+			continue
+		}
 		if !m.agentKeeps(it) {
 			continue
 		}
@@ -354,6 +376,9 @@ func (m *Model) emptyText(placeholder string) string {
 func (m *Model) withFilterHeader(lines []screenLine) []screenLine {
 	var head []screenLine
 	if header, ok := m.agentHeader(); ok {
+		head = append(head, header)
+	}
+	if header, ok := m.classFilterHeader(); ok {
 		head = append(head, header)
 	}
 	if header, ok := m.filterHeader(); ok {

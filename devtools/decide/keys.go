@@ -332,8 +332,10 @@ func ActionCatalog() []ActionDef {
 		{Name: "list.open", View: "list", Scopes: []string{"list"}, Default: []string{"o", "enter"}, Description: "Open the selected row.", Where: "list"},
 		{Name: "list.compose", View: "list", Scopes: []string{"list"}, Default: []string{"c"}, Description: "Compose a note.", Where: "list"},
 		{Name: "list.archive", View: "list", Scopes: []string{"list"}, Default: []string{"e", "y"}, Description: "Archive: mark done with outcome archived.", Where: "list"},
+		{Name: "list.archiveNotes", View: "list", Scopes: []string{"list"}, Default: []string{"E"}, Description: "Archive all open notes.", Where: "list"},
+		{Name: "list.classFilter", View: "list", Scopes: []string{"list"}, Default: []string{"f"}, Description: "Filter by item class.", Where: "list"},
 		{Name: "list.snooze", View: "list", Scopes: []string{"list"}, Default: []string{"b"}, Description: "Snooze. In Snoozed, also offers unsnooze.", Where: "list"},
-		{Name: "list.clearFilter", View: "list", Scopes: []string{"list"}, Default: []string{"esc"}, Description: "Clear the agent filter.", Where: "list"},
+		{Name: "list.clearFilter", View: "list", Scopes: []string{"list"}, Default: []string{"esc"}, Description: "Clear the agent or class filter.", Where: "list"},
 
 		// Detail view.
 		{Name: "detail.back", View: "detail", Scopes: []string{"detail"}, Default: []string{"u", "esc"}, Description: "Back to the list.", Where: "item"},

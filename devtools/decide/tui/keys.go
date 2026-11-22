@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -251,6 +252,13 @@ func (m *Model) dispatchBrowseKey(s decide.KeyStroke) (bool, error) {
 		}
 	}
 	scope := m.browseScope()
+	if scope == "list" && !s.Ctrl && !s.Alt {
+		if runes := []rune(s.Key); len(runes) == 1 {
+			if handled, err := m.answerApprovalFromList(runes[0]); handled {
+				return false, err
+			}
+		}
+	}
 	km := m.keyMap()
 	if km.IsPrefix(scope, s) {
 		m.beginChord(s)
@@ -314,8 +322,10 @@ func (m *Model) runAction(action string) (bool, error) {
 		"list.open":            func() (bool, error) { return false, m.openRow() },
 		"list.compose":         func() (bool, error) { m.focusCompose(); return false, nil },
 		"list.archive":         func() (bool, error) { return false, m.archiveSelected() },
+		"list.archiveNotes":    func() (bool, error) { return false, m.archiveAllNotes() },
+		"list.classFilter":     func() (bool, error) { m.classFiltering = true; return false, nil },
 		"list.snooze":          func() (bool, error) { m.beginSnooze(); return false, nil },
-		"list.clearFilter":     func() (bool, error) { m.clearAgentFilter(); return false, nil },
+		"list.clearFilter":     func() (bool, error) { m.clearAgentFilter(); m.SetClassFilter(nil); return false, nil },
 		"detail.back":          func() (bool, error) { m.backToList(); return false, nil },
 		"detail.scrollDown":    func() (bool, error) { m.Wheel(true); return false, nil },
 		"detail.scrollUp":      func() (bool, error) { m.Wheel(false); return false, nil },
@@ -801,6 +811,9 @@ func (m *Model) optionalHintExtras() []string {
 			extras = append(extras, o+" owner")
 		}
 	default:
+		if m.isInboxFolder() && m.unreadCount > 0 {
+			extras = append(extras, fmt.Sprintf("unread: %d", m.unreadCount))
+		}
 		if find != "" {
 			extras = append(extras, find)
 		}

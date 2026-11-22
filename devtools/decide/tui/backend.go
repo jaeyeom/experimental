@@ -119,6 +119,12 @@ type DraftBackend interface {
 	DeleteDraft(key, conflictID string) error
 }
 
+// NotesArchiveBackend is an optional backend capability for bulk-archiving
+// open notes.
+type NotesArchiveBackend interface {
+	ArchiveNotes(seen time.Time) (int, error)
+}
+
 // unreachableStatus is the status line while the hub is unreachable.
 const unreachableStatus = "hub unreachable; retrying"
 
@@ -422,6 +428,19 @@ func (b *LocalBackend) Done(id, outcome string) (decide.Item, error) {
 // Archive implements Backend.
 func (b *LocalBackend) Archive(id string, seen time.Time) (decide.Item, error) {
 	return b.with(func(led *decide.Ledger) (decide.Item, error) { return led.Archive(id, seen) })
+}
+
+// ArchiveNotes implements NotesArchiveBackend.
+func (b *LocalBackend) ArchiveNotes(seen time.Time) (int, error) {
+	led, err := b.ledger()
+	if err != nil {
+		return 0, err
+	}
+	n, err := led.ArchiveNotes(seen)
+	if err != nil {
+		return n, fmt.Errorf("archive decide notes: %w", err)
+	}
+	return n, nil
 }
 
 // Withdraw withdraws item id with reason.

@@ -287,11 +287,9 @@ the approval, and the parent gets one line, such as ~A-870 approved,
 posted 11:40~ or ~A-870 declined~.
 
 Each row has a class badge (the prefix letter) and entries can be
-filtered by class. ~y~, ~n~ and ~e~ map to an approval's ~yes~, ~no~ and
-~edit~, notes can be archived in bulk, and notes are not counted as
-unread. (Library: ~InboxEntries~, ~ApprovalCard~, ~Ledger.AnswerCard~,
-~ApprovalKeyOption~, ~Ledger.ArchiveNotes~, ~UnreadCount~. The TUI does
-not use them yet.)
+filtered by class (~f~ in the list). ~y~, ~n~ and ~e~ answer an
+approval's ~yes~, ~no~ and ~edit~ right from the list, ~E~ archives
+open notes in bulk, and notes are not counted as unread.
 
 ~decide backfill [--yes]~ is the one-time class backfill. It proposes a
 class for every item that is still a decision, by pattern: threads the

@@ -94,6 +94,10 @@ type Model struct {
 	folder            int
 	cursor            int
 	items             []decide.Item
+	entries           []decide.InboxEntry
+	classFilter       []string
+	classFiltering    bool
+	unreadCount       int
 	status            string
 	mode              int
 	draft             string
@@ -107,6 +111,7 @@ type Model struct {
 	replyAndArchive bool
 	// pendingAnswerKey and pendingAnswerPrefill hold an option chosen under
 	// ui.answerAction=edit until the user sends or discards the reply box.
+	pendingAnswerID      string
 	pendingAnswerKey     string
 	pendingAnswerPrefill string
 	// replyRoute is the owner, worker, or both choice for the reply being
@@ -412,14 +417,8 @@ func (m *Model) applyList(all []decide.Item) error {
 	m.counts = make([]int, len(Folders))
 	m.folderTexts = make([][]string, len(Folders))
 	m.folderRows = make([][]decide.Item, len(Folders))
-	for _, it := range all {
-		for i, folder := range Folders {
-			if folder.Snoozed == it.Snoozed() && (folder.Snoozed || decide.InState(&it, folder.State)) {
-				m.counts[i]++
-				m.folderTexts[i] = append(m.folderTexts[i], searchText(&it))
-				m.folderRows[i] = append(m.folderRows[i], it)
-			}
-		}
+	if err := m.applyFolderCounts(all); err != nil {
+		return err
 	}
 	m.rebuildContacts()
 	m.restoreFailedOutbox()
@@ -510,6 +509,9 @@ func (m *Model) overlayKey(r rune) (bool, bool, error) {
 		return quit, true, err
 	case m.searching:
 		quit, err := m.searchKey(r)
+		return quit, true, err
+	case m.classFiltering:
+		quit, err := m.classFilterKey(r)
 		return quit, true, err
 	case m.help:
 		quit, err := m.helpKey(r)
@@ -1268,6 +1270,24 @@ func (m *Model) answerOption(index int) error {
 	if m.detail == nil {
 		return nil
 	}
+	if len(m.detail.Options) == 0 || m.detail.Kind != decide.KindRelay {
+		if card, ok := decide.ApprovalCard(m.allItems, m.detail.ID); ok {
+			if index < 0 || index >= len(card.Options) {
+				m.status = "no such option"
+				return nil
+			}
+			opt := card.Options[index]
+			if opt.Key == "edit" || m.effectiveAnswerAction() == decide.AnswerActionEdit {
+				m.beginApprovalEdit(&card)
+				return nil
+			}
+			return m.writeAnswerTo(card.ID, opt.Key)
+		}
+		if m.detail.Kind != decide.KindRelay {
+			m.status = "no answer control"
+			return nil
+		}
+	}
 	if m.detail.Kind != decide.KindRelay {
 		m.status = "no answer control"
 		return nil
@@ -1278,6 +1298,7 @@ func (m *Model) answerOption(index int) error {
 	}
 	opt := m.detail.Options[index]
 	if m.effectiveAnswerAction() == decide.AnswerActionEdit {
+		m.pendingAnswerID = m.detail.ID
 		m.pendingAnswerKey = opt.Key
 		m.pendingAnswerPrefill = opt.Label
 		m.reply = opt.Label
@@ -1303,6 +1324,13 @@ func (m *Model) writeAnswer(value string) error {
 	if m.detail == nil {
 		return nil
 	}
+	return m.writeAnswerTo(m.detail.ID, value)
+}
+
+func (m *Model) writeAnswerTo(id, value string) error {
+	if m.detail == nil {
+		return nil
+	}
 	if m.outboxEditing != "" {
 		if ob, ok := m.outboxBackend(); ok {
 			if err := ob.EditOutbox(m.outboxEditing, value); err != nil {
@@ -1317,7 +1345,6 @@ func (m *Model) writeAnswer(value string) error {
 			return m.Reload()
 		}
 	}
-	id := m.detail.ID
 	updated, err := m.store().Answer(id, value)
 	var notifyErr *NotifyError
 	switch {
@@ -1334,7 +1361,9 @@ func (m *Model) writeAnswer(value string) error {
 		m.backToList()
 		return m.Reload()
 	}
-	m.detail = &updated
+	if id == m.detail.ID {
+		m.detail = &updated
+	}
 	m.answerFocus = false
 	m.draft = ""
 	m.free.Reset()
@@ -1448,8 +1477,12 @@ func (m *Model) submitEditedAnswer(text string) error {
 		m.replyRoute = ""
 	}
 	id := m.detail.ID
+	targetID := id
+	if m.pendingAnswerID != "" {
+		targetID = m.pendingAnswerID
+	}
 	key := m.pendingAnswerKey
-	updated, err := m.store().Answer(id, key)
+	updated, err := m.store().Answer(targetID, key)
 	var notifyErr *NotifyError
 	switch {
 	case errors.As(err, &notifyErr):
@@ -1458,8 +1491,9 @@ func (m *Model) submitEditedAnswer(text string) error {
 		m.status = err.Error()
 		return nil
 	default:
-		m.status = "answered " + id
+		m.status = "answered " + targetID
 	}
+	m.pendingAnswerID = ""
 	m.pendingAnswerKey = ""
 	m.pendingAnswerPrefill = ""
 	if added != "" {
@@ -1737,8 +1771,8 @@ func (m *Model) statusLine() screenLine {
 	// width, so a 70-column footer still shows "? help". An open item also
 	// names e/y archive, 0 reply, f forward, and q quit, and d outcome when it fits.
 	// It leaves the folder keys to ? help so a 120-column footer still fits.
-	if m.searching {
-		return m.searchPrompt()
+	if line, ok := m.promptStatusLine(); ok {
+		return line
 	}
 	label := m.mouseLabel()
 	if m.snoozing {
@@ -2385,6 +2419,9 @@ func (m *Model) headerChrome() int {
 	if _, ok := m.agentHeader(); ok {
 		n++
 	}
+	if _, ok := m.classFilterHeader(); ok {
+		n++
+	}
 	if _, ok := m.filterHeader(); ok {
 		n++
 	}
@@ -2890,7 +2927,8 @@ func (m *Model) rowLines(width int) []screenLine {
 	loc := m.zone()
 	cells := make([][]string, len(m.items))
 	for i, it := range m.items {
-		cells[i] = inboxCells(it, now, loc)
+		waiting := m.isInboxFolder() && i < len(m.entries) && m.entries[i].ApprovalWaiting
+		cells[i] = inboxEntryCells(it, waiting, now, loc)
 		if mark := m.itemDraftMark(it.ID); mark != "" {
 			cells[i][3] = cells[i][3] + " " + mark
 		}
@@ -2948,6 +2986,9 @@ func (m *Model) detailLines(width int) []screenLine {
 		)
 	} else {
 		lines = append(lines, m.relayLines(it, width)...)
+	}
+	if card, ok := decide.ApprovalCard(m.allItems, it.ID); ok {
+		lines = append(lines, m.approvalCardLines(&card, width)...)
 	}
 	if m.mode == modeOutcome {
 		const label = "outcome: "
@@ -3513,11 +3554,26 @@ func withCursor(text string, col int) string {
 // state, then the question.
 // A snoozed item shows its wake time in place of the age.
 func inboxCells(it decide.Item, now time.Time, loc *time.Location) []string {
+	return inboxEntryCells(it, false, now, loc)
+}
+
+func inboxEntryCells(it decide.Item, approvalWaiting bool, now time.Time, loc *time.Location) []string {
 	when := age(now.Sub(it.CreatedAt))
 	if it.SnoozedUntil != nil {
 		when = "until " + stamp(*it.SnoozedUntil, now, loc)
 	}
-	return []string{it.ID, it.Owner, when, rowBadge(it), rowSnippet(it)}
+	return []string{it.ID, it.Owner, when, rowEntryBadge(it, approvalWaiting), rowSnippet(it)}
+}
+
+func rowEntryBadge(it decide.Item, approvalWaiting bool) string {
+	badge := "[" + decide.BadgeOf(&it) + "]"
+	if approvalWaiting {
+		return badge + " approval waiting"
+	}
+	if b := rowBadge(it); b != "" {
+		return badge + " " + b
+	}
+	return badge
 }
 
 // rowBadge is the item kind, or the state when the kind is empty.
