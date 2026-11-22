@@ -13,8 +13,10 @@
     claude_toolbox_claude_plugins:
       - git-guardrails
       - sandbox-helpers
-    claude_toolbox_agent_plugins:
-      - git-guardrails
+    # Every other plugin in the checkout's marketplace.json is installed
+    # for the non-Claude-Code agents.
+    claude_toolbox_claude_only_plugins:
+      - sandbox-helpers
     claude_settings_file: "{{ ansible_facts['env']['HOME'] }}/.claude/settings.json"
     claude_toolbox_checkout: "{{ ansible_facts['env']['HOME'] }}/.cache/claude-toolbox"
   tasks:
@@ -125,6 +127,56 @@
               declares the plugins. Run `claude plugin install
               <plugin>@{{ claude_toolbox_marketplace }}` after signing in.
 
+    # Grok and agy have no marketplace tracking, so keep a clean checkout and
+    # install every plugin it lists. force discards local edits so the
+    # checkout always matches origin.
+    - name: Sync the claude-toolbox checkout and plugin list
+      when: grok_check.rc == 0 or agy_check.rc == 0
+      block:
+        - name: Clone or update the claude-toolbox checkout
+          ansible.builtin.git:
+            repo: "https://github.com/{{ claude_toolbox_repo }}"
+            dest: "{{ claude_toolbox_checkout }}"
+            depth: 1
+            force: true
+          register: claude_toolbox_checkout_result
+
+        - name: Read the claude-toolbox marketplace
+          slurp:
+            src: "{{ claude_toolbox_checkout }}/.claude-plugin/marketplace.json"
+          register: claude_toolbox_marketplace_raw
+
+        - name: Set plugins for non-Claude-Code agents
+          set_fact:
+            claude_toolbox_agent_plugins: >-
+              {{ (claude_toolbox_marketplace_raw.content | b64decode | from_json).plugins
+              | map(attribute='name') | difference(claude_toolbox_claude_only_plugins) | list }}
+
+    # Grok and agy have no marketplace tracking, so keep a clean checkout and
+    # install every plugin it lists. force discards local edits so the
+    # checkout always matches origin.
+    - name: Sync the claude-toolbox checkout and plugin list
+      when: grok_check.rc == 0 or agy_check.rc == 0
+      block:
+        - name: Clone or update the claude-toolbox checkout
+          ansible.builtin.git:
+            repo: "https://github.com/{{ claude_toolbox_repo }}"
+            dest: "{{ claude_toolbox_checkout }}"
+            depth: 1
+            force: true
+          register: claude_toolbox_checkout_result
+
+        - name: Read the claude-toolbox marketplace
+          slurp:
+            src: "{{ claude_toolbox_checkout }}/.claude-plugin/marketplace.json"
+          register: claude_toolbox_marketplace_raw
+
+        - name: Set plugins for non-Claude-Code agents
+          set_fact:
+            claude_toolbox_agent_plugins: >-
+              {{ (claude_toolbox_marketplace_raw.content | b64decode | from_json).plugins
+              | map(attribute='name') | difference(claude_toolbox_claude_only_plugins) | list }}
+
     - name: Install claude-toolbox plugins for Grok
       when: grok_check.rc == 0
       block:
@@ -155,25 +207,22 @@
     - name: Install claude-toolbox plugins for Antigravity CLI
       when: agy_check.rc == 0
       block:
-        - name: Clone or update the claude-toolbox checkout
-          ansible.builtin.git:
-            repo: "https://github.com/{{ claude_toolbox_repo }}"
-            dest: "{{ claude_toolbox_checkout }}"
-            depth: 1
-          register: claude_toolbox_checkout_result
-
         - name: List installed agy plugins
           command: agy plugin list --json
           register: claude_toolbox_agy_list
           changed_when: false
           check_mode: false
 
+        # Always reinstall: the checkout may have been updated by another
+        # playbook (e.g. setup-fork-keeper.yml), so its git result says
+        # nothing about the installed copies. Reinstalling is cheap.
         - name: Install claude-toolbox plugins for agy
           vars:
             agy_installed: "{{ claude_toolbox_agy_list.stdout | from_json | map(attribute='name') | list }}"
           command: agy plugin install {{ claude_toolbox_checkout }}/plugins/{{ item }}
           loop: "{{ claude_toolbox_agent_plugins }}"
-          when: item not in agy_installed or claude_toolbox_checkout_result.changed
+          register: claude_toolbox_agy_install
+          changed_when: item not in agy_installed or claude_toolbox_checkout_result.changed
 
     # The git and find shims are shared by every agent on the host.
     # git-guardrails 1.3.0 and later block the same commands under Claude
