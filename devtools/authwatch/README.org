@@ -4,6 +4,12 @@
 the agents before a login expires or when a refresh starts failing. It runs
 without an LLM, from cron or a user service.
 
+* Installation
+
+#+begin_src sh
+go install github.com/jaeyeom/experimental/devtools/authwatch/cmd/authwatch@latest
+#+end_src
+
 * What is read (metadata only)
 
 ~authwatch~ reads only the access-token expiry (~claudeAiOauth.expiresAt~) and

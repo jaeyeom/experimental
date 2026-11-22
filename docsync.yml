@@ -243,47 +243,47 @@ rules:
   # --- devtools README.md entry points ---
   - match: ["devtools/agentbus/**"]
     docs:
-      - path: devtools/agentbus/README.md
+      - path: devtools/agentbus/README.org
         why: "tool overview and installation entry point"
 
   - match: ["devtools/ascii-art/**"]
     docs:
-      - path: devtools/ascii-art/README.md
+      - path: devtools/ascii-art/README.org
         why: "tool overview and installation entry point"
 
   - match: ["devtools/authwatch/**"]
     docs:
-      - path: devtools/authwatch/README.md
+      - path: devtools/authwatch/README.org
         why: "tool overview and installation entry point"
 
   - match: ["devtools/claude-usage/**"]
     docs:
-      - path: devtools/claude-usage/README.md
+      - path: devtools/claude-usage/README.org
         why: "tool overview and installation entry point"
 
   - match: ["devtools/contacts/**"]
     docs:
-      - path: devtools/contacts/README.md
+      - path: devtools/contacts/README.org
         why: "tool overview and installation entry point"
 
   - match: ["devtools/decide/**"]
     docs:
-      - path: devtools/decide/README.md
+      - path: devtools/decide/README.org
         why: "tool overview and installation entry point"
 
   - match: ["devtools/devcheck/**"]
     docs:
-      - path: devtools/devcheck/README.md
+      - path: devtools/devcheck/README.org
         why: "tool overview and installation entry point"
 
   - match: ["devtools/diskwatch/**"]
     docs:
-      - path: devtools/diskwatch/README.md
+      - path: devtools/diskwatch/README.org
         why: "tool overview and installation entry point"
 
   - match: ["devtools/docsync/**"]
     docs:
-      - path: devtools/docsync/README.md
+      - path: devtools/docsync/README.org
         why: "tool overview and installation entry point"
 
   - match: ["devtools/fork-keeper/**"]
@@ -293,32 +293,32 @@ rules:
 
   - match: ["devtools/gh-ask/**"]
     docs:
-      - path: devtools/gh-ask/README.md
+      - path: devtools/gh-ask/README.org
         why: "tool overview and installation entry point"
 
   - match: ["devtools/gh-nudge/**"]
     docs:
-      - path: devtools/gh-nudge/README.md
+      - path: devtools/gh-nudge/README.org
         why: "tool overview and installation entry point"
 
   - match: ["devtools/gh-outbox/**"]
     docs:
-      - path: devtools/gh-outbox/README.md
+      - path: devtools/gh-outbox/README.org
         why: "tool overview and installation entry point"
 
   - match: ["devtools/linters/**"]
     docs:
-      - path: devtools/linters/README.md
+      - path: devtools/linters/README.org
         why: "tool overview and installation entry point"
 
   - match: ["devtools/magit/**"]
     docs:
-      - path: devtools/magit/README.md
+      - path: devtools/magit/README.org
         why: "tool overview and installation entry point"
 
   - match: ["devtools/orgctl/**"]
     docs:
-      - path: devtools/orgctl/README.md
+      - path: devtools/orgctl/README.org
         why: "tool overview and installation entry point"
 
   - match: ["devtools/pkg/**"]
@@ -328,22 +328,22 @@ rules:
 
   - match: ["devtools/prsync/**"]
     docs:
-      - path: devtools/prsync/README.md
+      - path: devtools/prsync/README.org
         why: "tool overview and installation entry point"
 
   - match: ["devtools/quotapace/**"]
     docs:
-      - path: devtools/quotapace/README.md
+      - path: devtools/quotapace/README.org
         why: "tool overview and installation entry point"
 
   - match: ["devtools/rename-jira-keys/**"]
     docs:
-      - path: devtools/rename-jira-keys/README.md
+      - path: devtools/rename-jira-keys/README.org
         why: "tool overview and installation entry point"
 
   - match: ["devtools/repo-sync/**"]
     docs:
-      - path: devtools/repo-sync/README.md
+      - path: devtools/repo-sync/README.org
         why: "tool overview and installation entry point"
 
   - match: ["devtools/reviewpush/**"]
@@ -353,12 +353,12 @@ rules:
 
   - match: ["devtools/setup-dev/**"]
     docs:
-      - path: devtools/setup-dev/README.md
+      - path: devtools/setup-dev/README.org
         why: "tool overview and installation entry point"
 
   - match: ["devtools/slackwatch/**"]
     docs:
-      - path: devtools/slackwatch/README.md
+      - path: devtools/slackwatch/README.org
         why: "tool overview and installation entry point"
   # --- devtools catalog summaries (any source change in the package) ---
   - match: ["devtools/devcheck/**/*.go"]
