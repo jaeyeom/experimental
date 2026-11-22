@@ -40,6 +40,7 @@ const (
 	EventHeld           = "held"
 	EventRetry          = "retry"
 	EventRequeued       = "requeued"
+	EventMoved          = "moved"
 	EventExpired        = "expired"
 	EventRejected       = "rejected"
 	EventAdapterError   = "adapter_error"
@@ -449,7 +450,7 @@ func knownEvent(name string) bool {
 	case EventRegister, EventDescribe, EventRelease, EventHandoff, EventTakeover, EventForget, EventClaimRefused,
 		EventSend, EventQueued, EventDedupe, EventDeliverAttempt, EventDelivered, EventUnprocessed, EventHeld,
 		EventHoldNoticeSkipped, EventRetry,
-		EventRequeued, EventExpired, EventRejected, EventAdapterError, EventAdapterReachable, EventBypass, EventStart, EventStop,
+		EventRequeued, EventMoved, EventExpired, EventRejected, EventAdapterError, EventAdapterReachable, EventBypass, EventStart, EventStop,
 		EventLeaseClaim, EventLeaseGrant, EventLeaseExtend, EventLeaseLeave,
 		EventLeaseRelease, EventLeaseSkip, EventLeaseCheckIn, EventLeaseAutoExtend,
 		EventLeaseTakeover, EventLeaseAdopt, EventLeaseWouldTakeOver,

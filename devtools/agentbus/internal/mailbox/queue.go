@@ -598,6 +598,81 @@ func (m *Mailbox) step(ctx context.Context, handle string, deliver bool) (bool, 
 	return false, nil
 }
 
+// MoveName moves every undelivered message addressed to name from
+// oldHandle's queue to newHandle's queue, preserving send order and
+// merging with any messages already queued on newHandle by send time.
+// Messages sent to raw handles are left on oldHandle. One EventMoved is
+// logged when at least one message moves.
+func (m *Mailbox) MoveName(name, oldHandle, newHandle string) error {
+	if name == "" || oldHandle == "" || newHandle == "" || oldHandle == newHandle {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.waitInflightForName(oldHandle, name)
+	ids := m.queue[oldHandle]
+	if len(ids) == 0 {
+		return nil
+	}
+	var kept []string
+	var moved []message
+	for _, id := range ids {
+		msg := m.msgs[id]
+		if msg.To != name {
+			kept = append(kept, id)
+			continue
+		}
+		moved = append(moved, m.retargetMessage(msg, newHandle))
+	}
+	if len(moved) == 0 {
+		return nil
+	}
+	if len(kept) == 0 {
+		delete(m.queue, oldHandle)
+	} else {
+		m.queue[oldHandle] = kept
+	}
+	for _, msg := range moved {
+		m.insert(msg)
+	}
+	if err := m.logEvent(eventlog.Event{
+		Event:  eventlog.EventMoved,
+		Actor:  newHandle,
+		Name:   name,
+		Detail: fmt.Sprintf("moved %d from %s to %s", len(moved), oldHandle, newHandle),
+	}); err != nil {
+		return err
+	}
+	return m.save()
+}
+
+func (m *Mailbox) waitInflightForName(handle, name string) {
+	for m.hasInflightForName(handle, name) {
+		m.cv.Wait()
+	}
+}
+
+func (m *Mailbox) hasInflightForName(handle, name string) bool {
+	for _, id := range m.queue[handle] {
+		if m.msgs[id].To == name && m.inflight[id] {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Mailbox) retargetMessage(msg message, newHandle string) message {
+	msg.Handle = newHandle
+	msg.State = stateQueued
+	msg.GoneSince = nil
+	msg.ComposerText = ""
+	msg.ComposerTextSince = nil
+	msg.ComposerTabLabel = ""
+	msg.StaleComposerNotice = false
+	m.msgs[msg.ID] = msg
+	return msg
+}
+
 // Requeue puts a delivered message back in its queue, in send order.
 // The prompt hook calls it when Claude Code blocked a submit that merged
 // the message into a user draft. The input box still holds both, so the

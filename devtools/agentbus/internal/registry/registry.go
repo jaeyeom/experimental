@@ -62,7 +62,16 @@ type Registry struct {
 	liveAt time.Time
 	// liveBusy is true while a background liveness refresh runs.
 	liveBusy bool
-	mu       sync.Mutex
+	// OnHolderChange, when non-nil, is called after a name changes holder
+	// on a replacing claim or release --to. Called without holding r.mu.
+	OnHolderChange func(name, oldHandle, newHandle string) error
+	mu             sync.Mutex
+}
+
+type holderChange struct {
+	name      string
+	oldHandle string
+	newHandle string
 }
 
 // record is one name binding. There is no deadline field.
@@ -106,16 +115,22 @@ func (r *Registry) Register(ctx context.Context, env []string, name, when string
 		return "", errors.New("--when is required")
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	handle, err := r.identify(ctx, env)
 	if err != nil {
+		r.mu.Unlock()
 		return "", err
 	}
-	if err := r.claim(ctx, handle, name, when); err != nil {
+	changes, err := r.claim(ctx, handle, name, when)
+	if err != nil {
+		r.mu.Unlock()
 		return "", err
 	}
 	// The caller just spoke to the bus, so it is alive.
 	r.noteLive(handle, "alive", r.now())
+	r.mu.Unlock()
+	if err := r.notifyHolderChanges(changes); err != nil {
+		return "", err
+	}
 	return handle, nil
 }
 
@@ -238,21 +253,24 @@ func (r *Registry) Release(ctx context.Context, env []string, name, to string) (
 		return "", err
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	handle, err := r.identify(ctx, env)
 	if err != nil {
+		r.mu.Unlock()
 		return "", err
 	}
 	rec, ok := r.names[name]
 	if !ok {
+		r.mu.Unlock()
 		return "", fmt.Errorf("%s is not registered", name)
 	}
 	if rec.Handle != handle {
+		r.mu.Unlock()
 		return "", fmt.Errorf("only the holder can release %s", name)
 	}
 	if to == "" {
 		delete(r.names, name)
 		if err := r.save(); err != nil {
+			r.mu.Unlock()
 			return "", err
 		}
 		if err := r.logEvent(eventlog.Event{
@@ -261,17 +279,21 @@ func (r *Registry) Release(ctx context.Context, env []string, name, to string) (
 			Name:   name,
 			Detail: "released",
 		}); err != nil {
+			r.mu.Unlock()
 			return "", err
 		}
+		r.mu.Unlock()
 		return "", nil
 	}
 	claimer, err := r.resolveClaimer(to)
 	if err != nil {
+		r.mu.Unlock()
 		return "", err
 	}
 	rec.Handle = claimer
 	r.names[name] = rec
 	if err := r.save(); err != nil {
+		r.mu.Unlock()
 		return "", err
 	}
 	if err := r.logEvent(eventlog.Event{
@@ -280,36 +302,48 @@ func (r *Registry) Release(ctx context.Context, env []string, name, to string) (
 		Name:   name,
 		Detail: "to " + claimer,
 	}); err != nil {
+		r.mu.Unlock()
 		return "", err
+	}
+	r.mu.Unlock()
+	if claimer != handle {
+		if err := r.notifyHolderChanges([]holderChange{{name: name, oldHandle: handle, newHandle: claimer}}); err != nil {
+			return "", err
+		}
 	}
 	return claimer, nil
 }
 
-func (r *Registry) claim(ctx context.Context, handle, name, when string) error {
+func (r *Registry) claim(ctx context.Context, handle, name, when string) ([]holderChange, error) {
+	var changes []holderChange
 	rec, ok := r.names[name]
 	if ok && rec.Handle != handle {
 		oldHandle := rec.Handle
 		if _, hasHib := r.hibernated[oldHandle]; hasHib {
 			if !r.hibernatedDead(ctx, oldHandle, handle) {
-				return r.refuseClaim(handle, name, oldHandle, livenessHibernated)
+				return nil, r.refuseClaim(handle, name, oldHandle, livenessHibernated)
 			}
 			return r.takeoverHibernated(oldHandle, handle, name, when)
 		}
 		live := r.claimLiveness(ctx, oldHandle)
 		if live != "gone" {
-			return r.refuseClaim(handle, name, oldHandle, live)
+			return nil, r.refuseClaim(handle, name, oldHandle, live)
 		}
+		changes = []holderChange{{name: name, oldHandle: oldHandle, newHandle: handle}}
 	}
 	r.names[name] = record{Handle: handle, When: when}
 	if err := r.save(); err != nil {
-		return err
+		return nil, err
 	}
-	return r.logEvent(eventlog.Event{
+	if err := r.logEvent(eventlog.Event{
 		Event:  eventlog.EventRegister,
 		Actor:  handle,
 		Name:   name,
 		Detail: when,
-	})
+	}); err != nil {
+		return nil, err
+	}
+	return changes, nil
 }
 
 func (r *Registry) refuseClaim(actor, name, holder, live string) error {
@@ -326,7 +360,7 @@ func (r *Registry) refuseClaim(actor, name, holder, live string) error {
 	return errors.New(msg)
 }
 
-func (r *Registry) takeoverHibernated(oldHandle, newHandle, name, when string) error {
+func (r *Registry) takeoverHibernated(oldHandle, newHandle, name, when string) ([]holderChange, error) {
 	moved := []string{name}
 	if samePaneDifferentSession(oldHandle, newHandle) {
 		moved = r.heldBy(oldHandle)
@@ -342,7 +376,7 @@ func (r *Registry) takeoverHibernated(oldHandle, newHandle, name, when string) e
 	}
 	delete(r.hibernated, oldHandle)
 	if err := r.save(); err != nil {
-		return err
+		return nil, err
 	}
 	if err := r.logEvent(eventlog.Event{
 		Event:  eventlog.EventTakeover,
@@ -350,14 +384,33 @@ func (r *Registry) takeoverHibernated(oldHandle, newHandle, name, when string) e
 		Name:   name,
 		Detail: fmt.Sprintf("from %s to %s (%s)", oldHandle, newHandle, strings.Join(moved, ", ")),
 	}); err != nil {
-		return err
+		return nil, err
 	}
-	return r.logEvent(eventlog.Event{
+	if err := r.logEvent(eventlog.Event{
 		Event:  eventlog.EventRegister,
 		Actor:  newHandle,
 		Name:   name,
 		Detail: when,
-	})
+	}); err != nil {
+		return nil, err
+	}
+	changes := make([]holderChange, 0, len(moved))
+	for _, n := range moved {
+		changes = append(changes, holderChange{name: n, oldHandle: oldHandle, newHandle: newHandle})
+	}
+	return changes, nil
+}
+
+func (r *Registry) notifyHolderChanges(changes []holderChange) error {
+	if r.OnHolderChange == nil {
+		return nil
+	}
+	for _, c := range changes {
+		if err := r.OnHolderChange(c.name, c.oldHandle, c.newHandle); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *Registry) heldBy(handle string) []string {

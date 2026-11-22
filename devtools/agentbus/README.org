@@ -109,6 +109,12 @@ Message that holder. Do not take the name. The holder hands off with
 work in progress, and what it was monitoring. ~release <name>~ without
 ~--to~ drops the name.
 
+When a name changes holder (via ~release <name> --to <claimer>~ or a
+~register~ that replaces a gone or dead-hibernated holder), any
+undelivered messages addressed to that name move from the old holder's
+queue to the new holder's queue, merged in send order. Messages sent to
+the raw old handle stay on the old handle.
+
 #+BEGIN_SRC bash
 agentbus describe --when "waiting on a reply from ops/inbox"
 agentbus whoami
@@ -151,7 +157,9 @@ Exit codes of ~send~ and ~reply~:
   ~--wait~).
 
 A target whose pane is gone is held as ~held: gone~. For a registered
-name the message keeps waiting, with no limit but ~--ttl~. For a raw
+name the message keeps waiting, with no limit but ~--ttl~, and moves
+to the new holder if the name is later claimed or handed off with
+~release --to~. For a raw
 pane handle that no name holds, nothing can accept it once the pane is
 gone, so it expires after the pane has been gone for ~gone_after~
 (default 1h; ~"0s"~ expires it at the first gone check). The event log

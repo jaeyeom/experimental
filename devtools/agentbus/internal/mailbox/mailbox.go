@@ -212,6 +212,9 @@ func Open(dir string, reg *registry.Registry, adapters []adapter.Adapter, log *e
 		staleComposerNoticed: map[string]string{},
 	}
 	box.cv = sync.NewCond(&box.mu)
+	if reg != nil {
+		reg.OnHolderChange = box.MoveName
+	}
 	return box, nil
 }
 

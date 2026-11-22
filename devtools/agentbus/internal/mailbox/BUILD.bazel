@@ -33,6 +33,7 @@ go_test(
         "hibernate_test.go",
         "hold_test.go",
         "liveness_test.go",
+        "move_test.go",
         "render_test.go",
         "replies_test.go",
         "status_test.go",
