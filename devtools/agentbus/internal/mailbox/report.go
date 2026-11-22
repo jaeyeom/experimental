@@ -112,7 +112,7 @@ func heldReason(reason string) string {
 		return HeldWakeFailed
 	case HoldPaneGone:
 		return HeldPaneGone
-	case HoldHibernated, HoldWaking:
+	case HoldHibernated, HoldWaking, HoldParked:
 		return HeldHibernated
 	case adapter.HoldAmbiguous, adapter.HoldAmbiguousUnverified:
 		return HeldUnconfirmed

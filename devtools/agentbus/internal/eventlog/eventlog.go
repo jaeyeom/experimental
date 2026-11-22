@@ -94,6 +94,9 @@ const (
 	// EventHibernateRefused is an agent hibernate would not stop, or one
 	// that did not exit in time.
 	EventHibernateRefused = "agent_hibernate_refused"
+	// EventHibernateWarning is an agent hibernated shortly after a
+	// delivery to it: the messages may not have been read.
+	EventHibernateWarning = "agent_hibernate_warning"
 	// EventWake is a hibernated agent relaunched in its pane and ready.
 	EventWake = "agent_wake"
 	// EventWakeFailed is a relaunch that failed or timed out.
@@ -460,7 +463,7 @@ func knownEvent(name string) bool {
 		EventLeaseTakeover, EventLeaseAdopt, EventLeaseWouldTakeOver,
 		EventLeasePause, EventLeaseResume, EventLeaseWith, EventLeaseUnshare,
 		EventLeaseNotifyWaiting, EventLeaseNotifySkipped, EventLeaseHookDeny,
-		EventHibernated, EventHibernateRefused, EventWake, EventWakeFailed, EventWakeHeld, EventWakeSkipped, EventWakeModelIgnored,
+		EventHibernated, EventHibernateRefused, EventHibernateWarning, EventWake, EventWakeFailed, EventWakeHeld, EventWakeSkipped, EventWakeModelIgnored,
 		EventPolicyHibernate, EventPolicyWouldHibernate, EventPolicyNoCandidate,
 		EventJob:
 		return true

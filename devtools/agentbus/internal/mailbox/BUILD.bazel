@@ -34,6 +34,7 @@ go_test(
         "hold_test.go",
         "liveness_test.go",
         "move_test.go",
+        "recent_test.go",
         "render_test.go",
         "replies_test.go",
         "reply_target_test.go",

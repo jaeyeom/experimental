@@ -66,6 +66,16 @@ func TestHibernateFlagsAfterTheHandle(t *testing.T) {
 	}
 }
 
+func TestHibernateHoldNeedsNames(t *testing.T) {
+	req, _, err := parseHibernate([]string{"ops/x", "--hold"}, io.Discard)
+	if err != nil || !req.Hold {
+		t.Fatalf("--hold after the name: %+v, %v", req, err)
+	}
+	if _, _, err := parseHibernate([]string{"--idle-over", "1h", "--hold"}, io.Discard); err == nil {
+		t.Fatal("want an error for --hold with --idle-over")
+	}
+}
+
 func TestWakeTakesANameAfterDoubleDash(t *testing.T) {
 	w, err := parseWake([]string{"--", "-odd"}, io.Discard)
 	if err != nil || w.target != "-odd" {

@@ -3,6 +3,7 @@ package mailbox
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -74,6 +75,42 @@ func (m *Mailbox) SetStaleComposerAfter(d *time.Duration) {
 	}
 	m.staleComposerOff = false
 	m.staleComposerAfter = *d
+}
+
+// SetHibernateWarnWithin sets how recent a delivery must be for
+// hibernating its agent to log a warning. Nil uses 60s; zero or
+// negative turns the warning off.
+func (m *Mailbox) SetHibernateWarnWithin(d *time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.hibernateWarn = d
+}
+
+// RecentDeliveries are the ids of the messages delivered to handle
+// within the hibernate warning window, oldest first.
+func (m *Mailbox) RecentDeliveries(handle string) []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	window := defaultHibernateWarn
+	if m.hibernateWarn != nil {
+		window = *m.hibernateWarn
+	}
+	if window <= 0 {
+		return nil
+	}
+	cutoff := m.now().Add(-window)
+	var recent []message
+	for _, msg := range m.msgs {
+		if msg.Handle == handle && msg.DeliveredAt != nil && !msg.DeliveredAt.Before(cutoff) {
+			recent = append(recent, msg)
+		}
+	}
+	slices.SortFunc(recent, func(a, b message) int { return a.DeliveredAt.Compare(*b.DeliveredAt) })
+	ids := make([]string, 0, len(recent))
+	for _, msg := range recent {
+		ids = append(ids, msg.ID)
+	}
+	return ids
 }
 
 func (m *Mailbox) verifyWithinDuration() time.Duration {

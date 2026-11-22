@@ -177,6 +177,9 @@ type Mailbox struct {
 	// before notifying the sender once per tab.
 	staleComposerAfter time.Duration
 	staleComposerOff   bool
+	// hibernateWarn is how recent a delivery must be for hibernate to
+	// warn. Nil uses defaultHibernateWarn; zero turns the warning off.
+	hibernateWarn *time.Duration
 	// authOutage tracks handles currently held due to an auth error.
 	authOutage map[string]authOutageRecord
 	// staleComposerNoticed tracks handle -> composerText already noticed.

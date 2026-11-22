@@ -137,7 +137,7 @@ func commands() []command {
 			flags: "--json  print {\"id\",\"state\":\"queued\"|\"held\"|\"delivered\"|\"failed\"|\"expired\"|\"unknown\",\n" +
 				"        \"held_reason\",\"reason\",\"stored_at\",\"delivered_at\",\"error\"} per id; fields\n" +
 				"        that do not apply are omitted. held_reason: transport unreachable, composer\n" +
-				"        busy, target not ready, earlier message held, hibernated, wake failed (retried),\n" +
+				"        busy, target not ready, earlier message held, hibernated or parked, wake failed (retried),\n" +
 				"        pane gone (held for a new holder, not retried), delivery unconfirmed, or other. reason, for expired: ttl or gone. Times are\n" +
 				"        RFC3339. (default: false)",
 			example: "agentbus status --json m-7f3a m-7f3b",
@@ -200,8 +200,12 @@ func commands() []command {
 				"runs no background job and no build tool of its own in its cwd (any build there while it holds or waits for a lease), " +
 				"has an empty composer (Claude Code only), " +
 				"holds and waits for no lease, and is not in hibernate_exempt.",
-			usage: "agentbus hibernate <name|handle>... | --idle-over <duration> [--dry-run] [--json] | --policy",
+			usage: "agentbus hibernate <name|handle>... [--hold] | --idle-over <duration> [--dry-run] [--json] | --policy",
 			flags: "--idle-over <d>  every agent the daemon has seen idle or done for at least d\n" +
+				"--hold          park the named agents: a message to one queues as held: parked and\n" +
+				"                never wakes it. It clears on agentbus wake, or when a new session\n" +
+				"                registers in the pane or claims the name and gets the queue.\n" +
+				"                list and search show it as parked. Not for --idle-over\n" +
 				"--dry-run       print \"would hibernate <name> (<rss>)\" and change nothing\n" +
 				"--json          print a JSON array: name, handle, pane, outcome (hibernated,\n" +
 				"                refused, would-hibernate, failed), reasons, rss_bytes, warning\n" +

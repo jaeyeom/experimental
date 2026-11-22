@@ -56,6 +56,10 @@ type Record struct {
 	Status   string `json:"status"`
 	// Reason is why a stop or the last wake failed.
 	Reason string `json:"reason,omitempty"`
+	// Hold parks the agent: messages to it queue as held and never
+	// wake it. An explicit wake, or a new session in its pane or
+	// claiming its names, clears the record and with it the hold.
+	Hold bool `json:"hold,omitempty"`
 	// Failures counts the wakes that failed in a row.
 	Failures int `json:"failures,omitempty"`
 	// RetryAt is the earliest time a delivery tries to wake the agent

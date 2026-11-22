@@ -431,3 +431,33 @@ func TestAlreadyHibernatedIsRefused(t *testing.T) {
 		t.Fatalf("results = %+v", results)
 	}
 }
+
+func TestHoldParksTheAgentAndTheNoteSaysSo(t *testing.T) {
+	w := newWorld()
+	results := w.run(t, Request{Targets: []string{"ops/x"}, Hold: true})
+	if len(results) != 1 || results[0].Outcome != OutcomeHibernated {
+		t.Fatalf("results = %+v", results)
+	}
+	if len(w.bus.begun) != 1 || !w.bus.begun[0].Hold {
+		t.Fatalf("begun = %+v, want a held record", w.bus.begun)
+	}
+	note := w.panes.inputs()[2]
+	if !strings.Contains(note, "parked") || strings.Contains(note, "wakes on the next message") {
+		t.Fatalf("note = %q", note)
+	}
+}
+
+func TestPlainHibernateAndTheIdlePolicyNeverHold(t *testing.T) {
+	w := newWorld()
+	w.run(t, Request{Targets: []string{"ops/x"}})
+	if len(w.bus.begun) != 1 || w.bus.begun[0].Hold {
+		t.Fatalf("begun = %+v, want no hold", w.bus.begun)
+	}
+	w = newWorld()
+	w.run(t, Request{IdleOver: time.Minute})
+	for _, rec := range w.bus.begun {
+		if rec.Hold {
+			t.Fatalf("idle-over held %+v", rec)
+		}
+	}
+}

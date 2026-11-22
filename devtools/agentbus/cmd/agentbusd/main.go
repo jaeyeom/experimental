@@ -199,6 +199,7 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 		VerifyDeliveryWithin: cfg.VerifyDeliveryWithin,
 		AuthErrorPatterns:    cfg.AuthErrorPatterns,
 		StaleComposerAfter:   cfg.StaleComposerAfter,
+		HibernateWarnWithin:  cfg.HibernateWarnWithin,
 		Jobs:                 jobsCfg,
 		JobHook:              jobs.ExecHook(reconcileTimeout, nil),
 		JobHold:              decideHold(exec.LookPath, runOutput),

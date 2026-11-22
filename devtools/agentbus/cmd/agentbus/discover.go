@@ -30,7 +30,7 @@ func jsonLiveness(word string) string {
 	switch word {
 	case "alive", "blocked":
 		return "alive"
-	case "hibernated":
+	case "hibernated", "parked":
 		return "hibernated"
 	case "gone":
 		return "dead"

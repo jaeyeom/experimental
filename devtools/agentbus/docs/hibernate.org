@@ -146,6 +146,32 @@ another machine only for that machine's agents. ~--idle-over~ in hub
 mode needs the hub to poll this machine (~machines~ in the hub's
 config).
 
+** Park an agent with ~--hold~
+
+A restart hibernates the old session so a new one can take its place.
+Plain hibernate wakes on the next message, which can resume the old
+session and undo the restart. ~agentbus hibernate --hold <name>~ parks
+the agent instead: the record is marked held, a message to it queues as
+~held: parked~ and never starts a wake, and ~agentbus list~ and
+~agentbus search~ show the agent as ~parked~ (~list --json~ keeps
+~hibernated~). Only named targets can be held; ~--idle-over~ and the
+memory-pressure policy never hold.
+
+The hold clears, and the record with it, on either of these:
+
+- ~agentbus wake <name>~, which resumes the old session and delivers
+  the queue;
+- a different session registering in that pane, or claiming one of the
+  record's names. The queued messages follow the name to the new holder
+  in send order.
+
+** Warning after a recent delivery
+
+When a hibernate (plain or ~--hold~) completes within ~hibernate_warn_within~
+(default 60s, ~"0s"~ turns it off) of a delivery to that agent, the daemon logs
+one ~agent_hibernate_warning~ event naming the message ids delivered in
+that window, because they may be unread. Hibernating later logs none.
+
 * Wake a hibernated agent
 
 When the daemon is about to deliver to a handle that has a hibernation

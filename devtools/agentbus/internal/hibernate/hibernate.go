@@ -91,6 +91,9 @@ type Request struct {
 	Targets  []string
 	IdleOver time.Duration
 	DryRun   bool
+	// Hold parks the agents: messages to them queue without waking
+	// them. Only named targets are held, never an idle pick.
+	Hold bool
 }
 
 // Result is what happened to one agent.
@@ -127,6 +130,7 @@ type candidate struct {
 	agent  adapter.Agent
 	handle string
 	names  []string
+	hold   bool
 }
 
 func (c candidate) name() string {
@@ -162,6 +166,7 @@ func (h *Hibernator) Run(ctx context.Context, req Request) ([]Result, error) {
 		h.logRefusal(ctx, req, r)
 	}
 	for _, c := range picked {
+		c.hold = req.Hold && len(req.Targets) > 0
 		r := h.one(ctx, c, state, procs, req.DryRun)
 		if r.Outcome == OutcomeRefused {
 			h.logRefusal(ctx, req, r)
@@ -425,7 +430,7 @@ func (h *Hibernator) stop(ctx context.Context, c candidate, f facts, r Result) R
 	a := c.agent
 	rec := Record{
 		Handle: c.handle, Pane: a.PaneID, Kind: a.Kind, Session: a.SessionID,
-		Cwd: f.proc.Cwd, Argv: f.proc.Argv, Names: c.names, At: h.Clock.Now(), RSSBytes: f.rss,
+		Cwd: f.proc.Cwd, Argv: f.proc.Argv, Names: c.names, At: h.Clock.Now(), RSSBytes: f.rss, Hold: c.hold,
 	}
 	if _, err := h.Bus.Begin(ctx, rec); err != nil {
 		r.Outcome, r.Reasons = OutcomeRefused, []string{err.Error()}
@@ -451,7 +456,7 @@ func (h *Hibernator) stop(ctx context.Context, c candidate, f facts, r Result) R
 	if err := h.Bus.End(ctx, c.handle, StatusHibernated, ""); err != nil {
 		r.Warning = "the record could not be marked hibernated: " + err.Error()
 	}
-	if err := h.Panes.RunInPane(ctx, a.PaneID, noteCommand(c.name())); err != nil {
+	if err := h.Panes.RunInPane(ctx, a.PaneID, noteCommand(c.name(), c.hold)); err != nil {
 		r.Warning = strings.TrimPrefix(r.Warning+"; ", "; ") + "the note could not be printed: " + err.Error()
 	}
 	r.Outcome = OutcomeHibernated
@@ -481,8 +486,11 @@ func (h *Hibernator) waitExit(ctx context.Context, pane string, pid int) error {
 }
 
 // noteCommand prints the hibernation note in the pane's shell.
-func noteCommand(name string) string {
+func noteCommand(name string, hold bool) string {
 	note := fmt.Sprintf("agentbus: hibernated %s; wakes on the next message or 'agentbus wake %s'", name, name)
+	if hold {
+		note = fmt.Sprintf("agentbus: hibernated %s and parked; messages queue until a new session claims the name or 'agentbus wake %s'", name, name)
+	}
 	return `printf '%s\n' ` + shellQuote(note)
 }
 

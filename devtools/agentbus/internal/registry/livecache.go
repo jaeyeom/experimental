@@ -32,7 +32,7 @@ func (r *Registry) ListCached(ctx context.Context) []Row {
 	now := r.now()
 	return r.registeredRows(func(handle string) (string, time.Time) {
 		if r.hibernatedLocked(handle) {
-			return livenessHibernated, now
+			return r.asleepWord(handle), now
 		}
 		if obs, ok := r.live[handle]; ok {
 			return obs.word, obs.at

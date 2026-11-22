@@ -138,6 +138,10 @@ type Config struct {
 	// message before notifying the sender once per tab. Nil means 10m.
 	// A pointer to zero disables the notice.
 	StaleComposerAfter *time.Duration
+	// HibernateWarnWithin is how recent a delivery must be for
+	// hibernating its agent to log a warning. Nil means 60s. A pointer
+	// to zero turns the warning off.
+	HibernateWarnWithin *time.Duration
 	// Warnings are problems that did not fail the load, such as an
 	// invalid lease_takeover.
 	Warnings []string
@@ -353,7 +357,7 @@ func parseLine(cfg *Config, line string, seenWakeModelByName *bool) error {
 	case "machines":
 		return parseMachines(cfg, value)
 	case "remote_timeout", "list_liveness_max_age", "lease_check_interval", "lease_checkin_repeat", "lease_idle_grace", "wake_timeout",
-		"hibernate_min_idle", "hibernate_interval", "hold_notice_after", "gone_after", "verify_delivery_within", "stale_composer_after":
+		"hibernate_min_idle", "hibernate_interval", "hold_notice_after", "gone_after", "verify_delivery_within", "stale_composer_after", "hibernate_warn_within":
 		return parseDurationKey(cfg, key, value)
 	case "auth_error_patterns":
 		return parseStringList(&cfg.AuthErrorPatterns, key, value, `["Login expired", "Please run /login"]`)
@@ -574,6 +578,8 @@ func parseDurationKey(cfg *Config, key, value string) error {
 		return parseOptionalDuration(&cfg.VerifyDeliveryWithin, key, value, "60s")
 	case "stale_composer_after":
 		return parseOptionalDuration(&cfg.StaleComposerAfter, key, value, "10m")
+	case "hibernate_warn_within":
+		return parseOptionalDuration(&cfg.HibernateWarnWithin, key, value, "60s")
 	default:
 		return parseDuration(&cfg.WakeTimeout, key, value, "60s")
 	}

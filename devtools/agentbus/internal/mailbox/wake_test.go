@@ -545,3 +545,89 @@ func TestReleasingAGoneHoldersNameLeavesItsHeldMessagesAlone(t *testing.T) {
 		t.Fatalf("status after the release = %q, %v; want %q", after, err, before)
 	}
 }
+
+// parkSleeper marks the sleeper's record held, as hibernate --hold does.
+func (w *wakeWorld) parkSleeper(t *testing.T) {
+	t.Helper()
+	rec := hibernate.Record{Handle: sleeper, Pane: "w1:p1", Kind: "claude", Session: "s1", Cwd: "/src", Argv: []string{"claude"}, Hold: true}
+	if _, err := w.reg.BeginHibernation(rec); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.reg.EndHibernation(sleeper, hibernate.StatusHibernated, ""); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAParkedAgentIsNeverWokenByMessages(t *testing.T) {
+	w := newWakeWorld(t)
+	w.parkSleeper(t)
+	first := w.send(t, "one")
+	if first.State != "held: "+HoldParked {
+		t.Fatalf("state = %q, want held: %s", first.State, HoldParked)
+	}
+	for _, body := range []string{"two", "three"} {
+		w.clock.add(time.Minute)
+		w.send(t, body)
+	}
+	w.box.wakes.Wait()
+	if w.waker.calls() != 0 {
+		t.Fatalf("woke a parked agent %d times", w.waker.calls())
+	}
+	if got := w.state(t, first.ID); got != "held: "+HoldParked {
+		t.Fatalf("state = %q, want held: %s", got, HoldParked)
+	}
+}
+
+func TestWakingAParkedAgentByHandResumesItAndDeliversTheQueue(t *testing.T) {
+	w := newWakeWorld(t)
+	w.parkSleeper(t)
+	res := w.send(t, "queued")
+	if _, err := w.box.Wake(context.Background(), "ops/x"); err != nil {
+		t.Fatal(err)
+	}
+	w.box.wakes.Wait()
+	if got := w.state(t, res.ID); got != stateDelivered {
+		t.Fatalf("state = %q, want delivered", got)
+	}
+	if _, ok := w.reg.Hibernation(sleeper); ok {
+		t.Fatal("the hold outlived the wake")
+	}
+}
+
+func TestANewSessionInTheParkedPaneGetsTheQueueInSendOrder(t *testing.T) {
+	const fresh = "herdr:local/s9/w1:p1"
+	w := newWakeWorld(t)
+	w.parkSleeper(t)
+	first := w.send(t, "one")
+	w.clock.add(time.Minute)
+	second := w.send(t, "two")
+	w.ad.Reach[fresh] = adapter.StateIdle
+	w.ad.Result[fresh] = adapter.ResultAccepted
+	w.ad.PaneHandles["p1"] = fresh
+	if _, err := w.reg.Register(context.Background(), []string{"HERDR_PANE_ID=p1"}, "ops/x", "restarted"); err != nil {
+		t.Fatalf("claim by the new session = %v", err)
+	}
+	if _, ok := w.reg.Hibernation(sleeper); ok {
+		t.Fatal("the hold outlived the takeover")
+	}
+	if err := w.box.flushHandle(context.Background(), fresh); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{first.ID, second.ID} {
+		if got := w.state(t, id); got != stateDelivered {
+			t.Fatalf("state of %s = %q, want delivered", id, got)
+		}
+	}
+	if w.waker.calls() != 0 {
+		t.Fatalf("woke the old session %d times", w.waker.calls())
+	}
+	var bodies []string
+	for _, text := range w.ad.Texts {
+		if strings.Contains(text, "one") || strings.Contains(text, "two") {
+			bodies = append(bodies, text)
+		}
+	}
+	if len(bodies) != 2 || !strings.Contains(bodies[0], "one") || !strings.Contains(bodies[1], "two") {
+		t.Fatalf("pastes = %q, want one then two", w.ad.Texts)
+	}
+}

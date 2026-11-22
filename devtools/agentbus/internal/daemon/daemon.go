@@ -106,6 +106,10 @@ type Config struct {
 	// StaleComposerAfter is how long unchanged composer text holds a
 	// message before notifying the sender once per tab.
 	StaleComposerAfter *time.Duration
+	// HibernateWarnWithin is how recent a delivery must be for
+	// hibernating its agent to log a warning. Nil means 60s; a pointer
+	// to zero turns the warning off.
+	HibernateWarnWithin *time.Duration
 	// Jobs is the jobs config: per-kind behavior and the heartbeat
 	// timeout.
 	Jobs jobs.Config
@@ -534,6 +538,7 @@ func openState(dir string, cfg Config, lg *eventlog.Log) (*registry.Registry, *m
 	box.SetVerifyWithin(cfg.VerifyDeliveryWithin)
 	box.SetAuthErrorPatterns(cfg.AuthErrorPatterns)
 	box.SetStaleComposerAfter(cfg.StaleComposerAfter)
+	box.SetHibernateWarnWithin(cfg.HibernateWarnWithin)
 	return reg, box, nil
 }
 

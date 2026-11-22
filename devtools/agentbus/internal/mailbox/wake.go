@@ -19,6 +19,9 @@ const (
 	HoldWaking     = "waking"
 	HoldWakeFailed = "wake failed"
 	HoldPaneGone   = "pane gone"
+	// HoldParked is a message to an agent hibernated with --hold. It
+	// never starts a wake.
+	HoldParked = "parked"
 )
 
 // Wake backoff: the first retry waits wakeBackoff, and each further
@@ -118,6 +121,9 @@ func (m *Mailbox) wakeOutcome(ctx context.Context, rec hibernate.Record) outcome
 	m.mu.Lock()
 	_, inFlight := m.waking[rec.Handle]
 	m.mu.Unlock()
+	if !inFlight && rec.Hold {
+		return outcome{reason: HoldParked, target: target}
+	}
 	if !inFlight && rec.Status == hibernate.StatusPaneGone {
 		return outcome{reason: HoldPaneGone, target: target}
 	}
@@ -324,6 +330,8 @@ func (m *Mailbox) wakeStatus(msg message) string {
 		return line + "\n"
 	case HoldPaneGone:
 		return "waiting: pane gone; held for a new holder of the name (agentbus forget to clear)\n"
+	case HoldParked:
+		return "waiting: parked; held for a new session or agentbus wake\n"
 	case HoldHibernated:
 		return "waiting: hibernated\n"
 	default:

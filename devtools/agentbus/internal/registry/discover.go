@@ -121,7 +121,7 @@ func (r *Registry) List(ctx context.Context) ([]Row, error) {
 	now := r.now()
 	for i := range rows {
 		rows[i].Observed = now
-		if rows[i].Liveness != livenessHibernated {
+		if rows[i].Liveness != livenessHibernated && rows[i].Liveness != livenessParked {
 			r.noteLive(rows[i].Handle, rows[i].Liveness, now)
 		}
 	}
@@ -271,7 +271,7 @@ func (r *Registry) searchRows(query string) []Row {
 	var rows []Row
 	for _, item := range r.cached() {
 		if r.hibernatedLocked(item.agent.Handle) {
-			item.agent.Status = livenessHibernated
+			item.agent.Status = r.asleepWord(item.agent.Handle)
 		}
 		bindings := r.namesFor(item.agent.Handle)
 		if len(bindings) == 0 {
@@ -376,7 +376,7 @@ func (r *Registry) transport(handle string) string {
 // for unknown and transport errors; claims still treat it as alive.
 func (r *Registry) displayLiveness(ctx context.Context, handle string) string {
 	if r.hibernatedLocked(handle) {
-		return livenessHibernated
+		return r.asleepWord(handle)
 	}
 	ads, err := r.usable(ctx)
 	if err != nil {
@@ -441,8 +441,8 @@ func oneLiveness(ctx context.Context, ad adapter.Adapter, handle string, agents 
 }
 
 func livenessWord(status string) string {
-	if status == livenessHibernated {
-		return livenessHibernated
+	if status == livenessHibernated || status == livenessParked {
+		return status
 	}
 	switch adapter.State(status) {
 	case adapter.StateBlocked:

@@ -18,6 +18,19 @@ import (
 // handle. Claims treat it as alive: the name stays put.
 const livenessHibernated = "hibernated"
 
+// livenessParked is the word for a hibernated handle whose record is
+// held: messages never wake it.
+const livenessParked = "parked"
+
+// asleepWord is the list word for handle's hibernation record: parked
+// when it is held, else hibernated. The caller holds r.mu.
+func (r *Registry) asleepWord(handle string) string {
+	if r.hibernated[handle].Hold {
+		return livenessParked
+	}
+	return livenessHibernated
+}
+
 // BeginHibernation stores rec as stopping, with the names its handle
 // holds now. It replaces an older record for the handle.
 func (r *Registry) BeginHibernation(rec hibernate.Record) (hibernate.Record, error) {
@@ -277,7 +290,7 @@ func (r *Registry) hibernatedRows(query string) []Row {
 		scheme, _, _, _ := splitHandle(handle)
 		for _, binding := range r.namesFor(handle) {
 			rows = appendMatch(rows, query, Row{
-				Name: binding.Name, When: binding.When, Liveness: livenessHibernated,
+				Name: binding.Name, When: binding.When, Liveness: r.asleepWord(handle),
 				Transport: scheme, Handle: handle,
 			})
 		}

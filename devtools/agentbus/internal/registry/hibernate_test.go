@@ -466,3 +466,37 @@ func TestForgetDropsDeadRecordAndRefusesLiveOne(t *testing.T) {
 		t.Fatal("dead record was not dropped")
 	}
 }
+
+func TestListAndSearchShowAHeldHibernationAsParked(t *testing.T) {
+	reg, ad, alice, bob := hibernateWorld(t)
+	if _, err := reg.BeginHibernation(hibernate.Record{Handle: alice, Pane: "w1:p1", Kind: "claude", Session: "s1", Hold: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.EndHibernation(alice, hibernate.StatusHibernated, ""); err != nil {
+		t.Fatal(err)
+	}
+	ad.Reach[alice] = adapter.StateNoAgent
+	ad.InventoryAgents = []adapter.Agent{{Handle: bob, PaneID: "w1:p2", Status: "idle"}}
+	ctx := context.Background()
+	rows, err := reg.Search(ctx, "ops")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Liveness != "parked" {
+		t.Fatalf("search = %+v, want parked", rows)
+	}
+	listed, err := reg.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range listed {
+		if row.Handle == alice && row.Liveness != "parked" {
+			t.Fatalf("list row = %+v, want parked", row)
+		}
+	}
+	for _, row := range reg.ListCached(ctx) {
+		if row.Handle == alice && row.Liveness != "parked" {
+			t.Fatalf("cached list row = %+v, want parked", row)
+		}
+	}
+}

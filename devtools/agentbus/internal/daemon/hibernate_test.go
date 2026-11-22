@@ -263,3 +263,19 @@ func TestForgetPointsAtReleaseWhenTheNameStaysRegistered(t *testing.T) {
 		t.Fatalf("forget text = %q, want %q", resp.Text, want)
 	}
 }
+
+func TestHibernatingRightAfterADeliveryLogsOneWarning(t *testing.T) {
+	srv, dir, ad := newHibernateServerAd(t)
+	ad.Result = map[string]adapter.Result{hibAlice: adapter.ResultAccepted}
+	sent, err := srv.box.Post(context.Background(), "ops/y", "ops/x", "hi")
+	if err != nil || sent.State != "delivered" {
+		t.Fatalf("post = %+v, %v", sent, err)
+	}
+	rec := hibernate.Record{Handle: hibAlice}
+	srv.dispatch(Request{Op: "hibernate-begin", Hibernate: &hibernate.Args{Record: &rec}}, 0)
+	srv.dispatch(Request{Op: "hibernate-end", Hibernate: &hibernate.Args{Handle: hibAlice, Status: hibernate.StatusHibernated}}, 0)
+	evs := hibernateEvents(t, dir, eventlog.EventHibernateWarning)
+	if len(evs) != 1 || evs[0].Name != "ops/x" || !strings.Contains(evs[0].Detail, sent.ID) {
+		t.Fatalf("agent_hibernate_warning events = %+v, want one naming %s", evs, sent.ID)
+	}
+}

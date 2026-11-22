@@ -518,3 +518,14 @@ func TestLoadExpandsSSHIdentityAgent(t *testing.T) {
 		t.Fatalf("Load without HOME = %v", err)
 	}
 }
+
+func TestParseHibernateWarnWithin(t *testing.T) {
+	got, err := Parse("hibernate_warn_within = \"2m\"\n")
+	if err != nil || got.HibernateWarnWithin == nil || *got.HibernateWarnWithin != 2*time.Minute {
+		t.Fatalf("got %v, %v", got.HibernateWarnWithin, err)
+	}
+	off, err := Parse("hibernate_warn_within = \"0s\"\n")
+	if err != nil || off.HibernateWarnWithin == nil || *off.HibernateWarnWithin != 0 {
+		t.Fatalf("zero = %v, %v", off.HibernateWarnWithin, err)
+	}
+}

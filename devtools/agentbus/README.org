@@ -368,6 +368,7 @@ remote_timeout = "5s"             # bound on each call to another machine
 list_liveness_max_age = "15s"     # list refreshes cached liveness older than this
 hold_notice_after = "10m"         # one notice after a hold this long; "0s" sends none
 stale_composer_after = "10m"      # one notice per tab for unchanged composer text; "0s" sends none
+hibernate_warn_within = "60s"     # hibernating this soon after a delivery logs a warning; "0s" logs none
 gone_after = "1h"                 # a raw pane handle gone this long: its message expires; "0s" at once
 verify_delivery_within = "60s"    # check readable transcript after delivery; "0s" disables
 # auth_error_patterns = ["Login expired", "Please run /login", "Not logged in", "Invalid API key"]

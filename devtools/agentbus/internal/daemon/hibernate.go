@@ -111,6 +111,18 @@ func (s *server) hibernateEnd(req Request, args hibernate.Args) (hibernate.Reply
 	if err := s.logHibernate(ev); err != nil {
 		return hibernate.Reply{}, err
 	}
+	if rec.Status == hibernate.StatusHibernated {
+		if ids := s.box.RecentDeliveries(args.Handle); len(ids) > 0 {
+			warn := eventlog.Event{
+				Event:  eventlog.EventHibernateWarning,
+				Name:   ev.Name,
+				Detail: "delivered just before the stop, maybe unread: " + strings.Join(ids, ", "),
+			}
+			if err := s.logHibernate(warn); err != nil {
+				return hibernate.Reply{}, err
+			}
+		}
+	}
 	return hibernate.Reply{Record: &rec}, nil
 }
 

@@ -38,7 +38,10 @@ const (
 	// defaultStaleComposerAfter is how long unchanged composer text holds
 	// a message before notifying the sender once per tab.
 	defaultStaleComposerAfter = 10 * time.Minute
-	waitTick                  = 15 * time.Millisecond
+	// defaultHibernateWarn is how recent a delivery must be for
+	// hibernating its agent to log a warning.
+	defaultHibernateWarn = time.Minute
+	waitTick             = 15 * time.Millisecond
 	// holdWatch is how long a queued send watches for a fast unreachable
 	// hold before it answers. A paste still running after
 	// holdClassifyGrace is in progress, so a slow delivery does not wait

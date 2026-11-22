@@ -94,19 +94,22 @@ func parseHibernate(args []string, stderr io.Writer) (hibernate.Request, bool, e
 	fs.SetOutput(stderr)
 	idleOver := fs.Duration("idle-over", 0, "hibernate every agent idle at least this long")
 	dryRun := fs.Bool("dry-run", false, "report what would happen and change nothing")
+	hold := fs.Bool("hold", false, "park the agent: messages queue without waking it (names only)")
 	asJSON := fs.Bool("json", false, "print a JSON array, one object per agent")
 	targets, err := parseInterspersed(fs, args)
 	if err != nil {
 		return hibernate.Request{}, false, err
 	}
-	req := hibernate.Request{Targets: targets, IdleOver: *idleOver, DryRun: *dryRun}
+	req := hibernate.Request{Targets: targets, IdleOver: *idleOver, DryRun: *dryRun, Hold: *hold}
 	switch {
 	case *idleOver < 0:
 		return req, false, errors.New("--idle-over must not be negative")
+	case *hold && len(req.Targets) == 0:
+		return req, false, errors.New("--hold needs names or handles, not --idle-over")
 	case len(req.Targets) > 0 && *idleOver > 0:
 		return req, false, errors.New("give names or handles, or --idle-over, not both")
 	case len(req.Targets) == 0 && *idleOver == 0:
-		return req, false, errors.New("usage: agentbus hibernate <name|handle>... | --idle-over <duration> [--dry-run] [--json]")
+		return req, false, errors.New("usage: agentbus hibernate <name|handle>... | --idle-over <duration> [--hold] [--dry-run] [--json]")
 	}
 	return req, *asJSON, nil
 }
