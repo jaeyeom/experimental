@@ -3,7 +3,6 @@ linters:
   enable:
     - cyclop
     - depguard
-    - errcheck
     - gocritic
     - gosec
     - govet
@@ -76,6 +75,7 @@ linters:
             - github.com/charmbracelet/bubbles
             - github.com/charmbracelet/lipgloss
             - github.com/google/renameio/v2
+            - github.com/kisielk/errcheck
             - github.com/muesli/termenv
             - github.com/pelletier/go-toml/v2
             - github.com/tetafro/godot
