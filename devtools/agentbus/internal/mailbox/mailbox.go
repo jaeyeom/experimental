@@ -58,8 +58,11 @@ type Options struct {
 }
 
 type message struct {
-	ID        string    `json:"id"`
-	From      string    `json:"from"`
+	ID   string `json:"id"`
+	From string `json:"from"`
+	// FromNames are the sender's names when it was stamped. From is
+	// their display join; reply targets come from this list.
+	FromNames []string  `json:"fromNames,omitempty"`
 	To        string    `json:"to"`
 	Re        string    `json:"re,omitempty"`
 	SentAt    time.Time `json:"sentAt"`
@@ -224,8 +227,8 @@ func (m *Mailbox) Send(ctx context.Context, env []string, peerPID int, target, b
 	if body == "" {
 		return Result{}, errors.New("message body is required")
 	}
-	from, sender, replyable, anonHerdr := m.stamp(ctx, env, peerPID)
-	return m.send(ctx, from, sender, replyable, anonHerdr, target, body, opt)
+	from, sender, names, replyable, anonHerdr := m.stamp(ctx, env, peerPID)
+	return m.send(ctx, from, sender, names, replyable, anonHerdr, target, body, opt)
 }
 
 // Post queues a message the daemon itself sends, such as a lease grant.
@@ -234,10 +237,10 @@ func (m *Mailbox) Post(ctx context.Context, from, target, body string) (Result, 
 	if body == "" {
 		return Result{}, errors.New("message body is required")
 	}
-	return m.send(ctx, from, "", false, false, target, body, Options{})
+	return m.send(ctx, from, "", nil, false, false, target, body, Options{})
 }
 
-func (m *Mailbox) send(ctx context.Context, from, sender string, replyable, anonHerdr bool, target, body string, opt Options) (Result, error) {
+func (m *Mailbox) send(ctx context.Context, from, sender string, names []string, replyable, anonHerdr bool, target, body string, opt Options) (Result, error) {
 	if err := ValidClientID(opt.ClientID); err != nil {
 		return Result{}, err
 	}
@@ -260,6 +263,7 @@ func (m *Mailbox) send(ctx context.Context, from, sender string, replyable, anon
 	}
 	msg.ClientID = opt.ClientID
 	msg.SenderHandle = sender
+	msg.FromNames = names
 	res, err := m.enqueue(ctx, msg, opt)
 	if err != nil {
 		return Result{}, err
@@ -284,23 +288,48 @@ func (m *Mailbox) Reply(ctx context.Context, env []string, peerPID int, id, body
 	if !orig.Replyable {
 		return Result{}, errors.New("no reply address")
 	}
-	from, sender, replyable, anonHerdr := m.stamp(ctx, env, peerPID)
-	handle, err := m.reg.Resolve(orig.From)
+	from, sender, names, replyable, anonHerdr := m.stamp(ctx, env, peerPID)
+	to, handle, err := m.replyTarget(ctx, orig)
 	if err != nil {
 		return Result{}, fmt.Errorf("resolve reply target: %w", unknownTarget{err})
 	}
-	msg, err := m.newMessage(from, orig.From, id, body, replyable, handle)
+	msg, err := m.newMessage(from, to, id, body, replyable, handle)
 	if err != nil {
 		return Result{}, err
 	}
 	msg.ClientID = opt.ClientID
 	msg.SenderHandle = sender
+	msg.FromNames = names
 	res, err := m.enqueue(ctx, msg, opt)
 	if err != nil {
 		return Result{}, err
 	}
 	res.AnonHerdr = anonHerdr
 	return res, nil
+}
+
+// replyTarget picks where a reply to orig goes: the first of the
+// sender's names that resolves, else the sender's handle when it is
+// alive. It returns the name (or handle) to use as To, and the handle.
+// Messages stored before FromNames existed split the joined From.
+func (m *Mailbox) replyTarget(ctx context.Context, orig message) (string, string, error) {
+	names := orig.FromNames
+	if len(names) == 0 {
+		names = strings.Split(orig.From, ", ")
+	}
+	for _, name := range names {
+		if handle, err := m.reg.Resolve(name); err == nil {
+			return name, handle, nil
+		}
+	}
+	if h := orig.SenderHandle; h != "" {
+		state, _, _, err := m.observe(ctx, m.adapters, h)
+		if err != nil || state != adapter.StateGone {
+			return h, h, nil
+		}
+	}
+	return "", "", fmt.Errorf("tried %s: none is registered and the sender handle is gone",
+		strings.Join(names, ", "))
 }
 
 // unknownTarget is a resolve failure. It keeps the resolver's text and
@@ -340,7 +369,7 @@ func (m *Mailbox) preview(body string) bool {
 // stamp returns the display name, the stable sender handle, and whether
 // the caller can be replied to. The dedupe key uses the handle, because
 // the display name changes when the pane's names change.
-func (m *Mailbox) stamp(ctx context.Context, env []string, peerPID int) (string, string, bool, bool) {
+func (m *Mailbox) stamp(ctx context.Context, env []string, peerPID int) (string, string, []string, bool, bool) {
 	for _, ad := range m.adapters {
 		handle, err := ad.Identify(ctx, env)
 		if err != nil || handle == "" {
@@ -349,19 +378,19 @@ func (m *Mailbox) stamp(ctx context.Context, env []string, peerPID int) (string,
 		// A replayed anon handle carries the original pid. Recomputing
 		// it from this process would miss the client-id dedupe.
 		if strings.HasPrefix(handle, "anon:") {
-			return handle, handle, false, false
+			return handle, handle, nil, false, false
 		}
 		if !strings.HasPrefix(handle, "herdr:") {
 			continue
 		}
 		names := m.reg.NamesOf(handle)
 		if len(names) == 0 {
-			return handle, handle, true, false
+			return handle, handle, nil, true, false
 		}
-		return strings.Join(names, ", "), handle, true, false
+		return strings.Join(names, ", "), handle, names, true, false
 	}
 	who := anon(peerPID)
-	return who, who, false, m.anonBecauseHerdr(ctx, env)
+	return who, who, nil, false, m.anonBecauseHerdr(ctx, env)
 }
 
 // anonBecauseHerdr reports a herdr pane whose Identify failed because

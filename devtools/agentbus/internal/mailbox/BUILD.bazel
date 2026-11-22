@@ -36,6 +36,7 @@ go_test(
         "move_test.go",
         "render_test.go",
         "replies_test.go",
+        "reply_target_test.go",
         "status_test.go",
         "transport_test.go",
         "verify_test.go",

@@ -216,13 +216,15 @@ func TestSendToAnUnregisteredNameExitsTwo(t *testing.T) {
 }
 
 func TestReplyToASenderNoLongerRegisteredExitsTwo(t *testing.T) {
-	env, _ := heldWorld(t, nil)
+	env, ad := heldWorld(t, nil)
 	mustCmd(t, []string{"register", "ops/gone", "--when", "tests"}, env("p1"))
 	out, _ := mustCmd(t, []string{"send", heldReviewer, "question"}, env("p1"))
 	id := firstID(t, out)
 	mustCmd(t, []string{"release", "ops/gone"}, env("p1"))
+	// A live sender handle would still take the reply; the pane is gone too.
+	ad.Reach[heldSender] = adapter.StateGone
 	code, stdout, stderr := runCmd([]string{"reply", id, "answer"}, env("p2"))
-	if code != 2 || stdout != "" || !strings.Contains(stderr, "ops/gone is not registered") {
+	if code != 2 || stdout != "" || !strings.Contains(stderr, "tried ops/gone") {
 		t.Fatalf("reply = %d\nstdout %q\nstderr %q", code, stdout, stderr)
 	}
 }
