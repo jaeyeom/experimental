@@ -31,6 +31,11 @@ require (
 require github.com/kisielk/errcheck v1.30.0
 
 require (
+	github.com/ccojocar/zxcvbn-go v1.0.4 // indirect
+	github.com/securego/gosec/v2 v2.30.0 // indirect
+)
+
+require (
 	github.com/gobwas/glob v0.2.3 // indirect
 	github.com/tomarrell/wrapcheck/v2 v2.13.0
 )
@@ -74,7 +79,7 @@ require (
 	github.com/tetafro/godot v1.5.6
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
-	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
+	github.com/xo/terminfo v1.2.0 // indirect
 	go.uber.org/atomic v1.9.0 // indirect
 	go.uber.org/multierr v1.9.0 // indirect
 	golang.org/x/exp v0.0.0-20231110203233-9a3e6036ecaa // indirect

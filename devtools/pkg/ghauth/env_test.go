@@ -50,7 +50,8 @@ func TestMultiEnvTokenSource(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if token != "token_from_var_2" { //nolint:gosec // This is a test token, not a real credential
+	//nolint:gosec // This is a test token, not a real credential
+	if token != "token_from_var_2" {
 		t.Errorf("expected 'token_from_var_2', got %q", token)
 	}
 }

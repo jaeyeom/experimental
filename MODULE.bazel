@@ -32,6 +32,11 @@ go_deps.module(
     sum = "h1:Uths4KnmwxNJNzq87fwQQDDnbNb7De00VOk9Nu0TySs=",
     version = "v0.2.0",
 )
+go_deps.module(
+    path = "github.com/securego/gosec/v2",
+    sum = "h1:67aF6LHa7SAL6QEc4es857GrXTT50gUqmrl0XPhtDx0=",
+    version = "v2.30.0",
+)
 
 # All Go dependencies referenced by BUILD files must be listed explicitly.
 # Note: This includes both direct and indirect dependencies from go.mod.
@@ -53,6 +58,7 @@ use_repo(
     "com_github_mattn_go_sqlite3",
     "com_github_muesli_termenv",
     "com_github_pelletier_go_toml_v2",
+    "com_github_securego_gosec_v2",
     "com_github_slack_go_slack",
     "com_github_spf13_cobra",
     "com_github_spf13_viper",

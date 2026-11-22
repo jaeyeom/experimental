@@ -108,7 +108,8 @@ func drawGeneration(sizes []int, name string) int {
 		sum := sha256.Sum256(fmt.Appendf(nil, "decide avatar generation %d\x00%s", g, name))
 		draw := binary.BigEndian.Uint64(sum[:8]) % uint64(total) //nolint:gosec // G115: total is positive
 		total -= sizes[g]
-		if draw >= uint64(total) { //nolint:gosec // G115: total is positive
+		//nolint:gosec // G115: total is positive
+		if draw >= uint64(total) {
 			return g
 		}
 	}

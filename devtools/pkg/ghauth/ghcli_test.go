@@ -20,7 +20,8 @@ func TestGHCLITokenSource(t *testing.T) {
 	}
 
 	// Token should be trimmed
-	if token != "ghp_test_token_12345" { //nolint:gosec // This is a test token, not a real credential
+	//nolint:gosec // This is a test token, not a real credential
+	if token != "ghp_test_token_12345" {
 		t.Errorf("expected 'ghp_test_token_12345', got %q", token)
 	}
 }

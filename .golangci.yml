@@ -4,7 +4,6 @@ linters:
     - cyclop
     - depguard
     - gocritic
-    - gosec
     - govet
     - iface
     - revive
@@ -21,11 +20,6 @@ linters:
         rules:
           json: camel
           yaml: snake
-    gosec:
-      excludes:
-        - G703 # Path traversal - false positive in CLI tools
-        - G705 # XSS - false positive in CLI tools writing to stderr/stdout
-        - G706 # Log injection - false positive with structured logging (slog)
     cyclop:
       max-complexity: 15
       package-average: 0.0
