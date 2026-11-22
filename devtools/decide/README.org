@@ -382,6 +382,9 @@ another.
   and save on return. Sending (~Ctrl+Enter~, ~Alt+Enter~, ~C-s~, or
   ~Alt+e~), discarding (~Alt+d~), or clearing text to empty or
   whitespace deletes the draft immediately.
+- *GUI emacsclient*: an ~emacsclient~ editor with none of ~-t~, ~-nw~,
+  ~-c~ gets no terminal on stdin, so it opens the draft in the running
+  Emacs instead of a text frame on the inbox's terminal.
 - *Conflicts*: drafts use optimistic concurrency (~baseRev~) so
   concurrent edits from two clients never silently overwrite each other.
   Both versions are preserved, the list shows ~draft!~, and opening the

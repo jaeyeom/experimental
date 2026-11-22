@@ -28,7 +28,10 @@ require (
 	modernc.org/sqlite v1.62.0
 )
 
-require github.com/kisielk/errcheck v1.30.0
+require (
+	github.com/creack/pty v1.1.24
+	github.com/kisielk/errcheck v1.30.0
+)
 
 require (
 	github.com/ccojocar/zxcvbn-go v1.0.4 // indirect

@@ -89,6 +89,7 @@ go_test(
         "display_test.go",
         "done_unread_test.go",
         "drafts_test.go",
+        "editor_pty_test.go",
         "editor_test.go",
         "favorites_test.go",
         "field_test.go",
@@ -122,6 +123,7 @@ go_test(
         "//devtools/pkg/herdrtest:go_default_library",
         "@com_github_charmbracelet_bubbletea//:go_default_library",
         "@com_github_charmbracelet_lipgloss//:go_default_library",
+        "@com_github_creack_pty//:go_default_library",
         "@com_github_muesli_termenv//:go_default_library",
     ],
 )

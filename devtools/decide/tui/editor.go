@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -56,6 +57,9 @@ func (e *externalEdit) Run() error {
 	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	cmd := exec.Command(e.prog, e.args...) //nolint:gosec // G204: operator editor, arguments are not a shell string
 	cmd.Stdin = e.stdin
+	if !editorUsesTerminal(e.prog, e.args) {
+		cmd.Stdin = nil
+	}
 	cmd.Stdout = e.stdout
 	cmd.Stderr = e.stderr
 	// A reader that is not a file is copied into the editor by a
@@ -66,6 +70,25 @@ func (e *externalEdit) Run() error {
 		return fmt.Errorf("run editor: %w", err)
 	}
 	return nil
+}
+
+// editorUsesTerminal reports whether the editor needs the terminal as
+// its stdin. A GUI emacsclient, one with none of -t, -nw, -tty, -c, or
+// -create-frame, does not, and it must not get one: with a terminal on
+// stdin it opens a text frame on the inbox's terminal instead of a
+// window in the running Emacs.
+func editorUsesTerminal(prog string, args []string) bool {
+	base := filepath.Base(prog)
+	if base != "emacsclient" && !strings.HasPrefix(base, "emacsclient-") {
+		return true
+	}
+	for _, a := range args {
+		switch a {
+		case "-t", "-nw", "-tty", "--tty", "-c", "-create-frame", "--create-frame":
+			return true
+		}
+	}
+	return false
 }
 
 // editorWaitDelay bounds the wait for the editor's I/O after it exits.
