@@ -389,7 +389,6 @@ sh_test(
         "godoctor.yml",
         "gofumpt.yml",
         "goimports.yml",
-        "golangci-lint.yml",
         "gomodifytags.yml",
         "google-java-format.yml",
         "gopkgs.yml",
@@ -1577,22 +1576,6 @@ sh_test(
         "goimports.yml",
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
-    ],
-    tags = [
-        "ansible",
-        "local",
-    ],
-)
-
-sh_test(
-    name = "golangci-lint_syntax_test",
-    srcs = ["test_ansible_syntax.sh"],
-    args = ["golangci-lint.yml"],
-    data = [
-        "curl.yml",
-        "git.yml",
-        "golangci-lint.yml",
-        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -3619,16 +3602,13 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-go-tools.yml"],
     data = [
-        "curl.yml",
         "fillstruct.yml",
-        "git.yml",
         "go.yml",
         "godef.yml",
         "godoc.yml",
         "godoctor.yml",
         "gofumpt.yml",
         "goimports.yml",
-        "golangci-lint.yml",
         "gomodifytags.yml",
         "gopkgs.yml",
         "gopls.yml",
@@ -3640,7 +3620,6 @@ sh_test(
         "setup-go-tools.yml",
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
-        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -4950,7 +4929,6 @@ test_suite(
         ":godot_syntax_test",
         ":gofumpt_syntax_test",
         ":goimports_syntax_test",
-        ":golangci-lint_syntax_test",
         ":gomodifytags_syntax_test",
         ":google-java-format_syntax_test",
         ":gopkgs_syntax_test",

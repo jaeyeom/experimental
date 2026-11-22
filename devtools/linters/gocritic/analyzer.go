@@ -11,9 +11,9 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// enabledChecks lists the checks golangci-lint enables by default (all checks
-// that are not experimental, opinionated, performance, or security). They are
-// listed explicitly so a go-critic upgrade does not change the set silently.
+// enabledChecks lists the default go-critic checks (all checks that are not
+// experimental, opinionated, performance, or security). They are listed
+// explicitly so a go-critic upgrade does not change the set silently.
 // ruleguard is not in the default set and is not included.
 var enabledChecks = map[string]bool{
 	"appendAssign":      true,

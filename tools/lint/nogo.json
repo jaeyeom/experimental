@@ -13,13 +13,13 @@
     }
   },
   "cyclop": {
-    "description": "Complexity is not checked in test files (matches the .golangci.yml exclusion rule)",
+    "description": "Complexity is not checked in test files",
     "exclude_files": {
       ".*_test\\.go$": "Skip test files"
     }
   },
   "gosec": {
-    "description": "Exclude G703, G705, G706 (CLI false positives), G602 (SSA slice bounds false positives), and golangci-lint preset-suppressed rules",
+    "description": "Exclude G703, G705, G706 (CLI false positives), G602 (SSA slice bounds false positives), and preset-suppressed rules",
     "analyzer_flags": {
       "exclude": "G104,G204,G301,G302,G304,G306,G602,G703,G705,G706"
     }

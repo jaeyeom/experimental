@@ -43,18 +43,6 @@ rules:
         section: "* Getting Started"
         why: "Go module path, uv lockfile, listed linters"
 
-  - match: [".golangci.yml"]
-    docs:
-      - path: README.org
-        section: "* Getting Started"
-        why: "golangci-lint is part of make lint"
-      - path: README.org
-        section: "** GNU Make"
-        why: "make lint-golangci / verify-golangci-config"
-      - path: SECURITY.md
-        section: "## Security Practices"
-        why: "static analysis via golangci-lint"
-
   - match: [".semgrep/**"]
     docs:
       - path: README.org

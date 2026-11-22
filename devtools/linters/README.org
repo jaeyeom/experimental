@@ -5,7 +5,7 @@
 
 This directory holds three small linters. ~org-lint~ runs Emacs's built-in
 Org-mode linter from the command line, so ~.org~ files can be checked in
-CI. The two Go linters catch patterns ~golangci-lint~ doesn't: interface
+CI. The two Go linters catch patterns ~go vet~ doesn't: interface
 assertions that guard nothing, and package-level variables that should be
 constants or that run code at init time.
 

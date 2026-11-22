@@ -23,7 +23,7 @@ func TestReadmeRequiredPhrases(t *testing.T) {
 		"unnecessary-interface-assertion-linter",
 		"pkgvar",
 		"make lint",
-		"golangci-lint",
+		"go vet",
 		"[[file:../devcheck/README.org][devcheck]]",
 		"[[file:../setup-dev/README.org][setup-dev]]",
 		"1.26",

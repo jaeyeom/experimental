@@ -37,6 +37,6 @@ This policy covers code in this repository. Dependencies are managed through the
 ## Security Practices
 
 This repository uses:
-- Static analysis via `golangci-lint` and `ruff`
+- Static analysis via Bazel `nogo` and `ruff`
 - Automated testing via CI
 - Dependency scanning where applicable

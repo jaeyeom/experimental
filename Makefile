@@ -51,11 +51,11 @@ check-format: check-whitespace
 test:
 	bazel test --test_summary=terse $(BAZEL_TEST_ENV) //...
 
-lint: lint-golangci lint-ruff lint-mypy lint-shellcheck check-spacemacs
+lint: lint-ruff lint-mypy lint-shellcheck check-spacemacs
 
 # Target fix is best-effort autofix for lint issues. If autofix is not
 # available, it still runs lint checks.
-fix: fix-golangci fix-ruff lint-mypy lint-shellcheck check-spacemacs
+fix: fix-go fix-ruff lint-mypy lint-shellcheck check-spacemacs
 
 INSTALL_CMDS := \
 	./devtools/claude-usage/cmd/claude-usage \
@@ -94,26 +94,13 @@ tag:
 	@echo "Created tag $(TAG). Push with: git push origin $(TAG)"
 
 # Go targets
-.PHONY: lint-golangci fix-golangci verify-golangci-config check-bazel-go-files
-GOLANGCI_CONFIG_HASH_FILE := .tmp/golangci.yml.hash
+.PHONY: fix-go check-bazel-go-files
 
 # pkgvar and oserrors run in nogo (//tools/lint:platform_nogo). Only the
-# oserrorsgodernize --fix autofixer (a module tool) remains, in fix-golangci.
+# oserrorsgodernize --fix autofixer (a module tool) remains.
 # An empty GOPACKAGESDRIVER keeps Bazel from taking over package loading (#416).
-lint-golangci: verify-golangci-config
-	GOPACKAGESDRIVER= golangci-lint run ./...
-
-fix-golangci: verify-golangci-config
-	GOPACKAGESDRIVER= golangci-lint run --fix ./...
+fix-go:
 	GOPACKAGESDRIVER= go tool oserrorsgodernize --fix ./...
-
-verify-golangci-config:
-	@CURRENT_HASH=$$(shasum -a 256 .golangci.yml | cut -d' ' -f1); \
-	mkdir -p .tmp; \
-	if [ ! -f $(GOLANGCI_CONFIG_HASH_FILE) ] || [ "$$(cat $(GOLANGCI_CONFIG_HASH_FILE))" != "$$CURRENT_HASH" ]; then \
-		echo "Verifying golangci-lint config..."; \
-		golangci-lint config verify && echo "$$CURRENT_HASH" > $(GOLANGCI_CONFIG_HASH_FILE); \
-	fi
 
 check-bazel-go-files:
 	@./check-bazel-src-files.sh go

@@ -154,7 +154,7 @@ func TestExplainBlocked(t *testing.T) {
 		t.Fatalf("explainBlocked(text) = %q", got)
 	}
 	other := errors.New("exit 1: no such pane")
-	if got := explainBlocked(other, "/h"); got != other { //nolint:errorlint // the same error comes back
+	if got := explainBlocked(other, "/h"); got != other {
 		t.Fatalf("explainBlocked(other) = %v", got)
 	}
 }

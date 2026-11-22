@@ -1,5 +1,5 @@
 // Package errcheck provides a go/analysis analyzer wrapping github.com/kisielk/errcheck
-// with golangci-lint's std-error-handling exclusion preset.
+// with std-error-handling exclusions.
 package errcheck
 
 import (
@@ -11,13 +11,14 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// stdErrorHandlingRegexp mirrors golangci-lint's std-error-handling preset.
+// stdErrorHandlingRegexp excludes common standard library error returns
+// (stdout/stderr writes, Close/Flush, os.Remove, Printf/Println, Setenv).
 var stdErrorHandlingRegexp = regexp.MustCompile(
 	`(?i)^((os\.)?std(out|err)\..*|.*Close|.*Flush|os\.Remove(All)?|.*print(f|ln)?|os\.(Un)?Setenv)$`,
 )
 
 // Analyzer reports unchecked errors, excluding common standard library error
-// returns covered by golangci-lint's std-error-handling preset.
+// returns.
 var Analyzer = &analysis.Analyzer{
 	Name: "errcheck",
 	Doc:  "check for unchecked errors",
