@@ -633,7 +633,7 @@ func MatchFileCheck(checks map[string]FileCheck, path string) (string, FileCheck
 			continue
 		}
 		spec := FileCheckSpecificity(pattern)
-		if !found || moreSpecific(spec, bestSpec) {
+		if !found || moreSpecific(spec, bestSpec) || (spec == bestSpec && pattern < bestPat) {
 			bestPat = pattern
 			bestCheck = check
 			bestSpec = spec
@@ -668,6 +668,10 @@ func validateFileChecks(checks map[string]FileCheck) error {
 			continue
 		}
 		spec := FileCheckSpecificity(pattern)
+		if spec.Exact {
+			// Distinct literal paths never match the same file.
+			continue
+		}
 		if prev, exists := bySpec[spec]; exists {
 			return fmt.Errorf("file_checks patterns %q and %q have tied specificity", prev, pattern)
 		}

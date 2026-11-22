@@ -337,8 +337,8 @@ approves; one that raises a number defers.
 
 Each changed file is matched against the patterns, and the most specific
 pattern wins: an exact path beats any glob, then the pattern with more literal
-path segments, then the longer literal text. A specificity tie is a config
-error at load time. A file that a pattern covers is judged only by its check;
+path segments, then the longer literal text. Two globs with tied
+specificity are a config error at load time; distinct exact paths never tie. A file that a pattern covers is judged only by its check;
 an uncovered file fails ~file_checks~ (~<path>: not covered by file_checks~),
 unless the rule also sets ~paths_all_match~, ~codeowners_covered~ or
 ~mine_comments_only~. Those conditions then judge the uncovered files, and

@@ -473,3 +473,31 @@ viewed { rules { new { name = "r"; repos { "acme/widgets" }; codeowners_not_mine
 		})
 	}
 }
+
+func TestValidateFileChecksExactPathsNeverTie(t *testing.T) {
+	checks := map[string]FileCheck{
+		"a/x/baseline.txt": {Builtin: FileCheckOnlyDeletions},
+		"a/y/baseline.txt": {Builtin: FileCheckDeletionsAndCommentsOnly},
+	}
+	if err := validateFileChecks(checks); err != nil {
+		t.Fatalf("validateFileChecks() = %v, want nil", err)
+	}
+	for path, want := range map[string]string{"a/x/baseline.txt": "a/x/baseline.txt", "a/y/baseline.txt": "a/y/baseline.txt"} {
+		for range 20 {
+			if pat, _, ok := MatchFileCheck(checks, path); !ok || pat != want {
+				t.Fatalf("MatchFileCheck(%q) = (%q, %v), want %q", path, pat, ok, want)
+			}
+		}
+	}
+}
+
+func TestValidateFileChecksGlobTieRejected(t *testing.T) {
+	checks := map[string]FileCheck{
+		"a/*/x.txt": {Builtin: FileCheckOnlyDeletions},
+		"b/*/y.txt": {Builtin: FileCheckOnlyDeletions},
+	}
+	err := validateFileChecks(checks)
+	if err == nil || !strings.Contains(err.Error(), "tied specificity") {
+		t.Fatalf("validateFileChecks() = %v, want tied specificity", err)
+	}
+}
