@@ -330,8 +330,7 @@ func (pr *PullRequest) LatestReviewSubmittedAt(login string) time.Time {
 
 // ReviewRequest represents a user or team requested to review a PR.
 type ReviewRequest struct {
-	//nolint: tagliatelle
-	Type  string `json:"__typename"`      // "User" or "Team"
+	Type  string `json:"__typename"`      //nolint:tagliatelle // "User" or "Team"
 	Login string `json:"login,omitempty"` // For users
 	Name  string `json:"name,omitempty"`  // For teams
 	Slug  string `json:"slug,omitempty"`  // For teams

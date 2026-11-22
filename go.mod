@@ -32,6 +32,10 @@ require github.com/kisielk/errcheck v1.30.0
 
 require (
 	github.com/ccojocar/zxcvbn-go v1.0.4 // indirect
+	github.com/ettle/strcase v0.2.0 // indirect
+	github.com/hashicorp/go-immutable-radix/v2 v2.1.0 // indirect
+	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
+	github.com/ldez/tagliatelle v0.8.0
 	github.com/securego/gosec/v2 v2.30.0 // indirect
 )
 

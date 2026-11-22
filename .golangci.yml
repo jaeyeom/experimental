@@ -8,7 +8,6 @@ linters:
     - iface
     - revive
     - staticcheck
-    - tagliatelle
     - unused
   disable:
     - testpackage
@@ -69,6 +68,7 @@ linters:
             - github.com/charmbracelet/lipgloss
             - github.com/google/renameio/v2
             - github.com/kisielk/errcheck
+            - github.com/ldez/tagliatelle
             - github.com/muesli/termenv
             - github.com/pelletier/go-toml/v2
             - github.com/tetafro/godot

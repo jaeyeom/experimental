@@ -54,6 +54,7 @@ use_repo(
     "com_github_jaeyeom_godernize",
     "com_github_jaeyeom_sugo",
     "com_github_kisielk_errcheck",
+    "com_github_ldez_tagliatelle",
     "com_github_leanovate_gopter",
     "com_github_mattn_go_sqlite3",
     "com_github_muesli_termenv",

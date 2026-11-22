@@ -37,6 +37,7 @@ EXTRA_ANALYZERS = [
     "//devtools/linters/errcheck:go_default_library",
     "//devtools/linters/gochecknoinits:go_default_library",
     "//devtools/linters/godot:go_default_library",
+    "//devtools/linters/tagliatelle:go_default_library",
     "//devtools/linters/wrapcheck:go_default_library",
     "@com_github_gordonklaus_ineffassign//pkg/ineffassign:go_default_library",
     "@com_github_securego_gosec_v2//goanalysis:go_default_library",
