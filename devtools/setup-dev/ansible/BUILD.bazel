@@ -220,17 +220,66 @@ sh_test(
     ],
 )
 
-sh_test(
+# setup-claude-sandbox.yml and the playbooks it imports, directly or not.
+CLAUDE_SANDBOX_PLAYBOOKS = [
+    "claude.yml",
+    "curl.yml",
+    "gather-facts.yml",
+    "jq.yml",
+    "npm.yml",
+    "nvm.yml",
+    "rg.yml",
+    "setup-claude-sandbox.yml",
+    "setup-claude-termux-rg.yml",
+    "setup-claude-toolbox.yml",
+    "setup-npm.yml",
+    "setup-nvm.yml",
+    "setup-shell-profile.yml",
+    "setup-user-bin-directory.yml",
+    "which.yml",
+]
+
+CLAUDE_SANDBOX_SCENARIOS = [
+    "fresh",
+    "hosts",
+    "domains",
+    "perms",
+    "once",
+    "sockets",
+    "writes",
+    "linux-xdg",
+    "linux-fallback",
+    "bazel-darwin",
+    "bazel-linux",
+    "bazel-rc",
+    "bazel-system-rc",
+    "bazel-explicit",
+    "excluded-darwin",
+    "excluded-darwin-off",
+    "excluded-linux",
+]
+
+# One target per scenario of claude_sandbox_settings_test.sh. The test
+# runs only the claude-sandbox-settings tag.
+[
+    sh_test(
+        name = "claude_sandbox_settings_%s_test" % scenario.replace("-", "_"),
+        srcs = ["claude_sandbox_settings_test.sh"],
+        args = [scenario],
+        data = ["inventory.ini"] + CLAUDE_SANDBOX_PLAYBOOKS,
+        tags = [
+            "ansible",
+            "local",
+        ],
+    )
+    for scenario in CLAUDE_SANDBOX_SCENARIOS
+]
+
+test_suite(
     name = "claude_sandbox_settings_test",
-    # The test runs many ansible-playbook scenarios.
-    timeout = "long",
-    srcs = ["claude_sandbox_settings_test.sh"],
-    # setup-claude-sandbox.yml imports other playbooks. The test runs
-    # only the claude-sandbox-settings tag.
-    data = ["inventory.ini"] + glob(["*.yml"]),
-    tags = [
-        "ansible",
-        "local",
+    tests = [
+        ":claude_sandbox_settings_%s_test" % scenario.replace("-", "_")
+        for scenario in CLAUDE_SANDBOX_SCENARIOS
     ],
 )
 
