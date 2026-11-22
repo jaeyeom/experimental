@@ -185,6 +185,11 @@ type Item struct {
 	// the sender is Owner. A human reply from the inbox and an answer
 	// are still allowed.
 	OwnerRepliesOnly bool `json:"ownerRepliesOnly,omitempty"`
+	// Supersedes is the id of the older item this one replaces, and
+	// SupersededBy the id of the newer item that replaces this one. Both
+	// are set together by Supersede.
+	Supersedes   string `json:"supersedes,omitempty"`
+	SupersededBy string `json:"supersededBy,omitempty"`
 	// Tags are optional labels on the item (such as "off-line").
 	Tags []string `json:"tags,omitempty"`
 }

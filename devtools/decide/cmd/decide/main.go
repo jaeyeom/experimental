@@ -40,15 +40,17 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 // itemCommands act on one existing item.
 var itemCommands = map[string]func([]string, io.Writer, io.Writer) int{
-	"show":     cmdShow,
-	"withdraw": cmdWithdraw,
-	"done":     cmdDone,
-	"answer":   cmdAnswer,
-	"snooze":   cmdSnooze,
-	"unsnooze": cmdUnsnooze,
-	"reassign": cmdReassign,
-	"assign":   cmdAssign,
-	"retag":    cmdRetag,
+	"show":      cmdShow,
+	"withdraw":  cmdWithdraw,
+	"done":      cmdDone,
+	"answer":    cmdAnswer,
+	"snooze":    cmdSnooze,
+	"unsnooze":  cmdUnsnooze,
+	"reassign":  cmdReassign,
+	"assign":    cmdAssign,
+	"retag":     cmdRetag,
+	"supersede": cmdSupersede,
+	"log":       cmdLog,
 }
 
 // ledgerCommands run against this machine's ledger until stopped: the
@@ -108,6 +110,8 @@ func usage(w io.Writer) {
     [--link url] [--notify-pane pane] [--type-text text] [--where place] \
     [--verbatim-file path] [--json] <question>
   decide retag [--json] <id> <class>
+  decide log search [--class decision,fact,...] [--all] [--json] <words>
+  decide supersede [--json] <old> --by <new>
   decide list [--state open|answered|done|withdrawn] [--snoozed] [--off-line] [--undelivered] [--json]
   decide show [--json] <id>
   decide withdraw [--json] <id> <reason>

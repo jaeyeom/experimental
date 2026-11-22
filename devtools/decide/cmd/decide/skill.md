@@ -13,6 +13,10 @@ Use decide to ask the user for a decision, send a note, or post status.
 
 Run `decide` with no arguments for the full usage. The flag list is in that text.
 
+## Decision log
+
+Before filing a decision or fact question, run `decide log search <words>` to see whether the user already decided it. It searches the user's answers and the owners' `done` outcomes, newest first, and hides superseded items (`--all` shows them; `--class` changes the classes, default `decision,fact`). When you act on a precedent, cite its id. The log is read-only: searching changes nothing. `decide supersede <old> --by <new>` records that a newer decision replaces an older one.
+
 ## Items
 
 Every item has options, includes `--rec`, and usually allows `--free-text`.

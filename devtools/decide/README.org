@@ -182,6 +182,8 @@ that hub for one invocation.
 | ~decide reassign~                | Point an item at another owner or notify pane.                 |
 | ~decide assign~                  | Record who is working on an item. ~--clear~ removes it.        |
 | ~decide retag~                   | Change an item's class and prefix, recording a thread event.   |
+| ~decide log search~              | Search answered decisions and facts, newest first.             |
+| ~decide supersede~               | Record that a newer item replaces an older one.                |
 | ~decide skill~                   | Print the agent instructions.                                  |
 | ~decide skill install~           | Install the agent skill for ~claude~, ~codex~, ~antigravity~, ~grok~, or ~all~. |
 | ~decide skill uninstall~         | Remove an installed agent skill.                               |
@@ -270,6 +272,24 @@ config makes a missing ~--class~ an error (exit 2).
 ~decide retag <id> <class>~ changes an item's class, updates its
 display prefix, and records a system event in the thread with the old
 and new class.
+
+** Decision log
+
+~decide log search <words> [--class decision,fact,...] [--all] [--json]~
+looks up what the user already decided. It searches items that have a
+user answer or an owner's ~done~ outcome, matching every word against
+the question, answer and outcome (case-insensitive). The default classes
+are decision and fact; ~--class~ widens or narrows them. Results are
+newest first and show id, date, question, answer and outcome. Superseded
+items are hidden unless ~--all~ is given. Search never changes anything:
+only the user's answers and the owner's ~done~ outcomes make entries.
+
+~decide supersede <old> --by <new>~ marks a newer item as replacing an
+older one. Both threads record the link in a system message, and search
+shows only the newest item of a chain, with a "supersedes" note.
+
+Agents search the log before filing a decision or fact question, and
+cite the id of any precedent they act on.
 
 ** Owner and worker
 
