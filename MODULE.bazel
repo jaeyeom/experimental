@@ -1,6 +1,6 @@
 # Go
-bazel_dep(name = "rules_go", version = "0.61.0")
-bazel_dep(name = "bazel_skylib", version = "1.8.2")
+bazel_dep(name = "rules_go", version = "0.65.0")
+bazel_dep(name = "bazel_skylib", version = "1.9.2")
 bazel_dep(name = "platforms", version = "1.1.0")
 
 # Staticcheck analyzers for nogo (bzlmod-compatible)
@@ -15,7 +15,7 @@ go_sdk.download(
 go_sdk.nogo(nogo = "//tools/lint:platform_nogo")
 use_repo(go_sdk, "go_sdk")
 
-bazel_dep(name = "gazelle", version = "0.45.0")
+bazel_dep(name = "gazelle", version = "0.54.0")
 
 go_deps = use_extension("@gazelle//:extensions.bzl", "go_deps")
 go_deps.from_file(go_mod = "//:go.mod")
@@ -81,14 +81,14 @@ use_repo(
 bazel_dep(name = "aspect_rules_lint", version = "2.9.1")
 
 # Buildifier for Bazel file formatting
-bazel_dep(name = "buildifier_prebuilt", version = "8.0.3")
+bazel_dep(name = "buildifier_prebuilt", version = "10.2.0")
 
 # Stardoc for Bazel documentation (required by rules_buf)
 # repo_name provides the legacy @io_bazel_stardoc alias that rules_buf expects
-bazel_dep(name = "stardoc", version = "0.8.0", repo_name = "io_bazel_stardoc")
+bazel_dep(name = "stardoc", version = "0.8.1", repo_name = "io_bazel_stardoc")
 
 # Buf rules for protocol buffer formatting
-bazel_dep(name = "rules_buf", version = "0.5.2")
+bazel_dep(name = "rules_buf", version = "0.6.1")
 
 # Configure Buf toolchain
 buf = use_extension("@rules_buf//buf:extensions.bzl", "buf")
@@ -103,8 +103,8 @@ buf.toolchains(
 use_repo(buf, "rules_buf_toolchains")
 
 # Python
-bazel_dep(name = "rules_shell", version = "0.8.0")
-bazel_dep(name = "rules_python", version = "2.3.2")
+bazel_dep(name = "rules_shell", version = "0.10.0")
+bazel_dep(name = "rules_python", version = "2.5.1")
 
 python = use_extension(
     "@rules_python//python/extensions:python.bzl",
@@ -125,7 +125,7 @@ pip.parse(
 use_repo(pip, "pypi")
 
 # Pkl for configuration
-bazel_dep(name = "rules_pkl", version = "0.13.1")
+bazel_dep(name = "rules_pkl", version = "0.18.0")
 
 pkl = use_extension("@rules_pkl//pkl/extensions:pkl.bzl", "pkl")
 pkl.project(
