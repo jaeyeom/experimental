@@ -3,6 +3,7 @@ package ghask
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"regexp"
@@ -75,11 +76,47 @@ func runCommand(ctx context.Context, argv []string, timeout time.Duration) ([]by
 	cmd.WaitDelay = waitDelay
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
-			return nil, stderr.String(), fmt.Errorf("command timed out after %v", timeout)
+			return nil, stderr.String(), &timeoutError{timeout: timeout}
 		}
 		return nil, stderr.String(), fmt.Errorf("command failed: %w", err)
 	}
 	return stdout.Bytes(), stderr.String(), nil
+}
+
+// timeoutError reports a command killed at its timeout.
+type timeoutError struct{ timeout time.Duration }
+
+func (e *timeoutError) Error() string { return fmt.Sprintf("command timed out after %v", e.timeout) }
+
+const maxDetailBytes = 200
+
+// failureText describes a failed command for the browser: the timeout,
+// or the exit status and the last non-empty stderr line. It never
+// includes stdout or the environment.
+func failureText(name string, err error, stderr string) string {
+	var te *timeoutError
+	if errors.As(err, &te) {
+		return fmt.Sprintf("%s timed out after %v", name, te.timeout)
+	}
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) {
+		return name + " failed"
+	}
+	msg := fmt.Sprintf("%s exited with status %d", name, ee.ExitCode())
+	lines := strings.Split(stderr, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(strings.Map(func(r rune) rune {
+			if unicode.IsControl(r) {
+				return -1
+			}
+			return r
+		}, lines[i]))
+		if line == "" {
+			continue
+		}
+		return msg + ": " + truncateUTF8(line, maxDetailBytes)
+	}
+	return msg
 }
 
 // extractID returns the first match of re in out: its first group when

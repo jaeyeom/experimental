@@ -607,3 +607,86 @@ func TestCommandTimeout(t *testing.T) {
 		t.Errorf("request took %v, want the command killed at its timeout", elapsed)
 	}
 }
+
+// failEnv runs ask_command as a script with the given body.
+func failEnv(t *testing.T, body string, mutate func(*Config)) (*http.Response, []byte) {
+	t.Helper()
+	script := filepath.Join(t.TempDir(), "fail.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\n"+body), 0o700); err != nil { //nolint:gosec // G306: the fake command must be executable
+		t.Fatal(err)
+	}
+	env := newTestEnv(t, "", 0, func(c *Config) {
+		c.AskCommand = []string{script, "{file}"}
+		if mutate != nil {
+			mutate(c)
+		}
+	})
+	resp, got := env.ask(t, validRequest())
+	assertStatus(t, resp, got, http.StatusBadGateway)
+	return resp, got
+}
+
+func errorText(t *testing.T, body []byte) string {
+	t.Helper()
+	var got struct{ Error string }
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("body = %s: %v", body, err)
+	}
+	return got.Error
+}
+
+func TestCommandFailureMessages(t *testing.T) {
+	long := strings.Repeat("é", 150) // 300 bytes
+	tests := []struct {
+		name string
+		body string
+		cfg  func(*Config)
+		want string
+	}{
+		{
+			name: "timeout",
+			body: "exec sleep 30\n",
+			cfg:  func(c *Config) { c.CommandTimeout = 200 * time.Millisecond },
+			want: "ask_command timed out after 200ms",
+		},
+		{
+			name: "last non-empty stderr line",
+			body: "echo first >&2\necho bad input >&2\necho >&2\nexit 3\n",
+			want: "ask_command exited with status 3: bad input",
+		},
+		{
+			name: "empty stderr",
+			body: "exit 4\n",
+			want: "ask_command exited with status 4",
+		},
+		{
+			name: "control characters",
+			body: "printf 'a\\033[31mb\\tc\\rd\\n' >&2\nexit 5\n",
+			want: "ask_command exited with status 5: a[31mbcd",
+		},
+		{
+			name: "cap on utf-8 boundary",
+			body: "echo " + long + " >&2\nexit 6\n",
+			want: "ask_command exited with status 6: " + strings.Repeat("é", 100),
+		},
+		{
+			name: "stdout and environment stay out",
+			body: "echo SECRET_STDOUT\necho oops >&2\nexit 7\n",
+			want: "ask_command exited with status 7: oops",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("GH_ASK_TEST_ENV", "SECRET_ENV")
+			_, body := failEnv(t, tc.body, tc.cfg)
+			if got := errorText(t, body); got != tc.want {
+				t.Errorf("error = %q, want %q", got, tc.want)
+			}
+			for _, s := range []string{"SECRET_STDOUT", "SECRET_ENV", testToken} {
+				if strings.Contains(string(body), s) {
+					t.Errorf("body %s contains %q", body, s)
+				}
+			}
+		})
+	}
+}

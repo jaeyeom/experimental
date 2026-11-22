@@ -318,7 +318,7 @@ func (s *Server) run(ctx context.Context, name string, tmpl []string, vars map[s
 	out, stderr, err := runCommand(ctx, argv, s.cfg.CommandTimeout)
 	if err != nil {
 		s.logger.Error("gh-ask: "+name, append(logArgs, "err", err, "stderr", stderr)...)
-		return nil, errors.New(name + " failed")
+		return nil, errors.New(failureText(name, err, stderr))
 	}
 	return out, nil
 }

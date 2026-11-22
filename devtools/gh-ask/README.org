@@ -192,6 +192,23 @@ has a capture group, that group is the id. Otherwise the whole match
 is the id. The id is at most 256 bytes and has no control characters.
 Stdout with no match is a 502, ~ask_command printed no id~.
 
+** When a command fails
+
+~ask_command~, ~followup_command~, and ~status_command~ failures are a
+502 with a short error that says why:
+
+| Error                                    | Meaning                                  |
+|------------------------------------------+------------------------------------------|
+| ~<name> timed out after <command_timeout>~ | the command was killed at its timeout    |
+| ~<name> exited with status N: <detail>~  | non-zero exit; ~<detail>~ is the last non-empty line of stderr |
+| ~<name> exited with status N~            | non-zero exit and nothing on stderr      |
+
+~<detail>~ has control characters removed and is cut to 200 bytes. The
+last line of stderr therefore reaches the browser, so keep secrets out
+of it. Only a caller that holds the token gets the response. Stdout,
+the token, and the environment are never in it. The server log keeps
+the full stderr.
+
 ** The message file
 
 The request is written to a mode-0600 temp file. A line question
