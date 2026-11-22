@@ -25,7 +25,7 @@ func TestAskAndSendOwnerAllowListAllowedAndOff(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			writeDecideConfig(t, tc.cfg)
-			stdout, stderr, code := runCLI("ask", "--owner", "team/bob", "--kind", "relay", "--option", "a:Yes", "--option", "b:No", "--rec", "a", "Proceed?")
+			stdout, stderr, code := runCLI("ask", "--class", "decision", "--owner", "team/bob", "--kind", "relay", "--option", "a:Yes", "--option", "b:No", "--rec", "a", "Proceed?")
 			if code != 0 {
 				t.Fatalf("ask = %d, stderr=%q", code, stderr)
 			}

@@ -33,8 +33,9 @@ func (d *cmdFakeDecider) Ask(_ context.Context, _, question, verbatim string) (s
 	d.items[id] = &slackwatch.DecideItem{
 		ID: id, State: "open",
 		Options: []slackwatch.DecideOption{
-			{Key: "post", Label: "Post as written", Recommended: true},
-			{Key: "drop", Label: "Don't post"},
+			{Key: "yes", Label: "Post as written", Recommended: true},
+			{Key: "no", Label: "Don't post"},
+			{Key: "edit", Label: "Edit (redraft)"},
 		},
 	}
 	d.questions[id] = question
@@ -59,8 +60,9 @@ func (d *cmdFakeDecider) ReplyOptions(_ context.Context, id, text, _ string) err
 		return errors.New("no such item")
 	}
 	it.Options = []slackwatch.DecideOption{
-		{Key: "post", Label: "Post as written", Recommended: true},
-		{Key: "drop", Label: "Don't post"},
+		{Key: "yes", Label: "Post as written", Recommended: true},
+		{Key: "no", Label: "Don't post"},
+		{Key: "edit", Label: "Edit (redraft)"},
 	}
 	it.Messages = append(it.Messages, slackwatch.DecideMessage{Text: text, By: "slackwatch"})
 	d.replies = append(d.replies, text)
@@ -85,8 +87,8 @@ func (d *cmdFakeDecider) Done(_ context.Context, id, outcome string) error {
 
 func (d *cmdFakeDecider) answerPost(id string) {
 	d.items[id].State = "answered"
-	d.items[id].Answer = &slackwatch.DecideAnswer{Value: "post", Key: "post", AnsweredBy: "human", Via: "ui"}
-	d.items[id].Messages = append(d.items[id].Messages, slackwatch.DecideMessage{Author: "human", Text: "post: Post as written", OptionKey: "post", Via: "ui"})
+	d.items[id].Answer = &slackwatch.DecideAnswer{Value: "yes", Key: "yes", AnsweredBy: "human", Via: "ui"}
+	d.items[id].Messages = append(d.items[id].Messages, slackwatch.DecideMessage{Author: "human", Text: "yes: Post as written", OptionKey: "yes", Via: "ui"})
 }
 
 func (d *cmdFakeDecider) answerNotes(id, notes string) {
@@ -1248,7 +1250,7 @@ VALUES ('U123', ?, ?, 'agent-1', 'announce release', 'failed', 'D-1', 1700000100
 		ID: "D-1", State: "answered",
 		Messages: []slackwatch.DecideMessage{
 			{By: "slackwatch", Text: "Destination: U123\nPurpose: announce release"},
-			{Author: "human", Text: "post: Post as written", OptionKey: "post", Via: "ui"},
+			{Author: "human", Text: "yes: Post as written", OptionKey: "yes", Via: "ui"},
 		},
 	}
 	if out := e.ok("outbox", "retry", "1"); !strings.Contains(out, "posted") {

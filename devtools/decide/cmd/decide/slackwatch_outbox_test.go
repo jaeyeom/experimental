@@ -63,7 +63,7 @@ func TestSlackwatchAskKeepsOptions(t *testing.T) {
 	if item.NotifyPane != "" {
 		t.Fatalf("notifyPane = %q, want empty", item.NotifyPane)
 	}
-	if !optionKeys(item.Options, "post", "drop") {
+	if !optionKeys(item.Options, "yes", "no", "edit") {
 		t.Fatalf("options = %+v", item.Options)
 	}
 
@@ -74,7 +74,7 @@ func TestSlackwatchAskKeepsOptions(t *testing.T) {
 	if !strings.Contains(stderr, "accepts replies only from its owner "+slackwatch.DefaultDecideOwner) {
 		t.Fatalf("stderr = %q", stderr)
 	}
-	if got := loadDecide(t, state, rec.DecideID); !optionKeys(got.Options, "post", "drop") || len(got.Messages) != 1 {
+	if got := loadDecide(t, state, rec.DecideID); !optionKeys(got.Options, "yes", "no", "edit") || len(got.Messages) != 1 {
 		t.Fatalf("second sender changed the item: options %+v messages %d", got.Options, len(got.Messages))
 	}
 
@@ -86,7 +86,7 @@ func TestSlackwatchAskKeepsOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := loadDecide(t, state, rec.DecideID)
-	if !optionKeys(got.Options, "post", "drop") {
+	if !optionKeys(got.Options, "yes", "no", "edit") {
 		t.Fatalf("options after re-attach = %+v", got.Options)
 	}
 	if len(got.Messages) != 2 {

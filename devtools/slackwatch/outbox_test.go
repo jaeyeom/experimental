@@ -303,7 +303,7 @@ func (f *outboxFixture) events() []string {
 	return out
 }
 
-var uiPost = DecideAnswer{Value: "post", Key: "post", AnsweredBy: "human", Via: "ui"}
+var uiPost = DecideAnswer{Value: "yes", Key: "yes", AnsweredBy: "human", Via: "ui"}
 
 func TestSubmitFilesDecideItem(t *testing.T) {
 	f := newOutboxFixture(t, PostModeHandoff)
@@ -432,13 +432,13 @@ func TestAcceptanceRefusals(t *testing.T) {
 	}{
 		{
 			"via cli",
-			DecideAnswer{Value: "post", Key: "post", AnsweredBy: "human", Via: "cli"},
+			DecideAnswer{Value: "yes", Key: "yes", AnsweredBy: "human", Via: "cli"},
 			false, OutboxRejected,
 			[]string{EventOutboxRejected + ">agent-1", EventOutboxRejected + ">"},
 		},
 		{
 			"missing via",
-			DecideAnswer{Value: "post", Key: "post", AnsweredBy: "human"},
+			DecideAnswer{Value: "yes", Key: "yes", AnsweredBy: "human"},
 			false, OutboxRejected,
 			[]string{EventOutboxRejected + ">agent-1", EventOutboxRejected + ">"},
 		},
@@ -456,7 +456,7 @@ func TestAcceptanceRefusals(t *testing.T) {
 		},
 		{
 			"drop",
-			DecideAnswer{Value: "drop", Key: "drop", AnsweredBy: "human", Via: "ui"},
+			DecideAnswer{Value: "no", Key: "no", AnsweredBy: "human", Via: "ui"},
 			false, OutboxDropped,
 			[]string{EventOutboxDropped + ">agent-1"},
 		},
@@ -499,8 +499,8 @@ func TestAcceptanceRefusals(t *testing.T) {
 // the user's, whatever its via, so it neither approves nor refuses.
 func TestAcceptanceIgnoresMessagesSentWithBy(t *testing.T) {
 	for _, a := range []DecideAnswer{
-		{Value: "post", Key: "post", AnsweredBy: "agent-1", Via: "ui"},
-		{Value: "drop", Key: "drop", AnsweredBy: "agent-1", Via: "cli"},
+		{Value: "yes", Key: "yes", AnsweredBy: "agent-1", Via: "ui"},
+		{Value: "no", Key: "no", AnsweredBy: "agent-1", Via: "cli"},
 		{Value: "shorter", AnsweredBy: "agent-1", Via: "ui"},
 	} {
 		t.Run(a.Value, func(t *testing.T) {
@@ -534,7 +534,7 @@ func TestAcceptanceSurvivesLaterReplies(t *testing.T) {
 			if mode == PostModeDirect {
 				want, posts = OutboxPosted, 1
 			}
-			if got := f.get(t, r.ID); got.State != want || got.Answer != "post" {
+			if got := f.get(t, r.ID); got.State != want || got.Answer != "yes" {
 				t.Fatalf("record = %+v, want %s", got, want)
 			}
 			if len(f.writer.posts) != posts {
@@ -555,7 +555,7 @@ func TestAcceptanceLaterHumanMessageWins(t *testing.T) {
 	}{
 		{"free text", DecideAnswer{Value: "wait, say tomorrow", AnsweredBy: "human", Via: "ui"}, OutboxNeedsRedraft, []string{EventOutboxRedraft + ">agent-1"}},
 		{"free text from cli", DecideAnswer{Value: "wait", AnsweredBy: "human", Via: "cli"}, OutboxNeedsRedraft, []string{EventOutboxRedraft + ">agent-1"}},
-		{"drop", DecideAnswer{Value: "drop", Key: "drop", AnsweredBy: "human", Via: "ui"}, OutboxDropped, []string{EventOutboxDropped + ">agent-1"}},
+		{"drop", DecideAnswer{Value: "no", Key: "no", AnsweredBy: "human", Via: "ui"}, OutboxDropped, []string{EventOutboxDropped + ">agent-1"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newOutboxFixture(t, PostModeDirect)
@@ -1168,10 +1168,10 @@ func TestManualPostedAwaitingHandoff(t *testing.T) {
 func TestManualPostedRequiresUIApproval(t *testing.T) {
 	for name, a := range map[string]*DecideAnswer{
 		"unanswered": nil,
-		"cli post":   {Value: "post", Key: "post", AnsweredBy: "human", Via: "cli"},
-		"agent post": {Value: "post", Key: "post", AnsweredBy: "agent", Via: "ui"},
-		"no via":     {Value: "post", Key: "post", AnsweredBy: "human"},
-		"drop":       {Value: "drop", Key: "drop", AnsweredBy: "human", Via: "ui"},
+		"cli post":   {Value: "yes", Key: "yes", AnsweredBy: "human", Via: "cli"},
+		"agent post": {Value: "yes", Key: "yes", AnsweredBy: "agent", Via: "ui"},
+		"no via":     {Value: "yes", Key: "yes", AnsweredBy: "human"},
+		"drop":       {Value: "no", Key: "no", AnsweredBy: "human", Via: "ui"},
 		"free text":  {Value: "shorter please", AnsweredBy: "human", Via: "ui"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -1693,8 +1693,8 @@ func TestDecideCLI(t *testing.T) {
 	var calls [][]string
 	out := map[string]string{
 		"ask": `{"id":"D-7","state":"open"}`,
-		"show": `{"id":"D-7","state":"open","answer":{"value":"post","key":"post","answeredBy":"human","via":"ui"},` +
-			`"messages":[{"author":"slackwatch","text":"Post?"},{"author":"human","text":"post: Post as written","optionKey":"post","via":"ui"},` +
+		"show": `{"id":"D-7","state":"open","answer":{"value":"yes","key":"yes","answeredBy":"human","via":"ui"},` +
+			`"messages":[{"author":"slackwatch","text":"Post?"},{"author":"human","text":"yes: Post as written","optionKey":"yes","via":"ui"},` +
 			`{"author":"slackwatch","text":"ok","by":"agent-1"}]}`,
 		"done": `{"id":"D-7","state":"done"}`,
 	}
@@ -1709,7 +1709,7 @@ func TestDecideCLI(t *testing.T) {
 	it, err := d.Show(context.Background(), "D-7")
 	wantMsgs := []DecideMessage{
 		{Author: "slackwatch", Text: "Post?"},
-		{Author: "human", Text: "post: Post as written", OptionKey: "post", Via: "ui"},
+		{Author: "human", Text: "yes: Post as written", OptionKey: "yes", Via: "ui"},
 		{Author: "slackwatch", Text: "ok", By: "agent-1"},
 	}
 	if err != nil || it.State != "open" || fmt.Sprint(it.Messages) != fmt.Sprint(wantMsgs) {
@@ -1719,7 +1719,7 @@ func TestDecideCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := [][]string{
-		{"ask", "--owner", "slackwatch", "--owner-replies-only", "--verbatim", "hello", "--kind", "relay", "--option", "post:Post as written", "--option", "drop:Don't post", "--rec", "post", "--free-text", "--json", "Post?"},
+		{"ask", "--class", "approval", "--owner", "slackwatch", "--owner-replies-only", "--verbatim", "hello", "--kind", "relay", "--option", "yes:Post as written", "--option", "no:Don't post", "--option", "edit:Edit (redraft)", "--rec", "yes", "--free-text", "--json", "Post?"},
 		{"show", "--json", "D-7"},
 		{"done", "--json", "D-7", "posted"},
 	}
@@ -1741,11 +1741,18 @@ func TestAskPassesNotifyPane(t *testing.T) {
 		t.Fatalf("Ask = %q, %v", id, err)
 	}
 	want := [][]string{
-		{"ask", "--owner", "slackwatch", "--owner-replies-only", "--notify-pane", "agentbus:ops", "--kind", "relay", "--option", "post:Post as written", "--option", "drop:Don't post", "--rec", "post", "--free-text", "--json", "Post?"},
-		{"ask", "--owner", "slackwatch", "--notify-pane", "agentbus:ops", "--kind", "relay", "--option", "post:Post as written", "--option", "drop:Don't post", "--rec", "post", "--free-text", "--json", "Post?"},
+		{"ask", "--class", "approval", "--owner", "slackwatch", "--owner-replies-only", "--notify-pane", "agentbus:ops", "--kind", "relay", "--option", "yes:Post as written", "--option", "no:Don't post", "--option", "edit:Edit (redraft)", "--rec", "yes", "--free-text", "--json", "Post?"},
+		{"ask", "--class", "approval", "--owner", "slackwatch", "--notify-pane", "agentbus:ops", "--kind", "relay", "--option", "yes:Post as written", "--option", "no:Don't post", "--option", "edit:Edit (redraft)", "--rec", "yes", "--free-text", "--json", "Post?"},
 	}
 	if fmt.Sprint(calls) != fmt.Sprint(want) {
 		t.Errorf("calls = %q\nwant %q", calls, want)
+	}
+	calls = nil
+	if id, err := d.AskParent(context.Background(), "slackwatch", "D-9", "Post?", "hello"); err != nil || id != "D-3" {
+		t.Fatalf("AskParent = %q, %v", id, err)
+	}
+	if len(calls) != 2 || !slicesHas(calls[0], "--parent") || !slicesHas(calls[0], "D-9") {
+		t.Fatalf("AskParent calls = %q, want --parent D-9", calls)
 	}
 }
 
@@ -2122,8 +2129,8 @@ func TestManualPostedNeedsRedraftRefusesUnverified(t *testing.T) {
 		msgs []DecideMessage
 	}{
 		{name: "free text post", msgs: []DecideMessage{{Author: "human", Text: "Post", Via: "ui"}}},
-		{name: "cli post", msgs: []DecideMessage{{Author: "human", Text: "post", OptionKey: "post", Via: "cli"}}},
-		{name: "agent post", msgs: []DecideMessage{{Author: "human", Text: "post", OptionKey: "post", Via: "ui", By: "agent"}}},
+		{name: "cli post", msgs: []DecideMessage{{Author: "human", Text: "yes", OptionKey: "yes", Via: "cli"}}},
+		{name: "agent post", msgs: []DecideMessage{{Author: "human", Text: "yes", OptionKey: "yes", Via: "ui", By: "agent"}}},
 		{name: "stale pick before the draft text", msgs: nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

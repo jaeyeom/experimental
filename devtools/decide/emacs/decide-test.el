@@ -799,7 +799,7 @@ Return (OPENED OFFERED): the URLs given to `browse-url' and the rows
   (decide-test--use-program)
   (let ((id (string-trim
              (decide--command
-              '("ask" "--owner" "ada" "--kind" "relay"
+              '("ask" "--class" "decision" "--owner" "ada" "--kind" "relay"
                 "--option" "y:Yes" "--option" "n:No" "--rec" "y"
                 "--free-text" "--notify-pane" "pane-9" "root ask")))))
     (decide--command (list "answer" id "human note"))
@@ -857,7 +857,7 @@ Return (OPENED OFFERED): the URLs given to `browse-url' and the rows
   (decide-test--use-program)
   (string-trim
    (decide--command
-    '("ask" "--owner" "ada" "--kind" "relay"
+    '("ask" "--class" "decision" "--owner" "ada" "--kind" "relay"
       "--option" "a:Alpha" "--option" "b:Beta" "--rec" "a"
       "--notify-pane" "pane-9" "root ask"))))
 

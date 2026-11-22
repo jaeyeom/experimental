@@ -45,13 +45,15 @@ import (
 // such as "7" or a hex color such as "#b0b0b0". A missing key keeps
 // the default for that entry.
 type Config struct {
-	NotifyTemplate string         `json:"notifyTemplate"`
-	NotifyPane     string         `json:"notifyPane"`
-	OptionsOnly    bool           `json:"optionsOnly"`
-	SendTemplate   string         `json:"sendTemplate,omitempty"`
-	Targets        []ConfigTarget `json:"targets,omitempty"`
-	Colors         Colors         `json:"colors,omitempty"`
-	Recipients     Recipients     `json:"recipients,omitempty"`
+	NotifyTemplate string `json:"notifyTemplate"`
+	NotifyPane     string `json:"notifyPane"`
+	OptionsOnly    bool   `json:"optionsOnly"`
+	// RequireClass rejects `decide ask` without --class when true.
+	RequireClass bool           `json:"requireClass,omitempty"`
+	SendTemplate string         `json:"sendTemplate,omitempty"`
+	Targets      []ConfigTarget `json:"targets,omitempty"`
+	Colors       Colors         `json:"colors,omitempty"`
+	Recipients   Recipients     `json:"recipients,omitempty"`
 	// RecipientsTimeout bounds the inbox's background `agentbus list
 	// --json`, such as "3s". Empty is DefaultBusListTimeout.
 	RecipientsTimeout string `json:"recipientsTimeout,omitempty"`

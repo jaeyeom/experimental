@@ -49,8 +49,9 @@ var OutboxStates = []string{
 
 // Decide option keys and the message fields the acceptance rule needs.
 const (
-	decideKeyPost = "post"
-	decideKeyDrop = "drop"
+	decideKeyPost = "yes"
+	decideKeyDrop = "no"
+	decideKeyEdit = "edit"
 	decideOpen    = "open"
 	decideDone    = "done"
 	// decideDoneUnread is an agent's done on an item the user has not
@@ -380,26 +381,30 @@ type DecideCLI struct {
 	NotifyPane string
 }
 
-// decideChoiceArgs is the post and drop options shared by ask and a
+// decideChoiceArgs is the approval options shared by ask and a
 // re-attach reply.
 func decideChoiceArgs() []string {
 	return []string{
 		"--option", decideKeyPost + ":Post as written",
 		"--option", decideKeyDrop + ":Don't post",
+		"--option", decideKeyEdit + ":Edit (redraft)",
 		"--rec", decideKeyPost, "--free-text",
 	}
 }
 
 // askArgs is a decide ask for question. ownerOnly sets the flag that
 // refuses replies from anyone but the item owner. A non-empty pane is
-// passed as --notify-pane.
-func askArgs(owner, pane, question, verbatim string, ownerOnly bool) []string {
-	args := []string{"ask", "--owner", owner}
+// passed as --notify-pane. A non-empty parent is passed as --parent.
+func askArgs(owner, pane, parent, question, verbatim string, ownerOnly bool) []string {
+	args := []string{"ask", "--class", "approval", "--owner", owner}
 	if ownerOnly {
 		args = append(args, "--owner-replies-only")
 	}
 	if pane != "" {
 		args = append(args, "--notify-pane", pane)
+	}
+	if parent != "" {
+		args = append(args, "--parent", parent)
 	}
 	if verbatim != "" {
 		args = append(args, "--verbatim", verbatim)
@@ -409,16 +414,21 @@ func askArgs(owner, pane, question, verbatim string, ownerOnly bool) []string {
 	return append(args, "--json", question)
 }
 
-// Ask files a relay item with the post and drop options and free text.
+// Ask files an approval item with the yes/no/edit options and free text.
 // It passes --owner-replies-only when this decide accepts the flag, and
 // retries once without it when the flag is unknown. An unknown flag is
 // rejected before an item is created.
 func (d DecideCLI) Ask(ctx context.Context, owner, question, verbatim string) (string, error) {
-	id, err := d.ask(ctx, askArgs(owner, d.NotifyPane, question, verbatim, true))
+	return d.AskParent(ctx, owner, "", question, verbatim)
+}
+
+// AskParent is Ask with an optional parent decide item id.
+func (d DecideCLI) AskParent(ctx context.Context, owner, parent, question, verbatim string) (string, error) {
+	id, err := d.ask(ctx, askArgs(owner, d.NotifyPane, parent, question, verbatim, true))
 	if err == nil || !strings.Contains(err.Error(), "flag provided but not defined: -owner-replies-only") {
 		return id, err
 	}
-	return d.ask(ctx, askArgs(owner, d.NotifyPane, question, verbatim, false))
+	return d.ask(ctx, askArgs(owner, d.NotifyPane, parent, question, verbatim, false))
 }
 
 func (d DecideCLI) ask(ctx context.Context, args []string) (string, error) {
@@ -616,15 +626,16 @@ type MessageReader interface {
 
 // Draft is what slackwatch post submits.
 type Draft struct {
-	Channel     string
-	RequestedTo string
-	ThreadTS    string
-	DestName    string
-	ParentLink  string
-	Text        string
-	Owner       string
-	Purpose     string
-	Refs        []string
+	Channel      string
+	RequestedTo  string
+	ThreadTS     string
+	DestName     string
+	ParentLink   string
+	Text         string
+	Owner        string
+	Purpose      string
+	Refs         []string
+	DecideParent string
 	// Supersedes is an outbox id this draft replaces. 0 means none.
 	// It must not be posted, approved, or posting, nor already
 	// superseded. An open or failed record is cancelled only after this
@@ -715,7 +726,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	if err != nil {
 		return OutboxRecord{}, fmt.Errorf("add outbox record: %w", err)
 	}
-	decideID, err := o.Decide.Ask(ctx, o.Config.Post.DecideOwnerOrDefault(), question(id, d, hash), d.Text)
+	decideID, err := askOutboxDecide(ctx, o.Decide, o.Config.Post.DecideOwnerOrDefault(), d.DecideParent, question(id, d, hash), d.Text)
 	if err != nil {
 		if _, merr := o.Store.moveOutbox(id, []string{OutboxPending}, outboxUpdate{state: OutboxFailed, reason: ptr(err.Error())}, now); merr != nil {
 			return OutboxRecord{}, errors.Join(err, merr)
@@ -731,6 +742,16 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		}
 	}
 	return o.submitted(ctx, id)
+}
+
+func askOutboxDecide(ctx context.Context, d Decider, owner, parent, q, verbatim string) (string, error) {
+	type parentAsker interface {
+		AskParent(ctx context.Context, owner, parent, question, verbatim string) (string, error)
+	}
+	if pa, ok := d.(parentAsker); ok && parent != "" {
+		return pa.AskParent(ctx, owner, parent, q, verbatim) //nolint:wrapcheck // caller wraps with outbox id
+	}
+	return d.Ask(ctx, owner, q, verbatim) //nolint:wrapcheck // caller wraps with outbox id
 }
 
 // submitted returns the stored record and re-attaches decide options when
@@ -1287,7 +1308,7 @@ func (o *Outbox) process(ctx context.Context, cfg Config, r OutboxRecord) error 
 			state: OutboxDropped, outcome: droppedOutcome, event: EventOutboxDropped,
 			message: fmt.Sprintf("The user chose not to post Slack draft outbox %d (purpose: %q).", r.ID, r.Purpose),
 		})
-	case m.OptionKey == "":
+	case m.OptionKey == "" || m.OptionKey == decideKeyEdit:
 		return o.finish(ctx, r, end{
 			state: OutboxNeedsRedraft, answer: m.Text, text: m.Text,
 			outcome: redraftOutcome(r.Owner), event: EventOutboxRedraft,

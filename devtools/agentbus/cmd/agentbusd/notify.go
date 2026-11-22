@@ -21,7 +21,11 @@ const decideTimeout = 10 * time.Second
 // the user answers or archives. Only a needs-adopt note offers the adopt
 // options; other notes, such as a granted pause, are free text.
 func decideArgv(decide, text string) []string {
-	argv := []string{decide, "ask", longLinesFlag, "--owner", "agentbus", "--kind", "relay"}
+	class := "note"
+	if strings.Contains(text, lease.NeedsAdoptMark) {
+		class = "decision"
+	}
+	argv := []string{decide, "ask", longLinesFlag, "--class", class, "--owner", "agentbus", "--kind", "relay"}
 	if strings.Contains(text, lease.NeedsAdoptMark) {
 		argv = append(argv,
 			"--option", "adopt:I will run agentbus lease adopt",
@@ -45,8 +49,13 @@ func decideNotifier(lookPath func(string) (string, error), run func(ctx context.
 		defer cancel()
 		argv := decideArgv(decide, text)
 		err := run(ctx, argv)
-		if olderDecide(err) {
-			err = run(ctx, withoutLongLines(argv))
+		if olderDecideFlag(err, "-long-lines") {
+			argv = withoutFlag(argv, longLinesFlag, false)
+			err = run(ctx, argv)
+		}
+		if olderDecideFlag(err, "-class") {
+			argv = withoutFlag(argv, "--class", true)
+			err = run(ctx, argv)
 		}
 		if err != nil {
 			fmt.Fprintf(stderr, "agentbusd: decide note: %s\n", err)
@@ -61,7 +70,25 @@ const longLinesFlag = "--long-lines"
 // olderDecide reports whether err is a decide that does not know
 // --long-lines. The same command then runs again without it.
 func olderDecide(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "flag provided but not defined: -long-lines")
+	return olderDecideFlag(err, "-long-lines")
+}
+
+func olderDecideFlag(err error, flag string) bool {
+	return err != nil && strings.Contains(err.Error(), "flag provided but not defined: "+flag)
+}
+
+func withoutFlag(argv []string, flag string, hasValue bool) []string {
+	out := make([]string, 0, len(argv))
+	for i := 0; i < len(argv); i++ {
+		if argv[i] == flag {
+			if hasValue && i+1 < len(argv) {
+				i++
+			}
+			continue
+		}
+		out = append(out, argv[i])
+	}
+	return out
 }
 
 // withoutLongLines is argv without --long-lines.

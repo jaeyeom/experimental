@@ -15,8 +15,14 @@ func TestDecideArgvOffersAdoptOnlyForANeedsAdoptNote(t *testing.T) {
 	if !slices.Contains(adopt, "adopt:I will run agentbus lease adopt") {
 		t.Fatalf("needs-adopt argv = %q", adopt)
 	}
+	if !slices.Contains(adopt, "decision") {
+		t.Fatalf("needs-adopt argv missing decision class = %q", adopt)
+	}
 	note := lease.PausedNote("local:/repo")
 	paused := decideArgv("decide", note)
+	if !slices.Contains(paused, "note") {
+		t.Fatalf("paused argv missing note class = %q", paused)
+	}
 	if slices.Contains(paused, "--option") || slices.Contains(paused, "--rec") || paused[len(paused)-1] != note {
 		t.Fatalf("paused argv = %q", paused)
 	}

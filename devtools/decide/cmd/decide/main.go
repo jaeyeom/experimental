@@ -48,6 +48,7 @@ var itemCommands = map[string]func([]string, io.Writer, io.Writer) int{
 	"unsnooze": cmdUnsnooze,
 	"reassign": cmdReassign,
 	"assign":   cmdAssign,
+	"retag":    cmdRetag,
 }
 
 // ledgerCommands run against this machine's ledger until stopped: the
@@ -101,10 +102,12 @@ func runLocal(args []string, stdout, stderr io.Writer) int {
 
 func usage(w io.Writer) {
 	fmt.Fprintf(w, `Usage:
-  decide ask [--owner <label>] [--owner-replies-only] --kind relay|type-in \
+  decide ask [--class decision|approval|request|fact|inbound|task|note] \
+    [--parent <id>] [--owner <label>] [--owner-replies-only] [--kind relay|type-in] \
     --option key:label --rec key [--free-text] [--options-only] [--deadline RFC3339] \
     [--link url] [--notify-pane pane] [--type-text text] [--where place] \
     [--verbatim-file path] [--json] <question>
+  decide retag [--json] <id> <class>
   decide list [--state open|answered|done|withdrawn] [--snoozed] [--off-line] [--undelivered] [--json]
   decide show [--json] <id>
   decide withdraw [--json] <id> <reason>
@@ -875,6 +878,8 @@ func cmdAsk(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("ask", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	jsonOut := fs.Bool("json", false, "print the new item as JSON")
+	classFlag := fs.String("class", "", "item class: decision, approval, request, fact, inbound, task, note (or prefix D, A, R, Q, I, T, N)")
+	parent := fs.String("parent", "", "parent item id")
 	owner := fs.String("owner", "", "owner label (default: this herdr tab's label)")
 	kind := fs.String("kind", "", "relay or type-in")
 	rec := fs.String("rec", "", "recommended option key")
@@ -894,6 +899,14 @@ func cmdAsk(args []string, stdout, stderr io.Writer) int {
 	if code, stop := stopped(parseFlags(fs, args)); stop {
 		return code
 	}
+	cfg, err := decide.LoadConfig()
+	if err != nil {
+		return fail(stderr, err, 1)
+	}
+	class, err := resolveAskClass(*classFlag, cfg.RequireClass, stderr)
+	if err != nil {
+		return fail(stderr, err, 2)
+	}
 	question, err := bodyFrom(fs.Args(), file, "question")
 	if err != nil {
 		return fail(stderr, err, 2)
@@ -902,13 +915,10 @@ func cmdAsk(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
-	cfg, err := decide.LoadConfig()
-	if err != nil {
-		return fail(stderr, err, 1)
-	}
-	allowFree := relayFreeText(*kind, *freeText, *optionsOnly, cfg.OptionsOnly)
+	k := askKind(*kind, class)
+	allowFree := askFreeText(class, k, *freeText, *optionsOnly, cfg.OptionsOnly)
 	who := askOwner(*owner, askerOf(context.Background()), stderr)
-	item, err := buildAsk(who, *kind, *rec, allowFree, *ownerRepliesOnly, *deadline, *notifyPane, *typeText, *where, []string(options), []string(links), question, verb)
+	item, err := buildAsk(class, *parent, who, k, *rec, allowFree, *ownerRepliesOnly, *deadline, *notifyPane, *typeText, *where, []string(options), []string(links), question, verb)
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
@@ -1054,6 +1064,24 @@ func cmdUnsnooze(args []string, stdout, stderr io.Writer) int {
 	}
 	return withItem(stdout, stderr, jsonOut, false, func(led *decide.Ledger) (decide.Item, error) {
 		return led.Unsnooze(id)
+	})
+}
+
+func cmdRetag(args []string, stdout, stderr io.Writer) int {
+	fs, jsonOut, code := itemCmd("retag", args, stderr)
+	if fs == nil {
+		return code
+	}
+	id, classRaw, err := twoArgs(fs.Args(), "id", "class")
+	if err != nil {
+		return fail(stderr, err, 2)
+	}
+	if _, err := decide.ParseClass(classRaw); err != nil {
+		return fail(stderr, err, 2)
+	}
+	by := senderOf(context.Background())
+	return withItem(stdout, stderr, jsonOut, false, func(led *decide.Ledger) (decide.Item, error) {
+		return led.Retag(id, classRaw, by)
 	})
 }
 
@@ -1281,7 +1309,36 @@ func relayFreeText(kind string, freeText, optionsOnly, configOptionsOnly bool) b
 	return true
 }
 
-func buildAsk(owner, kind, rec string, freeText, ownerRepliesOnly bool, deadline, notifyPane, typeText, where string, options, links []string, question, verbatim string) (decide.Item, error) {
+func resolveAskClass(raw string, requireClass bool, stderr io.Writer) (string, error) {
+	if strings.TrimSpace(raw) == "" {
+		if requireClass {
+			return "", fmt.Errorf("decide ask requires --class")
+		}
+		fmt.Fprintf(stderr, "decide: warning: --class is omitted; defaulting to decision (will become an error)\n")
+		return decide.ClassDecision, nil
+	}
+	return decide.ParseClass(raw) //nolint:wrapcheck // ParseClass formats the user-facing error
+}
+
+func askKind(kind, class string) string {
+	if kind == "" && class != decide.ClassDecision {
+		return decide.KindRelay
+	}
+	return kind
+}
+
+func askFreeText(class, kind string, freeText, optionsOnly, cfgOptionsOnly bool) bool {
+	switch class {
+	case decide.ClassNote:
+		return freeText
+	case decide.ClassFact:
+		return !optionsOnly
+	default:
+		return relayFreeText(kind, freeText, optionsOnly, cfgOptionsOnly)
+	}
+}
+
+func buildAsk(class, parent, owner, kind, rec string, freeText, ownerRepliesOnly bool, deadline, notifyPane, typeText, where string, options, links []string, question, verbatim string) (decide.Item, error) {
 	if strings.TrimSpace(owner) == "" {
 		return decide.Item{}, fmt.Errorf("decide owner is required")
 	}
@@ -1291,10 +1348,7 @@ func buildAsk(owner, kind, rec string, freeText, ownerRepliesOnly bool, deadline
 	}
 	switch kind {
 	case decide.KindRelay:
-		if len(opts) < 2 {
-			return decide.Item{}, fmt.Errorf("decide relay requires at least two options")
-		}
-		opts, err = applyRec(opts, rec)
+		opts, err = classRelayOptions(class, opts, rec, freeText, verbatim)
 		if err != nil {
 			return decide.Item{}, err
 		}
@@ -1328,11 +1382,80 @@ func buildAsk(owner, kind, rec string, freeText, ownerRepliesOnly bool, deadline
 		Links:            storedLinks,
 		Deadline:         when,
 		Kind:             kind,
+		Class:            class,
+		Parent:           strings.TrimSpace(parent),
 		NotifyPane:       notifyPane,
 		TypeText:         typeText,
 		Where:            where,
 		OwnerRepliesOnly: ownerRepliesOnly,
 	}, nil
+}
+
+func classRelayOptions(class string, opts []decide.Option, rec string, freeText bool, verbatim string) ([]decide.Option, error) {
+	switch class {
+	case decide.ClassNote:
+		if len(opts) > 0 || freeText {
+			return nil, fmt.Errorf("decide note cannot have options or free-text")
+		}
+		return nil, nil
+	case decide.ClassApproval:
+		return approvalOptions(opts, rec, verbatim)
+	case decide.ClassInbound:
+		return inboundOptions(opts, rec)
+	case decide.ClassFact, decide.ClassRequest, decide.ClassTask:
+		if len(opts) == 0 {
+			return nil, nil
+		}
+		if rec != "" {
+			return applyRec(opts, rec)
+		}
+		return opts, nil
+	default:
+		if len(opts) < 2 {
+			return nil, fmt.Errorf("decide relay requires at least two options")
+		}
+		return applyRec(opts, rec)
+	}
+}
+
+func approvalOptions(opts []decide.Option, rec, verbatim string) ([]decide.Option, error) {
+	if strings.TrimSpace(verbatim) == "" {
+		return nil, fmt.Errorf("decide approval requires a verbatim payload (--verbatim or --verbatim-file)")
+	}
+	if len(opts) == 0 {
+		opts = []decide.Option{
+			{Key: "yes", Label: "Approve"},
+			{Key: "no", Label: "Reject"},
+			{Key: "edit", Label: "Edit"},
+		}
+	}
+	if rec == "" && hasOptionKey(opts, "yes") {
+		rec = "yes"
+	}
+	return applyRec(opts, rec)
+}
+
+func inboundOptions(opts []decide.Option, rec string) ([]decide.Option, error) {
+	if len(opts) == 0 {
+		opts = []decide.Option{
+			{Key: "handle", Label: "Handle"},
+			{Key: "delegate", Label: "Delegate"},
+			{Key: "ignore", Label: "Ignore"},
+		}
+	}
+	if rec == "" && hasOptionKey(opts, "handle") {
+		rec = "handle"
+	}
+	return applyRec(opts, rec)
+}
+
+func hasOptionKey(opts []decide.Option, key string) bool {
+	for _, opt := range opts {
+		if opt.Key == key {
+			return true
+		}
+	}
+	return false
 }
 
 func parseOptions(raw []string) ([]decide.Option, error) {
@@ -1450,6 +1573,8 @@ func writeShow(w io.Writer, it *decide.Item) {
 		fmt.Fprintf(w, "forwarded from %s\n", it.ForwardedFrom)
 	}
 	fmt.Fprintf(w, "kind: %s\n", it.Kind)
+	fmt.Fprintf(w, "class: %s\n", it.EffectiveClass())
+	writeField(w, "parent", it.Parent)
 	fmt.Fprintf(w, "state: %s\n", it.State)
 	fmt.Fprintf(w, "freeText: %t\n", it.FreeText)
 	if it.OwnerRepliesOnly {

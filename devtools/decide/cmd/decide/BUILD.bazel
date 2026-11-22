@@ -43,6 +43,7 @@ go_test(
     srcs = [
         "assign_test.go",
         "avatars_test.go",
+        "class_test.go",
         "display_test.go",
         "done_unread_test.go",
         "follow_test.go",

@@ -49,7 +49,7 @@ func fakeWhoami(t *testing.T, stdout string, err error) *int {
 }
 
 func relayAsk(extra ...string) []string {
-	args := append([]string{"ask", "--kind", "relay", "--option", "a:Alpha", "--option", "b:Beta", "--rec", "a", "--json"}, extra...)
+	args := append([]string{"ask", "--class", "decision", "--kind", "relay", "--option", "a:Alpha", "--option", "b:Beta", "--rec", "a", "--json"}, extra...)
 	return append(args, "q")
 }
 

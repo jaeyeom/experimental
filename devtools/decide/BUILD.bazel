@@ -8,6 +8,7 @@ go_library(
         "alias.go",
         "avatar.go",
         "avatarconfig.go",
+        "class.go",
         "delivery.go",
         "display.go",
         "drafts.go",
@@ -43,6 +44,7 @@ go_test(
     srcs = [
         "avatar_test.go",
         "avatarconfig_test.go",
+        "class_test.go",
         "config_test.go",
         "delivery_test.go",
         "display_test.go",

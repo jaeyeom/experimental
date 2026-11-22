@@ -15,7 +15,6 @@ import (
 	"reflect"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -133,6 +132,8 @@ type Item struct {
 	Links       []string   `json:"links,omitempty"`
 	Deadline    *time.Time `json:"deadline,omitempty"`
 	Kind        string     `json:"kind"`
+	Class       string     `json:"class,omitempty"`
+	Parent      string     `json:"parent,omitempty"`
 	State       string     `json:"state"`
 	CreatedAt   time.Time  `json:"createdAt,omitempty"`
 	AnsweredAt  time.Time  `json:"answeredAt,omitempty"`
@@ -294,6 +295,9 @@ func (l *Ledger) Create(item *Item) (Item, error) {
 			return Item{}, err
 		}
 	}
+	if stored.Class == "" {
+		stored.Class = ClassDecision
+	}
 	if stored.State == "" {
 		stored.State = StateOpen
 	}
@@ -303,7 +307,14 @@ func (l *Ledger) Create(item *Item) (Item, error) {
 	normalizeTimes(&stored)
 	ensureMessages(&stored)
 	err := l.locked(true, func(st *store) error {
-		stored.ID = st.allocID()
+		if stored.Parent != "" {
+			parent, err := findItem(st, stored.Parent)
+			if err != nil {
+				return fmt.Errorf("parent %s: %w", stored.Parent, err)
+			}
+			stored.Parent = parent.ID
+		}
+		stored.ID = st.allocID(stored.Class)
 		st.Items = append(st.Items, stored)
 		return nil
 	})
@@ -317,13 +328,12 @@ func (l *Ledger) Create(item *Item) (Item, error) {
 func (l *Ledger) Get(id string) (Item, error) {
 	var found Item
 	err := l.locked(false, func(st *store) error {
-		for _, it := range st.Items {
-			if it.ID == id {
-				found = it
-				return nil
-			}
+		it, err := findItem(st, id)
+		if err != nil {
+			return err
 		}
-		return fmt.Errorf("%w: %s", ErrNotFound, id)
+		found = *it
+		return nil
 	})
 	if err != nil {
 		return Item{}, err
@@ -443,7 +453,7 @@ func (l *Ledger) Withdraw(id, reason string) (Item, error) {
 	if err != nil {
 		return Item{}, err
 	}
-	l.clearItemDrafts(id)
+	l.clearItemDrafts(updated.ID)
 	return updated, nil
 }
 
@@ -480,6 +490,12 @@ func (l *Ledger) DoneVia(id, outcome, via string) (Item, error) {
 		if err != nil {
 			return err
 		}
+		if it.EffectiveClass() == ClassNote {
+			return fmt.Errorf("decide note %s can only be closed with archive", id)
+		}
+		if it.EffectiveClass() == ClassDecision && via == ViaCLI && outcomeLineCount(outcome) > 2 {
+			return fmt.Errorf("decide decision done outcome must be 1 or 2 lines")
+		}
 		if it.State == StateWithdrawn || it.State == StateDone {
 			return fmt.Errorf("decide item %s is %s", id, it.State)
 		}
@@ -491,7 +507,7 @@ func (l *Ledger) DoneVia(id, outcome, via string) (Item, error) {
 	if err != nil {
 		return Item{}, err
 	}
-	l.clearItemDrafts(id)
+	l.clearItemDrafts(updated.ID)
 	return updated, nil
 }
 
@@ -584,7 +600,7 @@ func (l *Ledger) Archive(id string, seen time.Time) (Item, error) {
 	if err != nil {
 		return Item{}, err
 	}
-	l.clearItemDrafts(id)
+	l.clearItemDrafts(updated.ID)
 	return updated, nil
 }
 
@@ -615,11 +631,16 @@ func (l *Ledger) AnswerAt(id, value, via string, writtenAt time.Time) (Item, err
 		if it.Kind == KindTypeIn {
 			return fmt.Errorf("decide item %s is type-in", id)
 		}
+		if it.EffectiveClass() == ClassNote {
+			return fmt.Errorf("decide note %s takes no answer", id)
+		}
 		if it.State == StateWithdrawn || it.State == StateDone {
 			return fmt.Errorf("decide item %s is %s", id, it.State)
 		}
 		stored := value
-		if !it.FreeText {
+		if it.EffectiveClass() == ClassFact {
+			stored = strings.TrimSpace(value)
+		} else if !it.FreeText {
 			stored = strings.TrimSpace(value)
 			if !hasOption(it, stored) {
 				return fmt.Errorf("decide answer %q is not an option", stored)
@@ -790,18 +811,21 @@ func (l *Ledger) SetBusMessage(id, msg string) (Item, error) {
 // Delete removes id. It is for a thread whose first note was never
 // delivered. The id is not reused.
 func (l *Ledger) Delete(id string) error {
+	var canonicalID string
 	err := l.locked(true, func(st *store) error {
-		i := slices.IndexFunc(st.Items, func(it Item) bool { return it.ID == id })
-		if i < 0 {
-			return fmt.Errorf("%w: %s", ErrNotFound, id)
+		it, err := findItem(st, id)
+		if err != nil {
+			return err
 		}
+		canonicalID = it.ID
+		i := slices.IndexFunc(st.Items, func(cur Item) bool { return cur.ID == canonicalID })
 		st.Items = slices.Delete(st.Items, i, i+1)
 		return nil
 	})
 	if err != nil {
 		return err
 	}
-	l.clearItemDrafts(id)
+	l.clearItemDrafts(canonicalID)
 	return nil
 }
 
@@ -951,6 +975,9 @@ func (l *Ledger) ReplyVerbatim(id, by, text, verbatim string, options []Option, 
 		if it.State == StateWithdrawn {
 			return fmt.Errorf("decide item %s is %s", id, it.State)
 		}
+		if err := checkReplyClass(it, options, freeText); err != nil {
+			return err
+		}
 		if err := it.RejectForeignSender(by); err != nil {
 			return err
 		}
@@ -980,6 +1007,114 @@ func (l *Ledger) ReplyVerbatim(id, by, text, verbatim string, options []Option, 
 		return Item{}, err
 	}
 	return updated, nil
+}
+
+// Retag changes the class of id to newClass, updates its ID prefix, and
+// records a system event in the thread with the old and new class.
+func (l *Ledger) Retag(id, newClass, by string) (Item, error) {
+	canonical, err := ParseClass(newClass)
+	if err != nil {
+		return Item{}, err
+	}
+	var updated Item
+	err = l.locked(true, func(st *store) error {
+		it, err := findItem(st, id)
+		if err != nil {
+			return err
+		}
+		oldClass := it.EffectiveClass()
+		num, ok := parseID(it.ID)
+		if !ok {
+			return fmt.Errorf("decide item %s has invalid id", it.ID)
+		}
+		it.Class = canonical
+		it.ID = FormatID(canonical, num)
+		if oldClass != canonical {
+			ensureMessages(it)
+			it.Messages = append(it.Messages, Message{
+				Author: "system",
+				Time:   l.clock().UTC(),
+				Text:   retagNote(oldClass, canonical, by),
+				By:     by,
+			})
+		}
+		updated = *it
+		return nil
+	})
+	if err != nil {
+		return Item{}, err
+	}
+	return updated, nil
+}
+
+func retagNote(oldClass, newClass, by string) string {
+	note := "retagged: " + oldClass + " → " + newClass
+	if by != "" {
+		note += " (by " + by + ")"
+	}
+	return note
+}
+
+// Prune removes closed non-approval items older than olderThan.
+// Approvals are kept forever and never pruned.
+func (l *Ledger) Prune(olderThan time.Duration) (int, error) {
+	return l.PruneBefore(l.clock().UTC().Add(-olderThan))
+}
+
+// PruneBefore removes done or withdrawn non-approval items closed before cutoff.
+// Approvals are kept forever and never pruned.
+func (l *Ledger) PruneBefore(cutoff time.Time) (int, error) {
+	var removed int
+	err := l.locked(true, func(st *store) error {
+		kept := st.Items[:0]
+		for i := range st.Items {
+			it := st.Items[i]
+			if shouldPrune(&it, cutoff) {
+				removed++
+				continue
+			}
+			kept = append(kept, it)
+		}
+		st.Items = kept
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return removed, nil
+}
+
+func shouldPrune(it *Item, cutoff time.Time) bool {
+	if it.EffectiveClass() == ClassApproval {
+		return false
+	}
+	var closedAt time.Time
+	switch it.State {
+	case StateDone:
+		closedAt = it.DoneAt
+	case StateWithdrawn:
+		closedAt = it.WithdrawnAt
+	default:
+		return false
+	}
+	if closedAt.IsZero() {
+		closedAt = it.CreatedAt
+	}
+	return closedAt.Before(cutoff)
+}
+
+func outcomeLineCount(outcome string) int {
+	normalized := strings.ReplaceAll(strings.TrimSpace(outcome), "\r\n", "\n")
+	if normalized == "" {
+		return 0
+	}
+	count := 0
+	for _, line := range strings.Split(normalized, "\n") {
+		if strings.TrimSpace(line) != "" {
+			count++
+		}
+	}
+	return count
 }
 
 // Reassign is an owner or notify-pane change. SetOwner and SetPane
@@ -1312,8 +1447,8 @@ func save(dir string, st *store) error {
 	return nil
 }
 
-func (st *store) allocID() string {
-	id := fmt.Sprintf("D-%03d", st.Next)
+func (st *store) allocID(class string) string {
+	id := FormatID(class, st.Next)
 	st.Next++
 	return id
 }
@@ -1354,6 +1489,13 @@ func findItem(st *store, id string) (*Item, error) {
 	for i := range st.Items {
 		if st.Items[i].ID == id {
 			return &st.Items[i], nil
+		}
+	}
+	if n, ok := parseID(id); ok {
+		for i := range st.Items {
+			if itemN, itemOK := parseID(st.Items[i].ID); itemOK && itemN == n {
+				return &st.Items[i], nil
+			}
 		}
 	}
 	return nil, fmt.Errorf("%w: %s", ErrNotFound, id)
@@ -1440,19 +1582,10 @@ func newer(a, b *Item) bool {
 	return ai > bi
 }
 
-func parseID(id string) (int, bool) {
-	nStr, ok := strings.CutPrefix(id, "D-")
-	if !ok || nStr == "" {
-		return 0, false
-	}
-	n, err := strconv.Atoi(nStr)
-	if err != nil || n < 1 {
-		return 0, false
-	}
-	return n, true
-}
-
 func validate(item *Item) error {
+	if _, err := ClassPrefix(item.Class); err != nil {
+		return err
+	}
 	switch item.Kind {
 	case KindRelay, KindTypeIn:
 	default:
@@ -1463,12 +1596,56 @@ func validate(item *Item) error {
 	default:
 		return fmt.Errorf("decide state %q is invalid", item.State)
 	}
+	if err := validateClass(item); err != nil {
+		return err
+	}
 	if err := oneRecommended(item.Options); err != nil {
 		return err
 	}
 	for i := range item.Messages {
 		if err := oneRecommended(item.Messages[i].Options); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func validateClass(item *Item) error {
+	switch item.EffectiveClass() {
+	case ClassApproval:
+		if strings.TrimSpace(item.Verbatim) == "" {
+			return fmt.Errorf("decide approval requires a verbatim payload")
+		}
+		if len(item.Options) == 0 {
+			return fmt.Errorf("decide approval requires options")
+		}
+		return checkApprovalOptions(item.Options)
+	case ClassNote:
+		if len(item.Options) > 0 || item.FreeText {
+			return fmt.Errorf("decide note cannot have options or free-text")
+		}
+	}
+	return nil
+}
+
+func checkReplyClass(it *Item, options []Option, freeText bool) error {
+	switch it.EffectiveClass() {
+	case ClassNote:
+		if len(options) > 0 || freeText {
+			return fmt.Errorf("decide note cannot have options or free-text")
+		}
+	case ClassApproval:
+		if len(options) > 0 {
+			return checkApprovalOptions(options)
+		}
+	}
+	return nil
+}
+
+func checkApprovalOptions(opts []Option) error {
+	for _, opt := range opts {
+		if !isApprovalOptionKey(opt.Key) {
+			return fmt.Errorf("decide approval option key %q must be yes, no, or edit", opt.Key)
 		}
 	}
 	return nil
