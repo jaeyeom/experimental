@@ -76,6 +76,13 @@ type Link struct {
 	Kind   LinkKind
 	Target string
 	Desc   string
+	End    int // byte offset in the line just after the link
+}
+
+// Target is a dedicated target "<<name>>".
+type Target struct {
+	Line  int
+	Value string
 }
 
 // Footnote is a footnote reference or definition.
@@ -83,6 +90,7 @@ type Footnote struct {
 	Line       int
 	Label      string
 	Definition bool
+	Inline     bool // "[fn:label:text]" or "[fn::text]", which define themselves
 }
 
 // ListItem is a list item. Indent is the number of leading spaces.
@@ -95,6 +103,7 @@ type ListItem struct {
 
 // Document is a parsed org file.
 type Document struct {
+	Dir       string // directory of the file, for resolving relative file links
 	Lines     []string
 	Headlines []Headline
 	Keywords  []Keyword
@@ -103,6 +112,7 @@ type Document struct {
 	Plannings []Planning
 	Links     []Link
 	Footnotes []Footnote
+	Targets   []Target
 	Items     []ListItem
 }
 
@@ -117,7 +127,9 @@ var (
 	planningRE = regexp.MustCompile(`^[ \t]*(?:SCHEDULED|DEADLINE|CLOSED):`)
 	itemRE     = regexp.MustCompile(`^([ \t]*)([-+]|\d+[.)]|[*])(?: +\[([ X-])\])?(?:\s|$)`)
 	fnDefRE    = regexp.MustCompile(`^\[fn:([-\w]+)\]`)
-	fnRefRE    = regexp.MustCompile(`\[fn:([-\w]*)(?::[^\]]*)?\]`)
+	fnRefRE    = regexp.MustCompile(`\[fn:([-\w]*)(:[^\]]*)?\]`)
+	verbatimRE = regexp.MustCompile(`(^|[\s({'"-])([=~])([^\s=~](?:[^\n]*?[^\s])?)(?:[=~])($|[\s.,;:!?)}'"\[-])`)
+	targetRE   = regexp.MustCompile(`<<([^<>\n]+)>>`)
 	bracketRE  = regexp.MustCompile(`\[\[((?:\\[\[\]\\]|[^\[\]\\])+)\](?:\[((?:\\.|[^\]\\]|\][^\]])+?)\])?\]`)
 	angleRE    = regexp.MustCompile(`<([A-Za-z][A-Za-z0-9+.-]*:[^<>\s]+)>`)
 	plainRE    = regexp.MustCompile(`(?:^|[^\w<\[(])((?:https?|ftp|file|mailto|irc|news|doi|info|shell|elisp):[^\s<>\[\]()"']*[^\s<>\[\]()"'.,;:!?])`)
@@ -264,33 +276,67 @@ func isTodoWord(s string) bool {
 
 func (d *Document) addItemAndFootnoteDef(n int, text string) {
 	if m := fnDefRE.FindStringSubmatch(text); m != nil {
-		d.Footnotes = append(d.Footnotes, Footnote{n, m[1], true})
+		d.Footnotes = append(d.Footnotes, Footnote{Line: n, Label: m[1], Definition: true})
 	}
 	if m := itemRE.FindStringSubmatch(text); m != nil {
 		d.Items = append(d.Items, ListItem{n, len(m[1]), m[2], m[3]})
 	}
 }
 
-// inline records links and footnote references found in text.
+// inline records links, targets and footnote references found in text.
 func (d *Document) inline(n int, text string) {
-	rest := text
-	for _, m := range bracketRE.FindAllStringSubmatch(text, -1) {
-		d.Links = append(d.Links, Link{n, BracketLink, m[1], m[2]})
-		rest = strings.Replace(rest, m[0], strings.Repeat(" ", len(m[0])), 1)
+	rest := []byte(text)
+	// Verbatim and code text, =like this= or ~this~, holds no links.
+	for _, m := range verbatimRE.FindAllStringSubmatchIndex(text, -1) {
+		if text[m[4]] == text[m[7]] {
+			for i := m[4]; i <= m[7]; i++ {
+				rest[i] = ' '
+			}
+		}
 	}
-	for _, m := range angleRE.FindAllStringSubmatch(rest, -1) {
-		d.Links = append(d.Links, Link{n, AngleLink, m[1], ""})
-		rest = strings.Replace(rest, m[0], strings.Repeat(" ", len(m[0])), 1)
+	masked := string(rest)
+	blank := func(m []int) {
+		for i := m[0]; i < m[1]; i++ {
+			rest[i] = ' '
+		}
 	}
-	for _, m := range plainRE.FindAllStringSubmatch(rest, -1) {
-		d.Links = append(d.Links, Link{n, PlainLink, m[1], ""})
+	for _, m := range bracketRE.FindAllStringSubmatchIndex(masked, -1) {
+		l := Link{Line: n, Kind: BracketLink, Target: text[m[2]:m[3]], End: m[1]}
+		if m[4] >= 0 {
+			l.Desc = text[m[4]:m[5]]
+		}
+		d.Links = append(d.Links, l)
+		blank(m)
 	}
+	for _, m := range angleRE.FindAllSubmatchIndex(rest, -1) {
+		d.Links = append(d.Links, Link{Line: n, Kind: AngleLink, Target: text[m[2]:m[3]], End: m[1]})
+		blank(m)
+	}
+	for _, m := range plainRE.FindAllSubmatchIndex(rest, -1) {
+		d.Links = append(d.Links, Link{Line: n, Kind: PlainLink, Target: text[m[2]:m[3]], End: m[3]})
+	}
+	d.targets(n, string(rest))
 	def := fnDefRE.FindStringSubmatchIndex(text)
-	for _, m := range fnRefRE.FindAllStringSubmatchIndex(text, -1) {
+	for _, m := range fnRefRE.FindAllStringSubmatchIndex(masked, -1) {
 		if def != nil && m[0] == def[0] {
 			continue // a definition, not a reference
 		}
-		d.Footnotes = append(d.Footnotes, Footnote{Line: n, Label: text[m[2]:m[3]]})
+		d.Footnotes = append(d.Footnotes, Footnote{
+			Line: n, Label: text[m[2]:m[3]], Inline: m[4] >= 0,
+		})
+	}
+}
+
+// targets records "<<name>>" targets, skipping "<<<radio>>>" targets.
+func (d *Document) targets(n int, text string) {
+	for _, m := range targetRE.FindAllStringSubmatchIndex(text, -1) {
+		if m[0] > 0 && text[m[0]-1] == '<' || m[1] < len(text) && text[m[1]] == '>' {
+			continue
+		}
+		v := text[m[2]:m[3]]
+		if strings.TrimSpace(v) == v {
+			d.Targets = append(d.Targets, Target{n, v})
+		}
 	}
 }
 

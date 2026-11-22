@@ -36,12 +36,12 @@ func TestParseSample(t *testing.T) {
 		}}},
 		{"planning", d.Plannings, []Planning{{6, "SCHEDULED: <2026-01-01 Thu>"}}},
 		{"links", d.Links, []Link{
-			{10, BracketLink, "#top", "the top"},
-			{10, BracketLink, "https://example.com", ""},
-			{10, AngleLink, "https://example.org", ""},
-			{11, PlainLink, "https://example.net/x", ""},
+			{Line: 10, Kind: BracketLink, Target: "#top", Desc: "the top", End: 21},
+			{Line: 10, Kind: BracketLink, Target: "https://example.com", End: 49},
+			{Line: 10, Kind: AngleLink, Target: "https://example.org", End: 74},
+			{Line: 11, Kind: PlainLink, Target: "https://example.net/x", End: 26},
 		}},
-		{"footnotes", d.Footnotes, []Footnote{{11, "1", false}, {20, "1", true}}},
+		{"footnotes", d.Footnotes, []Footnote{{Line: 11, Label: "1"}, {Line: 20, Label: "1", Definition: true}}},
 		{"items", d.Items, []ListItem{
 			{13, 0, "-", ""}, {14, 2, "1.", ""}, {15, 0, "-", "X"},
 		}},

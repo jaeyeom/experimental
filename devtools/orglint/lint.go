@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/jaeyeom/experimental/devtools/linters/orglintparity"
 )
@@ -18,9 +19,8 @@ type Checker struct {
 	Check func(d *Document) []Finding
 }
 
-// Checkers is the list of enabled checkers. It is empty until the checker
-// issues land.
-var Checkers []Checker
+// Checkers is the list of enabled checkers.
+var Checkers = linkCheckers
 
 // LintFile parses the named file and runs the checkers on it. Findings carry
 // the name as given.
@@ -34,6 +34,7 @@ func LintFile(name string, checkers []Checker) ([]Finding, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", name, err)
 	}
+	d.Dir = filepath.Dir(name)
 	var out []Finding
 	for _, c := range checkers {
 		for _, fd := range c.Check(d) {

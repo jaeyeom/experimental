@@ -91,7 +91,7 @@ make org-lint-parity-update               # regenerate the fixture goldens
 #+END_SRC
 
 The Go linter lives in ~devtools/orglint~ (a small org parser plus the
-checker list, empty for now) with the command ~org-lint-go~.
+checker list) with the command ~org-lint-go~.
 
 Fixtures are in ~testdata/orglint/~. Each ~NAME.orgtest~ triggers the
 checker ~NAME~ (some also trigger a second one). The extension keeps
