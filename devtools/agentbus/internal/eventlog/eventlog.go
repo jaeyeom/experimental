@@ -98,6 +98,10 @@ const (
 	EventWake = "agent_wake"
 	// EventWakeFailed is a relaunch that failed or timed out.
 	EventWakeFailed = "agent_wake_failed"
+	// EventWakeHeld is a wake that cannot succeed because the pane is
+	// gone; its queued messages are held until a new holder claims the
+	// name.
+	EventWakeHeld = "agent_wake_held"
 	// EventWakeSkipped is a wake not tried because the pane runs
 	// something other than its shell; the record was dropped.
 	EventWakeSkipped = "agent_wake_skipped"
@@ -456,7 +460,7 @@ func knownEvent(name string) bool {
 		EventLeaseTakeover, EventLeaseAdopt, EventLeaseWouldTakeOver,
 		EventLeasePause, EventLeaseResume, EventLeaseWith, EventLeaseUnshare,
 		EventLeaseNotifyWaiting, EventLeaseNotifySkipped, EventLeaseHookDeny,
-		EventHibernated, EventHibernateRefused, EventWake, EventWakeFailed, EventWakeSkipped, EventWakeModelIgnored,
+		EventHibernated, EventHibernateRefused, EventWake, EventWakeFailed, EventWakeHeld, EventWakeSkipped, EventWakeModelIgnored,
 		EventPolicyHibernate, EventPolicyWouldHibernate, EventPolicyNoCandidate,
 		EventJob:
 		return true

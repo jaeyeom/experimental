@@ -73,6 +73,25 @@ func (r *Registry) FailWake(handle, reason string, retryAt time.Time) (hibernate
 	return rec, nil
 }
 
+// HoldPaneGone marks handle's record pane-gone: its pane no longer
+// exists, so no wake is scheduled. The record and its names stay.
+func (r *Registry) HoldPaneGone(handle, reason string) (hibernate.Record, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	rec, ok := r.hibernated[handle]
+	if !ok {
+		return hibernate.Record{}, fmt.Errorf("%s has no hibernation record", handle)
+	}
+	rec.Status = hibernate.StatusPaneGone
+	rec.Reason = reason
+	rec.RetryAt = time.Time{}
+	r.hibernated[handle] = rec
+	if err := r.save(); err != nil {
+		return hibernate.Record{}, err
+	}
+	return rec, nil
+}
+
 // ClearHibernation drops handle's record: the agent woke, or its pane
 // was reused. Its names are active again. No record is not an error.
 func (r *Registry) ClearHibernation(handle string) error {

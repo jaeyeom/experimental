@@ -480,3 +480,48 @@ func TestWakeModelNonClaudeKindIgnoredWithLogLine(t *testing.T) {
 		t.Fatalf("ignored events = %+v", ignored)
 	}
 }
+
+func TestAWakeIntoAGonePaneHoldsTheMessagesAndIsNotRetried(t *testing.T) {
+	w := newWakeWorld(t)
+	w.waker.err = &hibernate.PaneGoneError{Handle: sleeper, Err: errors.New("pane_not_found")}
+	res := w.send(t, "wake up")
+	w.box.wakes.Wait()
+	if got := w.state(t, res.ID); got != "held: "+HoldPaneGone {
+		t.Fatalf("state = %q, want held: %s", got, HoldPaneGone)
+	}
+	rec, ok := w.reg.Hibernation(sleeper)
+	if !ok || rec.Status != hibernate.StatusPaneGone {
+		t.Fatalf("record = %+v, %v; want it kept as pane-gone", rec, ok)
+	}
+	if textsWith(w.ad.Texts, "its pane is gone; message "+res.ID+" waits for a new holder") != 1 {
+		t.Fatalf("pastes = %q, want one notice to the sender", w.ad.Texts)
+	}
+	if evs := w.events(t, eventlog.EventWakeHeld); len(evs) != 1 {
+		t.Fatalf("agent_wake_held events = %+v", evs)
+	}
+	status, err := w.box.Status(context.Background(), res.ID)
+	if err != nil || !strings.Contains(status, "waiting: pane gone") {
+		t.Fatalf("status = %q, %v", status, err)
+	}
+	if got := w.box.Report(context.Background(), res.ID); got.State != "held" || got.HeldReason != HeldPaneGone {
+		t.Fatalf("report = %+v", got)
+	}
+
+	held := len(w.events(t, eventlog.EventHeld))
+	for range 3 {
+		w.clock.add(2 * time.Hour)
+		if err := w.box.flushHandle(context.Background(), sleeper); err != nil {
+			t.Fatal(err)
+		}
+		w.box.wakes.Wait()
+	}
+	if w.waker.calls() != 1 {
+		t.Fatalf("relaunched %d times, want once", w.waker.calls())
+	}
+	if got := len(w.events(t, eventlog.EventHeld)); got != held {
+		t.Fatalf("held events grew from %d to %d", held, got)
+	}
+	if got := w.state(t, res.ID); got != "held: "+HoldPaneGone {
+		t.Fatalf("state after the retries = %q", got)
+	}
+}

@@ -53,6 +53,27 @@ func (e *PaneReusedError) Error() string {
 	return fmt.Sprintf("the pane of %s now runs %s, not its shell", e.Handle, e.Command)
 }
 
+// PaneGoneError is a wake into a pane herdr no longer has. It cannot
+// succeed, so it is not retried.
+type PaneGoneError struct {
+	Handle string
+	Err    error
+}
+
+func (e *PaneGoneError) Error() string {
+	return fmt.Sprintf("the pane of %s no longer exists: %v", e.Handle, e.Err)
+}
+
+func (e *PaneGoneError) Unwrap() error { return e.Err }
+
+// paneGone wraps a herdr pane_not_found error as a *PaneGoneError.
+func paneGone(handle string, err error) error {
+	if strings.Contains(err.Error(), "pane_not_found") {
+		return &PaneGoneError{Handle: handle, Err: err}
+	}
+	return err
+}
+
 // Wake checks that rec's pane is at its shell, runs the agent's resume
 // command there in its cwd, and waits until herdr reports the agent
 // idle or done, with rec's session when herdr reports one. A pane that
@@ -70,7 +91,7 @@ func (w *Waker) WakeWithModel(ctx context.Context, rec Record, model string) err
 	}
 	a, listed, err := w.Panes.PaneAgent(ctx, rec.Handle)
 	if err != nil {
-		return fmt.Errorf("read the pane's agent: %w", err)
+		return fmt.Errorf("read the pane's agent: %w", paneGone(rec.Handle, err))
 	}
 	if listed && a.Kind != "" {
 		return &PaneReusedError{
@@ -80,7 +101,7 @@ func (w *Waker) WakeWithModel(ctx context.Context, rec Record, model string) err
 	}
 	info, err := w.Panes.PaneProcessInfo(ctx, rec.Handle)
 	if err != nil {
-		return fmt.Errorf("read the pane's processes: %w", err)
+		return fmt.Errorf("read the pane's processes: %w", paneGone(rec.Handle, err))
 	}
 	if !info.AtShell() {
 		return &PaneReusedError{Handle: rec.Handle, Command: foreground(info)}

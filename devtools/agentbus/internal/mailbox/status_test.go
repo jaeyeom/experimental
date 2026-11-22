@@ -60,7 +60,7 @@ func TestReportOfAFailedWakeHasItsError(t *testing.T) {
 	res := w.send(t, "wake up")
 	w.box.wakes.Wait()
 	got := w.box.Report(context.Background(), res.ID)
-	if got.State != "failed" || got.HeldReason != "" || got.Error != "wake failed: relaunched agent not ready within 1m0s: agent is working" || got.StoredAt == "" || got.DeliveredAt != "" {
+	if got.State != "held" || got.HeldReason != HeldWakeFailed || got.Error != "wake failed: relaunched agent not ready within 1m0s: agent is working" || got.StoredAt == "" || got.DeliveredAt != "" {
 		t.Fatalf("report = %+v", got)
 	}
 }

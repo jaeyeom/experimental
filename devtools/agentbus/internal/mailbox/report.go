@@ -17,6 +17,8 @@ const (
 	HeldTargetNotReady       = "target not ready"
 	HeldEarlierMessage       = "earlier message held"
 	HeldHibernated           = "hibernated"
+	HeldWakeFailed           = "wake failed"
+	HeldPaneGone             = "pane gone"
 	HeldUnconfirmed          = "delivery unconfirmed"
 	HeldOther                = "other"
 )
@@ -35,8 +37,9 @@ type Report struct {
 
 // Report flushes the message's queue, like Status, and reports it under
 // id as asked. State is queued, held, delivered, failed, expired, or
-// unknown. A message whose wake failed is failed: it stays queued and
-// the wake is retried, and Error says why the last one failed.
+// unknown. A message whose wake failed is held (wake failed): it stays
+// queued and the wake is retried, and Error says why the last one failed.
+// A wake into a pane that is gone is held (pane gone) and not retried.
 func (m *Mailbox) Report(ctx context.Context, id string) Report {
 	msg, err := m.flushed(ctx, id)
 	switch {
@@ -64,7 +67,8 @@ func (m *Mailbox) Report(ctx context.Context, id string) Report {
 		r.State = msg.State
 		r.Reason = msg.ExpireReason
 	case held && reason == HoldWakeFailed:
-		r.State = "failed"
+		r.State = "held"
+		r.HeldReason = HeldWakeFailed
 		r.Error = m.wakeError(msg)
 	case held:
 		r.State = "held"
@@ -104,6 +108,10 @@ func heldReason(reason string) string {
 		return HeldComposerBusy
 	case string(adapter.StateBlocked), string(adapter.StateNoAgent), string(adapter.StateUnknown), string(adapter.StateGone), HoldLoginExpired:
 		return HeldTargetNotReady
+	case HoldWakeFailed:
+		return HeldWakeFailed
+	case HoldPaneGone:
+		return HeldPaneGone
 	case HoldHibernated, HoldWaking:
 		return HeldHibernated
 	case adapter.HoldAmbiguous, adapter.HoldAmbiguousUnverified:

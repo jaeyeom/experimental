@@ -184,3 +184,18 @@ func TestWakeRefusesPaneRunningAnotherSession(t *testing.T) {
 		t.Fatalf("resume command sent into busy pane: %q", panes.ran)
 	}
 }
+
+type gonePanes struct{ wakePanes }
+
+func (gonePanes) PaneAgent(context.Context, string) (adapter.Agent, bool, error) {
+	return adapter.Agent{}, false, errors.New(`herdr: {"error":{"code":"pane_not_found"}}`)
+}
+
+func TestWakeIntoAGonePaneIsAPaneGoneError(t *testing.T) {
+	w := &Waker{Panes: &gonePanes{}, Clock: &fakeClock{now: t0()}, Timeout: time.Minute}
+	err := w.Wake(context.Background(), sleepingRecord())
+	var gone *PaneGoneError
+	if !errors.As(err, &gone) || gone.Handle != alice {
+		t.Fatalf("Wake() = %v, want a *PaneGoneError", err)
+	}
+}

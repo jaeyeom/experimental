@@ -211,7 +211,21 @@ message is queued~ in its pane. The next delivery attempt tries again
 only after a backoff of 1m, doubled on each failure in a row up to 1h,
 so a broken session is not relaunched in a loop. Until then the message
 is ~held: wake failed~, and ~agentbus status <id>~ shows ~waiting: wake
-failed: <error>; next try after <time>~.
+failed: <error>; next try after <time>~ (~status --json~: state ~held~,
+held_reason ~wake failed~).
+
+A wake into a pane that no longer exists (herdr ~pane_not_found~) cannot
+succeed, so it is not retried. The record gets status ~pane-gone~ and
+keeps its names, and the queued messages are held, not dropped:
+~held: pane gone~, and ~agentbus status <id>~ shows ~waiting: pane gone;
+held for a new holder of the name~. The daemon logs one
+~agent_wake_held~ event and no more ~held~ events while nothing changes,
+and each sender gets one notice, ~[agentbus] <name> is hibernated and its
+pane is gone; message <id> waits for a new holder (agentbus forget/release
+<name> to clear)~. The messages go out if a new session claims the name
+(queued messages following the name is tracked separately); ~agentbus
+forget <name>~ clears the record. A message to a raw handle that no name
+holds still expires through ~gone_after~.
 
 In hub mode the record lives on the hub, and so does the wake: the
 hub's daemon reaches the pane with ~herdr --machine <machine>~, as it

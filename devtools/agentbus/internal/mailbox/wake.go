@@ -18,6 +18,7 @@ import (
 const (
 	HoldWaking     = "waking"
 	HoldWakeFailed = "wake failed"
+	HoldPaneGone   = "pane gone"
 )
 
 // Wake backoff: the first retry waits wakeBackoff, and each further
@@ -117,6 +118,9 @@ func (m *Mailbox) wakeOutcome(ctx context.Context, rec hibernate.Record) outcome
 	m.mu.Lock()
 	_, inFlight := m.waking[rec.Handle]
 	m.mu.Unlock()
+	if !inFlight && rec.Status == hibernate.StatusPaneGone {
+		return outcome{reason: HoldPaneGone, target: target}
+	}
 	if !inFlight && rec.Status == hibernate.StatusWakeFailed && m.now().Before(rec.RetryAt) {
 		return outcome{reason: HoldWakeFailed, target: target}
 	}
@@ -170,6 +174,7 @@ func (m *Mailbox) runWake(ctx context.Context, rec hibernate.Record, override st
 		return fmt.Errorf("wake %s: %w", name, err)
 	}
 	var reused *hibernate.PaneReusedError
+	var gone *hibernate.PaneGoneError
 	switch {
 	case errors.As(err, &reused):
 		if clearErr := m.reg.ClearHibernation(handle); clearErr != nil {
@@ -178,6 +183,15 @@ func (m *Mailbox) runWake(ctx context.Context, rec hibernate.Record, override st
 		_ = m.logEvent(eventlog.Event{Event: eventlog.EventWakeSkipped, Actor: wakeActor, Name: name, Detail: "pane reused; record dropped", Reason: err.Error()})
 		m.notifyQueued(ctx, handle, fmt.Sprintf("[agentbus] %s was hibernated, but %s; it was not relaunched and its record was dropped; your message is queued", name, err))
 		return fmt.Errorf("not relaunched: %w; the record was dropped", err)
+	case errors.As(err, &gone):
+		if _, recErr := m.reg.HoldPaneGone(handle, err.Error()); recErr != nil {
+			return fmt.Errorf("%w; mark the record: %w", err, recErr)
+		}
+		_ = m.logEvent(eventlog.Event{Event: eventlog.EventWakeHeld, Actor: wakeActor, Name: name, Detail: "pane gone; messages held for a new holder", Reason: err.Error()})
+		m.notifyQueuedEach(ctx, handle, func(id string) string {
+			return fmt.Sprintf("[agentbus] %s is hibernated and its pane is gone; message %s waits for a new holder (agentbus forget/release %s to clear)", name, id, name)
+		})
+		return fmt.Errorf("wake %s: %w", name, err)
 	case err != nil:
 		failures := rec.Failures + 1
 		if _, recErr := m.reg.FailWake(handle, err.Error(), m.now().Add(wakeDelay(failures))); recErr != nil {
@@ -273,6 +287,12 @@ func (m *Mailbox) agentName(handle string) string {
 
 // notifyQueued tells each sender of a message queued for handle, once.
 func (m *Mailbox) notifyQueued(ctx context.Context, handle, text string) {
+	m.notifyQueuedEach(ctx, handle, func(string) string { return text })
+}
+
+// notifyQueuedEach is notifyQueued with text built from the id of the
+// sender's first queued message.
+func (m *Mailbox) notifyQueuedEach(ctx context.Context, handle string, text func(id string) string) {
 	m.mu.Lock()
 	type note struct{ id, from string }
 	var notes []note
@@ -286,7 +306,7 @@ func (m *Mailbox) notifyQueued(ctx context.Context, handle, text string) {
 	}
 	m.mu.Unlock()
 	for _, n := range notes {
-		m.notifySender(ctx, n.id, n.from, text+"\n", "wake notice not sent")
+		m.notifySender(ctx, n.id, n.from, text(n.id)+"\n", "wake notice not sent")
 	}
 }
 
@@ -302,6 +322,8 @@ func (m *Mailbox) wakeStatus(msg message) string {
 			line += fmt.Sprintf(": %s; next try after %s", rec.Reason, rec.RetryAt.UTC().Format(timeLayout))
 		}
 		return line + "\n"
+	case HoldPaneGone:
+		return "waiting: pane gone; held for a new holder of the name (agentbus forget to clear)\n"
 	case HoldHibernated:
 		return "waiting: hibernated\n"
 	default:

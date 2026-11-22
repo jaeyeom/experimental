@@ -137,8 +137,8 @@ func commands() []command {
 			flags: "--json  print {\"id\",\"state\":\"queued\"|\"held\"|\"delivered\"|\"failed\"|\"expired\"|\"unknown\",\n" +
 				"        \"held_reason\",\"reason\",\"stored_at\",\"delivered_at\",\"error\"} per id; fields\n" +
 				"        that do not apply are omitted. held_reason: transport unreachable, composer\n" +
-				"        busy, target not ready, earlier message held, hibernated, delivery\n" +
-				"        unconfirmed, or other. reason, for expired: ttl or gone. Times are\n" +
+				"        busy, target not ready, earlier message held, hibernated, wake failed (retried),\n" +
+				"        pane gone (held for a new holder, not retried), delivery unconfirmed, or other. reason, for expired: ttl or gone. Times are\n" +
 				"        RFC3339. (default: false)",
 			example: "agentbus status --json m-7f3a m-7f3b",
 			run:     noStdin(cmdStatus),

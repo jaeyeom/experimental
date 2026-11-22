@@ -306,8 +306,7 @@ prints one object per line in the order given:
 
 ~state~ is ~queued~, ~held~, ~delivered~, ~delivered-unprocessed~ (the
 target's transcript showed an auth error reply or no turn started within
-~verify_delivery_within~; ~reason~ is ~auth~ or ~no-turn~), ~failed~ (the
-agent's wake failed; the message stays queued and the wake is retried),
+~verify_delivery_within~; ~reason~ is ~auth~ or ~no-turn~), ~failed~,
 ~expired~, or ~unknown~ (no such id). Fields that do not apply are
 omitted. ~held_reason~ is one of ~transport unreachable~, ~composer busy~
 (the target's composer is not empty, or the pane is scrolled up or
@@ -315,7 +314,10 @@ focused), ~target not ready~ (including ~held: target login expired~,
 which holds later bus messages to that recipient until a later turn
 succeeds or ~agentbus release-held <name>~ is run; schedulers inside the
 agent's own session are not paused by agentbus), ~earlier message held~,
-~hibernated~, ~delivery unconfirmed~, or ~other~. ~stored_at~ and
+~hibernated~, ~wake failed~ (the agent's wake failed; ~error~ says why, the
+message stays queued and the wake is retried after a backoff), ~pane gone~
+(the hibernated agent's pane no longer exists; the message waits for a new
+holder of the name and no wake is tried), ~delivery unconfirmed~, or ~other~. ~stored_at~ and
 ~delivered_at~ are RFC3339 in UTC. ~error~ says why a ~failed~ message
 failed. ~reason~ says why an ~expired~ message closed (~ttl~ or ~gone~)
 or why a ~delivered-unprocessed~ message was marked (~auth~ or ~no-turn~). An unknown id is not an

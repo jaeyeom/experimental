@@ -21,12 +21,16 @@ const (
 	// StatusWakeFailed means a relaunch failed or timed out. The agent
 	// is still stopped and keeps its names.
 	StatusWakeFailed = "wake-failed"
+	// StatusPaneGone means the pane no longer exists, so no wake can
+	// succeed. The record keeps its names and its queued messages
+	// wait for a new holder; agentbus forget clears it.
+	StatusPaneGone = "pane-gone"
 )
 
 // Asleep reports whether a record's agent is stopped and waits for a
 // wake: hibernated, or hibernated with a failed wake.
 func Asleep(status string) bool {
-	return status == StatusHibernated || status == StatusWakeFailed
+	return status == StatusHibernated || status == StatusWakeFailed || status == StatusPaneGone
 }
 
 // Record is what the daemon keeps for a hibernated agent, keyed by

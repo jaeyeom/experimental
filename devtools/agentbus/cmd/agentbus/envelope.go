@@ -249,6 +249,8 @@ func noteHeld(stderr io.Writer, state string, unreachable, anonHerdr bool) int {
 		fmt.Fprintf(stderr, "agentbus: the agent is hibernated; the message is queued until it wakes\n")
 	case "held: " + mailbox.HoldWaking:
 		fmt.Fprintf(stderr, "agentbus: the agent is hibernated; waking it, and the message goes out once it is ready\n")
+	case "held: " + mailbox.HoldPaneGone:
+		fmt.Fprintf(stderr, "agentbus: the agent is hibernated and its pane is gone; the message waits for a new holder of the name (agentbus forget to clear)\n")
 	case "held: " + mailbox.HoldWakeFailed:
 		fmt.Fprintf(stderr, "agentbus: the agent is hibernated and its last wake failed; the message is queued until a wake succeeds\n")
 	}
