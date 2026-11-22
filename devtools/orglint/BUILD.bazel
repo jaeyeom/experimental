@@ -6,6 +6,7 @@ go_library(
         "links.go",
         "lint.go",
         "parse.go",
+        "srcblocks.go",
         "structure.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/orglint",
@@ -18,6 +19,7 @@ go_test(
     srcs = [
         "links_test.go",
         "parse_test.go",
+        "srcblocks_test.go",
         "structure_test.go",
     ],
     data = [

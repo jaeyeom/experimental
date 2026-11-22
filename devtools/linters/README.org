@@ -137,6 +137,19 @@ that implements it:
   ~obsolete-include-markup~, ~non-existent-setupfile-parameter~,
   ~deprecated-category-setup~.
 
+The Go linter implements these src block and option checkers:
+~missing-language-in-src-block~, ~suspicious-language-in-src-block~,
+~empty-header-argument~, ~wrong-header-argument~, ~wrong-header-value~,
+~deprecated-header-syntax~, ~invalid-babel-call-block~, ~named-result~
+(only an empty ~#+RESULTS:~), ~missing-backend-in-export-block~,
+~deprecated-export-blocks~ and ~unknown-options-item~. The tables of
+header arguments, their values, OPTIONS items and languages in
+~devtools/orglint/srcblocks.go~ were read from Org 9.7.11
+(~org-babel-common-header-args-w-values~, ~org-export-options-alist~ and
+the options of the export backends). They leave out language specific
+header arguments and languages that Emacs knows only through a major
+mode. Extend them when a file in this repository needs more.
+
 Out of scope, without fixtures: the citation checkers
 (~incomplete-citation~, ~invalid-cite-export-declaration~,
 ~missing-print-bibliography~, ~non-existent-bibliography~) and
