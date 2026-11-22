@@ -1,3 +1,5 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
 # The userscript test runs on the host's node (node --test), not a Bazel
 # JavaScript toolchain. See userscript_test.sh.
 sh_test(

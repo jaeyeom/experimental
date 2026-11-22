@@ -247,6 +247,8 @@ func getAllDependencies(ymlFile string, visited map[string]bool) ([]string, erro
 }
 
 const defaultManualContent = `load("@rules_go//go:def.bzl", "go_binary", "go_library")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 go_library(
     name = "go_default_library",

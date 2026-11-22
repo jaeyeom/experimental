@@ -103,6 +103,7 @@ buf.toolchains(
 use_repo(buf, "rules_buf_toolchains")
 
 # Python
+bazel_dep(name = "rules_shell", version = "0.8.0")
 bazel_dep(name = "rules_python", version = "2.3.2")
 
 python = use_extension(
