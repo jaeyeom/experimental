@@ -31,6 +31,11 @@ require (
 require github.com/kisielk/errcheck v1.30.0
 
 require (
+	github.com/gobwas/glob v0.2.3 // indirect
+	github.com/tomarrell/wrapcheck/v2 v2.13.0
+)
+
+require (
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/charmbracelet/colorprofile v0.4.1 // indirect
