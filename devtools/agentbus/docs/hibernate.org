@@ -224,7 +224,8 @@ and each sender gets one notice, ~[agentbus] <name> is hibernated and its
 pane is gone; message <id> waits for a new holder (agentbus forget/release
 <name> to clear)~. The messages go out if a new session claims the name
 (queued messages following the name is tracked separately); ~agentbus
-forget <name>~ clears the record. A message to a raw handle that no name
+forget <name>~ clears the record and points at ~agentbus release <name>~,
+which any caller may run once the holder is gone. A message to a raw handle that no name
 holds still expires through ~gone_after~.
 
 In hub mode the record lives on the hub, and so does the wake: the

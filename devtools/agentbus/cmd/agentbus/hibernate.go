@@ -221,6 +221,7 @@ func (b busClient) Refused(ctx context.Context, handle string, reasons []string)
 }
 
 // cmdForget drops a dead hibernation record by hand. It refuses a live holder.
+// The name stays registered; the output says how to release it.
 func cmdForget(ctx context.Context, args, env []string, stdout, stderr io.Writer) int {
 	if len(args) != 1 || args[0] == "" {
 		fmt.Fprintln(stderr, "agentbus forget: usage: agentbus forget <name|handle>")
@@ -235,5 +236,8 @@ func cmdForget(ctx context.Context, args, env []string, stdout, stderr io.Writer
 		return 1
 	}
 	fmt.Fprintf(stdout, "forgot %s\n", resp.Handle)
+	if resp.Text != "" {
+		fmt.Fprintln(stdout, resp.Text)
+	}
 	return 0
 }

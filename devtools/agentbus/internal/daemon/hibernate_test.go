@@ -18,6 +18,11 @@ import (
 const hibAlice = "herdr:local/s1/w1:p1"
 
 func newHibernateServer(t *testing.T) (*server, string) {
+	srv, dir, _ := newHibernateServerAd(t)
+	return srv, dir
+}
+
+func newHibernateServerAd(t *testing.T) (*server, string, *fake.Adapter) {
 	t.Helper()
 	dir := t.TempDir()
 	ad := &fake.Adapter{
@@ -35,7 +40,7 @@ func newHibernateServer(t *testing.T) (*server, string) {
 	if resp := srv.dispatch(Request{Op: "register", Name: "ops/x", When: "reviews", Env: []string{"HERDR_PANE_ID=p1"}}, 0); !resp.OK {
 		t.Fatalf("register = %+v", resp)
 	}
-	return srv, dir
+	return srv, dir, ad
 }
 
 func hibernateEvents(t *testing.T, dir, name string) []eventlog.Event {
@@ -241,5 +246,20 @@ func TestServeRunsThePolicyOnItsTicks(t *testing.T) {
 	stop()
 	if evs := hibernateEvents(t, dirs.StateDir, eventlog.EventPolicyNoCandidate); len(evs) != 1 {
 		t.Fatalf("policy_no_candidate events = %+v", evs)
+	}
+}
+
+func TestForgetPointsAtReleaseWhenTheNameStaysRegistered(t *testing.T) {
+	srv, _, ad := newHibernateServerAd(t)
+	srv.dispatch(Request{Op: "hibernate-begin", Hibernate: &hibernate.Args{Record: &hibernate.Record{Handle: hibAlice, Kind: "claude", Session: "s1"}}}, 0)
+	srv.dispatch(Request{Op: "hibernate-end", Hibernate: &hibernate.Args{Handle: hibAlice, Status: hibernate.StatusHibernated}}, 0)
+	ad.Reach[hibAlice] = adapter.StateNoAgent
+	resp := srv.dispatch(Request{Op: "forget", Name: "ops/x"}, 0)
+	if !resp.OK {
+		t.Fatalf("forget = %+v", resp)
+	}
+	want := "name ops/x still registered to a gone handle; release it with: agentbus release ops/x"
+	if resp.Text != want {
+		t.Fatalf("forget text = %q, want %q", resp.Text, want)
 	}
 }

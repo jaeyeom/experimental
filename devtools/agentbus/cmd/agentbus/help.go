@@ -56,7 +56,7 @@ func commands() []command {
 		},
 		{
 			name:    "release",
-			summary: "Drop a name, or hand it to a claimer with --to. Send context first.",
+			summary: "Drop a name, or hand it to a claimer with --to. Send context first. Any caller may drop a name whose holder is gone.",
 			usage:   "agentbus release <name> [--to <claimer>]",
 			flags:   "--to <claimer>  hand the name to this claimer (default: none, drop the name)",
 			example: "agentbus release ops/inbox --to herdr:local/default/w2:p3",
@@ -246,7 +246,7 @@ func commands() []command {
 		},
 		{
 			name:    "forget",
-			summary: "Drop a dead hibernation record by hand. Refuses a live holder.",
+			summary: "Drop a dead hibernation record by hand. Refuses a live holder. The name stays registered; release it with agentbus release.",
 			usage:   "agentbus forget <name|handle>",
 			example: "agentbus forget herdr:local/s1/w1:p1",
 			run:     noStdin(cmdForget),

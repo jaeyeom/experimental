@@ -107,7 +107,8 @@ ops/inbox is held by herdr:local/default/w2:p3 (alive); message them with: agent
 Message that holder. Do not take the name. The holder hands off with
 ~release ops/inbox --to <claimer>~ only after sending the context: the
 work in progress, and what it was monitoring. ~release <name>~ without
-~--to~ drops the name.
+~--to~ drops the name. Any caller may drop a name whose holder is
+gone; the log records the caller and the gone handle.
 
 When a name changes holder (via ~release <name> --to <claimer>~ or a
 ~register~ that replaces a gone or dead-hibernated holder), any
@@ -210,7 +211,10 @@ another session (or another foreground program), wake refuses
 record, logs ~agent_wake_skipped~, and leaves the message queued while
 notifying the sender. You can also drop a dead hibernation record by
 hand with ~agentbus forget <name or handle>~ (which refuses a live
-holder).
+holder). ~forget~ leaves the name registered to the gone handle and says
+so; any caller can then drop it with ~agentbus release <name>~, which is
+refused while the holder is alive or unreachable. Messages held for that
+name stay in ~status~.
 
 ** Find agents
 
@@ -242,7 +246,7 @@ handle: herdr:local/default/w1:p1
 | ~register <name> --when <text>~   | Claim a name. ~--when~ is required and says what you are doing.                                |
 | ~describe --when <text>~          | Replace ~--when~ on the names this caller holds.                                               |
 | ~whoami~                          | Print those names, or the raw handle when none are registered.                                 |
-| ~release <name> [--to <claimer>]~ | Drop a name, or hand it to a claimer. Send context first.                                      |
+| ~release <name> [--to <claimer>]~ | Drop a name, or hand it to a claimer. Send context first. Any caller may drop a name whose holder is gone. |
 | ~list [--json] [--fresh]~         | Registered names, ~--when~, liveness, and transport.                                           |
 | ~search [query]~                  | Every reachable agent, registered or not.                                                      |
 | ~send <name or handle> [<body>]~  | Send. The body comes from the argument, ~--file~, or stdin.                                    |
@@ -257,7 +261,7 @@ handle: herdr:local/default/w1:p1
 | ~mem [--json]~                    | Memory per local agent pane. See [[file:docs/hibernate.org][memory]].                          |
 | ~hibernate <name or handle>...~   | Stop idle agents but keep their panes and names. See [[file:docs/hibernate.org][hibernation]]. |
 | ~wake [--model <m>] <name or handle>~ | Relaunch a hibernated agent now (~--model keep~ keeps original). A message to it wakes it too. |
-| ~forget <name or handle>~         | Drop a dead hibernation record by hand. Refuses a live holder.                                  |
+| ~forget <name or handle>~         | Drop a dead hibernation record by hand. Refuses a live holder. The name stays registered; ~release~ it. |
 | ~release-held <name>~             | Clear a login-expired hold on a recipient and flush held messages.                             |
 | ~replay [flags]~                  | Resend ~delivered-unprocessed~ messages in order (~--to~, ~--since~, ~--reason~, ~--dry-run~, ~--force~). |
 | ~install~                         | Install the supervisor and load it. In hub mode, install the tunnel.                           |

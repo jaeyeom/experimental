@@ -525,3 +525,23 @@ func TestAWakeIntoAGonePaneHoldsTheMessagesAndIsNotRetried(t *testing.T) {
 		t.Fatalf("state after the retries = %q", got)
 	}
 }
+
+func TestReleasingAGoneHoldersNameLeavesItsHeldMessagesAlone(t *testing.T) {
+	w := newWakeWorld(t)
+	w.waker.err = &hibernate.PaneGoneError{Handle: sleeper, Err: errors.New("pane_not_found")}
+	res := w.send(t, "wake up")
+	w.box.wakes.Wait()
+	before, err := w.box.Status(context.Background(), res.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.reg.Release(context.Background(), []string{"HERDR_PANE_ID=p2"}, "ops/x", ""); err != nil {
+		t.Fatalf("release by another caller = %v", err)
+	}
+	if got := w.state(t, res.ID); got != "held: "+HoldPaneGone {
+		t.Fatalf("state after the release = %q", got)
+	}
+	if after, err := w.box.Status(context.Background(), res.ID); err != nil || after != before {
+		t.Fatalf("status after the release = %q, %v; want %q", after, err, before)
+	}
+}

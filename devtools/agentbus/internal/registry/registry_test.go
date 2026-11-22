@@ -8,6 +8,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter/fake"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 )
 
 func TestLivenessClaimRules(t *testing.T) {
@@ -241,5 +242,52 @@ func TestSessionReplacedComparesTheMachine(t *testing.T) {
 	}
 	if !sessionReplaced("herdr:local/default/w1:p1", []adapter.Agent{local}) {
 		t.Fatal("a new local session did not replace the old one")
+	}
+}
+
+func TestAnyCallerReleasesANameWhoseHolderIsGone(t *testing.T) {
+	holder := "herdr:local/default/w1:p1"
+	other := "herdr:local/default/w1:p2"
+	dir := t.TempDir()
+	ad := &fake.Adapter{
+		AdapterName: "herdr",
+		Reach:       map[string]adapter.State{holder: adapter.StateIdle, other: adapter.StateIdle},
+		PaneHandles: map[string]string{"p1": holder, "p2": other},
+	}
+	lg := eventlog.Open(dir)
+	reg, err := Open(dir, []adapter.Adapter{ad}, lg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := reg.Register(ctx, envPane("p1"), "ops/inbox", "reviews"); err != nil {
+		t.Fatal(err)
+	}
+	for _, state := range []adapter.State{adapter.StateIdle, adapter.StateUnknown} {
+		ad.Reach[holder] = state
+		if _, err := reg.Release(ctx, envPane("p2"), "ops/inbox", ""); err == nil || !strings.Contains(err.Error(), "only the holder") {
+			t.Fatalf("release with holder %v = %v, want refusal", state, err)
+		}
+		if !reg.HasName("ops/inbox") {
+			t.Fatalf("name dropped while holder %v", state)
+		}
+	}
+	ad.Reach[holder] = adapter.StateGone
+	if _, err := reg.Release(ctx, envPane("p2"), "ops/inbox", ""); err != nil {
+		t.Fatalf("release of gone holder's name = %v", err)
+	}
+	if reg.HasName("ops/inbox") {
+		t.Fatal("name still registered")
+	}
+	lines, err := lg.Read(eventlog.Filter{Event: eventlog.EventRelease})
+	if err != nil || len(lines) != 1 {
+		t.Fatalf("release events = %v, %v", lines, err)
+	}
+	ev, err := eventlog.Parse(lines[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev.Actor != other || ev.Name != "ops/inbox" || !strings.Contains(ev.Detail, holder) {
+		t.Fatalf("event = %+v, want actor %s and detail naming %s", ev, other, holder)
 	}
 }

@@ -170,7 +170,11 @@ func (s *server) forgetAgent(req Request) Response {
 	if err != nil {
 		return Response{Error: err.Error()}
 	}
-	return Response{OK: true, Name: req.Name, Handle: handle}
+	var hints []string
+	for _, n := range s.reg.NamesOf(handle) {
+		hints = append(hints, fmt.Sprintf("name %s still registered to a gone handle; release it with: agentbus release %s", n, n))
+	}
+	return Response{OK: true, Name: req.Name, Handle: handle, Text: strings.Join(hints, "\n")}
 }
 
 // The States of a wake that relaunched nothing.

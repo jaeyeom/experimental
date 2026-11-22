@@ -245,7 +245,8 @@ func (r *Registry) WhoAmI(ctx context.Context, env []string) (string, []Binding,
 	return handle, out, nil
 }
 
-// Release drops name, or hands it to claimer when to is set.
+// Release drops name, or hands it to claimer when to is set. Only the
+// holder may, except that any caller may drop a name whose holder is gone.
 // to is a registered name or a raw handle. The name is never left unowned
 // during a handoff.
 func (r *Registry) Release(ctx context.Context, env []string, name, to string) (string, error) {
@@ -263,9 +264,14 @@ func (r *Registry) Release(ctx context.Context, env []string, name, to string) (
 		r.mu.Unlock()
 		return "", fmt.Errorf("%s is not registered", name)
 	}
+	detail := "released"
 	if rec.Handle != handle {
-		r.mu.Unlock()
-		return "", fmt.Errorf("only the holder can release %s", name)
+		// Anyone may drop a name whose holder is gone; nobody else can.
+		if to != "" || r.liveness(ctx, rec.Handle) != "gone" {
+			r.mu.Unlock()
+			return "", fmt.Errorf("only the holder can release %s", name)
+		}
+		detail = "released gone holder " + rec.Handle
 	}
 	if to == "" {
 		delete(r.names, name)
@@ -277,7 +283,7 @@ func (r *Registry) Release(ctx context.Context, env []string, name, to string) (
 			Event:  eventlog.EventRelease,
 			Actor:  handle,
 			Name:   name,
-			Detail: "released",
+			Detail: detail,
 		}); err != nil {
 			r.mu.Unlock()
 			return "", err
