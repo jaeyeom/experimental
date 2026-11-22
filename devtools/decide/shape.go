@@ -77,7 +77,7 @@ func CheckShape(text string, limits ShapeLimits) error {
 A person reads this in an inbox, often at a glance. Rewrite it for them:
   - First line: the verdict (the answer, decision, or what you need), readable alone, followed by a blank line or bullet.
   - Then details as short bullet lines, one point each (no long paragraphs).
-  - Pass multi-line text through --text-file or stdin, and exact post drafts through --verbatim-file`,
+  - Pass multi-line text through --text-file or stdin, and exact post drafts or forwarded user text through --verbatim-file`,
 		ErrShape, strings.Join(failures, "\n  - "))
 }
 

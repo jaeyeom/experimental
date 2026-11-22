@@ -221,7 +221,7 @@ func expandHubText(args []string) ([]string, error) {
 }
 
 func expandHubVerbatimFile(args []string) ([]string, error) {
-	if len(args) == 0 || (args[0] != "ask" && args[0] != "reply") {
+	if len(args) == 0 || (args[0] != "ask" && args[0] != "reply" && args[0] != "send") {
 		return args, nil
 	}
 	out := make([]string, 0, len(args))
@@ -307,7 +307,7 @@ func textValued(args []string) map[string]bool {
 			"type-text": true, "where": true, "verbatim": true, "verbatim-file": true,
 		}
 	case "send":
-		return map[string]bool{"to": true, "id": true, "via": true}
+		return map[string]bool{"to": true, "id": true, "via": true, "verbatim": true, "verbatim-file": true}
 	case "reply":
 		return map[string]bool{"option": true, "rec": true, "verbatim": true, "verbatim-file": true}
 	case "done":

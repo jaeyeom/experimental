@@ -3452,8 +3452,14 @@ func rowSnippet(it decide.Item) string {
 		return it.DeliveryNotice
 	}
 	text := it.Question
+	if text == "" {
+		text = it.Verbatim
+	}
 	if n := len(it.Messages); n > 0 {
 		text = it.Messages[n-1].Text
+		if text == "" {
+			text = it.Messages[n-1].Verbatim
+		}
 	}
 	text = strings.Join(strings.Fields(text), " ")
 	if msg, ok := decide.Undelivered(&it); ok {

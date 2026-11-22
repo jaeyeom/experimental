@@ -398,3 +398,31 @@ func TestHubSendToAgentbusName(t *testing.T) {
 	}
 	assertNoLocalState(t, state)
 }
+
+func TestSendVerbatimToAgentbusCarriesVerbatimInNote(t *testing.T) {
+	writeDecideConfig(t, `{
+		"recipients": {"agentbus": true},
+		"sendTemplate": "missing-pane-cmd {pane}"
+	}`+"\n")
+	list := []byte(`[{"name":"coord/primary","handle":"box/pane-9","liveness":"alive"}]`)
+	calls := scriptedBus(t, list, "m-8a1b queued\n", nil)
+
+	longText := "Browser question\n" + strings.Repeat("x", 200)
+	_, stderr, code := runCLI("send", "--to", "coord/primary", "--verbatim", longText)
+	if code != 0 {
+		t.Fatalf("send = %d\n%s", code, stderr)
+	}
+	items := showThreads(t)
+	if len(items) != 1 || items[0].Verbatim != longText || items[0].Messages[0].Verbatim != longText || items[0].Messages[0].Text != "" {
+		t.Fatalf("items = %+v", items)
+	}
+	var sends [][]string
+	for _, call := range *calls {
+		if len(call) > 0 && call[0] == "send" {
+			sends = append(sends, call)
+		}
+	}
+	if len(sends) != 1 || !strings.Contains(sends[0][2], longText) {
+		t.Fatalf("bus sends = %q", sends)
+	}
+}

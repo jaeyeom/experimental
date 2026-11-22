@@ -4571,3 +4571,28 @@ func TestItemViewShowsVerbatimQuoteBlock(t *testing.T) {
 		}
 	}
 }
+
+func TestVerbatimOnlyThreadShowsInListAndItemView(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	if _, err := led.StartThreadVerbatim("alpha", "pane-a", "", "Exact user line\n"+strings.Repeat("x", 200), decide.ViaCLI); err != nil {
+		t.Fatal(err)
+	}
+	m := New(dir)
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	listView := visibleLine(m.View())
+	if !strings.Contains(listView, "Exact user line") {
+		t.Errorf("list view missing verbatim snippet:\n%s", listView)
+	}
+	press(t, m, "o")
+	itemView := visibleLine(m.View())
+	for _, want := range []string{"will be posted as written:", "> Exact user line"} {
+		if !strings.Contains(itemView, want) {
+			t.Errorf("item view missing %q:\n%s", want, itemView)
+		}
+	}
+}

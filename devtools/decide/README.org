@@ -237,11 +237,13 @@ when a check fails; the error names each failed check and explains the
 expected shape. ~--long-lines~ was removed and no flag skips the checks.
 Answers and messages a person gives in the inbox UI are not checked.
 
-For an exact draft that will be posted elsewhere as written, pass
-~--verbatim-file <path>~ (or ~--verbatim <text>~) on ~ask~ or ~reply~.
-It is stored byte for byte in ~verbatim~ without shape checks and shown in
-the inbox as a marked quote block ("will be posted as written"), while
-the author's own question or reply around it is still checked.
+For an exact draft or forwarded user text that should be kept as written,
+pass ~--verbatim-file <path>~ (or ~--verbatim <text>~) on ~ask~, ~reply~,
+or ~send~. It is stored byte for byte in ~verbatim~ without shape checks
+and shown in the inbox as a marked quote block ("will be posted as
+written"), while the author's own question, reply, or note text around it
+is still checked. In ~--json~, verbatim text is in ~messages[].verbatim~
+(and the item's ~verbatim~), not in ~text~.
 
 ** Owner and worker
 
@@ -426,7 +428,10 @@ and ~DECIDE_KEYDEBUG~ are in [[file:docs/keys.org][docs/keys.org]].
 
 * Notes and status
 
-~decide send --to <name> "<text>"~ starts a thread. A configured target
+~decide send --to <name> "<text>"~ starts a thread. ~decide send --to~ and
+~decide send --id~ also accept ~--verbatim <text>~ and ~--verbatim-file
+<path>~ (alone, without positional text, ~--text-file~, or stdin, or
+alongside short author text). A configured target
 uses ~sendTemplate~, which defaults to ~herdr agent prompt {pane}~ with
 the note as its own argument. ~{pane}~ is replaced. The note is not
 interpolated into a shell. With ~"recipients": {"agentbus": true}~,

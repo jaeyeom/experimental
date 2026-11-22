@@ -336,14 +336,20 @@ func runOnMachine(ctx context.Context, machine, program string, args, env []stri
 // DefaultSendTemplate. The text stored on the thread is not changed here.
 // The attempt comes back as a Delivery for Ledger.RecordCompose.
 func NotifyOwner(pane, machine, id, text string) (Delivery, error) {
+	return NotifyOwnerVerbatim(pane, machine, id, text, "")
+}
+
+// NotifyOwnerVerbatim is NotifyOwner with an optional verbatim block.
+func NotifyOwnerVerbatim(pane, machine, id, text, verbatim string) (Delivery, error) {
 	if strings.TrimSpace(pane) == "" {
 		return Delivery{}, fmt.Errorf("decide compose pane is empty")
 	}
 	if strings.TrimSpace(id) == "" {
 		return Delivery{}, fmt.Errorf("decide compose id is empty")
 	}
+	note := DeliveryNoteVerbatim(id, "human", text, verbatim)
 	if name, ok := strings.CutPrefix(pane, BusPanePrefix); ok {
-		return deliverBus(id, strings.TrimSpace(name), DeliveryNote(id, "human", text))
+		return deliverBus(id, strings.TrimSpace(name), note)
 	}
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -353,7 +359,7 @@ func NotifyOwner(pane, machine, id, text string) (Delivery, error) {
 	if machine != "" {
 		target = pane + "@" + machine
 	}
-	return SentDelivery(id, target, RunSend(MachineArgv(SendArgv(cfg.SendTemplate, pane, DeliveryNote(id, "human", text)), machine)))
+	return SentDelivery(id, target, RunSend(MachineArgv(SendArgv(cfg.SendTemplate, pane, note), machine)))
 }
 
 // SendBus runs `agentbus send name note` and describes it as a Delivery.
@@ -404,12 +410,17 @@ func busSendID(stdout string) string {
 // the thread. The returned item includes the bus message id and the
 // delivery record of its first message.
 func OpenBusThread(led *Ledger, dir, forward, name, text, via string, run AgentbusRunner) (Item, error) {
+	return OpenBusThreadVerbatim(led, dir, forward, name, text, "", via, run)
+}
+
+// OpenBusThreadVerbatim is OpenBusThread with an optional verbatim block.
+func OpenBusThreadVerbatim(led *Ledger, dir, forward, name, text, verbatim, via string, run AgentbusRunner) (Item, error) {
 	pane := BusPanePrefix + name
-	item, err := led.ForwardThread(forward, name, pane, text, via)
+	item, err := led.ForwardThreadVerbatim(forward, name, pane, text, verbatim, via)
 	if err != nil {
 		return Item{}, fmt.Errorf("store decide thread: %w", err)
 	}
-	d, err := SendBus(context.Background(), run, name, busDeliveryNote(item.ID, forward, text))
+	d, err := SendBus(context.Background(), run, name, busDeliveryNoteVerbatim(item.ID, forward, text, verbatim))
 	if err != nil {
 		if derr := led.Delete(item.ID); derr != nil {
 			return Item{}, fmt.Errorf("%w; %w", err, derr)
@@ -423,17 +434,17 @@ func OpenBusThread(led *Ledger, dir, forward, name, text, via string, run Agentb
 	if err != nil {
 		return Item{}, fmt.Errorf("record delivery: %w", err)
 	}
-	if err := AppendSend(dir, name, pane, text); err != nil {
+	if err := AppendSend(dir, name, pane, ComposeNoteText(text, verbatim)); err != nil {
 		return Item{}, fmt.Errorf("record decide send: %w", err)
 	}
 	return updated, nil
 }
 
-func busDeliveryNote(id, forward, text string) string {
+func busDeliveryNoteVerbatim(id, forward, text, verbatim string) string {
 	if forward != "" {
-		return ForwardNote(id, forward, "human", text)
+		return ForwardNoteVerbatim(id, forward, "human", text, verbatim)
 	}
-	return DeliveryNote(id, "human", text)
+	return DeliveryNoteVerbatim(id, "human", text, verbatim)
 }
 
 // AppendSend records one successful send under dir.

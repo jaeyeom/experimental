@@ -121,8 +121,8 @@ func usage(w io.Writer) {
   decide status clear --agent <name>
   decide status clear --resource <name>
   decide targets [--json]
-  decide send --to <name> [--json] [--via cli|ui] <text>
-  decide send --id <id> [--to owner|worker|both] [--json] [--via cli|ui] <text>
+  decide send --to <name> [--verbatim-file path] [--json] [--via cli|ui] [<text>]
+  decide send --id <id> [--to owner|worker|both] [--verbatim-file path] [--json] [--via cli|ui] [<text>]
   decide reply <id> [--option key:label ...] [--rec key] [--free-text] [--verbatim-file path] [--json] <text>
   decide reassign <id> [--owner <label>] [--notify-pane <pane>] [--json]
   decide assign <id> <agent> [--notify-pane <pane>] [--json]
@@ -144,7 +144,7 @@ func usage(w io.Writer) {
 
 Text for ask, reply, send, done, withdraw, and status set may be a positional argument, --text-file <path>, or - for stdin.
 Author text must follow inbox shape rules: verdict on the first line (max 100 chars, followed by a blank line or bullet), no paragraph over 3 lines, max 160 chars per line, and max 1200 chars total.
-Pass --verbatim-file <path> on ask or reply for an exact post draft (shown as a quote block without shape checks).
+Pass --verbatim-file <path> (or --verbatim <text>) on ask, reply, or send for an exact post draft or forwarded user text (shown as a quote block without shape checks).
 Use reassign when the owning tab is retired, or for a handoff to another agent.
 Use assign when another agent works on an item while its owner stays; the
 worker is notified at agentbus:<agent> unless --notify-pane says otherwise.
@@ -165,12 +165,15 @@ func cmdSend(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
+	args = hoistFlags(args, map[string]bool{"to": true, "id": true, "via": true, "verbatim": true, "verbatim-file": true})
 	fs := flag.NewFlagSet("send", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	to := fs.String("to", "", "recipient name; with --id, owner, worker, or both")
 	id := fs.String("id", "", "thread to append a human message")
 	jsonOut := fs.Bool("json", false, "print JSON")
 	via := fs.String("via", decide.ViaCLI, "where the message came from: cli, or ui for the inbox front ends only")
+	verbatim := fs.String("verbatim", "", "exact user text shown as a quote block without shape checks")
+	verbatimFile := fs.String("verbatim-file", "", "file containing exact user text shown as a quote block without shape checks")
 	if code, stop := stopped(parseFlags(fs, args)); stop {
 		return code
 	}
@@ -186,17 +189,24 @@ func cmdSend(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
-	text, err := bodyFrom(fs.Args(), file, "text")
+	verb, err := resolveVerbatim(*verbatim, *verbatimFile)
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
-	if hasID {
-		return cmdCompose(strings.TrimSpace(*id), text, *via, senderOf(context.Background()), route, *jsonOut, stdout, stderr)
+	var text string
+	if len(fs.Args()) > 0 || file != "" || strings.TrimSpace(verb) == "" {
+		text, err = bodyFrom(fs.Args(), file, "text")
+		if err != nil {
+			return fail(stderr, err, 2)
+		}
 	}
-	return sendNewThread(*to, text, *via, *jsonOut, stdout, stderr)
+	if hasID {
+		return cmdCompose(strings.TrimSpace(*id), text, verb, *via, senderOf(context.Background()), route, *jsonOut, stdout, stderr)
+	}
+	return sendNewThread(*to, text, verb, *via, *jsonOut, stdout, stderr)
 }
 
-func sendNewThread(to, text, via string, jsonOut bool, stdout, stderr io.Writer) int {
+func sendNewThread(to, text, verbatim, via string, jsonOut bool, stdout, stderr io.Writer) int {
 	cfg, err := decide.LoadConfig()
 	if err != nil {
 		return fail(stderr, err, 1)
@@ -217,7 +227,7 @@ func sendNewThread(to, text, via string, jsonOut bool, stdout, stderr io.Writer)
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
-	item, err := deliverNewThread(led, dir, cfg.SendTemplate, rec, text, via)
+	item, err := deliverNewThread(led, dir, cfg.SendTemplate, rec, text, verbatim, via)
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
@@ -226,7 +236,7 @@ func sendNewThread(to, text, via string, jsonOut bool, stdout, stderr io.Writer)
 			return fail(stderr, err, 1)
 		}
 	}
-	return printSent(stdout, stderr, rec.Name, text, item.ID, jsonOut)
+	return printSent(stdout, stderr, rec.Name, text, verbatim, item.ID, jsonOut)
 }
 
 // resolveSendTo finds name on the same recipient list the inbox uses.
@@ -270,15 +280,15 @@ func sendBusNames(cfg decide.Config) ([]decide.BusRecipient, error) {
 // deliverNewThread starts a thread and delivers it. A bus name, including
 // a configured agentbus: pane, goes through agentbus. A herdr pane uses
 // the send template. A failed template send deletes the new item.
-func deliverNewThread(led *decide.Ledger, dir, template string, rec decide.SendRecipient, text, via string) (decide.Item, error) {
+func deliverNewThread(led *decide.Ledger, dir, template string, rec decide.SendRecipient, text, verbatim, via string) (decide.Item, error) {
 	if rec.Bus {
-		return decide.OpenBusThread(led, dir, "", rec.Name, text, via, agentbusRun) //nolint:wrapcheck // OpenBusThread names the failure
+		return decide.OpenBusThreadVerbatim(led, dir, "", rec.Name, text, verbatim, via, agentbusRun) //nolint:wrapcheck // OpenBusThreadVerbatim names the failure
 	}
-	item, err := led.StartThread(rec.Name, rec.Pane, text, via)
+	item, err := led.StartThreadVerbatim(rec.Name, rec.Pane, text, verbatim, via)
 	if err != nil {
-		return decide.Item{}, err //nolint:wrapcheck // StartThread names the refusal
+		return decide.Item{}, err //nolint:wrapcheck // StartThreadVerbatim names the refusal
 	}
-	note := decide.DeliveryNote(item.ID, "human", text)
+	note := decide.DeliveryNoteVerbatim(item.ID, "human", text, verbatim)
 	if err := decide.RunSend(decide.SendArgv(template, rec.Pane, note)); err != nil {
 		if derr := led.Delete(item.ID); derr != nil {
 			return decide.Item{}, fmt.Errorf("%w; %w", err, derr)
@@ -289,18 +299,19 @@ func deliverNewThread(led *decide.Ledger, dir, template string, rec decide.SendR
 	if err != nil {
 		return decide.Item{}, err //nolint:wrapcheck // RecordCompose names the ledger failure
 	}
-	if err := decide.AppendSend(dir, rec.Name, rec.Pane, text); err != nil {
+	if err := decide.AppendSend(dir, rec.Name, rec.Pane, decide.ComposeNoteText(text, verbatim)); err != nil {
 		return decide.Item{}, err //nolint:wrapcheck // AppendSend names the history
 	}
 	return item, nil
 }
 
-func printSent(stdout, stderr io.Writer, name, text, id string, jsonOut bool) int {
+func printSent(stdout, stderr io.Writer, name, text, verbatim, id string, jsonOut bool) int {
 	sent := struct {
-		Name string `json:"name"`
-		Text string `json:"text"`
-		ID   string `json:"id"`
-	}{Name: name, Text: text, ID: id}
+		Name     string `json:"name"`
+		Text     string `json:"text"`
+		Verbatim string `json:"verbatim,omitempty"`
+		ID       string `json:"id"`
+	}{Name: name, Text: text, Verbatim: verbatim, ID: id}
 	if jsonOut {
 		return writeJSON(stdout, stderr, sent)
 	}
@@ -324,7 +335,7 @@ func composeRoute(to string, hasID bool) (string, error) {
 // cmdCompose appends a human message to id and notifies the agents route
 // names. An empty route notifies the owner and warns on stderr when
 // another agent is working on the item.
-func cmdCompose(id, text, via, by, route string, jsonOut bool, stdout, stderr io.Writer) int {
+func cmdCompose(id, text, verbatim, via, by, route string, jsonOut bool, stdout, stderr io.Writer) int {
 	cfg, err := decide.LoadConfig()
 	if err != nil {
 		return fail(stderr, err, 1)
@@ -343,7 +354,7 @@ func cmdCompose(id, text, via, by, route string, jsonOut bool, stdout, stderr io
 		if (route == decide.RouteWorker || route == decide.RouteBoth) && !cur.HasOtherWorker() {
 			return decide.Item{}, fmt.Errorf("decide item %s has no worker other than its owner", id)
 		}
-		got, err := led.Compose(id, text, via, by)
+		got, err := led.ComposeVerbatim(id, text, verbatim, via, by)
 		if err != nil {
 			return decide.Item{}, fmt.Errorf("compose decide item: %w", err)
 		}
@@ -353,7 +364,7 @@ func cmdCompose(id, text, via, by, route string, jsonOut bool, stdout, stderr io
 	if code != 0 {
 		return code
 	}
-	if err := notifyCompose(&item, cfg, route, text, stderr); err != nil {
+	if err := notifyCompose(&item, cfg, route, text, verbatim, stderr); err != nil {
 		return fail(stderr, err, 1)
 	}
 	return 0
@@ -362,7 +373,7 @@ func cmdCompose(id, text, via, by, route string, jsonOut bool, stdout, stderr io
 // notifyCompose sends text to the agents route names and records each
 // delivery. An empty route warns on stderr when another agent is working
 // on item. The first failure is returned after every send was tried.
-func notifyCompose(item *decide.Item, cfg decide.Config, route, text string, stderr io.Writer) error {
+func notifyCompose(item *decide.Item, cfg decide.Config, route, text, verbatim string, stderr io.Writer) error {
 	if route == "" {
 		if warning := decide.RouteWarning(item); warning != "" {
 			fmt.Fprintf(stderr, "decide: %s Use --to worker or --to both to reach %s.\n", warning, item.Worker)
@@ -370,7 +381,7 @@ func notifyCompose(item *decide.Item, cfg decide.Config, route, text string, std
 	}
 	var first error
 	for _, tg := range decide.ReplyTargets(item, cfg, route) {
-		d, err := decide.NotifyOwner(tg.Pane, tg.Machine, item.ID, text)
+		d, err := decide.NotifyOwnerVerbatim(tg.Pane, tg.Machine, item.ID, text, verbatim)
 		recordCompose(item, d, err)
 		if err != nil && first == nil {
 			first = err
@@ -965,7 +976,11 @@ func cmdList(args []string, stdout, stderr io.Writer) int {
 		if it.Deadline != nil {
 			deadline = it.Deadline.Format(time.RFC3339)
 		}
-		line := fmt.Sprintf("%s\t%s\t%s\t%s", it.ID, deadline, it.Owner, it.Question)
+		q := it.Question
+		if q == "" {
+			q, _, _ = strings.Cut(it.Verbatim, "\n")
+		}
+		line := fmt.Sprintf("%s\t%s\t%s\t%s", it.ID, deadline, it.Owner, q)
 		if it.SnoozedUntil != nil {
 			line += "\tsnoozed until " + it.SnoozedUntil.Local().Format(time.RFC3339)
 		}

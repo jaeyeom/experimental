@@ -17,7 +17,7 @@ func rejectLongLinesFlag(args []string) error {
 A person reads this in an inbox, often at a glance. Expected shape:
   - First line: the verdict (max 100 chars), readable alone, followed by a blank line or bullet.
   - Details as short bullet lines (no paragraph over 3 lines, max 160 chars per line, max 1200 chars total).
-  - Pass multi-line text through --text-file or stdin, and exact post drafts through --verbatim-file`)
+  - Pass multi-line text through --text-file or stdin, and exact post drafts or forwarded user text through --verbatim-file`)
 		}
 	}
 	return nil

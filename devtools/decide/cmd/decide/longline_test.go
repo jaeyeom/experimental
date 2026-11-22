@@ -212,6 +212,135 @@ func TestVerbatimFileStoredByteForByteAndAuthorTextStillChecked(t *testing.T) {
 	}
 }
 
+func TestSendVerbatimFileAndShapeChecks(t *testing.T) {
+	longLine := "First line of user text\n" + strings.Repeat("u", 200) + "\nLine 3\nLine 4\nLine 5"
+	draftPath := filepath.Join(t.TempDir(), "user.txt")
+	if err := os.WriteFile(draftPath, []byte(longLine), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("send --to with --text-file fails and mentions --verbatim-file", func(t *testing.T) {
+		writeDecideConfig(t, `{"targets":[{"name":"alpha","pane":"pane-a"}],"sendTemplate":"true {pane}"}`+"\n")
+		_, stderr, code := runCLI("send", "--to", "alpha", "--text-file", draftPath)
+		if code == 0 {
+			t.Fatalf("expected failure, got 0")
+		}
+		if !strings.Contains(stderr, "not sent: message fails inbox shape rules") || !strings.Contains(stderr, "--verbatim-file") {
+			t.Fatalf("stderr = %q", stderr)
+		}
+		assertNoItems(t)
+	})
+
+	t.Run("send --id with --text-file fails and mentions --verbatim-file", func(t *testing.T) {
+		writeDecideConfig(t, `{"targets":[{"name":"alpha","pane":"pane-a"}],"sendTemplate":"true {pane}"}`+"\n")
+		id := askRelay(t, []string{"--notify-pane", "pane-a"}, "Root")
+		_, stderr, code := runCLI("send", "--id", id, "--text-file", draftPath)
+		if code == 0 {
+			t.Fatalf("expected failure, got 0")
+		}
+		if !strings.Contains(stderr, "not sent: message fails inbox shape rules") || !strings.Contains(stderr, "--verbatim-file") {
+			t.Fatalf("stderr = %q", stderr)
+		}
+	})
+
+	t.Run("--verbatim and --verbatim-file together is an error", func(t *testing.T) {
+		writeDecideConfig(t, `{"targets":[{"name":"alpha","pane":"pane-a"}],"sendTemplate":"true {pane}"}`+"\n")
+		_, stderr, code := runCLI("send", "--to", "alpha", "--verbatim", "inline", "--verbatim-file", draftPath)
+		if code != 2 || !strings.Contains(stderr, "not both") {
+			t.Fatalf("send = %d\n%s", code, stderr)
+		}
+	})
+
+	t.Run("send --to verbatim-only succeeds, notifies pane, and shows in show/list/json", func(t *testing.T) {
+		state := writeDecideConfig(t, `{"targets":[{"name":"alpha","pane":"pane-a"}],"sendTemplate":"sentinel {pane}"}`+"\n")
+		bin := filepath.Join(state, "bin")
+		if err := os.MkdirAll(bin, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		logPath := filepath.Join(state, "argv.log")
+		markPath := filepath.Join(state, "mark")
+		if err := os.WriteFile(filepath.Join(bin, "sentinel"), []byte(sendCaptureScript(logPath, markPath)), 0o755); err != nil { //nolint:gosec // test sentinel script
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+		stdout, stderr, code := runCLI("send", "--to", "alpha", "--verbatim-file", draftPath)
+		if code != 0 {
+			t.Fatalf("send --to verbatim = %d\n%s", code, stderr)
+		}
+		items := showThreads(t)
+		if len(items) != 1 {
+			t.Fatalf("items = %+v", items)
+		}
+		it := items[0]
+		if !strings.HasPrefix(stdout, "sent to alpha as "+it.ID) {
+			t.Fatalf("stdout = %q", stdout)
+		}
+		if it.Verbatim != longLine || it.Question != "" {
+			t.Fatalf("item = %+v", it)
+		}
+		if len(it.Messages) != 1 || it.Messages[0].Text != "" || it.Messages[0].Verbatim != longLine {
+			t.Fatalf("messages = %+v", it.Messages)
+		}
+		raw, err := os.ReadFile(logPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		parts := strings.Split(strings.TrimRight(string(raw), "\x00"), "\x00")
+		if len(parts) != 2 || !strings.Contains(parts[1], longLine) {
+			t.Fatalf("notification note = %q", parts)
+		}
+		showOut, showErr, showCode := runCLI("show", it.ID)
+		if showCode != 0 || !strings.Contains(showOut, "verbatim: "+longLine) {
+			t.Fatalf("show = %d\n%s\n%s", showCode, showOut, showErr)
+		}
+		listOut, listErr, listCode := runCLI("list")
+		if listCode != 0 || !strings.Contains(listOut, "First line of user text") {
+			t.Fatalf("list = %d\n%s\n%s", listCode, listOut, listErr)
+		}
+	})
+
+	t.Run("send --id verbatim-only and with plain text", func(t *testing.T) {
+		state := writeDecideConfig(t, `{"targets":[{"name":"alpha","pane":"pane-a"}],"sendTemplate":"sentinel {pane}"}`+"\n")
+		bin := filepath.Join(state, "bin")
+		if err := os.MkdirAll(bin, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		logPath := filepath.Join(state, "argv.log")
+		markPath := filepath.Join(state, "mark")
+		if err := os.WriteFile(filepath.Join(bin, "sentinel"), []byte(sendCaptureScript(logPath, markPath)), 0o755); err != nil { //nolint:gosec // test sentinel script
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+		id := askRelay(t, []string{"--notify-pane", "pane-a"}, "Root")
+		if _, stderr, code := runCLI("send", "--id", id, "--verbatim-file", draftPath); code != 0 {
+			t.Fatalf("send --id verbatim-only = %d\n%s", code, stderr)
+		}
+		msgs := showJSON(t, id).Messages
+		last := msgs[len(msgs)-1]
+		if last.Text != "" || last.Verbatim != longLine {
+			t.Fatalf("last message = %+v", last)
+		}
+		raw, err := os.ReadFile(logPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(raw), longLine) {
+			t.Fatalf("notification note missing verbatim: %q", raw)
+		}
+
+		if _, stderr, code := runCLI("send", "--id", id, "--verbatim-file", draftPath, "Short verdict"); code != 0 {
+			t.Fatalf("send --id with text + verbatim = %d\n%s", code, stderr)
+		}
+		msgs = showJSON(t, id).Messages
+		last = msgs[len(msgs)-1]
+		if last.Text != "Short verdict" || last.Verbatim != longLine {
+			t.Fatalf("last message = %+v", last)
+		}
+	})
+}
+
 func TestConfigZeroDisablesOnlyThatCheck(t *testing.T) {
 	t.Run("maxLineLength 0", func(t *testing.T) {
 		useLineConfig(t, `{"ui":{"maxLineLength":0}}`)

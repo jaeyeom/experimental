@@ -59,7 +59,7 @@ Use item IDs only in decide itself and in messages to other local agents. Never 
 
 Short lines. A one-line summary first.
 
-Every author message (questions, replies, option labels, `done` outcomes, and status text) must follow inbox shape rules: verdict on the first line (max 100 chars, followed by a blank line or bullet), no paragraph over 3 lines, max 160 chars per line, and max 1200 chars total. Pass `--verbatim-file <path>` on `ask` or `reply` for an exact post draft (stored byte for byte as a quote block without shape checks).
+Every author message (questions, replies, option labels, `done` outcomes, and status text) must follow inbox shape rules: verdict on the first line (max 100 chars, followed by a blank line or bullet), no paragraph over 3 lines, max 160 chars per line, and max 1200 chars total. Pass `--verbatim-file <path>` (or `--verbatim <text>`) on `ask`, `reply`, or `send` for an exact post draft or forwarded user text (stored byte for byte as a quote block without shape checks).
 
 Numbered steps or bullets for details.
 

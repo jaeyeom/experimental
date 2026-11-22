@@ -595,7 +595,7 @@ func notifyLocal(item *Item, pane string, cfg Config, out io.Writer) (Delivery, 
 		"DECIDE_WORKER="+item.Worker,
 		"DECIDE_PANE="+pane,
 		"DECIDE_KIND="+item.Kind,
-		"DECIDE_QUESTION="+questionLine(item.Question),
+		"DECIDE_QUESTION="+questionLine(ComposeNoteText(item.Question, item.Verbatim)),
 		"DECIDE_ANSWERED_AT="+item.AnsweredAt.Format(time.RFC3339),
 		"DECIDE_ANSWERED_BY="+answeredBy,
 		"DECIDE_THREAD_HEADER="+threadHeader(item.ID, answeredBy),
@@ -700,17 +700,39 @@ func NotifyTarget(item *Item, cfg Config) (pane, machine string) {
 	return cfg.NotifyPane, ""
 }
 
+// ComposeNoteText combines plain text and verbatim text for a notification note.
+func ComposeNoteText(text, verbatim string) string {
+	switch {
+	case verbatim == "":
+		return text
+	case text == "":
+		return verbatim
+	default:
+		return text + "\n\n" + verbatim
+	}
+}
+
 // DeliveryNote is the single pane argument for a human note.
 // It is the thread header, the original text, and the reply hint.
 // The text stored on the thread is not this note.
 func DeliveryNote(id, author, text string) string {
-	return threadHeader(id, author) + "\n" + text + "\n" + replyHint(id)
+	return DeliveryNoteVerbatim(id, author, text, "")
+}
+
+// DeliveryNoteVerbatim is DeliveryNote with an optional verbatim block.
+func DeliveryNoteVerbatim(id, author, text, verbatim string) string {
+	return threadHeader(id, author) + "\n" + ComposeNoteText(text, verbatim) + "\n" + replyHint(id)
 }
 
 // ForwardNote is DeliveryNote for a thread forwarded from item from.
 // The header names the source so the agent can reply in context.
 func ForwardNote(id, from, author, text string) string {
-	return threadHeader(id, author) + " Fwd " + from + "\n" + text + "\n" + replyHint(id)
+	return ForwardNoteVerbatim(id, from, author, text, "")
+}
+
+// ForwardNoteVerbatim is ForwardNote with an optional verbatim block.
+func ForwardNoteVerbatim(id, from, author, text, verbatim string) string {
+	return threadHeader(id, author) + " Fwd " + from + "\n" + ComposeNoteText(text, verbatim) + "\n" + replyHint(id)
 }
 
 func threadHeader(id, author string) string {

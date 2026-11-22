@@ -667,21 +667,36 @@ func (l *Ledger) AnswerAt(id, value, via string, writtenAt time.Time) (Item, err
 // pane is the owner's notify pane. text is the first message and the question.
 // via is stored on the message, as in Answer.
 func (l *Ledger) StartThread(owner, pane, text, via string) (Item, error) {
-	return l.ForwardThread("", owner, pane, text, via)
+	return l.ForwardThreadVerbatim("", owner, pane, text, "", via)
+}
+
+// StartThreadVerbatim is StartThread with an optional verbatim block.
+func (l *Ledger) StartThreadVerbatim(owner, pane, text, verbatim, via string) (Item, error) {
+	return l.ForwardThreadVerbatim("", owner, pane, text, verbatim, via)
 }
 
 // ForwardThread is StartThread for a note forwarded from item from.
 // An empty from starts a plain thread.
 func (l *Ledger) ForwardThread(from, owner, pane, text, via string) (Item, error) {
-	return l.ForwardThreadAt(from, owner, pane, text, via, time.Time{})
+	return l.ForwardThreadVerbatimAt(from, owner, pane, text, "", via, time.Time{})
+}
+
+// ForwardThreadVerbatim is ForwardThread with an optional verbatim block.
+func (l *Ledger) ForwardThreadVerbatim(from, owner, pane, text, verbatim, via string) (Item, error) {
+	return l.ForwardThreadVerbatimAt(from, owner, pane, text, verbatim, via, time.Time{})
 }
 
 // ForwardThreadAt is ForwardThread with an optional client writtenAt timestamp.
 func (l *Ledger) ForwardThreadAt(from, owner, pane, text, via string, writtenAt time.Time) (Item, error) {
+	return l.ForwardThreadVerbatimAt(from, owner, pane, text, "", via, writtenAt)
+}
+
+// ForwardThreadVerbatimAt is ForwardThreadVerbatim with an optional client writtenAt timestamp.
+func (l *Ledger) ForwardThreadVerbatimAt(from, owner, pane, text, verbatim, via string, writtenAt time.Time) (Item, error) {
 	if strings.TrimSpace(owner) == "" {
 		return Item{}, fmt.Errorf("decide owner is empty")
 	}
-	if strings.TrimSpace(text) == "" {
+	if strings.TrimSpace(text) == "" && strings.TrimSpace(verbatim) == "" {
 		return Item{}, fmt.Errorf("decide text is empty")
 	}
 	if err := CheckVia(via); err != nil {
@@ -689,10 +704,11 @@ func (l *Ledger) ForwardThreadAt(from, owner, pane, text, via string, writtenAt 
 	}
 	now := l.clock().UTC()
 	msg := Message{
-		Author: "human",
-		Time:   now,
-		Text:   text,
-		Via:    via,
+		Author:   "human",
+		Time:     now,
+		Text:     text,
+		Verbatim: verbatim,
+		Via:      via,
 	}
 	if !writtenAt.IsZero() {
 		w := writtenAt.UTC()
@@ -702,6 +718,7 @@ func (l *Ledger) ForwardThreadAt(from, owner, pane, text, via string, writtenAt 
 	}
 	return l.Create(&Item{
 		Question:      text,
+		Verbatim:      verbatim,
 		Owner:         owner,
 		Kind:          KindRelay,
 		NotifyPane:    pane,
@@ -806,19 +823,31 @@ func (l *Ledger) clearItemDrafts(id string) {
 // via is stored on the message and with an answer, as in Answer.
 // by is who sent it, as in Message.By, and may be empty.
 func (l *Ledger) Compose(id, text, via, by string) (Item, error) {
-	return l.ComposeAt(id, text, via, by, time.Time{})
+	return l.ComposeVerbatimAt(id, text, "", via, by, time.Time{})
+}
+
+// ComposeVerbatim appends a human message on id with an optional verbatim block.
+func (l *Ledger) ComposeVerbatim(id, text, verbatim, via, by string) (Item, error) {
+	return l.ComposeVerbatimAt(id, text, verbatim, via, by, time.Time{})
 }
 
 // ComposeAt is Compose with an optional client writtenAt timestamp.
 func (l *Ledger) ComposeAt(id, text, via, by string, writtenAt time.Time) (Item, error) {
-	if strings.TrimSpace(text) == "" {
+	return l.ComposeVerbatimAt(id, text, "", via, by, writtenAt)
+}
+
+// ComposeVerbatimAt is ComposeVerbatim with an optional client writtenAt timestamp.
+func (l *Ledger) ComposeVerbatimAt(id, text, verbatim, via, by string, writtenAt time.Time) (Item, error) {
+	if strings.TrimSpace(text) == "" && strings.TrimSpace(verbatim) == "" {
 		return Item{}, fmt.Errorf("decide text is empty")
 	}
 	if err := CheckVia(via); err != nil {
 		return Item{}, err
 	}
-	if err := checkAuthorShape(text, via); err != nil {
-		return Item{}, err
+	if strings.TrimSpace(text) != "" {
+		if err := checkAuthorShape(text, via); err != nil {
+			return Item{}, err
+		}
 	}
 	var updated Item
 	err := l.locked(true, func(st *store) error {
@@ -832,11 +861,12 @@ func (l *Ledger) ComposeAt(id, text, via, by string, writtenAt time.Time) (Item,
 		ensureMessages(it)
 		now := l.clock().UTC()
 		msg := Message{
-			Author: "human",
-			Time:   now,
-			Text:   text,
-			Via:    via,
-			By:     by,
+			Author:   "human",
+			Time:     now,
+			Text:     text,
+			Verbatim: verbatim,
+			Via:      via,
+			By:       by,
 		}
 		if !writtenAt.IsZero() {
 			w := writtenAt.UTC()
@@ -846,9 +876,13 @@ func (l *Ledger) ComposeAt(id, text, via, by string, writtenAt time.Time) (Item,
 		}
 		it.Messages = append(it.Messages, msg)
 		if openQuestion(it) {
+			ans := text
+			if ans == "" {
+				ans = verbatim
+			}
 			it.State = StateAnswered
 			it.AnsweredAt = now
-			it.Answer = &Answer{Value: text, AnsweredBy: "human", Via: via}
+			it.Answer = &Answer{Value: ans, AnsweredBy: "human", Via: via}
 			if !writtenAt.IsZero() {
 				w := writtenAt.UTC()
 				r := now
