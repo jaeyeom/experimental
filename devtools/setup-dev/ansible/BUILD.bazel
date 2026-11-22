@@ -283,20 +283,54 @@ test_suite(
     ],
 )
 
-sh_test(
+HUB_SCENARIOS = [
+    "names",
+    "path-bash",
+    "path-zsh",
+    "config",
+    "check",
+    "agent-optout",
+    "agent-default",
+    "agent-zshrc",
+    "agent-explicit",
+    "agent-sourced",
+    "keychain-darwin",
+    "keychain-linux",
+    "keychain-darwin-off",
+]
+
+# One target per scenario of hub_setup_test.sh. setup-hub-client.yml
+# imports gather-facts.yml and setup-user-go-bin-directory.yml (which
+# imports go.yml and setup-shell-profile.yml) and runs
+# hub_ssh_agent_scan.py while choosing the stable-agent rc.
+[
+    sh_test(
+        name = "hub_setup_%s_test" % scenario.replace("-", "_"),
+        srcs = ["hub_setup_test.sh"],
+        args = [scenario],
+        data = [
+            "gather-facts.yml",
+            "go.yml",
+            "hub_ssh_agent_scan.py",
+            "inventory.ini",
+            "setup-hub-client.yml",
+            "setup-hub-host.yml",
+            "setup-shell-profile.yml",
+            "setup-user-go-bin-directory.yml",
+        ],
+        tags = [
+            "ansible",
+            "local",
+        ],
+    )
+    for scenario in HUB_SCENARIOS
+]
+
+test_suite(
     name = "hub_setup_test",
-    # About a dozen ansible-playbook runs.
-    timeout = "long",
-    srcs = ["hub_setup_test.sh"],
-    # setup-hub-client.yml imports other playbooks and runs
-    # hub_ssh_agent_scan.py while choosing the stable-agent rc.
-    data = [
-        "hub_ssh_agent_scan.py",
-        "inventory.ini",
-    ] + glob(["*.yml"]),
-    tags = [
-        "ansible",
-        "local",
+    tests = [
+        ":hub_setup_%s_test" % scenario.replace("-", "_")
+        for scenario in HUB_SCENARIOS
     ],
 )
 
