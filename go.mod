@@ -36,6 +36,11 @@ require (
 require github.com/OpenPeeDeeP/depguard/v2 v2.2.1
 
 require (
+	github.com/bkielbasa/cyclop v1.2.3
+	github.com/uudashr/iface v1.4.0
+)
+
+require (
 	github.com/ccojocar/zxcvbn-go v1.0.4 // indirect
 	github.com/ettle/strcase v0.2.0 // indirect
 	github.com/hashicorp/go-immutable-radix/v2 v2.1.0 // indirect

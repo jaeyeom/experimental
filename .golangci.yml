@@ -1,10 +1,8 @@
 version: "2"
 linters:
   enable:
-    - cyclop
     - gocritic
     - govet
-    - iface
     - revive
     - staticcheck
     - unused
@@ -18,15 +16,6 @@ linters:
         rules:
           json: camel
           yaml: snake
-    cyclop:
-      max-complexity: 15
-      package-average: 0.0
-    iface:
-      enable:
-        - identical
-        - unused
-        - opaque
-        - unexported
     depguard:
       rules:
         Base:
@@ -66,6 +55,7 @@ linters:
             - github.com/charmbracelet/bubbles
             - github.com/charmbracelet/lipgloss
             - github.com/google/renameio/v2
+            - github.com/bkielbasa/cyclop
             - github.com/kisielk/errcheck
             - github.com/ldez/tagliatelle
             - github.com/muesli/termenv

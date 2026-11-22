@@ -44,6 +44,7 @@ go_deps.module(
 use_repo(
     go_deps,
     "com_github_apple_pkl_go",
+    "com_github_bkielbasa_cyclop",
     "com_github_bmatcuk_doublestar_v4",
     "com_github_charmbracelet_bubbles",
     "com_github_charmbracelet_bubbletea",
@@ -67,6 +68,7 @@ use_repo(
     "com_github_spf13_viper",
     "com_github_tetafro_godot",
     "com_github_tomarrell_wrapcheck_v2",
+    "com_github_uudashr_iface",
     "in_gopkg_yaml_v3",
     "org_golang_x_image",
     "org_golang_x_sys",
