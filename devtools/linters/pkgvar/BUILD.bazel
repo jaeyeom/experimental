@@ -8,7 +8,10 @@ go_library(
     name = "go_default_library",
     srcs = ["analyzer.go"],
     importpath = "github.com/jaeyeom/experimental/devtools/linters/pkgvar",
-    visibility = ["//devtools/linters:__subpackages__"],
+    visibility = [
+        "//devtools/linters:__subpackages__",
+        "//tools/lint:__pkg__",
+    ],
     deps = [
         "@org_golang_x_tools//go/analysis:go_default_library",
         "@org_golang_x_tools//go/analysis/passes/inspect:go_default_library",

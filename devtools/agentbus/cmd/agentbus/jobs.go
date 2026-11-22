@@ -29,7 +29,7 @@ const (
 
 // jobsLogPoll is how often log --follow asks for new history; tests
 // shorten it.
-var jobsLogPoll = time.Second
+var jobsLogPoll = time.Second //nolint:pkgvar // tests assign it
 
 const jobsFlagsHelp = `enqueue --kind <k> --subject <s> [--head <sha>] [--priority <n>]
         [--machine <m>|any] [--affinity tab|lane|owner]

@@ -33,7 +33,7 @@ var newDecider = func(cfg slackwatch.Config) slackwatch.Decider {
 
 // slackAPIURL overrides the Slack Web API URL for the posting commands.
 // Tests point it at a fake server.
-var slackAPIURL = ""
+var slackAPIURL = "" //nolint:pkgvar // tests assign it
 
 func newSlackClient(token string) *slack.Client {
 	if slackAPIURL != "" {

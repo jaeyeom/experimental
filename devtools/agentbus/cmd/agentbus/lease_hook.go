@@ -23,7 +23,7 @@ import (
 
 // leaseHookTimeout bounds the hook's daemon call; past it the hook
 // allows the tool call. Tests shorten it.
-var leaseHookTimeout = 3 * time.Second
+var leaseHookTimeout = 3 * time.Second //nolint:pkgvar // tests assign it
 
 const (
 	leaseHookScriptName = "agentbus-lease.sh"

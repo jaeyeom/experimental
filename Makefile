@@ -97,15 +97,11 @@ tag:
 .PHONY: lint-golangci fix-golangci verify-golangci-config check-bazel-go-files
 GOLANGCI_CONFIG_HASH_FILE := .tmp/golangci.yml.hash
 
-# oserrorsgodernize is the module tool github.com/jaeyeom/godernize/oserrors/cmd/oserrorsgodernize.
-# pkgvar is a separate vettool: go vet accepts one -vettool per invocation.
+# pkgvar and oserrors run in nogo (//tools/lint:platform_nogo). Only the
+# oserrorsgodernize --fix autofixer (a module tool) remains, in fix-golangci.
 # An empty GOPACKAGESDRIVER keeps Bazel from taking over package loading (#416).
 lint-golangci: verify-golangci-config
 	GOPACKAGESDRIVER= golangci-lint run ./...
-	mkdir -p .tmp
-	GOPACKAGESDRIVER= go build -o .tmp/pkgvar ./devtools/linters/cmd/pkgvar
-	GOPACKAGESDRIVER= go vet -vettool=$(CURDIR)/.tmp/pkgvar ./...
-	GOPACKAGESDRIVER= go tool oserrorsgodernize ./...
 
 fix-golangci: verify-golangci-config
 	GOPACKAGESDRIVER= golangci-lint run --fix ./...
