@@ -249,6 +249,7 @@ func TestMessageAvatars(t *testing.T) {
 		}
 		m.width = width
 		m.height = 56
+		m.openAt = decide.OpenAtTop // the item is reopened, so it is read after the first open
 		press(t, m, "o")
 		return m
 	}
@@ -317,6 +318,7 @@ func TestMessageRuleCrossesAvatarWhenSenderChanges(t *testing.T) {
 		}
 		m.width = width
 		m.height = 80
+		m.openAt = decide.OpenAtTop // the item is reopened, so it is read after the first open
 		press(t, m, "o")
 		return m.View()
 	}

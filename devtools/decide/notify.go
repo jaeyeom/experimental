@@ -118,6 +118,13 @@ const (
 	AnswerActionEdit = "edit"
 )
 
+// Open position values of InboxUI.OpenAt. Empty means new.
+const (
+	OpenAtNew  = "new"
+	OpenAtLast = "last"
+	OpenAtTop  = "top"
+)
+
 // InboxUI is local inbox display. UTC shows times in UTC instead of
 // the machine's zone. Clipboard chooses how the inbox copies text.
 type InboxUI struct {
@@ -126,6 +133,9 @@ type InboxUI struct {
 	Clipboard string `json:"clipboard,omitempty"`
 	// AnswerAction is stay, list, or edit. Empty is stay.
 	AnswerAction string `json:"answerAction,omitempty"`
+	// OpenAt is where a thread opens: new (first unread message), last,
+	// or top. Empty is new.
+	OpenAt string `json:"openAt,omitempty"`
 	// FillColumn is the compose fill width. Zero is 72.
 	FillColumn int `json:"fillColumn,omitempty"`
 	// StaleAnswerAfter is how long an answer sits before a follow-up,
@@ -341,6 +351,17 @@ func CheckAnswerAction(action string) error {
 	}
 }
 
+// CheckOpenAt reports an error when openAt is not an open position.
+// Empty is new.
+func CheckOpenAt(openAt string) error {
+	switch openAt {
+	case "", OpenAtNew, OpenAtLast, OpenAtTop:
+		return nil
+	default:
+		return fmt.Errorf("decide config ui.openAt %q must be new, last, or top", openAt)
+	}
+}
+
 // HyperlinksOn reports whether the inbox writes OSC 8 hyperlinks.
 func (c Config) HyperlinksOn() bool {
 	return c.Hyperlinks == nil || *c.Hyperlinks
@@ -462,6 +483,9 @@ func parseConfig(data []byte, dir string) (Config, error) {
 		return Config{}, err
 	}
 	if err := CheckAnswerAction(cfg.UI.AnswerAction); err != nil {
+		return Config{}, err
+	}
+	if err := CheckOpenAt(cfg.UI.OpenAt); err != nil {
 		return Config{}, err
 	}
 	if err := checkUIDurations(cfg.UI); err != nil {

@@ -406,6 +406,15 @@ reply box so you can add text before sending, recording the option key
 as the answer and posting the added text as a human message right after
 it. Answering never closes a thread.
 
+~ui.openAt~ chooses where a thread opens: ~new~ (default) scrolls so the
+first message newer than the item's previous read time is at the top, with
+a divider line above it, ~── new since 14:05 ──~ (a stamp like the others).
+With nothing new it opens at the last message, and a thread never read
+opens at the top. ~last~ and ~top~ always open there. ~Home~ and ~g~ still
+go to the top, and ~n~ / ~p~ are unchanged; the current-message marker
+starts on the opened message. Messages that are newer but not shown at
+open still hold archive. An unknown value is a config error.
+
 Archive waits while a message is unseen or newer than ~ui.archiveGrace~
 (default 2s). The status line says ~new message: not archived~. Pending
 options still need an answer. ~decide done --via ui~ does not check
@@ -642,6 +651,7 @@ machine only. A hub does not send it.
 | ~ui.utc~               | false                       | Inbox stamps in UTC.                                                           |
 | ~ui.clipboard~         | ~auto~                      | ~auto~, ~osc52~, ~command~, or ~off~.                                          |
 | ~ui.answerAction~      | ~stay~                      | ~stay~, ~list~, or ~edit~.                                                     |
+| ~ui.openAt~           | ~new~                       | ~new~, ~last~, or ~top~: where a thread opens.                                 |
 | ~ui.fillColumn~        | 72                          | Compose fill width. Never wider than the box.                                  |
 | ~ui.staleAnswerAfter~  | ~30m~                       | How long an answer sits before one follow-up.                                  |
 | ~ui.lateDeliveryAfter~ | ~5m~                        | How long a bus message waits before it needs attention.                         |

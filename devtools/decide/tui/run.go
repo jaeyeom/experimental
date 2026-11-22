@@ -89,6 +89,8 @@ type Options struct {
 	ASCIIKeys bool
 	// AnswerAction is stay, list, or edit. Empty is stay.
 	AnswerAction string
+	// OpenAt is new, last, or top. Empty is new.
+	OpenAt string
 }
 
 // Run draws the inbox until q or EOF. It reloads the ledger on Interval,
@@ -188,6 +190,7 @@ func prepare(opts Options) (*Model, error) {
 	m.display = opts.Display
 	m.ASCIIKeys = opts.ASCIIKeys
 	m.answerAction = opts.AnswerAction
+	m.openAt = opts.OpenAt
 	if len(opts.Keys) > 0 {
 		km, err := decide.ResolveKeyMap(opts.Keys)
 		if err != nil {

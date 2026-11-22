@@ -271,9 +271,15 @@ type Model struct {
 	MessageAvatars bool
 	ASCIIKeys      bool
 	answerAction   string
-	avatarProfile  termenv.Profile
-	avatarRender   *avatar.Renderer
-	avatarFailed   map[string]bool
+	// openAt is new, last, or top. Empty is new.
+	openAt string
+	// newSince is the item's ReadAt from before this open's mark-read, and
+	// newIdx the first message newer than it. The divider sits above newIdx.
+	newSince      *time.Time
+	newIdx        int
+	avatarProfile termenv.Profile
+	avatarRender  *avatar.Renderer
+	avatarFailed  map[string]bool
 	// Checkouts map status resources to lease-guarded checkouts.
 	Checkouts []decide.ConfigCheckout
 	// Machine is this machine's herdr label. locations caches each
@@ -997,6 +1003,9 @@ func (m *Model) scrollToMessage() {
 	for i, line := range lines {
 		if line.header == want {
 			m.scroll = i
+			if i > 0 && lines[i-1].divider {
+				m.scroll = i - 1
+			}
 			return
 		}
 	}
@@ -1015,6 +1024,7 @@ func (m *Model) openRow() error {
 	}
 	m.flushAllDrafts()
 	id := m.items[m.cursor].ID
+	prevRead := cloneReadAt(m.items[m.cursor].ReadAt)
 	updated, err := m.store().MarkRead(id)
 	if err != nil {
 		return m.writeFailed(err)
@@ -1045,7 +1055,81 @@ func (m *Model) openRow() error {
 	m.restoreFailedOutbox()
 	m.restoreOpenDetailDrafts(id)
 	m.status = "opened " + id
-	return m.Reload()
+	if err := m.Reload(); err != nil {
+		return err
+	}
+	m.placeOpenView(prevRead)
+	return nil
+}
+
+func cloneReadAt(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	c := *t
+	return &c
+}
+
+// firstNew is the index of the first agent message newer than readAt,
+// or -1. A human or system message is not unread.
+func firstNew(it *decide.Item, readAt time.Time) int {
+	for i, msg := range it.Messages {
+		if isNewSince(msg, readAt) {
+			return i
+		}
+	}
+	return -1
+}
+
+func isNewSince(msg decide.Message, readAt time.Time) bool {
+	return msg.Author != "human" && msg.Author != "system" && msg.Time.After(readAt)
+}
+
+// countNewExcept counts the messages newer than readAt other than the one
+// at index skip.
+func countNewExcept(it *decide.Item, readAt time.Time, skip int) int {
+	n := 0
+	for i, msg := range it.Messages {
+		if i != skip && isNewSince(msg, readAt) {
+			n++
+		}
+	}
+	return n
+}
+
+// placeOpenView picks the first message of a just-opened thread from
+// ui.openAt. prevRead is the item's ReadAt from before this open's
+// mark-read. Messages above the view that are newer than prevRead were
+// not rendered, so they hold archive like a message below the view.
+func (m *Model) placeOpenView(prevRead *time.Time) {
+	m.newSince = nil
+	if m.detail == nil || len(m.detail.Messages) == 0 {
+		return
+	}
+	last := len(m.detail.Messages) - 1
+	idx := 0
+	switch m.openAt {
+	case decide.OpenAtTop:
+	case decide.OpenAtLast:
+		idx = last
+	default:
+		if prevRead == nil {
+			break
+		}
+		if first := firstNew(m.detail, *prevRead); first >= 0 {
+			idx = first
+			m.newSince, m.newIdx = prevRead, first
+		} else {
+			idx = last
+		}
+	}
+	if prevRead != nil && m.newSince == nil {
+		m.newMessages += countNewExcept(m.detail, *prevRead, idx)
+	}
+	m.message = idx
+	if idx > 0 {
+		m.scrollToMessage()
+	}
 }
 
 // closeSelected finishes an item whose owner is gone.
@@ -1535,6 +1619,8 @@ type screenLine struct {
 	hits []hit
 	// header is 1-based message index when this line is that message's header.
 	header int
+	// divider reports the new-since line above the first unread message.
+	divider bool
 	// match reports that the line paints a search match.
 	match bool
 	// cursor reports that the line carries the focused composer cursor.
@@ -2978,6 +3064,9 @@ func (m *Model) threadLines(it *decide.Item, width int, re *regexp.Regexp) []scr
 		name := m.messageAvatarName(msg)
 		if i > 0 {
 			lines = append(lines, messageRule(ruleWidth, reserve, name != prev))
+		}
+		if m.newSince != nil && i == m.newIdx {
+			lines = append(lines, screenLine{text: plainText("── new since " + stamp(*m.newSince, now, loc) + " ──"), divider: true})
 		}
 		block := m.messageBlock(it, msg, i, last, bodyWidth, re, now, loc)
 		var av []string

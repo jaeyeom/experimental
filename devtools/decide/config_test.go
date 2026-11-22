@@ -168,3 +168,18 @@ func TestLoadConfigRecipientsTimeoutMustBePositive(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadConfigOpenAt(t *testing.T) {
+	for _, openAt := range []string{"new", "last", "top"} {
+		writeConfig(t, `{"ui": {"openAt": "`+openAt+`"}}`)
+		cfg, err := LoadConfig()
+		if err != nil || cfg.UI.OpenAt != openAt {
+			t.Fatalf("openAt %q err %v, want %q", cfg.UI.OpenAt, err, openAt)
+		}
+	}
+	writeConfig(t, `{"ui": {"openAt": "middle"}}`)
+	_, err := LoadConfig()
+	if err == nil || !strings.Contains(err.Error(), "ui.openAt") || !strings.Contains(err.Error(), "middle") {
+		t.Fatalf("err = %v, want a ui.openAt error naming middle", err)
+	}
+}
