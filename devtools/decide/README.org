@@ -843,7 +843,7 @@ an editor error and when the inbox exits with the editor open.
 Display keys come from the hub, and a key set locally wins: ~avatars~,
 ~avatarDefault~, ~avatarMono~, ~recipients~, ~recipientsTimeout~,
 ~targets~, ~hyperlinks~, ~hiddenContacts~, ~favoriteContacts~,
-~contactAliases~. ~hub~, ~machine~, ~openCommand~, ~checkouts~, ~ui~,
+~contactAliases~, ~ui.orgTree~. ~hub~, ~machine~, ~openCommand~, ~checkouts~, ~ui~ (other than ~ui.orgTree~),
 and the templates stay local. ~decide config show --effective~ prints each key, ~local~ or
 ~hub~, and the value, tab-separated.
 
@@ -945,7 +945,12 @@ reports, then their reports, with each pool under the role that starts
 it. Roles with no contact and pools are dimmed and cannot be selected.
 Contacts the spec does not name are in an ~other~ group at the bottom.
 If ~orgctl~ is missing or fails, the list stays flat with one line
-saying why. With ~ui.orgTree~ off, decide never runs ~orgctl~.
+saying why. With ~ui.orgTree~ off, decide never runs ~orgctl~. On a hub
+client, ~orgctl~ and ~ui.orgSpec~ stay on the hub: the hub's ~ui.orgTree~
+becomes the default (a local ~ui.orgTree: false~ still turns it off),
+and the client caches the tree in its local replica, refreshing on
+connect and when the hub's spec mtime changes. An older hub without
+~org-tree~ falls back to local ~orgctl~ with a one-line note.
 
 #+begin_src json
 {"ui": {"orgTree": true, "orgSpec": "/home/me/org/desk.json"}}

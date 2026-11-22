@@ -119,6 +119,21 @@ type DraftBackend interface {
 	DeleteDraft(key, conflictID string) error
 }
 
+// OrgTreeResult is the contacts org tree JSON returned by a hub backend.
+// Fallback is true when the hub does not support the org-tree op and the
+// client should fall back to local orgctl with Note.
+type OrgTreeResult struct {
+	JSON     []byte
+	Fallback bool
+	Note     string
+}
+
+// OrgTreeBackend is an optional backend capability for fetching the
+// contacts org tree from the hub or its local replica cache.
+type OrgTreeBackend interface {
+	OrgTree() (OrgTreeResult, error)
+}
+
 // NotesArchiveBackend is an optional backend capability for bulk-archiving
 // open notes.
 type NotesArchiveBackend interface {

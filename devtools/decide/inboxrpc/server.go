@@ -25,10 +25,12 @@ const maxLine = 64 << 20
 // Targets and Agentbus are the hub's compose recipients. Display
 // returns the hub's display settings for config; nil sends none.
 type Server struct {
-	Backend  *tui.LocalBackend
-	Targets  []decide.ConfigTarget
-	Agentbus bool
-	Display  func() (decide.DisplaySettings, error)
+	Backend   *tui.LocalBackend
+	Targets   []decide.ConfigTarget
+	Agentbus  bool
+	Display   func() (decide.DisplaySettings, error)
+	OrgConfig func() (enabled bool, spec string, err error)
+	Orgctl    tui.OrgctlRunner
 	// FollowEvery is how often Serve follows up stale answers on its own.
 	// Zero does not. The hub sets it so a session follows up without a
 	// list request and without the item open.
@@ -130,6 +132,8 @@ func (s *Server) handle(ctx context.Context, req Request) Response {
 		return s.send(req)
 	case OpLocate:
 		return s.locate(ctx, req)
+	case OpOrgTree:
+		return s.orgTree(ctx)
 	default:
 		return Response{Error: fmt.Sprintf("unknown op %q", req.Op)}
 	}
@@ -264,6 +268,41 @@ func (s *Server) locate(ctx context.Context, req Request) Response {
 	}
 	loc := s.Backend.Locate(ctx, &it)
 	return Response{Location: &loc}
+}
+
+func (s *Server) orgTree(ctx context.Context) Response {
+	if s.OrgConfig == nil {
+		return Response{Error: "the org tree is off; set ui.orgTree and ui.orgSpec"}
+	}
+	enabled, spec, err := s.OrgConfig()
+	if err != nil {
+		return failed(err)
+	}
+	if !enabled {
+		return Response{Error: "the org tree is off on the hub; set ui.orgTree and ui.orgSpec"}
+	}
+	if spec == "" {
+		return Response{Error: "ui.orgSpec is not set on the hub"}
+	}
+	var modTime time.Time
+	if info, err := os.Stat(spec); err == nil {
+		modTime = info.ModTime()
+	}
+	run := s.Orgctl
+	if run == nil {
+		run = tui.ExecOrgctl
+	}
+	runCtx, cancel := context.WithTimeout(ctx, tui.OrgctlTimeout)
+	defer cancel()
+	out, err := run(runCtx, []string{"tree", "--json", spec})
+	if err != nil {
+		return failed(err)
+	}
+	resp := Response{Output: string(out)}
+	if !modTime.IsZero() {
+		resp.OrgSpecModTime = &modTime
+	}
+	return resp
 }
 
 // setAvatar validates choice the way the local picker does, writes the
@@ -456,6 +495,8 @@ type connWatcher struct {
 	hasDrafts    bool
 	draftsAt     time.Time
 	draftsMod    time.Time
+	orgSpecMod   time.Time
+	hasOrgSpec   bool
 }
 
 func (w *connWatcher) signal() {
@@ -515,6 +556,11 @@ func (w *connWatcher) start(req Request) {
 	}
 	w.draftsAt = time.Now()
 	w.draftsMod = w.statDraftsMod()
+	if mod := w.statOrgSpecMod(); !mod.IsZero() {
+		resp.OrgSpecModTime = &mod
+		w.orgSpecMod = mod
+		w.hasOrgSpec = true
+	}
 	w.watchID = req.ID
 	w.lastSeq = seq
 	w.reply(resp)
@@ -583,17 +629,19 @@ func (w *connWatcher) poll() {
 	}
 	statusPtr := w.pollStatus()
 	draftsPtr, draftSeq := w.pollDrafts()
-	if !resync && len(changes) == 0 && statusPtr == nil && draftsPtr == nil {
+	orgModPtr := w.pollOrgSpec()
+	if !resync && len(changes) == 0 && statusPtr == nil && draftsPtr == nil && orgModPtr == nil {
 		return
 	}
 	w.lastSeq = seq
 	resp := Response{
-		ID:      w.watchID,
-		Seq:     seq,
-		Resync:  resync,
-		Items:   items,
-		Changes: changes,
-		Status:  statusPtr,
+		ID:             w.watchID,
+		Seq:            seq,
+		Resync:         resync,
+		Items:          items,
+		Changes:        changes,
+		Status:         statusPtr,
+		OrgSpecModTime: orgModPtr,
 	}
 	if draftsPtr != nil {
 		resp.Drafts = *draftsPtr
@@ -638,4 +686,32 @@ func (w *connWatcher) pollDrafts() (*[]decide.Draft, int64) {
 	w.lastDraftSeq = dseq
 	w.hasDrafts = true
 	return &drafts, dseq
+}
+
+func (w *connWatcher) statOrgSpecMod() time.Time {
+	if w.server.OrgConfig == nil {
+		return time.Time{}
+	}
+	enabled, spec, err := w.server.OrgConfig()
+	if err != nil || !enabled || spec == "" {
+		return time.Time{}
+	}
+	info, err := os.Stat(spec)
+	if err != nil {
+		return time.Time{}
+	}
+	return info.ModTime()
+}
+
+func (w *connWatcher) pollOrgSpec() *time.Time {
+	mod := w.statOrgSpecMod()
+	if mod.IsZero() {
+		return nil
+	}
+	if w.hasOrgSpec && mod.Equal(w.orgSpecMod) {
+		return nil
+	}
+	w.orgSpecMod = mod
+	w.hasOrgSpec = true
+	return &mod
 }

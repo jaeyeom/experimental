@@ -24,6 +24,7 @@ type Display struct {
 	HiddenContacts    []string
 	FavoriteContacts  []string
 	ContactAliases    map[string]string
+	OrgTree           bool
 	Note              string
 }
 
@@ -58,6 +59,11 @@ func (m *Model) applyDisplay(d Display) {
 	m.AvatarMono = d.AvatarMono
 	m.MessageAvatars = d.MessageAvatars
 	m.NoHyperlinks = d.NoHyperlinks
+	m.orgTreeOn = d.OrgTree
+	if !m.orgTreeOn {
+		m.orgView = false
+		m.orgRoot = nil
+	}
 	prevHidden := strings.Join(m.hidden, "\x00")
 	m.hidden = append([]string(nil), d.HiddenContacts...)
 	m.favorites = append([]string(nil), d.FavoriteContacts...)

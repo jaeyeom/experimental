@@ -29,7 +29,7 @@ const (
 // DisplayKeys are the config keys a hub shares with its clients. A key
 // not listed here is never exported.
 func DisplayKeys() []string {
-	return []string{"avatarDefault", "avatarMono", "avatars", "contactAliases", "favoriteContacts", "hiddenContacts", "hyperlinks", "messageAvatars", "owners", "recipients", "recipientsTimeout", "targets"}
+	return []string{"avatarDefault", "avatarMono", "avatars", "contactAliases", "favoriteContacts", "hiddenContacts", "hyperlinks", "messageAvatars", "owners", "recipients", "recipientsTimeout", "targets", "ui.orgTree"}
 }
 
 // copyDisplayKey sets dst's field for display key key from src.
@@ -59,6 +59,8 @@ func copyDisplayKey(key string, dst, src *Config) {
 		dst.RecipientsTimeout = src.RecipientsTimeout
 	case "targets":
 		dst.Targets = src.Targets
+	case "ui.orgTree":
+		dst.UI.OrgTree = src.UI.OrgTree
 	}
 }
 
@@ -112,11 +114,34 @@ type DisplaySettings struct {
 	Files map[string]AvatarFile      `json:"files,omitempty"`
 }
 
+// uiSubkey returns the raw JSON value of key inside rawUI, if present.
+func uiSubkey(rawUI json.RawMessage, key string) (json.RawMessage, bool) {
+	if len(rawUI) == 0 {
+		return nil, false
+	}
+	members, err := parseObject(rawUI)
+	if err != nil {
+		return nil, false
+	}
+	for _, m := range members {
+		if m.key == key {
+			return m.value, true
+		}
+	}
+	return nil, false
+}
+
 // Display is f's display settings for a client, with avatar files read
 // here.
 func (f ConfigFile) Display() DisplaySettings {
 	out := DisplaySettings{Keys: map[string]json.RawMessage{}}
 	for _, key := range DisplayKeys() {
+		if key == "ui.orgTree" {
+			if raw, ok := uiSubkey(f.Keys["ui"], "orgTree"); ok {
+				out.Keys[key] = raw
+			}
+			continue
+		}
 		raw, ok := f.Keys[key]
 		if !ok {
 			continue
@@ -180,6 +205,60 @@ type Effective struct {
 	Files     map[string]AvatarFile
 }
 
+func selectHubDisplayKeys(local ConfigFile, hub DisplaySettings) (hubKeys, overrides []string, used map[string]json.RawMessage) {
+	used = map[string]json.RawMessage{}
+	_, localOrgTreeSet := uiSubkey(local.Keys["ui"], "orgTree")
+	for _, key := range DisplayKeys() {
+		raw, ok := hub.Keys[key]
+		if !ok {
+			continue
+		}
+		hubKeys = append(hubKeys, key)
+		localSet := key == "ui.orgTree" && localOrgTreeSet
+		if key != "ui.orgTree" && key != "owners" {
+			_, localSet = local.Keys[key]
+		}
+		if localSet {
+			overrides = append(overrides, key)
+			continue
+		}
+		used[key] = raw
+	}
+	return hubKeys, overrides, used
+}
+
+func parseHubDisplayConfig(used map[string]json.RawMessage) (Config, error) {
+	var hubOrgTree *bool
+	if raw, ok := used["ui.orgTree"]; ok {
+		var v bool
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return Config{}, fmt.Errorf("hub display settings: ui.orgTree: %w", err)
+		}
+		hubOrgTree = &v
+	}
+	data, err := json.Marshal(used)
+	if err != nil {
+		return Config{}, fmt.Errorf("hub display settings: %w", err)
+	}
+	var hc Config
+	if err := json.Unmarshal(data, &hc); err != nil {
+		return Config{}, fmt.Errorf("hub display settings: %w", err)
+	}
+	if hubOrgTree != nil {
+		hc.UI.OrgTree = *hubOrgTree
+	}
+	if err := checkAvatarRules(hc.Avatars); err != nil {
+		return Config{}, fmt.Errorf("hub display settings: %w", err)
+	}
+	if _, err := parseRecipientsTimeout(hc.RecipientsTimeout); err != nil {
+		return Config{}, fmt.Errorf("hub display settings: %w", err)
+	}
+	if err := checkOwnersConfig(hc.Owners); err != nil {
+		return Config{}, fmt.Errorf("hub display settings: %w", err)
+	}
+	return hc, nil
+}
+
 // MergeDisplay merges hub into local, one top-level key at a time: a
 // key the local config sets keeps its local value. Keys off the
 // DisplayKeys allowlist are ignored.
@@ -189,38 +268,14 @@ func MergeDisplay(local ConfigFile, hub DisplaySettings) (Effective, error) {
 		eff.Sources[k] = SourceLocal
 		eff.Values[k] = v
 	}
-	used := map[string]json.RawMessage{}
-	for _, key := range DisplayKeys() {
-		raw, ok := hub.Keys[key]
-		if !ok {
-			continue
-		}
-		eff.HubKeys = append(eff.HubKeys, key)
-		if _, set := local.Keys[key]; set && key != "owners" {
-			eff.Overrides = append(eff.Overrides, key)
-			continue
-		}
-		used[key] = raw
-	}
+	var used map[string]json.RawMessage
+	eff.HubKeys, eff.Overrides, used = selectHubDisplayKeys(local, hub)
 	if len(used) == 0 {
 		return eff, nil
 	}
-	data, err := json.Marshal(used)
+	hc, err := parseHubDisplayConfig(used)
 	if err != nil {
-		return Effective{}, fmt.Errorf("hub display settings: %w", err)
-	}
-	var hc Config
-	if err := json.Unmarshal(data, &hc); err != nil {
-		return Effective{}, fmt.Errorf("hub display settings: %w", err)
-	}
-	if err := checkAvatarRules(hc.Avatars); err != nil {
-		return Effective{}, fmt.Errorf("hub display settings: %w", err)
-	}
-	if _, err := parseRecipientsTimeout(hc.RecipientsTimeout); err != nil {
-		return Effective{}, fmt.Errorf("hub display settings: %w", err)
-	}
-	if err := checkOwnersConfig(hc.Owners); err != nil {
-		return Effective{}, fmt.Errorf("hub display settings: %w", err)
+		return Effective{}, err
 	}
 	for key, raw := range used {
 		copyDisplayKey(key, &eff.Config, &hc)

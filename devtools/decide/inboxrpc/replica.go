@@ -27,14 +27,16 @@ type pendingDraftEdit struct {
 }
 
 type replicaData struct {
-	Hub           string                      `json:"hub"`
-	Seq           int64                       `json:"seq"`
-	SyncedAt      time.Time                   `json:"syncedAt,omitempty"`
-	Items         []decide.Item               `json:"items"`
-	Status        tui.StatusBoard             `json:"status"`
-	Drafts        []decide.Draft              `json:"drafts,omitempty"`
-	DraftSeq      int64                       `json:"draftSeq,omitempty"`
-	PendingDrafts map[string]pendingDraftEdit `json:"pendingDrafts,omitempty"`
+	Hub            string                      `json:"hub"`
+	Seq            int64                       `json:"seq"`
+	SyncedAt       time.Time                   `json:"syncedAt,omitempty"`
+	Items          []decide.Item               `json:"items"`
+	Status         tui.StatusBoard             `json:"status"`
+	Drafts         []decide.Draft              `json:"drafts,omitempty"`
+	DraftSeq       int64                       `json:"draftSeq,omitempty"`
+	PendingDrafts  map[string]pendingDraftEdit `json:"pendingDrafts,omitempty"`
+	OrgTree        string                      `json:"orgTree,omitempty"`
+	OrgSpecModTime time.Time                   `json:"orgSpecModTime,omitempty"`
 }
 
 // ReplicaPath returns the on-disk replica file path for hub label under
@@ -155,6 +157,22 @@ func (r *replicaStore) syncedAt() time.Time {
 	defer r.mu.Unlock()
 	r.ensureLoaded()
 	return r.data.SyncedAt
+}
+
+func (r *replicaStore) orgTree() (string, time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ensureLoaded()
+	return r.data.OrgTree, r.data.OrgSpecModTime
+}
+
+func (r *replicaStore) setOrgTree(tree string, modTime time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ensureLoaded()
+	r.data.OrgTree = tree
+	r.data.OrgSpecModTime = modTime
+	r.save()
 }
 
 func (r *replicaStore) items() []decide.Item {

@@ -129,3 +129,34 @@ func TestConfigShowEffectiveUsesHubOwners(t *testing.T) {
 		t.Fatalf("output lacks %q:\n%s", want, stdout.String())
 	}
 }
+
+func TestConfigShowEffectiveReportsOrgTreeFromHubAndLocalOffWins(t *testing.T) {
+	setupHub(t, `{"hub": "me@hub"}`)
+	hubDecide(t, `{"ui": {"orgTree": true, "orgSpec": "/hub/desk.json"}}`)
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"config", "show", "--effective"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("config show = %d, stderr %q", code, stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "ui.orgTree\thub\ttrue\n") {
+		t.Fatalf("output lacks ui.orgTree from hub:\n%s", out)
+	}
+	if strings.Contains(out, "/hub/desk.json") || strings.Contains(out, "orgSpec") {
+		t.Fatalf("output leaks hub orgSpec:\n%s", out)
+	}
+
+	// Local ui.orgTree = false overrides hub's true.
+	setupHub(t, `{"hub": "me@hub", "ui": {"orgTree": false}}`)
+	hubDecide(t, `{"ui": {"orgTree": true, "orgSpec": "/hub/desk.json"}}`)
+	var got tui.Display
+	stubInbox(t, func(opts tui.Options) {
+		got, _ = opts.Display.Display()
+	})
+	stderr.Reset()
+	if code := run([]string{"inbox"}, &bytes.Buffer{}, &stderr); code != 0 {
+		t.Fatalf("inbox = %d, stderr %q", code, stderr.String())
+	}
+	if got.OrgTree {
+		t.Fatal("local ui.orgTree = false did not keep OrgTree off")
+	}
+}

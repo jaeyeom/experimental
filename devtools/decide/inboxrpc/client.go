@@ -156,12 +156,16 @@ type Client struct {
 	draftFlushMu      sync.Mutex
 	draftFlushRunning bool
 	draftFlushWake    chan struct{}
+
+	orgTreeUnsupported bool
+	orgTreeErr         error
 }
 
 var (
-	_ tui.Backend       = (*Client)(nil)
-	_ tui.OutboxBackend = (*Client)(nil)
-	_ tui.DraftBackend  = (*Client)(nil)
+	_ tui.Backend        = (*Client)(nil)
+	_ tui.OutboxBackend  = (*Client)(nil)
+	_ tui.DraftBackend   = (*Client)(nil)
+	_ tui.OrgTreeBackend = (*Client)(nil)
 )
 
 // hubError is a call the hub did not take because it could not be
@@ -336,31 +340,42 @@ func (c *Client) open() (*session, decide.DisplaySettings, <-chan Response, erro
 	if resp.Display != nil {
 		display = *resp.Display
 	}
+	watchResp, watchCh, err := c.startWatchWithResync(sess, rep)
+	if err != nil {
+		return nil, none, nil, err
+	}
+	if hubOrgTreeEnabled(display) || watchResp.OrgSpecModTime != nil {
+		c.refreshOrgTree(sess, rep)
+	}
+	return sess, display, watchCh, nil
+}
+
+func (c *Client) startWatchWithResync(sess *session, rep *replicaStore) (Response, <-chan Response, error) {
 	watchResp, watchCh, err := sess.startWatch(context.Background(), c.allocID(), rep.seq(), c.timeout())
 	if err != nil {
 		sess.close(err)
-		return nil, none, nil, c.unreachable(err)
+		return Response{}, nil, c.unreachable(err)
 	}
 	if watchResp.Error != "" {
 		if strings.HasPrefix(watchResp.Error, "unknown op ") {
-			return sess, display, nil, nil
+			return watchResp, nil, nil
 		}
 		sess.close(errors.New("watch"))
-		return nil, none, nil, fmt.Errorf("hub %s: watch: %s", c.Label, watchResp.Error)
+		return Response{}, nil, fmt.Errorf("hub %s: watch: %s", c.Label, watchResp.Error)
 	}
 	if rep.applySync(watchResp, c.now()) {
 		watchResp, watchCh, err = sess.startWatch(context.Background(), c.allocID(), 0, c.timeout())
 		if err != nil {
 			sess.close(err)
-			return nil, none, nil, c.unreachable(err)
+			return Response{}, nil, c.unreachable(err)
 		}
 		if watchResp.Error != "" {
 			sess.close(errors.New("watch"))
-			return nil, none, nil, fmt.Errorf("hub %s: watch: %s", c.Label, watchResp.Error)
+			return Response{}, nil, fmt.Errorf("hub %s: watch: %s", c.Label, watchResp.Error)
 		}
 		rep.applySync(watchResp, c.now())
 	}
-	return sess, display, watchCh, nil
+	return watchResp, watchCh, nil
 }
 
 func (c *Client) allocID() int64 {
@@ -477,6 +492,12 @@ func (c *Client) watchLoop(sess *session, watchCh <-chan Response) {
 				}
 				rep.applySync(resyncResp, c.now())
 				watchCh = newCh
+			}
+			if resp.OrgSpecModTime != nil {
+				tree, mod := rep.orgTree()
+				if tree == "" || !resp.OrgSpecModTime.Equal(mod) {
+					c.refreshOrgTree(sess, rep)
+				}
 			}
 		}
 	}
@@ -1111,6 +1132,85 @@ func (c *Client) BusRunner(ctx context.Context, args []string) ([]byte, error) {
 func (c *Client) CheckDeliveries(ctx context.Context) error {
 	_, err := c.callCtx(ctx, Request{Op: OpDeliveries})
 	return err
+}
+
+const oldHubOrgTreeNote = "hub does not support org-tree; using local orgctl"
+
+func hubOrgTreeEnabled(display decide.DisplaySettings) bool {
+	raw, ok := display.Keys["ui.orgTree"]
+	if !ok {
+		return false
+	}
+	var enabled bool
+	return json.Unmarshal(raw, &enabled) == nil && enabled
+}
+
+func (c *Client) refreshOrgTree(sess *session, rep *replicaStore) {
+	resp, err := sess.do(context.Background(), Request{ID: c.allocID(), Op: OpOrgTree}, c.timeout())
+	if err != nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if resp.Error != "" {
+		if strings.HasPrefix(resp.Error, "unknown op ") {
+			c.orgTreeUnsupported = true
+			c.orgTreeErr = nil
+			return
+		}
+		c.orgTreeUnsupported = false
+		c.orgTreeErr = errors.New(resp.Error)
+		return
+	}
+	c.orgTreeUnsupported = false
+	c.orgTreeErr = nil
+	var mod time.Time
+	if resp.OrgSpecModTime != nil {
+		mod = *resp.OrgSpecModTime
+	}
+	rep.setOrgTree(resp.Output, mod)
+}
+
+// OrgTree implements tui.OrgTreeBackend. It serves the cached org tree
+// from the local replica when available, or fetches it from the hub.
+func (c *Client) OrgTree() (tui.OrgTreeResult, error) {
+	rep, err := c.ensureReplica()
+	if err != nil {
+		return tui.OrgTreeResult{}, err
+	}
+	c.mu.Lock()
+	unsupported := c.orgTreeUnsupported
+	sess := c.sess
+	treeErr := c.orgTreeErr
+	c.mu.Unlock()
+	if unsupported {
+		return tui.OrgTreeResult{Fallback: true, Note: oldHubOrgTreeNote}, nil
+	}
+	if sess != nil && treeErr != nil {
+		return tui.OrgTreeResult{}, treeErr
+	}
+	if tree, _ := rep.orgTree(); tree != "" {
+		return tui.OrgTreeResult{JSON: []byte(tree)}, nil
+	}
+	if sess != nil {
+		c.refreshOrgTree(sess, rep)
+		c.mu.Lock()
+		unsupported = c.orgTreeUnsupported
+		treeErr = c.orgTreeErr
+		c.mu.Unlock()
+		if unsupported {
+			return tui.OrgTreeResult{Fallback: true, Note: oldHubOrgTreeNote}, nil
+		}
+		if treeErr != nil {
+			return tui.OrgTreeResult{}, treeErr
+		}
+		if tree, _ := rep.orgTree(); tree != "" {
+			return tui.OrgTreeResult{JSON: []byte(tree)}, nil
+		}
+		return tui.OrgTreeResult{}, &hubError{msg: fmt.Sprintf("hub %s: org-tree failed", c.Label)}
+	}
+	c.maybeReconnect()
+	return tui.OrgTreeResult{}, &hubError{msg: fmt.Sprintf("hub %s unreachable; no cached org tree", c.Label)}
 }
 
 // Send implements tui.Backend. The hub looks the recipient up by name.

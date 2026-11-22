@@ -107,3 +107,59 @@ func TestOrgTreeMissingBinaryFallsBack(t *testing.T) {
 		t.Fatal("the note is not shown")
 	}
 }
+
+type fakeOrgTreeBackend struct {
+	*LocalBackend
+	res OrgTreeResult
+	err error
+}
+
+func (f *fakeOrgTreeBackend) OrgTree() (OrgTreeResult, error) {
+	return f.res, f.err
+}
+
+func TestOrgTreeHubBackendNeedsNoLocalOrgctlOrSpec(t *testing.T) {
+	m := orgContacts(t, true, nil)
+	m.orgSpec = ""
+	t.Setenv("PATH", t.TempDir())
+	m.backend = &fakeOrgTreeBackend{
+		LocalBackend: &LocalBackend{Dir: m.Dir},
+		res:          OrgTreeResult{JSON: []byte(orgTreeJSON)},
+	}
+	press(t, m, "t")
+	if !m.orgActive() {
+		t.Fatalf("org tree not active; note=%q status=%q", m.orgNote, m.status)
+	}
+	if !strings.Contains(m.View(), "desk/lead") {
+		t.Fatal("hub org tree not rendered")
+	}
+}
+
+func TestOrgTreeHubFallbackUsesLocalWithNote(t *testing.T) {
+	fake := &fakeOrgctl{out: orgTreeJSON}
+	m := orgContacts(t, true, fake)
+	m.backend = &fakeOrgTreeBackend{
+		LocalBackend: &LocalBackend{Dir: m.Dir},
+		res:          OrgTreeResult{Fallback: true, Note: "hub does not support org-tree; using local orgctl"},
+	}
+	press(t, m, "t")
+	if !m.orgActive() || len(fake.calls) != 1 {
+		t.Fatalf("fallback did not run local orgctl: active=%v calls=%v", m.orgActive(), fake.calls)
+	}
+	if !strings.Contains(m.View(), "hub does not support org-tree; using local orgctl") {
+		t.Fatalf("fallback note missing from view:\n%s", m.View())
+	}
+}
+
+func TestOrgTreeHubErrorShowsMessage(t *testing.T) {
+	m := orgContacts(t, true, nil)
+	m.orgSpec = ""
+	m.backend = &fakeOrgTreeBackend{
+		LocalBackend: &LocalBackend{Dir: m.Dir},
+		err:          errors.New("orgctl: bad spec on hub"),
+	}
+	press(t, m, "t")
+	if m.orgActive() || !strings.Contains(m.View(), "org tree unavailable: orgctl: bad spec on hub") {
+		t.Fatalf("hub error not shown; note=%q", m.orgNote)
+	}
+}

@@ -59,6 +59,7 @@ func displayOf(cfg decide.Config, files map[string]decide.AvatarFile) tui.Displa
 		HiddenContacts:    append([]string(nil), cfg.HiddenContacts...),
 		FavoriteContacts:  append([]string(nil), cfg.FavoriteContacts...),
 		ContactAliases:    aliasCopy(cfg.ContactAliases),
+		OrgTree:           cfg.UI.OrgTree,
 	}
 }
 

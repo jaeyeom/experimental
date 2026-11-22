@@ -13,8 +13,8 @@ import (
 // OrgctlRunner runs `orgctl` with args and returns its stdout.
 type OrgctlRunner func(ctx context.Context, args []string) ([]byte, error)
 
-// orgctlTimeout bounds one `orgctl tree --json`.
-const orgctlTimeout = 5 * time.Second
+// OrgctlTimeout bounds one `orgctl tree --json`.
+const OrgctlTimeout = 5 * time.Second
 
 // orgNode is one node of `orgctl tree --json`.
 type orgNode struct {
@@ -32,7 +32,8 @@ type orgRow struct {
 	contact int
 }
 
-func execOrgctl(ctx context.Context, args []string) ([]byte, error) {
+// ExecOrgctl runs `orgctl` with args and returns its stdout.
+func ExecOrgctl(ctx context.Context, args []string) ([]byte, error) {
 	out, err := exec.CommandContext(ctx, "orgctl", args...).Output()
 	if err != nil {
 		var exit *exec.ExitError
@@ -48,8 +49,8 @@ func execOrgctl(ctx context.Context, args []string) ([]byte, error) {
 
 // toggleOrgTree switches Contacts between the flat list and the org
 // tree. With ui.orgTree off it never runs orgctl. Turning the tree on
-// reads `orgctl tree --json` again; a failure keeps the flat list with
-// a note saying why.
+// reads `orgctl tree --json` again (or asks the hub backend); a failure
+// keeps the flat list with a note saying why.
 func (m *Model) toggleOrgTree() {
 	if !m.orgTreeOn {
 		m.status = "the org tree is off; set ui.orgTree and ui.orgSpec"
@@ -59,12 +60,13 @@ func (m *Model) toggleOrgTree() {
 	m.orgView = !m.orgView
 	m.orgRoot, m.orgNote = nil, ""
 	if m.orgView {
-		root, err := m.loadOrgTree()
+		root, note, err := m.loadOrgTree()
 		if err != nil {
 			m.orgView = false
 			m.orgNote = "org tree unavailable: " + err.Error()
 		} else {
 			m.orgRoot = root
+			m.orgNote = note
 		}
 	}
 	m.contactCursor = 0
@@ -78,25 +80,45 @@ func (m *Model) toggleOrgTree() {
 	m.revealContactCursor()
 }
 
-func (m *Model) loadOrgTree() (*orgNode, error) {
+func (m *Model) loadOrgTree() (*orgNode, string, error) {
+	var note string
+	var out []byte
+	if ob, ok := m.backend.(OrgTreeBackend); ok {
+		res, err := ob.OrgTree()
+		if err != nil {
+			return nil, "", err //nolint:wrapcheck // OrgTreeBackend formats user-facing errors
+		}
+		if !res.Fallback {
+			out = res.JSON
+		} else {
+			note = res.Note
+		}
+	}
+	if out == nil {
+		var err error
+		out, err = m.loadLocalOrgTree()
+		if err != nil {
+			return nil, note, err
+		}
+	}
+	var root orgNode
+	if err := json.Unmarshal(out, &root); err != nil {
+		return nil, note, fmt.Errorf("read orgctl tree --json: %w", err)
+	}
+	return &root, note, nil
+}
+
+func (m *Model) loadLocalOrgTree() ([]byte, error) {
 	if m.orgSpec == "" {
 		return nil, errors.New("ui.orgSpec is not set")
 	}
 	run := m.orgRun
 	if run == nil {
-		run = execOrgctl
+		run = ExecOrgctl
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), orgctlTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), OrgctlTimeout)
 	defer cancel()
-	out, err := run(ctx, []string{"tree", "--json", m.orgSpec})
-	if err != nil {
-		return nil, err
-	}
-	var root orgNode
-	if err := json.Unmarshal(out, &root); err != nil {
-		return nil, fmt.Errorf("read orgctl tree --json: %w", err)
-	}
-	return &root, nil
+	return run(ctx, []string{"tree", "--json", m.orgSpec})
 }
 
 // orgActive reports whether Contacts shows the tree.

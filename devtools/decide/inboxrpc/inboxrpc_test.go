@@ -1477,3 +1477,125 @@ func TestDeleteDraftRemovesDraftAndConflictCopyAcrossClients(t *testing.T) {
 		return err == nil && len(ds) == 0
 	}, "client A did not see whole draft deleted")
 }
+
+func TestOrgTreeFetchesAndCachesOfflineAndRefreshesOnMtimeChange(t *testing.T) {
+	specPath := filepath.Join(t.TempDir(), "desk.json")
+	if err := os.WriteFile(specPath, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t1 := time.Date(2026, 11, 22, 10, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(specPath, t1, t1); err != nil {
+		t.Fatal(err)
+	}
+
+	var calls int
+	treeV1 := `{"label":"user","kind":"root","children":[{"label":"desk/lead","kind":"role","children":[]}]}`
+	treeV2 := `{"label":"user","kind":"root","children":[{"label":"desk/new","kind":"role","children":[]}]}`
+	treeOut := treeV1
+
+	h := newHub(t)
+	h.server.WatchEvery = 20 * time.Millisecond
+	h.server.Display = func() (decide.DisplaySettings, error) {
+		return decide.DisplaySettings{Keys: map[string]json.RawMessage{"ui.orgTree": json.RawMessage(`true`)}}, nil
+	}
+	h.server.OrgConfig = func() (bool, string, error) {
+		return true, specPath, nil
+	}
+	h.server.Orgctl = func(_ context.Context, args []string) ([]byte, error) {
+		calls++
+		if len(args) != 3 || args[0] != "tree" || args[1] != "--json" || args[2] != specPath {
+			return nil, fmt.Errorf("unexpected args: %v", args)
+		}
+		return []byte(treeOut), nil
+	}
+
+	cacheDir := t.TempDir()
+	c := &Client{
+		Label:    "me@hub",
+		CacheDir: cacheDir,
+		Dial:     h.dial,
+	}
+	if err := c.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	res, err := c.OrgTree()
+	if err != nil || res.Fallback || string(res.JSON) != treeV1 {
+		t.Fatalf("OrgTree() = %+v, err=%v", res, err)
+	}
+	if calls != 1 {
+		t.Fatalf("orgctl calls = %d, want 1", calls)
+	}
+
+	// Update spec mtime and output while connected; watch refreshes the replica.
+	treeOut = treeV2
+	t2 := t1.Add(time.Minute)
+	if err := os.Chtimes(specPath, t2, t2); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, func() bool {
+		r, err := c.OrgTree()
+		return err == nil && string(r.JSON) == treeV2
+	}, "client did not refresh org tree after spec mtime change")
+	c.Close()
+
+	// Offline client with the same replica cache still serves the cached tree.
+	offline := &Client{
+		Label:    "me@hub",
+		CacheDir: cacheDir,
+	}
+	cached, err := offline.OrgTree()
+	if err != nil || string(cached.JSON) != treeV2 {
+		t.Fatalf("offline OrgTree() = %+v, err=%v", cached, err)
+	}
+}
+
+func TestOrgTreeOldHubFallsBackWithNote(t *testing.T) {
+	c := &Client{Label: "me@hub", CacheDir: t.TempDir(), Dial: scriptedHub(func(req Request) Response {
+		switch req.Op {
+		case OpHello:
+			return Response{Version: Version}
+		case OpConfig:
+			return Response{Display: &decide.DisplaySettings{}}
+		default:
+			return Response{Error: fmt.Sprintf("unknown op %q", req.Op)}
+		}
+	})}
+	if err := c.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(c.Close)
+	res, err := c.OrgTree()
+	if err != nil || !res.Fallback || res.Note == "" {
+		t.Fatalf("OrgTree() = %+v, err=%v; want Fallback=true with Note", res, err)
+	}
+}
+
+func TestOrgTreeHubFailureReturnsHubMessage(t *testing.T) {
+	specPath := filepath.Join(t.TempDir(), "desk.json")
+	if err := os.WriteFile(specPath, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newHub(t)
+	h.server.Display = func() (decide.DisplaySettings, error) {
+		return decide.DisplaySettings{Keys: map[string]json.RawMessage{"ui.orgTree": json.RawMessage(`true`)}}, nil
+	}
+	h.server.OrgConfig = func() (bool, string, error) {
+		return true, specPath, nil
+	}
+	h.server.Orgctl = func(context.Context, []string) ([]byte, error) {
+		return nil, errors.New("orgctl: reportsTo cycle: a -> b -> a")
+	}
+	c := &Client{
+		Label:    "me@hub",
+		CacheDir: t.TempDir(),
+		Dial:     h.dial,
+	}
+	if err := c.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(c.Close)
+	_, err := c.OrgTree()
+	if err == nil || !strings.Contains(err.Error(), "orgctl: reportsTo cycle: a -> b -> a") {
+		t.Fatalf("OrgTree() err = %v, want hub orgctl error", err)
+	}
+}

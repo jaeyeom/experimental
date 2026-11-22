@@ -146,6 +146,13 @@ func cmdServe(args []string, stdout, stderr io.Writer) int {
 			}
 			return f.Display(), nil
 		},
+		OrgConfig: func() (bool, string, error) {
+			c, err := decide.LoadConfig()
+			if err != nil {
+				return false, "", err //nolint:wrapcheck // LoadConfig names the config
+			}
+			return c.UI.OrgTree, c.UI.OrgSpec, nil
+		},
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), unix.SIGINT, unix.SIGTERM)
 	defer stop()

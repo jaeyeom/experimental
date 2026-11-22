@@ -23,7 +23,8 @@ import (
 // Version 9 added watch for the hub-client replica.
 // Version 10 added outbox writtenAt and conflict checks.
 // Version 11 added persistent draft sync.
-const Version = 11
+// Version 12 added org-tree.
+const Version = 12
 
 // Ops. Archive is done with the outcome "archived". Deliveries refreshes
 // the pending delivery marks on the hub.
@@ -55,6 +56,7 @@ const (
 	OpListDrafts   = "list-drafts"
 	OpPutDraft     = "put-draft"
 	OpDeleteDraft  = "delete-draft"
+	OpOrgTree      = "org-tree"
 )
 
 // Request is one line from the client. Item is the item id. Text is the
@@ -102,26 +104,27 @@ type Request struct {
 // `agentbus health --json` of bus-health. Display is the
 // hub's display settings, from config.
 type Response struct {
-	ID            int64                   `json:"id"`
-	Error         string                  `json:"error,omitempty"`
-	NotifyError   string                  `json:"notifyError,omitempty"`
-	Version       int                     `json:"version,omitempty"`
-	Item          *decide.Item            `json:"item,omitempty"`
-	Items         []decide.Item           `json:"items,omitempty"`
-	Status        *tui.StatusBoard        `json:"status,omitempty"`
-	Targets       []decide.ConfigTarget   `json:"targets,omitempty"`
-	Agentbus      bool                    `json:"agentbus,omitempty"`
-	Output        string                  `json:"output,omitempty"`
-	Location      *decide.OwnerLocation   `json:"location,omitempty"`
-	Display       *decide.DisplaySettings `json:"display,omitempty"`
-	Seq           int64                   `json:"seq,omitempty"`
-	Resync        bool                    `json:"resync,omitempty"`
-	Changes       []decide.LedgerChange   `json:"changes,omitempty"`
-	Conflict      string                  `json:"conflict,omitempty"`
-	Draft         *decide.Draft           `json:"draft,omitempty"`
-	Drafts        []decide.Draft          `json:"drafts,omitempty"`
-	DraftConflict bool                    `json:"draftConflict,omitempty"`
-	DraftSeq      int64                   `json:"draftSeq,omitempty"`
+	ID             int64                   `json:"id"`
+	Error          string                  `json:"error,omitempty"`
+	NotifyError    string                  `json:"notifyError,omitempty"`
+	Version        int                     `json:"version,omitempty"`
+	Item           *decide.Item            `json:"item,omitempty"`
+	Items          []decide.Item           `json:"items,omitempty"`
+	Status         *tui.StatusBoard        `json:"status,omitempty"`
+	Targets        []decide.ConfigTarget   `json:"targets,omitempty"`
+	Agentbus       bool                    `json:"agentbus,omitempty"`
+	Output         string                  `json:"output,omitempty"`
+	Location       *decide.OwnerLocation   `json:"location,omitempty"`
+	Display        *decide.DisplaySettings `json:"display,omitempty"`
+	Seq            int64                   `json:"seq,omitempty"`
+	Resync         bool                    `json:"resync,omitempty"`
+	Changes        []decide.LedgerChange   `json:"changes,omitempty"`
+	Conflict       string                  `json:"conflict,omitempty"`
+	Draft          *decide.Draft           `json:"draft,omitempty"`
+	Drafts         []decide.Draft          `json:"drafts,omitempty"`
+	DraftConflict  bool                    `json:"draftConflict,omitempty"`
+	DraftSeq       int64                   `json:"draftSeq,omitempty"`
+	OrgSpecModTime *time.Time              `json:"orgSpecModTime,omitempty"`
 }
 
 // writeOps change the ledger or send something. While the hub is

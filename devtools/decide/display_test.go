@@ -211,3 +211,46 @@ func TestMergeDisplayKeepsHubAvatarNames(t *testing.T) {
 		t.Fatalf("avatars = %+v, files %v", eff.Config.Avatars, eff.Files)
 	}
 }
+
+func TestDisplaySettingsExportsOrgTreeWithoutOrgSpec(t *testing.T) {
+	f := hubFile(t, `{"ui": {"orgTree": true, "orgSpec": "/hub/desk.json", "utc": true}}`)
+	got := f.Display()
+	if string(got.Keys["ui.orgTree"]) != "true" {
+		t.Fatalf("ui.orgTree = %q, want true", got.Keys["ui.orgTree"])
+	}
+	data, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"orgSpec", "/hub/desk.json", "utc"} {
+		if strings.Contains(string(data), secret) {
+			t.Fatalf("display settings carry %q: %s", secret, data)
+		}
+	}
+}
+
+func TestMergeDisplayOrgTreeHubDefaultAndLocalOverride(t *testing.T) {
+	hub := hubFile(t, `{"ui": {"orgTree": true, "orgSpec": "/hub/desk.json"}}`).Display()
+
+	eff, err := MergeDisplay(hubFile(t, `{"ui": {"utc": true}}`), hub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !eff.Config.UI.OrgTree || !eff.Config.UI.UTC {
+		t.Fatalf("eff.Config.UI = %+v, want OrgTree=true UTC=true", eff.Config.UI)
+	}
+	if eff.Sources["ui.orgTree"] != SourceHub {
+		t.Fatalf("source = %q, want %q", eff.Sources["ui.orgTree"], SourceHub)
+	}
+
+	effOff, err := MergeDisplay(hubFile(t, `{"ui": {"orgTree": false}}`), hub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effOff.Config.UI.OrgTree {
+		t.Fatal("local ui.orgTree = false did not override hub")
+	}
+	if !slices.Equal(effOff.Overrides, []string{"ui.orgTree"}) {
+		t.Fatalf("overrides = %v, want [ui.orgTree]", effOff.Overrides)
+	}
+}
