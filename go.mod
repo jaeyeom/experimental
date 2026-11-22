@@ -33,6 +33,8 @@ require (
 	github.com/kisielk/errcheck v1.30.0
 )
 
+require github.com/OpenPeeDeeP/depguard/v2 v2.2.1
+
 require (
 	github.com/ccojocar/zxcvbn-go v1.0.4 // indirect
 	github.com/ettle/strcase v0.2.0 // indirect

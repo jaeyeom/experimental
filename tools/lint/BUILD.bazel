@@ -34,6 +34,7 @@ ADDITIONAL_GOVET = [
 ]
 
 EXTRA_ANALYZERS = [
+    "//devtools/linters/depguard:go_default_library",
     "//devtools/linters/errcheck:go_default_library",
     "//devtools/linters/gochecknoinits:go_default_library",
     "//devtools/linters/godot:go_default_library",
