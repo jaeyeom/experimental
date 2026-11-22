@@ -312,8 +312,6 @@ func (prc *PRReviewClient) GetExistingReviews(repository models.Repository, prNu
 // This is specifically for CREATING comments in a review, distinct from GitHubComment which is for READING responses.
 //
 // See: https://docs.github.com/en/rest/pulls/reviews#create-a-review-for-a-pull-request
-//
-//nolint:revive // GitHubReviewCommentRequest is appropriate naming for this GitHub API context
 type GitHubReviewCommentRequest struct {
 	Path      string      `json:"path"`                 // Required: relative path of the file
 	Body      string      `json:"body"`                 // Required: text of the review comment
@@ -335,8 +333,6 @@ type GitHubReviewCommentRequest struct {
 // For CREATING comments, use GitHubReviewCommentRequest instead.
 //
 // See: https://docs.github.com/en/rest/pulls/comments#list-review-comments-on-a-pull-request
-//
-//nolint:revive // GitHubComment is appropriate naming for this context
 type GitHubComment struct {
 	ID                int64       `json:"id"`
 	Path              string      `json:"path"`
