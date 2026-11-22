@@ -50,6 +50,7 @@ var itemCommands = map[string]func([]string, io.Writer, io.Writer) int{
 	"assign":    cmdAssign,
 	"retag":     cmdRetag,
 	"supersede": cmdSupersede,
+	"backfill":  cmdBackfill,
 	"log":       cmdLog,
 }
 
@@ -112,6 +113,7 @@ func usage(w io.Writer) {
   decide retag [--json] <id> <class>
   decide log search [--class decision,fact,...] [--all] [--json] <words>
   decide supersede [--json] <old> --by <new>
+  decide backfill [--yes]
   decide list [--state open|answered|done|withdrawn] [--snoozed] [--off-line] [--undelivered] [--json]
   decide show [--json] <id>
   decide withdraw [--json] <id> <reason>

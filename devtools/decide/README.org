@@ -273,6 +273,34 @@ config makes a missing ~--class~ an error (exit 2).
 display prefix, and records a system event in the thread with the old
 and new class.
 
+** Inbox groups, approval cards and backfill
+
+The inbox library arranges open items into four groups, in this order:
+approvals (with their parents), other items that need the user
+(decisions, facts, tasks; soonest deadline first), requests and inbound,
+and notes. An open approval filed with ~--parent~ is nested under that
+thread: the parent moves to the approvals group and shows ~approval
+waiting~, and the approval has no row of its own. Approvals without a
+parent are their own entries. The parent's thread shows the approval
+card (the exact text, with yes, no and edit); answering the card answers
+the approval, and the parent gets one line, such as ~A-870 approved,
+posted 11:40~ or ~A-870 declined~.
+
+Each row has a class badge (the prefix letter) and entries can be
+filtered by class. ~y~, ~n~ and ~e~ map to an approval's ~yes~, ~no~ and
+~edit~, notes can be archived in bulk, and notes are not counted as
+unread. (Library: ~InboxEntries~, ~ApprovalCard~, ~Ledger.AnswerCard~,
+~ApprovalKeyOption~, ~Ledger.ArchiveNotes~, ~UnreadCount~. The TUI does
+not use them yet.)
+
+~decide backfill [--yes]~ is the one-time class backfill. It proposes a
+class for every item that is still a decision, by pattern: threads the
+user started become requests, "post as written?" items (or items with a
+verbatim block) become approvals, and reports with no options and
+install reports become notes. Anything uncertain stays a decision. It
+prints the batch and applies it only after you answer ~y~ (or pass
+~--yes~), retagging each item and recording a retag event on it.
+
 ** Decision log
 
 ~decide log search <words> [--class decision,fact,...] [--all] [--json]~

@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "avatars.go",
+        "backfill.go",
         "contacts.go",
         "display.go",
         "hub.go",
@@ -44,6 +45,7 @@ go_test(
     srcs = [
         "assign_test.go",
         "avatars_test.go",
+        "backfill_test.go",
         "class_test.go",
         "display_test.go",
         "done_unread_test.go",

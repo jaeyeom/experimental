@@ -681,6 +681,7 @@ func (l *Ledger) AnswerAt(id, value, via string, writtenAt time.Time) (Item, err
 		it.Messages = append(it.Messages, msg)
 		wakeOnMessage(it)
 		updated = *it
+		noteApprovalOnParent(st, it, stored, receivedAt)
 		return nil
 	})
 	if err != nil {
