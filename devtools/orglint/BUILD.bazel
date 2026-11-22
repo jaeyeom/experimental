@@ -19,13 +19,21 @@ go_test(
     srcs = [
         "links_test.go",
         "parse_test.go",
+        "repo_test.go",
         "srcblocks_test.go",
         "structure_test.go",
     ],
     data = [
         "testdata/sample.orgtest",
+        "//:go.mod",
         "//devtools:README.org",
         "//devtools/linters/testdata/orglint:fixtures",
     ],
     embed = [":go_default_library"],
+    # Lints the checkout's .org files via the go.mod symlink. They are not declared
+    # inputs, so "external" keeps Bazel from caching a stale result.
+    tags = [
+        "external",
+        "local",
+    ],
 )

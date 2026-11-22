@@ -91,7 +91,12 @@ make org-lint-parity-update               # regenerate the fixture goldens
 #+END_SRC
 
 The Go linter lives in ~devtools/orglint~ (a small org parser plus the
-checker list) with the command ~org-lint-go~.
+checker list) with the command ~org-lint-go~. ~make check~ runs it over every ~.org~ file in the
+checkout as one Bazel test, ~//devtools/orglint:go_default_test~, which
+takes well under a second and never starts Emacs. Checkers for syntax no
+tracked file uses (footnotes, ~id:~ links, citations, macros,
+~#+INCLUDE~, ~#+OPTIONS~, planning lines) are not ported; the Emacs
+~org-lint~ stays as the reference for ~make org-lint-parity~.
 
 Fixtures are in ~testdata/orglint/~. Each ~NAME.orgtest~ triggers the
 checker ~NAME~ (some also trigger a second one). The extension keeps

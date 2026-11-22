@@ -33,6 +33,7 @@ alias(
 exports_files(
     [
         "MODULE.bazel",
+        "go.mod",
         ".shellcheckrc",
         "pyproject.toml",
         "uv.lock",
