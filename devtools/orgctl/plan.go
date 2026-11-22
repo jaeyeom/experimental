@@ -2,6 +2,7 @@ package orgctl
 
 import (
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -33,9 +34,11 @@ type Live struct {
 }
 
 // LiveTab is a tab label in a workspace.
+// Panes lists the herdr pane ids in the tab.
 type LiveTab struct {
 	Workspace string
 	Label     string
+	Panes     []string
 }
 
 // LiveAgent is one running agent.
@@ -178,7 +181,7 @@ func expandOrKeep(path string) string {
 // USER STEP lines are not changes.
 func PlanChanged(lines []string) bool {
 	for _, line := range lines {
-		if line == "" {
+		if line == "" || strings.HasPrefix(line, shellTabPrefix) {
 			continue
 		}
 		switch line[0] {

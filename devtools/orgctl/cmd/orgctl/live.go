@@ -154,13 +154,17 @@ func readHerdr(live *orgctl.Live) error {
 	for _, workspace := range snap.Workspaces {
 		labels[workspace.ID] = workspace.Label
 	}
+	tabPanes := make(map[string][]string, len(snap.Tabs))
+	for _, pane := range snap.Panes {
+		tabPanes[pane.Tab] = append(tabPanes[pane.Tab], pane.ID)
+	}
 	live.Tabs = make([]orgctl.LiveTab, 0, len(snap.Tabs))
 	for _, tab := range snap.Tabs {
 		workspace := labels[tab.Workspace]
 		if workspace == "" {
 			workspace = tab.Workspace
 		}
-		live.Tabs = append(live.Tabs, orgctl.LiveTab{Workspace: workspace, Label: tab.Label})
+		live.Tabs = append(live.Tabs, orgctl.LiveTab{Workspace: workspace, Label: tab.Label, Panes: tabPanes[tab.ID]})
 	}
 	paneCwd := make(map[string]string, len(snap.Panes))
 	for _, pane := range snap.Panes {

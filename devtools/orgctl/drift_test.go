@@ -40,6 +40,7 @@ func TestDriftReportsLiveExtras(t *testing.T) {
 		Agents: []LiveAgent{
 			{Name: "coord/lead", SessionID: "sess-lead"},
 			{Name: "review/desk", SessionID: "sess-review"},
+			{Name: "stray-agent", Workspace: "hq", Tab: "stray"},
 		},
 		Crons: []LiveCron{
 			{Cwd: "/work/lead", ID: "aa11bb22", Cron: "0 9 * * 1-5", CreatedBySessionID: "sess-review"},
@@ -132,7 +133,7 @@ func TestDriftPoolPatterns(t *testing.T) {
 	openLive := Live{Tabs: []LiveTab{
 		{Workspace: "workers", Label: "other"},
 		{Workspace: "hq", Label: "stray"},
-	}}
+	}, Agents: []LiveAgent{{Workspace: "hq", Tab: "stray"}}}
 	got = strings.Join(Drift(open, openLive), "\n")
 	if strings.Contains(got, "workers/other") || !strings.Contains(got, "+ tab hq/stray") {
 		t.Fatalf("unpatterned workspace =\n%s", got)
@@ -171,9 +172,10 @@ func TestDriftNamePatternCoversTab(t *testing.T) {
 			{Workspace: "W", Label: "notes"},
 		},
 		Names: []LiveName{{Name: "team/x", Pane: "W:p1"}},
-		Agents: []LiveAgent{{
-			Pane: "W:p1", Workspace: "W", Tab: "X",
-		}},
+		Agents: []LiveAgent{
+			{Pane: "W:p1", Workspace: "W", Tab: "X"},
+			{Workspace: "W", Tab: "notes"},
+		},
 	}
 	got := strings.Join(Drift(spec, live), "\n")
 	if strings.Contains(got, "W/X") || strings.Contains(got, "team/x") {
@@ -216,8 +218,11 @@ func TestDriftNamePatternCoversTab(t *testing.T) {
 			{Workspace: "misc", Label: "notes"},
 			{Workspace: "misc", Label: "other"},
 		},
-		Names:  []LiveName{{Name: "desk/clerk", Pane: "p-clerk"}},
-		Agents: []LiveAgent{{Pane: "p-clerk", Workspace: "misc", Tab: "notes"}},
+		Names: []LiveName{{Name: "desk/clerk", Pane: "p-clerk"}},
+		Agents: []LiveAgent{
+			{Pane: "p-clerk", Workspace: "misc", Tab: "notes"},
+			{Workspace: "misc", Tab: "other"},
+		},
 	}
 	got = strings.Join(Drift(role, roleLive), "\n")
 	if strings.Contains(got, "misc/notes") {
@@ -391,8 +396,11 @@ func TestDriftSkipsPoolWorkspace(t *testing.T) {
 			{Workspace: "workers", Label: "c"},
 			{Workspace: "misc", Label: "stray"},
 		},
-		Names:  []LiveName{{Name: "worker/one"}, {Name: "other/name"}},
-		Agents: []LiveAgent{{Name: "worker/one", Workspace: "workers", Tab: "a"}},
+		Names: []LiveName{{Name: "worker/one"}, {Name: "other/name"}},
+		Agents: []LiveAgent{
+			{Name: "worker/one", Workspace: "workers", Tab: "a"},
+			{Name: "stray-agent", Workspace: "misc", Tab: "stray"},
+		},
 	}
 	got := strings.Join(Drift(spec, live), "\n")
 	want := "+ tab misc/stray\nadd to spec, or USER: close tab stray in misc if it is no longer needed\n+ name other/name\nmodule drift.stub\n\nname = \"other/name\"\n"
@@ -429,6 +437,11 @@ func TestDriftScopeLimitsTabs(t *testing.T) {
 			{Workspace: "workers", Label: "other"},
 		},
 		Names: []LiveName{{Name: "extra/one"}},
+		Agents: []LiveAgent{
+			{Workspace: "org-a", Tab: "stray"},
+			{Workspace: "misc", Tab: "notes"},
+			{Workspace: "workers", Tab: "other"},
+		},
 		Crons: []LiveCron{{Cwd: "/work/other", ID: "bbbb0001", Cron: "15 8 * * *"}},
 	}
 	got := strings.Join(Drift(spec, live), "\n")
@@ -469,7 +482,10 @@ func TestDriftScopeReportsUncoveredTabs(t *testing.T) {
 			{Workspace: "W", Label: "member"},
 			{Workspace: "misc", Label: "notes"},
 		},
-		Agents: []LiveAgent{{Name: "team/x", Workspace: "W", Tab: "member"}},
+		Agents: []LiveAgent{
+			{Name: "team/x", Workspace: "W", Tab: "member"},
+			{Workspace: "W", Tab: "X"},
+		},
 	}
 	got := strings.Join(Drift(spec, live), "\n")
 	if !strings.Contains(got, "+ tab W/X") {
@@ -545,5 +561,58 @@ func TestDriftClean(t *testing.T) {
 	lines := Drift(spec, live)
 	if len(lines) != 0 || PlanChanged(lines) {
 		t.Fatalf("clean drift = %#v", lines)
+	}
+}
+
+func shellTabLive() Live {
+	return Live{
+		Tabs: []LiveTab{
+			{Workspace: "hq", Label: "shell"},
+			{Workspace: "hq", Label: "busy", Panes: []string{"p-busy"}},
+			{Workspace: "hq", Label: "named", Panes: []string{"p-named"}},
+		},
+		Agents: []LiveAgent{{Name: "claude", Workspace: "hq", Tab: "busy", Pane: "p-busy"}},
+		Names:  []LiveName{{Name: "ghost", Pane: "p-named"}},
+	}
+}
+
+func TestDriftSeparatesShellTabs(t *testing.T) {
+	lines := DriftWith(Spec{}, shellTabLive(), DriftOptions{})
+	got := strings.Join(lines, "\n")
+	for _, want := range []string{"+ tab hq/busy", "+ tab hq/named", "~ shell tab hq/shell"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "+ tab hq/shell") || strings.Contains(got, "close tab shell") {
+		t.Errorf("shell tab reported as agent tab:\n%s", got)
+	}
+}
+
+func TestDriftAgentsOnlySkipsShellTabs(t *testing.T) {
+	got := strings.Join(DriftWith(Spec{}, shellTabLive(), DriftOptions{AgentsOnly: true}), "\n")
+	if strings.Contains(got, "shell") {
+		t.Errorf("shell tab shown with AgentsOnly:\n%s", got)
+	}
+	if !strings.Contains(got, "+ tab hq/busy") || !strings.Contains(got, "+ tab hq/named") {
+		t.Errorf("agent tabs missing:\n%s", got)
+	}
+}
+
+func TestDriftShellTabsNotChanged(t *testing.T) {
+	live := Live{Tabs: []LiveTab{{Workspace: "hq", Label: "shell"}}}
+	lines := Drift(Spec{}, live)
+	if len(lines) == 0 {
+		t.Fatal("shell tab not listed")
+	}
+	if PlanChanged(lines) {
+		t.Errorf("shell tab counted as drift:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+func TestDriftShellTabsIgnoredWhenHerdrNotRead(t *testing.T) {
+	live := Live{Tabs: shellTabLive().Tabs, HerdrNotRead: true}
+	if lines := Drift(Spec{}, live); len(lines) != 0 {
+		t.Errorf("unexpected lines: %v", lines)
 	}
 }

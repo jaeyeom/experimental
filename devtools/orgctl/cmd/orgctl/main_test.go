@@ -319,7 +319,10 @@ func TestDriftExitCodes(t *testing.T) {
 		t.Fatalf("clean exit %d\n%s%s", code, stdout.String(), stderr.String())
 	}
 	extra := func(orgctl.Spec) (orgctl.Live, error) {
-		return orgctl.Live{Tabs: []orgctl.LiveTab{{Workspace: "hq", Label: "stray"}}}, nil
+		return orgctl.Live{
+			Tabs:   []orgctl.LiveTab{{Workspace: "hq", Label: "stray"}},
+			Agents: []orgctl.LiveAgent{{Workspace: "hq", Tab: "stray"}},
+		}, nil
 	}
 	stdout.Reset()
 	code := runIO([]string{"drift", path}, &stdout, &stderr, extra)
@@ -604,5 +607,23 @@ func TestDiffExitCodesAndJSON(t *testing.T) {
 		if code := runIO(args, &stdout, &stderr, noLive(t)); code != 2 {
 			t.Errorf("%v: exit %d, want 2", args, code)
 		}
+	}
+}
+
+func TestDriftAgentsOnlyFlag(t *testing.T) {
+	path := writeSpec(t, `{"roles":{"coord/lead":{"workspace":"hq","tab":"lead","cwd":"/work"}}}`)
+	shell := func(orgctl.Spec) (orgctl.Live, error) {
+		return orgctl.Live{
+			Tabs:  []orgctl.LiveTab{{Workspace: "hq", Label: "lead"}, {Workspace: "hq", Label: "shell"}},
+			Names: []orgctl.LiveName{{Name: "coord/lead"}},
+		}, nil
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runIO([]string{"drift", path}, &stdout, &stderr, shell); code != 0 || !strings.Contains(stdout.String(), "~ shell tab hq/shell") {
+		t.Fatalf("exit %d\n%s%s", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	if code := runIO([]string{"drift", "--agents-only", path}, &stdout, &stderr, shell); code != 0 || stdout.Len() != 0 {
+		t.Fatalf("agents-only exit %d\n%s%s", code, stdout.String(), stderr.String())
 	}
 }

@@ -31,7 +31,7 @@ import (
 
 const usage = "usage: orgctl check [--approval-word WORD]... SPEC.json\n" +
 	"       orgctl plan [--machine NAME] [--role NAME] [--expiring 2d] [--agents-md-root DIR] SPEC.json\n" +
-	"       orgctl drift [--agents-md-root DIR] SPEC.json\n" +
+	"       orgctl drift [--agents-only] [--agents-md-root DIR] SPEC.json\n" +
 	"       " + treeUsage + "\n" +
 	"       " + diffUsage + "\n" +
 	"       orgctl import [--out FILE] [--force] [--schema PATH]\n" +
@@ -234,12 +234,13 @@ func runPlan(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (or
 func runDrift(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (orgctl.Live, error)) int {
 	fs := flag.NewFlagSet("drift", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	agentsOnly := fs.Bool("agents-only", false, "skip undeclared tabs that run no agent")
 	agentsMDRoot := fs.String("agents-md-root", "", "directory root where AGENTS.md files are rendered")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 1
 	}
 	if fs.NArg() != 1 {
-		fmt.Fprintln(stderr, "usage: orgctl drift [--agents-md-root DIR] SPEC.json")
+		fmt.Fprintln(stderr, "usage: orgctl drift [--agents-only] [--agents-md-root DIR] SPEC.json")
 		return 1
 	}
 	data, err := os.ReadFile(fs.Arg(0)) //nolint:gosec // G304: the operator named the spec file
@@ -276,7 +277,7 @@ func runDrift(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (o
 		}
 		live.AgentsMD = agentsMD
 	}
-	lines := orgctl.Drift(spec, live)
+	lines := orgctl.DriftWith(spec, live, orgctl.DriftOptions{AgentsOnly: *agentsOnly})
 	for _, line := range lines {
 		fmt.Fprintln(stdout, line)
 	}

@@ -122,9 +122,14 @@ Nothing is written. Each finding is followed by a suggestion. Extras
 are skipped when that source was not read, instead of failing the
 command.
 
+A tab counts as a shell tab when no live agent is in it and no agentbus
+name points to one of its panes. Shell tabs are listed after the agent
+tabs, do not change the exit code, and are skipped with ~--agents-only~.
+
 | Marker | Line                                     | Suggestion                                                                    |
 |--------+------------------------------------------+-------------------------------------------------------------------------------|
 | +      | + tab WORKSPACE/LABEL                    | add to spec, or USER: close tab LABEL in WORKSPACE if it is no longer needed |
+|        | ~ shell tab WORKSPACE/LABEL              | none; no agent runs in the tab; hidden by --agents-only                       |
 | +      | + name NAME                              | a Pkl stub for that name                                                      |
 |        | gone (stale registration): NAME          | USER: agentbus release NAME                                                   |
 | +      | + cron ID                                | a Pkl stub for that cron                                                      |

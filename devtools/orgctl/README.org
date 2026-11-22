@@ -155,6 +155,10 @@ orgctl drift desk.json
 add to spec, or USER: close tab night in front if it is no longer needed
 #+END_EXAMPLE
 
+A tab that runs no agent and has no agentbus name on its panes shows as
+~~ shell tab WORKSPACE/LABEL~ with no suggestion. It does not change the
+exit code. Pass ~--agents-only~ to leave such tabs out.
+
 * Layered AGENTS.md rendering
 
 ~orgctl render agents-md~ turns the JSON spec into three layers of instructions:
@@ -260,7 +264,7 @@ orgctl diff main.json proposed.json
 #+BEGIN_EXAMPLE
 orgctl check  [--approval-word WORD]... SPEC.json
 orgctl plan   [--machine NAME] [--role NAME] [--expiring 2d] [--agents-md-root DIR] SPEC.json
-orgctl drift  [--agents-md-root DIR] SPEC.json
+orgctl drift  [--agents-only] [--agents-md-root DIR] SPEC.json
 orgctl import [--out FILE] [--force] [--schema PATH]
 orgctl render agents-md --root DIR [--check] SPEC.json
 orgctl tree   [--root ROLE] [--root-label TEXT] [--depth N] [--live] [--json] [--ascii] SPEC.json
@@ -278,6 +282,7 @@ only ~AGENTS.md~ and ~CLAUDE.md~ files under ~--root~ (unless ~--check~ is set).
 | --role NAME          | plan              | only this role; AND with --machine       |
 | --expiring 2d        | plan              | cron window; Nd or a Go duration         |
 | --agents-md-root DIR | plan, drift       | root where AGENTS.md files are rendered  |
+| --agents-only        | drift             | skip tabs that run no agent              |
 | --out FILE           | import            | write the stub here instead of stdout    |
 | --force              | import            | overwrite an existing --out file         |
 | --schema PATH        | import            | Org.pkl the stub amends                  |

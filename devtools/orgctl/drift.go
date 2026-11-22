@@ -11,8 +11,19 @@ import (
 // and a brief edited in place. Each finding is followed by a suggestion.
 // Nothing is written.
 func Drift(spec Spec, live Live) []string {
+	return DriftWith(spec, live, DriftOptions{})
+}
+
+// DriftOptions tunes [DriftWith].
+// AgentsOnly skips undeclared tabs that run no agent.
+type DriftOptions struct {
+	AgentsOnly bool
+}
+
+// DriftWith is [Drift] with options.
+func DriftWith(spec Spec, live Live, opts DriftOptions) []string {
 	var lines []string
-	lines = append(lines, extraTabs(spec, live)...)
+	lines = append(lines, extraTabs(spec, live, opts)...)
 	lines = append(lines, extraNames(spec, live)...)
 	lines = append(lines, extraCrons(spec, live)...)
 	lines = append(lines, misplacedCrons(spec, live)...)
@@ -22,7 +33,7 @@ func Drift(spec Spec, live Live) []string {
 	return lines
 }
 
-func extraTabs(spec Spec, live Live) []string {
+func extraTabs(spec Spec, live Live, opts DriftOptions) []string {
 	if live.HerdrNotRead {
 		return nil
 	}
@@ -39,12 +50,37 @@ func extraTabs(spec Spec, live Live) []string {
 		}
 		return strings.Compare(a.Label, b.Label)
 	})
-	var lines []string
+	var lines, shells []string
 	for _, tab := range tabs {
+		if !tabHasAgent(live, tab) {
+			if !opts.AgentsOnly {
+				shells = append(shells, shellTabPrefix+tab.Workspace+"/"+tab.Label)
+			}
+			continue
+		}
 		lines = append(lines, "+ tab "+tab.Workspace+"/"+tab.Label)
 		lines = append(lines, "add to spec, or USER: close tab "+tab.Label+" in "+tab.Workspace+" if it is no longer needed")
 	}
-	return lines
+	return append(lines, shells...)
+}
+
+// shellTabPrefix marks a tab that runs no agent. [PlanChanged] ignores it.
+const shellTabPrefix = "~ shell tab "
+
+// tabHasAgent reports whether a live agent is in the tab
+// or an agentbus name points to one of its panes.
+func tabHasAgent(live Live, tab LiveTab) bool {
+	for _, agent := range live.Agents {
+		if agent.Workspace == tab.Workspace && agent.Tab == tab.Label {
+			return true
+		}
+	}
+	for _, item := range live.Names {
+		if item.Pane != "" && slices.Contains(tab.Panes, item.Pane) {
+			return true
+		}
+	}
+	return false
 }
 
 func tabInScope(spec Spec, workspace string) bool {
