@@ -1,0 +1,2 @@
+timestamp-syntax.orgtest:2: timestamp-syntax: Potentially malformed timestamp <2026-13-45 Mon>.  Parsed as: <2027-02-14 Sun>
+timestamp-syntax.orgtest:3: timestamp-syntax: Potentially malformed timestamp <2026-01-01 Thu +1x>.  Parsed as: <2026-01-01 Thu>

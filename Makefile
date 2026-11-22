@@ -265,3 +265,13 @@ check-gitleaks:
 		exit 1; \
 	fi
 	@gitleaks git --redact --no-banner .
+
+# Manual only: needs Emacs and is never part of check or test.
+# Usage: make org-lint-parity [GO_LINT=cmd]; make org-lint-parity-update
+.PHONY: org-lint-parity org-lint-parity-update
+org-lint-parity org-lint-parity-update:
+	@mkdir -p .tmp
+	go build -o .tmp/org-lint ./devtools/linters/cmd/org-lint
+	go run ./devtools/linters/cmd/org-lint-parity -emacs-lint .tmp/org-lint \
+		$(if $(GO_LINT),-go-lint "$(GO_LINT)") \
+		$(if $(filter org-lint-parity-update,$(MAKECMDGOALS)),-update)

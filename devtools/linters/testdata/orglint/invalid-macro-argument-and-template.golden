@@ -1,0 +1,2 @@
+invalid-macro-argument-and-template.orgtest:2: invalid-macro-argument-and-template: Missing argument in macro "two"
+invalid-macro-argument-and-template.orgtest:2: invalid-macro-argument-and-template: Undefined macro "undefined"

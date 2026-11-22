@@ -1,0 +1,3 @@
+#+begin_src bash :results bogus
+echo hi
+#+end_src

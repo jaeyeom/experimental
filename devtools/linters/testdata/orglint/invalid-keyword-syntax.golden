@@ -1,0 +1,2 @@
+invalid-keyword-syntax.orgtest:1: invalid-keyword-syntax: Possible missing colon in keyword "TITLE"
+invalid-keyword-syntax.orgtest:2: empty-header-argument: Empty value in header argument ":var"

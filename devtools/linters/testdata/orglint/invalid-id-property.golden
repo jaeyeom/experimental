@@ -1,0 +1,1 @@
+invalid-id-property.orgtest:3: invalid-id-property: IDs should not include "::": "file.org::bad"

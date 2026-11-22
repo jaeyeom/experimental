@@ -1,0 +1,2 @@
+#+INCLUDE: "other.org" :lines "1-"
+#+INCLUDE: "[[file:other.org::*H]]" :minlevel x

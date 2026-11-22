@@ -1,0 +1,2 @@
+file-application.orgtest:1: file-application: Deprecated "file+emacs" link type
+file-application.orgtest:1: link-to-local-file: Link to non-existent local file "foo.org"

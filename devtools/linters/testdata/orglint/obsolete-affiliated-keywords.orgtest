@@ -1,0 +1,4 @@
+#+DATA: obsolete
+#+begin_src bash
+echo
+#+end_src

@@ -1,0 +1,2 @@
+item-number.orgtest:1: item-number: Bullet counter "3. " is not the same with item position 1.  Consider adding manual [@3] counter.
+item-number.orgtest:2: item-number: Bullet counter "4. " is not the same with item position 2.  Consider adding manual [@4] counter.

@@ -1,0 +1,15 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["parity.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/linters/orglintparity",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = ["parity_test.go"],
+    data = ["//devtools/linters/testdata/orglint:fixtures"],
+    embed = [":go_default_library"],
+)

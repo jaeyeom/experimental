@@ -1,0 +1,7 @@
+#+begin_src bash
+echo hi
+#+end_src
+
+#+NAME: out
+#+RESULTS:
+: hi

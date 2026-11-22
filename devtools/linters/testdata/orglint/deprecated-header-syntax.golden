@@ -1,0 +1,2 @@
+deprecated-header-syntax.orgtest:1: deprecated-header-syntax: Deprecated syntax for "results".  Use header-args instead
+deprecated-header-syntax.orgtest:5: deprecated-header-syntax: Deprecated syntax for "results".  Use :header-args: instead

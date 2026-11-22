@@ -1,0 +1,1 @@
+named-result.orgtest:5: named-result: Links to "out" will not be valid during export unless the parent source block has :exports results or both

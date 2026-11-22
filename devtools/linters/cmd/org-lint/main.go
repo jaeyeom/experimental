@@ -23,6 +23,8 @@
 // Environment Variables:
 //
 //	DEBUG - if set, prints debug information including the load-path
+//	ORG_LINT_NORMALIZED - if set, prints filename:line: checker-name: description
+//	  (the format used by the org-lint-parity harness)
 //
 // The tool uses Emacs in batch mode with the following approach:
 //  1. Detects user's Emacs configuration directory using user-emacs-directory
@@ -269,13 +271,19 @@ func lintOrgFiles(files []string) error {
     (dolist (filename files)
       (let ((buf (find-file-noselect filename)))
         (with-current-buffer buf
+          ;; Fixtures use a non-.org extension to stay out of pre-commit lint.
+          (unless (derived-mode-p 'org-mode) (org-mode))
           (let ((issues (org-lint)))
             (dolist (issue issues)
               (let* ((vec (cadr issue))
                      (line (string-to-number (aref vec 0)))
                      (trust (aref vec 1))
                      (description (aref vec 2)))
-                (princ (format "%s:%d: (%s) %s\n" filename line trust description))))
+                (princ (if (getenv "ORG_LINT_NORMALIZED")
+                           (format "%s:%d: %s: %s\n" filename line
+                                   (org-lint-checker-name (aref vec 3))
+                                   description)
+                         (format "%s:%d: (%s) %s\n" filename line trust description)))))
             (when issues
               (setq has-issues t))))
         (kill-buffer buf)))

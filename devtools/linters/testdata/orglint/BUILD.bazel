@@ -1,0 +1,8 @@
+filegroup(
+    name = "fixtures",
+    srcs = glob([
+        "*.orgtest",
+        "*.golden",
+    ]),
+    visibility = ["//devtools/linters:__subpackages__"],
+)

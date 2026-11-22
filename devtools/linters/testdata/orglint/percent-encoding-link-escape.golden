@@ -1,0 +1,2 @@
+percent-encoding-link-escape.orgtest:1: link-to-local-file: Link to non-existent local file "a%20b.org"
+percent-encoding-link-escape.orgtest:1: percent-encoding-link-escape: Link escaped with obsolete percent-encoding syntax

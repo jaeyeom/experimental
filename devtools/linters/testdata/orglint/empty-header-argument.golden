@@ -1,0 +1,2 @@
+empty-header-argument.orgtest:1: empty-header-argument: Empty value in header argument ":results"
+empty-header-argument.orgtest:1: wrong-header-value: Unknown value "nil" for header ":results"

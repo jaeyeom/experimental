@@ -1,0 +1,4 @@
+#+begin_src bash -n -r
+echo hi (ref:one)
+#+end_src
+[[(one)]] and [[(two)]]

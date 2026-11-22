@@ -1,0 +1,2 @@
+invalid-babel-call-block.orgtest:1: invalid-babel-call-block: Babel call's end header must not be wrapped within brackets
+invalid-babel-call-block.orgtest:1: wrong-header-argument: Missing colon in header argument "[[:results"
