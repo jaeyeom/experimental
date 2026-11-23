@@ -276,7 +276,7 @@ func TestSendVerbatimFileAndShapeChecks(t *testing.T) {
 		if !strings.HasPrefix(stdout, "sent to alpha as "+it.ID) {
 			t.Fatalf("stdout = %q", stdout)
 		}
-		if it.Verbatim != longLine || it.Question != "" {
+		if it.Verbatim != longLine || it.Question != "First line of user text" {
 			t.Fatalf("item = %+v", it)
 		}
 		if len(it.Messages) != 1 || it.Messages[0].Text != "" || it.Messages[0].Verbatim != longLine {
@@ -291,12 +291,42 @@ func TestSendVerbatimFileAndShapeChecks(t *testing.T) {
 			t.Fatalf("notification note = %q", parts)
 		}
 		showOut, showErr, showCode := runCLI("show", it.ID)
-		if showCode != 0 || !strings.Contains(showOut, "verbatim: "+longLine) {
+		if showCode != 0 || !strings.Contains(showOut, "question: First line of user text\n") || !strings.Contains(showOut, "verbatim: "+longLine) {
 			t.Fatalf("show = %d\n%s\n%s", showCode, showOut, showErr)
+		}
+		showJSONOut, showJSONErr, showJSONCode := runCLI("show", "--json", it.ID)
+		if showJSONCode != 0 || !strings.Contains(showJSONOut, `"question": "First line of user text"`) || !strings.Contains(showJSONOut, `"verbatim":`) {
+			t.Fatalf("show --json = %d\n%s\n%s", showJSONCode, showJSONOut, showJSONErr)
 		}
 		listOut, listErr, listCode := runCLI("list")
 		if listCode != 0 || !strings.Contains(listOut, "First line of user text") {
 			t.Fatalf("list = %d\n%s\n%s", listCode, listOut, listErr)
+		}
+	})
+
+	t.Run("send --to verbatim-only skips shape check on first line and plain text overrides question", func(t *testing.T) {
+		writeDecideConfig(t, `{"targets":[{"name":"alpha","pane":"pane-a"}],"sendTemplate":"true {pane}"}`+"\n")
+		longFirst := strings.Repeat("v", 150)
+		verbatimText := longFirst + "\nSecond line"
+		_, stderr, code := runCLI("send", "--to", "alpha", "--verbatim", verbatimText)
+		if code != 0 {
+			t.Fatalf("send --to long verbatim = %d\n%s", code, stderr)
+		}
+		items := showThreads(t)
+		if len(items) != 1 || items[0].Question != longFirst || items[0].Verbatim != verbatimText {
+			t.Fatalf("items = %+v", items)
+		}
+
+		_, stderr, code = runCLI("send", "--to", "alpha", "--verbatim", verbatimText, "Short verdict")
+		if code != 0 {
+			t.Fatalf("send --to with text + verbatim = %d\n%s", code, stderr)
+		}
+		items = showThreads(t)
+		if len(items) != 2 {
+			t.Fatalf("items = %+v", items)
+		}
+		if items[1].Question != "Short verdict" || items[1].Verbatim != verbatimText {
+			t.Fatalf("item[1] = %+v", items[1])
 		}
 	})
 

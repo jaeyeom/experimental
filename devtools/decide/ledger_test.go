@@ -975,6 +975,39 @@ func TestStartThreadStoresTheHumanNote(t *testing.T) {
 	}
 }
 
+func TestStartThreadVerbatimSetsQuestionToFirstLine(t *testing.T) {
+	led, _ := openTemp(t)
+
+	// Verbatim-only: question is line 1 unchanged (no shape check, no trimming beyond line break).
+	longFirst := "  " + strings.Repeat("v", 150) + "  "
+	verbatim := longFirst + "\r\nsecond line\nthird line"
+	got, err := led.StartThreadVerbatim("alpha", "pane-a", "", verbatim, ViaCLI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Question != longFirst {
+		t.Fatalf("Question = %q, want %q", got.Question, longFirst)
+	}
+	if got.Verbatim != verbatim {
+		t.Fatalf("Verbatim = %q, want %q", got.Verbatim, verbatim)
+	}
+	if len(got.Messages) != 1 || got.Messages[0].Text != "" || got.Messages[0].Verbatim != verbatim {
+		t.Fatalf("Messages = %+v", got.Messages)
+	}
+
+	// Plain text + verbatim: question stays the plain text.
+	withText, err := led.StartThreadVerbatim("alpha", "pane-a", "Short verdict", verbatim, ViaCLI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withText.Question != "Short verdict" || withText.Verbatim != verbatim {
+		t.Fatalf("withText = %+v", withText)
+	}
+	if len(withText.Messages) != 1 || withText.Messages[0].Text != "Short verdict" || withText.Messages[0].Verbatim != verbatim {
+		t.Fatalf("withText Messages = %+v", withText.Messages)
+	}
+}
+
 func TestForwardThreadRecordsTheSource(t *testing.T) {
 	led, dir := openTemp(t)
 	got, err := led.ForwardThread("D-123", "alpha", "pane-a", "fwd note", ViaCLI)

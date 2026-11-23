@@ -293,8 +293,10 @@ func (l *Ledger) Create(item *Item) (Item, error) {
 		if err != nil {
 			return Item{}, err
 		}
-		if err := CheckShape(stored.Question, limits); err != nil {
-			return Item{}, err
+		if !isVerbatimOnlyThread(&stored) {
+			if err := CheckShape(stored.Question, limits); err != nil {
+				return Item{}, err
+			}
 		}
 		if err := checkOptionsShape(stored.Options, limits); err != nil {
 			return Item{}, err
@@ -743,8 +745,12 @@ func (l *Ledger) ForwardThreadVerbatimAt(from, owner, pane, text, verbatim, via 
 		msg.WrittenAt = &w
 		msg.ReceivedAt = &r
 	}
+	question := text
+	if strings.TrimSpace(question) == "" {
+		question = verbatimFirstLine(verbatim)
+	}
 	return l.Create(&Item{
-		Question:      text,
+		Question:      question,
 		Verbatim:      verbatim,
 		Owner:         owner,
 		Kind:          KindRelay,
@@ -1782,4 +1788,16 @@ func migrateStore(st *store) bool {
 
 func isUICreated(item *Item) bool {
 	return len(item.Messages) == 1 && item.Messages[0].Author == "human" && item.Messages[0].Via == ViaUI
+}
+
+func isVerbatimOnlyThread(item *Item) bool {
+	return len(item.Messages) == 1 &&
+		item.Messages[0].Author == "human" &&
+		strings.TrimSpace(item.Messages[0].Text) == "" &&
+		strings.TrimSpace(item.Messages[0].Verbatim) != ""
+}
+
+func verbatimFirstLine(verbatim string) string {
+	first, _, _ := strings.Cut(verbatim, "\n")
+	return strings.TrimSuffix(first, "\r")
 }

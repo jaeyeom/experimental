@@ -4595,4 +4595,7 @@ func TestVerbatimOnlyThreadShowsInListAndItemView(t *testing.T) {
 			t.Errorf("item view missing %q:\n%s", want, itemView)
 		}
 	}
+	if n := strings.Count(itemView, "Exact user line"); n != 1 {
+		t.Errorf("item view rendered first line %d times, want 1:\n%s", n, itemView)
+	}
 }
