@@ -43,3 +43,21 @@ export const snooze = (id, when) => post(`/items/${encodeURIComponent(id)}/snooz
 export const unsnooze = (id) => post(`/items/${encodeURIComponent(id)}/unsnooze`);
 export const archiveAllNotes = (seen) => post('/notes/archive-all', { seen });
 export const newerMessage = (e) => e instanceof ApiError && e.status === 409 && e.data?.code === 'newer_message';
+
+// Thread writes. Item writes may answer 200 with {item, notifyError}: the
+// write is saved but telling the agent failed.
+const itemPath = (id, op) => `/items/${encodeURIComponent(id)}/${op}`;
+export const markRead = (id) => post(itemPath(id, 'read'));
+export const answer = (id, body) => post(itemPath(id, 'answer'), body);
+export const reply = (id, body) => post(itemPath(id, 'reply'), body);
+export const done = (id, outcome) => post(itemPath(id, 'done'), outcome ? { outcome } : {});
+export const conflict = (e) => e instanceof ApiError && e.status === 409 && !!e.data?.conflict;
+export const draftConflict = (e) => e instanceof ApiError && e.status === 409 && !!e.data?.draftConflict;
+
+// Drafts: put resolves {draft, draftConflict} and rejects with ApiError 409
+// carrying the same body on a conflict. remove deletes the whole draft, or
+// one conflict copy, and resolves {draft} for the latter.
+export const putDraft = (key, draft, baseRev) =>
+  call('PUT', `/drafts/${encodeURIComponent(key)}`, { draft, baseRev });
+export const removeDraft = (key, conflictId) =>
+  call('DELETE', `/drafts/${encodeURIComponent(key)}` + (conflictId ? `?conflictId=${encodeURIComponent(conflictId)}` : ''));

@@ -23,6 +23,11 @@ func TestStaticAssets(t *testing.T) {
 		{"/static/inbox_view.js", "text/javascript"},
 		{"/static/swipe.js", "text/javascript"},
 		{"/static/snooze_sheet.js", "text/javascript"},
+		{"/static/text_render.js", "text/javascript"},
+		{"/static/thread_model.js", "text/javascript"},
+		{"/static/draft_sync.js", "text/javascript"},
+		{"/static/sheet.js", "text/javascript"},
+		{"/static/thread_view.js", "text/javascript"},
 		{"/static/styles.css", "text/css"},
 		{"/static/icons/icon.svg", "image/svg+xml"},
 	} {

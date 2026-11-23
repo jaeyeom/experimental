@@ -4,6 +4,7 @@ import * as api from './api.js';
 import { createStore, parseRoute, freshness, busDown } from './store.js';
 import { el } from './dom.js';
 import { createInboxView } from './inbox_view.js';
+import { createThreadView } from './thread_view.js';
 import { unreadCount, selectFolder } from './inbox_model.js';
 
 const $ = (id) => document.getElementById(id);
@@ -85,6 +86,7 @@ function renderNav(state) {
 }
 
 const inboxView = createInboxView({ root: $('list'), toast });
+const threadView = createThreadView({ root: $('main'), toast });
 
 function themePicker() {
   const cur = getTheme();
@@ -99,15 +101,9 @@ function themePicker() {
 
 function renderDetail(state) {
   const main = $('main');
+  if (route.name === 'item') { threadView.render(state, route); return; }
+  threadView.leave();
   switch (route.name) {
-  case 'item': {
-    const it = state.items.find((x) => x.id === route.arg);
-    main.replaceChildren(it
-      ? el('article', {}, el('h2', { text: it.id }), el('p', { text: it.question }),
-        ...(it.verbatim ? [el('pre', { text: it.verbatim })] : []))
-      : el('p', { class: 'empty', text: 'Item not found.' }));
-    break;
-  }
   case 'settings': {
     const out = el('button', { type: 'button', text: 'Sign out' });
     out.addEventListener('click', async () => { try { await api.logout(); } catch { /* ignore */ } showLogin(); });

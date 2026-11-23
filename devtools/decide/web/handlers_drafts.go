@@ -77,5 +77,19 @@ func (s *Server) deleteDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Watcher().Signal()
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	resp := map[string]any{"ok": true}
+	if conflictID != "" {
+		// Hand back what is left so the client has the new revision.
+		_, drafts, err := s.drafts()
+		if err != nil {
+			fail(w, err, http.StatusInternalServerError)
+			return
+		}
+		for _, d := range drafts {
+			if d.Key == key {
+				resp["draft"] = d
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
 }

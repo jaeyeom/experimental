@@ -627,12 +627,18 @@ func TestDrafts(t *testing.T) {
 		t.Errorf("conflict = %v", m)
 	}
 	conflictID := d["conflicts"].([]any)[0].(map[string]any)["id"].(string)
-	a.wantOK(a.do("DELETE", "/api/v1/drafts/"+key+"?conflictId="+conflictID, ""), 200)
+	m = a.wantOK(a.do("DELETE", "/api/v1/drafts/"+key+"?conflictId="+conflictID, ""), 200)
+	left, ok := m["draft"].(map[string]any)
+	if !ok || left["text"] != "second" || left["rev"] == nil || left["conflicts"] != nil {
+		t.Errorf("conflict delete should return the draft left behind, got %v", m)
+	}
 	ds, _ := decide.OpenDraftStore(a.dir)
 	if _, drafts, _ := ds.List(); len(drafts) != 1 || len(drafts[0].Conflicts) != 0 {
 		t.Errorf("after conflict delete = %+v", drafts)
 	}
-	a.wantOK(a.do("DELETE", "/api/v1/drafts/"+key, ""), 200)
+	if m = a.wantOK(a.do("DELETE", "/api/v1/drafts/"+key, ""), 200); m["draft"] != nil {
+		t.Errorf("whole delete returned a draft: %v", m)
+	}
 	if _, drafts, _ := ds.List(); len(drafts) != 0 {
 		t.Errorf("after delete = %+v", drafts)
 	}

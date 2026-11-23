@@ -120,3 +120,52 @@ dialog.sheet h2 { margin: 0 0 .75rem; font-size: 1.1rem; }
 .sheet-presets, .sheet-actions { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .75rem; }
 dialog.sheet label { display: block; margin-bottom: .25rem; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* Thread view. */
+.thread { display: flex; flex-direction: column; min-height: 100%; }
+.thread-head { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .25rem 0 .5rem; border-bottom: 1px solid var(--border); }
+.thread-head .id { color: var(--muted); }
+.thread-head .owner { color: var(--muted); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.thread-head .back { min-width: 44px; min-height: 44px; display: grid; place-items: center; text-decoration: none; font-size: 1.4rem; color: var(--text); }
+@media (min-width: 840px) { .thread-head .back { display: none; } }
+.menu-btn { min-width: 44px; padding: 0; font-size: 1.2rem; }
+.thread-body { flex: 1; padding: .5rem 0; min-width: 0; }
+.messages { list-style: none; margin: 0; padding: 0; }
+.msg { padding: .5rem 0; border-bottom: 1px solid var(--border); }
+.msg.mine .who { color: var(--accent); }
+.msg-head { display: flex; gap: .5rem; align-items: baseline; font-size: .85rem; color: var(--muted); }
+.msg-head .who { font-weight: 600; color: var(--text); }
+.msg-head .mark { margin-left: auto; }
+.msg-head .mark.bad, .notice { color: var(--danger); }
+.text .para { margin: .25rem 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+pre.code { margin: .25rem 0; overflow-x: auto; white-space: pre; }
+.divider { display: flex; align-items: center; gap: .5rem; color: var(--accent); font-size: .8rem; padding: .5rem 0; justify-content: center; }
+.verbatim { margin: .5rem 0; padding: 0; border: 2px solid var(--border); border-radius: 8px; background: var(--surface); overflow: hidden; }
+.verbatim figcaption { font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: .25rem .75rem; border-bottom: 1px solid var(--border); }
+.verbatim pre { margin: 0; border-radius: 0; background: transparent; }
+.approval-card { border: 2px solid var(--c-A); border-radius: 10px; padding: .75rem; margin: .5rem 0; }
+.approval-card h2 { margin: 0 0 .5rem; font-size: 1rem; color: var(--c-A); }
+.approval-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+.approval-actions button { flex: 1; min-width: 6rem; }
+button.danger { color: var(--danger); border-color: var(--danger); }
+.options { display: grid; gap: .5rem; margin: .5rem 0; }
+.option-row { display: flex; gap: .5rem; }
+button.option { flex: 1; display: flex; align-items: center; gap: .75rem; text-align: left; min-height: 52px; }
+button.option .key { font-weight: 700; }
+button.option .label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.pill.rec { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.note-btn { white-space: nowrap; }
+.type-in { border: 2px solid var(--c-T); border-radius: 10px; padding: .75rem; margin: .5rem 0; }
+.type-text { font-size: 1.05rem; user-select: all; }
+.reply { position: sticky; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px)); background: var(--bg); border-top: 1px solid var(--border); padding: .5rem 0; display: grid; gap: .5rem; z-index: 2; }
+@media (min-width: 840px) { .reply { bottom: 0; } }
+.reply-text { width: 100%; resize: none; min-height: 44px; max-height: 40vh; padding: .6rem .75rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); transition: height .12s ease; }
+.reply.collapsed .reply-actions { display: none; }
+.reply-actions, .row-btns { display: flex; gap: .5rem; flex-wrap: wrap; }
+.pending-chip { display: flex; align-items: center; gap: .5rem; background: var(--surface); border-radius: 999px; padding: 0 .5rem 0 .75rem; font-size: .85rem; }
+.pending-chip .x { min-width: 44px; padding: 0; }
+.draft-banner { border: 1px solid var(--danger); border-radius: 8px; padding: .5rem .75rem; background: var(--warn-bg); }
+.draft-banner p { margin: 0 0 .5rem; }
+.conflict-text { max-height: 8rem; overflow: auto; }
+.sheet-stack { flex-direction: column; }
+.sheet-stack button { width: 100%; }
