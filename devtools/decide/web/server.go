@@ -56,8 +56,26 @@ type Server struct {
 	// WatchEvery is the watcher poll interval. Zero means 100ms.
 	WatchEvery time.Duration
 
-	stateOnce sync.Once
-	api       *apiState
+	// PushPath is the Web Push state file. Empty means
+	// $XDG_STATE_HOME/decide/webpush.json.
+	PushPath string
+	// PushClient is the push-service HTTP client. Nil means a client that
+	// refuses non-public addresses and times out.
+	PushClient *http.Client
+	// AllowInsecurePush permits http and loopback push endpoints, for
+	// tests.
+	AllowInsecurePush bool
+	// PushAfter is a test hook for the grace and wake timers. Nil means
+	// time.AfterFunc.
+	PushAfter func(d time.Duration, f func()) (stop func() bool)
+
+	stateOnce      sync.Once
+	api            *apiState
+	pushOnce       sync.Once
+	push           *PushStore
+	pushErr        error
+	pushClientOnce sync.Once
+	pushHTTP       *http.Client
 }
 
 func (s *Server) now() time.Time {
@@ -127,6 +145,9 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	}
 	if s.Backend != nil {
 		go s.busLoop(ctx)
+		if s.Config.Web.Push.Enabled {
+			go newPushDispatcher(s).run(ctx)
+		}
 	}
 	srv := &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second}
 	errc := make(chan error, 1)
@@ -162,6 +183,7 @@ func (s *Server) Handler() (http.Handler, error) {
 	})
 	a.routes(mux)
 	s.apiRoutes(mux)
+	s.pushRoutes(mux)
 	return securityHeaders(a.csrf(a.require(mux))), nil
 }
 

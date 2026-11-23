@@ -43,9 +43,13 @@ type apiState struct {
 
 func (s *Server) state() *apiState {
 	s.stateOnce.Do(func() {
-		s.api = &apiState{watcher: &inboxrpc.Watcher{Backend: s.Backend, OrgConfig: s.OrgConfig, Every: s.WatchEvery}}
+		s.api = &apiState{watcher: s.newWatcher()}
 	})
 	return s.api
+}
+
+func (s *Server) newWatcher() *inboxrpc.Watcher {
+	return &inboxrpc.Watcher{Backend: s.Backend, OrgConfig: s.OrgConfig, Every: s.WatchEvery}
 }
 
 // Watcher is the shared hub watcher, signalled after every write.
