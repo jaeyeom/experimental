@@ -4,6 +4,7 @@
 export const emptyState = () => ({
   seq: 0, items: [], status: null, drafts: null, contacts: null,
   orgTree: null, display: null, busHealth: null, syncedAt: null,
+  targets: [], agentbus: false, orgTreeEnabled: false,
 });
 
 // applyResync replaces everything the event carries and keeps the rest.
@@ -16,6 +17,9 @@ export function applyResync(state, ev, now = Date.now()) {
     drafts: ev.drafts ?? state.drafts,
     display: ev.display ?? state.display,
     busHealth: ev.busHealth ?? null,
+    targets: ev.targets ?? state.targets,
+    agentbus: ev.agentbus ?? state.agentbus,
+    orgTreeEnabled: ev.orgTreeEnabled ?? state.orgTreeEnabled,
     syncedAt: now,
   };
 }
@@ -45,16 +49,20 @@ export function applyDelta(state, ev, now = Date.now()) {
 
 const routeNames = new Set(['inbox', 'folder', 'item', 'compose', 'status', 'contacts', 'settings']);
 
-// parseRoute turns a location hash into {name, arg}. Unknown routes fall
+// parseRoute turns a location hash into {name, arg, query?}; #/compose/<id>
+// forwards item <id> and #/compose?to=<name> picks a recipient. Unknown routes fall
 // back to the inbox.
 export function parseRoute(hash) {
-  const parts = String(hash ?? '').replace(/^#\/?/, '').split('/').filter(Boolean);
+  const [path, qs = ''] = String(hash ?? '').split('?', 2);
+  const parts = path.replace(/^#\/?/, '').split('/').filter(Boolean);
   const name = parts[0] ?? 'inbox';
   if (!routeNames.has(name)) return { name: 'inbox', arg: '' };
   let arg = '';
   try { arg = parts[1] ? decodeURIComponent(parts[1]) : ''; } catch { arg = ''; }
   if ((name === 'item' || name === 'folder') && !arg) return { name: 'inbox', arg: '' };
-  return { name, arg };
+  const route = { name, arg };
+  if (qs) route.query = Object.fromEntries(new URLSearchParams(qs));
+  return route;
 }
 
 // busDown mirrors the TUI: the bus cannot deliver while the daemon or

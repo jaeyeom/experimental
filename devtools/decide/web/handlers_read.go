@@ -145,13 +145,18 @@ func (s *Server) getStatus(w http.ResponseWriter, _ *http.Request) {
 
 // contact is one row of the Contacts view.
 type contact struct {
-	Name     string         `json:"name"`
-	Bus      bool           `json:"bus"`
-	Liveness string         `json:"liveness,omitempty"`
-	Handle   string         `json:"handle,omitempty"`
-	Hidden   bool           `json:"hidden"`
-	Favorite bool           `json:"favorite"`
-	Counts   map[string]int `json:"counts"`
+	Name     string `json:"name"`
+	Bus      bool   `json:"bus"`
+	Liveness string `json:"liveness,omitempty"`
+	Handle   string `json:"handle,omitempty"`
+	// When is the bus name's --when text; LivenessAge is the seconds since
+	// agentbus observed Liveness; Last is the newest activity on its items.
+	When        string         `json:"when,omitempty"`
+	LivenessAge *int64         `json:"livenessAge,omitempty"`
+	Last        *time.Time     `json:"last,omitempty"`
+	Hidden      bool           `json:"hidden"`
+	Favorite    bool           `json:"favorite"`
+	Counts      map[string]int `json:"counts"`
 	// Deliveries counts pending and failed deliveries to the contact.
 	Deliveries map[string]int `json:"deliveries"`
 }
@@ -202,7 +207,7 @@ func (s *Server) contacts(w http.ResponseWriter, r *http.Request) {
 	} else {
 		for _, b := range bus {
 			c := get(b.Name)
-			c.Bus, c.Liveness, c.Handle = true, b.Liveness, b.Handle
+			c.Bus, c.Liveness, c.Handle, c.When, c.LivenessAge = true, b.Liveness, b.Handle, b.When, b.LivenessAge
 		}
 	}
 	for i := range items {
@@ -234,6 +239,9 @@ func nonNil(s []string) []string {
 }
 
 func count(c *contact, it *decide.Item) {
+	if at := it.LastMessageAt(); c.Last == nil || at.After(*c.Last) {
+		c.Last = &at
+	}
 	switch {
 	case decide.InState(it, decide.StateOpen):
 		c.Counts["open"]++
@@ -255,9 +263,11 @@ func count(c *contact, it *decide.Item) {
 }
 
 type busContact struct {
-	Name     string `json:"name"`
-	Liveness string `json:"liveness"`
-	Handle   string `json:"handle"`
+	Name        string `json:"name"`
+	When        string `json:"when"`
+	Liveness    string `json:"liveness"`
+	Handle      string `json:"handle"`
+	LivenessAge *int64 `json:"liveness_age"` //nolint:tagliatelle // the stable agentbus list --json field name
 }
 
 // busContacts is `agentbus list --json`. An unavailable bus is an error

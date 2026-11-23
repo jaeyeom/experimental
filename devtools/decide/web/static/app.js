@@ -5,6 +5,10 @@ import { createStore, parseRoute, freshness, busDown } from './store.js';
 import { el } from './dom.js';
 import { createInboxView } from './inbox_view.js';
 import { createThreadView } from './thread_view.js';
+import { createComposeView } from './compose_view.js';
+import { createStatusView } from './status_view.js';
+import { createContactsView } from './contacts_view.js';
+import { createSettingsView } from './settings_view.js';
 import { unreadCount, selectFolder } from './inbox_model.js';
 
 const $ = (id) => document.getElementById(id);
@@ -34,6 +38,7 @@ function applyTheme(t) {
 }
 applyTheme(getTheme());
 
+let connState = 'offline';
 const store = createStore();
 let started = false;
 let route = parseRoute(location.hash);
@@ -88,34 +93,28 @@ function renderNav(state) {
 const inboxView = createInboxView({ root: $('list'), toast });
 const threadView = createThreadView({ root: $('main'), toast });
 
-function themePicker() {
-  const cur = getTheme();
-  const box = el('div', { class: 'seg', role: 'group', 'aria-label': 'Theme' });
-  for (const t of THEMES) {
-    const b = el('button', { type: 'button', text: t, 'aria-pressed': String(t === cur) });
-    b.addEventListener('click', () => { setTheme(t); render(); });
-    box.append(b);
-  }
-  return box;
-}
+const composeView = createComposeView({ root: $('main'), toast });
+const statusView = createStatusView({ root: $('main') });
+const contactsView = createContactsView({
+  root: $('main'), toast,
+  onFilter: (name) => { inboxView.setAgent(name); location.hash = '#/inbox'; },
+});
+const settingsView = createSettingsView({
+  root: $('main'), toast, themes: THEMES, getTheme, setTheme,
+  connection: () => connState,
+  signOut: async () => { try { await api.logout(); } catch { /* ignore */ } showLogin(); },
+});
+const secondary = { compose: composeView, status: statusView, contacts: contactsView, settings: settingsView };
 
 function renderDetail(state) {
   const main = $('main');
+  for (const [name, view] of Object.entries(secondary)) {
+    if (name !== route.name) view.leave();
+  }
   if (route.name === 'item') { threadView.render(state, route); return; }
   threadView.leave();
-  switch (route.name) {
-  case 'settings': {
-    const out = el('button', { type: 'button', text: 'Sign out' });
-    out.addEventListener('click', async () => { try { await api.logout(); } catch { /* ignore */ } showLogin(); });
-    main.replaceChildren(el('h2', { text: 'Settings' }), el('h3', { text: 'Theme' }), themePicker(), el('p', {}, out));
-    break;
-  }
-  case 'inbox': case 'folder':
-    main.replaceChildren(el('p', { class: 'muted', text: 'Select an item.' }));
-    break;
-  default:
-    main.replaceChildren(el('p', { class: 'muted', text: 'Not available yet.' }));
-  }
+  if (secondary[route.name]) { secondary[route.name].render(state, route); return; }
+  main.replaceChildren(el('p', { class: 'muted', text: 'Select an item.' }));
 }
 
 const TITLES = { inbox: 'Inbox', folder: 'Folders', item: 'Thread', compose: 'Compose',
@@ -138,7 +137,6 @@ function render() {
   renderDetail(state);
 }
 
-let connState = 'offline';
 store.subscribe((state, conn) => { connState = conn; render(); });
 
 window.addEventListener('hashchange', () => {
@@ -146,6 +144,8 @@ window.addEventListener('hashchange', () => {
   render();
   $('main').focus({ preventScroll: true });
 });
+// Status ages tick between events.
+setInterval(() => { if (route.name === 'status') render(); }, 30000);
 const clientId = crypto.randomUUID();
 const presence = () => {
   if (started) api.post('/presence', { clientId, active: document.visibilityState === 'visible' }).catch(() => {});

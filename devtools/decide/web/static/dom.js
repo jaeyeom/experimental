@@ -9,3 +9,10 @@ export const el = (tag, attrs = {}, ...kids) => {
   n.append(...kids);
   return n;
 };
+
+// btn builds a type=button button with a click handler.
+export const btn = (text, fn, cls = '', attrs = {}) => {
+  const b = el('button', { type: 'button', text, class: cls, ...attrs });
+  b.addEventListener('click', fn);
+  return b;
+};

@@ -5,9 +5,9 @@
 import { el } from './dom.js';
 
 // openSheet shows title, body nodes and actions [{label, run, primary?,
-// danger?, armMs?}], then Cancel. run is called after the sheet closes.
-export function openSheet({ title, body = [], actions, cancelLabel = 'Cancel', restoreFocus }) {
-  const dlg = el('dialog', { class: 'sheet', 'aria-labelledby': 'sheet-title' });
+// danger?, armMs?}], then Cancel. className 'side' makes it a side panel on desktop. run is called after the sheet closes.
+export function openSheet({ title, body = [], actions, cancelLabel = 'Cancel', restoreFocus, className = '' }) {
+  const dlg = el('dialog', { class: ('sheet ' + className).trim(), 'aria-labelledby': 'sheet-title' });
   const close = () => dlg.close();
   const cancel = el('button', { type: 'button', text: cancelLabel });
   cancel.addEventListener('click', close);

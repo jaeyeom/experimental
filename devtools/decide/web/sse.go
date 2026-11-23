@@ -342,16 +342,27 @@ func (s *Server) resyncBody(ev inboxrpc.WatchEvent, bus []byte) (map[string]any,
 	if err != nil {
 		return nil, err
 	}
+	orgOn, _, err := s.orgEnabled()
+	if err != nil {
+		return nil, err
+	}
+	targets := s.Targets
+	if targets == nil {
+		targets = []decide.ConfigTarget{}
+	}
 	body := map[string]any{
-		"seq":         ev.Seq,
-		"items":       items,
-		"inbox":       inbox,
-		"unreadCount": decide.UnreadCount(open),
-		"status":      status,
-		"drafts":      drafts,
-		"draftSeq":    draftSeq,
-		"display":     display,
-		"busHealth":   json.RawMessage(bus),
+		"seq":            ev.Seq,
+		"items":          items,
+		"inbox":          inbox,
+		"unreadCount":    decide.UnreadCount(open),
+		"status":         status,
+		"drafts":         drafts,
+		"draftSeq":       draftSeq,
+		"display":        display,
+		"busHealth":      json.RawMessage(bus),
+		"targets":        targets,
+		"agentbus":       s.Agentbus,
+		"orgTreeEnabled": orgOn,
 	}
 	if len(bus) == 0 {
 		body["busHealth"] = nil

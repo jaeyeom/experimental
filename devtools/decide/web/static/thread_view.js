@@ -2,7 +2,7 @@
 // decision options, and the pinned reply box with draft sync. All text is
 // set with textContent or text nodes; item text is never parsed as HTML.
 import * as api from './api.js';
-import { el } from './dom.js';
+import { el, btn } from './dom.js';
 import { parseBlocks, linkify } from './text_render.js';
 import { badgeOf, effectiveClass, hasUnread, deadlineLabel, lastStamp } from './inbox_model.js';
 import {
@@ -38,12 +38,6 @@ export const verbatimCard = (text) => el('figure', { class: 'verbatim' },
   el('figcaption', { text: 'Will be posted as written' }), el('pre', { text }));
 
 const pill = (text, cls = '') => el('span', { class: 'pill ' + cls, text });
-const btn = (text, fn, cls = '', attrs = {}) => {
-  const b = el('button', { type: 'button', text, class: cls, ...attrs });
-  b.addEventListener('click', fn);
-  return b;
-};
-
 async function copy(text, toast, what) {
   try { await navigator.clipboard.writeText(text); toast(`Copied ${what}`); } catch { toast('Could not copy'); }
 }

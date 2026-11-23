@@ -69,7 +69,7 @@ func newAPI(t *testing.T) *api {
 				a.bus = append(a.bus, args)
 				switch args[0] {
 				case "list":
-					return []byte(`[{"name":"coord/primary","liveness":"live","handle":"herdr:hub/s/p9"}]`), nil
+					return []byte(`[{"name":"coord/primary","when":"reviews PRs","liveness":"live","handle":"herdr:hub/s/p9","liveness_age":42}]`), nil
 				case "health":
 					return []byte(`{"ok":true}`), nil
 				}
@@ -294,6 +294,11 @@ func TestContacts(t *testing.T) {
 	}
 	if cp := by["coord/primary"]; cp == nil || cp["bus"] != true || cp["liveness"] != "live" {
 		t.Errorf("bus contact = %v", cp)
+	} else if cp["when"] != "reviews PRs" || cp["livenessAge"] != float64(42) {
+		t.Errorf("bus contact when/livenessAge = %v", cp)
+	}
+	if ada["last"] == nil || ada["last"] == "" {
+		t.Errorf("ada last activity missing: %v", ada)
 	}
 	if by["ghost"] != nil && by["ghost"]["hidden"] != true {
 		t.Errorf("ghost = %v", by["ghost"])

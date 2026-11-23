@@ -9,7 +9,9 @@ const blank = (t) => String(t ?? '').trim() === '';
 // put(key, draft, baseRev) resolves to {draft, draftConflict} and rejects
 // with an error carrying {status:409, data} on a conflict.
 // remove(key, conflictId?) resolves to {draft?}, the draft left behind.
-export function createDraftSync({ key, itemId, put, remove, saveLocal, setTimer, clearTimer, onStatus = () => {}, delay = 1500 }) {
+export function createDraftSync({ key, itemId, put, remove, saveLocal, setTimer, clearTimer, onStatus = () => {}, delay = 1500,
+  // makeDraft builds the stored draft; the default is a reply to itemId.
+  makeDraft = (t) => ({ key, kind: 'reply', itemId, text: t }) }) {
   let baseRev = 0;
   let text = '';
   let dirty = false;
@@ -45,7 +47,7 @@ export function createDraftSync({ key, itemId, put, remove, saveLocal, setTimer,
     }
     set('saving');
     try {
-      const r = await put(key, { key, kind: 'reply', itemId, text: snapshot }, baseRev);
+      const r = await put(key, makeDraft(snapshot), baseRev);
       take(r.draft);
       if (text === snapshot) dirty = false;
       set(conflicts.length ? 'conflict' : 'saved');
@@ -97,7 +99,7 @@ export function createDraftSync({ key, itemId, put, remove, saveLocal, setTimer,
         next = mergeMarkers(blank(current) ? was : current, c.text, c);
       }
       if (next !== serverText && !blank(next)) {
-        const r = await put(key, { key, kind: 'reply', itemId, text: next }, baseRev);
+        const r = await put(key, makeDraft(next), baseRev);
         take(r.draft);
       }
       text = next;
