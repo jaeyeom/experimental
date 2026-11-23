@@ -12,7 +12,9 @@ go_library(
         "maintenance_cmd.go",
         "note_cmd.go",
         "routine_cmd.go",
+        "serve_cmd.go",
         "skill.go",
+        "sync_cmd.go",
         "synccheck_cmd.go",
         "toolcli.go",
         "triage_cmd.go",
@@ -23,6 +25,7 @@ go_library(
     deps = [
         "//devtools/memstore:go_default_library",
         "//devtools/pkg/toolcli:go_default_library",
+        "@org_golang_x_sys//unix:go_default_library",
     ],
 )
 
@@ -38,11 +41,13 @@ go_test(
     srcs = [
         "main_test.go",
         "routine_cmd_test.go",
+        "sync_cmd_test.go",
         "toolcli_test.go",
     ],
     embed = [":go_default_library"],
     deps = [
         "//devtools/memstore:go_default_library",
         "//devtools/pkg/toolcli:go_default_library",
+        "@org_golang_x_sys//unix:go_default_library",
     ],
 )

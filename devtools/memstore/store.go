@@ -315,5 +315,9 @@ func schemaMigrations() []string {
 		);
 		CREATE INDEX idx_routine_outbox_status ON routine_outbox(routine_id, status, created_at);`,
 		`ALTER TABLE facts ADD COLUMN expired_at INTEGER;`,
+		`CREATE TABLE inbox_receipts (
+			envelope_id TEXT PRIMARY KEY NOT NULL,
+			ingested_at INTEGER NOT NULL
+		);`,
 	}
 }
