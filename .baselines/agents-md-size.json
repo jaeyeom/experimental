@@ -1,0 +1,12 @@
+{
+  "checker": "agents-md-size",
+  "entries": {
+    "devtools/setup-dev/ansible/AGENTS.md": {
+      "limits": {
+        "max_bytes": 6165
+      },
+      "reason": "Legacy Ansible playbook instructions pending split"
+    }
+  },
+  "version": 1
+}

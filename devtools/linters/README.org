@@ -3,11 +3,13 @@
 
 * Overview
 
-This directory holds three small linters. ~org-lint~ runs Emacs's built-in
+This directory holds four linters. ~org-lint~ runs Emacs's built-in
 Org-mode linter from the command line, so ~.org~ files can be checked in
-CI. The two Go linters catch patterns ~go vet~ doesn't: interface
-assertions that guard nothing, and package-level variables that should be
-constants or that run code at init time.
+CI. ~agents-md-size~ enforces per-file and cascading ancestor byte size
+limits on ~AGENTS.md~ files with ratchetable baselines. The two Go
+linters catch patterns ~go vet~ doesn't: interface assertions that guard
+nothing, and package-level variables that should be constants or that
+run code at init time.
 
 ~make lint~ runs ~pkgvar~.
 [[file:../devcheck/README.org][devcheck]] runs
@@ -24,6 +26,7 @@ Go 1.26 or later.
 | org-lint                               | Org-mode syntax and source blocks, via Emacs org-lint        | Org      | CLI, on .org files             |
 | unnecessary-interface-assertion-linter | var _ I = (*T)(nil) when that assertion adds nothing         | Go       | devcheck's Go fallback         |
 | pkgvar                                 | package-level var that should be const, or that runs at init | Go       | make lint, via go vet -vettool |
+| agents-md-size                         | Per-file (4 KiB) and cascading (16 KiB) AGENTS.md byte size  | Markdown | make check, CI, CLI            |
 
 * Tools
 
@@ -302,10 +305,42 @@ absolute path for the same three lines.
 - The ~pkgvar~ binary exits 3 when it prints a finding. It exits 1 when
   no package is given.
 
+** agents-md-size
+
+Checks per-file (default 4096 bytes) and cascading ancestor (default
+16384 bytes) byte size limits for ~AGENTS.md~ files across a repository.
+Supports the standard checker baseline format in
+~.baselines/agents-md-size.json~ (see
+[[file:../docs/checker-baseline.md][checker-baseline.md]]).
+
+*** Install
+
+#+BEGIN_SRC bash
+go install github.com/jaeyeom/experimental/devtools/linters/cmd/agents-md-size@latest
+#+END_SRC
+
+*** Usage
+
+#+BEGIN_SRC bash
+agents-md-size
+agents-md-size --root /path/to/repo
+agents-md-size --update-baseline
+agents-md-size --tighten-baseline
+agents-md-size --strict-baseline=false
+#+END_SRC
+
+*** Exit codes
+
+- Exits 0 when all ~AGENTS.md~ files pass and no stale baseline entries
+  exist (under ~--strict-baseline=true~).
+- Exits 1 when a size limit is violated or stale/ratchetable baseline
+  entries exist under ~--strict-baseline=true~.
+- Exits 2 on invalid flags, malformed baseline JSON, or I/O errors.
+
 * Development
 
 #+BEGIN_SRC bash
 go test ./devtools/linters/...
 bazel test //devtools/linters/...
-bazel build //devtools/linters/cmd/org-lint //devtools/linters/cmd/pkgvar //devtools/linters/cmd/unnecessary-interface-assertion-linter
+bazel build //devtools/linters/cmd/agents-md-size //devtools/linters/cmd/org-lint //devtools/linters/cmd/pkgvar //devtools/linters/cmd/unnecessary-interface-assertion-linter
 #+END_SRC

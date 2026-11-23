@@ -18,8 +18,9 @@ func TestReadmeRequiredPhrases(t *testing.T) {
 	head := readme[:org]
 	for _, want := range []string{
 		"#+TITLE: Linters",
-		"three small linters",
+		"four linters",
 		"org-lint",
+		"agents-md-size",
 		"unnecessary-interface-assertion-linter",
 		"pkgvar",
 		"make lint",
@@ -44,6 +45,7 @@ func TestReadmeRequiredPhrases(t *testing.T) {
 		"sample.go:12:5: package-level initializer calls an impure function or receives from a channel",
 		"sample.go:14:5: package-level initializer discards its result",
 		"bad.go:9:1: Unnecessary interface assertion",
+		"go install github.com/jaeyeom/experimental/devtools/linters/cmd/agents-md-size@latest",
 		"go install github.com/jaeyeom/experimental/devtools/linters/cmd/org-lint@latest",
 		"go install github.com/jaeyeom/experimental/devtools/linters/cmd/pkgvar@latest",
 		"go install github.com/jaeyeom/experimental/devtools/linters/cmd/unnecessary-interface-assertion-linter@latest",
@@ -60,6 +62,7 @@ func TestReadmeRequiredPhrases(t *testing.T) {
 	}
 	for _, want := range []string{
 		"org-lint",
+		"agents-md-size",
 		"unnecessary-interface-assertion-linter",
 		"pkgvar",
 		"* Index",
@@ -124,8 +127,8 @@ func TestReadmeIndexTableIsRectangular(t *testing.T) {
 			widths = append(widths, len(line))
 		}
 	}
-	if len(widths) < 5 {
-		t.Fatalf("index table has %d rows, want header, separator, and three tools", len(widths))
+	if len(widths) < 6 {
+		t.Fatalf("index table has %d rows, want header, separator, and four tools", len(widths))
 	}
 	for i, width := range widths {
 		if width != widths[0] {

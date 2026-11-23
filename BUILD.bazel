@@ -38,6 +38,7 @@ exports_files(
         ".shellcheckrc",
         "pyproject.toml",
         "uv.lock",
+        ".baselines/agents-md-size.json",
     ],
 )
 

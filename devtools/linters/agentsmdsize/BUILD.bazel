@@ -10,7 +10,20 @@ go_library(
 
 go_test(
     name = "go_default_test",
-    srcs = ["agentsmdsize_test.go"],
+    srcs = [
+        "agentsmdsize_test.go",
+        "repo_test.go",
+    ],
+    data = [
+        "//:.baselines/agents-md-size.json",
+        "//:go.mod",
+    ],
     embed = [":go_default_library"],
+    # Checks the checkout's AGENTS.md files via the go.mod symlink. They are not
+    # declared inputs, so "external" keeps Bazel from caching a stale result.
+    tags = [
+        "external",
+        "local",
+    ],
     deps = ["//devtools/pkg/baseline:go_default_library"],
 )
