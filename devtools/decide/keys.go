@@ -320,7 +320,7 @@ func ActionCatalog() []ActionDef {
 		{Name: "goto.status", View: "global", Scopes: browse, Default: []string{"g s"}, Description: "Go to Status.", Where: "any"},
 		{Name: "goto.contacts", View: "global", Scopes: browse, Default: []string{"g c"}, Description: "Go to Contacts.", Where: "any"},
 		{Name: "goto.outbox", View: "global", Scopes: browse, Default: []string{"g o"}, Description: "Go to Outbox.", Where: "any"},
-		{Name: "goto.top", View: "global", Scopes: browse, Default: []string{"g g"}, Description: "Top of the list.", Where: "list, status, contacts"},
+		{Name: "goto.top", View: "global", Scopes: browse, Default: []string{"g g"}, Description: "Top of the list or item.", Where: "list, item, status, contacts"},
 
 		// List view.
 		{Name: "list.next", View: "list", Scopes: []string{"list"}, Default: []string{"j"}, Description: "Move to the next row.", Where: "list"},
@@ -714,7 +714,7 @@ func FormatReadmeKeyTable(km *KeyMap) string {
 		{formatKeys("detail.nextMessage") + " / " + formatKeys("detail.prevMessage"), "item", "Next or previous message."},
 		{"~g~ then ~i~ ~z~ ~a~ ~d~ ~w~", "any", "Inbox, Snoozed, Answered, Done, Withdrawn."},
 		{"~g~ then ~s~ / ~c~", "any", "Status or Contacts."},
-		{formatKeys("goto.top") + " / " + formatKeys("list.bottom"), "list, status, contacts", "Top or bottom of the list."},
+		{formatKeys("goto.top") + " / " + formatKeys("list.bottom"), "list, item, status, contacts", "Top or bottom of the list or item."},
 		{formatKeys("detail.bottom"), "item", "Scroll to the end."},
 		{formatKeys("list.pageUp") + " / " + formatKeys("list.pageDown") + ", " + formatKeys("list.top") + " / " + formatKeys("list.bottom"), "list and item", "Page, or jump."},
 		{formatKeys("list.open"), "list", "Open the row."},

@@ -331,7 +331,7 @@ func (m *Model) runAction(action string) (bool, error) {
 		"detail.scrollUp":      func() (bool, error) { m.Wheel(false); return false, nil },
 		"detail.pageDown":      func() (bool, error) { m.scrollPage(true); return false, nil },
 		"detail.pageUp":        func() (bool, error) { m.scrollPage(false); return false, nil },
-		"detail.top":           func() (bool, error) { m.scrollHome(); return false, nil },
+		"detail.top":           func() (bool, error) { return m.runDetailTop() },
 		"detail.bottom":        func() (bool, error) { m.scrollEnd(); return false, nil },
 		"detail.nextMessage":   func() (bool, error) { m.moveMessage(1); return false, nil },
 		"detail.prevMessage":   func() (bool, error) { m.moveMessage(-1); return false, nil },
@@ -383,8 +383,20 @@ func (m *Model) runAction(action string) (bool, error) {
 }
 
 func (m *Model) runGoToTop() (bool, error) {
-	if m.mode == modeList || m.mode == modeStatus || m.mode == modeContacts {
+	switch m.mode {
+	case modeList, modeStatus, modeContacts:
 		m.jumpList(0)
+	case modeDetail:
+		return m.runDetailTop()
+	}
+	return false, nil
+}
+
+// runDetailTop scrolls the thread to the top and selects its first message.
+func (m *Model) runDetailTop() (bool, error) {
+	m.scrollHome()
+	if m.detail != nil && !m.help {
+		m.message = 0
 	}
 	return false, nil
 }
@@ -929,7 +941,7 @@ func (m *Model) listOrDetailHelpLines() []string {
 	if isDetail {
 		jk := joinSlash(m.actionFirst("detail.scrollDown"), m.actionFirst("detail.scrollUp"))
 		pg := joinSlash(m.actionFirst("detail.pageUp"), m.actionFirst("detail.pageDown"))
-		he := joinSlash(m.actionFirst("detail.top"), m.actionLast("detail.bottom"), m.actionFirst("detail.bottom"))
+		he := joinSlash(m.actionFirst("detail.top"), m.gotoTopLabel(), m.actionLast("detail.bottom"), m.actionFirst("detail.bottom"))
 		np := joinSlash(m.actionFirst("detail.nextMessage"), m.actionFirst("detail.prevMessage"))
 		lines = append(lines, strings.TrimSpace(jk+" up/down line  "+pg+" page  "+he+"  "+np))
 	} else {

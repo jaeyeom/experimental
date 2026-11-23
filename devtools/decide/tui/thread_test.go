@@ -849,3 +849,76 @@ func archiveAged(t *testing.T, age time.Duration) (decide.Item, *Model, *decide.
 	}
 	return item, m, led
 }
+
+func TestGGScrollsThreadToTop(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	seedTUIThread(t, dir)
+	m := openThread(t, dir)
+	m.width, m.height = 100, 10
+	m.View()
+	m.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	m.View()
+	m.moveMessage(1)
+	if m.message == 0 {
+		t.Fatal("setup: message did not move")
+	}
+	press(t, m, "gg")
+	if m.scroll != 0 || m.message != 0 || m.mode != modeDetail {
+		t.Fatalf("gg scroll %d message %d mode %v", m.scroll, m.message, m.mode)
+	}
+}
+
+func TestRemappedGotoTopWorksInThread(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	seedTUIThread(t, dir)
+	km, err := decide.ResolveKeyMap(map[string][]string{"goto.top": {"g t"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := openThread(t, dir)
+	m.SetKeys(km)
+	m.width, m.height = 100, 10
+	m.View()
+	m.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	m.View()
+	m.moveMessage(1)
+	press(t, m, "gg")
+	if m.scroll == 0 && m.message == 0 {
+		t.Fatal("old gg still works")
+	}
+	press(t, m, "gt")
+	if m.scroll != 0 || m.message != 0 {
+		t.Fatalf("gt scroll %d message %d", m.scroll, m.message)
+	}
+}
+
+func TestGotoChordsStillWorkFromThread(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	seedTUIThread(t, dir)
+	m := openThread(t, dir)
+	press(t, m, "gi")
+	if m.mode != modeList || m.folder != 0 {
+		t.Fatalf("gi mode %v folder %d", m.mode, m.folder)
+	}
+	m = openThread(t, dir)
+	m.backend = &fakeOutboxBackend{LocalBackend: &LocalBackend{Dir: dir, Now: time.Now}}
+	press(t, m, "go")
+	if m.mode != modeOutbox {
+		t.Fatalf("go mode %v", m.mode)
+	}
+}
+
+func TestHelpListsGGForThread(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	seedTUIThread(t, dir)
+	m := openThread(t, dir)
+	m.width, m.height = 120, 40
+	m.help = true
+	if !strings.Contains(m.View(), "home/gg/end") {
+		t.Fatalf("thread help lacks gg\n%s", m.View())
+	}
+}
