@@ -25,6 +25,7 @@ py_binary(
         ],
     )
     for name in [
+        "baseline_test",
         "cli_sibling_import_test",
         "config_test",
         "files_test",
