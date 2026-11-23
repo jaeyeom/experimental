@@ -133,4 +133,10 @@ pkl.project(
     pkl_project = "//:PklProject",
     pkl_project_deps = "//:PklProject.deps.json",
 )
-use_repo(pkl, "pkl-cli-linux-aarch64", "pkl-cli-linux-amd64", "pkl-cli-macos-aarch64", "pkl-cli-macos-amd64", "pkl_project")
+use_repo(pkl, "pkl-cli-linux-aarch64", "pkl-cli-linux-amd64", "pkl-cli-macos-aarch64", "pkl-cli-macos-amd64", "pkl-doc-cli-linux-aarch64", "pkl-doc-cli-linux-amd64", "pkl-doc-cli-macos-aarch64", "pkl-doc-cli-macos-amd64", "pkl_project")
+
+# BuildBuddy RBE toolchain
+bazel_dep(name = "toolchains_buildbuddy", version = "0.0.4")
+
+buildbuddy = use_extension("@toolchains_buildbuddy//:extensions.bzl", "buildbuddy")
+use_repo(buildbuddy, "buildbuddy_toolchain")
