@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 dependencies = []
 
 [project.scripts]
+py-module-import = "pylinters.cli.module_import:run"
 py-sibling-import = "pylinters.cli.sibling_import:run"
 
 [tool.hatch.version]

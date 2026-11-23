@@ -14,8 +14,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from pylinters.core import globs
-from pylinters.core.errors import ConfigError
+from pylinters.core import errors, globs
 
 METRIC = "max_violations"
 VERSION = 1
@@ -56,15 +55,15 @@ def load(path: str, checker: str) -> File:
     except FileNotFoundError:
         return File(checker=checker, entries={})
     except OSError as e:
-        raise ConfigError(f"{path}: {e}") from e
+        raise errors.ConfigError(f"{path}: {e}") from e
     try:
         raw = json.loads(text)
     except json.JSONDecodeError as e:
-        raise ConfigError(f"{path}: invalid JSON: {e}") from e
+        raise errors.ConfigError(f"{path}: invalid JSON: {e}") from e
     try:
         return _parse(raw, checker)
-    except ConfigError as e:
-        raise ConfigError(f"{path}: {e}") from e
+    except errors.ConfigError as e:
+        raise errors.ConfigError(f"{path}: {e}") from e
 
 
 def dumps(f: File) -> str:
@@ -217,19 +216,19 @@ def _entry_json(e: Entry) -> dict[str, Any]:
 
 def _parse(raw: object, checker: str) -> File:
     if not isinstance(raw, dict):
-        raise ConfigError("top level must be an object")
+        raise errors.ConfigError("top level must be an object")
     _reject_unknown(raw, _TOP_FIELDS, "baseline")
     if raw.get("version") != VERSION or isinstance(raw.get("version"), bool):
-        raise ConfigError(
+        raise errors.ConfigError(
             f"unsupported version {raw.get('version')!r}, want {VERSION}"
         )
     if raw.get("checker") != checker:
-        raise ConfigError(
+        raise errors.ConfigError(
             f"checker is {raw.get('checker')!r}, want {checker!r}"
         )
     raw_entries = raw.get("entries")
     if not isinstance(raw_entries, dict):
-        raise ConfigError("entries must be an object")
+        raise errors.ConfigError("entries must be an object")
     entries = {}
     for key, value in raw_entries.items():
         _check_key(key)
@@ -239,19 +238,25 @@ def _parse(raw: object, checker: str) -> File:
 
 def _parse_entry(key: str, raw: object) -> Entry:
     if not isinstance(raw, dict):
-        raise ConfigError(f"entry {key!r} must be an object")
+        raise errors.ConfigError(f"entry {key!r} must be an object")
     _reject_unknown(raw, _ENTRY_FIELDS, f"entry {key!r}")
     limits = raw.get("limits", {})
     if not isinstance(limits, dict):
-        raise ConfigError(f"entry {key!r}: limits must be an object")
+        raise errors.ConfigError(f"entry {key!r}: limits must be an object")
     for metric, value in limits.items():
         if metric != METRIC:
-            raise ConfigError(f"entry {key!r}: unknown metric {metric!r}")
+            raise errors.ConfigError(
+                f"entry {key!r}: unknown metric {metric!r}"
+            )
         if not isinstance(value, int) or isinstance(value, bool):
-            raise ConfigError(f"entry {key!r}: {metric} must be an integer")
+            raise errors.ConfigError(
+                f"entry {key!r}: {metric} must be an integer"
+            )
     reason, issue = raw.get("reason", ""), raw.get("issue", "")
     if not isinstance(reason, str) or not isinstance(issue, str):
-        raise ConfigError(f"entry {key!r}: reason and issue must be strings")
+        raise errors.ConfigError(
+            f"entry {key!r}: reason and issue must be strings"
+        )
     return Entry(limits=dict(limits), reason=reason, issue=issue)
 
 
@@ -260,7 +265,9 @@ def _reject_unknown(
 ) -> None:
     unknown = sorted(set(raw) - allowed)
     if unknown:
-        raise ConfigError(f"{what}: unknown field(s) {', '.join(unknown)}")
+        raise errors.ConfigError(
+            f"{what}: unknown field(s) {', '.join(unknown)}"
+        )
 
 
 def _check_key(key: str) -> None:
@@ -272,6 +279,6 @@ def _check_key(key: str) -> None:
         or posixpath.normpath(key) != key
     )
     if bad:
-        raise ConfigError(
+        raise errors.ConfigError(
             f"entry key {key!r} is not a normalized repo-relative path"
         )

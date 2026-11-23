@@ -8,6 +8,13 @@ py_library(
 )
 
 py_binary(
+    name = "py-module-import",
+    srcs = ["src/pylinters/cli/module_import.py"],
+    main = "src/pylinters/cli/module_import.py",
+    deps = [":pylinters"],
+)
+
+py_binary(
     name = "py-sibling-import",
     srcs = ["src/pylinters/cli/sibling_import.py"],
     main = "src/pylinters/cli/sibling_import.py",
@@ -26,11 +33,13 @@ py_binary(
     )
     for name in [
         "baseline_test",
+        "cli_module_import_test",
         "cli_sibling_import_test",
         "config_test",
         "files_test",
         "globs_test",
         "imports_test",
+        "module_import_test",
         "sibling_import_test",
     ]
 ]

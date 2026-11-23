@@ -18,8 +18,11 @@ func TestReadmeRequiredPhrases(t *testing.T) {
 	head := readme[:org]
 	for _, want := range []string{
 		"#+TITLE: Linters",
-		"six linters",
+		"seven linters",
 		"py-sibling-import",
+		"py-module-import",
+		"py-module-import: allow",
+		".baselines/py-module-import.json",
 		"subdirectory=devtools/linters/pylinters",
 		"migration-immutability",
 		"go install github.com/jaeyeom/experimental/devtools/linters/cmd/migration-immutability@latest",
@@ -70,6 +73,7 @@ func TestReadmeRequiredPhrases(t *testing.T) {
 		"unnecessary-interface-assertion-linter",
 		"pkgvar",
 		"py-sibling-import",
+		"py-module-import",
 		"* Index",
 	} {
 		if !strings.Contains(head, want) {
@@ -132,8 +136,8 @@ func TestReadmeIndexTableIsRectangular(t *testing.T) {
 			widths = append(widths, len(line))
 		}
 	}
-	if len(widths) < 7 {
-		t.Fatalf("index table has %d rows, want header, separator, and five tools", len(widths))
+	if len(widths) < 9 {
+		t.Fatalf("index table has %d rows, want header, separator, and seven tools", len(widths))
 	}
 	for i, width := range widths {
 		if width != widths[0] {

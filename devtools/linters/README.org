@@ -3,26 +3,27 @@
 
 * Overview
 
-This directory holds six linters. ~org-lint~ runs Emacs's built-in
+This directory holds seven linters. ~org-lint~ runs Emacs's built-in
 Org-mode linter from the command line, so ~.org~ files can be checked in
 CI. ~agents-md-size~ enforces per-file and cascading ancestor byte size
 limits on ~AGENTS.md~ files with ratchetable baselines.
 ~migration-immutability~ fails when a change edits a database migration
 the base branch already has. ~py-sibling-import~ flags a Python file
 that imports a module from its own package bare, which loads a second
-copy of that module. The two Go
+copy of that module. ~py-module-import~ flags ~from pkg.mod import Name~
+from first-party code and asks for ~from pkg import mod~. The two Go
 linters catch patterns ~go vet~ doesn't: interface assertions that guard
 nothing, and package-level variables that should be constants or that
 run code at init time.
 
-~make lint~ runs ~pkgvar~ and ~py-sibling-import~.
+~make lint~ runs ~pkgvar~, ~py-sibling-import~ and ~py-module-import~.
 [[file:../devcheck/README.org][devcheck]] runs
 ~unnecessary-interface-assertion-linter~ when it falls back to Go tools.
 Emacs packages for ~org-lint~ come from
 [[file:../setup-dev/README.org][setup-dev]].
 
-Go 1.26 or later for the Go tools. ~py-sibling-import~ needs Python 3.11
-or later and git.
+Go 1.26 or later for the Go tools. ~py-sibling-import~ and
+~py-module-import~ need Python 3.11 or later and git.
 
 * Index
 
@@ -34,6 +35,7 @@ or later and git.
 | agents-md-size                         | Per-file (4 KiB) and cascading (16 KiB) AGENTS.md byte size  | Markdown | make check, CI, CLI            |
 | migration-immutability                 | Edits, deletes, renames of migrations the base already has   | Any      | CI in repos with migrations    |
 | py-sibling-import                      | Bare import of a sibling module inside a Python package      | Python   | make lint, pytest gate, CLI    |
+| py-module-import                       | from pkg.mod import Name from first-party Python code        | Python   | make lint, CLI                 |
 
 * Tools
 
@@ -417,8 +419,8 @@ including function-local and ~try~ imports. Relative imports are fine.
 Generated files (~*_pb2.py~, ~*_pb2_grpc.py~) are skipped by default.
 Only git-tracked files are checked.
 
-It lives in [[file:pylinters/][pylinters]], a Python project that will
-also hold ~py-module-import~.
+It lives in [[file:pylinters/][pylinters]], a Python project that also
+holds ~py-module-import~.
 
 *** Install
 
@@ -473,6 +475,99 @@ allow-directive = "py-sibling-import: allow"
 - Exits 1 when there are violations.
 - Exits 2 on invalid flags or config, a scanned file that does not
   parse, a path outside the repo, or git errors.
+
+** py-module-import
+
+Flags a symbol imported out of a first-party module, and asks for the
+module instead:
+
+#+BEGIN_SRC python
+from myapp.types import CheckResult   # flagged
+from myapp import types               # preferred
+result = types.CheckResult()
+#+END_SRC
+
+The use site then shows where a name comes from, and
+~monkeypatch.setattr(types, ...)~ patches the object the code reads.
+
+#+BEGIN_EXAMPLE
+main.py:1:25: from myapp.types import CheckResult: import the module instead (from myapp import types)
+#+END_EXAMPLE
+
+A ~from M import n~ is flagged when ~M~ is a git-tracked module or package
+and ~n~ is not itself a submodule. Imports that resolve to no tracked file
+(stdlib, third-party) are left alone. Absolute imports resolve against the
+file's own source root, the repo root, then the configured ~roots~. A
+stdlib or ~third-party~ name never resolves against those extra roots.
+Relative imports, imports inside functions and ~if TYPE_CHECKING:~ blocks
+all count. Not flagged: ~from . import x~, star imports, a package's
+~__init__.py~ re-exporting its own submodules, and names matching the
+~generated~ globs (~foo_pb2~). Only git-tracked files are checked.
+
+*** Install
+
+#+BEGIN_SRC bash
+uvx --from "git+https://github.com/jaeyeom/experimental@<tag>#subdirectory=devtools/linters/pylinters" py-module-import
+#+END_SRC
+
+*** Usage
+
+#+BEGIN_SRC bash
+py-module-import
+py-module-import path/to/file.py
+git diff --name-only -z origin/main | py-module-import --stdin0
+py-module-import --exclude 'legacy/**' --exempt-marker manage.py --third-party requests
+#+END_SRC
+
+Positional paths are relative to the current directory; ~--stdin0~ paths
+are relative to the repo top level, as ~git diff --name-only~ prints them.
+Paths that are not tracked ~.py~ files, deleted, excluded, or under an
+exempt marker are skipped. ~--root-dir~, ~--generated~, ~--exempt-marker~
+and ~--third-party~ replace the configured lists; ~--exclude~ adds to them.
+
+A genuine exception carries ~# py-module-import: allow~. On the line of
+an imported name it exempts that name. On another line of the statement
+(the ~from~ line or the closing parenthesis) it exempts the whole
+statement.
+
+*** Baseline
+
+Existing violations can be recorded as debt in
+~.baselines/py-module-import.json~, a per-file ~max_violations~ count
+(see [[file:../docs/checker-baseline.md][checker-baseline]]).
+
+- ~--baseline FILE~ picks another file, relative to the current directory.
+- ~--update-baseline~ records the current counts.
+- ~--tighten-baseline~ only removes stale entries and lowers limits.
+- ~--strict-baseline=false~ stops failing on stale entries (default ~true~).
+
+The two rewrite flags scan the whole tree; passing paths with them is a
+usage error. A run with paths reports stale entries only for those paths.
+
+*** Configuration
+
+Optional, in the repo root's ~pyproject.toml~. Unknown keys are errors.
+
+#+BEGIN_SRC toml
+[tool.pylinters]                 # shared by every pylinters checker
+roots = ["src"]
+exclude = ["**/testdata/**"]
+generated = ["**/*_pb2.py", "**/*_pb2_grpc.py"]
+
+[tool.pylinters.module-import]
+exclude = []
+exempt-markers = ["manage.py"]   # a tree holding manage.py is exempt
+third-party = ["requests"]
+allow-directive = "py-module-import: allow"
+#+END_SRC
+
+*** Exit codes
+
+- Exits 0 when no scanned file has more violations than the baseline
+  allows and no baseline entry is stale.
+- Exits 1 when there are violations or stale baseline entries.
+- Exits 2 on invalid flags, config or baseline, a scanned file that does
+  not parse, a path outside the repo, or git errors.
 
 * Development
 
