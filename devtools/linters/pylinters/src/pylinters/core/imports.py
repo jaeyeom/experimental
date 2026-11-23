@@ -22,6 +22,8 @@ class ImportStmt:
     module: str | None
     names: tuple[str, ...]
     is_from: bool
+    name_lines: tuple[int, ...] = ()
+    name_cols: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -37,6 +39,25 @@ class Source:
         return any(
             directive in self.comments.get(line, "")
             for line in range(stmt.line, stmt.end_line + 1)
+        )
+
+    def name_exempt(
+        self, stmt: ImportStmt, index: int, directive: str
+    ) -> bool:
+        """Report whether the comment on name ``index``'s line has directive."""
+        return directive in self.comments.get(stmt.name_lines[index], "")
+
+    def statement_exempt(self, stmt: ImportStmt, directive: str) -> bool:
+        """Report whether directive exempts the whole statement.
+
+        It must be on the statement's first line, or on a line of the
+        statement that is not a name's own line (e.g. the closing paren).
+        """
+        own = set(stmt.name_lines)
+        return any(
+            directive in self.comments.get(line, "")
+            for line in range(stmt.line, stmt.end_line + 1)
+            if line == stmt.line or line not in own
         )
 
 
@@ -81,4 +102,6 @@ def _stmt(
         module=module,
         names=tuple(alias.name for alias in node.names),
         is_from=is_from,
+        name_lines=tuple(alias.lineno for alias in node.names),
+        name_cols=tuple(alias.col_offset + 1 for alias in node.names),
     )

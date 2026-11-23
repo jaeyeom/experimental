@@ -14,7 +14,6 @@ alone.
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
 
@@ -103,7 +102,7 @@ def check(
         ConfigError: A configured root holds no tracked Python file.
         ParseError: A scanned file is not valid Python.
     """
-    reader = read if read is not None else _root_reader(fs)
+    reader = read if read is not None else files.root_reader(fs)
     roots = (
         list(cfg.roots) if cfg.roots is not None else files.default_roots(fs)
     )
@@ -154,18 +153,6 @@ def format_report(result: Result, cfg: Config) -> str:
         "import statement."
     )
     return "\n".join(lines) + "\n"
-
-
-def _root_reader(fs: files.FileSet) -> Reader:
-    if not isinstance(fs, files.GitResolver):
-        raise TypeError("read is required unless fs is a GitResolver")
-    root = fs.root
-
-    def read(path: str) -> bytes:
-        with open(os.path.join(root, path), "rb") as handle:
-            return handle.read()
-
-    return read
 
 
 def _package_dirs(

@@ -8,8 +8,9 @@ are repo-relative POSIX strings; the repo root is ``""``.
 from __future__ import annotations
 
 import bisect
+import os
 import subprocess
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 
 from pylinters.core import errors
 
@@ -87,6 +88,19 @@ def _git(cwd: str, *args: str) -> str:
         msg = err.stderr.decode("utf-8", "replace").strip()
         raise errors.GitError(f"git {' '.join(args)} in {cwd}: {msg}") from err
     return out.stdout.decode("utf-8", "surrogateescape")
+
+
+def root_reader(fs: FileSet) -> Callable[[str], bytes]:
+    """Return a reader of repo-relative paths under the work-tree root."""
+    if not isinstance(fs, GitResolver):
+        raise TypeError("read is required unless fs is a GitResolver")
+    root = fs.root
+
+    def read(path: str) -> bytes:
+        with open(os.path.join(root, path), "rb") as handle:
+            return handle.read()
+
+    return read
 
 
 def default_roots(fs: FileSet) -> list[str]:

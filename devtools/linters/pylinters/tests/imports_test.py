@@ -69,3 +69,40 @@ def test_syntax_warnings_are_silenced() -> None:
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, *sys.argv[1:]]))
+
+
+MODULE_SRC = b"from p.m import (\n    a,  # py-module-import: allow\n    b,\n)  # other\n"
+
+
+def test_name_positions() -> None:
+    """Each imported name records its own line and 1-based column."""
+    stmt = imports.parse(MODULE_SRC, "x.py").imports[0]
+    assert stmt.names == ("a", "b")
+    assert stmt.name_lines == (2, 3)
+    assert stmt.name_cols == (5, 5)
+
+
+def test_name_exempt_is_per_name() -> None:
+    """A directive on a name's line exempts only that name."""
+    src = imports.parse(MODULE_SRC, "x.py")
+    stmt = src.imports[0]
+    d = "py-module-import: allow"
+    assert src.name_exempt(stmt, 0, d)
+    assert not src.name_exempt(stmt, 1, d)
+    assert not src.statement_exempt(stmt, d)
+
+
+def test_statement_exempt_on_closing_paren() -> None:
+    """A directive on the closing paren exempts the statement."""
+    src = imports.parse(
+        b"from p.m import (\n    a,\n)  # py-module-import: allow\n", "x.py"
+    )
+    assert src.statement_exempt(src.imports[0], "py-module-import: allow")
+
+
+def test_directive_in_string_is_not_a_comment() -> None:
+    """Directive text inside a string literal is not a comment."""
+    src = imports.parse(
+        b'from p.m import a; s = "py-module-import: allow"\n', "x.py"
+    )
+    assert not src.statement_exempt(src.imports[0], "py-module-import: allow")
