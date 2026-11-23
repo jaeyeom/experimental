@@ -53,8 +53,13 @@ def main(
         )
         bl = baseline.load(bl_path, PROG)
         result = module_import.check(fs, cfg, paths=paths)
+        # A tracked file deleted only from the work tree no longer exists
+        # for the baseline, so its entry is reported stale.
         existing = [
-            p for p in fs.py_files() if module_import.in_scope(fs, cfg, p)
+            p
+            for p in fs.py_files()
+            if module_import.in_scope(fs, cfg, p)
+            and os.path.isfile(os.path.join(fs.root, p))
         ]
         stale: list[str] = []
         if args.update_baseline:

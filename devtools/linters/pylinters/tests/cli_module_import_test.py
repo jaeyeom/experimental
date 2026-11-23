@@ -174,6 +174,25 @@ def test_deleted_baselined_file_is_stale(
     )
 
 
+def test_baselined_file_removed_from_work_tree_is_stale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A baselined file deleted without git rm is stale and tightened away."""
+    make_repo(tmp_path, BAD)
+    monkeypatch.chdir(tmp_path)
+    assert call(["--update-baseline"])[0] == 0
+    (tmp_path / "main.py").unlink()
+    want = "stale baseline: main.py: baseline entry refers to a deleted file"
+    code, out, _ = call([])
+    assert code == 1
+    assert want in out
+    code, out, _ = call(["--stdin0"], stdin=b"main.py\0")
+    assert code == 1
+    assert want in out
+    assert call(["--tighten-baseline"])[0] == 0
+    assert json.loads((tmp_path / BASELINE).read_text())["entries"] == {}
+
+
 def test_subset_ignores_stale_outside_paths(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
