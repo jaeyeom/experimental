@@ -139,20 +139,8 @@ func cmdServe(args []string, stdout, stderr io.Writer) int {
 		Targets:     cfg.Targets,
 		Agentbus:    cfg.Recipients.Agentbus,
 		FollowEvery: followEvery,
-		Display: func() (decide.DisplaySettings, error) {
-			f, err := decide.LoadConfigFile()
-			if err != nil {
-				return decide.DisplaySettings{}, err //nolint:wrapcheck // LoadConfigFile names the config
-			}
-			return f.Display(), nil
-		},
-		OrgConfig: func() (bool, string, error) {
-			c, err := decide.LoadConfig()
-			if err != nil {
-				return false, "", err //nolint:wrapcheck // LoadConfig names the config
-			}
-			return c.UI.OrgTree, c.UI.OrgSpec, nil
-		},
+		Display:     localDisplay,
+		OrgConfig:   localOrgConfig,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), unix.SIGINT, unix.SIGTERM)
 	defer stop()
@@ -160,4 +148,22 @@ func cmdServe(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err, 1)
 	}
 	return 0
+}
+
+// localDisplay reads this machine's display settings, fresh each call.
+func localDisplay() (decide.DisplaySettings, error) {
+	f, err := decide.LoadConfigFile()
+	if err != nil {
+		return decide.DisplaySettings{}, err //nolint:wrapcheck // LoadConfigFile names the config
+	}
+	return f.Display(), nil
+}
+
+// localOrgConfig reads this machine's org tree settings, fresh each call.
+func localOrgConfig() (bool, string, error) {
+	c, err := decide.LoadConfig()
+	if err != nil {
+		return false, "", err //nolint:wrapcheck // LoadConfig names the config
+	}
+	return c.UI.OrgTree, c.UI.OrgSpec, nil
 }

@@ -1,0 +1,24 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "auth.go",
+        "server.go",
+    ],
+    embedsrcs = ["static/index.html"],
+    importpath = "github.com/jaeyeom/experimental/devtools/decide/web",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//devtools/decide:go_default_library",
+        "//devtools/decide/tui:go_default_library",
+        "@com_github_google_renameio_v2//:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = ["server_test.go"],
+    embed = [":go_default_library"],
+    deps = ["//devtools/decide:go_default_library"],
+)
