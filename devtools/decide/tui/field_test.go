@@ -672,7 +672,7 @@ func TestPinnedReplyBoxShrinksThreadAndResetsAfterSend(t *testing.T) {
 	m, led, item := longThreadReplyModel(t, 40)
 	_, detailN := m.layoutBudget()
 	threadBefore, replyBefore := m.detailLayout(m.contentWidth())
-	if threadBefore != detailN-len(replyBefore) || len(replyBefore) != 1 {
+	if threadBefore != detailN-1-len(replyBefore) || len(replyBefore) != 1 {
 		t.Fatalf("initial threadN=%d len(reply)=%d detailN=%d", threadBefore, len(replyBefore), detailN)
 	}
 
@@ -685,8 +685,8 @@ func TestPinnedReplyBoxShrinksThreadAndResetsAfterSend(t *testing.T) {
 		}
 		press(t, m, fmt.Sprintf("r%02d", i))
 		threadN, reply := m.detailLayout(m.contentWidth())
-		if threadN != detailN-len(reply) {
-			t.Fatalf("after %d lines: threadN=%d, want %d (detailN=%d len(reply)=%d)", i+1, threadN, detailN-len(reply), detailN, len(reply))
+		if threadN != detailN-1-len(reply) {
+			t.Fatalf("after %d lines: threadN=%d, want %d (detailN=%d len(reply)=%d)", i+1, threadN, detailN-1-len(reply), detailN, len(reply))
 		}
 	}
 	view := m.View()
@@ -716,7 +716,7 @@ func TestPinnedReplyBoxShrinksThreadAndResetsAfterSend(t *testing.T) {
 	m.setComposerText(composerReply, "one line")
 	m.reply = "one line"
 	threadShrunk, replyShrunk := m.detailLayout(m.contentWidth())
-	if threadShrunk <= detailN-grownHeight || threadShrunk != detailN-len(replyShrunk) {
+	if threadShrunk <= detailN-1-grownHeight || threadShrunk != detailN-1-len(replyShrunk) {
 		t.Fatalf("shrunk threadN=%d len(reply)=%d grown=%d detailN=%d", threadShrunk, len(replyShrunk), grownHeight, detailN)
 	}
 

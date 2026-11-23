@@ -1109,28 +1109,34 @@ func TestWheelScrollsOpenItem(t *testing.T) {
 		},
 	})
 	m := New(dir)
-	m.height = 4
+	m.height = 6
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
 	press(t, m, "\r")
 	view := m.View()
-	if top := lineAfterBorder(view); top != item.ID {
+	if top := lineAfterBorder(view); !strings.HasPrefix(top, item.ID) {
+		t.Fatalf("pinned title = %q\n%s", top, view)
+	}
+	if top := threadTopLine(view); top != "From: ada" {
 		t.Fatalf("detail top = %q\n%s", top, view)
 	}
 	m.Wheel(true)
-	top := lineAfterBorder(m.View())
-	if top == item.ID || top != "From: ada" {
+	top := threadTopLine(m.View())
+	if top != "Owner: ada at unknown" {
 		t.Fatalf("scrolled detail top = %q\n%s", top, m.View())
 	}
 	for m.scroll < 20 && top != "which way" {
 		m.Wheel(true)
-		top = lineAfterBorder(m.View())
+		top = threadTopLine(m.View())
 	}
 	if top != "which way" {
 		t.Fatalf("scroll did not reach the question %q\n%s", top, m.View())
 	}
 }
+
+// scrollKeysTop is the first thread row at scroll 0, below the pinned title.
+const scrollKeysTop = "From: ada"
 
 func TestItemViewScrollKeys(t *testing.T) {
 	cfg := t.TempDir()
@@ -1168,26 +1174,26 @@ func TestItemViewScrollKeys(t *testing.T) {
 	if m.detail == nil || m.detail.ID != first.ID || m.cursor != 0 {
 		t.Fatalf("opened cursor %d", m.cursor)
 	}
-	if top := lineAfterBorder(m.View()); top != first.ID {
+	if top := threadTopLine(m.View()); top != scrollKeysTop {
 		t.Fatalf("detail top = %q\n%s", top, m.View())
 	}
 
 	m.Wheel(true)
 	wheelScroll := m.scroll
-	wheelTop := lineAfterBorder(m.View())
-	if wheelScroll < 1 || wheelTop == first.ID {
+	wheelTop := threadTopLine(m.View())
+	if wheelScroll < 1 || wheelTop == scrollKeysTop {
 		t.Fatalf("wheel scroll %d top %q", wheelScroll, wheelTop)
 	}
 	reset := func() {
 		t.Helper()
 		m.scroll = 0
-		if top := lineAfterBorder(m.View()); top != first.ID || m.scroll != 0 {
+		if top := threadTopLine(m.View()); top != scrollKeysTop || m.scroll != 0 {
 			t.Fatalf("reset top %q scroll %d", top, m.scroll)
 		}
 	}
 	sameLine := func(key string) {
 		t.Helper()
-		top := lineAfterBorder(m.View())
+		top := threadTopLine(m.View())
 		if m.scroll != wheelScroll || top != wheelTop {
 			t.Fatalf("%s scroll %d top %q want %d %q", key, m.scroll, top, wheelScroll, wheelTop)
 		}
@@ -1207,13 +1213,13 @@ func TestItemViewScrollKeys(t *testing.T) {
 	m.View()
 	m.Wheel(false)
 	upScroll := m.scroll
-	upTop := lineAfterBorder(m.View())
+	upTop := threadTopLine(m.View())
 	backUp := func(key string, msg tea.Msg) {
 		t.Helper()
 		m.scroll = wheelScroll
 		m.View()
 		m.Update(msg)
-		top := lineAfterBorder(m.View())
+		top := threadTopLine(m.View())
 		if m.scroll != upScroll || top != upTop {
 			t.Fatalf("%s scroll %d top %q want %d %q", key, m.scroll, top, upScroll, upTop)
 		}
@@ -1229,8 +1235,8 @@ func TestItemViewScrollKeys(t *testing.T) {
 	m.Update(tea.KeyMsg{Type: tea.KeyUp})
 	m.Update(runeKey('k'))
 	m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
-	if m.scroll != 0 || lineAfterBorder(m.View()) != first.ID {
-		t.Fatalf("top stop scroll %d top %q", m.scroll, lineAfterBorder(m.View()))
+	if m.scroll != 0 || threadTopLine(m.View()) != scrollKeysTop {
+		t.Fatalf("top stop scroll %d top %q", m.scroll, threadTopLine(m.View()))
 	}
 
 	page := m.threadPage()
@@ -1240,8 +1246,8 @@ func TestItemViewScrollKeys(t *testing.T) {
 		t.Fatalf("pgdn scroll %d page %d", m.scroll, page)
 	}
 	m.Update(tea.KeyMsg{Type: tea.KeyHome})
-	if m.scroll != 0 || lineAfterBorder(m.View()) != first.ID {
-		t.Fatalf("home scroll %d top %q", m.scroll, lineAfterBorder(m.View()))
+	if m.scroll != 0 || threadTopLine(m.View()) != scrollKeysTop {
+		t.Fatalf("home scroll %d top %q", m.scroll, threadTopLine(m.View()))
 	}
 	m.Update(tea.KeyMsg{Type: tea.KeyEnd})
 	view := m.View()
@@ -1587,7 +1593,7 @@ func TestItemViewMessageKeys(t *testing.T) {
 		},
 	})
 	m := New(dir)
-	m.height = 5
+	m.height = 6
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
@@ -1646,7 +1652,7 @@ func TestItemViewMessageKeys(t *testing.T) {
 func assertMessageTop(t *testing.T, m *Model, index int, author string) {
 	t.Helper()
 	view := m.View()
-	top := lineAfterBorder(view)
+	top := threadTopLine(view)
 	if m.message != index || !strings.Contains(top, author) {
 		t.Fatalf("message %d top %q want %d %s\n%s", m.message, top, index, author, view)
 	}
@@ -1670,8 +1676,8 @@ func assertMessageTop(t *testing.T, m *Model, index int, author string) {
 func rawLineAfterBorder(view string) string {
 	lines := strings.Split(view, "\n")
 	for i, line := range lines {
-		if strings.Contains(visibleLine(line), "┌") && i+1 < len(lines) {
-			return lines[i+1]
+		if strings.Contains(visibleLine(line), "┌") && i+2 < len(lines) {
+			return lines[i+2]
 		}
 	}
 	if len(lines) > 1 {
@@ -1680,11 +1686,21 @@ func rawLineAfterBorder(view string) string {
 	return ""
 }
 
+// threadTopLine is the first scrolling row of the open item: the row below
+// the pinned title.
+func threadTopLine(view string) string {
+	return lineAfterBorderN(view, 2)
+}
+
 func lineAfterBorder(view string) string {
+	return lineAfterBorderN(view, 1)
+}
+
+func lineAfterBorderN(view string, n int) string {
 	lines := strings.Split(view, "\n")
 	for i, line := range lines {
-		if strings.Contains(visibleLine(line), "┌") && i+1 < len(lines) {
-			inner := strings.TrimPrefix(visibleLine(lines[i+1]), "│")
+		if strings.Contains(visibleLine(line), "┌") && i+n < len(lines) {
+			inner := strings.TrimPrefix(visibleLine(lines[i+n]), "│")
 			inner = strings.TrimSuffix(inner, "│")
 			return strings.TrimSpace(inner)
 		}
@@ -4095,7 +4111,9 @@ func TestOpenItemWrapsQuestionOptionsAndLinks(t *testing.T) {
 	if !strings.Contains(view, "word0") || strings.Contains(view, "tailtoken") {
 		t.Fatalf("open item did not start at the question\n%s", view)
 	}
-	if strings.Contains(visibleLine(lineContaining(view, "word0")), "…") {
+	// The first row is the pinned title, which may cut the question.
+	body := belowTitle(view)
+	if strings.Contains(visibleLine(lineContaining(body, "word0")), "…") {
 		t.Fatalf("question was clipped\n%s", view)
 	}
 	word0 := screenRow(view, "word0")
@@ -4119,7 +4137,7 @@ func TestOpenItemWrapsQuestionOptionsAndLinks(t *testing.T) {
 		t.Fatalf("option label stayed on one line\n%s", view)
 	}
 
-	for strings.Contains(m.View(), "word0") {
+	for strings.Contains(belowTitle(m.View()), "word0") {
 		before := m.scroll
 		m.Wheel(true)
 		_ = m.View()
@@ -4132,7 +4150,7 @@ func TestOpenItemWrapsQuestionOptionsAndLinks(t *testing.T) {
 	if !strings.Contains(scrolled, "tailtoken") {
 		t.Fatalf("scroll did not reveal the link\n%s", scrolled)
 	}
-	if strings.Contains(scrolled, "word0") {
+	if strings.Contains(belowTitle(scrolled), "word0") {
 		t.Fatalf("scroll left the question top in view\n%s", scrolled)
 	}
 	row := screenRow(scrolled, "tailtoken")
@@ -4294,6 +4312,11 @@ func assertFrame(t *testing.T, view string, width, height int) {
 	if !strings.Contains(lines[0], "┌") || !strings.Contains(lines[len(lines)-1], "└") {
 		t.Fatalf("outer border\n%s", view)
 	}
+}
+
+// belowTitle drops the outer frame, the box top and the pinned title rows.
+func belowTitle(view string) string {
+	return strings.SplitN(view, "\n", 4)[3]
 }
 
 func lineContaining(view, needle string) string {
@@ -4595,7 +4618,8 @@ func TestVerbatimOnlyThreadShowsInListAndItemView(t *testing.T) {
 			t.Errorf("item view missing %q:\n%s", want, itemView)
 		}
 	}
-	if n := strings.Count(itemView, "Exact user line"); n != 1 {
-		t.Errorf("item view rendered first line %d times, want 1:\n%s", n, itemView)
+	// Once in the pinned title and once in the thread body.
+	if n := strings.Count(itemView, "Exact user line"); n != 2 {
+		t.Errorf("item view rendered first line %d times, want 2:\n%s", n, itemView)
 	}
 }

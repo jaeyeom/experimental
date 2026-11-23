@@ -220,13 +220,14 @@ func (m *Model) togglePlain() {
 func (m *Model) plainScreen() []screenLine {
 	lines := m.plainItemLines()
 	limit := 0
-	if m.height > 1 {
-		limit = m.height - 1
+	if m.height > 2 {
+		// One row for the status line and one for the pinned title.
+		limit = m.height - 2
 	}
 	var scroll int
 	lines, scroll = clipLines(lines, m.scroll, limit)
 	m.scroll = scroll
-	return lines
+	return append([]screenLine{m.titleLine(m.width)}, lines...)
 }
 
 func (m *Model) plainItemLines() []screenLine {

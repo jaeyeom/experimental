@@ -2170,7 +2170,7 @@ func (m *Model) detailLayout(width int) (threadN int, reply []screenLine) {
 	if detailN <= 0 {
 		return 0, reply
 	}
-	threadN = max(detailN-len(reply), 0)
+	threadN = max(detailN-1-len(reply), 0)
 	return threadN, reply
 }
 
@@ -2203,6 +2203,7 @@ func (m *Model) openedScreen(width int) []screenLine {
 			detail = append(detail, screenLine{})
 		}
 	}
+	detail = append([]screenLine{m.titleLine(m.detailInnerWidth(width))}, detail...)
 	detail = append(detail, reply...)
 	if width <= 0 {
 		if m.answerFocus {
@@ -2214,6 +2215,50 @@ func (m *Model) openedScreen(width int) []screenLine {
 		return detail
 	}
 	return m.fitDetail(detail, width)
+}
+
+// minTitleQuestion is the question width the state may not squeeze below.
+const minTitleQuestion = 10
+
+// titleLine is the pinned one-row title above the scrolling thread: the id
+// and the first line of the question (or of the verbatim text), with the
+// state on the right when it fits. Clicking it goes to the top.
+func (m *Model) titleLine(width int) screenLine {
+	hits := []hit{{kind: hitTitle}}
+	it := m.detail
+	if it == nil {
+		return screenLine{text: plainText(""), hits: hits}
+	}
+	q := firstLine(it.Question)
+	if q == "" {
+		q = firstLine(it.Verbatim)
+	}
+	if width <= 0 {
+		return screenLine{text: plainText(strings.TrimSpace(it.ID + " " + q)), hits: hits}
+	}
+	room := width - lipgloss.Width(it.ID) - 1
+	if room <= 0 || q == "" {
+		return screenLine{text: plainText(it.ID), hits: hits}
+	}
+	state := ""
+	if it.State != "" && room-lipgloss.Width(it.State)-1 >= min(lipgloss.Width(q), minTitleQuestion) {
+		state = it.State
+		room -= lipgloss.Width(state) + 1
+	}
+	if lipgloss.Width(q) > room {
+		q = truncateVisible(q, room)
+	}
+	text := it.ID + " " + q
+	if state != "" {
+		pad := width - lipgloss.Width(text) - lipgloss.Width(state)
+		text += strings.Repeat(" ", pad) + state
+	}
+	return screenLine{text: plainText(text), hits: hits}
+}
+
+func firstLine(s string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
+	return strings.TrimSpace(line)
 }
 
 func (m *Model) composeScreen(width int) []screenLine {
@@ -2988,11 +3033,13 @@ func (m *Model) detailLines(width int) []screenLine {
 	}
 	it := m.detail
 	re := searchPattern(m.highlight)
-	title := it.ID
+	// The id is in the pinned title line. Only a search match count
+	// scrolls with the header.
+	var lines []screenLine
 	if re != nil {
-		title += fmt.Sprintf("  /%s (%d)", m.highlight, highlightCount(it, re))
+		title := fmt.Sprintf("/%s (%d)", m.highlight, highlightCount(it, re))
+		lines = append(lines, screenLine{text: plainText(title)})
 	}
-	lines := []screenLine{{text: plainText(title)}}
 	lines = append(lines, headerLines(it, m.now(), m.zone(), decide.OwnerAt(it.Owner, m.ownerLocation(it)))...)
 	if it.FollowUp == decide.FollowUpOwnerGone {
 		lines = append(lines, screenLine{text: plainText("Close"), hits: []hit{{kind: hitClose}}})

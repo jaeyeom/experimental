@@ -129,7 +129,7 @@ func TestItemViewAvatarBesideHeader(t *testing.T) {
 	checkGolden(t, "item_avatar_100.golden", view)
 	lines := viewLines(view)
 	// Row 0 is the frame and row 1 the item box top.
-	for i := 2; i < 2+avatarRows; i++ {
+	for i := 3; i < 3+avatarRows; i++ {
 		vis := strings.TrimPrefix(visibleLine(lines[i]), "││")
 		if !strings.HasPrefix(vis, strings.Repeat("A", avatarCols)+" ") {
 			t.Fatalf("row %d does not start with the avatar\n%s", i, visibleLine(view))
@@ -412,13 +412,12 @@ func TestItemViewAvatarDefault(t *testing.T) {
 }
 
 // assertAvatarRows fails unless every row of av shows in the header, in
-// order, each followed by the gutter. The header avatar starts on screen
-// row 2.
+// order, each followed by the gutter. The header avatar starts on screen// row 3, below the pinned title.
 func assertAvatarRows(t *testing.T, view string, av []string) {
 	t.Helper()
 	lines := viewLines(view)
 	for i, row := range av {
-		if !strings.Contains(lines[2+i], row+" ") {
+		if !strings.Contains(lines[3+i], row+" ") {
 			t.Fatalf("avatar row %d %q missing\n%s", i, row, view)
 		}
 	}
@@ -569,7 +568,7 @@ func TestItemViewAvatarMonochrome(t *testing.T) {
 func assertPlainAvatar(t *testing.T, view string) {
 	t.Helper()
 	lines := viewLines(view)
-	for i := 2; i < 2+avatarRows; i++ {
+	for i := 3; i < 3+avatarRows; i++ {
 		at := strings.Index(lines[i], "AAAAAAAAAA")
 		if at < 0 || lines[i][at:at+avatarCols+1] != "AAAAAAAAAA " || strings.Contains(lines[i][at:], "A\x1b") {
 			t.Fatalf("avatar row %d has escapes: %q", i, lines[i])

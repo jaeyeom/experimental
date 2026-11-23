@@ -424,6 +424,12 @@ stops above 100 KB. In the avatar picker, ~h~ ~j~ ~k~ ~l~ or the arrows
 move, Enter saves, and Esc cancels. Mouse behavior is under
 [[*Customizing]].
 
+A title line is pinned to the top of the item pane: the id and the first
+line of the question (or of the verbatim text), with the state on the
+right when it fits. It never wraps, cuts the question with ~…~ and never
+the id, and drops the state before squeezing the question. Clicking it or
+~g g~ goes to the top of the thread.
+
 The reply box is pinned to the bottom of the item pane outside the
 scrolling thread, so scrolling the thread never jumps back to the box.
 When unfocused and empty it collapses to one hint line (~reply: ___~);

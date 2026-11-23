@@ -26,6 +26,7 @@ const (
 	hitConflictKeep
 	hitConflictUse
 	hitConflictMerge
+	hitTitle
 )
 
 // hit is one clickable span on a screen row. x0 and x1 are 1-based columns.
@@ -273,6 +274,9 @@ func (m *Model) hit(h hit) error {
 
 func (m *Model) hitReplyButton(kind int) (bool, error) {
 	switch kind {
+	case hitTitle:
+		_, err := m.runDetailTop()
+		return true, err
 	case hitReplySend:
 		return true, m.submitReply()
 	case hitReplySendAndArchive:
