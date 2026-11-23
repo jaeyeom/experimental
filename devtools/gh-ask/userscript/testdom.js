@@ -2,7 +2,7 @@
 // DOM for gh-ask.user.js: tagName, getAttribute, parentElement,
 // children, childNodes and textContent. It handles the well-formed
 // markup in testdata/ and nothing more; it is not a general parser.
-const VOID = new Set(["br", "hr", "img", "input", "meta", "link"]);
+const VOID = new Set(["br", "col", "hr", "img", "input", "meta", "link"]);
 
 const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', nbsp: " " };
 

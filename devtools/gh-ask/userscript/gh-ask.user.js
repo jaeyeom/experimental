@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         gh-ask
 // @namespace    https://github.com/jaeyeom/experimental/tree/main/devtools/gh-ask
-// @version      0.1.10
+// @version      0.1.11
 // @description  Ask a local agent about lines in a pull request diff, through gh-ask serve on 127.0.0.1.
 // @match        https://github.com/*
 // @grant        GM_xmlhttpRequest
@@ -209,7 +209,14 @@ function numCell(cell) {
   return side ? { cell, side, line: Number(raw), anchor: "" } : null;
 }
 
+// isNumberish reports whether cell is in a line-number column. The React
+// view names its columns in data-diff-cell; its code cells also carry
+// data-line-number, and its class names have build hashes.
 function isNumberish(cell) {
+  const kind = cell.getAttribute("data-diff-cell");
+  if (kind !== null) {
+    return kind === "line-number" || kind === "empty";
+  }
   return (
     cell.getAttribute("data-line-number") !== null ||
     classes(cell).some((c) => NUM_CLASS_RE.test(c))
@@ -221,7 +228,10 @@ function codeText(el) {
   if (el.nodeType === 3) {
     return el.textContent;
   }
-  if (classes(el).includes("diff-text-marker")) {
+  if (
+    classes(el).includes("diff-text-marker") ||
+    el.getAttribute("data-diff-text-marker") === "true"
+  ) {
     return "";
   }
   let s = "";
@@ -311,6 +321,14 @@ function hunkText(row, table) {
     hi++;
   }
   return rows.slice(lo, hi).flatMap(rowText).join("\n");
+}
+
+// hunkCode is hunkText, or "" when the page gave no code: only hunk
+// headers, diff marks and whitespace. Blank lines read as empty code.
+function hunkCode(row, table) {
+  const text = hunkText(row, table);
+  const blank = text.split("\n").every((l) => l.startsWith("@@") || /^[-+ ]?\s*$/.test(l));
+  return blank ? "" : text;
 }
 
 function filePath(el) {
@@ -417,7 +435,7 @@ function buildPayload({ href, headSha, start, end, selection, question, deep }) 
     .map((n) => n.line);
   const startLine = Math.min(...lines);
   const endLine = Math.max(...lines);
-  const text = selection && selection.trim() !== "" ? selection : hunkText(b.row, b.table);
+  const text = selection && selection.trim() !== "" ? selection : hunkCode(b.row, b.table);
   let pageUrl = url.page;
   if (b.anchor) {
     const s = side[0];

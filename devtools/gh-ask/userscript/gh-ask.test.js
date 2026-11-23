@@ -131,6 +131,80 @@ for (const v of views) {
   });
 }
 
+// changes-view-captured.html is markup GitHub served (see its header).
+const C = "diff-640d823e223a4641034666098d26a6f04d83692043100600dad8ae98effad277";
+const CAPTURED_HEAD = "fedcba9876543210fedcba9876543210fedcba98";
+const CAPTURED_HREF = "https://github.com/octo/demo/pull/42/changes";
+const CAPTURED_HUNK = [
+  "@@ -0,0 +1,6 @@",
+  "+package greet",
+  "+",
+  "+import (",
+  '+\t"context"',
+  "+",
+  '+\t"strings"',
+].join("\n");
+
+function capturedAsk(root, start, end, selection = "") {
+  return G.buildPayload({
+    href: CAPTURED_HREF,
+    headSha: CAPTURED_HEAD,
+    start,
+    end,
+    selection,
+    question: "q",
+    deep: false,
+  });
+}
+
+test("captured changes view: head sha", () => {
+  assert.equal(G.findHeadSha(fixture("changes-view-captured.html"), CAPTURED_HREF), CAPTURED_HEAD);
+});
+
+test("captured changes view: code and number cells of a new file", () => {
+  const root = fixture("changes-view-captured.html");
+  for (const el of [
+    byAttr(root, "data-line-anchor", `${C}R4`),
+    byAttr(root, "data-grid-cell-id", `${C}-empty-4-1`),
+  ]) {
+    const info = G.lineInfo(el);
+    assert.ok(info);
+    assert.deepEqual(
+      [info.path, info.side, info.line, info.anchor],
+      ["pkg/greet/greet.go", "RIGHT", 4, C],
+    );
+  }
+});
+
+test("captured changes view: hovered line sends the hunk's code", () => {
+  const root = fixture("changes-view-captured.html");
+  const el = byAttr(root, "data-line-anchor", `${C}R1`);
+  const p = capturedAsk(root, el, el).payload;
+  assert.deepEqual(
+    [p.side, p.start_line, p.end_line, p.selection, p.page_url],
+    ["RIGHT", 1, 1, CAPTURED_HUNK, `${CAPTURED_HREF}#${C}R1`],
+  );
+});
+
+test("captured changes view: a range with no selected text sends the whole hunk", () => {
+  const root = fixture("changes-view-captured.html");
+  const p = capturedAsk(
+    root,
+    byAttr(root, "data-grid-cell-id", `${C}-empty-1-1`),
+    byAttr(root, "data-line-anchor", `${C}R6`),
+  ).payload;
+  assert.deepEqual([p.start_line, p.end_line, p.selection], [1, 6, CAPTURED_HUNK]);
+});
+
+test("code that cannot be read from the page is sent as no selection", () => {
+  const html = fs
+    .readFileSync(path.join(__dirname, "testdata", "changes-view-captured.html"), "utf8")
+    .replace(/(data-diff-text-inner="true">)(?!@@).*?(<\/div><\/code>)/g, "$1 $2");
+  const root = parse(html);
+  const el = byAttr(root, "data-line-anchor", `${C}R3`);
+  assert.equal(capturedAsk(root, el, el).payload.selection, "");
+});
+
 test("classic split view: side comes from the code cell", () => {
   const root = fixture("files-view.html");
   const left = G.lineInfo(byAttr(root, "data-fixture", "splitL5"));
@@ -419,9 +493,9 @@ test("the script only connects to loopback", () => {
 const POPOVER_W = 360;
 const MARGIN = 8;
 
-test("userscript version is 0.1.10", () => {
+test("userscript version is 0.1.11", () => {
   const src = fs.readFileSync(path.join(__dirname, "gh-ask.user.js"), "utf8");
-  assert.match(src, /^\/\/ @version\s+0\.1\.10$/m);
+  assert.match(src, /^\/\/ @version\s+0\.1\.11$/m);
 });
 
 const FILES_HEAD = "0123456789abcdef0123456789abcdef01234567";
