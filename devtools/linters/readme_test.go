@@ -18,7 +18,9 @@ func TestReadmeRequiredPhrases(t *testing.T) {
 	head := readme[:org]
 	for _, want := range []string{
 		"#+TITLE: Linters",
-		"five linters",
+		"six linters",
+		"py-sibling-import",
+		"subdirectory=devtools/linters/pylinters",
 		"migration-immutability",
 		"go install github.com/jaeyeom/experimental/devtools/linters/cmd/migration-immutability@latest",
 		"org-lint",
@@ -67,6 +69,7 @@ func TestReadmeRequiredPhrases(t *testing.T) {
 		"agents-md-size",
 		"unnecessary-interface-assertion-linter",
 		"pkgvar",
+		"py-sibling-import",
 		"* Index",
 	} {
 		if !strings.Contains(head, want) {

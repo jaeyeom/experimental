@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from pylinters import sibling_import
-from pylinters.core import errors, files
+from pylinters.core import config, errors, files
 
 Config = sibling_import.Config
 
@@ -330,7 +330,7 @@ def test_load_config_merges_excludes(tmp_path: Path) -> None:
     cfg = sibling_import.load_config(str(path))
     assert cfg.exclude == ("a/**", "b/**")
     assert cfg.allow_directive == "ok"
-    assert cfg.generated == sibling_import.config.DEFAULT_GENERATED
+    assert cfg.generated == config.DEFAULT_GENERATED
 
 
 def test_load_config_rejects_unknown_checker_key(tmp_path: Path) -> None:

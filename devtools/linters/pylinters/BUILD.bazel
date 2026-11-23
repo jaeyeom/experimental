@@ -1,0 +1,35 @@
+load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
+
+py_library(
+    name = "pylinters",
+    srcs = glob(["src/pylinters/**/*.py"]),
+    imports = ["src"],
+    visibility = ["//visibility:public"],
+)
+
+py_binary(
+    name = "py-sibling-import",
+    srcs = ["src/pylinters/cli/sibling_import.py"],
+    main = "src/pylinters/cli/sibling_import.py",
+    deps = [":pylinters"],
+)
+
+[
+    py_test(
+        name = name,
+        srcs = ["tests/%s.py" % name],
+        main = "tests/%s.py" % name,
+        deps = [
+            ":pylinters",
+            "@pypi//pytest",
+        ],
+    )
+    for name in [
+        "cli_sibling_import_test",
+        "config_test",
+        "files_test",
+        "globs_test",
+        "imports_test",
+        "sibling_import_test",
+    ]
+]

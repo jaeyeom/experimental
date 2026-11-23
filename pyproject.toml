@@ -77,7 +77,7 @@ convention = "google"
 [tool.mypy]
 python_version = "3.11"
 strict = true
-mypy_path = "codelab/proto"
+mypy_path = "codelab/proto:devtools/linters/pylinters/src"
 files = [
     "codelab/proto/client.py",
     "codelab/proto/server.py",
@@ -85,6 +85,8 @@ files = [
     "codelab/proto/server_test.py",
     "scripts/strip_pr_html_comments.py",
     "scripts/strip_pr_html_comments_test.py",
+    "devtools/linters/pylinters/src/pylinters",
+    "devtools/linters/pylinters/tests",
 ]
 exclude = [
     "(^|/)gen/",
