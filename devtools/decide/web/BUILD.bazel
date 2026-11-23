@@ -8,7 +8,9 @@ go_library(
         "handlers_drafts.go",
         "handlers_read.go",
         "handlers_write.go",
+        "presence.go",
         "server.go",
+        "sse.go",
     ],
     embedsrcs = ["static/index.html"],
     importpath = "github.com/jaeyeom/experimental/devtools/decide/web",
@@ -26,10 +28,12 @@ go_test(
     srcs = [
         "api_test.go",
         "server_test.go",
+        "sse_test.go",
     ],
     embed = [":go_default_library"],
     deps = [
         "//devtools/decide:go_default_library",
+        "//devtools/decide/inboxrpc:go_default_library",
         "//devtools/decide/tui:go_default_library",
     ],
 )

@@ -31,17 +31,19 @@ var validID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 // handlers signal, the latest bus health, and the org tree cache.
 type apiState struct {
 	watcher *inboxrpc.Watcher
+	hub     hub
 
 	mu        sync.Mutex
 	busHealth json.RawMessage
 	orgSpec   string
 	orgMod    time.Time
 	orgTree   json.RawMessage
+	clients   map[string]time.Time
 }
 
 func (s *Server) state() *apiState {
 	s.stateOnce.Do(func() {
-		s.api = &apiState{watcher: &inboxrpc.Watcher{Backend: s.Backend, OrgConfig: s.OrgConfig}}
+		s.api = &apiState{watcher: &inboxrpc.Watcher{Backend: s.Backend, OrgConfig: s.OrgConfig, Every: s.WatchEvery}}
 	})
 	return s.api
 }
@@ -57,6 +59,8 @@ func (s *Server) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/contacts", s.contacts)
 	mux.HandleFunc("GET /api/v1/org-tree", s.orgTree)
 	mux.HandleFunc("GET /api/v1/search", s.search)
+	mux.HandleFunc("GET /api/v1/events", s.events)
+	mux.HandleFunc("POST /api/v1/presence", s.presence)
 
 	mux.HandleFunc("POST /api/v1/items/{id}/read", s.writeItem(inboxrpc.OpMarkRead, noBody, s.markRead))
 	mux.HandleFunc("POST /api/v1/items/{id}/answer", s.writeItem(inboxrpc.OpAnswer, checkAnswer, s.answer))

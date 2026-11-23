@@ -55,6 +55,11 @@ type Server struct {
 	// inboxrpc.Server.
 	Targets  []decide.ConfigTarget
 	Agentbus bool
+	// PingEvery is the idle keep-alive interval of the event stream.
+	// Zero means 25s, under common proxy idle timeouts.
+	PingEvery time.Duration
+	// WatchEvery is the watcher poll interval. Zero means 100ms.
+	WatchEvery time.Duration
 
 	stateOnce sync.Once
 	api       *apiState
