@@ -44,7 +44,13 @@ go_test(
         "README.org",
         "//devtools:README.org",
         "//devtools/orgctl/docs:reference.org",
-    ],
+    ] + select({
+        "@bazel_tools//src/conditions:darwin_arm64": ["@pkl-cli-macos-aarch64//file:downloaded"],
+        "@bazel_tools//src/conditions:darwin_arm64e": ["@pkl-cli-macos-aarch64//file:downloaded"],
+        "@bazel_tools//src/conditions:darwin_x86_64": ["@pkl-cli-macos-amd64//file:downloaded"],
+        "@bazel_tools//src/conditions:linux_aarch64": ["@pkl-cli-linux-aarch64//file:downloaded"],
+        "@bazel_tools//src/conditions:linux_x86_64": ["@pkl-cli-linux-amd64//file:downloaded"],
+        "//conditions:default": [],
+    }),
     embed = [":go_default_library"],
-    tags = ["no-sandbox"],
 )

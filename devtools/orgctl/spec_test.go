@@ -262,9 +262,67 @@ func TestCheckRulesAndClasses(t *testing.T) {
 	}
 }
 
+func TestPklBin(t *testing.T) {
+	t.Run("PKL_BIN env", func(t *testing.T) {
+		t.Setenv("PKL_BIN", "/custom/pkl")
+		if got := pklBin(); got != "/custom/pkl" {
+			t.Errorf("pklBin() = %q, want /custom/pkl", got)
+		}
+	})
+
+	t.Run("runfiles", func(t *testing.T) {
+		dir := t.TempDir()
+		binPath := filepath.Join(dir, "rules_pkl++pkl+pkl-cli-linux-amd64", "file", "downloaded")
+		if err := os.MkdirAll(filepath.Dir(binPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(binPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PKL_BIN", "")
+		t.Setenv("RUNFILES_DIR", dir)
+		t.Setenv("TEST_SRCDIR", "")
+		if got := pklBin(); got != binPath {
+			t.Errorf("pklBin() = %q, want %q", got, binPath)
+		}
+	})
+
+	t.Run("fallback to PATH", func(t *testing.T) {
+		empty := t.TempDir()
+		t.Setenv("PKL_BIN", "")
+		t.Setenv("RUNFILES_DIR", empty)
+		t.Setenv("TEST_SRCDIR", empty)
+		if got := pklBin(); got != "pkl" {
+			t.Errorf("pklBin() = %q, want pkl", got)
+		}
+	})
+}
+
+func pklBin() string {
+	if bin := os.Getenv("PKL_BIN"); bin != "" {
+		return bin
+	}
+	for _, key := range []string{"RUNFILES_DIR", "TEST_SRCDIR"} {
+		root := os.Getenv(key)
+		if root == "" {
+			continue
+		}
+		matches, err := filepath.Glob(filepath.Join(root, "*pkl-cli-*", "file", "downloaded"))
+		if err != nil {
+			continue
+		}
+		for _, candidate := range matches {
+			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+				return candidate
+			}
+		}
+	}
+	return "pkl"
+}
+
 func evalPkl(t *testing.T, path string) ([]byte, []byte, int) {
 	t.Helper()
-	cmd := exec.CommandContext(t.Context(), "pkl", "eval", "-f", "json", path) //nolint:gosec // G204: pkl eval of a repo fixture
+	cmd := exec.CommandContext(t.Context(), pklBin(), "eval", "-f", "json", path) //nolint:gosec // G204: pkl eval of a repo fixture
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
