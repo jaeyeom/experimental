@@ -240,3 +240,79 @@ func TestCLIEndToEndAndExitCodes(t *testing.T) {
 		t.Errorf("unknown command exit=%d, want %d", code, exitUsage)
 	}
 }
+
+func TestCLIExportCommand(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+	workDB := filepath.Join(dir, "vaults", "work.db")
+	cfgText := fmt.Sprintf(`
+[vaults.work]
+path = %q
+residency = "local-only"
+
+[profiles.exporter]
+vaults = ["work"]
+compartments = ["engineering"]
+max_sensitivity = "normal"
+capabilities = ["read", "write", "export"]
+
+[profiles.reader]
+vaults = ["work"]
+compartments = ["engineering"]
+max_sensitivity = "normal"
+capabilities = ["read"]
+`, workDB)
+	if err := os.WriteFile(cfgPath, []byte(cfgText), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	env := map[string]string{
+		"MEMSTORE_CONFIG": cfgPath,
+		"MEMSTORE_CALLER": "cli-export-test",
+	}
+
+	if code, _, errOut := runCLI(env, "init", "--vault", "work"); code != exitOK {
+		t.Fatalf("init work exit=%d, stderr=%s", code, errOut)
+	}
+	if code, _, errOut := runCLI(env, "entity", "put", "person", "ada",
+		"--profile", "exporter", "--vault", "work", "--title", "Ada Lovelace",
+		"--compartment", "engineering", "--pin-l1"); code != exitOK {
+		t.Fatalf("entity put exit=%d, stderr=%s", code, errOut)
+	}
+
+	// Missing export capability -> exitUsage (2).
+	outDir := filepath.Join(dir, "exported")
+	if code, _, _ := runCLI(env, "export", "--profile", "reader", "--out", outDir); code != exitUsage {
+		t.Errorf("export without capability exit=%d, want %d", code, exitUsage)
+	}
+
+	// Git work-tree refusal -> exitError (1), --allow-git -> exitOK (0).
+	gitDir := filepath.Join(dir, "repo")
+	if err := os.MkdirAll(filepath.Join(gitDir, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, _ := runCLI(env, "export", "--profile", "exporter", "--out", filepath.Join(gitDir, "mem")); code != exitError {
+		t.Errorf("export into git dir exit=%d, want %d", code, exitError)
+	}
+
+	// First export --json.
+	code, out, errOut := runCLI(env, "export", "--profile", "exporter", "--out", outDir, "--by", "tester", "--reason", "cli-test", "--json")
+	if code != exitOK {
+		t.Fatalf("export --json exit=%d, stderr=%s", code, errOut)
+	}
+	var rep memstore.ExportReport
+	if err := json.Unmarshal([]byte(out), &rep); err != nil {
+		t.Fatalf("unmarshal export report: %v (%s)", err, out)
+	}
+	if rep.Written == 0 || rep.Removed != 0 {
+		t.Errorf("unexpected first export report: %+v", rep)
+	}
+
+	// Second export (text output) -> written=0.
+	code, out, errOut = runCLI(env, "export", "--profile", "exporter", "--out", outDir)
+	if code != exitOK {
+		t.Fatalf("second export exit=%d, stderr=%s", code, errOut)
+	}
+	if !strings.Contains(out, "written=0") || !strings.Contains(out, "removed=0") {
+		t.Errorf("unexpected second export output: %q", out)
+	}
+}

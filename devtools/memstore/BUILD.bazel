@@ -5,12 +5,14 @@ go_library(
     srcs = [
         "accesslog.go",
         "config.go",
+        "contactsbridge.go",
         "entities.go",
         "episodic.go",
         "facts.go",
         "notes.go",
         "paths.go",
         "policy.go",
+        "project.go",
         "revisions.go",
         "search.go",
         "service.go",
@@ -19,8 +21,11 @@ go_library(
     importpath = "github.com/jaeyeom/experimental/devtools/memstore",
     visibility = ["//visibility:public"],
     deps = [
+        "//devtools/contacts:go_default_library",
         "//devtools/pkg/sqlitedb:go_default_library",
+        "@com_github_google_renameio_v2//:go_default_library",
         "@com_github_pelletier_go_toml_v2//:go_default_library",
+        "@in_gopkg_yaml_v3//:go_default_library",
     ],
 )
 
@@ -30,16 +35,19 @@ go_test(
     srcs = [
         "accesslog_test.go",
         "config_test.go",
+        "contactsbridge_test.go",
         "entities_test.go",
         "episodic_test.go",
         "facts_test.go",
         "notes_test.go",
         "paths_test.go",
         "policy_test.go",
+        "project_test.go",
         "revisions_test.go",
         "search_test.go",
         "service_test.go",
         "store_test.go",
     ],
     embed = [":go_default_library"],
+    deps = ["//devtools/contacts:go_default_library"],
 )

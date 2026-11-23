@@ -67,6 +67,7 @@ func usages() []struct{ name, line string } {
 		{"note", "memstore note set|list ..."},
 		{"event", "memstore event add|list ..."},
 		{"search", "memstore search <query> [--kind K]... [--limit N] [--since D] [--until D] [--vault V] [--entity E] [--json]"},
+		{"export", "memstore export --profile P --out <dir> [--allow-git] [--by C] [--reason R] [--json]"},
 		{"log", "memstore log --vault V [--caller C] [--entity E] [--since D] [--limit N] [--json]"},
 	}
 }
@@ -118,6 +119,8 @@ func (a *app) dispatch(name string, args []string) int {
 		return a.cmdEvent(args)
 	case "search":
 		return a.cmdSearch(args)
+	case "export":
+		return a.cmdExport(args)
 	case "log":
 		return a.cmdLog(args)
 	default:

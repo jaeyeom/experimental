@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "entity_cmd.go",
         "event_cmd.go",
+        "export_cmd.go",
         "fact_cmd.go",
         "main.go",
         "note_cmd.go",
