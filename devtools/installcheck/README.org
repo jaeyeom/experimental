@@ -1,0 +1,125 @@
+#+TITLE: install-check
+#+DATE: 2026-11-22
+
+install-check wakes an agent when an issue you are waiting on lands on
+=main=. A systemd user timer runs it every 45 minutes. It compares each
+repo's =main= head with the last run, and only when a head moved does it
+ask GitHub about the issues you watch. If some are newly closed, it sends
+one agentbus message. A quiet run prints nothing and makes no GitHub
+calls. It never installs, builds, or restarts anything.
+
+* Quick start
+
+** Install
+
+#+BEGIN_SRC bash
+go install github.com/jaeyeom/experimental/devtools/installcheck/cmd/install-check@latest
+#+END_SRC
+
+It needs =git=, an authenticated =gh=, and =agentbus= on ~PATH~.
+
+** Config
+
+Create =~/.config/install-check/config.toml= (or
+=$XDG_CONFIG_HOME/install-check/config.toml=). Use ~--config~ for another
+path.
+
+#+BEGIN_SRC toml
+notify_name = "installer"
+skip_not_planned = false
+
+[[repo]]
+url = "https://github.com/owner/repo"
+issues = [123, 130]
+query = "is:issue author:@me"
+#+END_SRC
+
+- ~notify_name~: the agentbus name to message. No reply is expected.
+- ~[[repo]]~: ~url~ plus ~issues~, ~query~, or both. An issue matched by
+  both is listed once. ~query~ is a ~gh issue list --search~ string whose
+  closed results count as watched.
+- ~skip_not_planned~: issues closed as "not planned" are listed in a
+  separate section, or dropped silently when this is true.
+- ~state_file~: defaults to =$XDG_STATE_HOME/install-check/state.json=,
+  else =~/.local/state/install-check/state.json=. It is written
+  atomically with mode 0600.
+
+** Dry run
+
+#+BEGIN_SRC bash
+install-check run --dry-run
+#+END_SRC
+
+~--dry-run~ prints the message it would send and changes no state. The
+first real run of a repo only records a baseline: issues already closed
+then are not reported.
+
+* What it sends
+
+#+BEGIN_EXAMPLE
+install-check: main moved; landed since last check:
+- owner/repo#123 Fix the thing (closed 12:40Z)
+- owner/repo#130 Add the other thing (closed 12:41Z)
+main: owner/repo 1a2b3c4
+#+END_EXAMPLE
+
+A closed issue is reported once. When sending fails, no state moves, so
+the next run retries. A failed =git ls-remote= or =gh= call for one repo
+does not stop the others; the failing repo keeps its old state. Any
+failure exits 1, and at most one failure message per day goes to
+~notify_name~.
+
+* Run it from systemd
+
+The tool does not install its own units. Put these in =~/.config/systemd/user/=.
+
+#+BEGIN_SRC conf
+# install-check.service
+[Unit]
+Description=Tell an agent when watched issues land on main
+
+[Service]
+Type=oneshot
+ExecStart=%h/go/bin/install-check run
+#+END_SRC
+
+#+BEGIN_SRC conf
+# install-check.timer
+[Unit]
+Description=Run install-check every 45 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=45min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+#+END_SRC
+
+#+BEGIN_SRC bash
+systemctl --user daemon-reload
+systemctl --user enable --now install-check.timer
+#+END_SRC
+
+* Status
+
+#+BEGIN_SRC bash
+install-check status
+#+END_SRC
+
+#+BEGIN_EXAMPLE
+last run: 2026-11-22 13:00:00Z
+owner/repo main: 1a2b3c4
+  open: #140 Still waiting
+#+END_EXAMPLE
+
+~last run~ is the last time state was saved. Each repo shows the head
+recorded at the last run, then the watched issues still open. ~status~
+calls =gh=, and exits 1 if that fails.
+
+* Exit codes
+
+| 0 | quiet run or message sent |
+| 1 | a git, gh, agentbus, or state error |
+| 2 | bad usage or config |
