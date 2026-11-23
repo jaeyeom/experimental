@@ -460,7 +460,7 @@ func TestHideAllDeadAsksThenHidesOnlyDead(t *testing.T) {
 	}
 	finishContactBus(t, m)
 	press(t, m, "X")
-	if !strings.Contains(m.status, "dead") || !strings.Contains(m.status, "[Yes y] [No n]") {
+	if !strings.Contains(m.status, "dead") || !strings.Contains(m.status, "[Yes (y)] [No (n)]") {
 		t.Fatalf("status %q", m.status)
 	}
 	if names := contactNames(m.visibleContacts()); strings.Join(names, ",") != "ada,bea,cara,zed" {
@@ -522,7 +522,7 @@ func TestReleaseDeadNameRefusesLive(t *testing.T) {
 	finishContactBus(t, m)
 	selectContact(t, m, "zed")
 	press(t, m, "R")
-	if !strings.Contains(m.status, "zed") || !strings.Contains(m.status, "[Yes y] [No n]") {
+	if !strings.Contains(m.status, "zed") || !strings.Contains(m.status, "[Yes (y)] [No (n)]") {
 		t.Fatalf("status %q", m.status)
 	}
 	if releases(bus) != 0 {

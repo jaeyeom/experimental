@@ -3001,6 +3001,8 @@ func (m *Model) detailLines(width int) []screenLine {
 	default:
 		lines = append(lines, m.relayLines(it, width)...)
 	}
+	replyBtn := m.actionButton("Reply", "detail.reply", false, width)
+	lines = append(lines, screenLine{text: renderButton(replyBtn), hits: []hit{{kind: hitReplyFocus}}})
 	if card, ok := decide.ApprovalCard(m.allItems, it.ID); ok {
 		lines = append(lines, m.approvalCardLines(&card, width)...)
 	}
@@ -3301,7 +3303,7 @@ func (m *Model) replyLines(width int) []screenLine {
 		col = 1
 	}
 	addBtn := func(label string, kind int) {
-		rendered := optionButton.Render(label)
+		rendered := renderButton(label)
 		w := lipgloss.Width(rendered)
 		if width > 0 && len(parts) > 0 && col+w > width {
 			flush()

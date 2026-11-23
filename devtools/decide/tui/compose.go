@@ -513,7 +513,7 @@ func cursorChunks(chunks []textChunk, col int) []screenLine {
 func (m *Model) sendLine(width int) screenLine {
 	useStyles()
 	label := m.actionButton("Send", "compose.send", m.composeFocus == focusSend, width)
-	rendered := optionButton.Render(label)
+	rendered := renderButton(label)
 	return screenLine{
 		text: rendered,
 		hits: []hit{{kind: hitSend, x0: 1, x1: lipgloss.Width(rendered)}},

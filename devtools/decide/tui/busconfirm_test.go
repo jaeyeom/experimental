@@ -48,7 +48,7 @@ func TestBusDownPromptsBeforeComposeToABusName(t *testing.T) {
 	if m.confirmKind != confirmBusDown {
 		t.Fatalf("no prompt; status %q", m.status)
 	}
-	if got := footer(t, m); !strings.Contains(got, busDownPrompt) || !strings.Contains(got, "[Send anyway y]") || !strings.Contains(got, "Cancel n") {
+	if got := footer(t, m); !strings.Contains(got, busDownPrompt) || !strings.Contains(got, "[Send anyway (y)]") || !strings.Contains(got, "Cancel (n)") {
 		t.Fatalf("footer = %q", got)
 	}
 	// The prompt takes only keys: a click on the screen sends nothing.
@@ -89,7 +89,7 @@ func TestBusDownCancelKeepsTheComposeDraft(t *testing.T) {
 			press(t, m, "cprimary\rhello bus\t\r")
 			sendKey(t, m, key.msg)
 			if key.msg.Type == tea.KeyTab {
-				if got := footer(t, m); !strings.Contains(got, "[Cancel n]") {
+				if got := footer(t, m); !strings.Contains(got, "[Cancel (n)]") {
 					t.Fatalf("Tab did not move the focus: %q", got)
 				}
 				sendKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})

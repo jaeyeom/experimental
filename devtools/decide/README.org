@@ -429,11 +429,15 @@ scrolling thread, so scrolling the thread never jumps back to the box.
 When unfocused and empty it collapses to one hint line (~reply: ___~);
 when focused or holding a draft it grows with the text up to the cap,
 shrinking the thread area above it, and keeps the action buttons at the
-bottom: ~[Send ^⏎]~, ~[Send and archive M-e]~ (shown on notes,
+bottom: ~[Send (^⏎)]~, ~[Send and archive (M-e)]~ (shown on notes,
 notifications, and already-answered threads, never on an open question),
-and ~[Discard M-d]~. ~Discard~ clears a short draft at once and asks
+and ~[Discard (M-d)]~. ~Discard~ clears a short draft at once and asks
 first when the draft is longer than 3 lines; ~Esc~ leaves the box and
 keeps the draft.
+The thread view also has a clickable ~[Reply (0)]~ button that focuses the
+reply box. Every button shows its live key binding in dimmed parentheses
+(~[Send (C-Enter)]~ in ASCII mode); the hint is dropped first at narrow
+widths and omitted for an unbound action.
 
 ** Persistent drafts
 

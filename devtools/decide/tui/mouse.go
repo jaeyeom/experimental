@@ -20,6 +20,7 @@ const (
 	hitReplySend
 	hitReplySendAndArchive
 	hitReplyDiscard
+	hitReplyFocus
 	hitComposeRestore
 	hitComposeDiscard
 	hitConflictKeep
@@ -75,7 +76,7 @@ func (m *Model) Click(x, y int) error {
 // leaveReply unfocuses the reply box and its buttons for a click
 // elsewhere. It reports true when the click only left the reply box.
 func (m *Model) leaveReply(field hit, onField bool, x, y int) bool {
-	onReplyBtn := m.onHitRow(x, y, hitReplySend) || m.onHitRow(x, y, hitReplySendAndArchive) || m.onHitRow(x, y, hitReplyDiscard)
+	onReplyBtn := m.onHitRow(x, y, hitReplySend) || m.onHitRow(x, y, hitReplySendAndArchive) || m.onHitRow(x, y, hitReplyDiscard) || m.onHitRow(x, y, hitReplyFocus)
 	if !onReplyBtn {
 		m.replySend = false
 		m.replyBtn = replyBtnSend
@@ -278,6 +279,9 @@ func (m *Model) hitReplyButton(kind int) (bool, error) {
 		return true, m.submitReplyAndArchive()
 	case hitReplyDiscard:
 		m.discardReply()
+		return true, nil
+	case hitReplyFocus:
+		m.focusReply()
 		return true, nil
 	default:
 		return false, nil

@@ -111,6 +111,7 @@ go_test(
         "outbox_test.go",
         "recipients_test.go",
         "refresh_test.go",
+        "reply_button_test.go",
         "search_test.go",
         "sendkey_test.go",
         "snooze_test.go",

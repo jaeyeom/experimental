@@ -163,15 +163,15 @@ func TestReplyTabReachesSend(t *testing.T) {
 	if m.replyFocus || !m.replySend {
 		t.Fatalf("tab focus %v send %v", m.replyFocus, m.replySend)
 	}
-	if !strings.Contains(visibleLine(m.View()), "> [Send ^⏎]") {
-		t.Fatalf("[Send ^⏎] not focused\n%s", visibleLine(m.View()))
+	if !strings.Contains(visibleLine(m.View()), "> [Send (^⏎)]") {
+		t.Fatalf("[Send (^⏎)] not focused\n%s", visibleLine(m.View()))
 	}
 	sendKey(t, m, tea.KeyMsg{Type: tea.KeyShiftTab})
 	if !m.replyFocus || m.replySend {
 		t.Fatalf("shift+tab focus %v send %v", m.replyFocus, m.replySend)
 	}
 	press(t, m, "d")
-	clickOn(t, m, "[Send ^⏎]", 1)
+	clickOn(t, m, "[Send (^⏎)]", 1)
 	got, err := led.Get(item.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -720,8 +720,8 @@ func TestPinnedReplyBoxShrinksThreadAndResetsAfterSend(t *testing.T) {
 		t.Fatalf("shrunk threadN=%d len(reply)=%d grown=%d detailN=%d", threadShrunk, len(replyShrunk), grownHeight, detailN)
 	}
 
-	// Clicking [Send ^⏎] sends the reply and resets the box to one hint line.
-	clickOn(t, m, "[Send ^⏎]", 1)
+	// Clicking [Send (^⏎)] sends the reply and resets the box to one hint line.
+	clickOn(t, m, "[Send (^⏎)]", 1)
 	got, err := led.Get(item.ID)
 	if err != nil {
 		t.Fatal(err)

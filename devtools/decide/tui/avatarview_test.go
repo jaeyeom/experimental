@@ -631,7 +631,7 @@ func TestComposeAvatarFollowsSelection(t *testing.T) {
 	if got := visibleCol(viewLines(view)[screenRow(view, "coord/primary")-1], "coord/primary"); got != nameCol {
 		t.Fatalf("picker shifted from column %d to %d\n%s", nameCol, got, visibleLine(view))
 	}
-	if screenRow(view, "[Send ^⏎]") != screenRow(checkView(t, "compose_avatar_a.golden"), "[Send ^⏎]") {
+	if screenRow(view, "[Send (^⏎)]") != screenRow(checkView(t, "compose_avatar_a.golden"), "[Send (^⏎)]") {
 		t.Fatalf("picker box height changed\n%s", visibleLine(view))
 	}
 

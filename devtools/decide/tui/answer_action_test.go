@@ -161,7 +161,7 @@ func TestSendAndArchiveButtonVisibilityAndAction(t *testing.T) {
 	if strings.Contains(view, "Send and archive") {
 		t.Fatalf("open question %s showed Send and archive:\n%s", question.ID, view)
 	}
-	if !strings.Contains(view, "[Send ^⏎]") || !strings.Contains(view, "[Discard M-d]") {
+	if !strings.Contains(view, "[Send (^⏎)]") || !strings.Contains(view, "[Discard (M-d)]") {
 		t.Fatalf("missing Send/Discard hints:\n%s", view)
 	}
 
@@ -175,8 +175,8 @@ func TestSendAndArchiveButtonVisibilityAndAction(t *testing.T) {
 	}
 	press(t, m, "\r0thanks")
 	view = visibleLine(m.View())
-	if !strings.Contains(view, "[Send and archive M-e]") {
-		t.Fatalf("note missing [Send and archive M-e]:\n%s", view)
+	if !strings.Contains(view, "[Send and archive (M-e)]") {
+		t.Fatalf("note missing [Send and archive (M-e)]:\n%s", view)
 	}
 	// Tab to Send, Tab to Send and archive, Enter.
 	press(t, m, "\t\t\r")
@@ -204,8 +204,8 @@ func TestSendAndArchiveButtonVisibilityAndAction(t *testing.T) {
 	}
 	press(t, m, "\r0noted")
 	view = visibleLine(m.View())
-	if !strings.Contains(view, "[Send and archive M-e]") {
-		t.Fatalf("answered thread missing [Send and archive M-e]:\n%s", view)
+	if !strings.Contains(view, "[Send and archive (M-e)]") {
+		t.Fatalf("answered thread missing [Send and archive (M-e)]:\n%s", view)
 	}
 }
 

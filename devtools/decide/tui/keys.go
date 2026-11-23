@@ -41,7 +41,7 @@ func (m *Model) buttonKey(action string) string {
 	return m.keyMap().PrimaryButtonString(action, m.useASCIIKeys())
 }
 
-// buttonLabel formats a button "[name hint]" (or "> [name hint]" when focused)
+// buttonLabel formats a button "[name (hint)]" (or "> [name (hint)]" when focused)
 // fitting within maxWidth when maxWidth > 0. When the full label with hint
 // exceeds maxWidth, the hint is dropped first; only if "[name]" still
 // exceeds maxWidth is the label truncated.
@@ -57,7 +57,7 @@ func formatButton(open, closeBracket, name, hint string, focused bool, maxWidth 
 	plain := prefix + open + name + closeBracket
 	full := plain
 	if hint != "" {
-		full = prefix + open + name + " " + hint + closeBracket
+		full = prefix + open + name + " (" + hint + ")" + closeBracket
 	}
 	if maxWidth <= 0 || lipgloss.Width(full) <= maxWidth {
 		return full
@@ -66,6 +66,18 @@ func formatButton(open, closeBracket, name, hint string, focused bool, maxWidth 
 		return plain
 	}
 	return truncateVisible(plain, maxWidth)
+}
+
+// renderButton paints a button label reversed with its "(hint)" dimmed.
+func renderButton(label string) string {
+	useStyles()
+	i := strings.LastIndex(label, " (")
+	if i < 0 || !strings.HasSuffix(label, ")]") {
+		return optionButton.Render(label)
+	}
+	return optionButton.Render(label[:i]) +
+		optionButton.Faint(true).Render(label[i:len(label)-1]) +
+		optionButton.Render("]")
 }
 
 func (m *Model) actionButton(name, action string, focused bool, maxWidth int) string {
