@@ -101,11 +101,11 @@ def test_git_resolver_outside_repo_raises(
         files.GitResolver.from_repo(str(tmp_path))
 
 
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, *sys.argv[1:]]))
-
-
 def test_root_reader_requires_git_resolver() -> None:
     """A plain FileSet has no work-tree root to read from."""
     with pytest.raises(TypeError):
         files.root_reader(files.FileSet([]))
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, *sys.argv[1:]]))

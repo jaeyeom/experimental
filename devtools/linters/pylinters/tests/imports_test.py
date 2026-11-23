@@ -67,10 +67,6 @@ def test_syntax_warnings_are_silenced() -> None:
         imports.parse(b'import re\nx = "\\d"\n', "x.py")
 
 
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, *sys.argv[1:]]))
-
-
 MODULE_SRC = b"from p.m import (\n    a,  # py-module-import: allow\n    b,\n)  # other\n"
 
 
@@ -106,3 +102,7 @@ def test_directive_in_string_is_not_a_comment() -> None:
         b'from p.m import a; s = "py-module-import: allow"\n', "x.py"
     )
     assert not src.statement_exempt(src.imports[0], "py-module-import: allow")
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, *sys.argv[1:]]))
