@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         gh-ask
 // @namespace    https://github.com/jaeyeom/experimental/tree/main/devtools/gh-ask
-// @version      0.1.11
+// @version      0.1.12
 // @description  Ask a local agent about lines in a pull request diff, through gh-ask serve on 127.0.0.1.
 // @match        https://github.com/*
 // @grant        GM_xmlhttpRequest
@@ -362,8 +362,20 @@ function fileAnchor(el) {
   return "";
 }
 
+// sideCell is the code cell of the given side in a classic split-view
+// row (data-split-side), or null in any other row. A row is split when
+// it has code cells for both sides, the empty one included.
+function sideCell(row, side) {
+  const want = side === "LEFT" ? "left" : "right";
+  const cells = findAll(row, (e) => e.tagName === "TD" && e.getAttribute("data-split-side"));
+  if (new Set(cells.map((c) => c.getAttribute("data-split-side"))).size < 2) {
+    return null;
+  }
+  return cells.find((c) => c.getAttribute("data-split-side") === want) || null;
+}
+
 // lineInfo describes the diff line el is in: {path, side, line, anchor,
-// row, table}. It returns null outside a numbered diff line.
+// row, table, sideCell}. It returns null outside a numbered diff line.
 function lineInfo(el) {
   const cell = closestTag(el, "TD");
   const row = cell && closestTag(cell, "TR");
@@ -394,7 +406,30 @@ function lineInfo(el) {
     anchor: num.anchor || fileAnchor(table),
     row,
     table,
+    sideCell: sideCell(row, num.side),
   };
+}
+
+// hoverPlacement is where the hover button goes for info: the right edge
+// of the row, or in split view the right end of a LEFT line's own cell,
+// so the pointer never crosses the other side to reach it.
+function hoverPlacement(info, width, rectOf = (n) => n.getBoundingClientRect()) {
+  const r = rectOf(info.side === "LEFT" && info.sideCell ? info.sideCell : info.row);
+  return { top: r.top, left: r.right - width - 4 };
+}
+
+// chipHost is the element a line's status chip goes in.
+function chipHost(info) {
+  return info.sideCell || info.row.lastElementChild;
+}
+
+// nextHover is the hover target after the pointer enters el. Over the
+// button the target stays; elsewhere it follows the line under el.
+function nextHover(current, el, overButton) {
+  if (overButton) {
+    return current;
+  }
+  return lineInfo(el) ? { start: el, end: el, selection: "" } : null;
 }
 
 // buildPayload turns a hovered line (start === end) or a selection into
@@ -1287,14 +1322,17 @@ const GhAsk = {
   askPanel,
   bindPage,
   buildPayload,
+  chipHost,
   chipText,
   findHeadSha,
   formatMessageTime,
   headNavDropsCache,
+  hoverPlacement,
   isDiffPath,
   isPrPath,
   lineInfo,
   navDebounceMs,
+  nextHover,
   onPopoverKey,
   mountPanelToggle,
   panelAsk,
@@ -1768,16 +1806,14 @@ function main() {
     if (popover || target?.selection || button.contains(e.target)) {
       return;
     }
-    const info = lineInfo(e.target);
-    if (!info) {
+    target = nextHover(target, e.target, false);
+    if (!target) {
       button.hidden = true;
-      target = null;
       return;
     }
-    target = { start: e.target, end: e.target, selection: "" };
-    const r = info.row.getBoundingClientRect();
     button.hidden = false;
-    place(button, { top: r.top, left: r.right - button.offsetWidth - 4 });
+    const at = hoverPlacement(lineInfo(e.target), button.offsetWidth);
+    place(button, at);
   }
   document.addEventListener("mouseover", onMouseOver);
 
@@ -1981,7 +2017,7 @@ function main() {
       (chip) => {
         const info = lineInfo(ask.end);
         if (info) {
-          info.row.lastElementChild.append(chip);
+          chipHost(info).append(chip);
         }
       },
     );

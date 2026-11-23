@@ -493,9 +493,9 @@ test("the script only connects to loopback", () => {
 const POPOVER_W = 360;
 const MARGIN = 8;
 
-test("userscript version is 0.1.11", () => {
+test("userscript version is 0.1.12", () => {
   const src = fs.readFileSync(path.join(__dirname, "gh-ask.user.js"), "utf8");
-  assert.match(src, /^\/\/ @version\s+0\.1\.11$/m);
+  assert.match(src, /^\/\/ @version\s+0\.1\.12$/m);
 });
 
 const FILES_HEAD = "0123456789abcdef0123456789abcdef01234567";
@@ -1430,4 +1430,119 @@ test("a button near the right edge uses the same clamp", () => {
   assert.equal(got.left, viewport.width - 72 - MARGIN);
   assert.equal(got.top, 300);
   assert.ok(got.left + got.width <= viewport.width - MARGIN);
+});
+
+// split-view-captured.html is the classic split diff GitHub served for a
+// public pull request (see its header): context lines 510-512, line 513
+// deleted on the left and added on the right, and context line 514.
+const SP = "diff-35cadb9bdc1334ec5640179c4a8ea8dde57326f4c430717bd13bef62f67aa3c1";
+const SPLIT_HREF = "https://github.com/jaeyeom/experimental/pull/402/files";
+const SPLIT_HEAD = "a68e2bcc224ccb1b0c337a9aed149143d36b07ce";
+
+function splitCell(root, side, n) {
+  const num = byAttr(root, "id", `${SP}${side[0]}${n}`);
+  const row = num.parentElement;
+  return row.children.find((c) => c.getAttribute("data-split-side") === side.toLowerCase());
+}
+
+function rects(map) {
+  return (node) => map.get(node);
+}
+
+function splitAsk(start, end = start) {
+  return G.buildPayload({
+    href: SPLIT_HREF,
+    headSha: SPLIT_HEAD,
+    start,
+    end,
+    selection: "",
+    question: "q",
+    deep: false,
+  });
+}
+
+test("split view: a deleted left line asks on the LEFT side", () => {
+  const root = fixture("split-view-captured.html");
+  const cell = splitCell(root, "LEFT", 513);
+  const info = G.lineInfo(cell);
+  assert.deepEqual([info.side, info.line, info.sideCell], ["LEFT", 513, cell]);
+  const p = splitAsk(cell).payload;
+  assert.deepEqual([p.side, p.start_line, p.end_line], ["LEFT", 513, 513]);
+  assert.equal(p.page_url, `${SPLIT_HREF}#${SP}L513`);
+});
+
+test("split view: a left context line asks on the LEFT side", () => {
+  const root = fixture("split-view-captured.html");
+  const cell = splitCell(root, "LEFT", 511);
+  const p = splitAsk(cell).payload;
+  assert.deepEqual([p.side, p.start_line, p.end_line], ["LEFT", 511, 511]);
+});
+
+test("split view: a right line is unchanged", () => {
+  const root = fixture("split-view-captured.html");
+  const cell = splitCell(root, "RIGHT", 514);
+  const info = G.lineInfo(cell);
+  assert.deepEqual([info.side, info.line], ["RIGHT", 514]);
+  assert.equal(info.sideCell, cell);
+  const p = splitAsk(cell).payload;
+  assert.deepEqual([p.side, p.start_line], ["RIGHT", 514]);
+});
+
+test("split view: the empty left cell of an added line has no line", () => {
+  const root = fixture("split-view-captured.html");
+  const empty = byAttr(root, "id", `${SP}R514`).parentElement.children.find(
+    (c) => c.getAttribute("data-split-side") === "left",
+  );
+  assert.equal(G.lineInfo(empty), null);
+});
+
+test("split view: the hover button sits inside the hovered side's cell", () => {
+  const root = fixture("split-view-captured.html");
+  const left = splitCell(root, "LEFT", 513);
+  const right = splitCell(root, "RIGHT", 513);
+  const row = left.parentElement;
+  const rectOf = rects(
+    new Map([
+      [row, { top: 100, left: 0, right: 800 }],
+      [left, { top: 100, left: 40, right: 400 }],
+      [right, { top: 100, left: 440, right: 800 }],
+    ]),
+  );
+  const l = G.hoverPlacement(G.lineInfo(left), 80, rectOf);
+  assert.ok(l.left >= 40 && l.left + 80 <= 400, `left button at ${l.left}`);
+  assert.equal(l.top, 100);
+  const r = G.hoverPlacement(G.lineInfo(right), 80, rectOf);
+  assert.equal(r.left, 800 - 80 - 4);
+});
+
+test("unified view: the hover button stays at the row's right edge", () => {
+  const root = fixture("changes-view-captured.html");
+  const info = G.lineInfo(byAttr(root, "data-line-anchor", `${C}R1`));
+  assert.equal(info.sideCell, null);
+  const rectOf = rects(new Map([[info.row, { top: 5, left: 0, right: 900 }]]));
+  assert.deepEqual(G.hoverPlacement(info, 80, rectOf), { top: 5, left: 816 });
+});
+
+test("split view: moving from a left cell to its button keeps the LEFT target", () => {
+  const root = fixture("split-view-captured.html");
+  const left = splitCell(root, "LEFT", 513);
+  const first = G.nextHover(null, left, false);
+  assert.equal(G.lineInfo(first.start).side, "LEFT");
+  // The pointer reaches the button, and even the empty right cell
+  // beside a deleted line, without dropping the target.
+  assert.equal(G.nextHover(first, left, true), first);
+  const empty = byAttr(root, "id", `${SP}R514`).parentElement.children.find(
+    (c) => c.getAttribute("data-split-side") === "left",
+  );
+  assert.equal(G.nextHover(null, empty, false), null);
+});
+
+test("split view: chips attach to the hovered side's cell", () => {
+  const root = fixture("split-view-captured.html");
+  const left = splitCell(root, "LEFT", 513);
+  const right = splitCell(root, "RIGHT", 513);
+  assert.equal(G.chipHost(G.lineInfo(left)), left);
+  assert.equal(G.chipHost(G.lineInfo(right)), right);
+  const uni = G.lineInfo(byAttr(fixture("changes-view-captured.html"), "data-line-anchor", `${C}R1`));
+  assert.equal(G.chipHost(uni), uni.row.lastElementChild);
 });
