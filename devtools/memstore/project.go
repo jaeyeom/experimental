@@ -64,13 +64,14 @@ type projectedFile struct {
 }
 
 type exportedEntity struct {
-	entity     Entity
-	vaultName  string
-	aliases    []string
-	facts      []Fact
-	noteBlocks []NoteBlock
-	links      []EntityLink
-	contacts   *ContactsAttributes
+	entity       Entity
+	vaultName    string
+	aliases      []string
+	facts        []Fact
+	noteBlocks   []NoteBlock
+	links        []EntityLink
+	contacts     *ContactsAttributes
+	routineState map[string]string
 }
 
 type entityFrontmatter struct {
@@ -191,43 +192,80 @@ func collectVaultEntities(ctx context.Context, svc *Service, v *Vault, vaultName
 	}
 
 	for _, e := range entities {
-		aliases, err := loadAliases(ctx, v.db, e.ID)
-		if err != nil {
+		if err := collectSingleVaultEntity(ctx, svc, v, vaultName, e, byID, order, getenv, now); err != nil {
 			return err
 		}
-		facts, err := svc.queryVaultFacts(ctx, v, FactFilter{Vault: vaultName, EntityID: e.ID})
-		if err != nil {
-			return err
-		}
-		notes, err := svc.queryVaultNoteBlocks(ctx, v, e.ID)
-		if err != nil {
-			return err
-		}
-		links, err := svc.queryEntityLinks(ctx, v.db, e.ID)
-		if err != nil {
-			return err
-		}
+	}
+	return nil
+}
 
-		ee, exists := byID[e.ID]
-		if !exists {
-			ee = &exportedEntity{entity: e, vaultName: vaultName}
-			byID[e.ID] = ee
-			*order = append(*order, e.ID)
-		}
-		ee.aliases = append(ee.aliases, aliases...)
-		ee.facts = append(ee.facts, facts...)
-		ee.noteBlocks = append(ee.noteBlocks, notes...)
-		ee.links = append(ee.links, links...)
+func collectSingleVaultEntity(
+	ctx context.Context,
+	svc *Service,
+	v *Vault,
+	vaultName string,
+	e Entity,
+	byID map[string]*exportedEntity,
+	order *[]string,
+	getenv func(string) string,
+	now func() time.Time,
+) error {
+	aliases, err := loadAliases(ctx, v.db, e.ID)
+	if err != nil {
+		return err
+	}
+	facts, err := svc.queryVaultFacts(ctx, v, FactFilter{Vault: vaultName, EntityID: e.ID})
+	if err != nil {
+		return err
+	}
+	notes, err := svc.queryVaultNoteBlocks(ctx, v, e.ID)
+	if err != nil {
+		return err
+	}
+	links, err := svc.queryEntityLinks(ctx, v.db, e.ID)
+	if err != nil {
+		return err
+	}
 
-		if ee.contacts == nil && e.Kind == "person" && e.ContactsRef != "" && v.config.ContactsConfig != "" {
-			attrs, ok, err := loadContactsAttributes(v.config.ContactsConfig, e.ContactsRef, getenv, now)
-			if err != nil {
-				return err
-			}
-			if ok {
-				ee.contacts = &attrs
-			}
+	ee, exists := byID[e.ID]
+	if !exists {
+		ee = &exportedEntity{entity: e, vaultName: vaultName}
+		byID[e.ID] = ee
+		*order = append(*order, e.ID)
+	}
+	ee.aliases = append(ee.aliases, aliases...)
+	ee.facts = append(ee.facts, facts...)
+	ee.noteBlocks = append(ee.noteBlocks, notes...)
+	ee.links = append(ee.links, links...)
+
+	if ee.contacts == nil && e.Kind == "person" && e.ContactsRef != "" && v.config.ContactsConfig != "" {
+		attrs, ok, err := loadContactsAttributes(v.config.ContactsConfig, e.ContactsRef, getenv, now)
+		if err != nil {
+			return err
 		}
+		if ok {
+			ee.contacts = &attrs
+		}
+	}
+	if e.Kind == "routine" {
+		return loadRoutineEntityState(ctx, v, e.Slug, ee)
+	}
+	return nil
+}
+
+func loadRoutineEntityState(ctx context.Context, v *Vault, slug string, ee *exportedEntity) error {
+	rstate, err := v.AllRoutineState(ctx, slug)
+	if err != nil {
+		return err
+	}
+	if len(rstate) == 0 {
+		return nil
+	}
+	if ee.routineState == nil {
+		ee.routineState = make(map[string]string, len(rstate))
+	}
+	for k, val := range rstate {
+		ee.routineState[k] = val
 	}
 	return nil
 }
@@ -334,6 +372,9 @@ func kindPluralDir(kind string) string {
 }
 
 func entityRelPath(e Entity) string {
+	if e.Kind == "routine" {
+		return "routines/" + e.Slug + "/MEMORY.md"
+	}
 	return kindPluralDir(e.Kind) + "/" + e.Slug + ".md"
 }
 
@@ -422,8 +463,24 @@ func renderEntityMarkdown(profileName string, ee *exportedEntity) ([]byte, error
 		fmt.Fprintf(&b, "\n%s\n", ee.entity.Summary)
 	}
 	writeStructuredAttributes(&b, ee)
+	writeRoutineState(&b, ee.routineState)
 	writeNoteBlocks(&b, ee.noteBlocks)
 	return []byte(b.String()), nil
+}
+
+func writeRoutineState(b *strings.Builder, state map[string]string) {
+	if len(state) == 0 {
+		return
+	}
+	keys := make([]string, 0, len(state))
+	for k := range state {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	b.WriteString("\n## Routine State\n\n")
+	for _, k := range keys {
+		fmt.Fprintf(b, "- **%s**: `%s`\n", k, state[k])
+	}
 }
 
 func writeStructuredAttributes(b *strings.Builder, ee *exportedEntity) {

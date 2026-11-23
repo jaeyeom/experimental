@@ -11,6 +11,7 @@ go_library(
         "main.go",
         "maintenance_cmd.go",
         "note_cmd.go",
+        "routine_cmd.go",
         "skill.go",
         "synccheck_cmd.go",
         "toolcli.go",
@@ -36,6 +37,7 @@ go_test(
     size = "small",
     srcs = [
         "main_test.go",
+        "routine_cmd_test.go",
         "toolcli_test.go",
     ],
     embed = [":go_default_library"],

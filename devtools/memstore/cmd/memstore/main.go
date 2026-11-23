@@ -70,6 +70,7 @@ func usages() []struct{ name, line string } {
 		{"export", "memstore export --profile P --out <dir> [--allow-git] [--by C] [--reason R] [--json]"},
 		{"sync-check", "memstore sync-check --profile P --dir <dir> [--stage] [--by C] [--reason R] [--json]"},
 		{"triage", "memstore triage list|approve|reject ..."},
+		{"routine", "memstore routine list|status|run|tick|runs|state|launchd-plist ..."},
 		{"import-aside", "memstore import-aside --src <dir> --vault <default-vault> [--rules <file>] [--dry-run] [--json]"},
 		{"age", "memstore age --vault V [--retention-days N] [--dry-run] [--drop] [--json]"},
 		{"backup", "memstore backup --vault V --out <path> [--encrypt-cmd CMD] [--require-encrypted] [--json]"},
@@ -107,39 +108,30 @@ func (a *app) run(args []string) int {
 }
 
 func (a *app) dispatch(name string, args []string) int {
-	switch name {
-	case "init":
-		return a.cmdInit(args)
-	case "profile":
-		return a.cmdProfile(args)
-	case "entity":
-		return a.cmdEntity(args)
-	case "resolve":
-		return a.cmdResolve(args)
-	case "fact":
-		return a.cmdFact(args)
-	case "note":
-		return a.cmdNote(args)
-	case "event":
-		return a.cmdEvent(args)
-	case "search":
-		return a.cmdSearch(args)
-	case "export":
-		return a.cmdExport(args)
-	case "sync-check":
-		return a.cmdSyncCheck(args)
-	case "triage":
-		return a.cmdTriage(args)
-	case "import-aside":
-		return a.cmdImportAside(args)
-	default:
-		if code, ok := a.dispatchMaintenance(name, args); ok {
-			return code
-		}
-		a.errorf("unknown command %q", name)
-		a.usage()
-		return exitUsage
+	handlers := map[string]func([]string) int{
+		"init":         a.cmdInit,
+		"profile":      a.cmdProfile,
+		"entity":       a.cmdEntity,
+		"resolve":      a.cmdResolve,
+		"fact":         a.cmdFact,
+		"note":         a.cmdNote,
+		"event":        a.cmdEvent,
+		"search":       a.cmdSearch,
+		"export":       a.cmdExport,
+		"sync-check":   a.cmdSyncCheck,
+		"triage":       a.cmdTriage,
+		"routine":      a.cmdRoutine,
+		"import-aside": a.cmdImportAside,
 	}
+	if fn, ok := handlers[name]; ok {
+		return fn(args)
+	}
+	if code, ok := a.dispatchMaintenance(name, args); ok {
+		return code
+	}
+	a.errorf("unknown command %q", name)
+	a.usage()
+	return exitUsage
 }
 
 func (a *app) usage() {

@@ -476,3 +476,61 @@ func TestExportGoldenMarkdown(t *testing.T) {
 		t.Errorf("unexpected USER.md:\n%s", gotUser)
 	}
 }
+
+func TestExportRoutineMemory(t *testing.T) {
+	cfg := testExportConfig(t)
+	initAllVaults(t, cfg)
+	ctx := context.Background()
+	actor := Actor{Caller: "test", Reason: "routine export"}
+
+	adminSvc, err := OpenService(cfg, "admin")
+	if err != nil {
+		t.Fatalf("OpenService(admin): %v", err)
+	}
+	defer adminSvc.Close()
+
+	if _, err := adminSvc.PutEntity(ctx, "work", EntityInput{
+		Kind:               "routine",
+		Slug:               "daily-digest",
+		Title:              "Daily Digest",
+		DefaultCompartment: "engineering",
+		Sensitivity:        SensitivityNormal,
+	}, actor); err != nil {
+		t.Fatalf("PutEntity routine: %v", err)
+	}
+	if _, err := adminSvc.SetNoteBlock(ctx, "work", NoteBlockInput{
+		EntityID:    "routine:daily-digest",
+		SectionKey:  "instructions",
+		Heading:     "Instructions",
+		BodyMD:      "Summarize open PRs.",
+		Compartment: "engineering",
+		Sensitivity: SensitivityNormal,
+	}, actor); err != nil {
+		t.Fatalf("SetNoteBlock: %v", err)
+	}
+
+	v, err := OpenVault(cfg.Vaults["work"])
+	if err != nil {
+		t.Fatalf("OpenVault: %v", err)
+	}
+	if err := v.SetRoutineState(ctx, "daily-digest", "cursor", `"2026-06-01"`); err != nil {
+		t.Fatalf("SetRoutineState: %v", err)
+	}
+	_ = v.Close()
+
+	outDir := filepath.Join(t.TempDir(), "export")
+	if _, err := Export(ctx, adminSvc, outDir, ExportOptions{Actor: actor, Now: fixedNow}); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(outDir, "routines", "daily-digest", "MEMORY.md"))
+	if err != nil {
+		t.Fatalf("read routines/daily-digest/MEMORY.md: %v", err)
+	}
+	text := string(got)
+	for _, want := range []string{"# Daily Digest", "## Routine State", "- **cursor**: `\"2026-06-01\"`", "## Instructions", "Summarize open PRs."} {
+		if !strings.Contains(text, want) {
+			t.Errorf("routine MEMORY.md missing %q:\n%s", want, text)
+		}
+	}
+}
