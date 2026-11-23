@@ -1,4 +1,5 @@
 load("@rules_go//go:def.bzl", "go_library", "go_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 go_library(
     name = "go_default_library",
@@ -11,8 +12,19 @@ go_library(
         "presence.go",
         "server.go",
         "sse.go",
+        "static.go",
     ],
-    embedsrcs = ["static/index.html"],
+    embedsrcs = [
+        "static/api.js",
+        "static/app.js",
+        "static/icons/icon-maskable.svg",
+        "static/icons/icon.svg",
+        "static/index.html",
+        "static/manifest.webmanifest",
+        "static/store.js",
+        "static/styles.css",
+        "static/sw.js",
+    ],
     importpath = "github.com/jaeyeom/experimental/devtools/decide/web",
     visibility = ["//visibility:public"],
     deps = [
@@ -29,6 +41,7 @@ go_test(
         "api_test.go",
         "server_test.go",
         "sse_test.go",
+        "static_test.go",
     ],
     embed = [":go_default_library"],
     deps = [
@@ -36,4 +49,14 @@ go_test(
         "//devtools/decide/inboxrpc:go_default_library",
         "//devtools/decide/tui:go_default_library",
     ],
+)
+
+# The front-end test runs on the host's node (node --test), not a Bazel
+# JavaScript toolchain, so it must not be sent to RBE. See static_test.sh.
+sh_test(
+    name = "static_test",
+    size = "small",
+    srcs = ["static_test.sh"],
+    data = glob(["static/*.js"]) + ["static/store_test.mjs"],
+    tags = ["no-remote"],
 )

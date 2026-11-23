@@ -1,0 +1,86 @@
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff; --surface: #f6f8fa; --text: #1f2328; --muted: #656d76;
+  --border: #d0d7de; --accent: #1f6feb; --accent-text: #ffffff;
+  --danger: #cf222e; --warn-bg: #fff8c5;
+  --c-A: #8250df; --c-D: #1f6feb; --c-Q: #bf8700; --c-T: #1a7f37;
+  --c-R: #bc4c00; --c-I: #0969da; --c-N: #6e7781;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --nav-h: 3.5rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1117; --surface: #161b22; --text: #e6edf3; --muted: #8b949e;
+    --border: #30363d; --accent: #388bfd; --accent-text: #0d1117;
+    --danger: #ff7b72; --warn-bg: #3d2e00;
+    --c-A: #bc8cff; --c-D: #58a6ff; --c-Q: #d29922; --c-T: #3fb950;
+    --c-R: #ffa657; --c-I: #79c0ff; --c-N: #8b949e;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1117; --surface: #161b22; --text: #e6edf3; --muted: #8b949e;
+  --border: #30363d; --accent: #388bfd; --accent-text: #0d1117;
+  --danger: #ff7b72; --warn-bg: #3d2e00;
+  --c-A: #bc8cff; --c-D: #58a6ff; --c-Q: #d29922; --c-T: #3fb950;
+  --c-R: #ffa657; --c-I: #79c0ff; --c-N: #8b949e;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 var(--font); }
+code, pre, .mono { font-family: var(--mono); }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface); padding: .75rem; border-radius: 6px; }
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+[hidden] { display: none !important; }
+.skip { position: absolute; left: -999px; }
+.skip:focus { left: .5rem; top: .5rem; background: var(--bg); padding: .5rem; z-index: 10; }
+.banner { background: var(--warn-bg); padding: .5rem 1rem; border-bottom: 1px solid var(--border); }
+
+/* Mobile first: one column, bottom nav. */
+.app { display: grid; grid-template-rows: auto 1fr; min-height: 100dvh; padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px)); }
+.topbar { display: flex; align-items: center; gap: .75rem; padding: .5rem 1rem; padding-top: calc(.5rem + env(safe-area-inset-top, 0px)); border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg); z-index: 2; }
+.topbar h1 { font-size: 1.1rem; margin: 0; flex: 1; }
+.fresh { color: var(--muted); font-size: .8rem; }
+.icon-btn { min-width: 44px; min-height: 44px; display: grid; place-items: center; text-decoration: none; font-size: 1.4rem; color: var(--text); }
+.nav { position: fixed; left: 0; right: 0; bottom: 0; display: flex; background: var(--surface); border-top: 1px solid var(--border); padding-bottom: env(safe-area-inset-bottom, 0px); z-index: 3; }
+.nav a { flex: 1; min-height: var(--nav-h); display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--muted); text-decoration: none; font-size: .8rem; }
+.nav a[aria-current="page"] { color: var(--accent); font-weight: 600; }
+.badge-count { background: var(--danger); color: #fff; border-radius: 999px; padding: 0 .4rem; font-size: .7rem; margin-left: .3rem; }
+.list, .detail { padding: .5rem 1rem; min-width: 0; }
+.list ul { list-style: none; margin: 0; padding: 0; }
+.row { display: flex; gap: .75rem; align-items: baseline; padding: .75rem 0; border-bottom: 1px solid var(--border); color: inherit; text-decoration: none; min-height: 44px; }
+.row.unread .q { font-weight: 600; }
+.row .q { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row[aria-current="true"] { background: var(--surface); }
+.cls { font-family: var(--mono); font-size: .75rem; border: 1px solid currentColor; border-radius: 4px; padding: 0 .3rem; }
+.cls-A { color: var(--c-A); } .cls-D { color: var(--c-D); } .cls-Q { color: var(--c-Q); }
+.cls-T { color: var(--c-T); } .cls-R { color: var(--c-R); } .cls-I { color: var(--c-I); } .cls-N { color: var(--c-N); }
+.empty, .muted { color: var(--muted); }
+.fab { position: fixed; right: 1rem; bottom: calc(var(--nav-h) + 1rem + env(safe-area-inset-bottom, 0px)); width: 56px; height: 56px; border-radius: 50%; background: var(--accent); color: var(--accent-text); display: grid; place-items: center; font-size: 2rem; text-decoration: none; box-shadow: 0 2px 8px rgba(0,0,0,.3); z-index: 3; }
+button, input, select { font: inherit; color: inherit; }
+button { min-height: 44px; padding: 0 1rem; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); cursor: pointer; }
+button[type="submit"], button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+input { width: 100%; min-height: 44px; padding: 0 .75rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
+.login { min-height: 100dvh; display: grid; place-items: center; padding: 1rem; }
+.card { width: min(24rem, 100%); display: grid; gap: .75rem; padding: 1.5rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.card h1 { margin: 0; }
+.error { color: var(--danger); margin: 0; }
+.seg { display: flex; gap: .5rem; flex-wrap: wrap; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+/* Mobile: show list or detail, by route. */
+.app[data-view="detail"] .list { display: none; }
+.app:not([data-view="detail"]) .detail { display: none; }
+.fab[hidden] { display: none; }
+
+/* Desktop: three panes. */
+@media (min-width: 840px) {
+  .app { grid-template: "top top top" auto "nav list detail" 1fr / 14rem minmax(18rem, 26rem) 1fr; padding-bottom: 0; height: 100dvh; }
+  .topbar { grid-area: top; }
+  .nav { position: static; grid-area: nav; flex-direction: column; border-top: 0; border-right: 1px solid var(--border); padding-top: .5rem; }
+  .nav a { flex: none; min-height: 44px; flex-direction: row; justify-content: flex-start; padding: 0 1rem; font-size: 1rem; }
+  .list { grid-area: list; border-right: 1px solid var(--border); overflow-y: auto; }
+  .detail { grid-area: detail; overflow-y: auto; }
+  .app[data-view="detail"] .list, .app:not([data-view="detail"]) .detail { display: block; }
+  .fab { bottom: 1rem; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

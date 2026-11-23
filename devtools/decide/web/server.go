@@ -5,12 +5,10 @@ package web
 
 import (
 	"context"
-	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"net"
 	"net/http"
 	"net/netip"
@@ -20,9 +18,6 @@ import (
 	"github.com/jaeyeom/experimental/devtools/decide"
 	"github.com/jaeyeom/experimental/devtools/decide/tui"
 )
-
-//go:embed static/*
-var staticFS embed.FS
 
 // contentSecurityPolicy is sent on every response. The UI is same-origin
 // scripts and styles only.
@@ -161,22 +156,13 @@ func (s *Server) Handler() (http.Handler, error) {
 		return nil, err
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", serveIndex)
+	staticRoutes(mux)
 	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	})
 	a.routes(mux)
 	s.apiRoutes(mux)
 	return securityHeaders(a.csrf(a.require(mux))), nil
-}
-
-func serveIndex(w http.ResponseWriter, r *http.Request) {
-	sub, err := fs.Sub(staticFS, "static")
-	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	http.ServeFileFS(w, r, sub, "index.html")
 }
 
 func securityHeaders(next http.Handler) http.Handler {
