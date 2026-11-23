@@ -170,6 +170,7 @@ that hub for one invocation.
 | ~decide inbox~                   | Open the terminal UI. ~--snoozed~ opens on Snoozed.            |
 | ~decide keys~                    | Print the active inbox keymap. ~--json~ prints JSON.           |
 | ~decide follow~                  | Retry a failed delivery and send one stale follow-up.          |
+| ~decide web~                     | Serve the inbox as a web app and PWA. ~--token-file~ turns on token auth. |
 | ~decide status set --agent~      | Set one agent's state and text.                                |
 | ~decide status set --resource~   | Mark a shared resource ~free~ or ~busy~.                       |
 | ~decide status list~             | Print agent rows and resource flags.                           |
@@ -700,8 +701,8 @@ the config or ~DECIDE_HUB~ is set. For a hub only in Emacs, set
 
 * Configuration
 
-One JSON object. Keys you do not set keep the default. ~ui~ is this
-machine only. A hub does not send it.
+One JSON object. Keys you do not set keep the default. ~ui~ and ~web~
+are this machine only. A hub does not send them.
 
 | Key                    | Default                     | Meaning                                                                        |
 |------------------------+-----------------------------+--------------------------------------------------------------------------------|
@@ -745,6 +746,13 @@ machine only. A hub does not send it.
 | ~ui.maxParagraphLines~  | 3                           | Most consecutive non-bullet lines in author text. 0 turns the check off.       |
 | ~ui.maxMessageChars~    | 1200                        | Longest author message in characters. 0 turns the check off.                   |
 | ~ui.keys~               | defaults                    | Map of action name to key list. Empty list unbinds.                            |
+| ~web.addr~              | ~127.0.0.1:8787~            | ~decide web~ listen address.                                                   |
+| ~web.publicUrl~         | empty                       | HTTPS address people open. Used for the same-origin check.                     |
+| ~web.auth.mode~         | ~none~                      | ~none~ or ~token~. ~none~ is refused off loopback.                             |
+| ~web.auth.tokenFile~    | empty                       | Token file for mode ~token~. ~DECIDE_WEB_TOKEN~ wins.                          |
+| ~web.push.enabled~      | false                       | Turn on Web Push from ~decide web~.                                            |
+| ~web.push.subject~      | ~mailto:decide@localhost~   | VAPID contact URL.                                                             |
+| ~web.push.grace~        | ~5s~                        | How long a push waits so an item read elsewhere is skipped.                    |
 
 ** Keyboard shortcuts
 
@@ -804,6 +812,20 @@ Action names are grouped by view:
   ~edit.deleteForward~, ~edit.deleteBackward~, ~edit.killLine~,
   ~edit.newline~, ~edit.openLine~, ~edit.external~, ~edit.fill~,
   ~edit.pageUp~, ~edit.pageDown~
+
+* Web and mobile
+
+~decide web~ serves the inbox as a web app and installable PWA from the
+machine that holds the ledger, with a single-column phone layout and a
+split-pane desktop one. It reads and writes the same ledger as the
+terminal inbox, and answers record ~via: "ui"~. It binds
+~127.0.0.1:8787~ and expects an HTTPS ingress such as Tailscale Serve,
+Cloudflare Tunnel, or Caddy. Token auth is optional on loopback and
+needed for anything else; mode ~none~ is refused off loopback. Web Push
+(~web.push.enabled~) notifies actionable items, never notes, and skips
+items you read in the terminal or while a page is open. Setup, ingress
+recipes, service files, Android and iPhone install, and the security
+notes are in [[file:docs/web.org][docs/web.org]].
 
 * Using two machines
 

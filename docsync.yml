@@ -266,6 +266,14 @@ rules:
       - path: devtools/contacts/README.org
         why: "tool overview and installation entry point"
 
+  - match: ["devtools/decide/web/**", "devtools/decide/cmd/decide/web.go"]
+    docs:
+      - path: devtools/decide/docs/web.org
+        why: "decide web setup, auth, ingress, Web Push, and security notes"
+      - path: devtools/decide/README.org
+        section: "* Web and mobile"
+        why: "decide web summary, command, and web.* config keys"
+
   - match: ["devtools/decide/**"]
     docs:
       - path: devtools/decide/README.org

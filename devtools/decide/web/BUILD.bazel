@@ -61,6 +61,7 @@ go_test(
     name = "go_default_test",
     srcs = [
         "api_test.go",
+        "e2e_test.go",
         "push_dispatch_test.go",
         "push_test.go",
         "server_test.go",
