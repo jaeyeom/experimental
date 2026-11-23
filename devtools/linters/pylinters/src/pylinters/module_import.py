@@ -12,13 +12,15 @@ resolve (stdlib, third-party) are left alone.
 from __future__ import annotations
 
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 
-from pylinters.core import config, files, globs, imports
+from pylinters.core import config, errors, files, globs, imports
 
 CHECKER = "module-import"
 DEFAULT_DIRECTIVE = "py-module-import: allow"
+
+Reader = Callable[[str], bytes]
 
 
 @dataclass(frozen=True)
@@ -79,7 +81,9 @@ def find_violations(
         module_path = _resolve(fs, here, stmt, roots, cfg)
         if module_path is None:
             continue
-        if in_init and module_path.startswith(own_prefix):
+        if in_init and (
+            module_path == here or module_path.startswith(own_prefix)
+        ):
             continue  # re-export from the package's own submodule
         display = "." * stmt.level + stmt.module
         for i, name in enumerate(stmt.names):
@@ -113,6 +117,9 @@ def _resolve(
     """Return the repo path of the imported module, or None if untracked."""
     parts = (stmt.module or "").split(".")
     if stmt.level:
+        depth = len(here.split("/")) if here else 0
+        if stmt.level - 1 > depth:
+            return None  # walks above the repo root: Python rejects it
         base = here
         for _ in range(stmt.level - 1):
             base = files.parent(base)
@@ -130,3 +137,110 @@ def _resolve(
         if fs.resolves(path):
             return path
     return None
+
+
+@dataclass(frozen=True)
+class Result:
+    """The outcome of a check."""
+
+    violations: list[Violation]
+    counts: dict[str, int]
+    files_scanned: int
+
+
+def load_config(pyproject_path: str) -> Config:
+    """Read the shared and ``module-import`` settings from pyproject.toml.
+
+    Raises:
+        ConfigError: Invalid TOML, an unknown key, or a wrong value type.
+    """
+    shared, table = config.load_table(pyproject_path, (CHECKER,))
+    own = table.get(CHECKER, {})
+    where = f"{pyproject_path} [tool.pylinters.{CHECKER}]"
+    config.check_keys(
+        own,
+        ("exclude", "exempt-markers", "third-party", "allow-directive"),
+        where,
+    )
+    markers = config.string_list(
+        own.get("exempt-markers", []), "exempt-markers", where
+    )
+    for marker in markers:
+        if not marker.endswith(".py") or "/" in marker:
+            raise errors.ConfigError(
+                f"{where}: exempt-markers entry {marker!r} must be a "
+                "plain file name ending in .py"
+            )
+    directive = own.get("allow-directive", DEFAULT_DIRECTIVE)
+    if not isinstance(directive, str) or not directive:
+        raise errors.ConfigError(
+            f"{where}: allow-directive must be a non-empty string"
+        )
+    return Config(
+        roots=shared.roots,
+        exclude=shared.exclude
+        + config.string_list(own.get("exclude", []), "exclude", where),
+        generated=shared.generated,
+        exempt_markers=markers,
+        third_party=config.string_list(
+            own.get("third-party", []), "third-party", where
+        ),
+        allow_directive=directive,
+    )
+
+
+def in_scope(fs: files.FileSet, cfg: Config, path: str) -> bool:
+    """Return whether ``path`` is subject to the check."""
+    if globs.match_any(cfg.exclude, path) or globs.match_any(
+        cfg.generated, path
+    ):
+        return False
+    directory = files.parent(path)
+    while True:
+        if any(
+            fs.has_file(files.join(directory, m)) for m in cfg.exempt_markers
+        ):
+            return False
+        if not directory:
+            return True
+        directory = files.parent(directory)
+
+
+def check(
+    fs: files.FileSet,
+    cfg: Config = Config(),
+    read: Reader | None = None,
+    paths: Collection[str] | None = None,
+) -> Result:
+    """Check the tree, reporting only files in ``paths`` when given.
+
+    ``read`` maps a repo-relative path to file bytes; it defaults to reading
+    from ``fs.root`` when ``fs`` is a :class:`files.GitResolver` (otherwise
+    :class:`TypeError`).
+
+    Raises:
+        ConfigError: A configured root holds no tracked Python file.
+        ParseError: A scanned file is not valid Python.
+    """
+    reader = read if read is not None else files.root_reader(fs)
+    roots = (
+        list(cfg.roots) if cfg.roots is not None else files.default_roots(fs)
+    )
+    files.validate_roots(fs, roots)
+
+    violations: list[Violation] = []
+    counts: dict[str, int] = {}
+    for path in fs.py_files():
+        if (paths is not None and path not in paths) or not in_scope(
+            fs, cfg, path
+        ):
+            continue
+        try:
+            data = reader(path)
+        except FileNotFoundError:
+            continue  # tracked but gone from the work tree (mid-refactor)
+        found = find_violations(fs, imports.parse(data, path), roots, cfg)
+        counts[path] = len(found)
+        violations.extend(found)
+    violations.sort(key=lambda v: (v.path, v.line, v.col))
+    return Result(violations, counts, len(counts))
