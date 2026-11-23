@@ -142,8 +142,13 @@ def test_guard_spares_own_root_and_repo_root() -> None:
         "lib/y.py": "",
     }
     assert len(viol(own, "tools/pkg/x.py", roots=("lib",))) == 1
-    top = {"subprocess.py": "", "x.py": "from subprocess import run\n"}
-    assert len(viol(top, "x.py")) == 1
+    top = {
+        "subprocess.py": "",
+        "tools/pkg/__init__.py": "",
+        "tools/pkg/x.py": "from subprocess import run\n",
+        "lib/y.py": "",
+    }
+    assert len(viol(top, "tools/pkg/x.py", roots=("lib",))) == 1
 
 
 def test_init_self_package_import_is_reexport() -> None:
@@ -246,10 +251,6 @@ def test_single_component_suggestion() -> None:
             "import the module instead (import util)"
         )
     ]
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, *sys.argv[1:]]))
 
 
 def run(
@@ -386,3 +387,7 @@ def test_load_config_rejects_non_py_marker(
     )
     with pytest.raises(errors.ConfigError):
         module_import.load_config(path)
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, *sys.argv[1:]]))
