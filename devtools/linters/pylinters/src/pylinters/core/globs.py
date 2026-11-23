@@ -47,11 +47,16 @@ def _compile(pattern: str) -> re.Pattern[str]:
             end = pattern.index("]", i + 1)
             body = pattern[i + 1 : end]
             if body[:1] in ("!", "^"):
-                out.append("[^/" + re.escape(body[1:]) + "]")
+                out.append("[^/" + _class_body(body[1:]) + "]")
             else:
-                out.append("(?!/)[" + re.escape(body) + "]")
+                out.append("(?!/)[" + _class_body(body) + "]")
             i = end + 1
         else:
             out.append(re.escape(c))
             i += 1
     return re.compile("".join(out))
+
+
+def _class_body(body: str) -> str:
+    """Escape regex specials inside a character class, keeping ranges."""
+    return body.replace("\\", "\\\\").replace("[", "\\[").replace("^", "\\^")
