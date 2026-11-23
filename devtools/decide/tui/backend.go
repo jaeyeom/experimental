@@ -110,6 +110,7 @@ type OutboxBackend interface {
 	CancelOutbox(id string) error
 	SendOutbox(id string) error
 	DismissFailedOutbox(id string) error
+	SendOutboxAsMessage(id string) error
 }
 
 // DraftBackend is an optional backend capability for persisting unsent drafts.

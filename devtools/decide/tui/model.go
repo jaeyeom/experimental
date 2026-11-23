@@ -947,6 +947,10 @@ func (m *Model) focusAnswer() {
 }
 
 func (m *Model) beginOutcome() {
+	if answerClosed(m.detail) {
+		m.status = "item is " + m.detail.State
+		return
+	}
 	m.mode = modeOutcome
 	m.draft = ""
 	m.answerFocus = false
@@ -1268,6 +1272,10 @@ func (m *Model) canSendAndArchive() bool {
 
 func (m *Model) answerOption(index int) error {
 	if m.detail == nil {
+		return nil
+	}
+	if answerClosed(m.detail) {
+		m.status = "item is " + m.detail.State
 		return nil
 	}
 	if len(m.detail.Options) == 0 || m.detail.Kind != decide.KindRelay {
@@ -2977,14 +2985,20 @@ func (m *Model) detailLines(width int) []screenLine {
 	}
 	lines = append(lines, screenLine{})
 	lines = append(lines, m.threadLines(it, width, re)...)
-	if it.Kind == decide.KindTypeIn {
+	switch {
+	case it.Kind == decide.KindTypeIn && answerClosed(it):
+		lines = append(lines,
+			screenLine{text: plainText("type: " + it.TypeText)},
+			screenLine{text: plainText("where: " + it.Where)},
+		)
+	case it.Kind == decide.KindTypeIn:
 		markDone := m.actionButton("mark done", "detail.outcome", false, width)
 		lines = append(lines,
 			screenLine{text: plainText("type: " + it.TypeText)},
 			screenLine{text: plainText("where: " + it.Where)},
 			screenLine{text: plainText(markDone), hits: []hit{{kind: hitMarkDone}}},
 		)
-	} else {
+	default:
 		lines = append(lines, m.relayLines(it, width)...)
 	}
 	if card, ok := decide.ApprovalCard(m.allItems, it.ID); ok {
@@ -3505,7 +3519,7 @@ func styleLinkChunk(original string, ch textChunk, spans, matches [][]int, links
 func (m *Model) relayLines(it *decide.Item, width int) []screenLine {
 	var lines []screenLine
 	for i, opt := range it.Options {
-		if i >= 9 {
+		if i >= 9 || answerClosed(it) {
 			break
 		}
 		mark := ""

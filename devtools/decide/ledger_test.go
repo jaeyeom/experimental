@@ -1829,3 +1829,28 @@ func itemWithALaterMessage(t *testing.T) (*Ledger, time.Time, Item) {
 	}
 	return led, when, item
 }
+
+func TestUIDoneAndArchiveOnDoneItemAreNoOps(t *testing.T) {
+	led, when, item := itemWithALaterMessage(t)
+	first, err := led.DoneVia(item.ID, "shipped", ViaUI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := led.DoneVia(item.ID, "other", ViaUI)
+	if err != nil {
+		t.Fatalf("second UI done = %v, want no-op success", err)
+	}
+	if again.State != StateDone || again.Outcome != first.Outcome || !again.DoneAt.Equal(first.DoneAt) {
+		t.Fatalf("second UI done changed the item: %+v, first %+v", again, first)
+	}
+	got, err := led.Archive(item.ID, when)
+	if err != nil {
+		t.Fatalf("archive of done item = %v, want no-op success", err)
+	}
+	if got.State != StateDone || got.Outcome != first.Outcome {
+		t.Fatalf("archive of done item changed it: %+v", got)
+	}
+	if _, err := led.Withdraw(item.ID, "x"); err == nil {
+		t.Fatal("withdraw of done item succeeded")
+	}
+}

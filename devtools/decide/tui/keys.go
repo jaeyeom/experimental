@@ -795,7 +795,7 @@ func (m *Model) optionalHintExtras() []string {
 			extras = append(extras, find)
 		}
 	case modeDetail, modeOutcome:
-		if d := m.actionFirst("detail.outcome"); d != "" {
+		if d := m.outcomeHintKey(); d != "" {
 			extras = append(extras, d+" outcome")
 		}
 		if find != "" {
@@ -842,6 +842,8 @@ func (m *Model) helpTextLines() []string {
 		text = append(text, m.statusHelpLines()...)
 	case modeContacts:
 		text = append(text, m.contactsHelpLines()...)
+	case modeOutbox:
+		text = append(text, m.outboxHelpLines()...)
 	default:
 		text = append(text, m.listOrDetailHelpLines()...)
 	}
@@ -960,4 +962,12 @@ func (m *Model) listOrDetailHelpLines() []string {
 	appendHelpLabeled(&lines, m.actionSlash("mouse"), " toggles mouse capture")
 	lines = append(lines, "esc back", "click folder, row, option, target, or [Send]", "wheel scroll", m.actionSlash("help")+" or esc close")
 	return lines
+}
+
+// outcomeHintKey is the outcome key to hint, or "" on a done thread.
+func (m *Model) outcomeHintKey() string {
+	if answerClosed(m.detail) {
+		return ""
+	}
+	return m.actionFirst("detail.outcome")
 }

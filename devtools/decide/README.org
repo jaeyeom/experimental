@@ -368,49 +368,50 @@ The sidebar folders are Inbox, Snoozed, Answered, Done, Withdrawn, then
 Status and Contacts. ~g~ waits for a second key. Esc cancels the chord.
 Any other second key says ~unknown go-to key~.
 
-| Key                                   | Where                        | Action                                                     |
-|---------------------------------------+------------------------------+------------------------------------------------------------|
-| ~q~                                   | any                          | Quit.                                                      |
-| ~?~ / ~esc~                           | any                          | Show this inbox's shortcuts. ~?~ or Esc closes them.       |
-| ~j~ / ~k~                             | list or item                 | Move the row, or scroll one line in an item.               |
-| ~n~ / ~p~                             | item                         | Next or previous message.                                  |
-| ~g~ then ~i~ ~z~ ~a~ ~d~ ~w~          | any                          | Inbox, Snoozed, Answered, Done, Withdrawn.                 |
-| ~g~ then ~s~ / ~c~                    | any                          | Status or Contacts.                                        |
-| ~g g~ / ~G~ / ~end~                   | list, status, contacts       | Top or bottom of the list.                                 |
-| ~G~ / ~end~                           | item                         | Scroll to the end.                                         |
-| ~pgup~ / ~pgdn~, ~home~ / ~G~ / ~end~ | list and item                | Page, or jump.                                             |
-| ~o~ / ~enter~                         | list                         | Open the row.                                              |
-| ~u~ / ~esc~                           | item, status, contacts       | Back to the list.                                          |
-| ~c~                                   | list, item, status, contacts | Compose a note.                                            |
-| ~e~ / ~y~                             | list, item                   | Archive: mark done with outcome ~archived~.                |
-| ~d~                                   | item                         | Ask for an outcome, then mark done.                        |
-| ~b~                                   | list, item                   | Snooze. In Snoozed, ~b~ also offers unsnooze.              |
-| ~/~                                   | any                          | Filter the list, or highlight an item. Empty Enter clears. |
-| ~esc~                                 | list                         | Clear the agent filter.                                    |
-| ~1~-~9~                               | item                         | Answer with that option.                                   |
-| ~0~                                   | item                         | Focus the pinned reply box.                                |
-| ~f~                                   | item                         | Forward the item.                                          |
-| ~l~                                   | item                         | Open the only link, or pick one.                           |
-| ~L~                                   | item                         | Copy the link.                                             |
-| ~Y~                                   | item                         | Open the copy menu.                                        |
-| ~V~                                   | item                         | Borderless, unwrapped view. ~V~ again restores it.         |
-| ~A~                                   | item or contacts             | Open the avatar picker for that sender.                    |
-| ~o~                                   | item                         | Focus the owner's herdr tab.                               |
-| ~M~                                   | any                          | Toggle mouse capture.                                      |
-| ~x~ / ~H~ / ~X~ / ~R~ / ~a~           | contacts                     | Hide, show hidden, hide dead, release, alias.              |
-| ~*~                                   | contacts, compose recipients | Star or unstar the name. Starred names lead the list.      |
-| ~enter~                               | contacts                     | Filter every folder to that agent.                         |
-| ~tab~ / ~shift+tab~                   | compose                      | Move among recipient, text, and Send.                      |
-| ~enter~                               | compose                      | Newline in the text. Send on the Send button.              |
-| ~Ctrl+Enter~, ~Alt+Enter~ / ~C-s~     | every composer               | Send the draft.                                            |
-| ~Alt+e~                               | reply box                    | Send the reply and archive the thread.                     |
-| ~Alt+d~                               | reply box                    | Discard the reply draft.                                   |
-| ~Alt+q~                               | compose                      | Fill the paragraph at the cursor.                          |
-| ~C-x C-e~ / ~C-g~                     | compose                      | Edit the draft in an external editor.                      |
-| ~up~ / ~C-p~ / ~down~ / ~C-n~         | compose recipients           | Move in the filtered list.                                 |
-| ~backspace~ / ~esc~                   | compose recipients           | Widen the filter, then leave. The draft stays.             |
-| click / wheel                         | list or item                 | Open a row, pick an option, open a URL, or scroll.         |
-| Shift drag                            | any                          | Select text in the terminal.                               |
+| Key                                   | Where                        | Action                                                                       |
+|---------------------------------------+------------------------------+------------------------------------------------------------------------------|
+| ~q~                                   | any                          | Quit.                                                                        |
+| ~?~ / ~esc~                           | any                          | Show this inbox's shortcuts. ~?~ or Esc closes them.                         |
+| ~j~ / ~k~                             | list or item                 | Move the row, or scroll one line in an item.                                 |
+| ~n~ / ~p~                             | item                         | Next or previous message.                                                    |
+| ~g~ then ~i~ ~z~ ~a~ ~d~ ~w~          | any                          | Inbox, Snoozed, Answered, Done, Withdrawn.                                   |
+| ~g~ then ~s~ / ~c~                    | any                          | Status or Contacts.                                                          |
+| ~g g~ / ~G~ / ~end~                   | list, status, contacts       | Top or bottom of the list.                                                   |
+| ~G~ / ~end~                           | item                         | Scroll to the end.                                                           |
+| ~pgup~ / ~pgdn~, ~home~ / ~G~ / ~end~ | list and item                | Page, or jump.                                                               |
+| ~o~ / ~enter~                         | list                         | Open the row.                                                                |
+| ~u~ / ~esc~                           | item, status, contacts       | Back to the list.                                                            |
+| ~c~                                   | list, item, status, contacts | Compose a note.                                                              |
+| ~e~ / ~y~                             | list, item                   | Archive: mark done with outcome ~archived~.                                  |
+| ~d~                                   | item                         | Ask for an outcome, then mark done.                                          |
+| ~b~                                   | list, item                   | Snooze. In Snoozed, ~b~ also offers unsnooze.                                |
+| ~/~                                   | any                          | Filter the list, or highlight an item. Empty Enter clears.                   |
+| ~esc~                                 | list                         | Clear the agent filter.                                                      |
+| ~1~-~9~                               | item                         | Answer with that option.                                                     |
+| ~0~                                   | item                         | Focus the pinned reply box.                                                  |
+| ~f~                                   | item                         | Forward the item.                                                            |
+| ~l~                                   | item                         | Open the only link, or pick one.                                             |
+| ~L~                                   | item                         | Copy the link.                                                               |
+| ~Y~                                   | item                         | Open the copy menu.                                                          |
+| ~V~                                   | item                         | Borderless, unwrapped view. ~V~ again restores it.                           |
+| ~A~                                   | item or contacts             | Open the avatar picker for that sender.                                      |
+| ~o~                                   | item                         | Focus the owner's herdr tab.                                                 |
+| ~M~                                   | any                          | Toggle mouse capture.                                                        |
+| ~x~ / ~H~ / ~X~ / ~R~ / ~a~           | contacts                     | Hide, show hidden, hide dead, release, alias.                                |
+| ~*~                                   | contacts, compose recipients | Star or unstar the name. Starred names lead the list.                        |
+| ~enter~                               | contacts                     | Filter every folder to that agent.                                           |
+| ~x~                                   | outbox, item                 | Discard the selected outbox entry, failed or pending. A long one asks first. |
+| ~tab~ / ~shift+tab~                   | compose                      | Move among recipient, text, and Send.                                        |
+| ~enter~                               | compose                      | Newline in the text. Send on the Send button.                                |
+| ~Ctrl+Enter~, ~Alt+Enter~ / ~C-s~     | every composer               | Send the draft.                                                              |
+| ~Alt+e~                               | reply box                    | Send the reply and archive the thread.                                       |
+| ~Alt+d~                               | reply box                    | Discard the reply draft.                                                     |
+| ~Alt+q~                               | compose                      | Fill the paragraph at the cursor.                                            |
+| ~C-x C-e~ / ~C-g~                     | compose                      | Edit the draft in an external editor.                                        |
+| ~up~ / ~C-p~ / ~down~ / ~C-n~         | compose recipients           | Move in the filtered list.                                                   |
+| ~backspace~ / ~esc~                   | compose recipients           | Widen the filter, then leave. The draft stays.                               |
+| click / wheel                         | list or item                 | Open a row, pick an option, open a URL, or scroll.                           |
+| Shift drag                            | any                          | Select text in the terminal.                                                 |
 
 All shortcuts are configurable under ~ui.keys~; see [[*Keyboard shortcuts]].
 
@@ -661,8 +662,15 @@ Four distinct stages track a write from your keyboard to the agent:
   be edited (~e~) or cancelled (~x~). If the item changed on the hub
   before delivery (a new message arrived, or the item was withdrawn,
   marked done, or already answered), the entry is held and offers
-  ~[s] send~, ~[e] edit~, or ~[x] cancel~. A permanent error marks the
-  entry ~failed: <reason>~ in red and restores its text to the composer.
+  ~[s] send~, ~[e] edit~, or ~[x] cancel~. A permanent refusal (item
+  done, withdrawn, already answered, not found, or an answer to a note)
+  is final: the entry becomes ~failed~, never blocks later entries, and
+  its text returns to the reply box. The thread shows ~not sent:
+  <reason>~ with ~[Send as message]~ and ~[Discard]~. Hub-unreachable
+  errors keep retrying. ~done~ or archive on an item that is already
+  done succeeds as a no-op. In the Outbox folder, ~x~
+  (~outbox.discard~) discards the selected entry, failed or pending;
+  an entry longer than 3 lines asks to confirm first.
 - *Answered*: the ledger on the hub (or local machine) recorded your
   answer (~state: answered~, ~via: ui~, and for outbox entries both
   ~writtenAt~ and ~receivedAt~). The entry leaves the outbox and the
@@ -787,6 +795,7 @@ Action names are grouped by view:
   ~contacts.hide~, ~contacts.showHidden~, ~contacts.hideDead~,
   ~contacts.release~, ~contacts.alias~, ~contacts.details~,
   ~contacts.orgTree~
+- ~outbox~: ~outbox.discard~
 - ~compose~: ~compose.send~, ~compose.sendAndArchive~, ~compose.discard~,
   ~compose.nextField~, ~compose.prevField~, ~compose.cancel~,
   ~compose.pickerNext~, ~compose.pickerPrev~, ~compose.pickerStar~

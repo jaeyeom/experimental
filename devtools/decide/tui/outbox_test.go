@@ -14,6 +14,7 @@ type fakeOutboxBackend struct {
 	sentIDs   []string
 	editedIDs map[string]string
 	cancelled []string
+	asMessage []string
 }
 
 func (f *fakeOutboxBackend) OutboxEnabled() bool { return true }
@@ -179,7 +180,7 @@ func TestOutboxPermanentErrorShowsFailedAndRestoresComposerText(t *testing.T) {
 		t.Fatal(err)
 	}
 	view := m.View()
-	if !strings.Contains(view, "failed: item is withdrawn") {
+	if !strings.Contains(view, "not sent: item is withdrawn") {
 		t.Fatalf("expected failed reason in thread:\n%s", view)
 	}
 	if m.reply != "restored draft" {

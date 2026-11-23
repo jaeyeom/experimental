@@ -2,6 +2,7 @@ package inboxrpc
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/decide"
@@ -62,6 +63,38 @@ func (c *Client) CancelOutbox(id string) error {
 // DismissFailedOutbox removes a failed entry from the outbox.
 func (c *Client) DismissFailedOutbox(id string) error {
 	return c.CancelOutbox(id)
+}
+
+// SendOutboxAsMessage turns a failed entry into a plain reply carrying its
+// text and queues it for sending. A reply is accepted on a done thread.
+func (c *Client) SendOutboxAsMessage(id string) error {
+	ob, err := c.ensureOutbox()
+	if err != nil {
+		return err
+	}
+	var curPtr *decide.Item
+	for _, e := range ob.entries() {
+		if e.ID == id && e.ItemID != "" {
+			if rep, rerr := c.ensureReplica(); rerr == nil && rep != nil {
+				if cur, ok := rep.get(e.ItemID); ok {
+					curPtr = &cur
+				}
+			}
+			break
+		}
+	}
+	if err := ob.asMessage(id, c.now(), curPtr); err != nil {
+		return err
+	}
+	c.startOutboxIfPending()
+	return nil
+}
+
+// isDoneRefusal reports whether err is the ledger refusing a done or
+// archive because the item is already done. That is a no-op success, as
+// the hub now treats it; this covers a hub that still refuses.
+func isDoneRefusal(op string, err error) bool {
+	return (op == OpDone || op == OpArchive) && strings.HasSuffix(err.Error(), " is done")
 }
 
 // SendOutbox forces a held entry to be sent despite the detected conflict.
@@ -243,6 +276,10 @@ func (c *Client) sendOutboxEntry(ob *outboxStore, entry tui.OutboxEntry) bool {
 	if err != nil {
 		if errors.Is(err, tui.ErrUnreachable) {
 			return false
+		}
+		if isDoneRefusal(entry.Op, err) {
+			ob.remove(entry.ID)
+			return true
 		}
 		ob.markFailed(entry.ID, err.Error())
 		return true

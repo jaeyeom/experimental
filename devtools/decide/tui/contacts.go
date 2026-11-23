@@ -30,6 +30,7 @@ const (
 	confirmRoute
 	confirmQuit
 	confirmDiscard
+	confirmDiscardOutbox
 )
 
 // contact is one row of the Contacts folder. OnBus is a name the last
@@ -744,6 +745,10 @@ func (m *Model) confirmKey(r rune) (bool, error) {
 		case confirmDiscard:
 			m.clearReplyDraft()
 			m.status = "discarded draft"
+		case confirmDiscardOutbox:
+			if ob, ok := m.outboxBackend(); ok {
+				m.cancelOutboxByID(ob, name)
+			}
 		}
 	case 'n', 'N', '\x1b':
 		m.confirmKind = confirmNone

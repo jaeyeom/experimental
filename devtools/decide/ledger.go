@@ -469,8 +469,9 @@ func (l *Ledger) Done(id, outcome string) (Item, error) {
 	return l.DoneVia(id, outcome, ViaCLI)
 }
 
-// DoneVia marks id done and stores outcome. A withdrawn or done item is
-// refused. via is ViaUI for the user's own done from an inbox front end,
+// DoneVia marks id done and stores outcome. A withdrawn item is refused,
+// and so is a done item unless via is ViaUI, where it is a no-op success
+// (an outbox entry may repeat a done the hub already has). via is ViaUI for the user's own done from an inbox front end,
 // which closes the item at once and does not check message times. On a
 // done-unread item, the outcome "archived" keeps the agent's outcome.
 //
@@ -502,6 +503,10 @@ func (l *Ledger) DoneVia(id, outcome, via string) (Item, error) {
 		}
 		if it.EffectiveClass() == ClassDecision && via == ViaCLI && outcomeLineCount(outcome) > 2 {
 			return fmt.Errorf("decide decision done outcome must be 1 or 2 lines")
+		}
+		if it.State == StateDone && via == ViaUI {
+			updated = *it
+			return nil
 		}
 		if it.State == StateWithdrawn || it.State == StateDone {
 			return fmt.Errorf("decide item %s is %s", id, it.State)
@@ -576,6 +581,7 @@ func hasUnread(it *Item) bool {
 	return false
 }
 
+// Archive of an item that is already done is a no-op success.
 // Archive marks id done with outcome archived when every message is at
 // or before seen. A message newer than seen returns ErrNewerMessage and
 // leaves the item open. The check and the write share one lock.
@@ -587,7 +593,11 @@ func (l *Ledger) Archive(id string, seen time.Time) (Item, error) {
 		if err != nil {
 			return err
 		}
-		if it.State == StateWithdrawn || it.State == StateDone {
+		if it.State == StateDone {
+			updated = *it
+			return nil
+		}
+		if it.State == StateWithdrawn {
 			return fmt.Errorf("decide item %s is %s", id, it.State)
 		}
 		for _, msg := range it.Messages {

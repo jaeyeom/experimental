@@ -201,7 +201,11 @@ func (m *Model) outboxThreadLines(it *decide.Item, width int, now time.Time, loc
 	var lines []screenLine
 	for _, e := range entries {
 		lines = append(lines, screenLine{text: plainText(strings.Repeat("─", max(width, 8)))})
-		hdr := fmt.Sprintf("human  %s  %s", stamp(e.WrittenAt, now, loc), outboxEntryStateText(e))
+		state := outboxEntryStateText(e)
+		if e.Status == OutboxFailed {
+			state = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render("not sent: " + e.Error)
+		}
+		hdr := fmt.Sprintf("human  %s  %s", stamp(e.WrittenAt, now, loc), state)
 		lines = append(lines, screenLine{text: hdr})
 		body := e.Text
 		if body == "" {
@@ -221,8 +225,11 @@ func (m *Model) outboxThreadLines(it *decide.Item, width int, now time.Time, loc
 				lines = append(lines, indentLine(l))
 			}
 		}
-		if e.Status == OutboxHeld {
-			lines = append(lines, indentLine(screenLine{text: plainText("[s] send  [e] edit  [x] cancel")}))
+		switch e.Status {
+		case OutboxHeld:
+			lines = append(lines, indentLine(screenLine{text: plainText("[s] send  [e] edit  [" + m.discardKey() + "] cancel")}))
+		case OutboxFailed:
+			lines = append(lines, indentLine(screenLine{text: plainText("[Send as message (s)]  " + m.discardHint())}))
 		}
 	}
 	return lines
@@ -260,11 +267,7 @@ func (m *Model) restoreFailedEntry(e OutboxEntry) {
 			m.restoredFailed[e.ID] = true
 		}
 	case "answer":
-		if onDetail && m.draft == "" {
-			m.draft = e.Text
-			m.free.SetValue(e.Text)
-			m.restoredFailed[e.ID] = true
-		}
+		m.restoreFailedAnswer(e, onDetail)
 	case "done":
 		if onDetail && m.draft == "" {
 			m.draft = e.Text
@@ -363,26 +366,73 @@ func (m *Model) handleOutboxKey(s decide.KeyStroke) (bool, error) {
 		m.backToList()
 		return true, nil
 	}
-	return m.handleOutboxEntryKey(s.Key)
+	return m.handleOutboxEntryKey(s)
 }
 
-func (m *Model) handleOutboxEntryKey(key string) (bool, error) {
+// discardKey is the live binding of outbox.discard.
+func (m *Model) discardKey() string {
+	if k := m.actionFirst("outbox.discard"); k != "" {
+		return k
+	}
+	return "unbound"
+}
+
+// discardHint is the "[Discard (x)]" hint that follows the live binding.
+func (m *Model) discardHint() string {
+	return "[Discard (" + m.discardKey() + ")]"
+}
+
+func (m *Model) isDiscardKey(s decide.KeyStroke) bool {
+	act, ok := m.keyMap().Match("outbox", s)
+	return ok && act == "outbox.discard"
+}
+
+// discardLongLines is the entry length, in lines, above which a discard
+// asks to confirm first.
+const discardLongLines = 3
+
+// discardOutbox discards e at once, or asks first when its text is long.
+func (m *Model) discardOutbox(ob OutboxBackend, e OutboxEntry) {
+	text := strings.TrimRight(e.Text, "\n")
+	if strings.Count(text, "\n")+1 > discardLongLines {
+		m.confirmKind = confirmDiscardOutbox
+		m.confirmName = e.ID
+		m.status = fmt.Sprintf("discard %s? %s %s", e.ID, buttonLabel("Yes", "y", false, 0), buttonLabel("No", "n", false, 0))
+		return
+	}
+	m.cancelOutboxByID(ob, e.ID)
+}
+
+func (m *Model) sendOutboxAsMessageByID(ob OutboxBackend, id string) {
+	if err := ob.SendOutboxAsMessage(id); err != nil {
+		m.status = err.Error()
+		return
+	}
+	m.status = "sending " + id + " as a message"
+}
+
+func (m *Model) handleOutboxEntryKey(s decide.KeyStroke) (bool, error) {
 	e, ok := m.selectedOutbox()
 	if !ok {
 		return false, nil
 	}
 	ob, _ := m.outboxBackend()
-	switch key {
+	if m.isDiscardKey(s) {
+		m.discardOutbox(ob, e)
+		return true, nil
+	}
+	switch s.Key {
 	case "enter", "o":
 		return false, m.openSelectedOutbox(e)
 	case "s":
-		if e.Status == OutboxHeld {
+		switch e.Status {
+		case OutboxHeld:
 			m.sendOutboxByID(ob, e.ID)
+		case OutboxFailed:
+			m.sendOutboxAsMessageByID(ob, e.ID)
 		}
 	case "e":
 		m.editOutboxEntry(e)
-	case "x", "d":
-		m.cancelOutboxByID(ob, e.ID)
 	default:
 		return false, nil
 	}
@@ -459,10 +509,18 @@ func (m *Model) handleDetailOutboxKey(s decide.KeyStroke) (bool, error) {
 		return false, nil
 	}
 	target := targetItemOutboxEntry(entries)
+	if m.isDiscardKey(s) {
+		m.discardOutbox(ob, target)
+		return true, nil
+	}
 	switch s.Key {
 	case "s":
 		if target.Status == OutboxHeld {
 			m.sendOutboxByID(ob, target.ID)
+			return true, nil
+		}
+		if target.Status == OutboxFailed {
+			m.sendOutboxAsMessageByID(ob, target.ID)
 			return true, nil
 		}
 	case "e":
@@ -470,9 +528,6 @@ func (m *Model) handleDetailOutboxKey(s decide.KeyStroke) (bool, error) {
 			m.editOutboxEntry(target)
 			return true, nil
 		}
-	case "x":
-		m.cancelOutboxByID(ob, target.ID)
-		return true, nil
 	}
 	return false, nil
 }
@@ -491,4 +546,39 @@ func (m *Model) requestQuit() (bool, error) {
 	}
 	m.flushAllDrafts()
 	return true, nil
+}
+
+// answerClosed reports whether it can no longer take an answer or a done:
+// it is done or withdrawn. A plain reply is still accepted.
+func answerClosed(it *decide.Item) bool {
+	return it != nil && (it.State == decide.StateDone || it.State == decide.StateWithdrawn)
+}
+
+func (m *Model) outboxHelpLines() []string {
+	var lines []string
+	appendHelpLabeled(&lines, joinSlash(m.actionFirst("list.next"), m.actionFirst("list.prev")), " move")
+	appendHelpLabeled(&lines, m.goToHelpLine(), "")
+	lines = append(lines, "enter opens the thread    e edits the entry    s sends a held entry, or a failed one as a message")
+	appendHelpLabeled(&lines, m.actionSlash("outbox.discard"), " discards the outbox entry, failed or pending; a long one asks first")
+	appendHelpLabeled(&lines, m.actionSlash("detail.back"), " returns to the list")
+	appendHelpLabeled(&lines, m.actionSlash("search"), " filters as you type, esc restores, empty enter clears")
+	lines = append(lines, "click folder", "wheel scroll", m.actionSlash("help")+" or esc close")
+	return lines
+}
+
+// restoreFailedAnswer puts a failed answer's text back. On a thread that
+// can no longer take an answer it goes to the reply box.
+func (m *Model) restoreFailedAnswer(e OutboxEntry, onDetail bool) {
+	switch {
+	case onDetail && answerClosed(m.detail):
+		if m.reply == "" {
+			m.reply = e.Text
+			m.replyField.SetValue(e.Text)
+			m.restoredFailed[e.ID] = true
+		}
+	case onDetail && m.draft == "":
+		m.draft = e.Text
+		m.free.SetValue(e.Text)
+		m.restoredFailed[e.ID] = true
+	}
 }

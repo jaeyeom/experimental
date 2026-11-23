@@ -107,6 +107,7 @@ go_test(
         "model_test.go",
         "openat_test.go",
         "orgtree_test.go",
+        "outbox_discard_test.go",
         "outbox_test.go",
         "recipients_test.go",
         "refresh_test.go",

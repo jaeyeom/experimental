@@ -392,6 +392,9 @@ func ActionCatalog() []ActionDef {
 		{Name: "contacts.details", View: "contacts", Scopes: []string{"contacts"}, Default: []string{"i"}, Description: "Show or hide details on a narrow screen.", Where: "contacts"},
 		{Name: "contacts.orgTree", View: "contacts", Scopes: []string{"contacts"}, Default: []string{"t"}, Description: "Toggle org tree view.", Where: "contacts"},
 
+		// Outbox folder, and the outbox entries shown in a thread.
+		{Name: "outbox.discard", View: "outbox", Scopes: []string{"outbox"}, Default: []string{"x"}, Description: "Discard the selected outbox entry, failed or pending.", Where: "outbox, item"},
+
 		// Compose navigation and recipient picker.
 		{Name: "compose.send", View: "compose", Scopes: []string{"editor", "compose"}, Default: []string{"alt+enter", "ctrl+s"}, Description: "Send the draft from any focused composer.", Where: "every composer"},
 		{Name: "compose.sendAndArchive", View: "compose", Scopes: []string{"editor", "compose"}, Default: []string{"alt+e"}, Description: "Send the reply and archive the thread.", Where: "reply box"},
@@ -735,6 +738,7 @@ func FormatReadmeKeyTable(km *KeyMap) string {
 		{formatKeys("contacts.hide") + " / " + formatKeys("contacts.showHidden") + " / " + formatKeys("contacts.hideDead") + " / " + formatKeys("contacts.release") + " / " + formatKeys("contacts.alias"), "contacts", "Hide, show hidden, hide dead, release, alias."},
 		{formatKeys("contacts.star"), "contacts, compose recipients", "Star or unstar the name. Starred names lead the list."},
 		{formatKeys("contacts.filter"), "contacts", "Filter every folder to that agent."},
+		{formatKeys("outbox.discard"), "outbox, item", "Discard the selected outbox entry, failed or pending. A long one asks first."},
 		{formatKeys("compose.nextField") + " / " + formatKeys("compose.prevField"), "compose", "Move among recipient, text, and Send."},
 		{"~enter~", "compose", "Newline in the text. Send on the Send button."},
 		{"~Ctrl+Enter~, " + formatKeys("compose.send"), "every composer", "Send the draft."},

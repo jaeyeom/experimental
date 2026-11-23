@@ -122,7 +122,8 @@ func (o *outboxStore) append(e tui.OutboxEntry) tui.OutboxEntry {
 }
 
 // nextSendable returns the next pending entry that is not blocked by an
-// earlier held/failed entry for the same item, or by any earlier pending entry.
+// earlier held entry for the same item, or by any earlier pending entry. A
+// failed entry was refused for good and never blocks later entries.
 func (o *outboxStore) nextSendable() (tui.OutboxEntry, bool) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -135,7 +136,7 @@ func (o *outboxStore) nextSendable() (tui.OutboxEntry, bool) {
 				continue
 			}
 			return e, true
-		case tui.OutboxHeld, tui.OutboxFailed:
+		case tui.OutboxHeld:
 			if e.ItemID != "" {
 				blockedItems[e.ItemID] = true
 			}
@@ -228,6 +229,36 @@ func (o *outboxStore) forceSend(id string, cur *decide.Item) error {
 	if e.Op == OpArchive && cur != nil {
 		t := cur.LastMessageAt()
 		e.Seen = &t
+	}
+	o.save()
+	return nil
+}
+
+// asMessage turns entry id into a plain reply with its text and resumes
+// sending.
+func (o *outboxStore) asMessage(id string, now time.Time, cur *decide.Item) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.ensureLoaded()
+	i := slices.IndexFunc(o.data.Entries, func(e tui.OutboxEntry) bool { return e.ID == id })
+	if i < 0 {
+		return fmt.Errorf("outbox entry %s not found", id)
+	}
+	e := &o.data.Entries[i]
+	if e.ItemID == "" {
+		return fmt.Errorf("outbox entry %s has no thread", id)
+	}
+	e.Op = OpReply
+	e.Choice = ""
+	e.Route = ""
+	e.Seen = nil
+	e.WrittenAt = now
+	e.Status = tui.OutboxPending
+	e.Error = ""
+	e.HoldReason = ""
+	e.Force = false
+	if cur != nil {
+		setBaseline(e, *cur)
 	}
 	o.save()
 	return nil

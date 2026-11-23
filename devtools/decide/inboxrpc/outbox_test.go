@@ -4,7 +4,10 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -523,5 +526,147 @@ func TestOutboxArchiveRespectsSeenGuard(t *testing.T) {
 	}
 	if got.State != decide.StateOpen {
 		t.Fatalf("item state = %q, want open (seen guard should prevent archive)", got.State)
+	}
+}
+
+func newDoneItemClient(t *testing.T) (*hub, *Client, decide.Item) {
+	t.Helper()
+	h := newHub(t)
+	it := h.create(t, &decide.Item{
+		Question: "pick one?",
+		Options:  []decide.Option{{Key: "y", Label: "Yes", Recommended: true}, {Key: "n", Label: "No"}},
+	})
+	if _, err := h.server.Backend.Done(it.ID, "finished"); err != nil {
+		t.Fatal(err)
+	}
+	c := &Client{Dial: h.dial, Label: "refused@hub", CacheDir: t.TempDir(), UseOutbox: true}
+	if err := c.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	return h, c, it
+}
+
+func TestOutboxFailedEntryDoesNotBlockLaterEntries(t *testing.T) {
+	_, c, it := newDoneItemClient(t)
+	if _, err := c.Answer(it.ID, "y"); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, 2*time.Second, func() bool {
+		e := c.Outbox()
+		return len(e) == 1 && e[0].Status == tui.OutboxFailed
+	}, "answer on a done item to fail")
+	// done and archive on a done item are no-op successes, and a reply is
+	// accepted, all behind the failed entry and in order.
+	if _, err := c.Done(it.ID, "again"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Archive(it.ID, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Reply(it.ID, "thanks", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, 2*time.Second, func() bool {
+		e := c.Outbox()
+		return len(e) == 1 && e[0].Status == tui.OutboxFailed && e[0].Op == OpAnswer
+	}, "later entries to drain past the failed one")
+}
+
+func TestOutboxStuckEntriesAreCleanedUpOnStart(t *testing.T) {
+	h := newHub(t)
+	it := h.create(t, &decide.Item{
+		Question: "pick one?",
+		Options:  []decide.Option{{Key: "y", Label: "Yes", Recommended: true}, {Key: "n", Label: "No"}},
+	})
+	if _, err := h.server.Backend.Answer(it.ID, "y"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.server.Backend.Done(it.ID, "finished"); err != nil {
+		t.Fatal(err)
+	}
+	cache := t.TempDir()
+	path, err := OutboxPath(cache, "stuck@hub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	data, err := json.Marshal(outboxData{Hub: "stuck@hub", NextID: 2, Entries: []tui.OutboxEntry{
+		{ID: "OB-001", Op: OpAnswer, ItemID: it.ID, Text: "y", WrittenAt: now, Status: tui.OutboxFailed, Error: "decide item " + it.ID + " is done"},
+		{ID: "OB-002", Op: OpDone, ItemID: it.ID, Text: "finished", WrittenAt: now, Status: tui.OutboxPending},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := &Client{Dial: h.dial, Label: "stuck@hub", CacheDir: cache, UseOutbox: true}
+	if err := c.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	waitUntil(t, 2*time.Second, func() bool {
+		e := c.Outbox()
+		return len(e) == 1 && e[0].ID == "OB-001" && e[0].Status == tui.OutboxFailed
+	}, "pending done to drain behind the failed answer")
+}
+
+func TestIsDoneRefusalOnlyForDoneAndArchive(t *testing.T) {
+	refusal := errors.New("decide item D-001 is done")
+	if !isDoneRefusal(OpDone, refusal) || !isDoneRefusal(OpArchive, refusal) {
+		t.Fatal("done or archive refused as done is not a no-op success")
+	}
+	if isDoneRefusal(OpAnswer, refusal) {
+		t.Fatal("answer refused as done counted as a no-op success")
+	}
+	if isDoneRefusal(OpDone, errors.New("decide item D-001 is withdrawn")) {
+		t.Fatal("done on a withdrawn item counted as a no-op success")
+	}
+}
+
+func TestOutboxSendFailedEntryAsMessage(t *testing.T) {
+	h, c, it := newDoneItemClient(t)
+	if _, err := c.Answer(it.ID, "thanks anyway"); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, 2*time.Second, func() bool {
+		e := c.Outbox()
+		return len(e) == 1 && e[0].Status == tui.OutboxFailed
+	}, "answer to fail")
+	id := c.Outbox()[0].ID
+	if err := c.SendOutboxAsMessage(id); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, 2*time.Second, func() bool { return len(c.Outbox()) == 0 }, "message to deliver")
+	got, err := h.server.Backend.Get(it.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := got.Messages[len(got.Messages)-1]
+	if last.Author != "human" || last.Text != "thanks anyway" {
+		t.Fatalf("last message = %+v", last)
+	}
+}
+
+func TestOutboxDiscardRemovesPendingAndFailed(t *testing.T) {
+	c := &Client{Label: "discard@hub", CacheDir: t.TempDir(), UseOutbox: true}
+	ob, err := c.ensureOutbox()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := ob.append(tui.OutboxEntry{Op: OpReply, ItemID: "D-001", Text: "a"})
+	b := ob.append(tui.OutboxEntry{Op: OpReply, ItemID: "D-002", Text: "b"})
+	ob.markFailed(b.ID, "decide item D-002 is done")
+	for _, id := range []string{a.ID, b.ID} {
+		if err := c.CancelOutbox(id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := c.Outbox(); len(got) != 0 {
+		t.Fatalf("outbox = %+v, want empty", got)
 	}
 }
