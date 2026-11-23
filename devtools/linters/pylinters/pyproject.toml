@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pylinters"
+dynamic = ["version"]
+description = "Python checkers from the jaeyeom/experimental toolbox"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+py-sibling-import = "pylinters.cli.sibling_import:run"
+
+[tool.hatch.version]
+source = "vcs"
+raw-options = { root = "../../.." }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pylinters"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
