@@ -4,7 +4,9 @@ go_library(
     name = "go_default_library",
     srcs = [
         "baseline.go",
+        "eval.go",
         "match.go",
+        "update.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/pkg/baseline",
     visibility = ["//visibility:public"],
@@ -14,7 +16,9 @@ go_test(
     name = "go_default_test",
     srcs = [
         "baseline_test.go",
+        "eval_test.go",
         "match_test.go",
+        "update_test.go",
     ],
     embed = [":go_default_library"],
 )
