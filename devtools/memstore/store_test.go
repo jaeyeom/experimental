@@ -34,8 +34,8 @@ func TestInitVaultAndIdempotency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InitVault: %v", err)
 	}
-	if got := userVersion(t, v); got != 1 {
-		t.Errorf("user_version = %d, want 1", got)
+	if got := userVersion(t, v); got != 2 {
+		t.Errorf("user_version = %d, want 2", got)
 	}
 	if err := v.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
@@ -48,8 +48,8 @@ func TestInitVaultAndIdempotency(t *testing.T) {
 	}
 	defer v2.Close()
 
-	if got := userVersion(t, v2); got != 1 {
-		t.Errorf("user_version after second init = %d, want 1", got)
+	if got := userVersion(t, v2); got != 2 {
+		t.Errorf("user_version after second init = %d, want 2", got)
 	}
 
 	dirInfo, err := os.Stat(filepath.Dir(cfg.Path))
@@ -79,6 +79,9 @@ func TestInitVaultAndIdempotency(t *testing.T) {
 		"triage_inbox",
 		"access_log",
 		"fts_docs",
+		"routine_state",
+		"routine_runs",
+		"routine_outbox",
 	}
 	for _, table := range tables {
 		var name string
@@ -304,5 +307,58 @@ func TestFTS5DocsInsertAndMatch(t *testing.T) {
 	}
 	if len(matched) != 1 || matched[0] != "d1:project:apollo" {
 		t.Errorf("matched = %v, want [d1:project:apollo]", matched)
+	}
+}
+
+func TestUpgradeMigration1To2PreservesData(t *testing.T) {
+	cfg := testVaultConfig(t)
+	if err := EnsureSecureDir(filepath.Dir(cfg.Path)); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sqlitedb.Open(cfg.Path, "_pragma=foreign_keys(1)", "_txlock=immediate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrate(db, schemaMigrations()[:1]); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO entities (id, kind, slug, title, created_at, updated_at)
+		VALUES ('person:ada', 'person', 'ada', 'Ada Lovelace', 100, 100)`,
+	); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureSecureFile(cfg.Path); err != nil {
+		t.Fatal(err)
+	}
+
+	v, err := OpenVault(cfg)
+	if err != nil {
+		t.Fatalf("OpenVault upgrade: %v", err)
+	}
+	defer v.Close()
+
+	if got := userVersion(t, v); got != 2 {
+		t.Errorf("user_version after upgrade = %d, want 2", got)
+	}
+
+	var title string
+	if err := v.db.QueryRow(`SELECT title FROM entities WHERE id = 'person:ada'`).Scan(&title); err != nil {
+		t.Fatalf("existing entity lost after migration: %v", err)
+	}
+	if title != "Ada Lovelace" {
+		t.Errorf("title = %q, want Ada Lovelace", title)
+	}
+
+	for _, table := range []string{"routine_state", "routine_runs", "routine_outbox"} {
+		var name string
+		if err := v.db.QueryRow(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&name); err != nil {
+			t.Errorf("table %q missing after upgrade: %v", table, err)
+		}
 	}
 }

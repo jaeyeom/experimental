@@ -272,5 +272,41 @@ func schemaMigrations() []string {
 			body,
 			tokenize='unicode61'
 		);`,
+		`CREATE TABLE routine_state (
+			routine_id TEXT NOT NULL,
+			key        TEXT NOT NULL,
+			value_json TEXT NOT NULL,
+			updated_at INTEGER NOT NULL,
+			PRIMARY KEY (routine_id, key)
+		);
+		CREATE TABLE routine_runs (
+			id              TEXT PRIMARY KEY NOT NULL,
+			routine_id      TEXT NOT NULL,
+			idempotency_key TEXT NOT NULL,
+			trigger         TEXT NOT NULL DEFAULT '',
+			started_at      INTEGER NOT NULL,
+			finished_at     INTEGER,
+			status          TEXT NOT NULL CHECK (
+								status IN ('running', 'ok', 'failed', 'skipped')
+							),
+			exit_code       INTEGER,
+			metrics_json    TEXT NOT NULL DEFAULT '',
+			error_summary   TEXT NOT NULL DEFAULT '',
+			UNIQUE (routine_id, idempotency_key)
+		);
+		CREATE INDEX idx_routine_runs_routine ON routine_runs(routine_id, started_at);
+		CREATE TABLE routine_outbox (
+			id           TEXT PRIMARY KEY NOT NULL,
+			routine_id   TEXT NOT NULL,
+			action_kind  TEXT NOT NULL,
+			payload_json TEXT NOT NULL,
+			status       TEXT NOT NULL DEFAULT 'pending_approval' CHECK (
+							 status IN ('pending_approval', 'approved', 'executed', 'rejected', 'failed')
+						 ),
+			decide_id    TEXT NOT NULL DEFAULT '',
+			created_at   INTEGER NOT NULL,
+			executed_at  INTEGER
+		);
+		CREATE INDEX idx_routine_outbox_status ON routine_outbox(routine_id, status, created_at);`,
 	}
 }
