@@ -28,7 +28,7 @@ func (e *Evaluator) UpdatedFile(existingTargets map[string]bool, mode UpdateMode
 	normExisting := normalizeTargetSet(existingTargets)
 
 	for key, entry := range e.file.Entries {
-		if IsGlob(key) {
+		if IsGlob(key) || len(entry.Transitions) > 0 {
 			out.Entries[key] = cloneEntry(entry)
 			continue
 		}
@@ -116,8 +116,9 @@ func cloneEntry(e Entry) Entry {
 		}
 	}
 	return Entry{
-		Limits: limits,
-		Reason: e.Reason,
-		Issue:  e.Issue,
+		Limits:      limits,
+		Reason:      e.Reason,
+		Issue:       e.Issue,
+		Transitions: append([]Transition(nil), e.Transitions...),
 	}
 }

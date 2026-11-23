@@ -48,8 +48,53 @@ All fields in an entry object are optional:
 | `limits` | object | no | Map of metric name (`max_*` or `min_*`) to integer (`int64`), e.g. `max_bytes`, `max_cascading_bytes`, `min_doc_bytes`, `max_violations`. |
 | `reason` | string | no | Short human-readable explanation for why the baseline entry exists. |
 | `issue` | string | no | Optional tracking reference (e.g., `#123` or issue URL). |
+| `transitions` | array | no | Exact content changes allowed for an exact-path target (see below). An entry has `limits` or `transitions`, never both. |
 
-An empty entry `{}` (or an entry with no `limits` field) represents a **pure exemption**: the matched target is exempted from the checker regardless of its measured values.
+An empty entry `{}` (or an entry with neither `limits` nor `transitions`) represents a **pure exemption**: the matched target is exempted from the checker regardless of its measured values.
+
+### Transitions
+
+Checkers that guard files against change (e.g. `migration-immutability`)
+record each reviewed exception as a transition: the exact git blob before
+and after. Any other change to the same file still fails.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `before` | string | yes | Lowercase 40- or 64-hex git blob hash at the base. |
+| `after` | string | yes | Lowercase 40- or 64-hex git blob hash now, or `"deleted"`. |
+| `reason` | string | yes | Why this exact change is safe. |
+| `issue` | string | no | Optional tracking reference. |
+
+Rules:
+
+- Only valid on exact-path keys, never globs. Duplicate `(before, after)`
+  pairs within an entry are rejected.
+- An entry with transitions is **not** a pure exemption.
+- Entries with transitions are never stale and never removed by
+  `--update-baseline` or `--tighten-baseline`, even when the target no
+  longer exists (an allowed deletion's target is gone by design). Once
+  the change lands it no longer matches anything and stays as the record
+  of what was allowed and why.
+- Canonical output sorts transitions by `(before, after)`.
+
+```json
+{
+  "checker": "migration-immutability",
+  "entries": {
+    "app/migrations/0011_outbox.py": {
+      "transitions": [
+        {
+          "after": "b7fb2dbc38fc4836ddbe2aacabc64a4dfd050afe",
+          "before": "689e0fb9ba69f79a977c4be1f3212e85e6a1fea3",
+          "issue": "#123",
+          "reason": "RunPython removed; it never completed anywhere"
+        }
+      ]
+    }
+  },
+  "version": 1
+}
+```
 
 ### Why `expires` Is Omitted
 
@@ -161,14 +206,14 @@ Checkers evaluate metrics against either an upper bound (`max_*`) or a lower bou
   - **Stale override** if an exact-path override exists and `actual >= defaultMin` (the target now satisfies the default).
   - **Ratchet opportunity (tighten upward)** if an exact-path override exists and `effectiveMin < actual < defaultMin`: the limit can be tightened from `effectiveMin` up to `actual`.
 
-- **Pure exemption** (`limits` absent or empty):
+- **Pure exemption** (`limits` and `transitions` absent or empty):
   - Always passes regardless of observed metric values.
 
 ### Staleness Conditions
 
 Under `--strict-baseline` (enabled by default), a baseline is stale if any of the following conditions hold:
 
-1. **Deleted target**: An exact-path entry refers to a target that no longer exists.
+1. **Deleted target**: An exact-path entry without transitions refers to a target that no longer exists.
 2. **Satisfies defaults**: An exact-path entry (or one of its `limits` overrides) now passes the checker's default threshold(s).
 3. **Looser-than-needed limit**: An exact-path entry has a limit that can be ratcheted closer to the default (`actual < effectiveMax` for `max_*`, or `actual > effectiveMin` for `min_*`).
 4. **Unmatched glob**: A glob entry matches zero existing targets.

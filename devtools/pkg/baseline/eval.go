@@ -108,7 +108,7 @@ func (e *Evaluator) CheckExempt(target string) bool {
 		return false
 	}
 	e.matchedKeys[key] = true
-	return len(entry.Limits) == 0
+	return entry.isPureExemption()
 }
 
 // CheckMax evaluates an upper-bound metric (actual <= effectiveMax).
@@ -126,7 +126,7 @@ func (e *Evaluator) checkMetric(target, metric string, actual, defaultLimit int6
 	key, entry, ok := e.file.Resolve(norm)
 	if ok {
 		e.matchedKeys[key] = true
-		if len(entry.Limits) == 0 {
+		if entry.isPureExemption() {
 			return Result{
 				Status:     StatusPass,
 				Target:     norm,
@@ -234,6 +234,10 @@ func (e *Evaluator) StaleFindings(existingTargets map[string]bool) []StaleFindin
 }
 
 func (e *Evaluator) exactEntryFindings(key string, entry Entry, normExisting map[string]bool) []StaleFinding {
+	if len(entry.Transitions) > 0 {
+		// A transition's target may be gone by design (an allowed deletion).
+		return nil
+	}
 	if !normExisting[key] {
 		return []StaleFinding{{
 			Kind: StaleDeletedTarget,
@@ -271,6 +275,12 @@ func (e *Evaluator) exactEntryFindings(key string, entry Entry, normExisting map
 		}
 	}
 	return findings
+}
+
+// isPureExemption reports whether e exempts its target outright: no limits
+// and no transitions.
+func (e Entry) isPureExemption() bool {
+	return len(e.Limits) == 0 && len(e.Transitions) == 0
 }
 
 func normalizeOrKeep(target string) string {

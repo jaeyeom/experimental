@@ -28,6 +28,9 @@ type Entry struct {
 	Limits map[string]int64 `json:"limits,omitempty"`
 	Reason string           `json:"reason,omitempty"`
 	Issue  string           `json:"issue,omitempty"`
+	// Transitions allow exact content changes of an exact-path target. An
+	// entry has limits or transitions, never both. See Transition.
+	Transitions []Transition `json:"transitions,omitempty"`
 }
 
 // canonicalFile mirrors File with fields ordered lexicographically by JSON key
@@ -39,9 +42,10 @@ type canonicalFile struct {
 }
 
 type canonicalEntry struct {
-	Issue  string           `json:"issue,omitempty"`
-	Limits map[string]int64 `json:"limits,omitempty"`
-	Reason string           `json:"reason,omitempty"`
+	Issue       string                `json:"issue,omitempty"`
+	Limits      map[string]int64      `json:"limits,omitempty"`
+	Reason      string                `json:"reason,omitempty"`
+	Transitions []canonicalTransition `json:"transitions,omitempty"`
 }
 
 // Load reads and validates a baseline JSON file from path.
@@ -99,6 +103,9 @@ func validateFile(f *File) error {
 		if norm != k {
 			return fmt.Errorf("unnormalized target key %q (expected %q)", k, norm)
 		}
+		if err := validateEntryTransitions(k, f.Entries[k]); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -112,9 +119,10 @@ func Marshal(f *File) ([]byte, error) {
 	entries := make(map[string]canonicalEntry, len(f.Entries))
 	for k, e := range f.Entries {
 		entries[k] = canonicalEntry{
-			Issue:  e.Issue,
-			Limits: e.Limits,
-			Reason: e.Reason,
+			Issue:       e.Issue,
+			Limits:      e.Limits,
+			Reason:      e.Reason,
+			Transitions: canonicalTransitions(e.Transitions),
 		}
 	}
 	cf := canonicalFile{

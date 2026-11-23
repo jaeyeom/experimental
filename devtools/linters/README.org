@@ -3,10 +3,12 @@
 
 * Overview
 
-This directory holds four linters. ~org-lint~ runs Emacs's built-in
+This directory holds five linters. ~org-lint~ runs Emacs's built-in
 Org-mode linter from the command line, so ~.org~ files can be checked in
 CI. ~agents-md-size~ enforces per-file and cascading ancestor byte size
-limits on ~AGENTS.md~ files with ratchetable baselines. The two Go
+limits on ~AGENTS.md~ files with ratchetable baselines.
+~migration-immutability~ fails when a change edits a database migration
+the base branch already has. The two Go
 linters catch patterns ~go vet~ doesn't: interface assertions that guard
 nothing, and package-level variables that should be constants or that
 run code at init time.
@@ -27,6 +29,7 @@ Go 1.26 or later.
 | unnecessary-interface-assertion-linter | var _ I = (*T)(nil) when that assertion adds nothing         | Go       | devcheck's Go fallback         |
 | pkgvar                                 | package-level var that should be const, or that runs at init | Go       | make lint, via go vet -vettool |
 | agents-md-size                         | Per-file (4 KiB) and cascading (16 KiB) AGENTS.md byte size  | Markdown | make check, CI, CLI            |
+| migration-immutability                 | Edits, deletes, renames of migrations the base already has   | Any      | CI in repos with migrations    |
 
 * Tools
 
@@ -337,10 +340,60 @@ agents-md-size --strict-baseline=false
   entries exist under ~--strict-baseline=true~.
 - Exits 2 on invalid flags, malformed baseline JSON, or I/O errors.
 
+** migration-immutability
+
+Fails when a change edits, deletes, or renames a database migration file
+that the base branch already has. Adding a migration is always fine.
+Once a migration merges, some environment may already have applied it,
+and editing the file does not re-run it there: a database that applied
+the old text silently drifts from a fresh one. Put schema changes in a
+new migration.
+
+Built-in patterns: ~django~ (~migrations/NNNN_*.py~), ~alembic~
+(~migrations/versions/*.py~), ~sql~ (~migrations/*.sql~), and ~prisma~
+(~prisma/migrations/*/migration.sql~). Add more with ~--pattern
+NAME=REGEXP~, turn one off with ~--disable-pattern NAME~, and skip paths
+edited in place by design with ~--exclude GLOB~.
+
+It diffs the working tree against the merge-base with the base ref:
+~--base~, else ~origin/$GITHUB_BASE_REF~, else the current branch's
+upstream when it names a different branch, else ~origin/HEAD~. It never
+fetches; in GitHub Actions use ~actions/checkout~ with ~fetch-depth: 0~.
+A symlink at a migration path is always blocked. With no base, or no
+tracked file matching a pattern, it errors instead of passing.
+
+Reviewed exceptions live in ~.baselines/migration-immutability.json~ as
+~transitions~ pinning the exact blob before and after (see
+[[file:../docs/checker-baseline.md][checker-baseline.md]]). Any other
+edit to the same file still fails.
+
+*** Install
+
+#+BEGIN_SRC bash
+go install github.com/jaeyeom/experimental/devtools/linters/cmd/migration-immutability@latest
+#+END_SRC
+
+*** Usage
+
+#+BEGIN_SRC bash
+migration-immutability
+migration-immutability --base origin/main
+migration-immutability --exclude 'db/init/**' --pattern 'flyway=(^|/)db/migration/V[^/]+\.sql$'
+migration-immutability --update-baseline --reason "black reformat" --issue "#123"
+#+END_SRC
+
+*** Exit codes
+
+- Exits 0 when no migration the base already has was changed, or every
+  change is allowed by the baseline.
+- Exits 1 when a change is blocked.
+- Exits 2 on invalid flags, an unresolvable base, no matching migration
+  files, malformed baseline JSON, or git errors.
+
 * Development
 
 #+BEGIN_SRC bash
 go test ./devtools/linters/...
 bazel test //devtools/linters/...
-bazel build //devtools/linters/cmd/agents-md-size //devtools/linters/cmd/org-lint //devtools/linters/cmd/pkgvar //devtools/linters/cmd/unnecessary-interface-assertion-linter
+bazel build //devtools/linters/cmd/agents-md-size //devtools/linters/cmd/migration-immutability //devtools/linters/cmd/org-lint //devtools/linters/cmd/pkgvar //devtools/linters/cmd/unnecessary-interface-assertion-linter
 #+END_SRC

@@ -1,0 +1,26 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "base.go",
+        "check.go",
+        "git.go",
+        "patterns.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/linters/migrationimmutability",
+    visibility = ["//visibility:public"],
+    deps = ["//devtools/pkg/baseline:go_default_library"],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = [
+        "check_test.go",
+        "patterns_test.go",
+    ],
+    embed = [":go_default_library"],
+    # Shells out to git in throwaway repositories.
+    tags = ["local"],
+    deps = ["//devtools/pkg/baseline:go_default_library"],
+)
