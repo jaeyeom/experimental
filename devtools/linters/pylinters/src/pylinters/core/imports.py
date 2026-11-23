@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import io
 import tokenize
+import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -46,7 +47,10 @@ def parse(data: bytes, path: str) -> Source:
         ParseError: The source is not valid Python.
     """
     try:
-        tree = ast.parse(data, filename=path)
+        with warnings.catch_warnings():
+            # Warnings about the checked file's own code are not ours.
+            warnings.simplefilter("ignore")
+            tree = ast.parse(data, filename=path)
         comments = {
             tok.start[0]: tok.string
             for tok in tokenize.tokenize(io.BytesIO(data).readline)

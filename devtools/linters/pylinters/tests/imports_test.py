@@ -1,6 +1,7 @@
 """Tests for pylinters.core.imports."""
 
 import sys
+import warnings
 
 import pytest
 from pylinters.core import errors, imports
@@ -57,6 +58,13 @@ def test_syntax_error_raises_parse_error() -> None:
     with pytest.raises(errors.ParseError) as exc:
         imports.parse(b"import (\n", "bad.py")
     assert exc.value.path == "bad.py"
+
+
+def test_syntax_warnings_are_silenced() -> None:
+    """Warnings about the parsed file's code are not the checker's output."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        imports.parse(b'import re\nx = "\\d"\n', "x.py")
 
 
 if __name__ == "__main__":
