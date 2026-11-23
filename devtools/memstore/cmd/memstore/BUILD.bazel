@@ -39,11 +39,13 @@ go_test(
     name = "go_default_test",
     size = "small",
     srcs = [
+        "e2e_test.go",
         "main_test.go",
         "routine_cmd_test.go",
         "sync_cmd_test.go",
         "toolcli_test.go",
     ],
+    data = ["//devtools/memstore:README.org"],
     embed = [":go_default_library"],
     deps = [
         "//devtools/memstore:go_default_library",

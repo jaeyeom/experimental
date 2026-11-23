@@ -1,0 +1,200 @@
+#+TITLE: memstore
+#+DATE: 2026-11-23
+
+A compartmentalized personal memory store and deterministic automation
+system for coding agents. SQLite is the source of truth across
+physically separated vaults; Markdown projections, Aside imports,
+stateless routines, and cloud inbox sync are all gated by default-deny
+caller profiles.
+
+* Overview
+
+- *Layer 1 — Memory Store & Search*: multi-vault SQLite store
+  (~shared.db~, ~work.db~, ~personal.db~) with entities, aliases,
+  structured facts (with TTL and provenance), non-duplicating Markdown
+  note blocks, links, append-only episodic events, compact revisions,
+  content-free audit log, and scoped SQLite FTS5 BM25 search.
+- *Two-tier context separation*: physical SQLite vaults per trust
+  boundary combined with row-level ~compartment~ and ~sensitivity~
+  (~public~, ~normal~, ~private~, ~restricted~) tags enforced by
+  default-deny profiles before search ranking, output, or Markdown
+  export.
+- *Aside interop & Markdown projection*: ~export~ deterministically
+  materializes Aside-compatible Markdown views filtered by profile;
+  ~import-aside~ classifies and imports Aside directories; ~sync-check~
+  detects external Markdown edits and stages diffs to ~triage_inbox~.
+- *Layer 2 — Deterministic Automation*: thin TOML routine manifests
+  (~routines/*.toml~) executed by a stateless runner (~routine run~ /
+  ~routine tick~) with DB-backed state cursors, idempotent run history,
+  ~decide~ outbox approvals, ~launchd~ plist generation, rule-based
+  ~age~ compaction, encrypted ~backup~, and a GCP/HTTP scoped inbox
+  (~sync push~ / ~sync pull~ / ~serve http~).
+
+* Install
+
+#+begin_src sh
+go install github.com/jaeyeom/experimental/devtools/memstore/cmd/memstore@latest
+memstore init --vault work
+#+end_src
+
+Bazel builds the same binary with
+~bazel build //devtools/memstore/cmd/memstore~.
+
+* Config and profiles
+
+The config is TOML at ~--config~, else ~$MEMSTORE_CONFIG~, else
+~$XDG_CONFIG_HOME/memstore/config.toml~ (default
+=~/.config/memstore/config.toml=). A missing file uses defaults
+(~retention_days = 365~).
+
+#+begin_src toml
+retention_days = 365
+
+[vaults.shared]
+path = "~/.local/share/memstore/vaults/shared.db"
+residency = "local-only"
+
+[vaults.work]
+path = "~/.local/share/memstore/vaults/work.db"
+residency = "local-only"
+contacts_config = "~/.config/contacts/config.toml"
+
+[vaults.personal]
+path = "~/.local/share/memstore/vaults/personal.db"
+residency = "local-only"
+
+[profiles.admin]
+vaults = ["shared", "work", "personal"]
+compartments = ["general", "engineering", "finance", "personal"]
+max_sensitivity = "restricted"
+capabilities = ["read", "write", "write-episodic", "export", "admin"]
+
+[profiles.work]
+vaults = ["shared", "work"]
+compartments = ["general", "engineering"]
+max_sensitivity = "normal"
+capabilities = ["read", "write", "write-episodic", "export"]
+
+[profiles.personal]
+vaults = ["shared", "personal"]
+compartments = ["general", "personal"]
+max_sensitivity = "private"
+capabilities = ["read", "write", "write-episodic"]
+#+end_src
+
+- *Vault residency*: ~local-only~, ~cloud-inbox~, or ~cloud-hosted~.
+  Vault DB paths inside a git work tree are refused unless
+  explicitly overridden where supported (~export --allow-git~).
+- *Default-deny profiles*: a profile must explicitly list allowed
+  ~vaults~, ~compartments~, ~max_sensitivity~ (~public~ < ~normal~ <
+  ~private~ < ~restricted~), and ~capabilities~ (~read~, ~write~,
+  ~write-episodic~, ~propose-fact~, ~export~, ~admin~). Unknown or
+  omitted fields are denied.
+
+* Walkthrough
+
+A fictional session. The commands below run as written in
+~TestReadmeWalkthrough~, against a fixed clock of 2026-06-01 12:00 UTC
+and two vaults (~work~ and ~personal~).
+
+#+NAME: walkthrough
+#+begin_src sh
+memstore init --vault work
+memstore init --vault personal
+memstore entity put person ada --vault work --title "Ada Lovelace" --alias Countess --compartment engineering --summary "Analytical engine pioneer" --pin-l1
+memstore entity put person bob --vault personal --title "Bob Builder" --compartment personal --summary "Home renovation contractor"
+memstore fact set person:ada role "Tech Lead" --vault work --compartment engineering --sensitivity normal
+memstore fact set person:ada compensation "band-9" --vault work --compartment engineering --sensitivity restricted
+memstore note set person:ada bio --vault work --heading "Bio" --body "Writes analytical algorithms." --compartment engineering
+memstore event add --vault work --channel chat --entity person:ada --date 2025-01-15 --summary "Reviewed engine design" --compartment engineering
+memstore search "Ada" --profile work
+memstore search "Builder" --profile work
+memstore export --profile work --out ~/.local/share/memstore/export
+printf '\nUpdated bio from editor.\n' >> ~/.local/share/memstore/export/people/ada.md
+memstore sync-check --profile work --dir ~/.local/share/memstore/export --stage
+memstore triage approve tri_0001 --profile admin
+memstore routine run daily-brief
+memstore age --vault work --profile admin
+#+end_src
+
+Its output:
+
+#+NAME: walkthrough-output
+#+begin_example
+$ memstore init --vault work
+initialized work (~/.local/share/memstore/vaults/work.db)
+$ memstore init --vault personal
+initialized personal (~/.local/share/memstore/vaults/personal.db)
+$ memstore entity put person ada --vault work --title "Ada Lovelace" --alias Countess --compartment engineering --summary "Analytical engine pioneer" --pin-l1
+person:ada	Ada Lovelace
+$ memstore entity put person bob --vault personal --title "Bob Builder" --compartment personal --summary "Home renovation contractor"
+person:bob	Bob Builder
+$ memstore fact set person:ada role "Tech Lead" --vault work --compartment engineering --sensitivity normal
+fact_0001	person:ada	role="Tech Lead"
+$ memstore fact set person:ada compensation "band-9" --vault work --compartment engineering --sensitivity restricted
+fact_0002	person:ada	compensation="band-9"
+$ memstore note set person:ada bio --vault work --heading "Bio" --body "Writes analytical algorithms." --compartment engineering
+note_0001	person:ada	bio
+$ memstore event add --vault work --channel chat --entity person:ada --date 2025-01-15 --summary "Reviewed engine design" --compartment engineering
+evt_0001	2025-01-15	chat	Reviewed engine design
+$ memstore search "Ada" --profile work
+work	entity	person:ada	Ada Lovelace	0.8882	Ada Lovelace
+$ memstore search "Builder" --profile work
+$ memstore export --profile work --out ~/.local/share/memstore/export
+written=4 unchanged=0 removed=0
+$ memstore sync-check --profile work --dir ~/.local/share/memstore/export --stage
+unchanged=3 modified=1 added=0 deleted=0 staged=1 skipped=0
+  modified	people/ada.md
+$ memstore triage approve tri_0001 --profile admin
+approved tri_0001 (work)
+$ memstore routine run daily-brief
+daily-brief	ok	2026-06-01
+$ memstore age --vault work --profile admin
+expired-facts=0 compacted-events=1 summaries=1 dropped-events=0 deleted-revisions=0 deleted-access-rows=0 dry-run=false
+#+end_example
+
+The ~work~ profile sees ~Ada Lovelace~ but not ~Bob Builder~ (isolated
+in ~personal~) and not ~compensation~ (sensitivity ~restricted~).
+After ~sync-check --stage~ detects the edit to ~people/ada.md~,
+~triage approve~ applies it to the store, ~routine run~ executes the
+~daily-brief~ manifest, and ~age~ compacts the 2025-01-15 event that
+exceeds the 365-day retention window.
+
+* Commands and exit codes
+
+Every command exits ~0~ on success, ~1~ on an operational or database
+error, ~2~ on a usage error, policy denial, or missing target, and ~3~
+on an ambiguous entity resolution.
+
+| Command                                                                                         | Purpose                                                        |
+|-------------------------------------------------------------------------------------------------+----------------------------------------------------------------|
+| ~init --vault V [--json]~                                                                       | Initialize a configured SQLite vault                           |
+| ~profile check <name> [--json]~                                                                 | Inspect a profile's vaults, compartments, sensitivity, caps    |
+| ~entity put <kind> <slug> --vault V --title T [--alias A]... [--compartment C] [--sensitivity S]~ | Create or update an entity                                   |
+| ~entity get <ref> [--vault V] [--json]~                                                         | Read an entity and its permitted facts, notes, and links       |
+| ~resolve <query> [--json]~                                                                      | Resolve an entity by ID, alias, slug, or prefix                |
+| ~fact set <entity> <key> <value> --vault V [--valid-until D] [--compartment C] [--sensitivity S]~ | Set a structured fact (superseding prior active value)         |
+| ~fact list <entity> [--vault V] [--key K] [--include-expired] [--include-superseded]~           | List permitted facts                                           |
+| ~note set <entity> <section> --vault V --heading H (--body B \| --file PATH)~                   | Set a Markdown note block                                      |
+| ~note list <entity> [--vault V]~                                                                | List permitted note blocks                                     |
+| ~event add --vault V --channel CH --summary S [--entity E] [--date D]~                          | Append an episodic event                                       |
+| ~event list [--entity E] [--since D] [--until D] [--limit N] [--vault V]~                       | List permitted episodic events                                 |
+| ~search <query> [--kind K]... [--limit N] [--since D] [--until D] [--vault V] [--entity E]~     | Scoped FTS5 BM25 search                                        |
+| ~export --profile P --out <dir> [--allow-git]~                                                  | Deterministically project permitted data to Markdown           |
+| ~import-aside --src <dir> --vault V [--rules <file>] [--dry-run]~                               | Import an Aside Markdown directory into store/triage           |
+| ~sync-check --profile P --dir <dir> [--stage]~                                                  | Detect external Markdown edits and optionally stage to triage  |
+| ~triage list [--status pending\|approved\|rejected\|all] [--vault V]~                           | List triage inbox items                                        |
+| ~triage approve <id> [--vault V] [--compartment C] [--sensitivity S]~                           | Approve and apply a triage item                                |
+| ~triage reject <id> [--vault V]~                                                                | Reject a triage item                                           |
+| ~routine list \| status \| run <id> \| tick \| runs <id> \| state \| launchd-plist~             | Manage and execute deterministic TOML routines                 |
+| ~sync push \| pull (--inbox-dir <dir> \| --inbox-url <url>)~                                    | Push envelopes to or pull/ack from a scoped inbox              |
+| ~serve http --listen 127.0.0.1:8787 --profile P [--inbox-dir <dir>]~                            | Start profile-scoped HTTP API server                           |
+| ~age --vault V [--retention-days N] [--dry-run] [--drop]~                                       | (admin) Expire TTL facts, compact old events, prune logs       |
+| ~backup --vault V --out <path> [--encrypt-cmd CMD] [--require-encrypted]~                       | (admin) Create consistent 0600 snapshot (optionally encrypted) |
+| ~log --vault V [--caller C] [--entity E] [--since D] [--limit N]~                               | Query content-free access audit log                            |
+
+* Standard CLI protocol
+
+~memstore~ implements ~version [--json]~, ~update [--check] [--ref <ref>]
+[--json]~, ~doctor [--json] [--offline]~, and ~skill
+[install|uninstall|status ...]~.
