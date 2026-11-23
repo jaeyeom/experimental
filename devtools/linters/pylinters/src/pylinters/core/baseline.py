@@ -92,9 +92,9 @@ def evaluate(
     restricts staleness checks to a subset of paths (None for full runs).
     """
     failures = [
-        _failure(path, count, _allowed(f, path))
+        _failure(path, count, allowed(f, path))
         for path, count in sorted(counts.items())
-        if count > _allowed(f, path)
+        if count > allowed(f, path)
     ]
     stale: list[str] = []
     in_scope = set(scanned) if scanned is not None else None
@@ -109,7 +109,10 @@ def evaluate(
         if in_scope is not None and key not in in_scope:
             continue
         if key not in existing_set:
-            stale.append(f"{key}: baseline entry refers to a deleted file")
+            stale.append(
+                f"{key}: baseline entry refers to a file that is deleted "
+                "or out of scope"
+            )
         elif entry.limits and key in counts:
             limit, count = entry.limits[METRIC], counts[key]
             if count == 0:
@@ -163,12 +166,12 @@ def _rewrite(
             entries[key] = entry
     if add:
         for path, count in counts.items():
-            if path not in f.entries and count > _allowed(f, path):
+            if path not in f.entries and count > allowed(f, path):
                 entries[path] = Entry(limits={METRIC: count})
     return File(checker=f.checker, entries=entries, version=f.version)
 
 
-def _allowed(f: File, path: str) -> int:
+def allowed(f: File, path: str) -> int:
     """Return the max violations allowed in ``path`` (unbounded if exempt)."""
     entry = _resolve(f, path)
     if entry is None:

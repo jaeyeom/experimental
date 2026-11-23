@@ -107,5 +107,17 @@ def test_root_reader_requires_git_resolver() -> None:
         files.root_reader(files.FileSet([]))
 
 
+def test_expand_dirs() -> None:
+    """Directory paths expand to the tracked .py files below them."""
+    fs = files.FileSet(["a/x.py", "a/b/y.py", "ab.py", "c.py"])
+    assert fs.expand_dirs(["a", "c.py", "gone.py"]) == {
+        "a/x.py",
+        "a/b/y.py",
+        "c.py",
+        "gone.py",
+    }
+    assert fs.expand_dirs(["."]) == {"a/x.py", "a/b/y.py", "ab.py", "c.py"}
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, *sys.argv[1:]]))

@@ -437,6 +437,9 @@ git diff --name-only -z origin/main | py-sibling-import --stdin0
 py-sibling-import --exclude 'legacy/**' --generated '**/*_pb2.py'
 #+END_SRC
 
+A directory argument checks the tracked ~.py~ files below it (~.~ is the
+whole tree).
+
 A genuine exception carries ~# py-sibling-import: allow~ on any line of
 the import statement.
 
@@ -521,9 +524,13 @@ py-module-import --exclude 'legacy/**' --exempt-marker manage.py --third-party r
 
 Positional paths are relative to the current directory; ~--stdin0~ paths
 are relative to the repo top level, as ~git diff --name-only~ prints them.
-Paths that are not tracked ~.py~ files, deleted, excluded, or under an
-exempt marker are skipped. ~--root-dir~, ~--generated~, ~--exempt-marker~
-and ~--third-party~ replace the configured lists; ~--exclude~ adds to them.
+A directory checks the tracked ~.py~ files below it (~.~ is the whole
+tree, still reported as a path run). Paths that are not tracked ~.py~
+files, deleted, excluded, or under an exempt marker are skipped.
+~--root-dir~, ~--generated~, ~--exempt-marker~ and ~--third-party~ replace
+the configured lists; ~--exclude~ adds to the configured shared and checker
+excludes. Exempt markers, from the flag or the config, must be plain ~.py~
+file names such as ~manage.py~, with no directory part.
 
 A genuine exception carries ~# py-module-import: allow~. On the line of
 an imported name it exempts that name. On another line of the statement
@@ -542,7 +549,20 @@ Existing violations can be recorded as debt in
 - ~--strict-baseline=false~ stops failing on stale entries (default ~true~).
 
 The two rewrite flags scan the whole tree; passing paths with them is a
-usage error. A run with paths reports stale entries only for those paths.
+usage error. They print ~baseline written to <path>~. A run with paths
+reports stale entries only for those paths.
+
+A file over its limit prints its violations and
+~baseline exceeded: <path>: N violation(s), baseline allows M~. A passing
+run that still has baselined debt says so:
+
+#+BEGIN_EXAMPLE
+PASSED: no new module symbol import (120 file(s) scanned, 4 baselined violation(s)).
+#+END_EXAMPLE
+
+A stale entry names a file that is now clean, below its limit, or deleted
+or out of scope (excluded or under an exempt marker); ~--tighten-baseline~
+removes or lowers it.
 
 *** Configuration
 

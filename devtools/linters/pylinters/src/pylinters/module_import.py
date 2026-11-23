@@ -71,7 +71,6 @@ def find_violations(
     """Return the symbol imports in one file, sorted by position."""
     here = files.parent(source.path)
     in_init = source.path.rpartition("/")[2] == "__init__.py"
-    own_prefix = here + "/" if here else ""
     out = []
     for stmt in source.imports:
         if not stmt.is_from or stmt.module is None:
@@ -81,9 +80,7 @@ def find_violations(
         module_path = _resolve(fs, here, stmt, roots, cfg)
         if module_path is None:
             continue
-        if in_init and (
-            module_path == here or module_path.startswith(own_prefix)
-        ):
+        if in_init and _within(module_path, here):
             continue  # re-export from the package's own submodule
         display = "." * stmt.level + stmt.module
         for i, name in enumerate(stmt.names):
@@ -105,6 +102,11 @@ def find_violations(
             )
     out.sort(key=lambda v: (v.line, v.col))
     return out
+
+
+def _within(path: str, dir: str) -> bool:
+    """Report whether ``path`` is ``dir`` or below it (root: only itself)."""
+    return path == dir or (bool(dir) and path.startswith(dir + "/"))
 
 
 def _resolve(
@@ -165,12 +167,7 @@ def load_config(pyproject_path: str) -> Config:
     markers = config.string_list(
         own.get("exempt-markers", []), "exempt-markers", where
     )
-    for marker in markers:
-        if not marker.endswith(".py") or "/" in marker:
-            raise errors.ConfigError(
-                f"{where}: exempt-markers entry {marker!r} must be a "
-                "plain file name ending in .py"
-            )
+    check_exempt_markers(markers, f"{where} exempt-markers")
     directive = own.get("allow-directive", DEFAULT_DIRECTIVE)
     if not isinstance(directive, str) or not directive:
         raise errors.ConfigError(
@@ -187,6 +184,16 @@ def load_config(pyproject_path: str) -> Config:
         ),
         allow_directive=directive,
     )
+
+
+def check_exempt_markers(markers: Sequence[str], where: str) -> None:
+    """Raise :class:`ConfigError` unless each marker is a ``.py`` basename."""
+    for marker in markers:
+        if not marker.endswith(".py") or "/" in marker:
+            raise errors.ConfigError(
+                f"{where}: entry {marker!r} must be a plain file name "
+                "ending in .py"
+            )
 
 
 def in_scope(fs: files.FileSet, cfg: Config, path: str) -> bool:

@@ -29,13 +29,11 @@ def main(
     try:
         fs = files.GitResolver.from_repo(args.root or os.getcwd())
         cfg = _config(fs.root, args)
-        paths = None
-        if args.paths or args.stdin0:
-            paths = set(cli.to_repo_paths(args.paths, os.getcwd(), fs.root))
-            if args.stdin0:
-                # git diff --name-only prints top-level-relative paths.
-                stdin_paths = cli.read_stdin0(stdin or sys.stdin.buffer)
-                paths |= set(cli.to_repo_paths(stdin_paths, fs.root, fs.root))
+        paths = cli.selected_paths(
+            fs,
+            args.paths,
+            (stdin or sys.stdin.buffer) if args.stdin0 else None,
+        )
         result = sibling_import.check(fs, cfg, paths=paths)
     except (errors.PylintersError, OSError) as exc:
         print(f"{PROG}: error: {exc}", file=err)
@@ -63,7 +61,10 @@ def _parser() -> argparse.ArgumentParser:
         description="Flag bare imports of sibling modules inside packages.",
     )
     parser.add_argument(
-        "paths", nargs="*", metavar="PATH", help="only report these files"
+        "paths",
+        nargs="*",
+        metavar="PATH",
+        help="only report these files (directories expand to their .py files)",
     )
     parser.add_argument("--root", help="any directory inside the repo")
     parser.add_argument(

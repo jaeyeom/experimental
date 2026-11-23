@@ -25,6 +25,10 @@ BAD = {
 }
 GOOD_MAIN = "from app import types\n"
 BASELINE = ".baselines/py-module-import.json"
+PASS_WITH_DEBT = (
+    "PASSED: no new module symbol import "
+    "(3 file(s) scanned, 1 baselined violation(s)).\n"
+)
 
 
 def make_repo(root: Path, tree: dict[str, str]) -> Path:
@@ -132,7 +136,7 @@ def test_update_baseline_then_pass_then_stale(
     }
     assert call([]) == (
         0,
-        "PASSED: no module symbol import (3 file(s) scanned).\n",
+        PASS_WITH_DEBT,
         "",
     )
     (tmp_path / "main.py").write_text(GOOD_MAIN)
@@ -169,8 +173,8 @@ def test_deleted_baselined_file_is_stale(
     code, out, _ = call([])
     assert code == 1
     assert (
-        "stale baseline: main.py: baseline entry refers to a deleted file"
-        in out
+        "stale baseline: main.py: baseline entry refers to a file that is "
+        "deleted or out of scope" in out
     )
 
 
@@ -182,7 +186,10 @@ def test_baselined_file_removed_from_work_tree_is_stale(
     monkeypatch.chdir(tmp_path)
     assert call(["--update-baseline"])[0] == 0
     (tmp_path / "main.py").unlink()
-    want = "stale baseline: main.py: baseline entry refers to a deleted file"
+    want = (
+        "stale baseline: main.py: baseline entry refers to a file that is "
+        "deleted or out of scope"
+    )
     code, out, _ = call([])
     assert code == 1
     assert want in out
@@ -372,6 +379,123 @@ def test_version_flag(capsys: pytest.CaptureFixture[str]) -> None:
         call(["--version"])
     assert exc.value.code == 0
     assert capsys.readouterr().out.strip()
+
+
+def test_directory_path_expands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A directory argument checks the tracked .py files below it."""
+    make_repo(tmp_path, {**BAD, "pkg/main.py": BAD["main.py"]})
+    monkeypatch.chdir(tmp_path)
+    code, out, _ = call(["pkg"])
+    assert code == 1
+    assert "pkg/main.py:1:23: from app.types import CheckResult" in out
+    assert VIOLATION not in out.splitlines()
+    code, out, _ = call(["--stdin0"], stdin=b"pkg\0")
+    assert code == 1
+    assert "pkg/main.py:1:23" in out
+    code, out, _ = call(["."])
+    assert code == 1
+    assert VIOLATION in out.splitlines()
+
+
+def test_over_baseline_prints_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A file above its baselined count says what the baseline allows."""
+    make_repo(tmp_path, BAD)
+    monkeypatch.chdir(tmp_path)
+    assert call(["--update-baseline"])[0] == 0
+    (tmp_path / "main.py").write_text(
+        "from app.types import CheckResult\nfrom app.types import Other\n"
+    )
+    code, out, _ = call([])
+    assert code == 1
+    assert "main.py: 2 violation(s), baseline allows 1" in out
+    code, out, _ = call(["--tighten-baseline"])
+    assert code == 1
+    assert "main.py: 2 violation(s), baseline allows 1" in out
+    assert "main.py:2:23: from app.types import Other" in out
+
+
+def test_pass_with_baselined_debt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pass with baselined debt says so; rewrites name the file.
+
+    The written path is cwd-relative only when it lies under the cwd.
+    """
+    make_repo(tmp_path, BAD)
+    monkeypatch.chdir(tmp_path / "app")
+    abs_baseline = (tmp_path / BASELINE).resolve()
+    assert call(["--update-baseline"]) == (
+        0,
+        f"baseline written to {abs_baseline}\n" + PASS_WITH_DEBT,
+        "",
+    )
+    assert call([]) == (
+        0,
+        PASS_WITH_DEBT,
+        "",
+    )
+    monkeypatch.chdir(tmp_path)
+    code, out, _ = call(["--tighten-baseline"])
+    assert code == 0
+    assert out.startswith(
+        "baseline written to .baselines/py-module-import.json\n"
+    )
+
+
+def test_stale_only_hint_suggests_tighten(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With only stale entries, the hint points at --tighten-baseline."""
+    make_repo(tmp_path, BAD)
+    monkeypatch.chdir(tmp_path)
+    assert call(["--update-baseline"])[0] == 0
+    (tmp_path / "main.py").write_text(GOOD_MAIN)
+    code, out, _ = call([])
+    assert code == 1
+    assert "--tighten-baseline" in out
+    assert "--update-baseline" not in out
+    assert "Import the module instead" not in out
+
+
+@pytest.mark.parametrize("marker", ["manage", "sub/manage.py"])
+def test_exempt_marker_flag_validated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, marker: str
+) -> None:
+    """--exempt-marker takes plain .py file names, like the config."""
+    make_repo(tmp_path, BAD)
+    monkeypatch.chdir(tmp_path)
+    code, _, err = call(["--exempt-marker", marker])
+    assert code == 2
+    assert "--exempt-marker" in err
+
+
+def test_excluded_baselined_file_is_out_of_scope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A baselined file that is now excluded is not called deleted."""
+    make_repo(tmp_path, BAD)
+    monkeypatch.chdir(tmp_path)
+    assert call(["--update-baseline"])[0] == 0
+    code, out, _ = call(["--exclude", "main.py"])
+    assert code == 1
+    assert (
+        "stale baseline: main.py: baseline entry refers to a file that is "
+        "deleted or out of scope" in out
+    )
+
+
+def test_exclude_help_mentions_configured(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """--exclude help says it adds to the configured excludes."""
+    with pytest.raises(SystemExit):
+        call(["--help"])
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert "added to the configured excludes (shared and checker)" in help_text
 
 
 if __name__ == "__main__":

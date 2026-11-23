@@ -47,6 +47,24 @@ class FileSet:
         i = bisect.bisect_left(self._files, prefix)
         return i < len(self._files) and self._files[i].startswith(prefix)
 
+    def expand_dirs(self, paths: Iterable[str]) -> set[str]:
+        """Replace each directory path with the tracked ``.py`` below it.
+
+        ``"."`` names the repo root. Other paths are kept as given.
+        """
+        out: set[str] = set()
+        for path in paths:
+            dir = "" if path == "." else path
+            if not self.has_py_under(dir):
+                out.add(path)
+                continue
+            prefix = dir + "/" if dir else ""
+            i = bisect.bisect_left(self._files, prefix)
+            while i < len(self._files) and self._files[i].startswith(prefix):
+                out.add(self._files[i])
+                i += 1
+        return out
+
     def resolves(self, module_path: str) -> bool:
         """Report whether ``module_path`` names a module or package."""
         return self.has_file(module_path + ".py") or self.has_py_under(

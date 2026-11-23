@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import importlib.metadata
 import os
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import BinaryIO
 
-from pylinters.core import errors
+from pylinters.core import errors, files
 
 EXIT_OK = 0
 EXIT_VIOLATIONS = 1
@@ -43,3 +43,25 @@ def to_repo_paths(args: Iterable[str], cwd: str, toplevel: str) -> list[str]:
             raise errors.ConfigError(f"{arg}: outside the repository {top}")
         out.append(rel.replace(os.sep, "/"))
     return out
+
+
+def selected_paths(
+    fs: files.GitResolver,
+    args: Sequence[str],
+    stdin: BinaryIO | None,
+) -> set[str] | None:
+    """Return the repo paths a run is limited to, or None for the tree.
+
+    ``args`` are cwd-relative; ``stdin`` (when given) holds NUL-separated
+    top-level-relative paths as ``git diff --name-only -z`` prints them.
+    Directories expand to the tracked ``.py`` files below them.
+
+    Raises:
+        ConfigError: A path lies outside the repository.
+    """
+    if not args and stdin is None:
+        return None
+    paths = to_repo_paths(args, os.getcwd(), fs.root)
+    if stdin is not None:
+        paths += to_repo_paths(read_stdin0(stdin), fs.root, fs.root)
+    return fs.expand_dirs(paths)

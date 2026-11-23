@@ -389,5 +389,20 @@ def test_load_config_rejects_non_py_marker(
         module_import.load_config(path)
 
 
+def test_repo_root_init_checks_other_packages() -> None:
+    """A repo-root ``__init__`` only re-exports from the root package."""
+    srcs = {
+        "__init__.py": "from myapp.types import X\nfrom . import Y\n",
+        "myapp/__init__.py": "",
+        "myapp/types.py": "",
+    }
+    assert viol(srcs, "__init__.py") == [
+        (
+            "__init__.py:1:25: from myapp.types import X: "
+            "import the module instead (from myapp import types)"
+        )
+    ]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, *sys.argv[1:]]))

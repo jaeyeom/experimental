@@ -6,7 +6,7 @@ import argparse
 import dataclasses
 import os
 import sys
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Sequence
 from typing import BinaryIO, NoReturn, TextIO
 
 from pylinters import module_import
@@ -39,13 +39,11 @@ def main(
     try:
         fs = files.GitResolver.from_repo(args.root or os.getcwd())
         cfg = _config(fs.root, args)
-        paths = None
-        if args.paths or args.stdin0:
-            paths = set(cli.to_repo_paths(args.paths, os.getcwd(), fs.root))
-            if args.stdin0:
-                # git diff --name-only prints top-level-relative paths.
-                stdin_paths = cli.read_stdin0(stdin or sys.stdin.buffer)
-                paths |= set(cli.to_repo_paths(stdin_paths, fs.root, fs.root))
+        paths = cli.selected_paths(
+            fs,
+            args.paths,
+            (stdin or sys.stdin.buffer) if args.stdin0 else None,
+        )
         bl_path = os.path.join(
             os.getcwd(),
             args.baseline
@@ -62,40 +60,58 @@ def main(
             and os.path.isfile(os.path.join(fs.root, p))
         ]
         stale: list[str] = []
+        failures: list[str] = []
         if args.update_baseline:
-            baseline.save(
-                bl_path, baseline.updated(bl, result.counts, existing)
-            )
-            failures: list[str] = []
+            new = baseline.updated(bl, result.counts, existing)
         elif args.tighten_baseline:
             new, failures = baseline.tightened(bl, result.counts, existing)
-            baseline.save(bl_path, new)
         else:
             ev = baseline.evaluate(bl, result.counts, existing, scanned=paths)
             failures = ev.failures
             stale = ev.stale if args.strict_baseline == "true" else []
+        if args.update_baseline or args.tighten_baseline:
+            bl = new
+            baseline.save(bl_path, bl)
+            print(f"baseline written to {_display(bl_path)}", file=out)
     except (errors.PylintersError, OSError) as exc:
         print(f"{PROG}: error: {exc}", file=err)
         return cli.EXIT_ERROR
     if not failures and not stale:
-        print(
-            "PASSED: no module symbol import "
-            f"({result.files_scanned} file(s) scanned).",
-            file=out,
-        )
+        debt = sum(result.counts.values())
+        if debt:
+            print(
+                "PASSED: no new module symbol import "
+                f"({result.files_scanned} file(s) scanned, "
+                f"{debt} baselined violation(s)).",
+                file=out,
+            )
+        else:
+            print(
+                "PASSED: no module symbol import "
+                f"({result.files_scanned} file(s) scanned).",
+                file=out,
+            )
         return cli.EXIT_OK
-    failing = _failing_paths(bl, result.counts) if failures else set()
     for v in result.violations:
-        if v.path in failing:
+        if result.counts[v.path] > baseline.allowed(bl, v.path):
             print(v, file=out)
+    for line in failures:
+        print(f"baseline exceeded: {line}", file=out)
     for line in stale:
         print(f"stale baseline: {line}", file=out)
-    print(
-        "\nImport the module instead, or mark a genuine exception with "
-        f"`# {cfg.allow_directive}`. To record existing violations as "
-        "debt, rerun the whole tree with --update-baseline.",
-        file=out,
-    )
+    if failures:
+        print(
+            "\nImport the module instead, or mark a genuine exception with "
+            f"`# {cfg.allow_directive}`. To record existing violations as "
+            "debt, rerun the whole tree with --update-baseline.",
+            file=out,
+        )
+    else:
+        print(
+            "\nRemove the stale entries by rerunning the whole tree with "
+            "--tighten-baseline.",
+            file=out,
+        )
     return cli.EXIT_VIOLATIONS
 
 
@@ -104,14 +120,11 @@ def run() -> NoReturn:
     sys.exit(main())
 
 
-def _failing_paths(bl: baseline.File, counts: Mapping[str, int]) -> set[str]:
-    """Return the paths whose counts exceed what ``bl`` allows."""
-    empty: Collection[str] = ()
-    return {
-        path
-        for path, count in counts.items()
-        if baseline.evaluate(bl, {path: count}, empty, scanned=empty).failures
-    }
+def _display(path: str) -> str:
+    """Return ``path`` relative to the cwd when it lies under it."""
+    rel = os.path.relpath(path)
+    outside = rel == os.pardir or rel.startswith(os.pardir + os.sep)
+    return path if outside else rel
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -121,7 +134,10 @@ def _parser() -> argparse.ArgumentParser:
         "import the module instead.",
     )
     parser.add_argument(
-        "paths", nargs="*", metavar="PATH", help="only report these files"
+        "paths",
+        nargs="*",
+        metavar="PATH",
+        help="only report these files (directories expand to their .py files)",
     )
     parser.add_argument("--root", help="any directory inside the repo")
     parser.add_argument(
@@ -139,7 +155,8 @@ def _parser() -> argparse.ArgumentParser:
         "--exclude",
         action="append",
         metavar="GLOB",
-        help="checker exclude glob (repeatable; added to shared excludes)",
+        help="exclude glob (repeatable; added to the configured excludes "
+        "(shared and checker))",
     )
     parser.add_argument(
         "--generated",
@@ -152,7 +169,8 @@ def _parser() -> argparse.ArgumentParser:
         "--exempt-marker",
         action="append",
         metavar="NAME",
-        help="file name marking an exempt tree (repeatable; replaces config)",
+        help="plain .py file name marking an exempt tree (repeatable; "
+        "replaces config)",
     )
     parser.add_argument(
         "--third-party",
@@ -201,6 +219,9 @@ def _config(root: str, args: argparse.Namespace) -> module_import.Config:
     if args.allow_directive is not None:
         changes["allow_directive"] = args.allow_directive
     if args.exempt_marker is not None:
+        module_import.check_exempt_markers(
+            args.exempt_marker, "--exempt-marker"
+        )
         changes["exempt_markers"] = tuple(args.exempt_marker)
     if args.third_party is not None:
         changes["third_party"] = tuple(args.third_party)

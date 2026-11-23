@@ -205,5 +205,17 @@ def test_usage_error_exit_2() -> None:
     assert exc.value.code == 2
 
 
+def test_directory_path_expands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A directory argument checks the tracked .py files below it."""
+    make_repo(tmp_path, BAD)
+    monkeypatch.chdir(tmp_path)
+    for arg in ("p", "."):
+        code, out, _ = call([arg])
+        assert code == 1
+        assert VIOLATION in out
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, *sys.argv[1:]]))
