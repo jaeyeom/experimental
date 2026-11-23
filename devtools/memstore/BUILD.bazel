@@ -1,0 +1,26 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "config.go",
+        "paths.go",
+        "policy.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/memstore",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_pelletier_go_toml_v2//:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    size = "small",
+    srcs = [
+        "config_test.go",
+        "paths_test.go",
+        "policy_test.go",
+    ],
+    embed = [":go_default_library"],
+)
