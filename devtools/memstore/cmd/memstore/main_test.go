@@ -316,3 +316,102 @@ capabilities = ["read"]
 		t.Errorf("unexpected second export output: %q", out)
 	}
 }
+
+func TestCLIImportAsideAndTriage(t *testing.T) {
+	_, env := setupTestCLI(t)
+
+	if code, _, errOut := runCLI(env, "init", "--vault", "work"); code != exitOK {
+		t.Fatalf("init work exit=%d, stderr=%s", code, errOut)
+	}
+	if code, _, errOut := runCLI(env, "init", "--vault", "personal"); code != exitOK {
+		t.Fatalf("init personal exit=%d, stderr=%s", code, errOut)
+	}
+
+	srcDir := t.TempDir()
+	for rel, content := range map[string]string{
+		"people/bob.md":    "---\ntitle: Bob Builder\naliases:\n  - Bob\n---\n\n# Bob Builder\n\n## Structured Attributes\n\n- **role**: Architect\n\n## Notes\n\nBuilds systems.\n",
+		"sites/k8s.md":     "---\ntitle: K8s Prod\n---\n\n# K8s Prod\n\n## Info\n\nPrimary cluster.\n",
+		"concepts/skip.md": "---\ntitle: Skip Me\n---\n\n# Skip Me\n",
+	} {
+		p := filepath.Join(srcDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rulesPath := filepath.Join(t.TempDir(), "rules.toml")
+	if err := os.WriteFile(rulesPath, []byte("[[rule]]\nglob = \"sites/*\"\nvault = \"work\"\ncompartment = \"engineering\"\nsensitivity = \"normal\"\nmode = \"direct\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Dry-run.
+	code, out, errOut := runCLI(env, "import-aside", "--src", srcDir, "--vault", "personal", "--rules", rulesPath, "--dry-run", "--json")
+	if code != exitOK {
+		t.Fatalf("import-aside --dry-run exit=%d, stderr=%s", code, errOut)
+	}
+	var dryRep memstore.ImportReport
+	if err := json.Unmarshal([]byte(out), &dryRep); err != nil {
+		t.Fatalf("unmarshal dry-run report: %v (%s)", err, out)
+	}
+	if dryRep.Entities != 3 || dryRep.DirectWrites != 1 || dryRep.TriageStaged != 2 {
+		t.Fatalf("unexpected dry-run report: %+v", dryRep)
+	}
+
+	// 2. Real import.
+	code, out, errOut = runCLI(env, "import-aside", "--src", srcDir, "--vault", "personal", "--rules", rulesPath, "--json")
+	if code != exitOK {
+		t.Fatalf("import-aside exit=%d, stderr=%s", code, errOut)
+	}
+	var rep memstore.ImportReport
+	if err := json.Unmarshal([]byte(out), &rep); err != nil {
+		t.Fatalf("unmarshal import report: %v (%s)", err, out)
+	}
+	if rep.TriageStaged != 2 || len(rep.TriageIDs) != 2 {
+		t.Fatalf("unexpected import report: %+v", rep)
+	}
+
+	// 3. List pending triage items.
+	code, out, errOut = runCLI(env, "triage", "list", "--status", "pending", "--json")
+	if code != exitOK {
+		t.Fatalf("triage list exit=%d, stderr=%s", code, errOut)
+	}
+	var items []memstore.TriageItem
+	if err := json.Unmarshal([]byte(out), &items); err != nil {
+		t.Fatalf("unmarshal triage list: %v (%s)", err, out)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 pending triage items, got %d", len(items))
+	}
+
+	var bobID, skipID string
+	for _, it := range items {
+		switch it.TargetEntityID {
+		case "person:bob":
+			bobID = it.ID
+		case "concept:skip":
+			skipID = it.ID
+		}
+	}
+	if bobID == "" || skipID == "" {
+		t.Fatalf("missing expected triage items: %+v", items)
+	}
+
+	// 4. Approve person:bob with overrides and reject concept:skip.
+	if code, _, errOut := runCLI(env, "triage", "approve", bobID, "--compartment", "engineering", "--sensitivity", "normal", "--json"); code != exitOK {
+		t.Fatalf("triage approve exit=%d, stderr=%s", code, errOut)
+	}
+	if code, _, errOut := runCLI(env, "triage", "reject", skipID, "--json"); code != exitOK {
+		t.Fatalf("triage reject exit=%d, stderr=%s", code, errOut)
+	}
+
+	// 5. Verify person:bob is now accessible and concept:skip is not.
+	if code, _, errOut := runCLI(env, "entity", "get", "person:bob", "--vault", "personal", "--json"); code != exitOK {
+		t.Fatalf("entity get person:bob after approve exit=%d, stderr=%s", code, errOut)
+	}
+	if code, _, _ := runCLI(env, "entity", "get", "concept:skip", "--vault", "personal"); code != exitUsage {
+		t.Errorf("entity get rejected concept:skip exit=%d, want %d", code, exitUsage)
+	}
+}

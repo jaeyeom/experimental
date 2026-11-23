@@ -14,3 +14,5 @@ Common commands:
 - `memstore entity get <ref> [--json]` — inspect an entity and its permitted facts/notes/links.
 - `memstore search <query> [--kind K] [--limit N] [--json]` — scoped FTS5 search.
 - `memstore event add --vault V --channel CH --summary S [--entity E]` — record an episodic event.
+- `memstore import-aside --src <dir> --vault V [--rules <file>] [--dry-run] [--json]` — import Aside Markdown directory.
+- `memstore triage list|approve|reject ...` — review and resolve staged triage items.

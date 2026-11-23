@@ -120,6 +120,16 @@ func insertEventTx(ctx context.Context, db *sql.DB, id, eventDate string, occurr
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op after commit
 
+	if err := insertEventRowTx(ctx, tx, id, eventDate, occurredUnix, in, compartment, sens, nowUnix, actor); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit add event: %w", err)
+	}
+	return nil
+}
+
+func insertEventRowTx(ctx context.Context, tx *sql.Tx, id, eventDate string, occurredUnix int64, in EventInput, compartment string, sens Sensitivity, nowUnix int64, actor Actor) error {
 	var entityID sql.NullString
 	if in.EntityID != "" {
 		entityID = sql.NullString{String: in.EntityID, Valid: true}
@@ -138,9 +148,6 @@ func insertEventTx(ctx context.Context, db *sql.DB, id, eventDate string, occurr
 	diff := map[string]any{"event_date": eventDate, "entity_id": in.EntityID, "compartment": compartment, "sensitivity": string(sens)}
 	if err := RecordRevision(ctx, tx, "episodic_events", id, "insert", diff, actor.Caller, actor.Reason); err != nil {
 		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit add event: %w", err)
 	}
 	return nil
 }
