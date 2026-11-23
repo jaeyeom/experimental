@@ -60,8 +60,75 @@ func TestOpenAtNewStartsAtFirstUnreadWithDivider(t *testing.T) {
 	if m.message != 2 {
 		t.Fatalf("message = %d, want 2", m.message)
 	}
-	if got := scrolledLine(m); !strings.HasPrefix(got, "── new since 14:05") || !strings.HasSuffix(got, " ──") {
-		t.Fatalf("top line = %q, want the new-since divider", got)
+	got := scrolledLine(m)
+	label := "[ new since 14:05 · 55m ago ]"
+	if !strings.Contains(got, label) || !strings.HasPrefix(got, "─") || !strings.HasSuffix(got, "─") {
+		t.Fatalf("top line = %q, want a rule with the bracketed label", got)
+	}
+	if n := strings.Count(strings.Join(threadText(m), "\n"), "new since"); n != 1 {
+		t.Fatalf("new since appears %d times, want 1", n)
+	}
+	i := strings.Index(got, label)
+	if l, r := len([]rune(got[:i])), len([]rune(got[i+len(label):])); l-r > 1 || r-l > 1 {
+		t.Fatalf("label not centered in %q", got)
+	}
+	// The line above the header is this one, not a second rule.
+	lines := threadText(m)
+	for i, l := range lines {
+		if l == got && i > 0 && strings.Trim(lines[i-1], "─") == "" {
+			t.Fatalf("plain rule directly above the label: %q", lines[i-1])
+		}
+	}
+}
+
+func TestNewSinceRuleWidths(t *testing.T) {
+	label := "[ new since 14:05 ]"
+	for _, tc := range []struct {
+		width int
+		want  string
+	}{
+		{width: 37, want: "──────── " + label + " ────────"},
+		{width: 25, want: "── " + label + " ──"},
+		{width: 24, want: label},
+		{width: 10, want: label},
+	} {
+		got := visibleLine(newSinceRule(tc.width, "new since 14:05").text)
+		if got != tc.want {
+			t.Fatalf("width %d: got %q, want %q", tc.width, got, tc.want)
+		}
+	}
+}
+
+func TestNewSinceRuleMonoHasNoColor(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	if got := newSinceRule(40, "new since 14:05").text; strings.Contains(got, "\x1b") {
+		t.Fatalf("mono rule has escapes: %q", got)
+	}
+}
+
+func TestNewSinceRuleLabelColored(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	got := newSinceRule(40, "new since 14:05").text
+	if !strings.Contains(got, "\x1b[") {
+		t.Fatalf("label not colored: %q", got)
+	}
+	if !strings.HasPrefix(got, "─") {
+		t.Fatalf("dashes should be unstyled: %q", got)
+	}
+}
+
+func TestOtherSeparatorsUnchanged(t *testing.T) {
+	readAt := openAtBase().Add(5 * time.Minute)
+	m := openAtModel(t, seedOpenAt(t, &readAt), "")
+	rules := 0
+	for _, l := range threadText(m) {
+		if l != "" && strings.Trim(l, "─") == "" {
+			rules++
+		}
+	}
+	// Four messages: three separators, one of which carries the label.
+	if rules != 2 {
+		t.Fatalf("plain rules = %d, want 2", rules)
 	}
 }
 

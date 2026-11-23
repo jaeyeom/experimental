@@ -3186,11 +3186,12 @@ func (m *Model) threadLines(it *decide.Item, width int, re *regexp.Regexp) []scr
 	prev := ""
 	for i, msg := range it.Messages {
 		name := m.messageAvatarName(msg)
-		if i > 0 {
-			lines = append(lines, messageRule(ruleWidth, reserve, name != prev))
-		}
+		label := ""
 		if m.newSince != nil && i == m.newIdx {
-			lines = append(lines, screenLine{text: plainText("── new since " + stamp(*m.newSince, now, loc) + " ──"), divider: true})
+			label = "new since " + stamp(*m.newSince, now, loc)
+		}
+		if i > 0 || label != "" {
+			lines = append(lines, messageRule(ruleWidth, reserve, name != prev, label))
 		}
 		block := m.messageBlock(it, msg, i, last, bodyWidth, re, now, loc)
 		var av []string
@@ -3236,15 +3237,39 @@ func (m *Model) messageBlock(it *decide.Item, msg decide.Message, i, last, bodyW
 // between different senders crosses the column, from the left edge of the
 // thread area to the right edge. The avatar still starts on the sender
 // line below the rule.
-func messageRule(ruleWidth int, reserve, across bool) screenLine {
+func messageRule(ruleWidth int, reserve, across bool, label string) screenLine {
 	if reserve && across {
-		return screenLine{text: plainText(strings.Repeat("─", ruleWidth+avatarColumn))}
+		ruleWidth += avatarColumn
 	}
-	line := screenLine{text: plainText(strings.Repeat("─", ruleWidth))}
-	if !reserve {
+	line := plainRule(ruleWidth)
+	if label != "" {
+		line = newSinceRule(ruleWidth, label)
+	}
+	line.divider = label != ""
+	if !reserve || across {
 		return line
 	}
-	return besideAvatarRun(nil, []screenLine{line}, ruleWidth)[0]
+	line.text = besideAvatarRun(nil, []screenLine{line}, ruleWidth)[0].text
+	return line
+}
+
+func plainRule(width int) screenLine {
+	return screenLine{text: plainText(strings.Repeat("─", width))}
+}
+
+// newSinceRule is the separator above the first new message with the
+// label centered in it as "[ label ]". The label takes the accent color
+// and the dashes stay plain. At least 2 dashes stay on each side, or the
+// bracketed label stands alone.
+func newSinceRule(width int, label string) screenLine {
+	core := "[ " + label + " ]"
+	dashes := width - lipgloss.Width(core) - 2
+	text := paletteStyle(loadColors().Badge, paletteBadge).Render(core)
+	if dashes >= 4 {
+		left := dashes / 2
+		text = plainText(strings.Repeat("─", left)+" ") + text + plainText(" "+strings.Repeat("─", dashes-left))
+	}
+	return screenLine{text: text, divider: true}
 }
 
 // messageAvatarsFit reports whether this thread reserves an avatar column.
