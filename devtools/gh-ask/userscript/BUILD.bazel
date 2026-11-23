@@ -1,7 +1,7 @@
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 # The userscript test runs on the host's node (node --test), not a Bazel
-# JavaScript toolchain. See userscript_test.sh.
+# JavaScript toolchain, so it must not be sent to RBE. See userscript_test.sh.
 sh_test(
     name = "userscript_test",
     size = "small",
@@ -11,4 +11,5 @@ sh_test(
         "gh-ask.user.js",
         "testdom.js",
     ] + glob(["testdata/*.html"]),
+    tags = ["no-remote"],
 )

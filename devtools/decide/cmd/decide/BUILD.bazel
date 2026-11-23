@@ -72,7 +72,6 @@ go_test(
         "//devtools/decide/emacs:decide-test.el",
     ],
     embed = [":go_default_library"],
-    tags = ["no-sandbox"],
     deps = [
         "//devtools/decide:go_default_library",
         "//devtools/decide/tui:go_default_library",
