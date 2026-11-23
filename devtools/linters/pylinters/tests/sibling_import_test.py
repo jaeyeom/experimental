@@ -222,6 +222,42 @@ def test_non_identifier_dir_not_package() -> None:
     assert result.package_dirs == {}
 
 
+def test_import_of_own_package_name_not_flagged() -> None:
+    """``pkg/pkg.py`` beside ``from pkg import x``: the import is qualified."""
+    result = run(
+        {
+            "src/pkg/__init__.py": "",
+            "src/pkg/pkg.py": "",
+            "src/pkg/other.py": "from pkg import pkg\nimport pkg.pkg\n",
+        }
+    )
+    assert result.violations == []
+
+
+def test_self_named_import_not_flagged() -> None:
+    """A shim importing its own name means the external module."""
+    result = run(
+        {
+            "p/__init__.py": "",
+            "p/message_filters.py": "import message_filters\n",
+        }
+    )
+    assert result.violations == []
+
+
+def test_init_name_preferred_over_evidence() -> None:
+    """The __init__ chain name beats a longer repo-root path."""
+    result = run(
+        {
+            "a/src/p/__init__.py": "",
+            "a/src/p/m.py": "",
+            "a/src/p/n.py": "import m\n",
+            "x.py": "from a.src.p import m\n",
+        }
+    )
+    assert [v.suggestion for v in result.violations] == ["from p import m"]
+
+
 def test_parse_error_in_scanned_file_raises() -> None:
     """A scanned file that does not parse is an error."""
     with pytest.raises(errors.ParseError) as exc:

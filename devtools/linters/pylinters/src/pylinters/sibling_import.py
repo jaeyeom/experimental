@@ -124,14 +124,15 @@ def check(
         if not skipped and (paths is None or path in paths):
             scanned.append(path)
 
-    package_dirs = _package_dirs(fs, sources, roots)
+    package_names = _package_dirs(fs, sources, roots)
     violations = [
         v
         for path in scanned
-        for v in _violations(fs, sources[path], package_dirs, cfg)
+        for v in _violations(fs, sources[path], package_names, cfg)
     ]
     violations.sort(key=lambda v: (v.path, v.line, v.name))
-    return Result(violations, len(scanned), package_dirs)
+    preferred = {pkg: names[0] for pkg, names in package_names.items()}
+    return Result(violations, len(scanned), preferred)
 
 
 def format_report(result: Result, cfg: Config) -> str:
@@ -166,8 +167,19 @@ def _package_dirs(
     fs: files.FileSet,
     sources: dict[str, imports.Source],
     roots: list[str],
-) -> dict[str, str]:
-    found: dict[str, str] = {}
+) -> dict[str, list[str]]:
+    """Map each package directory to its dotted names, preferred first.
+
+    The name from a directory's own ``__init__.py`` chain comes first; then
+    names seen in qualified imports, in scan order.
+    """
+    found: dict[str, list[str]] = {}
+    for path in fs.py_files():
+        if path.rpartition("/")[2] == "__init__.py":
+            pkg = files.parent(path)
+            name = files.dotted(pkg, files.own_source_root(fs, pkg))
+            if name is not None:
+                found[pkg] = [name]
     for path, source in sources.items():
         search = files.search_roots(fs, files.parent(path), roots)
         for stmt in source.imports:
@@ -187,30 +199,30 @@ def _package_dirs(
                             continue
                         pkg = files.parent(module)
                         name = files.dotted(pkg, root)
-                        if name is not None:
-                            found.setdefault(pkg, name)
-    for path in fs.py_files():
-        if path.rpartition("/")[2] != "__init__.py":
-            continue
-        pkg = files.parent(path)
-        if pkg in found:
-            continue
-        name = files.dotted(pkg, files.own_source_root(fs, pkg))
-        if name is not None:
-            found[pkg] = name
+                        if name is None:
+                            continue
+                        names = found.setdefault(pkg, [])
+                        if name not in names:
+                            names.append(name)
     return found
 
 
 def _violations(
     fs: files.FileSet,
     source: imports.Source,
-    package_dirs: dict[str, str],
+    package_names: dict[str, list[str]],
     cfg: Config,
 ) -> list[Violation]:
     pkg = files.parent(source.path)
-    dotted = package_dirs.get(pkg)
-    if dotted is None:
+    names = package_names.get(pkg)
+    if not names:
         return []
+    # A top-level name that starts one of the package's own dotted names is
+    # the qualified import (``pkg/pkg.py`` beside ``from pkg import x``).
+    # The file's own name is a shim importing the external module it
+    # shadows. Neither is a bare sibling import.
+    not_siblings = {name.split(".")[0] for name in names}
+    not_siblings.add(source.path.rpartition("/")[2].removesuffix(".py"))
     out = []
     for stmt in source.imports:
         if stmt.level or source.has_directive(stmt, cfg.allow_directive):
@@ -225,14 +237,14 @@ def _violations(
         else:
             pairs = [(f"import {n}", n.split(".")[0]) for n in stmt.names]
         for label, top in pairs:
-            if _is_sibling(fs, pkg, top):
+            if top not in not_siblings and _is_sibling(fs, pkg, top):
                 out.append(
                     Violation(
                         source.path,
                         stmt.line,
                         label,
                         top,
-                        f"from {dotted} import {top}",
+                        f"from {names[0]} import {top}",
                     )
                 )
     return out
