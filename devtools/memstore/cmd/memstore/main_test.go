@@ -33,7 +33,7 @@ residency = "local-only"
 vaults = ["work", "personal"]
 compartments = ["general", "engineering", "finance", "personal"]
 max_sensitivity = "restricted"
-capabilities = ["read", "write", "write-episodic"]
+capabilities = ["read", "write", "write-episodic", "export"]
 
 [profiles.work]
 vaults = ["work"]
@@ -413,5 +413,96 @@ func TestCLIImportAsideAndTriage(t *testing.T) {
 	}
 	if code, _, _ := runCLI(env, "entity", "get", "concept:skip", "--vault", "personal"); code != exitUsage {
 		t.Errorf("entity get rejected concept:skip exit=%d, want %d", code, exitUsage)
+	}
+}
+
+func TestCLISyncCheckRoundTrip(t *testing.T) {
+	_, env := setupTestCLI(t)
+
+	if code, _, errOut := runCLI(env, "init", "--vault", "work"); code != exitOK {
+		t.Fatalf("init work exit=%d, stderr=%s", code, errOut)
+	}
+	if code, _, errOut := runCLI(env, "init", "--vault", "personal"); code != exitOK {
+		t.Fatalf("init personal exit=%d, stderr=%s", code, errOut)
+	}
+	if code, _, errOut := runCLI(env, "entity", "put", "person", "ada",
+		"--vault", "work", "--title", "Ada Lovelace",
+		"--compartment", "engineering", "--json"); code != exitOK {
+		t.Fatalf("entity put ada exit=%d, stderr=%s", code, errOut)
+	}
+	if code, _, errOut := runCLI(env, "note", "set", "person:ada", "bio",
+		"--vault", "work", "--heading", "Bio", "--body", "Original bio.",
+		"--compartment", "engineering", "--json"); code != exitOK {
+		t.Fatalf("note set exit=%d, stderr=%s", code, errOut)
+	}
+
+	exportDir := filepath.Join(t.TempDir(), "out")
+	if code, _, errOut := runCLI(env, "export", "--profile", "admin", "--out", exportDir, "--json"); code != exitOK {
+		t.Fatalf("export exit=%d, stderr=%s", code, errOut)
+	}
+
+	// Clean sync-check.
+	code, out, errOut := runCLI(env, "sync-check", "--profile", "admin", "--dir", exportDir, "--json")
+	if code != exitOK {
+		t.Fatalf("sync-check clean exit=%d, stderr=%s", code, errOut)
+	}
+	var cleanRep memstore.SyncCheckReport
+	if err := json.Unmarshal([]byte(out), &cleanRep); err != nil {
+		t.Fatalf("unmarshal clean sync-check: %v (%s)", err, out)
+	}
+	if len(cleanRep.Modified) != 0 || len(cleanRep.Added) != 0 || len(cleanRep.Deleted) != 0 {
+		t.Fatalf("expected clean sync-check, got %+v", cleanRep)
+	}
+
+	// Edit exported Markdown externally.
+	adaPath := filepath.Join(exportDir, "people", "ada.md")
+	data, err := os.ReadFile(adaPath)
+	if err != nil {
+		t.Fatalf("read ada.md: %v", err)
+	}
+	updated := strings.Replace(string(data), "Original bio.", "Edited externally.", 1)
+	if err := os.WriteFile(adaPath, []byte(updated), 0o600); err != nil {
+		t.Fatalf("write ada.md: %v", err)
+	}
+
+	// Stage via CLI.
+	code, out, errOut = runCLI(env, "sync-check", "--profile", "admin", "--dir", exportDir, "--stage", "--by", "editor", "--reason", "manual-fix")
+	if code != exitOK {
+		t.Fatalf("sync-check --stage exit=%d, stderr=%s", code, errOut)
+	}
+	if !strings.Contains(out, "modified=1") || !strings.Contains(out, "staged=1") {
+		t.Errorf("unexpected human sync-check output: %s", out)
+	}
+
+	// Re-run --stage: idempotent.
+	code, out, errOut = runCLI(env, "sync-check", "--profile", "admin", "--dir", exportDir, "--stage", "--json")
+	if code != exitOK {
+		t.Fatalf("sync-check --stage 2nd exit=%d, stderr=%s", code, errOut)
+	}
+	var secondRep memstore.SyncCheckReport
+	if err := json.Unmarshal([]byte(out), &secondRep); err != nil {
+		t.Fatalf("unmarshal 2nd sync-check: %v (%s)", err, out)
+	}
+	if secondRep.Staged != 0 || secondRep.Skipped != 1 || len(secondRep.Changes) != 1 {
+		t.Fatalf("expected idempotent 2nd sync-check, got %+v", secondRep)
+	}
+
+	// Approve staged triage item, re-export, and confirm clean sync-check.
+	if code, _, errOut := runCLI(env, "triage", "approve", secondRep.Changes[0].TriageID, "--vault", "work", "--json"); code != exitOK {
+		t.Fatalf("triage approve exit=%d, stderr=%s", code, errOut)
+	}
+	if code, _, errOut := runCLI(env, "export", "--profile", "admin", "--out", exportDir, "--json"); code != exitOK {
+		t.Fatalf("re-export exit=%d, stderr=%s", code, errOut)
+	}
+	code, out, errOut = runCLI(env, "sync-check", "--profile", "admin", "--dir", exportDir, "--json")
+	if code != exitOK {
+		t.Fatalf("final sync-check exit=%d, stderr=%s", code, errOut)
+	}
+	var finalRep memstore.SyncCheckReport
+	if err := json.Unmarshal([]byte(out), &finalRep); err != nil {
+		t.Fatalf("unmarshal final sync-check: %v (%s)", err, out)
+	}
+	if len(finalRep.Modified) != 0 || len(finalRep.Added) != 0 || len(finalRep.Deleted) != 0 {
+		t.Errorf("expected clean final sync-check, got %+v", finalRep)
 	}
 }

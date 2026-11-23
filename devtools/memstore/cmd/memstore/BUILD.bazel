@@ -11,6 +11,7 @@ go_library(
         "main.go",
         "note_cmd.go",
         "skill.go",
+        "synccheck_cmd.go",
         "toolcli.go",
         "triage_cmd.go",
     ],
