@@ -582,3 +582,48 @@ func (m *Model) restoreFailedAnswer(e OutboxEntry, onDetail bool) {
 		m.restoredFailed[e.ID] = true
 	}
 }
+
+// pendingOutboxAnswer is the newest answer entry of it that is still on its
+// way to the hub. A failed entry does not count, so its options come back.
+func (m *Model) pendingOutboxAnswer(it *decide.Item) (OutboxEntry, bool) {
+	var found OutboxEntry
+	ok := false
+	for _, e := range m.itemOutboxEntries(it.ID) {
+		if e.Op == "answer" && e.Status != OutboxFailed {
+			found, ok = e, true
+		}
+	}
+	return found, ok
+}
+
+func (m *Model) hasPendingOutboxAnswer(it *decide.Item) bool {
+	_, ok := m.pendingOutboxAnswer(it)
+	return ok && it.Kind == decide.KindRelay && len(it.Options) > 0
+}
+
+// answeredLine replaces the option list once the thread is answered, or
+// while the answer waits in the outbox.
+func (m *Model) answeredLine(it *decide.Item) (string, bool) {
+	if it.Kind != decide.KindRelay || len(it.Options) == 0 && it.Answer == nil {
+		return "", false
+	}
+	if e, ok := m.pendingOutboxAnswer(it); ok && it.State != decide.StateAnswered && len(it.Options) > 0 {
+		value := strings.TrimSpace(e.Text)
+		for _, opt := range it.Options {
+			if opt.Key == value {
+				return "Answering: " + opt.Key + " · " + opt.Label + " (in outbox)", true
+			}
+		}
+		first, _, _ := strings.Cut(e.Text, "\n")
+		return "Answering: " + first + " (in outbox)", true
+	}
+	if it.State != decide.StateAnswered || it.Answer == nil {
+		return "", false
+	}
+	when := it.AnsweredAt.In(m.zone()).Format("15:04")
+	if label := decide.AnswerLabel(it); label != "" {
+		return "Answered: " + it.Answer.Value + " · " + label + " · " + when, true
+	}
+	first, _, _ := strings.Cut(it.Answer.Value, "\n")
+	return "Answered: " + first + " · " + when, true
+}

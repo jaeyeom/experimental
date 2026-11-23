@@ -1270,12 +1270,32 @@ func (m *Model) canSendAndArchive() bool {
 	return !isOpenQuestion(m.detail)
 }
 
+// optionsInert reports whether the digits must not act on the options of
+// the open thread, and sets the status when so.
+func (m *Model) optionsInert() bool {
+	if answerClosed(m.detail) {
+		m.status = "item is " + m.detail.State
+		return true
+	}
+	if m.detail.Kind != decide.KindRelay || len(m.detail.Options) == 0 {
+		return false
+	}
+	switch {
+	case m.detail.State == decide.StateAnswered:
+		m.status = "item is answered"
+	case m.hasPendingOutboxAnswer(m.detail):
+		m.status = "answer is in the outbox"
+	default:
+		return false
+	}
+	return true
+}
+
 func (m *Model) answerOption(index int) error {
 	if m.detail == nil {
 		return nil
 	}
-	if answerClosed(m.detail) {
-		m.status = "item is " + m.detail.State
+	if m.optionsInert() {
 		return nil
 	}
 	if len(m.detail.Options) == 0 || m.detail.Kind != decide.KindRelay {
@@ -3520,8 +3540,11 @@ func styleLinkChunk(original string, ch textChunk, spans, matches [][]int, links
 
 func (m *Model) relayLines(it *decide.Item, width int) []screenLine {
 	var lines []screenLine
+	if line, ok := m.answeredLine(it); ok {
+		lines = append(lines, screenLine{text: plainText(line)})
+	}
 	for i, opt := range it.Options {
-		if i >= 9 || answerClosed(it) {
+		if i >= 9 || answerClosed(it) || it.State == decide.StateAnswered || m.hasPendingOutboxAnswer(it) {
 			break
 		}
 		mark := ""

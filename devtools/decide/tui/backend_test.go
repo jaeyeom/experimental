@@ -171,11 +171,13 @@ func TestHubBackendCarriesEveryInboxWrite(t *testing.T) {
 	if m.mode != modeDetail {
 		t.Fatalf("not opened: %q", m.status)
 	}
+	// The digits go first: a reply answers an open question, after which the
+	// old options are inert.
+	press(t, m, "1")
 	press(t, m, "0again\t\r")
 	if m.status != "replied "+item.ID {
 		t.Fatalf("reply status %q", m.status)
 	}
-	press(t, m, "1")
 	got, err := fake.hub.Get(item.ID)
 	if err != nil {
 		t.Fatal(err)

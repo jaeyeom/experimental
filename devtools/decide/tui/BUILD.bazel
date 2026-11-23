@@ -74,6 +74,7 @@ go_test(
     size = "small",
     srcs = [
         "answer_action_test.go",
+        "answered_line_test.go",
         "avatarpick_test.go",
         "avatarview_test.go",
         "backend_test.go",
