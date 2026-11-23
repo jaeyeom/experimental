@@ -115,13 +115,18 @@ def check(
         skipped = globs.match_any(cfg.exclude, path) or globs.match_any(
             cfg.generated, path
         )
+        wanted = not skipped and (paths is None or path in paths)
         try:
-            sources[path] = imports.parse(reader(path), path)
+            data = reader(path)
+        except FileNotFoundError:
+            continue  # tracked but gone from the work tree (mid-refactor)
+        try:
+            sources[path] = imports.parse(data, path)
         except errors.ParseError:
-            if not skipped:
+            if wanted:
                 raise
             continue
-        if not skipped and (paths is None or path in paths):
+        if wanted:
             scanned.append(path)
 
     package_names = _package_dirs(fs, sources, roots)
@@ -170,18 +175,20 @@ def _package_dirs(
 ) -> dict[str, list[str]]:
     """Map each package directory to its dotted names, preferred first.
 
-    The name from a directory's own ``__init__.py`` chain comes first; then
-    names seen in qualified imports, in scan order.
+    Preference: names used by qualified imports from outside the package,
+    then the package's own ``__init__.py`` chain name, then names used from
+    inside it. A file's own non-package directory is never a root here:
+    resolving against it is exactly the bare import being reported.
     """
-    found: dict[str, list[str]] = {}
-    for path in fs.py_files():
-        if path.rpartition("/")[2] == "__init__.py":
-            pkg = files.parent(path)
-            name = files.dotted(pkg, files.own_source_root(fs, pkg))
-            if name is not None:
-                found[pkg] = [name]
+    outside: dict[str, list[str]] = {}
+    inside: dict[str, list[str]] = {}
     for path, source in sources.items():
-        search = files.search_roots(fs, files.parent(path), roots)
+        here = files.parent(path)
+        search = [
+            r
+            for r in files.search_roots(fs, here, roots)
+            if r != here or r == ""
+        ]
         for stmt in source.imports:
             if stmt.level:
                 continue
@@ -201,10 +208,28 @@ def _package_dirs(
                         name = files.dotted(pkg, root)
                         if name is None:
                             continue
-                        names = found.setdefault(pkg, [])
-                        if name not in names:
-                            names.append(name)
+                        within = here == pkg or here.startswith(pkg + "/")
+                        _add(inside if within else outside, pkg, name)
+    found: dict[str, list[str]] = {}
+    for pkg, names in outside.items():
+        for name in names:
+            _add(found, pkg, name)
+    for path in fs.py_files():
+        if path.rpartition("/")[2] == "__init__.py":
+            pkg = files.parent(path)
+            name = files.dotted(pkg, files.own_source_root(fs, pkg))
+            if name is not None:
+                _add(found, pkg, name)
+    for pkg, names in inside.items():
+        for name in names:
+            _add(found, pkg, name)
     return found
+
+
+def _add(table: dict[str, list[str]], pkg: str, name: str) -> None:
+    names = table.setdefault(pkg, [])
+    if name not in names:
+        names.append(name)
 
 
 def _violations(

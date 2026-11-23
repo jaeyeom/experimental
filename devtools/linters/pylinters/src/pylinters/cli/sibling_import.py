@@ -31,10 +31,11 @@ def main(
         cfg = _config(fs.root, args)
         paths = None
         if args.paths or args.stdin0:
-            raw = list(args.paths)
+            paths = set(cli.to_repo_paths(args.paths, os.getcwd(), fs.root))
             if args.stdin0:
-                raw += cli.read_stdin0(stdin or sys.stdin.buffer)
-            paths = set(cli.to_repo_paths(raw, os.getcwd(), fs.root))
+                # git diff --name-only prints top-level-relative paths.
+                stdin_paths = cli.read_stdin0(stdin or sys.stdin.buffer)
+                paths |= set(cli.to_repo_paths(stdin_paths, fs.root, fs.root))
         result = sibling_import.check(fs, cfg, paths=paths)
     except (errors.PylintersError, OSError) as exc:
         print(f"{PROG}: error: {exc}", file=err)
@@ -68,7 +69,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--stdin0",
         action="store_true",
-        help="also read NUL-separated paths from stdin",
+        help="also read NUL-separated top-level-relative paths from stdin",
     )
     parser.add_argument(
         "--root-dir",

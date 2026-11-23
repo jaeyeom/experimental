@@ -245,17 +245,60 @@ def test_self_named_import_not_flagged() -> None:
     assert result.violations == []
 
 
-def test_init_name_preferred_over_evidence() -> None:
-    """The __init__ chain name beats a longer repo-root path."""
+def test_bare_import_is_not_evidence_for_suggestion() -> None:
+    """A bare import from a script dir never becomes the suggested name."""
     result = run(
         {
-            "a/src/p/__init__.py": "",
-            "a/src/p/m.py": "",
-            "a/src/p/n.py": "import m\n",
-            "x.py": "from a.src.p import m\n",
+            "a/b/policy/x.py": "",
+            "a/b/policy/y.py": "import x\n",
+            "a/b/t.py": "from policy import x\n",
+            "c/u.py": "from a.b.policy import x\n",
         }
     )
-    assert [v.suggestion for v in result.violations] == ["from p import m"]
+    assert [(v.path, v.suggestion) for v in result.violations] == [
+        ("a/b/policy/y.py", "from a.b.policy import x"),
+        ("a/b/t.py", "from a.b import policy"),
+    ]
+
+
+def test_name_used_outside_package_preferred() -> None:
+    """The name the tree imports the package by beats the __init__ name."""
+    result = run(
+        {
+            "a/b/__init__.py": "",
+            "a/b/p.py": "",
+            "a/b/t.py": "import p\n",
+            "c/u.py": "from a.b import p\n",
+        }
+    )
+    assert [v.suggestion for v in result.violations] == ["from a.b import p"]
+
+
+def test_unparseable_file_outside_paths_ignored() -> None:
+    """In path mode only the given files must parse."""
+    srcs = {
+        "p/__init__.py": "",
+        "p/a.py": "",
+        "p/b.py": "import a\n",
+        "other/bad.py": "print 'x'\n",
+    }
+    assert names(run(srcs, paths=["p/b.py"])) == [("p/b.py", 1, "a")]
+
+
+def test_tracked_but_missing_file_is_skipped() -> None:
+    """A tracked file gone from the work tree (mid-refactor) is skipped."""
+    srcs = {"p/__init__.py": "", "p/a.py": "", "p/b.py": "import a\n"}
+
+    def read(path: str) -> bytes:
+        if path == "p/gone.py":
+            raise FileNotFoundError(path)
+        return srcs[path].encode()
+
+    result = sibling_import.check(
+        files.FileSet([*srcs, "p/gone.py"]), Config(), read=read
+    )
+    assert names(result) == [("p/b.py", 1, "a")]
+    assert result.files_scanned == 3
 
 
 def test_parse_error_in_scanned_file_raises() -> None:

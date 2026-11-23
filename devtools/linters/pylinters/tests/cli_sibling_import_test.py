@@ -110,6 +110,17 @@ def test_runs_from_subdirectory(
     assert VIOLATION in out
 
 
+def test_stdin0_paths_are_toplevel_relative(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Git diff --name-only prints top-level-relative paths."""
+    make_repo(tmp_path, BAD)
+    monkeypatch.chdir(tmp_path / "p")
+    code, out, _ = call(["--stdin0"], stdin=b"p/b.py\0")
+    assert code == 1
+    assert VIOLATION in out
+
+
 def test_root_flag(tmp_path: Path) -> None:
     """--root selects the repo without changing directory."""
     make_repo(tmp_path, BAD)
