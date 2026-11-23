@@ -1,19 +1,21 @@
 // App shell: auth gate, theme, router, and rendering. DOM is built with
 // textContent only; item text is never interpreted as HTML.
 import * as api from './api.js';
-import { createStore, parseRoute, unreadCount, inboxItems, classOf, freshness, busDown } from './store.js';
+import { createStore, parseRoute, freshness, busDown } from './store.js';
+import { el } from './dom.js';
+import { createInboxView } from './inbox_view.js';
+import { unreadCount, selectFolder } from './inbox_model.js';
 
 const $ = (id) => document.getElementById(id);
-const el = (tag, attrs = {}, ...kids) => {
-  const n = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) {
-    if (k === 'text') n.textContent = v;
-    else if (v === true) n.setAttribute(k, '');
-    else if (v !== false && v != null) n.setAttribute(k, v);
-  }
-  n.append(...kids);
-  return n;
-};
+// toast shows a short message in the live region.
+let toastTimer = 0;
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.hidden = true; }, 5000);
+}
 
 // Theme: system | light | dark, persisted per browser.
 const THEMES = ['system', 'light', 'dark'];
@@ -76,27 +78,13 @@ function renderNav(state) {
   nav.replaceChildren(...NAV.map(([name, label]) => {
     const a = el('a', { href: name === 'folder' ? '#/folder/open' : '#/' + name, text: label,
       'aria-current': route.name === name ? 'page' : false });
-    const n = name === 'inbox' ? unreadCount(state.items) : 0;
+    const n = name === 'inbox' ? unreadCount(selectFolder(state.items, 'inbox')) : 0;
     if (n > 0) a.append(el('span', { class: 'badge-count', text: String(n), 'aria-label': `${n} unread` }));
     return a;
   }));
 }
 
-function renderList(state) {
-  const items = inboxItems(state.items);
-  const list = $('list');
-  if (!items.length) { list.replaceChildren(el('p', { class: 'empty', text: 'Nothing waiting.' })); return; }
-  const ul = el('ul');
-  for (const it of items) {
-    const c = classOf(it);
-    ul.append(el('li', {}, el('a', {
-      class: 'row' + (it.unread ? ' unread' : ''), href: '#/item/' + encodeURIComponent(it.id),
-      'aria-current': route.name === 'item' && route.arg === it.id ? 'true' : false,
-    }, el('span', { class: 'cls cls-' + c, text: c }), el('span', { class: 'mono', text: it.id }),
-    el('span', { class: 'q', text: it.question }))));
-  }
-  list.replaceChildren(ul);
-}
+const inboxView = createInboxView({ root: $('list'), toast });
 
 function themePicker() {
   const cur = getTheme();
@@ -126,7 +114,7 @@ function renderDetail(state) {
     main.replaceChildren(el('h2', { text: 'Settings' }), el('h3', { text: 'Theme' }), themePicker(), el('p', {}, out));
     break;
   }
-  case 'inbox':
+  case 'inbox': case 'folder':
     main.replaceChildren(el('p', { class: 'muted', text: 'Select an item.' }));
     break;
   default:
@@ -142,7 +130,7 @@ function render() {
   const state = store.state;
   const conn = connState;
   const app = $('app');
-  app.dataset.view = route.name === 'inbox' ? 'list' : 'detail';
+  app.dataset.view = route.name === 'inbox' || route.name === 'folder' ? 'list' : 'detail';
   $('title').textContent = TITLES[route.name];
   $('fresh').textContent = freshness(conn, state.syncedAt);
   const bus = state.busHealth;
@@ -150,7 +138,7 @@ function render() {
   $('banner').hidden = !bad;
   if (bad) $('banner').textContent = ('Bus down: messages to agents are waiting. ' + (bus.problems?.[0] ?? '')).trim();
   renderNav(state);
-  renderList(state);
+  inboxView.render(state, route);
   renderDetail(state);
 }
 

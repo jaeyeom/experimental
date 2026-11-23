@@ -35,3 +35,11 @@ export const post = (path, body) => call('POST', path, body ?? {});
 export const authStatus = () => get('/auth/status');
 export const login = (token) => post('/auth/login', { token });
 export const logout = () => post('/auth/logout');
+
+// Triage writes. `seen` is the newest message time the user was shown; the
+// server refuses with 409 newer_message when something newer arrived.
+export const archive = (id, seen) => post(`/items/${encodeURIComponent(id)}/archive`, { seen });
+export const snooze = (id, when) => post(`/items/${encodeURIComponent(id)}/snooze`, when);
+export const unsnooze = (id) => post(`/items/${encodeURIComponent(id)}/unsnooze`);
+export const archiveAllNotes = (seen) => post('/notes/archive-all', { seen });
+export const newerMessage = (e) => e instanceof ApiError && e.status === 409 && e.data?.code === 'newer_message';

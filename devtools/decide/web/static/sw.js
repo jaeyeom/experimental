@@ -8,6 +8,7 @@ const CACHE = 'decide-shell-' + BUILD;
 const SHELL = [
   '/', '/manifest.webmanifest',
   '/static/styles.css', '/static/app.js', '/static/api.js', '/static/store.js',
+  '/static/dom.js', '/static/inbox_model.js', '/static/inbox_view.js', '/static/swipe.js', '/static/snooze_sheet.js',
   '/static/icons/icon.svg', '/static/icons/icon-maskable.svg',
 ];
 

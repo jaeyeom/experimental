@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { emptyState, applyResync, applyDelta, unreadCount, parseRoute, freshness, busDown, inboxItems } from './store.js';
+import { emptyState, applyResync, applyDelta, parseRoute, freshness, busDown } from './store.js';
 
 const item = (id, o = {}) => ({ id, question: id, state: 'open', unread: true, createdAt: '2026-01-01T00:00:00Z', ...o });
 
@@ -38,17 +38,6 @@ test('delta carries status and bus health', () => {
   assert.ok(busDown(s1.busHealth));
   assert.ok(!busDown({ daemon: 'up', transport: 'up' }));
   assert.ok(!busDown(null));
-});
-
-test('unread count excludes notes and non-live items', () => {
-  const items = [item('D1'), item('N2'), item('A3', { unread: false }), item('D4', { state: 'answered' }),
-    item('X5', { class: 'note' }), item('Q6', { state: 'done-unread' })];
-  assert.equal(unreadCount(items), 2);
-});
-
-test('inbox lists live items newest first', () => {
-  const ids = inboxItems([item('D1'), item('D2', { createdAt: '2026-02-01T00:00:00Z' }), item('D3', { state: 'answered' })]).map((i) => i.id);
-  assert.deepEqual(ids, ['D2', 'D1']);
 });
 
 test('parseRoute', () => {

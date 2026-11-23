@@ -43,19 +43,6 @@ export function applyDelta(state, ev, now = Date.now()) {
   return next;
 }
 
-export const classOf = (it) => it.class ? it.class[0].toUpperCase() : (it.id?.[0] ?? 'D');
-
-const live = new Set(['open', 'done-unread']);
-
-// unreadCount excludes notes, like the server's decide.UnreadCount.
-export function unreadCount(items) {
-  return items.filter((it) => it.unread && live.has(it.state) && classOf(it) !== 'N').length;
-}
-
-export const inboxItems = (items) => items
-  .filter((it) => live.has(it.state))
-  .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
-
 const routeNames = new Set(['inbox', 'folder', 'item', 'compose', 'status', 'contacts', 'settings']);
 
 // parseRoute turns a location hash into {name, arg}. Unknown routes fall
