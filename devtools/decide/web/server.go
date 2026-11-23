@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"sync"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/decide"
@@ -35,7 +36,7 @@ type Server struct {
 	Backend *tui.LocalBackend
 	Config  decide.Config
 	// Display and OrgConfig are the live config readers, as in
-	// inboxrpc.Server. The API endpoints that need them come later.
+	// inboxrpc.Server.
 	Display   func() (decide.DisplaySettings, error)
 	OrgConfig func() (bool, string, error)
 	Orgctl    tui.OrgctlRunner
@@ -50,6 +51,13 @@ type Server struct {
 	Rand  io.Reader
 	// Report receives background errors. Nil drops them.
 	Report func(error)
+	// Targets and Agentbus are the compose recipients, as in
+	// inboxrpc.Server.
+	Targets  []decide.ConfigTarget
+	Agentbus bool
+
+	stateOnce sync.Once
+	api       *apiState
 }
 
 func (s *Server) now() time.Time {
@@ -117,6 +125,9 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 			}
 		})
 	}
+	if s.Backend != nil {
+		go s.busLoop(ctx)
+	}
 	srv := &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
@@ -150,6 +161,7 @@ func (s *Server) Handler() (http.Handler, error) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	})
 	a.routes(mux)
+	s.apiRoutes(mux)
 	return securityHeaders(a.csrf(a.require(mux))), nil
 }
 

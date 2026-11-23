@@ -45,6 +45,8 @@ func cmdWeb(args []string, stdout, stderr io.Writer) int {
 		Display:             localDisplay,
 		OrgConfig:           localOrgConfig,
 		Orgctl:              tui.ExecOrgctl,
+		Targets:             cfg.Targets,
+		Agentbus:            cfg.Recipients.Agentbus,
 		AllowInsecureUnauth: *insecure,
 		Report:              func(err error) { fmt.Fprintf(stderr, "decide web: %v\n", err) },
 	}
