@@ -35,6 +35,12 @@ compartments = ["general", "engineering", "finance", "personal"]
 max_sensitivity = "restricted"
 capabilities = ["read", "write", "write-episodic", "export"]
 
+[profiles.ops]
+vaults = ["work"]
+compartments = ["general"]
+max_sensitivity = "normal"
+capabilities = ["admin"]
+
 [profiles.work]
 vaults = ["work"]
 compartments = ["engineering"]
@@ -504,5 +510,62 @@ func TestCLISyncCheckRoundTrip(t *testing.T) {
 	}
 	if len(finalRep.Modified) != 0 || len(finalRep.Added) != 0 || len(finalRep.Deleted) != 0 {
 		t.Errorf("expected clean final sync-check, got %+v", finalRep)
+	}
+}
+
+func TestCLIAgeAndBackup(t *testing.T) {
+	_, env := setupTestCLI(t)
+	for _, name := range []string{"work", "personal"} {
+		if code, _, errOut := runCLI(env, "init", "--vault", name); code != exitOK {
+			t.Fatalf("init: %d %s", code, errOut)
+		}
+	}
+	code, _, errOut := runCLI(env, "event", "add", "--vault", "work", "--channel", "slack", "--summary", "old", "--date", "2020-01-02")
+	if code != exitOK {
+		t.Fatalf("event add: %d %s", code, errOut)
+	}
+
+	// admin capability is required for both maintenance commands.
+	if code, _, _ := runCLI(env, "age", "--vault", "work"); code != exitUsage {
+		t.Errorf("age without admin exit=%d, want %d", code, exitUsage)
+	}
+	out := filepath.Join(t.TempDir(), "snap.db")
+	if code, _, _ := runCLI(env, "backup", "--vault", "work", "--out", out); code != exitUsage {
+		t.Errorf("backup without admin exit=%d, want %d", code, exitUsage)
+	}
+
+	env["MEMSTORE_PROFILE"] = "ops"
+	var res memstore.AgeResult
+	code, stdout, errOut := runCLI(env, "age", "--vault", "work", "--retention-days", "30", "--dry-run", "--json")
+	if code != exitOK {
+		t.Fatalf("age dry-run: %d %s", code, errOut)
+	}
+	if err := json.Unmarshal([]byte(stdout), &res); err != nil || res.CompactedEvents != 1 {
+		t.Fatalf("dry-run result %q: %+v %v", stdout, res, err)
+	}
+	for i, want := range []int{1, 0} {
+		code, stdout, errOut = runCLI(env, "age", "--vault", "work", "--retention-days", "30", "--json")
+		if code != exitOK {
+			t.Fatalf("age run %d: %d %s", i, code, errOut)
+		}
+		res = memstore.AgeResult{}
+		if err := json.Unmarshal([]byte(stdout), &res); err != nil || res.CompactedEvents != want {
+			t.Errorf("run %d result %q: %+v %v", i, stdout, res, err)
+		}
+	}
+
+	if code, _, _ := runCLI(env, "backup", "--vault", "work", "--out", out, "--require-encrypted"); code != exitError {
+		t.Errorf("require-encrypted without cmd exit=%d, want %d", code, exitError)
+	}
+	code, stdout, errOut = runCLI(env, "backup", "--vault", "work", "--out", out, "--json")
+	if code != exitOK {
+		t.Fatalf("backup: %d %s", code, errOut)
+	}
+	var rep memstore.BackupReport
+	if err := json.Unmarshal([]byte(stdout), &rep); err != nil || rep.Path != out || rep.Encrypted {
+		t.Errorf("backup report %q: %+v %v", stdout, rep, err)
+	}
+	if fi, err := os.Stat(out); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("backup file: %v %v", fi, err)
 	}
 }

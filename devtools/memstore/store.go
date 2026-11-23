@@ -92,6 +92,12 @@ func (v *Vault) Close() error {
 	return nil
 }
 
+// SetClock replaces the clock the vault uses for timestamps, for tests and
+// callers that inject time.
+func (v *Vault) SetClock(now func() time.Time) {
+	v.now = now
+}
+
 // DB returns the underlying *sql.DB handle.
 func (v *Vault) DB() *sql.DB {
 	return v.db
@@ -308,5 +314,6 @@ func schemaMigrations() []string {
 			executed_at  INTEGER
 		);
 		CREATE INDEX idx_routine_outbox_status ON routine_outbox(routine_id, status, created_at);`,
+		`ALTER TABLE facts ADD COLUMN expired_at INTEGER;`,
 	}
 }

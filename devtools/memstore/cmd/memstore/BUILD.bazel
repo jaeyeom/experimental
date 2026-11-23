@@ -9,6 +9,7 @@ go_library(
         "fact_cmd.go",
         "import_cmd.go",
         "main.go",
+        "maintenance_cmd.go",
         "note_cmd.go",
         "skill.go",
         "synccheck_cmd.go",

@@ -4,7 +4,9 @@ go_library(
     name = "go_default_library",
     srcs = [
         "accesslog.go",
+        "age.go",
         "asideimport.go",
+        "backup.go",
         "config.go",
         "contactsbridge.go",
         "entities.go",
@@ -32,6 +34,7 @@ go_library(
         "@com_github_google_renameio_v2//:go_default_library",
         "@com_github_pelletier_go_toml_v2//:go_default_library",
         "@in_gopkg_yaml_v3//:go_default_library",
+        "@org_golang_x_sys//unix:go_default_library",
     ],
 )
 
@@ -40,7 +43,9 @@ go_test(
     size = "small",
     srcs = [
         "accesslog_test.go",
+        "age_test.go",
         "asideimport_test.go",
+        "backup_test.go",
         "config_test.go",
         "contactsbridge_test.go",
         "entities_test.go",
@@ -61,5 +66,8 @@ go_test(
         "triage_test.go",
     ],
     embed = [":go_default_library"],
-    deps = ["//devtools/contacts:go_default_library"],
+    deps = [
+        "//devtools/contacts:go_default_library",
+        "//devtools/pkg/sqlitedb:go_default_library",
+    ],
 )

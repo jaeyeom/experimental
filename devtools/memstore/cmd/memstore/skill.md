@@ -16,4 +16,6 @@ Common commands:
 - `memstore event add --vault V --channel CH --summary S [--entity E]` — record an episodic event.
 - `memstore import-aside --src <dir> --vault V [--rules <file>] [--dry-run] [--json]` — import Aside Markdown directory.
 - `memstore sync-check --profile P --dir <dir> [--stage] [--json]` — detect external Markdown edits and optionally stage diffs to triage.
+- `memstore age --vault V [--retention-days N] [--dry-run] [--drop] [--json]` — (admin) expire facts, compact old events, prune old revisions/access log.
+- `memstore backup --vault V --out <path> [--encrypt-cmd CMD] [--require-encrypted] [--json]` — (admin) consistent 0600 snapshot, optionally encrypted via an external command.
 - `memstore triage list|approve|reject ...` — review and resolve staged triage items.

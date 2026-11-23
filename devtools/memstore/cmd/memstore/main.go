@@ -71,6 +71,8 @@ func usages() []struct{ name, line string } {
 		{"sync-check", "memstore sync-check --profile P --dir <dir> [--stage] [--by C] [--reason R] [--json]"},
 		{"triage", "memstore triage list|approve|reject ..."},
 		{"import-aside", "memstore import-aside --src <dir> --vault <default-vault> [--rules <file>] [--dry-run] [--json]"},
+		{"age", "memstore age --vault V [--retention-days N] [--dry-run] [--drop] [--json]"},
+		{"backup", "memstore backup --vault V --out <path> [--encrypt-cmd CMD] [--require-encrypted] [--json]"},
 		{"log", "memstore log --vault V [--caller C] [--entity E] [--since D] [--limit N] [--json]"},
 	}
 }
@@ -130,9 +132,10 @@ func (a *app) dispatch(name string, args []string) int {
 		return a.cmdTriage(args)
 	case "import-aside":
 		return a.cmdImportAside(args)
-	case "log":
-		return a.cmdLog(args)
 	default:
+		if code, ok := a.dispatchMaintenance(name, args); ok {
+			return code
+		}
 		a.errorf("unknown command %q", name)
 		a.usage()
 		return exitUsage

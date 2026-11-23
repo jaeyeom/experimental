@@ -34,8 +34,8 @@ func TestInitVaultAndIdempotency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InitVault: %v", err)
 	}
-	if got := userVersion(t, v); got != 2 {
-		t.Errorf("user_version = %d, want 2", got)
+	if got := userVersion(t, v); got != len(schemaMigrations()) {
+		t.Errorf("user_version = %d, want %d", got, len(schemaMigrations()))
 	}
 	if err := v.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
@@ -48,8 +48,8 @@ func TestInitVaultAndIdempotency(t *testing.T) {
 	}
 	defer v2.Close()
 
-	if got := userVersion(t, v2); got != 2 {
-		t.Errorf("user_version after second init = %d, want 2", got)
+	if got := userVersion(t, v2); got != len(schemaMigrations()) {
+		t.Errorf("user_version after second init = %d, want %d", got, len(schemaMigrations()))
 	}
 
 	dirInfo, err := os.Stat(filepath.Dir(cfg.Path))
@@ -343,8 +343,8 @@ func TestUpgradeMigration1To2PreservesData(t *testing.T) {
 	}
 	defer v.Close()
 
-	if got := userVersion(t, v); got != 2 {
-		t.Errorf("user_version after upgrade = %d, want 2", got)
+	if got := userVersion(t, v); got != len(schemaMigrations()) {
+		t.Errorf("user_version after upgrade = %d, want %d", got, len(schemaMigrations()))
 	}
 
 	var title string
