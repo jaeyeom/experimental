@@ -183,3 +183,47 @@ func TestLoadConfigOpenAt(t *testing.T) {
 		t.Fatalf("err = %v, want a ui.openAt error naming middle", err)
 	}
 }
+
+func TestLoadConfigWebDefaults(t *testing.T) {
+	writeConfig(t, `{}`)
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.WebAddr() != "127.0.0.1:8787" || cfg.WebPushGrace() != 5*time.Second {
+		t.Fatalf("defaults = %q, %s", cfg.WebAddr(), cfg.WebPushGrace())
+	}
+	writeConfig(t, `{"web": {"addr": ":9000", "publicUrl": "https://x", "auth": {"mode": "token", "tokenFile": "/t"}, "push": {"enabled": true, "subject": "mailto:a@b", "grace": "250ms"}}}`)
+	cfg, err = LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.WebAddr() != ":9000" || cfg.WebPushGrace() != 250*time.Millisecond || cfg.Web.Auth.Mode != "token" || !cfg.Web.Push.Enabled {
+		t.Fatalf("web = %+v", cfg.Web)
+	}
+}
+
+func TestLoadConfigWebRejectsInvalid(t *testing.T) {
+	for _, data := range []string{
+		`{"web": {"auth": {"mode": "oauth"}}}`,
+		`{"web": {"push": {"grace": "soon"}}}`,
+		`{"web": {"push": {"grace": "-1s"}}}`,
+	} {
+		writeConfig(t, data)
+		if _, err := LoadConfig(); err == nil {
+			t.Fatalf("%s: LoadConfig() succeeded", data)
+		}
+	}
+}
+
+func TestDisplayNeverExportsWeb(t *testing.T) {
+	f := hubFile(t, `{"web": {"addr": ":9000", "auth": {"mode": "token", "tokenFile": "/secret"}}}`)
+	if _, ok := f.Display().Keys["web"]; ok {
+		t.Fatal("display settings carry web")
+	}
+	for _, k := range DisplayKeys() {
+		if k == "web" {
+			t.Fatal("web is a display key")
+		}
+	}
+}

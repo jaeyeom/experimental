@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"reflect"
 	"sync"
 	"time"
 
@@ -40,8 +38,6 @@ type Server struct {
 	WatchEvery time.Duration
 }
 
-const defaultWatchEvery = 100 * time.Millisecond
-
 // Serve answers each request line from r on w until r ends. Requests
 // run concurrently; each response is one line.
 func (s *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
@@ -63,16 +59,13 @@ func (s *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 		defer mu.Unlock()
 		_ = enc.Encode(resp) // a closed client has nobody to tell
 	}
-	watcher := &connWatcher{
-		server: s,
-		reply:  reply,
-		wake:   make(chan struct{}, 1),
-	}
+	shared := &Watcher{Backend: s.Backend, OrgConfig: s.OrgConfig, Every: s.WatchEvery}
+	watcher := &connWatcher{watcher: shared, reply: reply}
 	if s.Backend != nil {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			watcher.loop(loopCtx)
+			shared.Run(loopCtx, watcher.emit)
 		}()
 	}
 	sc := bufio.NewScanner(r)
@@ -94,7 +87,7 @@ func (s *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 			resp.ID = req.ID
 			reply(resp)
 			if writeOps[req.Op] {
-				watcher.signal()
+				shared.Signal()
 			}
 		}()
 	}
@@ -218,7 +211,7 @@ func (s *Server) itemOp(req Request) (Response, bool) {
 			if req.BaseLastMessageAt != nil {
 				baseLast = *req.BaseLastMessageAt
 			}
-			if reason := detectConflict(req.Op, req.BaseState, req.BaseMessageCount, baseLast, req.BaseAnswered, cur); reason != "" {
+			if reason := DetectConflict(req.Op, req.BaseState, req.BaseMessageCount, baseLast, req.BaseAnswered, cur); reason != "" {
 				return Response{Conflict: reason, Item: &cur}, true
 			}
 		}
@@ -226,7 +219,11 @@ func (s *Server) itemOp(req Request) (Response, bool) {
 	return itemResponse(op()), true
 }
 
-func detectConflict(op, baseState string, baseCount int, baseLast time.Time, baseAnswered bool, cur decide.Item) string {
+// DetectConflict reports why a write made against a stale view of an
+// item should not apply to cur, or "" when it is safe. baseState,
+// baseCount, baseLast, and baseAnswered describe the item as the writer
+// saw it.
+func DetectConflict(op, baseState string, baseCount int, baseLast time.Time, baseAnswered bool, cur decide.Item) string {
 	if cur.State == decide.StateWithdrawn && baseState != decide.StateWithdrawn {
 		return "item was withdrawn"
 	}
@@ -479,239 +476,43 @@ func failed(err error) Response {
 	return Response{Error: err.Error()}
 }
 
+// connWatcher feeds one connection's watch request from a shared Watcher.
 type connWatcher struct {
-	server *Server
-	reply  func(Response)
-	wake   chan struct{}
+	watcher *Watcher
+	reply   func(Response)
 
-	mu           sync.Mutex
-	watchID      int64
-	lastSeq      int64
-	lastStatus   tui.StatusBoard
-	hasStatus    bool
-	statusAt     time.Time
-	statusMod    time.Time
-	lastDraftSeq int64
-	hasDrafts    bool
-	draftsAt     time.Time
-	draftsMod    time.Time
-	orgSpecMod   time.Time
-	hasOrgSpec   bool
+	mu      sync.Mutex
+	watchID int64
 }
 
-func (w *connWatcher) signal() {
-	select {
-	case w.wake <- struct{}{}:
-	default:
+func (c *connWatcher) response(id int64, ev WatchEvent) Response {
+	return Response{
+		ID:             id,
+		Seq:            ev.Seq,
+		Resync:         ev.Resync,
+		Items:          ev.Items,
+		Changes:        ev.Changes,
+		Status:         ev.Status,
+		Drafts:         ev.Drafts,
+		DraftSeq:       ev.DraftSeq,
+		OrgSpecModTime: ev.OrgSpecModTime,
 	}
 }
 
-func (w *connWatcher) ledger() (*decide.Ledger, error) {
-	led, err := decide.Open(w.server.Backend.Dir)
+func (c *connWatcher) start(req Request) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	ev, err := c.watcher.Start(req.Since)
 	if err != nil {
-		return nil, fmt.Errorf("open decide ledger: %w", err)
-	}
-	if w.server.Backend.Now != nil {
-		led.SetClock(w.server.Backend.Now)
-	}
-	return led, nil
-}
-
-func (w *connWatcher) start(req Request) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.server.Backend == nil {
-		w.reply(Response{ID: req.ID, Error: "no backend"})
+		c.reply(Response{ID: req.ID, Error: err.Error()})
 		return
 	}
-	led, err := w.ledger()
-	if err != nil {
-		w.reply(Response{ID: req.ID, Error: err.Error()})
-		return
-	}
-	seq, changes, items, resync, err := led.ChangesSince(req.Since)
-	if err != nil {
-		w.reply(Response{ID: req.ID, Error: err.Error()})
-		return
-	}
-	resp := Response{
-		ID:      req.ID,
-		Seq:     seq,
-		Resync:  resync,
-		Items:   items,
-		Changes: changes,
-	}
-	if board, err := w.server.Backend.Status(); err == nil {
-		resp.Status = &board
-		w.lastStatus = board
-		w.hasStatus = true
-	}
-	w.statusAt = time.Now()
-	w.statusMod = w.statStatusMod()
-	if dseq, drafts, err := w.listDrafts(); err == nil {
-		resp.Drafts = drafts
-		resp.DraftSeq = dseq
-		w.lastDraftSeq = dseq
-		w.hasDrafts = true
-	}
-	w.draftsAt = time.Now()
-	w.draftsMod = w.statDraftsMod()
-	if mod := w.statOrgSpecMod(); !mod.IsZero() {
-		resp.OrgSpecModTime = &mod
-		w.orgSpecMod = mod
-		w.hasOrgSpec = true
-	}
-	w.watchID = req.ID
-	w.lastSeq = seq
-	w.reply(resp)
+	c.watchID = req.ID
+	c.reply(c.response(req.ID, ev))
 }
 
-func (w *connWatcher) listDrafts() (int64, []decide.Draft, error) {
-	ds, err := w.server.draftStore()
-	if err != nil {
-		return 0, nil, err
-	}
-	seq, drafts, err := ds.List()
-	if err != nil {
-		return 0, nil, fmt.Errorf("list decide drafts: %w", err)
-	}
-	return seq, drafts, nil
-}
-
-func (w *connWatcher) statDraftsMod() time.Time {
-	info, err := os.Stat(filepath.Join(w.server.Backend.Dir, "drafts.json"))
-	if err != nil {
-		return time.Time{}
-	}
-	return info.ModTime()
-}
-
-func (w *connWatcher) statStatusMod() time.Time {
-	info, err := os.Stat(filepath.Join(w.server.Backend.Dir, "status.json"))
-	if err != nil {
-		return time.Time{}
-	}
-	return info.ModTime()
-}
-
-func (w *connWatcher) loop(ctx context.Context) {
-	every := w.server.WatchEvery
-	if every <= 0 {
-		every = defaultWatchEvery
-	}
-	tick := time.NewTicker(every)
-	defer tick.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-w.wake:
-			w.poll()
-		case <-tick.C:
-			w.poll()
-		}
-	}
-}
-
-func (w *connWatcher) poll() {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.watchID == 0 || w.server.Backend == nil {
-		return
-	}
-	led, err := w.ledger()
-	if err != nil {
-		return
-	}
-	seq, changes, items, resync, err := led.ChangesSince(w.lastSeq)
-	if err != nil {
-		return
-	}
-	statusPtr := w.pollStatus()
-	draftsPtr, draftSeq := w.pollDrafts()
-	orgModPtr := w.pollOrgSpec()
-	if !resync && len(changes) == 0 && statusPtr == nil && draftsPtr == nil && orgModPtr == nil {
-		return
-	}
-	w.lastSeq = seq
-	resp := Response{
-		ID:             w.watchID,
-		Seq:            seq,
-		Resync:         resync,
-		Items:          items,
-		Changes:        changes,
-		Status:         statusPtr,
-		OrgSpecModTime: orgModPtr,
-	}
-	if draftsPtr != nil {
-		resp.Drafts = *draftsPtr
-		resp.DraftSeq = draftSeq
-	}
-	w.reply(resp)
-}
-
-func (w *connWatcher) pollStatus() *tui.StatusBoard {
-	mod := w.statStatusMod()
-	if mod.Equal(w.statusMod) && time.Since(w.statusAt) < time.Second {
-		return nil
-	}
-	w.statusMod = mod
-	w.statusAt = time.Now()
-	board, err := w.server.Backend.Status()
-	if err != nil {
-		return nil
-	}
-	if w.hasStatus && reflect.DeepEqual(w.lastStatus, board) {
-		return nil
-	}
-	w.lastStatus = board
-	w.hasStatus = true
-	return &board
-}
-
-func (w *connWatcher) pollDrafts() (*[]decide.Draft, int64) {
-	dmod := w.statDraftsMod()
-	if dmod.Equal(w.draftsMod) && time.Since(w.draftsAt) < time.Second {
-		return nil, 0
-	}
-	w.draftsMod = dmod
-	w.draftsAt = time.Now()
-	dseq, drafts, err := w.listDrafts()
-	if err != nil {
-		return nil, 0
-	}
-	if w.hasDrafts && dseq == w.lastDraftSeq {
-		return nil, 0
-	}
-	w.lastDraftSeq = dseq
-	w.hasDrafts = true
-	return &drafts, dseq
-}
-
-func (w *connWatcher) statOrgSpecMod() time.Time {
-	if w.server.OrgConfig == nil {
-		return time.Time{}
-	}
-	enabled, spec, err := w.server.OrgConfig()
-	if err != nil || !enabled || spec == "" {
-		return time.Time{}
-	}
-	info, err := os.Stat(spec)
-	if err != nil {
-		return time.Time{}
-	}
-	return info.ModTime()
-}
-
-func (w *connWatcher) pollOrgSpec() *time.Time {
-	mod := w.statOrgSpecMod()
-	if mod.IsZero() {
-		return nil
-	}
-	if w.hasOrgSpec && mod.Equal(w.orgSpecMod) {
-		return nil
-	}
-	w.orgSpecMod = mod
-	w.hasOrgSpec = true
-	return &mod
+func (c *connWatcher) emit(ev WatchEvent) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.reply(c.response(c.watchID, ev))
 }

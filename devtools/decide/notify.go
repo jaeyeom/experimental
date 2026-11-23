@@ -103,6 +103,87 @@ type Config struct {
 	Owners OwnersConfig `json:"owners,omitempty"`
 	// UI is this machine's inbox display. A hub does not send it.
 	UI InboxUI `json:"ui,omitempty"`
+	// Web configures `decide web` on this machine. It is machine-local:
+	// a hub never sends it to clients.
+	Web WebConfig `json:"web,omitempty"`
+}
+
+// WebConfig configures the hub's `decide web` server.
+type WebConfig struct {
+	// Addr is the listen address. Empty is DefaultWebAddr.
+	Addr string `json:"addr,omitempty"`
+	// PublicURL is the externally reachable URL, such as the HTTPS proxy.
+	PublicURL string        `json:"publicUrl,omitempty"`
+	Auth      WebAuthConfig `json:"auth,omitempty"`
+	Push      WebPushConfig `json:"push,omitempty"`
+}
+
+// WebAuthConfig selects how `decide web` authenticates clients. Mode is
+// WebAuthNone (the default) or WebAuthToken, which reads the token from
+// TokenFile.
+type WebAuthConfig struct {
+	Mode      string `json:"mode,omitempty"`
+	TokenFile string `json:"tokenFile,omitempty"`
+}
+
+// WebPushConfig configures Web Push. Grace is how long a push waits,
+// such as "5s", so an item read elsewhere is skipped.
+type WebPushConfig struct {
+	Enabled bool   `json:"enabled,omitempty"`
+	Subject string `json:"subject,omitempty"`
+	Grace   string `json:"grace,omitempty"`
+}
+
+// Web auth modes.
+const (
+	WebAuthNone  = "none"
+	WebAuthToken = "token"
+)
+
+// DefaultWebAddr is the default `decide web` listen address.
+const DefaultWebAddr = "127.0.0.1:8787"
+
+// DefaultWebPushGrace is the default push grace delay.
+const DefaultWebPushGrace = 5 * time.Second
+
+// WebAddr is the web listen address, or DefaultWebAddr when unset.
+func (c Config) WebAddr() string {
+	if c.Web.Addr == "" {
+		return DefaultWebAddr
+	}
+	return c.Web.Addr
+}
+
+// WebPushGrace is the push grace delay, or DefaultWebPushGrace when it
+// is unset or invalid. LoadConfig rejects an invalid one.
+func (c Config) WebPushGrace() time.Duration {
+	if d, err := parseWebPushGrace(c.Web.Push.Grace); err == nil && d > 0 {
+		return d
+	}
+	return DefaultWebPushGrace
+}
+
+// parseWebPushGrace parses a web push grace. Empty is zero.
+func parseWebPushGrace(raw string) (time.Duration, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return 0, fmt.Errorf("decide config web.push.grace must be a positive duration, such as \"5s\"")
+	}
+	return d, nil
+}
+
+func checkWebConfig(web WebConfig) error {
+	switch web.Auth.Mode {
+	case "", WebAuthNone, WebAuthToken:
+	default:
+		return fmt.Errorf("decide config web.auth.mode %q must be %q or %q", web.Auth.Mode, WebAuthNone, WebAuthToken)
+	}
+	_, err := parseWebPushGrace(web.Push.Grace)
+	return err
 }
 
 // Clipboard transport values of InboxUI.Clipboard. Empty means auto.
@@ -479,6 +560,9 @@ func parseConfig(data []byte, dir string) (Config, error) {
 		return Config{}, fmt.Errorf("decide config openCommand: the program is empty")
 	}
 	if _, err := parseRecipientsTimeout(cfg.RecipientsTimeout); err != nil {
+		return Config{}, err
+	}
+	if err := checkWebConfig(cfg.Web); err != nil {
 		return Config{}, err
 	}
 	if err := CheckClipboard(cfg.UI.Clipboard); err != nil {

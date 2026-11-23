@@ -231,7 +231,7 @@ func (c *Client) checkLocalConflict(entry tui.OutboxEntry) string {
 	if !ok {
 		return ""
 	}
-	return detectConflict(entry.Op, entry.BaseState, entry.BaseMessageCount, entry.BaseLastMessageAt, entry.BaseAnswered, cur)
+	return DetectConflict(entry.Op, entry.BaseState, entry.BaseMessageCount, entry.BaseLastMessageAt, entry.BaseAnswered, cur)
 }
 
 func buildOutboxRequest(entry tui.OutboxEntry) Request {
