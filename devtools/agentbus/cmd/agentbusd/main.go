@@ -165,7 +165,7 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if hub := hubTarget(env, cfg); hub != "" {
-		fmt.Fprintf(stderr, "agentbusd: this machine uses the hub %s; run the daemon there\n", hub)
+		fmt.Fprintf(stderr, "agentbusd: %s\n", config.RefuseHubDaemon(hub))
 		return 1
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), unix.SIGINT, unix.SIGTERM)

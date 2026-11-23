@@ -828,3 +828,27 @@ func envGet(env []string, key string) string {
 	}
 	return ""
 }
+
+// HubSettings reads the config file when HOME/XDG_CONFIG_HOME is set
+// and applies the AGENTBUS_HUB override.
+func HubSettings(env []string) (Config, error) {
+	var cfg Config
+	if _, err := Path(env); err == nil {
+		if cfg, err = Load(env); err != nil {
+			return Config{}, fmt.Errorf("config: %w", err)
+		}
+	}
+	if hub := strings.TrimSpace(envGet(env, "AGENTBUS_HUB")); hub != "" {
+		if strings.HasPrefix(hub, "-") {
+			return Config{}, errors.New("AGENTBUS_HUB must not start with -")
+		}
+		cfg.Hub = hub
+	}
+	return cfg, nil
+}
+
+// RefuseHubDaemon returns the standard error when a hub-mode client
+// attempts to start a local agentbusd.
+func RefuseHubDaemon(hub string) error {
+	return fmt.Errorf("hub mode: not starting a local agentbusd; the hub is %s", hub)
+}

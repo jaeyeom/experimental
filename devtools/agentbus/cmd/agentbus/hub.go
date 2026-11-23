@@ -70,20 +70,7 @@ var hookCommands = map[string]bool{
 // hubSettings reads the hub target and this machine's label. An empty
 // target means hub mode is off.
 func hubSettings(env []string) (config.Config, error) {
-	var cfg config.Config
-	// Without HOME there is no config file to read.
-	if _, err := config.Path(env); err == nil {
-		if cfg, err = config.Load(env); err != nil {
-			return config.Config{}, fmt.Errorf("config: %w", err)
-		}
-	}
-	if hub := strings.TrimSpace(envGet(env, hubEnv)); hub != "" {
-		if strings.HasPrefix(hub, "-") {
-			return config.Config{}, fmt.Errorf("%s must not start with -", hubEnv)
-		}
-		cfg.Hub = hub
-	}
-	return cfg, nil
+	return config.HubSettings(env) //nolint:wrapcheck // HubSettings already prefixes config/env errors
 }
 
 // agentHub is the ssh fallback to cfg.Hub. IdentityAgent is set only

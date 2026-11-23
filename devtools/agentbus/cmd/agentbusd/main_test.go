@@ -222,7 +222,7 @@ func TestRunRefusesInHubMode(t *testing.T) {
 		var stderr bytes.Buffer
 		env = append(env, "XDG_RUNTIME_DIR=/tmp", "HOME=/Users/me", "XDG_STATE_HOME="+state)
 		code := run(nil, env, io.Discard, &stderr)
-		if code != 1 || !strings.Contains(stderr.String(), "agentbusd: this machine uses the hub me@hub; run the daemon there") {
+		if code != 1 || !strings.Contains(stderr.String(), "agentbusd: hub mode: not starting a local agentbusd; the hub is me@hub") {
 			t.Fatalf("code %d, stderr %q", code, stderr.String())
 		}
 	}

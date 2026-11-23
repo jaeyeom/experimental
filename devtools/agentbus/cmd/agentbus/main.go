@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/client"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 	"golang.org/x/sys/unix"
@@ -82,6 +83,11 @@ func run(ctx context.Context, args, env []string, stdin io.Reader, stdout, stder
 // startDaemonForRetry is the down-daemon path: the socket was missing
 // or the connection was refused before the request was written.
 func startDaemonForRetry(ctx context.Context, dirs paths.Dirs, env []string) error {
+	if cfg, err := hubSettings(env); err != nil {
+		return err
+	} else if cfg.Hub != "" {
+		return fmt.Errorf("%w", config.RefuseHubDaemon(cfg.Hub))
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("cannot find this executable: %w", err)
@@ -97,6 +103,13 @@ func startDaemonForRetry(ctx context.Context, dirs paths.Dirs, env []string) err
 }
 
 func ensure(env []string, stderr io.Writer) int {
+	if cfg, err := hubSettings(env); err != nil {
+		fmt.Fprintf(stderr, "agentbus: %s\n", err)
+		return 1
+	} else if cfg.Hub != "" {
+		fmt.Fprintf(stderr, "agentbus: %s\n", config.RefuseHubDaemon(cfg.Hub))
+		return 1
+	}
 	dirs, err := paths.FromEnv(env)
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus: %s\n", err)

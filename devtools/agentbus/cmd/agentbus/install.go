@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/client"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 )
 
@@ -64,6 +65,13 @@ func cmdInstall(ctx context.Context, args, env []string, stdout, stderr io.Write
 	if len(args) != 0 {
 		fmt.Fprintf(stderr, "agentbus install: unexpected arguments\n")
 		return 2
+	}
+	if cfg, err := hubSettings(env); err != nil {
+		fmt.Fprintf(stderr, "agentbus install: %s\n", err)
+		return 1
+	} else if cfg.Hub != "" {
+		fmt.Fprintf(stderr, "agentbus install: %s\n", config.RefuseHubDaemon(cfg.Hub))
+		return 1
 	}
 	if _, err := paths.FromEnv(env); err != nil {
 		fmt.Fprintf(stderr, "agentbus install: %s\n", err)

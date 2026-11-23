@@ -279,10 +279,12 @@ list, then starts ~agentbusd~ if needed and prints the daemon status.
 ~agentbusd --help~ lists the daemon's environment variables.
 
 ~doctor~ with no flag reports other ~agentbusd~ processes for this
-user. In hub mode it reports the tunnel, the ssh port, and the outbox
-instead of the local daemon socket. ~doctor --sandbox~ prints the
-Claude Code sandbox allowlist and tests each connection. See
-[[file:docs/sandbox.org][sockets and the sandbox]].
+user. In hub mode it fails if a local ~agentbusd~ is running or its
+sockets exist (printing the pid, start time, socket paths, and the
+~kill~ / socket-removal hint without killing it), and reports the
+tunnel, the ssh port, and the outbox instead of the local daemon socket.
+~doctor --sandbox~ prints the Claude Code sandbox allowlist and tests each
+connection. See [[file:docs/sandbox.org][sockets and the sandbox]].
 
 ~health~ is the cheap check for scripts and UIs. It makes one request
 to the daemon, within 2s, and the daemon tests each transport now. It
@@ -375,6 +377,8 @@ verify_delivery_within = "60s"    # check readable transcript after delivery; "0
 # composer_placeholders = ["Once fixed, resend your message"]
 
 # Hub mode. Default: unset, so this machine runs its own daemon.
+# Hub clients never run or start a local agentbusd (every start path
+# refuses, and `agentbus doctor` fails if a local daemon or its sockets exist).
 # hub = "me@hub"
 # machine = "linux2"              # this machine's herdr label on the hub
 # ssh_identity_agent = "~/.ssh/agent.sock"  # empty: ssh's own agent lookup

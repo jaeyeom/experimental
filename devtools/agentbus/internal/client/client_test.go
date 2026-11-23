@@ -272,3 +272,37 @@ func readSID(t *testing.T, stateDir string) int {
 	}
 	return sid
 }
+
+func TestEnsureRefusesInHubMode(t *testing.T) {
+	origSup, origSpawn := supervisorRun, spawnDetached
+	supervisorRun = func(context.Context, []string) error {
+		t.Fatal("supervisorRun called in hub mode")
+		return nil
+	}
+	spawnDetached = func(string, []string) error {
+		t.Fatal("spawnDetached called in hub mode")
+		return nil
+	}
+	t.Cleanup(func() { supervisorRun, spawnDetached = origSup, origSpawn })
+
+	cfgHome := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(cfgHome, "agentbus"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgHome, "agentbus", "config.toml"), []byte("hub = \"me@hub\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, env := range [][]string{
+		{"HOME=" + t.TempDir(), "XDG_CONFIG_HOME=" + cfgHome, "XDG_RUNTIME_DIR=" + shortDir(t), "XDG_STATE_HOME=" + t.TempDir()},
+		{"HOME=" + t.TempDir(), "XDG_CONFIG_HOME=" + t.TempDir(), "XDG_RUNTIME_DIR=" + shortDir(t), "XDG_STATE_HOME=" + t.TempDir(), "AGENTBUS_HUB=me@hub"},
+	} {
+		dirs, err := paths.FromEnv(env)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = Ensure(context.Background(), dirs, os.Args[0], env)
+		if err == nil || !strings.Contains(err.Error(), "hub mode: not starting a local agentbusd; the hub is me@hub") {
+			t.Fatalf("Ensure = %v, want hub mode refusal", err)
+		}
+	}
+}

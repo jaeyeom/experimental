@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/client"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 )
@@ -111,6 +112,13 @@ func callDaemon(ctx context.Context, env []string, req daemon.Request, stderr io
 			return daemon.Response{}, 1
 		}
 		return resp, 0
+	}
+	if cfg, err := hubSettings(env); err != nil {
+		fmt.Fprintf(stderr, "agentbus: %s\n", err)
+		return daemon.Response{}, 1
+	} else if cfg.Hub != "" {
+		fmt.Fprintf(stderr, "agentbus: %s\n", config.RefuseHubDaemon(cfg.Hub))
+		return daemon.Response{}, 1
 	}
 	dirs, err := paths.FromEnv(env)
 	if err != nil {

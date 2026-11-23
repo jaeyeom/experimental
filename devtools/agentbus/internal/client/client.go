@@ -17,6 +17,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 )
@@ -45,6 +46,13 @@ var spawnDetached = startDetached
 // in its own session and waits until a ping succeeds. A failure names what
 // is missing and does not report success.
 func Ensure(ctx context.Context, dirs paths.Dirs, daemonBin string, env []string) error {
+	cfg, err := config.HubSettings(env)
+	if err != nil {
+		return fmt.Errorf("%w", err)
+	}
+	if cfg.Hub != "" {
+		return fmt.Errorf("%w", config.RefuseHubDaemon(cfg.Hub))
+	}
 	if err := ping(ctx, dirs.SocketPath); err == nil {
 		return nil
 	}

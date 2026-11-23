@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 	"github.com/jaeyeom/experimental/devtools/pkg/herdrtest"
 	"github.com/jaeyeom/experimental/devtools/pkg/hubcall"
 	"github.com/jaeyeom/experimental/devtools/pkg/hubcall/sshtest"
@@ -325,5 +326,79 @@ func TestHubHelpStaysLocal(t *testing.T) {
 	}
 	if h.ssh.Read("argv") != "" {
 		t.Fatal("help ran ssh")
+	}
+}
+
+func TestHubRefusesLocalDaemonStartPaths(t *testing.T) {
+	h := startHub(t, `hub = "me@hub"`)
+	const want = "hub mode: not starting a local agentbusd; the hub is me@hub"
+
+	t.Run("retry", func(t *testing.T) {
+		dirs, err := paths.FromEnv(h.env)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = startDaemonForRetry(context.Background(), dirs, h.env)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("startDaemonForRetry = %v, want %q", err, want)
+		}
+	})
+
+	t.Run("ensure", func(t *testing.T) {
+		var stderr bytes.Buffer
+		code := ensure(h.env, &stderr)
+		if code != 1 || !strings.Contains(stderr.String(), want) {
+			t.Fatalf("ensure = %d, %q, want %q", code, stderr.String(), want)
+		}
+	})
+
+	t.Run("callDaemon-unrouted", func(t *testing.T) {
+		var stderr bytes.Buffer
+		_, code := callDaemon(context.Background(), h.env, daemon.Request{Op: "list"}, &stderr)
+		if code != 1 || !strings.Contains(stderr.String(), want) {
+			t.Fatalf("callDaemon = %d, %q, want %q", code, stderr.String(), want)
+		}
+	})
+
+	t.Run("install", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		code := cmdInstall(context.Background(), nil, h.env, &stdout, &stderr)
+		if code != 1 || !strings.Contains(stderr.String(), want) {
+			t.Fatalf("cmdInstall = %d, %q, want %q", code, stderr.String(), want)
+		}
+	})
+}
+
+func TestHubLocalCommandsNeverStartLocalDaemon(t *testing.T) {
+	cases := map[string][]string{
+		"install-hooks": {"install-hooks"},
+		"lease":         {"lease", "status", "--guarded"},
+		"mem":           {"mem"},
+		"hibernate":     {"hibernate", "--help"},
+		"doctor":        {"doctor", "--offline"},
+		"paths":         {"paths", "--json"},
+		"outbox":        {"outbox", "status"},
+		"version":       {"version"},
+		"update":        {"update", "--help"},
+		"skill":         {"skill", "status"},
+	}
+	for cmd := range localCommands {
+		if _, ok := cases[cmd]; !ok {
+			t.Fatalf("localCommands[%q] has no hub-mode non-start test case", cmd)
+		}
+	}
+	for name, argv := range cases {
+		t.Run(name, func(t *testing.T) {
+			h := startHub(t, `hub = "me@hub"`, `machine = "linux2"`)
+			origUp := ensureDaemonUp
+			ensureDaemonUp = func(context.Context, paths.Dirs, []string) error {
+				t.Errorf("%s called ensureDaemonUp in hub mode", name)
+				return nil
+			}
+			t.Cleanup(func() { ensureDaemonUp = origUp })
+			// We only assert that no local daemon is dialed or started;
+			// individual commands may exit non-zero when herdr/etc. are absent.
+			_, _, _ = h.run(t, "", argv...)
+		})
 	}
 }

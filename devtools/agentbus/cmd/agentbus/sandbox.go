@@ -288,9 +288,16 @@ func agentbusDoctorChecks(env []string) []toolcli.DoctorCheck {
 }
 
 func checkExtraDaemons(ctx context.Context, env []string) toolcli.CheckResult {
+	cfg, err := hubSettings(env)
+	if err != nil {
+		return toolcli.CheckResult{Name: "extra-daemons", Status: toolcli.StatusFail, Detail: err.Error()}
+	}
 	dirs, err := doctorDirs(env, false)
 	if err != nil {
 		return toolcli.CheckResult{Name: "extra-daemons", Status: toolcli.StatusFail, Detail: err.Error()}
+	}
+	if cfg.Hub != "" {
+		return checkHubClientLocalDaemon(ctx, dirs)
 	}
 	var buf bytes.Buffer
 	if err := reportExtraDaemons(ctx, dirs.StateDir, &buf); err != nil {
@@ -301,6 +308,76 @@ func checkExtraDaemons(ctx context.Context, env []string) toolcli.CheckResult {
 		return toolcli.CheckResult{Name: "extra-daemons", Status: toolcli.StatusOK, Detail: "no extra daemon processes"}
 	}
 	return toolcli.CheckResult{Name: "extra-daemons", Status: toolcli.StatusWarn, Detail: msg}
+}
+
+func checkHubClientLocalDaemon(ctx context.Context, dirs paths.Dirs) toolcli.CheckResult {
+	procs, err := listDoctorProcs(ctx)
+	if err != nil {
+		return toolcli.CheckResult{Name: "local-daemon", Status: toolcli.StatusFail, Detail: err.Error()}
+	}
+	running := localAgentbusdProcs(procs, os.Getuid())
+	sockets := existingLocalSockets(dirs)
+	if len(running) == 0 && len(sockets) == 0 {
+		return toolcli.CheckResult{Name: "local-daemon", Status: toolcli.StatusOK, Detail: "no local agentbusd or sockets"}
+	}
+	details, pids := formatLocalDaemonDetails(running, sockets)
+	return toolcli.CheckResult{
+		Name:   "local-daemon",
+		Status: toolcli.StatusFail,
+		Detail: strings.Join(details, "; "),
+		Hint:   formatLocalDaemonHint(pids, sockets),
+	}
+}
+
+func localAgentbusdProcs(procs []doctorProc, uid int) []doctorProc {
+	var running []doctorProc
+	for _, p := range procs {
+		if filepath.Base(p.Name) == "agentbusd" && p.UID == uid {
+			running = append(running, p)
+		}
+	}
+	return running
+}
+
+func existingLocalSockets(dirs paths.Dirs) []string {
+	var sockets []string
+	for _, s := range []string{dirs.SocketPath, dirs.HubSocketPath} {
+		if s == "" {
+			continue
+		}
+		if _, err := os.Lstat(s); err == nil {
+			sockets = append(sockets, s)
+		}
+	}
+	return sockets
+}
+
+func formatLocalDaemonDetails(running []doctorProc, sockets []string) ([]string, []string) {
+	var details []string
+	pids := make([]string, 0, len(running))
+	for _, p := range running {
+		when := "unknown"
+		if !p.Start.IsZero() {
+			when = p.Start.Format(time.RFC3339)
+		}
+		details = append(details, fmt.Sprintf("local agentbusd running: pid %d started %s", p.PID, when))
+		pids = append(pids, strconv.Itoa(p.PID))
+	}
+	if len(sockets) > 0 {
+		details = append(details, fmt.Sprintf("sockets present: %s", strings.Join(sockets, ", ")))
+	}
+	return details, pids
+}
+
+func formatLocalDaemonHint(pids, sockets []string) string {
+	switch {
+	case len(pids) > 0 && len(sockets) > 0:
+		return fmt.Sprintf("stop it with: kill %s and remove the sockets: rm -f %s", strings.Join(pids, " "), strings.Join(sockets, " "))
+	case len(pids) > 0:
+		return fmt.Sprintf("stop it with: kill %s", strings.Join(pids, " "))
+	default:
+		return fmt.Sprintf("remove the sockets: rm -f %s", strings.Join(sockets, " "))
+	}
 }
 
 func checkStaleOutbox(env []string) toolcli.CheckResult {

@@ -15,6 +15,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 	"github.com/jaeyeom/experimental/devtools/pkg/herdrtest"
@@ -307,7 +308,12 @@ func envValue(t *testing.T, env []string, key string) string {
 }
 
 func TestDoctorListsAnExtraDaemon(t *testing.T) {
-	h, _ := sandboxHub(t)
+	h := startHub(t)
+	origDial := dialDaemon
+	dialDaemon = func(context.Context, string, daemon.Request) (daemon.Response, error) {
+		return daemon.Response{}, os.ErrNotExist
+	}
+	t.Cleanup(func() { dialDaemon = origDial })
 	start := time.Date(2026, 11, 12, 21, 4, 5, 0, time.UTC)
 	holder := 10
 	origList, origLock := listDoctorProcs, daemonLockHolder
@@ -338,6 +344,67 @@ func TestDoctorListsAnExtraDaemon(t *testing.T) {
 	if strings.Contains(stdout, "pid 10 started") || strings.Contains(stdout, "pid 7") || strings.Contains(stdout, "pid 8") {
 		t.Fatalf("listed the holder, another program, or another user:\n%s", stdout)
 	}
+}
+
+func TestDoctorHubModeLocalDaemon(t *testing.T) {
+	start := time.Date(2026, 11, 12, 21, 4, 5, 0, time.UTC)
+	t.Run("running-and-sockets", func(t *testing.T) {
+		h, _ := sandboxHub(t)
+		origList := listDoctorProcs
+		t.Cleanup(func() { listDoctorProcs = origList })
+		listDoctorProcs = func(context.Context) ([]doctorProc, error) {
+			return []doctorProc{
+				{PID: 4242, UID: os.Getuid(), Start: start, Name: "agentbusd"},
+			}, nil
+		}
+		dirs, err := paths.FromEnv(h.env)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, sock := range []string{dirs.SocketPath, dirs.HubSocketPath} {
+			if err := os.MkdirAll(filepath.Dir(sock), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(sock, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		code, stdout, stderr := h.run(t, "", "doctor", "--offline")
+		if code != 2 || stderr != "" {
+			t.Fatalf("doctor = %d, stderr %q\nstdout:\n%s", code, stderr, stdout)
+		}
+		for _, want := range []string{
+			"fail",
+			"local-daemon",
+			"pid 4242",
+			start.Format(time.RFC3339),
+			dirs.SocketPath,
+			dirs.HubSocketPath,
+			"kill 4242",
+			"rm -f",
+		} {
+			if !strings.Contains(stdout, want) {
+				t.Errorf("doctor output lacks %q:\n%s", want, stdout)
+			}
+		}
+	})
+
+	t.Run("none", func(t *testing.T) {
+		h, _ := sandboxHub(t)
+		origList := listDoctorProcs
+		t.Cleanup(func() { listDoctorProcs = origList })
+		listDoctorProcs = func(context.Context) ([]doctorProc, error) {
+			return nil, nil
+		}
+		code, stdout, stderr := h.run(t, "", "doctor", "--offline")
+		if stderr != "" || code > 2 {
+			t.Fatalf("doctor = %d, stderr %q\nstdout:\n%s", code, stderr, stdout)
+		}
+		if !strings.Contains(stdout, "ok    local-daemon") || !strings.Contains(stdout, "no local agentbusd or sockets") {
+			t.Fatalf("doctor output lacks ok local-daemon check:\n%s", stdout)
+		}
+	})
 }
 
 func TestDoctorReportsAnUnverifiedHold(t *testing.T) {
