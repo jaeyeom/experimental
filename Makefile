@@ -76,6 +76,7 @@ INSTALL_CMDS := \
 	./devtools/linters/cmd/org-lint \
 	./devtools/linters/cmd/pkgvar \
 	./devtools/linters/cmd/unnecessary-interface-assertion-linter \
+	./devtools/memstore/cmd/memstore \
 	./devtools/prsync/cmd/prsync \
 	./devtools/rename-jira-keys/cmd/rename-jira-keys \
 	./devtools/reviewpush/cmd/review-and-push-loop \

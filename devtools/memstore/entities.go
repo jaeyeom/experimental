@@ -117,6 +117,14 @@ func (s *Service) PutEntity(ctx context.Context, vaultName string, in EntityInpu
 			return Entity{}, err
 		}
 	}
+	aliases, err := loadAliases(ctx, tx, id)
+	if err != nil {
+		return Entity{}, err
+	}
+	ftsBody := strings.TrimSpace(strings.Join(append(aliases, in.Summary), " "))
+	if err := upsertFTSDocTx(ctx, tx, id, DocKindEntity, id, compartment, sens, in.Title, ftsBody); err != nil {
+		return Entity{}, err
+	}
 	diff := map[string]any{"kind": in.Kind, "slug": in.Slug, "compartment": compartment, "sensitivity": string(sens)}
 	if err := RecordRevision(ctx, tx, "entities", id, op, diff, actor.Caller, actor.Reason); err != nil {
 		return Entity{}, err
@@ -549,7 +557,11 @@ func scanEntityRows(ctx context.Context, db *sql.DB, q string, args ...any) ([]E
 	return out, nil
 }
 
-func loadAliases(ctx context.Context, db *sql.DB, entityID string) ([]string, error) {
+type dbQuerier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+func loadAliases(ctx context.Context, db dbQuerier, entityID string) ([]string, error) {
 	rows, err := db.QueryContext(ctx,
 		`SELECT alias FROM entity_aliases WHERE entity_id = ? ORDER BY normalized_alias`, entityID)
 	if err != nil {

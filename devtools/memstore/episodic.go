@@ -132,6 +132,9 @@ func insertEventTx(ctx context.Context, db *sql.DB, id, eventDate string, occurr
 		return fmt.Errorf("insert episodic event: %w", err)
 	}
 
+	if err := upsertFTSDocTx(ctx, tx, id, DocKindEvent, in.EntityID, compartment, sens, in.Summary, in.DetailsMD); err != nil {
+		return err
+	}
 	diff := map[string]any{"event_date": eventDate, "entity_id": in.EntityID, "compartment": compartment, "sensitivity": string(sens)}
 	if err := RecordRevision(ctx, tx, "episodic_events", id, "insert", diff, actor.Caller, actor.Reason); err != nil {
 		return err

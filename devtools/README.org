@@ -51,6 +51,7 @@ tool has its own README. Start with the one-line summaries below.
 | gh-nudge         | Review reminders, Slack posts, merge, and CODEOWNERS       | active       | make install                                      | [[file:gh-nudge/README.org][README]]         |
 | linters          | Org lint, unused interface checks, and package-level vars  | experimental | make install                                      | [[file:linters/README.org][README]]          |
 | magit            | Open magit-status in a running Emacs from the terminal     | active       | ./ensure.sh magit                                 | [[file:magit/README.org][README]]            |
+| memstore         | Compartmentalized personal memory store with FTS5 search   | experimental | make install                                      | [[file:memstore/cmd/memstore/skill.md][skill]] |
 | orgctl           | Compare a written agent-team spec with live tabs and names | experimental | go install ./devtools/orgctl/cmd/orgctl           | [[file:orgctl/README.org][README]]           |
 | prsync           | Match your open pull requests to herdr agent tabs          | experimental | make install                                      | [[file:prsync/README.org][README]]           |
 | quotapace        | Project usage of rolling quota windows against a plan      | experimental | go install ./devtools/quotapace/cmd/quotapace     | [[file:quotapace/README.org][README]]        |

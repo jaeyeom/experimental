@@ -144,10 +144,16 @@ func insertAndSupersedeFactTx(ctx context.Context, tx *sql.Tx, id string, in Fac
 		); err != nil {
 			return fmt.Errorf("supersede fact %q: %w", oldID, err)
 		}
+		if err := deleteFTSDocTx(ctx, tx, oldID, DocKindFact); err != nil {
+			return err
+		}
 		supDiff := map[string]any{"superseded_by": id, "entity_id": in.EntityID, "key": in.Key, "compartment": compartment}
 		if err := RecordRevision(ctx, tx, "facts", oldID, "supersede", supDiff, actor.Caller, actor.Reason); err != nil {
 			return err
 		}
+	}
+	if err := upsertFTSDocTx(ctx, tx, id, DocKindFact, in.EntityID, compartment, sens, in.Key, in.ValueJSON); err != nil {
+		return err
 	}
 	return nil
 }

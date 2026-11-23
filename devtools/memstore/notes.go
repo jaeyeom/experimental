@@ -63,6 +63,9 @@ func (s *Service) SetNoteBlock(ctx context.Context, vaultName string, in NoteBlo
 		return NoteBlock{}, err
 	}
 
+	if err := upsertFTSDocTx(ctx, tx, id, DocKindNote, in.EntityID, compartment, sens, in.Heading, in.BodyMD); err != nil {
+		return NoteBlock{}, err
+	}
 	diff := map[string]any{"entity_id": in.EntityID, "section_key": in.SectionKey, "compartment": compartment, "sensitivity": string(sens)}
 	if err := RecordRevision(ctx, tx, "note_blocks", id, op, diff, actor.Caller, actor.Reason); err != nil {
 		return NoteBlock{}, err

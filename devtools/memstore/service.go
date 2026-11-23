@@ -169,16 +169,37 @@ func newID(prefix string) (string, error) {
 	return prefix + "_" + hex.EncodeToString(b[:]), nil
 }
 
-func (s *Service) allowedScopeJSON() (string, string, error) {
+func (s *Service) allowedCompartmentsJSON() (string, error) {
 	comps := s.policy.AllowedCompartments()
-	sens := s.allowedSensitivities()
 	cb, err := json.Marshal(comps)
 	if err != nil {
-		return "", "", fmt.Errorf("marshal compartments: %w", err)
+		return "", fmt.Errorf("marshal compartments: %w", err)
 	}
+	return string(cb), nil
+}
+
+func (s *Service) allowedScopeJSON() (string, string, error) {
+	compsJSON, err := s.allowedCompartmentsJSON()
+	if err != nil {
+		return "", "", err
+	}
+	sens := s.allowedSensitivities()
 	sb, err := json.Marshal(sens)
 	if err != nil {
 		return "", "", fmt.Errorf("marshal sensitivities: %w", err)
 	}
-	return string(cb), string(sb), nil
+	return compsJSON, string(sb), nil
+}
+
+// QueryAccessLog returns matching access-log rows from vaultName if permitted
+// by the service's profile.
+func (s *Service) QueryAccessLog(ctx context.Context, vaultName string, filter AccessLogFilter) ([]AccessLogEntry, error) {
+	if !s.policy.HasCapability(CapabilityRead) {
+		return nil, fmt.Errorf("%w: profile lacks read capability", ErrForbidden)
+	}
+	v, err := s.openVault(vaultName)
+	if err != nil {
+		return nil, err
+	}
+	return v.QueryAccessLog(ctx, filter)
 }
