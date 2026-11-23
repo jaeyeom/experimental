@@ -493,6 +493,18 @@ Each fixture in =userscript/testdata/= says which markup it copies.
 When the button stops appearing or the payload is wrong, save the
 real page, update the fixture, and fix the script against the test.
 
+=changes-view-captured.html= is the one fixture captured from GitHub
+rather than written by hand: the markup of a newly added file on a
+pull request's =/changes= page, as served on 2026-11-22. A logged-out
+request is redirected to the classic view, so capture it in a signed-in
+browser. To refresh it, open =/changes= on a pull request that adds a
+file, copy the outerHTML of that file's =div[id^="diff-"]= element, and
+keep the file header, the hunk row and the first few line rows. Keep
+tags, attributes and class names as served. Replace any private content
+(paths, code, CODEOWNERS text) and recompute the =diff-= anchor as the
+SHA-256 of the new path. Then update the expected text in the
+"captured changes view" tests.
+
 ** Userscript internals
 
 - ~repo~ and ~pr~ come from the URL.
