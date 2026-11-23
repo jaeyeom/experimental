@@ -32,6 +32,7 @@ type Client interface {
 	ViewerLogin() (string, error)
 	SearchApprovalCandidates() ([]github.ApprovalCandidate, error)
 	SearchTeamApprovalCandidates(labelSets [][]string) ([]github.ApprovalCandidate, error)
+	LoadApprovalPullRequests(refs []github.PullRef) (map[string]github.BatchPullRequestResult, error)
 	LoadApprovalPullRequest(ref github.PullRef) (github.ApprovalPullRequest, error)
 	PullRequestHeadSHA(ref github.PullRef) (string, error)
 	PullRequestDiff(ref github.PullRef) (string, error)
@@ -134,6 +135,9 @@ type Runner struct {
 	Sleep func(time.Duration)
 	// BackoffBase is the initial secondary rate-limit backoff. Zero means defaultBackoffBase.
 	BackoffBase time.Duration
+	// BatchSize bounds how many candidates are loaded per batched GraphQL query.
+	// Zero uses github.ApprovalPullRequestBatchSize.
+	BatchSize int
 
 	// teams caches team members for the run, keyed by lowercase org/slug.
 	teams syncCache[teamMembers]
@@ -153,10 +157,19 @@ type Runner struct {
 // an individual. Search results like that are ignored.
 var errNotRequested = errors.New("not requested as an individual reviewer")
 
+// clientGraphQLCalls returns the GraphQL call count if client tracks it.
+func clientGraphQLCalls(c Client) int {
+	if counter, ok := c.(interface{ GraphQLCalls() int }); ok {
+		return counter.GraphQLCalls()
+	}
+	return 0
+}
+
 // Run evaluates the pull requests and returns an error when any of them had
 // an error. A failed pull request does not stop the others.
 func (r *Runner) Run(opts Options) error {
 	started := r.now()
+	startCalls := clientGraphQLCalls(r.Client)
 	viewer, err := r.Client.ViewerLogin()
 	if err != nil {
 		return fmt.Errorf("read gh user: %w", err)
@@ -178,10 +191,11 @@ func (r *Runner) Run(opts Options) error {
 	if err != nil {
 		return err
 	}
+	totals.graphqlCalls = clientGraphQLCalls(r.Client) - startCalls
 	if err := writeSummary(r.Out, totals.reported, opts.Color); err != nil {
 		return err
 	}
-	if err := r.writePassStats(len(candidates), started, limit, single, totals); err != nil {
+	if err := r.writePassStats(len(candidates), started, limit, single, opts.Explain, totals); err != nil {
 		return err
 	}
 	if totals.failed > 0 {
@@ -196,6 +210,7 @@ type runTotals struct {
 	loaded       int
 	cheapSkipped int
 	stoppedAt    int
+	graphqlCalls int
 }
 
 type evalOutcome struct {
@@ -287,25 +302,67 @@ func (r *Runner) cheapSkipOutcome(candidate github.ApprovalCandidate, explain bo
 	return &evalOutcome{cheapSkipped: true, entry: entry, st: st}
 }
 
+type batchLoadInfo struct {
+	duration time.Duration
+	index    int
+	count    int
+}
+
+func (r *Runner) effectiveBatchSize() int {
+	if r.BatchSize > 0 {
+		return r.BatchSize
+	}
+	return github.ApprovalPullRequestBatchSize
+}
+
+type indexedCandidate struct {
+	index int
+	cand  github.ApprovalCandidate
+}
+
 func (r *Runner) dispatchCandidates(candidates []github.ApprovalCandidate, viewer string, opts Options, single bool, started time.Time, limit time.Duration, pool *loadPool, queue *outcomeQueue) {
 	var wg sync.WaitGroup
+	defer wg.Wait()
 	canStart := func() bool {
 		return single || limit <= 0 || r.now().Sub(started) < limit
 	}
+	if single {
+		r.dispatchSingle(candidates, viewer, single, canStart, pool, queue, &wg)
+		return
+	}
+
+	var toLoad []indexedCandidate
 	for i, candidate := range candidates {
 		if !canStart() {
 			queue.stopAt(i)
-			break
+			return
 		}
-		if !single {
-			if skipped := r.cheapSkipOutcome(candidate, opts.Explain); skipped != nil {
-				queue.set(i, skipped)
-				continue
-			}
+		if skipped := r.cheapSkipOutcome(candidate, opts.Explain); skipped != nil {
+			queue.set(i, skipped)
+			continue
 		}
-		if !pool.acquire(canStart) {
+		toLoad = append(toLoad, indexedCandidate{index: i, cand: candidate})
+	}
+	if len(toLoad) == 0 {
+		return
+	}
+
+	batchSize := r.effectiveBatchSize()
+	totalBatches := (len(toLoad) + batchSize - 1) / batchSize
+	for b := 0; b < totalBatches; b++ {
+		start := b * batchSize
+		end := min(start+batchSize, len(toLoad))
+		if !r.dispatchBatchChunk(toLoad[start:end], b+1, totalBatches, viewer, single, canStart, pool, queue, &wg) {
+			return
+		}
+	}
+}
+
+func (r *Runner) dispatchSingle(candidates []github.ApprovalCandidate, viewer string, single bool, canStart func() bool, pool *loadPool, queue *outcomeQueue, wg *sync.WaitGroup) {
+	for i, candidate := range candidates {
+		if !canStart() || !pool.acquire(canStart) {
 			queue.stopAt(i)
-			break
+			return
 		}
 		wg.Add(1)
 		go func(idx int, cand github.ApprovalCandidate) {
@@ -314,7 +371,53 @@ func (r *Runner) dispatchCandidates(candidates []github.ApprovalCandidate, viewe
 			queue.set(idx, r.loadAndEvaluate(cand.Ref, viewer, single, pool))
 		}(i, candidate)
 	}
-	wg.Wait()
+}
+
+func (r *Runner) dispatchBatchChunk(chunk []indexedCandidate, batchNum, totalBatches int, viewer string, single bool, canStart func() bool, pool *loadPool, queue *outcomeQueue, wg *sync.WaitGroup) bool {
+	if !canStart() {
+		queue.stopAt(chunk[0].index)
+		return false
+	}
+	refs := make([]github.PullRef, len(chunk))
+	for j, item := range chunk {
+		refs[j] = item.cand.Ref
+	}
+	loadStart := r.now()
+	var batchResults map[string]github.BatchPullRequestResult
+	batchErr := pool.callWithRetry(func() error {
+		var callErr error
+		batchResults, callErr = r.Client.LoadApprovalPullRequests(refs)
+		return callErr //nolint:wrapcheck // caller records batch pull request load error
+	})
+	bInfo := batchLoadInfo{
+		duration: r.now().Sub(loadStart),
+		index:    batchNum,
+		count:    totalBatches,
+	}
+	if batchErr != nil {
+		for _, item := range chunk {
+			queue.set(item.index, r.evaluateLoaded(item.cand.Ref, github.ApprovalPullRequest{}, batchErr, bInfo, viewer, single, pool))
+		}
+		return true
+	}
+	for _, item := range chunk {
+		if !pool.acquire(canStart) {
+			queue.stopAt(item.index)
+			return false
+		}
+		key := github.ApprovalRefKey(item.cand.Ref)
+		res, ok := batchResults[key]
+		if !ok {
+			res.Err = fmt.Errorf("load pull request %s: missing from batch response", key)
+		}
+		wg.Add(1)
+		go func(idx int, ref github.PullRef, bRes github.BatchPullRequestResult, info batchLoadInfo) {
+			defer wg.Done()
+			defer pool.release()
+			queue.set(idx, r.evaluateLoaded(ref, bRes.PR, bRes.Err, info, viewer, single, pool))
+		}(item.index, item.cand.Ref, res, bInfo)
+	}
+	return true
 }
 
 func (r *Runner) processCandidates(candidates []github.ApprovalCandidate, viewer string, opts Options, single bool, started time.Time, limit time.Duration) (runTotals, error) {
@@ -382,12 +485,18 @@ func (r *Runner) prunePRCache(candidates []github.ApprovalCandidate, single bool
 	_ = r.PRCache.prune(active)
 }
 
-func (r *Runner) writePassStats(candidates int, started time.Time, limit time.Duration, single bool, totals runTotals) error {
+func (r *Runner) writePassStats(candidates int, started time.Time, limit time.Duration, single, explain bool, totals runTotals) error {
 	if single {
 		return nil
 	}
-	if _, err := fmt.Fprintf(r.Out, "Candidates: %d; skipped by cheap conditions: %d; fully loaded: %d; wall time: %s\n", candidates, totals.cheapSkipped, totals.loaded, r.now().Sub(started)); err != nil {
-		return fmt.Errorf("write output: %w", err)
+	if explain {
+		if _, err := fmt.Fprintf(r.Out, "Candidates: %d; skipped by cheap conditions: %d; fully loaded: %d; wall time: %s; GraphQL calls: %d\n", candidates, totals.cheapSkipped, totals.loaded, r.now().Sub(started), totals.graphqlCalls); err != nil {
+			return fmt.Errorf("write output: %w", err)
+		}
+	} else {
+		if _, err := fmt.Fprintf(r.Out, "Candidates: %d; skipped by cheap conditions: %d; fully loaded: %d; wall time: %s\n", candidates, totals.cheapSkipped, totals.loaded, r.now().Sub(started)); err != nil {
+			return fmt.Errorf("write output: %w", err)
+		}
 	}
 	if totals.stoppedAt < 0 {
 		return nil
@@ -533,11 +642,6 @@ func mineCommentsLimitFailure(matched string, rules []config.ApproveRule, pr git
 // (from PRCache when valid, otherwise from GitHub) and evaluates the rules.
 // Write actions (approve, handoff, mark_viewed) are deferred to applyOutcome.
 func (r *Runner) loadAndEvaluate(ref github.PullRef, viewer string, single bool, pool *loadPool) *evalOutcome {
-	st := &prState{start: r.now()}
-	entry := LogEntry{
-		Time: r.now().UTC(),
-		PR:   fmt.Sprintf("%s/%s#%d", ref.Owner, ref.Repo, ref.Number),
-	}
 	loadStart := r.now()
 	var pr github.ApprovalPullRequest
 	err := pool.callWithRetry(func() error {
@@ -545,9 +649,22 @@ func (r *Runner) loadAndEvaluate(ref github.PullRef, viewer string, single bool,
 		pr, callErr = r.Client.LoadApprovalPullRequest(ref)
 		return callErr //nolint:wrapcheck // caller records pull request load error
 	})
-	st.pullRequest = r.now().Sub(loadStart)
-	if err != nil {
-		entry.Action, entry.Reason = ActionError, err.Error()
+	return r.evaluateLoaded(ref, pr, err, batchLoadInfo{duration: r.now().Sub(loadStart)}, viewer, single, pool)
+}
+
+func (r *Runner) evaluateLoaded(ref github.PullRef, pr github.ApprovalPullRequest, loadErr error, bInfo batchLoadInfo, viewer string, single bool, pool *loadPool) *evalOutcome {
+	st := &prState{
+		start:       r.now(),
+		pullRequest: bInfo.duration,
+		batchIndex:  bInfo.index,
+		batchCount:  bInfo.count,
+	}
+	entry := LogEntry{
+		Time: r.now().UTC(),
+		PR:   fmt.Sprintf("%s/%s#%d", ref.Owner, ref.Repo, ref.Number),
+	}
+	if loadErr != nil {
+		entry.Action, entry.Reason = ActionError, loadErr.Error()
 		return &evalOutcome{entry: entry, st: st}
 	}
 	entry.URL, entry.Title, entry.HeadSHA, entry.Author = pr.URL, pr.Title, pr.HeadSHA, pr.Author
@@ -560,6 +677,23 @@ func (r *Runner) loadAndEvaluate(ref github.PullRef, viewer string, single bool,
 		return &evalOutcome{entry: entry, st: st, skip: !single}
 	}
 	skipReason := r.skipReason(pr, viewer)
+	if skipReason == "" && len(pr.Files) == 0 && pr.FilesErr == "" && pr.ChangedFiles > 0 {
+		fileStart := r.now()
+		var fullPR github.ApprovalPullRequest
+		err := pool.callWithRetry(func() error {
+			var callErr error
+			fullPR, callErr = r.Client.LoadApprovalPullRequest(ref)
+			return callErr //nolint:wrapcheck // caller records pull request load error
+		})
+		st.pullRequest += r.now().Sub(fileStart)
+		if err != nil {
+			entry.Action, entry.Reason = ActionError, err.Error()
+			return &evalOutcome{entry: entry, st: st}
+		}
+		pr.Files = fullPR.Files
+		pr.FilesErr = fullPR.FilesErr
+		st.cacheDirty = true
+	}
 	var agent AgentFunc
 	var loads *lazyLoads
 	if skipReason == "" {

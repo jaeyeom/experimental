@@ -3,6 +3,7 @@ package github
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -436,5 +437,125 @@ func TestFailingStepLogIgnoresStderrHint(t *testing.T) {
 	}
 	if !strings.Contains(log, "FAIL") {
 		t.Fatalf("log = %q, want the step output", log)
+	}
+}
+
+type funcExec struct {
+	fn func(cmd string, args ...string) (string, error)
+}
+
+func (f *funcExec) Execute(cmd string, args ...string) (string, error) {
+	return f.fn(cmd, args...)
+}
+
+func (f *funcExec) ExecuteWithStdin(_, cmd string, args ...string) (string, error) {
+	return f.fn(cmd, args...)
+}
+
+func (f *funcExec) ExecuteSeparated(cmd string, args ...string) (string, string, error) {
+	out, err := f.fn(cmd, args...)
+	return out, "", err
+}
+
+func TestLoadApprovalPullRequestsOneBatch(t *testing.T) {
+	exec := &routeExec{route: map[string]string{
+		"p0:repository": `{"data":{` +
+			`"p0":{"pullRequest":{"id":"PR_1","number":1,"url":"https://github.com/acme/widgets/pull/1","title":"One","state":"OPEN","isDraft":false,"headRefOid":"h1","baseRefName":"main","baseRefOid":"b1","author":{"login":"alice"},"additions":2,"deletions":1,"changedFiles":1,"labels":{"pageInfo":{"hasNextPage":false},"nodes":[{"name":"ready"}]},"reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"User","login":"me"}}]},"reviews":{"nodes":[]},"reviewThreads":{"totalCount":0,"nodes":[]},"commits":{"nodes":[{"commit":{"oid":"h1","statusCheckRollup":{"contexts":{"pageInfo":{"hasNextPage":false},"nodes":[{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS","isRequired":true}]}}}}]}}},` +
+			`"p1":{"pullRequest":{"id":"PR_2","number":2,"url":"https://github.com/acme/widgets/pull/2","title":"Two","state":"OPEN","isDraft":true,"headRefOid":"h2","baseRefName":"main","baseRefOid":"b2","author":{"login":"bob"},"additions":5,"deletions":0,"changedFiles":2,"labels":{"pageInfo":{"hasNextPage":false},"nodes":[]},"reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"Team","slug":"core"}}]},"reviews":{"nodes":[]},"reviewThreads":{"totalCount":1,"nodes":[{"isResolved":false}]},"commits":{"nodes":[{"commit":{"oid":"h2","statusCheckRollup":{"contexts":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}]}}}` +
+			`}}`,
+	}}
+	client := NewClientWithExecutor(exec)
+	got, err := client.LoadApprovalPullRequests([]PullRef{
+		{Owner: "acme", Repo: "widgets", Number: 1},
+		{Owner: "acme", Repo: "widgets", Number: 2},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(exec.calls) != 1 || client.GraphQLCalls() != 1 {
+		t.Fatalf("calls = %d, GraphQLCalls = %d, want 1", len(exec.calls), client.GraphQLCalls())
+	}
+	r1 := got["acme/widgets#1"]
+	if r1.Err != nil || r1.PR.HeadSHA != "h1" || r1.PR.ChangedFiles != 1 || len(r1.PR.Labels) != 1 || r1.PR.Labels[0] != "ready" {
+		t.Fatalf("r1 = %+v", r1)
+	}
+	if r1.PR.Files != nil || r1.PR.FilesErr != "" {
+		t.Fatalf("r1.PR.Files = %v, FilesErr = %q, want nil/empty for light batch", r1.PR.Files, r1.PR.FilesErr)
+	}
+	r2 := got["acme/widgets#2"]
+	if r2.Err != nil || !r2.PR.Draft || r2.PR.UnresolvedThreads != 1 || len(r2.PR.RequestedTeams) != 1 || r2.PR.RequestedTeams[0] != "core" {
+		t.Fatalf("r2 = %+v", r2)
+	}
+}
+
+func TestLoadApprovalPullRequestsSplitsAfterBatchSize(t *testing.T) {
+	total := ApprovalPullRequestBatchSize + 1
+	refs := make([]PullRef, total)
+	for i := range refs {
+		refs[i] = PullRef{Owner: "acme", Repo: "widgets", Number: i + 1}
+	}
+	var calls int
+	exec := &funcExec{fn: func(_ string, args ...string) (string, error) {
+		calls++
+		// Return empty pullRequests for the aliases in this call; count nodes.
+		query := strings.Join(args, " ")
+		data := make(map[string]any)
+		for i := range ApprovalPullRequestBatchSize {
+			alias := fmt.Sprintf("p%d", i)
+			if strings.Contains(query, alias+":repository") {
+				data[alias] = map[string]any{
+					"pullRequest": map[string]any{
+						"number": i + 1, "state": "OPEN", "headRefOid": "h",
+						"labels":        map[string]any{"pageInfo": map[string]any{"hasNextPage": false}, "nodes": []any{}},
+						"reviewThreads": map[string]any{"totalCount": 0, "nodes": []any{}},
+						"commits":       map[string]any{"nodes": []any{map[string]any{"commit": map[string]any{"oid": "h", "statusCheckRollup": map[string]any{"contexts": map[string]any{"pageInfo": map[string]any{"hasNextPage": false}, "nodes": []any{}}}}}}},
+					},
+				}
+			}
+		}
+		b, _ := json.Marshal(map[string]any{"data": data})
+		return string(b), nil
+	}}
+	client := NewClientWithExecutor(exec)
+	got, err := client.LoadApprovalPullRequests(refs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 || client.GraphQLCalls() != 2 {
+		t.Fatalf("calls = %d, GraphQLCalls = %d, want 2", calls, client.GraphQLCalls())
+	}
+	if len(got) != total {
+		t.Fatalf("len(got) = %d, want %d", len(got), total)
+	}
+}
+
+func TestLoadApprovalPullRequestsPartialFailure(t *testing.T) {
+	exec := &funcExec{fn: func(_ string, _ ...string) (string, error) {
+		return `{"data":{` +
+			`"p0":{"pullRequest":{"id":"PR_1","number":1,"state":"OPEN","headRefOid":"h1","labels":{"pageInfo":{"hasNextPage":false},"nodes":[]},"reviewThreads":{"totalCount":0,"nodes":[]},"commits":{"nodes":[{"commit":{"oid":"h1","statusCheckRollup":{"contexts":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}]}}},` +
+			`"p1":{"pullRequest":null}` +
+			`},"errors":[{"type":"NOT_FOUND","message":"Could not resolve to a PullRequest with the number of 99.","path":["p1","pullRequest"]}]}`, errors.New("exit 1")
+	}}
+	got, err := NewClientWithExecutor(exec).LoadApprovalPullRequests([]PullRef{
+		{Owner: "acme", Repo: "widgets", Number: 1},
+		{Owner: "acme", Repo: "widgets", Number: 99},
+	})
+	if err != nil {
+		t.Fatalf("unexpected batch error: %v", err)
+	}
+	if got["acme/widgets#1"].Err != nil || got["acme/widgets#1"].PR.HeadSHA != "h1" {
+		t.Fatalf("pr 1 = %+v", got["acme/widgets#1"])
+	}
+	if got["acme/widgets#99"].Err == nil || !strings.Contains(got["acme/widgets#99"].Err.Error(), "Could not resolve") {
+		t.Fatalf("pr 99 = %+v, want error", got["acme/widgets#99"])
+	}
+}
+
+func TestLoadApprovalPullRequestsEmptyMakesNoCall(t *testing.T) {
+	exec := &routeExec{}
+	client := NewClientWithExecutor(exec)
+	got, err := client.LoadApprovalPullRequests(nil)
+	if err != nil || len(got) != 0 || len(exec.calls) != 0 || client.GraphQLCalls() != 0 {
+		t.Fatalf("got=%v err=%v calls=%d", got, err, len(exec.calls))
 	}
 }

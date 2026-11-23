@@ -294,8 +294,8 @@ func TestExplainPrintsOneTimingLinePerPullRequest(t *testing.T) {
 	out := runTimed(t, fake, []config.ApproveRule{mineRule}, true)
 	got := timingLines(out)
 	want := []string{
-		"timing: total 620ms; pull request 100ms; CODEOWNERS 200ms; teams 20ms; patches 300ms; agent command skipped",
-		"timing: total 400ms; pull request 100ms; CODEOWNERS cache hit; teams cache hit; patches 300ms; agent command skipped",
+		"timing: total 620ms; pull request 100ms (batch 1/1); CODEOWNERS 200ms; teams 20ms; patches 300ms; agent command skipped",
+		"timing: total 400ms; pull request 100ms (batch 1/1); CODEOWNERS cache hit; teams cache hit; patches 300ms; agent command skipped",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("timing lines = %q\nout:\n%s", got, out)

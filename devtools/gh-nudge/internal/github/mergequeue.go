@@ -460,6 +460,7 @@ func (c *Client) MergeAsync(owner, repo string, number int, sha string) error {
 // graphqlQuery runs a read-only GraphQL query. An exit 0 with empty stdout
 // is retried once.
 func (c *Client) graphqlQuery(query string, fields []string) (ghJSONOutput, error) {
+	c.graphqlCalls.Add(1)
 	out, err := c.runGHJSON(graphqlArgs(query, fields)...)
 	if err != nil {
 		return out, fmt.Errorf("gh api graphql: %w", err)
@@ -469,6 +470,7 @@ func (c *Client) graphqlQuery(query string, fields []string) (ghJSONOutput, erro
 
 // graphqlMutation runs a GraphQL mutation once. It is never retried.
 func (c *Client) graphqlMutation(mutation string, fields []string) (ghJSONOutput, error) {
+	c.graphqlCalls.Add(1)
 	out, err := c.runGHOnce(graphqlArgs(mutation, fields))
 	if err != nil {
 		return out, fmt.Errorf("gh api graphql: %w", err)

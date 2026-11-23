@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
@@ -72,6 +73,14 @@ type Client struct {
 	mu     sync.Mutex
 	checks map[string][]models.StatusCheck
 	files  map[string][]models.File
+
+	graphqlCalls atomic.Int64
+}
+
+// GraphQLCalls returns the total number of GraphQL queries and mutations
+// executed by this client.
+func (c *Client) GraphQLCalls() int {
+	return int(c.graphqlCalls.Load())
 }
 
 // NewClient creates a new GitHub client with the shared executor.

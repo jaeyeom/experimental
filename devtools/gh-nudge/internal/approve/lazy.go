@@ -41,6 +41,8 @@ type prState struct {
 	start       time.Time
 	end         time.Time
 	pullRequest time.Duration
+	batchIndex  int
+	batchCount  int
 	codeowners  loadStat
 	teams       loadStat
 	patches     loadStat
@@ -203,9 +205,13 @@ func (r *Runner) timingLine(st *prState) string {
 	if end.IsZero() {
 		end = r.now()
 	}
+	prTiming := "pull request " + st.pullRequest.String()
+	if st.batchIndex > 0 {
+		prTiming += fmt.Sprintf(" (batch %d/%d)", st.batchIndex, st.batchCount)
+	}
 	parts := []string{
 		"total " + end.Sub(st.start).String(),
-		"pull request " + st.pullRequest.String(),
+		prTiming,
 		"CODEOWNERS " + st.codeowners.String(),
 		"teams " + st.teams.String(),
 		"patches " + st.patches.String(),

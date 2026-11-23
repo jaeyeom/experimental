@@ -33,6 +33,9 @@ type fakeClient struct {
 	prs           map[int]github.ApprovalPullRequest
 	loadErr       map[int]error
 	loadReads     int
+	batchReads    int
+	batchSizes    []int
+	batchErr      error
 	heads         map[int]string
 	headReads     int
 	approveErr    error
@@ -156,6 +159,42 @@ func (f *fakeClient) candidates(refs []github.PullRef) []github.ApprovalCandidat
 		candidates = append(candidates, github.ApprovalCandidate{Ref: ref, URL: pr.URL, Title: pr.Title, Author: pr.Author, Draft: pr.Draft, Additions: pr.Additions, Deletions: pr.Deletions, ChangedFiles: pr.ChangedFiles, Labels: pr.Labels})
 	}
 	return candidates
+}
+
+func (f *fakeClient) GraphQLCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.searched + f.teamSearched + f.batchReads + f.loadReads +
+		f.codeownersReads + f.viewerTeamReads + f.teamCountReads +
+		f.teamListReads + f.repoFileReads + 1 // +1 for ViewerLogin
+}
+
+func (f *fakeClient) LoadApprovalPullRequests(refs []github.PullRef) (map[string]github.BatchPullRequestResult, error) {
+	f.mu.Lock()
+	f.batchReads++
+	f.batchSizes = append(f.batchSizes, len(refs))
+	batchErr := f.batchErr
+	out := make(map[string]github.BatchPullRequestResult, len(refs))
+	for _, ref := range refs {
+		key := github.ApprovalRefKey(ref)
+		if err := f.loadErr[ref.Number]; err != nil {
+			out[key] = github.BatchPullRequestResult{Err: err}
+			continue
+		}
+		pr, ok := f.prs[ref.Number]
+		if !ok {
+			out[key] = github.BatchPullRequestResult{Err: errors.New("unexpected pull request")}
+			continue
+		}
+		pr.Files = nil
+		pr.FilesErr = ""
+		out[key] = github.BatchPullRequestResult{PR: pr}
+	}
+	f.mu.Unlock()
+	if batchErr != nil {
+		return nil, batchErr
+	}
+	return out, nil
 }
 
 func (f *fakeClient) LoadApprovalPullRequest(ref github.PullRef) (github.ApprovalPullRequest, error) {

@@ -37,6 +37,7 @@ go_test(
         "agent_test.go",
         "agent_unix_test.go",
         "agentcache_test.go",
+        "batch_test.go",
         "comments_test.go",
         "conditions_test.go",
         "display_test.go",

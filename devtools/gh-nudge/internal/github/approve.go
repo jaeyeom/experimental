@@ -373,6 +373,163 @@ type approvalCheckJSON struct {
 	IsRequired bool   `json:"isRequired"`
 }
 
+// ApprovalPullRequestBatchSize is the maximum number of pull requests
+// requested in a single batched GraphQL query.
+const ApprovalPullRequestBatchSize = 25
+
+// BatchPullRequestResult holds either the loaded light pull request state
+// or the per-PR error when that pull request could not be read.
+type BatchPullRequestResult struct {
+	PR  ApprovalPullRequest
+	Err error
+}
+
+// ApprovalRefKey returns the canonical owner/repo#number key for ref.
+func ApprovalRefKey(ref PullRef) string {
+	return fmt.Sprintf("%s/%s#%d", ref.Owner, ref.Repo, ref.Number)
+}
+
+// LoadApprovalPullRequests loads the light per-PR state (everything except
+// changed file paths) for refs in batched GraphQL queries of up to
+// ApprovalPullRequestBatchSize pull requests each. An empty slice makes no
+// calls. Per-PR errors (e.g. NOT_FOUND or FORBIDDEN) are recorded in the
+// corresponding BatchPullRequestResult without failing the rest of the batch.
+func (c *Client) LoadApprovalPullRequests(refs []PullRef) (map[string]BatchPullRequestResult, error) {
+	out := make(map[string]BatchPullRequestResult, len(refs))
+	for start := 0; start < len(refs); start += ApprovalPullRequestBatchSize {
+		end := start + ApprovalPullRequestBatchSize
+		if end > len(refs) {
+			end = len(refs)
+		}
+		part, err := c.loadApprovalPullRequestBatch(refs[start:end])
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range part {
+			out[k] = v
+		}
+	}
+	return out, nil
+}
+
+type approvalBatchAlias struct {
+	name string
+	key  string
+	ref  PullRef
+}
+
+func approvalBatchQuery(refs []PullRef) (string, []approvalBatchAlias, error) {
+	var b strings.Builder
+	b.WriteString("query{")
+	aliases := make([]approvalBatchAlias, len(refs))
+	for i, ref := range refs {
+		owner, err := gqlQuote(ref.Owner)
+		if err != nil {
+			return "", nil, err
+		}
+		name, err := gqlQuote(ref.Repo)
+		if err != nil {
+			return "", nil, err
+		}
+		alias := "p" + strconv.Itoa(i)
+		aliases[i] = approvalBatchAlias{name: alias, key: ApprovalRefKey(ref), ref: ref}
+		fmt.Fprintf(&b, `%s:repository(owner:%s,name:%s){pullRequest(number:%d){`+
+			`id number url title state isDraft headRefOid baseRefName baseRefOid `+
+			`author{login} additions deletions changedFiles `+
+			`labels(first:100){pageInfo{hasNextPage} nodes{name}} `+
+			`reviewRequests(first:100){nodes{requestedReviewer{__typename ... on User{login} ... on Team{slug}}}} `+
+			`reviews(last:100){nodes{author{login} state commit{oid}}} `+
+			`reviewThreads(first:100){totalCount nodes{isResolved}} `+
+			`commits(last:1){nodes{commit{oid statusCheckRollup{contexts(first:100){pageInfo{hasNextPage} nodes{__typename `+
+			`... on CheckRun{name status conclusion isRequired(pullRequestNumber:%d)} `+
+			`... on StatusContext{context state isRequired(pullRequestNumber:%d)}`+
+			`}}}}}}`+
+			`}}`,
+			alias, owner, name, ref.Number, ref.Number, ref.Number)
+	}
+	b.WriteString("}")
+	return b.String(), aliases, nil
+}
+
+type batchPullRequestEnvelope struct {
+	Data map[string]*struct {
+		PullRequest *approvalPRJSON `json:"pullRequest"`
+	} `json:"data"`
+	Errors []struct {
+		Type    string            `json:"type"`
+		Message string            `json:"message"`
+		Path    []json.RawMessage `json:"path"`
+	} `json:"errors"`
+}
+
+func collectBatchAliasErrors(envelope batchPullRequestEnvelope, aliases []approvalBatchAlias) (map[string]string, error) {
+	known := make(map[string]bool, len(aliases))
+	for _, a := range aliases {
+		known[a.name] = true
+	}
+	perAliasErr := make(map[string]string)
+	for _, item := range envelope.Errors {
+		msg := strings.TrimSpace(item.Message)
+		if msg == "" {
+			msg = item.Type
+		}
+		if msg == "" {
+			msg = "graphql error"
+		}
+		lower := strings.ToLower(msg)
+		if strings.Contains(lower, "rate limit") || strings.Contains(lower, "abuse detection") {
+			return nil, fmt.Errorf("%s", msg)
+		}
+		alias := pathAlias(item.Path)
+		if !known[alias] {
+			return nil, fmt.Errorf("%s", msg)
+		}
+		if _, exists := perAliasErr[alias]; !exists {
+			perAliasErr[alias] = msg
+		}
+	}
+	return perAliasErr, nil
+}
+
+func (c *Client) loadApprovalPullRequestBatch(refs []PullRef) (map[string]BatchPullRequestResult, error) {
+	query, aliases, err := approvalBatchQuery(refs)
+	if err != nil {
+		return nil, err
+	}
+	body, callErr := c.graphqlQuery(query, nil)
+	if strings.TrimSpace(body.stdout) == "" {
+		return nil, graphqlCallError("load pull requests", body, callErr)
+	}
+	var envelope batchPullRequestEnvelope
+	if err := json.Unmarshal([]byte(body.stdout), &envelope); err != nil {
+		return nil, graphqlCallError("load pull requests", body, callErr)
+	}
+	perAliasErr, err := collectBatchAliasErrors(envelope, aliases)
+	if err != nil {
+		return nil, graphqlCallError("load pull requests", body, callErr)
+	}
+	if envelope.Data == nil && len(perAliasErr) == 0 {
+		return nil, graphqlCallError("load pull requests", body, callErr)
+	}
+	out := make(map[string]BatchPullRequestResult, len(aliases))
+	for _, a := range aliases {
+		if msg, failed := perAliasErr[a.name]; failed {
+			out[a.key] = BatchPullRequestResult{Err: fmt.Errorf("load pull request %s: %s", a.key, msg)}
+			continue
+		}
+		var node *approvalPRJSON
+		if envelope.Data != nil && envelope.Data[a.name] != nil {
+			node = envelope.Data[a.name].PullRequest
+		}
+		if node == nil {
+			out[a.key] = BatchPullRequestResult{Err: fmt.Errorf("load pull request %s: not found", a.key)}
+			continue
+		}
+		out[a.key] = BatchPullRequestResult{PR: convertApprovalLightPR(node, a.ref)}
+	}
+	return out, nil
+}
+
 // LoadApprovalPullRequest reads the pull request state gh-approve evaluates.
 // Data that cannot be read completely is reported in the *Err fields.
 func (c *Client) LoadApprovalPullRequest(ref PullRef) (ApprovalPullRequest, error) {
@@ -401,7 +558,7 @@ func (c *Client) LoadApprovalPullRequest(ref PullRef) (ApprovalPullRequest, erro
 	return convertApprovalPR(resp.Data.Repository.PullRequest, ref), nil
 }
 
-func convertApprovalPR(raw *approvalPRJSON, ref PullRef) ApprovalPullRequest {
+func convertApprovalLightPR(raw *approvalPRJSON, ref PullRef) ApprovalPullRequest {
 	pr := ApprovalPullRequest{
 		Ref:          ref,
 		URL:          raw.URL,
@@ -419,12 +576,17 @@ func convertApprovalPR(raw *approvalPRJSON, ref PullRef) ApprovalPullRequest {
 	if raw.Author != nil {
 		pr.Author = raw.Author.Login
 	}
-	pr.Files, pr.FilesErr = approvalFiles(raw)
 	pr.Labels, pr.LabelsErr = approvalLabels(raw)
 	pr.RequestedUsers, pr.RequestedTeams = requestedReviewers(raw)
 	pr.Reviews = approvalReviews(raw)
 	pr.UnresolvedThreads, pr.ThreadsErr = unresolvedThreads(raw)
 	pr.Checks, pr.ChecksErr = approvalChecks(raw)
+	return pr
+}
+
+func convertApprovalPR(raw *approvalPRJSON, ref PullRef) ApprovalPullRequest {
+	pr := convertApprovalLightPR(raw, ref)
+	pr.Files, pr.FilesErr = approvalFiles(raw)
 	return pr
 }
 
