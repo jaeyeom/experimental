@@ -240,9 +240,13 @@ func (e *e2e) pushedIDs() []string {
 	return ids
 }
 
-// nextChange reads frames until a delta or resync names item id.
-func nextChange(t *testing.T, c *sseClient, id string) sseFrame {
+// nextChange reads frames until every id in ids has appeared in a delta frame.
+func nextChange(t *testing.T, c *sseClient, ids ...string) sseFrame {
 	t.Helper()
+	need := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		need[id] = true
+	}
 	for {
 		f := c.next(true)
 		var seen []any
@@ -250,9 +254,12 @@ func nextChange(t *testing.T, c *sseClient, id string) sseFrame {
 			seen, _ = f.data["changes"].([]any)
 		}
 		for _, ch := range seen {
-			if ch.(map[string]any)["id"] == id {
-				return f
+			if id, _ := ch.(map[string]any)["id"].(string); need[id] {
+				delete(need, id)
 			}
+		}
+		if len(need) == 0 {
+			return f
 		}
 	}
 }
@@ -346,8 +353,7 @@ func TestE2EFullStack(t *testing.T) {
 		Question: "run rm -rf?", Verbatim: "rm -rf /tmp/x", Class: decide.ClassApproval, Parent: parent.ID,
 		Options: opts, NotifyPane: "w1:p1",
 	})
-	nextChange(t, events, note.ID)
-	nextChange(t, events, card.ID)
+	nextChange(t, events, note.ID, card.ID)
 	eventually(t, "grace timer", func() bool { return e.timers.pending() > 0 })
 	if len(e.pushedIDs()) != 0 {
 		t.Fatal("pushed before the grace delay")
@@ -572,4 +578,43 @@ func TestE2EEmbeddedAssets(t *testing.T) {
 	if bytes.Contains([]byte(sw), []byte("__BUILD__")) || h.Get("Service-Worker-Allowed") != "/" {
 		t.Errorf("service worker not built: allowed=%q", h.Get("Service-Worker-Allowed"))
 	}
+}
+
+func TestNextChangeBatched(t *testing.T) {
+	t.Run("single_frame", func(t *testing.T) {
+		c := &sseClient{t: t, frames: make(chan sseFrame, 4)}
+		c.frames <- sseFrame{
+			id:    "1",
+			event: "delta",
+			data: map[string]any{
+				"changes": []any{
+					map[string]any{"id": "note-1"},
+					map[string]any{"id": "card-1"},
+				},
+			},
+		}
+		f := nextChange(t, c, "note-1", "card-1")
+		if f.id != "1" {
+			t.Errorf("frame id = %q, want 1", f.id)
+		}
+	})
+
+	t.Run("multiple_frames", func(t *testing.T) {
+		c := &sseClient{t: t, frames: make(chan sseFrame, 4)}
+		c.frames <- sseFrame{
+			id:    "1",
+			event: "delta",
+			data:  map[string]any{"changes": []any{map[string]any{"id": "note-1"}}},
+		}
+		c.frames <- sseFrame{event: "ping"}
+		c.frames <- sseFrame{
+			id:    "2",
+			event: "delta",
+			data:  map[string]any{"changes": []any{map[string]any{"id": "card-1"}}},
+		}
+		f := nextChange(t, c, "note-1", "card-1")
+		if f.id != "2" {
+			t.Errorf("frame id = %q, want 2", f.id)
+		}
+	})
 }
