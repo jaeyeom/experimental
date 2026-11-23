@@ -41,6 +41,11 @@ go_library(
 go_test(
     name = "go_default_test",
     srcs = ["linter_test.go"],
-    data = glob(["testdata/**"]),
-    deps = [":go_default_library"],
+    data = glob(["testdata/**"]) + [
+        "@go_sdk//:files",  # keep
+    ],
+    deps = [
+        ":go_default_library",
+        "//devtools/linters/internal/analysistestenv:go_default_library",
+    ],
 )
