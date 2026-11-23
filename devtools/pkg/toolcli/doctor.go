@@ -132,8 +132,9 @@ func (t *Tool) checkRevision(ctx context.Context, offline bool) CheckResult {
 			Detail: "main package not configured",
 		}
 	}
-	current := currentRevLabel(t.buildInfo())
-	latest, err := t.installer().LatestRevision(ctx, t.MainPackage, "latest")
+	bi := t.buildInfo()
+	current := currentRevLabel(bi)
+	latest, err := t.installer().LatestRevision(ctx, t.modulePath(bi), defaultRef)
 	if err != nil {
 		return CheckResult{
 			Name:   "revision",
@@ -145,6 +146,13 @@ func (t *Tool) checkRevision(ctx context.Context, offline bool) CheckResult {
 	newRev := latest.Revision
 	if newRev == "" {
 		newRev = latest.Version
+	}
+	if isAhead(bi, latest) {
+		return CheckResult{
+			Name:   "revision",
+			Status: StatusOK,
+			Detail: fmt.Sprintf("%s (ahead of %s)", current, defaultRef),
+		}
 	}
 	if current == "unknown" || !revisionsMatch(current, newRev) {
 		return CheckResult{

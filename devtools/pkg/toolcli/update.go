@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -11,60 +12,72 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
-// GoInstaller installs Go binaries and queries revisions using the `go` tool.
-type GoInstaller struct{}
+// defaultRef is the revision tools are updated to: they are installed from main.
+const defaultRef = "main"
 
-// LatestRevision queries `go list -m -json <module>@<ref>` to resolve the latest revision.
-func (GoInstaller) LatestRevision(ctx context.Context, pkg, ref string) (RevisionInfo, error) {
-	if ref == "" {
-		ref = "latest"
+// GoInstaller installs Go binaries and queries revisions using the `go` tool.
+type GoInstaller struct {
+	// Run executes `go <args>` and returns stdout. Defaults to the real go tool.
+	Run func(ctx context.Context, args ...string) ([]byte, error)
+}
+
+func (g GoInstaller) run(ctx context.Context, env []string, args ...string) ([]byte, error) {
+	if g.Run != nil {
+		return g.Run(ctx, args...)
 	}
-	target := pkg + "@" + ref
-	cmd := exec.CommandContext(ctx, "go", "list", "-m", "-json", target) //nolint:gosec // G204: pkg and ref are tool configuration / CLI ref
+	cmd := exec.CommandContext(ctx, "go", args...) //nolint:gosec // G204: args come from tool configuration / CLI ref
+	cmd.Env = append(os.Environ(), env...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			return RevisionInfo{}, fmt.Errorf("go list %s: %w", target, err)
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return nil, errors.New(msg)
 		}
-		return RevisionInfo{}, fmt.Errorf("go list %s: %s", target, msg)
+		return nil, fmt.Errorf("run go: %w", err)
+	}
+	return stdout.Bytes(), nil
+}
+
+// LatestRevision queries `go list -m -json <module>@<ref>` to resolve the
+// revision of ref. The argument must be a module path, not a package path.
+func (g GoInstaller) LatestRevision(ctx context.Context, module, ref string) (RevisionInfo, error) {
+	if ref == "" {
+		ref = defaultRef
+	}
+	target := module + "@" + ref
+	stdout, err := g.run(ctx, nil, "list", "-m", "-json", target)
+	if err != nil {
+		return RevisionInfo{}, fmt.Errorf("go list %s: %w", target, err)
 	}
 	var mod struct {
-		Version string `json:"Version"` //nolint:tagliatelle // go list -m -json uses PascalCase
+		Version string    `json:"Version"` //nolint:tagliatelle // go list -m -json uses PascalCase
+		Time    time.Time `json:"Time"`    //nolint:tagliatelle // go list -m -json uses PascalCase
 		Origin  *struct {
 			Hash string `json:"Hash"` //nolint:tagliatelle // go list -m -json uses PascalCase
 		} `json:"Origin"` //nolint:tagliatelle // go list -m -json uses PascalCase
 	}
-	if err := json.Unmarshal(stdout.Bytes(), &mod); err != nil {
+	if err := json.Unmarshal(stdout, &mod); err != nil {
 		return RevisionInfo{}, fmt.Errorf("parse go list output: %w", err)
 	}
 	rev := mod.Version
 	if mod.Origin != nil && mod.Origin.Hash != "" {
 		rev = mod.Origin.Hash
 	}
-	return RevisionInfo{Version: mod.Version, Revision: rev}, nil
+	return RevisionInfo{Version: mod.Version, Revision: rev, Time: mod.Time}, nil
 }
 
 // Install runs `go install <pkg>@<ref>` with GOBIN set to binDir.
-func (GoInstaller) Install(ctx context.Context, pkg, ref, binDir string) error {
+func (g GoInstaller) Install(ctx context.Context, pkg, ref, binDir string) error {
 	if ref == "" {
-		ref = "latest"
+		ref = defaultRef
 	}
 	target := pkg + "@" + ref
-	cmd := exec.CommandContext(ctx, "go", "install", target) //nolint:gosec // G204: pkg and ref are tool configuration / CLI ref
-	cmd.Env = append(os.Environ(), "GOBIN="+binDir)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			return fmt.Errorf("go install %s: %w", target, err)
-		}
-		return fmt.Errorf("go install %s: %s", target, msg)
+	if _, err := g.run(ctx, []string{"GOBIN=" + binDir}, "install", target); err != nil {
+		return fmt.Errorf("go install %s: %w", target, err)
 	}
 	return nil
 }
@@ -104,7 +117,8 @@ func (t *Tool) cmdUpdate(ctx context.Context, args []string, stdout, stderr io.W
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	check := fs.Bool("check", false, "check if a newer revision exists without installing")
-	ref := fs.String("ref", "latest", "target branch, tag, or version")
+	ref := fs.String("ref", defaultRef, "target branch, tag, or version")
+	force := fs.Bool("force", false, "update even if the target revision is older than the installed one")
 	jsonOut := fs.Bool("json", false, "output JSON")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -116,7 +130,7 @@ func (t *Tool) cmdUpdate(ctx context.Context, args []string, stdout, stderr io.W
 		return failMsg(stderr, "tool main package is not configured", 2)
 	}
 
-	out, code, err := t.runUpdate(ctx, *check, *ref)
+	out, code, err := t.runUpdate(ctx, *check, *force, *ref)
 	if err != nil {
 		return failErr(stderr, err, 2)
 	}
@@ -132,14 +146,17 @@ func (t *Tool) cmdUpdate(ctx context.Context, args []string, stdout, stderr io.W
 	return code
 }
 
-func (t *Tool) runUpdate(ctx context.Context, check bool, ref string) (UpdateOutput, int, error) {
+func (t *Tool) runUpdate(ctx context.Context, check, force bool, ref string) (UpdateOutput, int, error) {
 	inst := t.installer()
 	bi := t.buildInfo()
 	oldRev := currentRevLabel(bi)
 
-	latest, err := inst.LatestRevision(ctx, t.MainPackage, ref)
+	latest, err := inst.LatestRevision(ctx, t.modulePath(bi), ref)
 	if err != nil {
 		return UpdateOutput{}, 2, fmt.Errorf("check latest revision: %w", err)
+	}
+	if isAhead(bi, latest) && !force {
+		return UpdateOutput{}, 2, fmt.Errorf("installed %s is newer than %s (%s); refusing to downgrade, use --force to override", oldRev, ref, latest.Version)
 	}
 	newRev := latest.Revision
 	if newRev == "" {
@@ -291,4 +308,26 @@ func revisionsMatch(a, b string) bool {
 		return strings.HasPrefix(a, b) || strings.HasPrefix(b, a)
 	}
 	return false
+}
+
+// modulePath returns the module that contains the tool's main package.
+func (t *Tool) modulePath(bi BuildInfo) string {
+	if bi.ModulePath != "" {
+		return bi.ModulePath
+	}
+	return t.MainPackage
+}
+
+// isAhead reports whether the installed build is newer than the resolved
+// revision, judged by commit times, when the revisions differ.
+func isAhead(bi BuildInfo, latest RevisionInfo) bool {
+	installed, err := time.Parse(time.RFC3339, bi.BuildTime)
+	if err != nil || latest.Time.IsZero() {
+		return false
+	}
+	rev := latest.Revision
+	if rev == "" {
+		rev = latest.Version
+	}
+	return !revisionsMatch(currentRevLabel(bi), rev) && installed.After(latest.Time)
 }

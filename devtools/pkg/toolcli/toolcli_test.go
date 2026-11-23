@@ -13,11 +13,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
 )
 
 type fakeInstaller struct {
+	queries   []string
 	rev       toolcli.RevisionInfo
 	revErr    error
 	installs  []installCall
@@ -30,7 +32,8 @@ type installCall struct {
 	binDir string
 }
 
-func (f *fakeInstaller) LatestRevision(context.Context, string, string) (toolcli.RevisionInfo, error) {
+func (f *fakeInstaller) LatestRevision(_ context.Context, module, ref string) (toolcli.RevisionInfo, error) {
+	f.queries = append(f.queries, module+"@"+ref)
 	return f.rev, f.revErr
 }
 
@@ -345,4 +348,69 @@ func TestConformanceHelper(t *testing.T) {
 			return newTestTool(t, homeDir, workDir, inst)
 		},
 	})
+}
+
+func TestRevisionQueryUsesModuleAndMainByDefault(t *testing.T) {
+	inst := &fakeInstaller{rev: toolcli.RevisionInfo{Version: "v0.1.0", Revision: "abc1234"}}
+	tool := newTestTool(t, t.TempDir(), t.TempDir(), inst)
+	var out, errBuf bytes.Buffer
+	tool.Handle(context.Background(), []string{"update", "--check"}, &out, &errBuf)
+	tool.Handle(context.Background(), []string{"update", "--check", "--ref", "v0.1.0"}, &out, &errBuf)
+	tool.Handle(context.Background(), []string{"doctor"}, &out, &errBuf)
+	want := []string{"example.com/mytool@main", "example.com/mytool@v0.1.0", "example.com/mytool@main"}
+	if strings.Join(inst.queries, ",") != strings.Join(want, ",") {
+		t.Fatalf("queries = %v, want %v", inst.queries, want)
+	}
+}
+
+func TestGoInstallerQueriesModulePath(t *testing.T) {
+	var got []string
+	inst := toolcli.GoInstaller{Run: func(_ context.Context, args ...string) ([]byte, error) {
+		got = args
+		return []byte(`{"Version":"v0.1.1-0.20261123015735-80ec822bed1a","Time":"2026-11-23T01:57:35Z","Origin":{"Hash":"80ec822bed1a0000"}}`), nil
+	}}
+	info, err := inst.LatestRevision(context.Background(), "example.com/mytool", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got, " ") != "list -m -json example.com/mytool@main" {
+		t.Fatalf("go args = %v", got)
+	}
+	if info.Revision != "80ec822bed1a0000" || info.Time.IsZero() {
+		t.Fatalf("info = %+v", info)
+	}
+}
+
+func TestOlderResolvedRevisionRefusesAndDoctorSaysAhead(t *testing.T) {
+	old := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC) // installed build is 2026-11-20
+	inst := &fakeInstaller{rev: toolcli.RevisionInfo{Version: "v0.1.0", Revision: "old0000", Time: old}}
+	tool := newTestTool(t, t.TempDir(), t.TempDir(), inst)
+
+	var out, errBuf bytes.Buffer
+	code, _ := tool.Handle(context.Background(), []string{"update"}, &out, &errBuf)
+	if code != 2 || !strings.Contains(errBuf.String(), "--force") || len(inst.installs) != 0 {
+		t.Fatalf("update: code=%d err=%q installs=%d", code, errBuf.String(), len(inst.installs))
+	}
+	errBuf.Reset()
+	code, _ = tool.Handle(context.Background(), []string{"update", "--force"}, &out, &errBuf)
+	if code != 0 || len(inst.installs) != 2 {
+		t.Fatalf("update --force: code=%d err=%q installs=%d", code, errBuf.String(), len(inst.installs))
+	}
+
+	out.Reset()
+	tool.Handle(context.Background(), []string{"doctor"}, &out, &errBuf)
+	if !strings.Contains(out.String(), "ok    revision") || !strings.Contains(out.String(), "ahead of main") {
+		t.Fatalf("doctor:\n%s", out.String())
+	}
+}
+
+func TestNewerMainRevisionReportsUpdateAvailable(t *testing.T) {
+	newer := time.Date(2026, 11, 22, 0, 0, 0, 0, time.UTC)
+	inst := &fakeInstaller{rev: toolcli.RevisionInfo{Version: "v0.1.1-x", Revision: "new0000", Time: newer}}
+	tool := newTestTool(t, t.TempDir(), t.TempDir(), inst)
+	var out, errBuf bytes.Buffer
+	code, _ := tool.Handle(context.Background(), []string{"update", "--check"}, &out, &errBuf)
+	if code != 1 || !strings.Contains(out.String(), "update available") {
+		t.Fatalf("code=%d out=%s", code, out.String())
+	}
 }

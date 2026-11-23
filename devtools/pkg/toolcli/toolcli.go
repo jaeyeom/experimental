@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/pkg/version"
 )
@@ -39,11 +40,13 @@ type BuildInfo struct {
 type RevisionInfo struct {
 	Version  string
 	Revision string
+	// Time is the commit time of the revision, when known.
+	Time time.Time
 }
 
 // Installer abstracts remote revision lookup and binary installation.
 type Installer interface {
-	LatestRevision(ctx context.Context, pkg, ref string) (RevisionInfo, error)
+	LatestRevision(ctx context.Context, module, ref string) (RevisionInfo, error)
 	Install(ctx context.Context, pkg, ref, binDir string) error
 }
 
