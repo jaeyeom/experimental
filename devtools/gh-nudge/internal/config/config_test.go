@@ -1053,6 +1053,19 @@ func TestLoadConfigCircleCILog(t *testing.T) {
 	if cfg.Settings.CircleCILog != CircleCILogAuto {
 		t.Fatalf("circleci_log = %q", cfg.Settings.CircleCILog)
 	}
+	if cfg.Settings.CircleCITokenFile != DefaultCircleCITokenFile {
+		t.Fatalf("circleci_token_file = %q, want %q", cfg.Settings.CircleCITokenFile, DefaultCircleCITokenFile)
+	}
+	if err := os.WriteFile(configPath, []byte("github:\n  repos:\n    - repo1\nsettings:\n  circleci_token_file: ~/custom/token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = LoadConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Settings.CircleCITokenFile != "~/custom/token" {
+		t.Fatalf("circleci_token_file = %q, want ~/custom/token", cfg.Settings.CircleCITokenFile)
+	}
 	if err := os.WriteFile(configPath, []byte("github:\n  repos:\n    - repo1\nsettings:\n  circleci_log: nope\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -1167,6 +1180,7 @@ func TestEffectiveSettingsInheritsUnsetAndReplacesEmpty(t *testing.T) {
 	checks := []string{"lint"}
 	marker := "entry-marker"
 	blank := ""
+	customPath := "/etc/circleci-token"
 	cfg := &Config{
 		Settings: SettingsConfig{
 			BlockMergeLabels:  []string{"do-not-merge"},
@@ -1176,6 +1190,7 @@ func TestEffectiveSettingsInheritsUnsetAndReplacesEmpty(t *testing.T) {
 			MaxRequeues:       &limit,
 			FailureLogPattern: "GLOBAL",
 			CircleCILog:       CircleCILogAPI,
+			CircleCITokenFile: customPath,
 		},
 		RepoSettings: map[string]RepoSettings{
 			"acme/widgets": {
@@ -1190,6 +1205,7 @@ func TestEffectiveSettingsInheritsUnsetAndReplacesEmpty(t *testing.T) {
 				MaxRequeues:       &zero,
 				FailureLogPattern: &blank,
 				CircleCILog:       &blank,
+				CircleCITokenFile: &blank,
 			},
 			"acme/bare": {},
 		},
@@ -1202,7 +1218,7 @@ func TestEffectiveSettingsInheritsUnsetAndReplacesEmpty(t *testing.T) {
 	if joinNames(got.BlockMergeLabels) != "do-not-merge" || got.RCAMarker != "entry-marker" {
 		t.Fatalf("inherited or replaced = %+v", got)
 	}
-	if got.RequeueLimit() != 4 || got.FailureLogPattern != "GLOBAL" || got.CircleCILog != CircleCILogAPI {
+	if got.RequeueLimit() != 4 || got.FailureLogPattern != "GLOBAL" || got.CircleCILog != CircleCILogAPI || got.CircleCITokenFile != "/etc/circleci-token" {
 		t.Fatalf("omitted fields = %+v", got)
 	}
 	if joinNames(got.FlakeSignatures) != "global-flake" {
@@ -1216,8 +1232,8 @@ func TestEffectiveSettingsInheritsUnsetAndReplacesEmpty(t *testing.T) {
 	if got.RCAMarker != "" || got.RequeueLimit() != 0 {
 		t.Fatalf("empty strings = marker %q limit %d", got.RCAMarker, got.RequeueLimit())
 	}
-	if got.FailureLogPattern != DefaultFailureLogPattern || got.CircleCILog != CircleCILogAuto {
-		t.Fatalf("empty pattern = %q circle = %q", got.FailureLogPattern, got.CircleCILog)
+	if got.FailureLogPattern != DefaultFailureLogPattern || got.CircleCILog != CircleCILogAuto || got.CircleCITokenFile != DefaultCircleCITokenFile {
+		t.Fatalf("empty pattern = %q circle = %q token_file = %q", got.FailureLogPattern, got.CircleCILog, got.CircleCITokenFile)
 	}
 
 	got, from = cfg.EffectiveSettings("acme", "bare")
@@ -1313,6 +1329,7 @@ settings {
   max_requeues = 4
   failure_log_pattern = "GLOBAL"
   circleci_log = "api"
+  circleci_token_file = "/etc/circleci-token"
 }
 
 repo_settings {
@@ -1328,6 +1345,7 @@ repo_settings {
     max_requeues = 0
     failure_log_pattern = ""
     circleci_log = ""
+    circleci_token_file = ""
   }
   ["acme/bare"] {}
 }
@@ -1343,11 +1361,11 @@ repo_settings {
 	if from != "acme/widgets" || joinNames(got.RequiredChecks) != "lint" || got.RCAMarker != "entry-marker" {
 		t.Fatalf("pkl entry = %q checks %v marker %q", from, got.RequiredChecks, got.RCAMarker)
 	}
-	if joinNames(got.BlockMergeLabels) != "do-not-merge" || got.RequeueLimit() != 4 || got.CircleCILog != CircleCILogAPI {
+	if joinNames(got.BlockMergeLabels) != "do-not-merge" || got.RequeueLimit() != 4 || got.CircleCILog != CircleCILogAPI || got.CircleCITokenFile != "/etc/circleci-token" {
 		t.Fatalf("pkl entry did not inherit: %+v", got)
 	}
 	entry := cfg.RepoSettings["acme/widgets"]
-	if entry.BlockMergeLabels != nil || entry.MaxRequeues != nil || entry.CircleCILog != nil {
+	if entry.BlockMergeLabels != nil || entry.MaxRequeues != nil || entry.CircleCILog != nil || entry.CircleCITokenFile != nil {
 		t.Fatalf("unset pkl fields were not nil: %+v", entry)
 	}
 	empty := cfg.RepoSettings["acme/empty"]
@@ -1358,8 +1376,8 @@ repo_settings {
 	if from != "acme/empty" || len(got.BlockMergeLabels) != 0 || got.RCAMarker != "" || got.RequeueLimit() != 0 {
 		t.Fatalf("pkl empty = %q %+v", from, got)
 	}
-	if got.FailureLogPattern != DefaultFailureLogPattern || got.CircleCILog != CircleCILogAuto {
-		t.Fatalf("pkl empty pattern = %q circle = %q", got.FailureLogPattern, got.CircleCILog)
+	if got.FailureLogPattern != DefaultFailureLogPattern || got.CircleCILog != CircleCILogAuto || got.CircleCITokenFile != DefaultCircleCITokenFile {
+		t.Fatalf("pkl empty pattern = %q circle = %q token_file = %q", got.FailureLogPattern, got.CircleCILog, got.CircleCITokenFile)
 	}
 	got, from = cfg.EffectiveSettings("acme", "bare")
 	if from != "acme/bare" || joinNames(got.RequiredChecks) != "ci" || got.FailureLogPattern != "GLOBAL" {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -99,14 +101,124 @@ func stripANSI(text string) string {
 	return ansiEscape.ReplaceAllString(text, "")
 }
 
-var circleCLILookPath = exec.LookPath
+var (
+	circleCLILookPath = exec.LookPath
+	runCircleCommand  = defaultRunCircleCommand
+)
+
+func resolveCircleCIToken(cfg *config.Config) (string, error) {
+	if token := os.Getenv(circleTokenEnv); token != "" {
+		return token, nil
+	}
+	rawPath := ""
+	if cfg != nil {
+		rawPath = cfg.Settings.CircleCITokenFile
+	}
+	isDefault := rawPath == "" || rawPath == config.DefaultCircleCITokenFile
+	if rawPath == "" {
+		rawPath = config.DefaultCircleCITokenFile
+	}
+	expanded, err := expandHomePath(rawPath)
+	if err != nil {
+		return "", fmt.Errorf("circleci token file %s: %w", rawPath, err)
+	}
+	return readCircleCITokenFile(expanded, isDefault)
+}
+
+func expandHomePath(path string) (string, error) {
+	if path != "~" && !strings.HasPrefix(path, "~/") {
+		return path, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("expand home directory: %w", err)
+	}
+	if path == "~" {
+		return home, nil
+	}
+	return filepath.Join(home, path[2:]), nil
+}
+
+func readCircleCITokenFile(path string, isDefault bool) (string, error) {
+	if isDefault {
+		if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("circleci token file %s: file does not exist", path)
+		}
+		return "", fmt.Errorf("circleci token file %s: %w", path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("circleci token file %s: not a regular file", path)
+	}
+	perm := info.Mode().Perm()
+	if perm&^0o600 != 0 {
+		return "", fmt.Errorf("circleci token file %s: mode %04o is too permissive (must be 0600 or stricter)", path, perm)
+	}
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path is the configured CircleCI token file
+	if err != nil {
+		return "", fmt.Errorf("circleci token file %s: not readable: %w", path, err)
+	}
+	token := strings.TrimSpace(string(data))
+	if token == "" {
+		return "", fmt.Errorf("circleci token file %s: file is empty", path)
+	}
+	return token, nil
+}
+
+func defaultRunCircleCommand(token string, args ...string) (string, error) {
+	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
+	cmd := exec.Command("circleci", args...) //nolint:gosec // G204: circleci takes an argument list, not a shell
+	if token != "" {
+		cmd.Env = envWithVar(os.Environ(), circleTokenEnv, token)
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		detail := redactToken(strings.TrimSpace(stderr.String()), token)
+		errText := redactToken(err.Error(), token)
+		cmdText := strings.TrimSpace("circleci " + strings.Join(args, " "))
+		if detail != "" {
+			return "", fmt.Errorf("run %s: %s: %s", cmdText, errText, detail)
+		}
+		return "", fmt.Errorf("run %s: %s", cmdText, errText)
+	}
+	return string(out), nil
+}
+
+func envWithVar(base []string, key, value string) []string {
+	prefix := key + "="
+	out := make([]string, 0, len(base)+1)
+	for _, entry := range base {
+		if strings.HasPrefix(entry, prefix) {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return append(out, prefix+value)
+}
+
+func redactToken(text, token string) string {
+	if token == "" {
+		return text
+	}
+	return strings.ReplaceAll(text, token, "[REDACTED]")
+}
 
 func (e evidenceOut) printCircleCI(evidence github.FailureEvidence) (failureReport, error) {
 	mode := e.cfg.Settings.CircleCILog
 	if mode == "" {
 		mode = config.CircleCILogAuto
 	}
-	token := os.Getenv(circleTokenEnv)
+	token, err := resolveCircleCIToken(e.cfg)
+	if err != nil {
+		return failureReport{}, err
+	}
 	switch mode {
 	case config.CircleCILogAPI:
 		if token == "" {
@@ -119,13 +231,13 @@ func (e evidenceOut) printCircleCI(evidence github.FailureEvidence) (failureRepo
 			fmt.Fprintln(e.w, "log unavailable: circleci CLI is not on PATH")
 			return failureReport{}, nil
 		}
-		return e.printCircleCLILog(evidence)
+		return e.printCircleCLILog(evidence, token)
 	default:
 		if token != "" {
 			return e.printCircleAPILog(evidence, token)
 		}
 		if circleCLIOnPath() {
-			return e.printCircleCLILog(evidence)
+			return e.printCircleCLILog(evidence, token)
 		}
 		fmt.Fprintf(e.w, "log unavailable: no CircleCI token and circleci CLI is not on PATH: %s\n", evidence.TargetURL)
 		return failureReport{}, nil
@@ -144,7 +256,7 @@ func (e evidenceOut) printCircleAPILog(evidence github.FailureEvidence, token st
 	}
 	org, repo, number, ok := circlePipeline(evidence.TargetURL)
 	if !ok {
-		return e.printCircleWorkflowByUUID(evidence)
+		return e.printCircleWorkflowByUUID(evidence, token)
 	}
 	log, err := circleStepLog(org, repo, number, token, evidence.Name)
 	return e.finishCircleAPILog(evidence, org, repo, token, log, err)
@@ -165,21 +277,21 @@ func (e evidenceOut) finishCircleAPILog(evidence github.FailureEvidence, org, re
 	return e.printCircleLog(log)
 }
 
-func (e evidenceOut) printCircleWorkflowByUUID(evidence github.FailureEvidence) (failureReport, error) {
+func (e evidenceOut) printCircleWorkflowByUUID(evidence github.FailureEvidence, token string) (failureReport, error) {
 	if !circleCLIOnPath() {
 		fmt.Fprintf(e.w, "%s\nworkflow not found\n", evidence.TargetURL)
 		return failureReport{}, nil
 	}
-	return e.printCircleCLILog(evidence)
+	return e.printCircleCLILog(evidence, token)
 }
 
-func (e evidenceOut) printCircleCLILog(evidence github.FailureEvidence) (failureReport, error) {
+func (e evidenceOut) printCircleCLILog(evidence github.FailureEvidence, token string) (failureReport, error) {
 	workflowID, ok := circleWorkflowID(evidence)
 	if !ok {
 		fmt.Fprintf(e.w, "%s\nworkflow not found\n", evidence.TargetURL)
 		return failureReport{}, nil
 	}
-	workflowJSON, err := runCommand("circleci", "workflow", "get", workflowID, "--json")
+	workflowJSON, err := runCircleCommand(token, "workflow", "get", workflowID, "--json")
 	if err != nil {
 		return failureReport{}, fmt.Errorf("circleci workflow get: %w", err)
 	}
@@ -191,7 +303,7 @@ func (e evidenceOut) printCircleCLILog(evidence github.FailureEvidence) (failure
 	if err != nil {
 		return failureReport{}, fmt.Errorf("circleci workflow get: %w", err)
 	}
-	jobJSON, err := runCommand("circleci", "job", "get", jobID, "--json")
+	jobJSON, err := runCircleCommand(token, "job", "get", jobID, "--json")
 	if err != nil {
 		return failureReport{}, fmt.Errorf("circleci job get: %w", err)
 	}
@@ -203,7 +315,7 @@ func (e evidenceOut) printCircleCLILog(evidence github.FailureEvidence) (failure
 	if err := log.addCLIWorkflow(workflowJSON, workflowID, jobID); err != nil {
 		return failureReport{}, fmt.Errorf("circleci workflow get: %w", err)
 	}
-	outputJSON, err := runCommand("circleci", "job", "output", "list", jobID, "--json")
+	outputJSON, err := runCircleCommand(token, "job", "output", "list", jobID, "--json")
 	if err != nil {
 		return failureReport{}, fmt.Errorf("circleci job output list: %w", err)
 	}

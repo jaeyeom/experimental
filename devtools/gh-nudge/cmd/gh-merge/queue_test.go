@@ -3220,8 +3220,15 @@ func gitIn(t *testing.T, dir string, args ...string) {
 func withCommandStub(t *testing.T, fn func(string, ...string) (string, error)) {
 	t.Helper()
 	prev := runCommand
+	prevCircle := runCircleCommand
 	runCommand = fn
-	t.Cleanup(func() { runCommand = prev })
+	runCircleCommand = func(_ string, args ...string) (string, error) {
+		return fn("circleci", args...)
+	}
+	t.Cleanup(func() {
+		runCommand = prev
+		runCircleCommand = prevCircle
+	})
 }
 
 func TestOwnerRepoFromGHUsesGHBin(t *testing.T) {

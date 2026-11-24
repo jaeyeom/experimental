@@ -97,6 +97,11 @@ class SettingsConfig {
   /// not call the HTTP API.
   /// The CLI may read its token from the system keyring and then needs an unsandboxed environment.
   circleci_log: String = "auto"
+  /// Path to a file containing the CircleCI API token (mode 0600 or stricter).
+  /// Leading ~ is expanded and symlinks are followed.
+  /// Ignored when CIRCLE_TOKEN is set in the environment.
+  /// A missing file at the default path falls back to the circleci CLI's own login.
+  circleci_token_file: String = "~/.config/secrets/circleci-token"
 }
 
 /// Settings gh-merge reads for one repository.
@@ -129,6 +134,9 @@ class RepoSettings {
   /// How gh-merge reads CircleCI logs: auto, api, or cli.
   /// Unset inherits settings.circleci_log. An empty string means auto.
   circleci_log: String?
+  /// Path to a file containing the CircleCI API token (mode 0600 or stricter).
+  /// Unset inherits settings.circleci_token_file. An empty string uses the default path.
+  circleci_token_file: String?
 }
 
 /// One gh-approve rule. Every condition in a rule must hold (AND).

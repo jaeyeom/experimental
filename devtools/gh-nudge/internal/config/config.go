@@ -112,6 +112,10 @@ type SettingsConfig struct {
 	// not call the HTTP API. The CLI may read its token from the system keyring
 	// and then needs an unsandboxed environment.
 	CircleCILog string `yaml:"circleci_log"`
+	// CircleCITokenFile is the path to a 0600 file containing the CircleCI API
+	// token. Leading ~ is expanded and symlinks are followed. Empty means
+	// DefaultCircleCITokenFile. Ignored when CIRCLE_TOKEN is set in the environment.
+	CircleCITokenFile string `yaml:"circleci_token_file"`
 }
 
 // RepoSettings is the subset of settings gh-merge reads for one repository.
@@ -124,6 +128,7 @@ type RepoSettings struct {
 	MaxRequeues       *int      `yaml:"max_requeues"`
 	FailureLogPattern *string   `yaml:"failure_log_pattern"`
 	CircleCILog       *string   `yaml:"circleci_log"`
+	CircleCITokenFile *string   `yaml:"circleci_token_file"`
 }
 
 // DefaultMaxRequeues is the requeue cap when config omits max_requeues.
@@ -132,6 +137,9 @@ const DefaultMaxRequeues = 2
 // DefaultFailureLogPattern matches a CircleCI line that starts with ERROR:
 // and a line with a timestamp prefix such as (12:34:56) ERROR:.
 const DefaultFailureLogPattern = `^(?:[(][0-9]{2}:[0-9]{2}:[0-9]{2}[)] )?ERROR:`
+
+// DefaultCircleCITokenFile is the default path for the CircleCI API token file.
+const DefaultCircleCITokenFile = "~/.config/secrets/circleci-token" //nolint:gosec // G101: default file path, not a credential
 
 // CircleCI log modes.
 const (
@@ -188,6 +196,12 @@ func (c *Config) EffectiveSettings(owner, repo string) (SettingsConfig, string) 
 		settings.CircleCILog = *entry.CircleCILog
 		if settings.CircleCILog == "" {
 			settings.CircleCILog = CircleCILogAuto
+		}
+	}
+	if entry.CircleCITokenFile != nil {
+		settings.CircleCITokenFile = *entry.CircleCITokenFile
+		if settings.CircleCITokenFile == "" {
+			settings.CircleCITokenFile = DefaultCircleCITokenFile
 		}
 	}
 	return settings, key
@@ -317,6 +331,7 @@ func convertPklConfigInDir(pklCfg *pklconfig.Config, configDir string) *Config {
 			MaxRequeues:                intPtr(pklCfg.Settings.MaxRequeues),
 			FailureLogPattern:          pklCfg.Settings.FailureLogPattern,
 			CircleCILog:                pklCfg.Settings.CircleciLog,
+			CircleCITokenFile:          pklCfg.Settings.CircleciTokenFile,
 		},
 		RepoSettings:   convertRepoSettings(pklCfg.RepoSettings),
 		Approve:        convertApprove(pklCfg.Approve, configDir),
@@ -360,6 +375,7 @@ func convertRepoSettings(entries map[string]pklconfig.RepoSettings) map[string]R
 			MaxRequeues:       copyIntPtr(entry.MaxRequeues),
 			FailureLogPattern: stringPtr(entry.FailureLogPattern),
 			CircleCILog:       stringPtr(entry.CircleciLog),
+			CircleCITokenFile: stringPtr(entry.CircleciTokenFile),
 		}
 	}
 	return out
@@ -507,6 +523,9 @@ func normalizeSettings(settings *SettingsConfig) {
 	}
 	if settings.CircleCILog == "" {
 		settings.CircleCILog = CircleCILogAuto
+	}
+	if settings.CircleCITokenFile == "" {
+		settings.CircleCITokenFile = DefaultCircleCITokenFile
 	}
 }
 

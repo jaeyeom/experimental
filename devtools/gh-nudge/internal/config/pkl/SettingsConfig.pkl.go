@@ -71,4 +71,10 @@ type SettingsConfig struct {
 	// not call the HTTP API.
 	// The CLI may read its token from the system keyring and then needs an unsandboxed environment.
 	CircleciLog string `pkl:"circleci_log"`
+
+	// Path to a file containing the CircleCI API token (mode 0600 or stricter).
+	// Leading ~ is expanded and symlinks are followed.
+	// Ignored when CIRCLE_TOKEN is set in the environment.
+	// A missing file at the default path falls back to the circleci CLI's own login.
+	CircleciTokenFile string `pkl:"circleci_token_file"`
 }

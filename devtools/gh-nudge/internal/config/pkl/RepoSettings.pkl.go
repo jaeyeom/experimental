@@ -37,4 +37,8 @@ type RepoSettings struct {
 	// How gh-merge reads CircleCI logs: auto, api, or cli.
 	// Unset inherits settings.circleci_log. An empty string means auto.
 	CircleciLog *string `pkl:"circleci_log"`
+
+	// Path to a file containing the CircleCI API token (mode 0600 or stricter).
+	// Unset inherits settings.circleci_token_file. An empty string uses the default path.
+	CircleciTokenFile *string `pkl:"circleci_token_file"`
 }
