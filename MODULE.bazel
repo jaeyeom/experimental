@@ -50,6 +50,7 @@ use_repo(
     "com_github_charmbracelet_bubbletea",
     "com_github_charmbracelet_lipgloss",
     "com_github_creack_pty",
+    "com_github_fsnotify_fsnotify",
     "com_github_go_critic_go_critic",
     "com_github_google_renameio_v2",
     "com_github_gordonklaus_ineffassign",

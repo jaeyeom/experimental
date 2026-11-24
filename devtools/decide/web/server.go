@@ -56,7 +56,7 @@ type Server struct {
 	// PingEvery is the idle keep-alive interval of the event stream.
 	// Zero means 25s, under common proxy idle timeouts.
 	PingEvery time.Duration
-	// WatchEvery is the watcher poll interval. Zero means 100ms.
+	// WatchEvery is the watcher fallback poll interval. Zero means 2s.
 	WatchEvery time.Duration
 
 	// PushPath is the Web Push state file. Empty means

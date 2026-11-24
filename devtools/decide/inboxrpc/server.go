@@ -34,7 +34,7 @@ type Server struct {
 	// list request and without the item open.
 	FollowEvery time.Duration
 	// WatchEvery is how often Serve polls the ledger for external changes
-	// while a watch is active. Zero defaults to 100ms.
+	// while a watch is active. Zero defaults to 2s.
 	WatchEvery time.Duration
 }
 
