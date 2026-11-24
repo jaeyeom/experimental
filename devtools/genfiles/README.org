@@ -91,7 +91,8 @@ A top-level YAML list of entries:
 | ~dir~     | no       | Working directory, repo-relative (default: the root)    |
 | ~env~     | no       | Variables added to the inherited environment            |
 
-Any other key is an error. ~dir~ and ~env~ need ~run~. An entry without
+Any other key, or a key given twice, is an error. ~dir~ and ~env~ need
+~run~. An entry without
 ~run~ is a generated file with no automated command: linters still skip
 it, and automation stops and reports it instead of guessing.
 
@@ -125,8 +126,10 @@ bools, so quote them too.
 A command is a list of values run as an argument vector, with no shell. A
 value from a file is always exactly one argument. The program (the first
 element) must be a literal string. For ~sh~, ~bash~, ~zsh~, ~dash~ and
-~ksh~, the script after ~-c~ (or a combined flag such as ~-ec~) must be
-literal too; pass file values as positional parameters:
+~ksh~, the script that ~-c~ (or a combined flag such as ~-ec~) runs must
+be literal too, and so must every argument between them: the script is
+the first operand after any options, ~--~, and ~-o NAME~. Pass file values
+as positional parameters after the script:
 
 #+begin_src yaml
 run:

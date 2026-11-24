@@ -32,9 +32,10 @@ type EnvVar struct {
 }
 
 var (
-	shells   = []string{"sh", "bash", "zsh", "dash", "ksh"}
-	cFlagRE  = regexp.MustCompile(`^-[A-Za-z]*c[A-Za-z]*$`)
-	envNameR = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	entryKeys = []string{"pattern", "comment", "run", "dir", "env"}
+	shells    = []string{"sh", "bash", "zsh", "dash", "ksh"}
+	cFlagRE   = regexp.MustCompile(`^-[A-Za-z]*c[A-Za-z]*$`)
+	envNameR  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 )
 
 // Parse reads a generated-files list strictly: an unknown key, a value of the
@@ -86,10 +87,19 @@ func ParsePatterns(data []byte) ([]string, error) {
 			continue
 		}
 		var pn *yaml.Node
+		dup := false
 		for j := 0; j+1 < len(n.Content); j += 2 {
-			if n.Content[j].Value == "pattern" {
-				pn = n.Content[j+1]
+			if n.Content[j].Value != "pattern" {
+				continue
 			}
+			if pn != nil {
+				p.errorf(n.Content[j], "duplicate key %q", "pattern")
+				dup = true
+			}
+			pn = n.Content[j+1]
+		}
+		if dup {
+			continue
 		}
 		if pn == nil {
 			p.errorf(n, "missing required key %q", "pattern")
@@ -136,32 +146,23 @@ func (p *parser) parseEntry(n *yaml.Node) (Entry, bool) {
 		return e, false
 	}
 	before := len(p.errs)
-	hasPattern := false
-	var dirNode, envNode *yaml.Node
-	for j := 0; j+1 < len(n.Content); j += 2 {
-		key, val := n.Content[j], n.Content[j+1]
-		switch key.Value {
-		case "pattern":
-			hasPattern = true
-			e.Pattern, _ = p.pattern(val)
-		case "comment":
-			e.Comment, _ = p.str(val, "comment")
-		case "run":
-			e.Run = p.run(val)
-		case "dir":
-			dirNode = val
-		case "env":
-			envNode = val
-		default:
-			p.errorf(key, "unknown key %q; allowed: pattern, comment, run, dir, env", key.Value)
-		}
-	}
-	if !hasPattern {
+	f := p.fields(n)
+	if pn, ok := f["pattern"]; ok {
+		e.Pattern, _ = p.pattern(pn)
+	} else {
 		p.errorf(n, "missing required key %q", "pattern")
 	}
-	if (dirNode != nil || envNode != nil) && e.Run == nil {
+	if c, ok := f["comment"]; ok {
+		e.Comment, _ = p.str(c, "comment")
+	}
+	if r, ok := f["run"]; ok {
+		e.Run = p.run(r)
+	}
+	dirNode, envNode := f["dir"], f["env"]
+	switch {
+	case (dirNode != nil || envNode != nil) && e.Run == nil:
 		p.errorf(n, "dir and env need run")
-	} else {
+	default:
 		if dirNode != nil {
 			e.Dir = p.dir(dirNode)
 		}
@@ -170,6 +171,24 @@ func (p *parser) parseEntry(n *yaml.Node) (Entry, bool) {
 		}
 	}
 	return e, len(p.errs) == before
+}
+
+// fields returns an entry's values by key, reporting unknown and duplicate
+// keys.
+func (p *parser) fields(n *yaml.Node) map[string]*yaml.Node {
+	f := map[string]*yaml.Node{}
+	for j := 0; j+1 < len(n.Content); j += 2 {
+		key := n.Content[j]
+		switch {
+		case !slices.Contains(entryKeys, key.Value):
+			p.errorf(key, "unknown key %q; allowed: %s", key.Value, strings.Join(entryKeys, ", "))
+		case f[key.Value] != nil:
+			p.errorf(key, "duplicate key %q", key.Value)
+		default:
+			f[key.Value] = n.Content[j+1]
+		}
+	}
+	return f
 }
 
 func (p *parser) pattern(n *yaml.Node) (string, bool) {
@@ -256,11 +275,72 @@ func (p *parser) checkCommand(c *yaml.Node, where string, argv []Value) {
 	if !slices.Contains(shells, path.Base(argv[0].Lit)) {
 		return
 	}
-	for j := 1; j+1 < len(argv); j++ {
-		if argv[j].IsLit && cFlagRE.MatchString(argv[j].Lit) && !argv[j+1].IsLit {
-			p.errorf(c.Content[j+1], "%s[%d]: the script after %s must be a literal string; pass file values as positional parameters", where, j+1, argv[j].Lit)
+	if j, flag := shellScriptIndex(argv); j > 0 && !argv[j].IsLit {
+		p.errorf(c.Content[j], "%s[%d]: the script after %s must be a literal string; pass file values as positional parameters", where, j, flag)
+	}
+}
+
+// shellScriptIndex returns the index of the argument a shell runs as its -c
+// script, and the -c flag itself; 0 when there is no -c flag. The script is
+// the first operand after the options: "--" ends options, -o/+o/-O/+O take
+// an argument, and any other -x or +x is a flag. A non-literal argument in
+// option position is returned as the script, because the shell could read
+// it as one.
+func shellScriptIndex(argv []Value) (int, string) {
+	flag := ""
+	for j := 1; j < len(argv); j++ {
+		a := argv[j]
+		if !a.IsLit {
+			if flag != "" {
+				return j, flag
+			}
+			continue
+		}
+		switch shellArgKind(a.Lit) {
+		case argEndOfOptions:
+			if flag == "" || j+1 >= len(argv) {
+				return 0, ""
+			}
+			return j + 1, flag
+		case argOptionWithValue:
+			j++ // after -c the option's value must be literal too
+			if flag != "" && j < len(argv) && !argv[j].IsLit {
+				return j, flag
+			}
+		case argCFlag:
+			flag = a.Lit
+		case argOperand:
+			if flag == "" {
+				return 0, "" // a script file; its arguments follow
+			}
+			return j, flag
 		}
 	}
+	return 0, ""
+}
+
+type shellArg int
+
+const (
+	argOperand shellArg = iota
+	argFlag
+	argCFlag
+	argOptionWithValue
+	argEndOfOptions
+)
+
+func shellArgKind(s string) shellArg {
+	switch {
+	case s == "--":
+		return argEndOfOptions
+	case s == "-o" || s == "+o" || s == "-O" || s == "+O":
+		return argOptionWithValue
+	case cFlagRE.MatchString(s):
+		return argCFlag
+	case strings.HasPrefix(s, "-") || strings.HasPrefix(s, "+"):
+		return argFlag
+	}
+	return argOperand
 }
 
 func (p *parser) value(n *yaml.Node, where string) (Value, bool) {
@@ -336,8 +416,14 @@ func (p *parser) env(n *yaml.Node) []EnvVar {
 		return nil
 	}
 	vars := make([]EnvVar, 0, len(n.Content)/2)
+	seen := map[string]bool{}
 	for j := 0; j+1 < len(n.Content); j += 2 {
 		key, val := n.Content[j], n.Content[j+1]
+		if seen[key.Value] {
+			p.errorf(key, "env: duplicate variable %q", key.Value)
+			continue
+		}
+		seen[key.Value] = true
 		if !envNameR.MatchString(key.Value) {
 			p.errorf(key, "env: invalid variable name %q", key.Value)
 			continue

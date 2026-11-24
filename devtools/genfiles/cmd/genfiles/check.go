@@ -18,12 +18,14 @@ func checkRepo(list []byte, attrs string, tracked []string) (problems []string, 
 	if err != nil {
 		return strings.Split(err.Error(), "\n"), 0, 0
 	}
+	used := make([]bool, len(entries))
 	for _, path := range tracked {
 		hit := false
-		for _, e := range entries {
+		for i, e := range entries {
 			if !genfiles.Match(e.Pattern, path) {
 				continue
 			}
+			used[i] = true
 			if !hit && unsafeName(path) {
 				problems = append(problems, fmt.Sprintf(
 					"unsafe file name %q matched by %q: a path segment starts with \"-\" or the path has a control character; rename the file",
@@ -35,23 +37,14 @@ func checkRepo(list []byte, attrs string, tracked []string) (problems []string, 
 			matched++
 		}
 	}
-	for _, e := range entries {
-		if !matchesAny(e.Pattern, tracked) {
+	for i, e := range entries {
+		if !used[i] {
 			problems = append(problems, fmt.Sprintf(
 				"stale pattern %q (line %d): no tracked file matches; remove the entry if the files are gone",
 				e.Pattern, e.Line))
 		}
 	}
 	return append(problems, checkAttributes(entries, attrs)...), len(entries), matched
-}
-
-func matchesAny(pattern string, paths []string) bool {
-	for _, p := range paths {
-		if genfiles.Match(pattern, p) {
-			return true
-		}
-	}
-	return false
 }
 
 // unsafeName reports a path a program could misread even with no shell: a

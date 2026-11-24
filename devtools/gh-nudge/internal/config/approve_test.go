@@ -513,3 +513,22 @@ func TestMatchFileCheckWithGeneratedUsesGitattributesGlobs(t *testing.T) {
 		t.Error("inline Cargo.lock matched sub/Cargo.lock; inline globs keep doublestar semantics")
 	}
 }
+
+func TestMatchFileCheckWithGeneratedSpecificityUsesEffectiveGlob(t *testing.T) {
+	inline := FileCheck{Builtin: FileCheckOnlyDeletions}
+	checks := map[string]FileCheck{
+		"vendor/*.lock":  inline,
+		GeneratedListRef: {},
+	}
+	// The list's slash-less Cargo.lock means **/Cargo.lock, which is less
+	// specific than the inline vendor/*.lock, so the inline check wins.
+	pat, check, fromGen, ok := MatchFileCheckWithGenerated(checks, []string{"Cargo.lock"}, "vendor/Cargo.lock")
+	if !ok || fromGen || pat != "vendor/*.lock" || check.Builtin != inline.Builtin {
+		t.Errorf("got %q fromGen=%v ok=%v, want inline vendor/*.lock", pat, fromGen, ok)
+	}
+	// A rooted list pattern is exact at its path.
+	pat, _, fromGen, _ = MatchFileCheckWithGenerated(checks, []string{"/vendor/Cargo.lock"}, "vendor/Cargo.lock")
+	if !fromGen || pat != "/vendor/Cargo.lock" {
+		t.Errorf("rooted list pattern: got %q fromGen=%v", pat, fromGen)
+	}
+}

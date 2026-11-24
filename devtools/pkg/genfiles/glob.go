@@ -5,8 +5,13 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"unicode"
 )
+
+// compiled caches compile results by pattern; lists are small and matched
+// against many paths.
+var compiled sync.Map // pattern -> *regexp.Regexp
 
 // ValidatePattern reports whether p is a pattern this package supports: the
 // subset of .gitattributes glob syntax made of literal characters, `*`, `?`
@@ -45,7 +50,29 @@ func Match(pattern, path string) bool {
 	return err == nil && re.MatchString(path)
 }
 
+// Rooted returns pattern as an equivalent glob anchored at the root, the form
+// doublestar-style tools use: a pattern with no / gains a leading **/, and a
+// leading / is dropped.
+func Rooted(pattern string) string {
+	if !strings.Contains(pattern, "/") {
+		return "**/" + pattern
+	}
+	return strings.TrimPrefix(pattern, "/")
+}
+
 func compile(pattern string) (*regexp.Regexp, error) {
+	if re, ok := compiled.Load(pattern); ok {
+		return re.(*regexp.Regexp), nil
+	}
+	re, err := compileUncached(pattern)
+	if err != nil {
+		return nil, err
+	}
+	compiled.Store(pattern, re)
+	return re, nil
+}
+
+func compileUncached(pattern string) (*regexp.Regexp, error) {
 	if err := ValidatePattern(pattern); err != nil {
 		return nil, err
 	}

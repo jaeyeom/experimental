@@ -49,3 +49,14 @@ func TestValidatePattern(t *testing.T) {
 		}
 	}
 }
+
+func TestCompileIsCached(t *testing.T) {
+	a, err := compile("**/x.lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := compile("**/x.lock")
+	if a != b {
+		t.Error("compile returned a new regexp for the same pattern; Match must not recompile per call")
+	}
+}

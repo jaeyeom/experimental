@@ -102,6 +102,13 @@ func TestParseErrors(t *testing.T) {
 		{"absolute dir", "- pattern: x\n  dir: /tmp\n  run: [[gen]]\n", `dir: "/tmp" must be relative to the repository root`},
 		{"escaping dir", "- pattern: x\n  dir: a/../..\n  run: [[gen]]\n", `dir: "a/../.." must stay inside the repository`},
 		{"join not list", "- pattern: x\n  run: [[gen, {join: a}]]\n", "run[0][1]: join: expected a list of values"},
+		{"sh -c -- var", "- pattern: x\n  run: [[bash, -c, --, {var: path}]]\n", "run[0][3]: the script after -c must be a literal string"},
+		{"sh -c -e var", "- pattern: x\n  run: [[bash, -c, -e, {var: path}]]\n", "run[0][3]: the script after -c must be a literal string"},
+		{"sh -c -o opt var", "- pattern: x\n  run: [[bash, -c, -o, errexit, {var: path}]]\n", "run[0][4]: the script after -c must be a literal string"},
+		{"sh -c var option", "- pattern: x\n  run: [[sh, -c, -o, {var: path}, 'echo hi']]\n", "run[0][3]: the script after -c must be a literal string"},
+		{"duplicate key", "- pattern: a\n  pattern: b\n", `line 2: entry 1: duplicate key "pattern"`},
+		{"duplicate run", "- pattern: a\n  run: [[x]]\n  run: [[y]]\n", `duplicate key "run"`},
+		{"duplicate env", "- pattern: a\n  env: {A: b, A: c}\n  run: [[x]]\n", `env: duplicate variable "A"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -153,5 +160,23 @@ func TestParsePatterns(t *testing.T) {
 		if _, err := ParsePatterns([]byte(bad)); err == nil {
 			t.Errorf("ParsePatterns(%q) = nil error", bad)
 		}
+	}
+}
+
+func TestParseShellScriptPositionalAllowed(t *testing.T) {
+	for _, y := range []string{
+		"- pattern: x\n  run: [[bash, -c, --, 'gen \"$1\"', sh, {var: path}]]\n",
+		"- pattern: x\n  run: [[bash, -e, -c, 'gen \"$1\"', sh, {var: path}]]\n",
+		"- pattern: x\n  run: [[bash, -c, -o, errexit, 'gen \"$1\"', sh, {var: path}]]\n",
+	} {
+		if _, err := Parse([]byte(y)); err != nil {
+			t.Errorf("Parse(%q) = %v", y, err)
+		}
+	}
+}
+
+func TestParsePatternsDuplicatePattern(t *testing.T) {
+	if _, err := ParsePatterns([]byte("- pattern: a\n  pattern: b\n")); err == nil || !strings.Contains(err.Error(), `duplicate key "pattern"`) {
+		t.Errorf("err = %v", err)
 	}
 }

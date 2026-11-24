@@ -816,7 +816,9 @@ func MatchFileCheckWithGenerated(checks map[string]FileCheck, generatedPatterns 
 			if !genfiles.Match(gp, path) {
 				continue
 			}
-			spec := FileCheckSpecificity(gp)
+			// List patterns follow .gitattributes rules; rank them by
+			// their root-anchored form so Cargo.lock counts as **/Cargo.lock.
+			spec := FileCheckSpecificity(genfiles.Rooted(gp))
 			if !found || moreSpecific(spec, bestSpec) {
 				bestPat = gp
 				bestCheck = genCheck
