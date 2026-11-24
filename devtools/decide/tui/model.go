@@ -3258,17 +3258,18 @@ func plainRule(width int) screenLine {
 }
 
 // newSinceRule is the separator above the first new message with the
-// label centered in it as "[ label ]". The label takes the accent color
-// and the dashes stay plain. At least 2 dashes stay on each side, or the
-// bracketed label stands alone.
+// label centered in it as "[ label ]". The whole line takes the accent
+// color (or stays plain under mono / NO_COLOR). At least 2 dashes stay
+// on each side, or the bracketed label stands alone.
 func newSinceRule(width int, label string) screenLine {
 	core := "[ " + label + " ]"
 	dashes := width - lipgloss.Width(core) - 2
-	text := paletteStyle(loadColors().Badge, paletteBadge).Render(core)
+	line := core
 	if dashes >= 4 {
 		left := dashes / 2
-		text = plainText(strings.Repeat("─", left)+" ") + text + plainText(" "+strings.Repeat("─", dashes-left))
+		line = strings.Repeat("─", left) + " " + core + " " + strings.Repeat("─", dashes-left)
 	}
+	text := paletteStyle(loadColors().Badge, paletteBadge).Render(line)
 	return screenLine{text: text, divider: true}
 }
 

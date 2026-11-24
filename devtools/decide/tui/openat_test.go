@@ -106,18 +106,28 @@ func TestNewSinceRuleMonoHasNoColor(t *testing.T) {
 	}
 }
 
-func TestNewSinceRuleLabelColored(t *testing.T) {
+func TestNewSinceRuleColored(t *testing.T) {
 	t.Setenv("NO_COLOR", "")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	got := newSinceRule(40, "new since 14:05").text
-	if !strings.Contains(got, "\x1b[") {
-		t.Fatalf("label not colored: %q", got)
+	if !strings.HasPrefix(got, "\x1b[") {
+		t.Fatalf("dashes should be styled: %q", got)
 	}
-	if !strings.HasPrefix(got, "─") {
-		t.Fatalf("dashes should be unstyled: %q", got)
+	want := paletteStyle(loadColors().Badge, paletteBadge).Render(visibleLine(got))
+	if got != want {
+		t.Fatalf("whole rule should use accent style: got %q, want %q", got, want)
 	}
 }
 
 func TestOtherSeparatorsUnchanged(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if got := plainRule(40).text; strings.Contains(got, "\x1b") {
+		t.Fatalf("plain rule should remain unstyled: %q", got)
+	}
+	if got := messageRule(40, false, false, "").text; strings.Contains(got, "\x1b") {
+		t.Fatalf("ordinary message rule should remain unstyled: %q", got)
+	}
 	readAt := openAtBase().Add(5 * time.Minute)
 	m := openAtModel(t, seedOpenAt(t, &readAt), "")
 	rules := 0
