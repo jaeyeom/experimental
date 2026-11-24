@@ -251,7 +251,9 @@ class _Names:
         if isinstance(func, ast.Attribute) and isinstance(
             func.value, ast.Name
         ):
-            module = self.modules.get(func.value.id, func.value.id)
+            name = func.value.id
+            # ``from absl.testing import absltest`` binds a module too.
+            module = self.modules.get(name) or self.functions.get(name, name)
             return f"{module}.{func.attr}"
         return None
 
@@ -260,6 +262,9 @@ class _Names:
 
     def is_exit(self, func: ast.expr) -> bool:
         return self.qualified(func) in ("sys.exit", "SystemExit")
+
+
+_SELF_EXITING = frozenset({"absl.testing.absltest.main", "absltest.main"})
 
 
 def _runner_calls(
@@ -275,6 +280,9 @@ def _runner_calls(
                     qualified = names.qualified(node.func)
                     if qualified == "pytest.main":
                         yield node, stmt, _propagated(node, stmt, names)
+                    elif qualified in _SELF_EXITING:
+                        # Exits with the result by itself.
+                        yield node, stmt, True
                     elif qualified == "unittest.main":
                         harmless = not _exit_false(node)
                         yield (

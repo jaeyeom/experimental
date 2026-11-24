@@ -215,6 +215,14 @@ def test_unittest_main_satisfies_runner() -> None:
     assert rules(run({"t_test.py": src}, {"t_test.py": TEST}, REQUIRE)) == []
 
 
+def test_absltest_main_satisfies_runner() -> None:
+    """absltest.main() exits by itself, like unittest.main()."""
+    src = (
+        "from absl.testing import absltest\n" + GUARD + "    absltest.main()\n"
+    )
+    assert rules(run({"t_test.py": src}, {"t_test.py": TEST}, REQUIRE)) == []
+
+
 def test_dropped_runner_is_rule2_only() -> None:
     """A dropped runner is reported once, as dropped-exit."""
     src = "import pytest\n" + GUARD + "    pytest.main()\n"

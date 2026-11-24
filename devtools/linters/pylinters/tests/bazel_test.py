@@ -21,7 +21,10 @@ def rule(label: str, cls: str, **attrs: object) -> str:
     ]
     for key, value in attrs.items():
         attr: dict[str, object] = {"name": key, "explicitlySpecified": True}
-        if isinstance(value, list):
+        if isinstance(value, Select):
+            attr["type"] = "SELECTOR_LIST"
+            attr["selectorList"] = value.json(key)
+        elif isinstance(value, list):
             attr["type"] = "LABEL_LIST"
             attr["stringListValue"] = value
         elif isinstance(value, str):
@@ -36,6 +39,28 @@ def rule(label: str, cls: str, **attrs: object) -> str:
             "rule": {"name": label, "ruleClass": cls, "attribute": attributes},
         }
     )
+
+
+class Select:
+    """A select(): a list of selectors, each mapping conditions to values.
+
+    Values are strings for ``main`` and lists for ``srcs``, as
+    ``bazel query --noproto:flatten_selects`` prints them.
+    """
+
+    def __init__(self, *elements: dict[str, object]) -> None:
+        """Hold one dict per ``+``-joined selector."""
+        self.elements = elements
+
+    def json(self, key: str) -> dict[str, object]:
+        """Render as the query's ``selectorList``."""
+        field = "stringValue" if key == "main" else "stringListValue"
+        return {
+            "elements": [
+                {"entries": [{"label": c, field: v} for c, v in e.items()]}
+                for e in self.elements
+            ]
+        }
 
 
 class FakeRun:
@@ -78,6 +103,7 @@ def test_explicit_main() -> None:
         "query",
         bazel.QUERY,
         "--output=streamed_jsonproto",
+        "--noproto:flatten_selects",
     ]
     assert cwd == "/repo"
 
@@ -111,13 +137,6 @@ def test_ambiguous_is_error() -> None:
         bazel.find_mains(_fs("pkg/a/foo.py", "pkg/b/foo.py"), ".", run=run)
 
 
-def test_no_match_is_error() -> None:
-    """A main matching no src is an error naming the target."""
-    run = FakeRun(rule("//pkg:foo", "py_binary", srcs=["//pkg:other.py"]))
-    with pytest.raises(errors.SourceError, match="//pkg:foo"):
-        bazel.find_mains(_fs("pkg/other.py"), ".", run=run)
-
-
 def test_generated_main_counted() -> None:
     """A main that matches an untracked src is generated: counted, skipped."""
     run = FakeRun(
@@ -149,26 +168,59 @@ def test_main_module_skipped() -> None:
 
 
 def test_select_union() -> None:
-    """select() on srcs arrives as the union; each default main resolves."""
+    """select() on main and srcs: every branch's main is an entry."""
     run = FakeRun(
         rule(
             "//pkg:a",
             "py_binary",
-            srcs=["//pkg:common.py", "//pkg:a.py"],
+            main=Select(
+                {
+                    ":linux": "//pkg:lin/a.py",
+                    "//conditions:default": "//pkg:mac/a.py",
+                }
+            ),
+            srcs=Select(
+                {"//conditions:default": ["//pkg:common.py"]},
+                {
+                    ":linux": ["//pkg:lin/a.py"],
+                    "//conditions:default": ["//pkg:mac/a.py"],
+                },
+            ),
         )
     )
-    found = bazel.find_mains(_fs("pkg/common.py", "pkg/a.py"), ".", run=run)
-    assert [t.path for t in found.targets] == ["pkg/a.py"]
-
-
-def test_select_main_skipped() -> None:
-    """select() on main has no value in query output: counted, skipped."""
-    run = FakeRun(
-        rule("//pkg:a", "py_binary", main=None, srcs=["//pkg:lin/a.py"])
+    found = bazel.find_mains(
+        _fs("pkg/common.py", "pkg/lin/a.py", "pkg/mac/a.py"), ".", run=run
     )
-    found = bazel.find_mains(_fs("pkg/lin/a.py"), ".", run=run)
+    assert sorted(t.path for t in found.targets) == [
+        "pkg/lin/a.py",
+        "pkg/mac/a.py",
+    ]
+
+
+def test_select_srcs_default_main() -> None:
+    """select() on srcs only: <name>.py is matched against the union."""
+    run = FakeRun(
+        rule(
+            "//pkg:a",
+            "py_binary",
+            srcs=Select(
+                {
+                    ":x": ["//pkg:x/a.py"],
+                    "//conditions:default": ["//pkg:b.py"],
+                }
+            ),
+        )
+    )
+    found = bazel.find_mains(_fs("pkg/x/a.py", "pkg/b.py"), ".", run=run)
+    assert [t.path for t in found.targets] == ["pkg/x/a.py"]
+
+
+def test_rule_label_srcs_counted() -> None:
+    """A main found in no file src (srcs from a rule) is counted, not fatal."""
+    run = FakeRun(rule("//pkg:c_test", "py_test", srcs=["//pkg:fg"]))
+    found = bazel.find_mains(_fs("pkg/c_test.py"), ".", run=run)
     assert found.targets == []
-    assert found.select_main == 1
+    assert found.unresolved == 1
 
 
 def test_external_labels_ignored() -> None:

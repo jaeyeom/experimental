@@ -45,7 +45,7 @@ class Found:
     targets: list[Target] = field(default_factory=list)
     generated: int = 0
     module_main: int = 0
-    select_main: int = 0
+    unresolved: int = 0
 
 
 def run_subprocess(argv: Sequence[str], cwd: str) -> str:
@@ -83,14 +83,25 @@ def find_mains(
     """Return the main file of every ``py_binary`` and ``py_test``.
 
     Raises:
-        SourceError: The query fails, or a target's main matches zero or
-            several srcs.
+        SourceError: The query fails, or a target's main matches several
+            srcs.
     """
     base = _dir(bazel_dir)
     cwd = os.path.join(fs.root, base) if base else fs.root
-    out = run([bazel, "query", QUERY, "--output=streamed_jsonproto"], cwd)
+    # Unflattened, a select() keeps every branch, so a main behind one is
+    # checked on every platform.
+    out = run(
+        [
+            bazel,
+            "query",
+            QUERY,
+            "--output=streamed_jsonproto",
+            "--noproto:flatten_selects",
+        ],
+        cwd,
+    )
     targets: list[Target] = []
-    counts = {"generated": 0, "module_main": 0, "select_main": 0}
+    counts = {"generated": 0, "module_main": 0, "unresolved": 0}
     for line in out.splitlines():
         if not line.strip():
             continue
@@ -103,53 +114,80 @@ def find_mains(
         kind = _KINDS.get(rule.get("ruleClass", ""))
         if kind is None:
             continue
-        outcome = _resolve(fs, base, rule)
-        if isinstance(outcome, str):
-            counts[outcome] += 1
-        elif outcome is not None:
-            targets.append(Target(rule["name"], kind, outcome[0]))
+        for outcome in _resolve(fs, base, rule):
+            if isinstance(outcome, str):
+                counts[outcome] += 1
+            else:
+                targets.append(Target(rule["name"], kind, outcome[0]))
     return Found(targets, **counts)
 
 
 def _resolve(
     fs: files.FileSet, base: str, rule: dict[str, Any]
-) -> tuple[str] | str | None:
-    """Return ``(path,)``, a skip-counter name, or None for external."""
+) -> list[tuple[str] | str]:
+    """Return ``(path,)`` per main file, or skip-counter names.
+
+    A ``select()`` on ``main`` yields one main per branch. Mains in other
+    repositories yield nothing.
+    """
     label = rule["name"]
     attrs = {a["name"]: a for a in rule.get("attribute", [])}
     if _string(attrs.get("main_module")):
-        return "module_main"
+        return ["module_main"]
     package = _package(label)
-    main_attr = attrs.get("main")
-    if main_attr is not None and main_attr.get("explicitlySpecified"):
-        main_label = _string(main_attr)
-        if not main_label:
-            return "select_main"
-        main = _label_path(main_label, package)
-        if main is None:
-            return None
-        suffix = main_label.rpartition(":")[2] or main
-    else:
-        name = _string(attrs.get("name")) or label.rpartition(":")[2]
-        suffix = name + ".py"
-        main = posixpath.join(package, suffix)
     srcs = [
         p
-        for p in (
-            _label_path(s, package)
-            for s in attrs.get("srcs", {}).get("stringListValue", [])
-        )
+        for p in (_label_path(s, package) for s in _values(attrs.get("srcs")))
         if p is not None
     ]
-    matches = [p for p in srcs if p == main] or [
-        p for p in srcs if ("/" + p).endswith("/" + suffix)
-    ]
-    if len(matches) != 1:
-        raise errors.SourceError(
-            f"{label}: main {suffix} matches {len(matches)} srcs"
-        )
-    path = files.join(base, matches[0])
-    return (path,) if fs.has_file(path) else "generated"
+    main_attr = attrs.get("main")
+    if main_attr is not None and main_attr.get("explicitlySpecified"):
+        mains = [
+            (path, main_label.rpartition(":")[2] or path)
+            for main_label in _values(main_attr)
+            if (path := _label_path(main_label, package)) is not None
+        ]
+    else:
+        name = _string(attrs.get("name")) or label.rpartition(":")[2]
+        mains = [(posixpath.join(package, name + ".py"), name + ".py")]
+    out: list[tuple[str] | str] = []
+    for main, suffix in mains:
+        matches = [p for p in srcs if p == main] or [
+            p for p in srcs if ("/" + p).endswith("/" + suffix)
+        ]
+        if not matches:
+            # srcs made by another rule (a filegroup, a genrule) are labels,
+            # not files; the main cannot be pinned to a tracked file.
+            out.append("unresolved")
+            continue
+        if len(matches) > 1:
+            raise errors.SourceError(
+                f"{label}: main {suffix} matches {len(matches)} srcs"
+            )
+        path = files.join(base, matches[0])
+        out.append((path,) if fs.has_file(path) else "generated")
+    return out
+
+
+def _values(attr: dict[str, Any] | None) -> list[str]:
+    """Return an attribute's labels, the union of all branches of a select()."""
+    if not attr:
+        return []
+    if "selectorList" in attr:
+        return [
+            v
+            for element in attr["selectorList"].get("elements", [])
+            for entry in element.get("entries", [])
+            for v in _entry_values(entry)
+        ]
+    return _entry_values(attr)
+
+
+def _entry_values(item: dict[str, Any]) -> list[str]:
+    if "stringListValue" in item:
+        return [str(v) for v in item["stringListValue"]]
+    value = item.get("stringValue")
+    return [str(value)] if value else []
 
 
 def _string(attr: dict[str, Any] | None) -> str:

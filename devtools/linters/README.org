@@ -643,10 +643,12 @@ Entries come from these sources:
 The default is ~executable~ and ~bazel~. The Bazel source runs
 ~bazel query~, so targets made by macros and list comprehensions are
 seen exactly; without a tracked ~MODULE.bazel~ or ~WORKSPACE~ it is
-skipped and the pass line says so. A main matching no or several ~srcs~,
-or a failing ~bazel query~, is an error, never a silent pass. Generated
-mains, ~main_module~ targets and ~select()~ on ~main~ are skipped and
-counted. ~__main__.py~ is never an entry by itself, and console-script
+skipped and the pass line says so. A main matching several ~srcs~,
+or a failing ~bazel query~, is an error, never a silent pass. A
+~select()~ on ~main~ or ~srcs~ counts every branch, so a main used on any
+platform is checked. Generated mains, ~main_module~ targets, and mains
+not found among the file ~srcs~ (e.g. srcs from a filegroup) are skipped
+and counted. ~__main__.py~ is never an entry by itself, and console-script
 targets need no guard. Other build systems pass ~--entry-list~, whose
 paths are relative to the repo top level; a listed path that is not a
 tracked ~.py~ file is an error.

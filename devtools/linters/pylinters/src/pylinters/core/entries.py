@@ -154,7 +154,7 @@ def _from_bazel(
     for count, what in (
         (res.generated, "generated main(s)"),
         (res.module_main, "main_module target(s)"),
-        (res.select_main, "select() main target(s)"),
+        (res.unresolved, "target(s) with no main file among srcs"),
     ):
         if count:
             notes.append(f"bazel: {count} {what} skipped")
