@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         gh-ask
 // @namespace    https://github.com/jaeyeom/experimental/tree/main/devtools/gh-ask
-// @version      0.1.12
+// @version      0.1.13
 // @description  Ask a local agent about lines in a pull request diff, through gh-ask serve on 127.0.0.1.
 // @match        https://github.com/*
 // @grant        GM_xmlhttpRequest
@@ -1317,6 +1317,7 @@ function bindPage(page) {
 }
 
 const GhAsk = {
+  activatePanel,
   askError,
   askLine,
   askPanel,
@@ -1331,6 +1332,7 @@ const GhAsk = {
   isDiffPath,
   isPrPath,
   lineInfo,
+  main,
   navDebounceMs,
   nextHover,
   onPopoverKey,
@@ -1355,20 +1357,23 @@ const GhAsk = {
 
 // ---- Browser glue ----
 
-const CSS = `
+const SHARED_CSS = `
 .gh-ask-btn { position: absolute; z-index: 100; font: 12px sans-serif; padding: 2px 6px;
   border: 1px solid #8c959f; border-radius: 6px; background: #f6f8fa; color: #1f2328; cursor: pointer; }
 .gh-ask-btn.gh-ask-header { position: static; z-index: auto; margin-left: 8px;
   vertical-align: middle; line-height: 20px; padding: 0 8px; }
+.gh-ask-chip { display: inline-block; margin-left: 8px; padding: 0 6px; font: 11px sans-serif;
+  border-radius: 10px; background: #ddf4ff; color: #0969da; white-space: nowrap; cursor: pointer; }
+.gh-ask-chip.gh-ask-bad { background: #ffebe9; color: #cf222e; }
+`;
+
+const CSS = `
 .gh-ask-pop { position: absolute; z-index: 101; width: 360px; padding: 8px; font: 13px sans-serif;
   border: 1px solid #8c959f; border-radius: 6px; background: #fff; color: #1f2328;
   box-shadow: 0 4px 12px rgba(0,0,0,.2); }
 .gh-ask-pop textarea { width: 100%; height: 80px; box-sizing: border-box; }
 .gh-ask-pop .gh-ask-row { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
 .gh-ask-pop .gh-ask-err { color: #cf222e; margin-top: 6px; white-space: pre-wrap; }
-.gh-ask-chip { display: inline-block; margin-left: 8px; padding: 0 6px; font: 11px sans-serif;
-  border-radius: 10px; background: #ddf4ff; color: #0969da; white-space: nowrap; cursor: pointer; }
-.gh-ask-chip.gh-ask-bad { background: #ffebe9; color: #cf222e; }
 `;
 
 const PANEL_CSS = `
@@ -1386,8 +1391,8 @@ const PANEL_CSS = `
 .gh-ask-note { color: #59636e; margin: 8px 0 0; }
 `;
 
-function el(tag, props, children) {
-  const e = document.createElement(tag);
+function el(tag, props, children, doc = document) {
+  const e = doc.createElement(tag);
   Object.assign(e, props);
   for (const c of children || []) {
     e.append(c);
@@ -1444,41 +1449,60 @@ function loopbackRequest(method, path, body, done) {
 }
 
 let panelApi = null;
-let panelStyleAdded = false;
+const sharedStyleOwners = new WeakSet();
+const panelStyleOwners = new WeakSet();
+
+function ensureStyle(owners, css, addStyle) {
+  if (owners.has(addStyle)) {
+    return;
+  }
+  addStyle(css);
+  owners.add(addStyle);
+}
 
 // activatePanel mounts the read-only thread panel for one pull request.
 // It returns a function that removes the panel.
-function activatePanel() {
-  if (!panelStyleAdded) {
-    GM_addStyle(PANEL_CSS);
-    panelStyleAdded = true;
-  }
-  const doc = { createElement: (tag) => document.createElement(tag) };
-  const toggle = el("button", {
+function activatePanel(env = {}) {
+  const doc = env.document || document;
+  const win = env.window || window;
+  const addStyle = env.GM_addStyle || GM_addStyle;
+  const Observer = env.MutationObserver || MutationObserver;
+  const makeEl = (tag, props, children) => el(tag, props, children, doc);
+  ensureStyle(sharedStyleOwners, SHARED_CSS, addStyle);
+  ensureStyle(panelStyleOwners, PANEL_CSS, addStyle);
+  const toggle = makeEl("button", {
     type: "button",
     className: "gh-ask-btn gh-ask-header",
     textContent: "gh-ask",
   });
-  const log = el("div", { className: "gh-ask-panel-log" });
-  const question = el("textarea", { placeholder: "Question for the agent" });
-  const deep = el("input", { type: "checkbox" });
-  const send = el("button", {
+  const log = makeEl("div", { className: "gh-ask-panel-log" });
+  const question = makeEl("textarea", { placeholder: "Question for the agent" });
+  const deep = makeEl("input", { type: "checkbox" });
+  const send = makeEl("button", {
     type: "button",
     className: "btn btn-sm btn-primary",
     textContent: "Send",
     title: "Send (⌘↵ / Ctrl+↵)",
   });
-  const refresh = el("button", { type: "button", className: "btn btn-sm", textContent: "Refresh" });
-  const err = el("div", { className: "gh-ask-err" });
-  const note = el("div", { className: "gh-ask-note", textContent: PANEL_FOOTER });
-  const foot = el("div", { className: "gh-ask-panel-foot" }, [
+  const refresh = makeEl("button", {
+    type: "button",
+    className: "btn btn-sm",
+    textContent: "Refresh",
+  });
+  const err = makeEl("div", { className: "gh-ask-err" });
+  const note = makeEl("div", { className: "gh-ask-note", textContent: PANEL_FOOTER });
+  const foot = makeEl("div", { className: "gh-ask-panel-foot" }, [
     question,
-    el("div", { className: "gh-ask-row" }, [el("label", {}, [deep, " deep"]), send, refresh]),
+    makeEl("div", { className: "gh-ask-row" }, [
+      makeEl("label", {}, [deep, " deep"]),
+      send,
+      refresh,
+    ]),
     err,
     note,
   ]);
-  const panel = el("aside", { className: "gh-ask-panel", hidden: true }, [log, foot]);
-  document.body.append(panel);
+  const panel = makeEl("aside", { className: "gh-ask-panel", hidden: true }, [log, foot]);
+  doc.body.append(panel);
 
   let watch = null;
   let line = null;
@@ -1495,10 +1519,10 @@ function activatePanel() {
   function paint(view) {
     clearLog();
     if (view.empty) {
-      log.append(el("p", { textContent: PANEL_EMPTY }));
+      log.append(makeEl("p", { textContent: PANEL_EMPTY }));
     } else {
       if (view.closed) {
-        log.append(el("div", { textContent: "closed" }));
+        log.append(makeEl("div", { textContent: "closed" }));
       }
       for (const message of view.messages) {
         log.append(renderMessage(doc, message));
@@ -1518,9 +1542,9 @@ function activatePanel() {
     stopPoll();
     poll = startPanelPolling({
       now: () => Date.now(),
-      setTimeout: (fn, ms) => window.setTimeout(fn, ms),
-      clearTimeout: (t) => window.clearTimeout(t),
-      isVisible: () => document.visibilityState === "visible" && !panel.hidden,
+      setTimeout: (fn, ms) => win.setTimeout(fn, ms),
+      clearTimeout: (t) => win.clearTimeout(t),
+      isVisible: () => doc.visibilityState === "visible" && !panel.hidden,
       messages,
       closed,
       fetchStatus: (done) => loopbackRequest("GET", statusPath(threadId), null, done),
@@ -1545,7 +1569,7 @@ function activatePanel() {
   }
 
   function loadThread() {
-    const page = parsePrPage(window.location.href);
+    const page = parsePrPage(win.location.href);
     if (!page) {
       threadId = null;
       stopPoll();
@@ -1603,8 +1627,8 @@ function activatePanel() {
     sending = true;
     send.disabled = true;
     const built = await askPanel({
-      href: window.location.href,
-      root: document.documentElement,
+      href: win.location.href,
+      root: doc.documentElement,
       question: question.value,
       deep: deep.checked,
       line,
@@ -1669,21 +1693,21 @@ function activatePanel() {
 
   let mountTimer = null;
   function mountToggle() {
-    return mountPanelToggle(document.documentElement, toggle);
+    return mountPanelToggle(doc.documentElement, toggle);
   }
   function scheduleMount() {
     if (mountTimer !== null) {
-      window.clearTimeout(mountTimer);
+      win.clearTimeout(mountTimer);
     }
-    mountTimer = window.setTimeout(() => {
+    mountTimer = win.setTimeout(() => {
       mountTimer = null;
       mountToggle();
     }, navDebounceMs);
   }
-  watch = new MutationObserver(() => {
+  watch = new Observer(() => {
     scheduleMount();
   });
-  watch.observe(document.documentElement, { childList: true, subtree: true });
+  watch.observe(doc.documentElement, { childList: true, subtree: true });
   mountToggle();
 
   panelApi = { open, close };
@@ -1693,7 +1717,7 @@ function activatePanel() {
     }
     stopPoll();
     if (mountTimer !== null) {
-      window.clearTimeout(mountTimer);
+      win.clearTimeout(mountTimer);
       mountTimer = null;
     }
     if (watch) {
@@ -1742,21 +1766,27 @@ function registerMenu() {
 
 // main installs the diff-view controls and returns a function that
 // removes them, their listeners, and any status polling.
-function main() {
+function main(env = {}) {
+  const doc = env.document || document;
+  const win = env.window || window;
+  const addStyle = env.GM_addStyle || GM_addStyle;
+  const makeEl = (tag, props, children) => el(tag, props, children, doc);
+
   function request(method, path, body, done) {
     loopbackRequest(method, path, body, done);
   }
 
-  const style = el("style", { textContent: CSS });
-  document.head.append(style);
+  ensureStyle(sharedStyleOwners, SHARED_CSS, addStyle);
+  const style = makeEl("style", { textContent: CSS });
+  doc.head.append(style);
 
-  const button = el("button", {
+  const button = makeEl("button", {
     type: "button",
     className: "gh-ask-btn",
     textContent: "Ask agent",
     hidden: true,
   });
-  document.body.append(button);
+  doc.body.append(button);
   let target = null;
   let popover = null;
   let popoverPoint = null;
@@ -1775,23 +1805,23 @@ function main() {
     node.style.top = "0px";
     node.style.width = "";
     const preferred = node.classList.contains("gh-ask-pop") ? POPOVER_WIDTH : node.offsetWidth;
-    const room = Math.max(0, window.innerWidth - 2 * VIEWPORT_MARGIN);
+    const room = Math.max(0, win.innerWidth - 2 * VIEWPORT_MARGIN);
     node.style.width = `${Math.min(preferred, room)}px`;
     const placed = placeInView(
       { left: rect.left, top: rect.top },
       { width: preferred, height: node.offsetHeight },
-      { width: window.innerWidth, height: window.innerHeight },
+      { width: win.innerWidth, height: win.innerHeight },
     );
     node.style.visibility = previousVisibility;
     node.style.width = `${placed.width}px`;
-    node.style.top = `${placed.top + window.scrollY}px`;
-    node.style.left = `${placed.left + window.scrollX}px`;
+    node.style.top = `${placed.top + win.scrollY}px`;
+    node.style.left = `${placed.left + win.scrollX}px`;
   }
 
   function popoverAnchor() {
     return {
-      top: Number.parseFloat(button.style.top) - window.scrollY + 24,
-      left: Number.parseFloat(button.style.left) - window.scrollX,
+      top: Number.parseFloat(button.style.top) - win.scrollY + 24,
+      left: Number.parseFloat(button.style.left) - win.scrollX,
     };
   }
 
@@ -1800,7 +1830,7 @@ function main() {
       place(popover, popoverPoint());
     }
   }
-  window.addEventListener("resize", onResize);
+  win.addEventListener("resize", onResize);
 
   function onMouseOver(e) {
     if (popover || target?.selection || button.contains(e.target)) {
@@ -1815,14 +1845,14 @@ function main() {
     const at = hoverPlacement(lineInfo(e.target), button.offsetWidth);
     place(button, at);
   }
-  document.addEventListener("mouseover", onMouseOver);
+  doc.addEventListener("mouseover", onMouseOver);
 
   function onMouseUp(e) {
     if (popover || button.contains(e.target)) {
       return;
     }
-    window.setTimeout(() => {
-      const sel = window.getSelection();
+    win.setTimeout(() => {
+      const sel = win.getSelection();
       if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
         if (target?.selection) {
           target = null;
@@ -1841,7 +1871,7 @@ function main() {
       place(button, { top: r.bottom + 4, left: r.right });
     }, 0);
   }
-  document.addEventListener("mouseup", onMouseUp);
+  doc.addEventListener("mouseup", onMouseUp);
 
   function closePopover() {
     if (popover) {
@@ -1858,7 +1888,7 @@ function main() {
       closePopover();
     }
   }
-  document.addEventListener("keydown", onKeyDown);
+  doc.addEventListener("keydown", onKeyDown);
 
   function setChip(chip, text, bad) {
     chip.textContent = text;
@@ -1871,9 +1901,9 @@ function main() {
     pollStops.push(
       startPolling({
         now: () => Date.now(),
-        setTimeout: (fn, ms) => window.setTimeout(fn, ms),
-        clearTimeout: (t) => window.clearTimeout(t),
-        isVisible: () => document.visibilityState === "visible",
+        setTimeout: (fn, ms) => win.setTimeout(fn, ms),
+        clearTimeout: (t) => win.clearTimeout(t),
+        isVisible: () => doc.visibilityState === "visible",
         fetchStatus: (done) => request("GET", statusPath(id), null, done),
         onUpdate: ({ label, error }) => {
           setChip(chip, chipText(shownId, label) + (error ? ` · ${error}` : ""), Boolean(error));
@@ -1892,22 +1922,30 @@ function main() {
       return;
     }
     popoverPoint = point;
-    const question = el("textarea", { placeholder: "Question for the agent" });
-    const deep = el("input", { type: "checkbox" });
-    const send = el("button", {
+    const question = makeEl("textarea", { placeholder: "Question for the agent" });
+    const deep = makeEl("input", { type: "checkbox" });
+    const send = makeEl("button", {
       type: "button",
       className: "btn btn-sm btn-primary",
       textContent: "Send",
       title: "Send (⌘↵ / Ctrl+↵)",
     });
-    const cancel = el("button", { type: "button", className: "btn btn-sm", textContent: "Cancel" });
-    const err = el("div", { className: "gh-ask-err" });
-    popover = el("div", { className: "gh-ask-pop" }, [
+    const cancel = makeEl("button", {
+      type: "button",
+      className: "btn btn-sm",
+      textContent: "Cancel",
+    });
+    const err = makeEl("div", { className: "gh-ask-err" });
+    popover = makeEl("div", { className: "gh-ask-pop" }, [
       question,
-      el("div", { className: "gh-ask-row" }, [el("label", {}, [deep, " deep"]), send, cancel]),
+      makeEl("div", { className: "gh-ask-row" }, [
+        makeEl("label", {}, [deep, " deep"]),
+        send,
+        cancel,
+      ]),
       err,
     ]);
-    document.body.append(popover);
+    doc.body.append(popover);
     place(popover, popoverPoint());
     button.hidden = true;
     question.focus();
@@ -1936,7 +1974,7 @@ function main() {
       }
       err.textContent = "";
       if (!chip) {
-        chip = el("span", { className: "gh-ask-chip" });
+        chip = makeEl("span", { className: "gh-ask-chip" });
         const asked = shown.payload;
         const chipLine =
           asked && asked.path
@@ -1989,8 +2027,8 @@ function main() {
 
   function headOpts(onStatus) {
     return {
-      href: window.location.href,
-      root: document.documentElement,
+      href: win.location.href,
+      root: doc.documentElement,
       cache: headCache,
       onStatus,
       fetchText: fetchSameOrigin,
@@ -2028,17 +2066,17 @@ function main() {
       stop();
     }
     pollStops.length = 0;
-    window.removeEventListener("resize", onResize);
-    document.removeEventListener("mouseover", onMouseOver);
-    document.removeEventListener("mouseup", onMouseUp);
-    document.removeEventListener("keydown", onKeyDown);
+    win.removeEventListener("resize", onResize);
+    doc.removeEventListener("mouseover", onMouseOver);
+    doc.removeEventListener("mouseup", onMouseUp);
+    doc.removeEventListener("keydown", onKeyDown);
     if (popover) {
       popover.remove();
       popover = null;
     }
     button.remove();
     style.remove();
-    for (const chip of document.querySelectorAll(".gh-ask-chip")) {
+    for (const chip of doc.querySelectorAll(".gh-ask-chip")) {
       chip.remove();
     }
   };

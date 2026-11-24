@@ -493,9 +493,9 @@ test("the script only connects to loopback", () => {
 const POPOVER_W = 360;
 const MARGIN = 8;
 
-test("userscript version is 0.1.12", () => {
+test("userscript version is 0.1.13", () => {
   const src = fs.readFileSync(path.join(__dirname, "gh-ask.user.js"), "utf8");
-  assert.match(src, /^\/\/ @version\s+0\.1\.12$/m);
+  assert.match(src, /^\/\/ @version\s+0\.1\.13$/m);
 });
 
 const FILES_HEAD = "0123456789abcdef0123456789abcdef01234567";
@@ -1545,4 +1545,255 @@ test("split view: chips attach to the hovered side's cell", () => {
   assert.equal(G.chipHost(G.lineInfo(right)), right);
   const uni = G.lineInfo(byAttr(fixture("changes-view-captured.html"), "data-line-anchor", `${C}R1`));
   assert.equal(G.chipHost(uni), uni.row.lastElementChild);
+});
+
+function createBrowserEnv(root, pathname = "/octo/demo/pull/42") {
+  const clock = fakeClock();
+  const gmStyles = [];
+  const headChildren = [];
+  const bodyChildren = [];
+  const winListeners = new Map();
+  const docListeners = new Map();
+
+  function addListener(map, type, fn) {
+    const list = map.get(type) ?? [];
+    list.push(fn);
+    map.set(type, list);
+  }
+  function removeListener(map, type, fn) {
+    map.set(
+      type,
+      (map.get(type) ?? []).filter((f) => f !== fn),
+    );
+  }
+  function makeNode(tag) {
+    const node = {
+      nodeType: 1,
+      tagName: tag.toUpperCase(),
+      attrs: {},
+      parentElement: null,
+      childNodes: [],
+      style: {},
+      hidden: false,
+      textContent: "",
+      get children() {
+        return this.childNodes.filter((n) => n.nodeType === 1);
+      },
+      get className() {
+        return this.attrs.class || "";
+      },
+      set className(v) {
+        this.attrs.class = String(v);
+      },
+      getAttribute(name) {
+        return Object.hasOwn(this.attrs, name) ? this.attrs[name] : null;
+      },
+      append(...items) {
+        for (const item of items) {
+          if (typeof item === "string") {
+            this.childNodes.push({ nodeType: 3, textContent: item, parentElement: this });
+          } else {
+            item.parentElement = this;
+            this.childNodes.push(item);
+          }
+        }
+      },
+      remove() {
+        if (!this.parentElement) {
+          return;
+        }
+        const list = this.parentElement.childNodes;
+        const i = list.indexOf(this);
+        if (i >= 0) {
+          list.splice(i, 1);
+        }
+        this.parentElement = null;
+      },
+      contains(other) {
+        for (let e = other; e; e = e.parentElement) {
+          if (e === this) {
+            return true;
+          }
+        }
+        return false;
+      },
+      addEventListener() {},
+      removeEventListener() {},
+    };
+    return node;
+  }
+
+  const head = {
+    childNodes: headChildren,
+    get children() {
+      return headChildren;
+    },
+    append(...items) {
+      for (const item of items) {
+        item.parentElement = this;
+        headChildren.push(item);
+      }
+    },
+  };
+  const body = {
+    childNodes: bodyChildren,
+    get children() {
+      return bodyChildren;
+    },
+    append(...items) {
+      for (const item of items) {
+        item.parentElement = this;
+        bodyChildren.push(item);
+      }
+    },
+  };
+  const location = {
+    pathname,
+    get href() {
+      return `https://github.com${this.pathname}`;
+    },
+  };
+  const history = {
+    pushState(_state, _title, url) {
+      location.pathname = String(url);
+    },
+    replaceState(_state, _title, url) {
+      location.pathname = String(url);
+    },
+  };
+  const document = {
+    documentElement: root,
+    head,
+    body,
+    visibilityState: "visible",
+    createElement: makeNode,
+    addEventListener: (type, fn) => addListener(docListeners, type, fn),
+    removeEventListener: (type, fn) => removeListener(docListeners, type, fn),
+    querySelectorAll: () => [],
+  };
+  const window = {
+    location,
+    history,
+    innerWidth: 1280,
+    innerHeight: 800,
+    scrollX: 0,
+    scrollY: 0,
+    Event: class Event {
+      constructor(type) {
+        this.type = type;
+      }
+    },
+    addEventListener: (type, fn) => addListener(winListeners, type, fn),
+    removeEventListener: (type, fn) => removeListener(winListeners, type, fn),
+    dispatchEvent(event) {
+      for (const fn of winListeners.get(event.type) ?? []) {
+        fn(event);
+      }
+    },
+    setTimeout: (fn, ms) => clock.setTimeout(fn, ms),
+    clearTimeout: (t) => clock.clearTimeout(t),
+  };
+  return {
+    document,
+    window,
+    clock,
+    gmStyles,
+    GM_addStyle: (css) => gmStyles.push(css),
+    MutationObserver: class {
+      observe() {}
+      disconnect() {}
+    },
+  };
+}
+
+function allStyles(env) {
+  return [...env.gmStyles, ...env.document.head.children.map((el) => el.textContent)];
+}
+
+test("conversation fixture with only activatePanel() includes shared button and chip rules", () => {
+  const root = fixture("conversation-view.html");
+  const env = createBrowserEnv(root, "/octo/demo/pull/42");
+  const stop = G.activatePanel(env);
+  try {
+    assert.equal(headerToggles(root).length, 1);
+    const shared = env.gmStyles.filter((s) => s.includes(".gh-ask-btn"));
+    assert.equal(shared.length, 1);
+    assert.match(shared[0], /\.gh-ask-btn\.gh-ask-header\b/);
+    assert.match(shared[0], /\.gh-ask-chip\b/);
+    assert.equal(
+      env.gmStyles.some((s) => s.includes(".gh-ask-panel")),
+      true,
+    );
+    assert.equal(
+      env.document.head.children.some((el) => el.textContent.includes(".gh-ask-pop")),
+      false,
+    );
+  } finally {
+    stop();
+  }
+});
+
+test("soft navigation from conversation to files adds shared rules once and keeps diff-only rules", () => {
+  const root = fixture("conversation-view.html");
+  const env = createBrowserEnv(root, "/octo/demo/pull/42");
+  const binding = G.bindPage({
+    location: env.window.location,
+    history: env.window.history,
+    window: env.window,
+    setTimeout: (fn, ms) => env.clock.setTimeout(fn, ms),
+    clearTimeout: (t) => env.clock.clearTimeout(t),
+    activate: () => G.main(env),
+    activatePanel: () => G.activatePanel(env),
+  });
+  try {
+    env.clock.advance(G.navDebounceMs);
+    assert.equal(allStyles(env).filter((s) => s.includes(".gh-ask-btn")).length, 1);
+    assert.equal(
+      env.document.head.children.some((el) => el.textContent.includes(".gh-ask-pop")),
+      false,
+    );
+
+    env.window.history.pushState({}, "", "/octo/demo/pull/42/files");
+    env.clock.advance(G.navDebounceMs);
+    assert.equal(allStyles(env).filter((s) => s.includes(".gh-ask-btn")).length, 1);
+    assert.equal(
+      env.document.head.children.some((el) => el.textContent.includes(".gh-ask-pop")),
+      true,
+    );
+
+    env.window.history.pushState({}, "", "/octo/demo/pull/42/commits");
+    env.clock.advance(G.navDebounceMs);
+    assert.equal(allStyles(env).filter((s) => s.includes(".gh-ask-btn")).length, 1);
+    assert.equal(
+      env.document.head.children.some((el) => el.textContent.includes(".gh-ask-pop")),
+      false,
+    );
+
+    env.window.history.pushState({}, "", "/octo/demo/pull/42/changes");
+    env.clock.advance(G.navDebounceMs);
+    assert.equal(allStyles(env).filter((s) => s.includes(".gh-ask-btn")).length, 1);
+    assert.equal(
+      env.document.head.children.some((el) => el.textContent.includes(".gh-ask-pop")),
+      true,
+    );
+  } finally {
+    binding.stop();
+  }
+});
+
+test("loading files view first adds shared rules once even after activatePanel()", () => {
+  const root = fixture("files-view.html");
+  const env = createBrowserEnv(root, "/octo/demo/pull/42/files");
+  const stopMain = G.main(env);
+  const stopPanel = G.activatePanel(env);
+  try {
+    assert.equal(allStyles(env).filter((s) => s.includes(".gh-ask-btn")).length, 1);
+    assert.equal(
+      env.document.head.children.some((el) => el.textContent.includes(".gh-ask-pop")),
+      true,
+    );
+  } finally {
+    stopMain();
+    stopPanel();
+  }
 });
