@@ -245,7 +245,8 @@ func (s *server) handleDispatchJob(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSONBody(w, r, &req) {
 		return
 	}
-	resp, err := s.svc.DispatchSkill(r.Context(), tokenFromContext(r.Context()), req)
+	githubToken := strings.TrimSpace(r.Header.Get("X-GitHub-Token"))
+	resp, err := s.svc.DispatchSkill(r.Context(), tokenFromContext(r.Context()), req, githubToken)
 	if err != nil {
 		writeServiceError(w, err)
 		return

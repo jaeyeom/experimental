@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker"
+	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker/ghacl"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker/mcp"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker/sqlite"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/dlp"
@@ -362,5 +364,195 @@ func TestMCPStreamableHTTP(t *testing.T) {
 	}))
 	if unknownTool.Error == nil {
 		t.Fatalf("expected JSON-RPC error for unknown tool")
+	}
+}
+
+func postMCPWithHeaders(t *testing.T, srv *httptest.Server, token string, headers map[string]string, payload any) *http.Response {
+	t.Helper()
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, srv.URL+"/mcp", bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatalf("Do(/mcp) error = %v", err)
+	}
+	return resp
+}
+
+func TestMCPDispatchWithGitHubTokenHeader(t *testing.T) {
+	allowHeader := "mcp-allow-fixture-987654"
+	denyHeader := "mcp-deny-fixture-123456"
+
+	ghServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/repos/org/secret-repo" && r.Header.Get("Authorization") == "Bearer "+allowHeader {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"permissions":{"pull":true}}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(ghServer.Close)
+
+	ctx := context.Background()
+	st, err := sqlite.Open(filepath.Join(t.TempDir(), "broker.db"))
+	if err != nil {
+		t.Fatalf("sqlite.Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	verifier := ghacl.NewGitHubVerifier(ghacl.Config{
+		APIBaseURL: ghServer.URL,
+		CacheTTL:   5 * time.Minute,
+	}, ghServer.Client())
+
+	svc := broker.NewService(st, dlp.NewScanner(), broker.NewEventHub(), broker.Config{
+		GitHubACLVerifier:      verifier,
+		RequireRepoAccessCheck: true,
+	})
+	mux := http.NewServeMux()
+	mux.Handle("POST /mcp", mcp.NewHandler(svc, st))
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	prodToken, _, err := st.CreateToken(ctx, broker.TokenRoleProducer, "prod-1", nil)
+	if err != nil {
+		t.Fatalf("CreateToken(producer) error = %v", err)
+	}
+	_, workRec, err := st.CreateToken(ctx, broker.TokenRoleWorker, "worker-1", []string{"org/secret-repo"})
+	if err != nil {
+		t.Fatalf("CreateToken(worker) error = %v", err)
+	}
+	if err := st.UpsertCatalog(ctx, broker.CatalogRecord{
+		Repo:          "org/secret-repo",
+		DefaultBranch: "main",
+		CatalogSha:    "sha123",
+		CatalogJSON:   []byte(testCatalogJSON),
+		UpdatedAt:     time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("UpsertCatalog() error = %v", err)
+	}
+	if _, err := svc.WorkerHeartbeat(ctx, workRec, protocol.WorkerHeartbeatRequest{
+		SupportedRepos:       []string{"org/secret-repo"},
+		AcceptingJobs:        true,
+		ConcurrencyAvailable: 2,
+		Quota:                protocol.QuotaHealth{State: "green"},
+	}); err != nil {
+		t.Fatalf("WorkerHeartbeat() error = %v", err)
+	}
+
+	dispatchPayload := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "tools/call",
+		"params": map[string]any{
+			"name": "dispatch_skill",
+			"arguments": map[string]any{
+				"repo":  "org/secret-repo",
+				"skill": "summarize",
+				"args":  map[string]any{"path": "README.md"},
+			},
+		},
+	}
+
+	// 1. Missing X-GitHub-Token -> tool error UNAUTHORIZED.
+	noTokRPC := decodeRPC(t, postMCP(t, srv, prodToken, dispatchPayload))
+	if noTokRPC.Error != nil {
+		t.Fatalf("unexpected JSON-RPC error: %+v", noTokRPC.Error)
+	}
+	var noTokCall toolCallResult
+	if err := json.Unmarshal(noTokRPC.Result, &noTokCall); err != nil {
+		t.Fatalf("unmarshal noTokCall: %v", err)
+	}
+	if !noTokCall.IsError || len(noTokCall.Content) != 1 {
+		t.Fatalf("expected isError=true for missing token, got %+v", noTokCall)
+	}
+	var noTokErr protocol.APIError
+	if err := json.Unmarshal([]byte(noTokCall.Content[0].Text), &noTokErr); err != nil {
+		t.Fatalf("unmarshal APIError: %v", err)
+	}
+	if noTokErr.Code != protocol.ErrCodeUnauthorized {
+		t.Fatalf("missing token code = %s, want UNAUTHORIZED", noTokErr.Code)
+	}
+
+	// 2. Unauthorized X-GitHub-Token (404 from GitHub) -> tool error FORBIDDEN.
+	denyRPC := decodeRPC(t, postMCPWithHeaders(t, srv, prodToken, map[string]string{
+		"X-GitHub-Token": denyHeader,
+	}, dispatchPayload))
+	if denyRPC.Error != nil {
+		t.Fatalf("unexpected JSON-RPC error: %+v", denyRPC.Error)
+	}
+	var denyCall toolCallResult
+	if err := json.Unmarshal(denyRPC.Result, &denyCall); err != nil {
+		t.Fatalf("unmarshal denyCall: %v", err)
+	}
+	if !denyCall.IsError || len(denyCall.Content) != 1 {
+		t.Fatalf("expected isError=true for denied token, got %+v", denyCall)
+	}
+	var denyErr protocol.APIError
+	if err := json.Unmarshal([]byte(denyCall.Content[0].Text), &denyErr); err != nil {
+		t.Fatalf("unmarshal APIError: %v", err)
+	}
+	if denyErr.Code != protocol.ErrCodeForbidden {
+		t.Fatalf("denied token code = %s, want FORBIDDEN", denyErr.Code)
+	}
+
+	// 3. Valid X-GitHub-Token (200 pull:true) -> QUEUED, and zero leakage.
+	okRPC := decodeRPC(t, postMCPWithHeaders(t, srv, prodToken, map[string]string{
+		"X-GitHub-Token": allowHeader,
+	}, dispatchPayload))
+	if okRPC.Error != nil {
+		t.Fatalf("unexpected JSON-RPC error: %+v", okRPC.Error)
+	}
+	var okCall toolCallResult
+	if err := json.Unmarshal(okRPC.Result, &okCall); err != nil {
+		t.Fatalf("unmarshal okCall: %v", err)
+	}
+	if okCall.IsError || len(okCall.Content) != 1 {
+		t.Fatalf("expected success for valid token, got %+v", okCall)
+	}
+	var dispRes protocol.DispatchResponse
+	if err := json.Unmarshal([]byte(okCall.Content[0].Text), &dispRes); err != nil {
+		t.Fatalf("unmarshal DispatchResponse: %v", err)
+	}
+	if dispRes.JobID == "" || dispRes.Status != protocol.JobStatusQueued {
+		t.Fatalf("unexpected DispatchResponse: %+v", dispRes)
+	}
+
+	lease, ok, err := svc.ClaimLease(ctx, workRec, protocol.LeaseRequest{
+		SupportedRepos: []string{"org/secret-repo"},
+	})
+	if err != nil || !ok {
+		t.Fatalf("ClaimLease() = (%+v, %v, %v), want leased job", lease, ok, err)
+	}
+	leaseJSON, err := json.Marshal(lease)
+	if err != nil {
+		t.Fatalf("marshal lease: %v", err)
+	}
+	if strings.Contains(string(leaseJSON), allowHeader) {
+		t.Fatalf("LeaseResponse leaked requester GitHub token!")
+	}
+	jobRec, err := st.GetJob(ctx, dispRes.JobID)
+	if err != nil {
+		t.Fatalf("GetJob() error = %v", err)
+	}
+	jobJSON, err := json.Marshal(jobRec)
+	if err != nil {
+		t.Fatalf("marshal jobRec: %v", err)
+	}
+	if strings.Contains(string(jobJSON), allowHeader) {
+		t.Fatalf("SQLite JobRecord leaked requester GitHub token!")
 	}
 }

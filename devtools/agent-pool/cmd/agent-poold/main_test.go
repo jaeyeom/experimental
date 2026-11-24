@@ -26,6 +26,11 @@ max_concurrent_per_requester = 7
 [[repos]]
 name = "org/core-api"
 git_url = "https://github.com/org/core-api.git"
+
+[github_acl]
+require_repo_access_check = true
+api_base_url = "https://github.example.com/api/v3"
+cache_ttl = "10m"
 `
 	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
@@ -40,6 +45,9 @@ git_url = "https://github.com/org/core-api.git"
 	}
 	if len(cfg.Repos) != 1 || cfg.Repos[0].Name != "org/core-api" {
 		t.Fatalf("unexpected repos: %+v", cfg.Repos)
+	}
+	if !cfg.GitHubACL.RequireRepoAccessCheck || cfg.GitHubACL.APIBaseURL != "https://github.example.com/api/v3" || cfg.GitHubACL.CacheTTL != "10m" {
+		t.Fatalf("unexpected github_acl config: %+v", cfg.GitHubACL)
 	}
 }
 

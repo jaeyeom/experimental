@@ -1,0 +1,17 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["ghacl.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker/ghacl",
+    visibility = ["//devtools/agent-pool:__subpackages__"],
+)
+
+go_test(
+    name = "go_default_test",
+    size = "small",
+    srcs = ["ghacl_test.go"],
+    deps = [
+        ":go_default_library",
+    ],
+)

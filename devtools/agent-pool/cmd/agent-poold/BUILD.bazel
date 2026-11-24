@@ -11,6 +11,7 @@ go_library(
     deps = [
         "//devtools/agent-pool/internal/broker:go_default_library",
         "//devtools/agent-pool/internal/broker/catsync:go_default_library",
+        "//devtools/agent-pool/internal/broker/ghacl:go_default_library",
         "//devtools/agent-pool/internal/broker/httpapi:go_default_library",
         "//devtools/agent-pool/internal/broker/mcp:go_default_library",
         "//devtools/agent-pool/internal/broker/sqlite:go_default_library",

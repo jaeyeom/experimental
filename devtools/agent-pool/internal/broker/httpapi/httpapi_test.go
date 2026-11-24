@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker"
+	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker/ghacl"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker/httpapi"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker/sqlite"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/dlp"
@@ -608,5 +609,182 @@ func TestCancelPropagation(t *testing.T) {
 	}))
 	if !jhb2.Cancel {
 		t.Fatalf("expected cancel=true on next job heartbeat")
+	}
+}
+
+func doJSONWithHeaders(t *testing.T, srv *httptest.Server, method, path, token string, headers map[string]string, body any) *http.Response {
+	t.Helper()
+	var reader io.Reader
+	if body != nil {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("json.Marshal() error = %v", err)
+		}
+		reader = bytes.NewReader(raw)
+	}
+	req, err := http.NewRequestWithContext(context.Background(), method, srv.URL+path, reader)
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatalf("Do(%s %s) error = %v", method, path, err)
+	}
+	return resp
+}
+
+func TestDispatchRequiresGitHubACLWhenEnabled(t *testing.T) {
+	allowHeader := "rest-allow-fixture-987654321"
+	denyHeader := "rest-deny-fixture-123456789"
+	invalidHeader := "rest-bad-fixture-000000000"
+
+	ghServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/org/secret-repo" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		switch r.Header.Get("Authorization") {
+		case "Bearer " + allowHeader:
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"permissions":{"pull":true}}`))
+		case "Bearer " + invalidHeader:
+			w.WriteHeader(http.StatusUnauthorized)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(ghServer.Close)
+
+	dbPath := filepath.Join(t.TempDir(), "broker.db")
+	st, err := sqlite.Open(dbPath)
+	if err != nil {
+		t.Fatalf("sqlite.Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	verifier := ghacl.NewGitHubVerifier(ghacl.Config{
+		APIBaseURL: ghServer.URL,
+		CacheTTL:   5 * time.Minute,
+	}, ghServer.Client())
+
+	svc := broker.NewService(st, dlp.NewScanner(), broker.NewEventHub(), broker.Config{
+		WorkerStaleAfter:          90 * time.Second,
+		LeaseTTL:                  60 * time.Second,
+		MaxAttempts:               2,
+		MaxConcurrentPerRequester: 5,
+		GitHubACLVerifier:         verifier,
+		RequireRepoAccessCheck:    true,
+	})
+	srv := httptest.NewServer(httpapi.NewHandler(svc, st, httpapi.Options{}))
+	t.Cleanup(srv.Close)
+
+	ctx := context.Background()
+	prodToken, _, err := st.CreateToken(ctx, broker.TokenRoleProducer, "prod-1", nil)
+	if err != nil {
+		t.Fatalf("CreateToken(producer) error = %v", err)
+	}
+	workToken, _, err := st.CreateToken(ctx, broker.TokenRoleWorker, "worker-1", []string{"org/secret-repo"})
+	if err != nil {
+		t.Fatalf("CreateToken(worker) error = %v", err)
+	}
+	seedCatalog(t, st, "org/secret-repo")
+
+	hbResp := doJSON(t, srv, http.MethodPost, "/workers/heartbeat", workToken, protocol.WorkerHeartbeatRequest{
+		SupportedRepos:       []string{"org/secret-repo"},
+		AcceptingJobs:        true,
+		ConcurrencyAvailable: 2,
+		Quota:                protocol.QuotaHealth{State: "green"},
+	})
+	hbResp.Body.Close()
+
+	dispatchReq := protocol.DispatchRequest{
+		Repo:  "org/secret-repo",
+		Skill: "summarize",
+		Args:  json.RawMessage(`{"path":"README.md"}`),
+	}
+
+	// 1. Dispatch without X-GitHub-Token -> 401 UNAUTHORIZED.
+	noTokResp := doJSON(t, srv, http.MethodPost, "/v1/jobs", prodToken, dispatchReq)
+	if noTokResp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("dispatch without X-GitHub-Token status = %d, want 401", noTokResp.StatusCode)
+	}
+	noTokErr := decodeBody[protocol.APIError](t, noTokResp)
+	if noTokErr.Code != protocol.ErrCodeUnauthorized {
+		t.Fatalf("missing token error code = %s, want UNAUTHORIZED", noTokErr.Code)
+	}
+
+	// 2. Dispatch with invalid token (401 from GitHub) -> 401 UNAUTHORIZED.
+	badTokResp := doJSONWithHeaders(t, srv, http.MethodPost, "/v1/jobs", prodToken, map[string]string{
+		"X-GitHub-Token": invalidHeader,
+	}, dispatchReq)
+	if badTokResp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("dispatch with invalid X-GitHub-Token status = %d, want 401", badTokResp.StatusCode)
+	}
+	badTokErr := decodeBody[protocol.APIError](t, badTokResp)
+	if badTokErr.Code != protocol.ErrCodeUnauthorized {
+		t.Fatalf("invalid token error code = %s, want UNAUTHORIZED", badTokErr.Code)
+	}
+
+	// 3. Dispatch with token lacking access (404 from GitHub) -> 403 FORBIDDEN.
+	denyResp := doJSONWithHeaders(t, srv, http.MethodPost, "/v1/jobs", prodToken, map[string]string{
+		"X-GitHub-Token": denyHeader,
+	}, dispatchReq)
+	if denyResp.StatusCode != http.StatusForbidden {
+		t.Fatalf("dispatch with unauthorized X-GitHub-Token status = %d, want 403", denyResp.StatusCode)
+	}
+	denyErr := decodeBody[protocol.APIError](t, denyResp)
+	if denyErr.Code != protocol.ErrCodeForbidden {
+		t.Fatalf("denied token error code = %s, want FORBIDDEN", denyErr.Code)
+	}
+
+	// 4. Dispatch with valid token (200 pull:true) -> 201 QUEUED.
+	okResp := doJSONWithHeaders(t, srv, http.MethodPost, "/v1/jobs", prodToken, map[string]string{
+		"X-GitHub-Token": allowHeader,
+	}, dispatchReq)
+	if okResp.StatusCode != http.StatusCreated && okResp.StatusCode != http.StatusOK && okResp.StatusCode != http.StatusAccepted {
+		t.Fatalf("dispatch with valid X-GitHub-Token status = %d, want 200/201/202", okResp.StatusCode)
+	}
+	disp := decodeBody[protocol.DispatchResponse](t, okResp)
+	if disp.JobID == "" || disp.Status != protocol.JobStatusQueued {
+		t.Fatalf("unexpected dispatch response: %+v", disp)
+	}
+
+	// Verify leased LeaseResponse contains NO trace of requester's GitHub token.
+	leaseResp := doJSON(t, srv, http.MethodPost, "/workers/lease", workToken, protocol.LeaseRequest{
+		SupportedRepos: []string{"org/secret-repo"},
+	})
+	if leaseResp.StatusCode != http.StatusOK {
+		t.Fatalf("lease status = %d, want 200", leaseResp.StatusCode)
+	}
+	leaseBody, err := io.ReadAll(leaseResp.Body)
+	leaseResp.Body.Close()
+	if err != nil {
+		t.Fatalf("read lease body: %v", err)
+	}
+	if strings.Contains(string(leaseBody), allowHeader) {
+		t.Fatalf("LeaseResponse leaked requester GitHub token!")
+	}
+
+	// Verify SQLite jobs row contains NO trace of requester's GitHub token.
+	jobRec, err := st.GetJob(ctx, disp.JobID)
+	if err != nil {
+		t.Fatalf("GetJob() error = %v", err)
+	}
+	jobJSON, err := json.Marshal(jobRec)
+	if err != nil {
+		t.Fatalf("json.Marshal(jobRec) error = %v", err)
+	}
+	if strings.Contains(string(jobJSON), allowHeader) {
+		t.Fatalf("SQLite JobRecord leaked requester GitHub token!")
 	}
 }

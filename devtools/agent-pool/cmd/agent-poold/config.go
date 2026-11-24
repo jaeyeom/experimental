@@ -11,6 +11,14 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker/catsync"
 )
 
+// GitHubACLConfig configures optional broker-side GitHub repository access
+// checks using a requester-supplied GitHub token.
+type GitHubACLConfig struct {
+	RequireRepoAccessCheck bool   `toml:"require_repo_access_check"`
+	APIBaseURL             string `toml:"api_base_url"`
+	CacheTTL               string `toml:"cache_ttl"`
+}
+
 // Config defines the broker.toml configuration schema for agent-poold.
 type Config struct {
 	ListenAddr                string               `toml:"listen_addr"`
@@ -22,6 +30,7 @@ type Config struct {
 	MaxAttempts               int                  `toml:"max_attempts"`
 	MaxConcurrentPerRequester int                  `toml:"max_concurrent_per_requester"`
 	Repos                     []catsync.RepoConfig `toml:"repos"`
+	GitHubACL                 GitHubACLConfig      `toml:"github_acl"`
 }
 
 // DefaultConfig returns a Config populated with standard defaults.
@@ -35,6 +44,11 @@ func DefaultConfig() Config {
 		WorkerStaleAfter:          "90s",
 		MaxAttempts:               2,
 		MaxConcurrentPerRequester: 5,
+		GitHubACL: GitHubACLConfig{
+			RequireRepoAccessCheck: false,
+			APIBaseURL:             "https://api.github.com",
+			CacheTTL:               "5m",
+		},
 	}
 }
 
@@ -63,6 +77,7 @@ type ParsedDurations struct {
 	CatalogSyncInterval time.Duration
 	LeaseTTL            time.Duration
 	WorkerStaleAfter    time.Duration
+	GitHubACLCacheTTL   time.Duration
 }
 
 // ParsedDurations validates and parses all duration fields in Config.
@@ -79,10 +94,15 @@ func (c Config) ParsedDurations() (ParsedDurations, error) {
 	if err != nil {
 		return ParsedDurations{}, err
 	}
+	ghCacheTTL, err := parsePositiveDuration("github_acl.cache_ttl", c.GitHubACL.CacheTTL)
+	if err != nil {
+		return ParsedDurations{}, err
+	}
 	return ParsedDurations{
 		CatalogSyncInterval: syncInterval,
 		LeaseTTL:            leaseTTL,
 		WorkerStaleAfter:    staleAfter,
+		GitHubACLCacheTTL:   ghCacheTTL,
 	}, nil
 }
 

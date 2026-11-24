@@ -18,6 +18,7 @@ go_test(
     deps = [
         ":go_default_library",
         "//devtools/agent-pool/internal/broker:go_default_library",
+        "//devtools/agent-pool/internal/broker/ghacl:go_default_library",
         "//devtools/agent-pool/internal/broker/sqlite:go_default_library",
         "//devtools/agent-pool/internal/dlp:go_default_library",
         "//devtools/agent-pool/internal/protocol:go_default_library",

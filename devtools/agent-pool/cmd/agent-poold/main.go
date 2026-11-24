@@ -20,6 +20,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker/catsync"
+	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker/ghacl"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker/httpapi"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker/mcp"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker/sqlite"
@@ -103,11 +104,18 @@ func runServe(args []string, stderr io.Writer) error {
 		}
 	}()
 
+	ghVerifier := ghacl.NewGitHubVerifier(ghacl.Config{
+		APIBaseURL: cfg.GitHubACL.APIBaseURL,
+		CacheTTL:   durs.GitHubACLCacheTTL,
+	}, nil)
+
 	svc := broker.NewService(store, dlp.NewScanner(), broker.NewEventHub(), broker.Config{
 		WorkerStaleAfter:          durs.WorkerStaleAfter,
 		LeaseTTL:                  durs.LeaseTTL,
 		MaxAttempts:               cfg.MaxAttempts,
 		MaxConcurrentPerRequester: cfg.MaxConcurrentPerRequester,
+		GitHubACLVerifier:         ghVerifier,
+		RequireRepoAccessCheck:    cfg.GitHubACL.RequireRepoAccessCheck,
 		Logger:                    logger,
 	})
 	handler := httpapi.NewHandler(svc, store, httpapi.Options{

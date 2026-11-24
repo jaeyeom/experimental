@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker/ghacl"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/catalog"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/dlp"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/protocol"
@@ -31,6 +32,8 @@ type Config struct {
 	LeaseTTL                  time.Duration
 	MaxAttempts               int
 	MaxConcurrentPerRequester int
+	GitHubACLVerifier         ghacl.Verifier
+	RequireRepoAccessCheck    bool
 	Now                       func() time.Time
 	Logger                    *slog.Logger
 }
@@ -120,7 +123,7 @@ func (s *Service) PoolStatus(ctx context.Context, requester TokenRecord) (protoc
 
 // DispatchSkill validates authorization, catalog skill, arguments, and pool
 // capacity before enqueueing a new job and waking subscribed workers.
-func (s *Service) DispatchSkill(ctx context.Context, requester TokenRecord, req protocol.DispatchRequest) (protocol.DispatchResponse, error) {
+func (s *Service) DispatchSkill(ctx context.Context, requester TokenRecord, req protocol.DispatchRequest, requesterGitHubToken string) (protocol.DispatchResponse, error) {
 	if req.Repo == "" || req.Skill == "" {
 		return protocol.DispatchResponse{}, &protocol.APIError{
 			Code:    protocol.ErrCodeInvalidArgs,
@@ -132,6 +135,9 @@ func (s *Service) DispatchSkill(ctx context.Context, requester TokenRecord, req 
 			Code:    protocol.ErrCodeForbidden,
 			Message: fmt.Sprintf("token is not allowed to dispatch on repo %q", req.Repo),
 		}
+	}
+	if err := s.verifyRepoAccess(ctx, requesterGitHubToken, req.Repo); err != nil {
+		return protocol.DispatchResponse{}, err
 	}
 
 	catRec, skill, err := s.lookupSkill(ctx, req.Repo, req.Skill)
@@ -423,6 +429,46 @@ func (s *Service) runStage2Gate(ctx context.Context, jobID string, rawDeliverabl
 		return protocol.JobStatusDLPBlocked, nil, protocol.ErrCodeDLPBlocked, formatDLPFindings(scanRes.Findings), nil
 	}
 	return protocol.JobStatusSucceeded, scanRes.Normalized, "", "", nil
+}
+
+func (s *Service) verifyRepoAccess(ctx context.Context, requesterGitHubToken, repo string) error {
+	if !s.cfg.RequireRepoAccessCheck && (s.cfg.GitHubACLVerifier == nil || requesterGitHubToken == "") {
+		return nil
+	}
+	if s.cfg.GitHubACLVerifier == nil {
+		return &protocol.APIError{
+			Code:    protocol.ErrCodeInternal,
+			Message: "GitHub repo access verifier is not configured",
+		}
+	}
+	err := s.cfg.GitHubACLVerifier.VerifyPullAccess(ctx, requesterGitHubToken, repo)
+	if err == nil {
+		return nil
+	}
+	switch {
+	case errors.Is(err, ghacl.ErrMissingGitHubToken):
+		return &protocol.APIError{
+			Code:    protocol.ErrCodeUnauthorized,
+			Message: "missing X-GitHub-Token header",
+		}
+	case errors.Is(err, ghacl.ErrInvalidGitHubToken):
+		return &protocol.APIError{
+			Code:    protocol.ErrCodeUnauthorized,
+			Message: "invalid GitHub token",
+		}
+	case errors.Is(err, ghacl.ErrAccessDenied):
+		return &protocol.APIError{
+			Code:    protocol.ErrCodeForbidden,
+			Message: fmt.Sprintf("GitHub token does not have pull access to repo %q", repo),
+		}
+	case errors.Is(err, ghacl.ErrInvalidRepo):
+		return &protocol.APIError{
+			Code:    protocol.ErrCodeInvalidArgs,
+			Message: fmt.Sprintf("invalid repo %q", repo),
+		}
+	default:
+		return fmt.Errorf("verify GitHub repo access for %q: %w", repo, err)
+	}
 }
 
 func (s *Service) lookupSkill(ctx context.Context, repo, skillName string) (CatalogRecord, catalog.Skill, error) {

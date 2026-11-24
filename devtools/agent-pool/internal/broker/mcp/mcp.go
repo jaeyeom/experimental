@@ -130,7 +130,8 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.dispatchMethod(w, r.Context(), requester, req)
+	githubToken := strings.TrimSpace(r.Header.Get("X-GitHub-Token"))
+	h.dispatchMethod(w, r.Context(), requester, githubToken, req)
 }
 
 func (h *handler) authenticateProducer(w http.ResponseWriter, r *http.Request) (broker.TokenRecord, bool) {
@@ -160,7 +161,7 @@ func (h *handler) authenticateProducer(w http.ResponseWriter, r *http.Request) (
 	return rec, true
 }
 
-func (h *handler) dispatchMethod(w http.ResponseWriter, ctx context.Context, requester broker.TokenRecord, req rpcRequest) {
+func (h *handler) dispatchMethod(w http.ResponseWriter, ctx context.Context, requester broker.TokenRecord, githubToken string, req rpcRequest) {
 	switch req.Method {
 	case "initialize":
 		writeRPC(w, rpcResponse{
@@ -184,7 +185,7 @@ func (h *handler) dispatchMethod(w http.ResponseWriter, ctx context.Context, req
 			Result:  toolsListResult{Tools: mcpTools()},
 		})
 	case "tools/call":
-		h.handleToolsCall(w, ctx, requester, req)
+		h.handleToolsCall(w, ctx, requester, githubToken, req)
 	default:
 		writeRPC(w, rpcResponse{
 			JSONRPC: "2.0",
@@ -194,7 +195,7 @@ func (h *handler) dispatchMethod(w http.ResponseWriter, ctx context.Context, req
 	}
 }
 
-func (h *handler) handleToolsCall(w http.ResponseWriter, ctx context.Context, requester broker.TokenRecord, req rpcRequest) {
+func (h *handler) handleToolsCall(w http.ResponseWriter, ctx context.Context, requester broker.TokenRecord, githubToken string, req rpcRequest) {
 	var params toolsCallParams
 	if err := json.Unmarshal(req.Params, &params); err != nil || params.Name == "" {
 		writeRPC(w, rpcResponse{
@@ -205,7 +206,7 @@ func (h *handler) handleToolsCall(w http.ResponseWriter, ctx context.Context, re
 		return
 	}
 
-	res, rpcErr := h.invokeTool(ctx, requester, params.Name, params.Arguments)
+	res, rpcErr := h.invokeTool(ctx, requester, githubToken, params.Name, params.Arguments)
 	if rpcErr != nil {
 		writeRPC(w, rpcResponse{
 			JSONRPC: "2.0",
@@ -221,13 +222,13 @@ func (h *handler) handleToolsCall(w http.ResponseWriter, ctx context.Context, re
 	})
 }
 
-func (h *handler) invokeTool(ctx context.Context, requester broker.TokenRecord, name string, rawArgs json.RawMessage) (toolCallResult, *rpcError) {
+func (h *handler) invokeTool(ctx context.Context, requester broker.TokenRecord, githubToken, name string, rawArgs json.RawMessage) (toolCallResult, *rpcError) {
 	switch name {
 	case "pool_status":
 		resp, err := h.svc.PoolStatus(ctx, requester)
 		return wrapToolOutcome(resp, err), nil
 	case "dispatch_skill":
-		return h.callDispatchSkill(ctx, requester, rawArgs)
+		return h.callDispatchSkill(ctx, requester, githubToken, rawArgs)
 	case "get_job_result":
 		return h.callGetJobResult(ctx, requester, rawArgs)
 	case "cancel_job":
@@ -240,12 +241,12 @@ func (h *handler) invokeTool(ctx context.Context, requester broker.TokenRecord, 
 	}
 }
 
-func (h *handler) callDispatchSkill(ctx context.Context, requester broker.TokenRecord, rawArgs json.RawMessage) (toolCallResult, *rpcError) {
+func (h *handler) callDispatchSkill(ctx context.Context, requester broker.TokenRecord, githubToken string, rawArgs json.RawMessage) (toolCallResult, *rpcError) {
 	var req protocol.DispatchRequest
 	if err := unmarshalArgs(rawArgs, &req); err != nil {
 		return toolCallResult{}, &rpcError{Code: rpcCodeInvalidParams, Message: err.Error()}
 	}
-	resp, err := h.svc.DispatchSkill(ctx, requester, req)
+	resp, err := h.svc.DispatchSkill(ctx, requester, req, githubToken)
 	return wrapToolOutcome(resp, err), nil
 }
 
