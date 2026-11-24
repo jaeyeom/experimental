@@ -1,0 +1,155 @@
+#+TITLE: genfiles
+#+DATE: 2026-11-23
+
+* Overview
+
+~genfiles~ gives a repository one checked-in list of its generated files
+(lock files, generated code, rendered docs), each with the commands that
+regenerate it, and checks that the list matches the repository.
+
+The list is ~generated_files.yaml~ at the repository root. It serves:
+
+- *Linters*, which skip generated files by asking git
+  (~git check-attr linguist-generated -- PATH~). ~genfiles check~ keeps
+  ~.gitattributes~ in step with the list, so they never parse it.
+- *Reviews*: GitHub collapses ~linguist-generated~ files in diffs, and
+  ~gh-approve~'s ~@generated~ reads the list's patterns
+  ([[file:../gh-nudge/gh-approve.org][gh-approve]]).
+- *Rebases and automation*, which rerun a file's commands instead of
+  merging it by hand. Commands run with no shell, so they are safe to run
+  for any file name.
+
+Go 1.26 or later and git.
+
+* Install
+
+#+begin_src sh
+go install github.com/jaeyeom/experimental/devtools/genfiles/cmd/genfiles@latest
+#+end_src
+
+Or ~make install~ from this repository's root.
+
+* Usage
+
+#+begin_src sh
+genfiles check [--list FILE] [--root DIR]
+genfiles --version
+#+end_src
+
+~--root~ is any directory in the repository (default ~.~). ~--list~
+defaults to ~generated_files.yaml~; a relative path is resolved from the
+repository root. ~check~ reads only the checkout, never the network. Exit
+codes: 0 clean, 1 problems (one line each on stderr), 2 usage or I/O
+error.
+
+~check~ fails when:
+
+1. the list breaks a rule below (with its line number);
+2. a pattern matches no tracked file (a stale entry);
+3. a tracked file a pattern matches has a path segment starting with ~-~,
+   or a control character such as newline, which a program could misread
+   even with no shell;
+4. the root ~.gitattributes~ does not set ~linguist-generated~ (bare or
+   ~=true~) on exactly the listed patterns, once each, written the same
+   way. Lines that unset it (~-linguist-generated~,
+   ~linguist-generated=false~) are allowed, for handwritten files that a
+   listed glob also matches.
+
+* The list format
+
+A top-level YAML list of entries:
+
+#+begin_src yaml
+# pnpm lock files, one per package.
+- pattern: "**/pnpm-lock.yaml"
+  comment: package.json next to it.
+  dir: {var: dir}
+  run:
+    - [pnpm, install, --lockfile-only]
+
+- pattern: Cargo.lock
+  env: {CARGO_BAZEL_REPIN: "1"}
+  run:
+    - [bazel, mod, deps]
+    - [bazel, mod, deps]
+
+- pattern: "tools/sim/urdf/*.urdf"
+  run:
+    - [bazel, run, "//tools/sim:gen", --, {var: path},
+       {join: [tools/sim/xacro/, {var: stem}, .xacro]}]
+
+# Generated, but no automated command.
+- pattern: vendor/proto/*_pb2.py
+  comment: Hand-run protoc 3.20; see vendor/proto/README.
+#+end_src
+
+| Key       | Required | Meaning                                                 |
+|-----------+----------+---------------------------------------------------------|
+| ~pattern~ | yes      | ~.gitattributes~-style glob, unique in the list         |
+| ~comment~ | no       | Free text for people                                    |
+| ~run~     | no       | Commands, run in order; each must succeed               |
+| ~dir~     | no       | Working directory, repo-relative (default: the root)    |
+| ~env~     | no       | Variables added to the inherited environment            |
+
+Any other key is an error. ~dir~ and ~env~ need ~run~. An entry without
+~run~ is a generated file with no automated command: linters still skip
+it, and automation stops and reports it instead of guessing.
+
+** Values: literal by default
+
+Each argument, ~dir~, and ~env~ value is one of:
+
+- a string, used byte for byte. Nothing in it is ever parsed: ~{path}~,
+  ~$HOME~ and ~;~ are just text;
+- ~{var: NAME}~, a fact about the matched file;
+- ~{join: [VALUE, ...]}~, its values concatenated.
+
+| ~var~  | For ~a/b/foo.tar.gz~ |
+|--------+----------------------|
+| ~path~ | ~a/b/foo.tar.gz~     |
+| ~dir~  | ~a/b~ (~.~ at root)  |
+| ~name~ | ~foo.tar.gz~         |
+| ~stem~ | ~foo.tar~            |
+
+~stem~ drops the last extension; a name that is all extension
+(~.bashrc~) is its own stem.
+
+Scalars must be YAML strings. A plain scalar YAML reads as a number,
+bool or null (~10~, ~true~, ~1.0~, ~~~) is an error, not text; quote it.
+Aliases and custom tags are errors. The Go reader follows YAML 1.2, where
+~no~ and ~on~ are strings; YAML 1.1 readers such as PyYAML read them as
+bools, so quote them too.
+
+** Commands
+
+A command is a list of values run as an argument vector, with no shell. A
+value from a file is always exactly one argument. The program (the first
+element) must be a literal string. For ~sh~, ~bash~, ~zsh~, ~dash~ and
+~ksh~, the script after ~-c~ (or a combined flag such as ~-ec~) must be
+literal too; pass file values as positional parameters:
+
+#+begin_src yaml
+run:
+  - [sh, -c, 'gen "$1" > "$1.out"', sh, {var: path}]
+#+end_src
+
+How often a command runs, once automation runs them, follows from the
+variables an entry uses anywhere in ~run~, ~dir~ and ~env~: none, once;
+only ~dir~, once per directory; ~path~, ~name~ or ~stem~, once per
+matched file.
+
+** Patterns
+
+~.gitattributes~ rules: a pattern with no ~/~ matches the file name at any
+depth (~Cargo.lock~ matches ~a/Cargo.lock~); one with a ~/~, a leading one
+included, is anchored at the root (~/Cargo.lock~). ~*~ and ~?~ stay in one
+path segment, ~**/~ matches zero or more directories, and a trailing ~/**~
+matches everything below. Negation (~!~), bracket classes, escapes,
+quotes, whitespace and a trailing ~/~ are rejected.
+
+* Go package
+
+[[file:../pkg/genfiles/][devtools/pkg/genfiles]] reads the list:
+~Parse~ (strict, as ~check~ uses it), ~ParsePatterns~ (patterns only,
+other keys ignored, for consumers like ~gh-approve~), ~Match~, and
+~Value.Expand~.

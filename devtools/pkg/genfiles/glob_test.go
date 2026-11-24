@@ -26,6 +26,8 @@ func TestMatch(t *testing.T) {
 		{"*.go", "deep/dir/x.go", true},
 		{"*.pkl.go", "a/Config.pkl.go", true},
 		{"a.b", "aXb", false},
+		{"Cargo.lock", "a/b\nc/Cargo.lock", true},
+		{"a/**", "a/b\nc", true},
 		{"a/[x", "a/[x", false}, // invalid pattern never matches
 	}
 	for _, tt := range tests {

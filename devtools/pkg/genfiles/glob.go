@@ -52,7 +52,7 @@ func compile(pattern string) (*regexp.Regexp, error) {
 	anchored := strings.Contains(pattern, "/")
 	p := strings.TrimPrefix(pattern, "/")
 	var b strings.Builder
-	b.WriteString("^")
+	b.WriteString(`(?s)^`) // (?s): a path may contain a newline
 	if !anchored {
 		b.WriteString("(?:.*/)?")
 	}

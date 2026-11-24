@@ -5,7 +5,7 @@
 
 Small command-line tools I use day to day, mostly in Go. They fall
 into three groups: code-quality helpers you can use in any repo
-(devcheck, docsync, linters), GitHub and Jira helpers (gh-nudge,
+(devcheck, docsync, genfiles, linters), GitHub and Jira helpers (gh-nudge,
 gh-ask, gh-outbox, rename-jira-keys, reviewpush), and a stack for running
 several coding agents side by side in [[https://herdr.dev/][herdr]] terminal panes
 (agentbus, decide, slackwatch, prsync, orgctl, claude-usage). Each
@@ -46,6 +46,7 @@ tool has its own README. Start with the one-line summaries below.
 | diskwatch        | Warn when a filesystem is low, without deleting files      | experimental | go install ./devtools/diskwatch/cmd/diskwatch     | [[file:diskwatch/README.org][README]]        |
 | docsync          | List the docs a code change is likely to have made stale   | experimental | make install                                      | [[file:docsync/README.org][README]]          |
 | fork-keeper      | Rebase a personal fork on upstream and open a review       | experimental | make install                                      | [[file:fork-keeper/README.md][README]]       |
+| genfiles         | Check a repo's list of generated files and their commands  | experimental | make install                                      | [[file:genfiles/README.org][README]]         |
 | gh-ask           | Hand a question about a pull-request range to a command    | experimental | make install                                      | [[file:gh-ask/README.org][README]]           |
 | gh-outbox        | Post agent-drafted PR comments only after decide approval  | experimental | make install                                      | [[file:gh-outbox/README.org][README]]        |
 | gh-nudge         | Review reminders, Slack posts, merge, and CODEOWNERS       | active       | make install                                      | [[file:gh-nudge/README.org][README]]         |
