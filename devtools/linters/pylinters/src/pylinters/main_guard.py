@@ -26,6 +26,7 @@ from pylinters.core import (
     globs,
     guards,
     imports,
+    names,
 )
 
 CHECKER = "main-guard"
@@ -159,10 +160,10 @@ def find_violations(
 ) -> list[Violation]:
     """Return the findings for one parsed file."""
     found_guards = guards.module_guards(tree)
-    names = _Names(tree)
+    bound = names.Names(tree)
     out: list[Violation] = []
     runners = 0
-    for call, stmt, ok in _runner_calls(found_guards, names):
+    for call, stmt, ok in _runner_calls(found_guards, bound):
         runners += 1
         if ok or guards.comment_in(
             comments,
@@ -174,7 +175,7 @@ def find_violations(
         spelled = _spelled(call.func)
         fix = (
             "use `unittest.main()`"
-            if names.is_unittest_main(call.func)
+            if _is_unittest_main(call.func, bound)
             else f"use `sys.exit({spelled}(...))`"
         )
         out.append(
@@ -213,57 +214,26 @@ def find_violations(
     return out
 
 
-class _Names:
-    """Local names bound to pytest, unittest, sys and their functions."""
+def _is_unittest_main(func: ast.expr, bound: names.Names) -> bool:
+    return bound.qualified(func) == "unittest.main"
 
-    def __init__(self, tree: ast.Module) -> None:
-        self.modules: dict[str, str] = {}
-        self.functions: dict[str, str] = {}
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    if alias.asname:
-                        self.modules[alias.asname] = alias.name
-                    else:
-                        top = alias.name.partition(".")[0]
-                        self.modules[top] = top
-            elif isinstance(node, ast.ImportFrom) and node.level == 0:
-                for alias in node.names:
-                    local = alias.asname or alias.name
-                    self.functions[local] = f"{node.module}.{alias.name}"
 
-    def qualified(self, func: ast.expr) -> str | None:
-        """Return ``module.attr`` for a call target, through aliases."""
-        if isinstance(func, ast.Name):
-            return self.functions.get(func.id, func.id)
-        if isinstance(func, ast.Attribute) and isinstance(
-            func.value, ast.Name
-        ):
-            name = func.value.id
-            # ``from absl.testing import absltest`` binds a module too.
-            module = self.modules.get(name) or self.functions.get(name, name)
-            return f"{module}.{func.attr}"
-        return None
-
-    def is_unittest_main(self, func: ast.expr) -> bool:
-        return self.qualified(func) == "unittest.main"
-
-    def is_exit(self, func: ast.expr) -> bool:
-        # Unbound ``exit`` / ``quit`` are the builtins, which raise
-        # SystemExit with their argument.
-        return self.qualified(func) in (
-            "sys.exit",
-            "SystemExit",
-            "exit",
-            "quit",
-        )
+def _is_exit(func: ast.expr, bound: names.Names) -> bool:
+    # Unbound ``exit`` / ``quit`` are the builtins, which raise
+    # SystemExit with their argument.
+    return bound.qualified(func) in (
+        "sys.exit",
+        "SystemExit",
+        "exit",
+        "quit",
+    )
 
 
 _SELF_EXITING = frozenset({"absl.testing.absltest.main", "absltest.main"})
 
 
 def _runner_calls(
-    found_guards: list[ast.If], names: _Names
+    found_guards: list[ast.If], bound: names.Names
 ) -> Iterator[tuple[ast.Call, ast.stmt, bool]]:
     """Yield ``(call, enclosing statement, propagated-or-harmless)``."""
     for guard in found_guards:
@@ -272,9 +242,9 @@ def _runner_calls(
                 for node in _own_nodes(stmt):
                     if not isinstance(node, ast.Call):
                         continue
-                    qualified = names.qualified(node.func)
+                    qualified = bound.qualified(node.func)
                     if qualified == "pytest.main":
-                        yield node, stmt, _propagated(node, stmt, names)
+                        yield node, stmt, _propagated(node, stmt, bound)
                     elif qualified in _SELF_EXITING:
                         # Exits with the result by itself.
                         yield node, stmt, True
@@ -283,7 +253,7 @@ def _runner_calls(
                         yield (
                             node,
                             stmt,
-                            harmless or _propagated(node, stmt, names),
+                            harmless or _propagated(node, stmt, bound),
                         )
 
 
@@ -312,7 +282,7 @@ def _own_nodes(stmt: ast.stmt) -> Iterator[ast.AST]:
         stack.extend(ast.iter_child_nodes(node))
 
 
-def _propagated(call: ast.Call, stmt: ast.stmt, names: _Names) -> bool:
+def _propagated(call: ast.Call, stmt: ast.stmt, bound: names.Names) -> bool:
     """Report whether ``call`` is the sole argument of an exit call.
 
     ``return call`` (in a function defined in the guard) hands the result
@@ -328,7 +298,7 @@ def _propagated(call: ast.Call, stmt: ast.stmt, names: _Names) -> bool:
         return False
     return (
         isinstance(exc, ast.Call)
-        and names.is_exit(exc.func)
+        and _is_exit(exc.func, bound)
         and len(exc.args) == 1
         and not exc.keywords
         and exc.args[0] is call
