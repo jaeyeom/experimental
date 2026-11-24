@@ -67,6 +67,10 @@ type Config struct {
 	// Load expands a leading "~/" against HOME. Empty means ssh's own
 	// agent lookup.
 	SSHIdentityAgent string
+	// SSHAgentSocket is SSH_AUTH_SOCK for agentbusd's remote ssh/herdr
+	// calls. Load expands a leading "~/" against HOME. Empty falls back
+	// to ~/.ssh/agent.sock, gpg-agent, and inherited SSH_AUTH_SOCK.
+	SSHAgentSocket string
 	// HerdrPath is the herdr binary. It wins over AGENTBUS_HERDR.
 	// Load expands a leading "~/" against HOME.
 	HerdrPath string
@@ -259,6 +263,9 @@ func Load(env []string) (Config, error) {
 	if err := expandHome(env, "jobs_policy", &cfg.JobsPolicy); err != nil {
 		return Config{}, fmt.Errorf("%s: %w", path, err)
 	}
+	if err := expandHome(env, "ssh_agent_socket", &cfg.SSHAgentSocket); err != nil {
+		return Config{}, fmt.Errorf("%s: %w", path, err)
+	}
 	return cfg, nil
 }
 
@@ -380,7 +387,7 @@ func parseLine(cfg *Config, line string, seenWakeModelByName *bool) error {
 		return nil
 	case "lease_ignore_procs":
 		return parseLeaseIgnoreProcs(cfg, value)
-	case "hub", "machine", "hub_socket", "ssh_identity_agent", "herdr_path", "jobs_policy":
+	case "hub", "machine", "hub_socket", "ssh_identity_agent", "ssh_agent_socket", "herdr_path", "jobs_policy":
 		return parseHubKey(cfg, key, value)
 	default:
 		return fmt.Errorf("unknown key %s", key)
@@ -741,6 +748,9 @@ func parseHubKey(cfg *Config, key, value string) error {
 	}
 	if key == "ssh_identity_agent" {
 		return parseIdentityAgent(cfg, value)
+	}
+	if key == "ssh_agent_socket" {
+		return parseHomePath(&cfg.SSHAgentSocket, key, value, "~/.ssh/agent.sock")
 	}
 	if key == "hub_socket" {
 		return parseHubSocket(cfg, value)

@@ -28,6 +28,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/registry"
 	"github.com/jaeyeom/experimental/devtools/pkg/hubcall"
 	"github.com/jaeyeom/experimental/devtools/pkg/procinfo"
+	"github.com/jaeyeom/experimental/devtools/pkg/remotecall"
 	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
 )
 
@@ -283,6 +284,9 @@ func agentbusDoctorChecks(env []string) []toolcli.DoctorCheck {
 		},
 		func(_ context.Context, _ bool) toolcli.CheckResult {
 			return checkOutboxStatus(env)
+		},
+		func(ctx context.Context, _ bool) toolcli.CheckResult {
+			return checkSSHAgentSocket(ctx, env)
 		},
 	}
 }
@@ -548,6 +552,35 @@ func checkOutboxStatus(env []string) toolcli.CheckResult {
 		return toolcli.CheckResult{Name: "outbox", Status: toolcli.StatusOK, Detail: detail}
 	}
 	return toolcli.CheckResult{Name: "outbox", Status: toolcli.StatusWarn, Detail: detail}
+}
+
+func checkSSHAgentSocket(ctx context.Context, env []string) toolcli.CheckResult {
+	cfg, err := hubSettings(env)
+	if err != nil {
+		return toolcli.CheckResult{Name: "ssh-agent", Status: toolcli.StatusFail, Detail: err.Error()}
+	}
+	socks := remotecall.ResolveAgentSockets(ctx, remotecall.AgentSocketOptions{
+		Configured: cfg.SSHAgentSocket,
+		Env:        env,
+	})
+	if len(socks) > 0 {
+		return toolcli.CheckResult{Name: "ssh-agent", Status: toolcli.StatusOK, Detail: "using " + socks[0]}
+	}
+	if cfg.SSHAgentSocket != "" {
+		return toolcli.CheckResult{
+			Name:   "ssh-agent",
+			Status: toolcli.StatusWarn,
+			Detail: fmt.Sprintf("configured ssh_agent_socket %s is not live", cfg.SSHAgentSocket),
+		}
+	}
+	if len(cfg.Machines) > 0 {
+		return toolcli.CheckResult{
+			Name:   "ssh-agent",
+			Status: toolcli.StatusWarn,
+			Detail: "no live ssh agent socket found (set ssh_agent_socket or link ~/.ssh/agent.sock)",
+		}
+	}
+	return toolcli.CheckResult{Name: "ssh-agent", Status: toolcli.StatusOK, Detail: "no live socket (no remote machines configured)"}
 }
 
 // tunnelExitStatus reports the tunnel unit's last exit code. ok is

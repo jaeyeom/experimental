@@ -47,6 +47,20 @@ func TestParseIdentityAgent(t *testing.T) {
 	}
 }
 
+func TestParseSSHAgentSocket(t *testing.T) {
+	got, err := Parse("ssh_agent_socket = \"~/.ssh/agent.sock\"\n")
+	if err != nil || got.SSHAgentSocket != "~/.ssh/agent.sock" {
+		t.Fatalf("Parse tilde = %q, %v", got.SSHAgentSocket, err)
+	}
+	got, err = Parse("ssh_agent_socket = \"/run/user/1000/gnupg/S.gpg-agent.ssh\"\n")
+	if err != nil || got.SSHAgentSocket != "/run/user/1000/gnupg/S.gpg-agent.ssh" {
+		t.Fatalf("Parse absolute = %q, %v", got.SSHAgentSocket, err)
+	}
+	if _, err := Parse("ssh_agent_socket = \"rel/agent.sock\"\n"); err == nil {
+		t.Fatal("relative ssh_agent_socket was accepted")
+	}
+}
+
 func TestParseHerdrPath(t *testing.T) {
 	got, err := Parse("herdr_path = \"~/.local/bin/herdr\"\n")
 	if err != nil || got.HerdrPath != "~/.local/bin/herdr" {
@@ -516,6 +530,23 @@ func TestLoadExpandsSSHIdentityAgent(t *testing.T) {
 	}
 	if _, err := Load([]string{"XDG_CONFIG_HOME=" + xdg}); err == nil || !strings.Contains(err.Error(), "HOME is not set") {
 		t.Fatalf("Load without HOME = %v", err)
+	}
+}
+
+func TestLoadExpandsSSHAgentSocket(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, ".config", "agentbus")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte("ssh_agent_socket = \"~/.ssh/agent.sock\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load([]string{"HOME=" + home})
+	want := filepath.Join(home, ".ssh", "agent.sock")
+	if err != nil || got.SSHAgentSocket != want {
+		t.Fatalf("Load = %q, %v; want %q", got.SSHAgentSocket, err, want)
 	}
 }
 

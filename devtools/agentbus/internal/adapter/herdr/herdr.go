@@ -32,7 +32,10 @@ type Exec func(ctx context.Context, args []string) (stdout, stderr string, code 
 // Machines are the saved herdr machines Inventory adds to the local one.
 // Timeout bounds each call to another machine; zero uses DefaultTimeout.
 type Adapter struct {
-	Run      Exec
+	Run Exec
+	// RunEnv, when non-nil, overrides Run and receives the child
+	// environment (with SSH_AUTH_SOCK set when resolved).
+	RunEnv   func(ctx context.Context, env []string, args []string) (stdout, stderr string, code int, err error)
 	Machines []string
 	Timeout  time.Duration
 	// HerdrPath is the herdr binary from herdr_path. It wins over
@@ -42,6 +45,16 @@ type Adapter struct {
 	// when style information is not available. Nil uses
 	// DefaultComposerPlaceholders.
 	Placeholders []string
+	// SSHAgentSocket is the configured ssh_agent_socket (or
+	// --ssh-agent-socket flag).
+	SSHAgentSocket string
+	// Env is the base environment for herdr calls. Nil uses os.Environ().
+	Env []string
+	// AgentSockets, when non-nil, overrides SSH agent socket discovery.
+	AgentSockets func(ctx context.Context) []string
+	// Log, when non-nil, receives operational messages such as which
+	// fallback SSH agent socket worked.
+	Log func(format string, args ...any)
 }
 
 // DefaultComposerPlaceholders are the known post-error and idle
@@ -591,7 +604,11 @@ func herdrBinary(configured string) string {
 }
 
 func runHerdr(ctx context.Context, bin string, args []string) (string, string, int, error) {
-	res, err := remotecall.Run(ctx, bin, args...)
+	return runHerdrEnv(ctx, nil, bin, args)
+}
+
+func runHerdrEnv(ctx context.Context, env []string, bin string, args []string) (string, string, int, error) {
+	res, err := remotecall.RunEnv(ctx, env, bin, args...)
 	if err != nil {
 		return "", "", -1, fmt.Errorf("run herdr: %w", err)
 	}
@@ -739,11 +756,94 @@ func (a *Adapter) exec(ctx context.Context, machine string, args []string) (stri
 	if machine == localMachine {
 		return a.run(ctx, args)
 	}
-	stdout, stderr, code, err := remotecall.OnHerdrMachine(ctx, a.run, remotecall.HerdrProbe(a.run, machine), machine, a.timeout(), args)
+	sockets := a.resolveSockets(ctx)
+	firstSock := ""
+	if len(sockets) > 0 {
+		firstSock = sockets[0]
+	}
+	stdout, stderr, code, err := a.execWithSocket(ctx, machine, firstSock, args)
 	if ue := remotecall.AsUnreachable(err); ue != nil {
+		if remotecall.IsAuthLocked(ue) && len(sockets) > 1 {
+			nextSock := sockets[1]
+			stdout2, stderr2, code2, err2 := a.execWithSocket(ctx, machine, nextSock, args)
+			if ue2 := remotecall.AsUnreachable(err2); ue2 != nil {
+				if remotecall.IsAuthLocked(ue2) {
+					ue2.Cause = remotecall.AuthLockedCause(nextSock)
+				}
+				return stdout2, stderr2, code2, fmt.Errorf("herdr %s: %w", strings.Join(args[:min(2, len(args))], " "), ue2)
+			}
+			if err2 == nil {
+				a.logf("ssh to %s succeeded with fallback agent socket %s (after %s failed)", machine, nextSock, firstSock)
+			}
+			return stdout2, stderr2, code2, err2 //nolint:wrapcheck // a start failure is a's own Exec error, as for a local call
+		}
+		if remotecall.IsAuthLocked(ue) && firstSock != "" {
+			ue.Cause = remotecall.AuthLockedCause(firstSock)
+		}
 		return stdout, stderr, code, fmt.Errorf("herdr %s: %w", strings.Join(args[:min(2, len(args))], " "), ue)
 	}
 	return stdout, stderr, code, err //nolint:wrapcheck // a start failure is a's own Exec error, as for a local call
+}
+
+func (a *Adapter) execWithSocket(ctx context.Context, machine, sock string, args []string) (string, string, int, error) {
+	run := func(c context.Context, callArgs []string) (string, string, int, error) {
+		return a.runWithSocket(c, sock, callArgs)
+	}
+	return remotecall.OnHerdrMachine(ctx, run, remotecall.HerdrProbe(run, machine), machine, a.timeout(), args) //nolint:wrapcheck // caller wraps UnreachableError; start failures stay unwrapped
+}
+
+func (a *Adapter) runWithSocket(ctx context.Context, sock string, args []string) (string, string, int, error) {
+	env := a.envForSocket(sock)
+	if a.RunEnv != nil {
+		return a.RunEnv(ctx, env, args)
+	}
+	if a.Run != nil {
+		return a.Run(ctx, args)
+	}
+	return runHerdrEnv(ctx, env, herdrBinary(a.HerdrPath), args)
+}
+
+func (a *Adapter) resolveSockets(ctx context.Context) []string {
+	if a.AgentSockets != nil {
+		return a.AgentSockets(ctx)
+	}
+	return remotecall.ResolveAgentSockets(ctx, remotecall.AgentSocketOptions{
+		Configured: a.SSHAgentSocket,
+		Env:        a.Env,
+	})
+}
+
+func (a *Adapter) envForSocket(sock string) []string {
+	if sock == "" && a.Env == nil {
+		return nil
+	}
+	base := a.Env
+	if base == nil {
+		base = os.Environ()
+	}
+	if sock == "" {
+		return base
+	}
+	out := make([]string, 0, len(base)+1)
+	replaced := false
+	for _, entry := range base {
+		if k, _, ok := strings.Cut(entry, "="); ok && k == "SSH_AUTH_SOCK" {
+			out = append(out, "SSH_AUTH_SOCK="+sock)
+			replaced = true
+			continue
+		}
+		out = append(out, entry)
+	}
+	if !replaced {
+		out = append(out, "SSH_AUTH_SOCK="+sock)
+	}
+	return out
+}
+
+func (a *Adapter) logf(format string, args ...any) {
+	if a.Log != nil {
+		a.Log(format, args...)
+	}
 }
 
 func (a *Adapter) run(ctx context.Context, args []string) (string, string, int, error) {

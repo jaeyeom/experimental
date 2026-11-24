@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -26,13 +27,15 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const usage = `Usage: agentbusd
+const usage = `Usage: agentbusd [--ssh-agent-socket <path>]
 
 agentbusd is the local agentbus daemon. agentbus starts it on demand, and
 'agentbus install' runs it under launchd or a systemd user unit.
 
 Flags:
-  -h, --help  Print this help.
+  --ssh-agent-socket <path>  SSH agent socket for remote ssh/herdr calls
+                             (overrides ssh_agent_socket)
+  -h, --help                 Print this help.
 
 Environment:
   XDG_RUNTIME_DIR              socket directory. Required on Linux
@@ -60,6 +63,10 @@ Config file ($XDG_CONFIG_HOME/agentbus/config.toml, optional):
   ssh_identity_agent = "~/.ssh/agent.sock"
                           optional ssh IdentityAgent for hub-mode ssh;
                           "~/" expands when the config is loaded
+  ssh_agent_socket = "~/.ssh/agent.sock"
+                          SSH agent socket for the daemon's remote ssh
+                          calls; when unset, tries ~/.ssh/agent.sock,
+                          gpg-agent, then inherited SSH_AUTH_SOCK
   lease_check_interval = "2m"
                           how often a holder past its lease bid is looked
                           at, and how far one still working is extended
@@ -131,12 +138,21 @@ func main() {
 }
 
 func run(args, env []string, stdout, stderr io.Writer) int {
-	if len(args) > 0 {
-		if args[0] == "-h" || args[0] == "--help" {
+	fs := flag.NewFlagSet("agentbusd", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() {}
+	var sshAgentFlag string
+	fs.StringVar(&sshAgentFlag, "ssh-agent-socket", "", "SSH agent socket for remote ssh calls")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
 			fmt.Fprint(stdout, usage)
 			return 0
 		}
-		fmt.Fprintf(stderr, "agentbusd: unexpected argument %q\nrun 'agentbusd --help' for usage\n", args[0])
+		fmt.Fprintln(stderr, "run 'agentbusd --help' for usage")
+		return 2
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprintf(stderr, "agentbusd: unexpected argument %q\nrun 'agentbusd --help' for usage\n", fs.Arg(0))
 		return 2
 	}
 	dirs, err := paths.FromEnv(env)
@@ -170,11 +186,20 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), unix.SIGINT, unix.SIGTERM)
 	defer stop()
+	sshAgentSocket := cfg.SSHAgentSocket
+	if sshAgentFlag != "" {
+		sshAgentSocket = sshAgentFlag
+	}
 	ad := &herdr.Adapter{
-		Machines:     cfg.Machines,
-		Timeout:      cfg.RemoteTimeout,
-		HerdrPath:    cfg.HerdrPath,
-		Placeholders: cfg.ComposerPlaceholders,
+		Machines:       cfg.Machines,
+		Timeout:        cfg.RemoteTimeout,
+		HerdrPath:      cfg.HerdrPath,
+		Placeholders:   cfg.ComposerPlaceholders,
+		SSHAgentSocket: sshAgentSocket,
+		Env:            env,
+		Log: func(format string, a ...any) {
+			fmt.Fprintf(stderr, "agentbusd: "+format+"\n", a...)
+		},
 	}
 	notify := decideNotifier(exec.LookPath, runQuiet, stderr)
 	if err := daemon.Serve(ctx, dirs, daemon.Config{

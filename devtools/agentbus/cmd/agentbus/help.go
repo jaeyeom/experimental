@@ -416,6 +416,10 @@ Config ($XDG_CONFIG_HOME/agentbus/config.toml):
   ssh_identity_agent = "~/.ssh/agent.sock"
                           ssh IdentityAgent for the hub; "~/" expands
                           against HOME. Empty leaves ssh's own agent
+  ssh_agent_socket = "~/.ssh/agent.sock"
+                          SSH agent socket for agentbusd's remote ssh calls;
+                          when unset, tries ~/.ssh/agent.sock, gpg-agent,
+                          then inherited SSH_AUTH_SOCK
   machine = "linux2"      this machine's herdr label on the hub, so a
                           hub-mode caller is herdr:linux2/<session>/<pane>
   lease_checkouts = ["/home/u/src/repo"]

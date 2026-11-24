@@ -500,6 +500,33 @@ func TestDoctorRejectsArguments(t *testing.T) {
 	}
 }
 
+func TestDoctorReportsSSHAgentSocket(t *testing.T) {
+	sockDir, err := os.MkdirTemp("", "ab-doc-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(sockDir) })
+	sock := filepath.Join(sockDir, "agent.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+
+	h := startHub(t, `hub = "me@hub"`, `machine = "linux2"`, `ssh_agent_socket = "`+sock+`"`)
+	fake := herdrtest.Install(t)
+	fake.Write("local.agents", agentsJSON("w1:p1=idle"))
+	h.env = append(h.env, "HERDR_PANE_ID=w1:p1", "HERDR_SOCKET_PATH="+herdrSock)
+
+	code, stdout, stderr := h.run(t, "", "doctor", "--offline")
+	if stderr != "" || code > 2 {
+		t.Fatalf("doctor = %d, stderr %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "ssh-agent") || !strings.Contains(stdout, sock) {
+		t.Fatalf("doctor output lacks ssh-agent socket %s:\n%s", sock, stdout)
+	}
+}
+
 func TestParseDoctorPS(t *testing.T) {
 	now := time.Date(2026, 11, 12, 0, 2, 0, 0, time.UTC)
 	got := parseDoctorPS("  5 501 01:00 agentbusd\n  x\n", now)

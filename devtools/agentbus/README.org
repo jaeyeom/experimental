@@ -382,6 +382,9 @@ verify_delivery_within = "60s"    # check readable transcript after delivery; "0
 # hub = "me@hub"
 # machine = "linux2"              # this machine's herdr label on the hub
 # ssh_identity_agent = "~/.ssh/agent.sock"  # empty: ssh's own agent lookup
+# ssh_agent_socket = "~/.ssh/agent.sock"    # agentbusd's SSH_AUTH_SOCK for remote machines;
+                                            # unset tries ~/.ssh/agent.sock, gpgconf agent-ssh-socket,
+                                            # then inherited SSH_AUTH_SOCK (retries once on auth locked)
 # hub_socket = "/run/user/1000/agentbus/hub.sock"  # install can discover this
 
 # Lease. Default: no guarded checkouts, takeover only logged.

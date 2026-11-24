@@ -109,7 +109,7 @@ func TestHelp(t *testing.T) {
 		if code != 0 || stderr.Len() != 0 {
 			t.Fatalf("%s: code %d, stderr %q", arg, code, stderr.String())
 		}
-		for _, want := range []string{"Usage: agentbusd", "AGENTBUS_LOG_RETENTION_DAYS", "AGENTBUS_INLINE_BYTES", "XDG_RUNTIME_DIR", `lease_takeover = "log"`} {
+		for _, want := range []string{"Usage: agentbusd", "--ssh-agent-socket", "ssh_agent_socket", "AGENTBUS_LOG_RETENTION_DAYS", "AGENTBUS_INLINE_BYTES", "XDG_RUNTIME_DIR", `lease_takeover = "log"`} {
 			if !strings.Contains(stdout.String(), want) {
 				t.Errorf("%s: stdout is missing %q", arg, want)
 			}

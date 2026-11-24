@@ -1,7 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -52,7 +56,11 @@ func startRemoteBus(t *testing.T, timeout, poll time.Duration) *remoteBus {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ad := &herdr.Adapter{Machines: []string{"m2"}, Timeout: timeout}
+	ad := &herdr.Adapter{
+		Machines:     []string{"m2"},
+		Timeout:      timeout,
+		AgentSockets: func(context.Context) []string { return nil },
+	}
 	stop := startDaemon(t, dirs, daemon.Config{Adapters: []adapter.Adapter{ad}, PollInterval: poll})
 	t.Cleanup(stop)
 	return &remoteBus{base: base, dirs: dirs, fake: fake}
@@ -237,4 +245,50 @@ func TestNameOnUnreachableMachineIsNotReleased(t *testing.T) {
 	bus.fake.Remove("m2.down")
 	bus.fake.Write("m2.agents", agentsJSON())
 	mustCmd(t, []string{"register", "eng/remote", "--when", "takeover"}, bus.env("w1:p2"))
+}
+
+func TestRemoteAuthLockedHoldReasonAndStatusNameSocketPath(t *testing.T) {
+	fake := herdrtest.Install(t)
+	fake.Write("local.agents", agentsJSON("w1:p1=idle", "w1:p2=idle"))
+	fake.Write("m2.locked", "")
+
+	sockDir, err := os.MkdirTemp("", "ab-lock-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(sockDir) })
+	lockedSock := filepath.Join(sockDir, "gcr.sock")
+	ln, err := net.Listen("unix", lockedSock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+
+	base := []string{
+		"XDG_RUNTIME_DIR=" + shortRuntime(t),
+		"XDG_STATE_HOME=" + t.TempDir(),
+		"HOME=" + t.TempDir(),
+	}
+	dirs, err := paths.FromEnv(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ad := &herdr.Adapter{
+		Machines:     []string{"m2"},
+		Timeout:      5 * time.Second,
+		AgentSockets: func(context.Context) []string { return []string{lockedSock} },
+	}
+	stop := startDaemon(t, dirs, daemon.Config{Adapters: []adapter.Adapter{ad}, PollInterval: time.Hour})
+	t.Cleanup(stop)
+
+	env := append(append([]string{}, base...), "HERDR_PANE_ID=w1:p1")
+	id, state := sendID(t, env, remoteTarget, "remote-body")
+	want := "held: machine m2 unreachable: " + remotecall.AuthLockedCause(lockedSock)
+	if state != want {
+		t.Fatalf("send state = %q, want %q", state, want)
+	}
+	status, _ := mustCmd(t, []string{"status", id}, base)
+	if !strings.Contains(status, "state: "+want) {
+		t.Fatalf("status = %q, want %q", status, want)
+	}
 }
