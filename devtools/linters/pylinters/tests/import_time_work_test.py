@@ -5,10 +5,11 @@ from __future__ import annotations
 import ast
 import sys
 from collections.abc import Collection
+from pathlib import Path
 
 import pytest
 from pylinters import import_time_work
-from pylinters.core import guards, imports
+from pylinters.core import entries, errors, files, guards, imports
 from pylinters.import_time_work import (
     DEFAULT_DIRECTIVE,
     DEFAULT_PURE_CALLS,
@@ -18,6 +19,10 @@ from pylinters.import_time_work import (
     find_violations,
     findings,
 )
+
+GUARD = "if __name__ == '__main__':\n"
+SCRIPT: tuple[entries.Kind, tuple[str, ...]] = ("script", ("executable",))
+TEST: tuple[entries.Kind, tuple[str, ...]] = ("test", ("bazel //pkg:t_test",))
 
 
 def got(
@@ -332,6 +337,300 @@ def test_custom_allow_directive() -> None:
 def test_violation_str() -> None:
     """``Violation.__str__`` renders in the standard checker format."""
     assert str(Violation("a.py", 3, "m")) == "a.py:3: import-time-work: m"
+
+
+def run(
+    tree: dict[str, str],
+    found: dict[str, tuple[entries.Kind, tuple[str, ...]]] | None = None,
+    cfg: Config | None = None,
+    paths: set[str] | None = None,
+) -> import_time_work.Result:
+    """Check an in-memory tree whose entries are given directly."""
+    fs = files.GitResolver("/repo", tree)
+    disc = entries.Discovery(
+        entries={
+            p: entries.Entry(p, kind, reasons)
+            for p, (kind, reasons) in (found or {}).items()
+        }
+    )
+    return import_time_work.check(
+        fs,
+        cfg or Config(),
+        disc,
+        read=lambda p: tree[p].encode(),
+        paths=paths,
+    )
+
+
+def _pyproject(tmp_path: Path, body: str) -> str:
+    path = tmp_path / "pyproject.toml"
+    path.write_text(body)
+    return str(path)
+
+
+# Tree check: entry scope
+
+
+def test_entry_scope_guarded_non_entry_flagged() -> None:
+    """A guarded non-entry with top-level work is checked and flagged."""
+    src = f"setup()\n{GUARD}    main()\n"
+    res = run({"a.py": src})
+    assert [(v.path, v.line) for v in res.violations] == [("a.py", 1)]
+    assert res.counts == {"a.py": 1}
+    assert res.files_checked == 1
+
+
+def test_entry_scope_script_entry_without_guard_checked() -> None:
+    """A script entry without a guard is checked in entry scope."""
+    res = run({"a.py": "setup()\n"}, {"a.py": SCRIPT})
+    assert [(v.path, v.line) for v in res.violations] == [("a.py", 1)]
+    assert res.counts == {"a.py": 1}
+    assert res.files_checked == 1
+
+
+def test_entry_scope_unguarded_non_entry_not_checked() -> None:
+    """An unguarded non-entry library is not checked in entry scope."""
+    res = run({"lib.py": "setup()\n"})
+    assert res.violations == []
+    assert res.counts == {}
+    assert res.files_checked == 0
+
+
+def test_entry_scope_prefilter_false_positive_skipped() -> None:
+    """A non-entry mentioning ``__main__`` without a guard is not checked."""
+    res = run({"lib.py": "# __main__\nsetup()\n"})
+    assert res.violations == []
+    assert res.counts == {}
+    assert res.files_checked == 0
+
+
+# Tree check: all scope
+
+
+def test_all_scope_checks_unguarded_library() -> None:
+    """In ``all`` scope, an unguarded non-entry library is flagged."""
+    res = run({"lib.py": "setup()\n"}, cfg=Config(scope="all"))
+    assert [(v.path, v.line) for v in res.violations] == [("lib.py", 1)]
+    assert res.counts == {"lib.py": 1}
+    assert res.files_checked == 1
+
+
+# Tree check: always skipped
+
+
+@pytest.mark.parametrize("scope", ["entry", "all"])
+@pytest.mark.parametrize(
+    ("path", "found"),
+    [
+        ("pkg/tests/x.py", None),
+        ("a_test.py", None),
+        ("test_a.py", None),
+        ("conftest.py", None),
+        ("check_x.py", {"check_x.py": TEST}),
+    ],
+)
+def test_tests_skipped_in_both_scopes(
+    scope: str,
+    path: str,
+    found: dict[str, tuple[entries.Kind, tuple[str, ...]]] | None,
+) -> None:
+    """Test files and test-kind entries are skipped in both scopes."""
+    src = f"setup()\n{GUARD}    main()\n"
+    cfg = Config(scope="all" if scope == "all" else "entry")
+    res = run({path: src}, found, cfg)
+    assert res.violations == []
+    assert res.counts == {}
+    assert res.files_checked == 0
+
+
+@pytest.mark.parametrize("scope", ["entry", "all"])
+def test_dunder_main_skipped(scope: str) -> None:
+    """``__main__.py`` files are skipped in both scopes."""
+    cfg = Config(scope="all" if scope == "all" else "entry")
+    res = run(
+        {"pkg/__main__.py": "main()\n"},
+        {"pkg/__main__.py": SCRIPT},
+        cfg,
+    )
+    assert res.violations == []
+    assert res.counts == {}
+    assert res.files_checked == 0
+
+
+# Tree check: filtering, compound statements, and errors
+
+
+def test_paths_filter_limits_reported_files() -> None:
+    """``paths`` limits checking to the specified files."""
+    tree = {
+        "a.py": f"setup()\n{GUARD}    main()\n",
+        "b.py": f"setup()\n{GUARD}    main()\n",
+    }
+    res = run(tree, paths={"a.py"})
+    assert [v.path for v in res.violations] == ["a.py"]
+    assert res.counts == {"a.py": 1}
+    assert res.files_checked == 1
+
+
+def test_exclude_and_generated_skipped() -> None:
+    """Excluded and generated files are skipped."""
+    src = f"setup()\n{GUARD}    main()\n"
+    tree = {"gen/x_pb2.py": src, "skip/a.py": src}
+    res = run(tree, cfg=Config(exclude=("skip/**",)))
+    assert res.violations == []
+    assert res.counts == {}
+    assert res.files_checked == 0
+
+
+def test_parse_error_propagates() -> None:
+    """An unparseable in-scope file raises ``ParseError``."""
+    with pytest.raises(errors.ParseError):
+        run({"a.py": "def (\n"}, {"a.py": SCRIPT})
+
+
+def test_missing_file_on_disk_skipped() -> None:
+    """A tracked file missing on disk is skipped."""
+    fs = files.GitResolver("/repo", {"gone.py": ""})
+    disc = entries.Discovery(
+        entries={
+            "gone.py": entries.Entry("gone.py", "script", ("executable",))
+        }
+    )
+
+    def missing(_path: str) -> bytes:
+        raise FileNotFoundError
+
+    res = import_time_work.check(fs, Config(), disc, read=missing)
+    assert res.violations == []
+    assert res.counts == {}
+    assert res.files_checked == 0
+
+
+def test_files_checked_counts_checked_files() -> None:
+    """``files_checked`` equals the number of checked files."""
+    tree = {
+        "clean.py": f"def main(): pass\n{GUARD}    main()\n",
+        "dirty.py": f"setup()\n{GUARD}    main()\n",
+        "lib.py": "setup()\n",
+    }
+    res = run(tree)
+    assert res.counts == {"clean.py": 0, "dirty.py": 1}
+    assert res.files_checked == 2
+
+
+def test_check_compound_statement_without_directive() -> None:
+    """Compound statements work when no allow directive is present."""
+    src = f"for x in y:\n    pass\n{GUARD}    main()\n"
+    res = run({"a.py": src})
+    assert [(v.path, v.line) for v in res.violations] == [("a.py", 1)]
+
+
+def test_check_compound_statement_with_directive() -> None:
+    """Compound statements honour allow directives during ``check``."""
+    src = (
+        f"for x in y:  # py-import-time-work: allow\n"
+        f"    pass\n{GUARD}    main()\n"
+    )
+    res = run({"a.py": src})
+    assert res.violations == []
+    assert res.counts == {"a.py": 0}
+
+
+# Configuration
+
+
+def test_load_config_defaults(tmp_path: Path) -> None:
+    """A missing pyproject.toml yields the default Config."""
+    assert (
+        import_time_work.load_config(str(tmp_path / "pyproject.toml"))
+        == Config()
+    )
+
+
+def test_load_config_all_keys(tmp_path: Path) -> None:
+    """Every config key round-trips; exclude and pure-calls extend defaults."""
+    cfg = import_time_work.load_config(
+        _pyproject(
+            tmp_path,
+            '[tool.pylinters]\nexclude = ["a/**"]\n'
+            "[tool.pylinters.entries]\n"
+            'entry-sources = ["globs"]\nscript-globs = ["bin/*.py"]\n'
+            'test-globs = ["t/*.py"]\nbazel-dir = "sub"\n'
+            "[tool.pylinters.import-time-work]\n"
+            'scope = "all"\n'
+            'test-patterns = ["**/custom_test.py"]\n'
+            'pure-calls = ["mylib.make"]\n'
+            'exclude = ["b/**"]\n'
+            'allow-directive = "ok"\n',
+        )
+    )
+    assert cfg == Config(
+        entries=entries.EntryConfig(
+            sources=("globs",),
+            script_globs=("bin/*.py",),
+            test_globs=("t/*.py",),
+            bazel_dir="sub",
+        ),
+        scope="all",
+        test_patterns=("**/custom_test.py",),
+        pure_calls=DEFAULT_PURE_CALLS | {"mylib.make"},
+        exclude=("a/**", "b/**"),
+        allow_directive="ok",
+    )
+
+
+def test_load_config_invalid_scope(tmp_path: Path) -> None:
+    """An invalid ``scope`` value raises ``ConfigError``."""
+    path = _pyproject(
+        tmp_path, '[tool.pylinters.import-time-work]\nscope = "some"\n'
+    )
+    with pytest.raises(errors.ConfigError, match="scope"):
+        import_time_work.load_config(path)
+
+
+def test_load_config_unknown_key(tmp_path: Path) -> None:
+    """An unknown key in the subtable raises ``ConfigError``."""
+    path = _pyproject(
+        tmp_path, '[tool.pylinters.import-time-work]\nunknown = "x"\n'
+    )
+    with pytest.raises(errors.ConfigError, match="unknown"):
+        import_time_work.load_config(path)
+
+
+def test_load_config_pure_calls_extends_defaults(tmp_path: Path) -> None:
+    """``pure-calls`` is added to ``DEFAULT_PURE_CALLS``."""
+    cfg = import_time_work.load_config(
+        _pyproject(
+            tmp_path,
+            '[tool.pylinters.import-time-work]\npure-calls = ["mylib.make"]\n',
+        )
+    )
+    assert cfg.pure_calls == DEFAULT_PURE_CALLS | {"mylib.make"}
+
+
+def test_load_config_entries_section(tmp_path: Path) -> None:
+    """``[tool.pylinters.entries]`` settings land in ``cfg.entries``."""
+    cfg = import_time_work.load_config(
+        _pyproject(
+            tmp_path,
+            "[tool.pylinters.entries]\n"
+            'entry-sources = ["globs"]\n'
+            'test-globs = ["t/*.py"]\n',
+        )
+    )
+    assert cfg.entries == entries.EntryConfig(
+        sources=("globs",),
+        test_globs=("t/*.py",),
+    )
+
+
+def test_load_config_empty_allow_directive_rejected(tmp_path: Path) -> None:
+    """An empty ``allow-directive`` raises ``ConfigError``."""
+    path = _pyproject(
+        tmp_path, '[tool.pylinters.import-time-work]\nallow-directive = ""\n'
+    )
+    with pytest.raises(errors.ConfigError, match="allow-directive"):
+        import_time_work.load_config(path)
 
 
 if __name__ == "__main__":

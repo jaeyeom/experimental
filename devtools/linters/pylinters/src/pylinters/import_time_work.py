@@ -9,14 +9,32 @@ callables or run imperative control flow outside an
 from __future__ import annotations
 
 import ast
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Literal
 
-from pylinters.core import config, entries, guards, names
+from pylinters.core import (
+    config,
+    entries,
+    errors,
+    files,
+    globs,
+    guards,
+    imports,
+    names,
+)
 
 CHECKER = "import-time-work"
 DEFAULT_DIRECTIVE = "py-import-time-work: allow"
+Reader = Callable[[str], bytes]
+
+_KEYS = (
+    "scope",
+    "test-patterns",
+    "pure-calls",
+    "exclude",
+    "allow-directive",
+)
 DEFAULT_TEST_PATTERNS: tuple[str, ...] = (
     "**/test_*.py",
     "**/*_test.py",
@@ -96,11 +114,120 @@ class Violation:
 
 
 @dataclass(frozen=True)
+class Result:
+    """The outcome of a check."""
+
+    violations: list[Violation]
+    counts: dict[str, int]
+    files_checked: int
+    discovery: entries.Discovery
+
+
+@dataclass(frozen=True)
 class Finding:
     """A statement that does work at import time, and what the work is."""
 
     node: ast.stmt | ast.ExceptHandler
     what: str
+
+
+def load_config(pyproject_path: str) -> Config:
+    """Read the shared, ``entries``, and ``import-time-work`` settings.
+
+    Raises:
+        ConfigError: Invalid TOML, an unknown key, or a wrong value type.
+    """
+    shared, table = config.load_table(pyproject_path, (CHECKER,))
+    own = table.get(CHECKER, {})
+    where = f"{pyproject_path} [tool.pylinters.{CHECKER}]"
+    config.check_keys(own, _KEYS, where)
+    raw_scope = own.get("scope", "entry")
+    if raw_scope == "entry":
+        scope: Literal["entry", "all"] = "entry"
+    elif raw_scope == "all":
+        scope = "all"
+    else:
+        raise errors.ConfigError(
+            f"{where}: scope must be 'entry' or 'all', got {raw_scope!r}"
+        )
+    return Config(
+        entries=entries.load_config(pyproject_path),
+        scope=scope,
+        test_patterns=config.string_list(
+            own.get("test-patterns", list(DEFAULT_TEST_PATTERNS)),
+            "test-patterns",
+            where,
+        ),
+        pure_calls=DEFAULT_PURE_CALLS
+        | frozenset(
+            config.string_list(own.get("pure-calls", []), "pure-calls", where)
+        ),
+        exclude=shared.exclude
+        + config.string_list(own.get("exclude", []), "exclude", where),
+        generated=shared.generated,
+        allow_directive=_string(
+            own, "allow-directive", DEFAULT_DIRECTIVE, where
+        ),
+    )
+
+
+def in_scope(cfg: Config, path: str, found: entries.Discovery) -> bool:
+    """Return whether ``path`` is subject to the check."""
+    if (
+        globs.match_any(cfg.exclude, path)
+        or globs.match_any(cfg.generated, path)
+        or globs.match_any(cfg.test_patterns, path)
+        or path.rpartition("/")[2] == "__main__.py"
+    ):
+        return False
+    entry = found.entries.get(path)
+    return entry is None or entry.kind != "test"
+
+
+def check(
+    fs: files.FileSet,
+    cfg: Config,
+    found: entries.Discovery,
+    read: Reader | None = None,
+    paths: Collection[str] | None = None,
+) -> Result:
+    """Check every in-scope file, reporting only ``paths`` when given.
+
+    Raises:
+        ParseError: A checked file is not valid Python.
+    """
+    reader = read if read is not None else files.root_reader(fs)
+    violations: list[Violation] = []
+    counts: dict[str, int] = {}
+    for path in fs.py_files():
+        if (paths is not None and path not in paths) or not in_scope(
+            cfg, path, found
+        ):
+            continue
+        try:
+            data = reader(path)
+        except FileNotFoundError:
+            continue  # tracked but gone from the work tree
+        is_entry = path in found.entries
+        if cfg.scope == "entry" and not is_entry and b"__main__" not in data:
+            continue
+        tree, comments = imports.parse_module(data, path)
+        if (
+            cfg.scope == "entry"
+            and not is_entry
+            and not guards.module_guards(tree)
+        ):
+            continue
+        colons = (
+            guards.colon_positions(data)
+            if any(cfg.allow_directive in text for text in comments.values())
+            else []
+        )
+        got = find_violations(tree, comments, colons, path, cfg)
+        counts[path] = len(got)
+        violations.extend(got)
+    violations.sort(key=lambda v: (v.path, v.line))
+    return Result(violations, counts, len(counts), found)
 
 
 def find_violations(
@@ -111,11 +238,15 @@ def find_violations(
     cfg: Config,
 ) -> list[Violation]:
     """Return the violations for one parsed file."""
+    has_directive = any(
+        cfg.allow_directive in text for text in comments.values()
+    )
     out: list[Violation] = []
     for finding in findings(tree, cfg.pure_calls):
-        first, last = guards.directive_lines(finding.node, colons)
-        if guards.comment_in(comments, first, last, cfg.allow_directive):
-            continue
+        if has_directive:
+            first, last = guards.directive_lines(finding.node, colons)
+            if guards.comment_in(comments, first, last, cfg.allow_directive):
+                continue
         out.append(
             Violation(
                 path,
@@ -348,3 +479,12 @@ def _stmt_what(stmt: ast.stmt) -> str:
     name = type(stmt).__name__
     kw = _STMT_KEYWORDS.get(name, name.lower())
     return f"a `{kw}` statement"
+
+
+def _string(
+    own: Mapping[str, object], key: str, default: str, where: str
+) -> str:
+    value = own.get(key, default)
+    if not isinstance(value, str) or not value:
+        raise errors.ConfigError(f"{where}: {key} must be a non-empty string")
+    return value
