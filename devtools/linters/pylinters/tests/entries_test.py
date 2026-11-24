@@ -207,5 +207,48 @@ def test_entry_list_untracked() -> None:
         )
 
 
+def test_bazel_external_main_note() -> None:
+    """A main in another repository is noted, not silently dropped."""
+    fs = _fs("MODULE.bazel")
+    run = _bazel(("//pkg:a", "py_binary", "@ext//x:a.py"))
+
+    def run_with_main(argv: Sequence[str], cwd: str) -> str:
+        rule = json.loads(run(argv, cwd))
+        rule["rule"]["attribute"].append(
+            {
+                "name": "main",
+                "explicitlySpecified": True,
+                "stringValue": "@ext//x:a.py",
+            }
+        )
+        return json.dumps(rule) + "\n"
+
+    found = entries.discover(
+        fs,
+        entries.EntryConfig(sources=("bazel",)),
+        _reader({}),
+        run=run_with_main,
+    )
+    assert found.notes == ["bazel: 1 main(s) in another repository skipped"]
+
+
+def test_no_sources_and_no_list_is_error() -> None:
+    """With every source turned off and no list, nothing would be checked."""
+    with pytest.raises(errors.ConfigError, match="entry source"):
+        entries.discover(
+            _fs("a.py"), entries.EntryConfig(sources=()), _reader({})
+        )
+
+
+def test_entry_list_any_whitespace() -> None:
+    """Kind and path may be separated by tabs or several spaces."""
+    pairs = entries.parse_entry_list(
+        "script\tx.py\ntest   y_test.py\n",
+        "list.txt",
+        _fs("x.py", "y_test.py"),
+    )
+    assert pairs == [("script", "x.py"), ("test", "y_test.py")]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, *sys.argv[1:]]))

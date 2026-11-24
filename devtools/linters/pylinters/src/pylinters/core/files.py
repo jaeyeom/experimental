@@ -132,15 +132,20 @@ def _git(cwd: str, *args: str) -> str:
     return out.stdout.decode("utf-8", "surrogateescape")
 
 
-def root_reader(fs: FileSet) -> Callable[[str], bytes]:
-    """Return a reader of repo-relative paths under the work-tree root."""
+def root_reader(
+    fs: FileSet, limit: int | None = None
+) -> Callable[[str], bytes]:
+    """Return a reader of repo-relative paths under the work-tree root.
+
+    With ``limit``, it reads at most that many bytes of each file.
+    """
     if not isinstance(fs, GitResolver):
         raise TypeError("read is required unless fs is a GitResolver")
     root = fs.root
 
     def read(path: str) -> bytes:
         with open(os.path.join(root, path), "rb") as handle:
-            return handle.read()
+            return handle.read(-1 if limit is None else limit)
 
     return read
 

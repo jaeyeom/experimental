@@ -647,9 +647,9 @@ seen exactly; without a tracked ~MODULE.bazel~ or ~WORKSPACE~ it is
 skipped and the pass line says so. A main matching several ~srcs~,
 or a failing ~bazel query~, is an error, never a silent pass. A
 ~select()~ on ~main~ or ~srcs~ counts every branch, so a main used on any
-platform is checked. Generated mains, ~main_module~ targets, and mains
-not found among the file ~srcs~ (e.g. srcs from a filegroup) are skipped
-and counted. ~__main__.py~ is never an entry by itself, and console-script
+platform is checked. Generated mains, ~main_module~ targets, mains in
+another repository, and mains not found among the file ~srcs~ (e.g. srcs
+from a filegroup) are skipped and counted. ~__main__.py~ is never an entry by itself, and console-script
 targets need no guard. Other build systems pass ~--entry-list~, whose
 paths are relative to the repo top level; a listed path that is not a
 tracked ~.py~ file is an error.
@@ -698,7 +698,7 @@ entry-sources = ["executable", "bazel"]   # also "globs"
 script-globs = []
 test-globs = []                           # e.g. ["**/*_test.py"] without Bazel
 require-test-runner = false
-bazel-dir = "."                           # the Bazel workspace
+bazel-dir = "."                           # the Bazel workspace, inside the repo
 exclude = []
 allow-directive = "py-main-guard: allow"
 #+END_SRC
@@ -713,7 +713,8 @@ Each key has a flag: ~--entry-source~, ~--script-glob~, ~--test-glob~
 - Exits 0 when no scanned file has more violations than the baseline
   allows and no baseline entry is stale.
 - Exits 1 when there are violations or stale baseline entries.
-- Exits 2 on invalid flags, config, baseline or entry list, a failing
+- Exits 2 on invalid flags, config, baseline or entry list (including no
+  entry source and no list), a failing
   ~bazel query~ or unresolvable main, a scanned file that does not
   parse, a path outside the repo, or git errors.
 

@@ -58,10 +58,17 @@ def discover(
 ) -> Discovery:
     """Find every entry module.
 
+    ``read`` needs to return only a file's first two bytes.
+
     Raises:
-        ConfigError: An unknown source, or ``globs`` without patterns.
+        ConfigError: No source and no list, an unknown source, ``globs``
+            without patterns, or a ``bazel_dir`` outside the repo.
         SourceError: The Bazel query failed or a main is ambiguous.
     """
+    if not cfg.sources and entry_list is None:
+        raise errors.ConfigError(
+            "no entry source and no entry list: nothing would be checked"
+        )
     for name in cfg.sources:
         if name not in SOURCES:
             raise errors.ConfigError(
@@ -116,7 +123,7 @@ def parse_entry_list(
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
-        kind, _, path = line.partition(" ")
+        kind, path = (line.split(None, 1) + [""])[:2]
         path = path.strip()
         if kind not in ("script", "test") or not path:
             raise errors.ConfigError(
@@ -155,6 +162,7 @@ def _from_bazel(
         (res.generated, "generated main(s)"),
         (res.module_main, "main_module target(s)"),
         (res.unresolved, "target(s) with no main file among srcs"),
+        (res.external, "main(s) in another repository"),
     ):
         if count:
             notes.append(f"bazel: {count} {what} skipped")

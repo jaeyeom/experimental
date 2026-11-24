@@ -232,6 +232,7 @@ def test_external_labels_ignored() -> None:
     )
     found = bazel.find_mains(_fs("pkg/x.py"), ".", run=run)
     assert found.targets == []
+    assert found.external == 1
 
 
 def test_nested_bazel_dir() -> None:
@@ -265,6 +266,13 @@ def test_has_workspace() -> None:
     assert bazel.has_workspace(files.FileSet(["MODULE.bazel"]), ".")
     assert bazel.has_workspace(files.FileSet(["sub/WORKSPACE"]), "sub")
     assert not bazel.has_workspace(files.FileSet(["a.py"]), ".")
+
+
+@pytest.mark.parametrize("bazel_dir", ["/abs", "..", "../other", "a/../.."])
+def test_bazel_dir_outside_repo_is_error(bazel_dir: str) -> None:
+    """A bazel-dir that is not inside the repo is a ConfigError."""
+    with pytest.raises(errors.ConfigError, match="bazel-dir"):
+        bazel.has_workspace(files.FileSet(["MODULE.bazel"]), bazel_dir)
 
 
 if __name__ == "__main__":

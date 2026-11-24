@@ -139,6 +139,14 @@ def test_root_reader_requires_git_resolver() -> None:
         files.root_reader(files.FileSet([]))
 
 
+def test_root_reader_limit(tmp_path: Path) -> None:
+    """A limit reads only the first bytes of the file."""
+    (tmp_path / "a.py").write_bytes(b"#!/usr/bin/env python3\n")
+    fs = files.GitResolver(str(tmp_path), ["a.py"])
+    assert files.root_reader(fs, limit=2)("a.py") == b"#!"
+    assert files.root_reader(fs)("a.py") == b"#!/usr/bin/env python3\n"
+
+
 def test_expand_dirs() -> None:
     """Directory paths expand to the tracked .py files below them."""
     fs = files.FileSet(["a/x.py", "a/b/y.py", "ab.py", "c.py"])

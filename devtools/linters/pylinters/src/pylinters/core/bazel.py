@@ -46,6 +46,7 @@ class Found:
     generated: int = 0
     module_main: int = 0
     unresolved: int = 0
+    external: int = 0
 
 
 def run_subprocess(argv: Sequence[str], cwd: str) -> str:
@@ -101,7 +102,7 @@ def find_mains(
         cwd,
     )
     targets: list[Target] = []
-    counts = {"generated": 0, "module_main": 0, "unresolved": 0}
+    counts = {"generated": 0, "module_main": 0, "unresolved": 0, "external": 0}
     for line in out.splitlines():
         if not line.strip():
             continue
@@ -127,8 +128,8 @@ def _resolve(
 ) -> list[tuple[str] | str]:
     """Return ``(path,)`` per main file, or skip-counter names.
 
-    A ``select()`` on ``main`` yields one main per branch. Mains in other
-    repositories yield nothing.
+    A ``select()`` on ``main`` yields one main per branch. A main in
+    another repository is counted as ``external``.
     """
     label = rule["name"]
     attrs = {a["name"]: a for a in rule.get("attribute", [])}
@@ -141,16 +142,20 @@ def _resolve(
         if p is not None
     ]
     main_attr = attrs.get("main")
+    out: list[tuple[str] | str] = []
+    mains: list[tuple[str, str]] = []
     if main_attr is not None and main_attr.get("explicitlySpecified"):
-        mains = [
-            (path, main_label.rpartition(":")[2] or path)
-            for main_label in _values(main_attr)
-            if (path := _label_path(main_label, package)) is not None
-        ]
+        for main_label in _values(main_attr):
+            path = _label_path(main_label, package)
+            if path is None:
+                out.append(
+                    "external" if main_label.startswith("@") else "unresolved"
+                )
+            else:
+                mains.append((path, main_label.rpartition(":")[2] or path))
     else:
         name = _string(attrs.get("name")) or label.rpartition(":")[2]
         mains = [(posixpath.join(package, name + ".py"), name + ".py")]
-    out: list[tuple[str] | str] = []
     for main, suffix in mains:
         matches = [p for p in srcs if p == main] or [
             p for p in srcs if ("/" + p).endswith("/" + suffix)
@@ -212,5 +217,15 @@ def _label_path(label: str, package: str) -> str | None:
 
 
 def _dir(bazel_dir: str) -> str:
+    """Return ``bazel_dir`` normalized, ``""`` for the top level.
+
+    Raises:
+        ConfigError: ``bazel_dir`` is absolute or leaves the repo.
+    """
     norm = posixpath.normpath(bazel_dir)
+    if posixpath.isabs(norm) or norm == ".." or norm.startswith("../"):
+        raise errors.ConfigError(
+            f"bazel-dir {bazel_dir!r} must be a directory inside the repo, "
+            "relative to its top level"
+        )
     return "" if norm == "." else norm

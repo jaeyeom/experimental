@@ -51,7 +51,13 @@ def main(
                 entry_list = entries.parse_entry_list(
                     handle.read(), args.entry_list, fs
                 )
-        found = entries.discover(fs, cfg.entries, read, entry_list=entry_list)
+        # Discovery only needs each file's first bytes, for a ``#!``.
+        found = entries.discover(
+            fs,
+            cfg.entries,
+            files.root_reader(fs, limit=2),
+            entry_list=entry_list,
+        )
         bl_path = os.path.join(
             os.getcwd(),
             args.baseline
