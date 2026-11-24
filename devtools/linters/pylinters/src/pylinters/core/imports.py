@@ -67,6 +67,23 @@ def parse(data: bytes, path: str) -> Source:
     Raises:
         ParseError: The source is not valid Python.
     """
+    tree, comments = parse_module(data, path)
+    stmts = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            stmts.append(_stmt(node, 0, None, False))
+        elif isinstance(node, ast.ImportFrom):
+            stmts.append(_stmt(node, node.level, node.module, True))
+    stmts.sort(key=lambda s: (s.line, s.end_line))
+    return Source(path, tuple(stmts), comments)
+
+
+def parse_module(data: bytes, path: str) -> tuple[ast.Module, dict[int, str]]:
+    """Parse ``data`` into its AST and its comments keyed by line.
+
+    Raises:
+        ParseError: The source is not valid Python.
+    """
     try:
         with warnings.catch_warnings():
             # Warnings about the checked file's own code are not ours.
@@ -79,14 +96,7 @@ def parse(data: bytes, path: str) -> Source:
         }
     except (SyntaxError, ValueError, tokenize.TokenError) as err:
         raise errors.ParseError(path, str(err)) from err
-    stmts = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            stmts.append(_stmt(node, 0, None, False))
-        elif isinstance(node, ast.ImportFrom):
-            stmts.append(_stmt(node, node.level, node.module, True))
-    stmts.sort(key=lambda s: (s.line, s.end_line))
-    return Source(path, tuple(stmts), comments)
+    return tree, comments
 
 
 def _stmt(

@@ -38,6 +38,7 @@ py_binary(
         "config_test",
         "files_test",
         "globs_test",
+        "guards_test",
         "imports_test",
         "module_import_test",
         "sibling_import_test",
