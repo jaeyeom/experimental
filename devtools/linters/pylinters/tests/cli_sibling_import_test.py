@@ -165,7 +165,7 @@ def test_parse_error_exit_2_names_file(
 def test_flag_overrides(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """--generated, --exclude and --allow-directive override config."""
+    """--generated and --allow-directive override config; --exclude adds."""
     make_repo(
         tmp_path,
         {
@@ -174,20 +174,25 @@ def test_flag_overrides(
             "g/b_pb2.py": "import a_pb2\n",
             "p/__init__.py": "",
             "p/a.py": "",
-            "p/b.py": "import a  # X\n",
+            "p/b.py": "import a\n",
+            "q/__init__.py": "",
+            "q/a.py": "",
+            "q/b.py": "import a  # X\n",
             "pyproject.toml": '[tool.pylinters.sibling-import]\n'
             'exclude = ["p/**"]\n',
         },
     )
     monkeypatch.chdir(tmp_path)
-    assert call([])[0] == 0
-    code, out, _ = call(["--generated", "none/**"])
+    code, out, _ = call([])
+    assert code == 1
+    assert "q/b.py:1" in out
+    assert "p/b.py" not in out
+    assert call(["--allow-directive", "X"])[0] == 0
+    code, out, _ = call(["--allow-directive", "X", "--generated", "none/**"])
     assert code == 1
     assert "g/b_pb2.py:1" in out
-    code, out, _ = call(["--exclude", "none/**"])
-    assert code == 1
-    assert "p/b.py:1" in out
-    assert call(["--exclude", "none/**", "--allow-directive", "X"])[0] == 0
+    flags = ["--allow-directive", "X", "--generated", "none/**"]
+    assert call([*flags, "--exclude", "g/**"])[0] == 0
 
 
 def test_version_flag(capsys: pytest.CaptureFixture[str]) -> None:
@@ -220,11 +225,11 @@ def test_directory_path_expands(
 def test_exclude_help_describes_merge(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """--exclude help says the shared excludes still apply."""
+    """--exclude help says it adds to the configured excludes."""
     with pytest.raises(SystemExit):
         call(["--help"])
     help_text = " ".join(capsys.readouterr().out.split())
-    assert "replaces the checker excludes; shared excludes still apply" in (
+    assert "added to the configured excludes (shared and checker)" in (
         help_text
     )
 

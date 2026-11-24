@@ -13,6 +13,11 @@ EXIT_OK = 0
 EXIT_VIOLATIONS = 1
 EXIT_ERROR = 2
 
+EXCLUDE_HELP = (
+    "exclude glob (repeatable; added to the configured excludes "
+    "(shared and checker))"
+)
+
 
 def version() -> str:
     """Return the installed pylinters version, or ``"dev"``."""

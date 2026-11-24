@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from typing import BinaryIO, NoReturn, TextIO
 
 from pylinters import sibling_import
-from pylinters.core import cli, config, errors, files
+from pylinters.core import cli, errors, files
 
 PROG = "py-sibling-import"
 
@@ -82,8 +82,7 @@ def _parser() -> argparse.ArgumentParser:
         "--exclude",
         action="append",
         metavar="GLOB",
-        help="checker exclude glob (repeatable; replaces the checker "
-        "excludes; shared excludes still apply)",
+        help=cli.EXCLUDE_HELP,
     )
     parser.add_argument(
         "--generated",
@@ -105,8 +104,7 @@ def _config(root: str, args: argparse.Namespace) -> sibling_import.Config:
     if args.root_dir is not None:
         changes["roots"] = tuple(args.root_dir)
     if args.exclude is not None:
-        shared, _ = config.load_table(pyproject, (sibling_import.CHECKER,))
-        changes["exclude"] = shared.exclude + tuple(args.exclude)
+        changes["exclude"] = cfg.exclude + tuple(args.exclude)
     if args.generated is not None:
         changes["generated"] = tuple(args.generated)
     if args.allow_directive is not None:

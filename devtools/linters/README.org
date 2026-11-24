@@ -439,7 +439,7 @@ py-sibling-import --exclude 'legacy/**' --generated '**/*_pb2.py'
 
 A directory argument checks the tracked ~.py~ files below it (~.~ is the
 whole tree); a directory with none is an error (exit 2). ~--exclude~
-replaces the checker's configured excludes; the shared ones still apply.
+adds to the configured shared and checker excludes.
 
 A genuine exception carries ~# py-sibling-import: allow~ on any line of
 the import statement.
