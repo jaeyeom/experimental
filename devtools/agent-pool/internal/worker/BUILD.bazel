@@ -1,0 +1,18 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["worktree.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/agent-pool/internal/worker",
+    visibility = ["//devtools/agent-pool:__subpackages__"],
+)
+
+go_test(
+    name = "go_default_test",
+    size = "small",
+    srcs = ["worktree_test.go"],
+    embed = [":go_default_library"],
+    deps = [
+        "//devtools/agent-pool/internal/catalog:go_default_library",
+    ],
+)
