@@ -16,6 +16,7 @@ go_library(
         "skill.go",
         "text.go",
         "toolcli.go",
+        "wait.go",
         "web.go",
     ],
     embedsrcs = ["skill.md"],
@@ -68,6 +69,7 @@ go_test(
         "text_test.go",
         "thread_test.go",
         "toolcli_test.go",
+        "wait_test.go",
         "web_test.go",
     ],
     data = [

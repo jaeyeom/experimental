@@ -52,6 +52,7 @@ var itemCommands = map[string]func([]string, io.Writer, io.Writer) int{
 	"supersede": cmdSupersede,
 	"backfill":  cmdBackfill,
 	"log":       cmdLog,
+	"wait":      cmdWait,
 }
 
 // ledgerCommands run against this machine's ledger until stopped: the
@@ -117,6 +118,7 @@ func usage(w io.Writer) {
   decide backfill [--yes]
   decide list [--state open|answered|done|withdrawn] [--snoozed] [--off-line] [--undelivered] [--json]
   decide show [--json] <id>
+  decide wait [--json] [--timeout 0] [--every 2s] <id>
   decide withdraw [--json] <id> <reason>
   decide done [--json] <id> <outcome>
   decide answer [--json] [--via cli|ui] <id> <option|text>

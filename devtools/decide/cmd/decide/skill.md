@@ -21,7 +21,7 @@ Before filing a decision or fact question, run `decide log search <words>` to se
 
 Every item has options, includes `--rec`, and usually allows `--free-text`.
 
-`--notify-pane` routes the answer to the owning agent's pane.
+`--notify-pane` routes the answer to the owning agent's pane. With no pane, run `decide wait <id>` in the background after the ask (or after your own reply): it exits when the item is no longer open or gets a new message, and prints it.
 
 Use `decide reassign` when the owning tab is retired, or for a handoff to another agent.
 

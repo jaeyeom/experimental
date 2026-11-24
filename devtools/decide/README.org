@@ -162,6 +162,7 @@ that hub for one invocation.
 | ~decide ask~                     | File a question for a human to answer.                         |
 | ~decide list~                    | List items in one state. ~--snoozed~, ~--off-line~, or ~--undelivered~ filters. |
 | ~decide show~                    | Print one item. ~--json~ adds ~ownerLocation~.                 |
+| ~decide wait~                    | Block until an item is not open or gets a message, then show it. |
 | ~decide withdraw~                | Withdraw an item and store the reason.                         |
 | ~decide done~                    | Mark an item done and store the outcome. ~--via ui~: inbox.    |
 | ~decide answer~                  | Record an answer. ~--via ui~ is for the inbox and Emacs.       |
@@ -603,6 +604,34 @@ command and ~--machine~. An ~agentbus:<name>~ pane uses ~agentbus send
 is stored as ~notifyError~ until a later delivery works. Each attempt is
 a ~delivery~ entry (~at~, ~target~, ~outcome~, ~error~). The inbox shows
 ~not delivered~ when the latest attempt failed.
+
+** Agents without a pane
+
+An agent with no herdr pane, such as a desktop-app or CI session, has
+nowhere to be notified. It runs ~decide wait <id>~ in the background
+after the ask and wakes when that command exits.
+
+#+begin_src sh
+decide ask --owner deploy-bot ... "Ship it?"   # prints D-012
+decide wait --timeout 8h D-012
+#+end_src
+
+~wait~ returns when the item is no longer ~open~ (answered, done,
+withdrawn) or has more messages than when the wait started. It reads the
+item first, so an item answered before the wait returns at once. It then
+prints the item as ~decide show~ does, or as ~show --json~ with
+~--json~. Any new message ends the wait, the agent's own included, so
+start it after your own ~decide reply~. ~--every~ (default 2s) sets how
+often it rereads the item. With ~--remote~ or a configured hub it runs
+on the hub over one ssh session; if that session drops, it exits non-zero
+and can be run again.
+
+| Exit | Meaning                                       |
+|------+-----------------------------------------------|
+|    0 | The item changed. It is printed.              |
+|    1 | Unknown item, ledger, or hub error.           |
+|    2 | Usage error.                                  |
+|  124 | ~--timeout~ passed first, as with timeout(1). |
 
 ** Delivery marks
 
