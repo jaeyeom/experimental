@@ -116,7 +116,7 @@ func recipientForTarget(tg ConfigTarget) SendRecipient {
 	if rec, ok := AgentbusPaneRecipient(tg.Pane); ok {
 		return rec
 	}
-	return SendRecipient{Name: tg.Name, Pane: tg.Pane}
+	return SendRecipient{Name: tg.Name, Pane: tg.TargetPane()}
 }
 
 // AgentbusPaneRecipient reports a pane that names an agentbus recipient.
@@ -341,6 +341,21 @@ func NotifyOwner(pane, machine, id, text string) (Delivery, error) {
 
 // NotifyOwnerVerbatim is NotifyOwner with an optional verbatim block.
 func NotifyOwnerVerbatim(pane, machine, id, text, verbatim string) (Delivery, error) {
+	return notifyItemVerbatim(nil, pane, machine, id, text, verbatim)
+}
+
+// NotifyItemVerbatim delivers a human reply on item to pane on machine,
+// passing the item payload to transports that consume structured JSON (such as
+// configured command targets).
+func NotifyItemVerbatim(item *Item, pane, machine, text, verbatim string) (Delivery, error) {
+	id := ""
+	if item != nil {
+		id = item.ID
+	}
+	return notifyItemVerbatim(item, pane, machine, id, text, verbatim)
+}
+
+func notifyItemVerbatim(item *Item, pane, machine, id, text, verbatim string) (Delivery, error) {
 	if strings.TrimSpace(pane) == "" {
 		return Delivery{}, fmt.Errorf("decide compose pane is empty")
 	}
@@ -350,14 +365,14 @@ func NotifyOwnerVerbatim(pane, machine, id, text, verbatim string) (Delivery, er
 	target := ParseTarget(pane, machine)
 	note := DeliveryNoteVerbatim(id, "human", text, verbatim)
 	var cfg Config
-	if target.Scheme == SchemeHerdr {
+	if target.Scheme == SchemeHerdr || target.Scheme == SchemeTarget {
 		var err error
 		cfg, err = LoadConfig()
 		if err != nil {
 			return Delivery{}, err
 		}
 	}
-	return transportFor(target).DeliverNote(id, target, note, cfg) //nolint:wrapcheck // transport implementations already wrap delivery errors
+	return transportFor(target).DeliverNote(item, id, target, note, cfg) //nolint:wrapcheck // transport implementations already wrap delivery errors
 }
 
 // SendBus runs `agentbus send name note` and describes it as a Delivery.

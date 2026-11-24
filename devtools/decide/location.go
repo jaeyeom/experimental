@@ -23,6 +23,8 @@ const (
 	LocationUnreachable = "unreachable"
 	// LocationPull is a pull-delivered item without a herdr pane.
 	LocationPull = "pull"
+	// LocationTarget is a configured target (target:<name>) without a herdr pane.
+	LocationTarget = "target"
 )
 
 // OwnerLocation is where an item's owner pane lives in herdr. Machine is
@@ -54,6 +56,8 @@ func OwnerPane(item *Item, local string) OwnerLocation {
 	switch target.Scheme {
 	case SchemePull:
 		return OwnerLocation{Pane: target.String(), State: LocationPull}
+	case SchemeTarget:
+		return OwnerLocation{Pane: target.String(), State: LocationTarget}
 	case SchemeAgentbus:
 		return OwnerLocation{Pane: target.String(), State: LocationUnknown}
 	case SchemeHerdr:
@@ -72,6 +76,9 @@ func OwnerPane(item *Item, local string) OwnerLocation {
 func (l OwnerLocation) Text() string {
 	if l.State == LocationPull {
 		return "waiting (pull)"
+	}
+	if l.State == LocationTarget {
+		return l.Pane
 	}
 	if l.Pane == "" {
 		return "unknown"
@@ -124,6 +131,11 @@ func (r LocationResolver) Resolve(ctx context.Context, locs []OwnerLocation) []O
 			out[i].Machine = ""
 			continue
 		}
+		if target.Scheme == SchemeTarget {
+			out[i].State = LocationTarget
+			out[i].Machine = ""
+			continue
+		}
 		if target.Scheme != SchemeHerdr || target.Address == "" {
 			continue
 		}
@@ -162,6 +174,8 @@ func (r LocationResolver) Focus(ctx context.Context, loc OwnerLocation) string {
 	switch {
 	case loc.State == LocationPull:
 		return "owner uses pull delivery; nothing to focus"
+	case loc.State == LocationTarget:
+		return "owner uses target delivery; nothing to focus"
 	case loc.State == LocationClosed:
 		return "owner tab closed; nothing to focus"
 	case loc.State == LocationUnreachable:

@@ -69,7 +69,7 @@ func (l *Ledger) Assign(id string, change Assign) (Item, error) {
 				pane = BusPanePrefix + worker
 			}
 			it.Worker, it.WorkerNotifyPane, it.WorkerNotifyMachine = worker, pane, ""
-			if !strings.HasPrefix(pane, BusPanePrefix) {
+			if ParseTarget(pane, "").Scheme == SchemeHerdr {
 				it.WorkerNotifyMachine = strings.TrimSpace(change.Machine)
 			}
 		}

@@ -122,6 +122,26 @@ func TestOwnerLocationExplicitHerdrPrefix(t *testing.T) {
 	}
 }
 
+func TestOwnerLocationTargetIsNotResolved(t *testing.T) {
+	f := herdrtest.Install(t)
+	loc := resolveOne(t, &Item{NotifyPane: "target:mytool", NotifyMachine: "mac"}, "")
+	if loc.State != LocationTarget || loc.Pane != "target:mytool" || loc.Machine != "" {
+		t.Fatalf("location = %+v", loc)
+	}
+	if got := loc.Text(); got != "target:mytool" {
+		t.Fatalf("text = %q, want %q", got, "target:mytool")
+	}
+	if argv := f.Argv(); len(argv) != 0 {
+		t.Fatalf("herdr ran %q", argv)
+	}
+	if msg := (LocationResolver{}).Focus(context.Background(), loc); msg != "owner uses target delivery; nothing to focus" {
+		t.Fatalf("Focus = %q", msg)
+	}
+	if argv := f.Argv(); len(argv) != 0 {
+		t.Fatalf("Focus ran herdr %q", argv)
+	}
+}
+
 func TestOwnerLocationOtherMachine(t *testing.T) {
 	f := herdrtest.Install(t)
 	fakeHerdrMachine(f, "mac")

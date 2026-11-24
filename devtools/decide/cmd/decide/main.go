@@ -299,14 +299,23 @@ func deliverNewThread(led *decide.Ledger, dir, template string, rec decide.SendR
 	if err != nil {
 		return decide.Item{}, err //nolint:wrapcheck // StartThreadVerbatim names the refusal
 	}
-	note := decide.DeliveryNoteVerbatim(item.ID, "human", text, verbatim)
-	if err := decide.RunSend(decide.SendArgv(template, rec.Pane, note)); err != nil {
+	var d decide.Delivery
+	if decide.ParseTarget(rec.Pane, "").Scheme == decide.SchemeTarget {
+		d, err = decide.NotifyItemVerbatim(&item, rec.Pane, "", text, verbatim)
+	} else {
+		note := decide.DeliveryNoteVerbatim(item.ID, "human", text, verbatim)
+		err = decide.RunSend(decide.SendArgv(template, rec.Pane, note))
+		if err == nil {
+			d = decide.Delivery{Target: rec.Pane, Outcome: decide.OutcomeDelivered}
+		}
+	}
+	if err != nil {
 		if derr := led.Delete(item.ID); derr != nil {
 			return decide.Item{}, fmt.Errorf("%w; %w", err, derr)
 		}
-		return decide.Item{}, err //nolint:wrapcheck // RunSend names the send
+		return decide.Item{}, err //nolint:wrapcheck // delivery error already names the send
 	}
-	item, err = led.RecordCompose(item.ID, item.Messages[0].Time, decide.Delivery{Target: rec.Pane, Outcome: decide.OutcomeDelivered})
+	item, err = led.RecordCompose(item.ID, item.Messages[0].Time, d)
 	if err != nil {
 		return decide.Item{}, err //nolint:wrapcheck // RecordCompose names the ledger failure
 	}
@@ -392,7 +401,7 @@ func notifyCompose(item *decide.Item, cfg decide.Config, route, text, verbatim s
 	}
 	var first error
 	for _, tg := range decide.ReplyTargets(item, cfg, route) {
-		d, err := decide.NotifyOwnerVerbatim(tg.Pane, tg.Machine, item.ID, text, verbatim)
+		d, err := decide.NotifyItemVerbatim(item, tg.Pane, tg.Machine, text, verbatim)
 		recordCompose(item, d, err)
 		if err != nil && first == nil {
 			first = err
@@ -870,7 +879,7 @@ func inboxTargets(cfg decide.Config) []tui.Target {
 	}
 	targets := make([]tui.Target, len(cfg.Targets))
 	for i, tg := range cfg.Targets {
-		targets[i] = tui.Target{Name: tg.Name, Pane: tg.Pane}
+		targets[i] = tui.Target{Name: tg.Name, Pane: tg.TargetPane()}
 	}
 	return targets
 }

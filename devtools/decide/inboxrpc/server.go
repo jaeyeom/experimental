@@ -405,7 +405,7 @@ func (s *Server) send(req Request) Response {
 		if !ok {
 			return Response{Error: fmt.Sprintf("decide send recipient %q is unknown on the hub", req.To)}
 		}
-		tg = tui.Target{Name: found.Name, Pane: found.Pane}
+		tg = tui.Target{Name: found.Name, Pane: found.TargetPane()}
 	}
 	var writtenAt time.Time
 	if req.WrittenAt != nil {

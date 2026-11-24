@@ -504,10 +504,21 @@ type Colors struct {
 	Muted     string `json:"muted,omitempty"`
 }
 
-// ConfigTarget is one compose destination. The pane id comes from config.
+// ConfigTarget is one compose or delivery destination. Either Pane or Command
+// must be set, but not both.
 type ConfigTarget struct {
-	Name string `json:"name"`
-	Pane string `json:"pane"`
+	Name    string   `json:"name"`
+	Pane    string   `json:"pane,omitempty"`
+	Command []string `json:"command,omitempty"`
+}
+
+// TargetPane returns the notifyPane string for tg: "target:<name>" when
+// Command is set, otherwise Pane.
+func (tg ConfigTarget) TargetPane() string {
+	if len(tg.Command) > 0 {
+		return TargetPanePrefix + tg.Name
+	}
+	return tg.Pane
 }
 
 func configPath() (string, bool) {
@@ -603,6 +614,7 @@ func validateConfig(cfg Config) error {
 		return fmt.Errorf("decide config openCommand: the program is empty")
 	}
 	checks := []func() error{
+		func() error { return checkTargets(cfg.Targets) },
 		func() error { return checkAvatarRules(cfg.Avatars) },
 		func() error { return checkOwnersConfig(cfg.Owners) },
 		func() error { _, err := parseRecipientsTimeout(cfg.RecipientsTimeout); return err },
@@ -618,6 +630,22 @@ func validateConfig(cfg Config) error {
 	for _, fn := range checks {
 		if err := fn(); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func checkTargets(targets []ConfigTarget) error {
+	for i, tg := range targets {
+		hasPane := strings.TrimSpace(tg.Pane) != ""
+		hasCmd := len(tg.Command) > 0
+		switch {
+		case hasPane && hasCmd:
+			return fmt.Errorf("decide config targets[%d] (%q): cannot set both pane and command", i, tg.Name)
+		case !hasPane && !hasCmd:
+			return fmt.Errorf("decide config targets[%d] (%q): must set either pane or command", i, tg.Name)
+		case hasCmd && strings.TrimSpace(tg.Command[0]) == "":
+			return fmt.Errorf("decide config targets[%d] (%q): command program is empty", i, tg.Name)
 		}
 	}
 	return nil
@@ -718,29 +746,48 @@ func SentDelivery(id, target string, runErr error) (Delivery, error) {
 	return Delivery{Target: target, Outcome: OutcomeDelivered}, nil
 }
 
-func notifyLocal(item *Item, pane string, cfg Config, out io.Writer) (Delivery, error) {
+func notifyEnv(item *Item, pane, defaultAuthor string) []string {
 	answer, answeredBy := answerFields(item)
-	// The template is operator config. Fields stay in the environment.
+	headerAuthor := answeredBy
+	if headerAuthor == "" {
+		headerAuthor = defaultAuthor
+	}
+	var id, owner, worker, kind, question, label, answeredAt, deliveryKey string
+	if item != nil {
+		id = item.ID
+		owner = item.Owner
+		worker = item.Worker
+		kind = item.Kind
+		question = questionLine(ComposeNoteText(item.Question, item.Verbatim))
+		label = AnswerLabel(item)
+		answeredAt = item.AnsweredAt.Format(time.RFC3339)
+		deliveryKey = DeliveryKey(item)
+	}
 	// Parent values come first. os/exec keeps the last value for a duplicate
 	// key, so the item values override a parent DECIDE_* variable.
+	return append(os.Environ(),
+		"DECIDE_ID="+id,
+		"DECIDE_ANSWER="+answer,
+		"DECIDE_ANSWER_LABEL="+label,
+		"DECIDE_OWNER="+owner,
+		"DECIDE_WORKER="+worker,
+		"DECIDE_PANE="+pane,
+		"DECIDE_KIND="+kind,
+		"DECIDE_QUESTION="+question,
+		"DECIDE_ANSWERED_AT="+answeredAt,
+		"DECIDE_ANSWERED_BY="+answeredBy,
+		"DECIDE_THREAD_HEADER="+threadHeader(id, headerAuthor),
+		"DECIDE_REPLY_HINT="+replyHint(id),
+		"DECIDE_MACHINE=",
+		"DECIDE_DELIVERY_KEY="+deliveryKey,
+	)
+}
+
+func notifyLocal(item *Item, pane string, cfg Config, out io.Writer) (Delivery, error) {
+	// The template is operator config. Fields stay in the environment.
 	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	cmd := exec.Command("sh", "-c", cfg.NotifyTemplate) //nolint:gosec // G204: the notify template is operator config; fields are environment variables
-	cmd.Env = append(os.Environ(),
-		"DECIDE_ID="+item.ID,
-		"DECIDE_ANSWER="+answer,
-		"DECIDE_ANSWER_LABEL="+AnswerLabel(item),
-		"DECIDE_OWNER="+item.Owner,
-		"DECIDE_WORKER="+item.Worker,
-		"DECIDE_PANE="+pane,
-		"DECIDE_KIND="+item.Kind,
-		"DECIDE_QUESTION="+questionLine(ComposeNoteText(item.Question, item.Verbatim)),
-		"DECIDE_ANSWERED_AT="+item.AnsweredAt.Format(time.RFC3339),
-		"DECIDE_ANSWERED_BY="+answeredBy,
-		"DECIDE_THREAD_HEADER="+threadHeader(item.ID, answeredBy),
-		"DECIDE_REPLY_HINT="+replyHint(item.ID),
-		"DECIDE_MACHINE=",
-		"DECIDE_DELIVERY_KEY="+DeliveryKey(item),
-	)
+	cmd.Env = notifyEnv(item, pane, "")
 	var stdout bytes.Buffer
 	cmd.Stdout = io.MultiWriter(out, &stdout)
 	cmd.Stderr = out
@@ -751,6 +798,40 @@ func notifyLocal(item *Item, pane string, cfg Config, out io.Writer) (Delivery, 
 		return SentDelivery(item.ID, pane, fmt.Errorf("notify: %w", err))
 	}
 	return SentDelivery(item.ID, pane, nil)
+}
+
+// deliverCommand executes a configured command target directly via exec.Command
+// (no shell), passing DECIDE_* environment variables and the JSON-encoded item
+// on stdin.
+func deliverCommand(item *Item, targetWire string, command []string, op, defaultAuthor string, out io.Writer) (Delivery, error) {
+	id := ""
+	if item != nil {
+		id = item.ID
+	}
+	if len(command) == 0 || strings.TrimSpace(command[0]) == "" {
+		return SentDelivery(id, targetWire, fmt.Errorf("%s: target %q command is empty", op, targetWire))
+	}
+	var stdinBuf bytes.Buffer
+	enc := json.NewEncoder(&stdinBuf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(item); err != nil {
+		return SentDelivery(id, targetWire, fmt.Errorf("%s: encode item: %w", op, err))
+	}
+	// The command argv comes from operator config; never invoke a shell.
+	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
+	cmd := exec.Command(command[0], command[1:]...) //nolint:gosec // G204: command target argv is operator config, executed directly without a shell
+	cmd.Env = notifyEnv(item, targetWire, defaultAuthor)
+	cmd.Stdin = &stdinBuf
+	if out == nil {
+		out = io.Discard
+	}
+	var stderr bytes.Buffer
+	cmd.Stdout = out
+	cmd.Stderr = io.MultiWriter(out, &stderr)
+	if err := cmd.Run(); err != nil {
+		return SentDelivery(id, targetWire, fmt.Errorf("%s: %w%s", op, err, stderrSuffix(stderr.String())))
+	}
+	return SentDelivery(id, targetWire, nil)
 }
 
 // notifyRemote delivers the answer note to a pane on another machine.

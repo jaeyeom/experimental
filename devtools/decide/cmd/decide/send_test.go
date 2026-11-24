@@ -426,3 +426,45 @@ func TestSendVerbatimToAgentbusCarriesVerbatimInNote(t *testing.T) {
 		t.Fatalf("bus sends = %q", sends)
 	}
 }
+
+func TestSendIDDeliversToCommandTarget(t *testing.T) {
+	dir := t.TempDir()
+	stdinFile := filepath.Join(dir, "stdin.json")
+	script := filepath.Join(dir, "mytool")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\ncat > '"+stdinFile+"'\n"), 0o755); err != nil { //nolint:gosec // test helper script
+		t.Fatal(err)
+	}
+	cfgBytes, err := json.Marshal(decide.Config{
+		SendTemplate: "false {pane}",
+		Targets: []decide.ConfigTarget{
+			{Name: "mytool", Command: []string{script}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeDecideConfig(t, string(cfgBytes)+"\n")
+
+	stdout, stderr, code := runCLI("ask", "--owner", "mytool", "--class", "decision", "--kind", "relay", "--notify-pane", "target:mytool",
+		"--option", "y:Yes", "--option", "n:No", "--rec", "y", "Post to #eng?")
+	if code != 0 {
+		t.Fatalf("ask = %d\n%s\n%s", code, stdout, stderr)
+	}
+	id := strings.TrimSpace(stdout)
+
+	_, stderr, code = runCLI("send", "--id", id, "hold off until noon")
+	if code != 0 {
+		t.Fatalf("send --id = %d\n%s", code, stderr)
+	}
+	data, err := os.ReadFile(stdinFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got decide.Item
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal stdin JSON: %v", err)
+	}
+	if got.ID != id || len(got.Messages) < 2 || got.Messages[len(got.Messages)-1].Text != "hold off until noon" {
+		t.Fatalf("stdin item = %+v", got)
+	}
+}

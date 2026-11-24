@@ -14,7 +14,7 @@ missing file is an empty config. Keys you do not set keep the default.
 | ~notifyPane~           | empty                       | Pane used when the item has none.                                              |
 | ~optionsOnly~          | false                       | A relay ask rejects free text unless ~--free-text~.                            |
 | ~sendTemplate~         | ~herdr agent prompt {pane}~ | Compose send command. ~{pane}~ is replaced.                                    |
-| ~targets~              | none                        | Compose recipients. Each entry has ~name~ and ~pane~.                          |
+| ~targets~              | none                        | Compose/delivery targets. Each entry has ~name~ and either ~pane~ or ~command~ (argv). |
 | ~colors~               | theme indexes               | ~requester~, ~human~, ~agent~, ~time~, ~badge~, ~muted~. ANSI index or ~#hex~. |
 | ~recipients.agentbus~  | false                       | Add ~agentbus list~ names to compose.                                          |
 | ~recipientsTimeout~    | ~3s~                        | Bound on each bus-name load.                                                   |

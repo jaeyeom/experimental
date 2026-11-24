@@ -392,6 +392,39 @@ func TestFollowStaleSkipsPullTargets(t *testing.T) {
 	}
 }
 
+func TestFollowStaleCommandTargetDoesNotCallHerdr(t *testing.T) {
+	f := herdrtest.Install(t)
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "keys")
+	script := filepath.Join(dir, "mytool")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s\\n' \"$DECIDE_DELIVERY_KEY\" >> '"+logPath+"'\n"), 0o755); err != nil { //nolint:gosec // test helper script
+		t.Fatal(err)
+	}
+	writeConfig(t, `{"targets":[{"name":"mytool","command":["`+script+`"]}]}`)
+	clock := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	led := openDeliveryLedger(t, dir, &clock)
+	item := answeredRelay(t, led, "target:mytool", "")
+	if _, err := led.DeliverAnswer(&item, nil); err != nil {
+		t.Fatal(err)
+	}
+	key := DeliveryKey(&item)
+
+	clock = item.AnsweredAt.Add(30 * time.Minute)
+	if err := led.FollowStale(clock, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if argv := f.Argv(); len(argv) != 0 {
+		t.Fatalf("herdr ran %q, want none for command target", argv)
+	}
+	got := mustGet(t, led, item.ID)
+	if got.FollowUp != "" {
+		t.Fatalf("followUp = %q, want empty", got.FollowUp)
+	}
+	if keys := keyLog(t, logPath); len(keys) != 2 || keys[0] != key || keys[1] != key {
+		t.Fatalf("keys = %#v, want %q twice", keys, key)
+	}
+}
+
 func followLedger(t *testing.T) (*Ledger, *time.Time, string) {
 	t.Helper()
 	dir := t.TempDir()

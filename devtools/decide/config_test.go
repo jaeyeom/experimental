@@ -227,3 +227,52 @@ func TestDisplayNeverExportsWeb(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadConfigTargetsCommand(t *testing.T) {
+	writeConfig(t, `{"targets": [{"name": "mytool", "command": ["/usr/bin/mytool", "--flag"]}, {"name": "builder", "pane": "w1:p2"}]}`)
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Targets) != 2 {
+		t.Fatalf("targets = %+v, want 2", cfg.Targets)
+	}
+	if cfg.Targets[0].Name != "mytool" || cfg.Targets[0].Pane != "" || !slices.Equal(cfg.Targets[0].Command, []string{"/usr/bin/mytool", "--flag"}) {
+		t.Fatalf("target[0] = %+v", cfg.Targets[0])
+	}
+	if cfg.Targets[1].Name != "builder" || cfg.Targets[1].Pane != "w1:p2" || len(cfg.Targets[1].Command) != 0 {
+		t.Fatalf("target[1] = %+v", cfg.Targets[1])
+	}
+}
+
+func TestLoadConfigTargetsValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		data string
+	}{
+		{
+			name: "both pane and command",
+			data: `{"targets": [{"name": "mytool", "pane": "w1:p2", "command": ["/usr/bin/mytool"]}]}`,
+		},
+		{
+			name: "neither pane nor command",
+			data: `{"targets": [{"name": "mytool"}]}`,
+		},
+		{
+			name: "empty pane and empty command",
+			data: `{"targets": [{"name": "mytool", "pane": "  ", "command": []}]}`,
+		},
+		{
+			name: "empty command program",
+			data: `{"targets": [{"name": "mytool", "command": ["", "--flag"]}]}`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			writeConfig(t, tc.data)
+			if _, err := LoadConfig(); err == nil || !strings.Contains(err.Error(), "targets") {
+				t.Fatalf("LoadConfig(%s) error = %v, want a targets error", tc.data, err)
+			}
+		})
+	}
+}

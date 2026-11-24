@@ -2,10 +2,12 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -495,5 +497,66 @@ func TestLocalBackendDraftBackend(t *testing.T) {
 	}
 	if len(list) != 0 {
 		t.Fatalf("ListDrafts() after delete = %+v, want empty", list)
+	}
+}
+
+func TestLocalBackendReplyDeliversToCommandTarget(t *testing.T) {
+	dir := t.TempDir()
+	cfgDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgDir)
+	stdinFile := filepath.Join(dir, "stdin.json")
+	script := filepath.Join(dir, "mytool")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\ncat > '"+stdinFile+"'\n"), 0o755); err != nil { //nolint:gosec // test helper script
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(cfgDir, "decide"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfgBytes, err := json.Marshal(decide.Config{
+		Targets: []decide.ConfigTarget{
+			{Name: "mytool", Command: []string{script}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "decide", "config.json"), cfgBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	led := openLedger(t, dir)
+	item := mustCreate(t, led, &decide.Item{
+		Question:   "post update?",
+		Owner:      "mytool",
+		Kind:       decide.KindRelay,
+		State:      decide.StateOpen,
+		NotifyPane: "target:mytool",
+		Options:    []decide.Option{{Key: "y", Label: "Yes"}, {Key: "n", Label: "No"}},
+	})
+
+	b := &LocalBackend{
+		Dir: dir,
+		RunSend: func([]string) error {
+			t.Fatal("RunSend should not be called for command target")
+			return nil
+		},
+	}
+	updated, err := b.Reply(item.ID, "please add a link", "")
+	if err != nil {
+		t.Fatalf("Reply() error = %v", err)
+	}
+	if len(updated.Delivery) != 1 || updated.Delivery[0].Outcome != decide.OutcomeDelivered || updated.Delivery[0].Target != "target:mytool" {
+		t.Fatalf("Delivery = %+v", updated.Delivery)
+	}
+	data, err := os.ReadFile(stdinFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got decide.Item
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal stdin JSON: %v", err)
+	}
+	if got.ID != item.ID || len(got.Messages) < 2 || got.Messages[len(got.Messages)-1].Text != "please add a link" {
+		t.Fatalf("stdin item = %+v", got)
 	}
 }

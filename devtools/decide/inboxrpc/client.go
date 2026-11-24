@@ -1103,7 +1103,7 @@ func (c *Client) Targets() ([]tui.Target, bool, error) {
 	}
 	var out []tui.Target
 	for _, tg := range resp.Targets {
-		out = append(out, tui.Target{Name: tg.Name, Pane: tg.Pane})
+		out = append(out, tui.Target{Name: tg.Name, Pane: tg.TargetPane()})
 	}
 	return out, resp.Agentbus, nil
 }

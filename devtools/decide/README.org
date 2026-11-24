@@ -148,7 +148,9 @@ withdraw~ refuses a done-unread item.
   instead of receiving push notifications. ~--notify-pane~ wins; pass
   ~--notify-pane pull~ to force pull delivery inside herdr or when
   ~notifyPane~ is configured. A value of ~agentbus:<name>~ delivers
-  with ~agentbus send~ instead of a pane command.
+  with ~agentbus send~ instead of a pane command. A value of
+  ~target:<name>~ delivers to a named entry in ~targets~ (such as a
+  command target configured with ~targets[].command~).
 - A *hub* is a second machine's ssh target. The hub holds the ledger.
   The other machine runs the same commands against it. See
   [[*Using two machines]].
@@ -287,11 +289,28 @@ queued~), or the stored row with ~(guess)~. The choice is in
 
 After a relay answer is saved, local panes run ~notifyTemplate~ (with
 ~DECIDE_*~ environment variables), remote herdr panes use the compose
-command with ~--machine~, and ~agentbus:<name>~ panes deliver via
-~agentbus send --client-id~. Every message tracks a delivery mark
-(~waiting~, ~delivered HH:MM~, or ~failed~), retries transient failures
-up to three times, and follows up once on stale answers via an open
-local inbox, the hub's ~decide serve --stdio~, or ~decide follow~.
+command with ~--machine~, ~agentbus:<name>~ panes deliver via
+~agentbus send --client-id~, and ~target:<name>~ delivers to a named
+entry in ~config.json~ ~targets~. For non-LLM CLI tools (such as
+~slackwatch~, ~gh-outbox~, or scripts), configure a command target with
+~targets[].command~ (mutually exclusive with ~pane~) and file asks with
+~--notify-pane target:<name>~:
+
+#+begin_src json
+{
+  "targets": [
+    {"name": "slackwatch", "command": ["slackwatch", "decide-callback"]}
+  ]
+}
+#+end_src
+
+When an answer or human reply arrives for ~target:slackwatch~, ~decide~
+executes ~command[0]~ with ~command[1:]~ directly (no shell), passes the
+~DECIDE_*~ environment variables, and writes the JSON-encoded item
+(matching ~decide show --json~) on stdin. Every message tracks a delivery
+mark (~waiting~, ~delivered HH:MM~, or ~failed~), retries transient
+failures up to three times, and follows up once on stale answers via an
+open local inbox, the hub's ~decide serve --stdio~, or ~decide follow~.
 
 The full ~DECIDE_*~ environment reference, delivery marks, retry and
 stale follow-up rules, and the four-stage Outbox / Answered / delivery

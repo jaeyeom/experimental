@@ -409,23 +409,29 @@ func (b *LocalBackend) notifyThread(item *decide.Item, cfg decide.Config, tg dec
 	if strings.TrimSpace(pane) == "" {
 		return decide.Delivery{}, fmt.Errorf("decide compose pane is empty")
 	}
-	if name, ok := strings.CutPrefix(pane, busPanePrefix); ok {
-		return decide.SendBus(context.Background(), b.busRunner(), name, decide.DeliveryNote(item.ID, "human", text)) //nolint:wrapcheck // SendBus returns agentbus's error, which the status line prints
+	target := decide.ParseTarget(pane, machine)
+	switch target.Scheme {
+	case decide.SchemePull:
+		return decide.Delivery{}, nil
+	case decide.SchemeAgentbus:
+		return decide.SendBus(context.Background(), b.busRunner(), target.Address, decide.DeliveryNote(item.ID, "human", text)) //nolint:wrapcheck // SendBus returns agentbus's error, which the status line prints
+	case decide.SchemeTarget:
+		return decide.NotifyItemVerbatim(item, pane, machine, text, "") //nolint:wrapcheck // NotifyItemVerbatim already wraps delivery errors
 	}
 	template := b.SendTemplate
 	if strings.TrimSpace(template) == "" {
 		template = cfg.SendTemplate
 	}
-	target := pane
+	wire := target.Address
 	if machine != "" {
-		target = pane + "@" + machine
+		wire = target.Address + "@" + machine
 	}
-	argv := decide.MachineArgv(decide.SendArgv(template, pane, decide.DeliveryNote(item.ID, "human", text)), machine)
+	argv := decide.MachineArgv(decide.SendArgv(template, target.Address, decide.DeliveryNote(item.ID, "human", text)), machine)
 	if err := b.runSend(argv); err != nil {
 		err = fmt.Errorf("decide send: %w", err)
-		return decide.Delivery{Target: target, Outcome: decide.OutcomeFailed, Error: err.Error()}, err
+		return decide.Delivery{Target: wire, Outcome: decide.OutcomeFailed, Error: err.Error()}, err
 	}
-	return decide.Delivery{Target: target, Outcome: decide.OutcomeDelivered}, nil
+	return decide.Delivery{Target: wire, Outcome: decide.OutcomeDelivered}, nil
 }
 
 func (b *LocalBackend) runSend(argv []string) error {
@@ -519,13 +525,22 @@ func (b *LocalBackend) SendAt(forward string, tg Target, text string, writtenAt 
 	if err != nil {
 		return fmt.Errorf("store decide thread: %w", err)
 	}
-	if err := b.runSend(decide.SendArgv(b.SendTemplate, tg.Pane, deliveryNote(item.ID, forward, text))); err != nil {
+	var d decide.Delivery
+	if decide.ParseTarget(tg.Pane, "").Scheme == decide.SchemeTarget {
+		d, err = decide.NotifyItemVerbatim(&item, tg.Pane, "", text, "")
+	} else {
+		err = b.runSend(decide.SendArgv(b.SendTemplate, tg.Pane, deliveryNote(item.ID, forward, text)))
+		if err == nil {
+			d = decide.Delivery{Target: tg.Pane, Outcome: decide.OutcomeDelivered}
+		}
+	}
+	if err != nil {
 		if derr := led.Delete(item.ID); derr != nil {
 			return fmt.Errorf("%w; %w", err, derr)
 		}
 		return err
 	}
-	if _, err := led.RecordCompose(item.ID, item.Messages[0].Time, decide.Delivery{Target: tg.Pane, Outcome: decide.OutcomeDelivered}); err != nil {
+	if _, err := led.RecordCompose(item.ID, item.Messages[0].Time, d); err != nil {
 		return fmt.Errorf("record delivery: %w", err)
 	}
 	if err := decide.AppendSend(b.Dir, tg.Name, tg.Pane, text); err != nil {

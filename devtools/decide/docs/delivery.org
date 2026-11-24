@@ -35,11 +35,16 @@ The environment is how a template reads the answer:
 A pane on another herdr machine does not run ~notifyTemplate~. Decide
 sends the header, the answer, and the reply hint with the compose
 command and ~--machine~. An ~agentbus:<name>~ pane uses ~agentbus send
---client-id <key>~ with the same ~DECIDE_DELIVERY_KEY~. ~held~ or
-~queued~ is ~waiting~ and is not retried. Any other failure
-is stored as ~notifyError~ until a later delivery works. Each attempt is
-a ~delivery~ entry (~at~, ~target~, ~outcome~, ~error~). The inbox shows
-~not delivered~ when the latest attempt failed.
+--client-id <key>~ with the same ~DECIDE_DELIVERY_KEY~. A
+~target:<name>~ pane looks up the named entry in ~config.json~
+~targets~; when ~command~ is set, decide runs ~command[0]~ with
+~command[1:]~ directly (no shell), passes the same ~DECIDE_*~
+environment variables, and writes the JSON-encoded item on stdin (for
+both answers and human replies). ~held~ or ~queued~ is ~waiting~ and is
+not retried. Any other failure is stored as ~notifyError~ until a later
+delivery works. Each attempt is a ~delivery~ entry (~at~, ~target~,
+~outcome~, ~error~). The inbox shows ~not delivered~ when the latest
+attempt failed.
 
 * Delivery marks and retries
 

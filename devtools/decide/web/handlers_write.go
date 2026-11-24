@@ -280,7 +280,7 @@ func (s *Server) send(w http.ResponseWriter, r *http.Request) {
 			fail(w, badRequest("decide send recipient %q is unknown on the hub", body.To), 0)
 			return
 		}
-		tg = tui.Target{Name: found.Name, Pane: found.Pane}
+		tg = tui.Target{Name: found.Name, Pane: found.TargetPane()}
 	}
 	var writtenAt time.Time
 	if body.WrittenAt != nil {
