@@ -51,7 +51,7 @@ check-format: check-whitespace
 test:
 	bazel test --test_summary=terse $(BAZEL_TEST_ENV) //...
 
-lint: lint-genfiles lint-ruff lint-mypy lint-py-main-guard lint-py-module-import lint-py-sibling-import lint-shellcheck check-spacemacs
+lint: lint-genfiles lint-ruff lint-mypy lint-py-import-time-work lint-py-main-guard lint-py-module-import lint-py-sibling-import lint-shellcheck check-spacemacs
 
 # Target fix is best-effort autofix for lint issues. If autofix is not
 # available, it still runs lint checks.
@@ -110,7 +110,7 @@ check-bazel-go-files:
 	@./check-bazel-src-files.sh go
 
 # Python targets
-.PHONY: lint-ruff fix-ruff lint-mypy lint-py-main-guard lint-py-module-import lint-py-sibling-import check-uv-lock
+.PHONY: lint-ruff fix-ruff lint-mypy lint-py-import-time-work lint-py-main-guard lint-py-module-import lint-py-sibling-import check-uv-lock
 
 lint-ruff:
 	ruff check
@@ -120,6 +120,9 @@ fix-ruff:
 
 lint-mypy:
 	mypy
+
+lint-py-import-time-work:
+	PYTHONPATH=devtools/linters/pylinters/src uv run --no-project python -m pylinters.cli.import_time_work
 
 lint-py-main-guard:
 	PYTHONPATH=devtools/linters/pylinters/src uv run --no-project python -m pylinters.cli.main_guard

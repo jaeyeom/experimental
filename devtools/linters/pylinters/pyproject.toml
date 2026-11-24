@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 dependencies = []
 
 [project.scripts]
+py-import-time-work = "pylinters.cli.import_time_work:run"
 py-main-guard = "pylinters.cli.main_guard:run"
 py-module-import = "pylinters.cli.module_import:run"
 py-sibling-import = "pylinters.cli.sibling_import:run"

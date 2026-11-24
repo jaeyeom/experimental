@@ -18,7 +18,10 @@ func TestReadmeRequiredPhrases(t *testing.T) {
 	head := readme[:org]
 	for _, want := range []string{
 		"#+TITLE: Linters",
-		"eight linters",
+		"nine linters",
+		"py-import-time-work",
+		"py-import-time-work: allow",
+		".baselines/py-import-time-work.json",
 		"py-main-guard",
 		"py-main-guard: allow",
 		".baselines/py-main-guard.json",
@@ -78,6 +81,7 @@ func TestReadmeRequiredPhrases(t *testing.T) {
 		"py-sibling-import",
 		"py-module-import",
 		"py-main-guard",
+		"py-import-time-work",
 		"* Index",
 	} {
 		if !strings.Contains(head, want) {
@@ -97,7 +101,11 @@ func TestReadmeRequiredPhrases(t *testing.T) {
 			t.Errorf("README still mentions %q", gone)
 		}
 	}
-	if pureWord.MatchString(readme) {
+	itw := strings.Index(readme, "\n** py-import-time-work\n")
+	if itw < 0 {
+		t.Fatal("README has no ** py-import-time-work section")
+	}
+	if pureWord.MatchString(readme[:itw]) {
 		t.Error(`README uses the undefined word "pure"`)
 	}
 	const defaults = "errors.New,fmt.Errorf,regexp.MustCompile,strings.Join,strings.Repeat,strings.ReplaceAll,strings.Split"
@@ -140,8 +148,8 @@ func TestReadmeIndexTableIsRectangular(t *testing.T) {
 			widths = append(widths, len(line))
 		}
 	}
-	if len(widths) < 10 {
-		t.Fatalf("index table has %d rows, want header, separator, and eight tools", len(widths))
+	if len(widths) < 11 {
+		t.Fatalf("index table has %d rows, want header, separator, and nine tools", len(widths))
 	}
 	for i, width := range widths {
 		if width != widths[0] {

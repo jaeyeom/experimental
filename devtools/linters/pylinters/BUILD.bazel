@@ -8,6 +8,13 @@ py_library(
 )
 
 py_binary(
+    name = "py-import-time-work",
+    srcs = ["src/pylinters/cli/import_time_work.py"],
+    main = "src/pylinters/cli/import_time_work.py",
+    deps = [":pylinters"],
+)
+
+py_binary(
     name = "py-module-import",
     srcs = ["src/pylinters/cli/module_import.py"],
     main = "src/pylinters/cli/module_import.py",
@@ -41,6 +48,7 @@ py_binary(
     for name in [
         "baseline_test",
         "bazel_test",
+        "cli_import_time_work_test",
         "cli_main_guard_test",
         "cli_module_import_test",
         "cli_sibling_import_test",

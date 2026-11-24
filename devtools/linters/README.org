@@ -3,7 +3,7 @@
 
 * Overview
 
-This directory holds eight linters. ~org-lint~ runs Emacs's built-in
+This directory holds nine linters. ~org-lint~ runs Emacs's built-in
 Org-mode linter from the command line, so ~.org~ files can be checked in
 CI. ~agents-md-size~ enforces per-file and cascading ancestor byte size
 limits on ~AGENTS.md~ files with ratchetable baselines.
@@ -14,21 +14,23 @@ copy of that module. ~py-module-import~ flags ~from pkg.mod import Name~
 from first-party code and asks for ~from pkg import mod~.
 ~py-main-guard~ requires the ~__main__~ guard on Python files that are run
 directly, and that a guard running tests passes their result to the exit
-code. The two Go
+code. ~py-import-time-work~ flags module-level work in Python entry
+modules (or all modules) that runs whenever the file is imported. The two Go
 linters catch patterns ~go vet~ doesn't: interface assertions that guard
 nothing, and package-level variables that should be constants or that
 run code at init time.
 
-~make lint~ runs ~pkgvar~, ~py-sibling-import~, ~py-module-import~ and
-~py-main-guard~.
+~make lint~ runs ~pkgvar~, ~py-sibling-import~, ~py-module-import~,
+~py-main-guard~ and ~py-import-time-work~.
 [[file:../devcheck/README.org][devcheck]] runs
 ~unnecessary-interface-assertion-linter~ when it falls back to Go tools.
 Emacs packages for ~org-lint~ come from
 [[file:../setup-dev/README.org][setup-dev]].
 
 Go 1.26 or later for the Go tools. ~py-sibling-import~,
-~py-module-import~ and ~py-main-guard~ need Python 3.11 or later and git;
-~py-main-guard~ also runs ~bazel query~ in a Bazel workspace.
+~py-module-import~, ~py-main-guard~ and ~py-import-time-work~ need
+Python 3.11 or later and git; ~py-main-guard~ and ~py-import-time-work~
+also run ~bazel query~ in a Bazel workspace.
 
 * Index
 
@@ -42,6 +44,7 @@ Go 1.26 or later for the Go tools. ~py-sibling-import~,
 | py-sibling-import                      | Bare import of a sibling module inside a Python package      | Python   | make lint, pytest gate, CLI    |
 | py-module-import                       | from pkg.mod import Name from first-party Python code        | Python   | make lint, CLI                 |
 | py-main-guard                          | __main__ guard on run-directly files; test exit codes kept   | Python   | make lint, CLI                 |
+| py-import-time-work                    | Module-level work in run-directly Python files (or all)      | Python   | make lint, CLI                 |
 
 * Tools
 
@@ -426,7 +429,7 @@ Generated files (~*_pb2.py~, ~*_pb2_grpc.py~) are skipped by default.
 Only git-tracked files are checked.
 
 It lives in [[file:pylinters/][pylinters]], a Python project that also
-holds ~py-module-import~ and ~py-main-guard~.
+holds ~py-module-import~, ~py-main-guard~ and ~py-import-time-work~.
 
 *** Install
 
@@ -720,6 +723,149 @@ Each key has a flag: ~--entry-source~, ~--script-glob~, ~--test-glob~
 - Exits 2 on invalid flags, config, baseline or entry list (including no
   entry source and no list), a failing
   ~bazel query~ or unresolvable main, a scanned file that does not
+  parse, a path outside the repo, or git errors.
+
+** py-import-time-work
+
+Flags module-level statements that do work when a Python file is
+imported instead of waiting for ~main()~ or the ~__main__~ guard:
+
+#+BEGIN_SRC python
+#!/usr/bin/env python3
+import logging
+import sys
+
+sys.path.insert(0, "vendor")   # flagged: mutates process state on import
+logging.basicConfig()          # flagged: configures global logging on import
+LOG = logging.getLogger(__name__)  # fine: pure call
+
+def main() -> None:
+    logging.basicConfig()
+
+if __name__ == "__main__":
+    main()
+#+END_SRC
+
+Module-level work runs whenever a test or another module imports the
+file, slowing collection and leaking side effects (environment changes,
+~sys.path~ edits, logging setup, I/O) into every caller.
+
+#+BEGIN_EXAMPLE
+tools/report.py:5: import-time-work: `sys.path.insert(...)` at module level runs on every import; move it into main() or under the __main__ guard
+#+END_EXAMPLE
+
+Allowed at module level:
+
+| Form                                       | Notes                                                               |
+|--------------------------------------------+---------------------------------------------------------------------|
+| Imports                                    | ~import~ and ~from ... import~                                      |
+| Definitions                                | ~def~, ~async def~, ~class~, ~type~ aliases, ~pass~                 |
+| ~if __name__ == "__main__":~ guard body    | Checked in its ~else~ branch only                                   |
+| Module docstrings                          | Bare string literal statements                                      |
+| Assignments / expressions with pure calls  | Values, annotations (unless ~from __future__ import annotations~)   |
+| ~if TYPE_CHECKING:~ and ~try: import~      | Bodies and branches are walked; pure guards and import fallbacks ok |
+
+Flagged at module level: any call not in the pure-call set (including in
+expressions, assignments, ~if~ tests, or ~except~ types), imperative
+statements (~for~, ~while~, ~with~, ~match~, ~assert~, ~raise~,
+~global~, ~nonlocal~, non-name ~del~), and mutations to imported modules
+(e.g. ~sys.path += [...]~, ~os.environ["X"] = "1"~). Rebinding or
+mutating the module's own names stays allowed as long as the expression
+uses only pure calls.
+
+Default pure calls:
+
+| Call                     | Reason                                                |
+|--------------------------+-------------------------------------------------------|
+| ~dict~                   | Built-in container constructor                        |
+| ~frozenset~              | Built-in immutable set constructor                    |
+| ~list~                   | Built-in container constructor                        |
+| ~set~                    | Built-in container constructor                        |
+| ~tuple~                  | Built-in container constructor                        |
+| ~object~                 | Sentinel object creation                              |
+| ~re.compile~             | Module-level regex constant                           |
+| ~logging.getLogger~      | Standard module logger lookup                         |
+| ~collections.namedtuple~ | Record type definition                                |
+| ~typing.NamedTuple~      | Typed record definition                               |
+| ~typing.NewType~         | Static type alias definition                          |
+| ~typing.TypeVar~         | Generic type variable definition                      |
+| ~typing.ParamSpec~       | Generic parameter specification definition            |
+| ~typing.TypeVarTuple~    | Variadic type variable definition                     |
+| ~datetime.timedelta~     | Pure duration constant                                |
+| ~textwrap.dedent~        | Pure multiline string formatting                      |
+
+By default (~scope = "entry"~), only entry modules (discovered via
+~[tool.pylinters.entries]~, plus any file with a module-level
+~if __name__ == "__main__":~ guard) are checked. Set ~--scope all~ (or
+~scope = "all"~) to check every in-scope Python file. Test files
+(matching ~test-patterns~ or discovered as test entries) and
+~__main__.py~ files are always skipped.
+
+A genuine exception carries ~# py-import-time-work: allow~. On a simple
+statement it goes on any line of the statement; on a compound statement
+(~for~, ~while~, ~with~, ~if~, ~except~, ~match~) it must be on the
+header lines (from the keyword through the closing ~:~), not inside the
+body.
+
+*** Install
+
+#+BEGIN_SRC bash
+uvx --from "git+https://github.com/jaeyeom/experimental@<tag>#subdirectory=devtools/linters/pylinters" py-import-time-work
+#+END_SRC
+
+*** Usage
+
+#+BEGIN_SRC bash
+py-import-time-work
+git diff --name-only -z origin/main | py-import-time-work --stdin0
+py-import-time-work --scope all --pure-call mylib.make
+py-import-time-work --entry-source executable --test-pattern 'none/*'
+#+END_SRC
+
+Paths limit what is reported; entries are still discovered over the
+whole tree. The pass line prints the scope, checked file count, and
+entry counts per source (followed by any discovery notes):
+
+#+BEGIN_EXAMPLE
+PASSED: py-import-time-work (scope entry: 6 file(s) checked; 22 entries: executable 1, bazel 21).
+#+END_EXAMPLE
+
+*** Baseline
+
+The same per-file ~max_violations~ baseline as ~py-module-import~ and
+~py-main-guard~, in ~.baselines/py-import-time-work.json~, with the same
+~--baseline~, ~--update-baseline~, ~--tighten-baseline~ and
+~--strict-baseline~ flags.
+
+*** Configuration
+
+Optional, in the repo root's ~pyproject.toml~. Unknown keys are errors.
+Entry discovery is configured in the shared ~[tool.pylinters.entries]~
+table (documented under ~py-main-guard~).
+
+#+BEGIN_SRC toml
+[tool.pylinters.import-time-work]
+scope = "entry"                    # "entry" or "all"
+test-patterns = ["**/test_*.py", "**/*_test.py", "**/conftest.py", "**/tests/**"]
+pure-calls = []                    # added to the default pure calls
+exclude = []                       # added to [tool.pylinters].exclude
+allow-directive = "py-import-time-work: allow"
+#+END_SRC
+
+Flags: shared entry flags (~--entry-source~, ~--script-glob~,
+~--test-glob~, ~--entry-list~, ~--bazel-dir~, ~--bazel~), plus
+~--scope~, ~--test-pattern~ (repeatable, replaces config), ~--pure-call~
+(repeatable, adds to config), ~--exclude~ (repeatable, adds),
+~--allow-directive~, baseline flags, ~--root~, ~--stdin0~ and
+~--version~.
+
+*** Exit codes
+
+- Exits 0 when no checked file has more violations than the baseline
+  allows and no baseline entry is stale.
+- Exits 1 when there are violations or stale baseline entries.
+- Exits 2 on invalid flags, config, baseline or entry list, a failing
+  ~bazel query~ or unresolvable main, a checked file that does not
   parse, a path outside the repo, or git errors.
 
 * Development
