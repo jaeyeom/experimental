@@ -42,6 +42,7 @@ py_binary(
         "globs_test",
         "guards_test",
         "imports_test",
+        "main_guard_test",
         "module_import_test",
         "sibling_import_test",
     ]
