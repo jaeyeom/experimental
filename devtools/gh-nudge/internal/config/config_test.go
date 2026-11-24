@@ -11,6 +11,73 @@ import (
 	pklconfig "github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config/pkl"
 )
 
+func TestMain(m *testing.M) {
+	if pklExec := resolvePklExec(); pklExec != "" {
+		_ = os.Setenv("PKL_EXEC", pklExec)
+	}
+	os.Exit(m.Run())
+}
+
+// resolvePklExec returns the Bazel-fetched pkl CLI path from runfiles when
+// PKL_EXEC is unset, so Pkl config tests run hermetically without host pkl.
+func resolvePklExec() string {
+	if bin := os.Getenv("PKL_EXEC"); bin != "" {
+		return bin
+	}
+	for _, key := range []string{"RUNFILES_DIR", "TEST_SRCDIR"} {
+		root := os.Getenv(key)
+		if root == "" {
+			continue
+		}
+		matches, err := filepath.Glob(filepath.Join(root, "*pkl-cli-*", "file", "downloaded"))
+		if err != nil {
+			continue
+		}
+		for _, candidate := range matches {
+			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+				return candidate
+			}
+		}
+	}
+	return ""
+}
+
+func TestResolvePklExec(t *testing.T) {
+	t.Run("PKL_EXEC env", func(t *testing.T) {
+		t.Setenv("PKL_EXEC", "/custom/pkl")
+		if got := resolvePklExec(); got != "/custom/pkl" {
+			t.Errorf("resolvePklExec() = %q, want /custom/pkl", got)
+		}
+	})
+
+	t.Run("runfiles", func(t *testing.T) {
+		dir := t.TempDir()
+		binPath := filepath.Join(dir, "rules_pkl++pkl+pkl-cli-linux-amd64", "file", "downloaded")
+		if err := os.MkdirAll(filepath.Dir(binPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(binPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PKL_EXEC", "")
+		t.Setenv("RUNFILES_DIR", dir)
+		t.Setenv("TEST_SRCDIR", "")
+		if got := resolvePklExec(); got != binPath {
+			t.Errorf("resolvePklExec() = %q, want %q", got, binPath)
+		}
+	})
+
+	t.Run("fallback to empty when not found", func(t *testing.T) {
+		empty := t.TempDir()
+		t.Setenv("PKL_EXEC", "")
+		t.Setenv("RUNFILES_DIR", empty)
+		t.Setenv("TEST_SRCDIR", empty)
+		if got := resolvePklExec(); got != "" {
+			t.Errorf("resolvePklExec() = %q, want empty", got)
+		}
+	})
+}
+
 func TestLoadConfig(t *testing.T) {
 	t.Run("should load valid config file", func(t *testing.T) {
 		// Create a temporary config file
