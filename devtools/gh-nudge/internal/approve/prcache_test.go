@@ -255,6 +255,178 @@ func TestPRCachePrunesOldNonCandidates(t *testing.T) {
 	}
 }
 
+func runViewedWithCache(t *testing.T, fake Client, viewed config.ViewedConfig, cache *PRCache, opts Options) runResult {
+	t.Helper()
+	var out, logBuf bytes.Buffer
+	runner := &Runner{
+		Client: fake,
+		Config: config.ApproveConfig{
+			Body:                "LGTM",
+			SkipAlreadyApproved: true,
+		},
+		Viewed:  viewed,
+		Out:     &out,
+		Log:     &logBuf,
+		Now:     fixedNow,
+		PRCache: cache,
+	}
+	err := runner.Run(opts)
+	return runResult{out: out.String(), log: decodeLog(t, &logBuf), err: err}
+}
+
+func TestPRCacheDoesNotCacheViewedState(t *testing.T) {
+	pr := viewedPR(1,
+		viewedFile("go.sum", models.ViewerDismissed),
+		viewedFile("yarn.lock", models.ViewerUnviewed),
+		viewedFile("pnpm-lock.yaml", models.ViewerViewed),
+	)
+	pr.ChangedFiles = 3
+	fake := newFake(pr)
+	cache := &PRCache{Dir: t.TempDir(), TTL: 7 * 24 * time.Hour, Now: fixedNow}
+	viewed := lockRules()
+
+	// Pass 1 (full pass, Apply: true): marks go.sum and yarn.lock as VIEWED.
+	res1 := runViewedWithCache(t, fake, viewed, cache, Options{Apply: true, Explain: true})
+	if res1.err != nil {
+		t.Fatal(res1.err)
+	}
+	if res1.log[0].Action != ActionMarkViewed || strings.Join(res1.log[0].Paths, ",") != "go.sum,yarn.lock" {
+		t.Fatalf("pass 1 log = %+v", res1.log[0])
+	}
+	if len(fake.marks) != 2 {
+		t.Fatalf("pass 1 marks = %+v, want 2", fake.marks)
+	}
+
+	// Cache entry on disk must never contain viewerViewedState.
+	raw, err := os.ReadFile(cache.path(pr.Ref))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "viewerViewedState") {
+		t.Fatalf("cache entry contains viewerViewedState: %s", raw)
+	}
+	var entry prCacheEntry
+	if err := json.Unmarshal(raw, &entry); err != nil {
+		t.Fatal(err)
+	}
+	if !entry.HasFiles || len(entry.Files) != 3 {
+		t.Fatalf("cached files = %+v, want 3 files", entry.Files)
+	}
+	for _, f := range entry.Files {
+		if f.ViewerViewedState != "" {
+			t.Fatalf("cached file %s has ViewerViewedState=%q, want empty", f.Path, f.ViewerViewedState)
+		}
+	}
+
+	// Pass 2 (full pass, warm cache): reads live viewed state and finds nothing to mark.
+	fake.loadReads = 0
+	fake.marks = nil
+	res2 := runViewedWithCache(t, fake, viewed, cache, Options{Explain: true})
+	if res2.err != nil {
+		t.Fatal(res2.err)
+	}
+	if fake.loadReads != 0 {
+		t.Fatalf("pass 2 loadReads = %d, want 0 (warm cache)", fake.loadReads)
+	}
+	if !strings.Contains(res2.out, "cache: hit") {
+		t.Fatalf("pass 2 explain missing cache: hit:\n%s", res2.out)
+	}
+	if res2.log[0].Action != ActionManual || len(res2.log[0].Paths) != 0 {
+		t.Fatalf("pass 2 log = %+v, want manual with no paths to mark", res2.log[0])
+	}
+
+	// Pass 3 (--pr pass): agrees with the full pass.
+	res3 := runViewedWithCache(t, fake, viewed, cache, Options{PR: "acme/widgets#1", Explain: true})
+	if res3.err != nil {
+		t.Fatal(res3.err)
+	}
+	if res3.log[0].Action != ActionManual || len(res3.log[0].Paths) != 0 {
+		t.Fatalf("pass 3 (--pr) log = %+v, want manual with no paths to mark", res3.log[0])
+	}
+}
+
+func TestPRCacheFullAndSinglePRPassAgreeOnLiveViewedState(t *testing.T) {
+	pr := viewedPR(1,
+		viewedFile("go.sum", models.ViewerDismissed),
+		viewedFile("pnpm-lock.yaml", models.ViewerViewed),
+	)
+	pr.ChangedFiles = 2
+	fake := newFake(pr)
+	cache := &PRCache{Dir: t.TempDir(), TTL: 7 * 24 * time.Hour, Now: fixedNow}
+	viewed := lockRules()
+
+	// Cold dry-run populates cache while go.sum is DISMISSED.
+	res1 := runViewedWithCache(t, fake, viewed, cache, Options{})
+	if res1.err != nil {
+		t.Fatal(res1.err)
+	}
+	if res1.log[0].Action != ActionWouldMarkViewed || strings.Join(res1.log[0].Paths, ",") != "go.sum" {
+		t.Fatalf("pass 1 = %+v", res1.log[0])
+	}
+
+	// Simulate go.sum being marked VIEWED externally without changing head SHA.
+	pr.Files = []models.File{
+		viewedFile("go.sum", models.ViewerViewed),
+		viewedFile("pnpm-lock.yaml", models.ViewerViewed),
+	}
+	fake.prs[1] = pr
+
+	fullRes := runViewedWithCache(t, fake, viewed, cache, Options{})
+	if fullRes.err != nil {
+		t.Fatal(fullRes.err)
+	}
+	singleRes := runViewedWithCache(t, fake, viewed, cache, Options{PR: "acme/widgets#1"})
+	if singleRes.err != nil {
+		t.Fatal(singleRes.err)
+	}
+	if fullRes.log[0].Action != ActionManual || singleRes.log[0].Action != ActionManual {
+		t.Fatalf("full=%s single=%s, want both manual", fullRes.log[0].Action, singleRes.log[0].Action)
+	}
+	if len(fullRes.log[0].Paths) != 0 || len(singleRes.log[0].Paths) != 0 {
+		t.Fatalf("full paths=%v single paths=%v, want empty", fullRes.log[0].Paths, singleRes.log[0].Paths)
+	}
+}
+
+func TestPRCacheSchemaBumpInvalidatesV1EntryWithViewedState(t *testing.T) {
+	pr := viewedPR(1, viewedFile("go.sum", models.ViewerViewed))
+	pr.ChangedFiles = 1
+	fake := newFake(pr)
+	cache := &PRCache{Dir: t.TempDir(), TTL: 7 * 24 * time.Hour, Now: fixedNow}
+
+	// Write a legacy schema v1 entry containing stale DISMISSED viewed state.
+	if err := os.MkdirAll(cache.Dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	legacy := prCacheEntry{
+		SchemaVersion: 1,
+		Owner:         pr.Ref.Owner,
+		Repo:          pr.Ref.Repo,
+		Number:        pr.Ref.Number,
+		HeadSHA:       pr.HeadSHA,
+		Time:          fixedNow().UTC(),
+		Files:         []models.File{viewedFile("go.sum", models.ViewerDismissed)},
+		HasFiles:      true,
+	}
+	data, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cache.path(pr.Ref), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	res := runViewedWithCache(t, fake, lockRules(), cache, Options{Explain: true})
+	if res.err != nil {
+		t.Fatal(res.err)
+	}
+	if !strings.Contains(res.out, "cache: miss (schema changed)") {
+		t.Fatalf("explain missing schema changed:\n%s", res.out)
+	}
+	if res.log[0].Action != ActionManual {
+		t.Fatalf("action = %s, want manual (live VIEWED state)", res.log[0].Action)
+	}
+}
+
 type parallelFakeClient struct {
 	*fakeClient
 	inFlight    atomic.Int32

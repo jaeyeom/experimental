@@ -460,8 +460,8 @@ func (f *funcExec) ExecuteSeparated(cmd string, args ...string) (string, string,
 func TestLoadApprovalPullRequestsOneBatch(t *testing.T) {
 	exec := &routeExec{route: map[string]string{
 		"p0:repository": `{"data":{` +
-			`"p0":{"pullRequest":{"id":"PR_1","number":1,"url":"https://github.com/acme/widgets/pull/1","title":"One","state":"OPEN","isDraft":false,"headRefOid":"h1","baseRefName":"main","baseRefOid":"b1","author":{"login":"alice"},"additions":2,"deletions":1,"changedFiles":1,"labels":{"pageInfo":{"hasNextPage":false},"nodes":[{"name":"ready"}]},"reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"User","login":"me"}}]},"reviews":{"nodes":[]},"reviewThreads":{"totalCount":0,"nodes":[]},"commits":{"nodes":[{"commit":{"oid":"h1","statusCheckRollup":{"contexts":{"pageInfo":{"hasNextPage":false},"nodes":[{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS","isRequired":true}]}}}}]}}},` +
-			`"p1":{"pullRequest":{"id":"PR_2","number":2,"url":"https://github.com/acme/widgets/pull/2","title":"Two","state":"OPEN","isDraft":true,"headRefOid":"h2","baseRefName":"main","baseRefOid":"b2","author":{"login":"bob"},"additions":5,"deletions":0,"changedFiles":2,"labels":{"pageInfo":{"hasNextPage":false},"nodes":[]},"reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"Team","slug":"core"}}]},"reviews":{"nodes":[]},"reviewThreads":{"totalCount":1,"nodes":[{"isResolved":false}]},"commits":{"nodes":[{"commit":{"oid":"h2","statusCheckRollup":{"contexts":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}]}}}` +
+			`"p0":{"pullRequest":{"id":"PR_1","number":1,"url":"https://github.com/acme/widgets/pull/1","title":"One","state":"OPEN","isDraft":false,"headRefOid":"h1","baseRefName":"main","baseRefOid":"b1","author":{"login":"alice"},"additions":2,"deletions":1,"changedFiles":1,"files":{"pageInfo":{"hasNextPage":false},"nodes":[{"path":"dash/a.go","viewerViewedState":"UNVIEWED"}]},"labels":{"pageInfo":{"hasNextPage":false},"nodes":[{"name":"ready"}]},"reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"User","login":"me"}}]},"reviews":{"nodes":[]},"reviewThreads":{"totalCount":0,"nodes":[]},"commits":{"nodes":[{"commit":{"oid":"h1","statusCheckRollup":{"contexts":{"pageInfo":{"hasNextPage":false},"nodes":[{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS","isRequired":true}]}}}}]}}},` +
+			`"p1":{"pullRequest":{"id":"PR_2","number":2,"url":"https://github.com/acme/widgets/pull/2","title":"Two","state":"OPEN","isDraft":true,"headRefOid":"h2","baseRefName":"main","baseRefOid":"b2","author":{"login":"bob"},"additions":5,"deletions":0,"changedFiles":2,"files":{"pageInfo":{"hasNextPage":false},"nodes":[]},"labels":{"pageInfo":{"hasNextPage":false},"nodes":[]},"reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"Team","slug":"core"}}]},"reviews":{"nodes":[]},"reviewThreads":{"totalCount":1,"nodes":[{"isResolved":false}]},"commits":{"nodes":[{"commit":{"oid":"h2","statusCheckRollup":{"contexts":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}]}}}` +
 			`}}`,
 	}}
 	client := NewClientWithExecutor(exec)
@@ -481,6 +481,9 @@ func TestLoadApprovalPullRequestsOneBatch(t *testing.T) {
 	}
 	if r1.PR.Files != nil || r1.PR.FilesErr != "" {
 		t.Fatalf("r1.PR.Files = %v, FilesErr = %q, want nil/empty for light batch", r1.PR.Files, r1.PR.FilesErr)
+	}
+	if r1.PR.ViewedStates["dash/a.go"] != models.ViewerUnviewed {
+		t.Fatalf("r1.PR.ViewedStates = %+v, want dash/a.go=%s", r1.PR.ViewedStates, models.ViewerUnviewed)
 	}
 	r2 := got["acme/widgets#2"]
 	if r2.Err != nil || !r2.PR.Draft || r2.PR.UnresolvedThreads != 1 || len(r2.PR.RequestedTeams) != 1 || r2.PR.RequestedTeams[0] != "core" {

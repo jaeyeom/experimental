@@ -19,7 +19,7 @@ import (
 )
 
 // prCacheSchemaVersion is bumped whenever prCacheEntry's format or semantics change.
-const prCacheSchemaVersion = 1
+const prCacheSchemaVersion = 2
 
 const prCacheExt = ".json"
 

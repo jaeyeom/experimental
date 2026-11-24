@@ -30,6 +30,9 @@ type ApprovalPullRequest struct {
 	ChangedFiles int
 	Files        []models.File
 	FilesErr     string
+	// ViewedStates maps file path to live viewerViewedState when loaded
+	// via LoadApprovalPullRequests without full Files.
+	ViewedStates map[string]string
 	// Patches are the REST file patches. Nil means they were not fetched.
 	Patches    []PullFile
 	PatchesErr string
@@ -436,6 +439,7 @@ func approvalBatchQuery(refs []PullRef) (string, []approvalBatchAlias, error) {
 		fmt.Fprintf(&b, `%s:repository(owner:%s,name:%s){pullRequest(number:%d){`+
 			`id number url title state isDraft headRefOid baseRefName baseRefOid `+
 			`author{login} additions deletions changedFiles `+
+			`files(first:100){pageInfo{hasNextPage} nodes{path viewerViewedState}} `+
 			`labels(first:100){pageInfo{hasNextPage} nodes{name}} `+
 			`reviewRequests(first:100){nodes{requestedReviewer{__typename ... on User{login} ... on Team{slug}}}} `+
 			`reviews(last:100){nodes{author{login} state commit{oid}}} `+
@@ -581,7 +585,24 @@ func convertApprovalLightPR(raw *approvalPRJSON, ref PullRef) ApprovalPullReques
 	pr.Reviews = approvalReviews(raw)
 	pr.UnresolvedThreads, pr.ThreadsErr = unresolvedThreads(raw)
 	pr.Checks, pr.ChecksErr = approvalChecks(raw)
+	pr.ViewedStates = approvalViewedStates(raw)
 	return pr
+}
+
+func approvalViewedStates(raw *approvalPRJSON) map[string]string {
+	if raw.Files == nil || raw.Files.PageInfo.HasNextPage || len(raw.Files.Nodes) == 0 {
+		return nil
+	}
+	states := make(map[string]string, len(raw.Files.Nodes))
+	for _, f := range raw.Files.Nodes {
+		if f.Path != "" && f.ViewerViewedState != "" {
+			states[f.Path] = f.ViewerViewedState
+		}
+	}
+	if len(states) == 0 {
+		return nil
+	}
+	return states
 }
 
 func convertApprovalPR(raw *approvalPRJSON, ref PullRef) ApprovalPullRequest {

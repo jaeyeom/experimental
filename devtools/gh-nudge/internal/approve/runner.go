@@ -11,6 +11,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/github"
+	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
 )
 
 // Actions written to the audit log.
@@ -741,7 +742,7 @@ func (r *Runner) restorePRCache(ref github.PullRef, pr *github.ApprovalPullReque
 	st.cacheStatus = "hit"
 	r.PRCache.touch(ref)
 	if len(pr.Files) == 0 && pr.FilesErr == "" && cached.HasFiles {
-		pr.Files = cached.Files
+		pr.Files = filesWithLiveViewedState(cached.Files, pr.ViewedStates)
 		pr.FilesErr = cached.FilesErr
 	}
 	if cached.HasPatches {
@@ -770,7 +771,7 @@ func (r *Runner) savePRCache(ref github.PullRef, pr github.ApprovalPullRequest, 
 	toSave.Number = ref.Number
 	toSave.HeadSHA = pr.HeadSHA
 	if pr.FilesErr == "" && len(pr.Files) > 0 {
-		toSave.Files = pr.Files
+		toSave.Files = filesWithoutViewedState(pr.Files)
 		toSave.FilesErr = pr.FilesErr
 		toSave.HasFiles = true
 	}
@@ -788,6 +789,24 @@ func (r *Runner) savePRCache(ref github.PullRef, pr github.ApprovalPullRequest, 
 	if !hasCached || toSave.HasFiles || toSave.HasPatches || toSave.HasOwnership {
 		_ = r.PRCache.put(toSave)
 	}
+}
+
+func filesWithLiveViewedState(cachedFiles []models.File, viewedStates map[string]string) []models.File {
+	files := make([]models.File, len(cachedFiles))
+	for i, f := range cachedFiles {
+		f.ViewerViewedState = viewedStates[f.Path]
+		files[i] = f
+	}
+	return files
+}
+
+func filesWithoutViewedState(src []models.File) []models.File {
+	files := make([]models.File, len(src))
+	for i, f := range src {
+		f.ViewerViewedState = ""
+		files[i] = f
+	}
+	return files
 }
 
 // applyOutcome performs sequential write actions (handoff, approve, mark_viewed)

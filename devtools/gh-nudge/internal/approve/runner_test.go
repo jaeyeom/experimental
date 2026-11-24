@@ -186,6 +186,17 @@ func (f *fakeClient) LoadApprovalPullRequests(refs []github.PullRef) (map[string
 			out[key] = github.BatchPullRequestResult{Err: errors.New("unexpected pull request")}
 			continue
 		}
+		if len(pr.Files) > 0 {
+			states := make(map[string]string, len(pr.Files))
+			for _, file := range pr.Files {
+				if file.Path != "" && file.ViewerViewedState != "" {
+					states[file.Path] = file.ViewerViewedState
+				}
+			}
+			if len(states) > 0 {
+				pr.ViewedStates = states
+			}
+		}
 		pr.Files = nil
 		pr.FilesErr = ""
 		out[key] = github.BatchPullRequestResult{PR: pr}
@@ -368,10 +379,23 @@ type viewedMark struct {
 }
 
 func (f *fakeClient) MarkFileAsViewed(ref github.PullRef, id, path string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.markErr != nil {
 		return f.markErr
 	}
 	f.marks = append(f.marks, viewedMark{ref: ref, id: id, path: path})
+	if pr, ok := f.prs[ref.Number]; ok && len(pr.Files) > 0 {
+		files := make([]models.File, len(pr.Files))
+		for i, file := range pr.Files {
+			if file.Path == path {
+				file.ViewerViewedState = models.ViewerViewed
+			}
+			files[i] = file
+		}
+		pr.Files = files
+		f.prs[ref.Number] = pr
+	}
 	return nil
 }
 
