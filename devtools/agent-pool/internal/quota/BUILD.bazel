@@ -1,0 +1,28 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "claude.go",
+        "guard.go",
+        "ledger.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/agent-pool/internal/quota",
+    visibility = ["//devtools/agent-pool:__subpackages__"],
+    deps = [
+        "//devtools/agent-pool/internal/protocol:go_default_library",
+        "//devtools/pkg/sqlitedb:go_default_library",
+        "//devtools/quotapace:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    size = "small",
+    srcs = ["quota_test.go"],
+    deps = [
+        ":go_default_library",
+        "//devtools/agent-pool/internal/protocol:go_default_library",
+        "//devtools/quotapace:go_default_library",
+    ],
+)
