@@ -42,6 +42,10 @@ build:buildbuddy --bes_backend=grpcs://remote.buildbuddy.io
 build:buildbuddy --remote_cache=grpcs://remote.buildbuddy.io
 build:buildbuddy --remote_upload_local_results=true
 build:buildbuddy --remote_download_toplevel
+build:buildbuddy --remote_cache_compression
+build:buildbuddy --noslim_profile
+build:buildbuddy --experimental_profile_include_target_label
+build:buildbuddy --experimental_profile_include_primary_output
 
 # BuildBuddy Remote Build Execution (opt-in; extends buildbuddy)
 build:rbe --config=buildbuddy
