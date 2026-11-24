@@ -1,0 +1,5 @@
+{"type":"system","subtype":"init","model":"claude-sonnet-4-6","session_id":"sess_01"}
+{"type":"assistant","message":{"id":"msg_01","model":"claude-sonnet-4-6","usage":{"input_tokens":1000,"cache_read_input_tokens":500,"cache_creation_input_tokens":200,"output_tokens":100},"content":[{"type":"tool_use","name":"Read"}]}}
+{"type":"assistant","message":{"id":"msg_01","model":"claude-sonnet-4-6","usage":{"input_tokens":1000,"cache_read_input_tokens":500,"cache_creation_input_tokens":200,"output_tokens":100},"content":[{"type":"text","text":"reading file"}]}}
+{"type":"assistant","message":{"id":"msg_02","model":"claude-sonnet-4-6","usage":{"input_tokens":1500,"cache_read_input_tokens":1000,"cache_creation_input_tokens":0,"output_tokens":250},"content":[{"type":"text","text":"done"}]}}
+{"type":"result","subtype":"success","is_error":false,"model":"claude-sonnet-4-6","usage":{"input_tokens":2500,"cache_read_input_tokens":1500,"cache_creation_input_tokens":200,"output_tokens":350},"structured_output":{"status":"ok","findings":["no issues found"]},"result":"ignored fallback text"}

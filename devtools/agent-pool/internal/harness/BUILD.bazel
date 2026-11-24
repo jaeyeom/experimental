@@ -1,0 +1,27 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "claude.go",
+        "harness.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/agent-pool/internal/harness",
+    visibility = ["//devtools/agent-pool:__subpackages__"],
+    deps = [
+        "//devtools/agent-pool/internal/catalog:go_default_library",
+        "//devtools/agent-pool/internal/protocol:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    size = "small",
+    srcs = ["claude_test.go"],
+    data = glob(["testdata/**"]),
+    deps = [
+        ":go_default_library",
+        "//devtools/agent-pool/internal/catalog:go_default_library",
+        "//devtools/agent-pool/internal/protocol:go_default_library",
+    ],
+)

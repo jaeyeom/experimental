@@ -1,0 +1,5 @@
+{"type":"system","subtype":"init","model":"claude-sonnet-4-6"}
+{"type":"assistant","message":{"id":"msg_u1","usage":{"input_tokens":50,"output_tokens":10}}}
+{"type":"assistant","message":{"id":"msg_u2","usage":{"input_tokens":50,"output_tokens":10}}}
+{"type":"assistant","message":{"id":"msg_u3","usage":{"input_tokens":50,"output_tokens":10}}}
+{"type":"result","subtype":"success","is_error":false,"structured_output":{"shouldNotBeReached":true}}

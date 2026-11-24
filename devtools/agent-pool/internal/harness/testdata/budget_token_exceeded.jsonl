@@ -1,0 +1,5 @@
+{"type":"system","subtype":"init","model":"claude-sonnet-4-6"}
+{"type":"assistant","message":{"id":"msg_t1","usage":{"input_tokens":100,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":50}}}
+{"type":"assistant","message":{"id":"msg_t2","usage":{"input_tokens":200,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":200}}}
+{"type":"assistant","message":{"id":"msg_t3","usage":{"input_tokens":9999,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":9999}}}
+{"type":"result","subtype":"success","is_error":false,"structured_output":{"shouldNotBeReached":true}}
