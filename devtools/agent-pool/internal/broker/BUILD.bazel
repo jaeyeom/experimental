@@ -2,8 +2,16 @@ load("@rules_go//go:def.bzl", "go_library")
 
 go_library(
     name = "go_default_library",
-    srcs = ["store.go"],
+    srcs = [
+        "hub.go",
+        "service.go",
+        "store.go",
+    ],
     importpath = "github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker",
     visibility = ["//devtools/agent-pool:__subpackages__"],
-    deps = ["//devtools/agent-pool/internal/protocol:go_default_library"],
+    deps = [
+        "//devtools/agent-pool/internal/catalog:go_default_library",
+        "//devtools/agent-pool/internal/dlp:go_default_library",
+        "//devtools/agent-pool/internal/protocol:go_default_library",
+    ],
 )

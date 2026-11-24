@@ -1,0 +1,38 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "config.go",
+        "main.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/agent-pool/cmd/agent-poold",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//devtools/agent-pool/internal/broker:go_default_library",
+        "//devtools/agent-pool/internal/broker/catsync:go_default_library",
+        "//devtools/agent-pool/internal/broker/httpapi:go_default_library",
+        "//devtools/agent-pool/internal/broker/mcp:go_default_library",
+        "//devtools/agent-pool/internal/broker/sqlite:go_default_library",
+        "//devtools/agent-pool/internal/dlp:go_default_library",
+        "//devtools/pkg/version:go_default_library",
+        "@com_github_pelletier_go_toml_v2//:go_default_library",
+        "@org_golang_x_sys//unix:go_default_library",
+    ],
+)
+
+go_binary(
+    name = "agent-poold",
+    embed = [":go_default_library"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "go_default_test",
+    size = "small",
+    srcs = ["main_test.go"],
+    embed = [":go_default_library"],
+    deps = [
+        "//devtools/agent-pool/internal/broker:go_default_library",
+    ],
+)

@@ -1,0 +1,25 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["httpapi.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker/httpapi",
+    visibility = ["//devtools/agent-pool:__subpackages__"],
+    deps = [
+        "//devtools/agent-pool/internal/broker:go_default_library",
+        "//devtools/agent-pool/internal/protocol:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    size = "small",
+    srcs = ["httpapi_test.go"],
+    deps = [
+        ":go_default_library",
+        "//devtools/agent-pool/internal/broker:go_default_library",
+        "//devtools/agent-pool/internal/broker/sqlite:go_default_library",
+        "//devtools/agent-pool/internal/dlp:go_default_library",
+        "//devtools/agent-pool/internal/protocol:go_default_library",
+    ],
+)
