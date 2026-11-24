@@ -1,6 +1,9 @@
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 
-exports_files(["README.org"])
+exports_files([
+    "README.org",
+    "docs/inbox.org",
+])
 
 go_library(
     name = "go_default_library",
@@ -71,7 +74,7 @@ go_test(
         "verify_test.go",
         "worker_test.go",
     ],
-    data = ["README.org"],
+    data = ["docs/inbox.org"],
     embed = [":go_default_library"],
     deps = ["//devtools/pkg/herdrtest:go_default_library"],
 )

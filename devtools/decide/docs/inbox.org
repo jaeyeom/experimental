@@ -1,0 +1,176 @@
+#+TITLE: decide terminal inbox
+
+~decide inbox~ is the terminal UI. ~--utc~, or ~"ui": {"utc": true}~ in
+this machine's config, shows stamps in UTC. Otherwise times follow the
+machine running the inbox, including in hub mode. ~show~ and the ledger
+stay UTC. ~--remote user@host~ and ~--snoozed~ are the other flags.
+
+The inbox draws at once and loads the ledger in the background, locally
+and from a hub. Until the first list arrives, the list is empty and the
+status line says ~Loading…~. Quit, help, compose, and the folder keys
+work meanwhile. A failed first list shows its error on the status line
+and is retried on the next tick.
+
+The sidebar folders are Inbox, Snoozed, Answered, Done, Withdrawn, then
+Status and Contacts. ~g~ waits for a second key. Esc cancels the chord.
+Any other second key says ~unknown go-to key~.
+
+* Keybindings
+
+| Key                                   | Where                        | Action                                                                       |
+|---------------------------------------+------------------------------+------------------------------------------------------------------------------|
+| ~q~                                   | any                          | Quit.                                                                        |
+| ~?~ / ~esc~                           | any                          | Show this inbox's shortcuts. ~?~ or Esc closes them.                         |
+| ~j~ / ~k~                             | list or item                 | Move the row, or scroll one line in an item.                                 |
+| ~n~ / ~p~                             | item                         | Next or previous message.                                                    |
+| ~g~ then ~i~ ~z~ ~a~ ~d~ ~w~          | any                          | Inbox, Snoozed, Answered, Done, Withdrawn.                                   |
+| ~g~ then ~s~ / ~c~                    | any                          | Status or Contacts.                                                          |
+| ~g g~ / ~G~ / ~end~                   | list, item, status, contacts | Top or bottom of the list or item.                                           |
+| ~G~ / ~end~                           | item                         | Scroll to the end.                                                           |
+| ~pgup~ / ~pgdn~, ~home~ / ~G~ / ~end~ | list and item                | Page, or jump.                                                               |
+| ~o~ / ~enter~                         | list                         | Open the row.                                                                |
+| ~u~ / ~esc~                           | item, status, contacts       | Back to the list.                                                            |
+| ~c~                                   | list, item, status, contacts | Compose a note.                                                              |
+| ~e~ / ~y~                             | list, item                   | Archive: mark done with outcome ~archived~.                                  |
+| ~d~                                   | item                         | Ask for an outcome, then mark done.                                          |
+| ~b~                                   | list, item                   | Snooze. In Snoozed, ~b~ also offers unsnooze.                                |
+| ~/~                                   | any                          | Filter the list, or highlight an item. Empty Enter clears.                   |
+| ~esc~                                 | list                         | Clear the agent filter.                                                      |
+| ~1~-~9~                               | item                         | Answer with that option.                                                     |
+| ~0~                                   | item                         | Focus the pinned reply box.                                                  |
+| ~f~                                   | item                         | Forward the item.                                                            |
+| ~l~                                   | item                         | Open the only link, or pick one.                                             |
+| ~L~                                   | item                         | Copy the link.                                                               |
+| ~Y~                                   | item                         | Open the copy menu.                                                          |
+| ~V~                                   | item                         | Borderless, unwrapped view. ~V~ again restores it.                           |
+| ~A~                                   | item or contacts             | Open the avatar picker for that sender.                                      |
+| ~o~                                   | item                         | Focus the owner's herdr tab.                                                 |
+| ~M~                                   | any                          | Toggle mouse capture.                                                        |
+| ~x~ / ~H~ / ~X~ / ~R~ / ~a~           | contacts                     | Hide, show hidden, hide dead, release, alias.                                |
+| ~*~                                   | contacts, compose recipients | Star or unstar the name. Starred names lead the list.                        |
+| ~enter~                               | contacts                     | Filter every folder to that agent.                                           |
+| ~x~                                   | outbox, item                 | Discard the selected outbox entry, failed or pending. A long one asks first. |
+| ~tab~ / ~shift+tab~                   | compose                      | Move among recipient, text, and Send.                                        |
+| ~enter~                               | compose                      | Newline in the text. Send on the Send button.                                |
+| ~Ctrl+Enter~, ~Alt+Enter~ / ~C-s~     | every composer               | Send the draft.                                                              |
+| ~Alt+e~                               | reply box                    | Send the reply and archive the thread.                                       |
+| ~Alt+d~                               | reply box                    | Discard the reply draft.                                                     |
+| ~Alt+q~                               | compose                      | Fill the paragraph at the cursor.                                            |
+| ~C-x C-e~ / ~C-g~                     | compose                      | Edit the draft in an external editor.                                        |
+| ~up~ / ~C-p~ / ~down~ / ~C-n~         | compose recipients           | Move in the filtered list.                                                   |
+| ~backspace~ / ~esc~                   | compose recipients           | Widen the filter, then leave. The draft stays.                               |
+| click / wheel                         | list or item                 | Open a row, pick an option, open a URL, or scroll.                           |
+| Shift drag                            | any                          | Select text in the terminal.                                                 |
+
+All shortcuts are configurable under ~ui.keys~; see
+[[file:configuration.org::*Keyboard shortcuts][Keyboard shortcuts]].
+
+* Item view, reply box, and copy menu
+
+The copy menu is ~m~ message, ~q~ question, ~t~ thread, ~i~ id, ~a~
+answer, and Esc. The status line says ~copied message (312 chars)~,
+with no borders or ANSI codes. ~ui.clipboard~ is ~auto~ (OSC 52, plus
+~pbcopy~, ~wl-copy~, or ~xclip~), ~osc52~, ~command~, or ~off~. OSC 52
+stops above 100 KB. In the avatar picker, ~h~ ~j~ ~k~ ~l~ or the arrows
+move, Enter saves, and Esc cancels. Mouse behavior for the avatar picker
+is under [[file:../README.org::*Customizing][Customizing]].
+
+A title line is pinned to the top of the item pane: the id and the first
+line of the question (or of the verbatim text), with the state on the
+right when it fits. It never wraps, cuts the question with ~…~ and never
+the id, and drops the state before squeezing the question. Clicking it or
+~g g~ goes to the top of the thread.
+
+The reply box is pinned to the bottom of the item pane outside the
+scrolling thread, so scrolling the thread never jumps back to the box.
+When unfocused and empty it collapses to one hint line (~reply: ___~);
+when focused or holding a draft it grows with the text up to the cap,
+shrinking the thread area above it, and keeps the action buttons at the
+bottom: ~[Send (^⏎)]~, ~[Send and archive (M-e)]~ (shown on notes,
+notifications, and already-answered threads, never on an open question),
+and ~[Discard (M-d)]~. ~Discard~ clears a short draft at once and asks
+first when the draft is longer than 3 lines; ~Esc~ leaves the box and
+keeps the draft.
+The thread view also has a clickable ~[Reply (0)]~ button that focuses the
+reply box. Every button shows its live key binding in dimmed parentheses
+(~[Send (C-Enter)]~ in ASCII mode); the hint is dropped first at narrow
+widths and omitted for an unbound action.
+
+* Persistent drafts
+
+Unsent reply, free-text answer, and compose drafts are saved to
+=drafts.json= alongside =ledger.json= (in =$XDG_STATE_HOME/decide/= or
+=~/.local/state/decide/=). In hub mode, =drafts.json= lives on the hub
+and syncs across hub clients through the ~watch~ stream and each
+client's local replica, so a draft started on one machine appears on
+another.
+
+- *List mark and compose restore*: threads with a saved reply or answer
+  draft show a ~draft~ mark in the list, or ~draft!~ when an unresolved
+  conflict exists. Opening compose (~c~) when a saved compose draft
+  exists shows a ~[r] Restore~ / ~[d] Discard~ prompt; forwarding (~f~)
+  does not overwrite that saved draft.
+- *Save timing and cleanup*: drafts auto-save 1.5s after typing stops
+  (and when changing the compose recipient while text is non-empty),
+  flush immediately when leaving a thread or compose view or exiting the
+  inbox, and flush before suspending for ~$EDITOR~ (~C-x C-e~ / ~C-g~)
+  and save on return. Sending (~Ctrl+Enter~, ~Alt+Enter~, ~C-s~, or
+  ~Alt+e~), discarding (~Alt+d~), or clearing text to empty or
+  whitespace deletes the draft immediately.
+- *GUI emacsclient*: an ~emacsclient~ editor with none of ~-t~, ~-nw~,
+  ~-c~ gets no terminal on stdin, so it opens the draft in the running
+  Emacs instead of a text frame on the inbox's terminal.
+- *Conflicts*: drafts use optimistic concurrency (~baseRev~) so
+  concurrent edits from two clients never silently overwrite each other.
+  Both versions are preserved, the list shows ~draft!~, and opening the
+  draft shows a conflict banner with ~[k] Keep current~, ~[u] Use
+  other~, and ~[m] Merge both~ (inserting git-style conflict markers).
+- *Limits and lifecycle*: draft text is capped at 64 KiB (oversized
+  saves warn on the status line while keeping the in-memory text) and at
+  most 10 conflict copies per draft. Reply and answer drafts are deleted
+  automatically when the thread is archived, marked done, withdrawn, or
+  deleted.
+
+Design details, RPC ops, and replica behavior are in
+[[file:drafts.org][drafts.org]].
+
+* Behavior, links, and owner focus
+
+~ui.answerAction~ controls what picking an option (~1~-~9~ or click)
+does: ~stay~ (default) sends the answer and stays in the thread; ~list~
+sends and goes back to the list; ~edit~ puts the option's text into the
+reply box so you can add text before sending, recording the option key
+as the answer and posting the added text as a human message right after
+it. Answering never closes a thread.
+
+~ui.openAt~ chooses where a thread opens: ~new~ (default) scrolls so the
+first message newer than the item's previous read time is at the top, with
+a divider line above it, ~── new since 14:05 ──~ (a stamp like the others).
+With nothing new it opens at the last message, and a thread never read
+opens at the top. ~last~ and ~top~ always open there. ~Home~ and ~g~ still
+go to the top, and ~n~ / ~p~ are unchanged; the current-message marker
+starts on the opened message. Messages that are newer but not shown at
+open still hold archive. An unknown value is a config error.
+
+Archive waits while a message is unseen or newer than ~ui.archiveGrace~
+(default 2s). The status line says ~new message: not archived~. Pending
+options still need an answer. ~decide done --via ui~ does not check
+that grace.
+Snooze offers ~1h~, ~3h~, ~tomorrow 9:00~, ~next Monday 9:00~, or a
+custom time. The item stays out of every folder but Snoozed until that
+time, or until a message lands, and then it is unread.
+
+~l~ opens the only link, or a numbered picker. A digit opens one of the
+first nine; with more links, type the number and press Enter. The
+opener is ~openCommand~ (default ~xdg-open~, or ~open~ on macOS). The
+URL is the last argument and no shell runs. The limit is 5 seconds.
+URLs are OSC 8 hyperlinks unless ~hyperlinks~ is false. Mouse capture
+is on by default. ~Ctrl~ click opens a URL. ~M~ gives clicks to the
+terminal.
+
+The ~Owner:~ line is the herdr workspace, tab, and pane. ~o~ runs
+~herdr workspace focus~ and then ~herdr tab focus~, and does not answer.
+Each lookup has a 5s deadline, and the inbox does not wait. ~show
+--json~ adds ~ownerLocation~ (~machine~, ~workspace~, ~tab~, ~pane~,
+~state~ of ~live~, ~closed~, ~unknown~, or ~unreachable~). Ctrl+Enter
+and ~DECIDE_KEYDEBUG~ are in [[file:keys.org][keys.org]].

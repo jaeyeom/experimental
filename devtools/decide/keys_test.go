@@ -127,13 +127,13 @@ func TestFormatKeyMapListsEveryAction(t *testing.T) {
 }
 
 func TestReadmeKeyTableMatchesDefaultKeyMap(t *testing.T) {
-	data, err := os.ReadFile("README.org")
+	data, err := os.ReadFile("docs/inbox.org")
 	if err != nil {
-		t.Fatalf("read README.org: %v", err)
+		t.Fatalf("read docs/inbox.org: %v", err)
 	}
 	want := FormatReadmeKeyTable(DefaultKeyMap())
 	if !strings.Contains(string(data), want) {
-		t.Fatalf("README.org key table does not match FormatReadmeKeyTable(DefaultKeyMap()); expected:\n%s", want)
+		t.Fatalf("docs/inbox.org key table does not match FormatReadmeKeyTable(DefaultKeyMap()); expected:\n%s", want)
 	}
 }
 

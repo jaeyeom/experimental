@@ -1,0 +1,163 @@
+#+TITLE: decide items, classes, and decision log
+
+This document covers the CLI details for ~decide ask~, ~decide answer~,
+~decide reply~, ~decide send~, ~decide snooze~, and ~decide assign~,
+along with message shape rules, item classes, inbox groups, backfill,
+and the decision log.
+
+* Asking and answering
+
+~--owner~ names the agent. Inside herdr it defaults to the tab.
+~--kind relay~ needs at least two ~--option key:label~ values and
+~--rec~. ~--kind type-in~ needs ~--type-text~ and ~--where~.
+~--free-text~ allows an answer that is not an option. ~--options-only~
+rejects one, and for relay ~--free-text~ wins over that flag and over
+~optionsOnly~. ~--deadline~ is RFC3339. ~--link~ repeats. ~--notify-pane~
+is a pane id or ~agentbus:<name>~. ~--json~ prints the new item.
+
+~--owner-replies-only~ refuses ~decide reply~ and ~decide send --id~
+from anyone but that owner. The sentence is ~item D-123 accepts replies
+only from its owner slackwatch; message the owner instead~. A human
+reply in the inbox, and any answer, still work. Set it when a tool owns
+the thread and parses the answer. Leave it off on an ordinary ask.
+
+~decide list~ prints the id, the deadline or ~-~, the owner, and the
+question, tab-separated. ~decide answer~ stores an option key or free
+text. ~--via~ is ~ui~ or ~cli~, and the default is ~cli~. ~decide reply~
+appends the agent's message and does not deliver it to a pane. On an
+open question it keeps the options. ~--option~ replaces them. A plain
+reply reopens an answered or done item as a notification you can
+archive. A withdrawn item is refused. ~decide send --to~ prints ~sent
+to <name> as <id>~. An unknown name exits 2. An empty note sends
+nothing. ~decide reassign~ points the item at a new owner or pane when
+the owning tab is retired.
+
+* Shape rules and verbatim text
+
+Author text stored in the ledger or status board (questions, replies,
+option labels, ~done~ outcomes, and status text) must follow inbox shape
+rules. The first line is the verdict (at most ~ui.maxFirstLineLength~
+characters, 100 by default) and stands alone (followed by a blank line, a
+bullet, or the end of the text). No prose paragraph exceeds
+~ui.maxParagraphLines~ consecutive non-bullet lines (3 by default), no line
+exceeds ~ui.maxLineLength~ characters (160 by default), and the message is
+at most ~ui.maxMessageChars~ characters (1200 by default). When measuring
+lines for the first-line and line-length limits, any whitespace-free token
+longer than 40 characters (such as a URL, file path, identifier, or hash)
+counts as 0, while the rest of the line is still checked. A line that is
+only a URL, a quoted line starting with ~> ~, and a line in a fenced code
+block do not count toward line length. Nothing is stored and the exit is 2
+when a check fails; the error names each failed check and explains the
+expected shape. ~--long-lines~ was removed and no flag skips the checks.
+Answers and messages a person gives in the inbox UI are not checked.
+
+For an exact draft or forwarded user text that should be kept as written,
+pass ~--verbatim-file <path>~ (or ~--verbatim <text>~) on ~ask~, ~reply~,
+or ~send~. It is stored byte for byte in ~verbatim~ without shape checks
+and shown in the inbox as a marked quote block ("will be posted as
+written"), while the author's own question, reply, or note text around it
+is still checked. In ~--json~, verbatim text is in ~messages[].verbatim~
+(and the item's ~verbatim~), not in ~text~.
+
+* Item classes
+
+~decide ask~ takes ~--class <name|prefix>~. A single shared counter
+numbers every item, and the prefix reflects its class. Every command
+accepts any prefix or a bare number (so ~860~, ~D-860~, and ~A-860~
+resolve to the same item).
+
+| Prefix | Class      | Meaning                                           | Filing & closing rules                                                                                    |
+|--------+------------+---------------------------------------------------+-----------------------------------------------------------------------------------------------------------|
+| ~D~    | ~decision~ | A choice with a reason that guides later choices  | Options + ~--rec~; ~decide done~ requires a 1-2 line outcome                                              |
+| ~A~    | ~approval~ | Yes/no/edit on one exact action or text           | Requires ~--verbatim~ (or ~--verbatim-file~); keys ~yes~/~no~/~edit~; kept forever; optional ~--parent <id>~ |
+| ~R~    | ~request~  | The user asks an agent for something              | Tracked to ~done~                                                                                         |
+| ~Q~    | ~fact~     | An agent lacks a fact only the user knows         | Answer stored as a plain statement                                                                        |
+| ~I~    | ~inbound~  | Someone else wants the user, relayed              | Defaults to ~handle~/~delegate~/~ignore~                                                                  |
+| ~T~    | ~task~     | Work only the user can do                         | Tracked to ~done~, with optional ~--deadline~                                                             |
+| ~N~    | ~note~     | FYI, report, or alert                             | No options or answer; closed only with archive                                                            |
+
+Omitting ~--class~ on ~decide ask~ files a ~decision~ and prints a
+deprecation warning on stderr. Setting ~"requireClass": true~ in
+config makes a missing ~--class~ an error (exit 2).
+
+~decide retag <id> <class>~ changes an item's class, updates its
+display prefix, and records a system event in the thread with the old
+and new class.
+
+* Inbox groups, approval cards and backfill
+
+The inbox library arranges open items into four groups, in this order:
+approvals (with their parents), other items that need the user
+(decisions, facts, tasks; soonest deadline first), requests and inbound,
+and notes. An open approval filed with ~--parent~ is nested under that
+thread: the parent moves to the approvals group and shows ~approval
+waiting~, and the approval has no row of its own. Approvals without a
+parent are their own entries. The parent's thread shows the approval
+card (the exact text, with yes, no and edit); answering the card answers
+the approval, and the parent gets one line, such as ~A-870 approved,
+posted 11:40~ or ~A-870 declined~.
+
+Each row has a class badge (the prefix letter) and entries can be
+filtered by class (~f~ in the list). ~y~, ~n~ and ~e~ answer an
+approval's ~yes~, ~no~ and ~edit~ right from the list, ~E~ archives
+open notes in bulk, and notes are not counted as unread.
+
+~decide backfill [--yes]~ is the one-time class backfill. It proposes a
+class for every item that is still a decision, by pattern: threads the
+user started become requests, "post as written?" items (or items with a
+verbatim block) become approvals, and reports with no options and
+install reports become notes. Anything uncertain stays a decision. It
+prints the batch and applies it only after you answer ~y~ (or pass
+~--yes~), retagging each item and recording a retag event on it.
+
+* Decision log
+
+~decide log search <words> [--class decision,fact,...] [--all] [--json]~
+looks up what the user already decided. It searches items that have a
+user answer or an owner's ~done~ outcome, matching every word against
+the question, answer and outcome (case-insensitive). The default classes
+are decision and fact; ~--class~ widens or narrows them. Results are
+newest first and show id, date, question, answer and outcome. Superseded
+items are hidden unless ~--all~ is given. Search never changes anything:
+only the user's answers and the owner's ~done~ outcomes make entries.
+
+~decide supersede <old> --by <new>~ marks a newer item as replacing an
+older one. Both threads record the link in a system message, and search
+shows only the newest item of a chain, with a "supersedes" note.
+
+Agents search the log before filing a decision or fact question, and
+cite the id of any precedent they act on.
+
+* Owner, worker, and snooze
+
+The owner is the agent that filed the item, and it stays the owner
+until the item is closed. When another agent takes over the work,
+~decide assign <id> <agent>~ records that agent as the item's worker.
+The worker is notified at ~agentbus:<agent>~ unless ~--notify-pane~
+names another pane. ~decide assign <id> --clear~ removes it. Each change
+adds a system message to the thread. A done or withdrawn item is
+refused. ~decide show~ prints ~working on it: <agent>~ under the owner,
+the inbox header shows ~Working on it~, and ~show --json~ and ~list
+--json~ carry ~worker~, ~workerNotifyPane~, and ~workerNotifyMachine~.
+
+A human reply still goes to the owner. On an item whose worker is not
+the owner, ~decide send --id~ warns on stderr, for example ~This reply
+goes to ada (owner); bea is working on it.~, and notifies the owner as
+before. ~--to worker~ notifies only the worker, ~--to both~ notifies
+both, and ~--to owner~ notifies the owner without the warning. ~--to
+worker~ or ~--to both~ on an item without such a worker is refused.
+The inbox shows the same warning when you send a reply there and asks:
+~w~ sends to the worker, ~b~ to both, ~o~ to the owner only, and ~Esc~
+keeps the draft. An item without a worker behaves as before.
+
+~decide snooze~ takes ~2h30m~, ~HH:MM~ (today, or tomorrow once that
+time has passed), ~YYYY-MM-DD HH:MM~, or ~mon 9:00~, in local time. A
+clock time may be the next argument, as in ~decide snooze D-001 mon
+9:00~. A done or withdrawn item is refused. ~show~ prints ~snoozed
+until:~.
+
+An answer's ~via~ is ~ui~ when a person answered in the inbox or Emacs,
+and ~cli~ when ~decide answer~ or ~decide send --id~ recorded it. ~by~
+on a message is who ran ~decide reply~ or ~decide send --id~: their
+agentbus name, else their herdr tab, else their pane. The rules are in
+[[file:provenance.org][provenance.org]].

@@ -1,0 +1,61 @@
+#+TITLE: decide contacts and org tree
+
+Contacts (~g~ then ~c~ in ~decide inbox~) lists ~agentbus list~ names
+plus every owner and sender. ~human~ and ~system~ are not contacts.
+
+* States and actions
+
+~active~ is alive, ~unresponsive~ is registered but not answering, and
+~dead~ is gone or known only from the ledger. ~x~ hides a row until it
+is active again. ~H~ shows hidden rows for this session. ~X~ hides every
+dead contact after a confirm. ~R~ runs ~agentbus release~ for a name the
+bus lists as dead. ~a~ stores a ~contactAliases~ entry. ~*~ stars a
+contact, here or in the compose recipient list: starred names come first
+in that list, marked ~★~, in the order they were starred, and are not
+repeated below. A starred name that is not live still shows there,
+marked dead. Hidden and starred do not conflict: the name stays hidden
+in Contacts and is still listed first when composing. ~decide contacts
+prune --dead~ prints names and writes nothing unless ~--yes~.
+~--release~ also releases those bus names.
+
+* Detail panel
+
+The list starts with the name. A panel shows the contact under the
+cursor in full: its avatar as the thread shows it, its state, its
+liveness and when agentbus last saw it, its whole ~when~ text, its
+open, answered, done, and withdrawn item counts, its last activity, and
+how many messages to it are still waiting or failed to deliver. On a
+wide screen the panel is to the right of the list. Below 80 columns it
+is hidden; ~i~ shows it below the list and hides it again, and the
+footer names the key.
+
+#+begin_example
+name     state        liveness   open activity      desk/ada
+desk/ada active       alive      1    14:40 · 20m   state      active
+desk/bo  unresponsive hibernated 0                  liveness   alive, seen 14:58 · 2m ago
+                                                    when       Ask me about the front desk
+                                                               queue and refunds.
+                                                    items      1 open, 2 answered, 1 done,
+                                                               1 withdrawn
+                                                    activity   14:40 · 20m ago
+                                                    deliveries 1 waiting, 1 failed
+#+end_example
+
+* Org tree view
+
+With ~ui.orgTree~ on, ~t~ switches Contacts between the list and the
+org tree from ~orgctl tree --json~ on ~ui.orgSpec~: you, then direct
+reports, then their reports, with each pool under the role that starts
+it. Roles with no contact and pools are dimmed and cannot be selected.
+Contacts the spec does not name are in an ~other~ group at the bottom.
+If ~orgctl~ is missing or fails, the list stays flat with one line
+saying why. With ~ui.orgTree~ off, decide never runs ~orgctl~. On a hub
+client, ~orgctl~ and ~ui.orgSpec~ stay on the hub: the hub's ~ui.orgTree~
+becomes the default (a local ~ui.orgTree: false~ still turns it off),
+and the client caches the tree in its local replica, refreshing on
+connect and when the hub's spec mtime changes. An older hub without
+~org-tree~ falls back to local ~orgctl~ with a one-line note.
+
+#+begin_src json
+{"ui": {"orgTree": true, "orgSpec": "/home/me/org/desk.json"}}
+#+end_src

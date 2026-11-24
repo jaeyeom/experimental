@@ -1,0 +1,46 @@
+#+TITLE: decide owner allow-list
+
+In a multi-agent setup, only a few lead agents report directly to the
+user; everyone else should ask its manager instead of opening a new
+inbox item. ~owners~ configures who may open items via ~decide ask~ and
+~decide send --to~:
+
+#+begin_src json
+{
+  "owners": {
+    "mode": "warn",
+    "allowed": ["lead/*"],
+    "managers": {
+      "team/*": "lead/planner"
+    }
+  }
+}
+#+end_src
+
+* Modes and patterns
+
+~allowed~ lists owner names or ~path.Match~ globs (~*~ matches within a
+segment, not across ~/~). ~managers~ optionally maps an owner pattern to
+the manager named in warning and error messages (most specific pattern
+wins). When ~mode~ is ~warn~ or ~enforce~, ~allowed~ must be non-empty.
+
+- ~off~ (the default): every owner may open items.
+- ~warn~: non-allowed owners still open the item, get a warning on
+  stderr (~decide: owner <name> is not a direct report; ask <manager>
+  instead~), and the item is tagged ~off-line~.
+- ~enforce~: non-allowed owners get the same message on stderr, nothing
+  is opened, and ~decide~ exits with status 3.
+
+Replies on existing items (~decide reply~, ~decide send --id~) and items
+opened from the UI (~--via ui~, such as the inbox or Emacs) are always
+allowed.
+
+* Health checks and hub mode
+
+Run ~decide list --off-line~ (with optional ~--json~) for health checks
+to find items tagged ~off-line~ under ~warn~ mode. For hub-mode clients,
+the hub's ~owners~ config decides (and overrides any local ~owners~
+setting).
+
+Non-goals: ~owners~ does not change tool-approval flows or touch Claude
+settings.

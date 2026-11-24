@@ -689,7 +689,7 @@ func FormatKeyMapJSON(km *KeyMap) ([]byte, error) {
 	return append(data, '\n'), nil
 }
 
-// FormatReadmeKeyTable generates the org-mode key table for README.org from km.
+// FormatReadmeKeyTable generates the org-mode key table for docs/inbox.org from km.
 func FormatReadmeKeyTable(km *KeyMap) string {
 	formatKeys := func(action string) string {
 		seqs := km.Bindings(action)
