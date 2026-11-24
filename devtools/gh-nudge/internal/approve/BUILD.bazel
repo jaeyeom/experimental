@@ -25,9 +25,9 @@ go_library(
         "//devtools/gh-nudge/internal/config:go_default_library",
         "//devtools/gh-nudge/internal/github:go_default_library",
         "//devtools/gh-nudge/internal/models:go_default_library",
+        "//devtools/pkg/genfiles:go_default_library",
         "//devtools/pkg/remotecall:go_default_library",
         "@com_github_bmatcuk_doublestar_v4//:go_default_library",
-        "@in_gopkg_yaml_v3//:go_default_library",
     ],
 )
 

@@ -648,19 +648,29 @@ generated_lists {
 }
 #+end_src
 
-The list file in the repository is a YAML sequence of entries, one per glob:
+The list file in the repository is a YAML sequence of entries, one per glob,
+in the format of [[file:../genfiles/README.org][genfiles]]:
 
 #+begin_src yaml
 - pattern: "**/*.pb.go"
-  regenerate: "make proto"
-  bazel_generated: true
-  source: "proto/"
+  comment: Protobuf Go code.
+  run:
+    - [make, proto]
 #+end_src
 
-Only ~pattern~ is required by ~gh-approve~; other keys are ignored so the file
-can be shared with CI or other tools. An entry without ~pattern~ is a parse
-error. ~gh-approve~ reads the file from the pull request's base SHA through the
-GitHub API and caches it per repository and base SHA for the run.
+Only ~pattern~ is read by ~gh-approve~; other keys are ignored, so lists in an
+older shape (a ~regenerate~ string, ~bazel_generated~, ~source~) keep working.
+An entry without a valid ~pattern~ is a parse error. ~genfiles check~ is the
+strict checker for the rest of the format. ~gh-approve~ reads the file from
+the pull request's base SHA through the GitHub API and caches it per
+repository and base SHA for the run.
+
+List patterns match with ~.gitattributes~ rules, the same as ~genfiles~ and
+GitHub: a pattern with no ~/~ matches the file name at any depth, so
+~Cargo.lock~ from the list matches ~sub/Cargo.lock~. Inline rule globs keep
+their own doublestar rules, where ~Cargo.lock~ matches only at the root. In
+~paths_all_match { "@generated"; "Cargo.lock" }~ the two ~Cargo.lock~ globs
+therefore match differently.
 
 Any rule glob list (~paths_all_match~, ~paths_any_match~, ~paths_none_match~,
 ~file_checks~ keys, and ~viewed~'s ~paths_match~, ~paths_none_match~, and

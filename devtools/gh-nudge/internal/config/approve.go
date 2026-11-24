@@ -13,6 +13,7 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 
 	pklconfig "github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config/pkl"
+	"github.com/jaeyeom/experimental/devtools/pkg/genfiles"
 )
 
 // DefaultApproveBody is the gh-approve review body when config omits body.
@@ -812,8 +813,7 @@ func MatchFileCheckWithGenerated(checks map[string]FileCheck, generatedPatterns 
 	}
 	if genCheck, hasGen := checks[GeneratedListRef]; hasGen {
 		for _, gp := range generatedPatterns {
-			ok, err := doublestar.Match(gp, path)
-			if err != nil || !ok {
+			if !genfiles.Match(gp, path) {
 				continue
 			}
 			spec := FileCheckSpecificity(gp)

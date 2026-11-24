@@ -316,7 +316,7 @@ func TestGeneratedListFailClosed(t *testing.T) {
 		{
 			name:      "invalid yaml",
 			repoFiles: map[string]string{"sha1:tools/generated_files.yaml": "- regenerate: make proto\n"},
-			want:      "generated list tools/generated_files.yaml: entry 1: missing pattern",
+			want:      `generated list tools/generated_files.yaml: line 1: entry 1: missing required key "pattern"`,
 		},
 	}
 
@@ -372,5 +372,26 @@ func TestGeneratedListFailClosed(t *testing.T) {
 				t.Fatalf("explain output missing %q:\n%s", tc.want, res.out)
 			}
 		})
+	}
+}
+
+func TestGeneratedPatternsUseGitattributesGlobs(t *testing.T) {
+	gen := []string{"Cargo.lock"}
+	if pat, fromGen, ok := matchGlobsInList([]string{config.GeneratedListRef}, gen, "sub/Cargo.lock"); !ok || !fromGen || pat != "Cargo.lock" {
+		t.Errorf("matchGlobsInList via @generated = %q %v %v", pat, fromGen, ok)
+	}
+	if _, _, ok := matchGlobsInList([]string{"Cargo.lock"}, nil, "sub/Cargo.lock"); ok {
+		t.Error("inline Cargo.lock matched sub/Cargo.lock")
+	}
+	pr := github.ApprovalPullRequest{GeneratedPatterns: gen}
+	if _, fromGen, ok := matchGlobsWithGenerated([]string{config.GeneratedListRef}, pr, "sub/Cargo.lock"); !ok || !fromGen {
+		t.Errorf("matchGlobsWithGenerated via @generated = %v %v", fromGen, ok)
+	}
+}
+
+func TestParseGeneratedListNewFormat(t *testing.T) {
+	patterns, err := parseGeneratedList("- pattern: Cargo.lock\n  run: [[cargo, generate-lockfile]]\n  dir: {var: dir}\n")
+	if err != nil || strings.Join(patterns, ",") != "Cargo.lock" {
+		t.Fatalf("patterns = %v, err = %v", patterns, err)
 	}
 }

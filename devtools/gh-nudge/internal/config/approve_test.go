@@ -501,3 +501,15 @@ func TestValidateFileChecksGlobTieRejected(t *testing.T) {
 		t.Fatalf("validateFileChecks() = %v, want tied specificity", err)
 	}
 }
+
+func TestMatchFileCheckWithGeneratedUsesGitattributesGlobs(t *testing.T) {
+	checks := map[string]FileCheck{GeneratedListRef: {Builtin: FileCheckOnlyDeletions}}
+	pat, _, fromGen, ok := MatchFileCheckWithGenerated(checks, []string{"Cargo.lock"}, "sub/Cargo.lock")
+	if !ok || !fromGen || pat != "Cargo.lock" {
+		t.Errorf("list pattern Cargo.lock on sub/Cargo.lock = %q %v %v, want a @generated match", pat, fromGen, ok)
+	}
+	inline := map[string]FileCheck{"Cargo.lock": {Builtin: FileCheckOnlyDeletions}}
+	if _, _, _, ok := MatchFileCheckWithGenerated(inline, nil, "sub/Cargo.lock"); ok {
+		t.Error("inline Cargo.lock matched sub/Cargo.lock; inline globs keep doublestar semantics")
+	}
+}

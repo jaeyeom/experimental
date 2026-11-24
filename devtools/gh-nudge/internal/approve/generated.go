@@ -5,39 +5,21 @@ import (
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
-	"gopkg.in/yaml.v3"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/github"
+	"github.com/jaeyeom/experimental/devtools/pkg/genfiles"
 )
-
-type generatedFileEntry struct {
-	Pattern string `yaml:"pattern"`
-}
 
 type generatedListEntry struct {
 	patterns []string
 	err      string
 }
 
-// parseGeneratedList parses a YAML list of generated-file globs.
-// Each entry requires a non-empty valid glob in pattern; unknown keys are ignored.
+// parseGeneratedList returns the patterns of a generated-files list. Only
+// pattern is read; other keys are ignored so lists in any shape keep working.
 func parseGeneratedList(data string) ([]string, error) {
-	var entries []generatedFileEntry
-	if err := yaml.Unmarshal([]byte(data), &entries); err != nil {
-		return nil, fmt.Errorf("parse yaml: %w", err)
-	}
-	patterns := make([]string, 0, len(entries))
-	for i, entry := range entries {
-		if entry.Pattern == "" {
-			return nil, fmt.Errorf("entry %d: missing pattern", i+1)
-		}
-		if !doublestar.ValidatePattern(entry.Pattern) {
-			return nil, fmt.Errorf("entry %d: invalid glob %q", i+1, entry.Pattern)
-		}
-		patterns = append(patterns, entry.Pattern)
-	}
-	return patterns, nil
+	return genfiles.ParsePatterns([]byte(data)) //nolint:wrapcheck // caller formats generated list error
 }
 
 // generatedListFor returns the parsed generated-file globs for pr's repository
@@ -89,7 +71,7 @@ func matchGlobsWithGenerated(patterns []string, pr github.ApprovalPullRequest, p
 	}
 	if config.UsesGeneratedList(patterns) {
 		for _, gp := range pr.GeneratedPatterns {
-			if hit, err := doublestar.Match(gp, path); err == nil && hit {
+			if genfiles.Match(gp, path) {
 				return gp, true, true
 			}
 		}
@@ -130,7 +112,7 @@ func matchGlobsInList(patterns, generatedPatterns []string, path string) (matche
 	}
 	if config.UsesGeneratedList(patterns) {
 		for _, gp := range generatedPatterns {
-			if hit, err := doublestar.Match(gp, path); err == nil && hit {
+			if genfiles.Match(gp, path) {
 				return gp, true, true
 			}
 		}

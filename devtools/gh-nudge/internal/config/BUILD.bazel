@@ -11,6 +11,7 @@ go_library(
     deps = [
         "//devtools/gh-nudge/internal/config/pkl:go_default_library",
         "//devtools/gh-nudge/internal/slack:go_default_library",
+        "//devtools/pkg/genfiles:go_default_library",
         "@com_github_apple_pkl_go//pkl:go_default_library",
         "@com_github_bmatcuk_doublestar_v4//:go_default_library",
         "@in_gopkg_yaml_v3//:go_default_library",
@@ -28,4 +29,5 @@ go_test(
         "//devtools/gh-nudge/pkl:example.config.pkl",
     ],
     embed = [":go_default_library"],
+    deps = ["//devtools/gh-nudge/internal/config/pkl:go_default_library"],
 )
