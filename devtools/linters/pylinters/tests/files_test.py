@@ -91,6 +91,38 @@ def test_git_resolver_lists_tracked_only(tmp_path: Path) -> None:
     assert fs.root == os.path.realpath(tmp_path)
 
 
+def test_is_executable_in_memory() -> None:
+    """Executable paths are given explicitly to an in-memory set."""
+    fs = files.FileSet(["a.py", "b.py"], executable=["a.py"])
+    assert fs.is_executable("a.py")
+    assert not fs.is_executable("b.py")
+
+
+def test_is_tracked_any_file() -> None:
+    """Non-.py paths are tracked but not part of py_files."""
+    fs = files.FileSet(["MODULE.bazel", "a.py"])
+    assert fs.is_tracked("MODULE.bazel")
+    assert fs.is_tracked("a.py")
+    assert not fs.is_tracked("WORKSPACE")
+    assert fs.py_files() == ["a.py"]
+
+
+@needs_git
+def test_git_resolver_reads_mode(tmp_path: Path) -> None:
+    """The git index mode 100755 marks a file executable."""
+    (tmp_path / "a.py").write_text("")
+    (tmp_path / "b.py").write_text("")
+    (tmp_path / "MODULE.bazel").write_text("")
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "add", "a.py", "b.py", "MODULE.bazel")
+    _git(tmp_path, "update-index", "--chmod=+x", "a.py")
+    fs = files.GitResolver.from_repo(str(tmp_path))
+    assert fs.is_executable("a.py")
+    assert not fs.is_executable("b.py")
+    assert fs.is_tracked("MODULE.bazel")
+    assert fs.py_files() == ["a.py", "b.py"]
+
+
 @needs_git
 def test_git_resolver_outside_repo_raises(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

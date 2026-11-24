@@ -26,12 +26,16 @@ def parent(path: str) -> str:
 
 
 class FileSet:
-    """A sorted set of tracked ``.py`` paths."""
+    """A sorted set of tracked ``.py`` paths, plus every tracked path."""
 
-    def __init__(self, paths: Iterable[str]) -> None:
-        """Keep only ``.py`` paths, sorted and deduplicated."""
-        self._files = sorted({p for p in paths if p.endswith(".py")})
+    def __init__(
+        self, paths: Iterable[str], executable: Iterable[str] = ()
+    ) -> None:
+        """Keep ``.py`` paths sorted; remember all paths and executables."""
+        self._all = frozenset(paths)
+        self._files = sorted(p for p in self._all if p.endswith(".py"))
         self._set = frozenset(self._files)
+        self._executable = frozenset(executable)
 
     def py_files(self) -> list[str]:
         """Return every tracked ``.py`` path, sorted."""
@@ -40,6 +44,14 @@ class FileSet:
     def has_file(self, path: str) -> bool:
         """Report whether ``path`` is a tracked ``.py`` file."""
         return path in self._set
+
+    def is_tracked(self, path: str) -> bool:
+        """Report whether ``path`` is any tracked file, ``.py`` or not."""
+        return path in self._all
+
+    def is_executable(self, path: str) -> bool:
+        """Report whether ``path`` has git mode ``100755``."""
+        return path in self._executable
 
     def has_py_under(self, dir: str) -> bool:
         """Report whether a tracked ``.py`` lies strictly below ``dir``."""
@@ -79,17 +91,29 @@ class FileSet:
 class GitResolver(FileSet):
     """A :class:`FileSet` read from ``git ls-files`` of a work tree."""
 
-    def __init__(self, root: str, paths: Iterable[str]) -> None:
+    def __init__(
+        self, root: str, paths: Iterable[str], executable: Iterable[str] = ()
+    ) -> None:
         """Hold the absolute work-tree ``root`` and its tracked paths."""
-        super().__init__(paths)
+        super().__init__(paths, executable)
         self.root = root
 
     @classmethod
     def from_repo(cls, path: str) -> GitResolver:
         """Build the resolver for the work tree containing ``path``."""
         root = _git(path, "rev-parse", "--show-toplevel").strip()
-        listing = _git(root, "ls-files", "-z")
-        return cls(root, (p for p in listing.split("\0") if p))
+        # Records are ``<mode> <object> <stage>\t<path>``.
+        listing = _git(root, "ls-files", "-s", "-z")
+        paths: list[str] = []
+        executable: list[str] = []
+        for record in listing.split("\0"):
+            if not record:
+                continue
+            meta, _, path = record.partition("\t")
+            paths.append(path)
+            if meta.split(" ", 1)[0] == "100755":
+                executable.append(path)
+        return cls(root, paths, executable)
 
 
 def _git(cwd: str, *args: str) -> str:
