@@ -180,6 +180,13 @@ esac
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil { //nolint:gosec // test executable
 		t.Fatal(err)
 	}
+	// Hide the host's gpg-agent: a live agent-ssh-socket (as on CI
+	// runners) would join the candidate list and change which socket
+	// the fallback retry picks.
+	gpgconf := filepath.Join(dir, "gpgconf")
+	if err := os.WriteFile(gpgconf, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil { //nolint:gosec // test executable
+		t.Fatal(err)
+	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return logFile
 }
