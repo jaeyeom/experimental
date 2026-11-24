@@ -26,15 +26,61 @@ func TestRenderMessage(t *testing.T) {
 	req.Deep = true
 	got := RenderMessage(req)
 	want := "[gh-ask] PR 42 · pkg/a.go:10-12 (RIGHT) · deep=yes\n" +
+		"Commit: 0123456789abcdef0123456789abcdef01234567\n" +
+		"Lines: new lines 10-12 (RIGHT, head side)\n" +
 		"\nQuestion:\nWhy?\n" +
-		"\nCode:\nx := 1\n" +
+		"\nSelected:\nx := 1\n" +
 		"\nLink:\nhttps://github.com/octo/demo/pull/42/files#diff-abc\n"
 	if got != want {
 		t.Errorf("RenderMessage() =\n%s\nwant\n%s", got, want)
 	}
 	req.Deep = false
-	if first, _, _ := strings.Cut(RenderMessage(req), "\n"); !strings.HasSuffix(first, "deep=no") {
-		t.Errorf("first line = %q, want deep=no", first)
+	if first, _, _ := strings.Cut(RenderMessage(req), "\n"); first != "[gh-ask] PR 42 · pkg/a.go:10-12 (RIGHT) · deep=no" {
+		t.Errorf("first line = %q, want %q", first, "[gh-ask] PR 42 · pkg/a.go:10-12 (RIGHT) · deep=no")
+	}
+}
+
+func TestRenderHoverAsk(t *testing.T) {
+	req := validRequest()
+	req.Selection = ""
+	got := RenderMessage(req)
+	want := "[gh-ask] PR 42 · pkg/a.go:10-12 (RIGHT) · deep=no\n" +
+		"Commit: 0123456789abcdef0123456789abcdef01234567\n" +
+		"Lines: new lines 10-12 (RIGHT, head side)\n" +
+		"\nQuestion:\nWhy?\n" +
+		"\nLink:\nhttps://github.com/octo/demo/pull/42/files#diff-abc\n"
+	if got != want {
+		t.Errorf("RenderMessage() =\n%s\nwant\n%s", got, want)
+	}
+	if strings.Contains(got, "Selected:") {
+		t.Errorf("hover ask includes a Selected block:\n%s", got)
+	}
+}
+
+func TestRenderLines(t *testing.T) {
+	tests := []struct {
+		name  string
+		side  string
+		start int
+		end   int
+		want  string
+	}{
+		{name: "left single", side: "LEFT", start: 23, end: 23, want: "Lines: old line 23 (LEFT, base side)"},
+		{name: "left range", side: "LEFT", start: 23, end: 25, want: "Lines: old lines 23-25 (LEFT, base side)"},
+		{name: "right single", side: "RIGHT", start: 10, end: 10, want: "Lines: new line 10 (RIGHT, head side)"},
+		{name: "right range", side: "RIGHT", start: 10, end: 12, want: "Lines: new lines 10-12 (RIGHT, head side)"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := validRequest()
+			req.Side = tc.side
+			req.StartLine = tc.start
+			req.EndLine = tc.end
+			got := RenderMessage(req)
+			if !strings.Contains(got, "\n"+tc.want+"\n") {
+				t.Errorf("RenderMessage() missing %q:\n%s", tc.want, got)
+			}
+		})
 	}
 }
 
@@ -90,13 +136,17 @@ func TestRenderWholePR(t *testing.T) {
 	req.Selection = ""
 	got := RenderMessage(req)
 	want := "[gh-ask] PR 42 · whole PR · deep=no\n" +
+		"Commit: 0123456789abcdef0123456789abcdef01234567\n" +
 		"\nQuestion:\nWhy?\n" +
 		"\nLink:\nhttps://github.com/octo/demo/pull/42/files#diff-abc\n"
 	if got != want {
 		t.Errorf("RenderMessage() =\n%s\nwant\n%s", got, want)
 	}
-	if strings.Contains(got, "Code:") {
-		t.Errorf("whole PR message includes a Code block:\n%s", got)
+	if strings.Contains(got, "Selected:") {
+		t.Errorf("whole PR message includes a Selected block:\n%s", got)
+	}
+	if strings.Contains(got, "Lines:") {
+		t.Errorf("whole PR message includes a Lines header:\n%s", got)
 	}
 	req.Deep = true
 	if first, _, _ := strings.Cut(RenderMessage(req), "\n"); first != "[gh-ask] PR 42 · whole PR · deep=yes" {

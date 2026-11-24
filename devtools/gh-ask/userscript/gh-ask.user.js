@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         gh-ask
 // @namespace    https://github.com/jaeyeom/experimental/tree/main/devtools/gh-ask
-// @version      0.1.13
+// @version      0.1.14
 // @description  Ask a local agent about lines in a pull request diff, through gh-ask serve on 127.0.0.1.
 // @match        https://github.com/*
 // @grant        GM_xmlhttpRequest
@@ -223,42 +223,9 @@ function isNumberish(cell) {
   );
 }
 
-// codeText is the code in a cell, without the React view's marker span.
-function codeText(el) {
-  if (el.nodeType === 3) {
-    return el.textContent;
-  }
-  if (
-    classes(el).includes("diff-text-marker") ||
-    el.getAttribute("data-diff-text-marker") === "true"
-  ) {
-    return "";
-  }
-  let s = "";
-  for (const n of el.childNodes) {
-    s += codeText(n);
-  }
-  return s;
-}
-
-function cellKind(cell) {
-  for (const el of findAll(cell, () => true)) {
-    for (const c of classes(el)) {
-      if (/(^|-)deletion$/.test(c)) {
-        return "-";
-      }
-      if (/(^|-)addition$/.test(c)) {
-        return "+";
-      }
-    }
-  }
-  return " ";
-}
-
-// parseRow splits a diff row into its number cells and code cells.
+// parseRow splits out a diff row's number cells.
 function parseRow(row) {
   const nums = [];
-  const codes = [];
   for (const cell of row.children) {
     if (cell.tagName !== "TD") {
       continue;
@@ -268,67 +235,13 @@ function parseRow(row) {
       if (n) {
         nums.push(n);
       }
-    } else {
-      codes.push(cell);
     }
   }
-  return { nums, codes };
-}
-
-function isHunkRow(row) {
-  const { nums } = parseRow(row);
-  return nums.length === 0 && row.textContent.trim().startsWith("@@");
-}
-
-// rowText renders a row as unified diff lines.
-function rowText(row) {
-  const { nums, codes } = parseRow(row);
-  if (nums.length === 0) {
-    return [row.textContent.trim()];
-  }
-  const has = (side) => nums.some((n) => n.side === side);
-  if (codes.length === 1) {
-    const mark = has("LEFT") && has("RIGHT") ? " " : has("LEFT") ? "-" : "+";
-    return [mark + codeText(codes[0])];
-  }
-  // Split view: one code cell per side; context shows once, on the right.
-  const out = [];
-  for (const cell of codes) {
-    const side = explicitSide(cell);
-    const kind = cellKind(cell);
-    const empty = !nums.some((n) => n.side === side);
-    if (empty || (kind === " " && side === "LEFT")) {
-      continue;
-    }
-    out.push(kind + codeText(cell));
-  }
-  return out;
+  return { nums };
 }
 
 function tableRows(table) {
   return findAll(table, (e) => e.tagName === "TR");
-}
-
-// hunkText is the hunk around row as unified diff text.
-function hunkText(row, table) {
-  const rows = tableRows(table);
-  let lo = rows.indexOf(row);
-  while (lo > 0 && !isHunkRow(rows[lo])) {
-    lo--;
-  }
-  let hi = rows.indexOf(row) + 1;
-  while (hi < rows.length && !isHunkRow(rows[hi])) {
-    hi++;
-  }
-  return rows.slice(lo, hi).flatMap(rowText).join("\n");
-}
-
-// hunkCode is hunkText, or "" when the page gave no code: only hunk
-// headers, diff marks and whitespace. Blank lines read as empty code.
-function hunkCode(row, table) {
-  const text = hunkText(row, table);
-  const blank = text.split("\n").every((l) => l.startsWith("@@") || /^[-+ ]?\s*$/.test(l));
-  return blank ? "" : text;
 }
 
 function filePath(el) {
@@ -470,7 +383,7 @@ function buildPayload({ href, headSha, start, end, selection, question, deep }) 
     .map((n) => n.line);
   const startLine = Math.min(...lines);
   const endLine = Math.max(...lines);
-  const text = selection && selection.trim() !== "" ? selection : hunkCode(b.row, b.table);
+  const text = selection && selection.trim() !== "" ? selection : "";
   let pageUrl = url.page;
   if (b.anchor) {
     const s = side[0];

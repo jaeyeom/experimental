@@ -216,21 +216,26 @@ looks like this:
 
 #+BEGIN_EXAMPLE
 [gh-ask] PR 42 · pkg/a.go:10-12 (RIGHT) · deep=no
+Commit: 0123456789abcdef0123456789abcdef01234567
+Lines: new lines 10-12 (RIGHT, head side)
 
 Question:
 Why is this retried?
 
-Code:
+Selected:
 for i := 0; i < 3; i++ {
 
 Link:
 https://github.com/octo/demo/pull/42/files#diff-...
 #+END_EXAMPLE
 
-A whole-PR question omits the ~Code:~ block:
+Code is no longer included unless the user selected text in the diff:
+a hover ask omits the ~Selected:~ block. A whole-PR question omits
+both ~Lines:~ and ~Selected:~:
 
 #+BEGIN_EXAMPLE
 [gh-ask] PR 42 · whole PR · deep=no
+Commit: 0123456789abcdef0123456789abcdef01234567
 
 Question:
 Is this the right place for the retry?
@@ -521,8 +526,8 @@ SHA-256 of the new path. Then update the expected text in the
   local server, and the line popover keeps the question text.
 - ~path~, ~side~, and the line range come from the diff rows. A range
   takes the side of the line where the selection ends.
-- ~selection~ is the selected text, or the hunk around the line when
-  nothing is selected, cut to 4 KB.
+- ~selection~ is the selected text when the user selected text in the
+  diff, cut to 4 KB, or empty on a hover ask.
 - ~page_url~ is the page link with the line anchor, such as
   ~#diff-<hash>R10-R12~. A whole-PR question from the panel uses the
   page without a line anchor.

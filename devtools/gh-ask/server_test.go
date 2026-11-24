@@ -199,8 +199,11 @@ func TestAskWholePR(t *testing.T) {
 	if string(msg) != RenderMessage(req) {
 		t.Errorf("message file =\n%s\nwant\n%s", msg, RenderMessage(req))
 	}
-	if strings.Contains(string(msg), "Code:") {
-		t.Errorf("whole PR message includes a Code block:\n%s", msg)
+	if strings.Contains(string(msg), "Selected:") {
+		t.Errorf("whole PR message includes a Selected block:\n%s", msg)
+	}
+	if strings.Contains(string(msg), "Lines:") {
+		t.Errorf("whole PR message includes a Lines header:\n%s", msg)
 	}
 }
 

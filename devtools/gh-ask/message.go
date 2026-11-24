@@ -129,14 +129,30 @@ func RenderMessage(r AskRequest) string {
 	var b strings.Builder
 	if r.located() {
 		fmt.Fprintf(&b, "[gh-ask] PR %d · %s:%d-%d (%s) · deep=%s\n", r.PR, r.Path, r.StartLine, r.EndLine, r.Side, deep)
+		fmt.Fprintf(&b, "Commit: %s\n", r.HeadSHA)
+		fmt.Fprintf(&b, "Lines: %s\n", formatLines(r.Side, r.StartLine, r.EndLine))
 		writeBlock(&b, "Question", r.Question)
-		writeBlock(&b, "Code", r.Selection)
+		if r.Selection != "" {
+			writeBlock(&b, "Selected", r.Selection)
+		}
 	} else {
 		fmt.Fprintf(&b, "[gh-ask] PR %d · whole PR · deep=%s\n", r.PR, deep)
+		fmt.Fprintf(&b, "Commit: %s\n", r.HeadSHA)
 		writeBlock(&b, "Question", r.Question)
 	}
 	writeBlock(&b, "Link", r.PageURL)
 	return b.String()
+}
+
+func formatLines(side string, start, end int) string {
+	age, sideName := "new", "head"
+	if side == "LEFT" {
+		age, sideName = "old", "base"
+	}
+	if start == end {
+		return fmt.Sprintf("%s line %d (%s, %s side)", age, start, side, sideName)
+	}
+	return fmt.Sprintf("%s lines %d-%d (%s, %s side)", age, start, end, side, sideName)
 }
 
 func writeBlock(b *strings.Builder, title, body string) {

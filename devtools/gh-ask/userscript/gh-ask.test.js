@@ -54,7 +54,7 @@ for (const v of views) {
     }
   });
 
-  test(`${v.name}: hovered line payload uses the hunk text`, () => {
+  test(`${v.name}: hovered line payload sends empty selection`, () => {
     const root = fixture(v.file);
     const el = byAttr(root, "data-fixture", "add10");
     const got = G.buildPayload({
@@ -75,15 +75,7 @@ for (const v of views) {
         side: "RIGHT",
         start_line: 10,
         end_line: 10,
-        selection: [
-          "@@ -8,5 +8,7 @@ package a",
-          " func Retry() error {",
-          "-\tfor i := 0; i < 2; i++ {",
-          "+\tfor i := 0; i < 3; i++ {",
-          "+\t\tlog.Print(i)",
-          " \t\tif err := try(); err == nil {",
-          " \t\t\treturn nil",
-        ].join("\n"),
+        selection: "",
         question: "Why log?",
         deep: true,
         page_url: `${v.href}#${A}R10`,
@@ -135,15 +127,6 @@ for (const v of views) {
 const C = "diff-640d823e223a4641034666098d26a6f04d83692043100600dad8ae98effad277";
 const CAPTURED_HEAD = "fedcba9876543210fedcba9876543210fedcba98";
 const CAPTURED_HREF = "https://github.com/octo/demo/pull/42/changes";
-const CAPTURED_HUNK = [
-  "@@ -0,0 +1,6 @@",
-  "+package greet",
-  "+",
-  "+import (",
-  '+\t"context"',
-  "+",
-  '+\t"strings"',
-].join("\n");
 
 function capturedAsk(root, start, end, selection = "") {
   return G.buildPayload({
@@ -176,24 +159,24 @@ test("captured changes view: code and number cells of a new file", () => {
   }
 });
 
-test("captured changes view: hovered line sends the hunk's code", () => {
+test("captured changes view: hovered line sends empty selection", () => {
   const root = fixture("changes-view-captured.html");
   const el = byAttr(root, "data-line-anchor", `${C}R1`);
   const p = capturedAsk(root, el, el).payload;
   assert.deepEqual(
     [p.side, p.start_line, p.end_line, p.selection, p.page_url],
-    ["RIGHT", 1, 1, CAPTURED_HUNK, `${CAPTURED_HREF}#${C}R1`],
+    ["RIGHT", 1, 1, "", `${CAPTURED_HREF}#${C}R1`],
   );
 });
 
-test("captured changes view: a range with no selected text sends the whole hunk", () => {
+test("captured changes view: a range with no selected text sends empty selection", () => {
   const root = fixture("changes-view-captured.html");
   const p = capturedAsk(
     root,
     byAttr(root, "data-grid-cell-id", `${C}-empty-1-1`),
     byAttr(root, "data-line-anchor", `${C}R6`),
   ).payload;
-  assert.deepEqual([p.start_line, p.end_line, p.selection], [1, 6, CAPTURED_HUNK]);
+  assert.deepEqual([p.start_line, p.end_line, p.selection], [1, 6, ""]);
 });
 
 test("code that cannot be read from the page is sent as no selection", () => {
@@ -223,10 +206,7 @@ test("classic split view: side comes from the code cell", () => {
     question: "q",
     deep: false,
   });
-  assert.equal(
-    got.payload.selection,
-    ["@@ -5,2 +5,2 @@ func main() {", "-\trun(false)", "+\trun(true)", " }"].join("\n"),
-  );
+  assert.equal(got.payload.selection, "");
 });
 
 test("a range across two files is refused", () => {
@@ -493,9 +473,9 @@ test("the script only connects to loopback", () => {
 const POPOVER_W = 360;
 const MARGIN = 8;
 
-test("userscript version is 0.1.13", () => {
+test("userscript version is 0.1.14", () => {
   const src = fs.readFileSync(path.join(__dirname, "gh-ask.user.js"), "utf8");
-  assert.match(src, /^\/\/ @version\s+0\.1\.13$/m);
+  assert.match(src, /^\/\/ @version\s+0\.1\.14$/m);
 });
 
 const FILES_HEAD = "0123456789abcdef0123456789abcdef01234567";
@@ -896,6 +876,23 @@ test("panel follow-up sends the whole PR, or the line form from a chip", () => {
     fromChip.payload.page_url,
     "https://github.com/octo/demo/pull/42/files#diff-abcR10-R12",
   );
+
+  const fromHoverChip = G.panelAsk({
+    href: "https://github.com/octo/demo/pull/42/files",
+    headSha,
+    question: "why this line?",
+    deep: false,
+    line: {
+      path: "pkg/a.go",
+      side: "RIGHT",
+      start_line: 10,
+      end_line: 10,
+      selection: "",
+      page_url: "https://github.com/octo/demo/pull/42/files#diff-abcR10",
+    },
+  });
+  assert.equal(fromHoverChip.error, undefined);
+  assert.equal(fromHoverChip.payload.selection, "");
 });
 
 test("the panel stays up across PR tabs", () => {
