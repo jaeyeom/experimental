@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
 )
@@ -560,5 +562,39 @@ func TestLoadApprovalPullRequestsEmptyMakesNoCall(t *testing.T) {
 	got, err := client.LoadApprovalPullRequests(nil)
 	if err != nil || len(got) != 0 || len(exec.calls) != 0 || client.GraphQLCalls() != 0 {
 		t.Fatalf("got=%v err=%v calls=%d", got, err, len(exec.calls))
+	}
+}
+
+func TestLoadApprovalPullRequestsTruncatedJSONReturnsSyntaxError(t *testing.T) {
+	exec := &funcExec{fn: func(_ string, _ ...string) (string, error) {
+		return `{"data":{"p0":{"pullRequest":`, nil
+	}}
+	_, err := NewClientWithExecutor(exec).LoadApprovalPullRequests([]PullRef{
+		{Owner: "acme", Repo: "widgets", Number: 1},
+	})
+	if err == nil {
+		t.Fatal("expected error for truncated JSON stdout, got nil")
+	}
+	var syntaxErr *json.SyntaxError
+	if !errors.As(err, &syntaxErr) {
+		t.Fatalf("err = %v, want *json.SyntaxError", err)
+	}
+}
+
+func TestLoadApprovalPullRequestsEmptyStdoutReturnsUnexpectedEOF(t *testing.T) {
+	exec := &funcExec{fn: func(_ string, _ ...string) (string, error) {
+		return "", nil
+	}}
+	client := NewClientWithExecutor(exec)
+	client.sleep = func(time.Duration) {}
+	client.warn = func(string, ...any) {}
+	_, err := client.LoadApprovalPullRequests([]PullRef{
+		{Owner: "acme", Repo: "widgets", Number: 1},
+	})
+	if err == nil {
+		t.Fatal("expected error for empty stdout, got nil")
+	}
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("err = %v, want io.ErrUnexpectedEOF", err)
 	}
 }

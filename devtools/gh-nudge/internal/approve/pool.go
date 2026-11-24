@@ -2,7 +2,9 @@ package approve
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"strings"
 	"sync"
@@ -29,20 +31,29 @@ func isSecondaryRateLimit(err error) bool {
 }
 
 // isTransientBatchError reports whether err looks like a transient gateway
-// failure (HTTP 502/503/504) or timeout that warrants retrying or splitting
-// a batched GraphQL chunk.
+// failure (HTTP 502/503/504), timeout, or truncated/garbled response that
+// warrants retrying or splitting a batched GraphQL chunk.
 func isTransientBatchError(err error) bool {
 	if err == nil || isSecondaryRateLimit(err) {
 		return false
 	}
-	if errors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, net.ErrClosed) {
 		return true
 	}
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
 		return true
 	}
+	var syntaxErr *json.SyntaxError
+	if errors.As(err, &syntaxErr) {
+		return true
+	}
 	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "invalid character ") && strings.Contains(msg, "looking for beginning of value") {
+		return true
+	}
 	for _, token := range []string{
 		"http 502",
 		"http 503",
@@ -56,6 +67,13 @@ func isTransientBatchError(err error) bool {
 		"timed out",
 		"timeout",
 		"deadline exceeded",
+		"unexpected end of json input",
+		"unexpected eof",
+		"connection reset",
+		"connection closed",
+		"connection force closed",
+		"use of closed network connection",
+		"response body closed",
 	} {
 		if strings.Contains(msg, token) {
 			return true

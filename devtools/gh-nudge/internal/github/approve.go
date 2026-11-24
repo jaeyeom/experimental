@@ -3,6 +3,7 @@ package github
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 
@@ -502,11 +503,17 @@ func (c *Client) loadApprovalPullRequestBatch(refs []PullRef) (map[string]BatchP
 	}
 	body, callErr := c.graphqlQuery(query, nil)
 	if strings.TrimSpace(body.stdout) == "" {
-		return nil, graphqlCallError("load pull requests", body, callErr)
+		if gErr := graphqlCallError("load pull requests", body, callErr); gErr != nil {
+			return nil, gErr
+		}
+		return nil, fmt.Errorf("load pull requests: %w", body.parseError(io.ErrUnexpectedEOF))
 	}
 	var envelope batchPullRequestEnvelope
-	if err := json.Unmarshal([]byte(body.stdout), &envelope); err != nil {
-		return nil, graphqlCallError("load pull requests", body, callErr)
+	if err := body.decode(&envelope); err != nil {
+		if gErr := graphqlCallError("load pull requests", body, callErr); gErr != nil {
+			return nil, gErr
+		}
+		return nil, fmt.Errorf("load pull requests: %w", err)
 	}
 	perAliasErr, err := collectBatchAliasErrors(envelope, aliases)
 	if err != nil {

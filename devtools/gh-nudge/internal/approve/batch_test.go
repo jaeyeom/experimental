@@ -3,8 +3,11 @@ package approve
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"strings"
 	"sync"
 	"testing"
@@ -466,7 +469,117 @@ func TestBatchAllWouldBeLeftFailedPrintsZeroLeftForYouAndNotEvaluated(t *testing
 	}
 }
 
+func TestBatchRetrySucceedsAfterTruncatedJSON(t *testing.T) {
+	prs := []github.ApprovalPullRequest{prNumber(1), prNumber(2), prNumber(3), prNumber(4)}
+	fake := newFake(prs...)
+	attempts := 0
+	fake.batchErrFn = func(refs []github.PullRef) error {
+		attempts++
+		if attempts == 1 {
+			return errors.New("load pull requests: gh api graphql: failed to execute gh: exit status 1: unexpected end of JSON input")
+		}
+		return nil
+	}
+
+	var sleeps []time.Duration
+	var out, logBuf bytes.Buffer
+	runner := &Runner{
+		Client: fake,
+		Config: config.ApproveConfig{
+			Body:                "LGTM",
+			SkipAlreadyApproved: true,
+			Rules:               []config.ApproveRule{dashboardRule},
+		},
+		Out:         &out,
+		Log:         &logBuf,
+		Now:         fixedNow,
+		BatchSize:   4,
+		BackoffBase: time.Millisecond,
+		Sleep: func(d time.Duration) {
+			sleeps = append(sleeps, d)
+		},
+	}
+	if err := runner.Run(Options{Explain: true}); err != nil {
+		t.Fatalf("expected retry to succeed, got err: %v", err)
+	}
+	if fake.batchReads != 2 {
+		t.Fatalf("batchReads = %d, want 2", fake.batchReads)
+	}
+	if len(sleeps) != 1 {
+		t.Fatalf("sleeps = %v, want 1 pause", sleeps)
+	}
+	entries := decodeLog(t, &logBuf)
+	if len(entries) != 4 {
+		t.Fatalf("entries = %d, want 4", len(entries))
+	}
+	for i, e := range entries {
+		if e.Action != ActionWouldApprove {
+			t.Fatalf("entry[%d] action = %s, want %s", i, e.Action, ActionWouldApprove)
+		}
+	}
+	if !strings.Contains(out.String(), "Batch retry: chunk size 4, attempt 1, error:") || !strings.Contains(out.String(), "unexpected end of JSON input") {
+		t.Fatalf("output missing retry log:\n%s", out.String())
+	}
+}
+
+func TestBatchSplitsChunkOnPersistentTruncatedJSON(t *testing.T) {
+	prs := []github.ApprovalPullRequest{prNumber(1), prNumber(2), prNumber(3), prNumber(4), prNumber(5)}
+	fake := newFake(prs...)
+	fake.batchErrFn = func(refs []github.PullRef) error {
+		for _, ref := range refs {
+			if ref.Number == 3 {
+				return errors.New("load pull requests: gh api graphql: failed to execute gh: exit status 1: unexpected end of JSON input")
+			}
+		}
+		return nil
+	}
+
+	var out, logBuf bytes.Buffer
+	runner := &Runner{
+		Client: fake,
+		Config: config.ApproveConfig{
+			Body:                "LGTM",
+			SkipAlreadyApproved: true,
+			Rules:               []config.ApproveRule{dashboardRule},
+		},
+		Out:         &out,
+		Log:         &logBuf,
+		Now:         fixedNow,
+		BatchSize:   5,
+		BackoffBase: time.Millisecond,
+		Sleep:       func(time.Duration) {},
+	}
+	err := runner.Run(Options{Explain: true})
+	if err == nil || !strings.Contains(err.Error(), "1 pull request(s) failed") {
+		t.Fatalf("err = %v, want 1 pull request(s) failed", err)
+	}
+	entries := decodeLog(t, &logBuf)
+	if len(entries) != 5 {
+		t.Fatalf("entries = %d, want 5", len(entries))
+	}
+	for i, e := range entries {
+		wantAction := ActionWouldApprove
+		if i == 2 { // PR #3
+			wantAction = ActionError
+		}
+		if e.Action != wantAction {
+			t.Fatalf("PR #%d action = %s, want %s", i+1, e.Action, wantAction)
+		}
+	}
+	for _, want := range []string{"Batch retry: chunk size 5, attempt 1", "Batch split: chunk size 5, attempt 2"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("output missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
 func TestIsTransientBatchError(t *testing.T) {
+	var v any
+	jsonSyntaxErr := json.Unmarshal([]byte(`{"data": 1,}`), &v)
+	if jsonSyntaxErr == nil {
+		t.Fatal("expected json.Unmarshal error for garbled JSON")
+	}
+
 	tests := []struct {
 		name string
 		err  error
@@ -478,7 +591,21 @@ func TestIsTransientBatchError(t *testing.T) {
 		{name: "http 504", err: errors.New("load pull requests: gh api graphql: exit status 1: gh: HTTP 504"), want: true},
 		{name: "deadline exceeded", err: fmt.Errorf("graphql: %w", context.DeadlineExceeded), want: true},
 		{name: "timeout text", err: errors.New("dial tcp: i/o timeout"), want: true},
+		{name: "unexpected end of json input", err: errors.New("load pull requests: gh api graphql: failed to execute gh: exit status 1: unexpected end of JSON input"), want: true},
+		{name: "unexpected EOF text", err: errors.New("load pull requests: read body: unexpected EOF"), want: true},
+		{name: "wrapped io.ErrUnexpectedEOF", err: fmt.Errorf("load pull requests: %w", io.ErrUnexpectedEOF), want: true},
+		{name: "wrapped json.SyntaxError", err: fmt.Errorf("load pull requests: %w", jsonSyntaxErr), want: true},
+		{name: "connection reset by peer", err: errors.New("read tcp 10.0.0.1:443: connection reset by peer"), want: true},
+		{name: "use of closed network connection", err: errors.New("read tcp 10.0.0.1:443: use of closed network connection"), want: true},
+		{name: "wrapped net.ErrClosed", err: fmt.Errorf("read body: %w", net.ErrClosed), want: true},
+		{name: "response body closed", err: errors.New("http2: response body closed"), want: true},
+		{name: "http2 connection force closed", err: errors.New("http2: client connection force closed"), want: true},
+		{name: "connection closed phrase", err: errors.New("connection closed before response completed"), want: true},
+		{name: "invalid character html body", err: errors.New("invalid character '<' looking for beginning of value"), want: true},
+		{name: "invalid character non-json body", err: errors.New("load pull requests: invalid character 'e' looking for beginning of value"), want: true},
 		{name: "bad query", err: errors.New("GraphQL: Field 'foo' doesn't exist"), want: false},
+		{name: "graphql not found", err: errors.New("load pull requests: Could not resolve to a PullRequest with the number of 99."), want: false},
+		{name: "primary rate limit", err: errors.New("HTTP 403: API rate limit exceeded"), want: false},
 		{name: "secondary rate limit", err: errors.New("HTTP 403: You have exceeded a secondary rate limit"), want: false},
 	}
 	for _, tc := range tests {
