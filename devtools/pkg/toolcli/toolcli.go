@@ -73,17 +73,22 @@ type CheckResult struct {
 // DoctorCheck is a tool-specific diagnostic function.
 type DoctorCheck func(ctx context.Context, offline bool) CheckResult
 
+// DoctorCheckGroup is a tool-specific diagnostic function that returns zero or
+// more check results (for optional sections omitted when unconfigured).
+type DoctorCheckGroup func(ctx context.Context, offline bool) []CheckResult
+
 // Tool configures the standard CLI protocol for a single tool binary.
 type Tool struct {
-	Name              string
-	MainPackage       string
-	DaemonService     string
-	Companions        []Companion
-	SkillText         string
-	ConfigPath        func() (string, bool)
-	CheckConfig       func() error
-	RequiredCommands  []string
-	ExtraDoctorChecks []DoctorCheck
+	Name                   string
+	MainPackage            string
+	DaemonService          string
+	Companions             []Companion
+	SkillText              string
+	ConfigPath             func() (string, bool)
+	CheckConfig            func() error
+	RequiredCommands       []string
+	ExtraDoctorChecks      []DoctorCheck
+	ExtraDoctorCheckGroups []DoctorCheckGroup
 
 	// DoctorUsage, when non-empty, overrides the usage line printed when
 	// `doctor` receives unexpected positional arguments.

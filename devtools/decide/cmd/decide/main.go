@@ -126,6 +126,7 @@ func usage(w io.Writer) {
   decide keys [--json]
   decide follow [--every 1m] [--once]
   decide web [--addr 127.0.0.1:8787] [--token-file <path>] [--allow-insecure-unauth] [--no-follow]
+  decide web setup [--yes] [--dry-run]
   decide status set --agent <name> [--state working|idle|paused|blocked] <text>
   decide status set --resource <name> free|busy [<note>]
   decide status list [--json]

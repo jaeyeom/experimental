@@ -178,8 +178,11 @@ func (s *Server) Handler() (http.Handler, error) {
 	}
 	mux := http.NewServeMux()
 	staticRoutes(mux)
-	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":     true,
+			"secure": isSecureRequest(r),
+		})
 	})
 	a.routes(mux)
 	s.apiRoutes(mux)

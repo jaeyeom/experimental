@@ -14,6 +14,28 @@ build step and no Node.
 
 * Quick start
 
+Run the interactive setup wizard on the hub:
+
+#+begin_src sh
+decide web setup
+#+end_src
+
+Each step checks whether it is already done, shows the exact file or
+command it will write or run, and asks before making changes. Pass
+~--dry-run~ to print the plan without changing anything, or ~--yes~ to
+accept non-~sudo~ steps automatically (~sudo~ commands always ask).
+
+Verify an existing installation at any time with:
+
+#+begin_src sh
+decide doctor
+#+end_src
+
+~decide doctor~ includes a web section whenever ~web~ is configured or
+the service unit is installed, and skips it quietly otherwise.
+
+* Manual quick start (reference)
+
 #+begin_src sh
 decide web --token-file ~/.config/decide/web-token
 #+end_src

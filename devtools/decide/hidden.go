@@ -24,6 +24,18 @@ func SetHiddenContacts(names []string) ([]string, error) {
 	return names, nil
 }
 
+// SetWebConfig replaces the top-level "web" config key after backing up
+// config.json to config.json.bak.
+func SetWebConfig(web WebConfig) error {
+	return writeConfigMember("web", web)
+}
+
+// SetWebConfigAt replaces the top-level "web" config key in path after backing
+// up path to path.bak.
+func SetWebConfigAt(path string, web WebConfig) error {
+	return writeConfigMemberAt(path, "web", web)
+}
+
 // writeConfigMember replaces one top-level config key. The write matches
 // SetAvatarRule: a temp file, one backup, then a rename, including
 // through a symlink.
@@ -32,6 +44,10 @@ func writeConfigMember(key string, value any) error {
 	if !ok {
 		return fmt.Errorf("decide config: no home directory")
 	}
+	return writeConfigMemberAt(path, key, value)
+}
+
+func writeConfigMemberAt(path, key string, value any) error {
 	target, data, perm, err := readConfigForWrite(path)
 	if err != nil {
 		return err

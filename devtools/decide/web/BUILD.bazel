@@ -6,6 +6,7 @@ go_library(
     srcs = [
         "api.go",
         "auth.go",
+        "doctor.go",
         "handlers_drafts.go",
         "handlers_push.go",
         "handlers_read.go",
@@ -14,6 +15,7 @@ go_library(
         "push_dispatch.go",
         "push_store.go",
         "server.go",
+        "setup.go",
         "sse.go",
         "static.go",
         "webpush_crypto.go",
@@ -53,6 +55,7 @@ go_library(
         "//devtools/decide:go_default_library",
         "//devtools/decide/inboxrpc:go_default_library",
         "//devtools/decide/tui:go_default_library",
+        "//devtools/pkg/toolcli:go_default_library",
         "@com_github_google_renameio_v2//:go_default_library",
     ],
 )
@@ -61,10 +64,12 @@ go_test(
     name = "go_default_test",
     srcs = [
         "api_test.go",
+        "doctor_test.go",
         "e2e_test.go",
         "push_dispatch_test.go",
         "push_test.go",
         "server_test.go",
+        "setup_test.go",
         "sse_test.go",
         "static_test.go",
         "webpush_crypto_test.go",
@@ -74,6 +79,7 @@ go_test(
         "//devtools/decide:go_default_library",
         "//devtools/decide/inboxrpc:go_default_library",
         "//devtools/decide/tui:go_default_library",
+        "//devtools/pkg/toolcli:go_default_library",
     ],
 )
 

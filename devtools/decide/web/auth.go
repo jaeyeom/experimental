@@ -233,6 +233,10 @@ func (a *auth) logout(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+func isSecureRequest(r *http.Request) bool {
+	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+}
+
 func (a *auth) cookie(r *http.Request, value string, exp time.Time, maxAge int) *http.Cookie {
 	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
 	return &http.Cookie{ //nolint:gosec // G124: Secure follows the request scheme, as the proxy may terminate TLS.
@@ -243,7 +247,7 @@ func (a *auth) cookie(r *http.Request, value string, exp time.Time, maxAge int) 
 		MaxAge:   maxAge,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"),
+		Secure:   isSecureRequest(r),
 	}
 }
 

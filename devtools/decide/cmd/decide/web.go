@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"os/signal"
 
 	"github.com/jaeyeom/experimental/devtools/decide"
@@ -14,8 +15,11 @@ import (
 )
 
 // cmdWeb is `decide web`: the HTTP server for the web inbox, on this
-// machine's ledger. It runs until SIGINT or SIGTERM.
+// machine's ledger, or `decide web setup` for the interactive setup wizard.
 func cmdWeb(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "setup" {
+		return cmdWebSetup(args[1:], os.Stdin, stdout, stderr)
+	}
 	fs := flag.NewFlagSet("web", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	addr := fs.String("addr", "", "listen address (default web.addr, else "+decide.DefaultWebAddr+")")
@@ -62,6 +66,31 @@ func cmdWeb(args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), unix.SIGINT, unix.SIGTERM)
 	defer stop()
 	if err := s.Serve(ctx, ln); err != nil {
+		return fail(stderr, err, 1)
+	}
+	return 0
+}
+
+func cmdWebSetup(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("web setup", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	yes := fs.Bool("yes", false, "accept every step except sudo commands")
+	dryRun := fs.Bool("dry-run", false, "print the setup plan without making changes")
+	if code, stop := stopped(parseFlags(fs, args)); stop {
+		return code
+	}
+	if len(fs.Args()) != 0 {
+		return fail(stderr, fmt.Errorf("decide web setup takes no arguments"), 2)
+	}
+	env := web.SetupEnv{
+		Stdin:  stdin,
+		Stdout: stdout,
+		Stderr: stderr,
+	}
+	if err := web.RunSetup(context.Background(), env, web.SetupOptions{
+		Yes:    *yes,
+		DryRun: *dryRun,
+	}); err != nil {
 		return fail(stderr, err, 1)
 	}
 	return 0

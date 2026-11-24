@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/jaeyeom/experimental/devtools/decide"
+	"github.com/jaeyeom/experimental/devtools/decide/web"
 	"github.com/jaeyeom/experimental/devtools/pkg/hubcall"
 	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
 )
@@ -30,7 +31,14 @@ func newDecideTool() toolcli.Tool {
 			checkDecideNotifyTarget,
 			checkDecideAgentbus,
 		},
+		ExtraDoctorCheckGroups: []toolcli.DoctorCheckGroup{
+			checkDecideWeb,
+		},
 	}
+}
+
+func checkDecideWeb(ctx context.Context, offline bool) []toolcli.CheckResult {
+	return web.DoctorWebChecks(ctx, web.DoctorEnv{}, offline)
 }
 
 func checkDecideHub(ctx context.Context, offline bool) toolcli.CheckResult {

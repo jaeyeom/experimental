@@ -73,6 +73,9 @@ func (t *Tool) runDoctorChecks(ctx context.Context, offline bool) []CheckResult 
 	for _, fn := range t.ExtraDoctorChecks {
 		checks = append(checks, fn(ctx, offline))
 	}
+	for _, fn := range t.ExtraDoctorCheckGroups {
+		checks = append(checks, fn(ctx, offline)...)
+	}
 	return checks
 }
 

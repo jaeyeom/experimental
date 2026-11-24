@@ -585,6 +585,12 @@ func LoadConfig() (Config, error) {
 	if !ok {
 		return Config{}, nil
 	}
+	return LoadConfigAt(path)
+}
+
+// LoadConfigAt reads the decide config file at path. A missing file is an
+// empty config.
+func LoadConfigAt(path string) (Config, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return Config{}, nil
