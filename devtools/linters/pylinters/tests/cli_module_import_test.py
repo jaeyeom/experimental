@@ -488,6 +488,30 @@ def test_excluded_baselined_file_is_out_of_scope(
     )
 
 
+def test_no_baseline_omits_exceeded_lines(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without a baseline file, failures print no "allows 0" lines."""
+    make_repo(tmp_path, BAD)
+    monkeypatch.chdir(tmp_path)
+    code, out, _ = call([])
+    assert code == 1
+    assert "baseline exceeded" not in out
+
+
+def test_directory_without_py_files_exit_2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A directory argument with no tracked .py files is an error."""
+    make_repo(tmp_path, {**BAD, "docs/README.md": ""})
+    (tmp_path / "empty").mkdir()
+    monkeypatch.chdir(tmp_path)
+    for arg in ("docs", "empty"):
+        code, out, err = call([arg])
+        assert (code, out) == (2, "")
+        assert f"{arg}: no tracked .py files under directory" in err
+
+
 def test_exclude_help_mentions_configured(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

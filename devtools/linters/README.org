@@ -438,7 +438,8 @@ py-sibling-import --exclude 'legacy/**' --generated '**/*_pb2.py'
 #+END_SRC
 
 A directory argument checks the tracked ~.py~ files below it (~.~ is the
-whole tree).
+whole tree); a directory with none is an error (exit 2). ~--exclude~
+replaces the checker's configured excludes; the shared ones still apply.
 
 A genuine exception carries ~# py-sibling-import: allow~ on any line of
 the import statement.
@@ -525,7 +526,8 @@ py-module-import --exclude 'legacy/**' --exempt-marker manage.py --third-party r
 Positional paths are relative to the current directory; ~--stdin0~ paths
 are relative to the repo top level, as ~git diff --name-only~ prints them.
 A directory checks the tracked ~.py~ files below it (~.~ is the whole
-tree, still reported as a path run). Paths that are not tracked ~.py~
+tree, still reported as a path run); a directory argument with no
+tracked ~.py~ files is an error (exit 2). Paths that are not tracked ~.py~
 files, deleted, excluded, or under an exempt marker are skipped.
 ~--root-dir~, ~--generated~, ~--exempt-marker~ and ~--third-party~ replace
 the configured lists; ~--exclude~ adds to the configured shared and checker

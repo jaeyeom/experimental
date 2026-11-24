@@ -104,15 +104,16 @@ def test_load_rejects_unknown_field(tmp_path: Path, obj: object) -> None:
         baseline.load(_write(tmp_path, obj), CHECKER)
 
 
-def test_load_rejects_bad_version(tmp_path: Path) -> None:
-    """Load rejects bad version."""
-    obj = {"version": 2, "checker": CHECKER, "entries": {}}
+@pytest.mark.parametrize("version", [2, 1.0, True])
+def test_load_rejects_bad_version(tmp_path: Path, version: object) -> None:
+    """Load rejects any version other than the integer 1."""
+    obj = {"version": version, "checker": CHECKER, "entries": {}}
     with pytest.raises(ConfigError, match="version"):
         baseline.load(_write(tmp_path, obj), CHECKER)
 
 
 @pytest.mark.parametrize(
-    "key", ["/abs", "a/../b", "./a", "a/", "a\\b", "a//b"]
+    "key", ["/abs", "a/../b", "./a", "a/", "a\\b", "a//b", "."]
 )
 def test_load_rejects_unnormalized_key(tmp_path: Path, key: str) -> None:
     """Load rejects unnormalized key."""

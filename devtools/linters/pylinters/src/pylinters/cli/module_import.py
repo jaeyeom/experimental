@@ -95,7 +95,8 @@ def main(
     for v in result.violations:
         if result.counts[v.path] > baseline.allowed(bl, v.path):
             print(v, file=out)
-    for line in failures:
+    # Without baseline entries every limit is 0; the violations say it all.
+    for line in failures if bl.entries else []:
         print(f"baseline exceeded: {line}", file=out)
     for line in stale:
         print(f"stale baseline: {line}", file=out)

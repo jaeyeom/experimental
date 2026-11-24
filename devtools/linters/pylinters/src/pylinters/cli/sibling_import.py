@@ -82,7 +82,8 @@ def _parser() -> argparse.ArgumentParser:
         "--exclude",
         action="append",
         metavar="GLOB",
-        help="checker exclude glob (repeatable; replaces config)",
+        help="checker exclude glob (repeatable; replaces the checker "
+        "excludes; shared excludes still apply)",
     )
     parser.add_argument(
         "--generated",

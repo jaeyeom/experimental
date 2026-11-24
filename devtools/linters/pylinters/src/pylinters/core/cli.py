@@ -57,11 +57,20 @@ def selected_paths(
     Directories expand to the tracked ``.py`` files below them.
 
     Raises:
-        ConfigError: A path lies outside the repository.
+        ConfigError: A path lies outside the repository, or a directory
+            argument holds no tracked ``.py`` files.
     """
     if not args and stdin is None:
         return None
     paths = to_repo_paths(args, os.getcwd(), fs.root)
+    for arg, path in zip(args, paths, strict=True):
+        dir = "" if path == "." else path
+        if os.path.isdir(os.path.join(fs.root, dir)) and not fs.has_py_under(
+            dir
+        ):
+            raise errors.ConfigError(
+                f"{arg}: no tracked .py files under directory"
+            )
     if stdin is not None:
         paths += to_repo_paths(read_stdin0(stdin), fs.root, fs.root)
     return fs.expand_dirs(paths)

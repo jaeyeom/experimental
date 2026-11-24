@@ -217,5 +217,17 @@ def test_directory_path_expands(
         assert VIOLATION in out
 
 
+def test_exclude_help_describes_merge(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """--exclude help says the shared excludes still apply."""
+    with pytest.raises(SystemExit):
+        call(["--help"])
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert "replaces the checker excludes; shared excludes still apply" in (
+        help_text
+    )
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, *sys.argv[1:]]))

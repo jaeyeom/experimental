@@ -221,7 +221,7 @@ def _parse(raw: object, checker: str) -> File:
     if not isinstance(raw, dict):
         raise errors.ConfigError("top level must be an object")
     _reject_unknown(raw, _TOP_FIELDS, "baseline")
-    if raw.get("version") != VERSION or isinstance(raw.get("version"), bool):
+    if type(raw.get("version")) is not int or raw["version"] != VERSION:
         raise errors.ConfigError(
             f"unsupported version {raw.get('version')!r}, want {VERSION}"
         )
@@ -276,6 +276,7 @@ def _reject_unknown(
 def _check_key(key: str) -> None:
     bad = (
         not key
+        or key == "."
         or key.startswith("/")
         or "\\" in key
         or ".." in key.split("/")
