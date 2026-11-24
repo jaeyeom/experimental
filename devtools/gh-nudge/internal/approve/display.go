@@ -100,8 +100,16 @@ func statusCell(action string, color bool) string {
 }
 
 // writeSummary lists the pull requests under each non-empty group, with a
-// count, in summaryOrder.
+// count, in summaryOrder. When any pull request failed, it always prints the
+// "Left for you" heading (even with count 0) and notes how many were not
+// evaluated.
 func writeSummary(w io.Writer, entries []LogEntry, color bool) error {
+	errorCount := 0
+	for _, entry := range entries {
+		if outcomeOf(entry.Action) == outcomeError {
+			errorCount++
+		}
+	}
 	var out strings.Builder
 	for _, o := range summaryOrder {
 		var lines []string
@@ -110,12 +118,15 @@ func writeSummary(w io.Writer, entries []LogEntry, color bool) error {
 				lines = append(lines, summaryLine(entry))
 			}
 		}
-		if len(lines) == 0 {
+		if len(lines) == 0 && (o != outcomeLeft || errorCount == 0) {
 			continue
 		}
 		fmt.Fprintf(&out, "\n%s (%d)\n", paint(o.marker+" "+o.heading, o.color, color), len(lines))
 		for _, line := range lines {
 			out.WriteString(line)
+		}
+		if o == outcomeLeft && errorCount > 0 {
+			fmt.Fprintf(&out, "  %d not evaluated (load failed); rerun to check them\n", errorCount)
 		}
 	}
 	if _, err := io.WriteString(w, out.String()); err != nil {

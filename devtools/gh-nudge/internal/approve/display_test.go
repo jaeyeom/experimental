@@ -106,6 +106,7 @@ func TestWriteSummaryGroupsInOrderWithCounts(t *testing.T) {
 		"👀 Left for you (2)\n" +
 		"  acme/widgets#3  Three - dashboard: paths_all_match failed (infra/main.tf)\n" +
 		"  acme/widgets#5  Five (dry run) - would_mark_viewed: 1 files\n" +
+		"  1 not evaluated (load failed); rerun to check them\n" +
 		"\n" +
 		"✅ Approved (1)\n" +
 		"  acme/widgets#2  Two\n" +
@@ -142,6 +143,27 @@ func TestWriteSummaryEmpty(t *testing.T) {
 	}
 	if out.Len() != 0 {
 		t.Fatalf("summary = %q, want nothing", out.String())
+	}
+}
+
+func TestWriteSummaryErrorsOnlyShowsZeroLeftForYou(t *testing.T) {
+	entries := []LogEntry{
+		{PR: "acme/widgets#1", Action: ActionError, Reason: "gh: HTTP 504"},
+		{PR: "acme/widgets#2", Action: ActionError, Reason: "gh: HTTP 504"},
+	}
+	var out bytes.Buffer
+	if err := writeSummary(&out, entries, false); err != nil {
+		t.Fatal(err)
+	}
+	want := "\n" +
+		"👀 Left for you (0)\n" +
+		"  2 not evaluated (load failed); rerun to check them\n" +
+		"\n" +
+		"❌ Errors (2)\n" +
+		"  acme/widgets#1 - gh: HTTP 504\n" +
+		"  acme/widgets#2 - gh: HTTP 504\n"
+	if out.String() != want {
+		t.Fatalf("summary =\n%s\nwant\n%s", out.String(), want)
 	}
 }
 

@@ -205,6 +205,13 @@ func (r *Runner) Run(opts Options) error {
 	return nil
 }
 
+type batchRecoveryEvent struct {
+	action    string
+	chunkSize int
+	attempt   int
+	err       string
+}
+
 type runTotals struct {
 	reported     []LogEntry
 	failed       int
@@ -212,6 +219,7 @@ type runTotals struct {
 	cheapSkipped int
 	stoppedAt    int
 	graphqlCalls int
+	batchEvents  []batchRecoveryEvent
 }
 
 type evalOutcome struct {
@@ -321,7 +329,7 @@ type indexedCandidate struct {
 	cand  github.ApprovalCandidate
 }
 
-func (r *Runner) dispatchCandidates(candidates []github.ApprovalCandidate, viewer string, opts Options, single bool, started time.Time, limit time.Duration, pool *loadPool, queue *outcomeQueue) {
+func (r *Runner) dispatchCandidates(candidates []github.ApprovalCandidate, viewer string, opts Options, single bool, started time.Time, limit time.Duration, pool *loadPool, queue *outcomeQueue) []batchRecoveryEvent {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 	canStart := func() bool {
@@ -329,14 +337,14 @@ func (r *Runner) dispatchCandidates(candidates []github.ApprovalCandidate, viewe
 	}
 	if single {
 		r.dispatchSingle(candidates, viewer, single, canStart, pool, queue, &wg)
-		return
+		return nil
 	}
 
 	var toLoad []indexedCandidate
 	for i, candidate := range candidates {
 		if !canStart() {
 			queue.stopAt(i)
-			return
+			return nil
 		}
 		if skipped := r.cheapSkipOutcome(candidate, opts.Explain); skipped != nil {
 			queue.set(i, skipped)
@@ -345,18 +353,20 @@ func (r *Runner) dispatchCandidates(candidates []github.ApprovalCandidate, viewe
 		toLoad = append(toLoad, indexedCandidate{index: i, cand: candidate})
 	}
 	if len(toLoad) == 0 {
-		return
+		return nil
 	}
 
+	var events []batchRecoveryEvent
 	batchSize := r.effectiveBatchSize()
 	totalBatches := (len(toLoad) + batchSize - 1) / batchSize
 	for b := 0; b < totalBatches; b++ {
 		start := b * batchSize
 		end := min(start+batchSize, len(toLoad))
-		if !r.dispatchBatchChunk(toLoad[start:end], b+1, totalBatches, viewer, single, canStart, pool, queue, &wg) {
-			return
+		if !r.dispatchBatchChunk(toLoad[start:end], b+1, totalBatches, viewer, single, canStart, pool, queue, &wg, &events) {
+			return events
 		}
 	}
+	return events
 }
 
 func (r *Runner) dispatchSingle(candidates []github.ApprovalCandidate, viewer string, single bool, canStart func() bool, pool *loadPool, queue *outcomeQueue, wg *sync.WaitGroup) {
@@ -374,7 +384,17 @@ func (r *Runner) dispatchSingle(candidates []github.ApprovalCandidate, viewer st
 	}
 }
 
-func (r *Runner) dispatchBatchChunk(chunk []indexedCandidate, batchNum, totalBatches int, viewer string, single bool, canStart func() bool, pool *loadPool, queue *outcomeQueue, wg *sync.WaitGroup) bool {
+func (r *Runner) loadBatchOnce(refs []github.PullRef, pool *loadPool) (map[string]github.BatchPullRequestResult, error) {
+	var batchResults map[string]github.BatchPullRequestResult
+	batchErr := pool.callWithRetry(func() error {
+		var callErr error
+		batchResults, callErr = r.Client.LoadApprovalPullRequests(refs)
+		return callErr //nolint:wrapcheck // caller records batch pull request load error
+	})
+	return batchResults, batchErr
+}
+
+func (r *Runner) dispatchBatchChunk(chunk []indexedCandidate, batchNum, totalBatches int, viewer string, single bool, canStart func() bool, pool *loadPool, queue *outcomeQueue, wg *sync.WaitGroup, events *[]batchRecoveryEvent) bool {
 	if !canStart() {
 		queue.stopAt(chunk[0].index)
 		return false
@@ -384,12 +404,34 @@ func (r *Runner) dispatchBatchChunk(chunk []indexedCandidate, batchNum, totalBat
 		refs[j] = item.cand.Ref
 	}
 	loadStart := r.now()
-	var batchResults map[string]github.BatchPullRequestResult
-	batchErr := pool.callWithRetry(func() error {
-		var callErr error
-		batchResults, callErr = r.Client.LoadApprovalPullRequests(refs)
-		return callErr //nolint:wrapcheck // caller records batch pull request load error
-	})
+	batchResults, batchErr := r.loadBatchOnce(refs, pool)
+	if batchErr != nil && isTransientBatchError(batchErr) {
+		*events = append(*events, batchRecoveryEvent{
+			action:    "retry",
+			chunkSize: len(chunk),
+			attempt:   1,
+			err:       batchErr.Error(),
+		})
+		pool.pauseTransient()
+		if !canStart() {
+			queue.stopAt(chunk[0].index)
+			return false
+		}
+		batchResults, batchErr = r.loadBatchOnce(refs, pool)
+		if batchErr != nil && isTransientBatchError(batchErr) && len(chunk) > 1 {
+			*events = append(*events, batchRecoveryEvent{
+				action:    "split",
+				chunkSize: len(chunk),
+				attempt:   2,
+				err:       batchErr.Error(),
+			})
+			mid := len(chunk) / 2
+			if !r.dispatchBatchChunk(chunk[:mid], batchNum, totalBatches, viewer, single, canStart, pool, queue, wg, events) {
+				return false
+			}
+			return r.dispatchBatchChunk(chunk[mid:], batchNum, totalBatches, viewer, single, canStart, pool, queue, wg, events)
+		}
+	}
 	bInfo := batchLoadInfo{
 		duration: r.now().Sub(loadStart),
 		index:    batchNum,
@@ -428,10 +470,11 @@ func (r *Runner) processCandidates(candidates []github.ApprovalCandidate, viewer
 	}
 	pool := newLoadPool(r.effectiveConcurrency(opts, single, len(candidates)), r.BackoffBase, r.now, r.Sleep)
 	queue := newOutcomeQueue(len(candidates))
+	var batchEvents []batchRecoveryEvent
 	dispatchDone := make(chan struct{})
 	go func() {
 		defer close(dispatchDone)
-		r.dispatchCandidates(candidates, viewer, opts, single, started, limit, pool, queue)
+		batchEvents = r.dispatchCandidates(candidates, viewer, opts, single, started, limit, pool, queue)
 	}()
 
 	var reportErr error
@@ -468,6 +511,7 @@ func (r *Runner) processCandidates(candidates []github.ApprovalCandidate, viewer
 		totals.reported = append(totals.reported, res.entry)
 	}
 	<-dispatchDone
+	totals.batchEvents = batchEvents
 	if reportErr != nil {
 		return totals, reportErr
 	}
@@ -496,6 +540,11 @@ func (r *Runner) writePassStats(candidates int, started time.Time, limit time.Du
 		}
 	} else {
 		if _, err := fmt.Fprintf(r.Out, "Candidates: %d; skipped by cheap conditions: %d; fully loaded: %d; wall time: %s\n", candidates, totals.cheapSkipped, totals.loaded, r.now().Sub(started)); err != nil {
+			return fmt.Errorf("write output: %w", err)
+		}
+	}
+	for _, ev := range totals.batchEvents {
+		if _, err := fmt.Fprintf(r.Out, "Batch %s: chunk size %d, attempt %d, error: %s\n", ev.action, ev.chunkSize, ev.attempt, ev.err); err != nil {
 			return fmt.Errorf("write output: %w", err)
 		}
 	}

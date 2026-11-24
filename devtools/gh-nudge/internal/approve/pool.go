@@ -1,6 +1,9 @@
 package approve
 
 import (
+	"context"
+	"errors"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +26,42 @@ func isSecondaryRateLimit(err error) bool {
 		return true
 	}
 	return (strings.Contains(msg, "403") || strings.Contains(msg, "429")) && strings.Contains(msg, "rate limit")
+}
+
+// isTransientBatchError reports whether err looks like a transient gateway
+// failure (HTTP 502/503/504) or timeout that warrants retrying or splitting
+// a batched GraphQL chunk.
+func isTransientBatchError(err error) bool {
+	if err == nil || isSecondaryRateLimit(err) {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	for _, token := range []string{
+		"http 502",
+		"http 503",
+		"http 504",
+		"502 bad gateway",
+		"503 service unavailable",
+		"504 gateway timeout",
+		"bad gateway",
+		"service unavailable",
+		"gateway timeout",
+		"timed out",
+		"timeout",
+		"deadline exceeded",
+	} {
+		if strings.Contains(msg, token) {
+			return true
+		}
+	}
+	return false
 }
 
 type syncCacheEntry[V any] struct {
@@ -180,4 +219,14 @@ func (p *loadPool) callWithRetry(fn func() error) error {
 		}
 		p.onSecondaryRateLimit()
 	}
+}
+
+// pauseTransient waits briefly before retrying a chunk that hit a transient
+// gateway or timeout error.
+func (p *loadPool) pauseTransient() {
+	if p == nil {
+		time.Sleep(defaultBackoffBase)
+		return
+	}
+	p.sleep(p.backoffBase)
 }

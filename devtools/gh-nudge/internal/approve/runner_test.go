@@ -36,6 +36,7 @@ type fakeClient struct {
 	batchReads    int
 	batchSizes    []int
 	batchErr      error
+	batchErrFn    func(refs []github.PullRef) error
 	heads         map[int]string
 	headReads     int
 	approveErr    error
@@ -174,6 +175,7 @@ func (f *fakeClient) LoadApprovalPullRequests(refs []github.PullRef) (map[string
 	f.batchReads++
 	f.batchSizes = append(f.batchSizes, len(refs))
 	batchErr := f.batchErr
+	batchErrFn := f.batchErrFn
 	out := make(map[string]github.BatchPullRequestResult, len(refs))
 	for _, ref := range refs {
 		key := github.ApprovalRefKey(ref)
@@ -202,6 +204,11 @@ func (f *fakeClient) LoadApprovalPullRequests(refs []github.PullRef) (map[string
 		out[key] = github.BatchPullRequestResult{PR: pr}
 	}
 	f.mu.Unlock()
+	if batchErrFn != nil {
+		if err := batchErrFn(refs); err != nil {
+			return nil, err
+		}
+	}
 	if batchErr != nil {
 		return nil, batchErr
 	}
