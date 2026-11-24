@@ -100,11 +100,11 @@ rules:
         section: "## Security Practices"
         why: "automated testing via CI"
 
-  - match: [".github/workflows/go.yml"]
+  - match: [".github/workflows/check.yml"]
     docs:
       - path: README.org
         section: "* Getting Started"
-        why: "the job runs make check with Go 1.26.10"
+        why: "the job runs make check-ci with Go 1.26.10"
       - path: SECURITY.md
         section: "## Security Practices"
         why: "automated testing via CI"
@@ -113,7 +113,7 @@ rules:
     docs:
       - path: spacemacs/README.org
         section: "* Setup"
-        why: "CI runs spacemacs/Makefile on .spacemacs changes"
+        why: "CI runs make check-spacemacs and decide Emacs tests on Emacs-related changes"
 
   # --- .claude extensions ---
   - match: [".claude/skills/code-review/**", ".claude/commands/review.md"]

@@ -1,5 +1,5 @@
 # Common targets
-.PHONY: all check format format-whitespace check-whitespace check-format test test-rbe lint fix check-uv-lock install
+.PHONY: all check check-ci format format-whitespace check-whitespace check-format check-format-non-bazel check-format-bazel test test-rbe lint lint-non-emacs lint-non-bazel lint-bazel fix check-uv-lock install
 
 # Cross-platform sed in-place edit
 SED_INPLACE := $(shell if [ "$$(uname)" = "Darwin" ]; then echo "sed -i ''"; else echo "sed -i"; fi)
@@ -27,9 +27,15 @@ all:
 	$(MAKE) fix
 	$(MAKE) test check-semgrep check-gitleaks check-bazel-go-files
 
+CHECK_CI_CHECKS := check-format-non-bazel lint-non-bazel check-semgrep check-gitleaks check-bazel-go-files
+
+check-ci:
+	$(MAKE) check-uv-lock check-generated
+	$(MAKE) $(CHECK_CI_CHECKS)
+
 check:
 	$(MAKE) check-uv-lock check-generated
-	$(MAKE) check-format test lint check-semgrep check-gitleaks check-bazel-go-files
+	$(MAKE) $(CHECK_CI_CHECKS) check-format-bazel lint-bazel test check-spacemacs
 
 format: format-whitespace
 	goimports -w .
@@ -44,9 +50,13 @@ check-whitespace:
 	@FILES=$$(rg -l '\s$$' -g '*.md' -g '*.org' . 2>/dev/null || true); \
 	if [ -n "$$FILES" ]; then echo "Trailing whitespace found in:"; echo "$$FILES"; exit 1; fi
 
-check-format: check-whitespace
+check-format-non-bazel: check-whitespace
 	goimports -l .
+
+check-format-bazel:
 	bazel test --test_summary=terse $(BAZEL_TEST_ENV) //tools/format:format_test
+
+check-format: check-format-non-bazel check-format-bazel
 
 test:
 	bazel test --test_summary=terse $(BAZEL_TEST_ENV) $(BAZEL_FLAGS) //...
@@ -58,7 +68,14 @@ test-rbe:
 	bazel test --config=rbe --test_summary=terse --build_tag_filters=-local,-no-remote --test_tag_filters=-local,-no-remote $(BAZEL_FLAGS) //...
 	bazel test --test_summary=terse $(BAZEL_TEST_ENV) --build_tag_filters=local,no-remote --test_tag_filters=local,no-remote $(BAZEL_FLAGS) //...
 
-lint: lint-genfiles lint-ruff lint-mypy lint-py-import-time-work lint-py-main-guard lint-py-module-import lint-py-sibling-import lint-shellcheck check-spacemacs
+lint-non-bazel: lint-genfiles lint-ruff lint-mypy lint-py-module-import lint-py-sibling-import lint-shellcheck
+
+# These two pylinters invoke `bazel query //...` for py_binary/py_test entry discovery.
+lint-bazel: lint-py-import-time-work lint-py-main-guard
+
+lint-non-emacs: lint-non-bazel lint-bazel
+
+lint: lint-non-emacs check-spacemacs
 
 # Target fix is best-effort autofix for lint issues. If autofix is not
 # available, it still runs lint checks.
@@ -130,17 +147,19 @@ fix-ruff:
 lint-mypy:
 	mypy
 
+PYLINTERS_PYTHON ?= uv run --no-project python
+
 lint-py-import-time-work:
-	PYTHONPATH=devtools/linters/pylinters/src uv run --no-project python -m pylinters.cli.import_time_work
+	PYTHONPATH=devtools/linters/pylinters/src $(PYLINTERS_PYTHON) -m pylinters.cli.import_time_work
 
 lint-py-main-guard:
-	PYTHONPATH=devtools/linters/pylinters/src uv run --no-project python -m pylinters.cli.main_guard
+	PYTHONPATH=devtools/linters/pylinters/src $(PYLINTERS_PYTHON) -m pylinters.cli.main_guard
 
 lint-py-module-import:
-	PYTHONPATH=devtools/linters/pylinters/src uv run --no-project python -m pylinters.cli.module_import
+	PYTHONPATH=devtools/linters/pylinters/src $(PYLINTERS_PYTHON) -m pylinters.cli.module_import
 
 lint-py-sibling-import:
-	PYTHONPATH=devtools/linters/pylinters/src uv run --no-project python -m pylinters.cli.sibling_import
+	PYTHONPATH=devtools/linters/pylinters/src $(PYLINTERS_PYTHON) -m pylinters.cli.sibling_import
 
 check-uv-lock: pyproject.toml uv.lock
 	@if ! command -v uv >/dev/null 2>&1; then \

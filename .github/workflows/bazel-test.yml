@@ -92,6 +92,9 @@ jobs:
           bazel test //...:all
         fi
 
+    - name: Run Bazel-backed Python linters
+      run: make lint-bazel PYLINTERS_PYTHON=python3
+
     - name: Generate HTML coverage report
       run: |
         genhtml --branch-coverage --output-directory coverage/html coverage/lcov.info
