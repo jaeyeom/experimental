@@ -1,0 +1,225 @@
+#+TITLE: agent-pool
+
+* Overview
+
+=agent-pool= is a producer-consumer broker and CLI for pooling idle
+coding agent capacity across trusted teammates. Volunteers run an
+outbound-only consumer worker daemon (=agent-pool worker run=) that
+executes strictly read-only, repository-defined skills inside a
+sandboxed =cplt= environment. Requesters dispatch jobs over MCP
+(=POST /mcp=) or the standalone CLI (=agent-pool dispatch=).
+
+See [[file:docs/security.md][docs/security.md]] for the full threat
+model, Linux vs. macOS sandbox isolation matrix, two-stage DLP design,
+and live verification checklist.
+
+* Architecture
+
+#+BEGIN_EXAMPLE
+Producer (MCP client or `agent-pool` CLI)
+    |  HTTPS (Bearer producer token + optional X-GitHub-Token)
+    v
+agent-poold (Central Broker: SQLite, REST /v1/*, MCP /mcp, SSE hub, Stage-2 DLP)
+    ^  Outbound HTTPS only (Bearer worker token; SSE + polling fallback)
+    |
+agent-pool worker (Consumer Daemon: quota guard, git worktree, cplt sandbox, Stage-1 DLP)
+#+END_EXAMPLE
+
+Two binaries are built from =devtools/agent-pool/=:
+
+- =agent-poold= :: Central broker server (=serve=, =token create|ls|revoke=, =version=).
+- =agent-pool= :: User-facing CLI for Producers, Consumers, catalog linting, supervisor installation, and =toolcli= maintenance.
+
+* Quick Start
+
+** 1. Deploy =agent-poold= (Cloud VM or Tailscale Host)
+
+Create a =broker.toml=:
+
+#+BEGIN_SRC toml
+listen_addr = "127.0.0.1:8443"
+db_path = "/var/lib/agent-pool/broker.db"
+repo_cache_dir = "/var/lib/agent-pool/repos"
+catalog_sync_interval = "5m"
+worker_stale_after = "90s"
+lease_ttl = "60s"
+max_attempts = 2
+max_concurrent_per_requester = 5
+
+[github_acl]
+require_repo_access_check = false
+cache_ttl = "5m"
+
+[[repos]]
+name = "org/core-api"
+git_url = "https://github.com/org/core-api.git"
+default_branch = "main"
+#+END_SRC
+
+Mint scoped bearer tokens and start the broker behind TLS (e.g. Caddy,
+nginx, or Tailscale Serve):
+
+#+BEGIN_SRC bash
+agent-poold token create --db /var/lib/agent-pool/broker.db --role producer --name alice --repos org/core-api
+agent-poold token create --db /var/lib/agent-pool/broker.db --role worker --name bob-laptop --repos org/core-api
+agent-poold serve --config /etc/agent-pool/broker.toml
+#+END_SRC
+
+** 2. Volunteer Consumer Worker Setup (Linux and macOS)
+
+*** Initialize Isolated Auth
+
+Initialize the isolated =$HOME= and sign into the donated Claude
+account:
+
+#+BEGIN_SRC bash
+agent-pool init-auth
+#+END_SRC
+
+Disable all web-synced cloud connectors (Gmail, Google Drive, Slack,
+Calendar) in =claude.ai= settings on the donated account.
+
+*** Configure =worker.toml=
+
+Create =~/.config/agent-pool/worker.toml=:
+
+#+BEGIN_SRC toml
+[worker]
+broker_url = "https://pool.example.com"
+token_file = "~/.config/agent-pool/worker.token"
+alias = "bob-laptop"
+supported_repos = ["org/core-api"]
+max_concurrent_jobs = 1
+github_auth = "cplt-gh"
+
+[quota]
+provider = "claude"
+max_five_hour_pct = 75.0
+max_seven_day_pct = 80.0
+require_green_pace = true
+fail_closed_on_error = true
+#+END_SRC
+
+*** Verify and Dry-Run
+
+Verify local prerequisites and test in dry-run mode:
+
+#+BEGIN_SRC bash
+agent-pool doctor
+agent-pool worker run --dry-run
+#+END_SRC
+
+*** Install as a User Service
+
+Install as a user service (=systemd --user= on Linux at
+=~/.config/systemd/user/agent-pool-worker.service=, or =launchd= on
+macOS at =~/Library/LaunchAgents/com.agent-pool.worker.plist=):
+
+#+BEGIN_SRC bash
+agent-pool worker install --dry-run
+agent-pool worker install
+#+END_SRC
+
+*** Pause, Resume, and Inspect Stats
+
+Control and inspect local donation usage:
+
+#+BEGIN_SRC bash
+agent-pool worker pause --reason "deep work"
+agent-pool worker resume
+agent-pool worker stats --since 7d --json
+#+END_SRC
+
+** 3. Producer Usage (MCP or CLI)
+
+*** MCP Configuration
+
+Point any Streamable HTTP MCP client at =https://pool.example.com/mcp=
+with =Authorization: Bearer <producer-token>= (and optional
+=X-GitHub-Token: <requester-pat>= when broker-side GitHub ACL checks
+are enabled). Exposed MCP tools:
+
+- =pool_status=
+- =dispatch_skill=
+- =get_job_result=
+- =cancel_job=
+
+*** Standalone CLI
+
+Configure =AGENT_POOL_BROKER_URL= and =AGENT_POOL_TOKEN=, pass
+=--broker= / =--token-file=, or create =~/.config/agent-pool/client.toml=:
+
+#+BEGIN_SRC toml
+broker_url = "https://pool.example.com"
+token_file = "~/.config/agent-pool/producer.token"
+#+END_SRC
+
+Run producer commands (all support =--json= with =camelCase= keys):
+
+#+BEGIN_SRC bash
+agent-pool status --json
+agent-pool dispatch org/core-api summarize --args-json '{"path":"README.md"}' --wait --json
+agent-pool result <job_id> --wait --timeout 5m --json
+agent-pool cancel <job_id> --json
+#+END_SRC
+
+* Repository Catalog (=.agent-pool/catalog.json=)
+
+Repositories opt in to pooled read-only skills by committing
+=.agent-pool/catalog.json= and the referenced =SKILL.md= files on
+their default branch:
+
+#+BEGIN_SRC json
+{
+  "version": 1,
+  "skills": {
+    "summarize": {
+      "description": "Summarize a file or package in the repository",
+      "mode": "readonly",
+      "skillPath": ".agent-pool/skills/summarize/SKILL.md",
+      "argsSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._/-]+$"
+          }
+        },
+        "required": ["path"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "summary": { "type": "string", "minLength": 1 }
+        },
+        "required": ["summary"],
+        "additionalProperties": false
+      },
+      "limits": {
+        "maxTurns": 15,
+        "maxEffectiveTokens": 100000,
+        "timeoutSeconds": 300,
+        "maxDeliverableBytes": 65536
+      }
+    }
+  }
+}
+#+END_SRC
+
+Validate a repository catalog locally or in CI:
+
+#+BEGIN_SRC bash
+agent-pool catalog validate .
+#+END_SRC
+
+* Standard CLI Protocol
+
+=agent-pool= adopts the repository's =devtools/pkg/toolcli= protocol:
+
+- =agent-pool version [--json]= :: Print version, module path, and VCS revision.
+- =agent-pool update [--check] [--ref <ref>] [--json]= :: Update =agent-pool= and companion =agent-poold=.
+- =agent-pool doctor [--json] [--offline]= :: Check =cplt=, platform sandbox (=bwrap= on Linux or =keychain_substitute= on macOS), =claude=, =claude-usage= isolated auth, =gh= auth, and broker =/healthz=.
+- =agent-pool skill [install|uninstall|status ...]= :: Print or install the embedded =SKILL.md= for coding agents.

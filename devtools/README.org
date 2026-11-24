@@ -38,6 +38,7 @@ tool has its own README. Start with the one-line summaries below.
 
 | Tool             | Purpose                                                    | Status       | Install                                           | README                                       |
 |------------------+------------------------------------------------------------+--------------+---------------------------------------------------+----------------------------------------------|
+| agent-pool       | MCP producer-consumer broker for pooled coding agent work  | experimental | make install                                      | [[file:agent-pool/README.org][README]]       |
 | agentbus         | Local message bus so coding agents can send and reply      | experimental | go install ./devtools/agentbus/cmd/agentbus       | [[file:agentbus/README.org][README]]         |
 | ascii-art        | Draw an ASCII box; gantt-chart and graph-viz are planned   | experimental | bazel build //devtools/ascii-art/cmd/box-renderer | [[file:ascii-art/README.org][README]]        |
 | claude-usage     | Show Claude Code 5-hour and 7-day rate-limit windows       | experimental | make install                                      | [[file:claude-usage/README.org][README]]     |

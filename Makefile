@@ -65,6 +65,8 @@ lint: lint-genfiles lint-ruff lint-mypy lint-py-import-time-work lint-py-main-gu
 fix: fix-go fix-ruff lint-mypy lint-shellcheck check-spacemacs
 
 INSTALL_CMDS := \
+	./devtools/agent-pool/cmd/agent-pool \
+	./devtools/agent-pool/cmd/agent-poold \
 	./devtools/claude-usage/cmd/claude-usage \
 	./devtools/devcheck/cmd/devcheck \
 	./devtools/docsync/cmd/docsync \
