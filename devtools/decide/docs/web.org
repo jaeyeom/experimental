@@ -60,7 +60,7 @@ bad value makes every ~decide~ command fail at load.
 | ~web.auth.mode~    | ~none~                  | ~none~ or ~token~.                                             |
 | ~web.auth.tokenFile~ | empty                 | Token file for mode ~token~. ~--token-file~ sets both this and the mode. |
 | ~web.push.enabled~ | false                   | Turn on Web Push. Off means the API answers 503 and no key is written. |
-| ~web.push.subject~ | ~mailto:decide@localhost~ | VAPID contact, a ~mailto:~ or ~https:~ URL.                  |
+| ~web.push.subject~ | ~mailto:decide@localhost~ | VAPID contact, a ~mailto:~ or ~https:~ URL. Set a real contact for Apple's push service; the default may be refused. |
 | ~web.push.grace~   | ~5s~                    | How long a push waits so an item read elsewhere is skipped. A positive Go duration. |
 
 The environment variable ~DECIDE_WEB_TOKEN~ overrides the token file;
@@ -112,14 +112,32 @@ on ~localhost~. The event stream is long-lived; do not buffer it.
 
 ** Tailscale Serve
 
-Only devices on your tailnet reach it.
+Only devices on your tailnet reach it. Enable MagicDNS and HTTPS
+certificates in the tailnet admin console first; without them, Serve
+has no certificate for the ~ts.net~ name.
+
+To run ~tailscale serve~ as a normal user, grant operator permission
+once (or run with ~sudo~):
 
 #+begin_src sh
+sudo tailscale set --operator=$USER
 tailscale serve --bg http://127.0.0.1:8787
 #+end_src
 
 Open the ~https://<machine>.<tailnet>.ts.net~ address that
 ~tailscale serve status~ prints, and set ~web.publicUrl~ to it.
+Tailscale Serve sets ~X-Forwarded-Proto: https~, so the session cookie
+gets ~Secure~.
+
+Use token mode (~--token-file~ or ~web.auth.mode: "token"~) even behind
+Tailscale Serve: every device on the tailnet, including shared or
+borrowed ones, can reach the app, and mode ~none~ gives each of them
+the whole inbox.
+
+On a phone, the Tailscale app must be connected to open the app, to
+open an item from a notification, and for the "Snooze 1h" action. Push
+delivery itself goes through the platform push service and does not
+need the tailnet.
 
 ** Cloudflare Tunnel
 
@@ -234,11 +252,14 @@ refreshes its cache on the next load.
 
 * Web Push
 
-Push is off until ~web.push.enabled~ is true. Then open Settings on
-the phone, tap "Turn on notifications", and allow the permission. The
-server needs outbound HTTPS to the browser's push service (Google, Mozilla,
-Apple). It refuses to deliver to a loopback, private, or link-local
-address, and the subscription endpoint must be ~https~.
+Push is off until ~web.push.enabled~ is true. Set ~web.push.subject~ to
+a real ~mailto:~ or ~https:~ contact if you use Apple's push service;
+the default ~mailto:decide@localhost~ may be refused. Then open
+Settings on the phone, tap "Turn on notifications", and allow the
+permission. The server needs outbound HTTPS to the browser's push
+service (Google, Mozilla, Apple). It refuses to deliver to a loopback,
+private, or link-local address, and the subscription endpoint must be
+~https~.
 
 What is pushed:
 
