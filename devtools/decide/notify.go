@@ -699,16 +699,8 @@ func notifyAttempt(item *Item, out io.Writer) (Delivery, error) {
 		return failedDelivery("", err), err
 	}
 	pane, machine := NotifyTarget(item, cfg)
-	if name, ok := strings.CutPrefix(pane, BusPanePrefix); ok {
-		return notifyBus(item, strings.TrimSpace(name))
-	}
-	if machine != "" {
-		return notifyRemote(item, pane, machine, cfg)
-	}
-	if strings.TrimSpace(cfg.NotifyTemplate) == "" {
-		return Delivery{}, nil
-	}
-	return notifyLocal(item, pane, cfg, out)
+	target := ParseTarget(pane, machine)
+	return transportFor(target).DeliverAnswer(item, target, cfg, out) //nolint:wrapcheck // transport implementations already wrap delivery errors
 }
 
 // failedDelivery is a failed attempt at target with err as its error.

@@ -83,6 +83,45 @@ func TestOwnerLocationBusNameIsNotResolved(t *testing.T) {
 	}
 }
 
+func TestOwnerLocationPullIsNotResolved(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		pane string
+	}{
+		{name: "pull", pane: "pull"},
+		{name: "pull with detail", pane: "pull:desktop"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := herdrtest.Install(t)
+			loc := resolveOne(t, &Item{NotifyPane: tc.pane, NotifyMachine: "mac"}, "")
+			if loc.State != LocationPull || loc.Pane != tc.pane || loc.Machine != "" {
+				t.Fatalf("location = %+v", loc)
+			}
+			if got := loc.Text(); got != "waiting (pull)" {
+				t.Fatalf("text = %q, want %q", got, "waiting (pull)")
+			}
+			if argv := f.Argv(); len(argv) != 0 {
+				t.Fatalf("herdr ran %q", argv)
+			}
+			if msg := (LocationResolver{}).Focus(context.Background(), loc); msg != "owner uses pull delivery; nothing to focus" {
+				t.Fatalf("Focus = %q", msg)
+			}
+			if argv := f.Argv(); len(argv) != 0 {
+				t.Fatalf("Focus ran herdr %q", argv)
+			}
+		})
+	}
+}
+
+func TestOwnerLocationExplicitHerdrPrefix(t *testing.T) {
+	f := herdrtest.Install(t)
+	fakeHerdrMachine(f, "local")
+	loc := resolveOne(t, &Item{NotifyPane: "herdr:w3:p7"}, "")
+	if loc.State != LocationLive || loc.Pane != "w3:p7" || loc.Tab != "review" {
+		t.Fatalf("location = %+v", loc)
+	}
+}
+
 func TestOwnerLocationOtherMachine(t *testing.T) {
 	f := herdrtest.Install(t)
 	fakeHerdrMachine(f, "mac")

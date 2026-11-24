@@ -347,19 +347,17 @@ func NotifyOwnerVerbatim(pane, machine, id, text, verbatim string) (Delivery, er
 	if strings.TrimSpace(id) == "" {
 		return Delivery{}, fmt.Errorf("decide compose id is empty")
 	}
+	target := ParseTarget(pane, machine)
 	note := DeliveryNoteVerbatim(id, "human", text, verbatim)
-	if name, ok := strings.CutPrefix(pane, BusPanePrefix); ok {
-		return deliverBus(id, strings.TrimSpace(name), note)
+	var cfg Config
+	if target.Scheme == SchemeHerdr {
+		var err error
+		cfg, err = LoadConfig()
+		if err != nil {
+			return Delivery{}, err
+		}
 	}
-	cfg, err := LoadConfig()
-	if err != nil {
-		return Delivery{}, err
-	}
-	target := pane
-	if machine != "" {
-		target = pane + "@" + machine
-	}
-	return SentDelivery(id, target, RunSend(MachineArgv(SendArgv(cfg.SendTemplate, pane, note), machine)))
+	return transportFor(target).DeliverNote(id, target, note, cfg) //nolint:wrapcheck // transport implementations already wrap delivery errors
 }
 
 // SendBus runs `agentbus send name note` and describes it as a Delivery.

@@ -1243,7 +1243,7 @@ func (c *Client) Locate(ctx context.Context, it *decide.Item) decide.OwnerLocati
 // becomes empty.
 func (c *Client) local(loc decide.OwnerLocation) decide.OwnerLocation {
 	switch {
-	case loc.Pane == "" || strings.HasPrefix(loc.Pane, decide.BusPanePrefix):
+	case decide.ParseTarget(loc.Pane, loc.Machine).Scheme != decide.SchemeHerdr:
 	case loc.Machine == "":
 		loc.Machine = c.hubMachine()
 	case loc.Machine == c.Machine:

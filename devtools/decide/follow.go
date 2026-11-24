@@ -18,6 +18,7 @@ const (
 	actionSend = "send"
 	actionGone = "gone"
 	actionWait = "wait"
+	actionSkip = "skip"
 )
 
 // FollowStale follows up answered items the owner has not taken up.
@@ -42,6 +43,10 @@ func (l *Ledger) FollowStale(now time.Time, out io.Writer, run HerdrCall) error 
 	var due []Item
 	after := cfg.StaleAnswerAfter()
 	for i := range items {
+		pane, machine := NotifyTarget(&items[i], cfg)
+		if ParseTarget(pane, machine).Scheme == SchemePull {
+			continue
+		}
 		if needsFollow(&items[i], now, after) {
 			due = append(due, items[i])
 		}
@@ -63,6 +68,8 @@ func (l *Ledger) FollowStale(now time.Time, out io.Writer, run HerdrCall) error 
 
 func (l *Ledger) followOne(ctx context.Context, it *Item, now time.Time, out io.Writer, resolver LocationResolver, local string, cache map[string]agentSnap) error {
 	switch ownerAction(ctx, resolver, it, local, cache) {
+	case actionSkip:
+		return nil
 	case actionGone:
 		_, err := l.markFollowUp(it.ID, FollowUpOwnerGone)
 		return err
@@ -76,6 +83,9 @@ func (l *Ledger) followOne(ctx context.Context, it *Item, now time.Time, out io.
 
 func needsFollow(it *Item, now time.Time, after time.Duration) bool {
 	if it == nil || it.State != StateAnswered || it.AnsweredAt.IsZero() || it.FollowUp != "" || resent(it) {
+		return false
+	}
+	if ParseTarget(it.NotifyPane, it.NotifyMachine).Scheme == SchemePull {
 		return false
 	}
 	if after <= 0 {
@@ -115,11 +125,17 @@ func resent(it *Item) bool {
 }
 
 func ownerAction(ctx context.Context, r LocationResolver, it *Item, local string, cache map[string]agentSnap) string {
+	if ParseTarget(it.NotifyPane, it.NotifyMachine).Scheme == SchemePull {
+		return actionSkip
+	}
 	locs := r.Resolve(ctx, []OwnerLocation{OwnerPane(it, local)})
 	if len(locs) == 0 {
 		return actionSend
 	}
 	loc := locs[0]
+	if loc.State == LocationPull {
+		return actionSkip
+	}
 	if loc.State == LocationClosed {
 		return actionGone
 	}

@@ -359,9 +359,36 @@ func TestFollowStaleConcurrentPassesResendOnce(t *testing.T) {
 	if keys := keyLog(t, logPath); len(keys) != 1 {
 		t.Fatalf("keys = %#v, want one re-send", keys)
 	}
-	got := mustGet(t, led, item.ID)
-	if len(got.Delivery) != 1 || got.Delivery[0].Outcome != OutcomeResend {
+	if got := mustGet(t, led, item.ID); len(got.Delivery) != 1 || got.Delivery[0].Outcome != OutcomeResend {
 		t.Fatalf("delivery = %+v", got.Delivery)
+	}
+}
+
+func TestFollowStaleSkipsPullTargets(t *testing.T) {
+	for _, pane := range []string{"pull", "pull:desktop"} {
+		t.Run(pane, func(t *testing.T) {
+			f := herdrtest.Install(t)
+			led, clock, logPath := followLedger(t)
+			item := answeredRelay(t, led, pane, "")
+
+			*clock = clock.Add(time.Hour)
+			if err := led.FollowStale(*clock, nil, nil); err != nil {
+				t.Fatal(err)
+			}
+			got := mustGet(t, led, item.ID)
+			if got.FollowUp != "" {
+				t.Fatalf("followUp = %q, want empty", got.FollowUp)
+			}
+			if len(got.Delivery) != 0 {
+				t.Fatalf("delivery = %+v, want empty", got.Delivery)
+			}
+			if keys := keyLog(t, logPath); len(keys) != 0 {
+				t.Fatalf("keys = %#v, want no resend", keys)
+			}
+			if argv := f.Argv(); len(argv) != 0 {
+				t.Fatalf("herdr ran %q, want none", argv)
+			}
+		})
 	}
 }
 

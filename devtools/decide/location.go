@@ -21,6 +21,8 @@ const (
 	LocationUnknown = "unknown"
 	// LocationUnreachable is a pane on a machine that did not answer.
 	LocationUnreachable = "unreachable"
+	// LocationPull is a pull-delivered item without a herdr pane.
+	LocationPull = "pull"
 )
 
 // OwnerLocation is where an item's owner pane lives in herdr. Machine is
@@ -48,17 +50,29 @@ func LocalMachine(cfg Config) string {
 // OwnerPane is the not yet resolved location of item's stored pane. A
 // machine equal to local, this machine's label, is this machine.
 func OwnerPane(item *Item, local string) OwnerLocation {
-	pane := strings.TrimSpace(item.NotifyPane)
-	machine := strings.TrimSpace(item.NotifyMachine)
-	if pane == "" || machine == local {
-		machine = ""
+	target := ParseTarget(item.NotifyPane, item.NotifyMachine)
+	switch target.Scheme {
+	case SchemePull:
+		return OwnerLocation{Pane: target.String(), State: LocationPull}
+	case SchemeAgentbus:
+		return OwnerLocation{Pane: target.String(), State: LocationUnknown}
+	case SchemeHerdr:
+		machine := target.Machine
+		if machine == local {
+			machine = ""
+		}
+		return OwnerLocation{Machine: machine, Pane: target.Address, State: LocationUnknown}
+	default:
+		return OwnerLocation{State: LocationUnknown}
 	}
-	return OwnerLocation{Machine: machine, Pane: pane, State: LocationUnknown}
 }
 
 // Text is the location as the item view shows it, such as
 // "mac: experimental / review (w3:p7)".
 func (l OwnerLocation) Text() string {
+	if l.State == LocationPull {
+		return "waiting (pull)"
+	}
 	if l.Pane == "" {
 		return "unknown"
 	}
@@ -104,9 +118,17 @@ func (r LocationResolver) Resolve(ctx context.Context, locs []OwnerLocation) []O
 	snapshots := map[string]*herdrSnapshot{}
 	failures := map[string]string{}
 	for i, loc := range out {
-		if loc.Pane == "" || strings.HasPrefix(loc.Pane, BusPanePrefix) {
+		target := ParseTarget(loc.Pane, loc.Machine)
+		if target.Scheme == SchemePull {
+			out[i].State = LocationPull
+			out[i].Machine = ""
 			continue
 		}
+		if target.Scheme != SchemeHerdr || target.Address == "" {
+			continue
+		}
+		loc.Pane = target.Address
+		out[i].Pane = target.Address
 		snap, seen := snapshots[loc.Machine]
 		state, failed := failures[loc.Machine]
 		if !seen && !failed {
@@ -138,6 +160,8 @@ func (r LocationResolver) Resolve(ctx context.Context, locs []OwnerLocation) []O
 // A location that is not live runs nothing and says why.
 func (r LocationResolver) Focus(ctx context.Context, loc OwnerLocation) string {
 	switch {
+	case loc.State == LocationPull:
+		return "owner uses pull delivery; nothing to focus"
 	case loc.State == LocationClosed:
 		return "owner tab closed; nothing to focus"
 	case loc.State == LocationUnreachable:
