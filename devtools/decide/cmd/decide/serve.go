@@ -49,6 +49,7 @@ func cmdHubInbox(settings hubSettings, args []string, stdout, stderr io.Writer) 
 	}
 	defer client.Close()
 	opts := inboxOptions(local.Config, stdout, snoozed)
+	opts.Hub = settings.hub.Target
 	opts.UTC = utc || local.Config.UI.UTC
 	opts.Backend = client
 	opts.Interval = hubInterval

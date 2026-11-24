@@ -24,7 +24,7 @@ Any other second key says ~unknown go-to key~.
 | ~j~ / ~k~                             | list or item                 | Move the row, or scroll one line in an item.                                 |
 | ~n~ / ~p~                             | item                         | Next or previous message.                                                    |
 | ~g~ then ~i~ ~z~ ~a~ ~d~ ~w~          | any                          | Inbox, Snoozed, Answered, Done, Withdrawn.                                   |
-| ~g~ then ~s~ / ~c~                    | any                          | Status or Contacts.                                                          |
+| ~g~ then ~s~ / ~c~ / ~,~              | any                          | Status, Contacts, or Settings.                                               |
 | ~g g~ / ~G~ / ~end~                   | list, item, status, contacts | Top or bottom of the list or item.                                           |
 | ~G~ / ~end~                           | item                         | Scroll to the end.                                                           |
 | ~pgup~ / ~pgdn~, ~home~ / ~G~ / ~end~ | list and item                | Page, or jump.                                                               |

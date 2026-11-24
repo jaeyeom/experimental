@@ -81,6 +81,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if draft := m.draftTick(); draft != nil {
 		cmd = tea.Batch(cmd, draft)
 	}
+	if editCfg := m.editConfigCmd(); editCfg != nil {
+		cmd = tea.Batch(cmd, editCfg)
+	}
 	return next, cmd
 }
 
@@ -148,6 +151,8 @@ func (m *Model) updateResult(msg tea.Msg) tea.Cmd {
 		m.finishOpen(msg)
 	case busListMsg:
 		m.finishBusLoad(msg)
+	case configEditorDoneMsg:
+		m.finishConfigEdit(msg.err)
 	}
 	return nil
 }
@@ -155,6 +160,10 @@ func (m *Model) updateResult(msg tea.Msg) tea.Cmd {
 // updateKeyMsg routes one key: the external-editor prefix, then composer
 // editing keys, then chords, scrolling, and rune shortcuts.
 func (m *Model) updateKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.settingsEditing {
+		m.handleSettingsEditKey(msg)
+		return m, nil
+	}
 	if cmd, ok := m.updateFocusedComposerKey(msg); ok {
 		return m, cmd
 	}
@@ -327,7 +336,7 @@ func (m *Model) updateBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 }
 
 func (m *Model) modalOpen() bool {
-	return m.confirmKind != confirmNone || m.chord || m.copyMenu || m.snoozing || m.searching || m.help || m.aliasPick || m.pickerOpen()
+	return m.confirmKind != confirmNone || m.chord || m.copyMenu || m.snoozing || m.searching || m.help || m.aliasPick || m.pickerOpen() || m.settingsEditing
 }
 
 func (m *Model) inComposerState() bool {
@@ -563,7 +572,7 @@ func scrollKeyType(t tea.KeyType) bool {
 // handleScrollKey scrolls an open item, or leaves the key with a focused
 // field. Up and down still move a focused recipient list.
 func (m *Model) handleScrollKey(k tea.KeyMsg) bool {
-	if !scrollKeyType(k.Type) {
+	if !scrollKeyType(k.Type) || m.mode == modeSettings {
 		return false
 	}
 	if m.editComposerKey(k) {

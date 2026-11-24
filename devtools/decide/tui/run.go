@@ -45,6 +45,10 @@ type Options struct {
 	// Machine is this machine's herdr label, so an owner pane on it is
 	// looked up without --machine.
 	Machine string
+	// Hub is the hub address in hub mode, or empty in local mode.
+	Hub string
+	// WebPublicURL is the configured web.publicUrl, if set.
+	WebPublicURL string
 	// OpenCommand is the link opener argv; the URL is appended. Empty
 	// is xdg-open, or open on macOS.
 	OpenCommand []string
@@ -170,6 +174,8 @@ func prepare(opts Options) (*Model, error) {
 	m.MessageAvatars = opts.MessageAvatars
 	m.Checkouts = opts.Checkouts
 	m.Machine = opts.Machine
+	m.Hub = opts.Hub
+	m.WebPublicURL = opts.WebPublicURL
 	m.OpenCommand = opts.OpenCommand
 	m.orgTreeOn, m.orgSpec, m.orgRun = opts.OrgTree, opts.OrgSpec, opts.Orgctl
 	m.NoHyperlinks = opts.NoHyperlinks

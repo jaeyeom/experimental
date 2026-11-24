@@ -856,6 +856,7 @@ func inboxOptions(cfg decide.Config, stdout io.Writer, snoozed bool) tui.Options
 		MessageAvatars:    cfg.MessageAvatarsOn(),
 		Checkouts:         cfg.Checkouts,
 		Machine:           decide.LocalMachine(cfg),
+		WebPublicURL:      cfg.Web.PublicURL,
 		OpenCommand:       cfg.OpenCommand,
 		OrgTree:           cfg.UI.OrgTree,
 		OrgSpec:           cfg.UI.OrgSpec,

@@ -41,6 +41,7 @@ const (
 	modeStatus
 	modeContacts
 	modeOutbox
+	modeSettings
 )
 
 const (
@@ -290,9 +291,17 @@ type Model struct {
 	// Machine is this machine's herdr label. locations caches each
 	// item's owner location for the session. locateWant asks Update to
 	// look up the open item's owner.
-	Machine    string
-	locations  map[string]decide.OwnerLocation
-	locateWant bool
+	Machine         string
+	Hub             string
+	WebPublicURL    string
+	Version         string
+	settingsCursor  int
+	settingsEditing bool
+	settingsEditBuf string
+	editConfigWant  bool
+	configEditor    *configEdit
+	locations       map[string]decide.OwnerLocation
+	locateWant      bool
 	// focusWant asks Update to focus this owner location's tab.
 	focusWant *decide.OwnerLocation
 	// linkCursor is the link picker's row and linkDigits the number
@@ -522,6 +531,9 @@ func (m *Model) overlayKey(r rune) (bool, bool, error) {
 	case m.pickerOpen():
 		quit, err := m.popupKey(r)
 		return quit, true, err
+	case m.settingsEditing:
+		m.settingsEditRune(r)
+		return false, true, nil
 	default:
 		return false, false, nil
 	}
@@ -1871,7 +1883,7 @@ func (m *Model) listFocused() bool {
 }
 
 func (m *Model) detailFocused() bool {
-	return m.mode != modeList && m.mode != modeStatus && m.mode != modeContacts && !m.composing && !m.answerFocus
+	return m.mode != modeList && m.mode != modeStatus && m.mode != modeContacts && m.mode != modeSettings && !m.composing && !m.answerFocus
 }
 
 func (m *Model) mailLines() []screenLine {
@@ -1890,6 +1902,9 @@ func (m *Model) mailLines() []screenLine {
 	}
 	if m.mode == modeOutbox {
 		return m.outboxMail(pane)
+	}
+	if m.mode == modeSettings {
+		return m.settingsMail(pane)
 	}
 	if m.mode != modeList {
 		return m.openedScreen(pane)
@@ -2310,6 +2325,8 @@ func (m *Model) navSelected(i int) bool {
 		return i == len(Folders)+1
 	case modeOutbox:
 		return m.hasOutbox() && i == m.outboxNavIndex()
+	case modeSettings:
+		return false
 	default:
 		return i == m.folder
 	}
@@ -2501,12 +2518,21 @@ func (m *Model) headerChrome() int {
 	return n
 }
 
+func (m *Model) hasSidebarMode() bool {
+	switch m.mode {
+	case modeList, modeStatus, modeContacts, modeOutbox, modeSettings:
+		return true
+	default:
+		return false
+	}
+}
+
 func (m *Model) layoutBudget() (int, int) {
 	if m.height <= 1 {
 		return 0, 0
 	}
 	folderChrome := 0
-	if !m.composing && (m.mode == modeList || m.mode == modeStatus || m.mode == modeContacts || m.mode == modeOutbox) {
+	if !m.composing && m.hasSidebarMode() {
 		folderChrome = m.navLen()
 		if m.width > 0 {
 			folderChrome = 0

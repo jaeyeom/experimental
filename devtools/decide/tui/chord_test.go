@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	goToMenuWide = "go to: i inbox · z snoozed · a answered · d done · w withdrawn · s status · c contacts · g top · esc cancel"
-	goToMenuKeys = "go to: i z a d w s c g"
+	goToMenuWide = "go to: i inbox · z snoozed · a answered · d done · w withdrawn · s status · c contacts · , settings · g top · esc cancel"
+	goToMenuKeys = "go to: i z a d w s c , g"
 )
 
 // footer is the status row of a framed view: the last non-blank row inside
@@ -32,7 +32,7 @@ func footer(t *testing.T, m *Model) string {
 
 func TestGoToMenuReplacesTheListHint(t *testing.T) {
 	m, _, _, _ := snoozeModel(t)
-	m.Update(tea.WindowSizeMsg{Width: 120, Height: 20})
+	m.Update(tea.WindowSizeMsg{Width: 140, Height: 20})
 	normal := footer(t, m)
 	if !strings.Contains(normal, "g go to") || strings.Contains(normal, "gi/ga") {
 		t.Fatalf("list hint %q", normal)
@@ -118,7 +118,7 @@ func TestGoToTableCoversMenuHelpAndChords(t *testing.T) {
 			t.Fatalf("menu misses %s %s", c.key, c.name)
 		}
 	}
-	if keys != "izadwscg" {
+	if keys != "izadwsc,g" {
 		t.Fatalf("table keys %q", keys)
 	}
 	if got := (&Model{chordPrefix: decide.KeyStroke{Key: "g"}}).goToMenu(0); got != goToMenuWide {

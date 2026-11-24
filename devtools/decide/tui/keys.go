@@ -252,16 +252,22 @@ func (m *Model) unknownKeyStatus() string {
 	return "unknown key, " + h + " for help"
 }
 
-func (m *Model) dispatchBrowseKey(s decide.KeyStroke) (bool, error) {
-	if m.mode == modeOutbox {
-		if handled, err := m.handleOutboxKey(s); handled {
-			return false, err
-		}
+func (m *Model) dispatchModeKey(s decide.KeyStroke) (bool, error) {
+	switch m.mode {
+	case modeOutbox:
+		return m.handleOutboxKey(s)
+	case modeSettings:
+		return m.handleSettingsKey(s)
+	case modeDetail:
+		return m.handleDetailOutboxKey(s)
+	default:
+		return false, nil
 	}
-	if m.mode == modeDetail {
-		if handled, err := m.handleDetailOutboxKey(s); handled {
-			return false, err
-		}
+}
+
+func (m *Model) dispatchBrowseKey(s decide.KeyStroke) (bool, error) {
+	if handled, err := m.dispatchModeKey(s); handled {
+		return false, err
 	}
 	scope := m.browseScope()
 	if scope == "list" && !s.Ctrl && !s.Alt {
@@ -324,6 +330,7 @@ func (m *Model) runAction(action string) (bool, error) {
 		"goto.status":          func() (bool, error) { return false, m.showStatus() },
 		"goto.contacts":        func() (bool, error) { return false, m.showContacts() },
 		"goto.outbox":          func() (bool, error) { return false, m.showOutbox() },
+		"goto.settings":        func() (bool, error) { return false, m.showSettings() },
 		"goto.top":             func() (bool, error) { return m.runGoToTop() },
 		"list.next":            func() (bool, error) { m.moveList(1); return false, nil },
 		"list.prev":            func() (bool, error) { m.moveList(-1); return false, nil },
@@ -622,14 +629,19 @@ func (m *Model) goToChordItems() (prefix string, items []struct{ key, name strin
 		{"goto.withdrawn", "withdrawn"},
 		{"goto.status", "status"},
 		{"goto.contacts", "contacts"},
+		{"goto.settings", "settings"},
 		{"goto.top", "top"},
 	}
 	if m.hasOutbox() {
-		gotoActions = append(gotoActions[:len(gotoActions)-1],
+		gotoActions = append(gotoActions[:len(gotoActions)-2],
 			struct {
 				action string
 				name   string
 			}{"goto.outbox", "outbox"},
+			struct {
+				action string
+				name   string
+			}{"goto.settings", "settings"},
 			struct {
 				action string
 				name   string
@@ -721,6 +733,8 @@ func (m *Model) browseHintLine(label string) string {
 		return label + m.statusHintLine()
 	case modeContacts:
 		return label + m.contactsHintLine()
+	case modeSettings:
+		return label + m.settingsHintLine()
 	case modeDetail, modeOutcome:
 		return label + m.detailHintLine()
 	default:
@@ -814,26 +828,14 @@ func (m *Model) optionalHintExtras() []string {
 	}
 	var extras []string
 	switch m.mode {
+	case modeSettings:
+		return nil
 	case modeStatus, modeContacts:
 		if find != "" {
 			extras = append(extras, find)
 		}
 	case modeDetail, modeOutcome:
-		if d := m.outcomeHintKey(); d != "" {
-			extras = append(extras, d+" outcome")
-		}
-		if find != "" {
-			extras = append(extras, find)
-		}
-		if b := m.actionFirst("detail.snooze"); b != "" {
-			extras = append(extras, b+" snooze")
-		}
-		if g := m.goToHintLabel(); g != "" {
-			extras = append(extras, g)
-		}
-		if o := m.actionFirst("detail.owner"); o != "" {
-			extras = append(extras, o+" owner")
-		}
+		return m.detailOptionalHints(find)
 	default:
 		if m.isInboxFolder() && m.unreadCount > 0 {
 			extras = append(extras, fmt.Sprintf("unread: %d", m.unreadCount))
@@ -844,6 +846,26 @@ func (m *Model) optionalHintExtras() []string {
 		if b := m.actionFirst("list.snooze"); b != "" {
 			extras = append(extras, b+" snooze")
 		}
+	}
+	return extras
+}
+
+func (m *Model) detailOptionalHints(find string) []string {
+	var extras []string
+	if d := m.outcomeHintKey(); d != "" {
+		extras = append(extras, d+" outcome")
+	}
+	if find != "" {
+		extras = append(extras, find)
+	}
+	if b := m.actionFirst("detail.snooze"); b != "" {
+		extras = append(extras, b+" snooze")
+	}
+	if g := m.goToHintLabel(); g != "" {
+		extras = append(extras, g)
+	}
+	if o := m.actionFirst("detail.owner"); o != "" {
+		extras = append(extras, o+" owner")
 	}
 	return extras
 }
@@ -868,6 +890,8 @@ func (m *Model) helpTextLines() []string {
 		text = append(text, m.contactsHelpLines()...)
 	case modeOutbox:
 		text = append(text, m.outboxHelpLines()...)
+	case modeSettings:
+		text = append(text, m.settingsHelpLines()...)
 	default:
 		text = append(text, m.listOrDetailHelpLines()...)
 	}

@@ -90,7 +90,7 @@ Action names are grouped by view:
 
 - ~global~: ~quit~, ~help~, ~mouse~, ~search~, ~goto.inbox~,
   ~goto.snoozed~, ~goto.answered~, ~goto.done~, ~goto.withdrawn~,
-  ~goto.status~, ~goto.contacts~, ~goto.outbox~, ~goto.top~
+  ~goto.status~, ~goto.contacts~, ~goto.outbox~, ~goto.settings~, ~goto.top~
 - ~list~: ~list.next~, ~list.prev~, ~list.pageDown~, ~list.pageUp~,
   ~list.top~, ~list.bottom~, ~list.open~, ~list.compose~,
   ~list.archive~, ~list.snooze~, ~list.clearFilter~

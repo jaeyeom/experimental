@@ -619,6 +619,9 @@ func parseConfig(data []byte, dir string) (Config, error) {
 }
 
 func validateConfig(cfg Config) error {
+	if cfg.UI.FillColumn < 0 {
+		return fmt.Errorf("decide config ui.fillColumn must be 0 or more")
+	}
 	if len(cfg.OpenCommand) > 0 && cfg.OpenCommand[0] == "" {
 		return fmt.Errorf("decide config openCommand: the program is empty")
 	}
