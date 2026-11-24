@@ -759,7 +759,12 @@ func (l *Ledger) ForwardThreadVerbatimAt(from, owner, pane, text, verbatim, via 
 	if strings.TrimSpace(question) == "" {
 		question = verbatimFirstLine(verbatim)
 	}
+	class := ""
+	if via == ViaUI {
+		class = ClassRequest
+	}
 	return l.Create(&Item{
+		Class:         class,
 		Question:      question,
 		Verbatim:      verbatim,
 		Owner:         owner,

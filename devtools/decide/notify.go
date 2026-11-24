@@ -49,11 +49,14 @@ type Config struct {
 	NotifyPane     string `json:"notifyPane"`
 	OptionsOnly    bool   `json:"optionsOnly"`
 	// RequireClass rejects `decide ask` without --class when true.
-	RequireClass bool           `json:"requireClass,omitempty"`
-	SendTemplate string         `json:"sendTemplate,omitempty"`
-	Targets      []ConfigTarget `json:"targets,omitempty"`
-	Colors       Colors         `json:"colors,omitempty"`
-	Recipients   Recipients     `json:"recipients,omitempty"`
+	RequireClass bool `json:"requireClass,omitempty"`
+	// RequireClassAfter rejects `decide ask` without --class on or after
+	// this YYYY-MM-DD date. Empty uses DefaultRequireClassAfter.
+	RequireClassAfter string         `json:"requireClassAfter,omitempty"`
+	SendTemplate      string         `json:"sendTemplate,omitempty"`
+	Targets           []ConfigTarget `json:"targets,omitempty"`
+	Colors            Colors         `json:"colors,omitempty"`
+	Recipients        Recipients     `json:"recipients,omitempty"`
 	// RecipientsTimeout bounds the inbox's background `agentbus list
 	// --json`, such as "3s". Empty is DefaultBusListTimeout.
 	RecipientsTimeout string `json:"recipientsTimeout,omitempty"`
@@ -524,6 +527,44 @@ func ConfigPath() (string, bool) {
 	return configPath()
 }
 
+// DefaultRequireClassAfter is the default date (YYYY-MM-DD, 14 days after
+// release) on or after which `decide ask` requires --class.
+const DefaultRequireClassAfter = "2026-12-08"
+
+// RequireClassAfterDate returns the effective YYYY-MM-DD date on or after
+// which `decide ask` requires --class.
+func (c Config) RequireClassAfterDate() string {
+	if raw := strings.TrimSpace(c.RequireClassAfter); raw != "" {
+		return raw
+	}
+	return DefaultRequireClassAfter
+}
+
+// RequireClassAt reports whether `decide ask` without --class should be
+// rejected at now.
+func (c Config) RequireClassAt(now time.Time) bool {
+	if c.RequireClass {
+		return true
+	}
+	cutoff, err := parseRequireClassAfter(c.RequireClassAfterDate())
+	if err != nil {
+		return false
+	}
+	return !now.UTC().Before(cutoff)
+}
+
+func parseRequireClassAfter(raw string) (time.Time, error) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return time.Time{}, nil
+	}
+	t, err := time.Parse("2006-01-02", s)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("decide config requireClassAfter %q must be YYYY-MM-DD", raw)
+	}
+	return t, nil
+}
+
 // LoadConfig reads the decide config file. A missing file is an empty config.
 func LoadConfig() (Config, error) {
 	path, ok := configPath()
@@ -550,41 +591,36 @@ func parseConfig(data []byte, dir string) (Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("parse decide config: %w", err)
 	}
-	if err := checkAvatarRules(cfg.Avatars); err != nil {
-		return Config{}, err
-	}
-	if err := checkOwnersConfig(cfg.Owners); err != nil {
-		return Config{}, err
-	}
-	if len(cfg.OpenCommand) > 0 && cfg.OpenCommand[0] == "" {
-		return Config{}, fmt.Errorf("decide config openCommand: the program is empty")
-	}
-	if _, err := parseRecipientsTimeout(cfg.RecipientsTimeout); err != nil {
-		return Config{}, err
-	}
-	if err := checkWebConfig(cfg.Web); err != nil {
-		return Config{}, err
-	}
-	if err := CheckClipboard(cfg.UI.Clipboard); err != nil {
-		return Config{}, err
-	}
-	if err := CheckAnswerAction(cfg.UI.AnswerAction); err != nil {
-		return Config{}, err
-	}
-	if err := CheckOpenAt(cfg.UI.OpenAt); err != nil {
-		return Config{}, err
-	}
-	if err := checkUIDurations(cfg.UI); err != nil {
-		return Config{}, err
-	}
-	if err := checkShapeConfig(cfg); err != nil {
-		return Config{}, err
-	}
-	if _, err := ResolveKeyMap(cfg.UI.Keys); err != nil {
+	if err := validateConfig(cfg); err != nil {
 		return Config{}, err
 	}
 	resolveAvatarFiles(cfg.Avatars, dir)
 	return cfg, nil
+}
+
+func validateConfig(cfg Config) error {
+	if len(cfg.OpenCommand) > 0 && cfg.OpenCommand[0] == "" {
+		return fmt.Errorf("decide config openCommand: the program is empty")
+	}
+	checks := []func() error{
+		func() error { return checkAvatarRules(cfg.Avatars) },
+		func() error { return checkOwnersConfig(cfg.Owners) },
+		func() error { _, err := parseRecipientsTimeout(cfg.RecipientsTimeout); return err },
+		func() error { return checkWebConfig(cfg.Web) },
+		func() error { return CheckClipboard(cfg.UI.Clipboard) },
+		func() error { return CheckAnswerAction(cfg.UI.AnswerAction) },
+		func() error { return CheckOpenAt(cfg.UI.OpenAt) },
+		func() error { return checkUIDurations(cfg.UI) },
+		func() error { return checkShapeConfig(cfg) },
+		func() error { _, err := parseRequireClassAfter(cfg.RequireClassAfter); return err },
+		func() error { _, err := ResolveKeyMap(cfg.UI.Keys); return err },
+	}
+	for _, fn := range checks {
+		if err := fn(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func checkUIDurations(ui InboxUI) error {

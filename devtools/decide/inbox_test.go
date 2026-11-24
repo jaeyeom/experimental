@@ -198,10 +198,12 @@ func TestBackfillProposesWithoutWritingThenApplies(t *testing.T) {
 	post := mk(t, led, Item{Class: ClassDecision, Question: "Post as written?", Verbatim: "hello"})
 	report := mk(t, led, Item{Class: ClassDecision, Question: "Installed foo 1.2", Options: []Option{}})
 	report, _ = led.Get(report.ID)
-	started, err := led.StartThread("ada", "", "please look at X", ViaUI)
-	if err != nil {
-		t.Fatal(err)
-	}
+	started := mk(t, led, Item{
+		Class:    ClassDecision,
+		Question: "please look at X",
+		Options:  []Option{},
+		Messages: []Message{{Author: "human", Text: "please look at X"}},
+	})
 	keep := mk(t, led, Item{Class: ClassDecision, Question: "Pick a db?"})
 	items, _ := led.List()
 	props := ProposeBackfill(items)

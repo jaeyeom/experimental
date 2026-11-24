@@ -76,3 +76,63 @@ func TestAskClassesPrefixesAndRequireClassSwitch(t *testing.T) {
 		t.Fatalf("retag json = %s", stdout)
 	}
 }
+
+func TestAskRequireClassAfter(t *testing.T) {
+	state := t.TempDir()
+	cfg := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	t.Setenv("HERDR_PANE_ID", "")
+
+	cfgDir := filepath.Join(cfg, "decide")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Before requireClassAfter: warns and defaults to decision.
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(`{"requireClassAfter": "2099-01-01"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, code := runCLI("ask", "--owner", "ada", "--kind", "relay", "--option", "a:Alpha", "--option", "b:Beta", "--rec", "a", "Pick one?")
+	if code != 0 {
+		t.Fatalf("ask before requireClassAfter = %d\n%s", code, stderr)
+	}
+	if id := strings.TrimSpace(stdout); id != "D-001" {
+		t.Fatalf("id = %q, want D-001", id)
+	}
+	if !strings.Contains(stderr, "warning") || !strings.Contains(stderr, "--class") {
+		t.Fatalf("stderr = %q, want deprecation warning", stderr)
+	}
+
+	// After requireClassAfter: fails with exit 2 and names all seven classes.
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(`{"requireClassAfter": "2020-01-01"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr, code = runCLI("ask", "--owner", "ada", "--kind", "relay", "--option", "a:Alpha", "--option", "b:Beta", "--rec", "a", "Pick one?")
+	if code != 2 {
+		t.Fatalf("ask after requireClassAfter = %d, stderr=%q, want exit 2", code, stderr)
+	}
+	for _, className := range []string{"decision", "approval", "request", "fact", "inbound", "task", "note"} {
+		if !strings.Contains(stderr, className) {
+			t.Fatalf("stderr = %q, missing class %q", stderr, className)
+		}
+	}
+}
+
+func TestHumanSendViaUICreatesRequest(t *testing.T) {
+	writeDecideConfig(t, `{
+  "sendTemplate": "true {pane}",
+  "targets": [{"name": "ada", "pane": "pane-1"}]
+}`)
+	stdout, stderr, code := runCLI("send", "--to", "ada", "--via", "ui", "Please check this")
+	if code != 0 {
+		t.Fatalf("send --via ui = %d\n%s", code, stderr)
+	}
+	if !strings.Contains(stdout, "R-001") {
+		t.Fatalf("stdout = %q, want R-001", stdout)
+	}
+	got := showJSON(t, "R-001")
+	if got.Class != "request" {
+		t.Fatalf("class = %q, want request", got.Class)
+	}
+}

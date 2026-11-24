@@ -911,7 +911,7 @@ func cmdAsk(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
-	class, err := resolveAskClass(*classFlag, cfg.RequireClass, stderr)
+	class, err := resolveAskClass(*classFlag, cfg.RequireClassAt(time.Now()), cfg.RequireClassAfterDate(), stderr)
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
@@ -1317,12 +1317,12 @@ func relayFreeText(kind string, freeText, optionsOnly, configOptionsOnly bool) b
 	return true
 }
 
-func resolveAskClass(raw string, requireClass bool, stderr io.Writer) (string, error) {
+func resolveAskClass(raw string, requireClass bool, afterDate string, stderr io.Writer) (string, error) {
 	if strings.TrimSpace(raw) == "" {
 		if requireClass {
-			return "", fmt.Errorf("decide ask requires --class")
+			return "", fmt.Errorf("decide ask requires --class (one of: decision, approval, request, fact, inbound, task, note)")
 		}
-		fmt.Fprintf(stderr, "decide: warning: --class is omitted; defaulting to decision (will become an error)\n")
+		fmt.Fprintf(stderr, "decide: warning: --class is omitted; defaulting to decision (will become an error on %s)\n", afterDate)
 		return decide.ClassDecision, nil
 	}
 	return decide.ParseClass(raw) //nolint:wrapcheck // ParseClass formats the user-facing error

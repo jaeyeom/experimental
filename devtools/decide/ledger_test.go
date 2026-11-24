@@ -975,6 +975,24 @@ func TestStartThreadStoresTheHumanNote(t *testing.T) {
 	}
 }
 
+func TestStartThreadViaUICreatesRequest(t *testing.T) {
+	led, _ := openTemp(t)
+	uiItem, err := led.StartThread("alpha", "pane-a", "please check this", ViaUI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if uiItem.Class != ClassRequest || !strings.HasPrefix(uiItem.ID, "R-") {
+		t.Fatalf("ViaUI item = %+v, want ClassRequest with R- prefix", uiItem)
+	}
+	cliItem, err := led.StartThread("alpha", "pane-a", "please check this", ViaCLI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cliItem.EffectiveClass() != ClassDecision || !strings.HasPrefix(cliItem.ID, "D-") {
+		t.Fatalf("ViaCLI item = %+v, want decision with D- prefix", cliItem)
+	}
+}
+
 func TestStartThreadVerbatimSetsQuestionToFirstLine(t *testing.T) {
 	led, _ := openTemp(t)
 

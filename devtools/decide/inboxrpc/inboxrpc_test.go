@@ -309,6 +309,22 @@ func TestEveryOpRoundTrips(t *testing.T) {
 	if err := c.Send("", tui.Target{Name: "builder", Pane: "ignored"}, "build it"); err != nil {
 		t.Fatal(err)
 	}
+	if items, err := led.List(); err != nil {
+		t.Fatal(err)
+	} else {
+		var found bool
+		for _, it := range items {
+			if it.Question == "build it" {
+				found = true
+				if it.Class != decide.ClassRequest || !strings.HasPrefix(it.ID, "R-") {
+					t.Fatalf("compose item = %+v, want request with R- prefix", it)
+				}
+			}
+		}
+		if !found {
+			t.Fatal("composed item 'build it' not found")
+		}
+	}
 	if last := h.sends[len(h.sends)-1]; last[len(last)-2] != "w2:p3" {
 		t.Fatalf("send argv = %q", last)
 	}

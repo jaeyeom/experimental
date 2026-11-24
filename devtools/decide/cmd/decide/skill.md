@@ -17,9 +17,21 @@ Run `decide` with no arguments for the full usage. The flag list is in that text
 
 Before filing a decision or fact question, run `decide log search <words>` to see whether the user already decided it. It searches the user's answers and the owners' `done` outcomes, newest first, and hides superseded items (`--all` shows them; `--class` changes the classes, default `decision,fact`). When you act on a precedent, cite its id. The log is read-only: searching changes nothing. `decide supersede <old> --by <new>` records that a newer decision replaces an older one.
 
+## Pick a class
+
+Pass `--class <name>` (or its prefix) on every `decide ask`. Options apply only to `decision`, `approval`, and `fact`; `note` takes no options.
+
+- `decision` (`D`): a choice with a reason that guides later choices — e.g. `--class decision --option a:SQLite --option b:Postgres --rec a "Which store?"`
+- `approval` (`A`): yes/no/edit on one exact action or text (`--verbatim` required, defaults to `yes`/`no`/`edit`) — e.g. `--class approval --verbatim "Ship v1.2" "Post this?"`
+- `request` (`R`): a request from the user to an agent, tracked to `done` — e.g. `--class request "Investigate flaky test"`
+- `fact` (`Q`): a question for a fact only the user knows — e.g. `--class fact "Which AWS account?"`
+- `inbound` (`I`): someone else's ask relayed to the user (defaults to `handle`/`delegate`/`ignore`) — e.g. `--class inbound "Bob asks to review PR #42"`
+- `task` (`T`): work only the user can do, tracked to `done` — e.g. `--class task --deadline ... "Approve billing access"`
+- `note` (`N`): an FYI, report, or alert (takes no options; closed only by archiving) — e.g. `--class note "Build finished"`
+
 ## Items
 
-Every item has options, includes `--rec`, and usually allows `--free-text`.
+Items with options (`decision`, `approval`, and optionally `fact`) include `--rec` and usually allow `--free-text`; `note` takes no options.
 
 `--notify-pane` routes the answer to the owning agent's pane.
 

@@ -922,7 +922,7 @@ func askRelay(t *testing.T, extra []string, question string) string {
 
 func relayArgs(question string) []string {
 	return []string{
-		"ask", "--owner", "ada", "--kind", "relay",
+		"ask", "--class", "decision", "--owner", "ada", "--kind", "relay",
 		"--option", "a:Alpha", "--option", "b:Beta", "--rec", "a",
 		question,
 	}
@@ -1700,7 +1700,16 @@ func TestSkill(t *testing.T) {
 	for _, phrase := range []string{
 		"ask the user for a decision, send a note, or post status",
 		"Run `decide` with no arguments",
-		"Every item has options, includes `--rec`, and usually allows `--free-text`.",
+		"## Pick a class",
+		"`decision` (`D`):",
+		"`approval` (`A`):",
+		"`request` (`R`):",
+		"`fact` (`Q`):",
+		"`inbound` (`I`):",
+		"`task` (`T`):",
+		"`note` (`N`):",
+		"Options apply only to `decision`, `approval`, and `fact`; `note` takes no options.",
+		"Items with options (`decision`, `approval`, and optionally `fact`) include `--rec`",
 		"`--notify-pane` routes the answer to the owning agent's pane.",
 		"Inside herdr, `--owner` can be omitted: it defaults to this tab's label.",
 		"An explicit `--owner` should match the tab label or one of your agentbus names",
