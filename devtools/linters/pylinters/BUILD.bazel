@@ -33,6 +33,7 @@ py_binary(
     )
     for name in [
         "baseline_test",
+        "bazel_test",
         "cli_module_import_test",
         "cli_sibling_import_test",
         "config_test",

@@ -20,3 +20,7 @@ class ParseError(PylintersError):
         """Record the repo-relative ``path`` that failed to parse."""
         super().__init__(f"{path}: {msg}")
         self.path = path
+
+
+class SourceError(PylintersError):
+    """An entry source (``bazel query``, an entry list) failed."""
