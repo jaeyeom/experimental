@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -208,4 +211,150 @@ func TestHubIgnoresTheTabLabelWithoutATrustedCaller(t *testing.T) {
 	if code != 2 || !strings.Contains(stderr, "decide owner is required") {
 		t.Fatalf("ask = %d, stderr %q", code, stderr)
 	}
+}
+
+func TestAskOutsideHerdrDefaultsNotifyPaneToPull(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("DECIDE_HUB", "")
+	t.Setenv("DECIDE_AS_HANDLE", "")
+	t.Setenv("HERDR_PANE_ID", "")
+	calls := fakeWhoami(t, "", errors.New("outside herdr must not run agentbus"))
+
+	item, stderr := askItem(t, relayAsk("--owner", "ci-bot")...)
+	if item.Owner != "ci-bot" {
+		t.Fatalf("owner = %q, want ci-bot", item.Owner)
+	}
+	if item.NotifyPane != decide.SchemePull || item.NotifyMachine != "" {
+		t.Fatalf("notify = %q on %q, want %q locally", item.NotifyPane, item.NotifyMachine, decide.SchemePull)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q", stderr)
+	}
+	if *calls != 0 {
+		t.Fatalf("agentbus whoami called %d times outside herdr", *calls)
+	}
+}
+
+func TestAskOutsideHerdrRespectsConfigNotifyPaneAndExplicitPull(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("DECIDE_HUB", "")
+	t.Setenv("DECIDE_AS_HANDLE", "")
+	t.Setenv("HERDR_PANE_ID", "")
+	logPath := filepath.Join(state, "notify.log")
+	installNotifier(t, logPath, "exit 0")
+	writeNotifyConfig(t, `notifier "$DECIDE_ID" "$DECIDE_PANE"`, "default-pane")
+
+	fallback, _ := askItem(t, relayAsk("--owner", "ci-bot")...)
+	if fallback.NotifyPane != "" {
+		t.Fatalf("fallback notifyPane = %q, want empty so cfg.NotifyPane applies", fallback.NotifyPane)
+	}
+
+	explicitPull, _ := askItem(t, relayAsk("--owner", "ci-bot", "--notify-pane", decide.SchemePull)...)
+	if explicitPull.NotifyPane != decide.SchemePull {
+		t.Fatalf("explicit pull notifyPane = %q, want %q", explicitPull.NotifyPane, decide.SchemePull)
+	}
+	if _, stderr, code := runCLI("answer", explicitPull.ID, "a"); code != 0 {
+		t.Fatalf("answer = %d\n%s", code, stderr)
+	}
+	if _, err := os.Stat(logPath); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("notify template ran for explicit pull item")
+	}
+}
+
+func TestAskInHerdrWithNotifyPanePullSuppressesPushNotification(t *testing.T) {
+	inHerdrPane(t)
+	fakeWhoami(t, whoamiOpsInbox, nil)
+	logPath := filepath.Join(t.TempDir(), "notify.log")
+	installNotifier(t, logPath, "exit 0")
+	writeNotifyConfig(t, `notifier "$DECIDE_ID" "$DECIDE_PANE"`, "default-pane")
+
+	item, stderr := askItem(t, relayAsk("--notify-pane", decide.SchemePull)...)
+	if item.Owner != "review" {
+		t.Fatalf("owner = %q, want review", item.Owner)
+	}
+	if item.NotifyPane != decide.SchemePull || item.NotifyMachine != "" {
+		t.Fatalf("notify = %q on %q, want %q locally", item.NotifyPane, item.NotifyMachine, decide.SchemePull)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q", stderr)
+	}
+	if _, stderr, code := runCLI("answer", item.ID, "a"); code != 0 {
+		t.Fatalf("answer = %d\n%s", code, stderr)
+	}
+	if _, err := os.Stat(logPath); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("notify template ran for pull item inside herdr")
+	}
+}
+
+func TestHubAskWithNotifyPanePullLeavesMachineEmpty(t *testing.T) {
+	onHub(t, "herdr:m2/s/p3")
+	t.Setenv("HERDR_PANE_ID", "")
+	t.Setenv("DECIDE_TAB_LABEL", "review")
+	t.Setenv("DECIDE_BUS_NAMES", "ops/inbox")
+	calls := fakeWhoami(t, "", errors.New("the hub must not run agentbus"))
+
+	item, stderr := askItem(t, relayAsk("--notify-pane", decide.SchemePull)...)
+	if item.Owner != "review" || item.NotifyPane != decide.SchemePull || item.NotifyMachine != "" || stderr != "" {
+		t.Fatalf("item = %+v, stderr %q", item, stderr)
+	}
+	if *calls != 0 {
+		t.Fatalf("hub ran agentbus whoami %d times", *calls)
+	}
+}
+
+func TestDetectCaller(t *testing.T) {
+	t.Run("hub forwarded", func(t *testing.T) {
+		onHub(t, "herdr:m2/s/p3")
+		t.Setenv("HERDR_PANE_ID", "ignored-local")
+		t.Setenv("DECIDE_TAB_LABEL", "review")
+		t.Setenv("DECIDE_BUS_NAMES", "ops/inbox,ops/triage")
+		calls := fakeWhoami(t, "", errors.New("hub must not run agentbus"))
+
+		got := detectCaller(context.Background())
+		if got.tab != "review" || !slices.Equal(got.busNames, []string{"ops/inbox", "ops/triage"}) || got.sender != "ops/inbox" {
+			t.Fatalf("caller = %+v", got)
+		}
+		wantTarget := decide.Target{Scheme: decide.SchemeHerdr, Address: "p3", Machine: "m2"}
+		if got.defaultTarget != wantTarget {
+			t.Fatalf("defaultTarget = %+v, want %+v", got.defaultTarget, wantTarget)
+		}
+		if *calls != 0 {
+			t.Fatalf("whoami calls = %d, want 0", *calls)
+		}
+	})
+
+	t.Run("local herdr", func(t *testing.T) {
+		inHerdrPane(t)
+		fakeWhoami(t, whoamiOpsInbox, nil)
+
+		got := detectCaller(context.Background())
+		if got.tab != "review" || !slices.Equal(got.busNames, []string{"ops/inbox"}) || got.sender != "ops/inbox" {
+			t.Fatalf("caller = %+v", got)
+		}
+		wantTarget := decide.Target{Scheme: decide.SchemeHerdr, Address: "w1:p3"}
+		if got.defaultTarget != wantTarget {
+			t.Fatalf("defaultTarget = %+v, want %+v", got.defaultTarget, wantTarget)
+		}
+	})
+
+	t.Run("outside herdr", func(t *testing.T) {
+		t.Setenv("DECIDE_AS_HANDLE", "")
+		t.Setenv("HERDR_PANE_ID", "")
+		calls := fakeWhoami(t, "", errors.New("outside herdr must not run agentbus"))
+
+		got := detectCaller(context.Background())
+		if got.tab != "" || len(got.busNames) != 0 || got.sender != "" {
+			t.Fatalf("caller = %+v", got)
+		}
+		wantTarget := decide.Target{Scheme: decide.SchemePull}
+		if got.defaultTarget != wantTarget {
+			t.Fatalf("defaultTarget = %+v, want %+v", got.defaultTarget, wantTarget)
+		}
+		if *calls != 0 {
+			t.Fatalf("whoami calls = %d, want 0", *calls)
+		}
+	})
 }

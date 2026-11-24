@@ -221,18 +221,18 @@ func notifyHubCaller(item *decide.Item) error {
 	if strings.TrimSpace(item.NotifyPane) == "" {
 		item.NotifyPane = pane
 	}
-	if !strings.HasPrefix(item.NotifyPane, decide.BusPanePrefix) {
+	if decide.ParseTarget(item.NotifyPane, "").Scheme == decide.SchemeHerdr {
 		item.NotifyMachine = machine
 	}
 	return nil
 }
 
 // machineForNotifyPane is the herdr machine of pane, the same way ask
-// stores it. An empty pane or an agentbus name has none. A hub-mode
-// caller supplies the machine. With no caller, the pane is on this machine.
+// stores it. An empty pane, agentbus name, or pull target has none. A
+// hub-mode caller supplies the machine. With no caller, the pane is on
+// this machine.
 func machineForNotifyPane(pane string) (string, error) {
-	pane = strings.TrimSpace(pane)
-	if pane == "" || strings.HasPrefix(pane, decide.BusPanePrefix) {
+	if decide.ParseTarget(pane, "").Scheme != decide.SchemeHerdr {
 		return "", nil
 	}
 	caller, err := hubcall.TrustedCaller(os.Environ(), asHandleEnv)

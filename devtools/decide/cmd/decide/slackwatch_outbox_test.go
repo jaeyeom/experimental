@@ -60,8 +60,8 @@ func TestSlackwatchAskKeepsOptions(t *testing.T) {
 	if !item.OwnerRepliesOnly {
 		t.Fatal("ask did not set ownerRepliesOnly")
 	}
-	if item.NotifyPane != "" {
-		t.Fatalf("notifyPane = %q, want empty", item.NotifyPane)
+	if item.NotifyPane != decide.SchemePull {
+		t.Fatalf("notifyPane = %q, want %q", item.NotifyPane, decide.SchemePull)
 	}
 	if !optionKeys(item.Options, "yes", "no", "edit") {
 		t.Fatalf("options = %+v", item.Options)

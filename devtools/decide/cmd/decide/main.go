@@ -897,7 +897,7 @@ func cmdAsk(args []string, stdout, stderr io.Writer) int {
 	verbatim := fs.String("verbatim", "", "exact post draft shown as a quote block without shape checks")
 	verbatimFile := fs.String("verbatim-file", "", "file containing exact post draft shown as a quote block without shape checks")
 	deadline := fs.String("deadline", "", "deadline in RFC3339")
-	notifyPane := fs.String("notify-pane", "", "pane stored for a later notify command")
+	notifyPane := fs.String("notify-pane", "", "pane stored for a later notify command (or pull for polling)")
 	typeText := fs.String("type-text", "", "exact text to type")
 	where := fs.String("where", "", "where to type the text")
 	var options stringList
@@ -925,7 +925,8 @@ func cmdAsk(args []string, stdout, stderr io.Writer) int {
 	}
 	k := askKind(*kind, class)
 	allowFree := askFreeText(class, k, *freeText, *optionsOnly, cfg.OptionsOnly)
-	who := askOwner(*owner, askerOf(context.Background()), stderr)
+	caller := detectCaller(context.Background())
+	who := askOwner(*owner, caller, stderr)
 	item, err := buildAsk(class, *parent, who, k, *rec, allowFree, *ownerRepliesOnly, *deadline, *notifyPane, *typeText, *where, []string(options), []string(links), question, verb)
 	if err != nil {
 		return fail(stderr, err, 2)
@@ -940,9 +941,7 @@ func cmdAsk(args []string, stdout, stderr io.Writer) int {
 	if err := notifyHubCaller(&item); err != nil {
 		return fail(stderr, err, 1)
 	}
-	if strings.TrimSpace(item.NotifyPane) == "" {
-		item.NotifyPane = strings.TrimSpace(os.Getenv("HERDR_PANE_ID"))
-	}
+	item.NotifyPane = resolveAskNotifyPane(item.NotifyPane, caller, cfg)
 	return withItem(stdout, stderr, *jsonOut, true, func(led *decide.Ledger) (decide.Item, error) {
 		return led.Create(&item)
 	})

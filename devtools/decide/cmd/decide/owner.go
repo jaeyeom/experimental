@@ -75,26 +75,78 @@ func paneTabLabel(ctx context.Context, pane string) string {
 	return loc.Tab
 }
 
-// asker is who runs an ask: the herdr tab label, empty outside herdr,
-// and a lookup of its agentbus names.
-type asker struct {
-	tab   string
-	names func() []string
+// callerEnv describes the detected calling environment for a decide command.
+type callerEnv struct {
+	tab           string
+	busNames      []string
+	sender        string
+	defaultTarget decide.Target
 }
 
-// askerOf finds the asker. On the hub, a trusted hub-mode caller's tab
-// label and names come from the environment the client sent. Otherwise
-// they come from this machine's herdr pane, if any.
-func askerOf(ctx context.Context) asker {
-	if caller, err := hubcall.TrustedCaller(os.Environ(), asHandleEnv); err == nil && caller != "" {
-		names := splitNames(os.Getenv(busNamesEnv))
-		return asker{tab: strings.TrimSpace(os.Getenv(tabLabelEnv)), names: func() []string { return names }}
+// detectCaller inspects the caller environment in order:
+//  1. Trusted hub-forwarded caller (DECIDE_AS_HANDLE, DECIDE_TAB_LABEL, DECIDE_BUS_NAMES).
+//  2. Local herdr pane (HERDR_PANE_ID).
+//  3. Outside herdr, defaulting delivery to pull.
+func detectCaller(ctx context.Context) callerEnv {
+	if env, ok := detectHubCaller(); ok {
+		return env
 	}
+	if env, ok := detectHerdrCaller(ctx); ok {
+		return env
+	}
+	return callerEnv{
+		defaultTarget: decide.Target{Scheme: decide.SchemePull},
+	}
+}
+
+func detectHubCaller() (callerEnv, bool) {
+	caller, err := hubcall.TrustedCaller(os.Environ(), asHandleEnv)
+	if err != nil || caller == "" {
+		return callerEnv{}, false
+	}
+	names := splitNames(os.Getenv(busNamesEnv))
+	tab := strings.TrimSpace(os.Getenv(tabLabelEnv))
+	sender := caller
+	switch {
+	case len(names) > 0:
+		sender = names[0]
+	case tab != "":
+		sender = tab
+	}
+	var target decide.Target
+	if machine, _, pane, perr := hubcall.ParseHandle(caller); perr == nil && pane != "" {
+		target = decide.Target{Scheme: decide.SchemeHerdr, Address: pane, Machine: machine}
+	}
+	return callerEnv{
+		tab:           tab,
+		busNames:      names,
+		sender:        sender,
+		defaultTarget: target,
+	}, true
+}
+
+func detectHerdrCaller(ctx context.Context) (callerEnv, bool) {
 	pane := strings.TrimSpace(os.Getenv("HERDR_PANE_ID"))
 	if pane == "" {
-		return asker{}
+		return callerEnv{}, false
 	}
-	return asker{tab: paneTabLabel(ctx, pane), names: func() []string { return localBusNames(ctx) }}
+	names, handle := whoamiSender(ctx)
+	tab := paneTabLabel(ctx, pane)
+	sender := pane
+	switch {
+	case len(names) > 0:
+		sender = names[0]
+	case tab != "":
+		sender = tab
+	case handle != "":
+		sender = handle
+	}
+	return callerEnv{
+		tab:           tab,
+		busNames:      names,
+		sender:        sender,
+		defaultTarget: decide.Target{Scheme: decide.SchemeHerdr, Address: pane},
+	}, true
 }
 
 // senderOf is who runs a reply or send --id, for decide.Message.By: the
@@ -104,35 +156,21 @@ func askerOf(ctx context.Context) asker {
 // client sent. Locally, the handle is the one `agentbus whoami` prints,
 // or HERDR_PANE_ID when that output has no handle.
 func senderOf(ctx context.Context) string {
-	if caller, err := hubcall.TrustedCaller(os.Environ(), asHandleEnv); err == nil && caller != "" {
-		return hubSender(caller)
-	}
-	pane := strings.TrimSpace(os.Getenv("HERDR_PANE_ID"))
-	if pane == "" {
-		return ""
-	}
-	names, handle := whoamiSender(ctx)
-	if len(names) > 0 {
-		return names[0]
-	}
-	if tab := paneTabLabel(ctx, pane); tab != "" {
-		return tab
-	}
-	if handle != "" {
-		return handle
-	}
-	return pane
+	return detectCaller(ctx).sender
 }
 
-// hubSender is the hub-mode caller's display name from the env the client sent.
-func hubSender(caller string) string {
-	if names := splitNames(os.Getenv(busNamesEnv)); len(names) > 0 {
-		return names[0]
+// resolveAskNotifyPane picks the notifyPane stored on a new ask item.
+// An explicit --notify-pane always wins (including "pull"). Otherwise,
+// a detected herdr target is stored; outside herdr, "pull" is stored
+// unless cfg.NotifyPane provides a fallback default.
+func resolveAskNotifyPane(explicit string, caller callerEnv, cfg decide.Config) string {
+	if strings.TrimSpace(explicit) != "" {
+		return explicit
 	}
-	if tab := strings.TrimSpace(os.Getenv(tabLabelEnv)); tab != "" {
-		return tab
+	if caller.defaultTarget.Scheme == decide.SchemePull && strings.TrimSpace(cfg.NotifyPane) != "" {
+		return ""
 	}
-	return caller
+	return caller.defaultTarget.String()
 }
 
 // whoamiSender reads this pane's agentbus names and, when it has none, the
@@ -177,27 +215,26 @@ func splitNames(raw string) []string {
 	return names
 }
 
-// askOwner is owner, or the asker's tab label when owner is empty. An
-// owner that is neither the tab label nor one of the asker's agentbus
+// askOwner is owner, or the caller's tab label when owner is empty. An
+// owner that is neither the tab label nor one of the caller's agentbus
 // names gets a warning on stderr. Outside herdr, owner is unchanged.
-func askOwner(owner string, a asker, stderr io.Writer) string {
-	if a.tab == "" {
+func askOwner(owner string, caller callerEnv, stderr io.Writer) string {
+	if caller.tab == "" {
 		return owner
 	}
 	if strings.TrimSpace(owner) == "" {
-		return a.tab
+		return caller.tab
 	}
-	if owner == a.tab {
+	if owner == caller.tab {
 		return owner
 	}
-	names := a.names()
-	if slices.Contains(names, owner) {
+	if slices.Contains(caller.busNames, owner) {
 		return owner
 	}
 	list := "none"
-	if len(names) > 0 {
-		list = strings.Join(names, ", ")
+	if len(caller.busNames) > 0 {
+		list = strings.Join(caller.busNames, ", ")
 	}
-	fmt.Fprintf(stderr, "warning: owner %q matches neither this tab (%q) nor your agentbus names (%s); the user finds you by tab\n", owner, a.tab, list)
+	fmt.Fprintf(stderr, "warning: owner %q matches neither this tab (%q) nor your agentbus names (%s); the user finds you by tab\n", owner, caller.tab, list)
 	return owner
 }

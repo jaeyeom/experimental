@@ -34,7 +34,9 @@ missing file is an empty config.
 
 Inside a [[https://herdr.dev/][herdr]] pane the owner defaults to that
 tab's label, and the pane is stored so the answer can be delivered
-there. Outside herdr, pass ~--owner~.
+there. Outside herdr, pass ~--owner~; answers default to ~pull~
+delivery unless ~notifyPane~ is set in config or ~--notify-pane~ is
+passed.
 
 #+begin_src sh
 decide ask --kind relay --option y:Yes --option n:No --rec y "Merge the release branch?"
@@ -141,9 +143,12 @@ withdraw~ refuses a done-unread item.
   in that same directory holds agent and resource rows, separate from
   the ledger.
 - The *notify pane* is where the answer is delivered. An ask from a
-  herdr pane stores that pane. ~--notify-pane~ wins. A value of
-  ~agentbus:<name>~ delivers with ~agentbus send~ instead of a pane
-  command.
+  herdr pane stores that pane. Outside herdr (with no ~notifyPane~ in
+  config), ~decide ask~ stores ~pull~ so the owner polls for answers
+  instead of receiving push notifications. ~--notify-pane~ wins; pass
+  ~--notify-pane pull~ to force pull delivery inside herdr or when
+  ~notifyPane~ is configured. A value of ~agentbus:<name>~ delivers
+  with ~agentbus send~ instead of a pane command.
 - A *hub* is a second machine's ssh target. The hub holds the ledger.
   The other machine runs the same commands against it. See
   [[*Using two machines]].
