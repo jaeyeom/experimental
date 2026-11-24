@@ -48,6 +48,7 @@ func cmdWeb(args []string, stdout, stderr io.Writer) int {
 		Config:              cfg,
 		Display:             localDisplay,
 		OrgConfig:           localOrgConfig,
+		KeyMap:              localKeyMap,
 		Orgctl:              tui.ExecOrgctl,
 		Targets:             cfg.Targets,
 		Agentbus:            cfg.Recipients.Agentbus,

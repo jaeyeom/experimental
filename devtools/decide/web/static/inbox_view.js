@@ -2,7 +2,7 @@
 // Archive/Snooze by swipe, button or key. All text is set with
 // textContent; item text is never parsed as HTML.
 import * as api from './api.js';
-import { el } from './dom.js';
+import { el, keyHint } from './dom.js';
 import {
   FOLDERS, CLASS_CHIPS, inboxView, badgeOf, hasUnread, effectiveClass, snippet, undelivered,
   draftMark, relativeAge, deadlineLabel, lastStamp, noteSeen,
@@ -17,7 +17,7 @@ const folderOf = (route) => {
 const closed = (it) => it.state === 'done' || it.state === 'withdrawn';
 const wakeText = (t) => new Date(t).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
 
-export function createInboxView({ root, toast }) {
+export function createInboxView({ root, toast, hint = () => '' }) {
   const filter = { classes: new Set(), query: '', agent: '' };
   let state = null;
   let route = { name: 'inbox', arg: '' };
@@ -47,9 +47,6 @@ export function createInboxView({ root, toast }) {
   }
 
   search.addEventListener('input', () => { filter.query = search.value; render(); });
-  search.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { search.value = ''; filter.query = ''; search.blur(); render(); }
-  });
 
   // --- actions ---
   async function archive(it) {
@@ -122,13 +119,14 @@ export function createInboxView({ root, toast }) {
     const li = el('li', { class: 'row-wrap', 'data-id': it.id });
     li.append(link);
     if (!closed(it)) {
-      const act = (name, fn) => {
-        const b = el('button', { type: 'button', class: 'act', text: name, 'aria-label': `${name} ${it.id}`, 'data-k': `${it.id}:${name}` });
+      const act = (name, actionName, fn) => {
+        const b = el('button', { type: 'button', class: 'act', 'aria-label': `${name} ${it.id}`, 'data-k': `${it.id}:${name}` },
+          name, keyHint(hint(actionName)));
         b.addEventListener('click', fn);
         return b;
       };
       li.append(el('span', { class: 'row-actions' },
-        act('Archive', () => archive(it)), act('Snooze', () => snoozeSheet(it, `${it.id}:Snooze`))));
+        act('Archive', 'list.archive', () => archive(it)), act('Snooze', 'list.snooze', () => snoozeSheet(it, `${it.id}:Snooze`))));
       attachSwipe(li, { onArchive: () => archive(it), onSnooze: () => snoozeSheet(it, `${it.id}:row`) });
     }
     return li;
@@ -164,7 +162,7 @@ export function createInboxView({ root, toast }) {
       for (const g of view.groups) {
         const head = el('div', { class: 'group-head' }, el('h2', { text: `${g.label} (${g.entries.length})` }));
         if (g.group === 'notes') {
-          const b = el('button', { type: 'button', class: 'act', text: 'Archive all notes' });
+          const b = el('button', { type: 'button', class: 'act' }, 'Archive all notes', keyHint(hint('list.archiveNotes')));
           b.addEventListener('click', () => archiveNotes(view.entries));
           head.append(b);
         }
@@ -181,37 +179,70 @@ export function createInboxView({ root, toast }) {
     if (focusKey) root.querySelector(`[data-k="${CSS.escape(focusKey)}"]`)?.focus({ preventScroll: true });
   }
 
-  // --- keyboard ---
-  const typing = (t) => t instanceof Element && (t.closest('input, textarea, select, [contenteditable]') !== null);
-  document.addEventListener('keydown', (e) => {
-    if (e.ctrlKey || e.metaKey || e.altKey || typing(e.target) || document.querySelector('dialog[open]')) return;
-    if (root.offsetParent === null) return; // list not on screen
-    const rows = [...root.querySelectorAll('a.row')];
+  // --- keyboard actions (invoked by the central keymap dispatcher) ---
+  const listRows = () => [...root.querySelectorAll('a.row')];
+  const focusedItem = () => items.get(document.activeElement?.closest?.('li[data-id]')?.dataset.id);
+
+  function move(delta) {
+    const rows = listRows();
+    if (!rows.length) return;
     const cur = rows.indexOf(document.activeElement);
-    const focusedItem = () => items.get(document.activeElement?.closest?.('li[data-id]')?.dataset.id);
-    switch (e.key) {
-    case 'j': case 'k': {
-      if (!rows.length) return;
-      const next = e.key === 'j' ? Math.min(cur + 1, rows.length - 1) : Math.max(cur - 1, 0);
-      rows[cur < 0 ? 0 : next].focus();
-      break;
-    }
-    case '/': e.preventDefault(); search.focus(); break;
-    case 'Escape':
-      filter.classes.clear(); filter.agent = ''; filter.query = ''; search.value = '';
-      render();
-      break;
-    case 'c': location.hash = '#/compose'; break;
-    case 'e': { const it = focusedItem(); if (it && !closed(it)) archive(it); break; }
-    case 's': { const it = focusedItem(); if (it && !closed(it)) { e.preventDefault(); snoozeSheet(it, `${it.id}:row`); } break; }
-    default:
-    }
-  });
+    const next = cur < 0 ? (delta > 0 ? 0 : rows.length - 1) : Math.max(0, Math.min(rows.length - 1, cur + delta));
+    rows[next].focus();
+  }
+
+  function jump(where) {
+    const rows = listRows();
+    if (!rows.length) return;
+    rows[where === 'bottom' ? rows.length - 1 : 0].focus();
+  }
+
+  function openSelected() {
+    const rows = listRows();
+    if (!rows.length) return;
+    const cur = rows.indexOf(document.activeElement);
+    rows[cur < 0 ? 0 : cur].click();
+  }
+
+  function archiveSelected() {
+    const it = focusedItem();
+    if (it && !closed(it)) archive(it);
+  }
+
+  function snoozeSelected() {
+    const it = focusedItem();
+    if (it && !closed(it)) snoozeSheet(it, `${it.id}:row`);
+  }
+
+  function archiveAllVisibleNotes() {
+    if (!state) return;
+    const folder = folderOf(route);
+    if (folder !== 'inbox') return;
+    const view = inboxView(state.items, { folder, classes: [...filter.classes], query: filter.query, agent: filter.agent });
+    archiveNotes(view.entries);
+  }
+
+  function clearFilters() {
+    filter.classes.clear();
+    filter.agent = '';
+    filter.query = '';
+    search.value = '';
+    render();
+  }
 
   return {
     render(s, r) { state = s; route = r; render(); },
     // setAgent narrows the list to one contact, for navigation from Contacts.
     setAgent(name) { filter.agent = name ?? ''; render(); },
-    focusSearch() { search.focus(); },
+    focusSearch() { search.focus(); search.select?.(); },
+    isSearchTarget(target) { return target === search; },
+    clearSearch() { search.value = ''; filter.query = ''; search.blur(); render(); },
+    move,
+    jump,
+    openSelected,
+    archiveSelected,
+    snoozeSelected,
+    archiveAllVisibleNotes,
+    clearFilters,
   };
 }

@@ -1,11 +1,11 @@
 // Contacts: flat list or org tree, starring, and a detail sheet. Data is
 // fetched on entry and after changes. Text is set with textContent only.
 import * as api from './api.js';
-import { el, btn } from './dom.js';
+import { el, btn, keyHint } from './dom.js';
 import { openSheet } from './sheet.js';
 import { contactList, toggleFavorite, orgLayout, livenessLabel, detailRows } from './contacts_model.js';
 
-export function createContactsView({ root, toast, onFilter }) {
+export function createContactsView({ root, toast, onFilter, hint = () => '' }) {
   let active = false;
   let data = null; // {contacts, favorites, busError}
   let tree = null; // org tree root, or null
@@ -66,7 +66,7 @@ export function createContactsView({ root, toast, onFilter }) {
       el('span', { class: 'muted', text: ' ' + livenessLabel(c) + (open ? `, ${open} open` : '') }));
     info.addEventListener('click', () => detail(c));
     const s = btn(c.fav ? '★' : '☆', () => star(c.name), 'star', { 'aria-pressed': String(!!c.fav), 'aria-label': (c.fav ? 'Unstar ' : 'Star ') + c.name });
-    return el('li', { class: 'contact' + (c.bus && c.liveness === 'dead' ? ' dim' : '') }, info, s);
+    return el('li', { class: 'contact' + (c.bus && c.liveness === 'dead' ? ' dim' : ''), 'data-contact': c.name }, info, s);
   }
 
   function draw() {
@@ -75,7 +75,9 @@ export function createContactsView({ root, toast, onFilter }) {
     if (orgOn) {
       const seg = el('div', { class: 'seg', role: 'group', 'aria-label': 'View' });
       for (const [id, label] of [['list', 'List'], ['tree', 'Org Tree']]) {
-        const b = btn(label, async () => { mode = id; if (id === 'tree' && !tree) await loadTree(); draw(); }, '', { 'aria-pressed': String(mode === id) });
+        const b = el('button', { type: 'button', 'aria-pressed': String(mode === id) },
+          label, id === 'tree' ? keyHint(hint('contacts.orgTree')) : '');
+        b.addEventListener('click', async () => { mode = id; if (id === 'tree' && !tree) await loadTree(); draw(); });
         seg.append(b);
       }
       kids.push(seg);
@@ -100,11 +102,40 @@ export function createContactsView({ root, toast, onFilter }) {
     root.replaceChildren(...kids);
   }
 
+  const contactButtons = () => [...root.querySelectorAll('li.contact button.contact-main')];
+  const focusedContact = () => document.activeElement?.closest?.('li.contact')?.dataset?.contact ?? '';
+  function move(delta) {
+    const rows = contactButtons();
+    if (!rows.length) return;
+    const cur = rows.indexOf(document.activeElement);
+    const next = cur < 0 ? (delta > 0 ? 0 : rows.length - 1) : Math.max(0, Math.min(rows.length - 1, cur + delta));
+    rows[next].focus();
+  }
+  function jump(where) {
+    const rows = contactButtons();
+    if (!rows.length) return;
+    rows[where === 'bottom' ? rows.length - 1 : 0].focus();
+  }
+
   return {
     render(state) {
       orgOn = !!state.orgTreeEnabled;
       if (!active) { active = true; mode = 'list'; load(); } else draw();
     },
     leave() { active = false; data = null; tree = null; note = ''; },
+    move,
+    jump,
+    filterSelected() { const name = focusedContact(); if (name) onFilter(name); },
+    starSelected() { const name = focusedContact(); if (name) star(name); },
+    composeSelected() {
+      const name = focusedContact();
+      location.hash = name ? '#/compose?to=' + encodeURIComponent(name) : '#/compose';
+    },
+    async toggleOrgTree() {
+      if (!orgOn) return;
+      mode = mode === 'tree' ? 'list' : 'tree';
+      if (mode === 'tree' && !tree) await loadTree();
+      draw();
+    },
   };
 }

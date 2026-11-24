@@ -337,7 +337,7 @@ notifications on again. The public key is served at
 
 The page uses a JSON API under =/api/v1= that scripts can call with a Bearer
 token. It is not versioned beyond ~v1~ and may change with the app. Reads: ~snapshot~, ~items/{id}~,
-~status~, ~contacts~, ~org-tree~, ~search?q=~, and ~events~ (SSE with
+~status~, ~contacts~, ~org-tree~, ~search?q=~, ~keymap~, and ~events~ (SSE with
 ~resync~, ~delta~, and ~ping~ events; ~Last-Event-ID~ or ~?since=~
 resumes). Writes: ~items/{id}/{read,answer,reply,archive,done,snooze,
 unsnooze}~, ~notes/archive-all~, ~send~, ~contacts/favorites~, and

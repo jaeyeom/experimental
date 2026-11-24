@@ -3,7 +3,7 @@
 // draft); #/compose/<id> forwards item <id> as a preview that never
 // touches the saved compose draft. All text is set via textContent.
 import * as api from './api.js';
-import { el, btn } from './dom.js';
+import { el, btn, keyHint } from './dom.js';
 import { createDraftSync } from './draft_sync.js';
 import { loadLocalDraft, saveLocalDraft } from './store.js';
 import { openSheet } from './sheet.js';
@@ -11,7 +11,7 @@ import {
   recipientList, filterRecipients, sendBody, needsBusConfirm, composeDraftBody, composePlan, forwardPreview,
 } from './compose_model.js';
 
-export function createComposeView({ root, toast }) {
+export function createComposeView({ root, toast, hint = () => '' }) {
   let cur = null;
   let state = null;
 
@@ -33,7 +33,10 @@ export function createComposeView({ root, toast }) {
     const note = el('p', { class: 'muted' });
     const restore = el('div', { class: 'draft-banner', hidden: true, role: 'group', 'aria-label': 'Saved draft' });
     const ta = el('textarea', { class: 'reply-text compose-text', rows: '6', 'aria-label': 'Message', placeholder: 'Message' });
-    const send = btn('Send', () => trySend(), 'primary');
+    const send = el('button', { type: 'button', class: 'primary' }, 'Send', keyHint(hint('compose.send')));
+    send.addEventListener('click', () => trySend());
+    c.sendBtn = send;
+    c.trySend = trySend;
     const status = el('span', { class: 'muted', role: 'status', 'aria-live': 'polite' });
 
     function drawPicker() {
@@ -152,6 +155,9 @@ export function createComposeView({ root, toast }) {
       if (cur?.key !== key) { leave(); enter(route); }
     },
     leave,
+    send() { cur?.trySend?.(); },
+    cancel(backHash = '#/inbox') { location.hash = backHash; },
+    refreshHints() { if (cur?.sendBtn) cur.sendBtn.replaceChildren('Send', keyHint(hint('compose.send'))); },
   };
 
   function leave() {

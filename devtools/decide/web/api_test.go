@@ -663,6 +663,7 @@ var apiRoutes = []req{
 	{"GET", "/api/v1/contacts", "", nil},
 	{"GET", "/api/v1/org-tree", "", nil},
 	{"GET", "/api/v1/search?q=x", "", nil},
+	{"GET", "/api/v1/keymap", "", nil},
 	{"POST", "/api/v1/items/D1/read", "", nil},
 	{"POST", "/api/v1/items/D1/answer", `{"value":"y"}`, nil},
 	{"POST", "/api/v1/items/D1/reply", `{"text":"x"}`, nil},
@@ -720,6 +721,84 @@ func TestMutationsRequireSameOrigin(t *testing.T) {
 func TestWrongMethodIs405(t *testing.T) {
 	a := newAPI(t)
 	wantStatus(t, do(a.h, req{"GET", "/api/v1/items/D1/read", "", sameOrigin}), 405)
+}
+
+func TestKeymapDefaultAndCustom(t *testing.T) {
+	a := newAPI(t)
+	m := a.wantOK(a.do("GET", "/api/v1/keymap", ""), 200)
+	if m["chordTimeoutMs"] != float64(1000) {
+		t.Errorf("chordTimeoutMs = %v, want 1000", m["chordTimeoutMs"])
+	}
+	if m["asciiKeys"] != false {
+		t.Errorf("asciiKeys = %v, want false", m["asciiKeys"])
+	}
+	actions, _ := m["actions"].([]any)
+	catalog := decide.ActionCatalog()
+	if len(actions) != len(catalog) {
+		t.Fatalf("len(actions) = %d, want %d", len(actions), len(catalog))
+	}
+	byName := map[string]map[string]any{}
+	for _, raw := range actions {
+		act := raw.(map[string]any)
+		byName[act["name"].(string)] = act
+	}
+	if got := byName["goto.inbox"]["keys"].([]any); len(got) != 1 || got[0] != "g i" {
+		t.Errorf("goto.inbox keys = %v, want [g i]", got)
+	}
+	if got := byName["compose.send"]["buttonKeys"].([]any); len(got) == 0 || got[0] != "^⏎" {
+		t.Errorf("compose.send buttonKeys = %v, want [^⏎ ...]", got)
+	}
+
+	// Custom bindings and asciiKeys from config apply on the web endpoint.
+	a.server.Config.UI.Keys = map[string][]string{
+		"list.archive": {"x"},
+		"goto.inbox":   {"z i"},
+	}
+	a.server.Config.UI.ASCIIKeys = true
+	m = a.wantOK(a.do("GET", "/api/v1/keymap", ""), 200)
+	if m["asciiKeys"] != true {
+		t.Errorf("asciiKeys = %v, want true", m["asciiKeys"])
+	}
+	byName = map[string]map[string]any{}
+	for _, raw := range m["actions"].([]any) {
+		act := raw.(map[string]any)
+		byName[act["name"].(string)] = act
+	}
+	if got := byName["list.archive"]["keys"].([]any); len(got) != 1 || got[0] != "x" {
+		t.Errorf("custom list.archive keys = %v, want [x]", got)
+	}
+	if got := byName["goto.inbox"]["keys"].([]any); len(got) != 1 || got[0] != "z i" {
+		t.Errorf("custom goto.inbox keys = %v, want [z i]", got)
+	}
+	if got := byName["compose.send"]["buttonKeys"].([]any); len(got) == 0 || got[0] != "C-Enter" {
+		t.Errorf("ascii compose.send buttonKeys = %v, want [C-Enter ...]", got)
+	}
+}
+
+func TestKeymapRequiresSession(t *testing.T) {
+	a := newAPI(t)
+	t.Setenv(TokenEnv, testToken)
+	a.server.Config.Web.Auth.Mode = decide.WebAuthToken
+	h, err := a.server.Handler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Unauthenticated request is rejected with 401.
+	w := do(h, req{"GET", "/api/v1/keymap", "", sameOrigin})
+	wantStatus(t, w, http.StatusUnauthorized)
+
+	// Log in to obtain a session cookie, then fetch keymap with that session.
+	login := do(h, req{"POST", "/api/v1/auth/login", `{"token":"` + testToken + `"}`, sameOrigin})
+	wantStatus(t, login, http.StatusOK)
+	cookies := login.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("login did not set session cookie")
+	}
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/keymap", nil)
+	r.AddCookie(cookies[0])
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, r)
+	wantStatus(t, rec, http.StatusOK)
 }
 
 func TestLongUnbreakableWordsThroughWebAPI(t *testing.T) {

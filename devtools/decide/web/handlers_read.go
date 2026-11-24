@@ -19,6 +19,67 @@ import (
 // maxQuery bounds the search text.
 const maxQuery = 512
 
+// chordTimeoutMs matches the terminal inbox's 1s chord timeout.
+const chordTimeoutMs = 1000
+
+func (s *Server) keyMap() (*decide.KeyMap, bool, error) {
+	if s.KeyMap != nil {
+		return s.KeyMap()
+	}
+	km, err := decide.ResolveKeyMap(s.Config.UI.Keys)
+	if err != nil {
+		return nil, false, err //nolint:wrapcheck // ResolveKeyMap names ui.keys
+	}
+	return km, s.Config.UI.ASCIIKeys, nil
+}
+
+type keymapAction struct {
+	Name        string   `json:"name"`
+	View        string   `json:"view"`
+	Scopes      []string `json:"scopes"`
+	Description string   `json:"description"`
+	Where       string   `json:"where"`
+	Keys        []string `json:"keys"`
+	HelpKeys    []string `json:"helpKeys"`
+	ButtonKeys  []string `json:"buttonKeys"`
+}
+
+func (s *Server) getKeymap(w http.ResponseWriter, _ *http.Request) {
+	km, ascii, err := s.keyMap()
+	if err != nil {
+		fail(w, err, http.StatusInternalServerError)
+		return
+	}
+	catalog := decide.ActionCatalog()
+	actions := make([]keymapAction, 0, len(catalog))
+	for _, d := range catalog {
+		seqs := km.Bindings(d.Name)
+		keys := make([]string, len(seqs))
+		helpKeys := make([]string, len(seqs))
+		buttonKeys := make([]string, len(seqs))
+		for i, seq := range seqs {
+			keys[i] = seq.String()
+			helpKeys[i] = seq.HelpString()
+			buttonKeys[i] = seq.ButtonString(ascii)
+		}
+		actions = append(actions, keymapAction{
+			Name:        d.Name,
+			View:        d.View,
+			Scopes:      nonNil(d.Scopes),
+			Description: d.Description,
+			Where:       d.Where,
+			Keys:        keys,
+			HelpKeys:    helpKeys,
+			ButtonKeys:  buttonKeys,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"chordTimeoutMs": chordTimeoutMs,
+		"asciiKeys":      ascii,
+		"actions":        actions,
+	})
+}
+
 func (s *Server) display() (decide.DisplaySettings, error) {
 	if s.Display == nil {
 		return decide.DisplaySettings{}, nil

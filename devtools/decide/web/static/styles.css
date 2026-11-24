@@ -200,3 +200,32 @@ input.check { width: 1.4rem; min-height: 1.4rem; }
 @media (min-width: 840px) {
   dialog.sheet.side { margin: 0 0 0 auto; height: 100dvh; max-height: 100dvh; border-radius: 0; width: min(26rem, 100%); }
 }
+
+/* Keyboard shortcuts: hints (desktop only), chord indicator, active message, ? overlay. */
+.key-hint { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  .key-hint {
+    display: inline-block;
+    margin-left: .4em;
+    padding: 0 .35em;
+    font-family: var(--mono);
+    font-size: .75em;
+    line-height: 1.4;
+    border: 1px solid currentColor;
+    border-radius: 4px;
+    opacity: .75;
+    vertical-align: baseline;
+  }
+}
+.chord { position: fixed; right: 1rem; bottom: 5rem; background: var(--text); color: var(--bg); padding: .35rem .7rem; border-radius: 6px; font-size: .85rem; z-index: 6; }
+.msg.msg-active { background: var(--surface); border-radius: 6px; padding-left: .5rem; padding-right: .5rem; }
+dialog.help-sheet { width: min(44rem, 100%); max-height: 85dvh; margin: auto; border-radius: 12px; display: flex; flex-direction: column; }
+dialog.help-sheet:not([open]) { display: none; }
+.help-head { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .5rem; }
+.help-head h2 { margin: 0; }
+.help-body { overflow-y: auto; display: grid; gap: .75rem; }
+.help-sec h3 { margin: .25rem 0; font-size: .85rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.help-table { width: 100%; border-collapse: collapse; }
+.help-table th, .help-table td { text-align: left; padding: .3rem .5rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+.help-key { white-space: nowrap; width: 1%; font-weight: 400; }
+.help-key kbd { display: inline-block; padding: .05rem .35rem; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); font-size: .85rem; }

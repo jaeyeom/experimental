@@ -167,3 +167,16 @@ func localOrgConfig() (bool, string, error) {
 	}
 	return c.UI.OrgTree, c.UI.OrgSpec, nil
 }
+
+// localKeyMap reads and resolves this machine's ui.keys, fresh each call.
+func localKeyMap() (*decide.KeyMap, bool, error) {
+	c, err := decide.LoadConfig()
+	if err != nil {
+		return nil, false, err //nolint:wrapcheck // LoadConfig names the config
+	}
+	km, err := decide.ResolveKeyMap(c.UI.Keys)
+	if err != nil {
+		return nil, false, err //nolint:wrapcheck // ResolveKeyMap names ui.keys
+	}
+	return km, c.UI.ASCIIKeys, nil
+}

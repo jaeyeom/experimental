@@ -16,3 +16,6 @@ export const btn = (text, fn, cls = '', attrs = {}) => {
   b.addEventListener('click', fn);
   return b;
 };
+
+// keyHint builds a desktop-only key hint badge, or '' when unbound.
+export const keyHint = (text) => (text ? el('kbd', { class: 'key-hint', text, 'aria-hidden': 'true' }) : '');

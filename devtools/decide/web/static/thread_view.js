@@ -2,7 +2,7 @@
 // decision options, and the pinned reply box with draft sync. All text is
 // set with textContent or text nodes; item text is never parsed as HTML.
 import * as api from './api.js';
-import { el, btn } from './dom.js';
+import { el, btn, keyHint } from './dom.js';
 import { parseBlocks, linkify } from './text_render.js';
 import { badgeOf, effectiveClass, hasUnread, deadlineLabel, lastStamp } from './inbox_model.js';
 import {
@@ -42,7 +42,7 @@ async function copy(text, toast, what) {
   try { await navigator.clipboard.writeText(text); toast(`Copied ${what}`); } catch { toast('Could not copy'); }
 }
 
-export function createThreadView({ root, toast }) {
+export function createThreadView({ root, toast, hint = () => '' }) {
   let cur = null; // the open thread
   let state = null;
 
@@ -134,6 +134,16 @@ export function createThreadView({ root, toast }) {
         try { await api.done(it.id, input.value.trim()); toast(`Done ${it.id}`); } catch { toast('Could not mark done. Try again.'); }
       } }] });
   }
+  async function archiveItem(it) {
+    if (!it || it.state === 'done' || it.state === 'withdrawn') return;
+    try {
+      await api.archive(it.id, lastStamp(it));
+      toast(`Archived ${it.id}`);
+    } catch (e) {
+      toast(api.newerMessage(e) ? 'New message arrived — review before archiving' : 'Could not archive. Try again.');
+    }
+  }
+
   function snoozeSheet(it) {
     openSnoozeSheet({
       title: `Snooze ${it.id}`,
@@ -347,11 +357,14 @@ export function createThreadView({ root, toast }) {
 
   function buildReply() {
     const ta = el('textarea', { class: 'reply-text', rows: '1', placeholder: 'Reply…', 'aria-label': 'Reply', maxlength: '60000' });
-    const send_ = el('button', { type: 'submit', class: 'primary', text: 'Send' });
-    const archiveBtn = btn('Send & Archive', () => send(true), '', { hidden: true });
+    const send_ = el('button', { type: 'submit', class: 'primary' }, 'Send', keyHint(hint('compose.send')));
+    const archiveBtn = el('button', { type: 'button', hidden: true }, 'Send & Archive', keyHint(hint('compose.sendAndArchive')));
+    archiveBtn.addEventListener('click', () => send(true));
+    const discardBtn = el('button', { type: 'button' }, 'Discard', keyHint(hint('compose.discard')));
+    discardBtn.addEventListener('click', discard);
     const chip = el('div', { class: 'pending-chip', hidden: true });
     const banner = el('div', { class: 'reply-banners' });
-    const actions = el('div', { class: 'reply-actions' }, send_, archiveBtn, btn('Discard', discard));
+    const actions = el('div', { class: 'reply-actions' }, send_, archiveBtn, discardBtn);
     const form = el('form', { class: 'reply collapsed', autocomplete: 'off' }, banner, chip, ta, actions);
     form.addEventListener('submit', (e) => { e.preventDefault(); send(false); });
     ta.addEventListener('input', () => {
@@ -359,12 +372,16 @@ export function createThreadView({ root, toast }) {
       autosize();
       updateReplyChrome();
     });
-    ta.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(false); }
-    });
     form.addEventListener('focusin', updateReplyChrome);
     form.addEventListener('focusout', () => setTimeout(() => { if (cur) updateReplyChrome(); }, 0));
-    return { form, ta, send: send_, archiveBtn, chip, banner };
+    return { form, ta, send: send_, archiveBtn, discardBtn, chip, banner };
+  }
+
+  function refreshHints() {
+    if (!cur) return;
+    cur.refs.send.replaceChildren('Send', keyHint(hint('compose.send')));
+    cur.refs.archiveBtn.replaceChildren('Send & Archive', keyHint(hint('compose.sendAndArchive')));
+    cur.refs.discardBtn.replaceChildren('Discard', keyHint(hint('compose.discard')));
   }
 
   // ---- lifecycle ----
@@ -374,7 +391,7 @@ export function createThreadView({ root, toast }) {
     const refs = { head: el('header', { class: 'thread-head' }), body: el('div', { class: 'thread-body' }) };
     cur = {
       id, item: it, refs, pending: null, route: '', notice: '', sendError: null, markedCount: 0,
-      dividerIdx: -1, dividerLabel: '', dividerEl: null, sync: null,
+      dividerIdx: -1, dividerLabel: '', dividerEl: null, sync: null, msgIdx: -1,
     };
     const idx = openAtIndex(it);
     if (idx > 0) { cur.dividerIdx = idx; cur.dividerLabel = newDividerLabel(it.readAt); }
@@ -419,6 +436,30 @@ export function createThreadView({ root, toast }) {
   document.addEventListener('visibilitychange', () => { if (cur && document.visibilityState === 'hidden') cur.sync.flush(); });
   window.addEventListener('pagehide', () => { cur?.sync.flush(); });
 
+  function stepMessage(delta) {
+    if (!cur) return;
+    const msgs = [...cur.refs.body.querySelectorAll('li.msg')];
+    if (!msgs.length) return;
+    const prev = cur.msgIdx;
+    const next = prev < 0 ? (delta > 0 ? 0 : msgs.length - 1) : Math.max(0, Math.min(msgs.length - 1, prev + delta));
+    cur.msgIdx = next;
+    msgs.forEach((m, i) => m.classList.toggle('msg-active', i === next));
+    msgs[next].scrollIntoView({ block: 'nearest' });
+  }
+
+  function answerOption(index) {
+    if (!cur) return;
+    const buttons = cur.refs.body.querySelectorAll('.options button.option');
+    if (buttons.length) {
+      const target = buttons[index - 1];
+      if (target && !target.disabled) target.click();
+      return;
+    }
+    const approvalBtns = cur.refs.body.querySelectorAll('.approval-card .approval-actions button');
+    const target = approvalBtns[index - 1];
+    if (target && !target.disabled) target.click();
+  }
+
   return {
     render(s, route) {
       state = s;
@@ -432,5 +473,19 @@ export function createThreadView({ root, toast }) {
       if (cur?.id !== route.arg) { leave(); enter(it); } else update();
     },
     leave,
+    refreshHints,
+    scrollBy(px) { root.scrollBy?.({ top: px, behavior: 'auto' }); },
+    scrollTo(where) { root.scrollTop = where === 'bottom' ? root.scrollHeight : 0; },
+    stepMessage,
+    answerOption,
+    focusReply() { cur?.refs.ta.focus(); },
+    archive() { if (cur) archiveItem(cur.item); },
+    snooze() { if (cur && cur.item.state !== 'done' && cur.item.state !== 'withdrawn') snoozeSheet(cur.item); },
+    done() { if (cur && cur.item.state !== 'done' && cur.item.state !== 'withdrawn') doneSheet(cur.item); },
+    forward() { if (cur) location.hash = '#/compose/' + encodeURIComponent(cur.item.id); },
+    sendReply(andArchive = false) { if (cur) send(andArchive); },
+    discardReply() { if (cur) discard(); },
+    blurReply() { cur?.refs.ta.blur(); },
+    isReplyTarget(target) { return !!cur?.refs?.form?.contains(target); },
   };
 }

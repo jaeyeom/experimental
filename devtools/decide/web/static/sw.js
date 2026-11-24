@@ -8,7 +8,7 @@ const CACHE = 'decide-shell-' + BUILD;
 const SHELL = [
   '/', '/manifest.webmanifest',
   '/static/styles.css', '/static/app.js', '/static/api.js', '/static/store.js',
-  '/static/dom.js', '/static/inbox_model.js', '/static/inbox_view.js', '/static/swipe.js', '/static/snooze_sheet.js',
+  '/static/dom.js', '/static/keymap.js', '/static/help_sheet.js', '/static/inbox_model.js', '/static/inbox_view.js', '/static/swipe.js', '/static/snooze_sheet.js',
   '/static/text_render.js', '/static/thread_model.js', '/static/draft_sync.js', '/static/sheet.js', '/static/thread_view.js',
   '/static/compose_model.js', '/static/compose_view.js', '/static/status_model.js', '/static/status_view.js', '/static/contacts_model.js', '/static/contacts_view.js', '/static/push_model.js', '/static/settings_view.js',
   '/static/icons/icon.svg', '/static/icons/icon-maskable.svg',

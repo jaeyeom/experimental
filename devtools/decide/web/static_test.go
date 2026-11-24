@@ -19,6 +19,8 @@ func TestStaticAssets(t *testing.T) {
 		{"/static/store.js", "text/javascript"},
 		{"/static/api.js", "text/javascript"},
 		{"/static/dom.js", "text/javascript"},
+		{"/static/keymap.js", "text/javascript"},
+		{"/static/help_sheet.js", "text/javascript"},
 		{"/static/inbox_model.js", "text/javascript"},
 		{"/static/inbox_view.js", "text/javascript"},
 		{"/static/swipe.js", "text/javascript"},
