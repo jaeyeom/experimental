@@ -691,14 +691,18 @@ The same per-file ~max_violations~ baseline as ~py-module-import~, in
 *** Configuration
 
 Optional, in the repo root's ~pyproject.toml~. Unknown keys are errors.
+The ~[tool.pylinters.entries]~ table is shared by ~py-main-guard~ and
+~py-import-time-work~.
 
 #+BEGIN_SRC toml
-[tool.pylinters.main-guard]
+[tool.pylinters.entries]
 entry-sources = ["executable", "bazel"]   # also "globs"
 script-globs = []
 test-globs = []                           # e.g. ["**/*_test.py"] without Bazel
-require-test-runner = false
 bazel-dir = "."                           # the Bazel workspace, inside the repo
+
+[tool.pylinters.main-guard]
+require-test-runner = false
 exclude = []
 allow-directive = "py-main-guard: allow"
 #+END_SRC

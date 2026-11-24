@@ -15,7 +15,13 @@ _SHARED_KEYS = ("roots", "exclude", "generated")
 
 # Every checker's ``[tool.pylinters.<name>]`` subtable. Each checker accepts
 # all of them, so configuring one checker never breaks another.
-CHECKERS: tuple[str, ...] = ("module-import", "sibling-import", "main-guard")
+CHECKERS: tuple[str, ...] = (
+    "module-import",
+    "sibling-import",
+    "main-guard",
+    "import-time-work",
+    "entries",
+)
 
 
 @dataclass(frozen=True)

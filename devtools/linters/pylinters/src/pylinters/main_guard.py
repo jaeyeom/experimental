@@ -34,11 +34,7 @@ DEFAULT_DIRECTIVE = "py-main-guard: allow"
 Reader = Callable[[str], bytes]
 
 _KEYS = (
-    "entry-sources",
-    "script-globs",
-    "test-globs",
     "require-test-runner",
-    "bazel-dir",
     "exclude",
     "allow-directive",
 )
@@ -80,36 +76,28 @@ class Result:
 
 
 def load_config(pyproject_path: str) -> Config:
-    """Read the shared and ``main-guard`` settings from pyproject.toml.
+    """Read the shared, ``entries``, and ``main-guard`` settings.
 
     Raises:
-        ConfigError: Invalid TOML, an unknown key, or a wrong value type.
+        ConfigError: Invalid TOML, a moved or unknown key, or a wrong value
+            type.
     """
     shared, table = config.load_table(pyproject_path, (CHECKER,))
     own = table.get(CHECKER, {})
     where = f"{pyproject_path} [tool.pylinters.{CHECKER}]"
+    for key in own:
+        if key in entries.CONFIG_KEYS:
+            raise errors.ConfigError(
+                f"{where}: {key} moved to [tool.pylinters.entries]"
+            )
     config.check_keys(own, _KEYS, where)
-    defaults = entries.EntryConfig()
     require = own.get("require-test-runner", False)
     if not isinstance(require, bool):
         raise errors.ConfigError(
             f"{where}: require-test-runner must be a boolean"
         )
     return Config(
-        entries=entries.EntryConfig(
-            sources=config.string_list(
-                own.get("entry-sources", list(defaults.sources)),
-                "entry-sources",
-                where,
-            ),
-            script_globs=config.string_list(
-                own.get("script-globs", []), "script-globs", where
-            ),
-            test_globs=config.string_list(
-                own.get("test-globs", []), "test-globs", where
-            ),
-            bazel_dir=_string(own, "bazel-dir", defaults.bazel_dir, where),
-        ),
+        entries=entries.load_config(pyproject_path),
         exclude=shared.exclude
         + config.string_list(own.get("exclude", []), "exclude", where),
         generated=shared.generated,

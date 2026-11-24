@@ -45,12 +45,7 @@ def main(
             (stdin or sys.stdin.buffer) if args.stdin0 else None,
         )
         read = files.root_reader(fs)
-        entry_list = None
-        if args.entry_list is not None:
-            with open(args.entry_list, encoding="utf-8") as handle:
-                entry_list = entries.parse_entry_list(
-                    handle.read(), args.entry_list, fs
-                )
+        entry_list = cli.entry_list(args, fs)
         # Discovery only needs each file's first bytes, for a ``#!``.
         found = entries.discover(
             fs,
@@ -163,42 +158,13 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="also read NUL-separated top-level-relative paths from stdin",
     )
-    parser.add_argument(
-        "--entry-source",
-        action="append",
-        choices=entries.SOURCES,
-        help="entry source (repeatable; replaces config)",
-    )
-    parser.add_argument(
-        "--script-glob",
-        action="append",
-        metavar="GLOB",
-        help="glob of script entries (repeatable; replaces config)",
-    )
-    parser.add_argument(
-        "--test-glob",
-        action="append",
-        metavar="GLOB",
-        help="glob of test entries (repeatable; replaces config)",
-    )
-    parser.add_argument(
-        "--entry-list",
-        metavar="FILE",
-        help="file of 'script PATH' / 'test PATH' lines, paths relative to "
-        "the repo top-level",
-    )
+    cli.add_entry_arguments(parser)
     parser.add_argument(
         "--require-test-runner",
         action=argparse.BooleanOptionalAction,
         default=None,
         help="test entries must run a test runner in their guard "
         "(--no-require-test-runner overrides the config)",
-    )
-    parser.add_argument(
-        "--bazel-dir", metavar="DIR", help="Bazel workspace directory"
-    )
-    parser.add_argument(
-        "--bazel", metavar="PATH", help="bazel binary (default: bazel)"
     )
     parser.add_argument(
         "--exclude",
@@ -237,19 +203,8 @@ def _parser() -> argparse.ArgumentParser:
 
 def _config(root: str, args: argparse.Namespace) -> main_guard.Config:
     cfg = main_guard.load_config(os.path.join(root, "pyproject.toml"))
-    ent: dict[str, object] = {}
-    if args.entry_source is not None:
-        ent["sources"] = tuple(args.entry_source)
-    if args.script_glob is not None:
-        ent["script_globs"] = tuple(args.script_glob)
-    if args.test_glob is not None:
-        ent["test_globs"] = tuple(args.test_glob)
-    if args.bazel_dir is not None:
-        ent["bazel_dir"] = args.bazel_dir
-    if args.bazel is not None:
-        ent["bazel"] = args.bazel
     changes: dict[str, object] = {
-        "entries": dataclasses.replace(cfg.entries, **ent)  # type: ignore[arg-type]
+        "entries": cli.entry_config(cfg.entries, args),
     }
     if args.exclude is not None:
         changes["exclude"] = cfg.exclude + tuple(args.exclude)

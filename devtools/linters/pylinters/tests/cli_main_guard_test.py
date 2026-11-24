@@ -202,5 +202,48 @@ def test_rewrite_with_paths_is_usage_error(
     assert call([*NO_BAZEL, "--update-baseline", "tool.py"])[0] == 2
 
 
+def test_entries_table_used(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """[tool.pylinters.entries] configures entry discovery for py-main-guard."""
+    make_repo(
+        tmp_path,
+        {
+            "pyproject.toml": (
+                "[tool.pylinters.entries]\n"
+                'entry-sources = ["globs"]\n'
+                'test-globs = ["*_test.py"]\n\n'
+                "[tool.pylinters.main-guard]\n"
+                "require-test-runner = true\n"
+            ),
+            "t_test.py": "if __name__ == '__main__':\n    print('x')\n",
+        },
+    )
+    monkeypatch.chdir(tmp_path)
+    code, out, _ = call([])
+    assert code == 1
+    assert out.startswith("t_test.py:1: missing-test-runner:")
+
+
+def test_moved_entry_key_exit_2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Old entry keys under [tool.pylinters.main-guard] exit 2 with guidance."""
+    make_repo(
+        tmp_path,
+        {
+            "pyproject.toml": (
+                "[tool.pylinters.main-guard]\n"
+                'entry-sources = ["executable"]\n'
+            ),
+            **GOOD,
+        },
+    )
+    monkeypatch.chdir(tmp_path)
+    code, _, err = call([])
+    assert code == 2
+    assert "moved to [tool.pylinters.entries]" in err
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, *sys.argv[1:]]))

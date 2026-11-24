@@ -65,6 +65,19 @@ def test_other_checker_subtable_accepted(tmp_path: Path) -> None:
     assert shared.exclude == ()
 
 
+def test_entries_and_import_time_work_subtables_accepted(
+    tmp_path: Path,
+) -> None:
+    """Entries and import-time-work subtables do not break module-import."""
+    path = _write(
+        tmp_path,
+        '[tool.pylinters.entries]\nentry-sources = ["globs"]\n'
+        "[tool.pylinters.import-time-work]\n",
+    )
+    shared, _ = config.load_table(path, ("module-import",))
+    assert shared.exclude == ()
+
+
 def test_other_checker_subtable_must_be_table(tmp_path: Path) -> None:
     """A registered subtable name holding a non-table is an error."""
     path = _write(tmp_path, '[tool.pylinters]\nmain-guard = "x"\n')

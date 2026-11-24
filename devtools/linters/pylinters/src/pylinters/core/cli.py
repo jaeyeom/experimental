@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import argparse
+import dataclasses
 import importlib.metadata
 import os
 from collections.abc import Iterable, Sequence
 from typing import BinaryIO
 
-from pylinters.core import errors, files
+from pylinters.core import entries, errors, files
 
 EXIT_OK = 0
 EXIT_VIOLATIONS = 1
@@ -79,3 +81,65 @@ def selected_paths(
     if stdin is not None:
         paths += to_repo_paths(read_stdin0(stdin), fs.root, fs.root)
     return fs.expand_dirs(paths)
+
+
+def add_entry_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add shared entry-discovery flags to ``parser``."""
+    parser.add_argument(
+        "--entry-source",
+        action="append",
+        choices=entries.SOURCES,
+        help="entry source (repeatable; replaces config)",
+    )
+    parser.add_argument(
+        "--script-glob",
+        action="append",
+        metavar="GLOB",
+        help="glob of script entries (repeatable; replaces config)",
+    )
+    parser.add_argument(
+        "--test-glob",
+        action="append",
+        metavar="GLOB",
+        help="glob of test entries (repeatable; replaces config)",
+    )
+    parser.add_argument(
+        "--entry-list",
+        metavar="FILE",
+        help="file of 'script PATH' / 'test PATH' lines, paths relative to "
+        "the repo top-level",
+    )
+    parser.add_argument(
+        "--bazel-dir", metavar="DIR", help="Bazel workspace directory"
+    )
+    parser.add_argument(
+        "--bazel", metavar="PATH", help="bazel binary (default: bazel)"
+    )
+
+
+def entry_config(
+    cfg: entries.EntryConfig, args: argparse.Namespace
+) -> entries.EntryConfig:
+    """Apply entry-discovery CLI flags over ``cfg``."""
+    changes: dict[str, object] = {}
+    if args.entry_source is not None:
+        changes["sources"] = tuple(args.entry_source)
+    if args.script_glob is not None:
+        changes["script_globs"] = tuple(args.script_glob)
+    if args.test_glob is not None:
+        changes["test_globs"] = tuple(args.test_glob)
+    if args.bazel_dir is not None:
+        changes["bazel_dir"] = args.bazel_dir
+    if args.bazel is not None:
+        changes["bazel"] = args.bazel
+    return dataclasses.replace(cfg, **changes)  # type: ignore[arg-type]
+
+
+def entry_list(
+    args: argparse.Namespace, fs: files.FileSet
+) -> list[tuple[entries.Kind, str]] | None:
+    """Read and parse ``--entry-list``, or return ``None`` when unset."""
+    if args.entry_list is None:
+        return None
+    with open(args.entry_list, encoding="utf-8") as handle:
+        return entries.parse_entry_list(handle.read(), args.entry_list, fs)

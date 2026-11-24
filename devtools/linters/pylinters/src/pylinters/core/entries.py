@@ -11,10 +11,16 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Literal
 
-from pylinters.core import bazel, errors, files, globs
+from pylinters.core import bazel, config, errors, files, globs
 
 Kind = Literal["script", "test"]
 SOURCES = ("executable", "bazel", "globs")
+CONFIG_KEYS: tuple[str, ...] = (
+    "entry-sources",
+    "script-globs",
+    "test-globs",
+    "bazel-dir",
+)
 
 Reader = Callable[[str], bytes]
 
@@ -28,6 +34,44 @@ class EntryConfig:
     test_globs: tuple[str, ...] = ()
     bazel_dir: str = "."
     bazel: str = "bazel"
+
+
+def load_config(pyproject_path: str) -> EntryConfig:
+    """Read ``[tool.pylinters.entries]`` from ``pyproject_path``.
+
+    A missing file or table yields :class:`EntryConfig` defaults.
+
+    Raises:
+        ConfigError: Invalid TOML, an unknown key, or a wrong value type.
+    """
+    _, table = config.load_table(pyproject_path, ())
+    own = table.get("entries", {})
+    where = f"{pyproject_path} [tool.pylinters.entries]"
+    config.check_keys(own, CONFIG_KEYS, where)
+    defaults = EntryConfig()
+    bazel_dir = own.get("bazel-dir", defaults.bazel_dir)
+    if not isinstance(bazel_dir, str) or not bazel_dir:
+        raise errors.ConfigError(
+            f"{where}: bazel-dir must be a non-empty string"
+        )
+    return EntryConfig(
+        sources=config.string_list(
+            own.get("entry-sources", list(defaults.sources)),
+            "entry-sources",
+            where,
+        ),
+        script_globs=config.string_list(
+            own.get("script-globs", list(defaults.script_globs)),
+            "script-globs",
+            where,
+        ),
+        test_globs=config.string_list(
+            own.get("test-globs", list(defaults.test_globs)),
+            "test-globs",
+            where,
+        ),
+        bazel_dir=bazel_dir,
+    )
 
 
 @dataclass(frozen=True)

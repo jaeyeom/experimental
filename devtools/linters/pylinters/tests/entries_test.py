@@ -3,6 +3,7 @@
 import json
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
 import pytest
 from pylinters.core import bazel, entries, errors, files
@@ -248,6 +249,52 @@ def test_entry_list_any_whitespace() -> None:
         _fs("x.py", "y_test.py"),
     )
     assert pairs == [("script", "x.py"), ("test", "y_test.py")]
+
+
+def _pyproject(tmp_path: Path, body: str) -> str:
+    path = tmp_path / "pyproject.toml"
+    path.write_text(body)
+    return str(path)
+
+
+def test_load_config_entries_table(tmp_path: Path) -> None:
+    """All four entry keys round-trip into EntryConfig."""
+    path = _pyproject(
+        tmp_path,
+        "[tool.pylinters.entries]\n"
+        'entry-sources = ["globs"]\n'
+        'script-globs = ["bin/*.py"]\n'
+        'test-globs = ["**/*_test.py"]\n'
+        'bazel-dir = "sub"\n',
+    )
+    assert entries.load_config(path) == entries.EntryConfig(
+        sources=("globs",),
+        script_globs=("bin/*.py",),
+        test_globs=("**/*_test.py",),
+        bazel_dir="sub",
+    )
+
+
+def test_load_config_entries_defaults(tmp_path: Path) -> None:
+    """A missing pyproject.toml yields EntryConfig defaults."""
+    assert (
+        entries.load_config(str(tmp_path / "pyproject.toml"))
+        == entries.EntryConfig()
+    )
+
+
+def test_load_config_entries_unknown_key(tmp_path: Path) -> None:
+    """An unknown key in [tool.pylinters.entries] raises ConfigError."""
+    path = _pyproject(tmp_path, "[tool.pylinters.entries]\nnope = 1\n")
+    with pytest.raises(errors.ConfigError, match="nope"):
+        entries.load_config(path)
+
+
+def test_load_config_entries_empty_bazel_dir(tmp_path: Path) -> None:
+    """bazel-dir must be a non-empty string."""
+    path = _pyproject(tmp_path, '[tool.pylinters.entries]\nbazel-dir = ""\n')
+    with pytest.raises(errors.ConfigError, match="bazel-dir"):
+        entries.load_config(path)
 
 
 if __name__ == "__main__":

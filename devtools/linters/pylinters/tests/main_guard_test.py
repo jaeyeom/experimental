@@ -326,10 +326,12 @@ def test_load_config_keys(tmp_path: Path) -> None:
         _pyproject(
             tmp_path,
             '[tool.pylinters]\nexclude = ["a/**"]\n'
-            "[tool.pylinters.main-guard]\n"
+            "[tool.pylinters.entries]\n"
             'entry-sources = ["globs"]\nscript-globs = ["bin/*.py"]\n'
-            'test-globs = ["**/*_test.py"]\nrequire-test-runner = true\n'
-            'bazel-dir = "sub"\nexclude = ["b/**"]\nallow-directive = "ok"\n',
+            'test-globs = ["**/*_test.py"]\nbazel-dir = "sub"\n'
+            "[tool.pylinters.main-guard]\n"
+            'require-test-runner = true\nexclude = ["b/**"]\n'
+            'allow-directive = "ok"\n',
         )
     )
     assert cfg == main_guard.Config(
@@ -343,6 +345,28 @@ def test_load_config_keys(tmp_path: Path) -> None:
         require_test_runner=True,
         allow_directive="ok",
     )
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("entry-sources", '["globs"]'),
+        ("script-globs", '["bin/*.py"]'),
+        ("test-globs", '["*_test.py"]'),
+        ("bazel-dir", '"sub"'),
+    ],
+)
+def test_moved_entry_key_rejected(
+    tmp_path: Path, key: str, value: str
+) -> None:
+    """Moved entry keys under main-guard raise ConfigError pointing to entries."""
+    path = _pyproject(
+        tmp_path, f"[tool.pylinters.main-guard]\n{key} = {value}\n"
+    )
+    with pytest.raises(
+        errors.ConfigError, match=r"moved to \[tool\.pylinters\.entries\]"
+    ):
+        main_guard.load_config(path)
 
 
 def test_load_config_defaults(tmp_path: Path) -> None:
