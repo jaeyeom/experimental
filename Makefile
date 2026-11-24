@@ -51,7 +51,7 @@ check-format: check-whitespace
 test:
 	bazel test --test_summary=terse $(BAZEL_TEST_ENV) //...
 
-lint: lint-ruff lint-mypy lint-py-main-guard lint-py-module-import lint-py-sibling-import lint-shellcheck check-spacemacs
+lint: lint-genfiles lint-ruff lint-mypy lint-py-main-guard lint-py-module-import lint-py-sibling-import lint-shellcheck check-spacemacs
 
 # Target fix is best-effort autofix for lint issues. If autofix is not
 # available, it still runs lint checks.
@@ -153,6 +153,12 @@ lint-shellcheck:
 
 check-spacemacs:
 	$(MAKE) -C spacemacs check
+
+# generated_files.yaml lists generated files; genfiles check keeps it and
+# .gitattributes honest.
+.PHONY: lint-genfiles
+lint-genfiles:
+	GOPACKAGESDRIVER= go run ./devtools/genfiles/cmd/genfiles check
 
 # Code generation targets
 .PHONY: generate-ansible generate-pkl check-generated

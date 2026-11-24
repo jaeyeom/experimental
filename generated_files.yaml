@@ -1,0 +1,22 @@
+# Checked-in generated files and the commands that regenerate them.
+# Format: devtools/genfiles/README.org. `make lint` runs `genfiles check`,
+# which keeps .gitattributes marking exactly these patterns.
+#
+# Not listed: devtools/setup-dev/ansible/*.yml. Its generated playbooks
+# (made by `make generate-ansible`) share one directory with handwritten
+# ones, and no glob separates them.
+
+- pattern: devtools/gh-nudge/internal/config/pkl/*.pkl.go
+  comment: Go structs generated from devtools/gh-nudge/pkl/Config.pkl.
+  run:
+    - [make, -C, devtools/gh-nudge, generate-pkl]
+
+- pattern: /MODULE.bazel.lock
+  comment: Bazel module resolution of MODULE.bazel.
+  run:
+    - [bazel, mod, deps]
+
+- pattern: /uv.lock
+  comment: Python dependencies of pyproject.toml.
+  run:
+    - [uv, lock]

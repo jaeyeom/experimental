@@ -1,0 +1,5 @@
+# linguist-generated must mark exactly the patterns in generated_files.yaml;
+# `genfiles check` (make lint) enforces it.
+devtools/gh-nudge/internal/config/pkl/*.pkl.go linguist-generated
+/MODULE.bazel.lock linguist-generated
+/uv.lock linguist-generated
