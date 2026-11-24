@@ -9,11 +9,58 @@ be shared by two machines.
 
 * Overview
 
-~decide~ works standalone; companion tools such as
-[[https://herdr.dev/][herdr]] (the terminal multiplexer for agent panes)
-and [[file:../agentbus/README.org][agentbus]] (for ~agentbus:<name>~
-delivery) are optional -- see [[*Ecosystem]]. ~decide skill~ prints the
-agent rules (~cmd/decide/skill.md~). This file is the human guide.
+~decide~ works standalone with only its CLI, ledger, and inbox UI. Every
+connected tool below is optional and connects through a narrow boundary:
+human UIs read and write the same ledger, producers invoke the CLI, and
+outbound delivery routes through the agnostic ~Target~ -> ~Transport~
+interface (see [[file:docs/delivery.org][docs/delivery.org]]). ~decide
+skill~ prints the agent rules (~cmd/decide/skill.md~). This file is the
+human guide.
+
+#+begin_example
+  Producers (ask / reply / done)               Human UIs (optional frontends)
+  +-------------------------------+            +-----------------------------+
+  | coding agents, slackwatch,    |            | Terminal TUI (decide inbox) |
+  | gh-outbox, memstore, scripts  |            | Web / PWA    (decide web)   |
+  +---------------+---------------+            | Emacs        (decide.el)    |
+                  |                            | CLI          (decide ...)   |
+                  |                            +--------------+--------------+
+                  v                                           v
+  +---------------+-------------------------------------------+--------------+
+  |                        CORE decide (standalone)                          |
+  |  CLI: ask / answer / reply / done / show / list / send                   |
+  |  Ledger: ledger.json, status.json, drafts.json                           |
+  |  Optional SSH hub: decide serve --stdio (two-machine sync)               |
+  +-------------------+-----------------------------------+------------------+
+                      |                                   ^
+                      | answers / notes                   | read-only context
+                      | (Target -> Transport)             | & checkout gate
+                      v                                   |
+  +-------------------+-------------------+    +----------+------------------+
+  | Agnostic Delivery Plugins (Transport) |    | Context & Gate Companions   |
+  +---------------------------------------+    |  orgctl (Contacts org tree) |
+  | herdr:<pane> (or bare <pane>)         |    |  prsync (reads open items)  |
+  |   pane delivery & tab focus (herdr)   |    +-----------------------------+
+  |                                       |
+  | agentbus:<name>                       |
+  |   bus delivery, status polling,       |
+  |   health, contacts, leases (agentbus) |
+  |                                       |
+  | pull (or pull:<detail>)               |
+  |   no-op push; caller polls            |
+  |   decide show/list --json             |
+  |   (CI, desktop apps, scripts)         |
+  |                                       |
+  | target:<name>                         |
+  |   targets[].command (DECIDE_* env +   |
+  |   item JSON on stdin) for non-LLM     |
+  |   tools (slackwatch, gh-outbox, etc.) |
+  |                                       |
+  | <scheme>:<address> (custom plugins)   |
+  |   transports.<scheme> executable      |
+  |   (v1 JSON stdin/stdout; plugins.org) |
+  +---------------------------------------+
+#+end_example
 
 * Install
 
@@ -150,7 +197,10 @@ withdraw~ refuses a done-unread item.
   ~notifyPane~ is configured. A value of ~agentbus:<name>~ delivers
   with ~agentbus send~ instead of a pane command. A value of
   ~target:<name>~ delivers to a named entry in ~targets~ (such as a
-  command target configured with ~targets[].command~).
+  command target configured with ~targets[].command~). A value of
+  ~<scheme>:<address>~ invokes a custom executable plugin registered
+  under ~transports.<scheme>~ in ~config.json~ (see
+  [[file:docs/plugins.org][docs/plugins.org]]).
 - A *hub* is a second machine's ssh target. The hub holds the ledger.
   The other machine runs the same commands against it. See
   [[*Using two machines]].
@@ -224,22 +274,6 @@ decision log, owner/worker routing, and snooze formats are in
 [[file:docs/items.org][docs/items.org]]. Provenance rules (~via~ and
 ~by~) are in [[file:docs/provenance.org][docs/provenance.org]].
 
-* The inbox
-
-~decide inbox~ is the terminal UI with folders for Inbox, Snoozed,
-Answered, Done, Withdrawn, Status, and Contacts (plus Outbox in hub
-mode). It loads the ledger in the background, pins the item title and
-reply box, persists unsent drafts to ~drafts.json~ (synced across hub
-clients with conflict resolution), supports clickable OSC 8 links,
-copy menus, snooze presets, and focusing the owner's herdr tab (~o~).
-
-The full keybindings table, item view and reply box behavior,
-persistent drafts summary, and UI options are in
-[[file:docs/inbox.org][docs/inbox.org]]. Draft storage and sync design
-are in [[file:docs/drafts.org][docs/drafts.org]], and terminal key
-sequences (~Ctrl+Enter~, ~DECIDE_KEYDEBUG~) are in
-[[file:docs/keys.org][docs/keys.org]].
-
 * Notes and status
 
 ~decide send --to <name> "<text>"~ starts a thread. ~decide send --to~ and
@@ -285,6 +319,44 @@ checkout path and shows that path's agentbus lease (~free~, ~held by
 queued~), or the stored row with ~(guess)~. The choice is in
 [[file:docs/leases.org][docs/leases.org]].
 
+* The inbox
+
+~decide inbox~ is the terminal UI with folders for Inbox, Snoozed,
+Answered, Done, Withdrawn, Status, and Contacts (plus Outbox in hub
+mode). It loads the ledger in the background, pins the item title and
+reply box, persists unsent drafts to ~drafts.json~ (synced across hub
+clients with conflict resolution), supports clickable OSC 8 links,
+copy menus, snooze presets, and focusing the owner's herdr tab (~o~).
+
+The full keybindings table, item view and reply box behavior,
+persistent drafts summary, and UI options are in
+[[file:docs/inbox.org][docs/inbox.org]]. Draft storage and sync design
+are in [[file:docs/drafts.org][docs/drafts.org]], and terminal key
+sequences (~Ctrl+Enter~, ~DECIDE_KEYDEBUG~) are in
+[[file:docs/keys.org][docs/keys.org]].
+
+* Web and mobile
+
+~decide web~ serves the inbox as a web app and installable PWA from the
+machine that holds the ledger, with a single-column phone layout and a
+split-pane desktop one. It reads and writes the same ledger as the
+terminal inbox, and answers record ~via: "ui"~. It binds
+~127.0.0.1:8787~ and expects an HTTPS ingress such as Tailscale Serve,
+Cloudflare Tunnel, or Caddy. Token auth is optional on loopback and
+needed for anything else; mode ~none~ is refused off loopback. Web Push
+(~web.push.enabled~) notifies actionable items, never notes, and skips
+items you read in the terminal or while a page is open. Setup, ingress
+recipes, service files, Android and iPhone install, and the security
+notes are in [[file:docs/web.org][docs/web.org]].
+
+* Emacs
+
+~devtools/decide/emacs/decide.el~ is a plain Emacs frontend that lists,
+opens, answers, and composes items by calling the ~decide~ CLI, recording
+~via: "ui"~ like the terminal inbox. Setup, keybindings, Evil support,
+and hub-mode wrapper configuration (~decide-program~) are in
+[[file:docs/emacs.org][docs/emacs.org]].
+
 * Getting answers back
 
 After a relay answer is saved, local panes run ~notifyTemplate~ (with
@@ -321,36 +393,6 @@ documented in [[file:docs/plugins.org][docs/plugins.org]].
 The systemd unit and launchd agent for ~decide follow~ are in
 [[file:docs/follow.org][docs/follow.org]].
 
-* Emacs
-
-~devtools/decide/emacs/decide.el~ is a plain Emacs frontend that lists,
-opens, answers, and composes items by calling the ~decide~ CLI, recording
-~via: "ui"~ like the terminal inbox. Setup, keybindings, Evil support,
-and hub-mode wrapper configuration (~decide-program~) are in
-[[file:docs/emacs.org][docs/emacs.org]].
-
-* Configuration
-
-Config is one JSON object at ~$XDG_CONFIG_HOME/decide/config.json~
-(default =~/.config/decide/config.json=). Unset keys keep their
-defaults, and ~decide keys~ prints the active ~ui.keys~ keymap. The
-full config key table and ~ui.keys~ action-name reference are in
-[[file:docs/configuration.org][docs/configuration.org]].
-
-* Web and mobile
-
-~decide web~ serves the inbox as a web app and installable PWA from the
-machine that holds the ledger, with a single-column phone layout and a
-split-pane desktop one. It reads and writes the same ledger as the
-terminal inbox, and answers record ~via: "ui"~. It binds
-~127.0.0.1:8787~ and expects an HTTPS ingress such as Tailscale Serve,
-Cloudflare Tunnel, or Caddy. Token auth is optional on loopback and
-needed for anything else; mode ~none~ is refused off loopback. Web Push
-(~web.push.enabled~) notifies actionable items, never notes, and skips
-items you read in the terminal or while a page is open. Setup, ingress
-recipes, service files, Android and iPhone install, and the security
-notes are in [[file:docs/web.org][docs/web.org]].
-
 * Using two machines
 
 One machine (the hub) holds the ledger; the other sets ~hub~ (or
@@ -368,6 +410,14 @@ In a multi-agent setup, ~owners~ (~mode: off | warn | enforce~,
 reports while allowing replies and UI actions. Configuration,
 ~decide list --off-line~, and hub-mode rules are in
 [[file:docs/owners.org][docs/owners.org]].
+
+* Configuration
+
+Config is one JSON object at ~$XDG_CONFIG_HOME/decide/config.json~
+(default =~/.config/decide/config.json=). Unset keys keep their
+defaults, and ~decide keys~ prints the active ~ui.keys~ keymap. The
+full config key table and ~ui.keys~ action-name reference are in
+[[file:docs/configuration.org][docs/configuration.org]].
 
 * Customizing
 
@@ -396,54 +446,7 @@ and senders, with hiding, starring, aliasing, pruning, a contact detail
 panel, and an optional org-tree view (~ui.orgTree~ / ~ui.orgSpec~). See
 [[file:docs/contacts.org][docs/contacts.org]].
 
-* Ecosystem
-
-~decide~ works standalone with only its CLI, ledger, and inbox UI. Every
-connected tool below is optional and connects through a narrow boundary:
-human UIs read and write the same ledger, producers invoke the CLI, and
-outbound delivery routes through the agnostic ~Target~ -> ~Transport~
-interface (see [[file:docs/delivery.org][docs/delivery.org]]):
-
-#+begin_example
-  Producers (ask / reply / done)               Human UIs (optional frontends)
-  +-------------------------------+            +-----------------------------+
-  | coding agents, slackwatch,    |            | Terminal TUI (decide inbox) |
-  | gh-outbox, memstore, scripts  |            | Web / PWA    (decide web)   |
-  +---------------+---------------+            | Emacs        (decide.el)    |
-                  |                            | CLI          (decide ...)   |
-                  |                            +--------------+--------------+
-                  v                                           v
-  +---------------+-------------------------------------------+--------------+
-  |                        CORE decide (standalone)                          |
-  |  CLI: ask / answer / reply / done / show / list / send                   |
-  |  Ledger: ledger.json, status.json, drafts.json                           |
-  |  Optional SSH hub: decide serve --stdio (two-machine sync)               |
-  +-------------------+-----------------------------------+------------------+
-                      |                                   ^
-                      | answers / notes                   | read-only context
-                      | (Target -> Transport)             | & checkout gate
-                      v                                   |
-  +-------------------+-------------------+    +----------+------------------+
-  | Agnostic Delivery Plugins (Transport) |    | Context & Gate Companions   |
-  +---------------------------------------+    |  orgctl (Contacts org tree) |
-  | herdr:<pane> (or bare <pane>)         |    |  prsync (reads open items)  |
-  |   pane delivery & tab focus (herdr)   |    +-----------------------------+
-  |                                       |
-  | agentbus:<name>                       |
-  |   bus delivery, status polling,       |
-  |   health, contacts, leases (agentbus) |
-  |                                       |
-  | pull (or pull:<detail>)               |
-  |   no-op push; caller polls            |
-  |   decide show/list --json             |
-  |   (CI, desktop apps, scripts)         |
-  |                                       |
-  | target:<name>                         |
-  |   targets[].command (DECIDE_* env +   |
-  |   item JSON on stdin) for non-LLM     |
-  |   tools (slackwatch, gh-outbox, etc.) |
-  +---------------------------------------+
-#+end_example
+* Optional companion tools
 
 Optional companion tools that extend ~decide~ when installed:
 
@@ -498,5 +501,6 @@ process copies the file to ~config.json.bak~.
 | [[file:docs/keys.org][docs/keys.org]]                   | Terminal key sequences (Ctrl+Enter, ~Alt+q~) and ~DECIDE_KEYDEBUG~.           |
 | [[file:docs/leases.org][docs/leases.org]]               | Agentbus checkout lease display in ~decide status~.                           |
 | [[file:docs/owners.org][docs/owners.org]]               | Owner allow-list (~owners~) for controlling which agents may open items.      |
+| [[file:docs/plugins.org][docs/plugins.org]]             | Custom executable ~Transport~ plugins (~transports~, v1 JSON protocol).       |
 | [[file:docs/provenance.org][docs/provenance.org]]       | ~via~ and ~by~ provenance rules on answers and messages.                      |
 | [[file:docs/web.org][docs/web.org]]                     | ~decide web~ PWA, ingress, auth, Web Push, and security notes.                |
