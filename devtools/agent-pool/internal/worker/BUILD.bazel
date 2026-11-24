@@ -2,17 +2,44 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "go_default_library",
-    srcs = ["worktree.go"],
+    srcs = [
+        "client.go",
+        "config.go",
+        "daemon.go",
+        "initauth.go",
+        "pause.go",
+        "worktree.go",
+    ],
     importpath = "github.com/jaeyeom/experimental/devtools/agent-pool/internal/worker",
     visibility = ["//devtools/agent-pool:__subpackages__"],
+    deps = [
+        "//devtools/agent-pool/internal/catalog:go_default_library",
+        "//devtools/agent-pool/internal/dlp:go_default_library",
+        "//devtools/agent-pool/internal/harness:go_default_library",
+        "//devtools/agent-pool/internal/protocol:go_default_library",
+        "//devtools/agent-pool/internal/quota:go_default_library",
+        "//devtools/agent-pool/internal/sandbox:go_default_library",
+        "@com_github_pelletier_go_toml_v2//:go_default_library",
+    ],
 )
 
 go_test(
     name = "go_default_test",
     size = "small",
-    srcs = ["worktree_test.go"],
+    srcs = [
+        "daemon_test.go",
+        "worktree_test.go",
+    ],
     embed = [":go_default_library"],
     deps = [
+        "//devtools/agent-pool/internal/broker:go_default_library",
+        "//devtools/agent-pool/internal/broker/httpapi:go_default_library",
+        "//devtools/agent-pool/internal/broker/sqlite:go_default_library",
         "//devtools/agent-pool/internal/catalog:go_default_library",
+        "//devtools/agent-pool/internal/dlp:go_default_library",
+        "//devtools/agent-pool/internal/harness:go_default_library",
+        "//devtools/agent-pool/internal/protocol:go_default_library",
+        "//devtools/agent-pool/internal/quota:go_default_library",
+        "//devtools/agent-pool/internal/sandbox:go_default_library",
     ],
 )
