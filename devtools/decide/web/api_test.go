@@ -829,6 +829,30 @@ func TestLongUnbreakableWordsThroughWebAPI(t *testing.T) {
 	}
 }
 
+func TestInlineCodeSpansThroughWebAPI(t *testing.T) {
+	a := newAPI(t)
+	cmdSpan := "`decide send --to alpha --text-file /path/to/message.txt --flag-one value --flag-two other`"
+	firstLineWithSpan := "Run " + cmdSpan + " to notify alpha"
+
+	it := a.create(&decide.Item{Question: firstLineWithSpan, NotifyPane: "w1:p1"})
+
+	for _, tc := range []struct {
+		name string
+		path string
+		body map[string]any
+	}{
+		{name: "reply inline code span", path: "/api/v1/items/" + it.ID + "/reply", body: map[string]any{"text": firstLineWithSpan}},
+		{name: "send inline code span", path: "/api/v1/send", body: map[string]any{"to": "builder", "text": firstLineWithSpan}},
+		{name: "done inline code span", path: "/api/v1/items/" + it.ID + "/done", body: map[string]any{"outcome": "Ran " + cmdSpan}},
+	} {
+		raw, err := json.Marshal(tc.body)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		a.wantOK(a.post(tc.path, string(raw)), 200)
+	}
+}
+
 // open is the ledger on the test clock.
 func (a *api) open() *decide.Ledger {
 	a.t.Helper()

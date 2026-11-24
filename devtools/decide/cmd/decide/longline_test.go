@@ -560,3 +560,92 @@ func TestLongUnbreakableWordsAcrossWritePaths(t *testing.T) {
 		}
 	})
 }
+
+func TestInlineCodeSpansAcrossWritePaths(t *testing.T) {
+	cmdSpan := "`decide send --to alpha --text-file /path/to/message.txt --flag-one value --flag-two other`"
+	firstLineWithSpan := "Run " + cmdSpan + " to notify alpha"
+	bodyLineWithSpan := "Verdict\n\n" + prose(100) + " " + cmdSpan
+	spanPlusProse := "Verdict\n\n" + cmdSpan + " " + prose(170)
+	spanPlusProseSingleLine := cmdSpan + " " + prose(170)
+	wantExclusionLine3 := "line 3 is 171 characters after excluding 1 code span (limit 160)"
+	wantExclusionLine1 := "first line is 171 characters after excluding 1 code span (limit 100)"
+
+	t.Run("ask", func(t *testing.T) {
+		useState(t)
+		askRelay(t, nil, firstLineWithSpan)
+		askRelay(t, nil, bodyLineWithSpan)
+
+		if _, stderr, code := runCLI(relayArgs(spanPlusProse)...); code != 2 || !strings.Contains(stderr, wantExclusionLine3) {
+			t.Fatalf("ask span+prose = %d\n%s", code, stderr)
+		}
+	})
+
+	t.Run("reply", func(t *testing.T) {
+		useState(t)
+		id := askRelay(t, nil, "Root")
+		for _, text := range []string{firstLineWithSpan, bodyLineWithSpan} {
+			if _, stderr, code := runCLI("reply", id, text); code != 0 {
+				t.Fatalf("reply %q = %d\n%s", text, code, stderr)
+			}
+		}
+		if _, stderr, code := runCLI("reply", id, spanPlusProse); code != 2 || !strings.Contains(stderr, wantExclusionLine3) {
+			t.Fatalf("reply span+prose = %d\n%s", code, stderr)
+		}
+	})
+
+	t.Run("send", func(t *testing.T) {
+		writeDecideConfig(t, `{"targets":[{"name":"alpha","pane":"pane-a"}],"sendTemplate":"true {pane}"}`+"\n")
+		id := askRelay(t, []string{"--notify-pane", "pane-a"}, "Root")
+		for _, text := range []string{firstLineWithSpan, bodyLineWithSpan} {
+			if _, stderr, code := runCLI("send", "--to", "alpha", text); code != 0 {
+				t.Fatalf("send --to %q = %d\n%s", text, code, stderr)
+			}
+			if _, stderr, code := runCLI("send", "--id", id, text); code != 0 {
+				t.Fatalf("send --id %q = %d\n%s", text, code, stderr)
+			}
+		}
+		if _, stderr, code := runCLI("send", "--to", "alpha", spanPlusProse); code == 0 || !strings.Contains(stderr, wantExclusionLine3) {
+			t.Fatalf("send --to span+prose = %d\n%s", code, stderr)
+		}
+		if _, stderr, code := runCLI("send", "--id", id, spanPlusProse); code == 0 || !strings.Contains(stderr, wantExclusionLine3) {
+			t.Fatalf("send --id span+prose = %d\n%s", code, stderr)
+		}
+	})
+
+	t.Run("done", func(t *testing.T) {
+		useState(t)
+		for _, text := range []string{firstLineWithSpan, bodyLineWithSpan} {
+			id := askRelay(t, nil, "Root")
+			if _, stderr, code := runCLI("done", id, text); code != 0 {
+				t.Fatalf("done %q = %d\n%s", text, code, stderr)
+			}
+		}
+		id := askRelay(t, nil, "Root")
+		if _, stderr, code := runCLI("done", id, spanPlusProseSingleLine); code != 2 || !strings.Contains(stderr, wantExclusionLine1) {
+			t.Fatalf("done span+prose = %d\n%s", code, stderr)
+		}
+	})
+
+	t.Run("inbox ledger", func(t *testing.T) {
+		useState(t)
+		led, err := decide.Open(filepath.Join(os.Getenv("XDG_STATE_HOME"), "decide"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		it, err := led.Create(&decide.Item{
+			Owner:    "ada",
+			Kind:     decide.KindRelay,
+			Question: firstLineWithSpan,
+			Options:  []decide.Option{{Key: "a", Label: "Alpha", Recommended: true}, {Key: "b", Label: "Beta"}},
+		})
+		if err != nil {
+			t.Fatalf("Create with inline code span = %v", err)
+		}
+		if _, err := led.Compose(it.ID, bodyLineWithSpan, decide.ViaCLI, "ada"); err != nil {
+			t.Fatalf("Compose with inline code span = %v", err)
+		}
+		if _, err := led.Compose(it.ID, spanPlusProse, decide.ViaCLI, "ada"); err == nil || !strings.Contains(err.Error(), wantExclusionLine3) {
+			t.Fatalf("Compose with span+prose = %v", err)
+		}
+	})
+}

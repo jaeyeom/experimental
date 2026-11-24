@@ -54,8 +54,8 @@ func CheckShape(text string, limits ShapeLimits) error {
 
 	if limits.MaxFirstLineLength > 0 && len(lines) > 0 {
 		first := lines[0]
-		if n, excluded := measureLine(first); n > limits.MaxFirstLineLength {
-			failures = append(failures, formatLineLengthFailure("first line", n, excluded, limits.MaxFirstLineLength, first))
+		if m := measureLine(first); m.length > limits.MaxFirstLineLength {
+			failures = append(failures, formatLineLengthFailure("first line", m, limits.MaxFirstLineLength, first))
 		}
 		if len(lines) > 1 {
 			second := lines[1]
@@ -133,48 +133,73 @@ func checkLineLengths(lines []string, limit int) []string {
 		if fenced || exemptLine(trimmed) {
 			continue
 		}
-		if n, excluded := measureLine(line); n > limit {
-			failures = append(failures, formatLineLengthFailure(fmt.Sprintf("line %d", i+1), n, excluded, limit, line))
+		if m := measureLine(line); m.length > limit {
+			failures = append(failures, formatLineLengthFailure(fmt.Sprintf("line %d", i+1), m, limit, line))
 		}
 	}
 	return failures
 }
 
-// measureLine returns line's rune count after excluding whitespace-free tokens
-// longer than longWordThreshold runes, along with how many tokens were excluded.
-func measureLine(line string) (length, excluded int) {
+type lineMeasurement struct {
+	length    int
+	longWords int
+	codeSpans int
+}
+
+// measureLine returns line's rune count after excluding single-backquote
+// inline code spans (including their backquotes) and whitespace-free tokens
+// longer than longWordThreshold runes, along with the excluded counts.
+func measureLine(line string) lineMeasurement {
+	var m lineMeasurement
 	runLen := 0
-	for _, r := range line {
-		if unicode.IsSpace(r) {
-			if runLen > longWordThreshold {
-				excluded++
-			} else {
-				length += runLen
+	flushWord := func() {
+		if runLen > longWordThreshold {
+			m.longWords++
+		} else {
+			m.length += runLen
+		}
+		runLen = 0
+	}
+
+	for i := 0; i < len(line); {
+		if line[i] == '`' {
+			if closeRel := strings.IndexByte(line[i+1:], '`'); closeRel >= 0 {
+				flushWord()
+				m.codeSpans++
+				i += closeRel + 2
+				continue
 			}
-			runLen = 0
-			length++
+		}
+		r, size := utf8.DecodeRuneInString(line[i:])
+		i += size
+		if unicode.IsSpace(r) {
+			flushWord()
+			m.length++
 			continue
 		}
 		runLen++
 	}
-	if runLen > longWordThreshold {
-		excluded++
-	} else {
-		length += runLen
-	}
-	return length, excluded
+	flushWord()
+	return m
 }
 
-func formatLineLengthFailure(label string, length, excluded, limit int, line string) string {
-	if excluded == 0 {
-		return fmt.Sprintf("%s is %d characters (limit %d): %q", label, length, limit, shapeExcerpt(line))
+func formatLineLengthFailure(label string, m lineMeasurement, limit int, line string) string {
+	var parts []string
+	if m.codeSpans == 1 {
+		parts = append(parts, "1 code span")
+	} else if m.codeSpans > 1 {
+		parts = append(parts, fmt.Sprintf("%d code spans", m.codeSpans))
 	}
-	word := "long words"
-	if excluded == 1 {
-		word = "long word"
+	if m.longWords == 1 {
+		parts = append(parts, "1 long word")
+	} else if m.longWords > 1 {
+		parts = append(parts, fmt.Sprintf("%d long words", m.longWords))
 	}
-	return fmt.Sprintf("%s is %d characters after excluding %d %s (limit %d): %q",
-		label, length, excluded, word, limit, shapeExcerpt(line))
+	if len(parts) == 0 {
+		return fmt.Sprintf("%s is %d characters (limit %d): %q", label, m.length, limit, shapeExcerpt(line))
+	}
+	return fmt.Sprintf("%s is %d characters after excluding %s (limit %d): %q",
+		label, m.length, strings.Join(parts, " and "), limit, shapeExcerpt(line))
 }
 
 func exemptLine(trimmed string) bool {

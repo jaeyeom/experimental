@@ -42,9 +42,11 @@ bullet, or the end of the text). No prose paragraph exceeds
 ~ui.maxParagraphLines~ consecutive non-bullet lines (3 by default), no line
 exceeds ~ui.maxLineLength~ characters (160 by default), and the message is
 at most ~ui.maxMessageChars~ characters (1200 by default). When measuring
-lines for the first-line and line-length limits, any whitespace-free token
-longer than 40 characters (such as a URL, file path, identifier, or hash)
-counts as 0, while the rest of the line is still checked. A line that is
+lines for the first-line and line-length limits, single-backquote inline
+code spans (on one line, including their backquotes) and any
+whitespace-free token longer than 40 characters (such as a URL, file path,
+identifier, or hash) count as 0, while the rest of the line is still
+checked. A line that is
 only a URL, a quoted line starting with ~> ~, and a line in a fenced code
 block do not count toward line length. Nothing is stored and the exit is 2
 when a check fails; the error names each failed check and explains the

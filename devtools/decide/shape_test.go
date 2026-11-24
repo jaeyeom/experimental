@@ -172,3 +172,123 @@ func TestCheckShapeLongUnbreakableWords(t *testing.T) {
 		}
 	})
 }
+
+func TestCheckShapeInlineCodeSpans(t *testing.T) {
+	limits := defaultShapeLimits()
+	cmdSpan := "`decide send --to alpha --text-file /path/to/message.txt --flag-one value --flag-two other`"
+	if len(cmdSpan) <= 80 {
+		t.Fatalf("cmdSpan len = %d, want > 80", len(cmdSpan))
+	}
+	longWord := "https://example.com/" + strings.Repeat("a", 60)
+
+	t.Run("line over limit only because of spaced code span passes", func(t *testing.T) {
+		// 100 chars prose + space + 91 chars code span = 192 > 160, but prose is 101 <= 160.
+		text := "Verdict\n\n" + testProse(100) + " " + cmdSpan
+		if err := CheckShape(text, limits); err != nil {
+			t.Fatalf("CheckShape() = %v, want nil", err)
+		}
+	})
+
+	t.Run("multiple code spans on one line are all excluded", func(t *testing.T) {
+		text := "Verdict\n\nRun " + cmdSpan + " or " + cmdSpan + " now"
+		if err := CheckShape(text, limits); err != nil {
+			t.Fatalf("CheckShape() = %v, want nil", err)
+		}
+	})
+
+	t.Run("first line over first-line limit only because of code span passes", func(t *testing.T) {
+		// "Run " (4) + cmdSpan (91) + " to notify alpha" (16) = 111 > 100, outside span = 20 <= 100.
+		text := "Run " + cmdSpan + " to notify alpha"
+		if err := CheckShape(text, limits); err != nil {
+			t.Fatalf("CheckShape() = %v, want nil", err)
+		}
+	})
+
+	t.Run("line with text outside span over limit fails and mentions excluded span", func(t *testing.T) {
+		prose170 := testProse(170)
+		text := "Verdict\n\n" + cmdSpan + " " + prose170
+		err := CheckShape(text, limits)
+		if !errors.Is(err, ErrShape) {
+			t.Fatalf("CheckShape() = %v, want ErrShape", err)
+		}
+		want := "line 3 is 171 characters after excluding 1 code span (limit 160)"
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error missing %q:\n%v", want, err)
+		}
+	})
+
+	t.Run("multiple excluded spans use plural in error message", func(t *testing.T) {
+		prose170 := testProse(170)
+		text := "Verdict\n\n" + cmdSpan + " " + prose170 + " " + cmdSpan
+		err := CheckShape(text, limits)
+		if !errors.Is(err, ErrShape) {
+			t.Fatalf("CheckShape() = %v, want ErrShape", err)
+		}
+		want := "line 3 is 172 characters after excluding 2 code spans (limit 160)"
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error missing %q:\n%v", want, err)
+		}
+	})
+
+	t.Run("first line with span plus over-limit prose fails with exclusion message", func(t *testing.T) {
+		prose105 := testProse(105)
+		text := cmdSpan + " " + prose105
+		err := CheckShape(text, limits)
+		if !errors.Is(err, ErrShape) {
+			t.Fatalf("CheckShape() = %v, want ErrShape", err)
+		}
+		want := "first line is 106 characters after excluding 1 code span (limit 100)"
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error missing %q:\n%v", want, err)
+		}
+	})
+
+	t.Run("unclosed backquote makes no span and counts normally", func(t *testing.T) {
+		unclosed := "`decide send --to alpha --text-file f --flag-one value --flag-two other"
+		text := "Verdict\n\n" + testProse(100) + " " + unclosed
+		err := CheckShape(text, limits)
+		if !errors.Is(err, ErrShape) {
+			t.Fatalf("CheckShape() = %v, want ErrShape", err)
+		}
+		if !strings.Contains(err.Error(), "line 3 is 172 characters (limit 160)") {
+			t.Errorf("unexpected error:\n%v", err)
+		}
+		if strings.Contains(err.Error(), "code span") {
+			t.Errorf("unclosed backquote should not mention code span:\n%v", err)
+		}
+	})
+
+	t.Run("closed span followed by unclosed backquote excludes only closed span", func(t *testing.T) {
+		unclosed := "`rest of line with spaces and words"
+		text := "Verdict\n\n" + cmdSpan + " " + testProse(140) + " " + unclosed
+		err := CheckShape(text, limits)
+		if !errors.Is(err, ErrShape) {
+			t.Fatalf("CheckShape() = %v, want ErrShape", err)
+		}
+		// 1 (space) + 140 + 1 (space) + 35 (unclosed) = 177.
+		want := "line 3 is 177 characters after excluding 1 code span (limit 160)"
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error missing %q:\n%v", want, err)
+		}
+	})
+
+	t.Run("spans and long word on the same line are both excluded", func(t *testing.T) {
+		// Passes when remaining prose is within limit.
+		okText := "Verdict\n\nSee " + longWord + " and run " + cmdSpan + " or " + cmdSpan
+		if err := CheckShape(okText, limits); err != nil {
+			t.Fatalf("CheckShape(okText) = %v, want nil", err)
+		}
+
+		// Fails when remaining prose exceeds limit, mentioning both exclusions.
+		prose170 := testProse(170)
+		badText := "Verdict\n\n" + cmdSpan + " " + cmdSpan + " " + longWord + " " + prose170
+		err := CheckShape(badText, limits)
+		if !errors.Is(err, ErrShape) {
+			t.Fatalf("CheckShape(badText) = %v, want ErrShape", err)
+		}
+		want := "line 3 is 173 characters after excluding 2 code spans and 1 long word (limit 160)"
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error missing %q:\n%v", want, err)
+		}
+	})
+}
