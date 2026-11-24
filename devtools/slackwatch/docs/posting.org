@@ -37,9 +37,10 @@ refuses and asks for the user id. ~im:write~ is not used.
    - ~--notify-pane <post.decideNotifyPane>~ when that key is set. A
      later ~decide reply~ reuses the item and keeps its pane.
    - ~--kind relay~
-   - ~--option post:"Post as written"~
-   - ~--option drop:"Don't post"~
-   - ~--rec post~
+   - ~--option yes:"Post as written"~
+   - ~--option no:"Don't post"~
+   - ~--option edit:"Edit (redraft)"~
+   - ~--rec yes~
    - ~--free-text~
    - ~--long-lines~, on this ask and on each ~decide reply~ slackwatch
      writes, so decide's line limit for agents does not refuse text
@@ -62,10 +63,11 @@ refuses and asks for the user id. ~im:write~ is not used.
    every 30 seconds.
 
    - After ask, and on each poll of an open item with no human message,
-     slackwatch checks that the item still lists ~post~ and ~drop~.
+     slackwatch checks that the item still lists ~yes~ and ~no~ (or legacy
+     ~post~ and ~drop~).
    - If they are missing, it re-attaches them once with ~decide reply~
-     using those options, ~--rec post~, ~--free-text~, and the same
-     question, logs it, and sends the record's owner
+     using ~yes~, ~no~, and ~edit~, ~--rec yes~, ~--free-text~, and the
+     same question, logs it, and sends the record's owner
      ~outbox <id>: decide item lost its options; re-attached~.
    - A later loss, after the options are present again, is re-attached
      again.
@@ -79,17 +81,17 @@ refuses and asks for the user id. ~im:write~ is not used.
    message is one with author ~human~ and no ~by~; a message sent with
    ~by~ is an agent's, whatever its ~via~, and does not count. slackwatch
    acts on the latest human message. It posts only when that message
-   picks ~post~ (~optionKey~ exactly ~post~) with ~via~ ~ui~ (a message
+   picks ~yes~ (or legacy ~post~) with ~via~ ~ui~ (a message
    without ~via~ does not count), the stored text still matches its
    hash, and the record is still ~pending~. Agent replies after the pick
    do not cancel it.
-   - A free-text message is the edit path: the record becomes
+   - A free-text message (or ~edit~) is the edit path: the record becomes
      ~needs-redraft~ and the owner gets the text as an ~outbox-redraft~
      notification. The owner submits a new ~post~ with ~--supersedes <id>~.
-   - ~drop~ makes the record ~dropped~ and tells the owner.
-   - A human message after a ~post~ pick, such as ~drop~ or free text,
+   - ~no~ (or legacy ~drop~) makes the record ~dropped~ and tells the owner.
+   - A human message after a ~yes~ pick, such as ~no~ or free text,
      takes precedence and goes through those paths.
-   - Any other ~post~ pick, such as one given with the decide CLI,
+   - Any other ~yes~ pick, such as one given with the decide CLI,
      makes the record ~rejected~ and alerts the owner and
      ~fallbackTarget~.
      The owner can submit the draft again with ~--supersedes <id>~.
@@ -115,7 +117,7 @@ refuses and asks for the user id. ~im:write~ is not used.
    - ~Posted, but the text differs from the approved draft: <permalink> (<problems>)~
      when it ends ~mismatch~;
    - ~Post failed: <reason>; reply post to retry~ when it ends ~failed~.
-     This reply puts ~post~ and ~drop~ back, and the item stays open.
+     This reply puts ~yes~, ~no~, and ~edit~ back, and the item stays open.
    The same reply follows ~outbox posted~ (with or without ~--manual~),
    ~outbox recheck~, and ~outbox retry~.
 
@@ -153,9 +155,9 @@ records it.
 
 - It accepts a ~pending~ or ~awaiting-handoff~ record.
 - It accepts a ~needs-redraft~ record only when the thread has a
-  verified approval of the current draft: an ~optionKey~ ~post~ answer
-  by ~human~ via ~ui~, after the latest message that carries this
-  draft's text hash. Anything else is refused.
+  verified approval of the current draft: an ~optionKey~ ~yes~ (or
+  legacy ~post~) answer by ~human~ via ~ui~, after the latest message
+  that carries this draft's text hash. Anything else is refused.
 - For a ~pending~ record it first reads the decide item and applies the
   same acceptance rule as step 4. When the rule refuses it, the command
   fails with ~no ui approval found for <id>: <reason>~ and changes

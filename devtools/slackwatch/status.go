@@ -2,7 +2,12 @@ package slackwatch
 
 import (
 	"database/sql"
+	"debug/buildinfo"
+	"errors"
 	"fmt"
+	"os"
+	"runtime/debug"
+	"strings"
 	"time"
 )
 
@@ -45,6 +50,9 @@ type Status struct {
 	// ThreadsDeleted are the watches whose thread catch-up found deleted
 	// within DeletedThreadWindow. The status command fills it.
 	ThreadsDeleted []Watch `json:"threadsDeleted,omitempty"`
+	// BinaryInfo is the build info of the running serve binary, used by
+	// doctor to detect a stale daemon.
+	BinaryInfo string `json:"binaryInfo,omitempty"`
 }
 
 // OutboxPoll is the result of the last outbox poll. LastOK is the time
@@ -107,12 +115,14 @@ func (s *Store) WriteStatus(st Status) error {
 	last_event_at = ?, last_catchup_at = ?, last_catchup_error = ?,
 	last_sweep_at = ?, last_sweep_error = ?,
 	outbox_poll_ok = ?, outbox_poll_last_ok = ?, outbox_poll_error = ?, outbox_poll_failing_since = ?,
+	binary_info = ?,
 	undelivered = (`+undeliveredQuery+`)
 WHERE id = 1`,
 		st.PID, unixOrNull(st.StartedAt), unixOrNull(st.HeartbeatAt), int64(st.HeartbeatInterval.Duration/time.Second),
 		st.Connection, unixOrNull(st.LastEventAt), unixOrNull(st.LastCatchUpAt), st.LastCatchUpError,
 		unixOrNull(st.LastSweepAt), st.LastSweepError,
-		st.OutboxPoll.OK, unixOrNull(st.OutboxPoll.LastOK), st.OutboxPoll.LastError, unixOrNull(st.OutboxPoll.FailingSince)); err != nil {
+		st.OutboxPoll.OK, unixOrNull(st.OutboxPoll.LastOK), st.OutboxPoll.LastError, unixOrNull(st.OutboxPoll.FailingSince),
+		st.BinaryInfo); err != nil {
 		return fmt.Errorf("write status: %w", err)
 	}
 	return nil
@@ -126,10 +136,10 @@ func (s *Store) ReadStatus(now time.Time) (Status, error) {
 	var pid, started, heartbeat, interval, event, catchUp, sweep, pollOK, failingSince sql.NullInt64
 	if err := s.db.QueryRow(`SELECT pid, started_at, heartbeat_at, heartbeat_interval, connection,
 	last_event_at, last_catchup_at, last_catchup_error, last_sweep_at, last_sweep_error, undelivered,
-	outbox_poll_ok, outbox_poll_last_ok, outbox_poll_error, outbox_poll_failing_since
+	outbox_poll_ok, outbox_poll_last_ok, outbox_poll_error, outbox_poll_failing_since, binary_info
 FROM status WHERE id = 1`).Scan(&pid, &started, &heartbeat, &interval, &st.Connection,
 		&event, &catchUp, &st.LastCatchUpError, &sweep, &st.LastSweepError, &st.Undelivered,
-		&st.OutboxPoll.OK, &pollOK, &st.OutboxPoll.LastError, &failingSince); err != nil {
+		&st.OutboxPoll.OK, &pollOK, &st.OutboxPoll.LastError, &failingSince, &st.BinaryInfo); err != nil {
 		return Status{}, fmt.Errorf("read status: %w", err)
 	}
 	st.OutboxPoll.LastOK = unixTime(pollOK)
@@ -150,4 +160,55 @@ FROM status WHERE id = 1`).Scan(&pid, &started, &heartbeat, &interval, &st.Conne
 		st.State = st.Connection
 	}
 	return st, nil
+}
+
+// CurrentBinaryInfo returns the running binary's formatted build info,
+// or "" when unavailable.
+func CurrentBinaryInfo() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok || info == nil {
+		return ""
+	}
+	return info.String()
+}
+
+// DefaultBinaryReplaced reports whether the running process's executable
+// was deleted or replaced on disk compared to selfStat (which may be nil).
+func DefaultBinaryReplaced(selfStat os.FileInfo) (bool, error) {
+	if target, err := os.Readlink("/proc/self/exe"); err == nil && strings.HasSuffix(target, " (deleted)") {
+		return true, nil
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return false, fmt.Errorf("resolve executable: %w", err)
+	}
+	return BinaryReplacedAt(exe, CurrentBinaryInfo(), selfStat)
+}
+
+// BinaryReplacedAt reports whether the binary at exe differs from
+// selfInfo or selfStat, or no longer exists on disk.
+func BinaryReplacedAt(exe, selfInfo string, selfStat os.FileInfo) (bool, error) {
+	diskInfo, err := buildinfo.ReadFile(exe)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return true, nil
+		}
+		return false, fmt.Errorf("read binary build info %s: %w", exe, err)
+	}
+	if selfInfo != "" && diskInfo.String() != selfInfo {
+		return true, nil
+	}
+	if selfStat != nil {
+		diskStat, err := os.Stat(exe)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return true, nil
+			}
+			return false, fmt.Errorf("stat binary %s: %w", exe, err)
+		}
+		if !os.SameFile(selfStat, diskStat) {
+			return true, nil
+		}
+	}
+	return false, nil
 }

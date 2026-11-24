@@ -2,7 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"strings"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
 	"github.com/jaeyeom/experimental/devtools/slackwatch"
@@ -35,6 +40,9 @@ func newSlackwatchTool(configPath string) toolcli.Tool {
 		ExtraDoctorChecks: []toolcli.DoctorCheck{
 			func(_ context.Context, _ bool) toolcli.CheckResult {
 				return checkSlackwatchTokenFile(configPath)
+			},
+			func(_ context.Context, _ bool) toolcli.CheckResult {
+				return checkSlackwatchDaemon(configPath)
 			},
 		},
 	}
@@ -70,5 +78,61 @@ func checkSlackwatchTokenFile(configPath string) toolcli.CheckResult {
 		Name:   "token-file",
 		Status: toolcli.StatusOK,
 		Detail: cfg.TokenFile,
+	}
+}
+
+func checkSlackwatchDaemon(configPath string) toolcli.CheckResult {
+	cfg, err := slackwatch.LoadConfig(configPath)
+	if err != nil || cfg.DBPath == "" {
+		return toolcli.CheckResult{
+			Name:   "daemon-binary",
+			Status: toolcli.StatusOK,
+			Detail: "daemon not running",
+		}
+	}
+	if _, err := os.Stat(cfg.DBPath); errors.Is(err, fs.ErrNotExist) {
+		return toolcli.CheckResult{
+			Name:   "daemon-binary",
+			Status: toolcli.StatusOK,
+			Detail: "daemon not running",
+		}
+	}
+	store, err := slackwatch.OpenStore(cfg.DBPath)
+	if err != nil {
+		return toolcli.CheckResult{
+			Name:   "daemon-binary",
+			Status: toolcli.StatusWarn,
+			Detail: fmt.Sprintf("open slackwatch db: %v", err),
+		}
+	}
+	defer store.Close()
+	st, err := store.ReadStatus(time.Now())
+	if err != nil || st.PID == 0 || st.State == slackwatch.ConnDown || st.State == slackwatch.ConnStale {
+		return toolcli.CheckResult{
+			Name:   "daemon-binary",
+			Status: toolcli.StatusOK,
+			Detail: "daemon not running",
+		}
+	}
+	if target, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", st.PID)); err == nil && strings.HasSuffix(target, " (deleted)") {
+		return toolcli.CheckResult{
+			Name:   "daemon-binary",
+			Status: toolcli.StatusWarn,
+			Detail: "slackwatch binary updated; restart needed",
+			Hint:   "restart slackwatch serve",
+		}
+	}
+	if cur := slackwatch.CurrentBinaryInfo(); st.BinaryInfo != "" && cur != "" && st.BinaryInfo != cur {
+		return toolcli.CheckResult{
+			Name:   "daemon-binary",
+			Status: toolcli.StatusWarn,
+			Detail: "slackwatch binary updated; restart needed",
+			Hint:   "restart slackwatch serve",
+		}
+	}
+	return toolcli.CheckResult{
+		Name:   "daemon-binary",
+		Status: toolcli.StatusOK,
+		Detail: fmt.Sprintf("daemon pid %d matches current binary", st.PID),
 	}
 }

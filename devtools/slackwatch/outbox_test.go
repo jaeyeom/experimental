@@ -2651,3 +2651,166 @@ WHERE id = ?`, OutboxPosted, longThreadLink, "1700000100.000100", longThreadLink
 		t.Errorf("outcome = %q, want link %q", f.dec.outcomes[r.DecideID], longThreadLink)
 	}
 }
+
+func TestNewerSchemaLeavesPendingAndNotifiesOnce(t *testing.T) {
+	f := newOutboxFixture(t, PostModeDirect)
+	var logs bytes.Buffer
+	f.ob.Logger = slog.New(slog.NewTextHandler(&logs, nil))
+	r := f.submit(t)
+	if r.SchemaVersion != OutboxSchemaVersion {
+		t.Fatalf("schemaVersion = %d, want %d", r.SchemaVersion, OutboxSchemaVersion)
+	}
+	if _, err := f.store.DB().Exec(`UPDATE outbox SET schema_version = ? WHERE id = ?`, OutboxSchemaVersion+1, r.ID); err != nil {
+		t.Fatal(err)
+	}
+	f.dec.answer(r.DecideID, uiPost)
+
+	f.poll(t)
+	f.poll(t)
+
+	got := f.get(t, r.ID)
+	if got.State != OutboxPending {
+		t.Fatalf("state = %s, want %s", got.State, OutboxPending)
+	}
+	if len(f.writer.posts) != 0 {
+		t.Fatalf("posts = %d, want 0", len(f.writer.posts))
+	}
+	wantMsg := fmt.Sprintf("outbox %d was filed by a newer slackwatch; restart the daemon", r.ID)
+	if !strings.Contains(logs.String(), wantMsg) {
+		t.Errorf("logs missing %q:\n%s", wantMsg, logs.String())
+	}
+	if ev := f.events(); len(ev) != 1 || ev[0] != EventOutboxNewerSchema+">agent-1" {
+		t.Fatalf("events = %v, want one %s>agent-1", ev, EventOutboxNewerSchema)
+	}
+	if gotMsg := f.rec.notes[0].Message; gotMsg != wantMsg {
+		t.Errorf("notice message = %q, want %q", gotMsg, wantMsg)
+	}
+}
+
+func TestAcceptsBothCurrentAndLegacyPostKeys(t *testing.T) {
+	for _, key := range []string{decideKeyPost, "post"} {
+		t.Run(key, func(t *testing.T) {
+			f := newOutboxFixture(t, PostModeDirect)
+			f.reader.msg = Message{User: expectUser, Text: postedBody()}
+			r := f.submit(t)
+			f.dec.answer(r.DecideID, DecideAnswer{Value: key, Key: key, AnsweredBy: "human", Via: "ui"})
+
+			f.poll(t)
+
+			got := f.get(t, r.ID)
+			if got.State != OutboxPosted {
+				t.Fatalf("state = %s, want %s", got.State, OutboxPosted)
+			}
+			if len(f.writer.posts) != 1 {
+				t.Fatalf("posts = %d, want 1", len(f.writer.posts))
+			}
+		})
+	}
+}
+
+func TestKeyMismatchRejectionRetriedAfterUpgradePostsOnce(t *testing.T) {
+	f := newOutboxFixture(t, PostModeDirect)
+	f.reader.msg = Message{User: expectUser, Text: postedBody()}
+	r := f.submit(t)
+	f.dec.answer(r.DecideID, DecideAnswer{Value: "post", Key: "post", AnsweredBy: "human", Via: "ui"})
+	// Simulate an older daemon that did not know "post" (or "yes") and rejected it.
+	if _, err := f.store.DB().Exec(`UPDATE outbox SET state = ?, reason = ?, decide_closed = 1 WHERE id = ?`,
+		OutboxRejected, `answer "post" is not an option slackwatch posts on`, r.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	f.poll(t)
+	f.poll(t)
+
+	got := f.get(t, r.ID)
+	if got.State != OutboxPosted {
+		t.Fatalf("state = %s, want %s", got.State, OutboxPosted)
+	}
+	if len(f.writer.posts) != 1 {
+		t.Fatalf("posts = %d, want 1", len(f.writer.posts))
+	}
+}
+
+func TestKeyMismatchRejectionManualRetry(t *testing.T) {
+	f := newOutboxFixture(t, PostModeDirect)
+	f.reader.msg = Message{User: expectUser, Text: postedBody()}
+	r := f.submit(t)
+	f.dec.answer(r.DecideID, DecideAnswer{Value: "post", Key: "post", AnsweredBy: "human", Via: "ui"})
+	if _, err := f.store.DB().Exec(`UPDATE outbox SET state = ?, reason = ?, decide_closed = 1 WHERE id = ?`,
+		OutboxRejected, `answer "post" is not an option slackwatch posts on`, r.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := f.ob.Retry(context.Background(), r.ID)
+	if err != nil {
+		t.Fatalf("Retry: %v", err)
+	}
+	if got.State != OutboxPosted {
+		t.Fatalf("state = %s, want %s", got.State, OutboxPosted)
+	}
+	if len(f.writer.posts) != 1 {
+		t.Fatalf("posts = %d, want 1", len(f.writer.posts))
+	}
+}
+
+func TestBinaryReplacedCheckReportsOncePerRun(t *testing.T) {
+	f := newOutboxFixture(t, PostModeDirect)
+	var logs bytes.Buffer
+	f.ob.Logger = slog.New(slog.NewTextHandler(&logs, nil))
+	f.ob.BinaryReplaced = func() (bool, error) { return true, nil }
+
+	f.poll(t)
+	f.poll(t)
+
+	const wantMsg = "slackwatch binary updated; restart needed"
+	if !strings.Contains(logs.String(), wantMsg) {
+		t.Errorf("logs missing %q:\n%s", wantMsg, logs.String())
+	}
+	if ev := f.events(); len(ev) != 1 || ev[0] != EventBinaryUpdated+">" {
+		t.Fatalf("events = %v, want one %s>", ev, EventBinaryUpdated)
+	}
+	if gotMsg := f.rec.notes[0].Message; gotMsg != wantMsg {
+		t.Errorf("notice message = %q, want %q", gotMsg, wantMsg)
+	}
+}
+
+func TestBinaryReplacedAt(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stat, err := os.Stat(exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	curInfo := CurrentBinaryInfo()
+
+	replaced, err := BinaryReplacedAt(exe, curInfo, stat)
+	if err != nil || replaced {
+		t.Fatalf("same binary = (%v, %v), want (false, nil)", replaced, err)
+	}
+
+	replaced, err = BinaryReplacedAt(exe, "different-build-info", stat)
+	if err != nil || !replaced {
+		t.Fatalf("different build info = (%v, %v), want (true, nil)", replaced, err)
+	}
+
+	other := filepath.Join(t.TempDir(), "other")
+	if err := os.WriteFile(other, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	otherStat, err := os.Stat(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replaced, err = BinaryReplacedAt(exe, curInfo, otherStat)
+	if err != nil || !replaced {
+		t.Fatalf("different file stat = (%v, %v), want (true, nil)", replaced, err)
+	}
+
+	missing := filepath.Join(t.TempDir(), "missing")
+	replaced, err = BinaryReplacedAt(missing, curInfo, stat)
+	if err != nil || !replaced {
+		t.Fatalf("missing binary = (%v, %v), want (true, nil)", replaced, err)
+	}
+}

@@ -37,6 +37,7 @@ func newHeartbeat(store *slackwatch.Store, interval time.Duration, logger *slog.
 			PID: os.Getpid(), StartedAt: now(),
 			HeartbeatInterval: slackwatch.Duration{Duration: interval},
 			Connection:        slackwatch.ConnReconnecting,
+			BinaryInfo:        slackwatch.CurrentBinaryInfo(),
 		}
 	})
 	return h

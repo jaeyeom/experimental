@@ -62,6 +62,22 @@ const (
 	decideViaUI      = "ui"
 )
 
+// OutboxSchemaVersion is the outbox record schema version this binary
+// writes and understands.
+const OutboxSchemaVersion = 1
+
+func isPostKey(key string) bool {
+	return key == decideKeyPost || key == "post"
+}
+
+func isDropKey(key string) bool {
+	return key == decideKeyDrop || key == "drop"
+}
+
+func isKeyMismatchReason(reason string) bool {
+	return strings.HasPrefix(reason, "answer ") && strings.HasSuffix(reason, " is not an option slackwatch posts on")
+}
+
 // DefaultOutboxPoll is how often serve polls decide for answers.
 const DefaultOutboxPoll = 30 * time.Second
 
@@ -114,9 +130,10 @@ type OutboxRecord struct {
 	Supersedes int64 `json:"supersedes,omitempty"`
 	// SupersededBy is the outbox id that replaced this one. It is not
 	// stored; show fills it in. 0 means none.
-	SupersededBy int64     `json:"supersededBy,omitempty"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	SupersededBy  int64     `json:"supersededBy,omitempty"`
+	SchemaVersion int       `json:"schemaVersion"`
+	CreatedAt     time.Time `json:"createdAt"`
+	UpdatedAt     time.Time `json:"updatedAt"`
 }
 
 // OutboxCounts are the outbox records waiting on someone.
@@ -660,6 +677,9 @@ type Outbox struct {
 	// Channels resolves a name after a cached id returns channel_not_found.
 	// Nil skips that retry.
 	Channels *ChannelLookup
+	// BinaryReplaced reports whether the running daemon's executable was
+	// replaced on disk. Nil uses DefaultBinaryReplaced.
+	BinaryReplaced func() (bool, error)
 
 	mu     sync.Mutex
 	authed string // TextHash of the write token that passed auth.test
@@ -671,6 +691,12 @@ type Outbox struct {
 	// autoRetried is the time of the post pick each failed record was
 	// last retried on, so one pick retries it at most once.
 	autoRetried map[int64]time.Time
+	// newerSchemaNoted records outbox ids already reported as having a
+	// newer schema version in this daemon run.
+	newerSchemaNoted map[int64]struct{}
+	binaryNoted      bool
+	exeStat          os.FileInfo
+	exeStatOnce      sync.Once
 }
 
 func (o *Outbox) config() (Config, error) {
@@ -715,10 +741,10 @@ func (o *Outbox) Submit(ctx context.Context, d Draft) (OutboxRecord, error) {
 	now := o.Now()
 	hash := TextHash(d.Text)
 	res, err := o.Store.db.Exec(`INSERT INTO outbox
-(channel, requested_to, thread_ts, dest_name, parent_link, text, text_hash, owner, purpose, refs, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+(channel, requested_to, thread_ts, dest_name, parent_link, text, text_hash, owner, purpose, refs, schema_version, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		d.Channel, d.RequestedTo, d.ThreadTS, d.DestName, d.ParentLink, d.Text, hash, d.Owner, d.Purpose,
-		strings.Join(d.Refs, refsSep), now.Unix(), now.Unix())
+		strings.Join(d.Refs, refsSep), OutboxSchemaVersion, now.Unix(), now.Unix())
 	if err != nil {
 		return OutboxRecord{}, fmt.Errorf("add outbox record: %w", err)
 	}
@@ -1034,10 +1060,10 @@ func draftFrom(r OutboxRecord) Draft {
 func hasPostDrop(opts []DecideOption) bool {
 	var post, drop bool
 	for _, opt := range opts {
-		switch opt.Key {
-		case decideKeyPost:
+		switch {
+		case isPostKey(opt.Key):
 			post = true
-		case decideKeyDrop:
+		case isDropKey(opt.Key):
 			drop = true
 		}
 	}
@@ -1137,10 +1163,133 @@ func (o *Outbox) notifyLostOptions(ctx context.Context, r OutboxRecord) error {
 	return nil
 }
 
+func (o *Outbox) firstBinaryUpdated() bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.binaryNoted {
+		return false
+	}
+	o.binaryNoted = true
+	return true
+}
+
+func (o *Outbox) checkBinary(ctx context.Context) {
+	fn := o.BinaryReplaced
+	if fn == nil {
+		o.exeStatOnce.Do(func() {
+			if exe, err := os.Executable(); err == nil {
+				if info, err := os.Stat(exe); err == nil {
+					o.exeStat = info
+				}
+			}
+		})
+		fn = func() (bool, error) { return DefaultBinaryReplaced(o.exeStat) }
+	}
+	replaced, err := fn()
+	if err != nil {
+		o.logger().Warn("slackwatch outbox: check binary", "error", err)
+		return
+	}
+	if !replaced || !o.firstBinaryUpdated() {
+		return
+	}
+	const msg = "slackwatch binary updated; restart needed"
+	o.logger().Warn(msg)
+	if err := o.Notifier.Notify(ctx, Notification{
+		Event:   EventBinaryUpdated,
+		ReplyTS: fmt.Sprintf("binary-updated:%d", o.Now().Unix()),
+		Message: msg,
+	}); err != nil {
+		o.logger().Warn("slackwatch outbox: notify binary updated", "error", err)
+	}
+}
+
+func (o *Outbox) firstNewerSchema(id int64) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if _, ok := o.newerSchemaNoted[id]; ok {
+		return false
+	}
+	if o.newerSchemaNoted == nil {
+		o.newerSchemaNoted = map[int64]struct{}{}
+	}
+	o.newerSchemaNoted[id] = struct{}{}
+	return true
+}
+
+func (o *Outbox) notifyNewerSchema(ctx context.Context, r OutboxRecord) error {
+	if !o.firstNewerSchema(r.ID) {
+		return nil
+	}
+	msg := fmt.Sprintf("outbox %d was filed by a newer slackwatch; restart the daemon", r.ID)
+	o.logger().Warn(msg, "outbox", r.ID, "schema", r.SchemaVersion, "supported", OutboxSchemaVersion)
+	if err := o.Notifier.Notify(ctx, Notification{
+		Event: EventOutboxNewerSchema, Owner: r.Owner, OutboxID: r.ID, WatchID: r.WatchID, Channel: r.Channel,
+		ReplyTS: fmt.Sprintf("outbox:%d:newer-schema:%d", r.ID, r.SchemaVersion),
+		Purpose: r.Purpose, Refs: r.Refs, Message: msg,
+	}); err != nil {
+		return fmt.Errorf("notify %s for outbox %d: %w", EventOutboxNewerSchema, r.ID, err)
+	}
+	return nil
+}
+
+func (o *Outbox) pollKeyMismatchRetries(ctx context.Context, cfg Config) error {
+	rejected, err := o.Store.rejectedKeyMismatchOutbox()
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, r := range rejected {
+		errs = append(errs, o.retryKeyMismatch(ctx, cfg, r))
+	}
+	return errors.Join(errs...)
+}
+
+// retryKeyMismatch automatically retries a record that an older daemon
+// rejected solely because of an unknown option key, when the decide
+// item has a verified UI post pick that this daemon accepts.
+func (o *Outbox) retryKeyMismatch(ctx context.Context, cfg Config, r OutboxRecord) error {
+	by, err := o.Store.SupersededBy(r.ID)
+	if err != nil {
+		return err
+	}
+	if by != 0 {
+		return nil
+	}
+	item, err := o.Decide.Show(ctx, r.DecideID)
+	if err != nil {
+		return fmt.Errorf("outbox %d: %w", r.ID, err)
+	}
+	m, ok := latestHuman(item)
+	if !ok || !isPostKey(m.OptionKey) || m.Via != decideViaUI || TextHash(r.Text) != r.TextHash || !destinationUnchanged(r, item) {
+		return nil
+	}
+	next := OutboxAwaitingHandoff
+	if cfg.Post.Mode == PostModeDirect {
+		next = OutboxApproved
+	}
+	empty := ""
+	closedFalse := false
+	moved, err := o.Store.moveOutbox(r.ID, []string{OutboxRejected}, outboxUpdate{
+		state: next, answer: &m.OptionKey, reason: &empty, decideClosed: &closedFalse,
+	}, o.Now())
+	if err != nil || !moved {
+		return err
+	}
+	r.State = next
+	r.Reason = ""
+	r.DecideClosed = false
+	if next == OutboxApproved {
+		return o.postDirect(ctx, cfg, r)
+	}
+	return o.notify(ctx, r, EventOutboxReady, cfg.Post.Agent, fmt.Sprintf("approved post ready: %d", r.ID), "")
+}
+
 // Poll handles the answers to every pending record, posts approved
 // records in direct mode, and retries decide items left open. Errors
 // are joined; one record does not stop the others.
 func (o *Outbox) Poll(ctx context.Context) error {
+	o.checkBinary(ctx)
 	cfg, err := o.config()
 	if err != nil {
 		return err
@@ -1158,6 +1307,9 @@ func (o *Outbox) Poll(ctx context.Context) error {
 			errs = append(errs, o.process(ctx, cfg, r))
 		}
 	}
+	if err := o.pollKeyMismatchRetries(ctx, cfg); err != nil {
+		errs = append(errs, err)
+	}
 	if cfg.Post.Mode == PostModeDirect {
 		approved, err := o.Store.ListOutbox(OutboxApproved)
 		if err != nil {
@@ -1174,6 +1326,13 @@ func (o *Outbox) Poll(ctx context.Context) error {
 	for _, r := range failed {
 		errs = append(errs, o.autoRetry(ctx, r))
 	}
+	if err := o.pollOutcomes(ctx); err != nil {
+		return err
+	}
+	return errors.Join(errs...)
+}
+
+func (o *Outbox) pollOutcomes(ctx context.Context) error {
 	unreplied, err := o.Store.unrepliedOutbox()
 	if err != nil {
 		return err
@@ -1189,7 +1348,7 @@ func (o *Outbox) Poll(ctx context.Context) error {
 	for _, r := range unclosed {
 		o.closeDecide(ctx, r)
 	}
-	return errors.Join(errs...)
+	return nil
 }
 
 // Poke handles the answer to one decide item at once. In direct mode an
@@ -1231,7 +1390,7 @@ func (o *Outbox) autoRetry(ctx context.Context, r OutboxRecord) error {
 		return fmt.Errorf("outbox %d: %w", r.ID, err)
 	}
 	m, ok := latestHuman(item)
-	if !ok || m.OptionKey != decideKeyPost || !m.Time.Truncate(time.Second).After(r.UpdatedAt) || !o.firstAutoRetry(r.ID, m.Time) {
+	if !ok || !isPostKey(m.OptionKey) || !m.Time.Truncate(time.Second).After(r.UpdatedAt) || !o.firstAutoRetry(r.ID, m.Time) {
 		return nil
 	}
 	o.logger().Info("slackwatch outbox: retrying after a new post pick", "outbox", r.ID, "decide", r.DecideID)
@@ -1271,7 +1430,7 @@ func acceptance(r OutboxRecord, it DecideItem) (m DecideMessage, ok bool, refusa
 		return DecideMessage{}, false, "the user has not answered"
 	case m.OptionKey == "":
 		refusal = "the user's latest message is free text, not a post pick"
-	case m.OptionKey != decideKeyPost:
+	case !isPostKey(m.OptionKey):
 		refusal = fmt.Sprintf("answer %q is not an option slackwatch posts on", m.OptionKey)
 	case m.Via != decideViaUI:
 		refusal = fmt.Sprintf("the post pick came via %q, not from the decide UI", m.Via)
@@ -1285,6 +1444,9 @@ func acceptance(r OutboxRecord, it DecideItem) (m DecideMessage, ok bool, refusa
 
 // process applies the acceptance rule to a pending record.
 func (o *Outbox) process(ctx context.Context, cfg Config, r OutboxRecord) error {
+	if r.SchemaVersion > OutboxSchemaVersion {
+		return o.notifyNewerSchema(ctx, r)
+	}
 	item, err := o.Decide.Show(ctx, r.DecideID)
 	if err != nil {
 		return fmt.Errorf("outbox %d: %w", r.ID, err)
@@ -1303,7 +1465,7 @@ func (o *Outbox) process(ctx context.Context, cfg Config, r OutboxRecord) error 
 	switch {
 	case !ok:
 		return nil
-	case m.OptionKey == decideKeyDrop:
+	case isDropKey(m.OptionKey):
 		return o.finish(ctx, r, end{
 			state: OutboxDropped, outcome: droppedOutcome, event: EventOutboxDropped,
 			message: fmt.Sprintf("The user chose not to post Slack draft outbox %d (purpose: %q).", r.ID, r.Purpose),
@@ -1777,44 +1939,55 @@ func (o *Outbox) Retry(ctx context.Context, id int64) (OutboxRecord, error) {
 	if err != nil {
 		return OutboxRecord{}, err
 	}
-	if r.State != OutboxFailed {
+	switch {
+	case r.State == OutboxFailed:
+	case r.State == OutboxRejected && isKeyMismatchReason(r.Reason):
+		by, err := o.Store.SupersededBy(r.ID)
+		if err != nil {
+			return OutboxRecord{}, err
+		}
+		if by != 0 {
+			return OutboxRecord{}, fmt.Errorf("outbox %d was superseded by %d", id, by)
+		}
+	default:
 		return OutboxRecord{}, fmt.Errorf("outbox %d is %s, not %s", id, r.State, OutboxFailed)
 	}
 	cfg, err := o.config()
 	if err != nil {
 		return OutboxRecord{}, err
 	}
-	if err := o.retryChecks(ctx, r); err != nil {
+	if _, err := o.retryChecks(ctx, r); err != nil {
 		return OutboxRecord{}, err
 	}
 	if cfg.Post.Mode != PostModeDirect {
-		return o.retryHandoff(ctx, cfg, r)
+		return o.retryHandoff(ctx, cfg, r, r.State)
 	}
-	return o.retryDirect(ctx, cfg, r)
+	return o.retryDirect(ctx, cfg, r, r.State)
 }
 
-// retryChecks re-runs the acceptance rule for a failed record: a human
-// post pick from the decide UI, the stored text still matching its
-// hash, and the destination still the one in the decide question.
-func (o *Outbox) retryChecks(ctx context.Context, r OutboxRecord) error {
+// retryChecks re-runs the acceptance rule for a failed or key-mismatch
+// rejected record: a human post pick from the decide UI, the stored
+// text still matching its hash, and the destination still the one in the
+// decide question.
+func (o *Outbox) retryChecks(ctx context.Context, r OutboxRecord) (DecideMessage, error) {
 	if r.DecideID == "" {
-		return fmt.Errorf("outbox %d: the decide answer was not post via ui by the human", r.ID)
+		return DecideMessage{}, fmt.Errorf("outbox %d: the decide answer was not post via ui by the human", r.ID)
 	}
 	item, err := o.Decide.Show(ctx, r.DecideID)
 	if err != nil {
-		return fmt.Errorf("outbox %d: %w", r.ID, err)
+		return DecideMessage{}, fmt.Errorf("outbox %d: %w", r.ID, err)
 	}
 	m, ok := latestHuman(item)
-	if !ok || m.OptionKey != decideKeyPost || m.Via != decideViaUI {
-		return fmt.Errorf("outbox %d: the decide answer was not post via ui by the human", r.ID)
+	if !ok || !isPostKey(m.OptionKey) || m.Via != decideViaUI {
+		return DecideMessage{}, fmt.Errorf("outbox %d: the decide answer was not post via ui by the human", r.ID)
 	}
 	if TextHash(r.Text) != r.TextHash {
-		return fmt.Errorf("outbox %d: the stored text no longer matches its hash", r.ID)
+		return DecideMessage{}, fmt.Errorf("outbox %d: the stored text no longer matches its hash", r.ID)
 	}
 	if !destinationUnchanged(r, item) {
-		return fmt.Errorf("outbox %d: the destination changed", r.ID)
+		return DecideMessage{}, fmt.Errorf("outbox %d: the destination changed", r.ID)
 	}
-	return nil
+	return m, nil
 }
 
 // latestHuman is the latest message the user wrote on it.
@@ -1851,16 +2024,16 @@ func destinationUnchanged(r OutboxRecord, it DecideItem) bool {
 	return strings.Contains(thread, r.ThreadTS) || (r.ParentLink != "" && thread == r.ParentLink)
 }
 
-// retryHandoff moves a failed handoff record back to awaiting-handoff
-// and sends the usual ready notice. It does not post.
-func (o *Outbox) retryHandoff(ctx context.Context, cfg Config, r OutboxRecord) (OutboxRecord, error) {
+// retryHandoff moves a failed or key-mismatch rejected handoff record
+// back to awaiting-handoff and sends the usual ready notice. It does not post.
+func (o *Outbox) retryHandoff(ctx context.Context, cfg Config, r OutboxRecord, from string) (OutboxRecord, error) {
 	empty := ""
-	moved, err := o.Store.moveOutbox(r.ID, []string{OutboxFailed}, outboxUpdate{state: OutboxAwaitingHandoff, reason: &empty}, o.Now())
+	moved, err := o.Store.moveOutbox(r.ID, []string{from}, outboxUpdate{state: OutboxAwaitingHandoff, reason: &empty}, o.Now())
 	if err != nil {
 		return OutboxRecord{}, err
 	}
 	if !moved {
-		return OutboxRecord{}, fmt.Errorf("outbox %d is no longer %s", r.ID, OutboxFailed)
+		return OutboxRecord{}, fmt.Errorf("outbox %d is no longer %s", r.ID, from)
 	}
 	if err := o.notify(ctx, r, EventOutboxReady, cfg.Post.Agent, fmt.Sprintf("approved post ready: %d", r.ID), ""); err != nil {
 		return OutboxRecord{}, err
@@ -1868,9 +2041,9 @@ func (o *Outbox) retryHandoff(ctx context.Context, cfg Config, r OutboxRecord) (
 	return o.Store.GetOutbox(r.ID)
 }
 
-// retryDirect posts a failed direct record once, or registers a matching
-// message that already landed.
-func (o *Outbox) retryDirect(ctx context.Context, cfg Config, r OutboxRecord) (OutboxRecord, error) {
+// retryDirect posts a failed or key-mismatch rejected direct record once,
+// or registers a matching message that already landed.
+func (o *Outbox) retryDirect(ctx context.Context, cfg Config, r OutboxRecord, from string) (OutboxRecord, error) {
 	token, err := o.writeToken(ctx, cfg)
 	if err != nil {
 		return OutboxRecord{}, err
@@ -1880,9 +2053,9 @@ func (o *Outbox) retryDirect(ctx context.Context, cfg Config, r OutboxRecord) (O
 		return OutboxRecord{}, err
 	}
 	if ok {
-		return o.registerExisting(ctx, r, dup)
+		return o.registerExisting(ctx, r, dup, from)
 	}
-	return o.postRetry(ctx, cfg, r, token)
+	return o.postRetry(ctx, cfg, r, token, from)
 }
 
 // findDuplicate looks for a message from post.expectUser with r's text
@@ -1903,7 +2076,7 @@ func (o *Outbox) findDuplicate(ctx context.Context, cfg Config, r *OutboxRecord)
 }
 
 // registerExisting watches an already-landed message and marks r posted.
-func (o *Outbox) registerExisting(ctx context.Context, r OutboxRecord, m Message) (OutboxRecord, error) {
+func (o *Outbox) registerExisting(ctx context.Context, r OutboxRecord, m Message, from string) (OutboxRecord, error) {
 	teamURL, err := o.Store.TeamURL()
 	if err != nil {
 		return OutboxRecord{}, err
@@ -1915,7 +2088,7 @@ func (o *Outbox) registerExisting(ctx context.Context, r OutboxRecord, m Message
 	}
 	link := permalink(teamURL, r.Channel, m.TS, r.ThreadTS)
 	p := PostRef{Channel: r.Channel, TS: m.TS, ThreadTS: r.ThreadTS, Permalink: link}
-	if err := o.registerPosted(ctx, r, []string{OutboxFailed}, p, "", m.Text, false); err != nil {
+	if err := o.registerPosted(ctx, r, []string{from}, p, "", m.Text, false); err != nil {
 		return OutboxRecord{}, err
 	}
 	return o.Store.GetOutbox(r.ID)
@@ -1924,13 +2097,13 @@ func (o *Outbox) registerExisting(ctx context.Context, r OutboxRecord, m Message
 // postRetry sends r once and reads it back. A read failure still
 // registers the message, as a mismatch, so the record does not stay
 // in posting.
-func (o *Outbox) postRetry(ctx context.Context, cfg Config, r OutboxRecord, token string) (OutboxRecord, error) {
-	moved, err := o.Store.moveOutbox(r.ID, []string{OutboxFailed}, outboxUpdate{state: OutboxPosting, reason: ptr("")}, o.Now())
+func (o *Outbox) postRetry(ctx context.Context, cfg Config, r OutboxRecord, token, from string) (OutboxRecord, error) {
+	moved, err := o.Store.moveOutbox(r.ID, []string{from}, outboxUpdate{state: OutboxPosting, reason: ptr("")}, o.Now())
 	if err != nil {
 		return OutboxRecord{}, err
 	}
 	if !moved {
-		return OutboxRecord{}, fmt.Errorf("outbox %d is no longer %s", r.ID, OutboxFailed)
+		return OutboxRecord{}, fmt.Errorf("outbox %d is no longer %s", r.ID, from)
 	}
 	channel, ts, err := o.postTo(ctx, token, &r, r.Text+"\n\n"+cfg.Post.Footer)
 	if err != nil {
@@ -2135,7 +2308,7 @@ func verifiedPost(r OutboxRecord, it DecideItem) bool {
 			picked, ok = m, true
 		}
 	}
-	return ok && picked.OptionKey == decideKeyPost && picked.Via == decideViaUI
+	return ok && isPostKey(picked.OptionKey) && picked.Via == decideViaUI
 }
 
 // uiApproved returns an error unless r's decide item passes the
@@ -2380,7 +2553,7 @@ WHERE id = ? AND state IN (?, ?, ?, ?)`, args...)
 }
 
 const outboxCols = `id, channel, requested_to, thread_ts, dest_name, parent_link, text, text_hash, owner, purpose, refs,
-state, reason, decide_id, decide_closed, answer, post_ts, permalink, posted_text, watch_id, manual, supersedes, created_at, updated_at`
+state, reason, decide_id, decide_closed, answer, post_ts, permalink, posted_text, watch_id, manual, supersedes, schema_version, created_at, updated_at`
 
 type scanner interface {
 	Scan(dest ...any) error
@@ -2393,7 +2566,7 @@ func scanOutbox(sc scanner) (OutboxRecord, error) {
 	var created, updated int64
 	if err := sc.Scan(&r.ID, &r.Channel, &r.RequestedTo, &r.ThreadTS, &r.DestName, &r.ParentLink, &r.Text, &r.TextHash,
 		&r.Owner, &r.Purpose, &refs, &r.State, &r.Reason, &r.DecideID, &r.DecideClosed, &r.Answer,
-		&r.PostTS, &r.Permalink, &r.PostedText, &watchID, &r.Manual, &r.Supersedes, &created, &updated); err != nil {
+		&r.PostTS, &r.Permalink, &r.PostedText, &watchID, &r.Manual, &r.Supersedes, &r.SchemaVersion, &created, &updated); err != nil {
 		return OutboxRecord{}, err //nolint:wrapcheck // Wrapped by callers.
 	}
 	r.Refs = []string{}
@@ -2587,6 +2760,12 @@ AND state NOT IN (?, ?, ?, ?)`, OutboxPending, OutboxApproved, OutboxPosting, Ou
 // open, so a new post pick there can retry them.
 func (s *Store) retryableOutbox() ([]OutboxRecord, error) {
 	return s.listOutbox(`state = ? AND decide_id <> '' AND decide_closed = 0`, OutboxFailed)
+}
+
+// rejectedKeyMismatchOutbox returns rejected records whose reason was an
+// unknown option key, so an upgraded daemon can retry them.
+func (s *Store) rejectedKeyMismatchOutbox() ([]OutboxRecord, error) {
+	return s.listOutbox(`state = ? AND decide_id <> '' AND reason LIKE 'answer % is not an option slackwatch posts on'`, OutboxRejected)
 }
 
 // awaitingHandoff returns the records awaiting handoff to channel and

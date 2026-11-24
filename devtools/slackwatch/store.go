@@ -267,6 +267,13 @@ ALTER TABLE watches ADD COLUMN root_author TEXT NOT NULL DEFAULT '';
 ALTER TABLE outbox ADD COLUMN decide_replied INTEGER NOT NULL DEFAULT 0;
 UPDATE outbox SET decide_replied = 1 WHERE decide_closed = 1;
 `,
+	// schema_version records the outbox schema version that filed a
+	// draft. binary_info records the running serve binary's build info
+	// so slackwatch doctor can detect a stale daemon.
+	`
+ALTER TABLE outbox ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE status ADD COLUMN binary_info TEXT NOT NULL DEFAULT '';
+`,
 }
 
 // Store is the slackwatch SQLite database. The server and the CLI each

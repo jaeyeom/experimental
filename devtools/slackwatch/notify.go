@@ -31,15 +31,17 @@ const (
 	// the outbox record (rejected, mismatch, and failed also to the
 	// fallback target). Options tells the owner that post and drop were
 	// put back on an open decide item.
-	EventOutboxReady     = "outbox-ready"
-	EventOutboxRedraft   = "outbox-redraft"
-	EventOutboxDropped   = "outbox-dropped"
-	EventOutboxRejected  = "outbox-rejected"
-	EventOutboxMismatch  = "outbox-mismatch"
-	EventOutboxFailed    = "outbox-failed"
-	EventOutboxCancelled = "outbox-cancelled"
-	EventOutboxOptions   = "outbox-options"
-	EventPostingDisabled = "posting-disabled"
+	EventOutboxReady       = "outbox-ready"
+	EventOutboxRedraft     = "outbox-redraft"
+	EventOutboxDropped     = "outbox-dropped"
+	EventOutboxRejected    = "outbox-rejected"
+	EventOutboxMismatch    = "outbox-mismatch"
+	EventOutboxFailed      = "outbox-failed"
+	EventOutboxCancelled   = "outbox-cancelled"
+	EventOutboxOptions     = "outbox-options"
+	EventOutboxNewerSchema = "outbox-newer-schema"
+	EventPostingDisabled   = "posting-disabled"
+	EventBinaryUpdated     = "binary-updated"
 )
 
 // outputLimit caps the stdout and stderr kept per delivery.

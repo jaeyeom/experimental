@@ -44,6 +44,20 @@ Makefile). Bazel builds the same binary:
 bazel build //devtools/slackwatch/cmd/slackwatch
 #+end_src
 
+** Upgrade
+
+After installing a new ~slackwatch~ binary (via ~go install~, ~make install~,
+or ~slackwatch update~), you must restart the running ~slackwatch serve~
+daemon so the CLI and daemon stay on the same version:
+
+#+begin_src sh
+systemctl --user restart slackwatch.service
+#+end_src
+
+On each poll, ~slackwatch serve~ checks whether its executable was replaced
+on disk and logs/notifies once (~slackwatch binary updated; restart needed~).
+~slackwatch doctor~ reports the same check.
+
 ** Slack app
 
 Create a Slack app, turn Socket Mode on, and install it for yourself

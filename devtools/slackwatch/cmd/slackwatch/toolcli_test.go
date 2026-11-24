@@ -1,11 +1,17 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
+	"github.com/jaeyeom/experimental/devtools/slackwatch"
 )
 
 func TestSlackwatchToolCLIConformance(t *testing.T) {
@@ -32,4 +38,66 @@ func TestSlackwatchToolCLIConformance(t *testing.T) {
 			return tool
 		},
 	})
+}
+
+func TestDoctorWarnsOnStaleDaemonBinary(t *testing.T) {
+	dir := t.TempDir()
+	tokenPath := filepath.Join(dir, "tokens.json")
+	if err := os.WriteFile(tokenPath, []byte(`{"appToken":"xapp-1","userToken":"xoxp-1"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(dir, "slackwatch.db")
+	cfgPath := filepath.Join(dir, "config.json")
+	cfgBytes, err := json.Marshal(map[string]any{
+		"tokenFile": tokenPath,
+		"dbPath":    dbPath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfgPath, cfgBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := slackwatch.OpenStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := store.WriteStatus(slackwatch.Status{
+		PID:               os.Getpid(),
+		StartedAt:         now,
+		HeartbeatAt:       now,
+		HeartbeatInterval: slackwatch.Duration{Duration: time.Minute},
+		Connection:        slackwatch.ConnConnected,
+		BinaryInfo:        "old-build-info-from-previous-version",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store.Close()
+
+	tool := newSlackwatchTool(cfgPath)
+	var out, errBuf bytes.Buffer
+	code, ok := tool.Handle(context.Background(), []string{"doctor", "--offline", "--json"}, &out, &errBuf)
+	if !ok {
+		t.Fatalf("doctor not handled: %s", errBuf.String())
+	}
+	var doc toolcli.DoctorOutput
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
+		t.Fatalf("decode doctor json: %v (code=%d out=%s)", err, code, out.String())
+	}
+	var found bool
+	for _, c := range doc.Checks {
+		if c.Name == "daemon-binary" {
+			found = true
+			if c.Status != toolcli.StatusWarn {
+				t.Errorf("daemon-binary status = %s, want warn (detail=%q)", c.Status, c.Detail)
+			}
+			if !strings.Contains(c.Detail, "slackwatch binary updated; restart needed") {
+				t.Errorf("daemon-binary detail = %q", c.Detail)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("doctor output missing daemon-binary check: %+v", doc.Checks)
+	}
 }
