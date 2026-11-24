@@ -2814,3 +2814,221 @@ func TestBinaryReplacedAt(t *testing.T) {
 		t.Fatalf("missing binary = (%v, %v), want (true, nil)", replaced, err)
 	}
 }
+
+func TestCannedPostDirectSkipsApprovalAndRecordsAudit(t *testing.T) {
+	f := newOutboxFixture(t, PostModeDirect)
+	const cannedText = "To re-request a review, click the refresh icon next to the reviewer."
+	f.ob.Config.Canned = []CannedResponse{{
+		ID:    "rerequest-review-howto",
+		Scope: CannedScopeThreadReplyOnly,
+		Text:  cannedText,
+	}}
+
+	r, err := f.ob.Submit(context.Background(), Draft{
+		Channel:    "C0123",
+		ThreadTS:   "1700000001.000001",
+		ParentLink: "https://x.slack.com/archives/C0123/p1700000001000001",
+		CannedID:   "rerequest-review-howto",
+		Owner:      "agent-1",
+		Purpose:    "explain review re-request",
+		Refs:       []string{"#42"},
+	})
+	if err != nil {
+		t.Fatalf("Submit canned: %v", err)
+	}
+	if len(f.dec.items) != 0 {
+		t.Fatalf("decide items = %d, want 0", len(f.dec.items))
+	}
+	if r.State != OutboxPosted || r.DecideID != "" || r.CannedID != "rerequest-review-howto" {
+		t.Fatalf("record = %+v", r)
+	}
+	if r.Text != cannedText || r.TextHash != TextHash(cannedText) {
+		t.Errorf("text/hash = %q / %q, want %q / %q", r.Text, r.TextHash, cannedText, TextHash(cannedText))
+	}
+	if r.WatchID == 0 {
+		t.Error("expected watch to be registered")
+	}
+	if len(f.writer.posts) != 1 || f.writer.posts[0].text != cannedText+"\n\n"+footerText || f.writer.posts[0].thread != "1700000001.000001" {
+		t.Fatalf("posts = %+v", f.writer.posts)
+	}
+	if ev := f.events(); len(ev) != 1 || ev[0] != EventOutboxPosted+">agent-1" {
+		t.Fatalf("events = %v, want [%s>agent-1]", ev, EventOutboxPosted)
+	}
+	if msg := f.rec.notes[0].Message; !strings.Contains(msg, "rerequest-review-howto") {
+		t.Errorf("notice message = %q, want canned id", msg)
+	}
+	uses, err := f.store.CannedUseCounts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if uses["rerequest-review-howto"] != 1 {
+		t.Errorf("uses = %v, want 1", uses)
+	}
+}
+
+func TestCannedPostRefusals(t *testing.T) {
+	f := newOutboxFixture(t, PostModeDirect)
+	f.ob.Config.Canned = []CannedResponse{{
+		ID:    "howto",
+		Scope: CannedScopeThreadReplyOnly,
+		Text:  "Fixed text.",
+	}}
+
+	cases := []struct {
+		name  string
+		draft Draft
+	}{
+		{
+			name: "unknown id",
+			draft: Draft{
+				Channel: "C0123", ThreadTS: "1700000001.000001", CannedID: "no-such-id", Owner: "agent-1",
+			},
+		},
+		{
+			name: "channel top-level",
+			draft: Draft{
+				Channel: "C0123", CannedID: "howto", Owner: "agent-1",
+			},
+		},
+		{
+			name: "DM channel",
+			draft: Draft{
+				Channel: "D0123", CannedID: "howto", Owner: "agent-1",
+			},
+		},
+		{
+			name: "DM thread",
+			draft: Draft{
+				Channel: "D0123", ThreadTS: "1700000001.000001", CannedID: "howto", Owner: "agent-1",
+			},
+		},
+		{
+			name: "user id",
+			draft: Draft{
+				Channel: "U0123", CannedID: "howto", Owner: "agent-1",
+			},
+		},
+		{
+			name: "canned with text",
+			draft: Draft{
+				Channel: "C0123", ThreadTS: "1700000001.000001", CannedID: "howto", Text: "extra", Owner: "agent-1",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := f.ob.Submit(context.Background(), tc.draft); err == nil {
+				t.Fatalf("%s: expected error", tc.name)
+			}
+		})
+	}
+	if len(f.writer.posts) != 0 {
+		t.Fatalf("posts = %+v, want none", f.writer.posts)
+	}
+	if len(f.dec.items) != 0 {
+		t.Fatalf("decide items = %d, want 0", len(f.dec.items))
+	}
+}
+
+func TestFreeTextMatchingCannedStillRequiresApproval(t *testing.T) {
+	f := newOutboxFixture(t, PostModeDirect)
+	const cannedText = "Exact same text."
+	f.ob.Config.Canned = []CannedResponse{{
+		ID:    "same",
+		Scope: CannedScopeThreadReplyOnly,
+		Text:  cannedText,
+	}}
+	r, err := f.ob.Submit(context.Background(), Draft{
+		Channel:  "C0123",
+		ThreadTS: "1700000001.000001",
+		Text:     cannedText,
+		Owner:    "agent-1",
+		Purpose:  "free text post",
+	})
+	if err != nil {
+		t.Fatalf("Submit free text: %v", err)
+	}
+	if r.State != OutboxPending || r.DecideID == "" || r.CannedID != "" {
+		t.Fatalf("record = %+v, want pending with decide item", r)
+	}
+	if len(f.dec.items) != 1 {
+		t.Fatalf("decide items = %d, want 1", len(f.dec.items))
+	}
+	if len(f.writer.posts) != 0 {
+		t.Fatalf("posts = %+v, want none before approval", f.writer.posts)
+	}
+}
+
+func TestCannedPostConfigReloadPreservesHistory(t *testing.T) {
+	f := newOutboxFixture(t, PostModeDirect)
+	cfg := f.ob.Config
+	cfg.Canned = []CannedResponse{{
+		ID:    "howto",
+		Scope: CannedScopeThreadReplyOnly,
+		Text:  "Version 1 text.",
+	}}
+	f.ob.Reload = func() (Config, error) { return cfg, nil }
+
+	r1, err := f.ob.Submit(context.Background(), Draft{
+		Channel: "C0123", ThreadTS: "1700000001.000001", CannedID: "howto", Owner: "agent-1", Purpose: "v1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Edit the entry on reload; new post uses v2, old record keeps v1.
+	cfg.Canned = []CannedResponse{{
+		ID:    "howto",
+		Scope: CannedScopeThreadReplyOnly,
+		Text:  "Version 2 text.",
+	}}
+	r2, err := f.ob.Submit(context.Background(), Draft{
+		Channel: "C0123", ThreadTS: "1700000002.000001", CannedID: "howto", Owner: "agent-1", Purpose: "v2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got1, err := f.store.GetOutbox(r1.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got1.Text != "Version 1 text." || got1.TextHash != TextHash("Version 1 text.") {
+		t.Errorf("old record changed: %+v", got1)
+	}
+	if r2.Text != "Version 2 text." || r2.TextHash != TextHash("Version 2 text.") {
+		t.Errorf("new record = %+v", r2)
+	}
+	// Removing the entry refuses future posts.
+	cfg.Canned = nil
+	if _, err := f.ob.Submit(context.Background(), Draft{
+		Channel: "C0123", ThreadTS: "1700000003.000001", CannedID: "howto", Owner: "agent-1", Purpose: "v3",
+	}); err == nil {
+		t.Fatal("expected error after removing canned entry")
+	}
+}
+
+func TestCannedPostHandoffMode(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	f.ob.Config.Canned = []CannedResponse{{
+		ID:    "howto",
+		Scope: CannedScopeThreadReplyOnly,
+		Text:  "Handoff canned text.",
+	}}
+	r, err := f.ob.Submit(context.Background(), Draft{
+		Channel: "C0123", ThreadTS: "1700000001.000001", CannedID: "howto", Owner: "agent-1", Purpose: "help",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.State != OutboxAwaitingHandoff || r.DecideID != "" || r.CannedID != "howto" {
+		t.Fatalf("record = %+v", r)
+	}
+	if len(f.dec.items) != 0 {
+		t.Fatalf("decide items = %d, want 0", len(f.dec.items))
+	}
+	if ev := f.events(); len(ev) != 1 || ev[0] != EventOutboxReady+">poster" {
+		t.Fatalf("events = %v", ev)
+	}
+	if msg := f.rec.notes[0].Message; !strings.Contains(msg, "howto") {
+		t.Errorf("handoff ready notice = %q, want canned id", msg)
+	}
+}

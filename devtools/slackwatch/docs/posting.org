@@ -9,7 +9,8 @@ off until ~post.mode~ is set; without it, ~post~ refuses.
 
 | Command | Does |
 |---------+------|
-| ~post --to DEST --text-file F --owner T --purpose S [--ref R ...] [--supersedes ID] [--owner-unchecked] [--json]~ | Store the draft and file its decide item. Prints the outbox id. ~--supersedes~ links an older draft that is still open or finished without a post (rejected, cancelled, dropped, mismatch, failed) once this one is stored; an open or failed one is cancelled. |
+| ~post --to DEST (--text-file F \vert --canned ID) --owner T --purpose S [--ref R ...] [--supersedes ID] [--owner-unchecked] [--json]~ | Store the draft and file its decide item. Prints the outbox id. ~--canned~ posts a pre-approved text from config without a decide item (thread permalink only). ~--supersedes~ links an older draft that is still open or finished without a post (rejected, cancelled, dropped, mismatch, failed) once this one is stored; an open or failed one is cancelled. |
+| ~canned ls [--json]~ | List configured canned responses, their scopes, SHA-256 text hashes, and use counts. |
 | ~outbox ls [--state S] [--json]~ | List outbox records. |
 | ~outbox show <id> [--json]~ | Show a record, ending with its exact text. |
 | ~outbox posted [--manual] <id> <permalink>~ | Report a handoff post, or with ~--manual~ a post made by hand. |

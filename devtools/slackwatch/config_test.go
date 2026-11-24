@@ -275,3 +275,41 @@ func TestLoadConfigReopenOn(t *testing.T) {
 		t.Fatal("invalid reopenOn should be rejected")
 	}
 }
+
+func TestLoadConfigCanned(t *testing.T) {
+	path := writeFile(t, "canned-ok.json", `{
+		"canned": [
+			{"id": "rerequest-review-howto", "scope": "thread-reply-only", "text": "Click Re-request review."}
+		]
+	}`, 0o600)
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := cfg.CannedByID("rerequest-review-howto")
+	if !ok || got.Scope != CannedScopeThreadReplyOnly || got.Text != "Click Re-request review." {
+		t.Fatalf("CannedByID = %+v, %v", got, ok)
+	}
+	if _, ok := cfg.CannedByID("missing"); ok {
+		t.Error("CannedByID(missing) = true, want false")
+	}
+
+	for name, body := range map[string]string{
+		"bad scope":     `{"canned": [{"id": "a", "scope": "channel", "text": "hi"}]}`,
+		"missing scope": `{"canned": [{"id": "a", "text": "hi"}]}`,
+		"empty scope":   `{"canned": [{"id": "a", "scope": " ", "text": "hi"}]}`,
+		"missing id":    `{"canned": [{"scope": "thread-reply-only", "text": "hi"}]}`,
+		"empty id":      `{"canned": [{"id": " ", "scope": "thread-reply-only", "text": "hi"}]}`,
+		"missing text":  `{"canned": [{"id": "a", "scope": "thread-reply-only"}]}`,
+		"empty text":    `{"canned": [{"id": "a", "scope": "thread-reply-only", "text": "  \n"}]}`,
+		"duplicate id":  `{"canned": [{"id": "a", "scope": "thread-reply-only", "text": "one"}, {"id": "a", "scope": "thread-reply-only", "text": "two"}]}`,
+		"unknown field": `{"canned": [{"id": "a", "scope": "thread-reply-only", "text": "one", "extra": true}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := writeFile(t, "bad-canned.json", body, 0o600)
+			if _, err := LoadConfig(p); err == nil {
+				t.Fatalf("%s: expected error", name)
+			}
+		})
+	}
+}

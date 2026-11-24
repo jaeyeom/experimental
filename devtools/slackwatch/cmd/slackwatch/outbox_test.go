@@ -1276,3 +1276,117 @@ func TestNewDeciderPassesDecideNotifyPane(t *testing.T) {
 		t.Errorf("newDecider = %#v", newDecider(cfg))
 	}
 }
+
+func addCannedConfig(t *testing.T, cfgPath string, entries []map[string]string) {
+	t.Helper()
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var top map[string]any
+	if err := json.Unmarshal(data, &top); err != nil {
+		t.Fatal(err)
+	}
+	top["canned"] = entries
+	out, err := json.Marshal(top)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, cfgPath, string(out))
+}
+
+func TestPostCannedEndToEnd(t *testing.T) {
+	e := newDirectEnv(t, "")
+	const cannedText = "Please click Re-request review in GitHub."
+	addCannedConfig(t, e.cfg, []map[string]string{
+		{"id": "rerequest-review-howto", "scope": "thread-reply-only", "text": cannedText},
+		{"id": "unused-canned", "scope": "thread-reply-only", "text": "Unused."},
+	})
+
+	// Usage error when --canned is combined with --text-file or positional args.
+	if _, stderr, code := e.run("post", "--canned", "rerequest-review-howto", "--text-file", e.textFile,
+		"--to", cmdPostedLink, "--owner", "agent-1", "--purpose", "help"); code != 2 || !strings.Contains(stderr, "--canned") {
+		t.Fatalf("--canned + --text-file = %d, stderr %q, want exit 2", code, stderr)
+	}
+	if _, stderr, code := e.run("post", "--canned", "rerequest-review-howto",
+		"--to", cmdPostedLink, "--owner", "agent-1", "--purpose", "help", "extra text"); code != 2 {
+		t.Fatalf("--canned + positional = %d, stderr %q, want exit 2", code, stderr)
+	}
+
+	// Refusal: unknown id.
+	if _, stderr, code := e.run("post", "--canned", "no-such-id",
+		"--to", cmdPostedLink, "--owner", "agent-1", "--purpose", "help"); code != 1 || !strings.Contains(stderr, "no-such-id") {
+		t.Fatalf("unknown id = %d, stderr %q", code, stderr)
+	}
+
+	// Refusal: channel, DM, user, DM permalink.
+	for _, badTo := range []string{
+		"C0123",
+		"#general",
+		"D0123",
+		"U0123",
+		"@ada",
+		"https://acme.slack.com/archives/D0123/p1700000100000001",
+	} {
+		if _, _, code := e.run("post", "--canned", "rerequest-review-howto",
+			"--to", badTo, "--owner", "agent-1", "--purpose", "help"); code == 0 {
+			t.Fatalf("--canned to %q succeeded, want refusal", badTo)
+		}
+	}
+	if len(e.posts) != 0 || len(e.dec.items) != 0 {
+		t.Fatalf("refused canned posts leaked: posts=%d decide=%d", len(e.posts), len(e.dec.items))
+	}
+
+	// Valid canned post to a thread permalink posts directly with no decide item.
+	out := e.ok("post", "--canned", "rerequest-review-howto", "--to", cmdPostedLink, "--owner", "agent-1", "--purpose", "review howto")
+	if !strings.Contains(out, "canned rerequest-review-howto") || !strings.Contains(out, "posted") {
+		t.Errorf("post output = %q", out)
+	}
+	if len(e.dec.items) != 0 {
+		t.Fatalf("decide items = %d, want 0", len(e.dec.items))
+	}
+	if len(e.posts) != 1 || e.posts[0].Get("text") != cannedText+"\n\n"+cmdFooter || e.posts[0].Get("thread_ts") != "1700000100.000001" {
+		t.Fatalf("chat.postMessage = %v", e.posts)
+	}
+
+	// outbox show, outbox ls, notice, and canned ls all show the canned use.
+	show := e.ok("outbox", "show", "1")
+	if !strings.Contains(show, "canned: rerequest-review-howto\n") || !strings.Contains(show, "sha256: "+slackwatch.TextHash(cannedText)+"\n") {
+		t.Errorf("outbox show:\n%s", show)
+	}
+	ls := e.ok("outbox", "ls")
+	if !strings.Contains(ls, "canned:rerequest-review-howto") {
+		t.Errorf("outbox ls:\n%s", ls)
+	}
+	notes := e.notes()
+	if !strings.Contains(notes, "outbox-posted") || !strings.Contains(notes, "rerequest-review-howto") {
+		t.Errorf("notes:\n%s", notes)
+	}
+	cannedLs := e.ok("canned", "ls")
+	if !strings.Contains(cannedLs, "rerequest-review-howto") || !strings.Contains(cannedLs, "thread-reply-only") || !strings.Contains(cannedLs, slackwatch.TextHash(cannedText)) {
+		t.Errorf("canned ls:\n%s", cannedLs)
+	}
+	var listed []cannedListItem
+	if err := json.Unmarshal([]byte(e.ok("canned", "ls", "--json")), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 2 || listed[0].ID != "rerequest-review-howto" || listed[0].Uses != 1 || listed[0].TextHash != slackwatch.TextHash(cannedText) || listed[1].Uses != 0 {
+		t.Fatalf("canned ls --json = %+v", listed)
+	}
+
+	// Free text identical to canned text still files a decide approval item.
+	sameFile := filepath.Join(e.dir, "same.txt")
+	writeFile(t, sameFile, cannedText)
+	freeOut := e.ok("post", "--to", cmdPostedLink, "--text-file", sameFile, "--owner", "agent-1", "--purpose", "free copy")
+	if !strings.Contains(freeOut, "pending approval in decide item") {
+		t.Errorf("free post output = %q", freeOut)
+	}
+	if len(e.dec.items) != 1 {
+		t.Fatalf("decide items = %d, want 1", len(e.dec.items))
+	}
+
+	// No self-service add command.
+	if _, _, code := e.run("canned", "add"); code != 2 {
+		t.Fatalf("canned add = %d, want 2", code)
+	}
+}

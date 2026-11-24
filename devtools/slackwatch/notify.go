@@ -32,6 +32,7 @@ const (
 	// fallback target). Options tells the owner that post and drop were
 	// put back on an open decide item.
 	EventOutboxReady       = "outbox-ready"
+	EventOutboxPosted      = "outbox-posted"
 	EventOutboxRedraft     = "outbox-redraft"
 	EventOutboxDropped     = "outbox-dropped"
 	EventOutboxRejected    = "outbox-rejected"

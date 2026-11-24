@@ -90,6 +90,58 @@ type Config struct {
 	// Names shows user names next to ids in notices. The zero value asks
 	// Slack users.info.
 	Names NamesConfig `json:"names"`
+	// Canned lists pre-approved texts configured by the user that skip
+	// the per-post decide approval.
+	Canned []CannedResponse `json:"canned"`
+}
+
+// CannedScopeThreadReplyOnly restricts a canned response to replies in
+// an existing channel thread.
+const CannedScopeThreadReplyOnly = "thread-reply-only"
+
+// CannedResponse is a pre-approved text configured in config.json.
+type CannedResponse struct {
+	ID    string `json:"id"`
+	Scope string `json:"scope"`
+	Text  string `json:"text"`
+}
+
+// ValidCannedScope reports whether scope is a supported canned response scope.
+func ValidCannedScope(scope string) bool {
+	return scope == CannedScopeThreadReplyOnly
+}
+
+// CannedByID looks up a configured canned response by id.
+func (c Config) CannedByID(id string) (CannedResponse, bool) {
+	for _, entry := range c.Canned {
+		if entry.ID == id {
+			return entry, true
+		}
+	}
+	return CannedResponse{}, false
+}
+
+func validateCanned(entries []CannedResponse) error {
+	seen := make(map[string]struct{}, len(entries))
+	for i, c := range entries {
+		if strings.TrimSpace(c.ID) == "" {
+			return fmt.Errorf("canned[%d]: id is required", i)
+		}
+		if _, dup := seen[c.ID]; dup {
+			return fmt.Errorf("canned: duplicate id %q", c.ID)
+		}
+		seen[c.ID] = struct{}{}
+		if strings.TrimSpace(c.Scope) == "" {
+			return fmt.Errorf("canned %q: scope is required", c.ID)
+		}
+		if !ValidCannedScope(c.Scope) {
+			return fmt.Errorf("canned %q: unknown scope %q (must be %s)", c.ID, c.Scope, CannedScopeThreadReplyOnly)
+		}
+		if strings.TrimSpace(c.Text) == "" {
+			return fmt.Errorf("canned %q: text is required", c.ID)
+		}
+	}
+	return nil
 }
 
 // InboundConfig is the optional "inbound" config object. Target is
@@ -426,6 +478,9 @@ func LoadConfig(path string) (Config, error) {
 		return Config{}, fmt.Errorf("parse slackwatch config %s: %w", path, err)
 	}
 	if err := cfg.Inbound.normalize(); err != nil {
+		return Config{}, fmt.Errorf("parse slackwatch config %s: %w", path, err)
+	}
+	if err := validateCanned(cfg.Canned); err != nil {
 		return Config{}, fmt.Errorf("parse slackwatch config %s: %w", path, err)
 	}
 	if cfg.ReopenOn != "" && !ValidReopenOn(cfg.ReopenOn) {

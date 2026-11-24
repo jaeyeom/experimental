@@ -78,6 +78,7 @@ var commands = map[string]func(configPath string, args []string, stdout, stderr 
 	"inbound": cmdInbound,
 	"post":    cmdPost,
 	"outbox":  cmdOutbox,
+	"canned":  cmdCanned,
 	"pin":     cmdPin,
 }
 
@@ -105,9 +106,13 @@ Commands:
                       server heartbeat; exits 1 when down, stale, or undelivered
   slackwatch inbound [--since DUR|DATE] [--json]
                       recorded DMs and mentions
-  slackwatch post --to <channel-id|#name|@name|user-id|thread-permalink> --text-file F --owner T --purpose S [--ref R ...] [--supersedes ID] [--owner-unchecked] [--json]
+  slackwatch post --to <channel-id|#name|@name|user-id|thread-permalink> --text-file F | --canned ID --owner T --purpose S [--ref R ...] [--supersedes ID] [--owner-unchecked] [--json]
                       submit a draft; it is posted only after the user approves
-                      the exact text and destination in decide (needs post.mode)
+                      the exact text and destination in decide (needs post.mode).
+                      --canned posts a pre-approved text from config without a
+                      decide item (thread permalink only)
+  slackwatch canned ls [--json]
+                      list configured canned responses, hashes, and use counts
   slackwatch outbox ls [--state S] [--json]
   slackwatch outbox show <id> [--json]
                       a submitted draft with its exact text

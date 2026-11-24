@@ -274,6 +274,11 @@ UPDATE outbox SET decide_replied = 1 WHERE decide_closed = 1;
 ALTER TABLE outbox ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE status ADD COLUMN binary_info TEXT NOT NULL DEFAULT '';
 `,
+	// canned_id records the configured canned response id for a post that
+	// skipped the per-post decide approval.
+	`
+ALTER TABLE outbox ADD COLUMN canned_id TEXT NOT NULL DEFAULT '';
+`,
 }
 
 // Store is the slackwatch SQLite database. The server and the CLI each

@@ -274,33 +274,50 @@ func (t tokenUserList) ListUsers(ctx context.Context, cursor string) (slackwatch
 	return slackReader{api: api}.ListUsers(ctx, cursor)
 }
 
-func cmdPost(configPath string, args []string, stdout, stderr io.Writer) int {
+type postFlags struct {
+	to, textFile, canned, owner, purpose string
+	refs                                 stringList
+	supersedes                           int64
+	unchecked, asJSON                    bool
+}
+
+func parsePostFlags(args []string, stderr io.Writer) (postFlags, int) {
+	var f postFlags
 	fs := newFlagSet("post", stderr)
-	to := fs.String("to", "", "channel id, #name, @name, user id, or thread permalink (required)")
-	textFile := fs.String("text-file", "", "file holding the exact text to post (required)")
-	owner := fs.String("owner", "", "agent that gets the replies (required)")
-	purpose := fs.String("purpose", "", "what the post is for (required)")
-	var refs stringList
-	fs.Var(&refs, "ref", "reference such as an issue or PR (repeatable)")
+	fs.StringVar(&f.to, "to", "", "channel id, #name, @name, user id, or thread permalink (required)")
+	fs.StringVar(&f.textFile, "text-file", "", "file holding the exact text to post (required unless --canned)")
+	fs.StringVar(&f.canned, "canned", "", "id of a pre-approved canned response from config")
+	fs.StringVar(&f.owner, "owner", "", "agent that gets the replies (required)")
+	fs.StringVar(&f.purpose, "purpose", "", "what the post is for (required)")
+	fs.Var(&f.refs, "ref", "reference such as an issue or PR (repeatable)")
 	supersedes := fs.String("supersedes", "", "outbox id this draft replaces")
-	unchecked := fs.Bool("owner-unchecked", false, "accept an owner that is not a known target or agent")
-	asJSON := fs.Bool("json", false, "print the outbox record as JSON")
+	fs.BoolVar(&f.unchecked, "owner-unchecked", false, "accept an owner that is not a known target or agent")
+	fs.BoolVar(&f.asJSON, "json", false, "print the outbox record as JSON")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
-		return 2
+		return f, 2
 	}
 	switch {
 	case len(pos) != 0:
-		return usageErr(stderr, errors.New("post takes no arguments"))
-	case *to == "", *textFile == "", *owner == "", *purpose == "":
-		return usageErr(stderr, errors.New("post needs --to, --text-file, --owner, and --purpose"))
+		return f, usageErr(stderr, errors.New("post takes no arguments"))
+	case f.canned != "" && f.textFile != "":
+		return f, usageErr(stderr, errors.New("post takes either --text-file or --canned, not both"))
+	case f.to == "", (f.textFile == "" && f.canned == ""), f.owner == "", f.purpose == "":
+		return f, usageErr(stderr, errors.New("post needs --to, --text-file or --canned, --owner, and --purpose"))
 	}
-	var supersedesID int64
 	if *supersedes != "" {
-		supersedesID, err = outboxID(*supersedes)
+		f.supersedes, err = outboxID(*supersedes)
 		if err != nil {
-			return usageErr(stderr, err)
+			return f, usageErr(stderr, err)
 		}
+	}
+	return f, 0
+}
+
+func cmdPost(configPath string, args []string, stdout, stderr io.Writer) int {
+	f, code := parsePostFlags(args, stderr)
+	if code != 0 {
+		return code
 	}
 	cfg, err := slackwatch.LoadConfig(configPath)
 	if err != nil {
@@ -309,33 +326,129 @@ func cmdPost(configPath string, args []string, stdout, stderr io.Writer) int {
 	if err := cfg.CheckPost(); err != nil {
 		return fail(stderr, err)
 	}
-	if err := checkOwner(cfg, *owner, *unchecked, stderr); err != nil {
+	if err := checkOwner(cfg, f.owner, f.unchecked, stderr); err != nil {
 		return fail(stderr, err)
 	}
-	text, err := os.ReadFile(*textFile)
+	text, err := loadPostText(cfg, f.to, f.textFile, f.canned)
 	if err != nil {
-		return fail(stderr, fmt.Errorf("read --text-file: %w", err))
+		return fail(stderr, err)
 	}
 	return withOutbox(configPath, stderr, func(o *slackwatch.Outbox) error {
-		d, err := destination(cfg, o.Store, *to, stderr)
+		d, err := destination(cfg, o.Store, f.to, stderr)
 		if err != nil {
 			return err
 		}
-		d.Text, d.Owner, d.Purpose, d.Refs = string(text), *owner, *purpose, refs
-		d.Supersedes = supersedesID
+		d.Text, d.CannedID, d.Owner, d.Purpose, d.Refs = text, f.canned, f.owner, f.purpose, f.refs
+		d.Supersedes = f.supersedes
 		r, err := o.Submit(context.Background(), d)
 		if err != nil {
 			return err //nolint:wrapcheck // Already descriptive.
 		}
-		if *asJSON {
+		if f.asJSON {
 			if code := writeJSON(stdout, stderr, r); code != 0 {
 				return errors.New("write JSON")
 			}
 			return nil
 		}
+		if r.CannedID != "" {
+			printCannedSubmit(stdout, r)
+			return nil
+		}
 		fmt.Fprintf(stdout, "outbox %d pending approval in decide item %s\n", r.ID, r.DecideID)
 		return nil
 	})
+}
+
+func loadPostText(cfg slackwatch.Config, to, textFile, canned string) (string, error) {
+	if canned != "" {
+		entry, ok := cfg.CannedByID(canned)
+		if !ok {
+			return "", fmt.Errorf("unknown canned response %q", canned)
+		}
+		if !strings.Contains(to, "://") {
+			return "", fmt.Errorf("canned response %q (%s) requires a thread permalink, not a channel, DM, or user", entry.ID, entry.Scope)
+		}
+		return "", nil
+	}
+	text, err := os.ReadFile(textFile)
+	if err != nil {
+		return "", fmt.Errorf("read --text-file: %w", err)
+	}
+	return string(text), nil
+}
+
+func printCannedSubmit(stdout io.Writer, r slackwatch.OutboxRecord) {
+	switch r.State {
+	case slackwatch.OutboxPosted:
+		fmt.Fprintf(stdout, "outbox %d posted (canned %s); watch %d\n", r.ID, r.CannedID, r.WatchID)
+	case slackwatch.OutboxAwaitingHandoff:
+		fmt.Fprintf(stdout, "outbox %d awaiting-handoff (canned %s)\n", r.ID, r.CannedID)
+	default:
+		if r.Reason != "" {
+			fmt.Fprintf(stdout, "outbox %d %s (canned %s): %s\n", r.ID, r.State, r.CannedID, r.Reason)
+			return
+		}
+		fmt.Fprintf(stdout, "outbox %d %s (canned %s)\n", r.ID, r.State, r.CannedID)
+	}
+}
+
+func cmdCanned(configPath string, args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		return usageErr(stderr, errors.New("canned needs ls"))
+	}
+	if args[0] != "ls" {
+		return usageErr(stderr, fmt.Errorf("unknown canned command %q; want ls", args[0]))
+	}
+	return cmdCannedLs(configPath, args[1:], stdout, stderr)
+}
+
+type cannedListItem struct {
+	ID       string `json:"id"`
+	Scope    string `json:"scope"`
+	TextHash string `json:"textHash"`
+	Uses     int    `json:"uses"`
+}
+
+func cmdCannedLs(configPath string, args []string, stdout, stderr io.Writer) int {
+	fs := newFlagSet("canned ls", stderr)
+	asJSON := fs.Bool("json", false, "print JSON")
+	pos, err := parseInterspersed(fs, args)
+	if err != nil {
+		return 2
+	}
+	if len(pos) != 0 {
+		return usageErr(stderr, errors.New("canned ls takes no arguments"))
+	}
+	cfg, store, err := openStore(configPath)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	defer store.Close()
+	uses, err := store.CannedUseCounts()
+	if err != nil {
+		return fail(stderr, err)
+	}
+	items := make([]cannedListItem, 0, len(cfg.Canned))
+	for _, c := range cfg.Canned {
+		items = append(items, cannedListItem{
+			ID:       c.ID,
+			Scope:    c.Scope,
+			TextHash: slackwatch.TextHash(c.Text),
+			Uses:     uses[c.ID],
+		})
+	}
+	if *asJSON {
+		return writeJSON(stdout, stderr, items)
+	}
+	tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "ID\tSCOPE\tSHA256\tUSES")
+	for _, it := range items {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\n", it.ID, it.Scope, it.TextHash, it.Uses)
+	}
+	if err := tw.Flush(); err != nil {
+		return fail(stderr, err)
+	}
+	return 0
 }
 
 func cmdOutbox(configPath string, args []string, stdout, stderr io.Writer) int {
@@ -399,7 +512,11 @@ func cmdOutboxLs(configPath string, args []string, stdout, stderr io.Writer) int
 		if r.WatchID != 0 {
 			watch = strconv.FormatInt(r.WatchID, 10)
 		}
-		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", r.ID, r.State, r.Owner, r.Purpose, dest(r), r.DecideID, watch, r.Reason)
+		approval := r.DecideID
+		if r.CannedID != "" {
+			approval = "canned:" + r.CannedID
+		}
+		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", r.ID, r.State, r.Owner, r.Purpose, dest(r), approval, watch, r.Reason)
 	}
 	if err := tw.Flush(); err != nil {
 		return fail(stderr, err)
@@ -470,8 +587,12 @@ func printOutbox(stdout io.Writer, r slackwatch.OutboxRecord) {
 	if r.ParentLink != "" {
 		fmt.Fprintf(stdout, "thread: %s\n", r.ParentLink)
 	}
-	fmt.Fprintf(stdout, "owner: %s\npurpose: %s\nrefs: %s\ndecide: %s\nsha256: %s\n",
-		r.Owner, r.Purpose, strings.Join(r.Refs, ", "), r.DecideID, r.TextHash)
+	fmt.Fprintf(stdout, "owner: %s\npurpose: %s\nrefs: %s\ndecide: %s\n",
+		r.Owner, r.Purpose, strings.Join(r.Refs, ", "), r.DecideID)
+	if r.CannedID != "" {
+		fmt.Fprintf(stdout, "canned: %s\n", r.CannedID)
+	}
+	fmt.Fprintf(stdout, "sha256: %s\n", r.TextHash)
 	if r.Answer != "" {
 		fmt.Fprintf(stdout, "answer: %s\n", r.Answer)
 	}
