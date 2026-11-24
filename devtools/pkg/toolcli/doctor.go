@@ -154,7 +154,7 @@ func (t *Tool) checkRevision(ctx context.Context, offline bool) CheckResult {
 			Detail: fmt.Sprintf("%s (ahead of %s)", current, defaultRef),
 		}
 	}
-	if current == "unknown" || !revisionsMatch(current, newRev) {
+	if current == "unknown" || (newRev != "" && !buildMatchesLatest(bi, latest)) {
 		return CheckResult{
 			Name:   "revision",
 			Status: StatusWarn,

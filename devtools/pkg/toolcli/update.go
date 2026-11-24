@@ -163,7 +163,7 @@ func (t *Tool) runUpdate(ctx context.Context, check, force bool, ref string) (Up
 		newRev = latest.Version
 	}
 
-	needsUpdate := oldRev == "" || oldRev == "unknown" || (newRev != "" && !revisionsMatch(oldRev, newRev))
+	needsUpdate := oldRev == "" || oldRev == "unknown" || (newRev != "" && !buildMatchesLatest(bi, latest))
 	out := UpdateOutput{
 		Tool:            t.Name,
 		Ref:             ref,
@@ -269,6 +269,10 @@ func (t *Tool) findStaleSkills() []StaleSkill {
 
 func printUpdateHuman(w io.Writer, out UpdateOutput) {
 	for _, b := range out.Binaries {
+		if !out.UpdateAvailable {
+			_, _ = fmt.Fprintf(w, "%s: up to date (%s)\n", b.Name, b.OldRevision)
+			continue
+		}
 		state := "current"
 		switch {
 		case b.Updated:
@@ -300,14 +304,99 @@ func currentRevLabel(bi BuildInfo) string {
 	return "unknown"
 }
 
+// buildMatchesLatest reports whether the installed build matches the resolved
+// revision, comparing commit SHAs (including pseudo-version commit suffixes)
+// when available and falling back to tagged versions otherwise.
+func buildMatchesLatest(bi BuildInfo, latest RevisionInfo) bool {
+	cur := currentRevLabel(bi)
+	if cur == "" || cur == "unknown" {
+		return false
+	}
+	rev := latest.Revision
+	if rev == "" {
+		rev = latest.Version
+	}
+	if revisionsMatch(cur, rev) {
+		return true
+	}
+	if bi.VCSRevision == "" && bi.Version != "" && bi.Version != "(devel)" && latest.Version != "" {
+		if _, ok := pseudoVersionCommit(bi.Version); !ok {
+			if _, ok := pseudoVersionCommit(latest.Version); !ok {
+				return bi.Version == latest.Version
+			}
+		}
+	}
+	return false
+}
+
 func revisionsMatch(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
 	if a == b {
 		return true
 	}
-	if len(a) >= 7 && len(b) >= 7 {
+	if sha, ok := pseudoVersionCommit(a); ok {
+		a = sha
+	}
+	if sha, ok := pseudoVersionCommit(b); ok {
+		b = sha
+	}
+	if a == b {
+		return true
+	}
+	if len(a) >= 7 && len(b) >= 7 && isHex(a) && isHex(b) {
 		return strings.HasPrefix(a, b) || strings.HasPrefix(b, a)
 	}
 	return false
+}
+
+// pseudoVersionCommit extracts the 12-character commit SHA from a Go module
+// pseudo-version (e.g. v0.1.1-0.20261123163641-0508ba726c28).
+func pseudoVersionCommit(v string) (string, bool) {
+	if !strings.HasPrefix(v, "v") {
+		return "", false
+	}
+	v = strings.TrimSuffix(v, "+incompatible")
+	lastDash := strings.LastIndexByte(v, '-')
+	if lastDash < 0 {
+		return "", false
+	}
+	sha := v[lastDash+1:]
+	if len(sha) != 12 || !isHex(sha) {
+		return "", false
+	}
+	prefix := v[:lastDash]
+	sep := strings.LastIndexAny(prefix, "-.")
+	if sep < 0 {
+		return "", false
+	}
+	ts := prefix[sep+1:]
+	if len(ts) != 14 || !isDigits(ts) {
+		return "", false
+	}
+	return sha, true
+}
+
+func isHex(s string) bool {
+	for i := range len(s) {
+		c := s[i]
+		isDigit := c >= '0' && c <= '9'
+		isLowerHex := c >= 'a' && c <= 'f'
+		if !isDigit && !isLowerHex {
+			return false
+		}
+	}
+	return len(s) > 0
+}
+
+func isDigits(s string) bool {
+	for i := range len(s) {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return len(s) > 0
 }
 
 // modulePath returns the module that contains the tool's main package.
@@ -325,9 +414,5 @@ func isAhead(bi BuildInfo, latest RevisionInfo) bool {
 	if err != nil || latest.Time.IsZero() {
 		return false
 	}
-	rev := latest.Revision
-	if rev == "" {
-		rev = latest.Version
-	}
-	return !revisionsMatch(currentRevLabel(bi), rev) && installed.After(latest.Time)
+	return !buildMatchesLatest(bi, latest) && installed.After(latest.Time)
 }

@@ -414,3 +414,120 @@ func TestNewerMainRevisionReportsUpdateAvailable(t *testing.T) {
 		t.Fatalf("code=%d out=%s", code, out.String())
 	}
 }
+
+func TestPseudoVersionMatchesFullSHA(t *testing.T) {
+	const (
+		pseudo  = "v0.1.1-0.20261123163641-0508ba726c28"
+		fullSHA = "0508ba726c28de93a9770f85a47e62e5085d4a8f"
+	)
+
+	newPseudoTool := func(inst toolcli.Installer) toolcli.Tool {
+		tool := newTestTool(t, t.TempDir(), t.TempDir(), inst)
+		tool.ReadBuildInfo = func() toolcli.BuildInfo {
+			return toolcli.BuildInfo{
+				ModulePath: "example.com/mytool",
+				Version:    pseudo,
+			}
+		}
+		return tool
+	}
+
+	t.Run("same_commit_reports_up_to_date", func(t *testing.T) {
+		inst := &fakeInstaller{rev: toolcli.RevisionInfo{Version: pseudo, Revision: fullSHA}}
+		tool := newPseudoTool(inst)
+
+		var out, errBuf bytes.Buffer
+		code, ok := tool.Handle(context.Background(), []string{"update", "--check"}, &out, &errBuf)
+		if !ok || code != 0 {
+			t.Fatalf("update --check: ok=%v code=%d (want 0) out=%q err=%q", ok, code, out.String(), errBuf.String())
+		}
+		wantLine := "mytool: up to date (" + pseudo + ")"
+		if !strings.Contains(out.String(), wantLine) {
+			t.Fatalf("update --check output = %q, want substring %q", out.String(), wantLine)
+		}
+
+		out.Reset()
+		errBuf.Reset()
+		code, ok = tool.Handle(context.Background(), []string{"doctor"}, &out, &errBuf)
+		if !ok || code != 0 {
+			t.Fatalf("doctor: ok=%v code=%d (want 0) out=%q err=%q", ok, code, out.String(), errBuf.String())
+		}
+		if !strings.Contains(out.String(), "ok    revision") || !strings.Contains(out.String(), pseudo) {
+			t.Fatalf("doctor output:\n%s", out.String())
+		}
+	})
+
+	t.Run("different_commit_reports_update_available", func(t *testing.T) {
+		inst := &fakeInstaller{rev: toolcli.RevisionInfo{
+			Version:  "v0.1.1-0.20261123170000-deadbeef1234",
+			Revision: "deadbeef1234567890abcdef1234567890abcdef",
+		}}
+		tool := newPseudoTool(inst)
+
+		var out, errBuf bytes.Buffer
+		code, ok := tool.Handle(context.Background(), []string{"update", "--check"}, &out, &errBuf)
+		if !ok || code != 1 || !strings.Contains(out.String(), "update available") {
+			t.Fatalf("update --check: ok=%v code=%d out=%q err=%q", ok, code, out.String(), errBuf.String())
+		}
+
+		out.Reset()
+		errBuf.Reset()
+		code, ok = tool.Handle(context.Background(), []string{"doctor"}, &out, &errBuf)
+		if !ok || code != 1 || !strings.Contains(out.String(), "warn  revision") {
+			t.Fatalf("doctor: ok=%v code=%d out=%q err=%q", ok, code, out.String(), errBuf.String())
+		}
+	})
+}
+
+func TestTaggedVersionComparisons(t *testing.T) {
+	newTaggedTool := func(ver string, inst toolcli.Installer) toolcli.Tool {
+		tool := newTestTool(t, t.TempDir(), t.TempDir(), inst)
+		tool.ReadBuildInfo = func() toolcli.BuildInfo {
+			return toolcli.BuildInfo{
+				ModulePath: "example.com/mytool",
+				Version:    ver,
+			}
+		}
+		return tool
+	}
+
+	t.Run("matching_tag_reports_up_to_date", func(t *testing.T) {
+		inst := &fakeInstaller{rev: toolcli.RevisionInfo{Version: "v0.1.0", Revision: "v0.1.0"}}
+		tool := newTaggedTool("v0.1.0", inst)
+		var out, errBuf bytes.Buffer
+		code, _ := tool.Handle(context.Background(), []string{"update", "--check"}, &out, &errBuf)
+		if code != 0 || !strings.Contains(out.String(), "up to date (v0.1.0)") {
+			t.Fatalf("code=%d out=%q err=%q", code, out.String(), errBuf.String())
+		}
+	})
+
+	t.Run("matching_tag_with_resolved_sha_reports_up_to_date", func(t *testing.T) {
+		inst := &fakeInstaller{rev: toolcli.RevisionInfo{Version: "v0.1.0", Revision: "0508ba726c28de93a9770f85a47e62e5085d4a8f"}}
+		tool := newTaggedTool("v0.1.0", inst)
+		var out, errBuf bytes.Buffer
+		code, _ := tool.Handle(context.Background(), []string{"update", "--check"}, &out, &errBuf)
+		if code != 0 || !strings.Contains(out.String(), "up to date (v0.1.0)") {
+			t.Fatalf("code=%d out=%q err=%q", code, out.String(), errBuf.String())
+		}
+	})
+
+	t.Run("different_tag_reports_update_available", func(t *testing.T) {
+		inst := &fakeInstaller{rev: toolcli.RevisionInfo{Version: "v0.2.0", Revision: "v0.2.0"}}
+		tool := newTaggedTool("v0.1.0", inst)
+		var out, errBuf bytes.Buffer
+		code, _ := tool.Handle(context.Background(), []string{"update", "--check"}, &out, &errBuf)
+		if code != 1 || !strings.Contains(out.String(), "update available") {
+			t.Fatalf("code=%d out=%q err=%q", code, out.String(), errBuf.String())
+		}
+	})
+
+	t.Run("tag_prefix_is_not_treated_as_match", func(t *testing.T) {
+		inst := &fakeInstaller{rev: toolcli.RevisionInfo{Version: "v1.10.0-rc1", Revision: "v1.10.0-rc1"}}
+		tool := newTaggedTool("v1.10.0", inst)
+		var out, errBuf bytes.Buffer
+		code, _ := tool.Handle(context.Background(), []string{"update", "--check"}, &out, &errBuf)
+		if code != 1 || !strings.Contains(out.String(), "update available") {
+			t.Fatalf("code=%d out=%q err=%q", code, out.String(), errBuf.String())
+		}
+	})
+}
