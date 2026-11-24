@@ -196,8 +196,9 @@ func (m *Model) sendNote() error {
 	return nil
 }
 
-// forwardItem opens compose on the viewed item with its context quoted.
-// The cursor waits on the empty line after the quote.
+// forwardItem opens compose on the viewed item with its context quoted
+// below a blank line. The cursor starts at the top so typed text becomes
+// the first line.
 func (m *Model) forwardItem() {
 	if m.detail == nil {
 		return
@@ -205,9 +206,11 @@ func (m *Model) forwardItem() {
 	m.focusCompose()
 	m.composeRestorePrompt = false
 	m.forward = m.detail.ID
-	m.note = forwardPrefill(m.detail, m.message, m.now(), m.zone())
+	m.note = "\n\n" + forwardPrefill(m.detail, m.message, m.now(), m.zone())
 	m.composeFocus = focusText
 	m.pullNote()
+	setFieldCursor(&m.noteField, 0, 0)
+	m.noteScroll = 0
 	m.noteField.Focus()
 }
 

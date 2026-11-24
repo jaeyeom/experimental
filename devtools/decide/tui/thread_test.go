@@ -506,18 +506,22 @@ func TestForwardPrefillsTheSelectedMessage(t *testing.T) {
 	m.Now = func() time.Time { return time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC) }
 	press(t, m, "n")
 	press(t, m, "f")
-	want := "Forwarded from " + item.ID + " (owner: ada)\n" +
+	block := "Forwarded from " + item.ID + " (owner: ada)\n" +
 		"> ship the release?\n" +
 		"> human 02:00 · 10h ago\n" +
 		"> second line\n" +
 		"> more\n" +
 		"Link: https://ex.test/pr/1\n"
+	want := "\n\n" + block
 	if !m.composing || m.composeFocus != focusText || m.note != want {
 		t.Fatalf("composing %v focus %d note\n%q\nwant\n%q", m.composing, m.composeFocus, m.note, want)
 	}
+	if line, col := m.noteField.Line(), m.noteField.LineInfo().CharOffset; line != 0 || col != 0 {
+		t.Fatalf("cursor at line %d col %d, want line 0 col 0", line, col)
+	}
 	press(t, m, "hi")
-	if m.note != want+"hi" {
-		t.Fatalf("cursor is not after the prefill: %q", m.note)
+	if m.note != "hi"+want {
+		t.Fatalf("cursor is not before the prefill: %q", m.note)
 	}
 }
 
@@ -566,7 +570,7 @@ func TestForwardWithoutMessagesOrLinks(t *testing.T) {
 	// Create threads the question as the first message, so drop it.
 	m.detail.Messages = nil
 	press(t, m, "f")
-	want := "Forwarded from " + item.ID + " (owner: ada)\n> plain ask\n"
+	want := "\n\nForwarded from " + item.ID + " (owner: ada)\n> plain ask\n"
 	if m.note != want {
 		t.Fatalf("note %q want %q", m.note, want)
 	}
@@ -607,7 +611,7 @@ func TestForwardSendRecordsTheSource(t *testing.T) {
 			fwd = &items[i]
 		}
 	}
-	if fwd == nil || fwd.ForwardedFrom != item.ID || fwd.Owner != "beta" || !strings.HasSuffix(fwd.Question, "please look") {
+	if fwd == nil || fwd.ForwardedFrom != item.ID || fwd.Owner != "beta" || !strings.HasPrefix(fwd.Question, "please look\n\nForwarded from "+item.ID) {
 		t.Fatalf("forwarded thread = %+v", fwd)
 	}
 	note := (*sent)[len(*sent)-1]
@@ -624,6 +628,32 @@ func TestForwardSendRecordsTheSource(t *testing.T) {
 	m.mode = modeDetail
 	if !strings.Contains(m.View(), "forwarded from "+item.ID) {
 		t.Fatalf("header misses the source\n%s", m.View())
+	}
+}
+
+func TestForwardSendWithoutTyping(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	item := seedForward(t, dir, []decide.Message{{Author: "ada", Text: "ship the release?"}}, nil)
+	m, _ := forwardModel(t, dir)
+	press(t, m, "f")
+	want := m.note
+	press(t, m, "\t\r")
+	if m.composing || m.status != "sent to alpha" {
+		t.Fatalf("composing %v status %q", m.composing, m.status)
+	}
+	items, err := openLedger(t, dir).List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fwd *decide.Item
+	for i := range items {
+		if items[i].ID != item.ID {
+			fwd = &items[i]
+		}
+	}
+	if fwd == nil || fwd.ForwardedFrom != item.ID || fwd.Question != want {
+		t.Fatalf("forwarded thread = %+v, want question %q", fwd, want)
 	}
 }
 
