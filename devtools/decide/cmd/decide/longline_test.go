@@ -9,6 +9,21 @@ import (
 	"github.com/jaeyeom/experimental/devtools/decide"
 )
 
+func prose(n int) string {
+	var b strings.Builder
+	for b.Len() < n {
+		if b.Len() > 0 {
+			b.WriteByte(' ')
+		}
+		b.WriteString("word")
+	}
+	s := b.String()[:n]
+	if strings.HasSuffix(s, " ") {
+		s = s[:len(s)-1] + "a"
+	}
+	return s
+}
+
 func useLineConfig(t *testing.T, body string) {
 	t.Helper()
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
@@ -50,12 +65,12 @@ func TestShapeChecksRefuseEachViolation(t *testing.T) {
 	}{
 		{
 			name: "long line",
-			text: "Verdict\n\n- ok\nI marked it done too early: " + strings.Repeat("x", 200),
+			text: "Verdict\n\n- ok\nI marked it done too early: " + prose(200),
 			want: "line 4 is 228 characters (limit 160)",
 		},
 		{
 			name: "long first line",
-			text: strings.Repeat("a", 101),
+			text: prose(101),
 			want: "first line is 101 characters (limit 100)",
 		},
 		{
@@ -110,7 +125,7 @@ func TestShapeChecksEnforcedAcrossDoneOptionsStatusAndHub(t *testing.T) {
 	t.Run("done outcome", func(t *testing.T) {
 		useState(t)
 		id := askRelay(t, nil, "Root")
-		_, stderr, code := runCLI("done", id, strings.Repeat("d", 101))
+		_, stderr, code := runCLI("done", id, prose(101))
 		if code != 2 || !strings.Contains(stderr, "first line is 101 characters") {
 			t.Fatalf("done = %d\n%s", code, stderr)
 		}
@@ -118,7 +133,7 @@ func TestShapeChecksEnforcedAcrossDoneOptionsStatusAndHub(t *testing.T) {
 	t.Run("option label", func(t *testing.T) {
 		useState(t)
 		_, stderr, code := runCLI("ask", "--owner", "ada", "--kind", "relay",
-			"--option", "a:"+strings.Repeat("o", 101),
+			"--option", "a:"+prose(101),
 			"--option", "b:Beta", "--rec", "a", "Pick one")
 		if code != 2 || !strings.Contains(stderr, "option \"a\" label") {
 			t.Fatalf("ask = %d\n%s", code, stderr)
@@ -127,7 +142,7 @@ func TestShapeChecksEnforcedAcrossDoneOptionsStatusAndHub(t *testing.T) {
 	})
 	t.Run("status text", func(t *testing.T) {
 		useState(t)
-		_, stderr, code := runCLI("status", "set", "--agent", "ada", strings.Repeat("s", 101))
+		_, stderr, code := runCLI("status", "set", "--agent", "ada", prose(101))
 		if code != 2 || !strings.Contains(stderr, "first line is 101 characters") {
 			t.Fatalf("status set = %d\n%s", code, stderr)
 		}
@@ -145,7 +160,7 @@ func TestShapeChecksEnforcedAcrossDoneOptionsStatusAndHub(t *testing.T) {
 		localState := t.TempDir()
 		t.Setenv("XDG_STATE_HOME", localState)
 		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-		_, stderr, code := runCLI(relayArgs(strings.Repeat("h", 101))...)
+		_, stderr, code := runCLI(relayArgs(prose(101))...)
 		if code != 2 || !strings.Contains(stderr, "first line is 101 characters") {
 			t.Fatalf("hub ask = %d\n%s", code, stderr)
 		}
@@ -184,7 +199,7 @@ func TestVerbatimFileStoredByteForByteAndAuthorTextStillChecked(t *testing.T) {
 	}
 
 	// Bad author question still fails even with --verbatim-file.
-	badArgs := append([]string{"ask", "--owner", "ada", "--kind", "relay", "--option", "a:Alpha", "--option", "b:Beta", "--rec", "a", "--verbatim-file", draftPath}, strings.Repeat("q", 101))
+	badArgs := append([]string{"ask", "--owner", "ada", "--kind", "relay", "--option", "a:Alpha", "--option", "b:Beta", "--rec", "a", "--verbatim-file", draftPath}, prose(101))
 	if _, stderr, code := runCLI(badArgs...); code != 2 || !strings.Contains(stderr, "first line is 101 characters") {
 		t.Fatalf("bad ask with verbatim = %d\n%s", code, stderr)
 	}
@@ -375,14 +390,14 @@ func TestConfigZeroDisablesOnlyThatCheck(t *testing.T) {
 	t.Run("maxLineLength 0", func(t *testing.T) {
 		useLineConfig(t, `{"ui":{"maxLineLength":0}}`)
 		// Long line on line 3 passes, but >100 first line still fails.
-		askRelay(t, nil, "Short\n\n"+strings.Repeat("a", 200))
-		if _, stderr, code := runCLI(relayArgs(strings.Repeat("a", 101))...); code != 2 || !strings.Contains(stderr, "first line") {
+		askRelay(t, nil, "Short\n\n"+prose(200))
+		if _, stderr, code := runCLI(relayArgs(prose(101))...); code != 2 || !strings.Contains(stderr, "first line") {
 			t.Fatalf("expected first line failure, got %d\n%s", code, stderr)
 		}
 	})
 	t.Run("maxFirstLineLength 0", func(t *testing.T) {
 		useLineConfig(t, `{"ui":{"maxFirstLineLength":0}}`)
-		askRelay(t, nil, strings.Repeat("a", 120)+"\nnext line")
+		askRelay(t, nil, prose(120)+"\nnext line")
 		if _, stderr, code := runCLI(relayArgs("a\nb\nc\nd")...); code != 2 || !strings.Contains(stderr, "paragraph") {
 			t.Fatalf("expected paragraph failure, got %d\n%s", code, stderr)
 		}
@@ -390,7 +405,7 @@ func TestConfigZeroDisablesOnlyThatCheck(t *testing.T) {
 	t.Run("maxParagraphLines 0", func(t *testing.T) {
 		useLineConfig(t, `{"ui":{"maxParagraphLines":0}}`)
 		askRelay(t, nil, "Header\n\nline1\nline2\nline3\nline4")
-		if _, stderr, code := runCLI(relayArgs(strings.Repeat("a", 101))...); code != 2 || !strings.Contains(stderr, "first line") {
+		if _, stderr, code := runCLI(relayArgs(prose(101))...); code != 2 || !strings.Contains(stderr, "first line") {
 			t.Fatalf("expected first line failure, got %d\n%s", code, stderr)
 		}
 	})
@@ -398,7 +413,7 @@ func TestConfigZeroDisablesOnlyThatCheck(t *testing.T) {
 		useLineConfig(t, `{"ui":{"maxMessageChars":0}}`)
 		big := "Header\n\n" + strings.Repeat("- "+strings.Repeat("b", 80)+"\n", 20)
 		askRelay(t, nil, big)
-		if _, stderr, code := runCLI(relayArgs(strings.Repeat("a", 101))...); code != 2 || !strings.Contains(stderr, "first line") {
+		if _, stderr, code := runCLI(relayArgs(prose(101))...); code != 2 || !strings.Contains(stderr, "first line") {
 			t.Fatalf("expected first line failure, got %d\n%s", code, stderr)
 		}
 	})
@@ -434,4 +449,114 @@ func TestHumanUIMessagesAreNotChecked(t *testing.T) {
 	if _, err := led.StartThread("ada", "pane-1", long, decide.ViaUI); err != nil {
 		t.Fatalf("StartThread ViaUI = %v", err)
 	}
+}
+
+func TestLongUnbreakableWordsAcrossWritePaths(t *testing.T) {
+	url300 := "https://example.com/" + strings.Repeat("a", 280)
+	longPath := "/Users/developer/workspace/github.com/org/project/internal/service/handler/very_long_file_name_for_testing_paths.go"
+	urlPlusProse := "Verdict\n\n" + url300 + " " + prose(170)
+	urlPlusProseSingleLine := url300 + " " + prose(170)
+	prefix70 := prose(70)
+	tok39 := prefix70 + " " + strings.Repeat("a", 39)
+	tok41 := prefix70 + " " + strings.Repeat("b", 41)
+	wantExclusionLine3 := "line 3 is 171 characters after excluding 1 long word (limit 160)"
+	wantExclusionLine1 := "first line is 171 characters after excluding 1 long word (limit 100)"
+
+	t.Run("ask", func(t *testing.T) {
+		useState(t)
+		askRelay(t, nil, url300)
+		askRelay(t, nil, "Check "+longPath)
+		askRelay(t, nil, tok41)
+
+		if _, stderr, code := runCLI(relayArgs(urlPlusProse)...); code != 2 || !strings.Contains(stderr, wantExclusionLine3) {
+			t.Fatalf("ask url+prose = %d\n%s", code, stderr)
+		}
+		if _, stderr, code := runCLI(relayArgs(tok39)...); code != 2 || !strings.Contains(stderr, "first line is 110 characters (limit 100)") {
+			t.Fatalf("ask 39-char token = %d\n%s", code, stderr)
+		}
+	})
+
+	t.Run("reply", func(t *testing.T) {
+		useState(t)
+		id := askRelay(t, nil, "Root")
+		for _, text := range []string{url300, "Check " + longPath, tok41} {
+			if _, stderr, code := runCLI("reply", id, text); code != 0 {
+				t.Fatalf("reply %q = %d\n%s", text, code, stderr)
+			}
+		}
+		if _, stderr, code := runCLI("reply", id, urlPlusProse); code != 2 || !strings.Contains(stderr, wantExclusionLine3) {
+			t.Fatalf("reply url+prose = %d\n%s", code, stderr)
+		}
+		if _, stderr, code := runCLI("reply", id, tok39); code != 2 || !strings.Contains(stderr, "first line is 110 characters (limit 100)") {
+			t.Fatalf("reply 39-char token = %d\n%s", code, stderr)
+		}
+	})
+
+	t.Run("send", func(t *testing.T) {
+		writeDecideConfig(t, `{"targets":[{"name":"alpha","pane":"pane-a"}],"sendTemplate":"true {pane}"}`+"\n")
+		id := askRelay(t, []string{"--notify-pane", "pane-a"}, "Root")
+		for _, text := range []string{url300, "Check " + longPath, tok41} {
+			if _, stderr, code := runCLI("send", "--to", "alpha", text); code != 0 {
+				t.Fatalf("send --to %q = %d\n%s", text, code, stderr)
+			}
+			if _, stderr, code := runCLI("send", "--id", id, text); code != 0 {
+				t.Fatalf("send --id %q = %d\n%s", text, code, stderr)
+			}
+		}
+		if _, stderr, code := runCLI("send", "--to", "alpha", urlPlusProse); code == 0 || !strings.Contains(stderr, wantExclusionLine3) {
+			t.Fatalf("send --to url+prose = %d\n%s", code, stderr)
+		}
+		if _, stderr, code := runCLI("send", "--id", id, urlPlusProse); code == 0 || !strings.Contains(stderr, wantExclusionLine3) {
+			t.Fatalf("send --id url+prose = %d\n%s", code, stderr)
+		}
+		if _, stderr, code := runCLI("send", "--to", "alpha", tok39); code == 0 || !strings.Contains(stderr, "first line is 110 characters (limit 100)") {
+			t.Fatalf("send --to 39-char token = %d\n%s", code, stderr)
+		}
+	})
+
+	t.Run("done", func(t *testing.T) {
+		useState(t)
+		for _, text := range []string{url300, "Fixed " + longPath, tok41} {
+			id := askRelay(t, nil, "Root")
+			if _, stderr, code := runCLI("done", id, text); code != 0 {
+				t.Fatalf("done %q = %d\n%s", text, code, stderr)
+			}
+		}
+		id := askRelay(t, nil, "Root")
+		if _, stderr, code := runCLI("done", id, urlPlusProseSingleLine); code != 2 || !strings.Contains(stderr, wantExclusionLine1) {
+			t.Fatalf("done url+prose = %d\n%s", code, stderr)
+		}
+		if _, stderr, code := runCLI("done", id, tok39); code != 2 || !strings.Contains(stderr, "first line is 110 characters (limit 100)") {
+			t.Fatalf("done 39-char token = %d\n%s", code, stderr)
+		}
+	})
+
+	t.Run("inbox ledger", func(t *testing.T) {
+		useState(t)
+		led, err := decide.Open(filepath.Join(os.Getenv("XDG_STATE_HOME"), "decide"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		it, err := led.Create(&decide.Item{
+			Owner:    "ada",
+			Kind:     decide.KindRelay,
+			Question: "Check " + longPath,
+			Options:  []decide.Option{{Key: "a", Label: "Alpha", Recommended: true}, {Key: "b", Label: "Beta"}},
+		})
+		if err != nil {
+			t.Fatalf("Create with long path = %v", err)
+		}
+		if _, err := led.Compose(it.ID, url300, decide.ViaCLI, "ada"); err != nil {
+			t.Fatalf("Compose with 300-char URL = %v", err)
+		}
+		if _, err := led.Compose(it.ID, tok41, decide.ViaCLI, "ada"); err != nil {
+			t.Fatalf("Compose with 41-char token = %v", err)
+		}
+		if _, err := led.Compose(it.ID, urlPlusProse, decide.ViaCLI, "ada"); err == nil || !strings.Contains(err.Error(), wantExclusionLine3) {
+			t.Fatalf("Compose with url+prose = %v", err)
+		}
+		if _, err := led.Compose(it.ID, tok39, decide.ViaCLI, "ada"); err == nil || !strings.Contains(err.Error(), "first line is 110 characters (limit 100)") {
+			t.Fatalf("Compose with 39-char token = %v", err)
+		}
+	})
 }

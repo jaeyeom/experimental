@@ -64,6 +64,7 @@ go_test(
         "notify_test.go",
         "owners_test.go",
         "send_test.go",
+        "shape_test.go",
         "snooze_test.go",
         "verify_test.go",
         "worker_test.go",

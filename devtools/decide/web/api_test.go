@@ -722,6 +722,34 @@ func TestWrongMethodIs405(t *testing.T) {
 	wantStatus(t, do(a.h, req{"GET", "/api/v1/items/D1/read", "", sameOrigin}), 405)
 }
 
+func TestLongUnbreakableWordsThroughWebAPI(t *testing.T) {
+	a := newAPI(t)
+	url300 := "https://example.com/" + strings.Repeat("a", 280)
+	longPath := "/Users/developer/workspace/github.com/org/project/internal/service/handler/very_long_file_name_for_testing_paths.go"
+	tok41 := strings.Repeat("c", 41)
+
+	it := a.create(&decide.Item{Question: "Review " + longPath, NotifyPane: "w1:p1"})
+
+	// Web API writes are human UI writes (ViaUI) and accept long URLs, paths, and tokens.
+	for _, tc := range []struct {
+		name string
+		path string
+		body map[string]any
+	}{
+		{name: "reply 300-char URL", path: "/api/v1/items/" + it.ID + "/reply", body: map[string]any{"text": url300}},
+		{name: "reply long path first line", path: "/api/v1/items/" + it.ID + "/reply", body: map[string]any{"text": "See " + longPath}},
+		{name: "reply 41-char token", path: "/api/v1/items/" + it.ID + "/reply", body: map[string]any{"text": "token " + tok41}},
+		{name: "send 300-char URL", path: "/api/v1/send", body: map[string]any{"to": "builder", "text": url300}},
+		{name: "done long path", path: "/api/v1/items/" + it.ID + "/done", body: map[string]any{"outcome": "Fixed " + longPath}},
+	} {
+		raw, err := json.Marshal(tc.body)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		a.wantOK(a.post(tc.path, string(raw)), 200)
+	}
+}
+
 // open is the ledger on the test clock.
 func (a *api) open() *decide.Ledger {
 	a.t.Helper()

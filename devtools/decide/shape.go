@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -12,6 +13,11 @@ var ErrShape = errors.New("not sent: message fails inbox shape rules")
 
 // shapeExcerptLimit is how many runes of offending text a shape error shows.
 const shapeExcerptLimit = 60
+
+// longWordThreshold is the rune length above which a whitespace-free token
+// (such as a URL, file path, identifier, or hash) counts as 0 toward line
+// length limits.
+const longWordThreshold = 40
 
 // ShapeLimits configures the inbox message shape checks. A zero value disables
 // that check.
@@ -48,9 +54,8 @@ func CheckShape(text string, limits ShapeLimits) error {
 
 	if limits.MaxFirstLineLength > 0 && len(lines) > 0 {
 		first := lines[0]
-		if n := utf8.RuneCountInString(first); n > limits.MaxFirstLineLength {
-			failures = append(failures, fmt.Sprintf("first line is %d characters (limit %d): %q",
-				n, limits.MaxFirstLineLength, shapeExcerpt(first)))
+		if n, excluded := measureLine(first); n > limits.MaxFirstLineLength {
+			failures = append(failures, formatLineLengthFailure("first line", n, excluded, limits.MaxFirstLineLength, first))
 		}
 		if len(lines) > 1 {
 			second := lines[1]
@@ -128,12 +133,48 @@ func checkLineLengths(lines []string, limit int) []string {
 		if fenced || exemptLine(trimmed) {
 			continue
 		}
-		if n := utf8.RuneCountInString(line); n > limit {
-			failures = append(failures, fmt.Sprintf("line %d is %d characters (limit %d): %q",
-				i+1, n, limit, shapeExcerpt(line)))
+		if n, excluded := measureLine(line); n > limit {
+			failures = append(failures, formatLineLengthFailure(fmt.Sprintf("line %d", i+1), n, excluded, limit, line))
 		}
 	}
 	return failures
+}
+
+// measureLine returns line's rune count after excluding whitespace-free tokens
+// longer than longWordThreshold runes, along with how many tokens were excluded.
+func measureLine(line string) (length, excluded int) {
+	runLen := 0
+	for _, r := range line {
+		if unicode.IsSpace(r) {
+			if runLen > longWordThreshold {
+				excluded++
+			} else {
+				length += runLen
+			}
+			runLen = 0
+			length++
+			continue
+		}
+		runLen++
+	}
+	if runLen > longWordThreshold {
+		excluded++
+	} else {
+		length += runLen
+	}
+	return length, excluded
+}
+
+func formatLineLengthFailure(label string, length, excluded, limit int, line string) string {
+	if excluded == 0 {
+		return fmt.Sprintf("%s is %d characters (limit %d): %q", label, length, limit, shapeExcerpt(line))
+	}
+	word := "long words"
+	if excluded == 1 {
+		word = "long word"
+	}
+	return fmt.Sprintf("%s is %d characters after excluding %d %s (limit %d): %q",
+		label, length, excluded, word, limit, shapeExcerpt(line))
 }
 
 func exemptLine(trimmed string) bool {
