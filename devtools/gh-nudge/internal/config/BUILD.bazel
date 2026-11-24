@@ -36,5 +36,6 @@ go_test(
         "//conditions:default": [],
     }),
     embed = [":go_default_library"],
+    tags = ["no-remote"],  # Config.pkl fetches package://pkg.pkl-lang.org/... over the network
     deps = ["//devtools/gh-nudge/internal/config/pkl:go_default_library"],
 )

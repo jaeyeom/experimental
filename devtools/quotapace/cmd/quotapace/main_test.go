@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/jaeyeom/experimental/devtools/quotapace"
 )

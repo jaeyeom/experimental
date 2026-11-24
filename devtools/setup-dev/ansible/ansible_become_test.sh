@@ -87,6 +87,13 @@ fi
 _tmp=$(mktemp -d)
 trap 'rm -rf "$_tmp"' EXIT
 
+# Fake id returning non-root UID so the sudo -n probe is exercised even in root containers.
+cat > "$_tmp/id" <<'EOF'
+#!/bin/sh
+echo 1000
+EOF
+chmod +x "$_tmp/id"
+
 # Fake sudo that succeeds: treat as passwordless.
 cat > "$_tmp/sudo" <<'EOF'
 #!/bin/sh

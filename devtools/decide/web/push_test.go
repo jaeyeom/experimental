@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	_ "time/tzdata"
 
 	"github.com/jaeyeom/experimental/devtools/decide"
 )

@@ -31,4 +31,5 @@ go_test(
         "testdata/claude-toolbox/validate-verdict.sh",
     ],
     embed = [":go_default_library"],
+    tags = ["no-remote"],  # Invokes host jq
 )

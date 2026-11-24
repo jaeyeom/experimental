@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	_ "time/tzdata"
 )
 
 // The fictional 7d window starts 2026-11-14 00:00Z and resets

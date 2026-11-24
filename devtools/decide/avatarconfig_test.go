@@ -160,6 +160,9 @@ func TestSetAvatarRuleBrokenConfigIsUntouched(t *testing.T) {
 }
 
 func TestSetAvatarRuleReadOnlyConfigIsUntouched(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses 0400 file permissions")
+	}
 	data := `{"avatars": []}`
 	writeConfig(t, data)
 	if err := os.Chmod(configFile(t), 0o400); err != nil {
