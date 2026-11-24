@@ -699,18 +699,11 @@ Four distinct stages track a write from your keyboard to the agent:
 
 * Emacs
 
-~devtools/decide/emacs/decide.el~ is a plain Emacs frontend. Load it and
-run ~M-x decide-list~. It calls ~decide list --json~ and ~decide show
---json~. ~o~ answers with an option key. ~0~ opens a buffer for free
-text. ~C-c C-c~ sends that buffer and ~C-c C-k~ closes it without
-answering. ~l~ opens a link with ~browse-url~. ~c~ composes a note and
-sends it with ~decide send --to~. ~s~ shows ~decide status list --json~.
-~O~ focuses the owner's tab. ~A~ sets an avatar. ~g~ looks up the owner
-again.
-
-Each action is one ~decide~ command, so hub mode works when ~hub~ is in
-the config or ~DECIDE_HUB~ is set. For a hub only in Emacs, set
-~decide-program~ to a wrapper that runs ~exec decide --remote me@hub "$@"~.
+~devtools/decide/emacs/decide.el~ is a plain Emacs frontend that lists,
+opens, answers, and composes items by calling the ~decide~ CLI, recording
+~via: "ui"~ like the terminal inbox. Setup, keybindings, Evil support,
+and hub-mode wrapper configuration (~decide-program~) are in
+[[file:docs/emacs.org][docs/emacs.org]].
 
 * Configuration
 

@@ -266,6 +266,14 @@ rules:
       - path: devtools/contacts/README.org
         why: "tool overview and installation entry point"
 
+  - match: ["devtools/decide/emacs/**"]
+    docs:
+      - path: devtools/decide/docs/emacs.org
+        why: "decide Emacs frontend setup, keybindings, and hub-mode wrapper"
+      - path: devtools/decide/README.org
+        section: "* Emacs"
+        why: "decide Emacs summary and link to docs/emacs.org"
+
   - match: ["devtools/decide/web/**", "devtools/decide/cmd/decide/web.go"]
     docs:
       - path: devtools/decide/docs/web.org
