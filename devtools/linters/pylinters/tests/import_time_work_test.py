@@ -8,7 +8,16 @@ from collections.abc import Collection
 
 import pytest
 from pylinters import import_time_work
-from pylinters.import_time_work import DEFAULT_PURE_CALLS, findings
+from pylinters.core import guards, imports
+from pylinters.import_time_work import (
+    DEFAULT_DIRECTIVE,
+    DEFAULT_PURE_CALLS,
+    DEFAULT_TEST_PATTERNS,
+    Config,
+    Violation,
+    find_violations,
+    findings,
+)
 
 
 def got(
@@ -16,6 +25,15 @@ def got(
 ) -> list[tuple[int, str]]:
     """Return ``(lineno, what)`` pairs for findings in ``src``."""
     return [(f.node.lineno, f.what) for f in findings(ast.parse(src), pure)]
+
+
+def check_src(src: str, cfg: Config | None = None) -> list[tuple[int, str]]:
+    """Parse ``src`` and return ``(line, message)`` violation pairs."""
+    data = src.encode()
+    tree, comments = imports.parse_module(data, "m.py")
+    colons = guards.colon_positions(data)
+    viols = find_violations(tree, comments, colons, "m.py", cfg or Config())
+    return [(v.line, v.message) for v in viols]
 
 
 @pytest.mark.parametrize(
@@ -166,6 +184,154 @@ def test_extra_pure_call() -> None:
 def test_checker_name() -> None:
     """CHECKER constant matches the expected checker name."""
     assert import_time_work.CHECKER == "import-time-work"
+
+
+def test_defaults() -> None:
+    """Default directive and test patterns match the specification."""
+    assert DEFAULT_DIRECTIVE == "py-import-time-work: allow"
+    assert DEFAULT_TEST_PATTERNS == (
+        "**/test_*.py",
+        "**/*_test.py",
+        "**/conftest.py",
+        "**/tests/**",
+    )
+
+
+@pytest.mark.parametrize(
+    ("src", "line", "what"),
+    [
+        ('import sys\nsys.path += ["x"]\n', 2, "assignment to `sys.path`"),
+        (
+            'import sys\nsys.path[:0] = ["x"]\n',
+            2,
+            "assignment to `sys.path[:0]`",
+        ),
+        (
+            'import os\nos.environ["X"] = "1"\n',
+            2,
+            "assignment to `os.environ['X']`",
+        ),
+        (
+            'import sys\nsys.modules["m"] = s\n',
+            2,
+            "assignment to `sys.modules['m']`",
+        ),
+        (
+            "import logging\nlogging.root.level = 10\n",
+            2,
+            "assignment to `logging.root.level`",
+        ),
+        (
+            'import sys\na, sys.argv[0] = 1, "x"\n',
+            2,
+            "assignment to `sys.argv[0]`",
+        ),
+        (
+            "import cfg\ncfg.x: int = 1\n",
+            2,
+            "assignment to `cfg.x`",
+        ),
+        (
+            'import sys\n*sys.argv[:1], a = ["x", "y"]\n',
+            2,
+            "assignment to `sys.argv[:1]`",
+        ),
+    ],
+)
+def test_mutation_flagged(src: str, line: int, what: str) -> None:
+    """Mutating an imported name's attribute or subscript is flagged."""
+    viols = check_src(src)
+    assert len(viols) == 1
+    assert viols[0][0] == line
+    assert viols[0][1].startswith(f"{what} at module level")
+
+
+def test_mutation_of_relative_import_flagged() -> None:
+    """Mutating a name bound by a relative import is flagged."""
+    viols = check_src("from . import conf\nconf.x = 1\n")
+    assert len(viols) == 1
+    assert viols[0][0] == 2
+    assert viols[0][1].startswith("assignment to `conf.x` at module level")
+
+
+def test_mutation_of_imported_and_assigned_name_flagged() -> None:
+    """A name that is both imported and assigned still counts as imported."""
+    viols = check_src('import cfg\ncfg = {}\ncfg["k"] = 1\n')
+    assert len(viols) == 1
+    assert viols[0][0] == 3
+    assert viols[0][1].startswith("assignment to `cfg['k']` at module level")
+
+
+@pytest.mark.parametrize(
+    "src",
+    [
+        '_REG = {}\n_REG["x"] = 1\n',
+        '__all__ = []\n__all__ += ["y"]\n',
+    ],
+)
+def test_mutation_of_local_name_allowed(src: str) -> None:
+    """Mutating a module's own non-imported name is allowed."""
+    assert check_src(src) == []
+
+
+def test_mutation_of_local_assigned_from_call_only_flags_call() -> None:
+    """Mutating a local variable created by a call only flags the call."""
+    viols = check_src("CONFIG = Box()\nCONFIG.debug = True\n")
+    assert len(viols) == 1
+    assert viols[0][0] == 1
+    assert viols[0][1].startswith("`Box(...)` at module level")
+
+
+def test_one_finding_per_statement_prefers_impure_call() -> None:
+    """An impure call in a mutating statement yields only the call finding."""
+    viols = check_src("import sys\nsys.path[f()] = 1\n")
+    assert len(viols) == 1
+    assert viols[0][0] == 2
+    assert viols[0][1].startswith("`f(...)` at module level")
+
+
+def test_directive_exempts_multiline_statement() -> None:
+    """An allow comment on a closing line exempts the simple statement."""
+    src = 'import sys\nsys.path.insert(\n    0, "x"\n)  # py-import-time-work: allow\n'
+    assert check_src(src) == []
+
+
+def test_directive_in_string_ignored() -> None:
+    """A directive inside a string literal does not exempt the statement."""
+    viols = check_src('x = "# py-import-time-work: allow"; f()\n')
+    assert len(viols) == 1
+    assert viols[0][0] == 1
+    assert viols[0][1].startswith("`f(...)` at module level")
+
+
+def test_directive_on_compound_header_does_not_exempt_body() -> None:
+    """An allow comment on a ``with`` header does not exempt its body."""
+    src = "with open(p) as h:  # py-import-time-work: allow\n    data = h.read()\n"
+    viols = check_src(src)
+    assert len(viols) == 1
+    assert viols[0][0] == 2
+    assert viols[0][1].startswith("`h.read(...)` at module level")
+
+
+def test_directive_in_body_does_not_exempt_header() -> None:
+    """An allow comment on a body statement does not exempt the ``for``."""
+    src = "for x in y:\n    f()  # py-import-time-work: allow\n"
+    viols = check_src(src)
+    assert len(viols) == 1
+    assert viols[0][0] == 1
+    assert viols[0][1].startswith("a `for` statement at module level")
+
+
+def test_custom_allow_directive() -> None:
+    """A custom ``allow_directive`` in ``Config`` is honoured."""
+    src = "f()  # ok-here\n"
+    assert len(check_src(src)) == 1
+    assert check_src(src, Config(allow_directive="ok-here")) == []
+
+
+def test_violation_str() -> None:
+    """``Violation.__str__`` renders in the standard checker format."""
+    assert str(Violation("a.py", 3, "m")) == "a.py:3: import-time-work: m"
 
 
 if __name__ == "__main__":

@@ -9,12 +9,20 @@ callables or run imperative control flow outside an
 from __future__ import annotations
 
 import ast
-from collections.abc import Collection, Sequence
-from dataclasses import dataclass
+from collections.abc import Collection, Mapping, Sequence
+from dataclasses import dataclass, field
+from typing import Literal
 
-from pylinters.core import guards, names
+from pylinters.core import config, entries, guards, names
 
 CHECKER = "import-time-work"
+DEFAULT_DIRECTIVE = "py-import-time-work: allow"
+DEFAULT_TEST_PATTERNS: tuple[str, ...] = (
+    "**/test_*.py",
+    "**/*_test.py",
+    "**/conftest.py",
+    "**/tests/**",
+)
 
 DEFAULT_PURE_CALLS: frozenset[str] = frozenset(
     {
@@ -62,11 +70,61 @@ _STMT_KEYWORDS: dict[str, str] = {
 
 
 @dataclass(frozen=True)
+class Config:
+    """Settings for one run; ``exclude`` is shared plus checker excludes."""
+
+    entries: entries.EntryConfig = field(default_factory=entries.EntryConfig)
+    scope: Literal["entry", "all"] = "entry"
+    test_patterns: tuple[str, ...] = DEFAULT_TEST_PATTERNS
+    pure_calls: frozenset[str] = DEFAULT_PURE_CALLS
+    exclude: tuple[str, ...] = ()
+    generated: tuple[str, ...] = config.DEFAULT_GENERATED
+    allow_directive: str = DEFAULT_DIRECTIVE
+
+
+@dataclass(frozen=True)
+class Violation:
+    """One finding."""
+
+    path: str
+    line: int
+    message: str
+
+    def __str__(self) -> str:
+        """Render as ``path:line: import-time-work: message``."""
+        return f"{self.path}:{self.line}: {CHECKER}: {self.message}"
+
+
+@dataclass(frozen=True)
 class Finding:
     """A statement that does work at import time, and what the work is."""
 
     node: ast.stmt | ast.ExceptHandler
     what: str
+
+
+def find_violations(
+    tree: ast.Module,
+    comments: Mapping[int, str],
+    colons: Sequence[tuple[int, int]],
+    path: str,
+    cfg: Config,
+) -> list[Violation]:
+    """Return the violations for one parsed file."""
+    out: list[Violation] = []
+    for finding in findings(tree, cfg.pure_calls):
+        first, last = guards.directive_lines(finding.node, colons)
+        if guards.comment_in(comments, first, last, cfg.allow_directive):
+            continue
+        out.append(
+            Violation(
+                path,
+                finding.node.lineno,
+                f"{finding.what} at module level runs on every import; "
+                "move it into main() or under the __main__ guard",
+            )
+        )
+    return out
 
 
 def findings(tree: ast.Module, pure_calls: Collection[str]) -> list[Finding]:
@@ -128,6 +186,12 @@ def _visit_stmt(
         )
         if call is not None:
             out.append(Finding(stmt, f"`{_spelled(call.func)}(...)`"))
+        elif not isinstance(stmt, ast.Expr):
+            target = _first_imported_mutation(_targets_for_stmt(stmt), bound)
+            if target is not None:
+                out.append(
+                    Finding(stmt, f"assignment to `{ast.unparse(target)}`")
+                )
         return
 
     if isinstance(stmt, ast.Delete):
@@ -200,6 +264,35 @@ def _exprs_for_stmt(
     if stmt.value is not None:
         exprs.append(stmt.value)
     return exprs
+
+
+def _targets_for_stmt(
+    stmt: ast.Assign | ast.AnnAssign | ast.AugAssign,
+) -> Sequence[ast.expr]:
+    if isinstance(stmt, ast.Assign):
+        return stmt.targets
+    return (stmt.target,)
+
+
+def _first_imported_mutation(
+    targets: Sequence[ast.expr], bound: names.Names
+) -> ast.Attribute | ast.Subscript | None:
+    for target in targets:
+        if isinstance(target, (ast.Tuple, ast.List)):
+            found = _first_imported_mutation(target.elts, bound)
+            if found is not None:
+                return found
+        elif isinstance(target, ast.Starred):
+            found = _first_imported_mutation((target.value,), bound)
+            if found is not None:
+                return found
+        elif isinstance(target, (ast.Attribute, ast.Subscript)):
+            base: ast.expr = target
+            while isinstance(base, (ast.Attribute, ast.Subscript)):
+                base = base.value
+            if isinstance(base, ast.Name) and bound.is_imported(base.id):
+                return target
+    return None
 
 
 def _first_impure_in_exprs(
