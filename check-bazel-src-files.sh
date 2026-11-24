@@ -105,6 +105,7 @@ find . -name "$EXT" \
 	-not -path "./vendor/*" \
 	-not -path "./.cache/*" \
 	-not -path "./.claude/*" \
+	-not -path "./.tmp/*" \
 	-not -path "*/node_modules/*" \
 	$FIND_EXCLUDES |
 	sed 's|^\./||' | sort >"$FILESYSTEM_FILES"
@@ -120,7 +121,7 @@ echo "🏗️  Extracting $DISPLAY_NAME files from Bazel targets..."
 # both sides of the comparison agree. Without this, files under e.g.
 # node_modules/ that happen to be wired into a Bazel target show up as
 # "extra in Bazel" noise.
-BAZEL_PATH_EXCLUDE_REGEX='(^|/)(\.git|bazel-[^/]*|\.bazel-[^/]*|vendor|\.cache|\.claude|node_modules)/'
+BAZEL_PATH_EXCLUDE_REGEX='(^|/)(\.git|bazel-[^/]*|\.bazel-[^/]*|vendor|\.cache|\.claude|\.tmp|node_modules)/'
 
 bazel query "kind(${RULE_PREFIX}.*, //...)" --output=streamed_jsonproto 2>/dev/null |
 	jq -r --arg ext "$FILE_EXT" 'select(.type == "RULE") | select(.rule.ruleClass | startswith("'"$RULE_PREFIX"'")) | (.rule.attribute[] | select(.name == "srcs" and has("stringListValue")) | .stringListValue[]) | select(endswith($ext))' |

@@ -1,3 +1,4 @@
-# Agent worktrees under .claude/worktrees contain bazel-* symlinks that
-# //... would otherwise follow into another output base.
+# Agent worktrees under .claude/worktrees and .tmp/ may contain BUILD files or
+# bazel-* symlinks that //... would otherwise scan.
 .claude
+.tmp
