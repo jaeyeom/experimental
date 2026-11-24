@@ -315,6 +315,9 @@ open local inbox, the hub's ~decide serve --stdio~, or ~decide follow~.
 The full ~DECIDE_*~ environment reference, delivery marks, retry and
 stale follow-up rules, and the four-stage Outbox / Answered / delivery
 mark / Done lifecycle are in [[file:docs/delivery.org][docs/delivery.org]].
+Custom executable ~Transport~ plugins (~transports~ in ~config.json~,
+routed by ~<scheme>:<address>~ over a v1 JSON stdin/stdout protocol) are
+documented in [[file:docs/plugins.org][docs/plugins.org]].
 The systemd unit and launchd agent for ~decide follow~ are in
 [[file:docs/follow.org][docs/follow.org]].
 

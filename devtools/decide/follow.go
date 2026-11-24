@@ -54,7 +54,7 @@ func (l *Ledger) FollowStale(now time.Time, out io.Writer, run HerdrCall) error 
 	if len(due) == 0 {
 		return nil
 	}
-	resolver := LocationResolver{Run: run}
+	resolver := LocationResolver{Run: run, Transports: cfg.Transports}
 	cache := map[string]agentSnap{}
 	local := LocalMachine(cfg)
 	var first error
@@ -125,7 +125,8 @@ func resent(it *Item) bool {
 }
 
 func ownerAction(ctx context.Context, r LocationResolver, it *Item, local string, cache map[string]agentSnap) string {
-	if ParseTarget(it.NotifyPane, it.NotifyMachine).Scheme == SchemePull {
+	target := ParseTarget(it.NotifyPane, it.NotifyMachine)
+	if target.Scheme == SchemePull {
 		return actionSkip
 	}
 	locs := r.Resolve(ctx, []OwnerLocation{OwnerPane(it, local)})
@@ -140,6 +141,9 @@ func ownerAction(ctx context.Context, r LocationResolver, it *Item, local string
 		return actionGone
 	}
 	if loc.State != LocationLive {
+		return actionSend
+	}
+	if target.Scheme != SchemeHerdr {
 		return actionSend
 	}
 	snap := r.agents(ctx, loc.Machine, cache)

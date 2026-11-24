@@ -276,3 +276,89 @@ func TestLoadConfigTargetsValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadConfigTransportsValid(t *testing.T) {
+	writeConfig(t, `{"transports": {"tmux": ["/usr/local/bin/decide-tmux", "--json"], "my-hook2": ["/bin/hook"]}}`)
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if !slices.Equal(cfg.Transports["tmux"], []string{"/usr/local/bin/decide-tmux", "--json"}) {
+		t.Fatalf("transports[tmux] = %q", cfg.Transports["tmux"])
+	}
+	if !slices.Equal(cfg.Transports["my-hook2"], []string{"/bin/hook"}) {
+		t.Fatalf("transports[my-hook2] = %q", cfg.Transports["my-hook2"])
+	}
+}
+
+func TestLoadConfigTransportsValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		data string
+	}{
+		{
+			name: "empty argv",
+			data: `{"transports": {"tmux": []}}`,
+		},
+		{
+			name: "empty program",
+			data: `{"transports": {"tmux": ["", "--flag"]}}`,
+		},
+		{
+			name: "whitespace program",
+			data: `{"transports": {"tmux": ["   "]}}`,
+		},
+		{
+			name: "uppercase scheme",
+			data: `{"transports": {"Tmux": ["/bin/tmux-plugin"]}}`,
+		},
+		{
+			name: "leading hyphen scheme",
+			data: `{"transports": {"-tmux": ["/bin/tmux-plugin"]}}`,
+		},
+		{
+			name: "underscore scheme",
+			data: `{"transports": {"my_plugin": ["/bin/plugin"]}}`,
+		},
+		{
+			name: "empty scheme",
+			data: `{"transports": {"": ["/bin/plugin"]}}`,
+		},
+		{
+			name: "shadow herdr",
+			data: `{"transports": {"herdr": ["/bin/plugin"]}}`,
+		},
+		{
+			name: "shadow agentbus",
+			data: `{"transports": {"agentbus": ["/bin/plugin"]}}`,
+		},
+		{
+			name: "shadow pull",
+			data: `{"transports": {"pull": ["/bin/plugin"]}}`,
+		},
+		{
+			name: "shadow target",
+			data: `{"transports": {"target": ["/bin/plugin"]}}`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			writeConfig(t, tc.data)
+			if _, err := LoadConfig(); err == nil || !strings.Contains(err.Error(), "transports") {
+				t.Fatalf("LoadConfig(%s) error = %v, want a transports error", tc.data, err)
+			}
+		})
+	}
+}
+
+func TestDisplayNeverExportsTransports(t *testing.T) {
+	f := hubFile(t, `{"transports": {"tmux": ["/usr/local/bin/decide-tmux"]}}`)
+	if _, ok := f.Display().Keys["transports"]; ok {
+		t.Fatal("display settings carry transports")
+	}
+	for _, k := range DisplayKeys() {
+		if k == "transports" {
+			t.Fatal("transports is a display key")
+		}
+	}
+}

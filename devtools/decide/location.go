@@ -27,15 +27,17 @@ const (
 	LocationTarget = "target"
 )
 
-// OwnerLocation is where an item's owner pane lives in herdr. Machine is
-// empty for this machine. Workspace and Tab are labels, and WorkspaceID
-// and TabID the herdr ids, set only for a live pane.
+// OwnerLocation is where an item's owner pane lives in herdr or a custom
+// transport plugin. Machine is empty for this machine. Workspace and Tab are
+// labels, and WorkspaceID and TabID the herdr ids, set only for a live herdr
+// pane. Label is an optional human-readable label returned by a transport plugin.
 type OwnerLocation struct {
 	Machine     string `json:"machine"`
 	Workspace   string `json:"workspace"`
 	Tab         string `json:"tab"`
 	Pane        string `json:"pane"`
 	State       string `json:"state"`
+	Label       string `json:"label,omitempty"`
 	WorkspaceID string `json:"workspaceId,omitempty"`
 	TabID       string `json:"tabId,omitempty"`
 }
@@ -66,8 +68,10 @@ func OwnerPane(item *Item, local string) OwnerLocation {
 			machine = ""
 		}
 		return OwnerLocation{Machine: machine, Pane: target.Address, State: LocationUnknown}
-	default:
+	case "":
 		return OwnerLocation{State: LocationUnknown}
+	default:
+		return OwnerLocation{Machine: target.Machine, Pane: target.String(), State: LocationUnknown}
 	}
 }
 
@@ -90,12 +94,24 @@ func (l OwnerLocation) Text() string {
 	id := "(" + l.Pane + ")"
 	switch l.State {
 	case LocationLive:
-		return prefix + l.Workspace + " / " + l.Tab + " " + id
+		if l.Workspace != "" || l.Tab != "" {
+			return prefix + l.Workspace + " / " + l.Tab + " " + id
+		}
+		if l.Label != "" {
+			return prefix + l.Label + " " + id
+		}
+		return prefix + id
 	case LocationClosed:
+		if l.Label != "" {
+			return prefix + l.Label + " " + id + " — closed"
+		}
 		return prefix + id + " — tab closed"
 	case LocationUnreachable:
 		return prefix + id + " (unreachable)"
 	default:
+		if l.Label != "" {
+			return prefix + l.Label + " " + id
+		}
 		return prefix + id
 	}
 }
@@ -110,53 +126,37 @@ func OwnerAt(owner string, loc OwnerLocation) string {
 // *remotecall.UnreachableError in the error chain.
 type HerdrCall func(ctx context.Context, machine string, args []string) (string, error)
 
-// LocationResolver looks up owner panes in herdr. A nil Run calls herdr.
+// LocationResolver looks up owner panes in herdr or configured transport
+// plugins. A nil Run calls herdr. A nil Transports loads transports from
+// config.json on demand when a custom scheme is encountered.
 type LocationResolver struct {
-	Run HerdrCall
+	Run        HerdrCall
+	Transports map[string][]string
 }
 
 // Resolve fills in each location from one `herdr pane list`, `tab list`,
-// and `workspace list` per machine. Locations without a herdr pane stay
-// as they are. A machine herdr cannot be asked about leaves its panes
-// unknown, or unreachable when the machine does not answer.
+// and `workspace list` per machine, or by querying a configured transport
+// plugin's `status` op for custom schemes. Locations without a herdr pane or
+// registered plugin stay as they are. A machine herdr cannot be asked about
+// leaves its panes unknown, or unreachable when the machine does not answer.
 func (r LocationResolver) Resolve(ctx context.Context, locs []OwnerLocation) []OwnerLocation {
 	out := make([]OwnerLocation, len(locs))
 	copy(out, locs)
 	snapshots := map[string]*herdrSnapshot{}
 	failures := map[string]string{}
+	transports := r.Transports
+	loadedTransports := transports != nil
 	for i, loc := range out {
 		target := ParseTarget(loc.Pane, loc.Machine)
-		if target.Scheme == SchemePull {
-			out[i].State = LocationPull
-			out[i].Machine = ""
+		if handled := r.resolveSpecial(ctx, target, &out[i], &transports, &loadedTransports); handled {
 			continue
 		}
-		if target.Scheme == SchemeTarget {
-			out[i].State = LocationTarget
-			out[i].Machine = ""
-			continue
-		}
-		if target.Scheme != SchemeHerdr || target.Address == "" {
+		if target.Address == "" {
 			continue
 		}
 		loc.Pane = target.Address
 		out[i].Pane = target.Address
-		snap, seen := snapshots[loc.Machine]
-		state, failed := failures[loc.Machine]
-		if !seen && !failed {
-			var err error
-			snap, err = r.snapshot(ctx, loc.Machine)
-			if err != nil {
-				state = LocationUnknown
-				if remotecall.AsUnreachable(err) != nil {
-					state = LocationUnreachable
-				}
-				failures[loc.Machine] = state
-				failed = true
-			} else {
-				snapshots[loc.Machine] = snap
-			}
-		}
+		snap, state, failed := r.machineSnapshot(ctx, loc.Machine, snapshots, failures)
 		if failed {
 			out[i].State = state
 			continue
@@ -164,6 +164,67 @@ func (r LocationResolver) Resolve(ctx context.Context, locs []OwnerLocation) []O
 		out[i] = snap.locate(loc)
 	}
 	return out
+}
+
+func (r LocationResolver) resolveSpecial(ctx context.Context, target Target, loc *OwnerLocation, transports *map[string][]string, loaded *bool) bool {
+	switch target.Scheme {
+	case SchemePull:
+		loc.State = LocationPull
+		loc.Machine = ""
+		return true
+	case SchemeTarget:
+		loc.State = LocationTarget
+		loc.Machine = ""
+		return true
+	case SchemeAgentbus, "":
+		return true
+	case SchemeHerdr:
+		return false
+	default:
+		r.resolvePlugin(ctx, target, loc, transports, loaded)
+		return true
+	}
+}
+
+func (r LocationResolver) resolvePlugin(ctx context.Context, target Target, loc *OwnerLocation, transports *map[string][]string, loaded *bool) {
+	if !*loaded {
+		if cfg, err := LoadConfig(); err == nil {
+			*transports = cfg.Transports
+		}
+		*loaded = true
+	}
+	argv, ok := (*transports)[target.Scheme]
+	if !ok || len(argv) == 0 {
+		loc.State = LocationUnknown
+		return
+	}
+	resp, err := pluginStatus(ctx, argv, target)
+	if err != nil {
+		loc.State = LocationUnknown
+		return
+	}
+	loc.State = resp.State
+	loc.Label = resp.Label
+}
+
+func (r LocationResolver) machineSnapshot(ctx context.Context, machine string, snapshots map[string]*herdrSnapshot, failures map[string]string) (*herdrSnapshot, string, bool) {
+	if snap, seen := snapshots[machine]; seen {
+		return snap, "", false
+	}
+	if state, failed := failures[machine]; failed {
+		return nil, state, true
+	}
+	snap, err := r.snapshot(ctx, machine)
+	if err != nil {
+		state := LocationUnknown
+		if remotecall.AsUnreachable(err) != nil {
+			state = LocationUnreachable
+		}
+		failures[machine] = state
+		return nil, state, true
+	}
+	snapshots[machine] = snap
+	return snap, "", false
 }
 
 // Focus brings loc's workspace and then its tab to the front in herdr,

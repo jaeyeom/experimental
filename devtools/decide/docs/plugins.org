@@ -1,0 +1,110 @@
+#+TITLE: decide transport plugins
+
+~decide~ supports executable ~Transport~ plugins using a small
+JSON-over-stdin/stdout protocol (v1). This lets you add custom delivery
+backends (such as ~tmux~, a desktop/IDE bridge, a webhook, or a custom
+daemon) without modifying or recompiling ~decide~.
+
+* Configuration
+
+Register custom target schemes under ~transports~ in ~config.json~
+(~$XDG_CONFIG_HOME/decide/config.json~):
+
+#+begin_src json
+{
+  "transports": {
+    "tmux": ["/usr/local/bin/decide-tmux-plugin"],
+    "webhook": ["/usr/local/bin/decide-webhook", "--endpoint", "https://example.com/hook"]
+  }
+}
+#+end_src
+
+Rules enforced by ~LoadConfig~:
+
+- Scheme names must be lowercase and match ~[a-z0-9][a-z0-9-]*~.
+- Built-in schemes (~herdr~, ~agentbus~, ~pull~, ~target~) are reserved
+  and cannot be shadowed.
+- Each value is a non-empty argv array executed directly via
+  ~exec.Command~ (never through a shell).
+- Only schemes configured in ~config.json~ are executed; an unregistered
+  ~<scheme>:<address>~ fails delivery cleanly without searching ~PATH~.
+- ~transports~ is machine-local and is never exported from a hub to
+  clients.
+
+File asks or send notes using ~<scheme>:<address>~, for example:
+
+#+begin_src sh
+decide ask --owner dev --notify-pane tmux:%1 --kind relay --option y:Yes --option n:No --rec y "Ship?"
+#+end_src
+
+* Protocol (v1)
+
+For each operation, ~decide~ invokes the configured argv with a single
+JSON object on stdin, closes stdin, and reads a single JSON object from
+stdout. Each invocation is bounded by a 10-second timeout.
+
+** Request
+
+#+begin_src json
+{
+  "version": 1,
+  "op": "deliver",
+  "target": {
+    "scheme": "tmux",
+    "address": "%1",
+    "machine": ""
+  },
+  "deliveryKey": "D-001:2026-11-24T12:00:00Z",
+  "item": { "...": "..." },
+  "message": "[decide D-001 from human]\ny\nReply in this thread: ..."
+}
+#+end_src
+
+Fields omitted when not applicable:
+
+- ~target.machine~ is omitted when empty.
+- For ~op: "deliver"~ on an answer, ~deliveryKey~, ~item~, and ~message~
+  are set. For a human compose note, ~deliveryKey~ is omitted (and ~item~
+  is omitted when unavailable).
+- For ~op: "status"~, only ~version~, ~op~, and ~target~ are sent.
+
+** ~deliver~ response
+
+#+begin_src json
+{
+  "outcome": "delivered",
+  "reason": "",
+  "error": "",
+  "externalId": "msg-123"
+}
+#+end_src
+
+- ~outcome~: required. One of:
+  - ~"delivered"~: delivery succeeded (~OutcomeDelivered~).
+  - ~"waiting"~: accepted/queued for later delivery (~OutcomeWaiting~);
+    optional ~reason~ is recorded.
+  - ~"failed"~: delivery failed (~OutcomeFailed~); ~error~ (or ~reason~)
+    is recorded.
+- ~externalId~: optional backend message/delivery identifier.
+- A non-zero exit code, timeout, invalid JSON, or unrecognized ~outcome~
+  maps to ~OutcomeFailed~.
+
+** ~status~ response
+
+Used by ~LocationResolver~ (e.g. ~decide show --json~, inbox owner
+location) and ~FollowStale~ without invoking ~herdr~:
+
+#+begin_src json
+{
+  "state": "live",
+  "label": "dev:0.1"
+}
+#+end_src
+
+- ~state~: one of ~"live"~, ~"closed"~, ~"unknown"~, or
+  ~"unreachable"~. Unrecognized values or plugin errors are treated as
+  ~"unknown"~.
+- ~label~: optional human-readable label displayed alongside the target.
+- In ~FollowStale~, ~"closed"~ marks the item ~owner gone~ without
+  resending; ~"live"~, ~"unknown"~, and ~"unreachable"~ fall back to the
+  standard single resend without invoking ~herdr~.

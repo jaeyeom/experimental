@@ -55,8 +55,11 @@ type Config struct {
 	RequireClassAfter string         `json:"requireClassAfter,omitempty"`
 	SendTemplate      string         `json:"sendTemplate,omitempty"`
 	Targets           []ConfigTarget `json:"targets,omitempty"`
-	Colors            Colors         `json:"colors,omitempty"`
-	Recipients        Recipients     `json:"recipients,omitempty"`
+	// Transports maps custom target schemes (e.g. "tmux", "webhook") to
+	// executable argv slices invoked via the v1 JSON-over-stdio protocol.
+	Transports map[string][]string `json:"transports,omitempty"`
+	Colors     Colors              `json:"colors,omitempty"`
+	Recipients Recipients          `json:"recipients,omitempty"`
 	// RecipientsTimeout bounds the inbox's background `agentbus list
 	// --json`, such as "3s". Empty is DefaultBusListTimeout.
 	RecipientsTimeout string `json:"recipientsTimeout,omitempty"`
@@ -615,6 +618,7 @@ func validateConfig(cfg Config) error {
 	}
 	checks := []func() error{
 		func() error { return checkTargets(cfg.Targets) },
+		func() error { return checkTransports(cfg.Transports) },
 		func() error { return checkAvatarRules(cfg.Avatars) },
 		func() error { return checkOwnersConfig(cfg.Owners) },
 		func() error { _, err := parseRecipientsTimeout(cfg.RecipientsTimeout); return err },

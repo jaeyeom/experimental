@@ -415,7 +415,8 @@ func (b *LocalBackend) notifyThread(item *decide.Item, cfg decide.Config, tg dec
 		return decide.Delivery{}, nil
 	case decide.SchemeAgentbus:
 		return decide.SendBus(context.Background(), b.busRunner(), target.Address, decide.DeliveryNote(item.ID, "human", text)) //nolint:wrapcheck // SendBus returns agentbus's error, which the status line prints
-	case decide.SchemeTarget:
+	case "", decide.SchemeHerdr:
+	default:
 		return decide.NotifyItemVerbatim(item, pane, machine, text, "") //nolint:wrapcheck // NotifyItemVerbatim already wraps delivery errors
 	}
 	template := b.SendTemplate
@@ -526,7 +527,7 @@ func (b *LocalBackend) SendAt(forward string, tg Target, text string, writtenAt 
 		return fmt.Errorf("store decide thread: %w", err)
 	}
 	var d decide.Delivery
-	if decide.ParseTarget(tg.Pane, "").Scheme == decide.SchemeTarget {
+	if scheme := decide.ParseTarget(tg.Pane, "").Scheme; scheme != "" && scheme != decide.SchemeHerdr {
 		d, err = decide.NotifyItemVerbatim(&item, tg.Pane, "", text, "")
 	} else {
 		err = b.runSend(decide.SendArgv(b.SendTemplate, tg.Pane, deliveryNote(item.ID, forward, text)))

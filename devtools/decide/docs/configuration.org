@@ -15,6 +15,7 @@ missing file is an empty config. Keys you do not set keep the default.
 | ~optionsOnly~          | false                       | A relay ask rejects free text unless ~--free-text~.                            |
 | ~sendTemplate~         | ~herdr agent prompt {pane}~ | Compose send command. ~{pane}~ is replaced.                                    |
 | ~targets~              | none                        | Compose/delivery targets. Each entry has ~name~ and either ~pane~ or ~command~ (argv). |
+| ~transports~           | none                        | Map of custom scheme (~[a-z0-9][a-z0-9-]*~) to plugin argv. See [[file:plugins.org][plugins.org]]. |
 | ~colors~               | theme indexes               | ~requester~, ~human~, ~agent~, ~time~, ~badge~, ~muted~. ANSI index or ~#hex~. |
 | ~recipients.agentbus~  | false                       | Add ~agentbus list~ names to compose.                                          |
 | ~recipientsTimeout~    | ~3s~                        | Bound on each bus-name load.                                                   |

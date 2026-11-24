@@ -300,7 +300,7 @@ func deliverNewThread(led *decide.Ledger, dir, template string, rec decide.SendR
 		return decide.Item{}, err //nolint:wrapcheck // StartThreadVerbatim names the refusal
 	}
 	var d decide.Delivery
-	if decide.ParseTarget(rec.Pane, "").Scheme == decide.SchemeTarget {
+	if scheme := decide.ParseTarget(rec.Pane, "").Scheme; scheme != "" && scheme != decide.SchemeHerdr {
 		d, err = decide.NotifyItemVerbatim(&item, rec.Pane, "", text, verbatim)
 	} else {
 		note := decide.DeliveryNoteVerbatim(item.ID, "human", text, verbatim)

@@ -119,6 +119,27 @@ func TestParseTarget(t *testing.T) {
 			want:       Target{Scheme: SchemeTarget, Address: ""},
 			wantString: "target:",
 		},
+		{
+			name:       "custom plugin scheme",
+			pane:       "tmux:%1",
+			machine:    "",
+			want:       Target{Scheme: "tmux", Address: "%1"},
+			wantString: "tmux:%1",
+		},
+		{
+			name:       "custom plugin scheme with colons in address",
+			pane:       "webhook:https://example.com/hook",
+			machine:    "mac",
+			want:       Target{Scheme: "webhook", Address: "https://example.com/hook", Machine: "mac"},
+			wantString: "webhook:https://example.com/hook",
+		},
+		{
+			name:       "bare herdr pane with letters",
+			pane:       "w6:pM",
+			machine:    "",
+			want:       Target{Scheme: SchemeHerdr, Address: "w6:pM"},
+			wantString: "w6:pM",
+		},
 	}
 
 	for _, tc := range tests {

@@ -41,6 +41,8 @@ type Target struct {
 //   - "agentbus:<name>" -> Scheme: SchemeAgentbus, Address: name
 //   - "target:<name>" -> Scheme: SchemeTarget, Address: name
 //   - "herdr:<pane>" -> Scheme: SchemeHerdr, Address: pane, Machine: machine
+//   - "<scheme>:<address>" (where scheme matches [a-z0-9][a-z0-9-]* and raw is
+//     not a bare herdr pane id such as "w1:p2") -> Scheme: scheme, Address: address
 //   - any other non-empty string -> Scheme: SchemeHerdr, Address: pane, Machine: machine
 func ParseTarget(pane, machine string) Target {
 	raw := strings.TrimSpace(pane)
@@ -66,6 +68,13 @@ func ParseTarget(pane, machine string) Target {
 			Machine: strings.TrimSpace(machine),
 		}
 	}
+	if scheme, addr, ok := strings.Cut(raw, ":"); ok && !isHerdrPaneID(raw) && isValidTransportScheme(scheme) {
+		return Target{
+			Scheme:  scheme,
+			Address: strings.TrimSpace(addr),
+			Machine: strings.TrimSpace(machine),
+		}
+	}
 	return Target{
 		Scheme:  SchemeHerdr,
 		Address: raw,
@@ -73,11 +82,67 @@ func ParseTarget(pane, machine string) Target {
 	}
 }
 
+// isValidTransportScheme reports whether s matches [a-z0-9][a-z0-9-]*.
+func isValidTransportScheme(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := range len(s) {
+		c := s[i]
+		isLower := c >= 'a' && c <= 'z'
+		isDigit := c >= '0' && c <= '9'
+		if i == 0 {
+			if !isLower && !isDigit {
+				return false
+			}
+			continue
+		}
+		if !isLower && !isDigit && c != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+// isReservedTransportScheme reports whether s is a built-in transport scheme.
+func isReservedTransportScheme(s string) bool {
+	switch s {
+	case SchemeHerdr, SchemeAgentbus, SchemePull, SchemeTarget:
+		return true
+	default:
+		return false
+	}
+}
+
+// isHerdrPaneID reports whether raw looks like a bare herdr pane id of the
+// form "w<digits>:p<id>" (for example, "w1:p2" or "w6:pM").
+func isHerdrPaneID(raw string) bool {
+	ws, pane, ok := strings.Cut(raw, ":")
+	if !ok || len(ws) < 2 || ws[0] != 'w' || len(pane) < 2 || pane[0] != 'p' {
+		return false
+	}
+	return allDigits(ws[1:]) && allPaneIDChars(pane[1:])
+}
+
+func allDigits(s string) bool {
+	return s != "" && !strings.ContainsFunc(s, func(r rune) bool {
+		return r < '0' || r > '9'
+	})
+}
+
+func allPaneIDChars(s string) bool {
+	return s != "" && !strings.ContainsFunc(s, func(r rune) bool {
+		return (r < '0' || r > '9') && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && r != '-' && r != '_'
+	})
+}
+
 // String formats t using the existing wire representation where applicable:
-// "agentbus:<name>", "target:<name>", "pull" (or "pull:<detail>"), or the bare
-// pane for herdr.
+// "agentbus:<name>", "target:<name>", "pull" (or "pull:<detail>"), the bare
+// pane for herdr, or "<scheme>:<address>" for custom transport plugins.
 func (t Target) String() string {
 	switch t.Scheme {
+	case "":
+		return ""
 	case SchemeAgentbus:
 		return BusPanePrefix + t.Address
 	case SchemeTarget:
@@ -90,7 +155,7 @@ func (t Target) String() string {
 	case SchemeHerdr:
 		return t.Address
 	default:
-		return ""
+		return t.Scheme + ":" + t.Address
 	}
 }
 
@@ -102,6 +167,8 @@ type Transport interface {
 
 func transportFor(target Target) Transport {
 	switch target.Scheme {
+	case "", SchemeHerdr:
+		return herdrTransport{}
 	case SchemeAgentbus:
 		return agentbusTransport{}
 	case SchemePull:
@@ -109,7 +176,7 @@ func transportFor(target Target) Transport {
 	case SchemeTarget:
 		return targetTransport{}
 	default:
-		return herdrTransport{}
+		return pluginTransport{}
 	}
 }
 

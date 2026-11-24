@@ -365,7 +365,7 @@ func notifyItemVerbatim(item *Item, pane, machine, id, text, verbatim string) (D
 	target := ParseTarget(pane, machine)
 	note := DeliveryNoteVerbatim(id, "human", text, verbatim)
 	var cfg Config
-	if target.Scheme == SchemeHerdr || target.Scheme == SchemeTarget {
+	if target.Scheme != SchemePull && target.Scheme != SchemeAgentbus {
 		var err error
 		cfg, err = LoadConfig()
 		if err != nil {
