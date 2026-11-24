@@ -87,3 +87,25 @@ func TestUsage(t *testing.T) {
 		t.Errorf("not a repo: want 2")
 	}
 }
+
+func TestCheckNewlineFileName(t *testing.T) {
+	dir := newRepo(t, "- pattern: Cargo.lock\n")
+	writeFile(t, filepath.Join(dir, "a\nb", "Cargo.lock"), "x\n")
+	gitIn(t, dir, "add", "-A")
+	code, _, errOut := runCmd("check", "--root", dir)
+	if code != 1 || !strings.Contains(errOut, `unsafe file name "a\nb/Cargo.lock"`) {
+		t.Fatalf("newline name = %d\n%s", code, errOut)
+	}
+}
+
+func TestCheckEmptyRepo(t *testing.T) {
+	dir := t.TempDir()
+	gitIn(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, filepath.Join(dir, "generated_files.yaml"), "- pattern: \"**\"\n")
+	// The list itself is untracked, so nothing is tracked; ** must not
+	// match a phantom empty path.
+	code, _, errOut := runCmd("check", "--root", dir)
+	if code != 1 || !strings.Contains(errOut, `stale pattern "**"`) {
+		t.Fatalf("empty repo = %d\n%s", code, errOut)
+	}
+}

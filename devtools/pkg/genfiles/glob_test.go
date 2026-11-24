@@ -43,7 +43,10 @@ func TestValidatePattern(t *testing.T) {
 			t.Errorf("ValidatePattern(%q) = %v, want nil", ok, err)
 		}
 	}
-	for _, bad := range []string{"", "!x", "a/[ab].go", "a]", `a\b`, `"a"`, "a b", "a\tb", "dir/", "/"} {
+	for _, bad := range []string{
+		"", "!x", "a/[ab].go", "a]", `a\b`, `"a"`, "a b", "a\tb", "dir/", "/",
+		"#x", "**/*.{pb,pb2}.go", "a}", "a//b", "./x", "a/./b", "../x", "a/../b",
+	} {
 		if err := ValidatePattern(bad); err == nil {
 			t.Errorf("ValidatePattern(%q) = nil, want error", bad)
 		}

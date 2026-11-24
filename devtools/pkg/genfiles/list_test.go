@@ -101,6 +101,11 @@ func TestParseErrors(t *testing.T) {
 		{"env not mapping", "- pattern: x\n  env: [a]\n  run: [[gen]]\n", "env: expected a mapping"},
 		{"absolute dir", "- pattern: x\n  dir: /tmp\n  run: [[gen]]\n", `dir: "/tmp" must be relative to the repository root`},
 		{"escaping dir", "- pattern: x\n  dir: a/../..\n  run: [[gen]]\n", `dir: "a/../.." must stay inside the repository`},
+		{"tagged run", "- pattern: x\n  run: !foo [[gen]]\n", `run: custom tag "!foo" is not supported`},
+		{"tagged command", "- pattern: x\n  run: [!foo [gen]]\n", `run[0]: custom tag "!foo" is not supported`},
+		{"tagged mapping value", "- pattern: x\n  run: [[gen, !foo {var: path}]]\n", `run[0][1]: custom tag "!foo" is not supported`},
+		{"tagged env", "- pattern: x\n  env: !foo {A: b}\n  run: [[gen]]\n", `env: custom tag "!foo" is not supported`},
+		{"tagged entry", "- !foo {pattern: x}\n", `entry 1: custom tag "!foo" is not supported`},
 		{"join not list", "- pattern: x\n  run: [[gen, {join: a}]]\n", "run[0][1]: join: expected a list of values"},
 		{"sh -c -- var", "- pattern: x\n  run: [[bash, -c, --, {var: path}]]\n", "run[0][3]: the script after -c must be a literal string"},
 		{"sh -c -e var", "- pattern: x\n  run: [[bash, -c, -e, {var: path}]]\n", "run[0][3]: the script after -c must be a literal string"},
@@ -178,5 +183,21 @@ func TestParseShellScriptPositionalAllowed(t *testing.T) {
 func TestParsePatternsDuplicatePattern(t *testing.T) {
 	if _, err := ParsePatterns([]byte("- pattern: a\n  pattern: b\n")); err == nil || !strings.Contains(err.Error(), `duplicate key "pattern"`) {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestParseRunEmptyWithDirReportsOnce(t *testing.T) {
+	_, err := Parse([]byte("- pattern: x\n  run: []\n  dir: a\n"))
+	if err == nil || strings.Contains(err.Error(), "dir and env need run") {
+		t.Errorf("err = %v, want only the empty-run error", err)
+	}
+}
+
+func TestParsePatternsEmptyList(t *testing.T) {
+	for _, y := range []string{"", "# only comments\n", "[]\n"} {
+		got, err := ParsePatterns([]byte(y))
+		if err != nil || len(got) != 0 {
+			t.Errorf("ParsePatterns(%q) = %v, %v; want no patterns, no error", y, got, err)
+		}
 	}
 }

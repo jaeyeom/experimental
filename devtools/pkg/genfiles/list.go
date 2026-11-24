@@ -74,6 +74,9 @@ func Parse(data []byte) ([]Entry, error) {
 // consumers that only match paths and must keep working with lists written
 // in an older or newer shape.
 func ParsePatterns(data []byte) ([]string, error) {
+	if empty, err := emptyDocument(data); err != nil || empty {
+		return []string{}, err
+	}
 	seq, err := topSequence(data)
 	if err != nil {
 		return nil, err
@@ -115,6 +118,16 @@ func ParsePatterns(data []byte) ([]string, error) {
 	return patterns, nil
 }
 
+// emptyDocument reports whether data holds no YAML content (empty or only
+// comments).
+func emptyDocument(data []byte) (bool, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return false, fmt.Errorf("parse yaml: %w", err)
+	}
+	return doc.Kind == 0 || len(doc.Content) == 0, nil
+}
+
 func topSequence(data []byte) (*yaml.Node, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
@@ -141,6 +154,9 @@ func (p *parser) errorf(n *yaml.Node, format string, args ...any) {
 
 func (p *parser) parseEntry(n *yaml.Node) (Entry, bool) {
 	e := Entry{Line: n.Line}
+	if p.customTag(n, "") {
+		return e, false
+	}
 	if n.Kind != yaml.MappingNode {
 		p.errorf(n, "expected a mapping, found %s", kindName(n))
 		return e, false
@@ -160,9 +176,9 @@ func (p *parser) parseEntry(n *yaml.Node) (Entry, bool) {
 	}
 	dirNode, envNode := f["dir"], f["env"]
 	switch {
-	case (dirNode != nil || envNode != nil) && e.Run == nil:
+	case (dirNode != nil || envNode != nil) && f["run"] == nil:
 		p.errorf(n, "dir and env need run")
-	default:
+	case e.Run != nil:
 		if dirNode != nil {
 			e.Dir = p.dir(dirNode)
 		}
@@ -213,6 +229,19 @@ func (p *parser) str(n *yaml.Node, where string) (string, bool) {
 	return n.Value, n.Kind == yaml.ScalarNode
 }
 
+// customTag reports, and returns true for, a custom (non-core) YAML tag on n.
+func (p *parser) customTag(n *yaml.Node, where string) bool {
+	if !strings.HasPrefix(n.Tag, "!") || strings.HasPrefix(n.Tag, "!!") {
+		return false
+	}
+	if where == "" {
+		p.errorf(n, "custom tag %q is not supported", n.Tag)
+	} else {
+		p.errorf(n, "%s: custom tag %q is not supported", where, n.Tag)
+	}
+	return true
+}
+
 // badScalar reports why n is not a string scalar ("" when it is). Aliases and
 // custom tags are reported directly.
 func (p *parser) badScalar(n *yaml.Node, where string) string {
@@ -220,8 +249,7 @@ func (p *parser) badScalar(n *yaml.Node, where string) string {
 	case n.Kind == yaml.AliasNode:
 		p.errorf(n, "%s: aliases are not supported", where)
 		return ""
-	case strings.HasPrefix(n.Tag, "!") && !strings.HasPrefix(n.Tag, "!!"):
-		p.errorf(n, "%s: custom tag %q is not supported", where, n.Tag)
+	case p.customTag(n, where):
 		return ""
 	case n.Kind == yaml.ScalarNode && n.ShortTag() == "!!str":
 		return ""
@@ -230,6 +258,9 @@ func (p *parser) badScalar(n *yaml.Node, where string) string {
 }
 
 func (p *parser) run(n *yaml.Node) [][]Value {
+	if p.customTag(n, "run") {
+		return nil
+	}
 	if n.Kind != yaml.SequenceNode {
 		p.errorf(n, "run: expected a list of commands, found %s", kindName(n))
 		return nil
@@ -241,6 +272,9 @@ func (p *parser) run(n *yaml.Node) [][]Value {
 	cmds := make([][]Value, 0, len(n.Content))
 	for i, c := range n.Content {
 		where := fmt.Sprintf("run[%d]", i)
+		if p.customTag(c, where) {
+			continue
+		}
 		if c.Kind != yaml.SequenceNode {
 			p.errorf(c, "%s: expected a list of arguments, found %s", where, kindName(c))
 			continue
@@ -344,6 +378,11 @@ func shellArgKind(s string) shellArg {
 }
 
 func (p *parser) value(n *yaml.Node, where string) (Value, bool) {
+	if n.Kind == yaml.MappingNode || n.Kind == yaml.SequenceNode {
+		if p.customTag(n, where) {
+			return Value{}, false
+		}
+	}
 	if n.Kind == yaml.MappingNode {
 		return p.valueMapping(n, where)
 	}
@@ -374,6 +413,9 @@ func (p *parser) valueMapping(n *yaml.Node, where string) (Value, bool) {
 		}
 		return Value{Var: name}, true
 	case "join":
+		if p.customTag(val, where+": join") {
+			return Value{}, false
+		}
 		if val.Kind != yaml.SequenceNode {
 			p.errorf(val, "%s: join: expected a list of values, found %s", where, kindName(val))
 			return Value{}, false
@@ -411,6 +453,9 @@ func (p *parser) dir(n *yaml.Node) *Value {
 }
 
 func (p *parser) env(n *yaml.Node) []EnvVar {
+	if p.customTag(n, "env") {
+		return nil
+	}
 	if n.Kind != yaml.MappingNode {
 		p.errorf(n, "env: expected a mapping, found %s", kindName(n))
 		return nil

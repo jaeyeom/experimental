@@ -23,20 +23,36 @@ func ValidatePattern(p string) error {
 		return errors.New("pattern is empty")
 	case strings.HasPrefix(p, "!"):
 		return fmt.Errorf("pattern %q: negation (!) is not supported", p)
+	case strings.HasPrefix(p, "#"):
+		return fmt.Errorf("pattern %q: a leading # makes the .gitattributes line a comment", p)
 	case strings.HasSuffix(p, "/"):
 		return fmt.Errorf("pattern %q: a trailing / matches only directories, which hold no attributes", p)
 	}
 	for _, r := range p {
-		switch {
-		case r == '[' || r == ']':
-			return fmt.Errorf("pattern %q: bracket classes are not supported", p)
-		case r == '\\' || r == '"':
-			return fmt.Errorf("pattern %q: escapes and quotes are not supported", p)
-		case unicode.IsSpace(r) || unicode.IsControl(r):
-			return fmt.Errorf("pattern %q: whitespace and control characters are not supported", p)
+		if reason := unsupportedRune(r); reason != "" {
+			return fmt.Errorf("pattern %q: %s", p, reason)
+		}
+	}
+	for _, seg := range strings.Split(strings.TrimPrefix(p, "/"), "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return fmt.Errorf("pattern %q: empty, . and .. path segments are not supported", p)
 		}
 	}
 	return nil
+}
+
+func unsupportedRune(r rune) string {
+	switch {
+	case r == '[' || r == ']':
+		return "bracket classes are not supported"
+	case r == '{' || r == '}':
+		return "brace alternatives are not supported; list each pattern"
+	case r == '\\' || r == '"':
+		return "escapes and quotes are not supported"
+	case unicode.IsSpace(r) || unicode.IsControl(r):
+		return "whitespace and control characters are not supported"
+	}
+	return ""
 }
 
 // Match reports whether path, repo-relative and /-separated, matches pattern

@@ -660,7 +660,10 @@ in the format of [[file:../genfiles/README.org][genfiles]]:
 
 Only ~pattern~ is read by ~gh-approve~; other keys are ignored, so lists in an
 older shape (a ~regenerate~ string, ~bazel_generated~, ~source~) keep working.
-An entry without a valid ~pattern~ is a parse error. ~genfiles check~ is the
+An empty or comment-only file is a list with no patterns. An entry without a
+valid ~pattern~ is a parse error; that includes doublestar-only syntax such as
+brace alternatives (~{a,b}~) and bracket classes, which ~.gitattributes~ does
+not support, so write one entry per pattern. ~genfiles check~ is the
 strict checker for the rest of the format. ~gh-approve~ reads the file from
 the pull request's base SHA through the GitHub API and caches it per
 repository and base SHA for the run.

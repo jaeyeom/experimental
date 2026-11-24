@@ -117,7 +117,7 @@ Each argument, ~dir~, and ~env~ value is one of:
 
 Scalars must be YAML strings. A plain scalar YAML reads as a number,
 bool or null (~10~, ~true~, ~1.0~, ~~~) is an error, not text; quote it.
-Aliases and custom tags are errors. The Go reader follows YAML 1.2, where
+Aliases and custom tags (on any node) are errors. The Go reader follows YAML 1.2, where
 ~no~ and ~on~ are strings; YAML 1.1 readers such as PyYAML read them as
 bools, so quote them too.
 
@@ -147,8 +147,10 @@ matched file.
 depth (~Cargo.lock~ matches ~a/Cargo.lock~); one with a ~/~, a leading one
 included, is anchored at the root (~/Cargo.lock~). ~*~ and ~?~ stay in one
 path segment, ~**/~ matches zero or more directories, and a trailing ~/**~
-matches everything below. Negation (~!~), bracket classes, escapes,
-quotes, whitespace and a trailing ~/~ are rejected.
+matches everything below. Negation (~!~), a leading ~#~ (a comment in
+~.gitattributes~), bracket classes, brace alternatives (~{a,b}~), escapes,
+quotes, whitespace, a trailing ~/~, and empty, ~.~ or ~..~ path segments
+are rejected.
 
 * Go package
 

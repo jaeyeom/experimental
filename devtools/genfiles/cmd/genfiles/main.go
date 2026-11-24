@@ -86,7 +86,10 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return 2
 	}
-	tracked := strings.Split(strings.TrimSuffix(out, "\x00"), "\x00")
+	var tracked []string
+	if out != "" {
+		tracked = strings.Split(strings.TrimSuffix(out, "\x00"), "\x00")
+	}
 	problems, patterns, matched := checkRepo(list, string(attrs), tracked)
 	if len(problems) > 0 {
 		for _, p := range problems {
