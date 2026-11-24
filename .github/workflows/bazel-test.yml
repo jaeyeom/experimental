@@ -61,6 +61,23 @@ jobs:
     - name: Install Pkl
       uses: ./.github/actions/setup-pkl
 
+    - name: Configure BuildBuddy
+      env:
+        BUILDBUDDY_API_KEY: ${{ secrets.BUILDBUDDY_API_KEY }}
+      run: |
+        if [ -n "${BUILDBUDDY_API_KEY:-}" ]; then
+          rm -f .bazelrc.user
+          umask 077
+          {
+            printf 'build:buildbuddy --remote_header=x-buildbuddy-api-key=%s\n' "$BUILDBUDDY_API_KEY"
+            printf 'build:buildbuddy --bes_header=x-buildbuddy-api-key=%s\n' "$BUILDBUDDY_API_KEY"
+            printf 'build --config=buildbuddy\n'
+          } > .bazelrc.user
+          printf '%s\n' "BuildBuddy BES and remote cache enabled"
+        else
+          printf '%s\n' "BUILDBUDDY_API_KEY not set; skipping BuildBuddy configuration"
+        fi
+
     - name: Run tests with coverage
       run: |
         mkdir -p coverage
