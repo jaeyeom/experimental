@@ -31,3 +31,4 @@ fork-keeper skill [install|uninstall|status ...]
 - `FORK_KEEPER_CACHE`: scratch repos and agent output (default `~/.cache/fork-keeper`)
 - `FORK_KEEPER_SCRIPTS`: directory holding `review-range.sh` and `validate-verdict.sh` (default `~/.cache/claude-toolbox/plugins/fork-keeper/skills/fork-keeper/scripts`)
 - `FORK_KEEPER_DATE`: date used in branch and tag names (default UTC `YYYY-MM-DD`)
+- `FORK_KEEPER_SANDBOX`: agent confinement mode: `auto` (default: `seatbelt` on macOS, `bwrap` on Linux), `seatbelt`, `bwrap`, or `none`

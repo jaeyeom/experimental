@@ -11,6 +11,7 @@
     # sandbox-helpers tells Claude Code to retry with
     # dangerouslyDisableSandbox, so it is Claude Code-only.
     claude_toolbox_claude_plugins:
+      - fork-keeper
       - git-guardrails
       - sandbox-helpers
     # Every other plugin in the checkout's marketplace.json is installed

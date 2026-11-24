@@ -100,6 +100,10 @@ func checkDiffTripwires(ctx context.Context, gitDir, base, newSHA string) ([]Tri
 	if err != nil {
 		return nil, err
 	}
+	modeHits, err := checkModeTripwires(ctx, gitDir, base, newSHA)
+	if err != nil {
+		return nil, err
+	}
 	pathHits, err := checkPathTripwires(ctx, gitDir, base, newSHA)
 	if err != nil {
 		return nil, err
@@ -108,10 +112,41 @@ func checkDiffTripwires(ctx context.Context, gitDir, base, newSHA string) ([]Tri
 	if err != nil {
 		return nil, err
 	}
-	hits := make([]TripwireHit, 0, len(binHits)+len(pathHits)+len(patchHits))
+	hits := make([]TripwireHit, 0, len(binHits)+len(modeHits)+len(pathHits)+len(patchHits))
 	hits = append(hits, binHits...)
+	hits = append(hits, modeHits...)
 	hits = append(hits, pathHits...)
 	hits = append(hits, patchHits...)
+	return hits, nil
+}
+
+func checkModeTripwires(ctx context.Context, gitDir, base, newSHA string) ([]TripwireHit, error) {
+	raw, err := gitOutput(ctx, gitDir, "diff", "--no-renames", "--raw", base, newSHA)
+	if err != nil {
+		return nil, fmt.Errorf("git diff --raw: %w", err)
+	}
+	var hits []TripwireHit
+	for _, line := range splitNonEmptyLines(raw) {
+		meta, path, ok := strings.Cut(line, "\t")
+		if !ok || path == "" {
+			continue
+		}
+		fields := strings.Fields(meta)
+		if len(fields) < 2 {
+			continue
+		}
+		oldMode := strings.TrimPrefix(fields[0], ":")
+		newMode := fields[1]
+		if newMode == "000000" {
+			continue
+		}
+		if (oldMode == "000000" && newMode != "100644") || (oldMode != "000000" && oldMode != newMode) {
+			hits = append(hits, TripwireHit{
+				Kind:   "mode",
+				Detail: fmt.Sprintf("%s (%s -> %s)", path, oldMode, newMode),
+			})
+		}
+	}
 	return hits, nil
 }
 

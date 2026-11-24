@@ -84,7 +84,13 @@ func (f Fork) withDefaults() Fork {
 		f.ForkURL = fmt.Sprintf("https://github.com/%s.git", f.Repo)
 	}
 	if len(f.Agent) == 0 {
-		f.Agent = []string{"claude", "-p", "/fork-keeper:fork-keeper sync --out {out} -b {branch}"}
+		f.Agent = []string{
+			"claude",
+			"-p",
+			"--permission-mode", "acceptEdits",
+			"--allowedTools", "Bash,Read,Edit,Write,Glob,Grep,Skill",
+			"/fork-keeper:fork-keeper sync --out {out} -b {branch}",
+		}
 	}
 	return f
 }
