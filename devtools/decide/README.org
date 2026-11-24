@@ -396,7 +396,53 @@ panel, and an optional org-tree view (~ui.orgTree~ / ~ui.orgSpec~). See
 * Ecosystem
 
 ~decide~ works standalone with only its CLI, ledger, and inbox UI. Every
-connected tool below is optional and extends ~decide~ when installed:
+connected tool below is optional and connects through a narrow boundary:
+human UIs read and write the same ledger, producers invoke the CLI, and
+outbound delivery routes through the agnostic ~Target~ -> ~Transport~
+interface (see [[file:docs/delivery.org][docs/delivery.org]]):
+
+#+begin_example
+  Producers (ask / reply / done)               Human UIs (optional frontends)
+  +-------------------------------+            +-----------------------------+
+  | coding agents, slackwatch,    |            | Terminal TUI (decide inbox) |
+  | gh-outbox, memstore, scripts  |            | Web / PWA    (decide web)   |
+  +---------------+---------------+            | Emacs        (decide.el)    |
+                  |                            | CLI          (decide ...)   |
+                  |                            +--------------+--------------+
+                  v                                           v
+  +---------------+-------------------------------------------+--------------+
+  |                        CORE decide (standalone)                          |
+  |  CLI: ask / answer / reply / done / show / list / send                   |
+  |  Ledger: ledger.json, status.json, drafts.json                           |
+  |  Optional SSH hub: decide serve --stdio (two-machine sync)               |
+  +-------------------+-----------------------------------+------------------+
+                      |                                   ^
+                      | answers / notes                   | read-only context
+                      | (Target -> Transport)             | & checkout gate
+                      v                                   |
+  +-------------------+-------------------+    +----------+------------------+
+  | Agnostic Delivery Plugins (Transport) |    | Context & Gate Companions   |
+  +---------------------------------------+    |  orgctl (Contacts org tree) |
+  | herdr:<pane> (or bare <pane>)         |    |  prsync (reads open items)  |
+  |   pane delivery & tab focus (herdr)   |    +-----------------------------+
+  |                                       |
+  | agentbus:<name>                       |
+  |   bus delivery, status polling,       |
+  |   health, contacts, leases (agentbus) |
+  |                                       |
+  | pull (or pull:<detail>)               |
+  |   no-op push; caller polls            |
+  |   decide show/list --json             |
+  |   (CI, desktop apps, scripts)         |
+  |                                       |
+  | target:<name>                         |
+  |   targets[].command (DECIDE_* env +   |
+  |   item JSON on stdin) for non-LLM     |
+  |   tools (slackwatch, gh-outbox, etc.) |
+  +---------------------------------------+
+#+end_example
+
+Optional companion tools that extend ~decide~ when installed:
 
 - [[https://herdr.dev/][herdr]] -- terminal multiplexer for agent panes;
   auto-populates ~--owner~ from the tab label, delivers answers to panes,
