@@ -135,6 +135,35 @@ def test_require_test_runner_flag(
     assert out.startswith("t_test.py:1: missing-test-runner:")
 
 
+def test_no_require_test_runner_overrides_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--no-require-test-runner turns off rule 3 set in pyproject.toml."""
+    make_repo(
+        tmp_path,
+        {
+            "pyproject.toml": "[tool.pylinters.main-guard]\n"
+            "require-test-runner = true\n",
+            "t_test.py": "if __name__ == '__main__':\n    print('x')\n",
+        },
+    )
+    monkeypatch.chdir(tmp_path)
+    argv = ["--entry-source", "globs", "--test-glob", "*_test.py"]
+    assert call(argv)[0] == 1
+    assert call([*argv, "--no-require-test-runner"])[0] == 0
+
+
+def test_notes_on_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Notes on skipped sources are printed when the check fails too."""
+    make_repo(tmp_path, BAD)
+    monkeypatch.chdir(tmp_path)
+    code, out, _ = call([])
+    assert code == 1
+    assert "bazel: skipped (no workspace)" in out.splitlines()
+
+
 def test_update_baseline_then_pass(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -103,6 +103,8 @@ def main(
         print(f"baseline exceeded: {line}", file=out)
     for line in stale:
         print(f"stale baseline: {line}", file=out)
+    for note in result.discovery.notes:
+        print(note, file=out)
     if failures:
         print(
             "\nAdd the guard, propagate the runner's exit code, or mark a "
@@ -187,9 +189,10 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--require-test-runner",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=None,
-        help="test entries must run a test runner in their guard",
+        help="test entries must run a test runner in their guard "
+        "(--no-require-test-runner overrides the config)",
     )
     parser.add_argument(
         "--bazel-dir", metavar="DIR", help="Bazel workspace directory"
@@ -251,7 +254,7 @@ def _config(root: str, args: argparse.Namespace) -> main_guard.Config:
     if args.exclude is not None:
         changes["exclude"] = cfg.exclude + tuple(args.exclude)
     if args.require_test_runner is not None:
-        changes["require_test_runner"] = True
+        changes["require_test_runner"] = args.require_test_runner
     if args.allow_directive is not None:
         changes["allow_directive"] = args.allow_directive
     return dataclasses.replace(cfg, **changes)  # type: ignore[arg-type]

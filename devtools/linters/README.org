@@ -670,8 +670,8 @@ py-main-guard --entry-list build/entries.txt --require-test-runner
 #+END_SRC
 
 Paths limit what is reported; entries are still found over the whole
-tree. The pass line counts entries per source, and notes skipped Bazel
-targets:
+tree. The pass line counts entries per source. Notes on skipped Bazel
+targets follow it, or follow the violations when the check fails:
 
 #+BEGIN_EXAMPLE
 PASSED: py-main-guard (22 entries: executable 1, bazel 21; 40 file(s) scanned).
@@ -704,7 +704,7 @@ allow-directive = "py-main-guard: allow"
 #+END_SRC
 
 Each key has a flag: ~--entry-source~, ~--script-glob~, ~--test-glob~
-(repeatable, replace the config), ~--require-test-runner~,
+(repeatable, replace the config), ~--[no-]require-test-runner~,
 ~--bazel-dir~, ~--bazel PATH~ (the binary), ~--exclude~ (adds) and
 ~--allow-directive~.
 
