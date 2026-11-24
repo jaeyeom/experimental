@@ -103,3 +103,8 @@ disallow_untyped_decorators = false
 [[tool.mypy.overrides]]
 module = ["gen", "gen.*"]
 follow_imports = "skip"
+
+[tool.pylinters.main-guard]
+# Every py_test here runs as __main__ under Bazel, so its file must end
+# with a runner that propagates the exit code.
+require-test-runner = true

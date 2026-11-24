@@ -18,7 +18,10 @@ func TestReadmeRequiredPhrases(t *testing.T) {
 	head := readme[:org]
 	for _, want := range []string{
 		"#+TITLE: Linters",
-		"seven linters",
+		"eight linters",
+		"py-main-guard",
+		"py-main-guard: allow",
+		".baselines/py-main-guard.json",
 		"py-sibling-import",
 		"py-module-import",
 		"py-module-import: allow",
@@ -74,6 +77,7 @@ func TestReadmeRequiredPhrases(t *testing.T) {
 		"pkgvar",
 		"py-sibling-import",
 		"py-module-import",
+		"py-main-guard",
 		"* Index",
 	} {
 		if !strings.Contains(head, want) {
@@ -136,8 +140,8 @@ func TestReadmeIndexTableIsRectangular(t *testing.T) {
 			widths = append(widths, len(line))
 		}
 	}
-	if len(widths) < 9 {
-		t.Fatalf("index table has %d rows, want header, separator, and seven tools", len(widths))
+	if len(widths) < 10 {
+		t.Fatalf("index table has %d rows, want header, separator, and eight tools", len(widths))
 	}
 	for i, width := range widths {
 		if width != widths[0] {

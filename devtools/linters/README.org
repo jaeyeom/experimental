@@ -3,7 +3,7 @@
 
 * Overview
 
-This directory holds seven linters. ~org-lint~ runs Emacs's built-in
+This directory holds eight linters. ~org-lint~ runs Emacs's built-in
 Org-mode linter from the command line, so ~.org~ files can be checked in
 CI. ~agents-md-size~ enforces per-file and cascading ancestor byte size
 limits on ~AGENTS.md~ files with ratchetable baselines.
@@ -11,19 +11,24 @@ limits on ~AGENTS.md~ files with ratchetable baselines.
 the base branch already has. ~py-sibling-import~ flags a Python file
 that imports a module from its own package bare, which loads a second
 copy of that module. ~py-module-import~ flags ~from pkg.mod import Name~
-from first-party code and asks for ~from pkg import mod~. The two Go
+from first-party code and asks for ~from pkg import mod~.
+~py-main-guard~ requires the ~__main__~ guard on Python files that are run
+directly, and that a guard running tests passes their result to the exit
+code. The two Go
 linters catch patterns ~go vet~ doesn't: interface assertions that guard
 nothing, and package-level variables that should be constants or that
 run code at init time.
 
-~make lint~ runs ~pkgvar~, ~py-sibling-import~ and ~py-module-import~.
+~make lint~ runs ~pkgvar~, ~py-sibling-import~, ~py-module-import~ and
+~py-main-guard~.
 [[file:../devcheck/README.org][devcheck]] runs
 ~unnecessary-interface-assertion-linter~ when it falls back to Go tools.
 Emacs packages for ~org-lint~ come from
 [[file:../setup-dev/README.org][setup-dev]].
 
-Go 1.26 or later for the Go tools. ~py-sibling-import~ and
-~py-module-import~ need Python 3.11 or later and git.
+Go 1.26 or later for the Go tools. ~py-sibling-import~,
+~py-module-import~ and ~py-main-guard~ need Python 3.11 or later and git;
+~py-main-guard~ also runs ~bazel query~ in a Bazel workspace.
 
 * Index
 
@@ -36,6 +41,7 @@ Go 1.26 or later for the Go tools. ~py-sibling-import~ and
 | migration-immutability                 | Edits, deletes, renames of migrations the base already has   | Any      | CI in repos with migrations    |
 | py-sibling-import                      | Bare import of a sibling module inside a Python package      | Python   | make lint, pytest gate, CLI    |
 | py-module-import                       | from pkg.mod import Name from first-party Python code        | Python   | make lint, CLI                 |
+| py-main-guard                          | __main__ guard on run-directly files; test exit codes kept   | Python   | make lint, CLI                 |
 
 * Tools
 
@@ -420,7 +426,7 @@ Generated files (~*_pb2.py~, ~*_pb2_grpc.py~) are skipped by default.
 Only git-tracked files are checked.
 
 It lives in [[file:pylinters/][pylinters]], a Python project that also
-holds ~py-module-import~.
+holds ~py-module-import~ and ~py-main-guard~.
 
 *** Install
 
@@ -590,6 +596,123 @@ allow-directive = "py-module-import: allow"
 - Exits 1 when there are violations or stale baseline entries.
 - Exits 2 on invalid flags, config or baseline, a scanned file that does
   not parse, a path outside the repo, or git errors.
+
+** py-main-guard
+
+Requires the ~__main__~ guard on Python files that are run directly, and
+that a guard running tests keeps their result:
+
+#+BEGIN_SRC python
+#!/usr/bin/env python3
+def main(): ...
+# flagged: no guard, so running this file does nothing and exits 0
+
+if __name__ == "__main__":
+    pytest.main([__file__])            # flagged: failing tests exit 0
+    sys.exit(pytest.main([__file__]))  # preferred
+#+END_SRC
+
+Each of these fails silently. A script without a guard either does its
+work whenever it is imported, or does nothing when run. A test file run
+as ~__main__~ (a Bazel ~py_test~, or ~python foo_test.py~) whose runner
+result is dropped passes even when its tests fail.
+
+#+BEGIN_EXAMPLE
+tools/report.py:1: missing-guard: run directly (executable) but has no `if __name__ == '__main__':` guard
+pkg/foo_test.py:42: dropped-exit: `pytest.main(...)` result is discarded, so failures exit 0; use `sys.exit(pytest.main(...))`
+pkg/bar_test.py:30: missing-test-runner: run as a test (bazel //pkg:bar_test) but its `__main__` guard runs no test runner
+#+END_EXAMPLE
+
+- ~missing-guard~: an /entry/ (a file run directly) has no module-level
+  ~if __name__ == '__main__':~.
+- ~dropped-exit~: in any file, a guard calls ~pytest.main(...)~ or
+  ~unittest.main(exit=False)~ without passing the result straight to
+  ~sys.exit(...)~ or ~raise SystemExit(...)~.
+- ~missing-test-runner~ (opt-in, ~require-test-runner~): a test entry's
+  guard runs no test runner.
+
+Entries come from these sources:
+
+| Source       | Entries                                                         |
+|--------------+-----------------------------------------------------------------|
+| ~executable~ | scripts: git mode ~100755~ or a ~#!~ first line                 |
+| ~bazel~      | ~py_binary~ mains are scripts, ~py_test~ mains are tests        |
+| ~globs~      | ~script-globs~ and ~test-globs~ from the config                 |
+| list         | ~--entry-list FILE~: ~script PATH~ / ~test PATH~ lines          |
+
+The default is ~executable~ and ~bazel~. The Bazel source runs
+~bazel query~, so targets made by macros and list comprehensions are
+seen exactly; without a tracked ~MODULE.bazel~ or ~WORKSPACE~ it is
+skipped and the pass line says so. A main matching no or several ~srcs~,
+or a failing ~bazel query~, is an error, never a silent pass. Generated
+mains, ~main_module~ targets and ~select()~ on ~main~ are skipped and
+counted. ~__main__.py~ is never an entry by itself, and console-script
+targets need no guard. Other build systems pass ~--entry-list~, whose
+paths are relative to the repo top level; a listed path that is not a
+tracked ~.py~ file is an error.
+
+*** Install
+
+#+BEGIN_SRC bash
+uvx --from "git+https://github.com/jaeyeom/experimental@<tag>#subdirectory=devtools/linters/pylinters" py-main-guard
+#+END_SRC
+
+*** Usage
+
+#+BEGIN_SRC bash
+py-main-guard
+git diff --name-only -z origin/main | py-main-guard --stdin0
+py-main-guard --entry-source executable --entry-source globs --test-glob '**/*_test.py'
+py-main-guard --entry-list build/entries.txt --require-test-runner
+#+END_SRC
+
+Paths limit what is reported; entries are still found over the whole
+tree. The pass line counts entries per source, and notes skipped Bazel
+targets:
+
+#+BEGIN_EXAMPLE
+PASSED: py-main-guard (22 entries: executable 1, bazel 21; 40 file(s) scanned).
+#+END_EXAMPLE
+
+A genuine exception carries ~# py-main-guard: allow~. For
+~missing-guard~ and ~missing-test-runner~ it goes before the first
+statement (below a shebang or module docstring). For ~dropped-exit~ it
+goes on any line of the call's statement.
+
+*** Baseline
+
+The same per-file ~max_violations~ baseline as ~py-module-import~, in
+~.baselines/py-main-guard.json~, with the same ~--baseline~,
+~--update-baseline~, ~--tighten-baseline~ and ~--strict-baseline~ flags.
+
+*** Configuration
+
+Optional, in the repo root's ~pyproject.toml~. Unknown keys are errors.
+
+#+BEGIN_SRC toml
+[tool.pylinters.main-guard]
+entry-sources = ["executable", "bazel"]   # also "globs"
+script-globs = []
+test-globs = []                           # e.g. ["**/*_test.py"] without Bazel
+require-test-runner = false
+bazel-dir = "."                           # the Bazel workspace
+exclude = []
+allow-directive = "py-main-guard: allow"
+#+END_SRC
+
+Each key has a flag: ~--entry-source~, ~--script-glob~, ~--test-glob~
+(repeatable, replace the config), ~--require-test-runner~,
+~--bazel-dir~, ~--bazel PATH~ (the binary), ~--exclude~ (adds) and
+~--allow-directive~.
+
+*** Exit codes
+
+- Exits 0 when no scanned file has more violations than the baseline
+  allows and no baseline entry is stale.
+- Exits 1 when there are violations or stale baseline entries.
+- Exits 2 on invalid flags, config, baseline or entry list, a failing
+  ~bazel query~ or unresolvable main, a scanned file that does not
+  parse, a path outside the repo, or git errors.
 
 * Development
 

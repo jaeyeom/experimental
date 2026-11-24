@@ -15,6 +15,13 @@ py_binary(
 )
 
 py_binary(
+    name = "py-main-guard",
+    srcs = ["src/pylinters/cli/main_guard.py"],
+    main = "src/pylinters/cli/main_guard.py",
+    deps = [":pylinters"],
+)
+
+py_binary(
     name = "py-sibling-import",
     srcs = ["src/pylinters/cli/sibling_import.py"],
     main = "src/pylinters/cli/sibling_import.py",
@@ -34,6 +41,7 @@ py_binary(
     for name in [
         "baseline_test",
         "bazel_test",
+        "cli_main_guard_test",
         "cli_module_import_test",
         "cli_sibling_import_test",
         "config_test",
