@@ -56,6 +56,22 @@ def test_unknown_subtable(tmp_path: Path) -> None:
         config.load_table(path, ("sibling-import",))
 
 
+def test_other_checker_subtable_accepted(tmp_path: Path) -> None:
+    """Another registered checker's subtable does not break this one."""
+    path = _write(
+        tmp_path, "[tool.pylinters.main-guard]\nrequire-test-runner = true\n"
+    )
+    shared, _ = config.load_table(path, ("module-import",))
+    assert shared.exclude == ()
+
+
+def test_other_checker_subtable_must_be_table(tmp_path: Path) -> None:
+    """A registered subtable name holding a non-table is an error."""
+    path = _write(tmp_path, '[tool.pylinters]\nmain-guard = "x"\n')
+    with pytest.raises(errors.ConfigError, match="main-guard must be a table"):
+        config.load_table(path, ("module-import",))
+
+
 def test_wrong_type(tmp_path: Path) -> None:
     """Shared keys must be lists of strings."""
     path = _write(tmp_path, '[tool.pylinters]\nroots = "lib"\n')

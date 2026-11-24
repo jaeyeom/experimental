@@ -13,6 +13,10 @@ DEFAULT_GENERATED: tuple[str, ...] = ("**/*_pb2.py", "**/*_pb2_grpc.py")
 
 _SHARED_KEYS = ("roots", "exclude", "generated")
 
+# Every checker's ``[tool.pylinters.<name>]`` subtable. Each checker accepts
+# all of them, so configuring one checker never breaks another.
+CHECKERS: tuple[str, ...] = ("module-import", "sibling-import", "main-guard")
+
 
 @dataclass(frozen=True)
 class SharedConfig:
@@ -45,8 +49,8 @@ def load_table(
         raise errors.ConfigError(f"{pyproject_path}: {err}") from err
     table = doc.get("tool", {}).get("pylinters", {})
     where = f"{pyproject_path} [tool.pylinters]"
-    check_keys(table, (*_SHARED_KEYS, *known_subtables), where)
-    for name in known_subtables:
+    check_keys(table, (*_SHARED_KEYS, *CHECKERS, *known_subtables), where)
+    for name in (*CHECKERS, *known_subtables):
         if name in table and not isinstance(table[name], dict):
             raise errors.ConfigError(f"{where}: {name} must be a table")
     roots = table.get("roots")
