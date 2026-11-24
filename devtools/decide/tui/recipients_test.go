@@ -180,10 +180,10 @@ func TestPickerTypeToFilter(t *testing.T) {
 	m.width, m.height = 100, 40
 	loadBus(t, m)
 	press(t, m, "cpri")
-	if got := strings.Join(visibleNames(m), ","); got != "coord/primary,tools/deploy" {
+	if got := strings.Join(visibleNames(m), ","); got != "coord/primary,pm/retired,tools/deploy" {
 		t.Fatalf("pri matches = %s", got)
 	}
-	if !strings.Contains(visibleLine(m.View()), "2/13") {
+	if !strings.Contains(visibleLine(m.View()), "3/13") {
 		t.Fatalf("match count missing\n%s", m.View())
 	}
 	m.Update(tea.KeyMsg{Type: tea.KeyBackspace})

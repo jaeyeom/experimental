@@ -143,10 +143,23 @@ func (m *Model) visibleContacts() []contact {
 	return rows
 }
 
-// filteredContacts is the contact list in contact order. Hidden names
-// stay out unless H is showing them. The / query filters while
-// Contacts is open.
-func (m *Model) filteredContacts() []contact {
+type rankedContact struct {
+	contact contact
+	match   recipientMatch
+}
+
+func (m *Model) contactCandidate(c contact) matchCandidate {
+	return matchCandidate{
+		Name:    c.Name,
+		Aliases: m.aliasesFor(c.Name, c.Aka),
+		When:    c.When,
+		Starred: m.isFavorite(c.Name),
+	}
+}
+
+// rankedContacts is the contact list with hidden names removed (unless H
+// is showing them), ranked by the / query while Contacts is open.
+func (m *Model) rankedContacts() []rankedContact {
 	rows := m.contacts
 	if !m.showHidden {
 		if hide := m.hiddenSet(); len(hide) > 0 {
@@ -159,15 +172,33 @@ func (m *Model) filteredContacts() []contact {
 			rows = kept
 		}
 	}
-	if m.filter == "" || m.mode != modeContacts {
-		return rows
-	}
-	q := strings.ToLower(m.filter)
-	out := make([]contact, 0, len(rows))
-	for _, c := range rows {
-		if c.matchesQuery(q) {
-			out = append(out, c)
+	if strings.TrimSpace(m.filter) == "" || m.mode != modeContacts {
+		out := make([]rankedContact, len(rows))
+		for i, c := range rows {
+			out[i] = rankedContact{contact: c}
 		}
+		return out
+	}
+	mc := make([]matchCandidate, len(rows))
+	for i, c := range rows {
+		mc[i] = m.contactCandidate(c)
+	}
+	ranked := rankCandidates(mc, m.filter)
+	out := make([]rankedContact, len(ranked))
+	for i, r := range ranked {
+		out[i] = rankedContact{contact: rows[r.index], match: r.match}
+	}
+	return out
+}
+
+// filteredContacts is the contact list in contact order, or ranked order
+// while a / query filters Contacts. Hidden names stay out unless H is
+// showing them.
+func (m *Model) filteredContacts() []contact {
+	ranked := m.rankedContacts()
+	out := make([]contact, len(ranked))
+	for i, r := range ranked {
+		out[i] = r.contact
 	}
 	return out
 }
@@ -317,18 +348,6 @@ func (c *contact) addAka(name string) {
 		return
 	}
 	c.Aka = append(c.Aka, name)
-}
-
-// matchesQuery reports whether q, already lower-case, is in the name,
-// an aka, or the liveness label. An empty q matches.
-func (c contact) matchesQuery(q string) bool {
-	if q == "" {
-		return true
-	}
-	if strings.Contains(strings.ToLower(c.Name), q) || strings.Contains(strings.ToLower(c.liveLabel()), q) {
-		return true
-	}
-	return strings.Contains(strings.ToLower(strings.Join(c.Aka, " ")), q)
 }
 
 func (s *contactSet) list(busKnown bool) []contact {
@@ -484,13 +503,29 @@ func (m *Model) clampContactCursor() {
 	}
 }
 
+func (m *Model) contactCursorRow() int {
+	row := m.contactCursor
+	if strings.TrimSpace(m.filter) == "" || m.mode != modeContacts {
+		return row
+	}
+	for i, rc := range m.rankedContacts() {
+		if rc.match.descOnly {
+			if m.contactCursor >= i {
+				row++
+			}
+			break
+		}
+	}
+	return row
+}
+
 func (m *Model) revealContactCursor() {
 	if len(m.visibleContacts()) == 0 {
 		return
 	}
 	m.clampContactCursor()
 	limit := m.contactListLimit(m.contactsWidth())
-	row := m.contactCursor
+	row := m.contactCursorRow()
 	if m.orgActive() {
 		row = m.orgCursorRow()
 	}
@@ -642,6 +677,45 @@ func (m *Model) contactRowStyle(row contact, i int) (style lipgloss.Style, dimAk
 	}
 }
 
+func (m *Model) highlightedContactCell(row contact, match recipientMatch, style lipgloss.Style, dimAka bool) string {
+	useStyles()
+	var b strings.Builder
+	if m.isFavorite(row.Name) {
+		b.WriteString(style.Render(favoriteMark + " "))
+	}
+	b.WriteString(paintSpans(row.Name, style, match.nameSpans))
+	suffixStyle := style
+	if dimAka {
+		suffixStyle = dimNav
+	}
+	if len(row.Aka) > 0 {
+		b.WriteString(style.Render(" "))
+		b.WriteString(suffixStyle.Render("aka "))
+		for j, a := range row.Aka {
+			if j > 0 {
+				b.WriteString(suffixStyle.Render(", "))
+			}
+			if a == match.alias {
+				b.WriteString(paintSpans(a, suffixStyle, match.aliasSpans))
+			} else {
+				b.WriteString(suffixStyle.Render(a))
+			}
+		}
+	} else if match.alias != "" && len(match.nameSpans) == 0 {
+		b.WriteString(style.Render(" "))
+		b.WriteString(suffixStyle.Render("aka "))
+		b.WriteString(paintSpans(match.alias, suffixStyle, match.aliasSpans))
+	}
+	if len(match.whenSpans) > 0 {
+		if when := strings.TrimSpace(row.When); when != "" {
+			snip, snipSpans := whenSnippet(when, match.whenSpans, whenLimit)
+			b.WriteString(style.Render("  "))
+			b.WriteString(paintSpans(snip, suffixStyle, snipSpans))
+		}
+	}
+	return b.String()
+}
+
 func (m *Model) contactTable(width int, now time.Time, rows []contact) []screenLine {
 	headers := []string{"name", "state", "liveness", "open", "activity"}
 	loc := m.zone()
@@ -657,7 +731,8 @@ func (m *Model) contactTable(width int, now time.Time, rows []contact) []screenL
 	}
 	var cells [][]string
 	var styles []lipgloss.Style
-	if m.orgActive() {
+	switch {
+	case m.orgActive():
 		_, tree := orgLayout(m.orgRoot, m.filteredContacts())
 		for _, r := range tree {
 			if r.contact < 0 {
@@ -670,7 +745,33 @@ func (m *Model) contactTable(width int, now time.Time, rows []contact) []screenL
 			cells = append(cells, c)
 			styles = append(styles, style)
 		}
-	} else {
+	case strings.TrimSpace(m.filter) != "" && m.mode == modeContacts:
+		ranked := m.rankedContacts()
+		shownDescHeader := false
+		for i, rc := range ranked {
+			if rc.match.descOnly && !shownDescHeader {
+				shownDescHeader = true
+				cells = append(cells, []string{matchedDescLabel, "", "", "", ""})
+				styles = append(styles, dimNav)
+			}
+			style, dimAka := m.contactRowStyle(rc.contact, i)
+			hasHighlight := len(rc.match.nameSpans) > 0 || len(rc.match.aliasSpans) > 0 || len(rc.match.whenSpans) > 0
+			if hasHighlight {
+				cells = append(cells, []string{
+					m.highlightedContactCell(rc.contact, rc.match, style, dimAka),
+					style.Render(rc.contact.stateLabel()),
+					style.Render(rc.contact.liveLabel()),
+					style.Render(strconv.Itoa(rc.contact.Open)),
+					style.Render(stamp(rc.contact.Last, now, loc)),
+				})
+				styles = append(styles, plainLine)
+			} else {
+				c, s := cell(rc.contact, i)
+				cells = append(cells, c)
+				styles = append(styles, s)
+			}
+		}
+	default:
 		for i, row := range rows {
 			c, style := cell(row, i)
 			cells = append(cells, c)
@@ -685,13 +786,13 @@ func (m *Model) contactTable(width int, now time.Time, rows []contact) []screenL
 // activeContactMatches counts active contacts, and how many of them the
 // current search keeps. An empty query keeps every active contact.
 func (m *Model) activeContactMatches() (total, matches int) {
-	q := strings.ToLower(m.listQuery())
+	q := m.listQuery()
 	for _, c := range m.contacts {
 		if c.state() != stateActive {
 			continue
 		}
 		total++
-		if c.matchesQuery(q) {
+		if strings.TrimSpace(q) == "" || matchCandidateQuery(m.contactCandidate(c), q).matched {
 			matches++
 		}
 	}

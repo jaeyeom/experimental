@@ -11,6 +11,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/jaeyeom/experimental/devtools/decide"
 )
 
@@ -236,16 +237,29 @@ func samePane(handle, pane string) bool {
 	return decide.SamePane(handle, pane)
 }
 
-// visibleTargets are the candidate indices that match the picker filter
-// in the name or the --when text, ignoring case.
-func (m *Model) visibleTargets() []int {
+// rankedTargets returns the matching candidate indices and match details
+// in ranked order.
+func (m *Model) rankedTargets() []rankedMatch {
 	cands := m.candidates()
-	q := strings.ToLower(m.pickFilter)
-	out := make([]int, 0, len(cands))
+	mc := make([]matchCandidate, len(cands))
 	for i, tg := range cands {
-		if q == "" || strings.Contains(strings.ToLower(tg.Name), q) || strings.Contains(strings.ToLower(tg.When), q) {
-			out = append(out, i)
+		mc[i] = matchCandidate{
+			Name:    tg.Name,
+			Aliases: m.targetAliases(tg.Name),
+			When:    tg.When,
+			Starred: tg.Fav,
 		}
+	}
+	return rankCandidates(mc, m.pickFilter)
+}
+
+// visibleTargets are the candidate indices that match the picker filter,
+// in ranked order.
+func (m *Model) visibleTargets() []int {
+	ranked := m.rankedTargets()
+	out := make([]int, len(ranked))
+	for i, r := range ranked {
+		out[i] = r.index
 	}
 	return out
 }
@@ -314,6 +328,11 @@ func (m *Model) pickerKey(r rune) bool {
 	case r == '\x7f' || r == '\b':
 		if f := []rune(m.pickFilter); len(f) > 0 {
 			m.pickFilter = string(f[:len(f)-1])
+			if strings.TrimSpace(m.pickFilter) != "" {
+				if vis := m.visibleTargets(); len(vis) > 0 {
+					m.selectTarget(vis[0])
+				}
+			}
 		}
 	case r == '\r' || r == '\n':
 		if _, ok := m.selectedTarget(); ok {
@@ -321,7 +340,7 @@ func (m *Model) pickerKey(r rune) bool {
 		}
 	case r >= ' ':
 		m.pickFilter += string(r)
-		if vis := m.visibleTargets(); len(vis) > 0 && !slices.Contains(vis, m.target) {
+		if vis := m.visibleTargets(); len(vis) > 0 {
 			m.selectTarget(vis[0])
 		}
 	default:
@@ -351,7 +370,11 @@ func (m *Model) pickerLines() ([]screenLine, int) {
 		m.target = 0
 	}
 	limit := m.pickerRowLimit()
-	vis := m.visibleTargets()
+	ranked := m.rankedTargets()
+	vis := make([]int, len(ranked))
+	for i, r := range ranked {
+		vis[i] = r.index
+	}
 	scrolls := len(cands) > limit
 	head := m.pickerCount(len(vis), len(cands), scrolls)
 	if len(vis) == 0 {
@@ -360,23 +383,8 @@ func (m *Model) pickerLines() ([]screenLine, int) {
 	if !slices.Contains(vis, m.target) {
 		m.target = vis[0]
 	}
-	rows := make([]screenLine, 0, len(vis))
-	sel := 0
-	group := "\x00"
-	for _, i := range vis {
-		tg := cands[i]
-		if g := targetGroup(tg); scrolls && g != group {
-			group = g
-			rows = append(rows, screenLine{text: mutedPicker(g)})
-		}
-		if i == m.target {
-			sel = len(rows)
-		}
-		rows = append(rows, screenLine{
-			text: m.targetLabel(tg, i == m.target),
-			hits: []hit{{kind: hitTarget, n: i}},
-		})
-	}
+	filtering := strings.TrimSpace(m.pickFilter) != ""
+	rows, sel := m.pickerRows(cands, ranked, filtering, scrolls)
 	rows = windowLines(rows, sel, max(limit-len(head), 1))
 	for j, row := range rows {
 		if len(row.hits) > 0 && row.hits[0].n == m.target {
@@ -384,6 +392,34 @@ func (m *Model) pickerLines() ([]screenLine, int) {
 		}
 	}
 	return append(head, rows...), sel + len(head)
+}
+
+func (m *Model) pickerRows(cands []Target, ranked []rankedMatch, filtering, scrolls bool) ([]screenLine, int) {
+	rows := make([]screenLine, 0, len(ranked))
+	sel := 0
+	group := "\x00"
+	shownDescHeader := false
+	for _, r := range ranked {
+		i := r.index
+		tg := cands[i]
+		if filtering {
+			if r.match.descOnly && !shownDescHeader {
+				shownDescHeader = true
+				rows = append(rows, screenLine{text: mutedPicker(matchedDescLabel)})
+			}
+		} else if g := targetGroup(tg); scrolls && g != group {
+			group = g
+			rows = append(rows, screenLine{text: mutedPicker(g)})
+		}
+		if i == m.target {
+			sel = len(rows)
+		}
+		rows = append(rows, screenLine{
+			text: m.targetLabelMatch(tg, i == m.target, r.match),
+			hits: []hit{{kind: hitTarget, n: i}},
+		})
+	}
+	return rows, sel
 }
 
 // pickerCount is the filter and match-count line, shown when a filter is
@@ -417,7 +453,15 @@ func targetGroup(tg Target) string {
 }
 
 func (m *Model) targetLabel(tg Target, selected bool) string {
+	return m.targetLabelMatch(tg, selected, recipientMatch{})
+}
+
+func (m *Model) targetLabelMatch(tg Target, selected bool, match recipientMatch) string {
+	useStyles()
 	label := tg.Name
+	if len(match.nameSpans) > 0 {
+		label = paintSpans(tg.Name, plainLine, match.nameSpans)
+	}
 	if tg.Fav {
 		label = favoriteMark + " " + label
 	}
@@ -426,6 +470,10 @@ func (m *Model) targetLabel(tg Target, selected bool) string {
 		if m.composeFocus == focusRecipient {
 			label = "> " + label
 		}
+	}
+	whenStyle := pickerMutedStyle()
+	if match.alias != "" && len(match.nameSpans) == 0 {
+		label += "  " + whenStyle.Render("aka ") + paintSpans(match.alias, whenStyle, match.aliasSpans)
 	}
 	if !tg.Bus {
 		return label
@@ -436,15 +484,17 @@ func (m *Model) targetLabel(tg Target, selected bool) string {
 	}
 	label += " " + mark
 	if when := strings.TrimSpace(tg.When); when != "" {
-		if clipped := clipRunes(when, whenLimit); clipped != when {
-			when = clipped + "…"
-		}
-		label += "  " + mutedPicker(when)
+		snippet, snipSpans := whenSnippet(when, match.whenSpans, whenLimit)
+		label += "  " + paintSpans(snippet, whenStyle, snipSpans)
 	}
 	return label
 }
 
-func mutedPicker(s string) string {
+func pickerMutedStyle() lipgloss.Style {
 	useStyles()
-	return paletteStyle(loadColors().Time, paletteTime).Render(s)
+	return paletteStyle(loadColors().Time, paletteTime)
+}
+
+func mutedPicker(s string) string {
+	return pickerMutedStyle().Render(s)
 }
