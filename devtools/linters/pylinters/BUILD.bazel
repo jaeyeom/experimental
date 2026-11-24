@@ -37,6 +37,7 @@ py_binary(
         "cli_module_import_test",
         "cli_sibling_import_test",
         "config_test",
+        "entries_test",
         "files_test",
         "globs_test",
         "guards_test",
