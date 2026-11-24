@@ -36,7 +36,7 @@ test --jobs=auto
 # Disables nogo analyzers which have issues with Termux's environment
 build:termux --//tools/lint:skip_nogo=true
 
-# BuildBuddy BES + remote cache (opt-in; API key belongs in .bazelrc.local or CI)
+# BuildBuddy BES + remote cache (opt-in; API key belongs in .bazelrc.user or CI)
 build:buildbuddy --bes_results_url=https://app.buildbuddy.io/invocation/
 build:buildbuddy --bes_backend=grpcs://remote.buildbuddy.io
 build:buildbuddy --remote_cache=grpcs://remote.buildbuddy.io
@@ -54,10 +54,12 @@ build:rbe --jobs=50
 build:rbe --platforms=@toolchains_buildbuddy//platforms:linux_x86_64
 build:rbe --extra_execution_platforms=@toolchains_buildbuddy//platforms:linux_x86_64
 build:rbe --extra_toolchains=@toolchains_buildbuddy//toolchains/cc:ubuntu_gcc_x86_64
+build:rbe --spawn_strategy=remote,sandboxed,local
+test:rbe --spawn_strategy=remote,sandboxed,local
 
 # Developer settings
 # build --sandbox_debug
 # test --test_verbose_timeout_warnings
 
-try-import %workspace%/.bazelrc.user
 try-import %workspace%/.bazelrc.local
+try-import %workspace%/.bazelrc.user

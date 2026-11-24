@@ -1,8 +1,14 @@
 load("@rules_go//go:def.bzl", "go_library")
+load(":go_sdk_files.bzl", "go_sdk_files")
 
 go_library(
     name = "go_default_library",
     srcs = ["env.go"],
     importpath = "github.com/jaeyeom/experimental/devtools/linters/internal/analysistestenv",
+    visibility = ["//devtools/linters:__subpackages__"],
+)
+
+go_sdk_files(
+    name = "go_sdk_files",
     visibility = ["//devtools/linters:__subpackages__"],
 )

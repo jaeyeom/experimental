@@ -23,7 +23,7 @@ rules:
     docs:
       - path: README.org
         section: "** GNU Make"
-        why: "make check/test/lint/format/fix/coverage targets"
+        why: "make check/test/test-rbe/lint/format/fix/coverage targets"
 
   - match: [".gitignore"]
     docs:
@@ -35,7 +35,7 @@ rules:
     docs:
       - path: README.org
         section: "** Bazel"
-        why: "Bazelisk, Go SDK, nogo, Gazelle, format alias, Termux nogo skip"
+        why: "Bazelisk, Go SDK, nogo, Gazelle, format alias, Termux nogo skip, BuildBuddy RBE"
 
   - match: ["go.mod", "pyproject.toml", "uv.lock"]
     docs:

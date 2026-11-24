@@ -120,6 +120,12 @@ pip.parse(
     hub_name = "pypi",
     pyproject_toml = "//:pyproject.toml",
     python_version = "3.11",
+    target_platforms = [
+        "linux_aarch64",
+        "linux_x86_64",
+        "osx_aarch64",
+        "osx_x86_64",
+    ],
     uv_lock = "//:uv.lock",
 )
 use_repo(pip, "pypi")

@@ -1,5 +1,5 @@
 # Common targets
-.PHONY: all check format format-whitespace check-whitespace check-format test lint fix check-uv-lock install
+.PHONY: all check format format-whitespace check-whitespace check-format test test-rbe lint fix check-uv-lock install
 
 # Cross-platform sed in-place edit
 SED_INPLACE := $(shell if [ "$$(uname)" = "Darwin" ]; then echo "sed -i ''"; else echo "sed -i"; fi)
@@ -49,7 +49,14 @@ check-format: check-whitespace
 	bazel test --test_summary=terse $(BAZEL_TEST_ENV) //tools/format:format_test
 
 test:
-	bazel test --test_summary=terse $(BAZEL_TEST_ENV) //...
+	bazel test --test_summary=terse $(BAZEL_TEST_ENV) $(BAZEL_FLAGS) //...
+
+# Run remote-eligible tests on BuildBuddy Linux RBE workers without leaking
+# host PATH (BAZEL_TEST_ENV) into remote cache keys, then run local/no-remote
+# targets on the host platform (required for macOS-to-Linux cross-RBE).
+test-rbe:
+	bazel test --config=rbe --test_summary=terse --build_tag_filters=-local,-no-remote --test_tag_filters=-local,-no-remote $(BAZEL_FLAGS) //...
+	bazel test --test_summary=terse $(BAZEL_TEST_ENV) --build_tag_filters=local,no-remote --test_tag_filters=local,no-remote $(BAZEL_FLAGS) //...
 
 lint: lint-genfiles lint-ruff lint-mypy lint-py-import-time-work lint-py-main-guard lint-py-module-import lint-py-sibling-import lint-shellcheck check-spacemacs
 

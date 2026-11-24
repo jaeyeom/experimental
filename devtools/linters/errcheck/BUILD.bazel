@@ -17,7 +17,7 @@ go_test(
     name = "go_default_test",
     srcs = ["analyzer_test.go"],
     data = glob(["testdata/**"]) + [
-        "@go_sdk//:files",  # keep
+        "//devtools/linters/internal/analysistestenv:go_sdk_files",  # keep
     ],
     deps = [
         ":go_default_library",
