@@ -49,6 +49,7 @@ py_binary(
         "files_test",
         "globs_test",
         "guards_test",
+        "import_time_work_test",
         "imports_test",
         "main_guard_test",
         "module_import_test",
