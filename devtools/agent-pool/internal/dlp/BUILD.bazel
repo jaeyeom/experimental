@@ -1,0 +1,15 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["dlp.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/agent-pool/internal/dlp",
+    visibility = ["//devtools/agent-pool:__subpackages__"],
+)
+
+go_test(
+    name = "go_default_test",
+    size = "small",
+    srcs = ["dlp_test.go"],
+    embed = [":go_default_library"],
+)
