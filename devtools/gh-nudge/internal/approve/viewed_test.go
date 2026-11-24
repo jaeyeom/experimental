@@ -23,8 +23,9 @@ func viewedPR(n int, files ...models.File) github.ApprovalPullRequest {
 
 func lockRules() config.ViewedConfig {
 	return config.ViewedConfig{
-		Enabled:        true,
-		MaxMarksPerRun: config.DefaultMaxMarksPerRun,
+		Enabled:         true,
+		MaxMarksPerRun:  config.DefaultMaxMarksPerRun,
+		RemarkDismissed: config.DefaultRemarkDismissed,
 		Rules: []config.ViewedRule{{
 			Name:       "locks",
 			PathsMatch: []string{"**/*.lock", "**/go.sum", "**/pnpm-lock.yaml"},
@@ -37,14 +38,16 @@ func runViewed(t *testing.T, fake *fakeClient, viewed config.ViewedConfig, opts 
 	return runConfig(t, fake, config.ApproveConfig{Body: "LGTM", SkipAlreadyApproved: true}, viewed, opts, nil)
 }
 
-func TestViewedMarksOnlyUnviewed(t *testing.T) {
+func TestViewedMarksOnlyUnviewedWhenRemarkDismissedFalse(t *testing.T) {
 	pr := viewedPR(1,
 		viewedFile("go.sum", models.ViewerUnviewed),
 		viewedFile("pnpm-lock.yaml", models.ViewerViewed),
 		viewedFile("yarn.lock", models.ViewerDismissed),
 		viewedFile("other.lock", models.ViewerUnviewed),
 	)
-	res := runViewed(t, newFake(pr), lockRules(), Options{Apply: true})
+	viewed := lockRules()
+	viewed.RemarkDismissed = false
+	res := runViewed(t, newFake(pr), viewed, Options{Apply: true})
 	if res.err != nil {
 		t.Fatal(res.err)
 	}
@@ -59,14 +62,13 @@ func TestViewedMarksOnlyUnviewed(t *testing.T) {
 	}
 }
 
-func TestViewedRemarkDismissed(t *testing.T) {
+func TestViewedRemarkDismissedDefault(t *testing.T) {
 	pr := viewedPR(1,
 		viewedFile("go.sum", models.ViewerUnviewed),
 		viewedFile("pnpm-lock.yaml", models.ViewerViewed),
 		viewedFile("yarn.lock", models.ViewerDismissed),
 	)
 	viewed := lockRules()
-	viewed.RemarkDismissed = true
 	res := runViewed(t, newFake(pr), viewed, Options{Apply: true, Explain: true})
 	if res.err != nil {
 		t.Fatal(res.err)

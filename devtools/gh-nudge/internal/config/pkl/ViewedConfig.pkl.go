@@ -14,9 +14,9 @@ type ViewedConfig struct {
 	// This wins over every rule's selectors.
 	NeverMark []string `pkl:"never_mark"`
 
-	// When true, plain viewed rules also re-mark DISMISSED files (files that
-	// changed since you last viewed them). By default only UNVIEWED files are
-	// marked by viewed rules.
+	// When true (the default), plain viewed rules also re-mark DISMISSED files
+	// (files that changed since you last viewed them). Set to false to mark
+	// only UNVIEWED files.
 	RemarkDismissed bool `pkl:"remark_dismissed"`
 
 	// Rules. A file is marked when any rule selects it and never_mark does not.

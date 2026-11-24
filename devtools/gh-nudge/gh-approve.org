@@ -682,11 +682,13 @@ rule marks nothing. With ~--explain~, each file matched through the list prints
   visible is named with ~excluded by rule <name> paths_none_match <glob>~ or
   ~excluded by viewed.never_mark <glob>~. The audit log does not record that
   file as marked.
-- Only a file whose ~viewerViewedState~ is ~UNVIEWED~ is marked by default.
-  ~VIEWED~ and ~DISMISSED~ are left alone (~DISMISSED~ means the file changed
-  since you viewed it). Set ~viewed.remark_dismissed = true~ to let viewed
-  rules re-mark ~DISMISSED~ files as well (logged as ~re-mark after change~).
-  Nothing is ever unmarked.
+- ~UNVIEWED~ and ~DISMISSED~ files matched by a rule are marked by default
+  (~DISMISSED~ means the file changed since you viewed it; re-marked files are
+  logged as ~re-mark after change~). ~VIEWED~ files are left alone. Set
+  ~viewed.remark_dismissed = false~ to leave ~DISMISSED~ files unmarked.
+  Nothing is ever unmarked. (Note: ~viewed.remark_dismissed~ previously
+  defaulted to ~false~; existing configs that omit it now re-mark ~DISMISSED~
+  files automatically.)
 - The same pull requests as approve rules: you are requested as an individual,
   it is open, and it is not a draft. Never your own. A pull request an approve
   or hand-off rule took is not marked.

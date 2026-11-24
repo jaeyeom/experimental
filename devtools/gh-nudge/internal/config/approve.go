@@ -81,6 +81,10 @@ const (
 // viewed when config omits max_marks_per_run.
 const DefaultMaxMarksPerRun = 200
 
+// DefaultRemarkDismissed is whether plain viewed rules re-mark DISMISSED files
+// when config omits remark_dismissed.
+const DefaultRemarkDismissed = true
+
 // ViewedConfig holds gh-approve "mark viewed" settings.
 type ViewedConfig struct {
 	// Enabled marks files on pull requests no approve or hand-off rule took.
@@ -91,7 +95,7 @@ type ViewedConfig struct {
 	// marked, by any rule. This wins over every rule's selectors.
 	NeverMark []string
 	// RemarkDismissed re-marks DISMISSED files matched by viewed rules.
-	// By default, viewed rules only mark UNVIEWED files.
+	// Defaults to true; set to false to only mark UNVIEWED files.
 	RemarkDismissed bool
 	// Rules select the files. A file is marked when any rule selects it
 	// and NeverMark does not.

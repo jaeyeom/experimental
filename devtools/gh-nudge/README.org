@@ -34,7 +34,10 @@ head SHA, and schema version under ~$XDG_CACHE_HOME/gh-approve/facts/~
 (default =~/.cache/gh-approve/facts/=) and invalidated on head SHA, CODEOWNERS
 blob SHA, viewer team list, or schema changes (~--no-cache~ bypasses it).
 Uncached PRs are loaded with a bounded worker pool (~approve.load_concurrency~
-/ ~--load-concurrency~, default 4). See [[file:gh-approve.org][gh-approve.org]] for details.
+/ ~--load-concurrency~, default 4). ~viewed.remark_dismissed~ now defaults to
+~true~ so plain ~viewed~ rules re-mark ~DISMISSED~ files after new pushes (set
+~viewed.remark_dismissed = false~ to restore the previous behavior). See
+[[file:gh-approve.org][gh-approve.org]] for details.
 
 * Install
 

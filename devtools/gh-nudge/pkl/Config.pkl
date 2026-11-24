@@ -263,10 +263,10 @@ class ViewedConfig {
   /// Globs. A changed file matching any of them is never marked, by any rule.
   /// This wins over every rule's selectors.
   never_mark: Listing<String> = new {}
-  /// When true, plain viewed rules also re-mark DISMISSED files (files that
-  /// changed since you last viewed them). By default only UNVIEWED files are
-  /// marked by viewed rules.
-  remark_dismissed: Boolean = false
+  /// When true (the default), plain viewed rules also re-mark DISMISSED files
+  /// (files that changed since you last viewed them). Set to false to mark
+  /// only UNVIEWED files.
+  remark_dismissed: Boolean = true
   /// Rules. A file is marked when any rule selects it and never_mark does not.
   rules: Listing<ViewedRule> = new {}
 }

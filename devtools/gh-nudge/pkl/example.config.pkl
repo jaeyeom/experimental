@@ -180,9 +180,12 @@ approve {
 }
 
 // Files the user never reads, marked viewed on a pull request no approve
-// or hand-off rule took. GitHub clears the mark when the file changes.
+// or hand-off rule took. By default, DISMISSED files (changed since last
+// viewed) that still match a rule are re-marked; set remark_dismissed = false
+// to mark only UNVIEWED files.
 viewed {
   enabled = true
+  // remark_dismissed = false
   never_mark { "**/*.go"; "**/*.py"; "**/*.proto" }
   rules {
     new { name = "locks"; paths_match { "**/*.lock"; "**/go.sum"; "**/pnpm-lock.yaml" } }
