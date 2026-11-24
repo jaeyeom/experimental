@@ -1,0 +1,29 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "jobs.go",
+        "sqlite.go",
+    ],
+    embedsrcs = ["schema.sql"],
+    importpath = "github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker/sqlite",
+    visibility = ["//devtools/agent-pool:__subpackages__"],
+    deps = [
+        "//devtools/agent-pool/internal/broker:go_default_library",
+        "//devtools/agent-pool/internal/protocol:go_default_library",
+        "//devtools/pkg/sqlitedb:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    size = "small",
+    srcs = ["sqlite_test.go"],
+    deps = [
+        ":go_default_library",
+        "//devtools/agent-pool/internal/broker:go_default_library",
+        "//devtools/agent-pool/internal/protocol:go_default_library",
+        "//devtools/pkg/sqlitedb:go_default_library",
+    ],
+)
