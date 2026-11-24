@@ -9,9 +9,10 @@ be shared by two machines.
 
 * Overview
 
-[[https://herdr.dev/][herdr]] is the terminal multiplexer the panes live
-in. [[file:../agentbus/README.org][agentbus]] is how a named agent is
-reached when the pane is ~agentbus:<name>~. ~decide skill~ prints the
+~decide~ works standalone; companion tools such as
+[[https://herdr.dev/][herdr]] (the terminal multiplexer for agent panes)
+and [[file:../agentbus/README.org][agentbus]] (for ~agentbus:<name>~
+delivery) are optional -- see [[*Ecosystem]]. ~decide skill~ prints the
 agent rules (~cmd/decide/skill.md~). This file is the human guide.
 
 * Install
@@ -367,6 +368,35 @@ Contacts (~g~ then ~c~) lists ~agentbus list~ names plus ledger owners
 and senders, with hiding, starring, aliasing, pruning, a contact detail
 panel, and an optional org-tree view (~ui.orgTree~ / ~ui.orgSpec~). See
 [[file:docs/contacts.org][docs/contacts.org]].
+
+* Ecosystem
+
+~decide~ works standalone with only its CLI, ledger, and inbox UI. Every
+connected tool below is optional and extends ~decide~ when installed:
+
+- [[https://herdr.dev/][herdr]] -- terminal multiplexer for agent panes;
+  auto-populates ~--owner~ from the tab label, delivers answers to panes,
+  and lets ~o~ focus the owner's tab.
+- [[file:../agentbus/README.org][agentbus]] -- local agent message bus;
+  adds ~agentbus:<name>~ delivery, live compose recipients
+  (~recipients.agentbus~), the bus health banner, delivery status
+  tracking, Contacts liveness and release, and checkout leases.
+- [[file:../orgctl/README.org][orgctl]] -- declarative agent-team org
+  spec; enables the Contacts org-tree view (~ui.orgTree~ / ~ui.orgSpec~)
+  and complements ~owners~ allow-lists.
+- [[file:../slackwatch/README.org][slackwatch]] -- Slack bridge; routes
+  agent-drafted Slack posts through ~decide~ approval items before
+  posting.
+- [[file:../gh-outbox/README.org][gh-outbox]] -- GitHub PR comment
+  outbox; lints agent-drafted PR comments and gates posting on ~decide~
+  UI approval.
+- [[file:../prsync/README.org][prsync]] -- PR-to-tab sync; reads open
+  ~decide~ items as a busy signal in its checkout gate.
+- [[file:../memstore/README.org][memstore]] -- personal memory store;
+  routes automated routine outbox actions and proposals through ~decide~
+  for human approval and triage.
+- [[file:../setup-dev/README.org][setup-dev]] -- Ansible playbooks
+  (~setup-decide.yml~) for installing ~decide~ and its agent skill.
 
 * Troubleshooting
 
