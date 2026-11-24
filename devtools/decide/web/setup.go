@@ -48,6 +48,7 @@ type SetupEnv struct {
 	HomeDir    string
 	ConfigPath string
 	Executable string
+	Getenv     func(string) string
 	LookPath   func(file string) (string, error)
 	RunCmd     func(ctx context.Context, name string, args ...string) (stdout, stderr string, err error)
 	RunSudoCmd func(ctx context.Context, name string, args ...string) error
@@ -66,6 +67,15 @@ func (e *SetupEnv) withDefaults() (SetupEnv, error) {
 	}
 	out.fillRuntimeDefaults()
 	return out, nil
+}
+
+func (e SetupEnv) expandEnv() pathExpandEnv {
+	return pathExpandEnv{
+		HomeDir: e.HomeDir,
+		User:    e.User,
+		UID:     e.UID,
+		Getenv:  e.Getenv,
+	}
 }
 
 func (e *SetupEnv) fillIdentityDefaults() {
@@ -249,7 +259,10 @@ func RunSetup(ctx context.Context, env SetupEnv, opts SetupOptions) error {
 
 func (w *wizard) stepTokenFile(desired *decide.WebConfig) (string, error) {
 	w.printf("\n==> Step 1: Token file\n")
-	tokenPath := desired.Auth.TokenFile
+	tokenPath := expandServicePath(desired.Auth.TokenFile, w.env.expandEnv())
+	if tokenPath == "" {
+		tokenPath = existingServiceTokenFile(w.env)
+	}
 	if tokenPath == "" {
 		tokenPath = filepath.Join(filepath.Dir(w.env.ConfigPath), "web-token")
 	}
@@ -347,7 +360,7 @@ func (w *wizard) stepServiceLinux(ctx context.Context, tokenPath string) error {
 	want := systemdUnitContent(w.env.Executable, tokenPath)
 
 	existing, err := os.ReadFile(unitPath)
-	unitMatches := err == nil && string(existing) == want
+	unitMatches := err == nil && (string(existing) == want || systemdUnitMatches(string(existing), w.env.Executable, tokenPath, w.env.expandEnv()))
 	activeOut, _, activeErr := w.env.RunCmd(ctx, "systemctl", "--user", "is-active", systemdWebServiceName)
 	isActive := activeErr == nil && strings.TrimSpace(activeOut) == "active"
 
@@ -357,6 +370,57 @@ func (w *wizard) stepServiceLinux(ctx context.Context, tokenPath string) error {
 		return err
 	}
 	return w.stepLingerLinux(ctx)
+}
+
+func existingServiceTokenFile(e SetupEnv) string {
+	var args []string
+	switch e.GOOS {
+	case "linux":
+		data, err := os.ReadFile(systemdUnitPath(e.HomeDir))
+		if err != nil {
+			return ""
+		}
+		_, args = parseSystemdExecStart(string(data))
+	case "darwin":
+		data, err := os.ReadFile(launchAgentPath(e.HomeDir))
+		if err != nil {
+			return ""
+		}
+		_, args = parsePlistProgramArguments(string(data))
+	default:
+		return ""
+	}
+	flags := parseWebServiceFlags(args)
+	if flags.TokenFile == "" {
+		return ""
+	}
+	return expandServicePath(flags.TokenFile, e.expandEnv())
+}
+
+func systemdUnitMatches(unit, wantExe, wantTokenPath string, env pathExpandEnv) bool {
+	bin, args := parseSystemdExecStart(unit)
+	return serviceCommandMatches(bin, args, wantExe, wantTokenPath, env)
+}
+
+func plistUnitMatches(plist, wantExe, wantTokenPath string, env pathExpandEnv) bool {
+	bin, args := parsePlistProgramArguments(plist)
+	return serviceCommandMatches(bin, args, wantExe, wantTokenPath, env)
+}
+
+func serviceCommandMatches(bin string, args []string, wantExe, wantTokenPath string, env pathExpandEnv) bool {
+	if bin == "" || len(args) == 0 || args[0] != "web" {
+		return false
+	}
+	expandedBin := expandServicePath(bin, env)
+	if evalSymlinksOrClean(expandedBin) != evalSymlinksOrClean(wantExe) {
+		return false
+	}
+	flags := parseWebServiceFlags(args)
+	if flags.TokenFile == "" {
+		return false
+	}
+	expandedToken := expandServicePath(flags.TokenFile, env)
+	return evalSymlinksOrClean(expandedToken) == evalSymlinksOrClean(wantTokenPath)
 }
 
 func (w *wizard) installSystemdUnit(ctx context.Context, unitPath, want string, unitMatches bool) error {
@@ -453,7 +517,7 @@ func (w *wizard) stepServiceDarwin(ctx context.Context, tokenPath string) error 
 	serviceTarget := domain + "/" + launchAgentWebLabel
 
 	existing, err := os.ReadFile(plistPath)
-	plistMatches := err == nil && string(existing) == want
+	plistMatches := err == nil && (string(existing) == want || plistUnitMatches(string(existing), w.env.Executable, tokenPath, w.env.expandEnv()))
 	_, _, loadedErr := w.env.RunCmd(ctx, "launchctl", "print", serviceTarget)
 	isLoaded := loadedErr == nil
 
@@ -674,18 +738,22 @@ func (w *wizard) stepFinalCheck(ctx context.Context, addr, publicURL string) {
 		return
 	}
 
-	if ok, _, err := checkHealth(ctx, w.env.HTTPClient, loopbackURL); err != nil || !ok {
+	if h, err := checkHealth(ctx, w.env.HTTPClient, loopbackURL); err != nil || !h.OK {
 		w.printf("Loopback health (%s/api/v1/health): FAIL (%v)\n", loopbackURL, err)
 	} else {
 		w.printf("Loopback health (%s/api/v1/health): ok\n", loopbackURL)
 	}
 
 	if publicURL != "" {
-		if ok, secure, err := checkHealth(ctx, w.env.HTTPClient, publicURL); err != nil || !ok {
+		h, err := checkHealth(ctx, w.env.HTTPClient, publicURL)
+		switch {
+		case err != nil || !h.OK:
 			w.printf("Public health (%s/api/v1/health): FAIL (%v)\n", publicURL, err)
-		} else if !secure {
+		case !h.HasSecure:
+			w.printf("Public health (%s/api/v1/health): ok (warning: server predates forwarded-proto check; restart the web service)\n", publicURL)
+		case !h.Secure:
 			w.printf("Public health (%s/api/v1/health): ok (warning: X-Forwarded-Proto: https not seen)\n", publicURL)
-		} else {
+		default:
 			w.printf("Public health (%s/api/v1/health): ok (HTTPS/Secure cookie verified)\n", publicURL)
 		}
 	}
@@ -800,25 +868,36 @@ func formatTailscaleServeURL(hostPort string) string {
 	return "https://" + net.JoinHostPort(host, port)
 }
 
-func checkHealth(ctx context.Context, client *http.Client, baseURL string) (ok bool, secure bool, err error) {
+type healthStatus struct {
+	OK        bool
+	Secure    bool
+	HasSecure bool
+}
+
+func checkHealth(ctx context.Context, client *http.Client, baseURL string) (healthStatus, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(baseURL, "/")+"/api/v1/health", nil)
 	if err != nil {
-		return false, false, fmt.Errorf("build health request: %w", err)
+		return healthStatus{}, fmt.Errorf("build health request: %w", err)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return false, false, fmt.Errorf("health request: %w", err)
+		return healthStatus{}, fmt.Errorf("health request: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return false, false, fmt.Errorf("HTTP %d", resp.StatusCode)
+		return healthStatus{}, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	var body struct {
-		OK     bool `json:"ok"`
-		Secure bool `json:"secure"`
+		OK     bool  `json:"ok"`
+		Secure *bool `json:"secure"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return false, false, fmt.Errorf("decode health response: %w", err)
+		return healthStatus{}, fmt.Errorf("decode health response: %w", err)
 	}
-	return body.OK, body.Secure, nil
+	st := healthStatus{OK: body.OK}
+	if body.Secure != nil {
+		st.HasSecure = true
+		st.Secure = *body.Secure
+	}
+	return st, nil
 }

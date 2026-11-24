@@ -11,9 +11,9 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -26,10 +26,12 @@ import (
 // `decide doctor` web checks. Zero fields default to the real host environment.
 type DoctorEnv struct {
 	GOOS       string
+	User       string
 	UID        string
 	HomeDir    string
 	ConfigPath string
 	Executable string
+	Getenv     func(string) string
 	LookPath   func(file string) (string, error)
 	RunCmd     func(ctx context.Context, name string, args ...string) (stdout, stderr string, err error)
 	HTTPClient *http.Client
@@ -37,40 +39,68 @@ type DoctorEnv struct {
 
 func (e *DoctorEnv) withDefaults() DoctorEnv {
 	out := *e
-	if out.GOOS == "" {
-		out.GOOS = runtime.GOOS
+	out.fillIdentityDefaults()
+	out.fillPathDefaults()
+	out.fillRuntimeDefaults()
+	return out
+}
+
+func (e *DoctorEnv) fillIdentityDefaults() {
+	if e.GOOS == "" {
+		e.GOOS = runtime.GOOS
 	}
-	if out.UID == "" {
-		out.UID = strconv.Itoa(os.Getuid())
+	if e.User == "" {
+		if u, err := user.Current(); err == nil && u.Username != "" {
+			e.User = u.Username
+		} else {
+			e.User = os.Getenv("USER")
+		}
 	}
-	if out.HomeDir == "" {
+	if e.UID == "" {
+		e.UID = strconv.Itoa(os.Getuid())
+	}
+}
+
+func (e *DoctorEnv) fillPathDefaults() {
+	if e.HomeDir == "" {
 		if home, err := os.UserHomeDir(); err == nil {
-			out.HomeDir = home
+			e.HomeDir = home
 		}
 	}
-	if out.ConfigPath == "" {
+	if e.ConfigPath == "" {
 		if p, ok := decide.ConfigPath(); ok {
-			out.ConfigPath = p
+			e.ConfigPath = p
 		}
 	}
-	if out.Executable == "" {
+	if e.Executable == "" {
 		if exe, err := os.Executable(); err == nil {
 			if resolved, rerr := filepath.EvalSymlinks(exe); rerr == nil {
 				exe = resolved
 			}
-			out.Executable = exe
+			e.Executable = exe
 		}
 	}
-	if out.LookPath == nil {
-		out.LookPath = exec.LookPath
+}
+
+func (e *DoctorEnv) fillRuntimeDefaults() {
+	if e.LookPath == nil {
+		e.LookPath = exec.LookPath
 	}
-	if out.RunCmd == nil {
-		out.RunCmd = defaultRunCmd
+	if e.RunCmd == nil {
+		e.RunCmd = defaultRunCmd
 	}
-	if out.HTTPClient == nil {
-		out.HTTPClient = &http.Client{Timeout: 5 * time.Second}
+	if e.HTTPClient == nil {
+		e.HTTPClient = &http.Client{Timeout: 5 * time.Second}
 	}
-	return out
+}
+
+func (e DoctorEnv) expandEnv() pathExpandEnv {
+	return pathExpandEnv{
+		HomeDir: e.HomeDir,
+		User:    e.User,
+		UID:     e.UID,
+		Getenv:  e.Getenv,
+	}
 }
 
 // IsWebConfigured reports whether `decide web` is configured via config.json
@@ -107,21 +137,32 @@ func DoctorWebChecks(ctx context.Context, env DoctorEnv, offline bool) []toolcli
 	}
 
 	svcBin, svcArgs, svcInstalled, svcRunning := inspectWebService(ctx, e)
+	eff := resolveEffectiveWebSettings(cfg, e, svcArgs)
 
-	var healthOK, healthSecure bool
+	var health healthStatus
 	var healthErr error
 	if !offline && cfg.Web.PublicURL != "" {
-		healthOK, healthSecure, healthErr = checkHealth(ctx, e.HTTPClient, cfg.Web.PublicURL)
+		health, healthErr = checkHealth(ctx, e.HTTPClient, cfg.Web.PublicURL)
+	}
+
+	authProbe := authProbeUnknown
+	if !offline {
+		if cfg.Web.PublicURL != "" {
+			authProbe = probeServerAuth(ctx, e.HTTPClient, cfg.Web.PublicURL)
+		}
+		if authProbe == authProbeUnknown && svcRunning && eff.Addr != "" {
+			authProbe = probeServerAuth(ctx, e.HTTPClient, "http://"+eff.Addr)
+		}
 	}
 
 	return []toolcli.CheckResult{
 		checkWebService(svcInstalled, svcRunning),
-		checkWebAddr(cfg),
-		checkWebToken(cfg),
-		checkWebAuth(cfg),
-		checkWebPublicURL(ctx, e, cfg),
-		checkWebHealth(cfg, offline, healthOK, healthErr),
-		checkWebForwardedProto(cfg, offline, healthOK, healthSecure, healthErr),
+		checkWebAddr(eff.Addr),
+		checkWebToken(eff, authProbe),
+		checkWebAuth(eff, authProbe),
+		checkWebPublicURL(ctx, e, cfg, eff.Addr),
+		checkWebHealth(cfg, offline, health.OK, healthErr),
+		checkWebForwardedProto(cfg, offline, health, healthErr),
 		checkWebPush(cfg),
 		checkWebBinary(e, svcInstalled, svcBin),
 		checkWebFollowConflict(ctx, e, svcRunning, svcArgs),
@@ -134,6 +175,14 @@ func inspectWebService(ctx context.Context, e DoctorEnv) (bin string, args []str
 		data, err := os.ReadFile(systemdUnitPath(e.HomeDir))
 		if err == nil {
 			installed = true
+		}
+		if showOut, _, showErr := e.RunCmd(ctx, "systemctl", "--user", "show", "-p", "ExecStart", systemdWebServiceName); showErr == nil {
+			bin, args = parseSystemdShowExecStart(showOut)
+			if bin != "" {
+				installed = true
+			}
+		}
+		if bin == "" && err == nil {
 			bin, args = parseSystemdExecStart(string(data))
 		}
 		out, _, runErr := e.RunCmd(ctx, "systemctl", "--user", "is-active", systemdWebServiceName)
@@ -188,8 +237,7 @@ func checkWebService(installed, running bool) toolcli.CheckResult {
 	}
 }
 
-func checkWebAddr(cfg decide.Config) toolcli.CheckResult {
-	addr := cfg.WebAddr()
+func checkWebAddr(addr string) toolcli.CheckResult {
 	if _, _, err := net.SplitHostPort(addr); err != nil {
 		return toolcli.CheckResult{
 			Name:   "web-addr",
@@ -205,13 +253,20 @@ func checkWebAddr(cfg decide.Config) toolcli.CheckResult {
 	}
 }
 
-func checkWebToken(cfg decide.Config) toolcli.CheckResult {
-	mode := cfg.Web.Auth.Mode
+func checkWebToken(eff effectiveWebSettings, probe authProbeState) toolcli.CheckResult {
+	mode := eff.AuthMode
 	if mode == "" {
 		mode = decide.WebAuthNone
 	}
-	path := cfg.Web.Auth.TokenFile
+	path := eff.TokenFile
 	if mode == decide.WebAuthNone && path == "" {
+		if probe == authProbeEnforced {
+			return toolcli.CheckResult{
+				Name:   "web-token",
+				Status: toolcli.StatusOK,
+				Detail: "token auth enforced by running server (no token file path configured)",
+			}
+		}
 		return toolcli.CheckResult{
 			Name:   "web-token",
 			Status: toolcli.StatusWarn,
@@ -269,44 +324,69 @@ func checkWebToken(cfg decide.Config) toolcli.CheckResult {
 			Hint:   "generate a token with at least 16 characters; run `decide web setup`",
 		}
 	}
+	detail := fmt.Sprintf("%s (mode 0600, valid length)", path)
+	if eff.TokenSource != "" {
+		detail = fmt.Sprintf("%s (mode 0600, valid length; token file from %s)", path, eff.TokenSource)
+	}
 	return toolcli.CheckResult{
 		Name:   "web-token",
 		Status: toolcli.StatusOK,
-		Detail: fmt.Sprintf("%s (mode 0600, valid length)", path),
+		Detail: detail,
 	}
 }
 
-func checkWebAuth(cfg decide.Config) toolcli.CheckResult {
-	mode := cfg.Web.Auth.Mode
+func checkWebAuth(eff effectiveWebSettings, probe authProbeState) toolcli.CheckResult {
+	mode := eff.AuthMode
 	if mode == "" {
 		mode = decide.WebAuthNone
 	}
-	addr := cfg.WebAddr()
 	if mode == decide.WebAuthNone {
-		host, _, err := net.SplitHostPort(addr)
+		if probe == authProbeEnforced {
+			return toolcli.CheckResult{
+				Name:   "web-auth",
+				Status: toolcli.StatusOK,
+				Detail: "token auth enforced by running server (GET /api/v1/items returned 401)",
+			}
+		}
+		host, _, err := net.SplitHostPort(eff.Addr)
 		if err == nil && !isLoopbackHost(host) {
 			return toolcli.CheckResult{
 				Name:   "web-auth",
 				Status: toolcli.StatusFail,
-				Detail: fmt.Sprintf("auth mode none on non-loopback address %s", addr),
+				Detail: fmt.Sprintf("auth mode none on non-loopback address %s", eff.Addr),
 				Hint:   "switch to web.auth.mode \"token\" or bind to 127.0.0.1; run `decide web setup`",
 			}
 		}
 		return toolcli.CheckResult{
 			Name:   "web-auth",
 			Status: toolcli.StatusWarn,
-			Detail: fmt.Sprintf("auth mode none on loopback %s", addr),
+			Detail: fmt.Sprintf("auth mode none on loopback %s", eff.Addr),
 			Hint:   "prefer token auth even behind an ingress; run `decide web setup`",
 		}
+	}
+	detail := fmt.Sprintf("auth mode %s", mode)
+	if eff.ModeSource != "" {
+		detail += fmt.Sprintf(" (from %s)", eff.ModeSource)
+	}
+	if probe == authProbeOpen {
+		return toolcli.CheckResult{
+			Name:   "web-auth",
+			Status: toolcli.StatusWarn,
+			Detail: detail + ", but running server did not require auth on /api/v1/items",
+			Hint:   "restart the decide-web service so the configured auth settings take effect",
+		}
+	}
+	if probe == authProbeEnforced {
+		detail += "; token auth enforced by running server"
 	}
 	return toolcli.CheckResult{
 		Name:   "web-auth",
 		Status: toolcli.StatusOK,
-		Detail: fmt.Sprintf("auth mode %s", mode),
+		Detail: detail,
 	}
 }
 
-func checkWebPublicURL(ctx context.Context, e DoctorEnv, cfg decide.Config) toolcli.CheckResult {
+func checkWebPublicURL(ctx context.Context, e DoctorEnv, cfg decide.Config, addr string) toolcli.CheckResult {
 	raw := strings.TrimRight(strings.TrimSpace(cfg.Web.PublicURL), "/")
 	if raw == "" {
 		return toolcli.CheckResult{
@@ -326,7 +406,7 @@ func checkWebPublicURL(ctx context.Context, e DoctorEnv, cfg decide.Config) tool
 		}
 	}
 	if _, err := e.LookPath("tailscale"); err == nil {
-		if tsURL, _, err := tailscaleServeStatus(ctx, e.RunCmd, cfg.WebAddr()); err == nil && tsURL != "" {
+		if tsURL, _, err := tailscaleServeStatus(ctx, e.RunCmd, addr); err == nil && tsURL != "" {
 			if !strings.EqualFold(raw, strings.TrimRight(tsURL, "/")) {
 				return toolcli.CheckResult{
 					Name:   "web-public-url",
@@ -385,7 +465,7 @@ func checkWebHealth(cfg decide.Config, offline, ok bool, err error) toolcli.Chec
 	}
 }
 
-func checkWebForwardedProto(cfg decide.Config, offline, healthOK, secure bool, healthErr error) toolcli.CheckResult {
+func checkWebForwardedProto(cfg decide.Config, offline bool, health healthStatus, healthErr error) toolcli.CheckResult {
 	if offline {
 		return toolcli.CheckResult{
 			Name:   "web-forwarded-proto",
@@ -402,7 +482,7 @@ func checkWebForwardedProto(cfg decide.Config, offline, healthOK, secure bool, h
 			Hint:   "set web.publicUrl and forward X-Forwarded-Proto: https; run `decide web setup`",
 		}
 	}
-	if healthErr != nil || !healthOK {
+	if healthErr != nil || !health.OK {
 		return toolcli.CheckResult{
 			Name:   "web-forwarded-proto",
 			Status: toolcli.StatusFail,
@@ -410,7 +490,15 @@ func checkWebForwardedProto(cfg decide.Config, offline, healthOK, secure bool, h
 			Hint:   "ensure ingress forwards X-Forwarded-Proto: https; run `decide web setup`",
 		}
 	}
-	if !secure {
+	if !health.HasSecure {
+		return toolcli.CheckResult{
+			Name:   "web-forwarded-proto",
+			Status: toolcli.StatusWarn,
+			Detail: "server predates this check; restart the web service",
+			Hint:   "restart the decide-web service so /api/v1/health reports forwarded proto status",
+		}
+	}
+	if !health.Secure {
 		return toolcli.CheckResult{
 			Name:   "web-forwarded-proto",
 			Status: toolcli.StatusFail,
@@ -458,10 +546,8 @@ func checkWebBinary(e DoctorEnv, installed bool, svcBin string) toolcli.CheckRes
 		}
 	}
 	installedBin := resolveBinaryPath(e)
-	resolvedSvc := svcBin
-	if r, err := filepath.EvalSymlinks(svcBin); err == nil {
-		resolvedSvc = r
-	}
+	expandedSvc := expandServicePath(svcBin, e.expandEnv())
+	resolvedSvc := evalSymlinksOrClean(expandedSvc)
 	if installedBin == "" {
 		return toolcli.CheckResult{
 			Name:   "web-binary",
@@ -500,7 +586,7 @@ func resolveBinaryPath(e DoctorEnv) string {
 }
 
 func checkWebFollowConflict(ctx context.Context, e DoctorEnv, webRunning bool, svcArgs []string) toolcli.CheckResult {
-	if !webRunning || slices.Contains(svcArgs, "--no-follow") {
+	if !webRunning || parseWebServiceFlags(svcArgs).NoFollow {
 		return toolcli.CheckResult{
 			Name:   "web-follow-conflict",
 			Status: toolcli.StatusOK,
@@ -522,20 +608,361 @@ func checkWebFollowConflict(ctx context.Context, e DoctorEnv, webRunning bool, s
 	}
 }
 
+type pathExpandEnv struct {
+	HomeDir string
+	User    string
+	UID     string
+	Getenv  func(string) string
+}
+
+// expandServicePath expands systemd specifiers (%h, %u, %U, %%), environment
+// references ($VAR, ${VAR}), and a leading ~ in a path from a service unit or
+// config.
+func expandServicePath(raw string, env pathExpandEnv) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	s = expandSystemdSpecifiers(s, env)
+	s = expandEnvVars(s, env)
+	s = expandTilde(s, env)
+	return filepath.Clean(s)
+}
+
+func expandSystemdSpecifiers(s string, env pathExpandEnv) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == '%' && i+1 < len(s) {
+			if rep, ok := systemdSpecifierValue(s[i+1], env); ok {
+				b.WriteString(rep)
+				i++
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+func systemdSpecifierValue(spec byte, env pathExpandEnv) (string, bool) {
+	switch spec {
+	case '%':
+		return "%", true
+	case 'h':
+		return env.HomeDir, env.HomeDir != ""
+	case 'u':
+		return env.User, env.User != ""
+	case 'U':
+		return env.UID, env.UID != ""
+	default:
+		return "", false
+	}
+}
+
+func expandEnvVars(s string, env pathExpandEnv) string {
+	getenv := env.Getenv
+	if getenv == nil {
+		getenv = func(k string) string {
+			if k == "HOME" && env.HomeDir != "" {
+				return env.HomeDir
+			}
+			if k == "USER" && env.User != "" {
+				return env.User
+			}
+			return os.Getenv(k)
+		}
+	}
+	return os.Expand(s, getenv)
+}
+
+func expandTilde(s string, env pathExpandEnv) string {
+	if env.HomeDir == "" {
+		return s
+	}
+	switch {
+	case s == "~":
+		return env.HomeDir
+	case strings.HasPrefix(s, "~/"):
+		return filepath.Join(env.HomeDir, s[2:])
+	case env.User != "" && s == "~"+env.User:
+		return env.HomeDir
+	case env.User != "" && strings.HasPrefix(s, "~"+env.User+"/"):
+		return filepath.Join(env.HomeDir, s[len(env.User)+2:])
+	default:
+		return s
+	}
+}
+
+func evalSymlinksOrClean(p string) string {
+	if p == "" {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		return resolved
+	}
+	return filepath.Clean(p)
+}
+
+type webServiceFlags struct {
+	Addr                string
+	TokenFile           string
+	AuthMode            string
+	AllowInsecureUnauth bool
+	NoFollow            bool
+}
+
+func parseWebServiceFlags(args []string) webServiceFlags {
+	var flags webServiceFlags
+	i := 0
+	if len(args) > 0 && args[0] == "web" {
+		i = 1
+	}
+	for ; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			break
+		}
+		if !strings.HasPrefix(arg, "-") || arg == "-" {
+			continue
+		}
+		name, val, hasEq := strings.Cut(strings.TrimLeft(arg, "-"), "=")
+		nextVal := func() string {
+			if hasEq {
+				return val
+			}
+			if i+1 < len(args) {
+				i++
+				return args[i]
+			}
+			return ""
+		}
+		applyWebServiceFlag(&flags, name, hasEq, val, nextVal)
+	}
+	return flags
+}
+
+func applyWebServiceFlag(flags *webServiceFlags, name string, hasEq bool, val string, nextVal func() string) {
+	switch name {
+	case "token-file":
+		flags.TokenFile = nextVal()
+	case "addr":
+		flags.Addr = nextVal()
+	case "auth-mode", "auth":
+		flags.AuthMode = nextVal()
+	case "no-follow":
+		flags.NoFollow = !hasEq || val == "true" || val == "1"
+	case "allow-insecure-unauth":
+		flags.AllowInsecureUnauth = !hasEq || val == "true" || val == "1"
+	}
+}
+
+type effectiveWebSettings struct {
+	Addr        string
+	AuthMode    string
+	TokenFile   string
+	ModeSource  string
+	TokenSource string
+}
+
+func resolveEffectiveWebSettings(cfg decide.Config, e DoctorEnv, svcArgs []string) effectiveWebSettings {
+	expandEnv := e.expandEnv()
+	eff := effectiveWebSettings{
+		Addr:      cfg.WebAddr(),
+		AuthMode:  cfg.Web.Auth.Mode,
+		TokenFile: expandServicePath(cfg.Web.Auth.TokenFile, expandEnv),
+	}
+	if eff.AuthMode != "" {
+		eff.ModeSource = "config"
+	}
+	if eff.TokenFile != "" {
+		eff.TokenSource = "config"
+	}
+
+	svcSource := serviceFlagSource(e.GOOS)
+	flags := parseWebServiceFlags(svcArgs)
+	if flags.Addr != "" {
+		eff.Addr = flags.Addr
+	}
+	if flags.AuthMode != "" {
+		eff.AuthMode = flags.AuthMode
+		eff.ModeSource = svcSource
+	}
+	if flags.TokenFile != "" {
+		eff.AuthMode = decide.WebAuthToken
+		eff.TokenFile = expandServicePath(flags.TokenFile, expandEnv)
+		eff.ModeSource = svcSource
+		eff.TokenSource = svcSource
+	}
+	if eff.AuthMode == "" {
+		eff.AuthMode = decide.WebAuthNone
+	}
+	return eff
+}
+
+func serviceFlagSource(goos string) string {
+	switch goos {
+	case "linux":
+		return "service ExecStart"
+	case "darwin":
+		return "service ProgramArguments"
+	default:
+		return "service"
+	}
+}
+
+type authProbeState int
+
+const (
+	authProbeUnknown authProbeState = iota
+	authProbeEnforced
+	authProbeOpen
+)
+
+func probeServerAuth(ctx context.Context, client *http.Client, baseURL string) authProbeState {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(baseURL, "/")+"/api/v1/items", nil)
+	if err != nil {
+		return authProbeUnknown
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return authProbeUnknown
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusUnauthorized:
+		return authProbeEnforced
+	case http.StatusOK:
+		return authProbeOpen
+	default:
+		return authProbeUnknown
+	}
+}
+
 func parseSystemdExecStart(unit string) (string, []string) {
+	var bin string
+	var args []string
 	for _, line := range strings.Split(unit, "\n") {
 		line = strings.TrimSpace(line)
 		val, ok := strings.CutPrefix(line, "ExecStart=")
 		if !ok {
 			continue
 		}
-		fields := strings.Fields(strings.TrimLeft(val, "-@:+!"))
-		if len(fields) == 0 {
-			return "", nil
+		val = strings.TrimSpace(val)
+		if val == "" {
+			bin, args = "", nil
+			continue
 		}
-		return fields[0], fields[1:]
+		fields := splitCommandArgs(strings.TrimLeft(val, "-@:+!"))
+		if len(fields) > 0 {
+			bin, args = fields[0], fields[1:]
+		}
 	}
-	return "", nil
+	return bin, args
+}
+
+func parseSystemdShowExecStart(out string) (string, []string) {
+	var bin string
+	var args []string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		val, ok := strings.CutPrefix(line, "ExecStart=")
+		if !ok {
+			continue
+		}
+		val = strings.TrimSpace(val)
+		if val == "" {
+			bin, args = "", nil
+			continue
+		}
+		if strings.HasPrefix(val, "{") && strings.HasSuffix(val, "}") {
+			inner := strings.TrimSpace(val[1 : len(val)-1])
+			var pathVal, argvVal string
+			for _, part := range strings.Split(inner, " ; ") {
+				part = strings.TrimSpace(part)
+				if p, ok := strings.CutPrefix(part, "path="); ok {
+					pathVal = strings.TrimSpace(p)
+				} else if a, ok := strings.CutPrefix(part, "argv[]="); ok {
+					argvVal = strings.TrimSpace(a)
+				}
+			}
+			fields := splitCommandArgs(argvVal)
+			switch {
+			case len(fields) > 0:
+				bin = fields[0]
+				if pathVal != "" {
+					bin = pathVal
+				}
+				args = fields[1:]
+			case pathVal != "":
+				bin, args = pathVal, nil
+			}
+			continue
+		}
+		fields := splitCommandArgs(strings.TrimLeft(val, "-@:+!"))
+		if len(fields) > 0 {
+			bin, args = fields[0], fields[1:]
+		}
+	}
+	return bin, args
+}
+
+type argSplitter struct {
+	args     []string
+	cur      strings.Builder
+	quote    byte // 0, '\'', or '"'
+	escaped  bool
+	hasToken bool
+}
+
+func (a *argSplitter) feed(c byte) {
+	if a.escaped {
+		a.cur.WriteByte(c)
+		a.escaped = false
+		a.hasToken = true
+		return
+	}
+	if a.quote != 0 {
+		switch {
+		case a.quote == '"' && c == '\\':
+			a.escaped = true
+		case c == a.quote:
+			a.quote = 0
+		default:
+			a.cur.WriteByte(c)
+		}
+		return
+	}
+	switch c {
+	case '\\':
+		a.escaped = true
+		a.hasToken = true
+	case '\'', '"':
+		a.quote = c
+		a.hasToken = true
+	case ' ', '\t', '\n', '\r':
+		a.flush()
+	default:
+		a.cur.WriteByte(c)
+		a.hasToken = true
+	}
+}
+
+func (a *argSplitter) flush() {
+	if a.hasToken {
+		a.args = append(a.args, a.cur.String())
+		a.cur.Reset()
+		a.hasToken = false
+	}
+}
+
+func splitCommandArgs(s string) []string {
+	var sp argSplitter
+	for i := 0; i < len(s); i++ {
+		sp.feed(s[i])
+	}
+	sp.flush()
+	return sp.args
 }
 
 func parsePlistProgramArguments(plist string) (string, []string) {

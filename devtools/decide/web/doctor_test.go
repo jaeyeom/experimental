@@ -205,6 +205,11 @@ func TestDoctorWebFailCases(t *testing.T) {
 		cfg.Addr = "0.0.0.0:8787"
 		cfg.Auth = decide.WebAuthConfig{Mode: decide.WebAuthNone}
 		writeWebCfg(t, env.ConfigPath, cfg)
+		unitPath := systemdUnitPath(env.HomeDir)
+		noTokenUnit := "[Unit]\nDescription=decide web inbox\n\n[Service]\nExecStart=" + env.Executable + " web\n\n[Install]\nWantedBy=default.target\n"
+		if err := os.WriteFile(unitPath, []byte(noTokenUnit), 0o600); err != nil {
+			t.Fatal(err)
+		}
 		c := findCheck(t, DoctorWebChecks(context.Background(), env, false), "web-auth")
 		if c.Status != toolcli.StatusFail || !strings.Contains(c.Hint, "decide web setup") {
 			t.Fatalf("got %+v, want fail", c)
@@ -286,4 +291,215 @@ func TestDoctorWebFailCases(t *testing.T) {
 			t.Fatalf("got %+v, want fail", c)
 		}
 	})
+}
+
+func TestExpandServicePath(t *testing.T) {
+	env := pathExpandEnv{
+		HomeDir: "/home/alice",
+		User:    "alice",
+		UID:     "1000",
+		Getenv: func(k string) string {
+			switch k {
+			case "HOME":
+				return "/home/alice"
+			case "XDG_CONFIG_HOME":
+				return "/srv/config"
+			default:
+				return ""
+			}
+		},
+	}
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "empty", in: "", want: ""},
+		{name: "home specifier", in: "%h/go/bin/decide", want: "/home/alice/go/bin/decide"},
+		{name: "user specifier", in: "/home/%u/go/bin/decide", want: "/home/alice/go/bin/decide"},
+		{name: "uid specifier", in: "/run/user/%U/decide-token", want: "/run/user/1000/decide-token"},
+		{name: "escaped percent", in: "/tmp/%%h/decide", want: "/tmp/%h/decide"},
+		{name: "tilde prefix", in: "~/.config/decide/web-token", want: "/home/alice/.config/decide/web-token"},
+		{name: "tilde only", in: "~", want: "/home/alice"},
+		{name: "env var", in: "$HOME/go/bin/decide", want: "/home/alice/go/bin/decide"},
+		{name: "braced env var", in: "${XDG_CONFIG_HOME}/decide/web-token", want: "/srv/config/decide/web-token"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := expandServicePath(tc.in, env); got != tc.want {
+				t.Errorf("expandServicePath(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDoctorWebServiceFlagsAndSpecifiers(t *testing.T) {
+	t.Run("unit token-file without config web.auth and %h binary", func(t *testing.T) {
+		env, cfg, _ := setupHealthyDoctorFixture(t)
+		// Remove web.auth from config.json.
+		cfg.Auth = decide.WebAuthConfig{}
+		raw, err := json.Marshal(map[string]any{"web": cfg})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(env.ConfigPath, raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		// Write unit with %h binary and ~ token-file.
+		unit := "[Unit]\nDescription=decide web inbox\n\n[Service]\nExecStart=%h/bin/decide web --token-file ~/.config/decide/web-token\nRestart=on-failure\n\n[Install]\nWantedBy=default.target\n"
+		if err := os.WriteFile(systemdUnitPath(env.HomeDir), []byte(unit), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		checks := DoctorWebChecks(context.Background(), env, false)
+		tok := findCheck(t, checks, "web-token")
+		if tok.Status != toolcli.StatusOK || !strings.Contains(tok.Detail, "service ExecStart") {
+			t.Errorf("web-token = %+v, want ok with source service ExecStart", tok)
+		}
+		auth := findCheck(t, checks, "web-auth")
+		if auth.Status != toolcli.StatusOK || !strings.Contains(auth.Detail, "service ExecStart") {
+			t.Errorf("web-auth = %+v, want ok with source service ExecStart", auth)
+		}
+		bin := findCheck(t, checks, "web-binary")
+		if bin.Status != toolcli.StatusOK {
+			t.Errorf("web-binary = %+v, want ok for %%h expansion", bin)
+		}
+	})
+
+	t.Run("prefers systemctl show ExecStart on linux", func(t *testing.T) {
+		env, cfg, runner := setupHealthyDoctorFixture(t)
+		tokenPath := cfg.Auth.TokenFile
+		cfg.Auth = decide.WebAuthConfig{}
+		raw, err := json.Marshal(map[string]any{"web": cfg})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(env.ConfigPath, raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		// Unit file on disk has no --token-file, but systemctl show reports the effective ExecStart.
+		noTokenUnit := "[Unit]\nDescription=decide web\n\n[Service]\nExecStart=" + env.Executable + " web\n"
+		if err := os.WriteFile(systemdUnitPath(env.HomeDir), []byte(noTokenUnit), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		runner.handlers["systemctl --user show -p ExecStart decide-web.service"] = func([]string) (string, string, error) {
+			return "ExecStart={ path=" + env.Executable + " ; argv[]=" + env.Executable + " web --token-file " + tokenPath + " ; ignore_errors=no ; status=0/0 }\n", "", nil
+		}
+
+		checks := DoctorWebChecks(context.Background(), env, false)
+		tok := findCheck(t, checks, "web-token")
+		if tok.Status != toolcli.StatusOK || !strings.Contains(tok.Detail, "service ExecStart") {
+			t.Errorf("web-token = %+v, want ok from systemctl show", tok)
+		}
+		auth := findCheck(t, checks, "web-auth")
+		if auth.Status != toolcli.StatusOK || !strings.Contains(auth.Detail, "service ExecStart") {
+			t.Errorf("web-auth = %+v, want ok from systemctl show", auth)
+		}
+	})
+
+	t.Run("darwin plist ProgramArguments token-file without config web.auth", func(t *testing.T) {
+		env, cfg, runner := setupHealthyDoctorFixture(t)
+		tokenPath := cfg.Auth.TokenFile
+		cfg.Auth = decide.WebAuthConfig{}
+		raw, err := json.Marshal(map[string]any{"web": cfg})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(env.ConfigPath, raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		env.GOOS = "darwin"
+		plistPath := launchAgentPath(env.HomeDir)
+		if err := os.MkdirAll(filepath.Dir(plistPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(plistPath, []byte(launchAgentContent(env.Executable, tokenPath, launchAgentLogPath(env.HomeDir))), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		runner.handlers["launchctl print gui/1000/com.github.jaeyeom.decide-web"] = func([]string) (string, string, error) {
+			return "state = running", "", nil
+		}
+		runner.handlers["launchctl print gui/1000/com.github.jaeyeom.decide-follow"] = func([]string) (string, string, error) {
+			return "", "not found", errors.New("not loaded")
+		}
+
+		checks := DoctorWebChecks(context.Background(), env, false)
+		tok := findCheck(t, checks, "web-token")
+		if tok.Status != toolcli.StatusOK || !strings.Contains(tok.Detail, "ProgramArguments") {
+			t.Errorf("web-token = %+v, want ok from ProgramArguments", tok)
+		}
+		auth := findCheck(t, checks, "web-auth")
+		if auth.Status != toolcli.StatusOK || !strings.Contains(auth.Detail, "ProgramArguments") {
+			t.Errorf("web-auth = %+v, want ok from ProgramArguments", auth)
+		}
+	})
+}
+
+func TestDoctorWebOldServerForwardedProto(t *testing.T) {
+	env, _, _ := setupHealthyDoctorFixture(t)
+	oldSrv := newFakeOldHealthServer(t)
+	oldAddr := strings.TrimPrefix(oldSrv.URL, "http://")
+	env.HTTPClient = &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			u := *req.URL
+			u.Scheme = "http"
+			u.Host = oldAddr
+			r2 := req.Clone(req.Context())
+			r2.URL = &u
+			return http.DefaultTransport.RoundTrip(r2)
+		}),
+	}
+
+	checks := DoctorWebChecks(context.Background(), env, false)
+	h := findCheck(t, checks, "web-health")
+	if h.Status != toolcli.StatusOK {
+		t.Errorf("web-health = %+v, want ok", h)
+	}
+	fp := findCheck(t, checks, "web-forwarded-proto")
+	if fp.Status != toolcli.StatusWarn {
+		t.Fatalf("web-forwarded-proto = %+v, want warn (not fail)", fp)
+	}
+	if !strings.Contains(fp.Detail, "server predates this check; restart the web service") {
+		t.Errorf("web-forwarded-proto detail = %q, want old-server warning", fp.Detail)
+	}
+}
+
+func TestDoctorWebAuthProbe401(t *testing.T) {
+	env, cfg, _ := setupHealthyDoctorFixture(t)
+	// Neither config nor unit specifies token auth, but live server returns 401 on /api/v1/items.
+	cfg.Auth = decide.WebAuthConfig{}
+	raw, err := json.Marshal(map[string]any{"web": cfg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(env.ConfigPath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	noTokenUnit := "[Unit]\nDescription=decide web\n\n[Service]\nExecStart=" + env.Executable + " web\n"
+	if err := os.WriteFile(systemdUnitPath(env.HomeDir), []byte(noTokenUnit), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	probeSrv := newFakeAuthProbeServer(t, true, http.StatusUnauthorized)
+	probeAddr := strings.TrimPrefix(probeSrv.URL, "http://")
+	env.HTTPClient = &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			u := *req.URL
+			u.Scheme = "http"
+			u.Host = probeAddr
+			r2 := req.Clone(req.Context())
+			r2.URL = &u
+			return http.DefaultTransport.RoundTrip(r2)
+		}),
+	}
+
+	checks := DoctorWebChecks(context.Background(), env, false)
+	auth := findCheck(t, checks, "web-auth")
+	if auth.Status != toolcli.StatusOK || !strings.Contains(strings.ToLower(auth.Detail), "token") {
+		t.Errorf("web-auth = %+v, want ok reporting token-enforced", auth)
+	}
+	tok := findCheck(t, checks, "web-token")
+	if tok.Status != toolcli.StatusOK {
+		t.Errorf("web-token = %+v, want ok when server enforces token auth", tok)
+	}
 }

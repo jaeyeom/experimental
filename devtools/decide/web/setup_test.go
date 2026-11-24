@@ -54,6 +54,43 @@ func newFakeHealthServer(t *testing.T, secure bool) *httptest.Server {
 	return srv
 }
 
+func newFakeOldHealthServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/health" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func newFakeAuthProbeServer(t *testing.T, secure bool, itemsStatus int) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/health":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "secure": secure})
+		case "/api/v1/items":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(itemsStatus)
+			if itemsStatus == http.StatusUnauthorized {
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": "unauthorized"})
+			} else {
+				_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
 func TestSetupDryRunPrintsPlanAndChangesNothing(t *testing.T) {
 	home := t.TempDir()
 	cfgPath := filepath.Join(home, ".config", "decide", "config.json")
@@ -459,6 +496,146 @@ func TestSetupDarwinLaunchAgent(t *testing.T) {
 	}
 	if !loaded {
 		t.Fatal("expected launchctl bootstrap to be called")
+	}
+}
+
+func TestSetupDoesNotRewriteWorkingUnitWithSpecifiers(t *testing.T) {
+	home := t.TempDir()
+	cfgPath := filepath.Join(home, ".config", "decide", "config.json")
+	tokenPath := filepath.Join(home, ".config", "decide", "web-token")
+	exePath := filepath.Join(home, "go", "bin", "decide")
+	for _, p := range []string{cfgPath, tokenPath, exePath} {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(exePath, []byte("bin"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tokenPath, []byte("0123456789abcdef0123456789abcdef\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Hand-written unit using %h and ~, plus custom Restart=always.
+	customUnit := `[Unit]
+Description=Custom decide web unit
+
+[Service]
+ExecStart=%h/go/bin/decide web --token-file ~/.config/decide/web-token
+Restart=always
+
+[Install]
+WantedBy=default.target
+`
+	unitPath := systemdUnitPath(home)
+	if err := os.MkdirAll(filepath.Dir(unitPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unitPath, []byte(customUnit), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Config without web.auth, only publicUrl.
+	if err := os.WriteFile(cfgPath, []byte(`{"web":{"publicUrl":"https://box.tail.ts.net","push":{"enabled":true,"subject":"mailto:alice@example.com"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := &fakeRunner{
+		handlers: map[string]func([]string) (string, string, error){
+			"systemctl --user is-active decide-web.service":      func([]string) (string, string, error) { return "active\n", "", nil },
+			"loginctl show-user alice --property=Linger --value": func([]string) (string, string, error) { return "yes\n", "", nil },
+			"tailscale status --json":                            func([]string) (string, string, error) { return `{"CertDomains":["box.tail.ts.net"]}`, "", nil },
+			"tailscale serve status --json": func([]string) (string, string, error) {
+				return `{"Web":{"box.tail.ts.net:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:8787"}}}}}`, "", nil
+			},
+		},
+	}
+
+	var stdout bytes.Buffer
+	env := SetupEnv{
+		GOOS:       "linux",
+		User:       "alice",
+		UID:        "1000",
+		HomeDir:    home,
+		ConfigPath: cfgPath,
+		Executable: exePath,
+		LookPath:   func(file string) (string, error) { return "/usr/bin/" + file, nil },
+		RunCmd:     runner.run,
+		RunSudoCmd: runner.runSudo,
+		Stdin:      strings.NewReader(""),
+		Stdout:     &stdout,
+		Stderr:     &bytes.Buffer{},
+	}
+
+	if err := RunSetup(context.Background(), env, SetupOptions{DryRun: true}); err != nil {
+		t.Fatalf("RunSetup dry-run: %v", err)
+	}
+
+	out := stdout.String()
+	if strings.Contains(out, "Plan: write "+unitPath) || strings.Contains(out, "Install and start decide-web.service") {
+		t.Fatalf("wizard proposed rewriting a working unit:\n%s", out)
+	}
+	if !strings.Contains(out, "Already done: systemd user service decide-web.service is installed and active.") {
+		t.Errorf("expected unit to be recognized as already done:\n%s", out)
+	}
+}
+
+func TestSetupProposesRewriteOnRealBinaryMismatch(t *testing.T) {
+	home := t.TempDir()
+	cfgPath := filepath.Join(home, ".config", "decide", "config.json")
+	tokenPath := filepath.Join(home, ".config", "decide", "web-token")
+	exePath := filepath.Join(home, "go", "bin", "decide")
+	for _, p := range []string{cfgPath, tokenPath, exePath} {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(exePath, []byte("bin"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tokenPath, []byte("0123456789abcdef0123456789abcdef\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	staleUnit := "[Unit]\nDescription=decide web\n\n[Service]\nExecStart=/old/bin/decide web --token-file ~/.config/decide/web-token\n"
+	unitPath := systemdUnitPath(home)
+	if err := os.MkdirAll(filepath.Dir(unitPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unitPath, []byte(staleUnit), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := &fakeRunner{
+		handlers: map[string]func([]string) (string, string, error){
+			"systemctl --user is-active decide-web.service":      func([]string) (string, string, error) { return "active\n", "", nil },
+			"loginctl show-user alice --property=Linger --value": func([]string) (string, string, error) { return "yes\n", "", nil },
+			"tailscale status --json":                            func([]string) (string, string, error) { return `{"CertDomains":["box.tail.ts.net"]}`, "", nil },
+			"tailscale serve status --json": func([]string) (string, string, error) {
+				return `{"Web":{"box.tail.ts.net:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:8787"}}}}}`, "", nil
+			},
+		},
+	}
+
+	var stdout bytes.Buffer
+	env := SetupEnv{
+		GOOS:       "linux",
+		User:       "alice",
+		UID:        "1000",
+		HomeDir:    home,
+		ConfigPath: cfgPath,
+		Executable: exePath,
+		LookPath:   func(file string) (string, error) { return "/usr/bin/" + file, nil },
+		RunCmd:     runner.run,
+		RunSudoCmd: runner.runSudo,
+		Stdin:      strings.NewReader(""),
+		Stdout:     &stdout,
+		Stderr:     &bytes.Buffer{},
+	}
+
+	if err := RunSetup(context.Background(), env, SetupOptions{DryRun: true}); err != nil {
+		t.Fatalf("RunSetup dry-run: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "Plan: write "+unitPath) {
+		t.Fatalf("expected wizard to propose rewriting unit on binary mismatch:\n%s", stdout.String())
 	}
 }
 
