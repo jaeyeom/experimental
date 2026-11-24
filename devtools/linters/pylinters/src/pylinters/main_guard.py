@@ -261,7 +261,14 @@ class _Names:
         return self.qualified(func) == "unittest.main"
 
     def is_exit(self, func: ast.expr) -> bool:
-        return self.qualified(func) in ("sys.exit", "SystemExit")
+        # Unbound ``exit`` / ``quit`` are the builtins, which raise
+        # SystemExit with their argument.
+        return self.qualified(func) in (
+            "sys.exit",
+            "SystemExit",
+            "exit",
+            "quit",
+        )
 
 
 _SELF_EXITING = frozenset({"absl.testing.absltest.main", "absltest.main"})
@@ -318,7 +325,13 @@ def _own_nodes(stmt: ast.stmt) -> Iterator[ast.AST]:
 
 
 def _propagated(call: ast.Call, stmt: ast.stmt, names: _Names) -> bool:
-    """Report whether ``call`` is the sole argument of an exit call."""
+    """Report whether ``call`` is the sole argument of an exit call.
+
+    ``return call`` (in a function defined in the guard) hands the result
+    to the caller; what the caller does with it is not followed.
+    """
+    if isinstance(stmt, ast.Return):
+        return stmt.value is call
     if isinstance(stmt, ast.Raise):
         exc = stmt.exc
     elif isinstance(stmt, ast.Expr):

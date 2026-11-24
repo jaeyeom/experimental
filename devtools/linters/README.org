@@ -627,7 +627,8 @@ pkg/bar_test.py:30: missing-test-runner: run as a test (bazel //pkg:bar_test) bu
   ~if __name__ == '__main__':~.
 - ~dropped-exit~: in any file, a guard calls ~pytest.main(...)~ or
   ~unittest.main(exit=False)~ without passing the result straight to
-  ~sys.exit(...)~ or ~raise SystemExit(...)~.
+  ~sys.exit(...)~, the builtin ~exit(...)~ or ~raise SystemExit(...)~, or
+  returning it from a function defined in the guard.
 - ~missing-test-runner~ (opt-in, ~require-test-runner~): a test entry's
   guard runs no test runner.
 

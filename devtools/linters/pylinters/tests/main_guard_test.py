@@ -132,6 +132,34 @@ def test_raise_systemexit_ok() -> None:
     assert rules(run({"a_test.py": src})) == []
 
 
+@pytest.mark.parametrize("name", ["exit", "quit"])
+def test_builtin_exit_ok(name: str) -> None:
+    """The builtin exit() and quit() raise SystemExit with the result."""
+    src = f"import pytest\n{GUARD}    {name}(pytest.main())\n"
+    assert rules(run({"a_test.py": src})) == []
+
+
+def test_imported_exit_shadowing_builtin_flagged() -> None:
+    """An imported ``exit`` that is not sys.exit does not propagate."""
+    src = (
+        "import pytest\nfrom os import _exit as exit\n"
+        + GUARD
+        + "    exit(pytest.main())\n"
+    )
+    assert rules(run({"a_test.py": src})) == [("a_test.py", 4, "dropped-exit")]
+
+
+def test_returned_from_function_in_guard_ok() -> None:
+    """``return pytest.main()`` hands the result to the caller."""
+    src = (
+        "import sys, pytest\n"
+        + GUARD
+        + "    def run():\n        return pytest.main()\n"
+        + "    sys.exit(run())\n"
+    )
+    assert rules(run({"a_test.py": src})) == []
+
+
 def test_assigned_result_flagged() -> None:
     """Data flow is not followed: rc = pytest.main() is flagged."""
     src = (
