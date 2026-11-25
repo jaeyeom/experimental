@@ -236,6 +236,7 @@ func getDefaultBooleanFlags() map[string]bool {
 		"all":              true,
 		"a":                true,
 		"dry-run":          true,
+		"apply":            true,
 		"compress":         true,
 		"detailed":         true,
 		"pretty":           true,

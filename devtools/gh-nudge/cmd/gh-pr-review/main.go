@@ -278,6 +278,7 @@ func getCommandHandler(command string) func([]string) {
 		"resolve":     handleResolve,
 		"auto-adjust": handleAutoAdjust,
 		"archive":     handleArchive,
+		"rerequest":   handleRerequest,
 	}
 	return handlers[command]
 }
@@ -308,6 +309,7 @@ Commands:
   resolve [<owner>/<repo>] [<identifier>] --comment-id <ID>  Mark comment as resolved
   archive [<owner>/<repo>] <pr_number> [list|show|cleanup] Archive management
   auto-adjust [<owner>/<repo>] [<identifier>]     Auto-adjust line numbers based on git diff
+  rerequest [<owner>/<repo>] [<pr_number>] [--apply] [--json] Re-request reviewers safely
   version                                         Show version information
   help                                           Show this help message
 
@@ -1677,4 +1679,68 @@ func parsePullOptions(parser *argparser.ArgParser) (models.PullOptions, error) {
 	}
 
 	return options, nil
+}
+
+func handleRerequest(args []string) {
+	parser := argparser.NewArgParser(args, argparser.WithBooleanFlags("apply", "json"))
+
+	if parser.IsHelp() {
+		showRerequestUsage()
+		return
+	}
+
+	detectedArgs, err := autoDetectArgs(args, true)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error auto-detecting arguments: %v\n", err)
+		os.Exit(1)
+	}
+	parser = argparser.NewArgParser(detectedArgs, argparser.WithBooleanFlags("apply", "json"))
+
+	if err := validateRerequestOptions(parser); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	repository, prNumber, err := parseSubmitArgs(parser)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	opts := prreview.RerequestOptions{
+		Apply: parser.GetBoolOption("apply"),
+		JSON:  parser.GetBoolOption("json"),
+	}
+
+	ctx := context.Background()
+	exec := github.GHExecutor(executor.NewBasicExecutor())
+	client := github.NewClient(ctx, exec)
+	ref := github.PullRef{
+		Owner:  repository.Owner,
+		Repo:   repository.Name,
+		Number: prNumber,
+	}
+
+	if err := prreview.RunRerequest(client, ref, opts, os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func showRerequestUsage() {
+	fmt.Println("Usage: gh-pr-review rerequest [<owner>/<repo>] [<pr_number>] [options]")
+	fmt.Println("  <owner>/<repo>  Repository (auto-detected if omitted)")
+	fmt.Println("  <pr_number>     PR number (auto-detected if omitted)")
+	fmt.Println("  --apply         Re-request eligible reviewers (default is dry run)")
+	fmt.Println("  --json          Output decisions as a JSON array")
+}
+
+func validateRerequestOptions(parser *argparser.ArgParser) error {
+	if err := parser.ValidateOptions([]string{"apply", "json"}); err != nil {
+		return fmt.Errorf("validating options: %w", err)
+	}
+	if err := parser.RequireExactPositionals(2, "gh-pr-review rerequest [<owner>/<repo>] <pr_number> [--apply] [--json]"); err != nil {
+		return fmt.Errorf("validating positionals: %w", err)
+	}
+	return nil
 }

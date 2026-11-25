@@ -65,6 +65,7 @@ Repo and pull request are detected from the current checkout when you omit them.
 | `resolve` | Mark a comment resolved, by `--comment-id` |
 | `archive` | List, show, or clean archived submissions |
 | `auto-adjust` | Move comment lines from the git diff |
+| `rerequest` | Re-request reviewers once the author has answered them |
 | `version` | Print the version |
 | `help` | Print the command list |
 
