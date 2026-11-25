@@ -38,6 +38,7 @@ var callerCommands = map[string]bool{
 	"assign":   true,
 	"reply":    true,
 	"send":     true,
+	"done":     true,
 }
 
 // asHandleEnv carries the hub-mode caller's herdr handle to the hub, as

@@ -269,3 +269,53 @@ func TestDoneUnreadJSONReportsTheState(t *testing.T) {
 		t.Fatalf("json = %s", data)
 	}
 }
+
+func TestDoneQuietClosesWithoutUnreadAndRefusesNonOwner(t *testing.T) {
+	led, item := unreadResult(t)
+	before, err := led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := led.DoneQuiet(item.ID, "other", "shipped"); err == nil || !strings.Contains(err.Error(), "owner ada") {
+		t.Fatalf("non-owner DoneQuiet err = %v, want owner refusal", err)
+	}
+	if _, err := led.DoneQuiet(item.ID, "", "shipped"); err == nil {
+		t.Fatal("empty sender DoneQuiet succeeded, want refusal")
+	}
+
+	got, err := led.DoneQuiet(item.ID, "ada", "shipped")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != StateDone || got.Unread || got.ReadAt == nil || got.Outcome != "shipped" || got.DoneAt.IsZero() {
+		t.Fatalf("quiet done = state %s unread %v readAt %v outcome %q doneAt %v", got.State, got.Unread, got.ReadAt, got.Outcome, got.DoneAt)
+	}
+	if len(got.Messages) != len(before.Messages) {
+		t.Fatalf("messages = %d, want %d (no closing note added)", len(got.Messages), len(before.Messages))
+	}
+	items, err := led.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inbox, _ := Select(items, StateOpen); len(inbox) != 0 {
+		t.Fatalf("inbox = %+v, want empty", inbox)
+	}
+	if unread, _ := Select(items, StateDoneUnread); len(unread) != 0 {
+		t.Fatalf("done-unread = %+v, want empty", unread)
+	}
+	if done, _ := Select(items, StateDone); len(done) != 1 || done[0].ID != item.ID || done[0].Outcome != "shipped" {
+		t.Fatalf("done folder = %+v, want %s with outcome shipped", done, item.ID)
+	}
+}
+
+func TestDoneQuietAllowsEmptyOutcome(t *testing.T) {
+	led, item := unreadResult(t)
+	got, err := led.DoneQuiet(item.ID, "ada", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != StateDone || got.Unread || got.ReadAt == nil || got.Outcome != "" {
+		t.Fatalf("quiet done without outcome = state %s unread %v readAt %v outcome %q", got.State, got.Unread, got.ReadAt, got.Outcome)
+	}
+}

@@ -279,6 +279,11 @@ ALTER TABLE status ADD COLUMN binary_info TEXT NOT NULL DEFAULT '';
 	`
 ALTER TABLE outbox ADD COLUMN canned_id TEXT NOT NULL DEFAULT '';
 `,
+	// stuck_notified is 1 once a stuck-post notice was sent on the decide
+	// item, so subsequent polls do not repeat it.
+	`
+ALTER TABLE outbox ADD COLUMN stuck_notified INTEGER NOT NULL DEFAULT 0;
+`,
 }
 
 // Store is the slackwatch SQLite database. The server and the CLI each

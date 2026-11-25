@@ -85,6 +85,12 @@ func (d *cmdFakeDecider) Done(_ context.Context, id, outcome string) error {
 	return nil
 }
 
+func (d *cmdFakeDecider) DoneQuiet(_ context.Context, id, outcome string) error {
+	d.items[id].State = "done"
+	d.outcomes[id] = outcome
+	return nil
+}
+
 func (d *cmdFakeDecider) answerPost(id string) {
 	d.items[id].State = "answered"
 	d.items[id].Answer = &slackwatch.DecideAnswer{Value: "yes", Key: "yes", AnsweredBy: "human", Via: "ui"}
@@ -524,9 +530,12 @@ func TestOutboxRecheck(t *testing.T) {
 	if len(e.posts) != posts {
 		t.Fatalf("posts = %d, want %d", len(e.posts), posts)
 	}
-	wantReply := "Posted to #general.\n\n- " + cmdPostedLink
-	if n := len(e.dec.replies); n == 0 || e.dec.replies[n-1] != wantReply {
-		t.Fatalf("replies = %q, want last %q", e.dec.replies, wantReply)
+	wantOutcome := "Posted to #general.\n\n- " + cmdPostedLink
+	if e.dec.items["D-1"].State != "done" || e.dec.outcomes["D-1"] != wantOutcome {
+		t.Fatalf("decide = %+v outcome %q, want done with %q", e.dec.items["D-1"], e.dec.outcomes["D-1"], wantOutcome)
+	}
+	if len(e.dec.replies) != 2 {
+		t.Fatalf("replies = %q, want only the two mismatch replies (no success reply)", e.dec.replies)
 	}
 }
 

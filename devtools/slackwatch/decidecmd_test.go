@@ -137,13 +137,19 @@ echo '{"id":"D-1","state":"open"}'
 	if err := d.ReplyOptions(context.Background(), "D-1", "Post this?", ""); err != nil {
 		t.Fatal(err)
 	}
+	if err := d.DoneQuiet(context.Background(), "D-1", "Posted."); err != nil {
+		t.Fatal(err)
+	}
 	data, err := os.ReadFile(log)
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(data)
-	if strings.Count(text, "pane=slackwatch\n") != 2 || strings.Count(text, "sender=slackwatch\n") != 2 {
-		t.Fatalf("reply env =\n%s", text)
+	if strings.Count(text, "pane=slackwatch\n") != 3 || strings.Count(text, "sender=slackwatch\n") != 3 {
+		t.Fatalf("reply/done-quiet env =\n%s", text)
+	}
+	if !strings.Contains(text, "done --quiet --json D-1 Posted.") {
+		t.Fatalf("missing done --quiet call:\n%s", text)
 	}
 	if strings.Contains(text, "herdr:laptop") || strings.Contains(text, "w1:p2") {
 		t.Fatalf("reply kept the caller pane:\n%s", text)

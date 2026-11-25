@@ -118,7 +118,7 @@ func usage(w io.Writer) {
   decide list [--state open|answered|done|withdrawn] [--snoozed] [--off-line] [--undelivered] [--json]
   decide show [--json] <id>
   decide withdraw [--json] <id> <reason>
-  decide done [--json] <id> <outcome>
+  decide done [--json] [--quiet] <id> [outcome]
   decide answer [--json] [--via cli|ui] <id> <option|text>
   decide snooze [--json] <id> <2h30m|HH:MM|YYYY-MM-DD HH:MM|mon 9:00>
   decide unsnooze [--json] <id>
@@ -1158,8 +1158,10 @@ func cmdWithdraw(args []string, stdout, stderr io.Writer) int {
 }
 
 // cmdDone closes an item. The default, an agent's done, keeps an item
-// with an unread message in the user's inbox as done-unread. --via ui is
-// the user's own done from an inbox front end and closes it at once.
+// with an unread message in the user's inbox as done-unread. --quiet
+// closes the item and marks it read without adding a message, and is
+// allowed only for the item's owner. --via ui is the user's own done
+// from an inbox front end and closes it at once.
 func cmdDone(args []string, stdout, stderr io.Writer) int {
 	file, args, err := pullTextFile(args)
 	if err != nil {
@@ -1169,17 +1171,27 @@ func cmdDone(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	jsonOut := fs.Bool("json", false, "print JSON")
 	via := fs.String("via", decide.ViaCLI, "who closes it: cli for an agent, or ui for the inbox front ends only")
+	quiet := fs.Bool("quiet", false, "close without adding an unread message (owner only)")
 	if code, stop := stopped(parseFlags(fs, args)); stop {
 		return code
 	}
 	if err := decide.CheckVia(*via); err != nil {
 		return fail(stderr, err, 2)
 	}
-	id, text, err := pairBody(fs.Args(), "id", "outcome", file)
-	if err != nil {
-		return fail(stderr, err, 2)
+	var id, text string
+	if *quiet && file == "" && len(fs.Args()) == 1 && strings.TrimSpace(fs.Args()[0]) != "" {
+		id = fs.Args()[0]
+	} else {
+		id, text, err = pairBody(fs.Args(), "id", "outcome", file)
+		if err != nil {
+			return fail(stderr, err, 2)
+		}
 	}
 	return withItem(stdout, stderr, *jsonOut, false, func(led *decide.Ledger) (decide.Item, error) {
+		if *quiet && *via == decide.ViaCLI {
+			by := senderOf(context.Background())
+			return led.DoneQuiet(id, by, text) //nolint:wrapcheck // DoneQuiet names the item in its errors
+		}
 		item, err := led.DoneVia(id, text, *via)
 		if err == nil && item.State == decide.StateDoneUnread {
 			fmt.Fprintf(stderr, "decide: %s has a message the user has not read; it stays in the inbox until the user reads it\n", id)

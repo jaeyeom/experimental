@@ -469,6 +469,59 @@ func (l *Ledger) Done(id, outcome string) (Item, error) {
 	return l.DoneVia(id, outcome, ViaCLI)
 }
 
+// DoneQuiet marks id done without adding an unread closing note and marks
+// the item read so it leaves the unread list. Only the item's owner may
+// call it. outcome may be empty.
+func (l *Ledger) DoneQuiet(id, by, outcome string) (Item, error) {
+	outcome = strings.TrimSpace(outcome)
+	if outcome != "" {
+		if err := checkAuthorShape(outcome, ViaCLI); err != nil {
+			return Item{}, err
+		}
+	}
+	var updated Item
+	err := l.locked(true, func(st *store) error {
+		it, err := findItem(st, id)
+		if err != nil {
+			return err
+		}
+		if it.EffectiveClass() == ClassNote {
+			return fmt.Errorf("decide note %s can only be closed with archive", id)
+		}
+		if it.EffectiveClass() == ClassDecision && outcome != "" && outcomeLineCount(outcome) > 2 {
+			return fmt.Errorf("decide decision done outcome must be 1 or 2 lines")
+		}
+		if it.State == StateWithdrawn || it.State == StateDone {
+			return fmt.Errorf("decide item %s is %s", id, it.State)
+		}
+		if it.Owner == "" || by != it.Owner {
+			return fmt.Errorf("decide done --quiet on %s is allowed only for its owner %s", id, it.Owner)
+		}
+		now := l.clock().UTC()
+		applyDoneQuiet(it, outcome, now)
+		updated = *it
+		return nil
+	})
+	if err != nil {
+		return Item{}, err
+	}
+	l.clearItemDrafts(updated.ID)
+	return updated, nil
+}
+
+func applyDoneQuiet(it *Item, outcome string, now time.Time) {
+	if outcome != "" {
+		it.Outcome = outcome
+	}
+	if it.State != StateDoneUnread {
+		it.DoneAt = now
+	}
+	it.State = StateDone
+	it.Unread = false
+	it.ReadAt = &now
+	clearSnooze(it)
+}
+
 // DoneVia marks id done and stores outcome. A withdrawn item is refused,
 // and so is a done item unless via is ViaUI, where it is a no-op success
 // (an outbox entry may repeat a done the hub already has). via is ViaUI for the user's own done from an inbox front end,

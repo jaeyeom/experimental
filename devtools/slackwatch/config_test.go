@@ -313,3 +313,37 @@ func TestLoadConfigCanned(t *testing.T) {
 		})
 	}
 }
+
+func TestPostStuckAfterAndSuccessReplyConfig(t *testing.T) {
+	cfg, err := LoadConfig(filepath.Join(t.TempDir(), "missing.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Post.StuckAfterOrDefault() != DefaultPostStuckAfter {
+		t.Errorf("default stuckAfter = %v, want %v", cfg.Post.StuckAfterOrDefault(), DefaultPostStuckAfter)
+	}
+	if cfg.Post.SuccessReplyOrDefault() != PostSuccessReplyNone {
+		t.Errorf("default successReply = %q, want %q", cfg.Post.SuccessReplyOrDefault(), PostSuccessReplyNone)
+	}
+
+	p := writeFile(t, "post-ok.json", `{"post": {"stuckAfter": "5m", "successReply": "reply"}}`, 0o600)
+	cfg, err = LoadConfig(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Post.StuckAfterOrDefault() != 5*time.Minute || cfg.Post.SuccessReplyOrDefault() != PostSuccessReplyReply {
+		t.Errorf("post config = %+v", cfg.Post)
+	}
+
+	for name, body := range map[string]string{
+		"bad successReply": `{"post": {"successReply": "loud"}}`,
+		"neg stuckAfter":   `{"post": {"stuckAfter": "-1m"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			bad := writeFile(t, "bad-post.json", body, 0o600)
+			if _, err := LoadConfig(bad); err == nil {
+				t.Fatalf("%s: expected error", name)
+			}
+		})
+	}
+}

@@ -84,3 +84,45 @@ func TestCLIAnswerOnClosedItemIsRefused(t *testing.T) {
 		t.Fatalf("item = state %s answer %+v delivery %+v", got.State, got.Answer, got.Delivery)
 	}
 }
+
+func TestCLIDoneQuietOwnerAndNonOwner(t *testing.T) {
+	useState(t)
+	out, stderr, code := runCLI("ask", "--class", "approval", "--owner", "ada", "--kind", "relay", "--option", "yes:Yes", "--option", "no:No", "--rec", "yes", "--verbatim", "draft body", "post it?")
+	if code != 0 {
+		t.Fatalf("ask = %d\n%s", code, stderr)
+	}
+	id := strings.TrimSpace(out)
+
+	// Non-owner is refused.
+	t.Setenv("HERDR_PANE_ID", "w1:p2")
+	fakeWhoami(t, "bob\nwhen: test\n", nil)
+	if _, stderr, code := runCLI("done", "--quiet", id, "posted"); code == 0 || !strings.Contains(stderr, "owner ada") {
+		t.Fatalf("non-owner done --quiet = %d %q, want refusal naming owner ada", code, stderr)
+	}
+	if got := showJSON(t, id); got.State != decide.StateOpen {
+		t.Fatalf("state after non-owner refusal = %s, want open", got.State)
+	}
+
+	// Owner succeeds quietly: closed, not unread, outcome stored, no extra message.
+	before := showJSON(t, id)
+	fakeWhoami(t, "ada\nwhen: test\n", nil)
+	_, stderr, code = runCLI("done", "--quiet", id, "Posted to #general.")
+	if code != 0 {
+		t.Fatalf("owner done --quiet = %d\n%s", code, stderr)
+	}
+	if strings.Contains(stderr, "stays in the inbox") {
+		t.Fatalf("unexpected unread warning: %q", stderr)
+	}
+	got := showJSON(t, id)
+	if got.State != decide.StateDone || got.Unread || got.Outcome != "Posted to #general." || len(got.Messages) != len(before.Messages) {
+		t.Fatalf("item = state %s unread %v outcome %q messages %d (before %d)", got.State, got.Unread, got.Outcome, len(got.Messages), len(before.Messages))
+	}
+	stdout, stderr, code := runCLI("list")
+	if code != 0 || strings.Contains(stdout, id) {
+		t.Fatalf("list = %d %q\n%s, want %s absent from inbox", code, stdout, stderr, id)
+	}
+	stdout, stderr, code = runCLI("list", "--state", "done")
+	if code != 0 || !strings.Contains(stdout, id) {
+		t.Fatalf("list --state done = %d %q\n%s, want %s in done", code, stdout, stderr, id)
+	}
+}

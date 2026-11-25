@@ -99,7 +99,7 @@ refuses and asks for the user id. ~im:write~ is not used.
    - A decide item closed or withdrawn before an accepted pick makes
      the record ~cancelled~.
    - Every outcome closes the decide item with ~decide done~, except
-     ~failed~, which leaves it open (see below).
+     ~failed~ and ~mismatch~, which leave it open so the user sees them.
 5. *Post.*
    - *handoff:* the record becomes ~awaiting-handoff~ and ~post.agent~
      gets ~approved post ready: <id>~. That agent reads the record with
@@ -112,14 +112,21 @@ refuses and asks for the user id. ~im:write~ is not used.
 6. *Watch.* The post is watched with ~--source outbox~ for the owner,
    with the purpose and refs, and the decide item is closed with the
    permalink.
-7. *Reply.* Before it closes the decide item, slackwatch tells the user
-   the result with one ~decide reply~ in its thread:
-   - ~Posted: <permalink>~ when the record ends ~posted~;
-   - ~Posted, but the text differs from the approved draft: <permalink> (<problems>)~
-     when it ends ~mismatch~;
-   - ~Post failed: <reason>; reply post to retry~ when it ends ~failed~.
-     This reply puts ~yes~, ~no~, and ~edit~ back, and the item stays open.
-   The same reply follows ~outbox posted~ (with or without ~--manual~),
+7. *Reply and close.*
+   - By default (~post.successReply~ = ~none~), a successful post closes
+     the decide item quietly with ~decide done --quiet~ (no success
+     reply, marked read so it leaves the inbox, permalink recorded as
+     the outcome). Set ~post.successReply~ to ~reply~ to post the
+     ~Posted to ...~ reply and close with ~decide done~ instead.
+   - When an approved record has not posted within ~post.stuckAfter~
+     (default ~10m~), slackwatch replies once with the reason and leaves
+     the item open and unread. If it posts later, it closes quietly and
+     the stuck notice stays in the thread.
+   - When a record ends ~mismatch~, slackwatch replies with the mismatch
+     details and leaves the item open and unread.
+   - When a record ends ~failed~, slackwatch replies with ~Post failed.~
+     and puts ~yes~, ~no~, and ~edit~ back, leaving the item open.
+   The same behavior follows ~outbox posted~ (with or without ~--manual~),
    ~outbox recheck~, and ~outbox retry~.
 
 The handoff comparison strips the footer before it compares text.

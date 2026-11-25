@@ -106,6 +106,36 @@ func TestSlackwatchAskKeepsOptions(t *testing.T) {
 	}
 }
 
+func TestSlackwatchQuietDoneClosesWithoutUnread(t *testing.T) {
+	state := t.TempDir()
+	cfgDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("XDG_CONFIG_HOME", cfgDir)
+	t.Setenv("DECIDE_TEST_CHILD", "1")
+
+	d := slackwatch.DecideCLI{Run: slackwatch.ExecDecide([]string{os.Args[0]}), Owner: slackwatch.DefaultDecideOwner}
+	id, err := d.Ask(context.Background(), slackwatch.DefaultDecideOwner, "Post this to Slack as written?", "Ship it.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate an unread reply (like a stuck notice) before closing quietly.
+	if err := d.Reply(context.Background(), id, "Post stuck."); err != nil {
+		t.Fatal(err)
+	}
+	before := loadDecide(t, state, id)
+	outcome := "Posted to #general.\n\n- https://x.slack.com/archives/C1/p1700000100000001"
+	if err := d.DoneQuiet(context.Background(), id, outcome); err != nil {
+		t.Fatal(err)
+	}
+	got := loadDecide(t, state, id)
+	if got.State != decide.StateDone || got.Unread || got.Outcome != outcome {
+		t.Fatalf("item = state %s unread %v outcome %q", got.State, got.Unread, got.Outcome)
+	}
+	if len(got.Messages) != len(before.Messages) {
+		t.Fatalf("messages = %d, want %d (no extra message)", len(got.Messages), len(before.Messages))
+	}
+}
+
 func loadDecide(t *testing.T, state, id string) decide.Item {
 	t.Helper()
 	led, err := decide.Open(filepath.Join(state, "decide"))

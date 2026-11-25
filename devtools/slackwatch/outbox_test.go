@@ -130,6 +130,28 @@ func (d *fakeDecider) Done(_ context.Context, id, outcome string) error {
 	return nil
 }
 
+func (d *fakeDecider) DoneQuiet(_ context.Context, id, outcome string) error {
+	if d.doneErr != nil {
+		return d.doneErr
+	}
+	if outcome != "" {
+		if err := decide.CheckShape(outcome, decide.Config{}.ShapeLimits()); err != nil {
+			return fmt.Errorf("decide shape: %w", err)
+		}
+	}
+	it, ok := d.items[id]
+	if !ok {
+		return errors.New("no such item")
+	}
+	if it.State == "done" {
+		return errors.New("already done")
+	}
+	it.State = "done"
+	d.outcomes[id] = outcome
+	d.log = append(d.log, "done-quiet: "+outcome)
+	return nil
+}
+
 // answer records a as decide answer and compose do: the item becomes
 // answered and the thread gets a's message. An answer by anyone but
 // human is a message sent with by.
@@ -1034,9 +1056,9 @@ func TestRecheck(t *testing.T) {
 		if len(f.writer.posts) != posts {
 			t.Fatalf("posts = %d, want %d", len(f.writer.posts), posts)
 		}
-		wantReply := "Posted to #general.\n\n- " + postedLink
-		if n := len(f.dec.replies); n == 0 || f.dec.replies[n-1] != wantReply {
-			t.Fatalf("replies = %q", f.dec.replies)
+		wantOutcome := "Posted to #general.\n\n- " + postedLink
+		if f.dec.outcomes[r.DecideID] != wantOutcome || f.dec.items[r.DecideID].State != "done" {
+			t.Fatalf("decide = %+v outcome %q", f.dec.items[r.DecideID], f.dec.outcomes[r.DecideID])
 		}
 		w, err := f.store.FindWatch(PostRef{WatchID: got.WatchID})
 		if err != nil {
@@ -2168,33 +2190,59 @@ func (f *outboxFixture) outcomeLog() []string {
 }
 
 func TestOutcomeReplyPostedBeforeDone(t *testing.T) {
-	f := newOutboxFixture(t, PostModeDirect)
-	f.reader.msg = Message{User: expectUser, Text: postedBody()}
-	r := f.submit(t)
-	f.dec.answer(r.DecideID, uiPost)
-	f.poll(t)
-	got := f.get(t, r.ID)
-	if got.State != OutboxPosted {
-		t.Fatalf("state = %s", got.State)
-	}
-	wantMsg := "Posted to #general.\n\n- " + got.Permalink
-	want := []string{"reply: " + wantMsg, "done: " + wantMsg}
-	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
-		t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
-	}
+	t.Run("default none closes quietly", func(t *testing.T) {
+		f := newOutboxFixture(t, PostModeDirect)
+		f.reader.msg = Message{User: expectUser, Text: postedBody()}
+		r := f.submit(t)
+		f.dec.answer(r.DecideID, uiPost)
+		f.poll(t)
+		got := f.get(t, r.ID)
+		if got.State != OutboxPosted || got.Permalink == "" {
+			t.Fatalf("record = %+v", got)
+		}
+		wantMsg := "Posted to #general.\n\n- " + got.Permalink
+		want := []string{"done-quiet: " + wantMsg}
+		if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
+			t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
+		}
+		if len(f.dec.replies) != 0 {
+			t.Fatalf("replies = %q, want none", f.dec.replies)
+		}
+	})
+	t.Run("successReply reply keeps old behavior", func(t *testing.T) {
+		f := newOutboxFixture(t, PostModeDirect)
+		f.ob.Config.Post.SuccessReply = PostSuccessReplyReply
+		f.reader.msg = Message{User: expectUser, Text: postedBody()}
+		r := f.submit(t)
+		f.dec.answer(r.DecideID, uiPost)
+		f.poll(t)
+		got := f.get(t, r.ID)
+		if got.State != OutboxPosted {
+			t.Fatalf("state = %s", got.State)
+		}
+		wantMsg := "Posted to #general.\n\n- " + got.Permalink
+		want := []string{"reply: " + wantMsg, "done: " + wantMsg}
+		if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
+			t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
+		}
+	})
 }
 
-func TestOutcomeReplyMismatchBeforeDone(t *testing.T) {
+func TestOutcomeReplyMismatchLeavesItemOpen(t *testing.T) {
 	f := newOutboxFixture(t, PostModeHandoff)
 	r := approveHandoff(t, f)
 	f.reader.msg = Message{User: expectUser, Text: "Ship that"}
 	if _, err := f.ob.Posted(context.Background(), r.ID, postedLink); err != nil {
 		t.Fatal(err)
 	}
+	f.poll(t)
 	wantMsg := "Posted with a mismatch.\n\n- " + postedLink + "\n- the posted text differs from the approved text"
-	want := []string{"reply: " + wantMsg, "done: " + wantMsg}
+	want := []string{"reply: " + wantMsg}
 	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
 		t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
+	}
+	if it := f.dec.items[r.DecideID]; it.State != "open" {
+		t.Fatalf("decide item state = %s, want open", it.State)
 	}
 }
 
@@ -2207,7 +2255,7 @@ func TestOutcomeReplyManualPosted(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantMsg := "Posted to #general.\n\n- " + postedLink
-	want := []string{"reply: " + wantMsg, "done: " + wantMsg}
+	want := []string{"done-quiet: " + wantMsg}
 	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
 		t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
 	}
@@ -2242,7 +2290,7 @@ func TestOutcomeReplyManualRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantMsg := "Posted to #general.\n\n- " + got.Permalink
-	want := []string{"reply: " + wantMsg, "done: " + wantMsg}
+	want := []string{"done-quiet: " + wantMsg}
 	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
 		t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
 	}
@@ -2268,7 +2316,7 @@ func TestOutcomeReplyRecheck(t *testing.T) {
 			t.Fatal(err)
 		}
 		wantMsg := "Posted to #general.\n\n- " + postedLink
-		want := []string{"reply: " + wantMsg, "done: " + wantMsg}
+		want := []string{"done-quiet: " + wantMsg}
 		if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
 			t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
 		}
@@ -2279,9 +2327,12 @@ func TestOutcomeReplyRecheck(t *testing.T) {
 			t.Fatal("recheck passed")
 		}
 		wantMsg := "Posted with a mismatch.\n\n- " + postedLink + "\n- the posted text differs from the approved text"
-		want := []string{"reply: " + wantMsg, "done: " + wantMsg}
+		want := []string{"reply: " + wantMsg}
 		if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
 			t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
+		}
+		if it := f.dec.items[r.DecideID]; it.State != "open" {
+			t.Fatalf("decide item state = %s, want open", it.State)
 		}
 	})
 }
@@ -2420,7 +2471,7 @@ func TestAutoRetryOnFreshPost(t *testing.T) {
 		t.Fatalf("state %s attempts %d", got.State, f.writer.attempts)
 	}
 	wantMsg := "Posted to #general.\n\n- " + got.Permalink
-	want := []string{"reply: " + wantMsg, "done: " + wantMsg}
+	want := []string{"done-quiet: " + wantMsg}
 	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
 		t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
 	}
@@ -2553,6 +2604,7 @@ func TestDecideMessagesPassShapeCheckWithWorstCaseValues(t *testing.T) {
 		"cancelled post empty": cancelledPostOutcome(""),
 		"recheck deleted":      recheckDeletedReply(99, longThreadLink),
 		"recheck deleted huge": recheckDeletedReply(99, hugeThreadLink),
+		"stuck post":           stuckPostReply(OutboxRecord{ID: 99, State: OutboxApproved, Reason: longReason}, 15*time.Minute),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := decide.CheckShape(msg, limits); err != nil {
@@ -2563,6 +2615,7 @@ func TestDecideMessagesPassShapeCheckWithWorstCaseValues(t *testing.T) {
 
 	// End-to-end thread post with 120+ char permalink passes both Reply and Done.
 	f := newOutboxFixture(t, PostModeDirect)
+	f.ob.Config.Post.SuccessReply = PostSuccessReplyReply
 	if err := f.store.SetTeamURL("https://my-very-long-workspace.slack.com"); err != nil {
 		t.Fatal(err)
 	}
@@ -2587,6 +2640,7 @@ func TestDecideMessagesPassShapeCheckWithWorstCaseValues(t *testing.T) {
 
 func TestRefusedOutcomeRetriedOnNextPoll(t *testing.T) {
 	f := newOutboxFixture(t, PostModeDirect)
+	f.ob.Config.Post.SuccessReply = PostSuccessReplyReply
 	var logs bytes.Buffer
 	f.ob.Logger = slog.New(slog.NewTextHandler(&logs, nil))
 	f.reader.msg = Message{User: expectUser, Text: postedBody()}
@@ -3030,5 +3084,119 @@ func TestCannedPostHandoffMode(t *testing.T) {
 	}
 	if msg := f.rec.notes[0].Message; !strings.Contains(msg, "howto") {
 		t.Errorf("handoff ready notice = %q, want canned id", msg)
+	}
+}
+
+func TestStuckApprovedDirectPostRepliesOnceAndClosesQuietlyLater(t *testing.T) {
+	f := newOutboxFixture(t, PostModeDirect)
+	now := testNow()
+	f.ob.Now = func() time.Time { return now }
+	f.ob.Config.Post.StuckAfter = Duration{5 * time.Minute}
+	// Corrupt the token pin so writeToken fails and leaves the record in approved with a reason.
+	goodPin := f.ob.Config.Post.TokenPin
+	f.ob.Config.Post.TokenPin = "bad-pin"
+
+	r := f.submit(t)
+	f.dec.answer(r.DecideID, uiPost)
+	f.poll(t)
+	got := f.get(t, r.ID)
+	if got.State != OutboxApproved || got.Reason == "" {
+		t.Fatalf("record = %+v, want approved with reason", got)
+	}
+	if len(f.dec.replies) != 0 {
+		t.Fatalf("stuck reply sent too early: %q", f.dec.replies)
+	}
+
+	// Still within stuckAfter: no reply.
+	now = now.Add(4 * time.Minute)
+	f.poll(t)
+	if len(f.dec.replies) != 0 {
+		t.Fatalf("stuck reply sent before stuckAfter: %q", f.dec.replies)
+	}
+
+	// Past stuckAfter: one reply with reason, item stays open.
+	now = now.Add(2 * time.Minute)
+	f.poll(t)
+	if len(f.dec.replies) != 1 {
+		t.Fatalf("replies = %q, want 1 stuck reply", f.dec.replies)
+	}
+	if !strings.Contains(f.dec.replies[0], "Post stuck") || !strings.Contains(f.dec.replies[0], got.Reason) {
+		t.Errorf("stuck reply = %q, want reason %q", f.dec.replies[0], got.Reason)
+	}
+	if it := f.dec.items[r.DecideID]; it.State != "open" {
+		t.Errorf("decide item state = %s, want open", it.State)
+	}
+
+	// Subsequent poll does not repeat the stuck notice.
+	now = now.Add(10 * time.Minute)
+	f.poll(t)
+	if len(f.dec.replies) != 1 {
+		t.Fatalf("stuck notice repeated: %q", f.dec.replies)
+	}
+
+	// Fixing the pin and re-enabling posting lets the stuck record post later
+	// and close quietly, keeping the earlier stuck notice in the thread.
+	f.ob.Config.Post.TokenPin = goodPin
+	if err := f.store.SetPostingDisabled(""); err != nil {
+		t.Fatal(err)
+	}
+	f.dec.log = nil
+	f.poll(t)
+	got = f.get(t, r.ID)
+	if got.State != OutboxPosted || got.Permalink == "" {
+		t.Fatalf("after recovery: %+v", got)
+	}
+	wantMsg := "Posted to #general.\n\n- " + got.Permalink
+	want := []string{"done-quiet: " + wantMsg}
+	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
+		t.Fatalf("decide calls on recovery = %q, want %q", f.outcomeLog(), want)
+	}
+	if len(f.dec.replies) != 1 {
+		t.Fatalf("replies after recovery = %q, want only the original stuck notice", f.dec.replies)
+	}
+	// Earlier stuck notice stays in the decide item thread.
+	var foundStuck bool
+	for _, m := range f.dec.items[r.DecideID].Messages {
+		if strings.Contains(m.Text, "Post stuck") {
+			foundStuck = true
+		}
+	}
+	if !foundStuck {
+		t.Errorf("earlier stuck notice missing from thread: %+v", f.dec.items[r.DecideID].Messages)
+	}
+}
+
+func TestStuckHandoffPostRepliesOnceAndClosesQuietlyLater(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	now := testNow()
+	f.ob.Now = func() time.Time { return now }
+	// Default stuckAfter is 10m.
+	r := approveHandoff(t, f)
+
+	now = now.Add(9 * time.Minute)
+	f.poll(t)
+	if len(f.dec.replies) != 0 {
+		t.Fatalf("stuck reply sent before 10m default: %q", f.dec.replies)
+	}
+
+	now = now.Add(2 * time.Minute)
+	f.poll(t)
+	f.poll(t)
+	if len(f.dec.replies) != 1 || !strings.Contains(f.dec.replies[0], "awaiting handoff") {
+		t.Fatalf("stuck replies = %q, want one awaiting-handoff notice", f.dec.replies)
+	}
+	if it := f.dec.items[r.DecideID]; it.State != "open" {
+		t.Fatalf("decide item state = %s, want open", it.State)
+	}
+
+	f.dec.log = nil
+	f.reader.msg = Message{User: expectUser, Text: approvedText}
+	if _, err := f.ob.Posted(context.Background(), r.ID, postedLink); err != nil {
+		t.Fatal(err)
+	}
+	wantMsg := "Posted to #general.\n\n- " + postedLink
+	want := []string{"done-quiet: " + wantMsg}
+	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
+		t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
 	}
 }

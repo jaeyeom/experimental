@@ -379,6 +379,7 @@ type Decider interface {
 	Ask(ctx context.Context, owner, question, verbatim string) (string, error)
 	Show(ctx context.Context, id string) (DecideItem, error)
 	Done(ctx context.Context, id, outcome string) error
+	DoneQuiet(ctx context.Context, id, outcome string) error
 	Reply(ctx context.Context, id, text string) error
 	// ReplyOptions posts text and puts the post and drop options back
 	// on an open item.
@@ -473,6 +474,17 @@ func (d DecideCLI) Done(ctx context.Context, id, outcome string) error {
 	return d.runJSON(ctx, &it, "done", "--json", id, outcome)
 }
 
+// DoneQuiet closes an item quietly as Owner without leaving it unread.
+// It falls back to Done when an older decide does not accept --quiet.
+func (d DecideCLI) DoneQuiet(ctx context.Context, id, outcome string) error {
+	var it DecideItem
+	err := d.runJSON(d.asOwner(ctx), &it, "done", "--quiet", "--json", id, outcome)
+	if err != nil && strings.Contains(err.Error(), "flag provided but not defined: -quiet") {
+		return d.Done(ctx, id, outcome)
+	}
+	return err
+}
+
 // Reply posts text on an item's thread.
 func (d DecideCLI) Reply(ctx context.Context, id, text string) error {
 	var it DecideItem
@@ -553,7 +565,7 @@ func decideCommandEnv(ctx context.Context, args []string) ([]string, error) {
 		return strings.HasPrefix(kv, "HERDR_PANE_ID=") || strings.HasPrefix(kv, "DECIDE_AS_HANDLE=")
 	})
 	owner, _ := ctx.Value(decideSenderKey{}).(string)
-	if len(args) == 0 || args[0] != "reply" || owner == "" {
+	if len(args) == 0 || (args[0] != "reply" && args[0] != "done") || owner == "" {
 		return env, nil
 	}
 	dir, err := decideSenderStub()
@@ -1064,6 +1076,26 @@ func failPostReply(notice string) string {
 	return shapeMessage("Post failed.", shapeBullet("", notice), "- Reply post to retry.")
 }
 
+func stuckPostReply(r OutboxRecord, waited time.Duration) string {
+	reason := r.Reason
+	if reason == "" {
+		switch r.State {
+		case OutboxAwaitingHandoff:
+			reason = "still awaiting handoff"
+		case OutboxPosting:
+			reason = "post in flight did not finish"
+		default:
+			reason = "still waiting to post"
+		}
+	}
+	return shapeMessage(
+		fmt.Sprintf("Post stuck (outbox %d).", r.ID),
+		shapeBullet("State", r.State),
+		shapeBullet("Waiting", waited.Round(time.Second).String()),
+		shapeBullet("Reason", reason),
+	)
+}
+
 func recheckDeletedReply(id int64, link string) string {
 	return shapeMessage("Cancelled: post deleted.", fmt.Sprintf("- Outbox %d", id), linkLine(link))
 }
@@ -1441,18 +1473,47 @@ func (o *Outbox) Poll(ctx context.Context) error {
 	for _, r := range failed {
 		errs = append(errs, o.autoRetry(ctx, r))
 	}
-	if err := o.pollOutcomes(ctx); err != nil {
+	if err := o.pollStuck(ctx, cfg); err != nil {
+		return err
+	}
+	if err := o.pollOutcomes(ctx, cfg); err != nil {
 		return err
 	}
 	return errors.Join(errs...)
 }
 
-func (o *Outbox) pollOutcomes(ctx context.Context) error {
+func (o *Outbox) pollStuck(ctx context.Context, cfg Config) error {
+	stuck, err := o.Store.stuckCandidateOutbox()
+	if err != nil {
+		return err
+	}
+	after := cfg.Post.StuckAfterOrDefault()
+	now := o.now()
+	for _, r := range stuck {
+		waited := now.Sub(r.UpdatedAt)
+		if waited < after {
+			continue
+		}
+		if err := o.Decide.Reply(ctx, r.DecideID, stuckPostReply(r, waited)); err != nil {
+			o.logger().Warn("slackwatch outbox: reply with stuck post notice", "outbox", r.ID, "decide", r.DecideID, "error", err)
+			continue
+		}
+		if _, err := o.Store.db.Exec(`UPDATE outbox SET stuck_notified = 1 WHERE id = ?`, r.ID); err != nil {
+			o.logger().Error("slackwatch outbox: mark stuck notified", "outbox", r.ID, "error", err)
+		}
+	}
+	return nil
+}
+
+func (o *Outbox) pollOutcomes(ctx context.Context, cfg Config) error {
 	unreplied, err := o.Store.unrepliedOutbox()
 	if err != nil {
 		return err
 	}
 	for _, r := range unreplied {
+		if r.State == OutboxPosted && cfg.Post.SuccessReplyOrDefault() == PostSuccessReplyNone {
+			continue
+		}
 		link := postLink(PostRef{Channel: r.Channel, TS: r.PostTS, ThreadTS: r.ThreadTS, Permalink: r.Permalink})
 		o.replyOutcome(ctx, r, postedOutcome(r, link, r.Reason))
 	}
@@ -1461,7 +1522,7 @@ func (o *Outbox) pollOutcomes(ctx context.Context) error {
 		return err
 	}
 	for _, r := range unclosed {
-		o.closeDecide(ctx, r)
+		o.closeDecideFor(ctx, cfg, r)
 	}
 	return nil
 }
@@ -1686,6 +1747,15 @@ func decideClosed(state string) bool {
 // logged and retried by the next poll. An item someone else closed
 // counts as closed.
 func (o *Outbox) closeDecide(ctx context.Context, r OutboxRecord) {
+	o.closeDecideQuiet(ctx, r, false)
+}
+
+func (o *Outbox) closeDecideFor(ctx context.Context, cfg Config, r OutboxRecord) {
+	quiet := r.State == OutboxPosted && cfg.Post.SuccessReplyOrDefault() == PostSuccessReplyNone
+	o.closeDecideQuiet(ctx, r, quiet)
+}
+
+func (o *Outbox) closeDecideQuiet(ctx context.Context, r OutboxRecord, quiet bool) {
 	var outcome string
 	if err := o.Store.db.QueryRow(`SELECT decide_outcome FROM outbox WHERE id = ?`, r.ID).Scan(&outcome); err != nil {
 		o.logger().Error("slackwatch outbox: read decide outcome", "outbox", r.ID, "error", err)
@@ -1695,7 +1765,13 @@ func (o *Outbox) closeDecide(ctx context.Context, r OutboxRecord) {
 		return
 	}
 	outcome = shapedOutcomeForRecord(r, outcome)
-	if err := o.Decide.Done(ctx, r.DecideID, outcome); err != nil {
+	var err error
+	if quiet {
+		err = o.Decide.DoneQuiet(ctx, r.DecideID, outcome)
+	} else {
+		err = o.Decide.Done(ctx, r.DecideID, outcome)
+	}
+	if err != nil {
 		item, serr := o.Decide.Show(ctx, r.DecideID)
 		if serr != nil || !decideClosed(item.State) {
 			o.logger().Warn("slackwatch outbox: close decide item", "outbox", r.ID, "decide", r.DecideID, "error", err)
@@ -2294,15 +2370,19 @@ func (o *Outbox) registerPosted(ctx context.Context, r OutboxRecord, from []stri
 	}
 	link := postLink(p)
 	state, outcome := OutboxPosted, postedOutcome(r, link, "")
+	var decideOutcome *string
 	if mismatch != "" {
-		state, outcome = OutboxMismatch, postedOutcome(r, link, mismatch)
+		state = OutboxMismatch
+		outcome = postedOutcome(r, link, mismatch)
 		if _, err := o.Store.FlagWatch(w.ID, fmt.Sprintf("outbox %d mismatch: %s", r.ID, mismatch)); err != nil {
 			return err
 		}
+	} else {
+		decideOutcome = &outcome
 	}
 	moved, err := o.Store.moveOutbox(r.ID, from, outboxUpdate{
 		state: state, reason: &mismatch, postTS: &p.TS, permalink: &p.Permalink,
-		postedText: &postedText, watchID: &w.ID, decideOutcome: &outcome, manual: &manual,
+		postedText: &postedText, watchID: &w.ID, decideOutcome: decideOutcome, manual: &manual,
 	}, o.Now())
 	if err != nil {
 		return err
@@ -2310,12 +2390,24 @@ func (o *Outbox) registerPosted(ctx context.Context, r OutboxRecord, from []stri
 	if !moved {
 		return fmt.Errorf("outbox %d left %s while posting", r.ID, strings.Join(from, " or "))
 	}
-	r.WatchID, r.Permalink = w.ID, p.Permalink
+	r.State, r.WatchID, r.Permalink = state, w.ID, p.Permalink
 	if err := o.notifyPosted(ctx, r, link, mismatch, postedText); err != nil {
 		return err
 	}
-	o.replyOutcome(ctx, r, outcome)
-	o.closeDecide(ctx, r)
+	if mismatch != "" {
+		o.replyOutcome(ctx, r, outcome)
+		return nil
+	}
+	cfg, cfgErr := o.config()
+	if cfgErr != nil {
+		cfg = o.Config
+	}
+	if cfg.Post.SuccessReplyOrDefault() == PostSuccessReplyReply {
+		o.replyOutcome(ctx, r, outcome)
+		o.closeDecideQuiet(ctx, r, false)
+		return nil
+	}
+	o.closeDecideQuiet(ctx, r, true)
 	return nil
 }
 
@@ -2553,7 +2645,6 @@ func (o *Outbox) Recheck(ctx context.Context, id int64) (OutboxRecord, error) {
 	if len(problems) > 0 {
 		mismatch := strings.Join(problems, "; ")
 		o.replyOutcome(ctx, r, postedOutcome(r, link, mismatch))
-		o.closeDecide(ctx, r)
 		return r, fmt.Errorf("outbox %d mismatch: %s", id, mismatch)
 	}
 	empty := ""
@@ -2573,8 +2664,12 @@ func (o *Outbox) Recheck(ctx context.Context, id int64) (OutboxRecord, error) {
 		}
 	}
 	r.State = OutboxPosted
-	o.replyOutcome(ctx, r, outcome)
-	o.closeDecide(ctx, r)
+	if cfg.Post.SuccessReplyOrDefault() == PostSuccessReplyReply {
+		o.replyOutcome(ctx, r, outcome)
+		o.closeDecideQuiet(ctx, r, false)
+	} else {
+		o.closeDecideQuiet(ctx, r, true)
+	}
 	return o.Store.GetOutbox(id)
 }
 
@@ -2895,10 +2990,19 @@ func (s *Store) unrepliedOutbox() ([]OutboxRecord, error) {
 }
 
 // unclosedOutbox returns finished records whose decide item still needs
-// closing.
+// closing. Failed and mismatch records stay open so the user sees them.
 func (s *Store) unclosedOutbox() ([]OutboxRecord, error) {
 	return s.listOutbox(`decide_outcome <> '' AND decide_closed = 0 AND decide_id <> ''
-AND state NOT IN (?, ?, ?, ?)`, OutboxPending, OutboxApproved, OutboxPosting, OutboxAwaitingHandoff)
+AND state NOT IN (?, ?, ?, ?, ?, ?)`,
+		OutboxPending, OutboxApproved, OutboxPosting, OutboxAwaitingHandoff, OutboxFailed, OutboxMismatch)
+}
+
+// stuckCandidateOutbox returns approved, awaiting-handoff, or posting
+// records whose decide item is still open and has not received a stuck
+// notice yet.
+func (s *Store) stuckCandidateOutbox() ([]OutboxRecord, error) {
+	return s.listOutbox(`state IN (?, ?, ?) AND decide_id <> '' AND decide_closed = 0 AND stuck_notified = 0`,
+		OutboxApproved, OutboxAwaitingHandoff, OutboxPosting)
 }
 
 // retryableOutbox returns failed records whose decide item is still

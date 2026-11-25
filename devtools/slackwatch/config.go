@@ -255,6 +255,23 @@ const (
 // post.decideOwner is unset.
 const DefaultDecideOwner = "slackwatch"
 
+// DefaultPostStuckAfter is how long an approved outbox record may wait
+// unposted before slackwatch replies on its decide item.
+const DefaultPostStuckAfter = 10 * time.Minute
+
+// PostSuccessReplyNone and PostSuccessReplyReply control whether a
+// successful post replies on its decide item before closing it.
+const (
+	PostSuccessReplyNone  = "none"
+	PostSuccessReplyReply = "reply"
+)
+
+// ValidPostSuccessReply reports whether v is a valid non-empty
+// post.successReply value.
+func ValidPostSuccessReply(v string) bool {
+	return v == PostSuccessReplyNone || v == PostSuccessReplyReply
+}
+
 // ErrPostingOff means post.mode is not set.
 var ErrPostingOff = errors.New("posting is disabled: set post.mode to handoff or direct in slackwatch config")
 
@@ -264,6 +281,9 @@ var ErrPostingOff = errors.New("posting is disabled: set post.mode to handoff or
 // WriteTokenFile, and Footer apply to direct mode only.
 // DecideNotifyPane, when set, is passed as --notify-pane to every
 // decide ask, so answers notify that target and not decide's default.
+// StuckAfter is how long an approved record may wait unposted before
+// slackwatch replies on its decide item. SuccessReply is "none" (default,
+// close quietly) or "reply".
 type PostConfig struct {
 	Mode           string `json:"mode"`
 	Agent          string `json:"agent"`
@@ -274,7 +294,9 @@ type PostConfig struct {
 	Footer         string `json:"footer"`
 	DecideOwner    string `json:"decideOwner"`
 	// DecideNotifyPane is any target decide accepts for --notify-pane.
-	DecideNotifyPane string `json:"decideNotifyPane"`
+	DecideNotifyPane string   `json:"decideNotifyPane"`
+	StuckAfter       Duration `json:"stuckAfter"`
+	SuccessReply     string   `json:"successReply"`
 }
 
 // DecideOwnerOrDefault is the owner of the decide items slackwatch
@@ -284,6 +306,22 @@ func (p PostConfig) DecideOwnerOrDefault() string {
 		return DefaultDecideOwner
 	}
 	return p.DecideOwner
+}
+
+// StuckAfterOrDefault is StuckAfter, or DefaultPostStuckAfter when unset.
+func (p PostConfig) StuckAfterOrDefault() time.Duration {
+	if p.StuckAfter.Duration > 0 {
+		return p.StuckAfter.Duration
+	}
+	return DefaultPostStuckAfter
+}
+
+// SuccessReplyOrDefault is SuccessReply, or PostSuccessReplyNone when unset.
+func (p PostConfig) SuccessReplyOrDefault() string {
+	if p.SuccessReply == "" {
+		return PostSuccessReplyNone
+	}
+	return p.SuccessReply
 }
 
 // CheckPost reports whether the config allows posting. It returns
@@ -314,6 +352,12 @@ func (c Config) CheckPost() error {
 	}
 	if p.ExpectUser == "" {
 		return fmt.Errorf("post.mode is %s but post.expectUser is not set", p.Mode)
+	}
+	if p.SuccessReply != "" && !ValidPostSuccessReply(p.SuccessReply) {
+		return fmt.Errorf("post.successReply %q must be %s or %s", p.SuccessReply, PostSuccessReplyNone, PostSuccessReplyReply)
+	}
+	if p.StuckAfter.Duration < 0 {
+		return errors.New("post.stuckAfter must not be negative")
 	}
 	return c.checkFooterRemoved()
 }
@@ -485,6 +529,12 @@ func LoadConfig(path string) (Config, error) {
 	}
 	if cfg.ReopenOn != "" && !ValidReopenOn(cfg.ReopenOn) {
 		return Config{}, fmt.Errorf("parse slackwatch config %s: reopenOn %q must be %s or %s", path, cfg.ReopenOn, ReopenOnAny, ReopenOnAddressed)
+	}
+	if cfg.Post.SuccessReply != "" && !ValidPostSuccessReply(cfg.Post.SuccessReply) {
+		return Config{}, fmt.Errorf("parse slackwatch config %s: post.successReply %q must be %s or %s", path, cfg.Post.SuccessReply, PostSuccessReplyNone, PostSuccessReplyReply)
+	}
+	if cfg.Post.StuckAfter.Duration < 0 {
+		return Config{}, fmt.Errorf("parse slackwatch config %s: post.stuckAfter must not be negative", path)
 	}
 	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return Config{}, fmt.Errorf("parse slackwatch config %s: trailing data after JSON object", path)
