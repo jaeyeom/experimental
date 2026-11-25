@@ -27,9 +27,11 @@ type HistoryOptions struct {
 	Rule    string
 	JSON    bool
 	NoState bool
-	Now     func() time.Time
-	Out     io.Writer
-	Err     io.Writer
+	// Links renders the PR column as OSC 8 hyperlinks when true.
+	Links bool
+	Now   func() time.Time
+	Out   io.Writer
+	Err   io.Writer
 	// Lookup loads current state. It is not called for a cached MERGED
 	// pull request, or when NoState is set.
 	Lookup func([]github.PullRef) (map[string]github.PRSnapshot, error)
@@ -58,6 +60,7 @@ type prStateFile struct {
 type historyRow struct {
 	Time   time.Time
 	PR     string
+	URL    string
 	Author string
 	State  string
 	Action string
@@ -257,6 +260,7 @@ func resolveRow(row loggedDecision, cache map[string]cachedPR, snaps map[string]
 	return historyRow{
 		Time:   row.Time.UTC(),
 		PR:     row.PR,
+		URL:    row.ref.URL(),
 		Author: author,
 		State:  state,
 		Action: row.Action,
@@ -304,12 +308,13 @@ func writeHistory(opts HistoryOptions, rows []historyRow) error {
 	if opts.JSON {
 		return writeHistoryJSON(opts.Out, rows, opts.NoState)
 	}
-	return writeHistoryTable(opts.Out, rows, opts.NoState)
+	return writeHistoryTable(opts.Out, rows, opts.NoState, opts.Links)
 }
 
 type historyJSON struct {
 	Time   string `json:"time"`
 	PR     string `json:"pr"`
+	URL    string `json:"url"`
 	Author string `json:"author"`
 	State  string `json:"state,omitempty"`
 	Action string `json:"action"`
@@ -323,6 +328,7 @@ func writeHistoryJSON(w io.Writer, rows []historyRow, noState bool) error {
 		item := historyJSON{
 			Time:   row.Time.Format(time.RFC3339),
 			PR:     row.PR,
+			URL:    row.URL,
 			Author: row.Author,
 			Action: row.Action,
 			Rule:   row.Rule,
@@ -343,7 +349,7 @@ func writeHistoryJSON(w io.Writer, rows []historyRow, noState bool) error {
 	return nil
 }
 
-func writeHistoryTable(w io.Writer, rows []historyRow, noState bool) error {
+func writeHistoryTable(w io.Writer, rows []historyRow, noState, links bool) error {
 	header := []string{"TIME", "PR", "AUTHOR", "STATE", "ACTION", "RULE", "TITLE"}
 	if noState {
 		header = []string{"TIME", "PR", "AUTHOR", "ACTION", "RULE", "TITLE"}
@@ -361,11 +367,15 @@ func writeHistoryTable(w io.Writer, rows []historyRow, noState bool) error {
 			}
 		}
 	}
-	if err := writeHistoryLine(w, header, width); err != nil {
+	if err := writeHistoryLine(w, header, width, ""); err != nil {
 		return err
 	}
-	for _, row := range cells {
-		if err := writeHistoryLine(w, row, width); err != nil {
+	for i, row := range cells {
+		prURL := ""
+		if links {
+			prURL = rows[i].URL
+		}
+		if err := writeHistoryLine(w, row, width, prURL); err != nil {
 			return err
 		}
 	}
@@ -384,14 +394,24 @@ func historyCells(row historyRow, noState bool) []string {
 	return []string{timeText, row.PR, row.Author, row.State, row.Action, rule, row.Title}
 }
 
-func writeHistoryLine(w io.Writer, cells []string, width []int) error {
+const historyPRColumn = 1
+
+func writeHistoryLine(w io.Writer, cells []string, width []int, prURL string) error {
 	var b strings.Builder
 	for i, cell := range cells {
 		if i > 0 {
 			b.WriteByte(' ')
 		}
 		if i < len(width) {
-			fmt.Fprintf(&b, "%-*s", width[i], cell)
+			pad := width[i] - len(cell)
+			if i == historyPRColumn && prURL != "" {
+				b.WriteString(osc8Link(prURL, cell))
+			} else {
+				b.WriteString(cell)
+			}
+			if pad > 0 {
+				b.WriteString(strings.Repeat(" ", pad))
+			}
 			continue
 		}
 		b.WriteString(cell)
@@ -401,6 +421,10 @@ func writeHistoryLine(w io.Writer, cells []string, width []int) error {
 		return fmt.Errorf("write history: %w", err)
 	}
 	return nil
+}
+
+func osc8Link(url, text string) string {
+	return "\x1b]8;;" + url + "\x1b\\" + text + "\x1b]8;;\x1b\\"
 }
 
 func warnUnread(w io.Writer, rows []historyRow) error {

@@ -27,6 +27,11 @@ type PullRef struct {
 	Raw    string
 }
 
+// URL returns the GitHub pull request URL for ref.
+func (r PullRef) URL() string {
+	return fmt.Sprintf("https://github.com/%s/%s/pull/%d", r.Owner, r.Repo, r.Number)
+}
+
 // QueueCheck is one status check on the pull request head.
 type QueueCheck struct {
 	Name       string

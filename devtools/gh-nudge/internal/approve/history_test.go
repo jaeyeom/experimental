@@ -252,12 +252,16 @@ func TestHistoryJSONIsStable(t *testing.T) {
 	}}
 	opts, out, _ := historyOpts(logPath, filepath.Join(t.TempDir(), "pr-state.json"), hit)
 	opts.JSON = true
+	opts.Links = true
 	if err := History(opts); err != nil {
 		t.Fatal(err)
 	}
-	const want = `[{"time":"2026-11-12T15:04:05Z","pr":"acme/widgets#1","author":"alice","state":"MERGED","action":"approved","rule":"dashboard","title":"Tidy"}]` + "\n"
+	const want = `[{"time":"2026-11-12T15:04:05Z","pr":"acme/widgets#1","url":"https://github.com/acme/widgets/pull/1","author":"alice","state":"MERGED","action":"approved","rule":"dashboard","title":"Tidy"}]` + "\n"
 	if out.String() != want {
 		t.Fatalf("json = %s\nwant %s", out.String(), want)
+	}
+	if strings.Contains(out.String(), "\x1b") {
+		t.Fatalf("json contains escape bytes: %q", out.String())
 	}
 	opts.NoState = true
 	opts.JSON = true
@@ -266,13 +270,69 @@ func TestHistoryJSONIsStable(t *testing.T) {
 	if err := History(opts); err != nil {
 		t.Fatal(err)
 	}
-	const wantNoState = `[{"time":"2026-11-12T15:04:05Z","pr":"acme/widgets#1","author":"alice","action":"approved","rule":"dashboard","title":"Tidy"}]` + "\n"
+	const wantNoState = `[{"time":"2026-11-12T15:04:05Z","pr":"acme/widgets#1","url":"https://github.com/acme/widgets/pull/1","author":"alice","action":"approved","rule":"dashboard","title":"Tidy"}]` + "\n"
 	if out.String() != wantNoState {
 		t.Fatalf("json = %s\nwant %s", out.String(), wantNoState)
 	}
 	if hit.calls != 0 {
 		t.Fatalf("no-state lookups = %d", hit.calls)
 	}
+}
+
+func TestHistoryLinksAndAlignment(t *testing.T) {
+	when := historyNow().Add(-time.Hour)
+	logPath := writeHistoryLog(t,
+		historyLine(t, when, "acme/w#1", "alice", "Short", ActionApproved, "dashboard"),
+		historyLine(t, when, "acme/long-repo-name#4200", "bob", "Long", ActionApproved, "docs"),
+	)
+	hit := &historyHit{snaps: map[string]github.PRSnapshot{
+		"acme/w#1":                 {State: "OPEN", Author: "alice", Title: "Short"},
+		"acme/long-repo-name#4200": {State: "MERGED", Author: "bob", Title: "Long"},
+	}}
+	cachePath := filepath.Join(t.TempDir(), "pr-state.json")
+
+	plainOpts, plainOut, _ := historyOpts(logPath, cachePath, hit)
+	plainOpts.Links = false
+	if err := History(plainOpts); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(plainOut.String(), "\x1b") {
+		t.Fatalf("plain output contains escape bytes: %q", plainOut.String())
+	}
+
+	linkOpts, linkOut, _ := historyOpts(logPath, cachePath, hit)
+	linkOpts.Links = true
+	if err := History(linkOpts); err != nil {
+		t.Fatal(err)
+	}
+	wantLink1 := "\x1b]8;;https://github.com/acme/w/pull/1\x1b\\acme/w#1\x1b]8;;\x1b\\"
+	wantLink2 := "\x1b]8;;https://github.com/acme/long-repo-name/pull/4200\x1b\\acme/long-repo-name#4200\x1b]8;;\x1b\\"
+	if !strings.Contains(linkOut.String(), wantLink1) {
+		t.Fatalf("linked output missing %q:\n%q", wantLink1, linkOut.String())
+	}
+	if !strings.Contains(linkOut.String(), wantLink2) {
+		t.Fatalf("linked output missing %q:\n%q", wantLink2, linkOut.String())
+	}
+	stripped := stripOSC8(linkOut.String())
+	if stripped != plainOut.String() {
+		t.Fatalf("alignment differs after stripping OSC 8:\nlinked (stripped):\n%s\nplain:\n%s", stripped, plainOut.String())
+	}
+}
+
+func stripOSC8(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		if strings.HasPrefix(s[i:], "\x1b]8;;") {
+			end := strings.Index(s[i:], "\x1b\\")
+			if end >= 0 {
+				i += end + 2
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	return b.String()
 }
 
 func TestHistoryRejectsBadFlags(t *testing.T) {

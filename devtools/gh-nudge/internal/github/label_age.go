@@ -84,11 +84,11 @@ func parsePullRequestURL(prURL string) (owner, repo string, number int, err erro
 	if err != nil {
 		return "", "", 0, fmt.Errorf("invalid pull request URL %q: %w", prURL, err)
 	}
-	if parsed.Host != "github.com" {
+	if (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host != "github.com" {
 		return "", "", 0, fmt.Errorf("invalid pull request URL %q", prURL)
 	}
 	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
-	if len(parts) < 4 || parts[2] != "pull" {
+	if len(parts) < 4 || parts[0] == "" || parts[1] == "" || parts[2] != "pull" {
 		return "", "", 0, fmt.Errorf("invalid pull request URL %q", prURL)
 	}
 	number, err = strconv.Atoi(parts[3])

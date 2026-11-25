@@ -33,6 +33,7 @@ go_test(
     ],
     embed = [":go_default_library"],
     deps = [
+        "//devtools/gh-nudge/internal/approve:go_default_library",
         "//devtools/gh-nudge/internal/config:go_default_library",
         "//devtools/pkg/toolcli:go_default_library",
     ],

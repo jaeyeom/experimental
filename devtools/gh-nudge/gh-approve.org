@@ -43,7 +43,12 @@ request that requests only a team you belong to, unless a rule sets
   # Recent decisions. --action defaults to approved. --days defaults to 7.
   gh-approve history
   gh-approve history --days 30 --action all --rule dashboard --json
-  gh-approve history --no-state
+  gh-approve history --no-state --no-links
+
+  # Open a pull request in the browser (or print its URL with --print)
+  gh-approve open 12
+  gh-approve open acme/widgets#12
+  gh-approve open --print https://github.com/acme/widgets/pull/12/files
 #+end_src
 
 One starter rule, in the ~approve~ section of ~config.pkl~. ~gh-approve~
@@ -587,7 +592,18 @@ rule. ~--json~ prints one JSON array.
 The table columns are time (UTC), ~owner/repo#n~, author, current state
 (~OPEN~, ~CLOSED~, or ~MERGED~), action, rule, and title. The author comes
 from the log line. It is looked up only for an older line that has no
-~author~.
+~author~. When stdout is a terminal, the PR column is rendered as a clickable
+OSC 8 hyperlink to the pull request URL without changing column alignment;
+non-TTY stdout, ~NO_COLOR~, ~TERM=dumb~, and ~--no-links~ disable links.
+~--json~ includes a ~url~ field and never emits escape sequences.
+
+~gh-approve open <ref>~ opens a pull request in the browser using
+~gh browse <N> -R owner/repo~ (falling back to ~open~ on macOS or ~xdg-open~
+elsewhere when ~gh~ is unavailable). ~<ref>~ may be a bare number (resolved
+against the single configured repository in ~github.repos~; an error listing
+configured repositories if several exist), ~owner/repo#N~, or a GitHub pull
+request URL (ignoring trailing paths or queries). ~--print~ prints the URL
+instead of opening it.
 
 ~MERGED~ is final. History caches it, with the author and title, in
 ~$XDG_CACHE_HOME/gh-nudge/pr-state.json~ (or =~/.cache/gh-nudge/pr-state.json=)

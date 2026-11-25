@@ -87,6 +87,42 @@ func TestUseColor(t *testing.T) {
 	}
 }
 
+func TestUseLinks(t *testing.T) {
+	file, err := os.Create(filepath.Join(t.TempDir(), "out"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	var buf bytes.Buffer
+	if UseLinks(&buf, false, "", "xterm-256color") {
+		t.Error("UseLinks(buffer) = true, want false")
+	}
+	if UseLinks(file, false, "", "xterm-256color") {
+		t.Error("UseLinks(regular file) = true, want false")
+	}
+	for _, tc := range []struct {
+		name    string
+		tty     bool
+		noLinks bool
+		noColor string
+		term    string
+		want    bool
+	}{
+		{name: "tty enabled", tty: true, term: "xterm-256color", want: true},
+		{name: "tty empty term", tty: true, term: "", want: true},
+		{name: "not tty", tty: false, term: "xterm-256color", want: false},
+		{name: "no-links flag", tty: true, noLinks: true, term: "xterm-256color", want: false},
+		{name: "NO_COLOR set", tty: true, noColor: "1", term: "xterm-256color", want: false},
+		{name: "TERM dumb", tty: true, term: "dumb", want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := useLinks(tc.tty, tc.noLinks, tc.noColor, tc.term); got != tc.want {
+				t.Errorf("useLinks(%v, %v, %q, %q) = %v, want %v", tc.tty, tc.noLinks, tc.noColor, tc.term, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestWriteSummaryGroupsInOrderWithCounts(t *testing.T) {
 	rule := "dashboard"
 	entries := []LogEntry{

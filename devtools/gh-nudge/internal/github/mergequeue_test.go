@@ -18,8 +18,10 @@ func TestParsePullRef(t *testing.T) {
 	}{
 		{raw: "acme/widgets#12", owner: "acme", repo: "widgets", number: 12},
 		{raw: " https://github.com/acme/widgets/pull/12 ", owner: "acme", repo: "widgets", number: 12},
+		{raw: "https://github.com/acme/widgets/pull/12/files?w=1", owner: "acme", repo: "widgets", number: 12},
 		{raw: "acme/widgets", wantErr: true},
 		{raw: "https://example.com/acme/widgets/pull/12", wantErr: true},
+		{raw: "https://github.com//widgets/pull/12", wantErr: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.raw, func(t *testing.T) {
@@ -35,6 +37,10 @@ func TestParsePullRef(t *testing.T) {
 			}
 			if got.Owner != tc.owner || got.Repo != tc.repo || got.Number != tc.number {
 				t.Errorf("ParsePullRef() = %+v", got)
+			}
+			wantURL := fmt.Sprintf("https://github.com/%s/%s/pull/%d", tc.owner, tc.repo, tc.number)
+			if got.URL() != wantURL {
+				t.Errorf("PullRef.URL() = %q, want %q", got.URL(), wantURL)
 			}
 		})
 	}

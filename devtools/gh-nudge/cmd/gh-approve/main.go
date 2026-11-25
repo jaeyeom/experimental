@@ -27,6 +27,9 @@
 //	# List recent decisions, with each pull request's current state
 //	gh-approve history
 //
+//	# Open a pull request in the browser (or print its URL with --print)
+//	gh-approve open acme/widgets#12
+//
 // Every decision is appended to ~/.config/gh-nudge/approve-log.jsonl.
 //
 // Agent command decisions are cached under $XDG_CACHE_HOME/gh-approve/agent
@@ -102,8 +105,13 @@ func main() {
 	if code, ok := newGHApproveTool().Handle(context.Background(), os.Args[1:], os.Stdout, os.Stderr); ok {
 		os.Exit(code)
 	}
-	if len(os.Args) > 1 && os.Args[1] == "history" {
-		os.Exit(runHistory(os.Args[2:]))
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "history":
+			os.Exit(runHistory(os.Args[2:]))
+		case "open":
+			os.Exit(runOpen(os.Args[2:]))
+		}
 	}
 	var (
 		configPath      string
@@ -124,7 +132,7 @@ func main() {
 	flag.BoolVar(&noCache, "no-cache", false, "Bypass the per-commit PR facts cache")
 	flag.StringVar(&color, "color", approve.ColorAuto, "Color the status markers: auto (only on a terminal), always, or never. NO_COLOR turns color off")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [--apply] [--pr <owner/repo#N | URL>] [--explain] [--no-cache] [--no-agent-cache] [--load-concurrency N] [--color auto|always|never] [--config <path>]\n       %s history [--days N] [--action approved|handoff|mark_viewed|all] [--rule NAME] [--json] [--no-state]\n\n", os.Args[0], os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s [--apply] [--pr <owner/repo#N | URL>] [--explain] [--no-cache] [--no-agent-cache] [--load-concurrency N] [--color auto|always|never] [--config <path>]\n       %s history [--days N] [--action approved|handoff|mark_viewed|all] [--rule NAME] [--json] [--no-state] [--no-links]\n       %s open [--print] [--config <path>] <number | owner/repo#N | URL>\n\n", os.Args[0], os.Args[0], os.Args[0])
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -199,14 +207,16 @@ func runHistory(args []string) int {
 		rule    string
 		jsonOut bool
 		noState bool
+		noLinks bool
 	)
 	fs.IntVar(&days, "days", 7, "How many days of decisions to list")
 	fs.StringVar(&action, "action", approve.ActionApproved, "approved, handoff, mark_viewed, or all; would_* actions are included only with all")
 	fs.StringVar(&rule, "rule", "", "List only decisions for this rule")
 	fs.BoolVar(&jsonOut, "json", false, "Print a JSON array instead of a table")
 	fs.BoolVar(&noState, "no-state", false, "Do not look up the current pull request state")
+	fs.BoolVar(&noLinks, "no-links", false, "Do not render OSC 8 hyperlinks in the PR column")
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: gh-approve history [--days N] [--action approved|handoff|mark_viewed|all] [--rule NAME] [--json] [--no-state]\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: gh-approve history [--days N] [--action approved|handoff|mark_viewed|all] [--rule NAME] [--json] [--no-state] [--no-links]\n\n")
 		fs.SetOutput(os.Stderr)
 		fs.PrintDefaults()
 	}
@@ -238,12 +248,70 @@ func runHistory(args []string) int {
 		Rule:      rule,
 		JSON:      jsonOut,
 		NoState:   noState,
+		Links:     approve.UseLinks(os.Stdout, noLinks, os.Getenv("NO_COLOR"), os.Getenv("TERM")),
 		Out:       os.Stdout,
 		Err:       os.Stderr,
 		Lookup:    client.PullRequestSnapshots,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gh-approve: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+// runOpen opens a pull request in the browser or prints its URL.
+// Flag mistakes and malformed references exit 2. Opener or config errors exit 1.
+func runOpen(args []string) int {
+	return runOpenWith(args, os.Stdout, os.Stderr, approve.Open)
+}
+
+func runOpenWith(args []string, out, errOut io.Writer, openFn func(approve.OpenOptions) error) int {
+	fs := flag.NewFlagSet("open", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	var (
+		printURL   bool
+		configPath string
+	)
+	fs.BoolVar(&printURL, "print", false, "Print the pull request URL instead of opening it")
+	fs.StringVar(&configPath, "config", "", "Path to config file (default ~/.config/gh-nudge/config.pkl)")
+	fs.Usage = func() {
+		fmt.Fprintf(errOut, "Usage: gh-approve open [--print] [--config <path>] <number | owner/repo#N | URL>\n\n")
+		fs.SetOutput(errOut)
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			fs.Usage()
+			return 0
+		}
+		fmt.Fprintf(errOut, "gh-approve: %v\n", err)
+		fs.Usage()
+		return 2
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprintf(errOut, "gh-approve: expected one pull request reference\n")
+		fs.Usage()
+		return 2
+	}
+	err := openFn(approve.OpenOptions{
+		Ref:   fs.Arg(0),
+		Print: printURL,
+		Out:   out,
+		LoadRepos: func() ([]string, error) {
+			cfg, err := config.LoadConfig(configPath)
+			if err != nil {
+				return nil, fmt.Errorf("load config: %w", err)
+			}
+			return approve.ConfiguredRepos(cfg), nil
+		},
+	})
+	if err != nil {
+		fmt.Fprintf(errOut, "gh-approve: %v\n", err)
+		if errors.Is(err, approve.ErrInvalidPullRef) {
+			fs.Usage()
+			return 2
+		}
 		return 1
 	}
 	return 0

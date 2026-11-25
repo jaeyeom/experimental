@@ -11,4 +11,5 @@ Common commands:
 - `gh-approve` — dry run.
 - `gh-approve --apply` — approve or hand off matching PRs.
 - `gh-approve --pr owner/repo#N --explain` — evaluate one PR.
-- `gh-approve history` — list recent decisions.
+- `gh-approve history` — list recent decisions (with clickable PR links on a terminal; `--no-links` for plain text).
+- `gh-approve open <ref>` — open a pull request (`123`, `owner/repo#N`, or URL) in the browser (`--print` prints the URL).

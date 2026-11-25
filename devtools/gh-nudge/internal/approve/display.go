@@ -30,6 +30,20 @@ func UseColor(mode string, w io.Writer, noColor string) (bool, error) {
 	}
 }
 
+// UseLinks reports whether output to w should include OSC 8 hyperlinks.
+// Links are enabled only when w is a terminal, noLinks is false, noColor
+// (NO_COLOR) is empty, and term (TERM) is not "dumb".
+func UseLinks(w io.Writer, noLinks bool, noColor, term string) bool {
+	return useLinks(isTerminal(w), noLinks, noColor, term)
+}
+
+func useLinks(tty, noLinks bool, noColor, term string) bool {
+	if !tty || noLinks || noColor != "" || term == "dumb" {
+		return false
+	}
+	return true
+}
+
 func isTerminal(w io.Writer) bool {
 	file, ok := w.(*os.File)
 	if !ok {
