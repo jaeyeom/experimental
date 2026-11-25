@@ -1,6 +1,8 @@
 load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
 load("@nogo_analyzer_bzlmod//:def.bzl", "ANALYZERS", "staticcheck_analyzers")
 load("@rules_go//go:def.bzl", "TOOLS_NOGO", "nogo")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load(":linters.bzl", "ruff_test")
 
 package(default_visibility = ["//:__subpackages__"])
 
@@ -61,4 +63,24 @@ nogo(
         ":skip_nogo_enabled": [],
         "//conditions:default": TOOLS_NOGO + ADDITIONAL_GOVET + EXTRA_ANALYZERS + staticcheck_analyzers(ANALYZERS),
     }),
+)
+
+ruff_test(
+    name = "ruff_test",
+    size = "small",
+    srcs = ["//devtools/linters/pylinters:repo_py_srcs"],
+)
+
+sh_test(
+    name = "ruff_config_test",
+    size = "small",
+    srcs = ["ruff_config_test.sh"],
+    args = [
+        "$(rootpath @aspect_rules_lint//lint:ruff_bin)",
+        "$(rootpath //:pyproject.toml)",
+    ],
+    data = [
+        "//:pyproject.toml",
+        "@aspect_rules_lint//lint:ruff_bin",
+    ],
 )

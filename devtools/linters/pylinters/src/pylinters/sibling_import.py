@@ -88,7 +88,7 @@ def load_config(pyproject_path: str) -> Config:
 
 def check(
     fs: files.FileSet,
-    cfg: Config = Config(),
+    cfg: Config | None = None,
     read: Reader | None = None,
     paths: Collection[str] | None = None,
 ) -> Result:
@@ -102,6 +102,7 @@ def check(
         ConfigError: A configured root holds no tracked Python file.
         ParseError: A scanned file is not valid Python.
     """
+    cfg = cfg if cfg is not None else Config()
     reader = read if read is not None else files.root_reader(fs)
     roots = (
         list(cfg.roots) if cfg.roots is not None else files.default_roots(fs)

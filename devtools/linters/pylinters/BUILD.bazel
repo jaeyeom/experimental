@@ -87,6 +87,8 @@ filegroup(
         "//devtools/setup-dev/ansible:py_srcs",
         "//scripts:py_srcs",
     ],
+    tags = ["lint-with-ruff"],
+    visibility = ["//tools/lint:__pkg__"],
 )
 
 filegroup(

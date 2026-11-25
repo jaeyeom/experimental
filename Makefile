@@ -68,7 +68,7 @@ test-rbe:
 	bazel test --config=rbe --test_summary=terse --build_tag_filters=-local,-no-remote --test_tag_filters=-local,-no-remote $(BAZEL_FLAGS) //...
 	bazel test --test_summary=terse $(BAZEL_TEST_ENV) --build_tag_filters=local,no-remote --test_tag_filters=local,no-remote $(BAZEL_FLAGS) //...
 
-lint-non-bazel: lint-genfiles lint-ruff lint-mypy lint-shellcheck
+lint-non-bazel: lint-genfiles lint-mypy lint-shellcheck
 
 lint-non-emacs: lint-non-bazel
 
@@ -133,10 +133,7 @@ check-bazel-go-files:
 	@./check-bazel-src-files.sh go
 
 # Python targets
-.PHONY: lint-ruff fix-ruff lint-mypy check-uv-lock
-
-lint-ruff:
-	ruff check
+.PHONY: fix-ruff lint-mypy check-uv-lock
 
 fix-ruff:
 	ruff check --fix
