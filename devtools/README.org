@@ -61,6 +61,7 @@ tool has its own README. Start with the one-line summaries below.
 | rename-jira-keys | Rename Jira ticket keys in file names and contents         | experimental | make install                                      | [[file:rename-jira-keys/README.org][README]] |
 | repo-sync        | Sync selected project files across machines with git       | inactive     | bazel build //devtools/repo-sync/cmd/repo-sync    | [[file:repo-sync/README.org][README]]        |
 | reviewpush       | Have Codex review local commits, then push them            | experimental | make install                                      | [[file:reviewpush/README.md][README]]        |
+| secretwatch      | Watch the systemd journal for leaked secrets safely        | experimental | make install                                      | [[file:secretwatch/README.org][README]]       |
 | setup-dev        | Ansible playbooks that install a development environment   | active       | ./ensure.sh all                                   | [[file:setup-dev/README.org][README]]        |
 | slackwatch       | Deliver Slack replies; post only decide-approved drafts    | experimental | go install ./devtools/slackwatch/cmd/slackwatch   | [[file:slackwatch/README.org][README]]       |
 

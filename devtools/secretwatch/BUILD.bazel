@@ -1,0 +1,52 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+exports_files([
+    "README.org",
+])
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "config.go",
+        "journal.go",
+        "notify.go",
+        "paths.go",
+        "rules.go",
+        "state.go",
+        "watch.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/secretwatch",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//devtools/pkg/notify:go_default_library",
+        "@com_github_apple_pkl_go//pkl:go_default_library",
+        "@com_github_google_renameio_v2//:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    size = "small",
+    srcs = [
+        "config_test.go",
+        "journal_test.go",
+        "paths_test.go",
+        "readme_test.go",
+        "rules_test.go",
+        "state_test.go",
+        "watch_test.go",
+    ],
+    data = [
+        "README.org",
+        "//devtools/secretwatch/pkl:Config.pkl",
+        "//devtools/secretwatch/pkl:example.config.pkl",
+    ] + select({
+        "@bazel_tools//src/conditions:darwin_arm64": ["@pkl-cli-macos-aarch64//file:downloaded"],
+        "@bazel_tools//src/conditions:darwin_arm64e": ["@pkl-cli-macos-aarch64//file:downloaded"],
+        "@bazel_tools//src/conditions:darwin_x86_64": ["@pkl-cli-macos-amd64//file:downloaded"],
+        "@bazel_tools//src/conditions:linux_aarch64": ["@pkl-cli-linux-aarch64//file:downloaded"],
+        "@bazel_tools//src/conditions:linux_x86_64": ["@pkl-cli-linux-amd64//file:downloaded"],
+        "//conditions:default": [],
+    }),
+    embed = [":go_default_library"],
+)

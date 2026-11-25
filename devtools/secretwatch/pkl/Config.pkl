@@ -1,0 +1,39 @@
+/// Configuration schema for secretwatch.
+module secretwatch.Config
+
+/// A custom secret detection rule.
+class Rule {
+  /// Unique rule name shown in findings and notifications.
+  name: String(!isEmpty)
+
+  /// RE2 regular expression. When the expression defines a capturing group,
+  /// the first capturing group is masked as the secret; otherwise the full
+  /// match is masked.
+  pattern: String(!isEmpty)
+
+  /// Minimum Shannon entropy in bits per character required on the captured
+  /// secret (0 disables the entropy check).
+  minEntropy: Float(this >= 0.0) = 0.0
+}
+
+/// Allowlist entries that suppress false-positive findings.
+class Allowlist {
+  /// RE2 regular expressions matched against the secret text or log line.
+  patterns: Listing<String(!isEmpty)> = new {}
+
+  /// Systemd unit names or glob patterns (for example, "test-*.service").
+  units: Listing<String(!isEmpty)> = new {}
+}
+
+/// Command executed (argv, without a shell) once per finding.
+/// Placeholders: {time}, {journal}, {unit}, {process}, {pid}, {rule}, {prefix}, {cursor}.
+notify: Listing<String(!isEmpty)> = new {}
+
+/// Additional custom detection rules evaluated before generic fallback rules.
+rules: Listing<Rule> = new {}
+
+/// Suppressions for known false positives.
+allowlist: Allowlist = new {}
+
+/// Built-in rule names to disable.
+disableRules: Listing<String(!isEmpty)> = new {}

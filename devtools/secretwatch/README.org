@@ -1,0 +1,125 @@
+#+TITLE: secretwatch
+
+~secretwatch~ watches the local systemd user and system journals for
+secret-shaped strings and alerts without ever exposing the secret value.
+
+* Installation
+
+#+BEGIN_SRC bash
+go install github.com/jaeyeom/experimental/devtools/secretwatch/cmd/secretwatch@latest
+#+END_SRC
+
+* Never expose the secret
+
+Secret values and raw journal messages are dropped immediately after matching
+in memory. They are never printed, logged, stored in ~state.json~, included
+in ~--json~ output or error messages, or passed to the notifier command.
+
+Each finding records only:
+
+- journal timestamp (~time~)
+- journal source (~user~ or ~system~)
+- systemd ~unit~, process name (~process~), and ~pid~
+- rule name (~rule~)
+- masked prefix (~maskedPrefix~), revealing at most 4 leading characters (for example ~ghp_****~)
+- journal ~cursor~ so you can inspect the entry directly with ~journalctl~
+
+* Detection rules
+
+Built-in rules cover:
+
+- ~github-token~: GitHub tokens (~ghp_~, ~gho_~, ~ghu_~, ~ghs_~, ~ghr_~, ~github_pat_~)
+- ~gcp-service-account-key~: GCP service-account ~private_key~ PEM blocks
+- ~pem-private-key~: PEM private key headers (~RSA~, ~EC~, ~OPENSSH~, ~PGP~, generic)
+- ~aws-access-key~: AWS access key IDs (~AKIA...~, ~ASIA...~, etc.)
+- ~gcp-api-key~: Google/GCP API keys (~AIza...~)
+- ~slack-token~: Slack tokens (~xox?-~)
+- ~auth-header~: ~Authorization:~ and ~Bearer~ headers
+- ~generic-secret-assignment~: high-entropy ~*_TOKEN=~, ~*_SECRET=~, ~*_KEY=~ assignments
+
+* Configuration (Pkl)
+
+Configuration is optional. When present, it lives at
+~$XDG_CONFIG_HOME/secretwatch/config.pkl~ (default
+=~/.config/secretwatch/config.pkl= on Linux,
+=~/Library/Application Support/secretwatch/config.pkl= on macOS).
+
+The schema is [[file:pkl/Config.pkl][pkl/Config.pkl]] and a fictional example is
+[[file:pkl/example.config.pkl][pkl/example.config.pkl]]:
+
+#+BEGIN_SRC pkl
+notify {
+  "notify-send"
+  "secretwatch: {rule}"
+  "{journal} {unit} {process}[{pid}] {prefix} ({cursor})"
+}
+
+rules {
+  new {
+    name = "internal-api-token"
+    pattern = #"\b(corp_tok_[A-Za-z0-9]{24,})\b"#
+    minEntropy = 2.5
+  }
+}
+
+allowlist {
+  patterns {
+    #"^ghp_000000"#
+    "secretwatch-fixture-ignore"
+  }
+  units {
+    "ci-test-*.service"
+    "local-dev.service"
+  }
+}
+#+END_SRC
+
+* Journals, cursors, and state
+
+- Scans both ~journalctl --user~ and ~journalctl --system~. If the system
+  journal is unreadable due to permissions, it is skipped with a clear note
+  rather than failing the run.
+- Persists per-journal cursors and alerted cursors in
+  ~$XDG_STATE_HOME/secretwatch/state.json~ (default
+  =~/.local/state/secretwatch/state.json= on Linux).
+- First run starts from "now" unless ~--since~ is passed. Subsequent runs scan
+  only entries after the saved cursor and deduplicate alerts by cursor.
+
+* Commands
+
+- ~secretwatch check [--since TIME] [--follow] [--json] [--config PATH]~ — scan new entries across user and system journals, alert once per new finding, and update state. With ~--follow~, stream entries continuously.
+- ~secretwatch scan --since TIME [--until TIME] [--unit UNIT] [--json] [--config PATH]~ — one-shot incident scan over a historical window. Prints findings and exits without modifying ~state.json~ or running ~notify~.
+- ~secretwatch help [command]~ — print usage or command flags.
+
+* Notifier contract
+
+When ~notify~ is configured, ~secretwatch~ executes it directly (argv, without
+a shell) once per new finding:
+
+- Placeholders ~{time}~, ~{journal}~, ~{unit}~, ~{process}~, ~{pid}~,
+  ~{rule}~, ~{prefix}~, and ~{cursor}~ are substituted when any placeholder
+  appears in ~notify~.
+- Otherwise those values are appended as positional arguments.
+- Environment variables ~SECRETWATCH_TIME~, ~SECRETWATCH_JOURNAL~,
+  ~SECRETWATCH_UNIT~, ~SECRETWATCH_PROCESS~, ~SECRETWATCH_PID~,
+  ~SECRETWATCH_RULE~, ~SECRETWATCH_PREFIX~, and ~SECRETWATCH_CURSOR~ are set.
+
+* Exit codes
+
+| Code | Meaning                                              |
+|------+------------------------------------------------------|
+|    0 | Clean (no findings, even if system journal skipped)  |
+|    1 | One or more findings detected                        |
+|    2 | Operational, configuration, state, or notify error   |
+
+* Example systemd units
+
+Example user units live under [[file:contrib/][contrib/]]:
+
+- =contrib/secretwatch.service= and =contrib/secretwatch.timer= (periodic ~check~)
+- =contrib/secretwatch-follow.service= (continuous ~check --follow~)
+
+* Standard CLI protocol
+
+~secretwatch~ implements ~version [--json]~, ~update [--check] [--ref <ref>] [--json]~,
+~doctor [--json] [--offline]~, and ~skill [install|uninstall|status ...]~.

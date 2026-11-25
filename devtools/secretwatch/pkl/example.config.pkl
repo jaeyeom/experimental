@@ -1,0 +1,26 @@
+amends "Config.pkl"
+
+notify {
+  "notify-send"
+  "secretwatch: {rule}"
+  "{journal} {unit} {process}[{pid}] {prefix} ({cursor})"
+}
+
+rules {
+  new {
+    name = "internal-api-token"
+    pattern = #"\b(corp_tok_[A-Za-z0-9]{24,})\b"#
+    minEntropy = 2.5
+  }
+}
+
+allowlist {
+  patterns {
+    #"^ghp_000000"#
+    "secretwatch-fixture-ignore"
+  }
+  units {
+    "ci-test-*.service"
+    "local-dev.service"
+  }
+}

@@ -366,6 +366,11 @@ rules:
       - path: devtools/reviewpush/README.md
         why: "tool overview and installation entry point"
 
+  - match: ["devtools/secretwatch/**"]
+    docs:
+      - path: devtools/secretwatch/README.org
+        why: "tool overview and installation entry point"
+
   - match: ["devtools/setup-dev/**"]
     docs:
       - path: devtools/setup-dev/README.org

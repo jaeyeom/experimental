@@ -79,6 +79,7 @@ INSTALL_CMDS := \
 	./devtools/prsync/cmd/prsync \
 	./devtools/rename-jira-keys/cmd/rename-jira-keys \
 	./devtools/reviewpush/cmd/review-and-push-loop \
+	./devtools/secretwatch/cmd/secretwatch \
 	./devtools/slackwatch/cmd/slackwatch
 
 VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
