@@ -598,3 +598,28 @@ func TestLoadApprovalPullRequestsEmptyStdoutReturnsUnexpectedEOF(t *testing.T) {
 		t.Fatalf("err = %v, want io.ErrUnexpectedEOF", err)
 	}
 }
+
+func TestLoadApprovalPullRequestsMarksIncompleteFiles(t *testing.T) {
+	exec := &routeExec{route: map[string]string{
+		"p0:repository": `{"data":{"p0":{"pullRequest":{` +
+			`"id":"PR_1","number":1,"url":"https://github.com/acme/widgets/pull/1","title":"Huge PR","state":"OPEN","isDraft":false,"headRefOid":"h1","baseRefName":"main","baseRefOid":"b1","author":{"login":"alice"},"additions":500,"deletions":100,"changedFiles":105,` +
+			`"files":{"pageInfo":{"hasNextPage":true},"nodes":[{"path":"dash/a.go","viewerViewedState":"UNVIEWED"}]},` +
+			`"labels":{"pageInfo":{"hasNextPage":false},"nodes":[]},` +
+			`"reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"User","login":"me"}}]},` +
+			`"reviews":{"nodes":[]},` +
+			`"reviewThreads":{"totalCount":0,"nodes":[]},` +
+			`"commits":{"nodes":[{"commit":{"oid":"h1","statusCheckRollup":{"contexts":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}]}` +
+			`}}}}`,
+	}}
+	got, err := NewClientWithExecutor(exec).LoadApprovalPullRequests([]PullRef{{Owner: "acme", Repo: "widgets", Number: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := got["acme/widgets#1"]
+	if res.Err != nil {
+		t.Fatalf("unexpected per-PR err: %v", res.Err)
+	}
+	if !strings.Contains(res.PR.FilesErr, "more than 100 changed files") {
+		t.Fatalf("FilesErr = %q, want incomplete file list message", res.PR.FilesErr)
+	}
+}

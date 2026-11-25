@@ -437,7 +437,7 @@ func TestBatchRateLimitErrorBehavesAsToday(t *testing.T) {
 	})
 }
 
-func TestBatchAllWouldBeLeftFailedPrintsZeroLeftForYouAndNotEvaluated(t *testing.T) {
+func TestBatchAllWouldBeLeftFailedCountsLeftForYouAndUnevaluated(t *testing.T) {
 	pr1 := prNumber(1)
 	pr1.Files = []models.File{{Path: "infra/main.tf"}} // would be left for you
 	pr2 := prNumber(2)
@@ -464,8 +464,39 @@ func TestBatchAllWouldBeLeftFailedPrintsZeroLeftForYouAndNotEvaluated(t *testing
 	if err == nil || !strings.Contains(err.Error(), "2 pull request(s) failed") {
 		t.Fatalf("err = %v, want 2 pull request(s) failed", err)
 	}
-	if !strings.Contains(out.String(), "👀 Left for you (0)\n  2 not evaluated (load failed); rerun to check them\n") {
-		t.Fatalf("output missing Left for you (0) and not evaluated line:\n%s", out.String())
+	wantSummary := "👀 Left for you (2)\n" +
+		"  2 unevaluated (rerun to check):\n" +
+		"    acme/widgets#1 - unevaluated: load pull requests: gh api graphql: exit status 1: gh: HTTP 504\n" +
+		"    acme/widgets#2 - unevaluated: load pull requests: gh api graphql: exit status 1: gh: HTTP 504\n"
+	if !strings.Contains(out.String(), wantSummary) {
+		t.Fatalf("output missing Left for you (2) and unevaluated lines:\n%s", out.String())
+	}
+}
+
+func TestBatchOnePRAPIErrorCountedAsManualInSummary(t *testing.T) {
+	manual := prNumber(1)
+	manual.Files = []models.File{{Path: "infra/main.tf"}}
+	failed := prNumber(2)
+	approvable := prNumber(3)
+	fake := newFake(manual, failed, approvable)
+	fake.loadErr = map[int]error{2: errors.New("gh: HTTP 502")}
+
+	res := run(t, fake, []config.ApproveRule{dashboardRule}, Options{Apply: true})
+	if res.err == nil || !strings.Contains(res.err.Error(), "1 pull request(s) failed") {
+		t.Fatalf("err = %v, want 1 pull request(s) failed", res.err)
+	}
+	if len(res.fake.approvals) != 1 || res.fake.approvals[0].ref.Number != 3 {
+		t.Fatalf("approvals = %+v, want only PR #3", res.fake.approvals)
+	}
+	if res.log[1].Action != ActionError || !strings.HasPrefix(res.log[1].Reason, "unevaluated: ") || !strings.Contains(res.log[1].Reason, "HTTP 502") {
+		t.Fatalf("PR #2 log entry = %+v", res.log[1])
+	}
+	want := "👀 Left for you (2)\n" +
+		"  acme/widgets#1  Tidy dashboard - dashboard: paths_all_match failed (outside globs: infra/main.tf)\n" +
+		"  1 unevaluated (rerun to check):\n" +
+		"    acme/widgets#2 - unevaluated: gh: HTTP 502\n"
+	if !strings.Contains(res.out, want) {
+		t.Fatalf("summary missing manual + unevaluated counts:\n%s\nwant substring:\n%s", res.out, want)
 	}
 }
 

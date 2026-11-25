@@ -81,6 +81,11 @@ type LogEntry struct {
 	Rules  []RuleResult `json:"rules"`
 	Action string       `json:"action"`
 	Reason string       `json:"reason,omitempty"`
+	// Unevaluated is true when the pull request could not be evaluated
+	// (such as an incomplete file list or a load API error).
+	Unevaluated bool `json:"unevaluated,omitempty"`
+	// Transient is true when an unevaluated failure may succeed on a rerun.
+	Transient bool `json:"transient,omitempty"`
 	// Reviewers are the logins a hand-off requests.
 	Reviewers []string `json:"reviewers,omitempty"`
 	// Timeline is the loop guard's evidence: the viewer's review request
@@ -702,6 +707,34 @@ func (r *Runner) loadAndEvaluate(ref github.PullRef, viewer string, single bool,
 	return r.evaluateLoaded(ref, pr, err, batchLoadInfo{duration: r.now().Sub(loadStart)}, viewer, single, pool)
 }
 
+const unevaluatedPrefix = "unevaluated: "
+
+func unevaluatedReason(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return "unevaluated"
+	}
+	if strings.HasPrefix(reason, unevaluatedPrefix) {
+		return reason
+	}
+	return unevaluatedPrefix + reason
+}
+
+func prUnevaluatedReason(pr github.ApprovalPullRequest) string {
+	switch {
+	case pr.FilesErr != "":
+		return pr.FilesErr
+	case pr.LabelsErr != "":
+		return pr.LabelsErr
+	case pr.ThreadsErr != "":
+		return pr.ThreadsErr
+	case pr.ChecksErr == "more than 100 checks; check list incomplete":
+		return pr.ChecksErr
+	default:
+		return ""
+	}
+}
+
 func (r *Runner) evaluateLoaded(ref github.PullRef, pr github.ApprovalPullRequest, loadErr error, bInfo batchLoadInfo, viewer string, single bool, pool *loadPool) *evalOutcome {
 	st := &prState{
 		start:       r.now(),
@@ -714,7 +747,10 @@ func (r *Runner) evaluateLoaded(ref github.PullRef, pr github.ApprovalPullReques
 		PR:   fmt.Sprintf("%s/%s#%d", ref.Owner, ref.Repo, ref.Number),
 	}
 	if loadErr != nil {
-		entry.Action, entry.Reason = ActionError, loadErr.Error()
+		entry.Action = ActionError
+		entry.Reason = unevaluatedReason(loadErr.Error())
+		entry.Unevaluated = true
+		entry.Transient = isTransientLoadError(loadErr)
 		return &evalOutcome{entry: entry, st: st}
 	}
 	entry.URL, entry.Title, entry.HeadSHA, entry.Author = pr.URL, pr.Title, pr.HeadSHA, pr.Author
@@ -737,12 +773,24 @@ func (r *Runner) evaluateLoaded(ref github.PullRef, pr github.ApprovalPullReques
 		})
 		st.pullRequest += r.now().Sub(fileStart)
 		if err != nil {
-			entry.Action, entry.Reason = ActionError, err.Error()
+			entry.Action = ActionError
+			entry.Reason = unevaluatedReason(err.Error())
+			entry.Unevaluated = true
+			entry.Transient = isTransientLoadError(err)
 			return &evalOutcome{entry: entry, st: st}
 		}
 		pr.Files = fullPR.Files
 		pr.FilesErr = fullPR.FilesErr
 		st.cacheDirty = true
+	}
+	if skipReason == "" {
+		if unEval := prUnevaluatedReason(pr); unEval != "" {
+			entry.Action = ActionManual
+			entry.Reason = unevaluatedReason(unEval)
+			entry.Unevaluated = true
+			st.end = r.now()
+			return &evalOutcome{entry: entry, st: st}
+		}
 	}
 	var agent AgentFunc
 	var loads *lazyLoads

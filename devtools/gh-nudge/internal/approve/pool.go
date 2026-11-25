@@ -82,6 +82,56 @@ func isTransientBatchError(err error) bool {
 	return false
 }
 
+// isTransientLoadError reports whether err is a transient API, network, or
+// rate-limit failure where a rerun may succeed.
+func isTransientLoadError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if isTransientBatchError(err) || isSecondaryRateLimit(err) {
+		return true
+	}
+	return isTransientReasonText(err.Error())
+}
+
+func isTransientReasonText(reason string) bool {
+	lower := strings.ToLower(reason)
+	for _, nonTransient := range []string{
+		"more than 100",
+		"file list incomplete",
+		"file list missing",
+		"label list incomplete",
+		"labels missing",
+		"review thread data missing",
+		"check list incomplete",
+		"not found",
+		"could not resolve",
+		"forbidden",
+		"unauthorized",
+		"bad query",
+		"doesn't exist",
+	} {
+		if strings.Contains(lower, nonTransient) {
+			return false
+		}
+	}
+	for _, token := range []string{
+		"http 500",
+		"500 internal server error",
+		"internal server error",
+		"rate limit",
+		"temporarily unavailable",
+		"try again",
+		"connection refused",
+		"api error",
+	} {
+		if strings.Contains(lower, token) {
+			return true
+		}
+	}
+	return false
+}
+
 type syncCacheEntry[V any] struct {
 	done chan struct{}
 	val  V

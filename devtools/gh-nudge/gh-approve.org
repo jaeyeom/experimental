@@ -573,14 +573,19 @@ ago)~, ~agent: defer (cached)~, or ~agent: approve (fresh)~. ~--explain~ adds
     requests still run, and gh-approve exits non-zero.
   - An unknown config key is a load error.
   - Data that cannot be read, such as missing review thread or check data or a
-    truncated file list, never counts as a met condition. The condition fails
-    with ~unreadable:~ and the reason.
+    truncated file list (for example, more than 100 changed files), never counts
+    as a met condition and is never auto-approved. An unevaluated pull request
+    is reported as ~unevaluated: <reason>~ (with ~manual~ for non-transient
+    incomplete data or ~error~ for load API errors), counted in ~Left for you~,
+    and listed separately under it with a rerun suggestion only for transient
+    failures.
 - *Audit log.* Each decision is appended as one JSON line to
   =~/.config/gh-nudge/approve-log.jsonl=. A line has ~time~, ~pr~, ~url~,
   ~title~, ~author~ (the pull request author's login; lines written before
   this field still read), ~headSha~, ~rule~ (~null~ when none matched), ~rules~ (each rule's
   per-condition ~pass~ and ~saw~, and ~agent~ with ~decision~, ~reason~ and
-  ~durationMs~ when the rule's agent command ran), ~action~, and ~reason~.
+  ~durationMs~ when the rule's agent command ran), ~action~, ~reason~, and
+  optional ~unevaluated~ / ~transient~ flags when unevaluated.
   ~--explain~ shows the same agent decision, reason and duration. The action is
   ~approved~, ~would_approve~, ~handoff~, ~would_handoff~, ~mark_viewed~,
   ~would_mark_viewed~, ~skipped~, ~manual~, or ~error~. A hand-off line also

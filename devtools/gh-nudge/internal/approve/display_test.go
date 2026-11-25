@@ -139,10 +139,11 @@ func TestWriteSummaryGroupsInOrderWithCounts(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := "\n" +
-		"👀 Left for you (2)\n" +
+		"👀 Left for you (3)\n" +
 		"  acme/widgets#3  Three - dashboard: paths_all_match failed (infra/main.tf)\n" +
 		"  acme/widgets#5  Five (dry run) - would_mark_viewed: 1 files\n" +
-		"  1 not evaluated (load failed); rerun to check them\n" +
+		"  1 unevaluated (rerun to check):\n" +
+		"    acme/widgets#4 - unevaluated: gh: HTTP 502\n" +
 		"\n" +
 		"✅ Approved (1)\n" +
 		"  acme/widgets#2  Two\n" +
@@ -182,7 +183,7 @@ func TestWriteSummaryEmpty(t *testing.T) {
 	}
 }
 
-func TestWriteSummaryErrorsOnlyShowsZeroLeftForYou(t *testing.T) {
+func TestWriteSummaryErrorsOnlyCountsLeftForYou(t *testing.T) {
 	entries := []LogEntry{
 		{PR: "acme/widgets#1", Action: ActionError, Reason: "gh: HTTP 504"},
 		{PR: "acme/widgets#2", Action: ActionError, Reason: "gh: HTTP 504"},
@@ -192,8 +193,10 @@ func TestWriteSummaryErrorsOnlyShowsZeroLeftForYou(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := "\n" +
-		"👀 Left for you (0)\n" +
-		"  2 not evaluated (load failed); rerun to check them\n" +
+		"👀 Left for you (2)\n" +
+		"  2 unevaluated (rerun to check):\n" +
+		"    acme/widgets#1 - unevaluated: gh: HTTP 504\n" +
+		"    acme/widgets#2 - unevaluated: gh: HTTP 504\n" +
 		"\n" +
 		"❌ Errors (2)\n" +
 		"  acme/widgets#1 - gh: HTTP 504\n" +
@@ -201,6 +204,51 @@ func TestWriteSummaryErrorsOnlyShowsZeroLeftForYou(t *testing.T) {
 	if out.String() != want {
 		t.Fatalf("summary =\n%s\nwant\n%s", out.String(), want)
 	}
+}
+
+func TestWriteSummaryUnevaluatedNonTransientAndMixed(t *testing.T) {
+	t.Run("non-transient only omits rerun suggestion", func(t *testing.T) {
+		entries := []LogEntry{
+			{PR: "acme/widgets#1", Title: "One", Action: ActionManual, Rules: []RuleResult{{
+				Rule: "dashboard", Conditions: []ConditionResult{{Condition: "paths_all_match", Pass: false, Saw: "infra/main.tf"}},
+			}}},
+			{PR: "acme/widgets#2", Title: "Big", Action: ActionManual, Reason: "unevaluated: more than 100 changed files; file list incomplete", Unevaluated: true},
+		}
+		var out bytes.Buffer
+		if err := writeSummary(&out, entries, false); err != nil {
+			t.Fatal(err)
+		}
+		want := "\n" +
+			"👀 Left for you (2)\n" +
+			"  acme/widgets#1  One - dashboard: paths_all_match failed (infra/main.tf)\n" +
+			"  1 unevaluated:\n" +
+			"    acme/widgets#2  Big - unevaluated: more than 100 changed files; file list incomplete\n"
+		if out.String() != want {
+			t.Fatalf("summary =\n%s\nwant\n%s", out.String(), want)
+		}
+	})
+
+	t.Run("mixed transient and non-transient notes transient count", func(t *testing.T) {
+		entries := []LogEntry{
+			{PR: "acme/widgets#2", Title: "Big", Action: ActionManual, Reason: "unevaluated: more than 100 changed files; file list incomplete", Unevaluated: true},
+			{PR: "acme/widgets#3", Action: ActionError, Reason: "unevaluated: gh: HTTP 502", Unevaluated: true, Transient: true},
+		}
+		var out bytes.Buffer
+		if err := writeSummary(&out, entries, false); err != nil {
+			t.Fatal(err)
+		}
+		want := "\n" +
+			"👀 Left for you (2)\n" +
+			"  2 unevaluated (1 transient; rerun to check transient):\n" +
+			"    acme/widgets#2  Big - unevaluated: more than 100 changed files; file list incomplete\n" +
+			"    acme/widgets#3 - unevaluated: gh: HTTP 502\n" +
+			"\n" +
+			"❌ Errors (1)\n" +
+			"  acme/widgets#3 - unevaluated: gh: HTTP 502\n"
+		if out.String() != want {
+			t.Fatalf("summary =\n%s\nwant\n%s", out.String(), want)
+		}
+	})
 }
 
 // displayRun evaluates one approvable and one manual pull request.

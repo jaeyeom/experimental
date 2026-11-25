@@ -593,6 +593,9 @@ func convertApprovalLightPR(raw *approvalPRJSON, ref PullRef) ApprovalPullReques
 	pr.UnresolvedThreads, pr.ThreadsErr = unresolvedThreads(raw)
 	pr.Checks, pr.ChecksErr = approvalChecks(raw)
 	pr.ViewedStates = approvalViewedStates(raw)
+	if raw.Files != nil && raw.Files.PageInfo.HasNextPage {
+		pr.FilesErr = "more than 100 changed files; file list incomplete"
+	}
 	return pr
 }
 

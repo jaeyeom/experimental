@@ -1,6 +1,7 @@
 package approve
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -113,34 +114,95 @@ func statusCell(action string, color bool) string {
 	return paint(o.marker+" "+word, o.color, color) + strings.Repeat(" ", statusWidth-len(word))
 }
 
-// writeSummary lists the pull requests under each non-empty group, with a
-// count, in summaryOrder. When any pull request failed, it always prints the
-// "Left for you" heading (even with count 0) and notes how many were not
-// evaluated.
-func writeSummary(w io.Writer, entries []LogEntry, color bool) error {
-	errorCount := 0
-	for _, entry := range entries {
-		if outcomeOf(entry.Action) == outcomeError {
-			errorCount++
-		}
+func isUnevaluated(entry LogEntry) bool {
+	return entry.Unevaluated || entry.Action == ActionError || strings.HasPrefix(entry.Reason, unevaluatedPrefix)
+}
+
+func isTransientEntry(entry LogEntry) bool {
+	if entry.Transient {
+		return true
 	}
-	var out strings.Builder
-	for _, o := range summaryOrder {
-		var lines []string
-		for _, entry := range entries {
-			if outcomeOf(entry.Action) == o {
-				lines = append(lines, summaryLine(entry))
-			}
-		}
-		if len(lines) == 0 && (o != outcomeLeft || errorCount == 0) {
+	if entry.Action != ActionError {
+		return false
+	}
+	return isTransientLoadError(errors.New(entry.Reason))
+}
+
+func unevaluatedHeading(total, transient int) string {
+	switch transient {
+	case 0:
+		return fmt.Sprintf("  %d unevaluated:\n", total)
+	case total:
+		return fmt.Sprintf("  %d unevaluated (rerun to check):\n", total)
+	default:
+		return fmt.Sprintf("  %d unevaluated (%d transient; rerun to check transient):\n", total, transient)
+	}
+}
+
+func unevaluatedSummaryLine(entry LogEntry) string {
+	line := "    " + entry.PR
+	if entry.Title != "" {
+		line += "  " + entry.Title
+	}
+	if strings.HasPrefix(entry.Action, "would_") {
+		line += dryRunNote
+	}
+	return line + " - " + unevaluatedReason(entry.Reason) + "\n"
+}
+
+func collectUnevaluated(entries []LogEntry) ([]LogEntry, int) {
+	var unevaluated []LogEntry
+	transientCount := 0
+	for _, entry := range entries {
+		if !isUnevaluated(entry) {
 			continue
 		}
-		fmt.Fprintf(&out, "\n%s (%d)\n", paint(o.marker+" "+o.heading, o.color, color), len(lines))
+		unevaluated = append(unevaluated, entry)
+		if isTransientEntry(entry) {
+			transientCount++
+		}
+	}
+	return unevaluated, transientCount
+}
+
+func summaryGroupLines(entries []LogEntry, o outcome) []string {
+	var lines []string
+	for _, entry := range entries {
+		if o == outcomeLeft && isUnevaluated(entry) {
+			continue
+		}
+		if outcomeOf(entry.Action) == o {
+			lines = append(lines, summaryLine(entry))
+		}
+	}
+	return lines
+}
+
+// writeSummary lists the pull requests under each non-empty group, with a
+// count, in summaryOrder. Unevaluated pull requests (such as incomplete file
+// lists or load errors) are included in the "Left for you" heading count and
+// listed separately under that heading with their reasons.
+func writeSummary(w io.Writer, entries []LogEntry, color bool) error {
+	unevaluated, transientCount := collectUnevaluated(entries)
+	var out strings.Builder
+	for _, o := range summaryOrder {
+		lines := summaryGroupLines(entries, o)
+		headingCount := len(lines)
+		if o == outcomeLeft {
+			headingCount += len(unevaluated)
+		}
+		if headingCount == 0 {
+			continue
+		}
+		fmt.Fprintf(&out, "\n%s (%d)\n", paint(o.marker+" "+o.heading, o.color, color), headingCount)
 		for _, line := range lines {
 			out.WriteString(line)
 		}
-		if o == outcomeLeft && errorCount > 0 {
-			fmt.Fprintf(&out, "  %d not evaluated (load failed); rerun to check them\n", errorCount)
+		if o == outcomeLeft && len(unevaluated) > 0 {
+			out.WriteString(unevaluatedHeading(len(unevaluated), transientCount))
+			for _, entry := range unevaluated {
+				out.WriteString(unevaluatedSummaryLine(entry))
+			}
 		}
 	}
 	if _, err := io.WriteString(w, out.String()); err != nil {

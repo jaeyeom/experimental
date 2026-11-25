@@ -200,7 +200,6 @@ func (f *fakeClient) LoadApprovalPullRequests(refs []github.PullRef) (map[string
 			}
 		}
 		pr.Files = nil
-		pr.FilesErr = ""
 		out[key] = github.BatchPullRequestResult{PR: pr}
 	}
 	f.mu.Unlock()
@@ -1033,4 +1032,156 @@ func TestRunOpenChangeRequestBlocksDeletionAndCommentRules(t *testing.T) {
 	if len(res.log) != 1 || res.log[0].Action != ActionSkipped || res.log[0].Reason != "open change request by carol" {
 		t.Fatalf("log = %+v", res.log)
 	}
+}
+
+type fixtureExecutor struct {
+	fn func(args []string) (string, error)
+}
+
+func (f *fixtureExecutor) Execute(_ string, args ...string) (string, error) {
+	return f.fn(args)
+}
+
+func (f *fixtureExecutor) ExecuteWithStdin(_, _ string, args ...string) (string, error) {
+	return f.fn(args)
+}
+
+func (f *fixtureExecutor) ExecuteSeparated(_ string, args ...string) (string, string, error) {
+	out, err := f.fn(args)
+	return out, "", err
+}
+
+func TestRunOver100ChangedFilesUnevaluatedAndCountedAsManual(t *testing.T) {
+	t.Run("real github client fixture with hasNextPage true", func(t *testing.T) {
+		exec := &fixtureExecutor{fn: func(args []string) (string, error) {
+			joined := strings.Join(args, " ")
+			switch {
+			case strings.Contains(joined, "viewer { login }"):
+				return `{"data":{"viewer":{"login":"me"}}}`, nil
+			case strings.Contains(joined, "search(query:"):
+				return `{"data":{"search":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[` +
+					`{"number":1,"url":"https://github.com/acme/widgets/pull/1","title":"Huge refactor","isDraft":false,"author":{"login":"alice"},"changedFiles":120,"additions":400,"deletions":200,"labels":{"nodes":[]},"repository":{"nameWithOwner":"acme/widgets"}}` +
+					`]}}}`, nil
+			case strings.Contains(joined, "p0:repository"):
+				return `{"data":{"p0":{"pullRequest":{` +
+					`"id":"PR_1","number":1,"url":"https://github.com/acme/widgets/pull/1","title":"Huge refactor","state":"OPEN","isDraft":false,"headRefOid":"h1","baseRefName":"main","baseRefOid":"b1","author":{"login":"alice"},"additions":400,"deletions":200,"changedFiles":120,` +
+					`"files":{"pageInfo":{"hasNextPage":true},"nodes":[{"path":"dash/a.go","viewerViewedState":"UNVIEWED"}]},` +
+					`"labels":{"pageInfo":{"hasNextPage":false},"nodes":[]},` +
+					`"reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"User","login":"me"}}]},` +
+					`"reviews":{"nodes":[]},` +
+					`"reviewThreads":{"totalCount":0,"nodes":[]},` +
+					`"commits":{"nodes":[{"commit":{"oid":"h1","statusCheckRollup":{"contexts":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}]}` +
+					`}}}}`, nil
+			case strings.Contains(joined, "pullRequest(number:"):
+				return `{"data":{"repository":{"nameWithOwner":"acme/widgets","pullRequest":{` +
+					`"id":"PR_1","number":1,"url":"https://github.com/acme/widgets/pull/1","title":"Huge refactor","state":"OPEN","isDraft":false,"headRefOid":"h1","baseRefName":"main","baseRefOid":"b1","author":{"login":"alice"},"additions":400,"deletions":200,"changedFiles":120,` +
+					`"files":{"pageInfo":{"hasNextPage":true},"nodes":[{"path":"dash/a.go","additions":1,"deletions":0,"viewerViewedState":"UNVIEWED"}]},` +
+					`"labels":{"pageInfo":{"hasNextPage":false},"nodes":[]},` +
+					`"reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"User","login":"me"}}]},` +
+					`"reviews":{"nodes":[]},` +
+					`"reviewThreads":{"totalCount":0,"nodes":[]},` +
+					`"commits":{"nodes":[{"commit":{"oid":"h1","statusCheckRollup":{"contexts":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}]}` +
+					`}}}}`, nil
+			default:
+				return "", fmt.Errorf("unexpected gh call: %s", joined)
+			}
+		}}
+		var out, logBuf bytes.Buffer
+		runner := &Runner{
+			Client: github.NewClientWithExecutor(exec),
+			Config: config.ApproveConfig{
+				Body:                "LGTM",
+				SkipAlreadyApproved: true,
+				Rules: []config.ApproveRule{
+					// Include an author-only rule to verify unevaluated PRs are never auto-approved.
+					{Name: "codeowners", CodeownersCovered: true},
+					{Name: "alice-only", AuthorsAllow: []string{"alice"}},
+				},
+			},
+			Viewed: config.ViewedConfig{
+				Enabled:        true,
+				MaxMarksPerRun: config.DefaultMaxMarksPerRun,
+				Rules:          []config.ViewedRule{{Name: "not-mine", CodeownersNotMine: true}},
+			},
+			Out: &out,
+			Log: &logBuf,
+			Now: fixedNow,
+		}
+		if err := runner.Run(Options{Apply: true}); err != nil {
+			t.Fatalf("Run() error = %v, want nil", err)
+		}
+		entries := decodeLog(t, &logBuf)
+		if len(entries) != 1 {
+			t.Fatalf("log len = %d, want 1", len(entries))
+		}
+		wantReason := "unevaluated: more than 100 changed files; file list incomplete"
+		if entries[0].Action != ActionManual || entries[0].Rule != nil || entries[0].Reason != wantReason {
+			t.Fatalf("entry = %+v, want manual with reason %q", entries[0], wantReason)
+		}
+		if !strings.Contains(logBuf.String(), wantReason) {
+			t.Fatalf("JSON log missing reason %q: %s", wantReason, logBuf.String())
+		}
+		wantSummary := "👀 Left for you (1)\n" +
+			"  1 unevaluated:\n" +
+			"    acme/widgets#1  Huge refactor - " + wantReason + "\n"
+		if !strings.Contains(out.String(), wantSummary) {
+			t.Fatalf("summary =\n%s\nwant substring:\n%s", out.String(), wantSummary)
+		}
+		if strings.Contains(strings.ToLower(out.String()), "rerun") {
+			t.Fatalf("non-transient incomplete file list should not suggest rerun:\n%s", out.String())
+		}
+	})
+
+	t.Run("mixed normal manual, over 100 files, and API error", func(t *testing.T) {
+		normalManual := prNumber(1)
+		normalManual.Title = "Normal manual"
+		normalManual.Author = "bob"
+		normalManual.Files = []models.File{{Path: "infra/main.tf"}}
+
+		over100 := prNumber(2)
+		over100.Title = "Big PR"
+		over100.ChangedFiles = 120
+		over100.Files = nil
+		over100.FilesErr = "more than 100 changed files; file list incomplete"
+
+		apiErr := prNumber(3)
+		fake := newFake(normalManual, over100, apiErr)
+		fake.loadErr = map[int]error{3: errors.New("gh: HTTP 502")}
+
+		cfg := config.ApproveConfig{
+			Body:                "LGTM",
+			SkipAlreadyApproved: true,
+			Rules: []config.ApproveRule{
+				dashboardRule,
+				{Name: "alice-only", AuthorsAllow: []string{"alice"}},
+			},
+		}
+		viewed := config.ViewedConfig{
+			Enabled:        true,
+			MaxMarksPerRun: config.DefaultMaxMarksPerRun,
+			Rules:          []config.ViewedRule{{Name: "not-mine", CodeownersNotMine: true}},
+		}
+		res := runConfig(t, fake, cfg, viewed, Options{Apply: true}, nil)
+		if res.err == nil || !strings.Contains(res.err.Error(), "1 pull request(s) failed") {
+			t.Fatalf("err = %v, want 1 pull request(s) failed (for PR #3)", res.err)
+		}
+		if len(fake.approvals) != 0 {
+			t.Fatalf("approvals = %+v, want none", fake.approvals)
+		}
+		if len(res.log) != 3 {
+			t.Fatalf("log len = %d, want 3", len(res.log))
+		}
+		if res.log[1].Action != ActionManual || res.log[1].Reason != "unevaluated: more than 100 changed files; file list incomplete" {
+			t.Fatalf("PR #2 = %+v", res.log[1])
+		}
+		if res.log[2].Action != ActionError || res.log[2].Reason != "unevaluated: gh: HTTP 502" {
+			t.Fatalf("PR #3 = %+v", res.log[2])
+		}
+		if !strings.Contains(res.out, "👀 Left for you (3)\n") {
+			t.Fatalf("summary heading count wrong:\n%s", res.out)
+		}
+		if !strings.Contains(res.out, "  2 unevaluated (1 transient; rerun to check transient):\n") {
+			t.Fatalf("summary unevaluated count wrong:\n%s", res.out)
+		}
+	})
 }
