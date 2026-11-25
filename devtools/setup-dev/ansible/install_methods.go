@@ -780,6 +780,8 @@ func renderGitHubReleaseInfoTasks(commandName, releaseURL, registerVar string) s
             status_code: [200, 403]
             headers: "{{ {'Authorization': 'token ' + lookup('env', 'GITHUB_TOKEN')} if lookup('env', 'GITHUB_TOKEN') else {} }}"
           register: ` + registerVar + `
+          no_log: true
+          failed_when: false
           until: >-
             ` + registerVar + `.status == 200 or
             (` + registerVar + `.status == 403 and
@@ -791,11 +793,15 @@ func renderGitHubReleaseInfoTasks(commandName, releaseURL, registerVar string) s
           ansible.builtin.fail:
             msg: >-
               Failed to fetch ` + commandName + ` version from GitHub.
-              Status: {{ ` + registerVar + `.status }}.
-              {% if ` + registerVar + `.status == 403 and (` + registerVar + `.x_ratelimit_remaining | default('1') | string) == '0' %}
+              Status: {{ ` + registerVar + `.status | default('unknown') }}.
+              Rate-limit remaining: {{ ` + registerVar + `.x_ratelimit_remaining | default('unknown') }}.
+              {% if ` + registerVar + `.msg is defined and ` + registerVar + `.msg %}
+              Message: {{ ` + registerVar + `.msg }}.
+              {% endif %}
+              {% if ` + registerVar + `.status | default(0) == 403 and (` + registerVar + `.x_ratelimit_remaining | default('1') | string) == '0' %}
               Rate limit exceeded after retries. Please try again later or set GITHUB_TOKEN environment variable.
               {% endif %}
-          when: ` + registerVar + `.status != 200`
+          when: ` + registerVar + `.status | default(0) != 200`
 	}
 	owner, repo, _ := strings.Cut(cacheKey, "__")
 

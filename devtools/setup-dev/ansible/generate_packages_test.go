@@ -1,11 +1,15 @@
 package main
 
 import (
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // withTempDir creates a temporary directory, chdirs into it for the duration
@@ -936,5 +940,204 @@ func TestNoExperimentalModuleUsesLatest(t *testing.T) {
 		if !strings.Contains(string(raw), "@latest") {
 			t.Errorf("%s (third-party Go tool) should keep using @latest", thirdParty)
 		}
+	}
+}
+
+func isTruthyNoLog(v any) bool {
+	b, ok := v.(bool)
+	return ok && b
+}
+
+func isFailOrDebugTask(taskMap map[string]any) bool {
+	for _, key := range []string{"fail", "ansible.builtin.fail", "debug", "ansible.builtin.debug"} {
+		if _, ok := taskMap[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func stringMentionsCredential(s string, allowTokenHint bool) bool {
+	if strings.Contains(s, "Authorization") || strings.Contains(s, "Bearer ") {
+		return true
+	}
+	if !strings.Contains(s, "GITHUB_TOKEN") {
+		return false
+	}
+	if !allowTokenHint {
+		return true
+	}
+	return strings.Contains(s, "lookup(") ||
+		strings.Contains(s, "$GITHUB_TOKEN") ||
+		strings.Contains(s, "${GITHUB_TOKEN")
+}
+
+func valueMentionsCredential(v any, allowTokenHint bool) bool {
+	switch x := v.(type) {
+	case string:
+		return stringMentionsCredential(x, allowTokenHint)
+	case []any:
+		for _, elem := range x {
+			if valueMentionsCredential(elem, allowTokenHint) {
+				return true
+			}
+		}
+	case map[string]any:
+		for k, val := range x {
+			if stringMentionsCredential(k, allowTokenHint) || valueMentionsCredential(val, allowTokenHint) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func taskMentionsCredential(taskMap map[string]any) bool {
+	allowTokenHint := isFailOrDebugTask(taskMap)
+	for k, v := range taskMap {
+		switch k {
+		case "block", "rescue", "always", "name", "when", "changed_when", "failed_when", "until":
+			continue
+		}
+		if valueMentionsCredential(v, allowTokenHint) {
+			return true
+		}
+	}
+	return false
+}
+
+func collectUnloggedCredentialTasks(tasks []any, inheritedNoLog bool) []string {
+	var violations []string
+	for _, item := range tasks {
+		taskMap, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		taskNoLog := inheritedNoLog || isTruthyNoLog(taskMap["no_log"])
+		hasSubtasks := false
+		for _, section := range []string{"block", "rescue", "always"} {
+			if sub, ok := taskMap[section].([]any); ok {
+				hasSubtasks = true
+				violations = append(violations, collectUnloggedCredentialTasks(sub, taskNoLog)...)
+			}
+		}
+		if !hasSubtasks && !taskNoLog && taskMentionsCredential(taskMap) {
+			name, _ := taskMap["name"].(string)
+			if name == "" {
+				name = "(unnamed task)"
+			}
+			violations = append(violations, name)
+		}
+	}
+	return violations
+}
+
+func findUnloggedCredentialTasks(yamlContent string) ([]string, error) {
+	var doc any
+	if err := yaml.Unmarshal([]byte(yamlContent), &doc); err != nil {
+		return nil, fmt.Errorf("unmarshal yaml: %w", err)
+	}
+	if doc == nil {
+		return nil, nil
+	}
+	items, ok := doc.([]any)
+	if !ok {
+		return nil, nil
+	}
+	var violations []string
+	var topLevelTasks []any
+	for _, item := range items {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		isPlay := false
+		for _, section := range []string{"pre_tasks", "tasks", "post_tasks", "handlers"} {
+			if sub, ok := m[section].([]any); ok {
+				isPlay = true
+				playNoLog := isTruthyNoLog(m["no_log"])
+				violations = append(violations, collectUnloggedCredentialTasks(sub, playNoLog)...)
+			}
+		}
+		if !isPlay {
+			if _, hasImport := m["import_playbook"]; !hasImport {
+				topLevelTasks = append(topLevelTasks, item)
+			}
+		}
+	}
+	violations = append(violations, collectUnloggedCredentialTasks(topLevelTasks, false)...)
+	return violations, nil
+}
+
+func TestFindUnloggedCredentialTasksDetector(t *testing.T) {
+	badPlaybook := `---
+- name: Leaky play
+  hosts: all
+  tasks:
+    - name: Leaky uri task
+      uri:
+        url: https://api.github.com/user
+        headers:
+          Authorization: "token {{ lookup('env', 'GITHUB_TOKEN') }}"
+`
+	violations, err := findUnloggedCredentialTasks(badPlaybook)
+	if err != nil {
+		t.Fatalf("findUnloggedCredentialTasks: %v", err)
+	}
+	if len(violations) != 1 || violations[0] != "Leaky uri task" {
+		t.Fatalf("expected [Leaky uri task], got %v", violations)
+	}
+}
+
+func TestAllYAMLTasksWithCredentialsSetNoLog(t *testing.T) {
+	dir := ansiblePlaybookDir(t)
+	var relPaths []string
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() || !strings.HasSuffix(d.Name(), ".yml") {
+			return nil
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return fmt.Errorf("rel %s: %w", path, err)
+		}
+		relPaths = append(relPaths, rel)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk %s: %v", dir, err)
+	}
+	if len(relPaths) == 0 {
+		t.Fatal("expected at least one YAML file to be checked")
+	}
+	for _, rel := range relPaths {
+		raw, err := os.ReadFile(filepath.Join(dir, rel))
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		violations, err := findUnloggedCredentialTasks(string(raw))
+		if err != nil {
+			t.Fatalf("parse %s: %v", rel, err)
+		}
+		for _, v := range violations {
+			t.Errorf("%s: task %q mentions Authorization or GITHUB_TOKEN without no_log: true", rel, v)
+		}
+	}
+}
+
+func TestGeneratedReleaseTasksWithCredentialsSetNoLog(t *testing.T) {
+	rendered := renderGitHubReleaseInfoTasks(
+		"example",
+		"https://example.com/releases/latest",
+		"example_latest_release",
+	)
+	violations, err := findUnloggedCredentialTasks(rendered)
+	if err != nil {
+		t.Fatalf("findUnloggedCredentialTasks: %v", err)
+	}
+	for _, v := range violations {
+		t.Errorf("generated task %q mentions Authorization or GITHUB_TOKEN without no_log: true", v)
 	}
 }

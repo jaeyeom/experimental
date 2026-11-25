@@ -71,28 +71,12 @@
             mode: '0755'
 
         - name: Get latest dejavu-fonts release from GitHub on Termux
-          uri:
-            url: https://api.github.com/repos/dejavu-fonts/dejavu-fonts/releases/latest
-            return_content: yes
-            status_code: [200, 403]
-            headers: "{{ {'Authorization': 'token ' + lookup('env', 'GITHUB_TOKEN')} if lookup('env', 'GITHUB_TOKEN') else {} }}"
-          register: dejavu_release_termux
-          until: >-
-            dejavu_release_termux.status == 200 or
-            (dejavu_release_termux.status == 403 and
-             (dejavu_release_termux.x_ratelimit_remaining | default('1') | string) != '0')
-          retries: 3
-          delay: 120
-
-        - name: Fail if dejavu-fonts release fetch failed on Termux
-          ansible.builtin.fail:
-            msg: >-
-              Failed to fetch dejavu-fonts release from GitHub.
-              Status: {{ dejavu_release_termux.status }}.
-              {% if dejavu_release_termux.status == 403 and (dejavu_release_termux.x_ratelimit_remaining | default('1') | string) == '0' %}
-              Rate limit exceeded after retries. Please try again later or set GITHUB_TOKEN environment variable.
-              {% endif %}
-          when: dejavu_release_termux.status != 200
+          ansible.builtin.include_tasks: tasks/github-release-info.yml
+          vars:
+            github_release_name: dejavu-fonts
+            github_release_owner: dejavu-fonts
+            github_release_repo: dejavu-fonts
+            github_release_register: dejavu_release_termux
 
         - name: Download and install DejaVu Sans Mono font on Termux
           shell: |

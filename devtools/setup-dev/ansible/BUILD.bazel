@@ -45,7 +45,10 @@ go_test(
         "setup_bazel_wrapper_test.go",
         "types_test.go",
     ],
-    data = glob(["*.yml"]) + [
+    data = glob([
+        "*.yml",
+        "tasks/*.yml",
+    ]) + [
         "README.org",
         "emacs_app_link.sh",
         "//devtools/gh-nudge/cmd:commands",
@@ -53,6 +56,7 @@ go_test(
         "//devtools/setup-dev/ansible/docs:hub-setup.org",
     ],
     embed = [":go_default_library"],
+    deps = ["@in_gopkg_yaml_v3//:go_default_library"],
 )
 
 sh_binary(
@@ -3461,6 +3465,7 @@ sh_test(
         "curl.yml",
         "gather-facts.yml",
         "setup-dejavu-sans-mono-font.yml",
+        "tasks/github-release-info.yml",
         "unzip.yml",
     ],
     tags = [
@@ -3655,6 +3660,7 @@ sh_test(
         "curl.yml",
         "gather-facts.yml",
         "setup-fira-code.yml",
+        "tasks/github-release-info.yml",
         "unzip.yml",
     ],
     tags = [
@@ -3671,6 +3677,7 @@ sh_test(
         "curl.yml",
         "gather-facts.yml",
         "setup-fira-code-nerd-font.yml",
+        "tasks/github-release-info.yml",
         "unzip.yml",
     ],
     tags = [
@@ -3968,6 +3975,7 @@ sh_test(
         "curl.yml",
         "gather-facts.yml",
         "setup-jetbrains-mono-font.yml",
+        "tasks/github-release-info.yml",
         "unzip.yml",
     ],
     tags = [

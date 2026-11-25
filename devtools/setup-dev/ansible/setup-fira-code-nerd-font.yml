@@ -43,28 +43,12 @@
             mode: '0755'
 
         - name: Get latest nerd-fonts release tag from GitHub
-          uri:
-            url: https://api.github.com/repos/ryanoasis/nerd-fonts/releases/latest
-            return_content: yes
-            status_code: [200, 403]
-            headers: "{{ {'Authorization': 'token ' + lookup('env', 'GITHUB_TOKEN')} if lookup('env', 'GITHUB_TOKEN') else {} }}"
-          register: nerd_fonts_release
-          until: >-
-            nerd_fonts_release.status == 200 or
-            (nerd_fonts_release.status == 403 and
-             (nerd_fonts_release.x_ratelimit_remaining | default('1') | string) != '0')
-          retries: 3
-          delay: 120
-
-        - name: Fail if nerd-fonts release fetch failed
-          ansible.builtin.fail:
-            msg: >-
-              Failed to fetch nerd-fonts release from GitHub.
-              Status: {{ nerd_fonts_release.status }}.
-              {% if nerd_fonts_release.status == 403 and (nerd_fonts_release.x_ratelimit_remaining | default('1') | string) == '0' %}
-              Rate limit exceeded after retries. Please try again later or set GITHUB_TOKEN environment variable.
-              {% endif %}
-          when: nerd_fonts_release.status != 200
+          ansible.builtin.include_tasks: tasks/github-release-info.yml
+          vars:
+            github_release_name: nerd-fonts
+            github_release_owner: ryanoasis
+            github_release_repo: nerd-fonts
+            github_release_register: nerd_fonts_release
 
         - name: Download and install Fira Code Nerd Font
           shell: |
@@ -90,28 +74,12 @@
             mode: '0755'
 
         - name: Get latest nerd-fonts release tag from GitHub on Termux
-          uri:
-            url: https://api.github.com/repos/ryanoasis/nerd-fonts/releases/latest
-            return_content: yes
-            status_code: [200, 403]
-            headers: "{{ {'Authorization': 'token ' + lookup('env', 'GITHUB_TOKEN')} if lookup('env', 'GITHUB_TOKEN') else {} }}"
-          register: nerd_fonts_release_termux
-          until: >-
-            nerd_fonts_release_termux.status == 200 or
-            (nerd_fonts_release_termux.status == 403 and
-             (nerd_fonts_release_termux.x_ratelimit_remaining | default('1') | string) != '0')
-          retries: 3
-          delay: 120
-
-        - name: Fail if nerd-fonts release fetch failed on Termux
-          ansible.builtin.fail:
-            msg: >-
-              Failed to fetch nerd-fonts release from GitHub.
-              Status: {{ nerd_fonts_release_termux.status }}.
-              {% if nerd_fonts_release_termux.status == 403 and (nerd_fonts_release_termux.x_ratelimit_remaining | default('1') | string) == '0' %}
-              Rate limit exceeded after retries. Please try again later or set GITHUB_TOKEN environment variable.
-              {% endif %}
-          when: nerd_fonts_release_termux.status != 200
+          ansible.builtin.include_tasks: tasks/github-release-info.yml
+          vars:
+            github_release_name: nerd-fonts
+            github_release_owner: ryanoasis
+            github_release_repo: nerd-fonts
+            github_release_register: nerd_fonts_release_termux
 
         - name: Download and install Fira Code Nerd Font on Termux
           shell: |

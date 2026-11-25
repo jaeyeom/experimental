@@ -208,10 +208,20 @@
         GROK_HOME: "{{ grok_home }}"
         GROK_CLI_CHAT_PROXY_BASE_URL: "{{ grok_cli_chat_proxy_base_url }}"
       register: grok_training_privacy
+      no_log: true
       changed_when: >-
         'TRAINING_OPTED_OUT' in grok_training_privacy.stdout
         or 'AUTH_CACHE_UPDATED' in grok_training_privacy.stdout
-      failed_when: grok_training_privacy.rc != 0
+      failed_when: false
+
+    - name: Fail if Grok coding-data training opt-out failed
+      ansible.builtin.fail:
+        msg: >-
+          Failed to configure Grok coding-data training opt-out
+          (rc={{ grok_training_privacy.rc | default('unknown') }}):
+          {{ grok_training_privacy.stdout | default('') | trim }}
+          {{ grok_training_privacy.stderr | default('') | trim }}
+      when: grok_training_privacy.rc | default(0) != 0
 
     - name: Display Grok privacy settings information
       ansible.builtin.debug:

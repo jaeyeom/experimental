@@ -659,6 +659,9 @@ func TestRenderGitHubReleaseInfoTasks(t *testing.T) {
 			"uri:",
 			"url: https://example.com/version.json",
 			"register: tool_latest_release",
+			"no_log: true",
+			"failed_when: false",
+			"Rate-limit remaining:",
 			"Rate limit exceeded",
 			"status_code: [200, 403]",
 		})

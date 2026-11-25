@@ -35,6 +35,8 @@
     status_code: [200, 403]
     headers: "{{ {'Authorization': 'token ' + lookup('env', 'GITHUB_TOKEN')} if lookup('env', 'GITHUB_TOKEN') else {} }}"
   register: github_release_fetch
+  no_log: true
+  failed_when: false
   until: >-
     github_release_fetch.status == 200 or
     (github_release_fetch.status == 403 and
@@ -45,7 +47,15 @@
 
 - name: Use fetched {{ github_release_name }} GitHub release response
   ansible.builtin.set_fact:
-    github_release_result: "{{ github_release_fetch }}"
+    github_release_result: >-
+      {{
+        {
+          'status': github_release_fetch.status,
+          'x_ratelimit_remaining': github_release_fetch.x_ratelimit_remaining | default('unknown'),
+          'msg': github_release_fetch.msg | default(''),
+        }
+        | combine({'json': github_release_fetch.json} if github_release_fetch.json is defined else {})
+      }}
   when: github_release_fetch.status is defined
 
 - name: Fail if {{ github_release_name }} version fetch failed
@@ -53,6 +63,10 @@
     msg: >-
       Failed to fetch {{ github_release_name }} version from GitHub.
       Status: {{ github_release_result.status | default('unknown') }}.
+      Rate-limit remaining: {{ github_release_result.x_ratelimit_remaining | default('unknown') }}.
+      {% if github_release_result.msg is defined and github_release_result.msg %}
+      Message: {{ github_release_result.msg }}.
+      {% endif %}
       {% if github_release_result.status | default(0) == 403 and (github_release_result.x_ratelimit_remaining | default('1') | string) == '0' %}
       Rate limit exceeded after retries. Please try again later or set GITHUB_TOKEN environment variable.
       {% endif %}
@@ -63,14 +77,14 @@
     path: "{{ github_release_cache_file | dirname }}"
     state: directory
     mode: '0755'
-  when: github_release_fetch.content is defined and github_release_cache_ttl_hours | int > 0
+  when: github_release_fetch.status | default(0) == 200 and github_release_fetch.content is defined and github_release_cache_ttl_hours | int > 0
 
 - name: Cache {{ github_release_name }} GitHub release response
   ansible.builtin.copy:
     content: "{{ github_release_fetch.content }}"
     dest: "{{ github_release_cache_file }}"
     mode: '0644'
-  when: github_release_fetch.content is defined and github_release_cache_ttl_hours | int > 0
+  when: github_release_fetch.status | default(0) == 200 and github_release_fetch.content is defined and github_release_cache_ttl_hours | int > 0
 
 - name: Register {{ github_release_name }} GitHub release response
   ansible.builtin.set_fact:

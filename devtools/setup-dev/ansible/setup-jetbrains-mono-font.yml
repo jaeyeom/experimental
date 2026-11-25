@@ -43,28 +43,12 @@
             mode: '0755'
 
         - name: Get latest JetBrains Mono release tag from GitHub
-          uri:
-            url: https://api.github.com/repos/JetBrains/JetBrainsMono/releases/latest
-            return_content: yes
-            status_code: [200, 403]
-            headers: "{{ {'Authorization': 'token ' + lookup('env', 'GITHUB_TOKEN')} if lookup('env', 'GITHUB_TOKEN') else {} }}"
-          register: jetbrains_mono_release
-          until: >-
-            jetbrains_mono_release.status == 200 or
-            (jetbrains_mono_release.status == 403 and
-             (jetbrains_mono_release.x_ratelimit_remaining | default('1') | string) != '0')
-          retries: 3
-          delay: 120
-
-        - name: Fail if JetBrains Mono release fetch failed
-          ansible.builtin.fail:
-            msg: >-
-              Failed to fetch JetBrains Mono release from GitHub.
-              Status: {{ jetbrains_mono_release.status }}.
-              {% if jetbrains_mono_release.status == 403 and (jetbrains_mono_release.x_ratelimit_remaining | default('1') | string) == '0' %}
-              Rate limit exceeded after retries. Please try again later or set GITHUB_TOKEN environment variable.
-              {% endif %}
-          when: jetbrains_mono_release.status != 200
+          ansible.builtin.include_tasks: tasks/github-release-info.yml
+          vars:
+            github_release_name: JetBrains Mono
+            github_release_owner: JetBrains
+            github_release_repo: JetBrainsMono
+            github_release_register: jetbrains_mono_release
 
         - name: Extract JetBrains Mono download URL
           set_fact:
@@ -96,28 +80,12 @@
             mode: '0755'
 
         - name: Get latest JetBrains Mono release tag from GitHub on Termux
-          uri:
-            url: https://api.github.com/repos/JetBrains/JetBrainsMono/releases/latest
-            return_content: yes
-            status_code: [200, 403]
-            headers: "{{ {'Authorization': 'token ' + lookup('env', 'GITHUB_TOKEN')} if lookup('env', 'GITHUB_TOKEN') else {} }}"
-          register: jetbrains_mono_release_termux
-          until: >-
-            jetbrains_mono_release_termux.status == 200 or
-            (jetbrains_mono_release_termux.status == 403 and
-             (jetbrains_mono_release_termux.x_ratelimit_remaining | default('1') | string) != '0')
-          retries: 3
-          delay: 120
-
-        - name: Fail if JetBrains Mono release fetch failed on Termux
-          ansible.builtin.fail:
-            msg: >-
-              Failed to fetch JetBrains Mono release from GitHub.
-              Status: {{ jetbrains_mono_release_termux.status }}.
-              {% if jetbrains_mono_release_termux.status == 403 and (jetbrains_mono_release_termux.x_ratelimit_remaining | default('1') | string) == '0' %}
-              Rate limit exceeded after retries. Please try again later or set GITHUB_TOKEN environment variable.
-              {% endif %}
-          when: jetbrains_mono_release_termux.status != 200
+          ansible.builtin.include_tasks: tasks/github-release-info.yml
+          vars:
+            github_release_name: JetBrains Mono
+            github_release_owner: JetBrains
+            github_release_repo: JetBrainsMono
+            github_release_register: jetbrains_mono_release_termux
 
         - name: Extract JetBrains Mono download URL on Termux
           set_fact:
