@@ -1,0 +1,5 @@
+filegroup(
+    name = "sh_srcs",
+    srcs = glob(["*.sh"]),
+    visibility = ["//tools/lint:__pkg__"],
+)

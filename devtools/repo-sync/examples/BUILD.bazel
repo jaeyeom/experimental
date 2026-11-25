@@ -4,3 +4,9 @@ sh_binary(
     name = "demo",
     srcs = ["demo.sh"],
 )
+
+filegroup(
+    name = "sh_srcs",
+    srcs = glob(["*.sh"]),
+    visibility = ["//tools/lint:__pkg__"],
+)

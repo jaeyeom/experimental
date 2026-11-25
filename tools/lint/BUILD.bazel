@@ -2,9 +2,10 @@ load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
 load("@nogo_analyzer_bzlmod//:def.bzl", "ANALYZERS", "staticcheck_analyzers")
 load("@rules_go//go:def.bzl", "TOOLS_NOGO", "nogo")
 load("@rules_python//python:defs.bzl", "py_test")
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//devtools/linters/pylinters:py_entries.bzl", "py_entries_manifest")
-load(":linters.bzl", "ruff_test")
+load(":linters.bzl", "ruff_test", "shellcheck_test")
 
 package(default_visibility = ["//:__subpackages__"])
 
@@ -122,4 +123,50 @@ filegroup(
 py_entries_manifest(
     name = "py_entries",
     visibility = ["//devtools/linters/pylinters:__pkg__"],
+)
+
+filegroup(
+    name = "sh_srcs",
+    srcs = glob(["*.sh"]),
+)
+
+sh_library(
+    name = "repo_sh_srcs",
+    srcs = [
+        ":sh_srcs",
+        "//.githooks:sh_srcs",
+        "//:sh_srcs",
+        "//devtools/decide/web:sh_srcs",
+        "//devtools/docsync/internal/cli:sh_srcs",
+        "//devtools/fork-keeper:sh_srcs",
+        "//devtools/gh-ask/userscript:sh_srcs",
+        "//devtools/gh-nudge:sh_srcs",
+        "//devtools/prsync/internal/cli:sh_srcs",
+        "//devtools/prsync/internal/scan:sh_srcs",
+        "//devtools/repo-sync/examples:sh_srcs",
+        "//devtools/setup-dev/ansible:sh_srcs",
+        "//devtools/setup-dev/qubes:sh_srcs",
+        "//scripts:sh_srcs",
+        "//spacemacs:sh_srcs",
+    ],
+)
+
+shellcheck_test(
+    name = "shellcheck_test",
+    size = "small",
+    srcs = [":repo_sh_srcs"],
+)
+
+sh_test(
+    name = "shellcheck_config_test",
+    size = "small",
+    srcs = ["shellcheck_config_test.sh"],
+    args = [
+        "$(rootpath @aspect_rules_lint//lint:shellcheck_bin)",
+        "$(rootpath //:.shellcheckrc)",
+    ],
+    data = [
+        "//:.shellcheckrc",
+        "@aspect_rules_lint//lint:shellcheck_bin",
+    ],
 )

@@ -39,3 +39,9 @@ go_test(
         "@com_github_jaeyeom_go_cmdexec//:go_default_library",
     ],
 )
+
+filegroup(
+    name = "sh_srcs",
+    srcs = glob(["**/*.sh"]),
+    visibility = ["//tools/lint:__pkg__"],
+)

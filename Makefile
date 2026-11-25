@@ -8,7 +8,7 @@ SED_INPLACE := $(shell if [ "$$(uname)" = "Darwin" ]; then echo "sed -i ''"; els
 # Built from host tool locations in a canonical order so caller PATH
 # reordering or extra entries do not invalidate Bazel's test cache.
 BAZEL_TEST_PATH := $(shell \
-	extra=$$(for t in ansible-playbook emacs go lsof node pkl python3 shellcheck; do \
+	extra=$$(for t in ansible-playbook emacs go lsof node pkl python3; do \
 		p=$$(command -v "$$t" 2>/dev/null || true); \
 		[ -n "$$p" ] && dirname "$$p"; \
 	done | grep -vxE '/usr/local/bin|/usr/bin|/bin|/usr/sbin|/sbin' | LC_ALL=C sort -u | paste -sd: -); \
@@ -68,7 +68,7 @@ test-rbe:
 	bazel test --config=rbe --test_summary=terse --build_tag_filters=-local,-no-remote --test_tag_filters=-local,-no-remote $(BAZEL_FLAGS) //...
 	bazel test --test_summary=terse $(BAZEL_TEST_ENV) --build_tag_filters=local,no-remote --test_tag_filters=local,no-remote $(BAZEL_FLAGS) //...
 
-lint-non-bazel: lint-genfiles lint-shellcheck
+lint-non-bazel: lint-genfiles
 
 lint-non-emacs: lint-non-bazel
 
@@ -76,7 +76,7 @@ lint: lint-non-emacs check-spacemacs
 
 # Target fix is best-effort autofix for lint issues. If autofix is not
 # available, it still runs lint checks.
-fix: fix-go fix-ruff lint-shellcheck check-spacemacs
+fix: fix-go fix-ruff check-spacemacs
 
 INSTALL_CMDS := \
 	./devtools/agent-pool/cmd/agent-pool \
@@ -146,15 +146,6 @@ check-uv-lock: pyproject.toml uv.lock
 		exit 1; \
 	fi
 	uv lock --check
-
-# Shell targets
-.PHONY: lint-shellcheck
-
-lint-shellcheck:
-	@FILES=$$(git ls-files "*.sh"); \
-	if [ -n "$$FILES" ]; then \
-		shellcheck -x $$FILES; \
-	fi
 
 # Emacs/Spacemacs targets
 .PHONY: check-spacemacs

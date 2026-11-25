@@ -42,3 +42,9 @@ py_entries_manifest(
     name = "py_entries",
     visibility = ["//devtools/linters/pylinters:__pkg__"],
 )
+
+filegroup(
+    name = "sh_srcs",
+    srcs = glob(["*.sh"]),
+    visibility = ["//tools/lint:__pkg__"],
+)

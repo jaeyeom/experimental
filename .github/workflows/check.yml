@@ -36,17 +36,6 @@ jobs:
     - name: Install Pkl
       uses: ./.github/actions/setup-pkl
 
-    - name: Install shellcheck
-      run: |
-        set -eu
-        # GitHub-hosted ubuntu runners ship a Google Chrome apt source that
-        # periodically hash-mismatches and fails apt-get update. Same
-        # workaround as bazel-test.yml.
-        sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
-          /etc/apt/sources.list.d/google-chrome.sources
-        sudo apt-get update
-        sudo apt-get install -y shellcheck
-
     - name: Install uv and semgrep
       run: |
         set -eu

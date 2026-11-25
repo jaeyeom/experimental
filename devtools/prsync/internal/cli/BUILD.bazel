@@ -74,3 +74,9 @@ go_test(
         "@org_golang_x_sys//unix:go_default_library",
     ],
 )
+
+filegroup(
+    name = "sh_srcs",
+    srcs = glob(["**/*.sh"]),
+    visibility = ["//tools/lint:__pkg__"],
+)

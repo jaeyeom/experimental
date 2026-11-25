@@ -33,3 +33,9 @@ go_test(
     embed = [":go_default_library"],
     tags = ["no-remote"],  # Invokes host jq
 )
+
+filegroup(
+    name = "sh_srcs",
+    srcs = glob(["**/*.sh"]),
+    visibility = ["//tools/lint:__pkg__"],
+)

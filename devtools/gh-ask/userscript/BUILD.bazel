@@ -13,3 +13,9 @@ sh_test(
     ] + glob(["testdata/*.html"]),
     tags = ["no-remote"],
 )
+
+filegroup(
+    name = "sh_srcs",
+    srcs = glob(["*.sh"]),
+    visibility = ["//tools/lint:__pkg__"],
+)

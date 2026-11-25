@@ -5,3 +5,9 @@ sh_test(
     srcs = ["gitleaks_test.sh"],
     data = ["pre-commit/gitleaks.sh"],
 )
+
+filegroup(
+    name = "sh_srcs",
+    srcs = glob(["**/*.sh"]),
+    visibility = ["//tools/lint:__pkg__"],
+)

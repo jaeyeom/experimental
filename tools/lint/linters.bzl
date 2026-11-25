@@ -17,6 +17,9 @@ ruff_test = lint_test(aspect = ruff)
 # ShellCheck linter for shell scripts
 # Visits sh_binary, sh_library, and sh_test rules
 shellcheck = lint_shellcheck_aspect(
+    args = ["-x"],
     binary = "@aspect_rules_lint//lint:shellcheck_bin",
     config = Label("//:.shellcheckrc"),
 )
+
+shellcheck_test = lint_test(aspect = shellcheck)

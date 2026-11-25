@@ -9,3 +9,9 @@ sh_binary(
     name = "cleanup-repo",
     srcs = ["cleanup-repo.sh"],
 )
+
+filegroup(
+    name = "sh_srcs",
+    srcs = glob(["*.sh"]),
+    visibility = ["//tools/lint:__pkg__"],
+)

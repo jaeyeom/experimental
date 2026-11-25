@@ -94,3 +94,9 @@ sh_test(
     data = glob(["static/*.js"]) + glob(["static/*_test.mjs"]),
     tags = ["no-remote"],
 )
+
+filegroup(
+    name = "sh_srcs",
+    srcs = glob(["*.sh"]),
+    visibility = ["//tools/lint:__pkg__"],
+)

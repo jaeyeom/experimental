@@ -47,3 +47,9 @@ sh_binary(
     name = "check-bazel-src-files",
     srcs = ["check-bazel-src-files.sh"],
 )
+
+filegroup(
+    name = "sh_srcs",
+    srcs = glob(["*.sh"]),
+    visibility = ["//tools/lint:__pkg__"],
+)
