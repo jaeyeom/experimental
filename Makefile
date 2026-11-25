@@ -68,7 +68,7 @@ test-rbe:
 	bazel test --config=rbe --test_summary=terse --build_tag_filters=-local,-no-remote --test_tag_filters=-local,-no-remote $(BAZEL_FLAGS) //...
 	bazel test --test_summary=terse $(BAZEL_TEST_ENV) --build_tag_filters=local,no-remote --test_tag_filters=local,no-remote $(BAZEL_FLAGS) //...
 
-lint-non-bazel: lint-genfiles lint-mypy lint-shellcheck
+lint-non-bazel: lint-genfiles lint-shellcheck
 
 lint-non-emacs: lint-non-bazel
 
@@ -76,7 +76,7 @@ lint: lint-non-emacs check-spacemacs
 
 # Target fix is best-effort autofix for lint issues. If autofix is not
 # available, it still runs lint checks.
-fix: fix-go fix-ruff lint-mypy lint-shellcheck check-spacemacs
+fix: fix-go fix-ruff lint-shellcheck check-spacemacs
 
 INSTALL_CMDS := \
 	./devtools/agent-pool/cmd/agent-pool \
@@ -133,13 +133,10 @@ check-bazel-go-files:
 	@./check-bazel-src-files.sh go
 
 # Python targets
-.PHONY: fix-ruff lint-mypy check-uv-lock
+.PHONY: fix-ruff check-uv-lock
 
 fix-ruff:
 	ruff check --fix
-
-lint-mypy:
-	mypy
 
 check-uv-lock: pyproject.toml uv.lock
 	@if ! command -v uv >/dev/null 2>&1; then \

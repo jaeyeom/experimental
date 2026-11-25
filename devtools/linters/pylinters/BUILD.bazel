@@ -86,6 +86,7 @@ filegroup(
         "//codelab/proto:py_srcs",
         "//devtools/setup-dev/ansible:py_srcs",
         "//scripts:py_srcs",
+        "//tools/lint:py_srcs",
     ],
     tags = ["lint-with-ruff"],
     visibility = ["//tools/lint:__pkg__"],
@@ -97,6 +98,7 @@ filegroup(
         ":py_entries",
         "//codelab/proto:py_entries",
         "//scripts:py_entries",
+        "//tools/lint:py_entries",
     ],
 )
 

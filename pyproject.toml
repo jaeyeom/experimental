@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest"]
+dev = ["mypy", "pytest"]
 
 [tool.uv]
 package = false
@@ -87,6 +87,7 @@ files = [
     "scripts/strip_pr_html_comments_test.py",
     "devtools/linters/pylinters/src/pylinters",
     "devtools/linters/pylinters/tests",
+    "tools/lint/mypy_test.py",
 ]
 exclude = [
     "(^|/)gen/",
@@ -94,15 +95,16 @@ exclude = [
     ".*_pb2_grpc\\.py$",
     "^bazel-",
 ]
-# Host mypy is an isolated uv tool; grpcio/pytest/protovalidate are not
-# installed next to it. Generated pb2 modules build messages dynamically.
-ignore_missing_imports = true
+# Generated pb2/gRPC base classes and grpcio lack full type stubs.
 disallow_subclassing_any = false
-disallow_untyped_decorators = false
 
 [[tool.mypy.overrides]]
 module = ["gen", "gen.*"]
 follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = ["grpc", "grpc.*"]
+ignore_missing_imports = true
 
 [tool.pylinters.main-guard]
 # Every py_test here runs as __main__ under Bazel, so its file must end
