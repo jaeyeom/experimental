@@ -148,6 +148,7 @@ sh_library(
         "//devtools/setup-dev/qubes:sh_srcs",
         "//scripts:sh_srcs",
         "//spacemacs:sh_srcs",
+        "//tools/format:sh_srcs",
     ],
 )
 

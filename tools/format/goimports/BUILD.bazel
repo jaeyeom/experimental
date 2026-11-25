@@ -1,0 +1,22 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "goimports_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/jaeyeom/experimental/tools/format/goimports",
+    visibility = ["//visibility:private"],
+    deps = ["@org_golang_x_tools//imports:go_default_library"],
+)
+
+go_binary(
+    name = "goimports",
+    embed = [":goimports_lib"],
+    visibility = ["//tools/format:__pkg__"],
+)
+
+go_test(
+    name = "goimports_test",
+    size = "small",
+    srcs = ["main_test.go"],
+    embed = [":goimports_lib"],
+)

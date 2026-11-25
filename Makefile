@@ -1,8 +1,5 @@
 # Common targets
-.PHONY: all check check-ci format format-whitespace check-whitespace check-format check-format-non-bazel check-format-bazel test test-rbe lint lint-non-emacs lint-non-bazel fix check-uv-lock install
-
-# Cross-platform sed in-place edit
-SED_INPLACE := $(shell if [ "$$(uname)" = "Darwin" ]; then echo "sed -i ''"; else echo "sed -i"; fi)
+.PHONY: all check check-ci format format-whitespace check-format test test-rbe lint lint-non-emacs lint-non-bazel fix check-uv-lock install
 
 # Stable PATH for Bazel tests under --incompatible_strict_action_env.
 # Built from host tool locations in a canonical order so caller PATH
@@ -27,7 +24,7 @@ all:
 	$(MAKE) fix
 	$(MAKE) test check-semgrep check-gitleaks check-bazel-go-files
 
-CHECK_CI_CHECKS := check-format-non-bazel lint-non-bazel check-semgrep check-gitleaks check-bazel-go-files
+CHECK_CI_CHECKS := lint-non-bazel check-semgrep check-gitleaks check-bazel-go-files
 
 check-ci:
 	$(MAKE) check-uv-lock check-generated
@@ -35,28 +32,16 @@ check-ci:
 
 check:
 	$(MAKE) check-uv-lock check-generated
-	$(MAKE) $(CHECK_CI_CHECKS) check-format-bazel test check-spacemacs
+	$(MAKE) $(CHECK_CI_CHECKS) test check-spacemacs
 
 format: format-whitespace
-	goimports -w .
 	bazel run //:format
 
 format-whitespace:
-	@for f in $$(rg -l '\s$$' -g '*.md' -g '*.org' . 2>/dev/null || true); do \
-		$(SED_INPLACE) 's/[[:space:]]*$$//' "$$f"; \
-	done
+	bazel run //tools/format/whitespace -- -w
 
-check-whitespace:
-	@FILES=$$(rg -l '\s$$' -g '*.md' -g '*.org' . 2>/dev/null || true); \
-	if [ -n "$$FILES" ]; then echo "Trailing whitespace found in:"; echo "$$FILES"; exit 1; fi
-
-check-format-non-bazel: check-whitespace
-	goimports -l .
-
-check-format-bazel:
-	bazel test --test_summary=terse $(BAZEL_TEST_ENV) //tools/format:format_test
-
-check-format: check-format-non-bazel check-format-bazel
+check-format:
+	bazel test --test_summary=terse $(BAZEL_TEST_ENV) //tools/format/...
 
 test:
 	bazel test --test_summary=terse $(BAZEL_TEST_ENV) $(BAZEL_FLAGS) //...

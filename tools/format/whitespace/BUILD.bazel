@@ -1,0 +1,21 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "whitespace_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/jaeyeom/experimental/tools/format/whitespace",
+    visibility = ["//visibility:private"],
+)
+
+go_binary(
+    name = "whitespace",
+    embed = [":whitespace_lib"],
+    visibility = ["//tools/format:__pkg__"],
+)
+
+go_test(
+    name = "whitespace_test",
+    size = "small",
+    srcs = ["main_test.go"],
+    embed = [":whitespace_lib"],
+)

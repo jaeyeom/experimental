@@ -1,11 +1,44 @@
 load("@aspect_rules_lint//format:defs.bzl", "format_multirun", "format_test")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 package(default_visibility = ["//visibility:public"])
 
-# Format rule for Go and Starlark files
+genrule(
+    name = "go_format_wrapper",
+    srcs = ["go_format.sh"],
+    outs = ["go_format_wrapper.sh"],
+    cmd = "sed -e 's|@@GOIMPORTS_RLOCATION@@|$(rlocationpath //tools/format/goimports)|g' " +
+          "-e 's|@@GOFUMPT_RLOCATION@@|$(rlocationpath @aspect_rules_lint//format:gofumpt)|g' " +
+          "$(location go_format.sh) > $@ && chmod +x $@",
+    tools = [
+        "//tools/format/goimports",
+        "@aspect_rules_lint//format:gofumpt",
+    ],
+)
+
+sh_binary(
+    name = "go_format",
+    srcs = [":go_format_wrapper.sh"],
+    data = [
+        "//tools/format/goimports",
+        "@aspect_rules_lint//format:gofumpt",
+    ],
+    deps = ["@bazel_tools//tools/bash/runfiles"],
+)
+
+sh_test(
+    name = "go_format_test",
+    size = "small",
+    srcs = ["go_format_test.sh"],
+    args = ["$(rootpath :go_format)"],
+    data = [":go_format"],
+)
+
+# Format rule for Go, Protocol Buffer, Python, and Starlark files
 format_multirun(
     name = "format",
-    go = "@aspect_rules_lint//format:gofumpt",
+    go = ":go_format",
     protocol_buffer = "//tools/lint:buf",
     python = "@aspect_rules_lint//format:ruff",
     starlark = "@buildifier_prebuilt//:buildifier",
@@ -15,11 +48,38 @@ format_test(
     name = "format_test",
     size = "small",
     timeout = "short",
-    go = "@aspect_rules_lint//format:gofumpt",
+    go = ":go_format",
     no_sandbox = True,  # Enables formatting the entire workspace
     protocol_buffer = "//tools/lint:buf",
     python = "@aspect_rules_lint//format:ruff",
     starlark = "@buildifier_prebuilt//:buildifier",
     tags = ["no-remote"],  # Must inspect the local checkout, not an RBE worker
     workspace = "//:MODULE.bazel",
+)
+
+sh_test(
+    name = "whitespace_test",
+    size = "small",
+    timeout = "short",
+    srcs = ["whitespace_test.sh"],
+    args = [
+        "$(rootpath //tools/format/whitespace)",
+        "$(rootpath //:MODULE.bazel)",
+    ],
+    data = [
+        "//:MODULE.bazel",
+        "//tools/format/whitespace",
+    ],
+    tags = [
+        "external",
+        "no-cache",
+        "no-remote",
+        "no-sandbox",
+    ],
+)
+
+filegroup(
+    name = "sh_srcs",
+    srcs = glob(["*.sh"]),
+    visibility = ["//tools/lint:__pkg__"],
 )
