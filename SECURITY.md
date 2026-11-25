@@ -37,6 +37,6 @@ This policy covers code in this repository. Dependencies are managed through the
 ## Security Practices
 
 This repository uses:
-- Static analysis via Bazel `nogo` and `ruff`
-- Automated testing via CI
+- Static analysis and security scanning in Bazel (`nogo`, `ruff`, `mypy`, `shellcheck`, `semgrep`, and full-history `gitleaks`)
+- Automated testing and checks via CI (`.github/workflows/bazel-test.yml`, plus path-filtered `.github/workflows/emacs.yml` for Emacs changes)
 - Dependency scanning where applicable

@@ -46,11 +46,11 @@ rules:
   - match: [".semgrep/**"]
     docs:
       - path: README.org
-        section: "* Getting Started"
-        why: "semgrep is a listed linter"
-      - path: README.org
-        section: "** GNU Make"
-        why: "make check-semgrep is part of make check"
+        section: "** Bazel"
+        why: "semgrep runs hermetically in Bazel via //tools/lint:semgrep_test"
+      - path: SECURITY.md
+        section: "## Security Practices"
+        why: "semgrep static analysis in Bazel"
 
   - match: ["check-bazel-src-files.sh"]
     docs:
@@ -96,18 +96,12 @@ rules:
       - path: README.org
         section: "** GNU Make"
         why: "CI coverage-html / lcov mirrors make coverage-html"
-      - path: SECURITY.md
-        section: "## Security Practices"
-        why: "automated testing via CI"
-
-  - match: [".github/workflows/check.yml"]
-    docs:
       - path: README.org
-        section: "* Getting Started"
-        why: "the job runs make check-ci with Go 1.26.10"
+        section: "** Bazel"
+        why: "sole general CI check workflow (tests, linters, semgrep, gitleaks with fetch-depth: 0, coverage)"
       - path: SECURITY.md
         section: "## Security Practices"
-        why: "automated testing via CI"
+        why: "automated testing and security checks via CI"
 
   - match: [".github/workflows/emacs.yml"]
     docs:

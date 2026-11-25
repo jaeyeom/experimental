@@ -1,5 +1,5 @@
 # Common targets
-.PHONY: all check check-ci format format-whitespace check-format test test-rbe lint fix install
+.PHONY: all check format format-whitespace check-format test test-rbe lint fix install
 
 # Stable PATH for Bazel tests under --incompatible_strict_action_env.
 # Built from host tool locations in a canonical order so caller PATH
@@ -23,9 +23,6 @@ all:
 	$(MAKE) format
 	$(MAKE) fix
 	$(MAKE) test
-
-check-ci:
-	@echo "All CI checks have migrated to Bazel (bazel test //...)"
 
 check:
 	$(MAKE) test check-spacemacs

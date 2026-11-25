@@ -37,11 +37,8 @@ its own README with details.
 * Getting Started
 The Go module path is =github.com/jaeyeom/experimental=. You will need:
 
-- [[https://bazel.build/install/bazelisk][Bazelisk]] (pinned via =.bazeliskrc=) — primary build and test driver.
-- =goimports= — Go formatting.
-- =ruff=, =mypy=, =shellcheck=, =semgrep= — linters (run by =make lint= / =make check=).
-- =gitleaks= — secret scanner over Git history (run by =make check=).
-- =uv= — Python lockfile tool (`uv.lock`; checked by =make check=).
+- [[https://bazel.build/install/bazelisk][Bazelisk]] (pinned via =.bazeliskrc=) — primary build, format, lint, and test driver. All Go/Python/shell linters (=nogo=, =ruff=, =mypy=, =shellcheck=, =semgrep=), secret scanning (=gitleaks=), =uv.lock= verification, and formatting checks run hermetically through Bazel.
+- =emacs= (optional) — only needed locally for =make check-spacemacs=.
 
 Clone the repo and run the test suite to verify your setup:
 
@@ -60,14 +57,13 @@ underneath for hermetic, reproducible builds.
 
 | Command              | Purpose                                                                                  |
 |----------------------+------------------------------------------------------------------------------------------|
-| =make check=         | Run all pre-commit checks: format, tests, lint, semgrep, gitleaks, generators.           |
-| =make check-ci=      | Run all non-Bazel, non-Emacs checks (used by CI alongside Bazel and Emacs workflows).    |
-| =make test=          | Run all Bazel tests (=bazel test //...=).                                                |
+| =make check=         | Run all pre-commit checks: Bazel tests/linters/scans (=make test=) and Spacemacs checks. |
+| =make test=          | Run all Bazel tests, linters, format checks, and security scans (=bazel test //...=).    |
 | =make test-rbe=      | Run remote-eligible Bazel tests on BuildBuddy RBE and =local=/=no-remote= tests locally. |
-| =make format=        | Format code (=goimports= + Bazel =buildifier=).                                          |
-| =make lint=          | Run ruff, mypy, shellcheck, Spacemacs checks (Go linting runs via Bazel nogo).           |
+| =make format=        | Format code via Bazel (=goimports=, =buildifier=, whitespace, etc.).                     |
+| =make lint=          | Run local Spacemacs checks (all other linters run via Bazel in =make test=).             |
 | =make fix=           | Best-effort autofix for lint issues.                                                     |
-| =make all=           | Regenerate, format, fix, then test and lint.                                             |
+| =make all=           | Regenerate, format, fix, then test.                                                      |
 | =make install=       | Install this checkout's Go CLIs. See =devtools/README.org=.                              |
 | =make coverage-html= | Generate an HTML coverage report under =coverage/html/=.                                 |
 
@@ -77,6 +73,13 @@ hermetic, working both on Linux and Termux. =MODULE.bazel= wires up the Go SDK
 (with =nogo= static analysis via custom linters in =//tools/lint=), Gazelle for
 BUILD file generation, rules_python, the Buf protobuf toolchain, and Pkl for
 configuration code generation.
+
+In CI, =.github/workflows/bazel-test.yml= is the sole general check workflow:
+it checks out full Git history (=fetch-depth: 0=) and runs =bazel coverage //...=,
+which executes all unit tests, linters (=nogo=, =ruff=, =mypy=, =shellcheck=),
+format/freshness checks, =semgrep=, and full-history =gitleaks=. Emacs and
+Spacemacs checks run separately in the path-filtered =.github/workflows/emacs.yml=
+workflow.
 
 *** BuildBuddy Remote Cache and RBE
 Opt-in BuildBuddy Build Event Service (BES), remote caching
