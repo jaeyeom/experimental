@@ -1165,24 +1165,30 @@ func (m *Model) closeSelected() error {
 	return m.Reload()
 }
 
+func (m *Model) canArchive(it decide.Item) bool {
+	if it.State == decide.StateDone || it.State == decide.StateWithdrawn {
+		return false
+	}
+	return it.State == decide.StateDoneUnread || m.isInboxFolder()
+}
+
 // archiveSelected marks the selected notification done with outcome
-// archived. It holds when a message is unseen below the view or arrived
-// within archiveGrace, and when the ledger has a message newer than the
-// one this view has seen. A thread with pending options still needs an
-// answer. An explicit outcome uses Done and does not check seen.
+// archived, or marks a done-unread item read and moves it to done. It
+// holds when a message is unseen below the view or arrived within
+// archiveGrace, and when the ledger has a message newer than the one
+// this view has seen. An open, unanswered thread with options still
+// needs an answer. An explicit outcome uses Done and does not check
+// seen.
 func (m *Model) archiveSelected() error {
-	if m.folder < 0 || m.folder >= len(Folders) || Folders[m.folder].State != decide.StateOpen {
-		return nil
-	}
 	it, ok := m.selectedItem()
-	if !ok {
+	if !ok || !m.canArchive(it) {
 		return nil
 	}
-	if len(it.Options) > 0 {
+	if it.State == decide.StateOpen && it.Answer == nil && len(it.Options) > 0 {
 		m.status = "needs an answer"
 		return nil
 	}
-	if m.archiveHeld(it) {
+	if it.State != decide.StateDoneUnread && m.archiveHeld(it) {
 		m.status = statusArchiveHeld
 		m.revealNewest()
 		return nil
@@ -1276,7 +1282,7 @@ func (m *Model) canSendAndArchive() bool {
 	if m.detail == nil || m.pendingAnswerKey != "" {
 		return false
 	}
-	if m.detail.State == decide.StateDone || m.detail.State == decide.StateWithdrawn {
+	if m.detail.State == decide.StateDone || m.detail.State == decide.StateDoneUnread || m.detail.State == decide.StateWithdrawn {
 		return false
 	}
 	return !isOpenQuestion(m.detail)
@@ -1285,6 +1291,10 @@ func (m *Model) canSendAndArchive() bool {
 // optionsInert reports whether the digits must not act on the options of
 // the open thread, and sets the status when so.
 func (m *Model) optionsInert() bool {
+	if m.detail != nil && (m.detail.State == decide.StateDone || m.detail.State == decide.StateDoneUnread) {
+		m.status = decide.AlreadyClosedMessage(m.detail.Owner)
+		return true
+	}
 	if answerClosed(m.detail) {
 		m.status = "item is " + m.detail.State
 		return true
@@ -1367,8 +1377,24 @@ func (m *Model) writeAnswer(value string) error {
 	return m.writeAnswerTo(m.detail.ID, value)
 }
 
+func (m *Model) itemByID(id string) *decide.Item {
+	if m.detail != nil && m.detail.ID == id {
+		return m.detail
+	}
+	for i := range m.allItems {
+		if m.allItems[i].ID == id {
+			return &m.allItems[i]
+		}
+	}
+	return nil
+}
+
 func (m *Model) writeAnswerTo(id, value string) error {
 	if m.detail == nil {
+		return nil
+	}
+	if target := m.itemByID(id); target != nil && (target.State == decide.StateDone || target.State == decide.StateDoneUnread) {
+		m.status = decide.AlreadyClosedMessage(target.Owner)
 		return nil
 	}
 	if m.outboxEditing != "" {

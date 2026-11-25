@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   openAtIndex, newDividerLabel, deliveryMark, approvalCardFor, isOpenQuestion, canSendAndArchive,
   hasOtherWorker, routeWarning, replyOnBus, mergeMarkers, hhmm, answerPlan, replyPlan, threadText, messagesOf,
+  closedLine,
 } from './thread_model.js';
 import { createDraftSync } from './draft_sync.js';
 
@@ -256,4 +257,108 @@ test('threadText and messagesOf', () => {
   assert.equal(threadText(it), `D-1 Ship?\n\no ${hhmm(T(1))}:\nShip?\n---\nv\n---\n\nme ${hhmm(T(2))}:\nyes`);
   assert.equal(messagesOf({ owner: 'o', question: 'q', createdAt: T(1) })[0].text, 'q');
   assert.equal(messagesOf(it).length, 2);
+});
+
+test('closedLine shows close for done/done-unread without answer', () => {
+  const opts = [{ key: 'yes', label: 'Yes' }, { key: 'no', label: 'No' }];
+  const closed = { kind: 'relay', state: 'done-unread', owner: 'ada', outcome: 'Not posted: cancelled.', options: opts };
+  assert.equal(closedLine(closed), 'Closed by ada: Not posted: cancelled.');
+  assert.equal(closedLine({ ...closed, state: 'done' }), 'Closed by ada: Not posted: cancelled.');
+  assert.equal(closedLine({ ...closed, answer: { value: 'yes' } }), '');
+  assert.equal(closedLine({ ...closed, state: 'open' }), '');
+  assert.equal(closedLine({ kind: 'relay', state: 'done', owner: 'ada', outcome: 'archived' }), '');
+  assert.equal(canSendAndArchive(closed, false), false);
+});
+
+test('web thread render: done-unread with options shows closed line and no active choices', async () => {
+  // Minimal DOM stub so createThreadView can render under node.
+  class FakeEl {
+    constructor(tag) {
+      this.tagName = tag.toUpperCase();
+      this.children = [];
+      this.attributes = {};
+      this.style = {};
+      this.className = '';
+      this.textContent = '';
+      this.hidden = false;
+      this.disabled = false;
+      this.value = '';
+      this.classList = {
+        toggle: () => {},
+        contains: (c) => this.className.split(/\s+/).includes(c),
+      };
+    }
+    get childNodes() { return this.children; }
+    get lastElementChild() { return this.children[this.children.length - 1] ?? null; }
+    setAttribute(k, v) {
+      this.attributes[k] = String(v);
+      if (k === 'class') this.className = String(v);
+    }
+    addEventListener() {}
+    focus() {}
+    blur() {}
+    contains() { return false; }
+    append(...nodes) {
+      for (const n of nodes) {
+        if (n === '' || n == null) continue;
+        this.children.push(typeof n === 'string' ? { textContent: n, children: [], className: '', tagName: '#TEXT' } : n);
+      }
+    }
+    replaceChildren(...nodes) {
+      this.children = [];
+      this.append(...nodes);
+    }
+    walk(fn) {
+      fn(this);
+      for (const c of this.children) if (c.walk) c.walk(fn);
+    }
+    querySelectorAll(sel) {
+      const out = [];
+      this.walk((n) => {
+        if (sel === '.options button.option' && n.tagName === 'BUTTON' && n.classList.contains('option')) out.push(n);
+        if (sel === '.approval-card .approval-actions button' && n.tagName === 'BUTTON') {
+          // check if inside approval-card
+        }
+        if (sel === 'button.option' && n.tagName === 'BUTTON' && n.classList.contains('option')) out.push(n);
+        if (sel === '.approval-card' && n.classList.contains('approval-card')) out.push(n);
+      });
+      return out;
+    }
+    allText() {
+      const parts = [];
+      this.walk((n) => { if (n.textContent) parts.push(n.textContent); });
+      return parts.join('\n');
+    }
+  }
+  globalThis.document = {
+    createElement: (tag) => new FakeEl(tag),
+    createTextNode: (t) => ({ textContent: String(t), children: [], className: '', tagName: '#TEXT' }),
+    addEventListener: () => {},
+    activeElement: null,
+    visibilityState: 'visible',
+  };
+  globalThis.window = { addEventListener: () => {}, innerHeight: 800 };
+  globalThis.requestAnimationFrame = () => {};
+  globalThis.location = { origin: 'http://localhost', hash: '#/item/A-1' };
+
+  const { createThreadView } = await import('./thread_view.js');
+  const root = new FakeEl('div');
+  const tv = createThreadView({ root, toast: () => {} });
+  const item = {
+    id: 'A-1',
+    class: 'approval',
+    kind: 'relay',
+    state: 'done-unread',
+    owner: 'ada',
+    outcome: 'Not posted: cancelled.',
+    question: 'Post this?',
+    options: [{ key: 'yes', label: 'Yes' }, { key: 'no', label: 'No' }, { key: 'edit', label: 'Edit' }],
+    createdAt: T(1),
+    messages: [{ author: 'ada', time: T(1), text: 'Post this?' }, { author: 'ada', time: T(2), text: 'done: Not posted: cancelled.' }],
+  };
+  tv.render({ items: [item], drafts: [], display: {}, busHealth: null }, { name: 'item', arg: 'A-1' });
+  const text = root.allText();
+  assert.ok(text.includes('Closed by ada: Not posted: cancelled.'), `missing closed line in:\n${text}`);
+  assert.equal(root.querySelectorAll('button.option').length, 0);
+  assert.equal(root.querySelectorAll('.approval-card').length, 0);
 });

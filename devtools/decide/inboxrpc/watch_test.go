@@ -24,6 +24,8 @@ func TestDetectConflict(t *testing.T) {
 	}{
 		{"withdrawn", OpAnswer, decide.StateOpen, false, decide.Item{State: decide.StateWithdrawn}, "item was withdrawn"},
 		{"done", OpReply, decide.StateOpen, false, decide.Item{State: decide.StateDone}, "item was marked done"},
+		{"answer on done", OpAnswer, decide.StateOpen, false, decide.Item{State: decide.StateDone, Owner: "ada"}, "already closed by ada"},
+		{"answer on done-unread", OpAnswer, decide.StateOpen, false, decide.Item{State: decide.StateDoneUnread, Owner: "ada"}, "already closed by ada"},
 		{"already answered", OpAnswer, decide.StateOpen, false, decide.Item{State: decide.StateAnswered}, "item was already answered"},
 		{"answered but base knew", OpAnswer, decide.StateOpen, true, decide.Item{State: decide.StateAnswered}, ""},
 		{"new message", OpReply, decide.StateOpen, false, decide.Item{State: decide.StateOpen, Messages: []decide.Message{{Time: base}}}, "new message arrived"},

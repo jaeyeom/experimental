@@ -228,6 +228,9 @@ func DetectConflict(op, baseState string, baseCount int, baseLast time.Time, bas
 		return "item was withdrawn"
 	}
 	if (cur.State == decide.StateDone || cur.State == decide.StateDoneUnread) && baseState != cur.State {
+		if op == OpAnswer {
+			return decide.AlreadyClosedMessage(cur.Owner)
+		}
 		return "item was marked done"
 	}
 	if op == OpAnswer && (cur.State == decide.StateAnswered || cur.Answer != nil) && !baseAnswered {

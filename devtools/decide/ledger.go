@@ -533,6 +533,8 @@ func applyDone(it *Item, outcome, via string, now time.Time) {
 			it.DoneAt = now
 		}
 		it.State = StateDone
+		it.Unread = false
+		it.ReadAt = &now
 		clearSnooze(it)
 	case it.State == StateDoneUnread && it.Outcome == outcome:
 	case hasUnread(it):
@@ -605,11 +607,14 @@ func (l *Ledger) Archive(id string, seen time.Time) (Item, error) {
 				return ErrNewerMessage
 			}
 		}
+		now := l.clock().UTC()
 		if it.State != StateDoneUnread {
-			it.DoneAt = l.clock().UTC()
+			it.DoneAt = now
 			it.Outcome = "archived"
 		}
 		it.State = StateDone
+		it.Unread = false
+		it.ReadAt = &now
 		clearSnooze(it)
 		updated = *it
 		return nil
@@ -619,6 +624,15 @@ func (l *Ledger) Archive(id string, seen time.Time) (Item, error) {
 	}
 	l.clearItemDrafts(updated.ID)
 	return updated, nil
+}
+
+// AlreadyClosedMessage returns the refusal message when answering a
+// done or done-unread item.
+func AlreadyClosedMessage(owner string) string {
+	if owner == "" {
+		return "already closed"
+	}
+	return "already closed by " + owner
 }
 
 // Answer records value on a relay item, sets answeredBy to human, and
@@ -651,8 +665,11 @@ func (l *Ledger) AnswerAt(id, value, via string, writtenAt time.Time) (Item, err
 		if it.EffectiveClass() == ClassNote {
 			return fmt.Errorf("decide note %s takes no answer", id)
 		}
-		if it.State == StateWithdrawn || it.State == StateDone {
+		if it.State == StateWithdrawn {
 			return fmt.Errorf("decide item %s is %s", id, it.State)
+		}
+		if it.State == StateDone || it.State == StateDoneUnread {
+			return errors.New(AlreadyClosedMessage(it.Owner))
 		}
 		stored := value
 		if it.EffectiveClass() == ClassFact {

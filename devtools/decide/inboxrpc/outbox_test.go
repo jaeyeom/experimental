@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -549,7 +550,7 @@ func newDoneItemClient(t *testing.T) (*hub, *Client, decide.Item) {
 
 func TestOutboxFailedEntryDoesNotBlockLaterEntries(t *testing.T) {
 	_, c, it := newDoneItemClient(t)
-	if _, err := c.Answer(it.ID, "y"); err != nil {
+	if _, err := c.enqueueOutbox(tui.OutboxEntry{Op: OpAnswer, ItemID: it.ID, Text: "y"}); err != nil {
 		t.Fatal(err)
 	}
 	waitUntil(t, 2*time.Second, func() bool {
@@ -630,7 +631,7 @@ func TestIsDoneRefusalOnlyForDoneAndArchive(t *testing.T) {
 
 func TestOutboxSendFailedEntryAsMessage(t *testing.T) {
 	h, c, it := newDoneItemClient(t)
-	if _, err := c.Answer(it.ID, "thanks anyway"); err != nil {
+	if _, err := c.enqueueOutbox(tui.OutboxEntry{Op: OpAnswer, ItemID: it.ID, Text: "thanks anyway"}); err != nil {
 		t.Fatal(err)
 	}
 	waitUntil(t, 2*time.Second, func() bool {
@@ -665,6 +666,36 @@ func TestOutboxDiscardRemovesPendingAndFailed(t *testing.T) {
 		if err := c.CancelOutbox(id); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if got := c.Outbox(); len(got) != 0 {
+		t.Fatalf("outbox = %+v, want empty", got)
+	}
+}
+
+func TestOutboxRefusesAnswerOnClosedReplicaItem(t *testing.T) {
+	h := newHub(t)
+	it := h.create(t, &decide.Item{
+		Question: "post it?",
+		Owner:    "ada",
+		Options:  []decide.Option{{Key: "y", Label: "Yes"}, {Key: "n", Label: "No"}},
+	})
+	led, err := decide.Open(h.server.Backend.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := led.Done(it.ID, "Not posted: cancelled."); err != nil {
+		t.Fatal(err)
+	}
+	c := &Client{Dial: h.dial, Label: "closed@hub", CacheDir: t.TempDir(), UseOutbox: true}
+	if err := c.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if _, err := c.List(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Answer(it.ID, "y"); err == nil || !strings.Contains(err.Error(), "already closed by ada") {
+		t.Fatalf("Answer on closed item err = %v, want already closed by ada", err)
 	}
 	if got := c.Outbox(); len(got) != 0 {
 		t.Fatalf("outbox = %+v, want empty", got)

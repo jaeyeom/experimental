@@ -441,6 +441,40 @@ func TestAnswerValidation(t *testing.T) {
 	}
 }
 
+func TestAnswerClosedItemIsRefused(t *testing.T) {
+	a := newAPI(t)
+	it := a.create(&decide.Item{
+		Question:   "post it?",
+		Owner:      "ada",
+		Options:    []decide.Option{{Key: "yes", Label: "Yes"}, {Key: "no", Label: "No"}},
+		NotifyPane: "w1:p1",
+	})
+	led, err := decide.Open(a.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := led.Done(it.ID, "Not posted: cancelled."); err != nil {
+		t.Fatal(err)
+	}
+	p := "/api/v1/items/" + it.ID + "/answer"
+	// Direct answer without conflictCheck.
+	w := a.post(p, `{"value":"yes"}`)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "already closed by ada") {
+		t.Fatalf("direct answer = %d %s, want 400 with already closed by ada", w.Code, w.Body.String())
+	}
+	// Answer with stale open conflictCheck.
+	w = a.post(p, `{"value":"yes","conflictCheck":{"baseState":"open","baseMessageCount":1,"baseAnswered":false}}`)
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "already closed by ada") {
+		t.Fatalf("stale answer = %d %s, want 409 with already closed by ada", w.Code, w.Body.String())
+	}
+	if a.sendCount() != 0 {
+		t.Fatalf("sendCount = %d, want 0", a.sendCount())
+	}
+	if got := a.get(it); got.State != decide.StateDoneUnread || got.Answer != nil {
+		t.Fatalf("item = state %s answer %+v", got.State, got.Answer)
+	}
+}
+
 func TestAnsweringNestedApprovalNotesTheParent(t *testing.T) {
 	a := newAPI(t)
 	parent := a.create(&decide.Item{Question: "deploy?", NotifyPane: "w1:p1"})

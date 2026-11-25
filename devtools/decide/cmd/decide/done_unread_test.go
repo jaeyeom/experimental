@@ -61,3 +61,26 @@ func TestHubDoneViaUIKeepsTheFlagWithLocalText(t *testing.T) {
 	}
 	assertNoLocalState(t, state)
 }
+
+func TestCLIAnswerOnClosedItemIsRefused(t *testing.T) {
+	useState(t)
+	out, stderr, code := runCLI("ask", "--class", "decision", "--owner", "ada", "--kind", "relay", "--option", "y:Yes", "--option", "n:No", "--rec", "y", "post it?")
+	if code != 0 {
+		t.Fatalf("ask = %d\n%s", code, stderr)
+	}
+	id := strings.TrimSpace(out)
+	if _, stderr, code := runCLI("done", id, "Not posted: cancelled."); code != 0 {
+		t.Fatalf("done = %d\n%s", code, stderr)
+	}
+	_, stderr, code = runCLI("answer", id, "y")
+	if code == 0 {
+		t.Fatalf("answer on done-unread succeeded, want non-zero exit")
+	}
+	if !strings.Contains(stderr, "already closed by ada") {
+		t.Fatalf("stderr = %q, want already closed by ada", stderr)
+	}
+	got := showJSON(t, id)
+	if got.State != decide.StateDoneUnread || got.Answer != nil || len(got.Delivery) != 0 {
+		t.Fatalf("item = state %s answer %+v delivery %+v", got.State, got.Answer, got.Delivery)
+	}
+}

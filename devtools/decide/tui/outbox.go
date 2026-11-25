@@ -549,9 +549,25 @@ func (m *Model) requestQuit() (bool, error) {
 }
 
 // answerClosed reports whether it can no longer take an answer or a done:
-// it is done or withdrawn. A plain reply is still accepted.
+// it is done, done-unread, or withdrawn. A plain reply is still accepted.
 func answerClosed(it *decide.Item) bool {
-	return it != nil && (it.State == decide.StateDone || it.State == decide.StateWithdrawn)
+	return it != nil && (it.State == decide.StateDone || it.State == decide.StateDoneUnread || it.State == decide.StateWithdrawn)
+}
+
+func closedWithoutAnswer(it *decide.Item) bool {
+	return it != nil && (it.State == decide.StateDone || it.State == decide.StateDoneUnread) && it.Answer == nil
+}
+
+func closedLine(it *decide.Item) string {
+	owner := it.Owner
+	if owner == "" {
+		owner = "owner"
+	}
+	outcome, _, _ := strings.Cut(strings.TrimSpace(it.Outcome), "\n")
+	if outcome == "" {
+		return "Closed by " + owner
+	}
+	return "Closed by " + owner + ": " + outcome
 }
 
 func (m *Model) outboxHelpLines() []string {
@@ -601,11 +617,14 @@ func (m *Model) hasPendingOutboxAnswer(it *decide.Item) bool {
 	return ok && it.Kind == decide.KindRelay && len(it.Options) > 0
 }
 
-// answeredLine replaces the option list once the thread is answered, or
-// while the answer waits in the outbox.
+// answeredLine replaces the option list once the thread is answered,
+// closed without an answer, or while the answer waits in the outbox.
 func (m *Model) answeredLine(it *decide.Item) (string, bool) {
-	if it.Kind != decide.KindRelay || len(it.Options) == 0 && it.Answer == nil {
+	if it.Kind != decide.KindRelay || (len(it.Options) == 0 && !it.FreeText && it.Answer == nil) {
 		return "", false
+	}
+	if closedWithoutAnswer(it) {
+		return closedLine(it), true
 	}
 	if e, ok := m.pendingOutboxAnswer(it); ok && it.State != decide.StateAnswered && len(it.Options) > 0 {
 		value := strings.TrimSpace(e.Text)

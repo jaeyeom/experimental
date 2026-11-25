@@ -872,6 +872,11 @@ func (c *Client) markReadWorker() {
 // Answer implements tui.Backend. The hub records via ui.
 func (c *Client) Answer(id, value string) (decide.Item, error) {
 	if c.UseOutbox {
+		if rep, err := c.ensureReplica(); err == nil && rep != nil {
+			if cur, ok := rep.get(id); ok && (cur.State == decide.StateDone || cur.State == decide.StateDoneUnread) {
+				return decide.Item{}, errors.New(decide.AlreadyClosedMessage(cur.Owner))
+			}
+		}
 		return c.enqueueOutbox(tui.OutboxEntry{Op: OpAnswer, ItemID: id, Text: value})
 	}
 	return c.item(Request{Op: OpAnswer, Item: id, Text: value})

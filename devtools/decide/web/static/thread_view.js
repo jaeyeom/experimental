@@ -8,6 +8,7 @@ import { badgeOf, effectiveClass, hasUnread, deadlineLabel, lastStamp } from './
 import {
   openAtIndex, newDividerLabel, deliveryMark, approvalCardFor, canSendAndArchive, hasOtherWorker,
   routeWarning, replyOnBus, answerPlan, replyPlan, messagesOf, threadText, hhmm, isOpenQuestion,
+  closedLine,
 } from './thread_model.js';
 import { createDraftSync } from './draft_sync.js';
 import { loadLocalDraft, saveLocalDraft, busDown } from './store.js';
@@ -56,7 +57,8 @@ export function createThreadView({ root, toast, hint = () => '' }) {
       cur.notice = res.notifyError ? `Answer saved, but notifying the agent failed: ${res.notifyError}` : '';
       toast(`Answered ${target.id}: ${value}`);
     } catch (e) {
-      toast(api.conflict(e) ? `Not sent: ${e.data.error}. Review and try again.` : 'Could not send. Try again.');
+      const msg = e?.data?.error;
+      toast(api.conflict(e) ? `Not sent: ${msg}. Review and try again.` : (msg || 'Could not send. Try again.'));
     }
     if (cur) update();
   }
@@ -207,6 +209,8 @@ export function createThreadView({ root, toast, hint = () => '' }) {
     const parts = [];
     if (cur.notice) parts.push(el('p', { class: 'notice error', role: 'alert', text: cur.notice }));
     if (card) parts.push(approvalCard(card));
+    const closed = closedLine(it);
+    if (closed) parts.push(el('p', { class: 'closed-notice muted', text: closed }));
     if (it.kind === 'relay' && it.state === 'open' && it.options?.length && effectiveClass(it) !== 'approval') parts.push(optionsPanel(it));
     if (it.kind === 'type-in' && it.state === 'open' && it.typeText) parts.push(typeInPanel(it));
     const w = routeWarning(it);
@@ -336,7 +340,8 @@ export function createThreadView({ root, toast, hint = () => '' }) {
         try { await api.archive(it.id, lastStamp(res.item ?? it)); toast(`Sent and archived ${it.id}`); } catch { toast('Sent, but could not archive.'); }
       }
     } catch (e) {
-      cur.sendError = { text: api.conflict(e) ? `Not sent: ${e.data.error}. Your text is kept.` : 'Could not send. Your text is kept.', archive: andArchive };
+      const msg = e?.data?.error;
+      cur.sendError = { text: api.conflict(e) ? `Not sent: ${msg}. Your text is kept.` : (msg ? `Not sent: ${msg}. Your text is kept.` : 'Could not send. Your text is kept.'), archive: andArchive };
     } finally {
       if (cur) { cur.refs.send.disabled = false; update(); }
     }

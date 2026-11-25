@@ -96,8 +96,8 @@ func TestUserArchiveAfterReadingDoneUnreadKeepsTheOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.State != StateDone || got.Outcome != "shipped" || !got.DoneAt.Equal(pending.DoneAt) {
-		t.Fatalf("archived = state %s outcome %q doneAt %v", got.State, got.Outcome, got.DoneAt)
+	if got.State != StateDone || got.Outcome != "shipped" || !got.DoneAt.Equal(pending.DoneAt) || got.Unread || got.ReadAt == nil {
+		t.Fatalf("archived = state %s outcome %q doneAt %v unread %v readAt %v", got.State, got.Outcome, got.DoneAt, got.Unread, got.ReadAt)
 	}
 }
 
@@ -202,7 +202,7 @@ func TestHumanAnswerCountsAsReadingWhatCameBefore(t *testing.T) {
 	}
 }
 
-func TestDoneUnreadAcceptsAnswerAndReplyButNotWithdraw(t *testing.T) {
+func TestDoneUnreadRefusesAnswerAndWithdrawButAcceptsReply(t *testing.T) {
 	led, _ := openTemp(t)
 	stepClock(led)
 	item, err := led.Create(&Item{
@@ -217,9 +217,27 @@ func TestDoneUnreadAcceptsAnswerAndReplyButNotWithdraw(t *testing.T) {
 	if _, err := led.Withdraw(item.ID, "gone"); err == nil {
 		t.Fatal("withdraw of done-unread succeeded")
 	}
-	answered, err := led.Answer(item.ID, "post", ViaUI)
-	if err != nil || answered.State != StateAnswered {
-		t.Fatalf("answer = %s %v", answered.State, err)
+	if _, err := led.Answer(item.ID, "post", ViaUI); err == nil || !strings.Contains(err.Error(), "already closed by ada") {
+		t.Fatalf("answer on done-unread err = %v, want already closed by ada", err)
+	}
+	got, err := led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != StateDoneUnread || got.Answer != nil {
+		t.Fatalf("item after refused answer = state %s answer %+v", got.State, got.Answer)
+	}
+
+	// Archiving from done-unread without prior MarkRead marks it read too.
+	archived, err := led.Archive(item.ID, got.LastMessageAt())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archived.State != StateDone || archived.Unread || archived.ReadAt == nil || archived.Outcome != "dropped" {
+		t.Fatalf("archived = state %s unread %v readAt %v outcome %q", archived.State, archived.Unread, archived.ReadAt, archived.Outcome)
+	}
+	if _, err := led.Answer(item.ID, "post", ViaCLI); err == nil || !strings.Contains(err.Error(), "already closed by ada") {
+		t.Fatalf("answer on done err = %v, want already closed by ada", err)
 	}
 
 	other, err := led.Create(&Item{

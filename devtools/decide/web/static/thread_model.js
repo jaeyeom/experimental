@@ -87,11 +87,21 @@ export function approvalCardFor(items, it) {
 export const isOpenQuestion = (it) => !!it && it.kind === 'relay' && it.state === 'open'
   && ((it.options?.length ?? 0) > 0 || !!it.freeText);
 
+// closedLine returns "Closed by <owner>: <outcome>" for a done or
+// done-unread item with no answer, or '' otherwise.
+export function closedLine(it) {
+  if (!it || (it.state !== 'done' && it.state !== 'done-unread') || it.answer) return '';
+  if (it.kind === 'relay' && !(it.options?.length) && !it.freeText) return '';
+  const owner = it.owner || 'owner';
+  const outcome = String(it.outcome ?? '').trim().split('\n')[0] ?? '';
+  return outcome ? `Closed by ${owner}: ${outcome}` : `Closed by ${owner}`;
+}
+
 // canSendAndArchive: never on an open question or a pending answer, nor
 // on a closed item.
 export function canSendAndArchive(it, pendingAnswer) {
   if (!it || pendingAnswer) return false;
-  if (it.state === 'done' || it.state === 'withdrawn') return false;
+  if (it.state === 'done' || it.state === 'done-unread' || it.state === 'withdrawn') return false;
   return !isOpenQuestion(it);
 }
 
