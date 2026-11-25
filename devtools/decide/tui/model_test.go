@@ -1129,7 +1129,7 @@ func TestWheelScrollsOpenItem(t *testing.T) {
 	}
 	press(t, m, "\r")
 	view := m.View()
-	if top := lineAfterBorder(view); !strings.HasPrefix(top, item.ID) {
+	if top := lineAfterBorder(view); !strings.Contains(top, item.ID) {
 		t.Fatalf("pinned title = %q\n%s", top, view)
 	}
 	if top := threadTopLine(view); top != "From: ada" {
@@ -1676,7 +1676,7 @@ func assertMessageTop(t *testing.T, m *Model, index int, author string) {
 	}
 	for _, line := range strings.Split(view, "\n") {
 		vis := visibleLine(line)
-		if strings.Contains(vis, author) {
+		if strings.Contains(vis, author) || strings.Contains(vis, "[Done (") {
 			continue
 		}
 		for _, other := range []string{"one", "two", "three"} {
@@ -1690,8 +1690,8 @@ func assertMessageTop(t *testing.T, m *Model, index int, author string) {
 func rawLineAfterBorder(view string) string {
 	lines := strings.Split(view, "\n")
 	for i, line := range lines {
-		if strings.Contains(visibleLine(line), "┌") && i+2 < len(lines) {
-			return lines[i+2]
+		if strings.Contains(visibleLine(line), "┌") && i+3 < len(lines) {
+			return lines[i+3]
 		}
 	}
 	if len(lines) > 1 {
@@ -1701,9 +1701,9 @@ func rawLineAfterBorder(view string) string {
 }
 
 // threadTopLine is the first scrolling row of the open item: the row below
-// the pinned title.
+// the pinned title and its horizontal rule.
 func threadTopLine(view string) string {
-	return lineAfterBorderN(view, 2)
+	return lineAfterBorderN(view, 3)
 }
 
 func lineAfterBorder(view string) string {
@@ -1786,13 +1786,11 @@ func TestFreeTextIsRowZero(t *testing.T) {
 	press(t, m, "\r")
 	view := m.View()
 	opt := strings.Index(view, "2  Beta")
-	zero := strings.Index(view, "reply:")
-	if opt < 0 || zero < 0 || strings.Contains(view, "\n10 ") || strings.Contains(view, "0  answer:") {
+	replyBtn := strings.Index(visibleLine(view), "[Reply (0)]")
+	if opt < 0 || replyBtn < 0 || strings.Contains(view, "\n10 ") || strings.Contains(view, "0  answer:") {
 		t.Fatalf("composer is not the only text row\n%s", view)
 	}
-	if err := m.Click(1, screenRow(view, "reply:")); err != nil {
-		t.Fatal(err)
-	}
+	clickOn(t, m, "[Reply (0)]", 1)
 	got, err := led.Get(two.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -1815,7 +1813,7 @@ func TestFreeTextIsRowZero(t *testing.T) {
 	}
 	press(t, m, "\r")
 	view = m.View()
-	if strings.Contains(view, "\n10 ") || !strings.Contains(view, "9  Choice") || !strings.Contains(view, "reply:") || strings.Contains(view, "0  answer:") {
+	if strings.Contains(view, "\n10 ") || !strings.Contains(view, "9  Choice") || !strings.Contains(visibleLine(view), "[Reply (0)]") || strings.Contains(view, "0  answer:") {
 		t.Fatalf("nine options = %s", view)
 	}
 	press(t, m, "0")
@@ -1928,10 +1926,7 @@ func TestClickAnswersOptionAndFreeText(t *testing.T) {
 	if err := m.Click(1, screenRow(m.View(), free.ID)); err != nil {
 		t.Fatal(err)
 	}
-	view := m.View()
-	if err := m.Click(1, screenRow(view, "reply:")); err != nil {
-		t.Fatal(err)
-	}
+	clickOn(t, m, "[Reply (0)]", 1)
 	if !m.replyFocus || !strings.Contains(m.View(), "reply:") {
 		t.Fatalf("composer was not focused\n%s", m.View())
 	}
@@ -2488,7 +2483,9 @@ func TestBubbleTeaMouseMessages(t *testing.T) {
 	if _, err := m.Key('\x1b'); err != nil {
 		t.Fatal(err)
 	}
-	m = updateMouseAt(t, m, 1, screenRow(m.View(), "reply:"), tea.MouseButtonLeft)
+	replyRow := screenRow(m.View(), "[Reply (0)]")
+	replyCol := visibleCol(strings.Split(m.View(), "\n")[replyRow-1], "[Reply (0)]")
+	m = updateMouseAt(t, m, replyCol, replyRow, tea.MouseButtonLeft)
 	got, err = led.Get(relay.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -2504,9 +2501,12 @@ func TestBubbleTeaMouseMessages(t *testing.T) {
 	if m.replyFocus || m.folder != 0 || got.Answer != nil {
 		t.Fatalf("focused option click focus %v folder %d answer %+v", m.replyFocus, m.folder, got.Answer)
 	}
-	m = updateMouseAt(t, m, 1, screenRow(m.View(), "reply:"), tea.MouseButtonLeft)
+	replyRow = screenRow(m.View(), "[Reply (0)]")
+	replyCol = visibleCol(strings.Split(m.View(), "\n")[replyRow-1], "[Reply (0)]")
+	m = updateMouseAt(t, m, replyCol, replyRow, tea.MouseButtonLeft)
 	idRow := screenRow(m.View(), relay.ID)
-	m = updateMouseAt(t, m, 1, idRow, tea.MouseButtonLeft)
+	idCol := visibleCol(strings.Split(m.View(), "\n")[idRow-1], relay.ID)
+	m = updateMouseAt(t, m, idCol, idRow, tea.MouseButtonLeft)
 	if m.folder != 0 || !strings.Contains(m.View(), "ship it?") {
 		t.Fatalf("focused outside click folder %d\n%s", m.folder, m.View())
 	}
@@ -4596,7 +4596,7 @@ func TestItemViewShowsVerbatimQuoteBlock(t *testing.T) {
 		},
 	})
 	m := New(dir)
-	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
@@ -4617,7 +4617,7 @@ func TestVerbatimOnlyThreadShowsInListAndItemView(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := New(dir)
-	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}

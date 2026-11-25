@@ -228,10 +228,10 @@ func TestItemViewFooterNamesArchive(t *testing.T) {
 	}
 	press(t, m, "o")
 	m.status = ""
-	view := m.View()
-	for _, want := range []string{"e/y archive", "d outcome", "? help"} {
+	view := visibleLine(m.View())
+	for _, want := range []string{"[Archive (e)]", "[Done (d)]", "? help"} {
 		if !strings.Contains(view, want) {
-			t.Fatalf("item footer missing %q\n%s", want, view)
+			t.Fatalf("item view missing %q\n%s", want, view)
 		}
 	}
 	press(t, m, "?")
@@ -409,8 +409,12 @@ func TestOnlyZeroFocusesReplyInItemView(t *testing.T) {
 		}
 	}
 	m.status = ""
-	footer := lineContaining(m.View(), "? help")
-	if !strings.Contains(footer, "0 reply") || strings.Contains(footer, "r reply") || strings.Contains(footer, "f reply") {
+	view := visibleLine(m.View())
+	if !strings.Contains(view, "[Reply (0)]") {
+		t.Fatalf("view missing [Reply (0)]\n%s", view)
+	}
+	footer := lineContaining(view, "? help")
+	if strings.Contains(footer, "0 reply") || strings.Contains(footer, "r reply") || strings.Contains(footer, "f reply") {
 		t.Fatalf("footer %q", footer)
 	}
 	press(t, m, "?")
@@ -681,9 +685,13 @@ func TestForwardHints(t *testing.T) {
 	dir := t.TempDir()
 	seedForward(t, dir, []decide.Message{{Author: "ada", Text: "ship the release?"}}, nil)
 	m, _ := forwardModel(t, dir)
-	footer := lineContaining(m.View(), "? help")
-	if !strings.Contains(footer, "f forward") {
-		t.Fatalf("footer %q", footer)
+	view := visibleLine(m.View())
+	if !strings.Contains(view, "[Forward (f)]") {
+		t.Fatalf("view missing [Forward (f)]\n%s", view)
+	}
+	footer := lineContaining(view, "? help")
+	if strings.Contains(footer, "f forward") {
+		t.Fatalf("footer still has f forward: %q", footer)
 	}
 	press(t, m, "?")
 	if !strings.Contains(m.View(), "f forward") {

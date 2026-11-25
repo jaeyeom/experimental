@@ -230,9 +230,25 @@ func (m *Model) setComposerText(kind composerKind, text string) {
 	field.Focus()
 }
 
+func (m *Model) externalEditCmd() tea.Cmd {
+	if m.externalEditWant == composerNone {
+		return nil
+	}
+	kind := m.externalEditWant
+	m.externalEditWant = composerNone
+	return m.startExternalEditFor(kind)
+}
+
 func (m *Model) startExternalEdit() tea.Cmd {
 	kind, ok := m.composerKind()
 	if !ok {
+		return nil
+	}
+	return m.startExternalEditFor(kind)
+}
+
+func (m *Model) startExternalEditFor(kind composerKind) tea.Cmd {
+	if kind == composerNone {
 		return nil
 	}
 	m.flushDraft(kind)

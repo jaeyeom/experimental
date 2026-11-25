@@ -199,3 +199,55 @@ func TestPrimaryButtonString(t *testing.T) {
 		})
 	}
 }
+
+func TestShortestButtonString(t *testing.T) {
+	cases := []struct {
+		name      string
+		overrides map[string][]string
+		action    string
+		wantUTF8  string
+		wantASCII string
+	}{
+		{
+			name:      "default edit.external picks ctrl+g over ctrl+x ctrl+e",
+			action:    "edit.external",
+			wantUTF8:  "^G",
+			wantASCII: "C-g",
+		},
+		{
+			name:      "custom single chord",
+			overrides: map[string][]string{"edit.external": {"ctrl+x ctrl+e"}},
+			action:    "edit.external",
+			wantUTF8:  "^X ^E",
+			wantASCII: "C-x C-e",
+		},
+		{
+			name:      "custom single key",
+			overrides: map[string][]string{"edit.external": {"ctrl+t"}},
+			action:    "edit.external",
+			wantUTF8:  "^T",
+			wantASCII: "C-t",
+		},
+		{
+			name:      "unbound action",
+			overrides: map[string][]string{"edit.external": {}},
+			action:    "edit.external",
+			wantUTF8:  "",
+			wantASCII: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			km, err := ResolveKeyMap(tc.overrides)
+			if err != nil {
+				t.Fatalf("ResolveKeyMap: %v", err)
+			}
+			if got := km.ShortestButtonString(tc.action, false); got != tc.wantUTF8 {
+				t.Errorf("UTF8 = %q, want %q", got, tc.wantUTF8)
+			}
+			if got := km.ShortestButtonString(tc.action, true); got != tc.wantASCII {
+				t.Errorf("ASCII = %q, want %q", got, tc.wantASCII)
+			}
+		})
+	}
+}

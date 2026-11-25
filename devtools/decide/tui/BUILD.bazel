@@ -125,6 +125,7 @@ go_test(
         "startup_test.go",
         "thread_test.go",
         "title_test.go",
+        "toolbar_test.go",
         "worker_test.go",
     ],
     data = glob(["testdata/**"]),

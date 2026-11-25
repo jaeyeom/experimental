@@ -617,14 +617,12 @@ func longThreadReplyModel(t *testing.T, lines int) (*Model, *decide.Ledger, deci
 func TestPinnedReplyBoxScrollsThreadIndependently(t *testing.T) {
 	m, _, _ := longThreadReplyModel(t, 40)
 	view := m.View()
-	// With an empty unfocused draft, the box is one hint line at the bottom
-	// of the detail pane (above detail bottom border, status line, outer frame).
-	wantReplyRow := m.height - 3
-	if got := screenRow(view, "reply: ___"); got != wantReplyRow {
-		t.Fatalf("reply hint row = %d, want %d\n%s", got, wantReplyRow, visibleLine(view))
+	// With an empty unfocused draft, the reply box is hidden (replaced by the toolbar Reply button).
+	if strings.Contains(visibleLine(view), "reply: ___") {
+		t.Fatalf("empty unfocused thread should not show reply: ___:\n%s", visibleLine(view))
 	}
-	if got := replyRows(m); got != 1 {
-		t.Fatalf("empty unfocused reply rows = %d, want 1", got)
+	if got := replyRows(m); got != 0 {
+		t.Fatalf("empty unfocused reply rows = %d, want 0", got)
 	}
 
 	// Clicking in the thread does not focus the reply box.
@@ -633,34 +631,23 @@ func TestPinnedReplyBoxScrollsThreadIndependently(t *testing.T) {
 		t.Fatal("click in thread focused reply box")
 	}
 
-	// Scrolling the thread moves only the thread; the hint stays at the bottom.
+	// Scrolling the thread moves only the thread.
 	sendKey(t, m, tea.KeyMsg{Type: tea.KeyPgDown})
-	view = m.View()
 	if m.scroll == 0 {
 		t.Fatal("pgdn did not scroll the thread")
 	}
-	if got := screenRow(view, "reply: ___"); got != wantReplyRow {
-		t.Fatalf("after pgdn reply hint row = %d, want %d\n%s", got, wantReplyRow, visibleLine(view))
-	}
 	m.Wheel(true)
-	view = m.View()
-	if got := screenRow(view, "reply: ___"); got != wantReplyRow {
-		t.Fatalf("after wheel reply hint row = %d, want %d\n%s", got, wantReplyRow, visibleLine(view))
-	}
 	sendKey(t, m, tea.KeyMsg{Type: tea.KeyEnd})
 	view = m.View()
 	if !strings.Contains(view, "thread-line-39") {
 		t.Fatalf("end did not reach bottom of thread\n%s", visibleLine(view))
 	}
-	if got := screenRow(view, "reply: ___"); got != wantReplyRow {
-		t.Fatalf("after end reply hint row = %d, want %d\n%s", got, wantReplyRow, visibleLine(view))
-	}
 
-	// Clicking the hint focuses the reply box without changing thread scroll.
+	// Focusing the reply box via toolbar Reply button does not change thread scroll.
 	scrollBefore := m.scroll
-	clickOn(t, m, "reply: ___", 1)
+	clickOn(t, m, "[0]", 1)
 	if !m.replyFocus {
-		t.Fatal("click on reply hint did not focus reply box")
+		t.Fatal("click on toolbar Reply button did not focus reply box")
 	}
 	m.View()
 	if m.scroll != scrollBefore {
@@ -672,12 +659,12 @@ func TestPinnedReplyBoxShrinksThreadAndResetsAfterSend(t *testing.T) {
 	m, led, item := longThreadReplyModel(t, 40)
 	_, detailN := m.layoutBudget()
 	threadBefore, replyBefore := m.detailLayout(m.contentWidth())
-	if threadBefore != detailN-1-len(replyBefore) || len(replyBefore) != 1 {
+	if threadBefore != detailN-2-len(replyBefore) || len(replyBefore) != 0 {
 		t.Fatalf("initial threadN=%d len(reply)=%d detailN=%d", threadBefore, len(replyBefore), detailN)
 	}
 
 	// Focus reply and type past the cap; cursor stays visible inside the box
-	// and thread height equals pane height minus box height.
+	// and thread height equals pane height minus title, rule, and box height.
 	press(t, m, "0")
 	for i := range 15 {
 		if i > 0 {
@@ -685,8 +672,8 @@ func TestPinnedReplyBoxShrinksThreadAndResetsAfterSend(t *testing.T) {
 		}
 		press(t, m, fmt.Sprintf("r%02d", i))
 		threadN, reply := m.detailLayout(m.contentWidth())
-		if threadN != detailN-1-len(reply) {
-			t.Fatalf("after %d lines: threadN=%d, want %d (detailN=%d len(reply)=%d)", i+1, threadN, detailN-1-len(reply), detailN, len(reply))
+		if threadN != detailN-2-len(reply) {
+			t.Fatalf("after %d lines: threadN=%d, want %d (detailN=%d len(reply)=%d)", i+1, threadN, detailN-2-len(reply), detailN, len(reply))
 		}
 	}
 	view := m.View()
@@ -716,11 +703,11 @@ func TestPinnedReplyBoxShrinksThreadAndResetsAfterSend(t *testing.T) {
 	m.setComposerText(composerReply, "one line")
 	m.reply = "one line"
 	threadShrunk, replyShrunk := m.detailLayout(m.contentWidth())
-	if threadShrunk <= detailN-1-grownHeight || threadShrunk != detailN-1-len(replyShrunk) {
+	if threadShrunk <= detailN-2-grownHeight || threadShrunk != detailN-2-len(replyShrunk) {
 		t.Fatalf("shrunk threadN=%d len(reply)=%d grown=%d detailN=%d", threadShrunk, len(replyShrunk), grownHeight, detailN)
 	}
 
-	// Clicking [Send (^⏎)] sends the reply and resets the box to one hint line.
+	// Clicking [Send (^⏎)] sends the reply and hides the empty reply box.
 	clickOn(t, m, "[Send (^⏎)]", 1)
 	got, err := led.Get(item.ID)
 	if err != nil {
@@ -733,7 +720,7 @@ func TestPinnedReplyBoxShrinksThreadAndResetsAfterSend(t *testing.T) {
 		t.Fatalf("after send: reply=%q focus=%v send=%v", m.reply, m.replyFocus, m.replySend)
 	}
 	view = m.View()
-	if gotRows := replyRows(m); gotRows != 1 || screenRow(view, "reply: ___") != m.height-3 {
-		t.Fatalf("after send box did not reset to 1 line at bottom (rows=%d)\n%s", gotRows, visibleLine(view))
+	if gotRows := replyRows(m); gotRows != 0 || strings.Contains(visibleLine(view), "reply: ___") {
+		t.Fatalf("after send box did not hide (rows=%d)\n%s", gotRows, visibleLine(view))
 	}
 }

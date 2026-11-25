@@ -227,7 +227,7 @@ func (m *Model) plainScreen() []screenLine {
 	var scroll int
 	lines, scroll = clipLines(lines, m.scroll, limit)
 	m.scroll = scroll
-	return append([]screenLine{m.titleLine(m.width)}, lines...)
+	return append([]screenLine{m.plainTitleLine(m.width)}, lines...)
 }
 
 func (m *Model) plainItemLines() []screenLine {

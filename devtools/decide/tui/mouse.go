@@ -20,13 +20,22 @@ const (
 	hitReplySend
 	hitReplySendAndArchive
 	hitReplyDiscard
+	hitReplyEditor
 	hitReplyFocus
 	hitComposeRestore
 	hitComposeDiscard
+	hitComposeCancel
+	hitComposeEditor
 	hitConflictKeep
 	hitConflictUse
 	hitConflictMerge
 	hitTitle
+	hitToolbarBack
+	hitToolbarReply
+	hitToolbarArchive
+	hitToolbarDone
+	hitToolbarForward
+	hitToolbarAvatar
 )
 
 // hit is one clickable span on a screen row. x0 and x1 are 1-based columns.
@@ -77,16 +86,36 @@ func (m *Model) Click(x, y int) error {
 // leaveReply unfocuses the reply box and its buttons for a click
 // elsewhere. It reports true when the click only left the reply box.
 func (m *Model) leaveReply(field hit, onField bool, x, y int) bool {
-	onReplyBtn := m.onHitRow(x, y, hitReplySend) || m.onHitRow(x, y, hitReplySendAndArchive) || m.onHitRow(x, y, hitReplyDiscard) || m.onHitRow(x, y, hitReplyFocus)
+	onReplyBtn := m.onHitRow(x, y, hitReplySend) || m.onHitRow(x, y, hitReplySendAndArchive) || m.onHitRow(x, y, hitReplyDiscard) || m.onHitRow(x, y, hitReplyEditor) || m.onHitRow(x, y, hitReplyFocus)
+	onToolbar := m.onToolbarHit(x, y)
 	if !onReplyBtn {
 		m.replySend = false
 		m.replyBtn = replyBtnSend
+	}
+	if onToolbar {
+		return false
 	}
 	if !m.replyFocus || field.kind == hitReply {
 		return false
 	}
 	m.replyFocus = false
 	return !onField && !onReplyBtn
+}
+
+func (m *Model) onToolbarHit(x, y int) bool {
+	for _, kind := range []int{
+		hitToolbarBack,
+		hitToolbarReply,
+		hitToolbarArchive,
+		hitToolbarDone,
+		hitToolbarForward,
+		hitToolbarAvatar,
+	} {
+		if m.onHitRow(x, y, kind) {
+			return true
+		}
+	}
+	return false
 }
 
 // CtrlClick opens the link under 1-based screen coordinates. Off a link
@@ -265,11 +294,57 @@ func (m *Model) hit(h hit) error {
 		m.openURL(h.url)
 		return nil
 	default:
-		if handled, err := m.hitReplyButton(h.kind); handled {
-			return err
-		}
-		return nil
+		_, err := m.hitDetailButton(h.kind)
+		return err
 	}
+}
+
+func (m *Model) hitDetailButton(kind int) (bool, error) {
+	if handled, err := m.hitToolbar(kind); handled {
+		return true, err
+	}
+	return m.hitReplyButton(kind)
+}
+
+func (m *Model) hitToolbar(kind int) (bool, error) {
+	switch kind {
+	case hitToolbarBack:
+		m.saveReplyDraftNow()
+		m.backToList()
+		return true, nil
+	case hitToolbarReply:
+		m.focusReply()
+		m.replyField.Focus()
+		return true, nil
+	case hitToolbarArchive:
+		m.saveReplyDraftNow()
+		m.blurReplyForToolbar()
+		return true, m.archiveSelected()
+	case hitToolbarDone:
+		m.saveReplyDraftNow()
+		m.blurReplyForToolbar()
+		m.beginOutcome()
+		return true, nil
+	case hitToolbarForward:
+		m.saveReplyDraftNow()
+		m.blurReplyForToolbar()
+		m.forwardItem()
+		return true, nil
+	case hitToolbarAvatar:
+		m.saveReplyDraftNow()
+		m.blurReplyForToolbar()
+		m.beginAvatarPick()
+		return true, nil
+	default:
+		return false, nil
+	}
+}
+
+func (m *Model) blurReplyForToolbar() {
+	m.replyFocus = false
+	m.replyField.Blur()
+	m.replySend = false
+	m.replyBtn = replyBtnSend
 }
 
 func (m *Model) hitReplyButton(kind int) (bool, error) {
@@ -283,6 +358,14 @@ func (m *Model) hitReplyButton(kind int) (bool, error) {
 		return true, m.submitReplyAndArchive()
 	case hitReplyDiscard:
 		m.discardReply()
+		return true, nil
+	case hitReplyEditor:
+		if m.replyFocus {
+			m.reply = m.composerText(composerReply)
+		}
+		m.focusReply()
+		m.replyField.Focus()
+		m.externalEditWant = composerReply
 		return true, nil
 	case hitReplyFocus:
 		m.focusReply()
@@ -305,6 +388,12 @@ func (m *Model) hitCompose(h hit) bool {
 		return true
 	case hitComposeDiscard:
 		m.discardComposeDraft()
+		return true
+	case hitComposeCancel:
+		m.blurCompose()
+		return true
+	case hitComposeEditor:
+		m.openComposeExternalEditor()
 		return true
 	case hitConflictKeep:
 		m.resolveConflict(composerKind(h.n), conflictKeepCurrent)

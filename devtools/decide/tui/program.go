@@ -84,6 +84,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if editCfg := m.editConfigCmd(); editCfg != nil {
 		cmd = tea.Batch(cmd, editCfg)
 	}
+	if extEdit := m.externalEditCmd(); extEdit != nil {
+		cmd = tea.Batch(cmd, extEdit)
+	}
 	return next, cmd
 }
 

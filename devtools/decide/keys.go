@@ -583,6 +583,29 @@ func (km *KeyMap) PrimaryButtonString(action string, ascii bool) string {
 	return seqs[0].ButtonString(ascii)
 }
 
+// ShortestButtonString formats the shortest key binding for action as a button
+// hint (fewest strokes, then shortest rendered width), or "" when action has
+// no bindings.
+func (km *KeyMap) ShortestButtonString(action string, ascii bool) string {
+	seqs := km.bindings[action]
+	if len(seqs) == 0 {
+		return ""
+	}
+	best := seqs[0].ButtonString(ascii)
+	bestStrokes := len(seqs[0])
+	bestLen := len([]rune(best))
+	for _, seq := range seqs[1:] {
+		s := seq.ButtonString(ascii)
+		n := len([]rune(s))
+		if len(seq) < bestStrokes || (len(seq) == bestStrokes && n < bestLen) {
+			best = s
+			bestStrokes = len(seq)
+			bestLen = n
+		}
+	}
+	return best
+}
+
 // ConfigKeys returns the canonical key strings for action.
 func (km *KeyMap) ConfigKeys(action string) []string {
 	seqs := km.bindings[action]

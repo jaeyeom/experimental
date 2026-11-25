@@ -41,6 +41,13 @@ func (m *Model) buttonKey(action string) string {
 	return m.keyMap().PrimaryButtonString(action, m.useASCIIKeys())
 }
 
+func (m *Model) shortestButtonKey(action string) string {
+	if action == "" {
+		return ""
+	}
+	return m.keyMap().ShortestButtonString(action, m.useASCIIKeys())
+}
+
 // buttonLabel formats a button "[name (hint)]" (or "> [name (hint)]" when focused)
 // fitting within maxWidth when maxWidth > 0. When the full label with hint
 // exceeds maxWidth, the hint is dropped first; only if "[name]" still
@@ -82,6 +89,10 @@ func renderButton(label string) string {
 
 func (m *Model) actionButton(name, action string, focused bool, maxWidth int) string {
 	return buttonLabel(name, m.buttonKey(action), focused, maxWidth)
+}
+
+func (m *Model) shortestActionButton(name, action string, focused bool, maxWidth int) string {
+	return buttonLabel(name, m.shortestButtonKey(action), focused, maxWidth)
 }
 
 // SetKeys installs a custom keymap on m and updates all composer fields.
@@ -775,20 +786,8 @@ func (m *Model) contactsHintLine() string {
 
 func (m *Model) detailHintLine() string {
 	var parts []string
-	if r := m.actionSlash("detail.reply"); r != "" {
-		parts = append(parts, r+" reply")
-	}
-	if f := m.actionSlash("detail.forward"); f != "" {
-		parts = append(parts, f+" forward")
-	}
-	if u := m.actionFirst("detail.back"); u != "" {
-		parts = append(parts, u+" list")
-	}
 	if q := m.actionSlash("quit"); q != "" {
 		parts = append(parts, q+" quit")
-	}
-	if a := m.actionSlash("detail.archive"); a != "" {
-		parts = append(parts, a+" archive")
 	}
 	jk := joinSlash(m.actionFirst("detail.scrollDown"), m.actionFirst("detail.scrollUp"))
 	pg := joinSlash(m.actionFirst("detail.pageUp"), m.actionFirst("detail.pageDown"))
@@ -852,9 +851,6 @@ func (m *Model) optionalHintExtras() []string {
 
 func (m *Model) detailOptionalHints(find string) []string {
 	var extras []string
-	if d := m.outcomeHintKey(); d != "" {
-		extras = append(extras, d+" outcome")
-	}
 	if find != "" {
 		extras = append(extras, find)
 	}
@@ -1010,12 +1006,4 @@ func (m *Model) listOrDetailHelpLines() []string {
 	appendHelpLabeled(&lines, m.actionSlash("mouse"), " toggles mouse capture")
 	lines = append(lines, "esc back", "click folder, row, option, target, or [Send]", "wheel scroll", m.actionSlash("help")+" or esc close")
 	return lines
-}
-
-// outcomeHintKey is the outcome key to hint, or "" on a done thread.
-func (m *Model) outcomeHintKey() string {
-	if answerClosed(m.detail) {
-		return ""
-	}
-	return m.actionFirst("detail.outcome")
 }

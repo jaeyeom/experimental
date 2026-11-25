@@ -8,7 +8,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/decide"
 )
 
-// replyButtonModel is an opened relay thread, 80x30.
+// replyButtonModel is an opened relay thread, 100x30.
 func replyButtonModel(t *testing.T) *Model {
 	t.Helper()
 	dir := t.TempDir()
@@ -18,7 +18,7 @@ func replyButtonModel(t *testing.T) *Model {
 		Question: "Check?",
 	})
 	m := New(dir)
-	m.width, m.height = 80, 30
+	m.width, m.height = 100, 30
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}

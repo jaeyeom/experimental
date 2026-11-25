@@ -43,16 +43,17 @@ func TestTitleLineShowsWhenOpeningAtTheLastMessage(t *testing.T) {
 	if !strings.Contains(view, "- bottom") {
 		t.Fatalf("not at the bottom\n%s", view)
 	}
-	if got := pinnedTitle(view); !strings.HasPrefix(got, id+" first line") || !strings.HasSuffix(got, "open") {
+	if got := pinnedTitle(view); !strings.Contains(got, id+" first line") || !strings.HasSuffix(got, "open") {
 		t.Fatalf("title = %q\n%s", got, view)
 	}
 }
 
 func TestTitleLineCutsTheQuestionNotTheID(t *testing.T) {
 	long := strings.Repeat("word ", 18)
-	m, id := titleModel(t, &decide.Item{Question: long}, 24, 20)
+	// Width 48 (inner 44): collapsed toolbar (23) + space (1) leaves 20 cols for the title.
+	m, id := titleModel(t, &decide.Item{Question: long}, 48, 20)
 	got := pinnedTitle(m.View())
-	if !strings.HasPrefix(got, id+" word") || !strings.Contains(got, "…") {
+	if !strings.Contains(got, id+" word") || !strings.Contains(got, "…") {
 		t.Fatalf("title = %q", got)
 	}
 	if strings.HasSuffix(got, "open") {
@@ -61,22 +62,22 @@ func TestTitleLineCutsTheQuestionNotTheID(t *testing.T) {
 }
 
 func TestTitleLineDropsStateBeforeCuttingTheQuestion(t *testing.T) {
-	m, id := titleModel(t, &decide.Item{Question: "short question"}, 100, 20)
-	if got := pinnedTitle(m.View()); got != id+" short question"+strings.Repeat(" ", 100-4-len(id)-len(" short question")-len("open"))+"open" {
+	m, id := titleModel(t, &decide.Item{Question: "short question"}, 120, 20)
+	if got := pinnedTitle(m.View()); !strings.Contains(got, id+" short question") || !strings.HasSuffix(got, "open") {
 		t.Fatalf("wide title = %q", got)
 	}
-	// Inner width 20: the question fits whole, the state would squeeze it
-	// below the minimum, so the state goes.
-	m.width = 24
+	// Width 48 (inner 44): collapsed toolbar (23) + space (1) leaves 20 cols for the title;
+	// the question fits whole, the state would squeeze it below the minimum, so the state goes.
+	m.width = 48
 	if got := pinnedTitle(m.View()); !strings.Contains(got, "short question") || strings.Contains(got, "open") {
 		t.Fatalf("title = %q", got)
 	}
 }
 
 func TestTitleLineUsesVerbatimWhenQuestionIsEmpty(t *testing.T) {
-	m, id := titleModel(t, &decide.Item{Question: "", Verbatim: "exact words\nsecond line"}, 100, 20)
+	m, id := titleModel(t, &decide.Item{Question: "", Verbatim: "exact words\nsecond line"}, 120, 20)
 	got := pinnedTitle(m.View())
-	if !strings.HasPrefix(got, id+" exact words") || strings.Contains(got, "second line") {
+	if !strings.Contains(got, id+" exact words") || strings.Contains(got, "second line") {
 		t.Fatalf("title = %q", got)
 	}
 }
@@ -115,7 +116,7 @@ func TestTitleLineIsOneRowInBorderlessAndNarrowLayouts(t *testing.T) {
 		name  string
 		width int
 		plain bool
-	}{{"narrow", 30, false}, {"borderless", 60, true}, {"borderless narrow", 30, true}} {
+	}{{"narrow", 48, false}, {"borderless", 60, true}, {"borderless narrow", 30, true}} {
 		t.Run(tc.name, func(t *testing.T) {
 			m, id := titleModel(t, &decide.Item{Question: long}, tc.width, 20)
 			if tc.plain {
@@ -131,7 +132,7 @@ func TestTitleLineIsOneRowInBorderlessAndNarrowLayouts(t *testing.T) {
 				first = pinnedTitle(view)
 			}
 			first = strings.TrimRight(strings.Trim(first, "│"), " ")
-			if !strings.HasPrefix(first, id+" word") || !strings.Contains(first, "…") {
+			if !strings.Contains(first, id+" word") || !strings.Contains(first, "…") {
 				t.Fatalf("title = %q\n%s", first, view)
 			}
 			if n := strings.Count(view, id); n != 2 && n != 1 {

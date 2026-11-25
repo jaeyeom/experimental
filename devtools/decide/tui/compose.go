@@ -135,9 +135,25 @@ func (m *Model) composeEnter() (bool, error) {
 		return false, nil
 	case focusSend:
 		return false, m.sendNote()
+	case focusCancel:
+		m.blurCompose()
+		return false, nil
+	case focusEditor:
+		m.openComposeExternalEditor()
+		return false, nil
 	default:
 		return false, nil
 	}
+}
+
+func (m *Model) openComposeExternalEditor() {
+	if m.noteField.Focused() {
+		m.note = m.noteField.Value()
+	}
+	m.composeFocus = focusText
+	m.pullNote()
+	m.noteField.Focus()
+	m.externalEditWant = composerNote
 }
 
 func (m *Model) advanceCompose() {
@@ -145,7 +161,7 @@ func (m *Model) advanceCompose() {
 		m.note = m.noteField.Value()
 		m.noteField.Blur()
 	}
-	if m.composeFocus < focusSend {
+	if m.composeFocus < focusEditor {
 		m.composeFocus++
 	}
 	if m.composeFocus == focusText {
@@ -302,7 +318,7 @@ func (m *Model) composeBody() []screenLine {
 	regions = append(regions,
 		panelBox(picker, width, m.composeFocus == focusRecipient),
 		noteBox,
-		panelBox([]screenLine{m.sendLine(width - 2)}, width, m.composeFocus == focusSend),
+		panelBox([]screenLine{m.sendLine(width - 2)}, width, m.composeFocus >= focusSend),
 	)
 	return stackRegions(width, regions...)
 }
@@ -515,10 +531,42 @@ func cursorChunks(chunks []textChunk, col int) []screenLine {
 
 func (m *Model) sendLine(width int) screenLine {
 	useStyles()
-	label := m.actionButton("Send", "compose.send", m.composeFocus == focusSend, width)
-	rendered := renderButton(label)
-	return screenLine{
-		text: rendered,
-		hits: []hit{{kind: hitSend, x0: 1, x1: lipgloss.Width(rendered)}},
+	type btnSpec struct {
+		name    string
+		hint    string
+		focused bool
+		hitKind int
 	}
+	specs := []btnSpec{
+		{name: "Send", hint: m.buttonKey("compose.send"), focused: m.composeFocus == focusSend, hitKind: hitSend},
+		{name: "Cancel", hint: m.buttonKey("compose.cancel"), focused: m.composeFocus == focusCancel, hitKind: hitComposeCancel},
+		{name: "Edit in editor", hint: m.shortestButtonKey("edit.external"), focused: m.composeFocus == focusEditor, hitKind: hitComposeEditor},
+	}
+	build := func(showHints bool) (string, []hit, int) {
+		var parts []string
+		hits := make([]hit, 0, len(specs))
+		col := 1
+		for _, sp := range specs {
+			h := sp.hint
+			if !showHints {
+				h = ""
+			}
+			label := buttonLabel(sp.name, h, sp.focused, 0)
+			rendered := renderButton(label)
+			w := lipgloss.Width(rendered)
+			if len(parts) > 0 {
+				col++
+			}
+			parts = append(parts, rendered)
+			hits = append(hits, hit{kind: sp.hitKind, x0: col, x1: col + w - 1})
+			col += w
+		}
+		text := strings.Join(parts, " ")
+		return text, hits, lipgloss.Width(text)
+	}
+	text, hits, totalW := build(true)
+	if width > 0 && totalW > width {
+		text, hits, _ = build(false)
+	}
+	return screenLine{text: text, hits: hits}
 }

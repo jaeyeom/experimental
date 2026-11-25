@@ -48,12 +48,15 @@ const (
 	focusRecipient = iota
 	focusText
 	focusSend
+	focusCancel
+	focusEditor
 )
 
 const (
 	replyBtnSend = iota
 	replyBtnSendAndArchive
 	replyBtnDiscard
+	replyBtnEditor
 )
 
 // discardConfirmLines is the line threshold above which Discard asks first.
@@ -291,17 +294,18 @@ type Model struct {
 	// Machine is this machine's herdr label. locations caches each
 	// item's owner location for the session. locateWant asks Update to
 	// look up the open item's owner.
-	Machine         string
-	Hub             string
-	WebPublicURL    string
-	Version         string
-	settingsCursor  int
-	settingsEditing bool
-	settingsEditBuf string
-	editConfigWant  bool
-	configEditor    *configEdit
-	locations       map[string]decide.OwnerLocation
-	locateWant      bool
+	Machine          string
+	Hub              string
+	WebPublicURL     string
+	Version          string
+	settingsCursor   int
+	settingsEditing  bool
+	settingsEditBuf  string
+	editConfigWant   bool
+	configEditor     *configEdit
+	externalEditWant composerKind
+	locations        map[string]decide.OwnerLocation
+	locateWant       bool
 	// focusWant asks Update to focus this owner location's tab.
 	focusWant *decide.OwnerLocation
 	// linkCursor is the link picker's row and linkDigits the number
@@ -885,11 +889,15 @@ func (m *Model) advanceReplyButton() {
 		}
 	case replyBtnSendAndArchive:
 		m.replyBtn = replyBtnDiscard
+	case replyBtnDiscard:
+		m.replyBtn = replyBtnEditor
 	}
 }
 
 func (m *Model) prevReplyButton() {
 	switch m.replyBtn {
+	case replyBtnEditor:
+		m.replyBtn = replyBtnDiscard
 	case replyBtnDiscard:
 		if m.canSendAndArchive() {
 			m.replyBtn = replyBtnSendAndArchive
@@ -919,6 +927,11 @@ func (m *Model) replySendKey(r rune) (bool, error) {
 			return false, m.submitReplyAndArchive()
 		case replyBtnDiscard:
 			m.discardReply()
+			return false, nil
+		case replyBtnEditor:
+			m.focusReply()
+			m.replyField.Focus()
+			m.externalEditWant = composerReply
 			return false, nil
 		default:
 			return false, m.submitReply()
@@ -1179,7 +1192,24 @@ func (m *Model) canArchive(it decide.Item) bool {
 // this view has seen. An open, unanswered thread with options still
 // needs an answer. An explicit outcome uses Done and does not check
 // seen.
+func (m *Model) saveReplyDraftNow() {
+	if m.replyFocus {
+		m.reply = m.composerText(composerReply)
+	}
+	if strings.TrimSpace(m.reply) != "" {
+		if d, ok := m.draftFor(composerReply); !ok || d.Text != m.reply {
+			m.markDraftDirty(composerReply)
+		}
+	}
+	m.flushDraft(composerReply)
+}
+
 func (m *Model) archiveSelected() error {
+	unsentReply := ""
+	if m.mode == modeDetail {
+		m.saveReplyDraftNow()
+		unsentReply = m.reply
+	}
 	it, ok := m.selectedItem()
 	if !ok || !m.canArchive(it) {
 		return nil
@@ -1205,6 +1235,13 @@ func (m *Model) archiveSelected() error {
 		}
 		m.status = err.Error()
 		return nil
+	}
+	if strings.TrimSpace(unsentReply) != "" {
+		// Ledger.Archive clears item drafts; re-persist the unsent reply so
+		// clicking Archive with an unsent reply never loses it.
+		m.replyDraft.dirty = true
+		m.replyDraft.baseRev = 0
+		m.flushDraft(composerReply)
 	}
 	m.status = "done " + it.ID
 	if m.mode == modeDetail {
@@ -2211,12 +2248,14 @@ func (m *Model) detailLayout(width int) (threadN int, reply []screenLine) {
 	if detailN <= 0 {
 		return 0, reply
 	}
-	threadN = max(detailN-1-len(reply), 0)
+	// Two pinned rows sit above the thread: the title/toolbar line and its rule.
+	threadN = max(detailN-2-len(reply), 0)
 	return threadN, reply
 }
 
 func (m *Model) openedScreen(width int) []screenLine {
-	detail := m.detailLines(m.detailInnerWidth(width))
+	innerW := m.detailInnerWidth(width)
+	detail := m.detailLines(innerW)
 	threadN, reply := m.detailLayout(width)
 	_, detailN := m.layoutBudget()
 	if m.mode == modeOutcome && threadN > 0 {
@@ -2244,7 +2283,7 @@ func (m *Model) openedScreen(width int) []screenLine {
 			detail = append(detail, screenLine{})
 		}
 	}
-	detail = append([]screenLine{m.titleLine(m.detailInnerWidth(width))}, detail...)
+	detail = append([]screenLine{m.titleLine(innerW), m.titleRule(innerW)}, detail...)
 	detail = append(detail, reply...)
 	if width <= 0 {
 		if m.answerFocus {
@@ -2261,25 +2300,133 @@ func (m *Model) openedScreen(width int) []screenLine {
 // minTitleQuestion is the question width the state may not squeeze below.
 const minTitleQuestion = 10
 
-// titleLine is the pinned one-row title above the scrolling thread: the id
-// and the first line of the question (or of the verbatim text), with the
-// state on the right when it fits. Clicking it goes to the top.
+type toolbarItem struct {
+	name   string
+	action string
+	hit    int
+}
+
+func detailToolbarItems() []toolbarItem {
+	return []toolbarItem{
+		{name: "Back", action: "detail.back", hit: hitToolbarBack},
+		{name: "Reply", action: "detail.reply", hit: hitToolbarReply},
+		{name: "Archive", action: "detail.archive", hit: hitToolbarArchive},
+		{name: "Done", action: "detail.outcome", hit: hitToolbarDone},
+		{name: "Forward", action: "detail.forward", hit: hitToolbarForward},
+		{name: "Avatar", action: "detail.avatar", hit: hitToolbarAvatar},
+	}
+}
+
+func (m *Model) renderToolbar(collapsed bool) (string, []hit, int) {
+	useStyles()
+	items := detailToolbarItems()
+	dimHints := m.replyFocus || m.replySend
+	parts := make([]string, 0, len(items))
+	hits := make([]hit, 0, len(items))
+	col := 1
+	for _, item := range items {
+		hint := m.buttonKey(item.action)
+		var rendered string
+		if collapsed {
+			if hint != "" {
+				if dimHints {
+					rendered = optionButton.Render("[") + optionButton.Faint(true).Render(hint) + optionButton.Render("]")
+				} else {
+					rendered = optionButton.Render("[" + hint + "]")
+				}
+			} else {
+				rendered = optionButton.Render("[" + item.name + "]")
+			}
+		} else {
+			label := buttonLabel(item.name, hint, false, 0)
+			if dimHints {
+				rendered = renderButton(label)
+			} else {
+				rendered = optionButton.Render(label)
+			}
+		}
+		w := lipgloss.Width(rendered)
+		if len(parts) > 0 {
+			col++
+		}
+		parts = append(parts, rendered)
+		hits = append(hits, hit{kind: item.hit, x0: col, x1: col + w - 1})
+		col += w
+	}
+	text := strings.Join(parts, " ")
+	return text, hits, lipgloss.Width(text)
+}
+
+func (m *Model) titleRule(width int) screenLine {
+	if width < 1 {
+		width = 8
+	}
+	return plainRule(width)
+}
+
+// titleLine is the pinned one-row title above the scrolling thread: the
+// clickable toolbar on the left, followed by the id and the first line of the
+// question (or of the verbatim text), with the state on the right when it fits.
+// Clicking the title portion goes to the top.
 func (m *Model) titleLine(width int) screenLine {
+	bar, hits, barW := m.renderToolbar(false)
+	it := m.detail
+	if it == nil {
+		return screenLine{text: bar, hits: hits}
+	}
+	if width > 0 {
+		minTitle := lipgloss.Width(it.ID)
+		if width-barW-1 < minTitle {
+			bar, hits, barW = m.renderToolbar(true)
+		}
+	}
+	titleWidth := 0
+	if width > 0 {
+		titleWidth = width - barW - 1
+		if titleWidth <= 0 {
+			return screenLine{text: bar, hits: hits}
+		}
+	}
+	titleText := formatTitleText(it, titleWidth)
+	if titleText == "" {
+		return screenLine{text: bar, hits: hits}
+	}
+	titleStart := barW + 2
+	titleEnd := width
+	if titleEnd < titleStart {
+		titleEnd = titleStart + lipgloss.Width(titleText) - 1
+	}
+	hits = append(hits, hit{kind: hitTitle, x0: titleStart, x1: titleEnd})
+	return screenLine{
+		text: bar + " " + plainText(titleText),
+		hits: hits,
+	}
+}
+
+// plainTitleLine is the toolbar-free pinned title used by borderless plain view.
+func (m *Model) plainTitleLine(width int) screenLine {
 	hits := []hit{{kind: hitTitle}}
 	it := m.detail
 	if it == nil {
 		return screenLine{text: plainText(""), hits: hits}
 	}
+	return screenLine{text: plainText(formatTitleText(it, width)), hits: hits}
+}
+
+func formatTitleText(it *decide.Item, width int) string {
 	q := firstLine(it.Question)
 	if q == "" {
 		q = firstLine(it.Verbatim)
 	}
 	if width <= 0 {
-		return screenLine{text: plainText(strings.TrimSpace(it.ID + " " + q)), hits: hits}
+		return strings.TrimSpace(it.ID + " " + q)
+	}
+	if lipgloss.Width(it.ID) > width {
+		return truncateVisible(it.ID, width)
 	}
 	room := width - lipgloss.Width(it.ID) - 1
 	if room <= 0 || q == "" {
-		return screenLine{text: plainText(it.ID), hits: hits}
+		return it.ID
 	}
 	state := ""
 	if it.State != "" && room-lipgloss.Width(it.State)-1 >= min(lipgloss.Width(q), minTitleQuestion) {
@@ -2294,7 +2441,7 @@ func (m *Model) titleLine(width int) screenLine {
 		pad := width - lipgloss.Width(text) - lipgloss.Width(state)
 		text += strings.Repeat(" ", pad) + state
 	}
-	return screenLine{text: plainText(text), hits: hits}
+	return text
 }
 
 func firstLine(s string) string {
@@ -3129,8 +3276,6 @@ func (m *Model) detailLines(width int) []screenLine {
 	default:
 		lines = append(lines, m.relayLines(it, width)...)
 	}
-	replyBtn := m.actionButton("Reply", "detail.reply", false, width)
-	lines = append(lines, screenLine{text: renderButton(replyBtn), hits: []hit{{kind: hitReplyFocus}}})
 	if card, ok := decide.ApprovalCard(m.allItems, it.ID); ok {
 		lines = append(lines, m.approvalCardLines(&card, width)...)
 	}
@@ -3432,10 +3577,9 @@ func indentLine(line screenLine) screenLine {
 
 // replyLines is the reply box and, once it is in use, its action buttons.
 func (m *Model) replyLines(width int) []screenLine {
-	const label = "reply: "
 	conflict := m.conflictBannerLines(composerReply, width)
 	if m.reply == "" && !m.replyFocus && !m.replySend && len(conflict) == 0 {
-		return labeledLines(label, []screenLine{{text: "___"}}, hitReply, width-len(label))
+		return nil
 	}
 	lines := []screenLine{{text: plainText("reply:")}}
 	lines = append(lines, conflict...)
@@ -3474,6 +3618,7 @@ func (m *Model) replyLines(width int) []screenLine {
 		addBtn(m.actionButton("Send and archive", "compose.sendAndArchive", m.replySend && m.replyBtn == replyBtnSendAndArchive, width), hitReplySendAndArchive)
 	}
 	addBtn(m.actionButton("Discard", "compose.discard", m.replySend && m.replyBtn == replyBtnDiscard, width), hitReplyDiscard)
+	addBtn(m.shortestActionButton("Edit in editor", "edit.external", m.replySend && m.replyBtn == replyBtnEditor, width), hitReplyEditor)
 	flush()
 	return lines
 }
@@ -3484,7 +3629,7 @@ func (m *Model) replyBoxHeight(width int) int {
 	}
 	limit := max(m.height/2, 1)
 	if _, detailN := m.layoutBudget(); detailN > 0 {
-		if avail := max(detailN-4, 1); limit > avail {
+		if avail := max(detailN-6, 1); limit > avail {
 			limit = avail
 		}
 	}
