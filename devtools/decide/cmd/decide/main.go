@@ -52,6 +52,7 @@ var itemCommands = map[string]func([]string, io.Writer, io.Writer) int{
 	"supersede": cmdSupersede,
 	"backfill":  cmdBackfill,
 	"log":       cmdLog,
+	"stats":     cmdStats,
 }
 
 // ledgerCommands run against this machine's ledger until stopped: the
@@ -152,6 +153,7 @@ func usage(w io.Writer) {
   decide contacts unhide <name>
   decide contacts alias <name> <agent>
   decide contacts prune --dead [--release] [--yes]
+  decide stats answers [--since <duration or date>] [--until <duration or date>] [--agent <name>] [--json]
   decide [--remote <user@host>] config show [--effective]
 
 Text for ask, reply, send, done, withdraw, and status set may be a positional argument, --text-file <path>, or - for stdin.

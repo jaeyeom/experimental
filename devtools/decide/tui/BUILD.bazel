@@ -123,6 +123,7 @@ go_test(
         "snooze_test.go",
         "stamp_test.go",
         "startup_test.go",
+        "stats_test.go",
         "thread_test.go",
         "title_test.go",
         "toolbar_test.go",

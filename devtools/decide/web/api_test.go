@@ -887,6 +887,78 @@ func TestInlineCodeSpansThroughWebAPI(t *testing.T) {
 	}
 }
 
+func TestWebAPIRecordsAllFourAnswerTypes(t *testing.T) {
+	a := newAPI(t)
+
+	optItem := a.create(&decide.Item{
+		Question:   "pick?",
+		Owner:      "ada",
+		FreeText:   true,
+		Options:    []decide.Option{{Key: "y", Label: "Yes"}, {Key: "n", Label: "No"}},
+		NotifyPane: "w1:p1",
+	})
+	ftOptItem := a.create(&decide.Item{
+		Question:   "pick or type?",
+		Owner:      "bea",
+		FreeText:   true,
+		Options:    []decide.Option{{Key: "a", Label: "Alpha"}, {Key: "b", Label: "Beta"}},
+		NotifyPane: "w1:p1",
+	})
+	ftOnlyItem := a.create(&decide.Item{
+		Question:   "which env?",
+		Owner:      "carl",
+		Class:      decide.ClassFact,
+		FreeText:   true,
+		NotifyPane: "w1:p1",
+	})
+	noteItem := a.create(&decide.Item{
+		Question:   "fyi",
+		Owner:      "dana",
+		Class:      decide.ClassNote,
+		NotifyPane: "w1:p1",
+	})
+
+	// 1. option
+	a.wantOK(a.post("/api/v1/items/"+optItem.ID+"/answer", `{"value":"y"}`), 200)
+	gotOpt := a.get(optItem)
+	if gotOpt.Answer == nil || gotOpt.Answer.AnswerType != decide.AnswerTypeOption || gotOpt.Answer.AskingAgent != "ada" {
+		t.Fatalf("web option Answer = %+v", gotOpt.Answer)
+	}
+	if last := gotOpt.Messages[len(gotOpt.Messages)-1]; last.AnswerType != decide.AnswerTypeOption || last.AskingAgent != "ada" {
+		t.Fatalf("web option Message = %+v", last)
+	}
+
+	// 2. free-text-over-options
+	a.wantOK(a.post("/api/v1/items/"+ftOptItem.ID+"/answer", `{"value":"neither"}`), 200)
+	gotFTO := a.get(ftOptItem)
+	if gotFTO.Answer == nil || gotFTO.Answer.AnswerType != decide.AnswerTypeFreeTextOverOptions || gotFTO.Answer.AskingAgent != "bea" {
+		t.Fatalf("web free-text-over-options Answer = %+v", gotFTO.Answer)
+	}
+	if last := gotFTO.Messages[len(gotFTO.Messages)-1]; last.AnswerType != decide.AnswerTypeFreeTextOverOptions || last.AskingAgent != "bea" {
+		t.Fatalf("web free-text-over-options Message = %+v", last)
+	}
+
+	// 3. free-text-only
+	a.wantOK(a.post("/api/v1/items/"+ftOnlyItem.ID+"/answer", `{"value":"prod"}`), 200)
+	gotFTOnly := a.get(ftOnlyItem)
+	if gotFTOnly.Answer == nil || gotFTOnly.Answer.AnswerType != decide.AnswerTypeFreeTextOnly || gotFTOnly.Answer.AskingAgent != "carl" {
+		t.Fatalf("web free-text-only Answer = %+v", gotFTOnly.Answer)
+	}
+	if last := gotFTOnly.Messages[len(gotFTOnly.Messages)-1]; last.AnswerType != decide.AnswerTypeFreeTextOnly || last.AskingAgent != "carl" {
+		t.Fatalf("web free-text-only Message = %+v", last)
+	}
+
+	// 4. reply-no-question
+	a.wantOK(a.post("/api/v1/items/"+noteItem.ID+"/reply", `{"text":"noted"}`), 200)
+	gotNote := a.get(noteItem)
+	if gotNote.Answer != nil {
+		t.Fatalf("web note Answer = %+v, want nil", gotNote.Answer)
+	}
+	if last := gotNote.Messages[len(gotNote.Messages)-1]; last.AnswerType != decide.AnswerTypeReplyNoQuestion || last.AskingAgent != "" {
+		t.Fatalf("web reply-no-question Message = %+v", last)
+	}
+}
+
 // open is the ledger on the test clock.
 func (a *api) open() *decide.Ledger {
 	a.t.Helper()

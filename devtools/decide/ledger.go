@@ -46,6 +46,17 @@ const (
 	// ViaCLI is an answer given with the decide command line.
 	ViaCLI = "cli"
 
+	// AnswerTypeOption means the user picked a listed option.
+	AnswerTypeOption = "option"
+	// AnswerTypeFreeTextOverOptions means options were offered, but the user typed free text.
+	AnswerTypeFreeTextOverOptions = "free-text-over-options"
+	// AnswerTypeFreeTextOnly means the question offered no options, only free text.
+	AnswerTypeFreeTextOnly = "free-text-only"
+	// AnswerTypeReplyNoQuestion means the user wrote in a thread with no pending question.
+	AnswerTypeReplyNoQuestion = "reply-no-question"
+	// AnswerTypeUnknown means an older record could not be classified without guessing.
+	AnswerTypeUnknown = "unknown"
+
 	ledgerName  = "ledger.json"
 	changesName = "changes.json"
 	lockName    = "ledger.lock"
@@ -86,6 +97,9 @@ type Message struct {
 	OptionLabel string     `json:"optionLabel,omitempty"`
 	Via         string     `json:"via,omitempty"`
 	By          string     `json:"by,omitempty"`
+	AnswerType  string     `json:"answerType,omitempty"`
+	AskingAgent string     `json:"askingAgent,omitempty"`
+	AskedAt     *time.Time `json:"askedAt,omitempty"`
 }
 
 // Sender is who to show for this message: By when it is set, else Author.
@@ -103,13 +117,17 @@ func (m Message) Sender() string {
 // Via is ViaUI or ViaCLI. It is empty on an answer stored before via
 // existed, which does not count as ViaUI.
 type Answer struct {
-	Value      string     `json:"value"`
-	Key        string     `json:"key,omitempty"`
-	Label      string     `json:"label,omitempty"`
-	AnsweredBy string     `json:"answeredBy"`
-	Via        string     `json:"via,omitempty"`
-	WrittenAt  *time.Time `json:"writtenAt,omitempty"`
-	ReceivedAt *time.Time `json:"receivedAt,omitempty"`
+	Value       string     `json:"value"`
+	Key         string     `json:"key,omitempty"`
+	Label       string     `json:"label,omitempty"`
+	AnsweredBy  string     `json:"answeredBy"`
+	Via         string     `json:"via,omitempty"`
+	WrittenAt   *time.Time `json:"writtenAt,omitempty"`
+	ReceivedAt  *time.Time `json:"receivedAt,omitempty"`
+	AnswerType  string     `json:"answerType,omitempty"`
+	AskingAgent string     `json:"askingAgent,omitempty"`
+	AskedAt     *time.Time `json:"askedAt,omitempty"`
+	AnsweredAt  *time.Time `json:"answeredAt,omitempty"`
 }
 
 // CheckVia reports an error unless via is ViaUI or ViaCLI.
@@ -737,29 +755,12 @@ func (l *Ledger) AnswerAt(id, value, via string, writtenAt time.Time) (Item, err
 		// rebuild treats the new answer as the previous one and drops it.
 		ensureMessages(it)
 		receivedAt := l.clock().UTC()
+		answerType, label, isOption, askingAgent, askedAt := prepareAnswerMeta(it, stored)
 		it.State = StateAnswered
 		it.AnsweredAt = receivedAt
 		it.FollowUp = ""
-		it.Answer = &Answer{Value: stored, AnsweredBy: "human", Via: via}
-		msg := Message{
-			Author: "human",
-			Time:   receivedAt,
-			Text:   stored,
-			Via:    via,
-		}
-		if !writtenAt.IsZero() {
-			w := writtenAt.UTC()
-			r := receivedAt
-			it.Answer.WrittenAt = &w
-			it.Answer.ReceivedAt = &r
-			msg.WrittenAt = &w
-			msg.ReceivedAt = &r
-		}
-		if label, ok := optionLabel(it.Options, stored); ok {
-			it.Answer.Key, it.Answer.Label = stored, label
-			msg.OptionKey, msg.OptionLabel = stored, label
-			msg.Text = keyLabel(stored, label)
-		}
+		it.Answer = newAnswerRecord(stored, label, isOption, via, answerType, askingAgent, askedAt, receivedAt, writtenAt)
+		msg := newAnswerMessage(stored, label, isOption, via, answerType, askingAgent, askedAt, receivedAt, writtenAt)
 		it.Messages = append(it.Messages, msg)
 		wakeOnMessage(it)
 		updated = *it
@@ -981,13 +982,28 @@ func (l *Ledger) ComposeVerbatimAt(id, text, verbatim, via, by string, writtenAt
 		}
 		ensureMessages(it)
 		now := l.clock().UTC()
+		isQuestion := openQuestion(it)
+		answerType := AnswerTypeReplyNoQuestion
+		var askingAgent string
+		var askedAt time.Time
+		if isQuestion {
+			askingAgent, askedAt = pendingAsker(it)
+			if len(it.Options) > 0 {
+				answerType = AnswerTypeFreeTextOverOptions
+			} else {
+				answerType = AnswerTypeFreeTextOnly
+			}
+		}
 		msg := Message{
-			Author:   "human",
-			Time:     now,
-			Text:     text,
-			Verbatim: verbatim,
-			Via:      via,
-			By:       by,
+			Author:      "human",
+			Time:        now,
+			Text:        text,
+			Verbatim:    verbatim,
+			Via:         via,
+			By:          by,
+			AnswerType:  answerType,
+			AskingAgent: askingAgent,
+			AskedAt:     utcTimePtr(askedAt),
 		}
 		if !writtenAt.IsZero() {
 			w := writtenAt.UTC()
@@ -996,14 +1012,22 @@ func (l *Ledger) ComposeVerbatimAt(id, text, verbatim, via, by string, writtenAt
 			msg.ReceivedAt = &r
 		}
 		it.Messages = append(it.Messages, msg)
-		if openQuestion(it) {
+		if isQuestion {
 			ans := text
 			if ans == "" {
 				ans = verbatim
 			}
 			it.State = StateAnswered
 			it.AnsweredAt = now
-			it.Answer = &Answer{Value: ans, AnsweredBy: "human", Via: via}
+			it.Answer = &Answer{
+				Value:       ans,
+				AnsweredBy:  "human",
+				Via:         via,
+				AnswerType:  answerType,
+				AskingAgent: askingAgent,
+				AskedAt:     utcTimePtr(askedAt),
+				AnsweredAt:  utcTimePtr(now),
+			}
 			if !writtenAt.IsZero() {
 				w := writtenAt.UTC()
 				r := now
@@ -1778,6 +1802,10 @@ func cloneItem(src *Item) Item {
 	}
 	if src.Answer != nil {
 		a := *src.Answer
+		a.WrittenAt = cloneTime(src.Answer.WrittenAt)
+		a.ReceivedAt = cloneTime(src.Answer.ReceivedAt)
+		a.AskedAt = cloneTime(src.Answer.AskedAt)
+		a.AnsweredAt = cloneTime(src.Answer.AnsweredAt)
 		item.Answer = &a
 	}
 	item.SnoozedUntil = cloneTime(src.SnoozedUntil)
@@ -1789,6 +1817,9 @@ func cloneItem(src *Item) Item {
 			if src.Messages[i].Options != nil {
 				item.Messages[i].Options = append([]Option(nil), src.Messages[i].Options...)
 			}
+			item.Messages[i].WrittenAt = cloneTime(src.Messages[i].WrittenAt)
+			item.Messages[i].ReceivedAt = cloneTime(src.Messages[i].ReceivedAt)
+			item.Messages[i].AskedAt = cloneTime(src.Messages[i].AskedAt)
 		}
 	}
 	if src.Delivery != nil {

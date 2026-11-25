@@ -256,6 +256,7 @@ that hub for one invocation.
 | ~decide contacts unhide~         | Show one hidden contact again.                                                   |
 | ~decide contacts alias~          | Map a ledger name to a bus name.                                                 |
 | ~decide contacts prune~          | List dead contacts. ~--yes~ hides them.                                          |
+| ~decide stats answers~           | Per-agent report of option picks vs. free-text answers.                          |
 | ~decide config show~             | Print this machine's config. ~--effective~ merges the hub.                       |
 
 * Asking and answering
@@ -273,6 +274,40 @@ Full flags, shape rules, item classes, approval cards, backfill,
 decision log, owner/worker routing, and snooze formats are in
 [[file:docs/items.org][docs/items.org]]. Provenance rules (~via~ and
 ~by~) are in [[file:docs/provenance.org][docs/provenance.org]].
+
+** Answer types and stats
+
+Every human answer or reply in a thread records an ~answerType~ on both
+~answer~ (when the message answers a question) and the appended
+~messages[]~ entry, filled in automatically by ~decide~:
+
+- ~option~ -- the user picked one of the offered options.
+- ~free-text-over-options~ -- options were offered, but the user wrote
+  free text instead.
+- ~free-text-only~ -- the question offered no options, only free text
+  (such as a ~fact~ item).
+- ~reply-no-question~ -- the user wrote in a thread with no pending
+  question (for example, a follow-up after an answer or a reply on a
+  ~note~).
+
+Alongside ~answerType~, ~decide~ records ~askingAgent~ (the ~by~ of the
+message that set the pending options, falling back to ~owner~),
+~askedAt~ (when that question was asked), and ~answeredAt~ on ~answer~
+(with ~time~ on the ~Message~). ~reply-no-question~ has no ~askingAgent~
+or ~askedAt~.
+
+~decide stats answers [--since <duration or date>] [--until <duration or date>] [--agent <name>] [--json]~
+summarizes answer quality per asking agent. Each row reports the agent,
+~option~, ~free-text-over-options~, ~free-text-only~, and ~unknown~
+counts, the share of free text among questions that offered options
+(~free-text-over-options / (option + free-text-over-options)~), and the
+total, sorted highest free-text share first. ~--since~ and ~--until~
+accept durations (~30m~, ~6h~, ~2d~), ~YYYY-MM-DD~ local dates, or
+RFC3339 timestamps. ~--json~ prints the same rows plus the deduplicated
+item IDs (~optionIds~, ~freeTextOverOptionsIds~, ~freeTextOnlyIds~,
+~unknownIds~) behind each count. Older items without ~answerType~ are
+derived from ~answer.key~, ~optionKey~, and whether options were pending
+at that message, or reported as ~unknown~ when ambiguous.
 
 * Notes and status
 

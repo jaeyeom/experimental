@@ -42,4 +42,6 @@ Each thread message records where it came from.
 
 A later human free-text message that answers a reopened thread
 replaces ~answer~. A tool that needs an earlier option pick reads the
-messages. Those keep ~optionKey~, ~via~, and ~by~. ~answer~ does not.
+messages. Those keep ~optionKey~, ~via~, ~by~, ~answerType~,
+~askingAgent~, and ~askedAt~. ~answer~ keeps only the latest answer's
+fields (plus ~answeredAt~).
