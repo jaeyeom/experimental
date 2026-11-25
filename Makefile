@@ -1,5 +1,5 @@
 # Common targets
-.PHONY: all check check-ci format format-whitespace check-format test test-rbe lint fix check-uv-lock install
+.PHONY: all check check-ci format format-whitespace check-format test test-rbe lint fix install
 
 # Stable PATH for Bazel tests under --incompatible_strict_action_env.
 # Built from host tool locations in a canonical order so caller PATH
@@ -27,11 +27,9 @@ all:
 CHECK_CI_CHECKS := check-semgrep check-gitleaks
 
 check-ci:
-	$(MAKE) check-uv-lock
 	$(MAKE) $(CHECK_CI_CHECKS)
 
 check:
-	$(MAKE) check-uv-lock
 	$(MAKE) $(CHECK_CI_CHECKS) test check-spacemacs
 
 format: format-whitespace
@@ -111,19 +109,10 @@ fix-go:
 	GOPACKAGESDRIVER= go tool oserrorsgodernize --fix ./...
 
 # Python targets
-.PHONY: fix-ruff check-uv-lock
+.PHONY: fix-ruff
 
 fix-ruff:
 	ruff check --fix
-
-check-uv-lock: pyproject.toml uv.lock
-	@if ! command -v uv >/dev/null 2>&1; then \
-		echo "Error: uv is required to check uv.lock"; \
-		echo "Install with:"; \
-		echo "  cd devtools/setup-dev/ansible && ./ensure.sh uv"; \
-		exit 1; \
-	fi
-	uv lock --check
 
 # Emacs/Spacemacs targets
 .PHONY: check-spacemacs

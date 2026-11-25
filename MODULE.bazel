@@ -131,6 +131,45 @@ pip.parse(
 )
 use_repo(pip, "pypi")
 
+# Hermetic uv binaries for lockfile verification (matches pip.parse platforms).
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+_UV_VERSION = "0.13.9"
+
+_UV_BUILD_FILE = 'exports_files(["uv"])\n'
+
+http_archive(
+    name = "uv_linux_aarch64",
+    build_file_content = _UV_BUILD_FILE,
+    sha256 = "37fbb7c5bc66cf99c12aa881949d216181e201dec449772c4329e56487d61179",
+    strip_prefix = "uv-aarch64-unknown-linux-musl",
+    urls = ["https://github.com/astral-sh/uv/releases/download/{v}/uv-aarch64-unknown-linux-musl.tar.gz".format(v = _UV_VERSION)],
+)
+
+http_archive(
+    name = "uv_linux_x86_64",
+    build_file_content = _UV_BUILD_FILE,
+    sha256 = "58ccf5f1792b8a5a88d01bc910ea131a8b3db4a319a17ad5fad75e0845a3e271",
+    strip_prefix = "uv-x86_64-unknown-linux-musl",
+    urls = ["https://github.com/astral-sh/uv/releases/download/{v}/uv-x86_64-unknown-linux-musl.tar.gz".format(v = _UV_VERSION)],
+)
+
+http_archive(
+    name = "uv_osx_aarch64",
+    build_file_content = _UV_BUILD_FILE,
+    sha256 = "5aeca67f2283f75235de40d0bd9c0a5bbc5fce23b6d48b3bf9fa1b2db08382ca",
+    strip_prefix = "uv-aarch64-apple-darwin",
+    urls = ["https://github.com/astral-sh/uv/releases/download/{v}/uv-aarch64-apple-darwin.tar.gz".format(v = _UV_VERSION)],
+)
+
+http_archive(
+    name = "uv_osx_x86_64",
+    build_file_content = _UV_BUILD_FILE,
+    sha256 = "617a3211261b0fc739562f0071aa34e9739797c510208ede8e2977c30903d041",
+    strip_prefix = "uv-x86_64-apple-darwin",
+    urls = ["https://github.com/astral-sh/uv/releases/download/{v}/uv-x86_64-apple-darwin.tar.gz".format(v = _UV_VERSION)],
+)
+
 # Pkl for configuration
 bazel_dep(name = "rules_pkl", version = "0.18.0")
 

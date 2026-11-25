@@ -114,6 +114,66 @@ py_test(
     ],
 )
 
+config_setting(
+    name = "linux_aarch64",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:aarch64",
+    ],
+)
+
+config_setting(
+    name = "linux_x86_64",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+)
+
+config_setting(
+    name = "osx_aarch64",
+    constraint_values = [
+        "@platforms//os:osx",
+        "@platforms//cpu:aarch64",
+    ],
+)
+
+config_setting(
+    name = "osx_x86_64",
+    constraint_values = [
+        "@platforms//os:osx",
+        "@platforms//cpu:x86_64",
+    ],
+)
+
+alias(
+    name = "uv_bin",
+    actual = select({
+        ":linux_aarch64": "@uv_linux_aarch64//:uv",
+        ":linux_x86_64": "@uv_linux_x86_64//:uv",
+        ":osx_aarch64": "@uv_osx_aarch64//:uv",
+        ":osx_x86_64": "@uv_osx_x86_64//:uv",
+    }),
+    target_compatible_with = _PY_COMPATIBLE,
+)
+
+py_test(
+    name = "uv_lock_test",
+    size = "small",
+    srcs = ["uv_lock_test.py"],
+    data = [
+        ":uv_bin",
+        "//:pyproject.toml",
+        "//:uv.lock",
+    ],
+    env = {
+        "UV_BIN": "$(rootpath :uv_bin)",
+    },
+    legacy_create_init = 0,
+    target_compatible_with = _PY_COMPATIBLE,
+    deps = ["@pypi//pytest"],
+)
+
 py_test(
     name = "bazel_go_files_test",
     size = "small",
