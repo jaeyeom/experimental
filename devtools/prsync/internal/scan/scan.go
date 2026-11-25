@@ -391,11 +391,12 @@ func classifyPR(ctx context.Context, client GH, lookup *threadLookup, cfg config
 		Unaddressed:      len(comments) > 0,
 		BlockingComments: comments,
 	}
-	actions, err := mergeQueueActions(ctx, client, marker, owner, name, item.Number)
+	actions, fm, err := mergeQueueSignals(ctx, client, marker, cfg, owner, name, item.Number)
 	if err != nil {
 		return PR{}, fmt.Errorf("%s#%d: %w", repo, item.Number, err)
 	}
 	out.Actions = actions
+	out.FailureMarker = fm
 	out.Bucket = Bucket(PRFacts{
 		Unaddressed:    out.Unaddressed,
 		CIState:        ci,
@@ -421,14 +422,22 @@ func blockingComments(threads []gh.Thread, author string) []Comment {
 		if last.Author != nil {
 			login = last.Author.Login
 		}
+		hasAuthorReply := false
+		for _, c := range thread.Comments {
+			if c.Author != nil && strings.EqualFold(c.Author.Login, author) {
+				hasAuthorReply = true
+				break
+			}
+		}
 		out = append(out, Comment{
-			ThreadID:  thread.ID,
-			CommentID: last.ID,
-			Author:    login,
-			Path:      last.Path,
-			Line:      last.Line,
-			URL:       last.URL,
-			Body:      last.Body,
+			ThreadID:       thread.ID,
+			CommentID:      last.ID,
+			Author:         login,
+			Path:           last.Path,
+			Line:           last.Line,
+			URL:            last.URL,
+			Body:           last.Body,
+			HasAuthorReply: hasAuthorReply,
 		})
 	}
 	return out

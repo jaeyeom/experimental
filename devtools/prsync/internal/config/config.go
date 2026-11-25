@@ -314,6 +314,10 @@ type Config struct {
 	GateExemptPanes []string
 	GateExemptTabs  []string
 
+	// Policy holds configurable auto-dispatch policy, guards, ledger,
+	// agent backend, and lease hook settings.
+	Policy PolicyConfig
+
 	// SourcePath is empty if defaults only; for stderr diagnostics.
 	SourcePath string
 }
@@ -392,6 +396,7 @@ func Defaults() Config {
 		OpenTabsAgent:             []string{"claude"},
 		OpenTabsMaxPerRound:       defaultOpenTabsMaxPerRound,
 		OpenTabsReadyTimeout:      defaultOpenTabsReadyTimeout,
+		Policy:                    defaultPolicyConfig(),
 	}
 }
 
@@ -418,6 +423,7 @@ func Load(explicitPath string) (Config, error) {
 	cfg.GHBin = expandTilde(cfg.GHBin)
 	cfg.HerdrBin = expandTilde(cfg.HerdrBin)
 	cfg.JiraBin = expandTilde(cfg.JiraBin)
+	expandPolicyPaths(&cfg.Policy)
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
@@ -488,6 +494,9 @@ func validateConcurrency(c Config) error {
 	}
 	if c.DispatchCatchup != "rebase" && c.DispatchCatchup != "merge" {
 		return &KeyError{Key: "dispatch_catchup", Reason: fmt.Sprintf("invalid value %q", c.DispatchCatchup)}
+	}
+	if err := validatePolicy(c.Policy); err != nil {
+		return err
 	}
 	return validateParkMode(c)
 }
@@ -699,7 +708,7 @@ func applyOtherKey(cfg *Config, key, val string) error {
 		"team_cover_members_ttl", "team_cover_codeowners_ttl":
 		return applyTeamCover(cfg, key, val)
 	default:
-		return nil
+		return applyPolicyKey(cfg, key, val)
 	}
 }
 

@@ -53,6 +53,8 @@ func newRoot(stdout, stderr io.Writer, exec executor.Executor, logFile **runlog.
 	root.AddCommand(newScanCmd(stdout, exec))
 	root.AddCommand(newTabsCmd(stdout, exec))
 	root.AddCommand(newDispatchCmd(stdout, exec))
+	root.AddCommand(newMaintainCmd(stdout, exec))
+	root.AddCommand(newLedgerCmd(stdout))
 	root.AddCommand(newCommentCmd(stdout, exec))
 	root.AddCommand(newGateCmd(stdout, exec))
 	root.AddCommand(newLogsCmd(stdout))

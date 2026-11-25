@@ -121,6 +121,8 @@ it. Stdout stays JSON.
 prsync scan     [--config PATH] [--repo owner/repo ...] [--json] [--in-scope] [--emit-jobs] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
 prsync tabs     --orphans [--config PATH] [--json] [--stdin] [--close-merged] [--go] [--force] [--tab-machine M]
 prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--merge] [--ci-fix] [--hint TEXT] [--prompt-suffix TEXT] [--force] [--stdin] [--open-tabs] [--job ID] [--runner NAME] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
+prsync maintain [--config PATH] [--pr owner/repo#N ...] [--json] [--force] [--stdin]
+prsync ledger   [--config PATH] [--pr owner/repo#N] [--kind KIND] [--head SHA] [--limit N] [--json]
 prsync comment  [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--stdin] [--allow-duplicate] --body TEXT
 prsync gate     [--config PATH] [--tab-machine M]
 prsync logs     [--path]

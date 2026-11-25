@@ -1,5 +1,7 @@
 package scan
 
+import "time"
+
 // Document is the outbound scan JSON document.
 type Document struct {
 	GeneratedAt       string   `json:"generated_at"` //nolint:tagliatelle // brief outbound contract
@@ -66,6 +68,11 @@ type PR struct {
 	TeamReviewSuggestions []TeamReviewSuggestion `json:"team_review_suggestions,omitempty"` //nolint:tagliatelle // brief outbound contract
 	// Actions lists follow-ups such as merge-queue-fix. Nil when there are none.
 	Actions []Action `json:"actions,omitempty"`
+	// FailureMarker is the newest machine-readable merge-tool failure marker
+	// found in the PR's comments. Nil when none is present.
+	FailureMarker *FailureMarker `json:"failure_marker,omitempty"` //nolint:tagliatelle // brief outbound contract
+	// DefaultBranch is the repository's default branch when known.
+	DefaultBranch string `json:"default_branch,omitempty"` //nolint:tagliatelle // brief outbound contract
 	// Dispatch is dispatched_unresolved when a prior comment dispatch still
 	// covers these unaddressed ids. Omitted otherwise. Rebase, CI-fix, and
 	// merge-queue-fix stay skipped_deduped on dispatch, not in this field.
@@ -84,6 +91,23 @@ type Action struct {
 	EventID    string `json:"event_id"` //nolint:tagliatelle // brief outbound contract
 	Class      string `json:"class"`
 	CommentURL string `json:"comment_url"` //nolint:tagliatelle // brief outbound contract
+}
+
+// FailureMarkerKind values for a merge-tool failure marker.
+const (
+	FailureKindOurCode    = "our-code"
+	FailureKindInfraFlake = "infra-flake"
+	FailureKindUnknown    = "unknown"
+)
+
+// FailureMarker is a machine-readable failure marker left in a PR comment by
+// a merge tool.
+type FailureMarker struct {
+	Kind       string    `json:"kind"`
+	HeadSHA    string    `json:"head_sha,omitempty"`     //nolint:tagliatelle // brief outbound contract
+	QueueRunID string    `json:"queue_run_id,omitempty"` //nolint:tagliatelle // brief outbound contract
+	CommentURL string    `json:"comment_url,omitempty"`  //nolint:tagliatelle // brief outbound contract
+	CreatedAt  time.Time `json:"created_at,omitempty"`   //nolint:tagliatelle // brief outbound contract
 }
 
 // TeamReviewSuggestion is one requested team and who could cover it.
@@ -109,13 +133,14 @@ type SuggestedReviewer struct {
 
 // Comment is one unresolved review thread whose last author is not the PR author.
 type Comment struct {
-	ThreadID  string `json:"thread_id"`  //nolint:tagliatelle // brief outbound contract
-	CommentID string `json:"comment_id"` //nolint:tagliatelle // brief outbound contract
-	Author    string `json:"author"`
-	Path      string `json:"path"`
-	Line      *int   `json:"line"`
-	URL       string `json:"url"`
-	Body      string `json:"body"`
+	ThreadID       string `json:"thread_id"`  //nolint:tagliatelle // brief outbound contract
+	CommentID      string `json:"comment_id"` //nolint:tagliatelle // brief outbound contract
+	Author         string `json:"author"`
+	Path           string `json:"path"`
+	Line           *int   `json:"line"`
+	URL            string `json:"url"`
+	Body           string `json:"body"`
+	HasAuthorReply bool   `json:"has_author_reply,omitempty"` //nolint:tagliatelle // brief outbound contract
 }
 
 // Tab is a uniquely matched herdr tab. Nil on the PR means no unique tab.

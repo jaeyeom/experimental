@@ -282,3 +282,50 @@
 # team_cover_load_ttl=1h       # reuse each login's review load this long
 # team_cover_members_ttl=24h   # reuse each team's member list this long
 # team_cover_codeowners_ttl=6h # reuse each repository's CODEOWNERS this long
+
+# Configurable auto-dispatch policy (`prsync maintain` and `prsync ledger`).
+# Per-kind modes: off | dry-run | auto (default off for all kinds).
+# policy_catch_up=off
+# policy_rebase=off
+# policy_nit_reply=off
+# policy_ci_fix=off
+# policy_queue_fix=off
+# Auto mode dispatches only behind and clean-rebase PRs; conflicting is
+# reported unless policy_dispatch_conflicting=true.
+# policy_dispatch_conflicting=false
+#
+# Guards:
+# guard_require_idle=true
+# guard_max_per_run=1
+# guard_daily_cap=0
+# guard_skip_drafts=true
+# guard_hold_labels=do-not-merge,hold
+# guard_skip_stacked=true
+# guard_default_branches=main,master
+# guard_skip_other_machine=true
+# guard_command=
+#
+# Nit-reply rules (bot authors only; human reviewer threads are never auto):
+# nit_reply_bots=
+# nit_reply_patterns=(?i)\b(nit|nitpick|non-blocking|optional|minor)\b
+# nit_reply_prompt_template=
+#
+# Dispatch ledger (JSONL, human-readable and queryable via `prsync ledger`):
+# dispatch_ledger_file=~/.config/prsync/ledger.jsonl
+#
+# Pluggable agent-messaging backend: herdr (default) | command
+# agent_backend=herdr
+# agent_backend_cmd=
+#
+# Pluggable lease hook around dispatches that touch a shared working copy:
+# off (default) | file | agentbus | command
+# lease_provider=off
+# lease_name=
+# lease_timeout=15m
+# lease_dir=~/.config/prsync/leases
+# lease_claim_cmd=
+# lease_release_cmd=
+#
+# Optional custom failure-marker template (in addition to built-in HTML
+# comment markers like <!-- prsync-failure kind=our-code head=... run=... -->):
+# failure_marker_template=

@@ -108,3 +108,84 @@ func TestMergeQueueFixOurCodeOnlyWhenHeadIsOlder(t *testing.T) {
 		t.Fatalf("infra actions = %+v, want none", actions)
 	}
 }
+
+func TestParseNewestFailureMarker(t *testing.T) {
+	t.Parallel()
+	t1 := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
+	t2 := t1.Add(time.Minute)
+	tests := []struct {
+		name        string
+		comments    []gh.MarkerComment
+		rcaTemplate string
+		wantKind    string
+		wantHead    string
+		wantRun     string
+		wantNil     bool
+	}{
+		{
+			name:     "no markers",
+			comments: []gh.MarkerComment{{Body: "plain comment", CreatedAt: t1}},
+			wantNil:  true,
+		},
+		{
+			name: "generic prsync-failure our-code",
+			comments: []gh.MarkerComment{
+				{URL: "https://example/1", Body: "details\n<!-- prsync-failure kind=our-code head=abc123 queue_run=qr-1 -->", CreatedAt: t1},
+			},
+			wantKind: FailureKindOurCode,
+			wantHead: "abc123",
+			wantRun:  "qr-1",
+		},
+		{
+			name: "newest marker wins over older our-code",
+			comments: []gh.MarkerComment{
+				{URL: "https://example/1", Body: "<!-- prsync-failure kind=our-code head=abc123 queue_run=qr-1 -->", CreatedAt: t1},
+				{URL: "https://example/2", Body: "<!-- merge-failure kind=infra-flake head_sha=abc123 run_id=qr-2 -->", CreatedAt: t2},
+			},
+			wantKind: FailureKindInfraFlake,
+			wantHead: "abc123",
+			wantRun:  "qr-2",
+		},
+		{
+			name: "unknown kind preserved",
+			comments: []gh.MarkerComment{
+				{URL: "https://example/3", Body: "<!-- queue-failure kind=unknown head=def456 run=qr-3 -->", CreatedAt: t1},
+			},
+			wantKind: FailureKindUnknown,
+			wantHead: "def456",
+			wantRun:  "qr-3",
+		},
+		{
+			name: "rca marker mapped to failure marker",
+			comments: []gh.MarkerComment{
+				{URL: "https://example/4", Body: "<!-- gh-merge-rca EVT-9 class=flake commit=deadbeef -->", CreatedAt: t1},
+			},
+			rcaTemplate: "<!-- gh-merge-rca {event_id} class={class} -->",
+			wantKind:    FailureKindInfraFlake,
+			wantHead:    "deadbeef",
+			wantRun:     "EVT-9",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := ParseNewestFailureMarker(tc.comments, tc.rcaTemplate)
+			if err != nil {
+				t.Fatalf("ParseNewestFailureMarker() error = %v", err)
+			}
+			if tc.wantNil {
+				if got != nil {
+					t.Fatalf("got %+v, want nil", got)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatal("got nil, want marker")
+				return
+			}
+			if got.Kind != tc.wantKind || got.HeadSHA != tc.wantHead || got.QueueRunID != tc.wantRun {
+				t.Fatalf("got %+v, want kind=%q head=%q run=%q", got, tc.wantKind, tc.wantHead, tc.wantRun)
+			}
+		})
+	}
+}
