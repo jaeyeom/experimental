@@ -1,4 +1,5 @@
 load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 go_library(
     name = "go_default_library",
@@ -29,4 +30,31 @@ go_test(
     embed = [":go_default_library"],
     # Shells out to git in throwaway repositories.
     tags = ["local"],
+)
+
+sh_test(
+    name = "repo_check_test",
+    size = "small",
+    srcs = ["repo_check_test.sh"],
+    args = [
+        "$(rootpath :genfiles)",
+        "$(rootpath //:MODULE.bazel)",
+    ],
+    data = [
+        ":genfiles",
+        "//:MODULE.bazel",
+    ],
+    # Checks the repository's generated_files.yaml, .gitattributes, and git
+    # index via the MODULE.bazel symlink. They are not declared inputs, so
+    # "external" keeps Bazel from caching a stale result.
+    tags = [
+        "external",
+        "local",
+    ],
+)
+
+filegroup(
+    name = "sh_srcs",
+    srcs = glob(["*.sh"]),
+    visibility = ["//tools/lint:__pkg__"],
 )

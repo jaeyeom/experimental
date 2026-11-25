@@ -1,5 +1,5 @@
 # Common targets
-.PHONY: all check check-ci format format-whitespace check-format test test-rbe lint lint-non-emacs lint-non-bazel fix check-uv-lock install
+.PHONY: all check check-ci format format-whitespace check-format test test-rbe lint fix check-uv-lock install
 
 # Stable PATH for Bazel tests under --incompatible_strict_action_env.
 # Built from host tool locations in a canonical order so caller PATH
@@ -24,7 +24,7 @@ all:
 	$(MAKE) fix
 	$(MAKE) test check-semgrep check-gitleaks check-bazel-go-files
 
-CHECK_CI_CHECKS := lint-non-bazel check-semgrep check-gitleaks check-bazel-go-files
+CHECK_CI_CHECKS := check-semgrep check-gitleaks check-bazel-go-files
 
 check-ci:
 	$(MAKE) check-uv-lock check-generated
@@ -53,11 +53,7 @@ test-rbe:
 	bazel test --config=rbe --test_summary=terse --build_tag_filters=-local,-no-remote --test_tag_filters=-local,-no-remote $(BAZEL_FLAGS) //...
 	bazel test --test_summary=terse $(BAZEL_TEST_ENV) --build_tag_filters=local,no-remote --test_tag_filters=local,no-remote $(BAZEL_FLAGS) //...
 
-lint-non-bazel: lint-genfiles
-
-lint-non-emacs: lint-non-bazel
-
-lint: lint-non-emacs check-spacemacs
+lint: check-spacemacs
 
 # Target fix is best-effort autofix for lint issues. If autofix is not
 # available, it still runs lint checks.
@@ -137,12 +133,6 @@ check-uv-lock: pyproject.toml uv.lock
 
 check-spacemacs:
 	$(MAKE) -C spacemacs check
-
-# generated_files.yaml lists generated files; genfiles check keeps it and
-# .gitattributes honest.
-.PHONY: lint-genfiles
-lint-genfiles:
-	GOPACKAGESDRIVER= go run ./devtools/genfiles/cmd/genfiles check
 
 # Code generation targets
 .PHONY: generate-ansible generate-pkl check-generated
