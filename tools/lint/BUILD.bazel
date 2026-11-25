@@ -142,6 +142,7 @@ sh_library(
         "//devtools/genfiles/cmd/genfiles:sh_srcs",
         "//devtools/gh-ask/userscript:sh_srcs",
         "//devtools/gh-nudge:sh_srcs",
+        "//devtools/gh-nudge/internal/config/pkl:sh_srcs",
         "//devtools/prsync/internal/cli:sh_srcs",
         "//devtools/prsync/internal/scan:sh_srcs",
         "//devtools/repo-sync/examples:sh_srcs",

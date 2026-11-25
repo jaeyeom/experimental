@@ -1,4 +1,5 @@
 load("@rules_go//go:def.bzl", "go_library")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 go_library(
     name = "go_default_library",
@@ -19,4 +20,41 @@ go_library(
     importpath = "github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config/pkl",
     visibility = ["//devtools/gh-nudge:__subpackages__"],
     deps = ["@com_github_apple_pkl_go//pkl:go_default_library"],
+)
+
+alias(
+    name = "pkl_cli",
+    actual = select({
+        "@bazel_tools//src/conditions:darwin_arm64": "@pkl-cli-macos-aarch64//file:downloaded",
+        "@bazel_tools//src/conditions:darwin_arm64e": "@pkl-cli-macos-aarch64//file:downloaded",
+        "@bazel_tools//src/conditions:darwin_x86_64": "@pkl-cli-macos-amd64//file:downloaded",
+        "@bazel_tools//src/conditions:linux_aarch64": "@pkl-cli-linux-aarch64//file:downloaded",
+        "@bazel_tools//src/conditions:linux_x86_64": "@pkl-cli-linux-amd64//file:downloaded",
+    }),
+)
+
+sh_test(
+    name = "generated_files_test",
+    size = "small",
+    srcs = ["generated_files_test.sh"],
+    args = [
+        "$(rootpath :pkl_cli)",
+        "$(rootpath //:PklProject)",
+        "$(rootpath //:PklProject.deps.json)",
+        "$(rootpath //devtools/gh-nudge/pkl:Config.pkl)",
+        "$(rootpaths @pkl_project//:packages)",
+    ],
+    data = [
+        ":pkl_cli",
+        "//:PklProject",
+        "//:PklProject.deps.json",
+        "//devtools/gh-nudge/pkl:Config.pkl",
+        "@pkl_project//:packages",
+    ] + glob(["*.pkl.go"]),
+)
+
+filegroup(
+    name = "sh_srcs",
+    srcs = glob(["*.sh"]),
+    visibility = ["//tools/lint:__pkg__"],
 )

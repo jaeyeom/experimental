@@ -27,11 +27,11 @@ all:
 CHECK_CI_CHECKS := check-semgrep check-gitleaks check-bazel-go-files
 
 check-ci:
-	$(MAKE) check-uv-lock check-generated
+	$(MAKE) check-uv-lock
 	$(MAKE) $(CHECK_CI_CHECKS)
 
 check:
-	$(MAKE) check-uv-lock check-generated
+	$(MAKE) check-uv-lock
 	$(MAKE) $(CHECK_CI_CHECKS) test check-spacemacs
 
 format: format-whitespace
@@ -135,52 +135,13 @@ check-spacemacs:
 	$(MAKE) -C spacemacs check
 
 # Code generation targets
-.PHONY: generate-ansible generate-pkl check-generated
-
-# Paths where generators produce output
-GENERATED_PATHS := devtools/setup-dev/ansible devtools/gh-nudge/internal/config/pkl
+.PHONY: generate-ansible generate-pkl
 
 generate-ansible:
 	$(MAKE) -C devtools/setup-dev/ansible
 
 generate-pkl:
 	$(MAKE) -C devtools/gh-nudge generate-pkl
-
-# Fail when a generator adds an untracked file under GENERATED_PATHS or
-# changes a pre-existing untracked file there. An unchanged pre-existing
-# untracked file is not a failure.
-check-generated:
-	@mkdir -p .tmp
-	@git ls-files --others --exclude-standard -- $(GENERATED_PATHS) | sort | while IFS= read -r f; do \
-		[ -n "$$f" ] || continue; \
-		printf '%s\t%s\n' "$$(git hash-object "$$f")" "$$f"; \
-	done > .tmp/check-generated-before
-	@$(MAKE) generate-ansible generate-pkl
-	@STATUS=0; \
-	if ! git diff --quiet -- $(GENERATED_PATHS); then \
-		STALE=$$(git diff --cached --name-only -- $(GENERATED_PATHS)); \
-		if [ -n "$$STALE" ]; then \
-			echo "Error: Staged generated files are out of date. Regenerated output differs from staged content."; \
-			echo "Run 'make all' and re-stage the generated files:"; \
-			git diff --name-only -- $(GENERATED_PATHS); \
-			STATUS=1; \
-		else \
-			echo "Warning: Generated files differ from index but none are staged for this commit."; \
-			echo "If your commit includes source changes that affect code generation, stage the generated files:"; \
-			git diff --name-only -- $(GENERATED_PATHS); \
-		fi; \
-	fi; \
-	git ls-files --others --exclude-standard -- $(GENERATED_PATHS) | sort | while IFS= read -r f; do \
-		[ -n "$$f" ] || continue; \
-		printf '%s\t%s\n' "$$(git hash-object "$$f")" "$$f"; \
-	done > .tmp/check-generated-after; \
-	CHANGED=$$(awk -F '\t' 'FILENAME == ARGV[1] { if ($$2 != "") old[$$2] = $$1; next } $$2 == "" { next } { if (!($$2 in old)) { print $$2; bad = 1 } else if (old[$$2] != $$1) { print $$2; bad = 1 } } END { exit bad ? 1 : 0 }' .tmp/check-generated-before .tmp/check-generated-after); \
-	if [ $$? -ne 0 ]; then \
-		echo "Error: Untracked generated files found. Stage or remove them:"; \
-		echo "$$CHANGED"; \
-		STATUS=1; \
-	fi; \
-	exit $$STATUS
 
 # Coverage targets
 .PHONY: coverage coverage-report coverage-html clean-coverage

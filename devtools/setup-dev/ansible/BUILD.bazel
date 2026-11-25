@@ -348,6 +348,21 @@ test_suite(
     ],
 )
 
+sh_test(
+    name = "generated_files_test",
+    size = "small",
+    srcs = ["generated_files_test.sh"],
+    args = ["$(rootpath :generate_packages)"],
+    data = [
+        "BUILD.bazel",
+        "README.org",
+        ":generate_packages",
+    ] + glob([
+        "*.yml",
+        "qubes-templatevm-*.sh",
+    ]),
+)
+
 # GENERATED ANSIBLE TESTS - DO NOT EDIT BELOW THIS LINE
 # Individual syntax check test for each playbook (for better caching)
 
