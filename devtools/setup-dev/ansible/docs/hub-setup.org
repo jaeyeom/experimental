@@ -31,7 +31,7 @@ to the hub daemon over a forwarded socket" in the agentbus README.
 |------------------------+-------------+----------------------------------------------------------|
 | ~hub_ssh_target~       | required    | ssh target of the hub, such as ~me@hub.example~          |
 | ~client_machine_label~ | required    | this client's herdr saved-machine label on the hub       |
-| ~hub_tools_version~    | ~latest~    | ~go install~ version of agentbus and decide              |
+| ~hub_tools_version~    | ~main~      | ~go install~ version of agentbus and decide (falls back to ~experimental_ref~) |
 | ~hub_connect_timeout~  | ~5s~        | ssh connect timeout (~hubTimeout~, ~remote_timeout~)     |
 | ~hub_ssh_stable_agent~ | ~true~      | link the ssh agent socket and set ~ssh_identity_agent~   |
 | ~hub_ssh_agent_rc~     | see below   | login rc file for the stable-agent block                 |

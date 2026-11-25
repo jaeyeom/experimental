@@ -50,14 +50,28 @@
       ignore_errors: yes
       changed_when: false
 
+    - name: Compare godef installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ godef_module_version | default('') }}"
+          - "{{ ((godef_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ godef_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: godef_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip godef upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping godef: {{ (godef_version_check.stdout | from_json).reason }}"
+      when: (godef_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade godef
       command: go install github.com/rogpeppe/godef@latest
       register: godef_upgrade
       until: godef_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        godef_module_version is not defined or
-        godef_module_version == "" or
-        godef_module_version != godef_latest.stdout or
-        godef_build_go.stdout | default('') != go_toolchain_version
+      when: (godef_version_check.stdout | from_json).action == 'install'

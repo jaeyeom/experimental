@@ -50,14 +50,28 @@
       ignore_errors: yes
       changed_when: false
 
+    - name: Compare godoctor installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ godoctor_module_version | default('') }}"
+          - "{{ ((godoctor_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ godoctor_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: godoctor_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip godoctor upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping godoctor: {{ (godoctor_version_check.stdout | from_json).reason }}"
+      when: (godoctor_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade godoctor
       command: go install github.com/godoctor/godoctor@latest
       register: godoctor_upgrade
       until: godoctor_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        godoctor_module_version is not defined or
-        godoctor_module_version == "" or
-        godoctor_module_version != godoctor_latest.stdout or
-        godoctor_build_go.stdout | default('') != go_toolchain_version
+      when: (godoctor_version_check.stdout | from_json).action == 'install'

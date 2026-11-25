@@ -50,14 +50,28 @@
       ignore_errors: yes
       changed_when: false
 
+    - name: Compare grpcui installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ grpcui_module_version | default('') }}"
+          - "{{ ((grpcui_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ grpcui_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: grpcui_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip grpcui upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping grpcui: {{ (grpcui_version_check.stdout | from_json).reason }}"
+      when: (grpcui_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade grpcui
       command: go install github.com/fullstorydev/grpcui/cmd/grpcui@latest
       register: grpcui_upgrade
       until: grpcui_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        grpcui_module_version is not defined or
-        grpcui_module_version == "" or
-        grpcui_module_version != grpcui_latest.stdout or
-        grpcui_build_go.stdout | default('') != go_toolchain_version
+      when: (grpcui_version_check.stdout | from_json).action == 'install'

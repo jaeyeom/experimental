@@ -6,6 +6,11 @@
 
 - name: Ensure repo-sync is present
   hosts: all
+  # The first file found is loaded. /dev/null keeps a missing vars file
+  # from failing the play.
+  vars_files:
+    - - "{{ (lookup('ansible.builtin.env', 'XDG_CONFIG_HOME') or (lookup('ansible.builtin.env', 'HOME') ~ '/.config')) ~ '/setup-dev/vars.yml' }}"
+      - /dev/null
   tasks:
     - name: Include guard for repo-sync playbook
       block:
@@ -30,7 +35,7 @@
             repo_sync_module_path: "{{ repo_sync_installed.stdout.split()[1] }}"
             repo_sync_module_version: "{{ repo_sync_installed.stdout.split()[2] }}"
         - name: Determine the latest repo-sync version
-          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ repo_sync_module_path }}@latest"
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ repo_sync_module_path }}@{{ experimental_ref | default('main') }}"
           register: repo_sync_latest
           ignore_errors: yes
           changed_when: False
@@ -50,14 +55,28 @@
       ignore_errors: yes
       changed_when: false
 
+    - name: Compare repo-sync installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ repo_sync_module_version | default('') }}"
+          - "{{ ((repo_sync_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ repo_sync_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: repo_sync_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip repo-sync upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping repo-sync: {{ (repo_sync_version_check.stdout | from_json).reason }}"
+      when: (repo_sync_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade repo-sync
-      command: go install github.com/jaeyeom/experimental/devtools/repo-sync/cmd/repo-sync@latest
+      command: go install github.com/jaeyeom/experimental/devtools/repo-sync/cmd/repo-sync@{{ experimental_ref | default('main') }}
       register: repo_sync_upgrade
       until: repo_sync_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        repo_sync_module_version is not defined or
-        repo_sync_module_version == "" or
-        repo_sync_module_version != repo_sync_latest.stdout or
-        repo_sync_build_go.stdout | default('') != go_toolchain_version
+      when: (repo_sync_version_check.stdout | from_json).action == 'install'

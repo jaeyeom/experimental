@@ -50,14 +50,28 @@
       ignore_errors: yes
       changed_when: false
 
+    - name: Compare image2ascii installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ image2ascii_module_version | default('') }}"
+          - "{{ ((image2ascii_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ image2ascii_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: image2ascii_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip image2ascii upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping image2ascii: {{ (image2ascii_version_check.stdout | from_json).reason }}"
+      when: (image2ascii_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade image2ascii
       command: go install github.com/qeesung/image2ascii@latest
       register: image2ascii_upgrade
       until: image2ascii_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        image2ascii_module_version is not defined or
-        image2ascii_module_version == "" or
-        image2ascii_module_version != image2ascii_latest.stdout or
-        image2ascii_build_go.stdout | default('') != go_toolchain_version
+      when: (image2ascii_version_check.stdout | from_json).action == 'install'

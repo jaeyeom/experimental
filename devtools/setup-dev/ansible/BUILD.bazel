@@ -349,6 +349,27 @@ test_suite(
 )
 
 sh_test(
+    name = "go_install_version_test",
+    srcs = ["go_install_version_test.sh"],
+    data = [
+        "decide.yml",
+        "diskwatch.yml",
+        "gather-facts.yml",
+        "go.yml",
+        "go_version_compare.py",
+        "gopls.yml",
+        "inventory.ini",
+        "setup-hub-client.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "generated_files_test",
     size = "small",
     srcs = ["generated_files_test.sh"],

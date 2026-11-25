@@ -251,7 +251,31 @@ func (g GoInstallMethod) RenderSetupTasks(_ string) string {
 	return ""
 }
 
-const agenticFactoryModule = "github.com/jaeyeom/agentic-factory"
+const (
+	agenticFactoryModule = "github.com/jaeyeom/agentic-factory"
+	experimentalModule   = "github.com/jaeyeom/experimental"
+)
+
+func (g GoInstallMethod) isExperimental() bool {
+	pkg, _, _ := strings.Cut(g.PkgPath, "@")
+	return pkg == experimentalModule || strings.HasPrefix(pkg, experimentalModule+"/")
+}
+
+// targetParts returns the package path without "@ref" and the target ref
+// string/expression used by both `go list -m` and `go install`.
+func (g GoInstallMethod) targetParts() (pkg, ref string) {
+	pkg, rawRef, ok := strings.Cut(g.PkgPath, "@")
+	if !ok || rawRef == "" {
+		rawRef = "latest"
+	}
+	if g.isExperimental() {
+		if rawRef == "latest" {
+			rawRef = "main"
+		}
+		return pkg, "{{ experimental_ref | default('" + rawRef + "') }}"
+	}
+	return pkg, rawRef
+}
 
 // privateFactoryFetchEnv is the Ansible environment for go list and go install
 // of github.com/jaeyeom/agentic-factory. keySpaces is the indent of the
@@ -275,6 +299,7 @@ environment:
 
 func (g GoInstallMethod) RenderInstallTask(command string) string {
 	commandID := strings.ReplaceAll(command, "-", "_")
+	pkg, ref := g.targetParts()
 	return `    - name: Check if ` + command + ` is installed
       shell: go version -m $(command -v ` + command + `) | grep '^\s*mod\s'
       register: ` + commandID + `_installed
@@ -288,7 +313,7 @@ func (g GoInstallMethod) RenderInstallTask(command string) string {
             ` + commandID + `_module_path: "{{ ` + commandID + `_installed.stdout.split()[1] }}"
             ` + commandID + `_module_version: "{{ ` + commandID + `_installed.stdout.split()[2] }}"
         - name: Determine the latest ` + command + ` version
-          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ ` + commandID + `_module_path }}@latest"` + g.privateFactoryFetchEnv(10) + `
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ ` + commandID + `_module_path }}@` + ref + `"` + g.privateFactoryFetchEnv(10) + `
           register: ` + commandID + `_latest
           ignore_errors: yes
           changed_when: False
@@ -308,17 +333,31 @@ func (g GoInstallMethod) RenderInstallTask(command string) string {
       ignore_errors: yes
       changed_when: false
 
+    - name: Compare ` + command + ` installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ ` + commandID + `_module_version | default('') }}"
+          - "{{ ((` + commandID + `_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ ` + commandID + `_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: ` + commandID + `_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip ` + command + ` upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping ` + command + `: {{ (` + commandID + `_version_check.stdout | from_json).reason }}"
+      when: (` + commandID + `_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade ` + command + `
-      command: go install ` + g.PkgPath + g.privateFactoryFetchEnv(6) + `
+      command: go install ` + pkg + `@` + ref + g.privateFactoryFetchEnv(6) + `
       register: ` + commandID + `_upgrade
       until: ` + commandID + `_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        ` + commandID + `_module_version is not defined or
-        ` + commandID + `_module_version == "" or
-        ` + commandID + `_module_version != ` + commandID + `_latest.stdout or
-        ` + commandID + `_build_go.stdout | default('') != go_toolchain_version`
+      when: (` + commandID + `_version_check.stdout | from_json).action == 'install'`
 }
 
 func (g GoInstallMethod) RenderBlockInstallTask(command string) string {

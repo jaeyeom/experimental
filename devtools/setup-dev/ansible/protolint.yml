@@ -50,14 +50,28 @@
       ignore_errors: yes
       changed_when: false
 
+    - name: Compare protolint installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ protolint_module_version | default('') }}"
+          - "{{ ((protolint_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ protolint_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: protolint_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip protolint upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping protolint: {{ (protolint_version_check.stdout | from_json).reason }}"
+      when: (protolint_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade protolint
       command: go install github.com/yoheimuta/protolint/cmd/protolint@latest
       register: protolint_upgrade
       until: protolint_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        protolint_module_version is not defined or
-        protolint_module_version == "" or
-        protolint_module_version != protolint_latest.stdout or
-        protolint_build_go.stdout | default('') != go_toolchain_version
+      when: (protolint_version_check.stdout | from_json).action == 'install'

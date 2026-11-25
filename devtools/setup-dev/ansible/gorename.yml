@@ -50,14 +50,28 @@
       ignore_errors: yes
       changed_when: false
 
+    - name: Compare gorename installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ gorename_module_version | default('') }}"
+          - "{{ ((gorename_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ gorename_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: gorename_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip gorename upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping gorename: {{ (gorename_version_check.stdout | from_json).reason }}"
+      when: (gorename_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade gorename
       command: go install golang.org/x/tools/cmd/gorename@latest
       register: gorename_upgrade
       until: gorename_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        gorename_module_version is not defined or
-        gorename_module_version == "" or
-        gorename_module_version != gorename_latest.stdout or
-        gorename_build_go.stdout | default('') != go_toolchain_version
+      when: (gorename_version_check.stdout | from_json).action == 'install'

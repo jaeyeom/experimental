@@ -276,6 +276,17 @@ func (p PlatformSpecificTool) HasConditionalImports() bool {
 	return false
 }
 
+// UsesExperimentalRef returns true if any platform install method targets a
+// Go module inside github.com/jaeyeom/experimental.
+func (p PlatformSpecificTool) UsesExperimentalRef() bool {
+	for _, method := range p.platforms {
+		if g, ok := method.(GoInstallMethod); ok && g.isExperimental() {
+			return true
+		}
+	}
+	return false
+}
+
 // GetPostImports returns the imports that should be emitted after the install
 // play (i.e. those marked PostInstall: true). The When field is preserved as-is
 // from the explicit Imports slice; only explicit imports can be post-install.

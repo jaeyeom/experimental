@@ -50,14 +50,28 @@
       ignore_errors: yes
       changed_when: false
 
+    - name: Compare goimports installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ goimports_module_version | default('') }}"
+          - "{{ ((goimports_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ goimports_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: goimports_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip goimports upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping goimports: {{ (goimports_version_check.stdout | from_json).reason }}"
+      when: (goimports_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade goimports
       command: go install golang.org/x/tools/cmd/goimports@latest
       register: goimports_upgrade
       until: goimports_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        goimports_module_version is not defined or
-        goimports_module_version == "" or
-        goimports_module_version != goimports_latest.stdout or
-        goimports_build_go.stdout | default('') != go_toolchain_version
+      when: (goimports_version_check.stdout | from_json).action == 'install'

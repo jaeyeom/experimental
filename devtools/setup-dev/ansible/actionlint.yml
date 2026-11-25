@@ -67,17 +67,31 @@
           ignore_errors: yes
           changed_when: false
 
+        - name: Compare actionlint installed and target versions
+          ansible.builtin.command:
+            argv:
+              - python3
+              - "{{ playbook_dir }}/go_version_compare.py"
+              - "{{ actionlint_module_version | default('') }}"
+              - "{{ ((actionlint_latest | default({})).stdout | default('')) | trim }}"
+              - "{{ actionlint_build_go.stdout | default('') | trim }}"
+              - "{{ go_toolchain_version | default('') | trim }}"
+          register: actionlint_version_check
+          changed_when: false
+          check_mode: false
+
+        - name: Skip actionlint upgrade when target is not newer
+          ansible.builtin.debug:
+            msg: "Skipping actionlint: {{ (actionlint_version_check.stdout | from_json).reason }}"
+          when: (actionlint_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
         - name: Upgrade actionlint
           command: go install github.com/rhysd/actionlint/cmd/actionlint@latest
           register: actionlint_upgrade
           until: actionlint_upgrade is succeeded
           retries: 3
           delay: 30
-          when: >
-            actionlint_module_version is not defined or
-            actionlint_module_version == "" or
-            actionlint_module_version != actionlint_latest.stdout or
-            actionlint_build_go.stdout | default('') != go_toolchain_version
+          when: (actionlint_version_check.stdout | from_json).action == 'install'
       when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
     - name: Install actionlint via go on Debian/Ubuntu
@@ -115,15 +129,29 @@
           ignore_errors: yes
           changed_when: false
 
+        - name: Compare actionlint installed and target versions
+          ansible.builtin.command:
+            argv:
+              - python3
+              - "{{ playbook_dir }}/go_version_compare.py"
+              - "{{ actionlint_module_version | default('') }}"
+              - "{{ ((actionlint_latest | default({})).stdout | default('')) | trim }}"
+              - "{{ actionlint_build_go.stdout | default('') | trim }}"
+              - "{{ go_toolchain_version | default('') | trim }}"
+          register: actionlint_version_check
+          changed_when: false
+          check_mode: false
+
+        - name: Skip actionlint upgrade when target is not newer
+          ansible.builtin.debug:
+            msg: "Skipping actionlint: {{ (actionlint_version_check.stdout | from_json).reason }}"
+          when: (actionlint_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
         - name: Upgrade actionlint
           command: go install github.com/rhysd/actionlint/cmd/actionlint@latest
           register: actionlint_upgrade
           until: actionlint_upgrade is succeeded
           retries: 3
           delay: 30
-          when: >
-            actionlint_module_version is not defined or
-            actionlint_module_version == "" or
-            actionlint_module_version != actionlint_latest.stdout or
-            actionlint_build_go.stdout | default('') != go_toolchain_version
+          when: (actionlint_version_check.stdout | from_json).action == 'install'
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"

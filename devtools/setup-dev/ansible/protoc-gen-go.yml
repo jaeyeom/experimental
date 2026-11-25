@@ -51,14 +51,28 @@
       ignore_errors: yes
       changed_when: false
 
+    - name: Compare protoc-gen-go installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ protoc_gen_go_module_version | default('') }}"
+          - "{{ ((protoc_gen_go_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ protoc_gen_go_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: protoc_gen_go_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip protoc-gen-go upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping protoc-gen-go: {{ (protoc_gen_go_version_check.stdout | from_json).reason }}"
+      when: (protoc_gen_go_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade protoc-gen-go
       command: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
       register: protoc_gen_go_upgrade
       until: protoc_gen_go_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        protoc_gen_go_module_version is not defined or
-        protoc_gen_go_module_version == "" or
-        protoc_gen_go_module_version != protoc_gen_go_latest.stdout or
-        protoc_gen_go_build_go.stdout | default('') != go_toolchain_version
+      when: (protoc_gen_go_version_check.stdout | from_json).action == 'install'

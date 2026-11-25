@@ -50,14 +50,28 @@
       ignore_errors: yes
       changed_when: false
 
+    - name: Compare gomodifytags installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ gomodifytags_module_version | default('') }}"
+          - "{{ ((gomodifytags_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ gomodifytags_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: gomodifytags_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip gomodifytags upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping gomodifytags: {{ (gomodifytags_version_check.stdout | from_json).reason }}"
+      when: (gomodifytags_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade gomodifytags
       command: go install github.com/fatih/gomodifytags@latest
       register: gomodifytags_upgrade
       until: gomodifytags_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        gomodifytags_module_version is not defined or
-        gomodifytags_module_version == "" or
-        gomodifytags_module_version != gomodifytags_latest.stdout or
-        gomodifytags_build_go.stdout | default('') != go_toolchain_version
+      when: (gomodifytags_version_check.stdout | from_json).action == 'install'

@@ -50,14 +50,28 @@
       ignore_errors: yes
       changed_when: false
 
+    - name: Compare buildifier installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ buildifier_module_version | default('') }}"
+          - "{{ ((buildifier_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ buildifier_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: buildifier_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip buildifier upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping buildifier: {{ (buildifier_version_check.stdout | from_json).reason }}"
+      when: (buildifier_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade buildifier
       command: go install github.com/bazelbuild/buildtools/buildifier@latest
       register: buildifier_upgrade
       until: buildifier_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        buildifier_module_version is not defined or
-        buildifier_module_version == "" or
-        buildifier_module_version != buildifier_latest.stdout or
-        buildifier_build_go.stdout | default('') != go_toolchain_version
+      when: (buildifier_version_check.stdout | from_json).action == 'install'

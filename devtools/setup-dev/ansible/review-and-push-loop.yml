@@ -7,6 +7,11 @@
 
 - name: Ensure review-and-push-loop is present
   hosts: all
+  # The first file found is loaded. /dev/null keeps a missing vars file
+  # from failing the play.
+  vars_files:
+    - - "{{ (lookup('ansible.builtin.env', 'XDG_CONFIG_HOME') or (lookup('ansible.builtin.env', 'HOME') ~ '/.config')) ~ '/setup-dev/vars.yml' }}"
+      - /dev/null
   tasks:
     - name: Include guard for review-and-push-loop playbook
       block:
@@ -31,7 +36,7 @@
             review_and_push_loop_module_path: "{{ review_and_push_loop_installed.stdout.split()[1] }}"
             review_and_push_loop_module_version: "{{ review_and_push_loop_installed.stdout.split()[2] }}"
         - name: Determine the latest review-and-push-loop version
-          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ review_and_push_loop_module_path }}@latest"
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ review_and_push_loop_module_path }}@{{ experimental_ref | default('main') }}"
           register: review_and_push_loop_latest
           ignore_errors: yes
           changed_when: False
@@ -51,14 +56,28 @@
       ignore_errors: yes
       changed_when: false
 
+    - name: Compare review-and-push-loop installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ review_and_push_loop_module_version | default('') }}"
+          - "{{ ((review_and_push_loop_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ review_and_push_loop_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: review_and_push_loop_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip review-and-push-loop upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping review-and-push-loop: {{ (review_and_push_loop_version_check.stdout | from_json).reason }}"
+      when: (review_and_push_loop_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade review-and-push-loop
-      command: go install github.com/jaeyeom/experimental/devtools/reviewpush/cmd/review-and-push-loop@latest
+      command: go install github.com/jaeyeom/experimental/devtools/reviewpush/cmd/review-and-push-loop@{{ experimental_ref | default('main') }}
       register: review_and_push_loop_upgrade
       until: review_and_push_loop_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        review_and_push_loop_module_version is not defined or
-        review_and_push_loop_module_version == "" or
-        review_and_push_loop_module_version != review_and_push_loop_latest.stdout or
-        review_and_push_loop_build_go.stdout | default('') != go_toolchain_version
+      when: (review_and_push_loop_version_check.stdout | from_json).action == 'install'

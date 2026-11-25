@@ -7,6 +7,11 @@
 
 - name: Ensure org-lint is present
   hosts: all
+  # The first file found is loaded. /dev/null keeps a missing vars file
+  # from failing the play.
+  vars_files:
+    - - "{{ (lookup('ansible.builtin.env', 'XDG_CONFIG_HOME') or (lookup('ansible.builtin.env', 'HOME') ~ '/.config')) ~ '/setup-dev/vars.yml' }}"
+      - /dev/null
   tasks:
     - name: Include guard for org-lint playbook
       block:
@@ -31,7 +36,7 @@
             org_lint_module_path: "{{ org_lint_installed.stdout.split()[1] }}"
             org_lint_module_version: "{{ org_lint_installed.stdout.split()[2] }}"
         - name: Determine the latest org-lint version
-          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ org_lint_module_path }}@latest"
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ org_lint_module_path }}@{{ experimental_ref | default('main') }}"
           register: org_lint_latest
           ignore_errors: yes
           changed_when: False
@@ -51,14 +56,28 @@
       ignore_errors: yes
       changed_when: false
 
+    - name: Compare org-lint installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ org_lint_module_version | default('') }}"
+          - "{{ ((org_lint_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ org_lint_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: org_lint_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip org-lint upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping org-lint: {{ (org_lint_version_check.stdout | from_json).reason }}"
+      when: (org_lint_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade org-lint
-      command: go install github.com/jaeyeom/experimental/devtools/linters/cmd/org-lint@latest
+      command: go install github.com/jaeyeom/experimental/devtools/linters/cmd/org-lint@{{ experimental_ref | default('main') }}
       register: org_lint_upgrade
       until: org_lint_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        org_lint_module_version is not defined or
-        org_lint_module_version == "" or
-        org_lint_module_version != org_lint_latest.stdout or
-        org_lint_build_go.stdout | default('') != go_toolchain_version
+      when: (org_lint_version_check.stdout | from_json).action == 'install'

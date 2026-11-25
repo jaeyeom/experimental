@@ -715,7 +715,7 @@ func TestDecideGoTool(t *testing.T) {
 	if !ok {
 		t.Fatalf("decide PlatformAll method = %T, want GoInstallMethod", tool.platforms[PlatformAll])
 	}
-	wantPath := "github.com/jaeyeom/experimental/devtools/decide/cmd/decide@latest"
+	wantPath := "github.com/jaeyeom/experimental/devtools/decide/cmd/decide@main"
 	if method.PkgPath != wantPath {
 		t.Errorf("decide PkgPath = %q, want %q", method.PkgPath, wantPath)
 	}
@@ -731,7 +731,7 @@ func TestSlackwatchGoTool(t *testing.T) {
 	if !ok {
 		t.Fatalf("slackwatch PlatformAll method = %T, want GoInstallMethod", tool.platforms[PlatformAll])
 	}
-	wantPath := "github.com/jaeyeom/experimental/devtools/slackwatch/cmd/slackwatch@latest"
+	wantPath := "github.com/jaeyeom/experimental/devtools/slackwatch/cmd/slackwatch@main"
 	if method.PkgPath != wantPath {
 		t.Errorf("slackwatch PkgPath = %q, want %q", method.PkgPath, wantPath)
 	}
@@ -747,7 +747,7 @@ func TestPrsyncGoTool(t *testing.T) {
 	if !ok {
 		t.Fatalf("prsync PlatformAll method = %T, want GoInstallMethod", tool.platforms[PlatformAll])
 	}
-	wantPath := "github.com/jaeyeom/experimental/devtools/prsync/cmd/prsync@latest"
+	wantPath := "github.com/jaeyeom/experimental/devtools/prsync/cmd/prsync@main"
 	if method.PkgPath != wantPath {
 		t.Errorf("prsync PkgPath = %q, want %q", method.PkgPath, wantPath)
 	}

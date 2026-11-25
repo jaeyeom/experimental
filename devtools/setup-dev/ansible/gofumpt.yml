@@ -50,14 +50,28 @@
       ignore_errors: yes
       changed_when: false
 
+    - name: Compare gofumpt installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ gofumpt_module_version | default('') }}"
+          - "{{ ((gofumpt_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ gofumpt_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: gofumpt_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip gofumpt upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping gofumpt: {{ (gofumpt_version_check.stdout | from_json).reason }}"
+      when: (gofumpt_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade gofumpt
       command: go install mvdan.cc/gofumpt@latest
       register: gofumpt_upgrade
       until: gofumpt_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        gofumpt_module_version is not defined or
-        gofumpt_module_version == "" or
-        gofumpt_module_version != gofumpt_latest.stdout or
-        gofumpt_build_go.stdout | default('') != go_toolchain_version
+      when: (gofumpt_version_check.stdout | from_json).action == 'install'

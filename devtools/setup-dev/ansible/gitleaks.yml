@@ -66,17 +66,31 @@
           ignore_errors: yes
           changed_when: false
 
+        - name: Compare gitleaks installed and target versions
+          ansible.builtin.command:
+            argv:
+              - python3
+              - "{{ playbook_dir }}/go_version_compare.py"
+              - "{{ gitleaks_module_version | default('') }}"
+              - "{{ ((gitleaks_latest | default({})).stdout | default('')) | trim }}"
+              - "{{ gitleaks_build_go.stdout | default('') | trim }}"
+              - "{{ go_toolchain_version | default('') | trim }}"
+          register: gitleaks_version_check
+          changed_when: false
+          check_mode: false
+
+        - name: Skip gitleaks upgrade when target is not newer
+          ansible.builtin.debug:
+            msg: "Skipping gitleaks: {{ (gitleaks_version_check.stdout | from_json).reason }}"
+          when: (gitleaks_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
         - name: Upgrade gitleaks
           command: go install github.com/zricethezav/gitleaks/v8@latest
           register: gitleaks_upgrade
           until: gitleaks_upgrade is succeeded
           retries: 3
           delay: 30
-          when: >
-            gitleaks_module_version is not defined or
-            gitleaks_module_version == "" or
-            gitleaks_module_version != gitleaks_latest.stdout or
-            gitleaks_build_go.stdout | default('') != go_toolchain_version
+          when: (gitleaks_version_check.stdout | from_json).action == 'install'
       when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
     - name: Install gitleaks via go on Debian/Ubuntu
@@ -114,15 +128,29 @@
           ignore_errors: yes
           changed_when: false
 
+        - name: Compare gitleaks installed and target versions
+          ansible.builtin.command:
+            argv:
+              - python3
+              - "{{ playbook_dir }}/go_version_compare.py"
+              - "{{ gitleaks_module_version | default('') }}"
+              - "{{ ((gitleaks_latest | default({})).stdout | default('')) | trim }}"
+              - "{{ gitleaks_build_go.stdout | default('') | trim }}"
+              - "{{ go_toolchain_version | default('') | trim }}"
+          register: gitleaks_version_check
+          changed_when: false
+          check_mode: false
+
+        - name: Skip gitleaks upgrade when target is not newer
+          ansible.builtin.debug:
+            msg: "Skipping gitleaks: {{ (gitleaks_version_check.stdout | from_json).reason }}"
+          when: (gitleaks_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
         - name: Upgrade gitleaks
           command: go install github.com/zricethezav/gitleaks/v8@latest
           register: gitleaks_upgrade
           until: gitleaks_upgrade is succeeded
           retries: 3
           delay: 30
-          when: >
-            gitleaks_module_version is not defined or
-            gitleaks_module_version == "" or
-            gitleaks_module_version != gitleaks_latest.stdout or
-            gitleaks_build_go.stdout | default('') != go_toolchain_version
+          when: (gitleaks_version_check.stdout | from_json).action == 'install'
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"

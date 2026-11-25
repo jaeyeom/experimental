@@ -50,14 +50,28 @@
       ignore_errors: yes
       changed_when: false
 
+    - name: Compare jira installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ jira_module_version | default('') }}"
+          - "{{ ((jira_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ jira_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: jira_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip jira upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping jira: {{ (jira_version_check.stdout | from_json).reason }}"
+      when: (jira_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade jira
       command: go install github.com/ankitpokhrel/jira-cli/cmd/jira@latest
       register: jira_upgrade
       until: jira_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        jira_module_version is not defined or
-        jira_module_version == "" or
-        jira_module_version != jira_latest.stdout or
-        jira_build_go.stdout | default('') != go_toolchain_version
+      when: (jira_version_check.stdout | from_json).action == 'install'

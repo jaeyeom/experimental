@@ -6,6 +6,11 @@
 
 - name: Ensure decide is present
   hosts: all
+  # The first file found is loaded. /dev/null keeps a missing vars file
+  # from failing the play.
+  vars_files:
+    - - "{{ (lookup('ansible.builtin.env', 'XDG_CONFIG_HOME') or (lookup('ansible.builtin.env', 'HOME') ~ '/.config')) ~ '/setup-dev/vars.yml' }}"
+      - /dev/null
   tasks:
     - name: Include guard for decide playbook
       block:
@@ -30,7 +35,7 @@
             decide_module_path: "{{ decide_installed.stdout.split()[1] }}"
             decide_module_version: "{{ decide_installed.stdout.split()[2] }}"
         - name: Determine the latest decide version
-          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ decide_module_path }}@latest"
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ decide_module_path }}@{{ experimental_ref | default('main') }}"
           register: decide_latest
           ignore_errors: yes
           changed_when: False
@@ -50,14 +55,28 @@
       ignore_errors: yes
       changed_when: false
 
+    - name: Compare decide installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ decide_module_version | default('') }}"
+          - "{{ ((decide_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ decide_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: decide_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip decide upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping decide: {{ (decide_version_check.stdout | from_json).reason }}"
+      when: (decide_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade decide
-      command: go install github.com/jaeyeom/experimental/devtools/decide/cmd/decide@latest
+      command: go install github.com/jaeyeom/experimental/devtools/decide/cmd/decide@{{ experimental_ref | default('main') }}
       register: decide_upgrade
       until: decide_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        decide_module_version is not defined or
-        decide_module_version == "" or
-        decide_module_version != decide_latest.stdout or
-        decide_build_go.stdout | default('') != go_toolchain_version
+      when: (decide_version_check.stdout | from_json).action == 'install'

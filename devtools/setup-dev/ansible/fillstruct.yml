@@ -50,14 +50,28 @@
       ignore_errors: yes
       changed_when: false
 
+    - name: Compare fillstruct installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ fillstruct_module_version | default('') }}"
+          - "{{ ((fillstruct_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ fillstruct_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: fillstruct_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip fillstruct upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping fillstruct: {{ (fillstruct_version_check.stdout | from_json).reason }}"
+      when: (fillstruct_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade fillstruct
       command: go install github.com/davidrjenni/reftools/cmd/fillstruct@latest
       register: fillstruct_upgrade
       until: fillstruct_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        fillstruct_module_version is not defined or
-        fillstruct_module_version == "" or
-        fillstruct_module_version != fillstruct_latest.stdout or
-        fillstruct_build_go.stdout | default('') != go_toolchain_version
+      when: (fillstruct_version_check.stdout | from_json).action == 'install'

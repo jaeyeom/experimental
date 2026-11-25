@@ -67,17 +67,31 @@
           ignore_errors: yes
           changed_when: false
 
+        - name: Compare act installed and target versions
+          ansible.builtin.command:
+            argv:
+              - python3
+              - "{{ playbook_dir }}/go_version_compare.py"
+              - "{{ act_module_version | default('') }}"
+              - "{{ ((act_latest | default({})).stdout | default('')) | trim }}"
+              - "{{ act_build_go.stdout | default('') | trim }}"
+              - "{{ go_toolchain_version | default('') | trim }}"
+          register: act_version_check
+          changed_when: false
+          check_mode: false
+
+        - name: Skip act upgrade when target is not newer
+          ansible.builtin.debug:
+            msg: "Skipping act: {{ (act_version_check.stdout | from_json).reason }}"
+          when: (act_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
         - name: Upgrade act
           command: go install github.com/nektos/act@latest
           register: act_upgrade
           until: act_upgrade is succeeded
           retries: 3
           delay: 30
-          when: >
-            act_module_version is not defined or
-            act_module_version == "" or
-            act_module_version != act_latest.stdout or
-            act_build_go.stdout | default('') != go_toolchain_version
+          when: (act_version_check.stdout | from_json).action == 'install'
       when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
     - name: Install act via go on Debian/Ubuntu
@@ -115,15 +129,29 @@
           ignore_errors: yes
           changed_when: false
 
+        - name: Compare act installed and target versions
+          ansible.builtin.command:
+            argv:
+              - python3
+              - "{{ playbook_dir }}/go_version_compare.py"
+              - "{{ act_module_version | default('') }}"
+              - "{{ ((act_latest | default({})).stdout | default('')) | trim }}"
+              - "{{ act_build_go.stdout | default('') | trim }}"
+              - "{{ go_toolchain_version | default('') | trim }}"
+          register: act_version_check
+          changed_when: false
+          check_mode: false
+
+        - name: Skip act upgrade when target is not newer
+          ansible.builtin.debug:
+            msg: "Skipping act: {{ (act_version_check.stdout | from_json).reason }}"
+          when: (act_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
         - name: Upgrade act
           command: go install github.com/nektos/act@latest
           register: act_upgrade
           until: act_upgrade is succeeded
           retries: 3
           delay: 30
-          when: >
-            act_module_version is not defined or
-            act_module_version == "" or
-            act_module_version != act_latest.stdout or
-            act_build_go.stdout | default('') != go_toolchain_version
+          when: (act_version_check.stdout | from_json).action == 'install'
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"

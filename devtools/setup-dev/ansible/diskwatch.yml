@@ -5,6 +5,9 @@
 
 - name: Ensure diskwatch is present
   hosts: all
+  vars_files:
+    - - "{{ (lookup('ansible.builtin.env', 'XDG_CONFIG_HOME') or (lookup('ansible.builtin.env', 'HOME') ~ '/.config')) ~ '/setup-dev/vars.yml' }}"
+      - /dev/null
   tasks:
     - name: Include guard for diskwatch playbook
       block:
@@ -33,7 +36,7 @@
             diskwatch_module_path: "{{ diskwatch_installed.stdout.split()[1] }}"
             diskwatch_module_version: "{{ diskwatch_installed.stdout.split()[2] }}"
         - name: Determine the latest diskwatch version
-          ansible.builtin.command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ diskwatch_module_path }}@latest"
+          ansible.builtin.command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ diskwatch_module_path }}@{{ experimental_ref | default('main') }}"
           register: diskwatch_latest
           ignore_errors: true
           changed_when: false
@@ -52,17 +55,31 @@
       ignore_errors: true
       changed_when: false
 
+    - name: Compare diskwatch installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ diskwatch_module_version | default('') }}"
+          - "{{ ((diskwatch_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ diskwatch_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: diskwatch_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip diskwatch upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping diskwatch: {{ (diskwatch_version_check.stdout | from_json).reason }}"
+      when: (diskwatch_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade diskwatch
-      ansible.builtin.command: go install github.com/jaeyeom/experimental/devtools/diskwatch/cmd/diskwatch@latest
+      ansible.builtin.command: go install github.com/jaeyeom/experimental/devtools/diskwatch/cmd/diskwatch@{{ experimental_ref | default('main') }}
       register: diskwatch_upgrade
       until: diskwatch_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        diskwatch_module_version is not defined or
-        diskwatch_module_version == "" or
-        diskwatch_module_version != diskwatch_latest.stdout or
-        diskwatch_build_go.stdout | default('') != go_toolchain_version
+      when: (diskwatch_version_check.stdout | from_json).action == 'install'
 
     - name: Use XDG_CONFIG_HOME for diskwatch
       ansible.builtin.set_fact:

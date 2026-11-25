@@ -50,14 +50,28 @@
       ignore_errors: yes
       changed_when: false
 
+    - name: Compare oserrorsgodernize installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ oserrorsgodernize_module_version | default('') }}"
+          - "{{ ((oserrorsgodernize_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ oserrorsgodernize_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: oserrorsgodernize_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip oserrorsgodernize upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping oserrorsgodernize: {{ (oserrorsgodernize_version_check.stdout | from_json).reason }}"
+      when: (oserrorsgodernize_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade oserrorsgodernize
       command: go install github.com/jaeyeom/godernize/oserrors/cmd/oserrorsgodernize@latest
       register: oserrorsgodernize_upgrade
       until: oserrorsgodernize_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        oserrorsgodernize_module_version is not defined or
-        oserrorsgodernize_module_version == "" or
-        oserrorsgodernize_module_version != oserrorsgodernize_latest.stdout or
-        oserrorsgodernize_build_go.stdout | default('') != go_toolchain_version
+      when: (oserrorsgodernize_version_check.stdout | from_json).action == 'install'

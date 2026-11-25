@@ -7,6 +7,11 @@
 
 - name: Ensure gh-throttle is present
   hosts: all
+  # The first file found is loaded. /dev/null keeps a missing vars file
+  # from failing the play.
+  vars_files:
+    - - "{{ (lookup('ansible.builtin.env', 'XDG_CONFIG_HOME') or (lookup('ansible.builtin.env', 'HOME') ~ '/.config')) ~ '/setup-dev/vars.yml' }}"
+      - /dev/null
   tasks:
     - name: Include guard for gh-throttle playbook
       block:
@@ -31,7 +36,7 @@
             gh_throttle_module_path: "{{ gh_throttle_installed.stdout.split()[1] }}"
             gh_throttle_module_version: "{{ gh_throttle_installed.stdout.split()[2] }}"
         - name: Determine the latest gh-throttle version
-          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ gh_throttle_module_path }}@latest"
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ gh_throttle_module_path }}@{{ experimental_ref | default('main') }}"
           register: gh_throttle_latest
           ignore_errors: yes
           changed_when: False
@@ -51,14 +56,28 @@
       ignore_errors: yes
       changed_when: false
 
+    - name: Compare gh-throttle installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ gh_throttle_module_version | default('') }}"
+          - "{{ ((gh_throttle_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ gh_throttle_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: gh_throttle_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip gh-throttle upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping gh-throttle: {{ (gh_throttle_version_check.stdout | from_json).reason }}"
+      when: (gh_throttle_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade gh-throttle
-      command: go install github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-throttle@latest
+      command: go install github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-throttle@{{ experimental_ref | default('main') }}
       register: gh_throttle_upgrade
       until: gh_throttle_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        gh_throttle_module_version is not defined or
-        gh_throttle_module_version == "" or
-        gh_throttle_module_version != gh_throttle_latest.stdout or
-        gh_throttle_build_go.stdout | default('') != go_toolchain_version
+      when: (gh_throttle_version_check.stdout | from_json).action == 'install'

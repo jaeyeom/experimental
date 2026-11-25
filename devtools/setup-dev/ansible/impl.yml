@@ -50,14 +50,28 @@
       ignore_errors: yes
       changed_when: false
 
+    - name: Compare impl installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ impl_module_version | default('') }}"
+          - "{{ ((impl_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ impl_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: impl_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip impl upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping impl: {{ (impl_version_check.stdout | from_json).reason }}"
+      when: (impl_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade impl
       command: go install github.com/josharian/impl@latest
       register: impl_upgrade
       until: impl_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        impl_module_version is not defined or
-        impl_module_version == "" or
-        impl_module_version != impl_latest.stdout or
-        impl_build_go.stdout | default('') != go_toolchain_version
+      when: (impl_version_check.stdout | from_json).action == 'install'

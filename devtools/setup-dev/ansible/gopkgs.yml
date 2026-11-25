@@ -50,14 +50,28 @@
       ignore_errors: yes
       changed_when: false
 
+    - name: Compare gopkgs installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ gopkgs_module_version | default('') }}"
+          - "{{ ((gopkgs_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ gopkgs_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: gopkgs_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip gopkgs upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping gopkgs: {{ (gopkgs_version_check.stdout | from_json).reason }}"
+      when: (gopkgs_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade gopkgs
       command: go install github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest
       register: gopkgs_upgrade
       until: gopkgs_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        gopkgs_module_version is not defined or
-        gopkgs_module_version == "" or
-        gopkgs_module_version != gopkgs_latest.stdout or
-        gopkgs_build_go.stdout | default('') != go_toolchain_version
+      when: (gopkgs_version_check.stdout | from_json).action == 'install'

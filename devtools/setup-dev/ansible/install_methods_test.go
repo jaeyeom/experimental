@@ -248,47 +248,77 @@ func TestPipInstallMethod(t *testing.T) {
 }
 
 func TestGoInstallMethodRenderInstallTask(t *testing.T) {
-	method := GoInstallMethod{PkgPath: "example.com/mytool@latest"}
-	got := method.RenderInstallTask("my-tool")
+	t.Run("third-party module keeps @latest", func(t *testing.T) {
+		method := GoInstallMethod{PkgPath: "example.com/mytool@latest"}
+		got := method.RenderInstallTask("my-tool")
 
-	// Hyphens in the command name must become underscores in Ansible vars.
-	assertContains(t, got, []string{
-		"my_tool_installed",
-		"my_tool_module_version",
-		"my_tool_latest",
-		"my_tool_build_go",
-		"my_tool_upgrade",
+		// Hyphens in the command name must become underscores in Ansible vars.
+		assertContains(t, got, []string{
+			"my_tool_installed",
+			"my_tool_module_version",
+			"my_tool_latest",
+			"my_tool_build_go",
+			"my_tool_version_check",
+			"my_tool_upgrade",
+		})
+
+		// Build Go version is extracted from the binary metadata.
+		assertContains(t, got, []string{
+			"go version -m $(command -v my-tool)",
+			"my_tool_build_go",
+		})
+
+		// Version check resolves @latest and compares with go_version_compare.py.
+		assertContains(t, got, []string{
+			`"{{ my_tool_module_path }}@latest"`,
+			"{{ playbook_dir }}/go_version_compare.py",
+			"(my_tool_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']",
+			"(my_tool_version_check.stdout | from_json).action == 'install'",
+			"Skipping my-tool:",
+		})
+
+		// Install uses the configured package path.
+		assertContains(t, got, []string{"go install example.com/mytool@latest"})
+		// Public modules stay on the public proxy and do not reference experimental_ref.
+		assertNotContains(t, got, []string{"GOPRIVATE", "experimental_ref"})
+
+		if got := method.GetMethodType(); got != "go" {
+			t.Errorf("GetMethodType() = %q, want go", got)
+		}
+		if setup := method.RenderSetupTasks("my-tool"); setup != "" {
+			t.Errorf("RenderSetupTasks() = %q, want empty", setup)
+		}
+		block := method.RenderBlockInstallTask("my-tool")
+		if !strings.HasPrefix(block, "    ") {
+			t.Errorf("RenderBlockInstallTask should indent:\n%s", block)
+		}
 	})
 
-	// Build Go version is extracted from the binary metadata.
-	assertContains(t, got, []string{
-		"go version -m $(command -v my-tool)",
-		"my_tool_build_go",
+	t.Run("experimental module uses experimental_ref defaulting to main", func(t *testing.T) {
+		method := GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/decide/cmd/decide@main"}
+		got := method.RenderInstallTask("decide")
+
+		listTask := ansibleTask(t, got, "Determine the latest decide version")
+		installTask := ansibleTask(t, got, "Upgrade decide")
+		assertContains(t, listTask, []string{
+			`"{{ decide_module_path }}@{{ experimental_ref | default('main') }}"`,
+		})
+		assertContains(t, installTask, []string{
+			"go install github.com/jaeyeom/experimental/devtools/decide/cmd/decide@{{ experimental_ref | default('main') }}",
+		})
+		assertNotContains(t, got, []string{"@latest"})
 	})
 
-	// Upgrade when module is missing/outdated OR built with a different toolchain.
-	assertContains(t, got, []string{
-		"my_tool_module_version is not defined",
-		"my_tool_module_version == \"\"",
-		"my_tool_module_version != my_tool_latest.stdout",
-		"my_tool_build_go.stdout | default('') != go_toolchain_version",
+	t.Run("pinned third-party ref resolves same ref in go list and go install", func(t *testing.T) {
+		method := GoInstallMethod{PkgPath: "example.com/mytool@v1.2.3"}
+		got := method.RenderInstallTask("my-tool")
+
+		listTask := ansibleTask(t, got, "Determine the latest my-tool version")
+		installTask := ansibleTask(t, got, "Upgrade my-tool")
+		assertContains(t, listTask, []string{`"{{ my_tool_module_path }}@v1.2.3"`})
+		assertContains(t, installTask, []string{"go install example.com/mytool@v1.2.3"})
+		assertNotContains(t, got, []string{"@latest"})
 	})
-
-	// Install uses the configured package path.
-	assertContains(t, got, []string{"go install example.com/mytool@latest"})
-	// Public modules stay on the public proxy.
-	assertNotContains(t, got, []string{"GOPRIVATE"})
-
-	if got := method.GetMethodType(); got != "go" {
-		t.Errorf("GetMethodType() = %q, want go", got)
-	}
-	if setup := method.RenderSetupTasks("my-tool"); setup != "" {
-		t.Errorf("RenderSetupTasks() = %q, want empty", setup)
-	}
-	block := method.RenderBlockInstallTask("my-tool")
-	if !strings.HasPrefix(block, "    ") {
-		t.Errorf("RenderBlockInstallTask should indent:\n%s", block)
-	}
 }
 
 func ansibleTask(t *testing.T, yamlText, name string) string {
@@ -329,9 +359,9 @@ func TestGoInstallMethodPrivateFactoryEnv(t *testing.T) {
 	}
 	assertContains(t, listTask, wantEnv)
 	assertContains(t, installTask, wantEnv)
-	// The generated when already upgrades when the module version differs.
+	// The upgrade task gates on the semver comparison output.
 	assertContains(t, installTask, []string{
-		"factory_module_version != factory_latest.stdout",
+		"(factory_version_check.stdout | from_json).action == 'install'",
 	})
 
 	for _, name := range []string{

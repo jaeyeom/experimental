@@ -186,3 +186,14 @@ func TestGhExtension(t *testing.T) {
 		t.Errorf("Repo = %q", method.Repo)
 	}
 }
+
+func TestUsesExperimentalRef(t *testing.T) {
+	exp := experimentalGoTool("decide", "devtools/decide/cmd/decide")
+	if !exp.UsesExperimentalRef() {
+		t.Error("expected UsesExperimentalRef() = true for experimental GoTool")
+	}
+	thirdParty := GoTool("gopls", "golang.org/x/tools/gopls@latest")
+	if thirdParty.UsesExperimentalRef() {
+		t.Error("expected UsesExperimentalRef() = false for third-party GoTool")
+	}
+}

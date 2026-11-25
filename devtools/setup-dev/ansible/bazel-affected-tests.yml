@@ -50,14 +50,28 @@
       ignore_errors: yes
       changed_when: false
 
+    - name: Compare bazel-affected-tests installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ bazel_affected_tests_module_version | default('') }}"
+          - "{{ ((bazel_affected_tests_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ bazel_affected_tests_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: bazel_affected_tests_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip bazel-affected-tests upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping bazel-affected-tests: {{ (bazel_affected_tests_version_check.stdout | from_json).reason }}"
+      when: (bazel_affected_tests_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade bazel-affected-tests
       command: go install github.com/jaeyeom/bazel-affected-tests/cmd/bazel-affected-tests@latest
       register: bazel_affected_tests_upgrade
       until: bazel_affected_tests_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        bazel_affected_tests_module_version is not defined or
-        bazel_affected_tests_module_version == "" or
-        bazel_affected_tests_module_version != bazel_affected_tests_latest.stdout or
-        bazel_affected_tests_build_go.stdout | default('') != go_toolchain_version
+      when: (bazel_affected_tests_version_check.stdout | from_json).action == 'install'

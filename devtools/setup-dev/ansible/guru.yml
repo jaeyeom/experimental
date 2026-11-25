@@ -50,14 +50,28 @@
       ignore_errors: yes
       changed_when: false
 
+    - name: Compare guru installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ guru_module_version | default('') }}"
+          - "{{ ((guru_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ guru_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: guru_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip guru upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping guru: {{ (guru_version_check.stdout | from_json).reason }}"
+      when: (guru_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade guru
       command: go install golang.org/x/tools/cmd/guru@latest
       register: guru_upgrade
       until: guru_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        guru_module_version is not defined or
-        guru_module_version == "" or
-        guru_module_version != guru_latest.stdout or
-        guru_build_go.stdout | default('') != go_toolchain_version
+      when: (guru_version_check.stdout | from_json).action == 'install'

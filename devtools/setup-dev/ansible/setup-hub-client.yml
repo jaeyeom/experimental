@@ -43,8 +43,8 @@
 #   hub_ssh_target        required, the ssh target of the hub
 #   client_machine_label  required, this machine's herdr saved-machine
 #                         label on the hub
-#   hub_tools_version     go install version: a tag, a commit, or latest
-#                         (default latest)
+#   hub_tools_version     go install version: a branch, tag, or commit
+#                         (default experimental_ref or main)
 #   hub_connect_timeout   ssh connect timeout (default 5s)
 #   hub_ssh_stable_agent  stable agent socket (default true; false opts out)
 #   hub_ssh_agent_rc      login rc for that block. Unset: the file
@@ -74,7 +74,7 @@
   vars:
     hub_client_target: "{{ hub_ssh_target | default('') }}"
     hub_client_machine: "{{ client_machine_label | default('') }}"
-    hub_client_version: "{{ hub_tools_version | default('latest') }}"
+    hub_client_version: "{{ hub_tools_version | default(experimental_ref | default('main')) }}"
     hub_client_timeout: "{{ hub_connect_timeout | default('5s') }}"
     hub_client_stable_agent: "{{ hub_ssh_stable_agent | default(true) | bool }}"
     hub_client_agent_rc: "{{ hub_ssh_agent_rc | default('') }}"
@@ -113,8 +113,8 @@
         quiet: true
       tags: always
 
-    # A tag, a commit, or latest resolves to one module version (a commit
-    # to its pseudo-version), so a binary already at it is left alone.
+    # A branch, tag, or commit resolves to one module version (a commit or
+    # branch to its pseudo-version), so a binary at or ahead of it is left alone.
     - name: Resolve hub_tools_version to a module version
       ansible.builtin.command:
         argv: [go, list, -m, -f, "{{ '{{' }}.Version{{ '}}' }}", "{{ hub_client_module }}@{{ hub_client_version }}"]
@@ -134,12 +134,36 @@
       check_mode: false
       tags: hub-install
 
-    - name: Install agentbus and decide
-      ansible.builtin.command: go install {{ item.item }}@{{ hub_client_resolved.stdout }}
+    - name: Compare installed agentbus and decide versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ item.stdout | trim }}"
+          - "{{ hub_client_resolved.stdout | trim }}"
       loop: "{{ hub_client_installed.results }}"
       loop_control:
         label: "{{ item.item | basename }}"
-      when: item.stdout != hub_client_resolved.stdout
+      register: hub_client_version_checks
+      changed_when: false
+      check_mode: false
+      tags: hub-install
+
+    - name: Skip agentbus or decide upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping {{ item.item.item | basename }}: {{ (item.stdout | from_json).reason }}"
+      loop: "{{ hub_client_version_checks.results }}"
+      loop_control:
+        label: "{{ item.item.item | basename }}"
+      when: (item.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+      tags: hub-install
+
+    - name: Install agentbus and decide
+      ansible.builtin.command: go install {{ item.item.item }}@{{ hub_client_resolved.stdout }}
+      loop: "{{ hub_client_version_checks.results }}"
+      loop_control:
+        label: "{{ item.item.item | basename }}"
+      when: (item.stdout | from_json).action == 'install'
       register: hub_client_install
       until: hub_client_install is succeeded
       retries: 3

@@ -99,10 +99,11 @@ repository and is optional. A playbook loads it with
 ~vars_files~ when it reads such a setting, and ~-e~ still overrides it
 for one run.
 
-| Variable                  | Playbook                 | Effect                                  |
-|---------------------------+--------------------------+-----------------------------------------|
-| ~fork_keeper_cron_enabled~ | ~setup-fork-keeper.yml~ | ~true~ keeps the daily fork-keeper job  |
-| ~hub_ssh_target~          | ~setup-hub-client.yml~   | required ssh target; see the hub doc    |
+| Variable                   | Playbook                | Effect                                                  |
+|----------------------------+-------------------------+---------------------------------------------------------|
+| ~experimental_ref~         | repo Go tool playbooks  | git ref/commit for ~github.com/jaeyeom/experimental~ tools (default ~main~) |
+| ~fork_keeper_cron_enabled~ | ~setup-fork-keeper.yml~ | ~true~ keeps the daily fork-keeper job                  |
+| ~hub_ssh_target~           | ~setup-hub-client.yml~  | required ssh target; see the hub doc                    |
 
 For example, on the machine that runs fork-keeper:
 

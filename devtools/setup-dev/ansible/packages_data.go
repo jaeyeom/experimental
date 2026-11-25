@@ -158,14 +158,22 @@ func tflintReleaseInstall(goos string) ShellInstallMethod {
 	}
 }
 
+// experimentalVersion is the default ref used for Go tools built from this
+// repository. Using "main" (rather than "latest") avoids downgrading to the
+// last release tag; playbooks also allow overriding via experimental_ref.
+const experimentalVersion = "main"
+
 // ghNudgeVersion is the version every gh-nudge command installs. The
 // family shares one pkl/Config.pkl, and an older binary warns about
-// unknown fields. "latest" resolves to the latest monorepo vMAJOR.MINOR.PATCH
-// release tag (or can be pinned to a specific vX.Y.Z tag).
-const ghNudgeVersion = "latest"
+// unknown fields.
+const ghNudgeVersion = experimentalVersion
+
+func experimentalGoTool(command string, pkgPath string, imports ...Import) PlatformSpecificTool {
+	return GoTool(command, "github.com/jaeyeom/experimental/"+pkgPath+"@"+experimentalVersion, imports...)
+}
 
 func ghNudgeTool(name string) PlatformSpecificTool {
-	return GoTool(name, "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/"+name+"@"+ghNudgeVersion, Import{Playbook: "gh"})
+	return experimentalGoTool(name, "devtools/gh-nudge/cmd/"+name, Import{Playbook: "gh"})
 }
 
 // emacsApplicationsAliasSuffix runs emacs_app_link.sh after the Darwin
@@ -434,7 +442,7 @@ var platformSpecificTools = []PlatformSpecificTool{
 		},
 		Imports: nil,
 	},
-	GoTool("decide", "github.com/jaeyeom/experimental/devtools/decide/cmd/decide@latest"),
+	experimentalGoTool("decide", "devtools/decide/cmd/decide"),
 	{
 		command: "delta",
 		platforms: map[PlatformName]InstallMethod{
@@ -859,7 +867,7 @@ curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix 
 		command: "org-lint",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformAll: GoInstallMethod{
-				PkgPath: "github.com/jaeyeom/experimental/devtools/linters/cmd/org-lint@latest",
+				PkgPath: "github.com/jaeyeom/experimental/devtools/linters/cmd/org-lint@" + experimentalVersion,
 			},
 		},
 		Imports: []Import{{Playbook: "setup-org-lint-emacs"}},
@@ -923,7 +931,7 @@ curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix 
 	GoTool("protolint", "github.com/yoheimuta/protolint/cmd/protolint@latest"),
 	// herdr has no Termux build. prsync still installs there and warns when
 	// the binary is absent; do not import the herdr playbook on Termux.
-	GoTool("prsync", "github.com/jaeyeom/experimental/devtools/prsync/cmd/prsync@latest", Import{Playbook: "gh"}, Import{Playbook: "herdr", When: WhenNotTermux}),
+	experimentalGoTool("prsync", "devtools/prsync/cmd/prsync", Import{Playbook: "gh"}, Import{Playbook: "herdr", When: WhenNotTermux}),
 	{
 		command: "pylsp",
 		platforms: map[PlatformName]InstallMethod{
@@ -933,8 +941,8 @@ curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix 
 		},
 		Imports: nil,
 	},
-	GoTool("repo-sync", "github.com/jaeyeom/experimental/devtools/repo-sync/cmd/repo-sync@latest"),
-	GoTool("review-and-push-loop", "github.com/jaeyeom/experimental/devtools/reviewpush/cmd/review-and-push-loop@latest", Import{Playbook: "codex"}),
+	experimentalGoTool("repo-sync", "devtools/repo-sync/cmd/repo-sync"),
+	experimentalGoTool("review-and-push-loop", "devtools/reviewpush/cmd/review-and-push-loop", Import{Playbook: "codex"}),
 	{
 		command: "ruff",
 		platforms: map[PlatformName]InstallMethod{
@@ -970,7 +978,7 @@ curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix 
 		Imports: nil,
 	},
 	GoTool("shfmt", "mvdan.cc/sh/v3/cmd/shfmt@latest"),
-	GoTool("slackwatch", "github.com/jaeyeom/experimental/devtools/slackwatch/cmd/slackwatch@latest"),
+	experimentalGoTool("slackwatch", "devtools/slackwatch/cmd/slackwatch"),
 	{
 		command: "sqlfluff",
 		platforms: map[PlatformName]InstallMethod{

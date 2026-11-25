@@ -111,6 +111,13 @@ const platformSpecificTemplate = `---
 
 - name: Ensure {{.Command}} is present
   hosts: all
+{{- if .UsesExperimentalRef }}
+  # The first file found is loaded. /dev/null keeps a missing vars file
+  # from failing the play.
+  vars_files:
+    - - "{{ "{{" }} (lookup('ansible.builtin.env', 'XDG_CONFIG_HOME') or (lookup('ansible.builtin.env', 'HOME') ~ '/.config')) ~ '/setup-dev/vars.yml' {{ "}}" }}"
+      - /dev/null
+{{- end }}
   tasks:
     - name: Include guard for {{.Command}} playbook
       block:

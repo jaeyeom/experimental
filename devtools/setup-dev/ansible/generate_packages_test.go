@@ -659,8 +659,8 @@ func TestSlackwatchSkillInstall(t *testing.T) {
 	}
 
 	slackwatch := read("slackwatch.yml")
-	if !strings.Contains(slackwatch, "command: go install github.com/jaeyeom/experimental/devtools/slackwatch/cmd/slackwatch@latest") {
-		t.Error("slackwatch.yml missing go install of devtools/slackwatch/cmd/slackwatch")
+	if !strings.Contains(slackwatch, "command: go install github.com/jaeyeom/experimental/devtools/slackwatch/cmd/slackwatch@{{ experimental_ref | default('main') }}") {
+		t.Error("slackwatch.yml missing go install of devtools/slackwatch/cmd/slackwatch with experimental_ref")
 	}
 
 	vibe := read("setup-vibe-coding.yml")
@@ -726,8 +726,8 @@ func TestDecideSkillInstall(t *testing.T) {
 	}
 
 	decide := read("decide.yml")
-	if !strings.Contains(decide, "command: go install github.com/jaeyeom/experimental/devtools/decide/cmd/decide@latest") {
-		t.Error("decide.yml missing go install of devtools/decide/cmd/decide")
+	if !strings.Contains(decide, "command: go install github.com/jaeyeom/experimental/devtools/decide/cmd/decide@{{ experimental_ref | default('main') }}") {
+		t.Error("decide.yml missing go install of devtools/decide/cmd/decide with experimental_ref")
 	}
 
 	vibe := read("setup-vibe-coding.yml")
@@ -803,7 +803,7 @@ func TestDiskwatchPlaybookInstallsRunner(t *testing.T) {
 	}
 	got := string(content)
 	for _, want := range []string{
-		"go install github.com/jaeyeom/experimental/devtools/diskwatch/cmd/diskwatch@latest",
+		"go install github.com/jaeyeom/experimental/devtools/diskwatch/cmd/diskwatch@{{ experimental_ref | default('main') }}",
 		"Type=oneshot",
 		"OnUnitActiveSec=5min",
 		"StartInterval",
@@ -855,5 +855,86 @@ func TestClaudeSandboxFormatsJSWithOxfmt(t *testing.T) {
 	}
 	if strings.Contains(got, "prettier") {
 		t.Error("setup-claude-sandbox.yml still formats JS with prettier")
+	}
+}
+
+func TestNoExperimentalModuleUsesLatest(t *testing.T) {
+	const expMod = "github.com/jaeyeom/experimental"
+
+	for _, tool := range platformSpecificTools {
+		for platform, method := range tool.platforms {
+			g, ok := method.(GoInstallMethod)
+			if !ok {
+				continue
+			}
+			pkg, ver, _ := strings.Cut(g.PkgPath, "@")
+			isExp := pkg == expMod || strings.HasPrefix(pkg, expMod+"/")
+			if isExp {
+				if ver == "latest" || ver == "" {
+					t.Errorf("%s (%s) PkgPath = %q, must not use @latest", tool.command, platform, g.PkgPath)
+				}
+				rendered := g.RenderInstallTask(tool.command)
+				if strings.Contains(rendered, "@latest") {
+					t.Errorf("%s (%s) RenderInstallTask still contains @latest:\n%s", tool.command, platform, rendered)
+				}
+			}
+		}
+	}
+
+	dir := ansiblePlaybookDir(t)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yml") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(raw)
+		if !strings.Contains(text, expMod) {
+			continue
+		}
+		for i, line := range strings.Split(text, "\n") {
+			if strings.Contains(line, "go install") || strings.Contains(line, "go list") || strings.Contains(line, "hub_client_version") {
+				if strings.Contains(line, "@latest") || strings.Contains(line, "default('latest')") {
+					t.Errorf("%s:%d uses @latest for an experimental module: %s", entry.Name(), i+1, strings.TrimSpace(line))
+				}
+			}
+		}
+		if strings.Contains(text, "go install "+expMod) {
+			for _, want := range []string{
+				"{{ experimental_ref | default('main') }}",
+				"go_version_compare.py",
+			} {
+				if !strings.Contains(text, want) {
+					t.Errorf("%s installs an experimental module without %q", entry.Name(), want)
+				}
+			}
+		}
+		if entry.Name() == "setup-hub-client.yml" {
+			for _, want := range []string{
+				"experimental_ref | default('main')",
+				"go_version_compare.py",
+			} {
+				if !strings.Contains(text, want) {
+					t.Errorf("%s missing %q", entry.Name(), want)
+				}
+			}
+		}
+	}
+
+	// Third-party Go tools must keep using @latest.
+	for _, thirdParty := range []string{"gopls.yml", "factory.yml", "act.yml"} {
+		raw, err := os.ReadFile(filepath.Join(dir, thirdParty))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(raw), "@latest") {
+			t.Errorf("%s (third-party Go tool) should keep using @latest", thirdParty)
+		}
 	}
 }

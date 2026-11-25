@@ -50,14 +50,28 @@
       ignore_errors: yes
       changed_when: false
 
+    - name: Compare buf installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ buf_module_version | default('') }}"
+          - "{{ ((buf_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ buf_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: buf_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip buf upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping buf: {{ (buf_version_check.stdout | from_json).reason }}"
+      when: (buf_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade buf
       command: go install github.com/bufbuild/buf/cmd/buf@latest
       register: buf_upgrade
       until: buf_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        buf_module_version is not defined or
-        buf_module_version == "" or
-        buf_module_version != buf_latest.stdout or
-        buf_build_go.stdout | default('') != go_toolchain_version
+      when: (buf_version_check.stdout | from_json).action == 'install'

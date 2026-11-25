@@ -50,14 +50,28 @@
       ignore_errors: yes
       changed_when: false
 
+    - name: Compare yamlfmt installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ yamlfmt_module_version | default('') }}"
+          - "{{ ((yamlfmt_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ yamlfmt_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: yamlfmt_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip yamlfmt upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping yamlfmt: {{ (yamlfmt_version_check.stdout | from_json).reason }}"
+      when: (yamlfmt_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade yamlfmt
       command: go install github.com/google/yamlfmt/cmd/yamlfmt@latest
       register: yamlfmt_upgrade
       until: yamlfmt_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        yamlfmt_module_version is not defined or
-        yamlfmt_module_version == "" or
-        yamlfmt_module_version != yamlfmt_latest.stdout or
-        yamlfmt_build_go.stdout | default('') != go_toolchain_version
+      when: (yamlfmt_version_check.stdout | from_json).action == 'install'

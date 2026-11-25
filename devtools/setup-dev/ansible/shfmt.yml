@@ -50,14 +50,28 @@
       ignore_errors: yes
       changed_when: false
 
+    - name: Compare shfmt installed and target versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/go_version_compare.py"
+          - "{{ shfmt_module_version | default('') }}"
+          - "{{ ((shfmt_latest | default({})).stdout | default('')) | trim }}"
+          - "{{ shfmt_build_go.stdout | default('') | trim }}"
+          - "{{ go_toolchain_version | default('') | trim }}"
+      register: shfmt_version_check
+      changed_when: false
+      check_mode: false
+
+    - name: Skip shfmt upgrade when target is not newer
+      ansible.builtin.debug:
+        msg: "Skipping shfmt: {{ (shfmt_version_check.stdout | from_json).reason }}"
+      when: (shfmt_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
+
     - name: Upgrade shfmt
       command: go install mvdan.cc/sh/v3/cmd/shfmt@latest
       register: shfmt_upgrade
       until: shfmt_upgrade is succeeded
       retries: 3
       delay: 30
-      when: >
-        shfmt_module_version is not defined or
-        shfmt_module_version == "" or
-        shfmt_module_version != shfmt_latest.stdout or
-        shfmt_build_go.stdout | default('') != go_toolchain_version
+      when: (shfmt_version_check.stdout | from_json).action == 'install'
