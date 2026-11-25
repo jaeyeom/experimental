@@ -1,5 +1,5 @@
 # Common targets
-.PHONY: all check check-ci format format-whitespace check-whitespace check-format check-format-non-bazel check-format-bazel test test-rbe lint lint-non-emacs lint-non-bazel lint-bazel fix check-uv-lock install
+.PHONY: all check check-ci format format-whitespace check-whitespace check-format check-format-non-bazel check-format-bazel test test-rbe lint lint-non-emacs lint-non-bazel fix check-uv-lock install
 
 # Cross-platform sed in-place edit
 SED_INPLACE := $(shell if [ "$$(uname)" = "Darwin" ]; then echo "sed -i ''"; else echo "sed -i"; fi)
@@ -35,7 +35,7 @@ check-ci:
 
 check:
 	$(MAKE) check-uv-lock check-generated
-	$(MAKE) $(CHECK_CI_CHECKS) check-format-bazel lint-bazel test check-spacemacs
+	$(MAKE) $(CHECK_CI_CHECKS) check-format-bazel test check-spacemacs
 
 format: format-whitespace
 	goimports -w .
@@ -68,12 +68,9 @@ test-rbe:
 	bazel test --config=rbe --test_summary=terse --build_tag_filters=-local,-no-remote --test_tag_filters=-local,-no-remote $(BAZEL_FLAGS) //...
 	bazel test --test_summary=terse $(BAZEL_TEST_ENV) --build_tag_filters=local,no-remote --test_tag_filters=local,no-remote $(BAZEL_FLAGS) //...
 
-lint-non-bazel: lint-genfiles lint-ruff lint-mypy lint-py-module-import lint-py-sibling-import lint-shellcheck
+lint-non-bazel: lint-genfiles lint-ruff lint-mypy lint-shellcheck
 
-# These two pylinters invoke `bazel query //...` for py_binary/py_test entry discovery.
-lint-bazel: lint-py-import-time-work lint-py-main-guard
-
-lint-non-emacs: lint-non-bazel lint-bazel
+lint-non-emacs: lint-non-bazel
 
 lint: lint-non-emacs check-spacemacs
 
@@ -136,7 +133,7 @@ check-bazel-go-files:
 	@./check-bazel-src-files.sh go
 
 # Python targets
-.PHONY: lint-ruff fix-ruff lint-mypy lint-py-import-time-work lint-py-main-guard lint-py-module-import lint-py-sibling-import check-uv-lock
+.PHONY: lint-ruff fix-ruff lint-mypy check-uv-lock
 
 lint-ruff:
 	ruff check
@@ -146,20 +143,6 @@ fix-ruff:
 
 lint-mypy:
 	mypy
-
-PYLINTERS_PYTHON ?= uv run --no-project python
-
-lint-py-import-time-work:
-	PYTHONPATH=devtools/linters/pylinters/src $(PYLINTERS_PYTHON) -m pylinters.cli.import_time_work
-
-lint-py-main-guard:
-	PYTHONPATH=devtools/linters/pylinters/src $(PYLINTERS_PYTHON) -m pylinters.cli.main_guard
-
-lint-py-module-import:
-	PYTHONPATH=devtools/linters/pylinters/src $(PYLINTERS_PYTHON) -m pylinters.cli.module_import
-
-lint-py-sibling-import:
-	PYTHONPATH=devtools/linters/pylinters/src $(PYLINTERS_PYTHON) -m pylinters.cli.sibling_import
 
 check-uv-lock: pyproject.toml uv.lock
 	@if ! command -v uv >/dev/null 2>&1; then \

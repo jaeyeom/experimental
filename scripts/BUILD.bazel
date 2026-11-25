@@ -1,5 +1,6 @@
 load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("//devtools/linters/pylinters:py_entries.bzl", "py_entries_manifest")
 
 sh_binary(
     name = "update-env-keys",
@@ -29,4 +30,15 @@ py_test(
         ":strip_pr_html_comments_lib",
         "@pypi//pytest",
     ],
+)
+
+filegroup(
+    name = "py_srcs",
+    srcs = glob(["*.py"]),
+    visibility = ["//devtools/linters/pylinters:__pkg__"],
+)
+
+py_entries_manifest(
+    name = "py_entries",
+    visibility = ["//devtools/linters/pylinters:__pkg__"],
 )

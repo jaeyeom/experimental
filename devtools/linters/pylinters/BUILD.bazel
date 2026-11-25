@@ -1,4 +1,5 @@
 load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
+load(":py_entries.bzl", "py_entries_manifest")
 
 py_library(
     name = "pylinters",
@@ -62,6 +63,73 @@ py_binary(
         "main_guard_test",
         "module_import_test",
         "names_test",
+        "repo_lint_test",
         "sibling_import_test",
     ]
 ]
+
+filegroup(
+    name = "py_srcs",
+    srcs = glob(
+        [
+            "src/**/*.py",
+            "tests/**/*.py",
+        ],
+        exclude = ["**/__pycache__/**"],
+    ),
+)
+
+filegroup(
+    name = "repo_py_srcs",
+    srcs = [
+        ":py_srcs",
+        "//codelab/proto:py_srcs",
+        "//devtools/setup-dev/ansible:py_srcs",
+        "//scripts:py_srcs",
+    ],
+)
+
+filegroup(
+    name = "repo_py_entries",
+    srcs = [
+        ":py_entries",
+        "//codelab/proto:py_entries",
+        "//scripts:py_entries",
+    ],
+)
+
+[
+    py_test(
+        name = "repo_%s_test" % checker.replace("-", "_"),
+        srcs = ["tests/repo_lint_test.py"],
+        args = [
+            "-k",
+            "test_repo_lint",
+        ],
+        data = [
+            ":repo_py_srcs",
+            "//:pyproject.toml",
+        ] + ([":repo_py_entries"] if needs_entries else []),
+        env = {
+            "PYLINTERS_CHECKER": checker,
+            "PYLINTERS_FILES": "$(rootpaths :repo_py_srcs)",
+        } | (
+            {"PYLINTERS_ENTRY_LISTS": "$(rootpaths :repo_py_entries)"} if needs_entries else {}
+        ),
+        main = "tests/repo_lint_test.py",
+        deps = [
+            ":pylinters",
+            "@pypi//pytest",
+        ],
+    )
+    for checker, needs_entries in [
+        ("import-time-work", True),
+        ("main-guard", True),
+        ("module-import", False),
+        ("sibling-import", False),
+    ]
+]
+
+# Keep at the end so native.existing_rules() captures every py_binary/py_test
+# target in this package, including the repo_*_test targets above.
+py_entries_manifest(name = "py_entries")

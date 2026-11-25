@@ -23,6 +23,12 @@ go_binary(
 
 exports_files(["README.org"])
 
+filegroup(
+    name = "py_srcs",
+    srcs = glob(["*.py"]),
+    visibility = ["//devtools/linters/pylinters:__pkg__"],
+)
+
 go_test(
     name = "go_default_test",
     srcs = [
