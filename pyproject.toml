@@ -12,7 +12,12 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["mypy", "pytest"]
+dev = [
+    "mypy",
+    "pytest",
+    # Semgrep dropped macOS x86_64 wheels in 1.83.0.
+    "semgrep; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+]
 
 [tool.uv]
 package = false
@@ -90,6 +95,7 @@ files = [
     "tools/lint/bazel_go_files_test.py",
     "tools/lint/gitleaks_test.py",
     "tools/lint/mypy_test.py",
+    "tools/lint/semgrep_test.py",
     "tools/lint/uv_lock_test.py",
 ]
 exclude = [
@@ -107,6 +113,10 @@ follow_imports = "skip"
 
 [[tool.mypy.overrides]]
 module = ["grpc", "grpc.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["ruamel", "ruamel.*"]
 ignore_missing_imports = true
 
 [tool.pylinters.main-guard]

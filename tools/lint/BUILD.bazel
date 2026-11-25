@@ -2,6 +2,7 @@ load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
 load("@nogo_analyzer_bzlmod//:def.bzl", "ANALYZERS", "staticcheck_analyzers")
 load("@rules_go//go:def.bzl", "TOOLS_NOGO", "nogo")
 load("@rules_python//python:defs.bzl", "py_test")
+load("@rules_python//python/entry_points:py_console_script_binary.bzl", "py_console_script_binary")
 load("@rules_shell//shell:sh_library.bzl", "sh_library")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//devtools/linters/pylinters:py_entries.bzl", "py_entries_manifest")
@@ -207,6 +208,62 @@ py_test(
     ],
     target_compatible_with = _PY_COMPATIBLE,
     deps = ["@pypi//pytest"],
+)
+
+# Semgrep dropped macOS x86_64 wheels in 1.83.0 and is unsupported on Termux.
+_SEMGREP_COMPATIBLE = select({
+    ":linux_aarch64": [],
+    ":linux_x86_64": [],
+    ":osx_aarch64": [],
+    "//conditions:default": ["@platforms//:incompatible"],
+})
+
+py_console_script_binary(
+    name = "semgrep_bin",
+    legacy_create_init = 0,
+    pkg = "@pypi//semgrep",
+    script = "semgrep",
+    target_compatible_with = _SEMGREP_COMPATIBLE,
+)
+
+py_console_script_binary(
+    name = "pysemgrep_bin",
+    legacy_create_init = 0,
+    pkg = "@pypi//semgrep",
+    script = "pysemgrep",
+    target_compatible_with = _SEMGREP_COMPATIBLE,
+)
+
+py_test(
+    name = "semgrep_test",
+    size = "small",
+    srcs = ["semgrep_test.py"],
+    data = [
+        ":pysemgrep_bin",
+        ":semgrep_bin",
+        "//:go.mod",
+        "//:semgrep_config",
+        "@semgrep_rules//:README.md",
+        "@semgrep_rules//:rules",
+    ],
+    env = {
+        "PYSEMGREP_BIN": "$(rootpath :pysemgrep_bin)",
+        "SEMGREP_BIN": "$(rootpath :semgrep_bin)",
+        "SEMGREP_RULES_ANCHOR": "$(rootpath @semgrep_rules//:README.md)",
+    },
+    legacy_create_init = 0,
+    # Walks the checkout's git-tracked source files via the go.mod symlink.
+    # They are not declared inputs, so "external" keeps Bazel from caching a
+    # stale result and "local" keeps it off RBE.
+    tags = [
+        "external",
+        "local",
+    ],
+    target_compatible_with = _SEMGREP_COMPATIBLE,
+    deps = [
+        "@pypi//pytest",
+        "@pypi//ruamel_yaml",
+    ],
 )
 
 py_test(

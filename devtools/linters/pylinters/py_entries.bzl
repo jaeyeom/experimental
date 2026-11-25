@@ -57,14 +57,24 @@ def py_entries_manifest(name, visibility = None):
     py_test rules in the package have been declared.
     """
     pkg = native.package_name()
+    pkg_prefix = pkg + "/" if pkg else ""
+    pkg_sources = {
+        (pkg_prefix + f): True
+        for f in native.glob(["**/*.py"], allow_empty = True)
+    }
     entries = {}
     for _rule_name, rule in native.existing_rules().items():
         kind = _RULE_KINDS.get(rule.get("kind", ""))
         if not kind:
             continue
         main_path = _resolve_main(rule, pkg)
-        if main_path:
-            entries["%s %s" % (kind, main_path)] = True
+        if not main_path:
+            continue
+
+        # Skip generated entry-point files (e.g., py_console_script_binary).
+        if main_path.startswith(pkg_prefix) and main_path not in pkg_sources:
+            continue
+        entries["%s %s" % (kind, main_path)] = True
     write_file(
         name = name,
         out = name + ".txt",

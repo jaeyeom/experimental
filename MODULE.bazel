@@ -203,6 +203,29 @@ http_archive(
     urls = ["https://github.com/gitleaks/gitleaks/releases/download/v{v}/gitleaks_{v}_darwin_x64.tar.gz".format(v = _GITLEAKS_VERSION)],
 )
 
+# Pinned community semgrep-rules for offline, deterministic Semgrep scans.
+_SEMGREP_RULES_COMMIT = "a5ad1714f00c9f7fde980cab0ea1d6dc6d414fd2"
+
+http_archive(
+    name = "semgrep_rules",
+    build_file_content = """\
+exports_files(["README.md"])
+
+filegroup(
+    name = "rules",
+    srcs = glob([
+        "go/lang/security/**/*.yaml",
+        "python/lang/security/**/*.yaml",
+        "yaml/github-actions/security/**/*.yaml",
+    ]),
+    visibility = ["//visibility:public"],
+)
+""",
+    sha256 = "e5a7ec33035fc7707b87385cb99e1228c76b1604efe5439e92891f3005714cc3",
+    strip_prefix = "semgrep-rules-{commit}".format(commit = _SEMGREP_RULES_COMMIT),
+    urls = ["https://github.com/semgrep/semgrep-rules/archive/{commit}.tar.gz".format(commit = _SEMGREP_RULES_COMMIT)],
+)
+
 # Pkl for configuration
 bazel_dep(name = "rules_pkl", version = "0.18.0")
 

@@ -111,8 +111,8 @@ def test_uv_lock_fails_when_dev_dependency_added(tmp_path: Path) -> None:
     pyproject = workdir / "pyproject.toml"
     content = pyproject.read_text(encoding="utf-8")
     updated = content.replace(
-        'dev = ["mypy", "pytest"]',
-        'dev = ["mypy", "pytest", "ruff"]',
+        "dev = [",
+        'dev = [\n    "ruff",',
         1,
     )
     assert updated != content

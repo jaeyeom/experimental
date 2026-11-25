@@ -22,15 +22,13 @@ all:
 	$(MAKE) generate-ansible generate-pkl
 	$(MAKE) format
 	$(MAKE) fix
-	$(MAKE) test check-semgrep
-
-CHECK_CI_CHECKS := check-semgrep
+	$(MAKE) test
 
 check-ci:
-	$(MAKE) $(CHECK_CI_CHECKS)
+	@echo "All CI checks have migrated to Bazel (bazel test //...)"
 
 check:
-	$(MAKE) $(CHECK_CI_CHECKS) test check-spacemacs
+	$(MAKE) test check-spacemacs
 
 format: format-whitespace
 	bazel run //:format
@@ -166,17 +164,6 @@ clean-coverage:
 	@echo "Cleaning coverage files..."
 	@rm -rf lcov.info coverage
 	@echo "Coverage files cleaned"
-
-# Semgrep targets
-.PHONY: check-semgrep
-check-semgrep:
-	@if ! command -v semgrep >/dev/null 2>&1; then \
-		echo "Error: semgrep is required for make check"; \
-		echo "Install with:"; \
-		echo "  cd devtools/setup-dev/ansible && ./ensure.sh semgrep"; \
-		exit 1; \
-	fi
-	@semgrep scan --error --config auto --config .semgrep
 
 # Manual only: needs Emacs and is never part of check or test.
 # Usage: make org-lint-parity [GO_LINT=cmd]; make org-lint-parity-update

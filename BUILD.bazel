@@ -56,3 +56,9 @@ filegroup(
     srcs = glob(["*.sh"]),
     visibility = ["//tools/lint:__pkg__"],
 )
+
+filegroup(
+    name = "semgrep_config",
+    srcs = glob([".semgrep/**/*.yaml"]),
+    visibility = ["//tools/lint:__pkg__"],
+)
