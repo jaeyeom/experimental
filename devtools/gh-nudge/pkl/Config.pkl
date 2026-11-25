@@ -307,6 +307,14 @@ class ApproveConfig {
   rules: Listing<ApproveRule> = new {}
 }
 
+/// gh-pr-review rerequest settings. gh-nudge, gh-approve, and gh-merge ignore
+/// this section.
+class RerequestConfig {
+  /// Reviewer logins or glob patterns (such as "*-bot" or "agent-*") to skip
+  /// when re-requesting reviewers, in addition to GitHub Bot accounts.
+  exclude_reviewers: Listing<String(!isEmpty)> = new {}
+}
+
 /// Root configuration
 github: GitHubConfig
 slack: SlackConfig = new {}
@@ -322,3 +330,5 @@ viewed: ViewedConfig = new {}
 /// Per-repository paths to YAML files listing generated-file globs,
 /// keyed by <owner>/<repo>. Rules can reference the list with "@generated".
 generated_lists: Mapping<String, String(!isEmpty)> = new {}
+/// gh-pr-review rerequest settings.
+rerequest: RerequestConfig = new {}

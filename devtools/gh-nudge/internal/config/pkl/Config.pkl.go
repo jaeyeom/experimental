@@ -29,6 +29,9 @@ type Config struct {
 	// Per-repository paths to YAML files listing generated-file globs,
 	// keyed by <owner>/<repo>. Rules can reference the list with "@generated".
 	GeneratedLists map[string]string `pkl:"generated_lists"`
+
+	// gh-pr-review rerequest settings.
+	Rerequest RerequestConfig `pkl:"rerequest"`
 }
 
 // LoadFromPath loads the pkl module at the given path and evaluates it into a Config

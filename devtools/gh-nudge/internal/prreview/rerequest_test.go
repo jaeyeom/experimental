@@ -441,3 +441,194 @@ func TestRunRerequestFixtureDryRunAndApply(t *testing.T) {
 		}
 	})
 }
+
+func TestEvaluateRerequestBotAndExcludeFiltering(t *testing.T) {
+	t0 := time.Date(2026, 11, 24, 10, 0, 0, 0, time.UTC)
+	t1 := t0.Add(1 * time.Hour)
+	t2 := t0.Add(2 * time.Hour)
+
+	makePR := func(reviews []github.RerequestReview, threads []github.RerequestThread) github.RerequestPRState {
+		return github.RerequestPRState{
+			Number:          456,
+			State:           "OPEN",
+			Author:          "author",
+			Reviews:         reviews,
+			Threads:         threads,
+			AuthorPushTimes: []time.Time{t2},
+		}
+	}
+
+	t.Run("Bot reviewer with COMMENTED and answered threads is skipped", func(t *testing.T) {
+		pr := makePR(
+			[]github.RerequestReview{
+				{Author: "copilot[bot]", AuthorType: "Bot", State: "COMMENTED", SubmittedAt: t1},
+			},
+			[]github.RerequestThread{
+				{Comments: []github.RerequestThreadComment{
+					{Author: "copilot[bot]", CreatedAt: t1},
+					{Author: "author", CreatedAt: t2},
+				}},
+			},
+		)
+
+		got := EvaluateRerequestWithOptions(pr, RerequestOptions{})
+		if len(got) != 1 {
+			t.Fatalf("len(decisions) = %d, want 1", len(got))
+		}
+		if got[0].Action != RerequestActionSkip {
+			t.Errorf("Action = %q, want %q", got[0].Action, RerequestActionSkip)
+		}
+		wantReason := "skipped: bot reviewer copilot[bot]"
+		if got[0].Reason != wantReason {
+			t.Errorf("Reason = %q, want %q", got[0].Reason, wantReason)
+		}
+	})
+
+	t.Run("User reviewer in same state is still re-requested", func(t *testing.T) {
+		pr := makePR(
+			[]github.RerequestReview{
+				{Author: "alice", AuthorType: "User", State: "COMMENTED", SubmittedAt: t1},
+			},
+			[]github.RerequestThread{
+				{Comments: []github.RerequestThreadComment{
+					{Author: "alice", CreatedAt: t1},
+					{Author: "author", CreatedAt: t2},
+				}},
+			},
+		)
+
+		got := EvaluateRerequestWithOptions(pr, RerequestOptions{})
+		if len(got) != 1 {
+			t.Fatalf("len(decisions) = %d, want 1", len(got))
+		}
+		if got[0].Action != RerequestActionWouldRerequest {
+			t.Errorf("Action = %q, want %q (%s)", got[0].Action, RerequestActionWouldRerequest, got[0].Reason)
+		}
+	})
+
+	t.Run("User login matching exclude pattern is skipped", func(t *testing.T) {
+		pr := makePR(
+			[]github.RerequestReview{
+				{Author: "alice", AuthorType: "User", State: "COMMENTED", SubmittedAt: t1},
+				{Author: "agent-reviewer", AuthorType: "User", State: "COMMENTED", SubmittedAt: t1},
+				{Author: "lint-bot", AuthorType: "User", State: "COMMENTED", SubmittedAt: t1},
+				{Author: "ExactUser", AuthorType: "User", State: "COMMENTED", SubmittedAt: t1},
+			},
+			nil,
+		)
+		opts := RerequestOptions{
+			ExcludeReviewers: []string{"*-bot", "agent-*", "exactuser"},
+		}
+
+		got := EvaluateRerequestWithOptions(pr, opts)
+		if len(got) != 4 {
+			t.Fatalf("len(decisions) = %d, want 4", len(got))
+		}
+		byReviewer := make(map[string]RerequestDecision, len(got))
+		for _, d := range got {
+			byReviewer[d.Reviewer] = d
+		}
+
+		if d := byReviewer["alice"]; d.Action != RerequestActionWouldRerequest {
+			t.Errorf("alice Action = %q, want %q", d.Action, RerequestActionWouldRerequest)
+		}
+		for _, login := range []string{"agent-reviewer", "lint-bot", "ExactUser"} {
+			d := byReviewer[login]
+			if d.Action != RerequestActionSkip {
+				t.Errorf("%s Action = %q, want %q", login, d.Action, RerequestActionSkip)
+			}
+			wantReason := "skipped: bot reviewer " + login
+			if d.Reason != wantReason {
+				t.Errorf("%s Reason = %q, want %q", login, d.Reason, wantReason)
+			}
+		}
+	})
+
+	t.Run("--include-bots disables both Bot type check and exclude list", func(t *testing.T) {
+		pr := makePR(
+			[]github.RerequestReview{
+				{Author: "copilot[bot]", AuthorType: "Bot", State: "COMMENTED", SubmittedAt: t1},
+				{Author: "agent-reviewer", AuthorType: "User", State: "COMMENTED", SubmittedAt: t1},
+			},
+			[]github.RerequestThread{
+				{Comments: []github.RerequestThreadComment{
+					{Author: "copilot[bot]", CreatedAt: t1},
+					{Author: "author", CreatedAt: t2},
+				}},
+				{Comments: []github.RerequestThreadComment{
+					{Author: "agent-reviewer", CreatedAt: t1},
+					{Author: "author", CreatedAt: t2},
+				}},
+			},
+		)
+		opts := RerequestOptions{
+			IncludeBots:      true,
+			ExcludeReviewers: []string{"agent-*"},
+		}
+
+		got := EvaluateRerequestWithOptions(pr, opts)
+		if len(got) != 2 {
+			t.Fatalf("len(decisions) = %d, want 2", len(got))
+		}
+		for _, d := range got {
+			if d.Action != RerequestActionWouldRerequest {
+				t.Errorf("%s Action = %q (reason %q), want %q", d.Reviewer, d.Action, d.Reason, RerequestActionWouldRerequest)
+			}
+		}
+	})
+
+	t.Run("bot reason appears in both text and json output and is not applied", func(t *testing.T) {
+		pr := makePR(
+			[]github.RerequestReview{
+				{Author: "alice", AuthorType: "User", State: "COMMENTED", SubmittedAt: t1},
+				{Author: "ci-bot", AuthorType: "User", State: "COMMENTED", SubmittedAt: t1},
+				{Author: "dependabot[bot]", AuthorType: "Bot", State: "COMMENTED", SubmittedAt: t1},
+			},
+			nil,
+		)
+		ref := github.PullRef{Owner: "acme", Repo: "widgets", Number: 456}
+		opts := RerequestOptions{
+			Apply:            true,
+			ExcludeReviewers: []string{"*-bot"},
+		}
+
+		client := &fakeRerequestClient{state: pr}
+		var textBuf bytes.Buffer
+		if err := RunRerequest(client, ref, opts, &textBuf); err != nil {
+			t.Fatalf("RunRerequest(text) error = %v", err)
+		}
+		if want := [][]string{{"alice"}}; !reflect.DeepEqual(client.requested, want) {
+			t.Fatalf("RequestReviewers = %v, want %v", client.requested, want)
+		}
+		textOut := textBuf.String()
+		for _, wantSub := range []string{
+			"skipped: bot reviewer ci-bot",
+			"skipped: bot reviewer dependabot[bot]",
+		} {
+			if !strings.Contains(textOut, wantSub) {
+				t.Errorf("text output missing %q:\n%s", wantSub, textOut)
+			}
+		}
+
+		jsonOpts := opts
+		jsonOpts.Apply = false
+		jsonOpts.JSON = true
+		var jsonBuf bytes.Buffer
+		if err := RunRerequest(&fakeRerequestClient{state: pr}, ref, jsonOpts, &jsonBuf); err != nil {
+			t.Fatalf("RunRerequest(json) error = %v", err)
+		}
+		var parsed []RerequestDecision
+		if err := json.Unmarshal(jsonBuf.Bytes(), &parsed); err != nil {
+			t.Fatalf("unmarshal json: %v\n%s", err, jsonBuf.String())
+		}
+		if len(parsed) != 3 {
+			t.Fatalf("len(parsed) = %d, want 3", len(parsed))
+		}
+		if parsed[1].Reviewer != "ci-bot" || parsed[1].Action != RerequestActionSkip || parsed[1].Reason != "skipped: bot reviewer ci-bot" {
+			t.Errorf("parsed[1] = %+v", parsed[1])
+		}
+		if parsed[2].Reviewer != "dependabot[bot]" || parsed[2].Action != RerequestActionSkip || parsed[2].Reason != "skipped: bot reviewer dependabot[bot]" {
+			t.Errorf("parsed[2] = %+v", parsed[2])
+		}
+	})
+}

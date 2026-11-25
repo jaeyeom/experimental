@@ -252,6 +252,7 @@ func getDefaultBooleanFlags() map[string]bool {
 		"migrate":          true,
 		"verify":           true,
 		"defragment":       true,
+		"include-bots":     true,
 		"include-metadata": true,
 	}
 }

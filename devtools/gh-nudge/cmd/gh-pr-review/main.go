@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/argparser"
+	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/git"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/github"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
@@ -309,7 +310,7 @@ Commands:
   resolve [<owner>/<repo>] [<identifier>] --comment-id <ID>  Mark comment as resolved
   archive [<owner>/<repo>] <pr_number> [list|show|cleanup] Archive management
   auto-adjust [<owner>/<repo>] [<identifier>]     Auto-adjust line numbers based on git diff
-  rerequest [<owner>/<repo>] [<pr_number>] [--apply] [--json] Re-request reviewers safely
+  rerequest [<owner>/<repo>] [<pr_number>] [--apply] [--json] [--include-bots] [--config <path>] Re-request reviewers safely
   version                                         Show version information
   help                                           Show this help message
 
@@ -1682,7 +1683,7 @@ func parsePullOptions(parser *argparser.ArgParser) (models.PullOptions, error) {
 }
 
 func handleRerequest(args []string) {
-	parser := argparser.NewArgParser(args, argparser.WithBooleanFlags("apply", "json"))
+	parser := argparser.NewArgParser(args, argparser.WithBooleanFlags("apply", "json", "include-bots"))
 
 	if parser.IsHelp() {
 		showRerequestUsage()
@@ -1694,7 +1695,7 @@ func handleRerequest(args []string) {
 		fmt.Fprintf(os.Stderr, "Error auto-detecting arguments: %v\n", err)
 		os.Exit(1)
 	}
-	parser = argparser.NewArgParser(detectedArgs, argparser.WithBooleanFlags("apply", "json"))
+	parser = argparser.NewArgParser(detectedArgs, argparser.WithBooleanFlags("apply", "json", "include-bots"))
 
 	if err := validateRerequestOptions(parser); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -1707,9 +1708,10 @@ func handleRerequest(args []string) {
 		os.Exit(1)
 	}
 
-	opts := prreview.RerequestOptions{
-		Apply: parser.GetBoolOption("apply"),
-		JSON:  parser.GetBoolOption("json"),
+	opts, err := buildRerequestOptions(parser)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
 	}
 
 	ctx := context.Background()
@@ -1727,19 +1729,35 @@ func handleRerequest(args []string) {
 	}
 }
 
+func buildRerequestOptions(parser *argparser.ArgParser) (prreview.RerequestOptions, error) {
+	opts := prreview.RerequestOptions{
+		Apply:       parser.GetBoolOption("apply"),
+		JSON:        parser.GetBoolOption("json"),
+		IncludeBots: parser.GetBoolOption("include-bots"),
+	}
+	cfg, err := config.LoadOptionalConfig(parser.GetOption("config"))
+	if err != nil {
+		return prreview.RerequestOptions{}, fmt.Errorf("load config: %w", err)
+	}
+	opts.ExcludeReviewers = cfg.Rerequest.ExcludeReviewers
+	return opts, nil
+}
+
 func showRerequestUsage() {
 	fmt.Println("Usage: gh-pr-review rerequest [<owner>/<repo>] [<pr_number>] [options]")
 	fmt.Println("  <owner>/<repo>  Repository (auto-detected if omitted)")
 	fmt.Println("  <pr_number>     PR number (auto-detected if omitted)")
 	fmt.Println("  --apply         Re-request eligible reviewers (default is dry run)")
 	fmt.Println("  --json          Output decisions as a JSON array")
+	fmt.Println("  --include-bots  Include bot and excluded reviewers instead of skipping them")
+	fmt.Println("  --config PATH   Path to gh-nudge config file (default ~/.config/gh-nudge/config.pkl)")
 }
 
 func validateRerequestOptions(parser *argparser.ArgParser) error {
-	if err := parser.ValidateOptions([]string{"apply", "json"}); err != nil {
+	if err := parser.ValidateOptions([]string{"apply", "json", "include-bots", "config"}); err != nil {
 		return fmt.Errorf("validating options: %w", err)
 	}
-	if err := parser.RequireExactPositionals(2, "gh-pr-review rerequest [<owner>/<repo>] <pr_number> [--apply] [--json]"); err != nil {
+	if err := parser.RequireExactPositionals(2, "gh-pr-review rerequest [<owner>/<repo>] <pr_number> [--apply] [--json] [--include-bots] [--config <path>]"); err != nil {
 		return fmt.Errorf("validating positionals: %w", err)
 	}
 	return nil

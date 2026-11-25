@@ -71,6 +71,24 @@ Repo and pull request are detected from the current checkout when you omit them.
 
 `gh-pr-review help` and `gh-pr-review <command> -h` print the flags.
 
+## Re-requesting reviewers
+
+`gh-pr-review rerequest [<owner>/<repo>] [<pr_number>] [--apply] [--json] [--include-bots] [--config <path>]` evaluates which individual reviewers can be safely re-requested (dry run by default; pass `--apply` to send review requests).
+
+- **Bot skipping**: Reviewers whose GitHub account type is `Bot` or whose login matches `rerequest.exclude_reviewers` are skipped with reason `skipped: bot reviewer <login>` (in both text and `--json` output). Pass `--include-bots` to turn off both the `Bot` type check and the exclude list.
+- **Configuration**: Add an optional `rerequest` block to `~/.config/gh-nudge/config.pkl` (or pass `--config <path>`). A missing default config file is not an error.
+
+```pkl
+rerequest {
+  exclude_reviewers {
+    "*-bot"
+    "agent-*"
+  }
+}
+```
+
+Each entry in `rerequest.exclude_reviewers` matches logins case-insensitively by exact name or glob pattern (`path.Match` syntax).
+
 ## Using from scripts or agents
 
 File locks make the local store safe for several processes. A second process waits and retries. The retry knobs are under Advanced. Pass `--json` on `list`, `next`, and `submit` when a script reads the result.

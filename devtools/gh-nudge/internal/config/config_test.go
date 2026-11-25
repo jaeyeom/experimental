@@ -1389,6 +1389,123 @@ func joinNames(items []string) string {
 	return strings.Join(items, ",")
 }
 
+func TestLoadPklRerequestConfig(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	schema, err := filepath.Abs(circleConfigPkl(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("loads exclude_reviewers when configured", func(t *testing.T) {
+		path := writeConfig(t, t.TempDir(), "config.pkl", fmt.Sprintf(`amends %q
+
+github {
+  repos { "widgets" }
+}
+
+rerequest {
+  exclude_reviewers {
+    "*-bot"
+    "agent-*"
+    "exact-bot-user"
+  }
+}
+`, schema))
+		cfg, err := LoadConfig(path)
+		if err != nil {
+			t.Fatalf("LoadConfig() error = %v", err)
+		}
+		want := "*-bot,agent-*,exact-bot-user"
+		if got := joinNames(cfg.Rerequest.ExcludeReviewers); got != want {
+			t.Fatalf("ExcludeReviewers = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("rerequest section is optional", func(t *testing.T) {
+		path := writeConfig(t, t.TempDir(), "config.pkl", fmt.Sprintf(`amends %q
+
+github {
+  repos { "widgets" }
+}
+`, schema))
+		cfg, err := LoadConfig(path)
+		if err != nil {
+			t.Fatalf("LoadConfig() error = %v", err)
+		}
+		if len(cfg.Rerequest.ExcludeReviewers) != 0 {
+			t.Fatalf("ExcludeReviewers = %v, want empty", cfg.Rerequest.ExcludeReviewers)
+		}
+	})
+
+	t.Run("invalid glob pattern fails config validation", func(t *testing.T) {
+		path := writeConfig(t, t.TempDir(), "config.pkl", fmt.Sprintf(`amends %q
+
+github {
+  repos { "widgets" }
+}
+
+rerequest {
+  exclude_reviewers {
+    "unclosed["
+  }
+}
+`, schema))
+		if _, err := LoadConfig(path); err == nil {
+			t.Fatal("expected error for invalid glob pattern, got nil")
+		}
+	})
+}
+
+func TestLoadOptionalConfig(t *testing.T) {
+	t.Run("missing default config returns empty config without error", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		cfg, err := LoadOptionalConfig("")
+		if err != nil {
+			t.Fatalf("LoadOptionalConfig(\"\") error = %v", err)
+		}
+		if len(cfg.Rerequest.ExcludeReviewers) != 0 {
+			t.Fatalf("ExcludeReviewers = %v, want empty", cfg.Rerequest.ExcludeReviewers)
+		}
+	})
+
+	t.Run("explicit missing path still returns error", func(t *testing.T) {
+		if _, err := LoadOptionalConfig("/nonexistent/config.pkl"); err == nil {
+			t.Fatal("expected error for explicit missing config path, got nil")
+		}
+	})
+
+	t.Run("present default pkl config is loaded", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		schema, err := filepath.Abs(circleConfigPkl(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfgDir := filepath.Join(home, ".config", "gh-nudge")
+		if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeConfig(t, cfgDir, "config.pkl", fmt.Sprintf(`amends %q
+
+github {
+  repos { "widgets" }
+}
+
+rerequest {
+  exclude_reviewers { "*-bot" }
+}
+`, schema))
+
+		cfg, err := LoadOptionalConfig("")
+		if err != nil {
+			t.Fatalf("LoadOptionalConfig(\"\") error = %v", err)
+		}
+		if got := joinNames(cfg.Rerequest.ExcludeReviewers); got != "*-bot" {
+			t.Fatalf("ExcludeReviewers = %q, want %q", got, "*-bot")
+		}
+	})
+}
+
 func writeConfig(t *testing.T, dir, name, content string) string {
 	t.Helper()
 	path := filepath.Join(dir, name)

@@ -24,6 +24,7 @@ type RerequestPRState struct {
 // RerequestReview is one submitted review on a pull request.
 type RerequestReview struct {
 	Author      string
+	AuthorType  string
 	State       string
 	SubmittedAt time.Time
 }
@@ -61,7 +62,7 @@ query($owner: String!, $name: String!, $number: Int!) {
       reviews(first: 100) {
         pageInfo { hasNextPage endCursor }
         nodes {
-          author { login }
+          author { __typename login }
           state
           submittedAt
         }
@@ -129,7 +130,7 @@ query($owner: String!, $name: String!, $number: Int!, $after: String!) {
       reviews(first: 100, after: $after) {
         pageInfo { hasNextPage endCursor }
         nodes {
-          author { login }
+          author { __typename login }
           state
           submittedAt
         }
@@ -226,7 +227,8 @@ type rerequestReviewerNodeJSON struct {
 
 type rerequestReviewNodeJSON struct {
 	Author *struct {
-		Login string `json:"login"`
+		TypeName string `json:"__typename"` //nolint:tagliatelle // GraphQL field name
+		Login    string `json:"login"`
 	} `json:"author"`
 	State       string `json:"state"`
 	SubmittedAt string `json:"submittedAt"`
@@ -438,6 +440,7 @@ func appendRerequestReviews(state *RerequestPRState, nodes []rerequestReviewNode
 		}
 		state.Reviews = append(state.Reviews, RerequestReview{
 			Author:      node.Author.Login,
+			AuthorType:  node.Author.TypeName,
 			State:       node.State,
 			SubmittedAt: ts.UTC(),
 		})

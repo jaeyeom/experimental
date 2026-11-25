@@ -68,7 +68,9 @@ read by ~gh-nudge~ and ~gh-merge~. ~slack.token~ and
 ~{slack_id}~, ~{title}~, ~{hours}~, and ~{url}~. Merge-only keys
 (~block_merge_labels~, ~required_checks~, ~flake_signatures~,
 ~rca_marker~, ~max_requeues~, ~repo_settings~) are documented in
-[[file:merge.org][merge.org]]. Every other key is in
+[[file:merge.org][merge.org]]. ~rerequest.exclude_reviewers~ is read by
+~gh-pr-review rerequest~ (optional; documented in
+[[file:cmd/gh-pr-review/README.md][cmd/gh-pr-review/README.md]]). Every other key is in
 [[file:pkl/Config.pkl][Config.pkl]] and
 [[file:pkl/example.config.pkl][example.config.pkl]].
 

@@ -22,9 +22,10 @@ func TestLoadRerequestPRState(t *testing.T) {
 		"reviews": {
 			"pageInfo": {"hasNextPage": false, "endCursor": ""},
 			"nodes": [
-				{"author": {"login": "alice"}, "state": "APPROVED", "submittedAt": "2026-11-24T10:00:00Z"},
-				{"author": {"login": "bob"}, "state": "CHANGES_REQUESTED", "submittedAt": "2026-11-24T11:00:00Z"},
-				{"author": {"login": "draft-rev"}, "state": "PENDING", "submittedAt": ""}
+				{"author": {"__typename": "User", "login": "alice"}, "state": "APPROVED", "submittedAt": "2026-11-24T10:00:00Z"},
+				{"author": {"__typename": "User", "login": "bob"}, "state": "CHANGES_REQUESTED", "submittedAt": "2026-11-24T11:00:00Z"},
+				{"author": {"__typename": "Bot", "login": "copilot-pull-request-reviewer[bot]"}, "state": "COMMENTED", "submittedAt": "2026-11-24T11:30:00Z"},
+				{"author": {"__typename": "User", "login": "draft-rev"}, "state": "PENDING", "submittedAt": ""}
 			]
 		},
 		"reviewThreads": {
@@ -89,7 +90,10 @@ func TestLoadRerequestPRState(t *testing.T) {
 	if len(got.RequestedTeams) != 1 || got.RequestedTeams[0] != "core-team" {
 		t.Fatalf("RequestedTeams = %v", got.RequestedTeams)
 	}
-	if len(got.Reviews) != 2 || got.Reviews[0].Author != "alice" || got.Reviews[1].Author != "bob" {
+	if len(got.Reviews) != 3 ||
+		got.Reviews[0].Author != "alice" || got.Reviews[0].AuthorType != "User" ||
+		got.Reviews[1].Author != "bob" || got.Reviews[1].AuthorType != "User" ||
+		got.Reviews[2].Author != "copilot-pull-request-reviewer[bot]" || got.Reviews[2].AuthorType != "Bot" {
 		t.Fatalf("Reviews = %+v", got.Reviews)
 	}
 	if len(got.Threads) != 1 || len(got.Threads[0].Comments) != 2 {

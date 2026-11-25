@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -35,6 +36,8 @@ type Config struct {
 	// GeneratedLists maps <owner>/<repo> to the repository path of a YAML
 	// file listing generated-file globs. Only Pkl config supports it.
 	GeneratedLists map[string]string `yaml:"-"`
+	// Rerequest holds gh-pr-review rerequest settings. Only Pkl config supports it.
+	Rerequest RerequestConfig `yaml:"-"`
 	// Path is the file gh-merge selected. It is not read from the file.
 	Path string `yaml:"-"`
 	// SettingsFrom is the repo_settings key that applied, or SettingsFromGlobal.
@@ -46,6 +49,13 @@ type Config struct {
 type GitHubConfig struct {
 	Owner string   `yaml:"owner"`
 	Repos []string `yaml:"repos"`
+}
+
+// RerequestConfig holds gh-pr-review rerequest settings.
+type RerequestConfig struct {
+	// ExcludeReviewers lists reviewer logins or glob patterns (such as "*-bot"
+	// or "agent-*") to skip when re-requesting reviewers.
+	ExcludeReviewers []string `yaml:"-"`
 }
 
 // SlackConfig contains Slack-related configuration.
@@ -264,6 +274,34 @@ func LoadConfig(path string) (*Config, error) {
 	return loadYamlConfig(path)
 }
 
+// LoadOptionalConfig loads the configuration from path, or from the default
+// location when path is empty. When path is empty and neither config.pkl nor
+// config.yaml exists, it returns an empty Config and nil error.
+func LoadOptionalConfig(path string) (*Config, error) {
+	if path != "" {
+		return LoadConfig(path)
+	}
+	resolved, ok := findDefaultConfigPath()
+	if !ok {
+		return &Config{}, nil
+	}
+	return LoadConfig(resolved)
+}
+
+func findDefaultConfigPath() (string, bool) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", false
+	}
+	basePath := filepath.Join(home, ".config", "gh-nudge", "config")
+	for _, ext := range []string{".pkl", ".yaml"} {
+		if fileExists(basePath + ext) {
+			return basePath + ext, true
+		}
+	}
+	return "", false
+}
+
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
@@ -337,6 +375,9 @@ func convertPklConfigInDir(pklCfg *pklconfig.Config, configDir string) *Config {
 		Approve:        convertApprove(pklCfg.Approve, configDir),
 		Viewed:         convertViewed(pklCfg.Viewed),
 		GeneratedLists: cloneStringMap(pklCfg.GeneratedLists),
+		Rerequest: RerequestConfig{
+			ExcludeReviewers: cloneStrings(pklCfg.Rerequest.ExcludeReviewers),
+		},
 	}
 	normalizeSettings(&cfg.Settings)
 
@@ -455,7 +496,22 @@ func validateConfig(cfg *Config) error {
 	if err := validateGeneratedLists(cfg); err != nil {
 		return err
 	}
+	if err := validateRerequest(cfg.Rerequest); err != nil {
+		return err
+	}
 	return validateRepoSettings(cfg.RepoSettings)
+}
+
+func validateRerequest(r RerequestConfig) error {
+	for _, pat := range r.ExcludeReviewers {
+		if pat == "" {
+			return fmt.Errorf("rerequest.exclude_reviewers entries must not be empty")
+		}
+		if _, err := path.Match(strings.ToLower(pat), ""); err != nil {
+			return fmt.Errorf("rerequest.exclude_reviewers %q: %w", pat, err)
+		}
+	}
+	return nil
 }
 
 func validateSettings(settings SettingsConfig) error {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path"
 	"sort"
 	"strings"
 	"time"
@@ -27,8 +28,10 @@ type RerequestClient interface {
 
 // RerequestOptions controls how RunRerequest executes and formats output.
 type RerequestOptions struct {
-	Apply bool
-	JSON  bool
+	Apply            bool
+	JSON             bool
+	IncludeBots      bool
+	ExcludeReviewers []string
 }
 
 // RerequestDecision records the rerequest evaluation for one reviewer (or the
@@ -47,6 +50,7 @@ type RerequestDecision struct {
 
 type reviewerSummary struct {
 	login               string
+	authorType          string
 	lastReviewAt        time.Time
 	lastReviewState     string
 	hasOpinionatedState bool
@@ -58,6 +62,14 @@ type reviewerSummary struct {
 // decision when the PR itself is ineligible (draft, closed, or merged).
 // Eligible reviewers have Action set to RerequestActionWouldRerequest.
 func EvaluateRerequest(pr github.RerequestPRState) []RerequestDecision {
+	return EvaluateRerequestWithOptions(pr, RerequestOptions{})
+}
+
+// EvaluateRerequestWithOptions evaluates all rerequest rules against pr using
+// opts (such as bot skipping and excluded reviewer patterns) and returns one
+// decision per reviewer (sorted by login), or a single PR-level skip decision
+// when the PR itself is ineligible.
+func EvaluateRerequestWithOptions(pr github.RerequestPRState, opts RerequestOptions) []RerequestDecision {
 	if pr.IsDraft {
 		return []RerequestDecision{{
 			PR:     pr.Number,
@@ -94,7 +106,7 @@ func EvaluateRerequest(pr github.RerequestPRState) []RerequestDecision {
 
 	decisions := make([]RerequestDecision, 0, len(reviewers))
 	for _, rev := range reviewers {
-		decisions = append(decisions, evaluateReviewer(pr, rev, pendingUsers, lastPushAt))
+		decisions = append(decisions, evaluateReviewer(pr, rev, pendingUsers, lastPushAt, opts))
 	}
 	return decisions
 }
@@ -108,8 +120,10 @@ func summarizeReviews(reviews []github.RerequestReview) []reviewerSummary {
 		key := strings.ToLower(r.Author)
 		s, ok := byLower[key]
 		if !ok {
-			s = &reviewerSummary{login: r.Author}
+			s = &reviewerSummary{login: r.Author, authorType: r.AuthorType}
 			byLower[key] = s
+		} else if s.authorType == "" && r.AuthorType != "" {
+			s.authorType = r.AuthorType
 		}
 		if s.lastReviewAt.IsZero() || !r.SubmittedAt.Before(s.lastReviewAt) {
 			s.lastReviewAt = r.SubmittedAt
@@ -153,6 +167,7 @@ func evaluateReviewer(
 	rev reviewerSummary,
 	pendingUsers map[string]bool,
 	lastPushAt time.Time,
+	opts RerequestOptions,
 ) RerequestDecision {
 	threadsTotal, threadsAnswered, lastReplyAt := reviewerThreadStats(pr.Threads, rev.login, pr.Author)
 
@@ -178,32 +193,9 @@ func evaluateReviewer(
 		d.AuthorActivityAt = &act
 	}
 
-	// Rule 4: skip PR author.
-	if pr.Author != "" && strings.EqualFold(rev.login, pr.Author) {
+	if reason := rerequestSkipReason(pr, rev, pendingUsers, threadsTotal, threadsAnswered, opts); reason != "" {
 		d.Action = RerequestActionSkip
-		d.Reason = "reviewer is PR author"
-		return d
-	}
-
-	// Rule 1: never re-request someone whose latest review state is APPROVED.
-	if strings.EqualFold(rev.lastReviewState, "APPROVED") {
-		d.Action = RerequestActionSkip
-		d.Reason = "approved"
-		return d
-	}
-
-	// Rule 4: skip if reviewer already has a pending review request.
-	if pendingUsers[strings.ToLower(rev.login)] {
-		d.Action = RerequestActionSkip
-		d.Reason = "review request already pending"
-		return d
-	}
-
-	// Rule 2: every review thread started by this reviewer must have an author reply.
-	if threadsAnswered < threadsTotal {
-		unanswered := threadsTotal - threadsAnswered
-		d.Action = RerequestActionSkip
-		d.Reason = fmt.Sprintf("%d of %d threads have no author reply", unanswered, threadsTotal)
+		d.Reason = reason
 		return d
 	}
 
@@ -220,6 +212,66 @@ func evaluateReviewer(
 	d.Action = RerequestActionWouldRerequest
 	d.Reason = formatRerequestReason(pushedAfter, repliedAfter, threadsTotal)
 	return d
+}
+
+func rerequestSkipReason(
+	pr github.RerequestPRState,
+	rev reviewerSummary,
+	pendingUsers map[string]bool,
+	threadsTotal, threadsAnswered int,
+	opts RerequestOptions,
+) string {
+	// Rule 4: skip PR author.
+	if pr.Author != "" && strings.EqualFold(rev.login, pr.Author) {
+		return "reviewer is PR author"
+	}
+
+	// Rule 5: skip bots and excluded reviewers unless --include-bots is set.
+	if isBotOrExcludedReviewer(rev, opts) {
+		return fmt.Sprintf("skipped: bot reviewer %s", rev.login)
+	}
+
+	// Rule 1: never re-request someone whose latest review state is APPROVED.
+	if strings.EqualFold(rev.lastReviewState, "APPROVED") {
+		return "approved"
+	}
+
+	// Rule 4: skip if reviewer already has a pending review request.
+	if pendingUsers[strings.ToLower(rev.login)] {
+		return "review request already pending"
+	}
+
+	// Rule 2: every review thread started by this reviewer must have an author reply.
+	if threadsAnswered < threadsTotal {
+		unanswered := threadsTotal - threadsAnswered
+		return fmt.Sprintf("%d of %d threads have no author reply", unanswered, threadsTotal)
+	}
+
+	return ""
+}
+
+func isBotOrExcludedReviewer(rev reviewerSummary, opts RerequestOptions) bool {
+	if opts.IncludeBots {
+		return false
+	}
+	return strings.EqualFold(rev.authorType, "Bot") || isExcludedReviewer(rev.login, opts.ExcludeReviewers)
+}
+
+func isExcludedReviewer(login string, patterns []string) bool {
+	lowerLogin := strings.ToLower(login)
+	for _, pat := range patterns {
+		if pat == "" {
+			continue
+		}
+		lowerPat := strings.ToLower(pat)
+		if lowerLogin == lowerPat {
+			return true
+		}
+		if matched, err := path.Match(lowerPat, lowerLogin); err == nil && matched {
+			return true
+		}
+	}
+	return false
 }
 
 func reviewerThreadStats(threads []github.RerequestThread, reviewer, prAuthor string) (int, int, time.Time) {
@@ -286,7 +338,7 @@ func RunRerequest(client RerequestClient, ref github.PullRef, opts RerequestOpti
 		return fmt.Errorf("load pull request state: %w", err)
 	}
 
-	decisions := EvaluateRerequest(prState)
+	decisions := EvaluateRerequestWithOptions(prState, opts)
 
 	var applyErr error
 	if opts.Apply {

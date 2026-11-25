@@ -12,6 +12,7 @@ go_library(
     visibility = ["//visibility:private"],
     deps = [
         "//devtools/gh-nudge/internal/argparser:go_default_library",
+        "//devtools/gh-nudge/internal/config:go_default_library",
         "//devtools/gh-nudge/internal/git:go_default_library",
         "//devtools/gh-nudge/internal/github:go_default_library",
         "//devtools/gh-nudge/internal/models:go_default_library",
@@ -30,9 +31,17 @@ go_binary(
 
 go_test(
     name = "go_default_test",
-    srcs = ["toolcli_test.go"],
+    srcs = [
+        "rerequest_test.go",
+        "toolcli_test.go",
+    ],
     embed = [":go_default_library"],
-    deps = ["//devtools/pkg/toolcli:go_default_library"],
+    deps = [
+        "//devtools/gh-nudge/internal/argparser:go_default_library",
+        "//devtools/gh-nudge/internal/github:go_default_library",
+        "//devtools/gh-nudge/internal/prreview:go_default_library",
+        "//devtools/pkg/toolcli:go_default_library",
+    ],
 )
 
 exports_files(
