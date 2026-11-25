@@ -87,6 +87,7 @@ files = [
     "scripts/strip_pr_html_comments_test.py",
     "devtools/linters/pylinters/src/pylinters",
     "devtools/linters/pylinters/tests",
+    "tools/lint/bazel_go_files_test.py",
     "tools/lint/mypy_test.py",
 ]
 exclude = [

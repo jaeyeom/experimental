@@ -114,6 +114,22 @@ py_test(
     ],
 )
 
+py_test(
+    name = "bazel_go_files_test",
+    size = "small",
+    srcs = ["bazel_go_files_test.py"],
+    data = ["//:go.mod"],
+    legacy_create_init = 0,
+    # Walks the checkout's .go and BUILD.bazel files via the go.mod symlink.
+    # They are not declared inputs, so "external" keeps Bazel from caching a
+    # stale result and "local" keeps it off RBE.
+    tags = [
+        "external",
+        "local",
+    ],
+    deps = ["@pypi//pytest"],
+)
+
 filegroup(
     name = "py_srcs",
     srcs = glob(["*.py"]),

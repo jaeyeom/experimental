@@ -22,9 +22,9 @@ all:
 	$(MAKE) generate-ansible generate-pkl
 	$(MAKE) format
 	$(MAKE) fix
-	$(MAKE) test check-semgrep check-gitleaks check-bazel-go-files
+	$(MAKE) test check-semgrep check-gitleaks
 
-CHECK_CI_CHECKS := check-semgrep check-gitleaks check-bazel-go-files
+CHECK_CI_CHECKS := check-semgrep check-gitleaks
 
 check-ci:
 	$(MAKE) check-uv-lock
@@ -102,16 +102,13 @@ tag:
 	@echo "Created tag $(TAG). Push with: git push origin $(TAG)"
 
 # Go targets
-.PHONY: fix-go check-bazel-go-files
+.PHONY: fix-go
 
 # pkgvar and oserrors run in nogo (//tools/lint:platform_nogo). Only the
 # oserrorsgodernize --fix autofixer (a module tool) remains.
 # An empty GOPACKAGESDRIVER keeps Bazel from taking over package loading (#416).
 fix-go:
 	GOPACKAGESDRIVER= go tool oserrorsgodernize --fix ./...
-
-check-bazel-go-files:
-	@./check-bazel-src-files.sh go
 
 # Python targets
 .PHONY: fix-ruff check-uv-lock
