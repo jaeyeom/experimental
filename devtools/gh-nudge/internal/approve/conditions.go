@@ -802,6 +802,44 @@ func latestStateOnHead(pr github.ApprovalPullRequest, login string) string {
 	return state
 }
 
+// openChangeRequestBy returns the login of the first reviewer (in review order)
+// whose latest opinionated review (APPROVED, CHANGES_REQUESTED, or DISMISSED)
+// is CHANGES_REQUESTED, across all commits on pr. COMMENTED and PENDING reviews
+// do not change a reviewer's state. It returns "" when no reviewer has an open
+// change request.
+//
+// The viewer's own earlier change request also blocks so gh-approve never
+// auto-approves over a change request that has not been dismissed or resolved.
+func openChangeRequestBy(pr github.ApprovalPullRequest) string {
+	type reviewerState struct {
+		login string
+		state string
+	}
+	var order []string
+	latest := make(map[string]reviewerState)
+	for _, review := range pr.Reviews {
+		if review.Author == "" {
+			continue
+		}
+		switch review.State {
+		case "APPROVED", "CHANGES_REQUESTED", "DISMISSED":
+		default:
+			continue
+		}
+		key := strings.ToLower(review.Author)
+		if _, seen := latest[key]; !seen {
+			order = append(order, key)
+		}
+		latest[key] = reviewerState{login: review.Author, state: review.State}
+	}
+	for _, key := range order {
+		if latest[key].state == "CHANGES_REQUESTED" {
+			return latest[key].login
+		}
+	}
+	return ""
+}
+
 func checkRequiredApprovals(rule config.ApproveRule, pr github.ApprovalPullRequest) (bool, string) {
 	if pr.HeadSHA == "" {
 		return unreadable("head SHA missing")

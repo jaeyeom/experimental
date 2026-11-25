@@ -303,3 +303,104 @@ func TestFirstFailingConditionPerRule(t *testing.T) {
 		t.Fatal("matching rule reported a failure")
 	}
 }
+
+func TestOpenChangeRequestBy(t *testing.T) {
+	tests := []struct {
+		name    string
+		reviews []github.ApprovalReview
+		want    string
+	}{
+		{
+			name:    "no reviews",
+			reviews: nil,
+			want:    "",
+		},
+		{
+			name:    "approved does not block",
+			reviews: []github.ApprovalReview{{Author: "bob", State: "APPROVED", CommitSHA: "h1"}},
+			want:    "",
+		},
+		{
+			name:    "commented only does not block",
+			reviews: []github.ApprovalReview{{Author: "bob", State: "COMMENTED", CommitSHA: "h1"}},
+			want:    "",
+		},
+		{
+			name:    "pending only does not block",
+			reviews: []github.ApprovalReview{{Author: "bob", State: "PENDING", CommitSHA: "h1"}},
+			want:    "",
+		},
+		{
+			name:    "changes requested on head commit blocks",
+			reviews: []github.ApprovalReview{{Author: "bob", State: "CHANGES_REQUESTED", CommitSHA: "h1"}},
+			want:    "bob",
+		},
+		{
+			name:    "changes requested on older commit blocks",
+			reviews: []github.ApprovalReview{{Author: "bob", State: "CHANGES_REQUESTED", CommitSHA: "h0"}},
+			want:    "bob",
+		},
+		{
+			name: "changes requested then commented still blocks",
+			reviews: []github.ApprovalReview{
+				{Author: "bob", State: "CHANGES_REQUESTED", CommitSHA: "h0"},
+				{Author: "bob", State: "COMMENTED", CommitSHA: "h1"},
+			},
+			want: "bob",
+		},
+		{
+			name: "changes requested then pending still blocks",
+			reviews: []github.ApprovalReview{
+				{Author: "bob", State: "CHANGES_REQUESTED", CommitSHA: "h0"},
+				{Author: "bob", State: "PENDING", CommitSHA: "h1"},
+			},
+			want: "bob",
+		},
+		{
+			name: "changes requested then dismissed does not block",
+			reviews: []github.ApprovalReview{
+				{Author: "bob", State: "CHANGES_REQUESTED", CommitSHA: "h0"},
+				{Author: "bob", State: "DISMISSED", CommitSHA: "h0"},
+			},
+			want: "",
+		},
+		{
+			name: "changes requested then approved by same reviewer does not block",
+			reviews: []github.ApprovalReview{
+				{Author: "bob", State: "CHANGES_REQUESTED", CommitSHA: "h0"},
+				{Author: "Bob", State: "APPROVED", CommitSHA: "h1"},
+			},
+			want: "",
+		},
+		{
+			name: "changes requested by one reviewer and approved by another blocks",
+			reviews: []github.ApprovalReview{
+				{Author: "bob", State: "CHANGES_REQUESTED", CommitSHA: "h0"},
+				{Author: "carol", State: "APPROVED", CommitSHA: "h1"},
+			},
+			want: "bob",
+		},
+		{
+			name: "approved then changes requested blocks",
+			reviews: []github.ApprovalReview{
+				{Author: "bob", State: "APPROVED", CommitSHA: "h0"},
+				{Author: "bob", State: "CHANGES_REQUESTED", CommitSHA: "h1"},
+			},
+			want: "bob",
+		},
+		{
+			name:    "viewer own earlier change request blocks",
+			reviews: []github.ApprovalReview{{Author: "me", State: "CHANGES_REQUESTED", CommitSHA: "h0"}},
+			want:    "me",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pr := basePR()
+			pr.Reviews = tt.reviews
+			if got := openChangeRequestBy(pr); got != tt.want {
+				t.Fatalf("openChangeRequestBy() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

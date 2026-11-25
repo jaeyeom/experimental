@@ -176,6 +176,13 @@ Global settings:
   the candidate list. Default ~7.d~.
 - gh-approve never approves a pull request you authored. This is always on and
   cannot be configured.
+- gh-approve skips any pull request with an open ~CHANGES_REQUESTED~ review
+  from any reviewer — including your own earlier change request — even when
+  posted on an older commit. A dismissed change request or one followed by a
+  later ~APPROVED~ review from the same reviewer does not block; ~COMMENTED~
+  and ~PENDING~ reviews do not clear or count as a change request. This check
+  applies to every rule (including comment-only and deletion rules) and cannot
+  be turned off.
 
 Starter rule shapes. These are examples. Nothing is hard-coded.
 

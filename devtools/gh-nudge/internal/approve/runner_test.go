@@ -917,3 +917,120 @@ func TestRunAgentExplainAndLogShowDecisionReasonDuration(t *testing.T) {
 		t.Fatalf("explain = %s", out.String())
 	}
 }
+
+func TestRunSkipsOpenChangeRequests(t *testing.T) {
+	tests := []struct {
+		name        string
+		reviews     []github.ApprovalReview
+		wantBlocked string
+	}{
+		{
+			name:    "approved does not block",
+			reviews: []github.ApprovalReview{{Author: "bob", State: "APPROVED", CommitSHA: "h1"}},
+		},
+		{
+			name:    "commented only does not block",
+			reviews: []github.ApprovalReview{{Author: "bob", State: "COMMENTED", CommitSHA: "h1"}},
+		},
+		{
+			name:        "changes requested on head commit blocks",
+			reviews:     []github.ApprovalReview{{Author: "bob", State: "CHANGES_REQUESTED", CommitSHA: "h1"}},
+			wantBlocked: "bob",
+		},
+		{
+			name:        "changes requested on older commit blocks",
+			reviews:     []github.ApprovalReview{{Author: "bob", State: "CHANGES_REQUESTED", CommitSHA: "h0"}},
+			wantBlocked: "bob",
+		},
+		{
+			name: "changes requested then dismissed does not block",
+			reviews: []github.ApprovalReview{
+				{Author: "bob", State: "CHANGES_REQUESTED", CommitSHA: "h0"},
+				{Author: "bob", State: "DISMISSED", CommitSHA: "h0"},
+			},
+		},
+		{
+			name: "changes requested then approved by same reviewer does not block",
+			reviews: []github.ApprovalReview{
+				{Author: "bob", State: "CHANGES_REQUESTED", CommitSHA: "h0"},
+				{Author: "bob", State: "APPROVED", CommitSHA: "h1"},
+			},
+		},
+		{
+			name:        "viewer own earlier change request blocks",
+			reviews:     []github.ApprovalReview{{Author: "me", State: "CHANGES_REQUESTED", CommitSHA: "h0"}},
+			wantBlocked: "me",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pr := prNumber(1)
+			pr.Reviews = tt.reviews
+			var out, logBuf bytes.Buffer
+			fake := newFake(pr)
+			runner := &Runner{
+				Client: fake,
+				Config: config.ApproveConfig{
+					Body:                "LGTM",
+					SkipAlreadyApproved: true,
+					Rules:               []config.ApproveRule{dashboardRule},
+				},
+				Out: &out,
+				Log: &logBuf,
+				Now: fixedNow,
+			}
+			err := runner.Run(Options{Apply: true})
+			if err != nil {
+				t.Fatalf("Run() error = %v, want nil (exit status 0)", err)
+			}
+			var entry LogEntry
+			if jsonErr := json.Unmarshal(bytes.TrimSpace(logBuf.Bytes()), &entry); jsonErr != nil {
+				t.Fatalf("unmarshal log %q: %v", logBuf.String(), jsonErr)
+			}
+			if tt.wantBlocked == "" {
+				if len(fake.approvals) != 1 || entry.Action != ActionApproved {
+					t.Fatalf("expected approval, got approvals=%+v entry=%+v", fake.approvals, entry)
+				}
+				return
+			}
+			wantReason := "open change request by " + tt.wantBlocked
+			if len(fake.approvals) != 0 {
+				t.Fatalf("approved PR despite open change request: %+v", fake.approvals)
+			}
+			if entry.Action != ActionSkipped || entry.Reason != wantReason {
+				t.Fatalf("entry = %+v, want action=%q reason=%q", entry, ActionSkipped, wantReason)
+			}
+			rawJSON := logBuf.String()
+			if !strings.Contains(rawJSON, `"action":"skipped"`) || !strings.Contains(rawJSON, `"reason":"`+wantReason+`"`) {
+				t.Fatalf("raw JSON log missing skip reason: %s", rawJSON)
+			}
+			outStr := out.String()
+			if !strings.Contains(outStr, "skipped") || !strings.Contains(outStr, wantReason) {
+				t.Fatalf("stdout missing skip line / reason %q:\n%s", wantReason, outStr)
+			}
+		})
+	}
+}
+
+func TestRunOpenChangeRequestBlocksDeletionAndCommentRules(t *testing.T) {
+	rules := []config.ApproveRule{
+		{Name: "pure-deletion", PureDeletion: true},
+		{Name: "comment-cleanup", DeletionsAndCommentsOnly: true},
+	}
+	pr := prNumber(1)
+	pr.Additions = 0
+	pr.Deletions = 5
+	pr.Reviews = []github.ApprovalReview{{Author: "carol", State: "CHANGES_REQUESTED", CommitSHA: "h0"}}
+
+	res := run(t, newFake(pr), rules, Options{Apply: true})
+	if res.err != nil {
+		t.Fatalf("Run() error = %v, want nil", res.err)
+	}
+	if len(res.fake.approvals) != 0 {
+		t.Fatalf("approved despite open change request: %+v", res.fake.approvals)
+	}
+	if len(res.log) != 1 || res.log[0].Action != ActionSkipped || res.log[0].Reason != "open change request by carol" {
+		t.Fatalf("log = %+v", res.log)
+	}
+}
