@@ -284,3 +284,140 @@ func TestSettingsExternalEditorReloadsConfig(t *testing.T) {
 		t.Fatalf("live settings changed after invalid edit: UTC=%v answerAction=%q", m.UTC, m.answerAction)
 	}
 }
+
+func TestSettingsNavEntryWithoutAndWithOutbox(t *testing.T) {
+	cases := []struct {
+		name       string
+		withOutbox bool
+		wantTail   []string
+	}{
+		{
+			name:       "without outbox",
+			withOutbox: false,
+			wantTail:   []string{"Status", "Contacts", "Settings"},
+		},
+		{
+			name:       "with outbox",
+			withOutbox: true,
+			wantTail:   []string{"Status", "Contacts", "Outbox", "Settings"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, _ := setupSettingsModel(t, "{}\n")
+			if tc.withOutbox {
+				m.backend = &fakeOutboxBackend{
+					LocalBackend: &LocalBackend{Dir: m.Dir},
+				}
+				if err := m.Reload(); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			wantLen := len(Folders) + len(tc.wantTail)
+			if got := m.navLen(); got != wantLen {
+				t.Fatalf("navLen() = %d, want %d", got, wantLen)
+			}
+			for offset, wantName := range tc.wantTail {
+				idx := len(Folders) + offset
+				if got := m.navName(idx); got != wantName {
+					t.Errorf("navName(%d) = %q, want %q", idx, got, wantName)
+				}
+			}
+
+			settingsIdx := m.navLen() - 1
+			if count, dim := m.navCountText(settingsIdx); count != "" || dim {
+				t.Errorf("navCountText(%d) = (%q, %v), want (\"\", false)", settingsIdx, count, dim)
+			}
+			if m.navSelected(settingsIdx) {
+				t.Errorf("navSelected(%d) = true in modeList, want false", settingsIdx)
+			}
+
+			// Open Settings via g , and verify Settings is the only selected nav item.
+			press(t, m, "g,")
+			if m.mode != modeSettings {
+				t.Fatalf("mode = %d, want modeSettings (%d)", m.mode, modeSettings)
+			}
+			for i := 0; i < m.navLen(); i++ {
+				wantSel := i == settingsIdx
+				if got := m.navSelected(i); got != wantSel {
+					t.Errorf("in modeSettings: navSelected(%d) = %v, want %v", i, got, wantSel)
+				}
+			}
+			if got := m.navName(settingsIdx); got != "[Settings]" {
+				t.Errorf("in modeSettings: navName(%d) = %q, want %q", settingsIdx, got, "[Settings]")
+			}
+			view := visibleLine(m.View())
+			if !strings.Contains(view, "[Settings]") || strings.Contains(view, "[Inbox]") {
+				t.Errorf("expected [Settings] highlighted and not [Inbox]:\n%s", view)
+			}
+		})
+	}
+}
+
+func TestSettingsNavClickOpensView(t *testing.T) {
+	for _, withOutbox := range []bool{false, true} {
+		name := "without outbox"
+		if withOutbox {
+			name = "with outbox"
+		}
+		t.Run(name, func(t *testing.T) {
+			m, _ := setupSettingsModel(t, "{}\n")
+			if withOutbox {
+				m.backend = &fakeOutboxBackend{
+					LocalBackend: &LocalBackend{Dir: m.Dir},
+				}
+				if err := m.Reload(); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Wide sidebar click opens Settings.
+			m.width, m.height = 120, 24
+			view := m.View()
+			row := screenRow(view, "Settings")
+			if row <= 0 {
+				t.Fatalf("wide view missing Settings nav row:\n%s", view)
+			}
+			line := strings.Split(view, "\n")[row-1]
+			if err := m.Click(visibleCol(line, "Settings"), row); err != nil {
+				t.Fatal(err)
+			}
+			if m.mode != modeSettings {
+				t.Fatalf("after clicking Settings in sidebar: mode = %d, want modeSettings (%d)", m.mode, modeSettings)
+			}
+			if !strings.Contains(visibleLine(m.View()), "[Settings]") {
+				t.Fatalf("after clicking Settings: view missing [Settings]:\n%s", m.View())
+			}
+
+			// Return to Inbox via g i, then test clicking Settings in narrow tab row.
+			press(t, m, "gi")
+			if m.mode != modeList {
+				t.Fatalf("after g i: mode = %d, want modeList (%d)", m.mode, modeList)
+			}
+			m.width, m.height = 100, 24
+			// Narrow width uses folderTabLine (< narrowWidth).
+			m.width = narrowWidth - 1
+			// Ensure Settings fits on the tab row with narrowWidth-1 by using a wide enough narrow width,
+			// or test openNavFolder directly if narrowWidth truncates the tail.
+			narrowView := m.View()
+			if r := screenRow(narrowView, "Settings"); r > 0 {
+				narrowLine := strings.Split(narrowView, "\n")[r-1]
+				if err := m.Click(visibleCol(narrowLine, "Settings"), r); err != nil {
+					t.Fatal(err)
+				}
+				if m.mode != modeSettings {
+					t.Fatalf("after clicking Settings in narrow tab row: mode = %d, want modeSettings (%d)", m.mode, modeSettings)
+				}
+			} else {
+				if err := m.openNavFolder(m.navLen() - 1); err != nil {
+					t.Fatal(err)
+				}
+				if m.mode != modeSettings {
+					t.Fatalf("after openNavFolder(last): mode = %d, want modeSettings (%d)", m.mode, modeSettings)
+				}
+			}
+		})
+	}
+}

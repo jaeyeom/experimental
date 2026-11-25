@@ -2338,9 +2338,13 @@ func (m *Model) fitDetail(lines []screenLine, width int) []screenLine {
 
 func (m *Model) navLen() int {
 	if m.hasOutbox() {
-		return len(Folders) + 3
+		return len(Folders) + 4
 	}
-	return len(Folders) + 2
+	return len(Folders) + 3
+}
+
+func (m *Model) settingsNavIndex() int {
+	return m.navLen() - 1
 }
 
 func (m *Model) navSelected(i int) bool {
@@ -2352,7 +2356,7 @@ func (m *Model) navSelected(i int) bool {
 	case modeOutbox:
 		return m.hasOutbox() && i == m.outboxNavIndex()
 	case modeSettings:
-		return false
+		return i == m.settingsNavIndex()
 	default:
 		return i == m.folder
 	}
@@ -2367,6 +2371,8 @@ func (m *Model) navName(i int) string {
 		name = "Status"
 	case m.hasOutbox() && i == m.outboxNavIndex():
 		name = "Outbox"
+	case i == m.settingsNavIndex():
+		name = "Settings"
 	}
 	if m.navSelected(i) {
 		return "[" + name + "]"
@@ -2417,6 +2423,9 @@ func (m *Model) navCountText(i int) (string, bool) {
 		}
 		matches := len(m.outboxEntries())
 		return fmt.Sprintf("%d/%d", matches, len(all)), matches == 0
+	}
+	if i == m.settingsNavIndex() {
+		return "", false
 	}
 	if i > len(Folders) {
 		total, matches := m.activeContactMatches()

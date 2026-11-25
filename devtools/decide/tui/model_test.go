@@ -613,7 +613,7 @@ func TestFolderCountsShareAColumn(t *testing.T) {
 func assertFolderCountColumn(t *testing.T, m *Model) {
 	t.Helper()
 	lines := m.sidebarLines()
-	if len(lines) != len(Folders)+2 {
+	if len(lines) != len(Folders)+3 {
 		t.Fatalf("sidebar rows %d", len(lines))
 	}
 	ends := make([]int, len(Folders))
@@ -660,6 +660,13 @@ func assertFolderCountColumn(t *testing.T, m *Model) {
 	if lipgloss.Width(contacts) != width {
 		t.Fatalf("contacts width %d row width %d %q", lipgloss.Width(contacts), width, contacts)
 	}
+	settings := lines[len(Folders)+2].text
+	if strings.TrimRight(settings, " ") != settingsName(m) {
+		t.Fatalf("settings count %q", settings)
+	}
+	if lipgloss.Width(settings) != width {
+		t.Fatalf("settings width %d row width %d %q", lipgloss.Width(settings), width, settings)
+	}
 }
 
 func statusName(m *Model) string {
@@ -667,6 +674,13 @@ func statusName(m *Model) string {
 		return "[Status]"
 	}
 	return "Status"
+}
+
+func settingsName(m *Model) string {
+	if m.mode == modeSettings {
+		return "[Settings]"
+	}
+	return "Settings"
 }
 
 func TestEnterClearsUnread(t *testing.T) {
@@ -1046,7 +1060,7 @@ func TestClickOpensRowSwitchesFolderAndScrolls(t *testing.T) {
 		CreatedAt: time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC),
 	})
 	m := New(dir)
-	m.height = 12
+	m.height = 13
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
@@ -2399,7 +2413,7 @@ func TestBubbleTeaMouseMessages(t *testing.T) {
 		CreatedAt: time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC),
 	})
 	m := New(dir)
-	m.height = 10
+	m.height = 11
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}

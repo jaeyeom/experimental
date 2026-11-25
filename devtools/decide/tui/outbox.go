@@ -236,6 +236,11 @@ func (m *Model) outboxThreadLines(it *decide.Item, width int, now time.Time, loc
 }
 
 func (m *Model) openNavFolder(i int) error {
+	if i == m.settingsNavIndex() {
+		return m.showSettings()
+	}
+	m.settingsEditing = false
+	m.settingsEditBuf = ""
 	if m.hasOutbox() && i == m.outboxNavIndex() {
 		return m.showOutbox()
 	}
