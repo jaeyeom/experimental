@@ -22,9 +22,9 @@ all:
 	$(MAKE) generate-ansible generate-pkl
 	$(MAKE) format
 	$(MAKE) fix
-	$(MAKE) test check-semgrep check-gitleaks
+	$(MAKE) test check-semgrep
 
-CHECK_CI_CHECKS := check-semgrep check-gitleaks
+CHECK_CI_CHECKS := check-semgrep
 
 check-ci:
 	$(MAKE) $(CHECK_CI_CHECKS)
@@ -177,17 +177,6 @@ check-semgrep:
 		exit 1; \
 	fi
 	@semgrep scan --error --config auto --config .semgrep
-
-# Gitleaks targets
-.PHONY: check-gitleaks
-check-gitleaks:
-	@if ! command -v gitleaks >/dev/null 2>&1; then \
-		echo "Error: gitleaks is required for make check"; \
-		echo "Install with:"; \
-		echo "  cd devtools/setup-dev/ansible && ./ensure.sh gitleaks"; \
-		exit 1; \
-	fi
-	@gitleaks git --redact --no-banner .
 
 # Manual only: needs Emacs and is never part of check or test.
 # Usage: make org-lint-parity [GO_LINT=cmd]; make org-lint-parity-update

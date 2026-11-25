@@ -88,6 +88,7 @@ files = [
     "devtools/linters/pylinters/src/pylinters",
     "devtools/linters/pylinters/tests",
     "tools/lint/bazel_go_files_test.py",
+    "tools/lint/gitleaks_test.py",
     "tools/lint/mypy_test.py",
     "tools/lint/uv_lock_test.py",
 ]

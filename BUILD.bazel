@@ -37,6 +37,7 @@ exports_files(
         "PklProject",
         "PklProject.deps.json",
         "go.mod",
+        ".gitleaks.toml",
         ".shellcheckrc",
         "pyproject.toml",
         "uv.lock",

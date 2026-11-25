@@ -174,6 +174,41 @@ py_test(
     deps = ["@pypi//pytest"],
 )
 
+alias(
+    name = "gitleaks_bin",
+    actual = select({
+        ":linux_aarch64": "@gitleaks_linux_aarch64//:gitleaks",
+        ":linux_x86_64": "@gitleaks_linux_x86_64//:gitleaks",
+        ":osx_aarch64": "@gitleaks_osx_aarch64//:gitleaks",
+        ":osx_x86_64": "@gitleaks_osx_x86_64//:gitleaks",
+    }),
+    target_compatible_with = _PY_COMPATIBLE,
+)
+
+py_test(
+    name = "gitleaks_test",
+    size = "small",
+    srcs = ["gitleaks_test.py"],
+    data = [
+        ":gitleaks_bin",
+        "//:.gitleaks.toml",
+        "//:go.mod",
+    ],
+    env = {
+        "GITLEAKS_BIN": "$(rootpath :gitleaks_bin)",
+    },
+    legacy_create_init = 0,
+    # Scans the checkout's .git history via the go.mod symlink. Git history is
+    # not a declared input, so "external" keeps Bazel from caching a stale
+    # result and "local" keeps it off RBE.
+    tags = [
+        "external",
+        "local",
+    ],
+    target_compatible_with = _PY_COMPATIBLE,
+    deps = ["@pypi//pytest"],
+)
+
 py_test(
     name = "bazel_go_files_test",
     size = "small",
