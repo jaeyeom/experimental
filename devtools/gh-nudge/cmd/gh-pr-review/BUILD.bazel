@@ -33,13 +33,27 @@ go_test(
     name = "go_default_test",
     srcs = [
         "rerequest_test.go",
+        "submit_test.go",
         "toolcli_test.go",
     ],
+    data = [
+        "//devtools/gh-nudge/pkl:config_pkl",
+    ] + select({
+        "@bazel_tools//src/conditions:darwin_arm64": ["@pkl-cli-macos-aarch64//file:downloaded"],
+        "@bazel_tools//src/conditions:darwin_arm64e": ["@pkl-cli-macos-aarch64//file:downloaded"],
+        "@bazel_tools//src/conditions:darwin_x86_64": ["@pkl-cli-macos-amd64//file:downloaded"],
+        "@bazel_tools//src/conditions:linux_aarch64": ["@pkl-cli-linux-aarch64//file:downloaded"],
+        "@bazel_tools//src/conditions:linux_x86_64": ["@pkl-cli-linux-amd64//file:downloaded"],
+        "//conditions:default": [],
+    }),
     embed = [":go_default_library"],
+    tags = ["no-remote"],  # Config.pkl fetches package://pkg.pkl-lang.org/... over the network
     deps = [
         "//devtools/gh-nudge/internal/argparser:go_default_library",
         "//devtools/gh-nudge/internal/github:go_default_library",
+        "//devtools/gh-nudge/internal/models:go_default_library",
         "//devtools/gh-nudge/internal/prreview:go_default_library",
+        "//devtools/gh-nudge/internal/storage:go_default_library",
         "//devtools/pkg/toolcli:go_default_library",
     ],
 )

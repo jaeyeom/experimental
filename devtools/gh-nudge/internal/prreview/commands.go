@@ -1,7 +1,9 @@
 package prreview
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -64,10 +66,13 @@ type GitClient interface {
 
 // CommandHandler handles gh-pr-review commands.
 type CommandHandler struct {
-	storage     *storage.GitHubStorage
-	ghClient    GitHubClient
-	gitClient   GitClient
-	storageHome string
+	storage      *storage.GitHubStorage
+	ghClient     GitHubClient
+	gitClient    GitClient
+	outboxClient OutboxClient
+	storageHome  string
+	out          io.Writer
+	errOut       io.Writer
 }
 
 // NewCommandHandler creates a new command handler with injected dependencies.
@@ -84,6 +89,31 @@ func NewCommandHandler(
 		gitClient:   gitClient,
 		storageHome: storageHome,
 	}
+}
+
+// SetOutboxClient configures the gh-outbox client used for --via-outbox submissions.
+func (ch *CommandHandler) SetOutboxClient(client OutboxClient) {
+	ch.outboxClient = client
+}
+
+// SetOutputWriters configures stdout/stderr destinations for testing.
+func (ch *CommandHandler) SetOutputWriters(out, errOut io.Writer) {
+	ch.out = out
+	ch.errOut = errOut
+}
+
+func (ch *CommandHandler) outWriter() io.Writer {
+	if ch.out != nil {
+		return ch.out
+	}
+	return os.Stdout
+}
+
+func (ch *CommandHandler) errWriter() io.Writer {
+	if ch.errOut != nil {
+		return ch.errOut
+	}
+	return os.Stderr
 }
 
 // CaptureCommand captures and stores diff hunks for either PR or branch.
@@ -204,11 +234,22 @@ func (ch *CommandHandler) SubmitCommand(repository models.Repository, prNumber i
 type SubmitOptions struct {
 	AutoAdjust          bool
 	ValidateAdjustments bool
+	ViaOutbox           bool
+	OutboxOwner         string
+	OutboxRef           string
 }
 
 // SubmitCommandWithOptions submits a review to GitHub with advanced options.
 func (ch *CommandHandler) SubmitCommandWithOptions(repository models.Repository, prNumber int, body, event, file string, formatter OutputFormatter, postSubmitAction models.Executor, options SubmitOptions) error {
 	target := models.NewPRTarget(prNumber)
+
+	if err := ch.ReconcileOutbox(context.Background(), repository, target); err != nil {
+		return err
+	}
+
+	if options.ViaOutbox {
+		return ch.submitViaOutbox(context.Background(), repository, prNumber, body, event, file, formatter, postSubmitAction, options)
+	}
 
 	// Get comments
 	reviewComments, err := ch.storage.GetComments(repository, target)
@@ -265,6 +306,217 @@ func (ch *CommandHandler) SubmitCommandWithOptions(repository models.Repository,
 	}
 
 	return nil
+}
+
+func (ch *CommandHandler) submitViaOutbox(
+	ctx context.Context,
+	repository models.Repository,
+	prNumber int,
+	body, event, file string,
+	formatter OutputFormatter,
+	postSubmitAction models.Executor,
+	options SubmitOptions,
+) error {
+	kind, err := ch.validateOutboxSubmit(body, event, options)
+	if err != nil {
+		return err
+	}
+
+	target := models.NewPRTarget(prNumber)
+	reviewComments, err := ch.storage.GetComments(repository, target)
+	if err != nil {
+		return fmt.Errorf("failed to get comments: %w", err)
+	}
+
+	validComments, err := ch.selectCommentsForOutbox(repository, prNumber, reviewComments.Comments, kind, body, file, options)
+	if err != nil {
+		return err
+	}
+
+	draftID, err := ch.outboxClient.Submit(ctx, OutboxSubmitRequest{
+		Repo:  repository.String(),
+		PR:    prNumber,
+		Owner: options.OutboxOwner,
+		Kind:  kind,
+		Body:  body,
+		Lines: toOutboxLineComments(validComments),
+		Ref:   options.OutboxRef,
+	})
+	if err != nil {
+		return fmt.Errorf("submit to gh-outbox: %w", err)
+	}
+
+	if len(validComments) > 0 {
+		if err := ch.markCommentsSubmittedToOutbox(repository, target, reviewComments, validComments, draftID, postSubmitAction.Name(), options.AutoAdjust); err != nil {
+			return fmt.Errorf("failed to mark local comments with outbox draft id: %w", err)
+		}
+	}
+
+	return ch.writeSubmitResult(repository, prNumber, validComments, postSubmitAction, file, draftID, formatter)
+}
+
+func (ch *CommandHandler) validateOutboxSubmit(body, event string, options SubmitOptions) (string, error) {
+	if strings.TrimSpace(options.OutboxOwner) == "" {
+		return "", fmt.Errorf("--owner is required when submitting via outbox")
+	}
+	kind, err := OutboxKindForEvent(event)
+	if err != nil {
+		return "", err
+	}
+	if kind == "thread" && body != "" {
+		return "", fmt.Errorf("--body requires --event when submitting via outbox (discussion threads have no body)")
+	}
+	if ch.outboxClient == nil {
+		return "", fmt.Errorf("outbox client is not configured")
+	}
+	return kind, nil
+}
+
+func (ch *CommandHandler) selectCommentsForOutbox(
+	repository models.Repository,
+	prNumber int,
+	comments []models.Comment,
+	kind, body, file string,
+	options SubmitOptions,
+) ([]models.Comment, error) {
+	unsubmitted, pendingDraftID := filterUnsubmittedOutboxComments(comments)
+	if len(comments) > 0 && len(unsubmitted) == 0 {
+		return nil, fmt.Errorf("comments are already submitted to gh-outbox (draft %s)", pendingDraftID)
+	}
+	if len(unsubmitted) == 0 {
+		if file != "" {
+			return nil, fmt.Errorf("no comments found for file: %s", file)
+		}
+		if kind == "thread" || ((kind == "comment" || kind == "request-changes") && body == "") {
+			return nil, fmt.Errorf("no valid comments to submit after filtering")
+		}
+		return nil, nil
+	}
+
+	commentsToSubmit, err := ch.processCommentsForSubmission(unsubmitted, file, options)
+	if err != nil {
+		return nil, fmt.Errorf("failed to process comments: %w", err)
+	}
+	if err := ch.validateAdjustmentsIfRequested(commentsToSubmit, repository, prNumber, options); err != nil {
+		return nil, err
+	}
+	validComments, filteredComments := ch.filterCommentsAgainstDiffHunksTo(repository, prNumber, commentsToSubmit, ch.errWriter())
+	if len(filteredComments) > 0 {
+		fmt.Fprintf(ch.errWriter(), "Warning: Filtered out %d comment(s) not within diff hunks:\n", len(filteredComments))
+		for _, comment := range filteredComments {
+			fmt.Fprintf(ch.errWriter(), "  - %s:%v (side %s) - %s\n", comment.Path, comment.Line, comment.Side, comment.FormatIDShort())
+		}
+	}
+	if len(validComments) == 0 {
+		return nil, fmt.Errorf("no valid comments to submit after filtering")
+	}
+	return validComments, nil
+}
+
+func filterUnsubmittedOutboxComments(comments []models.Comment) ([]models.Comment, string) {
+	var unsubmitted []models.Comment
+	var pendingDraftID string
+	for _, c := range comments {
+		if c.OutboxDraftID != "" {
+			if pendingDraftID == "" {
+				pendingDraftID = c.OutboxDraftID
+			}
+			continue
+		}
+		unsubmitted = append(unsubmitted, c)
+	}
+	return unsubmitted, pendingDraftID
+}
+
+func toOutboxLineComments(comments []models.Comment) []OutboxLineComment {
+	lines := make([]OutboxLineComment, 0, len(comments))
+	for _, c := range comments {
+		lineNum := c.Line.EndLine
+		if lineNum <= 0 {
+			lineNum = c.Line.StartLine
+		}
+		lines = append(lines, OutboxLineComment{
+			Path: c.Path,
+			Line: lineNum,
+			Text: c.Body,
+		})
+	}
+	return lines
+}
+
+func (ch *CommandHandler) writeSubmitResult(
+	repository models.Repository,
+	prNumber int,
+	comments []models.Comment,
+	postSubmitAction models.Executor,
+	file, draftID string,
+	formatter OutputFormatter,
+) error {
+	result := models.SubmitResult{
+		Status:           "outbox",
+		PRNumber:         prNumber,
+		Repository:       repository,
+		Comments:         len(comments),
+		SubmittedAt:      time.Now(),
+		PostSubmitAction: postSubmitAction.Name(),
+		File:             file,
+		OutboxDraftID:    draftID,
+	}
+	output, err := formatter.FormatSubmitResult(result)
+	if err != nil {
+		return fmt.Errorf("failed to format result: %w", err)
+	}
+	fmt.Fprintln(ch.outWriter(), output)
+	return nil
+}
+
+func (ch *CommandHandler) markCommentsSubmittedToOutbox(
+	repository models.Repository,
+	target models.ReviewTarget,
+	reviewComments *models.ReviewComments,
+	submitted []models.Comment,
+	draftID, afterAction string,
+	autoAdjusted bool,
+) error {
+	byID := make(map[string]models.Comment, len(submitted))
+	for _, c := range submitted {
+		if c.ID != "" {
+			byID[c.ID] = c
+		}
+	}
+	for i := range reviewComments.Comments {
+		c := &reviewComments.Comments[i]
+		matched, ok := matchSubmittedComment(c, byID, submitted)
+		if !ok {
+			continue
+		}
+		if autoAdjusted {
+			c.Line = matched.Line
+			c.OriginalRange = matched.OriginalRange
+			c.AdjustmentHistory = matched.AdjustmentHistory
+		}
+		c.OutboxDraftID = draftID
+		c.OutboxAfter = afterAction
+	}
+	if err := ch.storage.UpdateComments(repository, target, reviewComments); err != nil {
+		return fmt.Errorf("update comments: %w", err)
+	}
+	return nil
+}
+
+func matchSubmittedComment(c *models.Comment, byID map[string]models.Comment, submitted []models.Comment) (models.Comment, bool) {
+	if matched, ok := byID[c.ID]; ok {
+		return matched, true
+	}
+	if c.ID != "" {
+		return models.Comment{}, false
+	}
+	for _, s := range submitted {
+		if s.Path == c.Path && s.Body == c.Body && s.Side == c.Side {
+			return s, true
+		}
+	}
+	return models.Comment{}, false
 }
 
 // ListCommand lists comments for either PR or branch.
@@ -431,11 +683,15 @@ func (ch *CommandHandler) storeDiffHunks(repository models.Repository, target mo
 // filterCommentsAgainstDiffHunks filters comments to only include those within valid diff hunks.
 // Returns validComments (those within diff hunks) and filteredComments (those outside diff hunks).
 func (ch *CommandHandler) filterCommentsAgainstDiffHunks(repository models.Repository, prNumber int, comments []models.Comment) ([]models.Comment, []models.Comment) {
+	return ch.filterCommentsAgainstDiffHunksTo(repository, prNumber, comments, os.Stdout)
+}
+
+func (ch *CommandHandler) filterCommentsAgainstDiffHunksTo(repository models.Repository, prNumber int, comments []models.Comment, warnOut io.Writer) ([]models.Comment, []models.Comment) {
 	target := models.NewPRTarget(prNumber)
 
 	// If no diff hunks exist, return all comments as valid (skip validation)
 	if !ch.diffHunksExist(repository, target) {
-		fmt.Printf("Warning: No diff hunks found, comment validation skipped\n")
+		fmt.Fprintf(warnOut, "Warning: No diff hunks found, comment validation skipped\n")
 		return comments, nil
 	}
 
@@ -969,6 +1225,10 @@ func (ch *CommandHandler) addComment(repository models.Repository, target models
 
 // listCommentsUnified lists comments for any review target.
 func (ch *CommandHandler) listComments(repository models.Repository, target models.ReviewTarget, formatter OutputFormatter, filter models.CommentFilter, showContext bool, contextLines int) error {
+	if err := ch.ReconcileOutbox(context.Background(), repository, target); err != nil {
+		return err
+	}
+
 	comments, err := ch.storage.GetComments(repository, target)
 	if err != nil {
 		return fmt.Errorf("failed to get comments: %w", err)

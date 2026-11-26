@@ -317,6 +317,18 @@ class RerequestConfig {
   exclude_reviewers: Listing<String(!isEmpty)> = new {}
 }
 
+/// gh-pr-review submit settings. gh-nudge, gh-approve, and gh-merge ignore
+/// this section.
+class ReviewPostConfig {
+  /// When true, `gh-pr-review submit` hands comments to `gh-outbox` instead of
+  /// posting directly to GitHub. Off by default.
+  via_outbox: Boolean = false
+  /// Default `--owner` agentbus name passed to `gh-outbox submit`.
+  owner: String = ""
+  /// Command, as argv, used to invoke `gh-outbox`. Empty defaults to ["gh-outbox"].
+  outbox_command: Listing<String(!isEmpty)> = new {}
+}
+
 /// Root configuration
 github: GitHubConfig
 slack: SlackConfig = new {}
@@ -334,3 +346,5 @@ viewed: ViewedConfig = new {}
 generated_lists: Mapping<String, String(!isEmpty)> = new {}
 /// gh-pr-review rerequest settings.
 rerequest: RerequestConfig = new {}
+/// gh-pr-review submit settings.
+review_post: ReviewPostConfig = new {}

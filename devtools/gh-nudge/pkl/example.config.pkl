@@ -203,3 +203,11 @@ rerequest {
     "agent-*"
   }
 }
+
+// gh-pr-review submit settings. Off by default; set via_outbox = true to route
+// `gh-pr-review submit` through `gh-outbox` for decide approval.
+// review_post {
+//   via_outbox = true
+//   owner = "my-agent"
+//   outbox_command { "gh-outbox" }
+// }

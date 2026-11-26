@@ -116,6 +116,8 @@ type Comment struct {
 	GitHubID          *int64           `json:"githubId,omitempty"`          // Original GitHub comment ID
 	LastSynced        *time.Time       `json:"lastSynced,omitempty"`        // When last synced with GitHub
 	SyncStatus        string           `json:"syncStatus,omitempty"`        // "synced", "modified", "conflict"
+	OutboxDraftID     string           `json:"outboxDraftId,omitempty"`     // gh-outbox draft ID when submitted via outbox
+	OutboxAfter       string           `json:"outboxAfter,omitempty"`       // Post-submit action to apply once outbox reports posted
 }
 
 // PRDiffHunks represents the diff hunks for a pull request.

@@ -32,6 +32,9 @@ type Config struct {
 
 	// gh-pr-review rerequest settings.
 	Rerequest RerequestConfig `pkl:"rerequest"`
+
+	// gh-pr-review submit settings.
+	ReviewPost ReviewPostConfig `pkl:"review_post"`
 }
 
 // LoadFromPath loads the pkl module at the given path and evaluates it into a Config

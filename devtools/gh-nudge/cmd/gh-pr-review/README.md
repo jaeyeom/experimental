@@ -71,6 +71,29 @@ Repo and pull request are detected from the current checkout when you omit them.
 
 `gh-pr-review help` and `gh-pr-review <command> -h` print the flags.
 
+## Submitting via gh-outbox
+
+When posting needs human approval in `decide`, pass `--via-outbox --owner AGENT` to `submit` instead of posting directly to GitHub:
+
+```bash
+gh-pr-review submit [<owner>/<repo>] [<pr>] --via-outbox --owner AGENT \
+  [--body TEXT] [--event COMMENT|APPROVE|REQUEST_CHANGES] [--file F] [--ref REF]
+```
+
+- With no `--event`, stored line comments are handed to `gh-outbox submit --kind thread`. With `--event`, they are included in the matching review kind (`comment`, `approve`, or `request-changes`).
+- Prints the `gh-outbox` draft ID and posts nothing to GitHub itself.
+- Leaves local comments in place, marked with the draft ID, until `gh-outbox` reports the draft posted; `--after` (`clear`, `keep`, or `archive`) applies then.
+- If `gh-outbox` refuses the draft (for example, on a lint hit), its refusal is printed as is, the command exits non-zero, and no local comments are marked.
+- **Configuration**: To make `--via-outbox` the default for `submit`, add a `review_post` block to `~/.config/gh-nudge/config.pkl` (or pass `--config <path>`). The default is off (`via_outbox = false`), and `outbox_command` is configurable as argv (default `["gh-outbox"]`). Pass `--via-outbox=false` to override `via_outbox = true` for a single run.
+
+```pkl
+review_post {
+  via_outbox = true
+  owner = "my-agent"
+  outbox_command { "gh-outbox" }
+}
+```
+
 ## Re-requesting reviewers
 
 `gh-pr-review rerequest [<owner>/<repo>] [<pr_number>] [--apply] [--json] [--include-bots] [--config <path>]` evaluates which individual reviewers can be safely re-requested (dry run by default; pass `--apply` to send review requests).

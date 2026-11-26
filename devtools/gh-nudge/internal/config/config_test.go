@@ -1506,6 +1506,67 @@ rerequest {
 	})
 }
 
+func TestLoadPklReviewPostConfig(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	schema, err := filepath.Abs(circleConfigPkl(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("loads review_post when configured", func(t *testing.T) {
+		path := writeConfig(t, t.TempDir(), "config.pkl", fmt.Sprintf(`amends %q
+
+github {
+  repos { "widgets" }
+}
+
+review_post {
+  via_outbox = true
+  owner = "review-agent"
+  outbox_command {
+    "/usr/local/bin/gh-outbox"
+    "--flag"
+  }
+}
+`, schema))
+		cfg, err := LoadConfig(path)
+		if err != nil {
+			t.Fatalf("LoadConfig() error = %v", err)
+		}
+		if !cfg.ReviewPost.ViaOutbox {
+			t.Fatal("ReviewPost.ViaOutbox = false, want true")
+		}
+		if cfg.ReviewPost.Owner != "review-agent" {
+			t.Fatalf("ReviewPost.Owner = %q, want %q", cfg.ReviewPost.Owner, "review-agent")
+		}
+		if got := joinNames(cfg.ReviewPost.EffectiveOutboxCommand()); got != "/usr/local/bin/gh-outbox,--flag" {
+			t.Fatalf("EffectiveOutboxCommand() = %q, want %q", got, "/usr/local/bin/gh-outbox,--flag")
+		}
+	})
+
+	t.Run("review_post section is optional and defaults off", func(t *testing.T) {
+		path := writeConfig(t, t.TempDir(), "config.pkl", fmt.Sprintf(`amends %q
+
+github {
+  repos { "widgets" }
+}
+`, schema))
+		cfg, err := LoadConfig(path)
+		if err != nil {
+			t.Fatalf("LoadConfig() error = %v", err)
+		}
+		if cfg.ReviewPost.ViaOutbox {
+			t.Fatal("ReviewPost.ViaOutbox = true, want false")
+		}
+		if cfg.ReviewPost.Owner != "" {
+			t.Fatalf("ReviewPost.Owner = %q, want empty", cfg.ReviewPost.Owner)
+		}
+		if got := joinNames(cfg.ReviewPost.EffectiveOutboxCommand()); got != "gh-outbox" {
+			t.Fatalf("EffectiveOutboxCommand() = %q, want %q", got, "gh-outbox")
+		}
+	})
+}
+
 func writeConfig(t *testing.T, dir, name, content string) string {
 	t.Helper()
 	path := filepath.Join(dir, name)

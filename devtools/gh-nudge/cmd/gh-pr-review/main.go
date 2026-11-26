@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -90,8 +91,12 @@ func autoDetectIdentifier(prOnly bool) (string, error) {
 // reconstructFlagsAndValues separates positional arguments from flags and their values.
 // Returns positionals and a slice of flag arguments (including values).
 func reconstructFlagsAndValues(args []string) ([]string, []string) {
+	return reconstructFlagsAndValuesWithOptions(args)
+}
+
+func reconstructFlagsAndValuesWithOptions(args []string, opts ...argparser.Option) ([]string, []string) {
 	// Use argparser to properly separate positional arguments from flags
-	parser := argparser.NewArgParser(args)
+	parser := argparser.NewArgParser(args, opts...)
 	nonOptionArgs := parser.GetPositionals()
 
 	// Reconstruct original flags and their values
@@ -130,7 +135,11 @@ func reconstructFlagsAndValues(args []string) ([]string, []string) {
 // autoDetectArgs fills in missing owner/repo and identifier arguments.
 // If requirePR is true, will only detect PR numbers, not branch names.
 func autoDetectArgs(args []string, requirePR bool) ([]string, error) {
-	nonOptionArgs, options := reconstructFlagsAndValues(args)
+	return autoDetectArgsWithOptions(args, requirePR)
+}
+
+func autoDetectArgsWithOptions(args []string, requirePR bool, opts ...argparser.Option) ([]string, error) {
+	nonOptionArgs, options := reconstructFlagsAndValuesWithOptions(args, opts...)
 
 	switch len(nonOptionArgs) {
 	case 0:
@@ -362,6 +371,9 @@ Examples:
   # Submit review and keep local comments (PR only)
   gh-pr-review submit octocat/Hello-World 42 --body "First pass" --after keep
 
+  # Hand stored comments to gh-outbox for decide approval (posts nothing directly)
+  gh-pr-review submit octocat/Hello-World 42 --via-outbox --owner my-agent
+
   # Pull all comments from GitHub PR to local storage (auto-detect repo and PR)
   gh-pr-review pull
 
@@ -507,8 +519,12 @@ func handleComment(args []string) {
 	}
 }
 
+func submitArgParserOptions() argparser.Option {
+	return argparser.WithBooleanFlags("json", "auto-adjust", "validate-adjustments", "via-outbox")
+}
+
 func handleSubmit(args []string) {
-	parser := argparser.NewArgParser(args)
+	parser := argparser.NewArgParser(args, submitArgParserOptions())
 
 	if parser.IsHelp() {
 		showSubmitUsage()
@@ -516,12 +532,12 @@ func handleSubmit(args []string) {
 	}
 
 	// Auto-detect missing arguments
-	detectedArgs, err := autoDetectArgs(args, true)
+	detectedArgs, err := autoDetectArgsWithOptions(args, true, submitArgParserOptions())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error auto-detecting arguments: %v\n", err)
 		os.Exit(1)
 	}
-	parser = argparser.NewArgParser(detectedArgs)
+	parser = argparser.NewArgParser(detectedArgs, submitArgParserOptions())
 
 	if err := validateSubmitOptions(parser); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -539,8 +555,6 @@ func handleSubmit(args []string) {
 	file := parser.GetOption("file")
 	jsonOutput := parser.GetBoolOption("json")
 	afterAction := parser.GetOption("after")
-	autoAdjust := parser.GetBoolOption("auto-adjust")
-	validateAdjustments := parser.GetBoolOption("validate-adjustments")
 
 	if err := validateSubmitEvent(event); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -553,6 +567,12 @@ func handleSubmit(args []string) {
 		os.Exit(1)
 	}
 
+	submitOptions, outboxCmd, err := buildSubmitOptions(parser)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
 	formatter := createOutputFormatter(jsonOutput)
 
 	handler, err := newCommandHandler(prreview.GetStorageHome())
@@ -560,17 +580,50 @@ func handleSubmit(args []string) {
 		fmt.Fprintf(os.Stderr, "Error initializing handler: %v\n", err)
 		os.Exit(1)
 	}
-
-	// Create submit options
-	submitOptions := prreview.SubmitOptions{
-		AutoAdjust:          autoAdjust,
-		ValidateAdjustments: validateAdjustments,
-	}
+	handler.SetOutboxClient(prreview.NewCLIOutboxClient(outboxCmd))
 
 	if err := handler.SubmitCommandWithOptions(repository, prNumber, body, event, file, formatter, postSubmitAction, submitOptions); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		printSubmitError(err)
 		os.Exit(1)
 	}
+}
+
+func printSubmitError(err error) {
+	var outboxErr *prreview.OutboxError
+	if errors.As(err, &outboxErr) && outboxErr.Stderr != "" {
+		if strings.HasSuffix(outboxErr.Stderr, "\n") {
+			fmt.Fprint(os.Stderr, outboxErr.Stderr)
+		} else {
+			fmt.Fprintln(os.Stderr, outboxErr.Stderr)
+		}
+		return
+	}
+	fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+}
+
+func buildSubmitOptions(parser *argparser.ArgParser) (prreview.SubmitOptions, []string, error) {
+	cfg, err := config.LoadOptionalConfig(parser.GetOption("config"))
+	if err != nil {
+		return prreview.SubmitOptions{}, nil, fmt.Errorf("load config: %w", err)
+	}
+
+	viaOutbox := cfg.ReviewPost.ViaOutbox
+	if parser.HasOption("via-outbox") {
+		viaOutbox = parser.GetBoolOption("via-outbox")
+	}
+	owner := parser.GetOption("owner")
+	if owner == "" {
+		owner = cfg.ReviewPost.Owner
+	}
+
+	opts := prreview.SubmitOptions{
+		AutoAdjust:          parser.GetBoolOption("auto-adjust"),
+		ValidateAdjustments: parser.GetBoolOption("validate-adjustments"),
+		ViaOutbox:           viaOutbox,
+		OutboxOwner:         owner,
+		OutboxRef:           parser.GetOption("ref"),
+	}
+	return opts, cfg.ReviewPost.EffectiveOutboxCommand(), nil
 }
 
 func showSubmitUsage() {
@@ -585,10 +638,14 @@ func showSubmitUsage() {
 	fmt.Println("                        (clear, keep, archive) [default: clear]")
 	fmt.Println("  --auto-adjust         Auto-adjust comment line numbers before submission")
 	fmt.Println("  --validate-adjustments Validate adjusted comments against diff hunks")
+	fmt.Println("  --via-outbox          Hand comments to gh-outbox for decide approval")
+	fmt.Println("  --owner AGENT         Agentbus owner name for gh-outbox submit")
+	fmt.Println("  --ref REF             Caller reference echoed in gh-outbox notices")
+	fmt.Println("  --config PATH         Path to gh-nudge config file (default ~/.config/gh-nudge/config.pkl)")
 }
 
 func validateSubmitOptions(parser *argparser.ArgParser) error {
-	if err := parser.ValidateOptions([]string{"body", "event", "file", "json", "after", "auto-adjust", "validate-adjustments"}); err != nil {
+	if err := parser.ValidateOptions([]string{"body", "event", "file", "json", "after", "auto-adjust", "validate-adjustments", "via-outbox", "owner", "ref", "config"}); err != nil {
 		return fmt.Errorf("validating options: %w", err)
 	}
 	if err := parser.RequireExactPositionals(2, "gh-pr-review submit <owner>/<repo> <pr_number> [options]"); err != nil {
@@ -675,6 +732,9 @@ func handleList(args []string) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing handler: %v\n", err)
 		os.Exit(1)
+	}
+	if cfg, err := config.LoadOptionalConfig(""); err == nil {
+		handler.SetOutboxClient(prreview.NewCLIOutboxClient(cfg.ReviewPost.EffectiveOutboxCommand()))
 	}
 
 	if err := handler.ListCommand(repository, identifier, formatter, file, line, side, showContext, showArchived, contextLines); err != nil {

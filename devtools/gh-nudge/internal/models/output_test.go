@@ -668,6 +668,22 @@ func TestTextFormatter_FormatSubmitResult(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name: "submission via outbox prints draft id",
+			result: SubmitResult{
+				Status:           "outbox",
+				PRNumber:         42,
+				Repository:       Repository{Owner: "owner", Name: "repo"},
+				Comments:         2,
+				SubmittedAt:      time.Date(2025, 1, 17, 9, 0, 0, 0, time.UTC),
+				PostSubmitAction: "clear",
+				OutboxDraftID:    "17",
+			},
+			wantContains: []string{
+				"17",
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {

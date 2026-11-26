@@ -12,6 +12,7 @@ func init() {
 	pkl.RegisterMappingFor[LabelAgeConfig]("gh_nudge.Config#LabelAgeConfig")
 	pkl.RegisterMappingFor[RepoSettings]("gh_nudge.Config#RepoSettings")
 	pkl.RegisterMappingFor[RerequestConfig]("gh_nudge.Config#RerequestConfig")
+	pkl.RegisterMappingFor[ReviewPostConfig]("gh_nudge.Config#ReviewPostConfig")
 	pkl.RegisterMappingFor[SettingsConfig]("gh_nudge.Config#SettingsConfig")
 	pkl.RegisterMappingFor[SlackConfig]("gh_nudge.Config#SlackConfig")
 	pkl.RegisterMappingFor[ViewedConfig]("gh_nudge.Config#ViewedConfig")

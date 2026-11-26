@@ -12,6 +12,7 @@ go_library(
         "LabelAgeConfig.pkl.go",
         "RepoSettings.pkl.go",
         "RerequestConfig.pkl.go",
+        "ReviewPostConfig.pkl.go",
         "SettingsConfig.pkl.go",
         "SlackConfig.pkl.go",
         "ViewedConfig.pkl.go",

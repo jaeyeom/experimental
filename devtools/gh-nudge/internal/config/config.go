@@ -38,6 +38,8 @@ type Config struct {
 	GeneratedLists map[string]string `yaml:"-"`
 	// Rerequest holds gh-pr-review rerequest settings. Only Pkl config supports it.
 	Rerequest RerequestConfig `yaml:"-"`
+	// ReviewPost holds gh-pr-review submit settings. Only Pkl config supports it.
+	ReviewPost ReviewPostConfig `yaml:"-"`
 	// Path is the file gh-merge selected. It is not read from the file.
 	Path string `yaml:"-"`
 	// SettingsFrom is the repo_settings key that applied, or SettingsFromGlobal.
@@ -56,6 +58,24 @@ type RerequestConfig struct {
 	// ExcludeReviewers lists reviewer logins or glob patterns (such as "*-bot"
 	// or "agent-*") to skip when re-requesting reviewers.
 	ExcludeReviewers []string `yaml:"-"`
+}
+
+// ReviewPostConfig holds gh-pr-review submit settings.
+type ReviewPostConfig struct {
+	// ViaOutbox makes `gh-pr-review submit` hand comments to gh-outbox by default.
+	ViaOutbox bool `yaml:"-"`
+	// Owner is the default --owner agentbus name passed to gh-outbox submit.
+	Owner string `yaml:"-"`
+	// OutboxCommand is the gh-outbox command as argv. Empty defaults to ["gh-outbox"].
+	OutboxCommand []string `yaml:"-"`
+}
+
+// EffectiveOutboxCommand returns OutboxCommand, or ["gh-outbox"] when unset.
+func (r ReviewPostConfig) EffectiveOutboxCommand() []string {
+	if len(r.OutboxCommand) == 0 {
+		return []string{"gh-outbox"}
+	}
+	return cloneStrings(r.OutboxCommand)
 }
 
 // SlackConfig contains Slack-related configuration.
@@ -378,6 +398,11 @@ func convertPklConfigInDir(pklCfg *pklconfig.Config, configDir string) *Config {
 		Rerequest: RerequestConfig{
 			ExcludeReviewers: cloneStrings(pklCfg.Rerequest.ExcludeReviewers),
 		},
+		ReviewPost: ReviewPostConfig{
+			ViaOutbox:     pklCfg.ReviewPost.ViaOutbox,
+			Owner:         pklCfg.ReviewPost.Owner,
+			OutboxCommand: cloneStrings(pklCfg.ReviewPost.OutboxCommand),
+		},
 	}
 	normalizeSettings(&cfg.Settings)
 
@@ -499,7 +524,19 @@ func validateConfig(cfg *Config) error {
 	if err := validateRerequest(cfg.Rerequest); err != nil {
 		return err
 	}
+	if err := validateReviewPost(cfg.ReviewPost); err != nil {
+		return err
+	}
 	return validateRepoSettings(cfg.RepoSettings)
+}
+
+func validateReviewPost(r ReviewPostConfig) error {
+	for _, arg := range r.OutboxCommand {
+		if arg == "" {
+			return fmt.Errorf("review_post.outbox_command entries must not be empty")
+		}
+	}
+	return nil
 }
 
 func validateRerequest(r RerequestConfig) error {

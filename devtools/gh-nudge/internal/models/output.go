@@ -20,13 +20,14 @@ import (
 // This result is typically returned after successfully submitting a review via the GitHub API,
 // and contains metadata about what was submitted and when.
 type SubmitResult struct {
-	Status           string     `json:"status"`           // Success/failure status of the submission
-	PRNumber         int        `json:"prNumber"`         // The PR number that was reviewed
-	Repository       Repository `json:"repository"`       // The repository (owner/name) containing the PR
-	Comments         int        `json:"comments"`         // Number of comments submitted in the review
-	SubmittedAt      time.Time  `json:"submittedAt"`      // Timestamp when the review was submitted
-	PostSubmitAction string     `json:"postSubmitAction"` // Name of the post-submit action that was executed (e.g., "clear", "archive", "none")
-	File             string     `json:"file,omitempty"`   // File path if this was a file-specific submission (only comments for this file were submitted)
+	Status           string     `json:"status"`                  // Success/failure status of the submission
+	PRNumber         int        `json:"prNumber"`                // The PR number that was reviewed
+	Repository       Repository `json:"repository"`              // The repository (owner/name) containing the PR
+	Comments         int        `json:"comments"`                // Number of comments submitted in the review
+	SubmittedAt      time.Time  `json:"submittedAt"`             // Timestamp when the review was submitted
+	PostSubmitAction string     `json:"postSubmitAction"`        // Name of the post-submit action that was executed (e.g., "clear", "archive", "none")
+	File             string     `json:"file,omitempty"`          // File path if this was a file-specific submission (only comments for this file were submitted)
+	OutboxDraftID    string     `json:"outboxDraftId,omitempty"` // Draft ID returned by gh-outbox submit
 }
 
 // JSONFormatter formats output as JSON.
@@ -83,6 +84,9 @@ func NewTextFormatter() *TextFormatter {
 
 // FormatSubmitResult formats submit result as text.
 func (f *TextFormatter) FormatSubmitResult(result SubmitResult) (string, error) {
+	if result.OutboxDraftID != "" {
+		return result.OutboxDraftID, nil
+	}
 	if result.File != "" {
 		return fmt.Sprintf("Submitted review for PR %s#%d with %d comments from file %s",
 			result.Repository, result.PRNumber, result.Comments, result.File), nil

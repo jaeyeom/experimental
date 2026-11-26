@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "adjust.go",
         "commands.go",
+        "outbox.go",
         "rerequest.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/gh-nudge/internal/prreview",
@@ -25,6 +26,7 @@ go_test(
         "adjust_extended_test.go",
         "adjust_test.go",
         "commands_test.go",
+        "outbox_test.go",
         "rerequest_test.go",
         "submit_filter_test.go",
     ],
