@@ -3,11 +3,10 @@ package cli
 import (
 	_ "embed"
 	"fmt"
-	"io"
 
 	"github.com/spf13/cobra"
 
-	"github.com/jaeyeom/experimental/devtools/factory/internal/toolcli"
+	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
 )
 
 //go:embed skill.md
@@ -26,10 +25,7 @@ func newSkillCmd() *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if _, err := io.WriteString(cmd.OutOrStdout(), skillText); err != nil {
-				return fmt.Errorf("write skill: %w", err)
-			}
-			return nil
+			return factoryTool().RunSkill(cmd.OutOrStdout())
 		},
 	}
 	cmd.AddCommand(newSkillInstallCmd())

@@ -14,7 +14,7 @@ import (
 	"testing"
 
 	"github.com/jaeyeom/experimental/devtools/factory/internal/source/fake"
-	"github.com/jaeyeom/experimental/devtools/factory/internal/toolcli"
+	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
 )
 
 func TestSkillPrintsFrontmatter(t *testing.T) {

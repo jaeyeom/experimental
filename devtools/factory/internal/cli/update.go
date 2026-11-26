@@ -5,10 +5,13 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+
+	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
 )
 
 func newUpdateCmd(ctx context.Context) *cobra.Command {
 	var check bool
+	var force bool
 	var ref string
 	var asJSON bool
 	cmd := &cobra.Command{
@@ -23,7 +26,12 @@ func newUpdateCmd(ctx context.Context) *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			code, err := factoryTool().RunUpdate(ctx, check, ref, asJSON, cmd.OutOrStdout())
+			code, err := factoryTool().RunUpdate(ctx, toolcli.UpdateOptions{
+				Check: check,
+				Force: force,
+				Ref:   ref,
+				JSON:  asJSON,
+			}, cmd.OutOrStdout())
 			if err != nil {
 				return exitStatusError{code: code, err: err}
 			}
@@ -34,7 +42,8 @@ func newUpdateCmd(ctx context.Context) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&check, "check", false, "check if a newer revision exists without installing")
-	cmd.Flags().StringVar(&ref, "ref", "latest", "target branch, tag, or version")
+	cmd.Flags().BoolVar(&force, "force", false, "update even if the target revision is older than the installed one")
+	cmd.Flags().StringVar(&ref, "ref", toolcli.DefaultRef, "target branch, tag, or version")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "output JSON")
 	return cmd
 }

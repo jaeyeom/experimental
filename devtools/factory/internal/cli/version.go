@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/jaeyeom/experimental/devtools/factory/internal/toolcli"
+	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
 	pkgversion "github.com/jaeyeom/experimental/devtools/pkg/version"
 )
 

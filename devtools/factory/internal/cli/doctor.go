@@ -21,8 +21,8 @@ import (
 	"github.com/jaeyeom/experimental/devtools/factory/internal/remote"
 	"github.com/jaeyeom/experimental/devtools/factory/internal/source"
 	"github.com/jaeyeom/experimental/devtools/factory/internal/store"
-	"github.com/jaeyeom/experimental/devtools/factory/internal/toolcli"
 	"github.com/jaeyeom/experimental/devtools/factory/internal/verify"
+	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
 )
 
 func newDoctorCmd(ctx context.Context) *cobra.Command {
@@ -78,7 +78,11 @@ func runDoctor(ctx context.Context, cmd *cobra.Command, asJSON, noSync, offline 
 		return scopeErr
 	}
 
-	code, runErr := tool.RunDoctor(ctx, offline, asJSON, extra, cmd.OutOrStdout())
+	code, runErr := tool.RunDoctor(ctx, toolcli.DoctorOptions{
+		Offline: offline,
+		JSON:    asJSON,
+		Extra:   extra,
+	}, cmd.OutOrStdout())
 	if runErr != nil {
 		return exitStatusError{code: code, err: runErr}
 	}

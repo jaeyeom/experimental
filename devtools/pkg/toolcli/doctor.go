@@ -19,6 +19,38 @@ type DoctorOutput struct {
 	Checks []CheckResult `json:"checks"`
 }
 
+// DoctorOptions configures RunDoctor.
+type DoctorOptions struct {
+	Offline bool
+	JSON    bool
+	Extra   []CheckResult
+}
+
+// RunDoctor executes standard and extra doctor checks and writes the output.
+// It returns the protocol exit code (0 ok, 1 warnings, 2 failures).
+func (t *Tool) RunDoctor(ctx context.Context, opts DoctorOptions, stdout io.Writer) (int, error) {
+	checks := t.runDoctorChecks(ctx, opts.Offline)
+	checks = append(checks, opts.Extra...)
+	overall := aggregateStatus(checks)
+	out := DoctorOutput{
+		Tool:   t.Name,
+		Status: overall,
+		Checks: checks,
+	}
+
+	if opts.JSON {
+		if err := writeJSON(stdout, out); err != nil {
+			return 2, err
+		}
+		return statusExitCode(overall), nil
+	}
+
+	if err := printDoctorHumanColored(stdout, checks, t.useColor(stdout)); err != nil {
+		return 2, err
+	}
+	return statusExitCode(overall), nil
+}
+
 func (t *Tool) cmdDoctor(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -43,23 +75,14 @@ func (t *Tool) cmdDoctor(ctx context.Context, args []string, stdout, stderr io.W
 		}
 	}
 
-	checks := t.runDoctorChecks(ctx, *offline)
-	overall := aggregateStatus(checks)
-	out := DoctorOutput{
-		Tool:   t.Name,
-		Status: overall,
-		Checks: checks,
+	code, err := t.RunDoctor(ctx, DoctorOptions{
+		Offline: *offline,
+		JSON:    *jsonOut,
+	}, stdout)
+	if err != nil {
+		return failErr(stderr, err, code)
 	}
-
-	if *jsonOut {
-		if err := writeJSON(stdout, out); err != nil {
-			return failErr(stderr, err, 2)
-		}
-		return statusExitCode(overall)
-	}
-
-	printDoctorHuman(stdout, checks)
-	return statusExitCode(overall)
+	return code
 }
 
 func (t *Tool) runDoctorChecks(ctx context.Context, offline bool) []CheckResult {
@@ -315,11 +338,7 @@ func statusExitCode(status CheckStatus) int {
 	}
 }
 
-func printDoctorHuman(w io.Writer, checks []CheckResult) {
-	printDoctorHumanColored(w, checks, useColor(w))
-}
-
-func printDoctorHumanColored(w io.Writer, checks []CheckResult, color bool) {
+func printDoctorHumanColored(w io.Writer, checks []CheckResult, color bool) error {
 	const minNameWidth = 18
 	nameWidth := minNameWidth
 	for _, c := range checks {
@@ -333,12 +352,17 @@ func printDoctorHumanColored(w io.Writer, checks []CheckResult, color bool) {
 	for _, c := range checks {
 		icon, ansi := statusStyle(c.Status)
 		badge := paint(fmt.Sprintf("%s %-4s", icon, c.Status), ansi, color)
-		_, _ = fmt.Fprintf(w, "%s  %-*s  %s\n", badge, nameWidth, c.Name, c.Detail)
+		if _, err := fmt.Fprintf(w, "%s  %-*s  %s\n", badge, nameWidth, c.Name, c.Detail); err != nil {
+			return fmt.Errorf("write output: %w", err)
+		}
 		if c.Status != StatusOK && c.Hint != "" {
 			hint := paint("hint: "+c.Hint, ansiDim, color)
-			_, _ = fmt.Fprintf(w, "%s%s\n", hintIndent, hint)
+			if _, err := fmt.Fprintf(w, "%s%s\n", hintIndent, hint); err != nil {
+				return fmt.Errorf("write output: %w", err)
+			}
 		}
 	}
+	return nil
 }
 
 const (
@@ -367,6 +391,13 @@ func paint(text, ansi string, color bool) string {
 		return text
 	}
 	return ansi + text + ansiReset
+}
+
+func (t *Tool) useColor(w io.Writer) bool {
+	if t.NoColor {
+		return false
+	}
+	return useColor(w)
 }
 
 func useColor(w io.Writer) bool {

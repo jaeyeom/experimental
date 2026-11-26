@@ -665,3 +665,148 @@ func TestExtraSkillsInstallUninstallStatusDoctorUpdate(t *testing.T) {
 		}
 	}
 }
+
+func TestRunHelpers(t *testing.T) {
+	home := t.TempDir()
+	work := t.TempDir()
+	inst := &fakeInstaller{rev: toolcli.RevisionInfo{Version: "v0.2.0", Revision: "def5678"}}
+	tool := newTestTool(t, home, work, inst)
+	tool.ModulePath = "example.com/override"
+	tool.NoColor = true
+	tool.ReadBuildInfo = func() toolcli.BuildInfo {
+		return toolcli.BuildInfo{
+			Version: "v0.1.0",
+			Commit:  "abc1234",
+		}
+	}
+
+	t.Run("RunVersion", func(t *testing.T) {
+		var human, js bytes.Buffer
+		if err := tool.RunVersion(false, &human); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(human.String(), "mytool v0.1.0 (abc1234)") {
+			t.Fatalf("unexpected human output: %s", human.String())
+		}
+		if err := tool.RunVersion(true, &js); err != nil {
+			t.Fatal(err)
+		}
+		var vo toolcli.VersionOutput
+		if err := json.Unmarshal(js.Bytes(), &vo); err != nil {
+			t.Fatal(err)
+		}
+		if vo.Commit != "abc1234" {
+			t.Fatalf("expected commit abc1234, got %+v", vo)
+		}
+	})
+
+	t.Run("RunUpdate", func(t *testing.T) {
+		var out bytes.Buffer
+		code, err := tool.RunUpdate(context.Background(), toolcli.UpdateOptions{Check: true}, &out)
+		if err != nil || code != 1 {
+			t.Fatalf("check: code=%d err=%v out=%s", code, err, out.String())
+		}
+		if inst.queries[len(inst.queries)-1] != "example.com/override@"+toolcli.DefaultRef {
+			t.Fatalf("expected ModulePath fallback with DefaultRef, got %v", inst.queries)
+		}
+
+		noMain := tool
+		noMain.MainPackage = ""
+		if code, err := noMain.RunUpdate(context.Background(), toolcli.UpdateOptions{}, &out); err == nil || code != 2 {
+			t.Fatalf("expected error for empty MainPackage, got code=%d err=%v", code, err)
+		}
+	})
+
+	t.Run("RunDoctor", func(t *testing.T) {
+		var out bytes.Buffer
+		extra := []toolcli.CheckResult{{Name: "custom", Status: toolcli.StatusWarn, Detail: "heads up"}}
+		code, err := tool.RunDoctor(context.Background(), toolcli.DoctorOptions{Offline: true, JSON: true, Extra: extra}, &out)
+		if err != nil || code != 1 {
+			t.Fatalf("RunDoctor: code=%d err=%v out=%s", code, err, out.String())
+		}
+		var do toolcli.DoctorOutput
+		if err := json.Unmarshal(out.Bytes(), &do); err != nil {
+			t.Fatal(err)
+		}
+		if len(do.Checks) != 6 || do.Checks[5].Name != "custom" {
+			t.Fatalf("unexpected checks: %+v", do.Checks)
+		}
+	})
+
+	t.Run("RunSkillHelpers", func(t *testing.T) {
+		if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		var raw bytes.Buffer
+		if err := tool.RunSkill(&raw); err != nil {
+			t.Fatal(err)
+		}
+		if raw.String() != sampleSkill {
+			t.Fatalf("RunSkill mismatch")
+		}
+		var out bytes.Buffer
+		// Empty Scope defaults to ScopeUser.
+		if err := tool.RunSkillInstall(toolcli.SkillInstallOptions{Agents: []string{"claude"}}, &out); err != nil {
+			t.Fatal(err)
+		}
+		var statusBuf bytes.Buffer
+		if err := tool.RunSkillStatus(true, &statusBuf); err != nil {
+			t.Fatal(err)
+		}
+		var so toolcli.SkillStatusOutput
+		if err := json.Unmarshal(statusBuf.Bytes(), &so); err != nil {
+			t.Fatal(err)
+		}
+		var sawCurrent bool
+		for _, e := range so.Entries {
+			if e.Agent == toolcli.AgentClaude && e.Scope == toolcli.ScopeUser && e.Status == "current" {
+				sawCurrent = true
+			}
+		}
+		if !sawCurrent {
+			t.Fatalf("expected current claude user entry, got %+v", so.Entries)
+		}
+		out.Reset()
+		if err := tool.RunSkillUninstall(toolcli.SkillUninstallOptions{Agents: []string{"claude"}}, &out); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestGoInstallerRunEnvModulePathAndLDFlags(t *testing.T) {
+	type call struct {
+		env  map[string]string
+		args []string
+	}
+	var calls []call
+	inst := toolcli.GoInstaller{
+		ModulePath: "example.com/mod",
+		LDFlags: func(rev toolcli.RevisionInfo) string {
+			return fmt.Sprintf("-X main.ver=%s -X main.rev=%s", rev.Version, rev.Revision)
+		},
+		RunEnv: func(_ context.Context, env map[string]string, args ...string) ([]byte, error) {
+			calls = append(calls, call{env: env, args: args})
+			if len(args) > 0 && args[0] == "list" {
+				return []byte(`{"Version":"v1.2.3","Origin":{"Hash":"deadbeef1234"}}`), nil
+			}
+			return nil, nil
+		},
+	}
+
+	if err := inst.Install(context.Background(), "example.com/mod/cmd/tool", "", "/tmp/bin"); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 calls (list + install), got %d: %+v", len(calls), calls)
+	}
+	if strings.Join(calls[0].args, " ") != "list -m -json example.com/mod@main" {
+		t.Fatalf("unexpected list args: %v", calls[0].args)
+	}
+	wantInstall := "install -ldflags -X main.ver=v1.2.3 -X main.rev=deadbeef1234 example.com/mod/cmd/tool@main"
+	if strings.Join(calls[1].args, " ") != wantInstall {
+		t.Fatalf("install args = %q, want %q", strings.Join(calls[1].args, " "), wantInstall)
+	}
+	if calls[1].env["GOBIN"] != "/tmp/bin" {
+		t.Fatalf("GOBIN = %q, want /tmp/bin", calls[1].env["GOBIN"])
+	}
+}

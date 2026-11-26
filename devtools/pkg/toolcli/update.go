@@ -15,21 +15,39 @@ import (
 	"time"
 )
 
-// defaultRef is the revision tools are updated to: they are installed from main.
-const defaultRef = "main"
+// DefaultRef is the default revision tools are updated to: they are installed from main.
+const DefaultRef = "main"
+
+const defaultRef = DefaultRef
 
 // GoInstaller installs Go binaries and queries revisions using the `go` tool.
 type GoInstaller struct {
 	// Run executes `go <args>` and returns stdout. Defaults to the real go tool.
 	Run func(ctx context.Context, args ...string) ([]byte, error)
+	// RunEnv, when non-nil, executes `go <args>` with additional environment
+	// variables (such as GOBIN) and returns stdout. Takes precedence over Run.
+	RunEnv func(ctx context.Context, env map[string]string, args ...string) ([]byte, error)
+	// ModulePath, when non-empty, overrides the module path queried by LatestRevision.
+	ModulePath string
+	// LDFlags, when non-nil, returns -ldflags value passed to `go install`.
+	LDFlags func(rev RevisionInfo) string
 }
 
-func (g GoInstaller) run(ctx context.Context, env []string, args ...string) ([]byte, error) {
+func (g GoInstaller) run(ctx context.Context, env map[string]string, args ...string) ([]byte, error) {
+	if g.RunEnv != nil {
+		return g.RunEnv(ctx, env, args...)
+	}
 	if g.Run != nil {
 		return g.Run(ctx, args...)
 	}
 	cmd := exec.CommandContext(ctx, "go", args...) //nolint:gosec // G204: args come from tool configuration / CLI ref
-	cmd.Env = append(os.Environ(), env...)
+	if len(env) > 0 {
+		cmdEnv := os.Environ()
+		for k, v := range env {
+			cmdEnv = append(cmdEnv, k+"="+v)
+		}
+		cmd.Env = cmdEnv
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -47,6 +65,9 @@ func (g GoInstaller) run(ctx context.Context, env []string, args ...string) ([]b
 func (g GoInstaller) LatestRevision(ctx context.Context, module, ref string) (RevisionInfo, error) {
 	if ref == "" {
 		ref = defaultRef
+	}
+	if g.ModulePath != "" {
+		module = g.ModulePath
 	}
 	target := module + "@" + ref
 	stdout, err := g.run(ctx, nil, "list", "-m", "-json", target)
@@ -76,7 +97,16 @@ func (g GoInstaller) Install(ctx context.Context, pkg, ref, binDir string) error
 		ref = defaultRef
 	}
 	target := pkg + "@" + ref
-	if _, err := g.run(ctx, []string{"GOBIN=" + binDir}, "install", target); err != nil {
+	args := []string{"install"}
+	if g.LDFlags != nil {
+		if latest, err := g.LatestRevision(ctx, pkg, ref); err == nil {
+			if flags := g.LDFlags(latest); flags != "" {
+				args = append(args, "-ldflags", flags)
+			}
+		}
+	}
+	args = append(args, target)
+	if _, err := g.run(ctx, map[string]string{"GOBIN": binDir}, args...); err != nil {
 		return fmt.Errorf("go install %s: %w", target, err)
 	}
 	return nil
@@ -113,6 +143,43 @@ type UpdateOutput struct {
 	RefreshCommand  string         `json:"refreshCommand,omitempty"`
 }
 
+// UpdateOptions configures RunUpdate.
+type UpdateOptions struct {
+	Check bool
+	Force bool
+	Ref   string
+	JSON  bool
+}
+
+// RunUpdate executes the update protocol command and returns (exitCode, error).
+// When error is nil and exitCode is non-zero (for example --check with an
+// available update), output has already been written to stdout.
+func (t *Tool) RunUpdate(ctx context.Context, opts UpdateOptions, stdout io.Writer) (int, error) {
+	if t.MainPackage == "" {
+		return 2, errors.New("tool main package is not configured")
+	}
+	ref := opts.Ref
+	if ref == "" {
+		ref = defaultRef
+	}
+	out, code, err := t.runUpdate(ctx, opts.Check, opts.Force, ref)
+	if err != nil {
+		return 2, err
+	}
+
+	if opts.JSON {
+		if err := writeJSON(stdout, out); err != nil {
+			return 2, err
+		}
+		return code, nil
+	}
+
+	if err := printUpdateHuman(stdout, out); err != nil {
+		return 2, err
+	}
+	return code, nil
+}
+
 func (t *Tool) cmdUpdate(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -126,23 +193,16 @@ func (t *Tool) cmdUpdate(ctx context.Context, args []string, stdout, stderr io.W
 	if fs.NArg() != 0 {
 		return failMsg(stderr, "update does not take positional arguments", 2)
 	}
-	if t.MainPackage == "" {
-		return failMsg(stderr, "tool main package is not configured", 2)
-	}
 
-	out, code, err := t.runUpdate(ctx, *check, *force, *ref)
+	code, err := t.RunUpdate(ctx, UpdateOptions{
+		Check: *check,
+		Force: *force,
+		Ref:   *ref,
+		JSON:  *jsonOut,
+	}, stdout)
 	if err != nil {
-		return failErr(stderr, err, 2)
+		return failErr(stderr, err, code)
 	}
-
-	if *jsonOut {
-		if err := writeJSON(stdout, out); err != nil {
-			return failErr(stderr, err, 2)
-		}
-		return code
-	}
-
-	printUpdateHuman(stdout, out)
 	return code
 }
 
@@ -267,10 +327,12 @@ func (t *Tool) findStaleSkills() []StaleSkill {
 	return stale
 }
 
-func printUpdateHuman(w io.Writer, out UpdateOutput) {
+func printUpdateHuman(w io.Writer, out UpdateOutput) error {
 	for _, b := range out.Binaries {
 		if !out.UpdateAvailable {
-			_, _ = fmt.Fprintf(w, "%s: up to date (%s)\n", b.Name, b.OldRevision)
+			if _, err := fmt.Fprintf(w, "%s: up to date (%s)\n", b.Name, b.OldRevision); err != nil {
+				return fmt.Errorf("write output: %w", err)
+			}
 			continue
 		}
 		state := "current"
@@ -280,25 +342,39 @@ func printUpdateHuman(w io.Writer, out UpdateOutput) {
 		case out.CheckOnly && out.UpdateAvailable:
 			state = "update available"
 		}
-		_, _ = fmt.Fprintf(w, "%s: %s -> %s (%s)\n", b.Name, b.OldRevision, b.NewRevision, state)
+		if _, err := fmt.Fprintf(w, "%s: %s -> %s (%s)\n", b.Name, b.OldRevision, b.NewRevision, state); err != nil {
+			return fmt.Errorf("write output: %w", err)
+		}
 	}
 	if len(out.RestartNeeded) > 0 {
-		_, _ = fmt.Fprintf(w, "restart needed: %s\n", strings.Join(out.RestartNeeded, ", "))
+		if _, err := fmt.Fprintf(w, "restart needed: %s\n", strings.Join(out.RestartNeeded, ", ")); err != nil {
+			return fmt.Errorf("write output: %w", err)
+		}
 	}
 	if len(out.StaleSkills) > 0 {
-		_, _ = fmt.Fprintln(w, "stale skills:")
-		for _, s := range out.StaleSkills {
-			_, _ = fmt.Fprintf(w, "  %s (%s): %s\n", s.Agent, s.Scope, s.Path)
+		if _, err := fmt.Fprintln(w, "stale skills:"); err != nil {
+			return fmt.Errorf("write output: %w", err)
 		}
-		_, _ = fmt.Fprintf(w, "refresh with: %s\n", out.RefreshCommand)
+		for _, s := range out.StaleSkills {
+			if _, err := fmt.Fprintf(w, "  %s (%s): %s\n", s.Agent, s.Scope, s.Path); err != nil {
+				return fmt.Errorf("write output: %w", err)
+			}
+		}
+		if _, err := fmt.Fprintf(w, "refresh with: %s\n", out.RefreshCommand); err != nil {
+			return fmt.Errorf("write output: %w", err)
+		}
 	}
+	return nil
 }
 
 func currentRevLabel(bi BuildInfo) string {
 	if bi.VCSRevision != "" {
 		return bi.VCSRevision
 	}
-	if bi.Version != "" && bi.Version != "(devel)" {
+	if bi.Commit != "" && bi.Commit != "unknown" {
+		return bi.Commit
+	}
+	if bi.Version != "" && bi.Version != "(devel)" && bi.Version != "dev" {
 		return bi.Version
 	}
 	return "unknown"
@@ -403,6 +479,9 @@ func isDigits(s string) bool {
 func (t *Tool) modulePath(bi BuildInfo) string {
 	if bi.ModulePath != "" {
 		return bi.ModulePath
+	}
+	if t.ModulePath != "" {
+		return t.ModulePath
 	}
 	return t.MainPackage
 }

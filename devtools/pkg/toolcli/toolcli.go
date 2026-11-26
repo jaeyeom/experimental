@@ -37,6 +37,7 @@ type Skill struct {
 type BuildInfo struct {
 	ModulePath  string `json:"modulePath"`
 	Version     string `json:"version"`
+	Commit      string `json:"commit,omitempty"`
 	VCSRevision string `json:"vcsRevision"`
 	VCSModified bool   `json:"vcsModified"`
 	BuildTime   string `json:"buildTime"`
@@ -86,6 +87,7 @@ type DoctorCheckGroup func(ctx context.Context, offline bool) []CheckResult
 // Tool configures the standard CLI protocol for a single tool binary.
 type Tool struct {
 	Name                   string
+	ModulePath             string
 	MainPackage            string
 	DaemonService          string
 	Companions             []Companion
@@ -113,6 +115,7 @@ type Tool struct {
 	WorkDir       func() (string, error)
 	Executable    func() (string, error)
 	LookPath      func(file string) (string, error)
+	NoColor       bool
 }
 
 // Handle dispatches args if args[0] is one of the standard protocol commands

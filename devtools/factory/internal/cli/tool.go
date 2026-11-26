@@ -1,11 +1,15 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 
+	executor "github.com/jaeyeom/go-cmdexec"
+
 	"github.com/jaeyeom/experimental/devtools/factory/internal/config"
-	"github.com/jaeyeom/experimental/devtools/factory/internal/toolcli"
+	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
 )
 
 // Test hooks for toolcli integration; nil in production.
@@ -31,7 +35,7 @@ func factoryTool() *toolcli.Tool {
 	inst := testToolInstaller
 	if inst == nil {
 		inst = toolcli.GoInstaller{
-			Exec:       exec,
+			RunEnv:     goExecRunner(exec),
 			ModulePath: factoryModulePath,
 			LDFlags: func(rev toolcli.RevisionInfo) string {
 				ver := rev.Version
@@ -56,7 +60,6 @@ func factoryTool() *toolcli.Tool {
 		MainPackage:      factoryMainPackage,
 		SkillText:        skillText,
 		RequiredCommands: []string{"herdr", "gh", "git"},
-		Exec:             exec,
 		Installer:        inst,
 		ReadBuildInfo:    currentToolBuildInfo,
 		HomeDir:          testToolHomeDir,
@@ -64,6 +67,33 @@ func factoryTool() *toolcli.Tool {
 		Executable:       testToolExecutable,
 		LookPath:         testToolLookPath,
 		NoColor:          noColor,
+	}
+}
+
+func goExecRunner(exec executor.Executor) func(ctx context.Context, env map[string]string, args ...string) ([]byte, error) {
+	return func(ctx context.Context, env map[string]string, args ...string) ([]byte, error) {
+		if exec == nil {
+			return nil, errors.New("go installer: expected an executor, found nil")
+		}
+		res, err := exec.Execute(ctx, executor.ToolConfig{
+			Command: "go",
+			Args:    args,
+			Env:     env,
+		})
+		if err != nil {
+			return nil, err //nolint:wrapcheck // GoInstaller wraps with command context
+		}
+		if res == nil {
+			return nil, errors.New("go installer: expected execution result, found nil")
+		}
+		if res.ExitCode != 0 {
+			msg := strings.TrimSpace(res.Stderr)
+			if msg == "" {
+				return nil, fmt.Errorf("exit %d", res.ExitCode)
+			}
+			return nil, errors.New(msg)
+		}
+		return []byte(res.Output), nil
 	}
 }
 

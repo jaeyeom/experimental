@@ -17,7 +17,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/factory/internal/source"
 	"github.com/jaeyeom/experimental/devtools/factory/internal/source/fake"
 	"github.com/jaeyeom/experimental/devtools/factory/internal/store"
-	"github.com/jaeyeom/experimental/devtools/factory/internal/toolcli"
+	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
 )
 
 func doctorToolOK(t *testing.T) {

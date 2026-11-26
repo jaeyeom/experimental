@@ -16,7 +16,9 @@ func TestPrintDoctorHumanPlainAndColored(t *testing.T) {
 
 	t.Run("plain", func(t *testing.T) {
 		var buf bytes.Buffer
-		printDoctorHumanColored(&buf, checks, false)
+		if err := printDoctorHumanColored(&buf, checks, false); err != nil {
+			t.Fatal(err)
+		}
 		got := buf.String()
 		if strings.Contains(got, "\x1b[") {
 			t.Fatalf("plain output must not contain ANSI escapes:\n%s", got)
@@ -36,7 +38,9 @@ func TestPrintDoctorHumanPlainAndColored(t *testing.T) {
 
 	t.Run("colored", func(t *testing.T) {
 		var buf bytes.Buffer
-		printDoctorHumanColored(&buf, checks, true)
+		if err := printDoctorHumanColored(&buf, checks, true); err != nil {
+			t.Fatal(err)
+		}
 		got := buf.String()
 		for _, wantSub := range []string{
 			ansiGreen + "✅ ok  " + ansiReset,

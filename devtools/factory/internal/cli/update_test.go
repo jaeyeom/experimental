@@ -9,8 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/jaeyeom/experimental/devtools/factory/internal/toolcli"
+	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
 )
 
 type cliFakeInstaller struct {
@@ -95,6 +96,34 @@ func TestUpdateCheckAndApplyCLI(t *testing.T) {
 	}
 	if !got.Updated || len(inst.calls) == 0 || !strings.HasSuffix(inst.calls[len(inst.calls)-1], "->"+exeDir) {
 		t.Fatalf("got=%+v calls=%v", got, inst.calls)
+	}
+	if inst.calls[0] != "latest:"+factoryModulePath+"@"+toolcli.DefaultRef {
+		t.Fatalf("expected default ref %q, got calls=%v", toolcli.DefaultRef, inst.calls)
+	}
+}
+
+func TestUpdateRefusesDowngradeWithoutForce(t *testing.T) {
+	old := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	inst := &cliFakeInstaller{latest: toolcli.RevisionInfo{Version: "v0.1.0", Revision: "old0000", Time: old}}
+	withToolTestEnv(t, inst)
+	prevBI := testToolBuildInfo
+	testToolBuildInfo = func() toolcli.BuildInfo {
+		bi := prevBI()
+		bi.BuildTime = "2026-11-20T00:00:00Z"
+		return bi
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"update"}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "--force") {
+		t.Fatalf("expected downgrade refusal, got code=%d stderr=%q", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Execute(context.Background(), []string{"update", "--force"}, &stdout, &stderr)
+	if code != ExitOK || stderr.Len() != 0 {
+		t.Fatalf("update --force: code=%d stderr=%q stdout=%q", code, stderr.String(), stdout.String())
 	}
 }
 

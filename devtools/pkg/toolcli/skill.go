@@ -80,9 +80,17 @@ var AgentLocations = []AgentLocation{
 	},
 }
 
+// RunSkill writes the raw embedded skill markdown to stdout.
+func (t *Tool) RunSkill(stdout io.Writer) error {
+	if _, err := io.WriteString(stdout, t.SkillText); err != nil {
+		return fmt.Errorf("write skill: %w", err)
+	}
+	return nil
+}
+
 func (t *Tool) cmdSkill(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		if _, err := io.WriteString(stdout, t.SkillText); err != nil {
+		if err := t.RunSkill(stdout); err != nil {
 			return failErr(stderr, err, 1)
 		}
 		return 0
@@ -130,6 +138,61 @@ type skillInstallPlan struct {
 	targets []skillTarget
 }
 
+// SkillInstallOptions configures RunSkillInstall.
+type SkillInstallOptions struct {
+	Agents []string
+	Scope  Scope
+	Dir    string
+	DryRun bool
+	Force  bool
+}
+
+// RunSkillInstall installs the embedded skill(s) into the requested agent locations.
+func (t *Tool) RunSkillInstall(opts SkillInstallOptions, stdout io.Writer) error {
+	skills := t.skills()
+	if opts.Dir != "" && len(skills) > 1 {
+		return errors.New("--dir is not supported when multiple skills are configured")
+	}
+
+	rev := currentRevLabel(t.buildInfo())
+	plans := make([]skillInstallPlan, 0, len(skills))
+	for _, sk := range skills {
+		targets, err := t.resolveSkillTargetsFor(sk.Name, opts.Agents, opts.Scope, opts.Dir)
+		if err != nil {
+			return err
+		}
+		stamped := stampSkill(sk.Text, sk.Name, rev)
+		for _, tgt := range targets {
+			if err := installSkillFile(tgt.path, stamped, sk.Name, opts.Force, true); err != nil {
+				return err
+			}
+		}
+		plans = append(plans, skillInstallPlan{
+			skill:   sk,
+			content: stamped,
+			targets: targets,
+		})
+	}
+
+	for _, p := range plans {
+		for _, tgt := range p.targets {
+			if !opts.DryRun {
+				if err := installSkillFile(tgt.path, p.content, p.skill.Name, opts.Force, false); err != nil {
+					return err
+				}
+			}
+			action := "installed"
+			if opts.DryRun {
+				action = "would install"
+			}
+			if _, err := fmt.Fprintf(stdout, "%s %s (%s): %s\n", action, tgt.label, tgt.scope, tgt.path); err != nil {
+				return fmt.Errorf("write output: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
 func (t *Tool) cmdSkillInstall(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("skill install", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -146,46 +209,73 @@ func (t *Tool) cmdSkillInstall(args []string, stdout, stderr io.Writer) int {
 		return failMsg(stderr, "skill install does not take positional arguments", 2)
 	}
 
+	if err := t.RunSkillInstall(SkillInstallOptions{
+		Agents: agents,
+		Scope:  Scope(*scope),
+		Dir:    *dir,
+		DryRun: *dryRun,
+		Force:  *force,
+	}, stdout); err != nil {
+		return failErr(stderr, err, 2)
+	}
+	return 0
+}
+
+// SkillUninstallOptions configures RunSkillUninstall.
+type SkillUninstallOptions struct {
+	Agents []string
+	Scope  Scope
+	Dir    string
+	DryRun bool
+}
+
+// RunSkillUninstall removes skill files stamped by this tool.
+func (t *Tool) RunSkillUninstall(opts SkillUninstallOptions, stdout io.Writer) error {
 	skills := t.skills()
-	if *dir != "" && len(skills) > 1 {
-		return failMsg(stderr, "error: --dir is not supported when multiple skills are configured", 2)
+	if opts.Dir != "" && len(skills) > 1 {
+		return errors.New("--dir is not supported when multiple skills are configured")
 	}
 
-	rev := currentRevLabel(t.buildInfo())
-	plans := make([]skillInstallPlan, 0, len(skills))
+	type uninstallPlan struct {
+		skillName string
+		targets   []skillTarget
+	}
+	plans := make([]uninstallPlan, 0, len(skills))
 	for _, sk := range skills {
-		targets, err := t.resolveSkillTargetsFor(sk.Name, agents, Scope(*scope), *dir)
+		targets, err := t.resolveSkillTargetsFor(sk.Name, opts.Agents, opts.Scope, opts.Dir)
 		if err != nil {
-			return failErr(stderr, err, 2)
+			return err
 		}
-		stamped := stampSkill(sk.Text, sk.Name, rev)
 		for _, tgt := range targets {
-			if err := installSkillFile(tgt.path, stamped, sk.Name, *force, true); err != nil {
-				return failErr(stderr, err, 2)
+			if _, err := uninstallSkillFile(tgt.path, sk.Name, true); err != nil {
+				return err
 			}
 		}
-		plans = append(plans, skillInstallPlan{
-			skill:   sk,
-			content: stamped,
-			targets: targets,
-		})
+		plans = append(plans, uninstallPlan{skillName: sk.Name, targets: targets})
 	}
 
 	for _, p := range plans {
 		for _, tgt := range p.targets {
-			if !*dryRun {
-				if err := installSkillFile(tgt.path, p.content, p.skill.Name, *force, false); err != nil {
-					return failErr(stderr, err, 2)
+			removed, err := uninstallSkillFile(tgt.path, p.skillName, opts.DryRun)
+			if err != nil {
+				return err
+			}
+			if !removed {
+				if _, err := fmt.Fprintf(stdout, "not installed %s (%s): %s\n", tgt.label, tgt.scope, tgt.path); err != nil {
+					return fmt.Errorf("write output: %w", err)
 				}
+				continue
 			}
-			action := "installed"
-			if *dryRun {
-				action = "would install"
+			action := "removed"
+			if opts.DryRun {
+				action = "would remove"
 			}
-			_, _ = fmt.Fprintf(stdout, "%s %s (%s): %s\n", action, tgt.label, tgt.scope, tgt.path)
+			if _, err := fmt.Fprintf(stdout, "%s %s (%s): %s\n", action, tgt.label, tgt.scope, tgt.path); err != nil {
+				return fmt.Errorf("write output: %w", err)
+			}
 		}
 	}
-	return 0
+	return nil
 }
 
 func (t *Tool) cmdSkillUninstall(args []string, stdout, stderr io.Writer) int {
@@ -203,45 +293,13 @@ func (t *Tool) cmdSkillUninstall(args []string, stdout, stderr io.Writer) int {
 		return failMsg(stderr, "skill uninstall does not take positional arguments", 2)
 	}
 
-	skills := t.skills()
-	if *dir != "" && len(skills) > 1 {
-		return failMsg(stderr, "error: --dir is not supported when multiple skills are configured", 2)
-	}
-
-	type uninstallPlan struct {
-		skillName string
-		targets   []skillTarget
-	}
-	plans := make([]uninstallPlan, 0, len(skills))
-	for _, sk := range skills {
-		targets, err := t.resolveSkillTargetsFor(sk.Name, agents, Scope(*scope), *dir)
-		if err != nil {
-			return failErr(stderr, err, 2)
-		}
-		for _, tgt := range targets {
-			if _, err := uninstallSkillFile(tgt.path, sk.Name, true); err != nil {
-				return failErr(stderr, err, 2)
-			}
-		}
-		plans = append(plans, uninstallPlan{skillName: sk.Name, targets: targets})
-	}
-
-	for _, p := range plans {
-		for _, tgt := range p.targets {
-			removed, err := uninstallSkillFile(tgt.path, p.skillName, *dryRun)
-			if err != nil {
-				return failErr(stderr, err, 2)
-			}
-			if !removed {
-				_, _ = fmt.Fprintf(stdout, "not installed %s (%s): %s\n", tgt.label, tgt.scope, tgt.path)
-				continue
-			}
-			action := "removed"
-			if *dryRun {
-				action = "would remove"
-			}
-			_, _ = fmt.Fprintf(stdout, "%s %s (%s): %s\n", action, tgt.label, tgt.scope, tgt.path)
-		}
+	if err := t.RunSkillUninstall(SkillUninstallOptions{
+		Agents: agents,
+		Scope:  Scope(*scope),
+		Dir:    *dir,
+		DryRun: *dryRun,
+	}, stdout); err != nil {
+		return failErr(stderr, err, 2)
 	}
 	return 0
 }
@@ -264,6 +322,31 @@ type SkillStatusOutput struct {
 	Entries     []SkillStatusEntry `json:"entries"`
 }
 
+// RunSkillStatus reports the installation status across all known agents and scopes.
+func (t *Tool) RunSkillStatus(asJSON bool, stdout io.Writer) error {
+	entries := t.collectSkillStatus()
+	out := SkillStatusOutput{
+		Tool:        t.Name,
+		CurrentHash: skillHash(t.SkillText),
+		Entries:     entries,
+	}
+
+	if asJSON {
+		return writeJSON(stdout, out)
+	}
+
+	for _, e := range entries {
+		ver := e.InstalledVersion
+		if ver == "" {
+			ver = "-"
+		}
+		if _, err := fmt.Fprintf(stdout, "%-12s  %-7s  %-8s  %s  %s\n", e.Agent, e.Scope, e.Status, ver, e.Path); err != nil {
+			return fmt.Errorf("write output: %w", err)
+		}
+	}
+	return nil
+}
+
 func (t *Tool) cmdSkillStatus(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("skill status", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -275,26 +358,8 @@ func (t *Tool) cmdSkillStatus(args []string, stdout, stderr io.Writer) int {
 		return failMsg(stderr, "skill status does not take positional arguments", 2)
 	}
 
-	entries := t.collectSkillStatus()
-	out := SkillStatusOutput{
-		Tool:        t.Name,
-		CurrentHash: skillHash(t.SkillText),
-		Entries:     entries,
-	}
-
-	if *jsonOut {
-		if err := writeJSON(stdout, out); err != nil {
-			return failErr(stderr, err, 2)
-		}
-		return 0
-	}
-
-	for _, e := range entries {
-		ver := e.InstalledVersion
-		if ver == "" {
-			ver = "-"
-		}
-		_, _ = fmt.Fprintf(stdout, "%-12s  %-7s  %-8s  %s  %s\n", e.Agent, e.Scope, e.Status, ver, e.Path)
+	if err := t.RunSkillStatus(*jsonOut, stdout); err != nil {
+		return failErr(stderr, err, 2)
 	}
 	return 0
 }
@@ -306,6 +371,9 @@ type skillTarget struct {
 }
 
 func (t *Tool) resolveSkillTargetsFor(skillName string, agents []string, scope Scope, dir string) ([]skillTarget, error) {
+	if scope == "" {
+		scope = ScopeUser
+	}
 	if dir != "" {
 		return []skillTarget{{
 			label: "custom",
