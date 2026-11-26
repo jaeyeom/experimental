@@ -82,6 +82,25 @@ case $cmd in
 		shift 2
 	done
 	;;
+"api --paginate"|"api repos"*)
+	endpoint=""
+	if [[ $cmd == "api --paginate" ]]; then
+		endpoint=$1
+	else
+		endpoint=${cmd#api }
+	fi
+	pr_num=$(echo "$endpoint" | sed -E 's|.*/issues/([0-9]+)/timeline|\1|')
+	if [[ -f "$GH_STATE/timeline.$pr_num" ]]; then
+		cat "$GH_STATE/timeline.$pr_num"
+	else
+		has_app=$(jq -r --argjson n "$pr_num" '.[] | select(.number == $n) | .labels | index("fork-keeper:approved") != null' "$s")
+		if [[ $has_app == "true" ]]; then
+			echo '[{"event":"labeled","label":{"name":"fork-keeper:approved"}}]'
+		else
+			echo '[]'
+		fi
+	fi
+	;;
 *)
 	echo "gh stub: unsupported: $cmd $*" >&2
 	exit 1
@@ -168,6 +187,7 @@ func (sc *schedulerCase) run(mode string) (string, error) {
 		CacheDir:   sc.cacheDir,
 		ScriptsDir: sc.fx.contractDir,
 		Today:      sc.date,
+		Sandbox:    "none",
 		Stdout:     &out,
 		Stderr:     &out,
 	})
@@ -279,8 +299,14 @@ func TestSchedulerCleanPromote(t *testing.T) {
 	if len(sc.readPRs()) != 1 {
 		t.Fatalf("expected 1 PR, got %d", len(sc.readPRs()))
 	}
-	if got, want := sc.fx.oref("refs/heads/sync/"+sc.date), sc.fx.oref("refs/heads/main"); got != want {
-		t.Fatalf("sync branch %s != main %s", got, want)
+	if got := sc.fx.oref("refs/heads/sync/" + sc.date); got != "" {
+		t.Fatalf("promoted sync branch should be cleaned up, got %s", got)
+	}
+	if got := sc.fx.oref("refs/fork-keeper/sync-base/sync/" + sc.date); got != "" {
+		t.Fatalf("promoted sync-base ref should be cleaned up, got %s", got)
+	}
+	if got := sc.fx.oref("refs/fork-keeper/sync-tags/sync/" + sc.date + "/v1"); got != "" {
+		t.Fatalf("promoted sync-tags ref should be cleaned up, got %s", got)
 	}
 	//nolint:gosec // Test fixture git command.
 	if err := exec.Command("git", "--git-dir="+sc.fx.originGit, "merge-base", "--is-ancestor", u1, "refs/heads/main").Run(); err != nil {
@@ -527,5 +553,77 @@ func TestSchedulerLeaseLostLeavesRefsUntouched(t *testing.T) {
 	}
 	if sc.fx.oref("refs/fork-keeper/upstream-head") != u0 {
 		t.Fatalf("upstream-head changed on lost lease")
+	}
+}
+
+func TestSchedulerSameDaySecondPromotion(t *testing.T) {
+	sc := newSchedulerCase(t)
+	sc.fx.recordHead(sc.fx.uref("refs/heads/main"))
+	firstOldMain := sc.fx.fcommit("mine.txt", "my patch")
+	sc.fx.ucommit("README", "first batch")
+
+	out, err := sc.run("clean")
+	if err != nil {
+		t.Fatalf("first promote failed: %v\n%s", err, out)
+	}
+	secondOldMain := sc.fx.oref("refs/heads/main")
+	if got := sc.fx.oref("refs/tags/pre-sync/" + sc.date); got != firstOldMain {
+		t.Fatalf("first pre-sync tag = %s, want %s", got, firstOldMain)
+	}
+
+	u2 := sc.fx.ucommit("README", "second batch same day")
+	out, err = sc.run("clean")
+	if err != nil {
+		t.Fatalf("second same-day promote failed: %v\n%s", err, out)
+	}
+	if got := sc.fx.oref("refs/tags/pre-sync/" + sc.date + ".2"); got != secondOldMain {
+		t.Fatalf("second pre-sync tag = %s, want %s", got, secondOldMain)
+	}
+	if got := sc.fx.oref("refs/fork-keeper/upstream-head"); got != u2 {
+		t.Fatalf("upstream-head = %s, want %s", got, u2)
+	}
+}
+
+func TestSchedulerTimelineStaleApprovalBlocked(t *testing.T) {
+	sc := newSchedulerCase(t)
+	sc.fx.recordHead(sc.fx.uref("refs/heads/main"))
+	sc.fx.fcommit("mine.txt", "my patch")
+	sc.fx.ucommit("README", "docs")
+	mainBefore := sc.fx.oref("refs/heads/main")
+
+	out, err := sc.run("needs-review")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\n%s", err, out)
+	}
+
+	// Simulate fork-keeper:approved added, then PR force-pushed afterward.
+	prs := sc.readPRs()
+	prs[0].Labels = append(prs[0].Labels, "fork-keeper:approved")
+	sc.writePRs(prs)
+	staleTimeline := `[{"event":"labeled","label":{"name":"fork-keeper:approved"}},{"event":"head_ref_force_pushed"}]`
+	if err := os.WriteFile(filepath.Join(sc.ghState, "timeline.1"), []byte(staleTimeline), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err = sc.run("clean")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "changed after approval") || sc.fx.oref("refs/heads/main") != mainBefore {
+		t.Fatalf("stale timeline approval must not promote: %s", out)
+	}
+
+	// Re-labeling after the force-push makes the approval current.
+	freshTimeline := `[{"event":"labeled","label":{"name":"fork-keeper:approved"}},{"event":"head_ref_force_pushed"},{"event":"labeled","label":{"name":"fork-keeper:approved"}}]`
+	if err := os.WriteFile(filepath.Join(sc.ghState, "timeline.1"), []byte(freshTimeline), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prHead := sc.fx.oref("refs/heads/sync/" + sc.date)
+	out, err = sc.run("clean")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\n%s", err, out)
+	}
+	if sc.fx.oref("refs/heads/main") != prHead {
+		t.Fatalf("expected promotion after fresh approval: %s", out)
 	}
 }

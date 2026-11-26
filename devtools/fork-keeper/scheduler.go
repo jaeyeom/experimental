@@ -26,6 +26,7 @@ type Options struct {
 	CacheDir   string
 	ScriptsDir string
 	Today      string
+	Sandbox    string
 	ForkNames  []string
 	Stdout     io.Writer
 	Stderr     io.Writer
@@ -117,6 +118,9 @@ func normalizeOptions(opts Options) Options {
 		} else {
 			opts.Today = time.Now().UTC().Format("2006-01-02")
 		}
+	}
+	if opts.Sandbox == "" {
+		opts.Sandbox = DefaultSandboxMode()
 	}
 	return opts
 }
@@ -263,16 +267,20 @@ func fetchAndComputeRange(ctx context.Context, f Fork, paths forkPaths) (RangeIn
 	return rangeInfo, nil
 }
 
-func promoteFork(ctx context.Context, f Fork, opts Options, gitDir, head, up, tagsPrefix string) error {
+func promoteFork(ctx context.Context, f Fork, opts Options, gitDir, syncBranch, head, up, tagsPrefix string, logMsg func(string, string, ...any)) error {
 	oldHead, err := gitOutput(ctx, gitDir, "rev-parse", "refs/remotes/origin/"+f.Branch)
 	if err != nil {
 		return fmt.Errorf("resolve origin/%s: %w", f.Branch, err)
 	}
 	oldHead = strings.TrimSpace(oldHead)
+	preSyncTag, err := nextPreSyncTag(ctx, gitDir, f.ForkURL, opts.Today)
+	if err != nil {
+		return fmt.Errorf("choose pre-sync tag: %w", err)
+	}
 	if _, err := gitOutput(ctx, gitDir, "push", "-q", "--atomic",
 		fmt.Sprintf("--force-with-lease=refs/heads/%s:%s", f.Branch, oldHead),
 		f.ForkURL,
-		fmt.Sprintf("%s:refs/tags/pre-sync/%s", oldHead, opts.Today),
+		fmt.Sprintf("%s:refs/tags/%s", oldHead, preSyncTag),
 		fmt.Sprintf("%s:refs/heads/%s", head, f.Branch)); err != nil {
 		return fmt.Errorf("force-push of %s failed; fork-keeper refs left unchanged: %w", f.Branch, err)
 	}
@@ -281,7 +289,98 @@ func promoteFork(ctx context.Context, f Fork, opts Options, gitDir, head, up, ta
 		fmt.Sprintf("+%s/*:refs/fork-keeper/upstream-tags/*", tagsPrefix)); err != nil {
 		return fmt.Errorf("promoted %s but could not record refs/fork-keeper/upstream-head: %w", f.Branch, err)
 	}
+	if err := cleanupPromotedSyncRefs(ctx, gitDir, f.ForkURL, syncBranch, head); err != nil {
+		logMsg(f.Name, "warning: promoted %s but failed to clean up old sync refs: %v", f.Branch, err)
+	}
 	return nil
+}
+
+func nextPreSyncTag(ctx context.Context, gitDir, forkURL, today string) (string, error) {
+	prefix := "pre-sync/" + today
+	out, err := gitOutput(ctx, gitDir, "ls-remote", "--tags", forkURL,
+		"refs/tags/"+prefix,
+		"refs/tags/"+prefix+".*")
+	if err != nil {
+		return "", err
+	}
+	existing := make(map[string]bool)
+	for _, line := range splitNonEmptyLines(out) {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		ref := strings.TrimSuffix(fields[1], "^{}")
+		if name, ok := strings.CutPrefix(ref, "refs/tags/"); ok {
+			existing[name] = true
+		}
+	}
+	if !existing[prefix] {
+		return prefix, nil
+	}
+	for i := 2; ; i++ {
+		candidate := fmt.Sprintf("%s.%d", prefix, i)
+		if !existing[candidate] {
+			return candidate, nil
+		}
+	}
+}
+
+func cleanupPromotedSyncRefs(ctx context.Context, gitDir, forkURL, syncBranch, promotedHead string) error {
+	out, err := gitOutput(ctx, gitDir, "ls-remote", forkURL,
+		"refs/heads/sync/*",
+		"refs/fork-keeper/sync-base/*",
+		"refs/fork-keeper/sync-tags/*")
+	if err != nil {
+		return err
+	}
+
+	// Collect sync branches that are safe to delete: the branch we just
+	// promoted, plus any older sync/* branch already merged into promotedHead.
+	staleBranches := map[string]bool{syncBranch: true}
+	var allRefs []string
+	for _, line := range splitNonEmptyLines(out) {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		sha, ref := fields[0], fields[1]
+		allRefs = append(allRefs, ref)
+		if b, ok := strings.CutPrefix(ref, "refs/heads/"); ok && strings.HasPrefix(b, "sync/") {
+			if gitIsAncestor(ctx, gitDir, sha, promotedHead) {
+				staleBranches[b] = true
+			}
+		}
+	}
+
+	var refspecs []string
+	for _, ref := range allRefs {
+		if isStaleSyncRef(ref, staleBranches) {
+			refspecs = append(refspecs, ":"+ref)
+		}
+	}
+	if len(refspecs) == 0 {
+		return nil
+	}
+	args := append([]string{"push", "-q", forkURL}, refspecs...)
+	_, err = gitOutput(ctx, gitDir, args...)
+	return err
+}
+
+func isStaleSyncRef(ref string, staleBranches map[string]bool) bool {
+	if b, ok := strings.CutPrefix(ref, "refs/heads/"); ok {
+		return staleBranches[b]
+	}
+	if b, ok := strings.CutPrefix(ref, "refs/fork-keeper/sync-base/"); ok {
+		return staleBranches[b]
+	}
+	if rest, ok := strings.CutPrefix(ref, "refs/fork-keeper/sync-tags/"); ok {
+		for b := range staleBranches {
+			if strings.HasPrefix(rest, b+"/") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func formatSyncLocation(syncBranch, prURL string) string {
@@ -303,18 +402,26 @@ func handleExistingPR(ctx context.Context, f Fork, opts Options, gitDir, upstrea
 
 	if pr.hasLabel(labelApproved) {
 		if fetched != "" && prHead == fetched {
-			base, err := gitOutput(ctx, gitDir, "rev-parse", "-q", "--verify",
-				fmt.Sprintf("refs/fork-keeper/sync-base/%s^{commit}", syncBranch))
+			current, err := isApprovalCurrent(ctx, f.Repo, pr.Number)
 			if err != nil {
-				return "", "", false, false, fmt.Errorf("approved %s has no refs/fork-keeper/sync-base/%s", syncBranch, syncBranch)
+				return "", "", false, false, fmt.Errorf("check approval timeline for #%d: %w", pr.Number, err)
 			}
-			if err := promoteFork(ctx, f, opts, gitDir, prHead, strings.TrimSpace(base), "refs/fork-keeper/sync-tags/"+syncBranch); err != nil {
-				return "", "", false, false, err
+			if current {
+				base, err := gitOutput(ctx, gitDir, "rev-parse", "-q", "--verify",
+					fmt.Sprintf("refs/fork-keeper/sync-base/%s^{commit}", syncBranch))
+				if err != nil {
+					return "", "", false, false, fmt.Errorf("approved %s has no refs/fork-keeper/sync-base/%s", syncBranch, syncBranch)
+				}
+				if err := promoteFork(ctx, f, opts, gitDir, syncBranch, prHead, strings.TrimSpace(base), "refs/fork-keeper/sync-tags/"+syncBranch, logMsg); err != nil {
+					return "", "", false, false, err
+				}
+				logMsg(f.Name, "promoted approved %s (%s) to %s", formatSyncLocation(syncBranch, prURL), prHead, f.Branch)
+				return syncBranch, prURL, false, true, nil
 			}
-			logMsg(f.Name, "promoted approved %s (%s) to %s", formatSyncLocation(syncBranch, prURL), prHead, f.Branch)
-			return syncBranch, prURL, false, true, nil
+			logMsg(f.Name, "ignoring %s: PR #%d changed after approval was added", labelApproved, pr.Number)
+		} else {
+			logMsg(f.Name, "ignoring %s: PR head %s is not the fetched %s", labelApproved, prHead, syncBranch)
 		}
-		logMsg(f.Name, "ignoring %s: PR head %s is not the fetched %s", labelApproved, prHead, syncBranch)
 	}
 
 	if pr.hasLabel(labelNeedsReview) {
@@ -340,7 +447,7 @@ func runAgentCandidate(ctx context.Context, f Fork, opts Options, paths forkPath
 	}
 	logMsg(f.Name, "running agent: %s", agentArgs[0])
 	agentLogPath := filepath.Join(opts.CacheDir, f.Name+".agent.log")
-	agentRC, err := runAgent(ctx, paths.workDir, paths.outDir, opts.CacheDir, agentLogPath, agentArgs)
+	agentRC, err := runAgent(ctx, opts.Sandbox, paths.gitDir, paths.workDir, paths.outDir, opts.CacheDir, agentLogPath, agentArgs)
 	if err != nil {
 		return "", err
 	}
@@ -399,7 +506,7 @@ func publishAndPromote(ctx context.Context, f Fork, opts Options, paths forkPath
 	}
 
 	if valid && verdict == "clean" && twRC == 0 && !sticky {
-		if err := promoteFork(ctx, f, opts, paths.gitDir, candidate, rangeInfo.UpstreamNew, "refs/upstream-tags"); err != nil {
+		if err := promoteFork(ctx, f, opts, paths.gitDir, syncBranch, candidate, rangeInfo.UpstreamNew, "refs/upstream-tags", logMsg); err != nil {
 			return err
 		}
 		logMsg(f.Name, "promoted %s (%s) to %s", formatSyncLocation(syncBranch, prURL), candidate, f.Branch)
@@ -470,6 +577,51 @@ func findOpenSyncPR(ctx context.Context, repo string) (*ghPR, error) {
 	return &chosen, nil
 }
 
+type timelineEvent struct {
+	Event string `json:"event"`
+	Label struct {
+		Name string `json:"name"`
+	} `json:"label"`
+}
+
+func isApprovalCurrent(ctx context.Context, repo string, prNumber int) (bool, error) {
+	endpoint := fmt.Sprintf("repos/%s/issues/%d/timeline", repo, prNumber)
+	out, err := ghOutput(ctx, "api", "--paginate", endpoint)
+	if err != nil {
+		return false, err
+	}
+	return approvalCurrentFromTimeline(out)
+}
+
+func approvalCurrentFromTimeline(raw string) (bool, error) {
+	dec := json.NewDecoder(strings.NewReader(raw))
+	approved := false
+	for {
+		var page []timelineEvent
+		if err := dec.Decode(&page); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return false, fmt.Errorf("parse PR timeline: %w", err)
+		}
+		for _, ev := range page {
+			switch ev.Event {
+			case "labeled":
+				if ev.Label.Name == labelApproved {
+					approved = true
+				}
+			case "unlabeled":
+				if ev.Label.Name == labelApproved {
+					approved = false
+				}
+			case "committed", "head_ref_force_pushed":
+				approved = false
+			}
+		}
+	}
+	return approved, nil
+}
+
 func prepareAgentWorkdir(ctx context.Context, gitDir, workDir, outDir, cacheDir, noHooksDir, branch string) error {
 	if err := os.RemoveAll(workDir); err != nil {
 		return fmt.Errorf("remove workdir: %w", err)
@@ -509,16 +661,22 @@ func prepareAgentWorkdir(ctx context.Context, gitDir, workDir, outDir, cacheDir,
 	return nil
 }
 
-func runAgent(ctx context.Context, workDir, outDir, cacheDir, logPath string, args []string) (int, error) {
+func runAgent(ctx context.Context, sandboxMode, gitDir, workDir, outDir, cacheDir, logPath string, args []string) (int, error) {
+	homeDir, _ := os.UserHomeDir()
+	execArgs, err := wrapAgentSandbox(sandboxMode, homeDir, gitDir, args)
+	if err != nil {
+		return 0, fmt.Errorf("confine agent: %w", err)
+	}
+
 	logFile, err := os.Create(logPath)
 	if err != nil {
 		return 0, fmt.Errorf("create agent log %s: %w", logPath, err)
 	}
-	defer logFile.Close()
+	defer func() { _ = logFile.Close() }()
 
-	//nolint:gosec // Configured agent command from forks.json.
+	//nolint:gosec // Configured agent command from forks.json, wrapped in sandbox when enabled.
 	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	cmd := exec.CommandContext(ctx, execArgs[0], execArgs[1:]...)
 	cmd.Dir = workDir
 	cmd.Env = scrubbedAgentEnv(os.Environ(), cacheDir, outDir)
 	cmd.Stdout = logFile

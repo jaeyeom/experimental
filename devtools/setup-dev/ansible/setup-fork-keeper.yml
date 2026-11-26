@@ -55,6 +55,10 @@
     fork_keeper_agent:
       - claude
       - -p
+      - --permission-mode
+      - acceptEdits
+      - --allowedTools
+      - "Bash,Read,Edit,Write,Glob,Grep,Skill"
       - "/fork-keeper:fork-keeper sync --out {out} -b {branch}"
     fork_keeper_forks:
       - name: emacs-herdr

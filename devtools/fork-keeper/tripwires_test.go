@@ -257,3 +257,83 @@ func TestTripwiresStack(t *testing.T) {
 	}
 	assertTripwireHit(t, hits, `stack.*not based`)
 }
+
+func TestTripwiresFileMode(t *testing.T) {
+	t.Run("chmod-executable", func(t *testing.T) {
+		fx := newTestFixture(t)
+		fx.ucommit("helper.sh", "#!/bin/sh\necho hi")
+		fx.forkAtUpstream()
+		fx.recordHead(fx.uref("refs/heads/main"))
+
+		if err := os.Chmod(filepath.Join(fx.useed, "helper.sh"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		fx.mustRun(fx.useed, "git", "add", "helper.sh")
+		fx.mustRun(fx.useed, "git", "commit", "-q", "-m", "chmod +x")
+		fx.mustRun(fx.useed, "git", "push", "-q", "origin", "HEAD:main")
+
+		w, r, cand := fx.prepTripwireRepo()
+		hits, err := CheckTripwires(context.Background(), filepath.Join(w, ".git"), r, cand)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertTripwireHit(t, hits, `mode.*helper\.sh \(100644 -> 100755\)`)
+	})
+
+	t.Run("new-executable", func(t *testing.T) {
+		fx := newTestFixture(t)
+		fx.recordHead(fx.uref("refs/heads/main"))
+
+		//nolint:gosec // Test fixture intentionally creates an executable script.
+		if err := os.WriteFile(filepath.Join(fx.useed, "run.sh"), []byte("#!/bin/sh\necho hi\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		fx.mustRun(fx.useed, "git", "add", "run.sh")
+		fx.mustRun(fx.useed, "git", "commit", "-q", "-m", "add executable")
+		fx.mustRun(fx.useed, "git", "push", "-q", "origin", "HEAD:main")
+
+		w, r, cand := fx.prepTripwireRepo()
+		hits, err := CheckTripwires(context.Background(), filepath.Join(w, ".git"), r, cand)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertTripwireHit(t, hits, `mode.*run\.sh \(000000 -> 100755\)`)
+	})
+
+	t.Run("new-symlink", func(t *testing.T) {
+		fx := newTestFixture(t)
+		fx.recordHead(fx.uref("refs/heads/main"))
+
+		if err := os.Symlink("README", filepath.Join(fx.useed, "link")); err != nil {
+			t.Fatal(err)
+		}
+		fx.mustRun(fx.useed, "git", "add", "link")
+		fx.mustRun(fx.useed, "git", "commit", "-q", "-m", "add symlink")
+		fx.mustRun(fx.useed, "git", "push", "-q", "origin", "HEAD:main")
+
+		w, r, cand := fx.prepTripwireRepo()
+		hits, err := CheckTripwires(context.Background(), filepath.Join(w, ".git"), r, cand)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertTripwireHit(t, hits, `mode.*link \(000000 -> 120000\)`)
+	})
+
+	t.Run("delete-regular-quiet", func(t *testing.T) {
+		fx := newTestFixture(t)
+		fx.ucommit("old.txt", "bye")
+		fx.forkAtUpstream()
+		fx.recordHead(fx.uref("refs/heads/main"))
+
+		fx.mustRun(fx.useed, "git", "rm", "-q", "old.txt")
+		fx.mustRun(fx.useed, "git", "commit", "-q", "-m", "remove old")
+		fx.mustRun(fx.useed, "git", "push", "-q", "origin", "HEAD:main")
+
+		w, r, cand := fx.prepTripwireRepo()
+		hits, err := CheckTripwires(context.Background(), filepath.Join(w, ".git"), r, cand)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertTripwireQuiet(t, hits)
+	})
+}

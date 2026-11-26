@@ -11,6 +11,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "config.go",
+        "sandbox.go",
         "scheduler.go",
         "tripwires.go",
     ],
@@ -22,6 +23,7 @@ go_test(
     name = "go_default_test",
     size = "medium",
     srcs = [
+        "sandbox_test.go",
         "scheduler_test.go",
         "testlib_test.go",
         "tripwires_test.go",
