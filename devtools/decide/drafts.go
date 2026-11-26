@@ -25,6 +25,8 @@ const (
 	DraftKindAnswer = "answer"
 	// DraftKindCompose is a draft for composing a new thread.
 	DraftKindCompose = "compose"
+	// DraftKindForward is a draft for forwarding an existing thread.
+	DraftKindForward = "forward"
 
 	// DraftKeyCompose is the draft key for the compose box.
 	DraftKeyCompose = "compose"
@@ -50,6 +52,11 @@ func ReplyDraftKey(itemID string) string {
 // AnswerDraftKey returns the draft key for a free-text answer to itemID.
 func AnswerDraftKey(itemID string) string {
 	return DraftKindAnswer + ":" + itemID
+}
+
+// ForwardDraftKey returns the draft key for forwarding itemID.
+func ForwardDraftKey(itemID string) string {
+	return DraftKindForward + ":" + itemID
 }
 
 // DraftConflict records a conflicting draft version saved against a stale baseRev.
@@ -293,6 +300,16 @@ func fillDraftKindAndItem(d *Draft) {
 		if d.ItemID == "" {
 			d.ItemID = strings.TrimPrefix(d.Key, DraftKindAnswer+":")
 		}
+	case strings.HasPrefix(d.Key, DraftKindForward+":"):
+		if d.Kind == "" {
+			d.Kind = DraftKindForward
+		}
+		if d.ItemID == "" {
+			d.ItemID = strings.TrimPrefix(d.Key, DraftKindForward+":")
+		}
+		if d.Forward == "" {
+			d.Forward = d.ItemID
+		}
 	case d.Key == DraftKeyCompose:
 		if d.Kind == "" {
 			d.Kind = DraftKindCompose
@@ -301,17 +318,13 @@ func fillDraftKindAndItem(d *Draft) {
 }
 
 func threadDraftItemID(key string, d Draft) (string, bool) {
-	if strings.HasPrefix(key, DraftKindReply+":") {
-		if d.ItemID != "" {
-			return d.ItemID, true
+	for _, prefix := range []string{DraftKindReply + ":", DraftKindAnswer + ":", DraftKindForward + ":"} {
+		if strings.HasPrefix(key, prefix) {
+			if d.ItemID != "" {
+				return d.ItemID, true
+			}
+			return strings.TrimPrefix(key, prefix), true
 		}
-		return strings.TrimPrefix(key, DraftKindReply+":"), true
-	}
-	if strings.HasPrefix(key, DraftKindAnswer+":") {
-		if d.ItemID != "" {
-			return d.ItemID, true
-		}
-		return strings.TrimPrefix(key, DraftKindAnswer+":"), true
 	}
 	return "", false
 }

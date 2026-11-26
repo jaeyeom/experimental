@@ -85,7 +85,7 @@ func (m *Model) composeKey(r rune) (bool, error) {
 			return false, nil
 		}
 	}
-	if m.composeFocus == focusSend && m.hasDraftConflict(composerNote) {
+	if m.composeFocus >= focusSend && m.hasDraftConflict(composerNote) {
 		switch r {
 		case 'k', 'K':
 			m.resolveConflict(composerNote, conflictKeepCurrent)
@@ -135,7 +135,10 @@ func (m *Model) composeEnter() (bool, error) {
 		return false, nil
 	case focusSend:
 		return false, m.sendNote()
-	case focusCancel:
+	case focusDiscard:
+		m.discardCompose()
+		return false, nil
+	case focusSaveDraft:
 		m.blurCompose()
 		return false, nil
 	case focusEditor:
@@ -144,6 +147,28 @@ func (m *Model) composeEnter() (bool, error) {
 	default:
 		return false, nil
 	}
+}
+
+func (m *Model) discardCompose() {
+	if m.noteField.Focused() {
+		m.note = m.noteField.Value()
+	}
+	if strings.TrimSpace(m.note) != "" {
+		m.confirmKind = confirmDiscardCompose
+		m.status = fmt.Sprintf("discard draft? %s %s", buttonLabel("Yes", "y", false, 0), buttonLabel("No", "n", false, 0))
+		return
+	}
+	m.clearComposeDraft()
+	m.status = "discarded draft"
+}
+
+func (m *Model) clearComposeDraft() {
+	if m.outboxEditing == "" {
+		m.deleteDraft(composerNote)
+	}
+	m.composeRestorePrompt = false
+	m.outboxEditing = ""
+	m.clearNote()
 }
 
 func (m *Model) openComposeExternalEditor() {
@@ -204,7 +229,7 @@ func (m *Model) sendNote() error {
 		m.status = err.Error()
 		return nil
 	}
-	if m.forward == "" && m.outboxEditing == "" {
+	if m.outboxEditing == "" {
 		m.deleteDraft(composerNote)
 	}
 	m.clearNote()
@@ -212,17 +237,37 @@ func (m *Model) sendNote() error {
 	return nil
 }
 
-// forwardItem opens compose on the viewed item with its context quoted
-// below a blank line. The cursor starts at the top so typed text becomes
-// the first line.
+// forwardItem opens compose on the viewed item, restoring any saved
+// forward draft for it or prefilling its quoted context. The cursor starts
+// at the top so typed text becomes the first line.
 func (m *Model) forwardItem() {
 	if m.detail == nil {
 		return
 	}
-	m.focusCompose()
+	m.flushDraft(composerNote)
+	id := m.detail.ID
+	it := m.detail
+	msgIdx := m.message
+	m.clearNote()
+	m.pickFilter = ""
 	m.composeRestorePrompt = false
-	m.forward = m.detail.ID
-	m.note = "\n\n" + forwardPrefill(m.detail, m.message, m.now(), m.zone())
+	m.composing = true
+	m.answerFocus = false
+	m.free.Blur()
+	m.forward = id
+	key := decide.ForwardDraftKey(id)
+	m.composeDraft = draftState{key: key}
+	if m.drafts == nil {
+		m.loadDrafts()
+	}
+	if d, ok := m.drafts[key]; ok && strings.TrimSpace(d.Text) != "" {
+		m.note = d.Text
+		m.composeDraft.baseRev = d.Rev
+		m.applyDraftTarget(d.To, d.Bus)
+		m.status = "restored forward draft"
+	} else {
+		m.note = "\n\n" + forwardPrefill(it, msgIdx, m.now(), m.zone())
+	}
 	m.composeFocus = focusText
 	m.pullNote()
 	setFieldCursor(&m.noteField, 0, 0)
@@ -535,12 +580,15 @@ func (m *Model) sendLine(width int) screenLine {
 		name    string
 		hint    string
 		focused bool
+		active  bool
 		hitKind int
 	}
+	canAct := m.composeFocus >= focusText
 	specs := []btnSpec{
-		{name: "Send", hint: m.buttonKey("compose.send"), focused: m.composeFocus == focusSend, hitKind: hitSend},
-		{name: "Cancel", hint: m.buttonKey("compose.cancel"), focused: m.composeFocus == focusCancel, hitKind: hitComposeCancel},
-		{name: "Edit in editor", hint: m.shortestButtonKey("edit.external"), focused: m.composeFocus == focusEditor, hitKind: hitComposeEditor},
+		{name: "Send", hint: m.buttonKey("compose.send"), focused: m.composeFocus == focusSend, active: canAct, hitKind: hitSend},
+		{name: "Discard", hint: m.buttonKey("compose.discard"), focused: m.composeFocus == focusDiscard, active: canAct, hitKind: hitComposeDiscardBtn},
+		{name: "Save draft", hint: m.buttonKey("compose.cancel"), focused: m.composeFocus == focusSaveDraft, active: true, hitKind: hitComposeSaveDraft},
+		{name: "Edit in editor", hint: m.shortestButtonKey("edit.external"), focused: m.composeFocus == focusEditor, active: canAct, hitKind: hitComposeEditor},
 	}
 	build := func(showHints bool) (string, []hit, int) {
 		var parts []string
@@ -552,7 +600,7 @@ func (m *Model) sendLine(width int) screenLine {
 				h = ""
 			}
 			label := buttonLabel(sp.name, h, sp.focused, 0)
-			rendered := renderButton(label)
+			rendered := renderButton(label, sp.active)
 			w := lipgloss.Width(rendered)
 			if len(parts) > 0 {
 				col++

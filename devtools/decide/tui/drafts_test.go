@@ -398,3 +398,223 @@ func TestExternalEditorSavesAndDetectsConflict(t *testing.T) {
 		t.Fatalf("expected draft deleted after emptying in $EDITOR, got %+v", list)
 	}
 }
+
+func findDraft(t *testing.T, db *LocalBackend, key string) (decide.Draft, bool) {
+	t.Helper()
+	list, err := db.ListDrafts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range list {
+		if d.Key == key {
+			return d, true
+		}
+	}
+	return decide.Draft{}, false
+}
+
+func TestSaveDraftEscComposeAndReplyReopen(t *testing.T) {
+	dir, _, item := draftTestSetup(t)
+	m := New(dir)
+	m.Targets = []Target{{Name: "ada", Pane: "p1"}}
+	m.width, m.height = 120, 30
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Compose: Save draft (Esc) keeps the draft in memory and on disk, and comes back when reopened.
+	press(t, m, "c\tcompose saved\x1b")
+	if m.composing || m.note != "compose saved" {
+		t.Fatalf("after compose Esc: composing=%v note=%q", m.composing, m.note)
+	}
+	press(t, m, "c")
+	if !m.composing || m.note != "compose saved" {
+		t.Fatalf("reopened compose did not keep draft: composing=%v note=%q", m.composing, m.note)
+	}
+	press(t, m, "\x1b")
+
+	// Restart recovers the saved compose draft via [r] Restore.
+	m2 := New(dir)
+	m2.Targets = []Target{{Name: "ada", Pane: "p1"}}
+	m2.width, m2.height = 120, 30
+	if err := m2.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m2, "cr")
+	if m2.note != "compose saved" {
+		t.Fatalf("restarted compose restore = %q, want %q", m2.note, "compose saved")
+	}
+	press(t, m2, "\x1b")
+
+	// Reply: [Save draft (Esc)] button is shown and clicking or pressing Esc keeps and flushes the reply draft.
+	press(t, m, "o0reply saved")
+	view := visibleLine(m.View())
+	if !strings.Contains(view, "[Save draft (Esc)]") {
+		t.Fatalf("reply box missing [Save draft (Esc)]:\n%s", view)
+	}
+	clickOn(t, m, "[Save draft (Esc)]", 1)
+	if m.replyFocus || m.reply != "reply saved" {
+		t.Fatalf("clicking [Save draft (Esc)] replyFocus=%v reply=%q", m.replyFocus, m.reply)
+	}
+	// Reload in a fresh model verifies it was persisted and comes back on reopen.
+	m3 := New(dir)
+	m3.width, m3.height = 120, 30
+	if err := m3.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m3, "o")
+	if m3.reply != "reply saved" {
+		t.Fatalf("reopened reply = %q, want %q", m3.reply, "reply saved")
+	}
+	db := &LocalBackend{Dir: dir}
+	d, ok := findDraft(t, db, decide.ReplyDraftKey(item.ID))
+	if !ok || d.Text != "reply saved" {
+		t.Fatalf("stored reply draft = (%+v, %v)", d, ok)
+	}
+}
+
+func TestForwardDraftSavedPerItemRestoredAndCleared(t *testing.T) {
+	dir, led, item1 := draftTestSetup(t)
+	item2 := mustCreate(t, led, &decide.Item{
+		Question: "second thread?",
+		Owner:    "beta",
+		Kind:     decide.KindRelay,
+		State:    decide.StateOpen,
+		Messages: []decide.Message{{Author: "beta", Text: "second thread?"}},
+	})
+	m := New(dir)
+	m.Targets = []Target{{Name: "ada", Pane: "p1"}, {Name: "beta", Pane: "p2"}}
+	m.runSend = func([]string) error { return nil }
+	m.width, m.height = 120, 30
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Open forward on item1, edit text and target, then press Esc (Save draft).
+	if err := m.openItemByID(item1.ID); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "f")
+	m.ShiftTab()
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	press(t, m, "\t")
+	press(t, m, "note for item1")
+	press(t, m, "\x1b")
+	if m.composing || m.note != "" || m.forward != "" {
+		t.Fatalf("Esc in forward should close and clear in-memory compose state: composing=%v note=%q forward=%q", m.composing, m.note, m.forward)
+	}
+
+	// Plain compose stays clean and does not inherit the forward draft.
+	press(t, m, "c")
+	if m.note != "" || m.forward != "" {
+		t.Fatalf("plain compose polluted by forward: note=%q forward=%q", m.note, m.forward)
+	}
+	press(t, m, "\x1b")
+
+	// Forward on item2 gets its own separate draft key and prefill.
+	press(t, m, "u")
+	if err := m.openItemByID(item2.ID); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "fnote for item2\x1bu")
+
+	db := &LocalBackend{Dir: dir}
+	d1, ok1 := findDraft(t, db, decide.ForwardDraftKey(item1.ID))
+	d2, ok2 := findDraft(t, db, decide.ForwardDraftKey(item2.ID))
+	if !ok1 || !strings.HasPrefix(d1.Text, "note for item1") || d1.To != "beta" {
+		t.Fatalf("item1 forward draft = (%+v, %v)", d1, ok1)
+	}
+	if !ok2 || !strings.HasPrefix(d2.Text, "note for item2") {
+		t.Fatalf("item2 forward draft = (%+v, %v)", d2, ok2)
+	}
+
+	// Restarting and reopening forward on item1 restores note and target.
+	m2 := New(dir)
+	m2.Targets = []Target{{Name: "ada", Pane: "p1"}, {Name: "beta", Pane: "p2"}}
+	m2.runSend = func([]string) error { return nil }
+	m2.width, m2.height = 120, 30
+	if err := m2.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if err := m2.openItemByID(item1.ID); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m2, "f")
+	if !strings.HasPrefix(m2.note, "note for item1") || m2.forward != item1.ID {
+		t.Fatalf("reopened forward note=%q forward=%q", m2.note, m2.forward)
+	}
+	if tg, ok := m2.selectedTarget(); !ok || tg.Name != "beta" {
+		t.Fatalf("reopened forward target = %+v, ok=%v", tg, ok)
+	}
+
+	// Sending clears the forward draft for item1 while keeping item2's draft.
+	press(t, m2, "\t\r")
+	if m2.composing {
+		t.Fatal("send did not close forward")
+	}
+	if _, ok := findDraft(t, db, decide.ForwardDraftKey(item1.ID)); ok {
+		t.Fatal("item1 forward draft was not cleared on send")
+	}
+	if _, ok := findDraft(t, db, decide.ForwardDraftKey(item2.ID)); !ok {
+		t.Fatal("item2 forward draft should still exist")
+	}
+}
+
+func TestComposeDiscardConfirmationAndClear(t *testing.T) {
+	dir, _, item := draftTestSetup(t)
+	m := New(dir)
+	m.Targets = []Target{{Name: "ada", Pane: "p1"}}
+	m.width, m.height = 120, 30
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Empty compose discards immediately without confirmation.
+	press(t, m, "c\t")
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}, Alt: true})
+	if m.confirmKind != confirmNone || m.composing || m.status != "discarded draft" {
+		t.Fatalf("empty discard: confirm=%d composing=%v status=%q", m.confirmKind, m.composing, m.status)
+	}
+
+	// Non-empty compose asks for confirmation; n keeps the draft, y clears it and deletes stored draft.
+	press(t, m, "c\thello compose\x1b")
+	db := &LocalBackend{Dir: dir}
+	if _, ok := findDraft(t, db, decide.DraftKeyCompose); !ok {
+		t.Fatal("compose draft should be saved before discard")
+	}
+	press(t, m, "c\t")
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}, Alt: true})
+	if m.confirmKind != confirmDiscardCompose || !strings.Contains(m.status, "discard draft?") {
+		t.Fatalf("non-empty compose discard did not ask: confirm=%d status=%q", m.confirmKind, m.status)
+	}
+	press(t, m, "n")
+	if m.confirmKind != confirmNone || !m.composing || m.note != "hello compose" {
+		t.Fatalf("cancel compose discard lost draft: confirm=%d composing=%v note=%q", m.confirmKind, m.composing, m.note)
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}, Alt: true})
+	press(t, m, "y")
+	if m.confirmKind != confirmNone || m.composing || m.note != "" || m.status != "discarded draft" {
+		t.Fatalf("confirmed compose discard did not clear: confirm=%d composing=%v note=%q status=%q", m.confirmKind, m.composing, m.note, m.status)
+	}
+	if _, ok := findDraft(t, db, decide.DraftKeyCompose); ok {
+		t.Fatal("stored compose draft was not deleted on discard")
+	}
+
+	// Forward discard also asks confirmation and clears stored forward draft.
+	press(t, m, "ofedited fwd\x1b")
+	if _, ok := findDraft(t, db, decide.ForwardDraftKey(item.ID)); !ok {
+		t.Fatal("forward draft should be saved")
+	}
+	press(t, m, "f")
+	clickOn(t, m, "[Discard (M-d)]", 1)
+	if m.confirmKind != confirmDiscardCompose {
+		t.Fatalf("forward discard confirm=%d, want confirmDiscardCompose", m.confirmKind)
+	}
+	press(t, m, "y")
+	if m.composing || m.note != "" || m.forward != "" {
+		t.Fatalf("forward discard left state: composing=%v note=%q forward=%q", m.composing, m.note, m.forward)
+	}
+	if _, ok := findDraft(t, db, decide.ForwardDraftKey(item.ID)); ok {
+		t.Fatal("stored forward draft was not deleted on discard")
+	}
+}

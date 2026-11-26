@@ -289,9 +289,9 @@ func TestComposerCtrlXCtrlEStillOpensEditor(t *testing.T) {
 func TestComposerHintsListEditingKeys(t *testing.T) {
 	const keys = "C-a/C-e line  C-k kill  C-j newline  C-o open  C-x C-e/C-g editor"
 	for kind, send := range map[composerKind]string{
-		composerReply:   "Ctrl+Enter / Alt+Enter send  Tab [Send]  Esc cancel",
+		composerReply:   "Ctrl+Enter / Alt+Enter send  Tab [Send]  Esc save draft",
 		composerOutcome: "Enter send  Esc cancel",
-		composerNote:    "Ctrl+Enter / Alt+Enter send  Tab [Send]  Esc cancel",
+		composerNote:    "Ctrl+Enter / Alt+Enter send  Tab [Send]  Esc save draft",
 	} {
 		m, _, _ := composerModel(t, kind)
 		m.width = 160

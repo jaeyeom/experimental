@@ -301,18 +301,22 @@ func TestToolbarBackAndArchiveSaveUnsentReplyDraft(t *testing.T) {
 }
 
 func TestComposeCancelAndEditInEditorButtons(t *testing.T) {
-	t.Run("compose buttons render and cancel works", func(t *testing.T) {
+	t.Run("compose buttons render and save draft works", func(t *testing.T) {
 		m, _, _ := composerModel(t, composerNote)
 		m.width, m.height = 100, 24
+		press(t, m, "keep me")
 		view := visibleLine(m.View())
-		for _, want := range []string{"[Send (^⏎)]", "[Cancel (Esc)]", "[Edit in editor (^G)]"} {
+		for _, want := range []string{"[Send (^⏎)]", "[Discard (M-d)]", "[Save draft (Esc)]", "[Edit in editor (^G)]"} {
 			if !strings.Contains(view, want) {
 				t.Fatalf("compose view missing %q:\n%s", want, view)
 			}
 		}
-		clickOn(t, m, "[Cancel (Esc)]", 1)
+		clickOn(t, m, "[Save draft (Esc)]", 1)
 		if m.composing {
-			t.Fatal("clicking [Cancel (Esc)] did not close compose")
+			t.Fatal("clicking [Save draft (Esc)] did not close compose")
+		}
+		if m.note != "keep me" {
+			t.Fatalf("clicking [Save draft (Esc)] lost compose draft: %q", m.note)
 		}
 	})
 

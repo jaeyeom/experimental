@@ -20,11 +20,13 @@ const (
 	hitReplySend
 	hitReplySendAndArchive
 	hitReplyDiscard
+	hitReplySaveDraft
 	hitReplyEditor
 	hitReplyFocus
 	hitComposeRestore
 	hitComposeDiscard
-	hitComposeCancel
+	hitComposeDiscardBtn
+	hitComposeSaveDraft
 	hitComposeEditor
 	hitConflictKeep
 	hitConflictUse
@@ -86,7 +88,7 @@ func (m *Model) Click(x, y int) error {
 // leaveReply unfocuses the reply box and its buttons for a click
 // elsewhere. It reports true when the click only left the reply box.
 func (m *Model) leaveReply(field hit, onField bool, x, y int) bool {
-	onReplyBtn := m.onHitRow(x, y, hitReplySend) || m.onHitRow(x, y, hitReplySendAndArchive) || m.onHitRow(x, y, hitReplyDiscard) || m.onHitRow(x, y, hitReplyEditor) || m.onHitRow(x, y, hitReplyFocus)
+	onReplyBtn := m.onHitRow(x, y, hitReplySend) || m.onHitRow(x, y, hitReplySendAndArchive) || m.onHitRow(x, y, hitReplyDiscard) || m.onHitRow(x, y, hitReplySaveDraft) || m.onHitRow(x, y, hitReplyEditor) || m.onHitRow(x, y, hitReplyFocus)
 	onToolbar := m.onToolbarHit(x, y)
 	if !onReplyBtn {
 		m.replySend = false
@@ -359,6 +361,9 @@ func (m *Model) hitReplyButton(kind int) (bool, error) {
 	case hitReplyDiscard:
 		m.discardReply()
 		return true, nil
+	case hitReplySaveDraft:
+		m.saveAndBlurReply()
+		return true, nil
 	case hitReplyEditor:
 		if m.replyFocus {
 			m.reply = m.composerText(composerReply)
@@ -389,7 +394,10 @@ func (m *Model) hitCompose(h hit) bool {
 	case hitComposeDiscard:
 		m.discardComposeDraft()
 		return true
-	case hitComposeCancel:
+	case hitComposeDiscardBtn:
+		m.discardCompose()
+		return true
+	case hitComposeSaveDraft:
 		m.blurCompose()
 		return true
 	case hitComposeEditor:

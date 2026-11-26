@@ -64,10 +64,12 @@ func (m *Model) applyDrafts(list []decide.Draft) {
 	if m.detail != nil && m.outboxEditing == "" {
 		m.syncOpenDetailDrafts()
 	}
-	if m.composing && m.forward == "" && m.outboxEditing == "" && !m.composeDraft.dirty {
-		if d, ok := m.drafts[decide.DraftKeyCompose]; ok {
-			m.composeDraft.key = d.Key
-			m.composeDraft.baseRev = d.Rev
+	if m.composing && m.outboxEditing == "" && !m.composeDraft.dirty {
+		if key := m.draftKey(composerNote); key != "" {
+			if d, ok := m.drafts[key]; ok {
+				m.composeDraft.key = d.Key
+				m.composeDraft.baseRev = d.Rev
+			}
 		}
 	}
 }
@@ -159,7 +161,7 @@ func (m *Model) draftKey(kind composerKind) string {
 		return decide.AnswerDraftKey(m.detail.ID)
 	case composerNote:
 		if m.forward != "" {
-			return ""
+			return decide.ForwardDraftKey(m.forward)
 		}
 		return decide.DraftKeyCompose
 	default:
@@ -197,7 +199,12 @@ func (m *Model) buildDraft(kind composerKind, key, text string) decide.Draft {
 			d.ItemID = m.detail.ID
 		}
 	case composerNote:
-		d.Kind = decide.DraftKindCompose
+		if m.forward != "" {
+			d.Kind = decide.DraftKindForward
+			d.ItemID = m.forward
+		} else {
+			d.Kind = decide.DraftKindCompose
+		}
 		d.Forward = m.forward
 		if tg, ok := m.selectedTarget(); ok {
 			d.To = tg.Name
@@ -405,13 +412,18 @@ func (m *Model) restoreComposeDraft() {
 	m.noteField.SetValue(d.Text)
 	m.forward = d.Forward
 	m.composeDraft = draftState{key: decide.DraftKeyCompose, baseRev: d.Rev}
-	if d.To != "" {
-		if !m.selectName(d.To) && d.Bus {
-			m.composeDead = append(m.composeDead, Target{Name: d.To, Bus: true, Dead: true})
-			m.selectName(d.To)
-		}
-	}
+	m.applyDraftTarget(d.To, d.Bus)
 	m.status = "restored compose draft"
+}
+
+func (m *Model) applyDraftTarget(to string, bus bool) {
+	if to == "" {
+		return
+	}
+	if !m.selectName(to) && bus {
+		m.composeDead = append(m.composeDead, Target{Name: to, Bus: true, Dead: true})
+		m.selectName(to)
+	}
 }
 
 func (m *Model) discardComposeDraft() {
@@ -568,13 +580,7 @@ func (m *Model) resolveMergeBoth(db DraftBackend, kind composerKind, d decide.Dr
 
 func (m *Model) applyComposeConflictTarget(c decide.DraftConflict) {
 	m.forward = c.Forward
-	if c.To == "" {
-		return
-	}
-	if !m.selectName(c.To) && c.Bus {
-		m.composeDead = append(m.composeDead, Target{Name: c.To, Bus: true, Dead: true})
-		m.selectName(c.To)
-	}
+	m.applyDraftTarget(c.To, c.Bus)
 }
 
 func (m *Model) saveConflictResolution(db DraftBackend, kind composerKind, key, text string, st *draftState) bool {

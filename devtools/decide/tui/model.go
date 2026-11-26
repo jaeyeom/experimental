@@ -48,7 +48,8 @@ const (
 	focusRecipient = iota
 	focusText
 	focusSend
-	focusCancel
+	focusDiscard
+	focusSaveDraft
 	focusEditor
 )
 
@@ -56,6 +57,7 @@ const (
 	replyBtnSend = iota
 	replyBtnSendAndArchive
 	replyBtnDiscard
+	replyBtnSaveDraft
 	replyBtnEditor
 )
 
@@ -815,18 +817,18 @@ func (m *Model) focusCompose() {
 	m.checkComposeRestore()
 }
 
-// blurCompose leaves the compose box and keeps the draft. A forward's
-// draft is discarded with its prefill.
+// blurCompose leaves the compose box and saves the draft. For a forward,
+// in-memory state is cleared afterwards so plain compose stays clean.
 func (m *Model) blurCompose() {
 	m.composeRestorePrompt = false
-	if m.forward != "" {
-		m.clearNote()
-		return
-	}
 	if m.noteField.Focused() {
 		m.note = m.noteField.Value()
 	}
 	m.flushDraft(composerNote)
+	if m.forward != "" {
+		m.clearNote()
+		return
+	}
 	m.composing = false
 	m.noteField.Blur()
 }
@@ -840,6 +842,7 @@ func (m *Model) insertNoteNewline() {
 func (m *Model) clearNote() {
 	m.note = ""
 	m.forward = ""
+	m.composeDraft = draftState{}
 	m.composing = false
 	m.composeFocus = focusRecipient
 	m.noteField.Blur()
@@ -855,11 +858,11 @@ func (m *Model) focusReply() {
 }
 
 // replyKey edits the reply box like the note box: Enter inserts a
-// newline and Tab moves to [Send]. Esc leaves it and keeps the draft.
+// newline and Tab moves to [Send]. Esc leaves it and saves the draft.
 func (m *Model) replyKey(r rune) (bool, error) {
 	switch r {
 	case '\x1b':
-		m.replyFocus = false
+		m.saveAndBlurReply()
 		return false, nil
 	case '\t':
 		m.focusReplySend()
@@ -869,6 +872,11 @@ func (m *Model) replyKey(r rune) (bool, error) {
 	}
 	m.typeRune(r)
 	return false, nil
+}
+
+func (m *Model) saveAndBlurReply() {
+	m.saveReplyDraftNow()
+	m.blurReplyForToolbar()
 }
 
 func (m *Model) focusReplySend() {
@@ -890,6 +898,8 @@ func (m *Model) advanceReplyButton() {
 	case replyBtnSendAndArchive:
 		m.replyBtn = replyBtnDiscard
 	case replyBtnDiscard:
+		m.replyBtn = replyBtnSaveDraft
+	case replyBtnSaveDraft:
 		m.replyBtn = replyBtnEditor
 	}
 }
@@ -897,6 +907,8 @@ func (m *Model) advanceReplyButton() {
 func (m *Model) prevReplyButton() {
 	switch m.replyBtn {
 	case replyBtnEditor:
+		m.replyBtn = replyBtnSaveDraft
+	case replyBtnSaveDraft:
 		m.replyBtn = replyBtnDiscard
 	case replyBtnDiscard:
 		if m.canSendAndArchive() {
@@ -917,8 +929,7 @@ func (m *Model) prevReplyButton() {
 func (m *Model) replySendKey(r rune) (bool, error) {
 	switch r {
 	case '\x1b':
-		m.replySend = false
-		m.replyBtn = replyBtnSend
+		m.saveAndBlurReply()
 	case '\t':
 		m.advanceReplyButton()
 	case '\r':
@@ -927,6 +938,9 @@ func (m *Model) replySendKey(r rune) (bool, error) {
 			return false, m.submitReplyAndArchive()
 		case replyBtnDiscard:
 			m.discardReply()
+			return false, nil
+		case replyBtnSaveDraft:
+			m.saveAndBlurReply()
 			return false, nil
 		case replyBtnEditor:
 			m.focusReply()
@@ -2317,10 +2331,14 @@ func detailToolbarItems() []toolbarItem {
 	}
 }
 
+func (m *Model) toolbarActive() bool {
+	return !m.replyFocus && !m.replySend && !m.answerFocus && m.mode != modeOutcome
+}
+
 func (m *Model) renderToolbar(collapsed bool) (string, []hit, int) {
 	useStyles()
 	items := detailToolbarItems()
-	dimHints := m.replyFocus || m.replySend
+	active := m.toolbarActive()
 	parts := make([]string, 0, len(items))
 	hits := make([]hit, 0, len(items))
 	col := 1
@@ -2329,21 +2347,17 @@ func (m *Model) renderToolbar(collapsed bool) (string, []hit, int) {
 		var rendered string
 		if collapsed {
 			if hint != "" {
-				if dimHints {
-					rendered = optionButton.Render("[") + optionButton.Faint(true).Render(hint) + optionButton.Render("]")
-				} else {
+				if active {
 					rendered = optionButton.Render("[" + hint + "]")
+				} else {
+					rendered = optionButton.Render("[") + optionButton.Faint(true).Render(hint) + optionButton.Render("]")
 				}
 			} else {
 				rendered = optionButton.Render("[" + item.name + "]")
 			}
 		} else {
 			label := buttonLabel(item.name, hint, false, 0)
-			if dimHints {
-				rendered = renderButton(label)
-			} else {
-				rendered = optionButton.Render(label)
-			}
+			rendered = renderButton(label, active)
 		}
 		w := lipgloss.Width(rendered)
 		if len(parts) > 0 {
@@ -3271,7 +3285,7 @@ func (m *Model) detailLines(width int) []screenLine {
 		lines = append(lines,
 			screenLine{text: plainText("type: " + it.TypeText)},
 			screenLine{text: plainText("where: " + it.Where)},
-			screenLine{text: plainText(markDone), hits: []hit{{kind: hitMarkDone}}},
+			screenLine{text: renderPlainButton(markDone, m.toolbarActive()), hits: []hit{{kind: hitMarkDone}}},
 		)
 	default:
 		lines = append(lines, m.relayLines(it, width)...)
@@ -3584,7 +3598,12 @@ func (m *Model) replyLines(width int) []screenLine {
 	lines := []screenLine{{text: plainText("reply:")}}
 	lines = append(lines, conflict...)
 	lines = append(lines, boxedEditor(m.reply, &m.replyField, m.replyFocus, hitReply, width, m.replyBoxHeight(width), &m.replyScroll)...)
+	return append(lines, m.replyButtonLines(width)...)
+}
+
+func (m *Model) replyButtonLines(width int) []screenLine {
 	useStyles()
+	var lines []screenLine
 	var parts []string
 	var hits []hit
 	col := 1
@@ -3600,8 +3619,9 @@ func (m *Model) replyLines(width int) []screenLine {
 		hits = nil
 		col = 1
 	}
+	active := m.replyFocus || m.replySend
 	addBtn := func(label string, kind int) {
-		rendered := renderButton(label)
+		rendered := renderButton(label, active)
 		w := lipgloss.Width(rendered)
 		if width > 0 && len(parts) > 0 && col+w > width {
 			flush()
@@ -3618,6 +3638,7 @@ func (m *Model) replyLines(width int) []screenLine {
 		addBtn(m.actionButton("Send and archive", "compose.sendAndArchive", m.replySend && m.replyBtn == replyBtnSendAndArchive, width), hitReplySendAndArchive)
 	}
 	addBtn(m.actionButton("Discard", "compose.discard", m.replySend && m.replyBtn == replyBtnDiscard, width), hitReplyDiscard)
+	addBtn(m.actionButton("Save draft", "compose.cancel", m.replySend && m.replyBtn == replyBtnSaveDraft, width), hitReplySaveDraft)
 	addBtn(m.shortestActionButton("Edit in editor", "edit.external", m.replySend && m.replyBtn == replyBtnEditor, width), hitReplyEditor)
 	flush()
 	return lines

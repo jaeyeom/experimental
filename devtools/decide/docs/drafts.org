@@ -40,8 +40,9 @@ saves never contend with =ledger.lock=.
 }
 #+end_src
 
-- Keys: ~reply:<itemID>~, ~answer:<itemID>~, and ~compose~. ~compose~
-  additionally stores ~to~, ~bus~, and ~forward~ alongside ~text~.
+- Keys: ~reply:<itemID>~, ~answer:<itemID>~, ~forward:<itemID>~, and
+  ~compose~. ~compose~ and ~forward:<itemID>~ additionally store ~to~,
+  ~bus~, and ~forward~ alongside ~text~.
 - Top-level ~seq~ is a monotonic counter incremented on every mutation
   for ~watch~ change detection.
 - Each draft stores ~rev~ (monotonic per draft), ~updatedAt~,

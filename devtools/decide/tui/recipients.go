@@ -28,7 +28,7 @@ const (
 )
 
 // pickerHint is the footer while the recipient list is focused.
-const pickerHint = "type to filter  ↑/↓ C-n/C-p move  Enter pick  * star  Esc clear/cancel  Tab text"
+const pickerHint = "type to filter  ↑/↓ C-n/C-p move  Enter pick  * star  Esc clear/save draft  Tab text"
 
 // BusRunner runs `agentbus` with args and returns its stdout.
 type BusRunner = decide.AgentbusRunner
@@ -303,7 +303,7 @@ func (m *Model) selectTarget(i int) {
 	if cands[i].Dead {
 		m.status = cands[i].Name + " is dead: the bus holds the note until the name is claimed"
 	}
-	if m.composing && m.forward == "" && m.outboxEditing == "" && strings.TrimSpace(m.note) != "" {
+	if m.composing && m.outboxEditing == "" && strings.TrimSpace(m.note) != "" {
 		m.markDraftDirty(composerNote)
 	}
 }

@@ -239,8 +239,24 @@ func (m *Model) externalEditCmd() tea.Cmd {
 	return m.startExternalEditFor(kind)
 }
 
+func (m *Model) externalEditComposerKind() (composerKind, bool) {
+	if kind, ok := m.composerKind(); ok {
+		return kind, true
+	}
+	if m.help || m.linkPick || m.avatarPick || m.confirmKind != confirmNone {
+		return composerNone, false
+	}
+	if m.replySend {
+		return composerReply, true
+	}
+	if m.composing && m.composeFocus >= focusText {
+		return composerNote, true
+	}
+	return composerNone, false
+}
+
 func (m *Model) startExternalEdit() tea.Cmd {
-	kind, ok := m.composerKind()
+	kind, ok := m.externalEditComposerKind()
 	if !ok {
 		return nil
 	}

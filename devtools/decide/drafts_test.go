@@ -319,8 +319,10 @@ func TestDraftStorePrune(t *testing.T) {
 	for _, d := range []Draft{
 		{Key: ReplyDraftKey("D-001"), Text: "active reply"},
 		{Key: AnswerDraftKey("D-001"), Text: "active answer"},
+		{Key: ForwardDraftKey("D-001"), Text: "active forward"},
 		{Key: ReplyDraftKey("D-999"), Text: "orphan reply"},
 		{Key: AnswerDraftKey("D-999"), Text: "orphan answer"},
+		{Key: ForwardDraftKey("D-999"), Text: "orphan forward"},
 		{Key: DraftKeyCompose, Text: "compose note"},
 	} {
 		if _, _, err := ds.Put(d, 0); err != nil {
@@ -332,12 +334,12 @@ func TestDraftStorePrune(t *testing.T) {
 		t.Fatalf("Prune() error = %v", err)
 	}
 
-	for _, keep := range []string{ReplyDraftKey("D-001"), AnswerDraftKey("D-001"), DraftKeyCompose} {
+	for _, keep := range []string{ReplyDraftKey("D-001"), AnswerDraftKey("D-001"), ForwardDraftKey("D-001"), DraftKeyCompose} {
 		if _, ok, err := ds.Get(keep); err != nil || !ok {
 			t.Fatalf("expected %s to remain after Prune, ok=%v err=%v", keep, ok, err)
 		}
 	}
-	for _, drop := range []string{ReplyDraftKey("D-999"), AnswerDraftKey("D-999")} {
+	for _, drop := range []string{ReplyDraftKey("D-999"), AnswerDraftKey("D-999"), ForwardDraftKey("D-999")} {
 		if _, ok, err := ds.Get(drop); err != nil || ok {
 			t.Fatalf("expected %s to be pruned, ok=%v err=%v", drop, ok, err)
 		}

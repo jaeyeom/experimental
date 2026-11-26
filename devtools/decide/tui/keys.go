@@ -75,9 +75,13 @@ func formatButton(open, closeBracket, name, hint string, focused bool, maxWidth 
 	return truncateVisible(plain, maxWidth)
 }
 
-// renderButton paints a button label reversed with its "(hint)" dimmed.
-func renderButton(label string) string {
+// renderButton paints a button label reversed. When active is false, its
+// "(hint)" is dimmed to show the shortcut does not work right now.
+func renderButton(label string, active bool) string {
 	useStyles()
+	if active {
+		return optionButton.Render(label)
+	}
 	i := strings.LastIndex(label, " (")
 	if i < 0 || !strings.HasSuffix(label, ")]") {
 		return optionButton.Render(label)
@@ -85,6 +89,22 @@ func renderButton(label string) string {
 	return optionButton.Render(label[:i]) +
 		optionButton.Faint(true).Render(label[i:len(label)-1]) +
 		optionButton.Render("]")
+}
+
+// renderPlainButton paints a plain-text button label. When active is false,
+// its "(hint)" is dimmed to show the shortcut does not work right now.
+func renderPlainButton(label string, active bool) string {
+	if active {
+		return plainText(label)
+	}
+	i := strings.LastIndex(label, " (")
+	if i < 0 || !strings.HasSuffix(label, ")]") {
+		return plainText(label)
+	}
+	useStyles()
+	return plainText(label[:i]) +
+		staleLine.Render(label[i:len(label)-1]) +
+		plainText("]")
 }
 
 func (m *Model) actionButton(name, action string, focused bool, maxWidth int) string {
@@ -212,14 +232,14 @@ func (m *Model) handleEditorKey(k tea.KeyMsg) (tea.Cmd, bool) {
 	if m.editPrefix {
 		m.editPrefix = false
 		s, ok := keyStrokeFromTea(k)
-		if ok && m.composerFocused() {
+		if _, canEdit := m.externalEditComposerKind(); ok && canEdit {
 			if act, matched := m.keyMap().MatchChord("editor", m.editPrefixStroke, s); matched && act == "edit.external" {
 				return m.startExternalEdit(), true
 			}
 		}
 		return nil, true
 	}
-	if !m.composerFocused() {
+	if _, ok := m.externalEditComposerKind(); !ok {
 		return nil, false
 	}
 	s, ok := keyStrokeFromTea(k)
@@ -559,7 +579,11 @@ func (m *Model) composerHintLine(kind composerKind) string {
 		parts = append(parts, "Enter send")
 	}
 	if esc := m.actionFirst("compose.cancel"); esc != "" {
-		parts = append(parts, strings.ToUpper(esc[:1])+esc[1:]+" cancel")
+		verb := "save draft"
+		if kind == composerOutcome {
+			verb = "cancel"
+		}
+		parts = append(parts, strings.ToUpper(esc[:1])+esc[1:]+" "+verb)
 	}
 	return strings.Join(parts, "  ")
 }
@@ -586,21 +610,8 @@ func (m *Model) composerHelpLines() []string {
 		}
 		lines = append(lines, strings.Join(p, "  "))
 	}
-	var line2 []string
-	if k := m.actionCtrlFirst("edit.deleteForward"); k != "" {
-		line2 = append(line2, k+" delete")
-	}
-	if k := m.actionCtrlFirst("edit.killLine"); k != "" {
-		line2 = append(line2, k+" kill")
-	}
-	if k := m.actionCtrlFirst("edit.newline"); k != "" {
-		line2 = append(line2, k+" newline")
-	}
-	if k := m.actionCtrlFirst("edit.openLine"); k != "" {
-		line2 = append(line2, k+" open")
-	}
-	if len(line2) > 0 {
-		lines = append(lines, strings.Join(line2, "  "))
+	if line := m.composerEditHelpLine(); line != "" {
+		lines = append(lines, line)
 	}
 	var line3 []string
 	if k := m.actionOr("edit.external"); k != "" {
@@ -612,10 +623,35 @@ func (m *Model) composerHelpLines() []string {
 	if len(line3) > 0 {
 		lines = append(lines, strings.Join(line3, "  "))
 	}
+	var sendLine []string
 	if s := m.sendKeysHelp(", "); s != "" {
-		lines = append(lines, s+" sends the draft")
+		sendLine = append(sendLine, s+" sends the draft")
+	}
+	if d := m.actionFirst("compose.discard"); d != "" {
+		sendLine = append(sendLine, d+" discards")
+	}
+	if len(sendLine) > 0 {
+		lines = append(lines, strings.Join(sendLine, "  "))
 	}
 	return lines
+}
+
+func (m *Model) composerEditHelpLine() string {
+	var parts []string
+	for _, spec := range []struct {
+		action string
+		label  string
+	}{
+		{"edit.deleteForward", "delete"},
+		{"edit.killLine", "kill"},
+		{"edit.newline", "newline"},
+		{"edit.openLine", "open"},
+	} {
+		if k := m.actionCtrlFirst(spec.action); k != "" {
+			parts = append(parts, k+" "+spec.label)
+		}
+	}
+	return strings.Join(parts, "  ")
 }
 
 func joinSlash(parts ...string) string {

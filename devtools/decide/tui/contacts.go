@@ -30,6 +30,7 @@ const (
 	confirmRoute
 	confirmQuit
 	confirmDiscard
+	confirmDiscardCompose
 	confirmDiscardOutbox
 )
 
@@ -845,6 +846,9 @@ func (m *Model) confirmKey(r rune) (bool, error) {
 			return true, nil
 		case confirmDiscard:
 			m.clearReplyDraft()
+			m.status = "discarded draft"
+		case confirmDiscardCompose:
+			m.clearComposeDraft()
 			m.status = "discarded draft"
 		case confirmDiscardOutbox:
 			if ob, ok := m.outboxBackend(); ok {

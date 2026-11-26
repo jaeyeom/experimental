@@ -194,20 +194,9 @@ func (m *Model) updateFocusedComposerKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	if cmd, ok := m.handleEditorKey(msg); ok {
 		return cmd, true
 	}
-	if kind, ok := m.composerKind(); ok && m.isSendKey(msg) {
-		return m.sendComposer(kind), true
-	}
-	if kind, ok := m.composerKind(); ok && kind == composerReply {
-		if m.matchAction("editor", msg, "compose.sendAndArchive") && m.canSendAndArchive() {
-			if err := m.submitReplyAndArchive(); err != nil {
-				m.runErr = err
-				return tea.Quit, true
-			}
-			return nil, true
-		}
-		if m.matchAction("editor", msg, "compose.discard") {
-			m.discardReply()
-			return nil, true
+	if kind, ok := m.composerKind(); ok {
+		if cmd, handled := m.updateFocusedComposerAction(kind, msg); handled {
+			return cmd, true
 		}
 	}
 	if m.composerFocused() && m.isFillKey(msg) {
@@ -216,6 +205,30 @@ func (m *Model) updateFocusedComposerKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	}
 	if m.isEditKey(msg) && m.editComposerKey(msg) {
 		return nil, true
+	}
+	return nil, false
+}
+
+func (m *Model) updateFocusedComposerAction(kind composerKind, msg tea.KeyMsg) (tea.Cmd, bool) {
+	if m.isSendKey(msg) {
+		return m.sendComposer(kind), true
+	}
+	if kind == composerReply && m.matchAction("editor", msg, "compose.sendAndArchive") && m.canSendAndArchive() {
+		if err := m.submitReplyAndArchive(); err != nil {
+			m.runErr = err
+			return tea.Quit, true
+		}
+		return nil, true
+	}
+	if m.matchAction("editor", msg, "compose.discard") {
+		switch kind {
+		case composerReply:
+			m.discardReply()
+			return nil, true
+		case composerNote:
+			m.discardCompose()
+			return nil, true
+		}
 	}
 	return nil, false
 }
@@ -263,26 +276,16 @@ func (m *Model) updateComposerNavKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	if !m.inComposerState() || m.modalOpen() {
 		return nil, false
 	}
-	if m.matchAction("compose", msg, "compose.prevField") {
-		m.ShiftTab()
+	if m.updateComposerFieldNavKey(msg) {
 		return nil, true
-	}
-	if m.matchAction("compose", msg, "compose.nextField") {
-		if m.replyFocus {
-			m.focusReplySend()
-			return nil, true
-		}
-		if m.replySend {
-			m.advanceReplyButton()
-			return nil, true
-		}
-		if m.composing {
-			m.advanceCompose()
-			return nil, true
-		}
 	}
 	if m.replySend {
 		if cmd, ok := m.updateReplyButtonKey(msg); ok {
+			return cmd, true
+		}
+	}
+	if m.composing && m.composeFocus >= focusSend {
+		if cmd, ok := m.updateComposeButtonKey(msg); ok {
 			return cmd, true
 		}
 	}
@@ -290,6 +293,43 @@ func (m *Model) updateComposerNavKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		return m.applyRune('\x1b'), true
 	}
 	return nil, false
+}
+
+func (m *Model) updateComposerFieldNavKey(msg tea.KeyMsg) bool {
+	if m.matchAction("compose", msg, "compose.prevField") {
+		m.ShiftTab()
+		return true
+	}
+	if !m.matchAction("compose", msg, "compose.nextField") {
+		return false
+	}
+	switch {
+	case m.replyFocus:
+		m.focusReplySend()
+	case m.replySend:
+		m.advanceReplyButton()
+	case m.composing:
+		m.advanceCompose()
+	default:
+		return false
+	}
+	return true
+}
+
+func (m *Model) updateComposeButtonKey(msg tea.KeyMsg) (tea.Cmd, bool) {
+	switch {
+	case m.matchAction("compose", msg, "compose.send"):
+		if err := m.sendNote(); err != nil {
+			m.runErr = err
+			return tea.Quit, true
+		}
+		return nil, true
+	case m.matchAction("compose", msg, "compose.discard"):
+		m.discardCompose()
+		return nil, true
+	default:
+		return nil, false
+	}
 }
 
 func (m *Model) updateReplyButtonKey(msg tea.KeyMsg) (tea.Cmd, bool) {

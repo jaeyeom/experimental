@@ -225,14 +225,25 @@ func (m *Model) outboxThreadLines(it *decide.Item, width int, now time.Time, loc
 				lines = append(lines, indentLine(l))
 			}
 		}
+		active := m.toolbarActive()
 		switch e.Status {
 		case OutboxHeld:
-			lines = append(lines, indentLine(screenLine{text: plainText("[s] send  [e] edit  [" + m.discardKey() + "] cancel")}))
+			lines = append(lines, indentLine(screenLine{text: renderOutboxHeldHints(m.discardKey(), active)}))
 		case OutboxFailed:
-			lines = append(lines, indentLine(screenLine{text: plainText("[Send as message (s)]  " + m.discardHint())}))
+			lines = append(lines, indentLine(screenLine{text: renderPlainButton("[Send as message (s)]", active) + plainText("  ") + renderPlainButton(m.discardHint(), active)}))
 		}
 	}
 	return lines
+}
+
+func renderOutboxHeldHints(discardKey string, active bool) string {
+	if active {
+		return plainText("[s] send  [e] edit  [" + discardKey + "] cancel")
+	}
+	useStyles()
+	return staleLine.Render("[s]") + plainText(" send  ") +
+		staleLine.Render("[e]") + plainText(" edit  ") +
+		staleLine.Render("["+discardKey+"]") + plainText(" cancel")
 }
 
 func (m *Model) openNavFolder(i int) error {
