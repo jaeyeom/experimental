@@ -139,3 +139,8 @@ dashboard pipeline:
   ~panel unreadable: <file>~ and never breaks the page.
 - ~decide doctor~ reports bad panels (unreadable, bad id, missing or
   unknown required fields) and stale panels.
+
+* Example panel writers
+
+Two example cron panel writers (~tokens.sh~ and ~agent-memory.sh~) live
+in [[file:../contrib/panels/README.org][contrib/panels/README.org]].

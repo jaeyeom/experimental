@@ -325,6 +325,7 @@ sh_library(
         ":sh_srcs",
         "//.githooks:sh_srcs",
         "//:sh_srcs",
+        "//devtools/decide/contrib/panels:sh_srcs",
         "//devtools/decide/web:sh_srcs",
         "//devtools/docsync/internal/cli:sh_srcs",
         "//devtools/fork-keeper:sh_srcs",
