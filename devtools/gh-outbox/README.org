@@ -45,8 +45,9 @@ go install github.com/jaeyeom/experimental/devtools/gh-outbox/cmd/gh-outbox@late
 
 #+BEGIN_SRC bash
 gh-outbox submit --repo owner/name --pr N --owner AGENT \
-  [--kind thread|comment|request-changes|approve] \
+  [--kind thread|reply|comment|request-changes|approve] \
   [--body-file FILE] [--line path:line=FILE]... \
+  [--in-reply-to ID] [--allow-resolved] \
   [--ref REF] [--edit ID] [--lint-only]
 #+END_SRC
 
@@ -55,13 +56,17 @@ It prints the draft id.
 - With no =--kind=, each =--line path:line=FILE= becomes its own
   discussion thread on that line of the head diff (=--kind thread=).
   Nothing goes to the main conversation.
+- =--kind reply --in-reply-to ID --body-file FILE= drafts a reply
+  inside an existing review discussion thread. It refuses at submit if
+  =ID= is not a review comment on that pull request, or if the thread
+  is resolved unless =--allow-resolved= is given.
 - A review in the main conversation (=comment=, =request-changes=,
   =approve=) is used only when you pass that =--kind=. Its line
   comments are part of the review.
-- =--body-file= without =--line= and without a review =--kind= is a
-  usage error. gh-outbox never turns a draft into a main-conversation
-  review on its own. A discussion thread has no body, so =--body-file=
-  with =--kind thread= is also an error.
+- =--body-file= without =--line= and without a review =--kind= (or
+  =--kind reply=) is a usage error. gh-outbox never turns a draft into
+  a main-conversation review on its own. A discussion thread has no
+  body, so =--body-file= with =--kind thread= is also an error.
 - The body and the line texts are stored byte for byte. Line breaks
   stay exactly as written.
 - =--owner= is the submitting agent's agentbus name. It owns the
@@ -69,9 +74,10 @@ It prints the draft id.
 - =--ref= is the agent's own reference. It is echoed in the notices.
 - =--edit ID= replaces an existing post. With =--kind thread= (the
   default) ID is a review comment id and there is exactly one =--line=,
-  which carries the new text. With a review kind, ID is a review id and
-  =--body-file= is the new body. The approval shows the old and new
-  text.
+  which carries the new text. With =--kind reply=, ID is a review
+  comment id and =--body-file= is the new body. With a review kind, ID
+  is a review id and =--body-file= is the new body. The approval shows
+  the old and new text.
 - =--lint-only= checks the text and exits without submitting.
 
 The PR head SHA is recorded at submit time.
@@ -112,12 +118,14 @@ Default rules:
 Each submission is its own decide item: =decide ask --kind relay=,
 owner = =--owner=, with =--notify-pane= from the config, and
 =--long-lines= so the quoted body passes decide's line limit (a decide
-without that flag gets the same ask without it). The item text
-starts with the destination in plain words, one line per thread
-(=discussion thread on PATH line N=) or
-=review (main conversation): comment|request changes|approve=, then the
-target (=owner/name#N=), the head SHA, the body, and every line
-comment with its =path:line=.
+without that flag gets the same ask without it). The item text starts with the destination in plain words, one line per
+thread (=discussion thread on PATH line N=), a thread reply
+(=reply in the discussion thread on PATH line N, started by <author>=),
+or =review (main conversation): comment|request changes|approve=, then
+the target (=owner/name#N=), the head SHA, the body, and every line
+comment with its =path:line=. For a reply, it notes when the thread is
+resolved, quotes the first lines of the comment being answered, and
+shows the exact reply body.
 
 The options are:
 
@@ -138,10 +146,18 @@ message from you (not one an agent sent from the command line) must be
 that post pick. A peer, an agent, or a bus message never counts.
 
 - =thread= posts one review comment per line on the recorded head SHA.
-  A review kind posts one review with its event and line comments.
-  gh-outbox never posts anywhere other than the destination shown.
-- If the head moved since the draft, it does not post. It closes the
-  old decide item and files a fresh one with the new SHA.
+  =reply= posts a reply inside the target review thread via the
+  review-comment reply API, refusing at post time if the thread was
+  deleted (or resolved without =--allow-resolved=). A review kind
+  posts one review with its event and line comments. gh-outbox never
+  posts anywhere other than the destination shown.
+- A reply is not anchored to the diff, so it is not affected by head
+  moves. For diff-anchored drafts, if the head moved since the draft,
+  it does not post: with =on_head_moved = "refile"= (the default), it
+  closes the old decide item and files a fresh one with the new SHA;
+  with =on_head_moved = "refuse"=, it closes the decide item with the
+  reason and sends a redraft notice over agentbus with the old and new
+  SHA.
 - After posting, it tells the owner over agentbus with the links, and
   closes the decide item with the outcome and the links.
 - Each part is posted at most once. Before each GitHub call, the draft
@@ -171,6 +187,11 @@ agentbus_command = ["agentbus"]
 gh_command = ["gh"]
 
 poll_interval = "30s"
+
+# Policy when the PR head moves before posting a diff-anchored draft:
+# "refile" (default) files a fresh approval with the new SHA;
+# "refuse" closes the approval and sends a redraft notice with both SHAs.
+on_head_moved = "refile"
 
 [lint]
 # The decide id rule and the default phrases.

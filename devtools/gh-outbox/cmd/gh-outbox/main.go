@@ -1,7 +1,7 @@
 // Command gh-outbox holds pull request comments and reviews that coding
 // agents draft until the user approves the exact text in decide.
 //
-//	gh-outbox submit --repo owner/name --pr N --owner AGENT [--kind K] [--body-file F] [--line path:line=file]... [--ref R] [--edit ID] [--lint-only]
+//	gh-outbox submit --repo owner/name --pr N --owner AGENT [--kind K] [--body-file F] [--line path:line=file]... [--in-reply-to ID] [--allow-resolved] [--ref R] [--edit ID] [--lint-only]
 //	gh-outbox ls
 //	gh-outbox show [--json] ID
 //	gh-outbox poll [--watch]
@@ -26,8 +26,9 @@ import (
 )
 
 const usage = `usage:
-  gh-outbox submit --repo owner/name --pr N --owner AGENT [--kind thread|comment|request-changes|approve]
-                   [--body-file FILE] [--line path:line=FILE]... [--ref REF] [--edit ID] [--lint-only]
+  gh-outbox submit --repo owner/name --pr N --owner AGENT [--kind thread|reply|comment|request-changes|approve]
+                   [--body-file FILE] [--line path:line=FILE]... [--in-reply-to ID] [--allow-resolved]
+                   [--ref REF] [--edit ID] [--lint-only]
   gh-outbox ls
   gh-outbox show [--json] ID
   gh-outbox poll [--watch]
@@ -135,9 +136,11 @@ func (a app) submit(ctx context.Context, args []string) int {
 	)
 	fs.StringVar(&d.Repo, "repo", "", "owner/name")
 	fs.IntVar(&d.PR, "pr", 0, "pull request number")
-	fs.StringVar(&d.Kind, "kind", "", "thread (default), comment, request-changes or approve")
-	bodyFile := fs.String("body-file", "", "review body file")
+	fs.StringVar(&d.Kind, "kind", "", "thread (default), reply, comment, request-changes or approve")
+	bodyFile := fs.String("body-file", "", "review or reply body file")
 	fs.Var(&lineSpec, "line", "path:line=text-file (repeatable)")
+	fs.StringVar(&d.InReplyTo, "in-reply-to", "", "id of a pull request review comment to reply to")
+	fs.BoolVar(&d.AllowResolved, "allow-resolved", false, "allow replying to a resolved review thread")
 	fs.StringVar(&d.Owner, "owner", "", "the submitting agent's agentbus name")
 	fs.StringVar(&d.Ref, "ref", "", "the caller's own reference, echoed in notices")
 	fs.StringVar(&d.Edit, "edit", "", "id of an existing review comment or review to replace")

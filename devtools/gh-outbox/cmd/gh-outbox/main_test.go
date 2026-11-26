@@ -63,6 +63,15 @@ func TestLintOnly(t *testing.T) {
 	if code != 1 || !strings.Contains(a.errOut.String(), `b.go:9: "D-12" (decide id)`) {
 		t.Errorf("dirty: code = %d err = %q", code, a.errOut.String())
 	}
+
+	a.out.Reset()
+	a.errOut.Reset()
+	if code := a.run(context.Background(), []string{"submit", "--lint-only", "--kind", "reply", "--in-reply-to", "42", "--body-file", clean}); code != 0 || a.out.String() != "clean\n" {
+		t.Errorf("reply clean: code = %d out = %q err = %q", code, a.out.String(), a.errOut.String())
+	}
+	if code := a.run(context.Background(), []string{"submit", "--lint-only", "--kind", "reply", "--in-reply-to", "42", "--body-file", dirty}); code != 1 || !strings.Contains(a.errOut.String(), `body line 2: "D-12"`) {
+		t.Errorf("reply dirty: code = %d err = %q", code, a.errOut.String())
+	}
 }
 
 func TestLsAndShowEmpty(t *testing.T) {
@@ -79,5 +88,20 @@ func TestUnknownCommand(t *testing.T) {
 	a := newTestApp(t)
 	if code := a.run(context.Background(), []string{"post"}); code != 2 {
 		t.Errorf("code = %d", code)
+	}
+}
+
+func TestSubmitReplyFlags(t *testing.T) {
+	a := newTestApp(t)
+	body := a.file(t, "reply.txt", "Done.")
+	code := a.run(context.Background(), []string{"submit", "--repo", "o/r", "--pr", "7", "--owner", "pm/x", "--kind", "reply", "--body-file", body})
+	if code != 2 || !strings.Contains(a.errOut.String(), "--in-reply-to") {
+		t.Errorf("missing --in-reply-to: code = %d stderr = %q", code, a.errOut.String())
+	}
+
+	a.errOut.Reset()
+	code = a.run(context.Background(), []string{"submit", "--lint-only", "--kind", "reply", "--in-reply-to", "42", "--allow-resolved", "--body-file", body})
+	if code != 0 || a.out.String() != "clean\n" {
+		t.Errorf("allow-resolved reply lint: code = %d out = %q err = %q", code, a.out.String(), a.errOut.String())
 	}
 }

@@ -34,16 +34,30 @@ type Link struct {
 	URL   string `json:"url"`
 }
 
+// ReplyTarget describes the review comment and thread being answered.
+type ReplyTarget struct {
+	// RootID is the top-level review comment id of the thread (used by
+	// the GitHub reply API). When empty, Draft.InReplyTo is used.
+	RootID      string `json:"rootId,omitempty"`
+	Path        string `json:"path"`
+	Line        int    `json:"line"`
+	Starter     string `json:"starter"`
+	CommentBody string `json:"commentBody"`
+	Resolved    bool   `json:"resolved,omitempty"`
+}
+
 // Record is a stored draft and its progress.
 type Record struct {
 	ID int64 `json:"id"`
 	Draft
-	State   string `json:"state"`
-	HeadSHA string `json:"headSha"`
+	State      string `json:"state"`
+	HeadSHA    string `json:"headSha"`
+	NewHeadSHA string `json:"newHeadSha,omitempty"`
 	// OldText is the current text of the comment or review an edit
 	// replaces.
-	OldText  string `json:"oldText,omitempty"`
-	DecideID string `json:"decideId,omitempty"`
+	OldText  string       `json:"oldText,omitempty"`
+	Reply    *ReplyTarget `json:"reply,omitempty"`
+	DecideID string       `json:"decideId,omitempty"`
 	// Posted are the parts already posted, in order.
 	Posted []Link `json:"posted,omitempty"`
 	// InFlight is the index of the part being sent. It is set before

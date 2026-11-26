@@ -83,6 +83,21 @@ func TestValidate(t *testing.T) {
 		{"edit review with lines", func(d *Draft) { d.Edit = "5"; d.Kind = KindComment; d.Body = "b" }, "no --line"},
 		{"edit review ok", func(d *Draft) { d.Edit = "5"; d.Kind = KindComment; d.Body = "b"; d.Lines = nil }, ""},
 		{"edit bad id", func(d *Draft) { d.Edit = "abc" }, "--edit"},
+		{"reply ok", func(d *Draft) { d.Kind = KindReply; d.InReplyTo = "42"; d.Body = "thanks"; d.Lines = nil }, ""},
+		{"reply missing in-reply-to", func(d *Draft) { d.Kind = KindReply; d.Body = "thanks"; d.Lines = nil }, "--in-reply-to"},
+		{"reply bad in-reply-to", func(d *Draft) { d.Kind = KindReply; d.InReplyTo = "abc"; d.Body = "thanks"; d.Lines = nil }, "--in-reply-to"},
+		{"reply empty body", func(d *Draft) { d.Kind = KindReply; d.InReplyTo = "42"; d.Body = " \n"; d.Lines = nil }, "body"},
+		{"reply with lines", func(d *Draft) { d.Kind = KindReply; d.InReplyTo = "42"; d.Body = "thanks" }, "no --line"},
+		{"reply edit ok", func(d *Draft) { d.Kind = KindReply; d.Edit = "42"; d.Body = "updated"; d.Lines = nil }, ""},
+		{"reply edit with in-reply-to", func(d *Draft) {
+			d.Kind = KindReply
+			d.Edit = "42"
+			d.InReplyTo = "10"
+			d.Body = "updated"
+			d.Lines = nil
+		}, "--in-reply-to"},
+		{"thread with in-reply-to", func(d *Draft) { d.InReplyTo = "42" }, "--in-reply-to"},
+		{"comment with allow-resolved", func(d *Draft) { d.Kind = KindComment; d.Body = "b"; d.AllowResolved = true }, "--allow-resolved"},
 	}
 	for _, tt := range tests {
 		d := validDraft()
@@ -121,5 +136,13 @@ func TestDestinations(t *testing.T) {
 	d = Draft{Kind: KindApprove, Edit: "9"}
 	if got := d.Destinations(); len(got) != 1 || got[0] != "edit of review 9 (main conversation)" {
 		t.Errorf("edit review Destinations = %q", got)
+	}
+	d = Draft{Kind: KindReply, InReplyTo: "42"}
+	if got := d.Destinations(); len(got) != 1 || got[0] != "reply to comment 42" {
+		t.Errorf("reply Destinations = %q", got)
+	}
+	d = Draft{Kind: KindReply, Edit: "9"}
+	if got := d.Destinations(); len(got) != 1 || got[0] != "edit of reply comment 9" {
+		t.Errorf("edit reply Destinations = %q", got)
 	}
 }

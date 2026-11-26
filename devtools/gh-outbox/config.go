@@ -16,6 +16,13 @@ import (
 // DefaultPollInterval is how often poll --watch checks decide.
 const DefaultPollInterval = 30 * time.Second
 
+// Policies for on_head_moved when the pull request head changes after
+// a draft is submitted.
+const (
+	HeadMovedRefile = "refile"
+	HeadMovedRefuse = "refuse"
+)
+
 // LintConfig is the deny rules.
 type LintConfig struct {
 	// Defaults turns on the decide id rule and DefaultPhrases.
@@ -41,6 +48,7 @@ type Config struct {
 	AgentbusCommand []string
 	GHCommand       []string
 	PollInterval    time.Duration
+	OnHeadMoved     string
 	Lint            LintConfig
 }
 
@@ -51,6 +59,7 @@ type fileConfig struct {
 	AgentbusCommand []string `toml:"agentbus_command"`
 	GHCommand       []string `toml:"gh_command"`
 	PollInterval    string   `toml:"poll_interval"`
+	OnHeadMoved     string   `toml:"on_head_moved"`
 	Lint            struct {
 		Defaults      *bool    `toml:"defaults"`
 		AgentbusNames *bool    `toml:"agentbus_names"`
@@ -68,6 +77,7 @@ func DefaultConfig() Config {
 		AgentbusCommand: []string{"agentbus"},
 		GHCommand:       []string{"gh"},
 		PollInterval:    DefaultPollInterval,
+		OnHeadMoved:     HeadMovedRefile,
 		Lint:            LintConfig{Defaults: true, AgentbusNames: true},
 	}
 }
@@ -110,6 +120,9 @@ func ParseConfig(data []byte) (Config, error) {
 		}
 		cfg.PollInterval = d
 	}
+	if err := cfg.setOnHeadMoved(raw.OnHeadMoved); err != nil {
+		return Config{}, err
+	}
 	if raw.Lint.Defaults != nil {
 		cfg.Lint.Defaults = *raw.Lint.Defaults
 	}
@@ -123,6 +136,18 @@ func ParseConfig(data []byte) (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+func (c *Config) setOnHeadMoved(val string) error {
+	switch val {
+	case "":
+		return nil
+	case HeadMovedRefile, HeadMovedRefuse:
+		c.OnHeadMoved = val
+		return nil
+	default:
+		return fmt.Errorf("on_head_moved %q: want %q or %q", val, HeadMovedRefile, HeadMovedRefuse)
+	}
 }
 
 // LoadConfig reads path. A missing file is the default config. An empty

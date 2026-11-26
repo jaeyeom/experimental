@@ -9,11 +9,15 @@ import (
 )
 
 func TestParseConfig(t *testing.T) {
+	if got := DefaultConfig().OnHeadMoved; got != HeadMovedRefile {
+		t.Fatalf("DefaultConfig().OnHeadMoved = %q, want %q", got, HeadMovedRefile)
+	}
 	cfg, err := ParseConfig([]byte(`
 data_dir = "drafts"
 notify_pane = "w1:p2"
 decide_command = ["ssh", "host", "decide"]
 poll_interval = "1m"
+on_head_moved = "refuse"
 
 [lint]
 defaults = false
@@ -26,7 +30,7 @@ phrases = ["secret plan"]
 		t.Fatal(err)
 	}
 	if cfg.DataDir != "drafts" || cfg.NotifyPane != "w1:p2" || strings.Join(cfg.DecideCommand, " ") != "ssh host decide" ||
-		cfg.PollInterval != time.Minute || cfg.GHCommand[0] != "gh" || cfg.AgentbusCommand[0] != "agentbus" {
+		cfg.PollInterval != time.Minute || cfg.OnHeadMoved != HeadMovedRefuse || cfg.GHCommand[0] != "gh" || cfg.AgentbusCommand[0] != "agentbus" {
 		t.Errorf("cfg = %+v", cfg)
 	}
 	if cfg.Lint.Defaults || cfg.Lint.AgentbusNames || len(cfg.Lint.Patterns) != 1 || len(cfg.Lint.Phrases) != 1 || cfg.Lint.AgentPattern == "" {
@@ -39,6 +43,7 @@ func TestParseConfigErrors(t *testing.T) {
 		`unknown = 1`,
 		`gh_command = []`,
 		`poll_interval = "soon"`,
+		`on_head_moved = "ignore"`,
 		"[lint]\npatterns = ['(']",
 	} {
 		if _, err := ParseConfig([]byte(in)); err == nil {

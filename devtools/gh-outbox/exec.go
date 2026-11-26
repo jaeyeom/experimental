@@ -131,8 +131,42 @@ func (a AgentbusCLI) Names(ctx context.Context) ([]string, error) {
 	return names, nil
 }
 
+// ErrReplyNotFound is returned when a review comment or thread is not on the PR.
+var ErrReplyNotFound = errors.New("review comment or thread not found on pull request")
+
 // GHCLI is the GitHub that runs gh api as the user's account.
 type GHCLI struct{ Run Runner }
+
+const (
+	maxGraphQLPages  = 50
+	replyTargetQuery = `query($owner:String!,$repo:String!,$pr:Int!,$cursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$pr){reviewThreads(first:100,after:$cursor){pageInfo{hasNextPage endCursor}nodes{id isResolved path line originalLine comments(first:100){pageInfo{hasNextPage endCursor}nodes{databaseId author{login} body}}}}}}}`
+	threadMoreQuery  = `query($id:ID!,$cursor:String){node(id:$id){... on PullRequestReviewThread{comments(first:100,after:$cursor){pageInfo{hasNextPage endCursor}nodes{databaseId author{login} body}}}}}`
+)
+
+type graphqlComment struct {
+	DatabaseID int64 `json:"databaseId"`
+	Author     *struct {
+		Login string `json:"login"`
+	} `json:"author"`
+	Body string `json:"body"`
+}
+
+type graphqlCommentConn struct {
+	PageInfo struct {
+		HasNextPage bool   `json:"hasNextPage"`
+		EndCursor   string `json:"endCursor"`
+	} `json:"pageInfo"`
+	Nodes []graphqlComment `json:"nodes"`
+}
+
+type graphqlThread struct {
+	ID           string             `json:"id"`
+	IsResolved   bool               `json:"isResolved"`
+	Path         string             `json:"path"`
+	Line         *int               `json:"line"`
+	OriginalLine *int               `json:"originalLine"`
+	Comments     graphqlCommentConn `json:"comments"`
+}
 
 type ghComment struct {
 	Body     string `json:"body,omitempty"`
@@ -222,4 +256,155 @@ func (g GHCLI) EditComment(ctx context.Context, repo, id, body string) (string, 
 // EditReview replaces a review's body.
 func (g GHCLI) EditReview(ctx context.Context, repo string, pr int, id, body string) (string, error) {
 	return g.write(ctx, "PUT", pullPath(repo, pr)+"/reviews/"+id, ghComment{Body: body})
+}
+
+// CreateReply posts a reply inside an existing review comment thread.
+func (g GHCLI) CreateReply(ctx context.Context, repo string, pr int, commentID, body string) (string, error) {
+	url, err := g.write(ctx, "POST", pullPath(repo, pr)+"/comments/"+commentID+"/replies", ghComment{Body: body})
+	if err != nil && strings.Contains(err.Error(), "HTTP 404") {
+		return "", fmt.Errorf("%w: %w", ErrReplyNotFound, err)
+	}
+	return url, err
+}
+
+// ReplyTarget finds commentID in the pull request's review threads and
+// returns its thread metadata and the text of the comment being answered.
+func (g GHCLI) ReplyTarget(ctx context.Context, repo string, pr int, commentID string) (ReplyTarget, error) {
+	owner, name, ok := strings.Cut(repo, "/")
+	if !ok || owner == "" || name == "" {
+		return ReplyTarget{}, fmt.Errorf("invalid repo %q", repo)
+	}
+	targetID, err := strconv.ParseInt(commentID, 10, 64)
+	if err != nil || targetID <= 0 {
+		return ReplyTarget{}, fmt.Errorf("invalid comment id %q", commentID)
+	}
+	cursor := ""
+	for range maxGraphQLPages {
+		threads, hasNext, nextCursor, err := g.replyThreadsPage(ctx, owner, name, pr, cursor)
+		if err != nil {
+			return ReplyTarget{}, err
+		}
+		for _, th := range threads {
+			if target, found, err := g.matchThreadComment(ctx, th, targetID); err != nil {
+				return ReplyTarget{}, err
+			} else if found {
+				return target, nil
+			}
+		}
+		if !hasNext || nextCursor == "" {
+			return ReplyTarget{}, fmt.Errorf("comment %s on %s#%d: %w", commentID, repo, pr, ErrReplyNotFound)
+		}
+		cursor = nextCursor
+	}
+	return ReplyTarget{}, fmt.Errorf("review threads page cap exceeded for %s#%d", repo, pr)
+}
+
+func (g GHCLI) replyThreadsPage(ctx context.Context, owner, name string, pr int, cursor string) ([]graphqlThread, bool, string, error) {
+	args := []string{
+		"api", "graphql",
+		"-f", "query=" + replyTargetQuery,
+		"-F", "owner=" + owner,
+		"-F", "repo=" + name,
+		"-F", "pr=" + strconv.Itoa(pr),
+	}
+	if cursor != "" {
+		args = append(args, "-F", "cursor="+cursor)
+	}
+	var resp struct {
+		Data struct {
+			Repository *struct {
+				PullRequest *struct {
+					ReviewThreads struct {
+						PageInfo struct {
+							HasNextPage bool   `json:"hasNextPage"`
+							EndCursor   string `json:"endCursor"`
+						} `json:"pageInfo"`
+						Nodes []graphqlThread `json:"nodes"`
+					} `json:"reviewThreads"`
+				} `json:"pullRequest"`
+			} `json:"repository"`
+		} `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := runJSON(ctx, g.Run, nil, &resp, args...); err != nil {
+		return nil, false, "", err
+	}
+	if len(resp.Errors) > 0 {
+		return nil, false, "", fmt.Errorf("gh api graphql: %s", resp.Errors[0].Message)
+	}
+	if resp.Data.Repository == nil || resp.Data.Repository.PullRequest == nil {
+		return nil, false, "", fmt.Errorf("pull request %s/%s#%d not found", owner, name, pr)
+	}
+	rt := resp.Data.Repository.PullRequest.ReviewThreads
+	return rt.Nodes, rt.PageInfo.HasNextPage, rt.PageInfo.EndCursor, nil
+}
+
+func (g GHCLI) matchThreadComment(ctx context.Context, th graphqlThread, targetID int64) (ReplyTarget, bool, error) {
+	if len(th.Comments.Nodes) == 0 {
+		return ReplyTarget{}, false, nil
+	}
+	first := th.Comments.Nodes[0]
+	conn := th.Comments
+	for page := 0; page < maxGraphQLPages; page++ {
+		for _, c := range conn.Nodes {
+			if c.DatabaseID == targetID {
+				return buildReplyTarget(th, first, c), true, nil
+			}
+		}
+		if !conn.PageInfo.HasNextPage || conn.PageInfo.EndCursor == "" {
+			return ReplyTarget{}, false, nil
+		}
+		next, err := g.threadCommentsPage(ctx, th.ID, conn.PageInfo.EndCursor)
+		if err != nil {
+			return ReplyTarget{}, false, err
+		}
+		conn = next
+	}
+	return ReplyTarget{}, false, fmt.Errorf("thread %s comment page cap exceeded", th.ID)
+}
+
+func (g GHCLI) threadCommentsPage(ctx context.Context, threadID, cursor string) (graphqlCommentConn, error) {
+	var resp struct {
+		Data struct {
+			Node *struct {
+				Comments graphqlCommentConn `json:"comments"`
+			} `json:"node"`
+		} `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := runJSON(ctx, g.Run, nil, &resp, "api", "graphql", "-f", "query="+threadMoreQuery, "-F", "id="+threadID, "-F", "cursor="+cursor); err != nil {
+		return graphqlCommentConn{}, err
+	}
+	if len(resp.Errors) > 0 {
+		return graphqlCommentConn{}, fmt.Errorf("gh api graphql: %s", resp.Errors[0].Message)
+	}
+	if resp.Data.Node == nil {
+		return graphqlCommentConn{}, ErrReplyNotFound
+	}
+	return resp.Data.Node.Comments, nil
+}
+
+func buildReplyTarget(th graphqlThread, first, target graphqlComment) ReplyTarget {
+	line := 0
+	if th.Line != nil && *th.Line > 0 {
+		line = *th.Line
+	} else if th.OriginalLine != nil && *th.OriginalLine > 0 {
+		line = *th.OriginalLine
+	}
+	starter := "unknown"
+	if first.Author != nil && first.Author.Login != "" {
+		starter = first.Author.Login
+	}
+	return ReplyTarget{
+		RootID:      strconv.FormatInt(first.DatabaseID, 10),
+		Path:        th.Path,
+		Line:        line,
+		Starter:     starter,
+		CommentBody: target.Body,
+		Resolved:    th.IsResolved,
+	}
 }

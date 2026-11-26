@@ -96,6 +96,67 @@ func TestGHCLIEditsAndReads(t *testing.T) {
 	}
 }
 
+func TestGHCLICreateReply(t *testing.T) {
+	f := &fakeRunner{out: `{"html_url":"https://github.com/o/r/pull/7#discussion_r9"}`}
+	url, err := GHCLI{Run: f.run}.CreateReply(context.Background(), "o/r", 7, "42", "done\n")
+	if err != nil || url != "https://github.com/o/r/pull/7#discussion_r9" {
+		t.Fatalf("url = %q err = %v", url, err)
+	}
+	c := f.calls[0]
+	if strings.Join(c.args, " ") != "api --method POST repos/o/r/pulls/7/comments/42/replies --input -" {
+		t.Errorf("args = %q", c.args)
+	}
+	if c.stdin != `{"body":"done\n"}` {
+		t.Errorf("payload = %s", c.stdin)
+	}
+
+	notFound := func(_ context.Context, _ []byte, _ ...string) ([]byte, error) {
+		return nil, errors.New("gh api: exit status 1: gh: Not Found (HTTP 404)")
+	}
+	if _, err := (GHCLI{Run: notFound}).CreateReply(context.Background(), "o/r", 7, "42", "done"); !errors.Is(err, ErrReplyNotFound) {
+		t.Errorf("err = %v, want ErrReplyNotFound", err)
+	}
+}
+
+func TestGHCLIReplyTarget(t *testing.T) {
+	page1 := `{"data":{"repository":{"pullRequest":{"reviewThreads":{
+		"pageInfo":{"hasNextPage":true,"endCursor":"C1"},
+		"nodes":[{"id":"T1","isResolved":false,"path":"other.go","line":1,"originalLine":1,"comments":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[{"databaseId":10,"author":{"login":"bob"},"body":"hi"}]}}]
+	}}}}}`
+	page2 := `{"data":{"repository":{"pullRequest":{"reviewThreads":{
+		"pageInfo":{"hasNextPage":false,"endCursor":""},
+		"nodes":[{
+			"id":"T2","isResolved":true,"path":"a.go","line":null,"originalLine":12,
+			"comments":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[
+				{"databaseId":42,"author":{"login":"alice"},"body":"first comment"},
+				{"databaseId":43,"author":{"login":"bob"},"body":"follow-up comment"}
+			]}
+		}]
+	}}}}}`
+	var calls [][]string
+	run := func(_ context.Context, _ []byte, args ...string) ([]byte, error) {
+		calls = append(calls, append([]string(nil), args...))
+		if slices.Contains(args, "cursor=C1") {
+			return []byte(page2), nil
+		}
+		return []byte(page1), nil
+	}
+	g := GHCLI{Run: run}
+	got, err := g.ReplyTarget(context.Background(), "o/r", 7, "43")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RootID != "42" || got.Path != "a.go" || got.Line != 12 || got.Starter != "alice" || got.CommentBody != "follow-up comment" || !got.Resolved {
+		t.Errorf("got = %+v", got)
+	}
+	if len(calls) != 2 {
+		t.Errorf("calls = %d, want 2", len(calls))
+	}
+	if _, err := g.ReplyTarget(context.Background(), "o/r", 7, "999"); !errors.Is(err, ErrReplyNotFound) {
+		t.Errorf("missing id err = %v, want ErrReplyNotFound", err)
+	}
+}
+
 func TestDecideCLIAsk(t *testing.T) {
 	f := &fakeRunner{out: `{"id":"D-9"}`}
 	id, err := DecideCLI{Run: f.run}.Ask(context.Background(), "pm/x", "pane-1", "Q?\n\nbody")

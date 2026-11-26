@@ -46,7 +46,9 @@ type GitHub interface {
 	HeadSHA(ctx context.Context, repo string, pr int) (string, error)
 	CommentBody(ctx context.Context, repo, id string) (string, error)
 	ReviewBody(ctx context.Context, repo string, pr int, id string) (string, error)
+	ReplyTarget(ctx context.Context, repo string, pr int, commentID string) (ReplyTarget, error)
 	CreateThread(ctx context.Context, repo string, pr int, sha string, c LineComment) (string, error)
+	CreateReply(ctx context.Context, repo string, pr int, commentID, body string) (string, error)
 	CreateReview(ctx context.Context, repo string, pr int, sha, event, body string, cs []LineComment) (string, error)
 	EditComment(ctx context.Context, repo, id, body string) (string, error)
 	EditReview(ctx context.Context, repo string, pr int, id, body string) (string, error)
@@ -109,6 +111,15 @@ func (o *Outbox) Submit(ctx context.Context, d Draft) (Record, error) {
 		if r.OldText, err = o.oldText(ctx, d); err != nil {
 			return Record{}, err
 		}
+	} else if d.Kind == KindReply {
+		target, err := o.GH.ReplyTarget(ctx, d.Repo, d.PR, d.InReplyTo)
+		if err != nil {
+			return Record{}, fmt.Errorf("read thread for --in-reply-to %s on %s: %w", d.InReplyTo, d.Target(), err)
+		}
+		if target.Resolved && !d.AllowResolved {
+			return Record{}, fmt.Errorf("discussion thread for comment %s on %s is resolved; pass --allow-resolved to reply anyway", d.InReplyTo, d.Target())
+		}
+		r.Reply = &target
 	}
 	if r, err = o.Store.Create(r); err != nil {
 		return Record{}, err
@@ -124,7 +135,7 @@ func (o *Outbox) oldText(ctx context.Context, d Draft) (string, error) {
 		text string
 		err  error
 	)
-	if d.Kind == KindThread {
+	if d.Kind == KindThread || d.Kind == KindReply {
 		text, err = o.GH.CommentBody(ctx, d.Repo, d.Edit)
 	} else {
 		text, err = o.GH.ReviewBody(ctx, d.Repo, d.PR, d.Edit)
@@ -150,17 +161,58 @@ func (o *Outbox) save(r *Record) error {
 	return o.Store.Save(*r)
 }
 
+const replyQuoteLines = 4
+
+func (r Record) destinations() []string {
+	if r.Kind == KindReply && r.Edit == "" && r.Reply != nil {
+		if r.Reply.Line > 0 {
+			return []string{fmt.Sprintf("reply in the discussion thread on %s line %d, started by %s", r.Reply.Path, r.Reply.Line, r.Reply.Starter)}
+		}
+		return []string{fmt.Sprintf("reply in the discussion thread on %s, started by %s", r.Reply.Path, r.Reply.Starter)}
+	}
+	return r.Destinations()
+}
+
+func quotePreview(body string, maxLines int) string {
+	normalized := strings.ReplaceAll(body, "\r\n", "\n")
+	trimmed := strings.TrimRight(normalized, "\n")
+	if strings.TrimSpace(trimmed) == "" {
+		return "> (empty)"
+	}
+	lines := strings.Split(trimmed, "\n")
+	truncated := false
+	if len(lines) > maxLines {
+		lines = lines[:maxLines]
+		truncated = true
+	}
+	var b strings.Builder
+	for i, l := range lines {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString("> ")
+		b.WriteString(l)
+	}
+	if truncated {
+		b.WriteString("\n> ...")
+	}
+	return b.String()
+}
+
 // Question is the decide question for r: the whole post as it will
 // appear, destination first.
 func Question(r Record) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Post to GitHub? (gh-outbox draft %d)\n\n", r.ID)
-	for _, d := range r.Destinations() {
+	for _, d := range r.destinations() {
 		fmt.Fprintf(&b, "Destination: %s\n", d)
 	}
 	fmt.Fprintf(&b, "Target: %s\nHead SHA: %s\n", r.Target(), r.HeadSHA)
 	if r.Ref != "" {
 		fmt.Fprintf(&b, "Ref: %s\n", r.Ref)
+	}
+	if r.Kind == KindReply && r.Edit == "" && r.Reply != nil && r.Reply.Resolved {
+		b.WriteString("Thread: resolved (--allow-resolved)\n")
 	}
 	if r.Edit != "" {
 		newText := r.Body
@@ -169,6 +221,14 @@ func Question(r Record) string {
 			fmt.Fprintf(&b, "Line: %s\n", r.Lines[0].Where())
 		}
 		fmt.Fprintf(&b, "\nOld text:\n%s\n\nNew text:\n%s", r.OldText, newText)
+		return b.String()
+	}
+	if r.Kind == KindReply {
+		if r.Reply != nil {
+			fmt.Fprintf(&b, "\nReplying to:\n%s\n", quotePreview(r.Reply.CommentBody, replyQuoteLines))
+		}
+		b.WriteString("\nReply:\n")
+		b.WriteString(r.Body)
 		return b.String()
 	}
 	if r.Kind != KindThread {
@@ -294,23 +354,45 @@ func (o *Outbox) pending(ctx context.Context, r *Record) error {
 	return o.finish(ctx, r)
 }
 
-// approved posts r unless the pull request head moved, in which case it
-// files a fresh approval with the new head.
+// approved posts r unless the pull request head moved (for diff-anchored
+// drafts) or a reply's thread was deleted/resolved.
 func (o *Outbox) approved(ctx context.Context, r *Record) error {
-	sha, err := o.GH.HeadSHA(ctx, r.Repo, r.PR)
-	if err != nil {
-		return fmt.Errorf("read head of %s: %w", r.Target(), err)
-	}
-	if sha != r.HeadSHA {
-		old := r.DecideID
-		r.HeadSHA = sha
-		if err := o.ask(ctx, r); err != nil {
-			return fmt.Errorf("re-ask after the head moved: %w", err)
+	if r.Kind != KindReply {
+		sha, err := o.GH.HeadSHA(ctx, r.Repo, r.PR)
+		if err != nil {
+			return fmt.Errorf("read head of %s: %w", r.Target(), err)
 		}
-		if err := o.Decide.Done(ctx, old, "not posted: the pull request head moved to "+sha+"; asked again"); err != nil {
-			return fmt.Errorf("close the old approval: %w", err)
+		if sha != r.HeadSHA {
+			if o.Config.OnHeadMoved == HeadMovedRefuse {
+				r.State = StateNeedsRedraft
+				r.NewHeadSHA = sha
+				r.Outcome = fmt.Sprintf("not posted: the pull request head moved from %s to %s", r.HeadSHA, sha)
+				if err := o.save(r); err != nil {
+					return err
+				}
+				return o.finish(ctx, r)
+			}
+			old := r.DecideID
+			r.HeadSHA = sha
+			if err := o.ask(ctx, r); err != nil {
+				return fmt.Errorf("re-ask after the head moved: %w", err)
+			}
+			if err := o.Decide.Done(ctx, old, "not posted: the pull request head moved to "+sha+"; asked again"); err != nil {
+				return fmt.Errorf("close the old approval: %w", err)
+			}
+			return nil
 		}
-		return nil
+	} else if r.Edit == "" {
+		target, err := o.GH.ReplyTarget(ctx, r.Repo, r.PR, r.InReplyTo)
+		if err != nil {
+			if errors.Is(err, ErrReplyNotFound) {
+				return o.refuse(ctx, r, "not posted: the discussion thread was deleted")
+			}
+			return fmt.Errorf("read thread for --in-reply-to %s on %s: %w", r.InReplyTo, r.Target(), err)
+		}
+		if target.Resolved && !r.AllowResolved {
+			return o.refuse(ctx, r, "not posted: the discussion thread was resolved")
+		}
 	}
 	r.State = StatePosting
 	if err := o.save(r); err != nil {
@@ -322,10 +404,30 @@ func (o *Outbox) approved(ctx context.Context, r *Record) error {
 	return o.finish(ctx, r)
 }
 
+func (o *Outbox) refuse(ctx context.Context, r *Record, reason string) error {
+	r.State = StateCancelled
+	r.InFlight = nil
+	r.Outcome = reason
+	if err := o.save(r); err != nil {
+		return err
+	}
+	return o.finish(ctx, r)
+}
+
 // part is one GitHub write.
 type part struct {
 	where string
 	send  func(context.Context) (string, error)
+}
+
+func replyWhere(r Record) string {
+	if r.Reply != nil && r.Reply.Path != "" {
+		if r.Reply.Line > 0 {
+			return r.Reply.Path + ":" + strconv.Itoa(r.Reply.Line)
+		}
+		return r.Reply.Path
+	}
+	return "reply"
 }
 
 func (o *Outbox) parts(r Record) []part {
@@ -343,6 +445,18 @@ func (o *Outbox) parts(r Record) []part {
 			}})
 		}
 		return out
+	case r.Kind == KindReply && r.Edit != "":
+		return []part{{"comment " + r.Edit, func(ctx context.Context) (string, error) {
+			return o.GH.EditComment(ctx, r.Repo, r.Edit, r.Body)
+		}}}
+	case r.Kind == KindReply:
+		commentID := r.InReplyTo
+		if r.Reply != nil && r.Reply.RootID != "" {
+			commentID = r.Reply.RootID
+		}
+		return []part{{replyWhere(r), func(ctx context.Context) (string, error) {
+			return o.GH.CreateReply(ctx, r.Repo, r.PR, commentID, r.Body)
+		}}}
 	case r.Edit != "":
 		return []part{{"review", func(ctx context.Context) (string, error) {
 			return o.GH.EditReview(ctx, r.Repo, r.PR, r.Edit, r.Body)
@@ -378,6 +492,11 @@ func (o *Outbox) post(ctx context.Context, r *Record) error {
 		url, err := parts[i].send(ctx)
 		r.InFlight = nil
 		if err != nil {
+			if r.Kind == KindReply && errors.Is(err, ErrReplyNotFound) {
+				r.State = StateCancelled
+				r.Outcome = "not posted: the discussion thread was deleted"
+				return o.save(r)
+			}
 			return errors.Join(fmt.Errorf("post %s: %w", parts[i].where, err), o.save(r))
 		}
 		r.Posted = append(r.Posted, Link{Where: parts[i].where, URL: url})
@@ -444,6 +563,10 @@ func notice(r Record) string {
 	case StatePosted:
 		return head + " was posted:" + linkLines(r.Posted)
 	case StateNeedsRedraft:
+		if r.NewHeadSHA != "" {
+			return head + ": the pull request head moved from " + r.HeadSHA + " to " + r.NewHeadSHA +
+				". Nothing was posted. Re-check the diff and submit a redraft with gh-outbox submit."
+		}
 		notes := r.Notes
 		if notes == "" {
 			notes = "(no notes)"

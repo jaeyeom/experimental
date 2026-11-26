@@ -63,15 +63,23 @@ type postedReview struct {
 	lines            []LineComment
 }
 
+type postedReply struct {
+	pr              int
+	commentID, body string
+}
+
 type fakeGH struct {
-	head     string
-	threads  []LineComment
-	shas     []string
-	reviews  []postedReview
-	edits    []string
-	oldText  string
-	calls    int
-	failPost error
+	head         string
+	threads      []LineComment
+	shas         []string
+	reviews      []postedReview
+	replies      []postedReply
+	replyTargets map[string]ReplyTarget
+	edits        []string
+	oldText      string
+	calls        int
+	failPost     error
+	failReply    error
 }
 
 func (g *fakeGH) HeadSHA(context.Context, string, int) (string, error) { return g.head, nil }
@@ -82,6 +90,17 @@ func (g *fakeGH) ReviewBody(context.Context, string, int, string) (string, error
 	return g.oldText, nil
 }
 
+func (g *fakeGH) ReplyTarget(_ context.Context, repo string, pr int, commentID string) (ReplyTarget, error) {
+	if g.replyTargets == nil {
+		return ReplyTarget{}, fmt.Errorf("comment %s on %s#%d: %w", commentID, repo, pr, ErrReplyNotFound)
+	}
+	t, ok := g.replyTargets[commentID]
+	if !ok {
+		return ReplyTarget{}, fmt.Errorf("comment %s on %s#%d: %w", commentID, repo, pr, ErrReplyNotFound)
+	}
+	return t, nil
+}
+
 func (g *fakeGH) CreateThread(_ context.Context, _ string, _ int, sha string, c LineComment) (string, error) {
 	g.calls++
 	if g.failPost != nil {
@@ -90,6 +109,15 @@ func (g *fakeGH) CreateThread(_ context.Context, _ string, _ int, sha string, c 
 	g.threads = append(g.threads, c)
 	g.shas = append(g.shas, sha)
 	return fmt.Sprintf("https://gh/thread/%d", len(g.threads)), nil
+}
+
+func (g *fakeGH) CreateReply(_ context.Context, _ string, pr int, commentID, body string) (string, error) {
+	g.calls++
+	if g.failReply != nil {
+		return "", g.failReply
+	}
+	g.replies = append(g.replies, postedReply{pr, commentID, body})
+	return fmt.Sprintf("https://gh/reply/%d", len(g.replies)), nil
 }
 
 func (g *fakeGH) CreateReview(_ context.Context, _ string, _ int, sha, event, body string, cs []LineComment) (string, error) {
@@ -493,5 +521,201 @@ func TestEditIsLinted(t *testing.T) {
 	var le *LintError
 	if _, err := h.ob.Submit(context.Background(), d); !errors.As(err, &le) {
 		t.Fatalf("err = %v, want a lint error", err)
+	}
+}
+
+func replyDraft(commentID, body string) Draft {
+	return Draft{Repo: "o/r", PR: 7, Owner: "pm/x", Kind: KindReply, InReplyTo: commentID, Body: body}
+}
+
+func TestReplyQuestionAndPostsOnce(t *testing.T) {
+	h := newHarness(t)
+	h.gh.replyTargets = map[string]ReplyTarget{
+		"42": {
+			RootID:      "42",
+			Path:        "a.go",
+			Line:        3,
+			Starter:     "alice",
+			CommentBody: "line one\nline two\nline three\nline four\nline five\nline six",
+		},
+	}
+	body := "exact\n\n  reply body\n"
+	rec := h.submit(t, replyDraft("42", body))
+	q := h.dec.asks[0].question
+	for _, want := range []string{
+		"reply in the discussion thread on a.go line 3, started by alice",
+		"> line one",
+		"> line two",
+		body,
+	} {
+		if !strings.Contains(q, want) {
+			t.Errorf("question lacks %q:\n%s", want, q)
+		}
+	}
+	if strings.Contains(q, "line six") {
+		t.Errorf("question should quote only the first lines of the comment being answered:\n%s", q)
+	}
+	if strings.Index(q, "reply in the discussion thread") > strings.Index(q, "o/r#7") {
+		t.Errorf("destination is not first:\n%s", q)
+	}
+
+	h.dec.pick(rec.DecideID, "human", "post", "", "ui", "")
+	h.poll(t)
+	h.poll(t)
+	if len(h.gh.replies) != 1 || h.gh.replies[0] != (postedReply{pr: 7, commentID: "42", body: body}) {
+		t.Fatalf("replies = %+v", h.gh.replies)
+	}
+	got := h.state(t, rec.ID)
+	if got.State != StatePosted || len(got.Posted) != 1 || got.Posted[0].Where != "a.go:3" || got.Posted[0].URL != "https://gh/reply/1" {
+		t.Errorf("record = %+v", got)
+	}
+	if len(h.bus.sent) != 1 || !strings.Contains(h.bus.sent[0].text, "https://gh/reply/1") {
+		t.Errorf("notices = %+v", h.bus.sent)
+	}
+}
+
+func TestReplyRefusesUnknownCommentAtSubmit(t *testing.T) {
+	h := newHarness(t)
+	d := replyDraft("999", "thanks")
+	if _, err := h.ob.Submit(context.Background(), d); err == nil {
+		t.Fatal("want error for unknown comment id")
+	}
+	if len(h.dec.asks) != 0 {
+		t.Errorf("asks = %d, want none", len(h.dec.asks))
+	}
+	if recs, _ := h.ob.Store.List(); len(recs) != 0 {
+		t.Errorf("records = %d, want none", len(recs))
+	}
+}
+
+func TestReplyRefusesDeletedThreadAtPost(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		prep func(*harness)
+	}{
+		{
+			name: "deleted before pre-post check",
+			prep: func(h *harness) { delete(h.gh.replyTargets, "42") },
+		},
+		{
+			name: "deleted during reply POST",
+			prep: func(h *harness) { h.gh.failReply = ErrReplyNotFound },
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.gh.replyTargets = map[string]ReplyTarget{
+				"42": {RootID: "42", Path: "a.go", Line: 3, Starter: "alice", CommentBody: "fix this"},
+			}
+			rec := h.submit(t, replyDraft("42", "fixed"))
+			h.dec.pick(rec.DecideID, "human", "post", "", "ui", "")
+			tc.prep(h)
+			h.poll(t)
+			if len(h.gh.replies) != 0 {
+				t.Fatalf("replies = %+v, want none", h.gh.replies)
+			}
+			got := h.state(t, rec.ID)
+			if got.State != StateCancelled {
+				t.Errorf("state = %q, want %q", got.State, StateCancelled)
+			}
+			if !strings.Contains(h.dec.done[rec.DecideID], "deleted") {
+				t.Errorf("decide outcome = %q, want reason", h.dec.done[rec.DecideID])
+			}
+			if len(h.bus.sent) != 1 || !strings.Contains(h.bus.sent[0].text, "deleted") {
+				t.Errorf("notices = %+v", h.bus.sent)
+			}
+		})
+	}
+}
+
+func TestReplyResolvedThreadRequiresAllowResolved(t *testing.T) {
+	h := newHarness(t)
+	h.gh.replyTargets = map[string]ReplyTarget{
+		"42": {RootID: "42", Path: "a.go", Line: 3, Starter: "alice", CommentBody: "nit", Resolved: true},
+	}
+	if _, err := h.ob.Submit(context.Background(), replyDraft("42", "done")); err == nil || !strings.Contains(err.Error(), "resolved") {
+		t.Fatalf("err = %v, want resolved refusal", err)
+	}
+	if len(h.dec.asks) != 0 {
+		t.Fatalf("asks = %d, want none", len(h.dec.asks))
+	}
+
+	d := replyDraft("42", "done")
+	d.AllowResolved = true
+	rec := h.submit(t, d)
+	if !strings.Contains(strings.ToLower(h.dec.asks[0].question), "resolved") {
+		t.Errorf("approval should show resolved:\n%s", h.dec.asks[0].question)
+	}
+	h.dec.pick(rec.DecideID, "human", "post", "", "ui", "")
+	h.poll(t)
+	if len(h.gh.replies) != 1 {
+		t.Errorf("replies = %+v, want 1", h.gh.replies)
+	}
+}
+
+func TestReplyNotAffectedByHeadMove(t *testing.T) {
+	h := newHarness(t)
+	h.ob.Config.OnHeadMoved = HeadMovedRefuse
+	h.gh.replyTargets = map[string]ReplyTarget{
+		"42": {RootID: "42", Path: "a.go", Line: 3, Starter: "alice", CommentBody: "why?"},
+	}
+	rec := h.submit(t, replyDraft("42", "because"))
+	h.dec.pick(rec.DecideID, "human", "post", "", "ui", "")
+	h.gh.head = "sha2"
+	h.poll(t)
+	if len(h.gh.replies) != 1 || len(h.dec.asks) != 1 {
+		t.Fatalf("replies = %+v asks = %d", h.gh.replies, len(h.dec.asks))
+	}
+	if got := h.state(t, rec.ID); got.State != StatePosted {
+		t.Errorf("state = %q, want %q", got.State, StatePosted)
+	}
+}
+
+func TestEditOfReplyComment(t *testing.T) {
+	h := newHarness(t)
+	h.ob.Config.OnHeadMoved = HeadMovedRefuse
+	h.gh.oldText = "old reply"
+	d := Draft{Repo: "o/r", PR: 7, Owner: "pm/x", Kind: KindReply, Edit: "77", Body: "new reply"}
+	rec := h.submit(t, d)
+	q := h.dec.asks[0].question
+	if !strings.Contains(q, "edit of reply comment 77") || !strings.Contains(q, "old reply") || !strings.Contains(q, "new reply") {
+		t.Errorf("question:\n%s", q)
+	}
+	h.dec.pick(rec.DecideID, "human", "post", "", "ui", "")
+	h.gh.head = "sha2"
+	h.poll(t)
+	if len(h.gh.edits) != 1 || h.gh.edits[0] != "comment 77: new reply" {
+		t.Errorf("edits = %v", h.gh.edits)
+	}
+	if got := h.state(t, rec.ID); got.State != StatePosted {
+		t.Errorf("state = %q", got.State)
+	}
+}
+
+func TestMovedHeadRefusePolicy(t *testing.T) {
+	h := newHarness(t)
+	h.ob.Config.OnHeadMoved = HeadMovedRefuse
+	rec := h.submit(t, threadDraft())
+	h.dec.pick(rec.DecideID, "human", "post", "", "ui", "")
+	h.gh.head = "sha2"
+	h.poll(t)
+	h.poll(t)
+	if h.gh.calls != 0 {
+		t.Fatal("posted on moved head with refuse policy")
+	}
+	if len(h.dec.asks) != 1 {
+		t.Fatalf("asks = %d, want no re-ask", len(h.dec.asks))
+	}
+	if out := h.dec.done[rec.DecideID]; !strings.Contains(out, "sha1") || !strings.Contains(out, "sha2") {
+		t.Errorf("decide outcome = %q, want old and new SHA", out)
+	}
+	if len(h.bus.sent) != 1 || h.bus.sent[0].to != "pm/x" ||
+		!strings.Contains(h.bus.sent[0].text, "sha1") ||
+		!strings.Contains(h.bus.sent[0].text, "sha2") ||
+		!strings.Contains(h.bus.sent[0].text, "redraft") {
+		t.Errorf("notices = %+v", h.bus.sent)
+	}
+	if got := h.state(t, rec.ID); got.State != StateNeedsRedraft {
+		t.Errorf("state = %q, want %q", got.State, StateNeedsRedraft)
 	}
 }

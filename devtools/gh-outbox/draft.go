@@ -11,9 +11,11 @@ import (
 )
 
 // Draft kinds. KindThread starts one discussion thread per line comment.
-// The others are a review in the main conversation.
+// KindReply answers an existing review comment inside its thread. The
+// others are a review in the main conversation.
 const (
 	KindThread         = "thread"
+	KindReply          = "reply"
 	KindComment        = "comment"
 	KindRequestChanges = "request-changes"
 	KindApprove        = "approve"
@@ -41,9 +43,14 @@ type Draft struct {
 	Lines []LineComment `json:"lines,omitempty"`
 	Owner string        `json:"owner"`
 	Ref   string        `json:"ref,omitempty"`
-	// Edit is the id of an existing review comment (KindThread) or
-	// review (a review kind) to replace.
+	// Edit is the id of an existing review comment (KindThread or
+	// KindReply) or review (a review kind) to replace.
 	Edit string `json:"edit,omitempty"`
+	// InReplyTo is the id of a pull request review comment to reply to
+	// when Kind is KindReply.
+	InReplyTo string `json:"inReplyTo,omitempty"`
+	// AllowResolved lets a reply target a resolved review thread.
+	AllowResolved bool `json:"allowResolved,omitempty"`
 }
 
 // UsageError is a draft the command line got wrong.
@@ -113,6 +120,14 @@ func (d *Draft) Validate() error {
 }
 
 func (d *Draft) checkKind() error {
+	if d.Kind != KindReply {
+		if d.InReplyTo != "" {
+			return usagef("--in-reply-to is only valid with --kind reply")
+		}
+		if d.AllowResolved {
+			return usagef("--allow-resolved is only valid with --kind reply")
+		}
+	}
 	switch d.Kind {
 	case KindThread:
 		if d.Body != "" {
@@ -121,13 +136,33 @@ func (d *Draft) checkKind() error {
 		if len(d.Lines) == 0 {
 			return usagef("a discussion thread needs at least one --line path:line=text-file")
 		}
+	case KindReply:
+		return d.checkReply()
 	case KindComment, KindRequestChanges:
 		if d.Body == "" && len(d.Lines) == 0 {
 			return usagef("a %s review needs a body or a --line", d.Kind)
 		}
 	case KindApprove:
 	default:
-		return usagef("--kind %q: want thread, comment, request-changes or approve", d.Kind)
+		return usagef("--kind %q: want thread, reply, comment, request-changes or approve", d.Kind)
+	}
+	return nil
+}
+
+func (d *Draft) checkReply() error {
+	if len(d.Lines) != 0 {
+		return usagef("a reply takes no --line; give the text with --body-file")
+	}
+	if strings.TrimSpace(d.Body) == "" {
+		return usagef("a reply needs a body in --body-file")
+	}
+	if d.Edit == "" {
+		if d.InReplyTo == "" {
+			return usagef("a reply needs --in-reply-to <review comment id>")
+		}
+		if !idPattern.MatchString(d.InReplyTo) {
+			return usagef("--in-reply-to %q: want the numeric id of a review comment", d.InReplyTo)
+		}
 	}
 	return nil
 }
@@ -139,16 +174,26 @@ func (d *Draft) checkEdit() error {
 	if !idPattern.MatchString(d.Edit) {
 		return usagef("--edit %q: want the numeric id of a comment or review", d.Edit)
 	}
+	if d.Kind == KindReply && d.InReplyTo != "" {
+		return usagef("--edit cannot be combined with --in-reply-to")
+	}
 	if d.Kind == KindThread && len(d.Lines) != 1 {
 		return usagef("--edit of a discussion thread comment takes exactly one --line")
 	}
 	if d.Kind != KindThread && len(d.Lines) != 0 {
-		return usagef("--edit of a review takes no --line; give the new body with --body-file")
+		return usagef("--edit of a %s takes no --line; give the new body with --body-file", editSubject(d.Kind))
 	}
 	if d.Kind != KindThread && strings.TrimSpace(d.Body) == "" {
-		return usagef("--edit of a review needs the new body in --body-file")
+		return usagef("--edit of a %s needs the new body in --body-file", editSubject(d.Kind))
 	}
 	return nil
+}
+
+func editSubject(kind string) string {
+	if kind == KindReply {
+		return "reply"
+	}
+	return "review"
 }
 
 func (d *Draft) checkTexts() error {
@@ -200,6 +245,12 @@ func (d Draft) Destinations() []string {
 			out = append(out, where)
 		}
 		return out
+	}
+	if d.Kind == KindReply {
+		if d.Edit != "" {
+			return []string{fmt.Sprintf("edit of reply comment %s", d.Edit)}
+		}
+		return []string{fmt.Sprintf("reply to comment %s", d.InReplyTo)}
 	}
 	if d.Edit != "" {
 		return []string{fmt.Sprintf("edit of review %s (main conversation)", d.Edit)}
