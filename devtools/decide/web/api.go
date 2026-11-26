@@ -60,6 +60,7 @@ func (s *Server) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/snapshot", s.snapshot)
 	mux.HandleFunc("GET /api/v1/items/{id}", s.getItem)
 	mux.HandleFunc("GET /api/v1/status", s.getStatus)
+	mux.HandleFunc("GET /api/v1/panels", s.getPanels)
 	mux.HandleFunc("GET /api/v1/contacts", s.contacts)
 	mux.HandleFunc("GET /api/v1/org-tree", s.orgTree)
 	mux.HandleFunc("GET /api/v1/search", s.search)

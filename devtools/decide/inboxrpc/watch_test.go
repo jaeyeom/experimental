@@ -376,3 +376,78 @@ func BenchmarkWatcherIdlePoll1000Items(b *testing.B) {
 		b.Fatalf("idle benchmark loaded ledger %d times, want 0", w.ledgerPolls)
 	}
 }
+
+func TestWatcherPanelsFSNotifyNoIdleAndStalenessWake(t *testing.T) {
+	h := newHub(t)
+	// Long fallback interval proves delivery comes from fsnotify and the
+	// one-shot staleness timer, not polling.
+	w := &Watcher{Backend: h.server.Backend, Every: time.Hour}
+	snap, err := w.Start(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Panels == nil || len(*snap.Panels) != 0 {
+		t.Fatalf("initial panels = %+v, want empty slice", snap.Panels)
+	}
+	for range 5 {
+		if _, ok := w.Poll(); ok {
+			t.Fatal("Poll() reported change while idle")
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events := make(chan WatchEvent, 8)
+	go w.Run(ctx, func(ev WatchEvent) { events <- ev })
+
+	// Give Run a moment to register the fsnotify watch before writing.
+	time.Sleep(50 * time.Millisecond)
+
+	// Confirm no events while idle.
+	select {
+	case ev := <-events:
+		t.Fatalf("unexpected idle event: %+v", ev)
+	case <-time.After(80 * time.Millisecond):
+	}
+
+	// Write a panel file (creates panels/ directory); triggers one event.
+	store, err := decide.OpenPanels(h.server.Backend.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Set(decide.Panel{
+		ID:         "ci",
+		Title:      "CI",
+		Kind:       "kv",
+		Data:       json.RawMessage(`{"ok":true}`),
+		StaleAfter: "150ms",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case ev := <-events:
+		if ev.Panels == nil || len(*ev.Panels) != 1 || (*ev.Panels)[0].ID != "ci" || (*ev.Panels)[0].Stale {
+			t.Fatalf("panel set event = %+v", ev)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no event after panel write")
+	}
+
+	// Staleness wakeup fires once at updatedAt + staleAfter.
+	select {
+	case ev := <-events:
+		if ev.Panels == nil || len(*ev.Panels) != 1 || !(*ev.Panels)[0].Stale {
+			t.Fatalf("panel stale event = %+v", ev)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no event after panel became stale")
+	}
+
+	// No extra events while idle.
+	select {
+	case ev := <-events:
+		t.Fatalf("unexpected event after stale: %+v", ev)
+	case <-time.After(120 * time.Millisecond):
+	}
+}

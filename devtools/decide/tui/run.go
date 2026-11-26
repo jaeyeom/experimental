@@ -1,8 +1,10 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -125,7 +127,9 @@ func Run(opts Options) error {
 	if keyLog != nil {
 		inputLog = keyLog
 	}
+	stopWatch := startPanelWatch(m)
 	final, err := newProgram(m, opts.In, opts.Out, inputLog).Run()
+	stopWatch()
 	m.abandonExternalEdit()
 	if done, ok := final.(*Model); ok {
 		done.flushAllDrafts()
@@ -138,6 +142,36 @@ func Run(opts Options) error {
 		return done.runErr
 	}
 	return nil
+}
+
+func startPanelWatch(m *Model) func() {
+	pb, ok := m.store().(PanelsBackend)
+	if !ok {
+		return func() {}
+	}
+	watchCtx, cancelWatch := context.WithCancel(context.Background())
+	var watchWG sync.WaitGroup
+	panelCh := make(chan []decide.PanelEntry, 1)
+	m.panelEvents = panelCh
+	watchWG.Add(1)
+	go func() {
+		defer watchWG.Done()
+		defer close(panelCh)
+		_ = pb.WatchPanels(watchCtx, func(panels []decide.PanelEntry) {
+			select {
+			case <-panelCh:
+			default:
+			}
+			select {
+			case panelCh <- decide.ClonePanelEntries(panels):
+			case <-watchCtx.Done():
+			}
+		})
+	}()
+	return func() {
+		cancelWatch()
+		watchWG.Wait()
+	}
 }
 
 // newProgram runs m on in and out. Input goes through programInput, so

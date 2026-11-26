@@ -119,7 +119,7 @@ func TestEventsResyncThenDelta(t *testing.T) {
 	if f.event != "resync" || f.id == "" {
 		t.Fatalf("first frame = %+v", f)
 	}
-	for _, k := range []string{"seq", "items", "inbox", "unreadCount", "status", "drafts", "draftSeq", "display", "busHealth", "targets", "agentbus", "orgTreeEnabled"} {
+	for _, k := range []string{"seq", "items", "inbox", "unreadCount", "status", "panels", "drafts", "draftSeq", "display", "busHealth", "targets", "agentbus", "orgTreeEnabled"} {
 		if _, ok := f.data[k]; !ok {
 			t.Errorf("resync lacks %q", k)
 		}
@@ -238,4 +238,55 @@ func TestPresence(t *testing.T) {
 		t.Fatal("still active after clear")
 	}
 	a.wantErr(a.post("/api/v1/presence", `{"active":true}`), 400)
+}
+
+func TestEventsPanelChangeEmitsDeltaOnce(t *testing.T) {
+	a := newAPI(t)
+	a.server.PingEvery = time.Hour
+	a.server.WatchEvery = time.Hour
+	h, err := a.server.Handler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	c := openSSE(t, srv, "/api/v1/events", nil)
+	defer c.close()
+	resync := c.next(true)
+	if resync.event != "resync" {
+		t.Fatalf("first event = %q, want resync", resync.event)
+	}
+	if p, ok := resync.data["panels"].([]any); !ok || len(p) != 0 {
+		t.Fatalf("initial panels = %v", resync.data["panels"])
+	}
+
+	// Idle stream emits nothing.
+	select {
+	case f := <-c.frames:
+		t.Fatalf("unexpected idle frame: %+v", f)
+	case <-time.After(80 * time.Millisecond):
+	}
+
+	store, err := decide.OpenPanels(a.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Set(decide.Panel{
+		ID:    "build",
+		Title: "Build",
+		Kind:  "kv",
+		Data:  json.RawMessage(`{"ok":true}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	d := c.next(true)
+	if d.event != "delta" {
+		t.Fatalf("frame = %+v, want delta", d)
+	}
+	panels, ok := d.data["panels"].([]any)
+	if !ok || len(panels) != 1 || panels[0].(map[string]any)["id"] != "build" {
+		t.Fatalf("delta panels = %v", d.data["panels"])
+	}
 }

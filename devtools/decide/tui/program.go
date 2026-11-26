@@ -9,6 +9,10 @@ import (
 
 type reloadMsg struct{}
 
+type panelsUpdatedMsg struct {
+	panels []decide.PanelEntry
+}
+
 func runeKey(r rune) tea.KeyMsg {
 	switch r {
 	case '\x1b':
@@ -57,7 +61,7 @@ func (m *Model) Init() tea.Cmd {
 	if m.loading {
 		reload = m.listCmd()
 	}
-	return tea.Batch(reload, m.busLoad(), m.healthCheck(), m.startDeliveryPoll())
+	return tea.Batch(reload, m.busLoad(), m.healthCheck(), m.startDeliveryPoll(), m.waitPanelCmd())
 }
 
 // Update drives the existing inbox behavior from bubbletea messages.
@@ -154,10 +158,28 @@ func (m *Model) updateResult(msg tea.Msg) tea.Cmd {
 		m.finishOpen(msg)
 	case busListMsg:
 		m.finishBusLoad(msg)
+	case panelsUpdatedMsg:
+		m.panels = decide.ClonePanelEntries(msg.panels)
+		m.panelsLoaded = true
+		return m.waitPanelCmd()
 	case configEditorDoneMsg:
 		m.finishConfigEdit(msg.err)
 	}
 	return nil
+}
+
+func (m *Model) waitPanelCmd() tea.Cmd {
+	ch := m.panelEvents
+	if ch == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		panels, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return panelsUpdatedMsg{panels: panels}
+	}
 }
 
 // updateKeyMsg routes one key: the external-editor prefix, then composer

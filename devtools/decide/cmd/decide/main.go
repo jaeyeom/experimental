@@ -64,6 +64,14 @@ var ledgerCommands = map[string]func([]string, io.Writer, io.Writer) int{
 	"keys":   cmdKeys,
 }
 
+var boardCommands = map[string]func([]string, io.Writer, io.Writer) int{
+	"status":   cmdStatus,
+	"panel":    cmdPanel,
+	"targets":  cmdTargets,
+	"avatars":  cmdAvatars,
+	"contacts": cmdContacts,
+}
+
 func runLocal(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		usage(stderr)
@@ -73,6 +81,9 @@ func runLocal(args []string, stdout, stderr io.Writer) int {
 		return cmd(args[1:], stdout, stderr)
 	}
 	if cmd, ok := ledgerCommands[args[0]]; ok {
+		return cmd(args[1:], stdout, stderr)
+	}
+	if cmd, ok := boardCommands[args[0]]; ok {
 		return cmd(args[1:], stdout, stderr)
 	}
 	if code, handled := newDecideTool().Handle(context.Background(), args, stdout, stderr); handled {
@@ -85,16 +96,8 @@ func runLocal(args []string, stdout, stderr io.Writer) int {
 		return cmdList(args[1:], stdout, stderr)
 	case "inbox":
 		return cmdInbox(args[1:], stdout, stderr)
-	case "status":
-		return cmdStatus(args[1:], stdout, stderr)
-	case "targets":
-		return cmdTargets(args[1:], stdout, stderr)
 	case "send", "reply":
 		return cmdSendOrReply(args, stdout, stderr)
-	case "avatars":
-		return cmdAvatars(args[1:], stdout, stderr)
-	case "contacts":
-		return cmdContacts(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stderr)
 		return 0
@@ -133,6 +136,9 @@ func usage(w io.Writer) {
   decide status list [--json]
   decide status clear --agent <name>
   decide status clear --resource <name>
+  decide panel set <id> --title T --kind K (--data JSON | --file F) [--stale-after D] [--source S]
+  decide panel rm <id>
+  decide panel ls [--json]
   decide targets [--json]
   decide send --to <name> [--verbatim-file path] [--json] [--via cli|ui] [<text>]
   decide send --id <id> [--to owner|worker|both] [--verbatim-file path] [--json] [--via cli|ui] [<text>]

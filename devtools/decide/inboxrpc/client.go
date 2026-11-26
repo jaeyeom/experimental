@@ -159,6 +159,10 @@ type Client struct {
 
 	orgTreeUnsupported bool
 	orgTreeErr         error
+
+	panelMu      sync.Mutex
+	panelSubs    map[int]chan []decide.PanelEntry
+	nextPanelSub int
 }
 
 var (
@@ -166,6 +170,7 @@ var (
 	_ tui.OutboxBackend  = (*Client)(nil)
 	_ tui.DraftBackend   = (*Client)(nil)
 	_ tui.OrgTreeBackend = (*Client)(nil)
+	_ tui.PanelsBackend  = (*Client)(nil)
 )
 
 // hubError is a call the hub did not take because it could not be
@@ -492,6 +497,11 @@ func (c *Client) watchLoop(sess *session, watchCh <-chan Response) {
 				}
 				rep.applySync(resyncResp, c.now())
 				watchCh = newCh
+				if resyncResp.Panels != nil {
+					c.notifyPanelSubs(*resyncResp.Panels)
+				}
+			} else if resp.Panels != nil {
+				c.notifyPanelSubs(*resp.Panels)
 			}
 			if resp.OrgSpecModTime != nil {
 				tree, mod := rep.orgTree()
@@ -936,6 +946,88 @@ func (c *Client) Unsnooze(id string) (decide.Item, error) {
 		return c.enqueueOutbox(tui.OutboxEntry{Op: OpUnsnooze, ItemID: id})
 	}
 	return c.item(Request{Op: OpUnsnooze, Item: id})
+}
+
+// Panels returns the cached dashboard panels from the local replica.
+func (c *Client) Panels() ([]decide.PanelEntry, error) {
+	rep, err := c.ensureReplica()
+	if err != nil {
+		return nil, err
+	}
+	return rep.panels(), nil
+}
+
+// WatchPanels emits the initial panel list and subsequent hub watch updates
+// (plus local one-shot staleness transitions if the hub is unreachable) until
+// ctx is canceled.
+func (c *Client) WatchPanels(ctx context.Context, emit func([]decide.PanelEntry)) error {
+	ch, unsub := c.subscribePanels()
+	defer unsub()
+
+	panels, err := c.Panels()
+	if err != nil {
+		return err
+	}
+	if updated, changed := decide.RecomputePanelsStale(panels, c.now()); changed {
+		panels = updated
+	}
+	emit(decide.ClonePanelEntries(panels))
+
+	var timer *time.Timer
+	defer stopWatchTimer(&timer)
+
+	for {
+		stopWatchTimer(&timer)
+		var timerC <-chan time.Time
+		if next := decide.NextPanelStaleAt(panels); !next.IsZero() {
+			timer = time.NewTimer(max(next.Sub(c.now()), 0))
+			timerC = timer.C
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case nextPanels := <-ch:
+			if updated, changed := decide.RecomputePanelsStale(nextPanels, c.now()); changed {
+				nextPanels = updated
+			}
+			panels = nextPanels
+			emit(decide.ClonePanelEntries(panels))
+		case <-timerC:
+			if updated, changed := decide.RecomputePanelsStale(panels, c.now()); changed {
+				panels = updated
+				emit(decide.ClonePanelEntries(panels))
+			}
+		}
+	}
+}
+
+func (c *Client) subscribePanels() (<-chan []decide.PanelEntry, func()) {
+	ch := make(chan []decide.PanelEntry, 1)
+	c.panelMu.Lock()
+	if c.panelSubs == nil {
+		c.panelSubs = make(map[int]chan []decide.PanelEntry)
+	}
+	id := c.nextPanelSub
+	c.nextPanelSub++
+	c.panelSubs[id] = ch
+	c.panelMu.Unlock()
+	return ch, func() {
+		c.panelMu.Lock()
+		delete(c.panelSubs, id)
+		c.panelMu.Unlock()
+	}
+}
+
+func (c *Client) notifyPanelSubs(panels []decide.PanelEntry) {
+	c.panelMu.Lock()
+	defer c.panelMu.Unlock()
+	for _, ch := range c.panelSubs {
+		select {
+		case <-ch:
+		default:
+		}
+		ch <- decide.ClonePanelEntries(panels)
+	}
 }
 
 // Status implements tui.Backend. It reads from the local replica without

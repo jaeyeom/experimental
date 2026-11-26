@@ -1,0 +1,70 @@
+#+TITLE: decide dashboard panels
+
+The Status view in ~decide inbox~ and ~decide web~ can display
+dashboard panels stored on the hub. ~decide~ only displays panels; it
+never runs the jobs that produce them.
+
+* Storage and file contract
+
+Each panel is one JSON file in =panels/<id>.json= under the decide state
+directory on the hub (=$XDG_STATE_HOME/decide/panels/= or
+=~/.local/state/decide/panels/=).
+
+#+begin_src json
+{
+  "id": "ci-status",
+  "title": "CI Status",
+  "kind": "kv",
+  "data": {"ok": true},
+  "updatedAt": "2026-11-26T22:00:00Z",
+  "staleAfter": "5m",
+  "source": "github-actions"
+}
+#+end_src
+
+| Field        | Required | Format / rule                                                  |
+|--------------+----------+----------------------------------------------------------------|
+| ~id~         | yes      | Matches ~[a-z0-9-]+~ and the filename without ~.json~.         |
+| ~title~      | yes      | Non-empty display title.                                       |
+| ~kind~       | yes      | Component name (part 2 defines the standard kinds and shapes). |
+| ~data~       | yes      | Valid non-null JSON payload for ~kind~.                        |
+| ~updatedAt~  | yes      | RFC 3339 timestamp.                                            |
+| ~staleAfter~ | no       | Positive Go duration (e.g. ~5m~, ~1h~).                        |
+| ~source~     | no       | Free text naming the writer.                                   |
+
+Writers must write a temporary file in =panels/= and rename it into
+place (via ~renameio.WriteFile~ with ~WithTempDir~) so readers never see
+a half-written file. Dotfiles and non-=.json= files in =panels/= are
+ignored.
+
+* Panel kinds
+
+Part 1 validates JSON syntax for any ~kind~ and provides
+~decide.RegisterPanelKind~ so built-in component kinds can validate
+their ~data~ shape. Built-in kinds and their ~data~ schemas will be
+documented here in part 2.
+
+* CLI
+
+- ~decide panel set <id> --title T --kind K (--data JSON | --file F) [--stale-after D] [--source S]~:
+  validates ~id~, JSON, and ~data~ shape for known kinds; sets
+  ~updatedAt~ to the current UTC time; and writes atomically. In hub
+  mode, ~--file F~ is read on the client machine and sent to the hub as
+  ~--data~; panels live only on the hub.
+- ~decide panel rm <id>~: removes =panels/<id>.json=.
+- ~decide panel ls [--json]~: lists id, title, kind, age, and ~stale~
+  or ~unreadable~ status.
+
+* Change-driven watching and robustness
+
+- Both ~decide inbox~ (local and hub-mode) and ~decide web~ watch
+  =panels/= with ~fsnotify~ via ~inboxrpc/watch.go~ and ~decide.WatchPanels~,
+  redrawing only when a panel file changes. No timer-based polling is
+  used for panels.
+- Staleness uses a single one-shot wakeup scheduled at the earliest
+  ~updatedAt + staleAfter~.
+- A panel file that cannot be read, cannot be parsed, has a bad id, or
+  has missing or unknown required fields is shown as
+  ~panel unreadable: <file>~ and never breaks the page.
+- ~decide doctor~ reports bad panels (unreadable, bad id, missing or
+  unknown required fields) and stale panels.

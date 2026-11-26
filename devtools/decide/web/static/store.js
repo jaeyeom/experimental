@@ -2,7 +2,7 @@
 // IndexedDB cache and EventSource wiring used only in the browser.
 
 export const emptyState = () => ({
-  seq: 0, items: [], status: null, drafts: null, contacts: null,
+  seq: 0, items: [], status: null, panels: [], drafts: null, contacts: null,
   orgTree: null, display: null, busHealth: null, syncedAt: null,
   targets: [], agentbus: false, orgTreeEnabled: false,
 });
@@ -14,6 +14,7 @@ export function applyResync(state, ev, now = Date.now()) {
     seq: ev.seq,
     items: [...(ev.items ?? [])],
     status: ev.status ?? state.status,
+    panels: ev.panels ?? state.panels ?? [],
     drafts: ev.drafts ?? state.drafts,
     display: ev.display ?? state.display,
     busHealth: ev.busHealth ?? null,
@@ -40,7 +41,7 @@ export function applyDelta(state, ev, now = Date.now()) {
     items: [...byId.values()],
     syncedAt: now,
   };
-  for (const k of ['status', 'drafts', 'orgSpecModTime']) {
+  for (const k of ['status', 'panels', 'drafts', 'orgSpecModTime']) {
     if (ev[k] !== undefined) next[k] = ev[k];
   }
   if (ev.busHealth !== undefined) next.busHealth = ev.busHealth;

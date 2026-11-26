@@ -129,6 +129,11 @@ func (s *Server) snapshot(w http.ResponseWriter, _ *http.Request) {
 		fail(w, err, http.StatusInternalServerError)
 		return
 	}
+	panels, err := s.panels()
+	if err != nil {
+		fail(w, err, http.StatusInternalServerError)
+		return
+	}
 	orgOn, _, err := s.orgEnabled()
 	if err != nil {
 		fail(w, err, http.StatusInternalServerError)
@@ -152,6 +157,7 @@ func (s *Server) snapshot(w http.ResponseWriter, _ *http.Request) {
 		"inbox":          inbox,
 		"unreadCount":    decide.UnreadCount(open),
 		"status":         board,
+		"panels":         panels,
 		"drafts":         drafts,
 		"draftSeq":       draftSeq,
 		"display":        display,
@@ -161,6 +167,33 @@ func (s *Server) snapshot(w http.ResponseWriter, _ *http.Request) {
 		"orgTreeEnabled": orgOn,
 		"serverTime":     s.now().UTC().Format(time.RFC3339Nano),
 	})
+}
+
+func (s *Server) panels() ([]decide.PanelEntry, error) {
+	ps, err := decide.OpenPanels(s.Backend.Dir)
+	if err != nil {
+		return nil, fmt.Errorf("open decide panels: %w", err)
+	}
+	if s.Backend.Now != nil {
+		ps.SetClock(s.Backend.Now)
+	}
+	list, err := ps.List()
+	if err != nil {
+		return nil, fmt.Errorf("list decide panels: %w", err)
+	}
+	if list == nil {
+		list = []decide.PanelEntry{}
+	}
+	return list, nil
+}
+
+func (s *Server) getPanels(w http.ResponseWriter, _ *http.Request) {
+	list, err := s.panels()
+	if err != nil {
+		fail(w, err, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"panels": list})
 }
 
 func (s *Server) drafts() (int64, []decide.Draft, error) {

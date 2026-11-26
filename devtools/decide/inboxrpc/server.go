@@ -127,6 +127,8 @@ func (s *Server) handle(ctx context.Context, req Request) Response {
 		return s.locate(ctx, req)
 	case OpOrgTree:
 		return s.orgTree(ctx)
+	case OpPanels:
+		return s.panels()
 	default:
 		return Response{Error: fmt.Sprintf("unknown op %q", req.Op)}
 	}
@@ -240,6 +242,21 @@ func DetectConflict(op, baseState string, baseCount int, baseLast time.Time, bas
 		return "new message arrived"
 	}
 	return ""
+}
+
+func (s *Server) panels() Response {
+	store, err := decide.OpenPanels(s.Backend.Dir)
+	if err != nil {
+		return failed(err)
+	}
+	if s.Backend.Now != nil {
+		store.SetClock(s.Backend.Now)
+	}
+	list, err := store.List()
+	if err != nil {
+		return failed(err)
+	}
+	return Response{Panels: &list}
 }
 
 func (s *Server) list() Response {
@@ -499,6 +516,7 @@ func (c *connWatcher) response(id int64, ev WatchEvent) Response {
 		Drafts:         ev.Drafts,
 		DraftSeq:       ev.DraftSeq,
 		OrgSpecModTime: ev.OrgSpecModTime,
+		Panels:         ev.Panels,
 	}
 }
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   recipientList, filterRecipients, sendBody, needsBusConfirm, composeDraftBody, composePlan, forwardPreview,
 } from './compose_model.js';
-import { isStale, ageLabel, agentRows, resourceRows, leaseLabel } from './status_model.js';
+import { isStale, ageLabel, agentRows, resourceRows, leaseLabel, panelRows } from './status_model.js';
 import {
   contactList, toggleFavorite, orgLayout, livenessLabel, detailRows,
 } from './contacts_model.js';
@@ -118,6 +118,19 @@ test('lease labels', () => {
   assert.equal(leaseLabel({ availability: 'busy', note: 'needs adopt (backup r1)' }), 'needs adopt (backup r1)');
   assert.equal(leaseLabel({ availability: 'busy', note: '' }), 'busy');
   assert.equal(leaseLabel({ availability: 'busy', note: 'x', guess: true }), 'x (guess)');
+});
+
+test('panel rows handle readable, stale, and unreadable panels', () => {
+  const rows = panelRows([
+    { id: 'ci', title: 'CI', kind: 'kv', updatedAt: ago(30), stale: false },
+    { id: 'old', title: 'Old', kind: 'kv', updatedAt: ago(600), stale: true },
+    { id: 'bad', file: 'bad.json', unreadable: true, error: 'bad json' },
+  ], now);
+  assert.equal(rows[0].stale, false);
+  assert.equal(rows[0].unreadable, false);
+  assert.equal(rows[1].stale, true);
+  assert.equal(rows[2].unreadable, true);
+  assert.equal(rows[2].text, 'panel unreadable: bad.json');
 });
 
 // --- contacts ---

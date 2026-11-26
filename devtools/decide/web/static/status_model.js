@@ -31,3 +31,25 @@ export function resourceRows(board, now = Date.now()) {
     age: ageLabel(r.updatedAt, now), stale: isStale(r.updatedAt, now),
   }));
 }
+
+export function panelRows(panels, now = Date.now()) {
+  return (panels ?? []).map((p) => {
+    if (p.unreadable) {
+      return {
+        id: p.id ?? p.file ?? '',
+        unreadable: true,
+        text: `panel unreadable: ${p.file || p.id || ''}`,
+        stale: true,
+      };
+    }
+    return {
+      id: p.id,
+      title: p.title ?? '',
+      kind: p.kind ?? '',
+      age: ageLabel(p.updatedAt, now),
+      stale: !!p.stale,
+      unreadable: false,
+      source: p.source ?? '',
+    };
+  });
+}

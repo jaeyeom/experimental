@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -31,6 +32,7 @@ func newDecideTool() toolcli.Tool {
 			checkDecideHub,
 			checkDecideNotifyTarget,
 			checkDecideAgentbus,
+			checkDecidePanels,
 		},
 		ExtraDoctorCheckGroups: []toolcli.DoctorCheckGroup{
 			checkDecideWeb,
@@ -203,4 +205,130 @@ func hasAgentbusTarget(cfg decide.Config) bool {
 		}
 	}
 	return false
+}
+
+func checkDecidePanels(ctx context.Context, offline bool) toolcli.CheckResult {
+	settings, err := hubConfig("")
+	if err != nil {
+		return toolcli.CheckResult{
+			Name:   "panels",
+			Status: toolcli.StatusFail,
+			Detail: err.Error(),
+			Hint:   "fix hub config in decide config.json",
+		}
+	}
+	if settings.hub.Target != "" {
+		return checkRemotePanels(ctx, settings.hub, offline)
+	}
+	dir, err := decide.DefaultDir()
+	if err != nil {
+		return toolcli.CheckResult{
+			Name:   "panels",
+			Status: toolcli.StatusWarn,
+			Detail: err.Error(),
+		}
+	}
+	store, err := decide.OpenPanels(dir)
+	if err != nil {
+		return toolcli.CheckResult{
+			Name:   "panels",
+			Status: toolcli.StatusFail,
+			Detail: err.Error(),
+		}
+	}
+	entries, err := store.List()
+	if err != nil {
+		return toolcli.CheckResult{
+			Name:   "panels",
+			Status: toolcli.StatusFail,
+			Detail: err.Error(),
+		}
+	}
+	return summarizePanelsDoctor(entries)
+}
+
+func checkRemotePanels(ctx context.Context, hub hubcall.Hub, offline bool) toolcli.CheckResult {
+	if offline {
+		return toolcli.CheckResult{
+			Name:   "panels",
+			Status: toolcli.StatusWarn,
+			Detail: fmt.Sprintf("skipped remote panel check on %s (--offline)", hub.Target),
+			Hint:   "run without --offline to check panels on the hub",
+		}
+	}
+	var outBuf, errBuf bytes.Buffer
+	code, err := hub.Run(ctx, hubcall.Call{
+		Args:   []string{"panel", "ls", "--json"},
+		Stdout: &outBuf,
+		Stderr: &errBuf,
+	})
+	if err != nil || code != 0 {
+		detail := fmt.Sprintf("check panels on %s failed", hub.Target)
+		if err != nil {
+			detail = fmt.Sprintf("check panels on %s: %v", hub.Target, err)
+		} else if msg := strings.TrimSpace(errBuf.String()); msg != "" {
+			detail = fmt.Sprintf("check panels on %s: %s", hub.Target, msg)
+		}
+		return toolcli.CheckResult{
+			Name:   "panels",
+			Status: toolcli.StatusFail,
+			Detail: detail,
+			Hint:   "verify decide is updated on the hub",
+		}
+	}
+	var entries []decide.PanelEntry
+	if err := json.Unmarshal(outBuf.Bytes(), &entries); err != nil {
+		return toolcli.CheckResult{
+			Name:   "panels",
+			Status: toolcli.StatusFail,
+			Detail: fmt.Sprintf("decode remote panels: %v", err),
+		}
+	}
+	return summarizePanelsDoctor(entries)
+}
+
+func summarizePanelsDoctor(entries []decide.PanelEntry) toolcli.CheckResult {
+	var bad []string
+	var stale []string
+	for _, e := range entries {
+		if e.Unreadable {
+			bad = append(bad, panelBadDetail(e))
+			continue
+		}
+		if e.Stale {
+			stale = append(stale, e.ID)
+		}
+	}
+	if len(bad) > 0 {
+		detail := fmt.Sprintf("bad panel(s): %s", strings.Join(bad, "; "))
+		if len(stale) > 0 {
+			detail += fmt.Sprintf("; stale: %s", strings.Join(stale, ", "))
+		}
+		return toolcli.CheckResult{
+			Name:   "panels",
+			Status: toolcli.StatusFail,
+			Detail: detail,
+			Hint:   "fix or remove invalid panel files in panels/",
+		}
+	}
+	if len(stale) > 0 {
+		return toolcli.CheckResult{
+			Name:   "panels",
+			Status: toolcli.StatusWarn,
+			Detail: fmt.Sprintf("stale panel(s): %s", strings.Join(stale, ", ")),
+			Hint:   "refresh stale panels with decide panel set",
+		}
+	}
+	if len(entries) == 0 {
+		return toolcli.CheckResult{
+			Name:   "panels",
+			Status: toolcli.StatusOK,
+			Detail: "no panels",
+		}
+	}
+	return toolcli.CheckResult{
+		Name:   "panels",
+		Status: toolcli.StatusOK,
+		Detail: fmt.Sprintf("%d panel(s) ok", len(entries)),
+	}
 }

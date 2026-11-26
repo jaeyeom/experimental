@@ -37,6 +37,7 @@ type replicaData struct {
 	PendingDrafts  map[string]pendingDraftEdit `json:"pendingDrafts,omitempty"`
 	OrgTree        string                      `json:"orgTree,omitempty"`
 	OrgSpecModTime time.Time                   `json:"orgSpecModTime,omitempty"`
+	Panels         []decide.PanelEntry         `json:"panels,omitempty"`
 }
 
 // ReplicaPath returns the on-disk replica file path for hub label under
@@ -195,6 +196,16 @@ func (r *replicaStore) get(id string) (decide.Item, bool) {
 	return r.data.Items[i], true
 }
 
+func (r *replicaStore) panels() []decide.PanelEntry {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ensureLoaded()
+	if r.data.Panels == nil {
+		return []decide.PanelEntry{}
+	}
+	return decide.ClonePanelEntries(r.data.Panels)
+}
+
 func (r *replicaStore) status() tui.StatusBoard {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -223,6 +234,9 @@ func (r *replicaStore) applySync(resp Response, now time.Time) bool {
 	if resp.Drafts != nil || resp.DraftSeq > 0 {
 		r.data.Drafts = cloneDraftsSlice(resp.Drafts)
 		r.data.DraftSeq = resp.DraftSeq
+	}
+	if resp.Panels != nil {
+		r.data.Panels = decide.ClonePanelEntries(*resp.Panels)
 	}
 	r.data.SyncedAt = now
 	r.save()

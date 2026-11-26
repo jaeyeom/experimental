@@ -80,7 +80,7 @@ func (h *hub) broadcastLocked(ev inboxrpc.WatchEvent) {
 	for sub := range h.subs {
 		// An empty ledger (seq 0) always polls as a resync; it carries
 		// nothing new.
-		if ev.Resync && ev.Seq == 0 && ev.Status == nil && ev.Drafts == nil && ev.OrgSpecModTime == nil {
+		if ev.Resync && ev.Seq == 0 && ev.Status == nil && ev.Drafts == nil && ev.OrgSpecModTime == nil && ev.Panels == nil {
 			continue
 		}
 		// Skip what a late subscriber's initial frame already covered.
@@ -303,6 +303,9 @@ func deltaBody(ev inboxrpc.WatchEvent, bus []byte, busChanged bool) map[string]a
 	if ev.OrgSpecModTime != nil {
 		body["orgSpecModTime"] = ev.OrgSpecModTime
 	}
+	if ev.Panels != nil {
+		body["panels"] = *ev.Panels
+	}
 	if busChanged && len(bus) > 0 {
 		body["busHealth"] = json.RawMessage(bus)
 	}
@@ -338,6 +341,10 @@ func (s *Server) resyncBody(ev inboxrpc.WatchEvent, bus []byte) (map[string]any,
 			return nil, err
 		}
 	}
+	panels, err := s.resyncPanels(ev)
+	if err != nil {
+		return nil, err
+	}
 	display, err := s.display()
 	if err != nil {
 		return nil, err
@@ -356,6 +363,7 @@ func (s *Server) resyncBody(ev inboxrpc.WatchEvent, bus []byte) (map[string]any,
 		"inbox":          inbox,
 		"unreadCount":    decide.UnreadCount(open),
 		"status":         status,
+		"panels":         *panels,
 		"drafts":         drafts,
 		"draftSeq":       draftSeq,
 		"display":        display,
@@ -370,5 +378,19 @@ func (s *Server) resyncBody(ev inboxrpc.WatchEvent, bus []byte) (map[string]any,
 	if ev.OrgSpecModTime != nil {
 		body["orgSpecModTime"] = ev.OrgSpecModTime
 	}
+	if ev.Panels != nil {
+		body["panels"] = *ev.Panels
+	}
 	return body, nil
+}
+
+func (s *Server) resyncPanels(ev inboxrpc.WatchEvent) (*[]decide.PanelEntry, error) {
+	if ev.Panels != nil {
+		return ev.Panels, nil
+	}
+	loaded, err := s.panels()
+	if err != nil {
+		return nil, err
+	}
+	return &loaded, nil
 }

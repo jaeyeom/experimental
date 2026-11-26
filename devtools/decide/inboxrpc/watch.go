@@ -16,8 +16,8 @@ import (
 
 const defaultWatchEvery = 2 * time.Second
 
-// WatchEvent is one watch snapshot or delta. Status, Drafts, and
-// OrgSpecModTime are set only when they are new.
+// WatchEvent is one watch snapshot or delta. Status, Drafts,
+// OrgSpecModTime, and Panels are set only when they are new.
 type WatchEvent struct {
 	Seq            int64
 	Resync         bool
@@ -27,6 +27,7 @@ type WatchEvent struct {
 	Drafts         []decide.Draft
 	DraftSeq       int64
 	OrgSpecModTime *time.Time
+	Panels         *[]decide.PanelEntry
 }
 
 // fileStamp records cheap os.Stat metadata for change detection without
@@ -80,6 +81,7 @@ type Watcher struct {
 	draftsStamp  fileStamp
 	orgSpecStamp fileStamp
 	hasOrgSpec   bool
+	panelMon     *decide.PanelMonitor
 
 	// Counters for tests verifying that no-change polls skip file loads.
 	ledgerPolls int
@@ -167,13 +169,18 @@ func (w *Watcher) Start(since int64) (WatchEvent, error) {
 		w.orgSpecStamp = stamp
 		w.hasOrgSpec = true
 	}
+	w.panelMon = decide.NewPanelMonitor(w.Backend.Dir, w.Backend.Now)
+	if panels, err := w.panelMon.Start(); err == nil {
+		ev.Panels = &panels
+	}
 	w.lastSeq = seq
 	w.started = true
 	return ev, nil
 }
 
-// Run polls until ctx ends, on every filesystem notification, Signal, and
-// fallback tick, and passes each change to emit. Nothing is emitted before Start.
+// Run polls until ctx ends, on every filesystem notification, Signal,
+// staleness wakeup, and fallback tick, and passes each change to emit.
+// Nothing is emitted before Start.
 func (w *Watcher) Run(ctx context.Context, emit func(WatchEvent)) {
 	every := w.Every
 	if every <= 0 {
@@ -181,22 +188,29 @@ func (w *Watcher) Run(ctx context.Context, emit func(WatchEvent)) {
 	}
 	tick := time.NewTicker(every)
 	defer tick.Stop()
-	fsw, fsEvents, fsErrors := w.openFSWatch()
+	fsw, fsEvents, fsErrors, panelsWatched := w.openFSWatch()
 	if fsw != nil {
 		defer fsw.Close()
 	}
+	panelsDir := w.panelsDir()
+	var staleTimer *time.Timer
+	defer stopWatchTimer(&staleTimer)
+
 	for {
+		stopWatchTimer(&staleTimer)
+		staleC := w.armStaleTimer(&staleTimer)
 		select {
 		case <-ctx.Done():
 			return
 		case <-w.wakeCh():
+		case <-staleC:
 		case <-tick.C:
 		case ev, ok := <-fsEvents:
 			if !ok {
 				fsEvents = nil
 				continue
 			}
-			if !drainFSEvents(ev, fsEvents) {
+			if !w.handleFSWatchEvent(fsw, panelsDir, &panelsWatched, ev, fsEvents) {
 				continue
 			}
 		case _, ok := <-fsErrors:
@@ -211,27 +225,85 @@ func (w *Watcher) Run(ctx context.Context, emit func(WatchEvent)) {
 	}
 }
 
-func (w *Watcher) openFSWatch() (*fsnotify.Watcher, <-chan fsnotify.Event, <-chan error) {
+func stopWatchTimer(timer **time.Timer) {
+	if *timer == nil {
+		return
+	}
+	if !(*timer).Stop() {
+		select {
+		case <-(*timer).C:
+		default:
+		}
+	}
+	*timer = nil
+}
+
+func (w *Watcher) armStaleTimer(timer **time.Timer) <-chan time.Time {
+	w.mu.Lock()
+	var next time.Time
+	if w.panelMon != nil {
+		next = w.panelMon.NextStaleAt()
+	}
+	w.mu.Unlock()
+	if next.IsZero() {
+		return nil
+	}
+	*timer = time.NewTimer(max(next.Sub(w.now()), 0))
+	return (*timer).C
+}
+
+func (w *Watcher) panelsDir() string {
 	if w.Backend == nil || w.Backend.Dir == "" {
-		return nil, nil, nil
+		return ""
+	}
+	return decide.PanelsDir(w.Backend.Dir)
+}
+
+func (w *Watcher) handleFSWatchEvent(fsw *fsnotify.Watcher, panelsDir string, panelsWatched *bool, first fsnotify.Event, ch <-chan fsnotify.Event) bool {
+	relevant, removed := drainFSEvents(panelsDir, first, ch)
+	if removed {
+		*panelsWatched = false
+	}
+	if fsw != nil && panelsDir != "" && !*panelsWatched && addPanelsWatch(fsw, panelsDir) {
+		*panelsWatched = true
+		relevant = true
+	}
+	return relevant
+}
+
+func (w *Watcher) openFSWatch() (*fsnotify.Watcher, <-chan fsnotify.Event, <-chan error, bool) {
+	if w.Backend == nil || w.Backend.Dir == "" {
+		return nil, nil, nil, false
 	}
 	if err := os.MkdirAll(w.Backend.Dir, 0o755); err != nil {
-		return nil, nil, nil
+		return nil, nil, nil, false
 	}
 	fsw, err := fsnotify.NewWatcher()
 	if err != nil {
-		return nil, nil, nil
+		return nil, nil, nil, false
 	}
 	if err := fsw.Add(w.Backend.Dir); err != nil {
 		_ = fsw.Close()
-		return nil, nil, nil
+		return nil, nil, nil, false
 	}
-	return fsw, fsw.Events, fsw.Errors
+	panelsWatched := addPanelsWatch(fsw, decide.PanelsDir(w.Backend.Dir))
+	return fsw, fsw.Events, fsw.Errors, panelsWatched
 }
 
-func relevantFSEvent(ev fsnotify.Event) bool {
+func addPanelsWatch(fsw *fsnotify.Watcher, panelsDir string) bool {
+	info, err := os.Stat(panelsDir)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+	return fsw.Add(panelsDir) == nil
+}
+
+func relevantFSEvent(panelsDir string, ev fsnotify.Event) bool {
 	if ev.Op == fsnotify.Chmod {
 		return false
+	}
+	if panelsDir != "" && (ev.Name == panelsDir || filepath.Dir(ev.Name) == panelsDir) {
+		return decide.IsRelevantPanelFSEvent(panelsDir, ev)
 	}
 	switch filepath.Base(ev.Name) {
 	case "ledger.lock", "status.lock", "drafts.lock":
@@ -240,19 +312,25 @@ func relevantFSEvent(ev fsnotify.Event) bool {
 	return true
 }
 
-func drainFSEvents(first fsnotify.Event, ch <-chan fsnotify.Event) bool {
-	relevant := relevantFSEvent(first)
+func drainFSEvents(panelsDir string, first fsnotify.Event, ch <-chan fsnotify.Event) (relevant, panelsRemoved bool) {
+	check := func(ev fsnotify.Event) {
+		if panelsDir != "" && ev.Name == panelsDir && ev.Has(fsnotify.Remove) {
+			panelsRemoved = true
+		}
+		if relevantFSEvent(panelsDir, ev) {
+			relevant = true
+		}
+	}
+	check(first)
 	for {
 		select {
 		case ev, ok := <-ch:
 			if !ok {
-				return relevant
+				return relevant, panelsRemoved
 			}
-			if relevantFSEvent(ev) {
-				relevant = true
-			}
+			check(ev)
 		default:
-			return relevant
+			return relevant, panelsRemoved
 		}
 	}
 }
@@ -271,7 +349,8 @@ func (w *Watcher) Poll() (WatchEvent, bool) {
 	status := w.pollStatus()
 	drafts, draftSeq := w.pollDrafts()
 	orgMod := w.pollOrgSpec()
-	if !resync && len(changes) == 0 && status == nil && drafts == nil && orgMod == nil {
+	panels := w.pollPanels()
+	if !resync && len(changes) == 0 && status == nil && drafts == nil && orgMod == nil && panels == nil {
 		return WatchEvent{}, false
 	}
 	ev := WatchEvent{
@@ -281,12 +360,24 @@ func (w *Watcher) Poll() (WatchEvent, bool) {
 		Changes:        changes,
 		Status:         status,
 		OrgSpecModTime: orgMod,
+		Panels:         panels,
 	}
 	if drafts != nil {
 		ev.Drafts = *drafts
 		ev.DraftSeq = draftSeq
 	}
 	return ev, true
+}
+
+func (w *Watcher) pollPanels() *[]decide.PanelEntry {
+	if w.panelMon == nil {
+		return nil
+	}
+	panels, ok := w.panelMon.Poll()
+	if !ok {
+		return nil
+	}
+	return &panels
 }
 
 func (w *Watcher) pollLedger() (int64, []decide.LedgerChange, []decide.Item, bool, bool) {

@@ -24,7 +24,8 @@ import (
 // Version 10 added outbox writtenAt and conflict checks.
 // Version 11 added persistent draft sync.
 // Version 12 added org-tree.
-const Version = 12
+// Version 13 added panels.
+const Version = 13
 
 // Ops. Archive is done with the outcome "archived". Deliveries refreshes
 // the pending delivery marks on the hub.
@@ -57,6 +58,7 @@ const (
 	OpPutDraft     = "put-draft"
 	OpDeleteDraft  = "delete-draft"
 	OpOrgTree      = "org-tree"
+	OpPanels       = "panels"
 )
 
 // Request is one line from the client. Item is the item id. Text is the
@@ -125,6 +127,7 @@ type Response struct {
 	DraftConflict  bool                    `json:"draftConflict,omitempty"`
 	DraftSeq       int64                   `json:"draftSeq,omitempty"`
 	OrgSpecModTime *time.Time              `json:"orgSpecModTime,omitempty"`
+	Panels         *[]decide.PanelEntry    `json:"panels,omitempty"`
 }
 
 // writeOps change the ledger or send something. While the hub is

@@ -135,6 +135,13 @@ type OrgTreeBackend interface {
 	OrgTree() (OrgTreeResult, error)
 }
 
+// PanelsBackend is an optional backend capability for reading and
+// subscribing to dashboard panels without timer polling.
+type PanelsBackend interface {
+	Panels() ([]decide.PanelEntry, error)
+	WatchPanels(ctx context.Context, emit func([]decide.PanelEntry)) error
+}
+
 // unreachableStatus is the status line while the hub is unreachable.
 const unreachableStatus = "hub unreachable; retrying"
 
@@ -575,6 +582,27 @@ func (b *LocalBackend) Locate(ctx context.Context, it *decide.Item) decide.Owner
 // Focus implements Backend.
 func (b *LocalBackend) Focus(ctx context.Context, loc decide.OwnerLocation) string {
 	return decide.LocationResolver{Run: b.Herdr}.Focus(ctx, loc)
+}
+
+// Panels implements PanelsBackend.
+func (b *LocalBackend) Panels() ([]decide.PanelEntry, error) {
+	store, err := decide.OpenPanels(b.Dir)
+	if err != nil {
+		return nil, fmt.Errorf("open decide panels: %w", err)
+	}
+	if b.Now != nil {
+		store.SetClock(b.Now)
+	}
+	panels, err := store.List()
+	if err != nil {
+		return nil, fmt.Errorf("list decide panels: %w", err)
+	}
+	return panels, nil
+}
+
+// WatchPanels implements PanelsBackend.
+func (b *LocalBackend) WatchPanels(ctx context.Context, emit func([]decide.PanelEntry)) error {
+	return decide.WatchPanels(ctx, b.Dir, b.Now, emit) //nolint:wrapcheck // WatchPanels names the failure
 }
 
 func (b *LocalBackend) draftStore() (*decide.DraftStore, error) {

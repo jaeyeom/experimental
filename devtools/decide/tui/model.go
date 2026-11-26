@@ -167,6 +167,9 @@ type Model struct {
 	noteField    textarea.Model
 	agents       []decide.AgentStatus
 	resources    []decide.ResourceStatus
+	panels       []decide.PanelEntry
+	panelsLoaded bool
+	panelEvents  <-chan []decide.PanelEntry
 	agentCursor  int
 	searching    bool
 	search       string
@@ -693,6 +696,7 @@ func (m *Model) showStatus() error {
 		m.status = err.Error()
 		return nil
 	}
+	m.loadPanelsOnce()
 	m.status = "status"
 	return nil
 }
@@ -2017,7 +2021,8 @@ func (m *Model) statusScreen(width int) []screenLine {
 		now = m.Now()
 	}
 	var lines []screenLine
-	if len(m.agents) == 0 && len(m.resources) == 0 {
+	panelLines := m.panelLines(width, now)
+	if len(m.agents) == 0 && len(m.resources) == 0 && len(panelLines) == 0 {
 		lines = append(lines, screenLine{text: m.emptyText("no status")})
 	} else {
 		useStyles()
@@ -2029,6 +2034,12 @@ func (m *Model) statusScreen(width int) []screenLine {
 		}
 		if len(m.resources) > 0 {
 			lines = append(lines, m.resourceTable(width, now)...)
+		}
+		if len(panelLines) > 0 {
+			if len(lines) > 0 {
+				lines = append(lines, screenLine{})
+			}
+			lines = append(lines, panelLines...)
 		}
 	}
 	_, limit := m.layoutBudget()

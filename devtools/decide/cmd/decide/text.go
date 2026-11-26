@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -201,8 +203,12 @@ func trimBody(raw string) (string, error) {
 }
 
 // expandHubText reads --text-file, --verbatim-file, or a positional "-" locally
-// and replaces it with that text. Args with none are returned unchanged.
+// and replaces it with that text. For `panel set`, it reads --file locally and
+// replaces it with `--data=<json>`. Args with none are returned unchanged.
 func expandHubText(args []string) ([]string, error) {
+	if len(args) >= 2 && args[0] == "panel" && args[1] == "set" {
+		return expandHubPanelFile(args)
+	}
 	if !hubTextCommand(args) {
 		return args, nil
 	}
@@ -218,6 +224,87 @@ func expandHubText(args []string) ([]string, error) {
 		return args, nil
 	}
 	return rebuildTextArgs(stripped, file)
+}
+
+func expandHubPanelFile(args []string) ([]string, error) {
+	out := make([]string, 0, len(args))
+	out = append(out, args[:2]...)
+	hasData := false
+	hasFile := false
+	for i := 2; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			out = append(out, args[i:]...)
+			break
+		}
+		if next, handled := consumePanelDataArg(args, &i, &hasData); handled {
+			out = append(out, next...)
+			continue
+		}
+		path, eq, isFile := cutFlagValue(a, "--file")
+		if !isFile {
+			out = append(out, a)
+			continue
+		}
+		if hasFile {
+			return nil, fmt.Errorf("--file was given twice")
+		}
+		hasFile = true
+		if !eq {
+			if i+1 >= len(args) || args[i+1] == "--" {
+				return nil, fmt.Errorf("--file needs a path")
+			}
+			i++
+			path = args[i]
+		}
+		raw, err := readPanelHubFile(path)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, "--data="+string(raw))
+	}
+	if hasData && hasFile {
+		return nil, fmt.Errorf("decide panel set requires exactly one of --data or --file")
+	}
+	return out, nil
+}
+
+func consumePanelDataArg(args []string, i *int, hasData *bool) ([]string, bool) {
+	a := args[*i]
+	if a != "--data" && !strings.HasPrefix(a, "--data=") {
+		return nil, false
+	}
+	*hasData = true
+	if a == "--data" && *i+1 < len(args) {
+		*i++
+		return []string{a, args[*i]}, true
+	}
+	return []string{a}, true
+}
+
+func cutFlagValue(arg, flagName string) (val string, eq, ok bool) {
+	if val, eq := strings.CutPrefix(arg, flagName+"="); eq {
+		return val, true, true
+	}
+	return "", false, arg == flagName
+}
+
+func readPanelHubFile(path string) ([]byte, error) {
+	var raw []byte
+	var err error
+	if path == "-" {
+		raw, err = io.ReadAll(textStdin())
+	} else {
+		raw, err = os.ReadFile(path) //nolint:gosec // user-specified panel file path
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read panel file: %w", err)
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || string(trimmed) == "null" || !json.Valid(trimmed) {
+		return nil, fmt.Errorf("panel data in %q must be valid non-null JSON", path)
+	}
+	return trimmed, nil
 }
 
 func expandHubVerbatimFile(args []string) ([]string, error) {

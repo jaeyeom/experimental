@@ -110,6 +110,8 @@ b: wait
 
 `decide status set` posts the agent state, and posts a shared resource as free or busy.
 
+`decide panel set <id> --title T --kind K (--data JSON | --file F) [--stale-after D] [--source S]`, `decide panel rm <id>`, and `decide panel ls [--json]` manage dashboard panels on the hub.
+
 ## Deadlines
 
 Deadlines are RFC3339.
