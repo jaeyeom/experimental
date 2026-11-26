@@ -242,6 +242,7 @@ func validateSource(src *Source, seen map[string]struct{}, env Env) error {
 		validateStartPrompt,
 		validateSourceWorkerAndOutput,
 		validateSourceClaim,
+		validateSourceTrust,
 		validateWorkspaceRules,
 		validateAssignee,
 		validateParentBlocks,
@@ -424,10 +425,11 @@ func validatePlaceholders(name, prompt string) error {
 
 func validatePlaceholdersFor(where, field, prompt string, allowDoubleBrace bool) error {
 	if allowDoubleBrace {
-		// {{lease_rule}} and {{start_prompt_append}} are the double-brace
-		// placeholders. They are checked as whole tokens; any other brace
-		// shape is still refused below.
+		// {{lease_rule}}, {{trust_rule}}, and {{start_prompt_append}} are the
+		// double-brace placeholders. They are checked as whole tokens; any other
+		// brace shape is still refused below.
 		prompt = strings.ReplaceAll(prompt, LeaseRulePlaceholder, "")
+		prompt = strings.ReplaceAll(prompt, TrustRulePlaceholder, "")
 		prompt = strings.ReplaceAll(prompt, StartPromptAppendPlaceholder, "")
 	}
 	for i := 0; i < len(prompt); {

@@ -59,32 +59,68 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-// placePrompt renders tmpl and puts rule where {{lease_rule}} is (or at the
-// top) and appendText where {{start_prompt_append}} is (or after the lease
-// rule at the top). Each part around the placeholders is rendered on its own,
-// so an item title cannot inject a placeholder. Empty rule or appendText
-// removes its placeholder and leaves the rest as rendered.
-func placePrompt(tmpl, rule, appendText string, render func(string) string) string {
-	outer := strings.Split(tmpl, config.LeaseRulePlaceholder)
-	hasRule := len(outer) > 1
-	hasAppend := strings.Contains(tmpl, config.StartPromptAppendPlaceholder)
-	for i := range outer {
-		inner := strings.Split(outer[i], config.StartPromptAppendPlaceholder)
-		for j := range inner {
-			inner[j] = render(inner[j])
+// placePrompt renders tmpl and puts leaseRule where {{lease_rule}} is (or at
+// the top), trustRule where {{trust_rule}} is (or after the lease rule), and
+// appendText where {{start_prompt_append}} is (or after any prepended rules).
+// Each literal part around placeholders is rendered on its own, so an item title
+// cannot inject a placeholder. An empty rule removes its placeholder and leaves
+// the rest as rendered.
+func placePrompt(tmpl, leaseRule, trustRule, appendText string, render func(string) string) string {
+	var body strings.Builder
+	rest := tmpl
+	var hasLease, hasTrust, hasAppend bool
+	for rest != "" {
+		idx, ph, val := nextPlaceholder(rest, leaseRule, trustRule, appendText)
+		if idx < 0 {
+			body.WriteString(render(rest))
+			break
 		}
-		outer[i] = strings.Join(inner, appendText)
+		body.WriteString(render(rest[:idx]))
+		body.WriteString(val)
+		switch ph {
+		case config.LeaseRulePlaceholder:
+			hasLease = true
+		case config.TrustRulePlaceholder:
+			hasTrust = true
+		case config.StartPromptAppendPlaceholder:
+			hasAppend = true
+		}
+		rest = rest[idx+len(ph):]
 	}
-	body := strings.Join(outer, rule)
 	var parts []string
-	if !hasRule && rule != "" {
-		parts = append(parts, rule)
+	if !hasLease && leaseRule != "" {
+		parts = append(parts, leaseRule)
+	}
+	if !hasTrust && trustRule != "" {
+		parts = append(parts, trustRule)
 	}
 	if !hasAppend && appendText != "" {
 		parts = append(parts, appendText)
 	}
-	parts = append(parts, body)
+	parts = append(parts, body.String())
 	return strings.Join(parts, "\n\n")
+}
+
+func nextPlaceholder(s, leaseRule, trustRule, appendText string) (idx int, ph, val string) {
+	candidates := []struct {
+		ph  string
+		val string
+	}{
+		{config.LeaseRulePlaceholder, leaseRule},
+		{config.TrustRulePlaceholder, trustRule},
+		{config.StartPromptAppendPlaceholder, appendText},
+	}
+	bestIdx := -1
+	var bestPh, bestVal string
+	for _, c := range candidates {
+		i := strings.Index(s, c.ph)
+		if i >= 0 && (bestIdx < 0 || i < bestIdx) {
+			bestIdx = i
+			bestPh = c.ph
+			bestVal = c.val
+		}
+	}
+	return bestIdx, bestPh, bestVal
 }
 
 // writeLeasePlan prints the rule under a lease line when it is in the prompt.

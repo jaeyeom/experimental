@@ -1139,3 +1139,97 @@ func TestItemNotBeforeRoundTrip(t *testing.T) {
 		t.Fatalf("after clear NotBefore = %v, err = %v", got.NotBefore, err)
 	}
 }
+
+func TestItemTrustFieldsRoundTrip(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	item := fullItem("acme/widgets#7")
+	item.Source = "github:widgets"
+	item.Author = "alice"
+	item.AuthorAssociation = "NONE"
+	item.Locked = true
+	if err := s.UpsertItems(ctx, item.Source, []source.Item{item}); err != nil {
+		t.Fatalf("UpsertItems: %v", err)
+	}
+	got, err := s.Item(ctx, item.Source, item.ID)
+	if err != nil {
+		t.Fatalf("Item: %v", err)
+	}
+	if !reflect.DeepEqual(got, item) {
+		t.Fatalf("Item = %#v, want %#v", got, item)
+	}
+	items, err := s.Items(ctx, item.Source)
+	if err != nil {
+		t.Fatalf("Items: %v", err)
+	}
+	if len(items) != 1 || !reflect.DeepEqual(items[0], item) {
+		t.Fatalf("Items = %#v, want [%#v]", items, item)
+	}
+	item.Author = ""
+	item.AuthorAssociation = ""
+	item.Locked = false
+	if err := s.UpsertItems(ctx, item.Source, []source.Item{item}); err != nil {
+		t.Fatalf("UpsertItems update: %v", err)
+	}
+	got, err = s.Item(ctx, item.Source, item.ID)
+	if err != nil {
+		t.Fatalf("Item after update: %v", err)
+	}
+	if got.Author != "" || got.AuthorAssociation != "" || got.Locked {
+		t.Fatalf("after clear = author:%q assoc:%q locked:%v", got.Author, got.AuthorAssociation, got.Locked)
+	}
+}
+
+func TestMigrateV14AddsItemTrustColumns(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "factory.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("Open sqlite: %v", err)
+	}
+	const v14 = `
+CREATE TABLE items(source TEXT, id TEXT, title TEXT, url TEXT, type TEXT, state TEXT,
+  done INTEGER, parent TEXT, labels_json TEXT, assignee TEXT, priority INTEGER,
+  created TEXT, updated TEXT, due TEXT, not_before TEXT, PRIMARY KEY(source,id));
+CREATE TABLE links(source TEXT, blocker_id TEXT, blocked_id TEXT, link_id TEXT,
+  PRIMARY KEY(source,blocker_id,blocked_id));
+CREATE TABLE sync_state(source TEXT PRIMARY KEY, last_updated_seen TEXT, last_full_sync TEXT, me TEXT, last_sync TEXT);
+CREATE TABLE claims(source TEXT, id TEXT, claimed_at TEXT, machine TEXT, tab_id TEXT,
+  workspace_id TEXT, state TEXT, detail TEXT, updated_at TEXT, prs_json TEXT NOT NULL DEFAULT '',
+  stash_count INTEGER, lane TEXT NOT NULL DEFAULT '', agent_rule TEXT NOT NULL DEFAULT '',
+  model TEXT NOT NULL DEFAULT '', spawner TEXT NOT NULL DEFAULT '', worker_handle TEXT NOT NULL DEFAULT '',
+  worktree TEXT NOT NULL DEFAULT '', output_mode TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY(source,id,claimed_at));
+CREATE TABLE runs(started_at TEXT, command TEXT, outcome TEXT, detail_json TEXT);
+CREATE TABLE prs(repo TEXT NOT NULL, number INTEGER NOT NULL, source TEXT NOT NULL DEFAULT '',
+  item_id TEXT NOT NULL DEFAULT '', opened_at TEXT, merged_at TEXT, closed_at TEXT,
+  draft INTEGER NOT NULL DEFAULT 0, last_seen TEXT NOT NULL, PRIMARY KEY(repo,number));
+CREATE TABLE finished(source TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL DEFAULT '',
+  parent TEXT NOT NULL DEFAULT '', labels_json TEXT NOT NULL DEFAULT 'null',
+  finished_at TEXT NOT NULL, claimed_at TEXT, PRIMARY KEY(source,id));
+CREATE TABLE backlog_snapshots(source TEXT NOT NULL, taken_at TEXT NOT NULL,
+  ready INTEGER NOT NULL, blocked INTEGER NOT NULL, in_flight INTEGER NOT NULL,
+  needs_human INTEGER NOT NULL, by_status_json TEXT NOT NULL, PRIMARY KEY(source,taken_at));
+CREATE TABLE external_blockers(source TEXT NOT NULL, id TEXT NOT NULL, status TEXT NOT NULL,
+  done INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT '', assignee TEXT NOT NULL DEFAULT '',
+  title TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '', fetched_at TEXT NOT NULL,
+  PRIMARY KEY(source,id));
+CREATE TABLE schema_version(v INTEGER);
+INSERT INTO schema_version(v) VALUES (14);
+INSERT INTO items(source, id, title, url, type, state, done, parent, labels_json, assignee, priority, created, updated)
+  VALUES ('github:widgets', 'acme/widgets#1', 'Legacy', 'https://github.com/acme/widgets/issues/1', 'Issue', 'OPEN', 0, '', 'null', '', 2,
+    '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z');`
+	if _, err := db.Exec(v14); err != nil {
+		t.Fatalf("v14 schema: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	s := openAt(t, path)
+	got, err := s.Item(context.Background(), "github:widgets", "acme/widgets#1")
+	if err != nil {
+		t.Fatalf("Item: %v", err)
+	}
+	if got.Author != "" || got.AuthorAssociation != "" || got.Locked || got.Title != "Legacy" {
+		t.Fatalf("migrated item = %#v", got)
+	}
+}

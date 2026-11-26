@@ -29,6 +29,8 @@ import (
 // mirror, fetched by id during sync. They are never work items.
 // v14 adds claims.spawner, claims.worker_handle, claims.worktree, and
 // claims.output_mode to record how a claim was started and where its checkout lives.
+// v15 adds items.author, items.author_association, and items.locked for
+// per-source trust classification and untrusted-author gating.
 var migrations = []string{
 	`CREATE TABLE items(source TEXT, id TEXT, title TEXT, url TEXT, type TEXT, state TEXT,
     done INTEGER, parent TEXT, labels_json TEXT, assignee TEXT, priority INTEGER,
@@ -67,6 +69,9 @@ var migrations = []string{
   ALTER TABLE claims ADD COLUMN worker_handle TEXT NOT NULL DEFAULT '';
   ALTER TABLE claims ADD COLUMN worktree TEXT NOT NULL DEFAULT '';
   ALTER TABLE claims ADD COLUMN output_mode TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE items ADD COLUMN author TEXT NOT NULL DEFAULT '';
+  ALTER TABLE items ADD COLUMN author_association TEXT NOT NULL DEFAULT '';
+  ALTER TABLE items ADD COLUMN locked INTEGER NOT NULL DEFAULT 0`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

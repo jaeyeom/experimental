@@ -10,7 +10,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/factory/internal/source"
 )
 
-const itemColumns = `source, id, title, url, type, state, done, parent, labels_json, assignee, priority, created, updated, due, not_before`
+const itemColumns = `source, id, title, url, type, state, done, parent, labels_json, assignee, priority, created, updated, due, not_before, author, author_association, locked`
 
 // UpsertItems writes items for one source in a single transaction.
 // Each item replaces its previous blocked-by links, so a link removed in
@@ -40,10 +40,8 @@ func upsertItem(ctx context.Context, tx *sql.Tx, sourceName string, it *source.I
 	if err != nil {
 		return fmt.Errorf("upsert item %s/%s: %w", sourceName, it.ID, err)
 	}
-	done := 0
-	if it.Done {
-		done = 1
-	}
+	done := boolToInt(it.Done)
+	locked := boolToInt(it.Locked)
 	becameDone, err := becomesDone(ctx, tx, sourceName, it)
 	if err != nil {
 		return err
@@ -51,8 +49,9 @@ func upsertItem(ctx context.Context, tx *sql.Tx, sourceName string, it *source.I
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO items(
 			source, id, title, url, type, state, done, parent, labels_json,
-			assignee, priority, created, updated, due, not_before
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			assignee, priority, created, updated, due, not_before,
+			author, author_association, locked
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(source, id) DO UPDATE SET
 			title = excluded.title,
 			url = excluded.url,
@@ -66,11 +65,15 @@ func upsertItem(ctx context.Context, tx *sql.Tx, sourceName string, it *source.I
 			created = excluded.created,
 			updated = excluded.updated,
 			due = excluded.due,
-			not_before = excluded.not_before`,
+			not_before = excluded.not_before,
+			author = excluded.author,
+			author_association = excluded.author_association,
+			locked = excluded.locked`,
 		sourceName, it.ID, it.Title, it.URL, it.Type, it.State, done, it.Parent,
 		labels, it.Assignee, it.Priority, formatTime(it.Created), formatTime(it.Updated),
 		formatDate(it.Due),
 		formatDate(it.NotBefore),
+		it.Author, it.AuthorAssociation, locked,
 	)
 	if err != nil {
 		return fmt.Errorf("upsert item %s/%s: %w", sourceName, it.ID, err)
@@ -334,7 +337,7 @@ func queryItems(ctx context.Context, q queryer, query string, args ...any) (out 
 func scanItem(sc scanner) (source.Item, error) {
 	var (
 		it               source.Item
-		done             int
+		done, locked     int
 		labels           string
 		created, updated string
 		due, notBefore   sql.NullString
@@ -342,16 +345,18 @@ func scanItem(sc scanner) (source.Item, error) {
 	if err := sc.Scan(
 		&it.Source, &it.ID, &it.Title, &it.URL, &it.Type, &it.State, &done, &it.Parent,
 		&labels, &it.Assignee, &it.Priority, &created, &updated, &due, &notBefore,
+		&it.Author, &it.AuthorAssociation, &locked,
 	); err != nil {
 		return source.Item{}, err //nolint:wrapcheck // internal factory error already carries context
 	}
-	switch done {
-	case 0:
-		it.Done = false
-	case 1:
-		it.Done = true
-	default:
-		return source.Item{}, fmt.Errorf("items.done for %s/%s: expected 0 or 1, found %d", it.Source, it.ID, done)
+	var err error
+	it.Done, err = intToBool("items.done", it.Source, it.ID, done)
+	if err != nil {
+		return source.Item{}, err
+	}
+	it.Locked, err = intToBool("items.locked", it.Source, it.ID, locked)
+	if err != nil {
+		return source.Item{}, err
 	}
 	parsedLabels, err := unmarshalLabels(labels)
 	if err != nil {
@@ -456,4 +461,22 @@ func unmarshalLabels(raw string) ([]string, error) {
 		return nil, fmt.Errorf("labels_json: expected a JSON array of strings, found %q", raw)
 	}
 	return labels, nil
+}
+
+func boolToInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
+}
+
+func intToBool(col, sourceName, id string, v int) (bool, error) {
+	switch v {
+	case 0:
+		return false, nil
+	case 1:
+		return true, nil
+	default:
+		return false, fmt.Errorf("%s for %s/%s: expected 0 or 1, found %d", col, sourceName, id, v)
+	}
 }

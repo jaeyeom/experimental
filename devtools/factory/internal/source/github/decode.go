@@ -333,11 +333,41 @@ func requiredBool(obj map[string]json.RawMessage, key string) (bool, error) {
 	if !ok || isMissing(raw) {
 		return false, fmt.Errorf("expected %s, found missing", key)
 	}
+	return jsonBool(raw, key)
+}
+
+func optionalBool(obj map[string]json.RawMessage, key string) (bool, error) {
+	raw, ok := obj[key]
+	if !ok || isMissing(raw) {
+		return false, nil
+	}
+	return jsonBool(raw, key)
+}
+
+func jsonBool(raw json.RawMessage, key string) (bool, error) {
 	var value bool
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return false, fmt.Errorf("expected %s bool, found %s", key, quoteSnippet(raw))
 	}
 	return value, nil
+}
+
+// optionalAuthorLogin reads obj["author"].login, returning "" when author or
+// login is missing or null (e.g. a deleted GitHub user).
+func optionalAuthorLogin(obj map[string]json.RawMessage, what string) (string, error) {
+	authorRaw, ok := obj["author"]
+	if !ok || isMissing(authorRaw) {
+		return "", nil
+	}
+	authorObj, err := objectOf(authorRaw, what)
+	if err != nil {
+		return "", err
+	}
+	login, err := optionalString(authorObj, "login")
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", what, err)
+	}
+	return login, nil
 }
 
 func requiredPositiveInt(obj map[string]json.RawMessage, key string) (int, error) {
@@ -506,16 +536,9 @@ func decodeComments(raw []byte) ([]source.ClaimComment, error) {
 		if err != nil {
 			return nil, fmt.Errorf("comments[%d].createdAt: expected RFC3339 timestamp, found %q", i, createdRaw)
 		}
-		var author string
-		if authorRaw, ok := obj["author"]; ok && !isMissing(authorRaw) {
-			authorObj, err := objectOf(authorRaw, fmt.Sprintf("comments[%d].author", i))
-			if err != nil {
-				return nil, err
-			}
-			author, err = optionalString(authorObj, "login")
-			if err != nil {
-				return nil, fmt.Errorf("comments[%d].author: %w", i, err)
-			}
+		author, err := optionalAuthorLogin(obj, fmt.Sprintf("comments[%d].author", i))
+		if err != nil {
+			return nil, err
 		}
 		out = append(out, source.ClaimComment{
 			Author:    author,

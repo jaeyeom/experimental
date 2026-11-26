@@ -49,6 +49,9 @@ func TestSyncQuery(t *testing.T) {
 		t.Fatalf("getQuery braces unbalanced: %s", getQuery)
 	}
 	for _, field := range []string{
+		"author{login}",
+		"authorAssociation",
+		"locked",
 		"issueType{name}",
 		"labels(first:50){nodes{name}}",
 		"assignees(first:10){nodes{login}}",
@@ -676,6 +679,86 @@ func TestMapDue(t *testing.T) {
 			}
 			if !sameDue(got.Due, tc.want) {
 				t.Fatalf("Due = %v, want %v", got.Due, tc.want)
+			}
+		})
+	}
+}
+
+func TestMapTrustFields(t *testing.T) {
+	cfg := testConfig()
+	tests := []struct {
+		name      string
+		extra     map[string]any
+		wantAuth  string
+		wantAssoc string
+		wantLock  bool
+		wantErr   string
+	}{
+		{
+			name: "owner locked",
+			extra: map[string]any{
+				"author":            map[string]any{"login": "jaeyeom"},
+				"authorAssociation": "OWNER",
+				"locked":            true,
+			},
+			wantAuth:  "jaeyeom",
+			wantAssoc: "OWNER",
+			wantLock:  true,
+		},
+		{
+			name: "deleted user null author",
+			extra: map[string]any{
+				"author":            nil,
+				"authorAssociation": "NONE",
+				"locked":            false,
+			},
+			wantAuth:  "",
+			wantAssoc: "NONE",
+			wantLock:  false,
+		},
+		{
+			name: "author with null login",
+			extra: map[string]any{
+				"author":            map[string]any{"login": nil},
+				"authorAssociation": "CONTRIBUTOR",
+				"locked":            false,
+			},
+			wantAuth:  "",
+			wantAssoc: "CONTRIBUTOR",
+			wantLock:  false,
+		},
+		{
+			name:    "invalid author type",
+			extra:   map[string]any{"author": "alice"},
+			wantErr: "expected github issue acme/widgets#7: author object",
+		},
+		{
+			name:    "invalid authorAssociation type",
+			extra:   map[string]any{"authorAssociation": 123},
+			wantErr: "expected authorAssociation string",
+		},
+		{
+			name:    "invalid locked type",
+			extra:   map[string]any{"locked": "yes"},
+			wantErr: "expected locked bool",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := json.RawMessage(mustJSON(t, issueNode(7, tc.extra)))
+			got, err := mapNode(&cfg, raw)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("mapNode() error = %v, want %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("mapNode() error = %v", err)
+			}
+			if got.Author != tc.wantAuth || got.AuthorAssociation != tc.wantAssoc || got.Locked != tc.wantLock {
+				t.Fatalf("got author=%q assoc=%q locked=%v, want %q %q %v",
+					got.Author, got.AuthorAssociation, got.Locked, tc.wantAuth, tc.wantAssoc, tc.wantLock)
 			}
 		})
 	}

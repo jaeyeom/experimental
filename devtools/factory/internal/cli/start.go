@@ -51,7 +51,7 @@ func newStartCmd(ctx context.Context) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&apply, "apply", false, "claim the item and start the agent (implied when dry_run is false)")
-	cmd.Flags().BoolVar(&force, "force", false, "skip queue checks and the start gate; still refuse closed/done, non-leaf, blocked, foreign ownership, in-progress, and existing tab")
+	cmd.Flags().BoolVar(&force, "force", false, "skip queue checks and the start gate; still refuse closed/done, untrusted, non-leaf, blocked, foreign ownership, in-progress, and existing tab")
 	cmd.Flags().BoolVar(&forceTakeOwnership, "force-taking-ownership", false, "take over an item assigned to someone else, already in progress, or claimed on another machine")
 	cmd.Flags().StringVar(&sourceOnly, "source", "", "limit to this source key (kind:name, for example github:repo)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print the start outcome as JSON")

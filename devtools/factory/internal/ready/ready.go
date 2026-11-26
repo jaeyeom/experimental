@@ -44,6 +44,8 @@ const (
 	RuleAssignee Rule = "assignee"
 	// RuleStatus is the "status" rule.
 	RuleStatus Rule = "status"
+	// RuleTrust is the "trust" rule: untrusted-author gating and tamper guards.
+	RuleTrust Rule = "trust"
 	// RuleBlockers is the "blockers" rule.
 	RuleBlockers Rule = "blockers"
 	// RuleParent is the "parent" rule.
@@ -83,6 +85,7 @@ func Evaluate(it source.Item, snap Snapshot, cfg config.Source, kind string) Res
 		checkLabels(it, cfg),
 		checkAssignee(it, snap, cfg),
 		checkStatus(it, cfg),
+		CheckTrust(it, snap, cfg),
 		checkBlockers(it, snap, cfg),
 		checkParent(it, snap, cfg),
 		checkChildren(it, snap),
@@ -242,6 +245,84 @@ func checkStatus(it source.Item, cfg config.Source) Check {
 	return Check{Rule: RuleStatus, Pass: true}
 }
 
+// IsTrustedAuthor reports whether it's author is trusted in snap under cfg:
+// authenticated snap.Me, an association in trusted_author_associations, or an
+// explicit login in trusted_authors. Empty author (e.g. deleted user) is never trusted.
+func IsTrustedAuthor(it source.Item, snap Snapshot, cfg config.Source) bool {
+	if it.Author != "" && snap.Me != "" && strings.EqualFold(it.Author, snap.Me) {
+		return true
+	}
+	if it.AuthorAssociation != "" {
+		for _, assoc := range cfg.Trust.EffectiveTrustedAuthorAssociations() {
+			if strings.EqualFold(it.AuthorAssociation, assoc) {
+				return true
+			}
+		}
+	}
+	if it.Author != "" {
+		for _, login := range cfg.Trust.TrustedAuthors {
+			if strings.EqualFold(it.Author, login) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// CheckTrust enforces [source.trust] gating and tamper guards when
+// cfg.Trust.Environment is "untrusted". Unset or "trusted" always passes.
+func CheckTrust(it source.Item, snap Snapshot, cfg config.Source) Check {
+	if cfg.Trust.Environment != config.TrustEnvUntrusted {
+		return Check{Rule: RuleTrust, Pass: true}
+	}
+	if IsTrustedAuthor(it, snap, cfg) {
+		return Check{Rule: RuleTrust, Pass: true}
+	}
+	var parts []string
+	statuses := cfg.Trust.EffectiveUntrustedReadyStatuses()
+	switch {
+	case len(statuses) == 0:
+		parts = append(parts, fmt.Sprintf("untrusted author %q is blocked (untrusted_ready_statuses is empty)", it.Author))
+	case !slices.Contains(statuses, it.State):
+		parts = append(parts, fmt.Sprintf("untrusted author %q requires status in [%s] (got %q)", it.Author, strings.Join(statuses, ", "), it.State))
+	}
+	guards := cfg.Trust.EffectiveGuards()
+	if len(guards) > 0 && !anyTrustGuardSatisfied(it, guards) {
+		parts = append(parts, trustGuardFailureReason(it.Author, guards))
+	}
+	if len(parts) == 0 {
+		return Check{Rule: RuleTrust, Pass: true}
+	}
+	return Check{Rule: RuleTrust, Pass: false, Detail: strings.Join(parts, "; ")}
+}
+
+func anyTrustGuardSatisfied(it source.Item, guards []string) bool {
+	for _, guard := range guards {
+		switch guard {
+		case config.TrustGuardLocked:
+			if it.Locked {
+				return true
+			}
+		case config.TrustGuardApprovedHash:
+			// Follow-up #1238 implements local approval hashes; treat as
+			// unsatisfied until then so fail-safe gating holds.
+		}
+	}
+	return false
+}
+
+func trustGuardFailureReason(author string, guards []string) string {
+	if len(guards) == 1 {
+		switch guards[0] {
+		case config.TrustGuardLocked:
+			return fmt.Sprintf("untrusted author %q requires locked issue", author)
+		case config.TrustGuardApprovedHash:
+			return fmt.Sprintf("untrusted author %q requires approved_hash", author)
+		}
+	}
+	return fmt.Sprintf("untrusted author %q requires one of guards [%s]", author, strings.Join(guards, ", "))
+}
+
 func checkBlockers(it source.Item, snap Snapshot, cfg config.Source) Check {
 	var parts []string
 	pass := true
@@ -361,10 +442,10 @@ func checkPR(it source.Item, snap Snapshot, cfg config.Source) Check {
 }
 
 // Classify buckets one not-ready result by the first rule that failed.
-// blockers counts as blocked. labels, type, status, assignee, parent, and
-// children count as not eligible. An item that is not done is open, including
-// those two buckets. A done item is none of the three. claimed, tab, and pr
-// are open only. factory next and the backlog counts share this.
+// blockers counts as blocked. labels, type, status, trust, assignee, parent,
+// and children count as not eligible. An item that is not done is open,
+// including those two buckets. A done item is none of the three. claimed, tab,
+// and pr are open only. factory next and the backlog counts share this.
 func Classify(res Result) (open, blocked, notEligible int) {
 	if res.Ready {
 		return 0, 0, 0
@@ -378,7 +459,7 @@ func Classify(res Result) (open, blocked, notEligible int) {
 			return 0, 0, 0
 		case RuleBlockers:
 			return 1, 1, 0
-		case RuleType, RuleLabels, RuleAssignee, RuleStatus, RuleParent, RuleChildren:
+		case RuleType, RuleLabels, RuleAssignee, RuleStatus, RuleTrust, RuleParent, RuleChildren:
 			return 1, 0, 1
 		default:
 			return 1, 0, 0

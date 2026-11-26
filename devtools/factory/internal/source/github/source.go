@@ -35,6 +35,7 @@ const (
 
 	// nodeFields is the issue selection shared by Sync and Get.
 	nodeFields = "id number title url state " +
+		"author{login} authorAssociation locked " +
 		"status{name} " +
 		"createdAt updatedAt " +
 		"issueType{name} " +

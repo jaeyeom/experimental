@@ -127,13 +127,28 @@ func issueText(id string, obj map[string]json.RawMessage) (source.Item, error) {
 	if err != nil {
 		return source.Item{}, err
 	}
+	author, err := optionalAuthorLogin(obj, fmt.Sprintf("github issue %s: author", id))
+	if err != nil {
+		return source.Item{}, err
+	}
+	assoc, err := optionalString(obj, "authorAssociation")
+	if err != nil {
+		return source.Item{}, fmt.Errorf("github issue %s: %w", id, err)
+	}
+	locked, err := optionalBool(obj, "locked")
+	if err != nil {
+		return source.Item{}, fmt.Errorf("github issue %s: %w", id, err)
+	}
 	return source.Item{
-		Title:  title,
-		URL:    url,
-		Type:   typ,
-		State:  state,
-		Done:   done,
-		Parent: parent,
+		Title:             title,
+		URL:               url,
+		Type:              typ,
+		State:             state,
+		Done:              done,
+		Parent:            parent,
+		Author:            author,
+		AuthorAssociation: assoc,
+		Locked:            locked,
 	}, nil
 }
 

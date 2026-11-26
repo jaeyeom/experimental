@@ -16,20 +16,24 @@ type BlockRef struct {
 
 // Item is one work item in a source.
 type Item struct {
-	Source    string
-	ID        string
-	Title     string
-	URL       string
-	Type      string // Issue type, such as Task, Bug, Epic, or issue.
-	State     string // Raw status name from the backend.
-	Done      bool   // True when the backend counts the item as done.
-	Parent    string // Parent or epic ID. Empty when the item has none.
-	Labels    []string
-	Assignee  string
-	Priority  int // 0 is highest. 2 is normal.
-	BlockedBy []BlockRef
-	Created   time.Time
-	Updated   time.Time
+	Source   string
+	ID       string
+	Title    string
+	URL      string
+	Type     string // Issue type, such as Task, Bug, Epic, or issue.
+	State    string // Raw status name from the backend.
+	Done     bool   // True when the backend counts the item as done.
+	Parent   string // Parent or epic ID. Empty when the item has none.
+	Labels   []string
+	Assignee string
+	Author   string // Author login or account id. Empty when unknown or deleted.
+	// AuthorAssociation is the backend's author-to-repo relationship (e.g. OWNER, MEMBER, NONE).
+	AuthorAssociation string
+	Locked            bool // True when the item is locked against public edits/comments.
+	Priority          int  // 0 is highest. 2 is normal.
+	BlockedBy         []BlockRef
+	Created           time.Time
+	Updated           time.Time
 	// Due is the due date, or nil when the backend has none.
 	// A non-nil value is the UTC calendar date, at midnight.
 	Due *time.Time

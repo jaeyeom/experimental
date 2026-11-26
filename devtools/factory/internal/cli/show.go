@@ -91,7 +91,7 @@ func runShow(ctx context.Context, cmd *cobra.Command, id string, noSync bool) (e
 	if err != nil {
 		return err
 	}
-	text := formatShow(it, snap, blocks, claim, foundClaim, tab, mode, prs, commit)
+	text := formatShow(it, snap, srcCfg, blocks, claim, foundClaim, tab, mode, prs, commit)
 	if _, err := io.WriteString(cmd.OutOrStdout(), text); err != nil {
 		return fmt.Errorf("write show: %w", err)
 	}
@@ -179,9 +179,13 @@ func matchTab(snap ready.Snapshot, it source.Item, cfg config.Source) (tabView, 
 	}
 }
 
-func formatShow(it source.Item, snap ready.Snapshot, blocks []string, claim store.Claim, foundClaim bool, tab tabView, mode string, prs []gh.PR, commit *verify.LandedCommit) string {
+func formatShow(it source.Item, snap ready.Snapshot, srcCfg config.Source, blocks []string, claim store.Claim, foundClaim bool, tab tabView, mode string, prs []gh.PR, commit *verify.LandedCommit) string {
 	var b strings.Builder
 	b.WriteString(formatItem(it))
+	if srcCfg.Trust.Environment != "" {
+		b.WriteByte('\n')
+		b.WriteString(formatTrust(it, snap, srcCfg))
+	}
 	b.WriteByte('\n')
 	b.WriteString(formatBlockedBy(snap, it))
 	b.WriteByte('\n')
@@ -202,9 +206,42 @@ func formatShow(it source.Item, snap ready.Snapshot, blocks []string, claim stor
 }
 
 func formatItem(it source.Item) string {
-	return fmt.Sprintf("source: %s\nid: %s\ntitle: %s\nurl: %s\ntype: %s\nstate: %s\ndone: %t\nparent: %s\nlabels: %s\nassignee: %s\npriority: %d\ncreated: %s\nupdated: %s\n",
+	var extra strings.Builder
+	if it.Author != "" {
+		bprintf(&extra, "author: %s\n", it.Author)
+	}
+	if it.AuthorAssociation != "" {
+		bprintf(&extra, "author_association: %s\n", it.AuthorAssociation)
+	}
+	if it.Locked {
+		extra.WriteString("locked: true\n")
+	}
+	return fmt.Sprintf("source: %s\nid: %s\ntitle: %s\nurl: %s\ntype: %s\nstate: %s\ndone: %t\nparent: %s\nlabels: %s\nassignee: %s\npriority: %d\ncreated: %s\nupdated: %s\n%s",
 		it.Source, it.ID, it.Title, it.URL, it.Type, it.State, it.Done, it.Parent,
-		strings.Join(it.Labels, ", "), it.Assignee, it.Priority, formatStamp(it.Created), formatStamp(it.Updated))
+		strings.Join(it.Labels, ", "), it.Assignee, it.Priority, formatStamp(it.Created), formatStamp(it.Updated), extra.String())
+}
+
+func formatTrust(it source.Item, snap ready.Snapshot, cfg config.Source) string {
+	var b strings.Builder
+	b.WriteString("Trust:\n")
+	bprintf(&b, "  environment: %s\n", cfg.Trust.Environment)
+	author := it.Author
+	if author == "" {
+		author = "(unknown)"
+	}
+	if it.AuthorAssociation != "" {
+		bprintf(&b, "  author: %s (%s)\n", author, it.AuthorAssociation)
+	} else {
+		bprintf(&b, "  author: %s\n", author)
+	}
+	bprintf(&b, "  locked: %t\n", it.Locked)
+	check := ready.CheckTrust(it, snap, cfg)
+	if check.Pass {
+		b.WriteString("  status: PASS\n")
+	} else {
+		bprintf(&b, "  status: FAIL (%s)\n", check.Detail)
+	}
+	return b.String()
 }
 
 func formatBlockedBy(snap ready.Snapshot, it source.Item) string {

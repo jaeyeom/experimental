@@ -22,7 +22,7 @@ func (s *Starter) prepared(it source.Item) (ws, tab, prompt string, err error) {
 		return "", "", "", err
 	}
 	appendText := s.renderAppend(it)
-	prompt = placePrompt(s.Cfg.StartPrompt, rule, appendText, func(part string) string {
+	prompt = placePrompt(s.Cfg.StartPrompt, rule, trustRule(s.Cfg), appendText, func(part string) string {
 		return renderPrompt(part, it, s.Cfg.Name, s.Cfg.Base, s.Caller, s.CallerBus)
 	})
 	if s.effectiveOutputMode() == config.OutputModeMerge {
@@ -159,6 +159,9 @@ func (s *Starter) writePlan(it source.Item, ws, tab, prompt string, blocked bool
 	if err := s.writeLeasePlan(s.Out, it); err != nil {
 		return err
 	}
+	if err := s.writeTrustPlan(s.Out); err != nil {
+		return err
+	}
 	return s.writeAppendPlan(s.Out, it)
 }
 
@@ -184,7 +187,10 @@ func (s *Starter) writeAppendPlan(w io.Writer, it source.Item) error {
 		if err != nil {
 			return err
 		}
-		if rule != "" && !strings.Contains(s.Cfg.StartPrompt, config.LeaseRulePlaceholder) {
+		switch {
+		case trustRule(s.Cfg) != "" && !strings.Contains(s.Cfg.StartPrompt, config.TrustRulePlaceholder):
+			where = "after the trust rule"
+		case rule != "" && !strings.Contains(s.Cfg.StartPrompt, config.LeaseRulePlaceholder):
 			where = "after the lease rule"
 		}
 	}

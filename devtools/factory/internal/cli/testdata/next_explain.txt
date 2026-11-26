@@ -4,6 +4,7 @@ PASS type
 PASS labels
 PASS assignee
 PASS status
+PASS trust
 FAIL blockers  blocker NOPE not in mirror (not fetched yet)
 PASS parent
 PASS children

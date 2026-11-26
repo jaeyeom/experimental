@@ -137,3 +137,10 @@ require_labels = ["agent-ready"]
 start_prompt   = "/gh-issue-resolver {url} Do not run factory file, link, or release on a remote lane. When done, report back: {report_back}"
 # defer_label_prefix = "not-before:" # label not-before:YYYY-MM-DD defers the issue
 # workspace defaults to the repo name: "yourrepo"
+
+  # [source.trust]
+  # environment = "untrusted"            # "trusted" (default off) or "untrusted" (public repo)
+  # trusted_author_associations = ["OWNER"] # plus authenticated me; MEMBER/COLLABORATOR not trusted by default
+  # trusted_authors = []                 # optional login allowlist
+  # untrusted_ready_statuses = ["Todo"]  # [] blocks all untrusted-author issues
+  # guards = ["locked"]                  # tamper guards: "locked", "approved_hash", or [] to disable

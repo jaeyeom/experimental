@@ -148,6 +148,7 @@ func checkOwnership(id string, it source.Item, me string, claim config.Claim) er
 
 // checkSafety enforces the safety invariants that --force never bypasses:
 //   - item must not be closed/done (never bypassed even by --force-taking-ownership);
+//   - trust gating and tamper guards when trust.environment == "untrusted";
 //   - leaf-only (skip_types and open children) when claim.require_leaf is true;
 //   - unblocked when claim.require_unblocked is true;
 //   - ownership_rule and in_progress_rule unless --force-taking-ownership is set
@@ -157,6 +158,9 @@ func checkSafety(id string, it source.Item, snap ready.Snapshot, cfg config.Sour
 		return fmt.Errorf("start %s: not ready: done: done", id)
 	}
 	claim := effectiveClaimFor(cfg, kind)
+	if err := checkTrustForStart(id, it, snap, cfg, claim, ownClaim); err != nil {
+		return err
+	}
 	if err := checkLeafAndBlockers(id, it, snap, cfg, kind, claim); err != nil {
 		return err
 	}
@@ -276,6 +280,7 @@ func readyFailureForStart(it source.Item, snap ready.Snapshot, cfg config.Source
 		evalCfg.AssigneeOK = "any"
 		evalCfg.Claim.OwnershipRule = config.OwnershipAny
 	}
+	evalCfg = trustConfigForStart(it, evalCfg, claim, ownClaim)
 	result := ready.Evaluate(it, snap, evalCfg, kind)
 	if !claim.RequireLeaf {
 		result = passRules(result, ready.RuleType, ready.RuleChildren)
@@ -301,6 +306,31 @@ func statusSkippedForStart(it source.Item, claim config.Claim, _ string, opts Op
 		return false
 	}
 	return opts.ForceTakeOwnership || ownClaim || claim.InProgressRule == config.InProgressAllow
+}
+
+func checkTrustForStart(id string, it source.Item, snap ready.Snapshot, cfg config.Source, claim config.Claim, ownClaim bool) error {
+	evalCfg := trustConfigForStart(it, cfg, claim, ownClaim)
+	c := ready.CheckTrust(it, snap, evalCfg)
+	if !c.Pass {
+		return fmt.Errorf("start %s: not ready: %s", id, formatCheck(c))
+	}
+	return nil
+}
+
+// trustConfigForStart allows claim.Status when re-starting this machine's own
+// interrupted claim (provided untrusted_ready_statuses is not explicitly empty),
+// while keeping tamper guards (e.g. locked) enforced.
+func trustConfigForStart(it source.Item, cfg config.Source, claim config.Claim, ownClaim bool) config.Source {
+	if cfg.Trust.Environment != config.TrustEnvUntrusted || !ownClaim || claim.Status == "" || it.State != claim.Status {
+		return cfg
+	}
+	statuses := cfg.Trust.EffectiveUntrustedReadyStatuses()
+	if len(statuses) == 0 || slices.Contains(statuses, claim.Status) {
+		return cfg
+	}
+	out := cfg
+	out.Trust.UntrustedReadyStatuses = append(slices.Clone(statuses), claim.Status)
+	return out
 }
 
 func passRules(result ready.Result, rules ...ready.Rule) ready.Result {

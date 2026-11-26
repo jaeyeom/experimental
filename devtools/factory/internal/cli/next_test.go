@@ -215,8 +215,8 @@ func TestNextExplainGolden(t *testing.T) {
 	if !strings.Contains(stdout, "score  priority=2  unblocks=0  parent_rank=0  created=2026-10-01T00:00:00Z\n") {
 		t.Fatalf("missing score:\n%s", stdout)
 	}
-	if strings.Count(stdout, "\n") != 17 {
-		t.Fatalf("lines = %d, want 17\n%s", strings.Count(stdout, "\n"), stdout)
+	if strings.Count(stdout, "\n") != 18 {
+		t.Fatalf("lines = %d, want 18\n%s", strings.Count(stdout, "\n"), stdout)
 	}
 	if !strings.Contains(stdout, "args     (default)\n") {
 		t.Fatalf("missing agent args:\n%s", stdout)
@@ -1352,6 +1352,106 @@ func TestShowGitHubTab(t *testing.T) {
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("missing %q\n%s", want, stdout)
+		}
+	}
+}
+
+func TestUntrustedGitHubNextExplainAndShow(t *testing.T) {
+	dir := t.TempDir()
+	cwd := t.TempDir()
+	cfgPath := filepath.Join(dir, "factory.toml")
+	cfg := fmt.Sprintf(`
+[[source]]
+name = "experimental"
+kind = "github"
+repo = "acme/widgets"
+cwd = %q
+base = "main"
+require_labels = ["agent-ready"]
+start_prompt = "Work on {id}"
+
+  [source.trust]
+  environment = "untrusted"
+`, cwd)
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(t.TempDir(), "factory.db")
+	seedDB(t, dbPath, func(st *store.Store) {
+		ctx := context.Background()
+		extBacklog := source.Item{
+			Source:            "github:experimental",
+			ID:                "acme/widgets#10",
+			Title:             "External backlog",
+			URL:               "https://github.com/acme/widgets/issues/10",
+			Type:              "Issue",
+			State:             "Backlog",
+			Labels:            []string{"agent-ready"},
+			Author:            "stranger",
+			AuthorAssociation: "NONE",
+			Locked:            false,
+			Created:           day1,
+			Updated:           day1,
+		}
+		extLockedTodo := source.Item{
+			Source:            "github:experimental",
+			ID:                "acme/widgets#11",
+			Title:             "External locked todo",
+			URL:               "https://github.com/acme/widgets/issues/11",
+			Type:              "Issue",
+			State:             "Todo",
+			Labels:            []string{"agent-ready"},
+			Author:            "stranger",
+			AuthorAssociation: "NONE",
+			Locked:            true,
+			Created:           day1,
+			Updated:           day1,
+		}
+		if err := st.UpsertItems(ctx, "github:experimental", []source.Item{extBacklog, extLockedTodo}); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.SetSyncState(ctx, "github:experimental", day1, day1); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.SetMe(ctx, "github:experimental", "maintainer"); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	useHerdrGH(t, githubWorkspaces, emptyTabs, emptyPRs)
+	stdout, stderr, code := runCmd(t, "next", "--config", cfgPath, "--db", dbPath)
+	if code != ExitOK || stderr != "" {
+		t.Fatalf("next exit = %d, stderr = %s", code, stderr)
+	}
+	if strings.Contains(stdout, "acme/widgets#10") || !strings.Contains(stdout, "acme/widgets#11") {
+		t.Fatalf("next output =\n%s\nwant #11 only", stdout)
+	}
+
+	useHerdrGH(t, githubWorkspaces, emptyTabs, emptyPRs)
+	stdout, stderr, code = runCmd(t, "next", "--explain", "acme/widgets#10", "--config", cfgPath, "--db", dbPath)
+	if code != ExitOK || stderr != "" {
+		t.Fatalf("explain exit = %d, stderr = %s", code, stderr)
+	}
+	if !strings.Contains(stdout, `FAIL trust  untrusted author "stranger" requires status in [Todo] (got "Backlog"); untrusted author "stranger" requires locked issue`) {
+		t.Fatalf("explain =\n%s", stdout)
+	}
+
+	useHerdrGH(t, githubWorkspaces, emptyTabs, emptyPRs)
+	stdout, stderr, code = runCmd(t, "show", "acme/widgets#10", "--config", cfgPath, "--db", dbPath)
+	if code != ExitOK || stderr != "" {
+		t.Fatalf("show exit = %d, stderr = %s", code, stderr)
+	}
+	for _, want := range []string{
+		"author: stranger\n",
+		"author_association: NONE\n",
+		"Trust:\n",
+		"  environment: untrusted\n",
+		"  author: stranger (NONE)\n",
+		"  locked: false\n",
+		`  status: FAIL (untrusted author "stranger" requires status in [Todo] (got "Backlog"); untrusted author "stranger" requires locked issue)`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("show missing %q\n%s", want, stdout)
 		}
 	}
 }

@@ -18,6 +18,7 @@ var ruleOrder = []Rule{
 	RuleLabels,
 	RuleAssignee,
 	RuleStatus,
+	RuleTrust,
 	RuleBlockers,
 	RuleParent,
 	RuleChildren,
@@ -30,7 +31,7 @@ var ruleOrder = []Rule{
 func TestRuleNames(t *testing.T) {
 	t.Parallel()
 
-	want := []string{"done", "type", "labels", "assignee", "status", "blockers", "parent", "children", "claimed", "tab", "pr", "not_before"}
+	want := []string{"done", "type", "labels", "assignee", "status", "trust", "blockers", "parent", "children", "claimed", "tab", "pr", "not_before"}
 	if len(ruleOrder) != len(want) {
 		t.Fatalf("rules = %d, want %d", len(ruleOrder), len(want))
 	}
@@ -75,6 +76,9 @@ func TestEvaluateRunsEveryRule(t *testing.T) {
 	it.Labels = []string{"needs-human"}
 	it.Assignee = "bob"
 	it.State = "In Progress"
+	it.Author = "mallory"
+	it.AuthorAssociation = "NONE"
+	cfg.Trust = config.Trust{Environment: config.TrustEnvUntrusted}
 	it.BlockedBy = []source.BlockRef{{ID: "PRJ-9"}}
 	later := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
 	it.NotBefore = &later
@@ -95,6 +99,7 @@ func TestEvaluateRunsEveryRule(t *testing.T) {
 		{Rule: RuleLabels, Detail: "missing agent-ready; excluded needs-human"},
 		{Rule: RuleAssignee, Detail: `assignee "bob", want empty or "alice"`},
 		{Rule: RuleStatus, Detail: `status "In Progress" not in ready_statuses`},
+		{Rule: RuleTrust, Detail: `untrusted author "mallory" requires status in [Todo] (got "In Progress"); untrusted author "mallory" requires locked issue`},
 		{Rule: RuleBlockers, Detail: "blocker PRJ-9 not in mirror"},
 		{Rule: RuleParent, Detail: "parent PRJ-100 is done"},
 		{Rule: RuleChildren, Detail: "has open child PRJ-2"},
@@ -976,5 +981,198 @@ func TestInProgressRule(t *testing.T) {
 		it.Labels = []string{"agent-ready", "agent-active"}
 		got := eval(t, it, snap, cfg, "jira")
 		assertRule(t, got, RuleLabels, false, "already in progress (agent-active)")
+	})
+}
+
+func TestRuleTrust(t *testing.T) {
+	t.Parallel()
+
+	t.Run("trusted environment ignores external author and lock", func(t *testing.T) {
+		t.Parallel()
+		it, snap, cfg := githubFixture()
+		cfg.Trust = config.Trust{Environment: config.TrustEnvTrusted}
+		it.State = "Backlog"
+		it.Author = "alice"
+		it.AuthorAssociation = "NONE"
+		it.Locked = false
+		got := eval(t, it, snap, cfg, "github")
+		assertRule(t, got, RuleTrust, true, "")
+		if !got.Ready {
+			t.Fatalf("Ready = false, checks = %+v", got.Checks)
+		}
+	})
+
+	t.Run("untrusted allows OWNER and me in Backlog and OPEN without lock", func(t *testing.T) {
+		t.Parallel()
+		for _, tc := range []struct {
+			name   string
+			author string
+			assoc  string
+			state  string
+		}{
+			{name: "OWNER in Backlog", author: "repo-owner", assoc: "OWNER", state: "Backlog"},
+			{name: "OWNER in OPEN", author: "repo-owner", assoc: "OWNER", state: "OPEN"},
+			{name: "me in Backlog", author: "jaeyeom", assoc: "NONE", state: "Backlog"},
+			{name: "me in OPEN", author: "jaeyeom", assoc: "CONTRIBUTOR", state: "OPEN"},
+			{name: "trusted_authors in Backlog", author: "trusted-bot", assoc: "NONE", state: "Backlog"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+				it, snap, cfg := githubFixture()
+				cfg.Trust = config.Trust{
+					Environment:    config.TrustEnvUntrusted,
+					TrustedAuthors: []string{"trusted-bot"},
+				}
+				it.State = tc.state
+				it.Author = tc.author
+				it.AuthorAssociation = tc.assoc
+				it.Locked = false
+				got := eval(t, it, snap, cfg, "github")
+				assertRule(t, got, RuleTrust, true, "")
+				if !got.Ready {
+					t.Fatalf("Ready = false, checks = %+v", got.Checks)
+				}
+			})
+		}
+	})
+
+	t.Run("untrusted blocks external author in Backlog and OPEN", func(t *testing.T) {
+		t.Parallel()
+		for _, state := range []string{"Backlog", "OPEN"} {
+			t.Run(state, func(t *testing.T) {
+				t.Parallel()
+				it, snap, cfg := githubFixture()
+				cfg.Trust = config.Trust{Environment: config.TrustEnvUntrusted}
+				it.State = state
+				it.Author = "stranger"
+				it.AuthorAssociation = "NONE"
+				it.Locked = true
+				got := eval(t, it, snap, cfg, "github")
+				assertRule(t, got, RuleTrust, false, `untrusted author "stranger" requires status in [Todo] (got "`+state+`")`)
+				if got.Ready {
+					t.Fatal("Ready = true, want false")
+				}
+				open, blocked, notEligible := Classify(got)
+				if open != 1 || blocked != 0 || notEligible != 1 {
+					t.Fatalf("Classify = (%d, %d, %d), want (1, 0, 1)", open, blocked, notEligible)
+				}
+			})
+		}
+	})
+
+	t.Run("untrusted MEMBER and COLLABORATOR are not trusted by default", func(t *testing.T) {
+		t.Parallel()
+		for _, assoc := range []string{"MEMBER", "COLLABORATOR"} {
+			t.Run(assoc, func(t *testing.T) {
+				t.Parallel()
+				it, snap, cfg := githubFixture()
+				cfg.Trust = config.Trust{Environment: config.TrustEnvUntrusted}
+				it.State = "Backlog"
+				it.Author = "someone"
+				it.AuthorAssociation = assoc
+				it.Locked = true
+				got := eval(t, it, snap, cfg, "github")
+				assertRule(t, got, RuleTrust, false, `untrusted author "someone" requires status in [Todo] (got "Backlog")`)
+			})
+		}
+	})
+
+	t.Run("untrusted Todo unlocked blocked when locked guard enabled, allowed when locked", func(t *testing.T) {
+		t.Parallel()
+		it, snap, cfg := githubFixture()
+		cfg.Trust = config.Trust{Environment: config.TrustEnvUntrusted}
+		it.State = "Todo"
+		it.Author = "stranger"
+		it.AuthorAssociation = "NONE"
+		it.Locked = false
+		got := eval(t, it, snap, cfg, "github")
+		assertRule(t, got, RuleTrust, false, `untrusted author "stranger" requires locked issue`)
+		if got.Ready {
+			t.Fatal("Ready = true, want false")
+		}
+
+		it.Locked = true
+		got = eval(t, it, snap, cfg, "github")
+		assertRule(t, got, RuleTrust, true, "")
+		if !got.Ready {
+			t.Fatalf("Ready = false, checks = %+v", got.Checks)
+		}
+	})
+
+	t.Run("empty guards disables tamper guard while keeping status gating", func(t *testing.T) {
+		t.Parallel()
+		it, snap, cfg := githubFixture()
+		cfg.Trust = config.Trust{
+			Environment: config.TrustEnvUntrusted,
+			Guards:      []string{},
+		}
+		it.State = "Todo"
+		it.Author = "stranger"
+		it.AuthorAssociation = "NONE"
+		it.Locked = false
+		got := eval(t, it, snap, cfg, "github")
+		assertRule(t, got, RuleTrust, true, "")
+		if !got.Ready {
+			t.Fatalf("Ready = false, checks = %+v", got.Checks)
+		}
+
+		it.State = "Backlog"
+		got = eval(t, it, snap, cfg, "github")
+		assertRule(t, got, RuleTrust, false, `untrusted author "stranger" requires status in [Todo] (got "Backlog")`)
+	})
+
+	t.Run("empty untrusted_ready_statuses blocks all external issues", func(t *testing.T) {
+		t.Parallel()
+		it, snap, cfg := githubFixture()
+		cfg.Trust = config.Trust{
+			Environment:            config.TrustEnvUntrusted,
+			UntrustedReadyStatuses: []string{},
+		}
+		it.State = "Todo"
+		it.Author = "stranger"
+		it.Locked = true
+		got := eval(t, it, snap, cfg, "github")
+		assertRule(t, got, RuleTrust, false, `untrusted author "stranger" is blocked (untrusted_ready_statuses is empty)`)
+	})
+
+	t.Run("deleted author with empty string is treated as untrusted", func(t *testing.T) {
+		t.Parallel()
+		it, snap, cfg := githubFixture()
+		cfg.Trust = config.Trust{Environment: config.TrustEnvUntrusted}
+		snap.Me = ""
+		it.State = "Todo"
+		it.Author = ""
+		it.AuthorAssociation = ""
+		it.Locked = false
+		got := eval(t, it, snap, cfg, "github")
+		assertRule(t, got, RuleTrust, false, `untrusted author "" requires locked issue`)
+	})
+
+	t.Run("approved_hash guard alone is unsatisfied until #1238", func(t *testing.T) {
+		t.Parallel()
+		it, snap, cfg := githubFixture()
+		cfg.Trust = config.Trust{
+			Environment: config.TrustEnvUntrusted,
+			Guards:      []string{config.TrustGuardApprovedHash},
+		}
+		it.State = "Todo"
+		it.Author = "stranger"
+		it.Locked = true
+		got := eval(t, it, snap, cfg, "github")
+		assertRule(t, got, RuleTrust, false, `untrusted author "stranger" requires approved_hash`)
+	})
+
+	t.Run("locked satisfies OR of locked and approved_hash", func(t *testing.T) {
+		t.Parallel()
+		it, snap, cfg := githubFixture()
+		cfg.Trust = config.Trust{
+			Environment: config.TrustEnvUntrusted,
+			Guards:      []string{config.TrustGuardLocked, config.TrustGuardApprovedHash},
+		}
+		it.State = "Todo"
+		it.Author = "stranger"
+		it.Locked = true
+		got := eval(t, it, snap, cfg, "github")
+		assertRule(t, got, RuleTrust, true, "")
 	})
 }

@@ -483,6 +483,9 @@ type Source struct {
 	// and legacy claim_*/assignee_ok keys over the top-level [claim]. Load resolves it.
 	Claim Claim `toml:"claim"`
 
+	// Trust is the [source.trust] classification and untrusted-author gating config.
+	Trust Trust `toml:"trust"`
+
 	// PriorityRanks maps a Jira priority name to a rank.
 	// A name here overrides the built-in Highest..Lowest map.
 	PriorityRanks map[string]int `toml:"priority_ranks"`
@@ -1025,6 +1028,7 @@ type rawSource struct {
 	Lease           *rawLeasePrompt `toml:"lease"`
 	Output          *rawOutput      `toml:"output"`
 	Claim           *rawSourceClaim `toml:"claim"`
+	Trust           *rawTrust       `toml:"trust"`
 }
 
 func decodeRaw(data []byte) (rawConfig, error) {
@@ -1491,6 +1495,9 @@ func (raw rawSource) toSource(defaults Defaults) (Source, error) {
 		applyJiraDefaults(&src, raw)
 	case "github":
 		applyGitHubDefaults(&src, raw)
+	}
+	if err := resolveSourceTrust(&src, raw.Trust); err != nil {
+		return Source{}, err
 	}
 	maxAge, err := parseSourceMaxAge(src.Name, raw.MaxAge)
 	if err != nil {
