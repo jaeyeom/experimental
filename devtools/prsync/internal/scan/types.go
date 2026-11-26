@@ -1,6 +1,10 @@
 package scan
 
-import "time"
+import (
+	"time"
+
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/gh"
+)
 
 // Document is the outbound scan JSON document.
 type Document struct {
@@ -80,6 +84,33 @@ type PR struct {
 	// Labels are the label names, loaded only for job lanes. Not in scan
 	// JSON.
 	Labels []string `json:"-"`
+	// StaleWaive is set only when waive_comment_prefix is configured and the
+	// PR's latest waive comment covers an older head than HeadSHA.
+	StaleWaive *StaleWaive `json:"stale_waive,omitempty"` //nolint:tagliatelle // brief outbound contract
+
+	statusChecks   []gh.StatusCheck
+	statusCheckErr string
+	agentCWDs      []string
+}
+
+// StaleWaive classification values.
+const (
+	WaiveClassBaseOnly      = "base-only"
+	WaiveClassAuthorChanges = "author changes"
+)
+
+// StaleWaive describes a waive comment whose covered head commit has been
+// superseded by a newer head on the pull request.
+type StaleWaive struct {
+	OldHead       string   `json:"old_head"` //nolint:tagliatelle // brief outbound contract
+	NewHead       string   `json:"new_head"` //nolint:tagliatelle // brief outbound contract
+	Class         string   `json:"class"`
+	FailingChecks []string `json:"failing_checks"`           //nolint:tagliatelle // brief outbound contract
+	CommentID     string   `json:"comment_id,omitempty"`     //nolint:tagliatelle // brief outbound contract
+	CommentAuthor string   `json:"comment_author,omitempty"` //nolint:tagliatelle // brief outbound contract
+	CommentURL    string   `json:"comment_url,omitempty"`    //nolint:tagliatelle // brief outbound contract
+	CommentBody   string   `json:"comment_body,omitempty"`   //nolint:tagliatelle // brief outbound contract
+	Error         string   `json:"error,omitempty"`
 }
 
 // ActionMergeQueueFix is the scan action for an our-code merge-queue ejection.

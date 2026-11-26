@@ -329,3 +329,19 @@
 # Optional custom failure-marker template (in addition to built-in HTML
 # comment markers like <!-- prsync-failure kind=our-code head=... run=... -->):
 # failure_marker_template=
+
+# Stale CI waive detection and optional re-posting after base-only merges:
+# - waive_comment_prefix: exact first line that marks a waive comment
+#   (empty turns detection and re-posting off).
+# - waive_authors: space-separated logins whose waive comments count
+#   (empty means any author).
+# - waive_checks: comma-separated check names a waive may cover
+#   (re-posting requires a non-empty list).
+# - waive_repost: true to allow `prsync comment --repost-waives` on
+#   base-only heads (author changes is never re-posted).
+# - waive_max_per_pr: maximum waive re-posts per PR (default 3).
+# waive_comment_prefix=
+# waive_authors=
+# waive_checks=
+# waive_repost=false
+# waive_max_per_pr=3

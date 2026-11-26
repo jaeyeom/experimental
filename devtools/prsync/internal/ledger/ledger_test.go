@@ -75,3 +75,66 @@ func TestStoreAppendQueryDedupeAndDailyCap(t *testing.T) {
 		t.Fatalf("FormatLines() = %q", lines)
 	}
 }
+
+func TestWaiveRepostLedgerDedupeCapAndFormat(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "ledger.jsonl")
+	s := &Store{Path: path}
+	day := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
+
+	if err := s.Append(Entry{
+		PR:         "acme/widgets#12",
+		HeadSHA:    "newhead1111111",
+		OldHeadSHA: "oldhead0000000",
+		NewHeadSHA: "newhead1111111",
+		CommentID:  "987654",
+		Kind:       KindWaiveRepost,
+		Time:       day,
+		Outcome:    OutcomeDispatched,
+	}); err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+	// A failed attempt must neither dedupe nor count toward the cap.
+	if err := s.Append(Entry{
+		PR:         "acme/widgets#12",
+		HeadSHA:    "newhead2222222",
+		OldHeadSHA: "newhead1111111",
+		NewHeadSHA: "newhead2222222",
+		Kind:       KindWaiveRepost,
+		Time:       day.Add(time.Minute),
+		Outcome:    OutcomeFailed,
+	}); err != nil {
+		t.Fatalf("Append(failed) error = %v", err)
+	}
+
+	// Reload from disk to confirm restart persistence.
+	reloaded := &Store{Path: path}
+	deduped, err := reloaded.HasWaiveReposted("acme/widgets#12", "newhead1111111")
+	if err != nil || !deduped {
+		t.Fatalf("HasWaiveReposted(newhead1) = %v, %v, want true", deduped, err)
+	}
+	deduped, err = reloaded.HasWaiveReposted("acme/widgets#12", "newhead2222222")
+	if err != nil || deduped {
+		t.Fatalf("HasWaiveReposted(failed head) = %v, %v, want false", deduped, err)
+	}
+	count, err := reloaded.CountWaiveReposts("acme/widgets#12")
+	if err != nil || count != 1 {
+		t.Fatalf("CountWaiveReposts() = %d, %v, want 1", count, err)
+	}
+	// Waive re-posts do not consume the policy daily dispatch cap.
+	today, err := reloaded.CountToday(day)
+	if err != nil || today != 0 {
+		t.Fatalf("CountToday() = %d, %v, want 0", today, err)
+	}
+
+	entries, err := reloaded.Query(Filter{PR: "acme/widgets#12", Kind: KindWaiveRepost})
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("Query() = %+v, %v", entries, err)
+	}
+	lines := FormatLines(entries[:1])
+	for _, want := range []string{"acme/widgets#12", KindWaiveRepost, "oldhead0000000", "newhead1111111", "987654"} {
+		if !strings.Contains(lines, want) {
+			t.Fatalf("FormatLines() = %q, missing %q", lines, want)
+		}
+	}
+}

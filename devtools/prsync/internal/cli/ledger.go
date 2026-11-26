@@ -56,7 +56,7 @@ func newLedgerCmd(stdout io.Writer) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
 	cmd.Flags().StringVar(&pr, "pr", "", "filter by owner/repo#N")
-	cmd.Flags().StringVar(&kind, "kind", "", "filter by kind (catch-up, rebase, nit-reply, ci-fix, queue-fix)")
+	cmd.Flags().StringVar(&kind, "kind", "", "filter by kind (catch-up, rebase, nit-reply, ci-fix, queue-fix, waive-repost)")
 	cmd.Flags().StringVar(&head, "head", "", "filter by head SHA")
 	cmd.Flags().IntVar(&limit, "limit", 0, "show only the last N matching entries")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "output entries as JSON")

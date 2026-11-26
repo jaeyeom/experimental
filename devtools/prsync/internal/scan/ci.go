@@ -15,20 +15,10 @@ func CIState(checks []gh.StatusCheck) string {
 	}
 	hasPending := false
 	for _, check := range checks {
-		switch check.State {
-		case "FAILURE", "ERROR":
-			return "failing"
-		case "PENDING", "EXPECTED":
-			hasPending = true
-			continue
-		case "SUCCESS":
-			continue
-		}
-		switch check.Conclusion {
-		case "FAILURE", "CANCELLED", "ACTION_REQUIRED", "TIMED_OUT":
+		if isFailingCheck(check) {
 			return "failing"
 		}
-		if check.Status != "COMPLETED" {
+		if isPendingCheck(check) {
 			hasPending = true
 		}
 	}
@@ -36,6 +26,27 @@ func CIState(checks []gh.StatusCheck) string {
 		return "pending"
 	}
 	return "green"
+}
+
+func isFailingCheck(check gh.StatusCheck) bool {
+	if check.State == "FAILURE" || check.State == "ERROR" {
+		return true
+	}
+	switch check.Conclusion {
+	case "FAILURE", "CANCELLED", "ACTION_REQUIRED", "TIMED_OUT":
+		return true
+	}
+	return false
+}
+
+func isPendingCheck(check gh.StatusCheck) bool {
+	switch check.State {
+	case "PENDING", "EXPECTED":
+		return true
+	case "SUCCESS", "FAILURE", "ERROR":
+		return false
+	}
+	return check.Status != "COMPLETED"
 }
 
 // selectCIChecks returns the rollup entries that feed CIState.

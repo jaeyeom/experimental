@@ -76,6 +76,9 @@ func newScanCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 				if werr := writeTeamCoverHints(cmd.ErrOrStderr(), doc); werr != nil {
 					return werr
 				}
+				if werr := writeStaleWaives(cmd.ErrOrStderr(), doc); werr != nil {
+					return werr
+				}
 				if werr := writeOutOfScopeCount(cmd.ErrOrStderr(), outOfScope, cfg.TabMachine); werr != nil {
 					return werr
 				}
@@ -156,8 +159,27 @@ func scanDeps(ctx context.Context, exec executor.Executor, cfg config.Config, h 
 		History: cache,
 		Rounds:  cache,
 		Threads: cache,
+		RepoResolver: func(repo string) string {
+			if top := dispatch.CheckoutOfCWD(); top != "" {
+				if got, err := scan.GitHubRepoFromCWD(top); err == nil && got == repo {
+					return top
+				}
+			}
+			return ""
+		},
 	}
 	return deps, save
+}
+
+func writeStaleWaives(w io.Writer, doc scan.Document) error {
+	text := scan.FormatStaleWaiveLines(doc)
+	if text == "" {
+		return nil
+	}
+	if _, err := io.WriteString(w, text); err != nil {
+		return fmt.Errorf("write stale waives: %w", err)
+	}
+	return nil
 }
 
 // loadRoundCache loads the round cache with cfg's TTLs and returns a func

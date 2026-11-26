@@ -10,6 +10,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/dispatch"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/ledger"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
 )
 
@@ -419,13 +420,247 @@ func liveStore(t *testing.T) dispatch.FileStore {
 }
 
 type fakeGH struct {
-	calls []commentCall
-	err   error
+	calls     []commentCall
+	commentID string
+	err       error
 }
 
 func (f *fakeGH) CommentPR(_ context.Context, repo string, number int, body string) error {
 	f.calls = append(f.calls, commentCall{repo: repo, number: number, body: body})
 	return f.err
+}
+
+func (f *fakeGH) CommentPRWithID(_ context.Context, repo string, number int, body string) (string, error) {
+	f.calls = append(f.calls, commentCall{repo: repo, number: number, body: body})
+	if f.err != nil {
+		return "", f.err
+	}
+	return f.commentID, nil
+}
+
+func waiveCfg(repost bool) config.Config {
+	cfg := config.Defaults()
+	cfg.WaiveCommentPrefix = "/waive"
+	cfg.WaiveChecks = []string{"ci/flake"}
+	cfg.WaiveRepost = repost
+	return cfg
+}
+
+func staleWaivePR(repo string, number int, oldHead, newHead, class string, failing []string, body string) scan.PR {
+	p := pr(repo, number, true)
+	p.HeadSHA = newHead
+	p.StaleWaive = &scan.StaleWaive{
+		OldHead:       oldHead,
+		NewHead:       newHead,
+		Class:         class,
+		FailingChecks: failing,
+		CommentID:     "100",
+		CommentBody:   body,
+	}
+	return p
+}
+
+func TestWaiveRepostOffByDefault(t *testing.T) {
+	t.Parallel()
+
+	cfg := waiveCfg(false)
+	cfg.DryRun = false
+	g := &fakeGH{commentID: "777"}
+	lgr := &ledger.Store{Path: filepath.Join(t.TempDir(), "ledger.jsonl")}
+	p := staleWaivePR("acme/widgets", 123, "old1", "new1", scan.WaiveClassBaseOnly, []string{"ci/flake"}, "/waive\nreason\n")
+	got, err := Run(context.Background(), g, liveStore(t), cfg, Request{
+		Doc:          scan.Document{PRs: []scan.PR{p}},
+		RepostWaives: true,
+		Ledger:       lgr,
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionSkippedWaiveDisabled {
+		t.Fatalf("results = %+v, want skipped_waive_disabled", got.Results)
+	}
+	if len(g.calls) != 0 {
+		t.Fatalf("CommentPR called when waive_repost=false: %+v", g.calls)
+	}
+}
+
+func TestWaiveRepostRequiresWaiveChecksAndFailingCheckAndBaseOnly(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		checks     []string
+		class      string
+		failing    []string
+		wantAction string
+	}{
+		{
+			name:       "empty waive_checks refuses repost",
+			checks:     nil,
+			class:      scan.WaiveClassBaseOnly,
+			failing:    []string{"ci/flake"},
+			wantAction: dispatch.ActionSkippedWaiveDisabled,
+		},
+		{
+			name:       "author changes never reposted",
+			checks:     []string{"ci/flake"},
+			class:      scan.WaiveClassAuthorChanges,
+			failing:    []string{"ci/flake"},
+			wantAction: dispatch.ActionSkippedAuthorChanges,
+		},
+		{
+			name:       "unrelated failing check does not repost",
+			checks:     []string{"ci/flake"},
+			class:      scan.WaiveClassBaseOnly,
+			failing:    []string{"ci/build"},
+			wantAction: dispatch.ActionSkippedNoFailingWaivedChecks,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := waiveCfg(true)
+			cfg.DryRun = false
+			cfg.WaiveChecks = tc.checks
+			g := &fakeGH{commentID: "777"}
+			p := staleWaivePR("acme/widgets", 123, "old1", "new1", tc.class, tc.failing, "/waive\n")
+			got, err := Run(context.Background(), g, liveStore(t), cfg, Request{
+				Doc:          scan.Document{PRs: []scan.PR{p}},
+				RepostWaives: true,
+				Ledger:       &ledger.Store{Path: filepath.Join(t.TempDir(), "ledger.jsonl")},
+			}, fixtureNow)
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if len(got.Results) != 1 || got.Results[0].Action != tc.wantAction {
+				t.Fatalf("results = %+v, want %q", got.Results, tc.wantAction)
+			}
+			if len(g.calls) != 0 {
+				t.Fatalf("CommentPR called unexpectedly: %+v", g.calls)
+			}
+		})
+	}
+}
+
+func TestWaiveRepostDryRunExactBodyAndNoWrites(t *testing.T) {
+	t.Parallel()
+
+	cfg := waiveCfg(true) // DryRun is true by default.
+	g := &fakeGH{commentID: "777"}
+	store := liveStore(t)
+	lgr := &ledger.Store{Path: filepath.Join(t.TempDir(), "ledger.jsonl")}
+	origBody := "/waive\r\n  flaky integration test\nSee run #42\n"
+	p := staleWaivePR("acme/widgets", 123, "old1", "new1", scan.WaiveClassBaseOnly, []string{"ci/flake"}, origBody)
+
+	got, err := Run(context.Background(), g, store, cfg, Request{
+		Doc:          scan.Document{PRs: []scan.PR{p}},
+		RepostWaives: true,
+		Ledger:       lgr,
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !got.DryRun || len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionWouldDispatch {
+		t.Fatalf("got = %+v", got)
+	}
+	if got.Results[0].RenderedPrompt != origBody {
+		t.Fatalf("rendered_prompt = %q, want byte-identical %q", got.Results[0].RenderedPrompt, origBody)
+	}
+	if len(g.calls) != 0 {
+		t.Fatalf("CommentPR called on dry-run: %+v", g.calls)
+	}
+	entries, err := lgr.Load()
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("ledger written on dry-run: %+v, %v", entries, err)
+	}
+}
+
+func TestWaiveRepostLiveLedgerDedupeAndCapAcrossRestarts(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	ledgerPath := filepath.Join(dir, "ledger.jsonl")
+	cfg := waiveCfg(true)
+	cfg.DryRun = false
+	cfg.WaiveMaxPerPR = 2
+	origBody := "/waive\nknown flake  \nkeep exact bytes\n"
+
+	g := &fakeGH{commentID: "501"}
+	p1 := staleWaivePR("acme/widgets", 123, "head0", "head1", scan.WaiveClassBaseOnly, []string{"ci/flake"}, origBody)
+	got, err := Run(context.Background(), g, liveStore(t), cfg, Request{
+		Doc:          scan.Document{PRs: []scan.PR{p1}},
+		RepostWaives: true,
+		Ledger:       &ledger.Store{Path: ledgerPath},
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("first Run() error = %v", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionDispatched {
+		t.Fatalf("first results = %+v, want dispatched", got.Results)
+	}
+	if len(g.calls) != 1 || g.calls[0].body != origBody {
+		t.Fatalf("posted = %+v, want exact body %q", g.calls, origBody)
+	}
+
+	// Simulate restart with fresh state_file and reloaded ledger: same head must dedupe.
+	restartedLedger := &ledger.Store{Path: ledgerPath}
+	got2, err := Run(context.Background(), g, liveStore(t), cfg, Request{
+		Doc:          scan.Document{PRs: []scan.PR{p1}},
+		RepostWaives: true,
+		Ledger:       restartedLedger,
+	}, fixtureNow.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("dedupe Run() error = %v", err)
+	}
+	if len(got2.Results) != 1 || got2.Results[0].Action != dispatch.ActionSkippedDeduped {
+		t.Fatalf("dedupe results = %+v, want skipped_deduped", got2.Results)
+	}
+	if len(g.calls) != 1 {
+		t.Fatalf("calls = %d, want 1", len(g.calls))
+	}
+
+	// Second base-only head succeeds (count becomes 2 == waive_max_per_pr).
+	g.commentID = "502"
+	p2 := staleWaivePR("acme/widgets", 123, "head1", "head2", scan.WaiveClassBaseOnly, []string{"ci/flake"}, origBody)
+	got3, err := Run(context.Background(), g, liveStore(t), cfg, Request{
+		Doc:          scan.Document{PRs: []scan.PR{p2}},
+		RepostWaives: true,
+		Ledger:       &ledger.Store{Path: ledgerPath},
+	}, fixtureNow.Add(2*time.Minute))
+	if err != nil {
+		t.Fatalf("second head Run() error = %v", err)
+	}
+	if len(got3.Results) != 1 || got3.Results[0].Action != dispatch.ActionDispatched {
+		t.Fatalf("second head results = %+v, want dispatched", got3.Results)
+	}
+
+	// Third base-only head hits waive_max_per_pr=2 cap.
+	p3 := staleWaivePR("acme/widgets", 123, "head2", "head3", scan.WaiveClassBaseOnly, []string{"ci/flake"}, origBody)
+	got4, err := Run(context.Background(), g, liveStore(t), cfg, Request{
+		Doc:          scan.Document{PRs: []scan.PR{p3}},
+		RepostWaives: true,
+		Ledger:       &ledger.Store{Path: ledgerPath},
+	}, fixtureNow.Add(3*time.Minute))
+	if err != nil {
+		t.Fatalf("cap Run() error = %v", err)
+	}
+	if len(got4.Results) != 1 || got4.Results[0].Action != dispatch.ActionSkippedWaiveCap {
+		t.Fatalf("cap results = %+v, want skipped_waive_cap", got4.Results)
+	}
+	if len(g.calls) != 2 {
+		t.Fatalf("calls = %d, want 2", len(g.calls))
+	}
+
+	entries, err := (&ledger.Store{Path: ledgerPath}).Load()
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("ledger entries = %+v, %v", entries, err)
+	}
+	if entries[0].OldHeadSHA != "head0" || entries[0].NewHeadSHA != "head1" || entries[0].CommentID != "501" {
+		t.Fatalf("entry[0] = %+v", entries[0])
+	}
+	if entries[1].OldHeadSHA != "head1" || entries[1].NewHeadSHA != "head2" || entries[1].CommentID != "502" {
+		t.Fatalf("entry[1] = %+v", entries[1])
+	}
 }
 
 func pr(repo string, number int, noTab bool) scan.PR {

@@ -95,11 +95,15 @@ prsync dispatch --config ./prsync.config --merge --pr acme/widgets#123 --go
 prsync dispatch --config ./prsync.config --ci-fix --hint 'job X failed: boom' --pr acme/widgets#123 --go
 #+end_src
 
-Post a conversation comment. No herdr tab is required:
+Post a conversation comment, or detect and re-post stale CI waives after
+base merges (with ~waive_comment_prefix~ and ~waive_repost=true~). No
+herdr tab is required:
 
 #+begin_src bash
 prsync comment --config ./prsync.config --pr acme/widgets#123 --body "please retry"
 prsync comment --config ./prsync.config --pr acme/widgets#123 --body "please retry" --go
+prsync comment --repost-waives --config ./prsync.config
+prsync comment --repost-waives --config ./prsync.config --go
 #+end_src
 
 Close tabs for merged pull requests. Without ~--go~ this only prints.
@@ -123,7 +127,7 @@ prsync tabs     --orphans [--config PATH] [--json] [--stdin] [--close-merged] [-
 prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--merge] [--ci-fix] [--hint TEXT] [--prompt-suffix TEXT] [--force] [--stdin] [--open-tabs] [--job ID] [--runner NAME] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
 prsync maintain [--config PATH] [--pr owner/repo#N ...] [--json] [--force] [--stdin]
 prsync ledger   [--config PATH] [--pr owner/repo#N] [--kind KIND] [--head SHA] [--limit N] [--json]
-prsync comment  [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--stdin] [--allow-duplicate] --body TEXT
+prsync comment  [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--stdin] [--allow-duplicate] [--repost-waives] [--body TEXT]
 prsync gate     [--config PATH] [--tab-machine M]
 prsync logs     [--path]
 prsync version  [--json]
@@ -167,8 +171,13 @@ are ~KEY=VALUE~. A ~#~ starts a comment. Unknown keys are ignored.
 | ~ci_fix_prompt_template~   | built-in        | Prompt used with ~dispatch --ci-fix~.                       |
 | ~ci_ignore_checks~         | empty           | Check names left out of ~ci_state~.                         |
 | ~ci_only_checks~           | empty           | When set, only these checks feed ~ci_state~.                |
-| ~dedupe_ttl~               | ~24h~           | How long the same comments stay deduped.                    |
-| ~dedupe_scans~             | ~0~             | Later scans that also expire dedupe. ~0~ ignores the count. |
+| ~dedupe_ttl~               | ~24h~           | How long the same comments stay deduped.                           |
+| ~dedupe_scans~             | ~0~             | Later scans that also expire dedupe. ~0~ ignores the count.        |
+| ~waive_comment_prefix~     | empty           | Exact first line marking a CI waive comment. Empty turns it off.   |
+| ~waive_authors~            | empty           | Space-separated logins whose waives count. Empty means any author. |
+| ~waive_checks~             | empty           | Comma-separated check names a waive covers (for re-posting).       |
+| ~waive_repost~             | ~false~         | Allow ~comment --repost-waives~ for ~base-only~ stale waives.      |
+| ~waive_max_per_pr~         | ~3~             | Cap on waive re-posts per PR.                                      |
 
 Every other key is in the [[file:docs/reference.org][reference]].
 

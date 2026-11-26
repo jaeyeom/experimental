@@ -362,9 +362,34 @@ func isPRNotFound(stderr string) bool {
 
 // CommentPR runs `gh pr comment <number> --repo <repo> --body <body>`.
 func (c *Client) CommentPR(ctx context.Context, repo string, number int, body string) error {
-	_, err := c.requireOK(ctx, defaultCallTimeout,
-		"pr", "comment", strconv.Itoa(number), "--repo", repo, "--body", body)
+	_, err := c.CommentPRWithID(ctx, repo, number, body)
 	return err
+}
+
+// CommentPRWithID posts a PR conversation comment via `gh pr comment` and
+// returns the created comment ID when present in gh output.
+func (c *Client) CommentPRWithID(ctx context.Context, repo string, number int, body string) (string, error) {
+	result, err := c.requireOK(ctx, defaultCallTimeout,
+		"pr", "comment", strconv.Itoa(number), "--repo", repo, "--body", body)
+	if err != nil {
+		return "", err
+	}
+	return parseCommentID(result.Output), nil
+}
+
+func parseCommentID(output string) string {
+	trimmed := strings.TrimSpace(output)
+	if trimmed == "" {
+		return ""
+	}
+	const marker = "#issuecomment-"
+	if idx := strings.LastIndex(trimmed, marker); idx >= 0 {
+		id := strings.TrimSpace(trimmed[idx+len(marker):])
+		if id != "" {
+			return id
+		}
+	}
+	return trimmed
 }
 
 // MarkerComments loads issue comments and the head commit time.

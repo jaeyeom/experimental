@@ -10,6 +10,7 @@ go_library(
         "retry.go",
         "teamcover.go",
         "types.go",
+        "waive.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/prsync/internal/gh",
     visibility = ["//devtools/prsync:__subpackages__"],
@@ -32,6 +33,7 @@ go_test(
         "teamcover_budget_test.go",
         "teamcover_split_test.go",
         "teamcover_test.go",
+        "waive_test.go",
     ],
     data = glob(
         ["*.go"],

@@ -1285,6 +1285,92 @@ func TestLoadGHBinPrecedence(t *testing.T) {
 	}
 }
 
+func TestWaiveConfigDefaultsAndParsing(t *testing.T) {
+	t.Parallel()
+
+	def := Defaults()
+	if def.WaiveCommentPrefix != "" {
+		t.Fatalf("WaiveCommentPrefix default = %q, want empty", def.WaiveCommentPrefix)
+	}
+	if len(def.WaiveAuthors) != 0 {
+		t.Fatalf("WaiveAuthors default = %v, want empty", def.WaiveAuthors)
+	}
+	if len(def.WaiveChecks) != 0 {
+		t.Fatalf("WaiveChecks default = %v, want empty", def.WaiveChecks)
+	}
+	if def.WaiveRepost {
+		t.Fatal("WaiveRepost default = true, want false")
+	}
+	if def.WaiveMaxPerPR != 3 {
+		t.Fatalf("WaiveMaxPerPR default = %d, want 3", def.WaiveMaxPerPR)
+	}
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "prsync.config")
+	mustWrite(t, cfgPath, strings.Join([]string{
+		`waive_comment_prefix="/waive"`,
+		`waive_authors=alice bob  carol`,
+		`waive_checks=ci/flake, Build (linux)`,
+		`waive_repost=true`,
+		`waive_max_per_pr=5`,
+	}, "\n")+"\n")
+
+	got, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+	if got.WaiveCommentPrefix != "/waive" {
+		t.Fatalf("WaiveCommentPrefix = %q, want /waive", got.WaiveCommentPrefix)
+	}
+	wantAuthors := []string{"alice", "bob", "carol"}
+	if !slices.Equal(got.WaiveAuthors, wantAuthors) {
+		t.Fatalf("WaiveAuthors = %v, want %v", got.WaiveAuthors, wantAuthors)
+	}
+	wantChecks := []string{"ci/flake", "Build (linux)"}
+	if !slices.Equal(got.WaiveChecks, wantChecks) {
+		t.Fatalf("WaiveChecks = %v, want %v", got.WaiveChecks, wantChecks)
+	}
+	if !got.WaiveRepost {
+		t.Fatal("WaiveRepost = false, want true")
+	}
+	if got.WaiveMaxPerPR != 5 {
+		t.Fatalf("WaiveMaxPerPR = %d, want 5", got.WaiveMaxPerPR)
+	}
+
+	// Zero cap is valid and disables re-posting via cap.
+	zeroPath := filepath.Join(dir, "zero.config")
+	mustWrite(t, zeroPath, "waive_max_per_pr=0\n")
+	zeroCfg, err := Load(zeroPath)
+	if err != nil {
+		t.Fatalf("Load(zero) unexpected error: %v", err)
+	}
+	if zeroCfg.WaiveMaxPerPR != 0 {
+		t.Fatalf("WaiveMaxPerPR = %d, want 0", zeroCfg.WaiveMaxPerPR)
+	}
+
+	// Invalid values return *KeyError naming the key.
+	for _, tc := range []struct {
+		name string
+		body string
+		key  string
+	}{
+		{name: "invalid waive_repost", body: "waive_repost=maybe\n", key: "waive_repost"},
+		{name: "negative waive_max_per_pr", body: "waive_max_per_pr=-1\n", key: "waive_max_per_pr"},
+		{name: "non-int waive_max_per_pr", body: "waive_max_per_pr=abc\n", key: "waive_max_per_pr"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := filepath.Join(t.TempDir(), "bad.config")
+			mustWrite(t, p, tc.body)
+			_, err := Load(p)
+			var keyErr *KeyError
+			if !errors.As(err, &keyErr) || keyErr.Key != tc.key {
+				t.Fatalf("Load(%q) error = %v, want KeyError(%s)", tc.body, err, tc.key)
+			}
+		})
+	}
+}
+
 func mustWrite(t *testing.T, path, body string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {

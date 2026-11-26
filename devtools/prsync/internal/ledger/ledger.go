@@ -15,6 +15,9 @@ import (
 	"time"
 )
 
+// KindWaiveRepost is the ledger kind for automated CI waive re-posts.
+const KindWaiveRepost = "waive-repost"
+
 // Outcome constants recorded in the dispatch ledger.
 const (
 	OutcomeDispatched = "dispatched"
@@ -27,12 +30,15 @@ const (
 
 // Entry is one dispatch ledger record.
 type Entry struct {
-	PR      string    `json:"pr"`
-	HeadSHA string    `json:"head_sha"` //nolint:tagliatelle // ledger wire format
-	Kind    string    `json:"kind"`
-	Time    time.Time `json:"time"`
-	Outcome string    `json:"outcome"`
-	Detail  string    `json:"detail,omitempty"`
+	PR         string    `json:"pr"`
+	HeadSHA    string    `json:"head_sha"`               //nolint:tagliatelle // ledger wire format
+	OldHeadSHA string    `json:"old_head_sha,omitempty"` //nolint:tagliatelle // ledger wire format
+	NewHeadSHA string    `json:"new_head_sha,omitempty"` //nolint:tagliatelle // ledger wire format
+	CommentID  string    `json:"comment_id,omitempty"`   //nolint:tagliatelle // ledger wire format
+	Kind       string    `json:"kind"`
+	Time       time.Time `json:"time"`
+	Outcome    string    `json:"outcome"`
+	Detail     string    `json:"detail,omitempty"`
 }
 
 // Filter narrows ledger query results. Zero fields match everything.
@@ -177,6 +183,42 @@ func (s *Store) HasDispatched(pr, headSHA, kind string) (bool, error) {
 	return false, nil
 }
 
+// HasWaiveReposted reports whether pr already has a live waive re-post
+// recorded for headSHA. An empty headSHA never matches.
+func (s *Store) HasWaiveReposted(pr, headSHA string) (bool, error) {
+	if headSHA == "" {
+		return false, nil
+	}
+	entries, err := s.Load()
+	if err != nil {
+		return false, err
+	}
+	for _, e := range entries {
+		if e.PR != pr || e.Kind != KindWaiveRepost || !countsAsDispatched(e.Outcome) {
+			continue
+		}
+		if e.NewHeadSHA == headSHA || e.HeadSHA == headSHA {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// CountWaiveReposts returns how many live waive re-posts are recorded for pr.
+func (s *Store) CountWaiveReposts(pr string) (int, error) {
+	entries, err := s.Load()
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, e := range entries {
+		if e.PR == pr && e.Kind == KindWaiveRepost && countsAsDispatched(e.Outcome) {
+			count++
+		}
+	}
+	return count, nil
+}
+
 // CountToday returns how many live dispatches occurred on the same UTC date as now.
 func (s *Store) CountToday(now time.Time) (int, error) {
 	entries, err := s.Load()
@@ -186,7 +228,7 @@ func (s *Store) CountToday(now time.Time) (int, error) {
 	y, m, d := now.UTC().Date()
 	count := 0
 	for _, e := range entries {
-		if !countsTowardDailyCap(e.Outcome) {
+		if e.Kind == KindWaiveRepost || !countsTowardDailyCap(e.Outcome) {
 			continue
 		}
 		ey, em, ed := e.Time.UTC().Date()
@@ -220,6 +262,15 @@ func FormatLines(entries []Entry) string {
 			sha,
 			e.Outcome,
 		)
+		if e.OldHeadSHA != "" {
+			line += "  old_head=" + e.OldHeadSHA
+		}
+		if e.NewHeadSHA != "" {
+			line += "  new_head=" + e.NewHeadSHA
+		}
+		if e.CommentID != "" {
+			line += "  comment_id=" + e.CommentID
+		}
 		if e.Detail != "" {
 			line += "  " + e.Detail
 		}

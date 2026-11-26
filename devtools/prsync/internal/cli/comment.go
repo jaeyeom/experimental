@@ -12,6 +12,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/dispatch"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/gh"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/ledger"
 	executor "github.com/jaeyeom/go-cmdexec"
 	"github.com/spf13/cobra"
 )
@@ -25,17 +26,18 @@ func newCommentCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 		readStdin      bool
 		body           string
 		allowDuplicate bool
+		repostWaives   bool
 	)
 	cmd := &cobra.Command{
 		Use:   "comment",
 		Short: "Post a PR comment via gh (no herdr tab)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			resolved, err := resolveCommentBody(body, cmd.Flags().Changed("body"))
+			resolved, err := resolveCommentOptions(body, cmd.Flags().Changed("body"), repostWaives, allowDuplicate)
 			if err != nil {
 				return &ExitError{Code: ExitUsage, Err: err}
 			}
-			return runComment(cmd.Context(), stdout, exec, configPath, prs, all, goLive, readStdin, allowDuplicate, resolved)
+			return runComment(cmd.Context(), stdout, cmd.ErrOrStderr(), exec, configPath, prs, all, goLive, readStdin, allowDuplicate, repostWaives, resolved)
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
@@ -45,10 +47,11 @@ func newCommentCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	cmd.Flags().BoolVar(&readStdin, "stdin", false, "read a scan document from stdin (otherwise self-scan)")
 	cmd.Flags().StringVar(&body, "body", "", "comment body text")
 	cmd.Flags().BoolVar(&allowDuplicate, "allow-duplicate", false, "post even if dedupe state would skip")
+	cmd.Flags().BoolVar(&repostWaives, "repost-waives", false, "re-post stale base-only CI waive comments (requires waive_repost=true)")
 	return cmd
 }
 
-func runComment(ctx context.Context, stdout io.Writer, exec executor.Executor, configPath string, prs []string, all, goLive, readStdin, allowDuplicate bool, body string) error {
+func runComment(ctx context.Context, stdout, stderr io.Writer, exec executor.Executor, configPath string, prs []string, all, goLive, readStdin, allowDuplicate, repostWaives bool, body string) error {
 	if all && len(prs) > 0 {
 		return &ExitError{Code: ExitUsage, Err: errors.New("cannot combine --pr and --all")}
 	}
@@ -74,12 +77,31 @@ func runComment(ctx context.Context, stdout io.Writer, exec executor.Executor, c
 		PRs:            prs,
 		Body:           body,
 		AllowDuplicate: allowDuplicate,
+		RepostWaives:   repostWaives,
+		Ledger:         &ledger.Store{Path: cfg.Policy.LedgerFile},
 	}, time.Now())
 	if writeErr := writeDispatchJSON(stdout, out); writeErr != nil {
 		return writeErr
 	}
+	if repostWaives && cfg.DryRun {
+		if werr := writeWaiveDryRunSummary(stderr, out); werr != nil {
+			return werr
+		}
+	}
 	if err != nil {
 		return commentExit(err, cfg)
+	}
+	return nil
+}
+
+func writeWaiveDryRunSummary(w io.Writer, doc dispatch.Document) error {
+	for _, item := range doc.Results {
+		if item.Action != dispatch.ActionWouldDispatch {
+			continue
+		}
+		if _, err := fmt.Fprintf(w, "would post to %s#%d (%s):\n%s\n", item.Repo, item.Number, item.Detail, item.RenderedPrompt); err != nil {
+			return fmt.Errorf("write waive dry-run summary: %w", err)
+		}
 	}
 	return nil
 }
@@ -94,7 +116,16 @@ func commentExit(err error, cfg config.Config) error {
 	return scanExit(err, cfg)
 }
 
-func resolveCommentBody(body string, bodySet bool) (string, error) {
+func resolveCommentOptions(body string, bodySet, repostWaives, allowDuplicate bool) (string, error) {
+	if repostWaives {
+		if bodySet {
+			return "", errors.New("cannot combine --repost-waives and --body")
+		}
+		if allowDuplicate {
+			return "", errors.New("cannot combine --repost-waives and --allow-duplicate")
+		}
+		return "", nil
+	}
 	if !bodySet {
 		return "", errors.New("require --body")
 	}

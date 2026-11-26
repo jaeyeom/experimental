@@ -187,3 +187,35 @@ type PathHistory struct {
 	Authors   []string
 	Reviewers []string
 }
+
+// WaiveComment is one PR conversation comment considered for CI waives.
+type WaiveComment struct {
+	ID        string
+	Author    string
+	Body      string
+	URL       string
+	CreatedAt time.Time
+}
+
+// PRCommit is one commit on a pull request branch.
+type PRCommit struct {
+	OID         string
+	CommittedAt time.Time
+	PushedAt    time.Time
+	Parents     []string
+}
+
+// ForcePushEvent is a HEAD_REF_FORCE_PUSHED_EVENT on a pull request timeline.
+type ForcePushEvent struct {
+	CreatedAt time.Time
+	BeforeOID string
+	AfterOID  string
+}
+
+// WaiveTimeline holds the comments, commits, and force-push events used to
+// detect and classify stale CI waives on a pull request.
+type WaiveTimeline struct {
+	Comments    []WaiveComment
+	Commits     []PRCommit
+	ForcePushes []ForcePushEvent
+}

@@ -8,7 +8,7 @@ The short guide is [[file:../README.org][the prsync README]].
 prsync scan     [--config PATH] [--repo owner/repo ...] [--json] [--in-scope] [--emit-jobs] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
 prsync tabs     --orphans [--config PATH] [--json] [--stdin] [--close-merged] [--go] [--force] [--tab-machine M]
 prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--merge] [--ci-fix] [--hint TEXT] [--prompt-suffix TEXT] [--force] [--stdin] [--open-tabs] [--job ID] [--runner NAME] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
-prsync comment  [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--stdin] [--allow-duplicate] --body TEXT
+prsync comment  [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--stdin] [--allow-duplicate] [--repost-waives] [--body TEXT]
 prsync gate     [--config PATH] [--tab-machine M]
 prsync logs     [--path]
 prsync version
@@ -33,8 +33,9 @@ prsync version
 | ~--prompt-suffix TEXT~ | dispatch | Append TEXT after a blank line to every prompt. Overrides ~dispatch_prompt_suffix~ for this run |
 | ~--force~ | dispatch, tabs | dispatch: re-dispatch even if dedupe would skip. tabs: allow ~--close-merged~ when every orphan is ~no_pr~ or ~unknown~ |
 | ~--stdin~ | tabs, dispatch, comment | Read a scan document from a pipe or redirected file. Absent a document: tabs self-resolve; comment and bare dispatch self-scan; ~dispatch --pr~ fetches those PRs |
-| ~--body TEXT~ | comment | Comment body to post (required) |
+| ~--body TEXT~ | comment | Comment body to post (required unless ~--repost-waives~ is set) |
 | ~--allow-duplicate~ | comment | Post even if the same ~(repo, number, head_sha, body)~ was already recorded |
+| ~--repost-waives~ | comment | Re-post byte-identical waive comments for ~base-only~ stale waives when waived checks fail (requires ~waive_repost=true~ and non-empty ~waive_checks~) |
 | ~--path~ | logs | Print the run-log file path as JSON instead of dumping the file |
 | ~--tab-machine M~ | scan, dispatch, tabs, gate | Scope the run to PRs whose tab is on ~M~: ~local~ or one of ~machines~. ~gate~ (and dispatch's gate) then checks ~M~'s checkout and agents. Overrides ~tab_machine~. See [[file:multi-machine.org::*One watcher per machine][One watcher per machine]] |
 | ~--untabbed include~ / ~exclude~ | scan, dispatch | Whether PRs with no tab belong to this run. Overrides ~untabbed~ |
@@ -51,7 +52,9 @@ a merge or no force-push (~--force~ does not bypass it);
 a ~--tab-machine~ that is neither ~local~ nor in ~machines~; an
 ~--untabbed~ other than ~include~ or ~exclude~; an unknown ~--skip~ job;
 ~--job~ with ~--pr~, ~--all~, a prompt-mode flag, ~--hint~, ~--force~,
-or ~--stdin~; ~--runner~ without ~--job~.
+or ~--stdin~; ~--runner~ without ~--job~; neither ~--body~ nor
+~--repost-waives~ on ~comment~; ~--repost-waives~ with ~--body~ or
+~--allow-duplicate~.
 
 ~--go~ always sends (or, with ~--close-merged~, closes). ~dry_run=false~
 in the config also sends / closes without ~--go~ (for cron); ~tabs~
@@ -176,6 +179,11 @@ Environment variables are not expanded.
 | ~team_cover_load_ttl~           | ~1h~                                                                                                                                                                                                                                         | How long a person's open-review count is reused. See [[file:team-cover.org::*team_cover_load_ttl][details]].                                                    |
 | ~team_cover_members_ttl~        | ~24h~                                                                                                                                                                                                                                        | How long a team's member list is reused. See [[file:team-cover.org::*team_cover_members_ttl][details]].                                                         |
 | ~team_cover_codeowners_ttl~     | ~6h~                                                                                                                                                                                                                                         | How long a repository CODEOWNERS file is reused. See [[file:team-cover.org::*team_cover_codeowners_ttl][details]].                                              |
+| ~waive_comment_prefix~          | empty                                                                                                                                                                                                                                        | Exact first line (~\r~ trimmed) that marks a CI waive comment. Empty turns stale-waive detection and re-posting off.                                             |
+| ~waive_authors~                 | empty                                                                                                                                                                                                                                        | Space-separated GitHub logins (matched case-insensitively) whose waive comments count. Empty means any author.                                                   |
+| ~waive_checks~                  | empty                                                                                                                                                                                                                                        | Comma-separated CheckRun names or StatusContext contexts a waive may cover. Re-posting requires a non-empty list.                                                |
+| ~waive_repost~                  | ~false~                                                                                                                                                                                                                                      | Allow ~prsync comment --repost-waives~ to re-post for ~base-only~ heads. ~author changes~ is never re-posted.                                                    |
+| ~waive_max_per_pr~              | ~3~                                                                                                                                                                                                                                          | Maximum automated waive re-posts per PR (counted from ~waive-repost~ ledger entries; ~0~ disables re-posting).                                                   |
 
 Default prompt text (checkout ~{head}~, mechanical vs judgment-call
 triage, reply on every thread and resolve unless that reply asks the
@@ -285,12 +293,30 @@ prsync scan --config ./prsync.config
 | ~tab~ | ~null~ when no unique herdr tab matches. ~machine~ is present only for a tab on one of ~machines~ |
 | ~tab_unknown~ | Present only as ~machine unreachable~, when ~tab~ is ~null~ because a configured machine could not be searched. See [[file:multi-machine.org::*Other herdr machines][Other herdr machines]] |
 | ~out_of_scope~ | Present only with ~--tab-machine~, when the PR belongs to another machine's run: ~tab on <m>~, ~no tab~, or ~tab may be on <m> (unreachable)~. See [[file:multi-machine.org::*One watcher per machine][One watcher per machine]] |
+| ~stale_waive~ | Present only on in-scope open PRs when ~waive_comment_prefix~ is set and the current head is newer than the head covered by the latest qualifying waive comment. Object with ~old_head~, ~new_head~, ~class~ (~base-only~ or ~author changes~), ~failing_checks~, ~comment_id~, ~comment_author~, ~comment_url~, ~comment_body~ (exact bytes), and optional ~error~. On ~scan~, a one-line summary per PR also goes to stderr; nothing is written |
 | ~summary~ | Rollup of ~prs~. Cross-check a "nothing is local" conclusion against ~summary.tab_here~. ~uncovered_teams~ is present only when ~team_cover~ produced suggestion entries. It counts entries whose ~covered_by~ is null, including teams that failed to list members. ~0~ is included. |
 | ~team_review_suggestions~ | Omitted when ~team_cover~ is off, on a round ~team_cover_every~ skips, or when every requested team was skipped. Each entry is ~team~ (~org/slug~), ~covered_by~ (one login, or null), ~suggest~ (logins and reasons; ~[]~ when covered or failed), ~error~ when members could not be listed, and ~uncovered_reason~ when an uncovered team has no suggestion: ~no members~, ~all N members excluded (...)~ with a count per filter (author, bot, excluded login, approved, inactive), ~no candidate chosen~, or, on a PR the round stopped before ranking, ~skipped: call cap~ or ~skipped: rate limited~ (see [[file:team-cover.org::*team_cover_max_calls][team_cover_max_calls]]). Every requested team not in ~team_cover_skip_teams~ gets exactly one entry with ~covered_by~, a non-empty ~suggest~, ~error~ or ~uncovered_reason~; a team the round left without one gets ~not evaluated this round~ and a warning. On a PR ranked while some of its path history was deferred, each suggestion's reasons end with ~history partial (N of M paths deferred)~. |
 
 With ~team_cover~ on, suggestions and a ready-to-run ~gh pr edit~
 line go to stderr. Ranking, batching, and the call cap are in
 [[file:team-cover.org][team cover]].
+
+When ~waive_comment_prefix~ is set, ~scan~ also checks each in-scope
+open PR for stale CI waives. A PR head transition from ~old_head~ to
+~new_head~ classifies as ~base-only~ only when ~old_head~ is an
+ancestor of ~new_head~, no force-push happened after the waive comment,
+every commit on the first-parent chain ~old_head..new_head~ is a
+two-parent merge whose second parent is an ancestor of the base branch,
+and ~git diff <old merge-base>..<old_head>~ equals
+~git diff <new merge-base>..<new_head>~ byte-for-byte. Conflict edits,
+author commits after a base merge, non-base merges, and rebases /
+force-pushes classify as ~author changes~. Classification runs in a
+local checkout when available (matched local agent cwd, current
+working directory, or ~open_tabs_cwd~) and falls back to GitHub's
+compare API. ~scan~ prints one line per stale waive on stderr
+(~<repo>#<number> stale waive: old=<old_head> new=<new_head> class=<class> failing=<checks>~)
+in addition to ~stale_waive~ in JSON. Nothing is posted or written to
+state or ledger.
 
 ** tabs --orphans
 
@@ -543,6 +569,31 @@ prsync comment --config ./prsync.config --all --body "please retry"
   ]
 }
 #+END_SRC
+
+With ~--repost-waives~, ~comment~ inspects ~stale_waive~ on each
+in-scope candidate PR (self-scanning unless ~--stdin~ supplies a scan
+document):
+
+- Re-posting is off by default (~waive_repost=false~) and also requires
+  non-empty ~waive_comment_prefix~ and ~waive_checks~. Otherwise each
+  candidate becomes ~skipped_waive_disabled~.
+- ~author changes~ is never re-posted (~skipped_author_changes~), so a
+  human decides.
+- Only ~base-only~ stale waives where at least one check in
+  ~waive_checks~ is currently failing are eligible
+  (~skipped_no_failing_waived_checks~ otherwise).
+- Dry-run (default) writes what would be posted and where to stderr
+  (~would post to <repo>#<number> (...):~ followed by the body) and
+  keeps the byte-for-byte ~comment_body~ in ~rendered_prompt~ without
+  calling ~gh~ or writing state or ledger files.
+- Live send (~--go~, or ~dry_run=false~) posts a byte-for-byte copy of
+  ~comment_body~ through ~gh pr comment~, deduplicates per head via both
+  ~dispatch_ledger_file~ and ~state_file~ so restarts never repost on
+  the same head (~skipped_deduped~), caps re-posts per PR at
+  ~waive_max_per_pr~ (~skipped_waive_cap~), and appends a
+  ~waive-repost~ entry to ~dispatch_ledger_file~ with the PR,
+  ~old_head_sha~, ~new_head_sha~, and ~comment_id~. Query recorded
+  re-posts with ~prsync ledger --kind waive-repost~.
 
 ** logs
 

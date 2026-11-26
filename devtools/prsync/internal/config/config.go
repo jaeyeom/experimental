@@ -318,6 +318,20 @@ type Config struct {
 	// agent backend, and lease hook settings.
 	Policy PolicyConfig
 
+	// WaiveCommentPrefix is the exact first line that marks a CI waive
+	// comment. Empty turns stale-waive detection and re-posting off.
+	WaiveCommentPrefix string
+	// WaiveAuthors are logins whose waive comments count. Empty means any.
+	WaiveAuthors []string
+	// WaiveChecks are check names a waive may cover. Re-posting requires
+	// a non-empty list.
+	WaiveChecks []string
+	// WaiveRepost allows re-posting a byte-identical waive comment for
+	// base-only head updates.
+	WaiveRepost bool
+	// WaiveMaxPerPR caps automated waive re-posts per PR.
+	WaiveMaxPerPR int
+
 	// SourcePath is empty if defaults only; for stderr diagnostics.
 	SourcePath string
 }
@@ -397,6 +411,7 @@ func Defaults() Config {
 		OpenTabsMaxPerRound:       defaultOpenTabsMaxPerRound,
 		OpenTabsReadyTimeout:      defaultOpenTabsReadyTimeout,
 		Policy:                    defaultPolicyConfig(),
+		WaiveMaxPerPR:             3,
 	}
 }
 
@@ -483,6 +498,19 @@ func validateConcurrency(c Config) error {
 	if c.ConcurrencyCwd != "any" && c.ConcurrencyCwd != "checkout" {
 		return &KeyError{Key: "concurrency_cwd", Reason: fmt.Sprintf("invalid value %q", c.ConcurrencyCwd)}
 	}
+	if err := validateGateAndDispatch(c); err != nil {
+		return err
+	}
+	if err := validatePolicy(c.Policy); err != nil {
+		return err
+	}
+	if err := validateWaive(c); err != nil {
+		return err
+	}
+	return validateParkMode(c)
+}
+
+func validateGateAndDispatch(c Config) error {
 	if c.GatePendingQuestion != "decide" && c.GatePendingQuestion != "off" {
 		return &KeyError{Key: "gate_pending_question", Reason: fmt.Sprintf("invalid value %q", c.GatePendingQuestion)}
 	}
@@ -495,10 +523,14 @@ func validateConcurrency(c Config) error {
 	if c.DispatchCatchup != "rebase" && c.DispatchCatchup != "merge" {
 		return &KeyError{Key: "dispatch_catchup", Reason: fmt.Sprintf("invalid value %q", c.DispatchCatchup)}
 	}
-	if err := validatePolicy(c.Policy); err != nil {
-		return err
+	return nil
+}
+
+func validateWaive(c Config) error {
+	if c.WaiveMaxPerPR < 0 {
+		return &KeyError{Key: "waive_max_per_pr", Reason: "must be >= 0"}
 	}
-	return validateParkMode(c)
+	return nil
 }
 
 func validateParkMode(c Config) error {
@@ -708,8 +740,39 @@ func applyOtherKey(cfg *Config, key, val string) error {
 		"team_cover_members_ttl", "team_cover_codeowners_ttl":
 		return applyTeamCover(cfg, key, val)
 	default:
-		return applyPolicyKey(cfg, key, val)
+		return applyExtraKey(cfg, key, val)
 	}
+}
+
+func applyExtraKey(cfg *Config, key, val string) error {
+	if strings.HasPrefix(key, "waive_") {
+		return applyWaiveKey(cfg, key, val)
+	}
+	return applyPolicyKey(cfg, key, val)
+}
+
+func applyWaiveKey(cfg *Config, key, val string) error {
+	switch key {
+	case "waive_comment_prefix":
+		cfg.WaiveCommentPrefix = val
+	case "waive_authors":
+		cfg.WaiveAuthors = strings.Fields(val)
+	case "waive_checks":
+		cfg.WaiveChecks = splitCSV(val)
+	case "waive_repost":
+		b, err := parseBool(key, val)
+		if err != nil {
+			return err
+		}
+		cfg.WaiveRepost = b
+	case "waive_max_per_pr":
+		n, err := parseNonNegativeInt(key, val)
+		if err != nil {
+			return err
+		}
+		cfg.WaiveMaxPerPR = n
+	}
+	return nil
 }
 
 func applyDispatchPromptOption(cfg *Config, key, val string) {

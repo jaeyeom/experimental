@@ -40,6 +40,19 @@ const (
 	// ActionSkippedOpenTabCap means open_tabs_max_per_round tabs were
 	// already opened this run.
 	ActionSkippedOpenTabCap = "skipped_open_tab_cap"
+	// ActionSkippedWaiveDisabled means waive re-posting is turned off or
+	// lacks waive_comment_prefix / waive_checks.
+	ActionSkippedWaiveDisabled = "skipped_waive_disabled"
+	// ActionSkippedNoStaleWaive means the PR has no stale waive to re-post.
+	ActionSkippedNoStaleWaive = "skipped_no_stale_waive"
+	// ActionSkippedAuthorChanges means the stale waive was followed by author
+	// changes, so a human must decide instead of re-posting automatically.
+	ActionSkippedAuthorChanges = "skipped_author_changes"
+	// ActionSkippedNoFailingWaivedChecks means no check in waive_checks is
+	// currently failing on the new head.
+	ActionSkippedNoFailingWaivedChecks = "skipped_no_failing_waived_checks"
+	// ActionSkippedWaiveCap means waive_max_per_pr re-posts were already made.
+	ActionSkippedWaiveCap = "skipped_waive_cap"
 )
 
 // Kind values in a dispatch result: which prompt the PR gets.

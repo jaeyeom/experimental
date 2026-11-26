@@ -8,6 +8,7 @@ go_library(
     deps = [
         "//devtools/prsync/internal/config:go_default_library",
         "//devtools/prsync/internal/dispatch:go_default_library",
+        "//devtools/prsync/internal/ledger:go_default_library",
         "//devtools/prsync/internal/scan:go_default_library",
     ],
 )
@@ -19,6 +20,7 @@ go_test(
     deps = [
         "//devtools/prsync/internal/config:go_default_library",
         "//devtools/prsync/internal/dispatch:go_default_library",
+        "//devtools/prsync/internal/ledger:go_default_library",
         "//devtools/prsync/internal/scan:go_default_library",
     ],
 )

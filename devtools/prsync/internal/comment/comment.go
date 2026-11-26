@@ -4,10 +4,13 @@ package comment
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/dispatch"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/ledger"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
 )
 
@@ -16,12 +19,18 @@ type GH interface {
 	CommentPR(ctx context.Context, repo string, number int, body string) error
 }
 
+type commentIDPoster interface {
+	CommentPRWithID(ctx context.Context, repo string, number int, body string) (string, error)
+}
+
 // Request is the candidate-set input to Run.
 type Request struct {
 	Doc            scan.Document
 	PRs            []string
 	Body           string
 	AllowDuplicate bool
+	RepostWaives   bool
+	Ledger         *ledger.Store
 }
 
 // Run evaluates the candidate set and posts comments. Dry-run never calls
@@ -39,12 +48,12 @@ func Run(ctx context.Context, g GH, store dispatch.StateStore, cfg config.Config
 		return doc, fmt.Errorf("comment candidates: %w", err)
 	}
 	if cfg.DryRun {
-		return runDry(ctx, store, req, cands, doc)
+		return runDry(ctx, store, cfg, req, cands, doc)
 	}
-	return runLive(ctx, g, store, req, now, cands, doc)
+	return runLive(ctx, g, store, cfg, req, now, cands, doc)
 }
 
-func runDry(ctx context.Context, store dispatch.StateStore, req Request, cands []dispatch.Candidate, doc dispatch.Document) (dispatch.Document, error) {
+func runDry(ctx context.Context, store dispatch.StateStore, cfg config.Config, req Request, cands []dispatch.Candidate, doc dispatch.Document) (dispatch.Document, error) {
 	st, err := loadState(store)
 	if err != nil {
 		return doc, err
@@ -55,7 +64,11 @@ func runDry(ctx context.Context, store dispatch.StateStore, req Request, cands [
 			doc.Results = append(doc.Results, item)
 			return doc, fmt.Errorf("comment: %w", err)
 		}
-		doc.Results = append(doc.Results, evaluate(c, st, req, true))
+		item, _, err := evaluateCandidate(c, st, cfg, req, true)
+		if err != nil {
+			return doc, err
+		}
+		doc.Results = append(doc.Results, item)
 	}
 	return doc, nil
 }
@@ -64,11 +77,11 @@ type locker interface {
 	WithLock(func() error) error
 }
 
-func runLive(ctx context.Context, g GH, store dispatch.StateStore, req Request, now time.Time, cands []dispatch.Candidate, doc dispatch.Document) (dispatch.Document, error) {
+func runLive(ctx context.Context, g GH, store dispatch.StateStore, cfg config.Config, req Request, now time.Time, cands []dispatch.Candidate, doc dispatch.Document) (dispatch.Document, error) {
 	if l, ok := store.(locker); ok {
 		var liveErr error
 		lockErr := l.WithLock(func() error {
-			doc, liveErr = commentLive(ctx, g, store, req, now, cands, doc)
+			doc, liveErr = commentLive(ctx, g, store, cfg, req, now, cands, doc)
 			return nil
 		})
 		if lockErr != nil {
@@ -76,10 +89,10 @@ func runLive(ctx context.Context, g GH, store dispatch.StateStore, req Request, 
 		}
 		return doc, liveErr
 	}
-	return commentLive(ctx, g, store, req, now, cands, doc)
+	return commentLive(ctx, g, store, cfg, req, now, cands, doc)
 }
 
-func commentLive(ctx context.Context, g GH, store dispatch.StateStore, req Request, now time.Time, cands []dispatch.Candidate, doc dispatch.Document) (dispatch.Document, error) {
+func commentLive(ctx context.Context, g GH, store dispatch.StateStore, cfg config.Config, req Request, now time.Time, cands []dispatch.Candidate, doc dispatch.Document) (dispatch.Document, error) {
 	st, err := loadState(store)
 	if err != nil {
 		return doc, err
@@ -90,26 +103,191 @@ func commentLive(ctx context.Context, g GH, store dispatch.StateStore, req Reque
 			doc.Results = append(doc.Results, item)
 			return doc, fmt.Errorf("comment: %w", err)
 		}
-		item := evaluate(c, st, req, false)
+		item, postBody, err := evaluateCandidate(c, st, cfg, req, false)
+		if err != nil {
+			return doc, err
+		}
 		if item.Action != "" {
 			doc.Results = append(doc.Results, item)
 			continue
 		}
-		if err := g.CommentPR(ctx, c.Repo, c.Number, req.Body); err != nil {
+		commentID, err := postComment(ctx, g, c.Repo, c.Number, postBody)
+		if err != nil {
 			item.Action = dispatch.ActionFailed
 			item.Detail = err.Error()
 			doc.Results = append(doc.Results, item)
 			return doc, fmt.Errorf("%w: %w", dispatch.ErrFailed, err)
 		}
 		item.Action = dispatch.ActionDispatched
-		item.RenderedPrompt = req.Body
+		item.RenderedPrompt = postBody
+		if req.RepostWaives && commentID != "" {
+			item.Detail += " comment_id=" + commentID
+		}
 		doc.Results = append(doc.Results, item)
-		st.RecordPosted(prKey(c.Repo, c.Number), c.PR.HeadSHA, req.Body, now)
+		headSHA := postedHeadSHA(c, req)
+		st.RecordPosted(prKey(c.Repo, c.Number), headSHA, postBody, now)
 		if err := saveState(store, st); err != nil {
+			return doc, err
+		}
+		if err := recordWaiveLedger(req, c, headSHA, commentID, item.Detail, now); err != nil {
 			return doc, err
 		}
 	}
 	return doc, nil
+}
+
+func postComment(ctx context.Context, g GH, repo string, number int, body string) (string, error) {
+	if poster, ok := g.(commentIDPoster); ok {
+		return poster.CommentPRWithID(ctx, repo, number, body) //nolint:wrapcheck // caller classifies comment error
+	}
+	return "", g.CommentPR(ctx, repo, number, body) //nolint:wrapcheck // caller classifies comment error
+}
+
+func postedHeadSHA(c dispatch.Candidate, req Request) string {
+	if req.RepostWaives && c.PR != nil && c.PR.StaleWaive != nil && c.PR.StaleWaive.NewHead != "" {
+		return c.PR.StaleWaive.NewHead
+	}
+	if c.PR != nil {
+		return c.PR.HeadSHA
+	}
+	return ""
+}
+
+func recordWaiveLedger(req Request, c dispatch.Candidate, headSHA, commentID, detail string, now time.Time) error {
+	if !req.RepostWaives || req.Ledger == nil || c.PR == nil || c.PR.StaleWaive == nil {
+		return nil
+	}
+	sw := c.PR.StaleWaive
+	if err := req.Ledger.Append(ledger.Entry{
+		PR:         prKey(c.Repo, c.Number),
+		HeadSHA:    headSHA,
+		OldHeadSHA: sw.OldHead,
+		NewHeadSHA: headSHA,
+		CommentID:  commentID,
+		Kind:       ledger.KindWaiveRepost,
+		Time:       now,
+		Outcome:    ledger.OutcomeDispatched,
+		Detail:     detail,
+	}); err != nil {
+		return fmt.Errorf("append ledger: %w", err)
+	}
+	return nil
+}
+
+func evaluateCandidate(c dispatch.Candidate, st dispatch.State, cfg config.Config, req Request, dryRun bool) (dispatch.Item, string, error) {
+	if req.RepostWaives {
+		return evaluateWaiveRepost(c, st, cfg, req, dryRun)
+	}
+	return evaluate(c, st, req, dryRun), req.Body, nil
+}
+
+func evaluateWaiveRepost(c dispatch.Candidate, st dispatch.State, cfg config.Config, req Request, dryRun bool) (dispatch.Item, string, error) {
+	item := dispatch.Item{Repo: c.Repo, Number: c.Number}
+	if c.PR == nil {
+		item.Action = dispatch.ActionSkippedNotFound
+		return item, "", nil
+	}
+	if c.PR.OutOfScope != "" {
+		item.Action = dispatch.ActionSkippedOutOfScope
+		item.Detail = c.PR.OutOfScope
+		return item, "", nil
+	}
+	if reason := waiveConfigDisabledReason(cfg); reason != "" {
+		item.Action = dispatch.ActionSkippedWaiveDisabled
+		item.Detail = reason
+		return item, "", nil
+	}
+	sw := c.PR.StaleWaive
+	if sw == nil {
+		item.Action = dispatch.ActionSkippedNoStaleWaive
+		return item, "", nil
+	}
+	if sw.Class != scan.WaiveClassBaseOnly {
+		item.Action = dispatch.ActionSkippedAuthorChanges
+		item.Detail = fmt.Sprintf("class=%s (%s -> %s); manual review required", sw.Class, sw.OldHead, sw.NewHead)
+		return item, "", nil
+	}
+	failing := matchingWaiveChecks(sw.FailingChecks, cfg.WaiveChecks)
+	if len(failing) == 0 {
+		item.Action = dispatch.ActionSkippedNoFailingWaivedChecks
+		item.Detail = fmt.Sprintf("no failing checks in waive_checks (%s -> %s)", sw.OldHead, sw.NewHead)
+		return item, "", nil
+	}
+	if sw.CommentBody == "" {
+		item.Action = dispatch.ActionSkippedNoStaleWaive
+		item.Detail = "stale waive has empty comment body"
+		return item, "", nil
+	}
+	return checkWaiveDedupeAndCap(c, st, cfg, req, sw, failing, dryRun)
+}
+
+func waiveConfigDisabledReason(cfg config.Config) string {
+	switch {
+	case cfg.WaiveCommentPrefix == "":
+		return "waive_comment_prefix is empty"
+	case !cfg.WaiveRepost:
+		return "waive_repost is false"
+	case len(cfg.WaiveChecks) == 0:
+		return "waive_checks is empty"
+	default:
+		return ""
+	}
+}
+
+func checkWaiveDedupeAndCap(c dispatch.Candidate, st dispatch.State, cfg config.Config, req Request, sw *scan.StaleWaive, failing []string, dryRun bool) (dispatch.Item, string, error) {
+	item := dispatch.Item{Repo: c.Repo, Number: c.Number}
+	key := prKey(c.Repo, c.Number)
+	newHead := sw.NewHead
+	if newHead == "" {
+		newHead = c.PR.HeadSHA
+	}
+	if req.Ledger != nil {
+		already, err := req.Ledger.HasWaiveReposted(key, newHead)
+		if err != nil {
+			return item, "", fmt.Errorf("check waive ledger: %w", err)
+		}
+		if already {
+			item.Action = dispatch.ActionSkippedDeduped
+			item.Detail = fmt.Sprintf("already re-posted for head %s", newHead)
+			return item, "", nil
+		}
+	}
+	if st.DedupedPosted(key, newHead, sw.CommentBody) {
+		item.Action = dispatch.ActionSkippedDeduped
+		item.Detail = fmt.Sprintf("already re-posted for head %s", newHead)
+		return item, "", nil
+	}
+	if req.Ledger != nil {
+		count, err := req.Ledger.CountWaiveReposts(key)
+		if err != nil {
+			return item, "", fmt.Errorf("count waive ledger: %w", err)
+		}
+		if count >= cfg.WaiveMaxPerPR {
+			item.Action = dispatch.ActionSkippedWaiveCap
+			item.Detail = fmt.Sprintf("waive_max_per_pr=%d reached", cfg.WaiveMaxPerPR)
+			return item, "", nil
+		}
+	} else if cfg.WaiveMaxPerPR <= 0 {
+		item.Action = dispatch.ActionSkippedWaiveCap
+		item.Detail = fmt.Sprintf("waive_max_per_pr=%d reached", cfg.WaiveMaxPerPR)
+		return item, "", nil
+	}
+	item.Detail = fmt.Sprintf("base-only old=%s new=%s failing=%s", sw.OldHead, newHead, strings.Join(failing, ","))
+	if dryRun {
+		item.Action = dispatch.ActionWouldDispatch
+		item.RenderedPrompt = sw.CommentBody
+	}
+	return item, sw.CommentBody, nil
+}
+
+func matchingWaiveChecks(failing, allowed []string) []string {
+	var out []string
+	for _, name := range failing {
+		if slices.Contains(allowed, name) && !slices.Contains(out, name) {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 func evaluate(c dispatch.Candidate, st dispatch.State, req Request, dryRun bool) dispatch.Item {

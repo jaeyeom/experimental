@@ -56,26 +56,48 @@ case "${cmd} ${sub}" in
       printf '%s\n' "GraphQL: Could not resolve to a PullRequest with the number of ${number}." >&2
       exit 1
     fi
-    cat "${DIR}/gh-pr-view.json"
+    if [ -n "${GH_FAKE_PR_VIEW_FILE-}" ]; then
+      cat "$GH_FAKE_PR_VIEW_FILE"
+    else
+      cat "${DIR}/gh-pr-view.json"
+    fi
     exit 0
     ;;
   "pr comment")
     if [ -n "${GH_FAKE_COMMENT_SENTINEL-}" ]; then
       printf '%s\n' "$*" > "$GH_FAKE_COMMENT_SENTINEL"
     fi
+    if [ -n "${GH_FAKE_COMMENT_BODY_FILE-}" ]; then
+      # Extract exact --body argument byte-for-byte without adding a newline.
+      while [ $# -gt 0 ]; do
+        if [ "$1" = "--body" ] && [ $# -ge 2 ]; then
+          shift
+          printf '%s' "$1" > "$GH_FAKE_COMMENT_BODY_FILE"
+          break
+        fi
+        shift
+      done
+    fi
     if [ -n "${GH_FAKE_COMMENT_FAIL-}" ]; then
       printf '%s\n' "gh-fake: comment failed" >&2
       exit 1
     fi
+    if [ -n "${GH_FAKE_COMMENT_URL-}" ]; then
+      printf '%s\n' "$GH_FAKE_COMMENT_URL"
+    fi
     exit 0
     ;;
   "api graphql")
-    # Path history, its reviews, review threads, the open-PR search, and
-    # the single-PR view share `gh api graphql`. The history query names
-    # associatedPullRequests; its reviews query aliases each pull request
-    # (`pr7:pullRequest(number:7)`). Review threads do not name
-    # requestedReviewer.
+    # Path history, its reviews, review threads, waive timeline, the open-PR
+    # search, and the single-PR view share `gh api graphql`.
     case "$*" in
+      *HEAD_REF_FORCE_PUSHED_EVENT*)
+        if [ -n "${GH_FAKE_WAIVE_TIMELINE_FILE-}" ]; then
+          cat "$GH_FAKE_WAIVE_TIMELINE_FILE"
+        else
+          printf '%s\n' '{"data":{"repository":{"pullRequest":{"comments":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[]},"commits":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[]},"timelineItems":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[]}}}}}'
+        fi
+        ;;
       *committedDate*)
         cat "${DIR}/gh-rca-comments.json"
         ;;
@@ -92,7 +114,11 @@ case "${cmd} ${sub}" in
               printf '%s\n' "gh-fake: pr list should not run" >&2
               exit 1
             fi
-            cat "${DIR}/gh-open-pr-search.json"
+            if [ -n "${GH_FAKE_OPEN_PR_SEARCH_FILE-}" ]; then
+              cat "$GH_FAKE_OPEN_PR_SEARCH_FILE"
+            else
+              cat "${DIR}/gh-open-pr-search.json"
+            fi
             ;;
           *)
             if [ -n "${GH_FAKE_VIEW_LOG-}" ]; then
@@ -100,7 +126,11 @@ case "${cmd} ${sub}" in
             fi
             case "$*" in
               *'num=123'*)
-                cat "${DIR}/gh-open-pr-view.json"
+                if [ -n "${GH_FAKE_OPEN_PR_VIEW_FILE-}" ]; then
+                  cat "$GH_FAKE_OPEN_PR_VIEW_FILE"
+                else
+                  cat "${DIR}/gh-open-pr-view.json"
+                fi
                 ;;
               *)
                 printf '%s\n' "GraphQL: Could not resolve to a PullRequest." >&2

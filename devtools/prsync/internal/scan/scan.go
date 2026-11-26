@@ -42,6 +42,12 @@ type Deps struct {
 	// Threads keeps each pull request's review threads between rounds.
 	// Nil, or review_threads_ttl 0, fetches them every round.
 	Threads ThreadCache
+	// RepoDirs optionally maps owner/repo to a local git checkout directory
+	// for stale waive git classification.
+	RepoDirs map[string]string
+	// RepoResolver optionally resolves owner/repo to a local git checkout
+	// directory when RepoDirs and matched agent directories lack it.
+	RepoResolver func(repo string) string
 }
 
 // ThreadCache stores a pull request's review threads with its head commit
@@ -170,6 +176,9 @@ func Run(ctx context.Context, deps Deps, cfg config.Config, repos []string, now 
 	if err := matchTabs(ctx, deps, cfg, &doc); err != nil {
 		return finish(doc, err)
 	}
+	if err := detectStaleWaives(ctx, deps, cfg, &doc); err != nil {
+		return finish(doc, err)
+	}
 	return finish(doc, nil)
 }
 
@@ -228,6 +237,9 @@ func RunTargets(ctx context.Context, deps Deps, cfg config.Config, targets []Tar
 		return finish(doc, err)
 	}
 	if err := matchTabs(ctx, deps, cfg, &doc); err != nil {
+		return finish(doc, err)
+	}
+	if err := detectStaleWaives(ctx, deps, cfg, &doc); err != nil {
 		return finish(doc, err)
 	}
 	return finish(doc, nil)
@@ -390,6 +402,8 @@ func classifyPR(ctx context.Context, client GH, lookup *threadLookup, cfg config
 		CIState:          ci,
 		Unaddressed:      len(comments) > 0,
 		BlockingComments: comments,
+		statusChecks:     item.StatusCheckRollup,
+		statusCheckErr:   item.StatusCheckError,
 	}
 	actions, fm, err := mergeQueueSignals(ctx, client, marker, cfg, owner, name, item.Number)
 	if err != nil {
@@ -493,6 +507,9 @@ func matchTabs(ctx context.Context, deps Deps, cfg config.Config, doc *Document)
 		pr := &doc.PRs[i]
 		tab, hits, warning := match(pr.Identifier, pr.Repo, pr.Number, cfg.TabLabelTemplate, tabs, agents)
 		pr.Tab = tab
+		if tab != nil && tab.Machine == "" && tab.PaneID != nil {
+			pr.agentCWDs = localAgentCWDs(agents, *tab.PaneID)
+		}
 		if pr.Identifier != nil && len(hits) == 0 && len(down) > 0 {
 			pr.TabUnknown = TabUnknownMachineUnreachable
 			pr.OutOfScope = outOfScope(cfg, down, true)
@@ -504,6 +521,22 @@ func matchTabs(ctx context.Context, deps Deps, cfg config.Config, doc *Document)
 		}
 	}
 	return nil
+}
+
+func localAgentCWDs(agents []herdr.Agent, paneID string) []string {
+	var cwds []string
+	for _, a := range agents {
+		if a.Machine != "" || a.PaneID != paneID {
+			continue
+		}
+		if a.Cwd != "" {
+			cwds = append(cwds, a.Cwd)
+		}
+		if a.ForegroundCwd != "" && a.ForegroundCwd != a.Cwd {
+			cwds = append(cwds, a.ForegroundCwd)
+		}
+	}
+	return cwds
 }
 
 // tabMachines names the machines of tabs, local for the local server.

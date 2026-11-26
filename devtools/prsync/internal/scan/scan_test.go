@@ -770,6 +770,9 @@ type scriptGH struct {
 	loadCalls   int
 	active      map[string]bool
 	activeErr   error
+	waives      map[int]gh.WaiveTimeline
+	waiveErr    error
+	waiveCalls  map[int]int
 }
 
 type snapResult struct {
@@ -827,6 +830,17 @@ func (g *scriptGH) MarkerComments(_ context.Context, _, _ string, number int) (g
 		return gh.MarkerComments{}, nil
 	}
 	return g.markers[number], nil
+}
+
+func (g *scriptGH) WaiveTimeline(_ context.Context, _, _ string, number int) (gh.WaiveTimeline, error) {
+	if g.waiveCalls == nil {
+		g.waiveCalls = map[int]int{}
+	}
+	g.waiveCalls[number]++
+	if g.waiveErr != nil {
+		return gh.WaiveTimeline{}, g.waiveErr
+	}
+	return g.waives[number], nil
 }
 
 func (g *scriptGH) ReviewThreads(_ context.Context, _, _ string, number int) ([]gh.Thread, error) {
