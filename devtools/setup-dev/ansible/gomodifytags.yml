@@ -34,10 +34,14 @@
           register: gomodifytags_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            gomodifytags_module_path | length > 0 and
+            (gomodifytags_module_path == 'github.com/fatih/gomodifytags' or
+            'github.com/fatih/gomodifytags'.startswith(gomodifytags_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ gomodifytags_module_path }} {{ gomodifytags_module_version }} => {{ gomodifytags_latest.stdout }}"
+            msg: "{{ gomodifytags_module_path }} {{ gomodifytags_module_version }} => {{ ((gomodifytags_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear gomodifytags facts
           set_fact:
@@ -59,6 +63,10 @@
           - "{{ ((gomodifytags_latest | default({})).stdout | default('')) | trim }}"
           - "{{ gomodifytags_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ gomodifytags_module_path | default('') | trim }}"
+          - --target-module
+          - github.com/fatih/gomodifytags
       register: gomodifytags_version_check
       changed_when: false
       check_mode: false

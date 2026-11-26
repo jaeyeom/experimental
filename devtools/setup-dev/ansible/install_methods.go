@@ -276,9 +276,25 @@ func (g GoInstallMethod) targetParts() (pkg, ref string) {
 	return pkg, rawRef
 }
 
+// targetModule returns the expected Go module path for experimental tools, or
+// the configured package path for third-party tools (whose Go module boundary
+// may be an ancestor of PkgPath).
+func (g GoInstallMethod) targetModule() string {
+	pkg, _, _ := strings.Cut(g.PkgPath, "@")
+	if g.isExperimental() {
+		return experimentalModule
+	}
+	return pkg
+}
+
 func (g GoInstallMethod) RenderInstallTask(command string) string {
 	commandID := strings.ReplaceAll(command, "-", "_")
 	pkg, ref := g.targetParts()
+	targetMod := g.targetModule()
+	listMod := "{{ " + commandID + "_module_path }}"
+	if g.isExperimental() {
+		listMod = targetMod
+	}
 	return `    - name: Check if ` + command + ` is installed
       shell: go version -m $(command -v ` + command + `) | grep '^\s*mod\s'
       register: ` + commandID + `_installed
@@ -292,14 +308,18 @@ func (g GoInstallMethod) RenderInstallTask(command string) string {
             ` + commandID + `_module_path: "{{ ` + commandID + `_installed.stdout.split()[1] }}"
             ` + commandID + `_module_version: "{{ ` + commandID + `_installed.stdout.split()[2] }}"
         - name: Determine the latest ` + command + ` version
-          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ ` + commandID + `_module_path }}@` + ref + `"
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "` + listMod + `@` + ref + `"
           register: ` + commandID + `_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            ` + commandID + `_module_path | length > 0 and
+            (` + commandID + `_module_path == '` + targetMod + `' or
+            '` + targetMod + `'.startswith(` + commandID + `_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ ` + commandID + `_module_path }} {{ ` + commandID + `_module_version }} => {{ ` + commandID + `_latest.stdout }}"
+            msg: "{{ ` + commandID + `_module_path }} {{ ` + commandID + `_module_version }} => {{ ((` + commandID + `_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear ` + command + ` facts
           set_fact:
@@ -321,6 +341,10 @@ func (g GoInstallMethod) RenderInstallTask(command string) string {
           - "{{ ((` + commandID + `_latest | default({})).stdout | default('')) | trim }}"
           - "{{ ` + commandID + `_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ ` + commandID + `_module_path | default('') | trim }}"
+          - --target-module
+          - ` + targetMod + `
       register: ` + commandID + `_version_check
       changed_when: false
       check_mode: false

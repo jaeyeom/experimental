@@ -34,10 +34,14 @@
           register: buildozer_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            buildozer_module_path | length > 0 and
+            (buildozer_module_path == 'github.com/bazelbuild/buildtools/buildozer' or
+            'github.com/bazelbuild/buildtools/buildozer'.startswith(buildozer_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ buildozer_module_path }} {{ buildozer_module_version }} => {{ buildozer_latest.stdout }}"
+            msg: "{{ buildozer_module_path }} {{ buildozer_module_version }} => {{ ((buildozer_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear buildozer facts
           set_fact:
@@ -59,6 +63,10 @@
           - "{{ ((buildozer_latest | default({})).stdout | default('')) | trim }}"
           - "{{ buildozer_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ buildozer_module_path | default('') | trim }}"
+          - --target-module
+          - github.com/bazelbuild/buildtools/buildozer
       register: buildozer_version_check
       changed_when: false
       check_mode: false

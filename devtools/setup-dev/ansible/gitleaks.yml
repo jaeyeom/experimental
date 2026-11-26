@@ -50,10 +50,14 @@
               register: gitleaks_latest
               ignore_errors: yes
               changed_when: False
+              when: >-
+                gitleaks_module_path | length > 0 and
+                (gitleaks_module_path == 'github.com/zricethezav/gitleaks/v8' or
+                'github.com/zricethezav/gitleaks/v8'.startswith(gitleaks_module_path ~ '/'))
 
             - name: Debug module path and version
               debug:
-                msg: "{{ gitleaks_module_path }} {{ gitleaks_module_version }} => {{ gitleaks_latest.stdout }}"
+                msg: "{{ gitleaks_module_path }} {{ gitleaks_module_version }} => {{ ((gitleaks_latest | default({})).stdout | default('')) | trim }}"
           rescue:
             - name: Clear gitleaks facts
               set_fact:
@@ -75,6 +79,10 @@
               - "{{ ((gitleaks_latest | default({})).stdout | default('')) | trim }}"
               - "{{ gitleaks_build_go.stdout | default('') | trim }}"
               - "{{ go_toolchain_version | default('') | trim }}"
+              - --installed-module
+              - "{{ gitleaks_module_path | default('') | trim }}"
+              - --target-module
+              - github.com/zricethezav/gitleaks/v8
           register: gitleaks_version_check
           changed_when: false
           check_mode: false
@@ -112,10 +120,14 @@
               register: gitleaks_latest
               ignore_errors: yes
               changed_when: False
+              when: >-
+                gitleaks_module_path | length > 0 and
+                (gitleaks_module_path == 'github.com/zricethezav/gitleaks/v8' or
+                'github.com/zricethezav/gitleaks/v8'.startswith(gitleaks_module_path ~ '/'))
 
             - name: Debug module path and version
               debug:
-                msg: "{{ gitleaks_module_path }} {{ gitleaks_module_version }} => {{ gitleaks_latest.stdout }}"
+                msg: "{{ gitleaks_module_path }} {{ gitleaks_module_version }} => {{ ((gitleaks_latest | default({})).stdout | default('')) | trim }}"
           rescue:
             - name: Clear gitleaks facts
               set_fact:
@@ -137,6 +149,10 @@
               - "{{ ((gitleaks_latest | default({})).stdout | default('')) | trim }}"
               - "{{ gitleaks_build_go.stdout | default('') | trim }}"
               - "{{ go_toolchain_version | default('') | trim }}"
+              - --installed-module
+              - "{{ gitleaks_module_path | default('') | trim }}"
+              - --target-module
+              - github.com/zricethezav/gitleaks/v8
           register: gitleaks_version_check
           changed_when: false
           check_mode: false

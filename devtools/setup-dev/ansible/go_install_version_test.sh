@@ -407,4 +407,55 @@ grep -qF 'Skipping agentbus:' "$OUT" || {
 	fail "setup-hub-client.yml did not print skip message for agentbus"
 }
 
+# Scenario 8: factory.yml migrates an existing factory binary installed from
+# github.com/jaeyeom/agentic-factory to github.com/jaeyeom/experimental without
+# querying the stale module path.
+cat >"${GOPATH_DIR}/bin/factory" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+chmod +x "${GOPATH_DIR}/bin/factory"
+if [ ! -e "${ANSIBLE_BIN_DIR}/factory" ]; then
+	FAKE_MOD_PATH="github.com/jaeyeom/agentic-factory/cmd/factory" \
+	FAKE_MOD_ROOT="github.com/jaeyeom/agentic-factory" \
+	FAKE_INSTALLED_VER="v9.9.9" \
+	FAKE_INSTALLED_GO="go1.27.4" \
+	FAKE_TOOLCHAIN_GO="go1.27.4" \
+	FAKE_MAIN_VER="v0.1.0" \
+		run_pb -e gh_playbook_imported=true -e herdr_playbook_imported=true "${SCRIPT_DIR}/factory.yml"
+	if grep -q 'github\.com/jaeyeom/agentic-factory@' "$GO_LOG"; then
+		cat "$GO_LOG" >&2
+		fail "factory.yml queried stale agentic-factory module in go list -m"
+	fi
+	grep -qxF 'INSTALL github.com/jaeyeom/experimental/devtools/factory/cmd/factory@main' "$GO_LOG" || {
+		cat "$GO_LOG" >&2
+		fail "factory.yml did not reinstall factory from github.com/jaeyeom/experimental"
+	}
+fi
+
+# Scenario 9: Subpackage third-party tool (goimports.yml) whose installed mod
+# is an ancestor of PkgPath does not trigger a false module mismatch.
+cat >"${GOPATH_DIR}/bin/goimports" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+chmod +x "${GOPATH_DIR}/bin/goimports"
+if [ ! -e "${ANSIBLE_BIN_DIR}/goimports" ]; then
+	FAKE_MOD_PATH="golang.org/x/tools/cmd/goimports" \
+	FAKE_MOD_ROOT="golang.org/x/tools" \
+	FAKE_INSTALLED_VER="v0.40.0" \
+	FAKE_INSTALLED_GO="go1.27.4" \
+	FAKE_TOOLCHAIN_GO="go1.27.4" \
+	FAKE_LATEST_VER="v0.40.0" \
+		run_pb "${SCRIPT_DIR}/goimports.yml"
+	grep -qE 'go list -m -f \{\{\.Version ?\}\} golang\.org/x/tools@latest$' "$GO_LOG" || {
+		cat "$GO_LOG" >&2
+		fail "goimports.yml did not resolve ancestor module golang.org/x/tools@latest"
+	}
+	if grep -q '^INSTALL ' "$GO_LOG"; then
+		cat "$GO_LOG" >&2
+		fail "goimports.yml reinstalled on matching ancestor module"
+	fi
+fi
+
 echo "PASS: all go_install_version tests passed"

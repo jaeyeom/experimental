@@ -51,10 +51,14 @@
               register: actionlint_latest
               ignore_errors: yes
               changed_when: False
+              when: >-
+                actionlint_module_path | length > 0 and
+                (actionlint_module_path == 'github.com/rhysd/actionlint/cmd/actionlint' or
+                'github.com/rhysd/actionlint/cmd/actionlint'.startswith(actionlint_module_path ~ '/'))
 
             - name: Debug module path and version
               debug:
-                msg: "{{ actionlint_module_path }} {{ actionlint_module_version }} => {{ actionlint_latest.stdout }}"
+                msg: "{{ actionlint_module_path }} {{ actionlint_module_version }} => {{ ((actionlint_latest | default({})).stdout | default('')) | trim }}"
           rescue:
             - name: Clear actionlint facts
               set_fact:
@@ -76,6 +80,10 @@
               - "{{ ((actionlint_latest | default({})).stdout | default('')) | trim }}"
               - "{{ actionlint_build_go.stdout | default('') | trim }}"
               - "{{ go_toolchain_version | default('') | trim }}"
+              - --installed-module
+              - "{{ actionlint_module_path | default('') | trim }}"
+              - --target-module
+              - github.com/rhysd/actionlint/cmd/actionlint
           register: actionlint_version_check
           changed_when: false
           check_mode: false
@@ -113,10 +121,14 @@
               register: actionlint_latest
               ignore_errors: yes
               changed_when: False
+              when: >-
+                actionlint_module_path | length > 0 and
+                (actionlint_module_path == 'github.com/rhysd/actionlint/cmd/actionlint' or
+                'github.com/rhysd/actionlint/cmd/actionlint'.startswith(actionlint_module_path ~ '/'))
 
             - name: Debug module path and version
               debug:
-                msg: "{{ actionlint_module_path }} {{ actionlint_module_version }} => {{ actionlint_latest.stdout }}"
+                msg: "{{ actionlint_module_path }} {{ actionlint_module_version }} => {{ ((actionlint_latest | default({})).stdout | default('')) | trim }}"
           rescue:
             - name: Clear actionlint facts
               set_fact:
@@ -138,6 +150,10 @@
               - "{{ ((actionlint_latest | default({})).stdout | default('')) | trim }}"
               - "{{ actionlint_build_go.stdout | default('') | trim }}"
               - "{{ go_toolchain_version | default('') | trim }}"
+              - --installed-module
+              - "{{ actionlint_module_path | default('') | trim }}"
+              - --target-module
+              - github.com/rhysd/actionlint/cmd/actionlint
           register: actionlint_version_check
           changed_when: false
           check_mode: false

@@ -39,14 +39,18 @@
             prsync_module_path: "{{ prsync_installed.stdout.split()[1] }}"
             prsync_module_version: "{{ prsync_installed.stdout.split()[2] }}"
         - name: Determine the latest prsync version
-          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ prsync_module_path }}@{{ experimental_ref | default('main') }}"
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "github.com/jaeyeom/experimental@{{ experimental_ref | default('main') }}"
           register: prsync_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            prsync_module_path | length > 0 and
+            (prsync_module_path == 'github.com/jaeyeom/experimental' or
+            'github.com/jaeyeom/experimental'.startswith(prsync_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ prsync_module_path }} {{ prsync_module_version }} => {{ prsync_latest.stdout }}"
+            msg: "{{ prsync_module_path }} {{ prsync_module_version }} => {{ ((prsync_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear prsync facts
           set_fact:
@@ -68,6 +72,10 @@
           - "{{ ((prsync_latest | default({})).stdout | default('')) | trim }}"
           - "{{ prsync_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ prsync_module_path | default('') | trim }}"
+          - --target-module
+          - github.com/jaeyeom/experimental
       register: prsync_version_check
       changed_when: false
       check_mode: false

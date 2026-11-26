@@ -34,10 +34,14 @@
           register: goimports_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            goimports_module_path | length > 0 and
+            (goimports_module_path == 'golang.org/x/tools/cmd/goimports' or
+            'golang.org/x/tools/cmd/goimports'.startswith(goimports_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ goimports_module_path }} {{ goimports_module_version }} => {{ goimports_latest.stdout }}"
+            msg: "{{ goimports_module_path }} {{ goimports_module_version }} => {{ ((goimports_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear goimports facts
           set_fact:
@@ -59,6 +63,10 @@
           - "{{ ((goimports_latest | default({})).stdout | default('')) | trim }}"
           - "{{ goimports_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ goimports_module_path | default('') | trim }}"
+          - --target-module
+          - golang.org/x/tools/cmd/goimports
       register: goimports_version_check
       changed_when: false
       check_mode: false

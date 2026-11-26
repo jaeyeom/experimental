@@ -34,10 +34,14 @@
           register: godef_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            godef_module_path | length > 0 and
+            (godef_module_path == 'github.com/rogpeppe/godef' or
+            'github.com/rogpeppe/godef'.startswith(godef_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ godef_module_path }} {{ godef_module_version }} => {{ godef_latest.stdout }}"
+            msg: "{{ godef_module_path }} {{ godef_module_version }} => {{ ((godef_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear godef facts
           set_fact:
@@ -59,6 +63,10 @@
           - "{{ ((godef_latest | default({})).stdout | default('')) | trim }}"
           - "{{ godef_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ godef_module_path | default('') | trim }}"
+          - --target-module
+          - github.com/rogpeppe/godef
       register: godef_version_check
       changed_when: false
       check_mode: false

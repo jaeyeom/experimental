@@ -102,6 +102,7 @@ filegroup(
     srcs = [
         ":py_entries",
         "//codelab/proto:py_entries",
+        "//devtools/setup-dev/ansible:py_entries",
         "//scripts:py_entries",
         "//tools/lint:py_entries",
     ],

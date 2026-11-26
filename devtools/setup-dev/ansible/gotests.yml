@@ -34,10 +34,14 @@
           register: gotests_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            gotests_module_path | length > 0 and
+            (gotests_module_path == 'github.com/cweill/gotests/gotests' or
+            'github.com/cweill/gotests/gotests'.startswith(gotests_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ gotests_module_path }} {{ gotests_module_version }} => {{ gotests_latest.stdout }}"
+            msg: "{{ gotests_module_path }} {{ gotests_module_version }} => {{ ((gotests_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear gotests facts
           set_fact:
@@ -59,6 +63,10 @@
           - "{{ ((gotests_latest | default({})).stdout | default('')) | trim }}"
           - "{{ gotests_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ gotests_module_path | default('') | trim }}"
+          - --target-module
+          - github.com/cweill/gotests/gotests
       register: gotests_version_check
       changed_when: false
       check_mode: false

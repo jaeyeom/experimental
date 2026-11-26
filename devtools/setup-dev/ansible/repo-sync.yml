@@ -35,14 +35,18 @@
             repo_sync_module_path: "{{ repo_sync_installed.stdout.split()[1] }}"
             repo_sync_module_version: "{{ repo_sync_installed.stdout.split()[2] }}"
         - name: Determine the latest repo-sync version
-          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ repo_sync_module_path }}@{{ experimental_ref | default('main') }}"
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "github.com/jaeyeom/experimental@{{ experimental_ref | default('main') }}"
           register: repo_sync_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            repo_sync_module_path | length > 0 and
+            (repo_sync_module_path == 'github.com/jaeyeom/experimental' or
+            'github.com/jaeyeom/experimental'.startswith(repo_sync_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ repo_sync_module_path }} {{ repo_sync_module_version }} => {{ repo_sync_latest.stdout }}"
+            msg: "{{ repo_sync_module_path }} {{ repo_sync_module_version }} => {{ ((repo_sync_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear repo-sync facts
           set_fact:
@@ -64,6 +68,10 @@
           - "{{ ((repo_sync_latest | default({})).stdout | default('')) | trim }}"
           - "{{ repo_sync_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ repo_sync_module_path | default('') | trim }}"
+          - --target-module
+          - github.com/jaeyeom/experimental
       register: repo_sync_version_check
       changed_when: false
       check_mode: false

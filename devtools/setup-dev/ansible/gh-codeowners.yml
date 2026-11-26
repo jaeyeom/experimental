@@ -36,14 +36,18 @@
             gh_codeowners_module_path: "{{ gh_codeowners_installed.stdout.split()[1] }}"
             gh_codeowners_module_version: "{{ gh_codeowners_installed.stdout.split()[2] }}"
         - name: Determine the latest gh-codeowners version
-          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ gh_codeowners_module_path }}@{{ experimental_ref | default('main') }}"
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "github.com/jaeyeom/experimental@{{ experimental_ref | default('main') }}"
           register: gh_codeowners_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            gh_codeowners_module_path | length > 0 and
+            (gh_codeowners_module_path == 'github.com/jaeyeom/experimental' or
+            'github.com/jaeyeom/experimental'.startswith(gh_codeowners_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ gh_codeowners_module_path }} {{ gh_codeowners_module_version }} => {{ gh_codeowners_latest.stdout }}"
+            msg: "{{ gh_codeowners_module_path }} {{ gh_codeowners_module_version }} => {{ ((gh_codeowners_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear gh-codeowners facts
           set_fact:
@@ -65,6 +69,10 @@
           - "{{ ((gh_codeowners_latest | default({})).stdout | default('')) | trim }}"
           - "{{ gh_codeowners_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ gh_codeowners_module_path | default('') | trim }}"
+          - --target-module
+          - github.com/jaeyeom/experimental
       register: gh_codeowners_version_check
       changed_when: false
       check_mode: false

@@ -34,10 +34,14 @@
           register: gopls_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            gopls_module_path | length > 0 and
+            (gopls_module_path == 'golang.org/x/tools/gopls' or
+            'golang.org/x/tools/gopls'.startswith(gopls_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ gopls_module_path }} {{ gopls_module_version }} => {{ gopls_latest.stdout }}"
+            msg: "{{ gopls_module_path }} {{ gopls_module_version }} => {{ ((gopls_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear gopls facts
           set_fact:
@@ -59,6 +63,10 @@
           - "{{ ((gopls_latest | default({})).stdout | default('')) | trim }}"
           - "{{ gopls_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ gopls_module_path | default('') | trim }}"
+          - --target-module
+          - golang.org/x/tools/gopls
       register: gopls_version_check
       changed_when: false
       check_mode: false

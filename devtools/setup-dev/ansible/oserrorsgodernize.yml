@@ -34,10 +34,14 @@
           register: oserrorsgodernize_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            oserrorsgodernize_module_path | length > 0 and
+            (oserrorsgodernize_module_path == 'github.com/jaeyeom/godernize/oserrors/cmd/oserrorsgodernize' or
+            'github.com/jaeyeom/godernize/oserrors/cmd/oserrorsgodernize'.startswith(oserrorsgodernize_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ oserrorsgodernize_module_path }} {{ oserrorsgodernize_module_version }} => {{ oserrorsgodernize_latest.stdout }}"
+            msg: "{{ oserrorsgodernize_module_path }} {{ oserrorsgodernize_module_version }} => {{ ((oserrorsgodernize_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear oserrorsgodernize facts
           set_fact:
@@ -59,6 +63,10 @@
           - "{{ ((oserrorsgodernize_latest | default({})).stdout | default('')) | trim }}"
           - "{{ oserrorsgodernize_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ oserrorsgodernize_module_path | default('') | trim }}"
+          - --target-module
+          - github.com/jaeyeom/godernize/oserrors/cmd/oserrorsgodernize
       register: oserrorsgodernize_version_check
       changed_when: false
       check_mode: false

@@ -1,6 +1,8 @@
 load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+load("@rules_python//python:defs.bzl", "py_library", "py_test")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("//devtools/linters/pylinters:py_entries.bzl", "py_entries_manifest")
 
 go_library(
     name = "go_default_library",
@@ -328,20 +330,49 @@ test_suite(
     ],
 )
 
+py_library(
+    name = "go_version_compare_lib",
+    srcs = ["go_version_compare.py"],
+    imports = ["."],
+)
+
+py_test(
+    name = "go_version_compare_test",
+    size = "small",
+    srcs = ["go_version_compare_test.py"],
+    imports = ["."],
+    legacy_create_init = 0,
+    deps = [
+        ":go_version_compare_lib",
+        "@pypi//pytest",
+    ],
+)
+
+py_entries_manifest(
+    name = "py_entries",
+    visibility = ["//devtools/linters/pylinters:__pkg__"],
+)
+
 sh_test(
     name = "go_install_version_test",
     srcs = ["go_install_version_test.sh"],
     data = [
+        "curl.yml",
         "decide.yml",
         "diskwatch.yml",
+        "factory.yml",
         "gather-facts.yml",
+        "gh.yml",
         "go.yml",
         "go_version_compare.py",
+        "goimports.yml",
         "gopls.yml",
+        "herdr.yml",
         "inventory.ini",
         "setup-hub-client.yml",
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",

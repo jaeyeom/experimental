@@ -36,14 +36,18 @@
             gh_throttle_module_path: "{{ gh_throttle_installed.stdout.split()[1] }}"
             gh_throttle_module_version: "{{ gh_throttle_installed.stdout.split()[2] }}"
         - name: Determine the latest gh-throttle version
-          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ gh_throttle_module_path }}@{{ experimental_ref | default('main') }}"
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "github.com/jaeyeom/experimental@{{ experimental_ref | default('main') }}"
           register: gh_throttle_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            gh_throttle_module_path | length > 0 and
+            (gh_throttle_module_path == 'github.com/jaeyeom/experimental' or
+            'github.com/jaeyeom/experimental'.startswith(gh_throttle_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ gh_throttle_module_path }} {{ gh_throttle_module_version }} => {{ gh_throttle_latest.stdout }}"
+            msg: "{{ gh_throttle_module_path }} {{ gh_throttle_module_version }} => {{ ((gh_throttle_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear gh-throttle facts
           set_fact:
@@ -65,6 +69,10 @@
           - "{{ ((gh_throttle_latest | default({})).stdout | default('')) | trim }}"
           - "{{ gh_throttle_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ gh_throttle_module_path | default('') | trim }}"
+          - --target-module
+          - github.com/jaeyeom/experimental
       register: gh_throttle_version_check
       changed_when: false
       check_mode: false

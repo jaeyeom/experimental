@@ -50,10 +50,14 @@
               register: goreleaser_latest
               ignore_errors: yes
               changed_when: False
+              when: >-
+                goreleaser_module_path | length > 0 and
+                (goreleaser_module_path == 'github.com/goreleaser/goreleaser/v2' or
+                'github.com/goreleaser/goreleaser/v2'.startswith(goreleaser_module_path ~ '/'))
 
             - name: Debug module path and version
               debug:
-                msg: "{{ goreleaser_module_path }} {{ goreleaser_module_version }} => {{ goreleaser_latest.stdout }}"
+                msg: "{{ goreleaser_module_path }} {{ goreleaser_module_version }} => {{ ((goreleaser_latest | default({})).stdout | default('')) | trim }}"
           rescue:
             - name: Clear goreleaser facts
               set_fact:
@@ -75,6 +79,10 @@
               - "{{ ((goreleaser_latest | default({})).stdout | default('')) | trim }}"
               - "{{ goreleaser_build_go.stdout | default('') | trim }}"
               - "{{ go_toolchain_version | default('') | trim }}"
+              - --installed-module
+              - "{{ goreleaser_module_path | default('') | trim }}"
+              - --target-module
+              - github.com/goreleaser/goreleaser/v2
           register: goreleaser_version_check
           changed_when: false
           check_mode: false
@@ -112,10 +120,14 @@
               register: goreleaser_latest
               ignore_errors: yes
               changed_when: False
+              when: >-
+                goreleaser_module_path | length > 0 and
+                (goreleaser_module_path == 'github.com/goreleaser/goreleaser/v2' or
+                'github.com/goreleaser/goreleaser/v2'.startswith(goreleaser_module_path ~ '/'))
 
             - name: Debug module path and version
               debug:
-                msg: "{{ goreleaser_module_path }} {{ goreleaser_module_version }} => {{ goreleaser_latest.stdout }}"
+                msg: "{{ goreleaser_module_path }} {{ goreleaser_module_version }} => {{ ((goreleaser_latest | default({})).stdout | default('')) | trim }}"
           rescue:
             - name: Clear goreleaser facts
               set_fact:
@@ -137,6 +149,10 @@
               - "{{ ((goreleaser_latest | default({})).stdout | default('')) | trim }}"
               - "{{ goreleaser_build_go.stdout | default('') | trim }}"
               - "{{ go_toolchain_version | default('') | trim }}"
+              - --installed-module
+              - "{{ goreleaser_module_path | default('') | trim }}"
+              - --target-module
+              - github.com/goreleaser/goreleaser/v2
           register: goreleaser_version_check
           changed_when: false
           check_mode: false

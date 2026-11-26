@@ -34,10 +34,14 @@
           register: impl_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            impl_module_path | length > 0 and
+            (impl_module_path == 'github.com/josharian/impl' or
+            'github.com/josharian/impl'.startswith(impl_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ impl_module_path }} {{ impl_module_version }} => {{ impl_latest.stdout }}"
+            msg: "{{ impl_module_path }} {{ impl_module_version }} => {{ ((impl_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear impl facts
           set_fact:
@@ -59,6 +63,10 @@
           - "{{ ((impl_latest | default({})).stdout | default('')) | trim }}"
           - "{{ impl_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ impl_module_path | default('') | trim }}"
+          - --target-module
+          - github.com/josharian/impl
       register: impl_version_check
       changed_when: false
       check_mode: false

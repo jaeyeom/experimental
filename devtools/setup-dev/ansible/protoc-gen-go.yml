@@ -35,10 +35,14 @@
           register: protoc_gen_go_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            protoc_gen_go_module_path | length > 0 and
+            (protoc_gen_go_module_path == 'google.golang.org/protobuf/cmd/protoc-gen-go' or
+            'google.golang.org/protobuf/cmd/protoc-gen-go'.startswith(protoc_gen_go_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ protoc_gen_go_module_path }} {{ protoc_gen_go_module_version }} => {{ protoc_gen_go_latest.stdout }}"
+            msg: "{{ protoc_gen_go_module_path }} {{ protoc_gen_go_module_version }} => {{ ((protoc_gen_go_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear protoc-gen-go facts
           set_fact:
@@ -60,6 +64,10 @@
           - "{{ ((protoc_gen_go_latest | default({})).stdout | default('')) | trim }}"
           - "{{ protoc_gen_go_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ protoc_gen_go_module_path | default('') | trim }}"
+          - --target-module
+          - google.golang.org/protobuf/cmd/protoc-gen-go
       register: protoc_gen_go_version_check
       changed_when: false
       check_mode: false

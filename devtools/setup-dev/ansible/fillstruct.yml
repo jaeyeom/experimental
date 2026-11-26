@@ -34,10 +34,14 @@
           register: fillstruct_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            fillstruct_module_path | length > 0 and
+            (fillstruct_module_path == 'github.com/davidrjenni/reftools/cmd/fillstruct' or
+            'github.com/davidrjenni/reftools/cmd/fillstruct'.startswith(fillstruct_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ fillstruct_module_path }} {{ fillstruct_module_version }} => {{ fillstruct_latest.stdout }}"
+            msg: "{{ fillstruct_module_path }} {{ fillstruct_module_version }} => {{ ((fillstruct_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear fillstruct facts
           set_fact:
@@ -59,6 +63,10 @@
           - "{{ ((fillstruct_latest | default({})).stdout | default('')) | trim }}"
           - "{{ fillstruct_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ fillstruct_module_path | default('') | trim }}"
+          - --target-module
+          - github.com/davidrjenni/reftools/cmd/fillstruct
       register: fillstruct_version_check
       changed_when: false
       check_mode: false

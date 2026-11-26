@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import sys
@@ -104,20 +105,36 @@ def _has_dirty_build(raw: str) -> bool:
     return has_plus and "dirty" in build_meta.split(".")
 
 
+def _modules_match(installed_module: str, target_module: str) -> bool:
+    """Return True when target_module belongs to installed_module."""
+    return target_module == installed_module or target_module.startswith(
+        installed_module + "/"
+    )
+
+
 def decide_upgrade(
     installed: str,
     target: str,
     installed_go: str = "",
     toolchain_go: str = "",
+    installed_module: str = "",
+    target_module: str = "",
 ) -> dict[str, str]:
     """Decide whether to install/upgrade a Go tool or skip."""
     inst = installed.strip()
     targ = target.strip()
     inst_go = installed_go.strip()
     tool_go = toolchain_go.strip()
+    inst_mod = installed_module.strip()
+    targ_mod = target_module.strip()
 
     if not inst:
         return {"action": "install", "reason": "not installed"}
+    if inst_mod and targ_mod and not _modules_match(inst_mod, targ_mod):
+        return {
+            "action": "install",
+            "reason": f"module path changed ({inst_mod} -> {targ_mod})",
+        }
     if not targ:
         return {
             "action": "skip_unresolved",
@@ -168,18 +185,41 @@ def decide_upgrade(
 
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point outputting JSON upgrade decision."""
-    args = sys.argv[1:] if argv is None else argv
-    if len(args) < 2 or len(args) > 4:
-        sys.stderr.write(
-            "usage: go_version_compare.py INSTALLED TARGET [INSTALLED_GO [TOOLCHAIN_GO]]\n",
-        )
-        return 2
-    installed = args[0]
-    target = args[1]
-    installed_go = args[2] if len(args) > 2 else ""
-    toolchain_go = args[3] if len(args) > 3 else ""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("installed", help="Installed module version")
+    parser.add_argument("target", help="Target module version")
+    parser.add_argument(
+        "installed_go",
+        nargs="?",
+        default="",
+        help="Go toolchain version used to build installed binary",
+    )
+    parser.add_argument(
+        "toolchain_go",
+        nargs="?",
+        default="",
+        help="Current Go toolchain version",
+    )
+    parser.add_argument(
+        "--installed-module",
+        default="",
+        help="Module path of the currently installed binary",
+    )
+    parser.add_argument(
+        "--target-module",
+        default="",
+        help="Configured target module or package path",
+    )
+    ns = parser.parse_args(argv)
     json.dump(
-        decide_upgrade(installed, target, installed_go, toolchain_go),
+        decide_upgrade(
+            ns.installed,
+            ns.target,
+            ns.installed_go,
+            ns.toolchain_go,
+            ns.installed_module,
+            ns.target_module,
+        ),
         sys.stdout,
     )
     sys.stdout.write("\n")

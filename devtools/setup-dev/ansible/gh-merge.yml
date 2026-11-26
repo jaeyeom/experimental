@@ -36,14 +36,18 @@
             gh_merge_module_path: "{{ gh_merge_installed.stdout.split()[1] }}"
             gh_merge_module_version: "{{ gh_merge_installed.stdout.split()[2] }}"
         - name: Determine the latest gh-merge version
-          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ gh_merge_module_path }}@{{ experimental_ref | default('main') }}"
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "github.com/jaeyeom/experimental@{{ experimental_ref | default('main') }}"
           register: gh_merge_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            gh_merge_module_path | length > 0 and
+            (gh_merge_module_path == 'github.com/jaeyeom/experimental' or
+            'github.com/jaeyeom/experimental'.startswith(gh_merge_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ gh_merge_module_path }} {{ gh_merge_module_version }} => {{ gh_merge_latest.stdout }}"
+            msg: "{{ gh_merge_module_path }} {{ gh_merge_module_version }} => {{ ((gh_merge_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear gh-merge facts
           set_fact:
@@ -65,6 +69,10 @@
           - "{{ ((gh_merge_latest | default({})).stdout | default('')) | trim }}"
           - "{{ gh_merge_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ gh_merge_module_path | default('') | trim }}"
+          - --target-module
+          - github.com/jaeyeom/experimental
       register: gh_merge_version_check
       changed_when: false
       check_mode: false

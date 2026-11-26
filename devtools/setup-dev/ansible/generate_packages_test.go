@@ -576,8 +576,20 @@ func TestFactorySkillInstall(t *testing.T) {
 	}
 
 	factory := read("factory.yml")
-	if !strings.Contains(factory, "command: go install github.com/jaeyeom/experimental/devtools/factory/cmd/factory@{{ experimental_ref | default('main') }}") {
-		t.Error("factory.yml missing go install of devtools/factory/cmd/factory with experimental_ref")
+	for _, want := range []string{
+		`command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "github.com/jaeyeom/experimental@{{ experimental_ref | default('main') }}"`,
+		"- --installed-module",
+		`- "{{ factory_module_path | default('') | trim }}"`,
+		"- --target-module",
+		"- github.com/jaeyeom/experimental",
+		"command: go install github.com/jaeyeom/experimental/devtools/factory/cmd/factory@{{ experimental_ref | default('main') }}",
+	} {
+		if !strings.Contains(factory, want) {
+			t.Errorf("factory.yml missing %q", want)
+		}
+	}
+	if strings.Contains(factory, `"{{ factory_module_path }}@`) {
+		t.Error("factory.yml must not query go list -m against stale factory_module_path")
 	}
 	wantHerdr := "import_playbook: herdr.yml\n  when: ansible_facts['env']['TERMUX_VERSION'] is not defined"
 	if !strings.Contains(factory, wantHerdr) {

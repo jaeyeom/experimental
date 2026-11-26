@@ -34,10 +34,14 @@
           register: hugo_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            hugo_module_path | length > 0 and
+            (hugo_module_path == 'github.com/gohugoio/hugo' or
+            'github.com/gohugoio/hugo'.startswith(hugo_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ hugo_module_path }} {{ hugo_module_version }} => {{ hugo_latest.stdout }}"
+            msg: "{{ hugo_module_path }} {{ hugo_module_version }} => {{ ((hugo_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear hugo facts
           set_fact:
@@ -59,6 +63,10 @@
           - "{{ ((hugo_latest | default({})).stdout | default('')) | trim }}"
           - "{{ hugo_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ hugo_module_path | default('') | trim }}"
+          - --target-module
+          - github.com/gohugoio/hugo
       register: hugo_version_check
       changed_when: false
       check_mode: false

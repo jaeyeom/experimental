@@ -34,10 +34,14 @@
           register: godoc_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            godoc_module_path | length > 0 and
+            (godoc_module_path == 'golang.org/x/tools/cmd/godoc' or
+            'golang.org/x/tools/cmd/godoc'.startswith(godoc_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ godoc_module_path }} {{ godoc_module_version }} => {{ godoc_latest.stdout }}"
+            msg: "{{ godoc_module_path }} {{ godoc_module_version }} => {{ ((godoc_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear godoc facts
           set_fact:
@@ -59,6 +63,10 @@
           - "{{ ((godoc_latest | default({})).stdout | default('')) | trim }}"
           - "{{ godoc_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ godoc_module_path | default('') | trim }}"
+          - --target-module
+          - golang.org/x/tools/cmd/godoc
       register: godoc_version_check
       changed_when: false
       check_mode: false

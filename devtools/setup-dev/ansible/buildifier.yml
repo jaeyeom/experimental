@@ -34,10 +34,14 @@
           register: buildifier_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            buildifier_module_path | length > 0 and
+            (buildifier_module_path == 'github.com/bazelbuild/buildtools/buildifier' or
+            'github.com/bazelbuild/buildtools/buildifier'.startswith(buildifier_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ buildifier_module_path }} {{ buildifier_module_version }} => {{ buildifier_latest.stdout }}"
+            msg: "{{ buildifier_module_path }} {{ buildifier_module_version }} => {{ ((buildifier_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear buildifier facts
           set_fact:
@@ -59,6 +63,10 @@
           - "{{ ((buildifier_latest | default({})).stdout | default('')) | trim }}"
           - "{{ buildifier_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ buildifier_module_path | default('') | trim }}"
+          - --target-module
+          - github.com/bazelbuild/buildtools/buildifier
       register: buildifier_version_check
       changed_when: false
       check_mode: false

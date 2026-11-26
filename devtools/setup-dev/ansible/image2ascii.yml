@@ -34,10 +34,14 @@
           register: image2ascii_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            image2ascii_module_path | length > 0 and
+            (image2ascii_module_path == 'github.com/qeesung/image2ascii' or
+            'github.com/qeesung/image2ascii'.startswith(image2ascii_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ image2ascii_module_path }} {{ image2ascii_module_version }} => {{ image2ascii_latest.stdout }}"
+            msg: "{{ image2ascii_module_path }} {{ image2ascii_module_version }} => {{ ((image2ascii_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear image2ascii facts
           set_fact:
@@ -59,6 +63,10 @@
           - "{{ ((image2ascii_latest | default({})).stdout | default('')) | trim }}"
           - "{{ image2ascii_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ image2ascii_module_path | default('') | trim }}"
+          - --target-module
+          - github.com/qeesung/image2ascii
       register: image2ascii_version_check
       changed_when: false
       check_mode: false

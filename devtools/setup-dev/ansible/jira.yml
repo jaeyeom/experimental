@@ -34,10 +34,14 @@
           register: jira_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            jira_module_path | length > 0 and
+            (jira_module_path == 'github.com/ankitpokhrel/jira-cli/cmd/jira' or
+            'github.com/ankitpokhrel/jira-cli/cmd/jira'.startswith(jira_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ jira_module_path }} {{ jira_module_version }} => {{ jira_latest.stdout }}"
+            msg: "{{ jira_module_path }} {{ jira_module_version }} => {{ ((jira_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear jira facts
           set_fact:
@@ -59,6 +63,10 @@
           - "{{ ((jira_latest | default({})).stdout | default('')) | trim }}"
           - "{{ jira_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ jira_module_path | default('') | trim }}"
+          - --target-module
+          - github.com/ankitpokhrel/jira-cli/cmd/jira
       register: jira_version_check
       changed_when: false
       check_mode: false

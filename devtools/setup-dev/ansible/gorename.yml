@@ -34,10 +34,14 @@
           register: gorename_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            gorename_module_path | length > 0 and
+            (gorename_module_path == 'golang.org/x/tools/cmd/gorename' or
+            'golang.org/x/tools/cmd/gorename'.startswith(gorename_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ gorename_module_path }} {{ gorename_module_version }} => {{ gorename_latest.stdout }}"
+            msg: "{{ gorename_module_path }} {{ gorename_module_version }} => {{ ((gorename_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear gorename facts
           set_fact:
@@ -59,6 +63,10 @@
           - "{{ ((gorename_latest | default({})).stdout | default('')) | trim }}"
           - "{{ gorename_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ gorename_module_path | default('') | trim }}"
+          - --target-module
+          - golang.org/x/tools/cmd/gorename
       register: gorename_version_check
       changed_when: false
       check_mode: false

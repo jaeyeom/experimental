@@ -51,10 +51,14 @@
               register: act_latest
               ignore_errors: yes
               changed_when: False
+              when: >-
+                act_module_path | length > 0 and
+                (act_module_path == 'github.com/nektos/act' or
+                'github.com/nektos/act'.startswith(act_module_path ~ '/'))
 
             - name: Debug module path and version
               debug:
-                msg: "{{ act_module_path }} {{ act_module_version }} => {{ act_latest.stdout }}"
+                msg: "{{ act_module_path }} {{ act_module_version }} => {{ ((act_latest | default({})).stdout | default('')) | trim }}"
           rescue:
             - name: Clear act facts
               set_fact:
@@ -76,6 +80,10 @@
               - "{{ ((act_latest | default({})).stdout | default('')) | trim }}"
               - "{{ act_build_go.stdout | default('') | trim }}"
               - "{{ go_toolchain_version | default('') | trim }}"
+              - --installed-module
+              - "{{ act_module_path | default('') | trim }}"
+              - --target-module
+              - github.com/nektos/act
           register: act_version_check
           changed_when: false
           check_mode: false
@@ -113,10 +121,14 @@
               register: act_latest
               ignore_errors: yes
               changed_when: False
+              when: >-
+                act_module_path | length > 0 and
+                (act_module_path == 'github.com/nektos/act' or
+                'github.com/nektos/act'.startswith(act_module_path ~ '/'))
 
             - name: Debug module path and version
               debug:
-                msg: "{{ act_module_path }} {{ act_module_version }} => {{ act_latest.stdout }}"
+                msg: "{{ act_module_path }} {{ act_module_version }} => {{ ((act_latest | default({})).stdout | default('')) | trim }}"
           rescue:
             - name: Clear act facts
               set_fact:
@@ -138,6 +150,10 @@
               - "{{ ((act_latest | default({})).stdout | default('')) | trim }}"
               - "{{ act_build_go.stdout | default('') | trim }}"
               - "{{ go_toolchain_version | default('') | trim }}"
+              - --installed-module
+              - "{{ act_module_path | default('') | trim }}"
+              - --target-module
+              - github.com/nektos/act
           register: act_version_check
           changed_when: false
           check_mode: false

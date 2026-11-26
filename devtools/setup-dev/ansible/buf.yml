@@ -34,10 +34,14 @@
           register: buf_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            buf_module_path | length > 0 and
+            (buf_module_path == 'github.com/bufbuild/buf/cmd/buf' or
+            'github.com/bufbuild/buf/cmd/buf'.startswith(buf_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ buf_module_path }} {{ buf_module_version }} => {{ buf_latest.stdout }}"
+            msg: "{{ buf_module_path }} {{ buf_module_version }} => {{ ((buf_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear buf facts
           set_fact:
@@ -59,6 +63,10 @@
           - "{{ ((buf_latest | default({})).stdout | default('')) | trim }}"
           - "{{ buf_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ buf_module_path | default('') | trim }}"
+          - --target-module
+          - github.com/bufbuild/buf/cmd/buf
       register: buf_version_check
       changed_when: false
       check_mode: false

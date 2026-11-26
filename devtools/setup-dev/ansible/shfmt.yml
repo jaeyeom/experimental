@@ -34,10 +34,14 @@
           register: shfmt_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            shfmt_module_path | length > 0 and
+            (shfmt_module_path == 'mvdan.cc/sh/v3/cmd/shfmt' or
+            'mvdan.cc/sh/v3/cmd/shfmt'.startswith(shfmt_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ shfmt_module_path }} {{ shfmt_module_version }} => {{ shfmt_latest.stdout }}"
+            msg: "{{ shfmt_module_path }} {{ shfmt_module_version }} => {{ ((shfmt_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear shfmt facts
           set_fact:
@@ -59,6 +63,10 @@
           - "{{ ((shfmt_latest | default({})).stdout | default('')) | trim }}"
           - "{{ shfmt_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ shfmt_module_path | default('') | trim }}"
+          - --target-module
+          - mvdan.cc/sh/v3/cmd/shfmt
       register: shfmt_version_check
       changed_when: false
       check_mode: false

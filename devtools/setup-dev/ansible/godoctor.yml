@@ -34,10 +34,14 @@
           register: godoctor_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            godoctor_module_path | length > 0 and
+            (godoctor_module_path == 'github.com/godoctor/godoctor' or
+            'github.com/godoctor/godoctor'.startswith(godoctor_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ godoctor_module_path }} {{ godoctor_module_version }} => {{ godoctor_latest.stdout }}"
+            msg: "{{ godoctor_module_path }} {{ godoctor_module_version }} => {{ ((godoctor_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear godoctor facts
           set_fact:
@@ -59,6 +63,10 @@
           - "{{ ((godoctor_latest | default({})).stdout | default('')) | trim }}"
           - "{{ godoctor_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ godoctor_module_path | default('') | trim }}"
+          - --target-module
+          - github.com/godoctor/godoctor
       register: godoctor_version_check
       changed_when: false
       check_mode: false

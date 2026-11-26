@@ -34,10 +34,14 @@
           register: task_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            task_module_path | length > 0 and
+            (task_module_path == 'github.com/go-task/task/v3/cmd/task' or
+            'github.com/go-task/task/v3/cmd/task'.startswith(task_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ task_module_path }} {{ task_module_version }} => {{ task_latest.stdout }}"
+            msg: "{{ task_module_path }} {{ task_module_version }} => {{ ((task_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear task facts
           set_fact:
@@ -59,6 +63,10 @@
           - "{{ ((task_latest | default({})).stdout | default('')) | trim }}"
           - "{{ task_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ task_module_path | default('') | trim }}"
+          - --target-module
+          - github.com/go-task/task/v3/cmd/task
       register: task_version_check
       changed_when: false
       check_mode: false

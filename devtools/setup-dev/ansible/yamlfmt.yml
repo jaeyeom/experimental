@@ -34,10 +34,14 @@
           register: yamlfmt_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            yamlfmt_module_path | length > 0 and
+            (yamlfmt_module_path == 'github.com/google/yamlfmt/cmd/yamlfmt' or
+            'github.com/google/yamlfmt/cmd/yamlfmt'.startswith(yamlfmt_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ yamlfmt_module_path }} {{ yamlfmt_module_version }} => {{ yamlfmt_latest.stdout }}"
+            msg: "{{ yamlfmt_module_path }} {{ yamlfmt_module_version }} => {{ ((yamlfmt_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear yamlfmt facts
           set_fact:
@@ -59,6 +63,10 @@
           - "{{ ((yamlfmt_latest | default({})).stdout | default('')) | trim }}"
           - "{{ yamlfmt_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ yamlfmt_module_path | default('') | trim }}"
+          - --target-module
+          - github.com/google/yamlfmt/cmd/yamlfmt
       register: yamlfmt_version_check
       changed_when: false
       check_mode: false

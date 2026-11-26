@@ -34,10 +34,14 @@
           register: guru_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            guru_module_path | length > 0 and
+            (guru_module_path == 'golang.org/x/tools/cmd/guru' or
+            'golang.org/x/tools/cmd/guru'.startswith(guru_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ guru_module_path }} {{ guru_module_version }} => {{ guru_latest.stdout }}"
+            msg: "{{ guru_module_path }} {{ guru_module_version }} => {{ ((guru_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear guru facts
           set_fact:
@@ -59,6 +63,10 @@
           - "{{ ((guru_latest | default({})).stdout | default('')) | trim }}"
           - "{{ guru_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ guru_module_path | default('') | trim }}"
+          - --target-module
+          - golang.org/x/tools/cmd/guru
       register: guru_version_check
       changed_when: false
       check_mode: false

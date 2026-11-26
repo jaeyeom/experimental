@@ -34,10 +34,14 @@
           register: gofumpt_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            gofumpt_module_path | length > 0 and
+            (gofumpt_module_path == 'mvdan.cc/gofumpt' or
+            'mvdan.cc/gofumpt'.startswith(gofumpt_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ gofumpt_module_path }} {{ gofumpt_module_version }} => {{ gofumpt_latest.stdout }}"
+            msg: "{{ gofumpt_module_path }} {{ gofumpt_module_version }} => {{ ((gofumpt_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear gofumpt facts
           set_fact:
@@ -59,6 +63,10 @@
           - "{{ ((gofumpt_latest | default({})).stdout | default('')) | trim }}"
           - "{{ gofumpt_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ gofumpt_module_path | default('') | trim }}"
+          - --target-module
+          - mvdan.cc/gofumpt
       register: gofumpt_version_check
       changed_when: false
       check_mode: false

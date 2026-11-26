@@ -272,6 +272,10 @@ func TestGoInstallMethodRenderInstallTask(t *testing.T) {
 		assertContains(t, got, []string{
 			`"{{ my_tool_module_path }}@latest"`,
 			"{{ playbook_dir }}/go_version_compare.py",
+			"--installed-module",
+			`"{{ my_tool_module_path | default('') | trim }}"`,
+			"--target-module",
+			"example.com/mytool",
 			"(my_tool_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']",
 			"(my_tool_version_check.stdout | from_json).action == 'install'",
 			"Skipping my-tool:",
@@ -299,14 +303,63 @@ func TestGoInstallMethodRenderInstallTask(t *testing.T) {
 		got := method.RenderInstallTask("decide")
 
 		listTask := ansibleTask(t, got, "Determine the latest decide version")
+		compareTask := ansibleTask(t, got, "Compare decide installed and target versions")
 		installTask := ansibleTask(t, got, "Upgrade decide")
 		assertContains(t, listTask, []string{
-			`"{{ decide_module_path }}@{{ experimental_ref | default('main') }}"`,
+			`"github.com/jaeyeom/experimental@{{ experimental_ref | default('main') }}"`,
+			"decide_module_path == 'github.com/jaeyeom/experimental'",
+		})
+		assertNotContains(t, listTask, []string{"decide_module_path }}@"})
+		assertContains(t, compareTask, []string{
+			"--installed-module",
+			`"{{ decide_module_path | default('') | trim }}"`,
+			"--target-module",
+			"github.com/jaeyeom/experimental",
 		})
 		assertContains(t, installTask, []string{
 			"go install github.com/jaeyeom/experimental/devtools/decide/cmd/decide@{{ experimental_ref | default('main') }}",
 		})
 		assertNotContains(t, got, []string{"@latest"})
+	})
+
+	t.Run("factory module migration checks target module path", func(t *testing.T) {
+		method := GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/factory/cmd/factory@main"}
+		got := method.RenderInstallTask("factory")
+
+		listTask := ansibleTask(t, got, "Determine the latest factory version")
+		debugTask := ansibleTask(t, got, "Debug module path and version")
+		compareTask := ansibleTask(t, got, "Compare factory installed and target versions")
+		assertContains(t, listTask, []string{
+			`"github.com/jaeyeom/experimental@{{ experimental_ref | default('main') }}"`,
+			"factory_module_path == 'github.com/jaeyeom/experimental'",
+		})
+		assertContains(t, debugTask, []string{
+			"(factory_latest | default({})).stdout | default('')",
+		})
+		assertContains(t, compareTask, []string{
+			"--installed-module",
+			`"{{ factory_module_path | default('') | trim }}"`,
+			"--target-module",
+			"github.com/jaeyeom/experimental",
+		})
+	})
+
+	t.Run("third-party subpackage passes package path as target module", func(t *testing.T) {
+		method := GoInstallMethod{PkgPath: "golang.org/x/tools/cmd/goimports@latest"}
+		got := method.RenderInstallTask("goimports")
+
+		listTask := ansibleTask(t, got, "Determine the latest goimports version")
+		compareTask := ansibleTask(t, got, "Compare goimports installed and target versions")
+		assertContains(t, listTask, []string{
+			`"{{ goimports_module_path }}@latest"`,
+			"'golang.org/x/tools/cmd/goimports'.startswith(goimports_module_path ~ '/')",
+		})
+		assertContains(t, compareTask, []string{
+			"--installed-module",
+			`"{{ goimports_module_path | default('') | trim }}"`,
+			"--target-module",
+			"golang.org/x/tools/cmd/goimports",
+		})
 	})
 
 	t.Run("pinned third-party ref resolves same ref in go list and go install", func(t *testing.T) {

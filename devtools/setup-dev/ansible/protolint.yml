@@ -34,10 +34,14 @@
           register: protolint_latest
           ignore_errors: yes
           changed_when: False
+          when: >-
+            protolint_module_path | length > 0 and
+            (protolint_module_path == 'github.com/yoheimuta/protolint/cmd/protolint' or
+            'github.com/yoheimuta/protolint/cmd/protolint'.startswith(protolint_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
-            msg: "{{ protolint_module_path }} {{ protolint_module_version }} => {{ protolint_latest.stdout }}"
+            msg: "{{ protolint_module_path }} {{ protolint_module_version }} => {{ ((protolint_latest | default({})).stdout | default('')) | trim }}"
       rescue:
         - name: Clear protolint facts
           set_fact:
@@ -59,6 +63,10 @@
           - "{{ ((protolint_latest | default({})).stdout | default('')) | trim }}"
           - "{{ protolint_build_go.stdout | default('') | trim }}"
           - "{{ go_toolchain_version | default('') | trim }}"
+          - --installed-module
+          - "{{ protolint_module_path | default('') | trim }}"
+          - --target-module
+          - github.com/yoheimuta/protolint/cmd/protolint
       register: protolint_version_check
       changed_when: false
       check_mode: false
