@@ -1,0 +1,7 @@
+exports_files([
+    "AGENTS.md",
+    "BUILD.bazel",
+    "CLAUDE.md",
+    "README.md",
+    "factory.example.toml",
+])

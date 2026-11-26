@@ -1,0 +1,44 @@
+[
+  {
+    "source": "jira:cub",
+    "id": "CUB-1",
+    "title": "Cub task",
+    "url": "https://example.test/browse/CUB-1",
+    "parent": "",
+    "score": {
+      "unblocks": 0,
+      "parent_rank": 0,
+      "priority": 0,
+      "created": "2026-10-03T00:00:00Z"
+    },
+    "notBefore": null
+  },
+  {
+    "source": "jira:acme",
+    "id": "PRJ-2",
+    "title": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaéZZZZ",
+    "url": "https://example.test/browse/PRJ-2",
+    "parent": "EPIC-B",
+    "score": {
+      "unblocks": 0,
+      "parent_rank": 1,
+      "priority": 1,
+      "created": "2026-10-02T00:00:00Z"
+    },
+    "notBefore": null
+  },
+  {
+    "source": "jira:acme",
+    "id": "PRJ-1",
+    "title": "Ship the parser",
+    "url": "https://example.test/browse/PRJ-1",
+    "parent": "EPIC-A",
+    "score": {
+      "unblocks": 2,
+      "parent_rank": 0,
+      "priority": 2,
+      "created": "2026-10-01T00:00:00Z"
+    },
+    "notBefore": null
+  }
+]

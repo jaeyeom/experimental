@@ -1,0 +1,23 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "defer.go",
+        "ids.go",
+        "parent.go",
+        "source.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/factory/internal/source",
+    visibility = ["//devtools/factory:__subpackages__"],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = [
+        "defer_test.go",
+        "ids_test.go",
+        "parent_test.go",
+    ],
+    embed = [":go_default_library"],
+)

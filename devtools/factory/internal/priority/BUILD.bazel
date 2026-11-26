@@ -1,0 +1,25 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "names.go",
+        "priority.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/factory/internal/priority",
+    visibility = ["//devtools/factory:__subpackages__"],
+    deps = [
+        "//devtools/factory/internal/config:go_default_library",
+        "//devtools/factory/internal/source:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = ["priority_test.go"],
+    embed = [":go_default_library"],
+    deps = [
+        "//devtools/factory/internal/config:go_default_library",
+        "//devtools/factory/internal/source:go_default_library",
+    ],
+)

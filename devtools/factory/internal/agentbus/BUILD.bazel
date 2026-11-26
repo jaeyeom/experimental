@@ -1,0 +1,21 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["agentbus.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/factory/internal/agentbus",
+    visibility = ["//devtools/factory:__subpackages__"],
+    deps = ["@com_github_jaeyeom_go_cmdexec//:go_default_library"],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = [
+        "agentbus_test.go",
+        "all_test.go",
+        "wake_test.go",
+        "whoami_test.go",
+    ],
+    embed = [":go_default_library"],
+    deps = ["@com_github_jaeyeom_go_cmdexec//:go_default_library"],
+)

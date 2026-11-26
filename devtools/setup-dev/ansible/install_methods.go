@@ -252,8 +252,7 @@ func (g GoInstallMethod) RenderSetupTasks(_ string) string {
 }
 
 const (
-	agenticFactoryModule = "github.com/jaeyeom/agentic-factory"
-	experimentalModule   = "github.com/jaeyeom/experimental"
+	experimentalModule = "github.com/jaeyeom/experimental"
 )
 
 func (g GoInstallMethod) isExperimental() bool {
@@ -277,26 +276,6 @@ func (g GoInstallMethod) targetParts() (pkg, ref string) {
 	return pkg, rawRef
 }
 
-// privateFactoryFetchEnv is the Ansible environment for go list and go install
-// of github.com/jaeyeom/agentic-factory. keySpaces is the indent of the
-// environment key. The blank credential helper clears inherited
-// https://github.com helpers for this process only. Other modules return "".
-func (g GoInstallMethod) privateFactoryFetchEnv(keySpaces int) string {
-	module, _, _ := strings.Cut(g.PkgPath, "@")
-	if module != agenticFactoryModule && !strings.HasPrefix(module, agenticFactoryModule+"/") {
-		return ""
-	}
-	return indent(`
-environment:
-  GOPRIVATE: github.com/jaeyeom/agentic-factory
-  GONOSUMDB: github.com/jaeyeom/agentic-factory
-  GIT_CONFIG_COUNT: "2"
-  GIT_CONFIG_KEY_0: credential.https://github.com.helper
-  GIT_CONFIG_VALUE_0: ""
-  GIT_CONFIG_KEY_1: credential.https://github.com.helper
-  GIT_CONFIG_VALUE_1: "!gh auth git-credential"`, keySpaces)
-}
-
 func (g GoInstallMethod) RenderInstallTask(command string) string {
 	commandID := strings.ReplaceAll(command, "-", "_")
 	pkg, ref := g.targetParts()
@@ -313,7 +292,7 @@ func (g GoInstallMethod) RenderInstallTask(command string) string {
             ` + commandID + `_module_path: "{{ ` + commandID + `_installed.stdout.split()[1] }}"
             ` + commandID + `_module_version: "{{ ` + commandID + `_installed.stdout.split()[2] }}"
         - name: Determine the latest ` + command + ` version
-          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ ` + commandID + `_module_path }}@` + ref + `"` + g.privateFactoryFetchEnv(10) + `
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ ` + commandID + `_module_path }}@` + ref + `"
           register: ` + commandID + `_latest
           ignore_errors: yes
           changed_when: False
@@ -352,7 +331,7 @@ func (g GoInstallMethod) RenderInstallTask(command string) string {
       when: (` + commandID + `_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
 
     - name: Upgrade ` + command + `
-      command: go install ` + pkg + `@` + ref + g.privateFactoryFetchEnv(6) + `
+      command: go install ` + pkg + `@` + ref + `
       register: ` + commandID + `_upgrade
       until: ` + commandID + `_upgrade is succeeded
       retries: 3

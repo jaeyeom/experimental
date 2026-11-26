@@ -1,0 +1,36 @@
+stats 2026-11-09 00:00 UTC to 2026-11-12 00:00 UTC, by day
+last sync: jira:acme never; PR state last seen: never
+
+Throughput
+finished #._
+started  #__
+merged   .#_
+DAY         FINISHED  STARTED  PRS OPENED  PRS MERGED
+2026-11-09  4         2        3           2   ########==== **
+2026-11-10  1         0        1           15  ##           *x15
+2026-11-11  0         0        0           0
+total       5         2        4           17
+# finished  = started  * PR merged
+
+Backlog
+              READY  BLOCKED  IN FLIGHT  NEEDS-HUMAN
+now           1      40       3          0  #xxxxxxxxxx=
+change        +1     -2       0          0
+status To Do  44     -1
+# ready  x blocked  = in flight  ? needs-human
+
+Epics (items in the source queries; * is parent_priority)
+PARENT  DONE  IN PROGRESS  REMAINING  %   ADDED  PROGRESS      TITLE
+*PRJ-1  6     2            4          50  1      ######==....  A very long epic title that would push a trailing bar out of line
+PRJ-20  0     0            1          0   0      .             Small
+
+TOP-LEVEL  DONE  IN PROGRESS  REMAINING  %   ADDED  PROGRESS      TITLE
+PRJ-1      6     2            4          50  1      ######==....  A very long epic title that would push a trailing bar out of line
+# done  = in progress  . remaining
+
+Flow (pull requests merged in the window)
+                   N  MEDIAN  P90
+claim to first PR  0  n/a     n/a
+PR open to merge   0  n/a     n/a
+
+OPEN DRAFT  ITEM  OPENED  AGE

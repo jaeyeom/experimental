@@ -57,6 +57,7 @@ func settings() *depguard.LinterSettings {
 				"github.com/spf13/viper",
 				"github.com/tetafro/godot",
 				"github.com/tomarrell/wrapcheck/v2",
+				"github.com/yuin/goldmark",
 				"golang.org/x/image",
 				"golang.org/x/sys",
 				"golang.org/x/tools",

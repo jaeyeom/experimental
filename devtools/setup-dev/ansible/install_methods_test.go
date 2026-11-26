@@ -336,51 +336,6 @@ func ansibleTask(t *testing.T, yamlText, name string) string {
 	return yamlText[start : start+len(marker)+rel]
 }
 
-func TestGoInstallMethodPrivateFactoryEnv(t *testing.T) {
-	method := GoInstallMethod{PkgPath: "github.com/jaeyeom/agentic-factory/cmd/factory@latest"}
-	got := method.RenderInstallTask("factory")
-
-	wantEnv := []string{
-		"GOPRIVATE: github.com/jaeyeom/agentic-factory",
-		"GONOSUMDB: github.com/jaeyeom/agentic-factory",
-		`GIT_CONFIG_COUNT: "2"`,
-		"GIT_CONFIG_KEY_0: credential.https://github.com.helper",
-		`GIT_CONFIG_VALUE_0: ""`,
-		"GIT_CONFIG_KEY_1: credential.https://github.com.helper",
-		`GIT_CONFIG_VALUE_1: "!gh auth git-credential"`,
-	}
-	listTask := ansibleTask(t, got, "Determine the latest factory version")
-	installTask := ansibleTask(t, got, "Upgrade factory")
-	if !strings.Contains(listTask, "go list -m") {
-		t.Fatalf("version task is not go list:\n%s", listTask)
-	}
-	if !strings.Contains(installTask, "go install github.com/jaeyeom/agentic-factory/cmd/factory@latest") {
-		t.Fatalf("upgrade task is not go install:\n%s", installTask)
-	}
-	assertContains(t, listTask, wantEnv)
-	assertContains(t, installTask, wantEnv)
-	// The upgrade task gates on the semver comparison output.
-	assertContains(t, installTask, []string{
-		"(factory_version_check.stdout | from_json).action == 'install'",
-	})
-
-	for _, name := range []string{
-		"Check if factory is installed",
-		"Debug module path and version",
-		"Get factory build Go version",
-	} {
-		task := ansibleTask(t, got, name)
-		assertNotContains(t, task, []string{"GOPRIVATE", "GONOSUMDB", "GIT_CONFIG_COUNT"})
-	}
-
-	assertNotContains(t, got, []string{
-		"git config --global",
-		"GITHUB_TOKEN",
-		"ghp_",
-		"github_pat_",
-	})
-}
-
 func TestGoInstallMethodGetImports(t *testing.T) {
 	method := GoInstallMethod{PkgPath: "example.com/mytool@latest"}
 	imports := method.GetImports()

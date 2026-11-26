@@ -1,8 +1,8 @@
 # Devtools Architecture & Boundary Rules
 
 These rules apply to all connectable tools under `devtools/` (such as `decide`,
-`agentbus`, `slackwatch`, `gh-outbox`, `gh-ask`, `installcheck`, `orgctl`, and
-`prsync`). They supplement the root `AGENTS.md`.
+`agentbus`, `slackwatch`, `gh-outbox`, `gh-ask`, `installcheck`, `orgctl`,
+`factory`, and `prsync`). They supplement the root `AGENTS.md`.
 
 ## Core Principles
 
