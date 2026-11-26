@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/jaeyeom/experimental/devtools/factory/internal/config"
 	"github.com/jaeyeom/experimental/devtools/factory/internal/store"
