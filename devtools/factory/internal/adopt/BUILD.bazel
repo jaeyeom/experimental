@@ -1,0 +1,35 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["adopt.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/factory/internal/adopt",
+    visibility = ["//devtools/factory:__subpackages__"],
+    deps = [
+        "//devtools/factory/internal/config:go_default_library",
+        "//devtools/factory/internal/gh:go_default_library",
+        "//devtools/factory/internal/herdr:go_default_library",
+        "//devtools/factory/internal/ready:go_default_library",
+        "//devtools/factory/internal/source:go_default_library",
+        "//devtools/factory/internal/store:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = [
+        "adopt_test.go",
+        "github_status_test.go",
+    ],
+    embed = [":go_default_library"],
+    deps = [
+        "//devtools/factory/internal/config:go_default_library",
+        "//devtools/factory/internal/gh:go_default_library",
+        "//devtools/factory/internal/herdr:go_default_library",
+        "//devtools/factory/internal/ready:go_default_library",
+        "//devtools/factory/internal/source:go_default_library",
+        "//devtools/factory/internal/source/fake:go_default_library",
+        "//devtools/factory/internal/source/jira:go_default_library",
+        "//devtools/factory/internal/store:go_default_library",
+    ],
+)

@@ -1,0 +1,16 @@
+{
+  "id": "10040",
+  "key": "PRJ-40",
+  "self": "https://example.atlassian.net/rest/api/3/issue/10040",
+  "fields": {
+    "summary": "Retry me",
+    "status": {
+      "name": "In Progress",
+      "statusCategory": {"key": "indeterminate", "name": "In Progress"}
+    },
+    "issuetype": {"name": "Story"},
+    "priority": {"name": "Low"},
+    "created": "2026-01-02T03:04:05.000-0700",
+    "updated": "2026-01-03T04:05:06.000-0700"
+  }
+}

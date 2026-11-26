@@ -790,7 +790,7 @@ func TestFactoryGoTool(t *testing.T) {
 	if !ok {
 		t.Fatalf("factory PlatformAll method = %T, want GoInstallMethod", tool.platforms[PlatformAll])
 	}
-	wantPath := "github.com/jaeyeom/agentic-factory/cmd/factory@latest"
+	wantPath := "github.com/jaeyeom/experimental/devtools/factory/cmd/factory@" + experimentalVersion
 	if method.PkgPath != wantPath {
 		t.Errorf("factory PkgPath = %q, want %q", method.PkgPath, wantPath)
 	}

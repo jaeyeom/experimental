@@ -1,0 +1,11 @@
+{
+  "id": "10033",
+  "key": "PRJ-33",
+  "fields": {
+    "summary": "Bad timestamp",
+    "status": {"name": "To Do", "statusCategory": {"key": "new"}},
+    "issuetype": {"name": "Task"},
+    "created": "yesterday",
+    "updated": "2026-01-03T04:05:06.000-0700"
+  }
+}

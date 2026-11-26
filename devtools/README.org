@@ -46,6 +46,7 @@ tool has its own README. Start with the one-line summaries below.
 | devcheck         | Run the format, lint, and test tools a repo already has    | experimental | make install                                      | [[file:devcheck/README.org][README]]         |
 | diskwatch        | Warn when a filesystem is low, without deleting files      | experimental | go install ./devtools/diskwatch/cmd/diskwatch     | [[file:diskwatch/README.org][README]]        |
 | docsync          | List the docs a code change is likely to have made stale   | experimental | make install                                      | [[file:docsync/README.org][README]]          |
+| factory          | Mirror Jira/GitHub issues and start herdr coding agents    | experimental | make install                                      | [[file:factory/README.md][README]]           |
 | fork-keeper      | Rebase a personal fork on upstream and open a review       | experimental | make install                                      | [[file:fork-keeper/README.md][README]]       |
 | genfiles         | Check a repo's list of generated files and their commands  | experimental | make install                                      | [[file:genfiles/README.org][README]]         |
 | gh-ask           | Hand a question about a pull-request range to a command    | experimental | make install                                      | [[file:gh-ask/README.org][README]]           |

@@ -314,6 +314,13 @@ rules:
       - path: devtools/docsync/README.org
         why: "tool overview and installation entry point"
 
+  - match: ["devtools/factory/**"]
+    docs:
+      - path: devtools/factory/README.md
+        why: "tool overview and installation entry point"
+      - path: devtools/factory/docs/usage.md
+        why: "configuration, CLI commands, and behavior reference"
+
   - match: ["devtools/fork-keeper/**"]
     docs:
       - path: devtools/fork-keeper/README.md

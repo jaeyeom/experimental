@@ -1,0 +1,47 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "agentargs.go",
+        "claim.go",
+        "config.go",
+        "lanes.go",
+        "output.go",
+        "validate.go",
+        "workdir.go",
+        "worker.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/factory/internal/config",
+    visibility = ["//devtools/factory:__subpackages__"],
+    deps = [
+        "//devtools/factory/internal/rank:go_default_library",
+        "@com_github_pelletier_go_toml_v2//:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = [
+        "agentargs_test.go",
+        "agentrule_test.go",
+        "claim_test.go",
+        "config_test.go",
+        "defer_test.go",
+        "ghbin_test.go",
+        "lanes_test.go",
+        "lease_test.go",
+        "maxactive_test.go",
+        "output_test.go",
+        "start_prompt_append_test.go",
+        "wake_test.go",
+        "workdir_test.go",
+        "worker_test.go",
+    ],
+    data = [
+        "//devtools/factory:factory.example.toml",
+        "//devtools/factory/examples:github-repo.toml",
+        "//devtools/factory/examples:jira-monorepo.toml",
+    ],
+    embed = [":go_default_library"],
+)

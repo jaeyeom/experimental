@@ -1,0 +1,4 @@
+exports_files([
+    "github-repo.toml",
+    "jira-monorepo.toml",
+])

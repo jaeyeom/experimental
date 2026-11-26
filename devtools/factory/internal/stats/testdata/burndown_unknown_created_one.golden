@@ -1,0 +1,15 @@
+
+Burndown
+465 │************************************************************
+    │                                                            
+    │                                                            
+    │                                                            
+    │                                                            
+    │                                                            
+    │                                                            
+  0 │                                                            
+    └------------------------------------------------------------
+     11-02                                                  11-09
+* remaining items (end of each day)
+1 item has no create time. It counts as remaining from 2026-11-01, so the start of the line may be up to 1 too high.
+no projection: nothing finished in the last 7 days

@@ -1,0 +1,13 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["prlog.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/factory/internal/prlog",
+    visibility = ["//devtools/factory:__subpackages__"],
+    deps = [
+        "//devtools/factory/internal/gh:go_default_library",
+        "//devtools/factory/internal/source:go_default_library",
+        "//devtools/factory/internal/store:go_default_library",
+    ],
+)

@@ -1,0 +1,99 @@
+{
+  "issues": [
+    {
+      "id": "10010",
+      "key": "PRJ-10",
+      "self": "https://example.atlassian.net/rest/api/3/issue/10010",
+      "fields": {
+        "summary": "Ship the reader",
+        "status": {
+          "name": "To Do",
+          "id": "10000",
+          "statusCategory": {
+            "id": 2,
+            "key": "new",
+            "name": "To Do",
+            "colorName": "blue-gray"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Task",
+          "subtask": false
+        },
+        "parent": {
+          "id": "10001",
+          "key": "PRJ-1"
+        },
+        "labels": ["agent-ready", "backend"],
+        "assignee": {
+          "accountId": "5b10ac8d82e05b22cc7d4ef5",
+          "displayName": "Dev Example",
+          "active": true
+        },
+        "priority": {
+          "id": "2",
+          "name": "High"
+        },
+        "issuelinks": [
+          {
+            "id": "10001",
+            "self": "https://example.atlassian.net/rest/api/3/issueLink/10001",
+            "type": {
+              "id": "10000",
+              "name": "Blocks",
+              "inward": "is blocked by",
+              "outward": "blocks"
+            },
+            "inwardIssue": {
+              "id": "10009",
+              "key": "PRJ-9",
+              "fields": {
+                "summary": "Earlier work",
+                "status": {"name": "Done"},
+                "issuetype": {"name": "Task"}
+              }
+            }
+          },
+          {
+            "id": "10002",
+            "self": "https://example.atlassian.net/rest/api/3/issueLink/10002",
+            "type": {
+              "id": "10000",
+              "name": "Blocks",
+              "inward": "is blocked by",
+              "outward": "blocks"
+            },
+            "outwardIssue": {
+              "id": "10011",
+              "key": "PRJ-11",
+              "fields": {
+                "summary": "Later work",
+                "status": {"name": "To Do"},
+                "issuetype": {"name": "Task"}
+              }
+            }
+          },
+          {
+            "id": "10003",
+            "self": "https://example.atlassian.net/rest/api/3/issueLink/10003",
+            "type": {
+              "id": "10001",
+              "name": "Relates",
+              "inward": "relates to",
+              "outward": "relates to"
+            },
+            "inwardIssue": {
+              "id": "10012",
+              "key": "PRJ-12"
+            }
+          }
+        ],
+        "created": "2026-01-02T03:04:05.000-0700",
+        "updated": "2026-01-03T04:05:06.000-0700"
+      }
+    }
+  ],
+  "isLast": false,
+  "nextPageToken": "page-2"
+}

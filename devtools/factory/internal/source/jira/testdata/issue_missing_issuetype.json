@@ -1,0 +1,10 @@
+{
+  "id": "10031",
+  "key": "PRJ-31",
+  "fields": {
+    "summary": "No type",
+    "status": {"name": "To Do", "statusCategory": {"key": "new"}},
+    "created": "2026-01-02T03:04:05.000-0700",
+    "updated": "2026-01-03T04:05:06.000-0700"
+  }
+}

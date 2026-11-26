@@ -58,6 +58,7 @@ INSTALL_CMDS := \
 	./devtools/claude-usage/cmd/claude-usage \
 	./devtools/devcheck/cmd/devcheck \
 	./devtools/docsync/cmd/docsync \
+	./devtools/factory/cmd/factory \
 	./devtools/fork-keeper/cmd/fork-keeper \
 	./devtools/genfiles/cmd/genfiles \
 	./devtools/gh-ask/cmd/gh-ask \

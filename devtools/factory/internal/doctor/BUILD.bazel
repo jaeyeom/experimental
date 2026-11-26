@@ -1,0 +1,47 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "checks.go",
+        "cycle.go",
+        "doctor.go",
+        "format.go",
+        "invert.go",
+        "parent.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/factory/internal/doctor",
+    visibility = ["//devtools/factory:__subpackages__"],
+    deps = [
+        "//devtools/factory/internal/config:go_default_library",
+        "//devtools/factory/internal/gh:go_default_library",
+        "//devtools/factory/internal/herdr:go_default_library",
+        "//devtools/factory/internal/parentclose:go_default_library",
+        "//devtools/factory/internal/priority:go_default_library",
+        "//devtools/factory/internal/ready:go_default_library",
+        "//devtools/factory/internal/source:go_default_library",
+        "//devtools/factory/internal/store:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = [
+        "cycle_test.go",
+        "defer_test.go",
+        "doctor_test.go",
+        "false_warn_test.go",
+        "invert_test.go",
+        "parent_test.go",
+    ],
+    data = glob(["*.go"]),
+    embed = [":go_default_library"],
+    deps = [
+        "//devtools/factory/internal/config:go_default_library",
+        "//devtools/factory/internal/gh:go_default_library",
+        "//devtools/factory/internal/herdr:go_default_library",
+        "//devtools/factory/internal/ready:go_default_library",
+        "//devtools/factory/internal/source:go_default_library",
+        "//devtools/factory/internal/store:go_default_library",
+    ],
+)

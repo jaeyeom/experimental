@@ -576,8 +576,8 @@ func TestFactorySkillInstall(t *testing.T) {
 	}
 
 	factory := read("factory.yml")
-	if !strings.Contains(factory, "command: go install github.com/jaeyeom/agentic-factory/cmd/factory@latest") {
-		t.Error("factory.yml missing go install github.com/jaeyeom/agentic-factory/cmd/factory@latest")
+	if !strings.Contains(factory, "command: go install github.com/jaeyeom/experimental/devtools/factory/cmd/factory@{{ experimental_ref | default('main') }}") {
+		t.Error("factory.yml missing go install of devtools/factory/cmd/factory with experimental_ref")
 	}
 	wantHerdr := "import_playbook: herdr.yml\n  when: ansible_facts['env']['TERMUX_VERSION'] is not defined"
 	if !strings.Contains(factory, wantHerdr) {
@@ -928,7 +928,7 @@ func TestNoExperimentalModuleUsesLatest(t *testing.T) {
 	}
 
 	// Third-party Go tools must keep using @latest.
-	for _, thirdParty := range []string{"gopls.yml", "factory.yml", "act.yml"} {
+	for _, thirdParty := range []string{"gopls.yml", "act.yml"} {
 		raw, err := os.ReadFile(filepath.Join(dir, thirdParty))
 		if err != nil {
 			t.Fatal(err)
