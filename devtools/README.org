@@ -127,12 +127,48 @@ go install github.com/jaeyeom/experimental/devtools/<tool>/cmd/<tool>@vX.Y.Z
 =make install= builds every binary in =INSTALL_CMDS= with =-ldflags=
 embedding the latest git tag (or =dev= when untagged), and Go binaries
 fall back to =runtime/debug.ReadBuildInfo()= when installed via
-=go install ...@vX.Y.Z=. To cut a release tag:
+=go install ...@vX.Y.Z=.
 
-#+BEGIN_SRC bash
-make tag TAG=vX.Y.Z
-git push origin vX.Y.Z
-#+END_SRC
+Releases are automated via =release-please=
+(=.github/workflows/release.yml=, =release-please-config.json=, and
+=.release-please-manifest.json=). Pushing conventional commits to =main=
+updates an open Release PR (for example, =chore(main): release 0.2.0=)
+with a proposed version bump and root =CHANGELOG.md= entries grouped by
+change type while preserving tool scopes and hiding internal chores and
+dependency bumps. During =0.x=, =bump-minor-pre-major= is enabled so
+breaking changes (=feat!:= / =BREAKING CHANGE=) bump minor rather than
+graduating to =1.0.0=. No tag or release is created until a maintainer
+reviews and squash-merges the Release PR.
+
+*** Release checklist
+
+1. *Inspect the open Release PR*: verify the proposed SemVer bump
+   against [[file:../AGENTS.md][AGENTS.md]]. To override the version,
+   add a commit with a =Release-As: X.Y.Z= footer (for example,
+   =git commit --allow-empty -m "chore: release X.Y.Z" -m "Release-As: X.Y.Z"=)
+   so =release-please= updates the Release PR.
+2. *Review and polish =CHANGELOG.md=*: add migration notes for breaking
+   changes or clarify terse commit titles on the Release PR branch if
+   needed.
+3. *Confirm CI (=Bazel Tests=) is green*: make sure no multi-PR feature
+   is half-landed and =Bazel Tests= passed on the Release PR. Because
+   PRs created by the default =GITHUB_TOKEN= do not automatically
+   trigger =pull_request= workflows, close and reopen the Release PR (or
+   push a polish commit to its branch, or configure a
+   =RELEASE_PLEASE_TOKEN= secret) to trigger CI before merging.
+4. *Squash-merge the Release PR*: keep =main= history flat. On merge,
+   =.github/workflows/release.yml= creates the =vX.Y.Z= tag, publishes
+   the GitHub Release from =CHANGELOG.md=, and verifies
+   =make install VERSION=vX.Y.Z=.
+5. *Verify the published release*: inspect the GitHub Release notes and
+   test =go install github.com/jaeyeom/experimental/devtools/<tool>/cmd/<tool>@vX.Y.Z=.
+
+*** Manual tag fallback
+
+=make tag TAG=vX.Y.Z= remains as a manual fallback and guards against
+diverging from =.release-please-manifest.json= (pass =FORCE=1= to
+override). Prefer the Release PR workflow so =CHANGELOG.md= and the
+manifest stay in sync.
 
 ** gh-nudge commands
 

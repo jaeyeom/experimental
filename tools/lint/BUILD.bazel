@@ -267,6 +267,24 @@ py_test(
 )
 
 py_test(
+    name = "release_config_test",
+    size = "small",
+    srcs = ["release_config_test.py"],
+    data = [
+        "//:.release-please-manifest.json",
+        "//:CHANGELOG.md",
+        "//.github:workflows/release.yml",
+        "//:release-please-config.json",
+    ],
+    legacy_create_init = 0,
+    target_compatible_with = _PY_COMPATIBLE,
+    deps = [
+        "@pypi//pytest",
+        "@pypi//ruamel_yaml",
+    ],
+)
+
+py_test(
     name = "bazel_go_files_test",
     size = "small",
     srcs = ["bazel_go_files_test.py"],

@@ -92,6 +92,13 @@ install:
 tag:
 	@if [ -z "$(TAG)" ]; then echo "Usage: make tag TAG=vX.Y.Z"; exit 1; fi
 	@echo "$(TAG)" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$$' || { echo "Error: TAG must match vMAJOR.MINOR.PATCH"; exit 1; }
+	@if [ -f .release-please-manifest.json ] && [ "$(FORCE)" != "1" ]; then \
+		manifest_ver=$$(python3 -c 'import json; print(json.load(open(".release-please-manifest.json")).get(".", ""))'); \
+		if [ "v$$manifest_ver" != "$(TAG)" ]; then \
+			echo "Error: .release-please-manifest.json has $$manifest_ver (expected $(TAG)). Normal releases are cut by squash-merging the Release PR; pass FORCE=1 to override."; \
+			exit 1; \
+		fi; \
+	fi
 	git tag -a "$(TAG)" -m "Release $(TAG)"
 	@echo "Created tag $(TAG). Push with: git push origin $(TAG)"
 

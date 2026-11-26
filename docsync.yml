@@ -103,6 +103,19 @@ rules:
         section: "## Security Practices"
         why: "automated testing and security checks via CI"
 
+  - match:
+      - ".github/workflows/release.yml"
+      - "release-please-config.json"
+      - ".release-please-manifest.json"
+      - "CHANGELOG.md"
+    docs:
+      - path: devtools/README.org
+        section: "** Versioning and releases"
+        why: "automated Release PR workflow, CHANGELOG.md, Release-As, and release checklist"
+      - path: AGENTS.md
+        section: "## Versioning"
+        why: "single-tag SemVer policy and release-please workflow"
+
   - match: [".github/workflows/emacs.yml"]
     docs:
       - path: spacemacs/README.org

@@ -34,6 +34,11 @@ These instructions apply to every coding agent working in this repository.
     their version via `github.com/jaeyeom/experimental/devtools/pkg/version`
     (`-ldflags "-X github.com/jaeyeom/experimental/devtools/pkg/version.Version=..."`
     with `runtime/debug.ReadBuildInfo()` fallback).
+-   **Release workflow**: `release-please` maintains a Release PR on `main`
+    updating `CHANGELOG.md` and `.release-please-manifest.json` from
+    Conventional Commits (`bump-minor-pre-major: true` during `0.x`; override
+    with a `Release-As: X.Y.Z` commit footer). Cutting `vX.Y.Z` requires
+    squash-merging the Release PR; see `devtools/README.org` for the checklist.
 
 ## Pull requests
 This repository squash-merges with the pull request title and description

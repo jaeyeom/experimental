@@ -2,30 +2,46 @@ name: Release
 
 permissions:
   contents: write
+  pull-requests: write
 
 on:
   push:
-    tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Run release-please
+        id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      - name: Checkout released commit
+        if: steps.release.outputs.releases_created == 'true'
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ steps.release.outputs.sha || github.sha }}
 
       - name: Set up Go
+        if: steps.release.outputs.releases_created == 'true'
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version: "1.26.10"
           cache: true
 
       - name: Verify Go build with version ldflags
-        run: |
-          make install VERSION="${GITHUB_REF_NAME}"
-
-      - name: Create GitHub Release
+        if: steps.release.outputs.releases_created == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag_name }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" --generate-notes
+          make install VERSION="$RELEASE_TAG"
