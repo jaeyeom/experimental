@@ -44,11 +44,21 @@ base           = "main"
 require_labels = ["agent-ready"]
 start_prompt   = "Fix {id}"
 %s
+[source.trust]
+environment    = "trusted"
 `, dir, extra)
 	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return cfgPath
+}
+
+func expectGitHubTrustClean(mock *executor.MockExecutor) {
+	mock.ExpectCommand("gh").WillSucceed(`{"data":{"repository":{"isPrivate":true,"visibility":"PRIVATE","owner":{"login":"acme","__typename":"Organization"}}}}`, 0).Once().Build()
+	mock.ExpectCommandWithArgs("gh", "api", "repos/acme/widgets/collaborators?per_page=100").
+		WillSucceed(`[{"login":"alice","role_name":"admin","permissions":{"admin":true,"maintain":true,"push":true,"triage":true,"pull":true}}]`, 0).Once().Build()
+	mock.ExpectCommandWithArgs("gh", "api", "repos/acme/widgets/teams?per_page=100").
+		WillSucceed(`[]`, 0).Once().Build()
 }
 
 func seedGitHubDoctorDB(t *testing.T, items ...source.Item) string {
@@ -84,6 +94,7 @@ func TestDoctorGitHubStatus(t *testing.T) {
 		mock.ExpectCommandWithArgs("gh", "--version").WillSucceed("gh version 2.105.0 (2026-11-17)\n", 0).Once().Build()
 		mock.ExpectCommand("gh").WillSucceed(doctorGitHubStatuses, 0).Once().Build()
 		mock.ExpectCommand("gh").WillSucceed(doctorGitHubFields, 0).Once().Build()
+		expectGitHubTrustClean(mock)
 		mock.ExpectCommandWithArgs("herdr", "workspace", "list").WillSucceed(emptyWorkspaces, 0).Once().Build()
 		mock.ExpectCommandWithArgs("herdr", "tab", "list").WillSucceed(emptyTabs, 0).Once().Build()
 		mock.ExpectCommand("gh").WillSucceed(emptyPRs, 0).Once().Build()
@@ -111,6 +122,7 @@ func TestDoctorGitHubStatus(t *testing.T) {
 		mock.ExpectCommandWithArgs("gh", "--version").WillSucceed("gh version 2.105.0 (2026-11-17)\n", 0).Once().Build()
 		mock.ExpectCommand("gh").WillSucceed(doctorGitHubStatuses, 0).Once().Build()
 		mock.ExpectCommand("gh").WillSucceed(doctorGitHubFields, 0).Once().Build()
+		expectGitHubTrustClean(mock)
 		mock.ExpectCommandWithArgs("herdr", "workspace", "list").WillSucceed(emptyWorkspaces, 0).Once().Build()
 		mock.ExpectCommandWithArgs("herdr", "tab", "list").WillSucceed(emptyTabs, 0).Once().Build()
 		mock.ExpectCommand("gh").WillSucceed(emptyPRs, 0).Once().Build()
@@ -135,6 +147,7 @@ func TestDoctorGitHubStatus(t *testing.T) {
 		mock.ExpectCommandWithArgs("gh", "--version").WillSucceed("gh version 2.105.0 (2026-11-17)\n", 0).Once().Build()
 		mock.ExpectCommand("gh").WillSucceed(doctorGitHubStatuses, 0).Once().Build()
 		mock.ExpectCommand("gh").WillSucceed(doctorGitHubFields, 0).Once().Build()
+		expectGitHubTrustClean(mock)
 		mock.ExpectCommandWithArgs("herdr", "workspace", "list").WillSucceed(emptyWorkspaces, 0).Once().Build()
 		mock.ExpectCommandWithArgs("herdr", "tab", "list").WillSucceed(emptyTabs, 0).Once().Build()
 		mock.ExpectCommand("gh").WillSucceed(emptyPRs, 0).Once().Build()
@@ -210,6 +223,7 @@ func TestDoctorGitHubStatus(t *testing.T) {
 		mock.ExpectCommandWithArgs("gh", "--version").WillSucceed("gh version 2.105.0 (2026-11-17)\n", 0).Once().Build()
 		mock.ExpectCommand("gh").WillSucceed(`{"data":{"repository":{"planningStatuses":{"nodes":[]}}}}`, 0).Once().Build()
 		mock.ExpectCommand("gh").WillSucceed(`{"data":{"repository":{"issueFields":{"nodes":[]}}}}`, 0).Once().Build()
+		expectGitHubTrustClean(mock)
 		mock.ExpectCommandWithArgs("herdr", "workspace", "list").WillSucceed(emptyWorkspaces, 0).Once().Build()
 		mock.ExpectCommandWithArgs("herdr", "tab", "list").WillSucceed(emptyTabs, 0).Once().Build()
 		mock.ExpectCommand("gh").WillSucceed(emptyPRs, 0).Once().Build()
@@ -234,6 +248,7 @@ func TestDoctorGitHubStatus(t *testing.T) {
 		mock.ExpectCommandWithArgs("gh", "--version").WillSucceed("gh version 2.105.0 (2026-11-17)\n", 0).Once().Build()
 		mock.ExpectCommand("gh").WillSucceed(doctorGitHubStatuses, 0).Once().Build()
 		mock.ExpectCommand("gh").WillSucceed(doctorGitHubFields, 0).Once().Build()
+		expectGitHubTrustClean(mock)
 		mock.ExpectCommandWithArgs("herdr", "workspace", "list").WillSucceed(emptyWorkspaces, 0).Once().Build()
 		mock.ExpectCommandWithArgs("herdr", "tab", "list").WillSucceed(emptyTabs, 0).Once().Build()
 		mock.ExpectCommand("gh").WillSucceed(emptyPRs, 0).Once().Build()
@@ -260,6 +275,7 @@ func TestDoctorGitHubStatus(t *testing.T) {
 		mock.ExpectCommandWithArgs("gh", "--version").WillSucceed("gh version 2.105.0 (2026-11-17)\n", 0).Once().Build()
 		mock.ExpectCommand("gh").WillSucceed(doctorGitHubStatuses, 0).Once().Build()
 		mock.ExpectCommand("gh").WillSucceed(doctorGitHubFields, 0).Once().Build()
+		expectGitHubTrustClean(mock)
 		mock.ExpectCommandWithArgs("herdr", "workspace", "list").WillSucceed(emptyWorkspaces, 0).Once().Build()
 		mock.ExpectCommandWithArgs("herdr", "tab", "list").WillSucceed(emptyTabs, 0).Once().Build()
 		mock.ExpectCommand("gh").WillSucceed(emptyPRs, 0).Once().Build()

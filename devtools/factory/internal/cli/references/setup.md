@@ -62,11 +62,14 @@ Review and adjust the generated TOML sections (see `factory.example.toml` and `e
   - `require_labels` (e.g. `["agent-ready"]`) and `exclude_labels` (e.g. `["needs-human", "blocked-external"]`): filter which issues are eligible.
   - Native GitHub issue statuses and starter fields are enabled by default (`ready_statuses = ["Todo", "Backlog", "OPEN"]`, `claim_status = "In progress"`, `priority_field = "Priority"`, `defer_field = "Start date"`, `due_field = "Target date"`). Only set `claim_label`, `priority_labels`, or `defer_label_prefix` on legacy repositories without native statuses/fields.
   - `start_prompt`: prompt template sent to workers (for example `"/gh-issue-resolver {url}"`).
-  - `[source.trust]` (recommended for public repos): `environment = "untrusted"`, `trusted_author_associations = ["OWNER"]`, `untrusted_ready_statuses = ["Todo"]`, and `guards = ["locked"]` or `["approved_hash"]` (or both for OR semantics). With `"approved_hash"`, run `factory approve <id>` to inspect the live title/body/SHA-256 hash, `factory approve <id> --apply` to record the approval hash and move the issue to the first `untrusted_ready_statuses` entry, and `factory approve --revoke <id>` to clear a stored approval.
+  - `[source.trust]` (explicitly classify **every** source; `factory doctor` warns when `trust.environment` is unset):
+    - `environment = "trusted"`: for corporate Jira or private single-team GitHub repositories where only trusted users can create and edit issues. External-author gating, tamper guards, and prompt hardening stay off.
+    - `environment = "untrusted"`: required for public GitHub repositories or any tracker open to external authors. Configure `trusted_author_associations = ["OWNER"]`, `untrusted_ready_statuses = ["Todo"]` (avoid `"OPEN"` or `"Backlog"`), and `guards = ["locked"]` or `["approved_hash"]` (or both for OR semantics; avoid `guards = []`). With `"approved_hash"`, run `factory approve <id>` to inspect the live title/body/SHA-256 hash, `factory approve <id> --apply` to record the approval hash and move the issue to the first `untrusted_ready_statuses` entry, and `factory approve --revoke <id>` to clear a stored approval.
 - **Jira (`kind = "jira"`)**:
   - `name`, `site`, `email`, and exactly one of `token_file` or `token_env`.
   - `jql` (e.g. `"project = PRJ"`), `ready_statuses` (e.g. `["To Do", "Backlog"]`), `claim_status` (e.g. `"In Progress"`), optional `claim_transition`.
   - `require_labels`, `exclude_labels`, `blocks_link_type = "Blocks"`, `cwd`, `base`, `workspace`, `start_prompt`.
+  - `[source.trust]`: set `environment = "trusted"` for internal/corporate Jira instances restricted to trusted employees, or `"untrusted"` if external users can create/edit issues.
   - Optional ranking & filing fields: `parent_priority`, `rank_order`, `defer_field`, `default_parent`, `create_project`, `[[source.workspace_rule]]`.
 
 ### `[defaults]` and `[sync]`
@@ -116,7 +119,11 @@ Run the read/dry-run verification sequence from inside the repository:
    ```sh
    factory doctor
    ```
-   Fix any `fail` or unexpected `warn` items (such as missing GitHub issue statuses/fields, bad Jira tokens, or missing commands).
+   Verify that trust classification and threat audits pass cleanly:
+   - Fix any `trust-environment` warning by explicitly setting `[source.trust] environment = "trusted"` or `"untrusted"` (online `factory doctor` checks GitHub `repository.isPrivate` and flags unclassified public repositories).
+   - Fix any `trust-config` warning (for example: public GitHub repo marked `"trusted"`, `"OPEN"` or `"Backlog"` in `untrusted_ready_statuses`, empty `guards`, or broad non-maintainer `trusted_author_associations`).
+   - Review any `github-permissions` warning (non-owner users/teams with triage/write access on untrusted/public repos; gracefully skipped if the `gh` token lacks permission) and any `github-automation` warning (`.github/ISSUE_TEMPLATE/*` or `.github/workflows/*` rules in `cwd` that auto-apply ready labels or set `Todo`/status on newly opened issues; also checked under `--offline`).
+   - Fix any other `fail` or unexpected `warn` items (such as missing GitHub issue statuses/fields, bad Jira tokens, or missing commands).
 3. Check the start gate:
    ```sh
    factory gate

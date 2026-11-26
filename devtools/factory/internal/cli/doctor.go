@@ -104,7 +104,8 @@ func configureDoctorTool(tool *toolcli.Tool, cfg *config.Config, cfgErr error) {
 
 func buildDoctorExtras(ctx context.Context, cmd *cobra.Command, st *store.Store, storeCheck toolcli.CheckResult, cfg *config.Config, cfgErr error, scope scopeFlags, asJSON, noSync, offline bool) ([]toolcli.CheckResult, error) {
 	extra := []toolcli.CheckResult{storeCheck, checkSourcesDoctor(ctx, cfg, cfgErr, offline)}
-	extra = append(extra, checkGitHubDoctor(ctx, cfg, cfgErr, offline)...)
+	ghChecks, ghOnline := checkGitHubDoctor(ctx, cfg, cfgErr, offline)
+	extra = append(extra, ghChecks...)
 	if cfgErr != nil || cfg == nil || st == nil {
 		return extra, nil
 	}
@@ -121,7 +122,7 @@ func buildDoctorExtras(ctx context.Context, cmd *cobra.Command, st *store.Store,
 			return nil, err
 		}
 	}
-	return append(extra, collectDomainDoctorChecks(ctx, cmd, st, cfg, only, noSync || offline)...), nil
+	return append(extra, collectDomainDoctorChecks(ctx, cmd, st, cfg, only, noSync || offline, ghOnline)...), nil
 }
 
 func openDoctorStore(ctx context.Context, cmd *cobra.Command) (*store.Store, toolcli.CheckResult) {
@@ -252,9 +253,10 @@ func checkGHAuth(ctx context.Context, ghBin string) (toolcli.CheckResult, bool) 
 // checkGitHubDoctor verifies the gh CLI version and, when online, checks
 // native GitHub issue status and issue field availability for every configured
 // GitHub source, warning when legacy label configs can be removed.
-func checkGitHubDoctor(ctx context.Context, cfg *config.Config, cfgErr error, offline bool) []toolcli.CheckResult {
+// The second return value is true when online gh API queries are supported.
+func checkGitHubDoctor(ctx context.Context, cfg *config.Config, cfgErr error, offline bool) ([]toolcli.CheckResult, bool) {
 	if cfgErr != nil || cfg == nil {
-		return nil
+		return nil, false
 	}
 	var ghSources []config.Source
 	for i := range cfg.Sources {
@@ -263,7 +265,7 @@ func checkGitHubDoctor(ctx context.Context, cfg *config.Config, cfgErr error, of
 		}
 	}
 	if len(ghSources) == 0 {
-		return nil
+		return nil, false
 	}
 	ghBin := cfg.GHBin
 	if ghBin == "" {
@@ -275,7 +277,7 @@ func checkGitHubDoctor(ctx context.Context, cfg *config.Config, cfgErr error, of
 			Name:   "github-status",
 			Status: toolcli.StatusFail,
 			Detail: "expected an executor, found nil",
-		}}
+		}}, false
 	}
 	client, err := ghClient(exec, ghBin)
 	if err != nil {
@@ -283,7 +285,7 @@ func checkGitHubDoctor(ctx context.Context, cfg *config.Config, cfgErr error, of
 			Name:   "github-status",
 			Status: toolcli.StatusFail,
 			Detail: err.Error(),
-		}}
+		}}, false
 	}
 	ver, err := client.Version(ctx)
 	if err != nil {
@@ -292,7 +294,7 @@ func checkGitHubDoctor(ctx context.Context, cfg *config.Config, cfgErr error, of
 			Status: toolcli.StatusFail,
 			Detail: fmt.Sprintf("%s --version failed: %v", ghBin, err),
 			Hint:   fmt.Sprintf("install or upgrade %s (>= %s)", ghBin, gh.MinGHVersion),
-		}}
+		}}, false
 	}
 	if !ver.AtLeast(gh.MinGHVersion) {
 		return []toolcli.CheckResult{{
@@ -300,7 +302,7 @@ func checkGitHubDoctor(ctx context.Context, cfg *config.Config, cfgErr error, of
 			Status: toolcli.StatusFail,
 			Detail: fmt.Sprintf("%s version %s is older than %s", ghBin, ver, gh.MinGHVersion),
 			Hint:   fmt.Sprintf("upgrade %s to >= %s", ghBin, gh.MinGHVersion),
-		}}
+		}}, false
 	}
 	if offline {
 		return []toolcli.CheckResult{{
@@ -308,12 +310,12 @@ func checkGitHubDoctor(ctx context.Context, cfg *config.Config, cfgErr error, of
 			Status: toolcli.StatusWarn,
 			Detail: fmt.Sprintf("gh %s; repo status and field checks skipped (--offline)", ver),
 			Hint:   "run without --offline to check repository issue status and field support",
-		}}
+		}}, false
 	}
 	return []toolcli.CheckResult{
 		checkGitHubRepoStatuses(ctx, client, ver, ghSources),
 		checkGitHubRepoFields(ctx, client, ghSources),
-	}
+	}, true
 }
 
 type repoStatusProbe struct {
@@ -536,7 +538,7 @@ func checkJiraToken(src config.Source) (toolcli.CheckResult, bool) {
 	return toolcli.CheckResult{}, false
 }
 
-func collectDomainDoctorChecks(ctx context.Context, cmd *cobra.Command, st *store.Store, cfg *config.Config, only string, noSync bool) []toolcli.CheckResult {
+func collectDomainDoctorChecks(ctx context.Context, cmd *cobra.Command, st *store.Store, cfg *config.Config, only string, noSync, ghOnline bool) []toolcli.CheckResult {
 	if err := refreshBeforeRead(ctx, cmd, cfg, st, only, noSync); err != nil {
 		return []toolcli.CheckResult{{
 			Name:   "sync",
@@ -544,7 +546,7 @@ func collectDomainDoctorChecks(ctx context.Context, cmd *cobra.Command, st *stor
 			Detail: err.Error(),
 		}}
 	}
-	findings, err := collectDoctor(ctx, st, cfg, only)
+	findings, err := collectDoctor(ctx, st, cfg, only, ghOnline)
 	if err != nil {
 		return []toolcli.CheckResult{{
 			Name:   "work-items",
@@ -575,7 +577,7 @@ func collectDomainDoctorChecks(ctx context.Context, cmd *cobra.Command, st *stor
 	return out
 }
 
-func collectDoctor(ctx context.Context, st *store.Store, cfg *config.Config, only string) ([]doctor.Finding, error) {
+func collectDoctor(ctx context.Context, st *store.Store, cfg *config.Config, only string, ghOnline bool) ([]doctor.Finding, error) {
 	srcs, err := sourcesFor(cfg, only)
 	if err != nil {
 		return nil, err
@@ -593,9 +595,11 @@ func collectDoctor(ctx context.Context, st *store.Store, cfg *config.Config, onl
 		return nil, err
 	}
 	now := time.Now().UTC()
+	trustCache := make(map[string]onlineTrustProbe)
 	var all []doctor.Finding
 	for i := range srcs {
-		part, err := doctorSource(ctx, st, cfg.Defaults.StallAfter, srcs[i], claims, finished, lanes, now)
+		audit := buildSourceTrustAudit(ctx, cfg, srcs[i], ghOnline, trustCache)
+		part, err := doctorSource(ctx, st, cfg.Defaults.StallAfter, srcs[i], claims, finished, lanes, now, audit)
 		if err != nil {
 			return nil, err
 		}
@@ -604,7 +608,7 @@ func collectDoctor(ctx context.Context, st *store.Store, cfg *config.Config, onl
 	return all, nil
 }
 
-func doctorSource(ctx context.Context, st *store.Store, stall time.Duration, src config.Source, claims []store.Claim, finished []store.Finished, remote []doctorLane, now time.Time) ([]doctor.Finding, error) {
+func doctorSource(ctx context.Context, st *store.Store, stall time.Duration, src config.Source, claims []store.Claim, finished []store.Finished, remote []doctorLane, now time.Time, trustAudit *doctor.TrustAudit) ([]doctor.Finding, error) {
 	key, err := sourceKey(src.Kind, src.Name)
 	if err != nil {
 		return nil, err
@@ -633,6 +637,7 @@ func doctorSource(ctx context.Context, st *store.Store, stall time.Duration, src
 		Blockers:      blockers,
 		Lanes:         lanes,
 		LandedCommits: landedCommitsForDoctor(ctx, src, key, snap, claims, remote),
+		TrustAudit:    trustAudit,
 	})
 }
 

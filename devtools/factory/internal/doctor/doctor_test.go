@@ -459,6 +459,7 @@ func baseInput(items map[string]source.Item) Input {
 			AssigneeOK:        "me",
 			ParentBlocksChild: config.ParentBlocksIgnore,
 			PRTitlePattern:    `\[{id}\]`,
+			Trust:             config.Trust{Environment: config.TrustEnvTrusted},
 		},
 		Snapshot:   ready.Snapshot{Items: items, Me: "alice"},
 		Now:        doctorNow,

@@ -155,9 +155,19 @@ func TestDoctorJSON(t *testing.T) {
 	}
 }
 
+func writeDoctorConfig(t *testing.T, sources ...nextSource) string {
+	t.Helper()
+	trusted := make([]nextSource, len(sources))
+	for i, src := range sources {
+		src.extra += "\n[source.trust]\nenvironment = \"trusted\"\n"
+		trusted[i] = src
+	}
+	return writeNextConfig(t, trusted...)
+}
+
 func TestDoctorClean(t *testing.T) {
 	doctorToolOK(t)
-	cfgPath := writeNextConfig(t, nextSource{name: "acme"})
+	cfgPath := writeDoctorConfig(t, nextSource{name: "acme"})
 	dbPath := filepath.Join(t.TempDir(), "factory.db")
 	src := "jira:acme"
 	ready := []string{"agent-ready"}
@@ -197,7 +207,7 @@ func TestDoctorClean(t *testing.T) {
 
 func TestDoctorTwoSources(t *testing.T) {
 	doctorToolOK(t)
-	cfgPath := writeNextConfig(t, nextSource{name: "acme"}, nextSource{name: "cub"})
+	cfgPath := writeDoctorConfig(t, nextSource{name: "acme"}, nextSource{name: "cub"})
 	dbPath := filepath.Join(t.TempDir(), "factory.db")
 	ready := []string{"agent-ready"}
 	seedDB(t, dbPath, func(st *store.Store) {
@@ -237,7 +247,7 @@ func TestDoctorTwoSources(t *testing.T) {
 }
 
 func TestDoctorUsage(t *testing.T) {
-	cfgPath := writeNextConfig(t, nextSource{name: "acme"})
+	cfgPath := writeDoctorConfig(t, nextSource{name: "acme"})
 	_, stderr, code := runCmd(t, "doctor", "extra", "--config", cfgPath)
 	if code != ExitUsage || strings.HasPrefix(stderr, "factory:") || !strings.Contains(stderr, "found 1") {
 		t.Fatalf("exit = %d, stderr = %q", code, stderr)
@@ -246,7 +256,7 @@ func TestDoctorUsage(t *testing.T) {
 
 func TestDoctorHerdrError(t *testing.T) {
 	doctorToolOK(t)
-	cfgPath := writeNextConfig(t, nextSource{name: "acme"})
+	cfgPath := writeDoctorConfig(t, nextSource{name: "acme"})
 	dbPath := filepath.Join(t.TempDir(), "factory.db")
 	seedDB(t, dbPath, func(st *store.Store) {
 		ctx := context.Background()
@@ -295,7 +305,7 @@ func TestDoctorMissingConfigFailsWithoutAborting(t *testing.T) {
 func doctorFixture(t *testing.T) (string, string) {
 	t.Helper()
 	useSources(t, map[string]*fake.Source{"acme": {SourceName: "jira:acme", Items: map[string]source.Item{}}})
-	cfgPath := writeNextConfig(t, nextSource{name: "acme"})
+	cfgPath := writeDoctorConfig(t, nextSource{name: "acme"})
 	dbPath := filepath.Join(t.TempDir(), "factory.db")
 	src := "jira:acme"
 	ready := []string{"agent-ready"}
@@ -405,7 +415,7 @@ func syncThenDoctor(t *testing.T, cfgPath string, backend *fake.Source, wantGets
 }
 
 func TestDoctorUsesSyncedOutsideBlockers(t *testing.T) {
-	cfgPath := writeNextConfig(t, nextSource{name: "acme"})
+	cfgPath := writeDoctorConfig(t, nextSource{name: "acme"})
 	stdout := syncThenDoctor(t, cfgPath, lookupFake(), "X-DONE X-GONE X-OPEN")
 	for _, want := range []string{
 		"warn  unknown-blocker",
@@ -425,7 +435,7 @@ func TestDoctorUsesSyncedOutsideBlockers(t *testing.T) {
 func TestDoctorBlockerLookupBound(t *testing.T) {
 	for _, key := range []string{"external_blocker_lookups", "doctor_blocker_lookups"} {
 		t.Run(key, func(t *testing.T) {
-			cfgPath := writeNextConfig(t, nextSource{name: "acme", extra: key + " = 1\n"})
+			cfgPath := writeDoctorConfig(t, nextSource{name: "acme", extra: key + " = 1\n"})
 			stdout := syncThenDoctor(t, cfgPath, lookupFake(), "X-DONE", "--json")
 			var got toolcli.DoctorOutput
 			if err := json.Unmarshal([]byte(stdout), &got); err != nil {
@@ -449,7 +459,7 @@ func TestDoctorBlockerLookupBound(t *testing.T) {
 }
 
 func TestDoctorBlockerFetchFails(t *testing.T) {
-	cfgPath := writeNextConfig(t, nextSource{name: "acme"})
+	cfgPath := writeDoctorConfig(t, nextSource{name: "acme"})
 	backend := lookupFake()
 	backend.FailOn = map[string]error{"Get": errors.New("jira GET: 401 Unauthorized")}
 	stdout := syncThenDoctor(t, cfgPath, backend, "X-DONE X-GONE X-OPEN")
@@ -531,12 +541,12 @@ func doctorLaneMock(t *testing.T) *executor.MockExecutor {
 
 func TestDoctorRemoteLaneTabs(t *testing.T) {
 	doctorToolOK(t)
-	cfgPath := writeNextConfig(t, nextSource{name: "acme"})
+	cfgPath := writeDoctorConfig(t, nextSource{name: "acme"})
 	appendConfig(t, cfgPath, fmt.Sprintf(doctorLaneConfig, t.TempDir()))
 	dbPath := doctorLaneDB(t)
 	mock := doctorLaneMock(t)
-	mock.ExpectCommandWithArgs("herdr", "--machine", "mac1", "workspace", "list").WillSucceed(rankWorkspaces, 0).Build()
-	mock.ExpectCommandWithArgs("herdr", "--machine", "mac1", "tab", "list").WillSucceed(doctorMacTabs, 0).Build()
+	mock.ExpectCommandWithArgs("herdr", "--machine", "mac1", "workspace", "list").WillSucceed(rankWorkspaces, 0).Once().Build()
+	mock.ExpectCommandWithArgs("herdr", "--machine", "mac1", "tab", "list").WillSucceed(doctorMacTabs, 0).Once().Build()
 	stdout, stderr, code := runCmd(t, "doctor", "--config", cfgPath, "--db", dbPath)
 	if code != 1 {
 		t.Fatalf("exit = %d, want 1, stderr = %s", code, stderr)
@@ -551,11 +561,11 @@ func TestDoctorRemoteLaneTabs(t *testing.T) {
 
 func TestDoctorUnreachableLane(t *testing.T) {
 	doctorToolOK(t)
-	cfgPath := writeNextConfig(t, nextSource{name: "acme"})
+	cfgPath := writeDoctorConfig(t, nextSource{name: "acme"})
 	appendConfig(t, cfgPath, fmt.Sprintf(doctorLaneConfig, t.TempDir()))
 	dbPath := doctorLaneDB(t)
 	mock := doctorLaneMock(t)
-	mock.ExpectCommandWithArgs("herdr", "--machine", "mac1", "workspace", "list").WillFail("ssh: connect timed out", 255).Build()
+	mock.ExpectCommandWithArgs("herdr", "--machine", "mac1", "workspace", "list").WillFail("ssh: connect timed out", 255).Once().Build()
 	stdout, stderr, code := runCmd(t, "doctor", "--config", cfgPath, "--db", dbPath)
 	if code != 1 {
 		t.Fatalf("exit = %d, want 1, stderr = %s", code, stderr)
@@ -572,7 +582,7 @@ func TestDoctorUnreachableLane(t *testing.T) {
 
 func TestDoctorClosableParentFromFinishedHistory(t *testing.T) {
 	doctorToolOK(t)
-	cfgPath := writeNextConfig(t, nextSource{name: "acme"})
+	cfgPath := writeDoctorConfig(t, nextSource{name: "acme"})
 	dbPath := filepath.Join(t.TempDir(), "factory.db")
 	src := "jira:acme"
 	seedDB(t, dbPath, func(st *store.Store) {
@@ -640,7 +650,7 @@ func TestDoctorClosableParentFromFinishedHistory(t *testing.T) {
 
 func TestDoctorAndShowMergeMode(t *testing.T) {
 	doctorToolOK(t)
-	cfgPath := writeNextConfig(t, nextSource{name: "acme"})
+	cfgPath := writeDoctorConfig(t, nextSource{name: "acme"})
 	appendConfig(t, cfgPath, "\n[output]\nmode = \"merge\"\n")
 	dbPath := filepath.Join(t.TempDir(), "factory.db")
 	src := "jira:acme"

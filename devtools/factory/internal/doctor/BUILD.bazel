@@ -9,6 +9,7 @@ go_library(
         "format.go",
         "invert.go",
         "parent.go",
+        "trust.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/factory/internal/doctor",
     visibility = ["//devtools/factory:__subpackages__"],
@@ -21,6 +22,7 @@ go_library(
         "//devtools/factory/internal/ready:go_default_library",
         "//devtools/factory/internal/source:go_default_library",
         "//devtools/factory/internal/store:go_default_library",
+        "@in_gopkg_yaml_v3//:go_default_library",
     ],
 )
 
@@ -33,6 +35,7 @@ go_test(
         "false_warn_test.go",
         "invert_test.go",
         "parent_test.go",
+        "trust_test.go",
     ],
     data = glob(["*.go"]),
     embed = [":go_default_library"],

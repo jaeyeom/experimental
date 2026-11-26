@@ -46,6 +46,16 @@ const (
 	CheckDuplicateClaim = "duplicate-claim"
 	// CheckClosableParent is an open parent whose known children are all done.
 	CheckClosableParent = "closable-parent"
+	// CheckTrustEnvironment is a source whose trust.environment is unset.
+	CheckTrustEnvironment = "trust-environment"
+	// CheckTrustConfig is a source trust configuration threat.
+	CheckTrustConfig = "trust-config"
+	// CheckGitHubPermissions is a GitHub repository/collaborator permission threat
+	// or a note when collaborator permissions could not be queried.
+	CheckGitHubPermissions = "github-permissions"
+	// CheckGitHubAutomation is a local .github/ISSUE_TEMPLATE or .github/workflows
+	// rule that auto-adds ready labels or auto-sets issue status on new issues.
+	CheckGitHubAutomation = "github-automation"
 )
 
 // Severity is how serious a finding is.
@@ -130,6 +140,9 @@ type Input struct {
 	// LandedCommits maps item IDs in merge output mode to true when a linear
 	// commit for the item has landed on origin/<base>.
 	LandedCommits map[string]bool
+	// TrustAudit holds optional GitHub repository visibility, collaborator
+	// permissions, and local .github automation scan inputs collected by the CLI.
+	TrustAudit *TrustAudit
 }
 
 // Check reports every problem in one source.
@@ -190,6 +203,7 @@ func Check(in Input) ([]Finding, error) {
 		return nil, err
 	}
 	out = append(out, closable...)
+	out = append(out, trustFindings(in)...)
 	return order(out), nil
 }
 
@@ -273,34 +287,28 @@ func compareFindings(a, b Finding) int {
 }
 
 func checkRank(check string) int {
-	switch check {
-	case CheckCycle:
-		return 0
-	case CheckUnknownBlocker:
-		return 1
-	case CheckParentBlocksChild:
-		return 2
-	case CheckChildBlocksParent:
-		return 3
-	case CheckOrphan:
-		return 4
-	case CheckDroppedClaim:
-		return 5
-	case CheckStaleTab:
-		return 6
-	case CheckStalled:
-		return 7
-	case CheckAlmostReady:
-		return 8
-	case CheckPriorityInversion:
-		return 9
-	case CheckDuplicateClaim:
-		return 10
-	case CheckClosableParent:
-		return 11
-	default:
-		return 100
+	order := []string{
+		CheckCycle,
+		CheckUnknownBlocker,
+		CheckParentBlocksChild,
+		CheckChildBlocksParent,
+		CheckOrphan,
+		CheckDroppedClaim,
+		CheckStaleTab,
+		CheckStalled,
+		CheckAlmostReady,
+		CheckPriorityInversion,
+		CheckDuplicateClaim,
+		CheckClosableParent,
+		CheckTrustEnvironment,
+		CheckTrustConfig,
+		CheckGitHubPermissions,
+		CheckGitHubAutomation,
 	}
+	if idx := slices.Index(order, check); idx >= 0 {
+		return idx
+	}
+	return 100
 }
 
 func compareStrings(a, b []string) int {
