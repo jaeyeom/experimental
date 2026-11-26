@@ -971,9 +971,10 @@ func TestRunSkipsOpenChangeRequests(t *testing.T) {
 			runner := &Runner{
 				Client: fake,
 				Config: config.ApproveConfig{
-					Body:                "LGTM",
-					SkipAlreadyApproved: true,
-					Rules:               []config.ApproveRule{dashboardRule},
+					Body:                   "LGTM",
+					SkipAlreadyApproved:    true,
+					SkipOpenChangeRequests: true,
+					Rules:                  []config.ApproveRule{dashboardRule},
 				},
 				Out: &out,
 				Log: &logBuf,
@@ -1012,6 +1013,43 @@ func TestRunSkipsOpenChangeRequests(t *testing.T) {
 	}
 }
 
+func TestRunDefaultAllowsOpenChangeRequests(t *testing.T) {
+	tests := []struct {
+		name    string
+		reviews []github.ApprovalReview
+	}{
+		{
+			name:    "other reviewer changes requested on head commit",
+			reviews: []github.ApprovalReview{{Author: "bob", State: "CHANGES_REQUESTED", CommitSHA: "h1"}},
+		},
+		{
+			name:    "other reviewer changes requested on older commit",
+			reviews: []github.ApprovalReview{{Author: "bob", State: "CHANGES_REQUESTED", CommitSHA: "h0"}},
+		},
+		{
+			name:    "viewer own earlier change request",
+			reviews: []github.ApprovalReview{{Author: "me", State: "CHANGES_REQUESTED", CommitSHA: "h0"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pr := prNumber(1)
+			pr.Reviews = tt.reviews
+			res := run(t, newFake(pr), []config.ApproveRule{dashboardRule}, Options{Apply: true})
+			if res.err != nil {
+				t.Fatalf("Run() error = %v, want nil", res.err)
+			}
+			if len(res.fake.approvals) != 1 {
+				t.Fatalf("approvals = %+v, want 1 approval with default SkipOpenChangeRequests=false", res.fake.approvals)
+			}
+			if len(res.log) != 1 || res.log[0].Action != ActionApproved {
+				t.Fatalf("log = %+v, want action=%q", res.log, ActionApproved)
+			}
+		})
+	}
+}
+
 func TestRunOpenChangeRequestBlocksDeletionAndCommentRules(t *testing.T) {
 	rules := []config.ApproveRule{
 		{Name: "pure-deletion", PureDeletion: true},
@@ -1022,7 +1060,13 @@ func TestRunOpenChangeRequestBlocksDeletionAndCommentRules(t *testing.T) {
 	pr.Deletions = 5
 	pr.Reviews = []github.ApprovalReview{{Author: "carol", State: "CHANGES_REQUESTED", CommitSHA: "h0"}}
 
-	res := run(t, newFake(pr), rules, Options{Apply: true})
+	cfg := config.ApproveConfig{
+		Body:                   "LGTM",
+		SkipAlreadyApproved:    true,
+		SkipOpenChangeRequests: true,
+		Rules:                  rules,
+	}
+	res := runConfig(t, newFake(pr), cfg, config.ViewedConfig{}, Options{Apply: true}, nil)
 	if res.err != nil {
 		t.Fatalf("Run() error = %v, want nil", res.err)
 	}

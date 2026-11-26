@@ -128,6 +128,9 @@ type ApproveConfig struct {
 	Body string `yaml:"-"`
 	// SkipAlreadyApproved skips a pull request the user approved at the current head.
 	SkipAlreadyApproved bool `yaml:"-"`
+	// SkipOpenChangeRequests skips a pull request with an open CHANGES_REQUESTED
+	// review from any reviewer.
+	SkipOpenChangeRequests bool `yaml:"-"`
 	// AgentCacheTTL is how long a cached agent_command decision is reused.
 	AgentCacheTTL time.Duration `yaml:"-"`
 	// AgentCacheMaxMB bounds the agent_command decision cache in MiB.
@@ -226,14 +229,15 @@ func BodyPlaceholders(body string) []string {
 
 func convertApprove(src pklconfig.ApproveConfig, configDir string) ApproveConfig {
 	out := ApproveConfig{
-		Body:                src.Body,
-		SkipAlreadyApproved: src.SkipAlreadyApproved,
-		AgentCacheTTL:       src.AgentCacheTtl.GoDuration(),
-		AgentCacheMaxMB:     src.AgentCacheMaxMb,
-		PatchMaxFiles:       src.PatchMaxFiles,
-		PatchMaxAddedLines:  src.PatchMaxAddedLines,
-		LoadConcurrency:     src.LoadConcurrency,
-		PRCacheTTL:          src.PrCacheTtl.GoDuration(),
+		Body:                   src.Body,
+		SkipAlreadyApproved:    src.SkipAlreadyApproved,
+		SkipOpenChangeRequests: src.SkipOpenChangeRequests,
+		AgentCacheTTL:          src.AgentCacheTtl.GoDuration(),
+		AgentCacheMaxMB:        src.AgentCacheMaxMb,
+		PatchMaxFiles:          src.PatchMaxFiles,
+		PatchMaxAddedLines:     src.PatchMaxAddedLines,
+		LoadConcurrency:        src.LoadConcurrency,
+		PRCacheTTL:             src.PrCacheTtl.GoDuration(),
 	}
 	if src.MaxDuration != nil {
 		out.MaxDuration = src.MaxDuration.GoDuration()

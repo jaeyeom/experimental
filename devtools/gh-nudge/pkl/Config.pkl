@@ -285,6 +285,8 @@ class ApproveConfig {
   body: String(!isEmpty) = "LGTM"
   /// Skip a pull request the user already approved at the current head.
   skip_already_approved: Boolean = true
+  /// Skip a pull request with an open CHANGES_REQUESTED review from any reviewer.
+  skip_open_change_requests: Boolean = false
   /// How long a cached agent_command decision is reused.
   agent_cache_ttl: Duration(value > 0) = 7.d
   /// Size limit of the agent_command decision cache. The oldest entries are

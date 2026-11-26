@@ -167,6 +167,14 @@ Global settings:
   appended as ~<!-- gh-approve: <rule> -->~. A rule's own ~body~ overrides it.
 - ~skip_already_approved~ skips a pull request you already approved at the
   current head. Default ~true~.
+- ~skip_open_change_requests~ skips any pull request with an open
+  ~CHANGES_REQUESTED~ review from any reviewer — including your own earlier
+  change request — even when posted on an older commit. A dismissed change
+  request or one followed by a later ~APPROVED~ review from the same reviewer
+  does not block; ~COMMENTED~ and ~PENDING~ reviews do not clear or count as a
+  change request. When enabled, this check applies to every rule (including
+  comment-only and deletion rules). Default ~false~ (off by default); set
+  ~skip_open_change_requests = true~ in ~approve~ to turn it on.
 - ~agent_cache_ttl~ is how long a cached ~agent_command~ decision is reused.
   Default ~7.d~.
 - ~agent_cache_max_mb~ bounds the ~agent_command~ decision cache. Default ~50~.
@@ -176,13 +184,6 @@ Global settings:
   the candidate list. Default ~7.d~.
 - gh-approve never approves a pull request you authored. This is always on and
   cannot be configured.
-- gh-approve skips any pull request with an open ~CHANGES_REQUESTED~ review
-  from any reviewer — including your own earlier change request — even when
-  posted on an older commit. A dismissed change request or one followed by a
-  later ~APPROVED~ review from the same reviewer does not block; ~COMMENTED~
-  and ~PENDING~ reviews do not clear or count as a change request. This check
-  applies to every rule (including comment-only and deletion rules) and cannot
-  be turned off.
 
 Starter rule shapes. These are examples. Nothing is hard-coded.
 

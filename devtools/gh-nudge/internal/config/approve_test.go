@@ -23,6 +23,7 @@ func TestLoadPklApprove(t *testing.T) {
 	path := writeApprovePkl(t, `
 approve {
   body = "Looks fine"
+  skip_open_change_requests = true
   agent_cache_ttl = 2.d
   agent_cache_max_mb = 10
   patch_max_files = 40
@@ -61,7 +62,7 @@ approve {
 		t.Fatal(err)
 	}
 	approve := cfg.Approve
-	if approve.Body != "Looks fine" || !approve.SkipAlreadyApproved || len(approve.Rules) != 2 {
+	if approve.Body != "Looks fine" || !approve.SkipAlreadyApproved || !approve.SkipOpenChangeRequests || len(approve.Rules) != 2 {
 		t.Fatalf("approve = %+v", approve)
 	}
 	if approve.AgentCacheTTL != 48*time.Hour || approve.AgentCacheMaxMB != 10 {
@@ -180,7 +181,7 @@ func TestLoadPklApproveDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Approve.Body != DefaultApproveBody || !cfg.Approve.SkipAlreadyApproved || len(cfg.Approve.Rules) != 0 {
+	if cfg.Approve.Body != DefaultApproveBody || !cfg.Approve.SkipAlreadyApproved || cfg.Approve.SkipOpenChangeRequests || len(cfg.Approve.Rules) != 0 {
 		t.Fatalf("approve = %+v", cfg.Approve)
 	}
 	if cfg.Approve.AgentCacheTTL != DefaultAgentCacheTTL || DefaultAgentCacheTTL != 7*24*time.Hour ||

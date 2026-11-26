@@ -103,6 +103,8 @@ approve {
   // The matching rule name is appended as <!-- gh-approve: <rule> -->.
   body = "LGTM"
   skip_already_approved = true
+  // Skip pull requests that have an open CHANGES_REQUESTED review from any reviewer.
+  // skip_open_change_requests = true
   rules {
     // Only files under one internal dashboard directory.
     new {

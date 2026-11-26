@@ -996,8 +996,10 @@ func (r *Runner) skipReason(pr github.ApprovalPullRequest, viewer string) string
 	case r.Config.SkipAlreadyApproved && latestStateOnHead(pr, viewer) == "APPROVED":
 		return "already approved by you at head " + pr.HeadSHA
 	}
-	if login := openChangeRequestBy(pr); login != "" {
-		return "open change request by " + login
+	if r.Config.SkipOpenChangeRequests {
+		if login := openChangeRequestBy(pr); login != "" {
+			return "open change request by " + login
+		}
 	}
 	return ""
 }

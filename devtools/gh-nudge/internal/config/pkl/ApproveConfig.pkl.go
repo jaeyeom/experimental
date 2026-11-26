@@ -11,6 +11,9 @@ type ApproveConfig struct {
 	// Skip a pull request the user already approved at the current head.
 	SkipAlreadyApproved bool `pkl:"skip_already_approved"`
 
+	// Skip a pull request with an open CHANGES_REQUESTED review from any reviewer.
+	SkipOpenChangeRequests bool `pkl:"skip_open_change_requests"`
+
 	// How long a cached agent_command decision is reused.
 	AgentCacheTtl pkl.Duration `pkl:"agent_cache_ttl"`
 
