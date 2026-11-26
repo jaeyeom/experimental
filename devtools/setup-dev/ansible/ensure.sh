@@ -53,14 +53,10 @@ ANSIBLE_GALAXY_CACHE="$CACHE_DIR/ansible-galaxy-collection"
 # shellcheck disable=SC1091  # Sourced from the same directory as this script
 . "$(dirname "$0")/herdr_skill_approve.sh"
 # shellcheck disable=SC1091  # Sourced from the same directory as this script
-. "$(dirname "$0")/factory_skill_approve.sh"
-# shellcheck disable=SC1091  # Sourced from the same directory as this script
 . "$(dirname "$0")/slackwatch_skill_approve.sh"
 # shellcheck disable=SC1091  # Sourced from the same directory as this script
-. "$(dirname "$0")/decide_skill_approve.sh"
-# shellcheck disable=SC1091  # Sourced from the same directory as this script
 . "$(dirname "$0")/ansible_become.sh"
-# shellcheck source=devtools/setup-dev/ansible/ensure_args.sh
+# shellcheck source=devtools/setup-dev/ansible/ensure_args.sh disable=SC1091
 . "$(dirname "$0")/ensure_args.sh"
 
 # Parse arguments: separate ansible-playbook arguments from playbook targets
@@ -78,7 +74,7 @@ ANSIBLE_GALAXY_CACHE="$CACHE_DIR/ansible-galaxy-collection"
 ensure_parse_args "$@" || exit 1
 # From here on, "$@" holds only playbook names, so any_arg_imports and
 # pre_approve_urls never see flag values.
-# shellcheck disable=SC2086  # Intentional word splitting — playbook names never contain spaces
+# shellcheck disable=SC2086,SC2154  # Intentional word splitting; playbooks is set by ensure_parse_args
 set -- $playbooks
 
 # Detect OS
@@ -867,8 +863,7 @@ any_failed=false
 ANSIBLE_RUN_LOG="$LOG_DIR/ensure_sh.ansible.log"
 ANSIBLE_RUN_STATUS="$LOG_DIR/ensure_sh.ansible.status"
 
-# One -K stays on this loop. Do not run herdr.yml, factory.yml,
-# slackwatch.yml, or decide.yml first:
+# One -K stays on this loop. Do not run herdr.yml or slackwatch.yml first:
 # those preliminary playbooks prompt for become again. When this run will
 # review skill text afterward, skip in-playbook apply-text. A direct
 # ansible-playbook run does not pass the var, so an unapproved skill still
@@ -883,8 +878,7 @@ for _skill_flag in $flags; do
 done
 if [ "$_skill_check" -eq 0 ]; then
     # shellcheck disable=SC2086  # Intentional word splitting — playbook names never contain spaces
-    if any_arg_imports setup-herdr.yml $playbooks || any_arg_imports setup-factory.yml $playbooks ||
-        any_arg_imports setup-slackwatch.yml $playbooks || any_arg_imports setup-decide.yml $playbooks; then
+    if any_arg_imports setup-herdr.yml $playbooks || any_arg_imports setup-slackwatch.yml $playbooks; then
         ensure_args_append -e setup_dev_defer_skill_apply=true
         _skill_follow=1
     fi
@@ -903,11 +897,13 @@ for playbook in $playbooks; do
     if [ -n "$from_task" ]; then
         # eval keeps each quoted word in $ansible_args as one argument.
         (
+            # shellcheck disable=SC2154  # ansible_args is set by ensure_parse_args
             eval "ansible-playbook -i inventory.ini $ansible_args --start-at-task \"\$from_task\" \"\$playbook\""
             echo $? >"$ANSIBLE_RUN_STATUS"
         ) 2>&1 | tee "$ANSIBLE_RUN_LOG"
     else
         (
+            # shellcheck disable=SC2154  # ansible_args is set by ensure_parse_args
             eval "ansible-playbook -i inventory.ini $ansible_args \"\$playbook\""
             echo $? >"$ANSIBLE_RUN_STATUS"
         ) 2>&1 | tee "$ANSIBLE_RUN_LOG"
@@ -938,16 +934,8 @@ if any_arg_imports setup-herdr.yml $playbooks; then
     approve_herdr_skill "$(dirname "$0")" "$flags" || _skill_follow_rc=1
 fi
 # shellcheck disable=SC2086  # Intentional word splitting — playbook names never contain spaces
-if [ "$_skill_follow_rc" -eq 0 ] && any_arg_imports setup-factory.yml $playbooks; then
-    approve_factory_skill "$(dirname "$0")" "$flags" || _skill_follow_rc=1
-fi
-# shellcheck disable=SC2086  # Intentional word splitting — playbook names never contain spaces
 if [ "$_skill_follow_rc" -eq 0 ] && any_arg_imports setup-slackwatch.yml $playbooks; then
     approve_slackwatch_skill "$(dirname "$0")" "$flags" || _skill_follow_rc=1
-fi
-# shellcheck disable=SC2086  # Intentional word splitting — playbook names never contain spaces
-if [ "$_skill_follow_rc" -eq 0 ] && any_arg_imports setup-decide.yml $playbooks; then
-    approve_decide_skill "$(dirname "$0")" "$flags" || _skill_follow_rc=1
 fi
 
 if [ "$any_failed" = true ] || [ "$_skill_follow_rc" -ne 0 ]; then

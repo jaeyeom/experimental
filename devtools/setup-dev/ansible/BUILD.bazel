@@ -66,9 +66,7 @@ sh_binary(
         "ansible_become.sh",
         "cache_expired.sh",
         "community_general.sh",
-        "decide_skill_approve.sh",
         "ensure_args.sh",
-        "factory_skill_approve.sh",
         "herdr_skill_approve.sh",
         "playbook_resume.sh",
         "slackwatch_skill_approve.sh",
@@ -130,17 +128,6 @@ sh_test(
 )
 
 sh_test(
-    name = "factory_skill_approve_test",
-    srcs = ["factory_skill_approve_test.sh"],
-    data = [
-        "ensure.sh",
-        "factory_skill_approve.sh",
-        "setup-factory.yml",
-        "verified-run",
-    ],
-)
-
-sh_test(
     name = "herdr_skill_approve_test",
     srcs = ["herdr_skill_approve_test.sh"],
     data = [
@@ -152,23 +139,24 @@ sh_test(
 )
 
 sh_test(
-    name = "decide_skill_approve_test",
-    srcs = ["decide_skill_approve_test.sh"],
-    data = [
-        "decide_skill_approve.sh",
-        "ensure.sh",
-        "setup-decide.yml",
-        "verified-run",
-    ],
-)
-
-sh_test(
     name = "decide_skill_test",
     srcs = ["decide_skill_test.sh"],
     # setup-decide.yml imports other playbooks.
     data = [
         "inventory.ini",
-        "verified-run",
+    ] + glob(["*.yml"]),
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
+    name = "factory_skill_test",
+    srcs = ["factory_skill_test.sh"],
+    # setup-factory.yml imports other playbooks.
+    data = [
+        "inventory.ini",
     ] + glob(["*.yml"]),
     tags = [
         "ansible",

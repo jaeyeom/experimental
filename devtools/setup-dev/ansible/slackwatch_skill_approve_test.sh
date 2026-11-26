@@ -398,7 +398,7 @@ _call=$(grep -n 'approve_slackwatch_skill "$(dirname "$0")" "$flags" || _skill_f
 # shellcheck disable=SC2016  # Match the literal ensure.sh line, including its $.
 _loop=$(grep -n 'for playbook in $playbooks; do' "$_ensure" | sed -n '1s/:.*//p')
 # shellcheck disable=SC2016  # Match the literal ensure.sh line, including its $.
-_factory_call=$(grep -n 'approve_factory_skill "$(dirname "$0")" "$flags" || _skill_follow_rc=1' "$_ensure" | sed -n '1s/:.*//p')
+_herdr_call=$(grep -n 'approve_herdr_skill "$(dirname "$0")" "$flags" || _skill_follow_rc=1' "$_ensure" | sed -n '1s/:.*//p')
 # shellcheck disable=SC2016  # Match the literal ensure.sh line, including its $.
 _exit_line=$(grep -n '\[ "$any_failed" = true \] || \[ "$_skill_follow_rc" -ne 0 \]' "$_ensure" | sed -n '1s/:.*//p')
 [ -n "$_pre" ] || fail "ensure.sh no longer calls pre_approve_urls"
@@ -407,13 +407,16 @@ _exit_line=$(grep -n '\[ "$any_failed" = true \] || \[ "$_skill_follow_rc" -ne 0
 [ -n "$_defer" ] || fail "ensure.sh does not pass setup_dev_defer_skill_apply"
 [ -n "$_call" ] || fail "ensure.sh does not call approve_slackwatch_skill"
 [ -n "$_loop" ] || fail "ensure.sh playbook loop not found"
-[ -n "$_factory_call" ] || fail "ensure.sh no longer calls approve_factory_skill"
+[ -n "$_herdr_call" ] || fail "ensure.sh no longer calls approve_herdr_skill"
 [ -n "$_exit_line" ] || fail "ensure.sh does not fail after the skill follow-up"
 [ "$_src" -lt "$_call" ] || fail "helper is sourced after it is called"
 [ "$_pre" -lt "$_guard" ] || fail "skill review runs before URL pre-approval"
 [ "$_defer" -lt "$_loop" ] || fail "defer var is not passed to the playbook loop"
-[ "$_loop" -lt "$_factory_call" ] || fail "factory review is not after the playbook loop"
-[ "$_factory_call" -lt "$_call" ] || fail "slackwatch review does not run after the factory review"
+[ "$_loop" -lt "$_herdr_call" ] || fail "herdr review is not after the playbook loop"
+[ "$_herdr_call" -lt "$_call" ] || fail "slackwatch review does not run after the herdr review"
 [ "$_call" -lt "$_exit_line" ] || fail "playbook failure is cleared before the skill follow-up exits"
+if grep -qE 'approve_factory_skill|approve_decide_skill|factory_skill_approve\.sh|decide_skill_approve\.sh' "$_ensure"; then
+    fail "ensure.sh still references removed factory or decide skill approval hooks"
+fi
 
 printf '%s\n' "ok"

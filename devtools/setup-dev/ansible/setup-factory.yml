@@ -5,11 +5,6 @@
 
 - name: Ensure the factory agent skill is installed
   hosts: all
-  vars:
-    # Each entry receives the same `factory skill` text. Add paths for other
-    # agents here; the tasks below loop over this list.
-    factory_skill_paths:
-      - "{{ ansible_facts['env']['HOME'] }}/.claude/skills/factory/SKILL.md"
   tasks:
     - name: Include guard for setup-factory playbook
       block:
@@ -21,23 +16,35 @@
             setup_factory_playbook_imported: true
           when: setup_factory_playbook_imported is not defined
 
+    # The lookups below only read, so they also run under --check; a missing go
+    # leaves PATH as is.
     - name: Determine GOPATH for factory commands
       ansible.builtin.command: go env GOPATH
       register: go_env_gopath
       changed_when: false
+      failed_when: false
+      check_mode: false
       environment:
         GOTOOLCHAIN: local
+      tags: [factory_skill]
 
-    # strip_empty_ends would drop the trailing newline and make the installed
-    # file differ from `factory skill`. No banner: skill frontmatter must stay
-    # first, and the file must match the command output byte for byte.
+    - name: Set PATH for factory commands
+      set_fact:
+        factory_skill_env_path: >-
+          {{ (go_env_gopath.stdout ~ '/bin:')
+             if (go_env_gopath.rc | default(1)) == 0 and (go_env_gopath.stdout | default('') | length) > 0
+             else '' }}{{ ansible_facts['env']['PATH'] }}
+      tags: [factory_skill]
+
     - name: Check whether factory is installed
       ansible.builtin.shell: command -v factory
       register: factory_skill_command_check
       changed_when: false
       failed_when: false
+      check_mode: false
       environment:
-        PATH: "{{ go_env_gopath.stdout }}/bin:{{ ansible_facts['env']['PATH'] }}"
+        PATH: "{{ factory_skill_env_path }}"
+      tags: [factory_skill]
 
     - name: Warn when factory is not installed
       ansible.builtin.debug:
@@ -45,84 +52,92 @@
           WARNING: Skipping factory skill install because factory is not on PATH.
           Nothing was written.
       when: factory_skill_command_check.rc != 0
+      tags: [factory_skill]
 
-    - name: Read the factory agent skill
+    - name: Dry-run factory skill install
       ansible.builtin.command:
-        cmd: factory skill
-        strip_empty_ends: false
-      register: factory_skill_output
+        argv:
+          - factory
+          - skill
+          - install
+          - --agent
+          - all
+          - --force
+          - --dry-run
+      register: factory_skill_dry_run
       changed_when: false
-      failed_when: false
+      failed_when: >-
+        factory_skill_dry_run.rc != 0 and
+        'no supported agents found' not in (factory_skill_dry_run.stderr | default(''))
+      check_mode: false
       when: factory_skill_command_check.rc == 0
       environment:
-        PATH: "{{ go_env_gopath.stdout }}/bin:{{ ansible_facts['env']['PATH'] }}"
+        PATH: "{{ factory_skill_env_path }}"
+      tags: [factory_skill]
 
-    - name: Warn when factory skill fails
+    - name: Warn when no supported agents are found for factory skill
       ansible.builtin.debug:
         msg: >-
-          WARNING: Skipping factory skill install because `factory skill`
-          exited {{ factory_skill_output.rc | default('unknown') }}.
+          WARNING: Skipping factory skill install because no supported agents were found.
           Nothing was written.
       when:
         - factory_skill_command_check.rc == 0
-        - factory_skill_output.rc | default(1) != 0
+        - factory_skill_dry_run.rc | default(1) != 0
+        - "'no supported agents found' in (factory_skill_dry_run.stderr | default(''))"
+      tags: [factory_skill]
 
-    - name: Warn when factory skill prints nothing
-      ansible.builtin.debug:
-        msg: >-
-          WARNING: Skipping factory skill install because `factory skill`
-          printed nothing. Nothing was written.
+    - name: Check factory skill status
+      ansible.builtin.command:
+        argv:
+          - factory
+          - skill
+          - status
+          - --json
+      register: factory_skill_status
+      changed_when: false
+      check_mode: false
       when:
         - factory_skill_command_check.rc == 0
-        - factory_skill_output.rc | default(1) == 0
-        - (factory_skill_output.stdout | default('') | trim | length) == 0
+        - factory_skill_dry_run.rc | default(1) == 0
+      environment:
+        PATH: "{{ factory_skill_env_path }}"
+      tags: [factory_skill]
 
-    - name: Ensure factory skill parent directories exist
-      ansible.builtin.file:
-        path: "{{ item | dirname }}"
-        state: directory
-        mode: '0755'
-      loop: "{{ factory_skill_paths }}"
+    - name: Determine whether factory skill install is needed
+      set_fact:
+        factory_skill_target_paths: >-
+          {{ factory_skill_dry_run.stdout_lines | default([])
+             | select('match', '^would install [^:]+ \(user\): ')
+             | map('regex_replace', '^would install [^:]+ \(user\): ', '')
+             | list }}
+        factory_skill_current_paths: >-
+          {{ (factory_skill_status.stdout | from_json).entries | default([])
+             | selectattr('scope', 'equalto', 'user')
+             | selectattr('status', 'equalto', 'current')
+             | map(attribute='path')
+             | list }}
       when:
         - factory_skill_command_check.rc == 0
-        - factory_skill_output.rc | default(1) == 0
-        - (factory_skill_output.stdout | default('') | trim | length) > 0
+        - factory_skill_dry_run.rc | default(1) == 0
+      tags: [factory_skill]
 
-    # ensure.sh passes setup_dev_defer_skill_apply so it can review in a
-    # shell that has a terminal and write the file afterward. This task
-    # warns and does not run apply-text in that case. A direct
-    # ansible-playbook run leaves the var unset, so a new or changed skill
-    # fails the install task below and prints the review-text command.
-    - name: Warn when ensure.sh will write the factory agent skill
-      ansible.builtin.debug:
-        msg: >-
-          WARNING: Skipping factory skill apply-text because ensure.sh will
-          review and write it after the playbooks.
-      when:
-        - setup_dev_defer_skill_apply | default(false) | bool
-        - factory_skill_command_check.rc == 0
-        - factory_skill_output.rc | default(1) == 0
-        - (factory_skill_output.stdout | default('') | trim | length) > 0
-
-    # apply-text writes the raw `factory skill` bytes when they match the
-    # stored approval. Stdout is `updated` or `unchanged`.
+    # --force migrates verified-run-written (foreign) SKILL.md files to
+    # toolcli-managed files. Under --check the command module does not run,
+    # so nothing is written.
     - name: Install the factory agent skill
       ansible.builtin.command:
         argv:
-          - "{{ playbook_dir }}/verified-run"
-          - apply-text
-          - factory-skill
-          - "{{ item }}"
-          - "--"
           - factory
           - skill
-      loop: "{{ factory_skill_paths }}"
-      register: factory_skill_apply
-      changed_when: (factory_skill_apply.stdout | trim) == "updated"
+          - install
+          - --agent
+          - all
+          - --force
+      register: factory_skill_install
       when:
-        - not (setup_dev_defer_skill_apply | default(false) | bool)
         - factory_skill_command_check.rc == 0
-        - factory_skill_output.rc | default(1) == 0
-        - (factory_skill_output.stdout | default('') | trim | length) > 0
+        - factory_skill_dry_run.rc | default(1) == 0
+        - (factory_skill_target_paths | default([]) | difference(factory_skill_current_paths | default([])) | length) > 0
       environment:
-        PATH: "{{ go_env_gopath.stdout }}/bin:{{ ansible_facts['env']['PATH'] }}"
+        PATH: "{{ factory_skill_env_path }}"
+      tags: [factory_skill]

@@ -532,29 +532,23 @@ func TestFactorySkillInstall(t *testing.T) {
 	for _, want := range []string{
 		"import_playbook: factory.yml",
 		"setup_factory_playbook_imported",
-		"factory_skill_paths:",
-		"{{ ansible_facts['env']['HOME'] }}/.claude/skills/factory/SKILL.md",
 		"command: go env GOPATH",
 		"GOTOOLCHAIN: local",
-		"{{ go_env_gopath.stdout }}/bin:{{ ansible_facts['env']['PATH'] }}",
+		"factory_skill_env_path",
 		"ansible.builtin.shell: command -v factory",
-		"cmd: factory skill",
-		"strip_empty_ends: false",
-		"changed_when: false",
-		"failed_when: false",
 		"Skipping factory skill install because factory is not on PATH.",
-		"exited {{ factory_skill_output.rc | default('unknown') }}",
-		"printed nothing",
-		"path: \"{{ item | dirname }}\"",
-		"apply-text",
-		"factory-skill",
-		"Skipping factory skill apply-text because ensure.sh will",
-		"not (setup_dev_defer_skill_apply | default(false) | bool)",
-		"register: factory_skill_apply",
-		"changed_when: (factory_skill_apply.stdout | trim) == \"updated\"",
-		"loop: \"{{ factory_skill_paths }}\"",
+		"Skipping factory skill install because no supported agents were found.",
+		"'no supported agents found' in (factory_skill_dry_run.stderr | default(''))",
 		"- factory",
 		"- skill",
+		"- install",
+		"- --agent",
+		"- all",
+		"- --force",
+		"- --dry-run",
+		"- status",
+		"- --json",
+		"tags: [factory_skill]",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("setup-factory.yml missing %q", want)
@@ -566,14 +560,19 @@ func TestFactorySkillInstall(t *testing.T) {
 	if strings.Contains(got, "import_playbook: factory.yml\n  when:") {
 		t.Error("setup-factory.yml must import factory.yml on every platform")
 	}
-	if strings.Contains(got, "content: \"{{ factory_skill_output.stdout }}\"") {
-		t.Error("setup-factory.yml still copies unreviewed factory skill stdout")
-	}
-	if strings.Contains(got, "changed_when: (stdout | trim)") {
-		t.Error("setup-factory.yml still evaluates changed_when against bare stdout")
-	}
-	if strings.Contains(got, "factory.toml") || strings.Contains(got, "config.toml") {
-		t.Error("setup-factory.yml must not write factory config")
+	for _, unwanted := range []string{
+		"verified-run apply-text",
+		"apply-text",
+		"factory-skill",
+		"factory_skill_paths",
+		"setup_dev_defer_skill_apply",
+		"ansible.builtin.copy",
+		"factory.toml",
+		"config.toml",
+	} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("setup-factory.yml must not mention %q", unwanted)
+		}
 	}
 
 	factory := read("factory.yml")
@@ -693,25 +692,23 @@ func TestDecideSkillInstall(t *testing.T) {
 	}
 	for _, want := range []string{
 		"setup_decide_playbook_imported",
-		"decide_skill_paths:",
-		"{{ ansible_facts['env']['HOME'] }}/.claude/skills/decide/SKILL.md",
 		"command: go env GOPATH",
+		"GOTOOLCHAIN: local",
+		"decide_skill_env_path",
 		"ansible.builtin.shell: command -v decide",
-		"cmd: decide skill",
-		"strip_empty_ends: false",
 		"Skipping decide skill install because decide is not on PATH.",
-		"exited {{ decide_skill_output.rc | default('unknown') }}",
-		"printed nothing",
-		"path: \"{{ item | dirname }}\"",
-		"apply-text",
-		"decide-skill",
-		"Skipping decide skill apply-text because ensure.sh will",
-		"not (setup_dev_defer_skill_apply | default(false) | bool)",
-		"register: decide_skill_apply",
-		"changed_when: (decide_skill_apply.stdout | trim) == \"updated\"",
-		"loop: \"{{ decide_skill_paths }}\"",
+		"Skipping decide skill install because no supported agents were found.",
+		"'no supported agents found' in (decide_skill_dry_run.stderr | default(''))",
 		"- decide",
 		"- skill",
+		"- install",
+		"- --agent",
+		"- all",
+		"- --force",
+		"- --dry-run",
+		"- status",
+		"- --json",
+		"tags: [decide_skill]",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("setup-decide.yml missing %q", want)
@@ -721,7 +718,11 @@ func TestDecideSkillInstall(t *testing.T) {
 		"decide serve",
 		"launchctl",
 		"systemctl",
-		"content: \"{{ decide_skill_output.stdout }}\"",
+		"verified-run apply-text",
+		"apply-text",
+		"decide-skill",
+		"decide_skill_paths",
+		"setup_dev_defer_skill_apply",
 		"ansible.builtin.copy",
 	} {
 		if strings.Contains(got, unwanted) {
