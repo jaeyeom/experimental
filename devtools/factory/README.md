@@ -127,6 +127,7 @@ factory run --interval 15m --apply
 
 | Command | What it does |
 | --- | --- |
+| `approve ID` | Inspect an item's live title, body, and SHA-256 content hash (`dry_run` aware). `--apply` records the local approval and transitions status to the first `untrusted_ready_statuses` entry; `--revoke` clears the stored approval. |
 | `init` | Scaffold `<git-root>/factory.toml` (or append to global XDG `factory.toml` with `--global`) from the current git repository. Supports `--cwd`, `--kind github\|jira`, `--base`, `--force`, and `--dry-run`. |
 | `sync` | Refresh the local mirror. Items that left the source query are removed. `--full` rereads every item. `--source kind:name` limits the refresh. |
 | `next` | List ready items. `--explain ID` shows why one item is or is not ready. `--sync` refreshes first. A stale mirror also refreshes when `sync.max_age` is set. `--no-sync` skips that. |

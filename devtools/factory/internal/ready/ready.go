@@ -26,6 +26,8 @@ type Snapshot struct {
 	// External are the last sync's records of blockers that are not in the
 	// mirror, keyed by id. They are never work items.
 	External map[string]store.ExternalBlocker
+	// Approvals holds local content-hash approvals for this source, keyed by item ID.
+	Approvals map[string]store.Approval
 	// Now is the clock for the not-before rule. Zero uses time.Now.
 	Now time.Time
 }
@@ -287,8 +289,8 @@ func CheckTrust(it source.Item, snap Snapshot, cfg config.Source) Check {
 		parts = append(parts, fmt.Sprintf("untrusted author %q requires status in [%s] (got %q)", it.Author, strings.Join(statuses, ", "), it.State))
 	}
 	guards := cfg.Trust.EffectiveGuards()
-	if len(guards) > 0 && !anyTrustGuardSatisfied(it, guards) {
-		parts = append(parts, trustGuardFailureReason(it.Author, guards))
+	if len(guards) > 0 && !anyTrustGuardSatisfied(it, snap, guards) {
+		parts = append(parts, trustGuardFailureReason(it, snap, guards))
 	}
 	if len(parts) == 0 {
 		return Check{Rule: RuleTrust, Pass: true}
@@ -296,7 +298,7 @@ func CheckTrust(it source.Item, snap Snapshot, cfg config.Source) Check {
 	return Check{Rule: RuleTrust, Pass: false, Detail: strings.Join(parts, "; ")}
 }
 
-func anyTrustGuardSatisfied(it source.Item, guards []string) bool {
+func anyTrustGuardSatisfied(it source.Item, snap Snapshot, guards []string) bool {
 	for _, guard := range guards {
 		switch guard {
 		case config.TrustGuardLocked:
@@ -304,23 +306,47 @@ func anyTrustGuardSatisfied(it source.Item, guards []string) bool {
 				return true
 			}
 		case config.TrustGuardApprovedHash:
-			// Follow-up #1238 implements local approval hashes; treat as
-			// unsatisfied until then so fail-safe gating holds.
+			if approvedHashMatches(it, snap) {
+				return true
+			}
 		}
 	}
 	return false
 }
 
-func trustGuardFailureReason(author string, guards []string) string {
+func approvedHashMatches(it source.Item, snap Snapshot) bool {
+	approval, ok := snap.Approvals[it.ID]
+	if !ok || approval.ContentHash == "" || it.ContentHash == "" {
+		return false
+	}
+	return approval.ContentHash == it.ContentHash
+}
+
+func approvedHashReason(it source.Item, snap Snapshot) string {
+	approval, ok := snap.Approvals[it.ID]
+	if !ok || approval.ContentHash == "" {
+		return "not approved"
+	}
+	if it.ContentHash == "" {
+		return "content hash unavailable; run sync"
+	}
+	return "edited since approval"
+}
+
+func trustGuardFailureReason(it source.Item, snap Snapshot, guards []string) string {
 	if len(guards) == 1 {
 		switch guards[0] {
 		case config.TrustGuardLocked:
-			return fmt.Sprintf("untrusted author %q requires locked issue", author)
+			return fmt.Sprintf("untrusted author %q requires locked issue", it.Author)
 		case config.TrustGuardApprovedHash:
-			return fmt.Sprintf("untrusted author %q requires approved_hash", author)
+			return fmt.Sprintf("untrusted author %q requires approved_hash (%s)", it.Author, approvedHashReason(it, snap))
 		}
 	}
-	return fmt.Sprintf("untrusted author %q requires one of guards [%s]", author, strings.Join(guards, ", "))
+	base := fmt.Sprintf("untrusted author %q requires one of guards [%s]", it.Author, strings.Join(guards, ", "))
+	if slices.Contains(guards, config.TrustGuardApprovedHash) {
+		return fmt.Sprintf("%s (%s)", base, approvedHashReason(it, snap))
+	}
+	return base
 }
 
 func checkBlockers(it source.Item, snap Snapshot, cfg config.Source) Check {

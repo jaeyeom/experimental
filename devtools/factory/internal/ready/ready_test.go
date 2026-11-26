@@ -1148,7 +1148,7 @@ func TestRuleTrust(t *testing.T) {
 		assertRule(t, got, RuleTrust, false, `untrusted author "" requires locked issue`)
 	})
 
-	t.Run("approved_hash guard alone is unsatisfied until #1238", func(t *testing.T) {
+	t.Run("approved_hash guard blocks when unapproved or edited and passes when matching", func(t *testing.T) {
 		t.Parallel()
 		it, snap, cfg := githubFixture()
 		cfg.Trust = config.Trust{
@@ -1157,12 +1157,41 @@ func TestRuleTrust(t *testing.T) {
 		}
 		it.State = "Todo"
 		it.Author = "stranger"
-		it.Locked = true
+		it.Locked = false
+		it.ContentHash = source.ContentHash(it.Title, "original body")
+
+		// Unapproved.
 		got := eval(t, it, snap, cfg, "github")
-		assertRule(t, got, RuleTrust, false, `untrusted author "stranger" requires approved_hash`)
+		assertRule(t, got, RuleTrust, false, `untrusted author "stranger" requires approved_hash (not approved)`)
+		if got.Ready {
+			t.Fatal("Ready = true, want false when unapproved")
+		}
+
+		// Matching approval hash passes even when unlocked.
+		snap.Approvals = map[string]store.Approval{
+			it.ID: {
+				Source:      it.Source,
+				ItemID:      it.ID,
+				ContentHash: it.ContentHash,
+				ApprovedAt:  time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC),
+			},
+		}
+		got = eval(t, it, snap, cfg, "github")
+		assertRule(t, got, RuleTrust, true, "")
+		if !got.Ready {
+			t.Fatalf("Ready = false, checks = %+v", got.Checks)
+		}
+
+		// Edited title or body invalidates approval.
+		it.ContentHash = source.ContentHash(it.Title, "tampered body")
+		got = eval(t, it, snap, cfg, "github")
+		assertRule(t, got, RuleTrust, false, `untrusted author "stranger" requires approved_hash (edited since approval)`)
+		if got.Ready {
+			t.Fatal("Ready = true, want false after edit")
+		}
 	})
 
-	t.Run("locked satisfies OR of locked and approved_hash", func(t *testing.T) {
+	t.Run("locked and approved_hash OR semantics", func(t *testing.T) {
 		t.Parallel()
 		it, snap, cfg := githubFixture()
 		cfg.Trust = config.Trust{
@@ -1171,8 +1200,32 @@ func TestRuleTrust(t *testing.T) {
 		}
 		it.State = "Todo"
 		it.Author = "stranger"
-		it.Locked = true
+		it.ContentHash = source.ContentHash(it.Title, "body")
+
+		// Neither locked nor approved -> blocked.
+		it.Locked = false
 		got := eval(t, it, snap, cfg, "github")
+		assertRule(t, got, RuleTrust, false, `untrusted author "stranger" requires one of guards [locked, approved_hash] (not approved)`)
+
+		// Locked alone satisfies OR even without approval.
+		it.Locked = true
+		got = eval(t, it, snap, cfg, "github")
 		assertRule(t, got, RuleTrust, true, "")
+
+		// Approved hash alone satisfies OR even when unlocked.
+		it.Locked = false
+		snap.Approvals = map[string]store.Approval{
+			it.ID: {
+				Source:      it.Source,
+				ItemID:      it.ID,
+				ContentHash: it.ContentHash,
+				ApprovedAt:  time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC),
+			},
+		}
+		got = eval(t, it, snap, cfg, "github")
+		assertRule(t, got, RuleTrust, true, "")
+		if !got.Ready {
+			t.Fatalf("Ready = false, checks = %+v", got.Checks)
+		}
 	})
 }

@@ -27,20 +27,25 @@ func mapNodes(cfg *config.Source, nodes []json.RawMessage) ([]source.Item, error
 }
 
 func mapNode(cfg *config.Source, raw json.RawMessage) (source.Item, error) {
+	item, _, err := mapNodeWithBody(cfg, raw)
+	return item, err
+}
+
+func mapNodeWithBody(cfg *config.Source, raw json.RawMessage) (source.Item, string, error) {
 	obj, id, err := issueIdentity(cfg, raw)
 	if err != nil {
-		return source.Item{}, err
+		return source.Item{}, "", err
 	}
-	item, err := issueText(id, obj)
+	item, body, err := issueText(id, obj)
 	if err != nil {
-		return source.Item{}, err
+		return source.Item{}, "", err
 	}
 	if err := issueRelations(id, obj, &item); err != nil {
-		return source.Item{}, err
+		return source.Item{}, "", err
 	}
 	fields, err := mapIssueFieldValues(id, obj["issueFieldValues"])
 	if err != nil {
-		return source.Item{}, err
+		return source.Item{}, "", err
 	}
 	item.Source = cfg.Name
 	item.ID = id
@@ -70,7 +75,7 @@ func mapNode(cfg *config.Source, raw json.RawMessage) (source.Item, error) {
 			item.Due = &d
 		}
 	}
-	return item, nil
+	return item, body, nil
 }
 
 func issueIdentity(cfg *config.Source, raw json.RawMessage) (map[string]json.RawMessage, string, error) {
@@ -106,38 +111,42 @@ func requireNodeID(id string, obj map[string]json.RawMessage) error {
 	return nil
 }
 
-func issueText(id string, obj map[string]json.RawMessage) (source.Item, error) {
+func issueText(id string, obj map[string]json.RawMessage) (source.Item, string, error) {
 	title, err := requiredString(obj, "title")
 	if err != nil {
-		return source.Item{}, fmt.Errorf("github issue %s: %w", id, err)
+		return source.Item{}, "", fmt.Errorf("github issue %s: %w", id, err)
+	}
+	body, err := optionalString(obj, "body")
+	if err != nil {
+		return source.Item{}, "", fmt.Errorf("github issue %s: %w", id, err)
 	}
 	url, err := requiredURL(id, obj)
 	if err != nil {
-		return source.Item{}, err
+		return source.Item{}, "", err
 	}
 	state, done, err := mapState(id, obj)
 	if err != nil {
-		return source.Item{}, err
+		return source.Item{}, "", err
 	}
 	typ, err := mapType(id, obj["issueType"])
 	if err != nil {
-		return source.Item{}, err
+		return source.Item{}, "", err
 	}
 	parent, err := mapParent(id, obj["parent"])
 	if err != nil {
-		return source.Item{}, err
+		return source.Item{}, "", err
 	}
 	author, err := optionalAuthorLogin(obj, fmt.Sprintf("github issue %s: author", id))
 	if err != nil {
-		return source.Item{}, err
+		return source.Item{}, "", err
 	}
 	assoc, err := optionalString(obj, "authorAssociation")
 	if err != nil {
-		return source.Item{}, fmt.Errorf("github issue %s: %w", id, err)
+		return source.Item{}, "", fmt.Errorf("github issue %s: %w", id, err)
 	}
 	locked, err := optionalBool(obj, "locked")
 	if err != nil {
-		return source.Item{}, fmt.Errorf("github issue %s: %w", id, err)
+		return source.Item{}, "", fmt.Errorf("github issue %s: %w", id, err)
 	}
 	return source.Item{
 		Title:             title,
@@ -149,7 +158,8 @@ func issueText(id string, obj map[string]json.RawMessage) (source.Item, error) {
 		Author:            author,
 		AuthorAssociation: assoc,
 		Locked:            locked,
-	}, nil
+		ContentHash:       source.ContentHash(title, body),
+	}, body, nil
 }
 
 func requiredURL(id string, obj map[string]json.RawMessage) (string, error) {

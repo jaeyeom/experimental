@@ -38,6 +38,11 @@ type Source struct {
 	// Items is the backlog, keyed by item ID.
 	Items map[string]source.Item
 
+	// Bodies optionally holds raw issue bodies keyed by item ID. When an entry
+	// exists for an item, Get, GetContent, and Sync compute ContentHash from
+	// (Title, Bodies[id]).
+	Bodies map[string]string
+
 	// Query, when set, is the source query: Sync and IDs return only the
 	// items it accepts. Get still reads any item. A nil Query matches every
 	// item.
@@ -84,8 +89,12 @@ type claimSnap struct {
 	labels   []string
 }
 
-// Compile-time check that Source implements source.Source.
-var _ source.Source = (*Source)(nil)
+// Compile-time checks that Source implements source interfaces.
+var (
+	_ source.Source        = (*Source)(nil)
+	_ source.ContentReader = (*Source)(nil)
+	_ source.StatusSetter  = (*Source)(nil)
+)
 
 // Name returns SourceName.
 func (s *Source) Name() string {
@@ -120,7 +129,7 @@ func (s *Source) Sync(ctx context.Context, since time.Time) ([]source.Item, erro
 		if it.Updated.Before(since) || !s.matches(it) {
 			continue
 		}
-		out = append(out, cloneItem(it))
+		out = append(out, s.itemWithHash(it))
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Updated.Equal(out[j].Updated) {
@@ -165,7 +174,44 @@ func (s *Source) Get(ctx context.Context, id string) (source.Item, error) {
 	if !ok {
 		return source.Item{}, fmt.Errorf("get %q: %w", id, source.ErrNotFound)
 	}
-	return cloneItem(it), nil
+	return s.itemWithHash(it), nil
+}
+
+// GetContent returns a copy of the item and its body from Bodies.
+func (s *Source) GetContent(ctx context.Context, id string) (source.Item, string, error) {
+	unlock, err := s.pre(ctx, "GetContent", id)
+	if err != nil {
+		return source.Item{}, "", err
+	}
+	defer unlock()
+
+	it, ok := s.Items[id]
+	if !ok {
+		return source.Item{}, "", fmt.Errorf("get content %q: %w", id, source.ErrNotFound)
+	}
+	body := s.Bodies[id]
+	out := s.itemWithHash(it)
+	if out.ContentHash == "" {
+		out.ContentHash = source.ContentHash(out.Title, body)
+	}
+	return out, body, nil
+}
+
+// SetStatus transitions the item's State to status.
+func (s *Source) SetStatus(ctx context.Context, id, status string) error {
+	unlock, err := s.pre(ctx, "SetStatus", id, status)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	it, ok := s.Items[id]
+	if !ok {
+		return fmt.Errorf("set status %q: %w", id, source.ErrNotFound)
+	}
+	it.State = status
+	s.Items[id] = it
+	return nil
 }
 
 // Claim sets State to "In Progress" and Assignee to Account.
@@ -561,6 +607,14 @@ func createArgs(req source.CreateRequest) []string {
 		strings.Join(req.BlockedBy, ","),
 		req.Project,
 	}
+}
+
+func (s *Source) itemWithHash(it source.Item) source.Item {
+	out := cloneItem(it)
+	if body, ok := s.Bodies[it.ID]; ok {
+		out.ContentHash = source.ContentHash(out.Title, body)
+	}
+	return out
 }
 
 func cloneItem(it source.Item) source.Item {

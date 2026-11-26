@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "adopt.go",
+        "approve.go",
         "caller.go",
         "claimpr.go",
         "clients.go",
@@ -81,6 +82,7 @@ go_test(
     name = "go_default_test",
     srcs = [
         "adopt_test.go",
+        "approve_test.go",
         "claimpr_test.go",
         "close_test.go",
         "deferred_test.go",

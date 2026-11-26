@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -235,6 +236,14 @@ func formatTrust(it source.Item, snap ready.Snapshot, cfg config.Source) string 
 		bprintf(&b, "  author: %s\n", author)
 	}
 	bprintf(&b, "  locked: %t\n", it.Locked)
+	if it.ContentHash != "" {
+		bprintf(&b, "  content_hash: %s\n", it.ContentHash)
+	}
+	if approval, ok := snap.Approvals[it.ID]; ok {
+		bprintf(&b, "  approved_hash: %s (at %s)\n", approval.ContentHash, formatStamp(approval.ApprovedAt))
+	} else if slices.Contains(cfg.Trust.EffectiveGuards(), config.TrustGuardApprovedHash) {
+		b.WriteString("  approved_hash: none\n")
+	}
 	check := ready.CheckTrust(it, snap, cfg)
 	if check.Pass {
 		b.WriteString("  status: PASS\n")

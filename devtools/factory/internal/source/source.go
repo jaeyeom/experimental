@@ -4,7 +4,10 @@ package source
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -29,8 +32,9 @@ type Item struct {
 	Author   string // Author login or account id. Empty when unknown or deleted.
 	// AuthorAssociation is the backend's author-to-repo relationship (e.g. OWNER, MEMBER, NONE).
 	AuthorAssociation string
-	Locked            bool // True when the item is locked against public edits/comments.
-	Priority          int  // 0 is highest. 2 is normal.
+	Locked            bool   // True when the item is locked against public edits/comments.
+	ContentHash       string // Canonical SHA-256 of (title, body), when provided by the backend.
+	Priority          int    // 0 is highest. 2 is normal.
 	BlockedBy         []BlockRef
 	Created           time.Time
 	Updated           time.Time
@@ -136,6 +140,46 @@ type Source interface {
 	// The source maps that rank to one priority name or label.
 	// A rank with no single name returns an error and writes nothing.
 	SetPriority(ctx context.Context, id string, rank int) error
+}
+
+// ContentReader is an optional interface implemented by sources that can fetch
+// an item's live metadata and raw body text for content-hash approval.
+type ContentReader interface {
+	GetContent(ctx context.Context, id string) (Item, string, error)
+}
+
+// StatusSetter is an optional interface implemented by sources that can
+// transition an item's workflow status directly (used by `factory approve`).
+type StatusSetter interface {
+	SetStatus(ctx context.Context, id, status string) error
+}
+
+// ReadContent fetches live item metadata and raw body text via ContentReader
+// when supported by src, or falls back to src.Get with an empty body.
+func ReadContent(ctx context.Context, src Source, id string) (Item, string, error) {
+	if cr, ok := src.(ContentReader); ok {
+		return cr.GetContent(ctx, id) //nolint:wrapcheck // caller adds command context
+	}
+	it, err := src.Get(ctx, id)
+	return it, "", err //nolint:wrapcheck // caller adds command context
+}
+
+// SetStatus transitions id to status when src implements StatusSetter, or
+// returns ErrNotSupported otherwise.
+func SetStatus(ctx context.Context, src Source, id, status string) error {
+	setter, ok := src.(StatusSetter)
+	if !ok {
+		return ErrNotSupported
+	}
+	return setter.SetStatus(ctx, id, status) //nolint:wrapcheck // caller adds command context
+}
+
+// ContentHash returns the canonical SHA-256 digest of (title, body) formatted
+// as "sha256:<hex>". Length-prefixing both strings prevents boundary collisions.
+func ContentHash(title, body string) string {
+	h := sha256.New()
+	_, _ = fmt.Fprintf(h, "%d:%s\n%d:%s", len(title), title, len(body), body)
+	return "sha256:" + hex.EncodeToString(h.Sum(nil))
 }
 
 var (

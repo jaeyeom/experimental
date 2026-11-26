@@ -351,7 +351,9 @@ Each `[[source]]` may also configure `[source.trust]`:
   guards = ["locked"]                     # "locked", "approved_hash", or [] to disable tamper guards
 ```
 
-When `environment = "trusted"` or unset, external-author gating, tamper guards, and prompt hardening stay off. When `environment = "untrusted"`, issues from trusted authors (`me`, `trusted_author_associations`, or `trusted_authors`) stay eligible under `ready_statuses`, while issues from untrusted authors (including deleted users) are eligible only when `state` is in `untrusted_ready_statuses` and at least one enabled tamper guard in `guards` is satisfied (`locked == true` for `"locked"`), and `start` injects the untrusted-input rule at `{{trust_rule}}` (or prepended before `start_prompt`).
+When `environment = "trusted"` or unset, external-author gating, tamper guards, and prompt hardening stay off. When `environment = "untrusted"`, issues from trusted authors (`me`, `trusted_author_associations`, or `trusted_authors`) stay eligible under `ready_statuses`, while issues from untrusted authors (including deleted users) are eligible only when `state` is in `untrusted_ready_statuses` and at least one enabled tamper guard in `guards` is satisfied (`locked == true` for `"locked"`, or a matching local SHA-256 `(title, body)` approval recorded by `factory approve` for `"approved_hash"`), and `start` injects the untrusted-input rule at `{{trust_rule}}` (or prepended before `start_prompt`). When `"approved_hash"` is enabled and `"locked"` is not satisfied, `factory start` re-fetches the live `(title, body)` before claiming and refuses with `not approved` or `edited since approval` if no matching approval exists.
+
+Use `factory approve <id>` to inspect an untrusted-author issue's live `title`, `body`, canonical SHA-256 hash (`sha256:<hex>`), and planned transition to the first `untrusted_ready_statuses` entry (default `Todo`). Respecting `dry_run`, pass `--apply` (or set `dry_run = false`) to record the hash in SQLite (`approvals`) and transition the issue's native status when not already in an allowed status; pass `--revoke` to clear a stored local approval.
 
 `factory adopt ID` records a claim for work that already has a tab or a pull request. It does not create a workspace or a tab, and it does not start an agent or send a prompt. `--pane` is a pane id and records the tab that contains that pane. Otherwise `--tab` is a tab id or a tab label. Otherwise the tab label is the one `start` would use. Repeatable `--pr` is `owner/repo#N` or a pull request URL. Open pull requests whose head branch contains the item id are included, and so are the pull requests `show` already matches by title or closing issue. At least one tab or pull request is required. If neither resolves, the item and the claim store stay unchanged. A second `adopt` of an open claim (`claimed`, `started`, or `handed_off`) does not transition the item and does not insert another row. It fills in a tab or pull request the first call did not record. The recorded pull request includes the head branch when the open pull request has one. On Jira, the transition is the one `start` uses, and an item already in `claim_status` is not transitioned. On GitHub, `claim_label` is added only when it is missing. `show` lists a `--pr` even when its title does not match `pr_title_pattern`. When `show` finds no open pull request for the item, it searches every state with `in:title` for the item id and keeps titles that match `pr_title_pattern`.
 
@@ -383,6 +385,7 @@ Usage:
 
 Available Commands:
   adopt        Record a claim for an existing item without starting an agent
+  approve      Inspect, approve, or revoke the content-hash approval for an item
   claim-pr     Record a pull request on an active claim
   close        Detect and safely close open parent issues whose children are all done
   completion   Generate the autocompletion script for the specified shell
@@ -434,6 +437,25 @@ Flags:
       --pane string      pane id; record the tab that contains it
       --pr stringArray   pull request to record, as owner/repo#N or a URL (repeatable)
       --tab string       tab id or tab label to record
+
+Global Flags:
+      --config string      path to config file
+      --log-level string   log level: debug, info, warn, or error (default "info")
+```
+
+### `factory approve --help`
+
+```text
+Inspect, approve, or revoke the content-hash approval for an item
+
+Usage:
+  factory approve <id> [flags]
+
+Flags:
+      --apply           record the approval hash and transition status (implied when dry_run is false)
+  -h, --help            help for approve
+      --revoke          clear the stored local approval for this item
+      --source string   limit to this source key (kind:name, for example github:repo)
 
 Global Flags:
       --config string      path to config file

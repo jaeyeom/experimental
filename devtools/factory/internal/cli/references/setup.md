@@ -62,6 +62,7 @@ Review and adjust the generated TOML sections (see `factory.example.toml` and `e
   - `require_labels` (e.g. `["agent-ready"]`) and `exclude_labels` (e.g. `["needs-human", "blocked-external"]`): filter which issues are eligible.
   - Native GitHub issue statuses and starter fields are enabled by default (`ready_statuses = ["Todo", "Backlog", "OPEN"]`, `claim_status = "In progress"`, `priority_field = "Priority"`, `defer_field = "Start date"`, `due_field = "Target date"`). Only set `claim_label`, `priority_labels`, or `defer_label_prefix` on legacy repositories without native statuses/fields.
   - `start_prompt`: prompt template sent to workers (for example `"/gh-issue-resolver {url}"`).
+  - `[source.trust]` (recommended for public repos): `environment = "untrusted"`, `trusted_author_associations = ["OWNER"]`, `untrusted_ready_statuses = ["Todo"]`, and `guards = ["locked"]` or `["approved_hash"]` (or both for OR semantics). With `"approved_hash"`, run `factory approve <id>` to inspect the live title/body/SHA-256 hash, `factory approve <id> --apply` to record the approval hash and move the issue to the first `untrusted_ready_statuses` entry, and `factory approve --revoke <id>` to clear a stored approval.
 - **Jira (`kind = "jira"`)**:
   - `name`, `site`, `email`, and exactly one of `token_file` or `token_env`.
   - `jql` (e.g. `"project = PRJ"`), `ready_statuses` (e.g. `["To Do", "Backlog"]`), `claim_status` (e.g. `"In Progress"`), optional `claim_transition`.

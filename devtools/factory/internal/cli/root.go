@@ -49,6 +49,7 @@ func newRoot(ctx context.Context, stderr io.Writer) *cobra.Command {
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newUpdateCmd(ctx))
 	root.AddCommand(newSkillCmd())
+	root.AddCommand(newApproveCmd(ctx))
 	root.AddCommand(newSyncCmd(ctx))
 	root.AddCommand(newNextCmd(ctx))
 	root.AddCommand(newPrioritiesCmd(ctx))

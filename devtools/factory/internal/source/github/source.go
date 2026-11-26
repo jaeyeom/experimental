@@ -34,7 +34,7 @@ const (
 	defaultPriority = 4
 
 	// nodeFields is the issue selection shared by Sync and Get.
-	nodeFields = "id number title url state " +
+	nodeFields = "id number title body url state " +
 		"author{login} authorAssociation locked " +
 		"status{name} " +
 		"createdAt updatedAt " +
@@ -87,8 +87,12 @@ func New(cfg config.Source, exec executor.Executor, bin string) *Source {
 	return &Source{cfg: cfg, exec: exec, bin: bin}
 }
 
-// Compile-time check that Source implements source.Source.
-var _ source.Source = (*Source)(nil)
+// Compile-time checks that Source implements source interfaces.
+var (
+	_ source.Source        = (*Source)(nil)
+	_ source.ContentReader = (*Source)(nil)
+	_ source.StatusSetter  = (*Source)(nil)
+)
 
 // Name returns the configured source name.
 func (s *Source) Name() string {

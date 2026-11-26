@@ -99,6 +99,15 @@ func TestBuildLoadsMirrorClaimsTabsAndPRs(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("InsertClaim released: %v", err)
 	}
+	wantApproval := store.Approval{
+		Source:      "jira:acme",
+		ItemID:      "PRJ-1",
+		ContentHash: source.ContentHash("Ship it", "body"),
+		ApprovedAt:  claimedAt,
+	}
+	if err := st.SetApproval(ctx, wantApproval); err != nil {
+		t.Fatalf("SetApproval: %v", err)
+	}
 
 	got, err := snapshot.Build(ctx, st, herdr.NewClient(scriptOK(t), testHerdr), gh.NewClient(scriptOK(t), testGH), "jira:acme", "alice")
 	if err != nil {
@@ -124,6 +133,9 @@ func TestBuildLoadsMirrorClaimsTabsAndPRs(t *testing.T) {
 	}
 	if len(got.OpenPRs) != 1 || got.OpenPRs[0].Number != 7 {
 		t.Fatalf("prs = %+v", got.OpenPRs)
+	}
+	if len(got.Approvals) != 1 || got.Approvals["PRJ-1"].ContentHash != wantApproval.ContentHash {
+		t.Fatalf("approvals = %+v, want %+v", got.Approvals, wantApproval)
 	}
 }
 

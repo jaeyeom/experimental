@@ -31,6 +31,8 @@ import (
 // claims.output_mode to record how a claim was started and where its checkout lives.
 // v15 adds items.author, items.author_association, and items.locked for
 // per-source trust classification and untrusted-author gating.
+// v16 adds the approvals table and items.content_hash for content-hash
+// pinning on untrusted-author issues.
 var migrations = []string{
 	`CREATE TABLE items(source TEXT, id TEXT, title TEXT, url TEXT, type TEXT, state TEXT,
     done INTEGER, parent TEXT, labels_json TEXT, assignee TEXT, priority INTEGER,
@@ -72,6 +74,9 @@ var migrations = []string{
 	`ALTER TABLE items ADD COLUMN author TEXT NOT NULL DEFAULT '';
   ALTER TABLE items ADD COLUMN author_association TEXT NOT NULL DEFAULT '';
   ALTER TABLE items ADD COLUMN locked INTEGER NOT NULL DEFAULT 0`,
+	`CREATE TABLE approvals(source TEXT NOT NULL, item_id TEXT NOT NULL,
+    content_hash TEXT NOT NULL, approved_at TEXT NOT NULL, PRIMARY KEY(source,item_id));
+  ALTER TABLE items ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

@@ -289,6 +289,17 @@ func (s *Source) releaseStatus() string {
 	return config.DefaultGitHubReleaseStatus
 }
 
+// SetStatus transitions the issue's native GitHub planning status to status.
+func (s *Source) SetStatus(ctx context.Context, id, status string) error {
+	if ctx == nil {
+		return errors.New("github set status: expected a context, found nil")
+	}
+	if strings.TrimSpace(status) == "" {
+		return errors.New("github set status: expected a non-empty status, found empty")
+	}
+	return s.setStatus(ctx, "approve", id, status)
+}
+
 func (s *Source) setStatus(ctx context.Context, op, id, target string) error {
 	statusID, err := s.planningStatusID(ctx, op, target)
 	if err != nil {

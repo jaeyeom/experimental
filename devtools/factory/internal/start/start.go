@@ -107,6 +107,10 @@ func (s *Starter) Start(ctx context.Context, id string, snap ready.Snapshot, gat
 	if err != nil {
 		return s.finishOutcome(opts, refusedOutcome(id, err), err)
 	}
+	snap, err = s.withStoreApproval(ctx, id, snap)
+	if err != nil {
+		return s.finishOutcome(opts, refusedOutcome(id, err), err)
+	}
 	if err := s.admit(id, it, snap, gateRes, opts, ownClaim); err != nil {
 		return s.finishOutcome(opts, refusedOutcome(id, err), err)
 	}

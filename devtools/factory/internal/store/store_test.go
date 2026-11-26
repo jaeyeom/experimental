@@ -1148,6 +1148,7 @@ func TestItemTrustFieldsRoundTrip(t *testing.T) {
 	item.Author = "alice"
 	item.AuthorAssociation = "NONE"
 	item.Locked = true
+	item.ContentHash = source.ContentHash("Title", "Body")
 	if err := s.UpsertItems(ctx, item.Source, []source.Item{item}); err != nil {
 		t.Fatalf("UpsertItems: %v", err)
 	}
@@ -1168,6 +1169,7 @@ func TestItemTrustFieldsRoundTrip(t *testing.T) {
 	item.Author = ""
 	item.AuthorAssociation = ""
 	item.Locked = false
+	item.ContentHash = ""
 	if err := s.UpsertItems(ctx, item.Source, []source.Item{item}); err != nil {
 		t.Fatalf("UpsertItems update: %v", err)
 	}
@@ -1175,8 +1177,8 @@ func TestItemTrustFieldsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Item after update: %v", err)
 	}
-	if got.Author != "" || got.AuthorAssociation != "" || got.Locked {
-		t.Fatalf("after clear = author:%q assoc:%q locked:%v", got.Author, got.AuthorAssociation, got.Locked)
+	if got.Author != "" || got.AuthorAssociation != "" || got.Locked || got.ContentHash != "" {
+		t.Fatalf("after clear = author:%q assoc:%q locked:%v hash:%q", got.Author, got.AuthorAssociation, got.Locked, got.ContentHash)
 	}
 }
 
@@ -1229,7 +1231,96 @@ INSERT INTO items(source, id, title, url, type, state, done, parent, labels_json
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	if got.Author != "" || got.AuthorAssociation != "" || got.Locked || got.Title != "Legacy" {
+	if got.Author != "" || got.AuthorAssociation != "" || got.Locked || got.ContentHash != "" || got.Title != "Legacy" {
 		t.Fatalf("migrated item = %#v", got)
+	}
+}
+
+func TestApprovalsCRUD(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+
+	// Missing returns ErrNotFound.
+	if _, err := s.Approval(ctx, "github:widgets", "acme/widgets#1"); !errors.Is(err, source.ErrNotFound) {
+		t.Fatalf("Approval missing = %v, want ErrNotFound", err)
+	}
+	all, err := s.Approvals(ctx, "github:widgets")
+	if err != nil {
+		t.Fatalf("Approvals empty: %v", err)
+	}
+	if len(all) != 0 {
+		t.Fatalf("Approvals empty = %#v", all)
+	}
+
+	t1 := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	a1 := store.Approval{
+		Source:      "github:widgets",
+		ItemID:      "acme/widgets#1",
+		ContentHash: source.ContentHash("Title 1", "Body 1"),
+		ApprovedAt:  t1,
+	}
+	a2 := store.Approval{
+		Source:      "github:other",
+		ItemID:      "acme/other#1",
+		ContentHash: source.ContentHash("Title 2", "Body 2"),
+		ApprovedAt:  t1,
+	}
+	if err := s.SetApproval(ctx, a1); err != nil {
+		t.Fatalf("SetApproval a1: %v", err)
+	}
+	if err := s.SetApproval(ctx, a2); err != nil {
+		t.Fatalf("SetApproval a2: %v", err)
+	}
+
+	got, err := s.Approval(ctx, a1.Source, a1.ItemID)
+	if err != nil {
+		t.Fatalf("Approval: %v", err)
+	}
+	if !reflect.DeepEqual(got, a1) {
+		t.Fatalf("Approval = %#v, want %#v", got, a1)
+	}
+
+	// Update existing approval.
+	t2 := t1.Add(time.Hour)
+	a1Updated := store.Approval{
+		Source:      a1.Source,
+		ItemID:      a1.ItemID,
+		ContentHash: source.ContentHash("Title 1 v2", "Body 1 v2"),
+		ApprovedAt:  t2,
+	}
+	if err := s.SetApproval(ctx, a1Updated); err != nil {
+		t.Fatalf("SetApproval update: %v", err)
+	}
+	got, err = s.Approval(ctx, a1.Source, a1.ItemID)
+	if err != nil {
+		t.Fatalf("Approval after update: %v", err)
+	}
+	if !reflect.DeepEqual(got, a1Updated) {
+		t.Fatalf("Approval after update = %#v, want %#v", got, a1Updated)
+	}
+
+	// Approvals scopes by source.
+	all, err = s.Approvals(ctx, "github:widgets")
+	if err != nil {
+		t.Fatalf("Approvals: %v", err)
+	}
+	if len(all) != 1 || !reflect.DeepEqual(all[a1.ItemID], a1Updated) {
+		t.Fatalf("Approvals = %#v, want 1 entry %#v", all, a1Updated)
+	}
+
+	// Delete removes the approval and leaves other sources intact.
+	deleted, err := s.DeleteApproval(ctx, a1.Source, a1.ItemID)
+	if err != nil || !deleted {
+		t.Fatalf("DeleteApproval = (%v, %v), want (true, nil)", deleted, err)
+	}
+	deletedAgain, err := s.DeleteApproval(ctx, a1.Source, a1.ItemID)
+	if err != nil || deletedAgain {
+		t.Fatalf("DeleteApproval missing = (%v, %v), want (false, nil)", deletedAgain, err)
+	}
+	if _, err := s.Approval(ctx, a1.Source, a1.ItemID); !errors.Is(err, source.ErrNotFound) {
+		t.Fatalf("Approval after delete = %v, want ErrNotFound", err)
+	}
+	if _, err := s.Approval(ctx, a2.Source, a2.ItemID); err != nil {
+		t.Fatalf("other source approval affected: %v", err)
 	}
 }

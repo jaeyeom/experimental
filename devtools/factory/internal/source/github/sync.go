@@ -71,34 +71,48 @@ func (s *Source) Get(ctx context.Context, id string) (source.Item, error) {
 	if ctx == nil {
 		return source.Item{}, errors.New("github get: expected a context, found nil")
 	}
-	item, _, err := s.fetchIssue(ctx, id)
+	item, _, _, err := s.fetchIssueDetail(ctx, id)
 	return item, err
+}
+
+// GetContent reads one issue and returns its item metadata along with its raw body text.
+func (s *Source) GetContent(ctx context.Context, id string) (source.Item, string, error) {
+	if ctx == nil {
+		return source.Item{}, "", errors.New("github get: expected a context, found nil")
+	}
+	item, _, body, err := s.fetchIssueDetail(ctx, id)
+	return item, body, err
 }
 
 // fetchIssue reads one issue and its GraphQL node id.
 // The node id is the value Link and Unlink send as issueId or blockingIssueId.
 func (s *Source) fetchIssue(ctx context.Context, id string) (source.Item, string, error) {
+	item, nodeID, _, err := s.fetchIssueDetail(ctx, id)
+	return item, nodeID, err
+}
+
+func (s *Source) fetchIssueDetail(ctx context.Context, id string) (source.Item, string, string, error) {
 	owner, name, number, err := s.issueNumber(id)
 	if err != nil {
-		return source.Item{}, "", err
+		return source.Item{}, "", "", err
 	}
 	raw, err := s.run(ctx, getArgs(owner, name, number)...)
 	if err != nil {
-		return source.Item{}, "", fmt.Errorf("github get %s: %w", id, err)
+		return source.Item{}, "", "", fmt.Errorf("github get %s: %w", id, err)
 	}
 	node, err := decodeGetIssue(raw)
 	if err != nil {
-		return source.Item{}, "", fmt.Errorf("github get %s: %w", id, err)
+		return source.Item{}, "", "", fmt.Errorf("github get %s: %w", id, err)
 	}
-	item, err := mapNode(&s.cfg, node)
+	item, body, err := mapNodeWithBody(&s.cfg, node)
 	if err != nil {
-		return source.Item{}, "", fmt.Errorf("github get %s: %w", id, err)
+		return source.Item{}, "", "", fmt.Errorf("github get %s: %w", id, err)
 	}
 	nodeID, err := issueNodeID(node)
 	if err != nil {
-		return source.Item{}, "", fmt.Errorf("github get %s: %w", id, err)
+		return source.Item{}, "", "", fmt.Errorf("github get %s: %w", id, err)
 	}
-	return item, nodeID, nil
+	return item, nodeID, body, nil
 }
 
 func (s *Source) issueNumber(id string) (owner, name string, number int, err error) {

@@ -10,7 +10,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/factory/internal/source"
 )
 
-const itemColumns = `source, id, title, url, type, state, done, parent, labels_json, assignee, priority, created, updated, due, not_before, author, author_association, locked`
+const itemColumns = `source, id, title, url, type, state, done, parent, labels_json, assignee, priority, created, updated, due, not_before, author, author_association, locked, content_hash`
 
 // UpsertItems writes items for one source in a single transaction.
 // Each item replaces its previous blocked-by links, so a link removed in
@@ -50,8 +50,8 @@ func upsertItem(ctx context.Context, tx *sql.Tx, sourceName string, it *source.I
 		INSERT INTO items(
 			source, id, title, url, type, state, done, parent, labels_json,
 			assignee, priority, created, updated, due, not_before,
-			author, author_association, locked
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			author, author_association, locked, content_hash
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(source, id) DO UPDATE SET
 			title = excluded.title,
 			url = excluded.url,
@@ -68,12 +68,13 @@ func upsertItem(ctx context.Context, tx *sql.Tx, sourceName string, it *source.I
 			not_before = excluded.not_before,
 			author = excluded.author,
 			author_association = excluded.author_association,
-			locked = excluded.locked`,
+			locked = excluded.locked,
+			content_hash = excluded.content_hash`,
 		sourceName, it.ID, it.Title, it.URL, it.Type, it.State, done, it.Parent,
 		labels, it.Assignee, it.Priority, formatTime(it.Created), formatTime(it.Updated),
 		formatDate(it.Due),
 		formatDate(it.NotBefore),
-		it.Author, it.AuthorAssociation, locked,
+		it.Author, it.AuthorAssociation, locked, it.ContentHash,
 	)
 	if err != nil {
 		return fmt.Errorf("upsert item %s/%s: %w", sourceName, it.ID, err)
@@ -345,7 +346,7 @@ func scanItem(sc scanner) (source.Item, error) {
 	if err := sc.Scan(
 		&it.Source, &it.ID, &it.Title, &it.URL, &it.Type, &it.State, &done, &it.Parent,
 		&labels, &it.Assignee, &it.Priority, &created, &updated, &due, &notBefore,
-		&it.Author, &it.AuthorAssociation, &locked,
+		&it.Author, &it.AuthorAssociation, &locked, &it.ContentHash,
 	); err != nil {
 		return source.Item{}, err //nolint:wrapcheck // internal factory error already carries context
 	}

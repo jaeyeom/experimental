@@ -62,12 +62,17 @@ func Build(ctx context.Context, st *store.Store, herdrClient *herdr.Client, ghCl
 	if err != nil {
 		return ready.Snapshot{}, err //nolint:wrapcheck // propagate context cancellation
 	}
+	approvals, err := st.Approvals(ctx, sourceName)
+	if err != nil {
+		return ready.Snapshot{}, err //nolint:wrapcheck // propagate context cancellation
+	}
 	byID := make(map[string]source.Item, len(items))
 	for _, it := range items {
 		byID[it.ID] = it
 	}
 	return ready.Snapshot{
 		External:   external,
+		Approvals:  approvals,
 		Items:      byID,
 		Claims:     claims,
 		Tabs:       tabs,

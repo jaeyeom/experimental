@@ -244,3 +244,167 @@ func TestTrustLiveRecheckAndForce(t *testing.T) {
 		}
 	})
 }
+
+func TestTrustApprovedHashGuard(t *testing.T) {
+	t.Parallel()
+
+	t.Run("blocked when unapproved", func(t *testing.T) {
+		t.Parallel()
+		h := setupGitHubTrustHarness(t, config.TrustEnvUntrusted)
+		h.starter.Cfg.Trust.Guards = []string{config.TrustGuardApprovedHash}
+		it := h.snap.Items[h.id]
+		it.Locked = false
+		it.ContentHash = source.ContentHash(it.Title, "original body")
+		h.snap.Items[h.id] = it
+		h.src.inner.Items[h.id] = it
+		h.src.inner.Bodies = map[string]string{h.id: "original body"}
+
+		err := h.start(h.snap, okGate, applyOpt)
+		if err == nil || !strings.Contains(err.Error(), "not approved") {
+			t.Fatalf("err = %v, want not approved refusal", err)
+		}
+		assertNoClaim(t, h.st, "github:widgets", h.id)
+	})
+
+	t.Run("starts when approved hash matches live title and body", func(t *testing.T) {
+		t.Parallel()
+		h := setupGitHubTrustHarness(t, config.TrustEnvUntrusted)
+		h.starter.Cfg.Trust.Guards = []string{config.TrustGuardApprovedHash}
+		it := h.snap.Items[h.id]
+		it.Locked = false
+		it.ContentHash = source.ContentHash(it.Title, "reviewed body")
+		h.snap.Items[h.id] = it
+		h.src.inner.Items[h.id] = it
+		h.src.inner.Bodies = map[string]string{h.id: "reviewed body"}
+
+		if err := h.st.SetApproval(context.Background(), store.Approval{
+			Source:      "github:widgets",
+			ItemID:      h.id,
+			ContentHash: it.ContentHash,
+			ApprovedAt:  fixedNow.Add(-time.Minute),
+		}); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := h.start(h.snap, okGate, applyOpt); err != nil {
+			t.Fatalf("start with matching approved_hash failed: %v", err)
+		}
+	})
+
+	t.Run("live edit to body after approval refuses start before claim", func(t *testing.T) {
+		t.Parallel()
+		h := setupGitHubTrustHarness(t, config.TrustEnvUntrusted)
+		h.starter.Cfg.Trust.Guards = []string{config.TrustGuardApprovedHash}
+		it := h.snap.Items[h.id]
+		it.Locked = false
+		it.ContentHash = source.ContentHash(it.Title, "reviewed body")
+		h.snap.Items[h.id] = it
+		h.src.inner.Items[h.id] = it
+		// Live body on backend changed after mirror + approval!
+		h.src.inner.Bodies = map[string]string{h.id: "malicious injected instructions"}
+
+		if err := h.st.SetApproval(context.Background(), store.Approval{
+			Source:      "github:widgets",
+			ItemID:      h.id,
+			ContentHash: it.ContentHash,
+			ApprovedAt:  fixedNow.Add(-time.Minute),
+		}); err != nil {
+			t.Fatal(err)
+		}
+
+		err := h.start(h.snap, okGate, applyOpt)
+		if err == nil || !strings.Contains(err.Error(), "edited since approval") {
+			t.Fatalf("err = %v, want edited since approval refusal", err)
+		}
+		assertNoClaim(t, h.st, "github:widgets", h.id)
+		assertCalls(t, h.log, []string{"Tabs", "Workspaces", "Get"})
+	})
+
+	t.Run("live edit to title after approval refuses start even with --force", func(t *testing.T) {
+		t.Parallel()
+		h := setupGitHubTrustHarness(t, config.TrustEnvUntrusted)
+		h.starter.Cfg.Trust.Guards = []string{config.TrustGuardApprovedHash}
+		it := h.snap.Items[h.id]
+		it.Locked = false
+		it.ContentHash = source.ContentHash(it.Title, "reviewed body")
+		h.snap.Items[h.id] = it
+		live := it
+		live.Title = "Edited title"
+		h.src.inner.Items[h.id] = live
+		h.src.inner.Bodies = map[string]string{h.id: "reviewed body"}
+
+		if err := h.st.SetApproval(context.Background(), store.Approval{
+			Source:      "github:widgets",
+			ItemID:      h.id,
+			ContentHash: it.ContentHash,
+			ApprovedAt:  fixedNow.Add(-time.Minute),
+		}); err != nil {
+			t.Fatal(err)
+		}
+
+		err := h.start(h.snap, okGate, forceOpt)
+		if err == nil || !strings.Contains(err.Error(), "edited since approval") {
+			t.Fatalf("err = %v, want edited since approval refusal with --force", err)
+		}
+		assertNoClaim(t, h.st, "github:widgets", h.id)
+	})
+
+	t.Run("guards = [locked, approved_hash] allows either locked or approved", func(t *testing.T) {
+		t.Parallel()
+		// Unlocked + approved passes.
+		h := setupGitHubTrustHarness(t, config.TrustEnvUntrusted)
+		h.starter.Cfg.Trust.Guards = []string{config.TrustGuardLocked, config.TrustGuardApprovedHash}
+		it := h.snap.Items[h.id]
+		it.Locked = false
+		it.ContentHash = source.ContentHash(it.Title, "reviewed body")
+		h.snap.Items[h.id] = it
+		h.src.inner.Items[h.id] = it
+		h.src.inner.Bodies = map[string]string{h.id: "reviewed body"}
+		if err := h.st.SetApproval(context.Background(), store.Approval{
+			Source:      "github:widgets",
+			ItemID:      h.id,
+			ContentHash: it.ContentHash,
+			ApprovedAt:  fixedNow.Add(-time.Minute),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := h.start(h.snap, okGate, applyOpt); err != nil {
+			t.Fatalf("unlocked+approved start failed: %v", err)
+		}
+
+		// Unlocked + unapproved fails.
+		h2 := setupGitHubTrustHarness(t, config.TrustEnvUntrusted)
+		h2.starter.Cfg.Trust.Guards = []string{config.TrustGuardLocked, config.TrustGuardApprovedHash}
+		it2 := h2.snap.Items[h2.id]
+		it2.Locked = false
+		h2.snap.Items[h2.id] = it2
+		h2.src.inner.Items[h2.id] = it2
+		err := h2.start(h2.snap, okGate, applyOpt)
+		if err == nil || !strings.Contains(err.Error(), "requires one of guards [locked, approved_hash]") {
+			t.Fatalf("err = %v, want OR guard refusal", err)
+		}
+	})
+
+	t.Run("guards = [] or trusted environment needs no approval", func(t *testing.T) {
+		t.Parallel()
+		h := setupGitHubTrustHarness(t, config.TrustEnvUntrusted)
+		h.starter.Cfg.Trust.Guards = []string{}
+		it := h.snap.Items[h.id]
+		it.Locked = false
+		h.snap.Items[h.id] = it
+		h.src.inner.Items[h.id] = it
+		if err := h.start(h.snap, okGate, applyOpt); err != nil {
+			t.Fatalf("empty guards start failed: %v", err)
+		}
+
+		hTrusted := setupGitHubTrustHarness(t, config.TrustEnvTrusted)
+		hTrusted.starter.Cfg.Trust.Guards = []string{config.TrustGuardApprovedHash}
+		itT := hTrusted.snap.Items[hTrusted.id]
+		itT.Locked = false
+		hTrusted.snap.Items[hTrusted.id] = itT
+		hTrusted.src.inner.Items[hTrusted.id] = itT
+		if err := hTrusted.start(hTrusted.snap, okGate, applyOpt); err != nil {
+			t.Fatalf("trusted env start failed: %v", err)
+		}
+	})
+}

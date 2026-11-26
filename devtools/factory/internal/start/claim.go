@@ -164,7 +164,10 @@ func (s *Starter) stashCount(ctx context.Context, id string) (*int, error) {
 // --force skips queue checks but still enforces done, require_leaf,
 // require_unblocked, ownership_rule, and in_progress_rule.
 func (s *Starter) recheck(ctx context.Context, id string, live source.Item, snap ready.Snapshot, opts Options, ownClaim bool) error {
-	liveSnap := withLiveItem(snap, live)
+	liveSnap, err := s.withStoreApproval(ctx, id, withLiveItem(snap, live))
+	if err != nil {
+		return err
+	}
 	if opts.Force {
 		if err := checkSafety(id, live, liveSnap, s.Cfg, s.Kind, opts, ownClaim); err != nil {
 			return err
@@ -185,6 +188,30 @@ func (s *Starter) recheck(ctx context.Context, id string, live source.Item, snap
 		}
 	}
 	return nil
+}
+
+func (s *Starter) withStoreApproval(ctx context.Context, id string, snap ready.Snapshot) (ready.Snapshot, error) {
+	if s.Store == nil {
+		return snap, nil
+	}
+	key := s.sourceKey()
+	if key == "" {
+		return snap, nil
+	}
+	approval, err := s.Store.Approval(ctx, key, id)
+	if errors.Is(err, source.ErrNotFound) {
+		return snap, nil
+	}
+	if err != nil {
+		return snap, err //nolint:wrapcheck // propagate context cancellation
+	}
+	approvals := make(map[string]store.Approval, len(snap.Approvals)+1)
+	for k, v := range snap.Approvals {
+		approvals[k] = v
+	}
+	approvals[id] = approval
+	snap.Approvals = approvals
+	return snap, nil
 }
 
 func withLiveItem(snap ready.Snapshot, it source.Item) ready.Snapshot {

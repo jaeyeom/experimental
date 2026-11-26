@@ -49,6 +49,7 @@ func TestSyncQuery(t *testing.T) {
 		t.Fatalf("getQuery braces unbalanced: %s", getQuery)
 	}
 	for _, field := range []string{
+		"body ",
 		"author{login}",
 		"authorAssociation",
 		"locked",
@@ -761,5 +762,53 @@ func TestMapTrustFields(t *testing.T) {
 					got.Author, got.AuthorAssociation, got.Locked, tc.wantAuth, tc.wantAssoc, tc.wantLock)
 			}
 		})
+	}
+}
+
+func TestGetContentAndSetStatus(t *testing.T) {
+	node := issueNode(7, map[string]any{
+		"title": "Fix bug",
+		"body":  "Detailed repro\nsteps",
+		"status": map[string]any{
+			"name": "Backlog",
+		},
+	})
+	mock := newMock()
+	mock.ExpectCommandWithArgs(testBin, getArgs("acme", "widgets", 7)...).
+		WillSucceed(getPage(t, node), 0).Once().Build()
+
+	src := newTestSource(mock)
+	item, body, err := src.GetContent(context.Background(), "acme/widgets#7")
+	if err != nil {
+		t.Fatalf("GetContent() error = %v", err)
+	}
+	if body != "Detailed repro\nsteps" {
+		t.Fatalf("body = %q", body)
+	}
+	wantHash := source.ContentHash("Fix bug", "Detailed repro\nsteps")
+	if item.ContentHash != wantHash {
+		t.Fatalf("ContentHash = %q, want %q", item.ContentHash, wantHash)
+	}
+	if err := mock.AssertExpectationsMet(); err != nil {
+		t.Fatal(err)
+	}
+
+	// SetStatus transitions native planning status when not already target.
+	statusesResp := `{"data":{"repository":{"planningStatuses":{"nodes":[{"id":"PS_1","name":"Backlog"},{"id":"PS_2","name":"Todo"}]}}}}`
+	setResp := `{"data":{"setIssueStatus":{"issue":{"id":"I_7","status":{"name":"Todo"}}}}}`
+	mock = newMock()
+	mock.ExpectCommandWithArgs(testBin, planningStatusesArgs("acme", "widgets")...).
+		WillSucceed(statusesResp, 0).Once().Build()
+	mock.ExpectCommandWithArgs(testBin, getArgs("acme", "widgets", 7)...).
+		WillSucceed(getPage(t, node), 0).Once().Build()
+	mock.ExpectCommandWithArgs(testBin, setIssueStatusArgs("I_7", "PS_2")...).
+		WillSucceed(setResp, 0).Once().Build()
+
+	src = newTestSource(mock)
+	if err := src.SetStatus(context.Background(), "acme/widgets#7", "Todo"); err != nil {
+		t.Fatalf("SetStatus() error = %v", err)
+	}
+	if err := mock.AssertExpectationsMet(); err != nil {
+		t.Fatal(err)
 	}
 }
