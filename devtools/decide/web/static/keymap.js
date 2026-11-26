@@ -26,7 +26,6 @@ export const WEB_ACTIONS = new Set([
   'list.open',
   'list.compose',
   'list.archive',
-  'list.archiveNotes',
   'list.snooze',
   'list.clearFilter',
   'detail.back',

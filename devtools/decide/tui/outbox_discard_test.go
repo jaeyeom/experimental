@@ -191,9 +191,9 @@ func TestDoneThreadOffersNoAnswerKeysOrDoneButAcceptsReply(t *testing.T) {
 	if got, _ := led.Get(it.ID); got.Answer != nil {
 		t.Fatalf("1 answered a done item: %+v", got.Answer)
 	}
-	pressAll(t, m, "d")
+	pressAll(t, m, "E")
 	if m.mode == modeOutcome {
-		t.Fatal("d opened the outcome prompt on a done thread")
+		t.Fatal("E opened the outcome prompt on a done thread")
 	}
 	pressAll(t, m, "0")
 	if !m.replyFocus {

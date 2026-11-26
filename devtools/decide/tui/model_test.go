@@ -988,7 +988,7 @@ func TestDetailTypeInMarkDone(t *testing.T) {
 	if got.State != decide.StateOpen || got.Answer != nil {
 		t.Fatalf("type-in accepted an answer: %+v", got)
 	}
-	press(t, m, "d")
+	press(t, m, "E")
 	if !strings.Contains(m.View(), "outcome:") {
 		t.Fatalf("mark done did not ask for an outcome\n%s", m.View())
 	}
@@ -1002,17 +1002,21 @@ func TestDetailTypeInMarkDone(t *testing.T) {
 	}
 }
 
-func TestDetailDMarksDone(t *testing.T) {
+func TestDetailEMarksDoneAndDIsUnbound(t *testing.T) {
 	dir := t.TempDir()
 	led := openLedger(t, dir)
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 	item := mustCreate(t, led, &decide.Item{
 		Question: "archive me",
 		Owner:    "ada",
 		Kind:     decide.KindRelay,
 		State:    decide.StateOpen,
+		Unread:   true,
 		Options:  []decide.Option{{Key: "a", Label: "Alpha"}},
+		Messages: []decide.Message{{Author: "ada", Text: "archive me", Time: now}},
 	})
 	m := New(dir)
+	m.Now = func() time.Time { return now }
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
@@ -1021,16 +1025,20 @@ func TestDetailDMarksDone(t *testing.T) {
 		t.Fatalf("e opened the outcome composer\n%s", m.View())
 	}
 	press(t, m, "d")
-	if !strings.Contains(m.View(), "outcome:") {
-		t.Fatalf("d did not ask for an outcome\n%s", m.View())
+	if m.mode == modeOutcome || strings.Contains(m.View(), "outcome:") {
+		t.Fatalf("d opened the outcome composer, want unbound\n%s", m.View())
+	}
+	press(t, m, "E")
+	if m.mode != modeOutcome || !strings.Contains(m.View(), "outcome:") {
+		t.Fatalf("E did not ask for an outcome\n%s", m.View())
 	}
 	press(t, m, "kept\r")
 	got, err := led.Get(item.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.State != decide.StateDone || got.Outcome != "kept" {
-		t.Fatalf("done = state %s outcome %q", got.State, got.Outcome)
+	if got.State != decide.StateDone || got.Outcome != "kept" || got.Answer != nil {
+		t.Fatalf("done = state %s outcome %q answer %+v", got.State, got.Outcome, got.Answer)
 	}
 }
 
@@ -1676,7 +1684,7 @@ func assertMessageTop(t *testing.T, m *Model, index int, author string) {
 	}
 	for _, line := range strings.Split(view, "\n") {
 		vis := visibleLine(line)
-		if strings.Contains(vis, author) || strings.Contains(vis, "[Done (") {
+		if strings.Contains(vis, author) || strings.Contains(vis, "[Archive with note (") {
 			continue
 		}
 		for _, other := range []string{"one", "two", "three"} {
@@ -2567,7 +2575,7 @@ func TestInboxRelayAnswerRunsNotifyOnce(t *testing.T) {
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
-	press(t, m, "\rdtyped it\r")
+	press(t, m, "\rEtyped it\r")
 	if got := notifyLog(t, logPath); !sameLines(got, want) {
 		t.Fatalf("type-in ran notify: %#v", got)
 	}
@@ -2921,7 +2929,7 @@ func TestFocusedTextDoesNotTriggerShortcuts(t *testing.T) {
 		t.Fatal(err)
 	}
 	m = updateRune(t, m, '\r')
-	m = updateRune(t, m, 'd')
+	m = updateRune(t, m, 'E')
 	if m.mode != modeOutcome || !m.outcome.Focused() {
 		t.Fatal("outcome is not a focused text input")
 	}
@@ -4229,7 +4237,7 @@ func TestFocusedTextShowsACursor(t *testing.T) {
 		t.Fatalf("reply text\n%s", view)
 	}
 
-	press(t, m, "\x1bd")
+	press(t, m, "\x1bE")
 	if m.mode != modeOutcome || !strings.Contains(m.View(), cursorOn) {
 		t.Fatalf("outcome cursor mode %v\n%s", m.mode, m.View())
 	}
@@ -4521,7 +4529,7 @@ func TestStatusComposeFromHighlightedAgent(t *testing.T) {
 			t.Fatalf("status help missing %q\n%s", needle, help)
 		}
 	}
-	for _, banned := range []string{"o or enter opens", "1-9 answer", "d outcome", "click folder, row, option"} {
+	for _, banned := range []string{"o or enter opens", "1-9 answer", "E archive with note", "click folder, row, option"} {
 		if strings.Contains(help, banned) {
 			t.Fatalf("status help contains %q\n%s", banned, help)
 		}

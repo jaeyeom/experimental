@@ -372,7 +372,6 @@ func (m *Model) runAction(action string) (bool, error) {
 		"list.open":            func() (bool, error) { return false, m.openRow() },
 		"list.compose":         func() (bool, error) { m.focusCompose(); return false, nil },
 		"list.archive":         func() (bool, error) { return false, m.archiveSelected() },
-		"list.archiveNotes":    func() (bool, error) { return false, m.archiveAllNotes() },
 		"list.classFilter":     func() (bool, error) { m.classFiltering = true; return false, nil },
 		"list.snooze":          func() (bool, error) { m.beginSnooze(); return false, nil },
 		"list.clearFilter":     func() (bool, error) { m.clearAgentFilter(); m.SetClassFilter(nil); return false, nil },
@@ -1028,7 +1027,22 @@ func (m *Model) listOrDetailHelpLines() []string {
 	appendHelpLabeled(&lines, m.actionSlash("list.compose"), " compose")
 	lines = append(lines, m.composeHelpFooterLines(!isDetail)...)
 	lines = append(lines, m.composerHelpLines()...)
-	lines = append(lines, "1-9 answer  "+m.actionSlash("detail.reply")+" reply  "+m.actionSlash("detail.forward")+" forward  "+m.actionSlash("detail.archive")+" archive  "+m.actionSlash("detail.outcome")+" outcome  "+m.actionSlash("detail.snooze")+" snooze")
+	itemActs := []string{"1-9 answer"}
+	for _, spec := range []struct {
+		action string
+		label  string
+	}{
+		{"detail.reply", "reply"},
+		{"detail.forward", "forward"},
+		{"detail.archive", "archive"},
+		{"detail.outcome", "archive with note"},
+		{"detail.snooze", "snooze"},
+	} {
+		if k := m.actionSlash(spec.action); k != "" {
+			itemActs = append(itemActs, k+" "+spec.label)
+		}
+	}
+	lines = append(lines, strings.Join(itemActs, "  "))
 	if isDetail {
 		lines = append(lines, m.actionSlash("search")+" highlights as you type, esc restores, empty enter clears")
 	} else {

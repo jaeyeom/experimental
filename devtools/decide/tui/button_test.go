@@ -56,8 +56,8 @@ func TestButtonLabelsAndBindings(t *testing.T) {
 		if err := m.openRow(); err != nil {
 			t.Fatal(err)
 		}
-		if got := visibleLine(m.View()); !strings.Contains(got, "[mark done (d)]") {
-			t.Fatalf("mark done missing [mark done (d)]:\n%s", got)
+		if got := visibleLine(m.View()); !strings.Contains(got, "[mark done (E)]") {
+			t.Fatalf("mark done missing [mark done (E)]:\n%s", got)
 		}
 	})
 

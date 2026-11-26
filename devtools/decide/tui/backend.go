@@ -135,12 +135,6 @@ type OrgTreeBackend interface {
 	OrgTree() (OrgTreeResult, error)
 }
 
-// NotesArchiveBackend is an optional backend capability for bulk-archiving
-// open notes.
-type NotesArchiveBackend interface {
-	ArchiveNotes(seen time.Time) (int, error)
-}
-
 // unreachableStatus is the status line while the hub is unreachable.
 const unreachableStatus = "hub unreachable; retrying"
 
@@ -453,7 +447,7 @@ func (b *LocalBackend) Archive(id string, seen time.Time) (decide.Item, error) {
 	return b.with(func(led *decide.Ledger) (decide.Item, error) { return led.Archive(id, seen) })
 }
 
-// ArchiveNotes implements NotesArchiveBackend.
+// ArchiveNotes archives every open note with no message after seen.
 func (b *LocalBackend) ArchiveNotes(seen time.Time) (int, error) {
 	led, err := b.ledger()
 	if err != nil {

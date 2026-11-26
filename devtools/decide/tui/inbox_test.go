@@ -266,14 +266,27 @@ func TestInboxTUI_BulkArchiveNotesAndUnreadCount(t *testing.T) {
 		t.Fatalf("view missing 'unread: 1':\n%s", view)
 	}
 
-	// Bulk archive notes with E.
+	// E in the list does nothing: notes and decisions stay open.
 	press(t, m, "E")
-	for _, id := range []string{n1.ID, n2.ID} {
-		if got, _ := led.Get(id); got.State != decide.StateDone {
-			t.Fatalf("note %s state = %s, want done", id, got.State)
+	if m.mode != modeList {
+		t.Fatalf("E in list changed mode to %d, want modeList", m.mode)
+	}
+	for _, id := range []string{n1.ID, n2.ID, dec.ID} {
+		if got, _ := led.Get(id); got.State != decide.StateOpen {
+			t.Fatalf("item %s state = %s after list E, want open", id, got.State)
 		}
 	}
-	if got, _ := led.Get(dec.ID); got.State != decide.StateOpen {
-		t.Fatalf("decision %s state = %s, want open", dec.ID, got.State)
+
+	// Even if a legacy config binds list.archiveNotes, the binding has no effect.
+	km, err := decide.ResolveKeyMap(map[string][]string{"list.archiveNotes": {"X"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.SetKeys(km)
+	press(t, m, "X")
+	for _, id := range []string{n1.ID, n2.ID, dec.ID} {
+		if got, _ := led.Get(id); got.State != decide.StateOpen {
+			t.Fatalf("item %s state = %s after ignored list.archiveNotes key X, want open", id, got.State)
+		}
 	}
 }

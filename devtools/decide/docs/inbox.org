@@ -13,7 +13,8 @@ and is retried on the next tick.
 
 The sidebar folders are Inbox, Snoozed, Answered, Done, Withdrawn, then
 Status and Contacts. ~g~ waits for a second key. Esc cancels the chord.
-Any other second key says ~unknown go-to key~.
+Any other second key says ~unknown go-to key~. All ~g~-prefixed keys are
+navigation only and never change data.
 
 * Keybindings
 
@@ -32,7 +33,7 @@ Any other second key says ~unknown go-to key~.
 | ~u~ / ~esc~                           | item, status, contacts       | Back to the list.                                                            |
 | ~c~                                   | list, item, status, contacts | Compose a note.                                                              |
 | ~e~ / ~y~                             | list, item                   | Archive: mark done with outcome ~archived~.                                  |
-| ~d~                                   | item                         | Ask for an outcome, then mark done.                                          |
+| ~E~                                   | item                         | Archive with a note: ask for one line, then mark done.                       |
 | ~b~                                   | list, item                   | Snooze. In Snoozed, ~b~ also offers unsnooze.                                |
 | ~/~                                   | any                          | Filter the list, or highlight an item. Empty Enter clears.                   |
 | ~esc~                                 | list                         | Clear the agent filter.                                                      |
@@ -96,7 +97,8 @@ New-message compose and forward have ~[Send (^⏎)]~, ~[Discard (M-d)]~
 (asks first when the draft is not empty), ~[Save draft (Esc)]~, and
 ~[Edit in editor (^G)]~.
 The thread view also has a clickable ~[Reply (0)]~ button that focuses the
-reply box. Every button shows its live key binding in parentheses
+reply box and an ~[Archive with note (E)]~ toolbar button that closes
+the thread with a one-line outcome. Every button shows its live key binding in parentheses
 (~[Send (C-Enter)]~ in ASCII mode); the hint is drawn at normal
 brightness when its key works right now and dimmed when it does not
 (such as the thread toolbar while typing in the reply box, or the reply

@@ -64,7 +64,8 @@ missing file is an empty config. Keys you do not set keep the default.
 ~ui.keys~ maps action names to lists of keys in config or help notation
 (~ctrl+x ctrl+e~, ~C-x C-e~, ~alt+q~, ~enter~, ~shift+tab~, ~j~, ~G~).
 A configured action replaces that action's default keys; an empty list
-unbinds it; actions not listed keep their defaults. Terminal key
+unbinds it; actions not listed keep their defaults. All default
+~g~-prefixed chords are navigation only and never change data. Terminal key
 sequences (Ctrl+Enter, ~Alt+q~) and ~DECIDE_KEYDEBUG~ are in
 [[file:keys.org][keys.org]].
 

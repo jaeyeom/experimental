@@ -196,7 +196,7 @@ func TestHubBackendCarriesEveryInboxWrite(t *testing.T) {
 	if m.status != "unsnoozed "+item.ID {
 		t.Fatalf("unsnooze status %q", m.status)
 	}
-	press(t, m, "ga\rd")
+	press(t, m, "ga\rE")
 	press(t, m, "shipped\r")
 	got, _ = fake.hub.Get(item.ID)
 	if got.State != decide.StateDone || got.Outcome != "shipped" {

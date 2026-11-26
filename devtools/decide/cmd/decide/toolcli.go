@@ -27,6 +27,7 @@ func newDecideTool() toolcli.Tool {
 			return nil
 		},
 		ExtraDoctorChecks: []toolcli.DoctorCheck{
+			checkDecideKeys,
 			checkDecideHub,
 			checkDecideNotifyTarget,
 			checkDecideAgentbus,
@@ -39,6 +40,31 @@ func newDecideTool() toolcli.Tool {
 
 func checkDecideWeb(ctx context.Context, offline bool) []toolcli.CheckResult {
 	return web.DoctorWebChecks(ctx, web.DoctorEnv{}, offline)
+}
+
+func checkDecideKeys(_ context.Context, _ bool) toolcli.CheckResult {
+	cfg, err := decide.LoadConfig()
+	if err != nil {
+		return toolcli.CheckResult{
+			Name:   "keys",
+			Status: toolcli.StatusFail,
+			Detail: err.Error(),
+			Hint:   "fix ui.keys in decide config.json",
+		}
+	}
+	if warnings := decide.RemovedKeyWarnings(cfg.UI.Keys); len(warnings) > 0 {
+		return toolcli.CheckResult{
+			Name:   "keys",
+			Status: toolcli.StatusWarn,
+			Detail: strings.Join(warnings, "; "),
+			Hint:   "remove the removed action(s) from ui.keys in config.json",
+		}
+	}
+	return toolcli.CheckResult{
+		Name:   "keys",
+		Status: toolcli.StatusOK,
+		Detail: "ok",
+	}
 }
 
 func checkDecideHub(ctx context.Context, offline bool) toolcli.CheckResult {

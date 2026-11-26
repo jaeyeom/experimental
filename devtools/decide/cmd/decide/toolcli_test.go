@@ -208,3 +208,56 @@ func TestDecideDoctorFlagsStaleSkill(t *testing.T) {
 		}
 	}
 }
+
+func TestDecideDoctorWarnsOnRemovedListArchiveNotes(t *testing.T) {
+	homeDir := t.TempDir()
+	workDir := t.TempDir()
+	xdg := filepath.Join(homeDir, ".config")
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	t.Setenv("DECIDE_HUB", "")
+
+	exe := filepath.Join(t.TempDir(), "decide")
+	if err := os.WriteFile(exe, []byte("bin"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tool := newDecideTool()
+	tool.HomeDir = func() (string, error) { return homeDir, nil }
+	tool.WorkDir = func() (string, error) { return workDir, nil }
+	tool.Executable = func() (string, error) { return exe, nil }
+	tool.LookPath = func(file string) (string, error) {
+		if file == "decide" {
+			return exe, nil
+		}
+		return "/bin/" + file, nil
+	}
+
+	cfgDir := filepath.Join(xdg, "decide")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(`{"ui":{"keys":{"list.archiveNotes":["X"]}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code, handled := tool.Handle(context.Background(), []string{"doctor", "--offline", "--json"}, &stdout, &stderr)
+	if !handled || code != 1 {
+		t.Fatalf("doctor deprecated key = (%d, %v), stderr=%s, stdout=%s", code, handled, stderr.String(), stdout.String())
+	}
+	var out toolcli.DoctorOutput
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("unmarshal doctor json: %v\n%s", err, stdout.String())
+	}
+	var found bool
+	for _, c := range out.Checks {
+		if c.Name == "keys" {
+			found = true
+			if c.Status != toolcli.StatusWarn || !strings.Contains(c.Detail, "list.archiveNotes") {
+				t.Fatalf("keys check = %+v, want warn mentioning list.archiveNotes", c)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("missing keys check in %+v", out.Checks)
+	}
+}

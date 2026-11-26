@@ -119,7 +119,7 @@ export function createThreadView({ root, toast, hint = () => '' }) {
   function overflow(it) {
     const actions = [];
     if (it.state !== 'done' && it.state !== 'withdrawn') {
-      actions.push({ label: 'Done with outcome', run: () => doneSheet(it) });
+      actions.push({ label: 'Archive with note', run: () => doneSheet(it) });
       actions.push({ label: it.snoozedUntil ? 'Snooze / Unsnooze' : 'Snooze', run: () => snoozeSheet(it) });
     }
     actions.push({ label: 'Forward', run: () => { location.hash = '#/compose/' + encodeURIComponent(it.id); } },

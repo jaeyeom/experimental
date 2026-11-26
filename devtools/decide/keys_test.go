@@ -251,3 +251,83 @@ func TestShortestButtonString(t *testing.T) {
 		})
 	}
 }
+
+func TestDefaultGChordsAreNavigationOnly(t *testing.T) {
+	// Navigation-only actions allowed on g-prefixed chords. Any action that
+	// changes data (archive, done, outcome, answer, send, snooze, compose,
+	// forward, discard, hide, release, alias, star, etc.) must never use a g chord.
+	navigationOnly := map[string]bool{
+		"goto.inbox":     true,
+		"goto.snoozed":   true,
+		"goto.answered":  true,
+		"goto.done":      true,
+		"goto.withdrawn": true,
+		"goto.status":    true,
+		"goto.contacts":  true,
+		"goto.outbox":    true,
+		"goto.settings":  true,
+		"goto.top":       true,
+	}
+	km := DefaultKeyMap()
+	gChordCount := 0
+	for _, d := range ActionCatalog() {
+		for _, seq := range km.Bindings(d.Name) {
+			if len(seq) > 0 && seq[0].Key == "g" && !seq[0].Ctrl && !seq[0].Alt {
+				gChordCount++
+				if !navigationOnly[d.Name] {
+					t.Errorf("default g-prefixed binding %q maps to non-navigation action %q", seq.String(), d.Name)
+				}
+			}
+		}
+	}
+	if gChordCount == 0 {
+		t.Fatal("expected at least one default g chord")
+	}
+	for _, scope := range []string{"list", "detail", "status", "contacts"} {
+		if act, ok := km.Match(scope, KeyStroke{Key: "g"}); ok {
+			t.Errorf("scope %q has single-key g bound to %q", scope, act)
+		}
+	}
+}
+
+func TestRemovedListArchiveNotesAndUnboundD(t *testing.T) {
+	km := DefaultKeyMap()
+	if act, ok := km.Match("list", KeyStroke{Key: "E"}); ok {
+		t.Errorf("list E should be unbound, got %q", act)
+	}
+	if act, ok := km.Match("detail", KeyStroke{Key: "d"}); ok {
+		t.Errorf("detail d should be unbound, got %q", act)
+	}
+	if act, ok := km.Match("detail", KeyStroke{Key: "E"}); !ok || act != "detail.outcome" {
+		t.Errorf("detail E = (%q, %v), want (detail.outcome, true)", act, ok)
+	}
+	if got := km.Bindings("list.archiveNotes"); len(got) != 0 {
+		t.Errorf("list.archiveNotes bindings = %v, want empty", got)
+	}
+	if text := FormatKeyMapText(km); strings.Contains(text, "list.archiveNotes") {
+		t.Errorf("FormatKeyMapText still lists list.archiveNotes:\n%s", text)
+	}
+
+	// Config binding list.archiveNotes loads cleanly, is ignored, and warns.
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	writeTestConfig(t, dir, `{"ui":{"keys":{"list.archiveNotes":["X"]}}}`)
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig with deprecated list.archiveNotes failed: %v", err)
+	}
+	customKM, err := ResolveKeyMap(cfg.UI.Keys)
+	if err != nil {
+		t.Fatalf("ResolveKeyMap with deprecated list.archiveNotes failed: %v", err)
+	}
+	if act, ok := customKM.Match("list", KeyStroke{Key: "X"}); ok {
+		t.Errorf("ignored list.archiveNotes bound X to %q", act)
+	}
+	if act, ok := customKM.Match("list", KeyStroke{Key: "E"}); ok {
+		t.Errorf("ignored list.archiveNotes bound E to %q", act)
+	}
+	warnings := RemovedKeyWarnings(cfg.UI.Keys)
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "list.archiveNotes") {
+		t.Fatalf("RemovedKeyWarnings = %v, want warning for list.archiveNotes", warnings)
+	}
+}

@@ -133,5 +133,5 @@ Four distinct stages track a write from your keyboard to the agent:
   or ~failed: <error>~).
 - *Done*: the item is closed (~state: done~, or ~done-unread~ if an
   agent closed it while unread), either by the agent (~decide done~) or
-  by you (~d~ or archive ~e~ / ~y~). Archive from the outbox still
+  by you (~E~ or archive ~e~ / ~y~). Archive from the outbox still
   checks against the last message time seen when the entry was written.

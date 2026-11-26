@@ -229,14 +229,14 @@ func TestItemViewFooterNamesArchive(t *testing.T) {
 	press(t, m, "o")
 	m.status = ""
 	view := visibleLine(m.View())
-	for _, want := range []string{"[Archive (e)]", "[Done (d)]", "? help"} {
+	for _, want := range []string{"[Archive (e)]", "[Archive with note (E)]", "? help"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("item view missing %q\n%s", want, view)
 		}
 	}
 	press(t, m, "?")
 	help := m.View()
-	for _, want := range []string{"e/y archive", "d outcome"} {
+	for _, want := range []string{"e/y archive", "E archive with note"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("item help missing %q\n%s", want, help)
 		}

@@ -465,7 +465,7 @@ func (m *Model) applyList(all []decide.Item) error {
 // Sending it appends a human message. On an open question that text is also
 // the answer. In a focused composer, ctrl+x then ctrl+e, or ctrl+g alone,
 // opens that draft in an external editor. e or y archives a notification,
-// in the list or the item, and d asks for an outcome then marks the item
+// in the list or the item, and E asks for an outcome then marks the item
 // done. l opens a link, L copies
 // its URL, Y opens the copy menu, and
 // V toggles a borderless view. M toggles mouse capture. Enter submits the composer only
@@ -1886,7 +1886,7 @@ func (m *Model) narrow() bool {
 func (m *Model) statusLine() screenLine {
 	// The mouse label stays in front. The list and status hints stay the same
 	// width, so a 70-column footer still shows "? help". An open item also
-	// names e/y archive, 0 reply, f forward, and q quit, and d outcome when it fits.
+	// names e/y archive, 0 reply, f forward, and q quit, and E outcome when it fits.
 	// It leaves the folder keys to ? help so a 120-column footer still fits.
 	if line, ok := m.promptStatusLine(); ok {
 		return line
@@ -2325,7 +2325,7 @@ func detailToolbarItems() []toolbarItem {
 		{name: "Back", action: "detail.back", hit: hitToolbarBack},
 		{name: "Reply", action: "detail.reply", hit: hitToolbarReply},
 		{name: "Archive", action: "detail.archive", hit: hitToolbarArchive},
-		{name: "Done", action: "detail.outcome", hit: hitToolbarDone},
+		{name: "Archive with note", action: "detail.outcome", hit: hitToolbarDone},
 		{name: "Forward", action: "detail.forward", hit: hitToolbarForward},
 		{name: "Avatar", action: "detail.avatar", hit: hitToolbarAvatar},
 	}

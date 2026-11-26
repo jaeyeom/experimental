@@ -90,7 +90,7 @@ func TestThreadViewRemovesReplyPromptAndDrawsTitleRule(t *testing.T) {
 	// Toolbar actions drop out of the bottom key-help line; the rest stays.
 	m.status = ""
 	footer := lineContaining(visibleLine(m.View()), "? help")
-	for _, dropped := range []string{"0 reply", "f forward", "u list", "e/y archive", "d outcome"} {
+	for _, dropped := range []string{"0 reply", "f forward", "u list", "e/y archive", "E archive with note"} {
 		if strings.Contains(footer, dropped) {
 			t.Fatalf("footer still contains toolbar action %q: %q", dropped, footer)
 		}
@@ -106,7 +106,7 @@ func TestThreadToolbarButtonsClickAndCustomKeymap(t *testing.T) {
 	t.Run("default buttons and clicks", func(t *testing.T) {
 		m, _, _ := toolbarModel(t, &decide.Item{Question: "hello toolbar"}, 120, 24)
 		title := pinnedTitle(m.View())
-		wantToolbar := "[Back (u)] [Reply (0)] [Archive (e)] [Done (d)] [Forward (f)] [Avatar (A)]"
+		wantToolbar := "[Back (u)] [Reply (0)] [Archive (e)] [Archive with note (E)] [Forward (f)] [Avatar (A)]"
 		if !strings.HasPrefix(title, wantToolbar+" ") {
 			t.Fatalf("title line = %q, want prefix %q", title, wantToolbar+" ")
 		}
@@ -118,10 +118,10 @@ func TestThreadToolbarButtonsClickAndCustomKeymap(t *testing.T) {
 		}
 		press(t, m, "\x1b")
 
-		// Done
-		clickOn(t, m, "[Done (d)]", 1)
+		// Archive with note
+		clickOn(t, m, "[Archive with note (E)]", 1)
 		if m.mode != modeOutcome {
-			t.Fatalf("clicking [Done (d)] mode = %d, want modeOutcome", m.mode)
+			t.Fatalf("clicking [Archive with note (E)] mode = %d, want modeOutcome", m.mode)
 		}
 		press(t, m, "\x1b")
 
@@ -176,7 +176,7 @@ func TestThreadToolbarButtonsClickAndCustomKeymap(t *testing.T) {
 		m, _, _ := toolbarModel(t, &decide.Item{Question: "custom keys"}, 120, 24)
 		m.SetKeys(km)
 		title := pinnedTitle(m.View())
-		wantToolbar := "[Back (B)] [Reply (R)] [Archive (x)] [Done (D)] [Forward (F)] [Avatar (a)]"
+		wantToolbar := "[Back (B)] [Reply (R)] [Archive (x)] [Archive with note (D)] [Forward (F)] [Avatar (a)]"
 		if !strings.HasPrefix(title, wantToolbar+" ") {
 			t.Fatalf("custom title line = %q, want prefix %q", title, wantToolbar+" ")
 		}
@@ -218,9 +218,9 @@ func TestThreadToolbarWithReplyFocused(t *testing.T) {
 	}
 
 	// Toolbar buttons still work when clicked while reply is focused.
-	clickOn(t, m, "[Done (d)]", 1)
+	clickOn(t, m, "[Archive with note (E)]", 1)
 	if m.mode != modeOutcome {
-		t.Fatalf("clicking [Done (d)] while reply focused: mode=%d, want modeOutcome", m.mode)
+		t.Fatalf("clicking [Archive with note (E)] while reply focused: mode=%d, want modeOutcome", m.mode)
 	}
 	press(t, m, "\x1b")
 
@@ -392,19 +392,19 @@ func TestComposeCancelAndEditInEditorButtons(t *testing.T) {
 
 func TestToolbarNarrowCollapsesToHintsAndTruncatesTitleFirst(t *testing.T) {
 	longQ := "this is a very long thread title that should truncate before the toolbar collapses"
-	m, _, item := toolbarModel(t, &decide.Item{Question: longQ}, 95, 20)
+	m, _, item := toolbarModel(t, &decide.Item{Question: longQ}, 108, 20)
 
-	// At width 95 (inner 91): full toolbar (74) + space (1) leaves 16 cols for title -> title truncates first while toolbar stays full.
+	// At width 108 (inner 104): full toolbar (87) + space (1) leaves 16 cols for title -> title truncates first while toolbar stays full.
 	midTitle := pinnedTitle(m.View())
-	wantFull := "[Back (u)] [Reply (0)] [Archive (e)] [Done (d)] [Forward (f)] [Avatar (A)]"
+	wantFull := "[Back (u)] [Reply (0)] [Archive (e)] [Archive with note (E)] [Forward (f)] [Avatar (A)]"
 	if !strings.HasPrefix(midTitle, wantFull+" "+item.ID) || !strings.Contains(midTitle, "…") {
-		t.Fatalf("width 95 title = %q, want full toolbar + truncated title", midTitle)
+		t.Fatalf("width 108 title = %q, want full toolbar + truncated title", midTitle)
 	}
 
 	// At narrow width 60 (inner 56): toolbar collapses to key hints.
 	m.width = 60
 	narrowTitle := pinnedTitle(m.View())
-	wantCollapsed := "[u] [0] [e] [d] [f] [A]"
+	wantCollapsed := "[u] [0] [e] [E] [f] [A]"
 	if !strings.HasPrefix(narrowTitle, wantCollapsed+" "+item.ID) {
 		t.Fatalf("width 60 title = %q, want prefix %q", narrowTitle, wantCollapsed+" "+item.ID)
 	}

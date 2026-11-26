@@ -162,7 +162,7 @@ export function createInboxView({ root, toast, hint = () => '' }) {
       for (const g of view.groups) {
         const head = el('div', { class: 'group-head' }, el('h2', { text: `${g.label} (${g.entries.length})` }));
         if (g.group === 'notes') {
-          const b = el('button', { type: 'button', class: 'act' }, 'Archive all notes', keyHint(hint('list.archiveNotes')));
+          const b = el('button', { type: 'button', class: 'act' }, 'Archive all notes');
           b.addEventListener('click', () => archiveNotes(view.entries));
           head.append(b);
         }
@@ -214,14 +214,6 @@ export function createInboxView({ root, toast, hint = () => '' }) {
     if (it && !closed(it)) snoozeSheet(it, `${it.id}:row`);
   }
 
-  function archiveAllVisibleNotes() {
-    if (!state) return;
-    const folder = folderOf(route);
-    if (folder !== 'inbox') return;
-    const view = inboxView(state.items, { folder, classes: [...filter.classes], query: filter.query, agent: filter.agent });
-    archiveNotes(view.entries);
-  }
-
   function clearFilters() {
     filter.classes.clear();
     filter.agent = '';
@@ -242,7 +234,6 @@ export function createInboxView({ root, toast, hint = () => '' }) {
     openSelected,
     archiveSelected,
     snoozeSelected,
-    archiveAllVisibleNotes,
     clearFilters,
   };
 }

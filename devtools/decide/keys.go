@@ -333,7 +333,6 @@ func ActionCatalog() []ActionDef {
 		{Name: "list.open", View: "list", Scopes: []string{"list"}, Default: []string{"o", "enter"}, Description: "Open the selected row.", Where: "list"},
 		{Name: "list.compose", View: "list", Scopes: []string{"list"}, Default: []string{"c"}, Description: "Compose a note.", Where: "list"},
 		{Name: "list.archive", View: "list", Scopes: []string{"list"}, Default: []string{"e", "y"}, Description: "Archive: mark done with outcome archived.", Where: "list"},
-		{Name: "list.archiveNotes", View: "list", Scopes: []string{"list"}, Default: []string{"E"}, Description: "Archive all open notes.", Where: "list"},
 		{Name: "list.classFilter", View: "list", Scopes: []string{"list"}, Default: []string{"f"}, Description: "Filter by item class.", Where: "list"},
 		{Name: "list.snooze", View: "list", Scopes: []string{"list"}, Default: []string{"b"}, Description: "Snooze. In Snoozed, also offers unsnooze.", Where: "list"},
 		{Name: "list.clearFilter", View: "list", Scopes: []string{"list"}, Default: []string{"esc"}, Description: "Clear the agent or class filter.", Where: "list"},
@@ -358,7 +357,7 @@ func ActionCatalog() []ActionDef {
 		{Name: "detail.owner", View: "detail", Scopes: []string{"detail"}, Default: []string{"o"}, Description: "Focus the owner's herdr tab.", Where: "item"},
 		{Name: "detail.compose", View: "detail", Scopes: []string{"detail"}, Default: []string{"c"}, Description: "Compose a note.", Where: "item"},
 		{Name: "detail.forward", View: "detail", Scopes: []string{"detail"}, Default: []string{"f"}, Description: "Forward the item.", Where: "item"},
-		{Name: "detail.outcome", View: "detail", Scopes: []string{"detail"}, Default: []string{"d"}, Description: "Ask for an outcome, then mark done.", Where: "item"},
+		{Name: "detail.outcome", View: "detail", Scopes: []string{"detail"}, Default: []string{"E"}, Description: "Archive with a note: ask for one line, then mark done.", Where: "item"},
 		{Name: "detail.reply", View: "detail", Scopes: []string{"detail"}, Default: []string{"0"}, Description: "Focus the pinned reply box.", Where: "item"},
 
 		// Status view.
@@ -478,6 +477,30 @@ func ResolveKeyMap(overrides map[string][]string) (*KeyMap, error) {
 	}, nil
 }
 
+var removedKeyActions = map[string]string{
+	"list.archiveNotes": "archive-all-notes key action was removed; use the web button or CLI",
+}
+
+// RemovedKeyWarnings returns warnings for any removed action names still
+// present in ui.keys.
+func RemovedKeyWarnings(overrides map[string][]string) []string {
+	if len(overrides) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(overrides))
+	for name := range overrides {
+		if _, removed := removedKeyActions[name]; removed {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	warnings := make([]string, 0, len(names))
+	for _, name := range names {
+		warnings = append(warnings, fmt.Sprintf("ui.keys[%q]: %s", name, removedKeyActions[name]))
+	}
+	return warnings
+}
+
 func resolveBindings(catalog []ActionDef, defs map[string]ActionDef, overrides map[string][]string) (map[string][]KeySeq, error) {
 	bindings := make(map[string][]KeySeq, len(catalog))
 	for _, d := range catalog {
@@ -497,6 +520,9 @@ func resolveBindings(catalog []ActionDef, defs map[string]ActionDef, overrides m
 	}
 	slices.Sort(overrideNames)
 	for _, name := range overrideNames {
+		if _, removed := removedKeyActions[name]; removed {
+			continue
+		}
 		if _, ok := defs[name]; !ok {
 			return nil, fmt.Errorf("decide config ui.keys: unknown action %q", name)
 		}
@@ -745,7 +771,7 @@ func FormatReadmeKeyTable(km *KeyMap) string {
 		{formatKeys("detail.back"), "item, status, contacts", "Back to the list."},
 		{formatKeys("list.compose"), "list, item, status, contacts", "Compose a note."},
 		{formatKeys("list.archive"), "list, item", "Archive: mark done with outcome ~archived~."},
-		{formatKeys("detail.outcome"), "item", "Ask for an outcome, then mark done."},
+		{formatKeys("detail.outcome"), "item", "Archive with a note: ask for one line, then mark done."},
 		{formatKeys("list.snooze"), "list, item", "Snooze. In Snoozed, " + formatKeys("list.snooze") + " also offers unsnooze."},
 		{formatKeys("search"), "any", "Filter the list, or highlight an item. Empty Enter clears."},
 		{formatKeys("list.clearFilter"), "list", "Clear the agent filter."},

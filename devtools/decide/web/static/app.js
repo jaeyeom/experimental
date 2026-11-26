@@ -219,7 +219,6 @@ function dispatchAction(action, target) {
   case 'list.open': inboxView.openSelected(); break;
   case 'list.compose': case 'detail.compose': location.hash = '#/compose'; break;
   case 'list.archive': inboxView.archiveSelected(); break;
-  case 'list.archiveNotes': inboxView.archiveAllVisibleNotes(); break;
   case 'list.snooze': inboxView.snoozeSelected(); break;
   case 'list.clearFilter': inboxView.clearFilters(); break;
 

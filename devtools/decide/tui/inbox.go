@@ -88,41 +88,6 @@ func (m *Model) beginApprovalEdit(card *decide.Item) {
 	m.status = "editing approval " + card.ID
 }
 
-func (m *Model) archiveAllNotes() error {
-	seen := m.now()
-	var (
-		n   int
-		err error
-	)
-	if nab, ok := m.store().(NotesArchiveBackend); ok {
-		n, err = nab.ArchiveNotes(seen)
-	} else {
-		for _, it := range m.allItems {
-			if it.EffectiveClass() != decide.ClassNote || !decide.InState(&it, decide.StateOpen) {
-				continue
-			}
-			if _, aerr := m.store().Archive(it.ID, seen); aerr != nil {
-				if errors.Is(aerr, decide.ErrNewerMessage) {
-					continue
-				}
-				err = aerr
-				break
-			}
-			n++
-		}
-	}
-	if err != nil {
-		m.status = err.Error()
-		return nil
-	}
-	if n == 0 {
-		m.status = "no notes to archive"
-	} else {
-		m.status = fmt.Sprintf("archived %d notes", n)
-	}
-	return m.Reload()
-}
-
 func (m *Model) approvalCardLines(card *decide.Item, width int) []screenLine {
 	var lines []screenLine
 	lines = append(lines, screenLine{})

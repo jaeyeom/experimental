@@ -37,7 +37,7 @@ func pinnedTitle(view string) string {
 }
 
 func TestTitleLineShowsWhenOpeningAtTheLastMessage(t *testing.T) {
-	m, id := titleModel(t, &decide.Item{Question: longBody()}, 100, 20)
+	m, id := titleModel(t, &decide.Item{Question: longBody()}, 120, 20)
 	m.scrollEnd()
 	view := m.View()
 	if !strings.Contains(view, "- bottom") {
@@ -98,7 +98,7 @@ func TestTitleLineStaysFixedWhileScrolling(t *testing.T) {
 }
 
 func TestClickingTheTitleGoesToTheTop(t *testing.T) {
-	m, id := titleModel(t, &decide.Item{Question: longBody()}, 100, 20)
+	m, id := titleModel(t, &decide.Item{Question: longBody()}, 120, 20)
 	m.scrollEnd()
 	m.View()
 	if m.scroll == 0 {

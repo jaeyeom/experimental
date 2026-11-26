@@ -43,7 +43,7 @@ const defaultPayload = () => ({
     { name: 'detail.archive', view: 'detail', scopes: ['detail'], description: 'Archive.', where: 'item', keys: ['e', 'y'], helpKeys: ['e', 'y'], buttonKeys: ['e', 'y'] },
     { name: 'detail.snooze', view: 'detail', scopes: ['detail'], description: 'Snooze.', where: 'item', keys: ['b'], helpKeys: ['b'], buttonKeys: ['b'] },
     { name: 'detail.compose', view: 'detail', scopes: ['detail'], description: 'Compose.', where: 'item', keys: ['c'], helpKeys: ['c'], buttonKeys: ['c'] },
-    { name: 'detail.outcome', view: 'detail', scopes: ['detail'], description: 'Done with outcome.', where: 'item', keys: ['d'], helpKeys: ['d'], buttonKeys: ['d'] },
+    { name: 'detail.outcome', view: 'detail', scopes: ['detail'], description: 'Archive with note.', where: 'item', keys: ['E'], helpKeys: ['E'], buttonKeys: ['E'] },
     { name: 'detail.reply', view: 'detail', scopes: ['detail'], description: 'Focus reply box.', where: 'item', keys: ['0'], helpKeys: ['0'], buttonKeys: ['0'] },
 
     { name: 'compose.send', view: 'compose', scopes: ['editor', 'compose'], description: 'Send.', where: 'every composer', keys: ['alt+enter', 'ctrl+s'], helpKeys: ['Alt+Enter', 'C-s'], buttonKeys: ['^⏎', '^S'] },
@@ -105,7 +105,9 @@ test('each action fires exactly once for its key', () => {
   assert.deepEqual(press([ev('y')], { scope: 'detail' }), ['detail.archive']);
   assert.deepEqual(press([ev('b')], { scope: 'list' }), ['list.snooze']);
   assert.deepEqual(press([ev('b')], { scope: 'detail' }), ['detail.snooze']);
-  assert.deepEqual(press([ev('d')], { scope: 'detail' }), ['detail.outcome']);
+  assert.deepEqual(press([ev('E', { shiftKey: true })], { scope: 'detail' }), ['detail.outcome']);
+  assert.equal(km.handleKey(ev('d'), { scope: 'detail' }), null, 'd is unbound by default');
+  assert.equal(km.handleKey(ev('E', { shiftKey: true }), { scope: 'list' }), null, 'E does nothing in list');
   assert.deepEqual(press([ev('c')], { scope: 'list' }), ['list.compose']);
   assert.deepEqual(press([ev('c')], { scope: 'detail' }), ['detail.compose']);
 
@@ -120,7 +122,7 @@ test('each action fires exactly once for its key', () => {
 
 test('keys are ignored while typing in a text field, except send and Esc', () => {
   const km = createKeymap(defaultPayload());
-  for (const key of ['j', 'k', 'e', 'y', 'b', 'd', 'c', 'g', '/', '?', '0', '1', 'u', 'Enter']) {
+  for (const key of ['j', 'k', 'e', 'y', 'b', 'E', 'c', 'g', '/', '?', '0', '1', 'u', 'Enter']) {
     assert.equal(km.handleKey(ev(key), { scope: 'detail', typing: true }), null, `key ${key} must be ignored while typing`);
   }
   assert.deepEqual(km.handleKey(ev('Enter', { ctrlKey: true }), { scope: 'detail', typing: true }), { type: 'action', action: 'compose.send' });

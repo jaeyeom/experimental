@@ -47,7 +47,7 @@ func TestDefaultKeyBindingsTable(t *testing.T) {
 		{"detail", "A", "detail.avatar"},
 		{"detail", "o", "detail.owner"},
 		{"detail", "f", "detail.forward"},
-		{"detail", "d", "detail.outcome"},
+		{"detail", "E", "detail.outcome"},
 		{"detail", "0", "detail.reply"},
 		{"status", "u", "status.back"},
 		{"status", "c", "status.compose"},
@@ -85,6 +85,21 @@ func TestDefaultKeyBindingsTable(t *testing.T) {
 		got, ok := km.Match(tc.scope, seq[0])
 		if !ok || got != tc.action {
 			t.Errorf("scope=%s key=%q: got (%q, %v), want (%q, true)", tc.scope, tc.key, got, ok, tc.action)
+		}
+	}
+	for _, unbound := range []struct {
+		scope string
+		key   string
+	}{
+		{"list", "E"},
+		{"detail", "d"},
+	} {
+		seq, err := decide.ParseKeySeq(unbound.key)
+		if err != nil {
+			t.Fatalf("parse %q: %v", unbound.key, err)
+		}
+		if got, ok := km.Match(unbound.scope, seq[0]); ok {
+			t.Errorf("scope=%s key=%q: got (%q, true), want unbound", unbound.scope, unbound.key, got)
 		}
 	}
 }
