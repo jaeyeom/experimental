@@ -80,6 +80,9 @@ ruff_test(
     name = "ruff_test",
     size = "small",
     srcs = ["//devtools/linters/pylinters:repo_py_srcs"],
+    # BuildBuddy RBE stages input files as executable, causing false EXE002
+    # violations; keep both the aspect on repo_py_srcs and this test off RBE.
+    tags = ["no-remote"],
 )
 
 sh_test(

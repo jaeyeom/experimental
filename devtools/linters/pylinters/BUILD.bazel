@@ -88,7 +88,12 @@ filegroup(
         "//scripts:py_srcs",
         "//tools/lint:py_srcs",
     ],
-    tags = ["lint-with-ruff"],
+    # BuildBuddy RBE stages input files as executable, which triggers false
+    # EXE002 errors when AspectRulesLintRuff runs remotely.
+    tags = [
+        "lint-with-ruff",
+        "no-remote",
+    ],
     visibility = ["//tools/lint:__pkg__"],
 )
 
@@ -121,6 +126,12 @@ filegroup(
             {"PYLINTERS_ENTRY_LISTS": "$(rootpaths :repo_py_entries)"} if needs_entries else {}
         ),
         main = "tests/repo_lint_test.py",
+        # Avoid PyCompile output conflict with repo_lint_test when no-remote
+        # changes ExecutionInfo on shared srcs.
+        precompile = "disabled" if needs_entries else "inherit",
+        # Entry discovery checks executable bits on disk, and BuildBuddy RBE
+        # stages all input files as executable.
+        tags = ["no-remote"] if needs_entries else [],
         deps = [
             ":pylinters",
             "@pypi//pytest",
