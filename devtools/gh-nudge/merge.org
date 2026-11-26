@@ -24,6 +24,17 @@ merge these PRs and optionally delete the source branch after merging.
   # List mergeable PRs without taking action
   gh-merge list
 
+  # Stream verdicts with skip reasons and debug timing logs to stderr
+  gh-merge -v
+  gh-merge --log-level debug list
+
+  # Limit listing to specific PRs (with --pr or positional PR refs)
+  gh-merge -v --pr 12 --pr 34
+  gh-merge -v 12 acme/widgets#34
+
+  # Bound the overall listing time (prints partial results + not checked count)
+  gh-merge -v --timeout 30s
+
   # Merge all eligible PRs
   gh-merge --auto
 
@@ -57,6 +68,21 @@ A pull request is not merged when it has any label listed in
 ~settings.block_merge_labels~, for example ~do-not-merge~. ~--force~ does not
 override that label. ~gh-merge list~ still prints the pull request and marks
 the label that blocks it.
+
+~gh-merge list~ prints ~checking N PRs~ to stderr at the start and streams
+each pull request's verdict to stdout (flushed per line) as soon as it is
+known. Cheap filters (draft, review requests, non-mergeable state, and
+blocking labels when ~mergeable~ is ~UNKNOWN~) run before refreshing
+~UNKNOWN~ mergeable state, and mergeable state plus ~statusCheckRollup~ for
+candidates are fetched in batched GraphQL queries (up to 50 PRs per query;
+any per-PR fallback runs with bounded concurrency respecting
+~GH_THROTTLE_MAX_CONCURRENT~). Passing ~--pr <ref>~ (repeatable) or
+positional pull request numbers/refs skips listing all authored PRs and
+queries only those pull requests. Setting ~--timeout <duration>~ (or
+~-timeout~) sets an overall deadline: when exceeded, ~list~ prints all
+decided results so far followed by ~not checked: <N>~ and exits non-zero.
+~--log-level~ (~debug~, ~info~, ~warn~, ~error~) or ~-v~ logs phase and
+per-call durations to stderr.
 
 ~gh-merge queue~ checks one pull request, prints removal evidence when the
 latest merge-queue timeline event is a removal, and then calls

@@ -8,7 +8,9 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -847,14 +849,17 @@ func (g *ghAttempts) ExecuteSeparated(string, ...string) (string, string, error)
 	return call.stdout, call.stderr, call.err
 }
 
-// sweepExec answers gh pr list with the cheap list payload and
-// gh pr view --json statusCheckRollup from checks. It records every call.
+// sweepExec answers gh pr list with the cheap list payload, batched api graphql
+// candidate/PR queries, and gh pr view --json statusCheckRollup from checks.
+// It records every call.
 type sweepExec struct {
 	t      *testing.T
 	calls  [][]string
 	list   []models.PullRequest
 	checks map[string][]models.StatusCheck
 }
+
+var sweepAliasPattern = regexp.MustCompile(`(p\d+):repository\(owner:"([^"]+)",name:"([^"]+)"\)\{pullRequest\(number:(\d+)\)`)
 
 func (s *sweepExec) Execute(cmd string, args ...string) (string, error) {
 	stdout, _, err := s.ExecuteSeparated(cmd, args...)
@@ -877,6 +882,8 @@ func (s *sweepExec) ExecuteSeparated(_ string, args ...string) (string, string, 
 			list[i] = pr
 		}
 		body = list
+	case len(args) >= 4 && args[0] == "api" && args[1] == "graphql" && args[2] == "-f":
+		body = s.answerGraphQL(strings.TrimPrefix(args[3], "query="))
 	case len(args) == 5 && args[0] == "pr" && args[1] == "view" && args[4] == "statusCheckRollup":
 		body = map[string][]models.StatusCheck{"statusCheckRollup": s.checks[args[2]]}
 	default:
@@ -887,6 +894,75 @@ func (s *sweepExec) ExecuteSeparated(_ string, args ...string) (string, string, 
 		s.t.Fatalf("marshal fake gh output: %v", err)
 	}
 	return string(out), "", nil
+}
+
+func (s *sweepExec) answerGraphQL(query string) map[string]any {
+	data := make(map[string]any)
+	for _, match := range sweepAliasPattern.FindAllStringSubmatch(query, -1) {
+		alias, owner, repo := match[1], match[2], match[3]
+		num, _ := strconv.Atoi(match[4])
+		wantURL := fmt.Sprintf("https://github.com/%s/%s/pull/%d", owner, repo, num)
+		var found *models.PullRequest
+		for i := range s.list {
+			if s.list[i].URL == wantURL {
+				found = &s.list[i]
+				break
+			}
+		}
+		if found == nil {
+			data[alias] = map[string]any{"pullRequest": nil}
+			continue
+		}
+		nodes := make([]map[string]any, 0, len(s.checks[wantURL]))
+		for _, chk := range s.checks[wantURL] {
+			if chk.State != "" {
+				nodes = append(nodes, map[string]any{
+					"__typename": "StatusContext",
+					"context":    chk.Context,
+					"state":      chk.State,
+				})
+				continue
+			}
+			nodes = append(nodes, map[string]any{
+				"__typename":  "CheckRun",
+				"name":        chk.Name,
+				"status":      chk.Status,
+				"conclusion":  chk.Conclusion,
+				"startedAt":   chk.StartedAt,
+				"completedAt": chk.CompletedAt,
+			})
+		}
+		var rrNodes []map[string]any
+		for _, rr := range found.ReviewRequests {
+			rrNodes = append(rrNodes, map[string]any{"requestedReviewer": rr})
+		}
+		data[alias] = map[string]any{
+			"pullRequest": map[string]any{
+				"url":         found.URL,
+				"title":       found.Title,
+				"isDraft":     found.IsDraft,
+				"mergeable":   found.Mergeable,
+				"headRefName": found.HeadRefName,
+				"labels":      map[string]any{"nodes": found.Labels},
+				"reviewRequests": map[string]any{
+					"nodes": rrNodes,
+				},
+				"commits": map[string]any{
+					"nodes": []map[string]any{{
+						"commit": map[string]any{
+							"statusCheckRollup": map[string]any{
+								"contexts": map[string]any{
+									"pageInfo": map[string]any{"hasNextPage": false},
+									"nodes":    nodes,
+								},
+							},
+						},
+					}},
+				},
+			},
+		}
+	}
+	return map[string]any{"data": data}
 }
 
 func (s *sweepExec) callsWith(sub, field string) [][]string {
@@ -943,21 +1019,31 @@ func assertCheapSweep(t *testing.T, exec *sweepExec) {
 	if slices.Contains(fields, "files") || slices.Contains(fields, "statusCheckRollup") {
 		t.Fatalf("pr list --json %v requests files or statusCheckRollup", fields)
 	}
-	var checked []string
-	for _, args := range exec.callsWith("view", "statusCheckRollup") {
-		checked = append(checked, args[2])
+	gqlCalls := exec.callsWith("graphql", "-f")
+	if len(gqlCalls) != 1 {
+		t.Fatalf("graphql calls = %d, want 1: %v", len(gqlCalls), exec.calls)
 	}
-	want := []string{"https://github.com/acme/widgets/pull/1", "https://github.com/acme/widgets/pull/2"}
-	if !slices.Equal(checked, want) {
-		t.Fatalf("status checks fetched for %v, want %v", checked, want)
+	query := gqlCalls[0][len(gqlCalls[0])-1]
+	for _, n := range []int{1, 2} {
+		if !strings.Contains(query, fmt.Sprintf("pullRequest(number:%d)", n)) {
+			t.Fatalf("batched query missing PR %d:\n%s", n, query)
+		}
+	}
+	for n := 3; n <= 10; n++ {
+		if strings.Contains(query, fmt.Sprintf("pullRequest(number:%d)", n)) {
+			t.Fatalf("batched query fetched non-candidate PR %d:\n%s", n, query)
+		}
+	}
+	if views := exec.callsWith("view", "statusCheckRollup"); len(views) != 0 {
+		t.Fatalf("unexpected per-PR statusCheckRollup calls: %v", views)
 	}
 	for _, args := range exec.calls {
 		if slices.Contains(args, "files") {
 			t.Fatalf("files fetched: %v", args)
 		}
 	}
-	if len(exec.calls) != 3 {
-		t.Fatalf("gh calls = %d, want 3: %v", len(exec.calls), exec.calls)
+	if len(exec.calls) != 2 {
+		t.Fatalf("gh calls = %d, want 2: %v", len(exec.calls), exec.calls)
 	}
 }
 
@@ -1032,7 +1118,7 @@ func TestMergeStatusCheckErrorFailsCommand(t *testing.T) {
 type failingChecks struct{ *sweepExec }
 
 func (f *failingChecks) ExecuteSeparated(cmd string, args ...string) (string, string, error) {
-	if slices.Contains(args, "statusCheckRollup") {
+	if slices.Contains(args, "statusCheckRollup") || slices.Contains(args, "graphql") {
 		return "", "gh: boom", errors.New("exit status 1")
 	}
 	return f.sweepExec.ExecuteSeparated(cmd, args...)

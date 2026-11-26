@@ -43,7 +43,15 @@ func (e *executorAdapter) ExecuteWithStdin(stdin, cmd string, args ...string) (s
 // ExecuteSeparated runs a command and returns stdout and stderr separately.
 // A non-zero exit returns an error. Stderr is not appended to stdout.
 func (e *executorAdapter) ExecuteSeparated(cmd string, args ...string) (string, string, error) {
-	result, err := e.exec.Execute(e.ctx, executor.ToolConfig{
+	return e.ExecuteSeparatedContext(e.ctx, cmd, args...)
+}
+
+// ExecuteSeparatedContext runs a command with ctx and returns stdout and stderr separately.
+func (e *executorAdapter) ExecuteSeparatedContext(ctx context.Context, cmd string, args ...string) (string, string, error) {
+	if ctx == nil {
+		ctx = e.ctx
+	}
+	result, err := e.exec.Execute(ctx, executor.ToolConfig{
 		Command: cmd,
 		Args:    args,
 	})
@@ -109,7 +117,12 @@ const pullRequestListLimit = 100
 // The pull request list is parsed from stdout only.
 // It requests gh-merge's list fields only. Status checks come from StatusChecks.
 func (c *Client) GetAuthoredPullRequests() ([]models.PullRequest, error) {
-	return c.fetchPullRequests(mergeListFields, false)
+	return c.GetAuthoredPullRequestsContext(context.Background())
+}
+
+// GetAuthoredPullRequestsContext is GetAuthoredPullRequests bounded by ctx.
+func (c *Client) GetAuthoredPullRequestsContext(ctx context.Context) ([]models.PullRequest, error) {
+	return c.fetchPullRequestsContext(ctx, mergeListFields, false)
 }
 
 // GetPendingPullRequests fetches open pull requests authored by the current user, excluding drafts.
@@ -117,7 +130,7 @@ func (c *Client) GetAuthoredPullRequests() ([]models.PullRequest, error) {
 // The pull request list is parsed from stdout only.
 // It requests gh-nudge's list fields only. Changed files come from PullRequestFiles.
 func (c *Client) GetPendingPullRequests() ([]models.PullRequest, error) {
-	return c.fetchPullRequests(nudgeListFields, true)
+	return c.fetchPullRequestsContext(context.Background(), nudgeListFields, true)
 }
 
 // The list fields are cheap scalars. files and statusCheckRollup cost
@@ -130,7 +143,7 @@ const (
 	nudgeListFields = "url,title,isDraft,labels,reviewRequests,latestReviews"
 )
 
-func (c *Client) fetchPullRequests(fields string, skipDrafts bool) ([]models.PullRequest, error) {
+func (c *Client) fetchPullRequestsContext(ctx context.Context, fields string, skipDrafts bool) ([]models.PullRequest, error) {
 	// `pr list --author @me` replaces `pr status`, which is capped at 10 PRs.
 	args := []string{
 		"pr", "list",
@@ -138,9 +151,9 @@ func (c *Client) fetchPullRequests(fields string, skipDrafts bool) ([]models.Pul
 		"--limit", fmt.Sprintf("%d", pullRequestListLimit),
 		"--json", fields,
 	}
-	out, err := c.runGHJSON(args...)
-	if err != nil {
-		out, err = c.runGHJSON(args...)
+	out, err := c.runGHJSONContext(ctx, args...)
+	if err != nil && (ctx == nil || ctx.Err() == nil) {
+		out, err = c.runGHJSONContext(ctx, args...)
 	}
 	if err != nil {
 		err = fmt.Errorf("failed to execute gh command: %w", err)
@@ -169,7 +182,12 @@ func filterDrafts(prs []models.PullRequest, skip bool) []models.PullRequest {
 // MergeableState reads one pull request's mergeable field from gh.
 // Stdout is parsed alone. Stderr is not part of the value.
 func (c *Client) MergeableState(prURL string) (string, error) {
-	out, err := c.runGHJSON("pr", "view", prURL, "--json", "mergeable")
+	return c.MergeableStateContext(context.Background(), prURL)
+}
+
+// MergeableStateContext is MergeableState bounded by ctx.
+func (c *Client) MergeableStateContext(ctx context.Context, prURL string) (string, error) {
+	out, err := c.runGHJSONContext(ctx, "pr", "view", prURL, "--json", "mergeable")
 	if err != nil {
 		return "", fmt.Errorf("failed to read mergeable state: %w", err)
 	}
@@ -186,21 +204,30 @@ func (c *Client) MergeableState(prURL string) (string, error) {
 // A successful result is cached on the client, so each pull request is
 // fetched at most once per run. Errors are not cached.
 func (c *Client) StatusChecks(prURL string) ([]models.StatusCheck, error) {
+	return c.StatusChecksContext(context.Background(), prURL)
+}
+
+// StatusChecksContext is StatusChecks bounded by ctx.
+func (c *Client) StatusChecksContext(ctx context.Context, prURL string) ([]models.StatusCheck, error) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if checks, ok := c.checks[prURL]; ok {
+		c.mu.Unlock()
 		return checks, nil
 	}
+	c.mu.Unlock()
+
 	var body struct {
 		StatusCheckRollup []models.StatusCheck `json:"statusCheckRollup"`
 	}
-	if err := c.viewPullRequest(prURL, "statusCheckRollup", &body); err != nil {
+	if err := c.viewPullRequestContext(ctx, prURL, "statusCheckRollup", &body); err != nil {
 		return nil, fmt.Errorf("failed to read status checks: %w", err)
 	}
+	c.mu.Lock()
 	if c.checks == nil {
 		c.checks = make(map[string][]models.StatusCheck)
 	}
 	c.checks[prURL] = body.StatusCheckRollup
+	c.mu.Unlock()
 	return body.StatusCheckRollup, nil
 }
 
@@ -216,7 +243,7 @@ func (c *Client) PullRequestFiles(prURL string) ([]models.File, error) {
 	var body struct {
 		Files []models.File `json:"files"`
 	}
-	if err := c.viewPullRequest(prURL, "files", &body); err != nil {
+	if err := c.viewPullRequestContext(context.Background(), prURL, "files", &body); err != nil {
 		return nil, fmt.Errorf("failed to read changed files: %w", err)
 	}
 	if c.files == nil {
@@ -226,16 +253,36 @@ func (c *Client) PullRequestFiles(prURL string) ([]models.File, error) {
 	return body.Files, nil
 }
 
-// viewPullRequest runs `gh pr view <url> --json <field>` and decodes stdout into v.
-func (c *Client) viewPullRequest(prURL, field string, v any) error {
-	out, err := c.runGHJSON("pr", "view", prURL, "--json", field)
+// viewPullRequestContext runs `gh pr view <url> --json <field>` and decodes stdout into v.
+func (c *Client) viewPullRequestContext(ctx context.Context, prURL, field string, v any) error {
+	out, err := c.runGHJSONContext(ctx, "pr", "view", prURL, "--json", field)
 	if err != nil {
 		return err
 	}
 	return out.decode(v)
 }
 
+type contextExecutor interface {
+	ExecuteSeparatedContext(ctx context.Context, cmd string, args ...string) (string, string, error)
+}
+
 func (c *Client) executeSeparated(cmd string, args ...string) (string, string, error) {
+	return c.executeSeparatedContext(context.Background(), cmd, args...)
+}
+
+func (c *Client) executeSeparatedContext(ctx context.Context, cmd string, args ...string) (string, string, error) {
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return "", "", fmt.Errorf("failed to execute %s: %w", cmd, err)
+		}
+		if sepCtx, ok := c.executor.(contextExecutor); ok {
+			stdout, stderr, err := sepCtx.ExecuteSeparatedContext(ctx, cmd, args...)
+			if err != nil {
+				return stdout, stderr, fmt.Errorf("failed to execute %s: %w", cmd, err)
+			}
+			return stdout, stderr, nil
+		}
+	}
 	type separated interface {
 		ExecuteSeparated(cmd string, args ...string) (string, string, error)
 	}
@@ -278,7 +325,7 @@ func withoutDrafts(prs []models.PullRequest) []models.PullRequest {
 // GetMergeablePullRequests fetches pull requests with no review requests.
 // It requests gh-merge's list fields only. Status checks come from StatusChecks.
 func (c *Client) GetMergeablePullRequests() ([]models.PullRequest, error) {
-	prs, err := c.fetchPullRequests(mergeListFields, true)
+	prs, err := c.fetchPullRequestsContext(context.Background(), mergeListFields, true)
 	if err != nil {
 		return nil, err
 	}

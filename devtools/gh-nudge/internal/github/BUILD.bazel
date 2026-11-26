@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "approve.go",
+        "candidate.go",
         "ghbin.go",
         "ghjson.go",
         "github.go",
@@ -29,6 +30,7 @@ go_test(
     name = "go_default_test",
     srcs = [
         "approve_test.go",
+        "candidate_test.go",
         "ghbin_test.go",
         "ghjson_test.go",
         "github_test.go",

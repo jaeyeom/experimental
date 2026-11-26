@@ -9,6 +9,11 @@
 //	# List mergeable PRs without taking action
 //	gh-merge list
 //
+//	# List specific PRs with debug timing logs and a deadline
+//	gh-merge -v --pr 12 --pr 34 --timeout 30s
+//	gh-merge -v 12 34
+//	gh-merge --log-level debug list
+//
 //	# Merge all eligible PRs
 //	gh-merge merge
 //
@@ -75,6 +80,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config"
@@ -88,6 +94,8 @@ var (
 	dryRun                bool
 	deleteBranch          bool
 	verbose               bool
+	logLevelFlag          string
+	prListFlag            prRefFlag
 	force                 bool
 	includeDownstack      bool
 	jsonOutput            bool
@@ -105,7 +113,9 @@ func registerFlags() {
 	flag.StringVar(&configPath, "config", "", "Path to config file")
 	flag.BoolVar(&dryRun, "dry-run", false, dryRunHelp())
 	flag.BoolVar(&deleteBranch, "d", false, "Delete branch after merge")
-	flag.BoolVar(&verbose, "v", false, "Verbose output")
+	flag.BoolVar(&verbose, "v", false, "Verbose output (streams skipped PRs and sets debug logging)")
+	flag.StringVar(&logLevelFlag, "log-level", "", "Log level to stderr (debug, info, warn, error)")
+	flag.Var(&prListFlag, "pr", "Limit list to the given pull request (repeatable; number, owner/repo#N, or URL)")
 	flag.BoolVar(&force, "force", false, "Merge even if CI checks have failed or are pending")
 	flag.BoolVar(&includeDownstack, "include-downstack", false, "Also enqueue open pull requests below a stack")
 	flag.BoolVar(&jsonOutput, "json", false, "Print queue, watch, rca, evidence, and handle-ejection results as JSON")
@@ -117,7 +127,7 @@ func registerFlags() {
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nCommands:\n")
-		fmt.Fprintf(os.Stderr, "  list    List mergeable PRs (default)\n")
+		fmt.Fprintf(os.Stderr, "  list    List mergeable PRs (default; accepts --pr, --timeout, or positional PR refs)\n")
 		fmt.Fprintf(os.Stderr, "  merge   Merge eligible PRs\n")
 		fmt.Fprintf(os.Stderr, "  queue   %s\n", queueCommandHelp())
 		fmt.Fprintf(os.Stderr, "  watch   %s\n", watchCommandHelp())
@@ -138,21 +148,21 @@ func applyQueueTimeoutFlag() {
 	})
 }
 
-// setupLogging configures the logger with the appropriate level.
-func setupLogging() *slog.Logger {
-	logLevel := slog.LevelInfo
-	if verbose {
-		logLevel = slog.LevelDebug
+// setupLogging configures the logger with the appropriate level, writing to stderr.
+func setupLogging() (*slog.Logger, error) {
+	logLevel, err := resolveLogLevel(logLevelFlag, verbose)
+	if err != nil {
+		return nil, err
 	}
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: logLevel,
 	}))
 	slog.SetDefault(logger)
-	return logger
+	return logger, nil
 }
 
 // printCIStatus prints CI check status details for a pull request.
-// merge uses this with ChecksStatus. list uses printListCI.
+// merge uses this with ChecksStatus. list uses printListCITo.
 func printCIStatus(pr *models.PullRequest) {
 	switch pr.ChecksStatus() {
 	case models.ChecksPass:
@@ -171,25 +181,6 @@ func printCIStatus(pr *models.PullRequest) {
 	}
 }
 
-// printListCI prints the list verdict for the pull request's required checks.
-// Failing entries outside that list are printed on an other line.
-func printListCI(pr *models.PullRequest, required []string) {
-	ci := pr.ListCIStatus(required)
-	switch ci.Status {
-	case models.ChecksPass:
-		fmt.Printf("         CI: PASS (%d/%d checks passed)\n", len(required), len(required))
-	case models.ChecksFail:
-		fmt.Printf("         CI: FAIL (%d failed)\n", ci.Failed)
-	case models.ChecksPending:
-		fmt.Printf("         CI: PENDING (%d checks still running)\n", ci.Pending)
-	case models.ChecksNone:
-		fmt.Printf("         CI: NONE (no checks configured)\n")
-	}
-	if len(ci.Others) > 0 {
-		fmt.Printf("         other: %s\n", strings.Join(ci.Others, ", "))
-	}
-}
-
 // mergeClient fetches mergeable pull requests and merges one of them.
 type mergeClient interface {
 	GetMergeablePullRequests() ([]models.PullRequest, error)
@@ -198,7 +189,7 @@ type mergeClient interface {
 
 // listMergeablePRs lists all PRs that are ready to merge.
 func listMergeablePRs(githubClient mergeClient, cfg *config.Config) error {
-	return listFetchedPullRequests(githubClient, cfg, time.Sleep)
+	return listFetchedPullRequests(githubClient, cfg, nil)
 }
 
 type authoredPullRequests interface {
@@ -210,19 +201,11 @@ type mergeableReader interface {
 }
 
 func listFetchedPullRequests(githubClient mergeClient, cfg *config.Config, sleep func(time.Duration)) error {
-	fetched, refresh, err := fetchListPullRequests(githubClient)
-	if err != nil {
-		return fmt.Errorf("failed to get PRs: %w", err)
-	}
-	ready, err := readyPullRequests(cfg, fetched, refresh, sleep)
-	if err != nil {
-		return err
-	}
-	if err := loadStatusChecks(githubClient, ready); err != nil {
-		return err
-	}
-	logMergeScan(cfg, ready, "Finding PRs with no review requests in the current repository")
-	return printReadyPullRequests(cfg, ready)
+	return listPullRequests(context.Background(), githubClient, cfg, listOptions{
+		out:    os.Stdout,
+		errOut: os.Stderr,
+		sleep:  sleep,
+	})
 }
 
 // statusChecksReader reads one pull request's status checks. The pull
@@ -233,69 +216,60 @@ type statusChecksReader interface {
 }
 
 // loadStatusChecks fills StatusCheckRollup for each pull request in prs.
-// A client without statusChecksReader leaves prs as fetched.
+// It prefers batched GraphQL via candidateStatesReader and otherwise falls
+// back to bounded concurrent StatusChecks calls.
 func loadStatusChecks(githubClient any, prs []models.PullRequest) error {
+	if len(prs) == 0 {
+		return nil
+	}
+	if batchReader, ok := githubClient.(candidateStatesReader); ok {
+		urls := make([]string, len(prs))
+		for i := range prs {
+			urls[i] = prs[i].URL
+		}
+		states, err := batchReader.CandidateStatesContext(context.Background(), urls)
+		if err != nil {
+			return fmt.Errorf("failed to get status checks: %w", err)
+		}
+		for i := range prs {
+			if st, found := states[prs[i].URL]; found {
+				prs[i].StatusCheckRollup = st.StatusCheckRollup
+			}
+		}
+		return nil
+	}
 	reader, ok := githubClient.(statusChecksReader)
 	if !ok {
 		return nil
 	}
+	limit := min(max(1, github.SuggestedConcurrency()), len(prs))
+	workCh := make(chan int, len(prs))
 	for i := range prs {
-		checks, err := reader.StatusChecks(prs[i].URL)
-		if err != nil {
-			return fmt.Errorf("failed to get status checks for %s: %w", prs[i].URL, err)
-		}
-		prs[i].StatusCheckRollup = checks
+		workCh <- i
+	}
+	close(workCh)
+	errCh := make(chan error, len(prs))
+	var wg sync.WaitGroup
+	for range limit {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for idx := range workCh {
+				checks, err := reader.StatusChecks(prs[idx].URL)
+				if err != nil {
+					errCh <- fmt.Errorf("failed to get status checks for %s: %w", prs[idx].URL, err)
+					return
+				}
+				prs[idx].StatusCheckRollup = checks
+			}
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		return err
 	}
 	return nil
-}
-
-func fetchListPullRequests(githubClient mergeClient) ([]models.PullRequest, func(string) (string, error), error) {
-	authored, ok := githubClient.(authoredPullRequests)
-	if !ok {
-		prs, err := githubClient.GetMergeablePullRequests()
-		if err != nil {
-			return nil, nil, fmt.Errorf("get mergeable pull requests: %w", err)
-		}
-		return prs, nil, nil
-	}
-	prs, err := authored.GetAuthoredPullRequests()
-	if err != nil {
-		return nil, nil, fmt.Errorf("get authored pull requests: %w", err)
-	}
-	reader, ok := githubClient.(mergeableReader)
-	if !ok {
-		return prs, nil, nil
-	}
-	return prs, reader.MergeableState, nil
-}
-
-func readyPullRequests(cfg *config.Config, fetched []models.PullRequest, refresh func(string) (string, error), sleep func(time.Duration)) ([]models.PullRequest, error) {
-	ready := make([]models.PullRequest, 0, len(fetched))
-	for i := range fetched {
-		pr, err := resolveListPullRequest(fetched[i], refresh, sleep)
-		if err != nil {
-			return nil, err
-		}
-		reasons := skipReasons(&pr, blockLabelsFor(cfg, &pr))
-		if verbose && len(reasons) > 0 {
-			fmt.Printf("skipped: %s %s\n", pr.URL, strings.Join(reasons, ", "))
-		}
-		if listReady(&pr) {
-			ready = append(ready, pr)
-		}
-	}
-	return ready, nil
-}
-
-func resolveListPullRequest(pr models.PullRequest, refresh func(string) (string, error), sleep func(time.Duration)) (models.PullRequest, error) {
-	// Two refreshes, a second apart, after the list payload.
-	poll := mergeablePoll{first: time.Second, max: time.Second, budget: 2 * time.Second, sleep: sleep}
-	state, err := resolveMergeable(pr.Mergeable, pr.URL, refresh, poll)
-	if err != nil {
-		return pr, err
-	}
-	pr.Mergeable = state
-	return pr, nil
 }
 
 // mergeablePoll bounds how resolveMergeable re-reads an UNKNOWN state.
@@ -310,6 +284,10 @@ type mergeablePoll struct {
 // resolveMergeable treats state as the first attempt and refreshes it while
 // it is UNKNOWN and the poll budget allows.
 func resolveMergeable(state, prURL string, refresh func(string) (string, error), poll mergeablePoll) (string, error) {
+	return resolveMergeableContext(context.Background(), state, prURL, refresh, poll)
+}
+
+func resolveMergeableContext(ctx context.Context, state, prURL string, refresh func(string) (string, error), poll mergeablePoll) (string, error) {
 	if refresh == nil {
 		return state, nil
 	}
@@ -320,6 +298,9 @@ func resolveMergeable(state, prURL string, refresh func(string) (string, error),
 	var slept time.Duration
 	delay := poll.first
 	for state == "UNKNOWN" {
+		if ctx != nil && ctx.Err() != nil {
+			return "", fmt.Errorf("resolve mergeable cancelled: %w", ctx.Err())
+		}
 		elapsed := slept
 		if poll.now != nil {
 			elapsed = poll.now().Sub(start)
@@ -329,8 +310,8 @@ func resolveMergeable(state, prURL string, refresh func(string) (string, error),
 			break
 		}
 		delay = min(delay, remaining)
-		if poll.sleep != nil {
-			poll.sleep(delay)
+		if err := sleepWithContext(ctx, poll.sleep, delay); err != nil {
+			return "", err
 		}
 		slept += delay
 		next, err := refresh(prURL)
@@ -365,29 +346,6 @@ func skipReasons(pr *models.PullRequest, blockLabels []string) []string {
 		reasons = append(reasons, "unknown")
 	}
 	return reasons
-}
-
-func printReadyPullRequests(cfg *config.Config, prs []models.PullRequest) error {
-	if len(prs) == 0 {
-		fmt.Println("No PRs with no review requests found.")
-		return nil
-	}
-
-	fmt.Printf("Found %d PRs with no review requests:\n\n", len(prs))
-
-	for i := range prs {
-		pr := &prs[i]
-		fmt.Printf("  %s\n", pr.Title)
-		fmt.Printf("         URL: %s\n", pr.URL)
-		fmt.Printf("         Branch: %s\n", pr.HeadRefName)
-		printListCI(pr, requiredChecksFor(cfg, pr))
-		if label, blocked := pr.BlocksMerge(blockLabelsFor(cfg, pr)); blocked {
-			fmt.Printf("         Blocked: label %q prevents merge\n", label)
-		}
-		fmt.Println()
-	}
-
-	return nil
 }
 
 // mergeResult tracks the outcome of attempting to merge a single PR.
@@ -602,8 +560,22 @@ func runMain() int {
 	flag.Parse()
 	applyQueueTimeoutFlag()
 
+	command, args, listOpts, err := resolveInvocation(flag.Args(), initialListOptions())
+	if err != nil {
+		if errors.Is(err, errUnknownCommand) {
+			fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
+		} else {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+		}
+		flag.Usage()
+		return 1
+	}
+
 	// Setup logging
-	setupLogging()
+	if _, err := setupLogging(); err != nil {
+		fmt.Fprintf(os.Stderr, "gh-merge: %v\n", err)
+		return 1
+	}
 
 	// Load configuration. gh-merge picks the path; gh-nudge's default stays put.
 	path, err := resolveMergeConfigPath(configPath)
@@ -623,24 +595,17 @@ func runMain() int {
 	exec := github.GHExecutor(executor.NewBasicExecutor())
 	githubClient := github.NewClient(ctx, exec)
 
-	// Determine command
-	args := flag.Args()
-	command := "list"
-	if len(args) > 0 {
-		command = args[0]
-	}
-
-	if err := dispatchCommand(command, args, githubClient, cfg); err != nil {
+	if err := dispatchCommand(ctx, command, args, listOpts, githubClient, cfg); err != nil {
 		slog.Error("Command failed", "command", command, "error", err)
 		return 1
 	}
 	return 0
 }
 
-func dispatchCommand(command string, args []string, githubClient *github.Client, cfg *config.Config) error {
+func dispatchCommand(ctx context.Context, command string, args []string, listOpts listOptions, githubClient *github.Client, cfg *config.Config) error {
 	switch command {
 	case "list":
-		return listMergeablePRs(githubClient, cfg)
+		return listPullRequests(ctx, githubClient, cfg, listOpts)
 	case "merge":
 		return mergePRs(githubClient, cfg)
 	case "queue":

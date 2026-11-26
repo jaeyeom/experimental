@@ -1,6 +1,7 @@
 package github
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -29,21 +30,41 @@ type ghJSONOutput struct {
 // with blank stdout is logged at warning level and retried once after
 // emptyStdoutRetryDelay; the second result is returned as is.
 func (c *Client) runGHJSON(args ...string) (ghJSONOutput, error) {
-	out, err := c.runGHOnce(args)
+	return c.runGHJSONContext(context.Background(), args...)
+}
+
+func (c *Client) runGHJSONContext(ctx context.Context, args ...string) (ghJSONOutput, error) {
+	out, err := c.runGHOnceContext(ctx, args)
 	if err != nil || strings.TrimSpace(out.stdout) != "" {
 		return out, err
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return out, fmt.Errorf("gh call cancelled: %w", ctx.Err())
 	}
 	c.warnf("gh exited 0 with empty stdout; retrying once",
 		"command", out.command(),
 		"delay", emptyStdoutRetryDelay,
 		"stderr", firstLine(out.stderr))
-	c.sleepFor(emptyStdoutRetryDelay)
-	return c.runGHOnce(args)
+	if err := c.sleepForContext(ctx, emptyStdoutRetryDelay); err != nil {
+		return out, err
+	}
+	return c.runGHOnceContext(ctx, args)
 }
 
 func (c *Client) runGHOnce(args []string) (ghJSONOutput, error) {
-	stdout, stderr, err := c.executeSeparated("gh", args...)
-	return ghJSONOutput{args: args, stdout: stdout, stderr: stderr}, err
+	return c.runGHOnceContext(context.Background(), args)
+}
+
+func (c *Client) runGHOnceContext(ctx context.Context, args []string) (ghJSONOutput, error) {
+	start := time.Now()
+	stdout, stderr, err := c.executeSeparatedContext(ctx, "gh", args...)
+	out := ghJSONOutput{args: args, stdout: stdout, stderr: stderr}
+	slog.Debug("gh call",
+		"command", out.command(),
+		"duration", time.Since(start).Round(time.Millisecond),
+		"error", err != nil,
+	)
+	return out, err
 }
 
 func (c *Client) warnf(msg string, args ...any) {
@@ -54,12 +75,26 @@ func (c *Client) warnf(msg string, args ...any) {
 	slog.Warn(msg, args...)
 }
 
-func (c *Client) sleepFor(d time.Duration) {
+func (c *Client) sleepForContext(ctx context.Context, d time.Duration) error {
 	if c.sleep != nil {
 		c.sleep(d)
-		return
+		if ctx != nil && ctx.Err() != nil {
+			return fmt.Errorf("sleep cancelled: %w", ctx.Err())
+		}
+		return nil
 	}
-	time.Sleep(d)
+	if ctx == nil {
+		time.Sleep(d)
+		return nil
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("sleep cancelled: %w", ctx.Err())
+	}
 }
 
 // decode unmarshals stdout into v. A failure returns parseError.

@@ -113,7 +113,7 @@ func watchCommandHelp() string {
 }
 
 func timeoutHelp() string {
-	return "How long watch waits, and how long queue --when-green waits when set (Go duration). Watch defaults to 30m. queue --when-green defaults to 2h"
+	return "How long watch waits, how long list waits when set, and how long queue --when-green waits when set (Go duration). Watch defaults to 30m. queue --when-green defaults to 2h"
 }
 
 func whenGreenHelp() string {
