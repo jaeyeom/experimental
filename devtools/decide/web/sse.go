@@ -12,6 +12,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/decide"
 	"github.com/jaeyeom/experimental/devtools/decide/inboxrpc"
+	"github.com/jaeyeom/experimental/devtools/decide/tui"
 )
 
 // subBuffer bounds the events queued for one client. A client that falls
@@ -327,21 +328,19 @@ func (s *Server) resyncBody(ev inboxrpc.WatchEvent, bus []byte) (map[string]any,
 	if inbox == nil {
 		inbox = []decide.InboxEntry{}
 	}
-	status := ev.Status
-	if status == nil {
-		board, err := s.Backend.Status()
-		if err != nil {
-			return nil, err //nolint:wrapcheck // the backend names its failure
-		}
-		status = &board
+	status, err := s.resyncStatus(ev)
+	if err != nil {
+		return nil, err
 	}
-	drafts, draftSeq := ev.Drafts, ev.DraftSeq
-	if drafts == nil {
-		if draftSeq, drafts, err = s.drafts(); err != nil {
-			return nil, err
-		}
+	draftSeq, drafts, err := s.resyncDrafts(ev)
+	if err != nil {
+		return nil, err
 	}
 	panels, err := s.resyncPanels(ev)
+	if err != nil {
+		return nil, err
+	}
+	dashPanels, err := s.dashboardPanels()
 	if err != nil {
 		return nil, err
 	}
@@ -358,19 +357,20 @@ func (s *Server) resyncBody(ev inboxrpc.WatchEvent, bus []byte) (map[string]any,
 		targets = []decide.ConfigTarget{}
 	}
 	body := map[string]any{
-		"seq":            ev.Seq,
-		"items":          items,
-		"inbox":          inbox,
-		"unreadCount":    decide.UnreadCount(open),
-		"status":         status,
-		"panels":         *panels,
-		"drafts":         drafts,
-		"draftSeq":       draftSeq,
-		"display":        display,
-		"busHealth":      json.RawMessage(bus),
-		"targets":        targets,
-		"agentbus":       s.Agentbus,
-		"orgTreeEnabled": orgOn,
+		"seq":             ev.Seq,
+		"items":           items,
+		"inbox":           inbox,
+		"unreadCount":     decide.UnreadCount(open),
+		"status":          status,
+		"panels":          *panels,
+		"dashboardPanels": dashPanels,
+		"drafts":          drafts,
+		"draftSeq":        draftSeq,
+		"display":         display,
+		"busHealth":       json.RawMessage(bus),
+		"targets":         targets,
+		"agentbus":        s.Agentbus,
+		"orgTreeEnabled":  orgOn,
 	}
 	if len(bus) == 0 {
 		body["busHealth"] = nil
@@ -393,4 +393,22 @@ func (s *Server) resyncPanels(ev inboxrpc.WatchEvent) (*[]decide.PanelEntry, err
 		return nil, err
 	}
 	return &loaded, nil
+}
+
+func (s *Server) resyncStatus(ev inboxrpc.WatchEvent) (*tui.StatusBoard, error) {
+	if ev.Status != nil {
+		return ev.Status, nil
+	}
+	board, err := s.Backend.Status()
+	if err != nil {
+		return nil, err //nolint:wrapcheck // the backend names its failure
+	}
+	return &board, nil
+}
+
+func (s *Server) resyncDrafts(ev inboxrpc.WatchEvent) (int64, []decide.Draft, error) {
+	if ev.Drafts != nil {
+		return ev.DraftSeq, ev.Drafts, nil
+	}
+	return s.drafts()
 }

@@ -97,6 +97,8 @@ type Options struct {
 	AnswerAction string
 	// OpenAt is new, last, or top. Empty is new.
 	OpenAt string
+	// DashboardPanels configures Status panel visibility and order.
+	DashboardPanels []decide.DashboardPanelConfig
 }
 
 // Run draws the inbox until q or EOF. It reloads the ledger on Interval,
@@ -231,6 +233,10 @@ func prepare(opts Options) (*Model, error) {
 	m.ASCIIKeys = opts.ASCIIKeys
 	m.answerAction = opts.AnswerAction
 	m.openAt = opts.OpenAt
+	if len(opts.DashboardPanels) > 0 {
+		m.dashboardPanels = append([]decide.DashboardPanelConfig(nil), opts.DashboardPanels...)
+		m.dashboardLoaded = true
+	}
 	if len(opts.Keys) > 0 {
 		km, err := decide.ResolveKeyMap(opts.Keys)
 		if err != nil {

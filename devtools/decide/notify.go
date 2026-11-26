@@ -267,6 +267,8 @@ type InboxUI struct {
 	// ASCIIKeys uses ASCII key labels (such as C-Enter) on buttons instead
 	// of Unicode symbols (such as ^⏎).
 	ASCIIKeys bool `json:"asciiKeys,omitempty"`
+	// Dashboard configures Status dashboard panel visibility and ordering.
+	Dashboard DashboardUI `json:"dashboard,omitempty"`
 }
 
 const (
@@ -639,6 +641,7 @@ func validateConfig(cfg Config) error {
 		func() error { return checkShapeConfig(cfg) },
 		func() error { _, err := parseRequireClassAfter(cfg.RequireClassAfter); return err },
 		func() error { _, err := ResolveKeyMap(cfg.UI.Keys); return err },
+		func() error { return checkDashboardConfig(cfg.UI.Dashboard) },
 	}
 	for _, fn := range checks {
 		if err := fn(); err != nil {

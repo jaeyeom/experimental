@@ -152,31 +152,34 @@ type Model struct {
 	linkPick     bool
 	// avatarPick is the avatar picker for avatarOwner. avatarCursor is
 	// the entry under the cursor and avatarTop the first row shown.
-	avatarPick   bool
-	avatarOwner  string
-	avatarCursor int
-	avatarTop    int
-	linkURL      string
-	mouseOn      bool
-	mouseSync    bool
-	interval     time.Duration
-	runErr       error
-	replyField   textarea.Model
-	free         textarea.Model
-	outcome      textarea.Model
-	noteField    textarea.Model
-	agents       []decide.AgentStatus
-	resources    []decide.ResourceStatus
-	panels       []decide.PanelEntry
-	panelsLoaded bool
-	panelEvents  <-chan []decide.PanelEntry
-	agentCursor  int
-	searching    bool
-	search       string
-	filter       string
-	listTotal    int
-	statusTotal  int
-	highlight    string
+	avatarPick      bool
+	avatarOwner     string
+	avatarCursor    int
+	avatarTop       int
+	linkURL         string
+	mouseOn         bool
+	mouseSync       bool
+	interval        time.Duration
+	runErr          error
+	replyField      textarea.Model
+	free            textarea.Model
+	outcome         textarea.Model
+	noteField       textarea.Model
+	agents          []decide.AgentStatus
+	resources       []decide.ResourceStatus
+	panels          []decide.PanelEntry
+	panelsLoaded    bool
+	panelEvents     <-chan []decide.PanelEntry
+	dashboardPanels []decide.DashboardPanelConfig
+	dashboardLoaded bool
+	panelCursor     int
+	agentCursor     int
+	searching       bool
+	search          string
+	filter          string
+	listTotal       int
+	statusTotal     int
+	highlight       string
 	// prior is the state from before /. folderItems and folderText are
 	// the unfiltered folder and its lowercase search text, so typing in
 	// the prompt filters without reading the ledger. folderTexts is that
@@ -567,7 +570,7 @@ func (m *Model) moveAgent(delta int) {
 func (m *Model) listLen() int {
 	switch m.mode {
 	case modeStatus:
-		return len(m.agents)
+		return m.statusListLen()
 	case modeContacts:
 		return len(m.visibleContacts())
 	default:
@@ -578,7 +581,7 @@ func (m *Model) listLen() int {
 func (m *Model) moveList(delta int) {
 	switch m.mode {
 	case modeStatus:
-		m.moveAgent(delta)
+		m.moveStatusCursor(delta)
 		return
 	case modeContacts:
 		m.moveContact(delta)
@@ -612,8 +615,7 @@ func (m *Model) jumpList(index int) {
 	}
 	switch m.mode {
 	case modeStatus:
-		m.agentCursor = index
-		m.revealAgentCursor()
+		m.jumpStatusCursor(index)
 		return
 	case modeContacts:
 		m.contactCursor = index
@@ -678,8 +680,10 @@ func (m *Model) listPage() int {
 
 func (m *Model) composeFromStatus() {
 	m.focusCompose()
-	if m.agentCursor >= 0 && m.agentCursor < len(m.agents) {
-		m.selectName(m.agents[m.agentCursor].Name)
+	if sp, ok := m.selectedStatusPanel(); ok && sp.id == decide.BuiltinPanelAgents && sp.enabled {
+		if m.agentCursor >= 0 && m.agentCursor < len(m.agents) {
+			m.selectName(m.agents[m.agentCursor].Name)
+		}
 	}
 }
 
@@ -691,12 +695,15 @@ func (m *Model) showStatus() error {
 	m.replySend = false
 	m.mode = modeStatus
 	m.scroll = 0
+	m.panelCursor = 0
 	m.agentCursor = 0
 	if err := m.loadStatus(); err != nil {
 		m.status = err.Error()
 		return nil
 	}
 	m.loadPanelsOnce()
+	m.loadDashboardConfigOnce()
+	m.clampStatusCursor()
 	m.status = "status"
 	return nil
 }
@@ -2016,31 +2023,10 @@ func (m *Model) statusMail(pane int) []screenLine {
 }
 
 func (m *Model) statusScreen(width int) []screenLine {
-	now := time.Now()
-	if m.Now != nil {
-		now = m.Now()
-	}
-	var lines []screenLine
-	panelLines := m.panelLines(width, now)
-	if len(m.agents) == 0 && len(m.resources) == 0 && len(panelLines) == 0 {
+	now := m.nowTime()
+	lines, _, _ := m.renderStatusPanels(width, now)
+	if len(lines) == 0 {
 		lines = append(lines, screenLine{text: m.emptyText("no status")})
-	} else {
-		useStyles()
-		if len(m.agents) > 0 {
-			lines = append(lines, m.agentTable(width, now)...)
-		}
-		if len(m.agents) > 0 && len(m.resources) > 0 {
-			lines = append(lines, screenLine{})
-		}
-		if len(m.resources) > 0 {
-			lines = append(lines, m.resourceTable(width, now)...)
-		}
-		if len(panelLines) > 0 {
-			if len(lines) > 0 {
-				lines = append(lines, screenLine{})
-			}
-			lines = append(lines, panelLines...)
-		}
 	}
 	_, limit := m.layoutBudget()
 	lines, m.scroll = clipLines(lines, m.scroll, limit)
@@ -2051,7 +2037,7 @@ func (m *Model) statusScreen(width int) []screenLine {
 	return lines
 }
 
-func (m *Model) agentTable(width int, now time.Time) []screenLine {
+func (m *Model) agentTable(width int, now time.Time, selected bool) []screenLine {
 	headers := []string{"agent", "state", "updated", "text"}
 	rows := make([][]string, len(m.agents))
 	loc := m.zone()
@@ -2060,7 +2046,7 @@ func (m *Model) agentTable(width int, now time.Time) []screenLine {
 	}
 	return styledStatusRows(headers, rows, width, func(i int) lipgloss.Style {
 		style := statusStyle(m.agents[i].UpdatedAt, now)
-		if i == m.agentCursor {
+		if selected && i == m.agentCursor {
 			return style.Reverse(true)
 		}
 		return style

@@ -161,6 +161,9 @@ func (m *Model) updateResult(msg tea.Msg) tea.Cmd {
 	case panelsUpdatedMsg:
 		m.panels = decide.ClonePanelEntries(msg.panels)
 		m.panelsLoaded = true
+		if m.mode == modeStatus {
+			m.clampStatusCursor()
+		}
 		return m.waitPanelCmd()
 	case configEditorDoneMsg:
 		m.finishConfigEdit(msg.err)

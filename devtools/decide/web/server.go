@@ -36,8 +36,9 @@ type Server struct {
 	OrgConfig func() (bool, string, error)
 	// KeyMap is the live keymap reader, returning the resolved keymap and
 	// whether ASCII button hints are configured. Nil resolves Config.UI.Keys.
-	KeyMap func() (*decide.KeyMap, bool, error)
-	Orgctl tui.OrgctlRunner
+	KeyMap          func() (*decide.KeyMap, bool, error)
+	DashboardConfig func() ([]decide.DashboardPanelConfig, error)
+	Orgctl          tui.OrgctlRunner
 	// FollowEvery is how often Serve follows up stale answers on the
 	// backend. Zero or negative disables it.
 	FollowEvery time.Duration

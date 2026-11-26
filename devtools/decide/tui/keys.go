@@ -128,6 +128,9 @@ func (m *Model) SetKeys(km *decide.KeyMap) {
 func keyStrokeFromTea(k tea.KeyMsg) (decide.KeyStroke, bool) {
 	if k.Type == tea.KeyRunes {
 		if len(k.Runes) == 1 {
+			if k.Runes[0] == ' ' {
+				return decide.KeyStroke{Key: "space", Alt: k.Alt}, true
+			}
 			return decide.KeyStroke{Key: string(k.Runes[0]), Alt: k.Alt}, true
 		}
 		return decide.KeyStroke{}, false
@@ -396,8 +399,8 @@ func (m *Model) runAction(action string) (bool, error) {
 		"detail.forward":       func() (bool, error) { m.forwardItem(); return false, nil },
 		"detail.outcome":       func() (bool, error) { m.beginOutcome(); return false, nil },
 		"detail.reply":         func() (bool, error) { m.focusReply(); return false, nil },
-		"status.next":          func() (bool, error) { m.moveAgent(1); return false, nil },
-		"status.prev":          func() (bool, error) { m.moveAgent(-1); return false, nil },
+		"status.next":          func() (bool, error) { m.moveStatusCursor(1); return false, nil },
+		"status.prev":          func() (bool, error) { m.moveStatusCursor(-1); return false, nil },
 		"status.pageDown":      func() (bool, error) { m.moveList(m.listPage()); return false, nil },
 		"status.pageUp":        func() (bool, error) { m.moveList(-m.listPage()); return false, nil },
 		"status.top":           func() (bool, error) { m.jumpList(0); return false, nil },
@@ -405,6 +408,9 @@ func (m *Model) runAction(action string) (bool, error) {
 		"status.back":          func() (bool, error) { m.backToList(); return false, nil },
 		"status.compose":       func() (bool, error) { m.composeFromStatus(); return false, nil },
 		"status.clearFilter":   func() (bool, error) { m.clearAgentFilter(); return false, nil },
+		"status.togglePanel":   func() (bool, error) { m.toggleSelectedPanel(); return false, nil },
+		"status.movePanelDown": func() (bool, error) { m.moveSelectedPanel(1); return false, nil },
+		"status.movePanelUp":   func() (bool, error) { m.moveSelectedPanel(-1); return false, nil },
 		"contacts.next":        func() (bool, error) { m.moveContact(1); return false, nil },
 		"contacts.prev":        func() (bool, error) { m.moveContact(-1); return false, nil },
 		"contacts.pageDown":    func() (bool, error) { m.moveList(m.listPage()); return false, nil },
@@ -948,6 +954,8 @@ func (m *Model) statusHelpLines() []string {
 	appendHelpLabeled(&lines, m.goToHelpLine(), "")
 	appendHelpLabeled(&lines, m.actionSlash("status.back"), " returns to the list")
 	appendHelpLabeled(&lines, m.actionSlash("status.compose"), " compose")
+	appendHelpLabeled(&lines, m.actionSlash("status.togglePanel"), " toggles the selected panel")
+	appendHelpLabeled(&lines, joinSlash(m.actionFirst("status.movePanelDown"), m.actionFirst("status.movePanelUp")), " moves the selected panel down/up")
 	lines = append(lines, m.composeHelpFooterLines(true)...)
 	appendHelpLabeled(&lines, m.actionSlash("search"), " filters as you type, esc restores, empty enter clears")
 	lines = append(lines, "shift+drag selects text")

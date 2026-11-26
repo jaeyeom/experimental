@@ -191,7 +191,7 @@ func TestSnapshot(t *testing.T) {
 	if m["seq"].(float64) < 1 {
 		t.Errorf("seq = %v", m["seq"])
 	}
-	for _, k := range []string{"status", "panels", "drafts", "draftSeq", "display", "targets", "agentbus", "busHealth", "orgTreeEnabled", "serverTime"} {
+	for _, k := range []string{"status", "panels", "dashboardPanels", "drafts", "draftSeq", "display", "targets", "agentbus", "busHealth", "orgTreeEnabled", "serverTime"} {
 		if _, ok := m[k]; !ok {
 			t.Errorf("snapshot lacks %q: %v", k, m)
 		}

@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import {
   recipientList, filterRecipients, sendBody, needsBusConfirm, composeDraftBody, composePlan, forwardPreview,
 } from './compose_model.js';
-import { isStale, ageLabel, agentRows, resourceRows, leaseLabel, panelRows } from './status_model.js';
+import {
+  isStale, ageLabel, formatUpdatedAgo, agentRows, resourceRows, leaseLabel, panelRows,
+  busHealthRows, resolveDashboardPanels, buildDashboardPanels, gaugeModel, chartModel,
+  tableSlice, formatUnknownText,
+} from './status_model.js';
 import {
   contactList, toggleFavorite, orgLayout, livenessLabel, detailRows,
 } from './contacts_model.js';
@@ -131,6 +135,144 @@ test('panel rows handle readable, stale, and unreadable panels', () => {
   assert.equal(rows[1].stale, true);
   assert.equal(rows[2].unreadable, true);
   assert.equal(rows[2].text, 'panel unreadable: bad.json');
+});
+
+test('dashboard ordering, built-in panels, and panel kind models', () => {
+  assert.equal(formatUpdatedAgo(ago(3 * 3600), now), 'updated 3h ago');
+  assert.equal(formatUpdatedAgo(ago(20), now), 'updated now');
+
+  const resolved = resolveDashboardPanels(
+    [{ id: 'ci', enabled: true, order: 0 }, { id: 'resources', enabled: false, order: 1 }],
+    ['agents', 'resources', 'bus-health', 'ci', 'extra'],
+  );
+  assert.deepEqual(resolved.map((r) => [r.id, r.enabled]), [
+    ['ci', true],
+    ['resources', false],
+    ['agents', true],
+    ['bus-health', true],
+    ['extra', true],
+  ]);
+
+  const built = buildDashboardPanels({
+    status: {
+      agents: [{ name: 'ada', state: 'working', text: 'coding', updatedAt: ago(10) }],
+      resources: [{ name: 'repo', availability: 'free', updatedAt: ago(10) }],
+    },
+    busHealth: { daemon: 'up', transport: 'down', problems: ['socket closed'] },
+    panels: [
+      { id: 'ci', title: 'CI', kind: 'Text', data: { text: 'green' }, updatedAt: ago(60), stale: false },
+      { id: 'extra', title: 'Extra', kind: 'Text', data: { text: 'hi' }, updatedAt: ago(60), stale: false },
+    ],
+    dashboardPanels: [
+      { id: 'ci', enabled: true, order: 0 },
+      { id: 'resources', enabled: false, order: 1 },
+    ],
+    now,
+  });
+  assert.deepEqual(built.map((p) => p.id), ['ci', 'agents', 'bus-health', 'extra']);
+  assert.deepEqual(busHealthRows({ daemon: 'up', transport: 'down', problems: ['x'] }), [
+    { label: 'daemon', value: 'up', state: 'ok' },
+    { label: 'transport', value: 'down', state: 'fail' },
+    { label: 'problem', value: 'x', state: 'fail' },
+  ]);
+  assert.equal(gaugeModel({ value: 80, max: 100, warn: 75, fail: 95, unit: '%' }).state, 'warn');
+  assert.equal(gaugeModel({ value: 96, max: 100, warn: 75, fail: 95, unit: '%' }).state, 'fail');
+  assert.equal(tableSlice({ columns: ['A'], rows: [[1], [2], [3], [4], [5], [6], [7]] }).more, 2);
+  assert.match(formatUnknownText({ k: 'v' }), /"k": "v"/);
+  const cm = chartModel({
+    series: [{ t: '2026-01-01T10:00:00Z', v: 10 }, { t: '2026-01-01T11:00:00Z', v: 50 }],
+    unit: '%',
+    limit: 100,
+    projection: { to: 100, at: '2026-01-01T13:00:00Z' },
+  });
+  assert.equal(cm.latest, 50);
+  assert.equal(cm.limit, 100);
+  assert.equal(cm.projection.at, '2026-01-01T13:00:00Z');
+});
+
+test('status view renders all panel kinds, unknown as Text, stale dimming, and built-in order', async () => {
+  class FakeEl {
+    constructor(tag) {
+      this.tagName = tag.toUpperCase();
+      this.attrs = {};
+      this.children = [];
+      this.textContent = '';
+    }
+    setAttribute(k, v) { this.attrs[k] = String(v); }
+    get className() { return this.attrs.class ?? ''; }
+    append(...nodes) {
+      for (const n of nodes) {
+        if (typeof n === 'string') this.children.push({ tagName: '#TEXT', textContent: n, children: [], attrs: {} });
+        else if (n != null) this.children.push(n);
+      }
+    }
+    replaceChildren(...nodes) { this.children = []; this.append(...nodes); }
+    walk(fn) { fn(this); for (const c of this.children) c.walk?.(fn); }
+    querySelectorAll(sel) {
+      const out = [];
+      this.walk((n) => {
+        if (sel === 'section.panel-card' && n.tagName === 'SECTION' && n.className.split(' ').includes('panel-card')) out.push(n);
+        if (sel === 'svg' && n.tagName.toUpperCase() === 'SVG') out.push(n);
+      });
+      return out;
+    }
+    allText() {
+      const parts = [];
+      this.walk((n) => { if (n.textContent) parts.push(n.textContent); });
+      return parts.join('\n');
+    }
+  }
+  const prevDoc = globalThis.document;
+  globalThis.document = {
+    createElement: (tag) => new FakeEl(tag),
+    createElementNS: (_ns, tag) => new FakeEl(tag),
+  };
+  try {
+    const { createStatusView } = await import('./status_view.js');
+    const root = new FakeEl('div');
+    const view = createStatusView({ root });
+    const threeHoursAgo = new Date(Date.now() - 3 * 3600 * 1000).toISOString();
+    const recent = new Date(Date.now() - 30 * 1000).toISOString();
+    view.render({
+      status: {
+        agents: [{ name: 'ada', state: 'working', text: 'fixing', updatedAt: recent }],
+        resources: [{ name: 'repo', availability: 'free', updatedAt: recent }],
+      },
+      busHealth: { daemon: 'up', transport: 'up' },
+      dashboardPanels: [
+        { id: 'p-text', enabled: true, order: 0 },
+        { id: 'resources', enabled: false, order: 1 },
+      ],
+      panels: [
+        { id: 'p-text', title: 'Note', kind: 'Text', data: { text: 'hello world' }, updatedAt: recent, stale: false },
+        { id: 'p-list', title: 'Checks', kind: 'List', data: { rows: [{ label: 'ci', value: 'pass', state: 'ok' }] }, updatedAt: recent, stale: false },
+        { id: 'p-gauge', title: 'CPU', kind: 'Gauge', data: { value: 82, max: 100, warn: 75, fail: 95, unit: '%' }, updatedAt: recent, stale: false },
+        { id: 'p-chart', title: 'Quota', kind: 'Chart', data: { series: [{ t: recent, v: 40 }], unit: '%', limit: 100, projection: { to: 100, at: '2026-11-26T20:00:00Z' } }, updatedAt: recent, stale: false },
+        { id: 'p-table', title: 'Runs', kind: 'Table', data: { columns: ['Job', 'State'], rows: [['1', 'ok'], ['2', 'ok'], ['3', 'ok'], ['4', 'ok'], ['5', 'ok'], ['6', 'fail']] }, updatedAt: recent, stale: false },
+        { id: 'p-unk', title: 'Widget', kind: 'Custom', data: { ok: true }, updatedAt: recent, stale: false },
+        { id: 'p-stale', title: 'Old Feed', kind: 'Text', data: { text: 'old' }, updatedAt: threeHoursAgo, stale: true },
+      ],
+    });
+
+    const cards = root.querySelectorAll('section.panel-card');
+    const ids = cards.map((c) => c.attrs['data-panel-id']);
+    assert.deepEqual(ids, ['p-text', 'agents', 'bus-health', 'p-list', 'p-gauge', 'p-chart', 'p-table', 'p-unk', 'p-stale']);
+    const staleCard = cards.find((c) => c.attrs['data-panel-id'] === 'p-stale');
+    assert.ok(staleCard.className.split(' ').includes('dim'));
+    const text = root.allText();
+    for (const want of [
+      'hello world', 'ci', 'pass', 'ok', '82/100% (82%)',
+      'latest 40%', 'limit 100%', 'projected 100% at 2026-11-26T20:00:00Z',
+      '+1 more', '"ok": true', 'stale · updated 3h ago',
+      'ada', 'fixing', 'Bus Health', 'daemon',
+    ]) {
+      assert.ok(text.includes(want), `missing ${want} in:\n${text}`);
+    }
+    assert.equal(text.includes('Resources and checkouts'), false);
+    assert.equal(root.querySelectorAll('svg').length, 2);
+  } finally {
+    globalThis.document = prevDoc;
+  }
 });
 
 // --- contacts ---

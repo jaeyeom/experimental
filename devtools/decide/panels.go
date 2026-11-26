@@ -59,7 +59,13 @@ type PanelKindValidator func(data json.RawMessage) error
 
 var (
 	panelKindMu         sync.RWMutex
-	panelKindValidators = map[string]PanelKindValidator{}
+	panelKindValidators = map[string]PanelKindValidator{
+		PanelKindText:  validatePanelText,
+		PanelKindList:  validatePanelList,
+		PanelKindGauge: validatePanelGauge,
+		PanelKindChart: validatePanelChart,
+		PanelKindTable: validatePanelTable,
+	}
 )
 
 // RegisterPanelKind registers a data validator for a known panel kind.

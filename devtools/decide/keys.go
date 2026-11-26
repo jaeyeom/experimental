@@ -370,6 +370,9 @@ func ActionCatalog() []ActionDef {
 		{Name: "status.back", View: "status", Scopes: []string{"status"}, Default: []string{"u"}, Description: "Back to the list.", Where: "status"},
 		{Name: "status.compose", View: "status", Scopes: []string{"status"}, Default: []string{"c"}, Description: "Compose a note to the selected agent.", Where: "status"},
 		{Name: "status.clearFilter", View: "status", Scopes: []string{"status"}, Default: []string{"esc"}, Description: "Clear the agent filter.", Where: "status"},
+		{Name: "status.togglePanel", View: "status", Scopes: []string{"status"}, Default: []string{"space"}, Description: "Toggle the selected panel on or off.", Where: "status"},
+		{Name: "status.movePanelDown", View: "status", Scopes: []string{"status"}, Default: []string{"J"}, Description: "Move the selected panel down.", Where: "status"},
+		{Name: "status.movePanelUp", View: "status", Scopes: []string{"status"}, Default: []string{"K"}, Description: "Move the selected panel up.", Where: "status"},
 
 		// Contacts view.
 		{Name: "contacts.next", View: "contacts", Scopes: []string{"contacts"}, Default: []string{"j"}, Description: "Move to the next contact.", Where: "contacts"},
@@ -788,6 +791,7 @@ func FormatReadmeKeyTable(km *KeyMap) string {
 		{formatKeys("contacts.hide") + " / " + formatKeys("contacts.showHidden") + " / " + formatKeys("contacts.hideDead") + " / " + formatKeys("contacts.release") + " / " + formatKeys("contacts.alias"), "contacts", "Hide, show hidden, hide dead, release, alias."},
 		{formatKeys("contacts.star"), "contacts, compose recipients", "Star or unstar the name. Starred names lead the list."},
 		{formatKeys("contacts.filter"), "contacts", "Filter every folder to that agent."},
+		{formatKeys("status.togglePanel") + " / " + formatKeys("status.movePanelDown") + " / " + formatKeys("status.movePanelUp"), "status", "Toggle the selected panel, or move it down or up."},
 		{formatKeys("outbox.discard"), "outbox, item", "Discard the selected outbox entry, failed or pending. A long one asks first."},
 		{formatKeys("compose.nextField") + " / " + formatKeys("compose.prevField"), "compose", "Move among recipient, text, and Send."},
 		{"~enter~", "compose", "Newline in the text. Send on the Send button."},

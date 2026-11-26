@@ -179,6 +179,28 @@ button.option .label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .rec-row[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 .rec-row[aria-pressed="true"] .muted { color: inherit; }
 .dim { opacity: .55; }
+.panel-card { border: 1px solid var(--border); border-radius: 8px; padding: .75rem 1rem; margin: .75rem 0; background: var(--surface); }
+.panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: .75rem; margin-bottom: .5rem; }
+.panel-head h3 { margin: 0; font-size: 1rem; }
+.panel-meta { color: var(--muted); font-size: .8rem; margin: .25rem 0 0; }
+.panel-text { margin: 0; background: transparent; padding: 0; }
+.panel-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .35rem; }
+.panel-row { display: flex; align-items: baseline; gap: .75rem; border-bottom: 1px solid var(--border); padding-bottom: .25rem; }
+.panel-row:last-child { border-bottom: 0; padding-bottom: 0; }
+.panel-label { color: var(--muted); min-width: 7rem; }
+.panel-value { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.state-badge { font-family: var(--mono); font-size: .75rem; border: 1px solid currentColor; border-radius: 999px; padding: 0 .45rem; }
+.state-ok { color: var(--c-T); fill: var(--c-T); }
+.state-warn { color: var(--c-Q); fill: var(--c-Q); }
+.state-fail { color: var(--danger); fill: var(--danger); }
+.panel-gauge { display: flex; align-items: center; gap: .75rem; }
+.gauge-svg { width: 12rem; height: .65rem; flex: none; }
+.gauge-track { fill: var(--border); }
+.chart-svg { width: 100%; max-width: 24rem; height: 4rem; display: block; }
+.chart-line { stroke: var(--accent); stroke-width: 2; }
+.chart-limit { stroke: var(--c-Q); stroke-width: 1; stroke-dasharray: 4 3; }
+.chart-proj { stroke: var(--danger); stroke-width: 1.5; stroke-dasharray: 3 3; }
+.panel-more { margin: .35rem 0 0; font-size: .85rem; }
 .table-wrap { overflow-x: auto; }
 .board { border-collapse: collapse; width: 100%; }
 .board th, .board td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }

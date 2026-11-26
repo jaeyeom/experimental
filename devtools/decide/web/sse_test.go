@@ -119,7 +119,7 @@ func TestEventsResyncThenDelta(t *testing.T) {
 	if f.event != "resync" || f.id == "" {
 		t.Fatalf("first frame = %+v", f)
 	}
-	for _, k := range []string{"seq", "items", "inbox", "unreadCount", "status", "panels", "drafts", "draftSeq", "display", "busHealth", "targets", "agentbus", "orgTreeEnabled"} {
+	for _, k := range []string{"seq", "items", "inbox", "unreadCount", "status", "panels", "dashboardPanels", "drafts", "draftSeq", "display", "busHealth", "targets", "agentbus", "orgTreeEnabled"} {
 		if _, ok := f.data[k]; !ok {
 			t.Errorf("resync lacks %q", k)
 		}

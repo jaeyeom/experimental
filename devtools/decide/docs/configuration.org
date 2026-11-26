@@ -51,6 +51,7 @@ missing file is an empty config. Keys you do not set keep the default.
 | ~ui.maxParagraphLines~  | 3                           | Most consecutive non-bullet lines in author text. 0 turns the check off.       |
 | ~ui.maxMessageChars~    | 1200                        | Longest author message in characters. 0 turns the check off.                   |
 | ~ui.keys~               | defaults                    | Map of action name to key list. Empty list unbinds.                            |
+| ~ui.dashboard.panels~   | all enabled                 | List of ~{id, enabled, order}~ entries controlling Status panel order and visibility. |
 | ~web.addr~              | ~127.0.0.1:8787~            | ~decide web~ listen address.                                                   |
 | ~web.publicUrl~         | empty                       | HTTPS address people open. Used for the same-origin check.                     |
 | ~web.auth.mode~         | ~none~                      | ~none~ or ~token~. ~none~ is refused off loopback.                             |
@@ -103,7 +104,8 @@ Action names are grouped by view:
   ~detail.compose~, ~detail.forward~, ~detail.outcome~, ~detail.reply~
 - ~status~: ~status.next~, ~status.prev~, ~status.pageDown~,
   ~status.pageUp~, ~status.top~, ~status.bottom~, ~status.back~,
-  ~status.compose~, ~status.clearFilter~
+  ~status.compose~, ~status.clearFilter~, ~status.togglePanel~,
+  ~status.movePanelDown~, ~status.movePanelUp~
 - ~contacts~: ~contacts.next~, ~contacts.prev~, ~contacts.pageDown~,
   ~contacts.pageUp~, ~contacts.top~, ~contacts.bottom~,
   ~contacts.back~, ~contacts.filter~, ~contacts.clearFilter~,

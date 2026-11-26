@@ -1,0 +1,42 @@
+[1m┌──────────────────────────────────────────────────────────────────────────────────────────────────┐[0m
+│Inbox       0 [1m> Deploy Note[0m  [90mupdated 2m ago[0m                                                       │
+│Snoozed     0   All services healthy on main.                                                     │
+│Answered    0                                                                                     │
+│Done        0   Checks  [90mupdated 2m ago[0m                                                            │
+│Withdrawn   0   lint    passed  [32m[ok][0m                                                              │
+│[Status]        canary  slow  [33m[warn][0m                                                              │
+│Contacts    0   smoke   timeout  [31m[fail][0m                                                           │
+│Settings                                                                                          │
+│                Disk Usage  [90mupdated 2m ago[0m                                                        │
+│                [[33m████████████████[0m░░░░] 82/100% (82%)                                              │
+│                                                                                                  │
+│                Quota Burn  [90mupdated 2m ago[0m                                                        │
+│                ▁▃▅  latest 70% (min 20, max 100)                                                 │
+│                limit 100%  ·  projected 100% at today 16:30 · in 1h                              │
+│                                                                                                  │
+│                Recent Runs  [90mupdated 2m ago[0m                                                       │
+│                Job     Status                                                                    │
+│                build-1 ok                                                                        │
+│                build-2 ok                                                                        │
+│                build-3 ok                                                                        │
+│                build-4 ok                                                                        │
+│                build-5 ok                                                                        │
+│                +2 more                                                                           │
+│                                                                                                  │
+│                Custom Widget  [90mupdated 2m ago[0m                                                     │
+│                {                                                                                 │
+│                  "alpha": 1,                                                                     │
+│                  "beta": "two"                                                                   │
+│                }                                                                                 │
+│                                                                                                  │
+│              [2m  Stale Feed  stale · updated 3h ago[0m                                                │
+│              [2m  Old snapshot[0m                                                                      │
+│status  mouse on  g go to  u list  c  tab/text/[Send]  /find  ? help                              │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+[1m└──────────────────────────────────────────────────────────────────────────────────────────────────┘[0m

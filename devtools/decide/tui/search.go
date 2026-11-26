@@ -241,7 +241,8 @@ func (m *Model) applyQuery(q string) {
 			m.status = err.Error()
 		}
 		m.scroll = 0
-		m.revealAgentCursor()
+		m.clampStatusCursor()
+		m.revealStatusCursor()
 	case modeContacts:
 		m.filter = q
 		m.scroll = 0

@@ -134,6 +134,11 @@ func (s *Server) snapshot(w http.ResponseWriter, _ *http.Request) {
 		fail(w, err, http.StatusInternalServerError)
 		return
 	}
+	dashPanels, err := s.dashboardPanels()
+	if err != nil {
+		fail(w, err, http.StatusInternalServerError)
+		return
+	}
 	orgOn, _, err := s.orgEnabled()
 	if err != nil {
 		fail(w, err, http.StatusInternalServerError)
@@ -152,20 +157,21 @@ func (s *Server) snapshot(w http.ResponseWriter, _ *http.Request) {
 		targets = []decide.ConfigTarget{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"seq":            seq,
-		"items":          items,
-		"inbox":          inbox,
-		"unreadCount":    decide.UnreadCount(open),
-		"status":         board,
-		"panels":         panels,
-		"drafts":         drafts,
-		"draftSeq":       draftSeq,
-		"display":        display,
-		"targets":        targets,
-		"agentbus":       s.Agentbus,
-		"busHealth":      health,
-		"orgTreeEnabled": orgOn,
-		"serverTime":     s.now().UTC().Format(time.RFC3339Nano),
+		"seq":             seq,
+		"items":           items,
+		"inbox":           inbox,
+		"unreadCount":     decide.UnreadCount(open),
+		"status":          board,
+		"panels":          panels,
+		"dashboardPanels": dashPanels,
+		"drafts":          drafts,
+		"draftSeq":        draftSeq,
+		"display":         display,
+		"targets":         targets,
+		"agentbus":        s.Agentbus,
+		"busHealth":       health,
+		"orgTreeEnabled":  orgOn,
+		"serverTime":      s.now().UTC().Format(time.RFC3339Nano),
 	})
 }
 
@@ -187,13 +193,38 @@ func (s *Server) panels() ([]decide.PanelEntry, error) {
 	return list, nil
 }
 
+func (s *Server) dashboardPanels() ([]decide.DashboardPanelConfig, error) {
+	var list []decide.DashboardPanelConfig
+	if s.DashboardConfig != nil {
+		var err error
+		list, err = s.DashboardConfig()
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		list = s.Config.UI.Dashboard.Panels
+	}
+	if list == nil {
+		list = []decide.DashboardPanelConfig{}
+	}
+	return list, nil
+}
+
 func (s *Server) getPanels(w http.ResponseWriter, _ *http.Request) {
 	list, err := s.panels()
 	if err != nil {
 		fail(w, err, http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"panels": list})
+	dashPanels, err := s.dashboardPanels()
+	if err != nil {
+		fail(w, err, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"panels":          list,
+		"dashboardPanels": dashPanels,
+	})
 }
 
 func (s *Server) drafts() (int64, []decide.Draft, error) {

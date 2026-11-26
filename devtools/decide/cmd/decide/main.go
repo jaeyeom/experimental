@@ -880,6 +880,7 @@ func inboxOptions(cfg decide.Config, stdout io.Writer, snoozed bool) tui.Options
 		ASCIIKeys:         cfg.UI.ASCIIKeys,
 		AnswerAction:      cfg.UI.AnswerAction,
 		OpenAt:            cfg.UI.OpenAt,
+		DashboardPanels:   cfg.UI.Dashboard.Panels,
 	}
 }
 

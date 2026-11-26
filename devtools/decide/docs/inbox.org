@@ -50,6 +50,7 @@ navigation only and never change data.
 | ~x~ / ~H~ / ~X~ / ~R~ / ~a~           | contacts                     | Hide, show hidden, hide dead, release, alias.                                |
 | ~*~                                   | contacts, compose recipients | Star or unstar the name. Starred names lead the list.                        |
 | ~enter~                               | contacts                     | Filter every folder to that agent.                                           |
+| ~space~ / ~J~ / ~K~                   | status                       | Toggle the selected panel, or move it down or up.                            |
 | ~x~                                   | outbox, item                 | Discard the selected outbox entry, failed or pending. A long one asks first. |
 | ~tab~ / ~shift+tab~                   | compose                      | Move among recipient, text, and Send.                                        |
 | ~enter~                               | compose                      | Newline in the text. Send on the Send button.                                |

@@ -105,6 +105,8 @@ func (m *Model) showSettings() error {
 	m.settingsEditBuf = ""
 	m.mode = modeSettings
 	m.scroll = 0
+	m.loadPanelsOnce()
+	m.loadDashboardConfigOnce()
 	m.clampSettingsCursor()
 	m.status = ""
 	return nil
@@ -237,6 +239,8 @@ func (m *Model) applyConfig(cfg decide.Config) {
 	m.OutboxStaleAfter = cfg.OutboxStaleAfter()
 	m.archiveGrace = cfg.ArchiveGrace()
 	m.healthEvery = cfg.BusHealthInterval()
+	m.dashboardPanels = cfg.UI.Dashboard.Panels
+	m.dashboardLoaded = true
 	if km, err := decide.ResolveKeyMap(cfg.UI.Keys); err == nil {
 		m.SetKeys(km)
 	}
@@ -438,6 +442,8 @@ func (m *Model) settingsScreen(width int) []screenLine {
 		lines = append(lines, screenLine{text: line})
 	}
 	lines = append(lines, screenLine{text: ""})
+	lines = append(lines, m.settingsDashboardPanelLines()...)
+	lines = append(lines, screenLine{text: ""})
 	lines = append(lines, m.settingsFooterLines()...)
 	_, limit := m.layoutBudget()
 	lines, m.scroll = clipLines(lines, m.scroll, limit)
@@ -476,6 +482,34 @@ func (m *Model) settingsFooterLines() []screenLine {
 		ver = version.Resolve()
 	}
 	lines = append(lines, screenLine{text: "  version: " + ver})
+	return lines
+}
+
+func (m *Model) settingsDashboardPanelLines() []screenLine {
+	m.loadPanelsOnce()
+	m.loadDashboardConfigOnce()
+	resolved := decide.ResolveDashboardPanels(m.dashboardPanels, m.allDashboardPanelIDs())
+	titles := map[string]string{}
+	for _, p := range m.panels {
+		if p.ID != "" && p.Title != "" {
+			titles[p.ID] = p.Title
+		}
+	}
+	lines := []screenLine{
+		{text: boldOn + "Dashboard panels" + boldOff + "  (Status: space toggle, J/K reorder)"},
+	}
+	for _, st := range resolved {
+		state := "enabled"
+		if !st.Enabled {
+			state = "disabled"
+		}
+		title := titles[st.ID]
+		if title == "" {
+			title = decide.BuiltinPanelTitle(st.ID)
+		}
+		line := fmt.Sprintf("  %d. %-16s  %-8s  %s", st.Order+1, st.ID, state, title)
+		lines = append(lines, screenLine{text: line})
+	}
 	return lines
 }
 

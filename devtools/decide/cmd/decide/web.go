@@ -49,6 +49,7 @@ func cmdWeb(args []string, stdout, stderr io.Writer) int {
 		Display:             localDisplay,
 		OrgConfig:           localOrgConfig,
 		KeyMap:              localKeyMap,
+		DashboardConfig:     localDashboardConfig,
 		Orgctl:              tui.ExecOrgctl,
 		Targets:             cfg.Targets,
 		Agentbus:            cfg.Recipients.Agentbus,
@@ -70,6 +71,14 @@ func cmdWeb(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err, 1)
 	}
 	return 0
+}
+
+func localDashboardConfig() ([]decide.DashboardPanelConfig, error) {
+	cfg, err := decide.LoadConfig()
+	if err != nil {
+		return nil, err //nolint:wrapcheck // LoadConfig names the config path
+	}
+	return cfg.UI.Dashboard.Panels, nil
 }
 
 func cmdWebSetup(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
