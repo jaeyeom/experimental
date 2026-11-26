@@ -96,8 +96,14 @@ refuses and asks for the user id. ~im:write~ is not used.
      makes the record ~rejected~ and alerts the owner and
      ~fallbackTarget~.
      The owner can submit the draft again with ~--supersedes <id>~.
-   - A decide item closed or withdrawn before an accepted pick makes
-     the record ~cancelled~.
+   - A decide item closed (~done~ or ~done-unread~) without an
+     accepted ~yes~ pick made before ~doneAt~ (or whose latest human
+     message is ~no~, free text, or not before ~doneAt~) makes the
+     record ~cancelled~; a valid ~yes~ pick made before ~doneAt~ still
+     posts as usual.
+   - A ~withdrawn~ decide item always makes the record ~cancelled~,
+     even after a ~yes~ pick (withdrawal is the owner retracting the
+     request).
    - Every outcome closes the decide item with ~decide done~, except
      ~failed~ and ~mismatch~, which leave it open so the user sees them.
 5. *Post.*
@@ -258,7 +264,7 @@ returned it. The stored reason stays the Slack error.
 | ~dropped~ | Answered ~drop~. |
 | ~rejected~ | Not posted: the user's latest pick was not a ~post~ from the decide UI, or the text changed. |
 | ~mismatch~ | The handoff post differs from the approved text, author, or destination. |
-| ~cancelled~ | Withdrawn with ~outbox cancel~, its decide item was closed without an answer, or its post was deleted (~outbox recheck~). ~status~ does not count it. |
+| ~cancelled~ | Withdrawn with ~outbox cancel~, its decide item was withdrawn or closed without an accepted pick before ~doneAt~, or its post was deleted (~outbox recheck~). ~status~ does not count it. |
 | ~failed~ | ~decide ask~ or ~chat.postMessage~ failed. ~outbox retry~, or a new ~post~ pick in its decide item, resumes it. |
 
 ~status~ shows the posting mode and counts the ~pending~,

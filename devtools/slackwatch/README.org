@@ -316,7 +316,7 @@ Outbox events carry their own ~SLACKWATCH_MESSAGE~:
 | ~outbox-ready~ | ~post.agent~ | A handoff post was approved: ~approved post ready: <id>~. |
 | ~outbox-redraft~ | owner | The user answered with notes; ~SLACKWATCH_TEXT~ holds them. |
 | ~outbox-dropped~ | owner | The user answered ~drop~. |
-| ~outbox-cancelled~ | owner | The decide item was closed without an answer. |
+| ~outbox-cancelled~ | owner | The decide item was withdrawn, or closed without an accepted pick before ~doneAt~. |
 | ~outbox-options~ | owner | ~post~ and ~drop~ were missing; slackwatch re-attached them. |
 | ~outbox-rejected~ | owner and fallback | The answer did not pass the acceptance rule. |
 | ~outbox-mismatch~ | owner and fallback | A handoff post differs from the approved text. |
@@ -698,7 +698,7 @@ does not send a new message.
 | ~dropped~ | Answered ~drop~. |
 | ~rejected~ | Not posted: the user's latest pick was not a ~post~ from the decide UI, or the text changed. |
 | ~mismatch~ | The handoff post differs from the approved text, author, or destination. |
-| ~cancelled~ | Withdrawn with ~outbox cancel~, its decide item was closed without an answer, or its post was deleted (~outbox recheck~). ~status~ does not count it. |
+| ~cancelled~ | Withdrawn with ~outbox cancel~, its decide item was withdrawn or closed without an accepted pick before ~doneAt~, or its post was deleted (~outbox recheck~). ~status~ does not count it. |
 | ~failed~ | ~decide ask~ or ~chat.postMessage~ failed. ~outbox retry~, or a new ~post~ pick in its decide item, resumes it. |
 
 ~status~ shows the posting mode and counts the ~pending~,

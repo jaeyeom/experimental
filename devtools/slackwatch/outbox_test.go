@@ -634,9 +634,318 @@ func TestDoneUnreadDecideItemCancels(t *testing.T) {
 	r := f.submit(t)
 	f.dec.items[r.DecideID].State = "done-unread"
 	f.poll(t)
-	if got := f.get(t, r.ID); got.State != OutboxCancelled {
-		t.Errorf("state = %s, want cancelled", got.State)
+	if got := f.get(t, r.ID); got.State != OutboxCancelled || got.Reason != "the user has not answered" {
+		t.Errorf("record = %+v, want cancelled with 'the user has not answered'", got)
 	}
+}
+
+func TestClosedDecideItemWithAcceptedPostPickPosts(t *testing.T) {
+	pickAt := testNow()
+	doneAt := pickAt.Add(4 * time.Second)
+
+	t.Run("direct done closes quietly", func(t *testing.T) {
+		f := newOutboxFixture(t, PostModeDirect)
+		f.reader.msg = Message{User: expectUser, Text: postedBody()}
+		r := f.submit(t)
+		f.dec.at = pickAt
+		f.dec.answer(r.DecideID, uiPost)
+		it := f.dec.items[r.DecideID]
+		it.State = decideDone
+		it.DoneAt = doneAt
+
+		f.poll(t)
+		got := f.get(t, r.ID)
+		if got.State != OutboxPosted || !got.DecideClosed || len(f.writer.posts) != 1 {
+			t.Fatalf("record = %+v, posts = %d", got, len(f.writer.posts))
+		}
+		if len(f.dec.replies) != 0 {
+			t.Fatalf("replies = %q, want none in quiet mode", f.dec.replies)
+		}
+	})
+
+	t.Run("direct done-unread closes quietly with outcome", func(t *testing.T) {
+		f := newOutboxFixture(t, PostModeDirect)
+		f.reader.msg = Message{User: expectUser, Text: postedBody()}
+		r := f.submit(t)
+		f.dec.at = pickAt
+		f.dec.answer(r.DecideID, uiPost)
+		it := f.dec.items[r.DecideID]
+		it.State = decideDoneUnread
+		it.DoneAt = doneAt
+
+		f.poll(t)
+		got := f.get(t, r.ID)
+		if got.State != OutboxPosted || !got.DecideClosed || len(f.writer.posts) != 1 {
+			t.Fatalf("record = %+v, posts = %d", got, len(f.writer.posts))
+		}
+		wantMsg := "Posted to #general.\n\n- " + got.Permalink
+		want := []string{"done-quiet: " + wantMsg}
+		if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
+			t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
+		}
+	})
+
+	t.Run("direct done with successReply reply keeps reply then done order", func(t *testing.T) {
+		f := newOutboxFixture(t, PostModeDirect)
+		f.ob.Config.Post.SuccessReply = PostSuccessReplyReply
+		f.reader.msg = Message{User: expectUser, Text: postedBody()}
+		r := f.submit(t)
+		f.dec.at = pickAt
+		f.dec.answer(r.DecideID, uiPost)
+		it := f.dec.items[r.DecideID]
+		it.State = decideDone
+		it.DoneAt = doneAt
+
+		f.poll(t)
+		got := f.get(t, r.ID)
+		if got.State != OutboxPosted || !got.DecideClosed || len(f.writer.posts) != 1 {
+			t.Fatalf("record = %+v, posts = %d", got, len(f.writer.posts))
+		}
+		wantMsg := "Posted to #general.\n\n- " + got.Permalink
+		want := []string{"reply: " + wantMsg, "done: " + wantMsg}
+		if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
+			t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
+		}
+	})
+
+	t.Run("handoff done moves to awaiting-handoff", func(t *testing.T) {
+		f := newOutboxFixture(t, PostModeHandoff)
+		r := f.submit(t)
+		f.dec.at = pickAt
+		f.dec.answer(r.DecideID, uiPost)
+		it := f.dec.items[r.DecideID]
+		it.State = decideDone
+		it.DoneAt = doneAt
+
+		f.poll(t)
+		got := f.get(t, r.ID)
+		if got.State != OutboxAwaitingHandoff {
+			t.Fatalf("record = %+v, want awaiting-handoff", got)
+		}
+		if ev := f.events(); len(ev) != 1 || ev[0] != EventOutboxReady+">poster" {
+			t.Fatalf("events = %v, want ready", ev)
+		}
+	})
+}
+
+func TestWithdrawnAfterPostPickCancels(t *testing.T) {
+	f := newOutboxFixture(t, PostModeDirect)
+	r := f.submit(t)
+	pickAt := testNow()
+	f.dec.at = pickAt
+	f.dec.answer(r.DecideID, uiPost)
+	it := f.dec.items[r.DecideID]
+	it.State = decideWithdrawn
+	it.WithdrawnAt = pickAt.Add(4 * time.Second)
+
+	f.poll(t)
+	got := f.get(t, r.ID)
+	if got.State != OutboxCancelled || !got.DecideClosed {
+		t.Fatalf("record = %+v, want cancelled with decideClosed", got)
+	}
+	if !strings.Contains(got.Reason, "withdrawn") {
+		t.Errorf("reason = %q, want it to name withdrawal", got.Reason)
+	}
+	if len(f.writer.posts) != 0 {
+		t.Errorf("posts = %+v, want none", f.writer.posts)
+	}
+	if ev := f.events(); len(ev) != 1 || ev[0] != EventOutboxCancelled+">agent-1" {
+		t.Errorf("events = %v, want outbox-cancelled to agent-1", ev)
+	}
+}
+
+func TestClosedDecideItemCancelCases(t *testing.T) {
+	base := testNow()
+	for _, tc := range []struct {
+		name       string
+		setup      func(t *testing.T, f *outboxFixture, r OutboxRecord)
+		wantReason string
+	}{
+		{
+			name: "done with no answer",
+			setup: func(_ *testing.T, f *outboxFixture, r OutboxRecord) {
+				it := f.dec.items[r.DecideID]
+				it.State = decideDone
+				it.DoneAt = base.Add(4 * time.Second)
+			},
+			wantReason: "the user has not answered",
+		},
+		{
+			name: "post pick then free text then done",
+			setup: func(_ *testing.T, f *outboxFixture, r OutboxRecord) {
+				f.dec.at = base
+				f.dec.answer(r.DecideID, uiPost)
+				f.dec.at = base.Add(2 * time.Second)
+				f.dec.answer(r.DecideID, DecideAnswer{Value: "wait, say tomorrow", AnsweredBy: "human", Via: "ui"})
+				it := f.dec.items[r.DecideID]
+				it.State = decideDone
+				it.DoneAt = base.Add(4 * time.Second)
+			},
+			wantReason: "the user's latest message is free text, not a post pick",
+		},
+		{
+			name: "post pick then drop then done",
+			setup: func(_ *testing.T, f *outboxFixture, r OutboxRecord) {
+				f.dec.at = base
+				f.dec.answer(r.DecideID, uiPost)
+				f.dec.at = base.Add(2 * time.Second)
+				f.dec.answer(r.DecideID, DecideAnswer{Value: "no", Key: "no", AnsweredBy: "human", Via: "ui"})
+				it := f.dec.items[r.DecideID]
+				it.State = decideDone
+				it.DoneAt = base.Add(4 * time.Second)
+			},
+			wantReason: "drop",
+		},
+		{
+			name: "post pick after doneAt",
+			setup: func(_ *testing.T, f *outboxFixture, r OutboxRecord) {
+				it := f.dec.items[r.DecideID]
+				it.State = decideDone
+				it.DoneAt = base
+				f.dec.at = base.Add(4 * time.Second)
+				f.dec.answer(r.DecideID, uiPost)
+				it.State = decideDone
+			},
+			wantReason: "after the decide item closed",
+		},
+		{
+			name: "post pick equal to doneAt",
+			setup: func(_ *testing.T, f *outboxFixture, r OutboxRecord) {
+				f.dec.at = base
+				f.dec.answer(r.DecideID, uiPost)
+				it := f.dec.items[r.DecideID]
+				it.State = decideDone
+				it.DoneAt = base
+			},
+			wantReason: "not made before the decide item closed",
+		},
+		{
+			name: "post pick with zero message timestamp",
+			setup: func(_ *testing.T, f *outboxFixture, r OutboxRecord) {
+				f.dec.at = time.Time{}
+				f.dec.answer(r.DecideID, uiPost)
+				it := f.dec.items[r.DecideID]
+				it.State = decideDone
+				it.DoneAt = base.Add(4 * time.Second)
+			},
+			wantReason: "no timestamp",
+		},
+		{
+			name: "done without doneAt",
+			setup: func(_ *testing.T, f *outboxFixture, r OutboxRecord) {
+				f.dec.at = base
+				f.dec.answer(r.DecideID, uiPost)
+				it := f.dec.items[r.DecideID]
+				it.State = decideDone
+			},
+			wantReason: "no close time",
+		},
+		{
+			name: "cli post pick before doneAt",
+			setup: func(_ *testing.T, f *outboxFixture, r OutboxRecord) {
+				f.dec.at = base
+				f.dec.answer(r.DecideID, DecideAnswer{Value: "yes", Key: "yes", AnsweredBy: "human", Via: "cli"})
+				it := f.dec.items[r.DecideID]
+				it.State = decideDone
+				it.DoneAt = base.Add(4 * time.Second)
+			},
+			wantReason: `came via "cli"`,
+		},
+		{
+			name: "changed hash before doneAt",
+			setup: func(t *testing.T, f *outboxFixture, r OutboxRecord) {
+				t.Helper()
+				if _, err := f.store.DB().Exec(`UPDATE outbox SET text = 'changed' WHERE id = ?`, r.ID); err != nil {
+					t.Fatal(err)
+				}
+				f.dec.at = base
+				f.dec.answer(r.DecideID, uiPost)
+				it := f.dec.items[r.DecideID]
+				it.State = decideDone
+				it.DoneAt = base.Add(4 * time.Second)
+			},
+			wantReason: "no longer matches its hash",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newOutboxFixture(t, PostModeDirect)
+			r := f.submit(t)
+			tc.setup(t, f, r)
+			f.poll(t)
+			got := f.get(t, r.ID)
+			if got.State != OutboxCancelled || !got.DecideClosed {
+				t.Fatalf("record = %+v, want cancelled with decideClosed", got)
+			}
+			if !strings.Contains(got.Reason, tc.wantReason) {
+				t.Errorf("reason = %q, want substring %q", got.Reason, tc.wantReason)
+			}
+			if len(f.writer.posts) != 0 {
+				t.Errorf("posts = %+v, want none", f.writer.posts)
+			}
+			if ev := f.events(); len(ev) != 1 || ev[0] != EventOutboxCancelled+">agent-1" {
+				t.Errorf("events = %v, want outbox-cancelled to agent-1", ev)
+			}
+		})
+	}
+}
+
+func TestManualPostedRespectsClosedDecideState(t *testing.T) {
+	base := testNow()
+
+	t.Run("done after post pick succeeds", func(t *testing.T) {
+		f := newOutboxFixture(t, PostModeHandoff)
+		r := f.submit(t)
+		f.dec.at = base
+		f.dec.answer(r.DecideID, uiPost)
+		it := f.dec.items[r.DecideID]
+		it.State = decideDone
+		it.DoneAt = base.Add(4 * time.Second)
+		f.reader.msg = Message{User: expectUser, Text: approvedText}
+
+		got, err := f.ob.PostedManual(context.Background(), r.ID, postedLink)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.State != OutboxPosted || !got.Manual {
+			t.Fatalf("record = %+v", got)
+		}
+	})
+
+	t.Run("withdrawn after post pick refuses", func(t *testing.T) {
+		f := newOutboxFixture(t, PostModeHandoff)
+		r := f.submit(t)
+		f.dec.at = base
+		f.dec.answer(r.DecideID, uiPost)
+		it := f.dec.items[r.DecideID]
+		it.State = decideWithdrawn
+		it.WithdrawnAt = base.Add(4 * time.Second)
+
+		_, err := f.ob.PostedManual(context.Background(), r.ID, postedLink)
+		if err == nil || !strings.Contains(err.Error(), "withdrawn") {
+			t.Fatalf("err = %v, want withdrawn refusal", err)
+		}
+		if f.reader.calls != 0 {
+			t.Errorf("read back %d times, want 0", f.reader.calls)
+		}
+	})
+
+	t.Run("post pick after doneAt refuses", func(t *testing.T) {
+		f := newOutboxFixture(t, PostModeHandoff)
+		r := f.submit(t)
+		f.dec.at = base.Add(4 * time.Second)
+		f.dec.answer(r.DecideID, uiPost)
+		it := f.dec.items[r.DecideID]
+		it.State = decideDone
+		it.DoneAt = base
+
+		_, err := f.ob.PostedManual(context.Background(), r.ID, postedLink)
+		if err == nil || !strings.Contains(err.Error(), "after the decide item closed") {
+			t.Fatalf("err = %v, want after-close refusal", err)
+		}
+		if f.reader.calls != 0 {
+			t.Errorf("read back %d times, want 0", f.reader.calls)
+		}
+	})
 }
 
 func TestCancel(t *testing.T) {

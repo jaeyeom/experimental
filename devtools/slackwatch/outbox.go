@@ -366,11 +366,13 @@ type DecideOption struct {
 // acceptance rule reads Messages, not Answer, which a later free-text
 // message replaces. Options are the choices still on the open item.
 type DecideItem struct {
-	ID       string          `json:"id"`
-	State    string          `json:"state"`
-	Answer   *DecideAnswer   `json:"answer"`
-	Options  []DecideOption  `json:"options,omitempty"`
-	Messages []DecideMessage `json:"messages"`
+	ID          string          `json:"id"`
+	State       string          `json:"state"`
+	Answer      *DecideAnswer   `json:"answer"`
+	Options     []DecideOption  `json:"options,omitempty"`
+	Messages    []DecideMessage `json:"messages"`
+	DoneAt      time.Time       `json:"doneAt,omitempty"`
+	WithdrawnAt time.Time       `json:"withdrawnAt,omitempty"`
 }
 
 // Decider files, reads, and closes decide items. DecideCLI is the real
@@ -1619,6 +1621,9 @@ func acceptance(r OutboxRecord, it DecideItem) (m DecideMessage, ok bool, refusa
 }
 
 // process applies the acceptance rule to a pending record.
+// For a closed decide item, a withdrawn item always cancels, while a
+// done or done-unread item still posts when acceptance passes and the
+// post pick was made before doneAt.
 func (o *Outbox) process(ctx context.Context, cfg Config, r OutboxRecord) error {
 	if r.SchemaVersion > OutboxSchemaVersion {
 		return o.notifyNewerSchema(ctx, r)
@@ -1627,34 +1632,37 @@ func (o *Outbox) process(ctx context.Context, cfg Config, r OutboxRecord) error 
 	if err != nil {
 		return fmt.Errorf("outbox %d: %w", r.ID, err)
 	}
-	if decideClosed(item.State) {
-		return o.finish(ctx, r, end{
-			state: OutboxCancelled, reason: "decide item " + item.State + " without an accepted answer",
-			event: EventOutboxCancelled, closed: true,
-			message: fmt.Sprintf("Slack draft outbox %d was not posted: its decide item was %s without an accepted answer.", r.ID, item.State),
-		})
-	}
-	if err := o.ensureOptions(ctx, r, item); err != nil {
-		return err
-	}
 	m, ok, refusal := acceptance(r, item)
-	switch {
-	case !ok:
-		return nil
-	case isDropKey(m.OptionKey):
-		return o.finish(ctx, r, end{
-			state: OutboxDropped, outcome: droppedOutcome, event: EventOutboxDropped,
-			message: fmt.Sprintf("The user chose not to post Slack draft outbox %d (purpose: %q).", r.ID, r.Purpose),
-		})
-	case m.OptionKey == "" || m.OptionKey == decideKeyEdit:
-		return o.finish(ctx, r, end{
-			state: OutboxNeedsRedraft, answer: m.Text, text: m.Text,
-			outcome: redraftOutcome(r.Owner), event: EventOutboxRedraft,
-			message: fmt.Sprintf("The user asked for changes to Slack draft outbox %d (purpose: %q) instead of approving it. "+
-				"Their notes: %q. Redraft and submit it again with `slackwatch post`.", r.ID, r.Purpose, m.Text),
-		})
-	case refusal != "":
-		return o.reject(ctx, r, OutboxPending, refusal)
+	if decideClosed(item.State) {
+		if reason := closedCancelReason(item, m, ok, refusal); reason != "" {
+			return o.finish(ctx, r, end{
+				state: OutboxCancelled, reason: reason,
+				event: EventOutboxCancelled, closed: true,
+				message: closedCancelMessage(r.ID, item.State, reason),
+			})
+		}
+	} else {
+		if err := o.ensureOptions(ctx, r, item); err != nil {
+			return err
+		}
+		switch {
+		case !ok:
+			return nil
+		case isDropKey(m.OptionKey):
+			return o.finish(ctx, r, end{
+				state: OutboxDropped, outcome: droppedOutcome, event: EventOutboxDropped,
+				message: fmt.Sprintf("The user chose not to post Slack draft outbox %d (purpose: %q).", r.ID, r.Purpose),
+			})
+		case m.OptionKey == "" || m.OptionKey == decideKeyEdit:
+			return o.finish(ctx, r, end{
+				state: OutboxNeedsRedraft, answer: m.Text, text: m.Text,
+				outcome: redraftOutcome(r.Owner), event: EventOutboxRedraft,
+				message: fmt.Sprintf("The user asked for changes to Slack draft outbox %d (purpose: %q) instead of approving it. "+
+					"Their notes: %q. Redraft and submit it again with `slackwatch post`.", r.ID, r.Purpose, m.Text),
+			})
+		case refusal != "":
+			return o.reject(ctx, r, OutboxPending, refusal)
+		}
 	}
 	next := OutboxAwaitingHandoff
 	if cfg.Post.Mode == PostModeDirect {
@@ -1669,6 +1677,43 @@ func (o *Outbox) process(ctx context.Context, cfg Config, r OutboxRecord) error 
 		return o.postDirect(ctx, cfg, r)
 	}
 	return o.notify(ctx, r, EventOutboxReady, cfg.Post.Agent, fmt.Sprintf("approved post ready: %d", r.ID), "")
+}
+
+// closedCancelReason reports why a closed decide item cancels r, or ""
+// when it is done/done-unread with an accepted post pick made before doneAt.
+// A withdrawn item always cancels, even after a post pick.
+func closedCancelReason(item DecideItem, m DecideMessage, ok bool, refusal string) string {
+	if item.State == decideWithdrawn {
+		return "decide item was withdrawn"
+	}
+	if refusal != "" {
+		if ok && isDropKey(m.OptionKey) {
+			return fmt.Sprintf("the user picked drop (%q), not a post pick", m.OptionKey)
+		}
+		if ok && m.OptionKey == decideKeyEdit {
+			return "the user asked for an edit, not a post pick"
+		}
+		return refusal
+	}
+	switch {
+	case item.DoneAt.IsZero():
+		return fmt.Sprintf("decide item %s has no close time", item.State)
+	case m.Time.IsZero():
+		return "the post pick has no timestamp"
+	case m.Time.After(item.DoneAt):
+		return "the post pick was made after the decide item closed"
+	case !m.Time.Before(item.DoneAt):
+		return "the post pick was not made before the decide item closed"
+	default:
+		return ""
+	}
+}
+
+func closedCancelMessage(id int64, state, reason string) string {
+	if state == decideWithdrawn {
+		return fmt.Sprintf("Slack draft outbox %d was not posted: its decide item was withdrawn.", id)
+	}
+	return fmt.Sprintf("Slack draft outbox %d was not posted: its decide item was %s (%s).", id, state, reason)
 }
 
 // end is how a record leaves a state without being posted. A record
@@ -2549,7 +2594,7 @@ func verifiedPost(r OutboxRecord, it DecideItem) bool {
 }
 
 // uiApproved returns an error unless r's decide item passes the
-// acceptance rule.
+// acceptance rule (including closed-item checks).
 func (o *Outbox) uiApproved(ctx context.Context, r OutboxRecord) error {
 	if r.DecideID == "" {
 		return fmt.Errorf("no ui approval found for %d: it has no decide item", r.ID)
@@ -2558,7 +2603,14 @@ func (o *Outbox) uiApproved(ctx context.Context, r OutboxRecord) error {
 	if err != nil {
 		return fmt.Errorf("outbox %d: %w", r.ID, err)
 	}
-	if _, _, refusal := acceptance(r, item); refusal != "" {
+	m, ok, refusal := acceptance(r, item)
+	if decideClosed(item.State) {
+		if reason := closedCancelReason(item, m, ok, refusal); reason != "" {
+			return fmt.Errorf("no ui approval found for %d: %s", r.ID, reason)
+		}
+		return nil
+	}
+	if refusal != "" {
 		return fmt.Errorf("no ui approval found for %d: %s", r.ID, refusal)
 	}
 	return nil
