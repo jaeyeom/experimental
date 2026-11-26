@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -119,7 +120,7 @@ func (t *Tool) skills() []Skill {
 	var out []Skill
 	seen := map[string]bool{}
 	if t.SkillText != "" || len(t.ExtraSkills) == 0 {
-		out = append(out, Skill{Name: t.Name, Text: t.SkillText})
+		out = append(out, Skill{Name: t.Name, Text: t.SkillText, Files: t.SkillFiles})
 		seen[t.Name] = true
 	}
 	for _, s := range t.ExtraSkills {
@@ -130,6 +131,64 @@ func (t *Tool) skills() []Skill {
 		out = append(out, s)
 	}
 	return out
+}
+
+func validateSkillFilePath(raw string) (string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return "", errors.New("skill companion file path must not be empty")
+	}
+	if strings.TrimSpace(raw) != raw {
+		return "", fmt.Errorf("skill companion file path %q must not have leading or trailing whitespace", raw)
+	}
+	if strings.Contains(raw, "\\") {
+		return "", fmt.Errorf("skill companion file path %q must use forward slashes", raw)
+	}
+	if strings.HasPrefix(raw, "/") || filepath.IsAbs(raw) || filepath.VolumeName(raw) != "" {
+		return "", fmt.Errorf("skill companion file path %q must be relative", raw)
+	}
+	return validateSkillFileSegments(raw)
+}
+
+func validateSkillFileSegments(raw string) (string, error) {
+	for _, seg := range strings.Split(raw, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return "", fmt.Errorf("invalid skill companion file path %q", raw)
+		}
+	}
+	cleaned := path.Clean(raw)
+	if strings.EqualFold(cleaned, "SKILL.md") {
+		return "", fmt.Errorf("skill companion file path %q must not be SKILL.md", raw)
+	}
+	return cleaned, nil
+}
+
+func validateSkillFiles(files []SkillFile) error {
+	seen := make(map[string]bool, len(files))
+	for _, f := range files {
+		cleaned, err := validateSkillFilePath(f.Path)
+		if err != nil {
+			return err
+		}
+		key := strings.ToLower(cleaned)
+		if seen[key] {
+			return fmt.Errorf("duplicate skill companion file path %q", f.Path)
+		}
+		seen[key] = true
+	}
+	return nil
+}
+
+func validateAllSkillFiles(skills []Skill) error {
+	for _, sk := range skills {
+		if err := validateSkillFiles(sk.Files); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func companionFilePath(skillFile, rel string) string {
+	return filepath.Join(filepath.Dir(skillFile), filepath.FromSlash(path.Clean(rel)))
 }
 
 type skillInstallPlan struct {
@@ -150,44 +209,67 @@ type SkillInstallOptions struct {
 // RunSkillInstall installs the embedded skill(s) into the requested agent locations.
 func (t *Tool) RunSkillInstall(opts SkillInstallOptions, stdout io.Writer) error {
 	skills := t.skills()
+	if err := validateAllSkillFiles(skills); err != nil {
+		return err
+	}
 	if opts.Dir != "" && len(skills) > 1 {
 		return errors.New("--dir is not supported when multiple skills are configured")
 	}
 
+	plans, err := t.planSkillInstall(skills, opts)
+	if err != nil {
+		return err
+	}
+	for _, p := range plans {
+		if err := applySkillInstallPlan(p, opts, stdout); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (t *Tool) planSkillInstall(skills []Skill, opts SkillInstallOptions) ([]skillInstallPlan, error) {
 	rev := currentRevLabel(t.buildInfo())
 	plans := make([]skillInstallPlan, 0, len(skills))
 	for _, sk := range skills {
 		targets, err := t.resolveSkillTargetsFor(sk.Name, opts.Agents, opts.Scope, opts.Dir)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		stamped := stampSkill(sk.Text, sk.Name, rev)
 		for _, tgt := range targets {
-			if err := installSkillFile(tgt.path, stamped, sk.Name, opts.Force, true); err != nil {
-				return err
+			owned, err := checkSkillFileInstall(tgt.path, sk.Name, opts.Force)
+			if err != nil {
+				return nil, err
+			}
+			if err := checkCompanionFilesInstall(tgt.path, sk.Files, owned, opts.Force); err != nil {
+				return nil, err
 			}
 		}
 		plans = append(plans, skillInstallPlan{
 			skill:   sk,
-			content: stamped,
+			content: stampSkill(sk.Text, sk.Name, rev),
 			targets: targets,
 		})
 	}
+	return plans, nil
+}
 
-	for _, p := range plans {
-		for _, tgt := range p.targets {
-			if !opts.DryRun {
-				if err := installSkillFile(tgt.path, p.content, p.skill.Name, opts.Force, false); err != nil {
-					return err
-				}
+func applySkillInstallPlan(p skillInstallPlan, opts SkillInstallOptions, stdout io.Writer) error {
+	action := "installed"
+	if opts.DryRun {
+		action = "would install"
+	}
+	for _, tgt := range p.targets {
+		if !opts.DryRun {
+			if err := installSkillFile(tgt.path, p.content, p.skill.Name, opts.Force, false); err != nil {
+				return err
 			}
-			action := "installed"
-			if opts.DryRun {
-				action = "would install"
+			if err := installCompanionFiles(tgt.path, p.skill.Files); err != nil {
+				return err
 			}
-			if _, err := fmt.Fprintf(stdout, "%s %s (%s): %s\n", action, tgt.label, tgt.scope, tgt.path); err != nil {
-				return fmt.Errorf("write output: %w", err)
-			}
+		}
+		if _, err := fmt.Fprintf(stdout, "%s %s (%s): %s\n", action, tgt.label, tgt.scope, tgt.path); err != nil {
+			return fmt.Errorf("write output: %w", err)
 		}
 	}
 	return nil
@@ -229,50 +311,79 @@ type SkillUninstallOptions struct {
 	DryRun bool
 }
 
+type skillUninstallPlan struct {
+	skill   Skill
+	targets []skillTarget
+}
+
 // RunSkillUninstall removes skill files stamped by this tool.
 func (t *Tool) RunSkillUninstall(opts SkillUninstallOptions, stdout io.Writer) error {
 	skills := t.skills()
+	if err := validateAllSkillFiles(skills); err != nil {
+		return err
+	}
 	if opts.Dir != "" && len(skills) > 1 {
 		return errors.New("--dir is not supported when multiple skills are configured")
 	}
 
-	type uninstallPlan struct {
-		skillName string
-		targets   []skillTarget
+	plans, err := t.planSkillUninstall(skills, opts)
+	if err != nil {
+		return err
 	}
-	plans := make([]uninstallPlan, 0, len(skills))
+	for _, p := range plans {
+		if err := applySkillUninstallPlan(p, opts, stdout); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (t *Tool) planSkillUninstall(skills []Skill, opts SkillUninstallOptions) ([]skillUninstallPlan, error) {
+	plans := make([]skillUninstallPlan, 0, len(skills))
 	for _, sk := range skills {
 		targets, err := t.resolveSkillTargetsFor(sk.Name, opts.Agents, opts.Scope, opts.Dir)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, tgt := range targets {
-			if _, err := uninstallSkillFile(tgt.path, sk.Name, true); err != nil {
+			removed, err := uninstallSkillFile(tgt.path, sk.Name, true)
+			if err != nil {
+				return nil, err
+			}
+			if removed {
+				if err := checkCompanionFilesUninstall(tgt.path, sk.Files); err != nil {
+					return nil, err
+				}
+			}
+		}
+		plans = append(plans, skillUninstallPlan{skill: sk, targets: targets})
+	}
+	return plans, nil
+}
+
+func applySkillUninstallPlan(p skillUninstallPlan, opts SkillUninstallOptions, stdout io.Writer) error {
+	action := "removed"
+	if opts.DryRun {
+		action = "would remove"
+	}
+	for _, tgt := range p.targets {
+		removed, err := uninstallSkillFile(tgt.path, p.skill.Name, opts.DryRun)
+		if err != nil {
+			return err
+		}
+		if !removed {
+			if _, err := fmt.Fprintf(stdout, "not installed %s (%s): %s\n", tgt.label, tgt.scope, tgt.path); err != nil {
+				return fmt.Errorf("write output: %w", err)
+			}
+			continue
+		}
+		if !opts.DryRun {
+			if err := uninstallCompanionFiles(tgt.path, p.skill.Files); err != nil {
 				return err
 			}
 		}
-		plans = append(plans, uninstallPlan{skillName: sk.Name, targets: targets})
-	}
-
-	for _, p := range plans {
-		for _, tgt := range p.targets {
-			removed, err := uninstallSkillFile(tgt.path, p.skillName, opts.DryRun)
-			if err != nil {
-				return err
-			}
-			if !removed {
-				if _, err := fmt.Fprintf(stdout, "not installed %s (%s): %s\n", tgt.label, tgt.scope, tgt.path); err != nil {
-					return fmt.Errorf("write output: %w", err)
-				}
-				continue
-			}
-			action := "removed"
-			if opts.DryRun {
-				action = "would remove"
-			}
-			if _, err := fmt.Fprintf(stdout, "%s %s (%s): %s\n", action, tgt.label, tgt.scope, tgt.path); err != nil {
-				return fmt.Errorf("write output: %w", err)
-			}
+		if _, err := fmt.Fprintf(stdout, "%s %s (%s): %s\n", action, tgt.label, tgt.scope, tgt.path); err != nil {
+			return fmt.Errorf("write output: %w", err)
 		}
 	}
 	return nil
@@ -324,6 +435,9 @@ type SkillStatusOutput struct {
 
 // RunSkillStatus reports the installation status across all known agents and scopes.
 func (t *Tool) RunSkillStatus(asJSON bool, stdout io.Writer) error {
+	if err := validateAllSkillFiles(t.skills()); err != nil {
+		return err
+	}
 	entries := t.collectSkillStatus()
 	out := SkillStatusOutput{
 		Tool:        t.Name,
@@ -480,12 +594,12 @@ func (t *Tool) collectSkillStatusRecords() []skillStatusRecord {
 		}
 		for _, loc := range AgentLocations {
 			if homeErr == nil {
-				entry := inspectSkillEntry(loc.Agent, ScopeUser, loc.UserSkill(home, sk.Name), sk.Name, wantHash)
+				entry := inspectSkillEntry(loc.Agent, ScopeUser, loc.UserSkill(home, sk.Name), sk.Name, wantHash, sk.Files)
 				entry.Skill = skillLabel
 				records = append(records, skillStatusRecord{entry: entry, wantHash: wantHash})
 			}
 			if workErr == nil {
-				entry := inspectSkillEntry(loc.Agent, ScopeProject, loc.ProjSkill(work, sk.Name), sk.Name, wantHash)
+				entry := inspectSkillEntry(loc.Agent, ScopeProject, loc.ProjSkill(work, sk.Name), sk.Name, wantHash, sk.Files)
 				entry.Skill = skillLabel
 				records = append(records, skillStatusRecord{entry: entry, wantHash: wantHash})
 			}
@@ -503,7 +617,7 @@ func (t *Tool) collectSkillStatus() []SkillStatusEntry {
 	return entries
 }
 
-func inspectSkillEntry(agent Agent, scope Scope, path, tool, wantHash string) SkillStatusEntry {
+func inspectSkillEntry(agent Agent, scope Scope, path, tool, wantHash string, files []SkillFile) SkillStatusEntry {
 	entry := SkillStatusEntry{
 		Agent:  agent,
 		Scope:  scope,
@@ -521,7 +635,7 @@ func inspectSkillEntry(agent Agent, scope Scope, path, tool, wantHash string) Sk
 	}
 	entry.InstalledVersion = meta.version
 	entry.InstalledHash = meta.hash
-	if meta.hash == wantHash {
+	if meta.hash == wantHash && companionFilesCurrent(path, files) {
 		entry.Status = "current"
 	} else {
 		entry.Status = "stale"
@@ -529,15 +643,104 @@ func inspectSkillEntry(agent Agent, scope Scope, path, tool, wantHash string) Sk
 	return entry
 }
 
-func installSkillFile(path, content, tool string, force, dryRun bool) error {
+func companionFilesCurrent(skillFile string, files []SkillFile) bool {
+	for _, f := range files {
+		p := companionFilePath(skillFile, f.Path)
+		data, err := os.ReadFile(p)
+		if err != nil || string(data) != f.Content {
+			return false
+		}
+	}
+	return true
+}
+
+func checkSkillFileInstall(path, tool string, force bool) (owned bool, err error) {
 	existing, err := os.ReadFile(path)
 	if err == nil {
 		meta := parseFrontMatterStamp(string(existing))
-		if meta.tool != tool && !force {
-			return fmt.Errorf("refusing to overwrite foreign file %s without --force", path)
+		if meta.tool == tool {
+			return true, nil
 		}
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("read %s: %w", path, err)
+		if !force {
+			return false, fmt.Errorf("refusing to overwrite foreign file %s without --force", path)
+		}
+		return false, nil
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		return false, fmt.Errorf("read %s: %w", path, err)
+	}
+	return false, nil
+}
+
+func checkCompanionFilesInstall(skillFile string, files []SkillFile, skillOwned, force bool) error {
+	for _, f := range files {
+		p := companionFilePath(skillFile, f.Path)
+		info, err := os.Stat(p)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			return fmt.Errorf("stat %s: %w", p, err)
+		}
+		if info.IsDir() {
+			return fmt.Errorf("skill companion path %s is a directory", p)
+		}
+		if !skillOwned && !force {
+			return fmt.Errorf("refusing to overwrite foreign file %s without --force", p)
+		}
+	}
+	return nil
+}
+
+func installCompanionFiles(skillFile string, files []SkillFile) error {
+	for _, f := range files {
+		p := companionFilePath(skillFile, f.Path)
+		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
+			return fmt.Errorf("create skill companion directory: %w", err)
+		}
+		if err := os.WriteFile(p, []byte(f.Content), 0o600); err != nil {
+			return fmt.Errorf("write skill companion file: %w", err)
+		}
+	}
+	return nil
+}
+
+func checkCompanionFilesUninstall(skillFile string, files []SkillFile) error {
+	for _, f := range files {
+		p := companionFilePath(skillFile, f.Path)
+		info, err := os.Stat(p)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			return fmt.Errorf("stat %s: %w", p, err)
+		}
+		if info.IsDir() {
+			return fmt.Errorf("skill companion path %s is a directory", p)
+		}
+	}
+	return nil
+}
+
+func uninstallCompanionFiles(skillFile string, files []SkillFile) error {
+	skillDir := filepath.Dir(skillFile)
+	for _, f := range files {
+		p := companionFilePath(skillFile, f.Path)
+		if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("remove %s: %w", p, err)
+		}
+		for dir := filepath.Dir(p); dir != skillDir && strings.HasPrefix(dir, skillDir+string(filepath.Separator)); dir = filepath.Dir(dir) {
+			if err := os.Remove(dir); err != nil {
+				break
+			}
+		}
+	}
+	return nil
+}
+
+func installSkillFile(path, content, tool string, force, dryRun bool) error {
+	if _, err := checkSkillFileInstall(path, tool, force); err != nil {
+		return err
 	}
 	if dryRun {
 		return nil

@@ -37,7 +37,10 @@ go_library(
         "wire.go",
         "write.go",
     ],
-    embedsrcs = ["skill.md"],
+    embedsrcs = [
+        "references/setup.md",
+        "skill.md",
+    ],
     importpath = "github.com/jaeyeom/experimental/devtools/factory/internal/cli",
     visibility = ["//devtools/factory:__subpackages__"],
     deps = [

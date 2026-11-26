@@ -27,10 +27,19 @@ type Companion struct {
 	DaemonService string
 }
 
+// SkillFile describes a companion file installed alongside a skill's SKILL.md.
+type SkillFile struct {
+	// Path is the relative path inside the skill directory (e.g. "references/setup.md").
+	Path string
+	// Content is the raw file content.
+	Content string
+}
+
 // Skill describes an additional agent skill managed alongside the primary skill.
 type Skill struct {
-	Name string
-	Text string
+	Name  string
+	Text  string
+	Files []SkillFile
 }
 
 // BuildInfo describes the compiled binary's version metadata.
@@ -92,6 +101,7 @@ type Tool struct {
 	DaemonService          string
 	Companions             []Companion
 	SkillText              string
+	SkillFiles             []SkillFile
 	ExtraSkills            []Skill
 	ConfigPath             func() (string, bool)
 	CheckConfig            func() error

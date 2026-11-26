@@ -38,6 +38,46 @@ func TestSkillPrintsFrontmatter(t *testing.T) {
 	if !strings.Contains(out, "merely because a task exists") {
 		t.Fatalf("stdout does not say when not to use factory:\n%s", out)
 	}
+	if !strings.Contains(out, "references/setup.md") {
+		t.Fatalf("stdout missing references/setup.md:\n%s", out)
+	}
+	if !strings.Contains(out, "## Setup") {
+		t.Fatalf("stdout missing ## Setup section:\n%s", out)
+	}
+}
+
+func TestSkillSetupReferenceContent(t *testing.T) {
+	if strings.TrimSpace(setupReferenceText) == "" {
+		t.Fatal("setupReferenceText must not be empty")
+	}
+	for _, want := range []string{
+		"factory version",
+		"factory doctor --offline",
+		"gh auth status",
+		"factory init",
+		"--kind",
+		"--global",
+		"--dry-run",
+		"[[source]]",
+		"[claim]",
+		"[worker]",
+		"[output]",
+		"[gate]",
+		"[lease]",
+		"[[lane]]",
+		"[[agent_rule]]",
+		"factory sync",
+		"factory doctor",
+		"factory gate",
+		"factory next",
+		"factory start",
+		"--apply",
+		"dry_run = false",
+	} {
+		if !strings.Contains(setupReferenceText, want) {
+			t.Fatalf("references/setup.md missing %q", want)
+		}
+	}
 }
 
 func TestSkillDoesNotLoadConfig(t *testing.T) {
@@ -218,11 +258,24 @@ func TestSkillInstallUninstallStatusCLI(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"skill", "install", "--agent", "all"}, &stdout, &stderr)
+	code := Execute(context.Background(), []string{"skill", "install", "--agent", "all", "--dry-run"}, &stdout, &stderr)
+	if code != ExitOK || stderr.Len() != 0 {
+		t.Fatalf("dry-run install code=%d stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	claudePath := filepath.Join(home, ".claude", "skills", "factory", "SKILL.md")
+	claudeSetupPath := filepath.Join(home, ".claude", "skills", "factory", "references", "setup.md")
+	if !strings.Contains(stdout.String(), "would install claude (user): "+claudePath) {
+		t.Fatalf("dry-run missing claude SKILL.md line:\n%s", stdout.String())
+	}
+	if _, err := os.Stat(claudeSetupPath); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("dry-run wrote %s", claudeSetupPath)
+	}
+
+	stdout.Reset()
+	code = Execute(context.Background(), []string{"skill", "install", "--agent", "all"}, &stdout, &stderr)
 	if code != ExitOK || stderr.Len() != 0 {
 		t.Fatalf("install code=%d stderr=%q stdout=%q", code, stderr.String(), stdout.String())
 	}
-	claudePath := filepath.Join(home, ".claude", "skills", "factory", "SKILL.md")
 	raw, err := os.ReadFile(claudePath) //nolint:gosec // G304: test temp path
 	if err != nil {
 		t.Fatal(err)
@@ -230,8 +283,15 @@ func TestSkillInstallUninstallStatusCLI(t *testing.T) {
 	if !strings.Contains(string(raw), "toolcli-tool: factory") {
 		t.Fatalf("missing stamp:\n%s", string(raw))
 	}
+	setupRaw, err := os.ReadFile(claudeSetupPath) //nolint:gosec // G304: test temp path
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(setupRaw) != setupReferenceText {
+		t.Fatalf("installed references/setup.md mismatch")
+	}
 
-	// Custom --dir override.
+	// Custom --dir override writes both SKILL.md and references/setup.md.
 	customDir := filepath.Join(work, "custom-skill")
 	stdout.Reset()
 	code = Execute(context.Background(), []string{"skill", "install", "--dir", customDir}, &stdout, &stderr)
@@ -241,8 +301,11 @@ func TestSkillInstallUninstallStatusCLI(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(customDir, "SKILL.md")); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := os.Stat(filepath.Join(customDir, "references", "setup.md")); err != nil {
+		t.Fatal(err)
+	}
 
-	// Status --json.
+	// Status --json reports current when both files match.
 	stdout.Reset()
 	code = Execute(context.Background(), []string{"skill", "status", "--json"}, &stdout, &stderr)
 	if code != ExitOK {
@@ -255,8 +318,36 @@ func TestSkillInstallUninstallStatusCLI(t *testing.T) {
 	if stOut.Tool != "factory" || len(stOut.Entries) == 0 {
 		t.Fatalf("unexpected status: %+v", stOut)
 	}
+	for _, e := range stOut.Entries {
+		if e.Path == claudePath && e.Status != "current" {
+			t.Fatalf("claude status = %q, want current", e.Status)
+		}
+	}
 
-	// Uninstall.
+	// Removing references/setup.md makes skill status report stale.
+	if err := os.Remove(claudeSetupPath); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	code = Execute(context.Background(), []string{"skill", "status", "--json"}, &stdout, &stderr)
+	if code != ExitOK {
+		t.Fatalf("status after removing setup.md code=%d stderr=%q", code, stderr.String())
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &stOut); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range stOut.Entries {
+		if e.Path == claudePath && e.Status != "stale" {
+			t.Fatalf("claude status without setup.md = %q, want stale", e.Status)
+		}
+	}
+
+	// Reinstall restores references/setup.md, and uninstall removes both.
+	stdout.Reset()
+	code = Execute(context.Background(), []string{"skill", "install", "--agent", "all"}, &stdout, &stderr)
+	if code != ExitOK {
+		t.Fatalf("reinstall code=%d stderr=%q", code, stderr.String())
+	}
 	stdout.Reset()
 	code = Execute(context.Background(), []string{"skill", "uninstall", "--agent", "all"}, &stdout, &stderr)
 	if code != ExitOK {
@@ -264,5 +355,8 @@ func TestSkillInstallUninstallStatusCLI(t *testing.T) {
 	}
 	if _, err := os.Stat(claudePath); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("expected %s to be removed", claudePath)
+	}
+	if _, err := os.Stat(claudeSetupPath); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("expected %s to be removed", claudeSetupPath)
 	}
 }

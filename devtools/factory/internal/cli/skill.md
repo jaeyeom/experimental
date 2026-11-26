@@ -1,13 +1,17 @@
 ---
 name: factory
-description: "Use factory when the user asks to pick or start the next work item, inspect readiness, or file a follow-up; do not use it merely because a task exists."
+description: "Use factory when the user asks to set up or configure factory for a repository, pick or start the next work item, inspect readiness, or file a follow-up; do not use it merely because a task exists."
 ---
 
 # factory
 
 ## When to use it
 
-Use factory when the user asks to pick or start the next work item, inspect readiness, or file a follow-up. Do not use factory merely because a task exists.
+Use factory when the user asks to set up or configure factory for a repository, pick or start the next work item, inspect readiness, or file a follow-up. Do not use factory merely because a task exists.
+
+## Setup
+
+When the user asks to set up or configure `factory` for a repository, or when `factory` reports an unconfigured git repository, read `references/setup.md` in this skill's directory and follow it step by step.
 
 ## Learn the installed CLI
 

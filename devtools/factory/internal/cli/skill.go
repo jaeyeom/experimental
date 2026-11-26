@@ -12,6 +12,9 @@ import (
 //go:embed skill.md
 var skillText string
 
+//go:embed references/setup.md
+var setupReferenceText string
+
 func newSkillCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "skill",

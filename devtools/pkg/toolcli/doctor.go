@@ -278,6 +278,13 @@ func (t *Tool) checkSkills() CheckResult {
 			Detail: "no embedded skill",
 		}
 	}
+	if err := validateAllSkillFiles(t.skills()); err != nil {
+		return CheckResult{
+			Name:   "skills",
+			Status: StatusFail,
+			Detail: err.Error(),
+		}
+	}
 	entries := t.collectSkillStatus()
 	var installed, stale []string
 	for _, e := range entries {

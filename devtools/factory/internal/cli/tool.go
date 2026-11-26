@@ -55,10 +55,13 @@ func factoryTool() *toolcli.Tool {
 	}
 
 	return &toolcli.Tool{
-		Name:             "factory",
-		ModulePath:       factoryModulePath,
-		MainPackage:      factoryMainPackage,
-		SkillText:        skillText,
+		Name:        "factory",
+		ModulePath:  factoryModulePath,
+		MainPackage: factoryMainPackage,
+		SkillText:   skillText,
+		SkillFiles: []toolcli.SkillFile{
+			{Path: "references/setup.md", Content: setupReferenceText},
+		},
 		RequiredCommands: []string{"herdr", "gh", "git"},
 		Installer:        inst,
 		ReadBuildInfo:    currentToolBuildInfo,

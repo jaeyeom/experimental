@@ -810,3 +810,318 @@ func TestGoInstallerRunEnvModulePathAndLDFlags(t *testing.T) {
 		t.Fatalf("GOBIN = %q, want /tmp/bin", calls[1].env["GOBIN"])
 	}
 }
+
+func TestSkillCompanionFilesInstallStatusDoctorUpdateUninstall(t *testing.T) {
+	const (
+		setupV1 = "# Setup v1\n\nStep 1.\n"
+		setupV2 = "# Setup v2\n\nStep 1.\nStep 2.\n"
+		extraMd = "# Extra ref\n"
+	)
+	const extraSkill = "---\nname: mytool-extra\ndescription: \"Extra skill.\"\n---\n\n# mytool-extra\n"
+
+	home := t.TempDir()
+	work := t.TempDir()
+	for _, root := range []string{".claude", ".agents"} {
+		if err := os.MkdirAll(filepath.Join(home, root), 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	inst := &fakeInstaller{rev: toolcli.RevisionInfo{Version: "v0.1.0", Revision: "abc1234"}}
+	tool := newTestTool(t, home, work, inst)
+	tool.SkillFiles = []toolcli.SkillFile{
+		{Path: "references/setup.md", Content: setupV1},
+	}
+	tool.ExtraSkills = []toolcli.Skill{
+		{
+			Name:  "mytool-extra",
+			Text:  extraSkill,
+			Files: []toolcli.SkillFile{{Path: "references/extra.md", Content: extraMd}},
+		},
+	}
+
+	ctx := context.Background()
+	claudeSkill := filepath.Join(home, ".claude", "skills", "mytool", "SKILL.md")
+	claudeSetup := filepath.Join(home, ".claude", "skills", "mytool", "references", "setup.md")
+	codexSetup := filepath.Join(home, ".agents", "skills", "mytool", "references", "setup.md")
+	claudeExtraSetup := filepath.Join(home, ".claude", "skills", "mytool-extra", "references", "extra.md")
+
+	// Dry-run does not write companion files and keeps `would install <agent> (user): <SKILL.md>` format.
+	var out, errBuf bytes.Buffer
+	code, ok := tool.Handle(ctx, []string{"skill", "install", "--agent", "all", "--force", "--dry-run"}, &out, &errBuf)
+	if !ok || code != 0 {
+		t.Fatalf("dry-run install: ok=%v code=%d stderr=%s", ok, code, errBuf.String())
+	}
+	if !strings.Contains(out.String(), "would install claude (user): "+claudeSkill) {
+		t.Fatalf("dry-run output missing SKILL.md line:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "would install claude (user): "+claudeSetup) {
+		t.Fatalf("dry-run output must not emit extra would-install line for companion file:\n%s", out.String())
+	}
+	if _, err := os.Stat(claudeSetup); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("dry-run wrote %s", claudeSetup)
+	}
+
+	// Real install writes both SKILL.md and companion files for primary and extra skills.
+	out.Reset()
+	errBuf.Reset()
+	code, _ = tool.Handle(ctx, []string{"skill", "install", "--agent", "all"}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("install all: code=%d stderr=%s", code, errBuf.String())
+	}
+	for path, want := range map[string]string{
+		claudeSetup:      setupV1,
+		codexSetup:       setupV1,
+		claudeExtraSetup: extraMd,
+	} {
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		if string(got) != want {
+			t.Fatalf("%s content = %q, want %q", path, string(got), want)
+		}
+	}
+
+	// Status and doctor report current when SKILL.md and companion files match.
+	out.Reset()
+	errBuf.Reset()
+	code, _ = tool.Handle(ctx, []string{"skill", "status", "--json"}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("status --json: code=%d stderr=%s", code, errBuf.String())
+	}
+	var st toolcli.SkillStatusOutput
+	if err := json.Unmarshal(out.Bytes(), &st); err != nil {
+		t.Fatal(err)
+	}
+	statusByPath := map[string]string{}
+	for _, e := range st.Entries {
+		statusByPath[e.Path] = e.Status
+	}
+	if statusByPath[claudeSkill] != "current" {
+		t.Fatalf("expected current status for %s, got %q", claudeSkill, statusByPath[claudeSkill])
+	}
+
+	out.Reset()
+	errBuf.Reset()
+	code, _ = tool.Handle(ctx, []string{"doctor"}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("doctor expected 0 when current, got %d:\n%s", code, out.String())
+	}
+
+	// Modified companion file (while SKILL.md is untouched) -> stale in status, doctor, and update --check.
+	if err := os.WriteFile(claudeSetup, []byte("outdated"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	errBuf.Reset()
+	code, _ = tool.Handle(ctx, []string{"skill", "status", "--json"}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("status --json: code=%d stderr=%s", code, errBuf.String())
+	}
+	if err := json.Unmarshal(out.Bytes(), &st); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range st.Entries {
+		if e.Path == claudeSkill && e.Status != "stale" {
+			t.Fatalf("modified companion file: status = %q, want stale", e.Status)
+		}
+	}
+	out.Reset()
+	errBuf.Reset()
+	code, _ = tool.Handle(ctx, []string{"doctor", "--offline"}, &out, &errBuf)
+	if code != 1 || !strings.Contains(out.String(), "stale: claude (user)") {
+		t.Fatalf("doctor modified companion: code=%d out=\n%s", code, out.String())
+	}
+	out.Reset()
+	errBuf.Reset()
+	code, _ = tool.Handle(ctx, []string{"update", "--check", "--json"}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("update --check --json: code=%d stderr=%s", code, errBuf.String())
+	}
+	var uo toolcli.UpdateOutput
+	if err := json.Unmarshal(out.Bytes(), &uo); err != nil {
+		t.Fatal(err)
+	}
+	if len(uo.StaleSkills) != 1 || uo.StaleSkills[0].Path != claudeSkill {
+		t.Fatalf("expected stale skill for modified companion, got %+v", uo.StaleSkills)
+	}
+
+	// Missing companion file (while SKILL.md is untouched) -> also stale.
+	if err := os.Remove(claudeSetup); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	errBuf.Reset()
+	code, _ = tool.Handle(ctx, []string{"skill", "status", "--json"}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("status --json: code=%d stderr=%s", code, errBuf.String())
+	}
+	if err := json.Unmarshal(out.Bytes(), &st); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range st.Entries {
+		if e.Path == claudeSkill && e.Status != "stale" {
+			t.Fatalf("missing companion file: status = %q, want stale", e.Status)
+		}
+	}
+
+	// Upgrading companion file content on an already-owned skill succeeds WITHOUT --force.
+	tool.SkillFiles = []toolcli.SkillFile{{Path: "references/setup.md", Content: setupV2}}
+	out.Reset()
+	errBuf.Reset()
+	code, _ = tool.Handle(ctx, []string{"skill", "install", "--agent", "all"}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("upgrade without --force failed: code=%d stderr=%s", code, errBuf.String())
+	}
+	gotV2, err := os.ReadFile(claudeSetup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotV2) != setupV2 {
+		t.Fatalf("upgraded companion = %q, want %q", string(gotV2), setupV2)
+	}
+
+	// Uninstall --dry-run preserves both SKILL.md and companion files; real uninstall removes both and empty references dir.
+	out.Reset()
+	errBuf.Reset()
+	code, _ = tool.Handle(ctx, []string{"skill", "uninstall", "--agent", "all", "--dry-run"}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("uninstall --dry-run: code=%d stderr=%s", code, errBuf.String())
+	}
+	if _, err := os.Stat(claudeSetup); err != nil {
+		t.Fatalf("uninstall --dry-run removed %s: %v", claudeSetup, err)
+	}
+
+	out.Reset()
+	errBuf.Reset()
+	code, _ = tool.Handle(ctx, []string{"skill", "uninstall", "--agent", "all"}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("uninstall all: code=%d stderr=%s", code, errBuf.String())
+	}
+	for _, p := range []string{claudeSkill, claudeSetup, codexSetup, claudeExtraSetup} {
+		if _, err := os.Stat(p); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("expected %s to be removed", p)
+		}
+	}
+	if _, err := os.Stat(filepath.Dir(claudeSetup)); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("expected empty references dir %s to be removed", filepath.Dir(claudeSetup))
+	}
+
+	// --dir and --scope project support companion files, and foreign companion file blocks install without --force.
+	tool.ExtraSkills = nil
+	customDir := filepath.Join(work, "custom-skill")
+	customSetup := filepath.Join(customDir, "references", "setup.md")
+	if err := os.MkdirAll(filepath.Dir(customSetup), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(customSetup, []byte("foreign user notes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	errBuf.Reset()
+	code, _ = tool.Handle(ctx, []string{"skill", "install", "--dir", customDir}, &out, &errBuf)
+	if code != 2 {
+		t.Fatalf("expected exit 2 overwriting foreign companion without --force, got %d", code)
+	}
+	if _, err := os.Stat(filepath.Join(customDir, "SKILL.md")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("SKILL.md written despite foreign companion refusal")
+	}
+
+	out.Reset()
+	errBuf.Reset()
+	code, _ = tool.Handle(ctx, []string{"skill", "install", "--dir", customDir, "--force"}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("force install --dir: code=%d stderr=%s", code, errBuf.String())
+	}
+	gotCustom, err := os.ReadFile(customSetup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotCustom) != setupV2 {
+		t.Fatalf("--dir companion = %q, want %q", string(gotCustom), setupV2)
+	}
+
+	// Project scope install + uninstall.
+	out.Reset()
+	errBuf.Reset()
+	code, _ = tool.Handle(ctx, []string{"skill", "install", "--agent", "claude", "--scope", "project"}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("project install: code=%d stderr=%s", code, errBuf.String())
+	}
+	projSetup := filepath.Join(work, ".claude", "skills", "mytool", "references", "setup.md")
+	if _, err := os.Stat(projSetup); err != nil {
+		t.Fatalf("project companion missing: %v", err)
+	}
+	out.Reset()
+	errBuf.Reset()
+	code, _ = tool.Handle(ctx, []string{"skill", "uninstall", "--agent", "claude", "--scope", "project"}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("project uninstall: code=%d stderr=%s", code, errBuf.String())
+	}
+	if _, err := os.Stat(projSetup); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("expected %s to be removed", projSetup)
+	}
+}
+
+func TestSkillCompanionFilePathValidation(t *testing.T) {
+	invalidPaths := []string{
+		"",
+		"   ",
+		"/etc/passwd",
+		"../escape.md",
+		"references/../../escape.md",
+		"./references/setup.md",
+		"references//setup.md",
+		`references\setup.md`,
+		".",
+		"..",
+		"SKILL.md",
+		"skill.md",
+		"references/",
+	}
+	for _, bad := range invalidPaths {
+		t.Run("invalid_"+bad, func(t *testing.T) {
+			home := t.TempDir()
+			work := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o750); err != nil {
+				t.Fatal(err)
+			}
+			tool := newTestTool(t, home, work, &fakeInstaller{})
+			tool.SkillFiles = []toolcli.SkillFile{{Path: bad, Content: "x"}}
+
+			for _, args := range [][]string{
+				{"skill", "install", "--agent", "claude"},
+				{"skill", "uninstall", "--agent", "claude"},
+				{"skill", "status", "--json"},
+			} {
+				var out, errBuf bytes.Buffer
+				code, _ := tool.Handle(context.Background(), args, &out, &errBuf)
+				if code != 2 {
+					t.Fatalf("%v with path %q: code=%d, want 2 (stderr=%s)", args, bad, code, errBuf.String())
+				}
+			}
+
+			var docOut, docErr bytes.Buffer
+			code, _ := tool.Handle(context.Background(), []string{"doctor", "--offline"}, &docOut, &docErr)
+			if code != 2 || !strings.Contains(docOut.String(), "fail  skills") {
+				t.Fatalf("doctor with invalid path %q: code=%d out=%s", bad, code, docOut.String())
+			}
+		})
+	}
+
+	t.Run("duplicate_paths", func(t *testing.T) {
+		home := t.TempDir()
+		work := t.TempDir()
+		tool := newTestTool(t, home, work, &fakeInstaller{})
+		tool.SkillFiles = []toolcli.SkillFile{
+			{Path: "references/setup.md", Content: "a"},
+			{Path: "references/Setup.md", Content: "b"},
+		}
+		var out, errBuf bytes.Buffer
+		code, _ := tool.Handle(context.Background(), []string{"skill", "install", "--dir", t.TempDir()}, &out, &errBuf)
+		if code != 2 {
+			t.Fatalf("expected exit 2 for duplicate companion paths, got %d", code)
+		}
+	})
+}
