@@ -69,7 +69,6 @@ sh_binary(
         "ensure_args.sh",
         "herdr_skill_approve.sh",
         "playbook_resume.sh",
-        "slackwatch_skill_approve.sh",
     ],
 )
 
@@ -165,17 +164,6 @@ sh_test(
 )
 
 sh_test(
-    name = "slackwatch_skill_approve_test",
-    srcs = ["slackwatch_skill_approve_test.sh"],
-    data = [
-        "ensure.sh",
-        "setup-slackwatch.yml",
-        "slackwatch_skill_approve.sh",
-        "verified-run",
-    ],
-)
-
-sh_test(
     name = "fork_keeper_vars_test",
     srcs = ["fork_keeper_vars_test.sh"],
     # setup-fork-keeper.yml imports other playbooks.
@@ -191,8 +179,8 @@ sh_test(
     srcs = ["slackwatch_skill_test.sh"],
     # setup-slackwatch.yml imports other playbooks.
     data = [
+        "ensure.sh",
         "inventory.ini",
-        "verified-run",
     ] + glob(["*.yml"]),
     tags = [
         "ansible",

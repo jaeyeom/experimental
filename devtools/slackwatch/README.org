@@ -619,13 +619,22 @@ reply in the decide thread of an outbox draft. In handoff mode it also
 tells the posting agent what to do with ~approved post ready: <id>~.
 
 #+begin_src sh
-slackwatch skill > ~/.claude/skills/slackwatch/SKILL.md
-slackwatch skill triage > ~/.claude/skills/slackwatch-triage/SKILL.md
+slackwatch skill install --agent all --force
+slackwatch skill status
+slackwatch skill uninstall --agent all
 #+end_src
 
-~slackwatch skill triage~ needs an ~inbound~ block.
-[[file:../setup-dev/README.org][setup-dev]] installs that file, through
-the same approval flow as the main skill, only when the block is present.
+~slackwatch skill install~ installs the ~slackwatch~ skill for each
+detected agent (Claude, Codex, Antigravity, Grok; use ~--agent <name>~
+or ~--dir <path>~ to target one, ~--scope user|project~, ~--dry-run~ to
+preview, ~--force~ to overwrite non-toolcli files). When an ~inbound~
+block is configured, ~slackwatch skill install~, ~uninstall~, and
+~status~ also manage the ~slackwatch-triage~ skill alongside ~slackwatch~.
+[[file:../setup-dev/README.org][setup-dev]] runs ~slackwatch skill install --agent all --force~.
+
+~slackwatch skill~ and ~slackwatch skill triage~ print the raw skill
+markdown without installing (~slackwatch skill triage~ needs an
+~inbound~ block and exits non-zero when it is unset).
 
 ~slackwatch skill triage~ prints the role for ~inbound.target~. It is
 an error when no ~inbound~ block is set. The brief names only that

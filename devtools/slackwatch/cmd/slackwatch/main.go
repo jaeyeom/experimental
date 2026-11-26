@@ -137,7 +137,7 @@ Commands:
                       im:write is not required to post a user id
   slackwatch pin      check the write token with auth.test and pin it in config
   slackwatch skill [triage | install|uninstall|status ...]
-                      print or install the agent skill, or print the inbound triage role
+                      print or install the agent skill (and slackwatch-triage when inbound is set)
   slackwatch version [--json]
   slackwatch update [--check] [--ref <ref>] [--json]
   slackwatch doctor [--json] [--offline]

@@ -248,19 +248,19 @@ func (t *Tool) updateTargets() []updateTarget {
 }
 
 func (t *Tool) findStaleSkills() []StaleSkill {
-	if t.SkillText == "" {
+	if t.SkillText == "" && len(t.ExtraSkills) == 0 {
 		return nil
 	}
-	entries := t.collectSkillStatus()
+	records := t.collectSkillStatusRecords()
 	var stale []StaleSkill
-	for _, e := range entries {
-		if e.Status == "stale" {
+	for _, r := range records {
+		if r.entry.Status == "stale" {
 			stale = append(stale, StaleSkill{
-				Agent:         e.Agent,
-				Scope:         e.Scope,
-				Path:          e.Path,
-				InstalledHash: e.InstalledHash,
-				CurrentHash:   skillHash(t.SkillText),
+				Agent:         r.entry.Agent,
+				Scope:         r.entry.Scope,
+				Path:          r.entry.Path,
+				InstalledHash: r.entry.InstalledHash,
+				CurrentHash:   r.wantHash,
 			})
 		}
 	}

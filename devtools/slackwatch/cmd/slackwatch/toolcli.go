@@ -22,11 +22,19 @@ func newSlackwatchTool(configPath string) toolcli.Tool {
 	if renderErr != nil {
 		renderedSkill = skillTemplateText
 	}
+	var extraSkills []toolcli.Skill
+	if triageSkill, ok, err := renderTriageString(cfg); err == nil && ok {
+		extraSkills = append(extraSkills, toolcli.Skill{
+			Name: "slackwatch-triage",
+			Text: triageSkill,
+		})
+	}
 	return toolcli.Tool{
 		Name:          "slackwatch",
 		MainPackage:   "github.com/jaeyeom/experimental/devtools/slackwatch/cmd/slackwatch",
 		DaemonService: "slackwatch serve",
 		SkillText:     renderedSkill,
+		ExtraSkills:   extraSkills,
 		ConfigPath: func() (string, bool) {
 			p := slackwatch.ConfigPath(configPath)
 			return p, p != ""

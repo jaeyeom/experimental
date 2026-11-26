@@ -531,3 +531,137 @@ func TestTaggedVersionComparisons(t *testing.T) {
 		}
 	})
 }
+
+func TestExtraSkillsInstallUninstallStatusDoctorUpdate(t *testing.T) {
+	const extraSkill = "---\nname: mytool-extra\ndescription: \"Extra skill.\"\n---\n\n# mytool-extra\n"
+
+	home := t.TempDir()
+	work := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	inst := &fakeInstaller{rev: toolcli.RevisionInfo{Version: "v0.1.0", Revision: "abc1234"}}
+	tool := newTestTool(t, home, work, inst)
+	tool.ExtraSkills = []toolcli.Skill{{Name: "mytool-extra", Text: extraSkill}}
+
+	ctx := context.Background()
+	primaryPath := filepath.Join(home, ".claude", "skills", "mytool", "SKILL.md")
+	extraPath := filepath.Join(home, ".claude", "skills", "mytool-extra", "SKILL.md")
+
+	// --dir is rejected when multiple skills are configured.
+	var out, errBuf bytes.Buffer
+	code, _ := tool.Handle(ctx, []string{"skill", "install", "--dir", t.TempDir()}, &out, &errBuf)
+	if code != 2 {
+		t.Fatalf("expected exit 2 for --dir with ExtraSkills, got %d (stderr=%s)", code, errBuf.String())
+	}
+
+	// Dry-run prints both primary and extra skill paths without writing.
+	out.Reset()
+	errBuf.Reset()
+	code, ok := tool.Handle(ctx, []string{"skill", "install", "--agent", "all", "--force", "--dry-run"}, &out, &errBuf)
+	if !ok || code != 0 {
+		t.Fatalf("dry-run install: ok=%v code=%d stderr=%s", ok, code, errBuf.String())
+	}
+	if !strings.Contains(out.String(), "would install claude (user): "+primaryPath) ||
+		!strings.Contains(out.String(), "would install claude (user): "+extraPath) {
+		t.Fatalf("dry-run missing expected paths:\n%s", out.String())
+	}
+	if _, err := os.Stat(extraPath); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("dry-run wrote %s", extraPath)
+	}
+
+	// Foreign file on extra skill blocks install without --force and leaves primary unwritten.
+	if err := os.MkdirAll(filepath.Dir(extraPath), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(extraPath, []byte("foreign extra"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	errBuf.Reset()
+	code, _ = tool.Handle(ctx, []string{"skill", "install", "--agent", "all"}, &out, &errBuf)
+	if code != 2 {
+		t.Fatalf("expected refusal on foreign extra skill, got %d", code)
+	}
+	if _, err := os.Stat(primaryPath); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("install wrote primary %s despite foreign extra skill refusal", primaryPath)
+	}
+
+	// --force installs both primary and extra skills.
+	out.Reset()
+	errBuf.Reset()
+	code, _ = tool.Handle(ctx, []string{"skill", "install", "--agent", "all", "--force"}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("force install failed: code=%d stderr=%s", code, errBuf.String())
+	}
+	extraData, err := os.ReadFile(extraPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(extraData), "toolcli-tool: mytool-extra") {
+		t.Fatalf("extra skill missing toolcli-tool stamp:\n%s", string(extraData))
+	}
+
+	// status --json reports both skills with current status.
+	out.Reset()
+	errBuf.Reset()
+	code, _ = tool.Handle(ctx, []string{"skill", "status", "--json"}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("status --json: code=%d stderr=%s", code, errBuf.String())
+	}
+	var st toolcli.SkillStatusOutput
+	if err := json.Unmarshal(out.Bytes(), &st); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]toolcli.SkillStatusEntry{}
+	for _, e := range st.Entries {
+		got[e.Path] = e
+	}
+	if got[primaryPath].Status != "current" || got[primaryPath].Skill != "mytool" {
+		t.Fatalf("unexpected primary entry: %+v", got[primaryPath])
+	}
+	if got[extraPath].Status != "current" || got[extraPath].Skill != "mytool-extra" {
+		t.Fatalf("unexpected extra entry: %+v", got[extraPath])
+	}
+
+	// Stale extra skill is reported by doctor and update --check with extra skill's CurrentHash.
+	if err := os.WriteFile(extraPath, []byte("---\ntoolcli-tool: mytool-extra\ntoolcli-version: old\ntoolcli-hash: sha256:0000\n---\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	errBuf.Reset()
+	code, _ = tool.Handle(ctx, []string{"doctor", "--offline"}, &out, &errBuf)
+	if code != 1 || !strings.Contains(out.String(), "claude/mytool-extra (user)") {
+		t.Fatalf("doctor: code=%d out=%s", code, out.String())
+	}
+
+	out.Reset()
+	errBuf.Reset()
+	code, _ = tool.Handle(ctx, []string{"update", "--check", "--json"}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("update --check --json: code=%d stderr=%s", code, errBuf.String())
+	}
+	var uo toolcli.UpdateOutput
+	if err := json.Unmarshal(out.Bytes(), &uo); err != nil {
+		t.Fatal(err)
+	}
+	if len(uo.StaleSkills) != 1 || uo.StaleSkills[0].Path != extraPath {
+		t.Fatalf("unexpected staleSkills: %+v", uo.StaleSkills)
+	}
+	if uo.StaleSkills[0].CurrentHash == st.CurrentHash {
+		t.Fatalf("extra skill CurrentHash %q must differ from primary hash %q", uo.StaleSkills[0].CurrentHash, st.CurrentHash)
+	}
+
+	// Uninstall removes both primary and extra skills.
+	out.Reset()
+	errBuf.Reset()
+	code, _ = tool.Handle(ctx, []string{"skill", "uninstall", "--agent", "all"}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("uninstall: code=%d stderr=%s", code, errBuf.String())
+	}
+	for _, p := range []string{primaryPath, extraPath} {
+		if _, err := os.Stat(p); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("expected %s to be removed", p)
+		}
+	}
+}

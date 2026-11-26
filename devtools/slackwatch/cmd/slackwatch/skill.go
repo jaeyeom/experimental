@@ -49,17 +49,32 @@ func renderSkillString(cfg slackwatch.Config) (string, error) {
 	return buf.String(), nil
 }
 
-func renderTriage(cfg slackwatch.Config, stdout, stderr io.Writer) int {
+func renderTriageString(cfg slackwatch.Config) (string, bool, error) {
 	if cfg.Inbound == nil || strings.TrimSpace(cfg.Inbound.Target) == "" {
-		fmt.Fprintln(stderr, "slackwatch: inbound is not configured")
-		return 1
+		return "", false, nil
 	}
 	tmpl, err := template.New("triage").Parse(triageTemplateText)
 	if err != nil {
-		return fail(stderr, fmt.Errorf("parse triage template: %w", err))
+		return "", false, fmt.Errorf("parse triage template: %w", err)
 	}
-	if err := tmpl.Execute(stdout, triageData{Target: cfg.Inbound.Target}); err != nil {
-		return fail(stderr, fmt.Errorf("render triage skill: %w", err))
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, triageData{Target: cfg.Inbound.Target}); err != nil {
+		return "", false, fmt.Errorf("render triage skill: %w", err)
+	}
+	return buf.String(), true, nil
+}
+
+func renderTriage(cfg slackwatch.Config, stdout, stderr io.Writer) int {
+	text, ok, err := renderTriageString(cfg)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	if !ok {
+		fmt.Fprintln(stderr, "slackwatch: inbound is not configured")
+		return 1
+	}
+	if _, err := io.WriteString(stdout, text); err != nil {
+		return fail(stderr, err)
 	}
 	return 0
 }

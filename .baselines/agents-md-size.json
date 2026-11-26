@@ -3,7 +3,7 @@
   "entries": {
     "devtools/setup-dev/ansible/AGENTS.md": {
       "limits": {
-        "max_bytes": 6037
+        "max_bytes": 5907
       },
       "reason": "Legacy Ansible playbook instructions pending split"
     }

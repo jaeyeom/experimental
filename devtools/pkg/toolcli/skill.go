@@ -107,6 +107,29 @@ func (a *agentListFlag) Set(v string) error {
 	return nil
 }
 
+func (t *Tool) skills() []Skill {
+	var out []Skill
+	seen := map[string]bool{}
+	if t.SkillText != "" || len(t.ExtraSkills) == 0 {
+		out = append(out, Skill{Name: t.Name, Text: t.SkillText})
+		seen[t.Name] = true
+	}
+	for _, s := range t.ExtraSkills {
+		if s.Name == "" || s.Text == "" || seen[s.Name] {
+			continue
+		}
+		seen[s.Name] = true
+		out = append(out, s)
+	}
+	return out
+}
+
+type skillInstallPlan struct {
+	skill   Skill
+	content string
+	targets []skillTarget
+}
+
 func (t *Tool) cmdSkillInstall(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("skill install", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -123,21 +146,44 @@ func (t *Tool) cmdSkillInstall(args []string, stdout, stderr io.Writer) int {
 		return failMsg(stderr, "skill install does not take positional arguments", 2)
 	}
 
-	targets, err := t.resolveSkillTargets(agents, Scope(*scope), *dir)
-	if err != nil {
-		return failErr(stderr, err, 2)
+	skills := t.skills()
+	if *dir != "" && len(skills) > 1 {
+		return failMsg(stderr, "error: --dir is not supported when multiple skills are configured", 2)
 	}
 
-	stamped := stampSkill(t.SkillText, t.Name, currentRevLabel(t.buildInfo()))
-	for _, tgt := range targets {
-		if err := installSkillFile(tgt.path, stamped, t.Name, *force, *dryRun); err != nil {
+	rev := currentRevLabel(t.buildInfo())
+	plans := make([]skillInstallPlan, 0, len(skills))
+	for _, sk := range skills {
+		targets, err := t.resolveSkillTargetsFor(sk.Name, agents, Scope(*scope), *dir)
+		if err != nil {
 			return failErr(stderr, err, 2)
 		}
-		action := "installed"
-		if *dryRun {
-			action = "would install"
+		stamped := stampSkill(sk.Text, sk.Name, rev)
+		for _, tgt := range targets {
+			if err := installSkillFile(tgt.path, stamped, sk.Name, *force, true); err != nil {
+				return failErr(stderr, err, 2)
+			}
 		}
-		_, _ = fmt.Fprintf(stdout, "%s %s (%s): %s\n", action, tgt.label, tgt.scope, tgt.path)
+		plans = append(plans, skillInstallPlan{
+			skill:   sk,
+			content: stamped,
+			targets: targets,
+		})
+	}
+
+	for _, p := range plans {
+		for _, tgt := range p.targets {
+			if !*dryRun {
+				if err := installSkillFile(tgt.path, p.content, p.skill.Name, *force, false); err != nil {
+					return failErr(stderr, err, 2)
+				}
+			}
+			action := "installed"
+			if *dryRun {
+				action = "would install"
+			}
+			_, _ = fmt.Fprintf(stdout, "%s %s (%s): %s\n", action, tgt.label, tgt.scope, tgt.path)
+		}
 	}
 	return 0
 }
@@ -157,31 +203,52 @@ func (t *Tool) cmdSkillUninstall(args []string, stdout, stderr io.Writer) int {
 		return failMsg(stderr, "skill uninstall does not take positional arguments", 2)
 	}
 
-	targets, err := t.resolveSkillTargets(agents, Scope(*scope), *dir)
-	if err != nil {
-		return failErr(stderr, err, 2)
+	skills := t.skills()
+	if *dir != "" && len(skills) > 1 {
+		return failMsg(stderr, "error: --dir is not supported when multiple skills are configured", 2)
 	}
 
-	for _, tgt := range targets {
-		removed, err := uninstallSkillFile(tgt.path, t.Name, *dryRun)
+	type uninstallPlan struct {
+		skillName string
+		targets   []skillTarget
+	}
+	plans := make([]uninstallPlan, 0, len(skills))
+	for _, sk := range skills {
+		targets, err := t.resolveSkillTargetsFor(sk.Name, agents, Scope(*scope), *dir)
 		if err != nil {
 			return failErr(stderr, err, 2)
 		}
-		if !removed {
-			_, _ = fmt.Fprintf(stdout, "not installed %s (%s): %s\n", tgt.label, tgt.scope, tgt.path)
-			continue
+		for _, tgt := range targets {
+			if _, err := uninstallSkillFile(tgt.path, sk.Name, true); err != nil {
+				return failErr(stderr, err, 2)
+			}
 		}
-		action := "removed"
-		if *dryRun {
-			action = "would remove"
+		plans = append(plans, uninstallPlan{skillName: sk.Name, targets: targets})
+	}
+
+	for _, p := range plans {
+		for _, tgt := range p.targets {
+			removed, err := uninstallSkillFile(tgt.path, p.skillName, *dryRun)
+			if err != nil {
+				return failErr(stderr, err, 2)
+			}
+			if !removed {
+				_, _ = fmt.Fprintf(stdout, "not installed %s (%s): %s\n", tgt.label, tgt.scope, tgt.path)
+				continue
+			}
+			action := "removed"
+			if *dryRun {
+				action = "would remove"
+			}
+			_, _ = fmt.Fprintf(stdout, "%s %s (%s): %s\n", action, tgt.label, tgt.scope, tgt.path)
 		}
-		_, _ = fmt.Fprintf(stdout, "%s %s (%s): %s\n", action, tgt.label, tgt.scope, tgt.path)
 	}
 	return 0
 }
 
 // SkillStatusEntry describes one agent+scope skill installation state.
 type SkillStatusEntry struct {
+	Skill            string `json:"skill,omitempty"`
 	Agent            Agent  `json:"agent"`
 	Scope            Scope  `json:"scope"`
 	Path             string `json:"path"`
@@ -238,7 +305,7 @@ type skillTarget struct {
 	path  string
 }
 
-func (t *Tool) resolveSkillTargets(agents []string, scope Scope, dir string) ([]skillTarget, error) {
+func (t *Tool) resolveSkillTargetsFor(skillName string, agents []string, scope Scope, dir string) ([]skillTarget, error) {
 	if dir != "" {
 		return []skillTarget{{
 			label: "custom",
@@ -266,7 +333,7 @@ func (t *Tool) resolveSkillTargets(agents []string, scope Scope, dir string) ([]
 				return nil, fmt.Errorf("no supported agents found for %s scope", scope)
 			}
 			for _, loc := range detected {
-				p := skillPathForLoc(loc, baseDir, scope, t.Name)
+				p := skillPathForLoc(loc, baseDir, scope, skillName)
 				if !seen[p] {
 					seen[p] = true
 					targets = append(targets, skillTarget{label: string(loc.Agent), scope: scope, path: p})
@@ -278,7 +345,7 @@ func (t *Tool) resolveSkillTargets(agents []string, scope Scope, dir string) ([]
 		if !ok {
 			return nil, fmt.Errorf("unknown agent %q (expected claude, codex, antigravity, grok, or all)", a)
 		}
-		p := skillPathForLoc(loc, baseDir, scope, t.Name)
+		p := skillPathForLoc(loc, baseDir, scope, skillName)
 		if !seen[p] {
 			seen[p] = true
 			targets = append(targets, skillTarget{label: string(loc.Agent), scope: scope, path: p})
@@ -325,19 +392,45 @@ func detectAgents(baseDir string, scope Scope) []AgentLocation {
 	return found
 }
 
-func (t *Tool) collectSkillStatus() []SkillStatusEntry {
+type skillStatusRecord struct {
+	entry    SkillStatusEntry
+	wantHash string
+}
+
+func (t *Tool) collectSkillStatusRecords() []skillStatusRecord {
 	home, homeErr := t.homeDir()
 	work, workErr := t.workDir()
-	wantHash := skillHash(t.SkillText)
+	skills := t.skills()
+	multiSkill := len(skills) > 1
 
-	var entries []SkillStatusEntry
-	for _, loc := range AgentLocations {
-		if homeErr == nil {
-			entries = append(entries, inspectSkillEntry(loc.Agent, ScopeUser, loc.UserSkill(home, t.Name), t.Name, wantHash))
+	var records []skillStatusRecord
+	for _, sk := range skills {
+		wantHash := skillHash(sk.Text)
+		skillLabel := ""
+		if multiSkill {
+			skillLabel = sk.Name
 		}
-		if workErr == nil {
-			entries = append(entries, inspectSkillEntry(loc.Agent, ScopeProject, loc.ProjSkill(work, t.Name), t.Name, wantHash))
+		for _, loc := range AgentLocations {
+			if homeErr == nil {
+				entry := inspectSkillEntry(loc.Agent, ScopeUser, loc.UserSkill(home, sk.Name), sk.Name, wantHash)
+				entry.Skill = skillLabel
+				records = append(records, skillStatusRecord{entry: entry, wantHash: wantHash})
+			}
+			if workErr == nil {
+				entry := inspectSkillEntry(loc.Agent, ScopeProject, loc.ProjSkill(work, sk.Name), sk.Name, wantHash)
+				entry.Skill = skillLabel
+				records = append(records, skillStatusRecord{entry: entry, wantHash: wantHash})
+			}
 		}
+	}
+	return records
+}
+
+func (t *Tool) collectSkillStatus() []SkillStatusEntry {
+	records := t.collectSkillStatusRecords()
+	entries := make([]SkillStatusEntry, len(records))
+	for i, r := range records {
+		entries[i] = r.entry
 	}
 	return entries
 }

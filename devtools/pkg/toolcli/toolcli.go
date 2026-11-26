@@ -27,6 +27,12 @@ type Companion struct {
 	DaemonService string
 }
 
+// Skill describes an additional agent skill managed alongside the primary skill.
+type Skill struct {
+	Name string
+	Text string
+}
+
 // BuildInfo describes the compiled binary's version metadata.
 type BuildInfo struct {
 	ModulePath  string `json:"modulePath"`
@@ -84,6 +90,7 @@ type Tool struct {
 	DaemonService          string
 	Companions             []Companion
 	SkillText              string
+	ExtraSkills            []Skill
 	ConfigPath             func() (string, bool)
 	CheckConfig            func() error
 	RequiredCommands       []string

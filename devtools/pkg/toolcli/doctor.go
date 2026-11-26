@@ -248,7 +248,7 @@ func (t *Tool) checkExternalCommands() CheckResult {
 }
 
 func (t *Tool) checkSkills() CheckResult {
-	if t.SkillText == "" {
+	if t.SkillText == "" && len(t.ExtraSkills) == 0 {
 		return CheckResult{
 			Name:   "skills",
 			Status: StatusOK,
@@ -258,11 +258,15 @@ func (t *Tool) checkSkills() CheckResult {
 	entries := t.collectSkillStatus()
 	var installed, stale []string
 	for _, e := range entries {
+		label := fmt.Sprintf("%s (%s)", e.Agent, e.Scope)
+		if e.Skill != "" && e.Skill != t.Name {
+			label = fmt.Sprintf("%s/%s (%s)", e.Agent, e.Skill, e.Scope)
+		}
 		switch e.Status {
 		case "current":
-			installed = append(installed, fmt.Sprintf("%s (%s)", e.Agent, e.Scope))
+			installed = append(installed, label)
 		case "stale":
-			stale = append(stale, fmt.Sprintf("%s (%s)", e.Agent, e.Scope))
+			stale = append(stale, label)
 		}
 	}
 	if len(stale) > 0 {
