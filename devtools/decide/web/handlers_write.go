@@ -224,25 +224,6 @@ func (s *Server) unsnooze(id string, _ *itemReq) (decide.Item, error) {
 	return s.Backend.Unsnooze(id) //nolint:wrapcheck // the backend names its failure
 }
 
-func (s *Server) archiveAll(w http.ResponseWriter, r *http.Request) {
-	var body itemReq
-	if err := decodeBody(w, r, &body); err != nil {
-		fail(w, err, 0)
-		return
-	}
-	if err := needSeen(&body); err != nil {
-		fail(w, err, 0)
-		return
-	}
-	n, err := s.Backend.ArchiveNotes(*body.Seen)
-	if err != nil {
-		fail(w, err, http.StatusInternalServerError)
-		return
-	}
-	s.Watcher().Signal()
-	writeJSON(w, http.StatusOK, map[string]any{"archived": n})
-}
-
 type sendReq struct {
 	To        string     `json:"to"`
 	Bus       bool       `json:"bus"`

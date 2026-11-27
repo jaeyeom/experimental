@@ -581,20 +581,14 @@ func TestSnooze(t *testing.T) {
 	}
 }
 
-func TestArchiveAllNotes(t *testing.T) {
+func TestArchiveAllNotesRemoved(t *testing.T) {
 	a := newAPI(t)
-	a.create(&decide.Item{Question: "n1", Class: decide.ClassNote})
-	a.create(&decide.Item{Question: "n2", Class: decide.ClassNote})
-	req := a.create(&decide.Item{Question: "needs you"})
+	n := a.create(&decide.Item{Question: "n1", Class: decide.ClassNote})
 	seen := testNow().Add(time.Hour).Format(time.RFC3339)
-	m := a.wantOK(a.post("/api/v1/notes/archive-all", `{"seen":"`+seen+`"}`), 200)
-	if m["archived"] != float64(2) {
-		t.Errorf("archived = %v", m["archived"])
+	wantStatus(t, a.post("/api/v1/notes/archive-all", `{"seen":"`+seen+`"}`).ResponseRecorder, 404)
+	if a.get(n).State != decide.StateOpen {
+		t.Error("removed archive-all endpoint changed note state")
 	}
-	if a.get(req).State != decide.StateOpen {
-		t.Error("archive-all touched a non-note")
-	}
-	a.wantErr(a.post("/api/v1/notes/archive-all", `{}`), 400)
 }
 
 func TestSend(t *testing.T) {
@@ -705,7 +699,6 @@ var apiRoutes = []req{
 	{"POST", "/api/v1/items/D1/done", `{"outcome":"x"}`, nil},
 	{"POST", "/api/v1/items/D1/snooze", `{"preset":"1h"}`, nil},
 	{"POST", "/api/v1/items/D1/unsnooze", "", nil},
-	{"POST", "/api/v1/notes/archive-all", `{"seen":"2026-01-02T03:04:05Z"}`, nil},
 	{"POST", "/api/v1/send", `{"to":"builder","text":"x"}`, nil},
 	{"POST", "/api/v1/contacts/favorites", `{"names":[]}`, nil},
 	{"PUT", "/api/v1/drafts/k", `{"draft":{"key":"k","text":"x"}}`, nil},

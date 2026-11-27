@@ -345,7 +345,7 @@ token. It is not versioned beyond ~v1~ and may change with the app. Reads: ~snap
 ~status~, ~contacts~, ~org-tree~, ~reasons~, ~asks~, ~search?q=~, ~keymap~, and ~events~ (SSE with
 ~resync~, ~delta~, and ~ping~ events; ~Last-Event-ID~ or ~?since=~
 resumes). Writes: ~items/{id}/{read,answer,reply,archive,done,snooze,
-unsnooze,flag}~, ~asks/{id}/{done,drop}~, ~notes/archive-all~, ~send~, ~contacts/favorites~, and
+unsnooze,flag}~, ~asks/{id}/{done,drop}~, ~send~, ~contacts/favorites~, and
 ~drafts/{key}~. ~answer~, ~reply~, and the other item writes accept
 ~writtenAt~ and a ~conflictCheck~ (~baseState~, ~baseMessageCount~,
 ~baseLastMessageAt~, ~baseAnswered~); a stale view gets 409 with the

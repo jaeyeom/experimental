@@ -459,8 +459,7 @@ func TestE2EFullStack(t *testing.T) {
 		t.Errorf("draft after conflict = %v", d)
 	}
 
-	// Triage: snooze (and its delta on the stream), unsnooze, archive,
-	// archive-all notes, done.
+	// Triage: snooze (and its delta on the stream), unsnooze, archive, done.
 	e.want(200, "POST", "/api/v1/items/"+busy.ID+"/snooze", `{"preset":"1h"}`)
 	f := nextChange(t, events, busy.ID)
 	if f.event != "delta" || f.id == "" {
@@ -475,9 +474,9 @@ func TestE2EFullStack(t *testing.T) {
 	}
 	e.want(200, "POST", "/api/v1/items/"+read.ID+"/read", "")
 	seen := e.clock.now().Format(time.RFC3339Nano)
-	e.want(200, "POST", "/api/v1/notes/archive-all", `{"seen":"`+seen+`"}`)
+	e.want(200, "POST", "/api/v1/items/"+note.ID+"/archive", `{"seen":"`+seen+`"}`)
 	if e.item(note.ID).State == decide.StateOpen {
-		t.Error("archive-all left the note open")
+		t.Error("archive left the note open")
 	}
 	e.want(200, "POST", "/api/v1/items/"+after.ID+"/done", `{"outcome":"handled"}`)
 	e.want(200, "POST", "/api/v1/send", `{"to":"builder","text":"build it"}`)

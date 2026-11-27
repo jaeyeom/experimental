@@ -193,18 +193,6 @@ export function filterEntries(entries, { query = '', agent = '' } = {}) {
     && [e.item, ...e.approvals].some((it) => matchesQuery(it, query)));
 }
 
-// noteSeen is the `seen` stamp for "archive all notes": the newest last
-// message among the notes shown, so a note that arrives later is kept.
-export function noteSeen(entries) {
-  let best = null;
-  for (const e of entries) {
-    if (e.group !== 'notes') continue;
-    const s = lastStamp(e.item);
-    if (best === null || ms(s) > ms(best)) best = s;
-  }
-  return best;
-}
-
 function span(delta) {
   const m = Math.max(1, Math.floor(delta / 60e3));
   if (m < 60) return m + 'm';

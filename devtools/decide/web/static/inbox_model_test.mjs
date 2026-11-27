@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   badgeOf, effectiveClass, hasUnread, unreadCount, sortItems, inboxEntries, selectFolder,
-  matchesQuery, filterEntries, snippet, undelivered, draftMark, lastStamp, noteSeen, relativeAge,
+  matchesQuery, filterEntries, snippet, undelivered, draftMark, lastStamp, relativeAge,
   deadlineLabel, inboxView,
 } from './inbox_model.js';
 
@@ -182,10 +182,6 @@ test('seen stamps for archive', () => {
   assert.equal(lastStamp(a), T(5));
   assert.equal(lastStamp(item('D-001', { createdAt: T(1) })), T(1));
   assert.equal(lastStamp(item('D-001', { lastMessageAt: '2026-01-01T00:07:00.123456789Z' })), '2026-01-01T00:07:00.123456789Z');
-  const entries = inboxEntries([item('N-001', { class: 'note', createdAt: T(2) }),
-    item('N-002', { class: 'note', createdAt: T(9) }), item('D-001', { createdAt: T(20) })]);
-  assert.equal(noteSeen(entries), T(9));
-  assert.equal(noteSeen([]), null);
 });
 
 test('relative age and deadline labels', () => {

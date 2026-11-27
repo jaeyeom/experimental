@@ -484,7 +484,7 @@ func ResolveKeyMap(overrides map[string][]string) (*KeyMap, error) {
 }
 
 var removedKeyActions = map[string]string{
-	"list.archiveNotes": "archive-all-notes key action was removed; use the web button or CLI",
+	"list.archiveNotes": "archive-all-notes key action was removed; use the CLI",
 }
 
 // RemovedKeyWarnings returns warnings for any removed action names still

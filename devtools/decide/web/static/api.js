@@ -41,7 +41,6 @@ export const logout = () => post('/auth/logout');
 export const archive = (id, seen) => post(`/items/${encodeURIComponent(id)}/archive`, { seen });
 export const snooze = (id, when) => post(`/items/${encodeURIComponent(id)}/snooze`, when);
 export const unsnooze = (id) => post(`/items/${encodeURIComponent(id)}/unsnooze`);
-export const archiveAllNotes = (seen) => post('/notes/archive-all', { seen });
 export const newerMessage = (e) => e instanceof ApiError && e.status === 409 && e.data?.code === 'newer_message';
 
 // Thread writes. Item writes may answer 200 with {item, notifyError}: the

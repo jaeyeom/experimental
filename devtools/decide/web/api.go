@@ -80,7 +80,6 @@ func (s *Server) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/items/{id}/flag", s.flagItem)
 	mux.HandleFunc("POST /api/v1/asks/{id}/done", s.closeAskHandler(decide.AskStatusDone))
 	mux.HandleFunc("POST /api/v1/asks/{id}/drop", s.closeAskHandler(decide.AskStatusDropped))
-	mux.HandleFunc("POST /api/v1/notes/archive-all", s.archiveAll)
 	mux.HandleFunc("POST /api/v1/send", s.send)
 	mux.HandleFunc("POST /api/v1/contacts/favorites", s.setFavorites)
 	mux.HandleFunc("PUT /api/v1/drafts/{key}", s.putDraft)

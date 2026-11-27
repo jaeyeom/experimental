@@ -5,7 +5,7 @@ import * as api from './api.js';
 import { el, keyHint } from './dom.js';
 import {
   FOLDERS, CLASS_CHIPS, inboxView, badgeOf, hasUnread, effectiveClass, snippet, undelivered,
-  draftMark, relativeAge, deadlineLabel, lastStamp, noteSeen,
+  draftMark, relativeAge, deadlineLabel, lastStamp,
 } from './inbox_model.js';
 import { attachSwipe } from './swipe.js';
 import { openSnoozeSheet } from './snooze_sheet.js';
@@ -95,17 +95,6 @@ export function createInboxView({ root, toast, hint = () => '' }) {
     });
   }
 
-  async function archiveNotes(entries) {
-    const seen = noteSeen(entries);
-    if (!seen) return;
-    try {
-      const { archived } = await api.archiveAllNotes(seen);
-      toast(archived === 1 ? 'Archived 1 note' : `Archived ${archived} notes`);
-    } catch {
-      toast('Could not archive notes. Try again.');
-    }
-  }
-
   // --- rendering ---
   const pill = (text, cls) => el('span', { class: 'pill ' + cls, text });
 
@@ -180,11 +169,6 @@ export function createInboxView({ root, toast, hint = () => '' }) {
     if (view.grouped) {
       for (const g of view.groups) {
         const head = el('div', { class: 'group-head' }, el('h2', { text: `${g.label} (${g.entries.length})` }));
-        if (g.group === 'notes') {
-          const b = el('button', { type: 'button', class: 'act' }, 'Archive all notes');
-          b.addEventListener('click', () => archiveNotes(view.entries));
-          head.append(b);
-        }
         sections.push(el('section', {}, head, el('ul', {}, ...g.entries.map((e) => rowFor(e, folder, drafts)))));
       }
     } else if (view.rows.length) {
