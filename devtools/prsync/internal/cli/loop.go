@@ -7,6 +7,7 @@ import (
 	"io"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
@@ -15,6 +16,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/ledger"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/loop"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/policy"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/runlog"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
 	executor "github.com/jaeyeom/go-cmdexec"
 	"github.com/spf13/cobra"
@@ -153,11 +155,11 @@ func cliLoopRunner(exec executor.Executor) loop.RoundRunner {
 			res.Dispatch = *out
 		}
 		if err != nil {
-			res.EndedAt = time.Now().UTC()
 			if errors.Is(err, dispatch.ErrLeaseRequired) {
 				res.FatalErr = dispatchExit(err, cfg)
 			}
 			res.Err = err.Error()
+			finalizeLoopRound(ctx, exec, cfg, &res)
 			return res
 		}
 		if cfg.Policy.CIFix != config.PolicyOff {
@@ -185,9 +187,57 @@ func cliLoopRunner(exec executor.Executor) loop.RoundRunner {
 				}
 			}
 		}
-		res.EndedAt = time.Now().UTC()
+		finalizeLoopRound(ctx, exec, cfg, &res)
 		return res
 	})
+}
+
+func finalizeLoopRound(ctx context.Context, exec executor.Executor, cfg config.Config, res *loop.RoundResult) {
+	res.EndedAt = time.Now().UTC()
+	if res.FatalErr == nil &&
+		cfg.Policy.BotRereview == config.PolicyOff &&
+		strings.TrimSpace(cfg.Policy.BotRereviewLogin) != "" &&
+		strings.TrimSpace(cfg.Policy.BotRereviewBody) != "" {
+		res.RereviewPreview = runLoopBotRereviewPreview(ctx, exec, cfg, res.Scan)
+	}
+
+	var blockedSince map[string]time.Time
+	if cfg.StateFile != "" {
+		tracker, err := loop.LoadBlockedTracker(loop.BlockedStatePath(cfg.StateDir(), cfg.SourcePath))
+		if err != nil {
+			runlog.FromContext(ctx).Warn("loop_blocked_state_load", "error", err.Error())
+		} else {
+			tracker.Update(res.Scan, *res, res.EndedAt)
+			if err := tracker.Save(); err != nil {
+				runlog.FromContext(ctx).Warn("loop_blocked_state_save", "error", err.Error())
+			}
+			blockedSince = tracker.Since
+		}
+	}
+
+	var lgr *ledger.Store
+	if cfg.Policy.LedgerFileConfigured || cfg.StateFile != "" {
+		if path := cfg.ResolvedLedgerFile(); path != "" {
+			lgr = &ledger.Store{Path: path}
+		}
+	}
+	loop.PopulateNeedsJudgment(ctx, res, loop.JudgmentInput{
+		Config:       cfg,
+		Now:          res.EndedAt,
+		Ledger:       lgr,
+		BlockedSince: blockedSince,
+	})
+}
+
+func runLoopBotRereviewPreview(ctx context.Context, exec executor.Executor, cfg config.Config, scanDoc scan.Document) []policy.Decision {
+	previewCfg := cfg
+	previewCfg.Policy.BotRereview = config.PolicyDryRun
+	previewCfg.DryRun = true
+	decisions, err := runLoopBotRereview(ctx, exec, previewCfg, scanDoc)
+	if err != nil {
+		runlog.FromContext(ctx).Warn("loop_rereview_due_check", "error", err.Error())
+	}
+	return decisions
 }
 
 func runLoopBotRereview(ctx context.Context, exec executor.Executor, cfg config.Config, scanDoc scan.Document) ([]policy.Decision, error) {

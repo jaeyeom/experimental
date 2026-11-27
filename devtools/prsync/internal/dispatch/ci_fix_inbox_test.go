@@ -422,3 +422,39 @@ func TestCIFixInboxGateTimeoutLeavesFileInInbox(t *testing.T) {
 	assertFileExists(t, reqPath, true)
 	assertFileExists(t, lgr.Path, false)
 }
+
+func TestReadDoneCIFixInbox(t *testing.T) {
+	t.Parallel()
+
+	inboxDir := t.TempDir()
+	got, err := ReadDoneCIFixInbox(inboxDir)
+	if err != nil || len(got) != 0 {
+		t.Fatalf("missing done dir = %+v, %v; want nil, nil", got, err)
+	}
+
+	doneDir := filepath.Join(inboxDir, "done")
+	if err := os.MkdirAll(doneDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(doneDir, ".tmp-ignore.json"), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(doneDir, "bad.json"), []byte(`{not json`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeInboxJSON(t, doneDir, "123.json", InboxRecord{
+		Repo:    "acme/widgets",
+		PR:      123,
+		HeadSHA: "sha111",
+		Hint:    "fixed",
+		Outcome: ActionDispatched,
+	})
+
+	got, err = ReadDoneCIFixInbox(inboxDir)
+	if err != nil {
+		t.Fatalf("ReadDoneCIFixInbox() error = %v", err)
+	}
+	if len(got) != 1 || got[0].Repo != "acme/widgets" || got[0].PR != 123 || got[0].HeadSHA != "sha111" {
+		t.Fatalf("ReadDoneCIFixInbox() = %+v", got)
+	}
+}

@@ -113,6 +113,40 @@ func ReadCIFixInbox(inboxDir string) ([]InboxEntry, error) {
 	return out, nil
 }
 
+// ReadDoneCIFixInbox reads archived JSON records from inboxDir/done in sorted
+// order, ignoring dotfiles, subdirectories, and unreadable/malformed entries. A
+// missing inboxDir or done directory returns nil, nil.
+func ReadDoneCIFixInbox(inboxDir string) ([]InboxRecord, error) {
+	if inboxDir == "" {
+		return nil, nil
+	}
+	doneDir := filepath.Join(inboxDir, inboxSubdirDone)
+	dirEntries, err := os.ReadDir(doneDir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read ci_fix_inbox done %s: %w", doneDir, err)
+	}
+	var out []InboxRecord
+	for _, de := range dirEntries {
+		name := de.Name()
+		if de.IsDir() || strings.HasPrefix(name, ".") || filepath.Ext(name) != ".json" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(doneDir, name)) //nolint:gosec // configured ci_fix_inbox/done entry
+		if err != nil {
+			continue
+		}
+		var rec InboxRecord
+		if err := json.Unmarshal(data, &rec); err != nil {
+			continue
+		}
+		out = append(out, rec)
+	}
+	return out, nil
+}
+
 func parseInboxRequest(data []byte) (InboxRequest, error) {
 	var req InboxRequest
 	if err := json.Unmarshal(data, &req); err != nil {

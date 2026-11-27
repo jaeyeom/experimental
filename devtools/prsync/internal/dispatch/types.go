@@ -114,4 +114,7 @@ type Item struct {
 	Woke bool `json:"woke,omitempty"`
 	// InboxFile is the ci_fix_inbox filename when dispatched from the inbox.
 	InboxFile string `json:"inbox_file,omitempty"` //nolint:tagliatelle // brief outbound contract
+	// GateSignal names the busy signal (such as "lease" or "working")
+	// when a gate check or timeout observed a hold.
+	GateSignal string `json:"gate_signal,omitempty"` //nolint:tagliatelle // outbound contract
 }

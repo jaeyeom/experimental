@@ -669,8 +669,22 @@ prsync loop --ensure --config ./prsync.config
 Each completed round writes one JSON line (~RoundResult~) to stdout:
 
 #+BEGIN_SRC json
-{"round":1,"started_at":"2026-01-01T09:00:00Z","ended_at":"2026-01-01T09:00:02Z","scanned":2,"dispatch":{"generated_at":"2026-01-01T09:00:02Z","dry_run":false,"results":[...]}}
+{"round":1,"started_at":"2026-01-01T09:00:00Z","ended_at":"2026-01-01T09:00:02Z","scanned":2,"dispatch":{"generated_at":"2026-01-01T09:00:02Z","dry_run":false,"results":[...]},"needs_judgment":[],"needs_judgment_count":0}
 #+END_SRC
+
+Each ~RoundResult~ always includes ~needs_judgment~ (a sorted list of
+~{repo, pr, head_sha, reason, minutes?, detail?}~) and
+~needs_judgment_count~ so downstream schedulers, hooks, and round-log
+format templates can wake a judging agent only when rules could not
+decide:
+
+- ~ci_failing_unclassified~ — open PR with ~ci_state=failing~ at ~head_sha~ and neither a pending/handled ~ci_fix_inbox~ file nor a ~ci-fix~ dispatch ledger entry for that head.
+- ~no_tab~ — open in-scope PR with no matched herdr tab (unless ~tab_unknown~ is set or a tab was opened during the round).
+- ~ambiguous_tab~ — open in-scope PR matching multiple herdr tabs.
+- ~tab_blocked~ — open in-scope PR whose matched herdr tab is ~blocked~ (includes ~minutes~ since first observed blocked, persisted in ~loop.blocked.json~ / ~loop-<hash>.blocked.json~).
+- ~lease_holder_blocked~ — dispatch or gate timed out on an external agentbus workdir lease holder.
+- ~merge_ready~ — open, non-draft, in-scope PR that is ~MERGEABLE~ (not ~DIRTY~), ~APPROVED~, checks ~green~, with no unaddressed threads or pending review requests.
+- ~rereview_due~ — bot re-review is eligible while ~bot_rereview=off~ (with ~bot_rereview_login~ and ~bot_rereview_body~ configured).
 
 - *Locking* — holds an exclusive advisory ~flock~ on ~loop.lock~ (or
   ~loop-<hash>.lock~ when scoped to a config file) in the state

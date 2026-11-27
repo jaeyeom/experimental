@@ -1015,6 +1015,30 @@ func (g *scriptGH) OrgActive(ctx context.Context, org, login string, _ time.Time
 
 func depsWith(g GH, h Herdr) Deps { return Deps{GH: g, Herdr: h} }
 
+func TestMatchTabsSetsTabAmbiguous(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Defaults()
+	cfg.Author = "alice"
+	cfg.Repos = []string{"acme/widgets"}
+
+	doc, err := Run(context.Background(), Deps{
+		GH: fixtureGH{},
+		Herdr: stubHerdr{
+			tabs: []herdr.Tab{
+				{TabID: "w2:tC", WorkspaceID: "w2", Label: "PROJ-123"},
+				{TabID: "w3:tC", WorkspaceID: "w3", Label: "PROJ-123"},
+			},
+		},
+	}, cfg, nil, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(doc.PRs) != 1 || doc.PRs[0].Tab != nil || !doc.PRs[0].TabAmbiguous {
+		t.Fatalf("PR = %+v, want Tab=nil and TabAmbiguous=true", doc.PRs)
+	}
+}
+
 func fixturePRs() []gh.PRListItem {
 	return []gh.PRListItem{{
 		Number:           123,

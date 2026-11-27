@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -54,16 +55,19 @@ func (realSleeper) Sleep(ctx context.Context, d time.Duration) error {
 
 // RoundResult captures the outcome of one scan+dispatch round in loop mode.
 type RoundResult struct {
-	Round       int               `json:"round"`
-	StartedAt   time.Time         `json:"started_at"` //nolint:tagliatelle // outbound contract
-	EndedAt     time.Time         `json:"ended_at"`   //nolint:tagliatelle // outbound contract
-	Scan        scan.Document     `json:"-"`
-	Scanned     int               `json:"scanned"`
-	Dispatch    dispatch.Document `json:"dispatch"`
-	CIFixInbox  []dispatch.Item   `json:"ci_fix_inbox,omitempty"` //nolint:tagliatelle // outbound contract
-	BotRereview []policy.Decision `json:"bot_rereview,omitempty"` //nolint:tagliatelle // outbound contract
-	Err         string            `json:"error,omitempty"`
-	FatalErr    error             `json:"-"`
+	Round              int               `json:"round"`
+	StartedAt          time.Time         `json:"started_at"` //nolint:tagliatelle // outbound contract
+	EndedAt            time.Time         `json:"ended_at"`   //nolint:tagliatelle // outbound contract
+	Scan               scan.Document     `json:"-"`
+	Scanned            int               `json:"scanned"`
+	Dispatch           dispatch.Document `json:"dispatch"`
+	CIFixInbox         []dispatch.Item   `json:"ci_fix_inbox,omitempty"` //nolint:tagliatelle // outbound contract
+	BotRereview        []policy.Decision `json:"bot_rereview,omitempty"` //nolint:tagliatelle // outbound contract
+	RereviewPreview    []policy.Decision `json:"-"`
+	NeedsJudgment      []JudgmentItem    `json:"needs_judgment"`       //nolint:tagliatelle // outbound contract
+	NeedsJudgmentCount int               `json:"needs_judgment_count"` //nolint:tagliatelle // outbound contract
+	Err                string            `json:"error,omitempty"`
+	FatalErr           error             `json:"-"`
 }
 
 // RoundRunner executes a single scan+dispatch round. Implementations may wrap
@@ -190,10 +194,10 @@ func executeRound(ctx context.Context, cfg config.Config, runner RoundRunner, hb
 		return false, err
 	}
 
-	if err := emitRoundResult(opts, res); err != nil {
+	if err := emitRoundResult(opts, &res); err != nil {
 		return false, err
 	}
-	log.Info("loop_round_end", "round", round, "scanned", res.Scanned, "results", len(res.Dispatch.Results), "error", res.Err)
+	log.Info("loop_round_end", "round", round, "scanned", res.Scanned, "results", len(res.Dispatch.Results), "needs_judgment", res.NeedsJudgmentCount, "error", res.Err)
 
 	if res.FatalErr != nil {
 		return false, res.FatalErr
@@ -227,12 +231,26 @@ func pauseAfterRound(ctx context.Context, hb *heartbeatState, round int, opts Op
 	return false, nil
 }
 
-func emitRoundResult(opts Options, res RoundResult) error {
+func emitRoundResult(opts Options, res *RoundResult) error {
+	if res.NeedsJudgment == nil {
+		res.NeedsJudgment = []JudgmentItem{}
+	} else {
+		sort.Slice(res.NeedsJudgment, func(i, j int) bool {
+			if res.NeedsJudgment[i].Repo != res.NeedsJudgment[j].Repo {
+				return res.NeedsJudgment[i].Repo < res.NeedsJudgment[j].Repo
+			}
+			if res.NeedsJudgment[i].PR != res.NeedsJudgment[j].PR {
+				return res.NeedsJudgment[i].PR < res.NeedsJudgment[j].PR
+			}
+			return res.NeedsJudgment[i].Reason < res.NeedsJudgment[j].Reason
+		})
+	}
+	res.NeedsJudgmentCount = len(res.NeedsJudgment)
 	if opts.OnRound != nil {
-		opts.OnRound(res)
+		opts.OnRound(*res)
 	}
 	if opts.Stdout != nil {
-		line, err := json.Marshal(res)
+		line, err := json.Marshal(*res)
 		if err != nil {
 			return fmt.Errorf("encode round %d result: %w", res.Round, err)
 		}

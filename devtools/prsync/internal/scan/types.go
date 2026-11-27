@@ -58,6 +58,9 @@ type PR struct {
 	Unaddressed      bool      `json:"unaddressed"`
 	BlockingComments []Comment `json:"blocking_comments"` //nolint:tagliatelle // brief outbound contract
 	Tab              *Tab      `json:"tab"`
+	// TabAmbiguous is true when multiple herdr tabs matched the PR's
+	// label so Tab was left nil. Not serialized in scan JSON.
+	TabAmbiguous bool `json:"-"`
 	// TabUnknown is set when Tab is nil only because a configured herdr
 	// machine could not be searched. Dispatch skips the PR this run
 	// instead of treating it as having no tab. Omitted otherwise.

@@ -507,6 +507,7 @@ func matchTabs(ctx context.Context, deps Deps, cfg config.Config, doc *Document)
 		pr := &doc.PRs[i]
 		tab, hits, warning := match(pr.Identifier, pr.Repo, pr.Number, cfg.TabLabelTemplate, tabs, agents)
 		pr.Tab = tab
+		pr.TabAmbiguous = len(hits) > 1
 		if tab != nil && tab.Machine == "" && tab.PaneID != nil {
 			pr.agentCWDs = localAgentCWDs(agents, *tab.PaneID)
 		}

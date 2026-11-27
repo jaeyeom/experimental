@@ -752,11 +752,16 @@ func snapshotPane(ctx context.Context, h Herdr, paneID string) (herdr.Agent, err
 }
 
 func gateTimeoutItem(c Candidate, busy []Busy, doc scan.Document) Item {
+	var signal string
+	if len(busy) > 0 {
+		signal = busy[0].Signal
+	}
 	return Item{
-		Repo:   c.Repo,
-		Number: c.Number,
-		Action: ActionGateTimeout,
-		Detail: gateTimeoutDetail(busy, tabLabels(doc), c),
+		Repo:       c.Repo,
+		Number:     c.Number,
+		Action:     ActionGateTimeout,
+		GateSignal: signal,
+		Detail:     gateTimeoutDetail(busy, tabLabels(doc), c),
 	}
 }
 
@@ -923,8 +928,10 @@ func annotateGate(ctx context.Context, h Herdr, cfg config.Config, req Request, 
 		return fmt.Errorf("gate: %w", err)
 	}
 	busy := ""
+	busySignal := ""
 	if len(res.Busy) > 0 {
 		b := res.Busy[0]
+		busySignal = b.Signal
 		busy = "gate currently busy: pane " + scan.TabKey(b.Machine, b.PaneID)
 		if b.PaneID == "" {
 			busy = "gate currently busy: " + holdName(b)
@@ -946,6 +953,7 @@ func annotateGate(ctx context.Context, h Herdr, cfg config.Config, req Request, 
 			item.Detail = reason
 		} else if busy != "" {
 			item.Detail = busy
+			item.GateSignal = busySignal
 		}
 	}
 	return nil

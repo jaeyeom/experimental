@@ -117,8 +117,9 @@ prsync tabs --orphans --close-merged --go --config ./prsync.config
 
 Dispatch up to ~N~ PR tabs concurrently in one shared checkout (requires
 ~gate_lease=required~ so agents serialize writes with ~agentbus lease~),
-or run continuously in rounds with ~loop~ and an hourly ~--ensure~
-watchdog:
+or run continuously in rounds with ~loop~ (emitting ~RoundResult~ JSONL
+with ~needs_judgment~ and ~needs_judgment_count~) and an hourly
+~--ensure~ watchdog:
 
 #+begin_src bash
 prsync dispatch --config ./prsync.config --go --parallel 3
