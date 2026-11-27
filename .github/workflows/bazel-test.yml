@@ -46,6 +46,7 @@ jobs:
           ${{ runner.os }}-bazel-repo-
 
     - name: Install lcov
+      if: github.event_name != 'pull_request'
       run: |
         # GitHub-hosted ubuntu runners ship a Google Chrome apt source that
         # periodically hash-mismatches and fails apt-get update before lcov
@@ -76,7 +77,12 @@ jobs:
           printf '%s\n' "BUILDBUDDY_API_KEY not set; skipping BuildBuddy configuration"
         fi
 
+    - name: Run tests
+      if: github.event_name == 'pull_request'
+      run: bazel test //...
+
     - name: Run tests with coverage
+      if: github.event_name != 'pull_request'
       run: |
         mkdir -p coverage
         bazel coverage --combined_report=lcov //...
@@ -96,6 +102,7 @@ jobs:
         fi
 
     - name: Generate HTML coverage report
+      if: github.event_name != 'pull_request'
       run: |
         genhtml --branch-coverage --output-directory coverage/html coverage/lcov.info
         echo "Coverage report available at: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/" > coverage/html/README.txt

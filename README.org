@@ -75,7 +75,8 @@ BUILD file generation, rules_python, the Buf protobuf toolchain, and Pkl for
 configuration code generation.
 
 In CI, =.github/workflows/bazel-test.yml= is the sole general check workflow:
-it checks out full Git history (=fetch-depth: 0=) and runs =bazel coverage //...=,
+it checks out full Git history (=fetch-depth: 0=) and runs =bazel test //...= on
+pull requests (and =bazel coverage //...= on pushes to =main=),
 which executes all unit tests, linters (=nogo=, =ruff=, =mypy=, =shellcheck=),
 format/freshness checks, =semgrep=, and full-history =gitleaks=. Emacs and
 Spacemacs checks run separately in the path-filtered =.github/workflows/emacs.yml=
