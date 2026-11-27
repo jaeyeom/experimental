@@ -137,3 +137,71 @@ func TestUpdateFailureCLI(t *testing.T) {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
 }
+
+func TestUpdatePseudoVersionTimestampCLI(t *testing.T) {
+	olderTime := time.Date(2026, 11, 27, 2, 0, 0, 0, time.UTC)
+	newerTime := time.Date(2026, 11, 27, 4, 0, 0, 0, time.UTC)
+
+	t.Run("newer_installed_pseudo_reports_ahead_and_refuses_downgrade", func(t *testing.T) {
+		inst := &cliFakeInstaller{latest: toolcli.RevisionInfo{
+			Version:  "v0.1.1-0.20261127020000-bbbbbbbbbbbb",
+			Revision: "bbbbbbbbbbbb1234",
+			Time:     olderTime,
+		}}
+		withToolTestEnv(t, inst)
+		testToolBuildInfo = func() toolcli.BuildInfo {
+			return toolcli.BuildInfo{
+				ModulePath: factoryModulePath,
+				Version:    "v0.1.1-0.20261127033424-aaaaaaaaaaaa",
+			}
+		}
+
+		var stdout, stderr bytes.Buffer
+		code := Execute(context.Background(), []string{"update", "--check", "--json"}, &stdout, &stderr)
+		if code != 0 || stderr.Len() != 0 {
+			t.Fatalf("check --json: code=%d stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+		}
+		var got toolcli.UpdateOutput
+		if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.UpdateAvailable || !got.Ahead || got.CurrentTime != "2026-11-27T03:34:24Z" || got.LatestTime != "2026-11-27T02:00:00Z" {
+			t.Fatalf("unexpected UpdateOutput: %+v", got)
+		}
+
+		stdout.Reset()
+		stderr.Reset()
+		code = Execute(context.Background(), []string{"update"}, &stdout, &stderr)
+		if code != 2 || !strings.Contains(stderr.String(), "--force") {
+			t.Fatalf("expected downgrade refusal, got code=%d stderr=%q", code, stderr.String())
+		}
+	})
+
+	t.Run("older_installed_pseudo_offers_update", func(t *testing.T) {
+		inst := &cliFakeInstaller{latest: toolcli.RevisionInfo{
+			Version:  "v0.1.1-0.20261127040000-cccccccccccc",
+			Revision: "cccccccccccc1234",
+			Time:     newerTime,
+		}}
+		withToolTestEnv(t, inst)
+		testToolBuildInfo = func() toolcli.BuildInfo {
+			return toolcli.BuildInfo{
+				ModulePath: factoryModulePath,
+				Version:    "v0.1.1-0.20261127033424-aaaaaaaaaaaa",
+			}
+		}
+
+		var stdout, stderr bytes.Buffer
+		code := Execute(context.Background(), []string{"update", "--check", "--json"}, &stdout, &stderr)
+		if code != 1 || stderr.Len() != 0 {
+			t.Fatalf("check --json: code=%d stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+		}
+		var got toolcli.UpdateOutput
+		if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if !got.UpdateAvailable || got.Ahead || got.CurrentTime != "2026-11-27T03:34:24Z" || got.LatestTime != "2026-11-27T04:00:00Z" {
+			t.Fatalf("unexpected UpdateOutput: %+v", got)
+		}
+	})
+}

@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -62,6 +63,8 @@ func (g GoInstaller) run(ctx context.Context, env map[string]string, args ...str
 
 // LatestRevision queries `go list -m -json <module>@<ref>` to resolve the
 // revision of ref. The argument must be a module path, not a package path.
+// Mutable refs (such as branch names like main) try GOPROXY=direct first to
+// avoid stale proxy caches, falling back to the default environment on failure.
 func (g GoInstaller) LatestRevision(ctx context.Context, module, ref string) (RevisionInfo, error) {
 	if ref == "" {
 		ref = defaultRef
@@ -70,7 +73,7 @@ func (g GoInstaller) LatestRevision(ctx context.Context, module, ref string) (Re
 		module = g.ModulePath
 	}
 	target := module + "@" + ref
-	stdout, err := g.run(ctx, nil, "list", "-m", "-json", target)
+	stdout, err := g.listModuleJSON(ctx, ref, target)
 	if err != nil {
 		return RevisionInfo{}, fmt.Errorf("go list %s: %w", target, err)
 	}
@@ -89,6 +92,30 @@ func (g GoInstaller) LatestRevision(ctx context.Context, module, ref string) (Re
 		rev = mod.Origin.Hash
 	}
 	return RevisionInfo{Version: mod.Version, Revision: rev, Time: mod.Time}, nil
+}
+
+func (g GoInstaller) listModuleJSON(ctx context.Context, ref, target string) ([]byte, error) {
+	args := []string{"list", "-m", "-json", target}
+	if isMutableRef(ref) && (g.RunEnv != nil || g.Run == nil) {
+		stdout, err := g.run(ctx, map[string]string{"GOPROXY": "direct"}, args...)
+		if err == nil || ctx.Err() != nil {
+			return stdout, err
+		}
+	}
+	return g.run(ctx, nil, args...)
+}
+
+func isMutableRef(ref string) bool {
+	if ref == "" {
+		return true
+	}
+	if _, ok := parseSemver(ref); ok {
+		return false
+	}
+	if len(ref) >= 7 && len(ref) <= 40 && isHex(ref) {
+		return false
+	}
+	return true
 }
 
 // Install runs `go install <pkg>@<ref>` with GOBIN set to binDir.
@@ -136,7 +163,10 @@ type UpdateOutput struct {
 	Ref             string         `json:"ref"`
 	CheckOnly       bool           `json:"checkOnly"`
 	UpdateAvailable bool           `json:"updateAvailable"`
+	Ahead           bool           `json:"ahead,omitempty"`
 	Updated         bool           `json:"updated"`
+	CurrentTime     string         `json:"currentTime,omitempty"`
+	LatestTime      string         `json:"latestTime,omitempty"`
 	Binaries        []BinaryUpdate `json:"binaries"`
 	RestartNeeded   []string       `json:"restartNeeded,omitempty"`
 	StaleSkills     []StaleSkill   `json:"staleSkills,omitempty"`
@@ -215,28 +245,20 @@ func (t *Tool) runUpdate(ctx context.Context, check, force bool, ref string) (Up
 	if err != nil {
 		return UpdateOutput{}, 2, fmt.Errorf("check latest revision: %w", err)
 	}
-	if isAhead(bi, latest) && !force {
+	ahead := isAhead(bi, latest)
+	if ahead && !check && !force {
 		return UpdateOutput{}, 2, fmt.Errorf("installed %s is newer than %s (%s); refusing to downgrade, use --force to override", oldRev, ref, latest.Version)
 	}
-	newRev := latest.Revision
-	if newRev == "" {
-		newRev = latest.Version
-	}
+	newRev := resolvedRevisionLabel(latest)
+	needsUpdate := shouldUpdate(bi, oldRev, newRev, latest, ahead, force)
+	out := newUpdateOutput(t.Name, ref, check, needsUpdate, ahead && !force, bi, latest)
 
-	needsUpdate := oldRev == "" || oldRev == "unknown" || (newRev != "" && !buildMatchesLatest(bi, latest))
-	out := UpdateOutput{
-		Tool:            t.Name,
-		Ref:             ref,
-		CheckOnly:       check,
-		UpdateAvailable: needsUpdate,
-	}
-
-	binDir, err := t.resolveBinDir(!check && needsUpdate)
+	doInstall := !check && needsUpdate
+	binDir, err := t.resolveBinDir(doInstall)
 	if err != nil {
 		return UpdateOutput{}, 2, err
 	}
-
-	if err := t.applyUpdateTargets(ctx, inst, ref, binDir, oldRev, newRev, !check && needsUpdate, &out); err != nil {
+	if err := t.applyUpdateTargets(ctx, inst, ref, binDir, oldRev, newRev, doInstall, &out); err != nil {
 		return UpdateOutput{}, 2, err
 	}
 
@@ -244,11 +266,44 @@ func (t *Tool) runUpdate(ctx context.Context, check, force bool, ref string) (Up
 	if len(out.StaleSkills) > 0 {
 		out.RefreshCommand = t.Name + " skill install --agent all"
 	}
-
 	if check && needsUpdate {
 		return out, 1, nil
 	}
 	return out, 0, nil
+}
+
+func resolvedRevisionLabel(latest RevisionInfo) string {
+	if latest.Revision != "" {
+		return latest.Revision
+	}
+	return latest.Version
+}
+
+func shouldUpdate(bi BuildInfo, oldRev, newRev string, latest RevisionInfo, ahead, force bool) bool {
+	if ahead && !force {
+		return false
+	}
+	if oldRev == "" || oldRev == "unknown" {
+		return true
+	}
+	return newRev != "" && !buildMatchesLatest(bi, latest)
+}
+
+func newUpdateOutput(toolName, ref string, check, needsUpdate, ahead bool, bi BuildInfo, latest RevisionInfo) UpdateOutput {
+	out := UpdateOutput{
+		Tool:            toolName,
+		Ref:             ref,
+		CheckOnly:       check,
+		UpdateAvailable: needsUpdate,
+		Ahead:           ahead,
+	}
+	if ct, ok := installedCommitTime(bi); ok {
+		out.CurrentTime = ct.UTC().Format(time.RFC3339)
+	}
+	if lt, ok := latestCommitTime(latest); ok {
+		out.LatestTime = lt.UTC().Format(time.RFC3339)
+	}
+	return out
 }
 
 func (t *Tool) resolveBinDir(need bool) (string, error) {
@@ -329,21 +384,8 @@ func (t *Tool) findStaleSkills() []StaleSkill {
 
 func printUpdateHuman(w io.Writer, out UpdateOutput) error {
 	for _, b := range out.Binaries {
-		if !out.UpdateAvailable {
-			if _, err := fmt.Fprintf(w, "%s: up to date (%s)\n", b.Name, b.OldRevision); err != nil {
-				return fmt.Errorf("write output: %w", err)
-			}
-			continue
-		}
-		state := "current"
-		switch {
-		case b.Updated:
-			state = "updated"
-		case out.CheckOnly && out.UpdateAvailable:
-			state = "update available"
-		}
-		if _, err := fmt.Fprintf(w, "%s: %s -> %s (%s)\n", b.Name, b.OldRevision, b.NewRevision, state); err != nil {
-			return fmt.Errorf("write output: %w", err)
+		if err := printBinaryUpdateHuman(w, out, b); err != nil {
+			return err
 		}
 	}
 	if len(out.RestartNeeded) > 0 {
@@ -351,18 +393,49 @@ func printUpdateHuman(w io.Writer, out UpdateOutput) error {
 			return fmt.Errorf("write output: %w", err)
 		}
 	}
-	if len(out.StaleSkills) > 0 {
-		if _, err := fmt.Fprintln(w, "stale skills:"); err != nil {
-			return fmt.Errorf("write output: %w", err)
-		}
-		for _, s := range out.StaleSkills {
-			if _, err := fmt.Fprintf(w, "  %s (%s): %s\n", s.Agent, s.Scope, s.Path); err != nil {
+	return printStaleSkillsHuman(w, out)
+}
+
+func printBinaryUpdateHuman(w io.Writer, out UpdateOutput, b BinaryUpdate) error {
+	if !out.UpdateAvailable {
+		if out.Ahead {
+			if _, err := fmt.Fprintf(w, "%s: ahead of %s (%s)\n", b.Name, out.Ref, b.OldRevision); err != nil {
 				return fmt.Errorf("write output: %w", err)
 			}
+			return nil
 		}
-		if _, err := fmt.Fprintf(w, "refresh with: %s\n", out.RefreshCommand); err != nil {
+		if _, err := fmt.Fprintf(w, "%s: up to date (%s)\n", b.Name, b.OldRevision); err != nil {
 			return fmt.Errorf("write output: %w", err)
 		}
+		return nil
+	}
+	state := "current"
+	switch {
+	case b.Updated:
+		state = "updated"
+	case out.CheckOnly && out.UpdateAvailable:
+		state = "update available"
+	}
+	if _, err := fmt.Fprintf(w, "%s: %s -> %s (%s)\n", b.Name, b.OldRevision, b.NewRevision, state); err != nil {
+		return fmt.Errorf("write output: %w", err)
+	}
+	return nil
+}
+
+func printStaleSkillsHuman(w io.Writer, out UpdateOutput) error {
+	if len(out.StaleSkills) == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintln(w, "stale skills:"); err != nil {
+		return fmt.Errorf("write output: %w", err)
+	}
+	for _, s := range out.StaleSkills {
+		if _, err := fmt.Fprintf(w, "  %s (%s): %s\n", s.Agent, s.Scope, s.Path); err != nil {
+			return fmt.Errorf("write output: %w", err)
+		}
+	}
+	if _, err := fmt.Fprintf(w, "refresh with: %s\n", out.RefreshCommand); err != nil {
+		return fmt.Errorf("write output: %w", err)
 	}
 	return nil
 }
@@ -430,28 +503,51 @@ func revisionsMatch(a, b string) bool {
 // pseudoVersionCommit extracts the 12-character commit SHA from a Go module
 // pseudo-version (e.g. v0.1.1-0.20261123163641-0508ba726c28).
 func pseudoVersionCommit(v string) (string, bool) {
+	sha, _, ok := parsePseudoVersion(v)
+	return sha, ok
+}
+
+// parsePseudoVersion extracts the 12-character commit SHA and UTC commit
+// timestamp from any Go pseudo-version form (vX.0.0-YYYYMMDDHHMMSS-hash,
+// vX.Y.Z-0.YYYYMMDDHHMMSS-hash, or vX.Y.Z-pre.0.YYYYMMDDHHMMSS-hash),
+// ignoring optional build metadata such as +incompatible or +dirty.
+func parsePseudoVersion(v string) (string, time.Time, bool) {
 	if !strings.HasPrefix(v, "v") {
-		return "", false
+		return "", time.Time{}, false
 	}
-	v = strings.TrimSuffix(v, "+incompatible")
+	if plus := strings.IndexByte(v, '+'); plus >= 0 {
+		v = v[:plus]
+	}
 	lastDash := strings.LastIndexByte(v, '-')
 	if lastDash < 0 {
-		return "", false
+		return "", time.Time{}, false
 	}
 	sha := v[lastDash+1:]
 	if len(sha) != 12 || !isHex(sha) {
-		return "", false
+		return "", time.Time{}, false
 	}
 	prefix := v[:lastDash]
 	sep := strings.LastIndexAny(prefix, "-.")
 	if sep < 0 {
-		return "", false
+		return "", time.Time{}, false
 	}
-	ts := prefix[sep+1:]
-	if len(ts) != 14 || !isDigits(ts) {
-		return "", false
+	base := prefix[:sep]
+	if prefix[sep] == '-' {
+		if strings.ContainsRune(base, '-') {
+			return "", time.Time{}, false
+		}
+	} else if !strings.HasSuffix(base, "-0") && !strings.HasSuffix(base, ".0") {
+		return "", time.Time{}, false
 	}
-	return sha, true
+	tsStr := prefix[sep+1:]
+	if len(tsStr) != 14 || !isDigits(tsStr) {
+		return "", time.Time{}, false
+	}
+	ts, err := time.Parse("20060102150405", tsStr)
+	if err != nil {
+		return "", time.Time{}, false
+	}
+	return sha, ts.UTC(), true
 }
 
 func isHex(s string) bool {
@@ -486,12 +582,192 @@ func (t *Tool) modulePath(bi BuildInfo) string {
 	return t.MainPackage
 }
 
+func installedCommitTime(bi BuildInfo) (time.Time, bool) {
+	if bi.BuildTime != "" {
+		if parsed, err := time.Parse(time.RFC3339, bi.BuildTime); err == nil {
+			return parsed.UTC(), true
+		}
+	}
+	if _, ts, ok := parsePseudoVersion(bi.Version); ok {
+		return ts, true
+	}
+	return time.Time{}, false
+}
+
+func latestCommitTime(latest RevisionInfo) (time.Time, bool) {
+	if !latest.Time.IsZero() {
+		return latest.Time.UTC(), true
+	}
+	if _, ts, ok := parsePseudoVersion(latest.Version); ok {
+		return ts, true
+	}
+	return time.Time{}, false
+}
+
 // isAhead reports whether the installed build is newer than the resolved
-// revision, judged by commit times, when the revisions differ.
+// revision, judged by commit times (VCS BuildTime or pseudo-version UTC
+// timestamp) when available, or by Go semver precedence otherwise.
 func isAhead(bi BuildInfo, latest RevisionInfo) bool {
-	installed, err := time.Parse(time.RFC3339, bi.BuildTime)
-	if err != nil || latest.Time.IsZero() {
+	if buildMatchesLatest(bi, latest) {
 		return false
 	}
-	return !buildMatchesLatest(bi, latest) && installed.After(latest.Time)
+	if instTime, ok := installedCommitTime(bi); ok {
+		if latTime, ok := latestCommitTime(latest); ok {
+			return instTime.After(latTime)
+		}
+	}
+	if bi.Version != "" && latest.Version != "" {
+		if cmp, ok := compareGoSemver(bi.Version, latest.Version); ok {
+			return cmp > 0
+		}
+	}
+	return false
+}
+
+type semver struct {
+	major int
+	minor int
+	patch int
+	pre   []string
+}
+
+func parseSemver(raw string) (semver, bool) {
+	if !strings.HasPrefix(raw, "v") {
+		return semver{}, false
+	}
+	mainPart, buildMeta, hasPlus := strings.Cut(raw[1:], "+")
+	if hasPlus && !validDotIdents(buildMeta, true) {
+		return semver{}, false
+	}
+	coreStr, preStr, hasPre := strings.Cut(mainPart, "-")
+	major, minor, patch, ok := parseSemverCore(coreStr)
+	if !ok {
+		return semver{}, false
+	}
+	var pre []string
+	if hasPre {
+		if !validDotIdents(preStr, false) {
+			return semver{}, false
+		}
+		pre = strings.Split(preStr, ".")
+	}
+	return semver{major: major, minor: minor, patch: patch, pre: pre}, true
+}
+
+func parseSemverCore(coreStr string) (int, int, int, bool) {
+	parts := strings.Split(coreStr, ".")
+	if len(parts) < 1 || len(parts) > 3 {
+		return 0, 0, 0, false
+	}
+	var nums [3]int
+	for i, p := range parts {
+		if !isDigits(p) || (len(p) > 1 && p[0] == '0') {
+			return 0, 0, 0, false
+		}
+		n, err := strconv.Atoi(p)
+		if err != nil {
+			return 0, 0, 0, false
+		}
+		nums[i] = n
+	}
+	return nums[0], nums[1], nums[2], true
+}
+
+func validDotIdents(s string, allowLeadingZeroNum bool) bool {
+	if s == "" {
+		return false
+	}
+	for ident := range strings.SplitSeq(s, ".") {
+		if !validIdent(ident) {
+			return false
+		}
+		if !allowLeadingZeroNum && isDigits(ident) && len(ident) > 1 && ident[0] == '0' {
+			return false
+		}
+	}
+	return true
+}
+
+func validIdent(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := range len(s) {
+		c := s[i]
+		isAlpha := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+		isDigit := c >= '0' && c <= '9'
+		if !isAlpha && !isDigit && c != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+func compareGoSemver(aStr, bStr string) (int, bool) {
+	a, ok := parseSemver(aStr)
+	if !ok {
+		return 0, false
+	}
+	b, ok := parseSemver(bStr)
+	if !ok {
+		return 0, false
+	}
+	if a.major != b.major {
+		return cmpInt(a.major, b.major), true
+	}
+	if a.minor != b.minor {
+		return cmpInt(a.minor, b.minor), true
+	}
+	if a.patch != b.patch {
+		return cmpInt(a.patch, b.patch), true
+	}
+	return comparePre(a.pre, b.pre), true
+}
+
+func comparePre(a, b []string) int {
+	if len(a) == 0 && len(b) == 0 {
+		return 0
+	}
+	if len(a) == 0 {
+		return 1
+	}
+	if len(b) == 0 {
+		return -1
+	}
+	for i := 0; i < len(a) && i < len(b); i++ {
+		if c := comparePreIdent(a[i], b[i]); c != 0 {
+			return c
+		}
+	}
+	return cmpInt(len(a), len(b))
+}
+
+func comparePreIdent(a, b string) int {
+	if a == b {
+		return 0
+	}
+	aNum, bNum := isDigits(a), isDigits(b)
+	if aNum && bNum {
+		if len(a) != len(b) {
+			return cmpInt(len(a), len(b))
+		}
+		return strings.Compare(a, b)
+	}
+	if aNum {
+		return -1
+	}
+	if bNum {
+		return 1
+	}
+	return strings.Compare(a, b)
+}
+
+func cmpInt(a, b int) int {
+	if a < b {
+		return -1
+	}
+	if a > b {
+		return 1
+	}
+	return 0
 }

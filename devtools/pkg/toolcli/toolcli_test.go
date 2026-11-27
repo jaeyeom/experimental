@@ -522,12 +522,236 @@ func TestTaggedVersionComparisons(t *testing.T) {
 	})
 
 	t.Run("tag_prefix_is_not_treated_as_match", func(t *testing.T) {
-		inst := &fakeInstaller{rev: toolcli.RevisionInfo{Version: "v1.10.0-rc1", Revision: "v1.10.0-rc1"}}
-		tool := newTaggedTool("v1.10.0", inst)
+		inst := &fakeInstaller{rev: toolcli.RevisionInfo{Version: "v1.10.0", Revision: "v1.10.0"}}
+		tool := newTaggedTool("v1.10.0-rc1", inst)
 		var out, errBuf bytes.Buffer
 		code, _ := tool.Handle(context.Background(), []string{"update", "--check"}, &out, &errBuf)
 		if code != 1 || !strings.Contains(out.String(), "update available") {
 			t.Fatalf("code=%d out=%q err=%q", code, out.String(), errBuf.String())
+		}
+	})
+
+	t.Run("older_tag_reports_ahead_and_refuses_downgrade", func(t *testing.T) {
+		for _, tc := range []struct {
+			name      string
+			installed string
+			latest    string
+		}{
+			{name: "older_minor", installed: "v0.2.0", latest: "v0.1.0"},
+			{name: "prerelease_of_installed", installed: "v1.10.0", latest: "v1.10.0-rc1"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				inst := &fakeInstaller{rev: toolcli.RevisionInfo{Version: tc.latest, Revision: tc.latest}}
+				tool := newTaggedTool(tc.installed, inst)
+
+				var out, errBuf bytes.Buffer
+				code, _ := tool.Handle(context.Background(), []string{"update", "--check"}, &out, &errBuf)
+				if code != 0 || strings.Contains(out.String(), "update available") {
+					t.Fatalf("update --check: code=%d out=%q err=%q", code, out.String(), errBuf.String())
+				}
+
+				errBuf.Reset()
+				code, _ = tool.Handle(context.Background(), []string{"update"}, &out, &errBuf)
+				if code != 2 || !strings.Contains(errBuf.String(), "--force") || len(inst.installs) != 0 {
+					t.Fatalf("update: code=%d err=%q installs=%d", code, errBuf.String(), len(inst.installs))
+				}
+			})
+		}
+	})
+}
+
+func TestPseudoVersionTimestampComparisons(t *testing.T) {
+	const (
+		newerTS  = "2026-11-27T03:34:24Z"
+		olderTS  = "2026-11-27T02:00:00Z"
+		newestTS = "2026-11-27T04:00:00Z"
+	)
+	olderTime := time.Date(2026, 11, 27, 2, 0, 0, 0, time.UTC)
+	newestTime := time.Date(2026, 11, 27, 4, 0, 0, 0, time.UTC)
+
+	newPseudoTool := func(ver string, inst toolcli.Installer) toolcli.Tool {
+		tool := newTestTool(t, t.TempDir(), t.TempDir(), inst)
+		tool.ReadBuildInfo = func() toolcli.BuildInfo {
+			return toolcli.BuildInfo{
+				ModulePath: "example.com/mytool",
+				Version:    ver,
+			}
+		}
+		return tool
+	}
+
+	t.Run("installed_pseudo_newer_than_main_no_update_and_refuses_downgrade", func(t *testing.T) {
+		pseudoVersions := []string{
+			"v0.0.0-20261127033424-aaaaaaaaaaaa",
+			"v0.1.1-0.20261127033424-aaaaaaaaaaaa",
+			"v1.2.3-pre.0.20261127033424-aaaaaaaaaaaa",
+			"v2.0.0-20261127033424-aaaaaaaaaaaa+incompatible",
+			"v0.1.1-0.20261127033424-aaaaaaaaaaaa+dirty",
+		}
+		for _, ver := range pseudoVersions {
+			t.Run(ver, func(t *testing.T) {
+				inst := &fakeInstaller{rev: toolcli.RevisionInfo{
+					Version:  "v0.1.1-0.20261127020000-bbbbbbbbbbbb",
+					Revision: "bbbbbbbbbbbb1234567890abcdef1234567890ab",
+					Time:     olderTime,
+				}}
+				tool := newPseudoTool(ver, inst)
+
+				var out, errBuf bytes.Buffer
+				code, ok := tool.Handle(context.Background(), []string{"update", "--check"}, &out, &errBuf)
+				if !ok || code != 0 {
+					t.Fatalf("update --check: ok=%v code=%d out=%q err=%q", ok, code, out.String(), errBuf.String())
+				}
+				if strings.Contains(out.String(), "update available") || !strings.Contains(out.String(), "ahead of main") {
+					t.Fatalf("update --check output = %q, want ahead of main without update available", out.String())
+				}
+
+				out.Reset()
+				errBuf.Reset()
+				code, ok = tool.Handle(context.Background(), []string{"update", "--check", "--json"}, &out, &errBuf)
+				if !ok || code != 0 {
+					t.Fatalf("update --check --json: ok=%v code=%d err=%q", ok, code, errBuf.String())
+				}
+				var uo toolcli.UpdateOutput
+				if err := json.Unmarshal(out.Bytes(), &uo); err != nil {
+					t.Fatalf("decode json: %v", err)
+				}
+				if uo.UpdateAvailable || !uo.Ahead || uo.CurrentTime != newerTS || uo.LatestTime != olderTS {
+					t.Fatalf("unexpected UpdateOutput: %+v", uo)
+				}
+
+				out.Reset()
+				errBuf.Reset()
+				code, _ = tool.Handle(context.Background(), []string{"update"}, &out, &errBuf)
+				if code != 2 || !strings.Contains(errBuf.String(), "--force") || len(inst.installs) != 0 {
+					t.Fatalf("update without --force: code=%d err=%q installs=%d", code, errBuf.String(), len(inst.installs))
+				}
+
+				out.Reset()
+				errBuf.Reset()
+				code, _ = tool.Handle(context.Background(), []string{"doctor"}, &out, &errBuf)
+				if code != 0 || !strings.Contains(out.String(), "ok    revision") || !strings.Contains(out.String(), "ahead of main") {
+					t.Fatalf("doctor: code=%d out=%q err=%q", code, out.String(), errBuf.String())
+				}
+			})
+		}
+	})
+
+	t.Run("installed_pseudo_older_than_latest_offers_update_and_json_times", func(t *testing.T) {
+		inst := &fakeInstaller{rev: toolcli.RevisionInfo{
+			Version:  "v0.1.1-0.20261127040000-cccccccccccc",
+			Revision: "cccccccccccc1234567890abcdef1234567890ab",
+			Time:     newestTime,
+		}}
+		tool := newPseudoTool("v0.1.1-0.20261127033424-aaaaaaaaaaaa", inst)
+
+		var out, errBuf bytes.Buffer
+		code, ok := tool.Handle(context.Background(), []string{"update", "--check"}, &out, &errBuf)
+		if !ok || code != 1 || !strings.Contains(out.String(), "update available") {
+			t.Fatalf("update --check: ok=%v code=%d out=%q err=%q", ok, code, out.String(), errBuf.String())
+		}
+
+		out.Reset()
+		errBuf.Reset()
+		code, ok = tool.Handle(context.Background(), []string{"update", "--check", "--json"}, &out, &errBuf)
+		if !ok || code != 1 {
+			t.Fatalf("update --check --json: ok=%v code=%d err=%q", ok, code, errBuf.String())
+		}
+		var uo toolcli.UpdateOutput
+		if err := json.Unmarshal(out.Bytes(), &uo); err != nil {
+			t.Fatalf("decode json: %v", err)
+		}
+		if !uo.UpdateAvailable || uo.Ahead || uo.CurrentTime != newerTS || uo.LatestTime != newestTS {
+			t.Fatalf("unexpected UpdateOutput: %+v", uo)
+		}
+	})
+
+	t.Run("vcs_build_time_json_includes_both_times", func(t *testing.T) {
+		inst := &fakeInstaller{rev: toolcli.RevisionInfo{
+			Version:  "v0.1.1-0.20261127040000-cccccccccccc",
+			Revision: "cccccccccccc",
+			Time:     newestTime,
+		}}
+		tool := newTestTool(t, t.TempDir(), t.TempDir(), inst)
+		var out, errBuf bytes.Buffer
+		code, _ := tool.Handle(context.Background(), []string{"update", "--check", "--json"}, &out, &errBuf)
+		if code != 1 {
+			t.Fatalf("code=%d out=%q err=%q", code, out.String(), errBuf.String())
+		}
+		var uo toolcli.UpdateOutput
+		if err := json.Unmarshal(out.Bytes(), &uo); err != nil {
+			t.Fatalf("decode json: %v", err)
+		}
+		if uo.CurrentTime != "2026-11-20T00:00:00Z" || uo.LatestTime != newestTS {
+			t.Fatalf("unexpected times in UpdateOutput: %+v", uo)
+		}
+	})
+}
+
+func TestGoInstallerLatestRevisionDirectForBranchRefs(t *testing.T) {
+	type call struct {
+		env  map[string]string
+		args []string
+	}
+
+	t.Run("branch_ref_uses_goproxy_direct", func(t *testing.T) {
+		var calls []call
+		inst := toolcli.GoInstaller{
+			RunEnv: func(_ context.Context, env map[string]string, args ...string) ([]byte, error) {
+				calls = append(calls, call{env: env, args: args})
+				return []byte(`{"Version":"v0.1.1-0.20261127033424-aaaaaaaaaaaa","Time":"2026-11-27T03:34:24Z","Origin":{"Hash":"aaaaaaaaaaaa1234"}}`), nil
+			},
+		}
+		info, err := inst.LatestRevision(context.Background(), "example.com/mytool", "main")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(calls) != 1 || calls[0].env["GOPROXY"] != "direct" {
+			t.Fatalf("expected 1 call with GOPROXY=direct, got %+v", calls)
+		}
+		if info.Revision != "aaaaaaaaaaaa1234" {
+			t.Fatalf("info = %+v", info)
+		}
+	})
+
+	t.Run("branch_ref_falls_back_when_direct_fails", func(t *testing.T) {
+		var calls []call
+		inst := toolcli.GoInstaller{
+			RunEnv: func(_ context.Context, env map[string]string, args ...string) ([]byte, error) {
+				calls = append(calls, call{env: env, args: args})
+				if env["GOPROXY"] == "direct" {
+					return nil, errors.New("direct failed")
+				}
+				return []byte(`{"Version":"v0.1.1-0.20261127020000-bbbbbbbbbbbb","Time":"2026-11-27T02:00:00Z","Origin":{"Hash":"bbbbbbbbbbbb1234"}}`), nil
+			},
+		}
+		info, err := inst.LatestRevision(context.Background(), "example.com/mytool", "main")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(calls) != 2 || calls[0].env["GOPROXY"] != "direct" || calls[1].env != nil {
+			t.Fatalf("expected direct then fallback nil env, got %+v", calls)
+		}
+		if info.Revision != "bbbbbbbbbbbb1234" {
+			t.Fatalf("info = %+v", info)
+		}
+	})
+
+	t.Run("semver_and_sha_refs_do_not_force_direct", func(t *testing.T) {
+		for _, ref := range []string{"v0.1.0", "0508ba726c28de93a9770f85a47e62e5085d4a8f"} {
+			var calls []call
+			inst := toolcli.GoInstaller{
+				RunEnv: func(_ context.Context, env map[string]string, args ...string) ([]byte, error) {
+					calls = append(calls, call{env: env, args: args})
+					return []byte(`{"Version":"v0.1.0"}`), nil
+				},
+			}
+			if _, err := inst.LatestRevision(context.Background(), "example.com/mytool", ref); err != nil {
+				t.Fatalf("ref %q: %v", ref, err)
+			}
+			if len(calls) != 1 || calls[0].env != nil {
+				t.Fatalf("ref %q: expected 1 call with nil env, got %+v", ref, calls)
+			}
 		}
 	})
 }
