@@ -70,7 +70,8 @@ type PolicyConfig struct {
 	NitReplyPromptTemplate string
 
 	// Dispatch ledger.
-	LedgerFile string
+	LedgerFile           string
+	LedgerFileConfigured bool
 
 	// Pluggable agent-messaging backend.
 	AgentBackend    string
@@ -298,6 +299,7 @@ func applyPolicyInfraKey(p *PolicyConfig, key, val string) error {
 	switch key {
 	case "dispatch_ledger_file":
 		p.LedgerFile = strings.TrimSpace(val)
+		p.LedgerFileConfigured = true
 	case "agent_backend":
 		p.AgentBackend = strings.TrimSpace(val)
 	case "agent_backend_cmd":

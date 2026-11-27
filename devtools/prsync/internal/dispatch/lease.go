@@ -20,6 +20,17 @@ const SignalLease = "lease"
 // installed.
 var ErrAgentbusMissing = errors.New("agentbus not installed")
 
+// ErrLeaseRequired is returned when parallel dispatch starts without
+// gate_lease=required or an agentbus-guarded checkout.
+var ErrLeaseRequired = errors.New("parallel dispatch requires agentbus lease")
+
+// DispatchedTarget identifies an agent pane dispatched by prsync in
+// this run. Empty Machine means the local server.
+type DispatchedTarget struct {
+	Machine string
+	PaneID  string
+}
+
 // LeaseStatus is the part of `agentbus lease status --json` the gate reads.
 type LeaseStatus struct {
 	Checkout string       `json:"checkout"`
@@ -102,34 +113,79 @@ func (a AgentbusLease) run(ctx context.Context, out any, args ...string) error {
 
 // leaseVerdict is the lease's verdict on the dispatch checkout for one
 // sample. When read is true the lease decides and the tab signals are
-// skipped; hold is set unless the lease is free. When read is false the
-// tab signals apply, plus hold under gate_lease=required, and
-// unavailable is set when the lease could not be read.
+// skipped; hold is set unless the lease is free (or, in parallel mode, held by
+// an agent dispatched in this run). When read is false the tab signals apply,
+// plus hold under gate_lease=required, and unavailable is set when the lease
+// could not be read.
 type leaseVerdict struct {
 	read        bool
+	free        bool
 	hold        *Busy
 	unavailable *Unavailable
 }
 
-func (s *snapshotProbes) lease(ctx context.Context, policy gatePolicy) leaseVerdict {
+func (s *snapshotProbes) lease(ctx context.Context, policy gatePolicy) (leaseVerdict, error) {
+	if policy.parallel {
+		return s.parallelLease(ctx, policy)
+	}
 	if s.Lease == nil || policy.checkout == "" || policy.leaseMode == "off" {
-		return leaseVerdict{}
+		return leaseVerdict{}, nil
 	}
 	if policy.machine != "" {
-		return s.remoteLease(ctx, policy)
+		return s.remoteLease(ctx, policy), nil
 	}
 	guarded, err := s.leaseGuarded(ctx, policy.checkout)
 	if err == nil && !guarded {
-		return leaseVerdict{}
+		return leaseVerdict{}, nil
 	}
 	var st LeaseStatus
 	if err == nil {
 		st, err = s.Lease.Status(ctx, policy.checkout)
 	}
 	if err != nil {
-		return s.leaseUnreadable(ctx, policy, err)
+		return s.leaseUnreadable(ctx, policy, err), nil
 	}
-	return s.leaseRead(policy, st)
+	return s.leaseRead(policy, st), nil
+}
+
+func (s *snapshotProbes) parallelLease(ctx context.Context, policy gatePolicy) (leaseVerdict, error) {
+	if policy.leaseMode != "required" {
+		return leaseVerdict{}, fmt.Errorf("%w: gate_lease is %q, want required", ErrLeaseRequired, policy.leaseMode)
+	}
+	if s.Lease == nil || policy.checkout == "" {
+		return leaseVerdict{}, fmt.Errorf("%w: no agentbus lease source or checkout resolved", ErrLeaseRequired)
+	}
+	if policy.machine != "" {
+		all, err := s.Lease.All(ctx)
+		if err != nil {
+			if errors.Is(err, ErrAgentbusMissing) {
+				return leaseVerdict{}, fmt.Errorf("%w: %w", ErrLeaseRequired, err)
+			}
+			return s.leaseUnreadable(ctx, policy, err), nil
+		}
+		s.run.leaseWarned = ""
+		for _, st := range all {
+			if st.Checkout == policy.leaseKey {
+				return s.leaseRead(policy, st), nil
+			}
+		}
+		return leaseVerdict{}, fmt.Errorf("%w: checkout %s is not guarded by agentbus", ErrLeaseRequired, policy.leaseKey)
+	}
+	guarded, err := s.leaseGuarded(ctx, policy.checkout)
+	if err != nil {
+		return leaseVerdict{}, fmt.Errorf("%w: %w", ErrLeaseRequired, err)
+	}
+	if !guarded {
+		return leaseVerdict{}, fmt.Errorf("%w: checkout %s is not guarded by agentbus", ErrLeaseRequired, policy.checkout)
+	}
+	st, err := s.Lease.Status(ctx, policy.checkout)
+	if err != nil {
+		if errors.Is(err, ErrAgentbusMissing) {
+			return leaseVerdict{}, fmt.Errorf("%w: %w", ErrLeaseRequired, err)
+		}
+		return s.leaseUnreadable(ctx, policy, err), nil
+	}
+	return s.leaseRead(policy, st), nil
 }
 
 // remoteLease is the verdict on another machine's checkout, read from
@@ -161,11 +217,62 @@ func (s *snapshotProbes) leaseUnreadable(ctx context.Context, policy gatePolicy,
 
 func (s *snapshotProbes) leaseRead(policy gatePolicy, st LeaseStatus) leaseVerdict {
 	s.run.leaseWarned = ""
-	out := leaseVerdict{read: true}
+	out := leaseVerdict{read: true, free: st.State == "free"}
+	if policy.parallel {
+		switch st.State {
+		case "free":
+			return out
+		case "held", "releasing":
+			if policy.isDispatched != nil && policy.isDispatched(policy.machine, st.Holder) {
+				return out
+			}
+		}
+		out.hold = &Busy{Machine: policy.machine, Checkout: policy.checkout, Signal: SignalLease, Detail: leaseDetail(st)}
+		return out
+	}
 	if st.State != "free" {
 		out.hold = &Busy{Machine: policy.machine, Checkout: policy.checkout, Signal: SignalLease, Detail: leaseDetail(st)}
 	}
 	return out
+}
+
+// holderMatchesTarget reports whether holder identifies target's herdr pane.
+func holderMatchesTarget(holder *LeaseHolder, target DispatchedTarget) bool {
+	if holder == nil || target.PaneID == "" {
+		return false
+	}
+	handle := strings.TrimSpace(holder.Handle)
+	if handle == "" {
+		return false
+	}
+	machine := target.Machine
+	if machine == "" {
+		machine = "local"
+	}
+	if machine == "local" && handle == target.PaneID {
+		return true
+	}
+	rest, ok := strings.CutPrefix(handle, "herdr:"+machine+"/")
+	if !ok {
+		return false
+	}
+	session, pane, ok := strings.Cut(rest, "/")
+	return ok && session != "" && pane == target.PaneID
+}
+
+// parallelHeldByDispatchedAfterDirty re-checks the local lease after
+// dirtyTreeReason observes a dirty working tree, avoiding a false gate_unsafe
+// if an already-dispatched worker claimed the lease and wrote to disk between
+// Status() and git status.
+func (s *snapshotProbes) parallelHeldByDispatchedAfterDirty(ctx context.Context, policy gatePolicy) bool {
+	if s.Lease == nil || policy.machine != "" || policy.isDispatched == nil {
+		return false
+	}
+	st, err := s.Lease.Status(ctx, policy.checkout)
+	if err != nil {
+		return false
+	}
+	return (st.State == "held" || st.State == "releasing") && policy.isDispatched(policy.machine, st.Holder)
 }
 
 // leaseGuarded asks once per gate run whether checkout is guarded; an

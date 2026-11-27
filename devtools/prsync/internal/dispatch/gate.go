@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/pkg/procinfo"
@@ -23,10 +24,24 @@ import (
 
 type statusCtxKey struct{}
 
+type syncWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (s *syncWriter) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.w.Write(p) //nolint:wrapcheck // transparent io.Writer wrapper
+}
+
 // WithStatusWriter attaches w for live gate-wait progress lines on stderr.
 func WithStatusWriter(ctx context.Context, w io.Writer) context.Context {
 	if w == nil {
 		return ctx
+	}
+	if _, ok := w.(*syncWriter); !ok {
+		w = &syncWriter{w: w}
 	}
 	return context.WithValue(ctx, statusCtxKey{}, w)
 }
@@ -113,50 +128,58 @@ func Check(ctx context.Context, h Herdr, waitOn, runnerPane string, matchedTabs 
 
 // GateCheck is a one-shot busy-set evaluation for cfg. It does not sleep.
 func GateCheck(ctx context.Context, h Herdr, cfg config.Config, runnerPane string, matchedTabs map[string]struct{}) (Result, error) {
+	return gateCheckWithPolicy(ctx, h, cfg, runnerPane, matchedTabs, nil)
+}
+
+func gateCheckWithPolicy(ctx context.Context, h Herdr, cfg config.Config, runnerPane string, matchedTabs map[string]struct{}, isDispatched func(string, *LeaseHolder) bool) (Result, error) {
 	if err := gatePrecheck(ctx, h, cfg); err != nil {
 		return Result{}, err
 	}
 	run := &gateRun{roundStart: roundStartFrom(ctx, time.Now())}
-	return snapshot(ctx, h, gatePolicyFrom(cfg, runnerPane, matchedTabs), run)
+	policy := gatePolicyFrom(cfg, runnerPane, matchedTabs)
+	policy.isDispatched = isDispatched
+	res, err := snapshot(ctx, h, policy, run)
+	if err != nil {
+		if errors.Is(err, ErrLeaseRequired) {
+			return Result{
+				Safe:   false,
+				Busy:   []Busy{{Machine: policy.machine, Checkout: policy.checkout, Signal: SignalLease, Detail: err.Error()}},
+				Reason: "",
+			}, nil
+		}
+		return Result{}, err
+	}
+	return res, nil
 }
 
 // Wait polls until the busy set stays empty for settleDebouncePolls
-// consecutive samples or cfg.GateTimeout elapses. A single idle/done
-// sample is not safe: startup and mid-run flap still count as busy.
-// By default working and blocked agents hold the gate; with
-// concurrency_ignore_blocked a blocked agent does not hold it by its
-// status. Progress is logged (and
-// written to WithStatusWriter) when the waited-on tab or status changes.
-func Wait(ctx context.Context, h Herdr, cfg config.Config, runnerPane string, matchedTabs map[string]struct{}, clock Clock, sleeper Sleeper) (res Result, err error) {
+// consecutive samples (or one safe sample in parallel mode) or cfg.GateTimeout
+// elapses. A single idle/done sample is not safe: startup and mid-run flap
+// still count as busy. By default working and blocked agents hold the gate; with
+// concurrency_ignore_blocked a blocked agent does not hold it by its status.
+// Progress is logged (and written to WithStatusWriter) when the waited-on tab
+// or status changes.
+func Wait(ctx context.Context, h Herdr, cfg config.Config, runnerPane string, matchedTabs map[string]struct{}, clock Clock, sleeper Sleeper) (Result, error) {
+	return waitWithPolicy(ctx, h, cfg, runnerPane, matchedTabs, nil, clock, sleeper)
+}
+
+func waitWithPolicy(ctx context.Context, h Herdr, cfg config.Config, runnerPane string, matchedTabs map[string]struct{}, isDispatched func(string, *LeaseHolder) bool, clock Clock, sleeper Sleeper) (res Result, err error) {
 	log := runlog.FromContext(ctx)
-	log.Info("gate_wait_start", "wait_on", cfg.ConcurrencyWaitOn, "runner_pane", runnerPane)
-	defer func() {
-		args := []any{"safe", res.Safe, "busy_count", len(res.Busy)}
-		if res.Reason != "" {
-			args = append(args, "reason", res.Reason)
-		}
-		if len(res.Busy) > 0 {
-			b := res.Busy[0]
-			args = append(args, "tab_id", b.TabID, "agent_status", b.Status, "signal", b.Signal)
-			if b.Detail != "" {
-				args = append(args, "detail", b.Detail)
-			}
-		}
-		if err != nil {
-			args = append(args, "error", err.Error())
-		}
-		log.Info("gate_wait_end", args...)
-	}()
+	log.Info("gate_wait_start", "wait_on", cfg.ConcurrencyWaitOn, "runner_pane", runnerPane, "parallel", cfg.DispatchMaxParallel > 1)
+	defer logGateWaitEnd(log, &res, &err)
 	if err = gatePrecheck(ctx, h, cfg); err != nil {
 		return Result{}, err
 	}
+	neededPolls := neededGatePolls(cfg)
 	start := clock.Now()
 	held := 0
 	lastStatus := ""
 	lastHolds := ""
 	run := &gateRun{waitLoop: true, roundStart: roundStartFrom(ctx, start)}
 	for {
-		res, err = snapshot(ctx, h, gatePolicyFrom(cfg, runnerPane, matchedTabs), run)
+		policy := gatePolicyFrom(cfg, runnerPane, matchedTabs)
+		policy.isDispatched = isDispatched
+		res, err = snapshot(ctx, h, policy, run)
 		if err != nil {
 			return res, err
 		}
@@ -166,18 +189,12 @@ func Wait(ctx context.Context, h Herdr, cfg config.Config, runnerPane string, ma
 		lastHolds = logHolds(ctx, res.Busy, lastHolds)
 		if res.Safe {
 			held++
-			if held >= settleDebouncePolls {
+			if held >= neededPolls {
 				return res, nil
 			}
 		} else {
 			held = 0
-			line := gateWaitLine(res.Busy)
-			if line != "" && line != lastStatus {
-				lastStatus = line
-				b := res.Busy[0]
-				log.Info("gate_wait", "tab_id", b.TabID, "agent_status", b.Status, "signal", b.Signal)
-				writeStatus(ctx, line)
-			}
+			lastStatus = recordGateWaitStatus(ctx, log, res.Busy, lastStatus)
 		}
 		if clock.Now().Sub(start) >= cfg.GateTimeout {
 			return res, ErrTimeout
@@ -186,6 +203,42 @@ func Wait(ctx context.Context, h Herdr, cfg config.Config, runnerPane string, ma
 			return res, fmt.Errorf("gate sleep: %w", err)
 		}
 	}
+}
+
+func neededGatePolls(cfg config.Config) int {
+	if cfg.DispatchMaxParallel > 1 {
+		return 1
+	}
+	return settleDebouncePolls
+}
+
+func logGateWaitEnd(log interface{ Info(string, ...any) }, res *Result, err *error) {
+	args := []any{"safe", res.Safe, "busy_count", len(res.Busy)}
+	if res.Reason != "" {
+		args = append(args, "reason", res.Reason)
+	}
+	if len(res.Busy) > 0 {
+		b := res.Busy[0]
+		args = append(args, "tab_id", b.TabID, "agent_status", b.Status, "signal", b.Signal)
+		if b.Detail != "" {
+			args = append(args, "detail", b.Detail)
+		}
+	}
+	if *err != nil {
+		args = append(args, "error", (*err).Error())
+	}
+	log.Info("gate_wait_end", args...)
+}
+
+func recordGateWaitStatus(ctx context.Context, log interface{ Info(string, ...any) }, busy []Busy, lastStatus string) string {
+	line := gateWaitLine(busy)
+	if line != "" && line != lastStatus {
+		b := busy[0]
+		log.Info("gate_wait", "tab_id", b.TabID, "agent_status", b.Status, "signal", b.Signal)
+		writeStatus(ctx, line)
+		return line
+	}
+	return lastStatus
 }
 
 // MatchedTabs collects tab keys (scan.TabKey) from a scan document,
@@ -216,6 +269,8 @@ type gatePolicy struct {
 	leaseMode       string
 	exemptPanes     []string
 	exemptTabs      []string
+	parallel        bool
+	isDispatched    func(machine string, holder *LeaseHolder) bool
 	// machines are the other herdr machines whose tabs are waited on.
 	machines []string
 	// machine is set when the gate checks another machine's checkout
@@ -268,6 +323,7 @@ func gatePolicyFrom(cfg config.Config, runnerPane string, matched map[string]str
 		buildToolIgnore: cfg.GateBuildToolIgnore,
 		pendingQuestion: cfg.GatePendingQuestion,
 		leaseMode:       cfg.GateLease,
+		parallel:        cfg.DispatchMaxParallel > 1,
 		machines:        gateMachines(cfg, matched),
 	}
 	if m := cfg.GateMachine(); m != "" {
@@ -305,28 +361,15 @@ func hasTabOn(matched map[string]struct{}, machine string) bool {
 }
 
 func snapshot(ctx context.Context, h Herdr, policy gatePolicy, run *gateRun) (Result, error) {
-	var agents []herdr.Agent
-	if policy.machine == "" {
-		var err error
-		if agents, err = h.AgentList(ctx); err != nil {
-			return Result{}, fmt.Errorf("agent list: %w", err)
-		}
-	}
 	probes := &snapshotProbes{Probes: probesFrom(ctx), run: run, jobs: make(map[string]struct{})}
-	lease := probes.lease(ctx, policy)
+	agents, down, lease, err := collectSnapshotInputs(ctx, h, policy, probes)
+	if err != nil {
+		return Result{}, err
+	}
 	busy := make([]Busy, 0)
 	var exempt []Exempt
 	var unavailable []Unavailable
-	var down []Busy
-	if !lease.read || policy.machine != "" {
-		// A guarded checkout's lease decides alone; the tab signals
-		// apply to the rest, and when the lease cannot be read. Another
-		// machine is read either way, to know it is reachable.
-		var remote []herdr.Agent
-		remote, down = remoteAgents(ctx, policy.machines, probes)
-		agents = append(agents, remote...)
-	}
-	if !lease.read {
+	if !policy.parallel && !lease.read {
 		busy, exempt, unavailable = busySet(ctx, agents, policy, probes)
 		busy = append(busy, down...)
 	}
@@ -338,6 +381,34 @@ func snapshot(ctx context.Context, h Herdr, policy gatePolicy, run *gateRun) (Re
 	}
 	run.prevJobs = probes.jobs
 	res := Result{Safe: len(busy) == 0, Busy: busy, SignalUnavailable: unavailable, Ignored: probes.ignored, Exempt: exempt}
+	return finishSnapshotResult(ctx, policy, probes, lease, down, res), nil
+}
+
+func collectSnapshotInputs(ctx context.Context, h Herdr, policy gatePolicy, probes *snapshotProbes) ([]herdr.Agent, []Busy, leaseVerdict, error) {
+	var agents []herdr.Agent
+	if policy.machine == "" && !policy.parallel {
+		var err error
+		if agents, err = h.AgentList(ctx); err != nil {
+			return nil, nil, leaseVerdict{}, fmt.Errorf("agent list: %w", err)
+		}
+	}
+	lease, err := probes.lease(ctx, policy)
+	if err != nil {
+		return nil, nil, leaseVerdict{}, err
+	}
+	var down []Busy
+	if (!policy.parallel && !lease.read) || policy.machine != "" {
+		// A guarded checkout's lease decides alone; the tab signals
+		// apply to the rest, and when the lease cannot be read. Another
+		// machine is read either way, to know it is reachable.
+		var remote []herdr.Agent
+		remote, down = remoteAgents(ctx, policy.machines, probes)
+		agents = append(agents, remote...)
+	}
+	return agents, down, lease, nil
+}
+
+func finishSnapshotResult(ctx context.Context, policy gatePolicy, probes *snapshotProbes, lease leaseVerdict, down []Busy, res Result) Result {
 	if policy.machine != "" {
 		// herdr --machine runs only herdr API calls, so the checkout's
 		// git state (and its build tools) cannot be read there.
@@ -347,13 +418,18 @@ func snapshot(ctx context.Context, h Herdr, policy gatePolicy, run *gateRun) (Re
 			res.Safe = false
 			res.Reason = "machine " + policy.machine + " unreachable"
 		}
-		return res, nil
+		return res
 	}
-	if reason := dirtyTreeReason(ctx, policy.checkout); reason != "" {
-		res.Safe = false
-		res.Reason = reason
+	if !policy.parallel || (lease.read && lease.free) {
+		if reason := dirtyTreeReason(ctx, policy.checkout); reason != "" {
+			if policy.parallel && probes.parallelHeldByDispatchedAfterDirty(ctx, policy) {
+				return res
+			}
+			res.Safe = false
+			res.Reason = reason
+		}
 	}
-	return res, nil
+	return res
 }
 
 // remoteAgents lists the agents on each machine through Probes.Remote,

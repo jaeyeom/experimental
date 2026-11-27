@@ -1380,3 +1380,66 @@ func mustWrite(t *testing.T, path, body string) {
 		t.Fatal(err)
 	}
 }
+
+func TestLoadParallelConfigAndValidation(t *testing.T) {
+	t.Parallel()
+
+	def := Defaults()
+	if def.DispatchMaxParallel != 1 {
+		t.Fatalf("DispatchMaxParallel default = %d, want 1", def.DispatchMaxParallel)
+	}
+	if !strings.Contains(def.DispatchLeaseInstruction, "agentbus lease claim") ||
+		!strings.Contains(def.DispatchLeaseInstruction, "agentbus lease release") {
+		t.Fatalf("DispatchLeaseInstruction default = %q, want lease claim & release commands", def.DispatchLeaseInstruction)
+	}
+	if def.Policy.LedgerFileConfigured {
+		t.Fatal("LedgerFileConfigured default = true, want false")
+	}
+
+	dir := t.TempDir()
+	okPath := filepath.Join(dir, "ok.config")
+	mustWrite(t, okPath, strings.Join([]string{
+		"dispatch_max_parallel=3",
+		"gate_lease=required",
+		`dispatch_lease_instruction="Claim PR #{number} before writing; release after"`,
+		"dispatch_ledger_file=" + filepath.Join(dir, "ledger.jsonl"),
+	}, "\n")+"\n")
+	got, err := Load(okPath)
+	if err != nil {
+		t.Fatalf("Load(ok) unexpected error: %v", err)
+	}
+	if got.DispatchMaxParallel != 3 {
+		t.Fatalf("DispatchMaxParallel = %d, want 3", got.DispatchMaxParallel)
+	}
+	if got.DispatchLeaseInstruction != "Claim PR #{number} before writing; release after" {
+		t.Fatalf("DispatchLeaseInstruction = %q", got.DispatchLeaseInstruction)
+	}
+	if !got.Policy.LedgerFileConfigured {
+		t.Fatal("LedgerFileConfigured = false, want true")
+	}
+
+	for _, tc := range []struct {
+		name string
+		body string
+		key  string
+	}{
+		{name: "zero max parallel", body: "dispatch_max_parallel=0\n", key: "dispatch_max_parallel"},
+		{name: "negative max parallel", body: "dispatch_max_parallel=-2\n", key: "dispatch_max_parallel"},
+		{name: "non-int max parallel", body: "dispatch_max_parallel=many\n", key: "dispatch_max_parallel"},
+		{name: "parallel without required lease", body: "dispatch_max_parallel=2\n", key: "gate_lease"},
+		{name: "parallel with auto lease", body: "dispatch_max_parallel=3\ngate_lease=auto\n", key: "gate_lease"},
+		{name: "parallel with off lease", body: "dispatch_max_parallel=3\ngate_lease=off\n", key: "gate_lease"},
+		{name: "parallel with empty lease instruction", body: "dispatch_max_parallel=2\ngate_lease=required\ndispatch_lease_instruction=\n", key: "dispatch_lease_instruction"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := filepath.Join(t.TempDir(), "bad.config")
+			mustWrite(t, p, tc.body)
+			_, err := Load(p)
+			var keyErr *KeyError
+			if !errors.As(err, &keyErr) || keyErr.Key != tc.key {
+				t.Fatalf("Load(%q) error = %v, want KeyError(%s)", tc.body, err, tc.key)
+			}
+		})
+	}
+}

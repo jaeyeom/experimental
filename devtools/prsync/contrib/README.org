@@ -1,0 +1,47 @@
+#+TITLE: prsync loop services and cron setup
+
+These example units keep ~prsync loop~ running continuously and ensure it
+restarts if killed or stale. Check live status anytime with ~prsync doctor~.
+
+* systemd (Linux user service + hourly watchdog)
+
+Copy the unit files to =~/.config/systemd/user/=:
+
+#+begin_src bash
+mkdir -p ~/.config/systemd/user
+cp prsync-loop.service prsync-loop-ensure.service prsync-loop-ensure.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now prsync-loop.service prsync-loop-ensure.timer
+journalctl --user -u prsync-loop.service -f
+#+end_src
+
+~prsync-loop.service~ runs ~prsync loop~ continuously (~SIGTERM~ stops
+cleanly after the current round). ~prsync-loop-ensure.timer~ runs
+~prsync loop --ensure~ once an hour; if the heartbeat is fresh and the PID
+is alive it exits 0 immediately, otherwise it starts the loop detached.
+
+* launchd (macOS)
+
+Replace ~USER~ in the plists with your macOS username and install them into
+=~/Library/LaunchAgents/=:
+
+#+begin_src bash
+sed "s/USER/$USER/g" com.github.jaeyeom.prsync.loop.plist > ~/Library/LaunchAgents/com.github.jaeyeom.prsync.loop.plist
+sed "s/USER/$USER/g" com.github.jaeyeom.prsync.loop-ensure.plist > ~/Library/LaunchAgents/com.github.jaeyeom.prsync.loop-ensure.plist
+launchctl load ~/Library/LaunchAgents/com.github.jaeyeom.prsync.loop.plist
+launchctl load ~/Library/LaunchAgents/com.github.jaeyeom.prsync.loop-ensure.plist
+#+end_src
+
+~com.github.jaeyeom.prsync.loop.plist~ runs ~prsync loop~ with ~KeepAlive~;
+~com.github.jaeyeom.prsync.loop-ensure.plist~ runs ~prsync loop --ensure~
+every 3600 seconds (~StartInterval~).
+
+* crontab (hourly watchdog)
+
+Add an hourly ~--ensure~ entry with ~crontab -e~. ~--ensure~ is idempotent,
+never starts a second loop for the same config, and exits 0 immediately when
+healthy:
+
+#+begin_src text
+0 * * * * PATH=$HOME/go/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin prsync loop --ensure --config $HOME/.config/prsync/prsync.config >/dev/null 2>&1
+#+end_src

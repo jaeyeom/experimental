@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"time"
 	"unicode"
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/dispatch"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/herdr"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/ledger"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
 	executor "github.com/jaeyeom/go-cmdexec"
 	"github.com/spf13/cobra"
@@ -33,6 +35,7 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 		readStdin  bool
 		suffix     string
 		openTabs   bool
+		parallel   int
 		job        string
 		runner     string
 		scope      scopeFlags
@@ -47,9 +50,15 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 			if cmd.Flags().Changed("prompt-suffix") {
 				promptSuffix = &suffix
 			}
+			if cmd.Flags().Changed("parallel") && parallel < 1 {
+				return &ExitError{Code: ExitUsage, Err: errors.New("--parallel: must be >= 1")}
+			}
 			applyScope := func(cfg *config.Config) error {
 				if cmd.Flags().Changed("open-tabs") {
 					cfg.OpenMissingTabs = openTabs
+				}
+				if cmd.Flags().Changed("parallel") {
+					cfg.DispatchMaxParallel = parallel
 				}
 				return scope.apply(cmd, cfg)
 			}
@@ -82,6 +91,7 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	cmd.Flags().StringVar(&job, "job", "", "run one agentbus job by id, live, and report it with agentbus jobs done or fail")
 	cmd.Flags().StringVar(&runner, "runner", "", "the job's runner, for the report (requires --job; default $JOB_RUNNER)")
 	cmd.Flags().BoolVar(&openTabs, "open-tabs", false, "open a herdr tab and start an agent for an in-scope PR with no tab (overrides open_missing_tabs)")
+	cmd.Flags().IntVar(&parallel, "parallel", 0, "max concurrent PR dispatches sharing the checkout via agentbus lease (overrides dispatch_max_parallel)")
 	return cmd
 }
 
@@ -160,6 +170,10 @@ func dispatchPRs(ctx context.Context, exec executor.Executor, cfg config.Config,
 	if err != nil {
 		return nil, err
 	}
+	return dispatchWithDoc(ctx, exec, cfg, doc, prs, modes, hint, force)
+}
+
+func dispatchWithDoc(ctx context.Context, exec executor.Executor, cfg config.Config, doc scan.Document, prs []string, modes dispatchModes, hint string, force bool) (*dispatch.Document, error) {
 	h := herdr.NewClient(exec, cfg.HerdrBin)
 	ctx = withGateProbes(ctx, exec, cfg, h)
 	req := dispatch.Request{
@@ -180,10 +194,16 @@ func dispatchPRs(ctx context.Context, exec executor.Executor, cfg config.Config,
 			return machineHerdr(exec, cfg, machine)
 		},
 	}
+	if cfg.Policy.LedgerFileConfigured || (cfg.Policy.LedgerFile != "" && filepath.Dir(cfg.Policy.LedgerFile) == filepath.Dir(cfg.StateFile)) {
+		req.Ledger = &ledger.Store{Path: cfg.Policy.LedgerFile}
+	}
 	if cfg.WakeBeforePrompt == "auto" {
 		req.Waker = promptWaker(exec)
 	}
 	out, err := dispatch.Run(ctx, h, dispatch.FileStore{Path: cfg.StateFile, Scope: cfg.TabMachine}, cfg, req, time.Now())
+	if errors.Is(err, dispatch.ErrLeaseRequired) {
+		return nil, dispatchExit(err, cfg)
+	}
 	return &out, err //nolint:wrapcheck // dispatchExit classifies it
 }
 
@@ -339,6 +359,9 @@ func dispatchExit(err error, cfg config.Config) error {
 		return &ExitError{Code: ExitGateTimeout, Err: fmt.Errorf("settle timeout after %s: target tab did not stay idle/done", cfg.DispatchTimeout)}
 	}
 	if errors.Is(err, dispatch.ErrLock) {
+		return &ExitError{Code: ExitPrecondition, Err: err}
+	}
+	if errors.Is(err, dispatch.ErrLeaseRequired) {
 		return &ExitError{Code: ExitPrecondition, Err: err}
 	}
 	if errors.Is(err, herdr.ErrNotInstalled) {

@@ -11,4 +11,5 @@ Common commands:
 - `prsync scan` — survey open PRs and tabs.
 - `prsync tabs` — list herdr tabs.
 - `prsync dispatch` — dispatch PR work to tabs.
+- `prsync loop` — run scan and dispatch continuously with watchdog support.
 - `prsync gate` — check readiness gates.

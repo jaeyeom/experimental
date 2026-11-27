@@ -190,6 +190,14 @@
 # dispatch_include_drafts=false
 # dry_run=true
 
+# Parallel dispatch: send prompts to up to N PR tabs concurrently without
+# waiting for each to finish before starting the next (default 1 = serial).
+# Values > 1 require gate_lease=required. Every prompt includes
+# dispatch_lease_instruction so agents serialize shared-checkout writes
+# with agentbus lease claim / agentbus lease release.
+# dispatch_max_parallel=1
+# dispatch_lease_instruction="Shared checkout: all agents share one working copy, so writes are serialized by the agentbus workdir lease. Run `agentbus lease claim --for 40m --why \"PR #{number}\"` before any write (file edits, git checkout/rebase/merge/commit/push, or builds/tests that modify tracked files), and run `agentbus lease release` when done."
+
 # Whitespace-separated settle tokens. Each token becomes its own
 # `herdr agent prompt --until <token>` flag (and `herdr agent wait
 # --until` on leftover time). At least one token required.

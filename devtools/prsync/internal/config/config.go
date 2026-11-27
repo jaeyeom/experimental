@@ -192,6 +192,14 @@ type Config struct {
 	// PromptSuffix is appended after a blank line to every rendered dispatch
 	// prompt. Empty leaves prompts unchanged. It is not part of dedupe.
 	PromptSuffix string
+	// DispatchMaxParallel is how many PR tabs `dispatch --go` runs
+	// concurrently (default 1 = serial). Values > 1 require
+	// gate_lease=required and include DispatchLeaseInstruction in prompts.
+	DispatchMaxParallel int
+	// DispatchLeaseInstruction is prepended to every rendered dispatch
+	// prompt when DispatchMaxParallel > 1 so agents serialize writes with
+	// the agentbus workdir lease.
+	DispatchLeaseInstruction string
 	// WakeBeforePrompt is auto or off. auto runs `agentbus wake
 	// --if-hibernated` before each prompt when agentbus is installed.
 	WakeBeforePrompt string
@@ -377,6 +385,8 @@ func Defaults() Config {
 		MergePromptTemplate:       defaultMergePromptTemplate,
 		DispatchCatchup:           "rebase",
 		CIFixPromptTemplate:       defaultCIFixPromptTemplate,
+		DispatchMaxParallel:       1,
+		DispatchLeaseInstruction:  defaultDispatchLeaseInstruction,
 		WaitUntil:                 []string{"idle", "done"},
 		DispatchTimeout:           1800000 * time.Millisecond,
 		StateFile:                 "~/.config/prsync/state.json",
@@ -516,6 +526,17 @@ func validateGateAndDispatch(c Config) error {
 	}
 	if c.GateLease != "auto" && c.GateLease != "off" && c.GateLease != "required" {
 		return &KeyError{Key: "gate_lease", Reason: fmt.Sprintf("invalid value %q", c.GateLease)}
+	}
+	if c.DispatchMaxParallel < 1 {
+		return &KeyError{Key: "dispatch_max_parallel", Reason: "must be >= 1"}
+	}
+	if c.DispatchMaxParallel > 1 {
+		if c.GateLease != "required" {
+			return &KeyError{Key: "gate_lease", Reason: "must be required when dispatch_max_parallel > 1"}
+		}
+		if strings.TrimSpace(c.DispatchLeaseInstruction) == "" {
+			return &KeyError{Key: "dispatch_lease_instruction", Reason: "must be non-empty when dispatch_max_parallel > 1"}
+		}
 	}
 	if c.WakeBeforePrompt != "auto" && c.WakeBeforePrompt != "off" {
 		return &KeyError{Key: "wake_before_prompt", Reason: fmt.Sprintf("invalid value %q", c.WakeBeforePrompt)}
@@ -705,24 +726,13 @@ func applyOtherKey(cfg *Config, key, val string) error {
 	case "tab_machine", "untabbed", "skip_jobs":
 		applyScopeKey(cfg, key, val)
 		return nil
-	case "scan_in_scope_only":
-		b, err := parseBool(key, val)
-		cfg.ScanInScopeOnly = b
-		return err
 	case "review_threads_ttl", "status_checks_ttl", "pr_view_closed_ttl":
 		return applyCacheTTL(cfg, key, val)
-	case "dispatch_prompt_suffix", "dispatch_ask_instruction", "dispatch_ask_to", "dispatch_park_mode":
-		applyDispatchPromptOption(cfg, key, val)
-		return nil
+	case "dispatch_prompt_suffix", "dispatch_ask_instruction", "dispatch_ask_to", "dispatch_park_mode", "dispatch_lease_instruction", "dispatch_max_parallel", "dispatch_catchup":
+		return applyDispatchPromptOption(cfg, key, val)
 	case "open_missing_tabs", "open_tabs_workspace", "open_tabs_cwd", "open_tabs_agent",
 		"open_tabs_max_per_round", "open_tabs_ready_timeout":
 		return applyOpenTabsKey(cfg, key, val)
-	case "wake_before_prompt":
-		cfg.WakeBeforePrompt = strings.TrimSpace(val)
-		return nil
-	case "dispatch_catchup":
-		cfg.DispatchCatchup = strings.TrimSpace(val)
-		return nil
 	case "comment_link_max_chars", "comment_body_max_chars", "comment_strip_patterns":
 		return applyCommentKey(cfg, key, val)
 	case "ci_ignore_checks", "ci_only_checks":
@@ -745,10 +755,19 @@ func applyOtherKey(cfg *Config, key, val string) error {
 }
 
 func applyExtraKey(cfg *Config, key, val string) error {
-	if strings.HasPrefix(key, "waive_") {
+	switch {
+	case key == "scan_in_scope_only":
+		b, err := parseBool(key, val)
+		cfg.ScanInScopeOnly = b
+		return err
+	case key == "wake_before_prompt":
+		cfg.WakeBeforePrompt = strings.TrimSpace(val)
+		return nil
+	case strings.HasPrefix(key, "waive_"):
 		return applyWaiveKey(cfg, key, val)
+	default:
+		return applyPolicyKey(cfg, key, val)
 	}
-	return applyPolicyKey(cfg, key, val)
 }
 
 func applyWaiveKey(cfg *Config, key, val string) error {
@@ -775,7 +794,7 @@ func applyWaiveKey(cfg *Config, key, val string) error {
 	return nil
 }
 
-func applyDispatchPromptOption(cfg *Config, key, val string) {
+func applyDispatchPromptOption(cfg *Config, key, val string) error {
 	switch key {
 	case "dispatch_prompt_suffix":
 		cfg.PromptSuffix = val
@@ -785,8 +804,17 @@ func applyDispatchPromptOption(cfg *Config, key, val string) {
 		cfg.DispatchAskTo = val
 	case "dispatch_park_mode":
 		cfg.DispatchParkMode = strings.TrimSpace(val)
+	case "dispatch_lease_instruction":
+		cfg.DispatchLeaseInstruction = val
+	case "dispatch_catchup":
+		cfg.DispatchCatchup = strings.TrimSpace(val)
+	case "dispatch_max_parallel":
+		return applyPositiveInt(&cfg.DispatchMaxParallel, key, val)
 	}
+	return nil
 }
+
+const defaultDispatchLeaseInstruction = `Shared checkout: all agents share one working copy, so writes are serialized by the agentbus workdir lease. Run ` + "`agentbus lease claim --for 40m --why \"PR #{number}\"`" + ` before any write (file edits, git checkout/rebase/merge/commit/push, or builds/tests that modify tracked files), and run ` + "`agentbus lease release`" + ` when done.`
 
 func applyTeamCover(cfg *Config, key, val string) error {
 	if dst := teamCoverTTL(cfg, key); dst != nil {

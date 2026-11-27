@@ -11,6 +11,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/herdr"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/ledger"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/runlog"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
 )
@@ -60,6 +61,11 @@ type Request struct {
 	// prompt gets the park steps (dispatch_park_mode) or, resumed with
 	// an answer, the resume steps. Nil is a plain dispatch.
 	Job *Job
+	// Ledger records per-PR dispatch outcomes when non-nil.
+	Ledger *ledger.Store
+	// Clock and Sleeper override wall-clock time and sleeping when non-nil.
+	Clock   Clock
+	Sleeper Sleeper
 }
 
 // Candidate is one PR considered for dispatch.
@@ -348,6 +354,9 @@ func Run(ctx context.Context, h Herdr, store StateStore, cfg config.Config, req 
 		DryRun:      cfg.DryRun,
 		Results:     []Item{},
 	}
+	if cfg.DispatchMaxParallel > 1 && cfg.GateLease != "required" {
+		return doc, fmt.Errorf("%w: parallel dispatch (--parallel %d) requires gate_lease=required", ErrLeaseRequired, cfg.DispatchMaxParallel)
+	}
 	cands, err := Candidates(req.Doc, req.PRs)
 	if err != nil {
 		return doc, err
@@ -395,10 +404,14 @@ func runDry(ctx context.Context, h Herdr, store StateStore, cfg config.Config, r
 }
 
 func runLive(ctx context.Context, h Herdr, store StateStore, cfg config.Config, req Request, now time.Time, cands []Candidate, doc Document) (Document, error) {
+	runFn := dispatchLive
+	if cfg.DispatchMaxParallel > 1 {
+		runFn = dispatchLiveParallel
+	}
 	if l, ok := store.(locker); ok {
 		var liveErr error
 		lockErr := l.WithLock(func() error {
-			doc, liveErr = dispatchLive(ctx, h, store, cfg, req, now, cands, doc)
+			doc, liveErr = runFn(ctx, h, store, cfg, req, now, cands, doc)
 			return nil
 		})
 		if lockErr != nil {
@@ -406,7 +419,7 @@ func runLive(ctx context.Context, h Herdr, store StateStore, cfg config.Config, 
 		}
 		return doc, liveErr
 	}
-	return dispatchLive(ctx, h, store, cfg, req, now, cands, doc)
+	return runFn(ctx, h, store, cfg, req, now, cands, doc)
 }
 
 func dispatchLive(ctx context.Context, h Herdr, store StateStore, cfg config.Config, req Request, now time.Time, cands []Candidate, doc Document) (Document, error) {
@@ -416,8 +429,7 @@ func dispatchLive(ctx context.Context, h Herdr, store StateStore, cfg config.Con
 	}
 	matched := MatchedTabs(req.Doc)
 	ctx = WithRoundStart(ctx, now)
-	clock := Clock(realClock{})
-	sleeper := Sleeper(realSleeper{})
+	clock, sleeper := reqClockSleeper(req)
 	timedOut := false
 	budget := newTabBudget(cfg)
 	for i, c := range cands {
@@ -494,6 +506,9 @@ func dispatchCandidate(ctx context.Context, h Herdr, store StateStore, cfg confi
 			return doc, liveStep{done: true, err: err}
 		}
 	}
+	if err := appendLedgerEntry(req.Ledger, c, req, item, now); err != nil {
+		return doc, liveStep{done: true, err: err}
+	}
 	step := liveStep{timedOut: item.Action == ActionDispatchedTimeout}
 	if item.Action == ActionDispatchedBlocked {
 		queueRest(ctx, &doc, cands, i+1)
@@ -521,12 +536,28 @@ func tabHerdr(h Herdr, req Request, tab scan.Tab) (Herdr, error) {
 }
 
 // gateConfig resolves the checkout of repo for the gate. The dirty-tree
-// check uses it in every concurrency_cwd mode.
+// check uses it in every concurrency_cwd mode. Parallel mode also falls back
+// to open_tabs_cwd for local runs outside the repo directory.
 func gateConfig(cfg config.Config, repo string) config.Config {
 	if cfg.Checkout == "" {
 		cfg.Checkout = checkoutOfRepo(repo)
 	}
+	if cfg.Checkout == "" && cfg.DispatchMaxParallel > 1 {
+		cfg.Checkout = cfg.OpenTabCwd(config.LocalMachine)
+	}
 	return cfg
+}
+
+func reqClockSleeper(req Request) (Clock, Sleeper) {
+	clock := req.Clock
+	if clock == nil {
+		clock = realClock{}
+	}
+	sleeper := req.Sleeper
+	if sleeper == nil {
+		sleeper = realSleeper{}
+	}
+	return clock, sleeper
 }
 
 // recordsDispatch reports whether a live result writes dedupe state.
@@ -861,10 +892,11 @@ func evaluateDry(c Candidate, cfg config.Config, st State, req Request, now time
 	return r
 }
 
-// renderPrompt renders the prompt body and appends dispatch_prompt_suffix
-// after a blank line when it is set.
+// renderPrompt renders the prompt body, prepends dispatch_lease_instruction in
+// parallel mode, and appends dispatch_prompt_suffix after a blank line when it
+// is set.
 func renderPrompt(cfg config.Config, req Request, pr scan.PR) string {
-	body := renderJobPrompt(renderPromptBody(cfg, req, pr), cfg, req, pr)
+	body := applyLeaseInstruction(renderJobPrompt(renderPromptBody(cfg, req, pr), cfg, req, pr), pr, cfg)
 	if cfg.PromptSuffix == "" {
 		return body
 	}

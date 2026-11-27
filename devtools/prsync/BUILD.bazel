@@ -3,3 +3,9 @@ exports_files([
     "README.org",
     "prsync.config.example",
 ])
+
+filegroup(
+    name = "contrib_srcs",
+    srcs = glob(["contrib/*"]),
+    visibility = ["//devtools/prsync:__subpackages__"],
+)

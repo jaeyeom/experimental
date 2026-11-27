@@ -106,6 +106,19 @@ func RenderHint(tmpl string, pr scan.PR, cfg config.Config, hint string) string 
 	return strings.ReplaceAll(out, "{hint}", hint)
 }
 
+// applyLeaseInstruction prepends the configured dispatch_lease_instruction to
+// body in parallel mode (DispatchMaxParallel > 1).
+func applyLeaseInstruction(body string, pr scan.PR, cfg config.Config) string {
+	if cfg.DispatchMaxParallel <= 1 {
+		return body
+	}
+	inst := strings.TrimSpace(Render(cfg.DispatchLeaseInstruction, pr, cfg))
+	if inst == "" {
+		return body
+	}
+	return inst + "\n\n" + body
+}
+
 // renderMergeQueueFix fills mergeQueueFixPrompt. The comment URL is substituted
 // last so it stays literal.
 func renderMergeQueueFix(pr scan.PR, cfg config.Config) string {

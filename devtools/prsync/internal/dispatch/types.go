@@ -66,9 +66,22 @@ const (
 
 // Document is the outbound dispatch JSON document.
 type Document struct {
-	GeneratedAt string `json:"generated_at"` //nolint:tagliatelle // brief outbound contract
-	DryRun      bool   `json:"dry_run"`      //nolint:tagliatelle // brief outbound contract
-	Results     []Item `json:"results"`
+	GeneratedAt string      `json:"generated_at"` //nolint:tagliatelle // brief outbound contract
+	DryRun      bool        `json:"dry_run"`      //nolint:tagliatelle // brief outbound contract
+	Results     []Item      `json:"results"`
+	Summary     *RunSummary `json:"summary,omitempty"`
+}
+
+// RunSummary summarizes a parallel live dispatch run.
+type RunSummary struct {
+	MaxInFlight int `json:"max_in_flight"` //nolint:tagliatelle // brief outbound contract
+	InFlight    int `json:"in_flight"`     //nolint:tagliatelle // brief outbound contract
+	Finished    int `json:"finished"`
+	TimedOut    int `json:"timed_out"` //nolint:tagliatelle // brief outbound contract
+	Blocked     int `json:"blocked"`
+	Failed      int `json:"failed,omitempty"`
+	Queued      int `json:"queued,omitempty"`
+	Skipped     int `json:"skipped,omitempty"`
 }
 
 // Item is one PR's dispatch outcome.

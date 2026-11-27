@@ -115,6 +115,18 @@ prsync tabs --orphans --close-merged --config ./prsync.config
 prsync tabs --orphans --close-merged --go --config ./prsync.config
 #+end_src
 
+Dispatch up to ~N~ PR tabs concurrently in one shared checkout (requires
+~gate_lease=required~ so agents serialize writes with ~agentbus lease~),
+or run continuously in rounds with ~loop~ and an hourly ~--ensure~
+watchdog:
+
+#+begin_src bash
+prsync dispatch --config ./prsync.config --go --parallel 3
+prsync loop --config ./prsync.config --parallel 3
+prsync loop --ensure --config ./prsync.config
+prsync doctor --config ./prsync.config
+#+end_src
+
 * Commands
 
 The global flag ~--log-level~ is ~debug~, ~info~, ~warn~, or ~error~
@@ -124,7 +136,8 @@ it. Stdout stays JSON.
 #+begin_example
 prsync scan     [--config PATH] [--repo owner/repo ...] [--json] [--in-scope] [--emit-jobs] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
 prsync tabs     --orphans [--config PATH] [--json] [--stdin] [--close-merged] [--go] [--force] [--tab-machine M]
-prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--merge] [--ci-fix] [--hint TEXT] [--prompt-suffix TEXT] [--force] [--stdin] [--open-tabs] [--job ID] [--runner NAME] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
+prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--merge] [--ci-fix] [--hint TEXT] [--prompt-suffix TEXT] [--force] [--stdin] [--open-tabs] [--parallel N] [--job ID] [--runner NAME] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
+prsync loop     [--config PATH] [--max-rounds N] [--pause D] [--parallel N] [--dry-run] [--ensure]
 prsync maintain [--config PATH] [--pr owner/repo#N ...] [--json] [--force] [--stdin]
 prsync ledger   [--config PATH] [--pr owner/repo#N] [--kind KIND] [--head SHA] [--limit N] [--json]
 prsync comment  [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--stdin] [--allow-duplicate] [--repost-waives] [--body TEXT]
@@ -132,18 +145,20 @@ prsync gate     [--config PATH] [--tab-machine M]
 prsync logs     [--path]
 prsync version  [--json]
 prsync update   [--check] [--ref REF] [--json]
-prsync doctor   [--json] [--offline]
+prsync doctor   [--config PATH] [--json] [--offline]
 prsync skill    [install|uninstall|status] [--agent A] [--scope S] [--dir D] [--dry-run] [--force] [--json]
 #+end_example
 
-| Flag                | Effect                                                                          |
-|---------------------+---------------------------------------------------------------------------------|
-| ~--go~              | Send, post, or close. Without it, the command only prints.                      |
-| ~--config PATH~     | Use this config file. It must exist.                                            |
-| ~--pr owner/repo#N~ | One pull request. Repeat the flag for more than one.                            |
-| ~--force~           | Send again even when dedupe would skip, or close when classification is unsure. |
-| ~--open-tabs~       | Open a herdr tab for an in-scope PR that does not have one.                     |
-| ~--log-level LEVEL~ | Global log verbosity. ~logs~ does not take it.                                  |
+| Flag                 | Effect                                                                          |
+|----------------------+---------------------------------------------------------------------------------|
+| ~--go~               | Send, post, or close. Without it, the command only prints.                      |
+| ~--config PATH~      | Use this config file. It must exist.                                            |
+| ~--pr owner/repo#N~  | One pull request. Repeat the flag for more than one.                            |
+| ~--force~            | Send again even when dedupe would skip, or close when classification is unsure. |
+| ~--open-tabs~        | Open a herdr tab for an in-scope PR that does not have one.                     |
+| ~--parallel N~       | Run up to N PR dispatches in flight at once (needs ~gate_lease=required~).      |
+| ~--ensure~           | Check the loop heartbeat and PID; exit 0 if healthy or start ~loop~ detached.   |
+| ~--log-level LEVEL~  | Global log verbosity. ~logs~ does not take it.                                  |
 
 Common flags only. The full list is in the [[file:docs/reference.org][reference]].
 
@@ -169,9 +184,11 @@ are ~KEY=VALUE~. A ~#~ starts a comment. Unknown keys are ignored.
 | ~merge_prompt_template~    | built-in        | Prompt used with ~dispatch --merge~.                        |
 | ~dispatch_catchup~         | ~rebase~        | ~merge~: merge-queue-fix conflicts merge, not rebase.       |
 | ~ci_fix_prompt_template~   | built-in        | Prompt used with ~dispatch --ci-fix~.                       |
-| ~ci_ignore_checks~         | empty           | Check names left out of ~ci_state~.                         |
-| ~ci_only_checks~           | empty           | When set, only these checks feed ~ci_state~.                |
-| ~dedupe_ttl~               | ~24h~           | How long the same comments stay deduped.                           |
+| ~ci_ignore_checks~          | empty           | Check names left out of ~ci_state~.                         |
+| ~ci_only_checks~            | empty           | When set, only these checks feed ~ci_state~.                |
+| ~dispatch_max_parallel~     | ~1~             | Concurrent PR tabs during ~dispatch --go~ (~>1~ needs ~gate_lease=required~). |
+| ~dispatch_lease_instruction~ | agentbus lease  | Prepended to prompts when ~dispatch_max_parallel > 1~.      |
+| ~dedupe_ttl~                | ~24h~           | How long the same comments stay deduped.                    |
 | ~dedupe_scans~             | ~0~             | Later scans that also expire dedupe. ~0~ ignores the count.        |
 | ~waive_comment_prefix~     | empty           | Exact first line marking a CI waive comment. Empty turns it off.   |
 | ~waive_authors~            | empty           | Space-separated logins whose waives count. Empty means any author. |
@@ -222,3 +239,4 @@ work; it is never the user's approval. See
 - [[file:docs/jobs.org][Jobs]] — ~scan --emit-jobs~, ~dispatch --job~, and the rebase on GitHub.
 - [[file:docs/team-cover.org][Team cover]] — suggested reviewers. Off until ~team_cover=true~.
 - [[file:docs/internals.org][Internals]] — the round cache, lock files, the smoke test, and development.
+- [[file:contrib/README.org][Services and cron]] — systemd user units, launchd plists, and crontab for ~prsync loop~ and ~--ensure~.

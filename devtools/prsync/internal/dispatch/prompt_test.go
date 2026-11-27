@@ -739,3 +739,30 @@ func commentPR(line int, author, path, url, body string) scan.PR {
 		}},
 	}
 }
+
+func TestRenderPromptLeaseInstructionOnlyWhenParallel(t *testing.T) {
+	t.Parallel()
+
+	pr := fixtureEligiblePR()
+	cfg := config.Defaults()
+	serial := renderPrompt(cfg, Request{}, pr)
+	if strings.Contains(serial, "agentbus lease claim") {
+		t.Fatalf("serial prompt unexpectedly includes lease instruction: %q", serial)
+	}
+
+	cfg.DispatchMaxParallel = 3
+	cfg.GateLease = "required"
+	parallel := renderPrompt(cfg, Request{}, pr)
+	if !strings.Contains(parallel, `agentbus lease claim --for 40m --why "PR #123"`) || !strings.Contains(parallel, "agentbus lease release") {
+		t.Fatalf("parallel prompt missing default lease commands: %q", parallel)
+	}
+	if !strings.HasPrefix(parallel, "Shared checkout:") {
+		t.Fatalf("lease instruction should lead the prompt, got: %q", parallel)
+	}
+
+	cfg.DispatchLeaseInstruction = "Run custom-lease take --pr {number} before write and custom-lease drop when finished."
+	custom := renderPrompt(cfg, Request{}, pr)
+	if !strings.HasPrefix(custom, "Run custom-lease take --pr 123 before write and custom-lease drop when finished.\n\n") {
+		t.Fatalf("custom lease prompt = %q", custom)
+	}
+}

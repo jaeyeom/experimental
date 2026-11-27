@@ -15,8 +15,12 @@ import (
 // decide ledger. PRSYNC_FAKE_DECIDE_OUT is the open and answered
 // `decide list --json` items; unset is []. TestMain calls it before any test runs.
 func useFakeGateProbes() {
-	gateProbes = func(executor.Executor, *herdr.Client) dispatch.Probes {
-		return dispatch.Probes{Decide: envDecide{}}
+	gateProbes = func(exec executor.Executor, _ *herdr.Client) dispatch.Probes {
+		p := dispatch.Probes{Decide: envDecide{}}
+		if os.Getenv("PRSYNC_FAKE_AGENTBUS") == "1" {
+			p.Lease = dispatch.AgentbusLease{Exec: exec, Bin: "agentbus"}
+		}
+		return p
 	}
 	promptWaker = func(executor.Executor) dispatch.Waker { return envWaker{} }
 }

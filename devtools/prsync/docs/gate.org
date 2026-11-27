@@ -61,6 +61,45 @@ dispatch prsync does not run ~agentbus lease claim~. The agent it
 prompted claims the lease before it changes the checkout, and releases
 it when done.
 
+* Parallel dispatch
+
+When ~dispatch_max_parallel > 1~ (or ~dispatch --go --parallel N~ with
+~N > 1~), ~dispatch --go~ runs up to ~N~ eligible PR tabs concurrently
+without waiting for each agent to finish before starting the next:
+
+- *Exclusivity* — at most ~N~ workers run in flight at once. Two
+  dispatches never target the same PR (~repo#N~), tab, or pane at the
+  same time; a second candidate targeting an in-flight tab waits until
+  the active worker finishes.
+- *Lease requirement* — parallel mode requires ~gate_lease=required~.
+  Before starting any worker, ~dispatch~ verifies ~gate_lease=required~
+  (otherwise exit 2) and verifies ~agentbus~ is installed and guards the
+  dispatch checkout (otherwise exit 3).
+- *Lease instruction* — no worktrees are created; every agent shares the
+  checkout and serializes writes through the agentbus workdir lease. In
+  parallel mode (~dispatch_max_parallel > 1~), every rendered prompt
+  prepends ~dispatch_lease_instruction~ (substituted with the PR's
+  placeholders, defaulting to ~agentbus lease claim --for 40m --why "PR #{number}"~
+  and ~agentbus lease release~). With ~--parallel 1~ (the default),
+  prompts, behavior, and JSON output are unchanged.
+- *Parallel gate* — the gate does not wait for the whole checkout's
+  herdr tabs to be idle; tab signals are skipped and a single safe
+  lease check suffices (no 3-poll idle debounce). It allows ~free~, and
+  allows ~held~ or ~releasing~ when the lease holder matches a pane
+  already dispatched by this ~prsync~ run. Any other holder (or
+  ~paused~ / ~needs-adopt~ / unreadable lease) holds the gate until
+  ~gate_timeout_ms~ (exit 4).
+- *Dirty tree in parallel mode* — a dirty checkout with no active
+  dispatched lease holder (~free~) fails the gate immediately
+  (~gate_unsafe~, exit 1). A dirty checkout while a pane dispatched in
+  this run holds the lease (~held~ or ~releasing~) is expected and does
+  not block dispatching other PRs.
+- *Run summary* — parallel output includes ~summary~ on the dispatch JSON
+  document (~max_in_flight~, ~in_flight~, ~finished~, ~timed_out~,
+  ~blocked~, and non-zero counts for ~failed~, ~queued~, ~skipped~), and
+  writes a matching ~parallel summary: ...~ line to stderr and the run
+  log. ~summary~ is omitted when ~dispatch_max_parallel=1~.
+
 * gate
 
 One-shot busy-set check (no debounce). ~dispatch --go~ uses the
@@ -355,7 +394,8 @@ done, or was opened since the round started; ~off~ turns that off. A
 ~auto~ reads the agentbus workdir lease of a guarded dispatch checkout, and
 falls back to the tab signals when ~agentbus~ is missing or the hub is
 unreachable; ~required~ holds the gate instead when the lease cannot be
-read; ~off~ never asks agentbus. See [[*Workdir lease][Workdir lease]].
+read (and is mandatory for ~dispatch_max_parallel > 1~); ~off~ never
+asks agentbus. See [[*Workdir lease][Workdir lease]] and [[*Parallel dispatch][Parallel dispatch]].
 
 ** wake_before_prompt
 
