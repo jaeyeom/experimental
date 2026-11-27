@@ -25,15 +25,15 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 PLAYBOOK="${SCRIPT_DIR}/setup-decide.yml"
 INVENTORY="${SCRIPT_DIR}/inventory.ini"
 
+# shellcheck disable=SC1091  # Sourced from the same directory as this script.
+. "${SCRIPT_DIR}/ansible_test_env.sh"
+ansible_test_init_env 1
+
 ROOT=$(mktemp -d)
 trap 'rm -rf "$ROOT"' EXIT
 export TMPDIR="$ROOT"
 
-HOME="${ROOT}/home"
-GOPATH_DIR="${ROOT}/gopath"
-mkdir -p "$HOME" "${ROOT}/bin" "${GOPATH_DIR}/bin"
-export HOME GOPATH_DIR
-unset XDG_CONFIG_HOME GOPATH
+mkdir -p "${ROOT}/bin"
 
 # Fake go: only `go env GOPATH` is expected.
 cat >"${ROOT}/bin/go" <<'EOF'
@@ -47,13 +47,45 @@ exit 1
 EOF
 chmod +x "${ROOT}/bin/go"
 
-TRACE="${ROOT}/trace"
-: >"$TRACE"
-export TRACE
 CURRENT_HASH="sha256:hash-v1"
 export CURRENT_HASH
 DRY_RUN_FAIL_RC=0
 export DRY_RUN_FAIL_RC
+
+# setup_case NAME initializes isolated HOME, GOPATH_DIR, TRACE, OUT, and Ansible dirs.
+setup_case() {
+	_case_dir="${ROOT}/cases/$1"
+	HOME="${_case_dir}/home"
+	GOPATH_DIR="${_case_dir}/gopath"
+	TRACE="${_case_dir}/trace"
+	OUT="${_case_dir}/out"
+	FACTS_JSON="${_case_dir}/facts.json"
+	mkdir -p "$HOME" "${GOPATH_DIR}/bin"
+	: >"$TRACE"
+	export HOME GOPATH_DIR TRACE
+	unset XDG_CONFIG_HOME GOPATH
+	export ANSIBLE_HOME="${_case_dir}/ansible"
+	export ANSIBLE_LOCAL_TEMP="${_case_dir}/ansible-local"
+	export ANSIBLE_REMOTE_TEMP="${_case_dir}/ansible-remote"
+	CLAUDE_SKILL="${HOME}/.claude/skills/decide/SKILL.md"
+	GEMINI_SKILL="${HOME}/.gemini/config/skills/decide/SKILL.md"
+	CODEX_SKILL="${HOME}/.agents/skills/decide/SKILL.md"
+}
+
+seed_skill() {
+	_seed_dest="$1"
+	_seed_hash="$2"
+	mkdir -p "$(dirname "$_seed_dest")"
+	printf '%s\n' \
+		'---' \
+		'name: decide' \
+		'toolcli-tool: decide' \
+		'toolcli-version: dev' \
+		"toolcli-hash: ${_seed_hash}" \
+		'---' \
+		'' \
+		'Fake decide skill.' >"$_seed_dest"
+}
 
 # write_fake_decide installs a fake `decide` implementing `skill install` and
 # `skill status --json` using the same agent root paths as pkg/toolcli.
@@ -200,23 +232,10 @@ if [ -e "${ANSIBLE_BIN_DIR}/decide" ]; then
 	exit 0
 fi
 
-export ANSIBLE_HOME="${ROOT}/ansible"
-export ANSIBLE_LOCAL_TEMP="${ROOT}/ansible/tmp"
-export ANSIBLE_REMOTE_TEMP="${ROOT}/ansible/tmp"
-export ANSIBLE_NOCOLOR=1
-export ANSIBLE_STDOUT_CALLBACK=default
-export ANSIBLE_DISPLAY_SKIPPED_HOSTS=1
-export ANSIBLE_GATHERING=smart
-export ANSIBLE_RETRY_FILES_ENABLED=0
-
-OUT="${ROOT}/out"
-CLAUDE_SKILL="${HOME}/.claude/skills/decide/SKILL.md"
-GEMINI_SKILL="${HOME}/.gemini/config/skills/decide/SKILL.md"
-CODEX_SKILL="${HOME}/.agents/skills/decide/SKILL.md"
-
 try_playbook() {
 	PLAYBOOK_RC=0
-	ansible-playbook -i "$INVENTORY" --tags decide_skill "$@" "$PLAYBOOK" >"$OUT" 2>&1 || PLAYBOOK_RC=$?
+	ansible_test_write_facts "$FACTS_JSON"
+	ansible-playbook -i "$INVENTORY" --tags decide_skill -e "@${FACTS_JSON}" "$@" "$PLAYBOOK" >"$OUT" 2>&1 || PLAYBOOK_RC=$?
 	if grep -q 'libc.so' "$OUT"; then
 		printf '%s\n' "SKIP: ansible-playbook cannot run in sandbox (libc issue)"
 		exit 0
@@ -273,97 +292,128 @@ trace_count() {
 	grep -c "^$1\$" "$TRACE" 2>/dev/null || true
 }
 
-# --- 1. decide missing: warn, write nothing, do not fail ---
-: >"$TRACE"
-run_playbook
-grep -q 'WARNING: Skipping decide skill install because decide is not on PATH' "$OUT" || {
-	cat "$OUT" >&2
-	fail "missing: expected missing binary warning"
-}
-expect_install "missing" skipping
-assert_not_written "missing" "$CLAUDE_SKILL"
+PIDS=""
 
-# --- 2. no supported agents: warn, write nothing, do not fail ---
-write_fake_decide
-: >"$TRACE"
-run_playbook
-grep -q 'WARNING: Skipping decide skill install because no supported agents were found' "$OUT" || {
-	cat "$OUT" >&2
-	fail "no-agents: expected no supported agents warning"
-}
-expect_install "no-agents" skipping
-assert_not_written "no-agents" "$CLAUDE_SKILL"
-if [ "$(trace_count 'decide skill install --agent all --force')" -ne 0 ]; then
-	fail "no-agents: must not invoke non-dry-run install"
-fi
+# --- 1 & 2. decide missing, then no supported agents ---
+(
+	setup_case missing_no_agents
+	: >"$TRACE"
+	run_playbook
+	grep -q 'WARNING: Skipping decide skill install because decide is not on PATH' "$OUT" || {
+		cat "$OUT" >&2
+		fail "missing: expected missing binary warning"
+	}
+	expect_install "missing" skipping
+	assert_not_written "missing" "$CLAUDE_SKILL"
 
-# --- 3. --check mode: dry run writes nothing, never invokes non-dry-run install ---
-mkdir -p "${HOME}/.claude" "${HOME}/.gemini"
-: >"$TRACE"
-run_playbook --check
-expect_install "check" skipping
-assert_not_written "check" "$CLAUDE_SKILL"
-assert_not_written "check" "$GEMINI_SKILL"
-if [ "$(trace_count 'decide skill install --agent all --force --dry-run')" -ne 1 ]; then
-	fail "check: expected dry-run invocation"
-fi
-if [ "$(trace_count 'decide skill status --json')" -ne 1 ]; then
-	fail "check: expected status --json invocation"
-fi
-if [ "$(trace_count 'decide skill install --agent all --force')" -ne 0 ]; then
-	fail "check: must not invoke non-dry-run install"
-fi
+	write_fake_decide
+	: >"$TRACE"
+	run_playbook
+	grep -q 'WARNING: Skipping decide skill install because no supported agents were found' "$OUT" || {
+		cat "$OUT" >&2
+		fail "no-agents: expected no supported agents warning"
+	}
+	expect_install "no-agents" skipping
+	assert_not_written "no-agents" "$CLAUDE_SKILL"
+	if [ "$(trace_count 'decide skill install --agent all --force')" -ne 0 ]; then
+		fail "no-agents: must not invoke non-dry-run install"
+	fi
+) &
+PIDS="$PIDS $!"
 
-# --- 4. fresh install: installs for detected user-scope agents only ---
-: >"$TRACE"
-run_playbook
-expect_install "fresh" changed
-assert_stamped "fresh claude" "$CLAUDE_SKILL"
-assert_stamped "fresh gemini" "$GEMINI_SKILL"
-assert_not_written "fresh codex" "$CODEX_SKILL"
-if [ "$(trace_count 'decide skill install --agent all --force')" -ne 1 ]; then
-	fail "fresh: expected one install --agent all --force call"
-fi
+# --- 3 & 8. --check mode and unexpected dry-run failure ---
+(
+	setup_case check_fail
+	write_fake_decide
+	mkdir -p "${HOME}/.claude" "${HOME}/.gemini"
+	: >"$TRACE"
+	run_playbook --check
+	expect_install "check" skipping
+	assert_not_written "check" "$CLAUDE_SKILL"
+	assert_not_written "check" "$GEMINI_SKILL"
+	if [ "$(trace_count 'decide skill install --agent all --force --dry-run')" -ne 1 ]; then
+		fail "check: expected dry-run invocation"
+	fi
+	if [ "$(trace_count 'decide skill status --json')" -ne 1 ]; then
+		fail "check: expected status --json invocation"
+	fi
+	if [ "$(trace_count 'decide skill install --agent all --force')" -ne 0 ]; then
+		fail "check: must not invoke non-dry-run install"
+	fi
 
-# --- 5. idempotent rerun when already current ---
-: >"$TRACE"
-run_playbook
-expect_install "rerun" skipping
-assert_stamped "rerun claude" "$CLAUDE_SKILL"
-assert_stamped "rerun gemini" "$GEMINI_SKILL"
-if [ "$(trace_count 'decide skill install --agent all --force')" -ne 0 ]; then
-	fail "rerun: must not invoke install when all detected agents are current"
-fi
+	DRY_RUN_FAIL_RC=3
+	run_playbook_fails
+	DRY_RUN_FAIL_RC=0
+) &
+PIDS="$PIDS $!"
+
+# --- 4 & 5. fresh install, then idempotent rerun ---
+(
+	setup_case fresh_rerun
+	write_fake_decide
+	mkdir -p "${HOME}/.claude" "${HOME}/.gemini"
+	: >"$TRACE"
+	run_playbook
+	expect_install "fresh" changed
+	assert_stamped "fresh claude" "$CLAUDE_SKILL"
+	assert_stamped "fresh gemini" "$GEMINI_SKILL"
+	assert_not_written "fresh codex" "$CODEX_SKILL"
+	if [ "$(trace_count 'decide skill install --agent all --force')" -ne 1 ]; then
+		fail "fresh: expected one install --agent all --force call"
+	fi
+
+	: >"$TRACE"
+	run_playbook
+	expect_install "rerun" skipping
+	assert_stamped "rerun claude" "$CLAUDE_SKILL"
+	assert_stamped "rerun gemini" "$GEMINI_SKILL"
+	if [ "$(trace_count 'decide skill install --agent all --force')" -ne 0 ]; then
+		fail "rerun: must not invoke install when all detected agents are current"
+	fi
+) &
+PIDS="$PIDS $!"
 
 # --- 6. --force migration of foreign SKILL.md ---
-printf '%s\n' '---' 'name: decide' '---' '' 'Legacy verified-run text.' >"$CLAUDE_SKILL"
-: >"$TRACE"
-run_playbook
-expect_install "foreign migration" changed
-assert_stamped "foreign migration" "$CLAUDE_SKILL"
-if [ "$(trace_count 'decide skill install --agent all --force')" -ne 1 ]; then
-	fail "foreign migration: expected install --agent all --force call"
-fi
+(
+	setup_case foreign
+	write_fake_decide
+	mkdir -p "${HOME}/.claude/skills/decide" "${HOME}/.gemini"
+	seed_skill "$GEMINI_SKILL" "$CURRENT_HASH"
+	printf '%s\n' '---' 'name: decide' '---' '' 'Legacy verified-run text.' >"$CLAUDE_SKILL"
+	: >"$TRACE"
+	run_playbook
+	expect_install "foreign migration" changed
+	assert_stamped "foreign migration" "$CLAUDE_SKILL"
+	if [ "$(trace_count 'decide skill install --agent all --force')" -ne 1 ]; then
+		fail "foreign migration: expected install --agent all --force call"
+	fi
 
-# rerun after migration is idempotent again
-: >"$TRACE"
-run_playbook
-expect_install "post-migration rerun" skipping
-if [ "$(trace_count 'decide skill install --agent all --force')" -ne 0 ]; then
-	fail "post-migration rerun: must not invoke install"
-fi
+	: >"$TRACE"
+	run_playbook
+	expect_install "post-migration rerun" skipping
+	if [ "$(trace_count 'decide skill install --agent all --force')" -ne 0 ]; then
+		fail "post-migration rerun: must not invoke install"
+	fi
+) &
+PIDS="$PIDS $!"
 
 # --- 7. stale skill triggers reinstall ---
-CURRENT_HASH="sha256:hash-v2"
-: >"$TRACE"
-run_playbook
-expect_install "stale update" changed
-assert_stamped "stale update claude" "$CLAUDE_SKILL"
-assert_stamped "stale update gemini" "$GEMINI_SKILL"
+(
+	setup_case stale
+	write_fake_decide
+	mkdir -p "${HOME}/.claude" "${HOME}/.gemini"
+	seed_skill "$CLAUDE_SKILL" "$CURRENT_HASH"
+	seed_skill "$GEMINI_SKILL" "$CURRENT_HASH"
+	CURRENT_HASH="sha256:hash-v2"
+	: >"$TRACE"
+	run_playbook
+	expect_install "stale update" changed
+	assert_stamped "stale update claude" "$CLAUDE_SKILL"
+	assert_stamped "stale update gemini" "$GEMINI_SKILL"
+) &
+PIDS="$PIDS $!"
 
-# --- 8. unexpected dry-run failure fails the playbook ---
-DRY_RUN_FAIL_RC=3
-run_playbook_fails
-DRY_RUN_FAIL_RC=0
+# shellcheck disable=SC2086  # PIDS is space-separated integer PIDs.
+ansible_test_wait_pids $PIDS || exit 1
 
 printf '%s\n' "PASS"

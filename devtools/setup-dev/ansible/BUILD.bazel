@@ -159,6 +159,7 @@ sh_test(
     srcs = ["decide_skill_test.sh"],
     # setup-decide.yml imports other playbooks.
     data = [
+        "ansible_test_env.sh",
         "inventory.ini",
     ] + glob(["*.yml"]),
     tags = [
@@ -172,6 +173,7 @@ sh_test(
     srcs = ["factory_skill_test.sh"],
     # setup-factory.yml imports other playbooks.
     data = [
+        "ansible_test_env.sh",
         "inventory.ini",
     ] + glob(["*.yml"]),
     tags = [
@@ -184,7 +186,10 @@ sh_test(
     name = "fork_keeper_vars_test",
     srcs = ["fork_keeper_vars_test.sh"],
     # setup-fork-keeper.yml imports other playbooks.
-    data = ["inventory.ini"] + glob(["*.yml"]),
+    data = [
+        "ansible_test_env.sh",
+        "inventory.ini",
+    ] + glob(["*.yml"]),
     tags = [
         "ansible",
         "local",
@@ -196,6 +201,7 @@ sh_test(
     srcs = ["slackwatch_skill_test.sh"],
     # setup-slackwatch.yml imports other playbooks.
     data = [
+        "ansible_test_env.sh",
         "ensure.sh",
         "inventory.ini",
     ] + glob(["*.yml"]),
@@ -210,7 +216,10 @@ sh_test(
     srcs = ["homebrew_zshenv_test.sh"],
     # setup-homebrew-env.yml imports setup-shell-profile.yml. The test
     # runs only the homebrew-zshenv tag.
-    data = ["inventory.ini"] + glob(["*.yml"]),
+    data = [
+        "ansible_test_env.sh",
+        "inventory.ini",
+    ] + glob(["*.yml"]),
     tags = [
         "ansible",
         "local",
@@ -222,6 +231,7 @@ sh_test(
     srcs = ["agent_roles_trust_test.sh"],
     data = [
         "agent_roles_trust.py",
+        "ansible_test_env.sh",
         "inventory.ini",
         "setup-agent-roles-trust.yml",
     ],
@@ -277,7 +287,10 @@ CLAUDE_SANDBOX_SCENARIOS = [
         name = "claude_sandbox_settings_%s_test" % scenario.replace("-", "_"),
         srcs = ["claude_sandbox_settings_test.sh"],
         args = [scenario],
-        data = ["inventory.ini"] + CLAUDE_SANDBOX_PLAYBOOKS,
+        data = [
+            "ansible_test_env.sh",
+            "inventory.ini",
+        ] + CLAUDE_SANDBOX_PLAYBOOKS,
         tags = [
             "ansible",
             "local",
@@ -294,8 +307,18 @@ test_suite(
     ],
 )
 
-HUB_SCENARIOS = [
-    "names",
+# Pure static check; does not run ansible-playbook, so it executes hermetically on RBE.
+sh_test(
+    name = "hub_setup_names_test",
+    srcs = ["hub_setup_test.sh"],
+    args = ["names"],
+    data = [
+        "setup-hub-client.yml",
+        "setup-hub-host.yml",
+    ],
+)
+
+HUB_ANSIBLE_SCENARIOS = [
     "path-bash",
     "path-zsh",
     "config",
@@ -320,6 +343,7 @@ HUB_SCENARIOS = [
         srcs = ["hub_setup_test.sh"],
         args = [scenario],
         data = [
+            "ansible_test_env.sh",
             "gather-facts.yml",
             "go.yml",
             "hub_ssh_agent_scan.py",
@@ -334,14 +358,16 @@ HUB_SCENARIOS = [
             "local",
         ],
     )
-    for scenario in HUB_SCENARIOS
+    for scenario in HUB_ANSIBLE_SCENARIOS
 ]
 
 test_suite(
     name = "hub_setup_test",
     tests = [
+        ":hub_setup_names_test",
+    ] + [
         ":hub_setup_%s_test" % scenario.replace("-", "_")
-        for scenario in HUB_SCENARIOS
+        for scenario in HUB_ANSIBLE_SCENARIOS
     ],
 )
 
@@ -372,6 +398,7 @@ sh_test(
     name = "go_install_version_test",
     srcs = ["go_install_version_test.sh"],
     data = [
+        "ansible_test_env.sh",
         "curl.yml",
         "decide.yml",
         "diskwatch.yml",

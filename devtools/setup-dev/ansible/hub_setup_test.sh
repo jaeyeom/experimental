@@ -111,11 +111,25 @@ if want names; then
 	rm -f "$_name_filtered" "$_name_fixture"
 fi
 
+# Exit cleanly when only pure-text checks (e.g. `names`) were requested so
+# `hub_setup_names_test` can run hermetically on RBE without ansible-playbook.
+if ! want path-bash && ! want path-zsh && ! want config && ! want check && \
+	! want agent-optout && ! want agent-default && ! want agent-zshrc && \
+	! want agent-explicit && ! want agent-sourced && \
+	! want keychain-darwin && ! want keychain-linux && ! want keychain-darwin-off; then
+	echo "PASS"
+	exit 0
+fi
+
 if ! command -v ansible-playbook >/dev/null 2>&1; then
 	echo "SKIP: ansible-playbook not found"
 	exit 0
 fi
 ANSIBLE_BIN_DIR=$(dirname "$(command -v ansible-playbook)")
+
+# shellcheck disable=SC1091  # Sourced from the same directory as this script.
+. "${SCRIPT_DIR}/ansible_test_env.sh"
+ansible_test_init_env 0
 
 ROOT=$(mktemp -d)
 trap 'rm -rf "$ROOT"' EXIT
@@ -128,19 +142,18 @@ unset XDG_CONFIG_HOME DECIDE_HUB AGENTBUS_HUB
 PATH="${ROOT}/bin:${ANSIBLE_BIN_DIR}:/usr/bin:/bin"
 export PATH
 
-export ANSIBLE_NOCOLOR=1
-export ANSIBLE_STDOUT_CALLBACK=default
-export ANSIBLE_RETRY_FILES_ENABLED=0
+OUT="${ROOT}/out"
+FACTS_JSON="${ROOT}/facts.json"
+export ANSIBLE_HOME="${ROOT}/ansible"
 export ANSIBLE_LOCAL_TEMP="${ROOT}/ansible-local"
 export ANSIBLE_REMOTE_TEMP="${ROOT}/ansible-remote"
-
-OUT="${ROOT}/out"
 
 # run PLAYBOOK ARGS... runs the playbook; it must succeed.
 run() {
 	_pb="$1"
 	shift
-	if ! ansible-playbook -i "$INVENTORY" "$@" "$_pb" >"$OUT" 2>&1; then
+	ansible_test_write_facts "$FACTS_JSON"
+	if ! ansible-playbook -i "$INVENTORY" -e "@${FACTS_JSON}" "$@" "$_pb" >"$OUT" 2>&1; then
 		cat "$OUT" >&2
 		fail "ansible-playbook $(basename "$_pb") failed: $*"
 	fi
@@ -154,7 +167,8 @@ run() {
 run_fails() {
 	_pb="$1"
 	shift
-	if ansible-playbook -i "$INVENTORY" "$@" "$_pb" >"$OUT" 2>&1; then
+	ansible_test_write_facts "$FACTS_JSON"
+	if ansible-playbook -i "$INVENTORY" -e "@${FACTS_JSON}" "$@" "$_pb" >"$OUT" 2>&1; then
 		cat "$OUT" >&2
 		fail "ansible-playbook $(basename "$_pb") succeeded, want failure: $*"
 	fi
@@ -197,11 +211,28 @@ has_backup() {
 	return 1
 }
 
-# new_home empties HOME and the fake commands, so a scenario starts
-# from nothing and never reads what another scenario left behind.
+# new_home [NAME] empties HOME and the fake commands, so a scenario starts
+# from nothing and never reads what another scenario left behind. When NAME
+# is passed, it isolates HOME, OUT, FACTS_JSON, and Ansible temp dirs under
+# ROOT/cases/NAME so subcases can run concurrently.
 new_home() {
-	rm -rf "${ROOT:?}/home" "${ROOT:?}/bin"
-	mkdir -p "${ROOT}/home" "${ROOT}/bin"
+	if [ -n "${1:-}" ]; then
+		_case_dir="${ROOT}/cases/$1"
+		rm -rf "${_case_dir}"
+		HOME="${_case_dir}/home"
+		OUT="${_case_dir}/out"
+		FACTS_JSON="${_case_dir}/facts.json"
+		DECIDE_CONFIG="${HOME}/.config/decide/config.json"
+		AGENTBUS_CONFIG="${HOME}/.config/agentbus/config.toml"
+		export HOME
+		export ANSIBLE_HOME="${_case_dir}/ansible"
+		export ANSIBLE_LOCAL_TEMP="${_case_dir}/ansible-local"
+		export ANSIBLE_REMOTE_TEMP="${_case_dir}/ansible-remote"
+		mkdir -p "$HOME"
+	else
+		rm -rf "${ROOT:?}/home" "${ROOT:?}/bin"
+		mkdir -p "${ROOT}/home" "${ROOT}/bin"
+	fi
 }
 
 # ======================== setup-hub-host.yml ========================
@@ -307,17 +338,23 @@ agent_home() {
 AGENT_LN='  ln -sf "$SSH_AUTH_SOCK" "$HOME/.ssh/agent.sock"'
 
 if want config; then
-	new_home
+	_cfg_pids=""
 
 	# Required variables: without hub_ssh_target the play stops early.
-	run_fails "$CLIENT_PLAYBOOK" --tags hub-config -e client_machine_label=laptop
-	expect_out "no hub_ssh_target" "hub_ssh_target"
+	(
+		new_home cfg_missing
+		run_fails "$CLIENT_PLAYBOOK" --tags hub-config -e client_machine_label=laptop
+		expect_out "no hub_ssh_target" "hub_ssh_target"
+	) &
+	_cfg_pids="$_cfg_pids $!"
 
-	mkdir -p "$(dirname "$DECIDE_CONFIG")" "$(dirname "$AGENTBUS_CONFIG")"
-	cat >"$DECIDE_CONFIG" <<'EOF'
+	(
+		new_home cfg_merge
+		mkdir -p "$(dirname "$DECIDE_CONFIG")" "$(dirname "$AGENTBUS_CONFIG")"
+		cat >"$DECIDE_CONFIG" <<'EOF'
 {"notifyTemplate": "herdr pane send {pane}", "hub": "old@hub.example", "openCommand": ["xdg-open"]}
 EOF
-	cat >"$AGENTBUS_CONFIG" <<'EOF'
+		cat >"$AGENTBUS_CONFIG" <<'EOF'
 # agentbus config
 machines = ["linux2"]
 remote_timeout = "2s"
@@ -326,43 +363,51 @@ remote_timeout = "2s"
 hub = "section value stays"
 EOF
 
-	# shellcheck disable=SC2086
-	run "$CLIENT_PLAYBOOK" --tags hub-config $HUB_ARGS
+		# shellcheck disable=SC2086
+		run "$CLIENT_PLAYBOOK" --tags hub-config $HUB_ARGS
 
-	_json=$(python3 -c '
+		_json=$(python3 -c '
 import json, sys
 d = json.load(open(sys.argv[1]))
 print(d.get("hub"), d.get("hubTimeout"), d.get("machine"), d.get("notifyTemplate"), d.get("openCommand"))
 ' "$DECIDE_CONFIG")
-	[ "$_json" = "me@hub.example 7s laptop herdr pane send {pane} ['xdg-open']" ] ||
-		fail "decide config: got ${_json}"
-	has_backup "$DECIDE_CONFIG" || fail "decide config: no backup"
+		[ "$_json" = "me@hub.example 7s laptop herdr pane send {pane} ['xdg-open']" ] ||
+			fail "decide config: got ${_json}"
+		has_backup "$DECIDE_CONFIG" || fail "decide config: no backup"
 
-	_section=$(grep -n '^\[extra\]' "$AGENTBUS_CONFIG" | cut -d: -f1)
-	[ -n "$_section" ] || fail "agentbus config: [extra] section lost"
-	for _kv in 'hub = "me@hub.example"' 'machine = "laptop"' 'remote_timeout = "7s"'; do
-		_line=$(grep -nxF -- "$_kv" "$AGENTBUS_CONFIG" | head -1 | cut -d: -f1)
-		[ -n "$_line" ] || {
-			cat "$AGENTBUS_CONFIG" >&2
-			fail "agentbus config: missing ${_kv}"
-		}
-		[ "$_line" -lt "$_section" ] || fail "agentbus config: ${_kv} is not above [extra]"
-	done
-	grep -qxF 'hub = "section value stays"' "$AGENTBUS_CONFIG" || fail "agentbus config: [extra] hub changed"
-	grep -qxF 'machines = ["linux2"]' "$AGENTBUS_CONFIG" || fail "agentbus config: machines lost"
-	[ "$(grep -c '^remote_timeout' "$AGENTBUS_CONFIG")" -eq 1 ] || fail "agentbus config: remote_timeout repeated"
-	has_backup "$AGENTBUS_CONFIG" || fail "agentbus config: no backup"
+		_section=$(grep -n '^\[extra\]' "$AGENTBUS_CONFIG" | cut -d: -f1)
+		[ -n "$_section" ] || fail "agentbus config: [extra] section lost"
+		for _kv in 'hub = "me@hub.example"' 'machine = "laptop"' 'remote_timeout = "7s"'; do
+			_line=$(grep -nxF -- "$_kv" "$AGENTBUS_CONFIG" | head -1 | cut -d: -f1)
+			[ -n "$_line" ] || {
+				cat "$AGENTBUS_CONFIG" >&2
+				fail "agentbus config: missing ${_kv}"
+			}
+			[ "$_line" -lt "$_section" ] || fail "agentbus config: ${_kv} is not above [extra]"
+		done
+		grep -qxF 'hub = "section value stays"' "$AGENTBUS_CONFIG" || fail "agentbus config: [extra] hub changed"
+		grep -qxF 'machines = ["linux2"]' "$AGENTBUS_CONFIG" || fail "agentbus config: machines lost"
+		[ "$(grep -c '^remote_timeout' "$AGENTBUS_CONFIG")" -eq 1 ] || fail "agentbus config: remote_timeout repeated"
+		has_backup "$AGENTBUS_CONFIG" || fail "agentbus config: no backup"
 
-	# shellcheck disable=SC2086
-	run "$CLIENT_PLAYBOOK" --tags hub-config $HUB_ARGS
-	expect_no_change "client config second run"
+		# shellcheck disable=SC2086
+		run "$CLIENT_PLAYBOOK" --tags hub-config $HUB_ARGS
+		expect_no_change "client config second run"
+	) &
+	_cfg_pids="$_cfg_pids $!"
 
 	# A config that does not exist yet is created.
-	rm -rf "${HOME:?}/.config"
-	# shellcheck disable=SC2086
-	run "$CLIENT_PLAYBOOK" --tags hub-config $HUB_ARGS
-	grep -q '"machine": "laptop"' "$DECIDE_CONFIG" || fail "decide config: not created"
-	grep -qxF 'hub = "me@hub.example"' "$AGENTBUS_CONFIG" || fail "agentbus config: not created"
+	(
+		new_home cfg_fresh
+		# shellcheck disable=SC2086
+		run "$CLIENT_PLAYBOOK" --tags hub-config $HUB_ARGS
+		grep -q '"machine": "laptop"' "$DECIDE_CONFIG" || fail "decide config: not created"
+		grep -qxF 'hub = "me@hub.example"' "$AGENTBUS_CONFIG" || fail "agentbus config: not created"
+	) &
+	_cfg_pids="$_cfg_pids $!"
+
+	# shellcheck disable=SC2086  # _cfg_pids is space-separated integer PIDs.
+	ansible_test_wait_pids $_cfg_pids || exit 1
 fi
 
 if want check; then
@@ -495,21 +540,43 @@ fi
 # The Apple keychain line is only for Darwin with UseKeychain yes, and
 # only when the rc does not already have it.
 if want keychain-darwin; then
-	agent_home
-	printf '%s\n' 'Host *' '  UseKeychain yes' >"${HOME}/.ssh/config"
-	# shellcheck disable=SC2086
-	run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent -e ansible_system=Darwin $HUB_ARGS
-	grep -qF 'ssh-add --apple-load-keychain -q 2>/dev/null || true' "${HOME}/.zprofile" || fail "darwin: keychain line missing"
-	[ "$(grep -c 'ssh-add --apple-load-keychain' "${HOME}/.zprofile")" -eq 1 ] || fail "darwin: keychain line repeated"
-	# shellcheck disable=SC2086
-	run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent -e ansible_system=Darwin $HUB_ARGS
-	expect_no_change "darwin keychain second run"
-	[ "$(grep -c 'ssh-add --apple-load-keychain' "${HOME}/.zprofile")" -eq 1 ] || fail "darwin: keychain line repeated on second run"
+	_kd_pids=""
+	(
+		new_home kd_fresh
+		agentbus_config
+		mkdir -p "${HOME}/.ssh" "${HOME}/Library/LaunchAgents"
+		printf '%s\n' 'Host sentinel' >"${HOME}/.ssh/config"
+		printf '%s\n' 'agent-start' >"${HOME}/.zprofile"
+		printf '%s\n' 'not-this' >"${HOME}/.bash_profile"
+		: >"${HOME}/Library/LaunchAgents/com.agentbus.tunnel.plist"
+		printf '%s\n' 'Host *' '  UseKeychain yes' >"${HOME}/.ssh/config"
+		# shellcheck disable=SC2086
+		run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent -e ansible_system=Darwin $HUB_ARGS
+		grep -qF 'ssh-add --apple-load-keychain -q 2>/dev/null || true' "${HOME}/.zprofile" || fail "darwin: keychain line missing"
+		[ "$(grep -c 'ssh-add --apple-load-keychain' "${HOME}/.zprofile")" -eq 1 ] || fail "darwin: keychain line repeated"
+		# shellcheck disable=SC2086
+		run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent -e ansible_system=Darwin $HUB_ARGS
+		expect_no_change "darwin keychain second run"
+		[ "$(grep -c 'ssh-add --apple-load-keychain' "${HOME}/.zprofile")" -eq 1 ] || fail "darwin: keychain line repeated on second run"
+	) &
+	_kd_pids="$_kd_pids $!"
 
-	printf '%s\n' 'agent-start' 'ssh-add --apple-load-keychain -q 2>/dev/null || true' >"${HOME}/.zprofile"
-	# shellcheck disable=SC2086
-	run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent -e ansible_system=Darwin $HUB_ARGS
-	[ "$(grep -c 'ssh-add --apple-load-keychain' "${HOME}/.zprofile")" -eq 1 ] || fail "darwin: existing keychain line was copied"
+	(
+		new_home kd_existing
+		agentbus_config
+		mkdir -p "${HOME}/.ssh" "${HOME}/Library/LaunchAgents"
+		printf '%s\n' 'Host *' '  UseKeychain yes' >"${HOME}/.ssh/config"
+		printf '%s\n' 'not-this' >"${HOME}/.bash_profile"
+		: >"${HOME}/Library/LaunchAgents/com.agentbus.tunnel.plist"
+		printf '%s\n' 'agent-start' 'ssh-add --apple-load-keychain -q 2>/dev/null || true' >"${HOME}/.zprofile"
+		# shellcheck disable=SC2086
+		run "$CLIENT_PLAYBOOK" --tags hub-ssh-agent -e ansible_system=Darwin $HUB_ARGS
+		[ "$(grep -c 'ssh-add --apple-load-keychain' "${HOME}/.zprofile")" -eq 1 ] || fail "darwin: existing keychain line was copied"
+	) &
+	_kd_pids="$_kd_pids $!"
+
+	# shellcheck disable=SC2086  # _kd_pids is space-separated integer PIDs.
+	ansible_test_wait_pids $_kd_pids || exit 1
 fi
 
 if want keychain-linux; then

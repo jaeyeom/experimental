@@ -51,6 +51,10 @@ if ! command -v ansible-playbook >/dev/null 2>&1; then
 fi
 ANSIBLE_BIN_DIR=$(dirname "$(command -v ansible-playbook)")
 
+# shellcheck disable=SC1091  # Sourced from the same directory as this script.
+. "${SCRIPT_DIR}/ansible_test_env.sh"
+ansible_test_init_env 0
+
 REAL_HOME=${HOME:-}
 REAL_SETTINGS=""
 REAL_SUM=""
@@ -64,9 +68,6 @@ fi
 ROOT=$(mktemp -d)
 trap 'rm -rf "$ROOT"' EXIT
 
-export ANSIBLE_NOCOLOR=1
-export ANSIBLE_STDOUT_CALLBACK=default
-export ANSIBLE_RETRY_FILES_ENABLED=0
 export ANSIBLE_LOCAL_TEMP="${ROOT}/ansible-local"
 export ANSIBLE_REMOTE_TEMP="${ROOT}/ansible-remote"
 export PATH="${ANSIBLE_BIN_DIR}:/usr/bin:/bin"
@@ -74,6 +75,7 @@ export PATH="${ANSIBLE_BIN_DIR}:/usr/bin:/bin"
 unset HERDR_SOCKET_PATH XDG_RUNTIME_DIR
 
 OUT="${ROOT}/out"
+FACTS_JSON="${ROOT}/facts.json"
 
 # The scenarios to run are the arguments. With none, all of them run.
 # BUILD.bazel has one target per scenario, so editing a playbook reruns
@@ -155,7 +157,8 @@ print("\n".join(out))
 # run uses HOME for ~/.claude/settings.json. Extra ansible-playbook
 # arguments, such as -e claude_sandbox_os=Linux, come first.
 run() {
-	if ! ansible-playbook -i "$INVENTORY" --tags claude-sandbox-settings "$@" "$PLAYBOOK" >"$OUT" 2>&1; then
+	ansible_test_write_facts "$FACTS_JSON"
+	if ! ansible-playbook -i "$INVENTORY" --tags claude-sandbox-settings -e "@${FACTS_JSON}" "$@" "$PLAYBOOK" >"$OUT" 2>&1; then
 		cat "$OUT" >&2
 		fail "ansible-playbook failed"
 	fi

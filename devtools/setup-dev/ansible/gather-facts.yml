@@ -2,5 +2,5 @@
 # Minimal playbook to gather facts before conditional imports
 - name: Gather facts
   hosts: all
-  gather_facts: true
+  gather_facts: "{{ not (ansible_facts_preloaded | default(false) | bool) }}"
   tasks: []

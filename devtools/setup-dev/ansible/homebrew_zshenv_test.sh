@@ -27,6 +27,10 @@ if ! command -v ansible-playbook >/dev/null 2>&1; then
 fi
 ANSIBLE_BIN_DIR=$(dirname "$(command -v ansible-playbook)")
 
+# shellcheck disable=SC1091  # Sourced from the same directory as this script.
+. "${SCRIPT_DIR}/ansible_test_env.sh"
+ansible_test_init_env 0
+
 REAL_HOME=${HOME:-}
 REAL_ZSHENV=""
 REAL_SUM=""
@@ -40,11 +44,6 @@ fi
 ROOT=$(mktemp -d)
 trap 'rm -rf "$ROOT"' EXIT
 
-export ANSIBLE_NOCOLOR=1
-export ANSIBLE_STDOUT_CALLBACK=default
-export ANSIBLE_RETRY_FILES_ENABLED=0
-export ANSIBLE_LOCAL_TEMP="${ROOT}/ansible-local"
-export ANSIBLE_REMOTE_TEMP="${ROOT}/ansible-remote"
 export PATH="${ANSIBLE_BIN_DIR}:/usr/bin:/bin"
 
 OUT="${ROOT}/out"
@@ -59,16 +58,24 @@ fake_brew() {
 	chmod +x "$1"
 }
 
-# use_home NAME switches HOME to a fresh temp directory.
+# use_home NAME switches HOME and per-worker Ansible temp/output paths to a
+# fresh directory so scenarios can run concurrently.
 use_home() {
-	HOME="${ROOT}/$1"
+	_case_dir="${ROOT}/$1"
+	HOME="${_case_dir}/home"
+	OUT="${_case_dir}/out"
+	FACTS_JSON="${_case_dir}/facts.json"
 	export HOME
+	export ANSIBLE_HOME="${_case_dir}/ansible"
+	export ANSIBLE_LOCAL_TEMP="${_case_dir}/ansible-local"
+	export ANSIBLE_REMOTE_TEMP="${_case_dir}/ansible-remote"
 	mkdir -p "$HOME"
 }
 
 # run EXTRA... runs the tagged playbook.
 run() {
-	if ! ansible-playbook -i "$INVENTORY" --tags homebrew-zshenv "$@" "$PLAYBOOK" >"$OUT" 2>&1; then
+	ansible_test_write_facts "$FACTS_JSON"
+	if ! ansible-playbook -i "$INVENTORY" --tags homebrew-zshenv -e "@${FACTS_JSON}" "$@" "$PLAYBOOK" >"$OUT" 2>&1; then
 		cat "$OUT" >&2
 		fail "ansible-playbook failed"
 	fi
@@ -100,59 +107,82 @@ expect_prefix() {
 		[ "$(path_count "$_bin" "$_path")" -eq 1 ] || fail "zshenv: PATH duplicated ${_bin}: ${_path}"
 		[ "$(path_count "$_sbin" "$_path")" -eq 1 ] || fail "zshenv: PATH duplicated ${_sbin}: ${_path}"
 	fi
-	cp "$_file" "${ROOT}/zshenv.first"
+	cp "$_file" "${_case_dir}/zshenv.first"
 	run "$@"
 	if ! grep -q 'changed=0 ' "$OUT"; then
 		cat "$OUT" >&2
 		fail "second run changed something"
 	fi
-	cmp -s "$_file" "${ROOT}/zshenv.first" || fail "second run rewrote ~/.zshenv"
+	cmp -s "$_file" "${_case_dir}/zshenv.first" || fail "second run rewrote ~/.zshenv"
 	[ "$(grep -c 'BEGIN setup-dev Homebrew PATH' "$_file")" -eq 1 ] || fail "block repeated"
 }
 
-# Apple Silicon wins when both brews exist.
-use_home opt
 OPT="${ROOT}/prefixes/opt"
 USR="${ROOT}/prefixes/usr"
 fake_brew "${OPT}/bin/brew"
 fake_brew "${USR}/bin/brew"
-printf '%s\n' '# keep me' >"${HOME}/.zshenv"
-run -e homebrew_env_os=Darwin -e "homebrew_opt_brew=${OPT}/bin/brew" -e "homebrew_usr_brew=${USR}/bin/brew"
-grep -q 'keep me' "${HOME}/.zshenv" || fail "opt: existing zshenv text dropped"
-grep -q "${USR}/bin" "${HOME}/.zshenv" && fail "opt: Intel prefix was written"
-expect_prefix "${OPT}/bin" "${OPT}/sbin" -e homebrew_env_os=Darwin -e "homebrew_opt_brew=${OPT}/bin/brew" -e "homebrew_usr_brew=${USR}/bin/brew"
+
+PIDS=""
+
+# Apple Silicon wins when both brews exist.
+(
+	use_home opt
+	printf '%s\n' '# keep me' >"${HOME}/.zshenv"
+	run -e homebrew_env_os=Darwin -e "homebrew_opt_brew=${OPT}/bin/brew" -e "homebrew_usr_brew=${USR}/bin/brew"
+	grep -q 'keep me' "${HOME}/.zshenv" || fail "opt: existing zshenv text dropped"
+	grep -q "${USR}/bin" "${HOME}/.zshenv" && fail "opt: Intel prefix was written"
+	expect_prefix "${OPT}/bin" "${OPT}/sbin" -e homebrew_env_os=Darwin -e "homebrew_opt_brew=${OPT}/bin/brew" -e "homebrew_usr_brew=${USR}/bin/brew"
+) &
+PIDS="$PIDS $!"
 
 # Intel when the Apple Silicon brew is absent.
-use_home intel
-fake_brew "${USR}/bin/brew"
-run -e homebrew_env_os=Darwin -e "homebrew_opt_brew=${OPT}/missing/bin/brew" -e "homebrew_usr_brew=${USR}/bin/brew"
-grep -q "${OPT}/" "${HOME}/.zshenv" && fail "intel: Apple Silicon prefix was written"
-expect_prefix "${USR}/bin" "${USR}/sbin" -e homebrew_env_os=Darwin -e "homebrew_opt_brew=${OPT}/missing/bin/brew" -e "homebrew_usr_brew=${USR}/bin/brew"
+(
+	use_home intel
+	run -e homebrew_env_os=Darwin -e "homebrew_opt_brew=${OPT}/missing/bin/brew" -e "homebrew_usr_brew=${USR}/bin/brew"
+	grep -q "${OPT}/" "${HOME}/.zshenv" && fail "intel: Apple Silicon prefix was written"
+	expect_prefix "${USR}/bin" "${USR}/sbin" -e homebrew_env_os=Darwin -e "homebrew_opt_brew=${OPT}/missing/bin/brew" -e "homebrew_usr_brew=${USR}/bin/brew"
+) &
+PIDS="$PIDS $!"
 
 # Neither brew: do not create ~/.zshenv.
-use_home none
-run -e homebrew_env_os=Darwin -e "homebrew_opt_brew=${OPT}/missing/bin/brew" -e "homebrew_usr_brew=${USR}/missing/bin/brew"
-[ ! -e "${HOME}/.zshenv" ] || fail "neither: ~/.zshenv was created"
+(
+	use_home none
+	run -e homebrew_env_os=Darwin -e "homebrew_opt_brew=${OPT}/missing/bin/brew" -e "homebrew_usr_brew=${USR}/missing/bin/brew"
+	[ ! -e "${HOME}/.zshenv" ] || fail "neither: ~/.zshenv was created"
+) &
+PIDS="$PIDS $!"
 
 # Non-Darwin does not edit an existing ~/.zshenv.
-use_home linux
-printf '%s\n' '# leave me' >"${HOME}/.zshenv"
-cp "${HOME}/.zshenv" "${ROOT}/linux.before"
-run -e homebrew_env_os=Debian -e "homebrew_opt_brew=${OPT}/bin/brew" -e "homebrew_usr_brew=${USR}/bin/brew"
-cmp -s "${HOME}/.zshenv" "${ROOT}/linux.before" || fail "linux: ~/.zshenv changed"
+(
+	use_home linux
+	printf '%s\n' '# leave me' >"${HOME}/.zshenv"
+	cp "${HOME}/.zshenv" "${_case_dir}/linux.before"
+	run -e homebrew_env_os=Debian -e "homebrew_opt_brew=${OPT}/bin/brew" -e "homebrew_usr_brew=${USR}/bin/brew"
+	cmp -s "${HOME}/.zshenv" "${_case_dir}/linux.before" || fail "linux: ~/.zshenv changed"
+) &
+PIDS="$PIDS $!"
 
 # The default paths, on a Mac that has Homebrew.
 if [ "$(uname -s)" = "Darwin" ]; then
 	if [ -x /opt/homebrew/bin/brew ]; then
-		use_home real
-		run -e homebrew_env_os=Darwin
-		expect_prefix /opt/homebrew/bin /opt/homebrew/sbin -e homebrew_env_os=Darwin
+		(
+			use_home real
+			run -e homebrew_env_os=Darwin
+			expect_prefix /opt/homebrew/bin /opt/homebrew/sbin -e homebrew_env_os=Darwin
+		) &
+		PIDS="$PIDS $!"
 	elif [ -x /usr/local/bin/brew ]; then
-		use_home real
-		run -e homebrew_env_os=Darwin
-		expect_prefix /usr/local/bin /usr/local/sbin -e homebrew_env_os=Darwin
+		(
+			use_home real
+			run -e homebrew_env_os=Darwin
+			expect_prefix /usr/local/bin /usr/local/sbin -e homebrew_env_os=Darwin
+		) &
+		PIDS="$PIDS $!"
 	fi
 fi
+
+# shellcheck disable=SC2086  # PIDS is space-separated integer PIDs.
+ansible_test_wait_pids $PIDS || exit 1
 
 if [ -n "$REAL_SUM" ] && [ "$(cksum "$REAL_ZSHENV")" != "$REAL_SUM" ]; then
 	fail "real ~/.zshenv changed"

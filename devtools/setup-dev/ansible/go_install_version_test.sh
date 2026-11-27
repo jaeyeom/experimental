@@ -12,8 +12,12 @@ fail() {
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 COMPARATOR="${SCRIPT_DIR}/go_version_compare.py"
 
+# shellcheck disable=SC1091  # Sourced from the same directory as this script.
+. "${SCRIPT_DIR}/ansible_test_env.sh"
+ansible_test_init_env 0
+
 # --- Part 1: Unit tests for go_version_compare.py ---
-python3 - "$COMPARATOR" <<'PY'
+"$ANSIBLE_TEST_PYTHON" - "$COMPARATOR" <<'PY'
 import json
 import subprocess
 import sys
@@ -21,7 +25,7 @@ import sys
 comp = sys.argv[1]
 
 def check(installed, target, installed_go="", toolchain_go="", want_action=None, want_substr=""):
-    args = ["python3", comp, installed, target, installed_go, toolchain_go]
+    args = [sys.executable, comp, installed, target, installed_go, toolchain_go]
     out = subprocess.check_output(args, text=True)
     data = json.loads(out)
     if data["action"] != want_action:
@@ -167,15 +171,7 @@ ROOT=$(mktemp -d)
 trap 'rm -rf "$ROOT"' EXIT
 export TMPDIR="$ROOT"
 
-HOME="${ROOT}/home"
-GOPATH_DIR="${ROOT}/gopath"
-mkdir -p "$HOME" "${ROOT}/bin" "${GOPATH_DIR}/bin"
-export HOME GOPATH_DIR
-unset XDG_CONFIG_HOME GOPATH
-
-GO_LOG="${ROOT}/go.log"
-OUT="${ROOT}/out"
-export GO_LOG
+mkdir -p "${ROOT}/bin"
 
 cat >"${ROOT}/bin/go" <<'EOF'
 #!/bin/sh
@@ -230,15 +226,6 @@ exit 0
 EOF
 chmod +x "${ROOT}/bin/launchctl"
 
-# Fake decide binary on PATH so `command -v decide` succeeds when installed.
-install_fake_decide() {
-	cat >"${GOPATH_DIR}/bin/decide" <<'EOF'
-#!/bin/sh
-exit 0
-EOF
-	chmod +x "${GOPATH_DIR}/bin/decide"
-}
-
 PATH="${ROOT}/bin:${ANSIBLE_BIN_DIR}:/usr/bin:/bin"
 export PATH
 if [ -e "${ANSIBLE_BIN_DIR}/decide" ]; then
@@ -246,18 +233,37 @@ if [ -e "${ANSIBLE_BIN_DIR}/decide" ]; then
 	exit 0
 fi
 
-export ANSIBLE_NOCOLOR=1
-export ANSIBLE_STDOUT_CALLBACK=default
-export ANSIBLE_DISPLAY_SKIPPED_HOSTS=1
-export ANSIBLE_RETRY_FILES_ENABLED=0
-export ANSIBLE_LOCAL_TEMP="${ROOT}/ansible-local"
-export ANSIBLE_REMOTE_TEMP="${ROOT}/ansible-remote"
-
 INVENTORY="${SCRIPT_DIR}/inventory.ini"
+
+setup_case() {
+	_case_dir="${ROOT}/cases/$1"
+	HOME="${_case_dir}/home"
+	GOPATH_DIR="${_case_dir}/gopath"
+	GO_LOG="${_case_dir}/go.log"
+	OUT="${_case_dir}/out"
+	FACTS_JSON="${_case_dir}/facts.json"
+	mkdir -p "$HOME" "${GOPATH_DIR}/bin"
+	: >"$GO_LOG"
+	export HOME GOPATH_DIR GO_LOG
+	unset XDG_CONFIG_HOME GOPATH
+	export ANSIBLE_HOME="${_case_dir}/ansible"
+	export ANSIBLE_LOCAL_TEMP="${_case_dir}/ansible-local"
+	export ANSIBLE_REMOTE_TEMP="${_case_dir}/ansible-remote"
+}
+
+install_fake_bin() {
+	cat >"${GOPATH_DIR}/bin/$1" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+	chmod +x "${GOPATH_DIR}/bin/$1"
+}
 
 run_pb() {
 	: >"$GO_LOG"
+	ansible_test_write_facts "$FACTS_JSON"
 	if ! ansible-playbook -i "$INVENTORY" \
+		-e "@${FACTS_JSON}" \
 		-e go_playbook_imported=true \
 		-e shell_profile_detection_playbook_imported=true \
 		-e "user_profile_path=${HOME}/.profile" \
@@ -271,191 +277,214 @@ run_pb() {
 	fi
 }
 
+PIDS=""
+
 # Scenario 1: decide.yml skips downgrade when installed main pseudo-version is
 # newer than resolved target (even if built with an older Go toolchain).
-install_fake_decide
-FAKE_INSTALLED_VER="v0.1.1-0.20261125230000-abcdef123456" \
-FAKE_INSTALLED_GO="go1.26.0" \
-FAKE_TOOLCHAIN_GO="go1.27.4" \
-FAKE_MAIN_VER="v0.1.0" \
-	run_pb "${SCRIPT_DIR}/decide.yml"
-grep -qE 'go list -m -f \{\{\.Version ?\}\} github\.com/jaeyeom/experimental@main$' "$GO_LOG" || {
-	cat "$GO_LOG" >&2
-	fail "decide.yml did not resolve @main"
-}
-if grep -q '^INSTALL ' "$GO_LOG"; then
-	cat "$GO_LOG" >&2
-	fail "decide.yml downgraded newer pseudo-version to older target"
-fi
-grep -qF 'Skipping decide: installed version v0.1.1-0.20261125230000-abcdef123456 is newer than target v0.1.0' "$OUT" || {
-	cat "$OUT" >&2
-	fail "decide.yml did not print skip message on older target"
-}
-
-# Scenario 2: decide.yml upgrades when target @main is a newer pseudo-version.
-FAKE_INSTALLED_VER="v0.1.0" \
-FAKE_INSTALLED_GO="go1.27.4" \
-FAKE_TOOLCHAIN_GO="go1.27.4" \
-FAKE_MAIN_VER="v0.1.1-0.20261125230000-abcdef123456" \
-	run_pb "${SCRIPT_DIR}/decide.yml"
-grep -qxF 'INSTALL github.com/jaeyeom/experimental/devtools/decide/cmd/decide@main' "$GO_LOG" || {
-	cat "$GO_LOG" >&2
-	fail "decide.yml did not install @main when target was newer"
-}
-
-# Scenario 3: experimental_ref pins both go list -m and go install to one ref.
-FAKE_INSTALLED_VER="v0.1.0" \
-FAKE_INSTALLED_GO="go1.27.4" \
-FAKE_TOOLCHAIN_GO="go1.27.4" \
-FAKE_PINNED_VER="v0.1.1-0.20261125120000-deadbeef1234" \
-	run_pb -e experimental_ref=deadbeef1234 "${SCRIPT_DIR}/decide.yml"
-grep -qE 'go list -m -f \{\{\.Version ?\}\} github\.com/jaeyeom/experimental@deadbeef1234$' "$GO_LOG" || {
-	cat "$GO_LOG" >&2
-	fail "decide.yml did not pass experimental_ref to go list"
-}
-grep -qxF 'INSTALL github.com/jaeyeom/experimental/devtools/decide/cmd/decide@deadbeef1234' "$GO_LOG" || {
-	cat "$GO_LOG" >&2
-	fail "decide.yml did not pass experimental_ref to go install"
-}
-
-# Scenario 4: experimental_ref can be set in ~/.config/setup-dev/vars.yml.
-mkdir -p "${HOME}/.config/setup-dev"
-printf 'experimental_ref: deadbeef1234\n' >"${HOME}/.config/setup-dev/vars.yml"
-FAKE_INSTALLED_VER="v0.1.0" \
-FAKE_INSTALLED_GO="go1.27.4" \
-FAKE_TOOLCHAIN_GO="go1.27.4" \
-FAKE_PINNED_VER="v0.1.1-0.20261125120000-deadbeef1234" \
-	run_pb "${SCRIPT_DIR}/decide.yml"
-grep -qxF 'INSTALL github.com/jaeyeom/experimental/devtools/decide/cmd/decide@deadbeef1234' "$GO_LOG" || {
-	cat "$GO_LOG" >&2
-	fail "decide.yml did not read experimental_ref from vars.yml"
-}
-rm -f "${HOME}/.config/setup-dev/vars.yml"
-
-# Scenario 5: Third-party tool (gopls.yml) keeps using @latest.
-cat >"${GOPATH_DIR}/bin/gopls" <<'EOF'
-#!/bin/sh
-exit 0
-EOF
-chmod +x "${GOPATH_DIR}/bin/gopls"
-if [ ! -e "${ANSIBLE_BIN_DIR}/gopls" ]; then
-	FAKE_MOD_PATH="golang.org/x/tools/gopls" \
-	FAKE_MOD_ROOT="golang.org/x/tools/gopls" \
-	FAKE_INSTALLED_VER="v0.16.0" \
-	FAKE_INSTALLED_GO="go1.27.4" \
-	FAKE_TOOLCHAIN_GO="go1.27.4" \
-	FAKE_LATEST_VER="v0.17.0" \
-		run_pb "${SCRIPT_DIR}/gopls.yml"
-	grep -qE 'go list -m -f \{\{\.Version ?\}\} golang\.org/x/tools/gopls@latest$' "$GO_LOG" || {
-		cat "$GO_LOG" >&2
-		fail "gopls.yml did not use @latest for go list"
-	}
-	grep -qxF 'INSTALL golang.org/x/tools/gopls@latest' "$GO_LOG" || {
-		cat "$GO_LOG" >&2
-		fail "gopls.yml did not use @latest for go install"
-	}
-fi
-
-# Scenario 6: diskwatch.yml uses @main and refuses to downgrade.
-cat >"${GOPATH_DIR}/bin/diskwatch" <<'EOF'
-#!/bin/sh
-exit 0
-EOF
-chmod +x "${GOPATH_DIR}/bin/diskwatch"
-if [ ! -e "${ANSIBLE_BIN_DIR}/diskwatch" ]; then
-	FAKE_MOD_PATH="github.com/jaeyeom/experimental/devtools/diskwatch/cmd/diskwatch" \
-	FAKE_MOD_ROOT="github.com/jaeyeom/experimental" \
+(
+	setup_case s1
+	install_fake_bin decide
 	FAKE_INSTALLED_VER="v0.1.1-0.20261125230000-abcdef123456" \
-	FAKE_INSTALLED_GO="go1.27.4" \
+	FAKE_INSTALLED_GO="go1.26.0" \
 	FAKE_TOOLCHAIN_GO="go1.27.4" \
 	FAKE_MAIN_VER="v0.1.0" \
-		run_pb "${SCRIPT_DIR}/diskwatch.yml"
+		run_pb "${SCRIPT_DIR}/decide.yml"
 	grep -qE 'go list -m -f \{\{\.Version ?\}\} github\.com/jaeyeom/experimental@main$' "$GO_LOG" || {
 		cat "$GO_LOG" >&2
-		fail "diskwatch.yml did not resolve @main"
+		fail "decide.yml did not resolve @main"
 	}
 	if grep -q '^INSTALL ' "$GO_LOG"; then
 		cat "$GO_LOG" >&2
-		fail "diskwatch.yml downgraded newer pseudo-version"
+		fail "decide.yml downgraded newer pseudo-version to older target"
 	fi
-	grep -qF 'Skipping diskwatch:' "$OUT" || {
+	grep -qF 'Skipping decide: installed version v0.1.1-0.20261125230000-abcdef123456 is newer than target v0.1.0' "$OUT" || {
 		cat "$OUT" >&2
-		fail "diskwatch.yml did not print skip message"
+		fail "decide.yml did not print skip message on older target"
 	}
+) &
+PIDS="$PIDS $!"
+
+# Scenario 2: decide.yml upgrades when target @main is a newer pseudo-version.
+(
+	setup_case s2
+	install_fake_bin decide
+	FAKE_INSTALLED_VER="v0.1.0" \
+	FAKE_INSTALLED_GO="go1.27.4" \
+	FAKE_TOOLCHAIN_GO="go1.27.4" \
+	FAKE_MAIN_VER="v0.1.1-0.20261125230000-abcdef123456" \
+		run_pb "${SCRIPT_DIR}/decide.yml"
+	grep -qxF 'INSTALL github.com/jaeyeom/experimental/devtools/decide/cmd/decide@main' "$GO_LOG" || {
+		cat "$GO_LOG" >&2
+		fail "decide.yml did not install @main when target was newer"
+	}
+) &
+PIDS="$PIDS $!"
+
+# Scenario 3: experimental_ref pins both go list -m and go install to one ref.
+(
+	setup_case s3
+	install_fake_bin decide
+	FAKE_INSTALLED_VER="v0.1.0" \
+	FAKE_INSTALLED_GO="go1.27.4" \
+	FAKE_TOOLCHAIN_GO="go1.27.4" \
+	FAKE_PINNED_VER="v0.1.1-0.20261125120000-deadbeef1234" \
+		run_pb -e experimental_ref=deadbeef1234 "${SCRIPT_DIR}/decide.yml"
+	grep -qE 'go list -m -f \{\{\.Version ?\}\} github\.com/jaeyeom/experimental@deadbeef1234$' "$GO_LOG" || {
+		cat "$GO_LOG" >&2
+		fail "decide.yml did not pass experimental_ref to go list"
+	}
+	grep -qxF 'INSTALL github.com/jaeyeom/experimental/devtools/decide/cmd/decide@deadbeef1234' "$GO_LOG" || {
+		cat "$GO_LOG" >&2
+		fail "decide.yml did not pass experimental_ref to go install"
+	}
+) &
+PIDS="$PIDS $!"
+
+# Scenario 4: experimental_ref can be set in ~/.config/setup-dev/vars.yml.
+(
+	setup_case s4
+	install_fake_bin decide
+	mkdir -p "${HOME}/.config/setup-dev"
+	printf 'experimental_ref: deadbeef1234\n' >"${HOME}/.config/setup-dev/vars.yml"
+	FAKE_INSTALLED_VER="v0.1.0" \
+	FAKE_INSTALLED_GO="go1.27.4" \
+	FAKE_TOOLCHAIN_GO="go1.27.4" \
+	FAKE_PINNED_VER="v0.1.1-0.20261125120000-deadbeef1234" \
+		run_pb "${SCRIPT_DIR}/decide.yml"
+	grep -qxF 'INSTALL github.com/jaeyeom/experimental/devtools/decide/cmd/decide@deadbeef1234' "$GO_LOG" || {
+		cat "$GO_LOG" >&2
+		fail "decide.yml did not read experimental_ref from vars.yml"
+	}
+) &
+PIDS="$PIDS $!"
+
+# Scenario 5: Third-party tool (gopls.yml) keeps using @latest.
+if [ ! -e "${ANSIBLE_BIN_DIR}/gopls" ]; then
+	(
+		setup_case s5
+		install_fake_bin gopls
+		FAKE_MOD_PATH="golang.org/x/tools/gopls" \
+		FAKE_MOD_ROOT="golang.org/x/tools/gopls" \
+		FAKE_INSTALLED_VER="v0.16.0" \
+		FAKE_INSTALLED_GO="go1.27.4" \
+		FAKE_TOOLCHAIN_GO="go1.27.4" \
+		FAKE_LATEST_VER="v0.17.0" \
+			run_pb "${SCRIPT_DIR}/gopls.yml"
+		grep -qE 'go list -m -f \{\{\.Version ?\}\} golang\.org/x/tools/gopls@latest$' "$GO_LOG" || {
+			cat "$GO_LOG" >&2
+			fail "gopls.yml did not use @latest for go list"
+		}
+		grep -qxF 'INSTALL golang.org/x/tools/gopls@latest' "$GO_LOG" || {
+			cat "$GO_LOG" >&2
+			fail "gopls.yml did not use @latest for go install"
+		}
+	) &
+	PIDS="$PIDS $!"
+fi
+
+# Scenario 6: diskwatch.yml uses @main and refuses to downgrade.
+if [ ! -e "${ANSIBLE_BIN_DIR}/diskwatch" ]; then
+	(
+		setup_case s6
+		install_fake_bin diskwatch
+		FAKE_MOD_PATH="github.com/jaeyeom/experimental/devtools/diskwatch/cmd/diskwatch" \
+		FAKE_MOD_ROOT="github.com/jaeyeom/experimental" \
+		FAKE_INSTALLED_VER="v0.1.1-0.20261125230000-abcdef123456" \
+		FAKE_INSTALLED_GO="go1.27.4" \
+		FAKE_TOOLCHAIN_GO="go1.27.4" \
+		FAKE_MAIN_VER="v0.1.0" \
+			run_pb "${SCRIPT_DIR}/diskwatch.yml"
+		grep -qE 'go list -m -f \{\{\.Version ?\}\} github\.com/jaeyeom/experimental@main$' "$GO_LOG" || {
+			cat "$GO_LOG" >&2
+			fail "diskwatch.yml did not resolve @main"
+		}
+		if grep -q '^INSTALL ' "$GO_LOG"; then
+			cat "$GO_LOG" >&2
+			fail "diskwatch.yml downgraded newer pseudo-version"
+		fi
+		grep -qF 'Skipping diskwatch:' "$OUT" || {
+			cat "$OUT" >&2
+			fail "diskwatch.yml did not print skip message"
+		}
+	) &
+	PIDS="$PIDS $!"
 fi
 
 # Scenario 7: setup-hub-client.yml (--tags hub-install) uses main by default and
 # refuses to downgrade.
-cat >"${GOPATH_DIR}/bin/agentbus" <<'EOF'
-#!/bin/sh
-exit 0
-EOF
-chmod +x "${GOPATH_DIR}/bin/agentbus"
-FAKE_INSTALLED_VER="v0.1.1-0.20261125230000-abcdef123456" \
-FAKE_MAIN_VER="v0.1.0" \
-	run_pb --tags hub-install -e hub_ssh_target=me@hub.example -e client_machine_label=laptop "${SCRIPT_DIR}/setup-hub-client.yml"
-grep -qE 'go list -m -f \{\{\.Version ?\}\} github\.com/jaeyeom/experimental@main$' "$GO_LOG" || {
-	cat "$GO_LOG" >&2
-	fail "setup-hub-client.yml did not resolve @main"
-}
-if grep -q '^INSTALL ' "$GO_LOG"; then
-	cat "$GO_LOG" >&2
-	fail "setup-hub-client.yml downgraded newer pseudo-version"
-fi
-grep -qF 'Skipping agentbus:' "$OUT" || {
-	cat "$OUT" >&2
-	fail "setup-hub-client.yml did not print skip message for agentbus"
-}
+(
+	setup_case s7
+	install_fake_bin agentbus
+	FAKE_INSTALLED_VER="v0.1.1-0.20261125230000-abcdef123456" \
+	FAKE_MAIN_VER="v0.1.0" \
+		run_pb --tags hub-install -e hub_ssh_target=me@hub.example -e client_machine_label=laptop "${SCRIPT_DIR}/setup-hub-client.yml"
+	grep -qE 'go list -m -f \{\{\.Version ?\}\} github\.com/jaeyeom/experimental@main$' "$GO_LOG" || {
+		cat "$GO_LOG" >&2
+		fail "setup-hub-client.yml did not resolve @main"
+	}
+	if grep -q '^INSTALL ' "$GO_LOG"; then
+		cat "$GO_LOG" >&2
+		fail "setup-hub-client.yml downgraded newer pseudo-version"
+	fi
+	grep -qF 'Skipping agentbus:' "$OUT" || {
+		cat "$OUT" >&2
+		fail "setup-hub-client.yml did not print skip message for agentbus"
+	}
+) &
+PIDS="$PIDS $!"
 
 # Scenario 8: factory.yml migrates an existing factory binary installed from
 # github.com/jaeyeom/agentic-factory to github.com/jaeyeom/experimental without
 # querying the stale module path.
-cat >"${GOPATH_DIR}/bin/factory" <<'EOF'
-#!/bin/sh
-exit 0
-EOF
-chmod +x "${GOPATH_DIR}/bin/factory"
 if [ ! -e "${ANSIBLE_BIN_DIR}/factory" ]; then
-	FAKE_MOD_PATH="github.com/jaeyeom/agentic-factory/cmd/factory" \
-	FAKE_MOD_ROOT="github.com/jaeyeom/agentic-factory" \
-	FAKE_INSTALLED_VER="v9.9.9" \
-	FAKE_INSTALLED_GO="go1.27.4" \
-	FAKE_TOOLCHAIN_GO="go1.27.4" \
-	FAKE_MAIN_VER="v0.1.0" \
-		run_pb -e gh_playbook_imported=true -e herdr_playbook_imported=true "${SCRIPT_DIR}/factory.yml"
-	if grep -q 'github\.com/jaeyeom/agentic-factory@' "$GO_LOG"; then
-		cat "$GO_LOG" >&2
-		fail "factory.yml queried stale agentic-factory module in go list -m"
-	fi
-	grep -qxF 'INSTALL github.com/jaeyeom/experimental/devtools/factory/cmd/factory@main' "$GO_LOG" || {
-		cat "$GO_LOG" >&2
-		fail "factory.yml did not reinstall factory from github.com/jaeyeom/experimental"
-	}
+	(
+		setup_case s8
+		install_fake_bin factory
+		FAKE_MOD_PATH="github.com/jaeyeom/agentic-factory/cmd/factory" \
+		FAKE_MOD_ROOT="github.com/jaeyeom/agentic-factory" \
+		FAKE_INSTALLED_VER="v9.9.9" \
+		FAKE_INSTALLED_GO="go1.27.4" \
+		FAKE_TOOLCHAIN_GO="go1.27.4" \
+		FAKE_MAIN_VER="v0.1.0" \
+			run_pb -e gh_playbook_imported=true -e herdr_playbook_imported=true "${SCRIPT_DIR}/factory.yml"
+		if grep -q 'github\.com/jaeyeom/agentic-factory@' "$GO_LOG"; then
+			cat "$GO_LOG" >&2
+			fail "factory.yml queried stale agentic-factory module in go list -m"
+		fi
+		grep -qxF 'INSTALL github.com/jaeyeom/experimental/devtools/factory/cmd/factory@main' "$GO_LOG" || {
+			cat "$GO_LOG" >&2
+			fail "factory.yml did not reinstall factory from github.com/jaeyeom/experimental"
+		}
+	) &
+	PIDS="$PIDS $!"
 fi
 
 # Scenario 9: Subpackage third-party tool (goimports.yml) whose installed mod
 # is an ancestor of PkgPath does not trigger a false module mismatch.
-cat >"${GOPATH_DIR}/bin/goimports" <<'EOF'
-#!/bin/sh
-exit 0
-EOF
-chmod +x "${GOPATH_DIR}/bin/goimports"
 if [ ! -e "${ANSIBLE_BIN_DIR}/goimports" ]; then
-	FAKE_MOD_PATH="golang.org/x/tools/cmd/goimports" \
-	FAKE_MOD_ROOT="golang.org/x/tools" \
-	FAKE_INSTALLED_VER="v0.40.0" \
-	FAKE_INSTALLED_GO="go1.27.4" \
-	FAKE_TOOLCHAIN_GO="go1.27.4" \
-	FAKE_LATEST_VER="v0.40.0" \
-		run_pb "${SCRIPT_DIR}/goimports.yml"
-	grep -qE 'go list -m -f \{\{\.Version ?\}\} golang\.org/x/tools@latest$' "$GO_LOG" || {
-		cat "$GO_LOG" >&2
-		fail "goimports.yml did not resolve ancestor module golang.org/x/tools@latest"
-	}
-	if grep -q '^INSTALL ' "$GO_LOG"; then
-		cat "$GO_LOG" >&2
-		fail "goimports.yml reinstalled on matching ancestor module"
-	fi
+	(
+		setup_case s9
+		install_fake_bin goimports
+		FAKE_MOD_PATH="golang.org/x/tools/cmd/goimports" \
+		FAKE_MOD_ROOT="golang.org/x/tools" \
+		FAKE_INSTALLED_VER="v0.40.0" \
+		FAKE_INSTALLED_GO="go1.27.4" \
+		FAKE_TOOLCHAIN_GO="go1.27.4" \
+		FAKE_LATEST_VER="v0.40.0" \
+			run_pb "${SCRIPT_DIR}/goimports.yml"
+		grep -qE 'go list -m -f \{\{\.Version ?\}\} golang\.org/x/tools@latest$' "$GO_LOG" || {
+			cat "$GO_LOG" >&2
+			fail "goimports.yml did not resolve ancestor module golang.org/x/tools@latest"
+		}
+		if grep -q '^INSTALL ' "$GO_LOG"; then
+			cat "$GO_LOG" >&2
+			fail "goimports.yml reinstalled on matching ancestor module"
+		fi
+	) &
+	PIDS="$PIDS $!"
 fi
+
+# shellcheck disable=SC2086  # PIDS is space-separated integer PIDs.
+ansible_test_wait_pids $PIDS || exit 1
 
 echo "PASS: all go_install_version tests passed"

@@ -25,15 +25,15 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 PLAYBOOK="${SCRIPT_DIR}/setup-slackwatch.yml"
 INVENTORY="${SCRIPT_DIR}/inventory.ini"
 
+# shellcheck disable=SC1091  # Sourced from the same directory as this script.
+. "${SCRIPT_DIR}/ansible_test_env.sh"
+ansible_test_init_env 1
+
 ROOT=$(mktemp -d)
 trap 'rm -rf "$ROOT"' EXIT
 export TMPDIR="$ROOT"
 
-HOME="${ROOT}/home"
-GOPATH_DIR="${ROOT}/gopath"
-mkdir -p "$HOME" "${ROOT}/bin" "${GOPATH_DIR}/bin"
-export HOME GOPATH_DIR
-unset XDG_CONFIG_HOME GOPATH
+mkdir -p "${ROOT}/bin"
 
 # Fake go: only `go env GOPATH` is expected.
 cat >"${ROOT}/bin/go" <<'EOF'
@@ -47,9 +47,6 @@ exit 1
 EOF
 chmod +x "${ROOT}/bin/go"
 
-TRACE="${ROOT}/trace"
-: >"$TRACE"
-export TRACE
 CURRENT_HASH="sha256:hash-v1"
 export CURRENT_HASH
 TRIAGE_HASH="sha256:triage-v1"
@@ -58,6 +55,44 @@ WITH_TRIAGE=0
 export WITH_TRIAGE
 DRY_RUN_FAIL_RC=0
 export DRY_RUN_FAIL_RC
+
+# setup_case NAME initializes isolated HOME, GOPATH_DIR, TRACE, OUT, and Ansible dirs.
+setup_case() {
+	_case_dir="${ROOT}/cases/$1"
+	HOME="${_case_dir}/home"
+	GOPATH_DIR="${_case_dir}/gopath"
+	TRACE="${_case_dir}/trace"
+	OUT="${_case_dir}/out"
+	FACTS_JSON="${_case_dir}/facts.json"
+	mkdir -p "$HOME" "${GOPATH_DIR}/bin"
+	: >"$TRACE"
+	export HOME GOPATH_DIR TRACE
+	unset XDG_CONFIG_HOME GOPATH
+	export ANSIBLE_HOME="${_case_dir}/ansible"
+	export ANSIBLE_LOCAL_TEMP="${_case_dir}/ansible-local"
+	export ANSIBLE_REMOTE_TEMP="${_case_dir}/ansible-remote"
+	CLAUDE_SKILL="${HOME}/.claude/skills/slackwatch/SKILL.md"
+	GEMINI_SKILL="${HOME}/.gemini/config/skills/slackwatch/SKILL.md"
+	CODEX_SKILL="${HOME}/.agents/skills/slackwatch/SKILL.md"
+	CLAUDE_TRIAGE="${HOME}/.claude/skills/slackwatch-triage/SKILL.md"
+	GEMINI_TRIAGE="${HOME}/.gemini/config/skills/slackwatch-triage/SKILL.md"
+}
+
+seed_skill() {
+	_seed_dest="$1"
+	_seed_skill="$2"
+	_seed_hash="$3"
+	mkdir -p "$(dirname "$_seed_dest")"
+	printf '%s\n' \
+		'---' \
+		"name: ${_seed_skill}" \
+		"toolcli-tool: ${_seed_skill}" \
+		'toolcli-version: dev' \
+		"toolcli-hash: ${_seed_hash}" \
+		'---' \
+		'' \
+		"Fake ${_seed_skill} skill." >"$_seed_dest"
+}
 
 # write_fake_slackwatch installs a fake `slackwatch` implementing `skill install` and
 # `skill status --json` using the same agent root paths as pkg/toolcli.
@@ -225,25 +260,10 @@ if [ -e "${ANSIBLE_BIN_DIR}/slackwatch" ]; then
 	exit 0
 fi
 
-export ANSIBLE_HOME="${ROOT}/ansible"
-export ANSIBLE_LOCAL_TEMP="${ROOT}/ansible/tmp"
-export ANSIBLE_REMOTE_TEMP="${ROOT}/ansible/tmp"
-export ANSIBLE_NOCOLOR=1
-export ANSIBLE_STDOUT_CALLBACK=default
-export ANSIBLE_DISPLAY_SKIPPED_HOSTS=1
-export ANSIBLE_GATHERING=smart
-export ANSIBLE_RETRY_FILES_ENABLED=0
-
-OUT="${ROOT}/out"
-CLAUDE_SKILL="${HOME}/.claude/skills/slackwatch/SKILL.md"
-GEMINI_SKILL="${HOME}/.gemini/config/skills/slackwatch/SKILL.md"
-CODEX_SKILL="${HOME}/.agents/skills/slackwatch/SKILL.md"
-CLAUDE_TRIAGE="${HOME}/.claude/skills/slackwatch-triage/SKILL.md"
-GEMINI_TRIAGE="${HOME}/.gemini/config/skills/slackwatch-triage/SKILL.md"
-
 try_playbook() {
 	PLAYBOOK_RC=0
-	ansible-playbook -i "$INVENTORY" --tags slackwatch_skill "$@" "$PLAYBOOK" >"$OUT" 2>&1 || PLAYBOOK_RC=$?
+	ansible_test_write_facts "$FACTS_JSON"
+	ansible-playbook -i "$INVENTORY" --tags slackwatch_skill -e "@${FACTS_JSON}" "$@" "$PLAYBOOK" >"$OUT" 2>&1 || PLAYBOOK_RC=$?
 	if grep -q 'libc.so' "$OUT"; then
 		printf '%s\n' "SKIP: ansible-playbook cannot run in sandbox (libc issue)"
 		exit 0
@@ -302,125 +322,168 @@ trace_count() {
 	grep -c "^$1\$" "$TRACE" 2>/dev/null || true
 }
 
-# --- 1. slackwatch missing: warn, write nothing, do not fail ---
-: >"$TRACE"
-run_playbook
-grep -q 'WARNING: Skipping slackwatch skill install because slackwatch is not on PATH' "$OUT" || {
-	cat "$OUT" >&2
-	fail "missing: expected missing binary warning"
-}
-expect_install "missing" skipping
-assert_not_written "missing" "$CLAUDE_SKILL"
+PIDS=""
 
-# --- 2. no supported agents: warn, write nothing, do not fail ---
-write_fake_slackwatch
-: >"$TRACE"
-run_playbook
-grep -q 'WARNING: Skipping slackwatch skill install because no supported agents were found' "$OUT" || {
-	cat "$OUT" >&2
-	fail "no-agents: expected no supported agents warning"
-}
-expect_install "no-agents" skipping
-assert_not_written "no-agents" "$CLAUDE_SKILL"
-if [ "$(trace_count 'slackwatch skill install --agent all --force')" -ne 0 ]; then
-	fail "no-agents: must not invoke non-dry-run install"
-fi
+# --- 1 & 2. slackwatch missing, then no supported agents ---
+(
+	setup_case missing_no_agents
+	: >"$TRACE"
+	run_playbook
+	grep -q 'WARNING: Skipping slackwatch skill install because slackwatch is not on PATH' "$OUT" || {
+		cat "$OUT" >&2
+		fail "missing: expected missing binary warning"
+	}
+	expect_install "missing" skipping
+	assert_not_written "missing" "$CLAUDE_SKILL"
 
-# --- 3. --check mode: dry run writes nothing, never invokes non-dry-run install ---
-mkdir -p "${HOME}/.claude" "${HOME}/.gemini"
-: >"$TRACE"
-run_playbook --check
-expect_install "check" skipping
-assert_not_written "check" "$CLAUDE_SKILL"
-assert_not_written "check" "$GEMINI_SKILL"
-if [ "$(trace_count 'slackwatch skill install --agent all --force --dry-run')" -ne 1 ]; then
-	fail "check: expected dry-run invocation"
-fi
-if [ "$(trace_count 'slackwatch skill status --json')" -ne 1 ]; then
-	fail "check: expected status --json invocation"
-fi
-if [ "$(trace_count 'slackwatch skill install --agent all --force')" -ne 0 ]; then
-	fail "check: must not invoke non-dry-run install"
-fi
+	write_fake_slackwatch
+	: >"$TRACE"
+	run_playbook
+	grep -q 'WARNING: Skipping slackwatch skill install because no supported agents were found' "$OUT" || {
+		cat "$OUT" >&2
+		fail "no-agents: expected no supported agents warning"
+	}
+	expect_install "no-agents" skipping
+	assert_not_written "no-agents" "$CLAUDE_SKILL"
+	if [ "$(trace_count 'slackwatch skill install --agent all --force')" -ne 0 ]; then
+		fail "no-agents: must not invoke non-dry-run install"
+	fi
+) &
+PIDS="$PIDS $!"
 
-# --- 4. fresh install without inbound: installs slackwatch for detected user-scope agents only ---
-: >"$TRACE"
-run_playbook
-expect_install "fresh" changed
-assert_stamped "fresh claude" "$CLAUDE_SKILL"
-assert_stamped "fresh gemini" "$GEMINI_SKILL"
-assert_not_written "fresh codex" "$CODEX_SKILL"
-assert_not_written "fresh triage" "$CLAUDE_TRIAGE"
-if [ "$(trace_count 'slackwatch skill install --agent all --force')" -ne 1 ]; then
-	fail "fresh: expected one install --agent all --force call"
-fi
+# --- 3 & 10. --check mode and unexpected dry-run failure ---
+(
+	setup_case check_fail
+	write_fake_slackwatch
+	mkdir -p "${HOME}/.claude" "${HOME}/.gemini"
+	: >"$TRACE"
+	run_playbook --check
+	expect_install "check" skipping
+	assert_not_written "check" "$CLAUDE_SKILL"
+	assert_not_written "check" "$GEMINI_SKILL"
+	if [ "$(trace_count 'slackwatch skill install --agent all --force --dry-run')" -ne 1 ]; then
+		fail "check: expected dry-run invocation"
+	fi
+	if [ "$(trace_count 'slackwatch skill status --json')" -ne 1 ]; then
+		fail "check: expected status --json invocation"
+	fi
+	if [ "$(trace_count 'slackwatch skill install --agent all --force')" -ne 0 ]; then
+		fail "check: must not invoke non-dry-run install"
+	fi
 
-# --- 5. idempotent rerun when already current ---
-: >"$TRACE"
-run_playbook
-expect_install "rerun" skipping
-assert_stamped "rerun claude" "$CLAUDE_SKILL"
-assert_stamped "rerun gemini" "$GEMINI_SKILL"
-if [ "$(trace_count 'slackwatch skill install --agent all --force')" -ne 0 ]; then
-	fail "rerun: must not invoke install when all detected agents are current"
-fi
+	DRY_RUN_FAIL_RC=3
+	run_playbook_fails
+	DRY_RUN_FAIL_RC=0
+) &
+PIDS="$PIDS $!"
+
+# --- 4 & 5. fresh install without inbound, then idempotent rerun ---
+(
+	setup_case fresh_rerun
+	write_fake_slackwatch
+	mkdir -p "${HOME}/.claude" "${HOME}/.gemini"
+	: >"$TRACE"
+	run_playbook
+	expect_install "fresh" changed
+	assert_stamped "fresh claude" "$CLAUDE_SKILL"
+	assert_stamped "fresh gemini" "$GEMINI_SKILL"
+	assert_not_written "fresh codex" "$CODEX_SKILL"
+	assert_not_written "fresh triage" "$CLAUDE_TRIAGE"
+	if [ "$(trace_count 'slackwatch skill install --agent all --force')" -ne 1 ]; then
+		fail "fresh: expected one install --agent all --force call"
+	fi
+
+	: >"$TRACE"
+	run_playbook
+	expect_install "rerun" skipping
+	assert_stamped "rerun claude" "$CLAUDE_SKILL"
+	assert_stamped "rerun gemini" "$GEMINI_SKILL"
+	if [ "$(trace_count 'slackwatch skill install --agent all --force')" -ne 0 ]; then
+		fail "rerun: must not invoke install when all detected agents are current"
+	fi
+) &
+PIDS="$PIDS $!"
 
 # --- 6. enabling inbound installs slackwatch-triage even when slackwatch is already current ---
-WITH_TRIAGE=1
-: >"$TRACE"
-run_playbook
-expect_install "inbound enabled" changed
-assert_stamped "inbound claude triage" "$CLAUDE_TRIAGE" slackwatch-triage "$TRIAGE_HASH"
-assert_stamped "inbound gemini triage" "$GEMINI_TRIAGE" slackwatch-triage "$TRIAGE_HASH"
+(
+	setup_case inbound
+	write_fake_slackwatch
+	mkdir -p "${HOME}/.claude" "${HOME}/.gemini"
+	seed_skill "$CLAUDE_SKILL" slackwatch "$CURRENT_HASH"
+	seed_skill "$GEMINI_SKILL" slackwatch "$CURRENT_HASH"
+	WITH_TRIAGE=1
+	: >"$TRACE"
+	run_playbook
+	expect_install "inbound enabled" changed
+	assert_stamped "inbound claude triage" "$CLAUDE_TRIAGE" slackwatch-triage "$TRIAGE_HASH"
+	assert_stamped "inbound gemini triage" "$GEMINI_TRIAGE" slackwatch-triage "$TRIAGE_HASH"
 
-# rerun with triage current is idempotent
-: >"$TRACE"
-run_playbook
-expect_install "inbound rerun" skipping
-if [ "$(trace_count 'slackwatch skill install --agent all --force')" -ne 0 ]; then
-	fail "inbound rerun: must not invoke install when both skills are current"
-fi
+	: >"$TRACE"
+	run_playbook
+	expect_install "inbound rerun" skipping
+	if [ "$(trace_count 'slackwatch skill install --agent all --force')" -ne 0 ]; then
+		fail "inbound rerun: must not invoke install when both skills are current"
+	fi
+) &
+PIDS="$PIDS $!"
 
 # --- 7. --force migration of foreign SKILL.md (both primary and triage) ---
-printf '%s\n' '---' 'name: slackwatch' '---' '' 'Legacy verified-run text.' >"$CLAUDE_SKILL"
-printf '%s\n' '---' 'name: slackwatch-triage' '---' '' 'Legacy verified-run triage text.' >"$CLAUDE_TRIAGE"
-: >"$TRACE"
-run_playbook
-expect_install "foreign migration" changed
-assert_stamped "foreign migration main" "$CLAUDE_SKILL"
-assert_stamped "foreign migration triage" "$CLAUDE_TRIAGE" slackwatch-triage "$TRIAGE_HASH"
-if [ "$(trace_count 'slackwatch skill install --agent all --force')" -ne 1 ]; then
-	fail "foreign migration: expected install --agent all --force call"
-fi
+(
+	setup_case foreign
+	write_fake_slackwatch
+	mkdir -p "${HOME}/.claude/skills/slackwatch" "${HOME}/.claude/skills/slackwatch-triage" "${HOME}/.gemini"
+	seed_skill "$GEMINI_SKILL" slackwatch "$CURRENT_HASH"
+	seed_skill "$GEMINI_TRIAGE" slackwatch-triage "$TRIAGE_HASH"
+	printf '%s\n' '---' 'name: slackwatch' '---' '' 'Legacy verified-run text.' >"$CLAUDE_SKILL"
+	printf '%s\n' '---' 'name: slackwatch-triage' '---' '' 'Legacy verified-run triage text.' >"$CLAUDE_TRIAGE"
+	WITH_TRIAGE=1
+	: >"$TRACE"
+	run_playbook
+	expect_install "foreign migration" changed
+	assert_stamped "foreign migration main" "$CLAUDE_SKILL"
+	assert_stamped "foreign migration triage" "$CLAUDE_TRIAGE" slackwatch-triage "$TRIAGE_HASH"
+	if [ "$(trace_count 'slackwatch skill install --agent all --force')" -ne 1 ]; then
+		fail "foreign migration: expected install --agent all --force call"
+	fi
 
-# rerun after migration is idempotent again
-: >"$TRACE"
-run_playbook
-expect_install "post-migration rerun" skipping
-if [ "$(trace_count 'slackwatch skill install --agent all --force')" -ne 0 ]; then
-	fail "post-migration rerun: must not invoke install"
-fi
+	: >"$TRACE"
+	run_playbook
+	expect_install "post-migration rerun" skipping
+	if [ "$(trace_count 'slackwatch skill install --agent all --force')" -ne 0 ]; then
+		fail "post-migration rerun: must not invoke install"
+	fi
+) &
+PIDS="$PIDS $!"
 
-# --- 8. stale triage skill alone triggers reinstall ---
-TRIAGE_HASH="sha256:triage-v2"
-: >"$TRACE"
-run_playbook
-expect_install "stale triage update" changed
-assert_stamped "stale triage claude" "$CLAUDE_TRIAGE" slackwatch-triage "$TRIAGE_HASH"
-assert_stamped "stale triage gemini" "$GEMINI_TRIAGE" slackwatch-triage "$TRIAGE_HASH"
+# --- 8 & 9. stale triage skill, then stale primary skill ---
+(
+	setup_case stale
+	write_fake_slackwatch
+	mkdir -p "${HOME}/.claude" "${HOME}/.gemini"
+	seed_skill "$CLAUDE_SKILL" slackwatch "$CURRENT_HASH"
+	seed_skill "$GEMINI_SKILL" slackwatch "$CURRENT_HASH"
+	seed_skill "$CLAUDE_TRIAGE" slackwatch-triage "$TRIAGE_HASH"
+	seed_skill "$GEMINI_TRIAGE" slackwatch-triage "$TRIAGE_HASH"
+	WITH_TRIAGE=1
 
-# --- 9. stale primary skill triggers reinstall ---
-CURRENT_HASH="sha256:hash-v2"
-: >"$TRACE"
-run_playbook
-expect_install "stale update" changed
-assert_stamped "stale update claude" "$CLAUDE_SKILL"
-assert_stamped "stale update gemini" "$GEMINI_SKILL"
+	TRIAGE_HASH="sha256:triage-v2"
+	: >"$TRACE"
+	run_playbook
+	expect_install "stale triage update" changed
+	assert_stamped "stale triage claude" "$CLAUDE_TRIAGE" slackwatch-triage "$TRIAGE_HASH"
+	assert_stamped "stale triage gemini" "$GEMINI_TRIAGE" slackwatch-triage "$TRIAGE_HASH"
 
-# --- 10. unexpected dry-run failure fails the playbook ---
-DRY_RUN_FAIL_RC=3
-run_playbook_fails
-DRY_RUN_FAIL_RC=0
+	CURRENT_HASH="sha256:hash-v2"
+	: >"$TRACE"
+	run_playbook
+	expect_install "stale update" changed
+	assert_stamped "stale update claude" "$CLAUDE_SKILL"
+	assert_stamped "stale update gemini" "$GEMINI_SKILL"
+) &
+PIDS="$PIDS $!"
+
+# shellcheck disable=SC2086  # PIDS is space-separated integer PIDs.
+ansible_test_wait_pids $PIDS || exit 1
 
 # --- 11. ensure.sh no longer references removed slackwatch skill approval hooks ---
 if grep -qE 'approve_slackwatch_skill|slackwatch_skill_approve\.sh|setup-slackwatch\.yml' "${SCRIPT_DIR}/ensure.sh"; then

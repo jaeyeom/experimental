@@ -20,15 +20,15 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 PLAYBOOK="${SCRIPT_DIR}/setup-fork-keeper.yml"
 INVENTORY="${SCRIPT_DIR}/inventory.ini"
 
+# shellcheck disable=SC1091  # Sourced from the same directory as this script.
+. "${SCRIPT_DIR}/ansible_test_env.sh"
+ansible_test_init_env 1
+
 ROOT=$(mktemp -d)
 trap 'rm -rf "$ROOT"' EXIT
 
-HOME="${ROOT}/home"
-mkdir -p "$HOME" "${ROOT}/bin"
-export HOME
+mkdir -p "${ROOT}/bin"
 unset XDG_CONFIG_HOME
-TRACE="${ROOT}/crontab-trace"
-export TRACE
 
 # Fake crontab: an empty table for -l; anything else would be a write.
 cat >"${ROOT}/bin/crontab" <<'EOF'
@@ -44,19 +44,29 @@ chmod +x "${ROOT}/bin/crontab"
 PATH="${ROOT}/bin:${PATH}"
 export PATH
 
-export ANSIBLE_NOCOLOR=1
-export ANSIBLE_STDOUT_CALLBACK=default
-export ANSIBLE_DISPLAY_SKIPPED_HOSTS=1
-export ANSIBLE_GATHERING=smart
-export ANSIBLE_RETRY_FILES_ENABLED=0
-
-OUT="${ROOT}/out"
+# setup_case NAME initializes isolated HOME, TRACE, OUT, and Ansible temp dirs.
+setup_case() {
+	_case_dir="${ROOT}/$1"
+	HOME="${_case_dir}/home"
+	TRACE="${_case_dir}/crontab-trace"
+	OUT="${_case_dir}/out"
+	FACTS_JSON="${_case_dir}/facts.json"
+	VARS="${HOME}/.config/setup-dev/vars.yml"
+	export HOME TRACE
+	export ANSIBLE_HOME="${_case_dir}/ansible"
+	export ANSIBLE_LOCAL_TEMP="${_case_dir}/ansible-local"
+	export ANSIBLE_REMOTE_TEMP="${_case_dir}/ansible-remote"
+	mkdir -p "$HOME"
+	: >"$TRACE"
+}
 
 # run_playbook runs the cron tasks in check mode; extra args go to
 # ansible-playbook.
 run_playbook() {
 	: >"$TRACE"
+	ansible_test_write_facts "$FACTS_JSON"
 	if ! ansible-playbook -i "$INVENTORY" --check --tags fork_keeper_cron \
+		-e "@${FACTS_JSON}" \
 		-e "user_bin_directory=${HOME}/.local/bin" \
 		"$@" "$PLAYBOOK" >"$OUT" 2>&1; then
 		cat "$OUT" >&2
@@ -130,33 +140,56 @@ write_vars() {
 	printf 'fork_keeper_cron_enabled: %s\n' "$2" >"$1"
 }
 
-VARS="${HOME}/.config/setup-dev/vars.yml"
+PIDS=""
 
 # --- no persisted value, no -e: the entry is removed ---
-run_playbook
-expect_removed "no vars file"
-expect_fake_crontab_used "no vars file"
+(
+	setup_case no_vars
+	run_playbook
+	expect_removed "no vars file"
+	expect_fake_crontab_used "no vars file"
+) &
+PIDS="$PIDS $!"
 
 # --- persisted true, no -e: the entry is installed ---
-write_vars "$VARS" true
-run_playbook
-expect_scheduled "persisted true"
-expect_fake_crontab_used "persisted true"
+(
+	setup_case persisted_true
+	write_vars "$VARS" true
+	run_playbook
+	expect_scheduled "persisted true"
+	expect_fake_crontab_used "persisted true"
+) &
+PIDS="$PIDS $!"
 
 # --- persisted true, -e false: -e wins and the entry is removed ---
-run_playbook -e fork_keeper_cron_enabled=false
-expect_removed "persisted true, -e false"
+(
+	setup_case override_false
+	write_vars "$VARS" true
+	run_playbook -e fork_keeper_cron_enabled=false
+	expect_removed "persisted true, -e false"
+) &
+PIDS="$PIDS $!"
 
 # --- no persisted value, -e true: the entry is installed ---
-rm -f "$VARS"
-run_playbook -e fork_keeper_cron_enabled=true
-expect_scheduled "-e true"
+(
+	setup_case cli_true
+	run_playbook -e fork_keeper_cron_enabled=true
+	expect_scheduled "-e true"
+) &
+PIDS="$PIDS $!"
 
 # --- XDG_CONFIG_HOME moves the vars file ---
-XDG_CONFIG_HOME="${ROOT}/xdg"
-export XDG_CONFIG_HOME
-write_vars "${XDG_CONFIG_HOME}/setup-dev/vars.yml" true
-run_playbook
-expect_scheduled "XDG_CONFIG_HOME vars file"
+(
+	setup_case xdg_true
+	XDG_CONFIG_HOME="${ROOT}/xdg_true/xdg"
+	export XDG_CONFIG_HOME
+	write_vars "${XDG_CONFIG_HOME}/setup-dev/vars.yml" true
+	run_playbook
+	expect_scheduled "XDG_CONFIG_HOME vars file"
+) &
+PIDS="$PIDS $!"
+
+# shellcheck disable=SC2086  # PIDS is space-separated integer PIDs.
+ansible_test_wait_pids $PIDS || exit 1
 
 echo "PASS"
