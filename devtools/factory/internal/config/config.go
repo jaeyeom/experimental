@@ -149,6 +149,14 @@ const (
 	LeaseGateOff = "off"
 	// LeaseGateRequired treats a lease that cannot be read as busy.
 	LeaseGateRequired = "required"
+	// LeaseGateQueue allows a lease held by another agent (the started agent
+	// queues behind the holder through the lease queue) while still refusing
+	// paused and needs-adopt. Unreadable leases fall back to the herdr and
+	// git checks with a note, as in auto.
+	LeaseGateQueue = "queue"
+	// LeaseGateQueueRequired is LeaseGateQueue, and treats a lease that
+	// cannot be read as busy, as in required.
+	LeaseGateQueueRequired = "queue-required"
 )
 
 const (
@@ -172,7 +180,8 @@ const (
 // Lease is the optional [lease] table: how factory uses the agentbus
 // workdir lease of a checkout.
 type Lease struct {
-	// Gate is LeaseGateAuto (the default), LeaseGateOff, or LeaseGateRequired.
+	// Gate is LeaseGateAuto (the default), LeaseGateOff, LeaseGateRequired,
+	// LeaseGateQueue, or LeaseGateQueueRequired.
 	// It is top-level only: a checkout may be shared by several sources.
 	Gate string `toml:"gate"`
 	// LeasePrompt is the start-prompt rule. A source and a lane may override it.

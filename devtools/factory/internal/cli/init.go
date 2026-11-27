@@ -328,7 +328,7 @@ func renderInitFile(srcBlock string) string {
 # worktree    = false
 
 # [lease]
-# gate      = "auto"  # auto (default), off, or required
+# gate      = "auto"  # auto (default), off, required, queue, or queue-required
 # mode      = "off"   # off (default), prompt, or prompt+check
 # claim_for = "45m"
 # restore   = false

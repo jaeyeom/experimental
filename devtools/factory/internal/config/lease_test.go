@@ -18,8 +18,10 @@ func TestLoadLeaseGate(t *testing.T) {
 		{name: "auto", lines: []string{"[lease]", `gate = "auto"`}, want: config.LeaseGateAuto},
 		{name: "off", lines: []string{"[lease]", `gate = "off"`}, want: config.LeaseGateOff},
 		{name: "required", lines: []string{"[lease]", `gate = "required"`}, want: config.LeaseGateRequired},
-		{name: "unknown", lines: []string{"[lease]", `gate = "maybe"`}, wantErr: `lease.gate: expected auto, off, or required, found "maybe"`},
-		{name: "empty", lines: []string{"[lease]", `gate = ""`}, wantErr: "lease.gate: expected auto, off, or required, found empty"},
+		{name: "queue", lines: []string{"[lease]", `gate = "queue"`}, want: config.LeaseGateQueue},
+		{name: "queue-required", lines: []string{"[lease]", `gate = "queue-required"`}, want: config.LeaseGateQueueRequired},
+		{name: "unknown", lines: []string{"[lease]", `gate = "maybe"`}, wantErr: `lease.gate: expected auto, off, required, queue, or queue-required, found "maybe"`},
+		{name: "empty", lines: []string{"[lease]", `gate = ""`}, wantErr: "lease.gate: expected auto, off, required, queue, or queue-required, found empty"},
 		{name: "unknown key", lines: []string{"[lease]", `gates = "off"`}, wantErr: "unknown key lease.gates"},
 	}
 	for _, tc := range tests {

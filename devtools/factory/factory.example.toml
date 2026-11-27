@@ -49,7 +49,7 @@ dry_run            = true # tick/start need --apply unless false
 # worktree    = false      # isolate each worker in a git worktree; may also go in [source.worker] or [lane.worker]
 
 # [lease]
-# gate      = "auto"  # agentbus workdir lease in the gate: auto (default), off, or required; top level only
+# gate      = "auto"  # agentbus workdir lease in the gate: auto (default), off, required, queue, or queue-required; top level only
 # mode      = "off"   # start prompt lease rule: off (default), prompt, or prompt+check
 # claim_for = "45m"   # --for in the rule; mode, claim_for, and restore may also go in [source.lease] or [lane.lease]
 # restore   = false   # include agentbus lease restore alongside claim (requires mode = "prompt" or "prompt+check")

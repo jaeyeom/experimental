@@ -183,7 +183,11 @@ func (e *Engine) startOnLane(ctx context.Context, at time.Time, view laneCheck, 
 			break
 		}
 		taken[closedKey(cand.key, cand.item.ID)] = struct{}{}
-		err := e.startLaneOne(ctx, view, cand, global)
+		laneGlobal := global
+		if i == 0 && view.result.Note != "" {
+			laneGlobal.Notes = append(slices.Clone(global.Notes), view.result.Note)
+		}
+		err := e.startLaneOne(ctx, view, cand, laneGlobal)
 		if err == nil {
 			return true, e.afterStartOn(ctx, at, cand, view.lane.Name)
 		}

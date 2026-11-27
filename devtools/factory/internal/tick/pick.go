@@ -104,7 +104,7 @@ func (e *Engine) gate(ctx context.Context, at time.Time, first candidate, panes 
 func (e *Engine) startRanked(ctx context.Context, at time.Time, ranked []candidate, res gate.Result) error {
 	maxWorkers := ranked[0].cfg.Worker.MaxWorkers
 	if maxWorkers <= 1 || !e.Apply {
-		return e.startUpTo(ctx, at, ranked, 1)
+		return e.startUpTo(ctx, at, ranked, 1, res)
 	}
 	claims, err := e.Store.ActiveClaims(ctx)
 	if err != nil {
@@ -114,10 +114,10 @@ func (e *Engine) startRanked(ctx context.Context, at time.Time, ranked []candida
 	if limit < 1 {
 		limit = 1
 	}
-	return e.startUpTo(ctx, at, ranked, limit)
+	return e.startUpTo(ctx, at, ranked, limit, res)
 }
 
-func (e *Engine) startUpTo(ctx context.Context, at time.Time, ranked []candidate, limit int) error {
+func (e *Engine) startUpTo(ctx context.Context, at time.Time, ranked []candidate, limit int, res gate.Result) error {
 	lost := make([]string, 0, maxStartAttempts)
 	attempts := 0
 	started := 0
@@ -126,7 +126,11 @@ func (e *Engine) startUpTo(ctx context.Context, at time.Time, ranked []candidate
 			break
 		}
 		attempts++
-		err := e.startOne(ctx, cand, gate.Result{OK: true})
+		gateRes := gate.Result{OK: true, LeaseGate: res.LeaseGate}
+		if attempts == 1 {
+			gateRes.Notes = res.Notes
+		}
+		err := e.startOne(ctx, cand, gateRes)
 		if err == nil {
 			if err := e.afterStart(ctx, at, cand); err != nil {
 				return err

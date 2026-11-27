@@ -34,6 +34,8 @@ type LaneResult struct {
 	Skipped string
 	// Note is printed after an OK lane, for example a checkout that was not read.
 	Note string
+	// LeaseGate is the configured [lease] gate mode that applied.
+	LeaseGate string
 }
 
 // CheckGlobal evaluates the checks that do not depend on a lane: hold
@@ -76,7 +78,8 @@ func CheckLane(ctx context.Context, in Inputs, lane Lane) LaneResult {
 		}
 	} else {
 		note = "checkout not checked on remote machine " + lane.Machine
-		if in.LeaseGate == config.LeaseGateAuto || in.LeaseGate == config.LeaseGateRequired {
+		switch in.LeaseGate {
+		case config.LeaseGateAuto, config.LeaseGateRequired, config.LeaseGateQueue, config.LeaseGateQueueRequired:
 			note = "checkout and lease not checked on remote machine " + lane.Machine
 		}
 	}
@@ -93,6 +96,7 @@ func CheckLane(ctx context.Context, in Inputs, lane Lane) LaneResult {
 		Active:     active,
 		MaxActive:  lane.MaxActive,
 		Note:       note,
+		LeaseGate:  in.LeaseGate,
 	}
 }
 

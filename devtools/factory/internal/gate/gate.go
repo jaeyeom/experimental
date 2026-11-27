@@ -71,12 +71,13 @@ type Inputs struct {
 	LastStartedAt time.Time
 	// Now is the clock Check compares to LastStartedAt.
 	Now time.Time
-	// LeaseGate is config.LeaseGateAuto, LeaseGateOff, or LeaseGateRequired.
+	// LeaseGate is config.LeaseGateAuto, LeaseGateOff, LeaseGateRequired,
+	// LeaseGateQueue, or LeaseGateQueueRequired.
 	// Empty means no lease check, as before the lease existed. Load always
 	// sets a value. Any other value is a failing reason.
 	LeaseGate string
 	// Lease reads the agentbus lease of a checkout. It is called only when
-	// LeaseGate is auto or required.
+	// LeaseGate is auto, required, queue, or queue-required.
 	Lease func(ctx context.Context, dir string) (agentbus.Reading, error)
 	// LeaseOwner is the agent this start is for. A lease held by it is
 	// usable. The zero value matches no holder, so only a free lease is.
@@ -113,6 +114,8 @@ type Result struct {
 	// Notes are facts that did not refuse the start, for example a lease
 	// that could not be read under lease gate auto.
 	Notes []string `json:"notes,omitempty"`
+	// LeaseGate is the configured [lease] gate mode that applied.
+	LeaseGate string `json:"leaseGate,omitempty"`
 }
 
 // Check reports whether it is safe to start another agent in cwd.
@@ -141,9 +144,10 @@ func Check(ctx context.Context, in Inputs, cwd string, d config.Defaults) Result
 		notes = []string{leaseNote}
 	}
 	return finishFlight(Result{
-		OK:      len(reasons) == 0,
-		Reasons: reasons,
-		Notes:   notes,
+		OK:        len(reasons) == 0,
+		Reasons:   reasons,
+		Notes:     notes,
+		LeaseGate: in.LeaseGate,
 	}, flight, counted, d.MaxInFlight)
 }
 

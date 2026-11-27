@@ -10,15 +10,18 @@ import (
 
 // leaseCheck reads the agentbus lease of dir under in.LeaseGate.
 // The lease adds to the herdr and git checks; it does not replace them.
-// A free lease, or one held by in.LeaseOwner, passes. Any other state is
+// A free lease, or one held by in.LeaseOwner, passes. Under queue and
+// queue-required, a lease held (or releasing) by another agent also passes
+// with a note so the started agent can queue behind the holder without taking
+// the lease, while paused and needs-adopt still refuse. Any other state is
 // a reason that names the holder, the deadline, and the queue length.
 // A lease that cannot be read, including a checkout agentbus does not
-// guard, is a note under auto and a reason under required.
+// guard, is a note under auto/queue and a reason under required/queue-required.
 func leaseCheck(ctx context.Context, in Inputs, dir string) (reason, note string) {
 	switch in.LeaseGate {
 	case "", config.LeaseGateOff:
 		return "", ""
-	case config.LeaseGateAuto, config.LeaseGateRequired:
+	case config.LeaseGateAuto, config.LeaseGateRequired, config.LeaseGateQueue, config.LeaseGateQueueRequired:
 	default:
 		return config.ValidLeaseGate(in.LeaseGate).Error(), ""
 	}
@@ -43,14 +46,27 @@ func leaseCheck(ctx context.Context, in Inputs, dir string) (reason, note string
 	if st.State == agentbus.StateFree || st.HeldBy(in.LeaseOwner) {
 		return "", ""
 	}
+	if isQueueLeaseGate(in.LeaseGate) && (st.State == agentbus.StateHeld || st.State == agentbus.StateReleasing) {
+		return "", fmt.Sprintf("%s: lease %s; start will queue behind holder (lease gate: %s)", dir, st.Summary(nil), in.LeaseGate)
+	}
 	return fmt.Sprintf("%s: lease %s", dir, st.Summary(nil)), ""
 }
 
+func isQueueLeaseGate(mode string) bool {
+	return mode == config.LeaseGateQueue || mode == config.LeaseGateQueueRequired
+}
+
 func unreadLease(mode, dir, why string) (reason, note string) {
-	if mode == config.LeaseGateRequired {
+	switch mode {
+	case config.LeaseGateRequired:
 		return fmt.Sprintf("%s: lease not read (%s); lease gate is required", dir, why), ""
+	case config.LeaseGateQueueRequired:
+		return fmt.Sprintf("%s: lease not read (%s); lease gate is queue-required", dir, why), ""
+	case config.LeaseGateQueue:
+		return "", fmt.Sprintf("%s: lease not read (%s); used the herdr and git checks only (lease gate: queue)", dir, why)
+	default:
+		return "", fmt.Sprintf("%s: lease not read (%s); used the herdr and git checks only", dir, why)
 	}
-	return "", fmt.Sprintf("%s: lease not read (%s); used the herdr and git checks only", dir, why)
 }
 
 // LeaseReader adapts an agentbus client to Inputs.Lease.

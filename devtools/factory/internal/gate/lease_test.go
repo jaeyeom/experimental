@@ -145,9 +145,99 @@ func TestCheckLease(t *testing.T) {
 			reasons: []string{"/repo: lease not read (not a guarded checkout in agentbus lease_checkouts); lease gate is required"},
 		},
 		{
+			name:    "free under queue proceeds",
+			mode:    config.LeaseGateQueue,
+			reading: guarded(agentbus.Status{State: agentbus.StateFree}),
+		},
+		{
+			name:    "held by another agent under queue proceeds and queues",
+			mode:    config.LeaseGateQueue,
+			reading: guarded(heldBy("pm/foo", "PRJ-9 other work", 1)),
+			notes:   []string{"/repo: lease held by pm/foo until " + localClock(leaseDeadline) + " (1 queued); start will queue behind holder (lease gate: queue)"},
+		},
+		{
+			name:    "held by owner under queue proceeds without queue note",
+			mode:    config.LeaseGateQueue,
+			reading: guarded(heldBy("prj-1", "PRJ-1 Fix it", 0)),
+			owner:   agentbus.Owner{ItemID: "PRJ-1", Agent: "prj-1"},
+		},
+		{
+			name: "releasing under queue proceeds and queues",
+			mode: config.LeaseGateQueue,
+			reading: guarded(agentbus.Status{
+				State:  agentbus.StateReleasing,
+				Holder: &agentbus.Holder{Handle: "herdr:local/default/w1:p2", Name: "pm/foo", Deadline: leaseDeadline},
+				Queue:  []agentbus.Waiter{{Handle: "h1"}},
+			}),
+			notes: []string{"/repo: lease releasing by pm/foo until " + localClock(leaseDeadline) + " (1 queued); start will queue behind holder (lease gate: queue)"},
+		},
+		{
+			name: "paused under queue still refuses",
+			mode: config.LeaseGateQueue,
+			reading: guarded(agentbus.Status{
+				State:  agentbus.StatePaused,
+				Holder: &agentbus.Holder{Handle: "user"},
+			}),
+			reasons: []string{"/repo: lease paused by user (0 queued)"},
+		},
+		{
+			name: "needs-adopt under queue still refuses",
+			mode: config.LeaseGateQueue,
+			reading: guarded(agentbus.Status{
+				State: agentbus.StateNeedsAdopt,
+				Queue: []agentbus.Waiter{{Handle: "h1"}, {Handle: "h2"}},
+			}),
+			reasons: []string{"/repo: lease needs-adopt (no holder, 2 queued)"},
+		},
+		{
+			name: "missing agentbus under queue falls back with a note",
+			mode: config.LeaseGateQueue,
+			err:  missing,
+			notes: []string{
+				"/repo: lease not read (agentbus not installed: executable not found); used the herdr and git checks only (lease gate: queue)",
+			},
+		},
+		{
+			name:    "held by another agent under queue-required proceeds and queues",
+			mode:    config.LeaseGateQueueRequired,
+			reading: guarded(heldBy("pm/foo", "PRJ-9 other work", 1)),
+			notes:   []string{"/repo: lease held by pm/foo until " + localClock(leaseDeadline) + " (1 queued); start will queue behind holder (lease gate: queue-required)"},
+		},
+		{
+			name: "paused under queue-required still refuses",
+			mode: config.LeaseGateQueueRequired,
+			reading: guarded(agentbus.Status{
+				State:  agentbus.StatePaused,
+				Holder: &agentbus.Holder{Handle: "user"},
+			}),
+			reasons: []string{"/repo: lease paused by user (0 queued)"},
+		},
+		{
+			name: "needs-adopt under queue-required still refuses",
+			mode: config.LeaseGateQueueRequired,
+			reading: guarded(agentbus.Status{
+				State: agentbus.StateNeedsAdopt,
+				Queue: []agentbus.Waiter{{Handle: "h1"}},
+			}),
+			reasons: []string{"/repo: lease needs-adopt (no holder, 1 queued)"},
+		},
+		{
+			name: "missing agentbus under queue-required refuses",
+			mode: config.LeaseGateQueueRequired,
+			err:  missing,
+			reasons: []string{
+				"/repo: lease not read (agentbus not installed: executable not found); lease gate is queue-required",
+			},
+		},
+		{
+			name:    "unguarded checkout under queue-required refuses",
+			mode:    config.LeaseGateQueueRequired,
+			reasons: []string{"/repo: lease not read (not a guarded checkout in agentbus lease_checkouts); lease gate is queue-required"},
+		},
+		{
 			name:    "unknown mode is a reason",
 			mode:    "maybe",
-			reasons: []string{`lease.gate: expected auto, off, or required, found "maybe"`},
+			reasons: []string{`lease.gate: expected auto, off, required, queue, or queue-required, found "maybe"`},
 		},
 	}
 	for _, tt := range tests {
@@ -164,6 +254,9 @@ func TestCheckLease(t *testing.T) {
 			}
 			if res.OK != (len(tt.reasons) == 0) {
 				t.Fatalf("ok = %t with reasons %q", res.OK, res.Reasons)
+			}
+			if res.LeaseGate != tt.mode {
+				t.Fatalf("leaseGate = %q, want %q", res.LeaseGate, tt.mode)
 			}
 			if tt.mode == "maybe" {
 				return
@@ -212,10 +305,17 @@ func TestCheckLaneLease(t *testing.T) {
 	if got.Line() != want {
 		t.Fatalf("line = %q, want %q", got.Line(), want)
 	}
+
+	lease = &fakeLease{reading: guarded(heldBy("pm/foo", "", 0))}
+	got = CheckLane(context.Background(), leaseInputs(config.LeaseGateQueue, lease), Lane{Name: "linux", Checkout: "/repo", MaxWorkers: 2})
+	want = "linux: OK workers 0/2 (running), active 0 (/repo: lease held by pm/foo until " + localClock(leaseDeadline) + " (0 queued); start will queue behind holder (lease gate: queue))"
+	if got.Line() != want {
+		t.Fatalf("line = %q, want %q", got.Line(), want)
+	}
 }
 
 func TestCheckLaneLeaseRemote(t *testing.T) {
-	for _, mode := range []string{config.LeaseGateAuto, config.LeaseGateRequired} {
+	for _, mode := range []string{config.LeaseGateAuto, config.LeaseGateRequired, config.LeaseGateQueue, config.LeaseGateQueueRequired} {
 		lease := &fakeLease{err: errors.New("must not be called")}
 		got := CheckLane(context.Background(), leaseInputs(mode, lease), Lane{Name: "mac", Machine: "mac1", Checkout: "/on/mac", MaxWorkers: 2})
 		want := "mac: OK workers 0/2 (running), active 0 (checkout and lease not checked on remote machine mac1)"

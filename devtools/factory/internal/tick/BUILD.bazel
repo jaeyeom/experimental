@@ -36,6 +36,7 @@ go_test(
     srcs = [
         "enqueue_test.go",
         "lanes_test.go",
+        "lease_gate_test.go",
         "record_test.go",
         "settle_test.go",
         "tick_test.go",
@@ -44,6 +45,7 @@ go_test(
     data = glob(["testdata/**"]),
     embed = [":go_default_library"],
     deps = [
+        "//devtools/factory/internal/agentbus:go_default_library",
         "//devtools/factory/internal/config:go_default_library",
         "//devtools/factory/internal/gh:go_default_library",
         "//devtools/factory/internal/herdr:go_default_library",

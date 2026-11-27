@@ -312,11 +312,19 @@ func (e *Engine) writeLine(line string) error {
 }
 
 func (e *Engine) record(ctx context.Context, at time.Time, outcome, summary string) error {
-	return e.recordAs(ctx, runCommand, at, outcome, summary)
+	leaseGate := ""
+	if e.Config != nil {
+		leaseGate = e.Config.Lease.Gate
+	}
+	return e.recordDetail(ctx, runCommand, at, outcome, summary, leaseGate)
 }
 
 func (e *Engine) recordAs(ctx context.Context, command string, at time.Time, outcome, summary string) error {
-	detail, err := detailJSON(summary)
+	return e.recordDetail(ctx, command, at, outcome, summary, "")
+}
+
+func (e *Engine) recordDetail(ctx context.Context, command string, at time.Time, outcome, summary, leaseGate string) error {
+	detail, err := detailJSON(summary, leaseGate)
 	if err != nil {
 		return err
 	}
@@ -331,10 +339,11 @@ func (e *Engine) recordAs(ctx context.Context, command string, at time.Time, out
 	return nil
 }
 
-func detailJSON(summary string) (string, error) {
+func detailJSON(summary, leaseGate string) (string, error) {
 	raw, err := json.Marshal(struct {
-		Summary string `json:"summary"`
-	}{Summary: summary})
+		Summary   string `json:"summary"`
+		LeaseGate string `json:"lease_gate,omitempty"` //nolint:tagliatelle // documented factory run log field
+	}{Summary: summary, LeaseGate: leaseGate})
 	if err != nil {
 		return "", fmt.Errorf("tick detail: %w", err)
 	}

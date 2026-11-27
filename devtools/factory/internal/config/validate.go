@@ -166,15 +166,15 @@ func validateGateBranch(gate Gate) error {
 	return nil
 }
 
-// ValidLeaseGate checks a [lease] gate value: auto, off, or required.
+// ValidLeaseGate checks a [lease] gate value: auto, off, required, queue, or queue-required.
 func ValidLeaseGate(value string) error {
 	switch value {
-	case LeaseGateAuto, LeaseGateOff, LeaseGateRequired:
+	case LeaseGateAuto, LeaseGateOff, LeaseGateRequired, LeaseGateQueue, LeaseGateQueueRequired:
 		return nil
 	case "":
-		return fmt.Errorf("lease.gate: expected %s, %s, or %s, found empty", LeaseGateAuto, LeaseGateOff, LeaseGateRequired)
+		return fmt.Errorf("lease.gate: expected %s, %s, %s, %s, or %s, found empty", LeaseGateAuto, LeaseGateOff, LeaseGateRequired, LeaseGateQueue, LeaseGateQueueRequired)
 	default:
-		return fmt.Errorf("lease.gate: expected %s, %s, or %s, found %q", LeaseGateAuto, LeaseGateOff, LeaseGateRequired, value)
+		return fmt.Errorf("lease.gate: expected %s, %s, %s, %s, or %s, found %q", LeaseGateAuto, LeaseGateOff, LeaseGateRequired, LeaseGateQueue, LeaseGateQueueRequired, value)
 	}
 }
 
