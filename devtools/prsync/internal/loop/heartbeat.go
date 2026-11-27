@@ -22,6 +22,10 @@ type Heartbeat struct {
 	UpdatedAt      time.Time `json:"updated_at"`                 //nolint:tagliatelle // state file schema
 	LastRoundStart time.Time `json:"last_round_start,omitempty"` //nolint:tagliatelle // state file schema
 	LastRoundEnd   time.Time `json:"last_round_end,omitempty"`   //nolint:tagliatelle // state file schema
+	LastGateResult string    `json:"last_gate_result,omitempty"` //nolint:tagliatelle // state file schema
+	LastGateReason string    `json:"last_gate_reason,omitempty"` //nolint:tagliatelle // state file schema
+	PauseReason    string    `json:"pause_reason,omitempty"`     //nolint:tagliatelle // state file schema
+	PausedUntil    time.Time `json:"paused_until,omitempty"`     //nolint:tagliatelle // state file schema
 }
 
 // WriteHeartbeat atomically persists hb to path.

@@ -60,6 +60,10 @@ type RoundResult struct {
 	EndedAt            time.Time         `json:"ended_at"`   //nolint:tagliatelle // outbound contract
 	Scan               scan.Document     `json:"-"`
 	Scanned            int               `json:"scanned"`
+	Gated              bool              `json:"gated,omitempty"`
+	GateReason         string            `json:"gate_reason,omitempty"` //nolint:tagliatelle // outbound contract
+	GateChecked        bool              `json:"-"`
+	GatePause          time.Duration     `json:"-"`
 	Dispatch           dispatch.Document `json:"dispatch"`
 	CIFixInbox         []dispatch.Item   `json:"ci_fix_inbox,omitempty"` //nolint:tagliatelle // outbound contract
 	BotRereview        []policy.Decision `json:"bot_rereview,omitempty"` //nolint:tagliatelle // outbound contract
@@ -91,6 +95,8 @@ type Options struct {
 	HeartbeatInterval time.Duration
 	Clock             Clock
 	Sleeper           Sleeper
+	WakeCh            <-chan struct{}
+	WakeWaiter        WakeWaiter
 	Stdout            io.Writer
 	Stderr            io.Writer
 	OnRound           func(RoundResult)
@@ -170,6 +176,8 @@ func executeRound(ctx context.Context, cfg config.Config, runner RoundRunner, hb
 		h.Round = round
 		h.State = "running"
 		h.LastRoundStart = roundStart
+		h.PauseReason = ""
+		h.PausedUntil = time.Time{}
 		h.UpdatedAt = roundStart
 	}); err != nil {
 		return false, err
@@ -190,6 +198,14 @@ func executeRound(ctx context.Context, cfg config.Config, runner RoundRunner, hb
 		h.State = "idle"
 		h.LastRoundEnd = roundEnd
 		h.UpdatedAt = roundEnd
+		switch {
+		case res.Gated:
+			h.LastGateResult = GateResultGated
+			h.LastGateReason = res.GateReason
+		case res.GateChecked:
+			h.LastGateResult = GateResultPass
+			h.LastGateReason = ""
+		}
 	}); err != nil {
 		return false, err
 	}
@@ -197,7 +213,7 @@ func executeRound(ctx context.Context, cfg config.Config, runner RoundRunner, hb
 	if err := emitRoundResult(opts, &res); err != nil {
 		return false, err
 	}
-	log.Info("loop_round_end", "round", round, "scanned", res.Scanned, "results", len(res.Dispatch.Results), "needs_judgment", res.NeedsJudgmentCount, "error", res.Err)
+	log.Info("loop_round_end", "round", round, "scanned", res.Scanned, "results", len(res.Dispatch.Results), "needs_judgment", res.NeedsJudgmentCount, "gated", res.Gated, "gate_reason", res.GateReason, "error", res.Err)
 
 	if res.FatalErr != nil {
 		return false, res.FatalErr
@@ -210,25 +226,130 @@ func executeRound(ctx context.Context, cfg config.Config, runner RoundRunner, hb
 		log.Info("loop_stop", "reason", "max_rounds", "round", round)
 		return true, nil
 	}
-	return pauseAfterRound(ctx, hb, round, opts)
+	return pauseAfterRound(ctx, cfg, hb, round, res, opts)
 }
 
-func pauseAfterRound(ctx context.Context, hb *heartbeatState, round int, opts Options) (bool, error) {
+func pauseAfterRound(ctx context.Context, cfg config.Config, hb *heartbeatState, round int, res RoundResult, opts Options) (bool, error) {
+	if res.Gated {
+		d := res.GatePause
+		if d == 0 && !res.GateChecked {
+			d = cfg.LoopGatePause
+		}
+		if d <= 0 {
+			return false, nil
+		}
+		sleepAt := opts.Clock.Now().UTC()
+		until := sleepAt.Add(d).UTC()
+		if err := hb.update(func(h *Heartbeat) {
+			h.State = StatePaused
+			h.PauseReason = res.GateReason
+			h.PausedUntil = until
+			h.UpdatedAt = sleepAt
+		}); err != nil {
+			return false, err
+		}
+		log := runlog.FromContext(ctx)
+		log.Info("loop_gate_pause", "round", round, "duration", d.String(), "until", until.Format(time.RFC3339), "reason", res.GateReason)
+		via, canceled := waitForPause(ctx, opts.Sleeper, d, opts.WakeCh, opts.WakeWaiter, sleepAt)
+		if canceled {
+			log.Info("loop_stop", "reason", "signal_during_pause", "round", round)
+			return true, nil
+		}
+		if via != "" {
+			log.Info("loop_gate_wake", "round", round, "via", via, "reason", res.GateReason)
+		} else {
+			log.Info("loop_gate_resume", "round", round, "reason", "timer")
+		}
+		if err := hb.update(func(h *Heartbeat) {
+			h.State = "idle"
+			h.PauseReason = ""
+			h.PausedUntil = time.Time{}
+			h.UpdatedAt = opts.Clock.Now().UTC()
+		}); err != nil {
+			return false, err
+		}
+		return false, nil
+	}
 	if opts.Pause <= 0 {
 		return false, nil
 	}
 	sleepAt := opts.Clock.Now().UTC()
 	if err := hb.update(func(h *Heartbeat) {
 		h.State = "sleeping"
+		h.PauseReason = ""
+		h.PausedUntil = time.Time{}
 		h.UpdatedAt = sleepAt
 	}); err != nil {
 		return false, err
 	}
-	if err := opts.Sleeper.Sleep(ctx, opts.Pause); err != nil {
+	if _, canceled := waitForPause(ctx, opts.Sleeper, opts.Pause, opts.WakeCh, opts.WakeWaiter, sleepAt); canceled {
 		runlog.FromContext(ctx).Info("loop_stop", "reason", "signal_during_pause", "round", round)
 		return true, nil
 	}
 	return false, nil
+}
+
+func waitForPause(ctx context.Context, sleeper Sleeper, d time.Duration, wakeCh <-chan struct{}, waiter WakeWaiter, pauseStart time.Time) (string, bool) {
+	if d <= 0 {
+		return "", ctx.Err() != nil
+	}
+	pauseCtx, cancelPause := context.WithCancel(ctx)
+	defer cancelPause()
+
+	var (
+		mu      sync.Mutex
+		wakeVia string
+	)
+	setWake := func(via string) {
+		mu.Lock()
+		if wakeVia == "" {
+			wakeVia = via
+		}
+		mu.Unlock()
+		cancelPause()
+	}
+
+	var wg sync.WaitGroup
+	if waiter != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			via, err := waiter.Wait(pauseCtx, pauseStart)
+			if err != nil {
+				if pauseCtx.Err() == nil {
+					runlog.FromContext(ctx).Warn("loop_wake_waiter_error", "error", err.Error())
+				}
+				return
+			}
+			if via == "" {
+				via = "agentbus"
+			}
+			setWake(via)
+		}()
+	}
+	if wakeCh != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			select {
+			case <-pauseCtx.Done():
+			case <-wakeCh:
+				setWake("signal")
+			}
+		}()
+	}
+
+	_ = sleeper.Sleep(pauseCtx, d)
+	cancelPause()
+	wg.Wait()
+
+	if ctx.Err() != nil {
+		return "", true
+	}
+	mu.Lock()
+	via := wakeVia
+	mu.Unlock()
+	return via, false
 }
 
 func emitRoundResult(opts Options, res *RoundResult) error {

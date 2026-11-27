@@ -201,6 +201,11 @@ are ~KEY=VALUE~. A ~#~ starts a comment. Unknown keys are ignored.
 | ~bot_rereview~             | ~off~           | ~off~ / ~dry-run~ / ~auto~ (~maintain~ and ~loop~) to request bot re-review once per head when its threads are resolved. |
 | ~bot_rereview_login~       | empty           | Bot GitHub login (required when ~bot_rereview~ is ~dry-run~ or ~auto~). |
 | ~bot_rereview_body~        | empty           | Comment body posted to ask the bot to review again (required when ~bot_rereview~ is ~dry-run~ or ~auto~). |
+| ~loop_pre_round_cmd~       | empty           | Optional argv gate command run before each ~loop~ round's dispatches; non-zero scans, dispatches nothing, and pauses. |
+| ~loop_pre_round_timeout~   | ~30s~           | Timeout for ~loop_pre_round_cmd~ (timeouts and exec errors count as gated). |
+| ~loop_gate_pause~          | ~5m~            | Default ~loop~ pause when gated without ~retry_after=~; ~SIGUSR1~ or ~loop_wake_agentbus_name~ wakes early. |
+| ~loop_gate_pause_max~      | ~1h~            | Cap on ~retry_after=<RFC3339 or duration>~ from ~loop_pre_round_cmd~. |
+| ~loop_wake_agentbus_name~  | empty           | Optional agentbus name monitored while paused to wake ~loop~ early. |
 
 Every other key is in the [[file:docs/reference.org][reference]].
 

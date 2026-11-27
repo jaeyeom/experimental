@@ -112,6 +112,9 @@ func isHealthy(hb Heartbeat, now time.Time, staleAfter time.Duration, isAlive fu
 	if hb.PID <= 0 || !isAlive(hb.PID) {
 		return false
 	}
+	if hb.State == StatePaused && !hb.PausedUntil.IsZero() && now.Before(hb.PausedUntil.Add(staleAfter)) {
+		return true
+	}
 	ts := hb.freshTimestamp()
 	if ts.IsZero() {
 		return false

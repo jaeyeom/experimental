@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
@@ -20,6 +23,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
 	executor "github.com/jaeyeom/go-cmdexec"
 	"github.com/spf13/cobra"
+	"golang.org/x/sys/unix"
 )
 
 // ensureSpawner launches detached `prsync loop` processes for `--ensure`.
@@ -79,12 +83,23 @@ func newLoopCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 
 			logStartup(cmd.Context(), "loop", cfg)
 			ctx := dispatch.WithStatusWriter(cmd.Context(), cmd.ErrOrStderr())
+			wakeCh, stopWake := startUSR1Forwarder()
+			defer stopWake()
+			var wakeWaiter loop.WakeWaiter
+			if cfg.LoopWakeAgentbusName != "" {
+				wakeWaiter = loop.AgentbusWakeWaiter{
+					Bin:  cfg.AgentbusBin,
+					Name: cfg.LoopWakeAgentbusName,
+				}
+			}
 			runner := cliLoopRunner(exec)
 			err = loop.Run(ctx, cfg, runner, loop.Options{
-				MaxRounds: maxRounds,
-				Pause:     pause,
-				Stdout:    stdout,
-				Stderr:    cmd.ErrOrStderr(),
+				MaxRounds:  maxRounds,
+				Pause:      pause,
+				WakeCh:     wakeCh,
+				WakeWaiter: wakeWaiter,
+				Stdout:     stdout,
+				Stderr:     cmd.ErrOrStderr(),
 			})
 			if err != nil {
 				if errors.Is(err, loop.ErrAlreadyRunning) {
@@ -136,6 +151,34 @@ func buildEnsureArgs(cmd *cobra.Command, cfg config.Config, configPath string, m
 	return args
 }
 
+func startUSR1Forwarder() (<-chan struct{}, func()) {
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, unix.SIGUSR1)
+	wakeCh := make(chan struct{}, 1)
+	stopCh := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stopCh:
+				return
+			case <-sigCh:
+				select {
+				case wakeCh <- struct{}{}:
+				default:
+				}
+			}
+		}
+	}()
+	return wakeCh, func() {
+		signal.Stop(sigCh)
+		close(stopCh)
+		wg.Wait()
+	}
+}
+
 func cliLoopRunner(exec executor.Executor) loop.RoundRunner {
 	return loop.RoundFunc(func(ctx context.Context, cfg config.Config, round int) loop.RoundResult {
 		started := time.Now().UTC()
@@ -149,6 +192,11 @@ func cliLoopRunner(exec executor.Executor) loop.RoundRunner {
 		}
 		res.Scan = scanDoc
 		res.Scanned = len(scanDoc.PRs)
+
+		if checkLoopPreRoundGate(ctx, exec, cfg, &res) {
+			finalizeLoopRound(ctx, exec, cfg, &res)
+			return res
+		}
 
 		out, err := dispatchWithDoc(ctx, exec, cfg, scanDoc, nil, dispatchModes{}, "", false)
 		if out != nil {
@@ -190,6 +238,26 @@ func cliLoopRunner(exec executor.Executor) loop.RoundRunner {
 		finalizeLoopRound(ctx, exec, cfg, &res)
 		return res
 	})
+}
+
+func checkLoopPreRoundGate(ctx context.Context, exec executor.Executor, cfg config.Config, res *loop.RoundResult) bool {
+	if len(cfg.LoopPreRoundCmd) == 0 {
+		return false
+	}
+	gate := loop.CheckPreRoundGate(ctx, exec, cfg, time.Now().UTC())
+	res.GateChecked = gate.Checked
+	if !gate.Gated {
+		return false
+	}
+	res.Gated = true
+	res.GateReason = gate.Reason
+	res.GatePause = gate.Pause
+	res.Dispatch = dispatch.Document{
+		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+		DryRun:      cfg.DryRun,
+		Results:     []dispatch.Item{},
+	}
+	return true
 }
 
 func finalizeLoopRound(ctx context.Context, exec executor.Executor, cfg config.Config, res *loop.RoundResult) {

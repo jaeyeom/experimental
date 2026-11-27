@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "config.go",
         "joblanes.go",
+        "loop.go",
         "opentabs.go",
         "parse.go",
         "policy.go",
@@ -23,6 +24,7 @@ go_test(
     srcs = [
         "config_test.go",
         "joblanes_test.go",
+        "loop_test.go",
         "opentabs_test.go",
         "policy_test.go",
         "scope_test.go",

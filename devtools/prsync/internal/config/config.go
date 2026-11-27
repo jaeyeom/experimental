@@ -357,6 +357,22 @@ type Config struct {
 	// WaiveMaxPerPR caps automated waive re-posts per PR.
 	WaiveMaxPerPR int
 
+	// LoopPreRoundCmd is an optional argv command executed directly before each
+	// loop round's dispatches.
+	LoopPreRoundCmd []string
+	// LoopPreRoundTimeout bounds LoopPreRoundCmd execution.
+	LoopPreRoundTimeout time.Duration
+	// LoopGatePause is the default pause when LoopPreRoundCmd gates without
+	// a valid retry_after= line.
+	LoopGatePause time.Duration
+	// LoopGatePauseMax caps retry_after= pause durations.
+	LoopGatePauseMax time.Duration
+	// LoopWakeAgentbusName subscribes to incoming agentbus messages on this
+	// name to wake a paused loop early.
+	LoopWakeAgentbusName string
+	// AgentbusBin is the agentbus executable path/name.
+	AgentbusBin string
+
 	// SourcePath is empty if defaults only; for stderr diagnostics.
 	SourcePath string
 }
@@ -440,6 +456,10 @@ func Defaults() Config {
 		OpenTabsReadyTimeout:      defaultOpenTabsReadyTimeout,
 		Policy:                    defaultPolicyConfig(),
 		WaiveMaxPerPR:             3,
+		LoopPreRoundTimeout:       defaultLoopPreRoundTimeout,
+		LoopGatePause:             defaultLoopGatePause,
+		LoopGatePauseMax:          defaultLoopGatePauseMax,
+		AgentbusBin:               "agentbus",
 	}
 }
 
@@ -471,6 +491,10 @@ func Load(explicitPath string) (Config, error) {
 	cfg.GHBin = expandTilde(cfg.GHBin)
 	cfg.HerdrBin = expandTilde(cfg.HerdrBin)
 	cfg.JiraBin = expandTilde(cfg.JiraBin)
+	cfg.AgentbusBin = expandTilde(cfg.AgentbusBin)
+	if len(cfg.LoopPreRoundCmd) > 0 {
+		cfg.LoopPreRoundCmd[0] = expandTilde(cfg.LoopPreRoundCmd[0])
+	}
 	expandPolicyPaths(&cfg.Policy)
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
@@ -541,6 +565,9 @@ func validateConcurrency(c Config) error {
 		return err
 	}
 	if err := validateWaive(c); err != nil {
+		return err
+	}
+	if err := validateLoopConfig(c); err != nil {
 		return err
 	}
 	return validateParkMode(c)
@@ -799,6 +826,11 @@ func applyExtraKey(cfg *Config, key, val string) error {
 	case key == "wake_before_prompt":
 		cfg.WakeBeforePrompt = strings.TrimSpace(val)
 		return nil
+	case key == "agentbus_bin":
+		cfg.AgentbusBin = strings.TrimSpace(val)
+		return nil
+	case strings.HasPrefix(key, "loop_"):
+		return applyLoopKey(cfg, key, val)
 	case strings.HasPrefix(key, "waive_"):
 		return applyWaiveKey(cfg, key, val)
 	default:

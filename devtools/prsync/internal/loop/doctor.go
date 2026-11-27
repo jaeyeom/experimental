@@ -15,14 +15,18 @@ const (
 
 // StatusReport summarizes the loop state for `prsync doctor`.
 type StatusReport struct {
-	State         string    `json:"state"`
-	PID           int       `json:"pid,omitempty"`
-	Round         int       `json:"round,omitempty"`
-	HeartbeatPath string    `json:"heartbeat_path,omitempty"` //nolint:tagliatelle // state schema
-	ConfigPath    string    `json:"config_path,omitempty"`    //nolint:tagliatelle // state schema
-	UpdatedAt     time.Time `json:"updated_at,omitempty"`     //nolint:tagliatelle // state schema
-	LastRoundEnd  time.Time `json:"last_round_end,omitempty"` //nolint:tagliatelle // state schema
-	Detail        string    `json:"detail"`
+	State          string    `json:"state"`
+	PID            int       `json:"pid,omitempty"`
+	Round          int       `json:"round,omitempty"`
+	HeartbeatPath  string    `json:"heartbeat_path,omitempty"`   //nolint:tagliatelle // state schema
+	ConfigPath     string    `json:"config_path,omitempty"`      //nolint:tagliatelle // state schema
+	UpdatedAt      time.Time `json:"updated_at,omitempty"`       //nolint:tagliatelle // state schema
+	LastRoundEnd   time.Time `json:"last_round_end,omitempty"`   //nolint:tagliatelle // state schema
+	LastGateResult string    `json:"last_gate_result,omitempty"` //nolint:tagliatelle // state schema
+	LastGateReason string    `json:"last_gate_reason,omitempty"` //nolint:tagliatelle // state schema
+	PauseReason    string    `json:"pause_reason,omitempty"`     //nolint:tagliatelle // state schema
+	PausedUntil    time.Time `json:"paused_until,omitempty"`     //nolint:tagliatelle // state schema
+	Detail         string    `json:"detail"`
 }
 
 // Inspect reads heartbeat state in stateDir for configPath and reports whether
@@ -91,29 +95,80 @@ func inspectFile(path string, now time.Time, staleAfter time.Duration, isAlive f
 		age = 0
 	}
 	if isHealthy(hb, now.UTC(), staleAfter, isAlive) {
+		prefix := StateRunning
+		detailParts := []string{
+			fmt.Sprintf("pid %d", hb.PID),
+			fmt.Sprintf("round %d", hb.Round),
+			fmt.Sprintf("updated %s ago", age),
+		}
+		if hb.State == StatePaused {
+			detailParts = append([]string{"paused"}, detailParts...)
+		}
+		detailParts = append(detailParts, gateStatusParts(hb)...)
 		return StatusReport{
-			State:         StateRunning,
-			PID:           hb.PID,
-			Round:         hb.Round,
-			HeartbeatPath: path,
-			ConfigPath:    hb.ConfigPath,
-			UpdatedAt:     hb.UpdatedAt,
-			LastRoundEnd:  hb.LastRoundEnd,
-			Detail:        fmt.Sprintf("%s (pid %d, round %d, updated %s ago)", StateRunning, hb.PID, hb.Round, age),
+			State:          prefix,
+			PID:            hb.PID,
+			Round:          hb.Round,
+			HeartbeatPath:  path,
+			ConfigPath:     hb.ConfigPath,
+			UpdatedAt:      hb.UpdatedAt,
+			LastRoundEnd:   hb.LastRoundEnd,
+			LastGateResult: hb.LastGateResult,
+			LastGateReason: hb.LastGateReason,
+			PauseReason:    hb.PauseReason,
+			PausedUntil:    hb.PausedUntil,
+			Detail:         fmt.Sprintf("%s (%s)", prefix, joinDetailParts(detailParts)),
 		}, true
 	}
 	reason := fmt.Sprintf("updated %s ago", age)
 	if !alive {
 		reason = fmt.Sprintf("pid %d dead, updated %s ago", hb.PID, age)
 	}
+	staleParts := []string{
+		fmt.Sprintf("pid %d", hb.PID),
+		fmt.Sprintf("round %d", hb.Round),
+		reason,
+	}
+	staleParts = append(staleParts, gateStatusParts(hb)...)
 	return StatusReport{
-		State:         StateStale,
-		PID:           hb.PID,
-		Round:         hb.Round,
-		HeartbeatPath: path,
-		ConfigPath:    hb.ConfigPath,
-		UpdatedAt:     hb.UpdatedAt,
-		LastRoundEnd:  hb.LastRoundEnd,
-		Detail:        fmt.Sprintf("%s (pid %d, round %d, %s)", StateStale, hb.PID, hb.Round, reason),
+		State:          StateStale,
+		PID:            hb.PID,
+		Round:          hb.Round,
+		HeartbeatPath:  path,
+		ConfigPath:     hb.ConfigPath,
+		UpdatedAt:      hb.UpdatedAt,
+		LastRoundEnd:   hb.LastRoundEnd,
+		LastGateResult: hb.LastGateResult,
+		LastGateReason: hb.LastGateReason,
+		PauseReason:    hb.PauseReason,
+		PausedUntil:    hb.PausedUntil,
+		Detail:         fmt.Sprintf("%s (%s)", StateStale, joinDetailParts(staleParts)),
 	}, true
+}
+
+func gateStatusParts(hb Heartbeat) []string {
+	var parts []string
+	if hb.LastGateResult != "" {
+		parts = append(parts, "last_gate="+hb.LastGateResult)
+	}
+	if hb.PauseReason != "" {
+		parts = append(parts, fmt.Sprintf("pause_reason=%q", hb.PauseReason))
+	} else if hb.LastGateReason != "" {
+		parts = append(parts, fmt.Sprintf("gate_reason=%q", hb.LastGateReason))
+	}
+	if !hb.PausedUntil.IsZero() {
+		parts = append(parts, "paused_until="+hb.PausedUntil.UTC().Format(time.RFC3339))
+	}
+	return parts
+}
+
+func joinDetailParts(parts []string) string {
+	out := ""
+	for i, p := range parts {
+		if i > 0 {
+			out += ", "
+		}
+		out += p
+	}
+	return out
 }

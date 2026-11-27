@@ -6,6 +6,7 @@ go_library(
         "blocked.go",
         "doctor.go",
         "ensure.go",
+        "gate.go",
         "heartbeat.go",
         "judgment.go",
         "lock.go",
@@ -21,6 +22,7 @@ go_library(
         "//devtools/prsync/internal/runlog:go_default_library",
         "//devtools/prsync/internal/scan:go_default_library",
         "@com_github_google_renameio_v2//:go_default_library",
+        "@com_github_jaeyeom_go_cmdexec//:go_default_library",
         "@org_golang_x_sys//unix:go_default_library",
     ],
 )
@@ -28,6 +30,7 @@ go_library(
 go_test(
     name = "go_default_test",
     srcs = [
+        "gate_test.go",
         "judgment_test.go",
         "loop_test.go",
     ],
@@ -37,6 +40,8 @@ go_test(
         "//devtools/prsync/internal/dispatch:go_default_library",
         "//devtools/prsync/internal/ledger:go_default_library",
         "//devtools/prsync/internal/policy:go_default_library",
+        "//devtools/prsync/internal/runlog:go_default_library",
         "//devtools/prsync/internal/scan:go_default_library",
+        "@com_github_jaeyeom_go_cmdexec//:go_default_library",
     ],
 )

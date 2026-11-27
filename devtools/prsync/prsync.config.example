@@ -379,3 +379,25 @@
 # waive_checks=
 # waive_repost=false
 # waive_max_per_pr=3
+
+# Loop pre-round gate and early wake (`prsync loop`):
+# - loop_pre_round_cmd: optional argv command executed directly (never via
+#   sh -c) before each round's dispatches. Exit 0 dispatches normally;
+#   non-zero, missing command, or timeout still scans and emits RoundResult
+#   with gated=true and the first non-empty stdout line as gate_reason,
+#   dispatches nothing, and pauses.
+# - loop_pre_round_timeout: execution bound for loop_pre_round_cmd (default 30s).
+# - loop_gate_pause: default pause duration when retry_after= is absent or
+#   invalid (default 5m).
+# - loop_gate_pause_max: upper bound on retry_after=<RFC3339 or duration>
+#   lines from loop_pre_round_cmd stdout (default 1h).
+# - loop_wake_agentbus_name: optional agentbus name watched while paused
+#   (`agentbus log --follow`) to wake early on an incoming message; SIGUSR1
+#   always wakes early too, with the pause timer as fallback.
+# - agentbus_bin: agentbus executable (default agentbus).
+# loop_pre_round_cmd=
+# loop_pre_round_timeout=30s
+# loop_gate_pause=5m
+# loop_gate_pause_max=1h
+# loop_wake_agentbus_name=
+# agentbus_bin=agentbus

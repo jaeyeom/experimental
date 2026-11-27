@@ -19,6 +19,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/loop"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/policy"
 	executor "github.com/jaeyeom/go-cmdexec"
+	"golang.org/x/sys/unix"
 )
 
 func TestCLILoopRunsMaxRoundsAndDoctorReportsState(t *testing.T) {
@@ -557,4 +558,228 @@ func TestCLILoopNeedsJudgmentAllReasons(t *testing.T) {
 			t.Fatalf("rereview_due must not appear when R5 is auto: %+v", resAuto.NeedsJudgment)
 		}
 	})
+}
+
+func TestCLILoopPreRoundGateBlocksDispatchAndExitZeroDispatches(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	ghBin, herdrBin := fixtureBins(t)
+
+	snapPath := filepath.Join(t.TempDir(), "bot-snap.json")
+	writeFile(t, snapPath, `{
+		"data":{"repository":{"pullRequest":{
+			"commits":{"nodes":[{"commit":{"oid":"abc123def456","committedDate":"2026-06-01T10:00:00Z","pushedDate":"2026-06-01T10:05:00Z"}}]},
+			"reviews":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[{"author":{"login":"coderabbitai"},"state":"COMMENTED","submittedAt":"2026-06-01T09:50:00Z"}]},
+			"reviewThreads":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[{"id":"t1","isResolved":true,"comments":{"nodes":[{"author":{"login":"coderabbitai"}}]}}]},
+			"comments":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[]}
+		}}}
+	}`)
+	t.Setenv("GH_FAKE_BOT_REREVIEW_FILE", snapPath)
+
+	t.Run("non-zero gate emits scan+needs_judgment and dispatches nothing", func(t *testing.T) {
+		stateDir := t.TempDir()
+		statePath := filepath.Join(stateDir, "state.json")
+		commentSentinel := filepath.Join(t.TempDir(), "comment.txt")
+		t.Setenv("GH_FAKE_COMMENT_SENTINEL", commentSentinel)
+
+		inboxDir := filepath.Join(stateDir, "ci_fix_inbox")
+		writeInboxFile(t, inboxDir, "123.json", `{"repo":"acme/widgets","pr":123,"head_sha":"abc123def456","hint":"flake"}`+"\n")
+
+		gateScript := filepath.Join(t.TempDir(), "gate-block.sh")
+		writeExec(t, gateScript, "#!/bin/sh\nprintf 'usage quota low (3%%)\\nretry_after=20s\\n'\nexit 1\n")
+
+		cfgPath := writeLiveConfig(t, ghBin, herdrBin, statePath,
+			"policy_ci_fix=auto",
+			"bot_rereview=auto",
+			"bot_rereview_login=coderabbitai[bot]",
+			"bot_rereview_body=@coderabbitai review",
+			"loop_pre_round_cmd="+gateScript,
+			"loop_gate_pause_max=20ms",
+		)
+		res := runSingleLoopRound(t, cfgPath)
+		if !res.Gated || res.GateReason != "usage quota low (3%)" {
+			t.Fatalf("res gated = %v reason=%q, want true / usage quota low (3%%)", res.Gated, res.GateReason)
+		}
+		if res.Scanned != 1 || len(res.Dispatch.Results) != 0 || len(res.CIFixInbox) != 0 || len(res.BotRereview) != 0 {
+			t.Fatalf("gated round dispatched unexpected work: %+v", res)
+		}
+		if _, err := os.Stat(commentSentinel); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatal("gated round posted bot_rereview comment")
+		}
+		if _, err := os.Stat(filepath.Join(inboxDir, "123.json")); err != nil {
+			t.Fatalf("gated round moved ci_fix_inbox file: %v", err)
+		}
+	})
+
+	t.Run("missing gate command counts as gated and logs WARN", func(t *testing.T) {
+		logDir := t.TempDir()
+		t.Setenv("XDG_STATE_HOME", logDir)
+		stateDir := t.TempDir()
+		cfgPath := writeLiveConfig(t, ghBin, herdrBin, filepath.Join(stateDir, "state.json"),
+			"loop_pre_round_cmd="+filepath.Join(t.TempDir(), "missing-gate-bin"),
+			"loop_gate_pause=10ms",
+		)
+		res := runSingleLoopRound(t, cfgPath)
+		if !res.Gated || res.GateReason == "" || len(res.Dispatch.Results) != 0 {
+			t.Fatalf("missing gate result = %+v, want gated with no dispatches", res)
+		}
+		logRaw, err := os.ReadFile(filepath.Join(logDir, "prsync", "prsync.jsonl"))
+		if err != nil {
+			t.Fatalf("read runlog: %v", err)
+		}
+		if !strings.Contains(string(logRaw), `"level":"WARN"`) || !strings.Contains(string(logRaw), "loop_pre_round_gate_error") {
+			t.Fatalf("runlog missing WARN for missing gate cmd:\n%s", string(logRaw))
+		}
+	})
+
+	t.Run("exit 0 gate dispatches normally", func(t *testing.T) {
+		stateDir := t.TempDir()
+		gateScript := filepath.Join(t.TempDir(), "gate-ok.sh")
+		writeExec(t, gateScript, "#!/bin/sh\necho ok\nexit 0\n")
+
+		cfgPath := writeLiveConfig(t, ghBin, herdrBin, filepath.Join(stateDir, "state.json"),
+			"loop_pre_round_cmd="+gateScript,
+		)
+		res := runSingleLoopRound(t, cfgPath, "--dry-run")
+		if res.Gated || res.GateReason != "" {
+			t.Fatalf("expected ungated round, got %+v", res)
+		}
+		if len(res.Dispatch.Results) == 0 {
+			t.Fatalf("expected dispatch results when gate exits 0, got %+v", res)
+		}
+	})
+}
+
+func TestCLILoopSIGUSR1WakesPausedLoopEarly(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ghBin, herdrBin := fixtureBins(t)
+	stateDir := t.TempDir()
+	statePath := filepath.Join(stateDir, "state.json")
+	counterFile := filepath.Join(t.TempDir(), "count")
+
+	gateScript := filepath.Join(t.TempDir(), "gate.sh")
+	writeExec(t, gateScript, fmt.Sprintf(`#!/bin/sh
+if [ ! -f %q ]; then
+  touch %q
+  printf 'budget exhausted\nretry_after=30s\n'
+  exit 1
+fi
+echo ok
+exit 0
+`, counterFile, counterFile))
+
+	cfgPath := writeLiveConfig(t, ghBin, herdrBin, statePath,
+		"loop_pre_round_cmd="+gateScript,
+		"loop_gate_pause_max=1m",
+	)
+	hbPath := loop.HeartbeatPath(stateDir, cfgPath)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 400; i++ {
+			if hb, ok, err := loop.ReadHeartbeat(hbPath); err == nil && ok && hb.State == loop.StatePaused {
+				_ = unix.Kill(os.Getpid(), unix.SIGUSR1)
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+
+	start := time.Now()
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{
+		"loop", "--config", cfgPath, "--max-rounds", "2", "--dry-run",
+	}, &stdout, &stderr, executor.NewBasicExecutor())
+	<-done
+	elapsed := time.Since(start)
+	if code != ExitOK {
+		t.Fatalf("loop exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	if elapsed > 5*time.Second {
+		t.Fatalf("SIGUSR1 wake took %s, want early wake from 30s pause", elapsed)
+	}
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("rounds = %d, want 2:\n%s", len(lines), stdout.String())
+	}
+	var r1, r2 loop.RoundResult
+	_ = json.Unmarshal([]byte(lines[0]), &r1)
+	_ = json.Unmarshal([]byte(lines[1]), &r2)
+	if !r1.Gated || r2.Gated || len(r2.Dispatch.Results) == 0 {
+		t.Fatalf("rounds = %+v / %+v", r1, r2)
+	}
+}
+
+func TestCLILoopAgentbusWakeAndDoctorReportsGate(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ghBin, herdrBin := fixtureBins(t)
+	stateDir := t.TempDir()
+	statePath := filepath.Join(stateDir, "state.json")
+	counterFile := filepath.Join(t.TempDir(), "count")
+	wakeTrigger := filepath.Join(t.TempDir(), "send-wake")
+
+	gateScript := filepath.Join(t.TempDir(), "gate.sh")
+	writeExec(t, gateScript, fmt.Sprintf(`#!/bin/sh
+if [ ! -f %q ]; then
+  touch %q
+  printf 'quota paused\nretry_after=30s\n'
+  exit 1
+fi
+echo ok
+exit 0
+`, counterFile, counterFile))
+
+	fakeBus := filepath.Join(t.TempDir(), "agentbus")
+	writeExec(t, fakeBus, fmt.Sprintf(`#!/bin/sh
+while [ ! -f %q ]; do
+  sleep 0.01
+done
+printf '{"ts":"2026-11-27T12:00:01.000Z","event":"send","name":"prsync-wake","msg_id":"m-9"}\n'
+sleep 5
+`, wakeTrigger))
+
+	cfgPath := writeLiveConfig(t, ghBin, herdrBin, statePath,
+		"loop_pre_round_cmd="+gateScript,
+		"loop_gate_pause_max=1m",
+		"loop_wake_agentbus_name=prsync-wake",
+		"agentbus_bin="+fakeBus,
+	)
+	hbPath := loop.HeartbeatPath(stateDir, cfgPath)
+
+	var doctorDetail string
+	doctorDone := make(chan struct{})
+	go func() {
+		defer close(doctorDone)
+		for i := 0; i < 400; i++ {
+			if hb, ok, err := loop.ReadHeartbeat(hbPath); err == nil && ok && hb.State == loop.StatePaused {
+				docOut := runDoctorJSON(t, cfgPath)
+				chk := findDoctorCheck(t, docOut, "loop")
+				if chk.Status == toolcli.StatusOK {
+					doctorDetail = chk.Detail
+				}
+				_ = os.WriteFile(wakeTrigger, []byte("wake\n"), 0o600)
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		_ = os.WriteFile(wakeTrigger, []byte("wake\n"), 0o600)
+	}()
+
+	start := time.Now()
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{
+		"loop", "--config", cfgPath, "--max-rounds", "2", "--dry-run",
+	}, &stdout, &stderr, executor.NewBasicExecutor())
+	<-doctorDone
+	elapsed := time.Since(start)
+	if code != ExitOK {
+		t.Fatalf("loop exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	if elapsed > 5*time.Second {
+		t.Fatalf("agentbus wake took %s, want early wake from 30s pause", elapsed)
+	}
+	if !strings.Contains(doctorDetail, "last_gate=gated") || !strings.Contains(doctorDetail, `pause_reason="quota paused"`) {
+		t.Fatalf("doctor detail while paused = %q, want last_gate=gated and pause_reason", doctorDetail)
+	}
 }

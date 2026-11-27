@@ -205,6 +205,12 @@ Environment variables are not expanded.
 | ~bot_rereview~                  | ~off~                                                                                                                                                                                                                                        | ~off~, ~dry-run~, or ~auto~ (also accepted as ~policy_bot_rereview~). In ~maintain~ and ~loop~, posts ~bot_rereview_body~ once per head when the bot has reviewed, its latest review is not ~APPROVED~, every review thread it started is resolved, and no comment with the same trimmed body is newer than the PR's last commit. |
 | ~bot_rereview_login~            | empty                                                                                                                                                                                                                                        | GitHub login of the review bot (matched case-insensitively with optional ~[bot]~ suffix). Required when ~bot_rereview~ is ~dry-run~ or ~auto~.                    |
 | ~bot_rereview_body~             | empty                                                                                                                                                                                                                                        | Literal PR comment body posted by ~bot_rereview~ (leading ~@~ is kept literal, e.g. ~@coderabbitai review~). Required when ~bot_rereview~ is ~dry-run~ or ~auto~. |
+| ~agentbus_bin~                  | ~agentbus~                                                                                                                                                                                                                                   | agentbus executable path or name.                                                                                                                               |
+| ~loop_pre_round_cmd~            | empty                                                                                                                                                                                                                                        | Optional direct-argv command (never ~sh -c~) run before each ~loop~ round's dispatches. Non-zero or error emits ~gated: true~, dispatches nothing, and pauses. |
+| ~loop_pre_round_timeout~        | ~30s~                                                                                                                                                                                                                                        | Go duration bounding ~loop_pre_round_cmd~ execution. Missing commands and timeouts are logged at ~WARN~ and treated as gated.                                   |
+| ~loop_gate_pause~               | ~5m~                                                                                                                                                                                                                                         | Default pause duration when ~loop_pre_round_cmd~ gates without a valid ~retry_after=~ line.                                                                     |
+| ~loop_gate_pause_max~           | ~1h~                                                                                                                                                                                                                                         | Maximum pause duration allowed for a ~retry_after=<RFC3339 or duration>~ line from ~loop_pre_round_cmd~ stdout.                                                 |
+| ~loop_wake_agentbus_name~       | empty                                                                                                                                                                                                                                        | Optional agentbus name watched via ~agentbus log --follow~ while paused to wake ~loop~ early on an incoming message.                                            |
 
 Default prompt text (checkout ~{head}~, mechanical vs judgment-call
 triage, reply on every thread and resolve unless that reply asks the
@@ -686,6 +692,7 @@ decide:
 - ~merge_ready~ — open, non-draft, in-scope PR that is ~MERGEABLE~ (not ~DIRTY~), ~APPROVED~, checks ~green~, with no unaddressed threads or pending review requests.
 - ~rereview_due~ — bot re-review is eligible while ~bot_rereview=off~ (with ~bot_rereview_login~ and ~bot_rereview_body~ configured).
 
+- *Pre-round gate and early wake* — when ~loop_pre_round_cmd~ is set, it runs via direct argv (never ~sh -c~) bounded by ~loop_pre_round_timeout~ before each round's dispatches. Exit ~0~ dispatches normally. Any non-zero exit, missing binary, start failure, or timeout logs at ~WARN~ (for execution errors), still scans and emits ~RoundResult~ with ~gated: true~ and ~gate_reason~ set to the first non-empty stdout line (or error summary), skips all dispatches (~dispatch~, ~ci_fix_inbox~, and ~bot_rereview~), and pauses for ~retry_after=<RFC3339 or duration>~ from stdout (clamped ~>= 0~ and capped by ~loop_gate_pause_max~) or ~loop_gate_pause~. While paused, ~SIGUSR1~ or an incoming message on ~loop_wake_agentbus_name~ (via ~agentbus log --follow~) wakes the loop early, keeping the pause timer as fallback.
 - *Locking* — holds an exclusive advisory ~flock~ on ~loop.lock~ (or
   ~loop-<hash>.lock~ when scoped to a config file) in the state
   directory (~filepath.Dir(state_file)~). A second loop for the same
@@ -696,10 +703,14 @@ decide:
 - *Heartbeat* — writes ~loop.heartbeat.json~ (or
   ~loop-<hash>.heartbeat.json~) atomically every ~30s~ and on round
   boundaries with ~pid~, ~config_path~, ~round~, ~state~ (~starting~,
-  ~running~, ~idle~, ~sleeping~), ~started_at~, ~updated_at~,
-  ~last_round_start~, and ~last_round_end~.
+  ~running~, ~idle~, ~sleeping~, ~paused~), ~started_at~, ~updated_at~,
+  ~last_round_start~, ~last_round_end~, and (when gated/paused)
+  ~last_gate_result~, ~last_gate_reason~, ~pause_reason~, and
+  ~paused_until~. A ~paused~ heartbeat with a live ~pid~ remains healthy
+  until ~paused_until~ plus ~10m~.
 - *Watchdog (~--ensure~)* — cheap, idempotent check intended for an
-  hourly timer or cron. When the heartbeat is at most ~10m~ old and its
+  hourly timer or cron. When the heartbeat is fresh (at most ~10m~ old,
+  or intentionally ~paused~ before ~paused_until + 10m~) and its
   ~pid~ is alive, ~--ensure~ exits ~0~ immediately. Otherwise it launches
   ~prsync loop~ detached in a new session, forwarding ~--config~,
   ~--max-rounds~, ~--pause~, ~--parallel~, ~--dry-run~, and ~--log-level~.
@@ -719,6 +730,8 @@ prsync doctor --config ./prsync.config --json --offline
 
 The ~loop~ check inspects the heartbeat for ~--config~ (or any
 ~loop*.heartbeat.json~ in the state directory when ~--config~ is omitted)
-and reports one of three states: ~running~ (~ok~), ~stale heartbeat~
-(~warn~ with hint to run ~prsync loop --ensure~), or ~not running~ (~ok~).
+and reports one of three states: ~running~ (~ok~, including ~paused~,
+~last_gate~, ~pause_reason~, and ~paused_until~ when present),
+~stale heartbeat~ (~warn~ with hint to run ~prsync loop --ensure~), or
+~not running~ (~ok~).
 
