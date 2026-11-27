@@ -604,26 +604,55 @@ func TestFocusRunsHerdrHereWithTheHubMachine(t *testing.T) {
 	}
 }
 
-func helloClient(body string) *Client {
-	return &Client{Label: "me@hub", Dial: func() (*Conn, error) {
-		r, w := io.Pipe()
-		go func() {
-			fmt.Fprintln(w, body)
-		}()
-		return &Conn{W: io.Discard, R: r, Close: func() { _ = w.Close() }}, nil
-	}}
+func helloClient(t *testing.T, body string) *Client {
+	t.Helper()
+	return &Client{
+		Label:    "me@hub",
+		CacheDir: t.TempDir(),
+		Timeout:  2 * time.Second,
+		Dial: func() (*Conn, error) {
+			reqR, reqW := io.Pipe()
+			respR, respW := io.Pipe()
+			go func() {
+				defer respW.Close()
+				// Wait for the client to send hello so pending[0] is registered
+				// before the response is written to respW.
+				sc := bufio.NewScanner(reqR)
+				if !sc.Scan() {
+					return
+				}
+				_, _ = fmt.Fprintln(respW, body)
+			}()
+			return &Conn{W: reqW, R: respR, Close: func() {
+				_ = reqW.Close()
+				_ = reqR.Close()
+				_ = respR.Close()
+				_ = respW.Close()
+			}}, nil
+		},
+	}
 }
 
 func TestOldServerFailsTheHandshake(t *testing.T) {
-	err := helloClient(`{"id":0,"error":"unknown op \"hello\""}`).Connect()
+	err := helloClient(t, `{"id":0,"error":"unknown op \"hello\""}`).Connect()
 	want := `hub me@hub: unknown op "hello"; update decide on the hub`
 	if err == nil || err.Error() != want {
 		t.Fatalf("connect = %v, want %s", err, want)
 	}
 }
 
+func TestHandshakeReceivesErrorWhenServerClosesImmediatelyAfterReply(t *testing.T) {
+	want := `hub me@hub: unknown op "hello"; update decide on the hub`
+	for i := range 50 {
+		err := helloClient(t, `{"id":0,"error":"unknown op \"hello\""}`).Connect()
+		if err == nil || err.Error() != want {
+			t.Fatalf("iter %d: connect = %v, want %s", i, err, want)
+		}
+	}
+}
+
 func TestNewerHubTellsYouToUpdateThisMachine(t *testing.T) {
-	err := helloClient(fmt.Sprintf(`{"id":0,"version":%d}`, Version+1)).Connect()
+	err := helloClient(t, fmt.Sprintf(`{"id":0,"version":%d}`, Version+1)).Connect()
 	want := fmt.Sprintf("hub me@hub: decide serve speaks protocol %d, this decide speaks %d; update decide on this machine", Version+1, Version)
 	if err == nil || err.Error() != want || strings.Contains(err.Error(), "on the hub") {
 		t.Fatalf("connect = %v, want %s", err, want)
@@ -631,7 +660,7 @@ func TestNewerHubTellsYouToUpdateThisMachine(t *testing.T) {
 }
 
 func TestOlderHubTellsYouToUpdateTheHub(t *testing.T) {
-	err := helloClient(fmt.Sprintf(`{"id":0,"version":%d}`, Version-1)).Connect()
+	err := helloClient(t, fmt.Sprintf(`{"id":0,"version":%d}`, Version-1)).Connect()
 	want := fmt.Sprintf("hub me@hub: decide serve speaks protocol %d, this decide speaks %d; update decide on the hub", Version-1, Version)
 	if err == nil || err.Error() != want {
 		t.Fatalf("connect = %v, want %s", err, want)

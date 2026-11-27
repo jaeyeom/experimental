@@ -1452,6 +1452,9 @@ func (s *session) do(ctx context.Context, req Request, timeout time.Duration) (R
 	_, err = s.conn.W.Write(append(line, '\n'))
 	s.wmu.Unlock()
 	if err != nil {
+		s.mu.Lock()
+		delete(s.pending, req.ID)
+		s.mu.Unlock()
 		return Response{}, fmt.Errorf("send request: %w", err)
 	}
 	timer := time.NewTimer(timeout)
@@ -1460,10 +1463,19 @@ func (s *session) do(ctx context.Context, req Request, timeout time.Duration) (R
 	case resp := <-ch:
 		return resp, nil
 	case <-s.done:
+		// Prefer a response already queued by read() before the stream hit EOF.
+		select {
+		case resp := <-ch:
+			return resp, nil
+		default:
+		}
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		return Response{}, s.err
 	case <-timer.C:
+		s.mu.Lock()
+		delete(s.pending, req.ID)
+		s.mu.Unlock()
 		return Response{}, fmt.Errorf("no answer in %s", timeout)
 	case <-ctx.Done():
 		s.mu.Lock()
@@ -1501,6 +1513,12 @@ func (s *session) startWatch(ctx context.Context, id, since int64, timeout time.
 	case resp := <-wch:
 		return resp, wch, nil
 	case <-s.done:
+		// Prefer a response already queued by read() before the stream hit EOF.
+		select {
+		case resp := <-wch:
+			return resp, wch, nil
+		default:
+		}
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		return Response{}, nil, s.err
