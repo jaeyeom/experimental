@@ -86,6 +86,35 @@ func TestRecordStdinFormats(t *testing.T) {
 	}
 }
 
+func TestRecordClaudeUsageQuotapaceJSONL(t *testing.T) {
+	h := newHarness(t)
+	lines := strings.Join([]string{
+		`{"window":"5h","percent":14.5,"resetsAt":"2026-11-17T03:00:00Z","source":"keychain:/Users/alice/.claude","at":"2026-11-16T23:55:00Z"}`,
+		`{"window":"7d","percent":33.3,"resetsAt":"2026-11-22T00:00:00Z","source":"keychain:/Users/alice/.claude","at":"2026-11-16T23:55:00Z"}`,
+		"",
+	}, "\n")
+	h.must(0, lines, "record", "--profile", "remote", "--stdin")
+
+	var snap quotapace.Snapshot
+	if err := json.Unmarshal([]byte(h.must(2, "", "status", "--profile", "remote", "--json")), &snap); err != nil {
+		t.Fatal(err)
+	}
+	ws := snap.Profiles[0].Windows
+	if len(ws) != 2 {
+		t.Fatalf("windows = %+v", ws)
+	}
+	if ws[0].Window != "5h" || ws[0].Latest.Percent != 14.5 || ws[0].Latest.Source != "keychain:/Users/alice/.claude" {
+		t.Fatalf("5h = %+v", ws[0].Latest)
+	}
+	if ws[1].Window != "7d" || ws[1].Latest.Percent != 33.3 || ws[1].Latest.Source != "keychain:/Users/alice/.claude" {
+		t.Fatalf("7d = %+v", ws[1].Latest)
+	}
+	wantAt := time.Date(2026, 11, 16, 23, 55, 0, 0, time.UTC)
+	if !ws[1].Latest.At.Equal(wantAt) {
+		t.Fatalf("at = %v, want %v", ws[1].Latest.At, wantAt)
+	}
+}
+
 func TestPlanStartRebaselineAndReport(t *testing.T) {
 	h := newHarness(t)
 	h.must(0, "", "record", "--profile", "work", "--window", "7d", "--percent", "27", "--resets-at", "2026-11-21T00:00:00Z")

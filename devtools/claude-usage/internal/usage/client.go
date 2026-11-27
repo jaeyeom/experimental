@@ -58,6 +58,8 @@ type Client struct {
 	UserAgent string
 	// Env looks up environment variables (default: os.Getenv).
 	Env func(string) string
+	// Now returns the current time for fetchedAt (default: time.Now).
+	Now func() time.Time
 }
 
 // Fetch implements Fetcher.
@@ -84,7 +86,18 @@ func (c *Client) Fetch(ctx context.Context) (*Data, error) {
 	if err != nil {
 		return nil, err
 	}
-	return mapAPIResponse(body, planName)
+	nowFn := c.Now
+	if nowFn == nil {
+		nowFn = time.Now
+	}
+	fetchedAt := nowFn().UTC()
+	d, err := mapAPIResponse(body, planName)
+	if err != nil {
+		return nil, err
+	}
+	d.FetchedAt = &fetchedAt
+	d.Source = creds.Source
+	return d, nil
 }
 
 func (c *Client) resolvePlan(ctx context.Context) (*credentials.Creds, string, error) {
@@ -196,16 +209,19 @@ func mapAPIResponse(body []byte, planName string) (*Data, error) {
 	return d, nil
 }
 
-func parseUtilization(v *float64) *int {
+func parseUtilization(v *float64) *float64 {
 	if v == nil {
 		return nil
 	}
 	if math.IsNaN(*v) || math.IsInf(*v, 0) {
 		return nil
 	}
-	// API returns 0–100 utilization percent; clamp and round like claude-hud.
-	n := int(math.Round(math.Max(0, math.Min(100, *v))))
-	return &n
+	// API returns 0–100 utilization percent; clamp without rounding to preserve decimal precision.
+	clamped := math.Max(0, math.Min(100, *v))
+	if clamped == 0 {
+		clamped = 0
+	}
+	return &clamped
 }
 
 func parseAPITime(s *string) (*time.Time, error) {

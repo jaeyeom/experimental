@@ -183,6 +183,14 @@ def test_build_title_with_claude_usage() -> None:
     """Default title incorporates claude-usage percentages when present."""
     usage = {"planName": "Team", "fiveHour": 2, "sevenDay": 12}
     assert tokens.build_title(None, usage) == "Tokens (5h 2%, 7d 12%)"
+    frac_usage = {
+        "planName": "Team",
+        "fiveHour": 2.4,
+        "sevenDay": 33.3,
+        "fetchedAt": "2026-11-26T12:00:00Z",
+        "source": "keychain:/Users/alice/.claude",
+    }
+    assert tokens.build_title(None, frac_usage) == "Tokens (5h 2.4%, 7d 33.3%)"
     assert tokens.build_title("Custom Title", usage) == "Custom Title"
     assert tokens.build_title(None, None) == "Tokens"
 

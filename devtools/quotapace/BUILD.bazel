@@ -6,6 +6,7 @@ go_library(
         "check.go",
         "checkpoint.go",
         "gate.go",
+        "jsonl.go",
         "pace.go",
         "quotapace.go",
         "schedule.go",

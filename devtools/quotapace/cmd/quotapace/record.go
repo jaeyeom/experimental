@@ -1,12 +1,10 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/quotapace"
@@ -78,13 +76,6 @@ func recordOne(store quotapace.Store, r quotapace.Reading, autoStart bool, stdou
 	return nil
 }
 
-// stdinReading is one JSON line. Profile, at, and source default to the
-// flags and now; resetsIn is an alternative to resetsAt.
-type stdinReading struct {
-	quotapace.Reading
-	ResetsIn string `json:"resetsIn"`
-}
-
 func readStdin(r io.Reader, format, profile, source string, now time.Time) ([]quotapace.Reading, error) {
 	switch format {
 	case "claude-usage":
@@ -100,45 +91,14 @@ func readStdin(r io.Reader, format, profile, source string, now time.Time) ([]qu
 }
 
 func readJSONL(r io.Reader, profile, source string, now time.Time) ([]quotapace.Reading, error) {
-	var out []quotapace.Reading
-	sc := bufio.NewScanner(r)
-	for line := 1; sc.Scan(); line++ {
-		if strings.TrimSpace(sc.Text()) == "" {
-			continue
+	readings, err := quotapace.ParseReadingsJSONL(r, profile, source, now)
+	if err != nil {
+		if errors.Is(err, quotapace.ErrInvalidInput) {
+			return nil, fmt.Errorf("%w: %w", errUsage, err)
 		}
-		var in stdinReading
-		if err := json.Unmarshal(sc.Bytes(), &in); err != nil {
-			return nil, usageErr("stdin line %d: %v", line, err)
-		}
-		rd := in.Reading
-		if rd.Profile == "" {
-			rd.Profile = profile
-		}
-		if rd.At.IsZero() {
-			rd.At = now
-		}
-		if rd.Source == "" {
-			rd.Source = source
-		}
-		if in.ResetsIn != "" && rd.ResetsAt.IsZero() {
-			d, err := quotapace.ParseDuration(in.ResetsIn)
-			if err != nil {
-				return nil, usageErr("stdin line %d: resetsIn: %v", line, err)
-			}
-			rd.ResetsAt = rd.At.Add(d)
-		}
-		if rd.Profile == "" || rd.Window == "" || rd.ResetsAt.IsZero() {
-			return nil, usageErr("stdin line %d: needs profile, window, and resetsAt or resetsIn", line)
-		}
-		out = append(out, rd)
+		return nil, fmt.Errorf("parse stdin jsonl: %w", err)
 	}
-	if err := sc.Err(); err != nil {
-		return nil, fmt.Errorf("read stdin: %w", err)
-	}
-	if len(out) == 0 {
-		return nil, usageErr("record: no --percent and no reading on stdin")
-	}
-	return out, nil
+	return readings, nil
 }
 
 // claudeUsage is the object `claude-usage --json` prints.
@@ -147,6 +107,8 @@ type claudeUsage struct {
 	SevenDay        *float64   `json:"sevenDay"`
 	FiveHourResetAt *time.Time `json:"fiveHourResetAt"`
 	SevenDayResetAt *time.Time `json:"sevenDayResetAt"`
+	FetchedAt       *time.Time `json:"fetchedAt"`
+	Source          string     `json:"source"`
 }
 
 func readClaudeUsage(r io.Reader, profile, source string, now time.Time) ([]quotapace.Reading, error) {
@@ -154,13 +116,20 @@ func readClaudeUsage(r io.Reader, profile, source string, now time.Time) ([]quot
 	if err := json.NewDecoder(r).Decode(&u); err != nil {
 		return nil, usageErr("claude-usage input: %v", err)
 	}
+	at := now
+	if u.FetchedAt != nil && !u.FetchedAt.IsZero() {
+		at = u.FetchedAt.UTC()
+	}
+	if source == "" {
+		source = u.Source
+	}
 	if source == "" {
 		source = "claude-usage"
 	}
 	var out []quotapace.Reading
 	add := func(window string, pct *float64, resets *time.Time) {
 		if pct != nil && resets != nil {
-			out = append(out, quotapace.Reading{At: now, Profile: profile, Window: window, Percent: *pct, ResetsAt: *resets, Source: source})
+			out = append(out, quotapace.Reading{At: at, Profile: profile, Window: window, Percent: *pct, ResetsAt: *resets, Source: source})
 		}
 	}
 	add("5h", u.FiveHour, u.FiveHourResetAt)

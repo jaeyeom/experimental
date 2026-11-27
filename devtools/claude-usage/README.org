@@ -48,14 +48,17 @@ bazel run //devtools/claude-usage/cmd/claude-usage
 
 * Usage
 
-The only flag is ~--json~. Any other argument is an error.
+Pass ~--json~ for a single JSON object or ~--quotapace~ for JSON lines
+compatible with ~quotapace record --stdin~ (mutually exclusive). Any
+other positional argument is an error.
 
 #+BEGIN_SRC bash
 claude-usage
 claude-usage --json
+claude-usage --quotapace | quotapace record --profile work --stdin
 #+END_SRC
 
-Human output:
+Human output (rounded to whole percentages):
 
 #+BEGIN_EXAMPLE
 plan: Team
@@ -65,17 +68,32 @@ plan: Team
 
 A missing percentage is =?= and a missing reset time is =n/a=.
 
-~--json~ prints this object:
+~--json~ keeps the utilization precision returned by the API without
+rounding (for example ~33.3~; if the API itself only returns whole
+numbers, ~--json~ keeps the integers), and adds ~fetchedAt~ (RFC 3339)
+and ~source~ (~keychain:<configDir>~ or ~credentials-file:<configDir>~):
 
 #+BEGIN_SRC json
 {
   "planName": "Team",
-  "fiveHour": 2,
-  "sevenDay": 12,
+  "fiveHour": 2.4,
+  "sevenDay": 33.3,
   "fiveHourResetAt": "2026-07-24T03:29:59.312Z",
-  "sevenDayResetAt": "2026-07-27T22:59:59.312Z"
+  "sevenDayResetAt": "2026-07-27T22:59:59.312Z",
+  "fetchedAt": "2026-07-24T01:00:00Z",
+  "source": "keychain:/Users/alice/.claude"
 }
 #+END_SRC
+
+~--quotapace~ prints one compact JSON line per window (~5h~ and ~7d~) in
+~quotapace record --stdin~ format (~window~, ~percent~, ~resetsAt~,
+~source~, ~at~), skipping any window without both utilization and reset
+time (exiting 2 if neither window has both):
+
+#+BEGIN_EXAMPLE
+{"window":"5h","percent":2.4,"resetsAt":"2026-07-24T03:29:59.312Z","source":"keychain:/Users/alice/.claude","at":"2026-07-24T01:00:00Z"}
+{"window":"7d","percent":33.3,"resetsAt":"2026-07-27T22:59:59.312Z","source":"keychain:/Users/alice/.claude","at":"2026-07-24T01:00:00Z"}
+#+END_EXAMPLE
 
 * Exit codes
 
@@ -112,6 +130,7 @@ On a machine where Claude Code is already logged in with a subscription:
 #+BEGIN_SRC bash
 go run ./devtools/claude-usage/cmd/claude-usage
 go run ./devtools/claude-usage/cmd/claude-usage --json
+go run ./devtools/claude-usage/cmd/claude-usage --quotapace
 #+END_SRC
 
 Unit tests cover formatting, the Keychain service name, credential

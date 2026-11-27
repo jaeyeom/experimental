@@ -2,8 +2,9 @@
 //
 // Usage:
 //
-//	claude-usage          # human-readable table
-//	claude-usage --json   # stable JSON contract
+//	claude-usage              # human-readable table
+//	claude-usage --json       # stable JSON contract
+//	claude-usage --quotapace  # JSON lines for quotapace record --stdin
 //
 // Exit codes:
 //
@@ -44,12 +45,18 @@ func run(args []string, stdout, stderr io.Writer, fetcher usage.Fetcher) int {
 	fs := flag.NewFlagSet("claude-usage", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	wantJSON := fs.Bool("json", false, "print raw JSON instead of the human-readable table")
+	wantQuotapace := fs.Bool("quotapace", false, "print JSON lines for quotapace record --stdin")
 	fs.Usage = func() {
-		fmt.Fprintf(stderr, "Usage: claude-usage [--json]\n\n")
+		fmt.Fprintf(stderr, "Usage: claude-usage [--json | --quotapace]\n\n")
 		fmt.Fprintf(stderr, "Print Claude Code 5-hour and 7-day usage windows.\n\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
+		return exitError
+	}
+	if *wantJSON && *wantQuotapace {
+		fmt.Fprintf(stderr, "error: --json and --quotapace are mutually exclusive\n")
+		fs.Usage()
 		return exitError
 	}
 	if fs.NArg() > 0 {
@@ -58,7 +65,14 @@ func run(args []string, stdout, stderr io.Writer, fetcher usage.Fetcher) int {
 		return exitError
 	}
 
-	err := usage.Write(context.Background(), stdout, fetcher, *wantJSON)
+	format := usage.OutputHuman
+	switch {
+	case *wantJSON:
+		format = usage.OutputJSON
+	case *wantQuotapace:
+		format = usage.OutputQuotapace
+	}
+	err := usage.Write(context.Background(), stdout, fetcher, format)
 	if err == nil {
 		return exitOK
 	}

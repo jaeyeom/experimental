@@ -26,6 +26,12 @@ import (
 // LegacyKeychainService is the Keychain service name for the default ~/.claude config dir.
 const LegacyKeychainService = "Claude Code-credentials"
 
+// Credential source kinds included in Creds.Source.
+const (
+	SourceKindKeychain        = "keychain"
+	SourceKindCredentialsFile = "credentials-file"
+)
+
 // Sentinel errors for credential resolution failures.
 var (
 	// ErrNotFound means no usable OAuth credentials were found.
@@ -43,6 +49,7 @@ var (
 type Creds struct {
 	AccessToken      string
 	SubscriptionType string
+	Source           string
 }
 
 // String redacts the token so accidental fmt.Print never leaks it.
@@ -263,14 +270,19 @@ func (r *Resolver) resolveKeychain(ctx context.Context, configDir, home string, 
 	account := r.accountName()
 
 	// Prefer account-scoped lookup when we know the username (Claude Code stores acct).
+	var creds *Creds
+	var err error
 	if account != "" {
-		creds, err := r.tryKeychainServices(ctx, services, account, now)
-		if creds != nil || (err != nil && !errors.Is(err, ErrNotFound)) {
-			return creds, err
-		}
+		creds, err = r.tryKeychainServices(ctx, services, account, now)
 	}
-	// Generic fallback without -a.
-	return r.tryKeychainServices(ctx, services, "", now)
+	if creds == nil && (err == nil || errors.Is(err, ErrNotFound)) {
+		// Generic fallback without -a.
+		creds, err = r.tryKeychainServices(ctx, services, "", now)
+	}
+	if creds != nil {
+		creds.Source = formatSource(SourceKindKeychain, configDir)
+	}
+	return creds, err
 }
 
 func (r *Resolver) tryKeychainServices(ctx context.Context, services []string, account string, now time.Time) (*Creds, error) {
@@ -334,7 +346,12 @@ func (r *Resolver) resolveFile(configDir string, now time.Time) (*Creds, error) 
 	if err != nil {
 		return nil, err
 	}
+	creds.Source = formatSource(SourceKindCredentialsFile, configDir)
 	return creds, nil
+}
+
+func formatSource(kind, configDir string) string {
+	return kind + ":" + configDir
 }
 
 func (r *Resolver) fileSubscriptionType(configDir string) (string, bool) {

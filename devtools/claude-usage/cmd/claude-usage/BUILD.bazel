@@ -30,7 +30,9 @@ go_test(
     ],
     embed = [":go_default_library"],
     deps = [
+        "//devtools/claude-usage/internal/credentials:go_default_library",
         "//devtools/claude-usage/internal/usage:go_default_library",
         "//devtools/pkg/toolcli:go_default_library",
+        "//devtools/quotapace:go_default_library",
     ],
 )

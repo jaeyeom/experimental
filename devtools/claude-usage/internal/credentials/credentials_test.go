@@ -156,6 +156,10 @@ func TestResolveFromFile(t *testing.T) {
 	if creds.AccessToken != "file-token" || creds.SubscriptionType != "pro" {
 		t.Fatalf("got %+v", creds)
 	}
+	wantSource := "credentials-file:" + dir
+	if creds.Source != wantSource {
+		t.Fatalf("Source = %q, want %q", creds.Source, wantSource)
+	}
 }
 
 func TestResolveKeychainPreferred(t *testing.T) {
@@ -205,6 +209,10 @@ func TestResolveKeychainPreferred(t *testing.T) {
 	if creds.SubscriptionType != "team" {
 		t.Fatalf("sub = %q", creds.SubscriptionType)
 	}
+	wantSource := "keychain:" + configDir
+	if creds.Source != wantSource {
+		t.Fatalf("Source = %q, want %q", creds.Source, wantSource)
+	}
 }
 
 func TestResolveKeychainSupplementsSubscriptionFromFile(t *testing.T) {
@@ -239,6 +247,46 @@ func TestResolveKeychainSupplementsSubscriptionFromFile(t *testing.T) {
 	}
 	if creds.SubscriptionType != "max" {
 		t.Fatalf("sub = %q, want max from file", creds.SubscriptionType)
+	}
+	wantSource := "keychain:" + configDir
+	if creds.Source != wantSource {
+		t.Fatalf("Source = %q, want %q", creds.Source, wantSource)
+	}
+}
+
+func TestResolveExpiredKeychainFallsBackToFileSource(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	configDir := filepath.Join(home, ".claude-custom")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, ".credentials.json"), []byte(`{
+		"claudeAiOauth": {"accessToken":"file-token","subscriptionType":"team","expiresAt":1893456000000}
+	}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	r := &Resolver{
+		ConfigDir: configDir,
+		HomeDir:   home,
+		GOOS:      "darwin",
+		Username:  "tester",
+		Now:       func() time.Time { return now },
+		LoadKeychain: func(context.Context, string, string) (string, error) {
+			return `{"claudeAiOauth":{"accessToken":"expired","expiresAt":1000}}`, nil
+		},
+	}
+	creds, err := r.Resolve(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if creds.AccessToken != "file-token" {
+		t.Fatalf("token = %q, want file-token", creds.AccessToken)
+	}
+	wantSource := "credentials-file:" + configDir
+	if creds.Source != wantSource {
+		t.Fatalf("Source = %q, want %q", creds.Source, wantSource)
 	}
 }
 

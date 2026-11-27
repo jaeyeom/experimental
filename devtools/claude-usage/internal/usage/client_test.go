@@ -48,14 +48,17 @@ func TestClientFetchSuccess(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
+	fetchedAt := time.Date(2026, 7, 24, 1, 0, 0, 0, time.UTC)
 	c := &Client{
 		Tokens: staticTokens{creds: &credentials.Creds{
 			AccessToken:      "test-token",
 			SubscriptionType: "team",
+			Source:           "keychain:/Users/tester/.claude",
 		}},
 		HTTPClient: srv.Client(),
 		BaseURL:    srv.URL,
 		Env:        func(string) string { return "" },
+		Now:        func() time.Time { return fetchedAt },
 	}
 
 	data, err := c.Fetch(context.Background())
@@ -65,11 +68,17 @@ func TestClientFetchSuccess(t *testing.T) {
 	if data.PlanName != "Team" {
 		t.Errorf("PlanName = %q", data.PlanName)
 	}
-	if data.FiveHour == nil || *data.FiveHour != 2 {
-		t.Errorf("FiveHour = %v", data.FiveHour)
+	if data.FiveHour == nil || *data.FiveHour != 2.4 {
+		t.Errorf("FiveHour = %v, want 2.4", data.FiveHour)
 	}
 	if data.SevenDay == nil || *data.SevenDay != 12 {
-		t.Errorf("SevenDay = %v", data.SevenDay)
+		t.Errorf("SevenDay = %v, want 12", data.SevenDay)
+	}
+	if data.FetchedAt == nil || !data.FetchedAt.Equal(fetchedAt) {
+		t.Errorf("FetchedAt = %v, want %v", data.FetchedAt, fetchedAt)
+	}
+	if data.Source != "keychain:/Users/tester/.claude" {
+		t.Errorf("Source = %q", data.Source)
 	}
 	want5 := time.Date(2026, 7, 24, 3, 29, 59, 312000000, time.UTC)
 	if data.FiveHourResetAt == nil || !data.FiveHourResetAt.Equal(want5) {
@@ -266,15 +275,30 @@ func TestUsingCustomAPIEndpoint(t *testing.T) {
 
 func TestParseUtilizationClamp(t *testing.T) {
 	t.Parallel()
+	frac := 33.3
+	got := parseUtilization(&frac)
+	if got == nil || *got != 33.3 {
+		t.Fatalf("got %v, want 33.3", got)
+	}
+	whole := 12.0
+	got = parseUtilization(&whole)
+	if got == nil || *got != 12 {
+		t.Fatalf("got %v, want 12", got)
+	}
 	v := 150.7
-	got := parseUtilization(&v)
+	got = parseUtilization(&v)
 	if got == nil || *got != 100 {
 		t.Fatalf("got %v, want 100", got)
 	}
 	neg := -3.2
 	got = parseUtilization(&neg)
-	if got == nil || *got != 0 {
-		t.Fatalf("got %v, want 0", got)
+	if got == nil || *got != 0 || math.Signbit(*got) {
+		t.Fatalf("got %v, want +0", got)
+	}
+	negZero := math.Copysign(0, -1)
+	got = parseUtilization(&negZero)
+	if got == nil || *got != 0 || math.Signbit(*got) {
+		t.Fatalf("got %v, want +0", got)
 	}
 	nan := math.NaN()
 	if parseUtilization(&nan) != nil {

@@ -23,8 +23,8 @@ func TestFormatHuman(t *testing.T) {
 			name: "full data",
 			data: &Data{
 				PlanName:        "Team",
-				FiveHour:        Int(2),
-				SevenDay:        Int(12),
+				FiveHour:        Float(2),
+				SevenDay:        Float(12),
 				FiveHourResetAt: Time(reset5),
 				SevenDayResetAt: Time(reset7),
 			},
@@ -32,6 +32,22 @@ func TestFormatHuman(t *testing.T) {
 				"plan: Team",
 				"  5-hour    2%   resets 2026-07-24 03:29 UTC",
 				"  7-day    12%   resets 2026-07-27 22:59 UTC",
+				"",
+			}, "\n"),
+		},
+		{
+			name: "fractional values round in human output",
+			data: &Data{
+				PlanName:        "Team",
+				FiveHour:        Float(2.4),
+				SevenDay:        Float(33.6),
+				FiveHourResetAt: Time(reset5),
+				SevenDayResetAt: Time(reset7),
+			},
+			want: strings.Join([]string{
+				"plan: Team",
+				"  5-hour    2%   resets 2026-07-24 03:29 UTC",
+				"  7-day    34%   resets 2026-07-27 22:59 UTC",
 				"",
 			}, "\n"),
 		},
@@ -50,8 +66,8 @@ func TestFormatHuman(t *testing.T) {
 		{
 			name: "empty plan name becomes unknown",
 			data: &Data{
-				FiveHour: Int(100),
-				SevenDay: Int(0),
+				FiveHour: Float(100),
+				SevenDay: Float(0),
 			},
 			want: strings.Join([]string{
 				"plan: unknown",
@@ -89,12 +105,15 @@ func TestFormatJSON(t *testing.T) {
 
 	reset5 := time.Date(2026, 7, 24, 3, 29, 59, 312000000, time.UTC)
 	reset7 := time.Date(2026, 7, 27, 22, 59, 59, 312000000, time.UTC)
+	fetchedAt := time.Date(2026, 7, 24, 1, 0, 0, 0, time.UTC)
 	data := &Data{
 		PlanName:        "Team",
-		FiveHour:        Int(2),
-		SevenDay:        Int(12),
+		FiveHour:        Float(33.3),
+		SevenDay:        Float(12),
 		FiveHourResetAt: Time(reset5),
 		SevenDayResetAt: Time(reset7),
+		FetchedAt:       Time(fetchedAt),
+		Source:          "keychain:/Users/alice/.claude",
 	}
 
 	var buf bytes.Buffer
@@ -110,17 +129,26 @@ func TestFormatJSON(t *testing.T) {
 	if got["planName"] != "Team" {
 		t.Errorf("planName = %v", got["planName"])
 	}
-	if got["fiveHour"] != float64(2) {
-		t.Errorf("fiveHour = %v", got["fiveHour"])
+	if got["fiveHour"] != 33.3 {
+		t.Errorf("fiveHour = %v, want 33.3", got["fiveHour"])
 	}
 	if got["sevenDay"] != float64(12) {
-		t.Errorf("sevenDay = %v", got["sevenDay"])
+		t.Errorf("sevenDay = %v, want 12", got["sevenDay"])
+	}
+	if !strings.Contains(buf.String(), `"sevenDay": 12,`) {
+		t.Errorf("whole number should serialize as integer in JSON:\n%s", buf.String())
 	}
 	if got["fiveHourResetAt"] != "2026-07-24T03:29:59.312Z" {
 		t.Errorf("fiveHourResetAt = %v", got["fiveHourResetAt"])
 	}
 	if got["sevenDayResetAt"] != "2026-07-27T22:59:59.312Z" {
 		t.Errorf("sevenDayResetAt = %v", got["sevenDayResetAt"])
+	}
+	if got["fetchedAt"] != "2026-07-24T01:00:00Z" {
+		t.Errorf("fetchedAt = %v", got["fetchedAt"])
+	}
+	if got["source"] != "keychain:/Users/alice/.claude" {
+		t.Errorf("source = %v", got["source"])
 	}
 }
 
@@ -148,5 +176,77 @@ func TestFormatJSONNil(t *testing.T) {
 	var buf bytes.Buffer
 	if err := FormatJSON(&buf, nil); err == nil {
 		t.Fatal("expected error for nil data")
+	}
+}
+
+func TestFormatQuotapace(t *testing.T) {
+	t.Parallel()
+
+	reset5 := time.Date(2026, 7, 24, 3, 29, 59, 312000000, time.UTC)
+	reset7 := time.Date(2026, 7, 27, 22, 59, 59, 0, time.UTC)
+	fetchedAt := time.Date(2026, 7, 24, 1, 0, 0, 0, time.UTC)
+
+	data := &Data{
+		PlanName:        "Team",
+		FiveHour:        Float(0),
+		SevenDay:        Float(33.3),
+		FiveHourResetAt: Time(reset5),
+		SevenDayResetAt: Time(reset7),
+		FetchedAt:       Time(fetchedAt),
+		Source:          "credentials-file:/home/alice/.claude",
+	}
+
+	var buf bytes.Buffer
+	if err := FormatQuotapace(&buf, data); err != nil {
+		t.Fatalf("FormatQuotapace: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d lines, want 2:\n%s", len(lines), buf.String())
+	}
+
+	var first, second map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &first); err != nil {
+		t.Fatalf("line 0 json: %v", err)
+	}
+	if err := json.Unmarshal([]byte(lines[1]), &second); err != nil {
+		t.Fatalf("line 1 json: %v", err)
+	}
+	if first["window"] != "5h" || first["percent"] != float64(0) ||
+		first["resetsAt"] != "2026-07-24T03:29:59.312Z" ||
+		first["source"] != "credentials-file:/home/alice/.claude" ||
+		first["at"] != "2026-07-24T01:00:00Z" {
+		t.Fatalf("unexpected 5h line: %v", first)
+	}
+	if second["window"] != "7d" || second["percent"] != 33.3 ||
+		second["resetsAt"] != "2026-07-27T22:59:59Z" ||
+		second["source"] != "credentials-file:/home/alice/.claude" ||
+		second["at"] != "2026-07-24T01:00:00Z" {
+		t.Fatalf("unexpected 7d line: %v", second)
+	}
+}
+
+func TestFormatQuotapaceSkipsIncompleteAndRejectsEmpty(t *testing.T) {
+	t.Parallel()
+
+	reset7 := time.Date(2026, 7, 27, 22, 59, 59, 0, time.UTC)
+	var buf bytes.Buffer
+	err := FormatQuotapace(&buf, &Data{
+		FiveHour:        Float(10),
+		SevenDay:        Float(45.5),
+		SevenDayResetAt: Time(reset7),
+	})
+	if err != nil {
+		t.Fatalf("FormatQuotapace partial: %v", err)
+	}
+	lines := strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n")
+	if len(lines) != 1 || !strings.Contains(lines[0], `"window":"7d"`) {
+		t.Fatalf("got %q", buf.String())
+	}
+
+	buf.Reset()
+	if err := FormatQuotapace(&buf, &Data{PlanName: "Pro"}); err != ErrNoData {
+		t.Fatalf("got %v, want ErrNoData", err)
 	}
 }

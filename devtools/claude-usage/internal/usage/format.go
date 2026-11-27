@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 	"time"
 )
@@ -43,6 +44,57 @@ func FormatJSON(w io.Writer, d *Data) error {
 	return nil
 }
 
+type quotapaceLine struct {
+	Window   string     `json:"window"`
+	Percent  float64    `json:"percent"`
+	ResetsAt time.Time  `json:"resetsAt"`
+	Source   string     `json:"source,omitempty"`
+	At       *time.Time `json:"at,omitempty"`
+}
+
+// FormatQuotapace writes one JSON line per window in `quotapace record --stdin` format.
+// Returns ErrNoData when neither window has both utilization and reset time.
+func FormatQuotapace(w io.Writer, d *Data) error {
+	if d == nil {
+		return fmt.Errorf("usage data is nil")
+	}
+	var at *time.Time
+	if d.FetchedAt != nil && !d.FetchedAt.IsZero() {
+		t := d.FetchedAt.UTC()
+		at = &t
+	}
+	windows := []struct {
+		name    string
+		percent *float64
+		resets  *time.Time
+	}{
+		{name: "5h", percent: d.FiveHour, resets: d.FiveHourResetAt},
+		{name: "7d", percent: d.SevenDay, resets: d.SevenDayResetAt},
+	}
+	enc := json.NewEncoder(w)
+	wrote := 0
+	for _, win := range windows {
+		if win.percent == nil || win.resets == nil || win.resets.IsZero() {
+			continue
+		}
+		line := quotapaceLine{
+			Window:   win.name,
+			Percent:  *win.percent,
+			ResetsAt: win.resets.UTC(),
+			Source:   d.Source,
+			At:       at,
+		}
+		if err := enc.Encode(line); err != nil {
+			return fmt.Errorf("encode quotapace line: %w", err)
+		}
+		wrote++
+	}
+	if wrote == 0 {
+		return ErrNoData
+	}
+	return nil
+}
+
 func writef(w io.Writer, format string, args ...any) error {
 	if _, err := fmt.Fprintf(w, format, args...); err != nil {
 		return fmt.Errorf("write usage output: %w", err)
@@ -50,11 +102,11 @@ func writef(w io.Writer, format string, args ...any) error {
 	return nil
 }
 
-func pct(v *int) string {
+func pct(v *float64) string {
 	if v == nil {
 		return "  ?"
 	}
-	return fmt.Sprintf("%3d%%", *v)
+	return fmt.Sprintf("%3d%%", int(math.Round(*v)))
 }
 
 func when(t *time.Time) string {
@@ -65,8 +117,8 @@ func when(t *time.Time) string {
 	return t.UTC().Format("2006-01-02 15:04 UTC")
 }
 
-// Int returns a pointer to v (helper for tests and callers).
-func Int(v int) *int { return &v }
+// Float returns a pointer to v (helper for tests and callers).
+func Float(v float64) *float64 { return &v }
 
 // Time returns a pointer to t.
 func Time(t time.Time) *time.Time { return &t }
