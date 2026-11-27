@@ -24,6 +24,7 @@ func newDecideTool() toolcli.Tool {
 		MainPackage:   "github.com/jaeyeom/experimental/devtools/decide/cmd/decide",
 		DaemonService: "decide follow",
 		SkillText:     skillText,
+		SkillFiles:    decideSkillFiles(),
 		ConfigPath:    decide.ConfigPath,
 		CheckConfig: func() error {
 			if _, err := decide.LoadConfig(); err != nil {

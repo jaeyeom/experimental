@@ -122,3 +122,7 @@ Deadlines are RFC3339.
 ## Approval
 
 An inbox answer may not count as approval for an outward action, such as posting to chat, writing to a tracker, or merging, when that agent's own check requires a typed approval. File that item as a "type this in tab X" step and include the exact text.
+
+## Setup
+
+When the user asks to set up, install, or configure `decide` (e.g. `/decide setup`), read `references/setup.md` next to this file and follow it.
