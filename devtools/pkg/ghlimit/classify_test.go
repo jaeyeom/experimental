@@ -148,3 +148,96 @@ func TestConfigFromEnv(t *testing.T) {
 		}
 	}
 }
+
+func TestIsPreflightAndPaginatedAndLocal(t *testing.T) {
+	for _, args := range [][]string{
+		{"auth", "status"},
+		{"auth", "status", "-h", "github.com"},
+		{"auth", "status", "--active"},
+		{"api", "rate_limit"},
+		{"api", "/rate_limit"},
+	} {
+		if !IsPreflight(args) {
+			t.Errorf("IsPreflight(%q) = false, want true", args)
+		}
+	}
+	for _, args := range [][]string{
+		{"auth", "token"},
+		{"pr", "view", "1"},
+		{"api", "repos/o/r"},
+		{"auth", "status", "--help"},
+	} {
+		if IsPreflight(args) {
+			t.Errorf("IsPreflight(%q) = true, want false", args)
+		}
+	}
+	if !IsPaginated([]string{"api", "--paginate", "repos/o/r/pulls"}) {
+		t.Error("IsPaginated(--paginate) = false")
+	}
+	if IsPaginated([]string{"api", "--paginate=false", "repos/o/r/pulls"}) {
+		t.Error("IsPaginated(--paginate=false) = true")
+	}
+	for _, args := range [][]string{
+		{"--version"},
+		{"version"},
+		{"--help"},
+		{"-h"},
+		{"help"},
+		{"pr", "view", "--help"},
+		{"auth", "token"},
+	} {
+		if !isLocalCommand(args) {
+			t.Errorf("isLocalCommand(%q) = false, want true", args)
+		}
+	}
+	if isLocalCommand([]string{"auth", "status", "-h", "github.com"}) {
+		t.Error("isLocalCommand(auth status -h github.com) = true, want false")
+	}
+}
+
+func TestCountPaginatedPages(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		res  Result
+		want int
+	}{
+		{
+			name: "concatenated objects",
+			args: []string{"api", "graphql", "--paginate"},
+			res:  Result{Stdout: []byte(`{"a":"{}"}{"b":2}{"c":3}`), StdoutKept: true, StdoutLen: 23},
+			want: 3,
+		},
+		{
+			name: "concatenated arrays with empty page",
+			args: []string{"api", "--paginate", "repos/o/r/pulls"},
+			res:  Result{Stdout: []byte("[{\"id\":1}]\n[]\n[{\"id\":2}]\n"), StdoutKept: true, StdoutLen: 25},
+			want: 3,
+		},
+		{
+			name: "slurp array",
+			args: []string{"api", "--paginate", "--slurp", "repos/o/r/pulls"},
+			res:  Result{Stdout: []byte(`[[{"id":1}],[{"id":2}],[]]`), StdoutKept: true, StdoutLen: 25},
+			want: 3,
+		},
+		{
+			name: "include http headers",
+			args: []string{"api", "-i", "--paginate", "repos/o/r/pulls"},
+			res:  Result{Stdout: []byte("HTTP/2.0 200 OK\n\n[]\nHTTP/2.0 200 OK\n\n[]\n"), StdoutKept: true, StdoutLen: 40},
+			want: 2,
+		},
+		{
+			name: "jq transform estimates by bytes",
+			args: []string{"api", "--paginate", "--jq", ".[]", "repos/o/r/pulls"},
+			res:  Result{StdoutLen: 64 << 10},
+			want: 2,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := countPaginatedPages(tc.args, tc.res); got != tc.want {
+				t.Errorf("countPaginatedPages = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}

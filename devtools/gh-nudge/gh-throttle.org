@@ -53,24 +53,40 @@ through instead of waiting for the slot its parent holds.
   DELETE, ~api~ with ~-f~ / ~-F~ fields and no method (gh then POSTs), and
   ~api graphql~ whose inline ~query=~ starts with ~mutation~. Reads are not
   delayed by the gap.
-- *Back off instead of failing.* When gh fails with ~rate limit~, ~secondary
-  rate limit~ or ~abuse detection~ on stderr (or, for ~gh api~, HTTP 403 or
-  429), and wrote nothing to stdout, gh-throttle waits and runs the call once
-  more while still holding its slot. The wait is the ~Retry-After~ or
-  ~x-ratelimit-reset~ header when gh output shows one, else ~backoff~, capped
-  at ~max_backoff~. If the retry fails too, its exit code and stderr come back
-  unchanged. A call that already wrote to stdout is never retried, so output
-  is not duplicated. (~gh api~ prints an error body to stdout, so a failed
-  ~gh api~ call is usually not retried.)
+- *Back off instead of failing, with an account-wide cooldown.* When gh fails
+  with ~rate limit~, ~secondary rate limit~ or ~abuse detection~ on stderr (or,
+  for ~gh api~, HTTP 403 or 429), gh-throttle records a shared cooldown in
+  ~cooldown.json~ in the lock directory (guarded by ~cooldown.lock~). The first
+  hit sets the cooldown to ~Retry-After~ or ~x-ratelimit-reset~ when gh output
+  shows one, else ~backoff~, capped at ~max_backoff~; each further hit during
+  the cooldown doubles the duration up to ~max_backoff~. Every non-local caller
+  waits for any active cooldown (logged as reason ~cooldown~) before taking a
+  slot. When the rate-limited call wrote nothing to stdout (and is not a
+  preflight check), gh-throttle releases its slot and mutation lock before
+  sleeping for the backoff, re-acquires them afterwards, and runs the call once
+  more. If the retry fails too, its exit code and stderr come back unchanged. A
+  call that already wrote to stdout is never retried, so output is not
+  duplicated, though it still triggers the shared cooldown. (~gh api~ prints an
+  error body to stdout, so a failed ~gh api~ call is usually not retried.)
+- *Preflights fail fast during cooldown.* Non-data preflight checks (~gh auth
+  status~ and GET ~gh api rate_limit~) are never retried in a loop and do not
+  sleep for an active cooldown. Instead, during a cooldown (or when the live
+  preflight call hits a rate limit), gh-throttle returns immediately with exit
+  code ~75~ (~EX_TEMPFAIL~) and prints ~GH_THROTTLE_RATE_LIMITED~ (along with
+  ~rate limit~ and ~not an auth failure~) on stderr so callers can distinguish a
+  rate-limit cooldown from exit ~1~ ("not logged in").
 - *Never deadlock.* A process that dies drops its lock. A lock wait longer
-  than ~max_wait~ (10m) is logged and the call runs anyway.
+  than ~max_wait~ (10m) is logged and the call runs anyway. A ~--paginate~ call
+  is capped by ~paginate_timeout~ (default 60s, or ~0~ to disable) so a runaway
+  paginated query cannot stall callers or burn budget indefinitely.
 - *Logging.* A call that waits more than 200ms in total is logged as one JSON
   line in ~$XDG_STATE_HOME/gh-throttle/log.jsonl~ (default
   =~/.local/state/gh-throttle/log.jsonl=): ~time~, ~pid~, ~caller~ (the parent
   process name), ~args~ (command, subcommand and flag names, with every value
-  replaced by ~_~), ~reason~ (~slot~, ~slot_timeout~, ~mutation_gap~,
-  ~backoff~, joined by ~+~) and ~waitMs~. A read served from the cache logs a
-  ~cache_hit~ line.
+  replaced by ~_~), ~reason~ (~cooldown~, ~slot~, ~slot_timeout~,
+  ~mutation_gap~, ~backoff~, ~points_budget~, ~search_budget~,
+  ~graphql_time_budget~, joined by ~+~) and ~waitMs~. A read served from the
+  cache logs a ~cache_hit~ line.
 
 gh's stderr is held until gh exits so a retried attempt's error is not
 shown. When stderr is a terminal it is shown live as well. When stdout is a
@@ -81,13 +97,18 @@ terminal gh gets it directly, so tables and colors look as usual.
 ~gh-throttle --stats [--since 1h] [--json]~ summarises both logs over the
 window (default one hour):
 
-- *waits:* how many calls waited and for how long, by reason (~slot~,
-  ~mutation_gap~, ~backoff~, ~points_budget~, ~graphql_time_budget~, ...) and
-  by caller. Many ~points_budget~ or ~graphql_time_budget~ waits mean the
-  budgets are holding calls back; many ~backoff~ waits mean GitHub still
-  rejected calls, so the budgets may be too high.
+- *waits:* how many calls waited and for how long, by reason (~cooldown~, ~slot~,
+  ~mutation_gap~, ~backoff~, ~points_budget~, ~search_budget~,
+  ~graphql_time_budget~, ...) and by caller. Many ~points_budget~,
+  ~search_budget~, or ~graphql_time_budget~ waits mean the budgets are holding
+  calls back; many ~backoff~ or ~cooldown~ waits mean GitHub still rejected
+  calls, so the budgets may be too high.
 - *calls:* the calls, points and GraphQL time in the window, the number of
-  rate-limited calls and of cache hits.
+  rate-limited calls, cooldowns, and cache hits.
+- *cooldowns by cause:* which caller, rate-limit cause (~secondary_rate_limit~,
+  ~http_429~, ~http_403~, ~abuse_detection~, ~rate_limit~), and redacted command
+  triggered or extended an account-wide cooldown, hit count, and total cooldown
+  duration.
 - *top callers by points* and *by GraphQL time:* which tool spends the
   budget.
 - *top queries by total time* and *by count:* which ~gh api graphql~ queries
@@ -115,46 +136,57 @@ does not show:
 - *CPU time.* About 90s of server CPU per 60s of real time, at most 60s of
   it for GraphQL. A few large nested queries can use this up.
 
-gh-throttle charges each call under that model and keeps two rolling
-budgets over the last 60s for all of the user's processes, in
-~budget.json~ in the lock directory (guarded by ~budget.lock~):
+gh-throttle charges each call under that model and keeps rolling budgets over
+the last 60s for all of the user's processes, in ~budget.json~ in the lock
+directory (guarded by ~budget.lock~):
 
 - ~points_per_min~ (default 1500): the points of the calls started in the
   window. ~gh api graphql~ is 1 or, for a ~mutation~, 5; other ~gh api~
-  calls are 1 or, for a write, 5; any other gh command (~pr view~,
-  ~issue comment~, ...) is 1 or, when it mutates (see above), 5.
+  calls are 1 or, for a write, 5; ~search~ calls are 1 per request; any other
+  gh command (~pr view~, ~issue comment~, ...) is 1 or, when it mutates (see
+  above), 5. For ~--paginate~ calls, the page count is measured (from JSON
+  pages, ~--slurp~ elements, ~-i~ HTTP headers, or byte estimate when
+  transformed with ~--jq~ / ~--template~) and charged after the call so later
+  calls see the real multi-page load.
+- ~search_per_min~ (default 20): search calls started in the window, covering
+  REST =/search/*= endpoints, ~gh search~ subcommands, and GraphQL queries that
+  select ~search~. Paginated search calls charge one unit per page.
 - ~graphql_secs_per_min~ (default 40): the summed wall time of the GraphQL
   calls started in the window, as a proxy for GraphQL CPU. ~gh api graphql~
-  counts, and so does every gh command other than ~gh api~, since most of
-  them use GraphQL. REST ~gh api~ calls do not.
+  (including GraphQL ~search~) counts, and so does every gh command other than
+  ~gh api~ and ~gh search~, since most of them use GraphQL. REST ~gh api~ and
+  ~gh search~ calls do not.
 
-Before a call runs, gh-throttle adds its points, and its expected GraphQL
-time (the median of the last runs of the same query hash or gh command), to
-the window. If that would pass a budget, it waits until enough of the oldest
-calls leave the window, and logs the wait with reason ~points_budget~ or
-~graphql_time_budget~. A call into an empty window always runs, and a wait
-longer than ~max_wait~ runs the call anyway. Cache hits cost nothing.
+Before a call runs, gh-throttle adds its points, search count, and expected
+GraphQL time (the median of the last runs of the same query hash or gh
+command) to the window. If that would pass a budget, it releases any held slot,
+waits until enough of the oldest calls leave the window, and logs the wait with
+reason ~points_budget~, ~search_budget~, or ~graphql_time_budget~. A call into
+an empty window always runs, and a wait longer than ~max_wait~ runs the call
+anyway. Cache hits cost nothing.
 
 Every call, including a cache hit and each run of a retried call, is logged
 as one JSON line in ~$XDG_STATE_HOME/gh-throttle/calls.jsonl~. At 20 MB the
 file moves to ~calls.jsonl.1~ (replacing the previous one), so at most two
 files are kept. Fields:
 
-| Field                                 | Meaning                                                                          |
-|---------------------------------------+----------------------------------------------------------------------------------|
-| ~time~, ~durationMs~                  | When gh started and how long it ran                                              |
-| ~kind~                                | ~graphql~, ~graphql-mutation~, ~rest-get~, ~rest-write~ or ~gh-subcommand~       |
-| ~cmd~                                 | For ~gh-subcommand~, the command and subcommand, such as ~pr view~               |
-| ~points~                              | Points charged under the model above; 0 for a cache hit                          |
-| ~caller~, ~callerChain~               | First ancestor that is not a shell, and the names from the parent up to it       |
-| ~cwd~                                 | Working directory                                                                |
-| ~args~                                | Arguments with values redacted, as in ~log.jsonl~                                |
-| ~queryHash~, ~queryFields~            | For ~gh api graphql~, a 12-digit hash of the query and its top-level field names |
-| ~exitCode~, ~rateLimited~, ~cacheHit~ | gh's exit code, whether it hit a rate limit, whether the cache served it         |
-| ~rateLimitCost~, ~rateLimitRemaining~ | The response's ~rateLimit { cost remaining }~, when the query asked for it       |
-| ~stdoutBytes~                         | Bytes gh wrote to stdout; absent for a cache hit or a terminal stdout            |
-| ~stderrHead~                          | First stderr line, at most 200 bytes, control characters escaped as ~\xNN~       |
-| ~anomaly~                             | ~empty_json~ when a call that asks for JSON exited 0 with empty stdout           |
+| Field                                 | Meaning                                                                             |
+|---------------------------------------+-------------------------------------------------------------------------------------|
+| ~time~, ~durationMs~                  | When gh started and how long it ran                                                 |
+| ~kind~                                | ~graphql~, ~graphql-mutation~, ~rest-get~, ~rest-write~, ~search~ or ~gh-subcommand~ |
+| ~cmd~                                 | For ~gh-subcommand~ and ~gh search~, the command and subcommand, such as ~pr view~  |
+| ~points~                              | Points charged under the model above; 0 for a cache hit or skipped preflight        |
+| ~pages~                               | Number of pages fetched by a ~--paginate~ call                                      |
+| ~caller~, ~callerChain~               | First ancestor that is not a shell, and the names from the parent up to it          |
+| ~cwd~                                 | Working directory                                                                   |
+| ~args~                                | Arguments with values redacted, as in ~log.jsonl~                                   |
+| ~queryHash~, ~queryFields~            | For ~gh api graphql~, a 12-digit hash of the query and its top-level field names    |
+| ~exitCode~, ~rateLimited~, ~cacheHit~ | gh's exit code, whether it hit a rate limit, whether the cache served it            |
+| ~cooldownMs~, ~cooldownCause~         | Cooldown duration set/extended and its cause (~secondary_rate_limit~, etc.)         |
+| ~rateLimitCost~, ~rateLimitRemaining~ | The response's ~rateLimit { cost remaining }~, when the query asked for it          |
+| ~stdoutBytes~                         | Bytes gh wrote to stdout; absent for a cache hit or a terminal stdout               |
+| ~stderrHead~                          | First stderr line, at most 200 bytes, control characters escaped as ~\xNN~          |
+| ~anomaly~                             | ~empty_json~ when a call that asks for JSON exited 0 with empty stdout              |
 
 The query hash ignores whitespace and variables, so the same query with
 different ~-F~ values shares one hash. To see the query behind a hash, find
@@ -209,8 +241,10 @@ by default.
 | ~GH_THROTTLE_GH~                   | unset   | Path of the real gh                             |
 | ~GH_THROTTLE_CACHE_TTL~            | unset   | Serve repeated reads from a cache for this long |
 | ~GH_THROTTLE_NO_CACHE~             | unset   | ~1~ skips the read cache for one call           |
-| ~GH_THROTTLE_POINTS_PER_MIN~       | ~1500~  | Points budget per 60s; ~0~ turns it off         |
-| ~GH_THROTTLE_GRAPHQL_SECS_PER_MIN~ | ~40~    | GraphQL time budget per 60s; ~0~ turns it off   |
+| ~GH_THROTTLE_POINTS_PER_MIN~       | ~1500~  | Points budget per 60s; ~0~ turns it off               |
+| ~GH_THROTTLE_SEARCH_PER_MIN~       | ~20~    | Search calls budget per 60s; ~0~ turns it off         |
+| ~GH_THROTTLE_GRAPHQL_SECS_PER_MIN~ | ~40~    | GraphQL time budget per 60s; ~0~ turns it off         |
+| ~GH_THROTTLE_PAGINATE_TIMEOUT~     | ~1m~    | Max duration of one ~--paginate~ call; ~0~ disables   |
 
 Durations take Go syntax (~1500ms~, ~2m~) or a number of seconds. An invalid
 value is an error, and gh does not run.

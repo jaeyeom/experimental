@@ -322,3 +322,84 @@ func TestCallLogRecordsOutputSizeAndEmptyJSON(t *testing.T) {
 		})
 	}
 }
+
+func TestMainCooldownSharedAndAuthStatusFastReturn(t *testing.T) {
+	dir := t.TempDir()
+	ghCalls := filepath.Join(dir, "gh-calls")
+	h := newHarness(t, `echo "$*" >> "`+ghCalls+`"
+if [ "$1" = "api" ]; then
+  echo '{"message":"rate limit"}'
+  echo "HTTP/2.0 429 Too Many Requests" >&2
+  echo "Retry-After: 30" >&2
+  exit 1
+fi
+echo "ok"
+`)
+	h.env["GH_THROTTLE_BACKOFF"] = "30"
+	// First caller hits rate limit on gh api (stdout non-empty -> no retry, sets cooldown).
+	if code := h.run([]string{"api", "repos/o/r"}, ""); code != 1 {
+		t.Fatalf("api exit %d, want 1", code)
+	}
+
+	// Second caller runs `gh auth status`: must return fast with ExitRateLimited (75) and marker, without invoking gh.
+	h.stdout.Reset()
+	h.stderr.Reset()
+	if code := h.run([]string{"auth", "status"}, ""); code != 75 {
+		t.Fatalf("auth status during cooldown exit %d, want 75; stderr=%q", code, h.stderr.String())
+	}
+	if !strings.Contains(h.stderr.String(), "GH_THROTTLE_RATE_LIMITED") {
+		t.Fatalf("auth status stderr = %q, want GH_THROTTLE_RATE_LIMITED", h.stderr.String())
+	}
+	rawCalls, _ := os.ReadFile(ghCalls)
+	if strings.Contains(string(rawCalls), "auth status") {
+		t.Fatalf("gh was invoked for auth status during cooldown: %q", string(rawCalls))
+	}
+}
+
+func TestMainPaginateLogsPagesAndStatsShowsCooldown(t *testing.T) {
+	h := newHarness(t, `if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
+  printf '{"data":{"a":1}}\n{"data":{"a":2}}\n{"data":{"a":3}}\n'
+  exit 0
+fi
+echo '{"message":"limit"}'
+echo "You have exceeded a secondary rate limit" >&2
+exit 1
+`)
+	h.env["GH_THROTTLE_BACKOFF"] = "0.2"
+	if code := h.run([]string{"api", "graphql", "--paginate", "-f", "query={ viewer { login } }"}, ""); code != 0 {
+		t.Fatalf("paginate exit %d, stderr %q", code, h.stderr.String())
+	}
+	// Trigger a rate limit with non-empty stdout (not retried, sets cooldown).
+	h.stdout.Reset()
+	h.stderr.Reset()
+	if code := h.run([]string{"pr", "view", "1"}, ""); code != 1 {
+		t.Fatalf("rate-limited exit %d, want 1", code)
+	}
+	// Verify calls.jsonl recorded pages=3 and points=3 for the paginated call, and cooldownMs for the rate-limited call.
+	raw, err := os.ReadFile(filepath.Join(h.env["XDG_STATE_HOME"], "gh-throttle", "calls.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("calls.jsonl lines = %d (%q), want 2", len(lines), string(raw))
+	}
+	var c1 struct {
+		Pages  int `json:"pages"`
+		Points int `json:"points"`
+	}
+	if err := json.Unmarshal([]byte(lines[0]), &c1); err != nil || c1.Pages != 3 || c1.Points != 3 {
+		t.Fatalf("paginated call entry = %s (%v), want pages=3 points=3", lines[0], err)
+	}
+
+	h.stdout.Reset()
+	if code := h.run([]string{"--stats"}, ""); code != 0 {
+		t.Fatalf("--stats exit %d, stderr %q", code, h.stderr.String())
+	}
+	statsText := h.stdout.String()
+	for _, want := range []string{"1 cooldowns", "cooldowns by cause", "secondary_rate_limit"} {
+		if !strings.Contains(statsText, want) {
+			t.Errorf("--stats missing %q:\n%s", want, statsText)
+		}
+	}
+}

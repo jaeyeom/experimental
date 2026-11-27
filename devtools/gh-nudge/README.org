@@ -177,7 +177,8 @@ gh-nudge --dry-run
 gh-throttle --stats
 #+end_src
 
-Setup, ~--stats~, and the limits are in [[file:gh-throttle.org][gh-throttle]].
+Setup, ~--stats~, account-wide cooldowns, preflight exit ~75~
+(~GH_THROTTLE_RATE_LIMITED~), and the limits are in [[file:gh-throttle.org][gh-throttle]].
 
 * Development
 

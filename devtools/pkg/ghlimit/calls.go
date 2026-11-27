@@ -17,8 +17,9 @@ const (
 	KindGraphQLMutation = "graphql-mutation"
 	KindRESTGet         = "rest-get"
 	KindRESTWrite       = "rest-write"
-	// KindSubcommand is any gh command but gh api, such as gh pr view.
-	// Most of them use GraphQL.
+	KindSearch          = "search"
+	// KindSubcommand is any gh command but gh api or gh search, such as
+	// gh pr view. Most of them use GraphQL.
 	KindSubcommand = "gh-subcommand"
 )
 
@@ -44,9 +45,11 @@ type CallInfo struct {
 }
 
 // GraphQL reports whether the call spends the GraphQL time budget. A
-// gh subcommand counts, since most of them use GraphQL.
+// gh subcommand counts, since most of them use GraphQL; a search call
+// counts only when it is a GraphQL query.
 func (c CallInfo) GraphQL() bool {
-	return c.Kind == KindGraphQL || c.Kind == KindGraphQLMutation || c.Kind == KindSubcommand
+	return c.Kind == KindGraphQL || c.Kind == KindGraphQLMutation || c.Kind == KindSubcommand ||
+		(c.Kind == KindSearch && c.QueryHash != "")
 }
 
 // AsksRateLimit reports whether the call is a GraphQL query that asks
@@ -66,31 +69,12 @@ func (c CallInfo) durationKey() string {
 
 // ClassifyCall tells the kind and the points of gh args, which exclude
 // the gh program name: a GraphQL query costs 1 and a mutation 5, a REST
-// GET 1 and a REST write 5, and any other gh command 1 or, when it
-// mutates, 5.
+// GET 1 and a REST write 5, a search call 1 (under KindSearch), and any
+// other gh command 1 or, when it mutates, 5.
 func ClassifyCall(args []string) CallInfo {
 	if len(args) > 0 && args[0] == "api" {
-		call := parseAPIArgs(args[1:])
-		if call.endpoint == "graphql" {
-			info := CallInfo{Kind: KindGraphQL, Points: readPoints}
-			if apiMutates(args[1:]) {
-				info.Kind, info.Points = KindGraphQLMutation, writePoints
-			}
-			for _, f := range call.fields {
-				if q, ok := strings.CutPrefix(f, "query="); ok {
-					info.query = q
-					info.QueryHash = hashHex(strings.Join(strings.Fields(q), " "))[:12]
-					info.QueryFields = topLevelFields(q)
-				}
-			}
-			return info
-		}
-		if apiMutates(args[1:]) {
-			return CallInfo{Kind: KindRESTWrite, Points: writePoints}
-		}
-		return CallInfo{Kind: KindRESTGet, Points: readPoints}
+		return classifyAPICall(args[1:])
 	}
-	info := CallInfo{Kind: KindSubcommand, Points: readPoints}
 	var words []string
 	for _, a := range args {
 		if len(words) == 2 || (len(words) > 0 && strings.HasPrefix(a, "-")) {
@@ -98,11 +82,83 @@ func ClassifyCall(args []string) CallInfo {
 		}
 		words = append(words, a)
 	}
-	info.Cmd = strings.Join(words, " ")
+	info := CallInfo{Kind: KindSubcommand, Cmd: strings.Join(words, " "), Points: readPoints}
+	if len(words) > 0 && words[0] == "search" {
+		info.Kind = KindSearch
+		return info
+	}
 	if IsMutation(args) {
 		info.Points = writePoints
 	}
 	return info
+}
+
+func classifyAPICall(args []string) CallInfo {
+	call := parseAPIArgs(args)
+	if call.endpoint == "graphql" {
+		info := CallInfo{Kind: KindGraphQL, Points: readPoints}
+		for _, f := range call.fields {
+			if q, ok := strings.CutPrefix(f, "query="); ok {
+				info.query = q
+				info.QueryHash = hashHex(strings.Join(strings.Fields(q), " "))[:12]
+				info.QueryFields = topLevelFields(q)
+			}
+		}
+		if apiMutates(args) {
+			info.Kind, info.Points = KindGraphQLMutation, writePoints
+		} else if isGraphQLSearch(info.query, info.QueryFields) {
+			info.Kind = KindSearch
+		}
+		return info
+	}
+	if apiMutates(args) {
+		return CallInfo{Kind: KindRESTWrite, Points: writePoints}
+	}
+	if isRESTSearchEndpoint(call.endpoint) {
+		return CallInfo{Kind: KindSearch, Points: readPoints}
+	}
+	return CallInfo{Kind: KindRESTGet, Points: readPoints}
+}
+
+func isRESTSearchEndpoint(endpoint string) bool {
+	ep, _, _ := strings.Cut(strings.TrimPrefix(endpoint, "/"), "?")
+	return ep == "search" || strings.HasPrefix(ep, "search/")
+}
+
+func isGraphQLSearch(q string, fields []string) bool {
+	if slices.Contains(fields, "search") {
+		return true
+	}
+	toks := gqlTokens(q)
+	for i := 0; i+3 < len(toks); i++ {
+		if toks[i] == "fragment" && toks[i+2] == "on" && toks[i+3] == "Query" {
+			if fragmentHasField(toks[i+4:], "search") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func fragmentHasField(toks []string, target string) bool {
+	open := slices.Index(toks, "{")
+	if open < 0 {
+		return false
+	}
+	depth := 1
+	for i := open + 1; i < len(toks) && depth > 0; i++ {
+		switch toks[i] {
+		case "{":
+			depth++
+		case "}":
+			depth--
+		default:
+			if depth == 1 && toks[i] == target {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // topLevelFields lists the field names (not aliases) in the selection
@@ -250,6 +306,12 @@ type CallEntry struct {
 	Anomaly     string `json:"anomaly,omitempty"`
 	RateLimited bool   `json:"rateLimited,omitempty"`
 	CacheHit    bool   `json:"cacheHit,omitempty"`
+	// Pages is the number of pages a --paginate call fetched.
+	Pages int `json:"pages,omitempty"`
+	// CooldownMS and CooldownCause record the account-wide cooldown set or
+	// extended by a rate-limited call (or "cooldown_active" on preflight).
+	CooldownMS    int64  `json:"cooldownMs,omitempty"`
+	CooldownCause string `json:"cooldownCause,omitempty"`
 	// RateLimitCost and RateLimitRemaining are the response's
 	// rateLimit { cost remaining } when the query asked for it.
 	RateLimitCost      *int `json:"rateLimitCost,omitempty"`
@@ -300,7 +362,7 @@ func stderrHead(stderr []byte) string {
 
 // GraphQLTime is how long the call spent on GraphQL, for the stats.
 func (e CallEntry) GraphQLTime() time.Duration {
-	if e.CacheHit || !(CallInfo{Kind: e.Kind}).GraphQL() {
+	if e.CacheHit || !(CallInfo{Kind: e.Kind, QueryHash: e.QueryHash}).GraphQL() {
 		return 0
 	}
 	return time.Duration(e.DurationMS) * time.Millisecond

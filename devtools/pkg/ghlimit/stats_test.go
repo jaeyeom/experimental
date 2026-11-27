@@ -134,3 +134,37 @@ func TestStatsCountAnomaliesByCaller(t *testing.T) {
 		}
 	}
 }
+
+func TestStatsReportsCooldownsAndCauses(t *testing.T) {
+	dir := t.TempDir()
+	callLog := filepath.Join(dir, "calls.jsonl")
+	waitLog := filepath.Join(dir, "log.jsonl")
+	now := time.Unix(1_700_000_000, 0)
+	for _, e := range []CallEntry{
+		{Time: now.Add(-5 * time.Minute), Caller: "agent", Kind: KindSearch, Args: "api graphql --paginate -f _", Pages: 8, Points: 8, ExitCode: 1, RateLimited: true, CooldownMS: 60000, CooldownCause: "secondary_rate_limit"},
+		{Time: now.Add(-4 * time.Minute), Caller: "prsync", Kind: KindSubcommand, Cmd: "pr view", Args: "pr view _", ExitCode: 1, RateLimited: true, CooldownMS: 120000, CooldownCause: "http_429"},
+	} {
+		if err := AppendCallLog(callLog, e, MaxCallLogSize); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := AppendLog(waitLog, Entry{Time: now.Add(-4 * time.Minute), Caller: "prsync", Reason: ReasonCooldown, WaitMS: 55000}); err != nil {
+		t.Fatal(err)
+	}
+	s, err := ReadStats(waitLog, callLog, now, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Cooldowns != 2 || s.CooldownMS != 180000 || len(s.CooldownsByCause) != 2 {
+		t.Fatalf("cooldown stats = cooldowns:%d ms:%d byCause:%+v", s.Cooldowns, s.CooldownMS, s.CooldownsByCause)
+	}
+	var text bytes.Buffer
+	if err := s.WriteText(&text); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"2 cooldowns", "cooldowns by cause", "secondary_rate_limit", "http_429", "cooldown", "agent", "prsync"} {
+		if !strings.Contains(text.String(), want) {
+			t.Errorf("text stats missing %q:\n%s", want, text.String())
+		}
+	}
+}

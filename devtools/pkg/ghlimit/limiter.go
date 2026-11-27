@@ -2,6 +2,7 @@ package ghlimit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,6 +24,9 @@ type Result struct {
 	StdoutLen       int64
 	StdoutHead      []byte
 	StdoutUncounted bool
+	// Pages is the number of pages counted for a --paginate call, when
+	// counted during execution.
+	Pages int
 	// Stdout is all of stdout when StdoutKept, as asked for by
 	// ExecRunner.KeepStdout.
 	Stdout     []byte
@@ -82,78 +86,270 @@ func (l *Limiter) sleep(d time.Duration) {
 	time.Sleep(d)
 }
 
-// Run runs gh args through run under the limits: it takes a slot, keeps
-// the mutation gap for a mutation, and when gh fails with a rate limit
-// before writing to stdout, waits and runs it once more. It returns the
-// last run's Result.
-func (l *Limiter) Run(ctx context.Context, args []string, run Runner) (Result, error) {
+func (l *Limiter) sleepCtx(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("wait for gh: %w", err)
+	}
+	if l.Sleep != nil {
+		l.Sleep(d)
+		return nil
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("wait for gh: %w", ctx.Err())
+	}
+}
+
+func (l *Limiter) ensureDir() error {
 	if err := os.MkdirAll(l.Dir, 0o700); err != nil {
-		return Result{}, fmt.Errorf("create %s: %w", l.Dir, err)
+		return fmt.Errorf("create %s: %w", l.Dir, err)
 	}
 	if err := os.Chmod(l.Dir, 0o700); err != nil {
-		return Result{}, fmt.Errorf("make %s private: %w", l.Dir, err)
+		return fmt.Errorf("make %s private: %w", l.Dir, err)
 	}
-	release, slotWait, err := l.acquireSlot(ctx)
-	if err != nil {
+	return nil
+}
+
+// Run runs gh args through run under the limits: it waits on any
+// account-wide cooldown before taking a slot, takes a slot, keeps the
+// mutation gap for a mutation, caps paginated calls, and when gh fails
+// with a rate limit before writing to stdout, releases its slot before
+// backing off and retrying once. Preflight calls fail fast during a
+// cooldown instead of waiting or retrying.
+func (l *Limiter) Run(ctx context.Context, args []string, run Runner) (Result, error) {
+	if err := l.ensureDir(); err != nil {
 		return Result{}, err
 	}
-	defer release()
-	waits := []wait{slotWait}
-
-	if IsMutation(args) {
-		unlock, lockWait, err := l.acquire(ctx, []string{"mutation.lock"})
-		if err != nil {
-			return Result{}, err
-		}
-		defer unlock()
-		waits = append(waits, lockWait)
-		if d := l.gapLeft(); d > 0 {
-			l.sleep(d)
-			waits = append(waits, wait{ReasonMutationGap, d})
-		}
-		defer l.recordMutation()
-	}
-
+	local := isLocalCommand(args)
+	preflight := IsPreflight(args)
 	info := ClassifyCall(args)
-	res, err := l.runCall(ctx, args, info, run, &waits)
-	if err == nil && res.ExitCode != 0 && res.StdoutLen == 0 &&
-		RateLimited(args, string(res.Stderr), string(res.StdoutHead)) {
-		d := l.backoff(res)
-		l.sleep(d)
-		waits = append(waits, wait{ReasonBackoff, d})
-		res, err = l.runCall(ctx, args, info, run, &waits)
+
+	var waits []wait
+	wasInCooldown := false
+	if !local {
+		if preflight {
+			if res, blocked, err := l.preflightCooldownCheck(args, info); err != nil || blocked {
+				return res, err
+			}
+		} else {
+			cw, waited, err := l.waitCooldown(ctx)
+			if cw.d > 0 {
+				waits = append(waits, cw)
+			}
+			if err != nil {
+				l.log(args, waits)
+				return Result{}, err
+			}
+			wasInCooldown = waited
+		}
 	}
+
+	res, attemptWaits, hit, retriable, err := l.runAttempt(ctx, args, info, run, local, preflight, wasInCooldown)
+	waits = append(waits, attemptWaits...)
+	if err != nil || !retriable || hit == nil {
+		l.log(args, waits)
+		return res, err
+	}
+
+	// No slot or mutation lock is held during the backoff sleep.
+	if err := l.sleepCtx(ctx, hit.wait); err != nil {
+		l.log(args, waits)
+		return Result{}, err
+	}
+	if hit.wait > 0 {
+		waits = append(waits, wait{ReasonBackoff, hit.wait})
+	}
+	extraWait, _, err := l.waitCooldown(ctx)
+	if extraWait.d > 0 {
+		waits = append(waits, extraWait)
+	}
+	if err != nil {
+		l.log(args, waits)
+		return Result{}, err
+	}
+	res, retryWaits, _, _, err := l.runAttempt(ctx, args, info, run, local, preflight, true)
+	waits = append(waits, retryWaits...)
 	l.log(args, waits)
 	return res, err
 }
 
-// runCall runs gh once within the per-minute budgets, adding any budget
-// wait to waits, and logs the call.
-func (l *Limiter) runCall(ctx context.Context, args []string, info CallInfo, run Runner, waits *[]wait) (Result, error) {
-	id, budgetWaits, err := l.reserve(ctx, info)
-	*waits = append(*waits, budgetWaits...)
-	if err != nil {
-		return Result{}, err
+func (l *Limiter) runAttempt(ctx context.Context, args []string, info CallInfo, run Runner, local, preflight, wasInCooldown bool) (Result, []wait, *cooldownHit, bool, error) {
+	var waits []wait
+	begin := l.now()
+	for {
+		release, slotWait, err := l.acquireSlot(ctx)
+		if err != nil {
+			return Result{}, waits, nil, false, err
+		}
+		waits = append(waits, slotWait)
+
+		forceBudget := slotWait.reason == ReasonSlotTimeout || l.now().Sub(begin) >= l.Config.MaxWait
+		id, budgetWait, err := l.tryReserve(ctx, info, forceBudget)
+		if err != nil {
+			release()
+			return Result{}, waits, nil, false, err
+		}
+		if budgetWait.d == 0 {
+			return l.runWithSlot(ctx, args, info, run, id, release, waits, local, preflight, wasInCooldown)
+		}
+		release()
+		if err := l.sleepCtx(ctx, budgetWait.d); err != nil {
+			return Result{}, waits, nil, false, err
+		}
+		coalesceWait(&waits, budgetWait)
+		if !local && !preflight {
+			cw, waited, err := l.waitCooldown(ctx)
+			if cw.d > 0 {
+				coalesceWait(&waits, cw)
+			}
+			if err != nil {
+				return Result{}, waits, nil, false, err
+			}
+			if waited {
+				wasInCooldown = true
+			}
+		}
 	}
+}
+
+func (l *Limiter) runWithSlot(ctx context.Context, args []string, info CallInfo, run Runner, id string, release func(), waits []wait, local, preflight, wasInCooldown bool) (Result, []wait, *cooldownHit, bool, error) {
+	defer release()
+	isMut := IsMutation(args)
+	if isMut {
+		unlock, mutWaits, err := l.acquireMutation(ctx)
+		if err != nil {
+			return Result{}, waits, nil, false, err
+		}
+		defer unlock()
+		waits = append(waits, mutWaits...)
+	}
+
+	paginated := IsPaginated(args)
+	callCtx, cancel := withPaginateTimeout(ctx, paginated, l.Config.PaginateTimeout)
+	defer cancel()
+
 	start := l.now()
-	res, err := run(ctx)
+	res, err := run(callCtx)
 	took := l.now().Sub(start)
-	l.finish(ctx, id, info, took)
-	if err == nil {
-		l.logCall(args, info, start, took, res)
+	timedOut := isPaginateTimedOut(ctx, callCtx, paginated, took, l.Config.PaginateTimeout, l.Now != nil)
+	if timedOut && err == nil {
+		err = fmt.Errorf("paginated call exceeded timeout %s: %w", l.Config.PaginateTimeout, context.DeadlineExceeded)
 	}
-	return res, err
+
+	pages, points := l.resolveCost(args, info, paginated, res)
+	if err != nil && !timedOut {
+		return res, waits, nil, false, err
+	}
+	l.finish(ctx, id, info, took, points, pages)
+
+	var hit *cooldownHit
+	retriable := false
+	if !timedOut {
+		hit, retriable = l.handleCooldownOutcome(ctx, args, &res, local, preflight, wasInCooldown)
+	}
+	if isMut && !retriable {
+		l.recordMutation()
+	}
+	l.logRunResult(args, info, start, took, res, pages, points, hit)
+	return res, waits, hit, retriable, err
+}
+
+func (l *Limiter) acquireMutation(ctx context.Context) (func(), []wait, error) {
+	unlock, lockWait, err := l.acquire(ctx, []string{"mutation.lock"})
+	if err != nil {
+		return nil, nil, err
+	}
+	waits := []wait{lockWait}
+	if d := l.gapLeft(); d > 0 {
+		l.sleep(d)
+		waits = append(waits, wait{ReasonMutationGap, d})
+	}
+	return unlock, waits, nil
+}
+
+func (l *Limiter) handleCooldownOutcome(ctx context.Context, args []string, res *Result, local, preflight, wasInCooldown bool) (*cooldownHit, bool) {
+	if res.ExitCode != 0 && RateLimited(args, string(res.Stderr), string(res.StdoutHead)) {
+		waitDur, cause, _ := l.recordCooldown(ctx, args, *res, wasInCooldown)
+		hit := &cooldownHit{wait: waitDur, duration: waitDur, cause: cause}
+		if preflight {
+			ensurePreflightMarker(res)
+			return hit, false
+		}
+		return hit, !local && res.StdoutLen == 0
+	}
+	if !local {
+		l.clearCooldownIfExpired(ctx)
+	}
+	return nil, false
+}
+
+func (l *Limiter) logRunResult(args []string, info CallInfo, start time.Time, took time.Duration, res Result, pages, points int, hit *cooldownHit) {
+	var cooldownMS int64
+	var cooldownCause string
+	if hit != nil {
+		cooldownMS = hit.duration.Milliseconds()
+		cooldownCause = hit.cause
+	}
+	l.logCall(args, info, start, took, res, pages, points, cooldownMS, cooldownCause)
+}
+
+func (l *Limiter) resolveCost(args []string, info CallInfo, paginated bool, res Result) (pages, points int) {
+	if !paginated {
+		return 0, info.Points
+	}
+	pages = countPaginatedPages(args, res)
+	return pages, info.Points * pages
+}
+
+func withPaginateTimeout(ctx context.Context, paginated bool, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if !paginated || timeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
+func isPaginateTimedOut(parent, callCtx context.Context, paginated bool, took, timeout time.Duration, injectedClock bool) bool {
+	if !paginated || timeout <= 0 || parent.Err() != nil {
+		return false
+	}
+	if errors.Is(callCtx.Err(), context.DeadlineExceeded) {
+		return true
+	}
+	return injectedClock && took > timeout
+}
+
+func coalesceWait(waits *[]wait, w wait) {
+	if n := len(*waits); n > 0 && (*waits)[n-1].reason == w.reason {
+		(*waits)[n-1].d += w.d
+		return
+	}
+	*waits = append(*waits, w)
 }
 
 // logCall sends the CallEntry of one gh run.
-func (l *Limiter) logCall(args []string, info CallInfo, start time.Time, took time.Duration, res Result) {
+func (l *Limiter) logCall(args []string, info CallInfo, start time.Time, took time.Duration, res Result, pages, points int, cooldownMS int64, cooldownCause string) {
 	if l.LogCall == nil {
 		return
 	}
 	e := newCallEntry(args, info, start)
 	e.DurationMS = took.Milliseconds()
 	e.ExitCode = res.ExitCode
-	e.RateLimited = res.ExitCode != 0 && RateLimited(args, string(res.Stderr), string(res.StdoutHead))
+	if points > 0 || res.ExitCode == ExitRateLimited {
+		e.Points = points
+	}
+	if pages > 0 {
+		e.Pages = pages
+	}
+	e.RateLimited = res.ExitCode != 0 && (res.ExitCode == ExitRateLimited || RateLimited(args, string(res.Stderr), string(res.StdoutHead)))
+	e.CooldownMS = cooldownMS
+	e.CooldownCause = cooldownCause
 	e.StderrHead = stderrHead(res.Stderr)
 	if !res.StdoutUncounted {
 		e.StdoutBytes = &res.StdoutLen

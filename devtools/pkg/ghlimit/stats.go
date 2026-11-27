@@ -37,6 +37,8 @@ type Stats struct {
 	Points      int   `json:"points"`
 	GraphQLMS   int64 `json:"graphqlMs"`
 	RateLimited int   `json:"rateLimited"`
+	Cooldowns   int   `json:"cooldowns"`
+	CooldownMS  int64 `json:"cooldownMs"`
 	CacheHits   int   `json:"cacheHits"`
 	Anomalies   int   `json:"anomalies"`
 
@@ -51,6 +53,8 @@ type Stats struct {
 	QueriesByCount []StatRow `json:"queriesByCount"`
 	WaitsByReason  []StatRow `json:"waitsByReason"`
 	WaitsByCaller  []StatRow `json:"waitsByCaller"`
+	// CooldownsByCause ranks cooldown triggers by caller and cause.
+	CooldownsByCause []StatRow `json:"cooldownsByCause,omitempty"`
 	// AnomaliesByCaller counts the calls flagged with each anomaly, as
 	// Fields, by caller.
 	AnomaliesByCaller []StatRow `json:"anomaliesByCaller"`
@@ -67,12 +71,13 @@ func ReadStats(waitLog, callLog string, now time.Time, window time.Duration) (St
 		return s, err
 	}
 	callers, graphqlCallers, queries := map[string]*StatRow{}, map[string]*StatRow{}, map[string]*StatRow{}
-	anomalies := map[string]*StatRow{}
+	cooldowns, anomalies := map[string]*StatRow{}, map[string]*StatRow{}
 	for _, path := range []string{callLog + ".1", callLog} {
 		err := scanJSONL(path, func(raw []byte) {
 			var e CallEntry
 			if json.Unmarshal(raw, &e) == nil && inWindow(e.Time) {
 				s.addCall(e, callers, graphqlCallers, queries)
+				s.addCooldown(e, cooldowns)
 				s.addAnomaly(e, anomalies)
 			}
 		})
@@ -86,6 +91,7 @@ func ReadStats(waitLog, callLog string, now time.Time, window time.Duration) (St
 	s.QueriesByCount = ranked(queries, func(r *StatRow) int64 { return int64(r.Count) })
 	s.WaitsByReason = ranked(byReason, func(r *StatRow) int64 { return r.WaitMS })
 	s.WaitsByCaller = ranked(byWaitCaller, func(r *StatRow) int64 { return r.WaitMS })
+	s.CooldownsByCause = ranked(cooldowns, func(r *StatRow) int64 { return r.WaitMS })
 	s.AnomaliesByCaller = ranked(anomalies, func(r *StatRow) int64 { return int64(r.Count) })
 	return s, nil
 }
@@ -127,7 +133,7 @@ func (s *Stats) addCall(e CallEntry, callers, graphqlCallers, queries map[string
 		s.CacheHits++
 		return
 	}
-	if (CallInfo{Kind: e.Kind}).GraphQL() {
+	if (CallInfo{Kind: e.Kind, QueryHash: e.QueryHash}).GraphQL() {
 		g := row(graphqlCallers, e.Caller)
 		g.Count++
 		g.GraphQLMS += gql
@@ -139,6 +145,26 @@ func (s *Stats) addCall(e CallEntry, callers, graphqlCallers, queries map[string
 		q.Points += e.Points
 		q.GraphQLMS += gql
 	}
+}
+
+// addCooldown records a call that triggered or extended an account-wide cooldown.
+func (s *Stats) addCooldown(e CallEntry, causes map[string]*StatRow) {
+	if e.CooldownMS <= 0 && (!e.RateLimited || e.CooldownCause == "" || e.CooldownCause == "cooldown_active") {
+		return
+	}
+	s.Cooldowns++
+	s.CooldownMS += e.CooldownMS
+	cause := e.CooldownCause
+	if cause == "" {
+		cause = "rate_limit"
+	}
+	if e.Args != "" {
+		cause += " (" + e.Args + ")"
+	}
+	r := row(causes, e.Caller+"\x00"+cause)
+	r.Key, r.Fields = e.Caller, cause
+	r.Count++
+	r.WaitMS += e.CooldownMS
 }
 
 // addAnomaly counts a flagged call log entry by caller and anomaly.
@@ -203,6 +229,9 @@ func (s Stats) WriteText(w io.Writer) error {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintf(tw, "%d waits in the last %s, %s total\n", s.Waits, s.Window, secs(s.WaitMS))
 	fmt.Fprintf(tw, "%d calls, %d points, %s GraphQL time, %d rate-limited\n", s.Calls, s.Points, secs(s.GraphQLMS), s.RateLimited)
+	if s.Cooldowns > 0 {
+		fmt.Fprintf(tw, "%d cooldowns (%s cooldown total)\n", s.Cooldowns, secs(s.CooldownMS))
+	}
 	if s.CacheHits > 0 {
 		fmt.Fprintf(tw, "%d cache hits (gh runs saved)\n", s.CacheHits)
 	}
@@ -221,6 +250,9 @@ func (s Stats) WriteText(w io.Writer) error {
 	waitLine := func(r StatRow) string { return fmt.Sprintf("%s\t%d\t%s", r.Key, r.Count, secs(r.WaitMS)) }
 	section("waits by reason", "reason\twaits\ttotal", s.WaitsByReason, waitLine)
 	section("waits by caller", "caller\twaits\ttotal", s.WaitsByCaller, waitLine)
+	section("cooldowns by cause", "caller\tcause\thits\tcooldown", s.CooldownsByCause, func(r StatRow) string {
+		return fmt.Sprintf("%s\t%s\t%d\t%s", r.Key, r.Fields, r.Count, secs(r.WaitMS))
+	})
 	section("top callers by points", "caller\tcalls\tpoints", s.CallersByPoints, func(r StatRow) string {
 		return fmt.Sprintf("%s\t%d\t%d", r.Key, r.Count, r.Points)
 	})

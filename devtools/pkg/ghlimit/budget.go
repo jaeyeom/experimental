@@ -16,6 +16,7 @@ import (
 // Wait reasons for the rolling per-minute budgets.
 const (
 	ReasonPointsBudget      = "points_budget"
+	ReasonSearchBudget      = "search_budget"
 	ReasonGraphQLTimeBudget = "graphql_time_budget"
 )
 
@@ -35,6 +36,7 @@ type budgetCall struct {
 	ID      string `json:"id"`
 	Start   int64  `json:"t"`
 	Points  int    `json:"p,omitempty"`
+	Search  int    `json:"s,omitempty"`
 	GraphQL int64  `json:"g,omitempty"`
 }
 
@@ -52,88 +54,98 @@ type budgetState struct {
 var budgetSeq atomic.Int64
 
 func (l *Limiter) budgetsOn() bool {
-	return l.Config.PointsPerMin > 0 || l.Config.GraphQLTimePerMin > 0
+	return l.Config.PointsPerMin > 0 || l.Config.SearchPerMin > 0 || l.Config.GraphQLTimePerMin > 0
 }
 
-// reserve waits until a call classified as info fits the budgets, then
-// records it in the window. Past MaxWait it records the call anyway.
-// It returns the reservation id ("" when the budgets are off) and the
-// waits.
-func (l *Limiter) reserve(ctx context.Context, info CallInfo) (string, []wait, error) {
+// tryReserve reserves a call in the budget window if it fits without
+// sleeping, or when force is true. When a wait is needed, it returns
+// id="" and the non-zero wait so the caller can release any slot before
+// sleeping.
+func (l *Limiter) tryReserve(ctx context.Context, info CallInfo, force bool) (string, wait, error) {
 	if !l.budgetsOn() {
-		return "", nil, nil
+		return "", wait{}, nil
 	}
-	var waits []wait
-	begin := l.now()
-	for {
-		force := l.now().Sub(begin) >= l.Config.MaxWait
-		var (
-			id     string
-			d      time.Duration
-			reason string
-		)
-		err := l.withBudget(ctx, func(s *budgetState, now time.Time) bool {
-			s.prune(now)
-			if !force {
-				d, reason = s.waitFor(info, l.Config, now)
-				if d > 0 {
-					return false
-				}
+	var (
+		id     string
+		d      time.Duration
+		reason string
+	)
+	err := l.withBudget(ctx, func(s *budgetState, now time.Time) bool {
+		s.prune(now)
+		if !force {
+			d, reason = s.waitFor(info, l.Config, now)
+			if d > 0 {
+				return false
 			}
-			id = strconv.Itoa(os.Getpid()) + "-" + strconv.FormatInt(now.UnixNano(), 10) + "-" + strconv.FormatInt(budgetSeq.Add(1), 10)
-			c := budgetCall{ID: id, Start: now.UnixNano(), Points: info.Points}
-			if info.GraphQL() {
-				c.GraphQL = int64(s.expected(info))
-			}
-			s.Calls = append(s.Calls, c)
-			return true
-		})
-		if err != nil {
-			return "", waits, err
 		}
-		if id != "" {
-			return id, waits, nil
+		id = strconv.Itoa(os.Getpid()) + "-" + strconv.FormatInt(now.UnixNano(), 10) + "-" + strconv.FormatInt(budgetSeq.Add(1), 10)
+		c := budgetCall{ID: id, Start: now.UnixNano(), Points: info.Points}
+		if info.Kind == KindSearch {
+			c.Search = 1
 		}
-		if err := ctx.Err(); err != nil {
-			return "", waits, fmt.Errorf("wait for gh budget: %w", err)
+		if info.GraphQL() {
+			c.GraphQL = int64(s.expected(info))
 		}
-		l.sleep(d)
-		if n := len(waits); n > 0 && waits[n-1].reason == reason {
-			waits[n-1].d += d
-		} else {
-			waits = append(waits, wait{reason, d})
-		}
+		s.Calls = append(s.Calls, c)
+		return true
+	})
+	if err != nil {
+		return "", wait{}, err
 	}
+	if id != "" {
+		return id, wait{}, nil
+	}
+	return "", wait{reason, d}, nil
 }
 
-// finish records the measured GraphQL time of reservation id and adds
-// it to the history of its query.
-func (l *Limiter) finish(ctx context.Context, id string, info CallInfo, took time.Duration) {
-	if id == "" || !info.GraphQL() {
+// finish records the measured GraphQL time, actual points, and search
+// page units of reservation id, and updates the duration history.
+func (l *Limiter) finish(ctx context.Context, id string, info CallInfo, took time.Duration, points, pages int) {
+	if id == "" {
+		return
+	}
+	searchUnits := 0
+	if info.Kind == KindSearch {
+		searchUnits = max(1, pages)
+	}
+	if !info.GraphQL() && points == info.Points && searchUnits <= 1 {
 		return
 	}
 	_ = l.withBudget(ctx, func(s *budgetState, now time.Time) bool {
 		for i := range s.Calls {
-			if s.Calls[i].ID == id {
+			if s.Calls[i].ID != id {
+				continue
+			}
+			s.Calls[i].Points = points
+			if info.Kind == KindSearch {
+				s.Calls[i].Search = searchUnits
+			}
+			if info.GraphQL() {
 				s.Calls[i].GraphQL = int64(took)
 			}
 		}
-		if s.Durations == nil {
-			s.Durations = map[string]*durationHistory{}
-		}
-		h := s.Durations[info.durationKey()]
-		if h == nil {
-			h = &durationHistory{}
-			s.Durations[info.durationKey()] = h
-		}
-		h.Last = now.UnixNano()
-		h.Samples = append(h.Samples, int64(took))
-		if n := len(h.Samples); n > durationSamples {
-			h.Samples = h.Samples[n-durationSamples:]
+		if info.GraphQL() {
+			s.recordDuration(info, now, took)
 		}
 		s.prune(now)
 		return true
 	})
+}
+
+func (s *budgetState) recordDuration(info CallInfo, now time.Time, took time.Duration) {
+	if s.Durations == nil {
+		s.Durations = map[string]*durationHistory{}
+	}
+	h := s.Durations[info.durationKey()]
+	if h == nil {
+		h = &durationHistory{}
+		s.Durations[info.durationKey()] = h
+	}
+	h.Last = now.UnixNano()
+	h.Samples = append(h.Samples, int64(took))
+	if n := len(h.Samples); n > durationSamples {
+		h.Samples = h.Samples[n-durationSamples:]
+	}
 }
 
 // prune drops the calls that left the window and stale histories.
@@ -188,6 +200,9 @@ func (s *budgetState) waitFor(info CallInfo, cfg Config, now time.Time) (time.Du
 		}
 	}
 	consider(ReasonPointsBudget, int64(cfg.PointsPerMin), int64(info.Points), func(c budgetCall) int64 { return int64(c.Points) })
+	if info.Kind == KindSearch {
+		consider(ReasonSearchBudget, int64(cfg.SearchPerMin), 1, func(c budgetCall) int64 { return int64(c.Search) })
+	}
 	if info.GraphQL() {
 		consider(ReasonGraphQLTimeBudget, int64(cfg.GraphQLTimePerMin), int64(s.expected(info)), func(c budgetCall) int64 { return c.GraphQL })
 	}
@@ -206,13 +221,19 @@ func sumOf(calls []budgetCall, f func(budgetCall) int64) int64 {
 // the state back when fn returns true. A missing or unreadable state is
 // empty.
 func (l *Limiter) withBudget(ctx context.Context, fn func(*budgetState, time.Time) bool) error {
-	unlock, _, err := l.acquire(ctx, []string{"budget.lock"})
+	return withLockedJSON(ctx, l, "budget.lock", "budget.json", fn)
+}
+
+// withLockedJSON runs fn on a JSON state file under a flock and writes
+// the updated state atomically when fn returns true.
+func withLockedJSON[T any](ctx context.Context, l *Limiter, lockName, stateFile string, fn func(*T, time.Time) bool) error {
+	unlock, _, err := l.acquire(ctx, []string{lockName})
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	path := filepath.Join(l.Dir, "budget.json")
-	var s budgetState
+	path := filepath.Join(l.Dir, stateFile)
+	var s T
 	if raw, err := os.ReadFile(path); err == nil {
 		_ = json.Unmarshal(raw, &s)
 	}
@@ -221,22 +242,22 @@ func (l *Limiter) withBudget(ctx context.Context, fn func(*budgetState, time.Tim
 	}
 	raw, err := json.Marshal(&s)
 	if err != nil {
-		return fmt.Errorf("encode budget: %w", err)
+		return fmt.Errorf("encode %s: %w", stateFile, err)
 	}
-	tmp, err := os.CreateTemp(l.Dir, ".budget-*")
+	tmp, err := os.CreateTemp(l.Dir, "."+stateFile+"-*")
 	if err != nil {
-		return fmt.Errorf("write budget: %w", err)
+		return fmt.Errorf("write %s: %w", stateFile, err)
 	}
 	defer os.Remove(tmp.Name())
 	if _, err := tmp.Write(raw); err != nil {
 		_ = tmp.Close()
-		return fmt.Errorf("write budget: %w", err)
+		return fmt.Errorf("write %s: %w", stateFile, err)
 	}
 	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("write budget: %w", err)
+		return fmt.Errorf("write %s: %w", stateFile, err)
 	}
 	if err := os.Rename(tmp.Name(), path); err != nil {
-		return fmt.Errorf("write budget: %w", err)
+		return fmt.Errorf("write %s: %w", stateFile, err)
 	}
 	return nil
 }

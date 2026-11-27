@@ -118,9 +118,70 @@ func TestBudgetConfigFromEnv(t *testing.T) {
 	if err != nil || cfg.PointsPerMin != 0 || cfg.GraphQLTimePerMin != 2500*time.Millisecond {
 		t.Fatalf("cfg = %+v, %v", cfg, err)
 	}
-	for _, bad := range []map[string]string{{EnvPointsPerMin: "-1"}, {EnvPointsPerMin: "x"}, {EnvGraphQLSecsPerMin: "-3"}} {
+	for _, bad := range []map[string]string{{EnvPointsPerMin: "-1"}, {EnvPointsPerMin: "x"}, {EnvGraphQLSecsPerMin: "-3"}, {EnvSearchPerMin: "-1"}, {EnvPaginateTimeout: "-1s"}} {
 		if _, err := ConfigFromEnv(func(k string) string { return bad[k] }); err == nil {
 			t.Errorf("ConfigFromEnv(%v) accepted a bad value", bad)
 		}
+	}
+}
+
+func TestSearchBudgetWaitsForWindow(t *testing.T) {
+	clock := newFakeClock()
+	l, sink := newLimiter(t, clock)
+	l.Config.SearchPerMin = 2
+	l.Config.PointsPerMin = 100
+	var starts []time.Time
+	run := func(context.Context) (Result, error) {
+		starts = append(starts, clock.Now())
+		return Result{}, nil
+	}
+	// Two search calls fit (REST + GraphQL search share the search budget).
+	if _, err := l.Run(context.Background(), []string{"api", "search/issues?q=is:open"}, run); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Run(context.Background(), []string{"api", "graphql", "-f", "query={ search(query: \"x\", type: ISSUE, first: 1) { issueCount } }"}, run); err != nil {
+		t.Fatal(err)
+	}
+	// A non-search call does NOT draw from the search budget.
+	if _, err := l.Run(context.Background(), []string{"api", "repos/o/r"}, run); err != nil {
+		t.Fatal(err)
+	}
+	if gap := starts[2].Sub(starts[0]); gap >= time.Second {
+		t.Fatalf("non-search call waited %v; search budget must only throttle search", gap)
+	}
+	// A 3rd search call must wait for the 60s window.
+	if _, err := l.Run(context.Background(), []string{"search", "prs", "--author", "@me"}, run); err != nil {
+		t.Fatal(err)
+	}
+	if gap := starts[3].Sub(starts[0]); gap < time.Minute {
+		t.Fatalf("3rd search call started %v after the 1st, want >= 1m", gap)
+	}
+	entries := sink.Entries()
+	if len(entries) != 1 || entries[0].Reason != ReasonSearchBudget {
+		t.Fatalf("log = %+v, want one search_budget wait", entries)
+	}
+}
+
+func TestSearchBudgetPaginateChargesPages(t *testing.T) {
+	clock := newFakeClock()
+	l, _ := newLimiter(t, clock)
+	l.Config.SearchPerMin = 4
+	l.Config.PointsPerMin = 100
+
+	// A 4-page paginated search exhausts the SearchPerMin=4 budget in one call.
+	if _, err := l.Run(context.Background(), []string{"api", "--paginate", "search/issues?q=x"}, func(context.Context) (Result, error) {
+		out := `{"items":[1]}{"items":[2]}{"items":[3]}{"items":[4]}`
+		return Result{Stdout: []byte(out), StdoutKept: true, StdoutLen: int64(len(out))}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before := clock.Now()
+	if _, err := l.Run(context.Background(), []string{"search", "prs", "--author", "@me"}, func(context.Context) (Result, error) {
+		return Result{}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if waited := clock.Now().Sub(before); waited < 59*time.Second {
+		t.Fatalf("next search waited %v after 4-page paginated search, want ~1m", waited)
 	}
 }

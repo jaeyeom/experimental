@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"time"
 )
 
 // stdoutHeadSize is how much of stdout a Result keeps for detecting a
@@ -59,12 +60,19 @@ func (r *ExecRunner) Run(ctx context.Context) (Result, error) {
 	// The path is the user's gh, and args are the caller's gh arguments.
 	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	cmd := exec.CommandContext(ctx, r.Path, r.Args...) //nolint:gosec // G204: the user's gh with the caller's argument list, not a shell
+	if ctx.Done() != nil {
+		// Prevent child processes that inherit stdio pipes from blocking Wait after ctx cancels.
+		cmd.WaitDelay = 200 * time.Millisecond
+	}
 	cmd.Env = r.Env
 	cmd.Stdin = r.stdin
 	if r.replayStdin {
 		cmd.Stdin = bytes.NewReader(r.stdinData)
 	}
 	out := &headWriter{w: r.stdout, keep: r.KeepStdout}
+	if IsPaginated(r.Args) && !r.StdoutDirect {
+		out.pages = newPageCounter(r.Args)
+	}
 	cmd.Stdout = out
 	if r.StdoutDirect {
 		cmd.Stdout = r.stdout
@@ -79,32 +87,47 @@ func (r *ExecRunner) Run(ctx context.Context) (Result, error) {
 		Stderr: stderr.Bytes(), StderrShown: r.StderrLive,
 		StdoutLen: out.n, StdoutHead: out.head, StdoutUncounted: r.StdoutDirect,
 	}
+	if out.pages != nil {
+		res.Pages = out.pages.Count(out.n)
+	}
 	if out.keep && !r.StdoutDirect {
 		res.Stdout, res.StdoutKept = out.all, true
 	}
+	if err := r.classifyRunErr(ctx, err, &res); err != nil {
+		return res, err
+	}
+	return res, nil
+}
+
+func (r *ExecRunner) classifyRunErr(ctx context.Context, err error, res *Result) error {
 	var exitErr *exec.ExitError
 	switch {
 	case err == nil:
-	case errors.As(err, &exitErr):
-		res.ExitCode = exitErr.ExitCode()
-		if res.ExitCode < 0 {
-			res.ExitCode = 1
+		return nil
+	case errors.Is(err, exec.ErrWaitDelay):
+		res.ExitCode = 1
+		if ctx.Err() == nil {
+			return fmt.Errorf("run %s: %w", r.Path, err)
 		}
+		return nil
+	case errors.As(err, &exitErr):
+		res.ExitCode = max(exitErr.ExitCode(), 1)
+		return nil
 	default:
-		return res, fmt.Errorf("run %s: %w", r.Path, err)
+		return fmt.Errorf("run %s: %w", r.Path, err)
 	}
-	return res, nil
 }
 
 // headWriter passes writes through, counting them and keeping the
 // first stdoutHeadSize bytes, and with keep all of them up to
 // maxKeptStdout.
 type headWriter struct {
-	w    io.Writer
-	n    int64
-	head []byte
-	keep bool
-	all  []byte
+	w     io.Writer
+	n     int64
+	head  []byte
+	keep  bool
+	all   []byte
+	pages *pageCounter
 }
 
 func (h *headWriter) Write(p []byte) (int, error) {
@@ -117,6 +140,9 @@ func (h *headWriter) Write(p []byte) (int, error) {
 		} else {
 			h.all = append(h.all, p...)
 		}
+	}
+	if h.pages != nil {
+		h.pages.Write(p)
 	}
 	n, err := h.w.Write(p)
 	h.n += int64(n)

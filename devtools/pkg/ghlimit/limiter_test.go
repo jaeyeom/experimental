@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -347,5 +348,321 @@ func TestStateDirIsPrivate(t *testing.T) {
 	}
 	if perm := info.Mode().Perm(); perm != 0o700 {
 		t.Fatalf("state dir mode %v, want 0700", perm)
+	}
+}
+
+func TestSharedCooldownAcrossProcessesHonorsRetryAfterAndDoubles(t *testing.T) {
+	clock := newFakeClock()
+	a, sinkA := newLimiter(t, clock)
+	a.Config.Backoff = 10 * time.Second
+	a.Config.MaxBackoff = 35 * time.Second
+	b := &Limiter{Dir: a.Dir, Config: a.Config, Now: clock.Now, Sleep: clock.Sleep, Log: sinkA.Log}
+
+	// Process A gets rate-limited with Retry-After: 12 on attempt 1, then succeeds on retry.
+	runsA := 0
+	res, err := a.Run(context.Background(), []string{"api", "repos/o/r"}, func(context.Context) (Result, error) {
+		runsA++
+		if runsA == 1 {
+			return Result{
+				ExitCode:   1,
+				StdoutLen:  10,
+				StdoutHead: []byte(`{"msg":"x"}`),
+				Stderr:     []byte("HTTP/2.0 429 Too Many Requests\nRetry-After: 12\n"),
+			}, nil
+		}
+		return Result{}, nil
+	})
+	if err != nil || res.ExitCode != 0 || runsA != 1 {
+		// StdoutLen > 0 is not retried, so it should return immediately while setting shared cooldown.
+		if err != nil || res.ExitCode != 1 || runsA != 1 {
+			t.Fatalf("A Run = %+v, %v (runs %d); want 1 non-retried run", res, err, runsA)
+		}
+	}
+
+	// Process B starts at t0+2s; it must wait the remaining 10s on cooldown before calling gh.
+	clock.Sleep(2 * time.Second)
+	var bStart time.Time
+	beforeB := clock.Now()
+	_, err = b.Run(context.Background(), []string{"pr", "view", "1"}, func(context.Context) (Result, error) {
+		bStart = clock.Now()
+		return Result{}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if waited := bStart.Sub(beforeB); waited != 10*time.Second {
+		t.Fatalf("second process waited %v on cooldown, want 10s", waited)
+	}
+	entries := sinkA.Entries()
+	if len(entries) != 1 || entries[0].Reason != ReasonCooldown || entries[0].WaitMS != 10000 {
+		t.Fatalf("wait log = %+v, want one cooldown wait of 10000ms", entries)
+	}
+
+	// Repeat hits during cooldown double the cooldown up to MaxBackoff.
+	// Hit 1: Retry-After 12s -> 12s.
+	c1 := &Limiter{Dir: t.TempDir(), Config: a.Config, Now: clock.Now, Sleep: clock.Sleep}
+	c2 := &Limiter{Dir: c1.Dir, Config: a.Config, Now: clock.Now, Sleep: clock.Sleep}
+	_, err = c1.Run(context.Background(), []string{"api", "repos/o/r"}, func(context.Context) (Result, error) {
+		return Result{ExitCode: 1, StdoutLen: 1, Stderr: []byte("HTTP/2.0 429\nRetry-After: 12\n")}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Hit 2 during cooldown (before 12s elapsed): doubles 12s -> 24s.
+	if _, _, err := c2.recordCooldown(context.Background(), []string{"pr", "view", "1"}, Result{ExitCode: 1, Stderr: []byte("secondary rate limit\n")}, false); err != nil {
+		t.Fatal(err)
+	}
+	// Hit 3 during cooldown: doubles 24s -> capped at MaxBackoff (35s).
+	if _, _, err := c2.recordCooldown(context.Background(), []string{"pr", "view", "1"}, Result{ExitCode: 1, Stderr: []byte("secondary rate limit\n")}, false); err != nil {
+		t.Fatal(err)
+	}
+	beforeC := clock.Now()
+	var cStart time.Time
+	_, err = c1.Run(context.Background(), []string{"pr", "view", "2"}, func(context.Context) (Result, error) {
+		cStart = clock.Now()
+		return Result{}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if waited := cStart.Sub(beforeC); waited != 35*time.Second {
+		t.Fatalf("waited %v after doubled cooldown, want MaxBackoff 35s", waited)
+	}
+}
+
+func TestNoSlotHeldDuringBackoffSleep(t *testing.T) {
+	dir := t.TempDir()
+	inBackoff := make(chan struct{})
+	resumeBackoff := make(chan struct{})
+	var closeOnce sync.Once
+
+	l1 := &Limiter{
+		Dir:    dir,
+		Config: DefaultConfig(),
+		Sleep: func(d time.Duration) {
+			if d >= 50*time.Millisecond {
+				closeOnce.Do(func() { close(inBackoff) })
+				<-resumeBackoff
+			}
+		},
+	}
+	l1.Config.Backoff = 200 * time.Millisecond
+	l1.Config.MaxBackoff = time.Second
+
+	l2 := &Limiter{
+		Dir:    dir,
+		Config: l1.Config,
+	}
+	l2.Config.MaxWait = 2 * time.Second
+
+	var (
+		wg       sync.WaitGroup
+		l1Err    error
+		l1Res    Result
+		attempts int
+	)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		l1Res, l1Err = l1.Run(context.Background(), []string{"pr", "view", "1"}, func(context.Context) (Result, error) {
+			attempts++
+			if attempts == 1 {
+				return Result{ExitCode: 1, Stderr: []byte("secondary rate limit\n")}, nil
+			}
+			return Result{ExitCode: 0}, nil
+		})
+	}()
+
+	select {
+	case <-inBackoff:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for backoff sleep")
+	}
+
+	// While l1 is sleeping in backoff, no slot lock should be held:
+	// a concurrent non-GitHub-blocked call must complete immediately.
+	doneNonBlocked := make(chan error, 1)
+	go func() {
+		_, err := l2.Run(context.Background(), []string{"--version"}, func(context.Context) (Result, error) {
+			return Result{ExitCode: 0}, nil
+		})
+		doneNonBlocked <- err
+	}()
+
+	select {
+	case err := <-doneNonBlocked:
+		if err != nil {
+			t.Fatalf("concurrent non-GitHub-blocked call failed: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		close(resumeBackoff)
+		t.Fatal("concurrent non-GitHub-blocked call blocked while l1 slept in backoff")
+	}
+
+	close(resumeBackoff)
+	wg.Wait()
+	if l1Err != nil || l1Res.ExitCode != 0 || attempts != 2 {
+		t.Fatalf("l1 = %+v, %v (attempts=%d); want success after retry", l1Res, l1Err, attempts)
+	}
+}
+
+func TestPreflightAuthStatusDuringCooldownReturnsFastWithMarker(t *testing.T) {
+	clock := newFakeClock()
+	l, _ := newLimiter(t, clock)
+	l.Config.Backoff = time.Minute
+	var calls []CallEntry
+	l.LogCall = func(e CallEntry) error {
+		calls = append(calls, e)
+		return nil
+	}
+
+	// Trigger an active cooldown.
+	_, err := l.Run(context.Background(), []string{"api", "repos/o/r"}, func(context.Context) (Result, error) {
+		return Result{ExitCode: 1, Stderr: []byte("secondary rate limit\n"), StdoutLen: 1}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Auth status during cooldown must NOT call gh, must NOT sleep, and must return ExitRateLimited + marker.
+	ghCalled := false
+	before := clock.Now()
+	sleptBefore := len(clock.slept)
+	res, err := l.Run(context.Background(), []string{"auth", "status"}, func(context.Context) (Result, error) {
+		ghCalled = true
+		return Result{}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ghCalled {
+		t.Fatal("auth status ran gh during active cooldown")
+	}
+	if len(clock.slept) != sleptBefore || clock.Now() != before {
+		t.Fatalf("auth status slept during cooldown: %v", clock.slept[sleptBefore:])
+	}
+	if res.ExitCode != ExitRateLimited {
+		t.Fatalf("ExitCode = %d, want %d (ExitRateLimited)", res.ExitCode, ExitRateLimited)
+	}
+	stderr := string(res.Stderr)
+	if !strings.Contains(stderr, RateLimitMarker) || !strings.Contains(strings.ToLower(stderr), "rate limit") {
+		t.Fatalf("stderr = %q, want %q and rate limit marker", stderr, RateLimitMarker)
+	}
+
+	// Live auth status hitting a rate limit must NOT retry in a loop.
+	l2, _ := newLimiter(t, clock)
+	liveRuns := 0
+	res2, err := l2.Run(context.Background(), []string{"auth", "status"}, func(context.Context) (Result, error) {
+		liveRuns++
+		return Result{ExitCode: 1, Stderr: []byte("API rate limit exceeded\n")}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if liveRuns != 1 || res2.ExitCode != ExitRateLimited || !strings.Contains(string(res2.Stderr), RateLimitMarker) {
+		t.Fatalf("live rate-limited auth status: runs=%d res=%+v stderr=%q", liveRuns, res2, string(res2.Stderr))
+	}
+
+	// Genuine not-logged-in auth status passes through unchanged (exit 1, no marker).
+	l3, _ := newLimiter(t, clock)
+	res3, err := l3.Run(context.Background(), []string{"auth", "status"}, func(context.Context) (Result, error) {
+		return Result{ExitCode: 1, Stderr: []byte("You are not logged into any GitHub hosts.\n")}, nil
+	})
+	if err != nil || res3.ExitCode != 1 || strings.Contains(string(res3.Stderr), RateLimitMarker) {
+		t.Fatalf("unauthenticated auth status = %+v, %v", res3, err)
+	}
+	_ = calls
+}
+
+func TestPaginateChargesPagesAndStopsRunawayTimeout(t *testing.T) {
+	clock := newFakeClock()
+	l, _ := newLimiter(t, clock)
+	l.Config.PointsPerMin = 5
+	var calls []CallEntry
+	l.LogCall = func(e CallEntry) error {
+		calls = append(calls, e)
+		return nil
+	}
+
+	// A 3-page --paginate fixture (via ExecRunner) charges 3 points and logs pages=3.
+	gh := fakeGH(t, `printf '{"data":{"page":1}}\n{"data":{"page":2}}\n{"data":{"page":3}}\n'`+"\n")
+	c := runGH(t, l, gh, []string{"api", "graphql", "--paginate", "-f", "query={ viewer { login } }"}, "")
+	if c.err != nil || c.res.ExitCode != 0 {
+		t.Fatalf("paginate run = %+v, %v", c.res, c.err)
+	}
+	if len(calls) != 1 || calls[0].Pages != 3 || calls[0].Points != 3 {
+		t.Fatalf("call entry = %+v; want pages=3 points=3", calls)
+	}
+
+	// Two more 1-point calls fit (3 + 2 = 5), then the 6th point waits for the window.
+	before := clock.Now()
+	for range 2 {
+		if _, err := l.Run(context.Background(), []string{"api", "repos/o/r"}, func(context.Context) (Result, error) {
+			return Result{}, nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if clock.Now().Sub(before) != 0 {
+		t.Fatalf("calls 4 and 5 waited unexpectedly: %v", clock.Now().Sub(before))
+	}
+	if _, err := l.Run(context.Background(), []string{"api", "repos/o/r"}, func(context.Context) (Result, error) {
+		return Result{}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if waited := clock.Now().Sub(before); waited < 59*time.Second {
+		t.Fatalf("6th point waited %v after 3-page paginate, want ~1m", waited)
+	}
+
+	// Runaway --paginate call is stopped by PaginateTimeout.
+	l2, _ := newLimiter(t, nil)
+	l2.Config.PaginateTimeout = 50 * time.Millisecond
+	slowGH := fakeGH(t, "sleep 5\n")
+	r, err := NewExecRunner(slowGH, []string{"api", "--paginate", "repos/o/r/pulls"}, strings.NewReader(""), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	_, err = l2.Run(context.Background(), []string{"api", "--paginate", "repos/o/r/pulls"}, r.Run)
+	elapsed := time.Since(start)
+	if err == nil || elapsed > 2*time.Second {
+		t.Fatalf("runaway paginate err=%v elapsed=%v; want quick timeout error", err, elapsed)
+	}
+}
+
+func TestRetryDoublesCooldownAndUsesResetHeader(t *testing.T) {
+	clock := newFakeClock()
+	l1, _ := newLimiter(t, clock)
+	l1.Config.Backoff = 10 * time.Second
+	l1.Config.MaxBackoff = 50 * time.Second
+	l2 := &Limiter{Dir: l1.Dir, Config: l1.Config, Now: clock.Now, Sleep: clock.Sleep}
+
+	// Hit 1 has x-ratelimit-reset = now + 15s; retry also hits rate limit -> doubles 15s -> 30s.
+	resetEpoch := strconv.FormatInt(clock.Now().Add(15*time.Second).Unix(), 10)
+	attempts := 0
+	res, err := l1.Run(context.Background(), []string{"pr", "view", "1"}, func(context.Context) (Result, error) {
+		attempts++
+		return Result{ExitCode: 1, Stderr: []byte("API rate limit exceeded\nx-ratelimit-reset: " + resetEpoch + "\n")}, nil
+	})
+	if err != nil || res.ExitCode != 1 || attempts != 2 {
+		t.Fatalf("Run = %+v, %v (attempts=%d); want 2 attempts", res, err, attempts)
+	}
+	if len(clock.slept) != 1 || clock.slept[0] != 15*time.Second {
+		t.Fatalf("slept %v, want 15s from x-ratelimit-reset", clock.slept)
+	}
+
+	// Caller l2 arrives immediately and must wait the doubled 30s cooldown.
+	before := clock.Now()
+	var l2Start time.Time
+	_, err = l2.Run(context.Background(), []string{"pr", "view", "2"}, func(context.Context) (Result, error) {
+		l2Start = clock.Now()
+		return Result{}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if waited := l2Start.Sub(before); waited != 30*time.Second {
+		t.Fatalf("second caller waited %v after doubled retry, want 30s", waited)
 	}
 }

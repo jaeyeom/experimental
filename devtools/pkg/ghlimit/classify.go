@@ -162,22 +162,124 @@ func UsesStdin(args []string) bool {
 	return false
 }
 
+// ExitRateLimited is returned for preflight calls (such as gh auth status)
+// when an account-wide cooldown is active or the live preflight call itself
+// was rate-limited, distinguishing rate limiting from exit 1 ("not logged in").
+const ExitRateLimited = 75
+
+// RateLimitMarker is included in stderr on rate-limited preflight exits so
+// callers can distinguish rate limiting from authentication failures.
+const RateLimitMarker = "GH_THROTTLE_RATE_LIMITED"
+
 var (
-	rateLimitText = regexp.MustCompile(`(?i)rate limit|abuse detection`)
-	httpLimitCode = regexp.MustCompile(`\bHTTP(/[\d.]+)?\s+(403|429)\b`)
-	retryAfter    = regexp.MustCompile(`(?im)^retry-after:\s*(\d+)\s*$`)
-	rateReset     = regexp.MustCompile(`(?im)^x-ratelimit-reset:\s*(\d+)\s*$`)
+	rateLimitText      = regexp.MustCompile(`(?i)rate limit|abuse detection`)
+	secondaryLimitText = regexp.MustCompile(`(?i)secondary rate limit`)
+	abuseDetectionText = regexp.MustCompile(`(?i)abuse detection`)
+	httpLimitCode      = regexp.MustCompile(`\bHTTP(/[\d.]+)?\s+(403|429)\b`)
+	retryAfter         = regexp.MustCompile(`(?im)^retry-after:\s*(\d+)\s*$`)
+	rateReset          = regexp.MustCompile(`(?im)^x-ratelimit-reset:\s*(\d+)\s*$`)
 )
 
 // RateLimited reports whether a failed gh call hit a primary or
 // secondary rate limit. An HTTP 403 or 429 counts only for gh api, whose
 // other commands also report a 403 for missing permissions.
 func RateLimited(args []string, stderr, stdout string) bool {
-	if rateLimitText.MatchString(stderr) {
+	return RateLimitCause(args, stderr, stdout) != ""
+}
+
+// RateLimitCause returns a short label describing why a failed gh call was
+// classified rate-limited, or "" if it was not rate-limited.
+func RateLimitCause(args []string, stderr, stdout string) string {
+	switch {
+	case secondaryLimitText.MatchString(stderr):
+		return "secondary_rate_limit"
+	case abuseDetectionText.MatchString(stderr):
+		return "abuse_detection"
+	case rateLimitText.MatchString(stderr):
+		return "rate_limit"
+	}
+	if len(args) > 0 && args[0] == "api" {
+		for _, text := range []string{stderr, stdout} {
+			if m := httpLimitCode.FindStringSubmatch(text); m != nil {
+				return "http_" + m[2]
+			}
+		}
+	}
+	return ""
+}
+
+// IsPaginated reports whether gh args include --paginate.
+func IsPaginated(args []string) bool {
+	for _, arg := range args {
+		if arg == "--" {
+			return false
+		}
+		if arg == "--paginate" || arg == "--paginate=true" {
+			return true
+		}
+	}
+	return false
+}
+
+// IsPreflight reports whether gh args are a non-data preflight check
+// (such as gh auth status or gh api rate_limit) that must fail fast rather
+// than wait or retry in a loop during a cooldown.
+func IsPreflight(args []string) bool {
+	if len(args) == 0 || hasHelpFlag(args) {
+		return false
+	}
+	if args[0] == "api" {
+		if apiMutates(args[1:]) {
+			return false
+		}
+		ep, _, _ := strings.Cut(strings.TrimPrefix(parseAPIArgs(args[1:]).endpoint, "/"), "?")
+		return ep == "rate_limit"
+	}
+	words := commandWords(args, 2)
+	return len(words) >= 2 && words[0] == "auth" && words[1] == "status"
+}
+
+// isLocalCommand reports whether gh args are handled locally by gh without
+// talking to GitHub, so they should not wait on a GitHub rate-limit cooldown.
+func isLocalCommand(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	if args[0] == "-h" || hasHelpFlag(args) {
 		return true
 	}
-	return len(args) > 0 && args[0] == "api" &&
-		(httpLimitCode.MatchString(stderr) || httpLimitCode.MatchString(stdout))
+	switch args[0] {
+	case "--version", "version", "help", "completion", "config", "alias":
+		return true
+	}
+	words := commandWords(args, 2)
+	return len(words) >= 2 && words[0] == "auth" && words[1] == "token"
+}
+
+func hasHelpFlag(args []string) bool {
+	for _, a := range args {
+		if a == "--" {
+			return false
+		}
+		if a == "--help" {
+			return true
+		}
+	}
+	return false
+}
+
+func commandWords(args []string, limit int) []string {
+	var words []string
+	for _, a := range args {
+		if a == "--" || (len(a) > 0 && a[0] == '-') {
+			break
+		}
+		words = append(words, a)
+		if len(words) == limit {
+			break
+		}
+	}
+	return words
 }
 
 // RetryAfter is the wait a Retry-After or x-ratelimit-reset header in

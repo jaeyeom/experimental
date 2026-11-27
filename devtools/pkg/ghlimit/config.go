@@ -22,10 +22,14 @@ const (
 	EnvBackoff       = "GH_THROTTLE_BACKOFF"
 	EnvMaxBackoff    = "GH_THROTTLE_MAX_BACKOFF"
 	EnvCacheTTL      = "GH_THROTTLE_CACHE_TTL"
-	// EnvPointsPerMin and EnvGraphQLSecsPerMin set the per-minute
-	// budgets; 0 turns one off.
+	// EnvPointsPerMin, EnvSearchPerMin, and EnvGraphQLSecsPerMin set the
+	// per-minute budgets; 0 turns one off.
 	EnvPointsPerMin      = "GH_THROTTLE_POINTS_PER_MIN"
+	EnvSearchPerMin      = "GH_THROTTLE_SEARCH_PER_MIN"
 	EnvGraphQLSecsPerMin = "GH_THROTTLE_GRAPHQL_SECS_PER_MIN"
+	// EnvPaginateTimeout caps how long a single --paginate call may run; 0
+	// turns the cap off.
+	EnvPaginateTimeout = "GH_THROTTLE_PAGINATE_TIMEOUT"
 	// EnvNoCache set to 1 makes one call skip the read cache.
 	EnvNoCache = "GH_THROTTLE_NO_CACHE"
 )
@@ -41,7 +45,7 @@ type Config struct {
 	// Backoff is the wait before retrying a rate-limited call when gh
 	// output names no wait.
 	Backoff time.Duration
-	// MaxBackoff caps every backoff.
+	// MaxBackoff caps every backoff and account-wide cooldown.
 	MaxBackoff time.Duration
 	// MaxWait is the longest wait for a lock. After it, the call runs
 	// anyway, so a stuck holder cannot block everyone.
@@ -52,15 +56,23 @@ type Config struct {
 	// PointsPerMin caps the secondary-limit points (see ClassifyCall)
 	// spent in any 60s by all of the user's processes. Zero turns it off.
 	PointsPerMin int
+	// SearchPerMin caps the search calls (REST /search/*, gh search, and
+	// GraphQL search) started in any 60s by all of the user's processes.
+	// Zero turns it off.
+	SearchPerMin int
 	// GraphQLTimePerMin caps the summed wall time of the GraphQL calls
 	// started in any 60s, a proxy for GitHub's GraphQL CPU limit. Zero
 	// turns it off.
 	GraphQLTimePerMin time.Duration
+	// PaginateTimeout caps how long a single --paginate call may run.
+	// Zero turns it off.
+	PaginateTimeout time.Duration
 }
 
 // DefaultConfig is one call at a time, mutations 1s apart, a 60s
-// backoff capped at 5m, a 10m lock wait, and per-minute budgets of 1500
-// points and 40s of GraphQL time, below GitHub's 2000 and 60s.
+// backoff capped at 5m, a 10m lock wait, a 60s paginate timeout, and
+// per-minute budgets of 1500 points, 20 search calls, and 40s of GraphQL
+// time, below GitHub's 2000, 30, and 60s.
 func DefaultConfig() Config {
 	return Config{
 		MaxConcurrent:     1,
@@ -69,7 +81,9 @@ func DefaultConfig() Config {
 		MaxBackoff:        5 * time.Minute,
 		MaxWait:           10 * time.Minute,
 		PointsPerMin:      1500,
+		SearchPerMin:      20,
 		GraphQLTimePerMin: 40 * time.Second,
+		PaginateTimeout:   time.Minute,
 	}
 }
 
@@ -85,12 +99,22 @@ func ConfigFromEnv(getenv func(string) string) (Config, error) {
 		}
 		cfg.MaxConcurrent = n
 	}
-	if v := getenv(EnvPointsPerMin); v != "" {
+	for _, c := range []struct {
+		name string
+		dst  *int
+	}{
+		{EnvPointsPerMin, &cfg.PointsPerMin},
+		{EnvSearchPerMin, &cfg.SearchPerMin},
+	} {
+		v := getenv(c.name)
+		if v == "" {
+			continue
+		}
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 0 {
-			return cfg, fmt.Errorf("%s=%q: want a whole number of at least 0", EnvPointsPerMin, v)
+			return cfg, fmt.Errorf("%s=%q: want a whole number of at least 0", c.name, v)
 		}
-		cfg.PointsPerMin = n
+		*c.dst = n
 	}
 	for _, d := range []struct {
 		name string
@@ -101,6 +125,7 @@ func ConfigFromEnv(getenv func(string) string) (Config, error) {
 		{EnvMaxBackoff, &cfg.MaxBackoff},
 		{EnvCacheTTL, &cfg.CacheTTL},
 		{EnvGraphQLSecsPerMin, &cfg.GraphQLTimePerMin},
+		{EnvPaginateTimeout, &cfg.PaginateTimeout},
 	} {
 		v := getenv(d.name)
 		if v == "" {

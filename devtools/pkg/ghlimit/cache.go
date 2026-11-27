@@ -57,7 +57,7 @@ func (c *Cache) Run(ctx context.Context, l *Limiter, args []string, run Runner, 
 		c.invalidate(args, l.now())
 		return res, err
 	}
-	if c.TTL <= 0 || c.Bypass {
+	if c.TTL <= 0 || c.Bypass || IsPreflight(args) {
 		return l.Run(ctx, args, run)
 	}
 	repo, ok := c.readRepo(args)

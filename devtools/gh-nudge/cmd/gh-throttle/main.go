@@ -13,12 +13,18 @@
 // Knobs: GH_THROTTLE_MAX_CONCURRENT, GH_THROTTLE_MUTATION_GAP,
 // GH_THROTTLE_BACKOFF, GH_THROTTLE_MAX_BACKOFF, GH_THROTTLE_OFF=1 to
 // bypass the limiter, GH_THROTTLE_CACHE_TTL to turn on the read cache,
-// GH_THROTTLE_NO_CACHE=1 to skip it for one call, and
-// GH_THROTTLE_POINTS_PER_MIN and GH_THROTTLE_GRAPHQL_SECS_PER_MIN for
-// the per-minute budgets.
+// GH_THROTTLE_NO_CACHE=1 to skip it for one call,
+// GH_THROTTLE_POINTS_PER_MIN, GH_THROTTLE_SEARCH_PER_MIN, and
+// GH_THROTTLE_GRAPHQL_SECS_PER_MIN for the per-minute budgets, and
+// GH_THROTTLE_PAGINATE_TIMEOUT to cap --paginate calls.
+//
+// Preflight calls (such as gh auth status) during an active cooldown
+// return immediately with exit code 75 and GH_THROTTLE_RATE_LIMITED on
+// stderr.
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -81,24 +87,7 @@ func run(args []string, getenv func(string) string, self string, stdin io.Reader
 	if err != nil {
 		return fail(err)
 	}
-	logPath, callLogPath := ghlimit.LogPath(getenv), ghlimit.CallLogPath(getenv)
-	caller := lookupCaller()
-	cwd, _ := os.Getwd()
-	limiter := &ghlimit.Limiter{
-		Dir:    ghlimit.StateDir(getenv),
-		Config: cfg,
-		Log: func(e ghlimit.Entry) error {
-			e.PID = os.Getpid()
-			e.Caller, _ = caller()
-			return ghlimit.AppendLog(logPath, e)
-		},
-		LogCall: func(e ghlimit.CallEntry) error {
-			e.PID = os.Getpid()
-			e.Caller, e.CallerChain = caller()
-			e.Cwd = cwd
-			return ghlimit.AppendCallLog(callLogPath, e, ghlimit.MaxCallLogSize)
-		},
-	}
+	limiter := newLimiter(cfg, getenv)
 	runner, err := ghlimit.NewExecRunner(gh, args, stdin, stdout, stderr)
 	if err != nil {
 		return fail(err)
@@ -126,10 +115,39 @@ func run(args []string, getenv func(string) string, self string, stdin io.Reader
 	if err != nil {
 		return fail(err)
 	}
+	writeResultStderr(stderr, res)
+	return res.ExitCode
+}
+
+func newLimiter(cfg ghlimit.Config, getenv func(string) string) *ghlimit.Limiter {
+	logPath, callLogPath := ghlimit.LogPath(getenv), ghlimit.CallLogPath(getenv)
+	caller := lookupCaller()
+	cwd, _ := os.Getwd()
+	return &ghlimit.Limiter{
+		Dir:    ghlimit.StateDir(getenv),
+		Config: cfg,
+		Log: func(e ghlimit.Entry) error {
+			e.PID = os.Getpid()
+			e.Caller, _ = caller()
+			return ghlimit.AppendLog(logPath, e)
+		},
+		LogCall: func(e ghlimit.CallEntry) error {
+			e.PID = os.Getpid()
+			e.Caller, e.CallerChain = caller()
+			e.Cwd = cwd
+			return ghlimit.AppendCallLog(callLogPath, e, ghlimit.MaxCallLogSize)
+		},
+	}
+}
+
+func writeResultStderr(stderr io.Writer, res ghlimit.Result) {
 	if !res.StderrShown {
 		_, _ = stderr.Write(res.Stderr)
+		return
 	}
-	return res.ExitCode
+	if res.ExitCode == ghlimit.ExitRateLimited && !bytes.Contains(res.Stderr, []byte(ghlimit.RateLimitMarker)) {
+		fmt.Fprintf(stderr, "gh-throttle: rate limit hit (not an auth failure) [%s]\n", ghlimit.RateLimitMarker)
+	}
 }
 
 // findGH is $GH_THROTTLE_GH, or else the first executable gh on PATH
