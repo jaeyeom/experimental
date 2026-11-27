@@ -53,6 +53,7 @@ go_test(
     ]) + [
         "README.org",
         "emacs_app_link.sh",
+        "//devtools:commands",
         "//devtools/gh-nudge/cmd:commands",
         "//devtools/setup-dev:README.org",
         "//devtools/setup-dev/ansible/docs:hub-setup.org",
@@ -493,6 +494,7 @@ sh_test(
         "checkstyle.yml",
         "circleci.yml",
         "claude.yml",
+        "claude-usage.yml",
         "claudelytics.yml",
         "cleanup-repo.yml",
         "cmake.yml",
@@ -575,6 +577,7 @@ sh_test(
         "prettier.yml",
         "prsync.yml",
         "pylsp.yml",
+        "quotapace.yml",
         "review-and-push-loop.yml",
         "rg.yml",
         "ruff.yml",
@@ -943,6 +946,22 @@ sh_test(
         "setup-nvm.yml",
         "setup-shell-profile.yml",
         "tasks/github-release-info.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
+    name = "claude-usage_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["claude-usage.yml"],
+    data = [
+        "claude-usage.yml",
+        "go.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
     ],
     tags = [
         "ansible",
@@ -2622,6 +2641,7 @@ sh_test(
         "cargo.yml",
         "cargo-install-update.yml",
         "claude.yml",
+        "claude-usage.yml",
         "claudelytics.yml",
         "cleanup-repo.yml",
         "cmake.yml",
@@ -2680,6 +2700,7 @@ sh_test(
         "profile-cloudflare-dev.yml",
         "profile-minimal.yml",
         "prsync.yml",
+        "quotapace.yml",
         "review-and-push-loop.yml",
         "rg.yml",
         "rustup.yml",
@@ -3006,6 +3027,22 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["python3-notmuch2.yml"],
     data = ["python3-notmuch2.yml"],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
+    name = "quotapace_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["quotapace.yml"],
+    data = [
+        "go.yml",
+        "quotapace.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
     tags = [
         "ansible",
         "local",
@@ -4432,6 +4469,7 @@ sh_test(
         "cargo.yml",
         "cargo-install-update.yml",
         "claude.yml",
+        "claude-usage.yml",
         "claudelytics.yml",
         "codex.yml",
         "cplt.yml",
@@ -4460,6 +4498,7 @@ sh_test(
         "nvm.yml",
         "pkg-config.yml",
         "prsync.yml",
+        "quotapace.yml",
         "review-and-push-loop.yml",
         "rustup.yml",
         "setup-cargo.yml",
@@ -5026,6 +5065,7 @@ test_suite(
         ":checkstyle_syntax_test",
         ":circleci_syntax_test",
         ":clang-format_syntax_test",
+        ":claude-usage_syntax_test",
         ":claude_syntax_test",
         ":claudelytics_syntax_test",
         ":cleanup-repo_syntax_test",
@@ -5145,6 +5185,7 @@ test_suite(
         ":psql_syntax_test",
         ":pylsp_syntax_test",
         ":python3-notmuch2_syntax_test",
+        ":quotapace_syntax_test",
         ":repo-sync_syntax_test",
         ":review-and-push-loop_syntax_test",
         ":rg_syntax_test",

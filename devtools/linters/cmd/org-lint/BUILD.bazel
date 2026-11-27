@@ -13,3 +13,8 @@ go_library(
     visibility = ["//visibility:private"],
     deps = ["@com_github_jaeyeom_go_cmdexec//:go_default_library"],
 )
+
+exports_files(
+    ["main.go"],
+    visibility = ["//devtools:__pkg__"],
+)

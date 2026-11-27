@@ -741,6 +741,38 @@ func TestSlackwatchGoTool(t *testing.T) {
 	}
 }
 
+func TestQuotapaceGoTool(t *testing.T) {
+	tool := findPlatformSpecificTool(t, "quotapace")
+	method, ok := tool.platforms[PlatformAll].(GoInstallMethod)
+	if !ok {
+		t.Fatalf("quotapace PlatformAll method = %T, want GoInstallMethod", tool.platforms[PlatformAll])
+	}
+	wantPath := "github.com/jaeyeom/experimental/devtools/quotapace/cmd/quotapace@" + experimentalVersion
+	if method.PkgPath != wantPath {
+		t.Errorf("quotapace PkgPath = %q, want %q", method.PkgPath, wantPath)
+	}
+	wantAll := []Import{{Playbook: "setup-user-go-bin-directory"}}
+	if got := tool.GetAllImports(); !reflect.DeepEqual(got, wantAll) {
+		t.Errorf("quotapace GetAllImports() = %s, want %s", formatImports(got), formatImports(wantAll))
+	}
+}
+
+func TestClaudeUsageGoTool(t *testing.T) {
+	tool := findPlatformSpecificTool(t, "claude-usage")
+	method, ok := tool.platforms[PlatformAll].(GoInstallMethod)
+	if !ok {
+		t.Fatalf("claude-usage PlatformAll method = %T, want GoInstallMethod", tool.platforms[PlatformAll])
+	}
+	wantPath := "github.com/jaeyeom/experimental/devtools/claude-usage/cmd/claude-usage@" + experimentalVersion
+	if method.PkgPath != wantPath {
+		t.Errorf("claude-usage PkgPath = %q, want %q", method.PkgPath, wantPath)
+	}
+	wantAll := []Import{{Playbook: "setup-user-go-bin-directory"}}
+	if got := tool.GetAllImports(); !reflect.DeepEqual(got, wantAll) {
+		t.Errorf("claude-usage GetAllImports() = %s, want %s", formatImports(got), formatImports(wantAll))
+	}
+}
+
 func TestPrsyncGoTool(t *testing.T) {
 	tool := findPlatformSpecificTool(t, "prsync")
 	method, ok := tool.platforms[PlatformAll].(GoInstallMethod)

@@ -23,3 +23,8 @@ go_test(
     srcs = ["main_test.go"],
     embed = [":go_default_library"],
 )
+
+exports_files(
+    ["main.go"],
+    visibility = ["//devtools:__pkg__"],
+)

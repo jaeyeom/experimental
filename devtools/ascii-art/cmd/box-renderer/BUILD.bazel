@@ -27,3 +27,8 @@ go_test(
     data = ["//devtools/ascii-art:README.org"],
     embed = [":go_default_library"],
 )
+
+exports_files(
+    ["main.go"],
+    visibility = ["//devtools:__pkg__"],
+)

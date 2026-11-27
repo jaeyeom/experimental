@@ -48,3 +48,8 @@ go_test(
     embed = [":go_default_library"],
     deps = ["//devtools/pkg/toolcli:go_default_library"],
 )
+
+exports_files(
+    ["main.go"],
+    visibility = ["//devtools:__pkg__"],
+)

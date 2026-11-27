@@ -53,3 +53,8 @@ go_test(
         "@org_golang_x_sys//unix:go_default_library",
     ],
 )
+
+exports_files(
+    ["main.go"],
+    visibility = ["//devtools:__pkg__"],
+)

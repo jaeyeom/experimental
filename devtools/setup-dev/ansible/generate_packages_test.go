@@ -5,7 +5,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 
@@ -1147,5 +1149,194 @@ func TestGeneratedReleaseTasksWithCredentialsSetNoLog(t *testing.T) {
 	}
 	for _, v := range violations {
 		t.Errorf("generated task %q mentions Authorization or GITHUB_TOKEN without no_log: true", v)
+	}
+}
+
+// devtoolsCommandSkipReasons documents devtools/*/cmd/* binaries that
+// intentionally do not have a standalone <name>.yml setup-dev playbook.
+var devtoolsCommandSkipReasons = map[string]string{
+	"agent-pool":                             "standalone producer-consumer CLI installed via make install, not yet managed by setup-dev",
+	"agent-poold":                            "central agent-pool broker daemon run manually on a broker host",
+	"agentbus":                               "installed by setup-hub-client.yml (or manually on hub host), not a standalone generated playbook",
+	"agentbusd":                              "hub-only daemon; refuses to run on hub clients (see docs/hub-setup.org)",
+	"agents-md-size":                         "repo-internal linter run via Bazel tests, not installed system-wide",
+	"authwatch":                              "standalone OAuth token expiry monitor installed via make install, not yet managed by setup-dev",
+	"box-renderer":                           "experimental ASCII-art renderer run via bazel run, not installed by setup-dev",
+	"contacts":                               "standalone personal contact store CLI installed via make install, not yet managed by setup-dev",
+	"devcheck":                               "standalone repo check runner CLI installed via make install, not yet managed by setup-dev",
+	"docsync":                                "standalone doc-staleness CLI installed via make install, not yet managed by setup-dev",
+	"fork-keeper":                            "run on designated fork-keeper host (scheduled by setup-fork-keeper.yml), installed via make install",
+	"genfiles":                               "standalone generated-file checker CLI installed via make install, not yet managed by setup-dev",
+	"gh-ask":                                 "optional PR question server and browser userscript installed via make install",
+	"gh-outbox":                              "standalone GitHub comment approval gate CLI installed via make install, not yet managed by setup-dev",
+	"install-check":                          "standalone issue-watch cron CLI installed via make install, not yet managed by setup-dev",
+	"memstore":                               "standalone personal memory store CLI installed via make install, not yet managed by setup-dev",
+	"migration-immutability":                 "repo-internal CI linter run via Bazel, not installed system-wide",
+	"org-lint-go":                            "experimental Go org-linter, not installed system-wide (org-lint is used instead)",
+	"org-lint-parity":                        "manual repo-internal parity test harness (make org-lint-parity), not installed",
+	"orgctl":                                 "standalone agent-team spec checker CLI installed via make install, not yet managed by setup-dev",
+	"pkgvar":                                 "repo-internal Go analyzer run via Bazel nogo, not installed system-wide",
+	"rename-jira-keys":                       "ad-hoc migration CLI installed via make install, not part of machine setup",
+	"secretwatch":                            "systemd journal watcher (Linux-only service) installed via make install, not yet managed by setup-dev",
+	"unnecessary-interface-assertion-linter": "repo-internal Go linter run via Bazel, not installed system-wide",
+}
+
+func discoverDevtoolsCommands(t *testing.T) []string {
+	t.Helper()
+	devtoolsDir := filepath.Clean(filepath.Join(ansiblePlaybookDir(t), "..", ".."))
+	matches, err := filepath.Glob(filepath.Join(devtoolsDir, "*", "cmd", "*", "main.go"))
+	if err != nil {
+		t.Fatalf("glob devtools commands: %v", err)
+	}
+	var commands []string
+	for _, match := range matches {
+		commands = append(commands, filepath.Base(filepath.Dir(match)))
+	}
+	sort.Strings(commands)
+	return commands
+}
+
+func checkDevtoolsCommandCoverage(commands []string, playbooks map[string]bool, skipReasons map[string]string) []string {
+	var problems []string
+	cmdSet := make(map[string]bool, len(commands))
+	sortedCommands := append([]string(nil), commands...)
+	sort.Strings(sortedCommands)
+
+	for _, cmd := range sortedCommands {
+		cmdSet[cmd] = true
+		if playbooks[cmd] {
+			continue
+		}
+		reason, skipped := skipReasons[cmd]
+		if !skipped {
+			problems = append(problems, fmt.Sprintf("devtools command %q has no playbook (<name>.yml) and is not in devtoolsCommandSkipReasons", cmd))
+			continue
+		}
+		if strings.TrimSpace(reason) == "" {
+			problems = append(problems, fmt.Sprintf("devtools command %q has an empty skip reason in devtoolsCommandSkipReasons", cmd))
+		}
+	}
+
+	skipKeys := make([]string, 0, len(skipReasons))
+	for cmd := range skipReasons {
+		skipKeys = append(skipKeys, cmd)
+	}
+	sort.Strings(skipKeys)
+	for _, cmd := range skipKeys {
+		if !cmdSet[cmd] {
+			problems = append(problems, fmt.Sprintf("stale skip entry %q: no matching devtools/*/cmd/* command exists", cmd))
+			continue
+		}
+		if playbooks[cmd] {
+			problems = append(problems, fmt.Sprintf("stale skip entry %q: playbook %s.yml already exists", cmd, cmd))
+		}
+	}
+
+	return problems
+}
+
+func TestCheckDevtoolsCommandCoverageErrors(t *testing.T) {
+	tests := []struct {
+		name        string
+		commands    []string
+		playbooks   map[string]bool
+		skipReasons map[string]string
+		want        []string
+	}{
+		{
+			name:        "all covered by playbooks or non-empty skip reasons",
+			commands:    []string{"alpha", "beta"},
+			playbooks:   map[string]bool{"alpha": true},
+			skipReasons: map[string]string{"beta": "repo-internal tool"},
+			want:        nil,
+		},
+		{
+			name:        "uncovered command fails",
+			commands:    []string{"alpha", "newtool"},
+			playbooks:   map[string]bool{"alpha": true},
+			skipReasons: map[string]string{},
+			want:        []string{`devtools command "newtool" has no playbook (<name>.yml) and is not in devtoolsCommandSkipReasons`},
+		},
+		{
+			name:        "empty skip reason fails",
+			commands:    []string{"beta"},
+			playbooks:   map[string]bool{},
+			skipReasons: map[string]string{"beta": "   "},
+			want:        []string{`devtools command "beta" has an empty skip reason in devtoolsCommandSkipReasons`},
+		},
+		{
+			name:        "stale skip entry for missing command fails",
+			commands:    []string{"alpha"},
+			playbooks:   map[string]bool{"alpha": true},
+			skipReasons: map[string]string{"removed": "old tool"},
+			want:        []string{`stale skip entry "removed": no matching devtools/*/cmd/* command exists`},
+		},
+		{
+			name:        "stale skip entry for command with playbook fails",
+			commands:    []string{"alpha"},
+			playbooks:   map[string]bool{"alpha": true},
+			skipReasons: map[string]string{"alpha": "now has a playbook"},
+			want:        []string{`stale skip entry "alpha": playbook alpha.yml already exists`},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := checkDevtoolsCommandCoverage(tt.commands, tt.playbooks, tt.skipReasons)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("checkDevtoolsCommandCoverage() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAllDevtoolsCommandsHavePlaybooks(t *testing.T) {
+	chdirAnsiblePlaybookDir(t)
+
+	commands := discoverDevtoolsCommands(t)
+	if len(commands) == 0 {
+		t.Fatal("discoverDevtoolsCommands returned no commands")
+	}
+
+	ymlFiles, err := getAllYmlFiles()
+	if err != nil {
+		t.Fatalf("getAllYmlFiles: %v", err)
+	}
+	playbooks := make(map[string]bool, len(ymlFiles))
+	for _, yml := range ymlFiles {
+		playbooks[yml] = true
+	}
+
+	// Ensure every command in packages_data.go also has its generated playbook.
+	for _, name := range getGeneratedRuleNames() {
+		if !playbooks[name] {
+			t.Errorf("generated rule %q is missing %s.yml", name, name)
+		}
+	}
+
+	for _, problem := range checkDevtoolsCommandCoverage(commands, playbooks, devtoolsCommandSkipReasons) {
+		t.Error(problem)
+	}
+}
+
+func TestSetupVibeCodingImportsQuotapaceAndClaudeUsage(t *testing.T) {
+	dir := ansiblePlaybookDir(t)
+	raw, err := os.ReadFile(filepath.Join(dir, "setup-vibe-coding.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	vibe := string(raw)
+
+	for _, name := range []string{"quotapace", "claude-usage"} {
+		wantImport := "import_playbook: " + name + ".yml\n  when: ansible_facts['env']['TERMUX_VERSION'] is not defined"
+		if !strings.Contains(vibe, wantImport) {
+			t.Errorf("setup-vibe-coding.yml missing %q", wantImport)
+		}
+		if !strings.Contains(vibe, name) {
+			t.Errorf("setup-vibe-coding.yml missing %q", name)
+		}
+	}
+	if !strings.Contains(vibe, "cplt, quotapace, claude-usage") {
+		t.Error("setup-vibe-coding.yml completion message missing quotapace, claude-usage")
 	}
 }

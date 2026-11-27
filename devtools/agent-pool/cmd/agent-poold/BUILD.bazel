@@ -37,3 +37,8 @@ go_test(
         "//devtools/agent-pool/internal/broker:go_default_library",
     ],
 )
+
+exports_files(
+    ["main.go"],
+    visibility = ["//devtools:__pkg__"],
+)

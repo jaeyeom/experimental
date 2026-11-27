@@ -58,3 +58,8 @@ filegroup(
     srcs = glob(["*.sh"]),
     visibility = ["//tools/lint:__pkg__"],
 )
+
+exports_files(
+    ["main.go"],
+    visibility = ["//devtools:__pkg__"],
+)

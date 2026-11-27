@@ -386,6 +386,7 @@ var platformSpecificTools = []PlatformSpecificTool{
 			{Playbook: "setup-nvm", When: WhenDebianLike},
 		},
 	},
+	experimentalGoTool("claude-usage", "devtools/claude-usage/cmd/claude-usage"),
 	{
 		command: "claudelytics",
 		platforms: map[PlatformName]InstallMethod{
@@ -941,6 +942,7 @@ curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix 
 		},
 		Imports: nil,
 	},
+	experimentalGoTool("quotapace", "devtools/quotapace/cmd/quotapace"),
 	experimentalGoTool("repo-sync", "devtools/repo-sync/cmd/repo-sync"),
 	experimentalGoTool("review-and-push-loop", "devtools/reviewpush/cmd/review-and-push-loop", Import{Playbook: "codex"}),
 	{

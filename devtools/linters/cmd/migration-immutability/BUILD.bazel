@@ -26,3 +26,8 @@ go_test(
     tags = ["local"],
     deps = ["//devtools/pkg/baseline:go_default_library"],
 )
+
+exports_files(
+    ["main.go"],
+    visibility = ["//devtools:__pkg__"],
+)

@@ -61,3 +61,8 @@ go_test(
         "@com_github_slack_go_slack//socketmode:go_default_library",
     ],
 )
+
+exports_files(
+    ["main.go"],
+    visibility = ["//devtools:__pkg__"],
+)

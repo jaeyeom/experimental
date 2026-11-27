@@ -49,3 +49,8 @@ go_test(
         "//devtools/agentbus/internal/paths:go_default_library",
     ],
 )
+
+exports_files(
+    ["main.go"],
+    visibility = ["//devtools:__pkg__"],
+)
