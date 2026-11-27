@@ -82,6 +82,9 @@ type message struct {
 	ClosedAt     *time.Time `json:"closedAt,omitempty"`
 	// HoldNotice is set once a long-hold notice was claimed for this message.
 	HoldNotice bool `json:"holdNoticeSent,omitempty"`
+	// HeldDetail explains why a hold started (for example the matched
+	// auth-error pattern, line, and transcript position).
+	HeldDetail string `json:"heldDetail,omitempty"`
 	// GoneSince is when every adapter began to report a raw handle
 	// target gone. Any other answer clears it.
 	GoneSince *time.Time `json:"goneSince,omitempty"`
@@ -109,12 +112,18 @@ type message struct {
 }
 
 type authOutageRecord struct {
-	Since         time.Time       `json:"since"`
-	TurnsAtOutage int             `json:"turnsAtOutage"`
-	Noticed       map[string]bool `json:"noticed,omitempty"`
-	Failures      int             `json:"failures,omitempty"`
-	RetryAt       time.Time       `json:"retryAt,omitempty"`
-	ProbeMsgID    string          `json:"probeMsgId,omitempty"`
+	Since             time.Time       `json:"since"`
+	TurnsAtOutage     int             `json:"turnsAtOutage"`
+	Noticed           map[string]bool `json:"noticed,omitempty"`
+	Failures          int             `json:"failures,omitempty"`
+	RetryAt           time.Time       `json:"retryAt,omitempty"`
+	ProbeMsgID        string          `json:"probeMsgId,omitempty"`
+	HeldDetail        string          `json:"heldDetail,omitempty"`
+	TargetName        string          `json:"targetName,omitempty"`
+	LastAssistantText string          `json:"lastAssistantText,omitempty"`
+	OutageStatus      string          `json:"outageStatus,omitempty"`
+	OutageStateSeq    int64           `json:"outageStateSeq,omitempty"`
+	OutageTitle       string          `json:"outageTitle,omitempty"`
 }
 
 type file struct {

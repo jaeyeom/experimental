@@ -202,3 +202,46 @@ func TestAppendRejectsUnknownAndIncompleteEvents(t *testing.T) {
 		t.Fatal("held without a target state was accepted")
 	}
 }
+
+func TestHeldDetailAndOutageClearedEventsRoundTrip(t *testing.T) {
+	lg := Open(t.TempDir())
+	heldEv := Event{
+		Event:       EventHeld,
+		Actor:       "ops/sender",
+		MsgID:       "m-1",
+		Name:        "ops/x",
+		Detail:      "waited 0s",
+		Reason:      "target login expired",
+		HeldDetail:  `pattern "Login expired" matched "Login expired · Please run /login" at transcript sess-1.jsonl:2 (turn 2)`,
+		TargetState: "target login expired",
+	}
+	clearEv := Event{
+		Event:  EventOutageCleared,
+		Actor:  "agentbus",
+		MsgID:  "m-1",
+		Name:   "ops/x",
+		Detail: "pane state changed to working",
+		Reason: "pane_working",
+	}
+	for _, ev := range []Event{heldEv, clearEv} {
+		if err := lg.Append(ev); err != nil {
+			t.Fatalf("append %s: %v", ev.Event, err)
+		}
+	}
+	heldLines, err := lg.Read(Filter{Event: EventHeld})
+	if err != nil || len(heldLines) != 1 || !strings.Contains(heldLines[0], `"held_detail":`) {
+		t.Fatalf("held lines = %q, err=%v", heldLines, err)
+	}
+	parsedHeld, err := Parse(heldLines[0])
+	if err != nil || parsedHeld.HeldDetail != heldEv.HeldDetail {
+		t.Fatalf("parsed held = %+v, err=%v", parsedHeld, err)
+	}
+	formattedHeld, err := Format(heldLines[0])
+	if err != nil || !strings.Contains(formattedHeld, `held_detail=`) {
+		t.Fatalf("formatted held = %q, err=%v", formattedHeld, err)
+	}
+	clearLines, err := lg.Read(Filter{Event: EventOutageCleared})
+	if err != nil || len(clearLines) != 1 || !strings.Contains(clearLines[0], `"reason":"pane_working"`) {
+		t.Fatalf("clear lines = %q, err=%v", clearLines, err)
+	}
+}

@@ -29,6 +29,7 @@ type Report struct {
 	ID          string `json:"id"`
 	State       string `json:"state"`
 	HeldReason  string `json:"held_reason,omitempty"` //nolint:tagliatelle // status --json shape
+	HeldDetail  string `json:"held_detail,omitempty"` //nolint:tagliatelle // status --json shape
 	Reason      string `json:"reason,omitempty"`
 	StoredAt    string `json:"stored_at,omitempty"`    //nolint:tagliatelle // status --json shape
 	DeliveredAt string `json:"delivered_at,omitempty"` //nolint:tagliatelle // status --json shape
@@ -69,10 +70,12 @@ func (m *Mailbox) Report(ctx context.Context, id string) Report {
 	case held && reason == HoldWakeFailed:
 		r.State = "held"
 		r.HeldReason = HeldWakeFailed
+		r.HeldDetail = msg.HeldDetail
 		r.Error = m.wakeError(msg)
 	case held:
 		r.State = "held"
 		r.HeldReason = heldReason(reason)
+		r.HeldDetail = msg.HeldDetail
 	default:
 		r.State = "queued"
 	}

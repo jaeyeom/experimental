@@ -129,6 +129,7 @@ go_test(
         "//devtools/agentbus/internal/eventlog:go_default_library",
         "//devtools/agentbus/internal/hibernate:go_default_library",
         "//devtools/agentbus/internal/jobs:go_default_library",
+        "//devtools/agentbus/internal/lastturn:go_default_library",
         "//devtools/agentbus/internal/lease:go_default_library",
         "//devtools/agentbus/internal/mailbox:go_default_library",
         "//devtools/agentbus/internal/outbox:go_default_library",

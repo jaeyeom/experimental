@@ -97,8 +97,13 @@ func cmdHeld(ctx context.Context, args, env []string, stdout, stderr io.Writer) 
 		}
 	} else {
 		for _, it := range items {
-			fmt.Fprintf(stdout, "%s from %s to %s held: %s [%s] since %s (age %s)\n",
-				it.ID, it.From, it.To, it.Reason, it.ReasonCode, it.HeldSince, it.Age)
+			if it.HeldDetail != "" {
+				fmt.Fprintf(stdout, "%s from %s to %s held: %s [%s] (%s) since %s (age %s)\n",
+					it.ID, it.From, it.To, it.Reason, it.ReasonCode, it.HeldDetail, it.HeldSince, it.Age)
+			} else {
+				fmt.Fprintf(stdout, "%s from %s to %s held: %s [%s] since %s (age %s)\n",
+					it.ID, it.From, it.To, it.Reason, it.ReasonCode, it.HeldSince, it.Age)
+			}
 		}
 	}
 	if len(items) > 0 {

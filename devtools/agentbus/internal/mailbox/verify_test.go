@@ -581,3 +581,256 @@ func textIndex(texts []string, sub string) int {
 	}
 	return -1
 }
+
+func TestAuthHoldRecordsDetailAndPositionInLogStatusAndHeld(t *testing.T) {
+	w := newVerifyWorld(t)
+	w.ad.PaneHandles = map[string]string{"sender": holdFrom}
+
+	r1 := w.sendTo(t, "ops/x", "first")
+	longSuffix := strings.Repeat("x", 200)
+	w.turns[holdTo] = append(w.turns[holdTo],
+		lastturn.Turn{Role: "user", Text: "[agentbus " + r1.ID + "]\nfirst", Source: "/tmp/projects/sess-abc.jsonl", Line: 10},
+		lastturn.Turn{
+			Role:              "assistant",
+			Text:              "preamble\n  Please run /login — " + longSuffix + "  \ntrailer",
+			IsAPIErrorMessage: true,
+			Model:             "<synthetic>",
+			Source:            "/tmp/projects/sess-abc.jsonl",
+			Line:              11,
+		},
+	)
+	w.flush(t, holdTo)
+
+	heldRes := w.sendTo(t, "ops/x", "blocked-while-expired")
+	if heldRes.State != "held: "+HoldLoginExpired {
+		t.Fatalf("state = %q, want held: %s", heldRes.State, HoldLoginExpired)
+	}
+
+	// Status text and JSON report both surface held_detail with pattern, trimmed line, and position.
+	status, err := w.box.Status(context.Background(), heldRes.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"held_detail: ",
+		`pattern "Please run /login"`,
+		"Please run /login — ",
+		"sess-abc.jsonl:11 (turn 2)",
+		"…",
+	} {
+		if !strings.Contains(status, want) {
+			t.Fatalf("Status missing %q:\n%s", want, status)
+		}
+	}
+	rep := w.box.Report(context.Background(), heldRes.ID)
+	if rep.State != "held" || !strings.Contains(rep.HeldDetail, `pattern "Please run /login"`) {
+		t.Fatalf("Report = %+v", rep)
+	}
+
+	// HeldMessages surfaces held_detail too.
+	heldMsgs := w.box.HeldMessages(HeldFilter{Reasons: []string{"login-expired"}})
+	if len(heldMsgs) != 1 || heldMsgs[0].ID != heldRes.ID || !strings.Contains(heldMsgs[0].HeldDetail, "sess-abc.jsonl:11 (turn 2)") {
+		t.Fatalf("HeldMessages = %+v", heldMsgs)
+	}
+
+	// eventlog EventHeld includes held_detail.
+	evs, err := w.log.Read(eventlog.Filter{Event: eventlog.EventHeld, MsgID: heldRes.ID})
+	if err != nil || len(evs) != 1 {
+		t.Fatalf("held log events = %+v, err=%v", evs, err)
+	}
+	ev, err := eventlog.Parse(evs[0])
+	if err != nil || !strings.Contains(ev.HeldDetail, `pattern "Please run /login"`) || !strings.Contains(ev.HeldDetail, "sess-abc.jsonl:11 (turn 2)") {
+		t.Fatalf("parsed held event = %+v, err=%v", ev, err)
+	}
+}
+
+func TestOutageClearsOnNewNonErrorTurnAndNewAssistantOutputAndStaysWhenIdle(t *testing.T) {
+	w := newVerifyWorld(t)
+	w.ad.PaneHandles = map[string]string{"sender": holdFrom}
+
+	// Start outage.
+	r1 := w.sendTo(t, "ops/x", "seed")
+	w.turns[holdTo] = append(w.turns[holdTo],
+		lastturn.Turn{Role: "user", Text: "[agentbus " + r1.ID + "]\nseed"},
+		lastturn.Turn{Role: "assistant", IsAPIErrorMessage: true, Model: "<synthetic>", Text: "Login expired · Please run /login"},
+	)
+	w.flush(t, holdTo)
+
+	m1 := w.sendTo(t, "ops/x", "queued-1")
+	m2 := w.sendTo(t, "ops/x", "queued-2")
+
+	// Stay held while no new activity appears (same auth error turn, idle pane).
+	before := len(w.ad.Texts)
+	w.clock.add(20 * time.Second)
+	w.flush(t, holdTo)
+	if len(w.ad.Texts) != before {
+		t.Fatalf("delivered while no new activity: %q", w.ad.Texts[before:])
+	}
+	if rep := w.box.Report(context.Background(), m1.ID); rep.State != "held" {
+		t.Fatalf("m1 should stay held, got %+v", rep)
+	}
+
+	// New assistant output without a user turn clears outage and delivers in order.
+	w.turns[holdTo] = append(w.turns[holdTo],
+		lastturn.Turn{Role: "assistant", Model: "claude-opus-4-6", Text: "Resuming work now."},
+	)
+	w.flush(t, holdTo)
+	for _, id := range []string{m1.ID, m2.ID} {
+		if rep := w.box.Report(context.Background(), id); rep.State != stateDelivered {
+			t.Fatalf("%s after new assistant output = %+v, want delivered", id, rep)
+		}
+	}
+	idx1 := textIndex(w.ad.Texts, "queued-1")
+	idx2 := textIndex(w.ad.Texts, "queued-2")
+	if idx1 < 0 || idx2 <= idx1 {
+		t.Fatalf("out-of-order delivery: idx=(%d,%d) texts=%q", idx1, idx2, w.ad.Texts)
+	}
+	clearEvs, err := w.log.Read(eventlog.Filter{Event: eventlog.EventOutageCleared})
+	if err != nil || len(clearEvs) != 1 || !strings.Contains(clearEvs[0], `"reason":"new_assistant_output"`) {
+		t.Fatalf("outage_cleared events = %+v, err=%v", clearEvs, err)
+	}
+
+	// A second outage clears with new_non_error_turn when a user+assistant turn appears.
+	r2 := w.sendTo(t, "ops/x", "seed-2")
+	w.turns[holdTo] = append(w.turns[holdTo],
+		lastturn.Turn{Role: "user", Text: "[agentbus " + r2.ID + "]\nseed-2"},
+		lastturn.Turn{Role: "assistant", IsAPIErrorMessage: true, Model: "<synthetic>", Text: "Login expired · Please run /login"},
+	)
+	w.flush(t, holdTo)
+	m3 := w.sendTo(t, "ops/x", "queued-3")
+	if m3.State != "held: "+HoldLoginExpired {
+		t.Fatalf("m3 state = %q", m3.State)
+	}
+	w.turns[holdTo] = append(w.turns[holdTo],
+		lastturn.Turn{Role: "user", Text: "continue"},
+		lastturn.Turn{Role: "assistant", Model: "claude-opus-4-6", Text: "Continuing."},
+	)
+	w.flush(t, holdTo)
+	if rep := w.box.Report(context.Background(), m3.ID); rep.State != stateDelivered {
+		t.Fatalf("m3 after new non-error turn = %+v", rep)
+	}
+	clearEvs, err = w.log.Read(eventlog.Filter{Event: eventlog.EventOutageCleared})
+	if err != nil || len(clearEvs) != 2 || !strings.Contains(clearEvs[1], `"reason":"new_non_error_turn"`) {
+		t.Fatalf("outage_cleared events = %+v, err=%v", clearEvs, err)
+	}
+}
+
+func TestOutageClearsOnPaneWorkingStatusAndTitleButNotDuringActiveProbe(t *testing.T) {
+	w := newVerifyWorld(t)
+	w.ad.PaneHandles = map[string]string{"sender": holdFrom}
+
+	r1 := w.sendTo(t, "ops/x", "seed")
+	w.turns[holdTo] = append(w.turns[holdTo],
+		lastturn.Turn{Role: "user", Text: "[agentbus " + r1.ID + "]\nseed"},
+		lastturn.Turn{Role: "assistant", IsAPIErrorMessage: true, Model: "<synthetic>", Text: "Login expired · Please run /login"},
+	)
+	w.flush(t, holdTo)
+
+	m1 := w.sendTo(t, "ops/x", "work-order-1")
+	m2 := w.sendTo(t, "ops/x", "work-order-2")
+
+	// Pane transitions to working -> outage clears with pane_working and delivers in order.
+	w.ad.InventoryAgents[1].Status = "working"
+	w.ad.InventoryAgents[1].StateSeq = 11
+	w.flush(t, holdTo)
+	for _, id := range []string{m1.ID, m2.ID} {
+		if rep := w.box.Report(context.Background(), id); rep.State != stateDelivered {
+			t.Fatalf("%s after pane working = %+v", id, rep)
+		}
+	}
+	idx1 := textIndex(w.ad.Texts, "work-order-1")
+	idx2 := textIndex(w.ad.Texts, "work-order-2")
+	if idx1 < 0 || idx2 <= idx1 {
+		t.Fatalf("out-of-order delivery: idx=(%d,%d) texts=%q", idx1, idx2, w.ad.Texts)
+	}
+	clearEvs, err := w.log.Read(eventlog.Filter{Event: eventlog.EventOutageCleared})
+	if err != nil || len(clearEvs) != 1 || !strings.Contains(clearEvs[0], `"reason":"pane_working"`) {
+		t.Fatalf("outage_cleared events = %+v, err=%v", clearEvs, err)
+	}
+
+	// Second outage: pane title changes to a spinner working title -> clears with pane_working.
+	w.ad.InventoryAgents[1].Status = "idle"
+	w.ad.InventoryAgents[1].Title = "✳ worker"
+	r2 := w.sendTo(t, "ops/x", "seed-title")
+	w.turns[holdTo] = append(w.turns[holdTo],
+		lastturn.Turn{Role: "user", Text: "[agentbus " + r2.ID + "]\nseed-title"},
+		lastturn.Turn{Role: "assistant", IsAPIErrorMessage: true, Model: "<synthetic>", Text: "Login expired · Please run /login"},
+	)
+	w.flush(t, holdTo)
+
+	m3 := w.sendTo(t, "ops/x", "title-order-1")
+	if m3.State != "held: "+HoldLoginExpired {
+		t.Fatalf("m3 state = %q", m3.State)
+	}
+	// Changing to another non-working title does NOT clear.
+	w.ad.InventoryAgents[1].Title = "✳ still-idle"
+	w.flush(t, holdTo)
+	if rep := w.box.Report(context.Background(), m3.ID); rep.State != "held" {
+		t.Fatalf("non-working title change should stay held, got %+v", rep)
+	}
+
+	// Changing to working spinner title clears the hold.
+	w.ad.InventoryAgents[1].Title = "⠋ worker"
+	w.flush(t, holdTo)
+	if rep := w.box.Report(context.Background(), m3.ID); rep.State != stateDelivered {
+		t.Fatalf("m3 after working title = %+v", rep)
+	}
+
+	// Active probe in flight: pane working does NOT prematurely release subsequent queued message.
+	w.ad.InventoryAgents[1].Status = "idle"
+	w.ad.InventoryAgents[1].Title = "✳ worker"
+	r3 := w.sendTo(t, "ops/x", "seed-probe")
+	w.turns[holdTo] = append(w.turns[holdTo],
+		lastturn.Turn{Role: "user", Text: "[agentbus " + r3.ID + "]\nseed-probe"},
+		lastturn.Turn{Role: "assistant", IsAPIErrorMessage: true, Model: "<synthetic>", Text: "Login expired · Please run /login"},
+	)
+	w.flush(t, holdTo)
+
+	p1 := w.sendTo(t, "ops/x", "probe-msg")
+	p2 := w.sendTo(t, "ops/x", "behind-probe")
+	w.clock.add(61 * time.Second)
+	w.flush(t, holdTo)
+	before := len(w.ad.Texts)
+	// Probe pasted and is VerifyPending; pane briefly working must NOT deliver p2 yet.
+	w.ad.InventoryAgents[1].Status = "working"
+	w.ad.InventoryAgents[1].StateSeq = 20
+	w.flush(t, holdTo)
+	if len(w.ad.Texts) != before {
+		t.Fatalf("delivered p2 while probe %s still pending: %q", p1.ID, w.ad.Texts[before:])
+	}
+	if rep := w.box.Report(context.Background(), p2.ID); rep.State != "held" {
+		t.Fatalf("p2 while probe pending = %+v, want held", rep)
+	}
+}
+
+func TestReleaseHeldStillWorksAndLogsClear(t *testing.T) {
+	w := newVerifyWorld(t)
+	w.ad.PaneHandles = map[string]string{"sender": holdFrom}
+
+	r1 := w.sendTo(t, "ops/x", "seed")
+	w.turns[holdTo] = append(w.turns[holdTo],
+		lastturn.Turn{Role: "user", Text: "[agentbus " + r1.ID + "]\nseed"},
+		lastturn.Turn{Role: "assistant", IsAPIErrorMessage: true, Model: "<synthetic>", Text: "Login expired · Please run /login"},
+	)
+	w.flush(t, holdTo)
+
+	m1 := w.sendTo(t, "ops/x", "manual-1")
+	m2 := w.sendTo(t, "ops/x", "manual-2")
+	if m1.State != "held: "+HoldLoginExpired {
+		t.Fatalf("m1 = %+v", m1)
+	}
+
+	released, err := w.box.ReleaseHeld(context.Background(), "ops/x")
+	if err != nil || released != 1 {
+		t.Fatalf("ReleaseHeld = %d, err=%v", released, err)
+	}
+	for _, id := range []string{m1.ID, m2.ID} {
+		if rep := w.box.Report(context.Background(), id); rep.State != stateDelivered || rep.HeldDetail != "" {
+			t.Fatalf("%s after ReleaseHeld = %+v", id, rep)
+		}
+	}
+	clearEvs, err := w.log.Read(eventlog.Filter{Event: eventlog.EventOutageCleared})
+	if err != nil || len(clearEvs) != 1 || !strings.Contains(clearEvs[0], `"reason":"manual_release"`) {
+		t.Fatalf("outage_cleared events = %+v, err=%v", clearEvs, err)
+	}
+}

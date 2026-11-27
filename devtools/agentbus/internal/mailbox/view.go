@@ -118,6 +118,9 @@ func (m *Mailbox) Status(ctx context.Context, id string) (string, error) {
 	if msg.State == stateDeliveredUnprocessed && msg.UnprocessedReason != "" {
 		extra += "reason: " + msg.UnprocessedReason + "\n"
 	}
+	if msg.HeldDetail != "" && strings.HasPrefix(msg.State, "held: ") {
+		extra += "held_detail: " + msg.HeldDetail + "\n"
+	}
 	if detail := m.staleComposerDetail(msg); detail != "" {
 		extra += "detail: " + detail + "\n"
 	}

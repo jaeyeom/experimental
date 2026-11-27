@@ -89,14 +89,15 @@ set to ~true~. Text output stays ~<id> <state>~.
 
 | Field | Value |
 |-------+-------|
-| ~id~ | Message id. |
-| ~from~ | Sender display name or handle. |
-| ~to~ | Recipient name or handle. |
-| ~reason~ | Stored hold reason text. |
-| ~reason_code~ | Stable reason code (~draft~, ~ordering~, ~login-expired~, etc.). |
-| ~held_since~ | RFC3339 UTC timestamp when the hold began. |
-| ~age~ | Human-readable hold duration. |
-| ~age_seconds~ | Integer seconds since ~held_since~. |
+| ~id~          | Message id.                                                        |
+| ~from~        | Sender display name or handle.                                     |
+| ~to~          | Recipient name or handle.                                          |
+| ~reason~      | Stored hold reason text.                                           |
+| ~reason_code~ | Stable reason code (~draft~, ~ordering~, ~login-expired~, etc.).   |
+| ~held_detail~ | Optional match detail when a hold recorded one (omitted if empty). |
+| ~held_since~  | RFC3339 UTC timestamp when the hold began.                         |
+| ~age~         | Human-readable hold duration.                                      |
+| ~age_seconds~ | Integer seconds since ~held_since~.                                |
 
 * asks --json
 

@@ -74,6 +74,8 @@ type Turn struct {
 	Text              string
 	IsAPIErrorMessage bool
 	Model             string
+	Source            string
+	Line              int
 }
 
 // ClaudeTranscript reads the turns of a Claude Code agent on this machine
@@ -138,7 +140,9 @@ func ReadClaudeTurns(path string) ([]Turn, error) {
 	var turns []Turn
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	lineNum := 0
 	for sc.Scan() {
+		lineNum++
 		line := strings.TrimSpace(sc.Text())
 		if line == "" {
 			continue
@@ -167,6 +171,8 @@ func ReadClaudeTurns(path string) ([]Turn, error) {
 			Text:              text,
 			IsAPIErrorMessage: rec.IsAPIErrorMessage || rec.Message.IsAPIErrorMessage,
 			Model:             model,
+			Source:            path,
+			Line:              lineNum,
 		})
 	}
 	if err := sc.Err(); err != nil {

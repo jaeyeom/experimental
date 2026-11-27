@@ -314,7 +314,7 @@ when one or more items match, and ~2~ on a bus, config, or usage error.
 
 - ~agentbus held [--older-than D] [--reason R]... [--not-reason R]... [--to NAME] [--json]~:
   lists messages in ~held~ state with id, from, to, held reason text,
-  stable ~reason_code~, ~held_since~, and ~age~. ~--reason~ and
+  stable ~reason_code~, optional ~held_detail~, ~held_since~, and ~age~. ~--reason~ and
   ~--not-reason~ are repeatable and match stable reason codes: ~draft~,
   ~draft-unknown~, ~scrolled~, ~focused~, ~ordering~, ~login-expired~,
   ~unreachable~, ~hibernated~, ~waking~, ~wake-failed~, ~pane-gone~,
@@ -353,10 +353,13 @@ target's transcript showed an auth error reply or no turn started within
 omitted. ~held_reason~ is one of ~transport unreachable~, ~composer busy~
 (the target's composer is not empty, or the pane is scrolled up or
 focused), ~target not ready~ (including ~held: target login expired~,
-which holds later bus messages to that recipient until the latest
-assistant turn is normal, a backoff retry succeeds, or
-~agentbus release-held <name>~ is run; schedulers inside the
-agent's own session are not paused by agentbus), ~earlier message held~,
+which records ~held_detail~ with the matched pattern, trimmed line, and
+transcript position in ~status~ and ~held~ event logs, and holds later
+bus messages to that recipient until the target shows new activity—a
+non-error assistant turn, new assistant output, or the pane state/title
+changing to working—which logs ~outage_cleared~, a backoff retry
+succeeds, or ~agentbus release-held <name>~ is run; schedulers inside
+the agent's own session are not paused by agentbus), ~earlier message held~,
 ~hibernated~, ~wake failed~ (the agent's wake failed; ~error~ says why, the
 message stays queued and the wake is retried after a backoff), ~pane gone~
 (the hibernated agent's pane no longer exists; the message waits for a new

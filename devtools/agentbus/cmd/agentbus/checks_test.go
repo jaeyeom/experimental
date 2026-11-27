@@ -12,6 +12,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter/fake"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lastturn"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/mailbox"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 )
@@ -370,5 +371,84 @@ func TestCheckCommandsHubUnreachableExitsTwo(t *testing.T) {
 		if code != 2 || !strings.Contains(stderr, "me@hub") {
 			t.Fatalf("%s hub unreachable = %d, stderr %q; want 2", cmd, code, stderr)
 		}
+	}
+}
+
+func TestLoginExpiredHoldShowsDetailInStatusHeldAndLog(t *testing.T) {
+	t.Parallel()
+	const (
+		sender   = "herdr:local/s1/w1:p1"
+		receiver = "herdr:local/s1/w1:p2"
+	)
+	var turnsMu sync.Mutex
+	turns := map[string][]lastturn.Turn{}
+	ad := &fake.Adapter{
+		AdapterName: "herdr",
+		Reach:       map[string]adapter.State{sender: adapter.StateIdle, receiver: adapter.StateIdle},
+		Result:      map[string]adapter.Result{sender: adapter.ResultAccepted, receiver: adapter.ResultAccepted},
+		PaneHandles: map[string]string{"p1": sender, "p2": receiver},
+	}
+	base := []string{
+		"XDG_RUNTIME_DIR=" + shortRuntime(t),
+		"XDG_STATE_HOME=" + t.TempDir(),
+		"XDG_CONFIG_HOME=" + t.TempDir(),
+		"HOME=" + t.TempDir(),
+	}
+	dirs, err := paths.FromEnv(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop := startDaemon(t, dirs, daemon.Config{
+		Adapters:     []adapter.Adapter{ad},
+		PollInterval: time.Hour,
+		Transcript: func(ag adapter.Agent) ([]lastturn.Turn, bool) {
+			turnsMu.Lock()
+			defer turnsMu.Unlock()
+			tList, ok := turns[ag.Handle]
+			return tList, ok
+		},
+	})
+	t.Cleanup(stop)
+	env := func(pane string) []string {
+		out := append([]string{}, base...)
+		if pane != "" {
+			out = append(out, "HERDR_PANE_ID="+pane)
+		}
+		return out
+	}
+	mustCmd(t, []string{"register", "ops/sender", "--when", "sending"}, env("p1"))
+	mustCmd(t, []string{"register", "ops/target", "--when", "target"}, env("p2"))
+
+	// Seed empty transcript for receiver and send a first message that gets an auth error.
+	turnsMu.Lock()
+	turns[receiver] = []lastturn.Turn{}
+	turnsMu.Unlock()
+	out1, _ := mustCmd(t, []string{"send", "--wait", "ops/target", "first"}, env("p1"))
+	id1 := firstID(t, out1)
+
+	turnsMu.Lock()
+	turns[receiver] = []lastturn.Turn{
+		{Role: "user", Text: "[agentbus " + id1 + "]\nfirst", Source: "/tmp/s1.jsonl", Line: 1},
+		{Role: "assistant", Text: "Login expired · Please run /login", IsAPIErrorMessage: true, Model: "<synthetic>", Source: "/tmp/s1.jsonl", Line: 2},
+	}
+	turnsMu.Unlock()
+
+	// Next message triggers verification of id1 (entering outage) and gets held with held_detail.
+	out2, _ := mustCmd(t, []string{"send", "ops/target", "second"}, env("p1"))
+	id2 := firstID(t, out2)
+
+	statusOut, _ := mustCmd(t, []string{"status", id2}, base)
+	if !strings.Contains(statusOut, "state: held: target login expired") || !strings.Contains(statusOut, "held_detail: ") || !strings.Contains(statusOut, "s1.jsonl:2 (turn 2)") {
+		t.Fatalf("status output = %q", statusOut)
+	}
+
+	logOut, _ := mustCmd(t, []string{"log", "--event", "held"}, base)
+	if !strings.Contains(logOut, "held_detail=") || !strings.Contains(logOut, "s1.jsonl:2 (turn 2)") {
+		t.Fatalf("log --event held output = %q", logOut)
+	}
+
+	code, heldOut, _ := runCmd([]string{"held", "--reason", "login-expired"}, base)
+	if code != 1 || !strings.Contains(heldOut, "s1.jsonl:2 (turn 2)") {
+		t.Fatalf("held = %d, %q", code, heldOut)
 	}
 }

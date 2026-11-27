@@ -84,8 +84,11 @@ func TestClaudeTranscriptReadsUserAndAssistantTurns(t *testing.T) {
 	}
 	if turns[0].Role != "user" ||
 		turns[1].Role != "assistant" || turns[1].Text != "Login expired · Please run /login" || !turns[1].IsAPIErrorMessage || turns[1].Model != "<synthetic>" ||
+		turns[1].Source != transcript || turns[1].Line != 2 ||
 		turns[2].Role != "assistant" || turns[2].Text != "Invalid API key" || turns[2].IsAPIErrorMessage || turns[2].Model != "<synthetic>" ||
-		turns[3].Role != "assistant" || turns[3].Text != "All set" || turns[3].IsAPIErrorMessage || turns[3].Model != "claude-sonnet-4-6" {
+		turns[2].Source != transcript || turns[2].Line != 3 ||
+		turns[3].Role != "assistant" || turns[3].Text != "All set" || turns[3].IsAPIErrorMessage || turns[3].Model != "claude-sonnet-4-6" ||
+		turns[3].Source != transcript || turns[3].Line != 4 {
 		t.Fatalf("unexpected turns: %+v", turns)
 	}
 	if _, ok := reader(adapter.Agent{Handle: "herdr:local/sess-1/w1:p1", Kind: "codex", SessionID: "sess-1"}); ok {

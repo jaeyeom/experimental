@@ -3,9 +3,11 @@ package mailbox
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
@@ -16,6 +18,7 @@ const (
 	knownSyntheticAuthError = "Login expired · Please run /login"
 	authOutageBackoff       = time.Minute
 	authOutageBackoffMax    = time.Hour
+	authMatchLineMaxRunes   = 120
 )
 
 // DefaultAuthErrorPatterns identify an assistant auth-error reply.
@@ -154,22 +157,25 @@ func (m *Mailbox) isAuthOutage(handle string) bool {
 	return ok
 }
 
-func (m *Mailbox) holdForAuthOutage(handle string, deliver bool) bool {
+func (m *Mailbox) holdForAuthOutage(handle string, deliver bool) (bool, string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	rec, ok := m.authOutage[handle]
 	if !ok {
-		return false
+		return false, ""
 	}
 	if !deliver {
-		return true
+		return true, rec.HeldDetail
 	}
 	if rec.ProbeMsgID != "" {
 		if probe, exists := m.msgs[rec.ProbeMsgID]; exists && probe.VerifyPending {
-			return true
+			return true, rec.HeldDetail
 		}
 	}
-	return m.now().Before(rec.RetryAt)
+	if m.now().Before(rec.RetryAt) {
+		return true, rec.HeldDetail
+	}
+	return false, ""
 }
 
 func (m *Mailbox) draftHoldOutcome(ctx context.Context, ad adapter.Adapter, handle, reason string, state adapter.State) outcome {
@@ -338,44 +344,20 @@ type outageNotice struct {
 }
 
 func (m *Mailbox) checkVerifications(ctx context.Context, handle string) error {
-	m.mu.Lock()
-	fn := m.transcript
-	_, inOutage := m.authOutage[handle]
-	var pendingIDs []string
-	for _, msg := range m.msgs {
-		if msg.Handle == handle && msg.VerifyPending {
-			pendingIDs = append(pendingIDs, msg.ID)
-		}
-	}
-	m.mu.Unlock()
-	if fn == nil || (len(pendingIDs) == 0 && !inOutage) {
+	fn, inOutage, pendingIDs := m.collectVerificationLocked(handle)
+	if !inOutage && (fn == nil || len(pendingIDs) == 0) {
 		return nil
 	}
 	ag, found := m.agentForHandle(ctx, handle)
 	var turns []lastturn.Turn
 	var hasTranscript bool
-	if found {
+	if found && fn != nil {
 		turns, hasTranscript = fn(ag)
 	}
 
 	m.mu.Lock()
 	now := m.now().UTC()
-	changed := false
-	var notices []outageNotice
-
-	for _, id := range pendingIDs {
-		c, n := m.verifyOneLocked(handle, id, ag, found, turns, hasTranscript, now)
-		if c {
-			changed = true
-		}
-		if n != nil {
-			notices = append(notices, *n)
-		}
-	}
-	if m.checkOutageRecoveryLocked(handle, turns, hasTranscript) {
-		changed = true
-	}
-
+	changed, notices := m.applyVerificationsLocked(handle, pendingIDs, ag, found, turns, hasTranscript, now)
 	var saveErr error
 	if changed {
 		saveErr = m.save()
@@ -388,6 +370,37 @@ func (m *Mailbox) checkVerifications(ctx context.Context, handle string) error {
 	return saveErr
 }
 
+func (m *Mailbox) collectVerificationLocked(handle string) (func(adapter.Agent) ([]lastturn.Turn, bool), bool, []string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, inOutage := m.authOutage[handle]
+	var pendingIDs []string
+	for _, msg := range m.msgs {
+		if msg.Handle == handle && msg.VerifyPending {
+			pendingIDs = append(pendingIDs, msg.ID)
+		}
+	}
+	return m.transcript, inOutage, pendingIDs
+}
+
+func (m *Mailbox) applyVerificationsLocked(handle string, pendingIDs []string, ag adapter.Agent, found bool, turns []lastturn.Turn, hasTranscript bool, now time.Time) (bool, []outageNotice) {
+	changed := false
+	var notices []outageNotice
+	for _, id := range pendingIDs {
+		c, n := m.verifyOneLocked(handle, id, ag, found, turns, hasTranscript, now)
+		if c {
+			changed = true
+		}
+		if n != nil {
+			notices = append(notices, *n)
+		}
+	}
+	if m.checkOutageRecoveryLocked(handle, ag, found, turns, hasTranscript) {
+		changed = true
+	}
+	return changed, notices
+}
+
 func (m *Mailbox) verifyOneLocked(handle, id string, ag adapter.Agent, found bool, turns []lastturn.Turn, hasTranscript bool, now time.Time) (bool, *outageNotice) {
 	msg, ok := m.msgs[id]
 	if !ok || !msg.VerifyPending {
@@ -396,8 +409,8 @@ func (m *Mailbox) verifyOneLocked(handle, id string, ag adapter.Agent, found boo
 	patterns := m.authErrorPatterns()
 	if hasTranscript {
 		if userIdx := lastUserTurnWithID(turns, msg.ID); userIdx >= 0 {
-			if reply, hasReply := firstAssistantAfter(turns, userIdx); hasReply {
-				return true, m.finishReplyVerifyLocked(handle, msg, reply, patterns, len(turns), now)
+			if reply, replyIdx, hasReply := firstAssistantAfter(turns, userIdx); hasReply {
+				return true, m.finishReplyVerifyLocked(handle, msg, ag, found, reply, replyIdx, patterns, len(turns), now)
 			}
 		}
 	}
@@ -414,13 +427,17 @@ func (m *Mailbox) verifyOneLocked(handle, id string, ag adapter.Agent, found boo
 	return changed, nil
 }
 
-func (m *Mailbox) finishReplyVerifyLocked(handle string, msg message, reply lastturn.Turn, patterns []string, turnCount int, now time.Time) *outageNotice {
+func (m *Mailbox) finishReplyVerifyLocked(handle string, msg message, ag adapter.Agent, found bool, reply lastturn.Turn, replyIdx int, patterns []string, turnCount int, now time.Time) *outageNotice {
 	msg.VerifyPending = false
-	if !isAuthErrorTurn(reply, patterns) {
+	match, ok := matchAuthErrorTurn(reply, replyIdx, patterns)
+	if !ok {
 		m.msgs[msg.ID] = msg
-		delete(m.authOutage, handle)
+		if _, active := m.authOutage[handle]; active {
+			m.clearAuthOutageLocked(handle, "new_non_error_turn", fmt.Sprintf("probe reply succeeded at %s", formatTurnPosition(reply, replyIdx)))
+		}
 		return nil
 	}
+	heldDetail := formatAuthHeldDetail(match)
 	msg.State = stateDeliveredUnprocessed
 	msg.UnprocessedReason = ReasonAuth
 	m.msgs[msg.ID] = msg
@@ -431,9 +448,10 @@ func (m *Mailbox) finishReplyVerifyLocked(handle string, msg message, reply last
 		Name:        msg.To,
 		Detail:      "assistant replied with auth error",
 		Reason:      ReasonAuth,
+		HeldDetail:  heldDetail,
 		TargetState: stateDeliveredUnprocessed,
 	})
-	if n, ok := m.recordAuthOutageLocked(handle, msg, turnCount, now); ok {
+	if n, ok := m.recordAuthOutageLocked(handle, msg, ag, found, reply.Text, heldDetail, turnCount, now); ok {
 		return &n
 	}
 	return nil
@@ -463,22 +481,127 @@ func (m *Mailbox) finishTimeoutVerifyLocked(handle string, msg message, turns []
 	}
 }
 
-func (m *Mailbox) checkOutageRecoveryLocked(handle string, turns []lastturn.Turn, hasTranscript bool) bool {
-	if _, active := m.authOutage[handle]; !active || !hasTranscript {
+func (m *Mailbox) checkOutageRecoveryLocked(handle string, ag adapter.Agent, found bool, turns []lastturn.Turn, hasTranscript bool) bool {
+	rec, active := m.authOutage[handle]
+	if !active {
 		return false
 	}
-	lastTurn, ok := lastAssistantTurn(turns)
+	activity, detail := m.outageRecoveryActivityLocked(rec, ag, found, turns, hasTranscript)
+	if activity == "" {
+		return false
+	}
+	m.clearAuthOutageLocked(handle, activity, detail)
+	return true
+}
+
+func (m *Mailbox) outageRecoveryActivityLocked(rec authOutageRecord, ag adapter.Agent, found bool, turns []lastturn.Turn, hasTranscript bool) (activity, detail string) {
+	if hasTranscript {
+		if activity, detail := transcriptRecoveryActivity(rec, turns, m.authErrorPatterns()); activity != "" {
+			return activity, detail
+		}
+	}
+	if !found || m.probePendingLocked(rec) {
+		return "", ""
+	}
+	return paneWorkingActivity(rec, ag)
+}
+
+func transcriptRecoveryActivity(rec authOutageRecord, turns []lastturn.Turn, patterns []string) (string, string) {
+	lastTurn, lastIdx, ok := lastAssistantTurnWithIndex(turns)
+	if !ok || isAuthErrorTurn(lastTurn, patterns) {
+		return "", ""
+	}
+	pos := formatTurnPosition(lastTurn, lastIdx)
+	if lastIdx >= rec.TurnsAtOutage {
+		if hasUserTurnInRange(turns, rec.TurnsAtOutage, lastIdx) {
+			return "new_non_error_turn", "new non-error turn at " + pos
+		}
+		return "new_assistant_output", "new assistant output at " + pos
+	}
+	if rec.LastAssistantText != "" && lastTurn.Text != rec.LastAssistantText {
+		return "new_assistant_output", "assistant output updated at " + pos
+	}
+	return "new_non_error_turn", "latest assistant turn is normal at " + pos
+}
+
+func paneWorkingActivity(rec authOutageRecord, ag adapter.Agent) (string, string) {
+	workingStatus := ag.Status == string(adapter.StateWorking)
+	statusChanged := rec.OutageStatus != string(adapter.StateWorking) || (ag.StateSeq != 0 && ag.StateSeq != rec.OutageStateSeq)
+	if workingStatus && statusChanged {
+		return "pane_working", fmt.Sprintf("pane state changed to working (status=%s seq=%d)", ag.Status, ag.StateSeq)
+	}
+	if ag.Title != "" && ag.Title != rec.OutageTitle && isWorkingTitle(ag.Title) {
+		return "pane_working", fmt.Sprintf("pane title changed to %q", trimSingleLine(ag.Title, authMatchLineMaxRunes))
+	}
+	return "", ""
+}
+
+func (m *Mailbox) probePendingLocked(rec authOutageRecord) bool {
+	if rec.ProbeMsgID == "" {
+		return false
+	}
+	probe, exists := m.msgs[rec.ProbeMsgID]
+	return exists && probe.VerifyPending
+}
+
+func (m *Mailbox) clearAuthOutageLocked(handle, activity, detail string) {
+	rec, ok := m.authOutage[handle]
 	if !ok {
-		return false
+		return
 	}
-	if !isAuthErrorTurn(lastTurn, m.authErrorPatterns()) {
-		delete(m.authOutage, handle)
-		return true
+	delete(m.authOutage, handle)
+	name := rec.TargetName
+	if name == "" {
+		name = m.agentName(handle)
+	}
+	var frontID string
+	for _, id := range m.queue[handle] {
+		if frontID == "" {
+			frontID = id
+		}
+		msg := m.msgs[id]
+		if msg.State == "held: "+HoldLoginExpired {
+			msg.State = stateQueued
+			msg.HeldDetail = ""
+			m.msgs[id] = msg
+		}
+	}
+	_ = m.logEvent(eventlog.Event{
+		Event:  eventlog.EventOutageCleared,
+		Actor:  "agentbus",
+		MsgID:  frontID,
+		Name:   name,
+		Detail: detail,
+		Reason: activity,
+	})
+}
+
+func hasUserTurnInRange(turns []lastturn.Turn, start, end int) bool {
+	if start < 0 {
+		start = 0
+	}
+	for i := start; i < end && i < len(turns); i++ {
+		if turns[i].Role == "user" {
+			return true
+		}
 	}
 	return false
 }
 
-func (m *Mailbox) recordAuthOutageLocked(handle string, msg message, turnCount int, now time.Time) (outageNotice, bool) {
+func isWorkingTitle(title string) bool {
+	for _, r := range title {
+		if r >= 0x2801 && r <= 0x28ff {
+			return true
+		}
+	}
+	return strings.Contains(strings.ToLower(title), "working")
+}
+
+func (m *Mailbox) recordAuthOutageLocked(handle string, msg message, ag adapter.Agent, found bool, replyText, heldDetail string, turnCount int, now time.Time) (outageNotice, bool) {
+	target := msg.To
+	if target == "" {
+		target = m.agentName(handle)
+	}
 	rec, exists := m.authOutage[handle]
 	if !exists {
 		rec = authOutageRecord{
@@ -495,15 +618,19 @@ func (m *Mailbox) recordAuthOutageLocked(handle string, msg message, turnCount i
 			rec.Noticed = map[string]bool{}
 		}
 	}
+	rec.HeldDetail = heldDetail
+	rec.TargetName = target
+	rec.LastAssistantText = replyText
+	if found {
+		rec.OutageStatus = ag.Status
+		rec.OutageStateSeq = ag.StateSeq
+		rec.OutageTitle = ag.Title
+	}
 	rec.RetryAt = now.Add(authOutageDelay(rec.Failures))
 	var notice outageNotice
 	send := false
 	if msg.From != "" && !strings.HasPrefix(msg.From, "anon:") && !rec.Noticed[msg.From] {
 		rec.Noticed[msg.From] = true
-		target := msg.To
-		if target == "" {
-			target = handle
-		}
 		notice = outageNotice{
 			id:   msg.ID,
 			from: msg.From,
@@ -533,62 +660,144 @@ func lastUserTurnWithID(turns []lastturn.Turn, id string) int {
 	return -1
 }
 
-func firstAssistantAfter(turns []lastturn.Turn, userIdx int) (lastturn.Turn, bool) {
-	for i := userIdx + 1; i < len(turns); i++ {
-		if turns[i].Role == "assistant" {
-			return turns[i], true
-		}
-	}
-	return lastturn.Turn{}, false
+type authErrorMatch struct {
+	Pattern  string
+	Line     string
+	Position string
 }
 
-func lastAssistantTurn(turns []lastturn.Turn) (lastturn.Turn, bool) {
-	for i := len(turns) - 1; i >= 0; i-- {
+func firstAssistantAfter(turns []lastturn.Turn, userIdx int) (lastturn.Turn, int, bool) {
+	for i := userIdx + 1; i < len(turns); i++ {
 		if turns[i].Role == "assistant" {
-			return turns[i], true
+			return turns[i], i, true
 		}
 	}
-	return lastturn.Turn{}, false
+	return lastturn.Turn{}, -1, false
+}
+
+func lastAssistantTurnWithIndex(turns []lastturn.Turn) (lastturn.Turn, int, bool) {
+	for i := len(turns) - 1; i >= 0; i-- {
+		if turns[i].Role == "assistant" {
+			return turns[i], i, true
+		}
+	}
+	return lastturn.Turn{}, -1, false
 }
 
 func isAuthErrorTurn(turn lastturn.Turn, patterns []string) bool {
+	_, ok := matchAuthErrorTurn(turn, -1, patterns)
+	return ok
+}
+
+func matchAuthErrorTurn(turn lastturn.Turn, turnIdx int, patterns []string) (authErrorMatch, bool) {
 	if len(patterns) == 0 {
-		return false
+		return authErrorMatch{}, false
 	}
 	if strings.EqualFold(strings.TrimSpace(turn.Text), knownSyntheticAuthError) {
-		return true
+		pat := knownSyntheticAuthError
+		for _, p := range patterns {
+			if p = strings.TrimSpace(p); strings.EqualFold(p, knownSyntheticAuthError) {
+				pat = p
+				break
+			}
+		}
+		return authErrorMatch{
+			Pattern:  pat,
+			Line:     trimSingleLine(turn.Text, authMatchLineMaxRunes),
+			Position: formatTurnPosition(turn, turnIdx),
+		}, true
 	}
 	if turn.IsAPIErrorMessage || turn.Model == "<synthetic>" {
-		return matchesAuthErrorSubstring(turn.Text, patterns)
+		if pat, line, ok := matchAuthErrorSubstring(turn.Text, patterns); ok {
+			return authErrorMatch{
+				Pattern:  pat,
+				Line:     trimSingleLine(line, authMatchLineMaxRunes),
+				Position: formatTurnPosition(turn, turnIdx),
+			}, true
+		}
+		return authErrorMatch{}, false
 	}
 	if turn.Model != "" {
-		return false
+		return authErrorMatch{}, false
 	}
-	return matchesAuthError(turn.Text, patterns)
+	if pat, ok := matchWholeAuthError(turn.Text, patterns); ok {
+		return authErrorMatch{
+			Pattern:  pat,
+			Line:     trimSingleLine(turn.Text, authMatchLineMaxRunes),
+			Position: formatTurnPosition(turn, turnIdx),
+		}, true
+	}
+	return authErrorMatch{}, false
 }
 
 func matchesAuthError(text string, patterns []string) bool {
+	_, ok := matchWholeAuthError(text, patterns)
+	return ok
+}
+
+func matchWholeAuthError(text string, patterns []string) (string, bool) {
 	trimmed := strings.TrimSpace(text)
 	if trimmed == "" {
-		return false
+		return "", false
 	}
 	for _, p := range patterns {
 		p = strings.TrimSpace(p)
 		if p != "" && strings.EqualFold(trimmed, p) {
-			return true
+			return p, true
 		}
 	}
-	return false
+	return "", false
 }
 
 func matchesAuthErrorSubstring(text string, patterns []string) bool {
+	_, _, ok := matchAuthErrorSubstring(text, patterns)
+	return ok
+}
+
+func matchAuthErrorSubstring(text string, patterns []string) (string, string, bool) {
 	lower := strings.ToLower(text)
 	for _, p := range patterns {
-		if p != "" && strings.Contains(lower, strings.ToLower(p)) {
-			return true
+		if p == "" {
+			continue
 		}
+		lp := strings.ToLower(p)
+		if !strings.Contains(lower, lp) {
+			continue
+		}
+		for _, line := range strings.Split(text, "\n") {
+			if strings.Contains(strings.ToLower(line), lp) {
+				return p, line, true
+			}
+		}
+		return p, text, true
 	}
-	return false
+	return "", "", false
+}
+
+func trimSingleLine(s string, maxRunes int) string {
+	s = strings.NewReplacer("\r", " ", "\n", " ", "\t", " ").Replace(s)
+	s = strings.TrimSpace(s)
+	if maxRunes > 0 && utf8.RuneCountInString(s) > maxRunes {
+		return firstNRunes(s, maxRunes) + "…"
+	}
+	return s
+}
+
+func formatTurnPosition(turn lastturn.Turn, turnIdx int) string {
+	if turn.Source != "" && turn.Line > 0 {
+		if turnIdx >= 0 {
+			return fmt.Sprintf("transcript %s:%d (turn %d)", filepath.Base(turn.Source), turn.Line, turnIdx+1)
+		}
+		return fmt.Sprintf("transcript %s:%d", filepath.Base(turn.Source), turn.Line)
+	}
+	if turnIdx >= 0 {
+		return fmt.Sprintf("transcript turn %d", turnIdx+1)
+	}
+	return "transcript"
+}
+
+func formatAuthHeldDetail(m authErrorMatch) string {
+	return fmt.Sprintf("pattern %q matched %q at %s", m.Pattern, m.Line, m.Position)
 }
 
 // ReleaseHeld clears any login-expired hold on target and flushes its queue.
@@ -598,16 +807,17 @@ func (m *Mailbox) ReleaseHeld(ctx context.Context, target string) (int, error) {
 		return 0, err
 	}
 	m.mu.Lock()
-	delete(m.authOutage, handle)
 	released := 0
 	for _, id := range m.queue[handle] {
 		msg := m.msgs[id]
 		if msg.State == "held: "+HoldLoginExpired {
 			msg.State = stateQueued
+			msg.HeldDetail = ""
 			m.msgs[id] = msg
 			released++
 		}
 	}
+	m.clearAuthOutageLocked(handle, "manual_release", "cleared by release-held")
 	if err := m.save(); err != nil {
 		m.mu.Unlock()
 		return 0, err

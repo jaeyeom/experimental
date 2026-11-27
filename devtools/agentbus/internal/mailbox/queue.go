@@ -79,6 +79,8 @@ type outcome struct {
 	target   string
 	// detail, when set, is the delivered log detail instead of "accepted".
 	detail string
+	// heldDetail explains why a hold started (for example auth-error details).
+	heldDetail string
 	// deferred means the precheck passed and the paste has not run.
 	deferred bool
 	// gone means every adapter answered that a raw handle target, one
@@ -498,9 +500,16 @@ func byMachine(handles []string) map[string][]string {
 func (m *Mailbox) handles() []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make([]string, 0, len(m.queue))
+	seen := make(map[string]bool, len(m.queue)+len(m.authOutage))
+	out := make([]string, 0, len(m.queue)+len(m.authOutage))
 	for handle := range m.queue {
+		seen[handle] = true
 		out = append(out, handle)
+	}
+	for handle := range m.authOutage {
+		if !seen[handle] {
+			out = append(out, handle)
+		}
 	}
 	sort.Strings(out)
 	return out
@@ -674,6 +683,7 @@ func (m *Mailbox) retargetMessage(msg message, newHandle string) message {
 	msg.Handle = newHandle
 	msg.State = stateQueued
 	msg.GoneSince = nil
+	msg.HeldDetail = ""
 	msg.ComposerText = ""
 	msg.ComposerTextSince = nil
 	msg.ComposerTabLabel = ""
@@ -815,8 +825,8 @@ func (m *Mailbox) attempt(ctx context.Context, msg message, deliver bool) outcom
 		// Its pane runs a shell now. The message waits for a wake.
 		return m.wakeOutcome(ctx, rec)
 	}
-	if m.holdForAuthOutage(msg.Handle, deliver) {
-		return outcome{reason: HoldLoginExpired, target: HoldLoginExpired}
+	if held, detail := m.holdForAuthOutage(msg.Handle, deliver); held {
+		return outcome{reason: HoldLoginExpired, target: HoldLoginExpired, heldDetail: detail}
 	}
 	state, ad, answered, err := m.observe(ctx, ads, msg.Handle)
 	if err != nil || ad == nil || !canDeliver(state) {
@@ -1091,6 +1101,7 @@ func (m *Mailbox) markDelivered(id string, o outcome) error {
 	msg.State = stateDelivered
 	msg.DeliveredAt = &now
 	msg.ClosedAt = &now
+	msg.HeldDetail = ""
 	msg.ComposerText = ""
 	msg.ComposerTextSince = nil
 	msg.ComposerTabLabel = ""
@@ -1107,8 +1118,8 @@ func (m *Mailbox) markDelivered(id string, o outcome) error {
 			rec.ProbeMsgID = msg.ID
 			m.authOutage[msg.Handle] = rec
 		}
-	} else {
-		delete(m.authOutage, msg.Handle)
+	} else if _, ok := m.authOutage[msg.Handle]; ok {
+		m.clearAuthOutageLocked(msg.Handle, "delivered_no_verify", "delivered without transcript verification")
 	}
 	m.msgs[id] = msg
 	m.pop(msg.Handle)
@@ -1158,6 +1169,7 @@ func (m *Mailbox) holdFront(id string, outcome outcome) error {
 	next := "held: " + outcome.reason
 	prev := msg.State
 	msg.State = next
+	msg.HeldDetail = outcome.heldDetail
 	m.markHeld(&msg)
 	m.updateComposerTrack(&msg, outcome)
 	m.msgs[id] = msg
@@ -1192,6 +1204,7 @@ func (m *Mailbox) logChange(msg message, name string, outcome outcome) error {
 		Name:        msg.To,
 		Detail:      "waited " + waitString(m.now().Sub(msg.SentAt)),
 		Reason:      outcome.reason,
+		HeldDetail:  outcome.heldDetail,
 		TargetState: outcome.target,
 	})
 }

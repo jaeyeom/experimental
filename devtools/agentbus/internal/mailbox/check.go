@@ -24,8 +24,9 @@ type HeldMessage struct {
 	From       string `json:"from"`
 	To         string `json:"to"`
 	Reason     string `json:"reason"`
-	ReasonCode string `json:"reason_code"` //nolint:tagliatelle // CLI JSON shape
-	HeldSince  string `json:"held_since"`  //nolint:tagliatelle // CLI JSON shape
+	ReasonCode string `json:"reason_code"`           //nolint:tagliatelle // CLI JSON shape
+	HeldDetail string `json:"held_detail,omitempty"` //nolint:tagliatelle // CLI JSON shape
+	HeldSince  string `json:"held_since"`            //nolint:tagliatelle // CLI JSON shape
 	Age        string `json:"age"`
 	AgeSeconds int64  `json:"age_seconds"` //nolint:tagliatelle // CLI JSON shape
 }
@@ -118,6 +119,7 @@ func matchHeldMessage(msg message, f HeldFilter, resolvedTo string, now time.Tim
 		To:         msg.To,
 		Reason:     rawReason,
 		ReasonCode: code,
+		HeldDetail: msg.HeldDetail,
 		HeldSince:  ReportTime(since),
 		Age:        waitString(age),
 		AgeSeconds: int64(age / time.Second),

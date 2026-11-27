@@ -38,12 +38,14 @@ const (
 	EventDelivered      = "delivered"
 	EventUnprocessed    = "unprocessed"
 	EventHeld           = "held"
-	EventRetry          = "retry"
-	EventRequeued       = "requeued"
-	EventMoved          = "moved"
-	EventExpired        = "expired"
-	EventRejected       = "rejected"
-	EventAdapterError   = "adapter_error"
+	// EventOutageCleared is logged when a login-expired outage hold clears.
+	EventOutageCleared = "outage_cleared"
+	EventRetry         = "retry"
+	EventRequeued      = "requeued"
+	EventMoved         = "moved"
+	EventExpired       = "expired"
+	EventRejected      = "rejected"
+	EventAdapterError  = "adapter_error"
 	// EventAdapterReachable is an adapter whose self-test passes again
 	// after an adapter_error.
 	EventAdapterReachable = "adapter_reachable"
@@ -142,6 +144,7 @@ type Event struct {
 	Resolved    string
 	Detail      string
 	Reason      string
+	HeldDetail  string
 	TargetState string
 	// Origin is set by the daemon. client means the line was appended for a client.
 	Origin string
@@ -174,6 +177,7 @@ type record struct {
 	Resolved    string `json:"resolved,omitempty"`
 	Detail      string `json:"detail,omitempty"`
 	Reason      string `json:"reason,omitempty"`
+	HeldDetail  string `json:"held_detail,omitempty"`  //nolint:tagliatelle // event log contract
 	TargetState string `json:"target_state,omitempty"` //nolint:tagliatelle // event log contract
 	Origin      string `json:"origin,omitempty"`
 }
@@ -268,6 +272,7 @@ func Parse(line string) (Event, error) {
 		Resolved:    rec.Resolved,
 		Detail:      rec.Detail,
 		Reason:      rec.Reason,
+		HeldDetail:  rec.HeldDetail,
 		TargetState: rec.TargetState,
 		Origin:      rec.Origin,
 	}, nil
@@ -289,6 +294,7 @@ func Format(line string) (string, error) {
 	writeField(&b, "msg", ev.MsgID)
 	writeField(&b, "detail", ev.Detail)
 	writeField(&b, "reason", ev.Reason)
+	writeField(&b, "held_detail", ev.HeldDetail)
 	writeField(&b, "target_state", ev.TargetState)
 	writeField(&b, "origin", ev.Origin)
 	return b.String(), nil
@@ -456,7 +462,7 @@ func knownEvent(name string) bool {
 	switch name {
 	case EventRegister, EventDescribe, EventRelease, EventHandoff, EventTakeover, EventForget, EventClaimRefused,
 		EventSend, EventQueued, EventDedupe, EventDeliverAttempt, EventDelivered, EventUnprocessed, EventHeld,
-		EventHoldNoticeSkipped, EventRetry,
+		EventOutageCleared, EventHoldNoticeSkipped, EventRetry,
 		EventRequeued, EventMoved, EventExpired, EventRejected, EventAdapterError, EventAdapterReachable, EventBypass, EventStart, EventStop,
 		EventLeaseClaim, EventLeaseGrant, EventLeaseExtend, EventLeaseLeave,
 		EventLeaseRelease, EventLeaseSkip, EventLeaseCheckIn, EventLeaseAutoExtend,
@@ -487,6 +493,7 @@ func encode(e Event, now time.Time) ([]byte, time.Time, error) {
 		Resolved:    e.Resolved,
 		Detail:      e.Detail,
 		Reason:      e.Reason,
+		HeldDetail:  e.HeldDetail,
 		TargetState: e.TargetState,
 		Origin:      e.Origin,
 	})
