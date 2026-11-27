@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -166,11 +167,14 @@ func TestCheckSilentThenPingsOnce(t *testing.T) {
 func TestUsageErrorsExit64(t *testing.T) {
 	h := newHarness(t)
 	for _, args := range [][]string{
-		{},
 		{"bogus"},
 		{"record", "--profile", "work", "--percent", "3"},
 		{"plan"},
 		{"status", "--stale", "soon"},
+		{"dashboard", "--stale", "soon"},
+		{"dashboard", "--recent", "soon"},
+		{"dashboard", "--watch", "soon"},
+		{"dashboard", "--profile", "a/b"},
 		{"plan", "start", "--profile", "work", "--window", "7d", "--at", "2026-11-17T00:00:00Z"},
 	} {
 		if code := h.run("", args...); code != exitUsage {
@@ -179,5 +183,109 @@ func TestUsageErrorsExit64(t *testing.T) {
 	}
 	if code := h.run("", "plan", "start", "--profile", "work", "--window", "7d"); code != exitSoftware {
 		t.Errorf("plan with no reading: exit %d, want 70", code)
+	}
+}
+
+func TestNoArgsEmptyStorePrintsHintAndHelpPrintsUsage(t *testing.T) {
+	h := newHarness(t)
+	out := h.must(0, "")
+	for _, want := range []string{"record", "plan start"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("empty no-args output lacks %q:\n%s", want, out)
+		}
+	}
+	for _, helpArgs := range [][]string{{"--help"}, {"-h"}, {"help"}} {
+		helpOut := h.must(0, "", helpArgs...)
+		if !strings.Contains(helpOut, "usage: quotapace") {
+			t.Errorf("%v output lacks usage text:\n%s", helpArgs, helpOut)
+		}
+	}
+}
+
+func TestNoArgsDashboardProfilesStaleAndNoPlan(t *testing.T) {
+	h := newHarness(t)
+	// Profile "work" with explicit plan and 7d window.
+	h.must(0, "", "record", "--profile", "work", "--window", "7d", "--percent", "40", "--resets-in", "4d", "--source", "statusline")
+	h.must(0, "", "plan", "start", "--profile", "work", "--window", "7d", "--target", "95")
+
+	// Profile "claude" with no plan (only record).
+	h.must(0, "", "record", "--profile", "claude", "--window", "5h", "--percent", "18", "--resets-in", "2h")
+
+	// Profile "staleprof" recorded 8h ago.
+	oldAt := h.now.Add(-8 * time.Hour).Format(time.RFC3339)
+	h.must(0, "", "record", "--profile", "staleprof", "--window", "7d", "--percent", "22", "--resets-in", "5d", "--at", oldAt)
+	h.must(0, "", "plan", "start", "--profile", "staleprof", "--window", "7d")
+
+	// Bare `quotapace` renders the full dashboard.
+	out := h.must(0, "")
+	for _, want := range []string{
+		"work  7d",
+		"target 95%",
+		"projected",
+		"claude  5h",
+		"no plan",
+		"18%",
+		"Reset: in 2h",
+		"staleprof  7d",
+		"stale",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("dashboard lacks %q:\n%s", want, out)
+		}
+	}
+
+	// `quotapace dashboard --profile claude` shows only claude, without projection.
+	claudeOut := h.must(0, "", "dashboard", "--profile", "claude")
+	if !strings.Contains(claudeOut, "claude  5h") {
+		t.Fatalf("filtered dashboard missing claude:\n%s", claudeOut)
+	}
+	if strings.Contains(claudeOut, "work  7d") {
+		t.Fatalf("filtered dashboard unexpectedly included work:\n%s", claudeOut)
+	}
+	for _, unwanted := range []string{"projection", "projected"} {
+		if strings.Contains(claudeOut, unwanted) {
+			t.Fatalf("no-plan profile output unexpectedly contained %q:\n%s", unwanted, claudeOut)
+		}
+	}
+}
+
+func TestDashboardWatchRefreshesUntilCanceled(t *testing.T) {
+	h := newHarness(t)
+	h.must(0, "", "record", "--profile", "work", "--window", "7d", "--percent", "40", "--resets-in", "4d")
+	h.must(0, "", "plan", "start", "--profile", "work", "--window", "7d")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ticks := 0
+	var stdout, stderr strings.Builder
+	code := run([]string{"dashboard", "--profile", "work", "--recent", "6h", "--watch", "30s"}, env{
+		getenv: func(k string) string {
+			if k == "XDG_DATA_HOME" {
+				return h.data
+			}
+			return ""
+		},
+		stdin:  strings.NewReader(""),
+		stdout: &stdout,
+		stderr: &stderr,
+		now:    func() time.Time { return h.now },
+		ctx:    ctx,
+		after: func(time.Duration) <-chan time.Time {
+			ticks++
+			if ticks >= 2 {
+				cancel()
+			}
+			ch := make(chan time.Time, 1)
+			if ticks < 2 {
+				ch <- h.now
+			}
+			return ch
+		},
+	})
+	if code != 0 {
+		t.Fatalf("dashboard --watch exit %d, stderr=%s", code, stderr.String())
+	}
+	if got := strings.Count(stdout.String(), "quotapace dashboard"); got != 2 {
+		t.Fatalf("expected 2 renders in watch mode, got %d:\n%s", got, stdout.String())
 	}
 }

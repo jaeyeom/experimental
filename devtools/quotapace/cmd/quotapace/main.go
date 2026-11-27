@@ -1,6 +1,8 @@
 // Command quotapace records usage readings of rolling quota windows and
 // projects them against a plan.
 //
+//	quotapace
+//	quotapace dashboard [--profile P] [--recent D] [--stale D] [--watch D]
 //	quotapace record --profile P --window 7d --percent 27 --resets-in 6d5h
 //	quotapace plan start --profile P --window 7d [--baseline 27 --at T]
 //	quotapace plan set --profile P --window 7d [--reset "Thu 15:00"] [--tz Area/City] --rate R [--offset O]
@@ -35,7 +37,8 @@ const (
 	exitSoftware = 70
 )
 
-const usage = `usage: quotapace record --profile P --window W --percent N (--resets-in D | --resets-at T) [--source S] [--at T] [--auto-start]
+const usage = `usage: quotapace [dashboard] [--profile P] [--window W] [--recent 6h] [--stale 6h] [--watch D]
+       quotapace record --profile P --window W --percent N (--resets-in D | --resets-at T) [--source S] [--at T] [--auto-start]
        quotapace record --profile P [--stdin] [--format jsonl|claude-usage] [--auto-start] < input
        quotapace plan start --profile P --window W [--baseline N [--at T]] [--resets-at T | --resets-in D]
                             [--offset N] [--target N] [--amber N] [--every D] [--checkpoints HH:MM,...] [--tz Area/City]
@@ -73,10 +76,6 @@ func runMain() int {
 }
 
 func run(args []string, e env) int {
-	if len(args) == 0 {
-		fmt.Fprintln(e.stderr, usage)
-		return exitUsage
-	}
 	if code, ok := newQuotapaceTool().Handle(context.Background(), args, e.stdout, e.stderr); ok {
 		return code
 	}
@@ -99,7 +98,12 @@ func run(args []string, e env) int {
 }
 
 func dispatch(args []string, store quotapace.Store, e env) (int, error) {
+	if len(args) == 0 {
+		return runDashboard(nil, store, e)
+	}
 	switch args[0] {
+	case "dashboard":
+		return runDashboard(args[1:], store, e)
 	case "record":
 		return 0, runRecord(args[1:], store, e)
 	case "plan":

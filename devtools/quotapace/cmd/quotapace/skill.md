@@ -8,6 +8,7 @@ description: CLI that records quota readings and projects them against a pacing 
 `quotapace` records usage readings of rolling quota windows and projects them against a pacing plan.
 
 Common commands:
+- `quotapace` (or `quotapace dashboard [--profile P] [--recent D] [--stale D] [--watch D]`)
 - `quotapace record --profile P --window 7d --percent 27 --resets-in 6d5h`
 - `quotapace record --profile remote --stdin`
 - `quotapace plan start --profile P --window 7d`

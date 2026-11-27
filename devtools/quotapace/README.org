@@ -66,6 +66,7 @@ limit, the actual reading, and its state.
 * Commands
 
 #+BEGIN_EXAMPLE
+quotapace [dashboard] [--profile P] [--window W] [--recent 6h] [--stale 6h] [--watch D]
 quotapace record --profile P --window W --percent N (--resets-in D | --resets-at T) [--source S] [--at T] [--auto-start]
 quotapace record --profile P [--stdin] [--format jsonl|claude-usage] [--auto-start] < input
 quotapace plan start --profile P --window W [--baseline N [--at T]] [--resets-at T | --resets-in D]
@@ -81,6 +82,13 @@ quotapace gate   --profile P [--window 7d] [--min-gap N] [--stale 6h] [--json]
 Windows and durations take whole days (~7d~), a Go duration (~5h~,
 ~90m~), or both (~6d5h~). Times are RFC 3339.
 
+- ~dashboard~ (default when run with no arguments) :: prints a
+  plain-text per-profile, per-window dashboard with a chart of
+  recorded samples and the plan's projection line to the reset,
+  current usage against the plan target (state and gap), reset
+  countdown, and reading freshness (marked stale past ~--stale~).
+  Profiles without a plan still show their samples and reset time.
+  With ~--watch D~, it refreshes every ~D~ until interrupted.
 - ~record~ :: appends a reading. Without ~--percent~ it reads standard
   input: JSON lines (~window~, ~percent~, ~resetsAt~ or ~resetsIn~, and
   optionally ~profile~, ~at~, ~source~), or with ~--format claude-usage~

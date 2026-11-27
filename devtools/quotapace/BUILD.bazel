@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "check.go",
         "checkpoint.go",
+        "dashboard.go",
         "gate.go",
         "jsonl.go",
         "pace.go",
@@ -21,6 +22,7 @@ go_test(
     name = "go_default_test",
     size = "small",
     srcs = [
+        "dashboard_test.go",
         "gate_test.go",
         "quotapace_test.go",
     ],
