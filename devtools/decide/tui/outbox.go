@@ -571,19 +571,11 @@ func answerClosed(it *decide.Item) bool {
 }
 
 func closedWithoutAnswer(it *decide.Item) bool {
-	return it != nil && (it.State == decide.StateDone || it.State == decide.StateDoneUnread) && it.Answer == nil
-}
-
-func closedLine(it *decide.Item) string {
-	owner := it.Owner
-	if owner == "" {
-		owner = "owner"
-	}
-	outcome, _, _ := strings.Cut(strings.TrimSpace(it.Outcome), "\n")
-	if outcome == "" {
-		return "Closed by " + owner
-	}
-	return "Closed by " + owner + ": " + outcome
+	return it != nil &&
+		it.Kind == decide.KindRelay &&
+		(len(it.Options) > 0 || it.FreeText) &&
+		it.Answer == nil &&
+		(it.State == decide.StateDone || it.State == decide.StateDoneUnread || it.State == decide.StateWithdrawn)
 }
 
 func (m *Model) outboxHelpLines() []string {
@@ -640,7 +632,7 @@ func (m *Model) answeredLine(it *decide.Item) (string, bool) {
 		return "", false
 	}
 	if closedWithoutAnswer(it) {
-		return closedLine(it), true
+		return "", false
 	}
 	if e, ok := m.pendingOutboxAnswer(it); ok && it.State != decide.StateAnswered && len(it.Options) > 0 {
 		value := strings.TrimSpace(e.Text)

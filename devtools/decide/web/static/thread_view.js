@@ -8,7 +8,7 @@ import { badgeOf, effectiveClass, hasUnread, deadlineLabel, lastStamp } from './
 import {
   openAtIndex, newDividerLabel, deliveryMark, approvalCardFor, canSendAndArchive, hasOtherWorker,
   routeWarning, replyOnBus, answerPlan, replyPlan, messagesOf, threadText, hhmm, isOpenQuestion,
-  closedLine,
+  closedCard,
 } from './thread_model.js';
 import { createDraftSync } from './draft_sync.js';
 import { loadLocalDraft, saveLocalDraft, busDown } from './store.js';
@@ -106,6 +106,18 @@ export function createThreadView({ root, toast, hint = () => '' }) {
       box.append(el('div', { class: 'option-row' }, main, note));
     }
     return box;
+  }
+
+  function closedOutcomeCard(card) {
+    const head = el('div', { class: 'closed-card-head' },
+      el('span', { class: 'closed-card-icon', 'aria-hidden': 'true', text: card.icon }),
+      el('span', { class: 'closed-card-title', text: card.title }),
+      ...(card.time ? [el('span', { class: 'closed-card-sep', 'aria-hidden': 'true', text: '·' }), el('time', { text: card.time })] : []));
+    const body = card.body ? [el('div', { class: 'closed-card-body', text: card.body })] : [];
+    return el('section', {
+      class: `closed-card closed-card-${card.kind}`,
+      'aria-label': card.time ? `${card.title} · ${card.time}` : card.title,
+    }, head, ...body);
   }
 
   function typeInPanel(it) {
@@ -209,8 +221,8 @@ export function createThreadView({ root, toast, hint = () => '' }) {
     const parts = [];
     if (cur.notice) parts.push(el('p', { class: 'notice error', role: 'alert', text: cur.notice }));
     if (card) parts.push(approvalCard(card));
-    const closed = closedLine(it);
-    if (closed) parts.push(el('p', { class: 'closed-notice muted', text: closed }));
+    const closed = closedCard(it);
+    if (closed) parts.push(closedOutcomeCard(closed));
     if (it.kind === 'relay' && it.state === 'open' && it.options?.length && effectiveClass(it) !== 'approval') parts.push(optionsPanel(it));
     if (it.kind === 'type-in' && it.state === 'open' && it.typeText) parts.push(typeInPanel(it));
     const w = routeWarning(it);

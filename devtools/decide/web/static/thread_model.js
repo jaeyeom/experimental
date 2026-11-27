@@ -87,14 +87,33 @@ export function approvalCardFor(items, it) {
 export const isOpenQuestion = (it) => !!it && it.kind === 'relay' && it.state === 'open'
   && ((it.options?.length ?? 0) > 0 || !!it.freeText);
 
-// closedLine returns "Closed by <owner>: <outcome>" for a done or
-// done-unread item with no answer, or '' otherwise.
-export function closedLine(it) {
-  if (!it || (it.state !== 'done' && it.state !== 'done-unread') || it.answer) return '';
-  if (it.kind === 'relay' && !(it.options?.length) && !it.freeText) return '';
+// closedCard returns { kind, icon, title, time, body } for a relay
+// question closed or withdrawn without an answer, or null otherwise.
+export function closedCard(it) {
+  if (!it || it.kind !== 'relay' || it.answer) return null;
+  if (!(it.options?.length) && !it.freeText) return null;
+  if (it.state !== 'done' && it.state !== 'done-unread' && it.state !== 'withdrawn') return null;
   const owner = it.owner || 'owner';
-  const outcome = String(it.outcome ?? '').trim().split('\n')[0] ?? '';
-  return outcome ? `Closed by ${owner}: ${outcome}` : `Closed by ${owner}`;
+  if (it.state === 'withdrawn') {
+    const body = String(it.reason ?? it.outcome ?? '').replace(/\r\n?/g, '\n').trim();
+    const at = hasTime(it.withdrawnAt) ? it.withdrawnAt : it.doneAt;
+    return {
+      kind: 'withdrawn',
+      icon: '↩️',
+      title: `Withdrawn by ${owner}`,
+      time: hasTime(at) ? hhmm(at) : '',
+      body,
+    };
+  }
+  const body = String(it.outcome ?? '').replace(/\r\n?/g, '\n').trim();
+  const archived = body === 'archived';
+  return {
+    kind: archived ? 'archived' : 'closed',
+    icon: archived ? '📦' : '✅',
+    title: `Closed by ${owner}`,
+    time: hasTime(it.doneAt) ? hhmm(it.doneAt) : '',
+    body,
+  };
 }
 
 // canSendAndArchive: never on an open question or a pending answer, nor

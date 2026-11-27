@@ -157,6 +157,10 @@ button.option .label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .note-btn { white-space: nowrap; }
 .type-in { border: 2px solid var(--c-T); border-radius: 10px; padding: .75rem; margin: .5rem 0; }
 .type-text { font-size: 1.05rem; user-select: all; }
+.closed-card { border: 1px solid var(--border); border-radius: 10px; padding: .75rem 1rem; margin: .5rem 0; background: var(--surface); color: var(--text); }
+.closed-card-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .4rem; font-size: .9rem; font-weight: 600; color: var(--muted); }
+.closed-card-head time { font-weight: 400; }
+.closed-card-body { margin-top: .4rem; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
 .reply { position: sticky; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px)); background: var(--bg); border-top: 1px solid var(--border); padding: .5rem 0; display: grid; gap: .5rem; z-index: 2; }
 @media (min-width: 840px) { .reply { bottom: 0; } }
 .reply-text { width: 100%; resize: none; min-height: 44px; max-height: 40vh; padding: .6rem .75rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); transition: height .12s ease; }

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   openAtIndex, newDividerLabel, deliveryMark, approvalCardFor, isOpenQuestion, canSendAndArchive,
   hasOtherWorker, routeWarning, replyOnBus, mergeMarkers, hhmm, answerPlan, replyPlan, threadText, messagesOf,
-  closedLine,
+  closedCard,
 } from './thread_model.js';
 import { createDraftSync } from './draft_sync.js';
 
@@ -259,18 +259,51 @@ test('threadText and messagesOf', () => {
   assert.equal(messagesOf(it).length, 2);
 });
 
-test('closedLine shows close for done/done-unread without answer', () => {
+test('closedCard builds state-specific card data for closed/archived/withdrawn without answer', () => {
   const opts = [{ key: 'yes', label: 'Yes' }, { key: 'no', label: 'No' }];
-  const closed = { kind: 'relay', state: 'done-unread', owner: 'ada', outcome: 'Not posted: cancelled.', options: opts };
-  assert.equal(closedLine(closed), 'Closed by ada: Not posted: cancelled.');
-  assert.equal(closedLine({ ...closed, state: 'done' }), 'Closed by ada: Not posted: cancelled.');
-  assert.equal(closedLine({ ...closed, answer: { value: 'yes' } }), '');
-  assert.equal(closedLine({ ...closed, state: 'open' }), '');
-  assert.equal(closedLine({ kind: 'relay', state: 'done', owner: 'ada', outcome: 'archived' }), '');
+  const closed = {
+    kind: 'relay', state: 'done-unread', owner: 'ada',
+    doneAt: T(7), outcome: 'Not posted: cancelled.\nSee log.', options: opts,
+  };
+  assert.deepEqual(closedCard(closed), {
+    kind: 'closed',
+    icon: '✅',
+    title: 'Closed by ada',
+    time: hhmm(T(7)),
+    body: 'Not posted: cancelled.\nSee log.',
+  });
+  assert.deepEqual(closedCard({ ...closed, state: 'done' }), {
+    kind: 'closed',
+    icon: '✅',
+    title: 'Closed by ada',
+    time: hhmm(T(7)),
+    body: 'Not posted: cancelled.\nSee log.',
+  });
+  assert.deepEqual(closedCard({ ...closed, state: 'done', outcome: 'archived' }), {
+    kind: 'archived',
+    icon: '📦',
+    title: 'Closed by ada',
+    time: hhmm(T(7)),
+    body: 'archived',
+  });
+  assert.deepEqual(closedCard({
+    kind: 'relay', state: 'withdrawn', owner: 'ada',
+    withdrawnAt: T(9), reason: 'superseded\nby PR #42', options: opts,
+  }), {
+    kind: 'withdrawn',
+    icon: '↩️',
+    title: 'Withdrawn by ada',
+    time: hhmm(T(9)),
+    body: 'superseded\nby PR #42',
+  });
+  assert.equal(closedCard({ ...closed, answer: { value: 'yes' } }), null);
+  assert.equal(closedCard({ ...closed, state: 'open' }), null);
+  assert.equal(closedCard({ kind: 'relay', state: 'done', owner: 'ada', outcome: 'archived' }), null);
+  assert.equal(closedCard({ kind: 'type-in', state: 'done', owner: 'ada', outcome: 'done', freeText: true }), null);
   assert.equal(canSendAndArchive(closed, false), false);
 });
 
-test('web thread render: done-unread with options shows closed line and no active choices', async () => {
+test('web thread render: snapshots for closed, archived, withdrawn, and literal HTML', async () => {
   // Minimal DOM stub so createThreadView can render under node.
   class FakeEl {
     constructor(tag) {
@@ -316,11 +349,11 @@ test('web thread render: done-unread with options shows closed line and no activ
       const out = [];
       this.walk((n) => {
         if (sel === '.options button.option' && n.tagName === 'BUTTON' && n.classList.contains('option')) out.push(n);
-        if (sel === '.approval-card .approval-actions button' && n.tagName === 'BUTTON') {
-          // check if inside approval-card
-        }
         if (sel === 'button.option' && n.tagName === 'BUTTON' && n.classList.contains('option')) out.push(n);
         if (sel === '.approval-card' && n.classList.contains('approval-card')) out.push(n);
+        if (sel === '.closed-card' && n.classList.contains('closed-card')) out.push(n);
+        if (sel === '.closed-card-body' && n.classList.contains('closed-card-body')) out.push(n);
+        if (sel === '.closed-card-head' && n.classList.contains('closed-card-head')) out.push(n);
       });
       return out;
     }
@@ -342,23 +375,75 @@ test('web thread render: done-unread with options shows closed line and no activ
   globalThis.location = { origin: 'http://localhost', hash: '#/item/A-1' };
 
   const { createThreadView } = await import('./thread_view.js');
-  const root = new FakeEl('div');
-  const tv = createThreadView({ root, toast: () => {} });
-  const item = {
+  const opts = [{ key: 'yes', label: 'Yes' }, { key: 'no', label: 'No' }, { key: 'edit', label: 'Edit' }];
+  const renderItem = (item) => {
+    const root = new FakeEl('div');
+    const tv = createThreadView({ root, toast: () => {} });
+    tv.render({ items: [item], drafts: [], display: {}, busHealth: null }, { name: 'item', arg: item.id });
+    return root;
+  };
+
+  // 1. Done-unread with HTML payload and multi-line outcome
+  const htmlOutcome = 'Line 1: <img src=x onerror="alert(1)">\n<script>boom()</script> & "ok"';
+  const doneRoot = renderItem({
     id: 'A-1',
     class: 'approval',
     kind: 'relay',
     state: 'done-unread',
     owner: 'ada',
-    outcome: 'Not posted: cancelled.',
+    doneAt: T(7),
+    outcome: htmlOutcome,
     question: 'Post this?',
-    options: [{ key: 'yes', label: 'Yes' }, { key: 'no', label: 'No' }, { key: 'edit', label: 'Edit' }],
+    options: opts,
     createdAt: T(1),
-    messages: [{ author: 'ada', time: T(1), text: 'Post this?' }, { author: 'ada', time: T(2), text: 'done: Not posted: cancelled.' }],
-  };
-  tv.render({ items: [item], drafts: [], display: {}, busHealth: null }, { name: 'item', arg: 'A-1' });
-  const text = root.allText();
-  assert.ok(text.includes('Closed by ada: Not posted: cancelled.'), `missing closed line in:\n${text}`);
-  assert.equal(root.querySelectorAll('button.option').length, 0);
-  assert.equal(root.querySelectorAll('.approval-card').length, 0);
+    messages: [{ author: 'ada', time: T(1), text: 'Post this?' }],
+  });
+  const doneCards = doneRoot.querySelectorAll('.closed-card');
+  assert.equal(doneCards.length, 1);
+  assert.ok(doneCards[0].classList.contains('closed-card-closed'));
+  assert.equal(doneRoot.querySelectorAll('button.option').length, 0);
+  assert.equal(doneRoot.querySelectorAll('.approval-card').length, 0);
+  assert.equal(doneRoot.querySelectorAll('.closed-card-head')[0].allText(), `✅\nClosed by ada\n·\n${hhmm(T(7))}`);
+  const doneBody = doneRoot.querySelectorAll('.closed-card-body')[0];
+  assert.equal(doneBody.textContent, htmlOutcome);
+  assert.equal(doneBody.children.length, 0, 'HTML outcome must be literal text, never parsed DOM');
+
+  // 2. Archived
+  const archRoot = renderItem({
+    id: 'A-2',
+    kind: 'relay',
+    state: 'done',
+    owner: 'ada',
+    doneAt: T(8),
+    outcome: 'archived',
+    question: 'Approve?',
+    options: opts,
+    createdAt: T(1),
+    messages: [{ author: 'ada', time: T(1), text: 'Approve?' }],
+  });
+  const archCards = archRoot.querySelectorAll('.closed-card');
+  assert.equal(archCards.length, 1);
+  assert.ok(archCards[0].classList.contains('closed-card-archived'));
+  assert.equal(archRoot.querySelectorAll('.closed-card-head')[0].allText(), `📦\nClosed by ada\n·\n${hhmm(T(8))}`);
+  assert.equal(archRoot.querySelectorAll('.closed-card-body')[0].textContent, 'archived');
+
+  // 3. Withdrawn
+  const wdRoot = renderItem({
+    id: 'A-3',
+    kind: 'relay',
+    state: 'withdrawn',
+    owner: 'ada',
+    withdrawnAt: T(9),
+    reason: 'Cancelled before merge\nSee #123',
+    question: 'Deploy?',
+    options: opts,
+    createdAt: T(1),
+    messages: [{ author: 'ada', time: T(1), text: 'Deploy?' }],
+  });
+  const wdCards = wdRoot.querySelectorAll('.closed-card');
+  assert.equal(wdCards.length, 1);
+  assert.ok(wdCards[0].classList.contains('closed-card-withdrawn'));
+  assert.equal(wdRoot.querySelectorAll('button.option').length, 0);
+  assert.equal(wdRoot.querySelectorAll('.closed-card-head')[0].allText(), `↩️\nWithdrawn by ada\n·\n${hhmm(T(9))}`);
+  assert.equal(wdRoot.querySelectorAll('.closed-card-body')[0].textContent, 'Cancelled before merge\nSee #123');
 });

@@ -55,6 +55,8 @@ func TestLocalBackendDoneIsTheUsersDone(t *testing.T) {
 }
 
 func TestDoneUnreadWithOptionsShowsCloseAndRefusesAnswer(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("LC_ALL", "en_US.UTF-8")
 	t.Setenv("NO_COLOR", "")
 	dir := t.TempDir()
 	led := openLedger(t, dir)
@@ -84,8 +86,10 @@ func TestDoneUnreadWithOptionsShowsCloseAndRefusesAnswer(t *testing.T) {
 	}
 	press(t, m, "\r")
 	view := m.View()
-	if !strings.Contains(view, "Closed by ada: Not posted: cancelled.") {
-		t.Fatalf("thread view missing closed line:\n%s", view)
+	for _, want := range []string{"✅", "Closed by ada", "Not posted: cancelled.", "╭─", "╰"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("thread view missing closed card %q:\n%s", want, view)
+		}
 	}
 	if strings.Contains(view, "1  Yes") || strings.Contains(view, "2  No") {
 		t.Fatalf("options still shown on closed item:\n%s", view)

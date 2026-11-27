@@ -3837,7 +3837,9 @@ func styleLinkChunk(original string, ch textChunk, spans, matches [][]int, links
 
 func (m *Model) relayLines(it *decide.Item, width int) []screenLine {
 	var lines []screenLine
-	if line, ok := m.answeredLine(it); ok {
+	if card, ok := m.closedCardLines(it, width); ok {
+		lines = append(lines, card...)
+	} else if line, ok := m.answeredLine(it); ok {
 		lines = append(lines, screenLine{text: plainText(line)})
 	}
 	for i, opt := range it.Options {
