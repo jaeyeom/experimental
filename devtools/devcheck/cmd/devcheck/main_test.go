@@ -11,8 +11,35 @@ import (
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/devcheck/internal/config"
+	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
 	executor "github.com/jaeyeom/go-cmdexec"
 )
+
+func TestVersion(t *testing.T) {
+	for _, args := range [][]string{{"version"}, {"--version"}} {
+		var stdout, stderr bytes.Buffer
+		code := run(context.Background(), args, &stdout, &stderr, executor.NewMockExecutor())
+		if code != 0 || stderr.Len() != 0 {
+			t.Fatalf("%v: exit = %d, stderr = %q", args, code, stderr.String())
+		}
+		if !strings.HasPrefix(stdout.String(), "devcheck ") {
+			t.Errorf("%v: stdout = %q, want 'devcheck ' prefix", args, stdout.String())
+		}
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"version", "--json"}, &stdout, &stderr, executor.NewMockExecutor())
+	if code != 0 || stderr.Len() != 0 {
+		t.Fatalf("version --json: exit = %d, stderr = %q", code, stderr.String())
+	}
+	var vo toolcli.VersionOutput
+	if err := json.Unmarshal(stdout.Bytes(), &vo); err != nil {
+		t.Fatalf("decode version json: %v\n%s", err, stdout.String())
+	}
+	if vo.Tool != "devcheck" || vo.Version == "" {
+		t.Fatalf("unexpected VersionOutput: %+v", vo)
+	}
+}
 
 func TestHelpListsDocumentedFlags(t *testing.T) {
 	var stdout, stderr bytes.Buffer

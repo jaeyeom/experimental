@@ -36,7 +36,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return exitCode
 	}
 	if opts.showVersion {
-		fmt.Fprintf(stdout, "agents-md-size %s\n", pkgversion.Resolve())
+		fmt.Fprintln(stdout, pkgversion.Format("agents-md-size"))
 		return 0
 	}
 

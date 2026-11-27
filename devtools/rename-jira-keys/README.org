@@ -80,6 +80,7 @@ file is not renamed.
 | --new       | --new-key | required     |
 | --plan-file | -p        | plan.md      |
 | --docs-dir  | -d        | docs/project |
+| --version   | -version  | false        |
 
 ~-old~ and ~--old~ are the same flag. The alias is ~--old-key~.
 The same is true for ~--new~ and ~--new-key~.

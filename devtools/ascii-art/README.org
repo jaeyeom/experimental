@@ -68,6 +68,7 @@ box-renderer --section 'Request|the first step' --section Handler
 | --padding   | 2        | Spaces inside the left and right edges                          |
 | --width     | 0        | Box width. ~0 = auto~ sizes the box to the text.                |
 | --prefix    | empty    | Text placed before every output line                            |
+| --version   | false    | Print version information and exit                              |
 
 The default ~--prefix~ is empty (~""~).
 The default ~--connector~ value is ~│|▼~: a vertical bar, then an arrow.

@@ -8,18 +8,29 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/jaeyeom/experimental/devtools/orglint"
+	pkgversion "github.com/jaeyeom/experimental/devtools/pkg/version"
 )
 
 func main() {
-	found, err := orglint.Run(os.Stdout, os.Args[1:], orglint.Checkers())
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+func run(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 1 && (args[0] == "--version" || args[0] == "-version") {
+		fmt.Fprintln(stdout, pkgversion.Format("org-lint-go"))
+		return 0
+	}
+	found, err := orglint.Run(stdout, args, orglint.Checkers())
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "org-lint-go:", err)
-		os.Exit(2)
+		fmt.Fprintln(stderr, "org-lint-go:", err)
+		return 2
 	}
 	if found {
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }

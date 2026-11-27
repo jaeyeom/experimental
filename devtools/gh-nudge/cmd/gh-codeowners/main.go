@@ -103,7 +103,7 @@ func processFiles(input io.Reader, owners *codeowners.Codeowners, output io.Writ
 func run() error {
 	// Handle version flag
 	if version {
-		fmt.Printf("gh-codeowners version %s\n", pkgversion.Resolve())
+		fmt.Println(pkgversion.Format("gh-codeowners"))
 		return nil
 	}
 

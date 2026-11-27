@@ -5,7 +5,10 @@ go_library(
     srcs = ["main.go"],
     importpath = "github.com/jaeyeom/experimental/devtools/linters/cmd/unnecessary-interface-assertion-linter",
     visibility = ["//visibility:private"],
-    deps = ["//devtools/linters/unnecessaryinterfaceassertion:go_default_library"],
+    deps = [
+        "//devtools/linters/unnecessaryinterfaceassertion:go_default_library",
+        "//devtools/pkg/version:go_default_library",
+    ],
 )
 
 go_binary(
@@ -18,7 +21,10 @@ go_test(
     name = "go_default_test",
     srcs = ["main_test.go"],
     embed = [":go_default_library"],
-    deps = ["//devtools/linters/unnecessaryinterfaceassertion:go_default_library"],
+    deps = [
+        "//devtools/linters/unnecessaryinterfaceassertion:go_default_library",
+        "//devtools/pkg/version:go_default_library",
+    ],
 )
 
 exports_files(

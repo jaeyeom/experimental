@@ -39,89 +39,110 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
 
+	pkgversion "github.com/jaeyeom/experimental/devtools/pkg/version"
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 
 func main() {
-	if len(os.Args) < 2 {
-		printUsage()
-		os.Exit(1)
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+func run(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		printUsage(stdout)
+		return 1
 	}
 
-	// Check for help flags
-	if os.Args[1] == "--help" || os.Args[1] == "-h" || os.Args[1] == "help" {
-		printUsage()
-		return
+	opts := parseArgs(args)
+	if opts.showHelp {
+		printUsage(stdout)
+		return 0
 	}
-
-	// Parse flags and files
-	skipIfNoEmacs, files := parseArgs(os.Args[1:])
-
-	if len(files) == 0 {
-		printUsage()
-		os.Exit(1)
+	if opts.showVersion {
+		fmt.Fprintln(stdout, pkgversion.Format("org-lint"))
+		return 0
+	}
+	if len(opts.files) == 0 {
+		printUsage(stdout)
+		return 1
 	}
 
 	// Check if emacs is available
-	checkEmacsAvailable(skipIfNoEmacs)
+	if code, done := checkEmacsAvailable(opts.skipIfNoEmacs, stderr); done {
+		return code
+	}
 
 	// Debug: print all arguments with %q formatting
 	if os.Getenv("DEBUG") != "" {
-		fmt.Fprintf(os.Stderr, "DEBUG: Total arguments: %d\n", len(os.Args))
-		for i, arg := range os.Args {
-			fmt.Fprintf(os.Stderr, "DEBUG: Arg[%d]: %q\n", i, arg)
+		fmt.Fprintf(stderr, "DEBUG: Total arguments: %d\n", len(args)+1)
+		for i, arg := range args {
+			fmt.Fprintf(stderr, "DEBUG: Arg[%d]: %q\n", i+1, arg)
 		}
 	}
 
-	hasIssues := lintFiles(files)
-
-	if hasIssues {
-		os.Exit(1)
+	if lintFiles(opts.files, stdout, stderr) {
+		return 1
 	}
+	return 0
 }
 
-func parseArgs(args []string) (skipIfNoEmacs bool, files []string) {
+type options struct {
+	showHelp      bool
+	showVersion   bool
+	skipIfNoEmacs bool
+	files         []string
+}
+
+func parseArgs(args []string) options {
+	var opts options
 	for _, arg := range args {
-		if arg == "--skip-if-no-emacs" {
-			skipIfNoEmacs = true
-		} else {
-			files = append(files, arg)
+		switch arg {
+		case "--help", "-h", "help":
+			opts.showHelp = true
+		case "--version", "-version":
+			opts.showVersion = true
+		case "--skip-if-no-emacs":
+			opts.skipIfNoEmacs = true
+		default:
+			opts.files = append(opts.files, arg)
 		}
 	}
-	return skipIfNoEmacs, files
+	return opts
 }
 
-func checkEmacsAvailable(skipIfNoEmacs bool) {
+func checkEmacsAvailable(skipIfNoEmacs bool, stderr io.Writer) (int, bool) {
 	if _, err := exec.LookPath("emacs"); err != nil {
 		if skipIfNoEmacs {
 			if os.Getenv("DEBUG") != "" {
-				fmt.Fprintf(os.Stderr, "DEBUG: Emacs not found, skipping (--skip-if-no-emacs)\n")
+				fmt.Fprintf(stderr, "DEBUG: Emacs not found, skipping (--skip-if-no-emacs)\n")
 			}
-			os.Exit(0)
+			return 0, true
 		}
-		fmt.Fprintf(os.Stderr, "Error: emacs command not found in PATH\n")
-		fmt.Fprintf(os.Stderr, "Hint: Use --skip-if-no-emacs to succeed when emacs is not available\n")
-		os.Exit(1)
+		fmt.Fprintf(stderr, "Error: emacs command not found in PATH\n")
+		fmt.Fprintf(stderr, "Hint: Use --skip-if-no-emacs to succeed when emacs is not available\n")
+		return 1, true
 	}
+	return 0, false
 }
 
-func lintFiles(files []string) bool {
+func lintFiles(files []string, stdout, stderr io.Writer) bool {
 	hasIssues := false
 	var validFiles []string
 
 	for _, filename := range files {
 		// Debug: print each file being processed
 		if os.Getenv("DEBUG") != "" {
-			fmt.Fprintf(os.Stderr, "DEBUG: Processing file: %q\n", filename)
+			fmt.Fprintf(stderr, "DEBUG: Processing file: %q\n", filename)
 		}
 
 		// Check if file exists
 		if _, err := os.Stat(filename); errors.Is(err, fs.ErrNotExist) {
-			fmt.Fprintf(os.Stderr, "Error: File %q does not exist\n", filename)
+			fmt.Fprintf(stderr, "Error: File %q does not exist\n", filename)
 			hasIssues = true
 			continue
 		}
@@ -130,7 +151,7 @@ func lintFiles(files []string) bool {
 	}
 
 	if len(validFiles) > 0 {
-		if err := lintOrgFiles(validFiles); err != nil {
+		if err := lintOrgFiles(validFiles, stdout, stderr); err != nil {
 			hasIssues = true
 		}
 	}
@@ -138,8 +159,8 @@ func lintFiles(files []string) bool {
 	return hasIssues
 }
 
-func printUsage() {
-	fmt.Printf(`org-lint - Lint Org-mode files using Emacs org-lint
+func printUsage(w io.Writer) {
+	fmt.Fprintf(w, `org-lint - Lint Org-mode files using Emacs org-lint
 
 USAGE:
     org-lint [OPTIONS] <file1.org> [file2.org ...]
@@ -149,6 +170,7 @@ ARGUMENTS:
 
 OPTIONS:
     -h, --help            Show this help message
+    --version             Print version information and exit
     --skip-if-no-emacs    Exit successfully if emacs is not available
                           (useful for CI/CD environments)
 
@@ -201,7 +223,7 @@ For more information, visit: https://github.com/jaeyeom/experimental/tree/main/d
 `)
 }
 
-func lintOrgFiles(files []string) error {
+func lintOrgFiles(files []string, stdout, stderr io.Writer) error {
 	emacsCode := `
 (progn
   (setq debug-on-error nil)
@@ -302,10 +324,10 @@ func lintOrgFiles(files []string) error {
 	// Print output
 	if result != nil {
 		if result.Output != "" {
-			fmt.Print(result.Output)
+			fmt.Fprint(stdout, result.Output)
 		}
 		if result.Stderr != "" {
-			fmt.Fprint(os.Stderr, result.Stderr)
+			fmt.Fprint(stderr, result.Stderr)
 		}
 	}
 

@@ -19,6 +19,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,18 +27,36 @@ import (
 	"strings"
 
 	"github.com/jaeyeom/experimental/devtools/linters/orglintparity"
+	pkgversion "github.com/jaeyeom/experimental/devtools/pkg/version"
 )
 
 func main() {
-	emacsLint := flag.String("emacs-lint", "org-lint", "Emacs-based org-lint command")
-	goLint := flag.String("go-lint", "", "Go org linter command to compare with Emacs")
-	fixtures := flag.String("fixtures", "devtools/linters/testdata/orglint", "fixture directory")
-	update := flag.Bool("update", false, "regenerate fixture goldens from Emacs")
-	flag.Parse()
-	if err := run(options{*emacsLint, *goLint, *fixtures, *update}, flag.Args()); err != nil {
-		fmt.Fprintln(os.Stderr, "org-lint-parity:", err)
-		os.Exit(1)
+	os.Exit(execute(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+func execute(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("org-lint-parity", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	emacsLint := fs.String("emacs-lint", "org-lint", "Emacs-based org-lint command")
+	goLint := fs.String("go-lint", "", "Go org linter command to compare with Emacs")
+	fixtures := fs.String("fixtures", "devtools/linters/testdata/orglint", "fixture directory")
+	update := fs.Bool("update", false, "regenerate fixture goldens from Emacs")
+	showVersion := fs.Bool("version", false, "print version information and exit")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
 	}
+	if *showVersion {
+		fmt.Fprintln(stdout, pkgversion.Format("org-lint-parity"))
+		return 0
+	}
+	if err := run(options{*emacsLint, *goLint, *fixtures, *update}, fs.Args()); err != nil {
+		fmt.Fprintln(stderr, "org-lint-parity:", err)
+		return 1
+	}
+	return 0
 }
 
 type options struct {

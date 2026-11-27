@@ -1,54 +1,74 @@
+load("@rules_go//go:def.bzl", "go_test")
+
 exports_files(["README.org"])
 
+_COMMAND_PACKAGES = [
+    "//devtools/agent-pool/cmd/agent-pool",
+    "//devtools/agent-pool/cmd/agent-poold",
+    "//devtools/agentbus/cmd/agentbus",
+    "//devtools/agentbus/cmd/agentbusd",
+    "//devtools/ascii-art/cmd/box-renderer",
+    "//devtools/authwatch/cmd/authwatch",
+    "//devtools/claude-usage/cmd/claude-usage",
+    "//devtools/contacts/cmd/contacts",
+    "//devtools/decide/cmd/decide",
+    "//devtools/devcheck/cmd/devcheck",
+    "//devtools/diskwatch/cmd/diskwatch",
+    "//devtools/docsync/cmd/docsync",
+    "//devtools/factory/cmd/factory",
+    "//devtools/fork-keeper/cmd/fork-keeper",
+    "//devtools/genfiles/cmd/genfiles",
+    "//devtools/gh-ask/cmd/gh-ask",
+    "//devtools/gh-nudge/cmd/gh-approve",
+    "//devtools/gh-nudge/cmd/gh-codeowners",
+    "//devtools/gh-nudge/cmd/gh-merge",
+    "//devtools/gh-nudge/cmd/gh-nudge",
+    "//devtools/gh-nudge/cmd/gh-pr-review",
+    "//devtools/gh-nudge/cmd/gh-slack",
+    "//devtools/gh-nudge/cmd/gh-storage",
+    "//devtools/gh-nudge/cmd/gh-throttle",
+    "//devtools/gh-outbox/cmd/gh-outbox",
+    "//devtools/healthsnap/cmd/healthsnap",
+    "//devtools/installcheck/cmd/install-check",
+    "//devtools/linters/cmd/agents-md-size",
+    "//devtools/linters/cmd/migration-immutability",
+    "//devtools/linters/cmd/org-lint",
+    "//devtools/linters/cmd/org-lint-parity",
+    "//devtools/linters/cmd/pkgvar",
+    "//devtools/linters/cmd/unnecessary-interface-assertion-linter",
+    "//devtools/memstore/cmd/memstore",
+    "//devtools/orgctl/cmd/orgctl",
+    "//devtools/orglint/cmd/org-lint-go",
+    "//devtools/prsync/cmd/prsync",
+    "//devtools/quotapace/cmd/quotapace",
+    "//devtools/rename-jira-keys/cmd/rename-jira-keys",
+    "//devtools/repo-sync/cmd/repo-sync",
+    "//devtools/reviewpush/cmd/review-and-push-loop",
+    "//devtools/secretwatch/cmd/secretwatch",
+    "//devtools/slackwatch/cmd/slackwatch",
+]
+
 # Each command package exports main.go so //devtools/setup-dev/ansible:go_default_test
-# can verify every devtools/*/cmd/* binary has a playbook or explicit skip entry
-# inside the Bazel sandbox and on RBE.
+# and :version_coverage_test can verify every devtools/*/cmd/* binary inside the
+# Bazel sandbox and on RBE.
 filegroup(
     name = "commands",
-    srcs = [
-        "//devtools/agent-pool/cmd/agent-pool:main.go",
-        "//devtools/agent-pool/cmd/agent-poold:main.go",
-        "//devtools/agentbus/cmd/agentbus:main.go",
-        "//devtools/agentbus/cmd/agentbusd:main.go",
-        "//devtools/ascii-art/cmd/box-renderer:main.go",
-        "//devtools/authwatch/cmd/authwatch:main.go",
-        "//devtools/claude-usage/cmd/claude-usage:main.go",
-        "//devtools/contacts/cmd/contacts:main.go",
-        "//devtools/decide/cmd/decide:main.go",
-        "//devtools/devcheck/cmd/devcheck:main.go",
-        "//devtools/diskwatch/cmd/diskwatch:main.go",
-        "//devtools/docsync/cmd/docsync:main.go",
-        "//devtools/factory/cmd/factory:main.go",
-        "//devtools/fork-keeper/cmd/fork-keeper:main.go",
-        "//devtools/genfiles/cmd/genfiles:main.go",
-        "//devtools/gh-ask/cmd/gh-ask:main.go",
-        "//devtools/gh-nudge/cmd/gh-approve:main.go",
-        "//devtools/gh-nudge/cmd/gh-codeowners:main.go",
-        "//devtools/gh-nudge/cmd/gh-merge:main.go",
-        "//devtools/gh-nudge/cmd/gh-nudge:main.go",
-        "//devtools/gh-nudge/cmd/gh-pr-review:main.go",
-        "//devtools/gh-nudge/cmd/gh-slack:main.go",
-        "//devtools/gh-nudge/cmd/gh-storage:main.go",
-        "//devtools/gh-nudge/cmd/gh-throttle:main.go",
-        "//devtools/gh-outbox/cmd/gh-outbox:main.go",
-        "//devtools/healthsnap/cmd/healthsnap:main.go",
-        "//devtools/installcheck/cmd/install-check:main.go",
-        "//devtools/linters/cmd/agents-md-size:main.go",
-        "//devtools/linters/cmd/migration-immutability:main.go",
-        "//devtools/linters/cmd/org-lint:main.go",
-        "//devtools/linters/cmd/org-lint-parity:main.go",
-        "//devtools/linters/cmd/pkgvar:main.go",
-        "//devtools/linters/cmd/unnecessary-interface-assertion-linter:main.go",
-        "//devtools/memstore/cmd/memstore:main.go",
-        "//devtools/orgctl/cmd/orgctl:main.go",
-        "//devtools/orglint/cmd/org-lint-go:main.go",
-        "//devtools/prsync/cmd/prsync:main.go",
-        "//devtools/quotapace/cmd/quotapace:main.go",
-        "//devtools/rename-jira-keys/cmd/rename-jira-keys:main.go",
-        "//devtools/repo-sync/cmd/repo-sync:main.go",
-        "//devtools/reviewpush/cmd/review-and-push-loop:main.go",
-        "//devtools/secretwatch/cmd/secretwatch:main.go",
-        "//devtools/slackwatch/cmd/slackwatch:main.go",
-    ],
+    srcs = [pkg + ":main.go" for pkg in _COMMAND_PACKAGES],
     visibility = ["//devtools/setup-dev/ansible:__pkg__"],
+)
+
+go_test(
+    name = "version_coverage_test",
+    size = "small",
+    srcs = ["version_test.go"],
+    data = [":commands"] + _COMMAND_PACKAGES,
+    env = {
+        "DEVTOOLS_VERSION_BINS": " ".join([
+            "%s=$(rootpath %s)" % (
+                pkg.rsplit("/", 1)[-1],
+                pkg,
+            )
+            for pkg in _COMMAND_PACKAGES
+        ]),
+    },
 )

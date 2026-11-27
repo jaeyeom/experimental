@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/jaeyeom/experimental/devtools/pkg/version"
 	"github.com/jaeyeom/experimental/text/box"
 	"github.com/jaeyeom/experimental/text/canvas"
 )
@@ -32,12 +33,13 @@ func main() {
 
 func run(args []string, stdin io.Reader, stdout io.Writer) error {
 	var (
-		sections  stringSlice
-		connector string
-		border    string
-		padding   int
-		width     int
-		prefix    string
+		sections    stringSlice
+		connector   string
+		border      string
+		padding     int
+		width       int
+		prefix      string
+		showVersion bool
 	)
 
 	fs := flag.NewFlagSet("box-renderer", flag.ContinueOnError)
@@ -48,9 +50,14 @@ func run(args []string, stdin io.Reader, stdout io.Writer) error {
 	fs.IntVar(&padding, "padding", 2, "Left/right inner padding")
 	fs.IntVar(&width, "width", 0, "Box width (0 = auto)")
 	fs.StringVar(&prefix, "prefix", "", "Comment prefix for each line")
+	fs.BoolVar(&showVersion, "version", false, "Print version information and exit")
 
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parsing flags: %w", err)
+	}
+	if showVersion {
+		fmt.Fprintln(stdout, version.Format("box-renderer"))
+		return nil
 	}
 
 	// If no --section flags, read from stdin

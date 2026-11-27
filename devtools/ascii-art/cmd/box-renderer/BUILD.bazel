@@ -6,6 +6,7 @@ go_library(
     importpath = "github.com/jaeyeom/experimental/devtools/ascii-art/cmd/box-renderer",
     visibility = ["//visibility:private"],
     deps = [
+        "//devtools/pkg/version:go_default_library",
         "//text/box:go_default_library",
         "//text/canvas:go_default_library",
     ],

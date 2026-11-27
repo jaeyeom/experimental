@@ -47,7 +47,7 @@ func run(args []string, stdout, stderr io.Writer, getenv func(string) string) in
 		return exitCode
 	}
 	if opts.showVersion {
-		fmt.Fprintf(stdout, "migration-immutability %s\n", pkgversion.Resolve())
+		fmt.Fprintln(stdout, pkgversion.Format("migration-immutability"))
 		return 0
 	}
 	if err := runCheck(opts, stdout, stderr, getenv); err != nil {

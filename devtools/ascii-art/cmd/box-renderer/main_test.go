@@ -198,6 +198,19 @@ func TestReadSectionsFromReaderEmpty(t *testing.T) {
 	}
 }
 
+func TestRunVersion(t *testing.T) {
+	for _, flag := range []string{"--version", "-version"} {
+		var buf bytes.Buffer
+		if err := run([]string{flag}, strings.NewReader(""), &buf); err != nil {
+			t.Fatalf("%s: unexpected error: %v", flag, err)
+		}
+		out := strings.TrimSpace(buf.String())
+		if !strings.HasPrefix(out, "box-renderer ") || !strings.Contains(out, "(") {
+			t.Errorf("%s: stdout = %q, want 'box-renderer <version> (<rev>)'", flag, out)
+		}
+	}
+}
+
 func runeLen(s string) int {
 	return len([]rune(s))
 }

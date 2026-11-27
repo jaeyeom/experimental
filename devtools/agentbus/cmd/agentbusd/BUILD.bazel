@@ -23,6 +23,7 @@ go_library(
         "//devtools/agentbus/internal/paths:go_default_library",
         "//devtools/decide:go_default_library",
         "//devtools/pkg/procinfo:go_default_library",
+        "//devtools/pkg/version:go_default_library",
         "@org_golang_x_sys//unix:go_default_library",
     ],
 )

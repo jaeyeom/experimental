@@ -75,6 +75,7 @@ org-lint README.org
 org-lint file1.org file2.org
 DEBUG=1 org-lint README.org
 org-lint --skip-if-no-emacs *.org
+org-lint --version
 #+END_SRC
 
 *** Output

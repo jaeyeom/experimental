@@ -67,3 +67,17 @@ func TestRunHelp(t *testing.T) {
 		t.Errorf("help output = %q, want USAGE", stderr.String())
 	}
 }
+
+func TestRunVersion(t *testing.T) {
+	for _, arg := range []string{"--version", "-version"} {
+		var stdout, stderr bytes.Buffer
+		code := run([]string{arg}, &stdout, &stderr)
+		if code != 0 || stderr.Len() != 0 {
+			t.Fatalf("%s: exit = %d, stderr = %q", arg, code, stderr.String())
+		}
+		out := strings.TrimSpace(stdout.String())
+		if !strings.HasPrefix(out, "unnecessary-interface-assertion-linter ") || !strings.Contains(out, "(") {
+			t.Errorf("%s: stdout = %q", arg, out)
+		}
+	}
+}

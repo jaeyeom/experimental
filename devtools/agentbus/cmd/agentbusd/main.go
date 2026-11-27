@@ -25,6 +25,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/memreport"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 	"github.com/jaeyeom/experimental/devtools/pkg/procinfo"
+	"github.com/jaeyeom/experimental/devtools/pkg/version"
 	"golang.org/x/sys/unix"
 )
 
@@ -36,6 +37,7 @@ agentbusd is the local agentbus daemon. agentbus starts it on demand, and
 Flags:
   --ssh-agent-socket <path>  SSH agent socket for remote ssh/herdr calls
                              (overrides ssh_agent_socket)
+  --version                  Print version and exit.
   -h, --help                 Print this help.
 
 Environment:
@@ -143,7 +145,9 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	fs.Usage = func() {}
 	var sshAgentFlag string
+	var showVersion bool
 	fs.StringVar(&sshAgentFlag, "ssh-agent-socket", "", "SSH agent socket for remote ssh calls")
+	fs.BoolVar(&showVersion, "version", false, "Print version and exit")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			fmt.Fprint(stdout, usage)
@@ -155,6 +159,10 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 	if fs.NArg() > 0 {
 		fmt.Fprintf(stderr, "agentbusd: unexpected argument %q\nrun 'agentbusd --help' for usage\n", fs.Arg(0))
 		return 2
+	}
+	if showVersion {
+		fmt.Fprintln(stdout, version.Format("agentbusd"))
+		return 0
 	}
 	dirs, err := paths.FromEnv(env)
 	if err != nil {

@@ -1,6 +1,9 @@
 package version
 
-import "testing"
+import (
+	"runtime/debug"
+	"testing"
+)
 
 func TestResolvePrecedence(t *testing.T) {
 	t.Parallel()
@@ -76,5 +79,98 @@ func TestResolveDoesNotReturnEmpty(t *testing.T) {
 	}
 	if got := ResolveWithOverride(""); got == "" {
 		t.Fatal("ResolveWithOverride(\"\") returned empty string")
+	}
+	if got := Format("mytool"); got == "" {
+		t.Fatal("Format(\"mytool\") returned empty string")
+	}
+}
+
+func TestReadInfoAndFormat(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		override   string
+		pkgVersion string
+		buildInfo  *debug.BuildInfo
+		buildOK    bool
+		tool       string
+		want       string
+		wantModule string
+		wantTime   string
+	}{
+		{
+			name:       "module pseudo-version and clean vcs revision",
+			pkgVersion: "dev",
+			buildOK:    true,
+			buildInfo: &debug.BuildInfo{
+				Main: debug.Module{
+					Path:    "github.com/jaeyeom/experimental",
+					Version: "v0.0.0-20261127050000-abcdef123456",
+				},
+				Settings: []debug.BuildSetting{
+					{Key: "vcs.revision", Value: "abcdef1234567890"},
+					{Key: "vcs.time", Value: "2026-11-27T05:00:00Z"},
+					{Key: "vcs.modified", Value: "false"},
+				},
+			},
+			tool:       "org-lint",
+			want:       "org-lint v0.0.0-20261127050000-abcdef123456 (abcdef1234567890)",
+			wantModule: "github.com/jaeyeom/experimental",
+			wantTime:   "2026-11-27T05:00:00Z",
+		},
+		{
+			name:       "dirty vcs revision appends -dirty",
+			pkgVersion: "v0.1.0",
+			buildOK:    true,
+			buildInfo: &debug.BuildInfo{
+				Main: debug.Module{Path: "example.com/mod", Version: "(devel)"},
+				Settings: []debug.BuildSetting{
+					{Key: "vcs.revision", Value: "deadbeef"},
+					{Key: "vcs.modified", Value: "true"},
+				},
+			},
+			tool:       "agentbusd",
+			want:       "agentbusd v0.1.0 (deadbeef-dirty)",
+			wantModule: "example.com/mod",
+		},
+		{
+			name:       "missing vcs revision uses unknown",
+			pkgVersion: "dev",
+			buildOK:    false,
+			tool:       "box-renderer",
+			want:       "box-renderer (devel) (unknown)",
+		},
+		{
+			name:       "empty tool omits tool prefix",
+			override:   "v1.0.0",
+			pkgVersion: "dev",
+			buildOK:    true,
+			buildInfo: &debug.BuildInfo{
+				Settings: []debug.BuildSetting{
+					{Key: "vcs.revision", Value: "1234567"},
+				},
+			},
+			tool: "",
+			want: "v1.0.0 (1234567)",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			info := readInfo(tc.override, tc.pkgVersion, func() (*debug.BuildInfo, bool) {
+				return tc.buildInfo, tc.buildOK
+			})
+			if got := info.Format(tc.tool); got != tc.want {
+				t.Fatalf("Format(%q) = %q, want %q", tc.tool, got, tc.want)
+			}
+			if info.ModulePath != tc.wantModule {
+				t.Fatalf("ModulePath = %q, want %q", info.ModulePath, tc.wantModule)
+			}
+			if info.BuildTime != tc.wantTime {
+				t.Fatalf("BuildTime = %q, want %q", info.BuildTime, tc.wantTime)
+			}
+		})
 	}
 }

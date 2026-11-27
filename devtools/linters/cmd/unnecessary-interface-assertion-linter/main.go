@@ -11,6 +11,7 @@ import (
 	"os"
 
 	"github.com/jaeyeom/experimental/devtools/linters/unnecessaryinterfaceassertion"
+	pkgversion "github.com/jaeyeom/experimental/devtools/pkg/version"
 )
 
 func main() {
@@ -22,6 +23,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	jsonOut := fs.Bool("json", false, "emit issues as JSON")
 	dir := fs.String("dir", "", "directory to load packages from")
+	showVersion := fs.Bool("version", false, "print version information and exit")
 	fs.Usage = func() {
 		fmt.Fprintf(stderr, `unnecessary-interface-assertion-linter - flag unused var _ Iface = (*T)(nil) assertions
 
@@ -30,6 +32,7 @@ USAGE:
 
 OPTIONS:
     -h, --help    Show this help message
+    --version     Print version information and exit
     --json        Emit issues as JSON
     --dir DIR     Directory to load packages from
 
@@ -41,6 +44,10 @@ If no packages are given, ./... is used.
 			return 0
 		}
 		return 2
+	}
+	if *showVersion {
+		fmt.Fprintln(stdout, pkgversion.Format("unnecessary-interface-assertion-linter"))
+		return 0
 	}
 
 	paths := fs.Args()

@@ -44,6 +44,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, exec exec
 		}
 		return 2
 	}
+	if opts.showVersion {
+		code, _ := newDevcheckTool().Handle(ctx, []string{"version"}, stdout, stderr)
+		return code
+	}
 
 	dir, err := resolveDir(opts.path)
 	if err != nil {
@@ -73,8 +77,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, exec exec
 }
 
 type cliOptions struct {
-	options runner.Options
-	path    string
+	options     runner.Options
+	path        string
+	showVersion bool
 }
 
 func parseArgs(args []string, stderr io.Writer) (cliOptions, error) {
@@ -98,6 +103,7 @@ func parseArgs(args []string, stderr io.Writer) (cliOptions, error) {
 	fs.Var(&filters, "filter", "Run only specific tool types (format, lint, test); repeatable or comma-separated")
 	fs.BoolVar(&opts.options.ChangedOnly, "changed-only", false, "Run only on changed files (requires git)")
 	fs.BoolVar(&opts.options.ForceFallback, "force-fallback", false, "Skip Bazel/Make and use language-specific tools")
+	fs.BoolVar(&opts.showVersion, "version", false, "Print version information and exit")
 
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {

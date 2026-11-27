@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime/debug"
 	"strings"
 	"time"
 
@@ -157,25 +156,14 @@ func (t *Tool) buildInfo() BuildInfo {
 }
 
 func readRuntimeBuildInfo() BuildInfo {
-	bi, ok := debug.ReadBuildInfo()
-	if !ok {
-		return BuildInfo{Version: version.Resolve()}
+	info := version.ReadInfo()
+	return BuildInfo{
+		ModulePath:  info.ModulePath,
+		Version:     info.Version,
+		VCSRevision: info.VCSRevision,
+		VCSModified: info.VCSModified,
+		BuildTime:   info.BuildTime,
 	}
-	info := BuildInfo{
-		ModulePath: bi.Main.Path,
-		Version:    version.Resolve(),
-	}
-	for _, s := range bi.Settings {
-		switch s.Key {
-		case "vcs.revision":
-			info.VCSRevision = s.Value
-		case "vcs.time":
-			info.BuildTime = s.Value
-		case "vcs.modified":
-			info.VCSModified = s.Value == "true"
-		}
-	}
-	return info
 }
 
 func (t *Tool) installer() Installer {

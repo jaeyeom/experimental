@@ -301,14 +301,29 @@ func runVersion(args []string, stdout, stderr io.Writer) error {
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parse version flags: %w", err)
 	}
-	v := version.Resolve()
+	info := version.ReadInfo()
 	if *asJSON {
-		if err := json.NewEncoder(stdout).Encode(map[string]string{"version": v}); err != nil {
+		payload := struct {
+			Tool        string `json:"tool"`
+			ModulePath  string `json:"modulePath,omitempty"`
+			Version     string `json:"version"`
+			VCSRevision string `json:"vcsRevision,omitempty"`
+			VCSModified bool   `json:"vcsModified,omitempty"`
+			BuildTime   string `json:"buildTime,omitempty"`
+		}{
+			Tool:        "agent-poold",
+			ModulePath:  info.ModulePath,
+			Version:     info.Version,
+			VCSRevision: info.VCSRevision,
+			VCSModified: info.VCSModified,
+			BuildTime:   info.BuildTime,
+		}
+		if err := json.NewEncoder(stdout).Encode(payload); err != nil {
 			return fmt.Errorf("encode version JSON: %w", err)
 		}
 		return nil
 	}
-	fmt.Fprintln(stdout, v)
+	fmt.Fprintln(stdout, info.Format("agent-poold"))
 	return nil
 }
 

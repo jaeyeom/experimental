@@ -59,12 +59,15 @@ func TestTokenCLIAndVersion(t *testing.T) {
 	if code := run([]string{"version", "--json"}, &out, &errBuf); code != 0 {
 		t.Fatalf("version --json exit = %d, stderr = %s", code, errBuf.String())
 	}
-	var ver map[string]string
+	var ver struct {
+		Tool    string `json:"tool"`
+		Version string `json:"version"`
+	}
 	if err := json.Unmarshal(out.Bytes(), &ver); err != nil {
 		t.Fatalf("unmarshal version JSON: %v", err)
 	}
-	if ver["version"] == "" {
-		t.Fatalf("expected non-empty version")
+	if ver.Tool != "agent-poold" || ver.Version == "" {
+		t.Fatalf("expected non-empty tool and version, got %+v", ver)
 	}
 
 	// token create.

@@ -1,4 +1,4 @@
-load("@rules_go//go:def.bzl", "go_binary", "go_library")
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 
 go_binary(
     name = "org-lint-go",
@@ -11,7 +11,17 @@ go_library(
     srcs = ["main.go"],
     importpath = "github.com/jaeyeom/experimental/devtools/orglint/cmd/org-lint-go",
     visibility = ["//visibility:private"],
-    deps = ["//devtools/orglint:go_default_library"],
+    deps = [
+        "//devtools/orglint:go_default_library",
+        "//devtools/pkg/version:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    size = "small",
+    srcs = ["main_test.go"],
+    embed = [":go_default_library"],
 )
 
 exports_files(

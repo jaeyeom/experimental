@@ -34,7 +34,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	switch args[0] {
 	case "--version", "-version", "version":
-		fmt.Fprintf(stdout, "genfiles %s\n", pkgversion.Resolve())
+		fmt.Fprintln(stdout, pkgversion.Format("genfiles"))
 		return 0
 	case "-h", "--help", "help":
 		fmt.Fprint(stdout, usage)
