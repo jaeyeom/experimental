@@ -284,7 +284,8 @@ func (m *Model) asksScreen(width int) []screenLine {
 func (m *Model) asksHintLine() string {
 	var parts []string
 	appendHintIf(&parts, m.goToHintLabel())
-	parts = append(parts, "j/k move", "enter open thread", "d done", "x drop", "u list", m.helpHintLabel())
+	parts = append(parts, "j/k move", "enter open thread", "d done", "x drop", "u list")
+	appendHintIf(&parts, m.helpHintLabel())
 	return strings.Join(parts, "  ")
 }
 

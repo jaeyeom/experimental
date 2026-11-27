@@ -106,6 +106,7 @@ go_test(
         "fill_test.go",
         "flag_asks_test.go",
         "follow_test.go",
+        "helpline_test.go",
         "hyperlink_test.go",
         "inbox_test.go",
         "keys_test.go",

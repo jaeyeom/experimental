@@ -287,18 +287,18 @@ func TestComposerCtrlXCtrlEStillOpensEditor(t *testing.T) {
 }
 
 func TestComposerHintsListEditingKeys(t *testing.T) {
-	const keys = "C-a/C-e line  C-k kill  C-j newline  C-o open  C-x C-e/C-g editor"
-	for kind, send := range map[composerKind]string{
-		composerReply:   "Ctrl+Enter / Alt+Enter send  Tab [Send]  Esc save draft",
-		composerOutcome: "Enter send  Esc cancel",
-		composerNote:    "Ctrl+Enter / Alt+Enter send  Tab [Send]  Esc save draft",
+	const baseKeys = "C-a/C-e line  C-k kill  C-j newline  C-o open"
+	for kind, tail := range map[composerKind]string{
+		composerReply:   "Alt+q fill  Tab [Send]",
+		composerOutcome: "C-x C-e/C-g editor  Alt+q fill  Enter send  Esc cancel",
+		composerNote:    "Alt+q fill  Tab [Send]",
 	} {
 		m, _, _ := composerModel(t, kind)
 		m.width = 160
 		m.height = 30
 		m.status = ""
 		footer := visibleLine(lineContaining(m.View(), "C-k kill"))
-		if !strings.Contains(footer, keys+"  Alt+q fill  "+send) {
+		if !strings.Contains(footer, baseKeys+"  "+tail) {
 			t.Fatalf("composer %v footer %q", kind, footer)
 		}
 	}

@@ -517,7 +517,7 @@ func (m *Model) settingsHintLine() string {
 	if m.settingsEditing {
 		return "enter save  esc cancel"
 	}
-	return "enter/space toggle  left/right cycle  e edit config.json  u/esc list  " + m.helpHintLabel()
+	return joinFooter("enter/space toggle  left/right cycle  e edit config.json  u/esc list", m.helpHintLabel())
 }
 
 func (m *Model) settingsHelpLines() []string {

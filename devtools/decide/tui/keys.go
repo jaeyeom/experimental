@@ -558,43 +558,153 @@ func (m *Model) sendKeysHelp(sep string) string {
 	return strings.Join(parts, " / ")
 }
 
+func capitalizeKey(s string) string {
+	if s == "" {
+		return ""
+	}
+	if strings.EqualFold(s, "shift+tab") {
+		return "Shift+Tab"
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+func (m *Model) composerCoveredActions(kind composerKind) map[string]bool {
+	covered := make(map[string]bool)
+	if kind != composerNote && kind != composerReply {
+		return covered
+	}
+	if m.buttonKey("compose.send") != "" {
+		covered["compose.send"] = true
+	}
+	if m.buttonKey("compose.discard") != "" {
+		covered["compose.discard"] = true
+	}
+	if m.buttonKey("compose.cancel") != "" {
+		covered["compose.cancel"] = true
+	}
+	if m.shortestButtonKey("edit.external") != "" {
+		covered["edit.external"] = true
+	}
+	if kind == composerReply && m.canSendAndArchive() && m.buttonKey("compose.sendAndArchive") != "" {
+		covered["compose.sendAndArchive"] = true
+	}
+	return covered
+}
+
 func (m *Model) composerHintLine(kind composerKind) string {
+	covered := m.composerCoveredActions(kind)
+	parts := m.composerEditHints(covered)
+	parts = append(parts, m.composerSendCancelHints(kind, covered)...)
+	return strings.Join(parts, "  ")
+}
+
+func (m *Model) composerEditHints(covered map[string]bool) []string {
 	var parts []string
-	if start, end := m.actionCtrlFirst("edit.lineStart"), m.actionCtrlFirst("edit.lineEnd"); start != "" || end != "" {
+	var start, end string
+	if !covered["edit.lineStart"] {
+		start = m.actionCtrlFirst("edit.lineStart")
+	}
+	if !covered["edit.lineEnd"] {
+		end = m.actionCtrlFirst("edit.lineEnd")
+	}
+	if start != "" || end != "" {
 		parts = append(parts, joinSlash(start, end)+" line")
 	}
-	if k := m.actionCtrlFirst("edit.killLine"); k != "" {
-		parts = append(parts, k+" kill")
-	}
-	if k := m.actionCtrlFirst("edit.newline"); k != "" {
-		parts = append(parts, k+" newline")
-	}
-	if k := m.actionCtrlFirst("edit.openLine"); k != "" {
-		parts = append(parts, k+" open")
-	}
-	if k := m.actionSlash("edit.external"); k != "" {
-		parts = append(parts, k+" editor")
-	}
-	if k := m.actionFirst("edit.fill"); k != "" {
-		parts = append(parts, k+" fill")
-	}
-	if kind == composerNote || kind == composerReply {
-		if s := m.sendHintLabel(); s != "" {
-			parts = append(parts, s+" send")
+	for _, spec := range []struct {
+		action string
+		label  string
+	}{
+		{"edit.killLine", "kill"},
+		{"edit.newline", "newline"},
+		{"edit.openLine", "open"},
+	} {
+		if !covered[spec.action] {
+			if k := m.actionCtrlFirst(spec.action); k != "" {
+				parts = append(parts, k+" "+spec.label)
+			}
 		}
-		if tab := m.actionFirst("compose.nextField"); tab != "" {
-			parts = append(parts, strings.ToUpper(tab[:1])+tab[1:]+" [Send]")
+	}
+	if !covered["edit.external"] {
+		if k := m.actionSlash("edit.external"); k != "" {
+			parts = append(parts, k+" editor")
+		}
+	}
+	if !covered["edit.fill"] {
+		if k := m.actionFirst("edit.fill"); k != "" {
+			parts = append(parts, k+" fill")
+		}
+	}
+	return parts
+}
+
+func (m *Model) composerSendCancelHints(kind composerKind, covered map[string]bool) []string {
+	var parts []string
+	if kind == composerNote || kind == composerReply {
+		if !covered["compose.send"] {
+			if s := m.sendHintLabel(); s != "" {
+				parts = append(parts, s+" send")
+			}
+		}
+		if !covered["compose.nextField"] {
+			if tab := m.actionFirst("compose.nextField"); tab != "" {
+				parts = append(parts, capitalizeKey(tab)+" [Send]")
+			}
 		}
 	} else {
 		parts = append(parts, "Enter send")
 	}
-	if esc := m.actionFirst("compose.cancel"); esc != "" {
-		verb := "save draft"
-		if kind == composerOutcome {
-			verb = "cancel"
+	if !covered["compose.cancel"] {
+		if esc := m.actionFirst("compose.cancel"); esc != "" {
+			verb := "save draft"
+			if kind == composerOutcome {
+				verb = "cancel"
+			}
+			parts = append(parts, capitalizeKey(esc)+" "+verb)
 		}
-		parts = append(parts, strings.ToUpper(esc[:1])+esc[1:]+" "+verb)
 	}
+	return parts
+}
+
+func (m *Model) pickerHintLine() string {
+	parts := []string{"type to filter"}
+	if move := m.pickerMoveHint(); move != "" {
+		parts = append(parts, move)
+	}
+	parts = append(parts, "Enter pick")
+	if star := m.actionFirst("compose.pickerStar"); star != "" {
+		parts = append(parts, star+" star")
+	}
+	if m.pickFilter != "" {
+		if esc := m.actionFirst("compose.cancel"); esc != "" {
+			parts = append(parts, capitalizeKey(esc)+" clear")
+		} else {
+			parts = append(parts, "Esc clear")
+		}
+	}
+	if tab := m.actionFirst("compose.nextField"); tab != "" {
+		parts = append(parts, capitalizeKey(tab)+" text")
+	}
+	return strings.Join(parts, "  ")
+}
+
+func (m *Model) pickerMoveHint() string {
+	prev := m.actionSlash("compose.pickerPrev")
+	next := m.actionSlash("compose.pickerNext")
+	if prev == "" && next == "" {
+		return ""
+	}
+	if prev == "up/C-p" && next == "down/C-n" {
+		return "↑/↓ C-n/C-p move"
+	}
+	return joinSlash(prev, next) + " move"
+}
+
+func (m *Model) buttonFocusHintLine() string {
+	var parts []string
+	if nav := joinSlash(capitalizeKey(m.actionFirst("compose.nextField")), capitalizeKey(m.actionFirst("compose.prevField"))); nav != "" {
+		parts = append(parts, nav+" move")
+	}
+	parts = append(parts, "Enter select")
 	return strings.Join(parts, "  ")
 }
 
@@ -636,6 +746,9 @@ func (m *Model) composerHelpLines() []string {
 	var sendLine []string
 	if s := m.sendKeysHelp(", "); s != "" {
 		sendLine = append(sendLine, s+" sends the draft")
+	}
+	if sa := m.actionFirst("compose.sendAndArchive"); sa != "" {
+		sendLine = append(sendLine, sa+" sends and archives")
 	}
 	if d := m.actionFirst("compose.discard"); d != "" {
 		sendLine = append(sendLine, d+" discards")
@@ -773,7 +886,7 @@ func (m *Model) goToHintLabel() string {
 func (m *Model) helpHintLabel() string {
 	h := m.actionSlash("help")
 	if h == "" {
-		return "? help"
+		return ""
 	}
 	return h + " help"
 }
@@ -784,20 +897,43 @@ func appendHintIf(parts *[]string, val string) {
 	}
 }
 
-func (m *Model) browseHintLine(label string) string {
+func joinSpace(parts ...string) string {
+	var nonEmpty []string
+	for _, p := range parts {
+		if p != "" {
+			nonEmpty = append(nonEmpty, p)
+		}
+	}
+	return strings.Join(nonEmpty, " ")
+}
+
+func (m *Model) threadButtonActions() map[string]bool {
+	covered := make(map[string]bool)
+	if m.plain {
+		return covered
+	}
+	for _, item := range detailToolbarItems() {
+		if m.buttonKey(item.action) != "" {
+			covered[item.action] = true
+		}
+	}
+	return covered
+}
+
+func (m *Model) browseHintLine() string {
 	switch m.mode {
 	case modeStatus:
-		return label + m.statusHintLine()
+		return m.statusHintLine()
 	case modeContacts:
-		return label + m.contactsHintLine()
+		return m.contactsHintLine()
 	case modeSettings:
-		return label + m.settingsHintLine()
+		return m.settingsHintLine()
 	case modeAsks:
-		return label + m.asksHintLine()
+		return m.asksHintLine()
 	case modeDetail, modeOutcome:
-		return label + m.detailHintLine()
+		return m.detailHintLine()
 	default:
-		return label + m.listHintLine()
+		return m.listHintLine()
 	}
 }
 
@@ -808,7 +944,8 @@ func (m *Model) statusHintLine() string {
 		parts = append(parts, u+" list")
 	}
 	appendHintIf(&parts, m.actionSlash("status.compose"))
-	parts = append(parts, "tab/text/[Send]", m.helpHintLabel())
+	parts = append(parts, "tab/text/[Send]")
+	appendHintIf(&parts, m.helpHintLabel())
 	return strings.Join(parts, "  ")
 }
 
@@ -828,21 +965,38 @@ func (m *Model) contactsHintLine() string {
 	} else if a := m.actionSlash("contacts.avatar"); a != "" {
 		parts = append(parts, a+" avatar")
 	}
-	parts = append(parts, m.helpHintLabel())
+	appendHintIf(&parts, m.helpHintLabel())
 	return strings.Join(parts, "  ")
 }
 
 func (m *Model) detailHintLine() string {
+	covered := m.threadButtonActions()
 	var parts []string
-	if q := m.actionSlash("quit"); q != "" {
-		parts = append(parts, q+" quit")
+	if !covered["quit"] {
+		if q := m.actionSlash("quit"); q != "" {
+			parts = append(parts, q+" quit")
+		}
 	}
-	jk := joinSlash(m.actionFirst("detail.scrollDown"), m.actionFirst("detail.scrollUp"))
-	pg := joinSlash(m.actionFirst("detail.pageUp"), m.actionFirst("detail.pageDown"))
-	he := joinSlash(m.actionFirst("detail.top"), m.actionLast("detail.bottom"))
-	appendHintIf(&parts, strings.TrimSpace(strings.Join([]string{jk, pg, he}, " ")))
-	appendHintIf(&parts, joinSlash(m.actionFirst("detail.nextMessage"), m.actionFirst("detail.prevMessage")))
-	parts = append(parts, m.helpHintLabel())
+	uncoveredFirst := func(action string) string {
+		if covered[action] {
+			return ""
+		}
+		return m.actionFirst(action)
+	}
+	uncoveredLast := func(action string) string {
+		if covered[action] {
+			return ""
+		}
+		return m.actionLast(action)
+	}
+	jk := joinSlash(uncoveredFirst("detail.scrollDown"), uncoveredFirst("detail.scrollUp"))
+	pg := joinSlash(uncoveredFirst("detail.pageUp"), uncoveredFirst("detail.pageDown"))
+	he := joinSlash(uncoveredFirst("detail.top"), uncoveredLast("detail.bottom"))
+	appendHintIf(&parts, joinSpace(jk, pg, he))
+	appendHintIf(&parts, joinSlash(uncoveredFirst("detail.nextMessage"), uncoveredFirst("detail.prevMessage")))
+	if !covered["help"] {
+		appendHintIf(&parts, m.helpHintLabel())
+	}
 	return strings.Join(parts, "  ")
 }
 
@@ -856,7 +1010,8 @@ func (m *Model) listHintLine() string {
 		parts = append(parts, u+" list")
 	}
 	appendHintIf(&parts, m.actionSlash("list.compose"))
-	parts = append(parts, "tab/text/[Send]", m.helpHintLabel())
+	parts = append(parts, "tab/text/[Send]")
+	appendHintIf(&parts, m.helpHintLabel())
 	return strings.Join(parts, "  ")
 }
 
@@ -901,21 +1056,30 @@ func (m *Model) optionalHintExtras() []string {
 }
 
 func (m *Model) detailOptionalHints(find string) []string {
+	covered := m.threadButtonActions()
 	var extras []string
-	if find != "" {
+	if !covered["search"] && find != "" {
 		extras = append(extras, find)
 	}
-	if b := m.actionFirst("detail.snooze"); b != "" {
-		extras = append(extras, b+" snooze")
+	if !covered["detail.snooze"] {
+		if b := m.actionFirst("detail.snooze"); b != "" {
+			extras = append(extras, b+" snooze")
+		}
 	}
-	if g := m.goToHintLabel(); g != "" {
-		extras = append(extras, g)
+	if !covered["goto"] {
+		if g := m.goToHintLabel(); g != "" {
+			extras = append(extras, g)
+		}
 	}
-	if o := m.actionFirst("detail.owner"); o != "" {
-		extras = append(extras, o+" owner")
+	if !covered["detail.owner"] {
+		if o := m.actionFirst("detail.owner"); o != "" {
+			extras = append(extras, o+" owner")
+		}
 	}
-	if fl := m.actionFirst("detail.flag"); fl != "" {
-		extras = append(extras, fl+" flag")
+	if !covered["detail.flag"] {
+		if fl := m.actionFirst("detail.flag"); fl != "" {
+			extras = append(extras, fl+" flag")
+		}
 	}
 	return extras
 }

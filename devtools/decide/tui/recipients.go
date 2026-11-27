@@ -27,9 +27,6 @@ const (
 	whenLimit = 40
 )
 
-// pickerHint is the footer while the recipient list is focused.
-const pickerHint = "type to filter  ↑/↓ C-n/C-p move  Enter pick  * star  Esc clear/save draft  Tab text"
-
 // BusRunner runs `agentbus` with args and returns its stdout.
 type BusRunner = decide.AgentbusRunner
 

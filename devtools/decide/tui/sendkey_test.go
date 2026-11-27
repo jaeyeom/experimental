@@ -147,8 +147,11 @@ func TestComposerHintsListSendKeys(t *testing.T) {
 	m.height = 30
 	m.status = ""
 	footer := visibleLine(lineContaining(m.View(), "C-k kill"))
-	if !strings.Contains(footer, "Ctrl+Enter / Alt+Enter send") {
-		t.Fatalf("note footer %q", footer)
+	if strings.Contains(footer, "Ctrl+Enter / Alt+Enter send") {
+		t.Fatalf("note footer still duplicates send button hint: %q", footer)
+	}
+	if !strings.Contains(visibleLine(m.View()), "[Send (^⏎)]") {
+		t.Fatalf("note view missing [Send (^⏎)]\n%s", visibleLine(m.View()))
 	}
 
 	m, _, _ = composerModel(t, composerReply)

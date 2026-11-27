@@ -1987,43 +1987,60 @@ func (m *Model) statusLine() screenLine {
 	}
 	status := m.footerStatus()
 	if kind, ok := m.composerKind(); ok {
-		hint := label + m.composerHintLine(kind)
-		if status == "" {
-			return screenLine{text: hint}
-		}
-		return screenLine{text: status + "  " + hint}
+		return screenLine{text: m.formatStatusLine(status, label, m.composerHintLine(kind))}
 	}
 	if m.composing && m.composeFocus == focusRecipient {
-		hint := label + pickerHint
-		if status == "" {
-			return screenLine{text: hint}
+		return screenLine{text: m.formatStatusLine(status, label, m.pickerHintLine())}
+	}
+	if m.replySend || (m.composing && m.composeFocus >= focusSend) {
+		return screenLine{text: m.formatStatusLine(status, label, m.buttonFocusHintLine())}
+	}
+	hint := m.withOptionalHints(status, label, m.browseHint())
+	return screenLine{text: m.formatStatusLine(status, label, hint)}
+}
+
+func (m *Model) formatStatusLine(status, label, hint string) string {
+	if hint == "" {
+		return joinFooter(status, strings.TrimRight(label, " "))
+	}
+	return joinFooter(status, label+hint)
+}
+
+func joinFooter(parts ...string) string {
+	var nonEmpty []string
+	for _, p := range parts {
+		if p != "" {
+			nonEmpty = append(nonEmpty, p)
 		}
-		return screenLine{text: status + "  " + hint}
 	}
-	hint := m.browseHint(label)
-	text := hint
-	if status != "" {
-		text = status + "  " + hint
-	}
-	return screenLine{text: m.withOptionalHints(text)}
+	return strings.Join(nonEmpty, "  ")
 }
 
 // browseHint is the footer shortcut list for the current view.
-func (m *Model) browseHint(label string) string {
-	return m.browseHintLine(label)
+func (m *Model) browseHint() string {
+	return m.browseHintLine()
 }
 
 // withOptionalHints adds optional hints before the help hint while each fits,
 // so a narrow footer keeps the help hint.
-func (m *Model) withOptionalHints(text string) string {
+func (m *Model) withOptionalHints(status, label, hint string) string {
 	helpHint := m.helpHintLabel()
+	if (m.mode == modeDetail || m.mode == modeOutcome) && m.threadButtonActions()["help"] {
+		helpHint = ""
+	}
 	for _, extra := range m.optionalHintExtras() {
-		wide := strings.TrimSuffix(text, helpHint) + extra + "  " + helpHint
+		var candidate string
+		if helpHint != "" && strings.HasSuffix(hint, helpHint) {
+			candidate = strings.TrimSuffix(hint, helpHint) + extra + "  " + helpHint
+		} else {
+			candidate = joinFooter(hint, extra)
+		}
+		wide := m.formatStatusLine(status, label, candidate)
 		if w := m.contentWidth(); w <= 0 || lipgloss.Width(wide) <= w {
-			text = wide
+			hint = candidate
 		}
 	}
-	return text
+	return hint
 }
 
 func (m *Model) listFocused() bool {
