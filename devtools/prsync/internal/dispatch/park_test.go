@@ -79,3 +79,85 @@ func TestResumePromptCarriesTheAnswer(t *testing.T) {
 		t.Errorf("a resumed job is told to park again:\n%s", got)
 	}
 }
+
+func TestResumePromptCatchupAndRerequestMatrix(t *testing.T) {
+	t.Parallel()
+
+	pr := fixtureEligiblePR()
+	job := &Job{
+		ID:     "j-8",
+		Runner: "tiger-runner",
+		Items:  []string{"PRRC_widget"},
+		Saved:  "park/j-7",
+		Answer: "Keep the old API; add a deprecation note.",
+	}
+
+	// Byte-for-byte default resume prompt (dispatch_catchup=rebase, dispatch_rerequest=on).
+	wantDefaultResume := renderPrompt(config.Defaults(), Request{}, pr) + "\n\n" + strings.Join([]string{
+		"Resume: agentbus job j-8 was parked on a design question and is ready",
+		"again. Its work is on branch park/j-7. The parked threads:",
+		"   - PRRC_widget: https://github.com/acme/widgets/pull/123#discussion_r1",
+		"The answer:",
+		"Keep the old API; add a deprecation note.",
+		"",
+		"Get onto park/j-7 and apply the answer to those threads. Then",
+		"reply on each parked thread with the outcome, and",
+		"resolve it unless the reply asks the reviewer a follow-up question.",
+		"Then push, and re-request review as above.",
+	}, "\n")
+	if got := renderPrompt(parkConfig(), Request{Job: job}, pr); got != wantDefaultResume {
+		t.Fatalf("default resume prompt mismatch:\ngot:\n%s\nwant:\n%s", got, wantDefaultResume)
+	}
+
+	for _, catchup := range []string{"rebase", "merge"} {
+		for _, rerequest := range []string{"on", "off"} {
+			t.Run("catchup="+catchup+"/rerequest="+rerequest, func(t *testing.T) {
+				t.Parallel()
+				cfg := parkConfig()
+				cfg.DispatchCatchup = catchup
+				cfg.DispatchRerequest = rerequest
+
+				got := renderPrompt(cfg, Request{Job: job}, pr)
+				if catchup == "merge" {
+					if !strings.Contains(got, "merge origin/main into fix-widget") {
+						t.Errorf("resume prompt preamble missing merge instruction:\n%s", got)
+					}
+					if !strings.Contains(got, "push normally") || !strings.Contains(strings.ToLower(got), "force-push") {
+						t.Errorf("resume prompt missing push-normally / no-force-push:\n%s", got)
+					}
+					if strings.Contains(got, "bring fix-widget up to date with origin/main as needed") {
+						t.Errorf("resume prompt kept generic catch-up preamble:\n%s", got)
+					}
+				} else if rerequest == "on" && got != wantDefaultResume {
+					t.Errorf("rebase+on resume prompt differs from default:\n%s", got)
+				}
+
+				if rerequest == "off" {
+					if strings.Contains(got, "add-reviewer") || strings.Contains(got, "re-request") || strings.Contains(got, "latestReviews") {
+						t.Errorf("resume prompt still asks to re-request reviewers:\n%s", got)
+					}
+					if !strings.Contains(got, "another tool handles reviewer requests") {
+						t.Errorf("resume prompt missing other-tool reviewer note:\n%s", got)
+					}
+				} else if !strings.Contains(got, "re-request review as above.") {
+					t.Errorf("rerequest=on resume prompt missing re-request review:\n%s", got)
+				}
+			})
+		}
+	}
+
+	// Park prompt (Answer == "") also respects dispatch_catchup=merge and dispatch_rerequest=off.
+	parkCfg := parkConfig()
+	parkCfg.DispatchCatchup = "merge"
+	parkCfg.DispatchRerequest = "off"
+	parkGot := renderPrompt(parkCfg, Request{Job: &Job{ID: "j-7", Runner: "tiger-runner"}}, pr)
+	if !strings.Contains(parkGot, "merge origin/main into fix-widget") || !strings.Contains(parkGot, "push normally (do not rebase or force-push)") {
+		t.Errorf("park prompt under merge missing merge/push-normally:\n%s", parkGot)
+	}
+	if strings.Contains(parkGot, "add-reviewer") || strings.Contains(parkGot, "re-request") {
+		t.Errorf("park prompt under rerequest=off still mentions reviewer requests:\n%s", parkGot)
+	}
+	if !strings.Contains(parkGot, "another tool handles reviewer requests") {
+		t.Errorf("park prompt under rerequest=off missing other-tool reviewer note:\n%s", parkGot)
+	}
+}

@@ -574,6 +574,42 @@ func TestLoadDispatchCatchupAndMergePrompt(t *testing.T) {
 	}
 }
 
+func TestLoadDispatchRerequest(t *testing.T) {
+	def := Defaults()
+	if def.DispatchRerequest != "on" {
+		t.Fatalf("default dispatch_rerequest = %q, want on", def.DispatchRerequest)
+	}
+	for _, val := range []string{"on", "off"} {
+		path := filepath.Join(t.TempDir(), "prsync.config")
+		mustWrite(t, path, "dispatch_rerequest= "+val+"\n")
+		got, err := Load(path)
+		if err != nil {
+			t.Fatalf("Load(%q): %v", val, err)
+		}
+		if got.DispatchRerequest != val {
+			t.Fatalf("DispatchRerequest = %q, want %q", got.DispatchRerequest, val)
+		}
+	}
+}
+
+func TestResolveBuiltinPrompt(t *testing.T) {
+	def := Defaults()
+	if got := ResolveBuiltinPrompt(def.PromptTemplate, def); got != def.PromptTemplate {
+		t.Fatalf("default comment template changed:\ngot:\n%s\nwant:\n%s", got, def.PromptTemplate)
+	}
+	if got := ResolveBuiltinPrompt(def.CIFixPromptTemplate, def); got != def.CIFixPromptTemplate {
+		t.Fatalf("default CI-fix template changed:\ngot:\n%s\nwant:\n%s", got, def.CIFixPromptTemplate)
+	}
+
+	custom := "Custom template {head} {base}"
+	cfg := def
+	cfg.DispatchCatchup = "merge"
+	cfg.DispatchRerequest = "off"
+	if got := ResolveBuiltinPrompt(custom, cfg); got != custom {
+		t.Fatalf("custom template changed = %q, want %q", got, custom)
+	}
+}
+
 func TestLoadGateIgnoreProcsSplitsOnCommas(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "prsync.config")
 	mustWrite(t, path, "gate_ignore_procs=a, b ,c\n")
@@ -849,6 +885,7 @@ func TestLoadValidationErrors(t *testing.T) {
 		{name: "bad gate lease", body: "gate_lease=maybe\n", key: "gate_lease"},
 		{name: "bad wake before prompt", body: "wake_before_prompt=always\n", key: "wake_before_prompt"},
 		{name: "bad dispatch catchup", body: "dispatch_catchup=squash\n", key: "dispatch_catchup"},
+		{name: "bad dispatch rerequest", body: "dispatch_rerequest=maybe\n", key: "dispatch_rerequest"},
 		{name: "bad park mode", body: "dispatch_park_mode=maybe\n", key: "dispatch_park_mode"},
 		{name: "park mode with nobody to ask", body: "dispatch_park_mode=on\n", key: "dispatch_park_mode"},
 		{name: "missing merge prompt file", body: "merge_prompt_template=@/no/such/merge\n", key: "merge_prompt_template"},

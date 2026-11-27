@@ -182,7 +182,8 @@ are ~KEY=VALUE~. A ~#~ starts a comment. Unknown keys are ignored.
 | ~dispatch_park_mode~       | ~off~           | ~on~: a review job parks design threads and asks ~dispatch_ask_to~. |
 | ~rebase_prompt_template~   | built-in        | Prompt used with ~dispatch --rebase~.                       |
 | ~merge_prompt_template~    | built-in        | Prompt used with ~dispatch --merge~.                        |
-| ~dispatch_catchup~         | ~rebase~        | ~merge~: merge-queue-fix conflicts merge, not rebase.       |
+| ~dispatch_catchup~         | ~rebase~        | ~merge~: built-in preambles and conflicts merge, never force-push. |
+| ~dispatch_rerequest~       | ~on~            | ~off~: built-in prompts omit reviewer re-requests.          |
 | ~ci_fix_prompt_template~   | built-in        | Prompt used with ~dispatch --ci-fix~.                       |
 | ~ci_ignore_checks~          | empty           | Check names left out of ~ci_state~.                         |
 | ~ci_only_checks~            | empty           | When set, only these checks feed ~ci_state~.                |

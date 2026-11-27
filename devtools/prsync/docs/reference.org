@@ -163,7 +163,8 @@ Environment variables are not expanded.
 | ~dispatch_park_mode~            | ~off~                                                                                                                                                                                                                                       | ~on~ adds park steps to a review job's prompt: ask ~dispatch_ask_to~ over the agent bus and park the design threads. Needs ~dispatch_ask_to~. See [[file:jobs.org::*Park mode][Park mode]]. |
 | ~rebase_prompt_template~        | built-in                                                                                                                                                                                                                              | Same substitution. Used only with ~dispatch --rebase~.                                                                                                          |
 | ~merge_prompt_template~         | built-in                                                                                                                                                                                                                                     | Same substitution. Used only with ~dispatch --merge~. The built-in text merges ~origin/{base}~ into ~{head}~ and pushes without force.                          |
-| ~dispatch_catchup~              | ~rebase~                                                                                                                                                                                                                                     | ~rebase~ or ~merge~. How the merge-queue-fix prompt asks to resolve a conflict ejection. ~--rebase~ and ~--merge~ choose explicitly.                            |
+| ~dispatch_catchup~              | ~rebase~                                                                                                                                                                                                                                     | ~rebase~ or ~merge~. How every built-in catch-up preamble (comment, CI-fix, resume, and merge-queue-fix conflict) brings a branch up to date; ~merge~ merges ~origin/{base}~ and pushes normally without force-pushing. ~--rebase~ and ~--merge~ choose explicitly. |
+| ~dispatch_rerequest~            | ~on~                                                                                                                                                                                                                                         | ~on~ or ~off~. When ~off~, built-in review and resume prompts do not ask the agent to request or re-request reviewers and instead note that another tool handles reviewer requests.                                                                          |
 | ~ci_fix_prompt_template~        | built-in                                                                                                                                                                                                                                     | Same substitution, plus ~{hint}~. Used only with ~dispatch --ci-fix~.                                                                                           |
 | ~dispatch_prompt_suffix~        | empty                                                                                                                                                                                                                                        | Text appended to every dispatch prompt; it is not part of the dedupe key. See [[file:internals.org::*dispatch_prompt_suffix][details]].                         |
 | ~ci_ignore_checks~              | empty                                                                                                                                                                                                                                        | Check-name globs dropped from ~ci_state~ when ~ci_only_checks~ is empty. See [[file:internals.org::*ci_ignore_checks][details]].                                |
@@ -202,7 +203,7 @@ Environment variables are not expanded.
 
 Default prompt text (checkout ~{head}~, mechanical vs judgment-call
 triage, reply on every thread and resolve unless that reply asks the
-reviewer a follow-up, re-request reviewers, rebase / CI-fix wording) is
+reviewer a follow-up, re-request reviewers unless ~dispatch_rerequest=off~, catch-up / rebase / CI-fix wording) is
 commented in [[file:../prsync.config.example][prsync.config.example]].
 
 ** Running gh through a rate limiter
@@ -539,7 +540,7 @@ rebase prompt, rather than send two conflicting instructions. The
 phrases, matched case-insensitively as whole words, are ~merge~, ~push
 normally~, ~no force~, ~do not force-push~, ~do not force push~, ~don't
 force-push~, and ~don't force push~. Use ~--merge~ (or
-~dispatch_catchup = "merge"~ for merge-queue-fix conflicts) instead.
+~dispatch_catchup = "merge"~ for built-in catch-up preambles and merge-queue-fix conflicts) instead.
 ~--force~ does not bypass this check. The list is ~rebaseSuffixPhrases~
 in ~internal/dispatch/prompt.go~.
 

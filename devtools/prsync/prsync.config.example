@@ -154,6 +154,19 @@
 # author, and already-pending reviewers; do not dismiss reviews.
 # dispatch_prompt_template=
 
+# How every built-in catch-up preamble (comment, CI-fix, resume, and
+# merge-queue-fix conflict) brings {head} up to date: rebase (default)
+# | merge. With merge, built-in preambles ask to merge origin/{base}
+# into {head} and push normally, never force-push. --rebase and --merge
+# still choose explicitly.
+# dispatch_catchup=rebase
+
+# Whether built-in review and park-mode resume prompts instruct the
+# agent to re-request reviewers: on (default) | off. With off, built-in
+# prompts omit reviewer-request steps and state that another tool
+# handles reviewer requests.
+# dispatch_rerequest=on
+
 # Used only by `prsync dispatch --rebase`. Same placeholders as
 # dispatch_prompt_template. Default: checkout {head}, fetch, rebase onto
 # origin/{base}, resolve conflicts, --force-with-lease, no new worktree.

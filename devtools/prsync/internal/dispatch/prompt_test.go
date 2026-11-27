@@ -766,3 +766,174 @@ func TestRenderPromptLeaseInstructionOnlyWhenParallel(t *testing.T) {
 		t.Fatalf("custom lease prompt = %q", custom)
 	}
 }
+
+func TestRenderPromptCatchupAndRerequestMatrix(t *testing.T) {
+	t.Parallel()
+
+	pr := fixtureEligiblePR()
+	pr.Actions = nil
+
+	// Exact byte-for-byte baseline for today's defaults (rebase + on).
+	wantDefaultComment := strings.Join([]string{
+		"Get onto this PR's branch before editing:",
+		"1. If the working tree has uncommitted changes, stash or commit them first.",
+		"2. Check out fix-widget (if absent locally, run `gh pr checkout 123`).",
+		"3. Fetch origin and bring fix-widget up to date with origin/main as needed.",
+		"Do not start editing until you are on fix-widget at its latest tip.",
+		"",
+		"Address the unresolved review comments on PR #123 (https://github.com/acme/widgets/pull/123). State: open.",
+		"",
+		"Unaddressed threads:",
+		"- src/widget.go:42 — reviewer-login: This should handle the nil case. (https://github.com/acme/widgets/pull/123#discussion_r1)",
+		"",
+		"Triage each thread before editing or pushing:",
+		"- Mechanical / unambiguous (typo, nil check, rename, obvious bug): make the",
+		"  change without asking the user, and continue.",
+		"- Design decision, tradeoff, or disagreement: ask how to proceed through your configured channel, with a recommended option, and do not wait silently in your own screen; keep working on the other threads. Do not edit, reply to the",
+		"  reviewer, resolve, or push for that thread until an answer arrives.",
+		"",
+		"Push after the mechanical threads are done and any design questions have an",
+		"answer.",
+		"",
+		"Reply on every listed thread once its outcome is known: right away for a",
+		"mechanical thread, and after the answer arrives for any other. Post the reply",
+		"on that review thread, not as a new top-level PR comment. Then mark the",
+		"thread resolved, unless the reply asks the reviewer a follow-up question.",
+		"Leave a follow-up open so the reviewer can answer. A reply that closes the",
+		"point (change made, already done, or declined) must be resolved.",
+		"",
+		"After those threads are handled and pushed, re-request review only from the",
+		"human authors of the threads listed above, once all of their listed comments",
+		"are addressed:",
+		"  gh pr edit 123 --add-reviewer <login>",
+		"NEVER re-request anyone who has already approved: check",
+		"`gh pr view 123 --json latestReviews` first and skip every login whose",
+		"state is APPROVED, even if you addressed their threads. Also skip bots, the",
+		"PR author, anyone already pending, and anyone who still has",
+		"unanswered threads. If nobody is left, request nobody. Do not dismiss reviews.",
+		"",
+		"Do not touch other PRs.",
+	}, "\n")
+	if got := renderPrompt(config.Defaults(), Request{}, pr); got != wantDefaultComment {
+		t.Fatalf("default comment prompt mismatch:\ngot:\n%s\nwant:\n%s", got, wantDefaultComment)
+	}
+
+	wantDefaultCIFix := strings.Join([]string{
+		"Get onto this PR's branch before editing:",
+		"1. If the working tree has uncommitted changes, stash or commit them first.",
+		"2. Check out fix-widget (if absent locally, run `gh pr checkout 123`).",
+		"3. Fetch origin and bring fix-widget up to date with origin/main as needed.",
+		"Do not start editing until you are on fix-widget at its latest tip.",
+		"",
+		"Fix the failing CI on PR #123 (https://github.com/acme/widgets/pull/123). State: open. Stay scoped to this PR.",
+		"Do not touch unrelated failures or other PRs.",
+		"",
+		"Caller hint (non-authoritative starting point; verify against live CI",
+		"state, do not trust — CI may have re-run, e.g. after a rebase, and the",
+		"failure may have changed):",
+		"check X failed",
+		"",
+		"Use the repo's available CI-log / flaky-test investigation tools if any.",
+		"Do not assume a particular CI provider or build system.",
+		"",
+		"1. Reproduce before touching anything. Run the failing check locally on",
+		"   this branch and confirm it actually fails before proposing a change.",
+		"2. Triage before fixing. Not every red check is a code bug:",
+		"   - a flaky or infrastructure failure → do not \"fix\" it; report back that",
+		"     it is not a code problem and stop.",
+		"   - a genuine failure with an unambiguous fix → fix it, verify locally,",
+		"     push.",
+		"   - a failure whose fix is a judgment call (a design tradeoff, or one",
+		"     that needs new tests written to a scope that isn't obvious) → pause",
+		"     and ask the user, with a recommended option, before editing or",
+		"     pushing.",
+		"3. Verify locally before pushing. Re-run the same check and confirm it",
+		"   now passes; never push an unverified fix.",
+	}, "\n")
+	if got := renderPrompt(config.Defaults(), Request{CIFix: true, Hint: "check X failed"}, pr); got != wantDefaultCIFix {
+		t.Fatalf("default CI-fix prompt mismatch:\ngot:\n%s\nwant:\n%s", got, wantDefaultCIFix)
+	}
+
+	mqPR := pr
+	mqPR.Actions = []scan.Action{{Name: scan.ActionMergeQueueFix, CommentURL: "https://example.com/rca"}}
+	wantDefaultMQ := strings.Join([]string{
+		"The merge queue ejected PR #123 (https://github.com/acme/widgets/pull/123). State: open.",
+		"Read the RCA comment and fix the cause:",
+		"https://example.com/rca",
+		"",
+		"When the ejection is a merge conflict, rebase onto origin/main, regenerate lockfiles, and push.",
+		"",
+		"Do not touch other PRs.",
+	}, "\n")
+	if got := renderPrompt(config.Defaults(), Request{}, mqPR); got != wantDefaultMQ {
+		t.Fatalf("default merge-queue-fix prompt mismatch:\ngot:\n%s\nwant:\n%s", got, wantDefaultMQ)
+	}
+
+	for _, catchup := range []string{"rebase", "merge"} {
+		for _, rerequest := range []string{"on", "off"} {
+			t.Run("catchup="+catchup+"/rerequest="+rerequest, func(t *testing.T) {
+				t.Parallel()
+				cfg := config.Defaults()
+				cfg.DispatchCatchup = catchup
+				cfg.DispatchRerequest = rerequest
+
+				comment := renderPrompt(cfg, Request{}, pr)
+				ciFix := renderPrompt(cfg, Request{CIFix: true, Hint: "check X failed"}, pr)
+				mqFix := renderPrompt(cfg, Request{}, mqPR)
+
+				if catchup == "merge" {
+					for name, p := range map[string]string{"comment": comment, "ci-fix": ciFix, "merge-queue-fix": mqFix} {
+						if !strings.Contains(p, "merge origin/main into fix-widget") {
+							t.Errorf("%s prompt missing merge instruction:\n%s", name, p)
+						}
+						if !strings.Contains(p, "push normally") || !strings.Contains(strings.ToLower(p), "force-push") {
+							t.Errorf("%s prompt missing push-normally / no-force-push:\n%s", name, p)
+						}
+						if strings.Contains(p, "bring fix-widget up to date with origin/main as needed") {
+							t.Errorf("%s prompt kept generic catch-up preamble:\n%s", name, p)
+						}
+					}
+				} else {
+					if comment != renderPrompt(config.Defaults(), Request{}, pr) && rerequest == "on" {
+						t.Errorf("rebase+on comment differs from default:\n%s", comment)
+					}
+					if ciFix != wantDefaultCIFix {
+						t.Errorf("rebase CI-fix differs from default:\n%s", ciFix)
+					}
+					if mqFix != wantDefaultMQ {
+						t.Errorf("rebase merge-queue-fix differs from default:\n%s", mqFix)
+					}
+				}
+
+				if rerequest == "off" {
+					if strings.Contains(comment, "add-reviewer") || strings.Contains(comment, "re-request") || strings.Contains(comment, "latestReviews") {
+						t.Errorf("comment prompt still asks to re-request reviewers:\n%s", comment)
+					}
+					if !strings.Contains(comment, "another tool handles reviewer requests") {
+						t.Errorf("comment prompt missing other-tool reviewer note:\n%s", comment)
+					}
+					for name, p := range map[string]string{"ci-fix": ciFix, "merge-queue-fix": mqFix} {
+						if strings.Contains(p, "add-reviewer") || strings.Contains(p, "re-request") {
+							t.Errorf("%s prompt mentions reviewer requests:\n%s", name, p)
+						}
+					}
+				} else if !strings.Contains(comment, "gh pr edit 123 --add-reviewer") {
+					t.Errorf("rerequest=on comment prompt missing add-reviewer:\n%s", comment)
+				}
+			})
+		}
+	}
+
+	// Custom templates must not be rewritten by dispatch_catchup or dispatch_rerequest.
+	cfg := config.Defaults()
+	cfg.DispatchCatchup = "merge"
+	cfg.DispatchRerequest = "off"
+	cfg.PromptTemplate = "custom comment {head} {base}"
+	cfg.CIFixPromptTemplate = "custom ci {head} {base}"
+	if got := renderPrompt(cfg, Request{}, pr); got != "custom comment fix-widget main" {
+		t.Fatalf("custom comment prompt = %q", got)
+	}
+	if got := renderPrompt(cfg, Request{CIFix: true}, pr); got != "custom ci fix-widget main" {
+		t.Fatalf("custom ci-fix prompt = %q", got)
+	}
+}

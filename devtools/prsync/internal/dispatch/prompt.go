@@ -94,7 +94,7 @@ func RenderHint(tmpl string, pr scan.PR, cfg config.Config, hint string) string 
 	sort.Slice(vars, func(i, j int) bool {
 		return len(vars[i].key) > len(vars[j].key)
 	})
-	out := tmpl
+	out := config.ResolveBuiltinPrompt(tmpl, cfg)
 	for _, v := range vars {
 		out = strings.ReplaceAll(out, v.key, v.val)
 	}

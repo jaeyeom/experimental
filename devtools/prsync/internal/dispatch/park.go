@@ -23,7 +23,7 @@ type Job struct {
 // (dispatch_park_mode=on). It replaces waiting for a design answer.
 const parkPrompt = `Park mode: this is agentbus job {job}. For design-decision threads these
 steps replace waiting for an answer:
-1. finish, push, and reply on the mechanical threads first.
+1. finish, {park_push}, and reply on the mechanical threads first.
 2. Ask {ask_to} every design question in one agent bus message, each with
    your recommended option:
      agentbus send {ask_to} "<questions, each with a recommended option>"
@@ -48,7 +48,7 @@ The answer:
 Get onto {saved} and apply the answer to those threads. Then
 reply on each parked thread with the outcome, and
 resolve it unless the reply asks the reviewer a follow-up question.
-Then push, and re-request review as above.`
+{resume_finish}`
 
 // renderJobPrompt adds the park or resume steps of a review job to
 // body, or returns body unchanged.
@@ -72,10 +72,30 @@ func renderJobPrompt(body string, cfg config.Config, req Request, pr scan.PR) st
 		"{ask_to}", cfg.DispatchAskTo,
 		"{saved}", j.Saved,
 		"{items}", parkItems(pr, j.Items),
+		"{park_push}", parkPushClause(cfg),
+		"{resume_finish}", resumeFinishClause(cfg),
 	).Replace(tmpl)
 	// The answer is the manager's or the user's own text: substituted
 	// last, so it stays verbatim.
 	return body + "\n\n" + strings.ReplaceAll(out, "{answer}", j.Answer)
+}
+
+func parkPushClause(cfg config.Config) string {
+	if cfg.DispatchCatchup == "merge" {
+		return "push normally (do not rebase or force-push)"
+	}
+	return "push"
+}
+
+func resumeFinishClause(cfg config.Config) string {
+	push := "Then push"
+	if cfg.DispatchCatchup == "merge" {
+		push = "Then push normally (do not rebase or force-push)"
+	}
+	if cfg.DispatchRerequest == "off" {
+		return push + ". Do not request reviewers; another tool handles reviewer requests."
+	}
+	return push + ", and re-request review as above."
 }
 
 // parkItems lists the review comments by id, only those in items when

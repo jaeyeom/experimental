@@ -26,6 +26,24 @@ const branchSwitchPreamble = `Get onto this PR's branch before editing:
 3. Fetch origin and bring {head} up to date with origin/{base} as needed.
 Do not start editing until you are on {head} at its latest tip.`
 
+const mergeBranchSwitchPreamble = `Get onto this PR's branch before editing:
+1. If the working tree has uncommitted changes, stash or commit them first.
+2. Check out {head} (if absent locally, run ` + "`gh pr checkout {number}`" + `).
+3. Fetch origin and, as needed, merge origin/{base} into {head}. Do not rebase; push normally and never force-push.
+Do not start editing until you are on {head} at its latest tip.`
+
+const rerequestReviewOn = `After those threads are handled and pushed, re-request review only from the
+human authors of the threads listed above, once all of their listed comments
+are addressed:
+  gh pr edit {number} --add-reviewer <login>
+NEVER re-request anyone who has already approved: check
+` + "`gh pr view {number} --json latestReviews`" + ` first and skip every login whose
+state is APPROVED, even if you addressed their threads. Also skip bots, the
+PR author, anyone already pending, and anyone who still has
+unanswered threads. If nobody is left, request nobody. Do not dismiss reviews.`
+
+const rerequestReviewOff = `Do not request reviewers; another tool handles reviewer requests.`
+
 const defaultPromptTemplate = branchSwitchPreamble + `
 
 Address the unresolved review comments on PR #{number} ({url}). State: {state}.
@@ -49,15 +67,7 @@ thread resolved, unless the reply asks the reviewer a follow-up question.
 Leave a follow-up open so the reviewer can answer. A reply that closes the
 point (change made, already done, or declined) must be resolved.
 
-After those threads are handled and pushed, re-request review only from the
-human authors of the threads listed above, once all of their listed comments
-are addressed:
-  gh pr edit {number} --add-reviewer <login>
-NEVER re-request anyone who has already approved: check
-` + "`gh pr view {number} --json latestReviews`" + ` first and skip every login whose
-state is APPROVED, even if you addressed their threads. Also skip bots, the
-PR author, anyone already pending, and anyone who still has
-unanswered threads. If nobody is left, request nobody. Do not dismiss reviews.
+` + rerequestReviewOn + `
 
 Do not touch other PRs.`
 
@@ -185,10 +195,14 @@ type Config struct {
 	// MergePromptTemplate is the --merge catch-up prompt.
 	MergePromptTemplate string
 	CIFixPromptTemplate string
-	// DispatchCatchup is rebase or merge: how a catch-up a scan action
-	// asks for (the merge-queue-fix conflict sentence) brings a branch up
-	// to date. --rebase and --merge choose explicitly.
+	// DispatchCatchup is rebase or merge: how every built-in catch-up
+	// preamble (comment, CI-fix, resume, and merge-queue-fix conflict)
+	// brings a branch up to date. --rebase and --merge choose explicitly.
 	DispatchCatchup string
+	// DispatchRerequest is on or off. on (default) includes the reviewer
+	// re-request step in built-in review and resume prompts. off omits it
+	// and states that another tool handles reviewer requests.
+	DispatchRerequest string
 	// PromptSuffix is appended after a blank line to every rendered dispatch
 	// prompt. Empty leaves prompts unchanged. It is not part of dedupe.
 	PromptSuffix string
@@ -384,6 +398,7 @@ func Defaults() Config {
 		RebasePromptTemplate:      defaultRebasePromptTemplate,
 		MergePromptTemplate:       defaultMergePromptTemplate,
 		DispatchCatchup:           "rebase",
+		DispatchRerequest:         "on",
 		CIFixPromptTemplate:       defaultCIFixPromptTemplate,
 		DispatchMaxParallel:       1,
 		DispatchLeaseInstruction:  defaultDispatchLeaseInstruction,
@@ -511,6 +526,9 @@ func validateConcurrency(c Config) error {
 	if err := validateGateAndDispatch(c); err != nil {
 		return err
 	}
+	if err := validateDispatchPromptOptions(c); err != nil {
+		return err
+	}
 	if err := validatePolicy(c.Policy); err != nil {
 		return err
 	}
@@ -541,8 +559,15 @@ func validateGateAndDispatch(c Config) error {
 	if c.WakeBeforePrompt != "auto" && c.WakeBeforePrompt != "off" {
 		return &KeyError{Key: "wake_before_prompt", Reason: fmt.Sprintf("invalid value %q", c.WakeBeforePrompt)}
 	}
+	return nil
+}
+
+func validateDispatchPromptOptions(c Config) error {
 	if c.DispatchCatchup != "rebase" && c.DispatchCatchup != "merge" {
 		return &KeyError{Key: "dispatch_catchup", Reason: fmt.Sprintf("invalid value %q", c.DispatchCatchup)}
+	}
+	if c.DispatchRerequest != "on" && c.DispatchRerequest != "off" {
+		return &KeyError{Key: "dispatch_rerequest", Reason: fmt.Sprintf("invalid value %q", c.DispatchRerequest)}
 	}
 	return nil
 }
@@ -728,7 +753,7 @@ func applyOtherKey(cfg *Config, key, val string) error {
 		return nil
 	case "review_threads_ttl", "status_checks_ttl", "pr_view_closed_ttl":
 		return applyCacheTTL(cfg, key, val)
-	case "dispatch_prompt_suffix", "dispatch_ask_instruction", "dispatch_ask_to", "dispatch_park_mode", "dispatch_lease_instruction", "dispatch_max_parallel", "dispatch_catchup":
+	case "dispatch_prompt_suffix", "dispatch_ask_instruction", "dispatch_ask_to", "dispatch_park_mode", "dispatch_lease_instruction", "dispatch_max_parallel", "dispatch_catchup", "dispatch_rerequest":
 		return applyDispatchPromptOption(cfg, key, val)
 	case "open_missing_tabs", "open_tabs_workspace", "open_tabs_cwd", "open_tabs_agent",
 		"open_tabs_max_per_round", "open_tabs_ready_timeout":
@@ -808,10 +833,35 @@ func applyDispatchPromptOption(cfg *Config, key, val string) error {
 		cfg.DispatchLeaseInstruction = val
 	case "dispatch_catchup":
 		cfg.DispatchCatchup = strings.TrimSpace(val)
+	case "dispatch_rerequest":
+		cfg.DispatchRerequest = strings.TrimSpace(val)
 	case "dispatch_max_parallel":
 		return applyPositiveInt(&cfg.DispatchMaxParallel, key, val)
 	}
 	return nil
+}
+
+// ResolveBuiltinPrompt applies dispatch_catchup and dispatch_rerequest to
+// built-in prompt templates. Custom templates are returned unchanged.
+func ResolveBuiltinPrompt(tmpl string, cfg Config) string {
+	switch tmpl {
+	case defaultPromptTemplate:
+		out := tmpl
+		if cfg.DispatchCatchup == "merge" {
+			out = strings.Replace(out, branchSwitchPreamble, mergeBranchSwitchPreamble, 1)
+		}
+		if cfg.DispatchRerequest == "off" {
+			out = strings.Replace(out, rerequestReviewOn, rerequestReviewOff, 1)
+		}
+		return out
+	case defaultCIFixPromptTemplate:
+		if cfg.DispatchCatchup == "merge" {
+			return strings.Replace(tmpl, branchSwitchPreamble, mergeBranchSwitchPreamble, 1)
+		}
+		return tmpl
+	default:
+		return tmpl
+	}
 }
 
 const defaultDispatchLeaseInstruction = `Shared checkout: all agents share one working copy, so writes are serialized by the agentbus workdir lease. Run ` + "`agentbus lease claim --for 40m --why \"PR #{number}\"`" + ` before any write (file edits, git checkout/rebase/merge/commit/push, or builds/tests that modify tracked files), and run ` + "`agentbus lease release`" + ` when done.`

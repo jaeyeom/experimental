@@ -151,7 +151,9 @@ the old API, add a deprecation note."~), the child job is ready again.
 Its prompt is the review prompt plus a resume section with the saved
 branch, the parked threads, and the answer: apply it, reply on each
 parked thread, resolve it unless the reply asks the reviewer a
-follow-up, push, and re-request review. A job resumed from a decide
+follow-up, push (normally without force-pushing when ~dispatch_catchup=merge~),
+and re-request review (or note that another tool handles reviewer
+requests when ~dispatch_rerequest=off~). A job resumed from a decide
 item gets the user's answer the same way.
 
 A manager that cannot decide files a decide item for the user and runs
