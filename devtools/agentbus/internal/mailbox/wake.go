@@ -276,11 +276,15 @@ func wakeModelDetail(used, orig string) string {
 
 // wakeDelay is the backoff after the nth failed wake in a row.
 func wakeDelay(failures int) time.Duration {
-	d := wakeBackoff
-	for i := 1; i < failures && d < wakeBackoffMax; i++ {
+	return expBackoff(wakeBackoff, wakeBackoffMax, failures)
+}
+
+func expBackoff(base, maxDelay time.Duration, failures int) time.Duration {
+	d := base
+	for i := 1; i < failures && d < maxDelay; i++ {
 		d *= 2
 	}
-	return min(d, wakeBackoffMax)
+	return min(d, maxDelay)
 }
 
 // agentName is handle's first name, else handle.

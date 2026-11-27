@@ -317,8 +317,9 @@ target's transcript showed an auth error reply or no turn started within
 omitted. ~held_reason~ is one of ~transport unreachable~, ~composer busy~
 (the target's composer is not empty, or the pane is scrolled up or
 focused), ~target not ready~ (including ~held: target login expired~,
-which holds later bus messages to that recipient until a later turn
-succeeds or ~agentbus release-held <name>~ is run; schedulers inside the
+which holds later bus messages to that recipient until the latest
+assistant turn is normal, a backoff retry succeeds, or
+~agentbus release-held <name>~ is run; schedulers inside the
 agent's own session are not paused by agentbus), ~earlier message held~,
 ~hibernated~, ~wake failed~ (the agent's wake failed; ~error~ says why, the
 message stays queued and the wake is retried after a backoff), ~pane gone~
@@ -373,7 +374,7 @@ stale_composer_after = "10m"      # one notice per tab for unchanged composer te
 hibernate_warn_within = "60s"     # hibernating this soon after a delivery logs a warning; "0s" logs none
 gone_after = "1h"                 # a raw pane handle gone this long: its message expires; "0s" at once
 verify_delivery_within = "60s"    # check readable transcript after delivery; "0s" disables
-# auth_error_patterns = ["Login expired", "Please run /login", "Not logged in", "Invalid API key"]
+# auth_error_patterns = ["Login expired · Please run /login", "Login expired", "Please run /login", "Not logged in", "Invalid API key"]
 # composer_placeholders = ["Once fixed, resend your message"]
 
 # Hub mode. Default: unset, so this machine runs its own daemon.

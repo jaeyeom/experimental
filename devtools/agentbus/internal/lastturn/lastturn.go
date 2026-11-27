@@ -70,8 +70,10 @@ func Claude(projectsDir string) func(adapter.Agent) (time.Time, bool) {
 
 // Turn is one user or assistant message in an agent transcript.
 type Turn struct {
-	Role string
-	Text string
+	Role              string
+	Text              string
+	IsAPIErrorMessage bool
+	Model             string
 }
 
 // ClaudeTranscript reads the turns of a Claude Code agent on this machine
@@ -109,10 +111,14 @@ func ClaudeTranscript(projectsDir string) func(adapter.Agent) ([]Turn, bool) {
 }
 
 type claudeRecord struct {
-	Type    string `json:"type"`
-	Message struct {
-		Role    string          `json:"role"`
-		Content json.RawMessage `json:"content"`
+	Type              string `json:"type"`
+	IsAPIErrorMessage bool   `json:"isApiErrorMessage"`
+	Model             string `json:"model"`
+	Message           struct {
+		Role              string          `json:"role"`
+		IsAPIErrorMessage bool            `json:"isApiErrorMessage"`
+		Model             string          `json:"model"`
+		Content           json.RawMessage `json:"content"`
 	} `json:"message"`
 }
 
@@ -152,7 +158,16 @@ func ReadClaudeTurns(path string) ([]Turn, error) {
 		if text == "" {
 			continue
 		}
-		turns = append(turns, Turn{Role: role, Text: text})
+		model := rec.Message.Model
+		if model == "" {
+			model = rec.Model
+		}
+		turns = append(turns, Turn{
+			Role:              role,
+			Text:              text,
+			IsAPIErrorMessage: rec.IsAPIErrorMessage || rec.Message.IsAPIErrorMessage,
+			Model:             model,
+		})
 	}
 	if err := sc.Err(); err != nil {
 		return nil, fmt.Errorf("scan transcript: %w", err)

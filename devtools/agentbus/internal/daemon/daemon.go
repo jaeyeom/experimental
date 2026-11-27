@@ -100,8 +100,8 @@ type Config struct {
 	// VerifyDeliveryWithin bounds post-delivery transcript verification.
 	// Nil uses 60s; zero disables it.
 	VerifyDeliveryWithin *time.Duration
-	// AuthErrorPatterns are case-insensitive substrings matched against
-	// an assistant reply. Nil uses mailbox defaults.
+	// AuthErrorPatterns identify an assistant auth-error reply. Nil uses
+	// mailbox defaults.
 	AuthErrorPatterns []string
 	// StaleComposerAfter is how long unchanged composer text holds a
 	// message before notifying the sender once per tab.

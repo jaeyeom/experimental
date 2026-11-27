@@ -176,6 +176,11 @@ func (m *Mailbox) releaseHoldPaste(id string) {
 
 // precheckHandle applies holds and expiry, and stops before a paste.
 func (m *Mailbox) precheckHandle(ctx context.Context, handle string) error {
+	if m.isAuthOutage(handle) {
+		if err := m.checkVerifications(ctx, handle); err != nil {
+			return err
+		}
+	}
 	for {
 		if ctx.Err() != nil {
 			return nil
@@ -809,7 +814,7 @@ func (m *Mailbox) attempt(ctx context.Context, msg message, deliver bool) outcom
 		// Its pane runs a shell now. The message waits for a wake.
 		return m.wakeOutcome(ctx, rec)
 	}
-	if m.isAuthOutage(msg.Handle) {
+	if m.holdForAuthOutage(msg.Handle, deliver) {
 		return outcome{reason: HoldLoginExpired, target: HoldLoginExpired}
 	}
 	state, ad, answered, err := m.observe(ctx, ads, msg.Handle)
@@ -1097,6 +1102,12 @@ func (m *Mailbox) markDelivered(id string, o outcome) error {
 		msg.VerifyStatus = o.verifyStatus
 		msg.VerifyStateSeq = o.verifyStateSeq
 		msg.VerifyStateChanged = false
+		if rec, ok := m.authOutage[msg.Handle]; ok {
+			rec.ProbeMsgID = msg.ID
+			m.authOutage[msg.Handle] = rec
+		}
+	} else {
+		delete(m.authOutage, msg.Handle)
 	}
 	m.msgs[id] = msg
 	m.pop(msg.Handle)

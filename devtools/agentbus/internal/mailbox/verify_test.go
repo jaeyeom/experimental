@@ -115,10 +115,10 @@ func TestVerifyDeliveryAuthErrorAndOutageHold(t *testing.T) {
 		t.Fatalf("initial state = %q, want %q", res.State, stateDelivered)
 	}
 
-	// Simulate Claude Code replying with Login expired.
+	// Simulate Claude Code replying with synthetic Login expired.
 	w.turns[holdTo] = append(w.turns[holdTo],
 		lastturn.Turn{Role: "user", Text: "[agentbus " + res.ID + " from ops/sender → ops/x]\nfirst task"},
-		lastturn.Turn{Role: "assistant", Text: "Login expired - Please run /login"},
+		lastturn.Turn{Role: "assistant", Text: "Login expired · Please run /login", IsAPIErrorMessage: true, Model: "<synthetic>"},
 	)
 	w.flush(t, holdTo)
 
@@ -135,8 +135,8 @@ func TestVerifyDeliveryAuthErrorAndOutageHold(t *testing.T) {
 		t.Fatalf("unprocessed events = %+v, err=%v", evs, err)
 	}
 
-	// Sender notified once per outage.
-	outageNotices := textsWith(w.ad.Texts, "ops/x is not processing messages (login expired)")
+	// Sender notified once per outage, using text free of auth error patterns.
+	outageNotices := textsWith(w.ad.Texts, "ops/x is paused waiting for authentication")
 	if outageNotices != 1 {
 		t.Fatalf("outage notices = %d, texts=%q", outageNotices, w.ad.Texts)
 	}
@@ -153,7 +153,7 @@ func TestVerifyDeliveryAuthErrorAndOutageHold(t *testing.T) {
 
 	// A second auth-error verification doesn't notify the sender again.
 	w.flush(t, holdTo)
-	if got := textsWith(w.ad.Texts, "ops/x is not processing messages (login expired)"); got != 1 {
+	if got := textsWith(w.ad.Texts, "ops/x is paused waiting for authentication"); got != 1 {
 		t.Fatalf("notified twice in same outage: %q", w.ad.Texts)
 	}
 
@@ -219,7 +219,7 @@ func TestReplayFiltersOrderDryRunAndAtMostOnce(t *testing.T) {
 	r1 := w.sendTo(t, "ops/x", "msg-1")
 	w.turns[holdTo] = append(w.turns[holdTo],
 		lastturn.Turn{Role: "user", Text: "[agentbus " + r1.ID + "]\nmsg-1"},
-		lastturn.Turn{Role: "assistant", Text: "Login expired - Please run /login"},
+		lastturn.Turn{Role: "assistant", Text: "Login expired · Please run /login"},
 	)
 	w.flush(t, holdTo)
 
@@ -307,4 +307,277 @@ func TestStaleComposerNoticeOncePerTabAndInStatus(t *testing.T) {
 		t.Fatalf("Status(%s) = %q, err=%v", m1.ID, status, err)
 	}
 	_ = m2
+}
+
+func TestVerifyDeliveryProseMentioningAuthErrorDoesNotStartOutage(t *testing.T) {
+	w := newVerifyWorld(t)
+	w.ad.PaneHandles = map[string]string{"sender": holdFrom}
+
+	// Normal model reply mentioning login expired and quoting the outage notice.
+	r1 := w.sendTo(t, "ops/x", "status check")
+	w.turns[holdTo] = append(w.turns[holdTo],
+		lastturn.Turn{Role: "user", Text: "[agentbus " + r1.ID + "]\nstatus check"},
+		lastturn.Turn{Role: "assistant", Model: "claude-opus-4-6", Text: "the other tab's login expired, run the login command there"},
+	)
+	w.flush(t, holdTo)
+	if rep := w.box.Report(context.Background(), r1.ID); rep.State != stateDelivered {
+		t.Fatalf("prose reply report = %+v, want delivered", rep)
+	}
+
+	// Even without model metadata, prose mentioning a pattern does not match.
+	r2 := w.sendTo(t, "ops/x", "another check")
+	w.turns[holdTo] = append(w.turns[holdTo],
+		lastturn.Turn{Role: "user", Text: "[agentbus " + r2.ID + "]\nanother check"},
+		lastturn.Turn{Role: "assistant", Text: "Please run /login in the worker tab if it says Login expired."},
+	)
+	w.flush(t, holdTo)
+	if rep := w.box.Report(context.Background(), r2.ID); rep.State != stateDelivered {
+		t.Fatalf("metadata-less prose reply report = %+v, want delivered", rep)
+	}
+
+	// Synthetic non-auth API error (e.g. 500/rate limit) does not trigger auth outage.
+	r3 := w.sendTo(t, "ops/x", "third check")
+	w.turns[holdTo] = append(w.turns[holdTo],
+		lastturn.Turn{Role: "user", Text: "[agentbus " + r3.ID + "]\nthird check"},
+		lastturn.Turn{Role: "assistant", IsAPIErrorMessage: true, Model: "<synthetic>", Text: "API Error: 500 Internal Server Error"},
+	)
+	w.flush(t, holdTo)
+	if rep := w.box.Report(context.Background(), r3.ID); rep.State != stateDelivered {
+		t.Fatalf("synthetic non-auth API error report = %+v, want delivered", rep)
+	}
+
+	// Follow-up message to idle prompt is delivered immediately without holding.
+	r4 := w.sendTo(t, "ops/x", "idle prompt follow-up")
+	if r4.State != stateDelivered {
+		t.Fatalf("follow-up state = %q, want %q", r4.State, stateDelivered)
+	}
+}
+
+func TestVerifyDeliveryExactKnownAuthErrorStartsOutageWithoutMetadata(t *testing.T) {
+	w := newVerifyWorld(t)
+	w.ad.PaneHandles = map[string]string{"sender": holdFrom}
+
+	r1 := w.sendTo(t, "ops/x", "task")
+	w.turns[holdTo] = append(w.turns[holdTo],
+		lastturn.Turn{Role: "user", Text: "[agentbus " + r1.ID + "]\ntask"},
+		lastturn.Turn{Role: "assistant", Text: "  Login expired · Please run /login\n"},
+	)
+	w.flush(t, holdTo)
+	if rep := w.box.Report(context.Background(), r1.ID); rep.State != stateDeliveredUnprocessed || rep.Reason != ReasonAuth {
+		t.Fatalf("exact known auth error report = %+v, want delivered-unprocessed/auth", rep)
+	}
+	r2 := w.sendTo(t, "ops/x", "held task")
+	if r2.State != "held: "+HoldLoginExpired {
+		t.Fatalf("follow-up state = %q, want held: %s", r2.State, HoldLoginExpired)
+	}
+}
+
+func TestOutageRecoveryWhenLatestTurnIsNormalAndDeliversInOrder(t *testing.T) {
+	w := newVerifyWorld(t)
+	w.ad.PaneHandles = map[string]string{"sender": holdFrom}
+
+	// Simulate an outage recorded on disk (e.g. from before upgrade or when
+	// TurnsAtOutage already equals len(turns)) while the latest assistant turn
+	// is actually a normal reply.
+	w.turns[holdTo] = []lastturn.Turn{
+		{Role: "user", Text: "earlier"},
+		{Role: "assistant", Model: "claude-opus-4-6", Text: "Normal reply mentioning login expired"},
+	}
+	w.box.mu.Lock()
+	w.box.authOutage[holdTo] = authOutageRecord{
+		Since:         w.clock.now().UTC(),
+		TurnsAtOutage: len(w.turns[holdTo]),
+		RetryAt:       w.clock.now().UTC().Add(time.Hour),
+	}
+	w.box.mu.Unlock()
+
+	// A tab at an idle prompt whose last turn is normal is not held.
+	r1 := w.sendTo(t, "ops/x", "direct message")
+	if r1.State != stateDelivered {
+		t.Fatalf("idle tab with normal last turn state = %q, want %q", r1.State, stateDelivered)
+	}
+
+	// Now create a real outage with held messages m2, m3, m4, then recover via
+	// a normal latest turn (even if TurnsAtOutage is stale or new turn appended).
+	w.turns[holdTo] = append(w.turns[holdTo],
+		lastturn.Turn{Role: "user", Text: "[agentbus " + r1.ID + "]\ndirect message"},
+		lastturn.Turn{Role: "assistant", IsAPIErrorMessage: true, Model: "<synthetic>", Text: "Login expired · Please run /login"},
+	)
+	w.flush(t, holdTo)
+
+	m2 := w.sendTo(t, "ops/x", "order-1")
+	m3 := w.sendTo(t, "ops/x", "order-2")
+	m4 := w.sendTo(t, "ops/x", "order-3")
+	if m2.State != "held: "+HoldLoginExpired {
+		t.Fatalf("m2 state = %q, want held", m2.State)
+	}
+
+	// Latest turn becomes normal (e.g. user chatted or stale outage cleared).
+	w.turns[holdTo] = append(w.turns[holdTo],
+		lastturn.Turn{Role: "user", Text: "manual prompt"},
+		lastturn.Turn{Role: "assistant", Model: "claude-opus-4-6", Text: "All good now."},
+	)
+	w.flush(t, holdTo)
+
+	for _, id := range []string{m2.ID, m3.ID, m4.ID} {
+		if rep := w.box.Report(context.Background(), id); rep.State != stateDelivered {
+			t.Fatalf("message %s after recovery = %+v, want delivered", id, rep)
+		}
+	}
+	idx1 := textIndex(w.ad.Texts, "order-1")
+	idx2 := textIndex(w.ad.Texts, "order-2")
+	idx3 := textIndex(w.ad.Texts, "order-3")
+	if idx1 < 0 || idx2 <= idx1 || idx3 <= idx2 {
+		t.Fatalf("out-of-order delivery: idx=(%d,%d,%d) texts=%q", idx1, idx2, idx3, w.ad.Texts)
+	}
+}
+
+func TestOutageBackoffRetryRecoversAfterSlashLogin(t *testing.T) {
+	w := newVerifyWorld(t)
+	w.ad.PaneHandles = map[string]string{"sender": holdFrom}
+
+	r1 := w.sendTo(t, "ops/x", "initial")
+	w.turns[holdTo] = append(w.turns[holdTo],
+		lastturn.Turn{Role: "user", Text: "[agentbus " + r1.ID + "]\ninitial"},
+		lastturn.Turn{Role: "assistant", IsAPIErrorMessage: true, Model: "<synthetic>", Text: "Login expired · Please run /login"},
+	)
+	w.flush(t, holdTo)
+
+	m2 := w.sendTo(t, "ops/x", "probe-1")
+	m3 := w.sendTo(t, "ops/x", "queued-behind")
+	before := len(w.ad.Texts)
+
+	// Before backoff elapses, flushing does not paste either held message.
+	w.clock.add(30 * time.Second)
+	w.flush(t, holdTo)
+	if len(w.ad.Texts) != before {
+		t.Fatalf("pasted before backoff: %q", w.ad.Texts[before:])
+	}
+
+	// After first backoff (1m), only m2 is probed; m3 remains held until m2 verifies.
+	w.clock.add(31 * time.Second)
+	w.flush(t, holdTo)
+	if textsWith(w.ad.Texts[before:], "probe-1") != 1 || textsWith(w.ad.Texts[before:], "queued-behind") != 0 {
+		t.Fatalf("expected only probe-1 pasted on backoff, got %q", w.ad.Texts[before:])
+	}
+	if rep := w.box.Report(context.Background(), m3.ID); rep.State != "held" {
+		t.Fatalf("m3 while probe-1 pending = %+v, want held", rep)
+	}
+
+	// If probe-1 still gets an auth error, backoff doubles and sender is not re-notified.
+	w.turns[holdTo] = append(w.turns[holdTo],
+		lastturn.Turn{Role: "user", Text: "[agentbus " + m2.ID + "]\nprobe-1"},
+		lastturn.Turn{Role: "assistant", IsAPIErrorMessage: true, Model: "<synthetic>", Text: "Login expired · Please run /login"},
+	)
+	w.flush(t, holdTo)
+	if got := textsWith(w.ad.Texts, "ops/x is paused waiting for authentication"); got != 1 {
+		t.Fatalf("outage notices = %d, want 1", got)
+	}
+	if rep := w.box.Report(context.Background(), m2.ID); rep.State != stateDeliveredUnprocessed || rep.Reason != ReasonAuth {
+		t.Fatalf("failed probe m2 = %+v", rep)
+	}
+
+	// After 1m (less than 2m doubled backoff), m3 is still held.
+	before2 := len(w.ad.Texts)
+	w.clock.add(61 * time.Second)
+	w.flush(t, holdTo)
+	if len(w.ad.Texts) != before2 {
+		t.Fatalf("pasted before doubled backoff: %q", w.ad.Texts[before2:])
+	}
+
+	// User runs /login (no transcript turn added); after 2m backoff, m3 probes and succeeds.
+	m4 := w.sendTo(t, "ops/x", "after-probe")
+	w.clock.add(60 * time.Second)
+	w.flush(t, holdTo)
+	if textsWith(w.ad.Texts[before2:], "queued-behind") != 1 || textsWith(w.ad.Texts[before2:], "after-probe") != 0 {
+		t.Fatalf("expected only m3 probe pasted, got %q", w.ad.Texts[before2:])
+	}
+
+	// Normal assistant reply to m3 clears the outage and delivers m4.
+	w.turns[holdTo] = append(w.turns[holdTo],
+		lastturn.Turn{Role: "user", Text: "[agentbus " + m3.ID + "]\nqueued-behind"},
+		lastturn.Turn{Role: "assistant", Model: "claude-opus-4-6", Text: "Handled."},
+	)
+	w.flush(t, holdTo)
+	if rep := w.box.Report(context.Background(), m4.ID); rep.State != stateDelivered {
+		t.Fatalf("m4 after probe success = %+v, want delivered", rep)
+	}
+	if textsWith(w.ad.Texts, "after-probe") != 1 {
+		t.Fatalf("m4 was not delivered: %q", w.ad.Texts)
+	}
+}
+
+func TestOutageNoticeDoesNotMatchDefaultAuthPatterns(t *testing.T) {
+	notice := outageNoticeText("ops/x")
+	if matchesAuthError(notice, DefaultAuthErrorPatterns) {
+		t.Fatalf("matchesAuthError(%q) = true, want false", notice)
+	}
+	if matchesAuthErrorSubstring(notice, DefaultAuthErrorPatterns) {
+		t.Fatalf("matchesAuthErrorSubstring(%q) = true, want false", notice)
+	}
+	if isAuthErrorTurn(lastturn.Turn{Role: "assistant", Text: notice}, DefaultAuthErrorPatterns) {
+		t.Fatalf("isAuthErrorTurn(normal, %q) = true, want false", notice)
+	}
+	if isAuthErrorTurn(lastturn.Turn{Role: "assistant", IsAPIErrorMessage: true, Model: "<synthetic>", Text: notice}, DefaultAuthErrorPatterns) {
+		t.Fatalf("isAuthErrorTurn(synthetic, %q) = true, want false", notice)
+	}
+}
+
+func TestCustomAuthErrorPatternsAndProbeTimeoutBackoff(t *testing.T) {
+	w := newVerifyWorld(t)
+	w.ad.PaneHandles = map[string]string{"sender": holdFrom}
+	w.box.SetAuthErrorPatterns([]string{"Custom auth failure"})
+
+	// Prose containing custom pattern does not start an outage.
+	r1 := w.sendTo(t, "ops/x", "prose")
+	w.turns[holdTo] = append(w.turns[holdTo],
+		lastturn.Turn{Role: "user", Text: "[agentbus " + r1.ID + "]\nprose"},
+		lastturn.Turn{Role: "assistant", Text: "I saw Custom auth failure in the logs earlier."},
+	)
+	w.flush(t, holdTo)
+	if rep := w.box.Report(context.Background(), r1.ID); rep.State != stateDelivered {
+		t.Fatalf("prose with custom pattern = %+v, want delivered", rep)
+	}
+
+	// Exact whole-turn match with custom pattern starts an outage.
+	r2 := w.sendTo(t, "ops/x", "trigger")
+	w.turns[holdTo] = append(w.turns[holdTo],
+		lastturn.Turn{Role: "user", Text: "[agentbus " + r2.ID + "]\ntrigger"},
+		lastturn.Turn{Role: "assistant", Text: "Custom auth failure"},
+	)
+	w.flush(t, holdTo)
+	if rep := w.box.Report(context.Background(), r2.ID); rep.State != stateDeliveredUnprocessed || rep.Reason != ReasonAuth {
+		t.Fatalf("exact custom pattern = %+v, want delivered-unprocessed/auth", rep)
+	}
+
+	// Queue two messages; first probes after 1m and times out (no-turn).
+	m1 := w.sendTo(t, "ops/x", "probe-timeout")
+	m2 := w.sendTo(t, "ops/x", "wait-behind-timeout")
+	w.clock.add(61 * time.Second)
+	w.flush(t, holdTo)
+	if rep := w.box.Report(context.Background(), m1.ID); rep.State != stateDelivered {
+		t.Fatalf("m1 probe state = %+v, want delivered", rep)
+	}
+	w.clock.add(61 * time.Second)
+	w.flush(t, holdTo)
+	if rep := w.box.Report(context.Background(), m1.ID); rep.State != stateDeliveredUnprocessed || rep.Reason != ReasonNoTurn {
+		t.Fatalf("m1 after timeout = %+v, want no-turn", rep)
+	}
+	// After probe timeout, backoff doubled (2m) so m2 stays held at +61s.
+	before := len(w.ad.Texts)
+	w.clock.add(61 * time.Second)
+	w.flush(t, holdTo)
+	if len(w.ad.Texts) != before {
+		t.Fatalf("m2 pasted before doubled backoff after probe timeout: %q", w.ad.Texts[before:])
+	}
+	_ = m2
+}
+
+func textIndex(texts []string, sub string) int {
+	for i, s := range texts {
+		if strings.Contains(s, sub) {
+			return i
+		}
+	}
+	return -1
 }

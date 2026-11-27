@@ -110,6 +110,9 @@ type authOutageRecord struct {
 	Since         time.Time       `json:"since"`
 	TurnsAtOutage int             `json:"turnsAtOutage"`
 	Noticed       map[string]bool `json:"noticed,omitempty"`
+	Failures      int             `json:"failures,omitempty"`
+	RetryAt       time.Time       `json:"retryAt,omitempty"`
+	ProbeMsgID    string          `json:"probeMsgId,omitempty"`
 }
 
 type file struct {
@@ -170,8 +173,9 @@ type Mailbox struct {
 	// uses defaultVerifyWithin. verifyOff disables verification.
 	verifyWithin time.Duration
 	verifyOff    bool
-	// authPatterns are case-insensitive substrings matched against an
-	// assistant reply to detect expired login. Nil uses DefaultAuthErrorPatterns.
+	// authPatterns identify an assistant auth-error reply (substring-matched
+	// on synthetic/API-error turns, whole-turn matched otherwise). Nil uses
+	// DefaultAuthErrorPatterns.
 	authPatterns []string
 	// staleComposerAfter is how long unchanged composer text holds a message
 	// before notifying the sender once per tab.

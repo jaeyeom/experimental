@@ -69,7 +69,9 @@ func TestClaudeTranscriptReadsUserAndAssistantTurns(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := `{"type":"user","message":{"role":"user","content":"[agentbus m-1 from a -> b · 10:00]\nhello"}}
-{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Login expired - Please run /login"}]}}
+{"type":"assistant","isApiErrorMessage":true,"message":{"role":"assistant","model":"<synthetic>","content":[{"type":"text","text":"Login expired · Please run /login"}]}}
+{"type":"assistant","model":"<synthetic>","message":{"role":"assistant","content":[{"type":"text","text":"Invalid API key"}]}}
+{"type":"assistant","message":{"role":"assistant","model":"claude-sonnet-4-6","content":[{"type":"text","text":"All set"}]}}
 {"type":"system","message":{"role":"system","content":"ignored"}}
 `
 	if err := os.WriteFile(transcript, []byte(body), 0o600); err != nil {
@@ -77,10 +79,13 @@ func TestClaudeTranscriptReadsUserAndAssistantTurns(t *testing.T) {
 	}
 	reader := ClaudeTranscript(dir)
 	turns, ok := reader(adapter.Agent{Handle: "herdr:local/sess-1/w1:p1", Kind: "claude", SessionID: "sess-1"})
-	if !ok || len(turns) != 2 {
+	if !ok || len(turns) != 4 {
 		t.Fatalf("ClaudeTranscript = %+v, %v", turns, ok)
 	}
-	if turns[0].Role != "user" || turns[1].Role != "assistant" || turns[1].Text != "Login expired - Please run /login" {
+	if turns[0].Role != "user" ||
+		turns[1].Role != "assistant" || turns[1].Text != "Login expired · Please run /login" || !turns[1].IsAPIErrorMessage || turns[1].Model != "<synthetic>" ||
+		turns[2].Role != "assistant" || turns[2].Text != "Invalid API key" || turns[2].IsAPIErrorMessage || turns[2].Model != "<synthetic>" ||
+		turns[3].Role != "assistant" || turns[3].Text != "All set" || turns[3].IsAPIErrorMessage || turns[3].Model != "claude-sonnet-4-6" {
 		t.Fatalf("unexpected turns: %+v", turns)
 	}
 	if _, ok := reader(adapter.Agent{Handle: "herdr:local/sess-1/w1:p1", Kind: "codex", SessionID: "sess-1"}); ok {

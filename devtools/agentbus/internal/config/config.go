@@ -132,8 +132,9 @@ type Config struct {
 	// a readable transcript for an auth error or no-turn. Nil means 60s.
 	// A pointer to zero disables verification.
 	VerifyDeliveryWithin *time.Duration
-	// AuthErrorPatterns are substrings matched (case-insensitively)
-	// against an assistant reply right after delivery. Nil uses defaults.
+	// AuthErrorPatterns identify an assistant auth-error reply right after
+	// delivery (substring-matched on synthetic/API-error turns, whole-turn
+	// matched when transcript metadata is absent). Nil uses defaults.
 	AuthErrorPatterns []string
 	// ComposerPlaceholders are whole-line strings treated as an empty
 	// composer when style info is unavailable. Nil uses defaults.
