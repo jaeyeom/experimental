@@ -23,3 +23,17 @@ shellcheck = lint_shellcheck_aspect(
 )
 
 shellcheck_test = lint_test(aspect = shellcheck)
+
+def _file_manifest_impl(ctx):
+    out = ctx.actions.declare_file(ctx.attr.name + ".txt")
+    paths = sorted([f.short_path for f in ctx.files.srcs])
+    ctx.actions.write(out, "\n".join(paths) + "\n")
+    return [DefaultInfo(files = depset([out]))]
+
+file_manifest = rule(
+    implementation = _file_manifest_impl,
+    attrs = {
+        "srcs": attr.label_list(allow_files = True),
+    },
+    doc = "Writes a sorted newline-delimited manifest of short_path values for srcs.",
+)

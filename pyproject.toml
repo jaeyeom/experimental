@@ -99,6 +99,7 @@ files = [
     "tools/lint/bazel_go_files_test.py",
     "tools/lint/gitleaks_test.py",
     "tools/lint/mypy_test.py",
+    "tools/lint/semgrep_files_test.py",
     "tools/lint/semgrep_test.py",
     "tools/lint/uv_lock_test.py",
 ]

@@ -19,3 +19,18 @@ filegroup(
     srcs = glob(["*.sh"]),
     visibility = ["//tools/lint:__pkg__"],
 )
+
+filegroup(
+    name = "template_srcs",
+    srcs = glob(
+        [
+            "**/*.gohtml",
+            "**/*.html",
+            "**/*.thtml",
+            "**/*.tmpl",
+            "**/*.tpl",
+        ],
+        allow_empty = True,
+    ),
+    visibility = ["//tools/lint:__pkg__"],
+)

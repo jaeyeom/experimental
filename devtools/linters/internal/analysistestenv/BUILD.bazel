@@ -12,3 +12,12 @@ go_sdk_files(
     name = "go_sdk_files",
     visibility = ["//devtools/linters:__subpackages__"],
 )
+
+filegroup(
+    name = "go_srcs",
+    srcs = glob(
+        ["**/*.go"],
+        exclude = ["**/*_test.go"],
+    ),
+    visibility = ["//tools/lint:__pkg__"],
+)

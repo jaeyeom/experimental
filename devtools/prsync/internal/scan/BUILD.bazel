@@ -84,3 +84,12 @@ filegroup(
     srcs = glob(["**/*.sh"]),
     visibility = ["//tools/lint:__pkg__"],
 )
+
+filegroup(
+    name = "go_srcs",
+    srcs = glob(
+        ["**/*.go"],
+        exclude = ["**/*_test.go"],
+    ),
+    visibility = ["//tools/lint:__pkg__"],
+)

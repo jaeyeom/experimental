@@ -6,3 +6,12 @@ go_library(
     importpath = "github.com/jaeyeom/experimental/devtools/pkg/hubcall/sshtest",
     visibility = ["//visibility:public"],
 )
+
+filegroup(
+    name = "go_srcs",
+    srcs = glob(
+        ["**/*.go"],
+        exclude = ["**/*_test.go"],
+    ),
+    visibility = ["//tools/lint:__pkg__"],
+)

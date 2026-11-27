@@ -19,3 +19,12 @@ go_test(
     srcs = ["main_test.go"],
     embed = [":whitespace_lib"],
 )
+
+filegroup(
+    name = "go_srcs",
+    srcs = glob(
+        ["**/*.go"],
+        exclude = ["**/*_test.go"],
+    ),
+    visibility = ["//tools/lint:__pkg__"],
+)

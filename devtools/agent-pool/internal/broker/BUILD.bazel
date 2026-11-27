@@ -16,3 +16,12 @@ go_library(
         "//devtools/agent-pool/internal/protocol:go_default_library",
     ],
 )
+
+filegroup(
+    name = "go_srcs",
+    srcs = glob(
+        ["**/*.go"],
+        exclude = ["**/*_test.go"],
+    ),
+    visibility = ["//tools/lint:__pkg__"],
+)

@@ -37,6 +37,20 @@ filegroup(
     visibility = ["//tools/lint:__pkg__"],
 )
 
+filegroup(
+    name = "yaml_srcs",
+    srcs = glob(
+        [
+            "*.yml",
+            "*.yaml",
+            "tasks/*.yml",
+            "tasks/*.yaml",
+        ],
+        allow_empty = True,
+    ),
+    visibility = ["//tools/lint:__pkg__"],
+)
+
 go_test(
     name = "go_default_test",
     srcs = [
@@ -394,6 +408,15 @@ sh_test(
         "*.yml",
         "qubes-templatevm-*.sh",
     ]),
+)
+
+filegroup(
+    name = "go_srcs",
+    srcs = glob(
+        ["**/*.go"],
+        exclude = ["**/*_test.go"],
+    ),
+    visibility = ["//tools/lint:__pkg__"],
 )
 
 # GENERATED ANSIBLE TESTS - DO NOT EDIT BELOW THIS LINE

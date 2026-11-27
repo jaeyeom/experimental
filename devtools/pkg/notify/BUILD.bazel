@@ -13,3 +13,12 @@ go_test(
     srcs = ["notify_test.go"],
     embed = [":go_default_library"],
 )
+
+filegroup(
+    name = "go_srcs",
+    srcs = glob(
+        ["**/*.go"],
+        exclude = ["**/*_test.go"],
+    ),
+    visibility = ["//tools/lint:__pkg__"],
+)

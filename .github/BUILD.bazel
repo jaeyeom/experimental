@@ -2,3 +2,15 @@ exports_files([
     "pull_request_template.md",
     "workflows/release.yml",
 ])
+
+filegroup(
+    name = "yaml_srcs",
+    srcs = glob(
+        [
+            "**/*.yml",
+            "**/*.yaml",
+        ],
+        allow_empty = True,
+    ),
+    visibility = ["//tools/lint:__pkg__"],
+)

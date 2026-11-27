@@ -26,3 +26,12 @@ go_test(
     srcs = ["readme_test.go"],
     data = ["README.md"],
 )
+
+filegroup(
+    name = "go_srcs",
+    srcs = glob(
+        ["**/*.go"],
+        exclude = ["**/*_test.go"],
+    ),
+    visibility = ["//tools/lint:__pkg__"],
+)

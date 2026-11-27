@@ -33,3 +33,12 @@ go_library(
     tags = ["manual"],
     visibility = ["//visibility:private"],
 )
+
+filegroup(
+    name = "go_srcs",
+    srcs = glob(
+        ["**/*.go"],
+        exclude = ["**/*_test.go"],
+    ),
+    visibility = ["//tools/lint:__pkg__"],
+)

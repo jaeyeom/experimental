@@ -22,3 +22,12 @@ go_test(
     embed = [":go_default_library"],
     deps = ["@com_github_jaeyeom_go_cmdexec//:go_default_library"],
 )
+
+filegroup(
+    name = "go_srcs",
+    srcs = glob(
+        ["**/*.go"],
+        exclude = ["**/*_test.go"],
+    ),
+    visibility = ["//tools/lint:__pkg__"],
+)

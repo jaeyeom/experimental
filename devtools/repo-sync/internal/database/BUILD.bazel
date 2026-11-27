@@ -10,3 +10,12 @@ go_library(
         "@com_github_mattn_go_sqlite3//:go_default_library",
     ],
 )
+
+filegroup(
+    name = "go_srcs",
+    srcs = glob(
+        ["**/*.go"],
+        exclude = ["**/*_test.go"],
+    ),
+    visibility = ["//tools/lint:__pkg__"],
+)

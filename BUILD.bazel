@@ -65,3 +65,44 @@ filegroup(
     srcs = glob([".semgrep/**/*.yaml"]),
     visibility = ["//tools/lint:__pkg__"],
 )
+
+filegroup(
+    name = "yaml_srcs",
+    srcs = glob(
+        [
+            "**/*.yml",
+            "**/*.yaml",
+        ],
+        allow_empty = True,
+        exclude = [
+            "**/node_modules/**",
+            ".bazel-*/**",
+            ".cache/**",
+            ".venv/**",
+            "bazel-*/**",
+        ],
+    ),
+    visibility = ["//tools/lint:__pkg__"],
+)
+
+filegroup(
+    name = "template_srcs",
+    srcs = glob(
+        [
+            "**/*.gohtml",
+            "**/*.html",
+            "**/*.thtml",
+            "**/*.tmpl",
+            "**/*.tpl",
+        ],
+        allow_empty = True,
+        exclude = [
+            "**/node_modules/**",
+            ".bazel-*/**",
+            ".cache/**",
+            ".venv/**",
+            "bazel-*/**",
+        ],
+    ),
+    visibility = ["//tools/lint:__pkg__"],
+)

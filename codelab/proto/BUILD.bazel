@@ -99,6 +99,18 @@ filegroup(
     visibility = ["//devtools/linters/pylinters:__pkg__"],
 )
 
+filegroup(
+    name = "yaml_srcs",
+    srcs = glob(
+        [
+            "*.yml",
+            "*.yaml",
+        ],
+        allow_empty = True,
+    ),
+    visibility = ["//tools/lint:__pkg__"],
+)
+
 py_entries_manifest(
     name = "py_entries",
     visibility = ["//devtools/linters/pylinters:__pkg__"],

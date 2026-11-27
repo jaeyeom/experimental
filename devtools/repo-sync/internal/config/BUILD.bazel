@@ -7,3 +7,12 @@ go_library(
     visibility = ["//devtools/repo-sync:__subpackages__"],
     deps = ["@in_gopkg_yaml_v3//:go_default_library"],
 )
+
+filegroup(
+    name = "go_srcs",
+    srcs = glob(
+        ["**/*.go"],
+        exclude = ["**/*_test.go"],
+    ),
+    visibility = ["//tools/lint:__pkg__"],
+)

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -28,18 +30,6 @@ _EXCLUDED_RULE_IDS = frozenset(
 )
 
 
-def _repo_root() -> Path:
-    """Resolve the real checkout root from the go.mod data file symlink."""
-    cur = Path.cwd()
-    while True:
-        candidate = cur / "go.mod"
-        if candidate.exists():
-            return candidate.resolve().parent
-        if cur.parent == cur:
-            raise RuntimeError("go.mod not found")
-        cur = cur.parent
-
-
 def _env_binary(var: str) -> Path:
     """Return a Bazel-managed binary path from an environment variable."""
     raw = os.environ.get(var)
@@ -58,6 +48,48 @@ def _semgrep_rules_root() -> Path:
     return path.parent
 
 
+def _configured_rule_subdirs() -> tuple[str, ...]:
+    """Return the @semgrep_rules subdirectories configured for this test."""
+    raw = os.environ.get("SEMGREP_RULE_SUBDIRS", "").strip()
+    if not raw:
+        return _RULES_SUBDIRS
+    return tuple(part.strip() for part in raw.split(",") if part.strip())
+
+
+def _stage_custom_config(tmp_path: Path) -> Path:
+    """Copy declared custom Semgrep rule files into a non-symlink directory."""
+    raw = os.environ.get("SEMGREP_CONFIG_FILES", "").strip()
+    assert raw, (
+        "SEMGREP_CONFIG_FILES environment variable must be set by Bazel"
+    )
+    cfg_dir = tmp_path / "custom_config"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    for idx, entry in enumerate(raw.split()):
+        src = Path(entry).resolve()
+        assert src.is_file(), f"Semgrep config file not found at {src}"
+        shutil.copyfile(src, cfg_dir / f"{idx:03d}_{src.name}")
+    return cfg_dir
+
+
+def _stage_manifest_files(manifest_path: Path, stage_dir: Path) -> list[str]:
+    """Copy manifest-listed runfiles into stage_dir as regular files.
+
+    Semgrep skips symbolic links during directory traversal and rejects symlink
+    targets, while Bazel stages runfiles as symlinks. Copying into stage_dir
+    preserves repo-relative paths without reading outside declared inputs.
+    """
+    raw_lines = manifest_path.read_text(encoding="utf-8").splitlines()
+    rel_paths = [line.strip() for line in raw_lines if line.strip()]
+    assert rel_paths, f"manifest {manifest_path} contained no files"
+    for rel in rel_paths:
+        src = Path(rel).resolve()
+        assert src.is_file(), f"declared Semgrep input not found at {rel}"
+        dest = stage_dir / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, dest)
+    return rel_paths
+
+
 def _build_pinned_rules(out_path: Path) -> Path:
     """Combine pinned @semgrep_rules YAML files with registry-style rule IDs.
 
@@ -70,7 +102,7 @@ def _build_pinned_rules(out_path: Path) -> Path:
     rules_root = _semgrep_rules_root()
     rules: list[object] = []
 
-    for subdir in _RULES_SUBDIRS:
+    for subdir in _configured_rule_subdirs():
         base = rules_root / subdir
         assert base.is_dir(), f"expected rules subdir at {base}"
         for rule_file in sorted(base.rglob("*.yaml")):
@@ -127,6 +159,7 @@ def _run_semgrep(
     tmp_path: Path,
     *,
     no_git_ignore: bool = False,
+    json_output: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """Run Bazel-managed semgrep without requiring host semgrep on PATH."""
     cmd = [
@@ -137,6 +170,8 @@ def _run_semgrep(
     ]
     if no_git_ignore:
         cmd.append("--no-git-ignore")
+    if json_output:
+        cmd.append("--json")
     for cfg in configs:
         cmd.extend(["--config", str(cfg)])
     cmd.append(str(target_dir))
@@ -158,14 +193,35 @@ def pinned_rules_file(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 def test_repo_passes_semgrep(pinned_rules_file: Path, tmp_path: Path) -> None:
-    """Repository passes offline Semgrep scan with pinned and custom rules."""
-    root = _repo_root()
-    custom_config = root / ".semgrep"
-    assert custom_config.is_dir()
-    result = _run_semgrep(root, [pinned_rules_file, custom_config], tmp_path)
+    """Declared repository inputs pass offline Semgrep scan."""
+    manifest_env = os.environ.get("SEMGREP_MANIFEST", "").strip()
+    if not manifest_env:
+        pytest.skip("SEMGREP_MANIFEST not set (run via bazel test)")
+        return
+    manifest_path = Path(manifest_env).resolve()
+    assert manifest_path.is_file(), f"manifest not found at {manifest_path}"
+
+    stage_dir = tmp_path / "repo"
+    stage_dir.mkdir()
+    _stage_manifest_files(manifest_path, stage_dir)
+
+    configs: list[Path] = [pinned_rules_file]
+    if os.environ.get("SEMGREP_USE_CUSTOM_CONFIG") == "1":
+        configs.append(_stage_custom_config(tmp_path))
+
+    result = _run_semgrep(
+        stage_dir,
+        configs,
+        tmp_path,
+        no_git_ignore=True,
+        json_output=True,
+    )
     assert result.returncode == 0, (
         f"semgrep found issues:\n{result.stdout}{result.stderr}"
     )
+    report = json.loads(result.stdout)
+    scanned = report.get("paths", {}).get("scanned", [])
+    assert scanned, f"semgrep scanned 0 files for manifest {manifest_env}"
 
 
 def test_custom_semgrep_rule_detects_violation(tmp_path: Path) -> None:
@@ -177,7 +233,7 @@ def test_custom_semgrep_rule_detects_violation(tmp_path: Path) -> None:
         'x = 1\nlogger.info(f"value: {x}")\n',
         encoding="utf-8",
     )
-    custom_config = _repo_root() / ".semgrep"
+    custom_config = _stage_custom_config(tmp_path)
     result = _run_semgrep(
         sample_dir,
         [custom_config],
