@@ -5,8 +5,10 @@ go_library(
     srcs = [
         "check.go",
         "checkpoint.go",
+        "gate.go",
         "pace.go",
         "quotapace.go",
+        "schedule.go",
         "status.go",
         "store.go",
     ],
@@ -17,7 +19,10 @@ go_library(
 go_test(
     name = "go_default_test",
     size = "small",
-    srcs = ["quotapace_test.go"],
+    srcs = [
+        "gate_test.go",
+        "quotapace_test.go",
+    ],
     data = glob(["testdata/**"]),
     embed = [":go_default_library"],
 )

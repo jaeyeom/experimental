@@ -21,10 +21,14 @@ func runRecord(args []string, store quotapace.Store, e env) error {
 	resetsAt := fs.String("resets-at", "", "reset time, RFC 3339")
 	source := fs.String("source", "", "where the reading came from")
 	atFlag := fs.String("at", "", "reading time, RFC 3339 (default now)")
+	stdinFlag := fs.Bool("stdin", false, "read readings from standard input")
 	format := fs.String("format", "jsonl", "stdin format: jsonl or claude-usage")
 	autoStart := fs.Bool("auto-start", false, "start a fresh plan when the window resets")
 	if err := parse(fs, args); err != nil {
 		return err
+	}
+	if *percent >= 0 && *stdinFlag {
+		return usageErr("pass --percent or --stdin, not both")
 	}
 	now := e.now()
 	at, err := parseTime("at", *atFlag)

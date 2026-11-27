@@ -132,6 +132,9 @@ func (s Store) LoadProfile(profile string) (Profile, error) {
 	if p.Active == nil {
 		p.Active = map[string]*Plan{}
 	}
+	if p.Schedules == nil {
+		p.Schedules = map[string]*Schedule{}
+	}
 	return p, nil
 }
 

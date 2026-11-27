@@ -34,6 +34,7 @@ type Plan struct {
 	ResetsAt   time.Time `json:"resetsAt"`
 	Target     float64   `json:"target"`
 	Amber      float64   `json:"amber"`
+	Rate       *float64  `json:"rate,omitempty"`
 	Every      string    `json:"every,omitempty"`
 	Clocks     []string  `json:"clocks,omitempty"`
 	TZ         string    `json:"tz,omitempty"`
@@ -50,9 +51,10 @@ type Closure struct {
 // Profile is one account or machine. Profiles are never added together.
 // Offset is added to every reading of the profile, in points.
 type Profile struct {
-	Offset  float64          `json:"offset"`
-	Active  map[string]*Plan `json:"active"`
-	History []Plan           `json:"history"`
+	Offset    float64              `json:"offset"`
+	Active    map[string]*Plan     `json:"active"`
+	History   []Plan               `json:"history"`
+	Schedules map[string]*Schedule `json:"schedules,omitempty"`
 }
 
 // Defaults for a plan that does not set them.
@@ -122,6 +124,13 @@ func ImplicitPlan(r Reading) (Plan, error) {
 
 // OnTrack is the plan's percent at t.
 func (p Plan) OnTrack(t time.Time) float64 {
+	if p.Rate != nil {
+		h := t.Sub(p.BaselineAt).Hours()
+		if h <= 0 {
+			return min(Limit, p.Baseline)
+		}
+		return min(Limit, p.Baseline+*p.Rate*h)
+	}
 	span := p.ResetsAt.Sub(p.BaselineAt)
 	switch {
 	case !t.After(p.BaselineAt) || span <= 0:

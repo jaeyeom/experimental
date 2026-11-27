@@ -59,6 +59,74 @@ func runPlanStart(args []string, store quotapace.Store, e env) error {
 	return nil
 }
 
+func runPlanSet(args []string, store quotapace.Store, e env) error {
+	fs := newFlags("plan set", e)
+	profile := fs.String("profile", "", "profile")
+	window := fs.String("window", "", "window, such as 7d")
+	reset := fs.String("reset", "", `weekly reset weekday and time in --tz, such as "Thu 15:00" (default: latest reading's reset)`)
+	tz := fs.String("tz", "", "time zone for --reset, such as America/Los_Angeles (default UTC)")
+	rate := fs.Float64("rate", 0, "points per hour along the plan line (default: (100 - offset) / window hours)")
+	offset := fs.Float64("offset", 0, "plan line starting percent at window start (capped at 100)")
+	amber := fs.Float64("amber", quotapace.DefaultAmber, "amber line, in points above on track")
+	if err := parse(fs, args); err != nil {
+		return err
+	}
+	if *profile == "" || *window == "" {
+		return usageErr("plan set needs --profile and --window")
+	}
+	if err := quotapace.CheckProfileName(*profile); err != nil {
+		return usageErr("%v", err)
+	}
+	length, err := quotapace.WindowLength(*window)
+	if err != nil {
+		return usageErr("--window: %v", err)
+	}
+	r := *rate
+	if !flagSet(fs, "rate") {
+		r = max(0, (quotapace.DefaultTarget-*offset)/length.Hours())
+	} else if r < 0 {
+		return usageErr("--rate %.2f must be >= 0", r)
+	}
+	sched := quotapace.Schedule{
+		Window: *window, Reset: *reset, TZ: *tz, Rate: r, Offset: *offset, Amber: *amber,
+	}
+	if err := validateSchedule(sched, length); err != nil {
+		return err
+	}
+	saved, err := store.SetSchedule(*profile, sched, e.now())
+	if err != nil {
+		return fmt.Errorf("plan set: %w", err)
+	}
+	fmt.Fprintf(e.stdout, "%s %s: schedule %.1f%% + %.3f%%/h (%s)\n", *profile, *window, saved.Offset, saved.Rate, formatResetLabel(saved))
+	return nil
+}
+
+func validateSchedule(sched quotapace.Schedule, length time.Duration) error {
+	if _, err := sched.Location(); err != nil {
+		return usageErr("%v", err)
+	}
+	if sched.Reset != "" {
+		if _, _, _, err := quotapace.ParseWeeklyReset(sched.Reset); err != nil {
+			return usageErr("%v", err)
+		}
+		if length != 7*24*time.Hour {
+			return usageErr("--reset weekly schedule requires a 7d window, got %q", sched.Window)
+		}
+	}
+	return nil
+}
+
+func formatResetLabel(sched quotapace.Schedule) string {
+	switch {
+	case sched.Reset == "":
+		return "reading reset"
+	case sched.TZ != "":
+		return sched.Reset + " " + sched.TZ
+	default:
+		return sched.Reset + " UTC"
+	}
+}
+
 func flagSet(fs *flag.FlagSet, name string) bool {
 	set := false
 	fs.Visit(func(f *flag.Flag) { set = set || f.Name == name })
@@ -161,6 +229,11 @@ func runStatus(args []string, store quotapace.Store, e env, report bool) (int, e
 				line = ws.Profile + " " + line
 			}
 			fmt.Fprintln(e.stdout, line)
+		}
+	}
+	for _, ws := range snap.Windows() {
+		for _, w := range ws.Warnings {
+			fmt.Fprintf(e.stderr, "warning: %s %s: %s\n", ws.Profile, ws.Window, w)
 		}
 	}
 	return snap.WorstCode(), nil

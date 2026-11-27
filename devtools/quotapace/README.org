@@ -67,12 +67,15 @@ limit, the actual reading, and its state.
 
 #+BEGIN_EXAMPLE
 quotapace record --profile P --window W --percent N (--resets-in D | --resets-at T) [--source S] [--at T] [--auto-start]
-quotapace record --profile P [--format jsonl|claude-usage] [--auto-start] < input
+quotapace record --profile P [--stdin] [--format jsonl|claude-usage] [--auto-start] < input
 quotapace plan start --profile P --window W [--baseline N [--at T]] [--resets-at T | --resets-in D]
                      [--offset N] [--target N] [--amber N] [--every D] [--checkpoints HH:MM,...] [--tz Area/City]
+quotapace plan set   --profile P --window W [--reset "Thu 15:00"] [--tz Area/City] [--rate R] [--offset O] [--amber N]
 quotapace status [--profile P] [--json] [--recent 6h] [--stale 6h]
 quotapace report [--profile P] [--window W] [--json] [--recent 6h] [--stale 6h]
 quotapace check  [--profile P] [--stale 6h] [--repeat 6h] [--notify-cmd CMD] [--recent 6h]
+quotapace gate   --profile P [--window 7d] [--min-gap N] [--stale 6h] [--json]
+                 [--watch --every 1m --notify-cmd CMD]
 #+END_EXAMPLE
 
 Windows and durations take whole days (~7d~), a Go duration (~5h~,
@@ -97,6 +100,13 @@ Windows and durations take whole days (~7d~), a Go duration (~5h~,
   time. Without them, they fall every ~--every~ from the baseline
   (default a day for windows of two days or more, otherwise an hour).
   The reset is always the last checkpoint.
+- ~plan set~ :: configures a recurring schedule whose line is
+  ~offset + rate * hours since window start~, capped at 100, and
+  restarts automatically at each reset. ~--reset~ (for example
+  ~"Thu 15:00"~) and ~--tz~ set the weekly reset boundary and override
+  the reading's reset time; without ~--reset~, the latest reading's
+  reset time is used. When the configured reset and the reading's
+  reset disagree by more than an hour, ~status~ and ~doctor~ warn.
 - ~status~ :: one line per window, such as
   ~7d 31% (on track 33%) green, projected 91%~. Without ~--profile~
   every profile is shown, each line prefixed by the profile.
@@ -108,17 +118,30 @@ Windows and durations take whole days (~7d~), a Go duration (~5h~,
   ~--repeat~ (default 6h, ~0~ never). The notify command comes from
   ~--notify-cmd~ or ~QUOTAPACE_NOTIFY_CMD~. It is split on spaces and
   run without a shell, with a 30-second limit.
+- ~gate~ :: fail-closed headroom gate for loops and scripts. It reads
+  only the given ~--profile~ and computes ~gap = plan_line_now -
+  percent_now~ where ~plan_line_now~ is the plan line at the time of
+  the latest reading. Exits ~0~ when ~gap >= N~, ~1~ when ~gap < N~,
+  and ~3~ when the answer cannot be computed (no reading, reading
+  older than ~--stale~, no plan, or window reset since the last
+  reading). Human output is one line:
+  ~gap=4.2 line=37.5 used=33.3 (7d, profile P, reading 3m old)~.
+  ~--json~ prints ~{gap, budgetLine, sevenDay, fiveHour (if recorded),
+  window, profile, source, readingAt, ageSeconds, exit}~. With
+  ~--watch --every D --notify-cmd CMD~, ~gate~ polls every ~D~ and
+  runs ~CMD~ once each time the gap crosses ~--min-gap~ in either
+  direction, passing the gate JSON on standard input.
 
 ** Exit codes
 
-| Code | status, report, check                      | Other commands |
-|------+--------------------------------------------+----------------|
-| 0    | every window green                         | success        |
-| 1    | the worst window is amber                  |                |
-| 2    | the worst window is red                    |                |
-| 3    | a reading is missing or stale              |                |
-| 64   | usage error                                | usage error    |
-| 70   | any other error, such as an unreadable log | other error    |
+| Code | status, report, check                      | gate                     | Other commands |
+|------+--------------------------------------------+--------------------------+----------------|
+| 0    | every window green                         | gap >= min-gap (pass)    | success        |
+| 1    | the worst window is amber                  | gap < min-gap            |                |
+| 2    | the worst window is red                    |                          |                |
+| 3    | a reading is missing or stale              | unreadable (fail closed) |                |
+| 64   | usage error                                | usage error              | usage error    |
+| 70   | any other error, such as an unreadable log | other error              | other error    |
 
 The code is the highest one among the selected windows.
 
@@ -202,6 +225,25 @@ the numbers.
 
 When the CLI and the vendor's usage page disagree by a steady amount,
 set the profile's offset with ~plan start --offset~.
+
+* Remote accounts
+
+Profiles stay strictly separate, and ~gate~ reads only the profile
+given with ~--profile~. To track or gate a remote machine's quota from
+a local controller, pipe its usage readings into a dedicated profile:
+
+#+BEGIN_SRC bash
+ssh host claude-usage --quotapace | quotapace record --profile remote --stdin
+quotapace plan set --profile remote --window 7d --reset "Thu 15:00" --tz America/Los_Angeles --rate 0.55 --offset 8
+quotapace gate --profile remote --window 7d --min-gap 5
+#+END_SRC
+
+To watch for threshold crossings and publish gate JSON to a bus:
+
+#+BEGIN_SRC bash
+quotapace gate --profile remote --window 7d --min-gap 5 --watch --every 1m \
+  --notify-cmd "agentbus send --to coordinator --stdin"
+#+END_SRC
 
 * Data layout
 

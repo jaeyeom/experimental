@@ -30,6 +30,7 @@ type WindowStatus struct {
 	Profile    string      `json:"-"`
 	Window     string      `json:"window"`
 	State      string      `json:"state"`
+	Warnings   []string    `json:"warnings,omitempty"`
 	Latest     *Latest     `json:"latest"`
 	Plan       *PlanLine   `json:"plan"`
 	Projection *Projection `json:"projection"`
@@ -115,6 +116,9 @@ func windowsOf(prof Profile, readings []Reading) []string {
 	for w := range prof.Active {
 		seen[w] = true
 	}
+	for w := range prof.Schedules {
+		seen[w] = true
+	}
 	for _, r := range readings {
 		seen[r.Window] = true
 	}
@@ -138,7 +142,15 @@ func windowStatus(profile, window string, prof Profile, readings []Reading, now 
 	if latest != nil {
 		ws.Latest = &Latest{At: latest.At, Percent: latest.Percent, ResetsAt: latest.ResetsAt, Source: latest.Source, AgeSeconds: int64(now.Sub(latest.At) / time.Second)}
 	}
-	plan, implicit, ok := activePlan(prof, window, latest)
+	warnings, err := scheduleWarnings(prof, window, latest)
+	if err != nil {
+		return ws, err
+	}
+	ws.Warnings = warnings
+	plan, implicit, ok, err := activePlan(prof, window, latest, now)
+	if err != nil {
+		return ws, err
+	}
 	if !ok {
 		ws.History.Readings, ws.History.Checkpoints = []Reading{}, []Checkpoint{}
 		return ws, nil
@@ -168,15 +180,34 @@ func windowStatus(profile, window string, prof Profile, readings []Reading, now 
 	return ws, nil
 }
 
-func activePlan(prof Profile, window string, latest *Reading) (Plan, bool, bool) {
+func scheduleWarnings(prof Profile, window string, latest *Reading) ([]string, error) {
+	if prof.Active[window] != nil || latest == nil {
+		return nil, nil
+	}
+	sched := prof.Schedules[window]
+	if sched == nil {
+		return nil, nil
+	}
+	warn, msg, err := sched.ResetDisagreement(latest.ResetsAt)
+	if err != nil || !warn {
+		return nil, err
+	}
+	return []string{msg}, nil
+}
+
+func activePlan(prof Profile, window string, latest *Reading, now time.Time) (Plan, bool, bool, error) {
 	if p := prof.Active[window]; p != nil {
-		return *p, false, true
+		return *p, false, true, nil
+	}
+	if sched := prof.Schedules[window]; sched != nil {
+		p, ok, err := sched.PlanAt(now, latest)
+		return p, false, ok, err
 	}
 	if latest == nil {
-		return Plan{}, false, false
+		return Plan{}, false, false, nil
 	}
 	p, err := ImplicitPlan(*latest)
-	return p, true, err == nil
+	return p, true, err == nil, err
 }
 
 func nextCheckpoint(cps []Checkpoint, now time.Time) *Checkpoint {
