@@ -53,14 +53,15 @@ func (realSleeper) Sleep(ctx context.Context, d time.Duration) error {
 
 // RoundResult captures the outcome of one scan+dispatch round in loop mode.
 type RoundResult struct {
-	Round     int               `json:"round"`
-	StartedAt time.Time         `json:"started_at"` //nolint:tagliatelle // outbound contract
-	EndedAt   time.Time         `json:"ended_at"`   //nolint:tagliatelle // outbound contract
-	Scan      scan.Document     `json:"-"`
-	Scanned   int               `json:"scanned"`
-	Dispatch  dispatch.Document `json:"dispatch"`
-	Err       string            `json:"error,omitempty"`
-	FatalErr  error             `json:"-"`
+	Round      int               `json:"round"`
+	StartedAt  time.Time         `json:"started_at"` //nolint:tagliatelle // outbound contract
+	EndedAt    time.Time         `json:"ended_at"`   //nolint:tagliatelle // outbound contract
+	Scan       scan.Document     `json:"-"`
+	Scanned    int               `json:"scanned"`
+	Dispatch   dispatch.Document `json:"dispatch"`
+	CIFixInbox []dispatch.Item   `json:"ci_fix_inbox,omitempty"` //nolint:tagliatelle // outbound contract
+	Err        string            `json:"error,omitempty"`
+	FatalErr   error             `json:"-"`
 }
 
 // RoundRunner executes a single scan+dispatch round. Implementations may wrap

@@ -141,7 +141,11 @@ case "${cmd} ${sub}" in
         esac
         ;;
       *)
-        cat "${DIR}/gh-review-threads.json"
+        if [ -n "${GH_FAKE_REVIEW_THREADS_FILE-}" ]; then
+          cat "$GH_FAKE_REVIEW_THREADS_FILE"
+        else
+          cat "${DIR}/gh-review-threads.json"
+        fi
         ;;
     esac
     exit 0

@@ -182,6 +182,12 @@
 # Empty {hint} becomes "(none; investigate from scratch)".
 # ci_fix_prompt_template=
 
+# Directory scanned each loop round (and by `dispatch --ci-fix --from-inbox`)
+# for CI-fix hint JSON requests ({repo, pr, head_sha, hint, writer, time}).
+# Empty defaults to <state_dir>/ci_fix_inbox. Gated by policy_ci_fix and
+# per-head dispatch ledger dedupe.
+# ci_fix_inbox=~/.config/prsync/ci_fix_inbox
+
 # Plain text appended after a blank line to every dispatch prompt
 # (comment, rebase, CI-fix, merge-queue-fix). Empty (the default) leaves
 # prompts unchanged. `prsync dispatch --prompt-suffix TEXT` overrides it.

@@ -145,16 +145,48 @@ func cliLoopRunner(exec executor.Executor) loop.RoundRunner {
 		res.Scanned = len(scanDoc.PRs)
 
 		out, err := dispatchWithDoc(ctx, exec, cfg, scanDoc, nil, dispatchModes{}, "", false)
-		res.EndedAt = time.Now().UTC()
 		if out != nil {
 			res.Dispatch = *out
 		}
 		if err != nil {
+			res.EndedAt = time.Now().UTC()
 			if errors.Is(err, dispatch.ErrLeaseRequired) {
 				res.FatalErr = dispatchExit(err, cfg)
 			}
 			res.Err = err.Error()
+			return res
 		}
+		if cfg.Policy.CIFix != config.PolicyOff {
+			inboxDoc, inboxErr := processCIFixInboxWithDoc(ctx, exec, cfg, scanDoc, nil, false, dispatchedPRSet(out))
+			if inboxDoc != nil && len(inboxDoc.Results) > 0 {
+				res.CIFixInbox = inboxDoc.Results
+			}
+			if inboxErr != nil {
+				if errors.Is(inboxErr, dispatch.ErrLeaseRequired) {
+					res.FatalErr = dispatchExit(inboxErr, cfg)
+				}
+				res.Err = inboxErr.Error()
+			}
+		}
+		res.EndedAt = time.Now().UTC()
 		return res
 	})
+}
+
+func dispatchedPRSet(doc *dispatch.Document) map[string]bool {
+	if doc == nil {
+		return nil
+	}
+	var out map[string]bool
+	for _, r := range doc.Results {
+		switch r.Action {
+		case dispatch.ActionDispatched, dispatch.ActionDispatchedTimeout,
+			dispatch.ActionDispatchedBlocked, dispatch.ActionOpenedTabAndDispatched:
+			if out == nil {
+				out = make(map[string]bool)
+			}
+			out[fmt.Sprintf("%s#%d", r.Repo, r.Number)] = true
+		}
+	}
+	return out
 }

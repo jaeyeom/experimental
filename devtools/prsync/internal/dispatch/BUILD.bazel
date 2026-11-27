@@ -3,6 +3,7 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "go_default_library",
     srcs = [
+        "ci_fix_inbox.go",
         "dispatch.go",
         "gate.go",
         "lease.go",
@@ -36,6 +37,7 @@ go_library(
 go_test(
     name = "go_default_test",
     srcs = [
+        "ci_fix_inbox_test.go",
         "dispatch_test.go",
         "eligible_test.go",
         "gate_idle_test.go",

@@ -7,7 +7,7 @@ The short guide is [[file:../README.org][the prsync README]].
 #+BEGIN_EXAMPLE
 prsync scan     [--config PATH] [--repo owner/repo ...] [--json] [--in-scope] [--emit-jobs] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
 prsync tabs     --orphans [--config PATH] [--json] [--stdin] [--close-merged] [--go] [--force] [--tab-machine M]
-prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--merge] [--ci-fix] [--hint TEXT] [--prompt-suffix TEXT] [--force] [--stdin] [--open-tabs] [--parallel N] [--job ID] [--runner NAME] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
+prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--merge] [--ci-fix] [--hint TEXT] [--from-inbox] [--prompt-suffix TEXT] [--force] [--stdin] [--open-tabs] [--parallel N] [--job ID] [--runner NAME] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
 prsync loop     [--config PATH] [--max-rounds N] [--pause D] [--parallel N] [--dry-run] [--ensure]
 prsync maintain [--config PATH] [--pr owner/repo#N ...] [--json] [--force] [--stdin]
 prsync ledger   [--config PATH] [--pr owner/repo#N] [--kind KIND] [--head SHA] [--limit N] [--json]
@@ -36,6 +36,7 @@ prsync skill    [install|uninstall|status] [--agent A] [--scope S] [--dir D] [--
 | ~--merge~ | dispatch | Merge catch-up prompt: merge ~origin/{base}~ and push normally; skips the unaddressed-comment gate. Mutually exclusive with ~--rebase~ |
 | ~--ci-fix~ | dispatch | CI-fix prompt; skips the unaddressed-comment gate. Mutually exclusive with ~--rebase~ and ~--merge~ |
 | ~--hint TEXT~ | dispatch | Non-authoritative CI failure hint (requires ~--ci-fix~). The agent must verify it |
+| ~--from-inbox~ | dispatch | Process CI-fix hint JSON requests from ~ci_fix_inbox~ (requires ~--ci-fix~); gated by ~policy_ci_fix~ and ledger dedupe |
 | ~--prompt-suffix TEXT~ | dispatch | Append TEXT after a blank line to every prompt. Overrides ~dispatch_prompt_suffix~ for this run |
 | ~--force~ | dispatch, tabs | dispatch: re-dispatch even if dedupe would skip. tabs: allow ~--close-merged~ when every orphan is ~no_pr~ or ~unknown~ |
 | ~--stdin~ | tabs, dispatch, comment | Read a scan document from a pipe or redirected file. Absent a document: tabs self-resolve; comment and bare dispatch self-scan; ~dispatch --pr~ fetches those PRs |
@@ -59,10 +60,10 @@ prsync skill    [install|uninstall|status] [--agent A] [--scope S] [--dir D] [--
 Usage errors (exit 2): ~--pr~ with ~--all~; any two of ~--rebase~,
 ~--merge~, and ~--ci-fix~; ~--rebase~ with a prompt suffix that asks for
 a merge or no force-push (~--force~ does not bypass it);
-~--hint~ without ~--ci-fix~; ~--go~ on ~tabs~ without ~--close-merged~;
+~--hint~ without ~--ci-fix~; ~--from-inbox~ without ~--ci-fix~ or with ~--hint~; ~--go~ on ~tabs~ without ~--close-merged~;
 a ~--tab-machine~ that is neither ~local~ nor in ~machines~; an
 ~--untabbed~ other than ~include~ or ~exclude~; an unknown ~--skip~ job;
-~--job~ with ~--pr~, ~--all~, a prompt-mode flag, ~--hint~, ~--force~,
+~--job~ with ~--pr~, ~--all~, a prompt-mode flag, ~--hint~, ~--from-inbox~, ~--force~,
 ~--stdin~, or ~--parallel~; ~--runner~ without ~--job~; ~--parallel < 1~;
 ~--parallel > 1~ without ~gate_lease=required~; negative ~--max-rounds~ or
 ~--pause~; neither ~--body~ nor
@@ -166,6 +167,7 @@ Environment variables are not expanded.
 | ~dispatch_catchup~              | ~rebase~                                                                                                                                                                                                                                     | ~rebase~ or ~merge~. How every built-in catch-up preamble (comment, CI-fix, resume, and merge-queue-fix conflict) brings a branch up to date; ~merge~ merges ~origin/{base}~ and pushes normally without force-pushing. ~--rebase~ and ~--merge~ choose explicitly. |
 | ~dispatch_rerequest~            | ~on~                                                                                                                                                                                                                                         | ~on~ or ~off~. When ~off~, built-in review and resume prompts do not ask the agent to request or re-request reviewers and instead note that another tool handles reviewer requests.                                                                          |
 | ~ci_fix_prompt_template~        | built-in                                                                                                                                                                                                                                     | Same substitution, plus ~{hint}~. Used only with ~dispatch --ci-fix~.                                                                                           |
+| ~ci_fix_inbox~                  | =<state_dir>/ci_fix_inbox=                                                                                                                                                                                                                   | Directory scanned for CI-fix hint JSON requests (~repo~, ~pr~, ~head_sha~, ~hint~, ~writer~, ~time~). Leading tilde expanded.                                   |
 | ~dispatch_prompt_suffix~        | empty                                                                                                                                                                                                                                        | Text appended to every dispatch prompt; it is not part of the dedupe key. See [[file:internals.org::*dispatch_prompt_suffix][details]].                         |
 | ~ci_ignore_checks~              | empty                                                                                                                                                                                                                                        | Check-name globs dropped from ~ci_state~ when ~ci_only_checks~ is empty. See [[file:internals.org::*ci_ignore_checks][details]].                                |
 | ~ci_only_checks~                | empty                                                                                                                                                                                                                                        | When set, this list wins: only matching checks feed ~ci_state~. Same glob rules as ~ci_ignore_checks~.                                                          |
@@ -549,7 +551,20 @@ prsync dispatch --config ./prsync.config --rebase --pr acme/widgets#123 --go
 prsync dispatch --config ./prsync.config --ci-fix --pr acme/widgets#123 \
   --hint 'job X failed at step/target Y; key error: boom; looks real (not flake)'
 prsync dispatch --config ./prsync.config --ci-fix --pr acme/widgets#123 --go --force
+prsync dispatch --config ./prsync.config --ci-fix --from-inbox --go
 #+END_SRC
+
+With ~--from-inbox~ (and in each ~prsync loop~ round when ~policy_ci_fix~
+is not ~off~), prsync scans ~ci_fix_inbox~ (default ~<state_dir>/ci_fix_inbox~)
+for non-dotfile ~.json~ requests (~repo~, ~pr~, ~head_sha~, ~hint~,
+optional ~writer~ and ~time~), ignoring dotfiles (such as ~.tmp-*~) and
+subdirectories (~done/~, ~stale/~, ~bad/~):
+
+- Malformed JSON or missing required fields (~repo~, ~pr > 0~, ~head_sha~, ~hint~) are reported and moved to ~bad/~.
+- A changed ~head_sha~ or non-open / missing PR is moved to ~stale/~ unsent.
+- When ~policy_ci_fix=auto~ (and live) and the PR's head matches, its tab and gate are free, and the dispatch ledger has no prior ~ci-fix~ dispatch for that ~(pr, head_sha)~, prsync sends the CI-fix prompt with ~hint~, records state and ledger, and moves the file to ~done/~ with the outcome (~skipped_deduped~ if already in the ledger).
+- Busy tabs and busy gates leave the file in ~ci_fix_inbox~ for the next round.
+- ~policy_ci_fix=off~, ~policy_ci_fix=dry-run~, and dry-run mode (~--dry-run~ or missing ~--go~) never send prompts and never move inbox files.
 
 ** comment
 

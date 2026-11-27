@@ -53,6 +53,15 @@ const (
 	ActionSkippedNoFailingWaivedChecks = "skipped_no_failing_waived_checks"
 	// ActionSkippedWaiveCap means waive_max_per_pr re-posts were already made.
 	ActionSkippedWaiveCap = "skipped_waive_cap"
+	// ActionSkippedStale means a ci_fix_inbox request targeted an older head
+	// or a pull request that is no longer open.
+	ActionSkippedStale = "skipped_stale"
+	// ActionSkippedPolicyOff means policy_ci_fix is off so ci_fix_inbox
+	// requests were not dispatched.
+	ActionSkippedPolicyOff = "skipped_policy_off"
+	// ActionBadRequest means a ci_fix_inbox file was malformed JSON or
+	// missing required fields.
+	ActionBadRequest = "bad_request"
 )
 
 // Kind values in a dispatch result: which prompt the PR gets.
@@ -103,4 +112,6 @@ type Item struct {
 	// Woke is set when the pane's agent was hibernated and agentbus
 	// woke it before the prompt.
 	Woke bool `json:"woke,omitempty"`
+	// InboxFile is the ci_fix_inbox filename when dispatched from the inbox.
+	InboxFile string `json:"inbox_file,omitempty"` //nolint:tagliatelle // brief outbound contract
 }

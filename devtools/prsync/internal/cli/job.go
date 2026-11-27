@@ -42,7 +42,7 @@ type jobResult struct {
 
 // jobConflicts are the dispatch flags --job cannot take: the job says
 // what to do.
-var jobConflicts = []string{"pr", "all", "rebase", "merge", "ci-fix", "hint", "force", "stdin", "parallel"}
+var jobConflicts = []string{"pr", "all", "rebase", "merge", "ci-fix", "hint", "from-inbox", "force", "stdin", "parallel"}
 
 func validateJobFlags(cmd *cobra.Command) error {
 	if !cmd.Flags().Changed("job") {

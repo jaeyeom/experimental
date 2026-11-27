@@ -1480,3 +1480,40 @@ func TestLoadParallelConfigAndValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestCIFixInboxConfigResolution(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Default resolves under state_dir.
+	stateDir := t.TempDir()
+	cfgDefaultPath := filepath.Join(t.TempDir(), "default.config")
+	mustWrite(t, cfgDefaultPath, "state_file="+filepath.Join(stateDir, "state.json")+"\n")
+	gotDefault, err := Load(cfgDefaultPath)
+	if err != nil {
+		t.Fatalf("Load(default) error = %v", err)
+	}
+	wantInbox := filepath.Join(stateDir, "ci_fix_inbox")
+	if gotDefault.CIFixInbox != wantInbox || gotDefault.CIFixInboxDir() != wantInbox {
+		t.Fatalf("default CIFixInbox = %q / %q, want %q", gotDefault.CIFixInbox, gotDefault.CIFixInboxDir(), wantInbox)
+	}
+	if gotDefault.StateDir() != stateDir {
+		t.Fatalf("StateDir() = %q, want %q", gotDefault.StateDir(), stateDir)
+	}
+	wantLedger := filepath.Join(stateDir, "ledger.jsonl")
+	if gotDefault.ResolvedLedgerFile() != wantLedger {
+		t.Fatalf("ResolvedLedgerFile() = %q, want %q", gotDefault.ResolvedLedgerFile(), wantLedger)
+	}
+
+	// Explicit ci_fix_inbox with tilde expands and overrides default.
+	cfgCustomPath := filepath.Join(t.TempDir(), "custom.config")
+	mustWrite(t, cfgCustomPath, "state_file="+filepath.Join(stateDir, "state.json")+"\nci_fix_inbox=~/my-inbox\n")
+	gotCustom, err := Load(cfgCustomPath)
+	if err != nil {
+		t.Fatalf("Load(custom) error = %v", err)
+	}
+	wantCustom := filepath.Join(home, "my-inbox")
+	if gotCustom.CIFixInbox != wantCustom || gotCustom.CIFixInboxDir() != wantCustom {
+		t.Fatalf("custom CIFixInbox = %q / %q, want %q", gotCustom.CIFixInbox, gotCustom.CIFixInboxDir(), wantCustom)
+	}
+}

@@ -195,6 +195,9 @@ type Config struct {
 	// MergePromptTemplate is the --merge catch-up prompt.
 	MergePromptTemplate string
 	CIFixPromptTemplate string
+	// CIFixInbox is the directory scanned for CI-fix hint JSON requests.
+	// Empty defaults to <state_dir>/ci_fix_inbox.
+	CIFixInbox string
 	// DispatchCatchup is rebase or merge: how every built-in catch-up
 	// preamble (comment, CI-fix, resume, and merge-queue-fix conflict)
 	// brings a branch up to date. --rebase and --merge choose explicitly.
@@ -460,6 +463,11 @@ func Load(explicitPath string) (Config, error) {
 		}
 	}
 	cfg.StateFile = expandTilde(cfg.StateFile)
+	if cfg.CIFixInbox != "" {
+		cfg.CIFixInbox = expandTilde(cfg.CIFixInbox)
+	} else {
+		cfg.CIFixInbox = filepath.Join(filepath.Dir(cfg.StateFile), "ci_fix_inbox")
+	}
 	cfg.GHBin = expandTilde(cfg.GHBin)
 	cfg.HerdrBin = expandTilde(cfg.HerdrBin)
 	cfg.JiraBin = expandTilde(cfg.JiraBin)
@@ -762,6 +770,9 @@ func applyOtherKey(cfg *Config, key, val string) error {
 		return applyCommentKey(cfg, key, val)
 	case "ci_ignore_checks", "ci_only_checks":
 		return applyCheckGlobs(cfg, key, val)
+	case "ci_fix_inbox":
+		cfg.CIFixInbox = strings.TrimSpace(val)
+		return nil
 	case "gate_ignore_procs", "gate_build_tools", "gate_build_tool_ignore", "gate_pending_question",
 		"gate_lease", "gate_job_min_age", "gate_exempt_panes", "gate_exempt_tabs":
 		return applyGateSignal(cfg, key, val)
@@ -1377,4 +1388,29 @@ func expandTilde(path string) string {
 		}
 	}
 	return path
+}
+
+// StateDir returns the directory containing StateFile.
+func (c Config) StateDir() string {
+	return filepath.Dir(c.StateFile)
+}
+
+// CIFixInboxDir returns the resolved ci_fix_inbox directory.
+func (c Config) CIFixInboxDir() string {
+	if c.CIFixInbox != "" {
+		return expandTilde(c.CIFixInbox)
+	}
+	return filepath.Join(c.StateDir(), "ci_fix_inbox")
+}
+
+// ResolvedLedgerFile returns Policy.LedgerFile when explicitly configured or
+// already inside StateDir, otherwise <state_dir>/ledger.jsonl.
+func (c Config) ResolvedLedgerFile() string {
+	if c.Policy.LedgerFileConfigured {
+		return c.Policy.LedgerFile
+	}
+	if c.Policy.LedgerFile != "" && filepath.Dir(c.Policy.LedgerFile) == c.StateDir() {
+		return c.Policy.LedgerFile
+	}
+	return filepath.Join(c.StateDir(), "ledger.jsonl")
 }

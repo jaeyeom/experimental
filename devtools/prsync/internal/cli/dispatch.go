@@ -31,6 +31,7 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 		merge      bool
 		ciFix      bool
 		hint       string
+		fromInbox  bool
 		force      bool
 		readStdin  bool
 		suffix     string
@@ -72,7 +73,7 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 				}
 				return runJob(ctx, stdout, exec, cfg, job, runner)
 			}
-			modes := dispatchModes{rebase: rebase, merge: merge, ciFix: ciFix}
+			modes := dispatchModes{rebase: rebase, merge: merge, ciFix: ciFix, fromInbox: fromInbox}
 			return runDispatch(ctx, stdout, exec, configPath, prs, all, goLive, modes, hint, force, readStdin, promptSuffix, applyScope)
 		},
 	}
@@ -85,6 +86,7 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	cmd.Flags().BoolVar(&merge, "merge", false, "dispatch a merge catch-up prompt: merge the base branch and push normally (skips the unaddressed-comment gate)")
 	cmd.Flags().BoolVar(&ciFix, "ci-fix", false, "dispatch a CI-fix prompt (skips the unaddressed-comment gate)")
 	cmd.Flags().StringVar(&hint, "hint", "", "non-authoritative CI failure hint (requires --ci-fix)")
+	cmd.Flags().BoolVar(&fromInbox, "from-inbox", false, "process CI-fix hint requests from ci_fix_inbox (requires --ci-fix)")
 	cmd.Flags().BoolVar(&force, "force", false, "re-dispatch even if dedupe state would skip")
 	cmd.Flags().StringVar(&suffix, "prompt-suffix", "", "text appended after a blank line to every prompt (overrides dispatch_prompt_suffix)")
 	cmd.Flags().BoolVar(&readStdin, "stdin", false, "read a scan document from stdin (otherwise self-scan, or fetch --pr targets)")
@@ -103,7 +105,7 @@ var promptWaker = func(exec executor.Executor) dispatch.Waker {
 
 // dispatchModes are the mutually exclusive prompt-mode flags.
 type dispatchModes struct {
-	rebase, merge, ciFix bool
+	rebase, merge, ciFix, fromInbox bool
 	// job is the agentbus job a dispatch --job runs, nil otherwise.
 	job *dispatch.Job
 }
@@ -112,6 +114,18 @@ func validateDispatchFlags(prs []string, all bool, m dispatchModes, hint string)
 	if all && len(prs) > 0 {
 		return &ExitError{Code: ExitUsage, Err: errors.New("cannot combine --pr and --all")}
 	}
+	if err := validateDispatchModeFlags(m, hint); err != nil {
+		return err
+	}
+	for _, p := range prs {
+		if _, _, err := dispatch.ParsePR(p); err != nil {
+			return &ExitError{Code: ExitUsage, Err: err}
+		}
+	}
+	return nil
+}
+
+func validateDispatchModeFlags(m dispatchModes, hint string) error {
 	if m.rebase && m.ciFix {
 		return &ExitError{Code: ExitUsage, Err: errors.New("cannot combine --ci-fix and --rebase")}
 	}
@@ -124,10 +138,11 @@ func validateDispatchFlags(prs []string, all bool, m dispatchModes, hint string)
 	if hint != "" && !m.ciFix {
 		return &ExitError{Code: ExitUsage, Err: errors.New("--hint requires --ci-fix")}
 	}
-	for _, p := range prs {
-		if _, _, err := dispatch.ParsePR(p); err != nil {
-			return &ExitError{Code: ExitUsage, Err: err}
-		}
+	if m.fromInbox && !m.ciFix {
+		return &ExitError{Code: ExitUsage, Err: errors.New("--from-inbox requires --ci-fix")}
+	}
+	if m.fromInbox && hint != "" {
+		return &ExitError{Code: ExitUsage, Err: errors.New("cannot combine --from-inbox and --hint")}
 	}
 	return nil
 }
@@ -149,7 +164,12 @@ func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, 
 		}
 	}
 	logStartup(ctx, "dispatch", cfg)
-	out, err := dispatchPRs(ctx, exec, cfg, prs, modes, hint, force, readStdin)
+	var out *dispatch.Document
+	if modes.fromInbox {
+		out, err = dispatchFromInbox(ctx, exec, cfg, prs, all, force, readStdin)
+	} else {
+		out, err = dispatchPRs(ctx, exec, cfg, prs, modes, hint, force, readStdin)
+	}
 	if out == nil {
 		return err
 	}
@@ -160,6 +180,106 @@ func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, 
 		return dispatchExit(err, cfg)
 	}
 	return nil
+}
+
+func dispatchFromInbox(ctx context.Context, exec executor.Executor, cfg config.Config, prs []string, all, force, readStdin bool) (*dispatch.Document, error) {
+	entries, err := dispatch.ReadCIFixInbox(cfg.CIFixInboxDir())
+	if err != nil {
+		return nil, &ExitError{Code: ExitPrecondition, Err: err}
+	}
+	if len(entries) == 0 {
+		return &dispatch.Document{
+			GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+			DryRun:      cfg.DryRun || cfg.Policy.CIFix == config.PolicyDryRun,
+			Results:     []dispatch.Item{},
+		}, nil
+	}
+	if cfg.Policy.CIFix == config.PolicyOff {
+		return processCIFixInboxWithDoc(ctx, exec, cfg, scan.Document{}, prs, force, nil)
+	}
+	doc, err := loadInboxScanDoc(ctx, cfg, exec, readStdin, all, prs, entries)
+	if err != nil {
+		return nil, err
+	}
+	return processCIFixInboxWithDoc(ctx, exec, cfg, doc, prs, force, nil)
+}
+
+func loadInboxScanDoc(ctx context.Context, cfg config.Config, exec executor.Executor, readStdin, all bool, prs []string, entries []dispatch.InboxEntry) (scan.Document, error) {
+	doc, fromStdin, err := readStdinScan(os.Stdin, readStdin)
+	if err != nil {
+		return scan.Document{}, &ExitError{Code: ExitUsage, Err: fmt.Errorf("stdin scan JSON: %w", err)}
+	}
+	if fromStdin {
+		return doc, nil
+	}
+	if all {
+		return loadFullScan(ctx, cfg, exec)
+	}
+	targets, err := inboxScanTargets(prs, entries)
+	if err != nil {
+		return scan.Document{}, &ExitError{Code: ExitUsage, Err: err}
+	}
+	if len(targets) == 0 {
+		return scan.Document{}, nil
+	}
+	return loadTargetedDoc(ctx, cfg, exec, targets)
+}
+
+func inboxScanTargets(prs []string, entries []dispatch.InboxEntry) ([]string, error) {
+	filter := make(map[string]bool, len(prs))
+	for _, raw := range prs {
+		repo, num, err := dispatch.ParsePR(raw)
+		if err != nil {
+			return nil, fmt.Errorf("parse --pr %q: %w", raw, err)
+		}
+		filter[fmt.Sprintf("%s#%d", repo, num)] = true
+	}
+	seen := make(map[string]bool)
+	var out []string
+	for _, entry := range entries {
+		if entry.Err != nil {
+			continue
+		}
+		key := fmt.Sprintf("%s#%d", entry.Request.Repo, entry.Request.PR)
+		if len(filter) > 0 && !filter[key] {
+			continue
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, key)
+	}
+	return out, nil
+}
+
+func processCIFixInboxWithDoc(ctx context.Context, exec executor.Executor, cfg config.Config, doc scan.Document, prs []string, force bool, skipPRs map[string]bool) (*dispatch.Document, error) {
+	h := herdr.NewClient(exec, cfg.HerdrBin)
+	ctx = withGateProbes(ctx, exec, cfg, h)
+	opts := dispatch.InboxOptions{
+		InboxDir:   cfg.CIFixInboxDir(),
+		Doc:        doc,
+		PRs:        prs,
+		SkipPRs:    skipPRs,
+		RunnerPane: h.RunnerPane(ctx),
+		Force:      force,
+		Ledger:     &ledger.Store{Path: cfg.ResolvedLedgerFile()},
+		Remote:     func(machine string) dispatch.Herdr { return machineHerdr(exec, cfg, machine) },
+		Opener: func(machine string) dispatch.TabOpener {
+			if machine == "" {
+				return h
+			}
+			return machineHerdr(exec, cfg, machine)
+		},
+	}
+	if cfg.WakeBeforePrompt == "auto" {
+		opts.Waker = promptWaker(exec)
+	}
+	out, err := dispatch.ProcessCIFixInbox(ctx, h, dispatch.FileStore{Path: cfg.StateFile, Scope: cfg.TabMachine}, cfg, opts, time.Now())
+	if errors.Is(err, dispatch.ErrLeaseRequired) {
+		return nil, dispatchExit(err, cfg)
+	}
+	return &out, err //nolint:wrapcheck // dispatchExit classifies it
 }
 
 // dispatchPRs loads the scan document and runs dispatch on it. The

@@ -110,7 +110,7 @@ or the prompt suffix forbids a force-push. A prompt job is ~done~ once the promp
 ~dispatched_timeout~, ~dispatched_blocked~, or
 ~opened_tab_and_dispatched~), and ~fail~ with the dispatch action as the
 note otherwise. Any other kind fails. ~--job~ cannot be combined with
-~--pr~, ~--all~, ~--rebase~, ~--merge~, ~--ci-fix~, ~--hint~, ~--force~,
+~--pr~, ~--all~, ~--rebase~, ~--merge~, ~--ci-fix~, ~--hint~, ~--from-inbox~, ~--force~,
 or ~--stdin~.
 
 Under a runner's ~cli~ executor the runner reports the command's exit

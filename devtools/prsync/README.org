@@ -136,7 +136,7 @@ it. Stdout stays JSON.
 #+begin_example
 prsync scan     [--config PATH] [--repo owner/repo ...] [--json] [--in-scope] [--emit-jobs] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
 prsync tabs     --orphans [--config PATH] [--json] [--stdin] [--close-merged] [--go] [--force] [--tab-machine M]
-prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--merge] [--ci-fix] [--hint TEXT] [--prompt-suffix TEXT] [--force] [--stdin] [--open-tabs] [--parallel N] [--job ID] [--runner NAME] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
+prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--merge] [--ci-fix] [--hint TEXT] [--from-inbox] [--prompt-suffix TEXT] [--force] [--stdin] [--open-tabs] [--parallel N] [--job ID] [--runner NAME] [--tab-machine M] [--untabbed include|exclude] [--skip JOB ...]
 prsync loop     [--config PATH] [--max-rounds N] [--pause D] [--parallel N] [--dry-run] [--ensure]
 prsync maintain [--config PATH] [--pr owner/repo#N ...] [--json] [--force] [--stdin]
 prsync ledger   [--config PATH] [--pr owner/repo#N] [--kind KIND] [--head SHA] [--limit N] [--json]
@@ -185,6 +185,7 @@ are ~KEY=VALUE~. A ~#~ starts a comment. Unknown keys are ignored.
 | ~dispatch_catchup~         | ~rebase~        | ~merge~: built-in preambles and conflicts merge, never force-push. |
 | ~dispatch_rerequest~       | ~on~            | ~off~: built-in prompts omit reviewer re-requests.          |
 | ~ci_fix_prompt_template~   | built-in        | Prompt used with ~dispatch --ci-fix~.                       |
+| ~ci_fix_inbox~             | =<state_dir>/ci_fix_inbox= | Directory for CI-fix hint JSON requests (gated by ~policy_ci_fix~). |
 | ~ci_ignore_checks~          | empty           | Check names left out of ~ci_state~.                         |
 | ~ci_only_checks~            | empty           | When set, only these checks feed ~ci_state~.                |
 | ~dispatch_max_parallel~     | ~1~             | Concurrent PR tabs during ~dispatch --go~ (~>1~ needs ~gate_lease=required~). |

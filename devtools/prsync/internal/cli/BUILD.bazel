@@ -52,6 +52,7 @@ go_test(
         "cli_comment_test.go",
         "cli_dispatch_test.go",
         "cli_gate_test.go",
+        "cli_inbox_test.go",
         "cli_integration_test.go",
         "cli_job_test.go",
         "cli_log_test.go",
