@@ -78,6 +78,7 @@ func (s *Server) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/items/{id}/snooze", s.writeItem(inboxrpc.OpSnooze, s.checkSnooze, s.snooze))
 	mux.HandleFunc("POST /api/v1/items/{id}/unsnooze", s.writeItem(inboxrpc.OpUnsnooze, noBody, s.unsnooze))
 	mux.HandleFunc("POST /api/v1/items/{id}/flag", s.flagItem)
+	mux.HandleFunc("POST /api/v1/items/{id}/good", s.goodItem)
 	mux.HandleFunc("POST /api/v1/asks/{id}/done", s.closeAskHandler(decide.AskStatusDone))
 	mux.HandleFunc("POST /api/v1/asks/{id}/drop", s.closeAskHandler(decide.AskStatusDropped))
 	mux.HandleFunc("POST /api/v1/send", s.send)

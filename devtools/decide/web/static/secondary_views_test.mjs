@@ -15,7 +15,9 @@ import {
   urlBase64ToUint8Array, pushSupport, subscriptionBody, classOptions, toggleClass, validateQuiet,
   prefsBody, formFromSub, permissionMessage,
 } from './push_model.js';
-import { groupReasons, validateFlagInput, resolveClientFlagTarget } from './flag_sheet.js';
+import {
+  groupReasons, allowsEarlierItem, validateFlagInput, resolveClientFlagTarget, openFlagSheet, openGoodSheet,
+} from './flag_sheet.js';
 import { openAskCount, sortAsks, asksPanel, safeHttpURL } from './asks_model.js';
 import { applyResync, applyDelta, emptyState, parseRoute } from './store.js';
 
@@ -375,20 +377,36 @@ test('quiet hours validation and preferences body', () => {
 });
 
 // --- flag reasons and asks ---
-test('flag reason grouping, validation, and message target resolution', () => {
+test('flag reason grouping, escalation earlier item, validation, and message target resolution', () => {
   const reasons = [
     { id: 'verdict-not-first', category: 'format', label: 'verdict not first' },
     { id: 'vague-pronoun', category: 'main-text', label: 'vague pronoun' },
+    {
+      id: 'already-decided',
+      category: 'escalation',
+      label: 'should not have been asked: an earlier human decision covers it',
+      allowEarlierItem: true,
+    },
     { id: 'other', category: 'other', label: 'other (note required)', requireNote: true },
   ];
   const groups = groupReasons(reasons);
-  assert.deepEqual(groups.map((g) => g.category), ['format', 'main-text', 'other']);
+  assert.deepEqual(groups.map((g) => g.category), ['format', 'main-text', 'escalation', 'other']);
+  assert.equal(allowsEarlierItem(reasons, ['vague-pronoun']), false);
+  assert.equal(allowsEarlierItem(reasons, ['already-decided']), true);
   assert.equal(validateFlagInput(reasons, [], '').ok, false);
   assert.equal(validateFlagInput(reasons, ['other'], '  ').ok, false);
-  assert.deepEqual(validateFlagInput(reasons, ['other', 'vague-pronoun', 'other'], '  unclear it  '), {
+  assert.equal(validateFlagInput(reasons, ['already-decided'], '', 'D-1 D-2').ok, false);
+  assert.deepEqual(validateFlagInput(reasons, ['other', 'vague-pronoun', 'other'], '  unclear it  ', 'D-001'), {
     ok: true,
     reasonIds: ['other', 'vague-pronoun'],
     note: 'unclear it',
+    earlierItemId: '',
+  });
+  assert.deepEqual(validateFlagInput(reasons, ['already-decided'], '', '  D-001  '), {
+    ok: true,
+    reasonIds: ['already-decided'],
+    note: '',
+    earlierItemId: 'D-001',
   });
 
   const item = {
@@ -403,6 +421,89 @@ test('flag reason grouping, validation, and message target resolution', () => {
   };
   assert.deepEqual(resolveClientFlagTarget(item, null), { messageIndex: 0, agent: 'worker/alice', preview: 'First msg' });
   assert.deepEqual(resolveClientFlagTarget({ id: 'D-2', owner: 'bob', question: 'Q' }, null), { messageIndex: null, agent: 'bob', preview: 'Q' });
+});
+
+test('flag sheet shows optional earlier item field for escalation and good sheet submits thumbs-up', async () => {
+  class FakeSheetEl {
+    constructor(tag) {
+      this.tagName = tag.toUpperCase();
+      this.attrs = {};
+      this.children = [];
+      this.listeners = {};
+      this.textContent = '';
+      this.value = '';
+      this.checked = false;
+      this.hidden = false;
+      this.disabled = false;
+    }
+    setAttribute(k, v) { this.attrs[k] = String(v); if (k === 'hidden') this.hidden = true; }
+    addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn); }
+    dispatch(type) { for (const fn of (this.listeners[type] ?? [])) fn({ target: this }); }
+    append(...nodes) {
+      for (const n of nodes) {
+        if (typeof n === 'string') this.children.push({ tagName: '#TEXT', textContent: n, children: [], attrs: {} });
+        else if (n != null) this.children.push(n);
+      }
+    }
+    showModal() { this.open = true; }
+    close() { this.open = false; this.dispatch('close'); }
+    remove() {}
+    focus() {}
+    walk(fn) { fn(this); for (const c of this.children) c.walk?.(fn); }
+    findAll(pred) {
+      const out = [];
+      this.walk((n) => { if (pred(n)) out.push(n); });
+      return out;
+    }
+  }
+  const prevDoc = globalThis.document;
+  const bodyChildren = [];
+  globalThis.document = {
+    createElement: (tag) => new FakeSheetEl(tag),
+    body: { append: (...nodes) => bodyChildren.push(...nodes) },
+  };
+  try {
+    const reasons = [
+      { id: 'vague-pronoun', category: 'main-text', label: 'vague pronoun' },
+      { id: 'already-decided', category: 'escalation', label: 'should not have been asked: an earlier human decision covers it', allowEarlierItem: true },
+    ];
+    const item = { id: 'D-5', owner: 'worker/ada', question: 'Repeat?', messages: [{ author: 'agent', by: 'worker/ada', text: 'Repeat?' }] };
+    let submittedFlag = null;
+    const flagDlg = openFlagSheet({
+      item,
+      reasons,
+      onSubmit: async (payload) => { submittedFlag = payload; },
+    });
+    const earlierWrap = flagDlg.findAll((n) => n.attrs?.class === 'flag-earlier-wrap')[0];
+    const earlierInput = flagDlg.findAll((n) => n.attrs?.id === 'flag-earlier-item')[0];
+    const escCheck = flagDlg.findAll((n) => n.attrs?.value === 'already-decided')[0];
+    assert.equal(earlierWrap.hidden, true);
+    escCheck.checked = true;
+    escCheck.dispatch('change');
+    assert.equal(earlierWrap.hidden, false);
+    earlierInput.value = 'D-001';
+    const saveFlag = flagDlg.findAll((n) => n.tagName === 'BUTTON' && n.textContent === 'Save flag')[0];
+    await saveFlag.listeners.click[0]();
+    assert.deepEqual(submittedFlag, {
+      messageIndex: 0,
+      reasons: ['already-decided'],
+      note: '',
+      earlierItemId: 'D-001',
+    });
+
+    let submittedGood = null;
+    const goodDlg = openGoodSheet({
+      item,
+      onSubmit: async (payload) => { submittedGood = payload; },
+    });
+    const goodNote = goodDlg.findAll((n) => n.attrs?.id === 'good-note')[0];
+    goodNote.value = 'concise options';
+    const saveGood = goodDlg.findAll((n) => n.tagName === 'BUTTON' && n.textContent === 'Save 👍')[0];
+    await saveGood.listeners.click[0]();
+    assert.deepEqual(submittedGood, { messageIndex: 0, note: 'concise options' });
+  } finally {
+    globalThis.document = prevDoc;
+  }
 });
 
 test('asks sorting, panel visibility, safe URLs, and SSE state updates', () => {

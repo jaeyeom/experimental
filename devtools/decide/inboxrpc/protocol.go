@@ -26,7 +26,8 @@ import (
 // Version 12 added org-tree.
 // Version 13 added panels.
 // Version 14 added flag reasons, message/item flagging, and asks view.
-const Version = 14
+// Version 15 added escalation earlierItemId on flags and good-message events.
+const Version = 15
 
 // Ops. Archive is done with the outcome "archived". Deliveries refreshes
 // the pending delivery marks on the hub.
@@ -62,6 +63,7 @@ const (
 	OpPanels       = "panels"
 	OpReasons      = "reasons"
 	OpFlag         = "flag"
+	OpGood         = "good"
 	OpListAsks     = "list-asks"
 	OpCloseAsk     = "close-ask"
 )
@@ -105,6 +107,7 @@ type Request struct {
 	ConflictID        string        `json:"conflictId,omitempty"`
 	MsgIndex          *int          `json:"msgIndex,omitempty"`
 	Reasons           []string      `json:"reasons,omitempty"`
+	EarlierItemID     string        `json:"earlierItemId,omitempty"`
 }
 
 // Response is one line from the server. Error fails the request.
@@ -161,5 +164,6 @@ var writeOps = map[string]bool{
 	OpPutDraft:     true,
 	OpDeleteDraft:  true,
 	OpFlag:         true,
+	OpGood:         true,
 	OpCloseAsk:     true,
 }

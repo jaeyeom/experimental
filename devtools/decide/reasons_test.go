@@ -13,17 +13,27 @@ func TestReasonsLoadFromConfigAndStartingList(t *testing.T) {
 		t.Fatalf("LoadConfig empty: %v", err)
 	}
 	reasons := cfg.EffectiveReasons()
-	if len(reasons) != 13 {
-		t.Fatalf("default reason count = %d, want 13", len(reasons))
+	if len(reasons) != 14 {
+		t.Fatalf("default reason count = %d, want 14", len(reasons))
 	}
 	wantCategories := map[string]bool{}
-	for _, r := range reasons {
+	var foundEscalation *Reason
+	for i := range reasons {
+		r := reasons[i]
 		wantCategories[r.Category] = true
+		if r.ID == ReasonAlreadyDecided {
+			foundEscalation = &r
+		}
 	}
-	for _, cat := range []string{"format", "main-text", "choices", "other"} {
+	for _, cat := range []string{"format", "main-text", "choices", "escalation", "other"} {
 		if !wantCategories[cat] {
 			t.Errorf("default reasons missing category %q", cat)
 		}
+	}
+	if foundEscalation == nil || foundEscalation.Category != "escalation" ||
+		foundEscalation.Label != "should not have been asked: an earlier human decision covers it" ||
+		!foundEscalation.AllowEarlierItem {
+		t.Fatalf("escalation reason = %+v", foundEscalation)
 	}
 
 	writeConfig(t, `{
@@ -87,6 +97,16 @@ func TestValidateReasonSelectionRequiresNoteForOther(t *testing.T) {
 	}
 	if note != "clarify who acts" {
 		t.Fatalf("note = %q", note)
+	}
+
+	if got, err := ValidateEarlierItemID(catalog, []string{ReasonAlreadyDecided}, "  D-001  "); err != nil || got != "D-001" {
+		t.Fatalf("ValidateEarlierItemID valid = (%q, %v)", got, err)
+	}
+	if got, err := ValidateEarlierItemID(catalog, []string{ReasonAlreadyDecided}, ""); err != nil || got != "" {
+		t.Fatalf("ValidateEarlierItemID optional empty = (%q, %v)", got, err)
+	}
+	if _, err := ValidateEarlierItemID(catalog, []string{"vague-pronoun"}, "D-001"); err == nil {
+		t.Fatal("expected error passing earlierItemId without escalation reason")
 	}
 }
 

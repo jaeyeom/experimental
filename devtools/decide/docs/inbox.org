@@ -36,6 +36,7 @@ navigation only and never change data.
 | ~E~                                   | item                         | Archive with a note: ask for one line, then mark done.                       |
 | ~b~                                   | list, item                   | Snooze. In Snoozed, ~b~ also offers unsnooze.                                |
 | ~!~                                   | list, item                   | Flag an agent message or item with reasons.                                  |
+| ~+~                                   | list, item                   | Record a thumbs-up on an agent message or item.                              |
 | ~/~                                   | any                          | Filter the list, or highlight an item. Empty Enter clears.                   |
 | ~esc~                                 | list                         | Clear the agent filter.                                                      |
 | ~1~-~9~                               | item                         | Answer with that option.                                                     |

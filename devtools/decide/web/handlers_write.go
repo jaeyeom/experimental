@@ -320,9 +320,10 @@ func (s *Server) setFavorites(w http.ResponseWriter, r *http.Request) {
 }
 
 type flagReq struct {
-	MessageIndex *int     `json:"messageIndex"`
-	Reasons      []string `json:"reasons"`
-	Note         string   `json:"note"`
+	MessageIndex  *int     `json:"messageIndex"`
+	Reasons       []string `json:"reasons"`
+	Note          string   `json:"note"`
+	EarlierItemID string   `json:"earlierItemId"`
 }
 
 func (s *Server) flagItem(w http.ResponseWriter, r *http.Request) {
@@ -344,7 +345,40 @@ func (s *Server) flagItem(w http.ResponseWriter, r *http.Request) {
 		fail(w, err, 0)
 		return
 	}
-	ev, err := s.Backend.Flag(id, body.MessageIndex, body.Reasons, body.Note)
+	if err := tooLong("earlierItemId", body.EarlierItemID); err != nil {
+		fail(w, err, 0)
+		return
+	}
+	ev, err := s.Backend.Flag(id, body.MessageIndex, body.Reasons, body.Note, body.EarlierItemID)
+	if err != nil {
+		fail(w, err, http.StatusBadRequest)
+		return
+	}
+	s.Watcher().Signal()
+	writeJSON(w, http.StatusOK, map[string]any{"event": ev})
+}
+
+type goodReq struct {
+	MessageIndex *int   `json:"messageIndex"`
+	Note         string `json:"note"`
+}
+
+func (s *Server) goodItem(w http.ResponseWriter, r *http.Request) {
+	id, err := itemID(r)
+	if err != nil {
+		fail(w, err, 0)
+		return
+	}
+	var body goodReq
+	if err := decodeBody(w, r, &body); err != nil {
+		fail(w, err, 0)
+		return
+	}
+	if err := tooLong("note", body.Note); err != nil {
+		fail(w, err, 0)
+		return
+	}
+	ev, err := s.Backend.Good(id, body.MessageIndex, body.Note)
 	if err != nil {
 		fail(w, err, http.StatusBadRequest)
 		return

@@ -242,7 +242,7 @@ that hub for one invocation.
 | ~decide assign~                  | Record who is working on an item. ~--clear~ removes it.                          |
 | ~decide retag~                   | Change an item's class and prefix, recording a thread event.                     |
 | ~decide ask ls/show/add/done/drop~ | Manage optional tracked asks (~asks.enabled~).                                   |
-| ~decide log~                       | List choice events, misfits (~--misfit~), and flags (~--flags~). ~log cause~ adds a cause; ~log search~ searches answered decisions/facts. |
+| ~decide log~                       | List choice events, misfits (~--misfit~), flags (~--flags~), and thumbs-ups (~--good~). ~log cause~ adds a cause; ~log search~ searches answered decisions/facts. |
 | ~decide supersede~               | Record that a newer item replaces an older one.                                  |
 | ~decide skill~                   | Print the agent instructions.                                                    |
 | ~decide skill install~           | Install the agent skill for ~claude~, ~codex~, ~antigravity~, ~grok~, or ~all~.  |
@@ -325,10 +325,10 @@ in the same locked write as the answer. Free-text replies over choices
 are automatically flagged ~options did not fit~ with a snapshot of the
 offered options and the asking agent:
 
-- ~decide log [--misfit] [--flags] [--agent A] [--cause R] [--group-by-agent] [--json]~ lists choice events, misfits, or inbox flags.
-- ~decide log cause <event> <reason>... [--note TEXT]~ appends an immutable cause annotation to a misfit event.
+- ~decide log [--misfit] [--flags] [--good] [--agent A] [--cause R] [--group-by-agent] [--json]~ lists choice events, misfits, inbox flags, or thumbs-up (~good~) records.
+- ~decide log cause <event> <reason>... [--note TEXT] [--earlier-item ID]~ appends an immutable cause annotation to a misfit event.
 - ~decide log reasons~ prints the active reason catalog from ~config.json~ (~reasons~).
-- Press ~!~ in the terminal or web inbox (or click ~Flag~ in the web UI) to record a flag event on any item or agent message.
+- Press ~!~ in the terminal or web inbox (or click ~Flag~ in the web UI) to record a flag event on any item or agent message, and ~+~ (or click ~👍~ in the web UI) to record a thumbs-up (~good~) event with an optional note.
 - When ~"asks": {"enabled": true}~ is set in ~config.json~, choices tagged with ~--ask key="<person>: <what>"~ (and ~--ask-link~) open tracked asks managed via ~decide ask ls|show|add|done|drop~ and the inbox Asks view (~g k~). With ~asks~ disabled (the default), no ask records are created while the choice event log continues recording.
 
 * Notes and status

@@ -142,13 +142,15 @@ cite the id of any precedent they act on.
   offered options, and the asking agent.
 - Free-text replies on items with choices are flagged ~options did not fit~
   (~misfit: true~).
-- ~decide log [--misfit] [--flags] [--agent A] [--cause R] [--group-by-agent] [--json]~
-  lists and groups events; ~decide log cause <event> <reason>... [--note TEXT]~
+- ~decide log [--misfit] [--flags] [--good] [--agent A] [--cause R] [--group-by-agent] [--json]~
+  lists and groups events; ~decide log cause <event> <reason>... [--note TEXT] [--earlier-item ID]~
   appends a separate ~cause~ annotation event without rewriting earlier events.
 - Press ~!~ in the inbox (or click ~Flag~ in the web UI) to record a
   ~flag~ event on an agent message or item using reasons from config
-  (~reasons~, starting with ~format~, ~main-text~, ~choices~, and
-  ~other~ which requires a note).
+  (~reasons~, starting with ~format~, ~main-text~, ~choices~,
+  ~escalation~ with an optional earlier item ID, and ~other~ which
+  requires a note). Press ~+~ in the inbox (or click ~👍~ in the web UI)
+  to append a ~good~ thumbs-up record with an optional note.
 
 When ~"asks": {"enabled": true}~ is configured, picking an option tagged
 with ~--ask key="<person>: <what>"~ (or running ~decide ask add~ after a

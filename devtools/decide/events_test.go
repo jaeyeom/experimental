@@ -276,3 +276,116 @@ func TestFlagItemSavesReasonsAndRequiresNoteForOther(t *testing.T) {
 		t.Fatalf("groups = %+v", groups)
 	}
 }
+
+func TestEscalationFlagCauseAndGoodItemEvents(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	led, _ := openTemp(t)
+	now := time.Date(2026, 11, 27, 9, 0, 0, 0, time.UTC)
+	led.SetClock(func() time.Time { return now })
+
+	earlier, err := led.Create(&Item{
+		Question: "Use Postgres?",
+		Kind:     KindRelay,
+		Owner:    "ada",
+		Options: []Option{
+			{Key: "a", Label: "Yes", Recommended: true},
+			{Key: "b", Label: "No"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := led.Answer(earlier.ID, "a", ViaUI); err != nil {
+		t.Fatal(err)
+	}
+
+	now = now.Add(time.Minute)
+	later, err := led.Create(&Item{
+		Question: "Which DB should we use?",
+		Kind:     KindRelay,
+		Owner:    "worker-2",
+		Options: []Option{
+			{Key: "a", Label: "Postgres", Recommended: true},
+			{Key: "b", Label: "SQLite"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Reject earlierItemId when non-escalation reason is picked.
+	if _, err := led.FlagItemWith(later.ID, nil, []string{"vague-pronoun"}, "", earlier.ID, ViaUI); err == nil {
+		t.Fatal("expected error passing earlierItemId for non-escalation reason")
+	}
+
+	// Escalation flag with bare earlier ID "1" normalizes to earlier.ID ("D-001").
+	flagEv, err := led.FlagItemWith(later.ID, nil, []string{ReasonAlreadyDecided}, "asked again", "1", ViaUI)
+	if err != nil {
+		t.Fatalf("FlagItemWith escalation: %v", err)
+	}
+	if flagEv.EarlierItemID != earlier.ID || flagEv.SendingAgent != "worker-2" {
+		t.Fatalf("flagEv = %+v, want earlierItemId=%s", flagEv, earlier.ID)
+	}
+
+	// Escalation flag without earlier item id succeeds (optional).
+	flagNoID, err := led.FlagItemWith(later.ID, nil, []string{ReasonAlreadyDecided}, "", "", ViaUI)
+	if err != nil {
+		t.Fatalf("FlagItemWith optional earlierItemId: %v", err)
+	}
+	if flagNoID.EarlierItemID != "" {
+		t.Fatalf("expected empty earlierItemId, got %+v", flagNoID)
+	}
+
+	// Misfit cause with escalation reason and earlierItemId joins onto choice event.
+	now = now.Add(time.Minute)
+	if _, err := led.Compose(later.ID, "Already decided", ViaUI, ""); err != nil {
+		t.Fatal(err)
+	}
+	misfits, err := led.QueryEvents(EventFilter{Misfit: true})
+	if err != nil || len(misfits) != 1 {
+		t.Fatalf("misfits = %+v, err=%v", misfits, err)
+	}
+	causeEv, err := led.AddCauseWith(misfits[0].ID, []string{ReasonAlreadyDecided}, "", earlier.ID, Human, ViaCLI)
+	if err != nil {
+		t.Fatalf("AddCauseWith escalation: %v", err)
+	}
+	if causeEv.EarlierItemID != earlier.ID {
+		t.Fatalf("causeEv = %+v", causeEv)
+	}
+	misfitsByCause, err := led.QueryEvents(EventFilter{Misfit: true, Cause: ReasonAlreadyDecided})
+	if err != nil || len(misfitsByCause) != 1 || len(misfitsByCause[0].Causes) != 1 || misfitsByCause[0].Causes[0].EarlierItemID != earlier.ID {
+		t.Fatalf("misfitsByCause = %+v, err=%v", misfitsByCause, err)
+	}
+
+	// GoodItem appends good event on same event log and filters via EventFilter{Good: true}.
+	if _, err := led.Reply(later.ID, "worker-2", "Clear 3-line summary", nil, false); err != nil {
+		t.Fatal(err)
+	}
+	msgIdx := 2
+	now = now.Add(time.Minute)
+	goodEv, err := led.GoodItem(later.ID, &msgIdx, "crisp verdict first", ViaUI)
+	if err != nil {
+		t.Fatalf("GoodItem: %v", err)
+	}
+	if goodEv.Kind != EventGood || goodEv.ItemID != later.ID || goodEv.SendingAgent != "worker-2" ||
+		goodEv.MessageIndex == nil || *goodEv.MessageIndex != msgIdx || goodEv.Note != "crisp verdict first" {
+		t.Fatalf("goodEv = %+v", goodEv)
+	}
+
+	goodNoNote, err := led.GoodItem(earlier.ID, nil, "", ViaUI)
+	if err != nil {
+		t.Fatalf("GoodItem without note: %v", err)
+	}
+	if goodNoNote.Kind != EventGood || goodNoNote.Note != "" || goodNoNote.SendingAgent != "ada" {
+		t.Fatalf("goodNoNote = %+v", goodNoNote)
+	}
+
+	goods, err := led.QueryEvents(EventFilter{Good: true})
+	if err != nil || len(goods) != 2 {
+		t.Fatalf("QueryEvents(Good) = %+v, err=%v", goods, err)
+	}
+	goodGroups := GroupEventsByAgent(goods)
+	if len(goodGroups) != 2 {
+		t.Fatalf("goodGroups = %+v", goodGroups)
+	}
+}

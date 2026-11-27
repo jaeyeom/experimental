@@ -8,13 +8,18 @@ import (
 // ReasonOther is the reserved reason ID that always requires a free-text note.
 const ReasonOther = "other"
 
+// ReasonAlreadyDecided is the default escalation reason ID for questions
+// already covered by an earlier human decision.
+const ReasonAlreadyDecided = "already-decided"
+
 // Reason describes one selectable reason for flagging a message/item or
 // explaining why offered choices did not fit.
 type Reason struct {
-	ID          string `json:"id"`
-	Category    string `json:"category"`
-	Label       string `json:"label"`
-	RequireNote bool   `json:"requireNote,omitempty"`
+	ID               string `json:"id"`
+	Category         string `json:"category"`
+	Label            string `json:"label"`
+	RequireNote      bool   `json:"requireNote,omitempty"`
+	AllowEarlierItem bool   `json:"allowEarlierItem,omitempty"`
 }
 
 // AsksConfig configures the optional asks view and open ask tracking.
@@ -39,6 +44,8 @@ func DefaultReasons() []Reason {
 		{ID: "no-best-choice", Category: "choices", Label: "no best choice"},
 		{ID: "consequence-unclear", Category: "choices", Label: "consequence of a choice unclear"},
 		{ID: "overlapping-choices", Category: "choices", Label: "two choices overlap, or one choice has two actions"},
+
+		{ID: ReasonAlreadyDecided, Category: "escalation", Label: "should not have been asked: an earlier human decision covers it", AllowEarlierItem: true},
 
 		{ID: ReasonOther, Category: "other", Label: "other (note required)", RequireNote: true},
 	}
@@ -67,6 +74,9 @@ func normalizeReasons(src []Reason) []Reason {
 		}
 		if strings.EqualFold(r.ID, ReasonOther) {
 			r.RequireNote = true
+		}
+		if strings.EqualFold(r.ID, ReasonAlreadyDecided) || strings.EqualFold(r.Category, "escalation") {
+			r.AllowEarlierItem = true
 		}
 		out[i] = r
 	}
@@ -135,4 +145,46 @@ func ValidateReasonSelection(catalog []Reason, reasonIDs []string, note string) 
 		return nil, "", fmt.Errorf("decide requires at least one reason")
 	}
 	return selected, trimmedNote, nil
+}
+
+// ReasonsAllowEarlierItem reports whether any reason in reasonIDs permits an
+// optional earlier item ID (for example, an escalation reason).
+func ReasonsAllowEarlierItem(catalog []Reason, reasonIDs []string) bool {
+	if len(catalog) == 0 {
+		catalog = DefaultReasons()
+	}
+	byID := make(map[string]Reason, len(catalog))
+	for _, r := range catalog {
+		byID[strings.ToLower(strings.TrimSpace(r.ID))] = r
+	}
+	for _, raw := range reasonIDs {
+		key := strings.ToLower(strings.TrimSpace(raw))
+		if key == "" {
+			continue
+		}
+		if r, ok := byID[key]; ok {
+			if r.AllowEarlierItem || strings.EqualFold(r.ID, ReasonAlreadyDecided) || strings.EqualFold(r.Category, "escalation") {
+				return true
+			}
+		} else if key == ReasonAlreadyDecided {
+			return true
+		}
+	}
+	return false
+}
+
+// ValidateEarlierItemID trims and validates an optional earlier item ID against
+// the selected reasons.
+func ValidateEarlierItemID(catalog []Reason, reasonIDs []string, earlierItemID string) (string, error) {
+	trimmed := strings.TrimSpace(earlierItemID)
+	if trimmed == "" {
+		return "", nil
+	}
+	if strings.ContainsAny(trimmed, " \t\n\r") {
+		return "", fmt.Errorf("decide earlier item id %q must not contain whitespace", trimmed)
+	}
+	if !ReasonsAllowEarlierItem(catalog, reasonIDs) {
+		return "", fmt.Errorf("decide earlier item id applies only to an escalation reason")
+	}
+	return trimmed, nil
 }

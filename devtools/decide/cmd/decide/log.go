@@ -15,7 +15,7 @@ import (
 //   - decide log search ... (decision log full-text search)
 //   - decide log cause ... (append cause annotation onto a choice/misfit event)
 //   - decide log reasons   (list configured flag/cause reason IDs)
-//   - decide log [--misfit] [--flags] [--agent A] [--cause R] [--kind K] [--group-by-agent] [--json]
+//   - decide log [--misfit] [--flags] [--good] [--agent A] [--cause R] [--kind K] [--group-by-agent] [--json]
 func cmdLog(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 {
 		switch args[0] {
@@ -71,6 +71,23 @@ func cmdLogSearch(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func writeReasonsOutput(reasons []decide.Reason, jsonOut bool, stdout, stderr io.Writer) int {
+	if jsonOut {
+		return writeJSON(stdout, stderr, reasons)
+	}
+	for _, r := range reasons {
+		suffix := ""
+		if r.RequireNote {
+			suffix += " [note required]"
+		}
+		if r.AllowEarlierItem {
+			suffix += " [optional earlier item]"
+		}
+		fmt.Fprintf(stdout, "%s\t%s\t%s%s\n", r.ID, r.Category, r.Label, suffix)
+	}
+	return 0
+}
+
 func cmdLogReasons(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("log reasons", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -85,25 +102,15 @@ func cmdLogReasons(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
-	reasons := cfg.EffectiveReasons()
-	if *jsonOut {
-		return writeJSON(stdout, stderr, reasons)
-	}
-	for _, r := range reasons {
-		suffix := ""
-		if r.RequireNote {
-			suffix = " [note required]"
-		}
-		fmt.Fprintf(stdout, "%s\t%s\t%s%s\n", r.ID, r.Category, r.Label, suffix)
-	}
-	return 0
+	return writeReasonsOutput(cfg.EffectiveReasons(), *jsonOut, stdout, stderr)
 }
 
 func cmdLogCause(args []string, stdout, stderr io.Writer) int {
-	args = hoistFlags(args, map[string]bool{"note": true, "who": true})
+	args = hoistFlags(args, map[string]bool{"note": true, "who": true, "earlier-item": true})
 	fs := flag.NewFlagSet("log cause", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	note := fs.String("note", "", "optional free-text note (required for other)")
+	earlierItem := fs.String("earlier-item", "", "optional earlier item id (for escalation reasons)")
 	who := fs.String("who", "", "who added the cause (default: caller or human)")
 	jsonOut := fs.Bool("json", false, "print the annotation event as JSON")
 	if code, stop := stopped(parseFlags(fs, args)); stop {
@@ -111,7 +118,7 @@ func cmdLogCause(args []string, stdout, stderr io.Writer) int {
 	}
 	rest := fs.Args()
 	if len(rest) < 2 || strings.TrimSpace(rest[0]) == "" {
-		return fail(stderr, fmt.Errorf("usage: decide log cause [--note TEXT] [--json] <event-id> <reason> [reason]"), 2)
+		return fail(stderr, fmt.Errorf("usage: decide log cause [--note TEXT] [--earlier-item ID] [--json] <event-id> <reason> [reason]"), 2)
 	}
 	eventID := rest[0]
 	reasons := rest[1:]
@@ -126,7 +133,7 @@ func cmdLogCause(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
-	ev, err := led.AddCause(eventID, reasons, *note, actor, decide.ViaCLI)
+	ev, err := led.AddCauseWith(eventID, reasons, *note, *earlierItem, actor, decide.ViaCLI)
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
@@ -145,14 +152,7 @@ func cmdLogReasonsInline(args []string, jsonOut bool, stdout, stderr io.Writer) 
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
-	reasons := cfg.EffectiveReasons()
-	if jsonOut {
-		return writeJSON(stdout, stderr, reasons)
-	}
-	for _, r := range reasons {
-		fmt.Fprintf(stdout, "%s\t%s\t%s\n", r.ID, r.Category, r.Label)
-	}
-	return 0
+	return writeReasonsOutput(cfg.EffectiveReasons(), jsonOut, stdout, stderr)
 }
 
 func renderLogEventsOutput(events []decide.Event, groupByAgent, flagsOnly, jsonOut bool, stdout, stderr io.Writer) int {
@@ -189,9 +189,10 @@ func cmdLogEvents(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	misfit := fs.Bool("misfit", false, "list free-text replies where options did not fit")
 	flagsOnly := fs.Bool("flags", false, "list inbox flags grouped by sending agent")
+	goodOnly := fs.Bool("good", false, "list thumbs-up (good-message) events")
 	agent := fs.String("agent", "", "filter by asking or sending agent")
 	cause := fs.String("cause", "", "filter by reason ID")
-	kind := fs.String("kind", "", "filter by event kind (choice, cause, flag, ask_open, ask_done, ask_drop)")
+	kind := fs.String("kind", "", "filter by event kind (choice, cause, flag, good, ask_open, ask_done, ask_drop)")
 	groupByAgent := fs.Bool("group-by-agent", false, "group events by agent")
 	reasonsFlag := fs.Bool("reasons", false, "list configured flag and misfit reasons")
 	jsonOut := fs.Bool("json", false, "print JSON")
@@ -202,7 +203,7 @@ func cmdLogEvents(args []string, stdout, stderr io.Writer) int {
 		return cmdLogReasonsInline(fs.Args(), *jsonOut, stdout, stderr)
 	}
 	if len(fs.Args()) != 0 {
-		return fail(stderr, fmt.Errorf("usage: decide log [--misfit] [--flags] [--agent A] [--cause R] [--group-by-agent] [--json] | search | cause"), 2)
+		return fail(stderr, fmt.Errorf("usage: decide log [--misfit] [--flags] [--good] [--agent A] [--cause R] [--group-by-agent] [--json] | search | cause"), 2)
 	}
 	led, err := openLedger()
 	if err != nil {
@@ -211,6 +212,7 @@ func cmdLogEvents(args []string, stdout, stderr io.Writer) int {
 	events, err := led.QueryEvents(decide.EventFilter{
 		Misfit: *misfit,
 		Flags:  *flagsOnly,
+		Good:   *goodOnly,
 		Agent:  *agent,
 		Cause:  *cause,
 		Kind:   strings.TrimSpace(*kind),
@@ -242,6 +244,9 @@ func writeChoiceEventEntry(w io.Writer, ev *decide.Event, ts, indent string) {
 	}
 	for _, c := range ev.Causes {
 		line := fmt.Sprintf("%s  cause (%s): %s", indent, c.EventID, strings.Join(c.Reasons, ", "))
+		if c.EarlierItemID != "" {
+			line += " (earlier: " + c.EarlierItemID + ")"
+		}
 		if c.Note != "" {
 			line += " - " + c.Note
 		}
@@ -255,6 +260,24 @@ func writeFlagEventEntry(w io.Writer, ev *decide.Event, ts, indent string) {
 		msgHint = fmt.Sprintf("\tmsg#%d", *ev.MessageIndex)
 	}
 	fmt.Fprintf(w, "%s%s\t%s\t%s\treasons:%s%s\n", indent, ev.ID, ts, ev.ItemID, strings.Join(ev.Reasons, ","), msgHint)
+	if ev.EarlierItemID != "" {
+		fmt.Fprintf(w, "%s  earlier: %s\n", indent, ev.EarlierItemID)
+	}
+	if ev.MessageText != "" {
+		firstLine, _, _ := strings.Cut(ev.MessageText, "\n")
+		fmt.Fprintf(w, "%s  message: %s\n", indent, firstLine)
+	}
+	if ev.Note != "" {
+		fmt.Fprintf(w, "%s  note: %s\n", indent, ev.Note)
+	}
+}
+
+func writeGoodEventEntry(w io.Writer, ev *decide.Event, ts, indent string) {
+	msgHint := ""
+	if ev.MessageIndex != nil {
+		msgHint = fmt.Sprintf("\tmsg#%d", *ev.MessageIndex)
+	}
+	fmt.Fprintf(w, "%s%s\t%s\t%s\t%s\tgood%s\n", indent, ev.ID, ts, ev.ItemID, ev.AgentName(), msgHint)
 	if ev.MessageText != "" {
 		firstLine, _, _ := strings.Cut(ev.MessageText, "\n")
 		fmt.Fprintf(w, "%s  message: %s\n", indent, firstLine)
@@ -271,8 +294,13 @@ func writeEventEntry(w io.Writer, ev *decide.Event, indent string) {
 		writeChoiceEventEntry(w, ev, ts, indent)
 	case decide.EventFlag:
 		writeFlagEventEntry(w, ev, ts, indent)
+	case decide.EventGood:
+		writeGoodEventEntry(w, ev, ts, indent)
 	case decide.EventCause:
 		line := fmt.Sprintf("%s%s\t%s\tcause\t%s -> %s\t%s", indent, ev.ID, ts, ev.ItemID, ev.TargetEventID, strings.Join(ev.Reasons, ","))
+		if ev.EarlierItemID != "" {
+			line += "\tearlier:" + ev.EarlierItemID
+		}
 		if ev.Note != "" {
 			line += "\t" + ev.Note
 		}

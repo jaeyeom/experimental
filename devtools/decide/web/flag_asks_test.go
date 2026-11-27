@@ -21,11 +21,21 @@ func TestWebReasonsAndFlagEndpoint(t *testing.T) {
 		},
 	})
 
-	// GET /api/v1/reasons loads default catalog.
+	// GET /api/v1/reasons loads default catalog including escalation.
 	res := a.wantOK(a.do("GET", "/api/v1/reasons", ""), 200)
 	reasons, _ := res["reasons"].([]any)
 	if len(reasons) != len(decide.DefaultReasons()) {
 		t.Fatalf("reasons count = %d, want %d", len(reasons), len(decide.DefaultReasons()))
+	}
+	var hasEscalation bool
+	for _, raw := range reasons {
+		m, _ := raw.(map[string]any)
+		if m["id"] == decide.ReasonAlreadyDecided && m["category"] == "escalation" && m["allowEarlierItem"] == true {
+			hasEscalation = true
+		}
+	}
+	if !hasEscalation {
+		t.Fatalf("reasons missing escalation reason: %v", reasons)
 	}
 
 	// Custom reasons in config override defaults.
@@ -65,6 +75,33 @@ func TestWebReasonsAndFlagEndpoint(t *testing.T) {
 	events, err := a.open().ListRawEvents()
 	if err != nil || len(events) != 1 || events[0].Kind != decide.EventFlag {
 		t.Fatalf("stored events = %+v, err=%v", events, err)
+	}
+
+	// Reject earlierItemId on non-escalation reason.
+	a.wantErr(a.post("/api/v1/items/"+it.ID+"/flag", `{"reasons":["vague-pronoun"],"earlierItemId":"D-001"}`), 400)
+
+	// Escalation flag stores optional earlierItemId.
+	escRes := a.wantOK(a.post("/api/v1/items/"+it.ID+"/flag", `{"reasons":["already-decided"],"earlierItemId":"D-001"}`), 200)
+	escMap, _ := escRes["event"].(map[string]any)
+	if escMap["earlierItemId"] != it.ID {
+		t.Fatalf("escalation flag event = %v", escMap)
+	}
+
+	// Thumbs-up endpoint writes good event with or without note; 404 on unknown item.
+	a.wantErr(a.post("/api/v1/items/D-999/good", `{}`), 404)
+	goodRes := a.wantOK(a.post("/api/v1/items/"+it.ID+"/good", `{"messageIndex":0,"note":"helpful options"}`), 200)
+	goodMap, _ := goodRes["event"].(map[string]any)
+	if goodMap["kind"] != decide.EventGood || goodMap["sendingAgent"] != "worker/alice" || goodMap["note"] != "helpful options" {
+		t.Fatalf("good event = %v", goodMap)
+	}
+	goodEmpty := a.wantOK(a.post("/api/v1/items/"+it.ID+"/good", `{}`), 200)
+	if goodEmpty["event"].(map[string]any)["kind"] != decide.EventGood {
+		t.Fatalf("good event without note = %v", goodEmpty)
+	}
+
+	events, err = a.open().ListRawEvents()
+	if err != nil || len(events) != 4 || events[2].Kind != decide.EventGood || events[3].Kind != decide.EventGood {
+		t.Fatalf("stored events after good = %+v, err=%v", events, err)
 	}
 }
 

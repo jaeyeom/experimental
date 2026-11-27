@@ -25,7 +25,7 @@ func TestBottomHelpLineOmitsButtonKeysAndHidesWhenAllCovered(t *testing.T) {
 				t.Fatalf("thread footer contains button-covered hint %q: %q", covered, foot)
 			}
 		}
-		for _, uncovered := range []string{"q quit", "j/k pgup/pgdn home/end", "n/p", "/find", "b snooze", "g go to", "o owner", "! flag", "? help"} {
+		for _, uncovered := range []string{"q quit", "j/k pgup/pgdn home/end", "n/p", "/find", "b snooze", "g go to", "o owner", "! flag", "+ good", "? help"} {
 			if !strings.Contains(foot, uncovered) {
 				t.Fatalf("thread footer missing uncovered hint %q: %q", uncovered, foot)
 			}
@@ -70,6 +70,7 @@ func TestBottomHelpLineOmitsButtonKeysAndHidesWhenAllCovered(t *testing.T) {
 			"detail.snooze":      {},
 			"detail.owner":       {},
 			"detail.flag":        {},
+			"detail.good":        {},
 		})
 		if err != nil {
 			t.Fatal(err)

@@ -146,7 +146,13 @@ type PanelsBackend interface {
 // reasons and flagging an agent message or item.
 type FlagBackend interface {
 	Reasons() ([]decide.Reason, error)
-	Flag(itemID string, msgIndex *int, reasons []string, note string) (decide.Event, error)
+	Flag(itemID string, msgIndex *int, reasons []string, note, earlierItemID string) (decide.Event, error)
+}
+
+// GoodBackend is an optional backend capability for recording a thumbs-up
+// (good-message) event on an agent message or item.
+type GoodBackend interface {
+	Good(itemID string, msgIndex *int, note string) (decide.Event, error)
 }
 
 // AsksBackend is an optional backend capability for reading and closing tracked asks.
@@ -686,12 +692,21 @@ func (b *LocalBackend) Reasons() ([]decide.Reason, error) {
 }
 
 // Flag implements FlagBackend.
-func (b *LocalBackend) Flag(itemID string, msgIndex *int, reasons []string, note string) (decide.Event, error) {
+func (b *LocalBackend) Flag(itemID string, msgIndex *int, reasons []string, note, earlierItemID string) (decide.Event, error) {
 	led, err := b.ledger()
 	if err != nil {
 		return decide.Event{}, err
 	}
-	return led.FlagItem(itemID, msgIndex, reasons, note, decide.ViaUI) //nolint:wrapcheck // FlagItem already wraps errors
+	return led.FlagItemWith(itemID, msgIndex, reasons, note, earlierItemID, decide.ViaUI) //nolint:wrapcheck // FlagItemWith already wraps errors
+}
+
+// Good implements GoodBackend.
+func (b *LocalBackend) Good(itemID string, msgIndex *int, note string) (decide.Event, error) {
+	led, err := b.ledger()
+	if err != nil {
+		return decide.Event{}, err
+	}
+	return led.GoodItem(itemID, msgIndex, note, decide.ViaUI) //nolint:wrapcheck // GoodItem already wraps errors
 }
 
 // AsksEnabled implements AsksBackend.

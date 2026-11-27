@@ -103,6 +103,8 @@ func (s *Server) eventsOp(req Request) (Response, bool) {
 		return s.reasons(), true
 	case OpFlag:
 		return s.flag(req), true
+	case OpGood:
+		return s.good(req), true
 	case OpListAsks:
 		return s.listAsks(), true
 	case OpCloseAsk:
@@ -169,7 +171,15 @@ func (s *Server) reasons() Response {
 }
 
 func (s *Server) flag(req Request) Response {
-	ev, err := s.Backend.Flag(req.Item, req.MsgIndex, req.Reasons, req.Text)
+	ev, err := s.Backend.Flag(req.Item, req.MsgIndex, req.Reasons, req.Text, req.EarlierItemID)
+	if err != nil {
+		return failed(err)
+	}
+	return Response{Event: &ev}
+}
+
+func (s *Server) good(req Request) Response {
+	ev, err := s.Backend.Good(req.Item, req.MsgIndex, req.Text)
 	if err != nil {
 		return failed(err)
 	}

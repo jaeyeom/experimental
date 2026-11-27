@@ -178,6 +178,7 @@ var (
 	_ tui.OrgTreeBackend = (*Client)(nil)
 	_ tui.PanelsBackend  = (*Client)(nil)
 	_ tui.FlagBackend    = (*Client)(nil)
+	_ tui.GoodBackend    = (*Client)(nil)
 	_ tui.AsksBackend    = (*Client)(nil)
 )
 
@@ -985,19 +986,37 @@ func (c *Client) Reasons() ([]decide.Reason, error) {
 }
 
 // Flag implements tui.FlagBackend.
-func (c *Client) Flag(itemID string, msgIndex *int, reasons []string, note string) (decide.Event, error) {
+func (c *Client) Flag(itemID string, msgIndex *int, reasons []string, note, earlierItemID string) (decide.Event, error) {
 	resp, err := c.call(Request{
-		Op:       OpFlag,
-		Item:     itemID,
-		MsgIndex: msgIndex,
-		Reasons:  reasons,
-		Text:     note,
+		Op:            OpFlag,
+		Item:          itemID,
+		MsgIndex:      msgIndex,
+		Reasons:       reasons,
+		Text:          note,
+		EarlierItemID: earlierItemID,
 	})
 	if err != nil {
 		return decide.Event{}, err
 	}
 	if resp.Event == nil {
 		return decide.Event{}, fmt.Errorf("hub %s: flag returned no event", c.Label)
+	}
+	return *resp.Event, nil
+}
+
+// Good implements tui.GoodBackend.
+func (c *Client) Good(itemID string, msgIndex *int, note string) (decide.Event, error) {
+	resp, err := c.call(Request{
+		Op:       OpGood,
+		Item:     itemID,
+		MsgIndex: msgIndex,
+		Text:     note,
+	})
+	if err != nil {
+		return decide.Event{}, err
+	}
+	if resp.Event == nil {
+		return decide.Event{}, fmt.Errorf("hub %s: good returned no event", c.Label)
 	}
 	return *resp.Event, nil
 }

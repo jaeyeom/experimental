@@ -127,4 +127,33 @@ func TestLogEventsMisfitCauseAndFlagsCLI(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "agent: ada (1)") || !strings.Contains(out, "vague-pronoun") {
 		t.Fatalf("log --flags = %d\nout=%s\nerr=%s", code, out, stderr)
 	}
+
+	// Escalation reason appears in decide log --reasons and works in decide log cause --earlier-item.
+	out, stderr, code = runCLI("log", "--reasons")
+	if code != 0 || !strings.Contains(out, "already-decided") || !strings.Contains(out, "escalation") || !strings.Contains(out, "should not have been asked: an earlier human decision covers it") {
+		t.Fatalf("log --reasons = %d\nout=%s\nerr=%s", code, out, stderr)
+	}
+	if _, stderr, code := runCLI("log", "cause", misfits[0].ID, "already-decided", "--earlier-item", id1); code != 0 {
+		t.Fatalf("log cause escalation = %d %s", code, stderr)
+	}
+	out, stderr, code = runCLI("log", "--misfit", "--cause", "already-decided")
+	if code != 0 || !strings.Contains(out, "already-decided") || !strings.Contains(out, id1) {
+		t.Fatalf("log --misfit --cause already-decided = %d\nout=%s\nerr=%s", code, out, stderr)
+	}
+
+	// GoodItem events listed by decide log --good and grouped by --group-by-agent.
+	if _, err := led.GoodItem(id1, &msgIdx, "crisp question", "ui"); err != nil {
+		t.Fatalf("GoodItem: %v", err)
+	}
+	if _, err := led.GoodItem(id2, nil, "", "ui"); err != nil {
+		t.Fatalf("GoodItem 2: %v", err)
+	}
+	out, stderr, code = runCLI("log", "--good")
+	if code != 0 || !strings.Contains(out, id1) || !strings.Contains(out, "crisp question") || !strings.Contains(out, id2) {
+		t.Fatalf("log --good = %d\nout=%s\nerr=%s", code, out, stderr)
+	}
+	out, stderr, code = runCLI("log", "--good", "--group-by-agent")
+	if code != 0 || !strings.Contains(out, "agent: ada (1)") || !strings.Contains(out, "agent: bea (1)") {
+		t.Fatalf("log --good --group-by-agent = %d\nout=%s\nerr=%s", code, out, stderr)
+	}
 }

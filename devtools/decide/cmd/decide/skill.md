@@ -17,7 +17,7 @@ Run `decide` with no arguments for the full usage. The flag list is in that text
 
 Before filing a decision or fact question, run `decide log search <words>` to see whether the user already decided it. It searches the user's answers and the owners' `done` outcomes, newest first, and hides superseded items (`--all` shows them; `--class` changes the classes, default `decision,fact`). When you act on a precedent, cite its id. The log is read-only: searching changes nothing. `decide supersede <old> --by <new>` records that a newer decision replaces an older one.
 
-To review framing quality, run `decide log --misfit --group-by-agent` (free-text replies over offered choices, flagged "options did not fit") and `decide log --flags` (inbox flags by sending agent), or attach a post-RCA cause with `decide log cause <event> <reason>... [--note TEXT]`. `decide log reasons` prints valid reason ids.
+To review framing quality, run `decide log --misfit --group-by-agent` (free-text replies over offered choices, flagged "options did not fit"), `decide log --flags` (inbox flags by sending agent), and `decide log --good` (thumbs-up records, optionally with `--group-by-agent`), or attach a post-RCA cause with `decide log cause <event> <reason>... [--note TEXT] [--earlier-item ID]`. `decide log reasons` prints valid reason ids.
 
 ## Pick a class
 

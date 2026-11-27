@@ -260,9 +260,11 @@ when ~ui.orgTree~ is on), Settings (theme, notifications, sign out),
 and light and dark themes.
 
 Also note: clicking ~Flag~ (or pressing ~!~) on an item or agent message
-opens the reason checklist and saves a flag event immediately. When
-~asks.enabled~ is true, an ~Asks~ tab (~g k~) and open-asks dashboard
-panel are shown alongside Done and Drop actions.
+opens the reason checklist (including ~escalation~ with an optional
+earlier item ID) and saves a flag event immediately, while clicking ~👍~
+(or pressing ~+~) records a thumbs-up (~good~) event with an optional
+note. When ~asks.enabled~ is true, an ~Asks~ tab (~g k~) and open-asks
+dashboard panel are shown alongside Done and Drop actions.
 
 The page keeps a read cache in IndexedDB and follows the ledger over
 ~/api/v1/events~ (server-sent events). It resumes from the last event
@@ -345,7 +347,7 @@ token. It is not versioned beyond ~v1~ and may change with the app. Reads: ~snap
 ~status~, ~contacts~, ~org-tree~, ~reasons~, ~asks~, ~search?q=~, ~keymap~, and ~events~ (SSE with
 ~resync~, ~delta~, and ~ping~ events; ~Last-Event-ID~ or ~?since=~
 resumes). Writes: ~items/{id}/{read,answer,reply,archive,done,snooze,
-unsnooze,flag}~, ~asks/{id}/{done,drop}~, ~send~, ~contacts/favorites~, and
+unsnooze,flag,good}~, ~asks/{id}/{done,drop}~, ~send~, ~contacts/favorites~, and
 ~drafts/{key}~. ~answer~, ~reply~, and the other item writes accept
 ~writtenAt~ and a ~conflictCheck~ (~baseState~, ~baseMessageCount~,
 ~baseLastMessageAt~, ~baseAnswered~); a stale view gets 409 with the

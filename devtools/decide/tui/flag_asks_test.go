@@ -111,6 +111,127 @@ func TestFlagOverlayFromListAndDetailRequiresNoteForOther(t *testing.T) {
 	}
 }
 
+func TestEscalationReasonEarlierItemAndGoodKeyInTUI(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	now := time.Date(2026, 11, 27, 10, 0, 0, 0, time.UTC)
+	led.SetClock(func() time.Time { return now })
+
+	earlier := mustCreate(t, led, &decide.Item{
+		Owner:    "worker/alice",
+		Kind:     decide.KindRelay,
+		Question: "Use SQLite?",
+		Options: []decide.Option{
+			{Key: "a", Label: "Yes"},
+			{Key: "b", Label: "No"},
+		},
+	})
+	later := mustCreate(t, led, &decide.Item{
+		Owner:    "worker/bob",
+		Kind:     decide.KindRelay,
+		Question: "Which DB again?",
+		Options: []decide.Option{
+			{Key: "a", Label: "SQLite"},
+			{Key: "b", Label: "Postgres"},
+		},
+	})
+
+	m := New(dir)
+	m.Now = func() time.Time { return now }
+	m.width = 120
+	m.height = 40
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Open flag picker on later item (first row in inbox since newer, or verify selected).
+	press(t, m, "!")
+	if !m.flagging {
+		t.Fatal("expected flag modal to open")
+	}
+	targetID := m.flagItemID
+	view := visibleLine(m.View())
+	if !strings.Contains(view, "[escalation]") || !strings.Contains(view, decide.ReasonAlreadyDecided) {
+		t.Fatalf("flag modal missing escalation group/reason:\n%s", view)
+	}
+
+	escIdx := -1
+	for i, r := range m.flagReasons {
+		if r.ID == decide.ReasonAlreadyDecided {
+			escIdx = i
+			break
+		}
+	}
+	if escIdx < 0 {
+		t.Fatal("missing ReasonAlreadyDecided")
+	}
+	for range escIdx {
+		m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	// Toggle escalation reason on; earlier item field becomes visible.
+	m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	viewAfterToggle := visibleLine(m.View())
+	if !strings.Contains(viewAfterToggle, "earlier item (optional):") {
+		t.Fatalf("expected optional earlier item field when escalation selected:\n%s", viewAfterToggle)
+	}
+	// Move to earlier item input via Tab, type earlier.ID, and submit with Enter.
+	m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	for _, r := range earlier.ID {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.flagging {
+		t.Fatalf("flag modal did not close: err=%q", m.flagErr)
+	}
+
+	// Press '+' from list to record a good event with optional note.
+	press(t, m, "+")
+	if !m.gooding {
+		t.Fatal("expected thumbs-up modal to open from list via +")
+	}
+	for _, r := range "clear verdict" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.gooding {
+		t.Fatalf("thumbs-up modal did not close: err=%q", m.goodErr)
+	}
+
+	// Open detail view and press '+' then Enter without a note.
+	press(t, m, "o")
+	if m.mode != modeDetail {
+		t.Fatalf("mode = %v, want modeDetail", m.mode)
+	}
+	press(t, m, "+")
+	if !m.gooding || m.goodMsgIdx == nil || *m.goodMsgIdx != 0 {
+		t.Fatalf("detail good modal: gooding=%v msgIdx=%v", m.gooding, m.goodMsgIdx)
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.gooding {
+		t.Fatalf("detail good modal did not close: err=%q", m.goodErr)
+	}
+
+	events, err := led.ListRawEvents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 3 {
+		t.Fatalf("events count = %d, want 3: %+v", len(events), events)
+	}
+	if events[0].Kind != decide.EventFlag || events[0].ItemID != targetID || events[0].EarlierItemID != earlier.ID {
+		t.Fatalf("event[0] = %+v, want flag on %s with earlier %s", events[0], targetID, earlier.ID)
+	}
+	if events[1].Kind != decide.EventGood || events[1].Note != "clear verdict" {
+		t.Fatalf("event[1] = %+v", events[1])
+	}
+	if events[2].Kind != decide.EventGood || events[2].Note != "" || events[2].MessageIndex == nil || *events[2].MessageIndex != 0 {
+		t.Fatalf("event[2] = %+v", events[2])
+	}
+	_ = later
+}
+
 func TestAsksDisabledHidesNavPanelAndGoTo(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())

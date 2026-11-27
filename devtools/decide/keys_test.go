@@ -289,6 +289,18 @@ func TestDefaultGChordsAreNavigationOnly(t *testing.T) {
 			t.Errorf("scope %q has single-key g bound to %q", scope, act)
 		}
 	}
+	for _, tc := range []struct {
+		scope  string
+		action string
+	}{
+		{"list", "list.good"},
+		{"detail", "detail.good"},
+	} {
+		act, ok := km.Match(tc.scope, KeyStroke{Key: "+"})
+		if !ok || act != tc.action {
+			t.Errorf("scope %q key '+' = (%q, %v), want (%q, true)", tc.scope, act, ok, tc.action)
+		}
+	}
 }
 
 func TestRemovedListArchiveNotesAndUnboundD(t *testing.T) {

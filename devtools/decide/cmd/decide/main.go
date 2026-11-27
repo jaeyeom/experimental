@@ -121,8 +121,8 @@ func usage(w io.Writer) {
   decide ask done|drop --reason TEXT [--by agent|--human] [--json] <ask-id>
   decide retag [--json] <id> <class>
   decide log search [--class decision,fact,...] [--all] [--json] <words>
-  decide log [--misfit] [--flags] [--agent A] [--cause R] [--kind K] [--group-by-agent] [--reasons] [--json]
-  decide log cause [--note TEXT] [--json] <event-id> <reason>...
+  decide log [--misfit] [--flags] [--good] [--agent A] [--cause R] [--kind K] [--group-by-agent] [--reasons] [--json]
+  decide log cause [--note TEXT] [--earlier-item ID] [--json] <event-id> <reason>...
   decide supersede [--json] <old> --by <new>
   decide backfill [--yes]
   decide list [--state open|answered|done|withdrawn] [--snoozed] [--off-line] [--undelivered] [--json]

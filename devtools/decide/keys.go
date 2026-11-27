@@ -338,6 +338,7 @@ func ActionCatalog() []ActionDef {
 		{Name: "list.classFilter", View: "list", Scopes: []string{"list"}, Default: []string{"f"}, Description: "Filter by item class.", Where: "list"},
 		{Name: "list.snooze", View: "list", Scopes: []string{"list"}, Default: []string{"b"}, Description: "Snooze. In Snoozed, also offers unsnooze.", Where: "list"},
 		{Name: "list.flag", View: "list", Scopes: []string{"list"}, Default: []string{"!"}, Description: "Flag the item or its latest agent message.", Where: "list"},
+		{Name: "list.good", View: "list", Scopes: []string{"list"}, Default: []string{"+"}, Description: "Record a thumbs-up on the item or its latest agent message.", Where: "list"},
 		{Name: "list.clearFilter", View: "list", Scopes: []string{"list"}, Default: []string{"esc"}, Description: "Clear the agent or class filter.", Where: "list"},
 
 		// Detail view.
@@ -363,6 +364,7 @@ func ActionCatalog() []ActionDef {
 		{Name: "detail.outcome", View: "detail", Scopes: []string{"detail"}, Default: []string{"E"}, Description: "Archive with a note: ask for one line, then mark done.", Where: "item"},
 		{Name: "detail.reply", View: "detail", Scopes: []string{"detail"}, Default: []string{"0"}, Description: "Focus the pinned reply box.", Where: "item"},
 		{Name: "detail.flag", View: "detail", Scopes: []string{"detail"}, Default: []string{"!"}, Description: "Flag this message or item.", Where: "item"},
+		{Name: "detail.good", View: "detail", Scopes: []string{"detail"}, Default: []string{"+"}, Description: "Record a thumbs-up on this message or item.", Where: "item"},
 
 		// Status view.
 		{Name: "status.next", View: "status", Scopes: []string{"status"}, Default: []string{"j"}, Description: "Move to the next row.", Where: "status"},
@@ -789,6 +791,7 @@ func FormatReadmeKeyTable(km *KeyMap) string {
 		{formatKeys("detail.outcome"), "item", "Archive with a note: ask for one line, then mark done."},
 		{formatKeys("list.snooze"), "list, item", "Snooze. In Snoozed, " + formatKeys("list.snooze") + " also offers unsnooze."},
 		{formatKeys("list.flag"), "list, item", "Flag an agent message or item with reasons."},
+		{formatKeys("list.good"), "list, item", "Record a thumbs-up on an agent message or item."},
 		{formatKeys("search"), "any", "Filter the list, or highlight an item. Empty Enter clears."},
 		{formatKeys("list.clearFilter"), "list", "Clear the agent filter."},
 		{"~1~-~9~", "item", "Answer with that option."},

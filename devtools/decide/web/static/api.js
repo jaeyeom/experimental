@@ -52,6 +52,7 @@ export const reply = (id, body) => post(itemPath(id, 'reply'), body);
 export const done = (id, outcome) => post(itemPath(id, 'done'), outcome ? { outcome } : {});
 export const reasons = () => get('/reasons');
 export const flag = (id, body) => post(itemPath(id, 'flag'), body);
+export const good = (id, body) => post(itemPath(id, 'good'), body);
 export const asks = () => get('/asks');
 export const askDone = (id, reason) => post(`/asks/${encodeURIComponent(id)}/done`, { reason });
 export const askDrop = (id, reason) => post(`/asks/${encodeURIComponent(id)}/drop`, { reason });

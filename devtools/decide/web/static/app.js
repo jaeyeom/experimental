@@ -231,6 +231,7 @@ function dispatchAction(action, target) {
   case 'list.archive': inboxView.archiveSelected(); break;
   case 'list.snooze': inboxView.snoozeSelected(); break;
   case 'list.flag': inboxView.flagSelected(); break;
+  case 'list.good': inboxView.goodSelected(); break;
   case 'list.clearFilter': inboxView.clearFilters(); break;
 
   case 'detail.back': case 'status.back': case 'contacts.back': location.hash = lastFolderHash; break;
@@ -245,6 +246,7 @@ function dispatchAction(action, target) {
   case 'detail.archive': threadView.archive(); break;
   case 'detail.snooze': threadView.snooze(); break;
   case 'detail.flag': threadView.flag(); break;
+  case 'detail.good': threadView.good(); break;
   case 'detail.outcome': threadView.done(); break;
   case 'detail.forward': threadView.forward(); break;
   case 'detail.reply': threadView.focusReply(); break;

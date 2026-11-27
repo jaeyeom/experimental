@@ -23,6 +23,8 @@ const (
 	EventCause = "cause"
 	// EventFlag logs a flag on an agent message or item from the inbox.
 	EventFlag = "flag"
+	// EventGood logs a positive thumbs-up record on an agent message or item from the inbox.
+	EventGood = "good"
 	// EventAskOpen logs a new ask record created from a choice or free-text answer.
 	EventAskOpen = "ask_open"
 	// EventAskDone logs closing an ask as done.
@@ -36,12 +38,13 @@ const (
 
 // CauseAnnotation is a cause annotation joined onto its target choice event when querying.
 type CauseAnnotation struct {
-	EventID string    `json:"eventId"`
-	Time    time.Time `json:"time"`
-	Who     string    `json:"who"`
-	Via     string    `json:"via,omitempty"`
-	Reasons []string  `json:"reasons"`
-	Note    string    `json:"note,omitempty"`
+	EventID       string    `json:"eventId"`
+	Time          time.Time `json:"time"`
+	Who           string    `json:"who"`
+	Via           string    `json:"via,omitempty"`
+	Reasons       []string  `json:"reasons"`
+	Note          string    `json:"note,omitempty"`
+	EarlierItemID string    `json:"earlierItemId,omitempty"`
 }
 
 // Event is one immutable append-only entry in events.jsonl.
@@ -63,6 +66,7 @@ type Event struct {
 	TargetEventID   string            `json:"targetEventId,omitempty"`
 	Reasons         []string          `json:"reasons,omitempty"`
 	Note            string            `json:"note,omitempty"`
+	EarlierItemID   string            `json:"earlierItemId,omitempty"`
 	MessageIndex    *int              `json:"messageIndex,omitempty"`
 	MessageTime     *time.Time        `json:"messageTime,omitempty"`
 	MessageText     string            `json:"messageText,omitempty"`
@@ -80,6 +84,7 @@ type EventFilter struct {
 	Kind   string
 	Misfit bool
 	Flags  bool
+	Good   bool
 	Agent  string
 	Cause  string
 }
@@ -319,6 +324,12 @@ func (l *Ledger) ListRawEvents() ([]Event, error) {
 // AddCause appends an optional cause annotation event referencing eventID
 // without modifying the original event in events.jsonl.
 func (l *Ledger) AddCause(eventID string, reasons []string, note, who, via string) (Event, error) {
+	return l.AddCauseWith(eventID, reasons, note, "", who, via)
+}
+
+// AddCauseWith appends an optional cause annotation event referencing eventID
+// with an optional earlierItemID for escalation reasons.
+func (l *Ledger) AddCauseWith(eventID string, reasons []string, note, earlierItemID, who, via string) (Event, error) {
 	cfg, err := LoadConfig()
 	if err != nil {
 		return Event{}, err
@@ -329,7 +340,12 @@ func (l *Ledger) AddCause(eventID string, reasons []string, note, who, via strin
 	if err := CheckVia(via); err != nil {
 		return Event{}, err
 	}
-	canonReasons, trimmedNote, err := ValidateReasonSelection(cfg.EffectiveReasons(), reasons, note)
+	catalog := cfg.EffectiveReasons()
+	canonReasons, trimmedNote, err := ValidateReasonSelection(catalog, reasons, note)
+	if err != nil {
+		return Event{}, err
+	}
+	trimmedEarlier, err := ValidateEarlierItemID(catalog, canonReasons, earlierItemID)
 	if err != nil {
 		return Event{}, err
 	}
@@ -337,7 +353,7 @@ func (l *Ledger) AddCause(eventID string, reasons []string, note, who, via strin
 		who = Human
 	}
 	var created Event
-	err = l.lockedWithEvents(false, func(*store) (bool, []Event, error) {
+	err = l.lockedWithEvents(false, func(st *store) (bool, []Event, error) {
 		existing, err := readEvents(l.dir)
 		if err != nil {
 			return false, nil, err
@@ -349,6 +365,7 @@ func (l *Ledger) AddCause(eventID string, reasons []string, note, who, via strin
 		if target.Kind != EventChoice {
 			return false, nil, fmt.Errorf("decide event %s (%s) is not a choice event", target.ID, target.Kind)
 		}
+		resolvedEarlier := resolveOptionalItemID(st, trimmedEarlier)
 		nextEv, _ := nextEventSequences(existing)
 		created = Event{
 			ID:             formatEventID(nextEv),
@@ -362,6 +379,7 @@ func (l *Ledger) AddCause(eventID string, reasons []string, note, who, via strin
 			TargetEventID:  target.ID,
 			Reasons:        canonReasons,
 			Note:           trimmedNote,
+			EarlierItemID:  resolvedEarlier,
 		}
 		return false, []Event{created}, nil
 	})
@@ -376,6 +394,12 @@ func (l *Ledger) AddCause(eventID string, reasons []string, note, who, via strin
 // When msgIdx is nil, the newest agent message on itemID is selected, or the
 // item itself when no agent message exists yet.
 func (l *Ledger) FlagItem(itemID string, msgIdx *int, reasons []string, note, via string) (Event, error) {
+	return l.FlagItemWith(itemID, msgIdx, reasons, note, "", via)
+}
+
+// FlagItemWith appends a flag event against itemID (and an agent message on it)
+// with an optional earlierItemID for escalation reasons.
+func (l *Ledger) FlagItemWith(itemID string, msgIdx *int, reasons []string, note, earlierItemID, via string) (Event, error) {
 	cfg, err := LoadConfig()
 	if err != nil {
 		return Event{}, err
@@ -386,7 +410,12 @@ func (l *Ledger) FlagItem(itemID string, msgIdx *int, reasons []string, note, vi
 	if err := CheckVia(via); err != nil {
 		return Event{}, err
 	}
-	canonReasons, trimmedNote, err := ValidateReasonSelection(cfg.EffectiveReasons(), reasons, note)
+	catalog := cfg.EffectiveReasons()
+	canonReasons, trimmedNote, err := ValidateReasonSelection(catalog, reasons, note)
+	if err != nil {
+		return Event{}, err
+	}
+	trimmedEarlier, err := ValidateEarlierItemID(catalog, canonReasons, earlierItemID)
 	if err != nil {
 		return Event{}, err
 	}
@@ -402,6 +431,7 @@ func (l *Ledger) FlagItem(itemID string, msgIdx *int, reasons []string, note, vi
 		if err != nil {
 			return false, nil, err
 		}
+		resolvedEarlier := resolveOptionalItemID(st, trimmedEarlier)
 		existing, err := readEvents(l.dir)
 		if err != nil {
 			return false, nil, err
@@ -421,6 +451,7 @@ func (l *Ledger) FlagItem(itemID string, msgIdx *int, reasons []string, note, vi
 			MessageText:     msgText,
 			Reasons:         canonReasons,
 			Note:            trimmedNote,
+			EarlierItemID:   resolvedEarlier,
 		}
 		return false, []Event{created}, nil
 	})
@@ -428,6 +459,65 @@ func (l *Ledger) FlagItem(itemID string, msgIdx *int, reasons []string, note, vi
 		return Event{}, err
 	}
 	return cloneEvent(created), nil
+}
+
+// GoodItem appends a thumbs-up (good-message) event against itemID (and an
+// agent message on it) with an optional note.
+func (l *Ledger) GoodItem(itemID string, msgIdx *int, note, via string) (Event, error) {
+	if via == "" {
+		via = ViaUI
+	}
+	if err := CheckVia(via); err != nil {
+		return Event{}, err
+	}
+	trimmedNote := strings.TrimSpace(note)
+	var created Event
+	err := l.lockedWithEvents(false, func(st *store) (bool, []Event, error) {
+		it, err := findItem(st, itemID)
+		if err != nil {
+			return false, nil, err
+		}
+		snapshot := cloneItem(it)
+		ensureMessages(&snapshot)
+		idx, msgTime, msgText, canonAgent, rawAgent, err := resolveFlagTarget(&snapshot, msgIdx)
+		if err != nil {
+			return false, nil, err
+		}
+		existing, err := readEvents(l.dir)
+		if err != nil {
+			return false, nil, err
+		}
+		nextEv, _ := nextEventSequences(existing)
+		created = Event{
+			ID:              formatEventID(nextEv),
+			Kind:            EventGood,
+			Time:            l.clock().UTC(),
+			ItemID:          snapshot.ID,
+			Who:             Human,
+			Via:             via,
+			SendingAgent:    canonAgent,
+			RawSendingAgent: rawAgent,
+			MessageIndex:    idx,
+			MessageTime:     msgTime,
+			MessageText:     msgText,
+			Note:            trimmedNote,
+		}
+		return false, []Event{created}, nil
+	})
+	if err != nil {
+		return Event{}, err
+	}
+	return cloneEvent(created), nil
+}
+
+func resolveOptionalItemID(st *store, trimmed string) string {
+	if trimmed == "" || st == nil {
+		return trimmed
+	}
+	if it, err := findItem(st, trimmed); err == nil {
+		return it.ID
+	}
+	return trimmed
 }
 
 func resolveFlagTarget(it *Item, msgIdx *int) (idxPtr *int, msgTime *time.Time, msgText, canonAgent, rawAgent string, err error) {
@@ -508,12 +598,13 @@ func attachEventCauses(rawEvents []Event) []Event {
 		}
 		if idx, ok := byID[ev.TargetEventID]; ok {
 			joined[idx].Causes = append(joined[idx].Causes, CauseAnnotation{
-				EventID: ev.ID,
-				Time:    ev.Time,
-				Who:     ev.Who,
-				Via:     ev.Via,
-				Reasons: append([]string(nil), ev.Reasons...),
-				Note:    ev.Note,
+				EventID:       ev.ID,
+				Time:          ev.Time,
+				Who:           ev.Who,
+				Via:           ev.Via,
+				Reasons:       append([]string(nil), ev.Reasons...),
+				Note:          ev.Note,
+				EarlierItemID: ev.EarlierItemID,
 			})
 		}
 	}
@@ -525,6 +616,9 @@ func eventMatchesFilter(ev Event, filter EventFilter, wantRaw, wantCanon string,
 		return false
 	}
 	if filter.Flags && ev.Kind != EventFlag {
+		return false
+	}
+	if filter.Good && ev.Kind != EventGood {
 		return false
 	}
 	if filter.Kind != "" && ev.Kind != filter.Kind {

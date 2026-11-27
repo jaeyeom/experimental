@@ -14,7 +14,7 @@ import { createDraftSync } from './draft_sync.js';
 import { loadLocalDraft, saveLocalDraft, busDown } from './store.js';
 import { openSheet } from './sheet.js';
 import { openSnoozeSheet } from './snooze_sheet.js';
-import { openFlagSheet } from './flag_sheet.js';
+import { openFlagSheet, openGoodSheet } from './flag_sheet.js';
 
 // renderText turns message text into DOM: text and code blocks, with
 // http(s) links as anchors. Nothing here can create an element from text.
@@ -183,6 +183,17 @@ export function createThreadView({ root, toast, hint = () => '' }) {
     });
   }
 
+  function goodTarget(it, msgIndex = null) {
+    openGoodSheet({
+      item: it,
+      messageIndex: msgIndex,
+      onSubmit: async (body) => {
+        await api.good(it.id, body);
+        toast(`Recorded thumbs-up for ${it.id}`);
+      },
+    });
+  }
+
   function header(it) {
     const cls = badgeOf(it);
     const pills = [pill(it.state)];
@@ -191,6 +202,9 @@ export function createThreadView({ root, toast, hint = () => '' }) {
     if (it.snoozedUntil && Date.parse(it.snoozedUntil) > Date.now()) {
       pills.push(pill('snoozed until ' + new Date(it.snoozedUntil).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' }), 'warn'));
     }
+    const goodBtn = el('button', { type: 'button', class: 'act', 'aria-label': `Thumbs up ${it.id}` },
+      '👍', keyHint(hint('detail.good')));
+    goodBtn.addEventListener('click', () => goodTarget(it, null));
     const flagBtn = el('button', { type: 'button', class: 'act', 'aria-label': `Flag ${it.id}` },
       'Flag', keyHint(hint('detail.flag')));
     flagBtn.addEventListener('click', () => flagTarget(it, null));
@@ -201,6 +215,7 @@ export function createThreadView({ root, toast, hint = () => '' }) {
       el('span', { class: 'owner', text: it.owner ?? '' }),
       ...(it.worker ? [pill(`Working on it: ${it.worker}`, 'warn')] : []),
       ...pills,
+      goodBtn,
       flagBtn,
       btn('⋯', () => overflow(it), 'menu-btn', { 'aria-label': 'More actions' }));
   }
@@ -209,11 +224,14 @@ export function createThreadView({ root, toast, hint = () => '' }) {
   function messageItem(it, m, idx) {
     const mark = deliveryMark(it, m);
     const agentMsg = m.author !== 'human' && m.author !== 'system';
+    const msgActions = agentMsg ? [el('span', { class: 'msg-actions' },
+      btn('👍', () => goodTarget(it, idx), 'msg-good-btn', { 'aria-label': `Thumbs up message ${idx + 1}` }),
+      btn('Flag', () => flagTarget(it, idx), 'msg-flag-btn', { 'aria-label': `Flag message ${idx + 1}` }))] : [];
     const head = el('div', { class: 'msg-head' },
       el('span', { class: 'who', text: m.by || m.author }),
       el('time', { text: hhmm(m.time) }),
       ...(mark ? [el('span', { class: 'mark' + (mark.startsWith('failed') ? ' bad' : ''), text: mark })] : []),
-      ...(agentMsg ? [btn('Flag', () => flagTarget(it, idx), 'msg-flag-btn', { 'aria-label': `Flag message ${idx + 1}` })] : []));
+      ...msgActions);
     const li = el('li', { class: 'msg' + (m.author === 'human' ? ' mine' : '') }, head);
     if (m.optionKey) li.append(el('p', { class: 'muted', text: `answered: ${m.optionKey}${m.optionLabel ? ' ' + m.optionLabel : ''}` }));
     if (m.text) li.append(renderText(m.text));
@@ -522,6 +540,7 @@ export function createThreadView({ root, toast, hint = () => '' }) {
     archive() { if (cur) archiveItem(cur.item); },
     snooze() { if (cur && cur.item.state !== 'done' && cur.item.state !== 'withdrawn') snoozeSheet(cur.item); },
     flag() { if (cur) flagTarget(cur.item, cur.msgIdx >= 0 ? cur.msgIdx : null); },
+    good() { if (cur) goodTarget(cur.item, cur.msgIdx >= 0 ? cur.msgIdx : null); },
     done() { if (cur && cur.item.state !== 'done' && cur.item.state !== 'withdrawn') doneSheet(cur.item); },
     forward() { if (cur) location.hash = '#/compose/' + encodeURIComponent(cur.item.id); },
     sendReply(andArchive = false) { if (cur) send(andArchive); },

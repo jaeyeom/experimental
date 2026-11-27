@@ -365,16 +365,25 @@ type Model struct {
 	composeDraft         draftState
 	composeRestorePrompt bool
 
-	flagging     bool
-	flagItemID   string
-	flagMsgIdx   *int
-	flagAgent    string
-	flagPreview  string
-	flagReasons  []decide.Reason
-	flagSelected map[string]bool
-	flagNote     string
-	flagCursor   int
-	flagErr      string
+	flagging        bool
+	flagItemID      string
+	flagMsgIdx      *int
+	flagAgent       string
+	flagPreview     string
+	flagReasons     []decide.Reason
+	flagSelected    map[string]bool
+	flagEarlierItem string
+	flagNote        string
+	flagCursor      int
+	flagErr         string
+
+	gooding     bool
+	goodItemID  string
+	goodMsgIdx  *int
+	goodAgent   string
+	goodPreview string
+	goodNote    string
+	goodErr     string
 
 	asksOn         bool
 	asksOnExplicit bool
@@ -552,6 +561,9 @@ func (m *Model) overlayKey(r rune) (bool, bool, error) {
 		return quit, true, err
 	case m.flagging:
 		quit, err := m.flagKey(r)
+		return quit, true, err
+	case m.gooding:
+		quit, err := m.goodKey(r)
 		return quit, true, err
 	case m.askClosing != "":
 		quit, err := m.askCloseKey(r)
@@ -1882,6 +1894,8 @@ func (m *Model) overlayLines() ([]screenLine, bool) {
 		lines = m.snoozeLines()
 	case m.flagging:
 		lines = m.flagLines()
+	case m.gooding:
+		lines = m.goodLines()
 	case m.askClosing != "":
 		lines = m.askCloseLines()
 	case m.avatarPick:
@@ -1947,6 +1961,8 @@ func (m *Model) overlayHintLine(label string) (screenLine, bool) {
 		return screenLine{text: label + snoozeHint}, true
 	case m.flagging:
 		return screenLine{text: label + flagHint}, true
+	case m.gooding:
+		return screenLine{text: label + goodHint}, true
 	case m.askClosing != "":
 		return screenLine{text: label + "type reason  enter save  esc cancel"}, true
 	default:

@@ -381,6 +381,7 @@ func (m *Model) runAction(action string) (bool, error) {
 		"list.classFilter":     func() (bool, error) { m.classFiltering = true; return false, nil },
 		"list.snooze":          func() (bool, error) { m.beginSnooze(); return false, nil },
 		"list.flag":            func() (bool, error) { m.beginFlag(); return false, nil },
+		"list.good":            func() (bool, error) { m.beginGood(); return false, nil },
 		"list.clearFilter":     func() (bool, error) { m.clearAgentFilter(); m.SetClassFilter(nil); return false, nil },
 		"detail.back":          func() (bool, error) { m.backToList(); return false, nil },
 		"detail.scrollDown":    func() (bool, error) { m.Wheel(true); return false, nil },
@@ -404,6 +405,7 @@ func (m *Model) runAction(action string) (bool, error) {
 		"detail.outcome":       func() (bool, error) { m.beginOutcome(); return false, nil },
 		"detail.reply":         func() (bool, error) { m.focusReply(); return false, nil },
 		"detail.flag":          func() (bool, error) { m.beginFlag(); return false, nil },
+		"detail.good":          func() (bool, error) { m.beginGood(); return false, nil },
 		"status.next":          func() (bool, error) { m.moveStatusCursor(1); return false, nil },
 		"status.prev":          func() (bool, error) { m.moveStatusCursor(-1); return false, nil },
 		"status.pageDown":      func() (bool, error) { m.moveList(m.listPage()); return false, nil },
@@ -1051,6 +1053,9 @@ func (m *Model) optionalHintExtras() []string {
 		if fl := m.actionFirst("list.flag"); fl != "" {
 			extras = append(extras, fl+" flag")
 		}
+		if gd := m.actionFirst("list.good"); gd != "" {
+			extras = append(extras, gd+" good")
+		}
 	}
 	return extras
 }
@@ -1079,6 +1084,11 @@ func (m *Model) detailOptionalHints(find string) []string {
 	if !covered["detail.flag"] {
 		if fl := m.actionFirst("detail.flag"); fl != "" {
 			extras = append(extras, fl+" flag")
+		}
+	}
+	if !covered["detail.good"] {
+		if gd := m.actionFirst("detail.good"); gd != "" {
+			extras = append(extras, gd+" good")
 		}
 	}
 	return extras
@@ -1225,6 +1235,7 @@ func (m *Model) listOrDetailHelpLines() []string {
 		{"detail.outcome", "archive with note"},
 		{"detail.snooze", "snooze"},
 		{"detail.flag", "flag"},
+		{"detail.good", "thumbs-up"},
 	} {
 		if k := m.actionSlash(spec.action); k != "" {
 			itemActs = append(itemActs, k+" "+spec.label)

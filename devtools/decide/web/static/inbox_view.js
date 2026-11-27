@@ -9,7 +9,7 @@ import {
 } from './inbox_model.js';
 import { attachSwipe } from './swipe.js';
 import { openSnoozeSheet } from './snooze_sheet.js';
-import { openFlagSheet } from './flag_sheet.js';
+import { openFlagSheet, openGoodSheet } from './flag_sheet.js';
 
 const folderOf = (route) => {
   const f = route.name === 'folder' ? route.arg : 'inbox';
@@ -95,6 +95,17 @@ export function createInboxView({ root, toast, hint = () => '' }) {
     });
   }
 
+  function goodSheet(it, focusKey) {
+    openGoodSheet({
+      item: it,
+      onSubmit: async (body) => {
+        await api.good(it.id, body);
+        toast(`Recorded thumbs-up for ${it.id}`);
+      },
+      restoreFocus: () => root.querySelector(`[data-k="${CSS.escape(focusKey)}"]`)?.focus(),
+    });
+  }
+
   // --- rendering ---
   const pill = (text, cls) => el('span', { class: 'pill ' + cls, text });
 
@@ -124,8 +135,8 @@ export function createInboxView({ root, toast, hint = () => '' }) {
     el('span', { class: 'row-bottom' }, el('span', { class: 'q', text: snippet(it) }), ...pills));
     const li = el('li', { class: 'row-wrap', 'data-id': it.id });
     li.append(link);
-    const act = (name, actionName, fn) => {
-      const b = el('button', { type: 'button', class: 'act', 'aria-label': `${name} ${it.id}`, 'data-k': `${it.id}:${name}` },
+    const act = (name, actionName, fn, ariaLabel = `${name} ${it.id}`, dataName = name) => {
+      const b = el('button', { type: 'button', class: 'act', 'aria-label': ariaLabel, 'data-k': `${it.id}:${dataName}` },
         name, keyHint(hint(actionName)));
       b.addEventListener('click', fn);
       return b;
@@ -135,7 +146,10 @@ export function createInboxView({ root, toast, hint = () => '' }) {
       rowBtns.push(act('Archive', 'list.archive', () => archive(it)), act('Snooze', 'list.snooze', () => snoozeSheet(it, `${it.id}:Snooze`)));
       attachSwipe(li, { onArchive: () => archive(it), onSnooze: () => snoozeSheet(it, `${it.id}:row`) });
     }
-    rowBtns.push(act('Flag', 'list.flag', () => flagSheet(it, `${it.id}:Flag`)));
+    rowBtns.push(
+      act('👍', 'list.good', () => goodSheet(it, `${it.id}:Good`), `Thumbs up ${it.id}`, 'Good'),
+      act('Flag', 'list.flag', () => flagSheet(it, `${it.id}:Flag`)),
+    );
     li.append(el('span', { class: 'row-actions' }, ...rowBtns));
     return li;
   }
@@ -222,6 +236,11 @@ export function createInboxView({ root, toast, hint = () => '' }) {
     if (it) flagSheet(it, `${it.id}:row`);
   }
 
+  function goodSelected() {
+    const it = focusedItem() ?? items.get(listRows()[0]?.closest?.('li[data-id]')?.dataset.id);
+    if (it) goodSheet(it, `${it.id}:row`);
+  }
+
   function clearFilters() {
     filter.classes.clear();
     filter.agent = '';
@@ -243,6 +262,7 @@ export function createInboxView({ root, toast, hint = () => '' }) {
     archiveSelected,
     snoozeSelected,
     flagSelected,
+    goodSelected,
     clearFilters,
   };
 }

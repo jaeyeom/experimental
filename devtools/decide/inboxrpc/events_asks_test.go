@@ -17,7 +17,7 @@ func TestFlagReasonsAndAsksRoundTrip(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(cfgPath, []byte(`{"asks":{"enabled":true},"reasons":[{"id":"vague-pronoun","category":"main-text","label":"Vague pronoun"},{"id":"other","category":"other","label":"Other"}]}`), 0o600); err != nil {
+	if err := os.WriteFile(cfgPath, []byte(`{"asks":{"enabled":true},"reasons":[{"id":"vague-pronoun","category":"main-text","label":"Vague pronoun"},{"id":"already-decided","category":"escalation","label":"should not have been asked: an earlier human decision covers it"},{"id":"other","category":"other","label":"Other"}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -43,17 +43,25 @@ func TestFlagReasonsAndAsksRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reasons: %v", err)
 	}
-	if len(reasons) != 2 || reasons[0].ID != "vague-pronoun" {
+	if len(reasons) != 3 || reasons[0].ID != "vague-pronoun" {
 		t.Fatalf("reasons = %+v", reasons)
 	}
 
 	msgIdx := 0
-	ev, err := c.Flag(it.ID, &msgIdx, []string{"vague-pronoun"}, "Unclear wording")
+	ev, err := c.Flag(it.ID, &msgIdx, []string{"already-decided"}, "Unclear wording", "D-001")
 	if err != nil {
 		t.Fatalf("Flag: %v", err)
 	}
-	if ev.Kind != decide.EventFlag || ev.SendingAgent != "ada" {
+	if ev.Kind != decide.EventFlag || ev.SendingAgent != "ada" || ev.EarlierItemID != it.ID {
 		t.Fatalf("flag event = %+v", ev)
+	}
+
+	goodEv, err := c.Good(it.ID, &msgIdx, "Clear options")
+	if err != nil {
+		t.Fatalf("Good: %v", err)
+	}
+	if goodEv.Kind != decide.EventGood || goodEv.SendingAgent != "ada" || goodEv.Note != "Clear options" {
+		t.Fatalf("good event = %+v", goodEv)
 	}
 
 	enabled, err := c.AsksEnabled()
