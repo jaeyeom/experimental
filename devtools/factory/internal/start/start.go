@@ -124,7 +124,7 @@ func (s *Starter) Start(ctx context.Context, id string, snap ready.Snapshot, gat
 	}
 	choice := config.ChooseAgentArgs(it.Labels, s.effectiveDefaultArgs(), s.Rules, opts.AgentArgs, opts.AgentArgsSet)
 	if !opts.JSON {
-		if err := s.writePlan(it, ws, tab, prompt, false, choice, ownClaim); err != nil {
+		if err := s.writePlan(ctx, it, ws, tab, prompt, false, choice, ownClaim); err != nil {
 			return err
 		}
 		if err := s.writeNotes(gateNotes(gateRes, opts)); err != nil {
@@ -132,15 +132,23 @@ func (s *Starter) Start(ctx context.Context, id string, snap ready.Snapshot, gat
 		}
 	}
 	if !opts.Apply {
-		if opts.JSON {
-			return s.writeOutcome(opts, s.dryRunOutcome(id, prompt, choice))
-		}
-		return nil
+		return s.finishDryRun(ctx, id, prompt, choice, opts)
 	}
 	return s.applyStart(ctx, id, ws, tab, prompt, agent, choice, snap, opts, ownClaim)
 }
 
-func (s *Starter) dryRunOutcome(id, prompt string, choice config.AgentArgChoice) Outcome {
+func (s *Starter) finishDryRun(ctx context.Context, id, prompt string, choice config.AgentArgChoice, opts Options) error {
+	if !opts.JSON {
+		return nil
+	}
+	out, err := s.dryRunOutcome(ctx, id, prompt, choice)
+	if err != nil {
+		return s.finishOutcome(opts, refusedOutcome(id, err), err)
+	}
+	return s.writeOutcome(opts, out)
+}
+
+func (s *Starter) dryRunOutcome(ctx context.Context, id, prompt string, choice config.AgentArgChoice) (Outcome, error) {
 	mode := s.effectiveOutputMode()
 	out := Outcome{
 		ID:         id,
@@ -150,7 +158,7 @@ func (s *Starter) dryRunOutcome(id, prompt string, choice config.AgentArgChoice)
 		ExitCode:   ExitStarted,
 	}
 	if s.effectiveSpawner() != config.SpawnerSubagent {
-		return out
+		return out, nil
 	}
 	srcName := s.Kind + ":" + s.Cfg.Name
 	if s.Src != nil && s.Src.Name() != "" {
@@ -158,7 +166,11 @@ func (s *Starter) dryRunOutcome(id, prompt string, choice config.AgentArgChoice)
 	}
 	cwd := s.Cfg.Cwd
 	if s.effectiveWorktree() && s.Machine == "" {
-		cwd, _ = WorktreeSpec(s.Cfg.Cwd, id)
+		var err error
+		cwd, _, err = s.allocateWorktree(ctx, id)
+		if err != nil {
+			return Outcome{}, err
+		}
 	}
 	out.Spawner = config.SpawnerSubagent
 	out.Source = srcName
@@ -170,7 +182,7 @@ func (s *Starter) dryRunOutcome(id, prompt string, choice config.AgentArgChoice)
 		config.OutputModeEnv: mode,
 	}
 	out.Brief = prompt
-	return out
+	return out, nil
 }
 
 func (s *Starter) applyStart(ctx context.Context, id, ws, tab, prompt, agent string, choice config.AgentArgChoice, snap ready.Snapshot, opts Options, ownClaim bool) error {

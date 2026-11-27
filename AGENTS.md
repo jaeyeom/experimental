@@ -18,6 +18,7 @@ These instructions apply to every coding agent working in this repository.
 -   **Keep main branch history flat** (no merge commits).
 -   **Use rebase** to integrate upstream changes (`git pull --rebase`).
 -   **Use fast-forward merges** to main (`git merge --ff-only`).
+-   **Reuse fixed worktree paths** (e.g., `../<repo>-wt-1`, `../<repo>-wt-2`) instead of per-issue paths (`../<repo>-issue-<N>`) so Bazel reuses output bases.
 
 ## Versioning
 -   **Single module, single tag**: This repository uses a single root `go.mod`

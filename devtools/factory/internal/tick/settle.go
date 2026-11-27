@@ -15,7 +15,6 @@ import (
 	"github.com/jaeyeom/experimental/devtools/factory/internal/prlog"
 	"github.com/jaeyeom/experimental/devtools/factory/internal/ready"
 	"github.com/jaeyeom/experimental/devtools/factory/internal/source"
-	"github.com/jaeyeom/experimental/devtools/factory/internal/start"
 	"github.com/jaeyeom/experimental/devtools/factory/internal/store"
 	"github.com/jaeyeom/experimental/devtools/factory/internal/syncer"
 	"github.com/jaeyeom/experimental/devtools/factory/internal/verify"
@@ -412,10 +411,6 @@ func (e *Engine) cleanupTargetWorktree(ctx context.Context, target settleTarget,
 		cwd = lane.Checkout
 	}
 	dirs := worktreeDirsForClaims(target.claims)
-	if len(dirs) == 0 && target.cfg.Worker.Worktree {
-		dir, _ := start.WorktreeSpec(cwd, target.it.ID)
-		dirs = []string{dir}
-	}
 	for _, dir := range dirs {
 		e.cleanupOneWorktree(ctx, target.it.ID, cwd, dir)
 	}

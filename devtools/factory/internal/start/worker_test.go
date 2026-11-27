@@ -4,10 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/factory/internal/config"
+	"github.com/jaeyeom/experimental/devtools/factory/internal/ready"
+	"github.com/jaeyeom/experimental/devtools/factory/internal/source"
 	"github.com/jaeyeom/experimental/devtools/factory/internal/store"
 )
 
@@ -381,4 +386,194 @@ func TestWorktreeCleanedUpOnFailedAgentStart(t *testing.T) {
 	if removed != wantDir {
 		t.Fatalf("WorktreeRemove = %q, want %q", removed, wantDir)
 	}
+}
+
+func TestWorktreeSlotAllocation(t *testing.T) {
+	t.Parallel()
+
+	t.Run("slot_spec_uses_fixed_slot_dir_and_issue_branch", func(t *testing.T) {
+		t.Parallel()
+		dir1, branch1 := WorktreeSpec("/tmp/monorepo", "PRJ-123")
+		want1 := filepath.Join("/tmp", ".monorepo-worktrees", "slot-1")
+		if dir1 != want1 || branch1 != "factory/PRJ-123" {
+			t.Fatalf("WorktreeSpec = (%q, %q), want (%q, %q)", dir1, branch1, want1, "factory/PRJ-123")
+		}
+		dir2, branch2 := WorktreeSlotSpec("/tmp/monorepo", "PRJ-123", 2)
+		want2 := filepath.Join("/tmp", ".monorepo-worktrees", "slot-2")
+		if dir2 != want2 || branch2 != "factory/PRJ-123" {
+			t.Fatalf("WorktreeSlotSpec(2) = (%q, %q), want (%q, %q)", dir2, branch2, want2, "factory/PRJ-123")
+		}
+	})
+
+	t.Run("skips_claimed_slot_1_for_slot_2", func(t *testing.T) {
+		t.Parallel()
+		h := newHarness(t)
+		repoDir := filepath.Join(t.TempDir(), "monorepo")
+		h.starter.Cfg.Cwd = repoDir
+		h.starter.Cfg.Worker = config.Worker{
+			Spawner:    config.SpawnerSubagent,
+			Agent:      "claude",
+			MaxWorkers: 2,
+			Worktree:   true,
+		}
+		h.starter.Herdr = nil
+
+		slot1Dir, _ := WorktreeSlotSpec(repoDir, "PRJ-100", 1)
+		slot2Dir, wantBranch := WorktreeSlotSpec(repoDir, "PRJ-123", 2)
+		if err := h.st.InsertClaim(context.Background(), store.Claim{
+			Source:    "jira:acme",
+			ID:        "PRJ-100",
+			ClaimedAt: fixedNow.Add(-time.Minute),
+			Machine:   "laptop",
+			State:     store.Started,
+			UpdatedAt: fixedNow.Add(-time.Minute),
+			Worktree:  slot1Dir,
+		}); err != nil {
+			t.Fatal(err)
+		}
+
+		// Dry-run text plan shows slot-2.
+		if err := h.starter.Start(context.Background(), "PRJ-123", h.snap, okGate, Options{}); err != nil {
+			t.Fatal(err)
+		}
+		wantLine := "worktree " + slot2Dir + " (branch " + wantBranch + ")\n"
+		if !strings.Contains(h.out.String(), wantLine) {
+			t.Fatalf("dry-run plan missing %q:\n%s", wantLine, h.out.String())
+		}
+
+		// Dry-run JSON reports slot-2 as cwd.
+		h.out.Reset()
+		if err := h.starter.Start(context.Background(), "PRJ-123", h.snap, okGate, Options{JSON: true}); err != nil {
+			t.Fatal(err)
+		}
+		var dryOut Outcome
+		if err := json.Unmarshal(h.out.Bytes(), &dryOut); err != nil {
+			t.Fatalf("decode dry-run outcome: %v (%q)", err, h.out.String())
+		}
+		if dryOut.Cwd != slot2Dir {
+			t.Fatalf("dry-run JSON Cwd = %q, want %q", dryOut.Cwd, slot2Dir)
+		}
+
+		// Apply allocates slot-2 and records it on the claim.
+		h.out.Reset()
+		var addedDir, addedBranch string
+		h.starter.WorktreeAdd = func(_ context.Context, _ string, worktreeDir, branch, _ string) error {
+			addedDir = worktreeDir
+			addedBranch = branch
+			return nil
+		}
+		if err := h.starter.Start(context.Background(), "PRJ-123", h.snap, okGate, applyOpt); err != nil {
+			t.Fatal(err)
+		}
+		if addedDir != slot2Dir || addedBranch != wantBranch {
+			t.Fatalf("WorktreeAdd = (%q, %q), want (%q, %q)", addedDir, addedBranch, slot2Dir, wantBranch)
+		}
+		cl, ok, err := h.st.ActiveClaim(context.Background(), "jira:acme", "PRJ-123")
+		if err != nil || !ok {
+			t.Fatalf("ActiveClaim = %+v, %v, %v", cl, ok, err)
+		}
+		if cl.Worktree != slot2Dir {
+			t.Fatalf("claim Worktree = %q, want %q", cl.Worktree, slot2Dir)
+		}
+	})
+
+	t.Run("skips_dirty_existing_slot_1_on_disk", func(t *testing.T) {
+		t.Parallel()
+		h := newHarness(t)
+		repoDir := filepath.Join(t.TempDir(), "monorepo")
+		h.starter.Cfg.Cwd = repoDir
+		h.starter.Cfg.Worker = config.Worker{
+			Spawner:    config.SpawnerSubagent,
+			Agent:      "claude",
+			MaxWorkers: 2,
+			Worktree:   true,
+		}
+		h.starter.Herdr = nil
+
+		slot1Dir, _ := WorktreeSlotSpec(repoDir, "PRJ-100", 1)
+		slot2Dir, wantBranch := WorktreeSlotSpec(repoDir, "PRJ-123", 2)
+		if err := os.MkdirAll(slot1Dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		dirtyFile := filepath.Join(slot1Dir, "dirty.txt")
+		if err := os.WriteFile(dirtyFile, []byte("keep me"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := h.starter.Start(context.Background(), "PRJ-123", h.snap, okGate, Options{}); err != nil {
+			t.Fatal(err)
+		}
+		wantLine := "worktree " + slot2Dir + " (branch " + wantBranch + ")\n"
+		if !strings.Contains(h.out.String(), wantLine) {
+			t.Fatalf("dry-run plan missing %q:\n%s", wantLine, h.out.String())
+		}
+
+		h.out.Reset()
+		var addedDir string
+		h.starter.WorktreeAdd = func(_ context.Context, _ string, worktreeDir, _, _ string) error {
+			addedDir = worktreeDir
+			return os.MkdirAll(worktreeDir, 0o755)
+		}
+		if err := h.starter.Start(context.Background(), "PRJ-123", h.snap, okGate, applyOpt); err != nil {
+			t.Fatal(err)
+		}
+		if addedDir != slot2Dir {
+			t.Fatalf("WorktreeAdd dir = %q, want %q", addedDir, slot2Dir)
+		}
+		gotDirty, err := os.ReadFile(dirtyFile)
+		if err != nil || string(gotDirty) != "keep me" {
+			t.Fatalf("dirty file clobbered: content=%q err=%v", gotDirty, err)
+		}
+	})
+
+	t.Run("reuses_slot_1_after_release", func(t *testing.T) {
+		t.Parallel()
+		h := newHarness(t)
+		repoDir := filepath.Join(t.TempDir(), "monorepo")
+		h.starter.Cfg.Cwd = repoDir
+		h.starter.Cfg.Worker = config.Worker{
+			Spawner:    config.SpawnerSubagent,
+			Agent:      "claude",
+			MaxWorkers: 2,
+			Worktree:   true,
+		}
+		h.starter.Herdr = nil
+
+		item1 := source.Item{ID: "PRJ-100", Title: "First", URL: "https://example.test/PRJ-100", State: "To Do", Parent: "PRJ-9"}
+		item2 := jiraItem()
+		h.src.inner.Items[item1.ID] = item1
+		snap := ready.Snapshot{
+			Items: map[string]source.Item{item1.ID: item1, item2.ID: item2},
+			Me:    "ada",
+		}
+
+		var created []string
+		h.starter.WorktreeAdd = func(_ context.Context, _ string, worktreeDir, _, _ string) error {
+			created = append(created, worktreeDir)
+			return os.MkdirAll(worktreeDir, 0o755)
+		}
+		if err := h.starter.Start(context.Background(), "PRJ-100", snap, okGate, applyOpt); err != nil {
+			t.Fatal(err)
+		}
+		slot1Dir, _ := WorktreeSlotSpec(repoDir, "PRJ-100", 1)
+		cl1, ok, err := h.st.ActiveClaim(context.Background(), "jira:acme", "PRJ-100")
+		if err != nil || !ok || cl1.Worktree != slot1Dir {
+			t.Fatalf("claim 1 = %+v, ok=%v, err=%v (want worktree %q)", cl1, ok, err, slot1Dir)
+		}
+
+		// Simulate clean release: mark released in store and remove slot-1 from disk.
+		if err := h.st.UpdateClaim(context.Background(), cl1.Source, cl1.ID, cl1.ClaimedAt, store.Released, "", "", ""); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.RemoveAll(slot1Dir); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := h.starter.Start(context.Background(), "PRJ-123", snap, okGate, applyOpt); err != nil {
+			t.Fatal(err)
+		}
+		if len(created) != 2 || created[0] != slot1Dir || created[1] != slot1Dir {
+			t.Fatalf("created worktrees = %v, want [%s %s]", created, slot1Dir, slot1Dir)
+		}
+	})
 }

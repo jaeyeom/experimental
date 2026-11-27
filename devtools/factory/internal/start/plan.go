@@ -1,6 +1,7 @@
 package start
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -105,10 +106,10 @@ func (s *Starter) WriteBlocked(it source.Item, opts Options) error {
 		return err
 	}
 	choice := config.ChooseAgentArgs(it.Labels, s.Defaults.AgentArgs, s.Rules, opts.AgentArgs, opts.AgentArgsSet)
-	return s.writePlan(it, ws, tab, prompt, true, choice, false)
+	return s.writePlan(context.Background(), it, ws, tab, prompt, true, choice, false)
 }
 
-func (s *Starter) writePlan(it source.Item, ws, tab, prompt string, blocked bool, choice config.AgentArgChoice, ownClaim bool) error {
+func (s *Starter) writePlan(ctx context.Context, it source.Item, ws, tab, prompt string, blocked bool, choice config.AgentArgChoice, ownClaim bool) error {
 	claimLine, err := claimText(it.ID, s.Cfg, s.Kind)
 	if err != nil {
 		return err
@@ -136,10 +137,11 @@ func (s *Starter) writePlan(it source.Item, ws, tab, prompt string, blocked bool
 		argsLine,
 		"prompt", shown,
 	)
-	if s.effectiveWorktree() && s.Machine == "" {
-		wtDir, wtBranch := WorktreeSpec(s.Cfg.Cwd, it.ID)
-		text += fmt.Sprintf("%-8s %s (branch %s)\n", "worktree", wtDir, wtBranch)
+	worktreeLine, err := s.planWorktreeLine(ctx, it.ID)
+	if err != nil {
+		return err
 	}
+	text += worktreeLine
 	if s.effectiveOutputMode() == config.OutputModeMerge {
 		text += fmt.Sprintf("%-8s %s (exit worker on completion)\n", "output", config.OutputModeMerge)
 	}
@@ -163,6 +165,17 @@ func (s *Starter) writePlan(it source.Item, ws, tab, prompt string, blocked bool
 		return err
 	}
 	return s.writeAppendPlan(s.Out, it)
+}
+
+func (s *Starter) planWorktreeLine(ctx context.Context, id string) (string, error) {
+	if !s.effectiveWorktree() || s.Machine != "" {
+		return "", nil
+	}
+	wtDir, wtBranch, err := s.allocateWorktree(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%-8s %s (branch %s)\n", "worktree", wtDir, wtBranch), nil
 }
 
 func (s *Starter) planCommentLine(id string, ownClaim bool) string {

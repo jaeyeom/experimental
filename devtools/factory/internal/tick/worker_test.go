@@ -2,6 +2,10 @@ package tick
 
 import (
 	"context"
+	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -59,7 +63,19 @@ func TestSettleRemovesWorktree(t *testing.T) {
 		AgentStatus: herdr.AgentStatusIdle, PaneCount: 1,
 	}}
 	env.pulls.merged = ghPR("[PRJ-123] ship")
-	seedClaim(t, env.st, "PRJ-123", store.Started, env.now, "w1:t1", "w1")
+	if err := env.st.InsertClaim(context.Background(), store.Claim{
+		Source:      "jira:acme",
+		ID:          "PRJ-123",
+		ClaimedAt:   env.now,
+		Machine:     "test-host",
+		State:       store.Started,
+		UpdatedAt:   env.now,
+		TabID:       "w1:t1",
+		WorkspaceID: "w1",
+		Worktree:    wantDir,
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := env.eng.Settle(context.Background(), nil); err != nil {
 		t.Fatal(err)
@@ -151,5 +167,63 @@ func TestSettleSubagentSkipsCloseTab(t *testing.T) {
 	}
 	if got.State != store.Done {
 		t.Fatalf("claim state = %q, want done", got.State)
+	}
+}
+
+func TestTickWorktreeSlotReuseAfterSettle(t *testing.T) {
+	items := []source.Item{
+		readyItem("PRJ-1", "First"),
+		readyItem("PRJ-2", "Second"),
+	}
+	env := newTickEnv(t, items, true, true)
+	repoDir := filepath.Join(t.TempDir(), "monorepo")
+	env.eng.Config.Defaults.MaxInFlight = 2
+	env.eng.Config.Defaults.MinStartInterval = 0
+	env.eng.Config.Sources[0].Cwd = repoDir
+	env.eng.Config.Sources[0].Worker = config.Worker{
+		Spawner:    config.SpawnerSubagent,
+		Agent:      "claude",
+		MaxWorkers: 2,
+		Worktree:   true,
+	}
+	env.eng.Agent = nil
+	env.eng.WorktreeAdd = func(_ context.Context, _, worktreeDir, _, _ string) error {
+		return os.MkdirAll(worktreeDir, 0o755)
+	}
+	env.eng.WorktreeRemove = func(_ context.Context, _, worktreeDir string) error {
+		return os.RemoveAll(worktreeDir)
+	}
+
+	// First tick claims PRJ-1 -> slot-1 and PRJ-2 -> slot-2.
+	if err := env.eng.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	slot1Dir, _ := start.WorktreeSlotSpec(repoDir, "PRJ-1", 1)
+	slot2Dir, _ := start.WorktreeSlotSpec(repoDir, "PRJ-2", 2)
+	c1 := claimRow(t, env.st, "PRJ-1")
+	c2 := claimRow(t, env.st, "PRJ-2")
+	if c1.Worktree != slot1Dir || c2.Worktree != slot2Dir {
+		t.Fatalf("worktrees = (%q, %q), want (%q, %q)", c1.Worktree, c2.Worktree, slot1Dir, slot2Dir)
+	}
+
+	// PRJ-1 merges cleanly; settle removes slot-1 while PRJ-2 remains in slot-2.
+	env.pulls.merged = ghPR("[PRJ-1] First")
+	if err := env.eng.Settle(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(slot1Dir); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("slot-1 still exists after clean settle: err=%v", err)
+	}
+
+	// Next tick starts PRJ-3 and reuses slot-1.
+	env.pulls.merged = nil
+	item3 := readyItem("PRJ-3", "Third")
+	env.src.items["PRJ-3"] = item3
+	if err := env.eng.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	c3 := claimRow(t, env.st, "PRJ-3")
+	if c3.Worktree != slot1Dir {
+		t.Fatalf("PRJ-3 worktree = %q, want reused %q", c3.Worktree, slot1Dir)
 	}
 }

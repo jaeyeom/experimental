@@ -156,6 +156,7 @@ func (e *Engine) writeBlocked(cand candidate) error {
 		Kind:      cand.cfg.Kind,
 		Defaults:  e.Config.Defaults,
 		Rules:     e.Config.AgentRules,
+		Store:     e.Store,
 		Out:       e.Out,
 		Caller:    e.Caller,
 		CallerBus: e.CallerBus,

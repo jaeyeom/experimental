@@ -3,6 +3,8 @@ package start
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -41,13 +43,50 @@ func (s *Starter) effectiveOutputMode() string {
 	return config.OutputModePR
 }
 
-// WorktreeSpec returns the isolated worktree directory and branch name for id.
+// WorktreeSpec returns the default worktree directory (slot-1) and branch name for id.
 func WorktreeSpec(cwd, id string) (dir, branch string) {
+	return WorktreeSlotSpec(cwd, id, 1)
+}
+
+// WorktreeSlotSpec returns the isolated worktree directory for a 1-based slot
+// and the issue-specific branch name for id.
+func WorktreeSlotSpec(cwd, id string, slot int) (dir, branch string) {
+	if slot < 1 {
+		slot = 1
+	}
 	clean := filepath.Clean(cwd)
 	slug := sanitizeWorktreeName(id)
-	dir = filepath.Join(filepath.Dir(clean), "."+filepath.Base(clean)+"-worktrees", slug)
+	dir = filepath.Join(filepath.Dir(clean), "."+filepath.Base(clean)+"-worktrees", fmt.Sprintf("slot-%d", slot))
 	branch = "factory/" + slug
 	return dir, branch
+}
+
+func (s *Starter) allocateWorktree(ctx context.Context, id string) (dir, branch string, err error) {
+	claimed := make(map[string]struct{})
+	if s.Store != nil {
+		claims, err := s.Store.ActiveClaims(ctx)
+		if err != nil {
+			return "", "", err //nolint:wrapcheck // propagate context cancellation
+		}
+		for _, c := range claims {
+			if c.Worktree != "" {
+				claimed[filepath.Clean(c.Worktree)] = struct{}{}
+			}
+		}
+	}
+	for slot := 1; ; slot++ {
+		dir, branch = WorktreeSlotSpec(s.Cfg.Cwd, id, slot)
+		if _, ok := claimed[filepath.Clean(dir)]; ok {
+			continue
+		}
+		_, statErr := os.Lstat(dir)
+		if errors.Is(statErr, os.ErrNotExist) {
+			return dir, branch, nil
+		}
+		if statErr != nil {
+			return "", "", fmt.Errorf("check worktree slot %s: %w", dir, statErr)
+		}
+	}
 }
 
 func sanitizeWorktreeName(id string) string {
@@ -75,7 +114,10 @@ func (s *Starter) prepareWorktree(ctx context.Context, id string) (string, error
 	if s.WorktreeAdd == nil {
 		return "", errors.New("start: expected a git worktree add function, found nil")
 	}
-	dir, branch := WorktreeSpec(s.Cfg.Cwd, id)
+	dir, branch, err := s.allocateWorktree(ctx, id)
+	if err != nil {
+		return "", err
+	}
 	if err := s.WorktreeAdd(ctx, s.Cfg.Cwd, dir, branch, s.Cfg.Base); err != nil {
 		return "", err
 	}
