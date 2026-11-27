@@ -23,10 +23,18 @@ type ghIssue struct {
 // fetchIssues returns the watched issues of repo in the given state
 // ("open" or "closed"), merging the explicit list and the query. An issue
 // found by both appears once.
-func fetchIssues(ctx context.Context, run Runner, repo RepoConfig, slug, state string) ([]Issue, error) {
+func fetchIssues(ctx context.Context, run Runner, ghBin string, repo RepoConfig, slug, state string) ([]Issue, error) {
+	if ghBin == "" {
+		ghBin = DefaultGHBin
+	}
 	found := map[int]ghIssue{}
+	seenExplicit := map[int]bool{}
 	for _, n := range repo.Issues {
-		out, err := run(ctx, "gh", "issue", "view", strconv.Itoa(n), "-R", slug, "--json", ghFields)
+		if seenExplicit[n] {
+			continue
+		}
+		seenExplicit[n] = true
+		out, err := run(ctx, ghBin, "issue", "view", strconv.Itoa(n), "-R", slug, "--json", ghFields)
 		if err != nil {
 			return nil, err
 		}
@@ -38,9 +46,9 @@ func fetchIssues(ctx context.Context, run Runner, repo RepoConfig, slug, state s
 			found[is.Number] = is
 		}
 	}
-	if repo.Query != "" {
-		out, err := run(ctx, "gh", "issue", "list", "-R", slug, "--state", state,
-			"--search", repo.Query, "--limit", "200", "--json", ghFields)
+	if q := strings.TrimSpace(repo.Query); q != "" {
+		out, err := run(ctx, ghBin, "issue", "list", "-R", slug, "--state", state,
+			"--search", q, "--limit", "200", "--json", ghFields)
 		if err != nil {
 			return nil, err
 		}

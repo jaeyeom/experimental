@@ -1,0 +1,25 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["agentbus.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/installcheck/adapter/agentbus",
+    visibility = ["//visibility:public"],
+    deps = ["//devtools/installcheck:go_default_library"],
+)
+
+go_test(
+    name = "go_default_test",
+    size = "small",
+    srcs = ["agentbus_test.go"],
+    embed = [":go_default_library"],
+)
+
+filegroup(
+    name = "go_srcs",
+    srcs = glob(
+        ["**/*.go"],
+        exclude = ["**/*_test.go"],
+    ),
+    visibility = ["//tools/lint:__pkg__"],
+)

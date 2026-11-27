@@ -37,6 +37,9 @@ func (r RepoState) has(n int) bool {
 
 // LoadState reads the state file. A missing file is an empty state.
 func LoadState(path string) (State, error) {
+	if path == "" {
+		return State{}, errors.New("state path is empty")
+	}
 	data, err := os.ReadFile(path) //nolint:gosec // G304: the user's own state path
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -51,8 +54,11 @@ func LoadState(path string) (State, error) {
 	return st, nil
 }
 
-// SaveState writes the state atomically with mode 0600.
+// SaveState writes the state atomically (temp file, fsync, rename) with mode 0600.
 func SaveState(path string, st State) error {
+	if path == "" {
+		return errors.New("state path is empty")
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create state dir: %w", err)
 	}

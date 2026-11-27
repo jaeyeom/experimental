@@ -7,6 +7,7 @@ go_library(
         "config.go",
         "exec.go",
         "github.go",
+        "notify.go",
         "paths.go",
         "state.go",
         "status.go",
@@ -14,6 +15,7 @@ go_library(
     importpath = "github.com/jaeyeom/experimental/devtools/installcheck",
     visibility = ["//visibility:public"],
     deps = [
+        "//devtools/pkg/notify:go_default_library",
         "@com_github_google_renameio_v2//:go_default_library",
         "@com_github_pelletier_go_toml_v2//:go_default_library",
     ],
@@ -22,7 +24,11 @@ go_library(
 go_test(
     name = "go_default_test",
     size = "small",
-    srcs = ["check_test.go"],
+    srcs = [
+        "check_test.go",
+        "config_test.go",
+        "notify_test.go",
+    ],
     embed = [":go_default_library"],
 )
 

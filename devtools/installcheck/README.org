@@ -1,12 +1,13 @@
 #+TITLE: install-check
-#+DATE: 2026-11-22
+#+DATE: 2026-11-27
 
-install-check wakes an agent when an issue you are waiting on lands on
-=main=. A systemd user timer runs it every 45 minutes. It compares each
+install-check wakes a target (a script/command, stdout, or an agentbus
+recipient) when a GitHub issue you are waiting on lands on =main=. A
+systemd user timer or cron job runs it periodically. It compares each
 repo's =main= head with the last run, and only when a head moved does it
 ask GitHub about the issues you watch. If some are newly closed, it sends
-one agentbus message. A quiet run prints nothing and makes no GitHub
-calls. It never installs, builds, or restarts anything.
+one notification. A quiet run prints nothing and makes no GitHub calls.
+It never installs, builds, or restarts anything.
 
 * Quick start
 
@@ -16,16 +17,22 @@ calls. It never installs, builds, or restarts anything.
 go install github.com/jaeyeom/experimental/devtools/installcheck/cmd/install-check@latest
 #+END_SRC
 
-It needs =git=, an authenticated =gh=, and =agentbus= on ~PATH~.
+It needs =git= and an authenticated =gh= (or a wrapper such as
+=gh-throttle= configured via ~gh_bin~ or ~GH_BIN~) on ~PATH~. When using
+~notify_name~ without ~notify_command~, =agentbus= is also used on ~PATH~;
+standalone command and stdout modes require no =agentbus= installation.
 
 ** Config
 
 Create =~/.config/install-check/config.toml= (or
 =$XDG_CONFIG_HOME/install-check/config.toml=). Use ~--config~ for another
-path.
+path. Unknown keys are rejected.
+
+Standalone command example:
 
 #+BEGIN_SRC toml
-notify_name = "installer"
+notify_command = ["/usr/local/bin/my-notify.sh"]
+gh_bin = "gh-throttle"
 skip_not_planned = false
 
 [[repo]]
@@ -34,25 +41,55 @@ issues = [123, 130]
 query = "is:issue author:@me"
 #+END_SRC
 
-- ~notify_name~: the agentbus name to message. No reply is expected.
+Or using =agentbus= (backwards-compatible):
+
+#+BEGIN_SRC toml
+notify_name = "installer"
+skip_not_planned = false
+
+[[repo]]
+url = "https://github.com/owner/repo"
+issues = [123, 130]
+#+END_SRC
+
+- ~notify_command~: direct-argv command template (executed without a
+  shell). Supports placeholders ~{message}~, ~{kind}~ (=landed= or
+  =failure=), and ~{recipient}~ (when ~notify_name~ is also set), plus
+  environment variables =INSTALL_CHECK_MESSAGE=, =INSTALL_CHECK_KIND=,
+  and =INSTALL_CHECK_RECIPIENT=. If no placeholder is present in
+  ~notify_command~, the message body is appended as a trailing argument.
+  A leading =~=/ on the executable expands to ~HOME~.
+- ~notify_name~: recipient name for =agentbus= (when ~notify_command~ is
+  unset) or the value bound to ~{recipient}~ / =INSTALL_CHECK_RECIPIENT=.
+- ~notify_mode~: optional explicit delivery mode: ~"command"~,
+  ~"stdout"~, or ~"agentbus"~. When omitted, ~notify_command~ selects
+  command mode and ~notify_name~ selects agentbus mode.
+- ~gh_bin~: optional GitHub CLI executable name or path (leading =~=/
+  expands to ~HOME~). Overrides ~GH_BIN~; defaults to =gh=. Set to
+  =gh-throttle= when sharing GitHub API budgets across tools.
 - ~[[repo]]~: ~url~ plus ~issues~, ~query~, or both. An issue matched by
-  both is listed once. ~query~ is a ~gh issue list --search~ string whose
-  closed results count as watched.
+  both is listed once, and duplicate repositories (by =owner/repo= slug)
+  are rejected. ~query~ is a ~gh issue list --search~ string whose closed
+  results count as watched.
 - ~skip_not_planned~: issues closed as "not planned" are listed in a
   separate section, or dropped silently when this is true.
 - ~state_file~: defaults to =$XDG_STATE_HOME/install-check/state.json=,
-  else =~/.local/state/install-check/state.json=. It is written
-  atomically with mode 0600.
+  else =~/.local/state/install-check/state.json=. A leading =~=/ expands
+  to ~HOME~. It is written atomically (temp file, fsync, rename) with
+  mode 0600.
 
-** Dry run
+** Dry run and JSON
 
 #+BEGIN_SRC bash
 install-check run --dry-run
+install-check run --json
+install-check status --json
 #+END_SRC
 
-~--dry-run~ prints the message it would send and changes no state. The
-first real run of a repo only records a baseline: issues already closed
-then are not reported.
+~--dry-run~ prints the notification it would send and changes no state.
+The first real run of a repo only records a baseline: issues already
+closed then are not reported. ~--json~ writes structured JSON results for
+~run~ and ~status~.
 
 * What it sends
 
@@ -63,11 +100,13 @@ install-check: main moved; landed since last check:
 main: owner/repo 1a2b3c4
 #+END_EXAMPLE
 
-A closed issue is reported once. When sending fails, no state moves, so
-the next run retries. A failed =git ls-remote= or =gh= call for one repo
-does not stop the others; the failing repo keeps its old state. Any
-failure exits 1, and at most one failure message per day goes to
-~notify_name~.
+A closed issue is reported once. When notification delivery fails, no
+state moves, so the next run retries. A failed =git ls-remote= or =gh=
+call for one repo does not stop the others; healthy repos save their
+progress while the failing repo keeps its old state and retries next run.
+Force-pushed =main= updates the recorded head without losing previously
+reported issues. Any failure exits 1, and at most one failure notice per
+24 hours is sent.
 
 * Run it from systemd
 
@@ -76,7 +115,7 @@ The tool does not install its own units. Put these in =~/.config/systemd/user/=.
 #+BEGIN_SRC conf
 # install-check.service
 [Unit]
-Description=Tell an agent when watched issues land on main
+Description=Notify when watched issues land on main
 
 [Service]
 Type=oneshot
@@ -102,10 +141,13 @@ systemctl --user daemon-reload
 systemctl --user enable --now install-check.timer
 #+END_SRC
 
-* Status
+* Status and diagnostics
 
 #+BEGIN_SRC bash
 install-check status
+install-check status --json
+install-check doctor [--config path] [--offline] [--json]
+install-check version [--json]
 #+END_SRC
 
 #+BEGIN_EXAMPLE
@@ -116,10 +158,10 @@ owner/repo main: 1a2b3c4
 
 ~last run~ is the last time state was saved. Each repo shows the head
 recorded at the last run, then the watched issues still open. ~status~
-calls =gh=, and exits 1 if that fails.
+calls =gh= (via ~gh_bin~ / ~GH_BIN~) and exits 1 if that fails.
 
 * Exit codes
 
-| 0 | quiet run or message sent |
-| 1 | a git, gh, agentbus, or state error |
-| 2 | bad usage or config |
+| 0 | quiet run, notification sent, status ok, or help |
+| 1 | a git, gh, notifier, or state error              |
+| 2 | bad usage or invalid config                      |

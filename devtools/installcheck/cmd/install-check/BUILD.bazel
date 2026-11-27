@@ -12,6 +12,8 @@ go_library(
     visibility = ["//visibility:private"],
     deps = [
         "//devtools/installcheck:go_default_library",
+        "//devtools/installcheck/adapter/agentbus:go_default_library",
+        "//devtools/pkg/notify:go_default_library",
         "//devtools/pkg/toolcli:go_default_library",
     ],
 )
@@ -30,7 +32,10 @@ go_test(
         "toolcli_test.go",
     ],
     embed = [":go_default_library"],
-    deps = ["//devtools/pkg/toolcli:go_default_library"],
+    deps = [
+        "//devtools/installcheck:go_default_library",
+        "//devtools/pkg/toolcli:go_default_library",
+    ],
 )
 
 exports_files(

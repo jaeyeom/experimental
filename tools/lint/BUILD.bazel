@@ -365,6 +365,7 @@ filegroup(
         "//devtools/healthsnap:go_srcs",
         "//devtools/healthsnap/cmd/healthsnap:go_srcs",
         "//devtools/installcheck:go_srcs",
+        "//devtools/installcheck/adapter/agentbus:go_srcs",
         "//devtools/installcheck/cmd/install-check:go_srcs",
         "//devtools/linters/agentsmdsize:go_srcs",
         "//devtools/linters/cmd/agents-md-size:go_srcs",
