@@ -33,21 +33,17 @@ jobs:
     - name: Set up Bazel
       uses: bazelbuild/setup-bazelisk@b39c379c82683a5f25d34f0d062761f62693e0b2 # v3.0.0
 
-    # The output base caches Bazel's autodetected C toolchain (for example
-    # -fuse-ld=gold). Key the cache by runner image so a new image detects
-    # its own toolchain instead of inheriting one whose linker is gone.
-    - name: Get runner image
-      id: image
-      run: echo "os=$ImageOS" >> "$GITHUB_OUTPUT"
-
-    - name: Mount Bazel cache
+    # BuildBuddy RBE caches build and test action outputs remotely, so only
+    # cache Bazel's repository download cache (external archives) here instead
+    # of the multi-GB output base.
+    - name: Mount Bazel repository cache
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
-          ~/.cache/bazel
-        key: ${{ runner.os }}-${{ steps.image.outputs.os }}-bazel-${{ hashFiles('.bazelrc', 'WORKSPACE', 'WORKSPACE.bazel', 'MODULE.bazel') }}
+          ~/.cache/bazel-repo
+        key: ${{ runner.os }}-bazel-repo-${{ hashFiles('.bazelrc', '.bazeliskrc', 'MODULE.bazel', 'MODULE.bazel.lock') }}
         restore-keys: |
-          ${{ runner.os }}-${{ steps.image.outputs.os }}-bazel-
+          ${{ runner.os }}-bazel-repo-
 
     - name: Install lcov
       run: |
@@ -59,18 +55,22 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y lcov
 
-    - name: Configure BuildBuddy
+    - name: Configure Bazel and BuildBuddy
       env:
         BUILDBUDDY_API_KEY: ${{ secrets.BUILDBUDDY_API_KEY }}
       run: |
-        if [ -n "${BUILDBUDDY_API_KEY:-}" ]; then
-          rm -f .bazelrc.user
-          umask 077
-          {
+        mkdir -p "$HOME/.cache/bazel-repo"
+        rm -f .bazelrc.user
+        umask 077
+        {
+          printf 'build --repository_cache=%s/.cache/bazel-repo\n' "$HOME"
+          if [ -n "${BUILDBUDDY_API_KEY:-}" ]; then
             printf 'build:buildbuddy --remote_header=x-buildbuddy-api-key=%s\n' "$BUILDBUDDY_API_KEY"
             printf 'build:buildbuddy --bes_header=x-buildbuddy-api-key=%s\n' "$BUILDBUDDY_API_KEY"
             printf 'build --config=rbe\n'
-          } > .bazelrc.user
+          fi
+        } > .bazelrc.user
+        if [ -n "${BUILDBUDDY_API_KEY:-}" ]; then
           printf '%s\n' "BuildBuddy RBE enabled"
         else
           printf '%s\n' "BUILDBUDDY_API_KEY not set; skipping BuildBuddy configuration"
