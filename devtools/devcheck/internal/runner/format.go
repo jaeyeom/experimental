@@ -210,6 +210,9 @@ func writeJSON(w io.Writer, report *Report) error {
 		doc.BuildSystem = report.Project.BuildSystem
 		doc.Languages = report.Project.Languages
 	}
+	if doc.Languages == nil {
+		doc.Languages = []config.Language{}
+	}
 	if doc.Issues == nil {
 		doc.Issues = []config.Issue{}
 	}
@@ -270,6 +273,9 @@ func languageList(project *config.ProjectConfig) string {
 func strategyLine(project *config.ProjectConfig, report *Report) string {
 	if report.DryRun {
 		return "Dry-run; commands were not executed"
+	}
+	if report.ForceFallback {
+		return "Using language-specific tools (--force-fallback)"
 	}
 	if project == nil {
 		return "Language-specific tools"
@@ -336,7 +342,11 @@ func nextSteps(report *Report) []string {
 	}
 	var steps []string
 	for _, issue := range report.Issues {
-		steps = append(steps, fmt.Sprintf("Fix %s in %s", issue.Code, issue.String()))
+		if issue.Code != "" {
+			steps = append(steps, fmt.Sprintf("Fix %s in %s", issue.Code, issue.String()))
+		} else {
+			steps = append(steps, fmt.Sprintf("Fix issue in %s", issue.String()))
+		}
 	}
 	if len(steps) == 0 {
 		steps = append(steps, "Inspect failed tool output and fix the reported problems")

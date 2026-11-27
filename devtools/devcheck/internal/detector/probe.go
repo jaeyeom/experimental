@@ -14,8 +14,8 @@ import (
 var (
 	bazelFormatLabels = []string{"//tools:format", "//:format"}
 	bazelLintLabels   = []string{"//tools:lint", "//:lint"}
-	makeTargetRe      = regexp.MustCompile(`^([A-Za-z0-9_./-]+)\s*:`)
-	bazelNameRe       = regexp.MustCompile(`name\s*=\s*"([^"]+)"`)
+	makeTargetRe      = regexp.MustCompile(`^([A-Za-z0-9_./-]+(?:\s+[A-Za-z0-9_./-]+)*)\s*:(.*)$`)
+	bazelNameRe       = regexp.MustCompile(`name\s*=\s*["']([^"']+)["']`)
 )
 
 func selectBuildSystem(root string, candidates []config.BuildSystem) config.BuildSystem {
@@ -95,7 +95,7 @@ func packageHasBazelTarget(buildFile, name string) bool {
 }
 
 func makefileHasTarget(root, target string) bool {
-	for _, name := range []string{"Makefile", "makefile"} {
+	for _, name := range []string{"Makefile", "makefile", "GNUmakefile"} {
 		if makefileContentHasTarget(filepath.Join(root, name), target) {
 			return true
 		}
@@ -110,8 +110,17 @@ func makefileContentHasTarget(path, target string) bool {
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		match := makeTargetRe.FindStringSubmatch(strings.TrimRight(line, "\r"))
-		if len(match) == 2 && match[1] == target {
-			return true
+		if len(match) != 3 {
+			continue
+		}
+		// Reject Make variable assignments (:=, ::=) masquerading as targets.
+		if strings.HasPrefix(match[2], "=") || strings.HasPrefix(match[2], ":=") {
+			continue
+		}
+		for _, field := range strings.Fields(match[1]) {
+			if field == target {
+				return true
+			}
 		}
 	}
 	return false
@@ -139,23 +148,23 @@ type npmPackage struct {
 	Scripts map[string]string `json:"scripts"`
 }
 
-func loadNpmScripts(rootPath string, scan *ScanResult) map[string]string {
-	path, ok := findPackageJSON(rootPath, scan)
+func loadNpmScripts(rootPath string, scan *ScanResult) (map[string]string, string) {
+	relPath, ok := findPackageJSON(scan)
 	if !ok {
-		return nil
+		return nil, ""
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Join(rootPath, relPath))
 	if err != nil {
-		return nil
+		return nil, ""
 	}
 	var pkg npmPackage
 	if err := json.Unmarshal(data, &pkg); err != nil {
-		return nil
+		return nil, ""
 	}
-	return pkg.Scripts
+	return pkg.Scripts, filepath.Dir(relPath)
 }
 
-func findPackageJSON(rootPath string, scan *ScanResult) (string, bool) {
+func findPackageJSON(scan *ScanResult) (string, bool) {
 	if scan == nil {
 		return "", false
 	}
@@ -174,5 +183,47 @@ func findPackageJSON(rootPath string, scan *ScanResult) (string, bool) {
 	if best == "" {
 		return "", false
 	}
-	return filepath.Join(rootPath, best), true
+	return best, true
+}
+
+func detectJSPackageManager(rootPath, pkgRelDir string, scan *ScanResult) string {
+	candidates := []struct {
+		command   string
+		lockfiles []string
+	}{
+		{command: "bun", lockfiles: []string{"bun.lock", "bun.lockb"}},
+		{command: "pnpm", lockfiles: []string{"pnpm-lock.yaml"}},
+		{command: "yarn", lockfiles: []string{"yarn.lock"}},
+	}
+	for _, c := range candidates {
+		if hasLockfile(rootPath, pkgRelDir, scan, c.lockfiles...) && commandAvailable(c.command) {
+			return c.command
+		}
+	}
+	return "npm"
+}
+
+func hasLockfile(rootPath, pkgRelDir string, scan *ScanResult, names ...string) bool {
+	if pkgRelDir == "" {
+		pkgRelDir = "."
+	}
+	for _, name := range names {
+		target := name
+		if pkgRelDir != "." {
+			target = filepath.Join(pkgRelDir, name)
+		}
+		if scan != nil {
+			for _, f := range scan.Files {
+				if f == target {
+					return true
+				}
+			}
+		}
+		if rootPath != "" {
+			if _, err := os.Stat(filepath.Join(rootPath, target)); err == nil {
+				return true
+			}
+		}
+	}
+	return false
 }

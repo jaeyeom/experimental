@@ -146,3 +146,59 @@ func TestParseIssues_UsesStderrWhenStdoutEmpty(t *testing.T) {
 		t.Errorf("FilePath = %q, want unused.py", issues[0].FilePath)
 	}
 }
+
+func TestParseIssues_GolangciLintV2TrailingStats(t *testing.T) {
+	v2Out := golangciLintFixture + "\n1 issues:\n* gosec: 1\n"
+	issues := ParseIssues("golangci-lint", v2Out, "")
+	if len(issues) != 1 {
+		t.Fatalf("issues = %d, want 1 when trailing stats present", len(issues))
+	}
+	if issues[0].Code != "gosec" || issues[0].FilePath != "broken.go" {
+		t.Errorf("unexpected issue: %+v", issues[0])
+	}
+}
+
+func TestParseIssues_RuffSeverity(t *testing.T) {
+	payload := `[{"code":"W291","message":"trailing whitespace","filename":"a.py","severity":"warning","location":{"row":2,"column":5},"end_location":{"row":2,"column":6}}]`
+	issues := ParseIssues("ruff", payload, "")
+	if len(issues) != 1 {
+		t.Fatalf("issues = %d, want 1", len(issues))
+	}
+	if issues[0].Severity != config.SeverityWarning {
+		t.Errorf("Severity = %q, want warning", issues[0].Severity)
+	}
+}
+
+func TestParseIssues_EslintJSON(t *testing.T) {
+	payload := `[
+  {"filePath": "/repo/ok.ts", "messages": []},
+  {"filePath": "/repo/bad.ts", "messages": [
+    {"ruleId": "no-unused-vars", "severity": 2, "message": "'x' is defined but never used.", "line": 3, "column": 7, "endLine": 3, "endColumn": 8},
+    {"ruleId": "no-console", "severity": 1, "message": "Unexpected console statement.", "line": 5, "column": 1}
+  ]}
+]`
+	issues := ParseIssues("eslint", payload, "")
+	if len(issues) != 2 {
+		t.Fatalf("issues = %d, want 2", len(issues))
+	}
+	if issues[0].Severity != config.SeverityError || issues[0].Code != "no-unused-vars" || issues[0].ToolName != "eslint" {
+		t.Errorf("issue[0] = %+v", issues[0])
+	}
+	if issues[1].Severity != config.SeverityWarning || issues[1].Code != "no-console" {
+		t.Errorf("issue[1] = %+v", issues[1])
+	}
+}
+
+func TestParseIssues_BiomeJSON(t *testing.T) {
+	payload := `The json reporter is experimental.
+{"summary":{"errors":1},"diagnostics":[{"severity":"error","message":"This comparison uses the same expression.","category":"lint/suspicious/noSelfCompare","location":{"path":"bad.js","start":{"line":2,"column":5},"end":{"line":2,"column":11}}}]}
+lint ━━━━━━`
+	issues := ParseIssues("biome", payload, "")
+	if len(issues) != 1 {
+		t.Fatalf("issues = %d, want 1", len(issues))
+	}
+	got := issues[0]
+	if got.FilePath != "bad.js" || got.Line != 2 || got.Column != 5 || got.Code != "lint/suspicious/noSelfCompare" || got.ToolName != "biome" {
+		t.Errorf("got = %+v", got)
+	}
+}

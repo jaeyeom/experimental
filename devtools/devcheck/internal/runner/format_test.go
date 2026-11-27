@@ -106,6 +106,64 @@ func TestWrite_UnknownFormat(t *testing.T) {
 	}
 }
 
+func TestWrite_ForceFallbackStrategyAndEmptyCodeAndEmptyLanguages(t *testing.T) {
+	report := &Report{
+		Project: &config.ProjectConfig{
+			RootPath:    "/repo",
+			BuildSystem: config.BuildSystemMake,
+		},
+		ForceFallback: true,
+		Tools: []ToolResult{
+			{
+				Tool: PlannedTool{
+					Type:   config.ToolTypeLint,
+					Config: executor.ToolConfig{Command: "unnecessary-interface-assertion-linter"},
+				},
+				Result: &executor.ExecutionResult{
+					Command:   "unnecessary-interface-assertion-linter",
+					ExitCode:  1,
+					StartTime: time.Now(),
+					EndTime:   time.Now(),
+				},
+				Issues: []config.Issue{{
+					FilePath: "a.go",
+					Line:     10,
+					Severity: config.SeverityWarning,
+					Message:  "Unnecessary assertion",
+					ToolName: "unnecessary-interface-assertion-linter",
+				}},
+			},
+		},
+		Issues: []config.Issue{{
+			FilePath: "a.go",
+			Line:     10,
+			Severity: config.SeverityWarning,
+			Message:  "Unnecessary assertion",
+			ToolName: "unnecessary-interface-assertion-linter",
+		}},
+	}
+
+	var promptBuf bytes.Buffer
+	if err := Write(&promptBuf, FormatPrompt, report); err != nil {
+		t.Fatalf("Write(prompt) error = %v", err)
+	}
+	out := promptBuf.String()
+	if !strings.Contains(out, "--force-fallback") {
+		t.Errorf("prompt missing --force-fallback strategy\n%s", out)
+	}
+	if strings.Contains(out, "Fix  in") {
+		t.Errorf("prompt has double space for empty issue code\n%s", out)
+	}
+
+	var jsonBuf bytes.Buffer
+	if err := Write(&jsonBuf, FormatJSON, report); err != nil {
+		t.Fatalf("Write(json) error = %v", err)
+	}
+	if strings.Contains(jsonBuf.String(), `"languages": null`) {
+		t.Errorf("json serialized languages as null instead of []\n%s", jsonBuf.String())
+	}
+}
+
 func lintFailureReport() *Report {
 	return &Report{
 		Project: &config.ProjectConfig{

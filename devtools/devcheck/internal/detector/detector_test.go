@@ -10,6 +10,7 @@ import (
 )
 
 func TestProjectDetector_Detect(t *testing.T) {
+	withBinsOnPath(t, "bazel", "make", "go", "python3", "npm", "ruff", "eslint", "prettier", "jest")
 	tempDir, err := os.MkdirTemp("", "project_detector_test")
 	if err != nil {
 		t.Fatal(err)
@@ -562,6 +563,92 @@ func TestProjectDetector_DetectFailsOnInvalidConfig(t *testing.T) {
 	if !strings.Contains(err.Error(), "invalid") {
 		t.Errorf("error %q, want invalid project config", err)
 	}
+}
+
+func TestProjectDetector_DetectCanonicalLanguageOrder(t *testing.T) {
+	withBinsOnPath(t, "go", "python3", "npm")
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{
+		"go.mod":         "module example",
+		"main.go":        "package main",
+		"pyproject.toml": "[project]\nname = \"app\"\n",
+		"app.py":         "x = 1",
+		"tsconfig.json":  `{}`,
+		"src/app.ts":     "export const a = 1;",
+		"src/extra.js":   "export const b = 2;",
+	})
+
+	detector := NewProjectDetector()
+	want := []config.Language{
+		config.LanguageGo,
+		config.LanguagePython,
+		config.LanguageTypeScript,
+		config.LanguageJavaScript,
+	}
+	for i := 0; i < 10; i++ {
+		result, err := detector.Detect(dir)
+		if err != nil {
+			t.Fatalf("Detect() error = %v", err)
+		}
+		if len(result.Languages) != len(want) {
+			t.Fatalf("Languages = %v, want %v", result.Languages, want)
+		}
+		for idx := range want {
+			if result.Languages[idx] != want[idx] {
+				t.Fatalf("run %d: Languages = %v, want %v", i, result.Languages, want)
+			}
+		}
+	}
+}
+
+func TestProjectDetector_DetectGitFromSubdirectory(t *testing.T) {
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{
+		".git/HEAD":   "ref: refs/heads/main\n",
+		"sub/go.mod":  "module example\n",
+		"sub/main.go": "package main\n",
+	})
+
+	result, err := NewProjectDetector().Detect(filepath.Join(dir, "sub"))
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if !result.HasGit {
+		t.Error("HasGit = false, want true when parent directory contains .git")
+	}
+}
+
+func TestProjectDetector_DetectBazeliskFallback(t *testing.T) {
+	withBinsOnPath(t, "bazelisk")
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{
+		"MODULE.bazel":      "module(name = \"example\")\n",
+		"tools/BUILD.bazel": "sh_binary(name = 'format')\nsh_binary(name = 'lint')\n",
+	})
+
+	result, err := NewProjectDetector().Detect(dir)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if result.BuildSystem != config.BuildSystemBazel {
+		t.Fatalf("BuildSystem = %v, want bazel", result.BuildSystem)
+	}
+	assertFirstTool(t, result, config.ToolTypeFormat, "bazelisk run //tools:format")
+	assertFirstTool(t, result, config.ToolTypeLint, "bazelisk run //tools:lint")
+	assertFirstTool(t, result, config.ToolTypeTest, "bazelisk test //...")
+}
+
+func TestMakeToolsIgnoresAssignmentsAndParsesMultiTargets(t *testing.T) {
+	withBinsOnPath(t, "make")
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{
+		"GNUmakefile": "format := disabled\nlint test:\n\techo ok\n",
+	})
+
+	tools := makeTools(dir)
+	assertNotContainsTool(t, tools[config.ToolTypeFormat], "make format")
+	assertContainsTool(t, tools[config.ToolTypeLint], "make lint")
+	assertContainsTool(t, tools[config.ToolTypeTest], "make test")
 }
 
 type countingScanner struct {

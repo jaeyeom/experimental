@@ -73,7 +73,7 @@ The same dry-run looks like this:
 
 Repository Analysis:
 - Build System: make
-- Languages: go, python, typescript
+- Languages: go, python, typescript, javascript
 - Strategy: Dry-run; commands were not executed
 
 Tools that would run:
@@ -91,39 +91,71 @@ Status: dry-run (commands were not executed)
 
 * Detection
 
-DevCheck scans the tree once, then chooses tools in this order:
+DevCheck scans the tree once (ignoring ~node_modules~, ~.git~, ~vendor~,
+~.venv~, ~venv~, and cache/build directories such as ~.ruff_cache~,
+~.pytest_cache~, ~.mypy_cache~, and ~bazel-*~), then chooses tools in
+this order:
 
-1. *Languages* from files and config: Go (~go.mod~, ~*.go~), Python
-   (~pyproject.toml~, ~requirements.txt~, ~*.py~), TypeScript (~tsconfig.json~,
-   ~*.ts~), JavaScript (~*.js~ / ~*.jsx~, or a ~package.json~ that is not a
-   TypeScript-only tree).
+1. *Languages* (reported in canonical order ~go~, ~python~, ~typescript~,
+   ~javascript~) from files and config: Go (~go.mod~, ~*.go~), Python
+   (~pyproject.toml~, ~uv.lock~, ~requirements.txt~, ~setup.py~, ~setup.cfg~,
+   ~Pipfile~, ~*.py~), TypeScript (~tsconfig.json~, ~*.ts~, ~*.tsx~,
+   ~*.mts~, ~*.cts~), JavaScript (~*.js~, ~*.jsx~, ~*.mjs~, ~*.cjs~, or a
+   ~package.json~ that is not a TypeScript-only tree).
 2. *Build system* at the chosen directory depth: Bazel (~MODULE.bazel~,
-   ~BUILD.bazel~, ~WORKSPACE~) or Make (~Makefile~). If both are present, Bazel
-   wins only when format *and* lint targets exist (~//tools:format~ or
-   ~//:format~, and ~//tools:lint~ or ~//:lint~); otherwise Make is used. That
-   is why this repository reports Make: it has a Makefile with those targets
-   and no ~//tools:format~ / ~//tools:lint~.
-3. *Probe* before listing a command: the binary must be on ~PATH~, Make targets
-   must appear in the Makefile, Bazel labels must exist in a ~BUILD~ file, and
-   ~npm run *~ is listed only when ~package.json~ defines that script.
+   ~BUILD.bazel~, ~WORKSPACE~) or Make (~Makefile~, ~makefile~,
+   ~GNUmakefile~). If both are present, Bazel wins only when format *and*
+   lint targets exist (~//tools:format~ or ~//:format~, and ~//tools:lint~
+   or ~//:lint~); otherwise Make is used. That is why this repository
+   reports Make: it has a Makefile with those targets and no ~//tools:lint~
+   or ~//:lint~. ~bazelisk~ is used when ~bazel~ is absent.
+3. *Probe* before listing a command: the binary must be on ~PATH~, Make
+   targets must appear in the Makefile, Bazel labels must exist in a
+   ~BUILD~ file, and JS/TS package-manager scripts (~bun~, ~pnpm~, ~yarn~,
+   or ~npm~ from lockfiles) are listed only when ~package.json~ defines
+   that script (and run in that ~package.json~'s directory).
 
 For each requested type (format, lint, test) DevCheck runs *one* available
-command, preferring the build-system tool. ~--force-fallback~ skips ~bazel~
-and ~make~ and takes the first language tool instead (Go, then Python, then
-JavaScript/TypeScript).
+command, preferring the build-system tool. ~--force-fallback~ skips
+~bazel~/~bazelisk~ and ~make~ and takes the first language tool instead
+(Go, then Python, then JavaScript/TypeScript).
 
 Language fallbacks when the binary exists:
 
-| Language | Format                                       | Lint                                                                                         | Test                                         |
-|----------+----------------------------------------------+----------------------------------------------------------------------------------------------+----------------------------------------------|
-| Go       | ~gofumpt~, then ~gofmt~                      | ~golangci-lint~, then [[file:../linters/README.org][unnecessary-interface-assertion-linter]] | ~go test~                                    |
-| Python   | ~ruff format~, then ~black~                  | ~ruff check~, then ~flake8~                                                                  | ~pytest~, then ~python -m unittest~          |
-| JS/TS    | ~npm run format~ if present, then ~prettier~ | ~npm run lint~ if present, then ~eslint~                                                     | ~npm test~ if present, else ~jest~ / ~mocha~ |
+| Language | Format                                                       | Lint                                                                                                    | Test                                                             |
+|----------+--------------------------------------------------------------+---------------------------------------------------------------------------------------------------------+------------------------------------------------------------------|
+| Go       | ~gofumpt~, then ~gofmt~                                      | ~golangci-lint~ (v2 JSON), then [[file:../linters/README.org][unnecessary-interface-assertion-linter]], then ~go vet~ | ~go test~                                                        |
+| Python   | ~ruff format~, then ~black~, then ~uv run --no-sync ruff~    | ~ruff check~, then ~flake8~, then ~uv run --no-sync ruff~                                               | ~pytest~, ~python3 -m unittest~, ~python -m unittest~, ~uv run~ |
+| JS/TS    | ~<pm> run format~, ~biome format~ (with config), ~prettier~ | ~<pm> run lint~, ~biome lint~ (with config), ~eslint~                                                   | ~<pm> test~, ~bun test~ (with ~bun.lock~), ~jest~, ~mocha~       |
 
-~--changed-only~ lists files from ~git diff --name-only HEAD~ plus untracked
-files. Tools that accept path arguments (~gofumpt~, ~golangci-lint~, ~ruff~,
-~prettier~, …) receive the matching subset. Bazel and Make still run their
-full targets. A type is skipped when no changed files match that tool.
+Structured issue parsing supports ~golangci-lint~ (v2 JSON),
+~unnecessary-interface-assertion-linter~, ~ruff check~, ~eslint~, and
+~biome lint~. Other tools report their exit code and raw output on
+failure.
+
+~--changed-only~ finds git changes (working tree and untracked files,
+excluding deleted paths, relative to the target directory even inside a
+subpath of a repository). Tools receive matching files or Go package
+directories (~gofumpt~, ~ruff~, ~prettier~, ~eslint~, ~biome~ receive
+matching files; ~golangci-lint~, ~unnecessary-interface-assertion-linter~,
+~go vet~, ~go test~ receive deduplicated package directories or ~./...~ on
+~go.mod~ changes; ~pytest~ receives test files when only test files
+changed and runs the suite when non-test Python files changed). Bazel and
+Make still run their full targets. A non-build-system tool is skipped
+when no changed files match its language.
+
+* Fit with factory, docsync, and genfiles
+
+~devcheck~ is a standalone code-check runner with no dependency on
+~factory~, ~docsync~, ~genfiles~, ~herdr~, or ~agentbus~:
+
+- *Scope*: ~devcheck~ runs repository formatters, linters, and tests.
+- *Non-overlaps*:
+  - [[file:../docsync/README.org][docsync]] checks whether documentation is likely stale relative to changed files (~docsync.yml~). ~devcheck~ does not inspect doc mappings.
+  - [[file:../genfiles/README.org][genfiles]] validates ~generated_files.yaml~ and ~.gitattributes~ (~linguist-generated~) so linters and review tools handle generated files cleanly. ~devcheck~ does not inspect generated-file manifests.
+  - [[file:../factory/README.md][factory]] (~factory verify~) checks git worktree cleanliness, stash count, base-branch freshness, and PR template compliance before settling an issue. It does not invoke formatters, linters, or tests directly, so ~devcheck~ complements it as a standalone check command.
+- *Current limitations*:
+  - Runs at most one tool per type (~format~, ~lint~, ~test~); in a polyglot repo without a unified ~Makefile~ or Bazel targets, fallback tools cover only the highest-priority detected language unless scoped to a subdirectory or filtered.
 
 * Exit codes
 

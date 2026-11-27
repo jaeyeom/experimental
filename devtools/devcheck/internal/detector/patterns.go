@@ -4,6 +4,7 @@ package detector
 import (
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/jaeyeom/experimental/devtools/devcheck/internal/config"
@@ -56,6 +57,9 @@ func (pm *PatternMatcher) initializeDefaultPatterns() {
 		{Pattern: "pyproject.toml", Language: config.LanguagePython, Required: false},
 		{Pattern: "requirements.txt", Language: config.LanguagePython, Required: false},
 		{Pattern: "setup.py", Language: config.LanguagePython, Required: false},
+		{Pattern: "setup.cfg", Language: config.LanguagePython, Required: false},
+		{Pattern: "uv.lock", Language: config.LanguagePython, Required: false},
+		{Pattern: "Pipfile", Language: config.LanguagePython, Required: false},
 		{Pattern: "*.py", Language: config.LanguagePython, Required: false},
 	}
 
@@ -64,11 +68,15 @@ func (pm *PatternMatcher) initializeDefaultPatterns() {
 		{Pattern: "tsconfig.json", Language: config.LanguageTypeScript, Required: true},
 		{Pattern: "*.ts", Language: config.LanguageTypeScript, Required: false},
 		{Pattern: "*.tsx", Language: config.LanguageTypeScript, Required: false},
+		{Pattern: "*.mts", Language: config.LanguageTypeScript, Required: false},
+		{Pattern: "*.cts", Language: config.LanguageTypeScript, Required: false},
 	}
 
 	pm.languagePatterns[config.LanguageJavaScript] = []FilePattern{
 		{Pattern: "*.js", Language: config.LanguageJavaScript, Required: false},
 		{Pattern: "*.jsx", Language: config.LanguageJavaScript, Required: false},
+		{Pattern: "*.mjs", Language: config.LanguageJavaScript, Required: false},
+		{Pattern: "*.cjs", Language: config.LanguageJavaScript, Required: false},
 	}
 
 	// Build system patterns
@@ -82,8 +90,9 @@ func (pm *PatternMatcher) initializeDefaultPatterns() {
 	}
 
 	pm.buildSystemPatterns[config.BuildSystemMake] = []FilePattern{
-		{Pattern: "Makefile", BuildSystem: config.BuildSystemMake, Required: true},
+		{Pattern: "Makefile", BuildSystem: config.BuildSystemMake, Required: false},
 		{Pattern: "makefile", BuildSystem: config.BuildSystemMake, Required: false},
+		{Pattern: "GNUmakefile", BuildSystem: config.BuildSystemMake, Required: false},
 		{Pattern: "*.mk", BuildSystem: config.BuildSystemMake, Required: false},
 	}
 
@@ -91,6 +100,8 @@ func (pm *PatternMatcher) initializeDefaultPatterns() {
 	pm.configFilePatterns["golangci-lint"] = []FilePattern{
 		{Pattern: ".golangci.yml"},
 		{Pattern: ".golangci.yaml"},
+		{Pattern: ".golangci.toml"},
+		{Pattern: ".golangci.json"},
 		{Pattern: "golangci.yml"},
 		{Pattern: "golangci.yaml"},
 	}
@@ -104,18 +115,62 @@ func (pm *PatternMatcher) initializeDefaultPatterns() {
 	pm.configFilePatterns["eslint"] = []FilePattern{
 		{Pattern: ".eslintrc.json"},
 		{Pattern: ".eslintrc.js"},
+		{Pattern: ".eslintrc.cjs"},
 		{Pattern: ".eslintrc.yml"},
 		{Pattern: ".eslintrc.yaml"},
 		{Pattern: "eslint.config.js"},
+		{Pattern: "eslint.config.mjs"},
+		{Pattern: "eslint.config.cjs"},
+		{Pattern: "eslint.config.ts"},
+		{Pattern: "eslint.config.mts"},
+		{Pattern: "eslint.config.cts"},
+	}
+
+	pm.configFilePatterns["biome"] = []FilePattern{
+		{Pattern: "biome.json"},
+		{Pattern: "biome.jsonc"},
+	}
+
+	pm.configFilePatterns["prettier"] = []FilePattern{
+		{Pattern: ".prettierrc"},
+		{Pattern: ".prettierrc.json"},
+		{Pattern: ".prettierrc.yml"},
+		{Pattern: ".prettierrc.yaml"},
+		{Pattern: ".prettierrc.js"},
+		{Pattern: ".prettierrc.cjs"},
+		{Pattern: ".prettierrc.mjs"},
+		{Pattern: "prettier.config.js"},
+		{Pattern: "prettier.config.mjs"},
+		{Pattern: "prettier.config.cjs"},
 	}
 }
 
-// MatchLanguages checks which languages are present in the given files.
+// MatchLanguages checks which languages are present in the given files in canonical order.
 func (pm *PatternMatcher) MatchLanguages(files []string) []config.Language {
 	var detected []config.Language
+	canonical := []config.Language{
+		config.LanguageGo,
+		config.LanguagePython,
+		config.LanguageTypeScript,
+		config.LanguageJavaScript,
+	}
+	seen := make(map[config.Language]bool, len(canonical))
+	for _, language := range canonical {
+		seen[language] = true
+		if patterns, ok := pm.languagePatterns[language]; ok && pm.matchPatterns(files, patterns) {
+			detected = append(detected, language)
+		}
+	}
 
-	for language, patterns := range pm.languagePatterns {
-		if pm.matchPatterns(files, patterns) {
+	var extra []config.Language
+	for language := range pm.languagePatterns {
+		if !seen[language] {
+			extra = append(extra, language)
+		}
+	}
+	sort.Slice(extra, func(i, j int) bool { return extra[i] < extra[j] })
+	for _, language := range extra {
+		if pm.matchPatterns(files, pm.languagePatterns[language]) {
 			detected = append(detected, language)
 		}
 	}
@@ -242,9 +297,14 @@ func (pm *PatternMatcher) MatchConfigFiles(files []string, tool string) []string
 
 // matchPatterns checks if the required patterns are satisfied by the file list.
 func (pm *PatternMatcher) matchPatterns(files []string, patterns []FilePattern) bool {
-	// Special handling for Bazel: require either MODULE.bazel OR WORKSPACE
-	if len(patterns) > 0 && patterns[0].BuildSystem == config.BuildSystemBazel {
-		return pm.matchBazelPatterns(files, patterns)
+	// Special handling for Bazel and Make entrypoints.
+	if len(patterns) > 0 {
+		switch patterns[0].BuildSystem {
+		case config.BuildSystemBazel:
+			return pm.matchBazelPatterns(files, patterns)
+		case config.BuildSystemMake:
+			return pm.matchMakePatterns(files)
+		}
 	}
 
 	requiredMatches := 0
@@ -305,6 +365,16 @@ func (pm *PatternMatcher) matchBazelPatterns(files []string, _ []FilePattern) bo
 
 	// Bazel is detected if we have either MODULE.bazel OR WORKSPACE
 	return hasModuleBazel || hasWorkspace
+}
+
+func (pm *PatternMatcher) matchMakePatterns(files []string) bool {
+	for _, file := range files {
+		switch filepath.Base(file) {
+		case "Makefile", "makefile", "GNUmakefile":
+			return true
+		}
+	}
+	return false
 }
 
 // matchPattern checks if a file matches a pattern (supports glob patterns).

@@ -93,6 +93,21 @@ func TestPatternMatcher_MatchLanguages(t *testing.T) {
 			expected: []config.Language{config.LanguageGo, config.LanguagePython},
 		},
 		{
+			name:     "python project with uv.lock",
+			files:    []string{"uv.lock", "pyproject.toml"},
+			expected: []config.Language{config.LanguagePython},
+		},
+		{
+			name:     "typescript with mts file",
+			files:    []string{"tsconfig.json", "src/index.mts"},
+			expected: []config.Language{config.LanguageTypeScript},
+		},
+		{
+			name:     "javascript with mjs file",
+			files:    []string{"src/index.mjs"},
+			expected: []config.Language{config.LanguageJavaScript},
+		},
+		{
 			name:     "no recognized files",
 			files:    []string{"README.md", "LICENSE", "doc.txt"},
 			expected: []config.Language{},
@@ -166,6 +181,21 @@ func TestPatternMatcher_MatchBuildSystem(t *testing.T) {
 			name:     "bazel workspace priority over make",
 			files:    []string{"WORKSPACE", "Makefile", "main.go"},
 			expected: config.BuildSystemBazel,
+		},
+		{
+			name:     "make lowercase makefile",
+			files:    []string{"makefile", "main.c"},
+			expected: config.BuildSystemMake,
+		},
+		{
+			name:     "make GNUmakefile",
+			files:    []string{"GNUmakefile", "main.c"},
+			expected: config.BuildSystemMake,
+		},
+		{
+			name:     "mk include alone is not make",
+			files:    []string{"rules.mk", "main.c"},
+			expected: config.BuildSystemNone,
 		},
 		{
 			name:     "no build system",
@@ -275,6 +305,18 @@ func TestPatternMatcher_MatchConfigFiles(t *testing.T) {
 			files:    []string{".eslintrc.json", "package.json", "src/main.ts"},
 			tool:     "eslint",
 			expected: []string{".eslintrc.json"},
+		},
+		{
+			name:     "eslint flat config mjs",
+			files:    []string{"eslint.config.mjs", "src/main.ts"},
+			tool:     "eslint",
+			expected: []string{"eslint.config.mjs"},
+		},
+		{
+			name:     "biome config",
+			files:    []string{"biome.jsonc", "src/main.ts"},
+			tool:     "biome",
+			expected: []string{"biome.jsonc"},
 		},
 		{
 			name:     "no config files",

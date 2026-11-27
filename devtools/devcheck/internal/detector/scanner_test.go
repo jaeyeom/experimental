@@ -56,8 +56,8 @@ func TestScanner_Scan(t *testing.T) {
 		},
 		{
 			name:          "ignore patterns work",
-			files:         []string{"main.go", "node_modules/package.json", "vendor/lib.go"},
-			directories:   []string{"node_modules", "vendor"},
+			files:         []string{"main.go", "node_modules/package.json", "vendor/lib.go", ".venv/lib/site.py", ".ruff_cache/0.1/data"},
+			directories:   []string{"node_modules", "vendor", ".venv", ".venv/lib", ".ruff_cache", ".ruff_cache/0.1"},
 			options:       DefaultScanOptions(),
 			expectedFiles: []string{"main.go"},
 			expectedDirs:  []string{},

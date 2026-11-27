@@ -4,6 +4,8 @@ package runner
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -106,12 +108,13 @@ func selectTool(project *config.ProjectConfig, toolType config.ToolType, opts Op
 		if exec != nil && !exec.IsAvailable(spec.Command) {
 			continue
 		}
-		if skipForChangedFiles(spec.Command, opts) {
+		matchedFiles, ok := matchingChangedFiles(spec, opts)
+		if !ok {
 			skippedForFiles = true
 			continue
 		}
 		args := append([]string(nil), spec.Args...)
-		cfg := buildConfig(spec.Command, args, toolType, project.RootPath, opts.ChangedFiles)
+		cfg := buildConfig(spec, args, toolType, project.RootPath, matchedFiles, opts.ChangedOnly)
 		return PlannedTool{Type: toolType, Config: cfg}, nil
 	}
 	if skippedForFiles {
@@ -122,35 +125,59 @@ func selectTool(project *config.ProjectConfig, toolType config.ToolType, opts Op
 			tried = append(tried, spec.String())
 		}
 	}
+	if len(tried) == 0 {
+		return PlannedTool{}, fmt.Errorf("no %s tool detected", toolType)
+	}
 	return PlannedTool{}, fmt.Errorf("missing required %s tool (tried: %s)", toolType, strings.Join(tried, ", "))
 }
 
-func skipForChangedFiles(command string, opts Options) bool {
-	if !opts.ChangedOnly || !acceptsFileArgs(command) {
-		return false
+func matchingChangedFiles(spec config.Tool, opts Options) ([]string, bool) {
+	if !opts.ChangedOnly || isBuildSystemCommand(spec.Command) {
+		return nil, true
 	}
-	return len(filterFilesForCommand(command, opts.ChangedFiles)) == 0
+	files := scopeFilesToDir(opts.ChangedFiles, spec.Dir)
+	matched := filterFilesForTool(spec, files)
+	return matched, len(matched) > 0
+}
+
+func scopeFilesToDir(files []string, relDir string) []string {
+	if relDir == "" || relDir == "." {
+		return files
+	}
+	prefix := filepath.ToSlash(filepath.Clean(relDir)) + "/"
+	var scoped []string
+	for _, file := range files {
+		slash := filepath.ToSlash(filepath.Clean(file))
+		if strings.HasPrefix(slash, prefix) {
+			scoped = append(scoped, strings.TrimPrefix(slash, prefix))
+		}
+	}
+	return scoped
 }
 
 func isBuildSystemCommand(command string) bool {
-	return command == "bazel" || command == "make"
+	return command == "bazel" || command == "bazelisk" || command == "make"
 }
 
-func buildConfig(command string, args []string, toolType config.ToolType, workDir string, changedFiles []string) executor.ToolConfig {
-	args = enhanceArgs(command, args, toolType, changedFiles)
+func buildConfig(spec config.Tool, args []string, toolType config.ToolType, rootDir string, changedFiles []string, changedOnly bool) executor.ToolConfig {
+	workDir := rootDir
+	if spec.Dir != "" {
+		workDir = filepath.Join(rootDir, filepath.FromSlash(spec.Dir))
+	}
+	args = enhanceArgs(spec.Command, args, toolType, changedFiles, changedOnly)
 	cfg := executor.ToolConfig{
-		Command:    command,
+		Command:    spec.Command,
 		Args:       args,
 		WorkingDir: workDir,
-		Timeout:    timeoutFor(command, toolType),
+		Timeout:    timeoutFor(spec.Command, toolType),
 	}
-	if command == "bazel" {
+	if spec.Command == "bazel" || spec.Command == "bazelisk" {
 		cfg.CommandBuilder = &executor.ShellCommandBuilder{}
 	}
 	return cfg
 }
 
-func enhanceArgs(command string, args []string, toolType config.ToolType, changedFiles []string) []string {
+func enhanceArgs(command string, args []string, _ config.ToolType, changedFiles []string, changedOnly bool) []string {
 	switch command {
 	case "golangci-lint":
 		args = ensureGolangciArgs(args)
@@ -158,18 +185,27 @@ func enhanceArgs(command string, args []string, toolType config.ToolType, change
 		args = ensureIfaceAssertArgs(args)
 	case "ruff":
 		args = ensureRuffArgs(args)
+	case "uv":
+		if hasArg(args, "ruff") && hasArg(args, "check") {
+			args = ensureRuffArgs(args)
+		}
 	case "gofumpt", "gofmt":
 		args = defaultArgs(args, "-w", ".")
 	case "go":
-		args = ensureGoTestArgs(args)
+		args = ensureGoArgs(args)
 	case "black":
 		args = defaultArgs(args, ".")
 	case "prettier":
 		args = defaultArgs(args, "--write", ".")
 	case "eslint":
-		args = defaultArgs(args, ".")
+		args = ensureEslintArgs(args)
+	case "biome":
+		args = ensureBiomeArgs(args)
 	}
-	return appendChangedFiles(command, args, toolType, changedFiles)
+	if !changedOnly || len(changedFiles) == 0 {
+		return args
+	}
+	return appendChangedFiles(command, args, changedFiles)
 }
 
 func ensureGolangciArgs(args []string) []string {
@@ -181,6 +217,9 @@ func ensureGolangciArgs(args []string) []string {
 	}
 	if !hasArgPrefix(args, "--output.json.path") {
 		args = append(args, "--output.json.path=stdout")
+	}
+	if !hasArgPrefix(args, "--show-stats") {
+		args = append(args, "--show-stats=false")
 	}
 	return args
 }
@@ -202,14 +241,83 @@ func ensureRuffArgs(args []string) []string {
 	return append(args, "--output-format", "json")
 }
 
-func ensureGoTestArgs(args []string) []string {
-	if !hasArg(args, "test") {
+func ensureGoArgs(args []string) []string {
+	if !hasArg(args, "test") && !hasArg(args, "vet") {
 		return args
 	}
 	if len(args) == 1 {
 		return append(args, "./...")
 	}
 	return args
+}
+
+func ensureEslintArgs(args []string) []string {
+	if !hasArgPrefix(args, "--format") && !hasArg(args, "-f") {
+		args = append(args, "--format", "json")
+	}
+	if !hasPositionalArg(args, "--format", "-f") {
+		args = append(args, ".")
+	}
+	return args
+}
+
+func ensureBiomeArgs(args []string) []string {
+	if hasArg(args, "format") {
+		if !hasArg(args, "--write") && !hasArg(args, "--fix") {
+			args = append(args, "--write")
+		}
+		if !hasPositionalArgAfterSubcommand(args, "format") {
+			args = append(args, ".")
+		}
+		return args
+	}
+	if hasArg(args, "lint") {
+		if !hasArgPrefix(args, "--reporter") {
+			args = append(args, "--reporter=json")
+		}
+		if !hasPositionalArgAfterSubcommand(args, "lint") {
+			args = append(args, ".")
+		}
+	}
+	return args
+}
+
+func hasPositionalArg(args []string, valueFlags ...string) bool {
+	skipNext := false
+	for _, arg := range args {
+		if skipNext {
+			skipNext = false
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			for _, f := range valueFlags {
+				if arg == f {
+					skipNext = true
+					break
+				}
+			}
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func hasPositionalArgAfterSubcommand(args []string, subcommand string) bool {
+	seenSub := false
+	for _, arg := range args {
+		if !seenSub {
+			if arg == subcommand {
+				seenSub = true
+			}
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func defaultArgs(args []string, defaults ...string) []string {
@@ -219,65 +327,134 @@ func defaultArgs(args []string, defaults ...string) []string {
 	return append([]string(nil), defaults...)
 }
 
-func appendChangedFiles(command string, args []string, _ config.ToolType, changedFiles []string) []string {
-	if len(changedFiles) == 0 || !acceptsFileArgs(command) {
+func appendChangedFiles(command string, args, changedFiles []string) []string {
+	switch command {
+	case "gofumpt", "gofmt", "black", "prettier", "eslint", "biome":
+		return replaceDotPath(args, changedFiles)
+	case "ruff", "flake8":
+		return append(args, changedFiles...)
+	case "uv":
+		if hasArg(args, "ruff") {
+			return append(args, changedFiles...)
+		}
+		if hasArg(args, "pytest") {
+			if testFiles := pythonTestFiles(changedFiles); len(testFiles) == len(changedFiles) {
+				return append(args, testFiles...)
+			}
+		}
+		return args
+	case "pytest":
+		if testFiles := pythonTestFiles(changedFiles); len(testFiles) == len(changedFiles) {
+			return append(args, testFiles...)
+		}
+		return args
+	case "golangci-lint", "unnecessary-interface-assertion-linter", "go":
+		if hasAnyBase(changedFiles, "go.mod", "go.sum") {
+			return args
+		}
+		pkgs := goPackageDirs(changedFiles)
+		if len(pkgs) == 0 {
+			return args
+		}
+		if command == "go" {
+			return replaceTarget(args, "./...", pkgs)
+		}
+		return append(args, pkgs...)
+	default:
 		return args
 	}
-	files := filterFilesForCommand(command, changedFiles)
-	if len(files) == 0 {
-		return args
-	}
-	if command == "gofumpt" || command == "gofmt" {
-		args = replaceDotPath(args, files)
-		return args
-	}
-	return append(args, files...)
 }
 
 func replaceDotPath(args, files []string) []string {
-	out := make([]string, 0, len(args)+len(files))
+	return replaceTarget(args, ".", files)
+}
+
+func replaceTarget(args []string, target string, replacement []string) []string {
+	out := make([]string, 0, len(args)+len(replacement))
 	replaced := false
 	for _, arg := range args {
-		if arg == "." {
-			out = append(out, files...)
+		if arg == target {
+			out = append(out, replacement...)
 			replaced = true
 			continue
 		}
 		out = append(out, arg)
 	}
 	if !replaced {
-		out = append(out, files...)
+		out = append(out, replacement...)
 	}
 	return out
 }
 
-func acceptsFileArgs(command string) bool {
-	switch command {
-	case "gofumpt", "gofmt", "golangci-lint", "unnecessary-interface-assertion-linter", "ruff", "black", "flake8", "prettier", "eslint", "pytest":
-		return true
-	default:
-		return false
+func goPackageDirs(files []string) []string {
+	seen := make(map[string]struct{})
+	var dirs []string
+	for _, file := range files {
+		if !strings.HasSuffix(file, ".go") {
+			continue
+		}
+		dir := filepath.ToSlash(filepath.Dir(file))
+		if dir != "." && !strings.HasPrefix(dir, "./") {
+			dir = "./" + dir
+		}
+		if _, ok := seen[dir]; ok {
+			continue
+		}
+		seen[dir] = struct{}{}
+		dirs = append(dirs, dir)
 	}
+	sort.Strings(dirs)
+	return dirs
 }
 
-func filterFilesForCommand(command string, files []string) []string {
+func pythonTestFiles(files []string) []string {
 	var out []string
 	for _, file := range files {
-		if fileMatchesCommand(command, file) {
+		base := filepath.Base(file)
+		if strings.HasPrefix(base, "test_") || strings.HasSuffix(base, "_test.py") {
 			out = append(out, file)
 		}
 	}
 	return out
 }
 
-func fileMatchesCommand(command, file string) bool {
-	switch command {
-	case "gofumpt", "gofmt", "golangci-lint", "unnecessary-interface-assertion-linter":
+func hasAnyBase(files []string, names ...string) bool {
+	for _, file := range files {
+		base := filepath.Base(file)
+		for _, name := range names {
+			if base == name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func filterFilesForTool(spec config.Tool, files []string) []string {
+	var out []string
+	for _, file := range files {
+		if fileMatchesTool(spec, file) {
+			out = append(out, file)
+		}
+	}
+	return out
+}
+
+func fileMatchesTool(spec config.Tool, file string) bool {
+	switch spec.Command {
+	case "gofumpt", "gofmt":
 		return strings.HasSuffix(file, ".go")
-	case "ruff", "black", "flake8", "pytest":
+	case "golangci-lint", "unnecessary-interface-assertion-linter", "go":
+		return strings.HasSuffix(file, ".go") || hasAnyBase(
+			[]string{file}, "go.mod", "go.sum",
+		)
+	case "ruff", "black", "flake8", "pytest", "python3", "python", "uv":
 		return strings.HasSuffix(file, ".py")
-	case "prettier", "eslint":
-		return hasAnySuffix(file, ".js", ".jsx", ".ts", ".tsx")
+	case "prettier", "eslint", "biome":
+		return hasAnySuffix(file, ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts")
+	case "npm", "pnpm", "yarn", "bun", "jest", "mocha":
+		return hasAnySuffix(file, ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts") ||
+			hasAnyBase([]string{file}, "package.json", "tsconfig.json")
 	default:
 		return true
 	}
@@ -311,7 +488,7 @@ func hasArgPrefix(args []string, prefix string) bool {
 }
 
 func timeoutFor(command string, toolType config.ToolType) time.Duration {
-	if command == "bazel" {
+	if command == "bazel" || command == "bazelisk" {
 		if toolType == config.ToolTypeTest {
 			return 10 * time.Minute
 		}

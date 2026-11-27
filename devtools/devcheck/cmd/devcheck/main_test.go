@@ -235,6 +235,216 @@ func TestInvalidFormat(t *testing.T) {
 	}
 }
 
+func TestExtraArgsExitsTwo(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"dir1", "dir2"}, &stdout, &stderr, executor.NewMockExecutor())
+	if code != 2 {
+		t.Fatalf("extra args exit = %d, want 2", code)
+	}
+}
+
+func TestMissingDirectoryExitsOne(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{filepath.Join(t.TempDir(), "does-not-exist")}, &stdout, &stderr, executor.NewMockExecutor())
+	if code != 1 {
+		t.Fatalf("missing dir exit = %d, want 1", code)
+	}
+}
+
+func TestFixturesAcrossAllLayoutsAndFormats(t *testing.T) {
+	tests := []struct {
+		name         string
+		bins         []string
+		files        map[string]string
+		args         []string
+		wantBuild    string
+		wantLangs    []string
+		wantCommands []string
+	}{
+		{
+			name: "go layout dry-run summary",
+			bins: []string{"gofumpt", "golangci-lint", "go"},
+			files: map[string]string{
+				"go.mod":  "module example.com/goapp\n",
+				"main.go": "package main\nfunc main() {}\n",
+			},
+			args:         []string{"--dry-run", "--format=summary"},
+			wantCommands: []string{"gofumpt -w .", "golangci-lint run", "go test ./..."},
+		},
+		{
+			name: "python uv layout dry-run json",
+			bins: []string{"ruff", "pytest"},
+			files: map[string]string{
+				"pyproject.toml": "[project]\nname = \"pyapp\"\n",
+				"uv.lock":        "version = 1\n",
+				"app.py":         "x = 1\n",
+			},
+			args:         []string{"--dry-run", "--format=json"},
+			wantBuild:    "none",
+			wantLangs:    []string{"python"},
+			wantCommands: []string{"ruff format", "ruff check --output-format json", "pytest"},
+		},
+		{
+			name: "js ts biome pnpm layout dry-run prompt",
+			bins: []string{"pnpm", "biome", "prettier", "eslint"},
+			files: map[string]string{
+				"tsconfig.json":  "{}\n",
+				"package.json":   `{"name":"web","scripts":{"test":"vitest"}}`,
+				"pnpm-lock.yaml": "lockfileVersion: '9.0'\n",
+				"biome.json":     "{}\n",
+				"src/index.ts":   "export const x = 1;\n",
+			},
+			args:         []string{"--dry-run", "--format=prompt"},
+			wantBuild:    "none",
+			wantLangs:    []string{"typescript"},
+			wantCommands: []string{"biome format --write .", "biome lint --reporter=json .", "pnpm test"},
+		},
+		{
+			name: "make layout dry-run with force-fallback",
+			bins: []string{"make", "ruff", "pytest"},
+			files: map[string]string{
+				"Makefile":       "format:\n\techo fmt\nlint:\n\techo lint\ntest:\n\techo test\n",
+				"pyproject.toml": "[project]\nname = \"mkapp\"\n",
+				"app.py":         "x = 1\n",
+			},
+			args:         []string{"--dry-run", "--force-fallback", "--format=json"},
+			wantBuild:    "make",
+			wantLangs:    []string{"python"},
+			wantCommands: []string{"ruff format", "ruff check --output-format json", "pytest"},
+		},
+		{
+			name: "bazel bzlmod layout dry-run",
+			bins: []string{"bazel", "go"},
+			files: map[string]string{
+				"MODULE.bazel":      "module(name = \"bzlapp\")\n",
+				"tools/BUILD.bazel": "sh_binary(name = \"format\")\nsh_binary(name = \"lint\")\n",
+				"go.mod":            "module example.com/bzlapp\n",
+				"main.go":           "package main\nfunc main() {}\n",
+			},
+			args:         []string{"--dry-run", "--format=json"},
+			wantBuild:    "bazel",
+			wantLangs:    []string{"go"},
+			wantCommands: []string{"bazel run //tools:format", "bazel run //tools:lint", "bazel test //..."},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			withBinsOnPath(t, tt.bins...)
+			dir := t.TempDir()
+			for rel, content := range tt.files {
+				path := filepath.Join(dir, rel)
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			mock := executor.NewMockExecutor()
+			for _, bin := range tt.bins {
+				mock.SetAvailableCommand(bin, true)
+			}
+
+			args := append(append([]string(nil), tt.args...), dir)
+			var stdout, stderr bytes.Buffer
+			code := run(context.Background(), args, &stdout, &stderr, mock)
+			if code != 0 {
+				t.Fatalf("exit = %d, stderr = %s", code, stderr.String())
+			}
+			out := stdout.String()
+			if contains(tt.args, "--format=json") {
+				var doc struct {
+					BuildSystem string   `json:"buildSystem"`
+					Languages   []string `json:"languages"`
+					Tools       []struct {
+						Command string   `json:"command"`
+						Args    []string `json:"args"`
+					} `json:"tools"`
+				}
+				if err := json.Unmarshal([]byte(out), &doc); err != nil {
+					t.Fatalf("invalid JSON: %v\n%s", err, out)
+				}
+				var gotCmds []string
+				for _, tool := range doc.Tools {
+					if len(tool.Args) == 0 {
+						gotCmds = append(gotCmds, tool.Command)
+					} else {
+						gotCmds = append(gotCmds, tool.Command+" "+strings.Join(tool.Args, " "))
+					}
+				}
+				for _, cmd := range tt.wantCommands {
+					if !contains(gotCmds, cmd) {
+						t.Errorf("JSON tools = %v, want %q", gotCmds, cmd)
+					}
+				}
+				if tt.wantBuild != "" && doc.BuildSystem != tt.wantBuild {
+					t.Errorf("JSON buildSystem = %q, want %q", doc.BuildSystem, tt.wantBuild)
+				}
+				for _, lang := range tt.wantLangs {
+					if !contains(doc.Languages, lang) {
+						t.Errorf("JSON languages = %v, want %q", doc.Languages, lang)
+					}
+				}
+				return
+			}
+			for _, cmd := range tt.wantCommands {
+				if !strings.Contains(out, cmd) {
+					t.Errorf("output missing command %q\n%s", cmd, out)
+				}
+			}
+			if tt.wantBuild != "" && !strings.Contains(out, tt.wantBuild) {
+				t.Errorf("output missing buildSystem %q\n%s", tt.wantBuild, out)
+			}
+			for _, lang := range tt.wantLangs {
+				if !strings.Contains(out, lang) {
+					t.Errorf("output missing language %q\n%s", lang, out)
+				}
+			}
+		})
+	}
+}
+
+func TestChangedOnlyEndToEndWithMockGit(t *testing.T) {
+	withBinsOnPath(t, "git", "gofumpt", "ruff", "go")
+	dir := fixtureDir(t, "go.mod", "main.go", "pkg/helper.go", "app.py", ".git/HEAD")
+	mock := executor.NewMockExecutor()
+	for _, bin := range []string{"git", "gofumpt", "ruff", "go"} {
+		mock.SetAvailableCommand(bin, true)
+	}
+	mock.ExpectCommand("git").
+		WillReturn(&executor.ExecutionResult{
+			Command: "git", ExitCode: 0, Output: "pkg/helper.go\n",
+			StartTime: time.Now(), EndTime: time.Now(),
+		}, nil).Once().Build()
+	mock.ExpectCommand("git").
+		WillReturn(&executor.ExecutionResult{
+			Command: "git", ExitCode: 0, Output: "",
+			StartTime: time.Now(), EndTime: time.Now(),
+		}, nil).Once().Build()
+	mock.ExpectCommand("gofumpt").
+		WillReturn(&executor.ExecutionResult{
+			Command: "gofumpt", ExitCode: 0, StartTime: time.Now(), EndTime: time.Now(),
+		}, nil).Once().Build()
+	mock.ExpectCommand("go").
+		WillReturn(&executor.ExecutionResult{
+			Command: "go", ExitCode: 0, StartTime: time.Now(), EndTime: time.Now(),
+		}, nil).Once().Build()
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"--changed-only", "--format=summary", dir}, &stdout, &stderr, mock)
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr = %s", code, stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "gofumpt -w pkg/helper.go") {
+		t.Errorf("expected gofumpt on pkg/helper.go:\n%s", out)
+	}
+	if !strings.Contains(out, "go test ./pkg") {
+		t.Errorf("expected go test on ./pkg:\n%s", out)
+	}
+}
+
 func TestFilterRepeatableAndCommaSeparated(t *testing.T) {
 	withBinsOnPath(t, "gofumpt", "golangci-lint")
 	dir := fixtureDir(t, "go.mod", "main.go")

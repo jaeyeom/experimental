@@ -31,6 +31,7 @@ const (
 type Tool struct {
 	Command string   `json:"command"`
 	Args    []string `json:"args,omitempty"`
+	Dir     string   `json:"dir,omitempty"`
 }
 
 // String returns the command line as command plus args.

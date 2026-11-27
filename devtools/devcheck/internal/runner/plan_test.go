@@ -230,6 +230,147 @@ func TestPlan_TimeoutPositive(t *testing.T) {
 	}
 }
 
+func TestPlan_GolangciAndEslintAndBiomeArgs(t *testing.T) {
+	project := &config.ProjectConfig{
+		RootPath: "/repo",
+		Tools: map[config.ToolType][]config.Tool{
+			config.ToolTypeFormat: {tool("biome", "format", "--write")},
+			config.ToolTypeLint:   {tool("eslint")},
+		},
+	}
+	exec := availableExec(t, "biome", "eslint")
+
+	planned, err := Plan(project, Options{}, exec)
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	assertTool(t, planned[0], config.ToolTypeFormat, "biome", []string{"format", "--write", "."})
+	assertTool(t, planned[1], config.ToolTypeLint, "eslint", []string{"--format", "json", "."})
+}
+
+func TestPlan_ChangedOnlyReplacesDotAndUsesGoPackages(t *testing.T) {
+	project := &config.ProjectConfig{
+		RootPath: "/repo",
+		Tools: map[config.ToolType][]config.Tool{
+			config.ToolTypeFormat: {tool("prettier"), tool("gofumpt")},
+			config.ToolTypeLint:   {tool("golangci-lint")},
+			config.ToolTypeTest:   {tool("go", "test")},
+		},
+	}
+	exec := availableExec(t, "prettier", "golangci-lint", "go")
+
+	planned, err := Plan(project, Options{
+		ChangedOnly:  true,
+		ChangedFiles: []string{"pkg/a.go", "main.go", "web/app.ts"},
+	}, exec)
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	if len(planned) != 3 {
+		t.Fatalf("planned = %v, want 3 tools", displayAll(planned))
+	}
+	// prettier must replace "." with changed JS/TS file, not keep "."
+	assertTool(t, planned[0], config.ToolTypeFormat, "prettier", []string{"--write", "web/app.ts"})
+	// golangci-lint and go test must receive deduplicated Go package dirs, not .go file paths
+	if !containsAll(planned[1].Config.Args, ".", "./pkg") {
+		t.Errorf("golangci-lint args = %v, want Go package dirs . and ./pkg", planned[1].Config.Args)
+	}
+	for _, arg := range planned[1].Config.Args {
+		if strings.HasSuffix(arg, ".go") {
+			t.Errorf("golangci-lint received file arg %q instead of package dir", arg)
+		}
+	}
+	assertTool(t, planned[2], config.ToolTypeTest, "go", []string{"test", ".", "./pkg"})
+}
+
+func TestPlan_ChangedOnlySkipsNonMatchingTestAndPackageManagers(t *testing.T) {
+	project := &config.ProjectConfig{
+		RootPath: "/repo",
+		Tools: map[config.ToolType][]config.Tool{
+			config.ToolTypeFormat: {tool("npm", "run", "format")},
+			config.ToolTypeTest:   {tool("go", "test"), tool("pytest")},
+		},
+	}
+	exec := availableExec(t, "npm", "go", "pytest")
+
+	planned, err := Plan(project, Options{
+		ChangedOnly:  true,
+		ChangedFiles: []string{"README.md"},
+	}, exec)
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	if len(planned) != 0 {
+		t.Fatalf("planned = %v, want 0 tools when only README.md changed", displayAll(planned))
+	}
+}
+
+func TestPlan_ChangedOnlyPytestHandlesNonTestVsTestFiles(t *testing.T) {
+	project := &config.ProjectConfig{
+		RootPath: "/repo",
+		Tools: map[config.ToolType][]config.Tool{
+			config.ToolTypeTest: {tool("pytest")},
+		},
+	}
+	exec := availableExec(t, "pytest")
+
+	// Non-test .py file changed: run full pytest suite instead of passing app.py (which causes exit 5).
+	planned, err := Plan(project, Options{
+		ChangedOnly:  true,
+		ChangedFiles: []string{"app.py"},
+	}, exec)
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	assertTool(t, planned[0], config.ToolTypeTest, "pytest", []string{})
+
+	// Only test files changed: pass the changed test files directly.
+	planned, err = Plan(project, Options{
+		ChangedOnly:  true,
+		ChangedFiles: []string{"tests/test_app.py"},
+	}, exec)
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	assertTool(t, planned[0], config.ToolTypeTest, "pytest", []string{"tests/test_app.py"})
+}
+
+func TestPlan_NestedDirScopesWorkingDirAndChangedFiles(t *testing.T) {
+	project := &config.ProjectConfig{
+		RootPath: "/repo",
+		Tools: map[config.ToolType][]config.Tool{
+			config.ToolTypeLint: {
+				{Command: "pnpm", Args: []string{"run", "lint"}, Dir: "frontend"},
+			},
+		},
+	}
+	exec := availableExec(t, "pnpm")
+
+	// Changed file outside frontend skips frontend pnpm tool.
+	planned, err := Plan(project, Options{
+		ChangedOnly:  true,
+		ChangedFiles: []string{"backend/main.ts"},
+	}, exec)
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	if len(planned) != 0 {
+		t.Fatalf("planned = %v, want 0 when change is outside Dir", displayAll(planned))
+	}
+
+	// Changed file inside frontend runs pnpm in /repo/frontend.
+	planned, err = Plan(project, Options{
+		ChangedOnly:  true,
+		ChangedFiles: []string{"frontend/src/app.ts"},
+	}, exec)
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	if len(planned) != 1 || planned[0].Config.WorkingDir != "/repo/frontend" {
+		t.Fatalf("planned = %+v, want WorkingDir /repo/frontend", planned)
+	}
+}
+
 func bazelGoProject() *config.ProjectConfig {
 	return &config.ProjectConfig{
 		RootPath:    "/repo",

@@ -83,14 +83,21 @@ func scanErrors(result *ScanResult) error {
 }
 
 func detectGitRepository(absPath string) (bool, error) {
-	_, err := os.Stat(filepath.Join(absPath, ".git"))
-	if err == nil {
-		return true, nil
+	dir := absPath
+	for {
+		_, err := os.Stat(filepath.Join(dir, ".git"))
+		if err == nil {
+			return true, nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return false, fmt.Errorf("inspect git metadata: %w", err)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return false, nil
+		}
+		dir = parent
 	}
-	if errors.Is(err, fs.ErrNotExist) {
-		return false, nil
-	}
-	return false, fmt.Errorf("inspect git metadata: %w", err)
 }
 
 func (d *ProjectDetector) aggregateTools(languages []config.Language, buildSystem config.BuildSystem, absPath string, scan *ScanResult) map[config.ToolType][]config.Tool {
@@ -159,21 +166,25 @@ func (d *ProjectDetector) SupportedBuildSystems() []config.BuildSystem {
 }
 
 func bazelTools(rootPath string) map[config.ToolType][]config.Tool {
+	cmd := "bazel"
+	if !commandAvailable(cmd) && commandAvailable("bazelisk") {
+		cmd = "bazelisk"
+	}
 	var format, lint []config.Tool
 	for _, label := range bazelFormatLabels {
 		if bazelLabelExists(rootPath, label) {
-			format = append(format, config.Tool{Command: "bazel", Args: []string{"run", label}})
+			format = append(format, config.Tool{Command: cmd, Args: []string{"run", label}})
 		}
 	}
 	for _, label := range bazelLintLabels {
 		if bazelLabelExists(rootPath, label) {
-			lint = append(lint, config.Tool{Command: "bazel", Args: []string{"run", label}})
+			lint = append(lint, config.Tool{Command: cmd, Args: []string{"run", label}})
 		}
 	}
 	return map[config.ToolType][]config.Tool{
 		config.ToolTypeFormat: availableTools(format...),
 		config.ToolTypeLint:   availableTools(lint...),
-		config.ToolTypeTest:   availableTools(config.Tool{Command: "bazel", Args: []string{"test", "//..."}}),
+		config.ToolTypeTest:   availableTools(config.Tool{Command: cmd, Args: []string{"test", "//..."}}),
 	}
 }
 

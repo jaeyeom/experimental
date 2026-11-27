@@ -81,6 +81,93 @@ func TestGoToolsListsIfaceAssertLinterWhenPresent(t *testing.T) {
 	assertContainsTool(t, tools[config.ToolTypeLint], "unnecessary-interface-assertion-linter")
 }
 
+func TestGoToolsIncludesGoVetFallback(t *testing.T) {
+	withBinsOnPath(t, "gofmt", "go")
+
+	tools := goTools("", nil)
+	assertContainsTool(t, tools[config.ToolTypeLint], "go vet")
+	assertContainsTool(t, tools[config.ToolTypeTest], "go test")
+}
+
+func TestPythonToolsUsesPython3AndUvFallback(t *testing.T) {
+	withBinsOnPath(t, "python3", "uv")
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{
+		"pyproject.toml": "[project]\nname = \"app\"\n",
+		"uv.lock":        "version = 1\n",
+	})
+	scan := mustScan(t, dir)
+
+	tools := pythonTools(dir, scan)
+	assertContainsTool(t, tools[config.ToolTypeTest], "python3 -m unittest")
+	assertContainsTool(t, tools[config.ToolTypeFormat], "uv run --no-sync ruff format")
+	assertContainsTool(t, tools[config.ToolTypeLint], "uv run --no-sync ruff check")
+	assertContainsTool(t, tools[config.ToolTypeTest], "uv run --no-sync pytest")
+}
+
+func TestJSToolsDetectsPackageManagersBiomeAndNestedDir(t *testing.T) {
+	t.Run("pnpm and biome", func(t *testing.T) {
+		withBinsOnPath(t, "pnpm", "biome", "prettier", "eslint")
+		dir := t.TempDir()
+		writeTree(t, dir, map[string]string{
+			"package.json":   `{"name":"app","scripts":{"lint":"biome lint ."}}`,
+			"pnpm-lock.yaml": "lockfileVersion: '9.0'\n",
+			"biome.json":     `{}`,
+			"src/index.ts":   "export const x = 1;\n",
+		})
+		scan := mustScan(t, dir)
+
+		tools := jsTools(dir, scan)
+		assertContainsTool(t, tools[config.ToolTypeLint], "pnpm run lint")
+		assertContainsTool(t, tools[config.ToolTypeFormat], "biome format --write")
+		assertContainsTool(t, tools[config.ToolTypeLint], "biome lint")
+	})
+
+	t.Run("bun without test script uses bun test", func(t *testing.T) {
+		withBinsOnPath(t, "bun")
+		dir := t.TempDir()
+		writeTree(t, dir, map[string]string{
+			"package.json": `{"name":"app"}`,
+			"bun.lock":     "{}",
+			"index.ts":     "export const x = 1;\n",
+		})
+		scan := mustScan(t, dir)
+
+		tools := jsTools(dir, scan)
+		assertContainsTool(t, tools[config.ToolTypeTest], "bun test")
+	})
+
+	t.Run("nested package.json records Dir", func(t *testing.T) {
+		withBinsOnPath(t, "npm")
+		dir := t.TempDir()
+		writeTree(t, dir, map[string]string{
+			"frontend/package.json": `{"name":"web","scripts":{"test":"vitest"}}`,
+			"frontend/index.ts":     "export const x = 1;\n",
+		})
+		scan := mustScan(t, dir)
+
+		tools := jsTools(dir, scan)
+		got := tools[config.ToolTypeTest]
+		if len(got) == 0 || got[0].Dir != "frontend" {
+			t.Fatalf("tools[test] = %+v, want Dir=frontend", got)
+		}
+	})
+
+	t.Run("omits biome without biome config", func(t *testing.T) {
+		withBinsOnPath(t, "biome", "prettier", "eslint")
+		dir := t.TempDir()
+		writeTree(t, dir, map[string]string{
+			"package.json": `{"name":"app"}`,
+			"index.js":     "const x = 1;\n",
+		})
+		scan := mustScan(t, dir)
+
+		tools := jsTools(dir, scan)
+		assertNotContainsTool(t, tools[config.ToolTypeFormat], "biome format --write")
+		assertNotContainsTool(t, tools[config.ToolTypeLint], "biome lint")
+	})
+}
+
 func mustScan(t *testing.T, dir string) *ScanResult {
 	t.Helper()
 	result, err := NewScanner(DefaultScanOptions()).Scan(dir)

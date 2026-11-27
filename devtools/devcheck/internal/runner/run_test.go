@@ -193,3 +193,52 @@ func TestRun_ExecutionErrorFailsReport(t *testing.T) {
 		t.Fatal("tool error is nil")
 	}
 }
+
+func TestRun_ChangedOnlyUnbornHeadFallback(t *testing.T) {
+	project := &config.ProjectConfig{
+		RootPath: "/repo",
+		HasGit:   true,
+		Tools: map[config.ToolType][]config.Tool{
+			config.ToolTypeFormat: {tool("gofumpt")},
+		},
+	}
+	mock := executor.NewMockExecutor()
+	mock.SetAvailableCommand("gofumpt", true)
+	mock.SetAvailableCommand("git", true)
+	// git diff ... HEAD fails when HEAD doesn't exist yet
+	mock.ExpectCommand("git").
+		WillReturn(&executor.ExecutionResult{
+			Command: "git", ExitCode: 128, Stderr: "fatal: ambiguous argument 'HEAD'",
+			StartTime: time.Now(), EndTime: time.Now(),
+		}, nil).Once().Build()
+	// rev-parse --verify HEAD fails
+	mock.ExpectCommand("git").
+		WillReturn(&executor.ExecutionResult{
+			Command: "git", ExitCode: 128, Stderr: "fatal: Needed a single revision",
+			StartTime: time.Now(), EndTime: time.Now(),
+		}, nil).Once().Build()
+	// git diff --cached succeeds
+	mock.ExpectCommand("git").
+		WillReturn(&executor.ExecutionResult{
+			Command: "git", ExitCode: 0, Output: "staged.go\n",
+			StartTime: time.Now(), EndTime: time.Now(),
+		}, nil).Once().Build()
+	// git ls-files succeeds
+	mock.ExpectCommand("git").
+		WillReturn(&executor.ExecutionResult{
+			Command: "git", ExitCode: 0, Output: "untracked.go\n",
+			StartTime: time.Now(), EndTime: time.Now(),
+		}, nil).Once().Build()
+	mock.ExpectCommand("gofumpt").
+		WillReturn(&executor.ExecutionResult{
+			Command: "gofumpt", ExitCode: 0, StartTime: time.Now(), EndTime: time.Now(),
+		}, nil).Once().Build()
+
+	report, err := Run(context.Background(), project, Options{ChangedOnly: true}, mock)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !containsAll(report.Tools[0].Tool.Config.Args, "staged.go", "untracked.go") {
+		t.Errorf("args = %v, want staged.go and untracked.go", report.Tools[0].Tool.Config.Args)
+	}
+}

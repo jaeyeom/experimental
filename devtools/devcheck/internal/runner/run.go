@@ -11,10 +11,11 @@ import (
 
 // Report is the result of planning and optionally executing tools.
 type Report struct {
-	Project *config.ProjectConfig
-	Tools   []ToolResult
-	Issues  []config.Issue
-	DryRun  bool
+	Project       *config.ProjectConfig
+	Tools         []ToolResult
+	Issues        []config.Issue
+	DryRun        bool
+	ForceFallback bool
 }
 
 // ToolResult is the outcome of one planned tool.
@@ -65,7 +66,7 @@ func Run(ctx context.Context, project *config.ProjectConfig, opts Options, exec 
 		return nil, err
 	}
 
-	report := &Report{Project: project, DryRun: opts.DryRun}
+	report := &Report{Project: project, DryRun: opts.DryRun, ForceFallback: opts.ForceFallback}
 	if opts.DryRun {
 		for _, tool := range planned {
 			report.Tools = append(report.Tools, ToolResult{Tool: tool, DryRun: true})
@@ -92,9 +93,17 @@ func changedFiles(ctx context.Context, project *config.ProjectConfig, exec execu
 	if exec != nil && !exec.IsAvailable("git") {
 		return nil, fmt.Errorf("--changed-only requires git")
 	}
-	diff, err := gitOutput(ctx, exec, project.RootPath, "diff", "--name-only", "HEAD")
+	diff, err := gitOutput(ctx, exec, project.RootPath, "diff", "--name-only", "--relative", "--diff-filter=ACMR", "HEAD")
 	if err != nil {
-		return nil, fmt.Errorf("list changed files: %w", err)
+		if _, headErr := gitOutput(ctx, exec, project.RootPath, "rev-parse", "--verify", "HEAD"); headErr != nil {
+			cached, cachedErr := gitOutput(ctx, exec, project.RootPath, "diff", "--name-only", "--relative", "--diff-filter=ACMR", "--cached")
+			if cachedErr != nil {
+				return nil, fmt.Errorf("list changed files: %w", cachedErr)
+			}
+			diff = cached
+		} else {
+			return nil, fmt.Errorf("list changed files: %w", err)
+		}
 	}
 	untracked, err := gitOutput(ctx, exec, project.RootPath, "ls-files", "--others", "--exclude-standard")
 	if err != nil {
@@ -156,7 +165,7 @@ func decorateResult(tool PlannedTool, cr executor.ConcurrentResult, verbose bool
 	if cr.Result == nil {
 		return item
 	}
-	item.Issues = ParseIssues(tool.Config.Command, cr.Result.Output, cr.Result.Stderr)
+	item.Issues = ParseToolIssues(tool.Config, cr.Result.Output, cr.Result.Stderr)
 	if len(item.Issues) == 0 && (verbose || cr.Result.ExitCode != 0) {
 		item.RawOutput = combinedOutput(cr.Result)
 	}
