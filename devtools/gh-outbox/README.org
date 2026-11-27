@@ -1,22 +1,28 @@
 #+TITLE: gh-outbox
 #+DATE: 2026-11-16
 
-gh-outbox is an approval gate for GitHub pull request comments and
-reviews that coding agents draft. An agent submits a draft. gh-outbox
-checks it for internal wording, shows you the exact post in a decide
-item, and posts it with your gh account only after you pick *post* in
-the decide UI.
+gh-outbox is the GitHub pull request adapter layered on the shared,
+channel-agnostic confirm-before-doing core in
+[[file:../pkg/outbox/README.md][devtools/pkg/outbox]]. Coding agents and scripts draft PR comments,
+thread replies, and reviews; gh-outbox checks drafts for internal
+wording, shows you the exact post in a decide item, and posts it with
+your gh account only after you pick *post* in the decide UI.
 
-*Agents never call gh to post to a pull request directly.* They submit
-to gh-outbox. Reading with gh is fine.
+*Agents never call gh to post to a pull request directly.* They either
+call =gh-outbox submit= directly or compose drafts locally in
+[[file:../gh-nudge/pr-review.org][gh-pr-review]] and hand them off
+with =gh-pr-review submit --via-outbox= (which invokes =gh-outbox=
+in-process by default, preserving multi-line ranges and =LEFT=/=RIGHT=
+diff sides, or runs a custom =review_post.outbox_command=). Reading with
+gh is fine.
 
 #+BEGIN_EXAMPLE
-agent --submit--> lint --> decide item: post | edit | cancel
-                                          |
-                    gh-outbox poll <------+  (only your own UI answer)
-                          |
-                          +--> gh api (discussion thread or review)
-                          +--> agentbus notice to the agent, with links
+gh-pr-review / agent --submit--> lint --> decide item: post | edit | cancel
+                                            |
+gh-outbox poll (pkg/outbox) <---------------+  (only your own UI answer)
+      |
+      +--> gh api (discussion thread, reply, or review)
+      +--> outbox.Transport (agentbus notice / command / pull) with links
 #+END_EXAMPLE
 
 * Setup
@@ -204,6 +210,26 @@ agent_pattern = ""
 patterns = []
 phrases = []
 #+END_SRC
+
+* Shared Architecture and Migration from Direct Posting
+
+=gh-outbox= delegates locking, atomic JSON draft persistence,
+preflight deny-rule matching, human-UI approval evaluation
+(=author=human=, =by=""=, =via=ui=), crash-safe step execution, and
+notification transports to [[file:../pkg/outbox/README.md][devtools/pkg/outbox]], keeping GitHub-specific
+APIs (=HeadSHA=, =ReplyTarget=, =CreateThread=, =CreateReply=,
+=CreateReview=, =EditComment=, =EditReview=) in its own adapter.
+
+For workflows migrating from =gh-pr-review submit= direct posting:
+1. Keep using =gh-pr-review capture=, =comment=, =auto-adjust=, and
+   =next= for local review composition.
+2. Enable =review_post { via_outbox = true; owner = "my-agent" }= in
+   =~/.config/gh-nudge/config.pkl= (or pass =--via-outbox --owner AGENT=).
+   By default this calls =gh-outbox= in-process so multi-line comments and
+   =LEFT=/=RIGHT= sides flow straight through the =decide= approval gate.
+3. Run =gh-outbox poll --watch= (or systemd/launchd service) to execute
+   human-approved posts and let =gh-pr-review= reconcile local comments
+   once their draft reaches =posted=.
 
 * Standard CLI protocol
 

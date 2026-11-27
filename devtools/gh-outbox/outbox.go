@@ -2,6 +2,7 @@ package ghoutbox
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -9,7 +10,16 @@ import (
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/decide"
+	"github.com/jaeyeom/experimental/devtools/pkg/outbox"
 )
+
+func marshalJSON(v any, label string) ([]byte, error) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("encode %s: %w", label, err)
+	}
+	return data, nil
+}
 
 // Decide option keys on an approval item.
 const (
@@ -25,13 +35,6 @@ type (
 	DecideMessage = decide.Message
 	DecideItem    = decide.Item
 )
-
-// closed reports whether an approval item no longer takes an answer. An
-// agent's done on an item the user has not read leaves it done-unread in
-// the user's inbox, which is closed here too.
-func closed(it DecideItem) bool {
-	return it.State == decide.StateDone || it.State == decide.StateDoneUnread || it.State == decide.StateWithdrawn
-}
 
 // Decider files, reads, and closes decide items.
 type Decider interface {
@@ -62,13 +65,38 @@ type Bus interface {
 
 // Outbox submits drafts and acts on the user's answers.
 type Outbox struct {
-	Store  *Store
-	Decide Decider
-	GH     GitHub
-	Bus    Bus
-	Config Config
+	Store     *Store
+	Decide    Decider
+	GH        GitHub
+	Bus       Bus
+	Transport outbox.Transport
+	Config    Config
 	// Now defaults to time.Now.
 	Now func() time.Time
+}
+
+// NewOutbox constructs an Outbox wired with CLI implementations from cfg.
+func NewOutbox(cfg Config) *Outbox {
+	return &Outbox{
+		Store:  NewStore(cfg.DataDir),
+		Decide: DecideCLI{Run: Exec(cfg.DecideCommand)},
+		GH:     GHCLI{Run: Exec(cfg.GHCommand)},
+		Bus:    AgentbusCLI{Run: Exec(cfg.AgentbusCommand)},
+		Config: cfg,
+	}
+}
+
+// OpenDefault loads configuration from default XDG paths and returns a ready Outbox.
+func OpenDefault(env []string) (*Outbox, error) {
+	configPath, err := DefaultConfigPath(env)
+	if err != nil {
+		return nil, fmt.Errorf("config path: %w", err)
+	}
+	cfg, err := LoadConfig(configPath, env)
+	if err != nil {
+		return nil, fmt.Errorf("load config: %w", err)
+	}
+	return NewOutbox(cfg), nil
 }
 
 func (o *Outbox) now() time.Time {
@@ -76,6 +104,18 @@ func (o *Outbox) now() time.Time {
 		return o.Now().UTC()
 	}
 	return time.Now().UTC()
+}
+
+func (o *Outbox) transport() outbox.Transport {
+	if o.Transport != nil {
+		return o.Transport
+	}
+	if o.Bus != nil {
+		return outbox.TransportFunc(func(ctx context.Context, n outbox.Notice) error {
+			return o.Bus.Send(ctx, n.Owner, n.Message)
+		})
+	}
+	return outbox.PullTransport{}
 }
 
 // Lint checks d against the configured deny rules.
@@ -121,6 +161,7 @@ func (o *Outbox) Submit(ctx context.Context, d Draft) (Record, error) {
 		}
 		r.Reply = &target
 	}
+	r.Digest = outbox.Digest(Question(r))
 	if r, err = o.Store.Create(r); err != nil {
 		return Record{}, err
 	}
@@ -148,7 +189,9 @@ func (o *Outbox) oldText(ctx context.Context, d Draft) (string, error) {
 
 // ask files r's decide item and stores its id.
 func (o *Outbox) ask(ctx context.Context, r *Record) error {
-	id, err := o.Decide.Ask(ctx, r.Owner, o.Config.NotifyPane, Question(*r))
+	q := Question(*r)
+	r.Digest = outbox.Digest(q)
+	id, err := o.Decide.Ask(ctx, r.Owner, o.Config.NotifyPane, q)
 	if err != nil {
 		return fmt.Errorf("file approval: %w", err)
 	}
@@ -285,46 +328,13 @@ func (o *Outbox) step(ctx context.Context, r *Record) error {
 	return o.finish(ctx, r)
 }
 
-// verdict is what the user's latest own message asks for.
-type verdict struct {
-	action string // OptionPost, OptionEdit, OptionCancel, or "" to wait
-	notes  string
-}
-
-// decideVerdict reads the user's latest message. Messages from agents,
-// including ones sent as the user from the command line, do not count.
-// A post pick counts only from the decide UI with a matching human UI
-// answer. Free text is edit notes.
-func decideVerdict(it DecideItem) verdict {
-	var (
-		last  DecideMessage
-		found bool
-		notes []string
-	)
-	for _, m := range it.Messages {
-		if !m.FromHuman() {
-			continue
-		}
-		last, found = m, true
-		if m.OptionKey == "" && strings.TrimSpace(m.Text) != "" {
-			notes = append(notes, m.Text)
-		}
+func ghOutboxEvalPolicy() outbox.EvalPolicy {
+	return outbox.EvalPolicy{
+		ApproveKeys:          []string{OptionPost},
+		EditKeys:             []string{OptionEdit},
+		CancelKeys:           []string{OptionCancel},
+		RequireAnswerHumanUI: true,
 	}
-	if !found {
-		return verdict{}
-	}
-	switch last.OptionKey {
-	case OptionPost:
-		a := it.Answer
-		if last.HumanUI() && a.HumanUI() && a.Key == OptionPost {
-			return verdict{action: OptionPost}
-		}
-	case OptionCancel:
-		return verdict{action: OptionCancel}
-	case OptionEdit, "":
-		return verdict{action: OptionEdit, notes: strings.Join(notes, "\n\n")}
-	}
-	return verdict{}
 }
 
 func (o *Outbox) pending(ctx context.Context, r *Record) error {
@@ -332,21 +342,20 @@ func (o *Outbox) pending(ctx context.Context, r *Record) error {
 	if err != nil {
 		return fmt.Errorf("read approval: %w", err)
 	}
-	v := decideVerdict(it)
-	switch v.action {
-	case OptionPost:
+	v := outbox.EvaluateApproval(it, ghOutboxEvalPolicy())
+	switch v.Action {
+	case outbox.ActionApprove:
 		return o.approved(ctx, r)
-	case OptionEdit:
-		r.State, r.Notes = StateNeedsRedraft, v.notes
+	case outbox.ActionEdit:
+		r.State, r.Notes = StateNeedsRedraft, v.Notes
 		r.Outcome = "edit requested; redraft notice sent to " + r.Owner
-	case OptionCancel:
+	case outbox.ActionCancel:
 		r.State, r.Outcome = StateCancelled, "cancelled; nothing was posted"
-	default:
-		if !closed(it) {
-			return nil
-		}
+	case outbox.ActionClosedWithoutApproval:
 		r.State, r.DecideClosed = StateCancelled, true
 		r.Outcome = "the approval item was " + it.State + " without a post answer; nothing was posted"
+	default:
+		return nil
 	}
 	if err := o.save(r); err != nil {
 		return err
@@ -355,44 +364,14 @@ func (o *Outbox) pending(ctx context.Context, r *Record) error {
 }
 
 // approved posts r unless the pull request head moved (for diff-anchored
-// drafts) or a reply's thread was deleted/resolved.
+// drafts), the draft content digest changed, or a reply's thread was deleted/resolved.
 func (o *Outbox) approved(ctx context.Context, r *Record) error {
-	if r.Kind != KindReply {
-		sha, err := o.GH.HeadSHA(ctx, r.Repo, r.PR)
-		if err != nil {
-			return fmt.Errorf("read head of %s: %w", r.Target(), err)
-		}
-		if sha != r.HeadSHA {
-			if o.Config.OnHeadMoved == HeadMovedRefuse {
-				r.State = StateNeedsRedraft
-				r.NewHeadSHA = sha
-				r.Outcome = fmt.Sprintf("not posted: the pull request head moved from %s to %s", r.HeadSHA, sha)
-				if err := o.save(r); err != nil {
-					return err
-				}
-				return o.finish(ctx, r)
-			}
-			old := r.DecideID
-			r.HeadSHA = sha
-			if err := o.ask(ctx, r); err != nil {
-				return fmt.Errorf("re-ask after the head moved: %w", err)
-			}
-			if err := o.Decide.Done(ctx, old, "not posted: the pull request head moved to "+sha+"; asked again"); err != nil {
-				return fmt.Errorf("close the old approval: %w", err)
-			}
-			return nil
-		}
-	} else if r.Edit == "" {
-		target, err := o.GH.ReplyTarget(ctx, r.Repo, r.PR, r.InReplyTo)
-		if err != nil {
-			if errors.Is(err, ErrReplyNotFound) {
-				return o.refuse(ctx, r, "not posted: the discussion thread was deleted")
-			}
-			return fmt.Errorf("read thread for --in-reply-to %s on %s: %w", r.InReplyTo, r.Target(), err)
-		}
-		if target.Resolved && !r.AllowResolved {
-			return o.refuse(ctx, r, "not posted: the discussion thread was resolved")
-		}
+	if r.Digest != "" && r.Digest != outbox.Digest(Question(*r)) {
+		return o.refuse(ctx, r, "not posted: draft content no longer matches approved digest")
+	}
+	done, err := o.checkTargetState(ctx, r)
+	if err != nil || done {
+		return err
 	}
 	r.State = StatePosting
 	if err := o.save(r); err != nil {
@@ -402,6 +381,58 @@ func (o *Outbox) approved(ctx context.Context, r *Record) error {
 		return err
 	}
 	return o.finish(ctx, r)
+}
+
+func (o *Outbox) checkTargetState(ctx context.Context, r *Record) (bool, error) {
+	if r.Kind != KindReply {
+		return o.checkHeadSHA(ctx, r)
+	}
+	if r.Edit == "" {
+		return o.checkReplyTarget(ctx, r)
+	}
+	return false, nil
+}
+
+func (o *Outbox) checkHeadSHA(ctx context.Context, r *Record) (bool, error) {
+	sha, err := o.GH.HeadSHA(ctx, r.Repo, r.PR)
+	if err != nil {
+		return false, fmt.Errorf("read head of %s: %w", r.Target(), err)
+	}
+	if sha == r.HeadSHA {
+		return false, nil
+	}
+	if o.Config.OnHeadMoved == HeadMovedRefuse {
+		r.State = StateNeedsRedraft
+		r.NewHeadSHA = sha
+		r.Outcome = fmt.Sprintf("not posted: the pull request head moved from %s to %s", r.HeadSHA, sha)
+		if err := o.save(r); err != nil {
+			return false, err
+		}
+		return true, o.finish(ctx, r)
+	}
+	old := r.DecideID
+	r.HeadSHA = sha
+	if err := o.ask(ctx, r); err != nil {
+		return false, fmt.Errorf("re-ask after the head moved: %w", err)
+	}
+	if err := o.Decide.Done(ctx, old, "not posted: the pull request head moved to "+sha+"; asked again"); err != nil {
+		return false, fmt.Errorf("close the old approval: %w", err)
+	}
+	return true, nil
+}
+
+func (o *Outbox) checkReplyTarget(ctx context.Context, r *Record) (bool, error) {
+	target, err := o.GH.ReplyTarget(ctx, r.Repo, r.PR, r.InReplyTo)
+	if err != nil {
+		if errors.Is(err, ErrReplyNotFound) {
+			return true, o.refuse(ctx, r, "not posted: the discussion thread was deleted")
+		}
+		return false, fmt.Errorf("read thread for --in-reply-to %s on %s: %w", r.InReplyTo, r.Target(), err)
+	}
+	if target.Resolved && !r.AllowResolved {
+		return true, o.refuse(ctx, r, "not posted: the discussion thread was resolved")
+	}
+	return false, nil
 }
 
 func (o *Outbox) refuse(ctx context.Context, r *Record, reason string) error {
@@ -414,12 +445,6 @@ func (o *Outbox) refuse(ctx context.Context, r *Record, reason string) error {
 	return o.finish(ctx, r)
 }
 
-// part is one GitHub write.
-type part struct {
-	where string
-	send  func(context.Context) (string, error)
-}
-
 func replyWhere(r Record) string {
 	if r.Reply != nil && r.Reply.Path != "" {
 		if r.Reply.Line > 0 {
@@ -430,23 +455,23 @@ func replyWhere(r Record) string {
 	return "reply"
 }
 
-func (o *Outbox) parts(r Record) []part {
+func (o *Outbox) steps(r Record) []outbox.Step {
 	switch {
 	case r.Kind == KindThread && r.Edit != "":
 		c := r.Lines[0]
-		return []part{{c.Where(), func(ctx context.Context) (string, error) {
+		return []outbox.Step{{Where: c.Where(), Run: func(ctx context.Context) (string, error) {
 			return o.GH.EditComment(ctx, r.Repo, r.Edit, c.Text)
 		}}}
 	case r.Kind == KindThread:
-		out := make([]part, 0, len(r.Lines))
+		out := make([]outbox.Step, 0, len(r.Lines))
 		for _, c := range r.Lines {
-			out = append(out, part{c.Where(), func(ctx context.Context) (string, error) {
+			out = append(out, outbox.Step{Where: c.Where(), Run: func(ctx context.Context) (string, error) {
 				return o.GH.CreateThread(ctx, r.Repo, r.PR, r.HeadSHA, c)
 			}})
 		}
 		return out
 	case r.Kind == KindReply && r.Edit != "":
-		return []part{{"comment " + r.Edit, func(ctx context.Context) (string, error) {
+		return []outbox.Step{{Where: "comment " + r.Edit, Run: func(ctx context.Context) (string, error) {
 			return o.GH.EditComment(ctx, r.Repo, r.Edit, r.Body)
 		}}}
 	case r.Kind == KindReply:
@@ -454,15 +479,15 @@ func (o *Outbox) parts(r Record) []part {
 		if r.Reply != nil && r.Reply.RootID != "" {
 			commentID = r.Reply.RootID
 		}
-		return []part{{replyWhere(r), func(ctx context.Context) (string, error) {
+		return []outbox.Step{{Where: replyWhere(r), Run: func(ctx context.Context) (string, error) {
 			return o.GH.CreateReply(ctx, r.Repo, r.PR, commentID, r.Body)
 		}}}
 	case r.Edit != "":
-		return []part{{"review", func(ctx context.Context) (string, error) {
+		return []outbox.Step{{Where: "review", Run: func(ctx context.Context) (string, error) {
 			return o.GH.EditReview(ctx, r.Repo, r.PR, r.Edit, r.Body)
 		}}}
 	default:
-		return []part{{"review", func(ctx context.Context) (string, error) {
+		return []outbox.Step{{Where: "review", Run: func(ctx context.Context) (string, error) {
 			return o.GH.CreateReview(ctx, r.Repo, r.PR, r.HeadSHA, reviewEvents[r.Kind], r.Body, r.Lines)
 		}}}
 	}
@@ -473,36 +498,28 @@ func (o *Outbox) parts(r Record) []part {
 // draft becomes uncertain. A GitHub error leaves the draft posting for
 // the next poll.
 func (o *Outbox) post(ctx context.Context, r *Record) error {
-	parts := o.parts(*r)
-	if r.InFlight != nil {
-		where := "?"
-		if *r.InFlight < len(parts) {
-			where = parts[*r.InFlight].where
-		}
-		r.State, r.InFlight = StateUncertain, nil
-		r.Outcome = "the poller stopped while posting " + where + "; it may or may not be on GitHub and is not retried"
+	steps := o.steps(*r)
+	state := outbox.ExecutionState{InFlight: r.InFlight, Receipts: r.Posted}
+	err := outbox.ExecuteSteps(ctx, &state, steps, func() error {
+		r.InFlight = state.InFlight
+		r.Posted = state.Receipts
+		return o.save(r)
+	})
+	r.InFlight = state.InFlight
+	r.Posted = state.Receipts
+	var uerr *outbox.UncertainError
+	if errors.As(err, &uerr) {
+		r.State = StateUncertain
+		r.Outcome = "the poller stopped while posting " + uerr.Where + "; it may or may not be on GitHub and is not retried"
 		return o.save(r)
 	}
-	for i := len(r.Posted); i < len(parts); i++ {
-		idx := i
-		r.InFlight = &idx
-		if err := o.save(r); err != nil {
-			return err
+	if err != nil {
+		if r.Kind == KindReply && errors.Is(err, ErrReplyNotFound) {
+			r.State = StateCancelled
+			r.Outcome = "not posted: the discussion thread was deleted"
+			return o.save(r)
 		}
-		url, err := parts[i].send(ctx)
-		r.InFlight = nil
-		if err != nil {
-			if r.Kind == KindReply && errors.Is(err, ErrReplyNotFound) {
-				r.State = StateCancelled
-				r.Outcome = "not posted: the discussion thread was deleted"
-				return o.save(r)
-			}
-			return errors.Join(fmt.Errorf("post %s: %w", parts[i].where, err), o.save(r))
-		}
-		r.Posted = append(r.Posted, Link{Where: parts[i].where, URL: url})
-		if err := o.save(r); err != nil {
-			return err
-		}
+		return fmt.Errorf("post draft %d: %w", r.ID, err)
 	}
 	r.State, r.Outcome = StatePosted, "posted"
 	return o.save(r)
@@ -515,7 +532,19 @@ func (o *Outbox) finish(ctx context.Context, r *Record) error {
 		return nil
 	}
 	if !r.Notified {
-		if err := o.Bus.Send(ctx, r.Owner, notice(*r)); err != nil {
+		n := outbox.Notice{
+			RecordID: r.ID,
+			State:    r.State,
+			Kind:     r.Kind,
+			Target:   r.Target(),
+			Owner:    r.Owner,
+			Ref:      r.Ref,
+			Outcome:  r.Outcome,
+			Notes:    r.Notes,
+			Receipts: r.Posted,
+			Message:  notice(*r),
+		}
+		if err := o.transport().Notify(ctx, n); err != nil {
 			return fmt.Errorf("notify %s: %w", r.Owner, err)
 		}
 		r.Notified = true
@@ -553,7 +582,7 @@ func outcome(r Record) string {
 	return r.Outcome + linkLines(r.Posted)
 }
 
-// notice is the agentbus message to the owner.
+// notice is the owner notification message.
 func notice(r Record) string {
 	head := "gh-outbox draft " + strconv.FormatInt(r.ID, 10) + " for " + r.Target()
 	if r.Ref != "" {

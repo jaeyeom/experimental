@@ -63,13 +63,7 @@ func main() {
 }
 
 func realOutbox(cfg ghoutbox.Config) *ghoutbox.Outbox {
-	return &ghoutbox.Outbox{
-		Store:  ghoutbox.NewStore(cfg.DataDir),
-		Decide: ghoutbox.DecideCLI{Run: ghoutbox.Exec(cfg.DecideCommand)},
-		GH:     ghoutbox.GHCLI{Run: ghoutbox.Exec(cfg.GHCommand)},
-		Bus:    ghoutbox.AgentbusCLI{Run: ghoutbox.Exec(cfg.AgentbusCommand)},
-		Config: cfg,
-	}
+	return ghoutbox.NewOutbox(cfg)
 }
 
 func (a app) run(ctx context.Context, args []string) int {

@@ -3,9 +3,15 @@ Everyday posting is in [[file:../README.org::*Posting through decide][Posting th
 
 * Posting
 
-~slackwatch post~ takes a draft from any agent and posts it only after
-the user approves the exact text and destination in [[file:../../decide/README.org][decide]]. Posting is
-off until ~post.mode~ is set; without it, ~post~ refuses.
+~slackwatch post~ routes outbound Slack drafts through the shared
+[[file:../../pkg/outbox/README.md][devtools/pkg/outbox]] confirmation
+boundary before posting: drafts are hashed (~outbox.Digest~), shown to the
+user in [[file:../../decide/README.org][decide]], verified for human UI
+provenance (~outbox.EvaluateApproval~), executed via ~outbox.ExecuteSteps~
+(direct mode) or ~awaiting-handoff~ (handoff mode, with self-post matching
+isolated behind ~slackwatch.OwnPostLinker~ so the inbound thread watcher
+stays decoupled), and notified via ~outbox.Transport~ / ~slackwatch.Notifier~.
+Posting is off until ~post.mode~ is set; without it, ~post~ refuses.
 
 | Command | Does |
 |---------+------|

@@ -580,7 +580,7 @@ func handleSubmit(args []string) {
 		fmt.Fprintf(os.Stderr, "Error initializing handler: %v\n", err)
 		os.Exit(1)
 	}
-	handler.SetOutboxClient(prreview.NewCLIOutboxClient(outboxCmd))
+	handler.SetOutboxClient(prreview.NewConfiguredOutboxClient(outboxCmd))
 
 	if err := handler.SubmitCommandWithOptions(repository, prNumber, body, event, file, formatter, postSubmitAction, submitOptions); err != nil {
 		printSubmitError(err)
@@ -734,7 +734,7 @@ func handleList(args []string) {
 		os.Exit(1)
 	}
 	if cfg, err := config.LoadOptionalConfig(""); err == nil {
-		handler.SetOutboxClient(prreview.NewCLIOutboxClient(cfg.ReviewPost.EffectiveOutboxCommand()))
+		handler.SetOutboxClient(prreview.NewConfiguredOutboxClient(cfg.ReviewPost.EffectiveOutboxCommand()))
 	}
 
 	if err := handler.ListCommand(repository, identifier, formatter, file, line, side, showContext, showArchived, contextLines); err != nil {

@@ -432,13 +432,18 @@ func toOutboxLineComments(comments []models.Comment) []OutboxLineComment {
 	lines := make([]OutboxLineComment, 0, len(comments))
 	for _, c := range comments {
 		lineNum := c.Line.EndLine
+		startLine := 0
 		if lineNum <= 0 {
 			lineNum = c.Line.StartLine
+		} else if c.Line.StartLine > 0 && c.Line.StartLine != lineNum {
+			startLine = c.Line.StartLine
 		}
 		lines = append(lines, OutboxLineComment{
-			Path: c.Path,
-			Line: lineNum,
-			Text: c.Body,
+			Path:      c.Path,
+			Line:      lineNum,
+			StartLine: startLine,
+			Side:      string(c.Side),
+			Text:      c.Body,
 		})
 	}
 	return lines

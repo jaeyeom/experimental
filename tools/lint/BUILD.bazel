@@ -405,6 +405,7 @@ filegroup(
         "//devtools/pkg/hubcall:go_srcs",
         "//devtools/pkg/hubcall/sshtest:go_srcs",
         "//devtools/pkg/notify:go_srcs",
+        "//devtools/pkg/outbox:go_srcs",
         "//devtools/pkg/procinfo:go_srcs",
         "//devtools/pkg/remotecall:go_srcs",
         "//devtools/pkg/sqlitedb:go_srcs",

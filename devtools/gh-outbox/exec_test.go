@@ -63,6 +63,20 @@ func TestGHCLICreateReview(t *testing.T) {
 	}
 }
 
+func TestGHCLICreateReviewWithMultiLineAndLeftSide(t *testing.T) {
+	f := &fakeRunner{out: `{"html_url":"u"}`}
+	_, err := GHCLI{Run: f.run}.CreateReview(context.Background(), "o/r", 7, "sha1", "COMMENT", "", []LineComment{
+		{Path: "old.go", StartLine: 4, Line: 9, Side: "LEFT", Text: "range note"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"commit_id":"sha1","event":"COMMENT","comments":[{"body":"range note","path":"old.go","line":9,"start_line":4,"side":"LEFT"}]}`
+	if got := f.calls[0].stdin; got != want {
+		t.Errorf("payload = %s\nwant      %s", got, want)
+	}
+}
+
 func TestGHCLIEditsAndReads(t *testing.T) {
 	f := &fakeRunner{out: `{"html_url":"u","body":"old","head":{"sha":"abc"}}`}
 	g := GHCLI{Run: f.run}

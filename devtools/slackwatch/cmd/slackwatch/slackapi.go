@@ -318,9 +318,14 @@ func newProcessor(ctx context.Context, api *slack.Client, cfg slackwatch.Config,
 		}
 	}
 	names := slackwatch.NewNames(cfg.Names, store, slackReader{api: api}, logger)
+	var ownPosts slackwatch.OwnPostLinker
+	if cfg.Post.Mode == slackwatch.PostModeHandoff {
+		ownPosts = &slackwatch.Outbox{Store: store, Config: cfg}
+	}
 	return &slackwatch.Processor{
 		Store:    store,
 		Notifier: &slackwatch.Notifier{Store: store, Config: cfg, Logger: logger, Names: names},
+		OwnPosts: ownPosts,
 		Config:   cfg,
 		Self:     auth.UserID,
 		TeamURL:  auth.URL,

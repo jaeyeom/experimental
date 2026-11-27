@@ -41,14 +41,22 @@ type notifier interface {
 	Notify(ctx context.Context, note Notification) error
 }
 
+// OwnPostLinker claims an un-watched self-authored Slack message when it
+// matches an approved outbound action (such as an awaiting-handoff draft).
+type OwnPostLinker interface {
+	LinkOwnPost(m Message, now time.Time) (matched bool, err error)
+}
+
 // Processor stores and notifies Slack messages. Self is the token owner's
 // user id from auth.test, and TeamURL its workspace URL for permalinks.
 // AfterFunc schedules delayed work such as the unowned grace check; nil
 // means time.AfterFunc. Logger reports errors from that work; nil means
-// slog.Default.
+// slog.Default. OwnPosts, when set, links self-authored posts to pending
+// outbound handoff records without coupling Processor to outbox storage.
 type Processor struct {
 	Store     *Store
 	Notifier  notifier
+	OwnPosts  OwnPostLinker
 	Config    Config
 	Self      string
 	TeamURL   string
@@ -59,12 +67,11 @@ type Processor struct {
 
 // msgState is what the store knows about a message before it is handled.
 type msgState struct {
-	seen    bool           // stored already as a reply or inbound
-	watched bool           // the message or its thread has a watch
-	thread  *Watch         // the watch on the message's thread, if threaded
-	dm      *Watch         // the latest active dm watch before a top-level DM
-	subs    []Sub          // the subscriptions to the message's channel
-	outbox  []OutboxRecord // awaiting-handoff records for the message's destination
+	seen    bool   // stored already as a reply or inbound
+	watched bool   // the message or its thread has a watch
+	thread  *Watch // the watch on the message's thread, if threaded
+	dm      *Watch // the latest active dm watch before a top-level DM
+	subs    []Sub  // the subscriptions to the message's channel
 }
 
 // Inbound kinds as stored in the inbound table.
@@ -81,16 +88,14 @@ const (
 	actReopen
 	actFooter
 	actInbound
-	actOutboxLink
 )
 
 type decision struct {
 	act    action
 	watch  Watch
 	notify bool
-	kind   string       // inbound kind
-	subs   []Sub        // subscriptions to notify, besides act
-	outbox OutboxRecord // the record an own post is linked to
+	kind   string // inbound kind
+	subs   []Sub  // subscriptions to notify, besides act
 }
 
 // classify decides what to do with m. It does not touch the store.
@@ -114,11 +119,6 @@ func classifyAct(m Message, st msgState, self string, cfg Config, now time.Time)
 		return d
 	}
 	if isSelf {
-		// An own post matching an approved handoff post is linked to it
-		// rather than becoming an unowned footer watch.
-		if r, ok := matchOutbox(m, st.outbox, cfg.FooterPattern.Regexp); ok && !st.watched {
-			return decision{act: actOutboxLink, outbox: r}
-		}
 		if !st.watched && cfg.FooterPattern.Regexp != nil && cfg.FooterPattern.MatchString(m.Text) {
 			return decision{act: actFooter}
 		}
@@ -206,6 +206,15 @@ func (p *Processor) HandleMessage(ctx context.Context, m Message) error {
 		}
 		return nil
 	}
+	if m.User == p.Self && !st.watched && d.act != actReply && d.act != actReopen && p.OwnPosts != nil {
+		matched, err := p.OwnPosts.LinkOwnPost(m, now)
+		if err != nil {
+			return fmt.Errorf("link own post %s/%s: %w", m.Channel, m.TS, err)
+		}
+		if matched {
+			return p.notifySubs(ctx, m, d.subs, "")
+		}
+	}
 	notified, err := p.apply(ctx, m, d, now)
 	if err != nil {
 		return err
@@ -230,8 +239,6 @@ func (p *Processor) apply(ctx context.Context, m Message, d decision, now time.T
 		return "", p.notifyUnownedAfterGrace(ctx, w.ID, m)
 	case actInbound:
 		return p.storeInbound(ctx, m, d)
-	case actOutboxLink:
-		return "", p.linkOutbox(m, d.outbox, now)
 	}
 	return "", nil
 }
@@ -487,13 +494,6 @@ func (s *Store) messageState(m Message) (msgState, error) {
 	case err == nil:
 		st.watched = true
 	case !errors.Is(err, ErrNoWatch):
-		return msgState{}, err
-	}
-	dest := ""
-	if m.threaded() {
-		dest = m.ThreadTS
-	}
-	if st.outbox, err = s.awaitingHandoff(m.Channel, dest); err != nil {
 		return msgState{}, err
 	}
 	if m.threaded() {

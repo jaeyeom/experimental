@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/decide"
+	outboxpkg "github.com/jaeyeom/experimental/devtools/pkg/outbox"
 )
 
 // fakeDecider is an in-memory decide ledger.
@@ -1737,7 +1738,7 @@ func TestFooterRuleLinksAwaitingHandoff(t *testing.T) {
 	r := approveHandoff(t, f)
 	f.rec.notes = nil
 	proc := &Processor{
-		Store: f.store, Notifier: f.rec, Config: f.ob.Config, Self: expectUser,
+		Store: f.store, Notifier: f.rec, OwnPosts: f.ob, Config: f.ob.Config, Self: expectUser,
 		Now: testNow, AfterFunc: func(time.Duration, func()) {},
 	}
 	m := Message{
@@ -1776,7 +1777,7 @@ func TestFooterRuleLinksAwaitingHandoff(t *testing.T) {
 func TestFooterRuleLinkedThenDifferentMessageMismatch(t *testing.T) {
 	f := newOutboxFixture(t, PostModeHandoff)
 	r := approveHandoff(t, f)
-	proc := &Processor{Store: f.store, Notifier: f.rec, Config: f.ob.Config, Self: expectUser, Now: testNow, AfterFunc: func(time.Duration, func()) {}}
+	proc := &Processor{Store: f.store, Notifier: f.rec, OwnPosts: f.ob, Config: f.ob.Config, Self: expectUser, Now: testNow, AfterFunc: func(time.Duration, func()) {}}
 	if err := proc.HandleMessage(context.Background(), Message{Channel: "C1", TS: "1700000100.000001", User: expectUser, Text: approvedText}); err != nil {
 		t.Fatal(err)
 	}
@@ -1793,7 +1794,7 @@ func TestFooterRuleLinkedThenDifferentMessageMismatch(t *testing.T) {
 func TestFooterRuleNonMatchingOwnPostStaysFooterWatch(t *testing.T) {
 	f := newOutboxFixture(t, PostModeHandoff)
 	r := approveHandoff(t, f)
-	proc := &Processor{Store: f.store, Notifier: f.rec, Config: f.ob.Config, Self: expectUser, Now: testNow, AfterFunc: func(time.Duration, func()) {}}
+	proc := &Processor{Store: f.store, Notifier: f.rec, OwnPosts: f.ob, Config: f.ob.Config, Self: expectUser, Now: testNow, AfterFunc: func(time.Duration, func()) {}}
 	if err := proc.HandleMessage(context.Background(), Message{Channel: "C1", TS: "1700000100.000001", User: expectUser, Text: "other\n" + footerText}); err != nil {
 		t.Fatal(err)
 	}
@@ -3507,5 +3508,70 @@ func TestStuckHandoffPostRepliesOnceAndClosesQuietlyLater(t *testing.T) {
 	want := []string{"done-quiet: " + wantMsg}
 	if fmt.Sprint(f.outcomeLog()) != fmt.Sprint(want) {
 		t.Fatalf("decide calls = %q, want %q", f.outcomeLog(), want)
+	}
+}
+
+func TestOutboxUsesSharedPkgOutboxFakeExecutorAndTransport(t *testing.T) {
+	f := newOutboxFixture(t, PostModeDirect)
+	var executed []outboxpkg.Record
+	f.ob.PostExecutor = outboxpkg.ExecutorFunc(func(_ context.Context, r outboxpkg.Record) (string, string, error) {
+		executed = append(executed, r)
+		return r.Target, "1700000100.000099", nil
+	})
+	var notices []outboxpkg.Notice
+	f.ob.Notifier = nil
+	f.ob.Transport = outboxpkg.TransportFunc(func(_ context.Context, n outboxpkg.Notice) error {
+		notices = append(notices, n)
+		return nil
+	})
+
+	// 1. Approved direct post executes through shared Executor boundary and creates watch.
+	r := f.submit(t)
+	f.dec.answer(r.DecideID, uiPost)
+	f.poll(t)
+	if len(executed) != 1 || executed[0].Target != "C1" || executed[0].Verbatim != approvedText {
+		t.Fatalf("executed = %+v, want 1 post for C1", executed)
+	}
+	got := f.get(t, r.ID)
+	if got.State != OutboxPosted || got.PostTS != "1700000100.000099" || got.WatchID == 0 {
+		t.Fatalf("record = %+v, want posted with watch", got)
+	}
+
+	// 2. Redraft notice flows through shared Transport boundary.
+	r2 := f.submit(t)
+	f.dec.answer(r2.DecideID, DecideAnswer{Value: "make it shorter", AnsweredBy: "human", Via: "ui"})
+	f.poll(t)
+	if len(notices) != 1 || notices[0].State != EventOutboxRedraft || notices[0].Owner != "agent-1" {
+		t.Fatalf("notices = %+v, want 1 redraft notice", notices)
+	}
+}
+
+func TestInboundWatcherDecoupledFromAwaitingOutboxWhenOwnPostsNil(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	r := approveHandoff(t, f)
+	f.rec.notes = nil
+
+	// Processor with OwnPosts left nil stays purely focused on inbound watching & footer rules.
+	proc := &Processor{
+		Store: f.store, Notifier: f.rec, Config: f.ob.Config, Self: expectUser,
+		Now: testNow, AfterFunc: func(time.Duration, func()) {},
+	}
+	m := Message{
+		Channel: "C1", ChannelType: "channel", TS: "1700000100.000001", User: expectUser,
+		Text: approvedText + "\n" + footerText,
+	}
+	if err := proc.HandleMessage(context.Background(), m); err != nil {
+		t.Fatal(err)
+	}
+	got := f.get(t, r.ID)
+	if got.PostTS != "" || got.WatchID != 0 {
+		t.Fatalf("decoupled processor touched awaiting-handoff outbox: %+v", got)
+	}
+	w, err := f.store.FindWatch(PostRef{Channel: "C1", TS: m.TS})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Source != SourceFooter || w.State != StateUnowned {
+		t.Fatalf("watch = %+v, want unowned footer watch", w)
 	}
 }

@@ -1,110 +1,69 @@
 package ghoutbox
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os/exec"
-	"slices"
 	"strconv"
 	"strings"
-	"time"
+
+	"github.com/jaeyeom/experimental/devtools/decide"
+	"github.com/jaeyeom/experimental/devtools/pkg/outbox"
 )
 
 // Runner runs a command with stdin and returns its stdout.
-type Runner func(ctx context.Context, stdin []byte, args ...string) ([]byte, error)
-
-// commandTimeout bounds one external command.
-const commandTimeout = 2 * time.Minute
+type Runner = outbox.Runner
 
 // Exec returns a Runner for argv, such as Config.GHCommand, followed by
 // the call's args. stderr is part of the error.
 func Exec(argv []string) Runner {
-	return func(ctx context.Context, stdin []byte, args ...string) ([]byte, error) {
-		ctx, cancel := context.WithTimeout(ctx, commandTimeout)
-		defer cancel()
-		// argv comes from the user's own config.
-		// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
-		cmd := exec.CommandContext(ctx, argv[0], append(slices.Clip(argv[1:]), args...)...) //nolint:gosec // G204: user config.
-		if stdin != nil {
-			cmd.Stdin = bytes.NewReader(stdin)
-		}
-		var stdout, stderr bytes.Buffer
-		cmd.Stdout, cmd.Stderr = &stdout, &stderr
-		cmd.WaitDelay = time.Second
-		if err := cmd.Run(); err != nil {
-			return nil, fmt.Errorf("%s %s: %w: %s", argv[0], firstArg(args), err, strings.TrimSpace(stderr.String()))
-		}
-		return stdout.Bytes(), nil
-	}
+	return outbox.Exec(argv)
 }
-
-func firstArg(args []string) string {
-	if len(args) == 0 {
-		return ""
-	}
-	return args[0]
-}
-
-func runJSON(ctx context.Context, run Runner, stdin []byte, v any, args ...string) error {
-	out, err := run(ctx, stdin, args...)
-	if err != nil {
-		return err
-	}
-	if err := json.Unmarshal(out, v); err != nil {
-		return fmt.Errorf("%s: parse output: %w", firstArg(args), err)
-	}
-	return nil
-}
-
-// longLinesFlag lets decide ask take the question gh-outbox builds,
-// with its quoted draft, past decide's line limit for agents. An older
-// decide without the flag gets the same ask again without it.
-const longLinesFlag = "--long-lines"
 
 // DecideCLI is the Decider that runs the decide command.
 type DecideCLI struct{ Run Runner }
 
+func (d DecideCLI) client() outbox.DecideCLI {
+	return outbox.DecideCLI{Run: d.Run}
+}
+
 // Ask files a relay item with the post, edit and cancel options and free
 // text for edit notes.
 func (d DecideCLI) Ask(ctx context.Context, owner, notifyPane, question string) (string, error) {
-	args := []string{"ask", longLinesFlag, "--owner", owner}
-	if notifyPane != "" {
-		args = append(args, "--notify-pane", notifyPane)
-	}
-	args = append(args, "--kind", "relay",
-		"--option", OptionPost+":Post exactly this",
-		"--option", OptionEdit+":Edit (write notes for a redraft)",
-		"--option", OptionCancel+":Cancel",
-		"--free-text", "--json", question)
-	var it DecideItem
-	err := runJSON(ctx, d.Run, nil, &it, args...)
-	if err != nil && strings.Contains(err.Error(), "flag provided but not defined: -long-lines") {
-		args = slices.DeleteFunc(args, func(a string) bool { return a == longLinesFlag })
-		err = runJSON(ctx, d.Run, nil, &it, args...)
-	}
+	id, err := d.client().Ask(ctx, outbox.AskRequest{
+		Owner:        owner,
+		NotifyTarget: notifyPane,
+		Kind:         decide.KindRelay,
+		LongLines:    true,
+		Options: []decide.Option{
+			{Key: OptionPost, Label: "Post exactly this"},
+			{Key: OptionEdit, Label: "Edit (write notes for a redraft)"},
+			{Key: OptionCancel, Label: "Cancel"},
+		},
+		FreeText: true,
+		Question: question,
+	})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("gh-outbox ask: %w", err)
 	}
-	if it.ID == "" {
-		return "", errors.New("decide ask printed no id")
-	}
-	return it.ID, nil
+	return id, nil
 }
 
 // Show reads an item.
 func (d DecideCLI) Show(ctx context.Context, id string) (DecideItem, error) {
-	var it DecideItem
-	err := runJSON(ctx, d.Run, nil, &it, "show", "--json", id)
-	return it, err
+	it, err := d.client().Show(ctx, id)
+	if err != nil {
+		return DecideItem{}, fmt.Errorf("gh-outbox show: %w", err)
+	}
+	return it, nil
 }
 
 // Done closes an item with outcome.
 func (d DecideCLI) Done(ctx context.Context, id, outcome string) error {
-	var it DecideItem
-	return runJSON(ctx, d.Run, nil, &it, "done", "--json", id, outcome)
+	if err := d.client().Done(ctx, id, outcome); err != nil {
+		return fmt.Errorf("gh-outbox done: %w", err)
+	}
+	return nil
 }
 
 // AgentbusCLI is the Bus that runs the agentbus command.
@@ -121,8 +80,8 @@ func (a AgentbusCLI) Names(ctx context.Context) ([]string, error) {
 	var entries []struct {
 		Name string `json:"name"`
 	}
-	if err := runJSON(ctx, a.Run, nil, &entries, "list", "--json"); err != nil {
-		return nil, err
+	if err := outbox.RunJSON(ctx, a.Run, nil, &entries, "list", "--json"); err != nil {
+		return nil, fmt.Errorf("agentbus list: %w", err)
 	}
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
@@ -169,12 +128,13 @@ type graphqlThread struct {
 }
 
 type ghComment struct {
-	Body     string `json:"body,omitempty"`
-	CommitID string `json:"commit_id,omitempty"` //nolint:tagliatelle // GitHub API field
-	Path     string `json:"path,omitempty"`
-	Line     int    `json:"line,omitempty"`
-	Side     string `json:"side,omitempty"`
-	Event    string `json:"event,omitempty"`
+	Body      string `json:"body,omitempty"`
+	CommitID  string `json:"commit_id,omitempty"` //nolint:tagliatelle // GitHub API field.
+	Path      string `json:"path,omitempty"`
+	Line      int    `json:"line,omitempty"`
+	StartLine int    `json:"start_line,omitempty"` //nolint:tagliatelle // GitHub API field.
+	Side      string `json:"side,omitempty"`
+	Event     string `json:"event,omitempty"`
 	// Comments is the line comments of a review.
 	Comments []ghComment `json:"comments,omitempty"`
 }
@@ -184,20 +144,23 @@ func pullPath(repo string, pr int) string {
 }
 
 func (g GHCLI) get(ctx context.Context, v any, path string) error {
-	return runJSON(ctx, g.Run, nil, v, "api", path)
+	if err := outbox.RunJSON(ctx, g.Run, nil, v, "api", path); err != nil {
+		return fmt.Errorf("gh api %s: %w", path, err)
+	}
+	return nil
 }
 
 // write sends payload as JSON with method to path and returns html_url.
 func (g GHCLI) write(ctx context.Context, method, path string, payload ghComment) (string, error) {
-	in, err := json.Marshal(payload)
-	if err != nil {
-		return "", fmt.Errorf("encode %s: %w", path, err)
-	}
 	var out struct {
-		HTMLURL string `json:"html_url"` //nolint:tagliatelle // GitHub API field
+		HTMLURL string `json:"html_url"` //nolint:tagliatelle // GitHub API field.
 	}
-	if err := runJSON(ctx, g.Run, in, &out, "api", "--method", method, path, "--input", "-"); err != nil {
+	in, err := marshalJSON(payload, path)
+	if err != nil {
 		return "", err
+	}
+	if err := outbox.RunJSON(ctx, g.Run, in, &out, "api", "--method", method, path, "--input", "-"); err != nil {
+		return "", fmt.Errorf("gh api %s %s: %w", method, path, err)
 	}
 	return out.HTMLURL, nil
 }
@@ -232,18 +195,34 @@ func (g GHCLI) ReviewBody(ctx context.Context, repo string, pr int, id string) (
 	return out.Body, err
 }
 
+func toGHLineComment(c LineComment, sha string) ghComment {
+	side := c.Side
+	if side == "" {
+		side = "RIGHT"
+	}
+	out := ghComment{
+		Body:     c.Text,
+		CommitID: sha,
+		Path:     c.Path,
+		Line:     c.Line,
+		Side:     side,
+	}
+	if c.StartLine > 0 && c.StartLine != c.Line {
+		out.StartLine = c.StartLine
+	}
+	return out
+}
+
 // CreateThread starts a discussion thread on c's line of the head diff.
 func (g GHCLI) CreateThread(ctx context.Context, repo string, pr int, sha string, c LineComment) (string, error) {
-	return g.write(ctx, "POST", pullPath(repo, pr)+"/comments", ghComment{
-		Body: c.Text, CommitID: sha, Path: c.Path, Line: c.Line, Side: "RIGHT",
-	})
+	return g.write(ctx, "POST", pullPath(repo, pr)+"/comments", toGHLineComment(c, sha))
 }
 
 // CreateReview submits a review with event and its line comments.
 func (g GHCLI) CreateReview(ctx context.Context, repo string, pr int, sha, event, body string, cs []LineComment) (string, error) {
 	payload := ghComment{Body: body, CommitID: sha, Event: event}
 	for _, c := range cs {
-		payload.Comments = append(payload.Comments, ghComment{Body: c.Text, Path: c.Path, Line: c.Line, Side: "RIGHT"})
+		payload.Comments = append(payload.Comments, toGHLineComment(c, ""))
 	}
 	return g.write(ctx, "POST", pullPath(repo, pr)+"/reviews", payload)
 }
@@ -328,8 +307,8 @@ func (g GHCLI) replyThreadsPage(ctx context.Context, owner, name string, pr int,
 			Message string `json:"message"`
 		} `json:"errors"`
 	}
-	if err := runJSON(ctx, g.Run, nil, &resp, args...); err != nil {
-		return nil, false, "", err
+	if err := outbox.RunJSON(ctx, g.Run, nil, &resp, args...); err != nil {
+		return nil, false, "", fmt.Errorf("gh api graphql: %w", err)
 	}
 	if len(resp.Errors) > 0 {
 		return nil, false, "", fmt.Errorf("gh api graphql: %s", resp.Errors[0].Message)
@@ -376,8 +355,8 @@ func (g GHCLI) threadCommentsPage(ctx context.Context, threadID, cursor string) 
 			Message string `json:"message"`
 		} `json:"errors"`
 	}
-	if err := runJSON(ctx, g.Run, nil, &resp, "api", "graphql", "-f", "query="+threadMoreQuery, "-F", "id="+threadID, "-F", "cursor="+cursor); err != nil {
-		return graphqlCommentConn{}, err
+	if err := outbox.RunJSON(ctx, g.Run, nil, &resp, "api", "graphql", "-f", "query="+threadMoreQuery, "-F", "id="+threadID, "-F", "cursor="+cursor); err != nil {
+		return graphqlCommentConn{}, fmt.Errorf("gh api graphql: %w", err)
 	}
 	if len(resp.Errors) > 0 {
 		return graphqlCommentConn{}, fmt.Errorf("gh api graphql: %s", resp.Errors[0].Message)

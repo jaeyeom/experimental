@@ -189,17 +189,35 @@ gh-pr-review comment octocat/Hello-World my-branch src/config.js 10-15 "Extract 
 **** Submit Review
 
 #+BEGIN_SRC bash
-gh-pr-review submit <owner>/<repo> <pr_number>
+gh-pr-review submit [<owner>/<repo>] [<pr_number>] [options]
 #+END_SRC
 
 ***** Options:
 - `--body`: Review body text
-- `--event`: Review event (COMMENT, APPROVE, REQUEST_CHANGES) [default: event
-  field won't be provided and the review will be pending]
+- `--event`: Review event (COMMENT, APPROVE, REQUEST_CHANGES) [default: standalone
+  line threads with `--via-outbox`, or pending review in direct mode]
+- `--file`: Submit stored comments for a specific file only
+- `--after`: What to do with local comments after submission (`clear`, `keep`, `archive`) [default: `clear`]
+- `--auto-adjust`: Auto-adjust comment line numbers before submission
+- `--validate-adjustments`: Validate adjusted comments against captured diff hunks
+- `--via-outbox`: Route the draft into [[file:../gh-outbox/README.org][gh-outbox]] (backed by [[file:../pkg/outbox/README.md][devtools/pkg/outbox]]) for human `decide` UI approval instead of posting to GitHub directly
+- `--owner AGENT`: Owner name echoed in approval items and completion notices when using `--via-outbox`
+- `--ref REF`: Optional caller reference echoed in outbox notices
+- `--config PATH`: Path to `gh-nudge` Pkl config (`~/.config/gh-nudge/config.pkl`)
+
+***** Architecture & Migration to Approval-Gated Posting:
+- Without `--via-outbox`, `submit` remains the direct human CLI posting path.
+- With `--via-outbox` (or `review_post { via_outbox = true }` in Pkl config), `gh-pr-review` acts as the local diff-workbench composer and delegates all PR comment/review approval and posting to `gh-outbox` / `devtools/pkg/outbox`.
+- When `review_post.outbox_command` is unset or `["gh-outbox"]`, `gh-pr-review` calls `gh-outbox` in-process—sharing the same `~/.config/gh-outbox/config.pkl`/TOML and `~/.local/state/gh-outbox` store without temp files while preserving multi-line `start_line` ranges and `LEFT`/`RIGHT` diff sides. Setting a custom `review_post.outbox_command` shells out to that command instead.
+- Local comments stay marked with `OutboxDraftID` and `OutboxAfter` until `gh-outbox` transitions the draft to `posted` (when `--after` is reconciled) or `cancelled`/`needs-redraft`.
 
 ***** Example:
 #+BEGIN_SRC bash
+# Direct human-driven submit
 gh-pr-review submit octocat/Hello-World 42 --body "Code review completed" --event APPROVE
+
+# Agent/approval-gated submit via shared gh-outbox / pkg/outbox gate
+gh-pr-review submit octocat/Hello-World 42 --via-outbox --owner my-agent --event COMMENT --body "First pass"
 #+END_SRC
 
 ***** Note:

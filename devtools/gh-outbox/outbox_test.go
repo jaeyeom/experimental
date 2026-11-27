@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jaeyeom/experimental/devtools/pkg/outbox"
 )
 
 type askCall struct{ owner, pane, question string }
@@ -717,5 +719,48 @@ func TestMovedHeadRefusePolicy(t *testing.T) {
 	}
 	if got := h.state(t, rec.ID); got.State != StateNeedsRedraft {
 		t.Errorf("state = %q, want %q", got.State, StateNeedsRedraft)
+	}
+}
+
+func TestOutboxCustomTransportAndNilBusDegradesCleanly(t *testing.T) {
+	h := newHarness(t)
+	h.ob.Bus = nil
+	var gotNotices []outbox.Notice
+	h.ob.Transport = outbox.TransportFunc(func(_ context.Context, n outbox.Notice) error {
+		gotNotices = append(gotNotices, n)
+		return nil
+	})
+	rec := h.submit(t, threadDraft())
+	h.dec.pick(rec.DecideID, "human", "post", "", "ui", "")
+	h.poll(t)
+	if len(gotNotices) != 1 || gotNotices[0].State != StatePosted || gotNotices[0].Owner != "pm/x" {
+		t.Fatalf("notices = %+v, want 1 posted notice", gotNotices)
+	}
+
+	// Nil Transport and nil Bus degrades to PullTransport without panic.
+	h.ob.Transport = nil
+	rec2 := h.submit(t, threadDraft())
+	h.dec.pick(rec2.DecideID, "human", "cancel", "", "ui", "")
+	h.poll(t)
+	if got := h.state(t, rec2.ID); got.State != StateCancelled || !got.Notified {
+		t.Fatalf("record = %+v", got)
+	}
+}
+
+func TestDigestMismatchPreventsPosting(t *testing.T) {
+	h := newHarness(t)
+	rec := h.submit(t, threadDraft())
+	rec.Lines[0].Text = "mutated after approval"
+	if err := h.ob.Store.Save(rec); err != nil {
+		t.Fatal(err)
+	}
+	h.dec.pick(rec.DecideID, "human", "post", "", "ui", "")
+	h.poll(t)
+	if h.gh.calls != 0 {
+		t.Fatalf("tampered draft posted %d times", h.gh.calls)
+	}
+	got := h.state(t, rec.ID)
+	if got.State != StateCancelled || !strings.Contains(got.Outcome, "digest") {
+		t.Fatalf("record = %+v, want cancelled on digest mismatch", got)
 	}
 }

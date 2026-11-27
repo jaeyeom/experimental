@@ -15,33 +15,19 @@ import (
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
+	ghoutbox "github.com/jaeyeom/experimental/devtools/gh-outbox"
 )
 
 const outboxCommandTimeout = 2 * time.Minute
 
-// OutboxLineComment is a single line comment passed to gh-outbox submit.
-type OutboxLineComment struct {
-	Path string
-	Line int
-	Text string
-}
+// OutboxLineComment is a single line comment passed to gh-outbox.
+type OutboxLineComment = ghoutbox.LineComment
 
 // OutboxSubmitRequest describes a draft to submit to gh-outbox.
-type OutboxSubmitRequest struct {
-	Repo  string
-	PR    int
-	Owner string
-	Kind  string
-	Body  string
-	Lines []OutboxLineComment
-	Ref   string
-}
+type OutboxSubmitRequest = ghoutbox.Draft
 
-// OutboxDraftStatus describes the state of a draft returned by gh-outbox show --json.
-type OutboxDraftStatus struct {
-	ID    int64  `json:"id"`
-	State string `json:"state"`
-}
+// OutboxDraftStatus describes a draft record stored in gh-outbox.
+type OutboxDraftStatus = ghoutbox.Record
 
 // OutboxClient submits drafts to gh-outbox and queries draft status.
 type OutboxClient interface {
@@ -66,6 +52,78 @@ func (e *OutboxError) Error() string {
 
 // Unwrap returns the underlying execution error.
 func (e *OutboxError) Unwrap() error { return e.Err }
+
+// LocalOutboxClient submits and inspects drafts directly in-process via
+// devtools/gh-outbox using the shared XDG config and state directory.
+type LocalOutboxClient struct {
+	Open func() (*ghoutbox.Outbox, error)
+}
+
+// NewLocalOutboxClient returns a LocalOutboxClient using OpenDefault and os.Environ.
+func NewLocalOutboxClient() *LocalOutboxClient {
+	return &LocalOutboxClient{
+		Open: func() (*ghoutbox.Outbox, error) {
+			ob, err := ghoutbox.OpenDefault(os.Environ())
+			if err != nil {
+				return nil, fmt.Errorf("open gh-outbox: %w", err)
+			}
+			return ob, nil
+		},
+	}
+}
+
+func (c *LocalOutboxClient) open() (*ghoutbox.Outbox, error) {
+	if c.Open != nil {
+		return c.Open()
+	}
+	ob, err := ghoutbox.OpenDefault(os.Environ())
+	if err != nil {
+		return nil, fmt.Errorf("open gh-outbox: %w", err)
+	}
+	return ob, nil
+}
+
+// Submit validates and submits req in-process through gh-outbox and returns its draft ID.
+func (c *LocalOutboxClient) Submit(ctx context.Context, req OutboxSubmitRequest) (string, error) {
+	if err := req.Validate(); err != nil {
+		return "", &OutboxError{Stderr: "gh-outbox: " + err.Error() + "\n", Err: err}
+	}
+	ob, err := c.open()
+	if err != nil {
+		return "", err
+	}
+	rec, err := ob.Submit(ctx, req)
+	if err != nil {
+		return "", &OutboxError{Stderr: "gh-outbox: " + err.Error() + "\n", Err: err}
+	}
+	return strconv.FormatInt(rec.ID, 10), nil
+}
+
+// Show reads a draft status directly from the gh-outbox store.
+func (c *LocalOutboxClient) Show(_ context.Context, draftID string) (OutboxDraftStatus, error) {
+	id, err := strconv.ParseInt(draftID, 10, 64)
+	if err != nil {
+		return OutboxDraftStatus{}, fmt.Errorf("invalid outbox draft id %q: %w", draftID, err)
+	}
+	ob, err := c.open()
+	if err != nil {
+		return OutboxDraftStatus{}, err
+	}
+	rec, err := ob.Store.Get(id)
+	if err != nil {
+		return OutboxDraftStatus{}, fmt.Errorf("read gh-outbox draft %d: %w", id, err)
+	}
+	return rec, nil
+}
+
+// NewConfiguredOutboxClient returns an in-process LocalOutboxClient when command is
+// unset or the default ["gh-outbox"], and a CLIOutboxClient for custom wrappers.
+func NewConfiguredOutboxClient(command []string) OutboxClient {
+	if len(command) == 0 || (len(command) == 1 && command[0] == "gh-outbox") {
+		return NewLocalOutboxClient()
+	}
+	return NewCLIOutboxClient(command)
+}
 
 // CommandRunner executes argv and returns stdout, stderr, and any error.
 type CommandRunner func(ctx context.Context, argv []string) (stdout, stderr []byte, err error)
@@ -180,18 +238,11 @@ func (c *CLIOutboxClient) Show(ctx context.Context, draftID string) (OutboxDraft
 
 // OutboxKindForEvent maps a gh-pr-review --event value to a gh-outbox --kind value.
 func OutboxKindForEvent(event string) (string, error) {
-	switch event {
-	case "":
-		return "thread", nil
-	case "COMMENT":
-		return "comment", nil
-	case "REQUEST_CHANGES":
-		return "request-changes", nil
-	case "APPROVE":
-		return "approve", nil
-	default:
-		return "", fmt.Errorf("invalid event %q", event)
+	kind, err := ghoutbox.KindForPREvent(event)
+	if err != nil {
+		return "", fmt.Errorf("map review event: %w", err)
 	}
+	return kind, nil
 }
 
 // ReconcileOutbox checks any local comments marked with an outbox draft ID
@@ -262,7 +313,7 @@ func partitionReconciledComments(
 			continue
 		}
 		switch state {
-		case "posted":
+		case ghoutbox.StatePosted:
 			changed = true
 			switch strings.ToLower(c.OutboxAfter) {
 			case "keep":
@@ -274,7 +325,7 @@ func partitionReconciledComments(
 			default:
 				clearedCount++
 			}
-		case "cancelled", "needs-redraft":
+		case ghoutbox.StateCancelled, ghoutbox.StateNeedsRedraft:
 			changed = true
 			c.OutboxDraftID = ""
 			c.OutboxAfter = ""

@@ -73,18 +73,18 @@ Repo and pull request are detected from the current checkout when you omit them.
 
 ## Submitting via gh-outbox
 
-When posting needs human approval in `decide`, pass `--via-outbox --owner AGENT` to `submit` instead of posting directly to GitHub:
+`gh-pr-review` and `gh-outbox` share the [pkg/outbox](../../../pkg/outbox/README.md) confirmation boundary: use `gh-pr-review` for local diff capture, hunk-aware line comments, auto-adjustment, and reconciliation, and pass `--via-outbox --owner AGENT` on `submit` whenever posting requires human approval in `decide`:
 
 ```bash
 gh-pr-review submit [<owner>/<repo>] [<pr>] --via-outbox --owner AGENT \
   [--body TEXT] [--event COMMENT|APPROVE|REQUEST_CHANGES] [--file F] [--ref REF]
 ```
 
-- With no `--event`, stored line comments are handed to `gh-outbox submit --kind thread`. With `--event`, they are included in the matching review kind (`comment`, `approve`, or `request-changes`).
-- Prints the `gh-outbox` draft ID and posts nothing to GitHub itself.
-- Leaves local comments in place, marked with the draft ID, until `gh-outbox` reports the draft posted; `--after` (`clear`, `keep`, or `archive`) applies then.
+- With no `--event`, stored line comments are handed to `gh-outbox` as standalone threads (`kind: thread`). With `--event`, they are included in the matching review kind (`comment`, `approve`, or `request-changes`).
+- By default (`review_post.outbox_command` unset or `["gh-outbox"]`), `submit` calls `gh-outbox` in-process (preserving multi-line `StartLine` ranges and `LEFT`/`RIGHT` diff sides) and prints the draft ID without posting to GitHub. When a custom `outbox_command` is configured in Pkl, it invokes that command instead.
+- Leaves local comments in place, marked with the draft ID, until `gh-outbox` reports the draft posted; `--after` (`clear`, `keep`, or `archive`) applies when `gh-pr-review` reconciles the outbox status.
 - If `gh-outbox` refuses the draft (for example, on a lint hit), its refusal is printed as is, the command exits non-zero, and no local comments are marked.
-- **Configuration**: To make `--via-outbox` the default for `submit`, add a `review_post` block to `~/.config/gh-nudge/config.pkl` (or pass `--config <path>`). The default is off (`via_outbox = false`), and `outbox_command` is configurable as argv (default `["gh-outbox"]`). Pass `--via-outbox=false` to override `via_outbox = true` for a single run.
+- **Migration & Configuration**: Direct `gh-pr-review submit` (without `--via-outbox`) continues working for human-run reviews. To migrate agent workflows onto the shared approval gate by default, add a `review_post` block to `~/.config/gh-nudge/config.pkl` (or pass `--config <path>`), or pass `--via-outbox=false` to override `via_outbox = true` for a single run.
 
 ```pkl
 review_post {

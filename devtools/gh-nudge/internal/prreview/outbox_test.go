@@ -11,7 +11,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jaeyeom/experimental/devtools/decide"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
+	ghoutbox "github.com/jaeyeom/experimental/devtools/gh-outbox"
+	"github.com/jaeyeom/experimental/devtools/pkg/outbox"
 )
 
 func TestSubmitViaOutbox_ThreadOnlyWithFakeScript(t *testing.T) {
@@ -522,4 +525,158 @@ func assertFlagPair(t *testing.T, argv []string, flag, want string) {
 		}
 	}
 	t.Errorf("flag %s not found in argv %v", flag, argv)
+}
+
+type fakeGHOutboxGH struct {
+	head    string
+	reviews []string
+	lines   []ghoutbox.LineComment
+}
+
+func (g *fakeGHOutboxGH) HeadSHA(context.Context, string, int) (string, error) { return g.head, nil }
+
+func (g *fakeGHOutboxGH) CommentBody(context.Context, string, string) (string, error) {
+	return "", nil
+}
+
+func (g *fakeGHOutboxGH) ReviewBody(context.Context, string, int, string) (string, error) {
+	return "", nil
+}
+
+func (g *fakeGHOutboxGH) ReplyTarget(context.Context, string, int, string) (ghoutbox.ReplyTarget, error) {
+	return ghoutbox.ReplyTarget{}, nil
+}
+
+func (g *fakeGHOutboxGH) CreateThread(_ context.Context, _ string, _ int, _ string, c ghoutbox.LineComment) (string, error) {
+	g.lines = append(g.lines, c)
+	return "https://gh/thread/1", nil
+}
+
+func (g *fakeGHOutboxGH) CreateReply(context.Context, string, int, string, string) (string, error) {
+	return "", nil
+}
+
+func (g *fakeGHOutboxGH) CreateReview(_ context.Context, _ string, _ int, _, event, body string, cs []ghoutbox.LineComment) (string, error) {
+	g.reviews = append(g.reviews, event+":"+body)
+	g.lines = append(g.lines, cs...)
+	return "https://gh/review/1", nil
+}
+
+func (g *fakeGHOutboxGH) EditComment(context.Context, string, string, string) (string, error) {
+	return "", nil
+}
+
+func (g *fakeGHOutboxGH) EditReview(context.Context, string, int, string, string) (string, error) {
+	return "", nil
+}
+
+type fakeOutboxDecider struct {
+	items map[string]*decide.Item
+	next  int
+}
+
+func (d *fakeOutboxDecider) Ask(_ context.Context, _, _, _ string) (string, error) {
+	d.next++
+	id := fmt.Sprintf("D-%d", d.next)
+	d.items[id] = &decide.Item{ID: id, State: decide.StateOpen}
+	return id, nil
+}
+
+func (d *fakeOutboxDecider) Show(_ context.Context, id string) (decide.Item, error) {
+	it, ok := d.items[id]
+	if !ok {
+		return decide.Item{}, errors.New("missing item")
+	}
+	return *it, nil
+}
+
+func (d *fakeOutboxDecider) Done(_ context.Context, id, _ string) error {
+	if it, ok := d.items[id]; ok {
+		it.State = decide.StateDone
+	}
+	return nil
+}
+
+func TestSubmitViaOutbox_LocalInProcessAdapterPreservesMultiLineAndSide(t *testing.T) {
+	handler, _, cleanup := setupTestHandler(t)
+	defer cleanup()
+
+	repository := models.NewRepository("acme", "widgets")
+	prNumber := 55
+	target := models.NewPRTarget(prNumber)
+
+	createTestDiffHunks(t, handler, repository, prNumber, []models.DiffHunk{
+		{Location: models.NewFileLocation("old.go", models.NewLineRange(1, 50)), Side: models.SideLeft},
+	})
+	createTestComment(t, handler, repository, prNumber, models.Comment{
+		Path: "old.go",
+		Line: models.NewLineRange(10, 14),
+		Body: "Restore this check",
+		Side: models.SideLeft,
+	})
+
+	dec := &fakeOutboxDecider{items: map[string]*decide.Item{}}
+	gh := &fakeGHOutboxGH{head: "sha55"}
+	var notices []outbox.Notice
+	cfg := ghoutbox.DefaultConfig()
+	cfg.DataDir = t.TempDir()
+	cfg.Lint.AgentbusNames = false
+	ob := &ghoutbox.Outbox{
+		Store:     ghoutbox.NewStore(cfg.DataDir),
+		Decide:    dec,
+		GH:        gh,
+		Transport: outbox.TransportFunc(func(_ context.Context, n outbox.Notice) error { notices = append(notices, n); return nil }),
+		Config:    cfg,
+	}
+
+	handler.SetOutboxClient(&LocalOutboxClient{Open: func() (*ghoutbox.Outbox, error) { return ob, nil }})
+	var outBuf, errBuf bytes.Buffer
+	handler.SetOutputWriters(&outBuf, &errBuf)
+
+	opts := SubmitOptions{ViaOutbox: true, OutboxOwner: "review-agent"}
+	if err := handler.SubmitCommandWithOptions(repository, prNumber, "Looks close", "COMMENT", "", models.NewTextFormatter(), models.ClearAction{}, opts); err != nil {
+		t.Fatalf("SubmitCommandWithOptions() error = %v", err)
+	}
+	if got := strings.TrimSpace(outBuf.String()); got != "1" {
+		t.Fatalf("stdout = %q, want 1", got)
+	}
+	if len(gh.reviews) != 0 {
+		t.Fatalf("posted before decide approval")
+	}
+
+	// Approve in decide UI, poll gh-outbox, and reconcile gh-pr-review local storage.
+	dec.items["D-1"].State = decide.StateAnswered
+	dec.items["D-1"].Answer = &decide.Answer{Key: ghoutbox.OptionPost, Value: ghoutbox.OptionPost, AnsweredBy: decide.Human, Via: decide.ViaUI}
+	dec.items["D-1"].Messages = []decide.Message{{Author: decide.Human, OptionKey: ghoutbox.OptionPost, Via: decide.ViaUI}}
+	if err := ob.Poll(context.Background()); err != nil {
+		t.Fatalf("ob.Poll() error = %v", err)
+	}
+	if len(gh.lines) != 1 || gh.lines[0].StartLine != 10 || gh.lines[0].Line != 14 || gh.lines[0].Side != "LEFT" {
+		t.Fatalf("posted lines = %+v, want StartLine=10 Line=14 Side=LEFT", gh.lines)
+	}
+	if len(notices) != 1 || notices[0].State != ghoutbox.StatePosted {
+		t.Fatalf("notices = %+v", notices)
+	}
+	if err := handler.ReconcileOutbox(context.Background(), repository, target); err != nil {
+		t.Fatalf("ReconcileOutbox() error = %v", err)
+	}
+	stored, err := handler.storage.GetComments(repository, target)
+	if err != nil {
+		t.Fatalf("GetComments() error = %v", err)
+	}
+	if len(stored.Comments) != 0 {
+		t.Fatalf("remaining comments = %d, want 0 after clear reconcile", len(stored.Comments))
+	}
+}
+
+func TestNewConfiguredOutboxClient(t *testing.T) {
+	if _, ok := NewConfiguredOutboxClient(nil).(*LocalOutboxClient); !ok {
+		t.Fatal("nil command did not choose LocalOutboxClient")
+	}
+	if _, ok := NewConfiguredOutboxClient([]string{"gh-outbox"}).(*LocalOutboxClient); !ok {
+		t.Fatal("default gh-outbox command did not choose LocalOutboxClient")
+	}
+	if _, ok := NewConfiguredOutboxClient([]string{"/custom/gh-outbox", "--flag"}).(*CLIOutboxClient); !ok {
+		t.Fatal("custom command did not choose CLIOutboxClient")
+	}
 }

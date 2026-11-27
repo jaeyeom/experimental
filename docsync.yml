@@ -351,6 +351,14 @@ rules:
       - path: devtools/orgctl/README.org
         why: "tool overview and installation entry point"
 
+  - match: ["devtools/pkg/outbox/**"]
+    docs:
+      - path: devtools/pkg/outbox/README.md
+        why: "shared confirm-before-doing gate, interfaces, and script/CLI usage"
+      - path: devtools/pkg/README.md
+        section: "## Packages"
+        why: "package summary"
+
   - match: ["devtools/pkg/**"]
     docs:
       - path: devtools/pkg/README.md

@@ -655,7 +655,13 @@ is set.
 * Posting through decide
 
 Posting is optional. It stays off until ~post.mode~ is ~handoff~ or
-~direct~. ~slackwatch post~ stores a draft and files a
+~direct~. Outbound approval and confirmation mechanics (digest verification,
+inbox shape limits, ~decide~ CLI transport, and human-UI approval evaluation)
+route through the shared, channel-agnostic [[file:../pkg/outbox/README.md][devtools/pkg/outbox]] core, while
+slackwatch's inbound watcher (~Processor~) stays focused on watching Slack
+threads and delivering inbound replies (linking self-authored handoff posts
+only through its narrow ~OwnPostLinker~ boundary when ~post.mode~ is
+~handoff~). ~slackwatch post~ stores a draft and files a
 [[file:../decide/README.org][decide]] item. Nothing is sent until you
 approve that exact text and destination in the decide UI. The lifecycle,
 footer normalization, and Slack error strings are in

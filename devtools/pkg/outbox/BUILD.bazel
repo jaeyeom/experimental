@@ -1,0 +1,43 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "decide.go",
+        "engine.go",
+        "exec.go",
+        "lock.go",
+        "preflight.go",
+        "record.go",
+        "store.go",
+        "transport.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/pkg/outbox",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//devtools/decide:go_default_library",
+        "@org_golang_x_sys//unix:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    size = "small",
+    srcs = [
+        "decide_test.go",
+        "engine_test.go",
+        "preflight_test.go",
+        "store_test.go",
+    ],
+    embed = [":go_default_library"],
+    deps = ["//devtools/decide:go_default_library"],
+)
+
+filegroup(
+    name = "go_srcs",
+    srcs = glob(
+        ["**/*.go"],
+        exclude = ["**/*_test.go"],
+    ),
+    visibility = ["//tools/lint:__pkg__"],
+)

@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/jaeyeom/experimental/devtools/pkg/outbox"
 )
 
 // Draft kinds. KindThread starts one discussion thread per line comment.
@@ -21,15 +23,20 @@ const (
 	KindApprove        = "approve"
 )
 
-// LineComment is the text for one line of the pull request diff.
+// LineComment is the text for one line or multi-line range of the pull request diff.
 type LineComment struct {
-	Path string `json:"path"`
-	Line int    `json:"line"`
-	Text string `json:"text"`
+	Path      string `json:"path"`
+	Line      int    `json:"line"`
+	StartLine int    `json:"startLine,omitempty"`
+	Side      string `json:"side,omitempty"`
+	Text      string `json:"text"`
 }
 
-// Where is path:line.
+// Where is path:line, or path:start-line for multi-line comments.
 func (c LineComment) Where() string {
+	if c.StartLine > 0 && c.StartLine != c.Line {
+		return c.Path + ":" + strconv.Itoa(c.StartLine) + "-" + strconv.Itoa(c.Line)
+	}
 	return c.Path + ":" + strconv.Itoa(c.Line)
 }
 
@@ -54,18 +61,33 @@ type Draft struct {
 }
 
 // UsageError is a draft the command line got wrong.
-type UsageError struct{ msg string }
-
-func (e *UsageError) Error() string { return e.msg }
+type UsageError = outbox.UsageError
 
 func usagef(format string, args ...any) error {
-	return &UsageError{msg: fmt.Sprintf(format, args...)}
+	return &UsageError{Msg: fmt.Sprintf(format, args...)}
 }
 
 var (
 	repoPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 	idPattern   = regexp.MustCompile(`^[0-9]+$`)
 )
+
+// KindForPREvent maps a pull request review event (COMMENT, REQUEST_CHANGES,
+// APPROVE, or empty for standalone threads) to its outbox draft kind.
+func KindForPREvent(event string) (string, error) {
+	switch event {
+	case "":
+		return KindThread, nil
+	case "COMMENT":
+		return KindComment, nil
+	case "REQUEST_CHANGES":
+		return KindRequestChanges, nil
+	case "APPROVE":
+		return KindApprove, nil
+	default:
+		return "", fmt.Errorf("invalid event %q", event)
+	}
+}
 
 // ParseLineSpec splits path:line=file. The path may contain ':' and the
 // file may contain '='.
@@ -201,6 +223,15 @@ func (d *Draft) checkTexts() error {
 		return err
 	}
 	for _, c := range d.Lines {
+		if c.Line <= 0 {
+			return usagef("%s: line must be positive", c.Where())
+		}
+		if c.StartLine < 0 || (c.StartLine > 0 && c.StartLine > c.Line) {
+			return usagef("%s: startLine must be positive and <= line", c.Where())
+		}
+		if c.Side != "" && c.Side != "LEFT" && c.Side != "RIGHT" {
+			return usagef("%s: side %q must be LEFT or RIGHT", c.Where(), c.Side)
+		}
 		if err := checkText(c.Where(), c.Text, false); err != nil {
 			return err
 		}
@@ -239,6 +270,9 @@ func (d Draft) Destinations() []string {
 		var out []string
 		for _, c := range d.Lines {
 			where := fmt.Sprintf("discussion thread on %s line %d", c.Path, c.Line)
+			if c.StartLine > 0 && c.StartLine != c.Line {
+				where = fmt.Sprintf("discussion thread on %s lines %d-%d", c.Path, c.StartLine, c.Line)
+			}
 			if d.Edit != "" {
 				where = fmt.Sprintf("edit of comment %s in the %s", d.Edit, where)
 			}
