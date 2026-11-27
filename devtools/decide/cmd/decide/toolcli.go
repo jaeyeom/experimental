@@ -4,8 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/jaeyeom/experimental/devtools/decide"
@@ -33,6 +37,7 @@ func newDecideTool() toolcli.Tool {
 			checkDecideNotifyTarget,
 			checkDecideAgentbus,
 			checkDecidePanels,
+			checkDecideDuplicateAgents,
 		},
 		ExtraDoctorCheckGroups: []toolcli.DoctorCheckGroup{
 			checkDecideWeb,
@@ -330,5 +335,91 @@ func summarizePanelsDoctor(entries []decide.PanelEntry) toolcli.CheckResult {
 		Name:   "panels",
 		Status: toolcli.StatusOK,
 		Detail: fmt.Sprintf("%d panel(s) ok", len(entries)),
+	}
+}
+
+func checkDecideDuplicateAgents(ctx context.Context, offline bool) toolcli.CheckResult {
+	settings, err := hubConfig("")
+	if err != nil {
+		return toolcli.CheckResult{
+			Name:   "agent-aliases",
+			Status: toolcli.StatusFail,
+			Detail: err.Error(),
+			Hint:   "fix decide config.json",
+		}
+	}
+	if settings.hub.Target != "" {
+		return toolcli.CheckResult{
+			Name:   "agent-aliases",
+			Status: toolcli.StatusOK,
+			Detail: fmt.Sprintf("skipped (ledger is on hub %s)", settings.hub.Target),
+		}
+	}
+	dir, err := decide.DefaultDir()
+	if err != nil {
+		return toolcli.CheckResult{
+			Name:   "agent-aliases",
+			Status: toolcli.StatusWarn,
+			Detail: err.Error(),
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "ledger.json")); errors.Is(err, fs.ErrNotExist) {
+		return toolcli.CheckResult{
+			Name:   "agent-aliases",
+			Status: toolcli.StatusOK,
+			Detail: "no ledger",
+		}
+	}
+	led, err := decide.Open(dir)
+	if err != nil {
+		return toolcli.CheckResult{
+			Name:   "agent-aliases",
+			Status: toolcli.StatusWarn,
+			Detail: err.Error(),
+		}
+	}
+	items, err := led.List()
+	if err != nil {
+		return toolcli.CheckResult{
+			Name:   "agent-aliases",
+			Status: toolcli.StatusWarn,
+			Detail: err.Error(),
+		}
+	}
+	cfg, err := decide.LoadConfig()
+	if err != nil {
+		return toolcli.CheckResult{
+			Name:   "agent-aliases",
+			Status: toolcli.StatusFail,
+			Detail: err.Error(),
+			Hint:   "fix decide config.json",
+		}
+	}
+	var bus []decide.BusRecipient
+	if !offline {
+		bus = statsBusRecipients(ctx, cfg)
+	}
+	res := decide.NewNameResolver(cfg, bus)
+	dups := decide.FindUnaliasedDuplicates(items, res, decide.DefaultDuplicateAgentWindow)
+	if len(dups) == 0 {
+		return toolcli.CheckResult{
+			Name:   "agent-aliases",
+			Status: toolcli.StatusOK,
+			Detail: "no unaliased duplicate agents",
+		}
+	}
+	parts := make([]string, 0, len(dups))
+	for _, d := range dups {
+		loc := "pane " + d.Pane
+		if d.Machine != "" {
+			loc = fmt.Sprintf("pane %s@%s", d.Pane, d.Machine)
+		}
+		parts = append(parts, fmt.Sprintf("%s on %s", strings.Join(d.Names, " and "), loc))
+	}
+	return toolcli.CheckResult{
+		Name:   "agent-aliases",
+		Status: toolcli.StatusWarn,
+		Detail: fmt.Sprintf("likely unaliased duplicate agents: %s", strings.Join(parts, "; ")),
+		Hint:   "merge duplicates with `decide contacts alias <alias> <canonical>` or contactAliases in config.json",
 	}
 }

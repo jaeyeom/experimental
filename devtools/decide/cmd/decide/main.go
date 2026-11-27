@@ -951,6 +951,7 @@ func cmdAsk(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
+	item.AskingAgent, item.RawOwner = askAgentNames(who, caller, cfg)
 	offLine, code := enforceOrWarnOwner(cfg, item.Owner, decide.ViaCLI, stderr)
 	if code != 0 {
 		return code

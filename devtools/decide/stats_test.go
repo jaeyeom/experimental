@@ -329,6 +329,197 @@ func TestComputeAnswerStatsWindowsAndAgentFilter(t *testing.T) {
 	}
 }
 
+func TestComputeAnswerStatsAliasesAndUnmapped(t *testing.T) {
+	t0 := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	at := func(t time.Time) *time.Time { return &t }
+
+	cfg := Config{
+		ContactAliases: map[string]string{
+			"tab-a": "team/agent",
+			"tab-b": "team/agent",
+		},
+		Targets: []ConfigTarget{
+			{Name: "target-bot", Pane: "agentbus:team/bot"},
+		},
+	}
+	bus := []BusRecipient{
+		{Name: "team/live", Handle: "herdr:local/s/w1:p9"},
+	}
+	res := NewNameResolver(cfg, bus)
+
+	items := []Item{
+		{
+			// Old record via alias tab-a -> team/agent (option)
+			ID: "D-001", Owner: "tab-a", Kind: KindRelay, CreatedAt: t0,
+			Messages: []Message{
+				{Author: "tab-a", Time: t0, Text: "q1", Options: []Option{{Key: "a", Label: "A"}}},
+				{Author: "human", Time: t0.Add(time.Minute), Text: "a: A", OptionKey: "a", AnswerType: AnswerTypeOption, AskingAgent: "tab-a", AskedAt: at(t0)},
+			},
+		},
+		{
+			// Old record via alias tab-b -> team/agent (free-text-over-options)
+			ID: "D-002", Owner: "tab-b", Kind: KindRelay, FreeText: true, CreatedAt: t0,
+			Messages: []Message{
+				{Author: "tab-b", Time: t0, Text: "q2", Options: []Option{{Key: "a", Label: "A"}}},
+				{Author: "human", Time: t0.Add(2 * time.Minute), Text: "custom", AnswerType: AnswerTypeFreeTextOverOptions, AskingAgent: "tab-b", AskedAt: at(t0)},
+			},
+		},
+		{
+			// Old record matching target agentbus:team/bot -> team/bot
+			ID: "D-003", Owner: "target-bot", Kind: KindRelay, CreatedAt: t0,
+			Messages: []Message{
+				{Author: "target-bot", Time: t0, Text: "q3", Options: []Option{{Key: "a", Label: "A"}}},
+				{Author: "human", Time: t0.Add(3 * time.Minute), Text: "a: A", OptionKey: "a", AnswerType: AnswerTypeOption, AskingAgent: "target-bot", AskedAt: at(t0)},
+			},
+		},
+		{
+			// Old record matching live pane handle -> team/live
+			ID: "D-004", Owner: "live-tab", NotifyPane: "w1:p9", Kind: KindRelay, CreatedAt: t0,
+			Messages: []Message{
+				{Author: "live-tab", Time: t0, Text: "q4", Options: []Option{{Key: "a", Label: "A"}}},
+				{Author: "human", Time: t0.Add(4 * time.Minute), Text: "a: A", OptionKey: "a", AnswerType: AnswerTypeOption, AskingAgent: "live-tab", AskedAt: at(t0)},
+			},
+		},
+		{
+			// New record with recorded AskingAgent and RawAskingAgent (no config alias needed at report time)
+			ID: "D-005", Owner: "recorded-tab", RawOwner: "recorded-tab", AskingAgent: "team/recorded", Kind: KindRelay, CreatedAt: t0,
+			Messages: []Message{
+				{Author: "recorded-tab", Time: t0, Text: "q5", Options: []Option{{Key: "a", Label: "A"}}},
+				{Author: "human", Time: t0.Add(5 * time.Minute), Text: "a: A", OptionKey: "a", AnswerType: AnswerTypeOption, AskingAgent: "team/recorded", RawAskingAgent: "recorded-tab", AskedAt: at(t0)},
+			},
+		},
+		{
+			// Unmapped name stays unchanged with no aliases.
+			ID: "D-006", Owner: "solo", Kind: KindRelay, CreatedAt: t0,
+			Messages: []Message{
+				{Author: "solo", Time: t0, Text: "q6", Options: []Option{{Key: "a", Label: "A"}}},
+				{Author: "human", Time: t0.Add(6 * time.Minute), Text: "a: A", OptionKey: "a", AnswerType: AnswerTypeOption, AskingAgent: "solo", AskedAt: at(t0)},
+			},
+		},
+	}
+
+	rows := ComputeAnswerStats(items, AnswerStatsOptions{Resolver: &res})
+	byAgent := map[string]AnswerStatsRow{}
+	for _, r := range rows {
+		byAgent[r.Agent] = r
+	}
+	if len(rows) != 5 {
+		t.Fatalf("got %d rows, want 5: %+v", len(rows), rows)
+	}
+	teamAgent := byAgent["team/agent"]
+	if teamAgent.Option != 1 || teamAgent.FreeTextOverOptions != 1 || teamAgent.Total != 2 || teamAgent.FreeTextShare != 0.5 {
+		t.Fatalf("team/agent row = %+v", teamAgent)
+	}
+	if !slices.Equal(teamAgent.Aliases, []string{"tab-a", "tab-b"}) {
+		t.Fatalf("team/agent aliases = %v, want [tab-a tab-b]", teamAgent.Aliases)
+	}
+	if byAgent["team/bot"].Total != 1 || !slices.Equal(byAgent["team/bot"].Aliases, []string{"target-bot"}) {
+		t.Fatalf("team/bot = %+v", byAgent["team/bot"])
+	}
+	if byAgent["team/live"].Total != 1 || !slices.Equal(byAgent["team/live"].Aliases, []string{"live-tab"}) {
+		t.Fatalf("team/live = %+v", byAgent["team/live"])
+	}
+	if byAgent["team/recorded"].Total != 1 || !slices.Equal(byAgent["team/recorded"].Aliases, []string{"recorded-tab"}) {
+		t.Fatalf("team/recorded = %+v", byAgent["team/recorded"])
+	}
+	if byAgent["solo"].Total != 1 || len(byAgent["solo"].Aliases) != 0 {
+		t.Fatalf("solo = %+v, want unchanged with no aliases", byAgent["solo"])
+	}
+
+	// --agent <alias> and --agent <canonical> return the same row.
+	for _, q := range []string{"tab-a", "tab-b", "team/agent"} {
+		filtered := ComputeAnswerStats(items, AnswerStatsOptions{Agent: q, Resolver: &res})
+		if len(filtered) != 1 || filtered[0].Agent != "team/agent" || filtered[0].Total != 2 || !slices.Equal(filtered[0].Aliases, []string{"tab-a", "tab-b"}) {
+			t.Fatalf("--agent %q = %+v", q, filtered)
+		}
+	}
+	// Recorded raw name also matches without config alias.
+	for _, q := range []string{"recorded-tab", "team/recorded"} {
+		filtered := ComputeAnswerStats(items, AnswerStatsOptions{Agent: q, Resolver: &res})
+		if len(filtered) != 1 || filtered[0].Agent != "team/recorded" || filtered[0].Total != 1 {
+			t.Fatalf("--agent %q = %+v", q, filtered)
+		}
+	}
+}
+
+func TestAnswerRecordsCanonicalAndRawAskingAgent(t *testing.T) {
+	writeConfig(t, `{"contactAliases": {"old-ada": "team/ada", "worker-alias": "team/worker"}}`)
+	led, _ := openTemp(t)
+	t0 := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	led.SetClock(func() time.Time { return t0 })
+
+	it, err := led.Create(&Item{
+		Question: "ship?",
+		Owner:    "old-ada",
+		Kind:     KindRelay,
+		FreeText: true,
+		Options:  []Option{{Key: "a", Label: "Alpha", Recommended: true}, {Key: "b", Label: "Beta"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if it.Owner != "old-ada" || it.RawOwner != "old-ada" || it.AskingAgent != "team/ada" {
+		t.Fatalf("created item = %+v", it)
+	}
+
+	led.SetClock(func() time.Time { return t0.Add(time.Minute) })
+	got, err := led.Answer(it.ID, "a", ViaUI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Answer == nil || got.Answer.AskingAgent != "team/ada" || got.Answer.RawAskingAgent != "old-ada" {
+		t.Fatalf("Answer = %+v", got.Answer)
+	}
+	last := got.Messages[len(got.Messages)-1]
+	if last.AskingAgent != "team/ada" || last.RawAskingAgent != "old-ada" {
+		t.Fatalf("Message = %+v", last)
+	}
+
+	// Worker reply also resolves alias for Answer.AskingAgent + RawAskingAgent.
+	led.SetClock(func() time.Time { return t0.Add(2 * time.Minute) })
+	if _, err := led.Reply(it.ID, "worker-alias", "choose", []Option{{Key: "x", Label: "X", Recommended: true}, {Key: "y", Label: "Y"}}, false); err != nil {
+		t.Fatal(err)
+	}
+	led.SetClock(func() time.Time { return t0.Add(3 * time.Minute) })
+	got2, err := led.Answer(it.ID, "x", ViaUI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got2.Answer == nil || got2.Answer.AskingAgent != "team/worker" || got2.Answer.RawAskingAgent != "worker-alias" {
+		t.Fatalf("worker Answer = %+v", got2.Answer)
+	}
+}
+
+func TestFindUnaliasedDuplicates(t *testing.T) {
+	t0 := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	items := []Item{
+		{ID: "D-001", Owner: "review", NotifyPane: "w1:p3", CreatedAt: t0},
+		{ID: "D-002", Owner: "ops/inbox", NotifyPane: "w1:p3", CreatedAt: t0.Add(10 * time.Minute)},
+		// Outside short window on another pane
+		{ID: "D-003", Owner: "tab-old", NotifyPane: "w1:p4", CreatedAt: t0},
+		{ID: "D-004", Owner: "tab-new", NotifyPane: "w1:p4", CreatedAt: t0.Add(3 * time.Hour)},
+		// Different machine, same pane id
+		{ID: "D-005", Owner: "laptop-agent", NotifyPane: "w1:p3", NotifyMachine: "laptop", CreatedAt: t0.Add(5 * time.Minute)},
+		// Pull items do not share a pane
+		{ID: "D-006", Owner: "ci-a", NotifyPane: "pull", CreatedAt: t0},
+		{ID: "D-007", Owner: "ci-b", NotifyPane: "pull", CreatedAt: t0.Add(time.Minute)},
+	}
+
+	dups := FindUnaliasedDuplicates(items, NewNameResolver(Config{}, nil), DefaultDuplicateAgentWindow)
+	if len(dups) != 1 {
+		t.Fatalf("dups = %+v, want 1", dups)
+	}
+	if dups[0].Pane != "w1:p3" || dups[0].Machine != "" || !slices.Equal(dups[0].Names, []string{"ops/inbox", "review"}) {
+		t.Fatalf("dup[0] = %+v", dups[0])
+	}
+
+	// Aliasing them via contactAliases clears the warning.
+	resAliased := NewNameResolver(Config{ContactAliases: map[string]string{"review": "ops/inbox"}}, nil)
+	if got := FindUnaliasedDuplicates(items, resAliased, DefaultDuplicateAgentWindow); len(got) != 0 {
+		t.Fatalf("after alias dups = %+v, want empty", got)
+	}
+}
+
 func assertAnswerMeta(t *testing.T, a *Answer, wantType, wantAgent string, wantAsked, wantAnswered time.Time) {
 	t.Helper()
 	if a == nil {

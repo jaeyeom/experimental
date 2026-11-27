@@ -32,7 +32,7 @@ missing file is an empty config. Keys you do not set keep the default.
 | ~hyperlinks~           | on                          | OSC 8 links in the item view. ~false~ turns them off.                          |
 | ~hiddenContacts~       | none                        | Names the Contacts folder hides.                                               |
 | ~favoriteContacts~     | none                        | Starred names the recipient list shows first, in starred order.                |
-| ~contactAliases~       | none                        | Ledger name to canonical agent name.                                           |
+| ~contactAliases~       | none                        | Ledger or tab name to canonical agent name (used by Contacts and ~stats answers~). |
 | ~owners~               | ~mode: off~                 | Allow-list of owners who may open items (~mode~, ~allowed~, ~managers~).       |
 | ~ui.utc~               | false                       | Inbox stamps in UTC.                                                           |
 | ~ui.clipboard~         | ~auto~                      | ~auto~, ~osc52~, ~command~, or ~off~.                                          |

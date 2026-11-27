@@ -43,5 +43,8 @@ Each thread message records where it came from.
 A later human free-text message that answers a reopened thread
 replaces ~answer~. A tool that needs an earlier option pick reads the
 messages. Those keep ~optionKey~, ~via~, ~by~, ~answerType~,
-~askingAgent~, and ~askedAt~. ~answer~ keeps only the latest answer's
-fields (plus ~answeredAt~).
+~askingAgent~, ~rawAskingAgent~, and ~askedAt~. ~answer~ keeps only
+the latest answer's fields (plus ~answeredAt~). New items also record
+the canonical ~askingAgent~ alongside ~rawOwner~ as filed; older records
+without those fields are resolved at report time in ~decide stats
+answers~ via ~contactAliases~, ~targets~, and ~agentbus~ mappings.

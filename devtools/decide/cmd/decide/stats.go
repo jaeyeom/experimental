@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/decide"
+	"github.com/jaeyeom/experimental/devtools/decide/tui"
 )
 
 func cmdStats(args []string, stdout, stderr io.Writer) int {
@@ -37,6 +39,10 @@ func cmdStatsAt(args []string, stdout, stderr io.Writer, now time.Time) int {
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
+	cfg, err := decide.LoadConfig()
+	if err != nil {
+		return fail(stderr, err, 1)
+	}
 	led, err := openLedger()
 	if err != nil {
 		return fail(stderr, err, 1)
@@ -45,6 +51,8 @@ func cmdStatsAt(args []string, stdout, stderr io.Writer, now time.Time) int {
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
+	res := decide.NewNameResolver(cfg, statsBusRecipients(context.Background(), cfg))
+	opts.Resolver = &res
 	rows := decide.ComputeAnswerStats(items, opts)
 	if *jsonOut {
 		return writeJSON(stdout, stderr, rows)
@@ -53,6 +61,26 @@ func cmdStatsAt(args []string, stdout, stderr io.Writer, now time.Time) int {
 		return fail(stderr, err, 1)
 	}
 	return 0
+}
+
+// statsBusRecipients fetches live agentbus entries for name resolution,
+// returning nil if agentbus is unavailable.
+func statsBusRecipients(ctx context.Context, cfg decide.Config) []decide.BusRecipient {
+	ctx, cancel := context.WithTimeout(ctx, cfg.BusListTimeout())
+	defer cancel()
+	out, err := agentbusRun(ctx, []string{"list", "--json"})
+	if err != nil || len(out) == 0 {
+		return nil
+	}
+	names, err := tui.ParseBusList(out)
+	if err != nil {
+		return nil
+	}
+	bus := make([]decide.BusRecipient, len(names))
+	for i, tg := range names {
+		bus[i] = decide.BusRecipient{Name: tg.Name, Handle: tg.Pane}
+	}
+	return bus
 }
 
 func parseStatsOptions(sinceRaw, untilRaw, agent string, now time.Time) (decide.AnswerStatsOptions, error) {

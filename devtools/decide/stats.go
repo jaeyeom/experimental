@@ -1,6 +1,7 @@
 package decide
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -8,22 +9,25 @@ import (
 
 // AnswerClassification describes one classified human answer or reply.
 type AnswerClassification struct {
-	Type        string
-	AskingAgent string
-	AskedAt     time.Time
-	AnsweredAt  time.Time
+	Type           string
+	AskingAgent    string
+	RawAskingAgent string
+	AskedAt        time.Time
+	AnsweredAt     time.Time
 }
 
 // AnswerStatsOptions filters the answer statistics report.
 type AnswerStatsOptions struct {
-	Since *time.Time
-	Until *time.Time
-	Agent string
+	Since    *time.Time
+	Until    *time.Time
+	Agent    string
+	Resolver *NameResolver
 }
 
 // AnswerStatsRow summarizes one asking agent's answer breakdown.
 type AnswerStatsRow struct {
 	Agent                  string   `json:"agent"`
+	Aliases                []string `json:"aliases,omitempty"`
 	Option                 int      `json:"option"`
 	FreeTextOverOptions    int      `json:"freeTextOverOptions"`
 	FreeTextOnly           int      `json:"freeTextOnly"`
@@ -44,15 +48,46 @@ func utcTimePtr(t time.Time) *time.Time {
 	return &u
 }
 
-func msgAgent(m Message, fallbackOwner string) string {
-	if m.By != "" {
-		return m.By
+func itemRawOwner(it *Item) string {
+	if it.RawOwner != "" {
+		return it.RawOwner
 	}
-	return fallbackOwner
+	return it.Owner
 }
 
-func prepareAnswerMeta(it *Item, stored string) (answerType, label string, isOption bool, askingAgent string, askedAt time.Time) {
-	askingAgent, askedAt = pendingAsker(it)
+func itemAskingAgent(it *Item) string {
+	if it.AskingAgent != "" {
+		return it.AskingAgent
+	}
+	return it.Owner
+}
+
+func resolveAgentWithConfig(name string, it *Item) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	cfg, err := LoadConfig()
+	if err != nil {
+		return name
+	}
+	return NewNameResolver(cfg, nil).Resolve(name, it)
+}
+
+func msgAsker(it *Item, m Message) (canon, raw string) {
+	if m.By != "" {
+		return resolveAgentWithConfig(m.By, nil), m.By
+	}
+	raw = itemRawOwner(it)
+	canon = it.AskingAgent
+	if canon == "" {
+		canon = resolveAgentWithConfig(raw, it)
+	}
+	return canon, raw
+}
+
+func prepareAnswerMeta(it *Item, stored string) (answerType, label string, isOption bool, askingAgent, rawAskingAgent string, askedAt time.Time) {
+	askingAgent, rawAskingAgent, askedAt = pendingAsker(it)
 	answerType = AnswerTypeFreeTextOnly
 	label, isOption = optionLabel(it.Options, stored)
 	switch {
@@ -61,18 +96,19 @@ func prepareAnswerMeta(it *Item, stored string) (answerType, label string, isOpt
 	case len(it.Options) > 0:
 		answerType = AnswerTypeFreeTextOverOptions
 	}
-	return answerType, label, isOption, askingAgent, askedAt
+	return answerType, label, isOption, askingAgent, rawAskingAgent, askedAt
 }
 
-func newAnswerRecord(stored, label string, isOption bool, via, answerType, askingAgent string, askedAt, receivedAt, writtenAt time.Time) *Answer {
+func newAnswerRecord(stored, label string, isOption bool, via, answerType, askingAgent, rawAskingAgent string, askedAt, receivedAt, writtenAt time.Time) *Answer {
 	ans := &Answer{
-		Value:       stored,
-		AnsweredBy:  Human,
-		Via:         via,
-		AnswerType:  answerType,
-		AskingAgent: askingAgent,
-		AskedAt:     utcTimePtr(askedAt),
-		AnsweredAt:  utcTimePtr(receivedAt),
+		Value:          stored,
+		AnsweredBy:     Human,
+		Via:            via,
+		AnswerType:     answerType,
+		AskingAgent:    askingAgent,
+		RawAskingAgent: rawAskingAgent,
+		AskedAt:        utcTimePtr(askedAt),
+		AnsweredAt:     utcTimePtr(receivedAt),
 	}
 	if !writtenAt.IsZero() {
 		w := writtenAt.UTC()
@@ -86,15 +122,16 @@ func newAnswerRecord(stored, label string, isOption bool, via, answerType, askin
 	return ans
 }
 
-func newAnswerMessage(stored, label string, isOption bool, via, answerType, askingAgent string, askedAt, receivedAt, writtenAt time.Time) Message {
+func newAnswerMessage(stored, label string, isOption bool, via, answerType, askingAgent, rawAskingAgent string, askedAt, receivedAt, writtenAt time.Time) Message {
 	msg := Message{
-		Author:      Human,
-		Time:        receivedAt,
-		Text:        stored,
-		Via:         via,
-		AnswerType:  answerType,
-		AskingAgent: askingAgent,
-		AskedAt:     utcTimePtr(askedAt),
+		Author:         Human,
+		Time:           receivedAt,
+		Text:           stored,
+		Via:            via,
+		AnswerType:     answerType,
+		AskingAgent:    askingAgent,
+		RawAskingAgent: rawAskingAgent,
+		AskedAt:        utcTimePtr(askedAt),
 	}
 	if !writtenAt.IsZero() {
 		w := writtenAt.UTC()
@@ -109,26 +146,34 @@ func newAnswerMessage(stored, label string, isOption bool, via, answerType, aski
 	return msg
 }
 
-// pendingAsker returns the asking agent and question time for an open question
-// on it. When options are pending, it uses the newest message with options;
-// otherwise it uses the newest agent message. It falls back to Owner and CreatedAt.
-func pendingAsker(it *Item) (string, time.Time) {
+// pendingAsker returns the canonical asking agent, raw name as filed, and
+// question time for an open question on it. When options are pending, it uses
+// the newest message with options; otherwise it uses the newest agent message.
+// It falls back to Owner and CreatedAt.
+func pendingAsker(it *Item) (string, string, time.Time) {
 	if len(it.Options) > 0 {
 		for i := len(it.Messages) - 1; i >= 0; i-- {
 			m := it.Messages[i]
 			if len(m.Options) > 0 {
-				return msgAgent(m, it.Owner), m.Time.UTC()
+				canon, raw := msgAsker(it, m)
+				return canon, raw, m.Time.UTC()
 			}
 		}
 	} else {
 		for i := len(it.Messages) - 1; i >= 0; i-- {
 			m := it.Messages[i]
 			if m.Author != Human && m.Author != "system" {
-				return msgAgent(m, it.Owner), m.Time.UTC()
+				canon, raw := msgAsker(it, m)
+				return canon, raw, m.Time.UTC()
 			}
 		}
 	}
-	return it.Owner, it.CreatedAt.UTC()
+	raw := itemRawOwner(it)
+	canon := it.AskingAgent
+	if canon == "" {
+		canon = resolveAgentWithConfig(raw, it)
+	}
+	return canon, raw, it.CreatedAt.UTC()
 }
 
 // ClassifyMessage returns the classification of human message idx on it,
@@ -154,18 +199,29 @@ func ClassifyMessage(it *Item, idx int) AnswerClassification {
 
 func recordedMessageClassification(it *Item, m Message) AnswerClassification {
 	agent := m.AskingAgent
-	if m.AnswerType != AnswerTypeReplyNoQuestion && agent == "" {
-		agent = it.Owner
+	raw := m.RawAskingAgent
+	if m.AnswerType != AnswerTypeReplyNoQuestion {
+		if agent == "" {
+			agent = itemAskingAgent(it)
+		}
+		if raw == "" {
+			if m.AskingAgent == "" || (it.RawOwner != "" && (m.AskingAgent == it.AskingAgent || m.AskingAgent == it.Owner)) {
+				raw = itemRawOwner(it)
+			} else {
+				raw = agent
+			}
+		}
 	}
 	var askedAt time.Time
 	if m.AskedAt != nil {
 		askedAt = m.AskedAt.UTC()
 	}
 	return AnswerClassification{
-		Type:        m.AnswerType,
-		AskingAgent: agent,
-		AskedAt:     askedAt,
-		AnsweredAt:  m.Time.UTC(),
+		Type:           m.AnswerType,
+		AskingAgent:    agent,
+		RawAskingAgent: raw,
+		AskedAt:        askedAt,
+		AnsweredAt:     m.Time.UTC(),
 	}
 }
 
@@ -196,21 +252,33 @@ func recordedAnswerClassification(it *Item) AnswerClassification {
 		answeredAt = it.Answer.AnsweredAt.UTC()
 	}
 	agent := it.Answer.AskingAgent
-	if agent == "" && it.Answer.AnswerType != AnswerTypeReplyNoQuestion {
-		agent = it.Owner
+	raw := it.Answer.RawAskingAgent
+	if it.Answer.AnswerType != AnswerTypeReplyNoQuestion {
+		if agent == "" {
+			agent = itemAskingAgent(it)
+		}
+		if raw == "" {
+			if it.Answer.AskingAgent == "" || (it.RawOwner != "" && (it.Answer.AskingAgent == it.AskingAgent || it.Answer.AskingAgent == it.Owner)) {
+				raw = itemRawOwner(it)
+			} else {
+				raw = agent
+			}
+		}
 	}
 	return AnswerClassification{
-		Type:        it.Answer.AnswerType,
-		AskingAgent: agent,
-		AskedAt:     askedAt,
-		AnsweredAt:  answeredAt,
+		Type:           it.Answer.AnswerType,
+		AskingAgent:    agent,
+		RawAskingAgent: raw,
+		AskedAt:        askedAt,
+		AnsweredAt:     answeredAt,
 	}
 }
 
 func deriveUnmessagedAnswer(it *Item) AnswerClassification {
 	answeredAt := it.AnsweredAt.UTC()
 	askedAt := it.CreatedAt.UTC()
-	agent := it.Owner
+	agent := itemAskingAgent(it)
+	raw := itemRawOwner(it)
 	typ := AnswerTypeUnknown
 	switch {
 	case it.Answer.Key != "":
@@ -224,7 +292,7 @@ func deriveUnmessagedAnswer(it *Item) AnswerClassification {
 	case it.FreeText && it.Kind == KindRelay:
 		typ = AnswerTypeFreeTextOnly
 	}
-	return AnswerClassification{Type: typ, AskingAgent: agent, AskedAt: askedAt, AnsweredAt: answeredAt}
+	return AnswerClassification{Type: typ, AskingAgent: agent, RawAskingAgent: raw, AskedAt: askedAt, AnsweredAt: answeredAt}
 }
 
 type legacyThreadState struct {
@@ -232,24 +300,33 @@ type legacyThreadState struct {
 	hasPending  bool
 	answered    bool
 	askAgent    string
+	rawAgent    string
 	askAt       time.Time
 }
 
 func (st *legacyThreadState) stepAgent(it *Item, pm Message, isFirst bool) {
+	setAsker := func() {
+		if pm.By != "" {
+			st.askAgent = pm.By
+			st.rawAgent = pm.By
+		} else {
+			st.askAgent = itemAskingAgent(it)
+			st.rawAgent = itemRawOwner(it)
+		}
+		st.askAt = pm.Time.UTC()
+	}
 	if len(pm.Options) > 0 {
 		st.pendingOpts = pm.Options
 		st.hasPending = true
 		st.answered = false
-		st.askAgent = msgAgent(pm, it.Owner)
-		st.askAt = pm.Time.UTC()
+		setAsker()
 		return
 	}
 	if isFirst || st.answered || !st.hasPending || len(st.pendingOpts) == 0 {
 		st.pendingOpts = nil
 		st.hasPending = true
 		st.answered = false
-		st.askAgent = msgAgent(pm, it.Owner)
-		st.askAt = pm.Time.UTC()
+		setAsker()
 	}
 }
 
@@ -269,7 +346,8 @@ func legacyStateBefore(it *Item, idx int) legacyThreadState {
 		st.pendingOpts = it.Options
 	}
 	if st.askAgent == "" {
-		st.askAgent = it.Owner
+		st.askAgent = itemAskingAgent(it)
+		st.rawAgent = itemRawOwner(it)
 	}
 	if st.askAt.IsZero() {
 		st.askAt = it.CreatedAt.UTC()
@@ -319,26 +397,26 @@ func deriveLegacyMessageClassification(it *Item, idx int) AnswerClassification {
 	matchesAnswer := messageMatchesAnswer(it, idx, hasLaterAgent)
 
 	if m.OptionKey != "" || (matchesAnswer && it.Answer.Key != "") {
-		return AnswerClassification{Type: AnswerTypeOption, AskingAgent: st.askAgent, AskedAt: st.askAt, AnsweredAt: answeredAt}
+		return AnswerClassification{Type: AnswerTypeOption, AskingAgent: st.askAgent, RawAskingAgent: st.rawAgent, AskedAt: st.askAt, AnsweredAt: answeredAt}
 	}
 	if len(st.pendingOpts) > 0 && !st.answered {
 		if matchesPendingOptionLegacy(it, m, st.pendingOpts, matchesAnswer) {
-			return AnswerClassification{Type: AnswerTypeOption, AskingAgent: st.askAgent, AskedAt: st.askAt, AnsweredAt: answeredAt}
+			return AnswerClassification{Type: AnswerTypeOption, AskingAgent: st.askAgent, RawAskingAgent: st.rawAgent, AskedAt: st.askAt, AnsweredAt: answeredAt}
 		}
-		return AnswerClassification{Type: AnswerTypeFreeTextOverOptions, AskingAgent: st.askAgent, AskedAt: st.askAt, AnsweredAt: answeredAt}
+		return AnswerClassification{Type: AnswerTypeFreeTextOverOptions, AskingAgent: st.askAgent, RawAskingAgent: st.rawAgent, AskedAt: st.askAt, AnsweredAt: answeredAt}
 	}
 	if st.answered || it.EffectiveClass() == ClassNote || it.Kind == KindTypeIn {
 		return AnswerClassification{Type: AnswerTypeReplyNoQuestion, AnsweredAt: answeredAt}
 	}
 	if !hasLaterAgent && len(it.Options) == 0 && it.Kind == KindRelay {
 		if it.FreeText {
-			return AnswerClassification{Type: AnswerTypeFreeTextOnly, AskingAgent: st.askAgent, AskedAt: st.askAt, AnsweredAt: answeredAt}
+			return AnswerClassification{Type: AnswerTypeFreeTextOnly, AskingAgent: st.askAgent, RawAskingAgent: st.rawAgent, AskedAt: st.askAt, AnsweredAt: answeredAt}
 		}
 		if it.Answer == nil {
 			return AnswerClassification{Type: AnswerTypeReplyNoQuestion, AnsweredAt: answeredAt}
 		}
 	}
-	return AnswerClassification{Type: AnswerTypeUnknown, AskingAgent: st.askAgent, AskedAt: st.askAt, AnsweredAt: answeredAt}
+	return AnswerClassification{Type: AnswerTypeUnknown, AskingAgent: st.askAgent, RawAskingAgent: st.rawAgent, AskedAt: st.askAt, AnsweredAt: answeredAt}
 }
 
 func messageMatchesAnswer(it *Item, idx int, hasLaterAgent bool) bool {
@@ -387,6 +465,7 @@ func lastHumanMessageIndex(it *Item) int {
 
 type answerBucket struct {
 	row     AnswerStatsRow
+	aliases map[string]bool
 	optSeen map[string]bool
 	ftoSeen map[string]bool
 	ftSeen  map[string]bool
@@ -394,8 +473,10 @@ type answerBucket struct {
 }
 
 type answerAggregator struct {
-	opts    AnswerStatsOptions
-	buckets map[string]*answerBucket
+	opts       AnswerStatsOptions
+	buckets    map[string]*answerBucket
+	rawToCanon map[string]string
+	ambigRaw   map[string]bool
 }
 
 func (a *answerAggregator) bucketFor(agent string) *answerBucket {
@@ -403,6 +484,7 @@ func (a *answerAggregator) bucketFor(agent string) *answerBucket {
 	if !ok {
 		b = &answerBucket{
 			row:     AnswerStatsRow{Agent: agent},
+			aliases: map[string]bool{},
 			optSeen: map[string]bool{},
 			ftoSeen: map[string]bool{},
 			ftSeen:  map[string]bool{},
@@ -434,18 +516,57 @@ func (a *answerAggregator) inWindow(at time.Time) bool {
 	return true
 }
 
-func (a *answerAggregator) record(id string, c AnswerClassification) {
-	if c.Type == "" || c.Type == AnswerTypeReplyNoQuestion || !a.inWindow(c.AnsweredAt) {
+func (a *answerAggregator) resolveAskingAgent(it *Item, c AnswerClassification) (canon, raw string) {
+	canon = strings.TrimSpace(c.AskingAgent)
+	raw = strings.TrimSpace(c.RawAskingAgent)
+	if raw == "" {
+		raw = canon
+	}
+	if canon == "" {
+		return AnswerTypeUnknown, ""
+	}
+	if a.opts.Resolver != nil {
+		// Only let it.NotifyPane identify the item's owner/askingAgent, not a different worker's Message.By.
+		var itemCtx *Item
+		if it != nil && (raw == it.Owner || raw == it.RawOwner || canon == it.Owner || canon == it.AskingAgent) {
+			itemCtx = it
+		}
+		canon = a.opts.Resolver.Resolve(canon, itemCtx)
+	}
+	return canon, raw
+}
+
+func (a *answerAggregator) noteRawMapping(raw, canon string) {
+	if raw == "" || canon == "" || raw == canon || a.ambigRaw[raw] {
 		return
 	}
-	agent := c.AskingAgent
-	if agent == "" {
-		agent = AnswerTypeUnknown
+	if prev, ok := a.rawToCanon[raw]; ok && prev != canon {
+		delete(a.rawToCanon, raw)
+		a.ambigRaw[raw] = true
+		return
 	}
-	if a.opts.Agent != "" && agent != a.opts.Agent {
+	a.rawToCanon[raw] = canon
+}
+
+func (a *answerAggregator) record(it *Item, c AnswerClassification) {
+	if c.Type == "" || c.Type == AnswerTypeReplyNoQuestion {
+		return
+	}
+	agent, raw := a.resolveAskingAgent(it, c)
+	if agent != AnswerTypeUnknown {
+		a.noteRawMapping(raw, agent)
+	}
+	if !a.inWindow(c.AnsweredAt) {
 		return
 	}
 	b := a.bucketFor(agent)
+	if raw != "" && raw != agent {
+		b.aliases[raw] = true
+	}
+	id := ""
+	if it != nil {
+		id = it.ID
+	}
 	switch c.Type {
 	case AnswerTypeOption:
 		b.row.Option++
@@ -462,10 +583,42 @@ func (a *answerAggregator) record(id string, c AnswerClassification) {
 	}
 }
 
+func (a *answerAggregator) matchesAgentFilter(r AnswerStatsRow, wantRaw, wantCanon string) bool {
+	if wantRaw == "" {
+		return true
+	}
+	if r.Agent == wantCanon || r.Agent == wantRaw {
+		return true
+	}
+	return slices.Contains(r.Aliases, wantRaw)
+}
+
 func (a *answerAggregator) rows() []AnswerStatsRow {
+	wantRaw := strings.TrimSpace(a.opts.Agent)
+	wantCanon := wantRaw
+	if wantRaw != "" {
+		if a.opts.Resolver != nil {
+			wantCanon = a.opts.Resolver.Resolve(wantRaw, nil)
+		}
+		if wantCanon == wantRaw {
+			if c, ok := a.rawToCanon[wantRaw]; ok {
+				wantCanon = c
+			}
+		}
+	}
 	rows := make([]AnswerStatsRow, 0, len(a.buckets))
 	for _, b := range a.buckets {
 		r := b.row
+		if len(b.aliases) > 0 {
+			r.Aliases = make([]string, 0, len(b.aliases))
+			for alias := range b.aliases {
+				r.Aliases = append(r.Aliases, alias)
+			}
+			sort.Strings(r.Aliases)
+		}
+		if !a.matchesAgentFilter(r, wantRaw, wantCanon) {
+			continue
+		}
 		r.Total = r.Option + r.FreeTextOverOptions + r.FreeTextOnly + r.Unknown
 		if withOpts := r.Option + r.FreeTextOverOptions; withOpts > 0 {
 			r.FreeTextShare = float64(r.FreeTextOverOptions) / float64(withOpts)
@@ -489,18 +642,23 @@ func (a *answerAggregator) rows() []AnswerStatsRow {
 
 // ComputeAnswerStats aggregates answer types per asking agent over items.
 func ComputeAnswerStats(items []Item, opts AnswerStatsOptions) []AnswerStatsRow {
-	agg := answerAggregator{opts: opts, buckets: map[string]*answerBucket{}}
+	agg := answerAggregator{
+		opts:       opts,
+		buckets:    map[string]*answerBucket{},
+		rawToCanon: map[string]string{},
+		ambigRaw:   map[string]bool{},
+	}
 	for i := range items {
 		it := &items[i]
 		if len(it.Messages) == 0 {
 			if it.Answer != nil {
-				agg.record(it.ID, ClassifyAnswer(it))
+				agg.record(it, ClassifyAnswer(it))
 			}
 			continue
 		}
 		for j := range it.Messages {
 			if it.Messages[j].Author == Human {
-				agg.record(it.ID, ClassifyMessage(it, j))
+				agg.record(it, ClassifyMessage(it, j))
 			}
 		}
 	}

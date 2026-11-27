@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -250,6 +251,150 @@ func TestStatsAnswersReportWindowsAndJSONParity(t *testing.T) {
 	} {
 		if _, _, code := runCLI(bad...); code != 2 {
 			t.Fatalf("%v code = %d, want 2", bad, code)
+		}
+	}
+}
+
+func TestCLIStatsAnswersMergesCallerTabAndBusNameAndAliases(t *testing.T) {
+	inHerdrPane(t)
+	fakeWhoami(t, whoamiOpsInbox, nil)
+
+	// 1. Filed without --owner inside herdr pane -> Owner is tab label "review", AskingAgent is bus name "ops/inbox".
+	it1, stderr := askItem(t, relayAsk()...)
+	if stderr != "" {
+		t.Fatalf("ask1 stderr = %q", stderr)
+	}
+	id1 := it1.ID
+	if it1.Owner != "review" || it1.RawOwner != "review" || it1.AskingAgent != "ops/inbox" {
+		t.Fatalf("it1 = %+v", it1)
+	}
+	if code := answer(t, id1, "a"); code != 0 {
+		t.Fatalf("answer id1 = %d", code)
+	}
+
+	// 2. Filed with --owner ops/inbox -> AskingAgent is "ops/inbox", RawOwner is "ops/inbox".
+	id2 := askRelay(t, []string{"--owner", "ops/inbox"}, "from bus?")
+	if code := answer(t, id2, "custom answer"); code != 0 {
+		t.Fatalf("answer id2 = %d", code)
+	}
+
+	// 3. Unmapped agent stays unchanged with no aliases in JSON.
+	id3 := askRelay(t, []string{"--owner", "solo"}, "from solo?")
+	if code := answer(t, id3, "a"); code != 0 {
+		t.Fatalf("answer id3 = %d", code)
+	}
+
+	// Full JSON report merges "review" and "ops/inbox" into one row with "aliases": ["review"].
+	out, stderr, code := runCLI("stats", "answers", "--json")
+	if code != 0 {
+		t.Fatalf("stats answers --json = %d\n%s", code, stderr)
+	}
+	var rows []decide.AnswerStatsRow
+	if err := json.Unmarshal([]byte(out), &rows); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, out)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("rows = %+v, want 2", rows)
+	}
+	if rows[0].Agent != "ops/inbox" || rows[0].Option != 1 || rows[0].FreeTextOverOptions != 1 || rows[0].Total != 2 {
+		t.Fatalf("merged row = %+v", rows[0])
+	}
+	if !slices.Equal(rows[0].Aliases, []string{"review"}) {
+		t.Fatalf("merged aliases = %v, want [review]", rows[0].Aliases)
+	}
+	if rows[1].Agent != "solo" || rows[1].Total != 1 || len(rows[1].Aliases) != 0 {
+		t.Fatalf("unmapped row = %+v", rows[1])
+	}
+	if strings.Contains(out, `"solo"`) && strings.Contains(strings.Split(out, `"solo"`)[1], `"aliases"`) {
+		t.Fatalf("unmapped row unexpectedly included aliases in JSON:\n%s", out)
+	}
+
+	// --agent <alias> and --agent <canonical> return the same row.
+	outCanon, stderr, code := runCLI("stats", "answers", "--agent", "ops/inbox", "--json")
+	if code != 0 {
+		t.Fatalf("stats --agent ops/inbox = %d\n%s", code, stderr)
+	}
+	outAlias, stderr, code := runCLI("stats", "answers", "--agent", "review", "--json")
+	if code != 0 {
+		t.Fatalf("stats --agent review = %d\n%s", code, stderr)
+	}
+	if outCanon != outAlias {
+		t.Fatalf("--agent canonical vs alias mismatch:\ncanon:\n%s\nalias:\n%s", outCanon, outAlias)
+	}
+}
+
+func TestCLIStatsAnswersResolvesOldRecordsViaConfigAndBus(t *testing.T) {
+	state := t.TempDir()
+	cfgDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("XDG_CONFIG_HOME", cfgDir)
+	t.Setenv("DECIDE_HUB", "")
+
+	// Isolate agentbusRun to return a live bus mapping for w1:p9.
+	oldBus := agentbusRun
+	agentbusRun = func(_ context.Context, args []string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "list" && args[1] == "--json" {
+			return []byte(`[{"name":"team/live","handle":"herdr:local/s/w1:p9","liveness":"alive"}]`), nil
+		}
+		return nil, nil
+	}
+	t.Cleanup(func() { agentbusRun = oldBus })
+
+	// Configure contactAliases using `decide contacts alias`.
+	if _, stderr, code := runCLI("contacts", "alias", "old-tab", "team/live"); code != 0 {
+		t.Fatalf("contacts alias = %d\n%s", code, stderr)
+	}
+
+	ledgerDir := filepath.Join(state, "decide")
+	if err := os.MkdirAll(ledgerDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t0 := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC).Format(time.RFC3339)
+	fixture := `{
+  "next": 3,
+  "items": [
+    {
+      "id": "D-001", "question": "q1", "owner": "old-tab", "kind": "relay", "state": "answered",
+      "createdAt": "` + t0 + `", "answeredAt": "` + t0 + `",
+      "options": [{"key": "a", "label": "A"}],
+      "answer": {"value": "a", "key": "a", "label": "A", "answeredBy": "human"}
+    },
+    {
+      "id": "D-002", "question": "q2", "owner": "pane-tab", "notifyPane": "w1:p9", "kind": "relay", "freeText": true, "state": "answered",
+      "createdAt": "` + t0 + `", "answeredAt": "` + t0 + `",
+      "options": [{"key": "a", "label": "A"}],
+      "answer": {"value": "custom", "answeredBy": "human", "via": "ui"}
+    }
+  ]
+}`
+	if err := os.WriteFile(filepath.Join(ledgerDir, "ledger.json"), []byte(fixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	out, stderr, code := runCLI("stats", "answers", "--json")
+	if code != 0 {
+		t.Fatalf("stats answers = %d\n%s", code, stderr)
+	}
+	var rows []decide.AnswerStatsRow
+	if err := json.Unmarshal([]byte(out), &rows); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, out)
+	}
+	if len(rows) != 1 || rows[0].Agent != "team/live" || rows[0].Option != 1 || rows[0].FreeTextOverOptions != 1 || rows[0].Total != 2 {
+		t.Fatalf("rows = %+v", rows)
+	}
+	if !slices.Equal(rows[0].Aliases, []string{"old-tab", "pane-tab"}) {
+		t.Fatalf("aliases = %v, want [old-tab pane-tab]", rows[0].Aliases)
+	}
+
+	// --agent old-tab, --agent pane-tab, and --agent team/live all return the same row.
+	wantOut, _, _ := runCLI("stats", "answers", "--agent", "team/live", "--json")
+	for _, name := range []string{"old-tab", "pane-tab"} {
+		gotOut, stderr, code := runCLI("stats", "answers", "--agent", name, "--json")
+		if code != 0 {
+			t.Fatalf("--agent %s = %d\n%s", name, code, stderr)
+		}
+		if gotOut != wantOut {
+			t.Fatalf("--agent %s != --agent team/live:\ngot:\n%s\nwant:\n%s", name, gotOut, wantOut)
 		}
 	}
 }

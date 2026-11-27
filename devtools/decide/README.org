@@ -290,24 +290,29 @@ Every human answer or reply in a thread records an ~answerType~ on both
   question (for example, a follow-up after an answer or a reply on a
   ~note~).
 
-Alongside ~answerType~, ~decide~ records ~askingAgent~ (the ~by~ of the
-message that set the pending options, falling back to ~owner~),
-~askedAt~ (when that question was asked), and ~answeredAt~ on ~answer~
-(with ~time~ on the ~Message~). ~reply-no-question~ has no ~askingAgent~
-or ~askedAt~.
+Alongside ~answerType~, ~decide~ records ~askingAgent~ (resolved to the
+canonical agent name via ~contactAliases~, ~targets~, or the caller's
+agentbus name, falling back to ~by~ or ~owner~), ~rawOwner~ /
+~rawAskingAgent~ (the name as filed), ~askedAt~ (when that question
+was asked), and ~answeredAt~ on ~answer~ (with ~time~ on the ~Message~).
+~reply-no-question~ has no ~askingAgent~ or ~askedAt~.
 
 ~decide stats answers [--since <duration or date>] [--until <duration or date>] [--agent <name>] [--json]~
-summarizes answer quality per asking agent. Each row reports the agent,
-~option~, ~free-text-over-options~, ~free-text-only~, and ~unknown~
-counts, the share of free text among questions that offered options
+summarizes answer quality per asking agent, grouping aliases under
+their canonical name. Each row reports the canonical agent, ~option~,
+~free-text-over-options~, ~free-text-only~, and ~unknown~ counts, the
+share of free text among questions that offered options
 (~free-text-over-options / (option + free-text-over-options)~), and the
 total, sorted highest free-text share first. ~--since~ and ~--until~
 accept durations (~30m~, ~6h~, ~2d~), ~YYYY-MM-DD~ local dates, or
-RFC3339 timestamps. ~--json~ prints the same rows plus the deduplicated
-item IDs (~optionIds~, ~freeTextOverOptionsIds~, ~freeTextOnlyIds~,
-~unknownIds~) behind each count. Older items without ~answerType~ are
-derived from ~answer.key~, ~optionKey~, and whether options were pending
-at that message, or reported as ~unknown~ when ambiguous.
+RFC3339 timestamps. ~--agent~ matches either the canonical name or any
+merged alias. ~--json~ prints the same rows plus any merged ~aliases~
+and the deduplicated item IDs (~optionIds~, ~freeTextOverOptionsIds~,
+~freeTextOnlyIds~, ~unknownIds~) behind each count. Older items without
+~answerType~ or canonical ~askingAgent~ are resolved at report time
+using ~contactAliases~, ~targets~, and ~agentbus~ pane/name mappings, or
+reported as ~unknown~ when ambiguous. ~decide doctor~ warns when two
+unaliased names file from the same pane within an hour.
 
 * Notes and status
 

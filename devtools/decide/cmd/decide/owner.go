@@ -238,3 +238,36 @@ func askOwner(owner string, caller callerEnv, stderr io.Writer) string {
 	fmt.Fprintf(stderr, "warning: owner %q matches neither this tab (%q) nor your agentbus names (%s); the user finds you by tab\n", owner, caller.tab, list)
 	return owner
 }
+
+// askAgentNames returns the canonical asking agent and raw name as filed for
+// a new ask. When rawOwner is the caller's tab label and the caller holds an
+// agentbus name (and no explicit contactAliases entry overrides rawOwner), the
+// canonical name resolves to the caller's bus name.
+func askAgentNames(rawOwner string, caller callerEnv, cfg decide.Config) (canonical, raw string) {
+	raw = strings.TrimSpace(rawOwner)
+	if raw == "" {
+		return "", ""
+	}
+	var bus []decide.BusRecipient
+	handle := ""
+	if caller.defaultTarget.Scheme == decide.SchemeHerdr {
+		handle = caller.defaultTarget.Address
+	}
+	for _, b := range caller.busNames {
+		bus = append(bus, decide.BusRecipient{Name: b, Handle: handle})
+	}
+	res := decide.NewNameResolver(cfg, bus)
+	if strings.TrimSpace(cfg.ContactAliases[raw]) != "" {
+		return res.Resolve(raw, nil), raw
+	}
+	if slices.Contains(caller.busNames, raw) {
+		return raw, raw
+	}
+	if resolved := res.Resolve(raw, nil); resolved != raw {
+		return resolved, raw
+	}
+	if caller.tab != "" && raw == caller.tab && len(caller.busNames) > 0 {
+		return caller.busNames[0], raw
+	}
+	return raw, raw
+}

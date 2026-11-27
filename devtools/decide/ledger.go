@@ -86,20 +86,21 @@ type Option struct {
 // agentbus name, else its herdr tab label, else its pane handle. It is
 // empty when unknown. Author stays the thread owner on an agent reply.
 type Message struct {
-	Author      string     `json:"author"`
-	Time        time.Time  `json:"time"`
-	WrittenAt   *time.Time `json:"writtenAt,omitempty"`
-	ReceivedAt  *time.Time `json:"receivedAt,omitempty"`
-	Text        string     `json:"text"`
-	Verbatim    string     `json:"verbatim,omitempty"`
-	Options     []Option   `json:"options,omitempty"`
-	OptionKey   string     `json:"optionKey,omitempty"`
-	OptionLabel string     `json:"optionLabel,omitempty"`
-	Via         string     `json:"via,omitempty"`
-	By          string     `json:"by,omitempty"`
-	AnswerType  string     `json:"answerType,omitempty"`
-	AskingAgent string     `json:"askingAgent,omitempty"`
-	AskedAt     *time.Time `json:"askedAt,omitempty"`
+	Author         string     `json:"author"`
+	Time           time.Time  `json:"time"`
+	WrittenAt      *time.Time `json:"writtenAt,omitempty"`
+	ReceivedAt     *time.Time `json:"receivedAt,omitempty"`
+	Text           string     `json:"text"`
+	Verbatim       string     `json:"verbatim,omitempty"`
+	Options        []Option   `json:"options,omitempty"`
+	OptionKey      string     `json:"optionKey,omitempty"`
+	OptionLabel    string     `json:"optionLabel,omitempty"`
+	Via            string     `json:"via,omitempty"`
+	By             string     `json:"by,omitempty"`
+	AnswerType     string     `json:"answerType,omitempty"`
+	AskingAgent    string     `json:"askingAgent,omitempty"`
+	RawAskingAgent string     `json:"rawAskingAgent,omitempty"`
+	AskedAt        *time.Time `json:"askedAt,omitempty"`
 }
 
 // Sender is who to show for this message: By when it is set, else Author.
@@ -117,17 +118,18 @@ func (m Message) Sender() string {
 // Via is ViaUI or ViaCLI. It is empty on an answer stored before via
 // existed, which does not count as ViaUI.
 type Answer struct {
-	Value       string     `json:"value"`
-	Key         string     `json:"key,omitempty"`
-	Label       string     `json:"label,omitempty"`
-	AnsweredBy  string     `json:"answeredBy"`
-	Via         string     `json:"via,omitempty"`
-	WrittenAt   *time.Time `json:"writtenAt,omitempty"`
-	ReceivedAt  *time.Time `json:"receivedAt,omitempty"`
-	AnswerType  string     `json:"answerType,omitempty"`
-	AskingAgent string     `json:"askingAgent,omitempty"`
-	AskedAt     *time.Time `json:"askedAt,omitempty"`
-	AnsweredAt  *time.Time `json:"answeredAt,omitempty"`
+	Value          string     `json:"value"`
+	Key            string     `json:"key,omitempty"`
+	Label          string     `json:"label,omitempty"`
+	AnsweredBy     string     `json:"answeredBy"`
+	Via            string     `json:"via,omitempty"`
+	WrittenAt      *time.Time `json:"writtenAt,omitempty"`
+	ReceivedAt     *time.Time `json:"receivedAt,omitempty"`
+	AnswerType     string     `json:"answerType,omitempty"`
+	AskingAgent    string     `json:"askingAgent,omitempty"`
+	RawAskingAgent string     `json:"rawAskingAgent,omitempty"`
+	AskedAt        *time.Time `json:"askedAt,omitempty"`
+	AnsweredAt     *time.Time `json:"answeredAt,omitempty"`
 }
 
 // CheckVia reports an error unless via is ViaUI or ViaCLI.
@@ -140,13 +142,17 @@ func CheckVia(via string) error {
 
 // Item is one stored decision, kept as a thread of messages.
 type Item struct {
-	ID          string     `json:"id"`
-	Question    string     `json:"question"`
-	Verbatim    string     `json:"verbatim,omitempty"`
-	Messages    []Message  `json:"messages,omitempty"`
-	Options     []Option   `json:"options,omitempty"`
-	FreeText    bool       `json:"freeText"`
-	Owner       string     `json:"owner"`
+	ID       string    `json:"id"`
+	Question string    `json:"question"`
+	Verbatim string    `json:"verbatim,omitempty"`
+	Messages []Message `json:"messages,omitempty"`
+	Options  []Option  `json:"options,omitempty"`
+	FreeText bool      `json:"freeText"`
+	Owner    string    `json:"owner"`
+	// AskingAgent is the canonical asking agent resolved when the item was filed.
+	AskingAgent string `json:"askingAgent,omitempty"`
+	// RawOwner is the owner name exactly as filed before alias resolution.
+	RawOwner    string     `json:"rawOwner,omitempty"`
 	Links       []string   `json:"links,omitempty"`
 	Deadline    *time.Time `json:"deadline,omitempty"`
 	Kind        string     `json:"kind"`
@@ -329,6 +335,7 @@ func (l *Ledger) Create(item *Item) (Item, error) {
 	if stored.CreatedAt.IsZero() {
 		stored.CreatedAt = l.clock()
 	}
+	ensureAskingAgent(&stored)
 	normalizeTimes(&stored)
 	ensureMessages(&stored)
 	err := l.locked(true, func(st *store) error {
@@ -755,12 +762,12 @@ func (l *Ledger) AnswerAt(id, value, via string, writtenAt time.Time) (Item, err
 		// rebuild treats the new answer as the previous one and drops it.
 		ensureMessages(it)
 		receivedAt := l.clock().UTC()
-		answerType, label, isOption, askingAgent, askedAt := prepareAnswerMeta(it, stored)
+		answerType, label, isOption, askingAgent, rawAskingAgent, askedAt := prepareAnswerMeta(it, stored)
 		it.State = StateAnswered
 		it.AnsweredAt = receivedAt
 		it.FollowUp = ""
-		it.Answer = newAnswerRecord(stored, label, isOption, via, answerType, askingAgent, askedAt, receivedAt, writtenAt)
-		msg := newAnswerMessage(stored, label, isOption, via, answerType, askingAgent, askedAt, receivedAt, writtenAt)
+		it.Answer = newAnswerRecord(stored, label, isOption, via, answerType, askingAgent, rawAskingAgent, askedAt, receivedAt, writtenAt)
+		msg := newAnswerMessage(stored, label, isOption, via, answerType, askingAgent, rawAskingAgent, askedAt, receivedAt, writtenAt)
 		it.Messages = append(it.Messages, msg)
 		wakeOnMessage(it)
 		updated = *it
@@ -984,10 +991,10 @@ func (l *Ledger) ComposeVerbatimAt(id, text, verbatim, via, by string, writtenAt
 		now := l.clock().UTC()
 		isQuestion := openQuestion(it)
 		answerType := AnswerTypeReplyNoQuestion
-		var askingAgent string
+		var askingAgent, rawAskingAgent string
 		var askedAt time.Time
 		if isQuestion {
-			askingAgent, askedAt = pendingAsker(it)
+			askingAgent, rawAskingAgent, askedAt = pendingAsker(it)
 			if len(it.Options) > 0 {
 				answerType = AnswerTypeFreeTextOverOptions
 			} else {
@@ -995,15 +1002,16 @@ func (l *Ledger) ComposeVerbatimAt(id, text, verbatim, via, by string, writtenAt
 			}
 		}
 		msg := Message{
-			Author:      "human",
-			Time:        now,
-			Text:        text,
-			Verbatim:    verbatim,
-			Via:         via,
-			By:          by,
-			AnswerType:  answerType,
-			AskingAgent: askingAgent,
-			AskedAt:     utcTimePtr(askedAt),
+			Author:         "human",
+			Time:           now,
+			Text:           text,
+			Verbatim:       verbatim,
+			Via:            via,
+			By:             by,
+			AnswerType:     answerType,
+			AskingAgent:    askingAgent,
+			RawAskingAgent: rawAskingAgent,
+			AskedAt:        utcTimePtr(askedAt),
 		}
 		if !writtenAt.IsZero() {
 			w := writtenAt.UTC()
@@ -1020,13 +1028,14 @@ func (l *Ledger) ComposeVerbatimAt(id, text, verbatim, via, by string, writtenAt
 			it.State = StateAnswered
 			it.AnsweredAt = now
 			it.Answer = &Answer{
-				Value:       ans,
-				AnsweredBy:  "human",
-				Via:         via,
-				AnswerType:  answerType,
-				AskingAgent: askingAgent,
-				AskedAt:     utcTimePtr(askedAt),
-				AnsweredAt:  utcTimePtr(now),
+				Value:          ans,
+				AnsweredBy:     "human",
+				Via:            via,
+				AnswerType:     answerType,
+				AskingAgent:    askingAgent,
+				RawAskingAgent: rawAskingAgent,
+				AskedAt:        utcTimePtr(askedAt),
+				AnsweredAt:     utcTimePtr(now),
 			}
 			if !writtenAt.IsZero() {
 				w := writtenAt.UTC()
@@ -1276,6 +1285,8 @@ func (l *Ledger) Reassign(id string, change Reassign) (Item, error) {
 		oldOwner, oldPane := it.Owner, it.NotifyPane
 		if change.SetOwner {
 			it.Owner = owner
+			it.RawOwner = owner
+			it.AskingAgent = resolveAgentWithConfig(owner, it)
 		}
 		if change.SetPane {
 			applyNotifyPane(it, change.Pane, change.Machine)
@@ -1900,6 +1911,18 @@ func migrateStore(st *store) bool {
 		changed = true
 	}
 	return changed
+}
+
+func ensureAskingAgent(it *Item) {
+	if it.Owner == "" {
+		return
+	}
+	if it.RawOwner == "" {
+		it.RawOwner = it.Owner
+	}
+	if it.AskingAgent == "" {
+		it.AskingAgent = resolveAgentWithConfig(it.Owner, it)
+	}
 }
 
 func isUICreated(item *Item) bool {

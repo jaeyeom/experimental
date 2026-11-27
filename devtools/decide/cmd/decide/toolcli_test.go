@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/jaeyeom/experimental/devtools/decide"
 	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
 )
 
@@ -259,5 +261,56 @@ func TestDecideDoctorWarnsOnRemovedListArchiveNotes(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("missing keys check in %+v", out.Checks)
+	}
+}
+
+func TestDecideDoctorWarnsOnUnaliasedDuplicateAgents(t *testing.T) {
+	homeDir := t.TempDir()
+	xdgConfig := filepath.Join(homeDir, ".config")
+	xdgState := filepath.Join(homeDir, ".local", "state")
+	t.Setenv("XDG_CONFIG_HOME", xdgConfig)
+	t.Setenv("XDG_STATE_HOME", xdgState)
+	t.Setenv("DECIDE_HUB", "")
+
+	ledDir := filepath.Join(xdgState, "decide")
+	led, err := decide.Open(ledDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t0 := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	led.SetClock(func() time.Time { return t0 })
+	if _, err := led.Create(&decide.Item{
+		Question: "q1", Owner: "review", Kind: decide.KindRelay, NotifyPane: "w1:p3",
+		Options: []decide.Option{{Key: "a", Label: "A", Recommended: true}, {Key: "b", Label: "B"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	led.SetClock(func() time.Time { return t0.Add(5 * time.Minute) })
+	if _, err := led.Create(&decide.Item{
+		Question: "q2", Owner: "ops/inbox", Kind: decide.KindRelay, NotifyPane: "w1:p3",
+		Options: []decide.Option{{Key: "a", Label: "A", Recommended: true}, {Key: "b", Label: "B"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	res := checkDecideDuplicateAgents(context.Background(), true)
+	if res.Name != "agent-aliases" || res.Status != toolcli.StatusWarn {
+		t.Fatalf("got %+v, want StatusWarn", res)
+	}
+	if !strings.Contains(res.Detail, "review") || !strings.Contains(res.Detail, "ops/inbox") || !strings.Contains(res.Detail, "w1:p3") {
+		t.Fatalf("detail = %q, want review, ops/inbox, and w1:p3", res.Detail)
+	}
+
+	// Configuring contactAliases clears the warning.
+	cfgDir := filepath.Join(xdgConfig, "decide")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(`{"contactAliases":{"review":"ops/inbox"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	resAfter := checkDecideDuplicateAgents(context.Background(), true)
+	if resAfter.Status != toolcli.StatusOK {
+		t.Fatalf("after alias got %+v, want StatusOK", resAfter)
 	}
 }
