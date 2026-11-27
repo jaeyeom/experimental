@@ -103,8 +103,10 @@ func (t *Tool) cmdSkill(args []string, stdout, stderr io.Writer) int {
 		return t.cmdSkillUninstall(args[1:], stdout, stderr)
 	case "status":
 		return t.cmdSkillStatus(args[1:], stdout, stderr)
+	case "ref":
+		return t.cmdSkillRef(args[1:], stdout, stderr)
 	default:
-		return failMsg(stderr, fmt.Sprintf("unknown skill subcommand %q (expected install, uninstall, or status)", args[0]), 2)
+		return failMsg(stderr, fmt.Sprintf("unknown skill subcommand %q (expected install, uninstall, status, or ref)", args[0]), 2)
 	}
 }
 
@@ -134,6 +136,9 @@ func (t *Tool) skills() []Skill {
 }
 
 func validateSkillFilePath(raw string) (string, error) {
+	if strings.ContainsRune(raw, '\x00') {
+		return "", fmt.Errorf("skill companion file path %q must not contain NUL bytes", raw)
+	}
 	if strings.TrimSpace(raw) == "" {
 		return "", errors.New("skill companion file path must not be empty")
 	}
@@ -381,6 +386,7 @@ func applySkillUninstallPlan(p skillUninstallPlan, opts SkillUninstallOptions, s
 			if err := uninstallCompanionFiles(tgt.path, p.skill.Files); err != nil {
 				return err
 			}
+			removeEmptySkillDir(filepath.Dir(tgt.path))
 		}
 		if _, err := fmt.Fprintf(stdout, "%s %s (%s): %s\n", action, tgt.label, tgt.scope, tgt.path); err != nil {
 			return fmt.Errorf("write output: %w", err)
@@ -473,6 +479,83 @@ func (t *Tool) cmdSkillStatus(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if err := t.RunSkillStatus(*jsonOut, stdout); err != nil {
+		return failErr(stderr, err, 2)
+	}
+	return 0
+}
+
+// SkillRefOptions configures RunSkillRef.
+type SkillRefOptions struct {
+	Skill string
+	Path  string
+}
+
+// RunSkillRef prints available companion reference paths or a single embedded reference file.
+func (t *Tool) RunSkillRef(opts SkillRefOptions, stdout io.Writer) error {
+	skills := t.skills()
+	if err := validateAllSkillFiles(skills); err != nil {
+		return err
+	}
+	sk, ok := resolveSkillForRef(skills, t.Name, opts.Skill)
+	if !ok {
+		return fmt.Errorf("unknown skill %q", opts.Skill)
+	}
+	if opts.Path == "" {
+		for _, f := range sk.Files {
+			if _, err := fmt.Fprintln(stdout, f.Path); err != nil {
+				return fmt.Errorf("write output: %w", err)
+			}
+		}
+		return nil
+	}
+	cleaned, err := validateSkillFilePath(opts.Path)
+	if err != nil {
+		return err
+	}
+	for _, f := range sk.Files {
+		if path.Clean(f.Path) == cleaned {
+			if _, err := io.WriteString(stdout, f.Content); err != nil {
+				return fmt.Errorf("write skill reference: %w", err)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("unknown skill reference %q", opts.Path)
+}
+
+func resolveSkillForRef(skills []Skill, primaryName, requested string) (Skill, bool) {
+	if requested == "" {
+		if len(skills) == 1 {
+			return skills[0], true
+		}
+		requested = primaryName
+	}
+	for _, sk := range skills {
+		if sk.Name == requested {
+			return sk, true
+		}
+	}
+	return Skill{}, false
+}
+
+func (t *Tool) cmdSkillRef(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("skill ref", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	skillName := fs.String("skill", "", "target skill name (defaults to primary skill)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() > 1 {
+		return failMsg(stderr, "skill ref accepts at most one path argument", 2)
+	}
+	var refPath string
+	if fs.NArg() == 1 {
+		refPath = fs.Arg(0)
+	}
+	if err := t.RunSkillRef(SkillRefOptions{
+		Skill: *skillName,
+		Path:  refPath,
+	}, stdout); err != nil {
 		return failErr(stderr, err, 2)
 	}
 	return 0
@@ -736,6 +819,13 @@ func uninstallCompanionFiles(skillFile string, files []SkillFile) error {
 		}
 	}
 	return nil
+}
+
+func removeEmptySkillDir(skillDir string) {
+	if skillDir == "" || skillDir == "." || skillDir == string(filepath.Separator) {
+		return
+	}
+	_ = os.Remove(skillDir)
 }
 
 func installSkillFile(path, content, tool string, force, dryRun bool) error {

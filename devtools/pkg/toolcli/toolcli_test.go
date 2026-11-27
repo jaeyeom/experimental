@@ -1228,8 +1228,15 @@ func TestSkillCompanionFilesInstallStatusDoctorUpdateUninstall(t *testing.T) {
 			t.Fatalf("expected %s to be removed", p)
 		}
 	}
-	if _, err := os.Stat(filepath.Dir(claudeSetup)); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("expected empty references dir %s to be removed", filepath.Dir(claudeSetup))
+	for _, dir := range []string{
+		filepath.Dir(claudeSetup),
+		filepath.Dir(claudeSkill),
+		filepath.Dir(claudeExtraSetup),
+		filepath.Dir(filepath.Dir(claudeExtraSetup)),
+	} {
+		if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("expected empty dir %s to be removed", dir)
+		}
 	}
 
 	// --dir and --scope project support companion files, and foreign companion file blocks install without --force.
@@ -1303,6 +1310,7 @@ func TestSkillCompanionFilePathValidation(t *testing.T) {
 		"SKILL.md",
 		"skill.md",
 		"references/",
+		"references/a\x00b.md",
 	}
 	for _, bad := range invalidPaths {
 		t.Run("invalid_"+bad, func(t *testing.T) {
@@ -1347,5 +1355,128 @@ func TestSkillCompanionFilePathValidation(t *testing.T) {
 		if code != 2 {
 			t.Fatalf("expected exit 2 for duplicate companion paths, got %d", code)
 		}
+	})
+}
+
+func TestSkillUninstallPreservesUntrackedFilesAndPrunesEmptySkillDir(t *testing.T) {
+	home := t.TempDir()
+	work := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	tool := newTestTool(t, home, work, &fakeInstaller{})
+	tool.SkillFiles = []toolcli.SkillFile{
+		{Path: "references/setup.md", Content: "# setup\n"},
+	}
+
+	ctx := context.Background()
+	var out, errBuf bytes.Buffer
+	if code, _ := tool.Handle(ctx, []string{"skill", "install", "--agent", "claude"}, &out, &errBuf); code != 0 {
+		t.Fatalf("install: code=%d stderr=%s", code, errBuf.String())
+	}
+
+	skillDir := filepath.Join(home, ".claude", "skills", "mytool")
+	userNotes := filepath.Join(skillDir, "references", "user-notes.md")
+	if err := os.WriteFile(userNotes, []byte("keep me"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	out.Reset()
+	errBuf.Reset()
+	if code, _ := tool.Handle(ctx, []string{"skill", "uninstall", "--agent", "claude"}, &out, &errBuf); code != 0 {
+		t.Fatalf("uninstall: code=%d stderr=%s", code, errBuf.String())
+	}
+	if _, err := os.Stat(filepath.Join(skillDir, "SKILL.md")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("expected SKILL.md to be removed")
+	}
+	if _, err := os.Stat(filepath.Join(skillDir, "references", "setup.md")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("expected managed companion file to be removed")
+	}
+	gotNotes, err := os.ReadFile(userNotes)
+	if err != nil {
+		t.Fatalf("expected untracked user file to remain: %v", err)
+	}
+	if string(gotNotes) != "keep me" {
+		t.Fatalf("untracked user file content = %q, want %q", string(gotNotes), "keep me")
+	}
+}
+
+func TestSkillRefListAndPrint(t *testing.T) {
+	tool := newTestTool(t, t.TempDir(), t.TempDir(), &fakeInstaller{})
+	tool.SkillFiles = []toolcli.SkillFile{
+		{Path: "references/setup.md", Content: "# Setup guide\n"},
+		{Path: "references/advanced.md", Content: "# Advanced\n"},
+	}
+	tool.ExtraSkills = []toolcli.Skill{
+		{
+			Name:  "mytool-extra",
+			Text:  "---\nname: mytool-extra\n---\n",
+			Files: []toolcli.SkillFile{{Path: "references/extra.md", Content: "# Extra\n"}},
+		},
+	}
+
+	ctx := context.Background()
+
+	// List primary skill refs.
+	var out, errBuf bytes.Buffer
+	code, ok := tool.Handle(ctx, []string{"skill", "ref"}, &out, &errBuf)
+	if !ok || code != 0 {
+		t.Fatalf("skill ref list: ok=%v code=%d stderr=%s", ok, code, errBuf.String())
+	}
+	if got, want := out.String(), "references/setup.md\nreferences/advanced.md\n"; got != want {
+		t.Fatalf("skill ref list = %q, want %q", got, want)
+	}
+
+	// Print a primary skill ref.
+	out.Reset()
+	errBuf.Reset()
+	code, ok = tool.Handle(ctx, []string{"skill", "ref", "references/setup.md"}, &out, &errBuf)
+	if !ok || code != 0 {
+		t.Fatalf("skill ref setup: ok=%v code=%d stderr=%s", ok, code, errBuf.String())
+	}
+	if got := out.String(); got != "# Setup guide\n" {
+		t.Fatalf("skill ref setup = %q, want %q", got, "# Setup guide\n")
+	}
+
+	// List and print extra skill ref with --skill.
+	out.Reset()
+	errBuf.Reset()
+	code, _ = tool.Handle(ctx, []string{"skill", "ref", "--skill", "mytool-extra", "references/extra.md"}, &out, &errBuf)
+	if code != 0 || out.String() != "# Extra\n" {
+		t.Fatalf("skill ref extra: code=%d out=%q stderr=%s", code, out.String(), errBuf.String())
+	}
+
+	// Reject unknown, traversal, unknown skill, and extra args.
+	for _, args := range [][]string{
+		{"skill", "ref", "references/missing.md"},
+		{"skill", "ref", "../secret.md"},
+		{"skill", "ref", "--skill", "nope"},
+		{"skill", "ref", "a", "b"},
+	} {
+		out.Reset()
+		errBuf.Reset()
+		code, _ = tool.Handle(ctx, args, &out, &errBuf)
+		if code != 2 {
+			t.Fatalf("%v: expected exit 2, got %d (out=%q err=%q)", args, code, out.String(), errBuf.String())
+		}
+	}
+}
+
+func TestConformanceHelperWithSkillFiles(t *testing.T) {
+	toolcli.RunConformance(t, toolcli.ConformanceConfig{
+		NewTool: func(homeDir, workDir string, inst toolcli.Installer) toolcli.Tool {
+			tool := newTestTool(t, homeDir, workDir, inst)
+			tool.SkillFiles = []toolcli.SkillFile{
+				{Path: "references/setup.md", Content: "# Conformance Setup\n"},
+			}
+			tool.ExtraSkills = []toolcli.Skill{
+				{
+					Name:  "mytool-extra",
+					Text:  "---\nname: mytool-extra\n---\n",
+					Files: []toolcli.SkillFile{{Path: "references/extra.md", Content: "# Conformance Extra\n"}},
+				},
+			}
+			return tool
+		},
 	})
 }
