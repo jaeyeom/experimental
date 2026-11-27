@@ -228,18 +228,108 @@ func TestGateLanesLease(t *testing.T) {
 	}
 }
 
+func gateNoGitMock(t *testing.T, tabs string) *executor.MockExecutor {
+	t.Helper()
+	mock := executor.NewMockExecutor()
+	mock.SetDefaultBehavior(nil, errors.New("unexpected command"))
+	mock.ExpectCommandWithArgs("herdr", "tab", "list").WillSucceed(tabs, 0).Once().Build()
+	mock.ExpectCommandWithArgs("herdr", "pane", "list").WillSucceed(emptyPanes, 0).Once().Build()
+	mock.ExpectCommand("gh").WillSucceed(emptyPRs, 0).Once().Build()
+	useExec(t, mock)
+	return mock
+}
+
 func TestGateLeaseQueueHeldByAnotherAgent(t *testing.T) {
-	cfgPath, cwds := writeGateConfig(t, "[lease]\ngate = \"queue\"\n", gateSrc{name: "acme"})
+	cfgPath, cwds := writeGateConfig(t, "[lease]\ngate = \"queue\"\n[gate]\nbase_branch = \"main\"\nrequire = \"clean_against_base\"\n", gateSrc{name: "acme"})
 	cwd := cwds["jira:acme"]
 	dbPath := filepath.Join(t.TempDir(), "factory.db")
-	mock := gateMock(t, emptyTabs, "", "", nil)
+	mock := gateNoGitMock(t, emptyTabs)
 	expectLease(mock, cwd, leaseHeldJSON)
 	stdout, stderr, code := runCmd(t, "gate", "--config", cfgPath, "--db", dbPath)
 	if code != ExitOK || stderr != "" {
 		t.Fatalf("exit = %d, stderr = %s", code, stderr)
 	}
 	want := "OK: 0 in flight (max 3)\n" +
-		"note: " + cwd + ": lease held by pm/foo until " + heldUntil() + " (1 queued); start will queue behind holder (lease gate: queue)\n"
+		"note: " + cwd + ": lease held by pm/foo until " + heldUntil() + " (1 queued); start will queue behind holder (lease gate: queue)\n" +
+		"note: " + cwd + ": checkout checks skipped: lease held by pm/foo\n"
+	if stdout != want {
+		t.Fatalf("stdout =\n%s\nwant =\n%s", stdout, want)
+	}
+	if err := mock.AssertExpectationsMet(); err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range mock.Executions() {
+		if call.Command == "git" {
+			t.Fatalf("git was called when checkout checks should be skipped: %#v", call.Args)
+		}
+	}
+}
+
+func TestGateLeaseQueueHeldJSONReportsNotes(t *testing.T) {
+	for _, mode := range []string{"queue", "queue-required"} {
+		t.Run(mode, func(t *testing.T) {
+			cfgPath, cwds := writeGateConfig(t, "[lease]\ngate = \""+mode+"\"\n[gate]\nbase_branch = \"main\"\nrequire = \"clean_against_base\"\n", gateSrc{name: "acme"})
+			cwd := cwds["jira:acme"]
+			dbPath := filepath.Join(t.TempDir(), "factory.db")
+			mock := gateNoGitMock(t, emptyTabs)
+			expectLease(mock, cwd, leaseHeldJSON)
+			stdout, stderr, code := runCmd(t, "gate", "--json", "--config", cfgPath, "--db", dbPath)
+			if code != ExitOK || stderr != "" {
+				t.Fatalf("exit = %d, stderr = %s", code, stderr)
+			}
+			var got struct {
+				OK        bool     `json:"ok"`
+				LeaseGate string   `json:"leaseGate"`
+				Notes     []string `json:"notes"`
+			}
+			if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+				t.Fatalf("json: %v\n%s", err, stdout)
+			}
+			wantNotes := []string{
+				cwd + ": lease held by pm/foo until " + heldUntil() + " (1 queued); start will queue behind holder (lease gate: " + mode + ")",
+				cwd + ": checkout checks skipped: lease held by pm/foo",
+			}
+			if !got.OK || got.LeaseGate != mode || len(got.Notes) != 2 || got.Notes[0] != wantNotes[0] || got.Notes[1] != wantNotes[1] {
+				t.Fatalf("got = %+v, want ok=true leaseGate=%q notes=%q", got, mode, wantNotes)
+			}
+			if err := mock.AssertExpectationsMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestGateLeaseAutoHeldWithDirtyTreeStillRefuses(t *testing.T) {
+	cfgPath, cwds := writeGateConfig(t, "[lease]\ngate = \"auto\"\n", gateSrc{name: "acme"})
+	cwd := cwds["jira:acme"]
+	dbPath := filepath.Join(t.TempDir(), "factory.db")
+	mock := gateMock(t, emptyTabs, " M dirty.go\n", "", nil)
+	expectLease(mock, cwd, leaseHeldJSON)
+	stdout, stderr, code := runCmd(t, "gate", "--config", cfgPath, "--db", dbPath)
+	if code != ExitOK || stderr != "" {
+		t.Fatalf("exit = %d, stderr = %s", code, stderr)
+	}
+	want := cwd + " has uncommitted changes (1 files)\n" +
+		cwd + ": lease held by pm/foo until " + heldUntil() + " (1 queued)\n"
+	if stdout != want {
+		t.Fatalf("stdout =\n%s\nwant =\n%s", stdout, want)
+	}
+	if err := mock.AssertExpectationsMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGateLeaseQueueFreeWithDirtyTreeStillRefuses(t *testing.T) {
+	cfgPath, cwds := writeGateConfig(t, "[lease]\ngate = \"queue\"\n", gateSrc{name: "acme"})
+	cwd := cwds["jira:acme"]
+	dbPath := filepath.Join(t.TempDir(), "factory.db")
+	mock := gateMock(t, emptyTabs, " M dirty.go\n", "", nil)
+	expectLease(mock, cwd, leaseFreeJSON)
+	stdout, stderr, code := runCmd(t, "gate", "--config", cfgPath, "--db", dbPath)
+	if code != ExitOK || stderr != "" {
+		t.Fatalf("exit = %d, stderr = %s", code, stderr)
+	}
+	want := cwd + " has uncommitted changes (1 files)\n"
 	if stdout != want {
 		t.Fatalf("stdout =\n%s\nwant =\n%s", stdout, want)
 	}
@@ -347,19 +437,35 @@ func TestGateLeaseQueueRequiredMissingAgentbusRefuses(t *testing.T) {
 }
 
 func TestStartLeaseQueueHeldProceedsAndQueues(t *testing.T) {
-	cfgPath, cwd := writeStartConfig(t, "[lease]\ngate = \"queue\"\nmode = \"prompt\"\n", "")
+	cfgPath, cwd := writeStartConfig(t, "[lease]\ngate = \"queue\"\nmode = \"prompt\"\n[gate]\nbase_branch = \"main\"\nrequire = \"clean_against_base\"\n", "")
 	dbPath := filepath.Join(t.TempDir(), "factory.db")
 	seedStartItem(t, dbPath, "Fix it", true)
 	src := startFake()
 	useSources(t, map[string]*fake.Source{"acme": src})
 	rule := ruleFor(cwd, "45m")
-	mock := leaseApplyMock(t, cwd, rule+"\n\n"+startPrompt)
+	mock := executor.NewMockExecutor()
+	mock.SetDefaultBehavior(nil, errors.New("unexpected command"))
+	mock.ExpectCommandWithArgs("herdr", "workspace", "list").WillSucceed(rankWorkspaces, 0).Once().Build()
+	mock.ExpectCommandWithArgs("herdr", "tab", "list").WillSucceed(emptyTabs, 0).Times(2).Build()
+	mock.ExpectCommand("gh").WillSucceed(emptyPRs, 0).Once().Build()
+	mock.ExpectCommandWithArgs("herdr", "pane", "list").WillSucceed(emptyPanes, 0).Once().Build()
 	expectLease(mock, cwd, leaseHeldJSON)
+	mock.ExpectCommandWithArgs("git", "-C", cwd, "stash", "list").WillSucceed("", 0).Once().Build()
+	mock.ExpectCommandWithArgs("herdr", "workspace", "list").WillSucceed(rankWorkspaces, 0).Once().Build()
+	mock.ExpectCommandWithArgs("herdr", "tab", "create", "--workspace", "w1", "--label", "PRJ-1", "--cwd", cwd, "--env", "FACTORY_ITEM_SOURCE=jira:acme", "--env", "FACTORY_OUTPUT_MODE=pr", "--no-focus").
+		WillSucceed(startTab, 0).Once().Build()
+	mock.ExpectCommandWithArgs("herdr", "agent", "start", "prj-1", "--kind", "claude", "--pane", "w1:p1", "--timeout", "60000").
+		WillSucceed(startAgent, 0).Once().Build()
+	mock.ExpectCommandWithArgs("herdr", "agent", "wait", "w1:p1", "--until", "idle", "--timeout", "60000").WillSucceed(agentIdle, 0).Once().Build()
+	mock.ExpectCommandWithArgs("herdr", "agent", "prompt", "w1:p1", rule+"\n\n"+startPrompt, "--wait", "--until", "working", "--timeout", "30000").
+		WillSucceed(startPrompted, 0).Once().Build()
+	useExec(t, mock)
 	stdout, stderr, code := runCmd(t, "start", "PRJ-1", "--apply", "--config", cfgPath, "--db", dbPath)
 	if code != ExitOK || stderr != "" {
 		t.Fatalf("exit = %d, stderr = %s", code, stderr)
 	}
-	wantNote := "note     " + cwd + ": lease held by pm/foo until " + heldUntil() + " (1 queued); start will queue behind holder (lease gate: queue)\n"
+	wantNote := "note     " + cwd + ": lease held by pm/foo until " + heldUntil() + " (1 queued); start will queue behind holder (lease gate: queue)\n" +
+		"note     " + cwd + ": checkout checks skipped: lease held by pm/foo\n"
 	if !strings.HasPrefix(stdout, leasePlan(cwd, "prompt", rule)+wantNote+"factory start PRJ-1: started (tab w1:t1, claim ") {
 		t.Fatalf("stdout =\n%s", stdout)
 	}
@@ -371,6 +477,33 @@ func TestStartLeaseQueueHeldProceedsAndQueues(t *testing.T) {
 			t.Fatalf("factory took or modified the lease itself: agentbus %v", call.Args)
 		}
 	}
+}
+
+func TestStartLeaseQueueHeldBySelfChecksCheckoutAndRefusesDirty(t *testing.T) {
+	cfgPath, cwd := writeStartConfig(t, "[lease]\ngate = \"queue\"\n", "")
+	dbPath := filepath.Join(t.TempDir(), "factory.db")
+	seedStartItem(t, dbPath, "Fix it", true)
+	src := startFake()
+	useSources(t, map[string]*fake.Source{"acme": src})
+	mock := executor.NewMockExecutor()
+	mock.SetDefaultBehavior(nil, errors.New("unexpected command"))
+	mock.ExpectCommandWithArgs("herdr", "workspace", "list").WillSucceed(rankWorkspaces, 0).Once().Build()
+	mock.ExpectCommandWithArgs("herdr", "tab", "list").WillSucceed(emptyTabs, 0).Once().Build()
+	mock.ExpectCommand("gh").WillSucceed(emptyPRs, 0).Once().Build()
+	mock.ExpectCommandWithArgs("herdr", "pane", "list").WillSucceed(emptyPanes, 0).Once().Build()
+	mock.ExpectCommandWithArgs("git", "-C", cwd, "status", "--porcelain").WillSucceed(" M dirty.go\n", 0).Once().Build()
+	expectLease(mock, cwd, leaseHeldByPRJ1)
+	useExec(t, mock)
+	stdout, stderr, code := runCmd(t, "start", "PRJ-1", "--config", cfgPath, "--db", dbPath)
+	if code != ExitStartRefused {
+		t.Fatalf("exit = %d, stdout = %q, stderr = %s", code, stdout, stderr)
+	}
+	wantErr := "gate: " + cwd + " has uncommitted changes (1 files)"
+	wantOut := "blocked  yes\n" + startPlan(cwd) + "factory start PRJ-1: refused, nothing changed: start PRJ-1: " + wantErr + "\n"
+	if stdout != wantOut || !strings.Contains(stderr, wantErr) {
+		t.Fatalf("stdout =\n%s\nstderr = %q", stdout, stderr)
+	}
+	assertNoClaimCall(t, src)
 }
 
 func TestStartLeaseQueueFreeProceeds(t *testing.T) {
@@ -428,7 +561,7 @@ func TestGateLanesLeaseQueue(t *testing.T) {
 	mock := laneMock(t)
 	mock.ExpectCommandWithArgs("herdr", "tab", "list").WillSucceed(emptyTabs, 0).Once().Build()
 	mock.ExpectCommand("gh").WillSucceed(emptyPRs, 0).Once().Build()
-	expectLinuxLane(mock, setup.linux)
+	mock.ExpectCommandWithArgs("herdr", "pane", "list").WillSucceed(emptyPanes, 0).Once().Build()
 	expectLease(mock, setup.linux, leaseHeldJSON)
 	expectMacUp(mock)
 	mock.ExpectCommandWithArgs("agentbus", "lease", "status", "--all", "--json").
@@ -438,10 +571,50 @@ func TestGateLanesLeaseQueue(t *testing.T) {
 		t.Fatalf("exit = %d, stderr = %s", code, stderr)
 	}
 	want := "OK: 0 in flight (max 3)\n" +
-		"linux: OK workers 0/2 (running), active 0 (" + setup.linux + ": lease held by pm/foo until " + heldUntil() + " (1 queued); start will queue behind holder (lease gate: queue))\n" +
+		"linux: OK workers 0/2 (running), active 0 (" + setup.linux + ": lease held by pm/foo until " + heldUntil() + " (1 queued); start will queue behind holder (lease gate: queue); " + setup.linux + ": checkout checks skipped: lease held by pm/foo)\n" +
 		"mac: OK workers 0/2 (running), active 0 (checkout and lease not checked on remote machine mac1)\n"
 	if stdout != want {
 		t.Fatalf("stdout =\n%s\nwant =\n%s", stdout, want)
+	}
+	if err := mock.AssertExpectationsMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGateLanesLeaseQueueJSONReportsNote(t *testing.T) {
+	setup := writeLaneConfig(t, laneSetup{defaults: "[lease]\ngate = \"queue\"\n"})
+	dbPath := filepath.Join(t.TempDir(), "factory.db")
+	mock := laneMock(t)
+	mock.ExpectCommandWithArgs("herdr", "tab", "list").WillSucceed(emptyTabs, 0).Once().Build()
+	mock.ExpectCommand("gh").WillSucceed(emptyPRs, 0).Once().Build()
+	mock.ExpectCommandWithArgs("herdr", "pane", "list").WillSucceed(emptyPanes, 0).Once().Build()
+	expectLease(mock, setup.linux, leaseHeldJSON)
+	expectMacUp(mock)
+	mock.ExpectCommandWithArgs("agentbus", "lease", "status", "--all", "--json").
+		WillSucceed(`[{"checkout": "mac1:`+macCheckout+`", "state": "free", "queue": []}]`, 0).Once().Build()
+	stdout, stderr, code := runCmd(t, "gate", "--json", "--config", setup.cfgPath, "--db", dbPath)
+	if code != ExitOK || stderr != "" {
+		t.Fatalf("exit = %d, stderr = %s", code, stderr)
+	}
+	var got struct {
+		OK    bool `json:"ok"`
+		Lanes []struct {
+			Name      string `json:"name"`
+			OK        bool   `json:"ok"`
+			Line      string `json:"line"`
+			Note      string `json:"note"`
+			LeaseGate string `json:"leaseGate"`
+		} `json:"lanes"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("json: %v\n%s", err, stdout)
+	}
+	if !got.OK || len(got.Lanes) != 2 {
+		t.Fatalf("got = %+v", got)
+	}
+	wantNote := setup.linux + ": lease held by pm/foo until " + heldUntil() + " (1 queued); start will queue behind holder (lease gate: queue); " + setup.linux + ": checkout checks skipped: lease held by pm/foo"
+	if got.Lanes[0].Note != wantNote || got.Lanes[0].LeaseGate != "queue" || !strings.Contains(got.Lanes[0].Line, "checkout checks skipped: lease held by pm/foo") {
+		t.Fatalf("linux lane = %+v, want note %q", got.Lanes[0], wantNote)
 	}
 	if err := mock.AssertExpectationsMet(); err != nil {
 		t.Fatal(err)

@@ -99,7 +99,7 @@ Review and adjust the generated TOML sections (see `factory.example.toml` and `e
 - `hold_files`, `hold_tabs`, `hold_ttl`: local hold controls (`~/.local/state/factory/hold` is the default hold file when `hold_files` is empty).
 
 ### `[lease]`
-- `gate`: `"auto"` (default), `"off"`, `"required"`, `"queue"` (allows `held` and `releasing` leases so the start proceeds and the started agent queues behind the holder, while still refusing `paused` and `needs-adopt`; unreadable leases fall back with a note), or `"queue-required"` (same as `"queue"`, but refuses when the lease cannot be read) (top-level only; checks `agentbus` workdir lease).
+- `gate`: `"auto"` (default), `"off"`, `"required"`, `"queue"` (allows `held` and `releasing` leases held by another agent so the start proceeds, skips checkout git checks with a note, and queues the started agent behind the holder, while still running checkout checks for `free`/self-held leases and refusing `paused` and `needs-adopt`; unreadable leases fall back with a note), or `"queue-required"` (same as `"queue"`, but refuses when the lease cannot be read) (top-level only; checks `agentbus` workdir lease).
 - `mode`: `"off"` (default), `"prompt"`, or `"prompt+check"`.
 - `claim_for` (default `"45m"`) and `restore` (`false` default). (`mode`, `claim_for`, and `restore` can also be set in `[source.lease]` or `[lane.lease]`.)
 

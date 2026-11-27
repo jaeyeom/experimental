@@ -130,23 +130,21 @@ func Check(ctx context.Context, in Inputs, cwd string, d config.Defaults) Result
 	} else {
 		reasons = append(reasons, workingReasons(in, cwd)...)
 	}
-	reasons = append(reasons, checkoutReasons(ctx, in, cwd)...)
-	leaseReason, leaseNote := leaseCheck(ctx, in, cwd)
-	if leaseReason != "" {
-		reasons = append(reasons, leaseReason)
+	lease := leaseCheck(ctx, in, cwd)
+	if !lease.skipCheckout {
+		reasons = append(reasons, checkoutReasons(ctx, in, cwd)...)
+	}
+	if lease.reason != "" {
+		reasons = append(reasons, lease.reason)
 	}
 	reasons, flight, counted := applyFlight(reasons, in, d)
 	if elapsed := in.Now.Sub(in.LastStartedAt); elapsed < d.MinStartInterval {
 		reasons = append(reasons, fmt.Sprintf("last start %s ago (min %s)", elapsed, d.MinStartInterval))
 	}
-	var notes []string
-	if leaseNote != "" {
-		notes = []string{leaseNote}
-	}
 	return finishFlight(Result{
 		OK:        len(reasons) == 0,
 		Reasons:   reasons,
-		Notes:     notes,
+		Notes:     lease.notes,
 		LeaseGate: in.LeaseGate,
 	}, flight, counted, d.MaxInFlight)
 }

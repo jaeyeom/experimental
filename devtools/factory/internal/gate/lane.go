@@ -70,11 +70,15 @@ func CheckLane(ctx context.Context, in Inputs, lane Lane) LaneResult {
 	running, active := CountLane(in.ActiveClaims, lane.Name, in.Tabs, true, held)
 	note := ""
 	if lane.Machine == "" {
-		reasons = append(reasons, checkoutReasons(ctx, in, lane.Checkout)...)
-		var leaseReason string
-		leaseReason, note = leaseCheck(ctx, in, lane.Checkout)
-		if leaseReason != "" {
-			reasons = append(reasons, leaseReason)
+		lease := leaseCheck(ctx, in, lane.Checkout)
+		if !lease.skipCheckout {
+			reasons = append(reasons, checkoutReasons(ctx, in, lane.Checkout)...)
+		}
+		if lease.reason != "" {
+			reasons = append(reasons, lease.reason)
+		}
+		if len(lease.notes) > 0 {
+			note = strings.Join(lease.notes, "; ")
 		}
 	} else {
 		note = "checkout not checked on remote machine " + lane.Machine

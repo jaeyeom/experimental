@@ -27,7 +27,21 @@ func TestTickLeaseQueueHeldProceedsAndReportsMode(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			env := newTickEnv(t, []source.Item{readyItem("PRJ-123", "Ship it")}, true, false)
 			env.eng.Config.Lease.Gate = mode
+			env.eng.Config.Gate.BaseBranch = "main"
+			env.eng.Config.Gate.Require = config.GateCleanAgainstBase
 			env.eng.Config.Sources[0].Lease = config.LeasePrompt{Mode: config.LeaseModePrompt, ClaimFor: "45m"}
+			env.eng.Git = func(context.Context, string) (string, error) {
+				env.gitCalls++
+				return " M holder-dirty.go\n", nil
+			}
+			env.eng.GitBranch = func(context.Context, string) (string, error) {
+				env.gitCalls++
+				return "holder-branch", nil
+			}
+			env.eng.GitAhead = func(context.Context, string, string) (int, error) {
+				env.gitCalls++
+				return 3, nil
+			}
 			env.eng.Lease = func(context.Context, string) (agentbus.Reading, error) {
 				return agentbus.Reading{
 					Guarded: true,
@@ -47,16 +61,23 @@ func TestTickLeaseQueueHeldProceedsAndReportsMode(t *testing.T) {
 				t.Fatal(err)
 			}
 
+			if env.gitCalls != 0 {
+				t.Fatalf("gitCalls = %d, want 0 (checkout checks should be skipped)", env.gitCalls)
+			}
 			cwd := env.eng.Config.Sources[0].Cwd
 			wantNote := cwd + ": lease held by pm/foo until " + wantClock + " (1 queued); start will queue behind holder (lease gate: " + mode + ")"
+			wantSkipNote := cwd + ": checkout checks skipped: lease held by pm/foo"
 			if !strings.Contains(env.out.String(), "note     "+wantNote+"\n") {
 				t.Fatalf("stdout missing note %q:\n%s", wantNote, env.out.String())
+			}
+			if !strings.Contains(env.out.String(), "note     "+wantSkipNote+"\n") {
+				t.Fatalf("stdout missing skip note %q:\n%s", wantSkipNote, env.out.String())
 			}
 			if !strings.Contains(env.out.String(), "started PRJ-123 in factory/PRJ-123\n") {
 				t.Fatalf("stdout missing started line:\n%s", env.out.String())
 			}
-			if !strings.Contains(logs.String(), "lease gate: "+mode) {
-				t.Fatalf("logs missing mode %q:\n%s", mode, logs.String())
+			if !strings.Contains(logs.String(), "lease gate: "+mode) || !strings.Contains(logs.String(), "checkout checks skipped: lease held by pm/foo") {
+				t.Fatalf("logs missing mode or skip note:\n%s", logs.String())
 			}
 			if got := env.src.claimIDs(); !slices.Equal(got, []string{"PRJ-123"}) {
 				t.Fatalf("claims = %v, want [PRJ-123]", got)
@@ -167,6 +188,10 @@ func TestTickLanesLeaseQueueHeldProceeds(t *testing.T) {
 	deadline := "2026-10-31T14:20:00Z"
 	env := newLaneEnv(t, []source.Item{labeled("PRJ-1", "needs-linux")}, true, 2)
 	env.eng.Config.Lease.Gate = config.LeaseGateQueue
+	env.eng.Git = func(context.Context, string) (string, error) {
+		env.gitCalls++
+		return " M dirty.go\n", nil
+	}
 	env.eng.Lease = func(context.Context, string) (agentbus.Reading, error) {
 		return agentbus.Reading{
 			Guarded: true,
@@ -184,13 +209,82 @@ func TestTickLanesLeaseQueueHeldProceeds(t *testing.T) {
 	if err := env.eng.Tick(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	if env.gitCalls != 0 {
+		t.Fatalf("gitCalls = %d, want 0", env.gitCalls)
+	}
 	if !strings.Contains(env.out.String(), "started PRJ-1 in factory/PRJ-1 (lane linux)\n") {
 		t.Fatalf("stdout = %q", env.out.String())
 	}
-	if !strings.Contains(env.out.String(), "note     ") || !strings.Contains(env.out.String(), "lease gate: queue") {
-		t.Fatalf("stdout missing queue note:\n%s", env.out.String())
+	if !strings.Contains(env.out.String(), "note     ") || !strings.Contains(env.out.String(), "lease gate: queue") || !strings.Contains(env.out.String(), "checkout checks skipped: lease held by pm/foo") {
+		t.Fatalf("stdout missing queue or skip note:\n%s", env.out.String())
 	}
-	if !strings.Contains(logs.String(), "lease gate: queue") {
-		t.Fatalf("logs missing mode:\n%s", logs.String())
+	if !strings.Contains(logs.String(), "lease gate: queue") || !strings.Contains(logs.String(), "checkout checks skipped: lease held by pm/foo") {
+		t.Fatalf("logs missing mode or skip note:\n%s", logs.String())
+	}
+}
+
+func TestTickLeaseQueueFreeDirtyTreeRefuses(t *testing.T) {
+	env := newTickEnv(t, []source.Item{readyItem("PRJ-123", "Ship it")}, true, false)
+	env.eng.Config.Lease.Gate = config.LeaseGateQueue
+	env.eng.Git = func(context.Context, string) (string, error) {
+		env.gitCalls++
+		return " M dirty.go\n", nil
+	}
+	env.eng.Lease = func(context.Context, string) (agentbus.Reading, error) {
+		return agentbus.Reading{
+			Guarded: true,
+			Status:  agentbus.Status{Checkout: "local:/repo", State: agentbus.StateFree},
+		}, nil
+	}
+	if err := env.eng.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	cwd := env.eng.Config.Sources[0].Cwd
+	wantOut := "gate: " + cwd + " has uncommitted changes (1 files)\n"
+	if env.out.String() != wantOut {
+		t.Fatalf("stdout = %q, want %q", env.out.String(), wantOut)
+	}
+	if got := env.src.claimIDs(); len(got) != 0 {
+		t.Fatalf("claims = %v", got)
+	}
+	if run := tickRun(t, env.st); run.Outcome != outcomeGated {
+		t.Fatalf("outcome = %s, want %s", run.Outcome, outcomeGated)
+	}
+}
+
+func TestTickLeaseAutoHeldDirtyTreeRefuses(t *testing.T) {
+	deadline := "2026-10-31T14:20:00Z"
+	parsed, err := time.Parse(time.RFC3339, deadline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantClock := parsed.Local().Format("15:04")
+
+	env := newTickEnv(t, []source.Item{readyItem("PRJ-123", "Ship it")}, true, false)
+	env.eng.Config.Lease.Gate = config.LeaseGateAuto
+	env.eng.Git = func(context.Context, string) (string, error) {
+		env.gitCalls++
+		return " M dirty.go\n", nil
+	}
+	env.eng.Lease = func(context.Context, string) (agentbus.Reading, error) {
+		return agentbus.Reading{
+			Guarded: true,
+			Status: agentbus.Status{
+				Checkout: "local:/repo",
+				State:    agentbus.StateHeld,
+				Holder:   &agentbus.Holder{Handle: "herdr:local/default/w1:p2", Name: "pm/foo", Deadline: deadline},
+			},
+		}, nil
+	}
+	if err := env.eng.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	cwd := env.eng.Config.Sources[0].Cwd
+	wantOut := "gate: " + cwd + " has uncommitted changes (1 files); " + cwd + ": lease held by pm/foo until " + wantClock + " (0 queued)\n"
+	if env.out.String() != wantOut {
+		t.Fatalf("stdout = %q, want %q", env.out.String(), wantOut)
+	}
+	if run := tickRun(t, env.st); run.Outcome != outcomeGated {
+		t.Fatalf("outcome = %s, want %s", run.Outcome, outcomeGated)
 	}
 }

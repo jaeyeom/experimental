@@ -150,9 +150,11 @@ const (
 	// LeaseGateRequired treats a lease that cannot be read as busy.
 	LeaseGateRequired = "required"
 	// LeaseGateQueue allows a lease held by another agent (the started agent
-	// queues behind the holder through the lease queue) while still refusing
-	// paused and needs-adopt. Unreadable leases fall back to the herdr and
-	// git checks with a note, as in auto.
+	// queues behind the holder through the lease queue) and skips the
+	// checkout git checks while another agent holds or is releasing the
+	// lease, while still refusing paused and needs-adopt. Free or self-held
+	// leases still run checkout checks, and unreadable leases fall back to
+	// the herdr and git checks with a note, as in auto.
 	LeaseGateQueue = "queue"
 	// LeaseGateQueueRequired is LeaseGateQueue, and treats a lease that
 	// cannot be read as busy, as in required.

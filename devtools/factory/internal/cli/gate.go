@@ -250,6 +250,7 @@ type laneJSON struct {
 	OK        bool   `json:"ok"`
 	Line      string `json:"line"`
 	Skipped   string `json:"skipped,omitempty"`
+	Note      string `json:"note,omitempty"`
 	LeaseGate string `json:"leaseGate,omitempty"`
 }
 
@@ -261,7 +262,7 @@ func printGateJSON(w io.Writer, res gate.Result, lanes []gate.LaneResult) error 
 	if lanes != nil {
 		rows := make([]laneJSON, len(lanes))
 		for i, lane := range lanes {
-			rows[i] = laneJSON{Name: lane.Name, OK: lane.OK, Line: lane.Line(), Skipped: lane.Skipped, LeaseGate: lane.LeaseGate}
+			rows[i] = laneJSON{Name: lane.Name, OK: lane.OK, Line: lane.Line(), Skipped: lane.Skipped, Note: lane.Note, LeaseGate: lane.LeaseGate}
 		}
 		payload = struct {
 			gate.Result
