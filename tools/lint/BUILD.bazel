@@ -675,7 +675,6 @@ sh_library(
         "//devtools/decide/contrib/panels:sh_srcs",
         "//devtools/decide/web:sh_srcs",
         "//devtools/docsync/internal/cli:sh_srcs",
-        "//devtools/fork-keeper:sh_srcs",
         "//devtools/genfiles/cmd/genfiles:sh_srcs",
         "//devtools/gh-ask/userscript:sh_srcs",
         "//devtools/gh-nudge:sh_srcs",

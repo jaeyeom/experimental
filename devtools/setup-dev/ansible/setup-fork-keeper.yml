@@ -24,7 +24,6 @@
 - import_playbook: gather-facts.yml
 - import_playbook: setup-user-bin-directory.yml
 - import_playbook: git.yml
-- import_playbook: jq.yml
 - import_playbook: gh.yml
 
 - name: Schedule fork-keeper
@@ -42,13 +41,6 @@
     fork_keeper_home: "{{ ansible_facts['env']['HOME'] }}"
     fork_keeper_config_file: "{{ fork_keeper_home }}/.config/fork-keeper/forks.json"
     fork_keeper_log_file: "{{ fork_keeper_home }}/.cache/fork-keeper/cron.log"
-    # review-range.sh and validate-verdict.sh come from the claude-toolbox
-    # checkout that setup-claude-toolbox.yml also maintains. Its path does
-    # not change with the plugin version and does not depend on which agent
-    # runs the review.
-    fork_keeper_toolbox_repo: jaeyeom/claude-toolbox
-    fork_keeper_toolbox_checkout: "{{ fork_keeper_home }}/.cache/claude-toolbox"
-    fork_keeper_scripts_dir: "{{ fork_keeper_toolbox_checkout }}/plugins/fork-keeper/skills/fork-keeper/scripts"
     fork_keeper_path: "{{ user_bin_directory }}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
     # Replaced per fork: {out} is the agent's output directory and {branch}
     # the fork's default branch.
@@ -123,21 +115,6 @@
           when: fork_keeper_crontab_check.rc != 0
           tags: fork_keeper_cron
 
-        - name: Clone or update the claude-toolbox checkout
-          ansible.builtin.git:
-            repo: "https://github.com/{{ fork_keeper_toolbox_repo }}"
-            dest: "{{ fork_keeper_toolbox_checkout }}"
-            depth: 1
-
-        - name: Check that the fork-keeper helper scripts exist
-          ansible.builtin.stat:
-            path: "{{ fork_keeper_scripts_dir }}/{{ item }}"
-          loop:
-            - review-range.sh
-            - validate-verdict.sh
-          register: fork_keeper_helpers
-          failed_when: not fork_keeper_helpers.stat.exists
-
         - name: Create fork-keeper directories
           ansible.builtin.file:
             path: "{{ item }}"
@@ -162,7 +139,6 @@
             job: >-
               PATH='{{ fork_keeper_path }}'
               FORK_KEEPER_CONFIG='{{ fork_keeper_config_file }}'
-              FORK_KEEPER_SCRIPTS='{{ fork_keeper_scripts_dir }}'
               '{{ user_bin_directory }}/fork-keeper'
               >>'{{ fork_keeper_log_file }}' 2>&1
           tags: fork_keeper_cron

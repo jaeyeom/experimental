@@ -22,14 +22,17 @@ const (
 
 // Options configures a fork-keeper scheduler run.
 type Options struct {
-	ConfigPath string
-	CacheDir   string
-	ScriptsDir string
-	Today      string
-	Sandbox    string
-	ForkNames  []string
-	Stdout     io.Writer
-	Stderr     io.Writer
+	ConfigPath  string
+	CacheDir    string
+	ScriptsDir  string
+	GHBin       string
+	ReviewerCmd []string
+	Reviewer    Reviewer
+	Today       string
+	Sandbox     string
+	ForkNames   []string
+	Stdout      io.Writer
+	Stderr      io.Writer
 }
 
 type ghLabel struct {
@@ -64,12 +67,24 @@ func Run(ctx context.Context, opts Options) error {
 		_, _ = fmt.Fprintf(opts.Stderr, "fork-keeper[%s]: error: %v\n", forkName, err)
 	}
 
-	if err := validatePrerequisites(opts); err != nil {
+	if _, err := os.Stat(opts.ConfigPath); err != nil {
+		err = fmt.Errorf("no config at %s", opts.ConfigPath)
 		logErr("-", err)
 		return err
 	}
 	cfg, err := LoadConfig(opts.ConfigPath)
 	if err != nil {
+		logErr("-", err)
+		return err
+	}
+
+	env := os.Environ()
+	ghBin, err := cfg.ResolveGHBin(opts.GHBin, env)
+	if err != nil {
+		logErr("-", err)
+		return err
+	}
+	if err := validatePrerequisites(opts, ghBin); err != nil {
 		logErr("-", err)
 		return err
 	}
@@ -86,7 +101,15 @@ func Run(ctx context.Context, opts Options) error {
 			}
 			continue
 		}
-		if err := runFork(ctx, fork.withDefaults(), opts, logMsg); err != nil {
+		reviewer, err := resolveReviewer(opts, cfg, fork, env)
+		if err != nil {
+			logErr(name, err)
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if err := runFork(ctx, fork.withDefaults(), opts, ghBin, reviewer, logMsg); err != nil {
 			logErr(name, err)
 			if firstErr == nil {
 				firstErr = err
@@ -94,6 +117,20 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}
 	return firstErr
+}
+
+func resolveReviewer(opts Options, cfg Config, f Fork, env []string) (Reviewer, error) {
+	if opts.Reviewer != nil {
+		return opts.Reviewer, nil
+	}
+	cmd, err := f.EffectiveReviewerCommand(opts.ReviewerCmd, cfg.ReviewerCmd, env)
+	if err != nil {
+		return nil, err
+	}
+	if len(cmd) == 0 {
+		return StandaloneReviewer{}, nil
+	}
+	return &CommandReviewer{Command: cmd}, nil
 }
 
 func normalizeOptions(opts Options) Options {
@@ -125,20 +162,17 @@ func normalizeOptions(opts Options) Options {
 	return opts
 }
 
-func validatePrerequisites(opts Options) error {
-	for _, tool := range []string{"git", "jq", "gh"} {
-		if _, err := exec.LookPath(tool); err != nil {
-			return fmt.Errorf("%s is required", tool)
-		}
+func validatePrerequisites(opts Options, ghBin string) error {
+	if _, err := exec.LookPath("git"); err != nil {
+		return errors.New("git is required")
 	}
-	if _, err := os.Stat(opts.ConfigPath); err != nil {
-		return fmt.Errorf("no config at %s", opts.ConfigPath)
+	if _, err := exec.LookPath(ghBin); err != nil {
+		return fmt.Errorf("%s is required", ghBin)
 	}
-	for _, s := range []string{"review-range.sh", "validate-verdict.sh"} {
-		p := filepath.Join(opts.ScriptsDir, s)
-		if _, err := os.Stat(p); err != nil {
-			return fmt.Errorf("missing %s", p)
-		}
+	switch opts.Sandbox {
+	case "", sandboxAuto, sandboxSeatbelt, sandboxBwrap, sandboxNone:
+	default:
+		return fmt.Errorf("unknown sandbox mode %q (want auto, seatbelt, bwrap, or none)", opts.Sandbox)
 	}
 	return nil
 }
@@ -170,16 +204,19 @@ type forkPaths struct {
 	outDir     string
 	privDir    string
 	rangeFile  string
+	diffFile   string
+	promptFile string
+	schemaFile string
 }
 
-func runFork(ctx context.Context, f Fork, opts Options, logMsg func(string, string, ...any)) error {
+func runFork(ctx context.Context, f Fork, opts Options, ghBin string, reviewer Reviewer, logMsg func(string, string, ...any)) error {
 	paths, cleanup, err := initForkPaths(opts, f.Name)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
 
-	rangeInfo, err := fetchAndComputeRange(ctx, f, paths)
+	rangeInfo, err := fetchAndComputeRange(ctx, f, opts, paths)
 	if err != nil {
 		return err
 	}
@@ -188,22 +225,22 @@ func runFork(ctx context.Context, f Fork, opts Options, logMsg func(string, stri
 		return nil
 	}
 
-	pr, err := findOpenSyncPR(ctx, f.Repo)
+	pr, err := findOpenSyncPR(ctx, ghBin, f.Repo)
 	if err != nil {
 		return err
 	}
 
-	syncBranch, prURL, sticky, done, err := handleExistingPR(ctx, f, opts, paths.gitDir, rangeInfo.UpstreamNew, pr, logMsg)
+	syncBranch, prURL, sticky, done, err := handleExistingPR(ctx, f, opts, ghBin, paths.gitDir, rangeInfo.UpstreamNew, pr, logMsg)
 	if err != nil || done {
 		return err
 	}
 
-	candidate, err := runAgentCandidate(ctx, f, opts, paths, logMsg)
+	candidate, err := runAgentCandidate(ctx, f, opts, paths, rangeInfo, reviewer, logMsg)
 	if err != nil {
 		return err
 	}
 
-	return publishAndPromote(ctx, f, opts, paths, rangeInfo, pr, syncBranch, prURL, candidate, sticky, logMsg)
+	return publishAndPromote(ctx, f, opts, ghBin, paths, rangeInfo, pr, syncBranch, prURL, candidate, sticky, logMsg)
 }
 
 func initForkPaths(opts Options, forkName string) (forkPaths, func(), error) {
@@ -217,10 +254,15 @@ func initForkPaths(opts Options, forkName string) (forkPaths, func(), error) {
 	}
 	cleanup := func() { _ = os.RemoveAll(privDir) }
 
-	for _, s := range []string{"review-range.sh", "validate-verdict.sh"} {
-		if err := copyExecutable(filepath.Join(opts.ScriptsDir, s), filepath.Join(privDir, s)); err != nil {
-			cleanup()
-			return forkPaths{}, nil, fmt.Errorf("copy %s: %w", s, err)
+	if opts.ScriptsDir != "" {
+		for _, s := range []string{"review-range.sh", "validate-verdict.sh"} {
+			src := filepath.Join(opts.ScriptsDir, s)
+			if _, statErr := os.Stat(src); statErr == nil {
+				if err := copyExecutable(src, filepath.Join(privDir, s)); err != nil {
+					cleanup()
+					return forkPaths{}, nil, fmt.Errorf("copy %s: %w", s, err)
+				}
+			}
 		}
 	}
 	return forkPaths{
@@ -230,10 +272,13 @@ func initForkPaths(opts Options, forkName string) (forkPaths, func(), error) {
 		outDir:     filepath.Join(opts.CacheDir, forkName+".out"),
 		privDir:    privDir,
 		rangeFile:  filepath.Join(privDir, "range.json"),
+		diffFile:   filepath.Join(privDir, "upstream.diff"),
+		promptFile: filepath.Join(privDir, "prompt.md"),
+		schemaFile: filepath.Join(privDir, "verdict-schema.json"),
 	}, cleanup, nil
 }
 
-func fetchAndComputeRange(ctx context.Context, f Fork, paths forkPaths) (RangeInfo, error) {
+func fetchAndComputeRange(ctx context.Context, f Fork, opts Options, paths forkPaths) (RangeInfo, error) {
 	if _, err := os.Stat(paths.gitDir); errors.Is(err, os.ErrNotExist) {
 		if err := runGit(ctx, "", "init", "-q", "--bare", paths.gitDir); err != nil {
 			return RangeInfo{}, fmt.Errorf("init bare repo: %w", err)
@@ -253,16 +298,32 @@ func fetchAndComputeRange(ctx context.Context, f Fork, paths forkPaths) (RangeIn
 		return RangeInfo{}, fmt.Errorf("cannot fetch upstream %s: %w", f.UpstreamURL, err)
 	}
 
-	rangeBytes, err := runReviewRange(ctx, filepath.Join(paths.privDir, "review-range.sh"), paths.gitDir, f.Branch)
-	if err != nil {
-		return RangeInfo{}, fmt.Errorf("review-range.sh failed: %w", err)
+	var rangeInfo RangeInfo
+	var rangeBytes []byte
+	var err error
+	legacyScript := filepath.Join(paths.privDir, "review-range.sh")
+	if opts.ScriptsDir != "" && fileExists(legacyScript) {
+		rangeBytes, err = runReviewRangeScript(ctx, legacyScript, paths.gitDir, f.Branch)
+		if err != nil {
+			return RangeInfo{}, fmt.Errorf("review-range.sh failed: %w", err)
+		}
+		if err := json.Unmarshal(rangeBytes, &rangeInfo); err != nil {
+			return RangeInfo{}, fmt.Errorf("parse range.json: %w", err)
+		}
+	} else {
+		rangeInfo, err = ComputeRange(ctx, paths.gitDir, "upstream", f.Branch)
+		if err != nil {
+			return RangeInfo{}, fmt.Errorf("compute range: %w", err)
+		}
+		rangeBytes, err = json.Marshal(rangeInfo)
+		if err != nil {
+			return RangeInfo{}, fmt.Errorf("encode range.json: %w", err)
+		}
+		rangeBytes = append(rangeBytes, '\n')
 	}
+
 	if err := os.WriteFile(paths.rangeFile, rangeBytes, 0o600); err != nil {
 		return RangeInfo{}, fmt.Errorf("write range.json: %w", err)
-	}
-	var rangeInfo RangeInfo
-	if err := json.Unmarshal(rangeBytes, &rangeInfo); err != nil {
-		return RangeInfo{}, fmt.Errorf("parse range.json: %w", err)
 	}
 	return rangeInfo, nil
 }
@@ -390,7 +451,7 @@ func formatSyncLocation(syncBranch, prURL string) string {
 	return syncBranch
 }
 
-func handleExistingPR(ctx context.Context, f Fork, opts Options, gitDir, upstreamNew string, pr *ghPR, logMsg func(string, string, ...any)) (syncBranch, prURL string, sticky, done bool, err error) {
+func handleExistingPR(ctx context.Context, f Fork, opts Options, ghBin, gitDir, upstreamNew string, pr *ghPR, logMsg func(string, string, ...any)) (syncBranch, prURL string, sticky, done bool, err error) {
 	syncBranch = "sync/" + opts.Today
 	if pr == nil {
 		return syncBranch, "", false, false, nil
@@ -402,7 +463,7 @@ func handleExistingPR(ctx context.Context, f Fork, opts Options, gitDir, upstrea
 
 	if pr.hasLabel(labelApproved) {
 		if fetched != "" && prHead == fetched {
-			current, err := isApprovalCurrent(ctx, f.Repo, pr.Number)
+			current, err := isApprovalCurrent(ctx, ghBin, f.Repo, pr.Number)
 			if err != nil {
 				return "", "", false, false, fmt.Errorf("check approval timeline for #%d: %w", pr.Number, err)
 			}
@@ -434,25 +495,49 @@ func handleExistingPR(ctx context.Context, f Fork, opts Options, gitDir, upstrea
 	return syncBranch, prURL, sticky, false, nil
 }
 
-func runAgentCandidate(ctx context.Context, f Fork, opts Options, paths forkPaths, logMsg func(string, string, ...any)) (string, error) {
+func runAgentCandidate(ctx context.Context, f Fork, opts Options, paths forkPaths, rangeInfo RangeInfo, reviewer Reviewer, logMsg func(string, string, ...any)) (string, error) {
 	if err := prepareAgentWorkdir(ctx, paths.gitDir, paths.workDir, paths.outDir, opts.CacheDir, paths.noHooksDir, f.Branch); err != nil {
 		return "", err
 	}
 
-	agentArgs := make([]string, len(f.Agent))
-	for i, a := range f.Agent {
-		a = strings.ReplaceAll(a, "{out}", paths.outDir)
-		a = strings.ReplaceAll(a, "{branch}", f.Branch)
-		agentArgs[i] = a
-	}
-	logMsg(f.Name, "running agent: %s", agentArgs[0])
-	agentLogPath := filepath.Join(opts.CacheDir, f.Name+".agent.log")
-	agentRC, err := runAgent(ctx, opts.Sandbox, paths.gitDir, paths.workDir, paths.outDir, opts.CacheDir, agentLogPath, agentArgs)
+	diffText, err := BuildUpstreamDiff(ctx, paths.gitDir, rangeInfo)
 	if err != nil {
 		return "", err
 	}
-	if agentRC != 0 {
-		logMsg(f.Name, "agent exited %d (see %s)", agentRC, agentLogPath)
+	if err := os.WriteFile(paths.diffFile, []byte(diffText), 0o600); err != nil {
+		return "", fmt.Errorf("write upstream diff: %w", err)
+	}
+	if err := os.WriteFile(paths.schemaFile, []byte(VerdictOutputSchema+"\n"), 0o600); err != nil {
+		return "", fmt.Errorf("write verdict schema: %w", err)
+	}
+
+	agentLogPath := filepath.Join(opts.CacheDir, f.Name+".agent.log")
+	if cmdRev, ok := reviewer.(*CommandReviewer); ok {
+		logMsg(f.Name, "running reviewer: %s", cmdRev.Command[0])
+	} else {
+		logMsg(f.Name, "running built-in standalone rebase (no external reviewer configured)")
+	}
+
+	input := ReviewInput{
+		Fork:        f,
+		WorkDir:     paths.workDir,
+		OutDir:      paths.outDir,
+		GitDir:      paths.gitDir,
+		CacheDir:    opts.CacheDir,
+		LogPath:     agentLogPath,
+		SandboxMode: opts.Sandbox,
+		Range:       rangeInfo,
+		RangeFile:   paths.rangeFile,
+		DiffFile:    paths.diffFile,
+		PromptFile:  paths.promptFile,
+		SchemaFile:  paths.schemaFile,
+	}
+	res, err := reviewer.Review(ctx, input)
+	if err != nil {
+		return "", fmt.Errorf("review %s: %w", f.Name, err)
+	}
+	if res.AgentExited != 0 {
+		logMsg(f.Name, "agent exited %d (see %s)", res.AgentExited, agentLogPath)
 	}
 
 	candidate := gitRevParseDirOptional(ctx, paths.workDir, "refs/heads/fork-keeper/candidate^{commit}")
@@ -470,24 +555,14 @@ func runAgentCandidate(ctx context.Context, f Fork, opts Options, paths forkPath
 	return candidate, nil
 }
 
-func publishAndPromote(ctx context.Context, f Fork, opts Options, paths forkPaths, rangeInfo RangeInfo, pr *ghPR, syncBranch, prURL, candidate string, sticky bool, logMsg func(string, string, ...any)) error {
-	valid, vmsg := validateVerdict(ctx, filepath.Join(paths.privDir, "validate-verdict.sh"),
-		filepath.Join(paths.outDir, "verdict.json"), candidate, paths.rangeFile)
-	verdict := readVerdictField(filepath.Join(paths.outDir, "verdict.json"))
-	hits, twErr := CheckTripwires(ctx, paths.gitDir, rangeInfo, candidate)
-	twRC := 0
-	if twErr != nil || len(hits) > 0 {
-		twRC = 1
-	}
-
-	bodyFile := filepath.Join(paths.privDir, "body.md")
-	bodyContent := buildPRBody(filepath.Join(paths.outDir, "report.md"), verdict, valid, vmsg, hits, twErr, sticky)
-	if err := os.WriteFile(bodyFile, []byte(bodyContent), 0o600); err != nil {
-		return fmt.Errorf("write PR body: %w", err)
+func publishAndPromote(ctx context.Context, f Fork, opts Options, ghBin string, paths forkPaths, rangeInfo RangeInfo, pr *ghPR, syncBranch, prURL, candidate string, sticky bool, logMsg func(string, string, ...any)) error {
+	verdict, valid, bodyFile, twRC, err := preparePRBody(ctx, opts, paths, rangeInfo, candidate, sticky)
+	if err != nil {
+		return err
 	}
 
 	if pr != nil && pr.hasLabel(labelApproved) {
-		if _, err := ghOutput(ctx, "pr", "edit", syncBranch, "-R", f.Repo, "--remove-label", labelApproved); err != nil {
+		if _, err := ghOutput(ctx, ghBin, "pr", "edit", syncBranch, "-R", f.Repo, "--remove-label", labelApproved); err != nil {
 			return fmt.Errorf("cannot remove %s before refreshing %s: %w", labelApproved, syncBranch, err)
 		}
 	}
@@ -499,13 +574,12 @@ func publishAndPromote(ctx context.Context, f Fork, opts Options, paths forkPath
 		return fmt.Errorf("cannot push %s: %w", syncBranch, err)
 	}
 
-	var err error
-	prURL, err = upsertSyncPR(ctx, f, opts.Today, pr, syncBranch, prURL, bodyFile, logMsg)
+	prURL, err = upsertSyncPR(ctx, ghBin, f, opts.Today, pr, syncBranch, prURL, bodyFile, logMsg)
 	if err != nil {
 		return err
 	}
 
-	if valid && verdict == "clean" && twRC == 0 && !sticky {
+	if valid && verdict == VerdictClean && twRC == 0 && !sticky {
 		if err := promoteFork(ctx, f, opts, paths.gitDir, syncBranch, candidate, rangeInfo.UpstreamNew, "refs/upstream-tags", logMsg); err != nil {
 			return err
 		}
@@ -513,7 +587,7 @@ func publishAndPromote(ctx context.Context, f Fork, opts Options, paths forkPath
 		return nil
 	}
 
-	if _, err := ghOutput(ctx, "pr", "edit", syncBranch, "-R", f.Repo, "--add-label", labelNeedsReview); err != nil {
+	if _, err := ghOutput(ctx, ghBin, "pr", "edit", syncBranch, "-R", f.Repo, "--add-label", labelNeedsReview); err != nil {
 		return fmt.Errorf("cannot label %s %s: %w", syncBranch, labelNeedsReview, err)
 	}
 	logMsg(f.Name, "needs-review: %s (verdict %s, validator %t, tripwires rc %d, sticky %t)",
@@ -521,9 +595,32 @@ func publishAndPromote(ctx context.Context, f Fork, opts Options, paths forkPath
 	return nil
 }
 
-func upsertSyncPR(ctx context.Context, f Fork, today string, pr *ghPR, syncBranch, prURL, bodyFile string, logMsg func(string, string, ...any)) (string, error) {
+func preparePRBody(ctx context.Context, opts Options, paths forkPaths, rangeInfo RangeInfo, candidate string, sticky bool) (verdict string, valid bool, bodyFile string, twRC int, err error) {
+	verdictPath := filepath.Join(paths.outDir, "verdict.json")
+	var vmsg string
+	legacyValidator := filepath.Join(paths.privDir, "validate-verdict.sh")
+	if opts.ScriptsDir != "" && fileExists(legacyValidator) {
+		valid, vmsg = validateVerdictScript(ctx, legacyValidator, verdictPath, candidate, paths.rangeFile)
+	} else {
+		_, valid, vmsg = ValidateVerdictFile(verdictPath, candidate, &rangeInfo)
+	}
+	verdict, summary := readVerdictMeta(verdictPath)
+	hits, twErr := CheckTripwires(ctx, paths.gitDir, rangeInfo, candidate)
+	if twErr != nil || len(hits) > 0 {
+		twRC = 1
+	}
+
+	bodyFile = filepath.Join(paths.privDir, "body.md")
+	bodyContent := buildPRBody(filepath.Join(paths.outDir, "report.md"), verdict, summary, valid, vmsg, hits, twErr, sticky)
+	if err := os.WriteFile(bodyFile, []byte(bodyContent), 0o600); err != nil {
+		return "", false, "", 0, fmt.Errorf("write PR body: %w", err)
+	}
+	return verdict, valid, bodyFile, twRC, nil
+}
+
+func upsertSyncPR(ctx context.Context, ghBin string, f Fork, today string, pr *ghPR, syncBranch, prURL, bodyFile string, logMsg func(string, string, ...any)) (string, error) {
 	if pr != nil {
-		if _, err := ghOutput(ctx, "pr", "edit", syncBranch, "-R", f.Repo, "--body-file", bodyFile); err != nil {
+		if _, err := ghOutput(ctx, ghBin, "pr", "edit", syncBranch, "-R", f.Repo, "--body-file", bodyFile); err != nil {
 			return prURL, fmt.Errorf("cannot refresh the PR for %s: %w", syncBranch, err)
 		}
 		target := prURL
@@ -534,7 +631,7 @@ func upsertSyncPR(ctx context.Context, f Fork, today string, pr *ghPR, syncBranc
 		return prURL, nil
 	}
 
-	createdURL, err := ghOutput(ctx, "pr", "create", "-R", f.Repo,
+	createdURL, err := ghOutput(ctx, ghBin, "pr", "create", "-R", f.Repo,
 		"--base", f.Branch,
 		"--head", syncBranch,
 		"--title", "fork-keeper: sync upstream "+today,
@@ -551,8 +648,8 @@ func upsertSyncPR(ctx context.Context, f Fork, today string, pr *ghPR, syncBranc
 	return prURL, nil
 }
 
-func findOpenSyncPR(ctx context.Context, repo string) (*ghPR, error) {
-	out, err := ghOutput(ctx, "pr", "list", "-R", repo, "--state", "open",
+func findOpenSyncPR(ctx context.Context, ghBin, repo string) (*ghPR, error) {
+	out, err := ghOutput(ctx, ghBin, "pr", "list", "-R", repo, "--state", "open",
 		"--json", "number,headRefName,headRefOid,labels,url")
 	if err != nil {
 		return nil, fmt.Errorf("gh pr list failed: %w", err)
@@ -584,9 +681,9 @@ type timelineEvent struct {
 	} `json:"label"`
 }
 
-func isApprovalCurrent(ctx context.Context, repo string, prNumber int) (bool, error) {
+func isApprovalCurrent(ctx context.Context, ghBin, repo string, prNumber int) (bool, error) {
 	endpoint := fmt.Sprintf("repos/%s/issues/%d/timeline", repo, prNumber)
-	out, err := ghOutput(ctx, "api", "--paginate", endpoint)
+	out, err := ghOutput(ctx, ghBin, "api", "--paginate", endpoint)
 	if err != nil {
 		return false, err
 	}
@@ -661,52 +758,36 @@ func prepareAgentWorkdir(ctx context.Context, gitDir, workDir, outDir, cacheDir,
 	return nil
 }
 
-func runAgent(ctx context.Context, sandboxMode, gitDir, workDir, outDir, cacheDir, logPath string, args []string) (int, error) {
-	homeDir, _ := os.UserHomeDir()
-	execArgs, err := wrapAgentSandbox(sandboxMode, homeDir, gitDir, args)
-	if err != nil {
-		return 0, fmt.Errorf("confine agent: %w", err)
-	}
-
-	logFile, err := os.Create(logPath)
-	if err != nil {
-		return 0, fmt.Errorf("create agent log %s: %w", logPath, err)
-	}
-	defer func() { _ = logFile.Close() }()
-
-	//nolint:gosec // Configured agent command from forks.json, wrapped in sandbox when enabled.
-	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
-	cmd := exec.CommandContext(ctx, execArgs[0], execArgs[1:]...)
-	cmd.Dir = workDir
-	cmd.Env = scrubbedAgentEnv(os.Environ(), cacheDir, outDir)
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
-	if err := cmd.Run(); err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			return exitErr.ExitCode(), nil
-		}
-		return 1, nil
-	}
-	return 0, nil
-}
-
-func scrubbedAgentEnv(base []string, cacheDir, outDir string) []string {
+func scrubbedAgentEnv(base []string, input ReviewInput) []string {
 	blocked := map[string]bool{
-		"GH_TOKEN":                true,
-		"GITHUB_TOKEN":            true,
-		"GH_ENTERPRISE_TOKEN":     true,
-		"GITHUB_ENTERPRISE_TOKEN": true,
-		"SSH_AUTH_SOCK":           true,
-		"GIT_ASKPASS":             true,
-		"SSH_ASKPASS":             true,
-		"GH_CONFIG_DIR":           true,
-		"GIT_CONFIG_GLOBAL":       true,
-		"GIT_CONFIG_NOSYSTEM":     true,
-		"GIT_TERMINAL_PROMPT":     true,
-		"FORK_KEEPER_OUT":         true,
+		"GH_TOKEN":                   true,
+		"GITHUB_TOKEN":               true,
+		"GH_ENTERPRISE_TOKEN":        true,
+		"GITHUB_ENTERPRISE_TOKEN":    true,
+		"GH_BIN":                     true,
+		"SSH_AUTH_SOCK":              true,
+		"GIT_ASKPASS":                true,
+		"SSH_ASKPASS":                true,
+		"GIT_SSH":                    true,
+		"GIT_SSH_COMMAND":            true,
+		"GH_CONFIG_DIR":              true,
+		"GIT_CONFIG_GLOBAL":          true,
+		"GIT_CONFIG_NOSYSTEM":        true,
+		"GIT_TERMINAL_PROMPT":        true,
+		"FORK_KEEPER_OUT":            true,
+		"FORK_KEEPER_BRANCH":         true,
+		"FORK_KEEPER_REPO":           true,
+		"FORK_KEEPER_WORK_DIR":       true,
+		"FORK_KEEPER_RANGE_FILE":     true,
+		"FORK_KEEPER_DIFF_FILE":      true,
+		"FORK_KEEPER_PROMPT_FILE":    true,
+		"FORK_KEEPER_SCHEMA_FILE":    true,
+		"FORK_KEEPER_UPSTREAM_OLD":   true,
+		"FORK_KEEPER_UPSTREAM_NEW":   true,
+		"FORK_KEEPER_REVIEW_BASE":    true,
+		"FORK_KEEPER_CANDIDATE_HEAD": true,
 	}
-	env := make([]string, 0, len(base)+5)
+	env := make([]string, 0, len(base)+16)
 	for _, entry := range base {
 		k, _, ok := strings.Cut(entry, "=")
 		if !ok || blocked[k] {
@@ -714,17 +795,32 @@ func scrubbedAgentEnv(base []string, cacheDir, outDir string) []string {
 		}
 		env = append(env, entry)
 	}
+	reviewBase := ""
+	if input.Range.ReviewBase != nil {
+		reviewBase = *input.Range.ReviewBase
+	}
 	env = append(env,
-		"GH_CONFIG_DIR="+filepath.Join(cacheDir, "agent-gh"),
-		"GIT_CONFIG_GLOBAL="+filepath.Join(cacheDir, "agent-gitconfig"),
+		"GH_CONFIG_DIR="+filepath.Join(input.CacheDir, "agent-gh"),
+		"GIT_CONFIG_GLOBAL="+filepath.Join(input.CacheDir, "agent-gitconfig"),
 		"GIT_CONFIG_NOSYSTEM=1",
 		"GIT_TERMINAL_PROMPT=0",
-		"FORK_KEEPER_OUT="+outDir,
+		"FORK_KEEPER_OUT="+input.OutDir,
+		"FORK_KEEPER_BRANCH="+input.Fork.Branch,
+		"FORK_KEEPER_REPO="+input.Fork.Repo,
+		"FORK_KEEPER_WORK_DIR="+input.WorkDir,
+		"FORK_KEEPER_RANGE_FILE="+input.RangeFile,
+		"FORK_KEEPER_DIFF_FILE="+input.DiffFile,
+		"FORK_KEEPER_PROMPT_FILE="+input.PromptFile,
+		"FORK_KEEPER_SCHEMA_FILE="+input.SchemaFile,
+		"FORK_KEEPER_UPSTREAM_OLD="+input.Range.UpstreamOld,
+		"FORK_KEEPER_UPSTREAM_NEW="+input.Range.UpstreamNew,
+		"FORK_KEEPER_REVIEW_BASE="+reviewBase,
+		"FORK_KEEPER_CANDIDATE_HEAD="+input.CandidateHead,
 	)
 	return env
 }
 
-func runReviewRange(ctx context.Context, scriptPath, gitDir, branch string) ([]byte, error) {
+func runReviewRangeScript(ctx context.Context, scriptPath, gitDir, branch string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "bash", scriptPath, "-u", "upstream", "-b", branch)
 	cmd.Env = append(os.Environ(), "GIT_DIR="+gitDir)
 	var stdout, stderr bytes.Buffer
@@ -736,45 +832,51 @@ func runReviewRange(ctx context.Context, scriptPath, gitDir, branch string) ([]b
 	return stdout.Bytes(), nil
 }
 
-func validateVerdict(ctx context.Context, scriptPath, verdictPath, candidate, rangeFile string) (bool, string) {
+func validateVerdictScript(ctx context.Context, scriptPath, verdictPath, candidate, rangeFile string) (bool, string) {
 	cmd := exec.CommandContext(ctx, "bash", scriptPath, verdictPath, "--candidate-head", candidate, "--range", rangeFile)
 	out, err := cmd.CombinedOutput()
 	return err == nil, strings.TrimSpace(string(out))
 }
 
-func readVerdictField(verdictPath string) string {
+func readVerdictMeta(verdictPath string) (verdict, summary string) {
 	data, err := os.ReadFile(verdictPath)
 	if err != nil {
-		return "none"
+		return "none", ""
 	}
 	var v struct {
 		Verdict string `json:"verdict"`
+		Summary string `json:"summary"`
 	}
 	if err := json.Unmarshal(data, &v); err != nil || v.Verdict == "" {
-		return "none"
+		return "none", ""
 	}
-	return v.Verdict
+	return v.Verdict, strings.TrimSpace(v.Summary)
 }
 
-func buildPRBody(reportPath, verdict string, valid bool, vmsg string, hits []TripwireHit, twErr error, sticky bool) string {
+func buildPRBody(reportPath, verdict, summary string, valid bool, vmsg string, hits []TripwireHit, twErr error, sticky bool) string {
 	var b strings.Builder
-	if data, err := os.ReadFile(reportPath); err == nil && len(data) > 0 {
+	if data, err := os.ReadFile(reportPath); err == nil && len(bytes.TrimSpace(data)) > 0 {
 		b.Write(data)
 		if data[len(data)-1] != '\n' {
 			b.WriteByte('\n')
 		}
+	} else if summary != "" {
+		b.WriteString(summary)
+		b.WriteByte('\n')
 	} else {
-		b.WriteString("The agent wrote no report.md.\n")
+		b.WriteString("No report.md written.\n")
 	}
 
 	b.WriteString("\n## Scheduler checks\n\n")
 	fmt.Fprintf(&b, "- Verdict: `%s`\n", verdict)
 	if valid {
-		b.WriteString("- validate-verdict.sh: passed\n")
+		b.WriteString("- Verdict validation: passed\n")
 	} else {
-		b.WriteString("- validate-verdict.sh: failed\n")
+		b.WriteString("- Verdict validation: failed\n")
 		for _, line := range strings.Split(vmsg, "\n") {
-			fmt.Fprintf(&b, "  - %s\n", line)
+			if line != "" {
+				fmt.Fprintf(&b, "  - %s\n", line)
+			}
 		}
 	}
 
@@ -794,6 +896,11 @@ func buildPRBody(reportPath, verdict string, valid bool, vmsg string, hits []Tri
 		fmt.Fprintf(&b, "- Already `%s`: waits for `%s`.\n", labelNeedsReview, labelApproved)
 	}
 	return b.String()
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }
 
 func copyExecutable(src, dst string) error {
@@ -821,13 +928,18 @@ func runGit(ctx context.Context, dir string, args ...string) error {
 	return nil
 }
 
-func ghOutput(ctx context.Context, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "gh", args...)
+func ghOutput(ctx context.Context, ghBin string, args ...string) (string, error) {
+	if ghBin == "" {
+		ghBin = DefaultGHBin
+	}
+	//nolint:gosec // ghBin is resolved from config (gh_bin) or GH_BIN without a shell.
+	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
+	cmd := exec.CommandContext(ctx, ghBin, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("gh %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		return "", fmt.Errorf("%s %s: %w: %s", ghBin, strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return stdout.String(), nil
 }

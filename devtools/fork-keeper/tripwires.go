@@ -11,28 +11,6 @@ import (
 	"strings"
 )
 
-// MovedTag describes an upstream tag whose target commit changed.
-type MovedTag struct {
-	Name string `json:"name"`
-	Was  string `json:"was"`
-	Now  string `json:"now"`
-}
-
-// RangeInfo is the JSON output produced by review-range.sh.
-type RangeInfo struct {
-	UpstreamOld            string     `json:"upstream_old"`              //nolint:tagliatelle // External review-range.sh snake_case schema.
-	UpstreamNew            string     `json:"upstream_new"`              //nolint:tagliatelle // External review-range.sh snake_case schema.
-	FirstRun               bool       `json:"first_run"`                 //nolint:tagliatelle // External review-range.sh snake_case schema.
-	UpToDate               bool       `json:"up_to_date"`                //nolint:tagliatelle // External review-range.sh snake_case schema.
-	Rewritten              bool       `json:"rewritten"`                 //nolint:tagliatelle // External review-range.sh snake_case schema.
-	ReviewBase             *string    `json:"review_base"`               //nolint:tagliatelle // External review-range.sh snake_case schema.
-	UserCommits            []string   `json:"user_commits"`              //nolint:tagliatelle // External review-range.sh snake_case schema.
-	ForkHasMerges          bool       `json:"fork_has_merges"`           //nolint:tagliatelle // External review-range.sh snake_case schema.
-	ForkBehindRecordedHead bool       `json:"fork_behind_recorded_head"` //nolint:tagliatelle // External review-range.sh snake_case schema.
-	MovedTags              []MovedTag `json:"moved_tags"`                //nolint:tagliatelle // External review-range.sh snake_case schema.
-	DeletedTags            []string   `json:"deleted_tags"`              //nolint:tagliatelle // External review-range.sh snake_case schema.
-}
-
 // TripwireHit represents a single deterministic tripwire finding.
 type TripwireHit struct {
 	Kind   string

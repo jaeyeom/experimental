@@ -24,7 +24,10 @@ go_binary(
 
 go_test(
     name = "go_default_test",
-    srcs = ["toolcli_test.go"],
+    srcs = [
+        "main_test.go",
+        "toolcli_test.go",
+    ],
     embed = [":go_default_library"],
     deps = ["//devtools/pkg/toolcli:go_default_library"],
 )

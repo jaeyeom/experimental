@@ -3786,7 +3786,6 @@ sh_test(
         "gather-facts.yml",
         "gh.yml",
         "git.yml",
-        "jq.yml",
         "setup-fork-keeper.yml",
         "setup-shell-profile.yml",
         "setup-user-bin-directory.yml",

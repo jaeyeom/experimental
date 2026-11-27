@@ -19,10 +19,16 @@ const (
 // DefaultSandboxMode returns the agent confinement mode from
 // FORK_KEEPER_SANDBOX or "auto".
 func DefaultSandboxMode() string {
-	if m := os.Getenv("FORK_KEEPER_SANDBOX"); m != "" {
+	if m := strings.TrimSpace(os.Getenv("FORK_KEEPER_SANDBOX")); m != "" {
 		return m
 	}
 	return sandboxAuto
+}
+
+// ResolveSandboxMode resolves mode ("auto", "seatbelt", "bwrap", or "none")
+// against goos and lookPath, returning the concrete mode or an actionable error.
+func ResolveSandboxMode(mode, goos string, lookPath func(string) (string, error)) (string, error) {
+	return resolveSandboxMode(mode, goos, lookPath)
 }
 
 func wrapAgentSandbox(mode, homeDir, gitDir string, args []string) ([]string, error) {
@@ -86,41 +92,79 @@ func resolveSandboxMode(mode, goos string, lookPath func(string) (string, error)
 }
 
 func credentialDirs(homeDir, gitDir string) []string {
+	return credentialDirsWithEnv(homeDir, gitDir, os.Environ())
+}
+
+func credentialDirsWithEnv(homeDir, gitDir string, env []string) []string {
 	var dirs []string
+	seen := make(map[string]bool)
+	add := func(d string) {
+		if d == "" {
+			return
+		}
+		clean := filepath.Clean(d)
+		if !seen[clean] {
+			seen[clean] = true
+			dirs = append(dirs, clean)
+		}
+	}
 	if homeDir != "" {
-		dirs = append(dirs,
-			filepath.Join(homeDir, ".ssh"),
-			filepath.Join(homeDir, ".config", "gh"),
-			filepath.Join(homeDir, ".gnupg"),
-			filepath.Join(homeDir, ".aws"),
-		)
+		add(filepath.Join(homeDir, ".ssh"))
+		add(filepath.Join(homeDir, ".config", "gh"))
+		add(filepath.Join(homeDir, ".gnupg"))
+		add(filepath.Join(homeDir, ".aws"))
 	}
-	if gitDir != "" {
-		dirs = append(dirs, gitDir)
+	if xdgCfg, ok := lookupEnv(env, "XDG_CONFIG_HOME"); ok && xdgCfg != "" {
+		add(filepath.Join(xdgCfg, "gh"))
 	}
+	if ghCfg, ok := lookupEnv(env, "GH_CONFIG_DIR"); ok && ghCfg != "" {
+		add(ghCfg)
+	}
+	add(gitDir)
 	return dirs
 }
 
 func credentialFiles(homeDir string) []string {
-	if homeDir == "" {
-		return nil
+	return credentialFilesWithEnv(homeDir, os.Environ())
+}
+
+func credentialFilesWithEnv(homeDir string, env []string) []string {
+	var files []string
+	seen := make(map[string]bool)
+	add := func(f string) {
+		if f == "" {
+			return
+		}
+		clean := filepath.Clean(f)
+		if !seen[clean] {
+			seen[clean] = true
+			files = append(files, clean)
+		}
 	}
-	return []string{
-		filepath.Join(homeDir, ".netrc"),
-		filepath.Join(homeDir, ".git-credentials"),
-		filepath.Join(homeDir, ".config", "git", "credentials"),
+	if homeDir != "" {
+		add(filepath.Join(homeDir, ".netrc"))
+		add(filepath.Join(homeDir, ".git-credentials"))
+		add(filepath.Join(homeDir, ".config", "git", "credentials"))
 	}
+	if xdgCfg, ok := lookupEnv(env, "XDG_CONFIG_HOME"); ok && xdgCfg != "" {
+		add(filepath.Join(xdgCfg, "git", "credentials"))
+	}
+	return files
 }
 
 func buildSeatbeltProfile(homeDir, gitDir string) string {
+	return buildSeatbeltProfileWithEnv(homeDir, gitDir, os.Environ())
+}
+
+func buildSeatbeltProfileWithEnv(homeDir, gitDir string, env []string) string {
 	var b strings.Builder
 	b.WriteString("(version 1)\n(allow default)\n(deny file-read* file-write*\n")
-	for _, d := range credentialDirs(homeDir, gitDir) {
+	for _, d := range credentialDirsWithEnv(homeDir, gitDir, env) {
 		for _, p := range canonicalPathVariants(d) {
 			fmt.Fprintf(&b, "  (subpath %s)\n", quoteSBPL(p))
 		}
 	}
-	for _, f := range credentialFiles(homeDir) {
+	for _, f := range credentialFilesWithEnv(homeDir, env) {
 		for _, p := range canonicalPathVariants(f) {
 			fmt.Fprintf(&b, "  (literal %s)\n", quoteSBPL(p))
 		}
@@ -130,18 +174,22 @@ func buildSeatbeltProfile(homeDir, gitDir string) string {
 }
 
 func buildBwrapArgs(homeDir, gitDir string, agentArgs []string) []string {
+	return buildBwrapArgsWithEnv(homeDir, gitDir, os.Environ(), agentArgs)
+}
+
+func buildBwrapArgsWithEnv(homeDir, gitDir string, env []string, agentArgs []string) []string {
 	args := []string{
 		"--die-with-parent",
 		"--bind", "/", "/",
 		"--dev", "/dev",
 		"--proc", "/proc",
 	}
-	for _, d := range credentialDirs(homeDir, gitDir) {
+	for _, d := range credentialDirsWithEnv(homeDir, gitDir, env) {
 		if info, err := os.Stat(d); err == nil && info.IsDir() {
 			args = append(args, "--tmpfs", d)
 		}
 	}
-	for _, f := range credentialFiles(homeDir) {
+	for _, f := range credentialFilesWithEnv(homeDir, env) {
 		if info, err := os.Stat(f); err == nil && !info.IsDir() {
 			args = append(args, "--ro-bind", "/dev/null", f)
 		}

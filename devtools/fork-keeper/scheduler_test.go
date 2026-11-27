@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +21,23 @@ type schedulerCase struct {
 	date     string
 }
 
+func writeTestHelperWrapper(t *testing.T, path, helper, marker string) {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	markerLine := ""
+	if marker != "" {
+		markerLine = fmt.Sprintf("export FAKE_GH_MARKER=%q\n", marker)
+	}
+	content := fmt.Sprintf("#!/bin/sh\nexport FORK_KEEPER_TEST_HELPER=%q\n%sexec %q \"$@\"\n", helper, markerLine, exe)
+	//nolint:gosec // Test stub wrapper must be executable.
+	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func newSchedulerCase(t *testing.T) *schedulerCase {
 	t.Helper()
 	fx := newTestFixture(t)
@@ -32,122 +50,16 @@ func newSchedulerCase(t *testing.T) *schedulerCase {
 		t.Fatal(err)
 	}
 
-	stubGH := `#!/usr/bin/env bash
-set -euo pipefail
-s="$GH_STATE/prs.json"
-[[ -f $s ]] || echo '[]' >"$s"
-printf '%s\n' "$*" >>"$GH_STATE/calls"
-G() { git --git-dir="$FAKE_ORIGIN" "$@"; }
-upd() { jq "$@" "$s" >"$s.new" && mv "$s.new" "$s"; }
-cmd="$1 $2"
-shift 2
-case $cmd in
-"pr list")
-	out='[]'
-	for row in $(jq -c '.[]' "$s"); do
-		head=$(G rev-parse -q --verify "refs/heads/$(jq -r .headRefName <<<"$row")") || continue
-		G merge-base --is-ancestor "$head" refs/heads/main && continue
-		out=$(jq -c --argjson r "$row" --arg h "$head" '. + [{
-			number: $r.number, headRefName: $r.headRefName,
-			url: "https://github.invalid/pull/\($r.number)",
-			headRefOid: ($r.head_override // $h),
-			labels: [$r.labels[] | {name: .}]}]' <<<"$out")
-	done
-	echo "$out"
-	;;
-"pr create")
-	head="" body=""
-	while [[ $# -gt 0 ]]; do
-		case $1 in
-		--head) head=$2; shift 2 ;;
-		--body-file) body=$2; shift 2 ;;
-		*) shift ;;
-		esac
-	done
-	n=$(($(jq length "$s") + 1))
-	upd --argjson n "$n" --arg h "$head" '. + [{number: $n, headRefName: $h, labels: []}]'
-	cp "$body" "$GH_STATE/body.$n"
-	if [[ -n ${FAKE_GH_ON_CREATE:-} ]]; then bash -c "$FAKE_GH_ON_CREATE"; fi
-	echo "https://github.invalid/pull/$n"
-	;;
-"pr edit")
-	sel=$1
-	shift
-	while [[ $# -gt 0 ]]; do
-		case $1 in
-		--add-label) upd --arg b "$sel" --arg l "$2" 'map(if .headRefName == $b then .labels = (.labels + [$l] | unique) else . end)' ;;
-		--remove-label) upd --arg b "$sel" --arg l "$2" 'map(if .headRefName == $b then .labels -= [$l] else . end)' ;;
-		--body-file) cp "$2" "$GH_STATE/body.$sel" 2>/dev/null || cp "$2" "$GH_STATE/body.edit" ;;
-		esac
-		shift 2
-	done
-	;;
-"api --paginate"|"api repos"*)
-	endpoint=""
-	if [[ $cmd == "api --paginate" ]]; then
-		endpoint=$1
-	else
-		endpoint=${cmd#api }
-	fi
-	pr_num=$(echo "$endpoint" | sed -E 's|.*/issues/([0-9]+)/timeline|\1|')
-	if [[ -f "$GH_STATE/timeline.$pr_num" ]]; then
-		cat "$GH_STATE/timeline.$pr_num"
-	else
-		has_app=$(jq -r --argjson n "$pr_num" '.[] | select(.number == $n) | .labels | index("fork-keeper:approved") != null' "$s")
-		if [[ $has_app == "true" ]]; then
-			echo '[{"event":"labeled","label":{"name":"fork-keeper:approved"}}]'
-		else
-			echo '[]'
-		fi
-	fi
-	;;
-*)
-	echo "gh stub: unsupported: $cmd $*" >&2
-	exit 1
-	;;
-esac
-`
-	//nolint:gosec // Test stub executable.
-	if err := os.WriteFile(filepath.Join(binDir, "gh"), []byte(stubGH), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	fakeAgent := `#!/usr/bin/env bash
-set -euo pipefail
-out=""
-while [[ $# -gt 0 ]]; do
-	case $1 in
-	--out) out=$2; shift 2 ;;
-	*) shift ;;
-	esac
-done
-echo run >>"$GH_STATE/agent.runs"
-env >"$GH_STATE/agent.env"
-git remote >"$GH_STATE/agent.remotes"
-range=$(bash "$FAKE_RR" -b main)
-git checkout -q -B fork-keeper/candidate "$(jq -r .upstream_new <<<"$range")"
-for c in $(jq -r '.user_commits[]' <<<"$range"); do git cherry-pick "$c" >/dev/null; done
-verdict=clean
-case $FAKE_AGENT_MODE in
-needs-review) verdict=needs-review ;;
-lie) range=$(jq -c '.first_run = false | .rewritten = false | .moved_tags = [] | .deleted_tags = []' <<<"$range") ;;
-none) exit 0 ;;
-esac
-jq -n --arg v "$verdict" --arg h "$(git rev-parse HEAD)" --argjson r "$range" \
-	'{schema: 1, verdict: $v, candidate_head: $h, range: $r, conflicts: [], findings: [], summary: "stub"}' \
-	>"$out/verdict.json"
-echo "stub report ($verdict)" >"$out/report.md"
-`
-	//nolint:gosec // Test stub executable.
-	if err := os.WriteFile(filepath.Join(binDir, "fake-agent"), []byte(fakeAgent), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	writeTestHelperWrapper(t, filepath.Join(binDir, "gh"), "gh", "")
+	writeTestHelperWrapper(t, filepath.Join(binDir, "gh-throttle"), "gh", filepath.Join(ghState, "throttle.calls"))
+	writeTestHelperWrapper(t, filepath.Join(binDir, "fake-agent"), "agent", "")
 
 	ensureTestPATH(t, binDir)
 	t.Setenv("GH_STATE", ghState)
 	t.Setenv("FAKE_ORIGIN", fx.originGit)
-	t.Setenv("FAKE_RR", filepath.Join(fx.contractDir, "review-range.sh"))
 	t.Setenv("GH_TOKEN", "secret-gh-token")
+	t.Setenv("FORK_KEEPER_SCRIPTS", "")
+	t.Setenv("FORK_KEEPER_REVIEWER_CMD", "")
 
 	cfg := Config{
 		Forks: []Fork{{
@@ -185,7 +97,6 @@ func (sc *schedulerCase) run(mode string) (string, error) {
 	err := Run(context.Background(), Options{
 		ConfigPath: sc.config,
 		CacheDir:   sc.cacheDir,
-		ScriptsDir: sc.fx.contractDir,
 		Today:      sc.date,
 		Sandbox:    "none",
 		Stdout:     &out,
@@ -626,4 +537,228 @@ func TestSchedulerTimelineStaleApprovalBlocked(t *testing.T) {
 	if sc.fx.oref("refs/heads/main") != prHead {
 		t.Fatalf("expected promotion after fresh approval: %s", out)
 	}
+}
+
+func TestSchedulerStandaloneDefaultNoReviewer(t *testing.T) {
+	sc := newSchedulerCase(t)
+	cfg := Config{
+		Forks: []Fork{{
+			Name:        "demo",
+			Repo:        "me/demo",
+			ForkURL:     sc.fx.originGit,
+			UpstreamURL: sc.fx.upstreamGit,
+			Branch:      "main",
+		}},
+	}
+	cfgBytes, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sc.config, cfgBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	sc.fx.recordHead(sc.fx.uref("refs/heads/main"))
+	sc.fx.fcommit("mine.txt", "my patch")
+	u1 := sc.fx.ucommit("README", "standalone docs")
+	mainBefore := sc.fx.oref("refs/heads/main")
+
+	out, err := sc.run("")
+	if err != nil {
+		t.Fatalf("standalone run failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "built-in standalone rebase") || !strings.Contains(out, "needs-review") {
+		t.Fatalf("unexpected standalone output:\n%s", out)
+	}
+	if !sc.hasLabel(1, "needs-review") || sc.fx.oref("refs/heads/main") != mainBefore {
+		t.Fatalf("standalone run should open needs-review PR without promoting main")
+	}
+	body, _ := os.ReadFile(filepath.Join(sc.ghState, "body.1"))
+	if !strings.Contains(string(body), "Verdict validation: passed") || !strings.Contains(string(body), "upstream: README") {
+		t.Fatalf("unexpected standalone PR body:\n%s", body)
+	}
+
+	// Approving the standalone PR promotes it on the next run.
+	prs := sc.readPRs()
+	prs[0].Labels = append(prs[0].Labels, labelApproved)
+	sc.writePRs(prs)
+	out, err = sc.run("")
+	if err != nil {
+		t.Fatalf("approved promotion failed: %v\n%s", err, out)
+	}
+	if sc.fx.oref("refs/fork-keeper/upstream-head") != u1 {
+		t.Fatalf("upstream-head = %s, want %s", sc.fx.oref("refs/fork-keeper/upstream-head"), u1)
+	}
+}
+
+func TestSchedulerConfigurableGHBin(t *testing.T) {
+	sc := newSchedulerCase(t)
+	cfg := Config{
+		GHBin: "gh-throttle",
+		Forks: []Fork{{
+			Name:        "demo",
+			Repo:        "me/demo",
+			ForkURL:     sc.fx.originGit,
+			UpstreamURL: sc.fx.upstreamGit,
+			Branch:      "main",
+			ReviewerCmd: []string{"fake-agent", "sync", "--out", "{out}", "-b", "{branch}"},
+		}},
+	}
+	cfgBytes, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sc.config, cfgBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	sc.fx.recordHead(sc.fx.uref("refs/heads/main"))
+	sc.fx.fcommit("mine.txt", "my patch")
+	sc.fx.ucommit("README", "throttled")
+
+	out, err := sc.run("clean")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(sc.ghState, "throttle.calls")); err != nil {
+		t.Fatalf("expected gh-throttle to be invoked: %v", err)
+	}
+}
+
+func TestSchedulerReadOnlyStdoutReviewer(t *testing.T) {
+	sc := newSchedulerCase(t)
+	sc.fx.recordHead(sc.fx.uref("refs/heads/main"))
+	sc.fx.fcommit("mine.txt", "my patch")
+	u1 := sc.fx.ucommit("README", "stdout reviewer")
+
+	var out bytes.Buffer
+	sc.fx.t.Setenv("FAKE_AGENT_MODE", "stdout-clean")
+	err := Run(context.Background(), Options{
+		ConfigPath:  sc.config,
+		CacheDir:    sc.cacheDir,
+		ReviewerCmd: []string{"fake-agent"},
+		Today:       sc.date,
+		Sandbox:     "none",
+		Stdout:      &out,
+		Stderr:      &out,
+	})
+	if err != nil {
+		t.Fatalf("stdout reviewer failed: %v\n%s", err, out.String())
+	}
+	if sc.fx.oref("refs/fork-keeper/upstream-head") != u1 {
+		t.Fatalf("upstream-head = %s, want %s", sc.fx.oref("refs/fork-keeper/upstream-head"), u1)
+	}
+}
+
+func TestSchedulerFailurePaths(t *testing.T) {
+	t.Run("missing-config", func(t *testing.T) {
+		var out bytes.Buffer
+		err := Run(context.Background(), Options{
+			ConfigPath: filepath.Join(t.TempDir(), "missing.json"),
+			Stdout:     &out,
+			Stderr:     &out,
+		})
+		if err == nil || !strings.Contains(err.Error(), "no config") {
+			t.Fatalf("expected missing config error, got %v", err)
+		}
+	})
+
+	t.Run("unknown-fork", func(t *testing.T) {
+		sc := newSchedulerCase(t)
+		var out bytes.Buffer
+		err := Run(context.Background(), Options{
+			ConfigPath: sc.config,
+			CacheDir:   sc.cacheDir,
+			ForkNames:  []string{"nonexistent"},
+			Sandbox:    "none",
+			Stdout:     &out,
+			Stderr:     &out,
+		})
+		if err == nil || !strings.Contains(err.Error(), "no fork named nonexistent") {
+			t.Fatalf("expected unknown fork error, got %v", err)
+		}
+	})
+
+	t.Run("unknown-sandbox", func(t *testing.T) {
+		sc := newSchedulerCase(t)
+		var out bytes.Buffer
+		err := Run(context.Background(), Options{
+			ConfigPath: sc.config,
+			CacheDir:   sc.cacheDir,
+			Sandbox:    "docker",
+			Stdout:     &out,
+			Stderr:     &out,
+		})
+		if err == nil || !strings.Contains(err.Error(), "unknown sandbox mode") {
+			t.Fatalf("expected unknown sandbox error, got %v", err)
+		}
+	})
+
+	t.Run("missing-reviewer-binary", func(t *testing.T) {
+		sc := newSchedulerCase(t)
+		sc.fx.recordHead(sc.fx.uref("refs/heads/main"))
+		sc.fx.fcommit("mine.txt", "my patch")
+		sc.fx.ucommit("README", "docs")
+
+		var out bytes.Buffer
+		err := Run(context.Background(), Options{
+			ConfigPath:  sc.config,
+			CacheDir:    sc.cacheDir,
+			ReviewerCmd: []string{"definitely-missing-reviewer-binary"},
+			Today:       sc.date,
+			Sandbox:     "none",
+			Stdout:      &out,
+			Stderr:      &out,
+		})
+		if err == nil || !strings.Contains(err.Error(), "run reviewer") {
+			t.Fatalf("expected run reviewer error, got %v\n%s", err, out.String())
+		}
+	})
+
+	t.Run("agent-left-no-candidate", func(t *testing.T) {
+		sc := newSchedulerCase(t)
+		sc.fx.recordHead(sc.fx.uref("refs/heads/main"))
+		sc.fx.fcommit("mine.txt", "my patch")
+		sc.fx.ucommit("README", "docs")
+
+		if _, err := sc.run("no-candidate"); err == nil || !strings.Contains(err.Error(), "no fork-keeper/candidate") {
+			t.Fatalf("expected missing candidate error, got %v", err)
+		}
+	})
+
+	t.Run("agent-exited-nonzero-no-candidate", func(t *testing.T) {
+		sc := newSchedulerCase(t)
+		sc.fx.recordHead(sc.fx.uref("refs/heads/main"))
+		sc.fx.fcommit("mine.txt", "my patch")
+		sc.fx.ucommit("README", "docs")
+
+		if _, err := sc.run("fail-no-candidate"); err == nil || !strings.Contains(err.Error(), "reviewer exited 1") {
+			t.Fatalf("expected reviewer exited 1 error, got %v", err)
+		}
+	})
+
+	t.Run("missing-legacy-scripts-dir-ignored", func(t *testing.T) {
+		sc := newSchedulerCase(t)
+		sc.fx.recordHead(sc.fx.uref("refs/heads/main"))
+		sc.fx.fcommit("mine.txt", "my patch")
+		u1 := sc.fx.ucommit("README", "docs")
+
+		var out bytes.Buffer
+		sc.fx.t.Setenv("FAKE_AGENT_MODE", "clean")
+		err := Run(context.Background(), Options{
+			ConfigPath: sc.config,
+			CacheDir:   sc.cacheDir,
+			ScriptsDir: filepath.Join(sc.fx.root, "missing-claude-toolbox"),
+			Today:      sc.date,
+			Sandbox:    "none",
+			Stdout:     &out,
+			Stderr:     &out,
+		})
+		if err != nil {
+			t.Fatalf("expected missing ScriptsDir to fall back cleanly, got %v\n%s", err, out.String())
+		}
+		if sc.fx.oref("refs/fork-keeper/upstream-head") != u1 {
+			t.Fatalf("upstream-head mismatch")
+		}
+	})
 }

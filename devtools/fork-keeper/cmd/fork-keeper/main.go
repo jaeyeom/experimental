@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -21,22 +23,55 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if code, handled := newForkKeeperTool().Handle(ctx, args, stdout, stderr); handled {
 		return code
 	}
-	for _, arg := range args {
-		if arg == "-h" || arg == "--help" || arg == "help" {
+
+	var opts forkkeeper.Options
+	var reviewerCmdRaw string
+	fs := flag.NewFlagSet("fork-keeper", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() { usage(stderr) }
+	fs.StringVar(&opts.ConfigPath, "config", "", "path to forks.json (default FORK_KEEPER_CONFIG or ~/.config/fork-keeper/forks.json)")
+	fs.StringVar(&opts.CacheDir, "cache-dir", "", "cache directory (default FORK_KEEPER_CACHE or ~/.cache/fork-keeper)")
+	fs.StringVar(&opts.GHBin, "gh-bin", "", "GitHub CLI executable or wrapper (default gh_bin config, GH_BIN, or gh)")
+	fs.StringVar(&reviewerCmdRaw, "reviewer-cmd", "", "external reviewer command (parsed without a shell)")
+	fs.StringVar(&opts.Sandbox, "sandbox", "", "agent confinement mode: auto, seatbelt, bwrap, or none")
+	fs.StringVar(&opts.Today, "date", "", "UTC date YYYY-MM-DD for sync branch and pre-sync tags")
+
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
 			usage(stdout)
 			return 0
 		}
-		if strings.HasPrefix(arg, "-") {
-			_, _ = fmt.Fprintf(stderr, "unknown flag: %s\n", arg)
-			usage(stderr)
+		return 2
+	}
+
+	explicit := make(map[string]bool)
+	fs.Visit(func(f *flag.Flag) {
+		explicit[f.Name] = true
+	})
+
+	if explicit["gh-bin"] && strings.TrimSpace(opts.GHBin) == "" {
+		_, _ = fmt.Fprintln(stderr, "error: --gh-bin must not be empty")
+		return 2
+	}
+	if explicit["reviewer-cmd"] {
+		argv, err := forkkeeper.SplitCommand(reviewerCmdRaw)
+		if err != nil {
+			_, _ = fmt.Fprintf(stderr, "error: invalid --reviewer-cmd: %v\n", err)
 			return 2
 		}
+		opts.ReviewerCmd = argv
 	}
-	if err := forkkeeper.Run(ctx, forkkeeper.Options{
-		ForkNames: args,
-		Stdout:    stdout,
-		Stderr:    stderr,
-	}); err != nil {
+
+	positional := fs.Args()
+	if len(positional) == 1 && positional[0] == "help" {
+		usage(stdout)
+		return 0
+	}
+
+	opts.ForkNames = positional
+	opts.Stdout = stdout
+	opts.Stderr = stderr
+	if err := forkkeeper.Run(ctx, opts); err != nil {
 		return 1
 	}
 	return 0
@@ -44,9 +79,17 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 func usage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, `Usage:
-  fork-keeper [<fork-name>...]
+  fork-keeper [flags] [<fork-name>...]
   fork-keeper version [--json]
   fork-keeper update [--check] [--ref <ref>] [--json]
-  fork-keeper doctor [--offline] [--json]
-  fork-keeper skill [install|uninstall|status ...]`)
+  fork-keeper doctor [--offline] [--json] [--config <path>]
+  fork-keeper skill [install|uninstall|status ...]
+
+Flags:
+  --config <path>        path to forks.json
+  --cache-dir <path>     cache directory for scratch clones and logs
+  --gh-bin <bin>         GitHub CLI executable or wrapper (e.g. gh-throttle)
+  --reviewer-cmd <cmd>   external reviewer command (parsed without a shell)
+  --sandbox <mode>       agent confinement mode: auto, seatbelt, bwrap, or none
+  --date <YYYY-MM-DD>    date used in sync branch and pre-sync tag names`)
 }
