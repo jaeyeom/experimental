@@ -167,6 +167,13 @@ class ApproveRule {
   /// requested reviewers. Unreadable CODEOWNERS or team data fails it.
   /// Team membership needs the read:org scope.
   codeowners_covered: Boolean = false
+  /// When true, every changed file's CODEOWNERS owners (per the base branch's
+  /// CODEOWNERS) must include neither you nor any team you belong to. Unlike
+  /// codeowners_covered, there is no exception for teams with other members or
+  /// requested reviewers, and no paths_any_match escape. Unreadable CODEOWNERS,
+  /// unreadable team membership, or an email owner fails the check. Team
+  /// membership needs the read:org scope.
+  codeowners_none_mine: Boolean = false
   /// Maximum added plus deleted lines.
   max_changed_lines: Int(this >= 0)?
   /// Maximum added lines.

@@ -112,6 +112,7 @@ var conditions = []condition{
 	{name: "not_draft", active: func(r config.ApproveRule) bool { return r.NotDraft }, check: checkNotDraft},
 	{name: "max_unresolved_threads", active: func(config.ApproveRule) bool { return true }, check: checkUnresolvedThreads},
 	{name: "codeowners_covered", fileLevel: true, needs: needOwnership, needsFor: func(r config.ApproveRule) loadNeeds { return generatedNeedFor(r.PathsAnyMatch) }, active: func(r config.ApproveRule) bool { return r.CodeownersCovered }, detail: checkCodeownersCovered},
+	{name: "codeowners_none_mine", fileLevel: true, needs: needOwnership, active: func(r config.ApproveRule) bool { return r.CodeownersNoneMine }, detail: checkCodeownersNoneMine},
 	{name: "mine_comments_only", fileLevel: true, needs: needOwnership | needPatches, active: func(r config.ApproveRule) bool { return r.MineCommentsOnly }, detail: checkMineCommentsOnly},
 }
 
@@ -557,21 +558,25 @@ func checkPathsAnyMatch(rule config.ApproveRule, pr github.ApprovalPullRequest) 
 	return false, fmt.Sprintf("none of %d files match", len(pr.Files)), nil
 }
 
+// ownershipUnreadable returns why CODEOWNERS ownership cannot be read, or "".
+func ownershipUnreadable(pr github.ApprovalPullRequest) string {
+	switch {
+	case pr.FilesErr != "":
+		return pr.FilesErr
+	case pr.Ownership == nil:
+		return "CODEOWNERS not read"
+	case pr.Ownership.Err != "":
+		return pr.Ownership.Err
+	}
+	return ""
+}
+
 // checkCodeownersCovered passes when every changed file is in
 // paths_any_match, or owned by neither the viewer nor a team of the viewer,
 // or owned only through teams of the viewer that have other members and are
 // requested reviewers. pr.Ownership holds the last two verdicts.
 func checkCodeownersCovered(rule config.ApproveRule, pr github.ApprovalPullRequest) (bool, string, []string) {
-	reason := ""
-	switch {
-	case pr.FilesErr != "":
-		reason = pr.FilesErr
-	case pr.Ownership == nil:
-		reason = "CODEOWNERS not read"
-	case pr.Ownership.Err != "":
-		reason = pr.Ownership.Err
-	}
-	if reason != "" {
+	if reason := ownershipUnreadable(pr); reason != "" {
 		pass, saw := unreadable(reason)
 		return pass, saw, nil
 	}
@@ -605,6 +610,48 @@ func checkCodeownersCovered(rule config.ApproveRule, pr github.ApprovalPullReque
 		return false, "not covered: " + strings.Join(blocked, ", "), details
 	}
 	return true, fmt.Sprintf("all %d files covered", len(pr.Ownership.Files)), details
+}
+
+// checkCodeownersNoneMine passes when no changed file's CODEOWNERS owners
+// include the viewer or any team of the viewer. Unlike checkCodeownersCovered,
+// teams with other members that are requested reviewers still fail, and
+// paths_any_match does not exempt a file. Unknown or email owners fail closed.
+func checkCodeownersNoneMine(_ config.ApproveRule, pr github.ApprovalPullRequest) (bool, string, []string) {
+	if reason := ownershipUnreadable(pr); reason != "" {
+		pass, saw := unreadable(reason)
+		return pass, saw, nil
+	}
+	var blocked, details []string
+	for _, file := range pr.Ownership.Files {
+		owners := strings.Join(file.Owners, " ")
+		if owners == "" {
+			owners = "none"
+		}
+		if reasons := noneMineBlockers(file); len(reasons) > 0 {
+			why := strings.Join(reasons, "; ")
+			blocked = append(blocked, file.Path+" ("+why+")")
+			details = append(details, "FAIL "+file.Path+": blocked by "+why)
+			continue
+		}
+		details = append(details, "pass "+file.Path+": not owned by you or your teams (owners: "+owners+")")
+	}
+	if len(blocked) > 0 {
+		return false, "blocked: " + strings.Join(blocked, ", "), details
+	}
+	return true, fmt.Sprintf("none of %d files owned by you", len(pr.Ownership.Files)), details
+}
+
+func noneMineBlockers(file github.FileOwnership) []string {
+	var reasons []string
+	if file.Mine {
+		if len(file.MineOwners) > 0 {
+			reasons = append(reasons, strings.Join(file.MineOwners, ", ")+" (you or your team)")
+		} else {
+			reasons = append(reasons, "you or your team")
+		}
+	}
+	reasons = append(reasons, file.Unknown...)
+	return reasons
 }
 
 // checkMineCommentsOnly passes when at least one changed file is owned by
@@ -656,13 +703,10 @@ func checkMineCommentsOnly(_ config.ApproveRule, pr github.ApprovalPullRequest) 
 
 // mineUnreadable returns why mine_comments_only cannot read its data, or "".
 func mineUnreadable(pr github.ApprovalPullRequest) string {
+	if reason := ownershipUnreadable(pr); reason != "" {
+		return reason
+	}
 	switch {
-	case pr.FilesErr != "":
-		return pr.FilesErr
-	case pr.Ownership == nil:
-		return "CODEOWNERS not read"
-	case pr.Ownership.Err != "":
-		return pr.Ownership.Err
 	case pr.PatchesErr != "":
 		return pr.PatchesErr
 	case pr.Patches == nil:

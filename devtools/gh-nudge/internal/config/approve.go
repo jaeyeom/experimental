@@ -159,16 +159,17 @@ type ApproveRule struct {
 	// Action is ActionApprove or ActionHandoff.
 	Action string
 	// Reviewers are the logins a hand-off requests.
-	Reviewers         []string
-	Repos             []string
-	PathsAllMatch     []string
-	PathsNoneMatch    []string
-	PathsAnyMatch     []string
-	CodeownersCovered bool
-	MaxChangedLines   *int
-	MaxAddedLines     *int
-	MaxFiles          *int
-	PureDeletion      bool
+	Reviewers          []string
+	Repos              []string
+	PathsAllMatch      []string
+	PathsNoneMatch     []string
+	PathsAnyMatch      []string
+	CodeownersCovered  bool
+	CodeownersNoneMine bool
+	MaxChangedLines    *int
+	MaxAddedLines      *int
+	MaxFiles           *int
+	PureDeletion       bool
 	// DeletionsAndCommentsOnly requires a deletion and added lines that
 	// are only blank or comments. Patches are fetched only when it is set.
 	DeletionsAndCommentsOnly bool
@@ -273,6 +274,7 @@ func convertApprove(src pklconfig.ApproveConfig, configDir string) ApproveConfig
 			PathsNoneMatch:           cloneStrings(rule.PathsNoneMatch),
 			PathsAnyMatch:            cloneStrings(rule.PathsAnyMatch),
 			CodeownersCovered:        rule.CodeownersCovered,
+			CodeownersNoneMine:       rule.CodeownersNoneMine,
 			MaxChangedLines:          copyIntPtr(rule.MaxChangedLines),
 			MaxAddedLines:            copyIntPtr(rule.MaxAddedLines),
 			MaxFiles:                 copyIntPtr(rule.MaxFiles),
@@ -432,8 +434,8 @@ func validateApproveRule(rule ApproveRule) error {
 
 // UncoveredLimitedBy returns the names of the rule's conditions that limit
 // which files not covered by file_checks may change: paths_all_match,
-// codeowners_covered and mine_comments_only. When the rule sets none, a file
-// no file_checks pattern covers fails file_checks.
+// codeowners_covered, codeowners_none_mine and mine_comments_only. When the
+// rule sets none, a file no file_checks pattern covers fails file_checks.
 func (r ApproveRule) UncoveredLimitedBy() []string {
 	var names []string
 	if len(r.PathsAllMatch) > 0 {
@@ -441,6 +443,9 @@ func (r ApproveRule) UncoveredLimitedBy() []string {
 	}
 	if r.CodeownersCovered {
 		names = append(names, "codeowners_covered")
+	}
+	if r.CodeownersNoneMine {
+		names = append(names, "codeowners_none_mine")
 	}
 	if r.MineCommentsOnly {
 		names = append(names, "mine_comments_only")
@@ -454,7 +459,7 @@ func FileChecksWarnings(rules []ApproveRule) []string {
 	var out []string
 	for _, rule := range rules {
 		if len(rule.FileChecks) > 0 && len(rule.UncoveredLimitedBy()) == 0 {
-			out = append(out, fmt.Sprintf("approve rule %q sets file_checks without paths_all_match, codeowners_covered or mine_comments_only: a changed file that no file_checks pattern covers fails the rule", rule.Name))
+			out = append(out, fmt.Sprintf("approve rule %q sets file_checks without paths_all_match, codeowners_covered, codeowners_none_mine or mine_comments_only: a changed file that no file_checks pattern covers fails the rule", rule.Name))
 		}
 	}
 	return out

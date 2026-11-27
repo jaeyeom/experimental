@@ -39,6 +39,14 @@ type ApproveRule struct {
 	// Team membership needs the read:org scope.
 	CodeownersCovered bool `pkl:"codeowners_covered"`
 
+	// When true, every changed file's CODEOWNERS owners (per the base branch's
+	// CODEOWNERS) must include neither you nor any team you belong to. Unlike
+	// codeowners_covered, there is no exception for teams with other members or
+	// requested reviewers, and no paths_any_match escape. Unreadable CODEOWNERS,
+	// unreadable team membership, or an email owner fails the check. Team
+	// membership needs the read:org scope.
+	CodeownersNoneMine bool `pkl:"codeowners_none_mine"`
+
 	// Maximum added plus deleted lines.
 	MaxChangedLines *int `pkl:"max_changed_lines"`
 

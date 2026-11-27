@@ -126,6 +126,7 @@ condition is optional. An empty list or an unset limit adds no condition.
 | ~paths_none_match~       | Globs. No changed file may match any of them, such as CI config, infra, lockfiles |
 | ~paths_any_match~        | Globs. At least one changed file must match one of them                           |
 | ~codeowners_covered~     | Default ~false~. Every changed file must pass the CODEOWNERS coverage check       |
+| ~codeowners_none_mine~   | Default ~false~. No changed file may be owned by you or any team you belong to    |
 | ~max_changed_lines~      | Maximum added plus deleted lines                                                  |
 | ~max_added_lines~        | Maximum added lines                                                               |
 | ~max_files~              | Maximum changed files                                                             |
@@ -269,6 +270,18 @@ assumes a pass. Reading team members needs the ~read:org~ scope. An email
 owner fails the check, since gh-approve cannot tell whether it is you.
 ~--explain~ prints the verdict for each file and the owner that blocked it.
 
+*Strict no-ownership check.* With ~codeowners_none_mine = true~, every changed
+file's CODEOWNERS owners must include neither you nor any team you belong to:
+
+- There is no exception for teams with other members or for requested
+  reviewers, and no ~paths_any_match~ escape.
+- Owners use the same base-branch CODEOWNERS lookup order and fail closed when
+  CODEOWNERS or team membership cannot be read, or when an email owner is
+  present.
+- Setting ~codeowners_none_mine = true~ together with ~codeowners_covered = true~
+  is allowed; both are ANDed, so the stricter check decides.
+- ~--explain~ names the file and the owner that blocked it.
+
 *Actions with ~--apply~.* gh-approve re-reads the head and skips the pull
 request if it moved. Then it requests the reviewers through the REST
 ~requested_reviewers~ endpoint. Only after that succeeds does it remove you as
@@ -353,14 +366,14 @@ pattern wins: an exact path beats any glob, then the pattern with more literal
 path segments, then the longer literal text. Two globs with tied
 specificity are a config error at load time; distinct exact paths never tie. A file that a pattern covers is judged only by its check;
 an uncovered file fails ~file_checks~ (~<path>: not covered by file_checks~),
-unless the rule also sets ~paths_all_match~, ~codeowners_covered~ or
-~mine_comments_only~. Those conditions then judge the uncovered files, and
-~--explain~ shows ~not covered (left to <condition>)~ for each, with
-~which passed~ or ~which failed~ when the condition was evaluated. A pull
-request with no covered file never passes ~file_checks~. A rule whose files
+unless the rule also sets ~paths_all_match~, ~codeowners_covered~,
+~codeowners_none_mine~ or ~mine_comments_only~. Those conditions then judge the
+uncovered files, and ~--explain~ shows ~not covered (left to <condition>)~ for
+each, with ~which passed~ or ~which failed~ when the condition was evaluated. A
+pull request with no covered file never passes ~file_checks~. A rule whose files
 are all covered and all approved needs no other file condition. Loading a
-config that sets ~file_checks~ without one of those three conditions logs a
-warning, because uncovered files fail the rule. Pull-request-level conditions (~checks~, ~authors_allow~, ~labels_required~,
+config that sets ~file_checks~ without one of those conditions logs a warning,
+because uncovered files fail the rule. Pull-request-level conditions (~checks~, ~authors_allow~, ~labels_required~,
 and so on) still apply.
 
 A check is either:
@@ -462,9 +475,10 @@ additions~.
 ** Lazy loading and caches
 
 Some conditions need data that costs extra calls: CODEOWNERS and the viewer's
-teams (~codeowners_covered~, ~mine_comments_only~, and the ~codeowners_not_mine~
-mark-viewed selector), and file patches (~deletions_and_comments_only~,
-~mine_comments_only~, and ~file_checks~ checks that read a diff).
+teams (~codeowners_covered~, ~codeowners_none_mine~, ~mine_comments_only~, and the
+~codeowners_not_mine~ mark-viewed selector), and file patches
+(~deletions_and_comments_only~, ~mine_comments_only~, and ~file_checks~ checks
+that read a diff).
 gh-approve loads them only when a rule reaches such a condition, after every
 cheaper condition of that rule passed, and at most once per pull request. A
 pull request that a cheap condition rejects, such as ~repos~, ~authors_allow~,

@@ -34,6 +34,7 @@ approve {
       repos { "acme/*" }
       paths_all_match { "dash/**" }
       paths_none_match { ".github/**" }
+      codeowners_none_mine = true
       max_changed_lines = 50
       max_added_lines = 40
       max_files = 3
@@ -73,7 +74,8 @@ approve {
 	}
 	rule := approve.Rules[0]
 	if rule.Name != "dashboard" || strings.Join(rule.Repos, ",") != "acme/*" ||
-		strings.Join(rule.PathsAllMatch, ",") != "dash/**" || strings.Join(rule.PathsNoneMatch, ",") != ".github/**" {
+		strings.Join(rule.PathsAllMatch, ",") != "dash/**" || strings.Join(rule.PathsNoneMatch, ",") != ".github/**" ||
+		!rule.CodeownersNoneMine {
 		t.Fatalf("rule globs = %+v", rule)
 	}
 	if rule.MaxChangedLines == nil || *rule.MaxChangedLines != 50 || rule.MaxAddedLines == nil || *rule.MaxAddedLines != 40 ||
@@ -99,7 +101,7 @@ approve {
 		defaults.AgentCacheDisabled {
 		t.Fatalf("rule agent defaults = %q %v", defaults.AgentCommand, defaults.AgentTimeout)
 	}
-	if defaults.Action != ActionApprove || len(defaults.Reviewers) != 0 || len(defaults.PathsAnyMatch) != 0 || defaults.CodeownersCovered || defaults.DeletionsAndCommentsOnly {
+	if defaults.Action != ActionApprove || len(defaults.Reviewers) != 0 || len(defaults.PathsAnyMatch) != 0 || defaults.CodeownersCovered || defaults.CodeownersNoneMine || defaults.DeletionsAndCommentsOnly {
 		t.Fatalf("rule hand-off defaults = %+v", defaults)
 	}
 }

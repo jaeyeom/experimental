@@ -69,6 +69,10 @@ func TestFileChecksAllowUncoveredFileWhenAnotherConditionLimitsIt(t *testing.T) 
 			mutate: func(r *config.ApproveRule) { r.CodeownersCovered = true },
 			want:   "left to codeowners_covered, which failed",
 		},
+		"codeowners_none_mine": {
+			mutate: func(r *config.ApproveRule) { r.CodeownersNoneMine = true },
+			want:   "left to codeowners_none_mine, which failed",
+		},
 		"mine_comments_only": {
 			mutate: func(r *config.ApproveRule) { r.MineCommentsOnly = true },
 			want:   "left to mine_comments_only, which failed",
@@ -155,9 +159,10 @@ func TestFileChecksWarnings(t *testing.T) {
 		t.Fatalf("warnings = %v", got)
 	}
 	for name, mutate := range map[string]func(*config.ApproveRule){
-		"paths_all_match":    func(r *config.ApproveRule) { r.PathsAllMatch = []string{"docs/**"} },
-		"codeowners_covered": func(r *config.ApproveRule) { r.CodeownersCovered = true },
-		"mine_comments_only": func(r *config.ApproveRule) { r.MineCommentsOnly = true },
+		"paths_all_match":      func(r *config.ApproveRule) { r.PathsAllMatch = []string{"docs/**"} },
+		"codeowners_covered":   func(r *config.ApproveRule) { r.CodeownersCovered = true },
+		"codeowners_none_mine": func(r *config.ApproveRule) { r.CodeownersNoneMine = true },
+		"mine_comments_only":   func(r *config.ApproveRule) { r.MineCommentsOnly = true },
 	} {
 		if got := config.FileChecksWarnings([]config.ApproveRule{uncoveredRule(mutate)}); len(got) != 0 {
 			t.Fatalf("%s: warnings = %v", name, got)

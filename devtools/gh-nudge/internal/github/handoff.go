@@ -6,7 +6,7 @@ import (
 	"strconv"
 )
 
-// Ownership is what gh-approve's codeowners_covered condition reads. It is
+// Ownership is what gh-approve's CODEOWNERS conditions read. It is
 // computed for the viewer and filled only when a rule needs it.
 type Ownership struct {
 	// Err is set when CODEOWNERS could not be read. The condition then fails.

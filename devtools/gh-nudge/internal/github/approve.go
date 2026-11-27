@@ -53,7 +53,7 @@ type ApprovalPullRequest struct {
 	BaseRef string
 	// BaseSHA is the base branch commit OID.
 	BaseSHA string
-	// Ownership is set by gh-approve when a rule sets codeowners_covered.
+	// Ownership is set by gh-approve when a rule sets a CODEOWNERS condition.
 	// Nil means it was not read.
 	Ownership *Ownership
 	// GeneratedPatterns holds globs from the repository's generated_lists file.
