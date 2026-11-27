@@ -58,7 +58,7 @@ func newMaintainCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 			}
 			doc, err := eng.Run(cmd.Context(), cfg, scanDoc, policy.RunOptions{Force: force})
 			if err != nil {
-				return &ExitError{Code: ExitPrecondition, Err: err}
+				return scanExit(err, cfg)
 			}
 			if err := writeMaintainOutput(stdout, doc, jsonOut); err != nil {
 				return err

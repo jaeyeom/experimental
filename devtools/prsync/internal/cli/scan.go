@@ -317,6 +317,12 @@ func scanExit(err error, cfg config.Config) error {
 	if errors.As(err, &notFound) {
 		return &ExitError{Code: ExitPrecondition, Err: fmt.Errorf("gh binary not found (gh_bin=%q)", cfg.GHBin)}
 	}
+	if errors.Is(err, gh.ErrRateLimited) || gh.IsRateLimited(err) {
+		return &ExitError{Code: ExitRateLimited, Err: errors.New("GitHub rate limit; retry later")}
+	}
+	if errors.Is(err, gh.ErrTransient) {
+		return &ExitError{Code: ExitTransient, Err: err}
+	}
 	if errors.Is(err, gh.ErrUnauthenticated) {
 		return &ExitError{Code: ExitPrecondition, Err: errors.New("gh is not authenticated; run: gh auth login")}
 	}

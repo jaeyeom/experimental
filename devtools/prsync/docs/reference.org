@@ -735,3 +735,14 @@ and reports one of three states: ~running~ (~ok~, including ~paused~,
 ~stale heartbeat~ (~warn~ with hint to run ~prsync loop --ensure~), or
 ~not running~ (~ok~).
 
+* Exit codes
+
+| Code | Meaning |
+|------+---------|
+| 0 | Success. |
+| 1 | ~gate~ is busy or the checkout is dirty (~dispatch --go~ reports ~gate_unsafe~). |
+| 2 | Usage, config, or flag error. |
+| 3 | Precondition or permanent failure: missing tool, ~gh~ not logged in or token invalid (~gh auth login~), herdr too old, lock failure, or dispatch failure. |
+| 4 | Live dispatch timed out waiting on the gate or on settle. |
+| 5 | Transient GitHub failure: rate limit (~GitHub rate limit; retry later~) or transient network/upstream error. Safe to retry later. |
+

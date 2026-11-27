@@ -101,7 +101,7 @@ func (c *Client) executeRetry(ctx context.Context, timeout time.Duration, check 
 			return nil, runErr(c.bin, err)
 		}
 	}
-	return nil, fmt.Errorf("transient upstream error: %w", lastErr)
+	return nil, fmt.Errorf("%w: %w", ErrTransient, lastErr)
 }
 
 func (p ghRetryPolicy) budget(kind transientKind) (int, []time.Duration) {

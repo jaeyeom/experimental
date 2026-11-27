@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jaeyeom/experimental/devtools/pkg/ghlimit"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/runlog"
 	executor "github.com/jaeyeom/go-cmdexec"
 )
@@ -30,14 +31,163 @@ func TestAuthStatus(t *testing.T) {
 		}
 	})
 
-	t.Run("unauthenticated", func(t *testing.T) {
+	unauthCases := []struct {
+		name   string
+		stderr string
+	}{
+		{
+			name:   "not logged in",
+			stderr: "You are not logged into any GitHub hosts. To log in, run: gh auth login",
+		},
+		{
+			name:   "invalid token",
+			stderr: "github.com\n  X Failed to log in to github.com account alice (keyring)\n  - The token in keyring is invalid.\n  - To re-authenticate, run: gh auth login -h github.com",
+		},
+		{
+			name:   "http 401 bad credentials",
+			stderr: "HTTP 401: Bad credentials (https://api.github.com/user)",
+		},
+	}
+	for _, tc := range unauthCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			mock := newGHMock()
+			mock.ExpectCommandWithArgs(testGHBin, "auth", "status").
+				WillFail(tc.stderr, 1).Once().Build()
+			err := NewClient(mock, testGHBin).AuthStatus(context.Background())
+			if !errors.Is(err, ErrUnauthenticated) {
+				t.Fatalf("AuthStatus() error = %v, want ErrUnauthenticated", err)
+			}
+			if errors.Is(err, ErrRateLimited) || errors.Is(err, ErrTransient) {
+				t.Fatalf("AuthStatus() error = %v, should not be rate-limited or transient", err)
+			}
+		})
+	}
+
+	rateLimitCases := []struct {
+		name     string
+		stderr   string
+		exitCode int
+	}{
+		{
+			name:     "primary rate limit",
+			stderr:   "HTTP 403: API rate limit exceeded for user ID 123.",
+			exitCode: 1,
+		},
+		{
+			name:     "secondary rate limit",
+			stderr:   "github.com\n  X Failed to log in to github.com account alice (keyring)\n  - You have exceeded a secondary rate limit. Please wait a few minutes before you try again.",
+			exitCode: 1,
+		},
+		{
+			name:     "abuse detection",
+			stderr:   "HTTP 403: You have triggered an abuse detection mechanism. Please wait a few minutes before you try again.",
+			exitCode: 1,
+		},
+		{
+			name:     "http 429",
+			stderr:   "HTTP/2.0 429 Too Many Requests",
+			exitCode: 1,
+		},
+		{
+			name:     "gh-throttle cooldown",
+			stderr:   "gh-throttle: rate limit cooldown active (45s remaining; not an auth failure) [" + ghlimit.RateLimitMarker + "]\n",
+			exitCode: ghlimit.ExitRateLimited,
+		},
+		{
+			name:     "gh-throttle live rate limit",
+			stderr:   "HTTP 403: API rate limit exceeded\ngh-throttle: rate limit hit (not an auth failure) [" + ghlimit.RateLimitMarker + "]\n",
+			exitCode: ghlimit.ExitRateLimited,
+		},
+	}
+	for _, tc := range rateLimitCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			mock := newGHMock()
+			mock.ExpectCommandWithArgs(testGHBin, "auth", "status").
+				WillFail(tc.stderr, tc.exitCode).Once().Build()
+			err := NewClient(mock, testGHBin).AuthStatus(context.Background())
+			if !errors.Is(err, ErrRateLimited) {
+				t.Fatalf("AuthStatus() error = %v, want ErrRateLimited", err)
+			}
+			if errors.Is(err, ErrUnauthenticated) {
+				t.Fatalf("AuthStatus() error = %v, must not be ErrUnauthenticated", err)
+			}
+			if calls := len(mock.Executions()); calls != 1 {
+				t.Fatalf("calls = %d, want 1 (auth status must not retry)", calls)
+			}
+		})
+	}
+
+	networkCases := []struct {
+		name   string
+		stderr string
+	}{
+		{
+			name:   "error connecting to github",
+			stderr: "X github.com: error connecting to api.github.com\n  check your internet connection or https://githubstatus.com",
+		},
+		{
+			name:   "dial tcp no such host",
+			stderr: `Get "https://api.github.com/": dial tcp: lookup api.github.com: no such host`,
+		},
+		{
+			name:   "connection refused",
+			stderr: `Get "https://api.github.com/": dial tcp 140.82.112.6:443: connect: connection refused`,
+		},
+		{
+			name:   "tls handshake timeout",
+			stderr: `Get "https://api.github.com/": net/http: TLS handshake timeout`,
+		},
+		{
+			name:   "http 502",
+			stderr: "HTTP 502: Bad Gateway",
+		},
+	}
+	for _, tc := range networkCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			mock := newGHMock()
+			mock.ExpectCommandWithArgs(testGHBin, "auth", "status").
+				WillFail(tc.stderr, 1).Once().Build()
+			err := NewClient(mock, testGHBin).AuthStatus(context.Background())
+			if !errors.Is(err, ErrTransient) {
+				t.Fatalf("AuthStatus() error = %v, want ErrTransient", err)
+			}
+			if errors.Is(err, ErrUnauthenticated) || errors.Is(err, ErrRateLimited) {
+				t.Fatalf("AuthStatus() error = %v, must not be ErrUnauthenticated or ErrRateLimited", err)
+			}
+			if calls := len(mock.Executions()); calls != 1 {
+				t.Fatalf("calls = %d, want 1", calls)
+			}
+		})
+	}
+
+	t.Run("timeout error is transient", func(t *testing.T) {
 		t.Parallel()
 		mock := newGHMock()
 		mock.ExpectCommandWithArgs(testGHBin, "auth", "status").
-			WillFail("You are not logged into any GitHub hosts", 1).Build()
+			WillError(&executor.TimeoutError{Command: testGHBin, Timeout: defaultCallTimeout}).Once().Build()
 		err := NewClient(mock, testGHBin).AuthStatus(context.Background())
-		if !errors.Is(err, ErrUnauthenticated) {
-			t.Fatalf("AuthStatus() error = %v, want ErrUnauthenticated", err)
+		if !errors.Is(err, ErrTransient) {
+			t.Fatalf("AuthStatus() error = %v, want ErrTransient", err)
+		}
+		if errors.Is(err, ErrUnauthenticated) {
+			t.Fatalf("AuthStatus() error = %v, must not be ErrUnauthenticated", err)
+		}
+	})
+
+	t.Run("http 403 without rate limit text is neither rate limited nor unauthenticated", func(t *testing.T) {
+		t.Parallel()
+		mock := newGHMock()
+		mock.ExpectCommandWithArgs(testGHBin, "auth", "status").
+			WillFail("HTTP 403: Resource not accessible by personal access token", 1).Once().Build()
+		err := NewClient(mock, testGHBin).AuthStatus(context.Background())
+		if err == nil {
+			t.Fatal("AuthStatus() error = nil, want non-nil")
+		}
+		if errors.Is(err, ErrRateLimited) || errors.Is(err, ErrUnauthenticated) || errors.Is(err, ErrTransient) {
+			t.Fatalf("AuthStatus() error = %v, want plain ProcError", err)
 		}
 	})
 

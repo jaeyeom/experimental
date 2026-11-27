@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/jaeyeom/experimental/devtools/pkg/ghlimit"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/loop"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
 	executor "github.com/jaeyeom/go-cmdexec"
 )
@@ -293,4 +296,232 @@ func fixtureBins(t *testing.T) (ghBin, herdrBin string) {
 		t.Fatal(err)
 	}
 	return ghBin, herdrBin
+}
+
+func TestScanAuthStatusClassificationAndCallCount(t *testing.T) {
+	t.Parallel()
+
+	_, herdrBin := fixtureBins(t)
+	cases := []struct {
+		name           string
+		authStderr     string
+		authExit       int
+		wantCode       int
+		wantStderr     string
+		forbidInStderr string
+	}{
+		{
+			name:       "not logged in",
+			authStderr: "You are not logged into any GitHub hosts. To log in, run: gh auth login",
+			authExit:   1,
+			wantCode:   ExitPrecondition,
+			wantStderr: "gh is not authenticated; run: gh auth login",
+		},
+		{
+			name:       "invalid token",
+			authStderr: "github.com\n  X Failed to log in to github.com account alice (keyring)\n  - The token in keyring is invalid.\n  - To re-authenticate, run: gh auth login -h github.com",
+			authExit:   1,
+			wantCode:   ExitPrecondition,
+			wantStderr: "gh is not authenticated; run: gh auth login",
+		},
+		{
+			name:           "direct secondary rate limit",
+			authStderr:     "HTTP 403: You have exceeded a secondary rate limit. Please wait a few minutes before you try again.",
+			authExit:       1,
+			wantCode:       ExitRateLimited,
+			wantStderr:     "GitHub rate limit; retry later",
+			forbidInStderr: "gh auth login",
+		},
+		{
+			name:           "abuse detection",
+			authStderr:     "You have triggered an abuse detection mechanism",
+			authExit:       1,
+			wantCode:       ExitRateLimited,
+			wantStderr:     "GitHub rate limit; retry later",
+			forbidInStderr: "gh auth login",
+		},
+		{
+			name:           "http 429",
+			authStderr:     "HTTP/2.0 429 Too Many Requests",
+			authExit:       1,
+			wantCode:       ExitRateLimited,
+			wantStderr:     "GitHub rate limit; retry later",
+			forbidInStderr: "gh auth login",
+		},
+		{
+			name:           "gh-throttle cooldown exit 75",
+			authStderr:     fmt.Sprintf("gh-throttle: rate limit cooldown active (30s remaining; not an auth failure) [%s]", ghlimit.RateLimitMarker),
+			authExit:       ghlimit.ExitRateLimited,
+			wantCode:       ExitRateLimited,
+			wantStderr:     "GitHub rate limit; retry later",
+			forbidInStderr: "gh auth login",
+		},
+		{
+			name:           "network failure",
+			authStderr:     "X github.com: error connecting to api.github.com\n  check your internet connection or https://githubstatus.com",
+			authExit:       1,
+			wantCode:       ExitTransient,
+			wantStderr:     "error connecting to api.github.com",
+			forbidInStderr: "gh auth login",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			authLog := filepath.Join(dir, "auth-calls.log")
+			stderrFile := filepath.Join(dir, "auth-stderr.txt")
+			if err := os.WriteFile(stderrFile, []byte(tc.authStderr+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			ghScript := filepath.Join(dir, "gh-auth-fail.sh")
+			script := fmt.Sprintf(`#!/bin/sh
+if [ "${1-}" = "auth" ] && [ "${2-}" = "status" ]; then
+  printf 'auth status\n' >> %q
+  cat %q >&2
+  exit %d
+fi
+printf 'unexpected gh call: %%s\n' "$*" >&2
+exit 99
+`, authLog, stderrFile, tc.authExit)
+			if err := os.WriteFile(ghScript, []byte(script), 0o700); err != nil {
+				t.Fatal(err)
+			}
+
+			cfgPath := writeScanConfig(t, "gh_bin="+ghScript+"\nherdr_bin="+herdrBin+"\nauthor=alice\nrepos=acme/widgets\n")
+			var stdout, stderr bytes.Buffer
+			code := Execute(context.Background(), []string{"scan", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+			if code != tc.wantCode {
+				t.Fatalf("exit = %d, want %d, stderr=%q stdout=%q", code, tc.wantCode, stderr.String(), stdout.String())
+			}
+			if !strings.Contains(stderr.String(), tc.wantStderr) {
+				t.Fatalf("stderr = %q, want substring %q", stderr.String(), tc.wantStderr)
+			}
+			if tc.forbidInStderr != "" && strings.Contains(stderr.String(), tc.forbidInStderr) {
+				t.Fatalf("stderr = %q, must not contain %q", stderr.String(), tc.forbidInStderr)
+			}
+			if stdout.Len() != 0 {
+				t.Fatalf("stdout = %q, want empty before work starts", stdout.String())
+			}
+			rawLog, err := os.ReadFile(authLog)
+			if err != nil {
+				t.Fatalf("read auth log: %v", err)
+			}
+			if calls := strings.Count(string(rawLog), "auth status\n"); calls != 1 {
+				t.Fatalf("auth status calls = %d, want 1", calls)
+			}
+		})
+	}
+}
+
+func TestOneAuthStatusCallPerRun(t *testing.T) {
+	t.Parallel()
+
+	realGH, herdrBin := fixtureBins(t)
+
+	newCountingGH := func(t *testing.T, authLog string) string {
+		t.Helper()
+		wrapper := filepath.Join(t.TempDir(), "gh-wrap.sh")
+		script := fmt.Sprintf(`#!/bin/sh
+if [ "${1-}" = "auth" ] && [ "${2-}" = "status" ]; then
+  printf 'auth status\n' >> %q
+fi
+exec %q "$@"
+`, authLog, realGH)
+		if err := os.WriteFile(wrapper, []byte(script), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		return wrapper
+	}
+
+	t.Run("scan runs auth status once", func(t *testing.T) {
+		t.Parallel()
+		authLog := filepath.Join(t.TempDir(), "auth.log")
+		cfgPath := writeScanConfig(t, "gh_bin="+newCountingGH(t, authLog)+"\nherdr_bin="+herdrBin+"\nauthor=alice\nrepos=acme/widgets\n")
+		var stdout, stderr bytes.Buffer
+		if code := Execute(context.Background(), []string{"scan", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor()); code != ExitOK {
+			t.Fatalf("exit = %d, stderr=%q", code, stderr.String())
+		}
+		raw, err := os.ReadFile(authLog)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if calls := strings.Count(string(raw), "auth status\n"); calls != 1 {
+			t.Fatalf("auth status calls = %d, want 1", calls)
+		}
+	})
+
+	t.Run("dispatch with multiple targets runs auth status once", func(t *testing.T) {
+		t.Parallel()
+		authLog := filepath.Join(t.TempDir(), "auth.log")
+		cfgPath := writeScanConfig(t, "gh_bin="+newCountingGH(t, authLog)+"\nherdr_bin="+herdrBin+"\nauthor=alice\nrepos=acme/widgets\n")
+		var stdout, stderr bytes.Buffer
+		code := Execute(context.Background(), []string{
+			"dispatch", "--config", cfgPath, "--pr", "acme/widgets#123", "--pr", "acme/widgets#124",
+		}, &stdout, &stderr, executor.NewBasicExecutor())
+		if code != ExitOK {
+			t.Fatalf("exit = %d, stderr=%q", code, stderr.String())
+		}
+		raw, err := os.ReadFile(authLog)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if calls := strings.Count(string(raw), "auth status\n"); calls != 1 {
+			t.Fatalf("auth status calls = %d, want 1", calls)
+		}
+	})
+
+	t.Run("loop runs auth status once per round and surfaces rate limit", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		authLog := filepath.Join(dir, "auth.log")
+		marker := filepath.Join(dir, "rate-limited-once")
+		ghScript := filepath.Join(dir, "gh-loop.sh")
+		script := fmt.Sprintf(`#!/bin/sh
+if [ "${1-}" = "auth" ] && [ "${2-}" = "status" ]; then
+  printf 'auth status\n' >> %q
+  if [ ! -f %q ]; then
+    touch %q
+    printf 'gh-throttle: rate limit cooldown active (5s remaining; not an auth failure) [%s]\n' >&2
+    exit %d
+  fi
+  exit 0
+fi
+exec %q "$@"
+`, authLog, marker, marker, ghlimit.RateLimitMarker, ghlimit.ExitRateLimited, realGH)
+		if err := os.WriteFile(ghScript, []byte(script), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		cfgPath := writeScanConfig(t, "gh_bin="+ghScript+"\nherdr_bin="+herdrBin+"\nauthor=alice\nrepos=acme/widgets\n")
+		var stdout, stderr bytes.Buffer
+		code := Execute(context.Background(), []string{"loop", "--config", cfgPath, "--max-rounds", "2", "--dry-run"}, &stdout, &stderr, executor.NewBasicExecutor())
+		if code != ExitOK {
+			t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+		}
+		lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+		if len(lines) != 2 {
+			t.Fatalf("round lines = %d, want 2:\n%s", len(lines), stdout.String())
+		}
+		var r1, r2 loop.RoundResult
+		if err := json.Unmarshal([]byte(lines[0]), &r1); err != nil {
+			t.Fatalf("decode round 1: %v", err)
+		}
+		if err := json.Unmarshal([]byte(lines[1]), &r2); err != nil {
+			t.Fatalf("decode round 2: %v", err)
+		}
+		if !strings.Contains(r1.Err, "GitHub rate limit; retry later") || strings.Contains(r1.Err, "gh auth login") {
+			t.Fatalf("round 1 err = %q, want GitHub rate limit; retry later", r1.Err)
+		}
+		if r2.Err != "" || r2.Scanned != 1 {
+			t.Fatalf("round 2 = %+v, want clean scan", r2)
+		}
+		raw, err := os.ReadFile(authLog)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if calls := strings.Count(string(raw), "auth status\n"); calls != 2 {
+			t.Fatalf("auth status calls = %d, want 2 (1 per round)", calls)
+		}
+	})
 }

@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/jaeyeom/experimental/devtools/pkg/ghlimit"
 )
 
-// ErrUnauthenticated is returned when `gh auth status` exits non-zero.
+// ErrUnauthenticated is returned when `gh auth status` reports that gh is not
+// logged in or its token is invalid.
 var ErrUnauthenticated = errors.New("gh is not authenticated")
 
 // ErrInaccessible is returned only for 404 / not-found / archived repositories.
@@ -20,6 +23,10 @@ var ErrNotFound = errors.New("pull request not found")
 // ErrRateLimited is a GitHub rate limit. Team-cover skips that signal
 // instead of failing the scan.
 var ErrRateLimited = errors.New("github rate limit")
+
+// ErrTransient is returned when a gh call fails due to a transient network
+// or upstream server error.
+var ErrTransient = errors.New("transient upstream error")
 
 // IsRateLimited reports whether err is a GitHub rate limit.
 func IsRateLimited(err error) bool {
@@ -33,7 +40,12 @@ func IsRateLimited(err error) bool {
 }
 
 func isRateLimitText(text string) bool {
-	return strings.Contains(strings.ToLower(text), "rate limit")
+	lower := strings.ToLower(text)
+	return strings.Contains(lower, "rate limit") ||
+		strings.Contains(lower, "rate-limit") ||
+		strings.Contains(lower, "abuse detection") ||
+		strings.Contains(lower, "too many requests") ||
+		strings.Contains(text, ghlimit.RateLimitMarker)
 }
 
 // ProcError is a non-zero process exit from gh.

@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/jaeyeom/experimental/devtools/pkg/ghlimit"
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 
@@ -74,16 +76,136 @@ func NewClient(exec executor.Executor, bin string) *Client {
 	}
 }
 
-// AuthStatus runs `gh auth status`. A missing binary is an ExecutableNotFoundError.
+var (
+	authStatusArgs = []string{"auth", "status"}
+	http429RE      = regexp.MustCompile(`(?i)\bhttp(?:/[\d.]+)?\s+429\b`)
+	http401RE      = regexp.MustCompile(`(?i)\bhttp(?:/[\d.]+)?\s+401\b`)
+	http5xxRE      = regexp.MustCompile(`(?i)\bhttp(?:/[\d.]+)?\s+50[0234]\b`)
+)
+
+var authTransientSubstrings = []string{
+	"error connecting to",
+	"check your internet connection",
+	"dial tcp",
+	"no such host",
+	"connection refused",
+	"connection reset",
+	"i/o timeout",
+	"tls handshake timeout",
+	"client.timeout",
+	"context deadline exceeded",
+	"network is unreachable",
+	"no route to host",
+	"host is unreachable",
+	"temporary failure in name resolution",
+	"server misbehaving",
+	"broken pipe",
+	"unexpected eof",
+	"unexpected end of json input",
+	"unexpected end of file",
+	"bad gateway",
+	"service unavailable",
+	"gateway timeout",
+	"internal server error",
+	"error making http request",
+	"net/http:",
+	": eof",
+}
+
+var authUnauthSubstrings = []string{
+	"not logged in",
+	"gh auth login",
+	"invalid token",
+	"token is invalid",
+	"bad credentials",
+	"unauthorized",
+	"no oauth token",
+	"authentication required",
+	"missing required scope",
+	"insufficient scopes",
+	"failed to log in",
+}
+
+// AuthStatus runs `gh auth status` once without retrying. A missing binary is
+// an ExecutableNotFoundError. Non-zero exits are classified into ErrRateLimited,
+// ErrTransient, ErrUnauthenticated, or a ProcError.
 func (c *Client) AuthStatus(ctx context.Context) error {
-	result, err := c.execute(ctx, defaultCallTimeout, "auth", "status")
-	if err != nil {
+	if err := ctx.Err(); err != nil {
+		return runErr(c.bin, err)
+	}
+	if err := CallBudgetFrom(ctx).Take(); err != nil {
 		return err
 	}
-	if result.ExitCode != 0 {
-		return fmt.Errorf("%w: %s", ErrUnauthenticated, strings.TrimSpace(result.Stderr))
+	result, err := c.exec.Execute(ctx, executor.ToolConfig{
+		Command: c.bin,
+		Args:    authStatusArgs,
+		Timeout: defaultCallTimeout,
+	})
+	if err != nil {
+		var timeoutErr *executor.TimeoutError
+		if errors.As(err, &timeoutErr) {
+			return fmt.Errorf("%w: %w", ErrTransient, runErr(c.bin, err))
+		}
+		return runErr(c.bin, err)
 	}
-	return nil
+	if result.ExitCode == 0 {
+		return nil
+	}
+	return classifyAuthStatusFailure(result)
+}
+
+func classifyAuthStatusFailure(result *executor.ExecutionResult) error {
+	combined := result.Stderr + "\n" + result.Output
+	procErr := &ProcError{ExitCode: result.ExitCode, Stdout: result.Output, Stderr: result.Stderr}
+	switch {
+	case isAuthStatusRateLimited(result.ExitCode, result.Stderr, result.Output):
+		return fmt.Errorf("%w: %w", ErrRateLimited, procErr)
+	case isAuthStatusTransient(combined):
+		return fmt.Errorf("%w: %w", ErrTransient, procErr)
+	case isAuthStatusUnauthenticated(combined):
+		return fmt.Errorf("%w: %w", ErrUnauthenticated, procErr)
+	default:
+		return procErr
+	}
+}
+
+func isAuthStatusRateLimited(exitCode int, stderr, stdout string) bool {
+	if exitCode == ghlimit.ExitRateLimited {
+		return true
+	}
+	if ghlimit.RateLimited(authStatusArgs, stderr, stdout) || ghlimit.RateLimited(authStatusArgs, stdout, stderr) {
+		return true
+	}
+	combined := stderr + "\n" + stdout
+	return isRateLimitText(combined) || http429RE.MatchString(combined)
+}
+
+func isAuthStatusTransient(combined string) bool {
+	if strings.TrimSpace(combined) == "" || http5xxRE.MatchString(combined) {
+		return true
+	}
+	return containsAnyFold(strings.ToLower(combined), authTransientSubstrings)
+}
+
+func isAuthStatusUnauthenticated(combined string) bool {
+	if http401RE.MatchString(combined) {
+		return true
+	}
+	lower := strings.ToLower(combined)
+	if containsAnyFold(lower, authUnauthSubstrings) {
+		return true
+	}
+	return strings.Contains(lower, "token") &&
+		(strings.Contains(lower, "invalid") || strings.Contains(lower, "expired") || strings.Contains(lower, "revoked"))
+}
+
+func containsAnyFold(lower string, needles []string) bool {
+	for _, needle := range needles {
+		if strings.Contains(lower, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 // UserLogin runs `gh api user --jq .login`.

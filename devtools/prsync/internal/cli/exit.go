@@ -20,6 +20,10 @@ const (
 	ExitPrecondition = 3
 	// ExitGateTimeout is a live dispatch that timed out on the gate or settle wait.
 	ExitGateTimeout = 4
+	// ExitRateLimited is a GitHub rate limit or transient upstream/network error.
+	ExitRateLimited = 5
+	// ExitTransient is a transient GitHub or network error (alias of ExitRateLimited).
+	ExitTransient = ExitRateLimited
 )
 
 // ExitError carries a process exit code.

@@ -78,6 +78,7 @@ go_test(
     ],
     embed = [":go_default_library"],
     deps = [
+        "//devtools/pkg/ghlimit:go_default_library",
         "//devtools/pkg/herdrtest:go_default_library",
         "//devtools/pkg/toolcli:go_default_library",
         "//devtools/prsync/internal/config:go_default_library",
