@@ -149,8 +149,9 @@ type Mailbox struct {
 	wakeModelByName []config.WakeModelRule
 	// waking is the wake in flight per handle, and wakes every wake
 	// goroutine.
-	waking map[string]*wakeCall
-	wakes  sync.WaitGroup
+	waking     map[string]*wakeCall
+	wakes      sync.WaitGroup
+	deliveries sync.WaitGroup
 	// deferred handles are pasted by DeliverDeferred, after the reply.
 	deferred []string
 	// holdPaste keeps a ReplyFirst message in the queue until replyFirst

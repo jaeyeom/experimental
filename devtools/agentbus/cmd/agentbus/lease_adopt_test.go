@@ -14,22 +14,12 @@ import (
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
-	"github.com/jaeyeom/experimental/devtools/agentbus/internal/checkout"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
 )
 
 // leaseUserPane is a herdr pane that runs no agent: the user.
 const leaseUserPane = "herdr:local/default/w1:p5"
-
-// noProcs swaps adopt's process lister for one that sees nothing, so a
-// test does not depend on what else runs on the machine.
-func noProcs(t *testing.T) {
-	t.Helper()
-	old := listProcs
-	listProcs = func() ([]checkout.Proc, error) { return nil, nil }
-	t.Cleanup(func() { listProcs = old })
-}
 
 // dirty leaves a modified, a staged, and an untracked file in the repo.
 func (w *leaseWorld) dirty(t *testing.T) {
@@ -57,8 +47,9 @@ func (w *leaseWorld) backupRefs(t *testing.T) []string {
 }
 
 func TestLeaseTakeoverThenAdoptSavesEverythingAndCleans(t *testing.T) {
-	noProcs(t)
+	t.Parallel()
 	w := newLeaseWorld(t)
+	w.noProcs()
 	ticks := make(chan time.Time)
 	w.cfg.LeaseTicks = ticks
 	w.cfg.LeaseTiming.Takeover = lease.TakeoverOn
@@ -158,8 +149,9 @@ func (w *leaseWorld) rebaseConflict(t *testing.T) {
 }
 
 func TestLeaseAdoptRecordsAndAbortsARebase(t *testing.T) {
-	noProcs(t)
+	t.Parallel()
 	w := newLeaseWorld(t)
+	w.noProcs()
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
 	w.rebaseConflict(t)
@@ -186,6 +178,7 @@ func TestLeaseAdoptRecordsAndAbortsARebase(t *testing.T) {
 }
 
 func TestLeaseAdoptIsBlockedByASleepInTheCheckoutUntilForced(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("sleep"); err != nil {
 		t.Skip("sleep is not installed")
 	}
@@ -247,8 +240,9 @@ func TestLeaseAdoptIsBlockedByASleepInTheCheckoutUntilForced(t *testing.T) {
 }
 
 func TestLeaseAdoptByTheUserFromAPlainPane(t *testing.T) {
-	noProcs(t)
+	t.Parallel()
 	w := newLeaseWorld(t)
+	w.noProcs()
 	w.ad.Reach[leaseUserPane] = adapter.StateNoAgent
 	w.ad.PaneHandles["p5"] = leaseUserPane
 	stop := startDaemon(t, w.dirs, w.cfg)
@@ -268,8 +262,9 @@ func TestLeaseAdoptByTheUserFromAPlainPane(t *testing.T) {
 }
 
 func TestLeaseAdoptOfAHeldCheckoutIsRefused(t *testing.T) {
-	noProcs(t)
+	t.Parallel()
 	w := newLeaseWorld(t)
+	w.noProcs()
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
 	w.mustLease(t, "p1", "claim", "--for", "40m")

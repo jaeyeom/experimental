@@ -106,6 +106,7 @@ func (m *Mailbox) Poll(ctx context.Context, interval time.Duration) {
 	}
 	var flushes sync.WaitGroup
 	defer m.wakes.Wait()
+	defer m.deliveries.Wait()
 	defer flushes.Wait()
 	m.flushQuiet(ctx, &flushes)
 	ticker := time.NewTicker(interval)
@@ -233,10 +234,10 @@ func (m *Mailbox) AbsorbFastHold(ctx context.Context, id string) (Result, bool) 
 		return Result{}, false
 	}
 	done := make(chan struct{})
-	go func() {
+	m.deliveries.Go(func() {
 		m.DeliverDeferred(ctx)
 		close(done)
-	}()
+	})
 	deadline := time.NewTimer(holdWatch)
 	defer deadline.Stop()
 	tick := time.NewTicker(holdWatchPoll)

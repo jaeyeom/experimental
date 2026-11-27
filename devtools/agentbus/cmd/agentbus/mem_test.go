@@ -100,25 +100,25 @@ func fakeMemBusSeen(seen map[string]hibernate.Seen) func(context.Context, string
 	}
 }
 
-func setupMem(t *testing.T, dial func(context.Context, string, daemon.Request) (daemon.Response, error)) (*herdrtest.Fake, []string) {
+func setupMem(t *testing.T, dial func(context.Context, string, daemon.Request) (daemon.Response, error)) (*herdrtest.Fake, context.Context, []string) {
 	t.Helper()
-	fake := herdrtest.Install(t)
-	fake.Write("local.agents", memAgents)
-	fake.Write("local.tabs", memTabs)
-	fake.Write("local.process-info.w1:p1", processInfoJSON("w1:p1", 100))
-	fake.Write("local.process-info.w1:p2", processInfoJSON("w1:p2", 200))
-	fake.Write("local.process-info.w1:p3", processInfoJSON("w1:p3", 300))
-	oldDial, oldProcs, oldMem := dialDaemon, memProcs, memMemory
-	t.Cleanup(func() { dialDaemon, memProcs, memMemory = oldDial, oldProcs, oldMem })
-	dialDaemon = dial
-	memProcs = func() procinfo.Table { return memTable }
-	memMemory = func() procinfo.Memory { return fakeMemory(8 * 1024 * mib) }
 	env := []string{
 		"XDG_RUNTIME_DIR=" + shortRuntime(t),
 		"XDG_STATE_HOME=" + t.TempDir(),
 		"HOME=" + t.TempDir(),
 	}
-	return fake, env
+	fake := herdrtest.InstallInEnv(t, &env)
+	fake.Write("local.agents", memAgents)
+	fake.Write("local.tabs", memTabs)
+	fake.Write("local.process-info.w1:p1", processInfoJSON("w1:p1", 100))
+	fake.Write("local.process-info.w1:p2", processInfoJSON("w1:p2", 200))
+	fake.Write("local.process-info.w1:p3", processInfoJSON("w1:p3", 300))
+	ctx := withCmdHooks(context.Background(), cmdHooks{
+		dialDaemon: dial,
+		memProcs:   func() procinfo.Table { return memTable },
+		memMemory:  func() procinfo.Memory { return fakeMemory(8 * 1024 * mib) },
+	})
+	return fake, ctx, env
 }
 
 type memJSON struct {
@@ -147,8 +147,9 @@ type memJSON struct {
 }
 
 func TestMemJSON(t *testing.T) {
-	fake, env := setupMem(t, fakeMemBus)
-	stdout, _ := mustCmd(t, []string{"mem", "--json"}, env)
+	t.Parallel()
+	fake, ctx, env := setupMem(t, fakeMemBus)
+	stdout, _ := mustCmdCtx(t, ctx, []string{"mem", "--json"}, env)
 	var got memJSON
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
 		t.Fatalf("decode %q: %v", stdout, err)
@@ -205,8 +206,9 @@ func TestMemJSON(t *testing.T) {
 }
 
 func TestMemText(t *testing.T) {
-	_, env := setupMem(t, fakeMemBus)
-	stdout, _ := mustCmd(t, []string{"mem"}, env)
+	t.Parallel()
+	_, ctx, env := setupMem(t, fakeMemBus)
+	stdout, _ := mustCmdCtx(t, ctx, []string{"mem"}, env)
 	lines := strings.Split(strings.TrimSpace(stdout), "\n")
 	if len(lines) < 4 {
 		t.Fatalf("output = %q", stdout)
@@ -236,17 +238,18 @@ func TestMemText(t *testing.T) {
 }
 
 func TestMemFooterShowsTheHibernationPolicy(t *testing.T) {
-	_, env := setupMem(t, fakeMemBus)
-	stdout, _ := mustCmd(t, []string{"mem"}, env)
+	t.Parallel()
+	_, ctx, env := setupMem(t, fakeMemBus)
+	stdout, _ := mustCmdCtx(t, ctx, []string{"mem"}, env)
 	if !strings.Contains(stdout, "available; hibernate policy off\n") {
 		t.Fatalf("no config: output = %q, want the policy off", stdout)
 	}
 	writeFile(t, filepath.Join(envGet(env, "HOME"), ".config", "agentbus", "config.toml"), []byte("hibernate_policy = \"on\"\nhibernate_below = \"1.5GiB\"\nhibernate_target = \"3GiB\"\n"))
-	stdout, _ = mustCmd(t, []string{"mem"}, env)
+	stdout, _ = mustCmdCtx(t, ctx, []string{"mem"}, env)
 	if !strings.Contains(stdout, "hibernate policy on (below 1.5 GiB, target 3.0 GiB, min idle 30m0s)") {
 		t.Fatalf("output = %q, want the mode and thresholds", stdout)
 	}
-	stdout, _ = mustCmd(t, []string{"mem", "--json"}, env)
+	stdout, _ = mustCmdCtx(t, ctx, []string{"mem", "--json"}, env)
 	var got struct {
 		Policy struct {
 			Mode        string `json:"mode"`
@@ -264,10 +267,11 @@ func TestMemFooterShowsTheHibernationPolicy(t *testing.T) {
 }
 
 func TestMemDaemonDown(t *testing.T) {
-	_, env := setupMem(t, func(context.Context, string, daemon.Request) (daemon.Response, error) {
+	t.Parallel()
+	_, ctx, env := setupMem(t, func(context.Context, string, daemon.Request) (daemon.Response, error) {
 		return daemon.Response{}, errors.New("connect: no such file")
 	})
-	stdout, _ := mustCmd(t, []string{"mem"}, env)
+	stdout, _ := mustCmdCtx(t, ctx, []string{"mem"}, env)
 	if !strings.Contains(stdout, "w1:p1") || !strings.Contains(stdout, "w1:p2") {
 		t.Fatalf("output = %q, want the rows", stdout)
 	}
@@ -279,7 +283,7 @@ func TestMemDaemonDown(t *testing.T) {
 		t.Fatalf("output = %q, want a note about the daemon", stdout)
 	}
 
-	stdout, _ = mustCmd(t, []string{"mem", "--json"}, env)
+	stdout, _ = mustCmdCtx(t, ctx, []string{"mem", "--json"}, env)
 	var got memJSON
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
 		t.Fatal(err)
@@ -305,18 +309,19 @@ func memRow(t *testing.T, stdout, pane string) string {
 }
 
 func TestMemIdleSinceFromTheDaemon(t *testing.T) {
-	_, env := setupMem(t, fakeMemBusSeen(map[string]hibernate.Seen{
+	t.Parallel()
+	_, ctx, env := setupMem(t, fakeMemBusSeen(map[string]hibernate.Seen{
 		"herdr:local/sess-1/w1:p1": {Status: "idle", For: 3 * time.Hour},
 		"herdr:local/sess-2/w1:p2": {Status: "working", For: time.Hour},
 	}))
-	stdout := mustOut(t, []string{"mem"}, env)
+	stdout := mustOutCtx(t, ctx, []string{"mem"}, env)
 	if row := memRow(t, stdout, "w1:p1"); !strings.Contains(row, " 3h0m ") {
 		t.Fatalf("w1:p1 = %q, want idle 3h0m", row)
 	}
 	if row := memRow(t, stdout, "w1:p2"); !strings.Contains(row, " unknown ") {
 		t.Fatalf("w1:p2 = %q, want a working row unknown", row)
 	}
-	got := decodeMem(t, mustOut(t, []string{"mem", "--json"}, env))
+	got := decodeMem(t, mustOutCtx(t, ctx, []string{"mem", "--json"}, env))
 	first := got.Agents[0]
 	since, err := time.Parse(time.RFC3339, first.IdleSince)
 	if err != nil || first.IdleSecs == nil || *first.IdleSecs != 10800 || first.LowerBound {
@@ -331,22 +336,24 @@ func TestMemIdleSinceFromTheDaemon(t *testing.T) {
 }
 
 func TestMemIdleSinceBoundedByTheDaemonStart(t *testing.T) {
-	_, env := setupMem(t, fakeMemBusSeen(map[string]hibernate.Seen{
+	t.Parallel()
+	_, ctx, env := setupMem(t, fakeMemBusSeen(map[string]hibernate.Seen{
 		"herdr:local/sess-1/w1:p1": {Status: "idle", For: 40 * time.Minute, LowerBound: true},
 	}))
-	if row := memRow(t, mustOut(t, []string{"mem"}, env), "w1:p1"); !strings.Contains(row, " >=40m ") {
+	if row := memRow(t, mustOutCtx(t, ctx, []string{"mem"}, env), "w1:p1"); !strings.Contains(row, " >=40m ") {
 		t.Fatalf("w1:p1 = %q, want >=40m", row)
 	}
-	first := decodeMem(t, mustOut(t, []string{"mem", "--json"}, env)).Agents[0]
+	first := decodeMem(t, mustOutCtx(t, ctx, []string{"mem", "--json"}, env)).Agents[0]
 	if !first.LowerBound || first.IdleSecs == nil || *first.IdleSecs != 2400 {
 		t.Fatalf("w1:p1 = %+v, want idle_since_lower_bound and idle_seconds 2400", first)
 	}
 }
 
 func TestMemHerdrDown(t *testing.T) {
-	fake, env := setupMem(t, fakeMemBus)
+	t.Parallel()
+	fake, ctx, env := setupMem(t, fakeMemBus)
 	fake.Write("local.down", "")
-	code, _, stderr := runCmd([]string{"mem"}, env)
+	code, _, stderr := runCmdCtx(ctx, []string{"mem"}, env)
 	if code == 0 || !strings.Contains(stderr, "herdr") {
 		t.Fatalf("mem = %d, stderr %q; want a herdr error", code, stderr)
 	}
@@ -372,14 +379,14 @@ const memHubLeases = `[
 // setupMemHub runs mem on machine "mac" in hub mode against a fake hub
 // over ssh whose agentbus prints memHubList and memHubLeases. Any local
 // daemon call fails the test.
-func setupMemHub(t *testing.T) (*sshtest.Fake, []string) {
+func setupMemHub(t *testing.T) (*sshtest.Fake, context.Context, []string) {
 	t.Helper()
-	_, env := setupMem(t, func(_ context.Context, socket string, req daemon.Request) (daemon.Response, error) {
+	_, ctx, env := setupMem(t, func(_ context.Context, socket string, req daemon.Request) (daemon.Response, error) {
 		t.Errorf("mem in hub mode dialed %s for %s", socket, req.Op)
 		return daemon.Response{}, errors.New("no daemon")
 	})
 	writeFile(t, filepath.Join(envGet(env, "HOME"), ".config", "agentbus", "config.toml"), []byte("hub = \"me@hub\"\nmachine = \"mac\"\n"))
-	ssh := sshtest.Install(t)
+	ssh := sshtest.InstallInEnv(t, &env)
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "list.json"), []byte(memHubList))
 	writeFile(t, filepath.Join(dir, "leases.json"), []byte(memHubLeases))
@@ -392,8 +399,8 @@ func setupMemHub(t *testing.T) (*sshtest.Fake, []string) {
 	if err := os.WriteFile(filepath.Join(dir, "agentbus"), []byte(script), 0o755); err != nil { //nolint:gosec // test executable
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	return ssh, env
+	env = sshtest.PrependPath(env, dir)
+	return ssh, ctx, env
 }
 
 func decodeMem(t *testing.T, stdout string) memJSON {
@@ -405,6 +412,12 @@ func decodeMem(t *testing.T, stdout string) memJSON {
 	return got
 }
 
+func mustOutCtx(t *testing.T, ctx context.Context, args, env []string) string {
+	t.Helper()
+	stdout, _ := mustCmdCtx(t, ctx, args, env)
+	return stdout
+}
+
 func mustOut(t *testing.T, args, env []string) string {
 	t.Helper()
 	stdout, _ := mustCmd(t, args, env)
@@ -412,10 +425,11 @@ func mustOut(t *testing.T, args, env []string) string {
 }
 
 func TestMemHubNamesAndLeasesOverSSH(t *testing.T) {
-	ssh, env := setupMemHub(t)
+	t.Parallel()
+	ssh, ctx, env := setupMemHub(t)
 	ssh.Reachable()
 	savePolicySeen(t, env)
-	got := decodeMem(t, mustOut(t, []string{"mem", "--json"}, env))
+	got := decodeMem(t, mustOutCtx(t, ctx, []string{"mem", "--json"}, env))
 	if len(got.Agents) != 2 || len(got.Notes) != 0 {
 		t.Fatalf("mem = %+v, want two rows and no note", got)
 	}
@@ -433,7 +447,7 @@ func TestMemHubNamesAndLeasesOverSSH(t *testing.T) {
 		t.Fatalf("w1:p2 leases = %+v, want it to hold mac:/src/repo", second.Leases)
 	}
 
-	stdout := mustOut(t, []string{"mem"}, env)
+	stdout := mustOutCtx(t, ctx, []string{"mem"}, env)
 	header := strings.SplitN(stdout, "\n", 2)[0]
 	if !strings.Contains(header, "NAMES") || !strings.Contains(header, "LEASE") {
 		t.Fatalf("header = %q, want names and lease columns", header)
@@ -445,11 +459,12 @@ func TestMemHubNamesAndLeasesOverSSH(t *testing.T) {
 }
 
 func TestMemHubUnreachable(t *testing.T) {
-	ssh, env := setupMemHub(t)
+	t.Parallel()
+	ssh, ctx, env := setupMemHub(t)
 	ssh.Write("down", "")
 	ssh.Unreachable()
 	start := time.Now()
-	stdout := mustOut(t, []string{"mem"}, env)
+	stdout := mustOutCtx(t, ctx, []string{"mem"}, env)
 	if took := time.Since(start); took > 5*time.Second {
 		t.Fatalf("mem took %s", took)
 	}
@@ -466,26 +481,28 @@ func TestMemHubUnreachable(t *testing.T) {
 }
 
 func TestMemHubShowsThisMachinesPolicy(t *testing.T) {
-	ssh, env := setupMemHub(t)
+	t.Parallel()
+	ssh, ctx, env := setupMemHub(t)
 	ssh.Write("down", "")
 	ssh.Unreachable()
 	writeFile(t, filepath.Join(envGet(env, "HOME"), ".config", "agentbus", "config.toml"),
 		[]byte("hub = \"me@hub\"\nmachine = \"mac\"\nhibernate_policy = \"on\"\nhibernate_below = \"1GiB\"\n"))
-	stdout := mustOut(t, []string{"mem"}, env)
+	stdout := mustOutCtx(t, ctx, []string{"mem"}, env)
 	if !strings.Contains(stdout, "hibernate policy on (below 1.0 GiB, target 1.0 GiB, min idle 30m0s)") || strings.Contains(stdout, "does not run") {
 		t.Fatalf("output = %q, want the configured policy: agentbus hibernate --policy runs it here", stdout)
 	}
 }
 
 func TestMemHubDeadline(t *testing.T) {
-	ssh, env := setupMemHub(t)
+	t.Parallel()
+	ssh, ctx, env := setupMemHub(t)
 	ssh.Write("hang", "")
 	ssh.Reachable()
 	savePolicySeen(t, env)
-	env = append(env, "AGENTBUS_HOOK_TIMEOUT=500ms")
+	env = append(env, "AGENTBUS_HOOK_TIMEOUT=100ms")
 	start := time.Now()
-	got := decodeMem(t, mustOut(t, []string{"mem", "--json"}, env))
-	if took := time.Since(start); took > 2500*time.Millisecond {
+	got := decodeMem(t, mustOutCtx(t, ctx, []string{"mem", "--json"}, env))
+	if took := time.Since(start); took > time.Second {
 		t.Fatalf("mem took %s, want the hook deadline", took)
 	}
 	if len(got.Agents) != 2 || got.Agents[0].Names != nil || len(got.Notes) != 1 || !strings.Contains(got.Notes[0], "me@hub") {
@@ -517,21 +534,22 @@ func savePolicySeen(t *testing.T, env []string) {
 }
 
 func TestMemHubIdleSinceFromThePolicyRunner(t *testing.T) {
-	ssh, env := setupMemHub(t)
+	t.Parallel()
+	ssh, ctx, env := setupMemHub(t)
 	ssh.Reachable()
-	stdout := mustOut(t, []string{"mem"}, env)
+	stdout := mustOutCtx(t, ctx, []string{"mem"}, env)
 	if row := memRow(t, stdout, "w1:p1"); !strings.Contains(row, " unknown ") {
 		t.Fatalf("w1:p1 = %q, want unknown with no policy runner", row)
 	}
 	savePolicySeen(t, env)
-	stdout = mustOut(t, []string{"mem"}, env)
+	stdout = mustOutCtx(t, ctx, []string{"mem"}, env)
 	if row := memRow(t, stdout, "w1:p1"); !strings.Contains(row, " 3h0m ") {
 		t.Fatalf("w1:p1 = %q, want the runner's 3h0m", row)
 	}
 	if strings.Contains(stdout, "note:") {
 		t.Fatalf("output = %q, want no note with a fresh runner file", stdout)
 	}
-	got := decodeMem(t, mustOut(t, []string{"mem", "--json"}, env))
+	got := decodeMem(t, mustOutCtx(t, ctx, []string{"mem", "--json"}, env))
 	if len(got.Notes) != 0 {
 		t.Fatalf("notes = %q, want none", got.Notes)
 	}
@@ -555,9 +573,10 @@ func policySeenPath(t *testing.T, env []string) string {
 }
 
 func TestMemHubNoPolicyRunnerSaysWhy(t *testing.T) {
-	ssh, env := setupMemHub(t)
+	t.Parallel()
+	ssh, ctx, env := setupMemHub(t)
 	ssh.Reachable()
-	stdout := mustOut(t, []string{"mem"}, env)
+	stdout := mustOutCtx(t, ctx, []string{"mem"}, env)
 	if row := memRow(t, stdout, "w1:p1"); !strings.Contains(row, " unknown ") {
 		t.Fatalf("w1:p1 = %q, want unknown with no policy runner", row)
 	}
@@ -565,21 +584,22 @@ func TestMemHubNoPolicyRunnerSaysWhy(t *testing.T) {
 		!strings.Contains(stdout, "agentbus install") {
 		t.Fatalf("output = %q, want a note naming the missing runner", stdout)
 	}
-	got := decodeMem(t, mustOut(t, []string{"mem", "--json"}, env))
+	got := decodeMem(t, mustOutCtx(t, ctx, []string{"mem", "--json"}, env))
 	if len(got.Notes) != 1 || !strings.Contains(got.Notes[0], "policy-seen.json missing") {
 		t.Fatalf("notes = %q, want the missing runner", got.Notes)
 	}
 }
 
 func TestMemHubStalePolicyRunnerSaysWhen(t *testing.T) {
-	ssh, env := setupMemHub(t)
+	t.Parallel()
+	ssh, ctx, env := setupMemHub(t)
 	ssh.Reachable()
 	savePolicySeen(t, env)
 	saved := time.Now().Add(-10 * time.Minute).Truncate(time.Second)
 	if err := os.Chtimes(policySeenPath(t, env), saved, saved); err != nil {
 		t.Fatal(err)
 	}
-	stdout := mustOut(t, []string{"mem"}, env)
+	stdout := mustOutCtx(t, ctx, []string{"mem"}, env)
 	when := saved.Format(time.DateTime)
 	if !strings.Contains(stdout, "note: idle times are from "+when) || !strings.Contains(stdout, "runner looks stopped") {
 		t.Fatalf("output = %q, want a stale note from %s", stdout, when)
@@ -588,14 +608,15 @@ func TestMemHubStalePolicyRunnerSaysWhen(t *testing.T) {
 	if row := memRow(t, stdout, "w1:p1"); !strings.Contains(row, " 3h0m ") {
 		t.Fatalf("w1:p1 = %q, want the runner's 3h0m", row)
 	}
-	got := decodeMem(t, mustOut(t, []string{"mem", "--json"}, env))
+	got := decodeMem(t, mustOutCtx(t, ctx, []string{"mem", "--json"}, env))
 	if len(got.Notes) != 1 || !strings.Contains(got.Notes[0], when) {
 		t.Fatalf("notes = %q, want the stale note", got.Notes)
 	}
 }
 
 func TestMemHubStaleByThePolicyInterval(t *testing.T) {
-	ssh, env := setupMemHub(t)
+	t.Parallel()
+	ssh, ctx, env := setupMemHub(t)
 	ssh.Reachable()
 	writeFile(t, filepath.Join(envGet(env, "HOME"), ".config", "agentbus", "config.toml"),
 		[]byte("hub = \"me@hub\"\nmachine = \"mac\"\nhibernate_policy = \"dry-run\"\nhibernate_interval = \"5m\"\n"))
@@ -604,14 +625,15 @@ func TestMemHubStaleByThePolicyInterval(t *testing.T) {
 	if err := os.Chtimes(policySeenPath(t, env), saved, saved); err != nil {
 		t.Fatal(err)
 	}
-	got := decodeMem(t, mustOut(t, []string{"mem", "--json"}, env))
+	got := decodeMem(t, mustOutCtx(t, ctx, []string{"mem", "--json"}, env))
 	if len(got.Notes) != 0 {
 		t.Fatalf("notes = %q, want none: a 5m runner saves every 5m", got.Notes)
 	}
 }
 
 func TestMemHubOverTheTunnel(t *testing.T) {
-	_, env := setupMem(t, nil)
+	t.Parallel()
+	_, ctx, env := setupMem(t, nil)
 	writeFile(t, filepath.Join(envGet(env, "HOME"), ".config", "agentbus", "config.toml"), []byte("hub = \"me@hub\"\nmachine = \"mac\"\n"))
 	dirs, err := paths.FromEnv(env)
 	if err != nil {
@@ -620,32 +642,34 @@ func TestMemHubOverTheTunnel(t *testing.T) {
 	// A file stands in for the tunnel socket; the fake dial answers on it.
 	writeFile(t, dirs.TunnelSocketPath, nil)
 	var sockets []string
-	dialDaemon = func(_ context.Context, socket string, req daemon.Request) (daemon.Response, error) {
-		sockets = append(sockets, socket)
-		switch req.Op {
-		case "ping":
-			return daemon.Response{OK: true, Protocol: daemon.ProtocolVersion}, nil
-		case "hibernate-state":
-			return daemon.Response{OK: true, Hibernate: &hibernate.Reply{
-				Names: map[string][]string{
-					"herdr:mac/sess-1/w1:p1":   {"ops/x"},
-					"herdr:other/sess-2/w1:p2": {"ops/y"},
-				},
-				// The hub's tracker is not this machine's: mem leaves
-				// it out.
-				Seen: map[string]hibernate.Seen{"herdr:mac/sess-1/w1:p1": {Status: "idle", For: time.Hour}},
-				Leases: []lease.Status{{
-					Checkout: "mac:/src/repo",
-					State:    lease.StateHeld,
-					Holder:   &lease.HolderView{Handle: "herdr:mac/sess-2/w1:p2"},
-				}},
-			}}, nil
-		}
-		return daemon.Response{Error: "unexpected op " + req.Op}, nil
-	}
+	ctx = withCmdHooks(ctx, cmdHooks{
+		dialDaemon: func(_ context.Context, socket string, req daemon.Request) (daemon.Response, error) {
+			sockets = append(sockets, socket)
+			switch req.Op {
+			case "ping":
+				return daemon.Response{OK: true, Protocol: daemon.ProtocolVersion}, nil
+			case "hibernate-state":
+				return daemon.Response{OK: true, Hibernate: &hibernate.Reply{
+					Names: map[string][]string{
+						"herdr:mac/sess-1/w1:p1":   {"ops/x"},
+						"herdr:other/sess-2/w1:p2": {"ops/y"},
+					},
+					// The hub's tracker is not this machine's: mem leaves
+					// it out.
+					Seen: map[string]hibernate.Seen{"herdr:mac/sess-1/w1:p1": {Status: "idle", For: time.Hour}},
+					Leases: []lease.Status{{
+						Checkout: "mac:/src/repo",
+						State:    lease.StateHeld,
+						Holder:   &lease.HolderView{Handle: "herdr:mac/sess-2/w1:p2"},
+					}},
+				}}, nil
+			}
+			return daemon.Response{Error: "unexpected op " + req.Op}, nil
+		},
+	})
 	env = append(env, "HERDR_PANE_ID=w1:p2")
 	savePolicySeen(t, env)
-	got := decodeMem(t, mustOut(t, []string{"mem", "--json"}, env))
+	got := decodeMem(t, mustOutCtx(t, ctx, []string{"mem", "--json"}, env))
 	if len(got.Agents) != 2 || len(got.Notes) != 0 {
 		t.Fatalf("mem = %+v", got)
 	}
@@ -667,8 +691,9 @@ func TestMemHubOverTheTunnel(t *testing.T) {
 }
 
 func TestMemRejectsArguments(t *testing.T) {
-	_, env := setupMem(t, fakeMemBus)
-	if code, _, _ := runCmd([]string{"mem", "extra"}, env); code != 2 {
+	t.Parallel()
+	_, ctx, env := setupMem(t, fakeMemBus)
+	if code, _, _ := runCmdCtx(ctx, []string{"mem", "extra"}, env); code != 2 {
 		t.Fatalf("mem extra = %d, want 2", code)
 	}
 }

@@ -125,7 +125,7 @@ func callDaemon(ctx context.Context, env []string, req daemon.Request, stderr io
 		fmt.Fprintf(stderr, "agentbus: %s\n", err)
 		return daemon.Response{}, 1
 	}
-	resp, err := dialDaemon(ctx, dirs.SocketPath, req)
+	resp, err := dialDaemonFn(ctx)(ctx, dirs.SocketPath, req)
 	if err == nil {
 		return resp, 0
 	}
@@ -134,11 +134,15 @@ func callDaemon(ctx context.Context, env []string, req daemon.Request, stderr io
 	if client.RequestSent(err) {
 		return uncertain(req, err, stderr)
 	}
-	if err2 := ensureDaemonUp(ctx, dirs, env); err2 != nil {
+	ensureFn := ensureDaemonUp
+	if fn := hooksFrom(ctx).ensureDaemonUp; fn != nil {
+		ensureFn = fn
+	}
+	if err2 := ensureFn(ctx, dirs, env); err2 != nil {
 		fmt.Fprintf(stderr, "agentbus: %s\n", err2)
 		return daemon.Response{}, 1
 	}
-	resp, err = dialDaemon(ctx, dirs.SocketPath, req)
+	resp, err = dialDaemonFn(ctx)(ctx, dirs.SocketPath, req)
 	if client.RequestSent(err) {
 		return uncertain(req, err, stderr)
 	}

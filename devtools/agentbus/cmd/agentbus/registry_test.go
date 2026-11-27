@@ -20,6 +20,7 @@ import (
 )
 
 func TestRegistryCommandsSurviveRestart(t *testing.T) {
+	t.Parallel()
 	runtime := shortRuntime(t)
 	stateHome := t.TempDir()
 	home := t.TempDir()
@@ -167,7 +168,12 @@ func assertRegistryFields(t *testing.T, stateDir string) {
 
 func mustCmd(t *testing.T, args, env []string) (string, string) {
 	t.Helper()
-	code, stdout, stderr := runCmd(args, env)
+	return mustCmdCtx(t, context.Background(), args, env)
+}
+
+func mustCmdCtx(t *testing.T, ctx context.Context, args, env []string) (string, string) {
+	t.Helper()
+	code, stdout, stderr := runCmdCtx(ctx, args, env)
 	if code != 0 {
 		t.Fatalf("run %q = %d\nstdout %s\nstderr %s", args, code, stdout, stderr)
 	}
@@ -175,12 +181,20 @@ func mustCmd(t *testing.T, args, env []string) (string, string) {
 }
 
 func runCmd(args, env []string) (int, string, string) {
-	return runCmdIn(args, env, strings.NewReader(""))
+	return runCmdInCtx(context.Background(), args, env, strings.NewReader(""))
+}
+
+func runCmdCtx(ctx context.Context, args, env []string) (int, string, string) {
+	return runCmdInCtx(ctx, args, env, strings.NewReader(""))
 }
 
 func runCmdIn(args, env []string, stdin io.Reader) (int, string, string) {
+	return runCmdInCtx(context.Background(), args, env, stdin)
+}
+
+func runCmdInCtx(ctx context.Context, args, env []string, stdin io.Reader) (int, string, string) {
 	var stdout, stderr bytes.Buffer
-	code := run(context.Background(), args, env, stdin, &stdout, &stderr)
+	code := run(ctx, args, env, stdin, &stdout, &stderr)
 	return code, stdout.String(), stderr.String()
 }
 
@@ -196,8 +210,14 @@ func startDaemon(t *testing.T, dirs paths.Dirs, cfg daemon.Config) func() {
 	go func() {
 		errc <- daemon.Serve(ctx, dirs, cfg)
 	}()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(5 * time.Second)
 	for {
+		select {
+		case err := <-errc:
+			cancel()
+			t.Fatalf("daemon Serve exited early: %v", err)
+		default:
+		}
 		_, err := client.Call(context.Background(), dirs.SocketPath, daemon.Request{Op: "ping"})
 		if err == nil {
 			break
@@ -206,7 +226,7 @@ func startDaemon(t *testing.T, dirs paths.Dirs, cfg daemon.Config) func() {
 			cancel()
 			t.Fatalf("daemon did not listen: %v", err)
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
 	}
 	return func() {
 		cancel()

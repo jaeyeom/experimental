@@ -82,9 +82,14 @@ func (b *hibBus) find(op string) (daemon.Request, bool) {
 
 // setupHibernate is memAgents with an empty Claude Code composer on
 // screen; w1:p1's claude (pid 100) exits on Enter.
-func setupHibernate(t *testing.T) (*herdrtest.Fake, *hibBus, []string) {
+func setupHibernate(t *testing.T) (*herdrtest.Fake, *hibBus, context.Context, []string) {
 	t.Helper()
-	fake := herdrtest.Install(t)
+	env := []string{
+		"XDG_RUNTIME_DIR=" + shortRuntime(t),
+		"XDG_STATE_HOME=" + t.TempDir(),
+		"HOME=" + t.TempDir(),
+	}
+	fake := herdrtest.InstallInEnv(t, &env)
 	fake.Write("local.agents", memAgents)
 	fake.Write("local.tabs", memTabs)
 	fake.Write("local.screen", "⏺ Done.\n"+hibRule+"\n❯ \n"+hibRule+"\n  [Opus] repo\n")
@@ -98,30 +103,26 @@ func setupHibernate(t *testing.T) (*herdrtest.Fake, *hibBus, []string) {
 			"herdr:local/sess-2/w1:p2": {Status: "working", For: time.Minute},
 		},
 	}
-	oldDial, oldProcs, oldCwd, oldClock := dialDaemon, hibernateProcs, hibernateCwd, hibernateClock
-	t.Cleanup(func() { dialDaemon, hibernateProcs, hibernateCwd, hibernateClock = oldDial, oldProcs, oldCwd, oldClock })
-	dialDaemon = bus.dial
-	hibernateProcs = func(context.Context) ([]procinfo.Process, error) {
-		return []procinfo.Process{
-			p(1, 0, 3*mib, 5*time.Hour, "-zsh"),
-			p(100, 1, 300*mib, 3*time.Hour, "claude"),
-			p(104, 100, 20*mib, time.Hour, "node", "/opt/github-mcp-server/index.js"),
-			p(200, 1, 400*mib, 2*time.Hour, "codex"),
-		}, nil
-	}
-	hibernateCwd = func(context.Context, int) (string, error) { return "/elsewhere", nil }
-	hibernateClock = &fakeHibClock{now: time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC)}
-	env := []string{
-		"XDG_RUNTIME_DIR=" + shortRuntime(t),
-		"XDG_STATE_HOME=" + t.TempDir(),
-		"HOME=" + t.TempDir(),
-	}
-	return fake, bus, env
+	ctx := withCmdHooks(context.Background(), cmdHooks{
+		dialDaemon: bus.dial,
+		hibernateProcs: func(context.Context) ([]procinfo.Process, error) {
+			return []procinfo.Process{
+				p(1, 0, 3*mib, 5*time.Hour, "-zsh"),
+				p(100, 1, 300*mib, 3*time.Hour, "claude"),
+				p(104, 100, 20*mib, time.Hour, "node", "/opt/github-mcp-server/index.js"),
+				p(200, 1, 400*mib, 2*time.Hour, "codex"),
+			}, nil
+		},
+		hibernateCwd:   func(context.Context, int) (string, error) { return "/elsewhere", nil },
+		hibernateClock: &fakeHibClock{now: time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC)},
+	})
+	return fake, bus, ctx, env
 }
 
 func TestHibernateStopsAnIdleAgent(t *testing.T) {
-	fake, bus, env := setupHibernate(t)
-	stdout, _ := mustCmd(t, []string{"hibernate", "ops/x"}, env)
+	t.Parallel()
+	fake, bus, ctx, env := setupHibernate(t)
+	stdout, _ := mustCmdCtx(t, ctx, []string{"hibernate", "ops/x"}, env)
 	if stdout != "hibernated ops/x (320.0 MiB freed)\n" {
 		t.Fatalf("stdout = %q", stdout)
 	}
@@ -150,8 +151,9 @@ func TestHibernateStopsAnIdleAgent(t *testing.T) {
 }
 
 func TestHibernateIdleOverDryRunJSON(t *testing.T) {
-	fake, bus, env := setupHibernate(t)
-	stdout, _ := mustCmd(t, []string{"hibernate", "--idle-over", "2h", "--dry-run", "--json"}, env)
+	t.Parallel()
+	fake, bus, ctx, env := setupHibernate(t)
+	stdout, _ := mustCmdCtx(t, ctx, []string{"hibernate", "--idle-over", "2h", "--dry-run", "--json"}, env)
 	var got []hibernate.Result
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
 		t.Fatalf("decode %q: %v", stdout, err)
@@ -170,9 +172,10 @@ func TestHibernateIdleOverDryRunJSON(t *testing.T) {
 }
 
 func TestHibernateRefusalExitsNonZero(t *testing.T) {
-	fake, bus, env := setupHibernate(t)
+	t.Parallel()
+	fake, bus, ctx, env := setupHibernate(t)
 	fake.Write("local.screen", "⏺ Done.\n"+hibRule+"\n❯ not sent yet\n"+hibRule+"\n")
-	code, stdout, _ := runCmd([]string{"hibernate", "ops/x"}, env)
+	code, stdout, _ := runCmdCtx(ctx, []string{"hibernate", "ops/x"}, env)
 	if code != 1 || stdout != "refused ops/x: unsent text in the composer\n" {
 		t.Fatalf("hibernate = %d, %q", code, stdout)
 	}
@@ -183,21 +186,23 @@ func TestHibernateRefusalExitsNonZero(t *testing.T) {
 }
 
 func TestHibernateUsage(t *testing.T) {
-	_, _, env := setupHibernate(t)
+	t.Parallel()
+	_, _, ctx, env := setupHibernate(t)
 	for _, args := range [][]string{
 		{"hibernate"},
 		{"hibernate", "--idle-over", "2h", "ops/x"},
 		{"hibernate", "--idle-over", "soon"},
 		{"hibernate", "--bogus"},
 	} {
-		if code, _, _ := runCmd(args, env); code != 2 {
+		if code, _, _ := runCmdCtx(ctx, args, env); code != 2 {
 			t.Errorf("%q = %d, want 2", args, code)
 		}
 	}
 }
 
 func TestHibernateInHubModeTalksToTheHubWithMachineHandles(t *testing.T) {
-	_, bus, env := setupHibernate(t)
+	t.Parallel()
+	_, bus, ctx, env := setupHibernate(t)
 	home := envGet(env, "HOME")
 	writeFile(t, filepath.Join(home, ".config", "agentbus", "config.toml"), []byte("hub = \"me@hub\"\nmachine = \"mac\"\n"))
 	bus.names = map[string][]string{"herdr:mac/sess-1/w1:p1": {"ops/x"}}
@@ -211,7 +216,7 @@ func TestHibernateInHubModeTalksToTheHubWithMachineHandles(t *testing.T) {
 	// A file stands in for the tunnel socket; the fake dial answers on it.
 	writeFile(t, dirs.TunnelSocketPath, nil)
 	env = append(env, "HERDR_PANE_ID=w1:p2")
-	stdout, _ := mustCmd(t, []string{"hibernate", "ops/x"}, env)
+	stdout, _ := mustCmdCtx(t, ctx, []string{"hibernate", "ops/x"}, env)
 	if stdout != "hibernated ops/x (320.0 MiB freed)\n" {
 		t.Fatalf("stdout = %q", stdout)
 	}
@@ -227,9 +232,10 @@ func TestHibernateInHubModeTalksToTheHubWithMachineHandles(t *testing.T) {
 }
 
 func TestLeaseForwardPassesHibernateOps(t *testing.T) {
-	_, bus, env := setupHibernate(t)
+	t.Parallel()
+	_, bus, ctx, env := setupHibernate(t)
 	req := `{"op":"hibernate-refused","hibernate":{"handle":"herdr:mac/s1/w1:p1","reasons":["agent is working"]}}`
-	code, stdout, stderr := runCmdIn([]string{"lease", "forward"}, env, strings.NewReader(req))
+	code, stdout, stderr := runCmdInCtx(ctx, []string{"lease", "forward"}, env, strings.NewReader(req))
 	if code != 0 {
 		t.Fatalf("lease forward = %d, %q", code, stderr)
 	}

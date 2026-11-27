@@ -110,7 +110,7 @@ func hubHealth(ctx context.Context, cfg config.Config, args, env []string, stdou
 	}
 	// The hub's shell starts within healthTimeout, and its own health
 	// then takes at most healthTimeout.
-	hub := hookHub(agentHub(cfg), healthTimeout)
+	hub := hookHub(agentHub(cfg, env), healthTimeout)
 	ctx, cancel := context.WithTimeout(ctx, 2*healthTimeout)
 	defer cancel()
 	code, err := hub.Run(ctx, hubcall.Call{Args: args, Stdout: stdout, Stderr: stderr})

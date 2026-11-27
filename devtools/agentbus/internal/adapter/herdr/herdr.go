@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -186,7 +187,7 @@ func HubCaller(raw string) (string, error) {
 // LocalHandle is the handle of the caller's pane on the local herdr
 // server, herdr:local/<session>/<pane>.
 func LocalHandle(ctx context.Context, env []string) (string, error) {
-	return (&Adapter{}).Identify(ctx, without(env, AsHandleEnv))
+	return (&Adapter{Env: env}).Identify(ctx, without(env, AsHandleEnv))
 }
 
 // OnMachine rewrites a herdr:local/... handle to herdr:<machine>/....
@@ -448,8 +449,36 @@ func RunLive(ctx context.Context, args []string) (string, string, int, error) {
 
 // herdrBinary is configured, else AGENTBUS_HERDR, else the name on PATH.
 func herdrBinary(configured string) string {
+	return herdrBinaryEnv(configured, nil)
+}
+
+func herdrBinaryEnv(configured string, env []string) string {
 	if configured != "" {
 		return configured
+	}
+	if len(env) > 0 {
+		pathVal := ""
+		for _, kv := range env {
+			k, v, ok := strings.Cut(kv, "=")
+			if !ok {
+				continue
+			}
+			if k == "AGENTBUS_HERDR" && v != "" {
+				return v
+			}
+			if k == "PATH" {
+				pathVal = v
+			}
+		}
+		for _, dir := range filepath.SplitList(pathVal) {
+			if dir == "" {
+				dir = "."
+			}
+			candidate := filepath.Join(dir, "herdr")
+			if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+				return candidate
+			}
+		}
 	}
 	if bin := os.Getenv("AGENTBUS_HERDR"); bin != "" {
 		return bin
@@ -654,7 +683,7 @@ func (a *Adapter) runWithSocket(ctx context.Context, sock string, args []string)
 	if a.Run != nil {
 		return a.Run(ctx, args)
 	}
-	return runHerdrEnv(ctx, env, herdrBinary(a.HerdrPath), args)
+	return runHerdrEnv(ctx, env, herdrBinaryEnv(a.HerdrPath, env), args)
 }
 
 func (a *Adapter) resolveSockets(ctx context.Context) []string {
@@ -668,11 +697,11 @@ func (a *Adapter) resolveSockets(ctx context.Context) []string {
 }
 
 func (a *Adapter) envForSocket(sock string) []string {
-	if sock == "" && a.Env == nil {
+	if sock == "" && len(a.Env) == 0 {
 		return nil
 	}
 	base := a.Env
-	if base == nil {
+	if base == nil || (a.RunEnv == nil && !hasEnvKey(base, "PATH")) {
 		base = os.Environ()
 	}
 	if sock == "" {
@@ -704,7 +733,42 @@ func (a *Adapter) run(ctx context.Context, args []string) (string, string, int, 
 	if a.Run != nil {
 		return a.Run(ctx, args)
 	}
+	if len(a.Env) > 0 {
+		return runHerdrEnv(ctx, herdrChildEnv(a.Env), herdrBinaryEnv(a.HerdrPath, a.Env), args)
+	}
 	return runHerdr(ctx, herdrBinary(a.HerdrPath), args)
+}
+
+func hasEnvKey(env []string, key string) bool {
+	for _, entry := range env {
+		if k, _, ok := strings.Cut(entry, "="); ok && k == key {
+			return true
+		}
+	}
+	return false
+}
+
+func herdrChildEnv(env []string) []string {
+	for _, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok && k == "PATH" {
+			base := os.Environ()
+			out := make([]string, 0, len(base)+1)
+			replaced := false
+			for _, entry := range base {
+				if ek, _, ok := strings.Cut(entry, "="); ok && ek == "PATH" {
+					out = append(out, "PATH="+v)
+					replaced = true
+					continue
+				}
+				out = append(out, entry)
+			}
+			if !replaced {
+				out = append(out, "PATH="+v)
+			}
+			return out
+		}
+	}
+	return nil
 }
 
 func (a *Adapter) timeout() time.Duration {

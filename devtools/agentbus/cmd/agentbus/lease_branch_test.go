@@ -15,6 +15,7 @@ func leaseNowClock() string {
 }
 
 func TestLeaseClaimNamesTheBranch(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
@@ -32,6 +33,7 @@ func TestLeaseClaimNamesTheBranch(t *testing.T) {
 }
 
 func TestLeaseQuickReclaimAfterASwitchingReleaseHints(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
@@ -62,6 +64,7 @@ func TestLeaseQuickReclaimAfterASwitchingReleaseHints(t *testing.T) {
 }
 
 func TestLeaseReclaimWithoutAHint(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
@@ -87,6 +90,7 @@ func TestLeaseReclaimWithoutAHint(t *testing.T) {
 }
 
 func TestLeaseWakeNamesTheBranch(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()

@@ -12,6 +12,7 @@ import (
 )
 
 func TestSearchFindsWhenAndUnregisteredTitle(t *testing.T) {
+	t.Parallel()
 	runtime := shortRuntime(t)
 	stateHome := t.TempDir()
 	home := t.TempDir()
@@ -66,6 +67,7 @@ func TestSearchFindsWhenAndUnregisteredTitle(t *testing.T) {
 }
 
 func TestListJSON(t *testing.T) {
+	t.Parallel()
 	runtime := shortRuntime(t)
 	base := []string{
 		"XDG_RUNTIME_DIR=" + runtime,
@@ -130,6 +132,7 @@ func TestListJSON(t *testing.T) {
 }
 
 func TestListJSONWithoutDaemon(t *testing.T) {
+	t.Parallel()
 	env := []string{"XDG_RUNTIME_DIR=" + shortRuntime(t), "XDG_STATE_HOME=" + t.TempDir(), "HOME=" + t.TempDir()}
 	code, stdout, stderr := runCmd([]string{"list", "--json"}, env)
 	if code == 0 || stdout != "" || stderr == "" {
@@ -145,6 +148,7 @@ func TestListRejectsUnknownFlag(t *testing.T) {
 }
 
 func TestJSONLiveness(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{
 		"alive": "alive", "blocked": "alive", "gone": "dead", "unreachable": "unknown", "": "unknown",
 	} {

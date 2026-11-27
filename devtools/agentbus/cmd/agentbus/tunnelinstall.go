@@ -222,7 +222,7 @@ func cmdPaths(_ context.Context, args, env []string, stdout, stderr io.Writer) i
 // discoverHubSocket asks the hub for its hub.sock, writes that path into
 // this machine's config, and prints the line it wrote.
 func discoverHubSocket(ctx context.Context, cfg config.Config, env []string, stdout io.Writer) (string, error) {
-	socket, err := queryHubSocket(ctx, cfg)
+	socket, err := queryHubSocket(ctx, cfg, env)
 	if err != nil {
 		return "", hubSocketMissing(cfg, env)
 	}
@@ -239,9 +239,9 @@ func hubSocketLine(hub, path string) string {
 
 // queryHubSocket runs `agentbus paths --json` on the hub and returns its
 // hub_socket. The hub's value is an absolute path with no colon.
-func queryHubSocket(ctx context.Context, cfg config.Config) (string, error) {
+func queryHubSocket(ctx context.Context, cfg config.Config, env []string) (string, error) {
 	var buf bytes.Buffer
-	hub := agentHub(cfg)
+	hub := agentHub(cfg, env)
 	code, err := hub.Run(ctx, hubcall.Call{Args: []string{"paths", "--json"}, Stdout: &buf, Stderr: io.Discard})
 	if err != nil {
 		return "", fmt.Errorf("ask %s for hub_socket: %w", cfg.Hub, err)

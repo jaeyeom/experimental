@@ -9,6 +9,7 @@ import (
 )
 
 func TestAnswerActionStayAndList(t *testing.T) {
+	t.Parallel()
 	t.Run("stay is default", func(t *testing.T) {
 		dir := t.TempDir()
 		led := openLedger(t, dir)
@@ -68,6 +69,7 @@ func TestAnswerActionStayAndList(t *testing.T) {
 }
 
 func TestAnswerActionEdit(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	item := mustCreate(t, led, &decide.Item{
@@ -120,6 +122,7 @@ func TestAnswerActionEdit(t *testing.T) {
 }
 
 func TestSendAndArchiveButtonVisibilityAndAction(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	question := mustCreate(t, led, &decide.Item{
@@ -210,6 +213,7 @@ func TestSendAndArchiveButtonVisibilityAndAction(t *testing.T) {
 }
 
 func TestDiscardAndEscDraftBehavior(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	mustCreate(t, led, &decide.Item{

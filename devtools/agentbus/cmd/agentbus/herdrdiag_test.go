@@ -9,6 +9,7 @@ import (
 )
 
 func TestDiagnoseHerdr(t *testing.T) {
+	t.Parallel()
 	mismatch := herdrFacts{
 		GOOS: "linux", UID: 1000, PID: 42,
 		Started: "2026-11-15T08:19:33Z", Supervisor: "systemd",
@@ -84,6 +85,7 @@ func TestDiagnoseHerdr(t *testing.T) {
 }
 
 func TestDiagnoseSandboxAndDaemonBinary(t *testing.T) {
+	t.Parallel()
 	socket := "/run/user/1000/agentbus/tunnel.sock"
 	settings := "/home/u/.claude/settings.json"
 	got := diagnoseSandbox(settings, socket, []string{"/run/herdr/herdr.sock"}, true)
@@ -120,12 +122,14 @@ func TestDiagnoseSandboxAndDaemonBinary(t *testing.T) {
 }
 
 func TestBinaryBuildIsEmptyForAMissingFile(t *testing.T) {
+	t.Parallel()
 	if binaryBuild(filepath.Join(t.TempDir(), "no-such-agentbusd")) != "" {
 		t.Fatal("missing binary reported a build")
 	}
 }
 
 func TestRunningExeBuildMatchesThisProcess(t *testing.T) {
+	t.Parallel()
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)

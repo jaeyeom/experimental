@@ -33,6 +33,7 @@ func decodeHealth(t *testing.T, stdout string) healthJSON {
 }
 
 func TestHealthOK(t *testing.T) {
+	t.Parallel()
 	env, _ := heldWorld(t, nil)
 	code, stdout, stderr := runCmd([]string{"health", "--json"}, env(""))
 	if code != 0 {
@@ -49,6 +50,7 @@ func TestHealthOK(t *testing.T) {
 }
 
 func TestHealthTransportDown(t *testing.T) {
+	t.Parallel()
 	reason := "herdr agent list: no herdr server is running"
 	env, _ := heldWorld(t, errors.New(reason))
 	want := "herdr transport unreachable: " + reason
@@ -67,6 +69,7 @@ func TestHealthTransportDown(t *testing.T) {
 }
 
 func TestHealthDaemonUnreachable(t *testing.T) {
+	t.Parallel()
 	base := []string{
 		"XDG_RUNTIME_DIR=" + shortRuntime(t),
 		"XDG_STATE_HOME=" + t.TempDir(),
@@ -94,12 +97,14 @@ func TestHealthDaemonUnreachable(t *testing.T) {
 }
 
 func TestHealthRejectsArguments(t *testing.T) {
+	t.Parallel()
 	if code, _, _ := runCmd([]string{"health", "extra"}, nil); code != 2 {
 		t.Fatalf("health extra = %d", code)
 	}
 }
 
 func TestHealthHubModeAsksTheHubOverTheTunnel(t *testing.T) {
+	t.Parallel()
 	s := newTunnelSetup(t)
 	s.startHubDaemon(t)
 	code, stdout, stderr := s.run(t, s.env, "", "health", "--json")
@@ -113,6 +118,7 @@ func TestHealthHubModeAsksTheHubOverTheTunnel(t *testing.T) {
 }
 
 func TestHealthHubModeWithoutATunnelRunsOnTheHub(t *testing.T) {
+	t.Parallel()
 	s := newTunnelSetup(t)
 	s.ssh.Write("agentbus.stdout", `{"daemon":"up","transport":"down","problems":["herdr transport unreachable: x"]}`+"\n")
 	s.ssh.Write("agentbus.code", "4")
@@ -129,6 +135,7 @@ func TestHealthHubModeWithoutATunnelRunsOnTheHub(t *testing.T) {
 }
 
 func TestHealthHubUnreachable(t *testing.T) {
+	t.Parallel()
 	s := newTunnelSetup(t)
 	s.ssh.Write("down", "")
 	s.ssh.Unreachable()

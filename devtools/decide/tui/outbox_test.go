@@ -67,6 +67,7 @@ func (f *fakeOutboxBackend) DismissFailedOutbox(id string) error {
 }
 
 func TestOutboxFolderShownWithCountAndGoToChord(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 	ob := &fakeOutboxBackend{
@@ -102,6 +103,7 @@ func TestOutboxFolderShownWithCountAndGoToChord(t *testing.T) {
 }
 
 func TestOutboxInThreadShowsInOutboxAndTurnsNormalWhenConfirmed(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 	led, err := decide.Open(dir)
@@ -152,6 +154,7 @@ func TestOutboxInThreadShowsInOutboxAndTurnsNormalWhenConfirmed(t *testing.T) {
 }
 
 func TestOutboxPermanentErrorShowsFailedAndRestoresComposerText(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 	led, err := decide.Open(dir)
@@ -189,6 +192,7 @@ func TestOutboxPermanentErrorShowsFailedAndRestoresComposerText(t *testing.T) {
 }
 
 func TestOutboxStaleWarningAppearsAfterThreshold(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 	ob := &fakeOutboxBackend{
@@ -216,6 +220,7 @@ func TestOutboxStaleWarningAppearsAfterThreshold(t *testing.T) {
 }
 
 func TestOutboxQuitConfirmationShowsPendingCount(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 	ob := &fakeOutboxBackend{
@@ -247,6 +252,7 @@ func TestOutboxQuitConfirmationShowsPendingCount(t *testing.T) {
 }
 
 func TestOutboxConflictHoldOffersSendEditCancelInThread(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 	led, err := decide.Open(dir)

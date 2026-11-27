@@ -10,6 +10,7 @@ import (
 )
 
 func TestStamp(t *testing.T) {
+	t.Parallel()
 	loc, err := time.LoadLocation("America/Los_Angeles")
 	if err != nil {
 		t.Fatal(err)
@@ -47,6 +48,7 @@ func TestStamp(t *testing.T) {
 }
 
 func TestStampUTCInstantOnThePreviousLocalDay(t *testing.T) {
+	t.Parallel()
 	loc, err := time.LoadLocation("America/Los_Angeles")
 	if err != nil {
 		t.Fatal(err)
@@ -59,6 +61,7 @@ func TestStampUTCInstantOnThePreviousLocalDay(t *testing.T) {
 }
 
 func TestItemHeaderShowsLocalTime(t *testing.T) {
+	t.Parallel()
 	loc, err := time.LoadLocation("America/Los_Angeles")
 	if err != nil {
 		t.Fatal(err)

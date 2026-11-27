@@ -13,7 +13,7 @@ import (
 )
 
 // hookTimeout bounds a bypass record. A down bus returns before this on a refused connect.
-const hookTimeout = time.Second
+var hookTimeout = time.Second //nolint:pkgvar // tests assign it
 
 // cmdHook records one Claude Code SendMessage and always exits 0.
 // It never prints a decision, so the tool call proceeds. When the bus

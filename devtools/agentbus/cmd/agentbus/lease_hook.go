@@ -90,7 +90,7 @@ func leaseHook(ctx context.Context, args, env []string, stdin io.Reader, stdout,
 	route := func(ctx context.Context) (context.Context, error) { return ctx, nil }
 	if cfg.Hub != "" {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, leaseHookTimeout)
+		ctx, cancel = context.WithTimeout(ctx, leaseHookTimeoutVal(ctx))
 		defer cancel()
 		route = func(ctx context.Context) (context.Context, error) {
 			return leaseHubRoute(ctx, cfg, env, true, io.Discard)
@@ -195,7 +195,7 @@ func hookDecide(ctx context.Context, env []string, checks []lease.Args, route fu
 // within leaseHookTimeout. args marks the check as the hook's, so the
 // daemon logs a denial. It never starts the daemon.
 func hookCheck(ctx context.Context, env []string, args lease.Args) (lease.Reply, error) {
-	callCtx, cancel := context.WithTimeout(ctx, leaseHookTimeout)
+	callCtx, cancel := context.WithTimeout(ctx, leaseHookTimeoutVal(ctx))
 	defer cancel()
 	resp, err := dialBus(callCtx, env, daemon.Request{Op: "lease-check", Env: env, Lease: &args})
 	if err != nil {

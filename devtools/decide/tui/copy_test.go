@@ -13,6 +13,7 @@ import (
 )
 
 func TestCopyMenuStoredText(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
 	first := decide.Message{
 		Author: "ada",
@@ -123,6 +124,7 @@ func TestCopyMenuStoredText(t *testing.T) {
 }
 
 func TestClipboardModes(t *testing.T) {
+	t.Parallel()
 	big := strings.Repeat("a", osc52MaxBytes+1)
 	exact := strings.Repeat("b", osc52MaxBytes)
 	cases := []struct {
@@ -222,6 +224,7 @@ func TestClipboardModes(t *testing.T) {
 }
 
 func TestPlainViewGolden(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 11, 0, 0, 0, 0, time.UTC)
 	long := strings.Repeat("x", 50)
 	m := New(t.TempDir())

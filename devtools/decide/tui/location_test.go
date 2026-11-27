@@ -1,6 +1,11 @@
 package tui
 
 import (
+	"bytes"
+	"context"
+	"fmt"
+	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -12,7 +17,8 @@ import (
 
 func fakeOwnerHerdr(t *testing.T) *herdrtest.Fake {
 	t.Helper()
-	f := herdrtest.Install(t)
+	var env []string
+	f := herdrtest.InstallInEnv(t, &env)
 	for _, m := range []string{"local", "mac"} {
 		f.Write(m+".panes", `{"result":{"panes":[{"pane_id":"w3:p7","tab_id":"w3:t2","workspace_id":"w3"}]}}`)
 		f.Write(m+".tabs", `{"result":{"tabs":[{"tab_id":"w3:t2","label":"review"}]}}`)
@@ -21,13 +27,36 @@ func fakeOwnerHerdr(t *testing.T) *herdrtest.Fake {
 	return f
 }
 
-func ownerModel(t *testing.T, item *decide.Item) *Model {
+func ownerModel(t *testing.T, f *herdrtest.Fake, item *decide.Item) *Model {
 	t.Helper()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	item.Question, item.Owner, item.Kind, item.State = "ship it?", "ada", decide.KindRelay, decide.StateOpen
 	mustCreate(t, led, item)
-	m := New(dir)
+	b := &LocalBackend{
+		Dir: dir,
+		Herdr: func(ctx context.Context, machine string, args []string) (string, error) {
+			bin := "herdr"
+			if f != nil {
+				bin = filepath.Join(f.Dir(), "herdr")
+			}
+			fullArgs := args
+			if machine != "" {
+				fullArgs = append([]string{"--machine", machine}, args...)
+			}
+			var stdout, stderr bytes.Buffer
+			cmd := exec.CommandContext(ctx, bin, fullArgs...) //nolint:gosec // test helper running fake herdr
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+			if err := cmd.Run(); err != nil {
+				return "", fmt.Errorf("herdr: %w: %s", err, strings.TrimSpace(stderr.String()))
+			}
+			return stdout.String(), nil
+		},
+	}
+	m := NewWithBackend(b)
+	m.asyncReload = false
+	m.Dir = dir
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
@@ -55,8 +84,9 @@ func ownerLine(t *testing.T, m *Model) string {
 }
 
 func TestItemViewOwnerLocationFillsInWithoutBlocking(t *testing.T) {
+	t.Parallel()
 	f := fakeOwnerHerdr(t)
-	m := ownerModel(t, &decide.Item{NotifyPane: "w3:p7"})
+	m := ownerModel(t, f, &decide.Item{NotifyPane: "w3:p7"})
 	cmd := update(t, m, 'o')
 	if cmd == nil {
 		t.Fatal("opening the item started no lookup")
@@ -98,8 +128,9 @@ func TestItemViewOwnerLocationFillsInWithoutBlocking(t *testing.T) {
 }
 
 func TestItemViewOwnerLocationOtherMachine(t *testing.T) {
-	fakeOwnerHerdr(t)
-	m := ownerModel(t, &decide.Item{NotifyPane: "w3:p7", NotifyMachine: "mac"})
+	t.Parallel()
+	f := fakeOwnerHerdr(t)
+	m := ownerModel(t, f, &decide.Item{NotifyPane: "w3:p7", NotifyMachine: "mac"})
 	m.Machine = "hub"
 	cmd := update(t, m, 'o')
 	if got := ownerLine(t, m); got != "ada at mac: (w3:p7)" {
@@ -112,8 +143,10 @@ func TestItemViewOwnerLocationOtherMachine(t *testing.T) {
 }
 
 func TestItemViewOwnerWithoutPaneIsUnknown(t *testing.T) {
-	f := herdrtest.Install(t)
-	m := ownerModel(t, &decide.Item{})
+	t.Parallel()
+	var env []string
+	f := herdrtest.InstallInEnv(t, &env)
+	m := ownerModel(t, f, &decide.Item{})
 	if cmd := update(t, m, 'o'); cmd != nil {
 		m.Update(cmd())
 	}
@@ -143,8 +176,9 @@ func jumpOwner(t *testing.T, m *Model) {
 }
 
 func TestItemViewJumpsToOwnerTab(t *testing.T) {
+	t.Parallel()
 	f := fakeOwnerHerdr(t)
-	m := ownerModel(t, &decide.Item{NotifyPane: "w3:p7"})
+	m := ownerModel(t, f, &decide.Item{NotifyPane: "w3:p7"})
 	openOwner(t, m, f)
 	cursor, id := m.cursor, m.detail.ID
 
@@ -172,8 +206,9 @@ func TestItemViewJumpsToOwnerTab(t *testing.T) {
 }
 
 func TestItemViewJumpToOwnerOnOtherMachine(t *testing.T) {
+	t.Parallel()
 	f := fakeOwnerHerdr(t)
-	m := ownerModel(t, &decide.Item{NotifyPane: "w3:p7", NotifyMachine: "mac"})
+	m := ownerModel(t, f, &decide.Item{NotifyPane: "w3:p7", NotifyMachine: "mac"})
 	m.Machine = "hub"
 	openOwner(t, m, f)
 	f.Write("mac.focus-refused", "")
@@ -193,6 +228,7 @@ func TestItemViewJumpToOwnerOnOtherMachine(t *testing.T) {
 }
 
 func TestItemViewJumpWithoutLiveOwnerDoesNothing(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		item decide.Item
@@ -202,8 +238,9 @@ func TestItemViewJumpWithoutLiveOwnerDoesNothing(t *testing.T) {
 		{"unknown", decide.Item{}, "owner location unknown; nothing to focus"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := fakeOwnerHerdr(t)
-			m := ownerModel(t, &tc.item)
+			m := ownerModel(t, f, &tc.item)
 			openOwner(t, m, f)
 			jumpOwner(t, m)
 			if argv := f.Argv(); len(argv) != 0 {
@@ -217,8 +254,9 @@ func TestItemViewJumpWithoutLiveOwnerDoesNothing(t *testing.T) {
 }
 
 func TestItemViewJumpBeforeLookupWaits(t *testing.T) {
+	t.Parallel()
 	f := fakeOwnerHerdr(t)
-	m := ownerModel(t, &decide.Item{NotifyPane: "w3:p7"})
+	m := ownerModel(t, f, &decide.Item{NotifyPane: "w3:p7"})
 	update(t, m, 'o')
 	jumpOwner(t, m)
 	if argv := f.Argv(); len(argv) != 0 {
@@ -230,8 +268,9 @@ func TestItemViewJumpBeforeLookupWaits(t *testing.T) {
 }
 
 func TestItemViewHelpListsOwnerJump(t *testing.T) {
+	t.Parallel()
 	f := fakeOwnerHerdr(t)
-	m := ownerModel(t, &decide.Item{NotifyPane: "w3:p7"})
+	m := ownerModel(t, f, &decide.Item{NotifyPane: "w3:p7"})
 	m.width = 200
 	openOwner(t, m, f)
 	if got := footer(t, m); !strings.Contains(got, "o owner") {

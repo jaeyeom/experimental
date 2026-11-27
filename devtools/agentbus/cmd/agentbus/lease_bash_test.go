@@ -6,6 +6,7 @@ import (
 )
 
 func TestGitChangeDirs(t *testing.T) {
+	t.Parallel()
 	const cwd, home = "/start", "/home/u"
 	for _, tt := range []struct {
 		cmd  string

@@ -63,6 +63,7 @@ func pressAll(t *testing.T, m *Model, keys string) {
 }
 
 func TestOutboxDiscardKeyRemovesFailedAndPendingEntries(t *testing.T) {
+	t.Parallel()
 	m, ob := outboxFolderModel(t,
 		OutboxEntry{ID: "OB-001", Op: "answer", Text: "y", Status: OutboxFailed, Error: "decide item D-001 is done"},
 		OutboxEntry{ID: "OB-002", Op: "reply", Text: "hello", Status: OutboxPending},
@@ -78,6 +79,7 @@ func TestOutboxDiscardKeyRemovesFailedAndPendingEntries(t *testing.T) {
 }
 
 func TestOutboxDiscardConfirmsOnlyLongEntries(t *testing.T) {
+	t.Parallel()
 	short := "one\ntwo\nthree"
 	long := "one\ntwo\nthree\nfour"
 	m, ob := outboxFolderModel(t,
@@ -106,6 +108,7 @@ func TestOutboxDiscardConfirmsOnlyLongEntries(t *testing.T) {
 }
 
 func TestOutboxDiscardFollowsRemappedKeyAndHint(t *testing.T) {
+	t.Parallel()
 	km, err := decide.ResolveKeyMap(map[string][]string{"outbox.discard": {"D"}})
 	if err != nil {
 		t.Fatal(err)
@@ -131,6 +134,7 @@ func TestOutboxDiscardFollowsRemappedKeyAndHint(t *testing.T) {
 }
 
 func TestOutboxFailedEntryThreadShowsNotSentWithActions(t *testing.T) {
+	t.Parallel()
 	m, ob := outboxFolderModel(t,
 		OutboxEntry{ID: "OB-001", Op: "answer", Text: "y", Status: OutboxFailed, Error: "decide item D-001 is done"},
 	)
@@ -150,6 +154,7 @@ func TestOutboxFailedEntryThreadShowsNotSentWithActions(t *testing.T) {
 }
 
 func TestOutboxHelpListsDiscard(t *testing.T) {
+	t.Parallel()
 	m, _ := outboxFolderModel(t,
 		OutboxEntry{ID: "OB-001", Op: "reply", Text: "a", Status: OutboxPending},
 	)
@@ -160,6 +165,7 @@ func TestOutboxHelpListsDiscard(t *testing.T) {
 }
 
 func TestDoneThreadOffersNoAnswerKeysOrDoneButAcceptsReply(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led, err := decide.Open(dir)
 	if err != nil {
@@ -202,6 +208,7 @@ func TestDoneThreadOffersNoAnswerKeysOrDoneButAcceptsReply(t *testing.T) {
 }
 
 func TestFailedAnswerOnDoneItemRestoresTextToReplyBox(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 	led, err := decide.Open(dir)

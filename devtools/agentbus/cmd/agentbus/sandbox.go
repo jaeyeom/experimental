@@ -178,7 +178,7 @@ func cachePaneHandle(env []string, handle string) error {
 }
 
 // doctorProbe tells whether the hub's ssh port answers; tests replace it.
-var doctorProbe = hubcall.TCPProbe
+var doctorProbe = hubcall.TCPProbeEnv
 
 // doctorSocket is one unix socket doctor lists and checks; path is ""
 // when it is not known.
@@ -212,7 +212,7 @@ func runDoctorSandbox(ctx context.Context, env []string, stdout, stderr io.Write
 		fmt.Fprintf(stderr, "agentbus doctor: %s\n", err)
 		return 1
 	}
-	reportStaleOutbox(env, stdout)
+	reportStaleOutbox(ctx, env, stdout)
 	reportUnverifiedHolds(dirs.StateDir, stdout)
 	lines := reportTransports(ctx, env, dirs.StateDir, stdout)
 	reportInstallHealth(ctx, env, dirs, stdout, lines)
@@ -245,7 +245,7 @@ func runDoctorSandbox(ctx context.Context, env []string, stdout, stderr io.Write
 	if cfg.Hub != "" {
 		fmt.Fprintf(stdout, "allowedDomains is only for the ssh fallback to %s, which also reads ~/.ssh; the tunnel needs neither.\n", cfg.Hub)
 	}
-	printDoctorChecks(ctx, stdout, cfg, sockets)
+	printDoctorChecks(ctx, stdout, cfg, env, sockets)
 	if cfg.Hub != "" {
 		reportTunnelExit(ctx, env, stdout)
 		reportOutboxStatus(env, stdout)
@@ -258,8 +258,8 @@ func agentbusDoctorChecks(env []string) []toolcli.DoctorCheck {
 		func(ctx context.Context, _ bool) toolcli.CheckResult {
 			return checkExtraDaemons(ctx, env)
 		},
-		func(_ context.Context, _ bool) toolcli.CheckResult {
-			return checkStaleOutbox(env)
+		func(ctx context.Context, _ bool) toolcli.CheckResult {
+			return checkStaleOutbox(ctx, env)
 		},
 		func(_ context.Context, _ bool) toolcli.CheckResult {
 			return checkUnverifiedHolds(env)
@@ -315,7 +315,11 @@ func checkExtraDaemons(ctx context.Context, env []string) toolcli.CheckResult {
 }
 
 func checkHubClientLocalDaemon(ctx context.Context, dirs paths.Dirs) toolcli.CheckResult {
-	procs, err := listDoctorProcs(ctx)
+	listFn := listDoctorProcs
+	if fn := hooksFrom(ctx).listDoctorProcs; fn != nil {
+		listFn = fn
+	}
+	procs, err := listFn(ctx)
 	if err != nil {
 		return toolcli.CheckResult{Name: "local-daemon", Status: toolcli.StatusFail, Detail: err.Error()}
 	}
@@ -384,9 +388,9 @@ func formatLocalDaemonHint(pids, sockets []string) string {
 	}
 }
 
-func checkStaleOutbox(env []string) toolcli.CheckResult {
+func checkStaleOutbox(ctx context.Context, env []string) toolcli.CheckResult {
 	var buf bytes.Buffer
-	reportStaleOutbox(env, &buf)
+	reportStaleOutbox(ctx, env, &buf)
 	msg := strings.TrimSpace(buf.String())
 	if msg == "" {
 		return toolcli.CheckResult{Name: "stale-outbox", Status: toolcli.StatusOK, Detail: "none"}
@@ -466,7 +470,7 @@ func checkHubSocket(ctx context.Context, env []string, offline bool) toolcli.Che
 			Hint:   "run without --offline to verify hub_socket",
 		}
 	}
-	got, err := queryHubSocket(ctx, cfg)
+	got, err := queryHubSocket(ctx, cfg, env)
 	if err != nil || got == cfg.HubSocket {
 		return toolcli.CheckResult{Name: "hub-socket", Status: toolcli.StatusOK, Detail: cfg.HubSocket}
 	}
@@ -513,7 +517,7 @@ func checkSSHProbe(ctx context.Context, env []string, offline bool) toolcli.Chec
 			Hint:   "run without --offline to probe hub ssh port",
 		}
 	}
-	line := strings.TrimSpace(sshProbeLine(ctx, cfg))
+	line := strings.TrimSpace(sshProbeLine(ctx, cfg, env))
 	if strings.Contains(line, ": ok ") {
 		return toolcli.CheckResult{Name: "ssh-probe", Status: toolcli.StatusOK, Detail: line}
 	}
@@ -717,7 +721,11 @@ func diagnoseTunnelAuth(f tunnelAuthFacts) string {
 }
 
 func reportTunnelExit(ctx context.Context, env []string, stdout io.Writer) {
-	code, ok := tunnelExitStatus(ctx, env)
+	exitFn := tunnelExitStatus
+	if fn := hooksFrom(ctx).tunnelExitStatus; fn != nil {
+		exitFn = fn
+	}
+	code, ok := exitFn(ctx, env)
 	if !ok || code != 255 {
 		return
 	}
@@ -914,7 +922,7 @@ var doctorHerdrProbe = func(ctx context.Context, env []string) error {
 	if cfg, err := hubSettings(env); err == nil {
 		path = cfg.HerdrPath
 	}
-	if err := (&herdr.Adapter{HerdrPath: path}).SelfTest(ctx); err != nil {
+	if err := (&herdr.Adapter{HerdrPath: path, Env: env}).SelfTest(ctx); err != nil {
 		return err //nolint:wrapcheck // doctor prints this text as the reason
 	}
 	return nil
@@ -945,7 +953,7 @@ func liveTransportLines(ctx context.Context, env []string) ([]string, bool) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	resp, err := dialDaemon(ctx, dirs.SocketPath, daemon.Request{Op: "transport-status"})
+	resp, err := dialDaemonFn(ctx)(ctx, dirs.SocketPath, daemon.Request{Op: "transport-status"})
 	if err != nil || !resp.OK {
 		return nil, false
 	}
@@ -971,7 +979,7 @@ func reportHubSocket(ctx context.Context, env []string, stdout io.Writer) {
 	if err != nil || cfg.Hub == "" || cfg.HubSocket == "" {
 		return
 	}
-	got, err := queryHubSocket(ctx, cfg)
+	got, err := queryHubSocket(ctx, cfg, env)
 	if err != nil || got == cfg.HubSocket {
 		return
 	}
@@ -980,7 +988,7 @@ func reportHubSocket(ctx context.Context, env []string, stdout io.Writer) {
 
 // printDoctorChecks reports each socket and the hub's ssh port as ok or
 // not.
-func printDoctorChecks(ctx context.Context, stdout io.Writer, cfg config.Config, sockets []doctorSocket) {
+func printDoctorChecks(ctx context.Context, stdout io.Writer, cfg config.Config, env []string, sockets []doctorSocket) {
 	fmt.Fprintln(stdout, "\nChecks:")
 	for _, s := range sockets {
 		if s.path == "" {
@@ -989,15 +997,19 @@ func printDoctorChecks(ctx context.Context, stdout io.Writer, cfg config.Config,
 		}
 		fmt.Fprintf(stdout, "  %s %s: %s\n", s.label, s.path, checkSocket(ctx, s.path))
 	}
-	fmt.Fprintln(stdout, sshProbeLine(ctx, cfg))
+	fmt.Fprintln(stdout, sshProbeLine(ctx, cfg, env))
 }
 
 // sshProbeLine is the ssh-port check. It does not log in.
-func sshProbeLine(ctx context.Context, cfg config.Config) string {
+func sshProbeLine(ctx context.Context, cfg config.Config, env []string) string {
+	probeFn := doctorProbe
+	if fn := hooksFrom(ctx).doctorProbe; fn != nil {
+		probeFn = fn
+	}
 	switch {
 	case cfg.Hub == "":
 		return "  ssh: not in hub mode"
-	case doctorProbe(cfg.Hub)(ctx):
+	case probeFn(cfg.Hub, env)(ctx):
 		return fmt.Sprintf("  ssh %s: ok (its ssh port answers)", cfg.Hub)
 	default:
 		return fmt.Sprintf("  ssh %s: blocked (its ssh port does not answer; sandbox? allow %s)", cfg.Hub, hubHost(cfg.Hub))
@@ -1069,11 +1081,19 @@ func parseDoctorPS(out string, now time.Time) []doctorProc {
 // reportExtraDaemons writes agentbusd processes for this user other than
 // the lock holder, and suggests stopping them. It does not signal them.
 func reportExtraDaemons(ctx context.Context, stateDir string, stdout io.Writer) error {
-	procs, err := listDoctorProcs(ctx)
+	hk := hooksFrom(ctx)
+	listFn, holderFn := listDoctorProcs, daemonLockHolder
+	if hk.listDoctorProcs != nil {
+		listFn = hk.listDoctorProcs
+	}
+	if hk.daemonLockHolder != nil {
+		holderFn = hk.daemonLockHolder
+	}
+	procs, err := listFn(ctx)
 	if err != nil {
 		return err
 	}
-	holder, held, err := daemonLockHolder(stateDir)
+	holder, held, err := holderFn(stateDir)
 	if err != nil {
 		return err
 	}

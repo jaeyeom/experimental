@@ -187,7 +187,7 @@ func gatherHerdrFacts(ctx context.Context, env []string, stateDir string, haveCf
 			}
 		}
 	}
-	if text, err := daemonShow(ctx); err == nil {
+	if text, err := daemonShowFn(ctx)(ctx); err == nil {
 		pid, started, path, herdr := parseDaemonShow(runtime.GOOS, text)
 		if pid > 0 {
 			f.PID = pid
@@ -351,7 +351,11 @@ func gatherSandbox(env []string, socket string) (string, string, []string, bool)
 
 func gatherDaemonFacts(ctx context.Context, home string) daemonFacts {
 	f := daemonFacts{Restart: restartCmd(herdrFacts{GOOS: runtime.GOOS, UID: os.Getuid()})}
-	procs, err := listDoctorProcs(ctx)
+	listProcsFn := listDoctorProcs
+	if fn := hooksFrom(ctx).listDoctorProcs; fn != nil {
+		listProcsFn = fn
+	}
+	procs, err := listProcsFn(ctx)
 	if err != nil {
 		return daemonFacts{}
 	}

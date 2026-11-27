@@ -16,6 +16,7 @@ import (
 )
 
 func TestTunnelUnitTexts(t *testing.T) {
+	t.Parallel()
 	vars := [][2]string{{"HOME", "/Users/me"}}
 	spec := tunnelSpec{
 		ssh:    "/usr/bin/ssh",
@@ -79,6 +80,7 @@ func TestTunnelUnitTexts(t *testing.T) {
 }
 
 func TestTunnelSSHArgsIncludeIdentityAgent(t *testing.T) {
+	t.Parallel()
 	spec := tunnelSpec{
 		ssh:           "/usr/bin/ssh",
 		target:        "me@hub",
@@ -106,6 +108,7 @@ func TestTunnelSSHArgsIncludeIdentityAgent(t *testing.T) {
 }
 
 func TestHubInstallNeedsHubSocket(t *testing.T) {
+	t.Parallel()
 	h := startHub(t, `hub = "me@hub"`)
 	env := append(append([]string{}, h.env...), "AGENTBUS_INSTALL_NO_LOAD=1")
 	code, _, stderr := h.runEnv(t, env, "", "install")
@@ -134,6 +137,7 @@ func TestHubInstallNeedsHubSocket(t *testing.T) {
 }
 
 func TestHubInstallWritesTunnelUnitWithoutLoading(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		t.Skip("install supports launchd and systemd")
 	}
@@ -185,6 +189,7 @@ func TestHubInstallWritesTunnelUnitWithoutLoading(t *testing.T) {
 }
 
 func TestHubInstallDiscoversHubSocket(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		t.Skip("install supports launchd and systemd")
 	}
@@ -220,6 +225,7 @@ func TestHubInstallDiscoversHubSocket(t *testing.T) {
 }
 
 func TestPathsJSON(t *testing.T) {
+	t.Parallel()
 	runtimeDir := t.TempDir()
 	state := t.TempDir()
 	env := []string{
@@ -248,6 +254,7 @@ func TestPathsJSON(t *testing.T) {
 }
 
 func TestSSHIdentityAgentReachesTheTunnelAndTheFallback(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		t.Skip("install supports launchd and systemd")
 	}
@@ -284,10 +291,9 @@ func TestSSHIdentityAgentReachesTheTunnelAndTheFallback(t *testing.T) {
 }
 
 func TestDoctorHintsWhenTheTunnelExits255(t *testing.T) {
+	t.Parallel()
 	h := startHub(t, `hub = "me@hub"`)
-	orig := tunnelExitStatus
-	tunnelExitStatus = func(context.Context, []string) (int, bool) { return 255, true }
-	t.Cleanup(func() { tunnelExitStatus = orig })
+	h.hooks.tunnelExitStatus = func(context.Context, []string) (int, bool) { return 255, true }
 	code, stdout, stderr := h.run(t, "", "doctor")
 	if stderr != "" || code > 2 {
 		t.Fatalf("doctor = %d, stderr %q", code, stderr)
@@ -298,6 +304,7 @@ func TestDoctorHintsWhenTheTunnelExits255(t *testing.T) {
 }
 
 func TestDoctorSaysTheAgentSocketIsDangling(t *testing.T) {
+	t.Parallel()
 	h := startHub(t, `hub = "me@hub"`)
 	home := strings.TrimPrefix(h.env[0], "HOME=")
 	if err := os.MkdirAll(filepath.Join(home, ".ssh"), 0o700); err != nil {
@@ -306,9 +313,7 @@ func TestDoctorSaysTheAgentSocketIsDangling(t *testing.T) {
 	if err := os.Symlink(filepath.Join(home, ".ssh", "missing-agent"), filepath.Join(home, ".ssh", "agent.sock")); err != nil {
 		t.Fatal(err)
 	}
-	orig := tunnelExitStatus
-	tunnelExitStatus = func(context.Context, []string) (int, bool) { return 255, true }
-	t.Cleanup(func() { tunnelExitStatus = orig })
+	h.hooks.tunnelExitStatus = func(context.Context, []string) (int, bool) { return 255, true }
 	code, stdout, stderr := h.run(t, "", "doctor")
 	if stderr != "" || code > 2 {
 		t.Fatalf("doctor = %d, stderr %q", code, stderr)
@@ -319,6 +324,7 @@ func TestDoctorSaysTheAgentSocketIsDangling(t *testing.T) {
 }
 
 func TestDoctorHintsWhenTheAgentSocketDiffers(t *testing.T) {
+	t.Parallel()
 	h := startHub(t, `hub = "me@hub"`)
 	home := strings.TrimPrefix(h.env[0], "HOME=")
 	dir := filepath.Join(home, ".ssh")
@@ -345,9 +351,7 @@ func TestDoctorHintsWhenTheAgentSocketDiffers(t *testing.T) {
 	if err := os.Symlink(otherSock.Addr().String(), link); err != nil {
 		t.Fatal(err)
 	}
-	orig := tunnelExitStatus
-	tunnelExitStatus = func(context.Context, []string) (int, bool) { return 255, true }
-	t.Cleanup(func() { tunnelExitStatus = orig })
+	h.hooks.tunnelExitStatus = func(context.Context, []string) (int, bool) { return 255, true }
 	env := append(append([]string{}, h.env...), "SSH_AUTH_SOCK="+liveSock.Addr().String())
 	code, stdout, stderr := h.runEnv(t, env, "", "doctor")
 	if stderr != "" || code > 2 {
@@ -369,6 +373,7 @@ func TestDoctorHintsWhenTheAgentSocketDiffers(t *testing.T) {
 }
 
 func TestDiagnoseTunnelAuthNamesTheMissingPiece(t *testing.T) {
+	t.Parallel()
 	unset := diagnoseTunnelAuth(tunnelAuthFacts{Exit255: true})
 	if unset != tunnelAuthHint {
 		t.Fatalf("unset = %q", unset)
@@ -397,6 +402,7 @@ func TestDiagnoseTunnelAuthNamesTheMissingPiece(t *testing.T) {
 }
 
 func TestDoctorMarksAnOldExitStaleWhenTheTunnelIsUp(t *testing.T) {
+	t.Parallel()
 	h := startHub(t, `hub = "me@hub"`)
 	runtimeDir := shortRuntime(t)
 	sockDir := filepath.Join(runtimeDir, "agentbus")
@@ -414,9 +420,7 @@ func TestDoctorMarksAnOldExitStaleWhenTheTunnelIsUp(t *testing.T) {
 			env[i] = "XDG_RUNTIME_DIR=" + runtimeDir
 		}
 	}
-	orig := tunnelExitStatus
-	tunnelExitStatus = func(context.Context, []string) (int, bool) { return 255, true }
-	t.Cleanup(func() { tunnelExitStatus = orig })
+	h.hooks.tunnelExitStatus = func(context.Context, []string) (int, bool) { return 255, true }
 	code, stdout, stderr := h.runEnv(t, env, "", "doctor")
 	if stderr != "" || code > 2 {
 		t.Fatalf("doctor = %d, stderr %q", code, stderr)
@@ -427,6 +431,7 @@ func TestDoctorMarksAnOldExitStaleWhenTheTunnelIsUp(t *testing.T) {
 }
 
 func TestInstallPinsTheAgentSocket(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		t.Skip("install supports launchd and systemd")
 	}
@@ -468,6 +473,7 @@ func TestInstallPinsTheAgentSocket(t *testing.T) {
 }
 
 func TestInstallHintsWhenTheAgentSocketIsMissing(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		t.Skip("install supports launchd and systemd")
 	}
@@ -501,6 +507,7 @@ func TestInstallHintsWhenTheAgentSocketIsMissing(t *testing.T) {
 }
 
 func TestTunnelBodyCarriesSSHAuthSock(t *testing.T) {
+	t.Parallel()
 	spec := tunnelSpec{
 		ssh: "/usr/bin/ssh", target: "me@hub",
 		local: "/rt/agentbus/tunnel.sock", remote: "/run/user/1000/agentbus/hub.sock",
@@ -518,6 +525,7 @@ func TestTunnelBodyCarriesSSHAuthSock(t *testing.T) {
 }
 
 func TestParseTunnelExitStatus(t *testing.T) {
+	t.Parallel()
 	code, ok := parseLaunchdExit("\tstate = spawn scheduled\n\tlast exit code = 255\n")
 	if !ok || code != 255 {
 		t.Fatalf("launchd = %d, %v", code, ok)
@@ -535,6 +543,7 @@ func TestParseTunnelExitStatus(t *testing.T) {
 }
 
 func TestDoctorReportsAHubSocketMismatch(t *testing.T) {
+	t.Parallel()
 	h := startHub(t, `hub = "me@hub"`, `hub_socket = "/run/user/1/agentbus/hub.sock"`)
 	h.ssh.Write("agentbus.stdout", `{"hub_socket":"/run/user/1000/agentbus/hub.sock"}`+"\n")
 	code, stdout, stderr := h.run(t, "", "doctor")

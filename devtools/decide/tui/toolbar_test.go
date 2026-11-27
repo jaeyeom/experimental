@@ -13,8 +13,6 @@ import (
 
 func toolbarModel(t *testing.T, it *decide.Item, width, height int) (*Model, *decide.Ledger, decide.Item) {
 	t.Helper()
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
@@ -61,6 +59,7 @@ func clickMouse(t *testing.T, m *Model, substr string) tea.Cmd {
 }
 
 func TestThreadViewRemovesReplyPromptAndDrawsTitleRule(t *testing.T) {
+	t.Parallel()
 	m, _, _ := toolbarModel(t, &decide.Item{Question: longBody()}, 120, 20)
 	view := m.View()
 	plain := visibleLine(view)
@@ -103,6 +102,7 @@ func TestThreadViewRemovesReplyPromptAndDrawsTitleRule(t *testing.T) {
 }
 
 func TestThreadToolbarButtonsClickAndCustomKeymap(t *testing.T) {
+	t.Parallel()
 	t.Run("default buttons and clicks", func(t *testing.T) {
 		m, _, _ := toolbarModel(t, &decide.Item{Question: "hello toolbar"}, 120, 24)
 		title := pinnedTitle(m.View())
@@ -184,6 +184,7 @@ func TestThreadToolbarButtonsClickAndCustomKeymap(t *testing.T) {
 }
 
 func TestThreadToolbarWithReplyFocused(t *testing.T) {
+	t.Parallel()
 	dimmedHint := regexp.MustCompile(`\x1b\[(?:\d+;)*2(?:;\d+)*m \(u\)`)
 	m, _, _ := toolbarModel(t, &decide.Item{Question: "reply focus test"}, 120, 24)
 
@@ -244,6 +245,7 @@ func TestThreadToolbarWithReplyFocused(t *testing.T) {
 }
 
 func TestToolbarBackAndArchiveSaveUnsentReplyDraft(t *testing.T) {
+	t.Parallel()
 	t.Run("back saves draft", func(t *testing.T) {
 		m, _, item := toolbarModel(t, &decide.Item{Question: "draft on back"}, 120, 24)
 		press(t, m, "0unsent reply before back")
@@ -391,6 +393,7 @@ func TestComposeCancelAndEditInEditorButtons(t *testing.T) {
 }
 
 func TestToolbarNarrowCollapsesToHintsAndTruncatesTitleFirst(t *testing.T) {
+	t.Parallel()
 	longQ := "this is a very long thread title that should truncate before the toolbar collapses"
 	m, _, item := toolbarModel(t, &decide.Item{Question: longQ}, 108, 20)
 

@@ -483,7 +483,7 @@ func waitEditorDone(t *testing.T, log, tmp string) {
 		if time.Now().After(deadline) {
 			t.Fatalf("the editor did not return: log err %v, drafts %v", logErr, drafts)
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
 	}
 }
 

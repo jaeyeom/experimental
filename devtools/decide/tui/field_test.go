@@ -12,8 +12,6 @@ import (
 // composerModel opens one relay item and focuses the composer of kind.
 func composerModel(t *testing.T, kind composerKind) (*Model, *decide.Ledger, decide.Item) {
 	t.Helper()
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	item := mustCreate(t, led, &decide.Item{
@@ -75,6 +73,7 @@ func sendKey(t *testing.T, m *Model, k tea.KeyMsg) {
 }
 
 func TestComposerEditingKeys(t *testing.T) {
+	t.Parallel()
 	kinds := map[composerKind]string{
 		composerReply:   "reply",
 		composerAnswer:  "answer",
@@ -110,6 +109,7 @@ func TestComposerEditingKeys(t *testing.T) {
 	for kind, kindName := range kinds {
 		for _, tt := range tests {
 			t.Run(kindName+"/"+tt.name, func(t *testing.T) {
+				t.Parallel()
 				m, led, item := composerModel(t, kind)
 				setComposer(t, m, tt.row, tt.col)
 				sendKey(t, m, tt.key)
@@ -136,6 +136,7 @@ func TestComposerEditingKeys(t *testing.T) {
 }
 
 func TestReplyEnterInsertsNewline(t *testing.T) {
+	t.Parallel()
 	m, led, item := composerModel(t, composerReply)
 	press(t, m, "abc")
 	sendKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
@@ -157,6 +158,7 @@ func TestReplyEnterInsertsNewline(t *testing.T) {
 }
 
 func TestReplyTabReachesSend(t *testing.T) {
+	t.Parallel()
 	m, led, item := composerModel(t, composerReply)
 	m.width, m.height = 80, 30
 	press(t, m, "abc\t")
@@ -185,6 +187,7 @@ func TestReplyTabReachesSend(t *testing.T) {
 }
 
 func TestReplySendResetsFieldAndScroll(t *testing.T) {
+	t.Parallel()
 	m, _, _ := composerModel(t, composerReply)
 	m.reply = "first\nsecond"
 	m.replyField.SetValue(m.reply)
@@ -213,6 +216,7 @@ func replyRows(m *Model) int {
 }
 
 func TestReplyBoxSizesToTerminalAndScrolls(t *testing.T) {
+	t.Parallel()
 	m, _, _ := composerModel(t, composerReply)
 	m.width, m.height = 80, 30
 	limit := max(m.height/2, 1)
@@ -244,6 +248,7 @@ func TestReplyBoxSizesToTerminalAndScrolls(t *testing.T) {
 }
 
 func TestReplyBoxGrowsWrapsAndShrinks(t *testing.T) {
+	t.Parallel()
 	m, _, _ := composerModel(t, composerReply)
 	m.width, m.height = 12, 40
 	if got := replyRows(m); got != 1 {
@@ -287,6 +292,7 @@ func TestComposerCtrlXCtrlEStillOpensEditor(t *testing.T) {
 }
 
 func TestComposerHintsListEditingKeys(t *testing.T) {
+	t.Parallel()
 	const baseKeys = "C-a/C-e line  C-k kill  C-j newline  C-o open"
 	for kind, tail := range map[composerKind]string{
 		composerReply:   "Alt+q fill  Tab [Send]",
@@ -321,6 +327,7 @@ func TestComposerHintsListEditingKeys(t *testing.T) {
 }
 
 func TestClickCursor(t *testing.T) {
+	t.Parallel()
 	long := "abcdefghijklmnopqrstuvwxy"
 	ten := "l0\nl1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9"
 	tests := []struct {
@@ -371,6 +378,7 @@ func clickOn(t *testing.T, m *Model, needle string, off int) {
 }
 
 func TestClickMovesUnfocusedReplyCursor(t *testing.T) {
+	t.Parallel()
 	m, _, _ := composerModel(t, composerReply)
 	m.width, m.height = 80, 30
 	press(t, m, "abc")
@@ -390,6 +398,7 @@ func TestClickMovesUnfocusedReplyCursor(t *testing.T) {
 }
 
 func TestClickReplyPrefixClampsToLineStart(t *testing.T) {
+	t.Parallel()
 	m, _, _ := composerModel(t, composerReply)
 	m.width, m.height = 80, 30
 	press(t, m, "abc")
@@ -403,6 +412,7 @@ func TestClickReplyPrefixClampsToLineStart(t *testing.T) {
 }
 
 func TestClickMovesOutcomeCursor(t *testing.T) {
+	t.Parallel()
 	m, _, _ := composerModel(t, composerOutcome)
 	m.width, m.height = 80, 30
 	press(t, m, "shipped it")
@@ -414,6 +424,7 @@ func TestClickMovesOutcomeCursor(t *testing.T) {
 }
 
 func TestClickMovesScrolledNoteCursor(t *testing.T) {
+	t.Parallel()
 	m, _, _ := composerModel(t, composerNote)
 	m.width, m.height = 80, 16
 	for i := range 20 {
@@ -447,6 +458,7 @@ func TestClickMovesScrolledNoteCursor(t *testing.T) {
 }
 
 func TestDetailQQuits(t *testing.T) {
+	t.Parallel()
 	m, _, _ := composerModel(t, composerReply)
 	press(t, m, "\x1b")
 	if m.mode != modeDetail {
@@ -462,6 +474,7 @@ func TestDetailQQuits(t *testing.T) {
 }
 
 func TestDetailQTypesInFocusedBox(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []composerKind{composerReply, composerAnswer} {
 		t.Run(fmt.Sprint(kind), func(t *testing.T) {
 			m, _, _ := composerModel(t, kind)
@@ -477,6 +490,7 @@ func TestDetailQTypesInFocusedBox(t *testing.T) {
 }
 
 func TestDetailEscAndUReturnToList(t *testing.T) {
+	t.Parallel()
 	for _, key := range []string{"\x1b", "u"} {
 		m, _, _ := composerModel(t, composerReply)
 		press(t, m, "\x1b"+key)
@@ -487,6 +501,7 @@ func TestDetailEscAndUReturnToList(t *testing.T) {
 }
 
 func TestDetailHintNamesQuit(t *testing.T) {
+	t.Parallel()
 	m, _, _ := composerModel(t, composerReply)
 	press(t, m, "\x1b")
 	if hint := m.statusLine().text; !strings.Contains(hint, "q quit") {
@@ -499,6 +514,7 @@ func TestDetailHintNamesQuit(t *testing.T) {
 }
 
 func TestBoxedEditorScrollsOnTypePasteArrowAndPage(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []composerKind{composerReply, composerNote} {
 		t.Run(fmt.Sprint(kind), func(t *testing.T) {
 			m, _, _ := composerModel(t, kind)
@@ -553,6 +569,7 @@ func TestBoxedEditorScrollsOnTypePasteArrowAndPage(t *testing.T) {
 }
 
 func TestBoxedEditorSmallTerminal(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []composerKind{composerReply, composerNote} {
 		t.Run(fmt.Sprint(kind)+"/cursor_fits", func(t *testing.T) {
 			m, _, _ := composerModel(t, kind)
@@ -586,8 +603,6 @@ func TestBoxedEditorSmallTerminal(t *testing.T) {
 
 func longThreadReplyModel(t *testing.T, lines int) (*Model, *decide.Ledger, decide.Item) {
 	t.Helper()
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	var body []string
@@ -615,6 +630,7 @@ func longThreadReplyModel(t *testing.T, lines int) (*Model, *decide.Ledger, deci
 }
 
 func TestPinnedReplyBoxScrollsThreadIndependently(t *testing.T) {
+	t.Parallel()
 	m, _, _ := longThreadReplyModel(t, 40)
 	view := m.View()
 	// With an empty unfocused draft, the reply box is hidden (replaced by the toolbar Reply button).
@@ -656,6 +672,7 @@ func TestPinnedReplyBoxScrollsThreadIndependently(t *testing.T) {
 }
 
 func TestPinnedReplyBoxShrinksThreadAndResetsAfterSend(t *testing.T) {
+	t.Parallel()
 	m, led, item := longThreadReplyModel(t, 40)
 	_, detailN := m.layoutBudget()
 	threadBefore, replyBefore := m.detailLayout(m.contentWidth())

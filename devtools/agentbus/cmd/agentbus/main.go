@@ -13,10 +13,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/checkout"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/client"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/hibernate"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
+	"github.com/jaeyeom/experimental/devtools/pkg/procinfo"
+	"github.com/jaeyeom/experimental/devtools/pkg/remotecall"
 	"golang.org/x/sys/unix"
 )
 
@@ -37,6 +42,197 @@ var (
 	dialDaemon     = client.Call
 	ensureDaemonUp = startDaemonForRetry
 )
+
+type hooksKey struct{}
+
+// cmdHooks carries per-call test overrides on context.Context so tests can
+// inject fakes without mutating package globals and run concurrently.
+type cmdHooks struct {
+	dialDaemon       func(context.Context, string, daemon.Request) (daemon.Response, error)
+	ensureDaemon     func([]string, io.Writer) int
+	ensureDaemonUp   func(context.Context, paths.Dirs, []string) error
+	mintClientID     func(string) (string, error)
+	outboxNow        func() time.Time
+	listProcs        func() ([]checkout.Proc, error)
+	memProcs         func() procinfo.Table
+	memMemory        func() procinfo.Memory
+	hibernateProcs   func(context.Context) ([]procinfo.Process, error)
+	hibernateCwd     procinfo.CwdFunc
+	hibernateClock   hibernate.Clock
+	policyMemory     func() procinfo.Memory
+	policyTicks      func(time.Duration) (<-chan time.Time, func())
+	policyTicked     func()
+	leaseHookTimeout time.Duration
+	tunnelExitStatus func(context.Context, []string) (int, bool)
+	doctorProbe      func(string, []string) remotecall.Probe
+	listDoctorProcs  func(context.Context) ([]doctorProc, error)
+	daemonLockHolder func(string) (int, bool, error)
+	daemonShow       func(context.Context) (string, error)
+}
+
+func hooksFrom(ctx context.Context) cmdHooks {
+	h, _ := ctx.Value(hooksKey{}).(cmdHooks)
+	return h
+}
+
+func mergeBaseHooks(h, cur cmdHooks) cmdHooks {
+	if h.dialDaemon == nil {
+		h.dialDaemon = cur.dialDaemon
+	}
+	if h.ensureDaemon == nil {
+		h.ensureDaemon = cur.ensureDaemon
+	}
+	if h.ensureDaemonUp == nil {
+		h.ensureDaemonUp = cur.ensureDaemonUp
+	}
+	if h.mintClientID == nil {
+		h.mintClientID = cur.mintClientID
+	}
+	if h.outboxNow == nil {
+		h.outboxNow = cur.outboxNow
+	}
+	if h.listProcs == nil {
+		h.listProcs = cur.listProcs
+	}
+	if h.memProcs == nil {
+		h.memProcs = cur.memProcs
+	}
+	if h.memMemory == nil {
+		h.memMemory = cur.memMemory
+	}
+	return h
+}
+
+func mergeHibAndDoctorHooks(h, cur cmdHooks) cmdHooks {
+	if h.hibernateProcs == nil {
+		h.hibernateProcs = cur.hibernateProcs
+	}
+	if h.hibernateCwd == nil {
+		h.hibernateCwd = cur.hibernateCwd
+	}
+	if h.hibernateClock == nil {
+		h.hibernateClock = cur.hibernateClock
+	}
+	if h.policyMemory == nil {
+		h.policyMemory = cur.policyMemory
+	}
+	if h.policyTicks == nil {
+		h.policyTicks = cur.policyTicks
+	}
+	if h.policyTicked == nil {
+		h.policyTicked = cur.policyTicked
+	}
+	if h.leaseHookTimeout == 0 {
+		h.leaseHookTimeout = cur.leaseHookTimeout
+	}
+	if h.tunnelExitStatus == nil {
+		h.tunnelExitStatus = cur.tunnelExitStatus
+	}
+	if h.doctorProbe == nil {
+		h.doctorProbe = cur.doctorProbe
+	}
+	if h.listDoctorProcs == nil {
+		h.listDoctorProcs = cur.listDoctorProcs
+	}
+	if h.daemonLockHolder == nil {
+		h.daemonLockHolder = cur.daemonLockHolder
+	}
+	if h.daemonShow == nil {
+		h.daemonShow = cur.daemonShow
+	}
+	return h
+}
+
+func withCmdHooks(ctx context.Context, h cmdHooks) context.Context {
+	cur := hooksFrom(ctx)
+	h = mergeBaseHooks(h, cur)
+	h = mergeHibAndDoctorHooks(h, cur)
+	return context.WithValue(ctx, hooksKey{}, h)
+}
+
+func ensureDaemonFn(ctx context.Context) func([]string, io.Writer) int {
+	if fn := hooksFrom(ctx).ensureDaemon; fn != nil {
+		return fn
+	}
+	return ensureDaemon
+}
+
+func memProcsFn(ctx context.Context) func() procinfo.Table {
+	if fn := hooksFrom(ctx).memProcs; fn != nil {
+		return fn
+	}
+	return memProcs
+}
+
+func memMemoryFn(ctx context.Context) func() procinfo.Memory {
+	if fn := hooksFrom(ctx).memMemory; fn != nil {
+		return fn
+	}
+	return memMemory
+}
+
+func policyMemoryFn(ctx context.Context) func() procinfo.Memory {
+	if fn := hooksFrom(ctx).policyMemory; fn != nil {
+		return fn
+	}
+	return policyMemory
+}
+
+func policyTicksFn(ctx context.Context) func(time.Duration) (<-chan time.Time, func()) {
+	if fn := hooksFrom(ctx).policyTicks; fn != nil {
+		return fn
+	}
+	return policyTicks
+}
+
+func policyTickedFn(ctx context.Context) func() {
+	if fn := hooksFrom(ctx).policyTicked; fn != nil {
+		return fn
+	}
+	return policyTicked
+}
+
+func daemonShowFn(ctx context.Context) func(context.Context) (string, error) {
+	if fn := hooksFrom(ctx).daemonShow; fn != nil {
+		return fn
+	}
+	return daemonShow
+}
+
+func dialDaemonFn(ctx context.Context) func(context.Context, string, daemon.Request) (daemon.Response, error) {
+	if fn := hooksFrom(ctx).dialDaemon; fn != nil {
+		return fn
+	}
+	return dialDaemon
+}
+
+func mintClientIDFn(ctx context.Context) func(string) (string, error) {
+	if fn := hooksFrom(ctx).mintClientID; fn != nil {
+		return fn
+	}
+	return mintClientID
+}
+
+func outboxNowFn(ctx context.Context) func() time.Time {
+	if fn := hooksFrom(ctx).outboxNow; fn != nil {
+		return fn
+	}
+	return outboxNow
+}
+
+func listProcsFn(ctx context.Context) func() ([]checkout.Proc, error) {
+	if fn := hooksFrom(ctx).listProcs; fn != nil {
+		return fn
+	}
+	return listProcs
+}
+
+func leaseHookTimeoutVal(ctx context.Context) time.Duration {
+	if d := hooksFrom(ctx).leaseHookTimeout; d > 0 {
+		return d
+	}
+	return leaseHookTimeout
+}
 
 func run(ctx context.Context, args, env []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) > 0 && isHelpFlag(args[0]) {
@@ -75,7 +271,7 @@ func run(ctx context.Context, args, env []string, stdin io.Reader, stdout, stder
 	}
 	if len(args) == 0 {
 		printUsage(stdout)
-		return ensureDaemon(env, stderr)
+		return ensureDaemonFn(ctx)(env, stderr)
 	}
 	return cmd.run(ctx, args[1:], env, stdin, stdout, stderr)
 }

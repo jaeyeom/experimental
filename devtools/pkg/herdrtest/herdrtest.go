@@ -106,13 +106,59 @@ type Fake struct {
 // Install puts a fake herdr first on PATH for the rest of the test.
 func Install(t testing.TB) *Fake {
 	t.Helper()
+	f := install(t)
+	t.Setenv("PATH", f.dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return f
+}
+
+// InstallInEnv creates a fake herdr directory and prepends it to PATH in
+// *env without modifying the process environment, so tests can run in parallel.
+func InstallInEnv(t testing.TB, env *[]string) *Fake {
+	t.Helper()
+	f := install(t)
+	*env = prependPath(*env, f.dir)
+	return f
+}
+
+func install(t testing.TB) *Fake {
+	t.Helper()
 	dir := t.TempDir()
 	body := strings.ReplaceAll(script, "%DIR%", dir)
 	if err := os.WriteFile(filepath.Join(dir, "herdr"), []byte(body), 0o755); err != nil { //nolint:gosec // test executable
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return &Fake{t: t, dir: dir}
+}
+
+// Dir returns the directory holding the fake herdr binary.
+func (f *Fake) Dir() string {
+	return f.dir
+}
+
+func prependPath(env []string, dir string) []string {
+	out := make([]string, 0, len(env)+1)
+	found := false
+	for _, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok && k == "PATH" {
+			if v != "" {
+				out = append(out, "PATH="+dir+string(os.PathListSeparator)+v)
+			} else {
+				out = append(out, "PATH="+dir)
+			}
+			found = true
+			continue
+		}
+		out = append(out, kv)
+	}
+	if !found {
+		base := os.Getenv("PATH")
+		if base != "" {
+			out = append(out, "PATH="+dir+string(os.PathListSeparator)+base)
+		} else {
+			out = append(out, "PATH="+dir)
+		}
+	}
+	return out
 }
 
 // Write creates or replaces one control file.

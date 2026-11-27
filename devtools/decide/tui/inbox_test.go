@@ -40,6 +40,7 @@ func inboxTestItem(t *testing.T, led *decide.Ledger, it *decide.Item) decide.Ite
 }
 
 func TestInboxTUI_GroupOrderAndTasksByDueDate(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	base := time.Date(2026, 11, 22, 10, 0, 0, 0, time.UTC)
@@ -77,6 +78,7 @@ func TestInboxTUI_GroupOrderAndTasksByDueDate(t *testing.T) {
 }
 
 func TestInboxTUI_NestedApprovalAndParentCard(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	base := time.Date(2026, 11, 22, 10, 0, 0, 0, time.UTC)
@@ -149,6 +151,7 @@ func TestInboxTUI_NestedApprovalAndParentCard(t *testing.T) {
 }
 
 func TestInboxTUI_ClassBadgesAndFilter(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	base := time.Date(2026, 11, 22, 10, 0, 0, 0, time.UTC)
@@ -190,6 +193,7 @@ func TestInboxTUI_ClassBadgesAndFilter(t *testing.T) {
 }
 
 func TestInboxTUI_QuickKeysFromList(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	base := time.Date(2026, 11, 22, 10, 0, 0, 0, time.UTC)
@@ -240,6 +244,7 @@ func TestInboxTUI_QuickKeysFromList(t *testing.T) {
 }
 
 func TestInboxTUI_BulkArchiveNotesAndUnreadCount(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	base := time.Date(2026, 11, 22, 10, 0, 0, 0, time.UTC)

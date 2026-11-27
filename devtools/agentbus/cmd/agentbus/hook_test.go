@@ -71,6 +71,10 @@ func TestHookPrintsNothingWhenTheTargetDoesNotResolve(t *testing.T) {
 }
 
 func TestHookGivesUpAtTheTimeout(t *testing.T) {
+	orig := hookTimeout
+	hookTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { hookTimeout = orig })
+
 	_, env := hookEnv(t)
 	fakeHookDial(t, func(ctx context.Context, _ daemon.Request) (daemon.Response, error) {
 		<-ctx.Done()

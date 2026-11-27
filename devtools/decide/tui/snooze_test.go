@@ -42,6 +42,7 @@ func folderIndex(t *testing.T, name string) int {
 }
 
 func TestSnoozeFromTheListHidesUntilTheTime(t *testing.T) {
+	t.Parallel()
 	m, _, clock, item := snoozeModel(t)
 	if Folders[1].Name != "Snoozed" {
 		t.Fatalf("folders = %+v", Folders)
@@ -81,6 +82,7 @@ func TestSnoozeFromTheListHidesUntilTheTime(t *testing.T) {
 }
 
 func TestAgentReplyWakesASnoozedItemInTheTUI(t *testing.T) {
+	t.Parallel()
 	m, led, clock, item := snoozeModel(t)
 	press(t, m, "b\r")
 	*clock = clock.Add(10 * time.Minute)
@@ -94,6 +96,7 @@ func TestAgentReplyWakesASnoozedItemInTheTUI(t *testing.T) {
 }
 
 func TestUnsnoozeFromTheSnoozedFolder(t *testing.T) {
+	t.Parallel()
 	m, _, _, item := snoozeModel(t)
 	press(t, m, "b\r")
 	press(t, m, "gz")
@@ -113,6 +116,7 @@ func TestUnsnoozeFromTheSnoozedFolder(t *testing.T) {
 }
 
 func TestSnoozeFromTheItemViewReturnsToTheList(t *testing.T) {
+	t.Parallel()
 	m, _, _, item := snoozeModel(t)
 	press(t, m, "o")
 	if m.mode != modeDetail {
@@ -125,6 +129,7 @@ func TestSnoozeFromTheItemViewReturnsToTheList(t *testing.T) {
 }
 
 func TestSnoozeEscChangesNothing(t *testing.T) {
+	t.Parallel()
 	m, led, _, item := snoozeModel(t)
 	before := m.status
 	press(t, m, "bj")
@@ -143,6 +148,7 @@ func TestSnoozeEscChangesNothing(t *testing.T) {
 }
 
 func TestSnoozeCustomEntry(t *testing.T) {
+	t.Parallel()
 	m, led, _, item := snoozeModel(t)
 	press(t, m, "b")
 	for range 4 {
@@ -166,6 +172,7 @@ func TestSnoozeCustomEntry(t *testing.T) {
 }
 
 func TestSnoozeHintsAndHelp(t *testing.T) {
+	t.Parallel()
 	m, _, _, _ := snoozeModel(t)
 	m.width, m.height = 120, 24
 	if !strings.Contains(m.View(), "b snooze") {

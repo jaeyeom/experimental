@@ -49,6 +49,7 @@ func typeDraft(t *testing.T, m *Model) *int {
 }
 
 func TestSendKeysSendFromEveryComposer(t *testing.T) {
+	t.Parallel()
 	// The reference is what the composer already does to send: Tab then
 	// Enter in the note and reply composers, Enter in the others.
 	reference := map[composerKind][]tea.KeyMsg{
@@ -84,6 +85,7 @@ func TestSendKeysSendFromEveryComposer(t *testing.T) {
 }
 
 func TestEnterAndCtrlJDoNotSendNoteOrReply(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []composerKind{composerNote, composerReply} {
 		for name, k := range map[string]tea.KeyMsg{
 			"Enter": {Type: tea.KeyEnter},
@@ -107,6 +109,7 @@ func TestEnterAndCtrlJDoNotSendNoteOrReply(t *testing.T) {
 }
 
 func TestReplySendKeysSendMultiLineText(t *testing.T) {
+	t.Parallel()
 	for name, keys := range map[string][]tea.KeyMsg{
 		"Alt+Enter":  {{Type: tea.KeyEnter, Alt: true}},
 		"C-s":        {{Type: tea.KeyCtrlS}},
@@ -131,6 +134,7 @@ func TestReplySendKeysSendMultiLineText(t *testing.T) {
 }
 
 func TestCtrlSOutsideComposerDoesNothing(t *testing.T) {
+	t.Parallel()
 	m, led, item := composerModel(t, composerReply)
 	sends := typeDraft(t, m)
 	sendKey(t, m, tea.KeyMsg{Type: tea.KeyEsc})
@@ -142,6 +146,7 @@ func TestCtrlSOutsideComposerDoesNothing(t *testing.T) {
 }
 
 func TestComposerHintsListSendKeys(t *testing.T) {
+	t.Parallel()
 	m, _, _ := composerModel(t, composerNote)
 	m.width = 160
 	m.height = 30
@@ -170,6 +175,7 @@ func plainEnterSend(view string) bool {
 }
 
 func TestKeyDebugPath(t *testing.T) {
+	t.Parallel()
 	for v, want := range map[string]string{
 		"":               "",
 		"0":              "",
@@ -184,6 +190,7 @@ func TestKeyDebugPath(t *testing.T) {
 }
 
 func TestKeyDebugLogsKeyMessages(t *testing.T) {
+	t.Parallel()
 	m, _, _ := composerModel(t, composerNote)
 	var log bytes.Buffer
 	m.keyLog = &log

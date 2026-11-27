@@ -29,13 +29,14 @@ const herdrSock = "/run/herdr/herdr.sock"
 func sandboxHub(t *testing.T) (*hubSetup, *herdrtest.Fake) {
 	t.Helper()
 	h := startHub(t, `hub = "me@hub"`, `machine = "linux2"`)
-	fake := herdrtest.Install(t)
-	fake.Write("local.agents", agentsJSON("w1:p1=idle"))
 	h.env = append(h.env, "HERDR_PANE_ID=w1:p1", "HERDR_SOCKET_PATH="+herdrSock)
+	fake := herdrtest.InstallInEnv(t, &h.env)
+	fake.Write("local.agents", agentsJSON("w1:p1=idle"))
 	return h, fake
 }
 
 func TestBlockedHerdrSocketNamesTheSocketAndTheHint(t *testing.T) {
+	t.Parallel()
 	h, fake := sandboxHub(t)
 	fake.Write("local.eperm", "")
 	code, _, stderr := h.run(t, "", "send", "ops/x", "hi")
@@ -52,6 +53,7 @@ func TestBlockedHerdrSocketNamesTheSocketAndTheHint(t *testing.T) {
 }
 
 func TestRegisterCachesThePaneHandleForSandboxedCalls(t *testing.T) {
+	t.Parallel()
 	h, fake := sandboxHub(t)
 	if code, _, stderr := h.run(t, "", "register", "eng/x", "--when", "testing"); code != 0 {
 		t.Fatalf("register = %d, stderr %q", code, stderr)
@@ -78,6 +80,7 @@ func TestRegisterCachesThePaneHandleForSandboxedCalls(t *testing.T) {
 }
 
 func TestRegisterRefreshesAStaleCache(t *testing.T) {
+	t.Parallel()
 	h, fake := sandboxHub(t)
 	dir := filepath.Join(h.runtime, "agentbus", "panes")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -100,6 +103,7 @@ func TestRegisterRefreshesAStaleCache(t *testing.T) {
 }
 
 func TestSandboxedTunnelFailureDoesNotFallBackToSSH(t *testing.T) {
+	t.Parallel()
 	s := newTunnelSetup(t)
 	if err := os.MkdirAll(filepath.Dir(s.tunnel), 0o755); err != nil {
 		t.Fatal(err)
@@ -130,6 +134,7 @@ func TestSandboxedTunnelFailureDoesNotFallBackToSSH(t *testing.T) {
 }
 
 func TestSandboxedSSHFailureSaysWhatToAllow(t *testing.T) {
+	t.Parallel()
 	h, _ := sandboxHub(t)
 	h.ssh.Write("down", "")
 	h.ssh.Unreachable()
@@ -146,6 +151,7 @@ func TestSandboxedSSHFailureSaysWhatToAllow(t *testing.T) {
 }
 
 func TestExplainBlocked(t *testing.T) {
+	t.Parallel()
 	eperm := fmt.Errorf("connect to /s: %w", &net.OpError{Op: "dial", Net: "unix", Err: os.NewSyscallError("connect", unix.EPERM)})
 	if got := explainBlocked(eperm, "/s").Error(); got != "connect /s: operation not permitted (sandbox? allow this unix socket)" {
 		t.Fatalf("explainBlocked(EPERM) = %q", got)
@@ -161,6 +167,7 @@ func TestExplainBlocked(t *testing.T) {
 }
 
 func TestDoctorSandboxListsTheSocketsAndChecksThem(t *testing.T) {
+	t.Parallel()
 	h, _ := sandboxHub(t)
 	runtime := shortRuntime(t)
 	env := slices.DeleteFunc(slices.Clone(h.env), func(kv string) bool {
@@ -177,9 +184,7 @@ func TestDoctorSandboxListsTheSocketsAndChecksThem(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ln.Close()
-	orig := doctorProbe
-	doctorProbe = func(string) remotecall.Probe { return func(context.Context) bool { return false } }
-	t.Cleanup(func() { doctorProbe = orig })
+	h.hooks.doctorProbe = func(string, []string) remotecall.Probe { return func(context.Context) bool { return false } }
 
 	code, stdout, stderr := h.runEnv(t, env, "", "doctor", "--sandbox")
 	if code != 0 {
@@ -223,6 +228,7 @@ func TestDoctorSandboxListsTheSocketsAndChecksThem(t *testing.T) {
 }
 
 func TestDoctorHubModeNeedsNoLocalDaemon(t *testing.T) {
+	t.Parallel()
 	h, _ := sandboxHub(t)
 	runtimeDir := shortRuntime(t)
 	env := slices.DeleteFunc(slices.Clone(h.env), func(kv string) bool {
@@ -249,9 +255,7 @@ func TestDoctorHubModeNeedsNoLocalDaemon(t *testing.T) {
 	if err := os.WriteFile(unit, []byte("outbox\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	orig := doctorProbe
-	doctorProbe = func(string) remotecall.Probe { return func(context.Context) bool { return true } }
-	t.Cleanup(func() { doctorProbe = orig })
+	h.hooks.doctorProbe = func(string, []string) remotecall.Probe { return func(context.Context) bool { return true } }
 
 	code, stdout, stderr := h.runEnv(t, env, "", "doctor")
 	if stderr != "" || code > 2 {
@@ -276,6 +280,7 @@ func TestDoctorHubModeNeedsNoLocalDaemon(t *testing.T) {
 }
 
 func TestDoctorSandboxPrintsTheDarwinRuntime(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS != "darwin" {
 		t.Skip("darwin default runtime directory")
 	}
@@ -308,17 +313,14 @@ func envValue(t *testing.T, env []string, key string) string {
 }
 
 func TestDoctorListsAnExtraDaemon(t *testing.T) {
+	t.Parallel()
 	h := startHub(t)
-	origDial := dialDaemon
-	dialDaemon = func(context.Context, string, daemon.Request) (daemon.Response, error) {
+	h.hooks.dialDaemon = func(context.Context, string, daemon.Request) (daemon.Response, error) {
 		return daemon.Response{}, os.ErrNotExist
 	}
-	t.Cleanup(func() { dialDaemon = origDial })
 	start := time.Date(2026, 11, 12, 21, 4, 5, 0, time.UTC)
 	holder := 10
-	origList, origLock := listDoctorProcs, daemonLockHolder
-	t.Cleanup(func() { listDoctorProcs, daemonLockHolder = origList, origLock })
-	listDoctorProcs = func(context.Context) ([]doctorProc, error) {
+	h.hooks.listDoctorProcs = func(context.Context) ([]doctorProc, error) {
 		return []doctorProc{
 			{PID: holder, UID: os.Getuid(), Start: start, Name: "agentbusd"},
 			{PID: 4242, UID: os.Getuid(), Start: start.Add(time.Minute), Name: "agentbusd"},
@@ -326,7 +328,7 @@ func TestDoctorListsAnExtraDaemon(t *testing.T) {
 			{PID: 8, UID: os.Getuid() + 1, Start: start, Name: "agentbusd"},
 		}, nil
 	}
-	daemonLockHolder = func(string) (int, bool, error) { return holder, true, nil }
+	h.hooks.daemonLockHolder = func(string) (int, bool, error) { return holder, true, nil }
 
 	code, stdout, stderr := h.run(t, "", "doctor")
 	if stderr != "" || code > 2 {
@@ -347,12 +349,12 @@ func TestDoctorListsAnExtraDaemon(t *testing.T) {
 }
 
 func TestDoctorHubModeLocalDaemon(t *testing.T) {
+	t.Parallel()
 	start := time.Date(2026, 11, 12, 21, 4, 5, 0, time.UTC)
 	t.Run("running-and-sockets", func(t *testing.T) {
+		t.Parallel()
 		h, _ := sandboxHub(t)
-		origList := listDoctorProcs
-		t.Cleanup(func() { listDoctorProcs = origList })
-		listDoctorProcs = func(context.Context) ([]doctorProc, error) {
+		h.hooks.listDoctorProcs = func(context.Context) ([]doctorProc, error) {
 			return []doctorProc{
 				{PID: 4242, UID: os.Getuid(), Start: start, Name: "agentbusd"},
 			}, nil
@@ -391,10 +393,9 @@ func TestDoctorHubModeLocalDaemon(t *testing.T) {
 	})
 
 	t.Run("none", func(t *testing.T) {
+		t.Parallel()
 		h, _ := sandboxHub(t)
-		origList := listDoctorProcs
-		t.Cleanup(func() { listDoctorProcs = origList })
-		listDoctorProcs = func(context.Context) ([]doctorProc, error) {
+		h.hooks.listDoctorProcs = func(context.Context) ([]doctorProc, error) {
 			return nil, nil
 		}
 		code, stdout, stderr := h.run(t, "", "doctor", "--offline")
@@ -408,6 +409,7 @@ func TestDoctorHubModeLocalDaemon(t *testing.T) {
 }
 
 func TestDoctorReportsAnUnverifiedHold(t *testing.T) {
+	t.Parallel()
 	h, _ := sandboxHub(t)
 	var stateHome string
 	for _, kv := range h.env {
@@ -433,6 +435,7 @@ func TestDoctorReportsAnUnverifiedHold(t *testing.T) {
 }
 
 func TestDoctorReportsAnUnreachableHerdrTransport(t *testing.T) {
+	t.Parallel()
 	h, _ := sandboxHub(t)
 	var stateHome string
 	for _, kv := range h.env {
@@ -460,10 +463,9 @@ func TestDoctorReportsAnUnreachableHerdrTransport(t *testing.T) {
 }
 
 func TestDoctorReportsHerdrMissingFromPath(t *testing.T) {
-	orig := daemonShow
-	daemonShow = func(context.Context) (string, error) { return "", errors.New("no supervisor") }
-	t.Cleanup(func() { daemonShow = orig })
+	t.Parallel()
 	h, _ := sandboxHub(t)
+	h.hooks.daemonShow = func(context.Context) (string, error) { return "", errors.New("no supervisor") }
 	var stateHome string
 	for _, kv := range h.env {
 		if value, ok := strings.CutPrefix(kv, "XDG_STATE_HOME="); ok {
@@ -494,6 +496,7 @@ func TestDoctorReportsHerdrMissingFromPath(t *testing.T) {
 }
 
 func TestDoctorRejectsArguments(t *testing.T) {
+	t.Parallel()
 	h, _ := sandboxHub(t)
 	if code, _, stderr := h.run(t, "", "doctor", "extra"); code != 2 || !strings.Contains(stderr, "--sandbox") {
 		t.Fatalf("doctor = %d, stderr %q", code, stderr)
@@ -501,6 +504,7 @@ func TestDoctorRejectsArguments(t *testing.T) {
 }
 
 func TestDoctorReportsSSHAgentSocket(t *testing.T) {
+	t.Parallel()
 	sockDir, err := os.MkdirTemp("", "ab-doc-*")
 	if err != nil {
 		t.Fatal(err)
@@ -514,9 +518,9 @@ func TestDoctorReportsSSHAgentSocket(t *testing.T) {
 	t.Cleanup(func() { _ = ln.Close() })
 
 	h := startHub(t, `hub = "me@hub"`, `machine = "linux2"`, `ssh_agent_socket = "`+sock+`"`)
-	fake := herdrtest.Install(t)
-	fake.Write("local.agents", agentsJSON("w1:p1=idle"))
 	h.env = append(h.env, "HERDR_PANE_ID=w1:p1", "HERDR_SOCKET_PATH="+herdrSock)
+	fake := herdrtest.InstallInEnv(t, &h.env)
+	fake.Write("local.agents", agentsJSON("w1:p1=idle"))
 
 	code, stdout, stderr := h.run(t, "", "doctor", "--offline")
 	if stderr != "" || code > 2 {
@@ -528,6 +532,7 @@ func TestDoctorReportsSSHAgentSocket(t *testing.T) {
 }
 
 func TestParseDoctorPS(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 12, 0, 2, 0, 0, time.UTC)
 	got := parseDoctorPS("  5 501 01:00 agentbusd\n  x\n", now)
 	if len(got) != 1 || got[0].PID != 5 || got[0].UID != 501 || got[0].Name != "agentbusd" {

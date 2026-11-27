@@ -24,7 +24,7 @@ fi
 printf '%s\n' "$@" > "$d/argv"
 for a; do cmd=$a; done
 if [ -e "$d/hang" ]; then exec sleep 30; fi
-if [ -e "$d/down" ]; then sleep 1; echo "ssh: connect to host hub port 22: Operation timed out" >&2; exit 255; fi
+if [ -e "$d/down" ]; then echo "ssh: connect to host hub port 22: Operation timed out" >&2; exit 255; fi
 if [ -e "$d/locked" ]; then echo "user@hub: Permission denied (publickey)." >&2; exit 255; fi
 exec sh -c "$cmd"
 `
@@ -49,7 +49,7 @@ exit "$(cat "$d/$t.code" 2>/dev/null || echo 0)"
 // Fake is an ssh on PATH controlled by files in its directory:
 //
 //   - hang makes ssh hang before the remote command starts.
-//   - down makes ssh fail after a second with a connect timeout.
+//   - down makes ssh fail with a connect timeout error.
 //   - locked makes ssh fail with a publickey error.
 //   - port is the SSH port `ssh -G` reports for the probe.
 //
@@ -62,11 +62,59 @@ type Fake struct {
 // Install puts a fake ssh first on PATH for the rest of the test.
 func Install(t testing.TB) *Fake {
 	t.Helper()
+	f := install(t)
+	t.Setenv("PATH", f.dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return f
+}
+
+// InstallInEnv creates a fake ssh directory and prepends it to PATH in *env
+// without modifying the process environment, so tests can run in parallel.
+func InstallInEnv(t testing.TB, env *[]string) *Fake {
+	t.Helper()
+	f := install(t)
+	*env = PrependPath(*env, f.dir)
+	return f
+}
+
+func install(t testing.TB) *Fake {
+	t.Helper()
 	dir := t.TempDir()
 	f := &Fake{t: t, dir: dir}
 	f.writeExec("ssh", strings.ReplaceAll(sshScript, "%DIR%", dir))
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return f
+}
+
+// Dir returns the directory holding the fake ssh and tools.
+func (f *Fake) Dir() string {
+	return f.dir
+}
+
+// PrependPath returns a copy of env with dir prepended to PATH (inheriting
+// os.Getenv("PATH") when env has no PATH entry).
+func PrependPath(env []string, dir string) []string {
+	out := make([]string, 0, len(env)+1)
+	found := false
+	for _, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok && k == "PATH" {
+			if v != "" {
+				out = append(out, "PATH="+dir+string(os.PathListSeparator)+v)
+			} else {
+				out = append(out, "PATH="+dir)
+			}
+			found = true
+			continue
+		}
+		out = append(out, kv)
+	}
+	if !found {
+		base := os.Getenv("PATH")
+		if base != "" {
+			out = append(out, "PATH="+dir+string(os.PathListSeparator)+base)
+		} else {
+			out = append(out, "PATH="+dir)
+		}
+	}
+	return out
 }
 
 // InstallTool adds a fake hub command named tool, such as agentbus, that

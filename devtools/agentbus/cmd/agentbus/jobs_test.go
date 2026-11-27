@@ -31,6 +31,7 @@ func jobsWorld(t *testing.T) []string {
 }
 
 func TestJobsCLIFlow(t *testing.T) {
+	t.Parallel()
 	env := jobsWorld(t)
 	stdout, _ := mustCmd(t, []string{"jobs", "enqueue", "--kind", "rebase", "--subject", "o/r#1", "--head", "abc", "--priority", "2"}, env)
 	if stdout != "j-1 ready\n" {
@@ -94,6 +95,7 @@ func TestJobsCLIFlow(t *testing.T) {
 }
 
 func TestJobsCLIFailWithExit(t *testing.T) {
+	t.Parallel()
 	env := jobsWorld(t)
 	mustCmd(t, []string{"jobs", "enqueue", "--kind", "ci", "--subject", "o/r#1"}, env)
 	mustCmd(t, []string{"jobs", "claim", "--runner", "tiger"}, env)
@@ -112,6 +114,7 @@ func TestJobsCLIFailWithExit(t *testing.T) {
 }
 
 func TestJobsCLIGateHandsTheJobToTheUser(t *testing.T) {
+	t.Parallel()
 	env := jobsWorld(t)
 	mustCmd(t, []string{"jobs", "enqueue", "--kind", "review", "--subject", "o/r#1", "--executor", "tab"}, env)
 	mustCmd(t, []string{"jobs", "claim", "--runner", "tiger"}, env)
@@ -129,6 +132,7 @@ func TestJobsCLIGateHandsTheJobToTheUser(t *testing.T) {
 }
 
 func TestJobsCLIUsage(t *testing.T) {
+	t.Parallel()
 	env := jobsWorld(t)
 	for _, args := range [][]string{
 		{"jobs"},
@@ -185,6 +189,7 @@ func TestJobsLogFollowEndsWhenTheJobIsFinal(t *testing.T) {
 }
 
 func TestJobsCLIClaimHoldsTheCheckoutLeaseUntilDone(t *testing.T) {
+	t.Parallel()
 	env := jobsWorld(t)
 	mustCmd(t, []string{"jobs", "enqueue", "--kind", "rebase", "--subject", "o/r#1", "--checkout", "/src/repo"}, env)
 	mustCmd(t, []string{"jobs", "claim", "--runner", "tiger-runner"}, env)
@@ -204,6 +209,7 @@ func TestJobsCLIClaimHoldsTheCheckoutLeaseUntilDone(t *testing.T) {
 }
 
 func TestJobsCLIParkNeedsACleanCheckoutAndASavedRef(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not installed")
 	}
@@ -274,6 +280,7 @@ func TestJobsCLIParkNeedsACleanCheckoutAndASavedRef(t *testing.T) {
 }
 
 func TestJobsStateLabelShowsTheParkTargetAndAge(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC)
 	now := at.Add(3*time.Hour + 20*time.Minute)
 	for _, tt := range []struct {
@@ -292,6 +299,7 @@ func TestJobsStateLabelShowsTheParkTargetAndAge(t *testing.T) {
 }
 
 func TestJobsCLIBudget(t *testing.T) {
+	t.Parallel()
 	env := []string{
 		"XDG_RUNTIME_DIR=" + shortRuntime(t),
 		"XDG_STATE_HOME=" + t.TempDir(),
@@ -336,6 +344,7 @@ func TestJobsCLIBudget(t *testing.T) {
 }
 
 func TestJobsStatusGolden(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
 	var mu sync.Mutex
 	advance := func(d time.Duration) {
@@ -385,6 +394,7 @@ func TestJobsStatusGolden(t *testing.T) {
 }
 
 func TestJobsStatusEmpty(t *testing.T) {
+	t.Parallel()
 	env := jobsWorld(t)
 	stdout, _ := mustCmd(t, []string{"jobs", "status"}, env)
 	if stdout != "no jobs or leases\n" {

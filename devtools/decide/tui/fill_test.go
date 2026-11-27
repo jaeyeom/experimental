@@ -7,6 +7,7 @@ import (
 )
 
 func TestFillParagraph(t *testing.T) {
+	t.Parallel()
 	const longWord = "supercalifragilisticexpialidocious"
 	tests := []struct {
 		name              string
@@ -140,6 +141,7 @@ func TestFillParagraph(t *testing.T) {
 }
 
 func TestAltQFillsOnlyTheCursorParagraph(t *testing.T) {
+	t.Parallel()
 	m, _, _ := composerModel(t, composerNote)
 	m.width = 120
 	m.height = 40

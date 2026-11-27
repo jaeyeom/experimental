@@ -11,6 +11,7 @@ import (
 )
 
 func TestStatusBoardShowsCheckoutLease(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if _, err := decide.Open(dir); err != nil {
 		t.Fatal(err)

@@ -66,7 +66,7 @@ func cmdMem(ctx context.Context, args, env []string, stdout, stderr io.Writer) i
 // its processes, the process table once, the available memory, and the
 // daemon's names, leases, and idle times.
 func memInput(ctx context.Context, env []string) (memreport.Input, error) {
-	ad := &herdr.Adapter{}
+	ad := &herdr.Adapter{Env: env}
 	agents, err := ad.Inventory(ctx)
 	if err != nil {
 		return memreport.Input{}, fmt.Errorf("herdr: %w", err)
@@ -83,10 +83,10 @@ func memInput(ctx context.Context, env []string) (memreport.Input, error) {
 		}
 		in.Foreground[a.PaneID] = info.ForegroundPIDs()
 	}
-	if in.Procs, err = memProcs().List(ctx); err != nil {
+	if in.Procs, err = memProcsFn(ctx)().List(ctx); err != nil {
 		return memreport.Input{}, fmt.Errorf("process table: %w", err)
 	}
-	if avail, err := memMemory().Available(ctx); err == nil {
+	if avail, err := memMemoryFn(ctx)().Available(ctx); err == nil {
 		in.Available = &avail
 	} else {
 		in.Notes = append(in.Notes, "available memory unknown: "+err.Error())
@@ -202,7 +202,7 @@ func memHubBus(ctx context.Context, cfg config.Config, env []string) (*memreport
 	case ok:
 		bus, _, err = memBus(routed, env)
 	default:
-		bus, err = memSSHBus(ctx, cfg, total)
+		bus, err = memSSHBus(ctx, cfg, env, total)
 	}
 	if err != nil {
 		return nil, err
@@ -212,8 +212,8 @@ func memHubBus(ctx context.Context, cfg config.Config, env []string) (*memreport
 
 // memSSHBus runs the hub's `list --json` and `lease status --all
 // --json` over ssh, side by side.
-func memSSHBus(ctx context.Context, cfg config.Config, total time.Duration) (*memreport.Bus, error) {
-	hub := hookHub(agentHub(cfg), total)
+func memSSHBus(ctx context.Context, cfg config.Config, env []string, total time.Duration) (*memreport.Bus, error) {
+	hub := hookHub(agentHub(cfg, env), total)
 	run := func(args ...string) ([]byte, error) {
 		var stdout, stderr bytes.Buffer
 		code, err := hub.Run(ctx, hubcall.Call{Args: args, Stdout: &stdout, Stderr: &stderr})

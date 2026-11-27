@@ -10,7 +10,7 @@ import (
 )
 
 func TestTUIAppendsOnAThreeMessageThread(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Parallel()
 
 	t.Run("answer", func(t *testing.T) {
 		dir := t.TempDir()
@@ -40,7 +40,7 @@ func TestTUIAppendsOnAThreeMessageThread(t *testing.T) {
 }
 
 func TestZeroTypesOneHumanMessage(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Parallel()
 
 	t.Run("open question", func(t *testing.T) {
 		for _, key := range []string{"0"} {
@@ -201,7 +201,7 @@ func seedTUIThread(t *testing.T, dir string) (string, []decide.Message) {
 }
 
 func TestItemViewFooterNamesArchive(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Parallel()
 
 	dir := t.TempDir()
 	led := openLedger(t, dir)
@@ -387,7 +387,7 @@ func assertTUIAppended(t *testing.T, dir, id string, before []decide.Message, au
 }
 
 func TestOnlyZeroFocusesReplyInItemView(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	mustCreate(t, led, &decide.Item{
@@ -498,7 +498,7 @@ func forwardModel(t *testing.T, dir string) (*Model, *[]string) {
 }
 
 func TestForwardPrefillsTheSelectedMessage(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Parallel()
 	dir := t.TempDir()
 	at := func(h int) time.Time { return time.Date(2026, 11, 5, h, 0, 0, 0, time.UTC) }
 	item := seedForward(t, dir, []decide.Message{
@@ -530,6 +530,7 @@ func TestForwardPrefillsTheSelectedMessage(t *testing.T) {
 }
 
 func TestForwardQuotesTheSender(t *testing.T) {
+	t.Parallel()
 	it := &decide.Item{
 		ID: "D-1", Owner: "ada", Question: "q",
 		Messages: []decide.Message{{
@@ -544,6 +545,7 @@ func TestForwardQuotesTheSender(t *testing.T) {
 }
 
 func TestForwardQuotesTheAnswerLabel(t *testing.T) {
+	t.Parallel()
 	led := openLedger(t, t.TempDir())
 	item := mustCreate(t, led, &decide.Item{
 		Question: "pick",
@@ -562,7 +564,7 @@ func TestForwardQuotesTheAnswerLabel(t *testing.T) {
 }
 
 func TestForwardWithoutMessagesOrLinks(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	item := mustCreate(t, led, &decide.Item{
@@ -581,7 +583,7 @@ func TestForwardWithoutMessagesOrLinks(t *testing.T) {
 }
 
 func TestForwardTruncatesALongMessage(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Parallel()
 	dir := t.TempDir()
 	long := strings.Repeat("x", 5000)
 	seedForward(t, dir, []decide.Message{{Author: "ada", Text: long}}, nil)
@@ -593,7 +595,7 @@ func TestForwardTruncatesALongMessage(t *testing.T) {
 }
 
 func TestForwardSendRecordsTheSource(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Parallel()
 	dir := t.TempDir()
 	item := seedForward(t, dir, []decide.Message{{Author: "ada", Text: "ship the release?"}}, nil)
 	m, sent := forwardModel(t, dir)
@@ -636,7 +638,7 @@ func TestForwardSendRecordsTheSource(t *testing.T) {
 }
 
 func TestForwardSendWithoutTyping(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Parallel()
 	dir := t.TempDir()
 	item := seedForward(t, dir, []decide.Message{{Author: "ada", Text: "ship the release?"}}, nil)
 	m, _ := forwardModel(t, dir)
@@ -662,7 +664,7 @@ func TestForwardSendWithoutTyping(t *testing.T) {
 }
 
 func TestForwardEscDiscardsThePrefill(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Parallel()
 	dir := t.TempDir()
 	seedForward(t, dir, []decide.Message{{Author: "ada", Text: "ship the release?"}}, nil)
 	m, sent := forwardModel(t, dir)
@@ -681,7 +683,7 @@ func TestForwardEscDiscardsThePrefill(t *testing.T) {
 }
 
 func TestForwardHints(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Parallel()
 	dir := t.TempDir()
 	seedForward(t, dir, []decide.Message{{Author: "ada", Text: "ship the release?"}}, nil)
 	m, _ := forwardModel(t, dir)
@@ -700,7 +702,7 @@ func TestForwardHints(t *testing.T) {
 }
 
 func TestEArchivesLikeY(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Parallel()
 
 	dir := t.TempDir()
 	led := openLedger(t, dir)
@@ -760,6 +762,7 @@ func TestEArchivesLikeY(t *testing.T) {
 }
 
 func TestYDoesNotArchiveAnUnseenMessage(t *testing.T) {
+	t.Parallel()
 	m, led, item := openLiveThread(t, 14)
 	press(t, m, "nj")
 	agentReply(t, led, item.ID, "fresh news")
@@ -787,6 +790,7 @@ func TestYDoesNotArchiveAnUnseenMessage(t *testing.T) {
 }
 
 func TestYHoldsAMessageOneSecondOld(t *testing.T) {
+	t.Parallel()
 	item, m, led := archiveAged(t, time.Second)
 	press(t, m, "oy")
 	got, err := led.Get(item.ID)
@@ -802,6 +806,7 @@ func TestYHoldsAMessageOneSecondOld(t *testing.T) {
 }
 
 func TestArchiveGraceSettingHoldsAThreeSecondMessage(t *testing.T) {
+	t.Parallel()
 	item, m, led := archiveAged(t, 3*time.Second)
 	m.archiveGrace = 5 * time.Second
 	press(t, m, "y")
@@ -815,6 +820,7 @@ func TestArchiveGraceSettingHoldsAThreeSecondMessage(t *testing.T) {
 }
 
 func TestYArchivesAMessageThreeSecondsOld(t *testing.T) {
+	t.Parallel()
 	item, m, led := archiveAged(t, 3*time.Second)
 	press(t, m, "y")
 	got, err := led.Get(item.ID)
@@ -827,7 +833,7 @@ func TestYArchivesAMessageThreeSecondsOld(t *testing.T) {
 }
 
 func TestYStaysOpenWhenANewerMessageArrives(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	seen := time.Now().Add(-time.Minute)
@@ -865,7 +871,6 @@ func TestYStaysOpenWhenANewerMessageArrives(t *testing.T) {
 
 func archiveAged(t *testing.T, age time.Duration) (decide.Item, *Model, *decide.Ledger) {
 	t.Helper()
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	now := time.Date(2026, 11, 14, 15, 0, 0, 0, time.UTC)
 	dir := t.TempDir()
 	led := openLedger(t, dir)
@@ -889,7 +894,7 @@ func archiveAged(t *testing.T, age time.Duration) (decide.Item, *Model, *decide.
 }
 
 func TestGGScrollsThreadToTop(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Parallel()
 	dir := t.TempDir()
 	seedTUIThread(t, dir)
 	m := openThread(t, dir)
@@ -908,7 +913,7 @@ func TestGGScrollsThreadToTop(t *testing.T) {
 }
 
 func TestRemappedGotoTopWorksInThread(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Parallel()
 	dir := t.TempDir()
 	seedTUIThread(t, dir)
 	km, err := decide.ResolveKeyMap(map[string][]string{"goto.top": {"g t"}})
@@ -933,7 +938,7 @@ func TestRemappedGotoTopWorksInThread(t *testing.T) {
 }
 
 func TestGotoChordsStillWorkFromThread(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Parallel()
 	dir := t.TempDir()
 	seedTUIThread(t, dir)
 	m := openThread(t, dir)
@@ -950,7 +955,7 @@ func TestGotoChordsStillWorkFromThread(t *testing.T) {
 }
 
 func TestHelpListsGGForThread(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Parallel()
 	dir := t.TempDir()
 	seedTUIThread(t, dir)
 	m := openThread(t, dir)

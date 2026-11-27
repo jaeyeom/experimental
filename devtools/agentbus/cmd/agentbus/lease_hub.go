@@ -79,10 +79,11 @@ func leaseHubRoute(ctx context.Context, cfg config.Config, env []string, bound b
 	if ok {
 		return routed, nil
 	}
-	r := sshRoute{hub: agentHub(cfg), env: env, cfg: cfg}
+	r := sshRoute{hub: agentHub(cfg, env), env: env, cfg: cfg}
 	if bound {
-		r.hub.ConnectTimeout = leaseHookTimeout / 3
-		r.hub.Deadline = leaseHookTimeout / 2
+		timeout := leaseHookTimeoutVal(ctx)
+		r.hub.ConnectTimeout = timeout / 3
+		r.hub.Deadline = timeout / 2
 	}
 	if envGet(env, "HERDR_PANE_ID") != "" {
 		caller, err := callerHandle(ctx, cfg, env)

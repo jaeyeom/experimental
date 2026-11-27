@@ -10,7 +10,6 @@ import (
 // titleModel opens one thread whose body is long enough to scroll.
 func titleModel(t *testing.T, it *decide.Item, width, height int) (*Model, string) {
 	t.Helper()
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	it.Owner = "ada"
@@ -37,6 +36,7 @@ func pinnedTitle(view string) string {
 }
 
 func TestTitleLineShowsWhenOpeningAtTheLastMessage(t *testing.T) {
+	t.Parallel()
 	m, id := titleModel(t, &decide.Item{Question: longBody()}, 120, 20)
 	m.scrollEnd()
 	view := m.View()
@@ -49,6 +49,7 @@ func TestTitleLineShowsWhenOpeningAtTheLastMessage(t *testing.T) {
 }
 
 func TestTitleLineCutsTheQuestionNotTheID(t *testing.T) {
+	t.Parallel()
 	long := strings.Repeat("word ", 18)
 	// Width 48 (inner 44): collapsed toolbar (23) + space (1) leaves 20 cols for the title.
 	m, id := titleModel(t, &decide.Item{Question: long}, 48, 20)
@@ -62,6 +63,7 @@ func TestTitleLineCutsTheQuestionNotTheID(t *testing.T) {
 }
 
 func TestTitleLineDropsStateBeforeCuttingTheQuestion(t *testing.T) {
+	t.Parallel()
 	m, id := titleModel(t, &decide.Item{Question: "short question"}, 120, 20)
 	if got := pinnedTitle(m.View()); !strings.Contains(got, id+" short question") || !strings.HasSuffix(got, "open") {
 		t.Fatalf("wide title = %q", got)
@@ -75,6 +77,7 @@ func TestTitleLineDropsStateBeforeCuttingTheQuestion(t *testing.T) {
 }
 
 func TestTitleLineUsesVerbatimWhenQuestionIsEmpty(t *testing.T) {
+	t.Parallel()
 	m, id := titleModel(t, &decide.Item{Question: "", Verbatim: "exact words\nsecond line"}, 120, 20)
 	got := pinnedTitle(m.View())
 	if !strings.Contains(got, id+" exact words") || strings.Contains(got, "second line") {
@@ -83,6 +86,7 @@ func TestTitleLineUsesVerbatimWhenQuestionIsEmpty(t *testing.T) {
 }
 
 func TestTitleLineStaysFixedWhileScrolling(t *testing.T) {
+	t.Parallel()
 	m, _ := titleModel(t, &decide.Item{Question: longBody()}, 100, 20)
 	want := pinnedTitle(m.View())
 	for _, scroll := range []func(){func() { m.Wheel(true) }, m.scrollEnd, func() { m.scrollPage(false) }} {
@@ -98,6 +102,7 @@ func TestTitleLineStaysFixedWhileScrolling(t *testing.T) {
 }
 
 func TestClickingTheTitleGoesToTheTop(t *testing.T) {
+	t.Parallel()
 	m, id := titleModel(t, &decide.Item{Question: longBody()}, 120, 20)
 	m.scrollEnd()
 	m.View()
@@ -111,6 +116,7 @@ func TestClickingTheTitleGoesToTheTop(t *testing.T) {
 }
 
 func TestTitleLineIsOneRowInBorderlessAndNarrowLayouts(t *testing.T) {
+	t.Parallel()
 	long := strings.Repeat("word ", 18)
 	for _, tc := range []struct {
 		name  string

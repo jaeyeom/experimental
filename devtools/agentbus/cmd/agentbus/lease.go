@@ -337,7 +337,7 @@ func runLeaseOp(ctx context.Context, sub string, f leaseFlags, largs lease.Args,
 // leaseHookTimeout and allows, with the reason on stderr, when the hub
 // cannot be reached.
 func hubCheck(ctx context.Context, cfg config.Config, f leaseFlags, largs lease.Args, env []string, stdout, stderr io.Writer) int {
-	ctx, cancel := context.WithTimeout(ctx, leaseHookTimeout)
+	ctx, cancel := context.WithTimeout(ctx, leaseHookTimeoutVal(ctx))
 	defer cancel()
 	allow := func(err error) int {
 		fmt.Fprintf(stderr, "agentbus lease check: %s; allowing\n", err)

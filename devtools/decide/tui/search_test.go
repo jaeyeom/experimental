@@ -39,6 +39,7 @@ func itemIDs(items []decide.Item) []string {
 }
 
 func TestListSlashFiltersRows(t *testing.T) {
+	t.Parallel()
 	dir, items := searchFixture(t)
 	m := New(dir)
 	m.width = 120
@@ -111,6 +112,7 @@ func TestListSlashFiltersRows(t *testing.T) {
 }
 
 func TestListFilterKeepsVisibleCursor(t *testing.T) {
+	t.Parallel()
 	dir, items := searchFixture(t)
 	m := New(dir)
 	if err := m.Reload(); err != nil {
@@ -131,6 +133,7 @@ func TestListFilterKeepsVisibleCursor(t *testing.T) {
 }
 
 func TestItemSlashHighlightsMatches(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	thread := mustCreate(t, led, &decide.Item{
@@ -196,6 +199,7 @@ func TestItemSlashHighlightsMatches(t *testing.T) {
 }
 
 func TestSlashInFooterAndHelp(t *testing.T) {
+	t.Parallel()
 	dir, _ := searchFixture(t)
 	m := New(dir)
 	m.width = 120
@@ -229,6 +233,7 @@ func TestSlashInFooterAndHelp(t *testing.T) {
 }
 
 func TestStatusSlashFiltersAgents(t *testing.T) {
+	t.Parallel()
 	dir, _ := searchFixture(t)
 	board, err := decide.OpenStatus(dir)
 	if err != nil {
@@ -258,6 +263,7 @@ func TestStatusSlashFiltersAgents(t *testing.T) {
 }
 
 func TestListSearchIsIncremental(t *testing.T) {
+	t.Parallel()
 	dir, _ := searchFixture(t)
 	m := New(dir)
 	m.width = 120
@@ -295,6 +301,7 @@ func TestListSearchIsIncremental(t *testing.T) {
 }
 
 func TestListSearchCursorFollowsMatches(t *testing.T) {
+	t.Parallel()
 	dir, items := searchFixture(t)
 	m := New(dir)
 	if err := m.Reload(); err != nil {
@@ -312,6 +319,7 @@ func TestListSearchCursorFollowsMatches(t *testing.T) {
 }
 
 func TestListSearchEscRestoresState(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	for i := range 20 {
@@ -392,6 +400,7 @@ func matchLine(m *Model, from int) int {
 }
 
 func TestItemSearchScrollsFromStart(t *testing.T) {
+	t.Parallel()
 	m := searchThread(t)
 	press(t, m, "/body\r")
 	press(t, m, "nnnnn")
@@ -432,6 +441,7 @@ func TestItemSearchScrollsFromStart(t *testing.T) {
 }
 
 func TestSearchPromptAndPickerFilterStaySeparate(t *testing.T) {
+	t.Parallel()
 	dir, _ := searchFixture(t)
 	m := New(dir)
 	m.width = 120
@@ -451,6 +461,7 @@ func TestSearchPromptAndPickerFilterStaySeparate(t *testing.T) {
 }
 
 func TestListSearchDebouncesLargeInbox(t *testing.T) {
+	t.Parallel()
 	items := make([]decide.Item, 5000)
 	for i := range items {
 		items[i] = decide.Item{ID: fmt.Sprintf("D-%04d", i), Owner: "ada", Question: fmt.Sprintf("question %d", i), State: decide.StateOpen}
@@ -550,6 +561,7 @@ func TestSearchCountsEveryFolder(t *testing.T) {
 }
 
 func TestStatusSearchCountsTheSidebar(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	mustCreate(t, led, &decide.Item{
@@ -584,6 +596,7 @@ func TestStatusSearchCountsTheSidebar(t *testing.T) {
 }
 
 func TestFolderCountsFollowADeferredQuery(t *testing.T) {
+	t.Parallel()
 	items := make([]decide.Item, searchDebounceItems)
 	texts := make([]string, len(items))
 	for i := range items {

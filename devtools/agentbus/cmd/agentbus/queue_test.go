@@ -17,6 +17,7 @@ import (
 )
 
 func TestQueueHoldsThenDeliversAndSurvivesRestart(t *testing.T) {
+	t.Parallel()
 	runtime := shortRuntime(t)
 	stateHome := t.TempDir()
 	home := t.TempDir()
@@ -143,6 +144,7 @@ func TestQueueHoldsThenDeliversAndSurvivesRestart(t *testing.T) {
 }
 
 func TestQueueHoldsForUserDraft(t *testing.T) {
+	t.Parallel()
 	runtime := shortRuntime(t)
 	base := []string{
 		"XDG_RUNTIME_DIR=" + runtime,
@@ -272,6 +274,7 @@ func TestQueueHoldsForUserDraft(t *testing.T) {
 }
 
 func TestClientIDAcceptIsIdempotent(t *testing.T) {
+	t.Parallel()
 	runtime := shortRuntime(t)
 	base := []string{
 		"XDG_RUNTIME_DIR=" + runtime,
@@ -411,6 +414,7 @@ func TestClientIDAcceptIsIdempotent(t *testing.T) {
 }
 
 func TestClientLogAppendKeepsTimeAndMarksOrigin(t *testing.T) {
+	t.Parallel()
 	runtime := shortRuntime(t)
 	base := []string{
 		"XDG_RUNTIME_DIR=" + runtime,

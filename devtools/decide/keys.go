@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 )
 
 // KeyStroke is one normalized key press.
@@ -446,13 +447,21 @@ type chordEntry struct {
 	action string
 }
 
+var (
+	defaultKeyMapOnce sync.Once //nolint:pkgvar // caches immutable default keymap
+	defaultKeyMapVal  *KeyMap   //nolint:pkgvar // initialized once by defaultKeyMapOnce
+)
+
 // DefaultKeyMap returns the default inbox keymap.
 func DefaultKeyMap() *KeyMap {
-	km, err := ResolveKeyMap(nil)
-	if err != nil {
-		panic(fmt.Sprintf("decide: invalid default keymap: %v", err))
-	}
-	return km
+	defaultKeyMapOnce.Do(func() {
+		km, err := ResolveKeyMap(nil)
+		if err != nil {
+			panic(fmt.Sprintf("decide: invalid default keymap: %v", err))
+		}
+		defaultKeyMapVal = km
+	})
+	return defaultKeyMapVal
 }
 
 // ResolveKeyMap applies overrides from ui.keys onto the default keymap

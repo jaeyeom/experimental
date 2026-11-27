@@ -3,6 +3,7 @@
 package tui
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -14,6 +15,35 @@ import (
 
 	"github.com/creack/pty"
 )
+
+// drainPTYUntil reads from r until EOF and closes ready once needle
+// appears in the drained bytes.
+func drainPTYUntil(r io.Reader, needle string) <-chan struct{} {
+	ready := make(chan struct{})
+	go func() {
+		var buf bytes.Buffer
+		tmp := make([]byte, 4096)
+		signaled := false
+		for {
+			n, err := r.Read(tmp)
+			if n > 0 && !signaled {
+				buf.Write(tmp[:n])
+				if strings.Contains(buf.String(), needle) {
+					signaled = true
+					close(ready)
+					buf.Reset()
+				}
+			}
+			if err != nil {
+				if !signaled {
+					close(ready)
+				}
+				return
+			}
+		}
+	}()
+	return ready
+}
 
 // writeTTYEditor writes an editor that reads one line from its stdin,
 // as a terminal editor reads keys, and saves it as the draft.
@@ -71,7 +101,7 @@ func TestEditorUnderPty(t *testing.T) {
 				}
 				defer master.Close()
 				defer slave.Close()
-				go io.Copy(io.Discard, master) //nolint:errcheck // drains the screen until the pty closes
+				ready := drainPTYUntil(master, "reply:")
 
 				p := newProgram(m, slave, slave, nil)
 				done := make(chan error, 1)
@@ -79,7 +109,12 @@ func TestEditorUnderPty(t *testing.T) {
 					_, err := p.Run()
 					done <- err
 				}()
-				time.Sleep(200 * time.Millisecond)                    // the program is reading keys
+				select {
+				case <-ready:
+				case <-time.After(5 * time.Second):
+					p.Kill()
+					t.Fatal("the program did not render before ctrl+g")
+				}
 				if _, err := master.Write([]byte{0x07}); err != nil { // Ctrl+G
 					t.Fatal(err)
 				}
@@ -121,7 +156,7 @@ func waitFile(t *testing.T, path string) {
 		if time.Now().After(deadline) {
 			t.Fatalf("%s never appeared", path)
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
 	}
 }
 
@@ -171,14 +206,19 @@ func TestGUIEditorGetsNoTerminal(t *testing.T) {
 	}
 	defer master.Close()
 	defer slave.Close()
-	go io.Copy(io.Discard, master) //nolint:errcheck // drains the screen until the pty closes
+	ready := drainPTYUntil(master, "reply:")
 	p := newProgram(m, slave, slave, nil)
 	done := make(chan error, 1)
 	go func() {
 		_, err := p.Run()
 		done <- err
 	}()
-	time.Sleep(200 * time.Millisecond)
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+		p.Kill()
+		t.Fatal("the program did not render before ctrl+g")
+	}
 	if _, err := master.Write([]byte{0x07}); err != nil {
 		t.Fatal(err)
 	}

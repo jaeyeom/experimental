@@ -31,6 +31,7 @@ func answeredLineModel(t *testing.T, opts []decide.Option, freeText bool) (*Mode
 var yesNo = []decide.Option{{Key: "y", Label: "Yes"}, {Key: "n", Label: "No"}}
 
 func TestAnsweredHidesOptions(t *testing.T) {
+	t.Parallel()
 	m, led, item := answeredLineModel(t, yesNo, false)
 	press(t, m, "\r1")
 	view := m.View()
@@ -51,6 +52,7 @@ func TestAnsweredHidesOptions(t *testing.T) {
 }
 
 func TestAnsweredFreeTextLine(t *testing.T) {
+	t.Parallel()
 	m, led, item := answeredLineModel(t, nil, true)
 	if _, err := led.Answer(item.ID, "later please\nthanks", decide.ViaUI); err != nil {
 		t.Fatal(err)
@@ -68,6 +70,7 @@ func TestAnsweredFreeTextLine(t *testing.T) {
 }
 
 func TestAnsweredOpenedFreshShowsLine(t *testing.T) {
+	t.Parallel()
 	m, led, item := answeredLineModel(t, yesNo, false)
 	if _, err := led.Answer(item.ID, "n", decide.ViaUI); err != nil {
 		t.Fatal(err)
@@ -85,6 +88,7 @@ func TestAnsweredOpenedFreshShowsLine(t *testing.T) {
 }
 
 func TestFollowUpOptionsShownAgain(t *testing.T) {
+	t.Parallel()
 	m, led, item := answeredLineModel(t, yesNo, false)
 	press(t, m, "\r1")
 	if _, err := led.Reply(item.ID, "ada", "which one?", []decide.Option{{Key: "a", Label: "Alpha"}, {Key: "b", Label: "Beta"}}, false); err != nil {
@@ -111,6 +115,7 @@ func TestFollowUpOptionsShownAgain(t *testing.T) {
 }
 
 func TestOutboxPendingAnswerLine(t *testing.T) {
+	t.Parallel()
 	m, _, item := answeredLineModel(t, yesNo, false)
 	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 	ob := &fakeOutboxBackend{

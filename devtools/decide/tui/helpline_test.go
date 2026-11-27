@@ -8,6 +8,7 @@ import (
 )
 
 func TestBottomHelpLineOmitsButtonKeysAndHidesWhenAllCovered(t *testing.T) {
+	t.Parallel()
 	t.Run("thread view", func(t *testing.T) {
 		m, _, _ := toolbarModel(t, &decide.Item{Question: "thread help line"}, 160, 24)
 		m.status = ""

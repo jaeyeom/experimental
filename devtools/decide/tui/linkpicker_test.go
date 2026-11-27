@@ -93,6 +93,7 @@ func twelveLinks() []string {
 }
 
 func TestDefaultOpenCommandPerPlatform(t *testing.T) {
+	t.Parallel()
 	if got := defaultOpenCommand("darwin"); !slices.Equal(got, []string{"open"}) {
 		t.Fatalf("darwin opener %q", got)
 	}
@@ -102,6 +103,7 @@ func TestDefaultOpenCommandPerPlatform(t *testing.T) {
 }
 
 func TestLinkPickerListsEveryLinkAndOpensTwoDigits(t *testing.T) {
+	t.Parallel()
 	links := twelveLinks()
 	m := linkItem(t, links)
 	open := &fakeOpener{}
@@ -136,6 +138,7 @@ func TestLinkPickerListsEveryLinkAndOpensTwoDigits(t *testing.T) {
 }
 
 func TestLinkPickerEscOpensNothing(t *testing.T) {
+	t.Parallel()
 	m := linkItem(t, twelveLinks())
 	open := &fakeOpener{}
 	m.runOpen = open.run
@@ -147,6 +150,7 @@ func TestLinkPickerEscOpensNothing(t *testing.T) {
 }
 
 func TestLinkPickerMovesWithJKAndArrows(t *testing.T) {
+	t.Parallel()
 	links := twelveLinks()
 	m := linkItem(t, links)
 	open := &fakeOpener{}
@@ -170,6 +174,7 @@ func TestLinkPickerMovesWithJKAndArrows(t *testing.T) {
 }
 
 func TestLinkPickerOneDigitOpensDirectlyWithFewLinks(t *testing.T) {
+	t.Parallel()
 	links := []string{"https://a.test/1", "https://b.test/2", "https://c.test/3"}
 	m := linkItem(t, links)
 	open := &fakeOpener{}
@@ -182,6 +187,7 @@ func TestLinkPickerOneDigitOpensDirectlyWithFewLinks(t *testing.T) {
 }
 
 func TestLinkPickerRejectsANumberOutOfRange(t *testing.T) {
+	t.Parallel()
 	m := linkItem(t, twelveLinks())
 	open := &fakeOpener{}
 	m.runOpen = open.run
@@ -193,6 +199,7 @@ func TestLinkPickerRejectsANumberOutOfRange(t *testing.T) {
 }
 
 func TestLOpensASingleLinkWithTheConfiguredCommand(t *testing.T) {
+	t.Parallel()
 	m := linkItem(t, []string{"https://example.test/only"})
 	open := &fakeOpener{}
 	m.runOpen = open.run
@@ -212,6 +219,7 @@ func TestLOpensASingleLinkWithTheConfiguredCommand(t *testing.T) {
 }
 
 func TestOpenFailureShowsOnTheStatusLine(t *testing.T) {
+	t.Parallel()
 	m := linkItem(t, []string{"https://example.test/only"})
 	open := &fakeOpener{err: errors.New("exit status 3")}
 	m.runOpen = open.run
@@ -223,6 +231,7 @@ func TestOpenFailureShowsOnTheStatusLine(t *testing.T) {
 }
 
 func TestOpenedStatusShortensALongURL(t *testing.T) {
+	t.Parallel()
 	link := "https://example.com/" + strings.Repeat("p", 120) + "/tailtoken"
 	m := linkItem(t, []string{link})
 	open := &fakeOpener{}
@@ -239,6 +248,7 @@ func TestOpenedStatusShortensALongURL(t *testing.T) {
 }
 
 func TestShortURLKeepsHostAndPathTail(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		url   string
 		width int
@@ -261,6 +271,7 @@ func TestShortURLKeepsHostAndPathTail(t *testing.T) {
 }
 
 func TestExecOpenRunsWithoutAShellAndTimesOut(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	if err := execOpen(ctx, []string{"true", "https://example.test/a b"}); err != nil {
 		t.Fatalf("true: %v", err)

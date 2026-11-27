@@ -71,7 +71,7 @@ func waitOutput(t *testing.T, out *lockedBuffer, needle string) {
 		if time.Now().After(deadline) {
 			t.Fatalf("output never showed %q:\n%s", needle, out.String())
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
 	}
 }
 
@@ -101,6 +101,7 @@ func gatedHub(t *testing.T, question string, state string) *gateHub {
 }
 
 func TestRunDrawsLoadingBeforeFirstList(t *testing.T) {
+	t.Parallel()
 	hub := gatedHub(t, "ship the startup fix?", decide.StateOpen)
 	r, w := io.Pipe()
 	out := &lockedBuffer{}
@@ -122,6 +123,7 @@ func TestRunDrawsLoadingBeforeFirstList(t *testing.T) {
 }
 
 func TestRunQuitsWhileLoading(t *testing.T) {
+	t.Parallel()
 	hub := gatedHub(t, "never shown", decide.StateOpen)
 	defer hub.unblock()
 	r, w := io.Pipe()
@@ -141,6 +143,7 @@ func TestRunQuitsWhileLoading(t *testing.T) {
 }
 
 func TestFirstListErrorShowsAndRetries(t *testing.T) {
+	t.Parallel()
 	hub := gatedHub(t, "after the retry", decide.StateOpen)
 	hub.release = nil
 	hub.err = errors.New("ledger busy")
@@ -171,6 +174,7 @@ func TestFirstListErrorShowsAndRetries(t *testing.T) {
 }
 
 func TestFirstListLoadsDoneItemsForSearch(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	mustCreate(t, led, &decide.Item{Question: "open apple", Owner: "ada", Kind: decide.KindRelay, State: decide.StateOpen})
@@ -192,6 +196,7 @@ func TestFirstListLoadsDoneItemsForSearch(t *testing.T) {
 }
 
 func TestFolderSwitchWhileLoadingWaitsForTheFirstList(t *testing.T) {
+	t.Parallel()
 	hub := gatedHub(t, "done pear", decide.StateDone)
 	hub.release = nil
 	m, err := prepare(Options{Dir: t.TempDir(), In: strings.NewReader(""), Out: io.Discard, Backend: hub})

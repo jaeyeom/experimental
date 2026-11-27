@@ -45,7 +45,6 @@ func TestReplyToAWorkedItemAsksWhoToNotify(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.key, func(t *testing.T) {
-			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 			dir := t.TempDir()
 			item := seedWorkedThread(t, dir)
 			bus := &markBus{send: "m-5 delivered"}
@@ -82,7 +81,6 @@ func TestReplyToAWorkedItemAsksWhoToNotify(t *testing.T) {
 }
 
 func TestReplyRouteCancelKeepsTheDraft(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	dir := t.TempDir()
 	seedWorkedThread(t, dir)
 	bus := &markBus{send: "m-5 delivered"}
@@ -99,7 +97,6 @@ func TestReplyRouteCancelKeepsTheDraft(t *testing.T) {
 }
 
 func TestHeaderShowsWhoIsWorkingOnIt(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	dir := t.TempDir()
 	seedWorkedThread(t, dir)
 	m := markModel(t, dir, &markBus{})

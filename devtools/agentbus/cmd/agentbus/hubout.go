@@ -71,7 +71,7 @@ type attempt struct {
 // hubDeliver runs one hub-mode send or reply. A transport failure is
 // queued. A hub refusal is not.
 func hubDeliver(ctx context.Context, cfg config.Config, args, env []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	e, wait, asJSON, code := prepareHubSend(cfg, args, stdin, stderr)
+	e, wait, asJSON, code := prepareHubSend(ctx, cfg, args, stdin, stderr)
 	if code != 0 {
 		return code
 	}
@@ -81,7 +81,7 @@ func hubDeliver(ctx context.Context, cfg config.Config, args, env []string, stdi
 		return 1
 	}
 	e.Handle = handle
-	e.EnqueuedAt = outboxNow().UTC()
+	e.EnqueuedAt = outboxNowFn(ctx)().UTC()
 	return dispatchHub(ctx, cfg, env, e, wait, asJSON, stdout, stderr)
 }
 
@@ -144,7 +144,7 @@ func enqueueReport(ctx context.Context, env []string, e outbox.Entry, down, wait
 	}
 	e.State = outbox.StatePending
 	if e.EnqueuedAt.IsZero() {
-		e.EnqueuedAt = outboxNow().UTC()
+		e.EnqueuedAt = outboxNowFn(ctx)().UTC()
 	}
 	if _, err = box.Enqueue(e); err != nil {
 		return outboxWriteFailed(stderr, err)
@@ -179,8 +179,9 @@ func sayQueued(stdout io.Writer, id string, down bool) {
 
 func waitQueued(ctx context.Context, cfg config.Config, env []string, e outbox.Entry, stdout, stderr io.Writer) int {
 	deadline, limited := waitDeadline(e)
+	nowFn := outboxNowFn(ctx)
 	for {
-		if limited && !outboxNow().Before(deadline) {
+		if limited && !nowFn().Before(deadline) {
 			fmt.Fprintf(stdout, "still queued: %s\n", e.ClientID)
 			return 1
 		}
@@ -188,7 +189,7 @@ func waitQueued(ctx context.Context, cfg config.Config, env []string, e outbox.E
 		if code, done := waitDelivered(env, e.ClientID, stdout, stderr); done {
 			return code
 		}
-		if limited && !outboxNow().Before(deadline) {
+		if limited && !nowFn().Before(deadline) {
 			fmt.Fprintf(stdout, "still queued: %s\n", e.ClientID)
 			return 1
 		}
@@ -225,7 +226,7 @@ func waitDelivered(env []string, id string, stdout, stderr io.Writer) (int, bool
 func sleepWait(ctx context.Context, limited bool, deadline time.Time) bool {
 	d := outboxWaitPoll
 	if limited {
-		if remain := deadline.Sub(outboxNow()); remain < d {
+		if remain := deadline.Sub(outboxNowFn(ctx)()); remain < d {
 			d = remain
 		}
 		if d <= 0 {
@@ -272,7 +273,7 @@ func attemptTunnel(ctx context.Context, e outbox.Entry, wait bool) (attempt, boo
 	if !ok {
 		return attempt{}, false
 	}
-	resp, err := dialDaemon(ctx, t.socket, busRequest(t.handle, e, wait))
+	resp, err := dialDaemonFn(ctx)(ctx, t.socket, busRequest(t.handle, e, wait))
 	if err != nil {
 		return attempt{kind: classifyDial(err), code: 1, err: err}, true
 	}
@@ -305,7 +306,7 @@ func classifyDial(err error) string {
 	return attemptTransport
 }
 
-func attemptSSH(ctx context.Context, cfg config.Config, _ []string, e outbox.Entry, wait, mismatch bool, stdout, stderr io.Writer) attempt {
+func attemptSSH(ctx context.Context, cfg config.Config, env []string, e outbox.Entry, wait, mismatch bool, stdout, stderr io.Writer) attempt {
 	args := e.Args
 	if wait {
 		args = withBoolFlag(args, "--wait")
@@ -318,7 +319,7 @@ func attemptSSH(ctx context.Context, cfg config.Config, _ []string, e outbox.Ent
 	if e.Stdin != "" {
 		call.Stdin = strings.NewReader(e.Stdin)
 	}
-	hub := agentHub(cfg)
+	hub := agentHub(cfg, env)
 	code, err := hub.Run(ctx, call)
 	// A cancelled ssh comes back as a bare non-zero code. That is not a
 	// hub refusal, and dropping the queued message would lose it.
@@ -346,17 +347,17 @@ func classifySSH(err error, mismatch bool) string {
 	return attemptTransport
 }
 
-func prepareHubSend(cfg config.Config, args []string, stdin io.Reader, stderr io.Writer) (outbox.Entry, bool, bool, int) {
+func prepareHubSend(ctx context.Context, cfg config.Config, args []string, stdin io.Reader, stderr io.Writer) (outbox.Entry, bool, bool, int) {
 	if len(args) == 0 {
 		return outbox.Entry{}, false, false, 2
 	}
 	if args[0] == "reply" {
-		return prepareReply(cfg, args[1:], stdin, stderr)
+		return prepareReply(ctx, cfg, args[1:], stdin, stderr)
 	}
-	return prepareSend(cfg, args[1:], stdin, stderr)
+	return prepareSend(ctx, cfg, args[1:], stdin, stderr)
 }
 
-func prepareSend(cfg config.Config, args []string, stdin io.Reader, stderr io.Writer) (outbox.Entry, bool, bool, int) {
+func prepareSend(ctx context.Context, cfg config.Config, args []string, stdin io.Reader, stderr io.Writer) (outbox.Entry, bool, bool, int) {
 	parsed, err := parseSend(args)
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus send: %s\n", err)
@@ -370,7 +371,7 @@ func prepareSend(cfg config.Config, args []string, stdin io.Reader, stderr io.Wr
 		fmt.Fprintf(stderr, "agentbus: message body is required\n")
 		return outbox.Entry{}, false, false, 2
 	}
-	id, err := chooseClientID(cfg.Machine, parsed.clientID)
+	id, err := chooseClientID(ctx, cfg.Machine, parsed.clientID)
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus send: %s\n", err)
 		return outbox.Entry{}, false, false, 1
@@ -414,7 +415,7 @@ func stdinOf(positional, file, body string) string {
 	return body
 }
 
-func prepareReply(cfg config.Config, args []string, stdin io.Reader, stderr io.Writer) (outbox.Entry, bool, bool, int) {
+func prepareReply(ctx context.Context, cfg config.Config, args []string, stdin io.Reader, stderr io.Writer) (outbox.Entry, bool, bool, int) {
 	parsed, err := parseReply(args)
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus reply: %s\n", err)
@@ -428,7 +429,7 @@ func prepareReply(cfg config.Config, args []string, stdin io.Reader, stderr io.W
 		fmt.Fprintf(stderr, "agentbus: message body is required\n")
 		return outbox.Entry{}, false, false, 2
 	}
-	cid, err := chooseClientID(cfg.Machine, parsed.clientID)
+	cid, err := chooseClientID(ctx, cfg.Machine, parsed.clientID)
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus reply: %s\n", err)
 		return outbox.Entry{}, false, false, 1
@@ -440,11 +441,11 @@ func prepareReply(cfg config.Config, args []string, stdin io.Reader, stderr io.W
 	}, false, parsed.asJSON, 0
 }
 
-func chooseClientID(machine, given string) (string, error) {
+func chooseClientID(ctx context.Context, machine, given string) (string, error) {
 	if given != "" {
 		return given, nil
 	}
-	return mintClientID(machine)
+	return mintClientIDFn(ctx)(machine)
 }
 
 func withClientID(args []string, id string) []string {
@@ -639,7 +640,7 @@ func flushSender(ctx context.Context, cfg config.Config, env []string, box outbo
 // flushOne expires, delivers, or stops the sender on a transport failure.
 // It returns true when later messages for this sender must wait.
 func flushOne(ctx context.Context, cfg config.Config, env []string, box outbox.Box, e outbox.Entry) bool {
-	now := outboxNow().UTC()
+	now := outboxNowFn(ctx)().UTC()
 	if expired(e, now) {
 		expireEntry(ctx, env, box, e, now)
 		return false
@@ -714,7 +715,7 @@ func notifyExpiry(ctx context.Context, env []string, handle, id, text string) {
 	if strings.HasPrefix(handle, "anon:") || handle == "" {
 		return
 	}
-	ad := &herdr.Adapter{Timeout: 5 * time.Second}
+	ad := &herdr.Adapter{Timeout: 5 * time.Second, Env: env}
 	state, err := ad.State(ctx, handle)
 	if err != nil || !canPaste(state) {
 		return
@@ -728,7 +729,7 @@ func notifyExpiry(ctx context.Context, env []string, handle, id, text string) {
 				detail = err.Error()
 			}
 			_ = box.Spool(outbox.LogEvent{
-				Time: outboxNow().UTC(), Event: eventlog.EventDeliverAttempt,
+				Time: outboxNowFn(ctx)().UTC(), Event: eventlog.EventDeliverAttempt,
 				Actor: "agentbus", Name: handle, MsgID: id, Detail: "expiry notice not sent", Reason: detail,
 			})
 		}
@@ -748,7 +749,7 @@ func canPaste(state adapter.State) bool {
 
 func deliverStored(ctx context.Context, cfg config.Config, env []string, e outbox.Entry) (daemon.Response, string, error) {
 	if sock, up := tunnelUp(ctx, env, e.Handle); up {
-		resp, err := dialDaemon(ctx, sock, busRequest(e.Handle, e, false))
+		resp, err := dialDaemonFn(ctx)(ctx, sock, busRequest(e.Handle, e, false))
 		if err != nil {
 			return daemon.Response{}, classifyDial(err), err
 		}
@@ -785,7 +786,7 @@ func tunnelUp(ctx context.Context, env []string, handle string) (string, bool) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, tunnelProbeTimeout)
 	defer cancel()
-	resp, err := dialDaemon(ctx, dirs.TunnelSocketPath, daemon.Request{
+	resp, err := dialDaemonFn(ctx)(ctx, dirs.TunnelSocketPath, daemon.Request{
 		Op: "ping", Protocol: daemon.ProtocolVersion, Handle: handle,
 	})
 	if err != nil || !resp.OK || resp.Protocol != daemon.ProtocolVersion {
@@ -803,7 +804,7 @@ func forwardSpool(ctx context.Context, box outbox.Box, sock, handle string) {
 		Op: "log-append", Protocol: daemon.ProtocolVersion, Handle: handle,
 		Events: clientEvents(events),
 	}
-	resp, err := dialDaemon(ctx, sock, req)
+	resp, err := dialDaemonFn(ctx)(ctx, sock, req)
 	if err != nil || !resp.OK {
 		return
 	}
@@ -852,7 +853,7 @@ func cmdOutbox(ctx context.Context, args, env []string, stdout, stderr io.Writer
 	}
 	switch args[0] {
 	case "ls":
-		return cmdOutboxLs(args[1:], env, stdout, stderr)
+		return cmdOutboxLs(ctx, args[1:], env, stdout, stderr)
 	case "flush":
 		return cmdOutboxFlush(ctx, args[1:], env, stdout, stderr)
 	default:
@@ -861,7 +862,7 @@ func cmdOutbox(ctx context.Context, args, env []string, stdout, stderr io.Writer
 	}
 }
 
-func cmdOutboxLs(args, env []string, stdout, stderr io.Writer) int {
+func cmdOutboxLs(ctx context.Context, args, env []string, stdout, stderr io.Writer) int {
 	if len(args) != 0 {
 		fmt.Fprintln(stderr, "usage: agentbus outbox ls")
 		return 2
@@ -876,7 +877,7 @@ func cmdOutboxLs(args, env []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "agentbus outbox: %s\n", err)
 		return 1
 	}
-	now := outboxNow()
+	now := outboxNowFn(ctx)()
 	for _, e := range pending {
 		line := e.ClientID + " " + outbox.StatusLine(e, now)
 		if outbox.Stale(e, now) {
@@ -959,7 +960,7 @@ func socketAnswers(path string) bool {
 	return true
 }
 
-func outboxStatus(env []string, id string) (string, bool) {
+func outboxStatus(ctx context.Context, env []string, id string) (string, bool) {
 	box, err := openBox(env)
 	if err != nil {
 		return "", false
@@ -968,7 +969,7 @@ func outboxStatus(env []string, id string) (string, bool) {
 	if err != nil || !ok {
 		return "", false
 	}
-	return outbox.StatusLine(e, outboxNow()), true
+	return outbox.StatusLine(e, outboxNowFn(ctx)()), true
 }
 
 // outboxReport is the status --json object of an entry the hub has not
@@ -1005,7 +1006,7 @@ func hubMessageStatus(ctx context.Context, cfg config.Config, args, env []string
 		return 2, true
 	}
 	if !asJSON {
-		line, ok := outboxStatus(env, ids[0])
+		line, ok := outboxStatus(ctx, env, ids[0])
 		if !ok {
 			return 0, false
 		}
@@ -1036,7 +1037,7 @@ func hubMessageStatus(ctx context.Context, cfg config.Config, args, env []string
 	return runOnHub(ctx, cfg, append([]string{"status"}, fwd...), env, nil, stdout, stderr), true
 }
 
-func reportStaleOutbox(env []string, stdout io.Writer) {
+func reportStaleOutbox(ctx context.Context, env []string, stdout io.Writer) {
 	box, err := openBox(env)
 	if err != nil {
 		return
@@ -1045,7 +1046,7 @@ func reportStaleOutbox(env []string, stdout io.Writer) {
 	if err != nil {
 		return
 	}
-	now := outboxNow()
+	now := outboxNowFn(ctx)()
 	for _, e := range pending {
 		if outbox.Stale(e, now) {
 			fmt.Fprintf(stdout, "outbox: %s pending for more than 24h\n", e.ClientID)
@@ -1060,7 +1061,7 @@ func hubRecordHook(ctx context.Context, cfg config.Config, args, env []string, s
 	if err != nil || len(bytes.TrimSpace(raw)) == 0 {
 		return 0
 	}
-	id, err := chooseClientID(cfg.Machine, "")
+	id, err := chooseClientID(ctx, cfg.Machine, "")
 	if err != nil {
 		return 0
 	}
@@ -1074,18 +1075,18 @@ func hubRecordHook(ctx context.Context, cfg config.Config, args, env []string, s
 			return 0
 		}
 		if !mismatch {
-			spoolBypass(cfg, env, id, raw)
+			spoolBypass(ctx, cfg, env, id, raw)
 		}
 		return 0
 	}
 	call := hubcall.Call{Args: append([]string{"hook"}, args...), Stdin: bytes.NewReader(raw), Stderr: io.Discard}
 	total := hubHookTimeout(env)
-	hub := hookHub(agentHub(cfg), total)
+	hub := hookHub(agentHub(cfg, env), total)
 	ctx, cancel := context.WithTimeout(ctx, total)
 	defer cancel()
 	code, err := hub.Run(ctx, call)
 	if err != nil && !mismatch && classifySSH(err, false) == attemptTransport {
-		spoolBypass(cfg, env, id, raw)
+		spoolBypass(ctx, cfg, env, id, raw)
 	}
 	if err != nil || ctx.Err() != nil {
 		return 0
@@ -1104,7 +1105,7 @@ func hookViaTunnel(ctx context.Context, _ []string, id string, raw []byte, stdou
 	}
 	callCtx, cancel := context.WithTimeout(ctx, hookTimeout)
 	defer cancel()
-	resp, err := dialDaemon(callCtx, t.socket, t.stamp(daemon.Request{
+	resp, err := dialDaemonFn(ctx)(callCtx, t.socket, t.stamp(daemon.Request{
 		Op: "bypass", Name: target, Body: body, Session: session, ClientID: id,
 	}))
 	if err != nil {
@@ -1119,12 +1120,12 @@ func hookViaTunnel(ctx context.Context, _ []string, id string, raw []byte, stdou
 	return true
 }
 
-func spoolBypass(cfg config.Config, env []string, id string, raw []byte) {
+func spoolBypass(ctx context.Context, cfg config.Config, env []string, id string, raw []byte) {
 	session, target, body, ok := parseHook(raw)
 	if !ok || strings.TrimSpace(body) == "" {
 		return
 	}
-	handle, err := outboxHandle(context.Background(), cfg, env)
+	handle, err := outboxHandle(ctx, cfg, env)
 	if err != nil {
 		handle = ""
 	}
@@ -1134,7 +1135,7 @@ func spoolBypass(cfg config.Config, env []string, id string, raw []byte) {
 	}
 	e := outbox.Entry{
 		Kind: outbox.KindBypass, ClientID: id, Handle: handle, Target: target,
-		Body: body, Session: session, EnqueuedAt: outboxNow().UTC(), State: outbox.StatePending,
+		Body: body, Session: session, EnqueuedAt: outboxNowFn(ctx)().UTC(), State: outbox.StatePending,
 	}
 	if _, err := box.Enqueue(e); err != nil {
 		return

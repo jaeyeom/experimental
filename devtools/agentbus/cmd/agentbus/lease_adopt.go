@@ -34,7 +34,7 @@ func leaseAdopt(ctx context.Context, f leaseFlags, largs lease.Args, env []strin
 		fmt.Fprintf(stderr, "agentbus lease adopt: %s\n", err)
 		return 1
 	}
-	forced, ok := checkProcs(root, f.force, cfg.LeaseIgnoreProcs, stderr)
+	forced, ok := checkProcs(ctx, root, f.force, cfg.LeaseIgnoreProcs, stderr)
 	if !ok {
 		fmt.Fprintf(stderr, "%s; stop them, or rerun with --force\n", stays)
 		return 1
@@ -83,11 +83,11 @@ func leaseAdopt(ctx context.Context, f leaseFlags, largs lease.Args, env []strin
 // checkProcs refuses when a process other than an ignored program or
 // the caller's own chain has its working directory inside root. With
 // force it prints them and goes on, returning their labels.
-func checkProcs(root string, force bool, ignore []string, stderr io.Writer) ([]string, bool) {
+func checkProcs(ctx context.Context, root string, force bool, ignore []string, stderr io.Writer) ([]string, bool) {
 	if ignore == nil {
 		ignore = checkout.DefaultIgnoreProcs
 	}
-	procs, err := listProcs()
+	procs, err := listProcsFn(ctx)()
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus lease adopt: cannot check for processes in %s: %s\n", root, err)
 		return nil, force

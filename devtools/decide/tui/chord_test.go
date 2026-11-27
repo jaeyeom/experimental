@@ -31,6 +31,7 @@ func footer(t *testing.T, m *Model) string {
 }
 
 func TestGoToMenuReplacesTheListHint(t *testing.T) {
+	t.Parallel()
 	m, _, _, _ := snoozeModel(t)
 	m.Update(tea.WindowSizeMsg{Width: 140, Height: 20})
 	normal := footer(t, m)
@@ -48,6 +49,7 @@ func TestGoToMenuReplacesTheListHint(t *testing.T) {
 }
 
 func TestGoToMenuInTheItemView(t *testing.T) {
+	t.Parallel()
 	m, _, _, _ := snoozeModel(t)
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 20})
 	press(t, m, "o")
@@ -66,6 +68,7 @@ func TestGoToMenuInTheItemView(t *testing.T) {
 }
 
 func TestGoToMenuStatusHint(t *testing.T) {
+	t.Parallel()
 	m, _, _, _ := snoozeModel(t)
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 20})
 	press(t, m, "gs")
@@ -79,6 +82,7 @@ func TestGoToMenuStatusHint(t *testing.T) {
 }
 
 func TestGoToMenuNarrowKeepsKeysOnOneLine(t *testing.T) {
+	t.Parallel()
 	m, _, _, _ := snoozeModel(t)
 	m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
 	press(t, m, "g")
@@ -94,6 +98,7 @@ func TestGoToMenuNarrowKeepsKeysOnOneLine(t *testing.T) {
 }
 
 func TestGoToUnknownKeyReportsAndClears(t *testing.T) {
+	t.Parallel()
 	m, _, _, _ := snoozeModel(t)
 	press(t, m, "gx")
 	if m.chord || m.status != "unknown go-to key" || m.folder != 0 {
@@ -107,6 +112,7 @@ func TestGoToUnknownKeyReportsAndClears(t *testing.T) {
 }
 
 func TestGoToTableCoversMenuHelpAndChords(t *testing.T) {
+	t.Parallel()
 	_, goToChords := (&Model{}).goToChordItems()
 	if len(goToChords) == 0 {
 		t.Fatal("empty go-to table")
@@ -159,6 +165,7 @@ func TestGoToTableCoversMenuHelpAndChords(t *testing.T) {
 }
 
 func TestGoToChordsStillNavigate(t *testing.T) {
+	t.Parallel()
 	m, _, _, _ := snoozeModel(t)
 	press(t, m, "gz")
 	if m.folder != snoozedFolder {

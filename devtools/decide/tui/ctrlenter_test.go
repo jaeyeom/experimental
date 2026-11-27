@@ -64,6 +64,7 @@ func readAll(t *testing.T, r io.Reader) []string {
 }
 
 func TestCtrlEnterReader(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		in   []chunk
 		want []string
@@ -114,6 +115,7 @@ func TestCtrlEnterReader(t *testing.T) {
 }
 
 func TestCtrlEnterReaderWithoutWaitPassesPrefixes(t *testing.T) {
+	t.Parallel()
 	src := &chunkReader{chunks: []chunk{{data: "\x1b[13;"}, {data: "5u"}}}
 	got := readAll(t, newCtrlEnterReader(src, nil, nil))
 	if want := []string{"\x1b[13;", "5u"}; !reflect.DeepEqual(got, want) {
@@ -122,6 +124,7 @@ func TestCtrlEnterReaderWithoutWaitPassesPrefixes(t *testing.T) {
 }
 
 func TestProgramInputKeepsTerminalFile(t *testing.T) {
+	t.Parallel()
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -154,6 +157,7 @@ func TestProgramInputKeepsTerminalFile(t *testing.T) {
 // through the program input and checks it sends the whole multi-line
 // note or reply draft, the same as Tab then Enter.
 func TestCtrlEnterSendsThroughProgram(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []composerKind{composerNote, composerReply} {
 		ctrlEnterSends(t, kind)
 	}
@@ -203,7 +207,7 @@ func ctrlEnterSends(t *testing.T, kind composerKind) {
 			if time.Now().After(deadline) {
 				t.Fatalf("%v %s: draft was not sent", kind, name)
 			}
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(2 * time.Millisecond)
 		}
 		if err := w.Close(); err != nil {
 			t.Fatal(err)

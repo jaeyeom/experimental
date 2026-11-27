@@ -218,7 +218,7 @@ func (p busPanes) Dialog(ctx context.Context, target string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	panes := &herdr.Adapter{}
+	panes := &herdr.Adapter{Env: p.env}
 	a, ok, err := panes.PaneAgent(ctx, h)
 	switch {
 	case err != nil:
@@ -244,7 +244,7 @@ func (p busPanes) Live(ctx context.Context, target string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	_, ok, err := (&herdr.Adapter{}).PaneAgent(ctx, h)
+	_, ok, err := (&herdr.Adapter{Env: p.env}).PaneAgent(ctx, h)
 	if err != nil {
 		return false, fmt.Errorf("read %s: %w", h, err)
 	}

@@ -22,14 +22,13 @@ type hubSetup struct {
 	ssh     *sshtest.Fake
 	env     []string
 	runtime string
+	hooks   cmdHooks
 }
 
-// startHub puts a fake ssh and a fake hub agentbus on PATH and writes
-// config with the given lines. Any local daemon call fails the test.
+// startHub puts a fake ssh and a fake hub agentbus on env's PATH and writes
+// config with the given lines.
 func startHub(t *testing.T, configLines ...string) *hubSetup {
 	t.Helper()
-	fake := sshtest.Install(t)
-	fake.InstallTool("agentbus")
 	xdg := t.TempDir()
 	if len(configLines) > 0 {
 		dir := filepath.Join(xdg, "agentbus")
@@ -40,26 +39,19 @@ func startHub(t *testing.T, configLines ...string) *hubSetup {
 			t.Fatal(err)
 		}
 	}
-	origEnsure, origDial := ensureDaemon, dialDaemon
-	ensureDaemon = func([]string, io.Writer) int {
-		t.Error("hub mode started a local daemon")
-		return 1
-	}
-	dialDaemon = func(context.Context, string, daemon.Request) (daemon.Response, error) {
-		t.Error("hub mode dialed a local daemon")
-		return daemon.Response{}, os.ErrNotExist
-	}
-	t.Cleanup(func() { ensureDaemon, dialDaemon = origEnsure, origDial })
 	runtime := t.TempDir()
+	env := []string{
+		"HOME=" + t.TempDir(),
+		"XDG_CONFIG_HOME=" + xdg,
+		"XDG_RUNTIME_DIR=" + runtime,
+		"XDG_STATE_HOME=" + t.TempDir(),
+	}
+	fake := sshtest.InstallInEnv(t, &env)
+	fake.InstallTool("agentbus")
 	return &hubSetup{
 		ssh:     fake,
 		runtime: runtime,
-		env: []string{
-			"HOME=" + t.TempDir(),
-			"XDG_CONFIG_HOME=" + xdg,
-			"XDG_RUNTIME_DIR=" + runtime,
-			"XDG_STATE_HOME=" + t.TempDir(),
-		},
+		env:     env,
 	}
 }
 
@@ -71,13 +63,19 @@ func (h *hubSetup) run(t *testing.T, stdin string, args ...string) (int, string,
 func (h *hubSetup) runEnv(t *testing.T, env []string, stdin string, args ...string) (int, string, string) {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
-	code := run(context.Background(), args, env, strings.NewReader(stdin), &stdout, &stderr)
+	code := run(withCmdHooks(context.Background(), h.hooks), args, env, strings.NewReader(stdin), &stdout, &stderr)
 	return code, stdout.String(), stderr.String()
 }
 
+func (h *hubSetup) pinClientID(id string) string {
+	h.hooks.mintClientID = func(string) (string, error) { return id, nil }
+	return id
+}
+
 func TestHubSendQuotesEachArgument(t *testing.T) {
+	t.Parallel()
 	h := startHub(t, `hub = "me@hub"`)
-	id := pinClientID(t, "client:01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	id := h.pinClientID("client:01ARZ3NDEKTSV4RRFFQ69G5FAV")
 	h.ssh.Write("agentbus.stdout", "m-1 delivered\n")
 	code, stdout, stderr := h.run(t, "", "send", "ops/x", "a b; c")
 	if code != 0 || stdout != "m-1 delivered\n" {
@@ -96,6 +94,7 @@ func TestHubSendQuotesEachArgument(t *testing.T) {
 }
 
 func TestHubEnvOverridesConfig(t *testing.T) {
+	t.Parallel()
 	h := startHub(t, `hub = "me@other"`)
 	env := append(append([]string{}, h.env...), "AGENTBUS_HUB=me@hub")
 	if code, _, stderr := h.runEnv(t, env, "", "list"); code != 0 {
@@ -107,6 +106,7 @@ func TestHubEnvOverridesConfig(t *testing.T) {
 }
 
 func TestHubSendForwardsStdinAndReadsFileLocally(t *testing.T) {
+	t.Parallel()
 	h := startHub(t, `hub = "me@hub"`)
 	if code, _, stderr := h.run(t, "from stdin\n", "send", "ops/x"); code != 0 {
 		t.Fatalf("send = %d, stderr %q", code, stderr)
@@ -119,7 +119,7 @@ func TestHubSendForwardsStdinAndReadsFileLocally(t *testing.T) {
 	if err := os.WriteFile(path, []byte("from file\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	id := pinClientID(t, "client:01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	id := h.pinClientID("client:01ARZ3NDEKTSV4RRFFQ69G5FAV")
 	if code, _, stderr := h.run(t, "ignored", "send", "ops/x", "--file", path, "--ttl", "30m"); code != 0 {
 		t.Fatalf("send --file = %d, stderr %q", code, stderr)
 	}
@@ -132,6 +132,7 @@ func TestHubSendForwardsStdinAndReadsFileLocally(t *testing.T) {
 }
 
 func TestHubSendForwardsClientIDWithFile(t *testing.T) {
+	t.Parallel()
 	h := startHub(t, `hub = "me@hub"`)
 	path := filepath.Join(t.TempDir(), "body.txt")
 	if err := os.WriteFile(path, []byte("from file\n"), 0o600); err != nil {
@@ -150,6 +151,7 @@ func TestHubSendForwardsClientIDWithFile(t *testing.T) {
 }
 
 func TestHubReplyForwardsStdinAndReadsFileLocally(t *testing.T) {
+	t.Parallel()
 	h := startHub(t, `hub = "me@hub"`)
 	if code, _, stderr := h.run(t, "from stdin\n", "reply", "m-1"); code != 0 {
 		t.Fatalf("reply = %d, stderr %q", code, stderr)
@@ -179,6 +181,7 @@ func TestHubReplyForwardsStdinAndReadsFileLocally(t *testing.T) {
 }
 
 func TestHubStdinIsNotForwardedToOtherCommands(t *testing.T) {
+	t.Parallel()
 	h := startHub(t, `hub = "me@hub"`)
 	if code, _, stderr := h.run(t, "keep me", "status", "m-1"); code != 0 {
 		t.Fatalf("status = %d, stderr %q", code, stderr)
@@ -189,6 +192,7 @@ func TestHubStdinIsNotForwardedToOtherCommands(t *testing.T) {
 }
 
 func TestHubReturnsRemoteExitCodeAndStderr(t *testing.T) {
+	t.Parallel()
 	h := startHub(t, `hub = "me@hub"`)
 	h.ssh.Write("agentbus.stderr", "agentbus: unknown name ops/x\n")
 	h.ssh.Write("agentbus.code", "3")
@@ -199,10 +203,11 @@ func TestHubReturnsRemoteExitCodeAndStderr(t *testing.T) {
 }
 
 func TestHubRegisterSendsTheCallerHandle(t *testing.T) {
+	t.Parallel()
 	h := startHub(t, `hub = "me@hub"`, `machine = "linux2"`)
-	herdrFake := herdrtest.Install(t)
-	herdrFake.Write("local.agents", agentsJSON("w1:p1=idle"))
 	env := append(append([]string{}, h.env...), "HERDR_PANE_ID=w1:p1")
+	herdrFake := herdrtest.InstallInEnv(t, &env)
+	herdrFake.Write("local.agents", agentsJSON("w1:p1=idle"))
 	if code, _, stderr := h.runEnv(t, env, "", "register", "ops/x", "--when", "testing"); code != 0 {
 		t.Fatalf("register = %d, stderr %q", code, stderr)
 	}
@@ -215,6 +220,7 @@ func TestHubRegisterSendsTheCallerHandle(t *testing.T) {
 }
 
 func TestHubRegisterNeedsMachine(t *testing.T) {
+	t.Parallel()
 	h := startHub(t, `hub = "me@hub"`)
 	env := append(append([]string{}, h.env...), "HERDR_PANE_ID=w1:p1")
 	code, _, stderr := h.runEnv(t, env, "", "register", "ops/x", "--when", "testing")
@@ -227,6 +233,7 @@ func TestHubRegisterNeedsMachine(t *testing.T) {
 }
 
 func TestHubUnreachableFailsFast(t *testing.T) {
+	t.Parallel()
 	h := startHub(t, `hub = "me@hub"`, `remote_timeout = "1s"`)
 	h.ssh.Write("down", "")
 	h.ssh.Unreachable()
@@ -243,15 +250,8 @@ func TestHubUnreachableFailsFast(t *testing.T) {
 	}
 }
 
-func pinClientID(t *testing.T, id string) string {
-	t.Helper()
-	orig := mintClientID
-	mintClientID = func(string) (string, error) { return id, nil }
-	t.Cleanup(func() { mintClientID = orig })
-	return id
-}
-
 func TestHubHooksExitZeroWhenUnreachable(t *testing.T) {
+	t.Parallel()
 	h := startHub(t, `hub = "me@hub"`)
 	h.ssh.Write("locked", "")
 	for _, name := range []string{"hook", "prompt-hook"} {
@@ -263,6 +263,7 @@ func TestHubHooksExitZeroWhenUnreachable(t *testing.T) {
 }
 
 func TestHubHooksUseAShortConnectTimeout(t *testing.T) {
+	t.Parallel()
 	h := startHub(t, `hub = "me@hub"`, `remote_timeout = "9s"`)
 	if code, _, _ := h.run(t, `{}`, "hook"); code != 0 {
 		t.Fatalf("hook = %d", code)
@@ -273,21 +274,22 @@ func TestHubHooksUseAShortConnectTimeout(t *testing.T) {
 }
 
 func TestHubHookTimeoutBoundsTheWholeCall(t *testing.T) {
+	t.Parallel()
 	for _, tt := range []struct {
 		name, file, body string
 	}{
 		{"hub never answers", "hang", ""},
-		{"hub hook is slow", "agentbus.sleep", "5"},
+		{"hub hook is slow", "agentbus.sleep", "2"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			h := startHub(t, `hub = "me@hub"`)
 			h.ssh.Write(tt.file, tt.body)
 			h.ssh.Reachable()
-			env := append(slices.Clone(h.env), "AGENTBUS_HOOK_TIMEOUT=500ms")
+			env := append(slices.Clone(h.env), "AGENTBUS_HOOK_TIMEOUT=100ms")
 			for _, name := range []string{"hook", "prompt-hook"} {
 				start := time.Now()
 				code, stdout, stderr := h.runEnv(t, env, `{"prompt":"x"}`, name)
-				if took := time.Since(start); took > 2500*time.Millisecond {
+				if took := time.Since(start); took > time.Second {
 					t.Fatalf("%s took %s", name, took)
 				}
 				if code != 0 || stdout != "" || stderr != "" {
@@ -304,6 +306,7 @@ func TestHubHookTimeoutBoundsTheWholeCall(t *testing.T) {
 }
 
 func TestHookHubCapsConnectTimeout(t *testing.T) {
+	t.Parallel()
 	for _, tt := range []struct {
 		total, connect time.Duration
 	}{
@@ -320,6 +323,7 @@ func TestHookHubCapsConnectTimeout(t *testing.T) {
 }
 
 func TestHubHelpStaysLocal(t *testing.T) {
+	t.Parallel()
 	h := startHub(t, `hub = "me@hub"`)
 	if code, stdout, _ := h.run(t, "", "send", "--help"); code != 0 || !strings.Contains(stdout, "agentbus send") {
 		t.Fatalf("send --help = %d, %q", code, stdout)
@@ -330,6 +334,7 @@ func TestHubHelpStaysLocal(t *testing.T) {
 }
 
 func TestHubRefusesLocalDaemonStartPaths(t *testing.T) {
+	t.Parallel()
 	h := startHub(t, `hub = "me@hub"`)
 	const want = "hub mode: not starting a local agentbusd; the hub is me@hub"
 
@@ -370,6 +375,7 @@ func TestHubRefusesLocalDaemonStartPaths(t *testing.T) {
 }
 
 func TestHubLocalCommandsNeverStartLocalDaemon(t *testing.T) {
+	t.Parallel()
 	cases := map[string][]string{
 		"install-hooks": {"install-hooks"},
 		"lease":         {"lease", "status", "--guarded"},
@@ -389,13 +395,20 @@ func TestHubLocalCommandsNeverStartLocalDaemon(t *testing.T) {
 	}
 	for name, argv := range cases {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			h := startHub(t, `hub = "me@hub"`, `machine = "linux2"`)
-			origUp := ensureDaemonUp
-			ensureDaemonUp = func(context.Context, paths.Dirs, []string) error {
+			h.hooks.ensureDaemonUp = func(context.Context, paths.Dirs, []string) error {
 				t.Errorf("%s called ensureDaemonUp in hub mode", name)
 				return nil
 			}
-			t.Cleanup(func() { ensureDaemonUp = origUp })
+			h.hooks.ensureDaemon = func([]string, io.Writer) int {
+				t.Errorf("%s called ensureDaemon in hub mode", name)
+				return 1
+			}
+			h.hooks.dialDaemon = func(context.Context, string, daemon.Request) (daemon.Response, error) {
+				t.Errorf("%s called dialDaemon in hub mode", name)
+				return daemon.Response{}, os.ErrNotExist
+			}
 			// We only assert that no local daemon is dialed or started;
 			// individual commands may exit non-zero when herdr/etc. are absent.
 			_, _, _ = h.run(t, "", argv...)

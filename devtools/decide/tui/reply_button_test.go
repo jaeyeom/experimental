@@ -28,6 +28,7 @@ func replyButtonModel(t *testing.T) *Model {
 }
 
 func TestReplyButtonFocusesReplyBox(t *testing.T) {
+	t.Parallel()
 	t.Run("renders", func(t *testing.T) {
 		m := replyButtonModel(t)
 		if got := visibleLine(m.View()); !strings.Contains(got, "[Reply (0)]") {

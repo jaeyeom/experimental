@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -30,9 +29,10 @@ const (
 )
 
 func TestHubDownQueuesSend(t *testing.T) {
+	t.Parallel()
 	h := startHub(t, `hub = "me@hub"`)
 	h.ssh.Write("locked", "")
-	id := pinClientID(t, idA)
+	id := h.pinClientID(idA)
 	code, stdout, stderr := h.run(t, "", "send", "ops/x", "hi")
 	if code != 0 || stdout != "queued (hub unreachable): "+id+"\n" {
 		t.Fatalf("send = %d, stdout %q, stderr %q", code, stdout, stderr)
@@ -46,9 +46,10 @@ func TestHubDownQueuesSend(t *testing.T) {
 }
 
 func TestFlushDeliversOnce(t *testing.T) {
+	t.Parallel()
 	s := newTunnelSetup(t)
 	s.ssh.Write("locked", "")
-	id := pinClientID(t, idA)
+	id := s.pinClientID(idA)
 	code, stdout, stderr := s.run(t, s.env, "", "send", hubTarget, "once-body")
 	if code != 0 || stdout != "queued (hub unreachable): "+id+"\n" {
 		t.Fatalf("send = %d, stdout %q, stderr %q", code, stdout, stderr)
@@ -77,10 +78,11 @@ func TestFlushDeliversOnce(t *testing.T) {
 }
 
 func TestLostAckRetriesOnce(t *testing.T) {
+	t.Parallel()
 	s := newTunnelSetup(t)
 	_, dirs := s.startHubDaemon(t)
-	loseFirst(t, "send")
-	id := pinClientID(t, idA)
+	s.loseFirst("send")
+	id := s.pinClientID(idA)
 	code, stdout, stderr := s.run(t, s.env, "", "send", hubTarget, "lost-body")
 	if code != 0 || stdout != "queued (hub unreachable): "+id+"\n" {
 		t.Fatalf("send = %d, stdout %q, stderr %q", code, stdout, stderr)
@@ -101,9 +103,10 @@ func TestLostAckRetriesOnce(t *testing.T) {
 }
 
 func TestPendingSenderStaysOrdered(t *testing.T) {
+	t.Parallel()
 	s := newTunnelSetup(t)
 	s.ssh.Write("locked", "")
-	pinClientIDs(t, idA, idB, idC)
+	s.pinClientIDs(idA, idB, idC)
 	code, stdout, stderr := s.run(t, s.env, "", "send", hubTarget, "first-body")
 	if code != 0 || stdout != "queued (hub unreachable): "+idA+"\n" {
 		t.Fatalf("first = %d, stdout %q, stderr %q", code, stdout, stderr)
@@ -144,9 +147,10 @@ func TestPendingSenderStaysOrdered(t *testing.T) {
 }
 
 func TestSecondFlushSkipsWhileLocked(t *testing.T) {
+	t.Parallel()
 	s := newTunnelSetup(t)
 	s.ssh.Write("locked", "")
-	pinClientID(t, idA)
+	s.pinClientID(idA)
 	if code, _, stderr := s.run(t, s.env, "", "send", hubTarget, "held-body"); code != 0 {
 		t.Fatalf("send = %d, stderr %q", code, stderr)
 	}
@@ -172,10 +176,11 @@ func TestSecondFlushSkipsWhileLocked(t *testing.T) {
 }
 
 func TestAnonReplayKeepsTheStoredHandle(t *testing.T) {
+	t.Parallel()
 	s := newTunnelSetup(t)
 	s.ssh.Write("locked", "")
 	env := withoutEnv(s.env, "HERDR_PANE_ID")
-	id := pinClientID(t, idA)
+	id := s.pinClientID(idA)
 	code, stdout, stderr := s.run(t, env, "", "send", hubTarget, "anon-body")
 	if code != 0 || stdout != "queued (hub unreachable): "+id+"\n" {
 		t.Fatalf("send = %d, stdout %q, stderr %q", code, stdout, stderr)
@@ -190,7 +195,7 @@ func TestAnonReplayKeepsTheStoredHandle(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, dirs := s.startHubDaemon(t)
-	loseFirst(t, "send")
+	s.loseFirst("send")
 	if code, _, stderr = s.run(t, env, "", "outbox", "flush"); code != 0 {
 		t.Fatalf("flush = %d, stderr %q", code, stderr)
 	}
@@ -204,10 +209,11 @@ func TestAnonReplayKeepsTheStoredHandle(t *testing.T) {
 }
 
 func TestHubRefusalIsNotQueued(t *testing.T) {
+	t.Parallel()
 	h := startHub(t, `hub = "me@hub"`)
 	h.ssh.Write("agentbus.stderr", "agentbus: unknown name ops/x\n")
 	h.ssh.Write("agentbus.code", "1")
-	pinClientID(t, idA)
+	h.pinClientID(idA)
 	code, stdout, stderr := h.run(t, "", "send", "ops/x", "nope")
 	if code == 0 || strings.Contains(stdout, "queued") || strings.Contains(stderr, "queued") {
 		t.Fatalf("send = %d, stdout %q, stderr %q", code, stdout, stderr)
@@ -221,10 +227,11 @@ func TestHubRefusalIsNotQueued(t *testing.T) {
 }
 
 func TestProtocolMismatchIsNotQueued(t *testing.T) {
+	t.Parallel()
 	s := newTunnelSetup(t)
 	s.ssh.Write("locked", "")
 	serveProtocol(t, s.tunnel, 9)
-	pinClientID(t, idA)
+	s.pinClientID(idA)
 	code, stdout, stderr := s.run(t, s.env, "", "send", hubTarget, "nope")
 	if code == 0 || strings.Contains(stdout, "queued") || strings.Contains(stderr, "queued") {
 		t.Fatalf("send = %d, stdout %q, stderr %q", code, stdout, stderr)
@@ -238,6 +245,7 @@ func TestProtocolMismatchIsNotQueued(t *testing.T) {
 }
 
 func TestOutboxWriteFailureIsLoud(t *testing.T) {
+	t.Parallel()
 	h := startHub(t, `hub = "me@hub"`)
 	h.ssh.Write("locked", "")
 	file := filepath.Join(t.TempDir(), "state")
@@ -245,7 +253,7 @@ func TestOutboxWriteFailureIsLoud(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := withEnv(h.env, "XDG_STATE_HOME", file)
-	pinClientID(t, idA)
+	h.pinClientID(idA)
 	code, stdout, stderr := h.runEnv(t, env, "", "send", "ops/x", "hi")
 	if code == 0 || strings.Contains(stdout, "queued") || strings.Contains(stderr, "queued") || !strings.Contains(stderr, "sandbox") {
 		t.Fatalf("send = %d, stdout %q, stderr %q", code, stdout, stderr)
@@ -253,6 +261,7 @@ func TestOutboxWriteFailureIsLoud(t *testing.T) {
 }
 
 func TestLeaseHubDownIsNotQueued(t *testing.T) {
+	t.Parallel()
 	h := newHubLeaseWorld(t)
 	h.ssh.Write("locked", "")
 	code, stdout, stderr := h.lease(t, "w1:p1", "claim", "--for", "40m")
@@ -265,11 +274,12 @@ func TestLeaseHubDownIsNotQueued(t *testing.T) {
 }
 
 func TestTTLExpiryNotifiesAndLogs(t *testing.T) {
+	t.Parallel()
 	s := newTunnelSetup(t)
 	s.ssh.Write("locked", "")
 	when := time.Now().UTC().Truncate(time.Millisecond)
-	now := pinClock(t, when)
-	id := pinClientID(t, idA)
+	now := s.pinClock(when)
+	id := s.pinClientID(idA)
 	code, stdout, stderr := s.run(t, s.env, "", "send", hubTarget, "expiring", "--ttl", "1ms")
 	if code != 0 || stdout != "queued (hub unreachable): "+id+"\n" {
 		t.Fatalf("send = %d, stdout %q, stderr %q", code, stdout, stderr)
@@ -300,11 +310,12 @@ func TestTTLExpiryNotifiesAndLogs(t *testing.T) {
 }
 
 func TestNoTTLStaysAndIsFlaggedAfter24h(t *testing.T) {
+	t.Parallel()
 	s := newTunnelSetup(t)
 	s.ssh.Write("locked", "")
 	when := time.Now().UTC().Truncate(time.Millisecond)
-	now := pinClock(t, when)
-	id := pinClientID(t, idA)
+	now := s.pinClock(when)
+	id := s.pinClientID(idA)
 	if code, _, stderr := s.run(t, s.env, "", "send", hubTarget, "stays"); code != 0 {
 		t.Fatalf("send = %d, stderr %q", code, stderr)
 	}
@@ -330,14 +341,15 @@ func TestNoTTLStaysAndIsFlaggedAfter24h(t *testing.T) {
 }
 
 func TestWaitPastTheDeadlineStaysQueued(t *testing.T) {
+	t.Parallel()
 	s := newTunnelSetup(t)
 	s.ssh.Write("locked", "")
-	id := pinClientID(t, idA)
+	id := s.pinClientID(idA)
 	// The deadline should bound only the wait, not the first exec of
 	// the freshly written fakes, which macOS can take 300ms or more to
 	// assess.
-	warmFakes(t, []string{"herdr", "--version"}, []string{"ssh", "-G", "hub"})
-	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	warmFakes(t, s.env, []string{"herdr", "--version"}, []string{"ssh", "-G", "hub"})
+	ctx, cancel := context.WithTimeout(withCmdHooks(context.Background(), s.hooks), 400*time.Millisecond)
 	defer cancel()
 	var stdout, stderr bytes.Buffer
 	args := []string{"send", hubTarget, "waiting", "--wait", "--ttl", "1h"}
@@ -355,21 +367,24 @@ func TestWaitPastTheDeadlineStaysQueued(t *testing.T) {
 
 // warmFakes runs each fake command once, so its first-exec cost is
 // not charged to a deadline that comes after.
-func warmFakes(t *testing.T, calls ...[]string) {
+func warmFakes(t *testing.T, env []string, calls ...[]string) {
 	t.Helper()
 	for _, call := range calls {
-		if out, err := exec.Command(call[0], call[1:]...).CombinedOutput(); err != nil { //nolint:gosec // G204: a fake installed by this test
+		cmd := exec.Command(call[0], call[1:]...) //nolint:gosec // G204: a fake installed by this test
+		cmd.Env = env
+		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("warm %v: %v: %s", call, err, out)
 		}
 	}
 }
 
 func TestSpooledLogKeepsTheClientTime(t *testing.T) {
+	t.Parallel()
 	s := newTunnelSetup(t)
 	s.ssh.Write("locked", "")
 	when := time.Now().UTC().Truncate(time.Millisecond)
-	pinClock(t, when)
-	id := pinClientID(t, idA)
+	s.pinClock(when)
+	id := s.pinClientID(idA)
 	if code, stdout, stderr := s.run(t, s.env, "", "send", hubTarget, "logged-body"); code != 0 || !strings.Contains(stdout, id) {
 		t.Fatalf("send = %d, stdout %q, stderr %q", code, stdout, stderr)
 	}
@@ -384,6 +399,7 @@ func TestSpooledLogKeepsTheClientTime(t *testing.T) {
 }
 
 func TestBypassIsSpooledOnce(t *testing.T) {
+	t.Parallel()
 	s := newTunnelSetup(t)
 	s.ssh.Write("locked", "")
 	raw := `{"session_id":"s1","tool_input":{"to":"x","message":"bypass-body"}}`
@@ -402,7 +418,7 @@ func TestBypassIsSpooledOnce(t *testing.T) {
 		t.Fatalf("invalid hook queued, pending = %d", n)
 	}
 	_, dirs := s.startHubDaemon(t)
-	loseFirst(t, "bypass")
+	s.loseFirst("bypass")
 	if code, _, stderr = s.run(t, s.env, "", "outbox", "flush"); code != 0 {
 		t.Fatalf("flush = %d, stderr %q", code, stderr)
 	}
@@ -418,6 +434,7 @@ func TestBypassIsSpooledOnce(t *testing.T) {
 }
 
 func TestTunnelHookSuccessDoesNotSpool(t *testing.T) {
+	t.Parallel()
 	s := newTunnelSetup(t)
 	_, dirs := s.startHubDaemon(t)
 	raw := `{"session_id":"s1","tool_input":{"to":"x","message":"hi"}}`
@@ -436,6 +453,7 @@ func TestTunnelHookSuccessDoesNotSpool(t *testing.T) {
 }
 
 func TestEmptyOutboxDoesNotSSH(t *testing.T) {
+	t.Parallel()
 	h := startHub(t, `hub = "me@hub"`)
 	if code, _, stderr := h.run(t, "", "doctor"); stderr != "" || code > 2 {
 		t.Fatalf("doctor = %d, stderr %q", code, stderr)
@@ -443,49 +461,6 @@ func TestEmptyOutboxDoesNotSSH(t *testing.T) {
 	if h.ssh.Read("argv") != "" {
 		t.Fatal("an empty outbox opened ssh")
 	}
-}
-
-func pinClientIDs(t *testing.T, ids ...string) {
-	t.Helper()
-	var n int
-	orig := mintClientID
-	mintClientID = func(string) (string, error) {
-		if n >= len(ids) {
-			return "", errors.New("unexpected client id")
-		}
-		id := ids[n]
-		n++
-		return id, nil
-	}
-	t.Cleanup(func() { mintClientID = orig })
-}
-
-func pinClock(t *testing.T, start time.Time) *time.Time {
-	t.Helper()
-	now := start
-	orig := outboxNow
-	outboxNow = func() time.Time { return now }
-	t.Cleanup(func() { outboxNow = orig })
-	return &now
-}
-
-func loseFirst(t *testing.T, op string) {
-	t.Helper()
-	orig := dialDaemon
-	var once sync.Once
-	dialDaemon = func(ctx context.Context, socket string, req daemon.Request) (daemon.Response, error) {
-		resp, err := orig(ctx, socket, req)
-		if err != nil || req.Op != op {
-			return resp, err
-		}
-		lost := false
-		once.Do(func() { lost = true })
-		if lost {
-			return resp, errors.New("connection reset")
-		}
-		return resp, nil
-	}
-	t.Cleanup(func() { dialDaemon = orig })
 }
 
 func serveProtocol(t *testing.T, socket string, protocol int) {

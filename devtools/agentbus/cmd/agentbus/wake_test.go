@@ -85,6 +85,7 @@ func startWakeBus(t *testing.T) ([]string, *cmdWaker) {
 }
 
 func TestWakeCommandRelaunchesWithNoMessage(t *testing.T) {
+	t.Parallel()
 	env, waker := startWakeBus(t)
 	out, _ := mustCmd(t, []string{"wake", "ops/x"}, env)
 	if strings.TrimSpace(out) != "woke ops/x (herdr:local/s1/w1:p1)" {
@@ -104,6 +105,7 @@ func TestWakeCommandRelaunchesWithNoMessage(t *testing.T) {
 }
 
 func TestWakeIfHibernatedOnAnAwakeTargetIsQuiet(t *testing.T) {
+	t.Parallel()
 	env, waker := startWakeBus(t)
 	mustCmd(t, []string{"wake", "ops/x"}, env)
 	for _, args := range [][]string{
@@ -124,6 +126,7 @@ func TestWakeIfHibernatedOnAnAwakeTargetIsQuiet(t *testing.T) {
 }
 
 func TestWakeIfHibernatedRelaunchesAHibernatedTarget(t *testing.T) {
+	t.Parallel()
 	for _, args := range [][]string{
 		{"wake", "--if-hibernated", "--wait", "ops/x"},
 		{"wake", "--if-hibernated", "herdr:local/s1/w1:p1"},
@@ -141,6 +144,7 @@ func TestWakeIfHibernatedRelaunchesAHibernatedTarget(t *testing.T) {
 }
 
 func TestWakeTimeoutExitsOne(t *testing.T) {
+	t.Parallel()
 	env, waker := startWakeBus(t)
 	waker.fail(errors.New("relaunched agent not ready within 60s: agent is working"))
 	code, stdout, stderr := runCmd([]string{"wake", "--if-hibernated", "ops/x"}, env)
@@ -150,6 +154,7 @@ func TestWakeTimeoutExitsOne(t *testing.T) {
 }
 
 func TestWakeUnknownNameExitsTwo(t *testing.T) {
+	t.Parallel()
 	env, _ := startWakeBus(t)
 	for _, args := range [][]string{{"wake", "ops/nobody"}, {"wake", "--if-hibernated", "ops/nobody"}} {
 		code, _, stderr := runCmd(args, env)
@@ -160,6 +165,7 @@ func TestWakeUnknownNameExitsTwo(t *testing.T) {
 }
 
 func TestWakeCommandUsage(t *testing.T) {
+	t.Parallel()
 	for _, args := range [][]string{{"wake"}, {"wake", "a", "b"}, {"wake", "--now"}} {
 		if code, _, stderr := runCmd(args, nil); code != 2 || !strings.Contains(stderr, "usage: agentbus wake [--if-hibernated]") {
 			t.Errorf("%q = %d %q", args, code, stderr)
@@ -168,6 +174,7 @@ func TestWakeCommandUsage(t *testing.T) {
 }
 
 func TestSendToAHibernatedNameSaysItIsWaking(t *testing.T) {
+	t.Parallel()
 	env, waker := startWakeBus(t)
 	out, stderr := mustCmd(t, []string{"send", "ops/x", "hello"}, env)
 	if !strings.Contains(out, "held: waking") || !strings.Contains(stderr, "waking it") {
@@ -191,12 +198,14 @@ func TestSendToAHibernatedNameSaysItIsWaking(t *testing.T) {
 }
 
 func TestWakeRunsOnTheHub(t *testing.T) {
+	t.Parallel()
 	if !tunnelCommands["wake"] || localCommands["wake"] {
 		t.Fatal("wake must go to the hub's daemon in hub mode")
 	}
 }
 
 func TestWakeCommandModelFlagOverridesDaemonConfig(t *testing.T) {
+	t.Parallel()
 	env, waker := startWakeBus(t)
 	mustCmd(t, []string{"wake", "ops/x", "--model", "haiku"}, env)
 	waker.mu.Lock()

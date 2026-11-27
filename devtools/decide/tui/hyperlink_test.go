@@ -70,6 +70,7 @@ func ctrlPress(t *testing.T, m *Model, x, y int) *Model {
 }
 
 func TestEveryWrappedLinkSegmentCarriesTheFullURL(t *testing.T) {
+	t.Parallel()
 	m := wrappedLinkItem(t)
 	view := m.View()
 	rows := linkSegments(view)
@@ -86,6 +87,7 @@ func TestEveryWrappedLinkSegmentCarriesTheFullURL(t *testing.T) {
 }
 
 func TestCtrlClickOpensAWrappedLink(t *testing.T) {
+	t.Parallel()
 	m := wrappedLinkItem(t)
 	open := &fakeOpener{}
 	m.runOpen = open.run
@@ -109,6 +111,7 @@ func TestCtrlClickOpensAWrappedLink(t *testing.T) {
 }
 
 func TestCtrlClickOffALinkDoesNothing(t *testing.T) {
+	t.Parallel()
 	m := wrappedLinkItem(t)
 	open := &fakeOpener{}
 	m.runOpen = open.run
@@ -145,6 +148,7 @@ func TestCtrlClickOffALinkDoesNothing(t *testing.T) {
 }
 
 func TestTruncatedLinkKeepsTheFullURLAndWidth(t *testing.T) {
+	t.Parallel()
 	line := linkLines("see "+longLink, 200, nil, true)[0]
 	cut := truncateVisible(line.text, 20)
 	if !strings.Contains(cut, osc8Open(longLink)) || !strings.Contains(cut, osc8Close) {
@@ -163,6 +167,7 @@ func TestTruncatedLinkKeepsTheFullURLAndWidth(t *testing.T) {
 }
 
 func TestHyperlinksOffWritesNoOSC8(t *testing.T) {
+	t.Parallel()
 	m := wrappedLinkItem(t)
 	m.NoHyperlinks = true
 	view := m.View()
@@ -187,6 +192,7 @@ func TestNoColorKeepsOSC8(t *testing.T) {
 }
 
 func TestLinkPickerRowsCarryTheFullURL(t *testing.T) {
+	t.Parallel()
 	m := linkItem(t, []string{longLink, "https://example.test/second"})
 	press(t, m, "l")
 	view := m.View()

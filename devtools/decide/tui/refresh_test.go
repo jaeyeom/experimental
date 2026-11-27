@@ -14,7 +14,6 @@ import (
 // at the top with the first message selected.
 func openLiveThread(t *testing.T, height int) (*Model, *decide.Ledger, decide.Item) {
 	t.Helper()
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	var msgs []decide.Message
@@ -76,6 +75,7 @@ func agentReply(t *testing.T, led *decide.Ledger, id, text string) {
 }
 
 func TestLiveRefreshFollowsAtBottom(t *testing.T) {
+	t.Parallel()
 	m, led, item := openLiveThread(t, 14)
 	sendKeyMsg(t, m, tea.KeyMsg{Type: tea.KeyEnd})
 	m.View()
@@ -95,6 +95,7 @@ func TestLiveRefreshFollowsAtBottom(t *testing.T) {
 }
 
 func TestLiveRefreshFollowsFromLastMessage(t *testing.T) {
+	t.Parallel()
 	m, led, item := openLiveThread(t, 14)
 	press(t, m, "nnnnn")
 	press(t, m, "kkk")
@@ -108,6 +109,7 @@ func TestLiveRefreshFollowsFromLastMessage(t *testing.T) {
 }
 
 func TestLiveRefreshKeepsPlaceWhenScrolledUp(t *testing.T) {
+	t.Parallel()
 	m, led, item := openLiveThread(t, 14)
 	press(t, m, "nj")
 	before := m.View()
@@ -139,6 +141,7 @@ func TestLiveRefreshKeepsPlaceWhenScrolledUp(t *testing.T) {
 }
 
 func TestLiveRefreshMarkerClearsOnG(t *testing.T) {
+	t.Parallel()
 	m, led, item := openLiveThread(t, 14)
 	agentReply(t, led, item.ID, "fresh news")
 	reloadTick(t, m)
@@ -152,6 +155,7 @@ func TestLiveRefreshMarkerClearsOnG(t *testing.T) {
 }
 
 func TestLiveRefreshMarkerClearsWhenScrolledToNewMessage(t *testing.T) {
+	t.Parallel()
 	m, led, item := openLiveThread(t, 14)
 	agentReply(t, led, item.ID, "fresh news")
 	reloadTick(t, m)
@@ -170,6 +174,7 @@ func dropFooter(view string) string {
 }
 
 func TestLiveRefreshKeepsReplyDraft(t *testing.T) {
+	t.Parallel()
 	m, led, item := openLiveThread(t, 14)
 	press(t, m, "0hello")
 	sendKeyMsg(t, m, tea.KeyMsg{Type: tea.KeyCtrlB})
@@ -190,6 +195,7 @@ func TestLiveRefreshKeepsReplyDraft(t *testing.T) {
 }
 
 func TestLiveRefreshKeepsComposeDraft(t *testing.T) {
+	t.Parallel()
 	m, led, item := openLiveThread(t, 14)
 	m.Targets = []Target{{Name: "ada", Pane: "pane-9"}}
 	press(t, m, "c\thello")
@@ -212,6 +218,7 @@ func TestLiveRefreshKeepsComposeDraft(t *testing.T) {
 }
 
 func TestLiveRefreshKeepsHighlight(t *testing.T) {
+	t.Parallel()
 	m, led, item := openLiveThread(t, 40)
 	press(t, m, "/second\r")
 	press(t, m, "/thi")
@@ -228,6 +235,7 @@ func TestLiveRefreshKeepsHighlight(t *testing.T) {
 }
 
 func TestLiveRefreshShowsStateChange(t *testing.T) {
+	t.Parallel()
 	m, led, item := openLiveThread(t, 40)
 	if _, err := led.Answer(item.ID, "elsewhere", decide.ViaCLI); err != nil {
 		t.Fatal(err)
@@ -243,6 +251,7 @@ func TestLiveRefreshShowsStateChange(t *testing.T) {
 }
 
 func TestLiveRefreshKeepsDeletedItem(t *testing.T) {
+	t.Parallel()
 	m, _, item := openLiveThread(t, 40)
 	m.Dir = t.TempDir()
 	reloadTick(t, m)
@@ -256,6 +265,7 @@ func TestLiveRefreshKeepsDeletedItem(t *testing.T) {
 }
 
 func TestLiveRefreshUnchangedLedgerKeepsView(t *testing.T) {
+	t.Parallel()
 	m, _, _ := openLiveThread(t, 14)
 	press(t, m, "nj")
 	before := m.View()

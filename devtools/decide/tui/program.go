@@ -444,6 +444,10 @@ func (m *Model) updateKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if len(k.Runes) > 1 && k.Type == tea.KeyRunes {
+		if !m.modalOpen() && !m.composeRestorePrompt && m.composerFocused() && allPrintableRunes(k.Runes) {
+			m.editComposerKey(k)
+			return m, nil
+		}
 		for _, r := range k.Runes {
 			if cmd := m.applyRune(r); cmd != nil {
 				return m, cmd
@@ -459,6 +463,15 @@ func (m *Model) updateKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	return m, nil
+}
+
+func allPrintableRunes(runes []rune) bool {
+	for _, r := range runes {
+		if r < ' ' || r == '\x7f' {
+			return false
+		}
+	}
+	return true
 }
 
 type chordTimeoutMsg int

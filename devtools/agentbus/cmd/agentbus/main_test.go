@@ -14,6 +14,7 @@ import (
 )
 
 func TestRunFailsLoudlyWithoutRuntimeDir(t *testing.T) {
+	t.Parallel()
 	var stdout, stderr bytes.Buffer
 	home := "/Users/me"
 	if runtime.GOOS == "darwin" {
@@ -33,6 +34,7 @@ func TestRunFailsLoudlyWithoutRuntimeDir(t *testing.T) {
 }
 
 func TestRunRejectsCommands(t *testing.T) {
+	t.Parallel()
 	var stderr bytes.Buffer
 	code := run(context.Background(), []string{"send"}, []string{"XDG_RUNTIME_DIR=/tmp", "HOME=/Users/me"}, strings.NewReader(""), io.Discard, &stderr)
 	if code != 2 {
@@ -41,6 +43,7 @@ func TestRunRejectsCommands(t *testing.T) {
 }
 
 func TestLogReadsTheFileWithoutADaemon(t *testing.T) {
+	t.Parallel()
 	stateHome := t.TempDir()
 	lg := eventlog.Open(filepath.Join(stateHome, "agentbus"))
 	when := time.Date(2026, 11, 9, 3, 4, 5, 0, time.UTC)
@@ -72,6 +75,7 @@ func TestLogReadsTheFileWithoutADaemon(t *testing.T) {
 }
 
 func TestParseSince(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
 	tests := []struct {
 		in   string

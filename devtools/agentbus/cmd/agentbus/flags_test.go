@@ -10,6 +10,7 @@ import (
 )
 
 func TestParseInterspersedAcceptsFlagsAfterPositionals(t *testing.T) {
+	t.Parallel()
 	for _, tt := range []struct {
 		args     []string
 		wantPos  []string
@@ -37,6 +38,7 @@ func TestParseInterspersedAcceptsFlagsAfterPositionals(t *testing.T) {
 }
 
 func TestParseInterspersedReportsBadFlags(t *testing.T) {
+	t.Parallel()
 	fs := flag.NewFlagSet("t", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	if _, err := parseInterspersed(fs, []string{"a", "--bogus"}); err == nil {
@@ -45,6 +47,7 @@ func TestParseInterspersedReportsBadFlags(t *testing.T) {
 }
 
 func TestHibernateFlagsAfterTheHandle(t *testing.T) {
+	t.Parallel()
 	parse := func(args ...string) hibernate.Request {
 		t.Helper()
 		req, _, err := parseHibernate(args, io.Discard)
@@ -67,6 +70,7 @@ func TestHibernateFlagsAfterTheHandle(t *testing.T) {
 }
 
 func TestHibernateHoldNeedsNames(t *testing.T) {
+	t.Parallel()
 	req, _, err := parseHibernate([]string{"ops/x", "--hold"}, io.Discard)
 	if err != nil || !req.Hold {
 		t.Fatalf("--hold after the name: %+v, %v", req, err)
@@ -77,6 +81,7 @@ func TestHibernateHoldNeedsNames(t *testing.T) {
 }
 
 func TestWakeTakesANameAfterDoubleDash(t *testing.T) {
+	t.Parallel()
 	w, err := parseWake([]string{"--", "-odd"}, io.Discard)
 	if err != nil || w.target != "-odd" {
 		t.Fatalf("wake = %+v, err = %v", w, err)
@@ -87,6 +92,7 @@ func TestWakeTakesANameAfterDoubleDash(t *testing.T) {
 }
 
 func TestWakeFlagsAfterThePane(t *testing.T) {
+	t.Parallel()
 	w, err := parseWake([]string{"w1:p1", "--if-hibernated", "--wait", "--machine", "mini", "--model", "sonnet"}, io.Discard)
 	if err != nil || w.target != "w1:p1" || !w.ifHibernated || w.machine != "mini" || w.model != "sonnet" {
 		t.Fatalf("wake = %+v, err = %v", w, err)
@@ -102,6 +108,7 @@ func TestWakeFlagsAfterThePane(t *testing.T) {
 }
 
 func TestLeaseUnshareFlagsAfterThePane(t *testing.T) {
+	t.Parallel()
 	f, err := parseLeaseFlags("unshare", []string{"w1:p2", "--json"}, io.Discard)
 	if err != nil || !f.jsonOut || !slices.Equal(f.with, []string{"w1:p2"}) {
 		t.Fatalf("flags = %+v, err = %v", f, err)

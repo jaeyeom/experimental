@@ -111,6 +111,7 @@ func TestButtonLabelsAndBindings(t *testing.T) {
 }
 
 func TestButtonLabelFollowsRemappedKey(t *testing.T) {
+	t.Parallel()
 	km, err := decide.ResolveKeyMap(map[string][]string{
 		"compose.send":  {"ctrl+g"},
 		"edit.external": {"ctrl+x ctrl+e"},
@@ -161,6 +162,7 @@ func TestButtonASCIIFallback(t *testing.T) {
 }
 
 func TestButtonNarrowWidthDropsHintBeforeName(t *testing.T) {
+	t.Parallel()
 	if got := buttonLabel("Send", "^⏎", false, 11); got != "[Send (^⏎)]" {
 		t.Errorf("width 11 = %q, want [Send (^⏎)]", got)
 	}
@@ -191,6 +193,7 @@ func TestButtonNarrowWidthDropsHintBeforeName(t *testing.T) {
 }
 
 func TestButtonWithNoDirectKeyShowsNoHint(t *testing.T) {
+	t.Parallel()
 	if got := buttonLabel("Send", "", false, 0); got != "[Send]" {
 		t.Errorf("empty hint = %q, want [Send]", got)
 	}
@@ -239,6 +242,7 @@ func TestButtonWithNoDirectKeyShowsNoHint(t *testing.T) {
 }
 
 func TestButtonClickAreaCoversHint(t *testing.T) {
+	t.Parallel()
 	t.Run("compose send", func(t *testing.T) {
 		m, _, _ := composerModel(t, composerNote)
 		m.width, m.height = 80, 30

@@ -43,6 +43,7 @@ func mustTime(t *testing.T, field, value string) {
 }
 
 func TestStatusJSONHeldThenDelivered(t *testing.T) {
+	t.Parallel()
 	env, ad := heldWorld(t, nil)
 	ad.DeliverErr = &remotecall.UnreachableError{Machine: "local", Cause: "host unreachable"}
 	code, stdout, stderr := runCmd([]string{"send", heldReviewer, "held"}, env("p1"))
@@ -71,6 +72,7 @@ func TestStatusJSONHeldThenDelivered(t *testing.T) {
 }
 
 func TestStatusJSONComposerNotEmpty(t *testing.T) {
+	t.Parallel()
 	env, ad := heldWorld(t, nil)
 	ad.Composer = func(string) (bool, string, error) { return false, adapter.HoldDraft, nil }
 	id := firstID(t, mustOut(t, []string{"send", heldReviewer, "draft"}, env("p1")))
@@ -82,6 +84,7 @@ func TestStatusJSONComposerNotEmpty(t *testing.T) {
 }
 
 func TestStatusJSONSeveralIDsInOneCall(t *testing.T) {
+	t.Parallel()
 	env, _ := heldWorld(t, nil)
 	first := firstID(t, mustOut(t, []string{"send", heldReviewer, "one"}, env("p1")))
 	second := firstID(t, mustOut(t, []string{"send", heldReviewer, "two"}, env("p1")))
@@ -98,6 +101,7 @@ func TestStatusJSONSeveralIDsInOneCall(t *testing.T) {
 }
 
 func TestStatusUsage(t *testing.T) {
+	t.Parallel()
 	for _, args := range [][]string{
 		{"status"},
 		{"status", "--json"},
@@ -111,6 +115,7 @@ func TestStatusUsage(t *testing.T) {
 }
 
 func TestStatusTextIsUnchanged(t *testing.T) {
+	t.Parallel()
 	env, _ := heldWorld(t, nil)
 	id := firstID(t, mustOut(t, []string{"send", heldReviewer, "text"}, env("p1")))
 	stdout, _ := mustCmd(t, []string{"status", id}, env(""))
@@ -120,9 +125,10 @@ func TestStatusTextIsUnchanged(t *testing.T) {
 }
 
 func TestStatusJSONHubModeAnswersAPendingOutboxEntryLocally(t *testing.T) {
+	t.Parallel()
 	s := newTunnelSetup(t)
 	s.ssh.Write("locked", "")
-	id := pinClientID(t, idA)
+	id := s.pinClientID(idA)
 	if code, _, stderr := s.run(t, s.env, "", "send", hubTarget, "queued here"); code != 0 {
 		t.Fatalf("send = %d, stderr %q", code, stderr)
 	}
@@ -138,9 +144,10 @@ func TestStatusJSONHubModeAnswersAPendingOutboxEntryLocally(t *testing.T) {
 }
 
 func TestStatusJSONHubModeAsksTheHubForAForwardedMessage(t *testing.T) {
+	t.Parallel()
 	s := newTunnelSetup(t)
 	s.ssh.Write("locked", "")
-	id := pinClientID(t, idA)
+	id := s.pinClientID(idA)
 	if code, _, stderr := s.run(t, s.env, "", "send", hubTarget, "forwarded"); code != 0 {
 		t.Fatalf("send = %d, stderr %q", code, stderr)
 	}

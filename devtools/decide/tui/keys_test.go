@@ -9,6 +9,7 @@ import (
 )
 
 func TestDefaultKeyBindingsTable(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		scope  string
 		key    string
@@ -105,6 +106,7 @@ func TestDefaultKeyBindingsTable(t *testing.T) {
 }
 
 func TestRebindActionMovesToNewKeyAndOldKeyStopsWorking(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	mustCreate(t, led, &decide.Item{
@@ -170,6 +172,7 @@ func TestRebindActionMovesToNewKeyAndOldKeyStopsWorking(t *testing.T) {
 }
 
 func TestEmptyListUnbindsAction(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	mustCreate(t, led, &decide.Item{
@@ -199,6 +202,7 @@ func TestEmptyListUnbindsAction(t *testing.T) {
 }
 
 func TestHelpScreenShowsConfiguredKeys(t *testing.T) {
+	t.Parallel()
 	km, err := decide.ResolveKeyMap(map[string][]string{
 		"quit":         {"Q"},
 		"help":         {"h"},

@@ -74,6 +74,7 @@ func checkWorld(t *testing.T, ad *fake.Adapter, clk *syncClock, configTOML strin
 }
 
 func TestHeldCommandFiltersAndExitCodes(t *testing.T) {
+	t.Parallel()
 	clk := &syncClock{now: time.Date(2026, 11, 27, 4, 0, 0, 0, time.UTC)}
 	const (
 		sender   = "herdr:local/s1/w1:p1"
@@ -188,6 +189,7 @@ func TestHeldCommandFiltersAndExitCodes(t *testing.T) {
 }
 
 func TestAsksCommandRulesReplyClearingAndAge(t *testing.T) {
+	t.Parallel()
 	clk := &syncClock{now: time.Date(2026, 11, 27, 4, 0, 0, 0, time.UTC)}
 	const (
 		sender   = "herdr:local/s1/w1:p1"
@@ -270,6 +272,7 @@ func TestAsksCommandRulesReplyClearingAndAge(t *testing.T) {
 }
 
 func TestDialogsCommandBuiltinConfiguredIdleAndErrors(t *testing.T) {
+	t.Parallel()
 	const (
 		pPerm   = "herdr:local/s1/w1:p1"
 		pIdle   = "herdr:local/s1/w1:p2"
@@ -358,6 +361,7 @@ func TestDialogsCommandBuiltinConfiguredIdleAndErrors(t *testing.T) {
 }
 
 func TestCheckCommandsHubUnreachableExitsTwo(t *testing.T) {
+	t.Parallel()
 	s := newTunnelSetup(t)
 	s.ssh.Write("down", "")
 	s.ssh.Unreachable()

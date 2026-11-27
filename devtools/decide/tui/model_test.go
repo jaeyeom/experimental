@@ -23,21 +23,34 @@ import (
 
 func TestMain(m *testing.M) {
 	updateGolden = flag.Bool("update", false, "rewrite testdata golden views")
+	ledgerSync = false
 	dir, err := os.MkdirTemp("", "decide-tui-config")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "tui config dir: %v\n", err)
+		os.Exit(1)
+	}
+	stateDir, err := os.MkdirTemp("", "decide-tui-state")
+	if err != nil {
+		_ = os.RemoveAll(dir)
+		fmt.Fprintf(os.Stderr, "tui state dir: %v\n", err)
 		os.Exit(1)
 	}
 	if err := os.Setenv("XDG_CONFIG_HOME", dir); err != nil {
 		fmt.Fprintf(os.Stderr, "tui config env: %v\n", err)
 		os.Exit(1)
 	}
+	if err := os.Setenv("XDG_STATE_HOME", stateDir); err != nil {
+		fmt.Fprintf(os.Stderr, "tui state env: %v\n", err)
+		os.Exit(1)
+	}
 	code := m.Run()
 	_ = os.RemoveAll(dir)
+	_ = os.RemoveAll(stateDir)
 	os.Exit(code)
 }
 
 func TestInboxShowsOpenItemsInOrderAndBoldsUnread(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	soon := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
@@ -115,6 +128,7 @@ func TestInboxShowsOpenItemsInOrderAndBoldsUnread(t *testing.T) {
 }
 
 func TestInboxColumnsAlignAtTwoWidths(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
@@ -447,6 +461,7 @@ func blankBeforeBody(view, body string) bool {
 }
 
 func TestFolderKeysShowEachState(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	openItem := mustCreate(t, led, &decide.Item{Question: "open q", Owner: "ada", Kind: decide.KindRelay, State: decide.StateOpen})
@@ -483,6 +498,7 @@ func TestFolderKeysShowEachState(t *testing.T) {
 }
 
 func TestStatusFolderIsSelectable(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if _, err := decide.Open(dir); err != nil {
 		t.Fatal(err)
@@ -564,6 +580,7 @@ func TestStatusFolderIsSelectable(t *testing.T) {
 }
 
 func TestFolderCountsShareAColumn(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if _, err := decide.Open(dir); err != nil {
 		t.Fatal(err)
@@ -684,6 +701,7 @@ func settingsName(m *Model) string {
 }
 
 func TestEnterClearsUnread(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	item := mustCreate(t, led, &decide.Item{
@@ -716,6 +734,7 @@ func TestEnterClearsUnread(t *testing.T) {
 }
 
 func TestJAndKMove(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	first := mustCreate(t, led, &decide.Item{
@@ -754,6 +773,7 @@ func TestJAndKMove(t *testing.T) {
 }
 
 func TestWriteWhileOpenAppearsWithoutRestart(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	inR, inW := io.Pipe()
@@ -775,7 +795,7 @@ func TestWriteWhileOpenAppearsWithoutRestart(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatalf("inbox did not show %s\n%s", item.ID, out.String())
 		}
-		time.Sleep(15 * time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
 	}
 	if _, err := inW.Write([]byte{'q'}); err != nil {
 		t.Fatal(err)
@@ -791,6 +811,7 @@ func TestWriteWhileOpenAppearsWithoutRestart(t *testing.T) {
 }
 
 func TestDetailOneAnswersFirstOption(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	deadline := time.Date(2026, 12, 1, 15, 4, 5, 0, time.UTC)
@@ -899,6 +920,7 @@ func TestItemViewIgnoresUnboundKeys(t *testing.T) {
 }
 
 func TestDetailFreeTextSubmitsOnlyWhenSet(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	openFree := mustCreate(t, led, &decide.Item{
@@ -958,6 +980,7 @@ func TestDetailFreeTextSubmitsOnlyWhenSet(t *testing.T) {
 }
 
 func TestDetailTypeInMarkDone(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	item := mustCreate(t, led, &decide.Item{
@@ -1003,6 +1026,7 @@ func TestDetailTypeInMarkDone(t *testing.T) {
 }
 
 func TestDetailEMarksDoneAndDIsUnbound(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
@@ -1043,6 +1067,7 @@ func TestDetailEMarksDoneAndDIsUnbound(t *testing.T) {
 }
 
 func TestClickOpensRowSwitchesFolderAndScrolls(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	older := mustCreate(t, led, &decide.Item{
@@ -1117,6 +1142,7 @@ func TestClickOpensRowSwitchesFolderAndScrolls(t *testing.T) {
 }
 
 func TestWheelScrollsOpenItem(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	item := mustCreate(t, led, &decide.Item{
@@ -1316,6 +1342,7 @@ func TestItemViewScrollKeys(t *testing.T) {
 }
 
 func TestCursorStaysOnItemAfterNewMessageResorts(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	older := mustCreate(t, led, &decide.Item{
@@ -1354,6 +1381,7 @@ func TestCursorStaysOnItemAfterNewMessageResorts(t *testing.T) {
 }
 
 func TestListCursorStaysVisible(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	base := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
@@ -1734,6 +1762,7 @@ func lineAfterBorderN(view string, n int) string {
 }
 
 func TestFreeTextIsRowZero(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	two := mustCreate(t, led, &decide.Item{
@@ -1891,6 +1920,7 @@ func TestFreeTextIsRowZero(t *testing.T) {
 }
 
 func TestClickAnswersOptionAndFreeText(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	relay := mustCreate(t, led, &decide.Item{
@@ -1949,6 +1979,7 @@ func TestClickAnswersOptionAndFreeText(t *testing.T) {
 }
 
 func TestClickMarkDoneCompletesTypeIn(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	item := mustCreate(t, led, &decide.Item{
@@ -1984,6 +2015,7 @@ func TestClickMarkDoneCompletesTypeIn(t *testing.T) {
 }
 
 func TestComposeEnterSendsSeparateArguments(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	m := New(dir)
 	m.Targets = []Target{{Name: "inbox", Pane: "pane-1"}}
@@ -2049,6 +2081,7 @@ func TestComposeEnterSendsSeparateArguments(t *testing.T) {
 }
 
 func TestComposeFailureKeepsText(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	m := New(dir)
 	m.Targets = []Target{{Name: "inbox", Pane: "pane-1"}}
@@ -2074,6 +2107,7 @@ func TestComposeFailureKeepsText(t *testing.T) {
 }
 
 func TestComposeTargetChangesBeforeSend(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	m := New(dir)
 	m.Targets = []Target{
@@ -2140,6 +2174,7 @@ func TestComposeTargetChangesBeforeSend(t *testing.T) {
 }
 
 func TestShiftEnterDoesNotSend(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	m := New(dir)
 	m.Targets = []Target{{Name: "inbox", Pane: "pane-1"}}
@@ -2173,6 +2208,7 @@ func TestShiftEnterDoesNotSend(t *testing.T) {
 }
 
 func TestComposeHintKeysAndStatus(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	mustCreate(t, led, &decide.Item{
@@ -2262,6 +2298,7 @@ func TestComposeHintKeysAndStatus(t *testing.T) {
 }
 
 func TestComposeFocusDoesNotAnswer(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	item := mustCreate(t, led, &decide.Item{
@@ -2287,6 +2324,7 @@ func TestComposeFocusDoesNotAnswer(t *testing.T) {
 }
 
 func TestHelpOverlayShowsAndClosesWithoutSending(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	item := mustCreate(t, led, &decide.Item{
@@ -2391,6 +2429,7 @@ func TestHelpOverlayShowsAndClosesWithoutSending(t *testing.T) {
 }
 
 func TestBubbleTeaMouseMessages(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	older := mustCreate(t, led, &decide.Item{
@@ -2805,7 +2844,9 @@ func TestComposeCursorStaysOnALongLine(t *testing.T) {
 		t.Fatalf("focus %d focused %v", m.composeFocus, m.noteField.Focused())
 	}
 	const n = 1500
-	press(t, m, strings.Repeat("a", n))
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(strings.Repeat("a", n-5))})
+	m = next.(*Model)
+	press(t, m, "aaaaa")
 	if m.noteField.Value() != strings.Repeat("a", n) || len([]rune(m.note)) != n {
 		t.Fatalf("value len %d note len %d", len([]rune(m.noteField.Value())), len([]rune(m.note)))
 	}
@@ -2843,6 +2884,7 @@ func openLedger(t *testing.T, dir string) *decide.Ledger {
 	if err != nil {
 		t.Fatal(err)
 	}
+	led.SetSync(false)
 	return led
 }
 
@@ -2856,6 +2898,7 @@ func mustCreate(t *testing.T, led *decide.Ledger, item *decide.Item) decide.Item
 }
 
 func TestFocusedTextDoesNotTriggerShortcuts(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	relay := mustCreate(t, led, &decide.Item{
@@ -2949,6 +2992,7 @@ func TestFocusedTextDoesNotTriggerShortcuts(t *testing.T) {
 }
 
 func TestFocusedComposeDoesNotTriggerShortcuts(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	relay := mustCreate(t, led, &decide.Item{
@@ -3024,6 +3068,7 @@ func TestFocusedComposeDoesNotTriggerShortcuts(t *testing.T) {
 }
 
 func TestRunIsBubbleTeaProgram(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	r, w := io.Pipe()
 	var out bytes.Buffer
@@ -3054,15 +3099,16 @@ func TestRunIsBubbleTeaProgram(t *testing.T) {
 }
 
 func TestRunComposeInsertsTypedText(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	r, w := io.Pipe()
-	var out bytes.Buffer
+	out := &lockedBuf{}
 	done := make(chan error, 1)
 	go func() {
 		done <- Run(Options{
 			Dir:      dir,
 			In:       r,
-			Out:      &out,
+			Out:      out,
 			Interval: time.Hour,
 			Targets:  []Target{{Name: "alpha", Pane: "pane-1"}},
 		})
@@ -3070,11 +3116,14 @@ func TestRunComposeInsertsTypedText(t *testing.T) {
 	if _, err := w.Write([]byte("c\tHello? [A]")); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(200 * time.Millisecond)
+	waitBuf(t, out, func(s string) bool { return strings.Contains(s, "Hello? [A]") }, "compose text")
 	if _, err := w.Write([]byte{0x1b}); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(200 * time.Millisecond)
+	waitBuf(t, out, func(s string) bool {
+		idx := strings.Index(s, "Hello? [A]")
+		return idx >= 0 && strings.LastIndex(s, "[Inbox]") > idx
+	}, "compose exit")
 	if _, err := w.Write([]byte{'q'}); err != nil {
 		t.Fatal(err)
 	}
@@ -3098,7 +3147,19 @@ func TestRunComposeInsertsTypedText(t *testing.T) {
 	}
 }
 
+func waitBuf(t *testing.T, out *lockedBuf, ready func(string) bool, desc string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !ready(out.String()) {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s:\n%s", desc, out.String())
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
 func TestRunMouseClickIsMouseMsg(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	r, w := io.Pipe()
 	var out bytes.Buffer
@@ -3127,6 +3188,7 @@ func TestRunMouseClickIsMouseMsg(t *testing.T) {
 }
 
 func TestProgramShiftKeysDriveCompose(t *testing.T) {
+	t.Parallel()
 	m := New(t.TempDir())
 	m.Targets = []Target{{Name: "alpha", Pane: "p1"}, {Name: "beta", Pane: "p2"}}
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
@@ -3148,6 +3210,7 @@ func TestProgramShiftKeysDriveCompose(t *testing.T) {
 }
 
 func TestFocusedElementHasOneBorder(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	item := mustCreate(t, led, &decide.Item{
@@ -3215,6 +3278,7 @@ func TestFocusedElementHasOneBorder(t *testing.T) {
 }
 
 func TestGmailLayoutNarrowAndWide(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	deadline := time.Date(2026, 12, 1, 15, 4, 5, 0, time.UTC)
@@ -3382,6 +3446,7 @@ func TestWindowSizeFitsEveryPanel(t *testing.T) {
 }
 
 func TestViewHeightKeepsTopBorder(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	mustCreate(t, led, &decide.Item{
@@ -3451,6 +3516,7 @@ func TestViewHeightKeepsTopBorder(t *testing.T) {
 }
 
 func TestOpenItemFullScreenAndCompose(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	first := mustCreate(t, led, &decide.Item{
@@ -4009,6 +4075,7 @@ func TestThreadViewShowsTheDraftAndReplies(t *testing.T) {
 }
 
 func TestYArchivesANotificationNotAQuestion(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	item := mustCreate(t, led, &decide.Item{
@@ -4189,6 +4256,7 @@ func TestOpenItemWrapsQuestionOptionsAndLinks(t *testing.T) {
 }
 
 func TestFocusedTextShowsACursor(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	mustCreate(t, led, &decide.Item{
@@ -4248,6 +4316,7 @@ func TestFocusedTextShowsACursor(t *testing.T) {
 }
 
 func TestComposeBoxesFollowFocusAndFit(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	mustCreate(t, led, &decide.Item{
@@ -4454,6 +4523,7 @@ func TestStatusBoardShowsAgentsResourcesAndDimsStale(t *testing.T) {
 }
 
 func TestStatusComposeFromHighlightedAgent(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	mustCreate(t, led, &decide.Item{
@@ -4589,7 +4659,7 @@ func borderHighlighted(line string) bool {
 }
 
 func TestItemViewShowsVerbatimQuoteBlock(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	mustCreate(t, led, &decide.Item{
@@ -4618,7 +4688,7 @@ func TestItemViewShowsVerbatimQuoteBlock(t *testing.T) {
 }
 
 func TestVerbatimOnlyThreadShowsInListAndItemView(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	if _, err := led.StartThreadVerbatim("alpha", "pane-a", "", "Exact user line\n"+strings.Repeat("x", 200), decide.ViaCLI); err != nil {

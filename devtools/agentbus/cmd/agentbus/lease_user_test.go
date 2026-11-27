@@ -21,6 +21,7 @@ func (w *leaseWorld) userPane() *leaseWorld {
 }
 
 func TestLeasePauseIsRefusedFromAnAgentPaneAndGrantedFromAPlainOne(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t).userPane()
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
@@ -45,6 +46,7 @@ func TestLeasePauseIsRefusedFromAnAgentPaneAndGrantedFromAPlainOne(t *testing.T)
 }
 
 func TestLeasePauseWhileAnAgentHoldsAsksItToRelease(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t).userPane()
 	stop := sync.OnceFunc(startDaemon(t, w.dirs, w.cfg))
 	defer stop()
@@ -70,6 +72,7 @@ func TestLeasePauseWhileAnAgentHoldsAsksItToRelease(t *testing.T) {
 }
 
 func TestLeasePauseWithSharesTheHoldUntilUnshare(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t).userPane()
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
@@ -115,6 +118,7 @@ func TestLeasePauseWithSharesTheHoldUntilUnshare(t *testing.T) {
 }
 
 func TestLeaseResumeRefusesADirtyTree(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t).userPane()
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
@@ -132,6 +136,7 @@ func TestLeaseResumeRefusesADirtyTree(t *testing.T) {
 }
 
 func TestLeaseResumeAsIsLeavesTheBranchAndGrantsTheNextWaiter(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t).userPane()
 	stop := sync.OnceFunc(startDaemon(t, w.dirs, w.cfg))
 	defer stop()
@@ -162,6 +167,7 @@ func TestLeaseResumeAsIsLeavesTheBranchAndGrantsTheNextWaiter(t *testing.T) {
 }
 
 func TestLeaseResumeSwitchesToTheDefaultBranch(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t).userPane()
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
@@ -175,8 +181,9 @@ func TestLeaseResumeSwitchesToTheDefaultBranch(t *testing.T) {
 }
 
 func TestLeaseResumeAfterTheUserAdopted(t *testing.T) {
-	noProcs(t)
+	t.Parallel()
 	w := newLeaseWorld(t).userPane()
+	w.noProcs()
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
 	w.dirty(t)
@@ -189,6 +196,7 @@ func TestLeaseResumeAfterTheUserAdopted(t *testing.T) {
 }
 
 func TestLeaseResumeWhileQueuedWithdrawsThePause(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t).userPane()
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()

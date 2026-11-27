@@ -7,6 +7,7 @@ import (
 )
 
 func TestTUIInboxRecordsAllFourAnswerTypes(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 

@@ -3,15 +3,18 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter/fake"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/checkout"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
@@ -36,6 +39,85 @@ type leaseWorld struct {
 	dirs   paths.Dirs
 	cfg    daemon.Config
 	ad     *fake.Adapter
+	hooks  cmdHooks
+}
+
+var leaseTmpl struct { //nolint:pkgvar // cached read-only git fixture shared across lease tests
+	once   sync.Once
+	dir    string
+	repo   string
+	origin string
+	err    error
+}
+
+func initLeaseTemplate() {
+	dir, err := os.MkdirTemp("", "agentbus-lease-tmpl-*")
+	if err != nil {
+		leaseTmpl.err = err
+		return
+	}
+	dir, err = filepath.EvalSymlinks(dir)
+	if err != nil {
+		leaseTmpl.err = err
+		return
+	}
+	repo := filepath.Join(dir, "repo")
+	origin := filepath.Join(dir, "origin.git")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		leaseTmpl.err = err
+		return
+	}
+	env := []string{
+		"PATH=" + os.Getenv("PATH"),
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL=" + os.DevNull,
+	}
+	git := func(args ...string) error {
+		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...) //nolint:gosec // G204: test git in a temp repo
+		cmd.Env = env
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("git %v: %w\n%s", args, err, out)
+		}
+		return nil
+	}
+	if err := git("init", "-q", "-b", "main"); err != nil {
+		leaseTmpl.err = err
+		return
+	}
+	if err := os.WriteFile(filepath.Join(repo, "a.txt"), []byte("a\n"), 0o600); err != nil {
+		leaseTmpl.err = err
+		return
+	}
+	for _, args := range [][]string{
+		{"add", "a.txt"},
+		{"-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "init"},
+		{"clone", "-q", "--bare", repo, origin},
+		{"remote", "add", "origin", origin},
+		{"fetch", "-q", "origin"},
+		{"remote", "set-head", "origin", "main"},
+		{"branch", "-q", "--set-upstream-to", "origin/main"},
+	} {
+		if err := git(args...); err != nil {
+			leaseTmpl.err = err
+			return
+		}
+	}
+	leaseTmpl.dir = dir
+	leaseTmpl.repo = repo
+	leaseTmpl.origin = origin
+}
+
+func rewriteConfigPaths(path, oldRepo, newRepo, oldOrigin, newOrigin string) error {
+	data, err := os.ReadFile(path) //nolint:gosec // G304: test temp git config path
+	if err != nil {
+		return fmt.Errorf("read %s: %w", path, err)
+	}
+	updated := strings.ReplaceAll(string(data), oldOrigin, newOrigin)
+	updated = strings.ReplaceAll(updated, oldRepo, newRepo)
+	if err := os.WriteFile(path, []byte(updated), 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
 }
 
 func newLeaseWorld(t *testing.T) *leaseWorld {
@@ -43,9 +125,30 @@ func newLeaseWorld(t *testing.T) *leaseWorld {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not installed")
 	}
+	leaseTmpl.once.Do(initLeaseTemplate)
+	if leaseTmpl.err != nil {
+		t.Fatalf("init lease template: %v", leaseTmpl.err)
+	}
 	repo, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
+	}
+	originDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	origin := filepath.Join(originDir, "origin.git")
+	if err := os.CopyFS(repo, os.DirFS(leaseTmpl.repo)); err != nil {
+		t.Fatalf("copy repo: %v", err)
+	}
+	if err := os.CopyFS(origin, os.DirFS(leaseTmpl.origin)); err != nil {
+		t.Fatalf("copy origin: %v", err)
+	}
+	if err := rewriteConfigPaths(filepath.Join(repo, ".git", "config"), leaseTmpl.repo, repo, leaseTmpl.origin, origin); err != nil {
+		t.Fatalf("rewrite repo config: %v", err)
+	}
+	if err := rewriteConfigPaths(filepath.Join(origin, "config"), leaseTmpl.repo, repo, leaseTmpl.origin, origin); err != nil {
+		t.Fatalf("rewrite origin config: %v", err)
 	}
 	configHome := t.TempDir()
 	base := []string{
@@ -57,24 +160,6 @@ func newLeaseWorld(t *testing.T) *leaseWorld {
 		"GIT_CONFIG_NOSYSTEM=1",
 		"GIT_CONFIG_GLOBAL=" + os.DevNull,
 	}
-	git := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...) //nolint:gosec // G204: test git in a temp repo
-		cmd.Env = base
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
-	git("init", "-q", "-b", "main")
-	writeFile(t, filepath.Join(repo, "a.txt"), []byte("a\n"))
-	git("add", "a.txt")
-	git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "init")
-	origin := filepath.Join(t.TempDir(), "origin.git")
-	git("clone", "-q", "--bare", repo, origin)
-	git("remote", "add", "origin", origin)
-	git("fetch", "-q", "origin")
-	git("remote", "set-head", "origin", "main")
-	git("branch", "-q", "--set-upstream-to", "origin/main")
 	writeFile(t, filepath.Join(configHome, "agentbus", "config.toml"), []byte(`lease_checkouts = ["`+repo+`"]`+"\n"))
 
 	dirs, err := paths.FromEnv(base)
@@ -110,10 +195,14 @@ func (w *leaseWorld) as(pane string) []string {
 	return append(append([]string{}, w.base...), "HERDR_PANE_ID="+pane)
 }
 
+func (w *leaseWorld) noProcs() {
+	w.hooks.listProcs = func() ([]checkout.Proc, error) { return nil, nil }
+}
+
 func (w *leaseWorld) lease(t *testing.T, pane string, args ...string) (int, string, string) {
 	t.Helper()
 	full := append([]string{"lease", args[0], "--path", w.repo}, args[1:]...)
-	return runCmd(full, w.as(pane))
+	return runCmdCtx(withCmdHooks(context.Background(), w.hooks), full, w.as(pane))
 }
 
 func (w *leaseWorld) mustLease(t *testing.T, pane string, args ...string) string {
@@ -126,6 +215,7 @@ func (w *leaseWorld) mustLease(t *testing.T, pane string, args ...string) string
 }
 
 func TestLeaseClaimQueueLeaveExtendCheck(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
@@ -249,6 +339,7 @@ func TestLeaseRefusesAnUnguardedClaim(t *testing.T) {
 }
 
 func TestLeaseDirtyFreeCheckoutIsGrantedAsNeedsAdopt(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
@@ -266,6 +357,7 @@ func TestLeaseDirtyFreeCheckoutIsGrantedAsNeedsAdopt(t *testing.T) {
 }
 
 func TestLeaseStatusShowsTheTakeoverMode(t *testing.T) {
+	t.Parallel()
 	for _, tt := range []struct {
 		mode lease.TakeoverMode
 		want string
@@ -298,8 +390,9 @@ func TestLeaseStatusShowsTheTakeoverMode(t *testing.T) {
 }
 
 func TestLeaseLogOnlyDirtyFreeCheckoutCanBeAdopted(t *testing.T) {
-	noProcs(t)
+	t.Parallel()
 	w := newLeaseWorld(t)
+	w.noProcs()
 	w.cfg.LeaseTiming.Takeover = lease.TakeoverLog
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
@@ -319,6 +412,7 @@ func TestLeaseLogOnlyDirtyFreeCheckoutCanBeAdopted(t *testing.T) {
 }
 
 func TestLeaseStateSurvivesRestart(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
 	stop := startDaemon(t, w.dirs, w.cfg)
 	w.mustLease(t, "p1", "claim", "--for", "40m")
@@ -339,6 +433,7 @@ func TestLeaseStateSurvivesRestart(t *testing.T) {
 }
 
 func TestLeaseStatusJSONGolden(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()

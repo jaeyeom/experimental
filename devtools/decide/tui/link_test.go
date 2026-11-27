@@ -15,6 +15,7 @@ import (
 )
 
 func TestCopyFallsBackAcrossClipboardTools(t *testing.T) {
+	t.Parallel()
 	var calls []string
 	err := copyWith("hi", func(name string, args []string, text string) error {
 		calls = append(calls, name)
@@ -50,6 +51,7 @@ func TestCopyFallsBackAcrossClipboardTools(t *testing.T) {
 }
 
 func TestClickAndCopyWhileMouseCaptureIsOn(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	link := "https://example.com/" + strings.Repeat("p", 80) + "/tailtoken"
@@ -200,6 +202,7 @@ func TestClickAndCopyWhileMouseCaptureIsOn(t *testing.T) {
 }
 
 func TestYCopiesTheQuestionWhenTheThreadIsEmpty(t *testing.T) {
+	t.Parallel()
 	m := New(t.TempDir())
 	m.mode = modeDetail
 	m.detail = &decide.Item{Question: "just a question"}
@@ -220,6 +223,7 @@ func TestYCopiesTheQuestionWhenTheThreadIsEmpty(t *testing.T) {
 }
 
 func TestLOpensTheOnlyLink(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	mustCreate(t, led, &decide.Item{

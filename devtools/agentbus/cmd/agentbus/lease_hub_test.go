@@ -37,12 +37,12 @@ type hubLeaseWorld struct {
 
 func newHubLeaseWorld(t *testing.T, configLines ...string) *hubLeaseWorld {
 	t.Helper()
-	sshFake := sshtest.Install(t)
+	w := newLeaseWorld(t)
+	sshFake := sshtest.InstallInEnv(t, &w.base)
 	sshFake.InstallTool("agentbus")
-	herdrFake := herdrtest.Install(t)
+	herdrFake := herdrtest.InstallInEnv(t, &w.base)
 	herdrFake.Write("local.agents", agentsJSON("w1:p1=idle", "w1:p2=idle"))
 	herdrFake.Write("linux2.agents", agentsJSON("w1:p1=idle", "w1:p2=idle"))
-	w := newLeaseWorld(t)
 	configHome := envGet(w.base, "XDG_CONFIG_HOME")
 	lines := append([]string{`hub = "me@hub"`, `machine = "linux2"`, `lease_checkouts = ["` + w.repo + `"]`}, configLines...)
 	writeFile(t, filepath.Join(configHome, "agentbus", "config.toml"), []byte(strings.Join(lines, "\n")+"\n"))
@@ -78,7 +78,7 @@ func (h *hubLeaseWorld) startHubOverSSH(t *testing.T) []string {
 	if err := os.WriteFile(filepath.Join(dir, "agentbus"), []byte(script), 0o755); err != nil { //nolint:gosec // test executable
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	h.base = sshtest.PrependPath(h.base, dir)
 	return hubEnv
 }
 
@@ -98,7 +98,11 @@ func (h *hubLeaseWorld) startHub(t *testing.T, hubSocket string) []string {
 	if hubSocket != "" {
 		dirs.HubSocketPath = hubSocket
 	}
-	ad := &herdr.Adapter{Machines: []string{"linux2"}, Timeout: 5 * time.Second}
+	ad := &herdr.Adapter{
+		Machines: []string{"linux2"},
+		Timeout:  5 * time.Second,
+		Env:      []string{"PATH=" + envGet(h.base, "PATH")},
+	}
 	stop := startDaemon(t, dirs, daemon.Config{
 		Adapters:     []adapter.Adapter{ad},
 		PollInterval: time.Hour,
@@ -124,6 +128,7 @@ func hubStatus(t *testing.T, hubEnv []string) []lease.Status {
 }
 
 func TestLeaseClaimUsesTheTunnelWhenTheRuntimeDirCannotBeChmodded(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS != "darwin" {
 		t.Skip("the default runtime directory is darwin's")
 	}
@@ -152,6 +157,7 @@ func TestLeaseClaimUsesTheTunnelWhenTheRuntimeDirCannotBeChmodded(t *testing.T) 
 }
 
 func TestLeaseHubTunnelClaimAndReleaseRunGitHere(t *testing.T) {
+	t.Parallel()
 	h := newHubLeaseWorld(t)
 	hubEnv := h.startHubDaemon(t)
 	key := "linux2:" + h.repo
@@ -194,6 +200,7 @@ func TestLeaseHubTunnelClaimAndReleaseRunGitHere(t *testing.T) {
 }
 
 func TestLeaseHubPauseFromAnAgentPaneIsRefusedOverTheTunnel(t *testing.T) {
+	t.Parallel()
 	h := newHubLeaseWorld(t)
 	h.startHubDaemon(t)
 	code, _, stderr := h.lease(t, "w1:p1", "pause")
@@ -233,6 +240,7 @@ func (h *hubLeaseWorld) assertRoute(t *testing.T, ssh bool) {
 }
 
 func TestLeaseHubPauseFromAPlainPaneOverSSH(t *testing.T) {
+	t.Parallel()
 	h := newHubLeaseWorld(t).plainPane()
 	hubEnv := h.startHubOverSSH(t)
 	if out := h.mustLease(t, "w1:p3", "pause", "--with", "w1:p2"); !strings.Contains(out, "paused linux2:"+h.repo) {
@@ -246,8 +254,10 @@ func TestLeaseHubPauseFromAPlainPaneOverSSH(t *testing.T) {
 }
 
 func TestLeaseHubResumeFromAPlainPane(t *testing.T) {
+	t.Parallel()
 	for _, route := range hubRoutes {
 		t.Run(route.name, func(t *testing.T) {
+			t.Parallel()
 			h := newHubLeaseWorld(t).plainPane()
 			hubEnv := route.start(h, t)
 			h.mustLease(t, "w1:p3", "pause")
@@ -287,11 +297,17 @@ func TestLeaseHubResumeFromAPlainPane(t *testing.T) {
 	}
 }
 
+func (h *hubLeaseWorld) hook(t *testing.T, env []string, tool string, input map[string]any, cwd string) (string, string, string) {
+	return h.leaseWorld.hook(t, env, tool, input, cwd)
+}
+
 func TestLeaseHubAdoptFromAPlainPane(t *testing.T) {
-	noProcs(t)
+	t.Parallel()
 	for _, route := range hubRoutes {
 		t.Run(route.name, func(t *testing.T) {
+			t.Parallel()
 			h := newHubLeaseWorld(t).plainPane()
+			h.noProcs()
 			hubEnv := route.start(h, t)
 			h.dirty(t)
 			if out := h.mustLease(t, "w1:p1", "claim", "--for", "40m"); !strings.Contains(out, "needs-adopt") {
@@ -315,10 +331,12 @@ func TestLeaseHubAdoptFromAPlainPane(t *testing.T) {
 }
 
 func TestLeaseHubUserOpsFromAnAgentPaneAreRefused(t *testing.T) {
-	noProcs(t)
+	t.Parallel()
 	for _, route := range hubRoutes {
 		t.Run(route.name, func(t *testing.T) {
+			t.Parallel()
 			h := newHubLeaseWorld(t)
+			h.noProcs()
 			hubEnv := route.start(h, t)
 			for _, op := range []string{"pause", "resume"} {
 				if code, _, stderr := h.lease(t, "w1:p1", op); code != 1 || !strings.Contains(stderr, "lease "+op+" is for the user") {
@@ -347,6 +365,7 @@ func TestLeaseHubUserOpsFromAnAgentPaneAreRefused(t *testing.T) {
 }
 
 func TestLeaseHubPauseFromAPlainPaneOverTheTunnel(t *testing.T) {
+	t.Parallel()
 	h := newHubLeaseWorld(t).plainPane()
 	hubEnv := h.startHubDaemon(t)
 
@@ -371,6 +390,7 @@ func TestLeaseHubPauseFromAPlainPaneOverTheTunnel(t *testing.T) {
 }
 
 func TestLeaseHubHookEnforcesOverTheTunnel(t *testing.T) {
+	t.Parallel()
 	h := newHubLeaseWorld(t)
 	h.startHubDaemon(t)
 	h.mustLease(t, "w1:p1", "claim", "--for", "40m")
@@ -394,6 +414,7 @@ func TestLeaseHubHookEnforcesOverTheTunnel(t *testing.T) {
 // The hub logs a hook denial with the caller's machine, over the
 // tunnel and over ssh.
 func TestLeaseHubHookDenialNamesTheCallersMachine(t *testing.T) {
+	t.Parallel()
 	for _, route := range hubRoutes {
 		h := newHubLeaseWorld(t)
 		hubEnv := route.start(h, t)
@@ -437,6 +458,7 @@ func (h *hubLeaseWorld) forwarded(t *testing.T) daemon.Request {
 }
 
 func TestLeaseHubSSHReleaseRunsGitHereAndSendsOnlyFacts(t *testing.T) {
+	t.Parallel()
 	h := newHubLeaseWorld(t)
 	h.ssh.Reachable()
 	key := "linux2:" + h.repo
@@ -469,6 +491,7 @@ func TestLeaseHubSSHReleaseRunsGitHereAndSendsOnlyFacts(t *testing.T) {
 }
 
 func TestLeaseHubSSHClaimSendsTheTreeAndTheMachineKey(t *testing.T) {
+	t.Parallel()
 	h := newHubLeaseWorld(t)
 	h.ssh.Reachable()
 	key := "linux2:" + h.repo
@@ -488,6 +511,7 @@ func TestLeaseHubSSHClaimSendsTheTreeAndTheMachineKey(t *testing.T) {
 }
 
 func TestLeaseHubPauseWithNamesThisMachinesPanes(t *testing.T) {
+	t.Parallel()
 	h := newHubLeaseWorld(t)
 	h.ssh.Reachable()
 	key := "linux2:" + h.repo
@@ -507,6 +531,7 @@ func TestLeaseHubPauseWithNamesThisMachinesPanes(t *testing.T) {
 }
 
 func TestLeaseHubUnguardedCheckMakesNoSSHCall(t *testing.T) {
+	t.Parallel()
 	h := newHubLeaseWorld(t)
 	code, _, stderr := runCmd([]string{"lease", "check", "--path", t.TempDir()}, h.as("w1:p1"))
 	if code != checkAllowed || h.usedSSH() {
@@ -520,6 +545,7 @@ func TestLeaseHubUnguardedCheckMakesNoSSHCall(t *testing.T) {
 }
 
 func TestLeaseHubUnreachable(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		setup func(h *hubLeaseWorld)
@@ -531,7 +557,11 @@ func TestLeaseHubUnreachable(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := newHubLeaseWorld(t, `remote_timeout = "1s"`)
+			t.Parallel()
+			h := newHubLeaseWorld(t, `remote_timeout = "100ms"`)
+			if tt.name == "hang" {
+				h.hooks.leaseHookTimeout = 800 * time.Millisecond
+			}
 			tt.setup(h)
 
 			start := time.Now()
@@ -565,6 +595,7 @@ func TestLeaseHubUnreachable(t *testing.T) {
 }
 
 func TestLeaseForwardRunsOnTheHubDaemon(t *testing.T) {
+	t.Parallel()
 	h := newHubLeaseWorld(t)
 	hubEnv := h.startHubDaemon(t)
 	remote := append(append([]string{}, hubEnv...), "SSH_CONNECTION=10.0.0.2 5000 10.0.0.1 22", herdr.AsHandleEnv+"="+hubAlice)
@@ -596,6 +627,7 @@ func TestLeaseForwardRunsOnTheHubDaemon(t *testing.T) {
 }
 
 func TestLeaseForwardRefusesAnotherMachinesCheckout(t *testing.T) {
+	t.Parallel()
 	// w1:p3 is a plain terminal pane: its caller is the user.
 	h := newHubLeaseWorld(t).plainPane()
 	hubEnv := h.startHubDaemon(t)

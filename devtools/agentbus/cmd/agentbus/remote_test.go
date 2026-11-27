@@ -44,14 +44,14 @@ type remoteBus struct {
 // herdr. Local has w1:p1 and w1:p2; machine m2 has w2:p3. All are idle.
 func startRemoteBus(t *testing.T, timeout, poll time.Duration) *remoteBus {
 	t.Helper()
-	fake := herdrtest.Install(t)
-	fake.Write("local.agents", agentsJSON("w1:p1=idle", "w1:p2=idle"))
-	fake.Write("m2.agents", agentsJSON("w2:p3=idle"))
 	base := []string{
 		"XDG_RUNTIME_DIR=" + shortRuntime(t),
 		"XDG_STATE_HOME=" + t.TempDir(),
 		"HOME=" + t.TempDir(),
 	}
+	fake := herdrtest.InstallInEnv(t, &base)
+	fake.Write("local.agents", agentsJSON("w1:p1=idle", "w1:p2=idle"))
+	fake.Write("m2.agents", agentsJSON("w2:p3=idle"))
 	dirs, err := paths.FromEnv(base)
 	if err != nil {
 		t.Fatal(err)
@@ -59,6 +59,7 @@ func startRemoteBus(t *testing.T, timeout, poll time.Duration) *remoteBus {
 	ad := &herdr.Adapter{
 		Machines:     []string{"m2"},
 		Timeout:      timeout,
+		Env:          base,
 		AgentSockets: func(context.Context) []string { return nil },
 	}
 	stop := startDaemon(t, dirs, daemon.Config{Adapters: []adapter.Adapter{ad}, PollInterval: poll})
@@ -91,6 +92,7 @@ func sendID(t *testing.T, env []string, target, body string) (string, string) {
 }
 
 func TestRemoteMessageHeldWhileMachineUnreachable(t *testing.T) {
+	t.Parallel()
 	bus := startRemoteBus(t, 5*time.Second, time.Hour)
 	bus.fake.Write("m2.down", "")
 	id, state := sendID(t, bus.env("w1:p1"), remoteTarget, "remote-body")
@@ -125,7 +127,8 @@ func TestRemoteMessageHeldWhileMachineUnreachable(t *testing.T) {
 }
 
 func TestHungMachineDoesNotHoldUpLocalDelivery(t *testing.T) {
-	bus := startRemoteBus(t, 3*time.Second, 50*time.Millisecond)
+	t.Parallel()
+	bus := startRemoteBus(t, 400*time.Millisecond, 20*time.Millisecond)
 	bus.fake.Write("local.agents", agentsJSON("w1:p1=idle", "w1:p2=blocked"))
 	localID, state := sendID(t, bus.env("w1:p1"), "herdr:local/default/w1:p2", "local-body")
 	if state != "held: blocked" {
@@ -135,14 +138,14 @@ func TestHungMachineDoesNotHoldUpLocalDelivery(t *testing.T) {
 	bus.fake.Write("m2.hang", "")
 	start := time.Now()
 	remoteID, state := sendID(t, bus.env("w1:p1"), remoteTarget, "remote-body")
-	if took := time.Since(start); took > 8*time.Second {
+	if took := time.Since(start); took > 3*time.Second {
 		t.Fatalf("send to a hung machine took %s", took)
 	}
 	if want := "held: machine m2 unreachable: " + remotecall.CauseAuthLocked; state != want {
 		t.Fatalf("remote send state = %q, want %q", state, want)
 	}
 
-	// The poller is now stuck on m2 for up to 3s per call. The local
+	// The poller is now stuck on m2 for up to 400ms per call. The local
 	// pane unblocks, and its message must go out well before that.
 	bus.fake.Write("local.agents", agentsJSON("w1:p1=idle", "w1:p2=idle"))
 	deadline := time.Now().Add(2 * time.Second)
@@ -150,7 +153,7 @@ func TestHungMachineDoesNotHoldUpLocalDelivery(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatal("local message was not delivered while m2 hung")
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(5 * time.Millisecond)
 	}
 	if logHas(t, bus.dirs, eventlog.EventDelivered, remoteID) {
 		t.Fatal("remote message was delivered while m2 hung")
@@ -158,7 +161,8 @@ func TestHungMachineDoesNotHoldUpLocalDelivery(t *testing.T) {
 }
 
 func TestSearchIncludesConfiguredMachines(t *testing.T) {
-	bus := startRemoteBus(t, 5*time.Second, 50*time.Millisecond)
+	t.Parallel()
+	bus := startRemoteBus(t, 5*time.Second, 20*time.Millisecond)
 	out, stderr := mustCmd(t, []string{"search"}, bus.base)
 	handles := map[string]bool{}
 	for _, row := range parseRows(out) {
@@ -185,7 +189,7 @@ func TestSearchIncludesConfiguredMachines(t *testing.T) {
 		if stderr != "" || time.Now().After(deadline) {
 			break
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(5 * time.Millisecond)
 	}
 	rows := parseRows(out)
 	if len(rows) != 2 || strings.Contains(out, "herdr:m2/") {
@@ -199,6 +203,7 @@ func TestSearchIncludesConfiguredMachines(t *testing.T) {
 // TestHubModeCallerRegistersAndGetsRepliesOnItsMachine runs the hub side:
 // the commands arrive over ssh with the caller's remote handle.
 func TestHubModeCallerRegistersAndGetsRepliesOnItsMachine(t *testing.T) {
+	t.Parallel()
 	bus := startRemoteBus(t, 5*time.Second, time.Hour)
 	hubEnv := append(append([]string{}, bus.base...),
 		"SSH_CONNECTION=10.0.0.2 50000 10.0.0.1 22",
@@ -231,6 +236,7 @@ func TestHubModeCallerRegistersAndGetsRepliesOnItsMachine(t *testing.T) {
 }
 
 func TestNameOnUnreachableMachineIsNotReleased(t *testing.T) {
+	t.Parallel()
 	bus := startRemoteBus(t, 5*time.Second, time.Hour)
 	mustCmd(t, []string{"register", "eng/remote", "--when", "runs on m2"}, bus.env("w1:p1"))
 	mustCmd(t, []string{"release", "eng/remote", "--to", remoteTarget}, bus.env("w1:p1"))
@@ -248,7 +254,13 @@ func TestNameOnUnreachableMachineIsNotReleased(t *testing.T) {
 }
 
 func TestRemoteAuthLockedHoldReasonAndStatusNameSocketPath(t *testing.T) {
-	fake := herdrtest.Install(t)
+	t.Parallel()
+	base := []string{
+		"XDG_RUNTIME_DIR=" + shortRuntime(t),
+		"XDG_STATE_HOME=" + t.TempDir(),
+		"HOME=" + t.TempDir(),
+	}
+	fake := herdrtest.InstallInEnv(t, &base)
 	fake.Write("local.agents", agentsJSON("w1:p1=idle", "w1:p2=idle"))
 	fake.Write("m2.locked", "")
 
@@ -264,11 +276,6 @@ func TestRemoteAuthLockedHoldReasonAndStatusNameSocketPath(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = ln.Close() })
 
-	base := []string{
-		"XDG_RUNTIME_DIR=" + shortRuntime(t),
-		"XDG_STATE_HOME=" + t.TempDir(),
-		"HOME=" + t.TempDir(),
-	}
 	dirs, err := paths.FromEnv(base)
 	if err != nil {
 		t.Fatal(err)
@@ -276,6 +283,7 @@ func TestRemoteAuthLockedHoldReasonAndStatusNameSocketPath(t *testing.T) {
 	ad := &herdr.Adapter{
 		Machines:     []string{"m2"},
 		Timeout:      5 * time.Second,
+		Env:          base,
 		AgentSockets: func(context.Context) []string { return []string{lockedSock} },
 	}
 	stop := startDaemon(t, dirs, daemon.Config{Adapters: []adapter.Adapter{ad}, PollInterval: time.Hour})

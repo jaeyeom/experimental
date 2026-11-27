@@ -23,6 +23,7 @@ const (
 )
 
 func TestSendReportsAnUnreachableTransport(t *testing.T) {
+	t.Parallel()
 	env, _ := heldWorld(t, errors.New("herdr agent list: no herdr server is running"))
 	code, stdout, stderr := runCmd([]string{"send", heldReviewer, "stuck"}, env("p1"))
 	if code != 3 || !strings.Contains(stderr, heldNote) || !strings.Contains(stderr, "See: agentbus doctor") || strings.Contains(stderr, anonNote) {
@@ -34,6 +35,7 @@ func TestSendReportsAnUnreachableTransport(t *testing.T) {
 }
 
 func TestSendReportsAHoldThatLandsAfterTheStore(t *testing.T) {
+	t.Parallel()
 	env, ad := heldWorld(t, nil)
 	ad.DeliverErr = &remotecall.UnreachableError{Machine: "local", Cause: "host unreachable"}
 	start := time.Now()
@@ -47,6 +49,7 @@ func TestSendReportsAHoldThatLandsAfterTheStore(t *testing.T) {
 }
 
 func TestSendTellsAnAnonymousSenderTheHold(t *testing.T) {
+	t.Parallel()
 	env, ad, dirs := heldWorldDirs(t, errors.New("herdr agent list: down"))
 	ad.PaneHandles = nil
 	code, stdout, stderr := runCmd([]string{"send", heldReviewer, "from a pane herdr cannot see"}, env("p1"))
@@ -65,6 +68,7 @@ func TestSendTellsAnAnonymousSenderTheHold(t *testing.T) {
 }
 
 func TestSendToAReachableTransportStaysQueued(t *testing.T) {
+	t.Parallel()
 	env, _ := heldWorld(t, nil)
 	code, stdout, stderr := runCmd([]string{"send", heldReviewer, "hello"}, env("p1"))
 	if code != 0 || !strings.Contains(stdout, "queued for delivery") || strings.Contains(stderr, heldNote) {
@@ -73,6 +77,7 @@ func TestSendToAReachableTransportStaysQueued(t *testing.T) {
 }
 
 func TestDoctorPrintsLiveHerdrDownWhenTheLogHasNoEvent(t *testing.T) {
+	t.Parallel()
 	env, ad, dirs := heldWorldDirs(t, nil)
 	mustCmd(t, []string{"send", heldReviewer, "establish"}, env("p1"))
 	reason := "herdr agent list: no herdr server is running at /tmp/herdr.sock"
@@ -90,6 +95,7 @@ func TestDoctorPrintsLiveHerdrDownWhenTheLogHasNoEvent(t *testing.T) {
 }
 
 func TestDoctorTrustsLiveStatusOverAStaleLog(t *testing.T) {
+	t.Parallel()
 	env, _, dirs := heldWorldDirs(t, nil)
 	if err := eventlog.Open(dirs.StateDir).Append(eventlog.Event{
 		Event: eventlog.EventAdapterError, Actor: "agentbus", Name: "herdr",
@@ -208,6 +214,7 @@ func logged(t *testing.T, dir, event string) bool {
 }
 
 func TestSendToAnUnregisteredNameExitsTwo(t *testing.T) {
+	t.Parallel()
 	env, _ := heldWorld(t, nil)
 	code, stdout, stderr := runCmd([]string{"send", "ops/nobody", "hello"}, env("p1"))
 	if code != 2 || stdout != "" || !strings.Contains(stderr, "ops/nobody is not registered") {
@@ -216,6 +223,7 @@ func TestSendToAnUnregisteredNameExitsTwo(t *testing.T) {
 }
 
 func TestReplyToASenderNoLongerRegisteredExitsTwo(t *testing.T) {
+	t.Parallel()
 	env, ad := heldWorld(t, nil)
 	mustCmd(t, []string{"register", "ops/gone", "--when", "tests"}, env("p1"))
 	out, _ := mustCmd(t, []string{"send", heldReviewer, "question"}, env("p1"))

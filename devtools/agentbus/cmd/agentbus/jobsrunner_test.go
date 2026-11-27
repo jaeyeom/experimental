@@ -31,6 +31,7 @@ func (l *lockedBuffer) String() string {
 }
 
 func TestJobsRunnerRunsACLIJobThroughTheDaemon(t *testing.T) {
+	t.Parallel()
 	env := jobsWorld(t)
 	out := filepath.Join(t.TempDir(), "ran")
 	cfg := filepath.Join(t.TempDir(), "runner.json")
@@ -67,6 +68,7 @@ func TestJobsRunnerRunsACLIJobThroughTheDaemon(t *testing.T) {
 }
 
 func TestJobsRunnerUsage(t *testing.T) {
+	t.Parallel()
 	env := jobsWorld(t)
 	if code, _, _ := runCmd([]string{"jobs", "runner"}, env); code != 2 {
 		t.Errorf("runner without --name = %d, want 2", code)

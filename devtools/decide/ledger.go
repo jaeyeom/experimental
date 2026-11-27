@@ -256,8 +256,9 @@ func (it Item) MarshalJSON() ([]byte, error) {
 
 // Ledger is the on-disk decision store for one directory.
 type Ledger struct {
-	dir string
-	now func() time.Time
+	dir    string
+	now    func() time.Time
+	noSync bool
 }
 
 // maxChangeLog is how many recent ledger changes are kept for incremental sync.
@@ -311,6 +312,13 @@ func (l *Ledger) SetClock(now func() time.Time) {
 		now = time.Now
 	}
 	l.now = now
+}
+
+// SetSync controls whether atomic ledger writes fsync files and parent
+// directories before renaming. The default is true; tests may disable syncing
+// while preserving atomic replacement.
+func (l *Ledger) SetSync(enabled bool) {
+	l.noSync = !enabled
 }
 
 // Create stores item and assigns the next id. Ids start at D-001 and are
@@ -1490,7 +1498,7 @@ func (l *Ledger) lockedWithEvents(write bool, fn func(*store) (bool, []Event, er
 		migrated = true
 	}
 	if migrated {
-		if err = save(l.dir, st); err != nil {
+		if err = l.save(st); err != nil {
 			return err
 		}
 		if err = l.saveDelta(before, st.Items); err != nil {
@@ -1506,7 +1514,7 @@ func (l *Ledger) lockedWithEvents(write bool, fn func(*store) (bool, []Event, er
 		writeLedger = false
 	}
 	if writeLedger {
-		if err = save(l.dir, st); err != nil {
+		if err = l.save(st); err != nil {
 			return err
 		}
 	}
@@ -1529,7 +1537,7 @@ func (l *Ledger) saveDelta(before map[string]Item, after []Item) error {
 	if !recordChanges(cl, before, after) {
 		return nil
 	}
-	return saveChanges(l.dir, cl)
+	return l.saveChanges(cl)
 }
 
 func snapshotItems(items []Item) map[string]Item {
@@ -1582,14 +1590,14 @@ func loadChanges(path string) (*changeLog, error) {
 	return &cl, nil
 }
 
-func saveChanges(dir string, cl *changeLog) error {
+func (l *Ledger) saveChanges(cl *changeLog) error {
 	data, err := json.Marshal(cl)
 	if err != nil {
 		return fmt.Errorf("encode decide changes: %w", err)
 	}
 	data = append(data, '\n')
-	path := filepath.Join(dir, changesName)
-	if err := renameio.WriteFile(path, data, 0o600); err != nil {
+	path := filepath.Join(l.dir, changesName)
+	if err := writeAtomic(path, data, 0o600, l.dir, l.noSync); err != nil {
 		return fmt.Errorf("write decide changes: %w", err)
 	}
 	return nil
@@ -1659,7 +1667,7 @@ func load(path string) (*store, error) {
 	return &st, nil
 }
 
-func save(dir string, st *store) error {
+func (l *Ledger) save(st *store) error {
 	if st.Items == nil {
 		st.Items = []Item{}
 	}
@@ -1668,10 +1676,46 @@ func save(dir string, st *store) error {
 		return fmt.Errorf("encode decide ledger: %w", err)
 	}
 	data = append(data, '\n')
-	path := filepath.Join(dir, ledgerName)
-	if err := renameio.WriteFile(path, data, 0o600); err != nil {
+	path := filepath.Join(l.dir, ledgerName)
+	if err := writeAtomic(path, data, 0o600, l.dir, l.noSync); err != nil {
 		return fmt.Errorf("write decide ledger: %w", err)
 	}
+	return nil
+}
+
+func writeAtomic(path string, data []byte, perm os.FileMode, dir string, noSync bool) error {
+	if !noSync {
+		if err := renameio.WriteFile(path, data, perm, renameio.WithTempDir(dir)); err != nil {
+			return fmt.Errorf("atomic write %s: %w", path, err)
+		}
+		return nil
+	}
+	f, err := os.CreateTemp(dir, ".tmp-*")
+	if err != nil {
+		return fmt.Errorf("create temp in %s: %w", dir, err)
+	}
+	tmp := f.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmp)
+		}
+	}()
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("write temp %s: %w", tmp, err)
+	}
+	if err := f.Chmod(perm); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("chmod temp %s: %w", tmp, err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close temp %s: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("rename %s to %s: %w", tmp, path, err)
+	}
+	cleanup = false
 	return nil
 }
 

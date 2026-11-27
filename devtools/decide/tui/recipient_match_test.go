@@ -14,6 +14,7 @@ func spanTexts(s string, spans []matchSpan) []string {
 }
 
 func TestRankCandidatesOrder(t *testing.T) {
+	t.Parallel()
 	cands := []matchCandidate{
 		{Name: "doctor", When: "checks decide health"},
 		{Name: "tools/config", When: "edits decide config"},
@@ -54,6 +55,7 @@ func TestRankCandidatesOrder(t *testing.T) {
 }
 
 func TestRankCandidatesTiesKeepStarredFirstThenOrder(t *testing.T) {
+	t.Parallel()
 	cands := []matchCandidate{
 		{Name: "a/decide"},
 		{Name: "b/decide", Starred: true},
@@ -72,6 +74,7 @@ func TestRankCandidatesTiesKeepStarredFirstThenOrder(t *testing.T) {
 }
 
 func TestMatchSubsequenceAndHighlightSpans(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		cand      matchCandidate
@@ -186,6 +189,7 @@ func TestMatchSubsequenceAndHighlightSpans(t *testing.T) {
 }
 
 func TestWhenSnippetCentersAroundMatch(t *testing.T) {
+	t.Parallel()
 	when := "Monitors the entire fleet of background workers and helps decide when to restart stuck panes"
 	m := matchCandidateQuery(matchCandidate{Name: "doctor", When: when}, "decide")
 	if !m.matched || !m.descOnly {

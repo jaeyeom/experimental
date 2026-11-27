@@ -75,12 +75,13 @@ func hubSettings(env []string) (config.Config, error) {
 
 // agentHub is the ssh fallback to cfg.Hub. IdentityAgent is set only
 // when ssh_identity_agent is configured. Load has already expanded "~".
-func agentHub(cfg config.Config) hubcall.Hub {
+func agentHub(cfg config.Config, env []string) hubcall.Hub {
 	return hubcall.Hub{
 		Target:         cfg.Hub,
 		Tool:           "agentbus",
 		ConnectTimeout: cfg.RemoteTimeout,
 		IdentityAgent:  cfg.SSHIdentityAgent,
+		Env:            env,
 	}
 }
 
@@ -113,7 +114,7 @@ func runOnHub(ctx context.Context, cfg config.Config, args, env []string, stdin 
 		}
 		call.Env = []string{herdr.AsHandleEnv + "=" + caller}
 	}
-	hub := agentHub(cfg)
+	hub := agentHub(cfg, env)
 	if hookCommands[name] {
 		return runHookOnHub(ctx, hub, call, env)
 	}

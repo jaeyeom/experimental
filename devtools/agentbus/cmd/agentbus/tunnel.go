@@ -16,7 +16,7 @@ import (
 )
 
 // tunnelProbeTimeout bounds the ping that checks the tunnel answers.
-const tunnelProbeTimeout = 2 * time.Second
+var tunnelProbeTimeout = 2 * time.Second //nolint:pkgvar // tests assign it
 
 // tunnelCommands are the commands that only talk to the daemon, so in
 // hub mode they can run here against the forwarded hub socket. log
@@ -189,7 +189,7 @@ func (e *protocolMismatchError) Error() string {
 func (t tunnel) ping(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, tunnelProbeTimeout)
 	defer cancel()
-	resp, err := dialDaemon(ctx, t.socket, t.stamp(daemon.Request{Op: "ping"}))
+	resp, err := dialDaemonFn(ctx)(ctx, t.socket, t.stamp(daemon.Request{Op: "ping"}))
 	switch {
 	case err != nil:
 		return err
@@ -206,7 +206,7 @@ func (t tunnel) ping(ctx context.Context) error {
 // It never starts a daemon.
 func dialBus(ctx context.Context, env []string, req daemon.Request) (daemon.Response, error) {
 	if t, ok := tunnelFrom(ctx); ok {
-		return dialDaemon(ctx, t.socket, t.stamp(req))
+		return dialDaemonFn(ctx)(ctx, t.socket, t.stamp(req))
 	}
 	if r, ok := sshRouteFrom(ctx); ok {
 		return r.call(ctx, req)
@@ -215,7 +215,7 @@ func dialBus(ctx context.Context, env []string, req daemon.Request) (daemon.Resp
 	if err != nil {
 		return daemon.Response{}, fmt.Errorf("locate the daemon: %w", err)
 	}
-	return dialDaemon(ctx, dirs.SocketPath, req)
+	return dialDaemonFn(ctx)(ctx, dirs.SocketPath, req)
 }
 
 // streamLog prints the hub's event log lines that match filter, and with

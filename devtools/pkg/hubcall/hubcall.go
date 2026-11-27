@@ -16,7 +16,9 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -64,6 +66,9 @@ type Hub struct {
 	IdentityAgent string
 	// Probe tells a down host from a locked key. Nil is TCPProbe(Target).
 	Probe remotecall.Probe
+	// Env, when non-nil, is the environment for ssh and PATH lookup.
+	// Nil uses the process environment.
+	Env []string
 }
 
 // Call is one remote invocation. Env holds KEY=VALUE pairs set on the
@@ -80,7 +85,7 @@ type Call struct {
 // and the exit code. The error is ErrNoSSH, an *UnreachableError, or an
 // ssh start failure; the code is then 1.
 func (h Hub) Run(ctx context.Context, c Call) (int, error) {
-	ssh, err := exec.LookPath("ssh")
+	ssh, err := lookPathEnv("ssh", h.Env)
 	if err != nil {
 		return 1, ErrNoSSH
 	}
@@ -112,7 +117,7 @@ func (h Hub) Run(ctx context.Context, c Call) (int, error) {
 		}
 	})
 	defer timer.Stop()
-	res, err := remotecall.RunIOEnvNoTerminal(callCtx, nil, c.Stdin, writerOr(c.Stdout), stderr, ssh, args...)
+	res, err := remotecall.RunIOEnvNoTerminal(callCtx, sshEnv(h.Env), c.Stdin, writerOr(c.Stdout), stderr, ssh, args...)
 	stderr.flush()
 	if err != nil {
 		return 1, fmt.Errorf("hub %s: %w", h.Target, err)
@@ -125,7 +130,7 @@ func (h Hub) Run(ctx context.Context, c Call) (int, error) {
 	res.Stderr = captured
 	probe := h.Probe
 	if probe == nil {
-		probe = TCPProbe(h.Target)
+		probe = TCPProbeEnv(h.Target, h.Env)
 	}
 	if res.TimedOut || res.Code == 255 {
 		if ue := remotecall.Classify(ctx, h.Target, res, probe); ue != nil {
@@ -167,10 +172,15 @@ func Quote(s string) string {
 // TCPProbe connects to the SSH port of target within a second. The host
 // and port come from `ssh -G`, so a Host alias in ~/.ssh/config works.
 func TCPProbe(target string) remotecall.Probe {
+	return TCPProbeEnv(target, nil)
+}
+
+// TCPProbeEnv is TCPProbe using env for ssh PATH lookup and execution.
+func TCPProbeEnv(target string, env []string) remotecall.Probe {
 	return func(ctx context.Context) bool {
 		ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 		defer cancel()
-		host, port := sshHostPort(ctx, target)
+		host, port := sshHostPort(ctx, env, target)
 		var d net.Dialer
 		conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(host, port))
 		if err != nil {
@@ -183,12 +193,16 @@ func TCPProbe(target string) remotecall.Probe {
 
 // sshHostPort resolves target with `ssh -G`, which reads the config and
 // does not connect. Without it, the host is target after any user@.
-func sshHostPort(ctx context.Context, target string) (string, string) {
+func sshHostPort(ctx context.Context, env []string, target string) (string, string) {
 	host, port := target, "22"
 	if _, after, ok := strings.Cut(host, "@"); ok {
 		host = after
 	}
-	res, err := remotecall.Run(ctx, "ssh", "-G", "--", target)
+	ssh, err := lookPathEnv("ssh", env)
+	if err != nil {
+		ssh = "ssh"
+	}
+	res, err := remotecall.RunEnv(ctx, sshEnv(env), ssh, "-G", "--", target)
 	if err != nil || res.Code != 0 {
 		return host, port
 	}
@@ -205,6 +219,56 @@ func sshHostPort(ctx context.Context, target string) (string, string) {
 		}
 	}
 	return host, port
+}
+
+func sshEnv(env []string) []string {
+	for _, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok && k == "PATH" {
+			base := os.Environ()
+			out := make([]string, 0, len(base)+1)
+			replaced := false
+			for _, entry := range base {
+				if ek, _, ok := strings.Cut(entry, "="); ok && ek == "PATH" {
+					out = append(out, "PATH="+v)
+					replaced = true
+					continue
+				}
+				out = append(out, entry)
+			}
+			if !replaced {
+				out = append(out, "PATH="+v)
+			}
+			return out
+		}
+	}
+	return nil
+}
+
+func lookPathEnv(file string, env []string) (string, error) {
+	if len(env) == 0 {
+		return exec.LookPath(file) //nolint:wrapcheck // match exec.LookPath contract
+	}
+	pathVal, hasPath := "", false
+	for _, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok && k == "PATH" {
+			pathVal = v
+			hasPath = true
+		}
+	}
+	if !hasPath {
+		return exec.LookPath(file) //nolint:wrapcheck // match exec.LookPath contract
+	}
+	for _, dir := range filepath.SplitList(pathVal) {
+		if dir == "" {
+			dir = "."
+		}
+		candidate := filepath.Join(dir, file)
+		info, err := os.Stat(candidate)
+		if err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+			return candidate, nil
+		}
+	}
+	return "", &exec.Error{Name: file, Err: exec.ErrNotFound}
 }
 
 func writerOr(w io.Writer) io.Writer {

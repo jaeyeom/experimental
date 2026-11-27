@@ -183,11 +183,16 @@ type LocalBackend struct {
 	Machine           string
 }
 
+// ledgerSync controls whether LocalBackend ledgers fsync atomic writes.
+// Tests disable it in TestMain while preserving atomic replacement.
+var ledgerSync = true //nolint:pkgvar // TestMain sets false in tui tests
+
 func (b *LocalBackend) ledger() (*decide.Ledger, error) {
 	led, err := decide.Open(b.Dir)
 	if err != nil {
 		return nil, fmt.Errorf("open decide ledger: %w", err)
 	}
+	led.SetSync(ledgerSync)
 	if b.Now != nil {
 		led.SetClock(b.Now)
 	}

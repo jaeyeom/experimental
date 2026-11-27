@@ -17,12 +17,13 @@ import (
 )
 
 // countChecks counts the lease-check calls that reach the daemon.
-func countChecks(t *testing.T) *atomic.Int32 {
-	t.Helper()
-	old := dialDaemon
-	t.Cleanup(func() { dialDaemon = old })
+func (w *leaseWorld) countChecks() *atomic.Int32 {
+	old := w.hooks.dialDaemon
+	if old == nil {
+		old = dialDaemon
+	}
 	var n atomic.Int32
-	dialDaemon = func(ctx context.Context, socket string, req daemon.Request) (daemon.Response, error) {
+	w.hooks.dialDaemon = func(ctx context.Context, socket string, req daemon.Request) (daemon.Response, error) {
 		if req.Op == "lease-check" {
 			n.Add(1)
 		}
@@ -46,7 +47,7 @@ func (w *leaseWorld) hook(t *testing.T, env []string, tool string, input map[str
 	if err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, stderr := runCmdIn([]string{"lease", "hook"}, env, strings.NewReader(string(raw)))
+	code, stdout, stderr := runCmdInCtx(withCmdHooks(context.Background(), w.hooks), []string{"lease", "hook"}, env, strings.NewReader(string(raw)))
 	if code != 0 {
 		t.Fatalf("lease hook = %d\nstdout %s\nstderr %s", code, stdout, stderr)
 	}
@@ -94,6 +95,7 @@ func assertAllowed(t *testing.T, what, decision, reason string) {
 }
 
 func TestLeaseHookBlocksANonHolderEditAndAllowsTheHolder(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
@@ -128,8 +130,9 @@ func TestLeaseHookBlocksANonHolderEditAndAllowsTheHolder(t *testing.T) {
 }
 
 func TestLeaseHookBlocksTheAdopterUntilAdopt(t *testing.T) {
-	noProcs(t)
+	t.Parallel()
 	w := newLeaseWorld(t)
+	w.noProcs()
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
 	w.dirty(t)
@@ -144,8 +147,9 @@ func TestLeaseHookBlocksTheAdopterUntilAdopt(t *testing.T) {
 }
 
 func TestLeaseHookEditOutsideGuardedCheckoutsMakesNoDaemonCall(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
-	calls := countChecks(t)
+	calls := w.countChecks()
 	outside := t.TempDir()
 	decision, reason, stderr := w.hook(t, w.as("p2"), "Edit", map[string]any{"file_path": filepath.Join(outside, "f.go")}, outside)
 	assertAllowed(t, "unguarded edit", decision, reason)
@@ -159,11 +163,12 @@ func TestLeaseHookEditOutsideGuardedCheckoutsMakesNoDaemonCall(t *testing.T) {
 }
 
 func TestLeaseHookBash(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
 	w.mustLease(t, "p1", "claim", "--for", "40m")
-	calls := countChecks(t)
+	calls := w.countChecks()
 	elsewhere := t.TempDir()
 
 	for _, command := range []string{"git status", "git log --oneline", "ls && git diff", "make test"} {
@@ -188,6 +193,7 @@ func TestLeaseHookBash(t *testing.T) {
 }
 
 func TestLeaseHookFailsOpenWhenTheDaemonIsDown(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
 	decision, reason, stderr := w.edit(t, "p2", filepath.Join(w.repo, "a.txt"))
 	assertAllowed(t, "edit with the daemon down", decision, reason)
@@ -197,14 +203,13 @@ func TestLeaseHookFailsOpenWhenTheDaemonIsDown(t *testing.T) {
 }
 
 func TestLeaseHookFailsOpenAtTheTimeout(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
-	old := leaseHookTimeout
-	leaseHookTimeout = 50 * time.Millisecond
-	t.Cleanup(func() { leaseHookTimeout = old })
-	fakeHookDial(t, func(ctx context.Context, _ daemon.Request) (daemon.Response, error) {
+	w.hooks.leaseHookTimeout = 50 * time.Millisecond
+	w.hooks.dialDaemon = func(ctx context.Context, _ string, _ daemon.Request) (daemon.Response, error) {
 		<-ctx.Done()
 		return daemon.Response{}, errors.New("read response: i/o timeout")
-	})
+	}
 	start := time.Now()
 	decision, reason, stderr := w.edit(t, "p2", filepath.Join(w.repo, "a.txt"))
 	assertAllowed(t, "edit with a slow daemon", decision, reason)
@@ -214,8 +219,9 @@ func TestLeaseHookFailsOpenAtTheTimeout(t *testing.T) {
 }
 
 func TestLeaseHookFailsOpenInHubModeWithoutMachine(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
-	calls := countChecks(t)
+	calls := w.countChecks()
 	env := append(w.as("p2"), hubEnv+"=me@hub")
 	decision, reason, stderr := w.hook(t, env, "Edit", map[string]any{"file_path": filepath.Join(w.repo, "a.txt")}, w.repo)
 	assertAllowed(t, "hub-mode edit", decision, reason)
@@ -225,11 +231,12 @@ func TestLeaseHookFailsOpenInHubModeWithoutMachine(t *testing.T) {
 }
 
 func TestLeaseHookCachesTheHolderUntilRelease(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
 	w.mustLease(t, "p1", "claim", "--for", "40m")
-	calls := countChecks(t)
+	calls := w.countChecks()
 	file := filepath.Join(w.repo, "a.txt")
 
 	for i := range 3 {
@@ -276,12 +283,13 @@ func hookDenials(t *testing.T, stateDir, key string) []eventlog.Event {
 }
 
 func TestLeaseHookSendsTheToolAndTarget(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
 	var got []lease.Args
-	fakeHookDial(t, func(_ context.Context, req daemon.Request) (daemon.Response, error) {
+	w.hooks.dialDaemon = func(_ context.Context, _ string, req daemon.Request) (daemon.Response, error) {
 		got = append(got, *req.Lease)
 		return daemon.Response{OK: true, Lease: &lease.Reply{Result: lease.ResultDenied, Lease: &lease.Status{Checkout: req.Lease.Checkout, State: lease.StateFree}}}, nil
-	})
+	}
 	decision, reason, _ := w.edit(t, "p2", filepath.Join(w.repo, "sub", "b.txt"))
 	assertDenied(t, "edit", decision, reason)
 	decision, reason, _ = w.bash(t, "p2", "git -C "+w.repo+" switch -c x", t.TempDir())
@@ -301,6 +309,7 @@ func TestLeaseHookSendsTheToolAndTarget(t *testing.T) {
 }
 
 func TestLeaseHookDenialIsLoggedOnce(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()

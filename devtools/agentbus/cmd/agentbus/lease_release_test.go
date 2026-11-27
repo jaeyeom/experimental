@@ -53,6 +53,7 @@ func (w *leaseWorld) leaseEvents(t *testing.T) []string {
 }
 
 func TestLeaseReleaseSwitchesPullsAndWakesTheNextWaiter(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
@@ -102,6 +103,7 @@ func TestLeaseReleaseSwitchesPullsAndWakesTheNextWaiter(t *testing.T) {
 }
 
 func TestLeaseReleaseRefusesADirtyTree(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
@@ -124,6 +126,7 @@ func TestLeaseReleaseRefusesADirtyTree(t *testing.T) {
 }
 
 func TestLeaseReleaseRefusesAMidRebaseTree(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
@@ -141,6 +144,7 @@ func TestLeaseReleaseRefusesAMidRebaseTree(t *testing.T) {
 }
 
 func TestLeaseReleaseStillReleasesWhenThePullFails(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
@@ -160,6 +164,7 @@ func TestLeaseReleaseStillReleasesWhenThePullFails(t *testing.T) {
 }
 
 func TestLeaseReleaseSkipsAGoneWaiter(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
@@ -182,6 +187,7 @@ func TestLeaseReleaseSkipsAGoneWaiter(t *testing.T) {
 }
 
 func TestLeaseReleaseWithNoWaiterFreesTheCheckout(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
@@ -193,6 +199,7 @@ func TestLeaseReleaseWithNoWaiterFreesTheCheckout(t *testing.T) {
 }
 
 func TestLeaseReleaseByANonHolderIsRefused(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
@@ -213,6 +220,7 @@ func TestLeaseReleaseByANonHolderIsRefused(t *testing.T) {
 }
 
 func TestLeaseReleaseWithoutOriginHeadKeepsTheHold(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
@@ -252,6 +260,7 @@ func (w *leaseWorld) releaseJSON(t *testing.T, pane string, args ...string) rele
 }
 
 func TestLeaseReleaseReportsTheSwitchAndTheFastForward(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
@@ -281,6 +290,7 @@ func TestLeaseReleaseReportsTheSwitchAndTheFastForward(t *testing.T) {
 }
 
 func TestLeaseReleaseOnTheDefaultBranchUpToDate(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
@@ -302,6 +312,7 @@ func TestLeaseReleaseOnTheDefaultBranchUpToDate(t *testing.T) {
 }
 
 func TestLeaseReleaseFromADetachedHead(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()
@@ -316,6 +327,7 @@ func TestLeaseReleaseFromADetachedHead(t *testing.T) {
 }
 
 func TestLeaseReleaseJSONCarriesThePullError(t *testing.T) {
+	t.Parallel()
 	w := newLeaseWorld(t)
 	stop := startDaemon(t, w.dirs, w.cfg)
 	defer stop()

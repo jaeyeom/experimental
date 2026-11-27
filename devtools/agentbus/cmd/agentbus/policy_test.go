@@ -59,9 +59,9 @@ func (m *policyMem) Available(context.Context) (int64, error) {
 // under 1 GiB until 1.5 GiB, three idle-capable claude panes, and a
 // fake hub on the tunnel that has never polled this machine: its
 // hibernate-state has names but no seen times.
-func setupPolicy(t *testing.T) (*herdrtest.Fake, *hibBus, *policyMem, func(time.Time), []string) {
+func setupPolicy(t *testing.T) (*herdrtest.Fake, *hibBus, *policyMem, func(time.Time), context.Context, []string) {
 	t.Helper()
-	fake, bus, env := setupHibernate(t)
+	fake, bus, ctx, env := setupHibernate(t)
 	writeFile(t, filepath.Join(envGet(env, "HOME"), ".config", "agentbus", "config.toml"), []byte(
 		"hub = \"me@hub\"\nmachine = \"mac\"\nhibernate_policy = \"on\"\n"+
 			"hibernate_below = \"1GiB\"\nhibernate_target = \"1.5GiB\"\nhibernate_min_idle = \"30m\"\n"))
@@ -77,39 +77,39 @@ func setupPolicy(t *testing.T) (*herdrtest.Fake, *hibBus, *policyMem, func(time.
 		fake.Write("local.process-info."+pane, processInfoJSON(pane, pid))
 		fake.Write("local.after-keys."+pane, processInfoJSON(pane, 1))
 	}
-	hibernateProcs = func(context.Context) ([]procinfo.Process, error) {
-		return []procinfo.Process{
-			p(1, 0, 3*mib, 5*time.Hour, "-zsh"),
-			p(100, 1, 400*mib, 3*time.Hour, "claude"),
-			p(200, 1, 400*mib, 3*time.Hour, "claude"),
-			p(300, 1, 400*mib, 3*time.Hour, "claude"),
-		}, nil
-	}
 	mem := &policyMem{bus: bus}
 	mem.base.Store(4 * 1024 * mib)
 	ticks, ticked := make(chan time.Time), make(chan struct{})
-	oldMem, oldTicks, oldTicked := policyMemory, policyTicks, policyTicked
-	t.Cleanup(func() { policyMemory, policyTicks, policyTicked = oldMem, oldTicks, oldTicked })
-	policyMemory = func() procinfo.Memory { return mem }
-	policyTicks = func(time.Duration) (<-chan time.Time, func()) { return ticks, func() {} }
-	policyTicked = func() { ticked <- struct{}{} }
+	ctx = withCmdHooks(ctx, cmdHooks{
+		hibernateProcs: func(context.Context) ([]procinfo.Process, error) {
+			return []procinfo.Process{
+				p(1, 0, 3*mib, 5*time.Hour, "-zsh"),
+				p(100, 1, 400*mib, 3*time.Hour, "claude"),
+				p(200, 1, 400*mib, 3*time.Hour, "claude"),
+				p(300, 1, 400*mib, 3*time.Hour, "claude"),
+			}, nil
+		},
+		policyMemory: func() procinfo.Memory { return mem },
+		policyTicks:  func(time.Duration) (<-chan time.Time, func()) { return ticks, func() {} },
+		policyTicked: func() { ticked <- struct{}{} },
+	})
 	// step ticks at now and returns once that tick is done.
 	step := func(now time.Time) {
 		ticks <- now
 		<-ticked
 	}
-	return fake, bus, mem, step, env
+	return fake, bus, mem, step, ctx, env
 }
 
 // startPolicy runs `agentbus hibernate --policy` until the returned
 // stop is called, which returns its exit code and stderr.
-func startPolicy(t *testing.T, env []string) func() (int, string) {
+func startPolicy(t *testing.T, ctx context.Context, env []string) func() (int, string) {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
+	runCtx, cancel := context.WithCancel(ctx)
 	var stdout, stderr bytes.Buffer
 	done := make(chan int)
 	go func() {
-		done <- run(ctx, []string{"hibernate", "--policy"}, env, strings.NewReader(""), &stdout, &stderr)
+		done <- run(runCtx, []string{"hibernate", "--policy"}, env, strings.NewReader(""), &stdout, &stderr)
 	}()
 	return func() (int, string) {
 		cancel()
@@ -119,7 +119,8 @@ func startPolicy(t *testing.T, env []string) func() (int, string) {
 }
 
 func TestPolicyRunnerHibernatesThroughTheHubInIdleOrder(t *testing.T) {
-	fake, bus, mem, step, env := setupPolicy(t)
+	t.Parallel()
+	fake, bus, mem, step, ctx, env := setupPolicy(t)
 	dirs, err := paths.FromEnv(env)
 	if err != nil {
 		t.Fatal(err)
@@ -129,7 +130,7 @@ func TestPolicyRunnerHibernatesThroughTheHubInIdleOrder(t *testing.T) {
 	}
 	writeFile(t, dirs.TunnelSocketPath, nil)
 	env = append(env, "HERDR_PANE_ID=w1:p4")
-	stop := startPolicy(t, env)
+	stop := startPolicy(t, ctx, env)
 
 	t0 := time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC)
 	// p5 goes idle first, then p1, then p4: the runner's own clock, not
@@ -174,7 +175,8 @@ func TestPolicyRunnerHibernatesThroughTheHubInIdleOrder(t *testing.T) {
 // The runner saves its idle times to the state directory, so a
 // restarted runner, and mem, keep them.
 func TestPolicyRunnerKeepsIdleTimesAcrossARestart(t *testing.T) {
-	fake, bus, mem, step, env := setupPolicy(t)
+	t.Parallel()
+	fake, bus, mem, step, ctx, env := setupPolicy(t)
 	dirs, err := paths.FromEnv(env)
 	if err != nil {
 		t.Fatal(err)
@@ -186,7 +188,7 @@ func TestPolicyRunnerKeepsIdleTimesAcrossARestart(t *testing.T) {
 	env = append(env, "HERDR_PANE_ID=w1:p4")
 
 	t0 := time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC)
-	stop := startPolicy(t, env)
+	stop := startPolicy(t, ctx, env)
 	fake.Write("local.agents", policyAgents())
 	step(t0)
 	fake.Write("local.agents", policyAgents("w1:p5"))
@@ -199,7 +201,7 @@ func TestPolicyRunnerKeepsIdleTimesAcrossARestart(t *testing.T) {
 		t.Fatalf("no saved idle times: %v", err)
 	}
 
-	stop = startPolicy(t, env)
+	stop = startPolicy(t, ctx, env)
 	mem.base.Store(900 * mib)
 	step(t0.Add(40 * time.Minute))
 	code, stderr := stop()
@@ -219,16 +221,19 @@ func TestPolicyRunnerKeepsIdleTimesAcrossARestart(t *testing.T) {
 }
 
 func TestPolicyRunnerWithTheHubUnreachableStopsNothing(t *testing.T) {
-	fake, _, mem, step, env := setupPolicy(t)
-	dialDaemon = func(_ context.Context, socket string, req daemon.Request) (daemon.Response, error) {
-		t.Errorf("dialled %s for %s with no tunnel", socket, req.Op)
-		return daemon.Response{}, errors.New("no daemon")
-	}
-	ssh := sshtest.Install(t)
+	t.Parallel()
+	fake, _, mem, step, ctx, env := setupPolicy(t)
+	ctx = withCmdHooks(ctx, cmdHooks{
+		dialDaemon: func(_ context.Context, socket string, req daemon.Request) (daemon.Response, error) {
+			t.Errorf("dialled %s for %s with no tunnel", socket, req.Op)
+			return daemon.Response{}, errors.New("no daemon")
+		},
+	})
+	ssh := sshtest.InstallInEnv(t, &env)
 	ssh.Write("down", "")
 	ssh.Unreachable()
 	mem.base.Store(500 * mib)
-	stop := startPolicy(t, env)
+	stop := startPolicy(t, ctx, env)
 
 	t0 := time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC)
 	fake.Write("local.agents", policyAgents(policyPanes...))
@@ -249,26 +254,29 @@ func TestPolicyRunnerWithTheHubUnreachableStopsNothing(t *testing.T) {
 }
 
 func TestPolicyRunnerNeedsHubMode(t *testing.T) {
-	_, _, env := setupHibernate(t)
-	code, _, stderr := runCmd([]string{"hibernate", "--policy"}, env)
+	t.Parallel()
+	_, _, ctx, env := setupHibernate(t)
+	code, _, stderr := runCmdCtx(ctx, []string{"hibernate", "--policy"}, env)
 	if code != 1 || !strings.Contains(stderr, "agentbusd") {
 		t.Fatalf("hibernate --policy = %d, %q, want agentbusd named as the runner here", code, stderr)
 	}
-	if code, _, _ := runCmd([]string{"hibernate", "--policy", "ops/x"}, env); code != 2 {
+	if code, _, _ := runCmdCtx(ctx, []string{"hibernate", "--policy", "ops/x"}, env); code != 2 {
 		t.Fatalf("hibernate --policy ops/x = %d, want 2", code)
 	}
 }
 
 func TestPolicyRunnerOffExitsCleanly(t *testing.T) {
-	_, _, _, _, env := setupPolicy(t)
+	t.Parallel()
+	_, _, _, _, ctx, env := setupPolicy(t)
 	writeFile(t, filepath.Join(envGet(env, "HOME"), ".config", "agentbus", "config.toml"), []byte("hub = \"me@hub\"\nmachine = \"mac\"\n"))
-	code, _, stderr := runCmd([]string{"hibernate", "--policy"}, env)
+	code, _, stderr := runCmdCtx(ctx, []string{"hibernate", "--policy"}, env)
 	if code != 0 || !strings.Contains(stderr, "hibernate_policy=off") {
 		t.Fatalf("hibernate --policy = %d, %q", code, stderr)
 	}
 }
 
 func TestPolicyUnitTexts(t *testing.T) {
+	t.Parallel()
 	vars := [][2]string{{"HOME", "/Users/me"}, {"PATH", "/opt/bin:/usr/bin"}}
 	plist, err := policyBody("darwin", "/opt/bin/agentbus", "/state/agentbus/hibernate-policy.log", vars)
 	if err != nil {
@@ -302,6 +310,7 @@ func TestPolicyUnitTexts(t *testing.T) {
 }
 
 func TestHubInstallWritesThePolicyUnitOnlyWhenThePolicyIsOn(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		t.Skip("install supports launchd and systemd")
 	}

@@ -23,7 +23,11 @@ func TestMain(m *testing.M) {
 	if os.Getenv("AGENTBUS_TEST_HOOK") == "1" {
 		os.Exit(run(context.Background(), os.Args[1:], os.Environ(), os.Stdin, os.Stdout, os.Stderr))
 	}
-	os.Exit(m.Run())
+	code := m.Run()
+	if leaseTmpl.dir != "" {
+		_ = os.RemoveAll(leaseTmpl.dir)
+	}
+	os.Exit(code)
 }
 
 func TestInstallHooksLeavesProjectSettings(t *testing.T) {

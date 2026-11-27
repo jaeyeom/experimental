@@ -72,6 +72,7 @@ func lockDaemon(dirs paths.Dirs) (func(), error) {
 		return nil, err
 	}
 	return func() {
+		_ = unix.Flock(int(f.Fd()), unix.LOCK_UN) //nolint:gosec // G115: a file descriptor fits in int
 		_ = f.Close()
 		unhold(dirs.StateDir)
 	}, nil

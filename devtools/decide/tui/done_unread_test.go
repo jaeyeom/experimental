@@ -45,6 +45,7 @@ func TestDoneUnreadStaysInTheInboxButIsNotOpenWork(t *testing.T) {
 }
 
 func TestLocalBackendDoneIsTheUsersDone(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	item := mustCreate(t, led, &decide.Item{Question: "deployed", Owner: "ada", Kind: decide.KindRelay})

@@ -65,6 +65,7 @@ func hintedClientID(t *testing.T, stderr string) string {
 }
 
 func TestSendAnswersBeforeASlowPaste(t *testing.T) {
+	t.Parallel()
 	base := []string{
 		"XDG_RUNTIME_DIR=" + shortRuntime(t),
 		"XDG_STATE_HOME=" + t.TempDir(),
@@ -76,6 +77,8 @@ func TestSendAnswersBeforeASlowPaste(t *testing.T) {
 	}
 	sender := "herdr:local/default/w1:p1"
 	reviewer := "herdr:local/default/w1:p2"
+	entered := make(chan struct{}, 2)
+	release := make(chan struct{}, 2)
 	ad := &fake.Adapter{
 		AdapterName: "herdr",
 		Reach:       map[string]adapter.State{sender: adapter.StateIdle, reviewer: adapter.StateIdle},
@@ -85,7 +88,10 @@ func TestSendAnswersBeforeASlowPaste(t *testing.T) {
 			{Handle: sender, PaneID: "p1", SessionID: "default", Status: "idle"},
 			{Handle: reviewer, PaneID: "p2", SessionID: "default", Status: "idle"},
 		},
-		OnDeliver: func(string) { time.Sleep(time.Second) },
+		OnDeliver: func(string) {
+			entered <- struct{}{}
+			<-release
+		},
 	}
 	stop := startDaemon(t, dirs, daemon.Config{Adapters: []adapter.Adapter{ad}, PollInterval: time.Hour})
 	defer stop()
@@ -95,14 +101,19 @@ func TestSendAnswersBeforeASlowPaste(t *testing.T) {
 	mustCmd(t, []string{"register", "ops/inbox", "--when", "reviews"}, env("p1"))
 	mustCmd(t, []string{"register", "eng/reviewer", "--when", "reviews"}, env("p2"))
 
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	start := time.Now()
 	var stdout, stderr bytes.Buffer
 	code := run(ctx, []string{"send", "eng/reviewer", "slow-body"}, env("p1"), strings.NewReader(""), &stdout, &stderr)
-	if elapsed := time.Since(start); code != 0 || !strings.Contains(stdout.String(), "queued for delivery") || elapsed >= 700*time.Millisecond {
-		t.Fatalf("send = %d in %s stdout %q stderr %q", code, elapsed, stdout.String(), stderr.String())
+	if code != 0 || !strings.Contains(stdout.String(), "queued for delivery") {
+		t.Fatalf("send = %d stdout %q stderr %q", code, stdout.String(), stderr.String())
 	}
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first paste did not start")
+	}
+	release <- struct{}{}
 	id, _, ok := strings.Cut(strings.TrimSpace(stdout.String()), " ")
 	if !ok || !strings.HasPrefix(id, "m-") {
 		t.Fatalf("send = %q", stdout.String())
@@ -112,15 +123,20 @@ func TestSendAnswersBeforeASlowPaste(t *testing.T) {
 		t.Fatalf("pastes = %d messages = %d", ad.Calls, messageCount(t, base))
 	}
 
-	ctx, cancel = context.WithTimeout(context.Background(), 300*time.Millisecond)
+	ctx, cancel = context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	start = time.Now()
 	stdout.Reset()
 	stderr.Reset()
 	code = run(ctx, []string{"reply", id, "ack"}, env("p2"), strings.NewReader(""), &stdout, &stderr)
-	if elapsed := time.Since(start); code != 0 || !strings.Contains(stdout.String(), "queued for delivery") || elapsed >= 700*time.Millisecond {
-		t.Fatalf("reply = %d in %s stdout %q stderr %q", code, elapsed, stdout.String(), stderr.String())
+	if code != 0 || !strings.Contains(stdout.String(), "queued for delivery") {
+		t.Fatalf("reply = %d stdout %q stderr %q", code, stdout.String(), stderr.String())
 	}
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("reply paste did not start")
+	}
+	release <- struct{}{}
 	replyID, _, ok := strings.Cut(strings.TrimSpace(stdout.String()), " ")
 	if !ok || !strings.HasPrefix(replyID, "m-") || replyID == id {
 		t.Fatalf("reply = %q", stdout.String())
@@ -135,6 +151,7 @@ func TestSendAnswersBeforeASlowPaste(t *testing.T) {
 // send while the first paste is still inside DeliverDeferred. The second
 // answer stays queued for delivery.
 func TestSecondSendStaysQueuedWhileThePreviousPasteRuns(t *testing.T) {
+	t.Parallel()
 	base := []string{
 		"XDG_RUNTIME_DIR=" + shortRuntime(t),
 		"XDG_STATE_HOME=" + t.TempDir(),
@@ -198,7 +215,7 @@ func TestSecondSendStaysQueuedWhileThePreviousPasteRuns(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatal("second send was not stored")
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
 	}
 	close(release)
 	select {
@@ -212,6 +229,7 @@ func TestSecondSendStaysQueuedWhileThePreviousPasteRuns(t *testing.T) {
 }
 
 func TestHibernatedSendReturnsHeldBeforePaste(t *testing.T) {
+	t.Parallel()
 	base := []string{
 		"XDG_RUNTIME_DIR=" + shortRuntime(t),
 		"XDG_STATE_HOME=" + t.TempDir(),
@@ -230,7 +248,6 @@ func TestHibernatedSendReturnsHeldBeforePaste(t *testing.T) {
 		PaneHandles: map[string]string{"p1": alice},
 		OnDeliver: func(string) {
 			close(pasted)
-			time.Sleep(200 * time.Millisecond)
 		},
 	}
 	stop := startDaemon(t, dirs, daemon.Config{Adapters: []adapter.Adapter{ad}, PollInterval: time.Hour})
@@ -259,7 +276,7 @@ func TestHibernatedSendReturnsHeldBeforePaste(t *testing.T) {
 	select {
 	case <-pasted:
 		t.Fatal("pasted into a hibernated pane")
-	case <-time.After(200 * time.Millisecond):
+	case <-time.After(50 * time.Millisecond):
 	}
 	if ad.Calls != 0 {
 		t.Fatalf("pastes = %d", ad.Calls)
@@ -267,6 +284,7 @@ func TestHibernatedSendReturnsHeldBeforePaste(t *testing.T) {
 }
 
 func TestSendWaitStillWaitsForDelivered(t *testing.T) {
+	t.Parallel()
 	base := []string{
 		"XDG_RUNTIME_DIR=" + shortRuntime(t),
 		"XDG_STATE_HOME=" + t.TempDir(),
@@ -287,7 +305,7 @@ func TestSendWaitStillWaitsForDelivered(t *testing.T) {
 			{Handle: sender, PaneID: "p1", SessionID: "default", Status: "idle"},
 			{Handle: reviewer, PaneID: "p2", SessionID: "default", Status: "idle"},
 		},
-		OnDeliver: func(string) { time.Sleep(400 * time.Millisecond) },
+		OnDeliver: func(string) { time.Sleep(120 * time.Millisecond) },
 	}
 	stop := startDaemon(t, dirs, daemon.Config{Adapters: []adapter.Adapter{ad}, PollInterval: time.Hour})
 	defer stop()
@@ -297,7 +315,7 @@ func TestSendWaitStillWaitsForDelivered(t *testing.T) {
 	start := time.Now()
 	out, _ := mustCmd(t, []string{"send", "--wait", "eng/reviewer", "wait-body"}, env)
 	elapsed := time.Since(start)
-	if !strings.Contains(out, "delivered") || strings.Contains(out, "queued for delivery") || elapsed < 300*time.Millisecond {
+	if !strings.Contains(out, "delivered") || strings.Contains(out, "queued for delivery") || elapsed < 80*time.Millisecond {
 		t.Fatalf("wait send = %q in %s", out, elapsed)
 	}
 	if ad.Calls != 1 {

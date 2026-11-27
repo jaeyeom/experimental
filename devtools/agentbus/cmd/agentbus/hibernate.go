@@ -63,7 +63,7 @@ func cmdHibernate(ctx context.Context, args, env []string, stdout, stderr io.Wri
 			return 1
 		}
 	}
-	results, err := newHibernator(cfg, env, machine).Run(ctx, req)
+	results, err := newHibernator(ctx, cfg, env, machine).Run(ctx, req)
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus hibernate: %s\n", err)
 		return 1
@@ -77,14 +77,25 @@ func cmdHibernate(ctx context.Context, args, env []string, stdout, stderr io.Wri
 
 // newHibernator stops this machine's agents, with daemon requests sent
 // through dialBus. machine is empty unless in hub mode.
-func newHibernator(cfg config.Config, env []string, machine string) *hibernate.Hibernator {
+func newHibernator(ctx context.Context, cfg config.Config, env []string, machine string) *hibernate.Hibernator {
 	rules, _ := dialog.CompileRules(cfg.DialogRules)
+	h := hooksFrom(ctx)
+	procs, cwd, clk := hibernateProcs, hibernateCwd, hibernateClock
+	if h.hibernateProcs != nil {
+		procs = h.hibernateProcs
+	}
+	if h.hibernateCwd != nil {
+		cwd = h.hibernateCwd
+	}
+	if h.hibernateClock != nil {
+		clk = h.hibernateClock
+	}
 	return &hibernate.Hibernator{
-		Panes:       &herdr.Adapter{},
+		Panes:       &herdr.Adapter{Env: env},
 		Bus:         busClient{env: env},
-		Procs:       hibernateProcs,
-		Cwd:         hibernateCwd,
-		Clock:       hibernateClock,
+		Procs:       procs,
+		Cwd:         cwd,
+		Clock:       clk,
 		Machine:     machine,
 		Exempt:      cfg.HibernateExempt,
 		DialogRules: rules,
@@ -162,7 +173,7 @@ func hibernateHubRoute(ctx context.Context, cfg config.Config, env []string, std
 	if ok {
 		return routed, nil
 	}
-	r := sshRoute{hub: agentHub(cfg)}
+	r := sshRoute{hub: agentHub(cfg, env)}
 	if envGet(env, "HERDR_PANE_ID") != "" {
 		if caller, err := callerHandle(ctx, cfg, env); err == nil {
 			r.handle = caller

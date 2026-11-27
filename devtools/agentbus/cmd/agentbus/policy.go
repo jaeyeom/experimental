@@ -75,18 +75,18 @@ func cmdHibernatePolicy(ctx context.Context, env []string, stderr io.Writer) int
 		return 1
 	}
 	r := &policyRunner{
-		cfg: cfg, env: env, machine: machine, panes: &herdr.Adapter{},
+		cfg: cfg, env: env, machine: machine, panes: &herdr.Adapter{Env: env},
 		seenPath: filepath.Join(dirs.StateDir, policySeenFile), stderr: stderr,
 	}
 	r.idle.LastTurn = lastturn.Claude(lastturn.ClaudeProjectsDir(env))
 	if err := r.idle.Load(r.seenPath); err != nil {
 		fmt.Fprintf(stderr, "%sidle times start over: %s\n", policyPrefix, err)
 	}
-	h := newHibernator(cfg, env, machine)
+	h := newHibernator(ctx, cfg, env, machine)
 	r.policy = &hibernate.Policy{
 		Mode: pc.Mode, Below: pc.Below, Target: pc.Target, MinIdle: pc.MinIdle,
 		Machine:    machine,
-		Memory:     policyMemory(),
+		Memory:     policyMemoryFn(ctx)(),
 		Bus:        r,
 		Hibernator: h,
 		Log: func(ev eventlog.Event) error {
@@ -98,7 +98,7 @@ func cmdHibernatePolicy(ctx context.Context, env []string, stderr io.Writer) int
 			return err //nolint:wrapcheck // the policy names the event
 		},
 	}
-	ticks, stop := policyTicks(pc.Interval)
+	ticks, stop := policyTicksFn(ctx)(pc.Interval)
 	defer stop()
 	defer r.saveSeen()
 	for {
@@ -109,7 +109,7 @@ func cmdHibernatePolicy(ctx context.Context, env []string, stderr io.Writer) int
 			if err := r.tick(ctx, now); err != nil {
 				fmt.Fprintf(stderr, "%s%s; nothing more hibernated until the next tick\n", policyPrefix, err)
 			}
-			policyTicked()
+			policyTickedFn(ctx)()
 		}
 	}
 }
