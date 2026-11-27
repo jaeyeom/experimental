@@ -370,12 +370,33 @@ func TestWaitPastTheDeadlineStaysQueued(t *testing.T) {
 func warmFakes(t *testing.T, env []string, calls ...[]string) {
 	t.Helper()
 	for _, call := range calls {
-		cmd := exec.Command(call[0], call[1:]...) //nolint:gosec // G204: a fake installed by this test
+		bin := lookPathInEnv(t, env, call[0])
+		cmd := exec.Command(bin, call[1:]...) //nolint:gosec // G204: a fake installed by this test
 		cmd.Env = env
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("warm %v: %v: %s", call, err, out)
 		}
 	}
+}
+
+func lookPathInEnv(t *testing.T, env []string, name string) string {
+	t.Helper()
+	if filepath.IsAbs(name) {
+		return name
+	}
+	pathEnv := envGet(env, "PATH")
+	for _, dir := range filepath.SplitList(pathEnv) {
+		if dir == "" {
+			continue
+		}
+		candidate := filepath.Join(dir, name)
+		info, err := os.Stat(candidate)
+		if err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+			return candidate
+		}
+	}
+	t.Fatalf("warm %q: executable not found in test PATH %q", name, pathEnv)
+	return ""
 }
 
 func TestSpooledLogKeepsTheClientTime(t *testing.T) {
