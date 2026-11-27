@@ -1319,7 +1319,7 @@ func TestAllDevtoolsCommandsHavePlaybooks(t *testing.T) {
 	}
 }
 
-func TestSetupVibeCodingImportsQuotapaceAndClaudeUsage(t *testing.T) {
+func TestSetupVibeCodingImportsQuotapace(t *testing.T) {
 	dir := ansiblePlaybookDir(t)
 	raw, err := os.ReadFile(filepath.Join(dir, "setup-vibe-coding.yml"))
 	if err != nil {
@@ -1327,16 +1327,11 @@ func TestSetupVibeCodingImportsQuotapaceAndClaudeUsage(t *testing.T) {
 	}
 	vibe := string(raw)
 
-	for _, name := range []string{"quotapace", "claude-usage"} {
-		wantImport := "import_playbook: " + name + ".yml\n  when: ansible_facts['env']['TERMUX_VERSION'] is not defined"
-		if !strings.Contains(vibe, wantImport) {
-			t.Errorf("setup-vibe-coding.yml missing %q", wantImport)
-		}
-		if !strings.Contains(vibe, name) {
-			t.Errorf("setup-vibe-coding.yml missing %q", name)
-		}
+	wantImport := "import_playbook: quotapace.yml\n  when: ansible_facts['env']['TERMUX_VERSION'] is not defined"
+	if !strings.Contains(vibe, wantImport) {
+		t.Errorf("setup-vibe-coding.yml missing %q", wantImport)
 	}
-	if !strings.Contains(vibe, "cplt, quotapace, claude-usage") {
-		t.Error("setup-vibe-coding.yml completion message missing quotapace, claude-usage")
+	if !strings.Contains(vibe, "cplt, quotapace") {
+		t.Error("setup-vibe-coding.yml completion message missing quotapace")
 	}
 }

@@ -263,11 +263,6 @@ rules:
       - path: devtools/authwatch/README.org
         why: "tool overview and installation entry point"
 
-  - match: ["devtools/claude-usage/**"]
-    docs:
-      - path: devtools/claude-usage/README.org
-        why: "tool overview and installation entry point"
-
   - match: ["devtools/contacts/**"]
     docs:
       - path: devtools/contacts/README.org
@@ -426,11 +421,6 @@ rules:
       - path: devtools/README.org
         section: "*** rename-jira-keys"
         why: "package summary"
-  - match: ["devtools/claude-usage/**/*.go"]
-    docs:
-      - path: devtools/README.org
-        section: "*** claude-usage"
-        why: "package summary"
   - match: ["devtools/magit/magit"]
     docs:
       - path: devtools/README.org
@@ -571,29 +561,14 @@ rules:
         section: "* Safety Features"
         why: "word-boundary matching and overwrite checks"
 
-  - match: ["devtools/claude-usage/cmd/**"]
+  - match: ["devtools/quotapace/internal/collect/claude/**"]
     docs:
-      - path: devtools/claude-usage/README.org
-        section: "* Usage"
-        why: "human table and --json"
-      - path: devtools/claude-usage/README.org
-        section: "* Exit codes"
-        why: "CLI exit codes"
-
-  - match: ["devtools/claude-usage/internal/credentials/**"]
-    docs:
-      - path: devtools/claude-usage/README.org
-        section: "* Prerequisites"
-        why: "Keychain / credentials file resolution"
-      - path: devtools/claude-usage/README.org
-        section: "* Security"
-        why: "token never printed; read-only use of existing login"
-
-  - match: ["devtools/claude-usage/internal/usage/**"]
-    docs:
-      - path: devtools/claude-usage/README.org
-        section: "* Overview"
-        why: "5-hour and 7-day usage windows"
+      - path: devtools/quotapace/README.org
+        section: "* Sources"
+        why: "Claude Code collector credentials and usage endpoint"
+      - path: devtools/quotapace/README.org
+        section: "** Exit codes"
+        why: "collect claude exit codes"
 
   - match: ["devtools/magit/magit"]
     docs:

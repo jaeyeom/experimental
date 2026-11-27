@@ -1,0 +1,39 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "claude.go",
+        "client.go",
+        "format.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/quotapace/internal/collect/claude",
+    visibility = ["//devtools/quotapace:__subpackages__"],
+    deps = [
+        "//devtools/quotapace:go_default_library",
+        "//devtools/quotapace/internal/collect/claude/credentials:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    size = "small",
+    srcs = [
+        "claude_test.go",
+        "client_test.go",
+        "format_test.go",
+    ],
+    embed = [":go_default_library"],
+    deps = [
+        "//devtools/quotapace/internal/collect/claude/credentials:go_default_library",
+    ],
+)
+
+filegroup(
+    name = "go_srcs",
+    srcs = glob(
+        ["**/*.go"],
+        exclude = ["**/*_test.go"],
+    ),
+    visibility = ["//tools/lint:__pkg__"],
+)

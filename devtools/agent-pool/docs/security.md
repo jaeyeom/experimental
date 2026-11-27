@@ -69,7 +69,7 @@ When `github_auth = "cplt-gh"` is configured in `worker.toml`:
 
 Before enabling a volunteer worker for unattended team use, verify on the target host:
 
-1. Run `agent-pool doctor` and confirm `cplt`, `platform-sandbox`, `claude`, `claude-usage`, `gh-auth` (if enabled), and `broker-healthz` are `ok`.
+1. Run `agent-pool doctor` and confirm `cplt`, `platform-sandbox`, `claude`, `quotapace`, `gh-auth` (if enabled), and `broker-healthz` are `ok`.
 2. Verify `agent-pool init-auth` created `~/.local/share/agent-pool/isolated-home` (`0700`) and that cloud connectors are disabled in `claude.ai` settings.
 3. Run `agent-pool worker run --dry-run` and verify heartbeats appear on `agent-poold` without claiming jobs.
 4. Dispatch a test read-only skill against a test repo and verify:

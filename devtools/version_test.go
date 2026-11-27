@@ -37,7 +37,6 @@ var commandVersionSpecs = map[string]versionSpec{
 	"agents-md-size":                         {mode: modeVersionFlag},
 	"authwatch":                              {mode: modeVersionJSON},
 	"box-renderer":                           {mode: modeVersionFlag},
-	"claude-usage":                           {mode: modeVersionJSON},
 	"contacts":                               {mode: modeVersionJSON},
 	"decide":                                 {mode: modeVersionJSON},
 	"devcheck":                               {mode: modeVersionJSON},

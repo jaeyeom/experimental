@@ -9,7 +9,6 @@ _COMMAND_PACKAGES = [
     "//devtools/agentbus/cmd/agentbusd",
     "//devtools/ascii-art/cmd/box-renderer",
     "//devtools/authwatch/cmd/authwatch",
-    "//devtools/claude-usage/cmd/claude-usage",
     "//devtools/contacts/cmd/contacts",
     "//devtools/decide/cmd/decide",
     "//devtools/devcheck/cmd/devcheck",

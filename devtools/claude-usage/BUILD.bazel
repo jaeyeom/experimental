@@ -1,7 +1,0 @@
-load("@rules_go//go:def.bzl", "go_test")
-
-go_test(
-    name = "readme_test",
-    srcs = ["readme_test.go"],
-    data = ["README.org"],
-)

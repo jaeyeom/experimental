@@ -67,6 +67,7 @@ limit, the actual reading, and its state.
 
 #+BEGIN_EXAMPLE
 quotapace [dashboard] [--profile P] [--window W] [--recent 6h] [--stale 6h] [--watch D]
+quotapace collect claude [--json | --jsonl] [--profile P [--auto-start]]
 quotapace record --profile P --window W --percent N (--resets-in D | --resets-at T) [--source S] [--at T] [--auto-start]
 quotapace record --profile P [--stdin] [--format jsonl|claude-usage] [--auto-start] < input
 quotapace plan start --profile P --window W [--baseline N [--at T]] [--resets-at T | --resets-in D]
@@ -89,10 +90,17 @@ Windows and durations take whole days (~7d~), a Go duration (~5h~,
   countdown, and reading freshness (marked stale past ~--stale~).
   Profiles without a plan still show their samples and reset time.
   With ~--watch D~, it refreshes every ~D~ until interrupted.
+- ~collect claude~ :: fetches Claude Code's 5-hour and 7-day
+  subscription usage windows from Anthropic's OAuth usage endpoint and
+  prints a human summary, ~--json~ (same JSON contract accepted by
+  ~record --format claude-usage~), or ~--jsonl~ (compact JSON lines
+  for ~record --stdin~; ~--quotapace~ is an alias). When ~--profile P~
+  is passed, it also records the windows into that profile's log
+  (with optional ~--auto-start~).
 - ~record~ :: appends a reading. Without ~--percent~ it reads standard
   input: JSON lines (~window~, ~percent~, ~resetsAt~ or ~resetsIn~, and
   optionally ~profile~, ~at~, ~source~), or with ~--format claude-usage~
-  the object ~claude-usage --json~ prints. A reading after the plan's
+  the JSON object ~collect claude --json~ prints. A reading after the plan's
   reset time, with a reset more than an hour later than the plan's, or
   20 points below the previous reading means the window reset. The
   plan is closed with its last percent. ~--auto-start~ starts a fresh
@@ -142,14 +150,14 @@ Windows and durations take whole days (~7d~), a Go duration (~5h~,
 
 ** Exit codes
 
-| Code | status, report, check                      | gate                     | Other commands |
-|------+--------------------------------------------+--------------------------+----------------|
-| 0    | every window green                         | gap >= min-gap (pass)    | success        |
-| 1    | the worst window is amber                  | gap < min-gap            |                |
-| 2    | the worst window is red                    |                          |                |
-| 3    | a reading is missing or stale              | unreadable (fail closed) |                |
-| 64   | usage error                                | usage error              | usage error    |
-| 70   | any other error, such as an unreadable log | other error              | other error    |
+| Code | status, report, check                      | gate                     | collect claude                           | Other commands |
+|------+--------------------------------------------+--------------------------+------------------------------------------+----------------|
+| 0    | every window green                         | gap >= min-gap (pass)    | success                                  | success        |
+| 1    | the worst window is amber                  | gap < min-gap            |                                          |                |
+| 2    | the worst window is red                    |                          | no usage data / custom base URL / unauth |                |
+| 3    | a reading is missing or stale              | unreadable (fail closed) |                                          |                |
+| 64   | usage error                                | usage error              | usage error                              | usage error    |
+| 70   | any other error, such as an unreadable log | other error              | other error                              | other error    |
 
 The code is the highest one among the selected windows.
 
@@ -210,23 +218,30 @@ are only added within a version.
 * Cron example for check
 
 #+BEGIN_SRC bash
-# Every 30 minutes: read Claude Code usage, then alert on a problem.
-*/30 * * * * claude-usage --json | quotapace record --profile work --format claude-usage --auto-start && quotapace check --notify-cmd 'mail -s quotapace you@example.com'
+# Every 30 minutes: collect Claude Code usage into profile work, then alert on a problem.
+*/30 * * * * quotapace collect claude --profile work --auto-start && quotapace check --notify-cmd 'mail -s quotapace you@example.com'
 #+END_SRC
 
 Any command that reads standard input works as the notify command.
 
 * Sources
 
-quotapace does not call a vendor itself. Feed it from whatever shows
-the numbers.
+The core ~quotapace~ library and tracking engine stay agnostic to
+specific coding agents. Built-in collectors live under ~collect~ and
+feed readings into the same log:
 
-- Claude Code :: the ~/usage~ command shows the 5-hour and 7-day
-  percent and reset times. In this repository, ~claude-usage --json~
-  ([[file:../claude-usage/README.org][README]]) reads the same numbers
-  for a subscription login; pipe it to
-  ~quotapace record --format claude-usage~, which records ~5h~ and
-  ~7d~.
+- Claude Code (~quotapace collect claude~) :: reads the subscription
+  OAuth login already stored by Claude Code (macOS Keychain service
+  ~Claude Code-credentials~, or ~Claude Code-credentials-<sha256[:8]>~
+  for custom ~CLAUDE_CONFIG_DIR~, falling back to
+  ~$CLAUDE_CONFIG_DIR/.credentials.json~ / =~/.claude/.credentials.json=
+  which is also the primary path on Linux) and fetches 5-hour and 7-day
+  utilization from ~https://api.anthropic.com/api/oauth/usage~. Tokens
+  are read-only, kept only in memory for the request, never printed or
+  logged, and macOS Keychain calls invoke =/usr/bin/security= by
+  absolute path. Setting ~ANTHROPIC_BASE_URL~ or
+  ~ANTHROPIC_API_BASE_URL~ to a non-Anthropic origin, or using an API
+  key login, returns exit code 2 with a non-subscription message.
 - Antigravity CLI (~agy~) :: read the percent and the time to reset
   from its usage display and pass them to ~record~ with ~--percent~
   and ~--resets-in~. There is no collector for it yet.
@@ -241,7 +256,7 @@ given with ~--profile~. To track or gate a remote machine's quota from
 a local controller, pipe its usage readings into a dedicated profile:
 
 #+BEGIN_SRC bash
-ssh host claude-usage --quotapace | quotapace record --profile remote --stdin
+ssh host quotapace collect claude --jsonl | quotapace record --profile remote --stdin
 quotapace plan set --profile remote --window 7d --reset "Thu 15:00" --tz America/Los_Angeles --rate 0.55 --offset 8
 quotapace gate --profile remote --window 7d --min-gap 5
 #+END_SRC

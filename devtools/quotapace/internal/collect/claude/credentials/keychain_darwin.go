@@ -33,7 +33,7 @@ func defaultKeychainLoader(ctx context.Context, service, account string) (string
 		defer cancel()
 	}
 
-	// Absolute path avoids PATH hijacking (same approach as claude-hud).
+	// Absolute path avoids PATH hijacking.
 	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	cmd := exec.CommandContext(ctx, "/usr/bin/security", args...) //nolint:gosec // fixed binary path; service/account are not shell-interpreted
 	var stdout, stderr bytes.Buffer

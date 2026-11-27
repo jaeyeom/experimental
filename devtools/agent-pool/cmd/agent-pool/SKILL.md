@@ -31,7 +31,7 @@ Producers can connect over MCP (`POST /mcp` on `agent-poold`) or use the first-c
 
 ## Diagnostics & Maintenance
 
-- `agent-pool doctor [--json] [--offline]` — verify `cplt`, platform sandbox support (`bwrap` or `keychain_substitute`), `claude`, `claude-usage`, `gh`, and broker `/healthz`.
+- `agent-pool doctor [--json] [--offline]` — verify `cplt`, platform sandbox support (`bwrap` or `keychain_substitute`), `claude`, `quotapace`, `gh`, and broker `/healthz`.
 - `agent-pool version [--json]` — show binary version and VCS revision.
 - `agent-pool update [--check] [--ref <ref>] [--json]` — update `agent-pool` and companion `agent-poold`.
 - `agent-pool skill [install|uninstall|status]` — manage this embedded skill file.

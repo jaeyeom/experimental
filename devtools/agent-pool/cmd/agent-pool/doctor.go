@@ -120,13 +120,13 @@ func doctorCheckClaude(deps cliDeps) toolcli.DoctorCheck {
 
 func doctorCheckClaudeUsage(deps cliDeps) toolcli.DoctorCheck {
 	return func(ctx context.Context, _ bool) toolcli.CheckResult {
-		p, err := deps.lookPath("claude-usage")
+		p, err := deps.lookPath("quotapace")
 		if err != nil {
 			return toolcli.CheckResult{
-				Name:   "claude-usage",
+				Name:   "quotapace",
 				Status: toolcli.StatusWarn,
-				Detail: "claude-usage not found on PATH",
-				Hint:   "install claude-usage via `make install`",
+				Detail: "quotapace not found on PATH",
+				Hint:   "install quotapace via `make install`",
 			}
 		}
 
@@ -135,7 +135,7 @@ func doctorCheckClaudeUsage(deps cliDeps) toolcli.DoctorCheck {
 		tok, err := sandbox.ReadIsolatedOAuthToken(claudeDir)
 		if err != nil {
 			return toolcli.CheckResult{
-				Name:   "claude-usage",
+				Name:   "quotapace",
 				Status: toolcli.StatusWarn,
 				Detail: fmt.Sprintf("isolated auth unreadable in %s: %v", claudeDir, err),
 				Hint:   "run `agent-pool init-auth` to initialize isolated credentials",
@@ -143,7 +143,7 @@ func doctorCheckClaudeUsage(deps cliDeps) toolcli.DoctorCheck {
 		}
 		if tok == "" {
 			return toolcli.CheckResult{
-				Name:   "claude-usage",
+				Name:   "quotapace",
 				Status: toolcli.StatusWarn,
 				Detail: fmt.Sprintf("%s present; isolated auth not initialized (%s)", p, claudeDir),
 				Hint:   "run `agent-pool init-auth` before starting the worker daemon",
@@ -151,16 +151,16 @@ func doctorCheckClaudeUsage(deps cliDeps) toolcli.DoctorCheck {
 		}
 
 		env := append(os.Environ(), "CLAUDE_CONFIG_DIR="+claudeDir)
-		if _, err := deps.runCmd(ctx, p, []string{"--json"}, env); err != nil {
+		if _, err := deps.runCmd(ctx, p, []string{"collect", "claude", "--json"}, env); err != nil {
 			return toolcli.CheckResult{
-				Name:   "claude-usage",
+				Name:   "quotapace",
 				Status: toolcli.StatusWarn,
-				Detail: fmt.Sprintf("isolated claude-usage check failed for %s", claudeDir),
+				Detail: fmt.Sprintf("isolated quotapace collect claude check failed for %s", claudeDir),
 				Hint:   "re-run `agent-pool init-auth` to refresh isolated OAuth login",
 			}
 		}
 		return toolcli.CheckResult{
-			Name:   "claude-usage",
+			Name:   "quotapace",
 			Status: toolcli.StatusOK,
 			Detail: fmt.Sprintf("%s (isolated auth valid in %s)", p, claudeDir),
 		}

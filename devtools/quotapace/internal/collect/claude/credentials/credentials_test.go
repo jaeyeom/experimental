@@ -162,6 +162,53 @@ func TestResolveFromFile(t *testing.T) {
 	}
 }
 
+func TestResolveUsesClaudeConfigDirEnv(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	customDir := filepath.Join(home, "custom-claude")
+	if err := os.MkdirAll(customDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(customDir, ".credentials.json"), []byte(`{
+		"claudeAiOauth": {"accessToken":"env-file-token","subscriptionType":"max","expiresAt":1893456000000}
+	}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	wantService := KeychainServiceName(customDir, home)
+	var triedServices []string
+	now := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	r := &Resolver{
+		HomeDir:  home,
+		GOOS:     "darwin",
+		Username: "tester",
+		Env: func(k string) string {
+			if k == "CLAUDE_CONFIG_DIR" {
+				return "~/custom-claude"
+			}
+			return ""
+		},
+		Now: func() time.Time { return now },
+		LoadKeychain: func(_ context.Context, service, _ string) (string, error) {
+			triedServices = append(triedServices, service)
+			return "", fmt.Errorf("could not be found in the keychain")
+		},
+	}
+	creds, err := r.Resolve(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if creds.AccessToken != "env-file-token" {
+		t.Fatalf("token = %q, want env-file-token", creds.AccessToken)
+	}
+	if creds.Source != "credentials-file:"+customDir {
+		t.Fatalf("Source = %q, want credentials-file:%s", creds.Source, customDir)
+	}
+	if len(triedServices) == 0 || triedServices[0] != wantService {
+		t.Fatalf("first keychain service tried = %v, want %q", triedServices, wantService)
+	}
+}
+
 func TestResolveKeychainPreferred(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()

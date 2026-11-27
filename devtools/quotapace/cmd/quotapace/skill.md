@@ -9,6 +9,7 @@ description: CLI that records quota readings and projects them against a pacing 
 
 Common commands:
 - `quotapace` (or `quotapace dashboard [--profile P] [--recent D] [--stale D] [--watch D]`)
+- `quotapace collect claude [--json | --jsonl] [--profile P [--auto-start]]`
 - `quotapace record --profile P --window 7d --percent 27 --resets-in 6d5h`
 - `quotapace record --profile remote --stdin`
 - `quotapace plan start --profile P --window 7d`

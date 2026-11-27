@@ -386,7 +386,6 @@ var platformSpecificTools = []PlatformSpecificTool{
 			{Playbook: "setup-nvm", When: WhenDebianLike},
 		},
 	},
-	experimentalGoTool("claude-usage", "devtools/claude-usage/cmd/claude-usage"),
 	{
 		command: "claudelytics",
 		platforms: map[PlatformName]InstallMethod{

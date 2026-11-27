@@ -221,5 +221,5 @@ agent-pool catalog validate .
 
 - =agent-pool version [--json]= :: Print version, module path, and VCS revision.
 - =agent-pool update [--check] [--ref <ref>] [--json]= :: Update =agent-pool= and companion =agent-poold=.
-- =agent-pool doctor [--json] [--offline]= :: Check =cplt=, platform sandbox (=bwrap= on Linux or =keychain_substitute= on macOS), =claude=, =claude-usage= isolated auth, =gh= auth, and broker =/healthz=.
+- =agent-pool doctor [--json] [--offline]= :: Check =cplt=, platform sandbox (=bwrap= on Linux or =keychain_substitute= on macOS), =claude=, =quotapace= isolated auth, =gh= auth, and broker =/healthz=.
 - =agent-pool skill [install|uninstall|status ...]= :: Print or install the embedded =SKILL.md= for coding agents.

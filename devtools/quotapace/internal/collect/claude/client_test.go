@@ -1,4 +1,4 @@
-package usage
+package claude
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jaeyeom/experimental/devtools/claude-usage/internal/credentials"
+	"github.com/jaeyeom/experimental/devtools/quotapace/internal/collect/claude/credentials"
 )
 
 type staticTokens struct {

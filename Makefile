@@ -55,7 +55,6 @@ fix: fix-go fix-ruff check-spacemacs
 INSTALL_CMDS := \
 	./devtools/agent-pool/cmd/agent-pool \
 	./devtools/agent-pool/cmd/agent-poold \
-	./devtools/claude-usage/cmd/claude-usage \
 	./devtools/devcheck/cmd/devcheck \
 	./devtools/docsync/cmd/docsync \
 	./devtools/factory/cmd/factory \
@@ -79,6 +78,7 @@ INSTALL_CMDS := \
 	./devtools/linters/cmd/unnecessary-interface-assertion-linter \
 	./devtools/memstore/cmd/memstore \
 	./devtools/prsync/cmd/prsync \
+	./devtools/quotapace/cmd/quotapace \
 	./devtools/rename-jira-keys/cmd/rename-jira-keys \
 	./devtools/reviewpush/cmd/review-and-push-loop \
 	./devtools/secretwatch/cmd/secretwatch \

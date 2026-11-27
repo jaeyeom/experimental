@@ -1,6 +1,6 @@
 #!/bin/sh
 # End-to-end fixture tests for the decide example panel writer scripts.
-# Runs the real decide binary with fake claude-usage, quotapace, /proc, and ps
+# Runs the real decide binary with fake quotapace, /proc, and ps
 # fixtures, verifying decide panel set accepts the emitted JSON.
 set -eu
 
@@ -28,18 +28,14 @@ export XDG_CONFIG_HOME="$CONFIG_HOME"
 export CLAUDE_CONFIG_DIR="$CLAUDE_DIR"
 export DECIDE_BIN="$DECIDE_BIN"
 
-# --- Fake claude-usage ---
-cat >"$FAKE_BIN/claude-usage" <<'EOF'
-#!/bin/sh
-set -eu
-printf '%s\n' '{"planName":"Team","fiveHour":14,"sevenDay":42,"fiveHourResetAt":"2026-11-26T17:00:00Z","sevenDayResetAt":"2026-11-30T23:00:00Z"}'
-EOF
-chmod +x "$FAKE_BIN/claude-usage"
-
-# --- Fake quotapace (exits 1 for amber to verify non-zero status handling) ---
+# --- Fake quotapace (serves collect claude --json, and exits 1 for amber on status) ---
 cat >"$FAKE_BIN/quotapace" <<'EOF'
 #!/bin/sh
 set -eu
+if [ "${1:-}" = "collect" ]; then
+  printf '%s\n' '{"planName":"Team","fiveHour":14,"sevenDay":42,"fiveHourResetAt":"2026-11-26T17:00:00Z","sevenDayResetAt":"2026-11-30T23:00:00Z"}'
+  exit 0
+fi
 cat <<'JSON'
 {
   "version": 1,

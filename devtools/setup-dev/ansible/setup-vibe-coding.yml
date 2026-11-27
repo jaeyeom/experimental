@@ -26,8 +26,6 @@
   when: ansible_facts['env']['TERMUX_VERSION'] is not defined
 - import_playbook: quotapace.yml
   when: ansible_facts['env']['TERMUX_VERSION'] is not defined
-- import_playbook: claude-usage.yml
-  when: ansible_facts['env']['TERMUX_VERSION'] is not defined
 
 - name: Setup vibe coding environment
   hosts: all
@@ -44,4 +42,4 @@
 
     - name: Vibe coding environment setup completed
       debug:
-        msg: "All vibe coding tools have been installed: gh-nudge tools, gh-repox, prsync, claudelytics, grok, herdr, factory, slackwatch, decide, aside, cplt, quotapace, claude-usage"
+        msg: "All vibe coding tools have been installed: gh-nudge tools, gh-repox, prsync, claudelytics, grok, herdr, factory, slackwatch, decide, aside, cplt, quotapace"

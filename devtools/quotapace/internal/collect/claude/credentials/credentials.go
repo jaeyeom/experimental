@@ -1,7 +1,8 @@
-// Package credentials resolves Claude Code OAuth credentials without claude-hud.
+// Package credentials resolves Claude Code OAuth credentials.
 //
 // Primary source on macOS is the Keychain item written by Claude Code.
-// Older installs may store credentials in $CLAUDE_CONFIG_DIR/.credentials.json.
+// Older installs or non-macOS systems store credentials in
+// $CLAUDE_CONFIG_DIR/.credentials.json.
 //
 // Security: access tokens are held only in memory and must never be logged or
 // printed. Error messages intentionally omit Keychain/file payload content.
@@ -89,7 +90,7 @@ type Resolver struct {
 	ReadFile func(name string) ([]byte, error)
 }
 
-// Resolve returns OAuth credentials from Keychain (macOS) or the legacy file.
+// Resolve returns OAuth credentials from Keychain (macOS) or the credentials file.
 func (r *Resolver) Resolve(ctx context.Context) (*Creds, error) {
 	r.applyDefaults()
 
@@ -219,7 +220,7 @@ func KeychainServiceName(configDir, homeDir string) string {
 	return LegacyKeychainService + "-" + hex.EncodeToString(sum[:])[:8]
 }
 
-// KeychainServiceNames returns service names to try, matching claude-hud order:
+// KeychainServiceNames returns service names to try:
 // primary for config dir, optional env-derived name, then legacy fallback.
 func KeychainServiceNames(configDir, homeDir string, env func(string) string) []string {
 	if env == nil {
@@ -232,7 +233,6 @@ func KeychainServiceNames(configDir, homeDir string, env func(string) string) []
 		if normalizedEnv == normalizedDefault {
 			names = append(names, LegacyKeychainService)
 		} else {
-			// claude-hud hashes the raw env string (not necessarily resolved path).
 			sum := sha256.Sum256([]byte(envConfig))
 			names = append(names, LegacyKeychainService+"-"+hex.EncodeToString(sum[:])[:8])
 		}

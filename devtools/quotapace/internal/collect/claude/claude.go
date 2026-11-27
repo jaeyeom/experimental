@@ -1,5 +1,5 @@
-// Package usage defines Claude Code rate-limit usage data and fetching.
-package usage
+// Package claude fetches and formats Claude Code subscription rate-limit usage.
+package claude
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"time"
+
+	"github.com/jaeyeom/experimental/devtools/quotapace"
 )
 
 // ErrNoData indicates usage data is unavailable (API-key user, expired
@@ -27,14 +29,14 @@ type Data struct {
 // OutputFormat selects the output rendering for Write.
 type OutputFormat int
 
+// Supported output formats for Write.
 const (
 	OutputHuman OutputFormat = iota
 	OutputJSON
 	OutputQuotapace
 )
 
-// Fetcher loads current usage. Implementations may call the Anthropic OAuth
-// usage API, bridge to claude-hud, or return fixtures in tests.
+// Fetcher loads current Claude Code usage.
 type Fetcher interface {
 	Fetch(ctx context.Context) (*Data, error)
 }
@@ -61,6 +63,14 @@ func Write(ctx context.Context, w io.Writer, f Fetcher, format OutputFormat) err
 	if data == nil {
 		return ErrNoData
 	}
+	return Format(w, data, format)
+}
+
+// Format renders an already-fetched usage snapshot in the requested format.
+func Format(w io.Writer, data *Data, format OutputFormat) error {
+	if data == nil {
+		return ErrNoData
+	}
 	switch format {
 	case OutputHuman:
 		return FormatHuman(w, data)
@@ -71,4 +81,32 @@ func Write(ctx context.Context, w io.Writer, f Fetcher, format OutputFormat) err
 	default:
 		return fmt.Errorf("unknown output format %d", format)
 	}
+}
+
+// Readings converts non-empty usage windows in data into quotapace readings
+// for profile. Returns ErrNoData when neither window has both utilization and
+// a reset time.
+func Readings(data *Data, profile string, fallbackNow time.Time) ([]quotapace.Reading, error) {
+	if data == nil {
+		return nil, ErrNoData
+	}
+	at := fallbackNow.UTC()
+	if data.FetchedAt != nil && !data.FetchedAt.IsZero() {
+		at = data.FetchedAt.UTC()
+	}
+	var out []quotapace.Reading
+	for _, win := range completeWindows(data) {
+		out = append(out, quotapace.Reading{
+			At:       at,
+			Profile:  profile,
+			Window:   win.name,
+			Percent:  win.percent,
+			ResetsAt: win.resetsAt,
+			Source:   data.Source,
+		})
+	}
+	if len(out) == 0 {
+		return nil, ErrNoData
+	}
+	return out, nil
 }

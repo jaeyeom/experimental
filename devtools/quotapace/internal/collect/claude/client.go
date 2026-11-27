@@ -1,4 +1,4 @@
-package usage
+package claude
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jaeyeom/experimental/devtools/claude-usage/internal/credentials"
+	"github.com/jaeyeom/experimental/devtools/quotapace/internal/collect/claude/credentials"
 )
 
 const (
@@ -21,7 +21,7 @@ const (
 	DefaultUsageAPIBase = "https://api.anthropic.com"
 	// UsageAPIPath is the OAuth usage endpoint path.
 	UsageAPIPath = "/api/oauth/usage"
-	// DefaultUserAgent matches claude-hud / Claude Code usage requests.
+	// DefaultUserAgent matches Claude Code usage requests.
 	DefaultUserAgent = "claude-code/2.1"
 	// DefaultTimeout is the HTTP client timeout when none is configured.
 	DefaultTimeout = 15 * time.Second
@@ -216,7 +216,7 @@ func parseUtilization(v *float64) *float64 {
 	if math.IsNaN(*v) || math.IsInf(*v, 0) {
 		return nil
 	}
-	// API returns 0–100 utilization percent; clamp without rounding to preserve decimal precision.
+	// API returns 0-100 utilization percent; clamp without rounding to preserve decimal precision.
 	clamped := math.Max(0, math.Min(100, *v))
 	if clamped == 0 {
 		clamped = 0
@@ -232,7 +232,7 @@ func parseAPITime(s *string) (*time.Time, error) {
 	if err != nil {
 		t, err = time.Parse(time.RFC3339, *s)
 		if err != nil {
-			// Invalid date: ignore rather than fail the whole snapshot (claude-hud returns null).
+			// Invalid date: ignore rather than fail the whole snapshot.
 			return nil, nil
 		}
 	}

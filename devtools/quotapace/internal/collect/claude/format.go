@@ -1,4 +1,4 @@
-package usage
+package claude
 
 import (
 	"encoding/json"
@@ -44,6 +44,38 @@ func FormatJSON(w io.Writer, d *Data) error {
 	return nil
 }
 
+type windowSnapshot struct {
+	name     string
+	percent  float64
+	resetsAt time.Time
+}
+
+func completeWindows(d *Data) []windowSnapshot {
+	if d == nil {
+		return nil
+	}
+	candidates := []struct {
+		name    string
+		percent *float64
+		resets  *time.Time
+	}{
+		{name: "5h", percent: d.FiveHour, resets: d.FiveHourResetAt},
+		{name: "7d", percent: d.SevenDay, resets: d.SevenDayResetAt},
+	}
+	var out []windowSnapshot
+	for _, c := range candidates {
+		if c.percent == nil || c.resets == nil || c.resets.IsZero() {
+			continue
+		}
+		out = append(out, windowSnapshot{
+			name:     c.name,
+			percent:  *c.percent,
+			resetsAt: c.resets.UTC(),
+		})
+	}
+	return out
+}
+
 type quotapaceLine struct {
 	Window   string     `json:"window"`
 	Percent  float64    `json:"percent"`
@@ -58,39 +90,27 @@ func FormatQuotapace(w io.Writer, d *Data) error {
 	if d == nil {
 		return fmt.Errorf("usage data is nil")
 	}
+	wins := completeWindows(d)
+	if len(wins) == 0 {
+		return ErrNoData
+	}
 	var at *time.Time
 	if d.FetchedAt != nil && !d.FetchedAt.IsZero() {
 		t := d.FetchedAt.UTC()
 		at = &t
 	}
-	windows := []struct {
-		name    string
-		percent *float64
-		resets  *time.Time
-	}{
-		{name: "5h", percent: d.FiveHour, resets: d.FiveHourResetAt},
-		{name: "7d", percent: d.SevenDay, resets: d.SevenDayResetAt},
-	}
 	enc := json.NewEncoder(w)
-	wrote := 0
-	for _, win := range windows {
-		if win.percent == nil || win.resets == nil || win.resets.IsZero() {
-			continue
-		}
+	for _, win := range wins {
 		line := quotapaceLine{
 			Window:   win.name,
-			Percent:  *win.percent,
-			ResetsAt: win.resets.UTC(),
+			Percent:  win.percent,
+			ResetsAt: win.resetsAt,
 			Source:   d.Source,
 			At:       at,
 		}
 		if err := enc.Encode(line); err != nil {
 			return fmt.Errorf("encode quotapace line: %w", err)
 		}
-		wrote++
-	}
-	if wrote == 0 {
-		return ErrNoData
 	}
 	return nil
 }
@@ -113,7 +133,6 @@ func when(t *time.Time) string {
 	if t == nil {
 		return "n/a"
 	}
-	// Match ~/.local/bin/claude-usage: "YYYY-MM-DD HH:MM UTC"
 	return t.UTC().Format("2006-01-02 15:04 UTC")
 }
 

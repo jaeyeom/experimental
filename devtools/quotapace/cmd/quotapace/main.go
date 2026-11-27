@@ -3,6 +3,7 @@
 //
 //	quotapace
 //	quotapace dashboard [--profile P] [--recent D] [--stale D] [--watch D]
+//	quotapace collect claude [--json | --jsonl] [--profile P [--auto-start]]
 //	quotapace record --profile P --window 7d --percent 27 --resets-in 6d5h
 //	quotapace plan start --profile P --window 7d [--baseline 27 --at T]
 //	quotapace plan set --profile P --window 7d [--reset "Thu 15:00"] [--tz Area/City] --rate R [--offset O]
@@ -13,7 +14,9 @@
 //
 // status, report, and check exit 0 green, 1 amber, 2 red, and 3 for a
 // missing or stale reading. gate exits 0 open, 1 below min-gap, and 3 when
-// unreadable (fail closed). A usage error exits 64; any other error 70.
+// unreadable (fail closed). collect claude exits 2 when no usage data is
+// available (non-subscription login, custom ANTHROPIC_BASE_URL, or expired
+// credentials). A usage error exits 64; any other error 70.
 package main
 
 import (
@@ -30,6 +33,7 @@ import (
 	_ "time/tzdata"
 
 	"github.com/jaeyeom/experimental/devtools/quotapace"
+	"github.com/jaeyeom/experimental/devtools/quotapace/internal/collect/claude"
 )
 
 const (
@@ -38,6 +42,7 @@ const (
 )
 
 const usage = `usage: quotapace [dashboard] [--profile P] [--window W] [--recent 6h] [--stale 6h] [--watch D]
+       quotapace collect claude [--json | --jsonl] [--profile P [--auto-start]]
        quotapace record --profile P --window W --percent N (--resets-in D | --resets-at T) [--source S] [--at T] [--auto-start]
        quotapace record --profile P [--stdin] [--format jsonl|claude-usage] [--auto-start] < input
        quotapace plan start --profile P --window W [--baseline N [--at T]] [--resets-at T | --resets-in D]
@@ -52,14 +57,15 @@ const usage = `usage: quotapace [dashboard] [--profile P] [--window W] [--recent
 var errUsage = errors.New("usage")
 
 type env struct {
-	getenv func(string) string
-	stdin  io.Reader
-	stdout io.Writer
-	stderr io.Writer
-	now    func() time.Time
-	notify func(argv []string, text string) error
-	ctx    context.Context
-	after  func(time.Duration) <-chan time.Time
+	getenv        func(string) string
+	stdin         io.Reader
+	stdout        io.Writer
+	stderr        io.Writer
+	now           func() time.Time
+	notify        func(argv []string, text string) error
+	ctx           context.Context
+	after         func(time.Duration) <-chan time.Time
+	collectClaude func() claude.Fetcher
 }
 
 func main() {
@@ -104,20 +110,12 @@ func dispatch(args []string, store quotapace.Store, e env) (int, error) {
 	switch args[0] {
 	case "dashboard":
 		return runDashboard(args[1:], store, e)
+	case "collect":
+		return dispatchCollect(args[1:], store, e)
 	case "record":
 		return 0, runRecord(args[1:], store, e)
 	case "plan":
-		if len(args) < 2 {
-			return 0, fmt.Errorf("%w: plan needs start or set subcommand", errUsage)
-		}
-		switch args[1] {
-		case "start":
-			return 0, runPlanStart(args[2:], store, e)
-		case "set":
-			return 0, runPlanSet(args[2:], store, e)
-		default:
-			return 0, fmt.Errorf("%w: unknown plan subcommand %q (want start or set)", errUsage, args[1])
-		}
+		return 0, dispatchPlan(args[1:], store, e)
 	case "status":
 		return runStatus(args[1:], store, e, false)
 	case "report":
@@ -131,6 +129,32 @@ func dispatch(args []string, store quotapace.Store, e env) (int, error) {
 		return 0, nil
 	default:
 		return 0, fmt.Errorf("%w: unknown command %q\n%s", errUsage, args[0], usage)
+	}
+}
+
+func dispatchCollect(args []string, store quotapace.Store, e env) (int, error) {
+	if len(args) < 1 {
+		return 0, fmt.Errorf("%w: collect needs a collector name (such as claude)", errUsage)
+	}
+	switch args[0] {
+	case "claude":
+		return runCollectClaude(args[1:], store, e)
+	default:
+		return 0, fmt.Errorf("%w: unknown collector %q (want claude)", errUsage, args[0])
+	}
+}
+
+func dispatchPlan(args []string, store quotapace.Store, e env) error {
+	if len(args) < 1 {
+		return fmt.Errorf("%w: plan needs start or set subcommand", errUsage)
+	}
+	switch args[0] {
+	case "start":
+		return runPlanStart(args[1:], store, e)
+	case "set":
+		return runPlanSet(args[1:], store, e)
+	default:
+		return fmt.Errorf("%w: unknown plan subcommand %q (want start or set)", errUsage, args[0])
 	}
 }
 

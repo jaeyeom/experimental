@@ -1,4 +1,4 @@
-"""Write the decide 'tokens' Chart panel from claude-usage, quotapace, and logs.
+"""Write the decide 'tokens' Chart panel from quotapace and Claude Code logs.
 
 Intended for cron: builds daily cumulative usage for the current month with a
 projection to the configured monthly limit and crossing date, then updates the
@@ -106,10 +106,10 @@ def format_rfc3339(when: dt.datetime) -> str:
 
 
 def fetch_claude_usage(binary: str) -> dict[str, Any] | None:
-    """Run ``claude-usage --json`` and return parsed JSON if available."""
+    """Run ``quotapace collect claude --json`` and return parsed JSON if available."""
     try:
         proc = subprocess.run(
-            [binary, "--json"],
+            [binary, "collect", "claude", "--json"],
             check=False,
             capture_output=True,
             text=True,
@@ -502,11 +502,6 @@ def _build_parser(environ: Mapping[str, str]) -> argparse.ArgumentParser:
         help="Claude Code projects directory (default: ~/.claude/projects).",
     )
     parser.add_argument(
-        "--claude-usage-bin",
-        default=environ.get("CLAUDE_USAGE_BIN", "claude-usage"),
-        help="Path to claude-usage binary.",
-    )
-    parser.add_argument(
         "--quotapace-bin",
         default=environ.get("QUOTAPACE_BIN", "quotapace"),
         help="Path to quotapace binary.",
@@ -557,7 +552,7 @@ def main(
         print(f"tokens: invalid --now timestamp {args.now!r}", file=sys.stderr)
         return 2
 
-    usage = fetch_claude_usage(args.claude_usage_bin)
+    usage = fetch_claude_usage(args.quotapace_bin)
     qp_status = fetch_quotapace_status(args.quotapace_bin, args.profile)
     qp_cross = quotapace_crossing_at(
         qp_status, window=args.quotapace_window, now=now

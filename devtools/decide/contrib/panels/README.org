@@ -12,7 +12,7 @@ Writes a ~Chart~ panel (~tokens~) of daily cumulative coding-agent
 usage for the current month with a projection to a monthly limit and the
 crossing date:
 
-- Reads current subscription usage via ~claude-usage --json~ when
+- Reads current subscription usage via ~quotapace collect claude --json~ when
   available.
 - Reads the quota projection (~hoursTo100~) via ~quotapace status
   --json~ when available, falling back to the month's daily token pace
@@ -58,9 +58,9 @@ Key flags / environment variables:
 
 * Crontab examples
 
-Make sure ~PATH~ in crontab includes where ~decide~, ~claude-usage~,
-~quotapace~, and ~python3~ are installed (for example =~/go/bin= and
-=/opt/homebrew/bin= or =/usr/local/bin=):
+Make sure ~PATH~ in crontab includes where ~decide~, ~quotapace~, and
+~python3~ are installed (for example =~/go/bin= and =/opt/homebrew/bin= or
+=/usr/local/bin=):
 
 #+begin_src sh
   PATH=/usr/local/bin:/opt/homebrew/bin:/home/me/go/bin:/usr/bin:/bin

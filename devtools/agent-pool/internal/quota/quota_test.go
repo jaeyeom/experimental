@@ -313,10 +313,10 @@ func TestExecClaudeUsageReaderIsolatesConfigDir(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
-	fakeBin := filepath.Join(tmpDir, "claude-usage")
+	fakeBin := filepath.Join(tmpDir, "quotapace")
 	script := `#!/bin/sh
-if [ "$1" != "--json" ]; then
-  echo "expected --json" >&2
+if [ "$1" != "collect" ] || [ "$2" != "claude" ] || [ "$3" != "--json" ]; then
+  echo "expected collect claude --json" >&2
   exit 2
 fi
 if [ "$CLAUDE_CONFIG_DIR" != "` + tmpDir + `" ]; then
@@ -328,7 +328,7 @@ cat <<'EOF'
 EOF
 `
 	if err := os.WriteFile(fakeBin, []byte(script), 0o700); err != nil {
-		t.Fatalf("write fake claude-usage: %v", err)
+		t.Fatalf("write fake quotapace: %v", err)
 	}
 
 	reader := quota.NewExecClaudeUsageReader(tmpDir)

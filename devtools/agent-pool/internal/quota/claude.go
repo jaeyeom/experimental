@@ -17,15 +17,15 @@ import (
 )
 
 const (
-	defaultClaudeUsageBinary = "claude-usage"
-	defaultRecentPaceSpan    = 6 * time.Hour
-	windowFiveHour           = "5h"
-	windowSevenDay           = "7d"
+	defaultQuotaBinary    = "quotapace"
+	defaultRecentPaceSpan = 6 * time.Hour
+	windowFiveHour        = "5h"
+	windowSevenDay        = "7d"
 )
 
 var _ Guard = (*ClaudeGuard)(nil)
 
-// ClaudeUsageReading matches the JSON output of `claude-usage --json`.
+// ClaudeUsageReading matches the JSON output of `quotapace collect claude --json`.
 type ClaudeUsageReading struct {
 	PlanName        string     `json:"planName"`
 	FiveHour        *float64   `json:"fiveHour"`
@@ -39,8 +39,8 @@ type UsageReader interface {
 	Read(ctx context.Context) (ClaudeUsageReading, error)
 }
 
-// ExecClaudeUsageReader invokes `claude-usage --json` with an isolated
-// CLAUDE_CONFIG_DIR environment variable.
+// ExecClaudeUsageReader invokes `quotapace collect claude --json` with an
+// isolated CLAUDE_CONFIG_DIR environment variable.
 type ExecClaudeUsageReader struct {
 	Binary          string
 	ClaudeConfigDir string
@@ -50,25 +50,25 @@ type ExecClaudeUsageReader struct {
 // claudeConfigDir.
 func NewExecClaudeUsageReader(claudeConfigDir string) *ExecClaudeUsageReader {
 	return &ExecClaudeUsageReader{
-		Binary:          defaultClaudeUsageBinary,
+		Binary:          defaultQuotaBinary,
 		ClaudeConfigDir: claudeConfigDir,
 	}
 }
 
-// Read executes `claude-usage --json` under the isolated CLAUDE_CONFIG_DIR and
-// parses stdout as a ClaudeUsageReading.
+// Read executes `quotapace collect claude --json` under the isolated
+// CLAUDE_CONFIG_DIR and parses stdout as a ClaudeUsageReading.
 func (r *ExecClaudeUsageReader) Read(ctx context.Context) (ClaudeUsageReading, error) {
 	if strings.TrimSpace(r.ClaudeConfigDir) == "" {
 		return ClaudeUsageReading{}, errors.New("isolated claude config dir is required")
 	}
 	binary := r.Binary
 	if binary == "" {
-		binary = defaultClaudeUsageBinary
+		binary = defaultQuotaBinary
 	}
 
-	// Direct execve of the configured claude-usage binary with fixed --json arg (no shell).
+	// Direct execve of the configured quotapace binary with fixed args (no shell).
 	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
-	cmd := exec.CommandContext(ctx, binary, "--json")
+	cmd := exec.CommandContext(ctx, binary, "collect", "claude", "--json")
 	cmd.Env = withEnvOverride(os.Environ(), "CLAUDE_CONFIG_DIR", r.ClaudeConfigDir)
 
 	var stdout, stderr bytes.Buffer
@@ -78,14 +78,14 @@ func (r *ExecClaudeUsageReader) Read(ctx context.Context) (ClaudeUsageReading, e
 	if err := cmd.Run(); err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg != "" {
-			return ClaudeUsageReading{}, fmt.Errorf("run %s --json: %s: %w", binary, msg, err)
+			return ClaudeUsageReading{}, fmt.Errorf("run %s collect claude --json: %s: %w", binary, msg, err)
 		}
-		return ClaudeUsageReading{}, fmt.Errorf("run %s --json: %w", binary, err)
+		return ClaudeUsageReading{}, fmt.Errorf("run %s collect claude --json: %w", binary, err)
 	}
 
 	var reading ClaudeUsageReading
 	if err := json.Unmarshal(stdout.Bytes(), &reading); err != nil {
-		return ClaudeUsageReading{}, fmt.Errorf("decode %s --json output: %w", binary, err)
+		return ClaudeUsageReading{}, fmt.Errorf("decode %s collect claude --json output: %w", binary, err)
 	}
 	return reading, nil
 }
