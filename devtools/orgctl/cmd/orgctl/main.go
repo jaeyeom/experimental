@@ -15,6 +15,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -30,12 +31,13 @@ import (
 )
 
 const usage = "usage: orgctl check [--approval-word WORD]... SPEC.json\n" +
-	"       orgctl plan [--machine NAME] [--role NAME] [--expiring 2d] [--agents-md-root DIR] SPEC.json\n" +
+	"       orgctl plan [--machine NAME] [--role NAME] [--expiring 2d] [--only KIND]... [--json] [--cron-state-dir DIR] [--cron-stale 24h] [--agents-md-root DIR] SPEC.json\n" +
 	"       orgctl drift [--agents-only] [--agents-md-root DIR] SPEC.json\n" +
 	"       " + treeUsage + "\n" +
 	"       " + diffUsage + "\n" +
 	"       orgctl import [--out FILE] [--force] [--schema PATH]\n" +
-	"       orgctl render agents-md --root DIR [--check] SPEC.json"
+	"       orgctl render agents-md --root DIR [--check] SPEC.json\n" +
+	"       " + cronUsage
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stderr))
@@ -50,6 +52,10 @@ func run(args []string, stderr io.Writer) int {
 }
 
 func runIO(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (orgctl.Live, error)) int {
+	return runIOWithInput(args, os.Stdin, stdout, stderr, load, time.Now)
+}
+
+func runIOWithInput(args []string, stdin io.Reader, stdout, stderr io.Writer, load func(orgctl.Spec) (orgctl.Live, error), now func() time.Time) int {
 	if code, ok := newOrgctlTool().Handle(context.Background(), args, stdout, stderr); ok {
 		return code
 	}
@@ -72,6 +78,8 @@ func runIO(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (orgc
 		return runTree(args, stdout, stderr, load)
 	case "diff":
 		return runDiff(args, stdout, stderr)
+	case "cron":
+		return runCron(args, stdin, stderr, now)
 	default:
 		fmt.Fprintln(stderr, usage)
 		return 2
@@ -172,26 +180,70 @@ func runRender(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runPlan(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (orgctl.Live, error)) int {
+type planConfig struct {
+	specPath     string
+	machine      string
+	role         string
+	expiring     time.Duration
+	only         []string
+	asJSON       bool
+	cronStateDir string
+	cronStale    time.Duration
+	agentsMDRoot string
+}
+
+func parsePlanArgs(args []string, stderr io.Writer) (planConfig, bool) {
 	fs := flag.NewFlagSet("plan", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	machine := fs.String("machine", "", "machine key to include")
 	role := fs.String("role", "", "role name to include")
 	expiring := fs.String("expiring", "2d", "how soon a cron counts as attention")
 	agentsMDRoot := fs.String("agents-md-root", "", "directory root where AGENTS.md files are rendered")
+	asJSON := fs.Bool("json", false, "print plan items as a JSON list")
+	cronStateDir := fs.String("cron-state-dir", "", "directory containing published session crons")
+	cronStale := fs.String("cron-stale", "24h", "age after which a published cron file counts as stale")
+	var only stringList
+	fs.Var(&only, "only", "filter items by kind (repeatable)")
 	if err := fs.Parse(args[1:]); err != nil {
-		return 1
+		return planConfig{}, false
 	}
 	if fs.NArg() != 1 {
-		fmt.Fprintln(stderr, "usage: orgctl plan [--machine NAME] [--role NAME] [--expiring 2d] [--agents-md-root DIR] SPEC.json")
-		return 1
+		fmt.Fprintln(stderr, "usage: orgctl plan [--machine NAME] [--role NAME] [--expiring 2d] [--only KIND]... [--json] [--cron-state-dir DIR] [--cron-stale 24h] [--agents-md-root DIR] SPEC.json")
+		return planConfig{}, false
+	}
+	if err := orgctl.ValidatePlanKinds([]string(only)); err != nil {
+		fmt.Fprintf(stderr, "orgctl plan: %v\n", err)
+		return planConfig{}, false
 	}
 	window, err := parseExpiring(*expiring)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
+		return planConfig{}, false
+	}
+	staleWindow, err := parseExpiring(*cronStale)
+	if err != nil {
+		fmt.Fprintf(stderr, "bad cron-stale %q: %v\n", *cronStale, err)
+		return planConfig{}, false
+	}
+	return planConfig{
+		specPath:     fs.Arg(0),
+		machine:      *machine,
+		role:         *role,
+		expiring:     window,
+		only:         []string(only),
+		asJSON:       *asJSON,
+		cronStateDir: *cronStateDir,
+		cronStale:    staleWindow,
+		agentsMDRoot: *agentsMDRoot,
+	}, true
+}
+
+func runPlan(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (orgctl.Live, error)) int {
+	cfg, ok := parsePlanArgs(args, stderr)
+	if !ok {
 		return 1
 	}
-	data, err := os.ReadFile(fs.Arg(0)) //nolint:gosec // G304: the operator named the spec file
+	data, err := os.ReadFile(cfg.specPath) //nolint:gosec // G304: the operator named the spec file
 	if err != nil {
 		fmt.Fprintf(stderr, "read spec: %v\n", err)
 		return 1
@@ -209,7 +261,10 @@ func runPlan(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (or
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	if root := firstNonEmpty(*agentsMDRoot, spec.AgentsMDRoot); root != "" && live.AgentsMD == nil {
+	if cfg.cronStateDir != "" {
+		live.PublishedCrons = orgctl.ReadPublishedCrons(spec, live.Local, cfg.cronStateDir)
+	}
+	if root := firstNonEmpty(cfg.agentsMDRoot, spec.AgentsMDRoot); root != "" && live.AgentsMD == nil {
 		agentsMD, err := orgctl.CompareAgentsMD(spec, root)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -217,18 +272,39 @@ func runPlan(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (or
 		}
 		live.AgentsMD = agentsMD
 	}
-	lines := orgctl.Plan(spec, live, orgctl.PlanOptions{
-		Machine:  *machine,
-		Role:     *role,
-		Expiring: window,
+	items := orgctl.PlanItems(spec, live, orgctl.PlanOptions{
+		Machine:   cfg.machine,
+		Role:      cfg.role,
+		Expiring:  cfg.expiring,
+		Only:      cfg.only,
+		CronStale: cfg.cronStale,
 	})
-	for _, line := range lines {
-		fmt.Fprintln(stdout, line)
+	if err := writePlanOutput(stdout, items, cfg.asJSON); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
 	}
-	if orgctl.PlanChanged(lines) {
+	if orgctl.PlanItemsChanged(items) {
 		return 2
 	}
 	return 0
+}
+
+func writePlanOutput(stdout io.Writer, items []orgctl.PlanItem, asJSON bool) error {
+	if !asJSON {
+		for _, line := range orgctl.PlanLines(items) {
+			fmt.Fprintln(stdout, line)
+		}
+		return nil
+	}
+	if items == nil {
+		items = []orgctl.PlanItem{}
+	}
+	enc := json.NewEncoder(stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(items); err != nil {
+		return fmt.Errorf("encode plan items: %w", err)
+	}
+	return nil
 }
 
 func runDrift(args []string, stdout, stderr io.Writer, load func(orgctl.Spec) (orgctl.Live, error)) int {

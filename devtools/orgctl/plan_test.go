@@ -1,6 +1,7 @@
 package orgctl
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -382,5 +383,263 @@ func TestRunnerUnit(t *testing.T) {
 	}
 	if got := RunnerUnit("jobs-runner", "darwin"); got != "~/Library/LaunchAgents/jobs-runner.plist" {
 		t.Errorf("darwin = %q", got)
+	}
+}
+
+func TestPlanJSONRoundTripAllKindsAndStatuses(t *testing.T) {
+	now := time.Date(2026, 11, 27, 5, 0, 0, 0, time.UTC)
+	far := now.Add(10 * 24 * time.Hour)
+	soon := now.Add(12 * time.Hour)
+
+	spec := Spec{
+		Machines: map[string]Machine{"north": {}, "south": {}},
+		Jobs: &Jobs{
+			Policy: "~/jobs/policy.json",
+			Runners: map[string]Runner{
+				"r-ok":      {Machine: "north"},
+				"r-missing": {Machine: "north"},
+				"r-remote":  {Machine: "south"},
+			},
+		},
+		Roles: map[string]Role{
+			"ok/role": {
+				Machine: "north", Workspace: "hq", Tab: "ok", Cwd: "/work/ok",
+				When: "mornings", Model: "desk-small",
+				Brief:     Brief{File: "BRIEF.md", Text: "hello"},
+				Schedules: []Schedule{{ID: "daily", Cron: "0 8 * * *", Durable: false}},
+			},
+			"drift/role": {
+				Machine: "north", Workspace: "hq", Tab: "missing-tab", Cwd: "/work/drift",
+				When: "mornings", Model: "desk-large",
+				Brief: Brief{File: "BRIEF.md", Text: "hello"},
+				Schedules: []Schedule{
+					{ID: "soon", Cron: "0 8 * * *", Durable: false},
+					{ID: "absent", Cron: "0 9 * * *", Durable: false},
+				},
+				Needs: Needs{Permissions: []string{"notes.read"}},
+			},
+			"unmanaged/role": {
+				Machine: "north", Workspace: "hq", Tab: "unmanaged", Cwd: "/work/unmanaged",
+				Brief: Brief{File: "BRIEF.md"},
+				Schedules: []Schedule{
+					{ID: "blind", Cron: "0 10 * * *", Durable: false},
+				},
+			},
+			"missing/brief": {
+				Machine: "north", Workspace: "hq", Tab: "ok", Cwd: "/work/missing-brief",
+				Brief: Brief{File: "BRIEF.md", Text: "hello"},
+			},
+			"remote/role": {
+				Machine: "south", Workspace: "hq", Tab: "night", Cwd: "/work/remote",
+			},
+		},
+	}
+
+	t.Setenv("HOME", "/home/test")
+	live := Live{
+		Local:       "north",
+		Now:         now,
+		KnownModels: []string{"desk-small"},
+		Tabs: []LiveTab{
+			{Workspace: "hq", Label: "ok"},
+			{Workspace: "hq", Label: "unmanaged"},
+		},
+		Agents: []LiveAgent{
+			{Name: "ok/role", Cwd: "/work/ok", Model: "desk-small"},
+			{Name: "drift/role", Cwd: "/work/other", Model: "desk-small"},
+		},
+		Names: []LiveName{
+			{Name: "ok/role", When: "mornings", SessionID: "s-ok"},
+			{Name: "drift/role", When: "evenings", SessionID: "s-drift"},
+		},
+		CronRead: []string{"/work/ok", "/work/drift", "/work/unmanaged", "/work/missing-brief"},
+		PublishedCrons: map[string]PublishedCrons{
+			"ok/role": {
+				Role:        "ok/role",
+				PublishedAt: now.Add(-1 * time.Hour),
+				Crons: []PublishedCron{
+					{ID: "c-ok", Schedule: "0 8 * * *", Created: now.Add(-2 * time.Hour), Expiry: far},
+				},
+			},
+			"drift/role": {
+				Role:        "drift/role",
+				PublishedAt: now.Add(-48 * time.Hour),
+				Crons: []PublishedCron{
+					{ID: "c-soon", Schedule: "0 8 * * *", Created: now.Add(-6 * 24 * time.Hour), Expiry: soon},
+					{ID: "c-extra", Schedule: "*/5 * * * *", Created: now.Add(-1 * time.Hour), Expiry: far},
+				},
+			},
+		},
+		Briefs: map[string]string{
+			"ok/role":        BriefOK,
+			"drift/role":     BriefEdited,
+			"unmanaged/role": BriefUnmanaged,
+			"missing/brief":  BriefMissing,
+		},
+		AgentsMD: map[string]string{
+			"AGENTS.md":           BriefOK,
+			"roles/ops/AGENTS.md": BriefEdited,
+		},
+		Found: map[string]bool{
+			expandOrKeep(RunnerUnit("r-ok", "")):      true,
+			expandOrKeep(RunnerUnit("r-missing", "")): false,
+			expandOrKeep("~/jobs/policy.json"):        true,
+		},
+	}
+
+	items := PlanItems(spec, live, PlanOptions{})
+	raw, err := json.Marshal(items)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	var decoded []PlanItem
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if len(decoded) != len(items) {
+		t.Fatalf("round-trip len = %d, want %d", len(decoded), len(items))
+	}
+
+	seenKinds := map[string]bool{}
+	seenStatuses := map[string]bool{}
+	for _, it := range decoded {
+		seenKinds[it.Kind] = true
+		seenStatuses[it.Status] = true
+	}
+	for _, wantKind := range ValidPlanKinds() {
+		if !seenKinds[wantKind] {
+			t.Errorf("missing kind %q in JSON output: %+v", wantKind, decoded)
+		}
+	}
+	for _, wantStatus := range []string{
+		PlanStatusOK,
+		PlanStatusMissing,
+		PlanStatusExpiring,
+		PlanStatusUnlisted,
+		PlanStatusStale,
+		PlanStatusUnverifiable,
+		PlanStatusChanged,
+		PlanStatusEdited,
+		PlanStatusUnknown,
+		PlanStatusUnmanaged,
+		PlanStatusUserStep,
+	} {
+		if !seenStatuses[wantStatus] {
+			t.Errorf("missing status %q in JSON output: %+v", wantStatus, decoded)
+		}
+	}
+
+	// Verify expiry survives round-trip on ok/expiring cron items.
+	var foundSoon bool
+	for _, it := range decoded {
+		if it.Role == "drift/role" && it.Kind == PlanKindCron && it.ID == "soon" {
+			foundSoon = true
+			if it.Status != PlanStatusExpiring || it.Schedule != "0 8 * * *" || it.Expiry == nil || !it.Expiry.Equal(soon) {
+				t.Fatalf("expiring item = %+v", it)
+			}
+		}
+	}
+	if !foundSoon {
+		t.Fatal("missing expiring cron item in decoded output")
+	}
+}
+
+func TestPlanOnlyFilterAndPublishedCrons(t *testing.T) {
+	now := time.Date(2026, 11, 27, 5, 0, 0, 0, time.UTC)
+	far := now.Add(10 * 24 * time.Hour)
+	soon := now.Add(12 * time.Hour)
+
+	spec := Spec{
+		Roles: map[string]Role{
+			"desk/clerk": {
+				Machine: "local", Workspace: "front", Tab: "clerk", Cwd: "/work/desk",
+				When: "mornings",
+				Schedules: []Schedule{
+					{ID: "notes", Cron: "0 9 * * 1-5", Prompt: "Read overnight notes", Durable: false},
+					{ID: "mail", Cron: "0 9 * * 1-5", Prompt: "Check mailbox", Durable: false},
+					{ID: "nightly", Cron: "0 23 * * *", Durable: false},
+				},
+				Needs: Needs{Secrets: []string{"API_KEY"}},
+			},
+			"desk/unpub": {
+				Machine: "local", Workspace: "front", Tab: "unpub", Cwd: "/work/unpub",
+				Schedules: []Schedule{{ID: "ping", Cron: "* * * * *", Durable: false}},
+			},
+		},
+	}
+
+	// Tab is missing and when differs, but with --only cron those are hidden.
+	live := Live{
+		Local: "local",
+		Now:   now,
+		Names: []LiveName{{Name: "desk/clerk", When: "evenings"}, {Name: "desk/unpub"}},
+		PublishedCrons: map[string]PublishedCrons{
+			"desk/clerk": {
+				Role:        "desk/clerk",
+				PublishedAt: now.Add(-30 * time.Hour), // stale (> 24h)
+				Crons: []PublishedCron{
+					{ID: "1111aaaa", Schedule: "0 9 * * 1-5", Prompt: "Read overnight notes", Expiry: far},
+					{ID: "2222bbbb", Schedule: "0 9 * * 1-5", Prompt: "Check mailbox", Expiry: soon},
+					{ID: "3333cccc", Schedule: "*/10 * * * *", Expiry: far},
+				},
+			},
+		},
+	}
+
+	items := PlanItems(spec, live, PlanOptions{Only: []string{PlanKindCron}})
+	for _, it := range items {
+		if it.Kind != PlanKindCron {
+			t.Fatalf("--only cron leaked kind %q: %+v", it.Kind, it)
+		}
+	}
+	lines := Plan(spec, live, PlanOptions{Only: []string{PlanKindCron}})
+	joined := strings.Join(lines, "\n")
+	for _, forbidden := range []string{"tab", "when", "USER STEP", "API_KEY"} {
+		if strings.Contains(joined, forbidden) {
+			t.Errorf("--only cron output unexpectedly contained %q:\n%s", forbidden, joined)
+		}
+	}
+	for _, want := range []string{
+		"! desk/clerk cron stale",
+		"! desk/clerk cron mail expiring",
+		"+ desk/clerk cron nightly",
+		"! desk/clerk cron 3333cccc unlisted",
+		"? desk/unpub cron ping unverifiable",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("cron output missing %q:\n%s", want, joined)
+		}
+	}
+
+	// If we only look at a role whose published cron is fresh and ok, --only cron exits clean even when tab is missing.
+	cleanCronSpec := Spec{
+		Roles: map[string]Role{
+			"desk/clerk": {
+				Machine: "local", Workspace: "front", Tab: "clerk", Cwd: "/work/desk",
+				Schedules: []Schedule{{ID: "notes", Cron: "0 9 * * 1-5", Durable: false}},
+			},
+		},
+	}
+	cleanCronLive := Live{
+		Local: "local",
+		Now:   now,
+		PublishedCrons: map[string]PublishedCrons{
+			"desk/clerk": {
+				Role:        "desk/clerk",
+				PublishedAt: now.Add(-1 * time.Hour),
+				Crons:       []PublishedCron{{ID: "1111aaaa", Schedule: "0 9 * * 1-5", Expiry: far}},
+			},
+		},
+	}
+	allItems := PlanItems(cleanCronSpec, cleanCronLive, PlanOptions{})
+	if !PlanItemsChanged(allItems) {
+		t.Fatal("unfiltered plan should report missing tab/agentbus")
+	}
+	cronOnly := PlanItems(cleanCronSpec, cleanCronLive, PlanOptions{Only: []string{PlanKindCron}})
+	if PlanItemsChanged(cronOnly) {
+		t.Fatalf("--only cron should not report changes when only tab/agentbus differ: %+v", cronOnly)
+	}
+	if len(Plan(cleanCronSpec, cleanCronLive, PlanOptions{Only: []string{PlanKindCron}})) != 0 {
+		t.Fatal("text plan with --only cron should be empty when cron is ok")
 	}
 }

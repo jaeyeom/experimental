@@ -37,6 +37,7 @@ func loadLive(spec orgctl.Spec) (orgctl.Live, error) {
 	}
 	attachServers(&live)
 	readRoleFiles(spec, &live)
+	live.PublishedCrons = orgctl.ReadPublishedCrons(spec, live.Local, "")
 	readJobFiles(spec, &live)
 	return live, nil
 }

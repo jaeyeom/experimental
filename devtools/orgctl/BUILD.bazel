@@ -11,6 +11,7 @@ go_library(
     srcs = [
         "agentsmd.go",
         "brief.go",
+        "cronpublish.go",
         "decides.go",
         "diff.go",
         "drift.go",
@@ -30,6 +31,7 @@ go_test(
     srcs = [
         "agentsmd_test.go",
         "brief_test.go",
+        "cronpublish_test.go",
         "decides_test.go",
         "diff_test.go",
         "drift_test.go",

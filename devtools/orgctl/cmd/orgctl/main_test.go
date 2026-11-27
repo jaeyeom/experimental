@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/orgctl"
 )
@@ -625,5 +626,183 @@ func TestDriftAgentsOnlyFlag(t *testing.T) {
 	stdout.Reset()
 	if code := runIO([]string{"drift", "--agents-only", path}, &stdout, &stderr, shell); code != 0 || stdout.Len() != 0 {
 		t.Fatalf("agents-only exit %d\n%s%s", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestPlanJSONAndOnlyFlags(t *testing.T) {
+	now := time.Date(2026, 11, 27, 5, 0, 0, 0, time.UTC)
+	far := now.Add(10 * 24 * time.Hour)
+	specPath := writeSpec(t, `{
+		"machines": {"local": {"host": "local"}},
+		"roles": {
+			"desk/clerk": {
+				"machine": "local",
+				"workspace": "front",
+				"tab": "clerk",
+				"cwd": "/work/desk",
+				"when": "mornings",
+				"schedules": [{"id": "ping", "cron": "* * * * *", "durable": false}],
+				"needs": {"secrets": ["MAIL_TOKEN"]}
+			}
+		}
+	}`)
+	load := func(orgctl.Spec) (orgctl.Live, error) {
+		return orgctl.Live{
+			Local: "local",
+			Now:   now,
+			Names: []orgctl.LiveName{{Name: "desk/clerk", When: "evenings"}},
+			PublishedCrons: map[string]orgctl.PublishedCrons{
+				"desk/clerk": {
+					Role:        "desk/clerk",
+					PublishedAt: now.Add(-1 * time.Hour),
+					Crons: []orgctl.PublishedCron{
+						{ID: "c1", Schedule: "* * * * *", Created: now.Add(-2 * time.Hour), Expiry: far},
+					},
+				},
+			},
+		}, nil
+	}
+
+	// Unknown --only kind is rejected cleanly.
+	var stdout, stderr bytes.Buffer
+	code := runIO([]string{"plan", "--only", "bogus", specPath}, &stdout, &stderr, load)
+	if code != 1 || !strings.Contains(stderr.String(), "unknown --only kind") {
+		t.Fatalf("unknown --only: exit %d, stderr=%s", code, stderr.String())
+	}
+
+	// --only cron with clean cron exits 0 even though tab is missing and when differs.
+	stdout.Reset()
+	stderr.Reset()
+	code = runIO([]string{"plan", "--only", "cron", specPath}, &stdout, &stderr, load)
+	if code != 0 || stdout.Len() != 0 {
+		t.Fatalf("text --only cron clean: exit %d, stdout=%q, stderr=%s", code, stdout.String(), stderr.String())
+	}
+
+	// --only cron --json returns only cron items and exits 0.
+	stdout.Reset()
+	stderr.Reset()
+	code = runIO([]string{"plan", "--json", "--only", "cron", specPath}, &stdout, &stderr, load)
+	if code != 0 {
+		t.Fatalf("json --only cron clean: exit %d, stderr=%s", code, stderr.String())
+	}
+	var items []orgctl.PlanItem
+	if err := json.Unmarshal(stdout.Bytes(), &items); err != nil {
+		t.Fatalf("unmarshal json: %v\n%s", err, stdout.String())
+	}
+	if len(items) != 1 || items[0].Kind != orgctl.PlanKindCron || items[0].Status != orgctl.PlanStatusOK || items[0].Schedule != "* * * * *" {
+		t.Fatalf("items = %+v", items)
+	}
+
+	// Repeatable --only cron --only when picks up when change and exits 2.
+	stdout.Reset()
+	stderr.Reset()
+	code = runIO([]string{"plan", "--json", "--only", "cron", "--only", "when", specPath}, &stdout, &stderr, load)
+	if code != 2 {
+		t.Fatalf("repeatable --only: exit %d, want 2; stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	items = nil
+	if err := json.Unmarshal(stdout.Bytes(), &items); err != nil {
+		t.Fatalf("unmarshal json: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("len(items) = %d, want 2: %+v", len(items), items)
+	}
+
+	// Empty JSON output returns [] rather than null.
+	stdout.Reset()
+	stderr.Reset()
+	code = runIO([]string{"plan", "--json", "--machine", "other", specPath}, &stdout, &stderr, load)
+	if code != 0 || strings.TrimSpace(stdout.String()) != "[]" {
+		t.Fatalf("empty json: exit %d, stdout=%q", code, stdout.String())
+	}
+}
+
+func TestCronPublishAndPlanEndToEnd(t *testing.T) {
+	now := time.Date(2026, 11, 27, 5, 0, 0, 0, time.UTC)
+	far := now.Add(10 * 24 * time.Hour)
+	soon := now.Add(12 * time.Hour)
+	stateDir := t.TempDir()
+
+	// Publish via file.
+	inFile := filepath.Join(t.TempDir(), "crons.json")
+	payload := `[
+		{"id":"c1","schedule":"0 8 * * *","created":"` + now.Add(-1*time.Hour).Format(time.RFC3339) + `","expiry":"` + soon.Format(time.RFC3339) + `"},
+		{"id":"c2","schedule":"*/5 * * * *","created":"` + now.Add(-1*time.Hour).Format(time.RFC3339) + `","expiry":"` + far.Format(time.RFC3339) + `"}
+	]`
+	if err := os.WriteFile(inFile, []byte(payload), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := runIOWithInput([]string{"cron", "publish", "--role", "desk/clerk", "--file", inFile, "--state-dir", stateDir}, strings.NewReader(""), &stdout, &stderr, nil, func() time.Time { return now })
+	if code != 0 {
+		t.Fatalf("cron publish file: exit %d, stderr=%s", code, stderr.String())
+	}
+
+	// Publish via stdin (--file -) into XDG_STATE_HOME.
+	xdg := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", xdg)
+	stdout.Reset()
+	stderr.Reset()
+	code = runIOWithInput([]string{"cron", "publish", "--role", "desk/stdin", "--file", "-"}, strings.NewReader(`{"crons":[{"id":"s1","schedule":"0 * * * *"}]}`), &stdout, &stderr, nil, func() time.Time { return now })
+	if code != 0 {
+		t.Fatalf("cron publish stdin: exit %d, stderr=%s", code, stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(xdg, "orgctl", "crons", "desk", "stdin.json")); err != nil {
+		t.Fatalf("expected published file under XDG_STATE_HOME: %v", err)
+	}
+
+	// Path traversal role rejected.
+	stderr.Reset()
+	code = runIOWithInput([]string{"cron", "publish", "--role", "../evil", "--file", "-"}, strings.NewReader(`[]`), &stdout, &stderr, nil, func() time.Time { return now })
+	if code != 1 {
+		t.Fatalf("traversal exit %d, want 1; stderr=%s", code, stderr.String())
+	}
+
+	// Missing required flags -> usage error (exit 2).
+	stderr.Reset()
+	code = runIOWithInput([]string{"cron", "publish", "--role", "desk/clerk"}, strings.NewReader(""), &stdout, &stderr, nil, func() time.Time { return now })
+	if code != 2 {
+		t.Fatalf("missing --file exit %d, want 2", code)
+	}
+
+	// Plan reads from --cron-state-dir and detects expiring, missing, unlisted, and stale.
+	specPath := writeSpec(t, `{
+		"machines": {"local": {"host": "local"}},
+		"roles": {
+			"desk/clerk": {
+				"machine": "local",
+				"workspace": "front",
+				"tab": "clerk",
+				"cwd": "/work/desk",
+				"schedules": [
+					{"id": "daily", "cron": "0 8 * * *", "durable": false},
+					{"id": "weekly", "cron": "0 9 * * 1", "durable": false}
+				]
+			}
+		}
+	}`)
+	later := now.Add(48 * time.Hour)
+	load := func(orgctl.Spec) (orgctl.Live, error) {
+		return orgctl.Live{Local: "local", Now: later}, nil
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = runIO([]string{"plan", "--json", "--only", "cron", "--cron-state-dir", stateDir, "--cron-stale", "24h", specPath}, &stdout, &stderr, load)
+	if code != 2 {
+		t.Fatalf("plan end-to-end exit %d, want 2; stderr=%s", code, stderr.String())
+	}
+	var items []orgctl.PlanItem
+	if err := json.Unmarshal(stdout.Bytes(), &items); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, stdout.String())
+	}
+	statuses := map[string]bool{}
+	for _, it := range items {
+		statuses[it.Status] = true
+	}
+	for _, want := range []string{orgctl.PlanStatusStale, orgctl.PlanStatusExpiring, orgctl.PlanStatusMissing, orgctl.PlanStatusUnlisted} {
+		if !statuses[want] {
+			t.Errorf("missing status %q in end-to-end plan: %+v", want, items)
+		}
 	}
 }

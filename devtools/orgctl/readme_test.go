@@ -84,6 +84,17 @@ func TestOrgctlDocs(t *testing.T) {
 	if !strings.Contains(reference, "agents-md PATH edited in place") {
 		t.Error("reference does not document agents-md drift lines")
 	}
+	for _, want := range []string{"cron publish", "--only", "--json", "--cron-state-dir"} {
+		if !strings.Contains(readme, want) {
+			t.Errorf("README does not document %q", want)
+		}
+		if !strings.Contains(reference, want) {
+			t.Errorf("reference does not document %q", want)
+		}
+	}
+	if !strings.Contains(reference, "ROLE cron stale") || !strings.Contains(reference, "unlisted") {
+		t.Error("reference does not document published cron markers")
+	}
 }
 
 func section(doc, start, end string) string {

@@ -9,6 +9,7 @@ description: CLI that checks an organization spec and diffs it against live mach
 
 Common commands:
 - `orgctl check SPEC.json` — validate spec rules.
-- `orgctl plan SPEC.json` — diff spec against live state.
+- `orgctl plan [--only KIND]... [--json] [--cron-state-dir DIR] [--cron-stale 24h] SPEC.json` — diff spec against live state.
+- `orgctl cron publish --role ROLE --file FILE [--state-dir DIR]` — publish a session's live cron list (`--file -` for stdin).
 - `orgctl tree SPEC.json` — print role hierarchy.
 - `orgctl diff OLD.json NEW.json` — diff two specs.

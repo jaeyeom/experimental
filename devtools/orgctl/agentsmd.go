@@ -192,8 +192,12 @@ func writeIfChangedAtomic(path string, content []byte) error {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("read existing: %w", err)
 	}
+	return writeAtomic(path, content, 0o750)
+}
+
+func writeAtomic(path string, content []byte, dirMode fs.FileMode) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
+	if err := os.MkdirAll(dir, dirMode); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
 	tmp, err := os.CreateTemp(dir, ".orgctl-*")

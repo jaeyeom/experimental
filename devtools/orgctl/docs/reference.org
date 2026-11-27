@@ -36,6 +36,9 @@ uses 2 for usage, not for a difference.
 | diff    | 0    | the specs have no difference             |
 | diff    | 1    | a difference was printed                 |
 | diff    | 2    | usage, an unreadable file, or bad JSON   |
+| cron    | 0    | published cron state written             |
+| cron    | 1    | read, parse, role, or write failed       |
+| cron    | 2    | usage                                    |
 | (none)  | 2    | usage, or an unknown command             |
 
 A diff marker is a line whose first character is ~+~, a tilde, ~!~,
@@ -96,6 +99,8 @@ install units or write the policy. ~--role~ selects no runners.
 | ~      | ~ ROLE model                   | both models are set and they differ         |
 | !      | ! ROLE brief edited in place   | the brief file differs from the spec        |
 | !      | ! ROLE cron ID expiring        | owned job is inside the expiring window     |
+| !      | ! ROLE cron ID unlisted        | published cron is not in the spec           |
+| !      | ! ROLE cron stale              | published cron file exceeds --cron-stale    |
 | !      | ! ROLE model unknown           | model is set and not in the known list      |
 | ?      | ? ROLE remote: not read        | the role's machine is not this host         |
 | ?      | ? ROLE herdr: not read         | herdr could not be read                     |
@@ -115,6 +120,40 @@ install units or write the policy. ~--role~ selects no runners.
 | USER STEP: ROLE permission NAME | needs.permissions |
 | USER STEP: ROLE secret NAME     | needs.secrets     |
 | USER STEP: ROLE service NAME    | needs.services    |
+
+** ~--json~, ~--only~, and session cron publishing
+
+~plan --json~ emits a JSON array of objects, one per checked item, with fields
+~role~, ~machine~, ~kind~, ~id~, ~status~, ~schedule~, ~expiry~, and ~reason~.
+~--only KIND~ (repeatable) filters both text and JSON output—and exit code ~2~—to
+the named kinds: ~remote~, ~tab~, ~agentbus~, ~when~, ~cwd~, ~model~, ~cron~,
+~brief~, ~runner~, ~policy~, ~agents-md~, and ~user-step~.
+
+Running sessions can publish their live crons with
+~orgctl cron publish --role ROLE --file FILE~ (or ~--file -~ for stdin), which
+writes atomically to ~$XDG_STATE_HOME/orgctl/crons/<role>.json~ (default
+~~/.local/state/orgctl/crons/<role>.json~; override with ~--state-dir~ on
+~cron publish~ and ~--cron-state-dir~ on ~plan~):
+
+#+BEGIN_SRC json
+{
+  "role": "desk/clerk",
+  "publishedAt": "2026-11-27T05:00:00Z",
+  "crons": [
+    {
+      "id": "aabbccdd",
+      "schedule": "0 8 * * *",
+      "created": "2026-11-26T05:00:00Z",
+      "expiry": "2026-12-03T05:00:00Z"
+    }
+  ]
+}
+#+END_SRC
+
+When a role has a published file, ~plan~ checks it instead of marking
+session-only crons ~unverifiable~, reporting ~missing~, ~unlisted~, ~expiring~
+(within ~--expiring~), and ~stale~ (older than ~--cron-stale~, default ~24h~).
+Roles that publish nothing keep existing durable-file / ~unverifiable~ checks.
 
 * Drift lines
 

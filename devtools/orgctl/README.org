@@ -263,39 +263,49 @@ orgctl diff main.json proposed.json
 
 #+BEGIN_EXAMPLE
 orgctl check  [--approval-word WORD]... SPEC.json
-orgctl plan   [--machine NAME] [--role NAME] [--expiring 2d] [--agents-md-root DIR] SPEC.json
+orgctl plan   [--machine NAME] [--role NAME] [--expiring 2d] [--only KIND]... [--json] [--cron-state-dir DIR] [--cron-stale 24h] [--agents-md-root DIR] SPEC.json
 orgctl drift  [--agents-only] [--agents-md-root DIR] SPEC.json
 orgctl import [--out FILE] [--force] [--schema PATH]
 orgctl render agents-md --root DIR [--check] SPEC.json
 orgctl tree   [--root ROLE] [--root-label TEXT] [--depth N] [--live] [--json] [--ascii] SPEC.json
 orgctl diff   [--full] [--json] OLD.json NEW.json
+orgctl cron publish --role ROLE --file FILE [--state-dir DIR]
 #+END_EXAMPLE
 
 ~check~, ~plan~, ~drift~, ~import~, ~tree~, and ~diff~ only read. ~tree~ reads
 live state only with ~--live~. ~render agents-md~ writes
 only ~AGENTS.md~ and ~CLAUDE.md~ files under ~--root~ (unless ~--check~ is set).
+~cron publish~ writes ~$XDG_STATE_HOME/orgctl/crons/<role>.json~
+(default ~~/.local/state/orgctl/crons/<role>.json~) atomically from a JSON
+list of session crons (~id~, ~schedule~, ~created~, ~expiry~); use ~--file -~
+for stdin. ~plan~ compares published crons with the spec and reports
+~missing~, ~unlisted~, ~expiring~, or ~stale~ (default threshold ~24h~).
 
-| Flag                 | Commands          | Meaning                                  |
-|----------------------+-------------------+------------------------------------------|
-| --approval-word WORD | check             | extra approval verb to reject; repeat it |
-| --machine NAME       | plan              | only this machine; AND with --role       |
-| --role NAME          | plan              | only this role; AND with --machine       |
-| --expiring 2d        | plan              | cron window; Nd or a Go duration         |
-| --agents-md-root DIR | plan, drift       | root where AGENTS.md files are rendered  |
-| --agents-only        | drift             | skip tabs that run no agent              |
-| --out FILE           | import            | write the stub here instead of stdout    |
-| --force              | import            | overwrite an existing --out file         |
-| --schema PATH        | import            | Org.pkl the stub amends                  |
-| --root DIR           | render agents-md  | output root directory (required)         |
-| --check              | render agents-md  | exit 2 if any file is missing or differs |
-| --root ROLE          | tree              | only that role's subtree                 |
-| --root-label TEXT    | tree              | label of the top line (default user)     |
-| --depth N            | tree              | stop below depth N; the top is 0         |
-| --live               | tree              | add alive, hibernated, dead, or missing  |
-| --json               | tree              | nested label/kind/max/live/children      |
-| --ascii              | tree              | draw with pipes and backquotes           |
-| --full               | diff              | every word-diff hunk of a long text      |
-| --json               | diff              | the changes as a list for other tools    |
+| Flag                   | Commands             | Meaning                                      |
+|------------------------+----------------------+----------------------------------------------|
+| --approval-word WORD   | check                | extra approval verb to reject; repeat it     |
+| --machine NAME         | plan                 | only this machine; AND with --role           |
+| --role NAME            | plan, cron publish   | only this role; AND with --machine           |
+| --expiring 2d          | plan                 | cron window; Nd or a Go duration             |
+| --only KIND            | plan                 | filter by item kind; repeat it               |
+| --json                 | plan, tree, diff     | structured JSON output                       |
+| --cron-state-dir DIR   | plan                 | published session cron directory             |
+| --cron-stale 24h       | plan                 | max age of published cron state before stale |
+| --agents-md-root DIR   | plan, drift          | root where AGENTS.md files are rendered      |
+| --agents-only          | drift                | skip tabs that run no agent                  |
+| --out FILE             | import               | write the stub here instead of stdout        |
+| --force                | import               | overwrite an existing --out file             |
+| --schema PATH          | import               | Org.pkl the stub amends                      |
+| --root DIR             | render agents-md     | output root directory (required)             |
+| --check                | render agents-md     | exit 2 if any file is missing or differs     |
+| --root ROLE            | tree                 | only that role's subtree                     |
+| --root-label TEXT      | tree                 | label of the top line (default user)         |
+| --depth N              | tree                 | stop below depth N; the top is 0             |
+| --live                 | tree                 | add alive, hibernated, dead, or missing      |
+| --ascii                | tree                 | draw with pipes and backquotes               |
+| --full                 | diff                 | every word-diff hunk of a long text          |
+| --file FILE            | cron publish         | JSON file to publish, or - for stdin         |
+| --state-dir DIR        | cron publish         | override published cron directory            |
 
 ~--machine~ and ~--role~ are both applied. Empty means no filter.
 ~--expiring~ defaults to ~2d~, which is 48 hours. ~Nd~ is a whole
@@ -314,7 +324,7 @@ From [[https://github.com/jaeyeom/experimental/issues/771][the tracking issue]],
 - No field grants approval authority. Validation rejects approval verbs in a role's ~decides~ list.
 - It never closes tabs, kills agents, or deletes crons, and has no apply for tabs or briefs.
 - ~render agents-md~ writes only under ~--root~ (never outside it) and never deletes files it did not render.
-- There is no stored state file. Live state is read on every run.
+- ~orgctl~ only writes session cron snapshots when ~orgctl cron publish~ is called (under ~$XDG_STATE_HOME/orgctl/crons/~); ~plan~ and ~drift~ are read-only.
 
 * Further reading
 
