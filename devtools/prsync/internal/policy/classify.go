@@ -3,7 +3,9 @@ package policy
 import (
 	"regexp"
 	"strings"
+	"time"
 
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/gh"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
 )
 
@@ -93,4 +95,89 @@ func isStackedPR(pr scan.PR, defaultBranches []string) bool {
 		}
 	}
 	return true
+}
+
+// BotLoginMatches reports whether two GitHub logins refer to the same bot
+// account, normalizing optional leading "@", optional trailing "[bot]", and case.
+func BotLoginMatches(a, b string) bool {
+	na := normalizeBotLogin(a)
+	nb := normalizeBotLogin(b)
+	return na != "" && na == nb
+}
+
+func normalizeBotLogin(login string) string {
+	login = strings.TrimSpace(login)
+	login = strings.TrimPrefix(login, "@")
+	if len(login) > 5 && strings.EqualFold(login[len(login)-5:], "[bot]") {
+		login = login[:len(login)-5]
+	}
+	return strings.ToLower(login)
+}
+
+// EvaluateBotRereview checks all four preconditions for posting a bot re-review
+// comment:
+//  1. The bot has reviewed the PR (at least one non-PENDING review).
+//  2. The bot's latest review is not APPROVED.
+//  3. Every review thread started by the bot is resolved.
+//  4. No PR issue comment with the same trimmed body is newer than the PR's last commit.
+func EvaluateBotRereview(snap gh.BotRereviewSnapshot, botLogin, body string) (bool, string) {
+	if strings.TrimSpace(botLogin) == "" {
+		return false, "empty_bot_login"
+	}
+	wantBody := strings.TrimSpace(body)
+	if wantBody == "" {
+		return false, "empty_body"
+	}
+	state, hasReview := botLatestReviewState(snap.Reviews, botLogin)
+	if !hasReview {
+		return false, "bot_has_not_reviewed"
+	}
+	if strings.EqualFold(state, "APPROVED") {
+		return false, "latest_review_approved"
+	}
+	if !allBotThreadsResolved(snap.Threads, botLogin) {
+		return false, "unresolved_bot_threads"
+	}
+	if hasNewerMatchingComment(snap.Comments, snap.LastCommitAt, wantBody) {
+		return false, "comment_newer_than_last_commit"
+	}
+	return true, ""
+}
+
+func botLatestReviewState(reviews []gh.Review, botLogin string) (string, bool) {
+	var (
+		hasReview bool
+		latest    gh.Review
+	)
+	for _, r := range reviews {
+		if strings.EqualFold(r.State, "PENDING") || !BotLoginMatches(r.Author, botLogin) {
+			continue
+		}
+		if !hasReview || !r.SubmittedAt.Before(latest.SubmittedAt) {
+			latest = r
+			hasReview = true
+		}
+	}
+	return latest.State, hasReview
+}
+
+func allBotThreadsResolved(threads []gh.ReviewThreadSummary, botLogin string) bool {
+	for _, th := range threads {
+		if BotLoginMatches(th.StarterAuthor, botLogin) && !th.IsResolved {
+			return false
+		}
+	}
+	return true
+}
+
+func hasNewerMatchingComment(comments []gh.IssueComment, lastCommitAt time.Time, wantBody string) bool {
+	for _, c := range comments {
+		if strings.TrimSpace(c.Body) != wantBody {
+			continue
+		}
+		if lastCommitAt.IsZero() || c.CreatedAt.After(lastCommitAt) {
+			return true
+		}
+	}
+	return false
 }

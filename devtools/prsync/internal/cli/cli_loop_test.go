@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,6 +14,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/loop"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/policy"
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 
@@ -189,6 +193,89 @@ func TestCLILoopRefusesSecondInstance(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "already running") {
 		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestCLILoopBotRereviewDryRunAndLiveDedupe(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ghBin, herdrBin := fixtureBins(t)
+	stateDir := t.TempDir()
+	statePath := filepath.Join(stateDir, "state.json")
+	snapPath := filepath.Join(t.TempDir(), "bot-snap.json")
+	commentSentinel := filepath.Join(t.TempDir(), "comment.txt")
+	t.Setenv("GH_FAKE_BOT_REREVIEW_FILE", snapPath)
+	t.Setenv("GH_FAKE_COMMENT_SENTINEL", commentSentinel)
+	t.Setenv("GH_FAKE_COMMENT_URL", "https://github.com/acme/widgets/pull/123#issuecomment-777")
+
+	snapJSON := `{
+		"data":{"repository":{"pullRequest":{
+			"commits":{"nodes":[{"commit":{"oid":"abc123def456","committedDate":"2026-06-01T10:00:00Z","pushedDate":"2026-06-01T10:05:00Z"}}]},
+			"reviews":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[{"author":{"login":"coderabbitai"},"state":"COMMENTED","submittedAt":"2026-06-01T09:50:00Z"}]},
+			"reviewThreads":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[{"id":"t1","isResolved":true,"comments":{"nodes":[{"author":{"login":"coderabbitai"}}]}}]},
+			"comments":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[]}
+		}}}
+	}`
+	if err := os.WriteFile(snapPath, []byte(snapJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfgPath := writeLiveConfig(t, ghBin, herdrBin, statePath,
+		"bot_rereview=auto",
+		"bot_rereview_login=coderabbitai[bot]",
+		"bot_rereview_body=@coderabbitai review",
+	)
+
+	// 1. --dry-run must preview without posting or writing ledger.
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{
+		"loop", "--config", cfgPath, "--max-rounds", "1", "--dry-run",
+	}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitOK {
+		t.Fatalf("dry-run loop exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	var dryRound loop.RoundResult
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout.String())), &dryRound); err != nil {
+		t.Fatalf("decode dry round: %v\n%s", err, stdout.String())
+	}
+	if len(dryRound.BotRereview) != 1 || dryRound.BotRereview[0].Decision != policy.DecisionDryRun {
+		t.Fatalf("dryRound.BotRereview = %+v", dryRound.BotRereview)
+	}
+	if _, err := os.Stat(commentSentinel); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal("dry-run loop posted comment")
+	}
+
+	// 2. Live 2-round loop posts on round 1 and dedupes on round 2.
+	stdout.Reset()
+	stderr.Reset()
+	code = Execute(context.Background(), []string{
+		"loop", "--config", cfgPath, "--max-rounds", "2",
+	}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitOK {
+		t.Fatalf("live loop exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("round lines = %d, want 2:\n%s", len(lines), stdout.String())
+	}
+	var r1, r2 loop.RoundResult
+	if err := json.Unmarshal([]byte(lines[0]), &r1); err != nil {
+		t.Fatalf("decode round 1: %v", err)
+	}
+	if err := json.Unmarshal([]byte(lines[1]), &r2); err != nil {
+		t.Fatalf("decode round 2: %v", err)
+	}
+	if len(r1.BotRereview) != 1 || r1.BotRereview[0].Decision != policy.DecisionDispatch {
+		t.Fatalf("r1.BotRereview = %+v, want dispatch", r1.BotRereview)
+	}
+	if len(r2.BotRereview) != 1 || r2.BotRereview[0].Decision != policy.DecisionSkip || r2.BotRereview[0].Reason != "already_dispatched" {
+		t.Fatalf("r2.BotRereview = %+v, want skip/already_dispatched", r2.BotRereview)
+	}
+	rawComment, err := os.ReadFile(commentSentinel)
+	if err != nil {
+		t.Fatalf("read comment sentinel: %v", err)
+	}
+	if !strings.Contains(string(rawComment), "@coderabbitai review") {
+		t.Fatalf("comment args = %q", string(rawComment))
 	}
 }
 

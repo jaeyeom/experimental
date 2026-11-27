@@ -18,6 +18,9 @@ import (
 // KindWaiveRepost is the ledger kind for automated CI waive re-posts.
 const KindWaiveRepost = "waive-repost"
 
+// KindBotRereview is the ledger kind for automated bot re-review comments.
+const KindBotRereview = "bot-rereview"
+
 // Outcome constants recorded in the dispatch ledger.
 const (
 	OutcomeDispatched = "dispatched"
@@ -228,7 +231,7 @@ func (s *Store) CountToday(now time.Time) (int, error) {
 	y, m, d := now.UTC().Date()
 	count := 0
 	for _, e := range entries {
-		if e.Kind == KindWaiveRepost || !countsTowardDailyCap(e.Outcome) {
+		if e.Kind == KindWaiveRepost || e.Kind == KindBotRereview || !countsTowardDailyCap(e.Outcome) {
 			continue
 		}
 		ey, em, ed := e.Time.UTC().Date()

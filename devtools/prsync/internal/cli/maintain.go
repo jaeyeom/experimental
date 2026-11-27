@@ -54,6 +54,7 @@ func newMaintainCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 				Lease:   buildLeaseProvider(exec, cfg),
 				Ledger:  &ledger.Store{Path: cfg.Policy.LedgerFile},
 				Guard:   policy.ExecGuardRunner{Exec: exec},
+				GH:      gh.NewClient(exec, cfg.GHBin),
 			}
 			doc, err := eng.Run(cmd.Context(), cfg, scanDoc, policy.RunOptions{Force: force})
 			if err != nil {

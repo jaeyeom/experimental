@@ -145,3 +145,75 @@ func TestMaintainNonZeroExitOnAPIError(t *testing.T) {
 		t.Fatalf("expected non-zero exit code on API error, got 0")
 	}
 }
+
+func TestMaintainBotRereviewCLI(t *testing.T) {
+	ghBin, herdrBin := fixtureBins(t)
+	dir := t.TempDir()
+	ledgerPath := filepath.Join(dir, "ledger.jsonl")
+	cfgPath := filepath.Join(dir, "prsync.config")
+	snapPath := filepath.Join(dir, "bot-snap.json")
+	commentSentinel := filepath.Join(dir, "comment.txt")
+	t.Setenv("GH_FAKE_BOT_REREVIEW_FILE", snapPath)
+	t.Setenv("GH_FAKE_COMMENT_SENTINEL", commentSentinel)
+	t.Setenv("GH_FAKE_COMMENT_URL", "https://github.com/acme/widgets/pull/123#issuecomment-555")
+
+	snapJSON := `{
+		"data":{"repository":{"pullRequest":{
+			"commits":{"nodes":[{"commit":{"oid":"abc123def456","committedDate":"2026-06-01T10:00:00Z","pushedDate":"2026-06-01T10:05:00Z"}}]},
+			"reviews":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[{"author":{"login":"coderabbitai"},"state":"CHANGES_REQUESTED","submittedAt":"2026-06-01T09:50:00Z"}]},
+			"reviewThreads":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[{"id":"t1","isResolved":true,"comments":{"nodes":[{"author":{"login":"coderabbitai"}}]}}]},
+			"comments":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[]}
+		}}}
+	}`
+	if err := os.WriteFile(snapPath, []byte(snapJSON), 0o600); err != nil {
+		t.Fatalf("write snap: %v", err)
+	}
+	cfgBody := strings.Join([]string{
+		"gh_bin=" + ghBin,
+		"herdr_bin=" + herdrBin,
+		"author=alice",
+		"repos=acme/widgets",
+		"state_file=" + filepath.Join(dir, "state.json"),
+		"dispatch_ledger_file=" + ledgerPath,
+		"bot_rereview=auto",
+		"bot_rereview_login=coderabbitai[bot]",
+		"bot_rereview_body=@coderabbitai review",
+	}, "\n") + "\n"
+	if err := os.WriteFile(cfgPath, []byte(cfgBody), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"maintain", "--config", cfgPath, "--pr", "acme/widgets#123", "--json"}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitOK {
+		t.Fatalf("maintain exited %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	var doc policy.Document
+	if err := json.Unmarshal(stdout.Bytes(), &doc); err != nil {
+		t.Fatalf("unmarshal maintain JSON: %v\n%s", err, stdout.String())
+	}
+	if len(doc.Decisions) != 1 || doc.Decisions[0].Decision != policy.DecisionDispatch || doc.Decisions[0].Kind != policy.KindBotRereview {
+		t.Fatalf("decisions = %+v", doc.Decisions)
+	}
+	rawComment, err := os.ReadFile(commentSentinel)
+	if err != nil {
+		t.Fatalf("read comment sentinel: %v", err)
+	}
+	if !strings.Contains(string(rawComment), "@coderabbitai review") {
+		t.Fatalf("comment args = %q", string(rawComment))
+	}
+
+	// Second run on same head skips as already_dispatched.
+	stdout.Reset()
+	stderr.Reset()
+	code = Execute(context.Background(), []string{"maintain", "--config", cfgPath, "--pr", "acme/widgets#123", "--json"}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitOK {
+		t.Fatalf("second maintain exited %d, stderr=%q", code, stderr.String())
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &doc); err != nil {
+		t.Fatalf("unmarshal second maintain JSON: %v", err)
+	}
+	if len(doc.Decisions) != 1 || doc.Decisions[0].Decision != policy.DecisionSkip || doc.Decisions[0].Reason != "already_dispatched" {
+		t.Fatalf("second run decisions = %+v", doc.Decisions)
+	}
+}

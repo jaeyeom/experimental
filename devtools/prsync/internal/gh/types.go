@@ -219,3 +219,32 @@ type WaiveTimeline struct {
 	Commits     []PRCommit
 	ForcePushes []ForcePushEvent
 }
+
+// Review is one submitted pull request review.
+type Review struct {
+	Author      string
+	State       string
+	SubmittedAt time.Time
+}
+
+// ReviewThreadSummary is one pull request review thread with its starter author.
+type ReviewThreadSummary struct {
+	ID            string
+	IsResolved    bool
+	StarterAuthor string
+}
+
+// IssueComment is one PR conversation comment.
+type IssueComment struct {
+	Body      string
+	CreatedAt time.Time
+}
+
+// BotRereviewSnapshot holds the live GitHub data used to evaluate bot_rereview.
+type BotRereviewSnapshot struct {
+	HeadSHA      string
+	LastCommitAt time.Time
+	Reviews      []Review
+	Threads      []ReviewThreadSummary
+	Comments     []IssueComment
+}

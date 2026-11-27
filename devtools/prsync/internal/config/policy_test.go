@@ -13,7 +13,7 @@ func TestPolicyConfigDefaultsAndLoad(t *testing.T) {
 	def := Defaults()
 	if def.Policy.CatchUp != PolicyOff || def.Policy.Rebase != PolicyOff ||
 		def.Policy.NitReply != PolicyOff || def.Policy.CIFix != PolicyOff ||
-		def.Policy.QueueFix != PolicyOff {
+		def.Policy.QueueFix != PolicyOff || def.Policy.BotRereview != PolicyOff {
 		t.Fatalf("default policy modes should all be off: %+v", def.Policy)
 	}
 	if !def.Policy.RequireIdle || def.Policy.MaxPerRun != 1 || !def.Policy.SkipDrafts || !def.Policy.SkipStacked || !def.Policy.SkipOtherMachine {
@@ -31,6 +31,9 @@ policy_rebase=auto
 policy_nit_reply=auto
 policy_ci_fix=dry-run
 policy_queue_fix=auto
+bot_rereview=auto
+bot_rereview_login=coderabbitai[bot]
+bot_rereview_body=@coderabbitai review
 policy_dispatch_conflicting=true
 guard_require_idle=false
 guard_max_per_run=3
@@ -59,8 +62,11 @@ lease_dir=/tmp/leases
 		t.Fatalf("Load() error = %v", err)
 	}
 	p := cfg.Policy
-	if p.CatchUp != PolicyDryRun || p.Rebase != PolicyAuto || p.NitReply != PolicyAuto || p.CIFix != PolicyDryRun || p.QueueFix != PolicyAuto {
+	if p.CatchUp != PolicyDryRun || p.Rebase != PolicyAuto || p.NitReply != PolicyAuto || p.CIFix != PolicyDryRun || p.QueueFix != PolicyAuto || p.BotRereview != PolicyAuto {
 		t.Fatalf("modes = %+v", p)
+	}
+	if p.BotRereviewLogin != "coderabbitai[bot]" || p.BotRereviewBody != "@coderabbitai review" {
+		t.Fatalf("bot_rereview = %+v", p)
 	}
 	if !p.DispatchConflicting || p.RequireIdle || p.MaxPerRun != 3 || p.DailyCap != 10 || p.SkipDrafts || p.SkipStacked || p.SkipOtherMachine {
 		t.Fatalf("guards = %+v", p)
@@ -101,6 +107,12 @@ func TestPolicyConfigValidationErrors(t *testing.T) {
 		{name: "command lease without claim cmd", body: "lease_provider=command\n"},
 		{name: "invalid lease timeout", body: "lease_timeout=0s\n"},
 		{name: "invalid nit regex", body: "nit_reply_patterns=[invalid\n"},
+		{name: "invalid bot_rereview mode", body: "bot_rereview=always\n"},
+		{name: "bot_rereview dry-run missing login", body: "bot_rereview=dry-run\nbot_rereview_body=@coderabbitai review\n"},
+		{name: "bot_rereview dry-run missing body", body: "bot_rereview=dry-run\nbot_rereview_login=coderabbitai\n"},
+		{name: "bot_rereview auto missing login", body: "bot_rereview=auto\nbot_rereview_body=@coderabbitai review\n"},
+		{name: "bot_rereview auto missing body", body: "bot_rereview=auto\nbot_rereview_login=coderabbitai\n"},
+		{name: "policy_bot_rereview auto missing login", body: "policy_bot_rereview=auto\nbot_rereview_body=@coderabbitai review\n"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

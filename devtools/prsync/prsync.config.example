@@ -317,6 +317,13 @@
 # policy_nit_reply=off
 # policy_ci_fix=off
 # policy_queue_fix=off
+# bot_rereview=off
+# Ask a review bot to re-review once per head when it has reviewed, its
+# latest review is not APPROVED, all review threads it started are
+# resolved, and no comment with the same trimmed body is newer than the
+# PR's last commit (also accepted as policy_bot_rereview).
+# bot_rereview_login=coderabbitai[bot]
+# bot_rereview_body=@coderabbitai review
 # Auto mode dispatches only behind and clean-rebase PRs; conflicting is
 # reported unless policy_dispatch_conflicting=true.
 # policy_dispatch_conflicting=false

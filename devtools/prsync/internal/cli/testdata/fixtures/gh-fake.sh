@@ -98,6 +98,13 @@ case "${cmd} ${sub}" in
           printf '%s\n' '{"data":{"repository":{"pullRequest":{"comments":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[]},"commits":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[]},"timelineItems":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[]}}}}}'
         fi
         ;;
+      *reviewThreads*reviews*|*reviews*reviewThreads*)
+        if [ -n "${GH_FAKE_BOT_REREVIEW_FILE-}" ]; then
+          cat "$GH_FAKE_BOT_REREVIEW_FILE"
+        else
+          printf '%s\n' '{"data":{"repository":{"pullRequest":{"commits":{"nodes":[]},"reviews":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[]},"reviewThreads":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[]},"comments":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[]}}}}}'
+        fi
+        ;;
       *committedDate*)
         cat "${DIR}/gh-rca-comments.json"
         ;;

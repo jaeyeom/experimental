@@ -138,3 +138,34 @@ func TestWaiveRepostLedgerDedupeCapAndFormat(t *testing.T) {
 		}
 	}
 }
+
+func TestBotRereviewLedgerDedupeAndDailyCap(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "ledger.jsonl")
+	s := &Store{Path: path}
+	day := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
+
+	if err := s.Append(Entry{
+		PR:        "acme/widgets#42",
+		HeadSHA:   "head111",
+		CommentID: "555",
+		Kind:      KindBotRereview,
+		Time:      day,
+		Outcome:   OutcomeDispatched,
+	}); err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+	reloaded := &Store{Path: path}
+	deduped, err := reloaded.HasDispatched("acme/widgets#42", "head111", KindBotRereview)
+	if err != nil || !deduped {
+		t.Fatalf("HasDispatched(head111) = %v, %v, want true", deduped, err)
+	}
+	deduped, err = reloaded.HasDispatched("acme/widgets#42", "head222", KindBotRereview)
+	if err != nil || deduped {
+		t.Fatalf("HasDispatched(head222) = %v, %v, want false", deduped, err)
+	}
+	today, err := reloaded.CountToday(day)
+	if err != nil || today != 0 {
+		t.Fatalf("CountToday() = %d, %v, want 0", today, err)
+	}
+}

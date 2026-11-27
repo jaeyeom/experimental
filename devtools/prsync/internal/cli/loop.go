@@ -11,7 +11,11 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/dispatch"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/gh"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/ledger"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/loop"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/policy"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
 	executor "github.com/jaeyeom/go-cmdexec"
 	"github.com/spf13/cobra"
 )
@@ -168,9 +172,47 @@ func cliLoopRunner(exec executor.Executor) loop.RoundRunner {
 				res.Err = inboxErr.Error()
 			}
 		}
+		if cfg.Policy.BotRereview != config.PolicyOff {
+			botDecisions, botErr := runLoopBotRereview(ctx, exec, cfg, scanDoc)
+			if len(botDecisions) > 0 {
+				res.BotRereview = botDecisions
+			}
+			if botErr != nil {
+				if res.Err != "" {
+					res.Err += "; " + botErr.Error()
+				} else {
+					res.Err = botErr.Error()
+				}
+			}
+		}
 		res.EndedAt = time.Now().UTC()
 		return res
 	})
+}
+
+func runLoopBotRereview(ctx context.Context, exec executor.Executor, cfg config.Config, scanDoc scan.Document) ([]policy.Decision, error) {
+	botCfg := cfg
+	botCfg.Policy.CatchUp = config.PolicyOff
+	botCfg.Policy.Rebase = config.PolicyOff
+	botCfg.Policy.NitReply = config.PolicyOff
+	botCfg.Policy.CIFix = config.PolicyOff
+	botCfg.Policy.QueueFix = config.PolicyOff
+
+	eng := &policy.Engine{
+		Ledger: &ledger.Store{Path: cfg.ResolvedLedgerFile()},
+		Guard:  policy.ExecGuardRunner{Exec: exec},
+		GH:     gh.NewClient(exec, cfg.GHBin),
+	}
+	doc, err := eng.Run(ctx, botCfg, scanDoc, policy.RunOptions{DryRun: cfg.DryRun})
+	if err != nil {
+		return doc.Decisions, fmt.Errorf("bot_rereview: %w", err)
+	}
+	for _, d := range doc.Decisions {
+		if d.Decision == policy.DecisionError {
+			return doc.Decisions, fmt.Errorf("bot_rereview %s: %s", d.PR, d.Detail)
+		}
+	}
+	return doc.Decisions, nil
 }
 
 func dispatchedPRSet(doc *dispatch.Document) map[string]bool {

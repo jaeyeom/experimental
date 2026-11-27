@@ -43,11 +43,16 @@ const defaultNitReplyPattern = `(?i)\b(nit|nitpick|non-blocking|optional|minor)\
 // rules, dispatch ledger, agent backend, and lease hook settings.
 type PolicyConfig struct {
 	// Per-kind modes: off | dry-run | auto.
-	CatchUp  string
-	Rebase   string
-	NitReply string
-	CIFix    string
-	QueueFix string
+	CatchUp     string
+	Rebase      string
+	NitReply    string
+	CIFix       string
+	QueueFix    string
+	BotRereview string
+
+	// Bot-rereview rules.
+	BotRereviewLogin string
+	BotRereviewBody  string
 
 	// DispatchConflicting allows auto mode to dispatch conflicting PRs for
 	// rebase / catch-up. Default false: conflicting is reported, not dispatched.
@@ -96,6 +101,7 @@ func defaultPolicyConfig() PolicyConfig {
 		NitReply:               PolicyOff,
 		CIFix:                  PolicyOff,
 		QueueFix:               PolicyOff,
+		BotRereview:            PolicyOff,
 		DispatchConflicting:    false,
 		RequireIdle:            true,
 		MaxPerRun:              1,
@@ -127,6 +133,8 @@ func (p PolicyConfig) ModeFor(kind string) string {
 		return p.CIFix
 	case "queue-fix":
 		return p.QueueFix
+	case "bot-rereview":
+		return p.BotRereview
 	default:
 		return PolicyOff
 	}
@@ -161,9 +169,18 @@ func validatePolicyModes(p PolicyConfig) error {
 		{"policy_nit_reply", p.NitReply},
 		{"policy_ci_fix", p.CIFix},
 		{"policy_queue_fix", p.QueueFix},
+		{"bot_rereview", p.BotRereview},
 	} {
 		if item.val != PolicyOff && item.val != PolicyDryRun && item.val != PolicyAuto {
 			return &KeyError{Key: item.key, Reason: fmt.Sprintf("invalid mode %q (want off, dry-run, or auto)", item.val)}
+		}
+	}
+	if p.BotRereview == PolicyDryRun || p.BotRereview == PolicyAuto {
+		if strings.TrimSpace(p.BotRereviewLogin) == "" {
+			return &KeyError{Key: "bot_rereview_login", Reason: "must be non-empty when bot_rereview is dry-run or auto"}
+		}
+		if strings.TrimSpace(p.BotRereviewBody) == "" {
+			return &KeyError{Key: "bot_rereview_body", Reason: "must be non-empty when bot_rereview is dry-run or auto"}
 		}
 	}
 	return nil
@@ -216,6 +233,8 @@ func applyPolicyKey(cfg *Config, key, val string) error {
 		return applyPolicyGuardKey(p, key, val)
 	case strings.HasPrefix(key, "nit_reply_"):
 		return applyPolicyNitKey(p, key, val)
+	case strings.HasPrefix(key, "bot_rereview"):
+		return applyPolicyBotRereviewKey(p, key, val)
 	default:
 		return applyPolicyInfraKey(p, key, val)
 	}
@@ -233,10 +252,25 @@ func applyPolicyModeKey(p *PolicyConfig, key, val string) error {
 		p.CIFix = strings.TrimSpace(val)
 	case "policy_queue_fix":
 		p.QueueFix = strings.TrimSpace(val)
+	case "policy_bot_rereview":
+		p.BotRereview = strings.TrimSpace(val)
 	case "policy_dispatch_conflicting":
 		b, err := parseBool(key, val)
 		p.DispatchConflicting = b
 		return err
+	}
+	return nil
+}
+
+func applyPolicyBotRereviewKey(p *PolicyConfig, key, val string) error {
+	switch key {
+	case "bot_rereview":
+		p.BotRereview = strings.TrimSpace(val)
+	case "bot_rereview_login":
+		p.BotRereviewLogin = strings.TrimSpace(val)
+	case "bot_rereview_body":
+		// Do not resolve @path here: bot triggers commonly start with @ (e.g. "@coderabbitai review").
+		p.BotRereviewBody = strings.TrimSpace(val)
 	}
 	return nil
 }

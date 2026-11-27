@@ -15,11 +15,12 @@ import (
 
 // Policy dispatch kinds.
 const (
-	KindCatchUp  = "catch-up"
-	KindRebase   = "rebase"
-	KindNitReply = "nit-reply"
-	KindCIFix    = "ci-fix"
-	KindQueueFix = "queue-fix"
+	KindCatchUp     = "catch-up"
+	KindRebase      = "rebase"
+	KindNitReply    = "nit-reply"
+	KindCIFix       = "ci-fix"
+	KindQueueFix    = "queue-fix"
+	KindBotRereview = "bot-rereview"
 )
 
 // ConflictClass classifies a PR's merge/branch state relative to its base.
@@ -72,7 +73,8 @@ type Document struct {
 
 // RunOptions controls one maintenance policy run.
 type RunOptions struct {
-	Force bool
+	Force  bool
+	DryRun bool
 }
 
 // GuardContext is passed to a GuardRunner before each live dispatch.

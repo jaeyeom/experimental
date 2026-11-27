@@ -2,6 +2,7 @@ package policy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/backend"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/dispatch"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/gh"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/lease"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/ledger"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
@@ -30,12 +32,20 @@ type LeaseProvider interface {
 	Release(ctx context.Context, name string) error
 }
 
+// GitHub is the optional GitHub surface used by policies that inspect PR
+// review/thread/comment state and post PR comments (such as bot-rereview).
+type GitHub interface {
+	BotRereviewSnapshot(ctx context.Context, owner, repo string, number int) (gh.BotRereviewSnapshot, error)
+	CommentPRWithID(ctx context.Context, repo string, number int, body string) (string, error)
+}
+
 // Engine evaluates configured auto-dispatch policies across a scan document.
 type Engine struct {
 	Backend Backend
 	Lease   LeaseProvider
 	Ledger  *ledger.Store
 	Guard   GuardRunner
+	GH      GitHub
 	Now     func() time.Time
 }
 
@@ -130,6 +140,9 @@ func (e *Engine) detectCandidates(pr scan.PR, cfg config.Config) []workCandidate
 			out = append(out, workCandidate{kind: KindCatchUp, conflictClass: class})
 		}
 	}
+	if p.BotRereview != config.PolicyOff {
+		out = append(out, workCandidate{kind: KindBotRereview})
+	}
 	return out
 }
 
@@ -162,6 +175,10 @@ func (e *Engine) evaluateCandidate(
 ) (Decision, bool, error) {
 	prID := fmt.Sprintf("%s#%d", pr.Repo, pr.Number)
 	mode := cfg.Policy.ModeFor(cand.kind)
+	if cand.kind == KindBotRereview {
+		dec, err := e.evaluateBotRereview(ctx, cfg, pr, opts, now, prID, mode)
+		return dec, false, err
+	}
 	dec := Decision{
 		PR:            prID,
 		Repo:          pr.Repo,
@@ -191,6 +208,154 @@ func (e *Engine) evaluateCandidate(
 		return dec, false, nil
 	}
 	return e.executeAutoDispatch(ctx, cfg, pr, cand, session, now, dec)
+}
+
+func (e *Engine) evaluateBotRereview(
+	ctx context.Context,
+	cfg config.Config,
+	pr scan.PR,
+	opts RunOptions,
+	now time.Time,
+	prID string,
+	mode string,
+) (Decision, error) {
+	if opts.DryRun && mode == config.PolicyAuto {
+		mode = config.PolicyDryRun
+	}
+	dec := Decision{
+		PR:      prID,
+		Repo:    pr.Repo,
+		Number:  pr.Number,
+		HeadSHA: pr.HeadSHA,
+		Kind:    KindBotRereview,
+		Mode:    mode,
+	}
+	if stopped, err := e.checkBotRereviewPreGuards(cfg.Policy, pr, prID, opts.Force, &dec); err != nil || stopped {
+		return dec, err
+	}
+	snap, headSHA, stopped, err := e.fetchBotRereviewSnapshot(ctx, pr, prID, opts.Force, &dec)
+	if err != nil || stopped {
+		return dec, err
+	}
+	if stopped, err := e.checkGuardCommand(ctx, cfg.Policy, prID, headSHA, KindBotRereview, &dec); err != nil || stopped {
+		return dec, err
+	}
+	eligible, reason := EvaluateBotRereview(snap, cfg.Policy.BotRereviewLogin, cfg.Policy.BotRereviewBody)
+	if !eligible {
+		dec.Decision = DecisionSkip
+		dec.Reason = reason
+		return dec, nil
+	}
+	postBody := strings.TrimSpace(cfg.Policy.BotRereviewBody)
+	dec.Prompt = postBody
+	if mode == config.PolicyDryRun {
+		dec.Decision = DecisionDryRun
+		dec.Outcome = ledger.OutcomeDryRun
+		return dec, nil
+	}
+	return e.postBotRereviewComment(ctx, pr, headSHA, postBody, now, dec)
+}
+
+func (e *Engine) checkBotRereviewPreGuards(p config.PolicyConfig, pr scan.PR, prID string, force bool, dec *Decision) (bool, error) {
+	if dec.Mode == config.PolicyOff {
+		dec.Decision = DecisionSkip
+		dec.Reason = "mode_off"
+		return true, nil
+	}
+	if pr.OutOfScope != "" {
+		dec.Decision = DecisionSkip
+		dec.Reason = "out_of_scope"
+		dec.Detail = pr.OutOfScope
+		return true, nil
+	}
+	if checkStaticPRGuards(p, pr, dec) {
+		return true, nil
+	}
+	return e.checkBotRereviewLedger(prID, pr.HeadSHA, force, dec)
+}
+
+func (e *Engine) fetchBotRereviewSnapshot(ctx context.Context, pr scan.PR, prID string, force bool, dec *Decision) (gh.BotRereviewSnapshot, string, bool, error) {
+	if e.GH == nil {
+		return gh.BotRereviewSnapshot{}, "", false, errors.New("bot-rereview: github client is not configured")
+	}
+	owner, repoName, ok := strings.Cut(pr.Repo, "/")
+	if !ok || owner == "" || repoName == "" {
+		return gh.BotRereviewSnapshot{}, "", false, fmt.Errorf("bot-rereview: invalid repo %q", pr.Repo)
+	}
+	snap, err := e.GH.BotRereviewSnapshot(ctx, owner, repoName, pr.Number)
+	if err != nil {
+		return gh.BotRereviewSnapshot{}, "", false, fmt.Errorf("bot-rereview snapshot %s: %w", prID, err)
+	}
+	headSHA, stopped, err := e.resolveBotRereviewHead(pr.HeadSHA, snap.HeadSHA, prID, force, dec)
+	return snap, headSHA, stopped, err
+}
+
+func (e *Engine) resolveBotRereviewHead(prHead, snapHead, prID string, force bool, dec *Decision) (string, bool, error) {
+	headSHA := prHead
+	if headSHA == "" && snapHead != "" {
+		headSHA = snapHead
+		dec.HeadSHA = headSHA
+		if stopped, err := e.checkBotRereviewLedger(prID, headSHA, force, dec); err != nil || stopped {
+			return "", stopped, err
+		}
+	}
+	if headSHA == "" {
+		dec.Decision = DecisionSkip
+		dec.Reason = "missing_head_sha"
+		return "", true, nil
+	}
+	if snapHead != "" && prHead != "" && snapHead != prHead {
+		dec.Decision = DecisionSkip
+		dec.Reason = "head_changed"
+		return "", true, nil
+	}
+	return headSHA, false, nil
+}
+
+func (e *Engine) checkBotRereviewLedger(prID, headSHA string, force bool, dec *Decision) (bool, error) {
+	if force || e.Ledger == nil || headSHA == "" {
+		return false, nil
+	}
+	already, err := e.Ledger.HasDispatched(prID, headSHA, KindBotRereview)
+	if err != nil {
+		return false, fmt.Errorf("check ledger: %w", err)
+	}
+	if already {
+		dec.Decision = DecisionSkip
+		dec.Reason = "already_dispatched"
+		return true, nil
+	}
+	return false, nil
+}
+
+func (e *Engine) postBotRereviewComment(ctx context.Context, pr scan.PR, headSHA, body string, now time.Time, dec Decision) (Decision, error) {
+	commentID, err := e.GH.CommentPRWithID(ctx, pr.Repo, pr.Number, body)
+	if err != nil {
+		dec.Decision = DecisionError
+		dec.Outcome = ledger.OutcomeFailed
+		dec.Reason = "comment_failed"
+		dec.Detail = err.Error()
+	} else {
+		dec.Decision = DecisionDispatch
+		dec.Outcome = ledger.OutcomeDispatched
+		if commentID != "" {
+			dec.Detail = "comment_id=" + commentID
+		}
+	}
+	if e.Ledger != nil {
+		if lerr := e.Ledger.Append(ledger.Entry{
+			PR:        dec.PR,
+			HeadSHA:   headSHA,
+			Kind:      KindBotRereview,
+			Time:      now,
+			Outcome:   dec.Outcome,
+			CommentID: commentID,
+			Detail:    dec.Detail,
+		}); lerr != nil {
+			return dec, fmt.Errorf("append ledger: %w", lerr)
+		}
+	}
+	return dec, nil
 }
 
 func checkPreGuards(p config.PolicyConfig, pr scan.PR, cand workCandidate, dec *Decision) bool {

@@ -202,6 +202,9 @@ Environment variables are not expanded.
 | ~waive_checks~                  | empty                                                                                                                                                                                                                                        | Comma-separated CheckRun names or StatusContext contexts a waive may cover. Re-posting requires a non-empty list.                                                |
 | ~waive_repost~                  | ~false~                                                                                                                                                                                                                                      | Allow ~prsync comment --repost-waives~ to re-post for ~base-only~ heads. ~author changes~ is never re-posted.                                                    |
 | ~waive_max_per_pr~              | ~3~                                                                                                                                                                                                                                          | Maximum automated waive re-posts per PR (counted from ~waive-repost~ ledger entries; ~0~ disables re-posting).                                                   |
+| ~bot_rereview~                  | ~off~                                                                                                                                                                                                                                        | ~off~, ~dry-run~, or ~auto~ (also accepted as ~policy_bot_rereview~). In ~maintain~ and ~loop~, posts ~bot_rereview_body~ once per head when the bot has reviewed, its latest review is not ~APPROVED~, every review thread it started is resolved, and no comment with the same trimmed body is newer than the PR's last commit. |
+| ~bot_rereview_login~            | empty                                                                                                                                                                                                                                        | GitHub login of the review bot (matched case-insensitively with optional ~[bot]~ suffix). Required when ~bot_rereview~ is ~dry-run~ or ~auto~.                    |
+| ~bot_rereview_body~             | empty                                                                                                                                                                                                                                        | Literal PR comment body posted by ~bot_rereview~ (leading ~@~ is kept literal, e.g. ~@coderabbitai review~). Required when ~bot_rereview~ is ~dry-run~ or ~auto~. |
 
 Default prompt text (checkout ~{head}~, mechanical vs judgment-call
 triage, reply on every thread and resolve unless that reply asks the
@@ -653,7 +656,7 @@ prsync logs
 
 ** loop
 
-Runs ~scan~ followed by ~dispatch~ round after round (~--pause~,
+Runs ~scan~ followed by ~dispatch~ (plus ~ci_fix_inbox~ when ~policy_ci_fix~ is enabled, and ~bot_rereview~ when ~bot_rereview~ is enabled) round after round (~--pause~,
 default ~0~, starts the next round right after the previous finishes).
 Unless ~--dry-run~ is passed, rounds dispatch live.
 

@@ -197,6 +197,9 @@ are ~KEY=VALUE~. A ~#~ starts a comment. Unknown keys are ignored.
 | ~waive_checks~             | empty           | Comma-separated check names a waive covers (for re-posting).       |
 | ~waive_repost~             | ~false~         | Allow ~comment --repost-waives~ for ~base-only~ stale waives.      |
 | ~waive_max_per_pr~         | ~3~             | Cap on waive re-posts per PR.                                      |
+| ~bot_rereview~             | ~off~           | ~off~ / ~dry-run~ / ~auto~ (~maintain~ and ~loop~) to request bot re-review once per head when its threads are resolved. |
+| ~bot_rereview_login~       | empty           | Bot GitHub login (required when ~bot_rereview~ is ~dry-run~ or ~auto~). |
+| ~bot_rereview_body~        | empty           | Comment body posted to ask the bot to review again (required when ~bot_rereview~ is ~dry-run~ or ~auto~). |
 
 Every other key is in the [[file:docs/reference.org][reference]].
 
