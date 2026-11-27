@@ -5,7 +5,7 @@ description: CLI that runs config-driven health checks, saves snapshots, and ale
 
 # healthsnap
 
-`healthsnap` runs configured checks (external commands, `file-age`, or built-in `host` load/memory/disk checks), writes one JSON (and optional Markdown) snapshot per run, and notifies only on rule state transitions (`fire`, `clear`, or `repeat`), routing `judgment = true` rules to a separate recipient.
+`healthsnap` runs configured checks (external commands, `file-age`, or built-in `host` load/memory/disk checks), writes one JSON (and optional Markdown) snapshot per run, and notifies only on `warn`/`fail` rule state transitions (`fire`, `clear`, or `repeat`), supporting `clear` hysteresis, notify-free `info` rules, `judgment = true` routing, and per-rule `recipient`/`command` overrides.
 
 Common commands:
 - `healthsnap run [--config P] [--json] [--markdown] [--force] [--dry-run]` — run checks, save snapshot, and emit change alerts.

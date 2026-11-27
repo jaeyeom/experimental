@@ -93,20 +93,7 @@ func checkStateDir(stateDir string) toolcli.CheckResult {
 }
 
 func checkConfiguredBinaries(cfg healthsnap.Config, lookPath func(string) (string, error)) toolcli.CheckResult {
-	needed := map[string]bool{}
-	for _, c := range cfg.Checks {
-		if c.Kind == healthsnap.KindCommand && len(c.Argv) > 0 {
-			needed[c.Argv[0]] = true
-		}
-	}
-	if len(cfg.Notify.Command) > 0 {
-		needed[cfg.Notify.Command[0]] = true
-	} else if cfg.Notify.Recipient != "" || cfg.Notify.JudgmentRecipient != "" {
-		needed["agentbus"] = true
-	}
-	if len(cfg.Notify.JudgmentCommand) > 0 {
-		needed[cfg.Notify.JudgmentCommand[0]] = true
-	}
+	needed := collectNeededBinaries(cfg)
 	if len(needed) == 0 {
 		return toolcli.CheckResult{
 			Name:   "check-commands",
@@ -139,27 +126,61 @@ func checkConfiguredBinaries(cfg healthsnap.Config, lookPath func(string) (strin
 	}
 }
 
+func collectNeededBinaries(cfg healthsnap.Config) map[string]bool {
+	needed := map[string]bool{}
+	for _, c := range cfg.Checks {
+		if c.Kind == healthsnap.KindCommand && len(c.Argv) > 0 {
+			needed[c.Argv[0]] = true
+		}
+		collectRuleNotifyBinaries(needed, c.Rules, cfg.Notify)
+	}
+	if len(cfg.Notify.Command) > 0 {
+		needed[cfg.Notify.Command[0]] = true
+	} else if cfg.Notify.Recipient != "" || cfg.Notify.JudgmentRecipient != "" {
+		needed["agentbus"] = true
+	}
+	if len(cfg.Notify.JudgmentCommand) > 0 {
+		needed[cfg.Notify.JudgmentCommand[0]] = true
+	}
+	return needed
+}
+
+func collectRuleNotifyBinaries(needed map[string]bool, rules []healthsnap.RuleConfig, notifyCfg healthsnap.NotifyConfig) {
+	for _, r := range rules {
+		if r.State == healthsnap.SeverityInfo {
+			continue
+		}
+		if len(r.Command) > 0 {
+			needed[r.Command[0]] = true
+			continue
+		}
+		if r.Recipient != "" && len(notifyCfg.Command) == 0 && (!r.Judgment || len(notifyCfg.JudgmentCommand) == 0) {
+			needed["agentbus"] = true
+		}
+	}
+}
+
 func checkJudgmentRouting(cfg healthsnap.Config) (toolcli.CheckResult, bool) {
 	hasJudgment := false
+	needsGlobalJudgment := false
 	for _, c := range cfg.Checks {
 		if c.Judgment {
 			hasJudgment = true
-			break
+			needsGlobalJudgment = true
 		}
 		for _, r := range c.Rules {
-			if r.Judgment {
+			if r.Judgment && r.State != healthsnap.SeverityInfo {
 				hasJudgment = true
-				break
+				if r.Recipient == "" && len(r.Command) == 0 {
+					needsGlobalJudgment = true
+				}
 			}
-		}
-		if hasJudgment {
-			break
 		}
 	}
 	if !hasJudgment {
 		return toolcli.CheckResult{}, false
 	}
-	if cfg.Notify.JudgmentRecipient == "" && len(cfg.Notify.JudgmentCommand) == 0 {
+	if needsGlobalJudgment && cfg.Notify.JudgmentRecipient == "" && len(cfg.Notify.JudgmentCommand) == 0 {
 		return toolcli.CheckResult{
 			Name:   "judgment-routing",
 			Status: toolcli.StatusWarn,
@@ -167,9 +188,13 @@ func checkJudgmentRouting(cfg healthsnap.Config) (toolcli.CheckResult, bool) {
 			Hint:   "set notify.judgmentRecipient in config.pkl so judgment alerts go to a separate recipient",
 		}, true
 	}
+	detail := cfg.Notify.JudgmentRecipient
+	if detail == "" && !needsGlobalJudgment {
+		detail = "per-rule routing"
+	}
 	return toolcli.CheckResult{
 		Name:   "judgment-routing",
 		Status: toolcli.StatusOK,
-		Detail: cfg.Notify.JudgmentRecipient,
+		Detail: detail,
 	}, true
 }

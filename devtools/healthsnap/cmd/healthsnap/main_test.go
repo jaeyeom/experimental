@@ -151,6 +151,75 @@ checks {
 	}
 }
 
+func TestCLIInfoSeverityExitsZeroAndShowsInStatus(t *testing.T) {
+	tmp := t.TempDir()
+	stateDir := filepath.Join(tmp, "state")
+	cfgPath := filepath.Join(tmp, "config.pkl")
+	if err := os.WriteFile(cfgPath, []byte(`
+notify {
+  recipient = "ops/inbox"
+}
+checks {
+  new {
+    id = "host-note"
+    argv { "check-note" }
+    rules {
+      new {
+        id = "note-info"
+        condition = "exit != 0"
+        state = "info"
+        message = "informational condition"
+      }
+    }
+  }
+}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	env := []string{
+		"HOME=" + tmp,
+		"XDG_STATE_HOME=" + stateDir,
+	}
+	var notified bool
+	rt := appRuntime{
+		deps: healthsnap.CheckDeps{
+			Now: func() time.Time { return time.Date(2026, 11, 27, 6, 0, 0, 0, time.UTC) },
+			RunCmd: func(context.Context, healthsnap.CmdRequest) (healthsnap.CmdResult, error) {
+				return healthsnap.CmdResult{ExitCode: 1}, nil
+			},
+		},
+		notify: func(context.Context, []string, []string) error {
+			notified = true
+			return nil
+		},
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"run", "--config", cfgPath, "--json"}, &stdout, &stderr, env, rt); code != 0 {
+		t.Fatalf("run (info) exit = %d, want 0; stderr=%s", code, stderr.String())
+	}
+	if notified {
+		t.Fatal("info rule must not invoke notify")
+	}
+	var snap healthsnap.Snapshot
+	if err := json.Unmarshal(stdout.Bytes(), &snap); err != nil {
+		t.Fatalf("decode run json: %v", err)
+	}
+	if snap.State != healthsnap.SeverityInfo || snap.Checks[0].State != healthsnap.SeverityInfo || snap.Checks[0].Rules[0].State != healthsnap.SeverityInfo {
+		t.Fatalf("unexpected info snapshot: %+v", snap)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"status", "--config", cfgPath}, &stdout, &stderr, env, rt); code != 0 {
+		t.Fatalf("status (info) exit = %d, want 0; stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "info") || !strings.Contains(stdout.String(), "host-note") {
+		t.Errorf("unexpected status output for info:\n%s", stdout.String())
+	}
+}
+
 func TestCLIErrorExitCodes(t *testing.T) {
 	tmp := t.TempDir()
 	env := []string{"HOME=" + tmp, "XDG_STATE_HOME=" + filepath.Join(tmp, "state")}

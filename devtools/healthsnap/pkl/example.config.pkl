@@ -75,7 +75,7 @@ checks {
     interval = "6h"
     parse {
       mode = "jsonpath"
-      jsonPath = #"$[?(@.status != "ok")].length()"#
+      jsonPath = #"$[?(@.status != "ok" && @.status != "unverifiable")].length()"#
     }
     rules {
       new {
@@ -83,6 +83,7 @@ checks {
         condition = "value > 0"
         state = "warn"
         judgment = true
+        recipient = "ops/cron"
         message = "orgctl cron drift requires review"
       }
     }
@@ -128,8 +129,15 @@ checks {
     metric = "load-per-cpu"
     rules {
       new {
+        id = "host-load-elevated"
+        condition = "value > 1.0"
+        state = "info"
+        message = "load elevated (informational)"
+      }
+      new {
         id = "host-load-high"
         condition = "value > 2.0"
+        clear = "value < 1.2"
         state = "warn"
         repeat = "2h"
       }
@@ -144,6 +152,7 @@ checks {
       new {
         id = "host-memory-high"
         condition = "value > 85"
+        clear = "value < 80"
         state = "warn"
       }
       new {

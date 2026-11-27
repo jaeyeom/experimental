@@ -10,19 +10,23 @@ type Severity string
 const (
 	// SeverityOK indicates a passing check or cleared rule.
 	SeverityOK Severity = "ok"
+	// SeverityInfo indicates an informational rule matched (recorded without alerting).
+	SeverityInfo Severity = "info"
 	// SeverityWarn indicates a warning threshold was crossed.
 	SeverityWarn Severity = "warn"
 	// SeverityFail indicates a failure threshold or execution error occurred.
 	SeverityFail Severity = "fail"
 )
 
-// Rank returns numeric severity ordering (ok=0, warn=1, fail=2).
+// Rank returns numeric severity ordering (ok=0, info=1, warn=2, fail=3).
 func (s Severity) Rank() int {
 	switch s {
-	case SeverityWarn:
+	case SeverityInfo:
 		return 1
-	case SeverityFail:
+	case SeverityWarn:
 		return 2
+	case SeverityFail:
+		return 3
 	default:
 		return 0
 	}

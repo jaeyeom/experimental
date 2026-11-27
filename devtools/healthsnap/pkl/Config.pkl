@@ -28,7 +28,8 @@ class ParseConfig {
   /// Empty infers "jsonpath" when jsonPath is set, "regex" when regex is set, else "exit".
   mode: "" | "exit" | "jsonpath" | "regex" = ""
 
-  /// JSONPath expression into stdout (for example, "$.problems.length()" or "$[*].age_seconds.max()").
+  /// JSONPath expression into stdout (for example, "$.problems.length()",
+  /// "$[*].age_seconds.max()", or "$[?(@.status != \"ok\" && @.status != \"unverifiable\")].length()").
   jsonPath: String = ""
 
   /// RE2 regular expression matched line-by-line against stdout.
@@ -46,8 +47,13 @@ class RuleConfig {
   /// Boolean threshold expression (for example, "exit != 0", "value > 80", "age > 2h").
   condition: String(!isEmpty)
 
-  /// Severity emitted when `when` evaluates to true.
-  state: "warn" | "fail" = "fail"
+  /// Optional hysteresis clear expression (for example, "value < 5").
+  /// While this rule is firing, it clears only when `condition` is false and `clear` evaluates to true.
+  clear: String = ""
+
+  /// Severity emitted when `condition` evaluates to true.
+  /// "info" is recorded in snapshots and status without sending notifications.
+  state: "info" | "warn" | "fail" = "fail"
 
   /// Optional re-alert interval while the rule stays in warn or fail (for example, "12h").
   /// "0s" disables repeat alerts until the rule clears and fires again.
@@ -55,6 +61,12 @@ class RuleConfig {
 
   /// Whether alerts for this rule route to notify.judgmentRecipient to wake a model.
   judgment: Boolean = false
+
+  /// Optional recipient override for this rule (overrides notify.recipient and notify.judgmentRecipient).
+  recipient: String = ""
+
+  /// Optional command template override for this rule (overrides notify.command and notify.judgmentCommand).
+  command: Listing<String(!isEmpty)> = new {}
 
   /// Optional human-readable description included in notifications.
   message: String = ""

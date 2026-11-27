@@ -14,14 +14,17 @@ go install github.com/jaeyeom/experimental/devtools/healthsnap/cmd/healthsnap@la
 1. Evaluates configured checks (~command~, ~file-age~, or ~host~) respecting
    per-check ~interval~ settings.
 2. Parses command output by exit code, JSONPath into stdout, or RE2 line regex.
-3. Evaluates threshold rules (~ok~, ~warn~, or ~fail~). Execution failures
+3. Evaluates threshold rules (~info~, ~warn~, or ~fail~). Execution failures
    (missing command, timeout, missing file, parse error) are always ~fail~.
 4. Writes one JSON snapshot (and optional Markdown rendering) into the state
    directory, keeping the last ~keepSnapshots~ snapshots.
-5. Sends one notification when a rule *fires* (~ok~ -> ~warn~ or ~fail~) or
-   *clears* (~warn~ or ~fail~ -> ~ok~), deduplicated by rule id with optional
-   ~repeat~ re-alerts. Rules marked ~judgment = true~ route to a separate
-   recipient so only judgment-required issues wake a model.
+5. Sends one notification when a ~warn~ or ~fail~ rule *fires* (~ok~ -> ~warn~ or
+   ~fail~) or *clears* (~warn~ or ~fail~ -> ~ok~), deduplicated by rule id with
+   optional ~repeat~ re-alerts and optional ~clear~ hysteresis. Rules marked
+   ~info~ are recorded in snapshots and ~status~ without sending alerts. Rules
+   marked ~judgment = true~ route to a separate recipient so only
+   judgment-required issues wake a model, and per-rule ~recipient~ / ~command~
+   override ~notify.*~.
 
 * Configuration (Pkl)
 
@@ -46,9 +49,17 @@ The schema is [[file:pkl/Config.pkl][pkl/Config.pkl]] and a complete example is
 ** Result parsers (~parse~)
 
 - ~exit~ (default): exposes command exit code as ~value~ and ~exit~.
-- ~jsonpath~: evaluates ~parse.jsonPath~ against JSON stdout (supports field
-  access, negative/positive indices, ~[*]~, filters ~[?(@.field != "ok")]~,
-  and ~.length()~, ~.count()~, ~.min()~, ~.max()~, ~.sum()~).
+- ~jsonpath~: evaluates ~parse.jsonPath~ against JSON stdout. Supported subset:
+  - Root ~$~, dot fields (~.field~), bracket keys (~["field"]~ / ~['field']~),
+    array indices (~[0]~, ~[-1]~), and wildcard (~[*]~)
+  - Filter predicates ~[?(...)]~ with ~@.field~ / ~@.nested.field~ /
+    ~@["key"]~, comparison operators (~==~, ~!=~, ~<~, ~<=~, ~>~, ~>=~),
+    logical operators (~&&~, ~||~, ~!~), parentheses, and string/number/bool/null
+    literals (for example,
+    ~$[?(@.status != "ok" && @.status != "unverifiable")].length()~). Unsupported
+    or malformed filter syntax fails the check with a parse error instead of
+    falling back.
+  - Terminal aggregations: ~.length()~, ~.count()~, ~.min()~, ~.max()~, ~.sum()~
 - ~regex~: matches stdout line-by-line with RE2 ~parse.regex~. With a capturing
   group, extracts group 1 from the first matching line; without one, counts
   matching lines.
@@ -56,13 +67,20 @@ The schema is [[file:pkl/Config.pkl][pkl/Config.pkl]] and a complete example is
 ** Rules and judgment routing
 
 Each rule defines ~id~, ~condition~ (boolean expression such as ~exit != 0~,
-~value > 80~, ~age > 2h~), ~state~ (~"warn"~ or ~"fail"~), optional ~repeat~
-re-alert duration, and ~judgment~ (~false~ by default).
+~value > 80~, ~age > 2h~), optional ~clear~ hysteresis expression (while firing,
+the rule clears only when ~condition~ is false and ~clear~ is true), ~state~
+(~"info"~, ~"warn"~, or ~"fail"~), optional ~repeat~ re-alert duration,
+~judgment~ (~false~ by default), and optional per-rule ~recipient~ and
+~command~.
+
+Rules with ~state = "info"~ appear in snapshots and ~healthsnap status~ without
+running the notify command or failing exit codes.
 
 When ~notify.command~ is empty and a recipient is configured, ~healthsnap~
 defaults to ~agentbus send {recipient} {message}~. Non-judgment alerts route to
 ~notify.recipient~; ~judgment = true~ alerts route to
-~notify.judgmentRecipient~ (or ~notify.judgmentCommand~).
+~notify.judgmentRecipient~ (or ~notify.judgmentCommand~). Per-rule ~recipient~
+and ~command~ override ~notify.*~ for that rule.
 
 * Snapshots and state
 
@@ -85,7 +103,7 @@ Snapshots and deduplication state are stored under
 
 | Code | Meaning                                                   |
 |------+-----------------------------------------------------------|
-|    0 | All checks ~ok~                                           |
+|    0 | All checks ~ok~ (or ~info~ only)                          |
 |    1 | One or more checks in ~warn~ or ~fail~                    |
 |    2 | Usage, configuration, state, missing snapshot, or notify error |
 

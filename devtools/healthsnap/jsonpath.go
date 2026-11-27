@@ -28,14 +28,87 @@ type jpStep struct {
 	kind   jpStepKind
 	field  string
 	index  int
-	filter jpFilterExpr
+	filter jpFilterNode
 	agg    string
 }
 
-type jpFilterExpr struct {
-	field string
+type jpFilterNode interface {
+	eval(item any) bool
+}
+
+type jpFilterSeg struct {
+	isIndex bool
+	field   string
+	index   int
+}
+
+type jpFilterOperand interface {
+	eval(item any) any
+}
+
+type jpFilterPathOperand struct {
+	segs []jpFilterSeg
+}
+
+func (o jpFilterPathOperand) eval(item any) any {
+	return lookupFilterPath(item, o.segs)
+}
+
+type jpFilterLitOperand struct {
+	val any
+}
+
+func (o jpFilterLitOperand) eval(any) any {
+	return o.val
+}
+
+type jpFilterLogicNode struct {
 	op    string
-	rhs   any
+	left  jpFilterNode
+	right jpFilterNode
+}
+
+func (n jpFilterLogicNode) eval(item any) bool {
+	if n.op == "&&" {
+		return n.left.eval(item) && n.right.eval(item)
+	}
+	return n.left.eval(item) || n.right.eval(item)
+}
+
+type jpFilterNotNode struct {
+	child jpFilterNode
+}
+
+func (n jpFilterNotNode) eval(item any) bool {
+	return !n.child.eval(item)
+}
+
+type jpFilterCmpNode struct {
+	op    string
+	left  jpFilterOperand
+	right jpFilterOperand
+}
+
+func (n jpFilterCmpNode) eval(item any) bool {
+	matched, err := compareValues(n.left.eval(item), n.op, n.right.eval(item))
+	return err == nil && matched
+}
+
+type jpFilterPathBoolNode struct {
+	segs []jpFilterSeg
+}
+
+func (n jpFilterPathBoolNode) eval(item any) bool {
+	b, ok := lookupFilterPath(item, n.segs).(bool)
+	return ok && b
+}
+
+type jpFilterBoolLitNode struct {
+	val bool
+}
+
+func (n jpFilterBoolLitNode) eval(any) bool {
+	return n.val
 }
 
 // CompileJSONPath parses a JSONPath expression beginning with $.
@@ -113,7 +186,9 @@ func parseJPBracket(s string, pos int) (jpStep, int, error) {
 		}
 		return jpStep{kind: jpFilter, filter: f}, closeIdx + 1, nil
 	}
-	if key, ok := unquoteBracketKey(inner); ok {
+	if key, ok, err := parseBracketStringKey(inner); err != nil {
+		return jpStep{}, 0, err
+	} else if ok {
 		return jpStep{kind: jpField, field: key}, closeIdx + 1, nil
 	}
 	idx, err := strconv.Atoi(inner)
@@ -126,6 +201,7 @@ func parseJPBracket(s string, pos int) (jpStep, int, error) {
 func findMatchingBracket(s string, openPos int) (int, error) {
 	var quote byte
 	escaped := false
+	depth := 0
 	for i := openPos + 1; i < len(s); i++ {
 		c := s[i]
 		if escaped {
@@ -145,65 +221,374 @@ func findMatchingBracket(s string, openPos int) (int, error) {
 			quote = c
 			continue
 		}
+		if c == '[' {
+			depth++
+			continue
+		}
 		if c == ']' {
-			return i, nil
+			if depth == 0 {
+				return i, nil
+			}
+			depth--
 		}
 	}
 	return 0, errors.New("unclosed '['")
 }
 
-func unquoteBracketKey(inner string) (string, bool) {
-	if len(inner) >= 2 && ((inner[0] == '"' && inner[len(inner)-1] == '"') || (inner[0] == '\'' && inner[len(inner)-1] == '\'')) {
-		return inner[1 : len(inner)-1], true
+func parseBracketStringKey(inner string) (string, bool, error) {
+	if len(inner) == 0 || (inner[0] != '"' && inner[0] != '\'') {
+		return "", false, nil
 	}
-	return "", false
+	val, next, err := scanJPStringLiteral(inner, 0)
+	if err != nil {
+		return "", false, err
+	}
+	if next != len(inner) {
+		return "", false, fmt.Errorf("invalid bracket key %q", inner)
+	}
+	return val, true, nil
 }
 
-func parseJPFilter(raw string) (jpFilterExpr, error) {
-	s := strings.TrimSpace(raw)
-	if strings.HasPrefix(s, "(") && strings.HasSuffix(s, ")") {
-		s = strings.TrimSpace(s[1 : len(s)-1])
-	}
-	if !strings.HasPrefix(s, "@.") {
-		return jpFilterExpr{}, fmt.Errorf("filter %q lacks @. prefix", raw)
-	}
-	s = s[2:]
-	op, lhs, rhs, err := splitFilterOp(s)
-	if err != nil {
-		return jpFilterExpr{}, err
-	}
-	val, err := parseLiteral(strings.TrimSpace(rhs))
-	if err != nil {
-		return jpFilterExpr{}, fmt.Errorf("filter rhs %q: %w", rhs, err)
-	}
-	return jpFilterExpr{field: strings.TrimSpace(lhs), op: op, rhs: val}, nil
+type jpTokKind int
+
+const (
+	jpTokEOF jpTokKind = iota
+	jpTokLParen
+	jpTokRParen
+	jpTokBang
+	jpTokLogicOp
+	jpTokCmpOp
+	jpTokPath
+	jpTokString
+	jpTokNumber
+	jpTokBool
+	jpTokNil
+)
+
+type jpToken struct {
+	kind jpTokKind
+	text string
+	num  float64
+	b    bool
+	segs []jpFilterSeg
 }
 
-func splitFilterOp(s string) (op, lhs, rhs string, err error) {
-	for _, candidate := range []string{"==", "!=", "<=", ">=", "<", ">"} {
-		if idx := strings.Index(s, candidate); idx > 0 {
-			return candidate, s[:idx], s[idx+len(candidate):], nil
+func parseJPFilter(raw string) (jpFilterNode, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, errors.New("empty filter expression")
+	}
+	tokens, err := tokenizeJPFilter(raw)
+	if err != nil {
+		return nil, err
+	}
+	p := jpFilterParser{tokens: tokens}
+	root, err := p.parseOr()
+	if err != nil {
+		return nil, err
+	}
+	if p.peek().kind != jpTokEOF {
+		return nil, fmt.Errorf("unexpected token %q in filter", p.peek().text)
+	}
+	return root, nil
+}
+
+func tokenizeJPFilter(s string) ([]jpToken, error) {
+	var tokens []jpToken
+	for i := 0; i < len(s); {
+		if isJPSpace(s[i]) {
+			i++
+			continue
+		}
+		tok, next, err := nextJPFilterToken(s, i)
+		if err != nil {
+			return nil, err
+		}
+		tokens = append(tokens, tok)
+		i = next
+	}
+	tokens = append(tokens, jpToken{kind: jpTokEOF})
+	return tokens, nil
+}
+
+func isJPSpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r'
+}
+
+func nextJPFilterToken(s string, i int) (jpToken, int, error) {
+	if tok, next, ok := scanJPOpOrPunct(s, i); ok {
+		return tok, next, nil
+	}
+	switch {
+	case s[i] == '@':
+		return scanJPFilterPath(s, i)
+	case s[i] == '"' || s[i] == '\'':
+		val, next, err := scanJPStringLiteral(s, i)
+		if err != nil {
+			return jpToken{}, 0, err
+		}
+		return jpToken{kind: jpTokString, text: val}, next, nil
+	case isJPNumberStart(s, i):
+		return scanJPNumberLiteral(s, i)
+	case isJPIdentStart(s[i]):
+		return scanJPKeyword(s, i)
+	default:
+		return jpToken{}, 0, fmt.Errorf("unexpected character %q in filter at offset %d", s[i], i)
+	}
+}
+
+func scanJPOpOrPunct(s string, i int) (jpToken, int, bool) {
+	if i+1 < len(s) {
+		two := s[i : i+2]
+		switch two {
+		case "&&", "||":
+			return jpToken{kind: jpTokLogicOp, text: two}, i + 2, true
+		case "==", "!=", "<=", ">=":
+			return jpToken{kind: jpTokCmpOp, text: two}, i + 2, true
 		}
 	}
-	return "", "", "", fmt.Errorf("missing comparison operator in filter %q", s)
+	switch s[i] {
+	case '(':
+		return jpToken{kind: jpTokLParen, text: "("}, i + 1, true
+	case ')':
+		return jpToken{kind: jpTokRParen, text: ")"}, i + 1, true
+	case '!':
+		return jpToken{kind: jpTokBang, text: "!"}, i + 1, true
+	case '<', '>':
+		return jpToken{kind: jpTokCmpOp, text: s[i : i+1]}, i + 1, true
+	default:
+		return jpToken{}, 0, false
+	}
 }
 
-func parseLiteral(s string) (any, error) {
-	if unq, ok := unquoteBracketKey(s); ok {
-		return unq, nil
+func scanJPFilterPath(s string, i int) (jpToken, int, error) {
+	j := i + 1
+	var segs []jpFilterSeg
+	for j < len(s) {
+		switch s[j] {
+		case '.':
+			j++
+			if j >= len(s) || !isJPIdentStart(s[j]) {
+				return jpToken{}, 0, fmt.Errorf("expected field name after '.' in filter at offset %d", j)
+			}
+			start := j
+			for j < len(s) && isJPIdentCont(s[j]) {
+				j++
+			}
+			segs = append(segs, jpFilterSeg{field: s[start:j]})
+		case '[':
+			closeIdx, err := findMatchingBracket(s, j)
+			if err != nil {
+				return jpToken{}, 0, err
+			}
+			inner := strings.TrimSpace(s[j+1 : closeIdx])
+			if key, ok, err := parseBracketStringKey(inner); err != nil {
+				return jpToken{}, 0, err
+			} else if ok {
+				segs = append(segs, jpFilterSeg{field: key})
+			} else if idx, convErr := strconv.Atoi(inner); convErr == nil {
+				segs = append(segs, jpFilterSeg{isIndex: true, index: idx})
+			} else {
+				return jpToken{}, 0, fmt.Errorf("invalid bracket selector %q in filter", inner)
+			}
+			j = closeIdx + 1
+		default:
+			return jpToken{kind: jpTokPath, text: s[i:j], segs: segs}, j, nil
+		}
 	}
-	switch s {
+	return jpToken{kind: jpTokPath, text: s[i:j], segs: segs}, j, nil
+}
+
+func scanJPStringLiteral(s string, i int) (string, int, error) {
+	quote := s[i]
+	var b strings.Builder
+	escaped := false
+	for j := i + 1; j < len(s); j++ {
+		c := s[j]
+		if escaped {
+			b.WriteByte(unescapeChar(c))
+			escaped = false
+			continue
+		}
+		if c == '\\' {
+			escaped = true
+			continue
+		}
+		if c == quote {
+			return b.String(), j + 1, nil
+		}
+		b.WriteByte(c)
+	}
+	return "", 0, errors.New("unterminated string literal")
+}
+
+func isJPNumberStart(s string, i int) bool {
+	if s[i] >= '0' && s[i] <= '9' {
+		return true
+	}
+	return s[i] == '-' && i+1 < len(s) && s[i+1] >= '0' && s[i+1] <= '9'
+}
+
+func scanJPNumberLiteral(s string, i int) (jpToken, int, error) {
+	j := i
+	if s[j] == '-' {
+		j++
+	}
+	for j < len(s) {
+		c := s[j]
+		if (c == 'e' || c == 'E') && j+1 < len(s) && (s[j+1] == '+' || s[j+1] == '-') {
+			j += 2
+			continue
+		}
+		if isJPIdentCont(c) || c == '.' {
+			j++
+			continue
+		}
+		break
+	}
+	raw := s[i:j]
+	n, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return jpToken{}, 0, fmt.Errorf("invalid numeric literal %q in filter", raw)
+	}
+	return jpToken{kind: jpTokNumber, text: raw, num: n}, j, nil
+}
+
+func isJPIdentStart(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+}
+
+func isJPIdentCont(c byte) bool {
+	return isJPIdentStart(c) || (c >= '0' && c <= '9')
+}
+
+func scanJPKeyword(s string, i int) (jpToken, int, error) {
+	j := i
+	for j < len(s) && isJPIdentCont(s[j]) {
+		j++
+	}
+	word := s[i:j]
+	switch word {
 	case "true":
-		return true, nil
+		return jpToken{kind: jpTokBool, text: word, b: true}, j, nil
 	case "false":
-		return false, nil
+		return jpToken{kind: jpTokBool, text: word, b: false}, j, nil
 	case "null", "nil":
-		return nil, nil
+		return jpToken{kind: jpTokNil, text: word}, j, nil
+	default:
+		return jpToken{}, 0, fmt.Errorf("unexpected identifier %q in filter (paths must start with @.)", word)
 	}
-	if n, err := strconv.ParseFloat(s, 64); err == nil {
-		return n, nil
+}
+
+type jpFilterParser struct {
+	tokens []jpToken
+	pos    int
+}
+
+func (p *jpFilterParser) peek() jpToken {
+	return p.tokens[p.pos]
+}
+
+func (p *jpFilterParser) next() jpToken {
+	tok := p.tokens[p.pos]
+	p.pos++
+	return tok
+}
+
+func (p *jpFilterParser) parseOr() (jpFilterNode, error) {
+	left, err := p.parseAnd()
+	if err != nil {
+		return nil, err
 	}
-	return nil, fmt.Errorf("invalid literal %q", s)
+	for p.peek().kind == jpTokLogicOp && p.peek().text == "||" {
+		op := p.next().text
+		right, err := p.parseAnd()
+		if err != nil {
+			return nil, err
+		}
+		left = jpFilterLogicNode{op: op, left: left, right: right}
+	}
+	return left, nil
+}
+
+func (p *jpFilterParser) parseAnd() (jpFilterNode, error) {
+	left, err := p.parseNot()
+	if err != nil {
+		return nil, err
+	}
+	for p.peek().kind == jpTokLogicOp && p.peek().text == "&&" {
+		op := p.next().text
+		right, err := p.parseNot()
+		if err != nil {
+			return nil, err
+		}
+		left = jpFilterLogicNode{op: op, left: left, right: right}
+	}
+	return left, nil
+}
+
+func (p *jpFilterParser) parseNot() (jpFilterNode, error) {
+	if p.peek().kind == jpTokBang {
+		p.next()
+		child, err := p.parseNot()
+		if err != nil {
+			return nil, err
+		}
+		return jpFilterNotNode{child: child}, nil
+	}
+	return p.parsePrimary()
+}
+
+func (p *jpFilterParser) parsePrimary() (jpFilterNode, error) {
+	tok := p.next()
+	if tok.kind == jpTokLParen {
+		inner, err := p.parseOr()
+		if err != nil {
+			return nil, err
+		}
+		if p.peek().kind != jpTokRParen {
+			return nil, errors.New("expected ')' in filter")
+		}
+		p.next()
+		return inner, nil
+	}
+	left, ok := jpTokenToOperand(tok)
+	if !ok {
+		return nil, fmt.Errorf("unexpected token %q in filter", tok.text)
+	}
+	if p.peek().kind == jpTokCmpOp {
+		op := p.next().text
+		rightTok := p.next()
+		right, ok := jpTokenToOperand(rightTok)
+		if !ok {
+			return nil, fmt.Errorf("expected operand after %s in filter, got %q", op, rightTok.text)
+		}
+		return jpFilterCmpNode{op: op, left: left, right: right}, nil
+	}
+	switch tok.kind {
+	case jpTokPath:
+		return jpFilterPathBoolNode{segs: tok.segs}, nil
+	case jpTokBool:
+		return jpFilterBoolLitNode{val: tok.b}, nil
+	default:
+		return nil, fmt.Errorf("expected comparison operator after %q in filter", tok.text)
+	}
+}
+
+func jpTokenToOperand(tok jpToken) (jpFilterOperand, bool) {
+	switch tok.kind {
+	case jpTokPath:
+		return jpFilterPathOperand{segs: tok.segs}, true
+	case jpTokString:
+		return jpFilterLitOperand{val: tok.text}, true
+	case jpTokNumber:
+		return jpFilterLitOperand{val: tok.num}, true
+	case jpTokBool:
+		return jpFilterLitOperand{val: tok.b}, true
+	case jpTokNil:
+		return jpFilterLitOperand{val: nil}, true
+	default:
+		return nil, false
+	}
 }
 
 // EvalBytes unmarshals raw JSON bytes and evaluates the JSONPath expression.
@@ -300,36 +685,43 @@ func evalJPIndex(cur any, idx int) (any, bool, error) {
 	return arr[resolved], false, nil
 }
 
-func evalJPFilter(cur any, f jpFilterExpr) (any, bool, error) {
+func evalJPFilter(cur any, f jpFilterNode) (any, bool, error) {
 	arr, ok := cur.([]any)
 	if !ok {
 		return nil, false, fmt.Errorf("filter requires array, got %T", cur)
 	}
-	var out []any
+	out := make([]any, 0)
 	for _, item := range arr {
-		lhs := lookupFilterField(item, f.field)
-		matched, err := compareValues(lhs, f.op, f.rhs)
-		if err != nil {
-			continue
-		}
-		if matched {
+		if f.eval(item) {
 			out = append(out, item)
 		}
-	}
-	if out == nil {
-		out = []any{}
 	}
 	return out, true, nil
 }
 
-func lookupFilterField(item any, path string) any {
+func lookupFilterPath(item any, segs []jpFilterSeg) any {
 	cur := item
-	for _, seg := range strings.Split(path, ".") {
+	for _, seg := range segs {
+		if seg.isIndex {
+			arr, ok := cur.([]any)
+			if !ok {
+				return nil
+			}
+			idx := seg.index
+			if idx < 0 {
+				idx += len(arr)
+			}
+			if idx < 0 || idx >= len(arr) {
+				return nil
+			}
+			cur = arr[idx]
+			continue
+		}
 		obj, ok := cur.(map[string]any)
 		if !ok {
 			return nil
 		}
-		val, exists := obj[seg]
+		val, exists := obj[seg.field]
 		if !exists {
 			return nil
 		}

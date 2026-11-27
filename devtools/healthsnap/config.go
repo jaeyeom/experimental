@@ -66,13 +66,18 @@ type ParseConfig struct {
 type RuleConfig struct {
 	ID        string   `json:"id"`
 	Condition string   `json:"condition"`
+	Clear     string   `json:"clear"`
 	State     Severity `json:"state"`
 	Repeat    string   `json:"repeat"`
 	Judgment  bool     `json:"judgment"`
+	Recipient string   `json:"recipient"`
+	Command   []string `json:"command"`
 	Message   string   `json:"message"`
 
-	compiledExpr Expr
-	repeat       time.Duration
+	compiledExpr  Expr
+	compiledClear Expr
+	hasClear      bool
+	repeat        time.Duration
 }
 
 // RepeatDuration returns the parsed re-alert interval (0 disables repeat alerts).
@@ -361,14 +366,29 @@ func prepareRule(checkID string, r *RuleConfig) error {
 	if r.State == "" {
 		r.State = SeverityFail
 	}
-	if r.State != SeverityWarn && r.State != SeverityFail {
-		return fmt.Errorf("check %q rule %q has invalid state %q (want warn or fail)", checkID, r.ID, r.State)
+	if r.State != SeverityInfo && r.State != SeverityWarn && r.State != SeverityFail {
+		return fmt.Errorf("check %q rule %q has invalid state %q (want info, warn, or fail)", checkID, r.ID, r.State)
+	}
+	for _, arg := range r.Command {
+		if arg == "" {
+			return fmt.Errorf("check %q rule %q command contains an empty argument", checkID, r.ID)
+		}
 	}
 	compiled, err := CompileExpr(r.Condition)
 	if err != nil {
 		return fmt.Errorf("check %q rule %q: %w", checkID, r.ID, err)
 	}
 	r.compiledExpr = compiled
+	if r.Clear != "" {
+		compiledClear, err := CompileExpr(r.Clear)
+		if err != nil {
+			return fmt.Errorf("check %q rule %q clear: %w", checkID, r.ID, err)
+		}
+		r.compiledClear = compiledClear
+		r.hasClear = true
+	} else {
+		r.hasClear = false
+	}
 	if r.Repeat == "" {
 		r.Repeat = "0s"
 	}

@@ -115,7 +115,7 @@ func cmdRun(args []string, stdout, stderr io.Writer, env []string, rt appRuntime
 	if out.HasNotifyError() {
 		return errExitCode
 	}
-	if out.Snapshot.State != healthsnap.SeverityOK {
+	if out.Snapshot.State.Rank() >= healthsnap.SeverityWarn.Rank() {
 		return 1
 	}
 	return 0
@@ -150,7 +150,7 @@ func cmdStatus(args []string, stdout, stderr io.Writer, env []string, _ appRunti
 		fmt.Fprintf(stderr, "healthsnap: %v\n", err)
 		return errExitCode
 	}
-	if snap.State != healthsnap.SeverityOK {
+	if snap.State.Rank() >= healthsnap.SeverityWarn.Rank() {
 		return 1
 	}
 	return 0

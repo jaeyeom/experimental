@@ -13,9 +13,10 @@ func defaultAgentbusTemplate() []string {
 	return []string{"agentbus", "send", "{recipient}", "{message}"}
 }
 
-// ResolveNotifyRoute chooses the command template and recipient for an alert.
-// It returns ok=false when no delivery target is configured for that route.
-func resolveNotifyRoute(cfg NotifyConfig, judgment bool) (tmpl []string, recipient string, ok bool) {
+// resolveNotifyRoute chooses the command template and recipient for an alert.
+// Per-rule recipient and command override notify.* when set. It returns
+// ok=false when no delivery target is configured for that route.
+func resolveNotifyRoute(cfg NotifyConfig, judgment bool, ruleRecipient string, ruleCommand []string) (tmpl []string, recipient string, ok bool) {
 	if judgment {
 		recipient = cfg.JudgmentRecipient
 		if recipient == "" {
@@ -28,6 +29,13 @@ func resolveNotifyRoute(cfg NotifyConfig, judgment bool) (tmpl []string, recipie
 	} else {
 		recipient = cfg.Recipient
 		tmpl = cfg.Command
+	}
+
+	if ruleRecipient != "" {
+		recipient = ruleRecipient
+	}
+	if len(ruleCommand) > 0 {
+		tmpl = ruleCommand
 	}
 
 	if len(tmpl) == 0 {

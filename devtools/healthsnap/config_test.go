@@ -96,6 +96,15 @@ func TestLoadExamplePklConfig(t *testing.T) {
 	if cfg.Checks[3].IntervalDuration() != 6*time.Hour {
 		t.Errorf("check[3] interval = %v, want 6h", cfg.Checks[3].IntervalDuration())
 	}
+	if cfg.Checks[3].Rules[0].Recipient != "ops/cron" {
+		t.Errorf("check[3] rule recipient = %q, want ops/cron", cfg.Checks[3].Rules[0].Recipient)
+	}
+	if cfg.Checks[6].Rules[0].State != SeverityInfo {
+		t.Errorf("check[6] rule[0] state = %q, want info", cfg.Checks[6].Rules[0].State)
+	}
+	if cfg.Checks[6].Rules[1].Clear != "value < 1.2" {
+		t.Errorf("check[6] rule[1] clear = %q, want value < 1.2", cfg.Checks[6].Rules[1].Clear)
+	}
 }
 
 func TestLoadStandalonePklAndValidation(t *testing.T) {
@@ -116,7 +125,27 @@ checks {
     path = "/tmp/hb"
     rules {
       new {
+        id = "hb-warn"
         condition = "age > 2h"
+        clear = "age < 1h"
+        state = "warn"
+        recipient = "ops/hb"
+        command { "custom-notify"; "{recipient}"; "{message}" }
+      }
+      new {
+        id = "hb-info"
+        condition = "age > 1h"
+        state = "info"
+      }
+    }
+  }
+  new {
+    id = "single-rule"
+    kind = "file-age"
+    path = "/tmp/single"
+    rules {
+      new {
+        condition = "age > 1h"
         state = "warn"
       }
     }
@@ -129,8 +158,8 @@ checks {
 	if err != nil {
 		t.Fatalf("LoadConfig(valid) = %v", err)
 	}
-	if len(cfg.Checks) != 2 {
-		t.Fatalf("len(Checks) = %d, want 2", len(cfg.Checks))
+	if len(cfg.Checks) != 3 {
+		t.Fatalf("len(Checks) = %d, want 3", len(cfg.Checks))
 	}
 	if cfg.Checks[0].Kind != KindCommand || cfg.Checks[0].Parse.Mode != ParseExit {
 		t.Errorf("check[0] defaults not filled: %+v", cfg.Checks[0])
@@ -138,8 +167,14 @@ checks {
 	if len(cfg.Checks[0].Rules) != 1 || cfg.Checks[0].Rules[0].ID != "ping" || cfg.Checks[0].Rules[0].Condition != "exit != 0" {
 		t.Errorf("check[0] implicit rule = %+v", cfg.Checks[0].Rules)
 	}
-	if cfg.Checks[1].Rules[0].ID != "hb" {
-		t.Errorf("single rule id default = %q, want hb", cfg.Checks[1].Rules[0].ID)
+	if cfg.Checks[1].Rules[0].Clear != "age < 1h" || cfg.Checks[1].Rules[0].Recipient != "ops/hb" || len(cfg.Checks[1].Rules[0].Command) != 3 {
+		t.Errorf("check[1].Rules[0] = %+v", cfg.Checks[1].Rules[0])
+	}
+	if cfg.Checks[1].Rules[1].State != SeverityInfo {
+		t.Errorf("check[1].Rules[1].State = %q, want info", cfg.Checks[1].Rules[1].State)
+	}
+	if cfg.Checks[2].Rules[0].ID != "single-rule" {
+		t.Errorf("single rule id default = %q, want single-rule", cfg.Checks[2].Rules[0].ID)
 	}
 
 	invalidCases := []struct {
@@ -208,6 +243,39 @@ checks {
     id = "a"
     argv { "true" }
     rules { new { condition = "(exit == 0" } }
+  }
+}`,
+		},
+		{
+			name: "invalid rule clear expression",
+			pkl: `
+checks {
+  new {
+    id = "a"
+    argv { "true" }
+    rules { new { condition = "value > 10"; clear = "(value < 5" } }
+  }
+}`,
+		},
+		{
+			name: "invalid rule state",
+			pkl: `
+checks {
+  new {
+    id = "a"
+    argv { "true" }
+    rules { new { condition = "exit != 0"; state = "debug" } }
+  }
+}`,
+		},
+		{
+			name: "empty arg in rule command",
+			pkl: `
+checks {
+  new {
+    id = "a"
+    argv { "true" }
+    rules { new { condition = "exit != 0"; command { "notify"; "" } } }
   }
 }`,
 		},

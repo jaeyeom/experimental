@@ -182,7 +182,7 @@ func (r *runContext) handleExecError(chk CheckConfig, prev CheckState, errMsg st
 			Error:    errMsg,
 		}
 		a.Message = formatAlertMessage(a, "check execution failed")
-		r.dispatchAlert(&a)
+		r.dispatchAlert(&a, "", nil)
 		alerts = append(alerts, a)
 		if a.NotifyError == "" {
 			prev.ExecError = true
@@ -210,7 +210,7 @@ func (r *runContext) emitExecClear(chk CheckConfig, prev CheckState) AlertRecord
 		Judgment: chk.Judgment,
 	}
 	a.Message = formatAlertMessage(a, "check execution recovered")
-	r.dispatchAlert(&a)
+	r.dispatchAlert(&a, "", nil)
 	return a
 }
 
@@ -226,7 +226,7 @@ func (r *runContext) evaluateRules(chk CheckConfig, eval checkEvalResult) (Check
 	}
 	var alerts []AlertRecord
 	for _, rule := range chk.Rules {
-		matched, err := rule.compiledExpr.Eval(eval.vars)
+		curr, err := r.evalRuleState(rule, eval.vars)
 		if err != nil {
 			cs.State = SeverityFail
 			if cs.Error == "" {
@@ -238,10 +238,6 @@ func (r *runContext) evaluateRules(chk CheckConfig, eval checkEvalResult) (Check
 				alerts = append(alerts, a)
 			}
 			continue
-		}
-		curr := SeverityOK
-		if matched {
-			curr = rule.State
 		}
 		cs.State = MaxSeverity(cs.State, curr)
 		cs.Rules = append(cs.Rules, RuleSnapshot{
@@ -257,10 +253,45 @@ func (r *runContext) evaluateRules(chk CheckConfig, eval checkEvalResult) (Check
 	return cs, alerts
 }
 
+// evalRuleState evaluates rule.Condition and, when hysteresis (rule.Clear) is
+// configured and the rule is currently firing, keeps it firing unless
+// condition is false and clear evaluates to true.
+func (r *runContext) evalRuleState(rule RuleConfig, vars map[string]any) (Severity, error) {
+	matched, err := rule.compiledExpr.Eval(vars)
+	if err != nil {
+		return SeverityFail, err
+	}
+	if matched {
+		return rule.State, nil
+	}
+	prev := r.state.Rules[rule.ID]
+	if prev.State != "" && prev.State != SeverityOK && rule.hasClear {
+		cleared, err := rule.compiledClear.Eval(vars)
+		if err != nil {
+			return SeverityFail, err
+		}
+		if !cleared {
+			return rule.State, nil
+		}
+	}
+	return SeverityOK, nil
+}
+
 func (r *runContext) applyRuleTransition(checkID string, rule RuleConfig, curr Severity, value any, evalErr string) (AlertRecord, bool) {
 	prev := r.state.Rules[rule.ID]
 	if prev.State == "" {
 		prev.State = SeverityOK
+	}
+
+	// Informational rules record transitions in state.json and snapshots but never notify.
+	if rule.State == SeverityInfo && evalErr == "" {
+		if curr != prev.State {
+			prev.LastChanged = r.now
+		}
+		prev.State = curr
+		prev.LastValue = value
+		r.state.Rules[rule.ID] = prev
+		return AlertRecord{}, false
 	}
 
 	event, emit := classifyTransition(prev, curr, rule.RepeatDuration(), r.now)
@@ -281,7 +312,7 @@ func (r *runContext) applyRuleTransition(checkID string, rule RuleConfig, curr S
 		Error:    evalErr,
 	}
 	a.Message = formatAlertMessage(a, rule.Message)
-	r.dispatchAlert(&a)
+	r.dispatchAlert(&a, rule.Recipient, rule.Command)
 	if a.NotifyError == "" {
 		if event != EventRepeat {
 			prev.LastChanged = r.now
@@ -307,8 +338,8 @@ func classifyTransition(prev RuleState, curr Severity, repeat time.Duration, now
 	return "", false
 }
 
-func (r *runContext) dispatchAlert(a *AlertRecord) {
-	tmpl, recipient, ok := resolveNotifyRoute(r.cfg.Notify, a.Judgment)
+func (r *runContext) dispatchAlert(a *AlertRecord, ruleRecipient string, ruleCommand []string) {
+	tmpl, recipient, ok := resolveNotifyRoute(r.cfg.Notify, a.Judgment, ruleRecipient, ruleCommand)
 	a.Recipient = recipient
 	if !ok {
 		return
