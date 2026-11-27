@@ -1,0 +1,35 @@
+#+TITLE: healthsnap periodic units
+
+These example unit files run ~healthsnap run~ once an hour. Check the latest
+snapshot anytime with ~healthsnap status~ and verify binary/config health with
+~healthsnap doctor~.
+
+* systemd (Linux user timer)
+
+Copy the unit files to =~/.config/systemd/user/=:
+
+#+BEGIN_SRC bash
+mkdir -p ~/.config/systemd/user
+cp healthsnap.service healthsnap.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now healthsnap.timer
+systemctl --user list-timers healthsnap.timer
+journalctl --user -u healthsnap.service -f
+#+END_SRC
+
+* launchd (macOS)
+
+Replace ~USER~ in the plist with your macOS username and load it into
+=~/Library/LaunchAgents/=:
+
+#+BEGIN_SRC bash
+mkdir -p ~/Library/LaunchAgents
+sed "s/USER/$USER/g" com.github.jaeyeom.healthsnap.plist > ~/Library/LaunchAgents/com.github.jaeyeom.healthsnap.plist
+launchctl load ~/Library/LaunchAgents/com.github.jaeyeom.healthsnap.plist
+#+END_SRC
+
+* crontab (hourly fallback)
+
+#+BEGIN_SRC text
+0 * * * * PATH=$HOME/go/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin healthsnap run >/dev/null 2>&1
+#+END_SRC

@@ -1,0 +1,20 @@
+# Example systemd user oneshot service for healthsnap run (paired with healthsnap.timer).
+#
+# go install puts the binary in ~/go/bin, or in $GOBIN when that is set.
+# ExecStart uses %h/go/bin. If GOBIN is somewhere else, edit ExecStart.
+#
+# Install:
+#   cp healthsnap.service healthsnap.timer ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now healthsnap.timer
+#   journalctl --user -u healthsnap.service -f
+
+[Unit]
+Description=healthsnap: run configured health checks and snapshot results
+
+[Service]
+Type=oneshot
+Environment=PATH=%h/go/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/go/bin/healthsnap run
+# Exit 1 means one or more checks reported warn or fail; only 2+ is an operational error.
+SuccessExitStatus=1

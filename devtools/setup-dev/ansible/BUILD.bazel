@@ -1981,6 +1981,22 @@ sh_test(
 )
 
 sh_test(
+    name = "healthsnap_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["healthsnap.yml"],
+    data = [
+        "go.yml",
+        "healthsnap.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "herdr_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["herdr.yml"],
@@ -5132,6 +5148,7 @@ test_suite(
         ":grpcui_syntax_test",
         ":guru_syntax_test",
         ":gws_syntax_test",
+        ":healthsnap_syntax_test",
         ":herdr_syntax_test",
         ":htop_syntax_test",
         ":hugo_syntax_test",

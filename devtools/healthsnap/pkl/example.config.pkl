@@ -1,0 +1,171 @@
+amends "Config.pkl"
+
+keepSnapshots = 48
+markdown = true
+
+notify {
+  recipient = "ops/inbox"
+  judgmentRecipient = "ops/triage"
+  timeout = "10s"
+}
+
+checks {
+  new {
+    id = "agentbus-health"
+    argv { "agentbus"; "health"; "--json" }
+    timeout = "10s"
+    parse {
+      mode = "jsonpath"
+      jsonPath = "$.daemon"
+    }
+    rules {
+      new {
+        id = "agentbus-daemon-down"
+        condition = #"value != "up" || exit != 0"#
+        state = "fail"
+        repeat = "6h"
+        message = "agentbus daemon or transport unhealthy"
+      }
+    }
+  }
+
+  new {
+    id = "agentbus-held"
+    argv { "agentbus"; "held"; "--json" }
+    timeout = "10s"
+    parse {
+      mode = "jsonpath"
+      jsonPath = "$[*].age_seconds.max()"
+    }
+    rules {
+      new {
+        id = "agentbus-held-stale"
+        condition = "value > 30m"
+        state = "warn"
+        judgment = true
+        repeat = "4h"
+        message = "agentbus message held over 30m"
+      }
+    }
+  }
+
+  new {
+    id = "quotapace-gate"
+    argv { "quotapace"; "gate"; "--profile"; "default"; "--window"; "7d"; "--min-gap"; "5"; "--json" }
+    timeout = "10s"
+    parse {
+      mode = "jsonpath"
+      jsonPath = "$.gap"
+    }
+    rules {
+      new {
+        id = "quota-headroom-low"
+        condition = "exit != 0 || value < 5"
+        state = "warn"
+        repeat = "12h"
+        message = "quota headroom below 5 points"
+      }
+    }
+  }
+
+  new {
+    id = "orgctl-cron"
+    argv { "orgctl"; "plan"; "--only"; "cron"; "--json" }
+    timeout = "15s"
+    interval = "6h"
+    parse {
+      mode = "jsonpath"
+      jsonPath = #"$[?(@.status != "ok")].length()"#
+    }
+    rules {
+      new {
+        id = "orgctl-cron-drift"
+        condition = "value > 0"
+        state = "warn"
+        judgment = true
+        message = "orgctl cron drift requires review"
+      }
+    }
+  }
+
+  new {
+    id = "repo-clean"
+    argv { "git"; "status"; "--porcelain" }
+    dir = "~/src/experimental"
+    parse {
+      mode = "regex"
+      regex = "^."
+    }
+    rules {
+      new {
+        id = "repo-dirty"
+        condition = "value > 0"
+        state = "warn"
+        judgment = true
+        message = "working tree has uncommitted changes"
+      }
+    }
+  }
+
+  new {
+    id = "prsync-heartbeat"
+    kind = "file-age"
+    path = "~/.local/state/prsync/heartbeat"
+    rules {
+      new {
+        id = "prsync-heartbeat-stale"
+        condition = "age > 2h"
+        state = "fail"
+        repeat = "6h"
+        message = "prsync heartbeat older than 2h"
+      }
+    }
+  }
+
+  new {
+    id = "host-load"
+    kind = "host"
+    metric = "load-per-cpu"
+    rules {
+      new {
+        id = "host-load-high"
+        condition = "value > 2.0"
+        state = "warn"
+        repeat = "2h"
+      }
+    }
+  }
+
+  new {
+    id = "host-memory"
+    kind = "host"
+    metric = "memory"
+    rules {
+      new {
+        id = "host-memory-high"
+        condition = "value > 85"
+        state = "warn"
+      }
+      new {
+        id = "host-memory-critical"
+        condition = "value > 95"
+        state = "fail"
+        judgment = true
+      }
+    }
+  }
+
+  new {
+    id = "host-disk"
+    kind = "host"
+    metric = "disk"
+    path = "/"
+    rules {
+      new {
+        id = "host-disk-low"
+        condition = "value < 10"
+        state = "fail"
+      }
+    }
+  }
+}

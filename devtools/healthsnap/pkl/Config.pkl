@@ -1,0 +1,120 @@
+/// Configuration schema for healthsnap.
+module healthsnap.Config
+
+/// Notification delivery and judgment routing configuration.
+class NotifyConfig {
+  /// Command executed (argv, without a shell) when a rule fires, clears, or repeats.
+  /// Empty defaults to ["agentbus", "send", "{recipient}", "{message}"] when a recipient is set.
+  /// Placeholders: {recipient}, {message}, {event}, {rule}, {check}, {state}, {previous}, {value}, {judgment}, {summary}, {error}.
+  command: Listing<String(!isEmpty)> = new {}
+
+  /// Default recipient for non-judgment alerts.
+  recipient: String = ""
+
+  /// Optional override command for rules marked judgment = true.
+  /// Empty reuses command (or agentbus default when judgmentRecipient is set).
+  judgmentCommand: Listing<String(!isEmpty)> = new {}
+
+  /// Separate recipient for rules marked judgment = true (typically a model or coordinator).
+  judgmentRecipient: String = ""
+
+  /// Execution timeout for the notify command (for example, "10s").
+  timeout: String(!isEmpty) = "10s"
+}
+
+/// How stdout or exit status from a command check is parsed.
+class ParseConfig {
+  /// Parser mode: "exit", "jsonpath", or "regex".
+  /// Empty infers "jsonpath" when jsonPath is set, "regex" when regex is set, else "exit".
+  mode: "" | "exit" | "jsonpath" | "regex" = ""
+
+  /// JSONPath expression into stdout (for example, "$.problems.length()" or "$[*].age_seconds.max()").
+  jsonPath: String = ""
+
+  /// RE2 regular expression matched line-by-line against stdout.
+  /// When the regex defines a capturing group, group 1 from the first matching line is extracted.
+  /// Without a capturing group, matching lines are counted.
+  regex: String = ""
+}
+
+/// Threshold rule evaluated against a check's result.
+class RuleConfig {
+  /// Unique rule identifier used for deduplication and alerts.
+  /// Optional when a check defines only a single rule (defaults to the check id).
+  id: String = ""
+
+  /// Boolean threshold expression (for example, "exit != 0", "value > 80", "age > 2h").
+  condition: String(!isEmpty)
+
+  /// Severity emitted when `when` evaluates to true.
+  state: "warn" | "fail" = "fail"
+
+  /// Optional re-alert interval while the rule stays in warn or fail (for example, "12h").
+  /// "0s" disables repeat alerts until the rule clears and fires again.
+  repeat: String(!isEmpty) = "0s"
+
+  /// Whether alerts for this rule route to notify.judgmentRecipient to wake a model.
+  judgment: Boolean = false
+
+  /// Optional human-readable description included in notifications.
+  message: String = ""
+}
+
+/// One configured health check.
+class CheckConfig {
+  /// Unique check identifier.
+  id: String(!isEmpty)
+
+  /// Check kind: "command", "file-age", or "host".
+  /// Empty defaults to "command" when argv is non-empty.
+  kind: "" | "command" | "file-age" | "host" = ""
+
+  /// Command and arguments (direct argv, no shell) for "command" checks.
+  argv: Listing<String(!isEmpty)> = new {}
+
+  /// Optional working directory for "command" checks (leading ~ expands to HOME).
+  dir: String = ""
+
+  /// Optional extra environment variables for "command" checks.
+  env: Mapping<String, String> = new {}
+
+  /// Execution timeout (for example, "30s").
+  timeout: String(!isEmpty) = "30s"
+
+  /// Minimum interval between executions (for example, "6h"). "0s" runs on every pass.
+  interval: String(!isEmpty) = "0s"
+
+  /// File path for "file-age" checks, or mount path for "host" disk checks (defaults to "/").
+  path: String = ""
+
+  /// Built-in host metric for "host" checks:
+  /// "load", "load1", "load5", "load15", "load-per-cpu",
+  /// "memory", "memory-pressure", "disk", "free-disk", "free-disk-gib", "disk-used".
+  metric: String = ""
+
+  /// How to read a "command" check's output.
+  parse: ParseConfig = new {}
+
+  /// Threshold rules for this check. A "command" check with exit mode and no rules
+  /// defaults to a single rule: condition = "exit != 0", state = "fail".
+  rules: Listing<RuleConfig> = new {}
+
+  /// Whether execution failures (timeout, missing command, parse error) route as judgment.
+  judgment: Boolean = false
+}
+
+/// Optional override for the state directory (snapshots and alert state).
+/// Empty uses $XDG_STATE_HOME/healthsnap (or ~/Library/Application Support/healthsnap on macOS).
+stateDir: String = ""
+
+/// Number of historical snapshots to retain in the state directory.
+keepSnapshots: Int(this > 0) = 24
+
+/// Write a Markdown rendering beside each JSON snapshot.
+markdown: Boolean = false
+
+/// Notification settings.
+notify: NotifyConfig = new {}
+
+/// Configured checks to execute.
+checks: Listing<CheckConfig> = new {}

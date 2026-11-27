@@ -31,6 +31,7 @@ filegroup(
         "//devtools/gh-nudge/cmd/gh-storage:main.go",
         "//devtools/gh-nudge/cmd/gh-throttle:main.go",
         "//devtools/gh-outbox/cmd/gh-outbox:main.go",
+        "//devtools/healthsnap/cmd/healthsnap:main.go",
         "//devtools/installcheck/cmd/install-check:main.go",
         "//devtools/linters/cmd/agents-md-size:main.go",
         "//devtools/linters/cmd/migration-immutability:main.go",

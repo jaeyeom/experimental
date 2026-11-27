@@ -71,6 +71,7 @@ INSTALL_CMDS := \
 	./devtools/gh-nudge/cmd/gh-slack \
 	./devtools/gh-nudge/cmd/gh-storage \
 	./devtools/gh-nudge/cmd/gh-throttle \
+	./devtools/healthsnap/cmd/healthsnap \
 	./devtools/linters/cmd/agents-md-size \
 	./devtools/linters/cmd/migration-immutability \
 	./devtools/linters/cmd/org-lint \

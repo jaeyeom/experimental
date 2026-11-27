@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Example hourly launchd user agent for healthsnap on macOS.
+
+  Replace USER with your login name, then:
+    sed "s/USER/$USER/g" com.github.jaeyeom.healthsnap.plist > ~/Library/LaunchAgents/com.github.jaeyeom.healthsnap.plist
+    launchctl load ~/Library/LaunchAgents/com.github.jaeyeom.healthsnap.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.github.jaeyeom.healthsnap</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/USER/go/bin/healthsnap</string>
+    <string>run</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/USER/go/bin:/Users/USER/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StartInterval</key>
+  <integer>3600</integer>
+  <key>StandardOutPath</key>
+  <string>/tmp/healthsnap.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/healthsnap.err.log</string>
+</dict>
+</plist>

@@ -1,0 +1,104 @@
+#+TITLE: healthsnap
+
+~healthsnap~ runs config-driven health checks, writes a JSON (and optional
+Markdown) snapshot on each pass, and alerts only when a rule fires or clears.
+
+* Installation
+
+#+BEGIN_SRC bash
+go install github.com/jaeyeom/experimental/devtools/healthsnap/cmd/healthsnap@latest
+#+END_SRC
+
+* How it works
+
+1. Evaluates configured checks (~command~, ~file-age~, or ~host~) respecting
+   per-check ~interval~ settings.
+2. Parses command output by exit code, JSONPath into stdout, or RE2 line regex.
+3. Evaluates threshold rules (~ok~, ~warn~, or ~fail~). Execution failures
+   (missing command, timeout, missing file, parse error) are always ~fail~.
+4. Writes one JSON snapshot (and optional Markdown rendering) into the state
+   directory, keeping the last ~keepSnapshots~ snapshots.
+5. Sends one notification when a rule *fires* (~ok~ -> ~warn~ or ~fail~) or
+   *clears* (~warn~ or ~fail~ -> ~ok~), deduplicated by rule id with optional
+   ~repeat~ re-alerts. Rules marked ~judgment = true~ route to a separate
+   recipient so only judgment-required issues wake a model.
+
+* Configuration (Pkl)
+
+Configuration lives at ~$XDG_CONFIG_HOME/healthsnap/config.pkl~ (default
+=~/.config/healthsnap/config.pkl= on Linux,
+=~/Library/Application Support/healthsnap/config.pkl= on macOS), or at
+=--config PATH=.
+
+The schema is [[file:pkl/Config.pkl][pkl/Config.pkl]] and a complete example is
+[[file:pkl/example.config.pkl][pkl/example.config.pkl]].
+
+** Check kinds
+
+- ~command~ (default when ~argv~ is non-empty): executes ~argv~ directly
+  without a shell, with configurable ~dir~, ~env~, and ~timeout~.
+- ~file-age~: stats ~path~ and exposes ~age~ (seconds) and ~value~ (seconds).
+- ~host~: built-in Linux and macOS host metrics:
+  - ~load~, ~load1~, ~load5~, ~load15~, ~load-per-cpu~
+  - ~memory~, ~memory-pressure~ (~value~ is used percentage ~0..100~; also exposes ~available_bytes~, ~total_bytes~, ~pressure_level~)
+  - ~disk~, ~free-disk~ (~value~ is free percentage ~0..100~ on ~path~, default ~/~; also ~free-disk-gib~, ~disk-used~)
+
+** Result parsers (~parse~)
+
+- ~exit~ (default): exposes command exit code as ~value~ and ~exit~.
+- ~jsonpath~: evaluates ~parse.jsonPath~ against JSON stdout (supports field
+  access, negative/positive indices, ~[*]~, filters ~[?(@.field != "ok")]~,
+  and ~.length()~, ~.count()~, ~.min()~, ~.max()~, ~.sum()~).
+- ~regex~: matches stdout line-by-line with RE2 ~parse.regex~. With a capturing
+  group, extracts group 1 from the first matching line; without one, counts
+  matching lines.
+
+** Rules and judgment routing
+
+Each rule defines ~id~, ~condition~ (boolean expression such as ~exit != 0~,
+~value > 80~, ~age > 2h~), ~state~ (~"warn"~ or ~"fail"~), optional ~repeat~
+re-alert duration, and ~judgment~ (~false~ by default).
+
+When ~notify.command~ is empty and a recipient is configured, ~healthsnap~
+defaults to ~agentbus send {recipient} {message}~. Non-judgment alerts route to
+~notify.recipient~; ~judgment = true~ alerts route to
+~notify.judgmentRecipient~ (or ~notify.judgmentCommand~).
+
+* Snapshots and state
+
+Snapshots and deduplication state are stored under
+~$XDG_STATE_HOME/healthsnap~ (default =~/.local/state/healthsnap= on Linux,
+=~/Library/Application Support/healthsnap= on macOS):
+
+- ~latest.json~ and ~snapshots/<timestamp>.json~
+- ~latest.md~ and ~snapshots/<timestamp>.md~ (when ~markdown = true~ or ~--markdown~)
+- ~state.json~ (rule transition state, repeat timestamps, and check intervals)
+
+* Commands
+
+- ~healthsnap run [--config P] [--state-dir D] [--json] [--markdown] [--force] [--dry-run]~ — execute one check pass, write snapshot, and notify on rule transitions.
+- ~healthsnap status [--config P] [--state-dir D] [--json] [--markdown]~ — print the last recorded snapshot.
+- ~healthsnap doctor [--offline] [--json]~ — verify config, state directory, check binaries, and notifier setup.
+- ~healthsnap help [command]~ — print usage or command flags.
+
+* Exit codes
+
+| Code | Meaning                                                   |
+|------+-----------------------------------------------------------|
+|    0 | All checks ~ok~                                           |
+|    1 | One or more checks in ~warn~ or ~fail~                    |
+|    2 | Usage, configuration, state, missing snapshot, or notify error |
+
+* Periodic scheduling
+
+Example systemd user units and macOS launchd plist live under
+[[file:contrib/][contrib/]]:
+
+- =contrib/healthsnap.service= and =contrib/healthsnap.timer= (hourly systemd user timer)
+- =contrib/com.github.jaeyeom.healthsnap.plist= (hourly macOS launchd agent)
+- See [[file:contrib/README.org][contrib/README.org]] for setup commands.
+
+* Standard CLI protocol
+
+~healthsnap~ implements ~version [--json]~, ~update [--check] [--ref <ref>] [--json]~,
+~doctor [--json] [--offline]~, and ~skill [install|uninstall|status ...]~.

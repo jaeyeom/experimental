@@ -1,0 +1,12 @@
+load("@rules_pkl//pkl:defs.bzl", "pkl_library")
+
+pkl_library(
+    name = "config_pkl",
+    srcs = ["Config.pkl"],
+    visibility = ["//visibility:public"],
+)
+
+exports_files([
+    "Config.pkl",
+    "example.config.pkl",
+])

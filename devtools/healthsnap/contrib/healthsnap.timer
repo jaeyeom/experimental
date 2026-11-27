@@ -1,0 +1,17 @@
+# Example hourly systemd user timer for healthsnap.service.
+#
+# Install:
+#   cp healthsnap.service healthsnap.timer ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now healthsnap.timer
+
+[Unit]
+Description=Run healthsnap hourly
+
+[Timer]
+OnBootSec=2m
+OnUnitActiveSec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,53 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "help.go",
+        "main.go",
+        "skill.go",
+        "toolcli.go",
+    ],
+    embedsrcs = ["skill.md"],
+    importpath = "github.com/jaeyeom/experimental/devtools/healthsnap/cmd/healthsnap",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//devtools/healthsnap:go_default_library",
+        "//devtools/pkg/notify:go_default_library",
+        "//devtools/pkg/toolcli:go_default_library",
+    ],
+)
+
+go_binary(
+    name = "healthsnap",
+    embed = [":go_default_library"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "go_default_test",
+    size = "small",
+    srcs = [
+        "help_test.go",
+        "main_test.go",
+        "toolcli_test.go",
+    ],
+    data = select({
+        "@bazel_tools//src/conditions:darwin_arm64": ["@pkl-cli-macos-aarch64//file:downloaded"],
+        "@bazel_tools//src/conditions:darwin_arm64e": ["@pkl-cli-macos-aarch64//file:downloaded"],
+        "@bazel_tools//src/conditions:darwin_x86_64": ["@pkl-cli-macos-amd64//file:downloaded"],
+        "@bazel_tools//src/conditions:linux_aarch64": ["@pkl-cli-linux-aarch64//file:downloaded"],
+        "@bazel_tools//src/conditions:linux_x86_64": ["@pkl-cli-linux-amd64//file:downloaded"],
+        "//conditions:default": [],
+    }),
+    embed = [":go_default_library"],
+    deps = [
+        "//devtools/healthsnap:go_default_library",
+        "//devtools/pkg/toolcli:go_default_library",
+    ],
+)
+
+exports_files(
+    ["main.go"],
+    visibility = ["//devtools:__pkg__"],
+)

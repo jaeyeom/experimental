@@ -729,6 +729,7 @@ chmod +x {{ user_bin_directory }}/google-java-format`,
 		},
 		Imports: nil,
 	},
+	experimentalGoTool("healthsnap", "devtools/healthsnap/cmd/healthsnap"),
 	{
 		// herdr is a terminal workspace manager for AI coding agents.
 		// Upstream ships Linux/macOS builds only (no Termux target), so

@@ -1,0 +1,73 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+exports_files([
+    "README.org",
+])
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "check.go",
+        "config.go",
+        "duration.go",
+        "expr.go",
+        "host.go",
+        "host_darwin.go",
+        "host_linux.go",
+        "host_other.go",
+        "host_unix.go",
+        "jsonpath.go",
+        "notify.go",
+        "paths.go",
+        "runner.go",
+        "state.go",
+        "types.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/healthsnap",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//devtools/pkg/notify:go_default_library",
+        "//devtools/pkg/procinfo:go_default_library",
+        "@com_github_apple_pkl_go//pkl:go_default_library",
+        "@com_github_google_renameio_v2//:go_default_library",
+    ] + select({
+        "@rules_go//go/platform:darwin": [
+            "@org_golang_x_sys//unix:go_default_library",
+        ],
+        "@rules_go//go/platform:linux": [
+            "@org_golang_x_sys//unix:go_default_library",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+go_test(
+    name = "go_default_test",
+    size = "small",
+    srcs = [
+        "check_test.go",
+        "config_test.go",
+        "duration_test.go",
+        "expr_test.go",
+        "host_test.go",
+        "jsonpath_test.go",
+        "notify_test.go",
+        "paths_test.go",
+        "readme_test.go",
+        "runner_test.go",
+        "state_test.go",
+    ],
+    data = [
+        "README.org",
+        "//devtools/healthsnap/pkl:Config.pkl",
+        "//devtools/healthsnap/pkl:example.config.pkl",
+    ] + select({
+        "@bazel_tools//src/conditions:darwin_arm64": ["@pkl-cli-macos-aarch64//file:downloaded"],
+        "@bazel_tools//src/conditions:darwin_arm64e": ["@pkl-cli-macos-aarch64//file:downloaded"],
+        "@bazel_tools//src/conditions:darwin_x86_64": ["@pkl-cli-macos-amd64//file:downloaded"],
+        "@bazel_tools//src/conditions:linux_aarch64": ["@pkl-cli-linux-aarch64//file:downloaded"],
+        "@bazel_tools//src/conditions:linux_x86_64": ["@pkl-cli-linux-amd64//file:downloaded"],
+        "//conditions:default": [],
+    }),
+    embed = [":go_default_library"],
+)

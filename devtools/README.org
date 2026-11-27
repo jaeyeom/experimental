@@ -52,6 +52,7 @@ tool has its own README. Start with the one-line summaries below.
 | gh-ask           | Hand a question about a pull-request range to a command    | experimental | make install                                      | [[file:gh-ask/README.org][README]]           |
 | gh-outbox        | Post agent-drafted PR comments only after decide approval  | experimental | make install                                      | [[file:gh-outbox/README.org][README]]        |
 | gh-nudge         | Review reminders, Slack posts, merge, and CODEOWNERS       | active       | make install                                      | [[file:gh-nudge/README.org][README]]         |
+| healthsnap       | Config-driven health checks, snapshots, and change alerts  | experimental | make install                                      | [[file:healthsnap/README.org][README]]       |
 | install-check    | Message an agent when watched issues land on main          | experimental | go install ./devtools/installcheck/cmd/install-check| [[file:installcheck/README.org][README]]     |
 | linters          | Org lint, unused interface checks, and package-level vars  | experimental | make install                                      | [[file:linters/README.org][README]]          |
 | magit            | Open magit-status in a running Emacs from the terminal     | active       | ./ensure.sh magit                                 | [[file:magit/README.org][README]]            |
