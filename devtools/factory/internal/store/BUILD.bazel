@@ -19,7 +19,7 @@ go_library(
     deps = [
         "//devtools/factory/internal/config:go_default_library",
         "//devtools/factory/internal/source:go_default_library",
-        "@org_modernc_sqlite//:go_default_library",
+        "//devtools/pkg/sqlitedb:go_default_library",
     ],
 )
 

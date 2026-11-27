@@ -2,9 +2,47 @@ package sqlitedb
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestOpenRelativePath(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+
+	sub := filepath.Join("sub dir")
+	if err := os.MkdirAll(sub, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{"rel.db", filepath.Join("sub dir", "rel.db")} {
+		t.Run(rel, func(t *testing.T) {
+			db, err := Open(rel, "_pragma=foreign_keys(1)")
+			if err != nil {
+				t.Fatalf("Open(%q) error = %v", rel, err)
+			}
+			defer db.Close()
+
+			var mode string
+			if err := db.QueryRow("PRAGMA journal_mode").Scan(&mode); err != nil {
+				t.Fatalf("PRAGMA journal_mode: %v", err)
+			}
+			if mode != "wal" {
+				t.Errorf("journal_mode = %q, want %q", mode, "wal")
+			}
+			var fk int
+			if err := db.QueryRow("PRAGMA foreign_keys").Scan(&fk); err != nil {
+				t.Fatalf("PRAGMA foreign_keys: %v", err)
+			}
+			if fk != 1 {
+				t.Errorf("foreign_keys = %d, want 1", fk)
+			}
+			if _, err := os.Stat(filepath.Join(tmp, rel)); err != nil {
+				t.Fatalf("expected db file at %s: %v", rel, err)
+			}
+		})
+	}
+}
 
 func TestOpenExtraParams(t *testing.T) {
 	db, err := Open(filepath.Join(t.TempDir(), "test.db"), "_pragma=foreign_keys(1)")

@@ -12,7 +12,7 @@ go install github.com/jaeyeom/experimental/devtools/factory/cmd/factory@main
 
 `herdr`, `gh`, and `git` must be on `PATH`. A GitHub source uses `gh`, so `gh auth status` has to succeed before `sync`. [design.md](design.md) expects herdr >= 0.9. This binary does not check that version itself.
 
-`factory version` prints version, commit, module path, and build time (or JSON with `--json`). `make install` from the `jaeyeom/experimental` root stamps `github.com/jaeyeom/experimental/devtools/pkg/version.Version` via `-ldflags -X`. A plain `go install github.com/jaeyeom/experimental/devtools/factory/cmd/factory@main` falls back to Go build info (`Main.Version`, or `vcs.time` and `vcs.revision`, appending `+dirty` when `vcs.modified` is true). A build with none of those stays `dev` and `unknown`.
+`factory version` prints version, commit, module path, and build time (or JSON with `--json`). `make install` from the `jaeyeom/experimental` root stamps `github.com/jaeyeom/experimental/devtools/pkg/version.Version` via `-ldflags -X`. A plain `go install github.com/jaeyeom/experimental/devtools/factory/cmd/factory@main` falls back to Go build info (`Main.Version`, `vcs.revision`, appending `-dirty` when `vcs.modified` is true, and `vcs.time`). A build with none of those stays `(devel)` and `unknown`.
 
 ## Config file
 

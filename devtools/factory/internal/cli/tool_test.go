@@ -70,3 +70,26 @@ func TestGoExecRunner(t *testing.T) {
 		t.Fatalf("expected boom error, got %v", err)
 	}
 }
+
+func TestFactoryToolInstallerLDFlags(t *testing.T) {
+	mock := executor.NewMockExecutor()
+	mock.ExpectCommandWithArgs("go", "list", "-m", "-json", factoryModulePath+"@main").
+		WillSucceed(`{"Version":"v0.1.0","Origin":{"Hash":"deadbeef1234"}}`, 0).Once().Build()
+	mock.ExpectCommandWithArgs(
+		"go", "install",
+		"-ldflags", "-X github.com/jaeyeom/experimental/devtools/pkg/version.Version=v0.1.0",
+		factoryMainPackage+"@main",
+	).WillSucceed("", 0).Once().Build()
+
+	useExec(t, mock)
+	inst, ok := factoryTool().Installer.(toolcli.GoInstaller)
+	if !ok {
+		t.Fatalf("Installer = %T, want toolcli.GoInstaller", factoryTool().Installer)
+	}
+	if err := inst.Install(context.Background(), factoryMainPackage, "main", "/tmp/bin"); err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+	if err := mock.AssertExpectationsMet(); err != nil {
+		t.Fatal(err)
+	}
+}

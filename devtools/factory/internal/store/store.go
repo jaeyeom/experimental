@@ -7,17 +7,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/factory/internal/config"
-
-	// Register the pure-Go "sqlite" driver. Do not replace it with a cgo driver.
-	_ "modernc.org/sqlite"
+	"github.com/jaeyeom/experimental/devtools/pkg/sqlitedb"
 )
 
 // Store is the local mirror and factory's own state.
@@ -53,7 +49,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create store directory %s: %w", dir, err)
 	}
-	db, err := sql.Open("sqlite", dsn(abs))
+	db, err := sqlitedb.Open(abs, "_pragma=foreign_keys(1)")
 	if err != nil {
 		return nil, fmt.Errorf("open store %s: %w", abs, err)
 	}
@@ -102,18 +98,6 @@ func DefaultPath(env config.Env) string {
 		panic("home directory: expected a non-empty path, found empty")
 	}
 	return filepath.Join(home, ".local", "state", "factory", "factory.db")
-}
-
-func dsn(path string) string {
-	// file:// URIs keep driver pragmas and accept spaces in the path.
-	// A relative path uses the plain name form; url.URL would treat it as a host.
-	slash := filepath.ToSlash(path)
-	query := "_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
-	if !strings.HasPrefix(slash, "/") {
-		return slash + "?" + query
-	}
-	u := url.URL{Scheme: "file", Path: slash, RawQuery: query}
-	return u.String()
 }
 
 // closeRows closes rows and keeps err when the close fails and err is still nil.

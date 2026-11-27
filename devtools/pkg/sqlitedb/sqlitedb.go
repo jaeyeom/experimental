@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/url"
+	"path/filepath"
 
 	_ "modernc.org/sqlite" // registers the "sqlite" driver
 )
@@ -15,7 +16,7 @@ import (
 // them. Each of params is appended to the DSN as another query parameter,
 // such as "_pragma=foreign_keys(1)" or "_txlock=immediate".
 func Open(path string, params ...string) (*sql.DB, error) {
-	dsn := "file:" + (&url.URL{Path: path}).EscapedPath() +
+	dsn := "file:" + (&url.URL{Path: filepath.ToSlash(path)}).EscapedPath() +
 		"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
 	for _, p := range params {
 		dsn += "&" + p

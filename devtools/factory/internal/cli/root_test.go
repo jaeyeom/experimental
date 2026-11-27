@@ -12,6 +12,9 @@ import (
 	"runtime/debug"
 	"strings"
 	"testing"
+
+	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
+	pkgversion "github.com/jaeyeom/experimental/devtools/pkg/version"
 )
 
 func TestExecuteVersionJSON(t *testing.T) {
@@ -20,22 +23,42 @@ func TestExecuteVersionJSON(t *testing.T) {
 	if code != ExitOK {
 		t.Fatalf("exit = %d, stderr = %s", code, stderr.String())
 	}
-	var got map[string]any
+	var got toolcli.VersionOutput
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("version output is not JSON: %v\n%s", err, stdout.String())
 	}
-	if got["tool"] != "factory" {
-		t.Fatalf("tool = %v, want factory", got["tool"])
+	if got.Tool != "factory" {
+		t.Fatalf("tool = %q, want factory", got.Tool)
 	}
-	want, err := currentVersion()
-	if err != nil {
-		t.Fatalf("currentVersion: %v", err)
+	want := pkgversion.ReadInfo()
+	if got.Version != want.Version ||
+		got.ModulePath != want.ModulePath ||
+		got.VCSRevision != want.VCSRevision ||
+		got.VCSModified != want.VCSModified ||
+		got.BuildTime != want.BuildTime {
+		t.Fatalf("version = %+v, want %+v", got, want)
 	}
-	if got["version"] != want.Version || got["commit"] != want.Commit {
-		t.Fatalf("version = %#v, want %#v", got, want)
+	if vcsRevision() != "" && got.VCSRevision == "" {
+		t.Fatalf("vcsRevision stayed empty with vcs.revision set: %+v", got)
 	}
-	if vcsRevision() != "" && (got["version"] == devVersion || got["commit"] == unknownCommit) {
-		t.Fatalf("version stayed dev/unknown with vcs.revision set: %#v", got)
+}
+
+func TestExecuteVersionUsesPkgVersion(t *testing.T) {
+	prev := pkgversion.Version
+	pkgversion.Version = "v9.8.7"
+	t.Cleanup(func() { pkgversion.Version = prev })
+
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"version", "--json"}, &stdout, &stderr)
+	if code != ExitOK || stderr.Len() != 0 {
+		t.Fatalf("exit = %d, stderr = %s", code, stderr.String())
+	}
+	var got toolcli.VersionOutput
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("version output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if got.Version != "v9.8.7" {
+		t.Fatalf("version = %q, want v9.8.7", got.Version)
 	}
 }
 
@@ -156,101 +179,5 @@ func TestCommandErrorPrefix(t *testing.T) {
 	}
 	if stderr.String() != "factory: boom\n" {
 		t.Fatalf("stderr = %q", stderr.String())
-	}
-}
-
-func TestResolveVersion(t *testing.T) {
-	const rev = "abcdef1234567890aaaa"
-	const when = "2026-11-01T12:00:00Z"
-	short := rev[:12]
-	devel := func(modified string, withTime, withRev bool) *debug.BuildInfo {
-		info := &debug.BuildInfo{Main: debug.Module{Version: "(devel)"}}
-		if withRev {
-			info.Settings = append(info.Settings, debug.BuildSetting{Key: "vcs.revision", Value: rev})
-		}
-		if withTime {
-			info.Settings = append(info.Settings, debug.BuildSetting{Key: "vcs.time", Value: when})
-		}
-		if modified != "" {
-			info.Settings = append(info.Settings, debug.BuildSetting{Key: "vcs.modified", Value: modified})
-		}
-		return info
-	}
-	tests := []struct {
-		name       string
-		version    string
-		commit     string
-		info       *debug.BuildInfo
-		ok         bool
-		wantVer    string
-		wantCommit string
-		wantErr    string
-	}{
-		{
-			name: "ldflags win", version: "v1.2.3", commit: "abc",
-			info: &debug.BuildInfo{
-				Main: debug.Module{Version: "v9.9.9"},
-				Settings: []debug.BuildSetting{
-					{Key: "vcs.revision", Value: rev},
-					{Key: "vcs.modified", Value: "true"},
-				},
-			},
-			ok: true, wantVer: "v1.2.3", wantCommit: "abc",
-		},
-		{name: "no build info", version: devVersion, commit: unknownCommit, wantVer: devVersion, wantCommit: unknownCommit},
-		{
-			name: "unexpected modified", version: devVersion, commit: unknownCommit, ok: true,
-			info:    &debug.BuildInfo{Settings: []debug.BuildSetting{{Key: "vcs.modified", Value: "maybe"}}},
-			wantErr: `version: expected vcs.modified true or false, found "maybe"`,
-		},
-		{
-			name: "module version dirty", version: devVersion, commit: unknownCommit, ok: true,
-			info: &debug.BuildInfo{
-				Main: debug.Module{Version: "v1.2.3"},
-				Settings: []debug.BuildSetting{
-					{Key: "vcs.revision", Value: rev},
-					{Key: "vcs.modified", Value: "true"},
-				},
-			},
-			wantVer: "v1.2.3+dirty", wantCommit: rev + "+dirty",
-		},
-		{
-			name: "devel time and revision", version: "", commit: "", ok: true,
-			info: devel("false", true, true), wantVer: when + "-" + short, wantCommit: rev,
-		},
-		{
-			name: "devel time only", version: devVersion, commit: unknownCommit, ok: true,
-			info: devel("false", true, false), wantVer: when, wantCommit: unknownCommit,
-		},
-		{
-			name: "devel revision only", version: devVersion, commit: unknownCommit, ok: true,
-			info: devel("", false, true), wantVer: short, wantCommit: rev,
-		},
-		{
-			name: "devel dirty", version: devVersion, commit: unknownCommit, ok: true,
-			info: devel("true", true, true), wantVer: when + "-" + short + "+dirty", wantCommit: rev + "+dirty",
-		},
-		{
-			name: "no vcs stays dev", version: devVersion, commit: unknownCommit, ok: true,
-			info:    &debug.BuildInfo{Main: debug.Module{Version: "(devel)"}},
-			wantVer: devVersion, wantCommit: unknownCommit,
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := resolveVersion(tc.version, tc.commit, tc.info, tc.ok)
-			if tc.wantErr != "" {
-				if err == nil || err.Error() != tc.wantErr {
-					t.Fatalf("resolveVersion() error = %v, want %q", err, tc.wantErr)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("resolveVersion() error = %v", err)
-			}
-			if got.Version != tc.wantVer || got.Commit != tc.wantCommit {
-				t.Fatalf("resolveVersion() = %+v, want version %q commit %q", got, tc.wantVer, tc.wantCommit)
-			}
-		})
 	}
 }

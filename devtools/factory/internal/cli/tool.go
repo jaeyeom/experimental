@@ -38,18 +38,10 @@ func factoryTool() *toolcli.Tool {
 			RunEnv:     goExecRunner(exec),
 			ModulePath: factoryModulePath,
 			LDFlags: func(rev toolcli.RevisionInfo) string {
-				ver := rev.Version
-				if ver == "" {
-					ver = devVersion
+				if rev.Version == "" {
+					return ""
 				}
-				commitHash := rev.Revision
-				if commitHash == "" {
-					commitHash = unknownCommit
-				}
-				return fmt.Sprintf(
-					"-X github.com/jaeyeom/experimental/devtools/pkg/version.Version=%s -X github.com/jaeyeom/experimental/devtools/factory/internal/cli.version=%s -X github.com/jaeyeom/experimental/devtools/factory/internal/cli.commit=%s",
-					ver, ver, commitHash,
-				)
+				return "-X github.com/jaeyeom/experimental/devtools/pkg/version.Version=" + rev.Version
 			},
 		}
 	}
@@ -64,7 +56,7 @@ func factoryTool() *toolcli.Tool {
 		},
 		RequiredCommands: []string{"herdr", "gh", "git"},
 		Installer:        inst,
-		ReadBuildInfo:    currentToolBuildInfo,
+		ReadBuildInfo:    testToolBuildInfo,
 		HomeDir:          testToolHomeDir,
 		WorkDir:          testToolWorkDir,
 		Executable:       testToolExecutable,
