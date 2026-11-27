@@ -112,11 +112,17 @@ func usage(w io.Writer) {
 	fmt.Fprintf(w, `Usage:
   decide ask [--class decision|approval|request|fact|inbound|task|note] \
     [--parent <id>] [--owner <label>] [--owner-replies-only] [--kind relay|type-in] \
-    --option key:label --rec key [--free-text] [--options-only] [--deadline RFC3339] \
-    [--link url] [--notify-pane pane] [--type-text text] [--where place] \
-    [--verbatim-file path] [--json] <question>
+    --option key:label [--ask key="person: what"] [--ask-link key=url] --rec key \
+    [--free-text] [--options-only] [--deadline RFC3339] [--link url] \
+    [--notify-pane pane] [--type-text text] [--where place] [--verbatim-file path] [--json] <question>
+  decide ask ls [--open] [--json]
+  decide ask show [--json] <ask-id>
+  decide ask add [--event <ev-id>] [--link url] [--json] <item-id> "<person>: <what>"
+  decide ask done|drop --reason TEXT [--by agent|--human] [--json] <ask-id>
   decide retag [--json] <id> <class>
   decide log search [--class decision,fact,...] [--all] [--json] <words>
+  decide log [--misfit] [--flags] [--agent A] [--cause R] [--kind K] [--group-by-agent] [--reasons] [--json]
+  decide log cause [--note TEXT] [--json] <event-id> <reason>...
   decide supersede [--json] <old> --by <new>
   decide backfill [--yes]
   decide list [--state open|answered|done|withdrawn] [--snoozed] [--off-line] [--undelivered] [--json]
@@ -526,7 +532,7 @@ func cmdReply(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
-	args = hoistFlags(args, map[string]bool{"option": true, "rec": true, "verbatim": true, "verbatim-file": true})
+	args = hoistFlags(args, map[string]bool{"option": true, "rec": true, "ask": true, "ask-link": true, "verbatim": true, "verbatim-file": true})
 	fs := flag.NewFlagSet("reply", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	jsonOut := fs.Bool("json", false, "print the thread as JSON")
@@ -535,7 +541,11 @@ func cmdReply(args []string, stdout, stderr io.Writer) int {
 	verbatim := fs.String("verbatim", "", "exact post draft shown as a quote block without shape checks")
 	verbatimFile := fs.String("verbatim-file", "", "file containing exact post draft shown as a quote block without shape checks")
 	var options stringList
+	var askSpecs stringList
+	var askLinks stringList
 	fs.Var(&options, "option", "option as key:label (repeatable)")
+	fs.Var(&askSpecs, "ask", `mark an option as an ask: key="<person>: <what>" (repeatable)`)
+	fs.Var(&askLinks, "ask-link", "link for an ask option: [key=]<url-or-ref> (repeatable)")
 	if code, stop := stopped(parseFlags(fs, args)); stop {
 		return code
 	}
@@ -556,6 +566,10 @@ func cmdReply(args []string, stdout, stderr io.Writer) int {
 		if err != nil {
 			return fail(stderr, err, 2)
 		}
+	}
+	opts, err = applyOptionAsks(opts, []string(askSpecs), []string(askLinks))
+	if err != nil {
+		return fail(stderr, err, 2)
 	}
 	allowFree := len(opts) > 0 && *freeText
 	by := senderOf(context.Background())
@@ -880,6 +894,7 @@ func inboxOptions(cfg decide.Config, stdout io.Writer, snoozed bool) tui.Options
 		ASCIIKeys:         cfg.UI.ASCIIKeys,
 		AnswerAction:      cfg.UI.AnswerAction,
 		OpenAt:            cfg.UI.OpenAt,
+		AsksEnabled:       cfg.Asks.Enabled,
 		DashboardPanels:   cfg.UI.Dashboard.Panels,
 	}
 }
@@ -896,6 +911,9 @@ func inboxTargets(cfg decide.Config) []tui.Target {
 }
 
 func cmdAsk(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && isAskSubcommand(args[0]) {
+		return cmdAskSubcommand(args[0], args[1:], stdout, stderr)
+	}
 	if err := rejectLongLinesFlag(args); err != nil {
 		return fail(stderr, err, 2)
 	}
@@ -922,8 +940,12 @@ func cmdAsk(args []string, stdout, stderr io.Writer) int {
 	where := fs.String("where", "", "where to type the text")
 	var options stringList
 	var links stringList
+	var askSpecs stringList
+	var askLinks stringList
 	fs.Var(&options, "option", "option as key:label (repeatable)")
 	fs.Var(&links, "link", "link (repeatable)")
+	fs.Var(&askSpecs, "ask", `mark an option as an ask: key="<person>: <what>" (repeatable)`)
+	fs.Var(&askLinks, "ask-link", "link for an ask option: [key=]<url-or-ref> (repeatable)")
 	if code, stop := stopped(parseFlags(fs, args)); stop {
 		return code
 	}
@@ -947,7 +969,7 @@ func cmdAsk(args []string, stdout, stderr io.Writer) int {
 	allowFree := askFreeText(class, k, *freeText, *optionsOnly, cfg.OptionsOnly)
 	caller := detectCaller(context.Background())
 	who := askOwner(*owner, caller, stderr)
-	item, err := buildAsk(class, *parent, who, k, *rec, allowFree, *ownerRepliesOnly, *deadline, *notifyPane, *typeText, *where, []string(options), []string(links), question, verb)
+	item, err := buildAsk(class, *parent, who, k, *rec, allowFree, *ownerRepliesOnly, *deadline, *notifyPane, *typeText, *where, []string(options), []string(links), []string(askSpecs), []string(askLinks), question, verb)
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
@@ -1378,7 +1400,7 @@ func askFreeText(class, kind string, freeText, optionsOnly, cfgOptionsOnly bool)
 	}
 }
 
-func buildAsk(class, parent, owner, kind, rec string, freeText, ownerRepliesOnly bool, deadline, notifyPane, typeText, where string, options, links []string, question, verbatim string) (decide.Item, error) {
+func buildAsk(class, parent, owner, kind, rec string, freeText, ownerRepliesOnly bool, deadline, notifyPane, typeText, where string, options, links, askSpecs, askLinks []string, question, verbatim string) (decide.Item, error) {
 	if strings.TrimSpace(owner) == "" {
 		return decide.Item{}, fmt.Errorf("decide owner is required")
 	}
@@ -1404,6 +1426,10 @@ func buildAsk(class, parent, owner, kind, rec string, freeText, ownerRepliesOnly
 		}
 	default:
 		return decide.Item{}, fmt.Errorf("decide kind %q is invalid", kind)
+	}
+	opts, err = applyOptionAsks(opts, askSpecs, askLinks)
+	if err != nil {
+		return decide.Item{}, err
 	}
 	when, err := parseDeadline(deadline)
 	if err != nil {
@@ -1603,6 +1629,22 @@ func writeJSON(stdout, stderr io.Writer, v any) int {
 	return 0
 }
 
+func writeShowOptions(w io.Writer, opts []decide.Option) {
+	for _, opt := range opts {
+		mark := ""
+		if opt.Recommended {
+			mark = " recommended"
+		}
+		if opt.Ask != "" {
+			mark += " ask:" + opt.Ask
+		}
+		if len(opt.AskLinks) > 0 {
+			mark += " links:" + strings.Join(opt.AskLinks, ",")
+		}
+		fmt.Fprintf(w, "option: %s: %s%s\n", opt.Key, opt.Label, mark)
+	}
+}
+
 func writeShow(w io.Writer, it *decide.Item) {
 	fmt.Fprintf(w, "id: %s\n", it.ID)
 	fmt.Fprintf(w, "question: %s\n", it.Question)
@@ -1621,13 +1663,7 @@ func writeShow(w io.Writer, it *decide.Item) {
 		fmt.Fprintf(w, "ownerRepliesOnly: true\n")
 	}
 	fmt.Fprintf(w, "unread: %t\n", it.Unread)
-	for _, opt := range it.Options {
-		mark := ""
-		if opt.Recommended {
-			mark = " recommended"
-		}
-		fmt.Fprintf(w, "option: %s: %s%s\n", opt.Key, opt.Label, mark)
-	}
+	writeShowOptions(w, it.Options)
 	writeList(w, "link", it.Links)
 	writeList(w, "tag", it.Tags)
 	if it.Deadline != nil {

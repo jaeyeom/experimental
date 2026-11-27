@@ -1272,7 +1272,7 @@ func assertItemEqual(t *testing.T, got, want Item) {
 		t.Fatalf("options/links\ngot  %+v %v\nwant %+v %v", got.Options, got.Links, want.Options, want.Links)
 	}
 	for i := range want.Options {
-		if got.Options[i] != want.Options[i] {
+		if !got.Options[i].Equal(want.Options[i]) {
 			t.Fatalf("option %d got %+v want %+v", i, got.Options[i], want.Options[i])
 		}
 	}
@@ -1663,7 +1663,7 @@ func optionsEqual(t *testing.T, got, want []Option) {
 		t.Fatalf("options = %+v, want %+v", got, want)
 	}
 	for i := range want {
-		if got[i] != want[i] {
+		if !got[i].Equal(want[i]) {
 			t.Fatalf("options = %+v, want %+v", got, want)
 		}
 	}

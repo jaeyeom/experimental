@@ -46,6 +46,7 @@ func (h *hubDisplay) Display() (tui.Display, bool) {
 }
 
 func displayOf(cfg decide.Config, files map[string]decide.AvatarFile) tui.Display {
+	asksOn := cfg.Asks.Enabled
 	return tui.Display{
 		Targets:           inboxTargets(cfg),
 		Agentbus:          cfg.Recipients.Agentbus,
@@ -60,6 +61,7 @@ func displayOf(cfg decide.Config, files map[string]decide.AvatarFile) tui.Displa
 		FavoriteContacts:  append([]string(nil), cfg.FavoriteContacts...),
 		ContactAliases:    aliasCopy(cfg.ContactAliases),
 		OrgTree:           cfg.UI.OrgTree,
+		AsksEnabled:       &asksOn,
 	}
 }
 

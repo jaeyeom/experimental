@@ -107,6 +107,10 @@ type Config struct {
 	ContactAliases map[string]string `json:"contactAliases,omitempty"`
 	// Owners configures who may open items (mode: off, warn, enforce).
 	Owners OwnersConfig `json:"owners,omitempty"`
+	// Reasons overrides the starting catalog of inbox flag and misfit cause reasons.
+	Reasons []Reason `json:"reasons,omitempty"`
+	// Asks configures optional asks tracking.
+	Asks AsksConfig `json:"asks,omitempty"`
 	// UI is this machine's inbox display. A hub does not send it.
 	UI InboxUI `json:"ui,omitempty"`
 	// Web configures `decide web` on this machine. It is machine-local:
@@ -632,6 +636,7 @@ func validateConfig(cfg Config) error {
 		func() error { return checkTransports(cfg.Transports) },
 		func() error { return checkAvatarRules(cfg.Avatars) },
 		func() error { return checkOwnersConfig(cfg.Owners) },
+		func() error { return checkReasonsConfig(cfg.Reasons) },
 		func() error { _, err := parseRecipientsTimeout(cfg.RecipientsTimeout); return err },
 		func() error { return checkWebConfig(cfg.Web) },
 		func() error { return CheckClipboard(cfg.UI.Clipboard) },

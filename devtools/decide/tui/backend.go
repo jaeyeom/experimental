@@ -142,6 +142,20 @@ type PanelsBackend interface {
 	WatchPanels(ctx context.Context, emit func([]decide.PanelEntry)) error
 }
 
+// FlagBackend is an optional backend capability for reading configured flag
+// reasons and flagging an agent message or item.
+type FlagBackend interface {
+	Reasons() ([]decide.Reason, error)
+	Flag(itemID string, msgIndex *int, reasons []string, note string) (decide.Event, error)
+}
+
+// AsksBackend is an optional backend capability for reading and closing tracked asks.
+type AsksBackend interface {
+	AsksEnabled() (bool, error)
+	ListAsks() ([]decide.AskRecord, error)
+	CloseAsk(askID, status, reason string) (decide.AskRecord, error)
+}
+
 // unreachableStatus is the status line while the hub is unreachable.
 const unreachableStatus = "hub unreachable; retrying"
 
@@ -655,4 +669,49 @@ func (b *LocalBackend) DeleteDraft(key, conflictID string) error {
 		return fmt.Errorf("delete decide draft: %w", err)
 	}
 	return nil
+}
+
+// Reasons implements FlagBackend.
+func (b *LocalBackend) Reasons() ([]decide.Reason, error) {
+	cfg, err := decide.LoadConfig()
+	if err != nil {
+		return nil, fmt.Errorf("load decide config: %w", err)
+	}
+	return cfg.EffectiveReasons(), nil
+}
+
+// Flag implements FlagBackend.
+func (b *LocalBackend) Flag(itemID string, msgIndex *int, reasons []string, note string) (decide.Event, error) {
+	led, err := b.ledger()
+	if err != nil {
+		return decide.Event{}, err
+	}
+	return led.FlagItem(itemID, msgIndex, reasons, note, decide.ViaUI) //nolint:wrapcheck // FlagItem already wraps errors
+}
+
+// AsksEnabled implements AsksBackend.
+func (b *LocalBackend) AsksEnabled() (bool, error) {
+	cfg, err := decide.LoadConfig()
+	if err != nil {
+		return false, fmt.Errorf("load decide config: %w", err)
+	}
+	return cfg.Asks.Enabled, nil
+}
+
+// ListAsks implements AsksBackend.
+func (b *LocalBackend) ListAsks() ([]decide.AskRecord, error) {
+	led, err := b.ledger()
+	if err != nil {
+		return nil, err
+	}
+	return led.ListAsks() //nolint:wrapcheck // ListAsks already wraps errors
+}
+
+// CloseAsk implements AsksBackend.
+func (b *LocalBackend) CloseAsk(askID, status, reason string) (decide.AskRecord, error) {
+	led, err := b.ledger()
+	if err != nil {
+		return decide.AskRecord{}, err
+	}
+	return led.CloseAsk(askID, status, reason, decide.Human, decide.ViaUI) //nolint:wrapcheck // CloseAsk already wraps errors
 }

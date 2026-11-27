@@ -25,7 +25,7 @@ navigation only and never change data.
 | ~j~ / ~k~                             | list or item                 | Move the row, or scroll one line in an item.                                 |
 | ~n~ / ~p~                             | item                         | Next or previous message.                                                    |
 | ~g~ then ~i~ ~z~ ~a~ ~d~ ~w~          | any                          | Inbox, Snoozed, Answered, Done, Withdrawn.                                   |
-| ~g~ then ~s~ / ~c~ / ~,~              | any                          | Status, Contacts, or Settings.                                               |
+| ~g~ then ~s~ / ~c~ / ~k~ / ~,~        | any                          | Status, Contacts, Asks (if enabled), or Settings.                            |
 | ~g g~ / ~G~ / ~end~                   | list, item, status, contacts | Top or bottom of the list or item.                                           |
 | ~G~ / ~end~                           | item                         | Scroll to the end.                                                           |
 | ~pgup~ / ~pgdn~, ~home~ / ~G~ / ~end~ | list and item                | Page, or jump.                                                               |
@@ -35,6 +35,7 @@ navigation only and never change data.
 | ~e~ / ~y~                             | list, item                   | Archive: mark done with outcome ~archived~.                                  |
 | ~E~                                   | item                         | Archive with a note: ask for one line, then mark done.                       |
 | ~b~                                   | list, item                   | Snooze. In Snoozed, ~b~ also offers unsnooze.                                |
+| ~!~                                   | list, item                   | Flag an agent message or item with reasons.                                  |
 | ~/~                                   | any                          | Filter the list, or highlight an item. Empty Enter clears.                   |
 | ~esc~                                 | list                         | Clear the agent filter.                                                      |
 | ~1~-~9~                               | item                         | Answer with that option.                                                     |

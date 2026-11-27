@@ -5,6 +5,7 @@ export const emptyState = () => ({
   seq: 0, items: [], status: null, panels: [], dashboardPanels: [], drafts: null, contacts: null,
   orgTree: null, display: null, busHealth: null, syncedAt: null,
   targets: [], agentbus: false, orgTreeEnabled: false,
+  reasons: [], asksEnabled: false, asks: [],
 });
 
 // applyResync replaces everything the event carries and keeps the rest.
@@ -22,6 +23,9 @@ export function applyResync(state, ev, now = Date.now()) {
     targets: ev.targets ?? state.targets,
     agentbus: ev.agentbus ?? state.agentbus,
     orgTreeEnabled: ev.orgTreeEnabled ?? state.orgTreeEnabled,
+    reasons: ev.reasons ?? state.reasons ?? [],
+    asksEnabled: ev.asksEnabled ?? state.asksEnabled ?? false,
+    asks: ev.asks ?? state.asks ?? [],
     syncedAt: now,
   };
 }
@@ -42,14 +46,14 @@ export function applyDelta(state, ev, now = Date.now()) {
     items: [...byId.values()],
     syncedAt: now,
   };
-  for (const k of ['status', 'panels', 'dashboardPanels', 'drafts', 'orgSpecModTime']) {
+  for (const k of ['status', 'panels', 'dashboardPanels', 'drafts', 'orgSpecModTime', 'reasons', 'asksEnabled', 'asks']) {
     if (ev[k] !== undefined) next[k] = ev[k];
   }
   if (ev.busHealth !== undefined) next.busHealth = ev.busHealth;
   return next;
 }
 
-const routeNames = new Set(['inbox', 'folder', 'item', 'compose', 'status', 'contacts', 'settings']);
+const routeNames = new Set(['inbox', 'folder', 'item', 'compose', 'status', 'contacts', 'asks', 'settings']);
 
 // parseRoute turns a location hash into {name, arg, query?}; #/compose/<id>
 // forwards item <id> and #/compose?to=<name> picks a recipient. Unknown routes fall

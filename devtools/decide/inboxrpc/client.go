@@ -177,6 +177,8 @@ var (
 	_ tui.DraftBackend   = (*Client)(nil)
 	_ tui.OrgTreeBackend = (*Client)(nil)
 	_ tui.PanelsBackend  = (*Client)(nil)
+	_ tui.FlagBackend    = (*Client)(nil)
+	_ tui.AsksBackend    = (*Client)(nil)
 )
 
 // hubError is a call the hub did not take because it could not be
@@ -961,6 +963,96 @@ func (c *Client) Panels() ([]decide.PanelEntry, error) {
 		return nil, err
 	}
 	return rep.panels(), nil
+}
+
+// Reasons implements tui.FlagBackend.
+func (c *Client) Reasons() ([]decide.Reason, error) {
+	resp, err := c.call(Request{Op: OpReasons})
+	if err == nil && len(resp.ReasonList) > 0 {
+		return resp.ReasonList, nil
+	}
+	d, _ := c.Display()
+	if raw, ok := d.Keys["reasons"]; ok {
+		var reasons []decide.Reason
+		if uerr := json.Unmarshal(raw, &reasons); uerr == nil && len(reasons) > 0 {
+			return reasons, nil
+		}
+	}
+	if err != nil && !errors.Is(err, tui.ErrUnreachable) {
+		return nil, err
+	}
+	return decide.DefaultReasons(), nil
+}
+
+// Flag implements tui.FlagBackend.
+func (c *Client) Flag(itemID string, msgIndex *int, reasons []string, note string) (decide.Event, error) {
+	resp, err := c.call(Request{
+		Op:       OpFlag,
+		Item:     itemID,
+		MsgIndex: msgIndex,
+		Reasons:  reasons,
+		Text:     note,
+	})
+	if err != nil {
+		return decide.Event{}, err
+	}
+	if resp.Event == nil {
+		return decide.Event{}, fmt.Errorf("hub %s: flag returned no event", c.Label)
+	}
+	return *resp.Event, nil
+}
+
+// AsksEnabled implements tui.AsksBackend.
+func (c *Client) AsksEnabled() (bool, error) {
+	d, _ := c.Display()
+	if raw, ok := d.Keys["asks"]; ok {
+		var asksCfg decide.AsksConfig
+		if err := json.Unmarshal(raw, &asksCfg); err == nil {
+			return asksCfg.Enabled, nil
+		}
+	}
+	rep, err := c.ensureReplica()
+	if err != nil {
+		return false, err
+	}
+	return rep.asksEnabled(), nil
+}
+
+// ListAsks implements tui.AsksBackend.
+func (c *Client) ListAsks() ([]decide.AskRecord, error) {
+	rep, err := c.ensureReplica()
+	if err != nil {
+		return nil, err
+	}
+	if c.isConnected() {
+		if resp, cerr := c.call(Request{Op: OpListAsks}); cerr == nil && resp.Asks != nil {
+			rep.setAsksLocal(*resp.Asks, resp.AsksEnabled)
+		}
+	}
+	return rep.asks(), nil
+}
+
+// CloseAsk implements tui.AsksBackend.
+func (c *Client) CloseAsk(askID, status, reason string) (decide.AskRecord, error) {
+	resp, err := c.call(Request{
+		Op:     OpCloseAsk,
+		Item:   askID,
+		Choice: status,
+		Text:   reason,
+	})
+	if err != nil {
+		return decide.AskRecord{}, err
+	}
+	if resp.Ask == nil {
+		return decide.AskRecord{}, fmt.Errorf("hub %s: close-ask returned no ask", c.Label)
+	}
+	if rep, rerr := c.ensureReplica(); rerr == nil && rep != nil {
+		rep.upsertAskLocal(*resp.Ask)
+		if resp.Item != nil {
+			rep.upsertLocal(*resp.Item)
+		}
+	}
+	return *resp.Ask, nil
 }
 
 // WatchPanels emits the initial panel list and subsequent hub watch updates

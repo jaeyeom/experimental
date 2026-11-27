@@ -52,6 +52,8 @@ missing file is an empty config. Keys you do not set keep the default.
 | ~ui.maxMessageChars~    | 1200                        | Longest author message in characters. 0 turns the check off.                   |
 | ~ui.keys~               | defaults                    | Map of action name to key list. Empty list unbinds.                            |
 | ~ui.dashboard.panels~   | all enabled                 | List of ~{id, enabled, order}~ entries controlling Status panel order and visibility. |
+| ~reasons~               | built-in 4-category list    | Custom ~[{id, category, label, requireNote}]~ catalog for flags and misfit causes. |
+| ~asks.enabled~          | false                       | Enable tracked ~ask~ records (~--ask~, ~decide ask ls~) and the inbox Asks view. |
 | ~web.addr~              | ~127.0.0.1:8787~            | ~decide web~ listen address.                                                   |
 | ~web.publicUrl~         | empty                       | HTTPS address people open. Used for the same-origin check.                     |
 | ~web.auth.mode~         | ~none~                      | ~none~ or ~token~. ~none~ is refused off loopback.                             |
@@ -92,14 +94,14 @@ Action names are grouped by view:
 
 - ~global~: ~quit~, ~help~, ~mouse~, ~search~, ~goto.inbox~,
   ~goto.snoozed~, ~goto.answered~, ~goto.done~, ~goto.withdrawn~,
-  ~goto.status~, ~goto.contacts~, ~goto.outbox~, ~goto.settings~, ~goto.top~
+  ~goto.status~, ~goto.contacts~, ~goto.outbox~, ~goto.asks~, ~goto.settings~, ~goto.top~
 - ~list~: ~list.next~, ~list.prev~, ~list.pageDown~, ~list.pageUp~,
   ~list.top~, ~list.bottom~, ~list.open~, ~list.compose~,
-  ~list.archive~, ~list.snooze~, ~list.clearFilter~
+  ~list.archive~, ~list.classFilter~, ~list.snooze~, ~list.flag~, ~list.clearFilter~
 - ~detail~: ~detail.back~, ~detail.scrollDown~, ~detail.scrollUp~,
   ~detail.pageDown~, ~detail.pageUp~, ~detail.top~, ~detail.bottom~,
   ~detail.nextMessage~, ~detail.prevMessage~, ~detail.archive~,
-  ~detail.snooze~, ~detail.openLink~, ~detail.copyLink~,
+  ~detail.snooze~, ~detail.flag~, ~detail.openLink~, ~detail.copyLink~,
   ~detail.copyMenu~, ~detail.plain~, ~detail.avatar~, ~detail.owner~,
   ~detail.compose~, ~detail.forward~, ~detail.outcome~, ~detail.reply~
 - ~status~: ~status.next~, ~status.prev~, ~status.pageDown~,

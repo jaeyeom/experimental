@@ -265,6 +265,7 @@ func TestDefaultGChordsAreNavigationOnly(t *testing.T) {
 		"goto.status":    true,
 		"goto.contacts":  true,
 		"goto.outbox":    true,
+		"goto.asks":      true,
 		"goto.settings":  true,
 		"goto.top":       true,
 	}

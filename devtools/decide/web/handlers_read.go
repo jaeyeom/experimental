@@ -144,6 +144,16 @@ func (s *Server) snapshot(w http.ResponseWriter, _ *http.Request) {
 		fail(w, err, http.StatusInternalServerError)
 		return
 	}
+	reasons, err := s.reasonsList()
+	if err != nil {
+		fail(w, err, http.StatusInternalServerError)
+		return
+	}
+	asksOn, asks, err := s.asksState()
+	if err != nil {
+		fail(w, err, http.StatusInternalServerError)
+		return
+	}
 	st := s.state()
 	st.mu.Lock()
 	health := st.busHealth
@@ -171,7 +181,91 @@ func (s *Server) snapshot(w http.ResponseWriter, _ *http.Request) {
 		"agentbus":        s.Agentbus,
 		"busHealth":       health,
 		"orgTreeEnabled":  orgOn,
+		"reasons":         reasons,
+		"asksEnabled":     asksOn,
+		"asks":            asks,
 		"serverTime":      s.now().UTC().Format(time.RFC3339Nano),
+	})
+}
+
+func (s *Server) reasonsList() ([]decide.Reason, error) {
+	if d, err := s.display(); err == nil {
+		if raw, ok := d.Keys["reasons"]; ok {
+			var custom []decide.Reason
+			if uerr := json.Unmarshal(raw, &custom); uerr == nil {
+				return (decide.Config{Reasons: custom}).EffectiveReasons(), nil
+			}
+		}
+	}
+	if len(s.Config.Reasons) > 0 {
+		return s.Config.EffectiveReasons(), nil
+	}
+	if s.Backend != nil {
+		list, err := s.Backend.Reasons()
+		if err != nil {
+			return nil, err //nolint:wrapcheck // backend names failure
+		}
+		if len(list) > 0 {
+			return list, nil
+		}
+	}
+	return decide.DefaultReasons(), nil
+}
+
+func (s *Server) asksEnabledFlag() (bool, error) {
+	if d, err := s.display(); err == nil {
+		if raw, ok := d.Keys["asks"]; ok {
+			var ac decide.AsksConfig
+			if uerr := json.Unmarshal(raw, &ac); uerr == nil {
+				return ac.Enabled, nil
+			}
+		}
+	}
+	if s.Config.Asks.Enabled {
+		return true, nil
+	}
+	if s.Backend != nil {
+		return s.Backend.AsksEnabled() //nolint:wrapcheck // backend names failure
+	}
+	return false, nil
+}
+
+func (s *Server) asksState() (bool, []decide.AskRecord, error) {
+	enabled, err := s.asksEnabledFlag()
+	if err != nil {
+		return false, nil, err
+	}
+	if !enabled || s.Backend == nil {
+		return enabled, []decide.AskRecord{}, nil
+	}
+	asks, err := s.Backend.ListAsks()
+	if err != nil {
+		return true, nil, err //nolint:wrapcheck // backend names failure
+	}
+	if asks == nil {
+		asks = []decide.AskRecord{}
+	}
+	return true, asks, nil
+}
+
+func (s *Server) getReasons(w http.ResponseWriter, _ *http.Request) {
+	reasons, err := s.reasonsList()
+	if err != nil {
+		fail(w, err, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"reasons": reasons})
+}
+
+func (s *Server) getAsks(w http.ResponseWriter, _ *http.Request) {
+	enabled, asks, err := s.asksState()
+	if err != nil {
+		fail(w, err, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"enabled": enabled,
+		"asks":    asks,
 	})
 }
 

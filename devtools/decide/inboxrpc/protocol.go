@@ -25,7 +25,8 @@ import (
 // Version 11 added persistent draft sync.
 // Version 12 added org-tree.
 // Version 13 added panels.
-const Version = 13
+// Version 14 added flag reasons, message/item flagging, and asks view.
+const Version = 14
 
 // Ops. Archive is done with the outcome "archived". Deliveries refreshes
 // the pending delivery marks on the hub.
@@ -59,6 +60,10 @@ const (
 	OpDeleteDraft  = "delete-draft"
 	OpOrgTree      = "org-tree"
 	OpPanels       = "panels"
+	OpReasons      = "reasons"
+	OpFlag         = "flag"
+	OpListAsks     = "list-asks"
+	OpCloseAsk     = "close-ask"
 )
 
 // Request is one line from the client. Item is the item id. Text is the
@@ -98,6 +103,8 @@ type Request struct {
 	Draft             *decide.Draft `json:"draft,omitempty"`
 	BaseRev           int64         `json:"baseRev,omitempty"`
 	ConflictID        string        `json:"conflictId,omitempty"`
+	MsgIndex          *int          `json:"msgIndex,omitempty"`
+	Reasons           []string      `json:"reasons,omitempty"`
 }
 
 // Response is one line from the server. Error fails the request.
@@ -128,6 +135,11 @@ type Response struct {
 	DraftSeq       int64                   `json:"draftSeq,omitempty"`
 	OrgSpecModTime *time.Time              `json:"orgSpecModTime,omitempty"`
 	Panels         *[]decide.PanelEntry    `json:"panels,omitempty"`
+	ReasonList     []decide.Reason         `json:"reasons,omitempty"`
+	Event          *decide.Event           `json:"event,omitempty"`
+	Ask            *decide.AskRecord       `json:"ask,omitempty"`
+	Asks           *[]decide.AskRecord     `json:"asks,omitempty"`
+	AsksEnabled    *bool                   `json:"asksEnabled,omitempty"`
 }
 
 // writeOps change the ledger or send something. While the hub is
@@ -148,4 +160,6 @@ var writeOps = map[string]bool{
 	OpSetFavorites: true,
 	OpPutDraft:     true,
 	OpDeleteDraft:  true,
+	OpFlag:         true,
+	OpCloseAsk:     true,
 }

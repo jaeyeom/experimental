@@ -17,11 +17,14 @@ Run `decide` with no arguments for the full usage. The flag list is in that text
 
 Before filing a decision or fact question, run `decide log search <words>` to see whether the user already decided it. It searches the user's answers and the owners' `done` outcomes, newest first, and hides superseded items (`--all` shows them; `--class` changes the classes, default `decision,fact`). When you act on a precedent, cite its id. The log is read-only: searching changes nothing. `decide supersede <old> --by <new>` records that a newer decision replaces an older one.
 
+To review framing quality, run `decide log --misfit --group-by-agent` (free-text replies over offered choices, flagged "options did not fit") and `decide log --flags` (inbox flags by sending agent), or attach a post-RCA cause with `decide log cause <event> <reason>... [--note TEXT]`. `decide log reasons` prints valid reason ids.
+
 ## Pick a class
 
 Pass `--class <name>` (or its prefix) on every `decide ask`. Options apply only to `decision`, `approval`, and `fact`; `note` takes no options.
 
 - `decision` (`D`): a choice with a reason that guides later choices — e.g. `--class decision --option a:SQLite --option b:Postgres --rec a "Which store?"`
+  - If an option means asking a person to do something, you may tag it with `--ask a="<person>: <what>"` and repeatable `--ask-link a=<url>` (tracked when `asks.enabled` is true; manage with `decide ask ls|show|add|done|drop`).
 - `approval` (`A`): yes/no/edit on one exact action or text (`--verbatim` required, defaults to `yes`/`no`/`edit`) — e.g. `--class approval --verbatim "Ship v1.2" "Post this?"`
 - `request` (`R`): a request from the user to an agent, tracked to `done` — e.g. `--class request "Investigate flaky test"`
 - `fact` (`Q`): a question for a fact only the user knows — e.g. `--class fact "Which AWS account?"`

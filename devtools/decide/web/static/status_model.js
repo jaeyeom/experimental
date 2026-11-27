@@ -1,6 +1,7 @@
 // Status board rules, pure. Dimming matches the TUI (decide.StatusStale):
 // a row older than five minutes, or with no time, is stale.
 import { relativeAge } from './inbox_model.js';
+import { asksPanel } from './asks_model.js';
 
 export const STALE_MS = 5 * 60 * 1000;
 export const BUILTIN_PANEL_IDS = ['agents', 'resources', 'bus-health'];
@@ -108,7 +109,7 @@ export function resolveDashboardPanels(configured, availableIds) {
   return out;
 }
 
-export function buildDashboardPanels({ status, busHealth, panels, dashboardPanels, now = Date.now() } = {}) {
+export function buildDashboardPanels({ status, busHealth, panels, dashboardPanels, asks, asksEnabled = false, now = Date.now() } = {}) {
   const byId = new Map();
   const availableIds = [];
   const add = (p) => {
@@ -128,6 +129,8 @@ export function buildDashboardPanels({ status, busHealth, panels, dashboardPanel
   if (bhRows.length) {
     add({ id: 'bus-health', title: 'Bus Health', kind: 'List', data: { rows: bhRows }, builtIn: true, stale: false });
   }
+  const ap = asksPanel(asks, asksEnabled, now);
+  if (ap) add(ap);
 
   for (const p of panelRows(panels, now)) {
     if (byId.has(p.id)) continue;

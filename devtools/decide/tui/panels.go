@@ -144,6 +144,15 @@ func (m *Model) addBuiltinStatusPanels(now time.Time, disabled map[string]bool, 
 			builtIn: true,
 		})
 	}
+	if m.hasAsks() {
+		add(statusPanel{
+			id:      decide.BuiltinPanelAsks,
+			title:   decide.BuiltinPanelTitle(decide.BuiltinPanelAsks),
+			kind:    decide.PanelKindList,
+			data:    m.asksPanelData(),
+			builtIn: true,
+		})
+	}
 }
 
 func (m *Model) hasBusHealthPanelData() bool {
@@ -176,6 +185,9 @@ func (m *Model) addExternalStatusPanels(now time.Time, byID map[string]statusPan
 func (m *Model) allDashboardPanelIDs() []string {
 	m.loadPanelsOnce()
 	ids := append([]string(nil), decide.BuiltinPanelIDs()...)
+	if m.hasAsks() {
+		ids = append(ids, decide.BuiltinPanelAsks)
+	}
 	for _, p := range m.panels {
 		if p.ID != "" && !slices.Contains(ids, p.ID) {
 			ids = append(ids, p.ID)

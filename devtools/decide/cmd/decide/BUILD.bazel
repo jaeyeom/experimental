@@ -3,6 +3,7 @@ load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 go_library(
     name = "go_default_library",
     srcs = [
+        "ask_cmd.go",
         "avatars.go",
         "backfill.go",
         "contacts.go",
@@ -47,6 +48,7 @@ go_test(
     name = "go_default_test",
     size = "medium",
     srcs = [
+        "ask_cmd_test.go",
         "assign_test.go",
         "avatars_test.go",
         "backfill_test.go",

@@ -9,6 +9,8 @@ import { createComposeView } from './compose_view.js';
 import { createStatusView } from './status_view.js';
 import { createContactsView } from './contacts_view.js';
 import { createSettingsView } from './settings_view.js';
+import { createAsksView } from './asks_view.js';
+import { openAskCount } from './asks_model.js';
 import { unreadCount, selectFolder } from './inbox_model.js';
 import { createKeymap, isTextField } from './keymap.js';
 import { toggleHelp, isHelpOpen, closeHelp } from './help_sheet.js';
@@ -111,11 +113,14 @@ const NAV = [['inbox', 'Inbox'], ['folder', 'Folders'], ['status', 'Status'], ['
 
 function renderNav(state) {
   const nav = $('nav');
-  nav.replaceChildren(...NAV.map(([name, label]) => {
+  const items = state.asksEnabled ? [...NAV, ['asks', 'Asks']] : NAV;
+  nav.replaceChildren(...items.map(([name, label]) => {
     const a = el('a', { href: name === 'folder' ? '#/folder/open' : '#/' + name, text: label,
       'aria-current': route.name === name ? 'page' : false });
-    const n = name === 'inbox' ? unreadCount(selectFolder(state.items, 'inbox')) : 0;
-    if (n > 0) a.append(el('span', { class: 'badge-count', text: String(n), 'aria-label': `${n} unread` }));
+    const n = name === 'inbox'
+      ? unreadCount(selectFolder(state.items, 'inbox'))
+      : (name === 'asks' ? openAskCount(state.asks) : 0);
+    if (n > 0) a.append(el('span', { class: 'badge-count', text: String(n), 'aria-label': `${n} ${name === 'asks' ? 'open' : 'unread'}` }));
     return a;
   }));
 }
@@ -129,12 +134,13 @@ const contactsView = createContactsView({
   root: $('main'), toast, hint,
   onFilter: (name) => { inboxView.setAgent(name); location.hash = '#/inbox'; },
 });
+const asksView = createAsksView({ root: $('main'), toast });
 const settingsView = createSettingsView({
   root: $('main'), toast, themes: THEMES, getTheme, setTheme,
   connection: () => connState,
   signOut: async () => { try { await api.logout(); } catch { /* ignore */ } showLogin(); },
 });
-const secondary = { compose: composeView, status: statusView, contacts: contactsView, settings: settingsView };
+const secondary = { compose: composeView, status: statusView, contacts: contactsView, asks: asksView, settings: settingsView };
 
 function renderDetail(state) {
   const main = $('main');
@@ -148,7 +154,7 @@ function renderDetail(state) {
 }
 
 const TITLES = { inbox: 'Inbox', folder: 'Folders', item: 'Thread', compose: 'Compose',
-  status: 'Status', contacts: 'Contacts', settings: 'Settings' };
+  status: 'Status', contacts: 'Contacts', asks: 'Asks', settings: 'Settings' };
 
 function render() {
   if (!started) return;
@@ -203,6 +209,10 @@ function dispatchAction(action, target) {
   case 'goto.status': location.hash = '#/status'; break;
   case 'goto.contacts': location.hash = '#/contacts'; break;
   case 'goto.outbox': toast('Outbox is not available on web.'); break;
+  case 'goto.asks':
+    if (store.state.asksEnabled) location.hash = '#/asks';
+    else toast('Asks view is disabled.');
+    break;
   case 'goto.top':
     if (route.name === 'item') threadView.scrollTo('top');
     else if (route.name === 'status') statusView.jump('top');
@@ -220,6 +230,7 @@ function dispatchAction(action, target) {
   case 'list.compose': case 'detail.compose': location.hash = '#/compose'; break;
   case 'list.archive': inboxView.archiveSelected(); break;
   case 'list.snooze': inboxView.snoozeSelected(); break;
+  case 'list.flag': inboxView.flagSelected(); break;
   case 'list.clearFilter': inboxView.clearFilters(); break;
 
   case 'detail.back': case 'status.back': case 'contacts.back': location.hash = lastFolderHash; break;
@@ -233,6 +244,7 @@ function dispatchAction(action, target) {
   case 'detail.prevMessage': threadView.stepMessage(-1); break;
   case 'detail.archive': threadView.archive(); break;
   case 'detail.snooze': threadView.snooze(); break;
+  case 'detail.flag': threadView.flag(); break;
   case 'detail.outcome': threadView.done(); break;
   case 'detail.forward': threadView.forward(); break;
   case 'detail.reply': threadView.focusReply(); break;

@@ -97,6 +97,8 @@ type Options struct {
 	AnswerAction string
 	// OpenAt is new, last, or top. Empty is new.
 	OpenAt string
+	// AsksEnabled enables the optional Asks view.
+	AsksEnabled bool
 	// DashboardPanels configures Status panel visibility and order.
 	DashboardPanels []decide.DashboardPanelConfig
 }
@@ -233,6 +235,7 @@ func prepare(opts Options) (*Model, error) {
 	m.ASCIIKeys = opts.ASCIIKeys
 	m.answerAction = opts.AnswerAction
 	m.openAt = opts.OpenAt
+	m.asksOn = opts.AsksEnabled
 	if len(opts.DashboardPanels) > 0 {
 		m.dashboardPanels = append([]decide.DashboardPanelConfig(nil), opts.DashboardPanels...)
 		m.dashboardLoaded = true

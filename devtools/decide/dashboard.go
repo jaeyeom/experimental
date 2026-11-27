@@ -12,6 +12,7 @@ const (
 	BuiltinPanelResources = "resources"
 	BuiltinPanelBusHealth = "bus-health"
 	BuiltinPanelOutbox    = "outbox"
+	BuiltinPanelAsks      = "asks"
 )
 
 // BuiltinPanelIDs returns the built-in Status panel IDs in default order.
@@ -35,6 +36,8 @@ func BuiltinPanelTitle(id string) string {
 		return "Bus Health"
 	case BuiltinPanelOutbox:
 		return "Outbox"
+	case BuiltinPanelAsks:
+		return "Asks"
 	default:
 		return id
 	}

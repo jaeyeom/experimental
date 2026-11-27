@@ -29,38 +29,31 @@ const (
 // DisplayKeys are the config keys a hub shares with its clients. A key
 // not listed here is never exported.
 func DisplayKeys() []string {
-	return []string{"avatarDefault", "avatarMono", "avatars", "contactAliases", "favoriteContacts", "hiddenContacts", "hyperlinks", "messageAvatars", "owners", "recipients", "recipientsTimeout", "targets", "ui.orgTree"}
+	return []string{"asks", "avatarDefault", "avatarMono", "avatars", "contactAliases", "favoriteContacts", "hiddenContacts", "hyperlinks", "messageAvatars", "owners", "reasons", "recipients", "recipientsTimeout", "targets", "ui.orgTree"}
+}
+
+var displayKeyCopiers = map[string]func(dst, src *Config){
+	"asks":              func(dst, src *Config) { dst.Asks = src.Asks },
+	"avatarDefault":     func(dst, src *Config) { dst.AvatarDefault = src.AvatarDefault },
+	"avatarMono":        func(dst, src *Config) { dst.AvatarMono = src.AvatarMono },
+	"avatars":           func(dst, src *Config) { dst.Avatars = src.Avatars },
+	"contactAliases":    func(dst, src *Config) { dst.ContactAliases = src.ContactAliases },
+	"favoriteContacts":  func(dst, src *Config) { dst.FavoriteContacts = src.FavoriteContacts },
+	"hiddenContacts":    func(dst, src *Config) { dst.HiddenContacts = src.HiddenContacts },
+	"hyperlinks":        func(dst, src *Config) { dst.Hyperlinks = src.Hyperlinks },
+	"messageAvatars":    func(dst, src *Config) { dst.MessageAvatars = src.MessageAvatars },
+	"owners":            func(dst, src *Config) { dst.Owners = src.Owners },
+	"reasons":           func(dst, src *Config) { dst.Reasons = append([]Reason(nil), src.Reasons...) },
+	"recipients":        func(dst, src *Config) { dst.Recipients = src.Recipients },
+	"recipientsTimeout": func(dst, src *Config) { dst.RecipientsTimeout = src.RecipientsTimeout },
+	"targets":           func(dst, src *Config) { dst.Targets = src.Targets },
+	"ui.orgTree":        func(dst, src *Config) { dst.UI.OrgTree = src.UI.OrgTree },
 }
 
 // copyDisplayKey sets dst's field for display key key from src.
 func copyDisplayKey(key string, dst, src *Config) {
-	switch key {
-	case "avatarDefault":
-		dst.AvatarDefault = src.AvatarDefault
-	case "avatarMono":
-		dst.AvatarMono = src.AvatarMono
-	case "avatars":
-		dst.Avatars = src.Avatars
-	case "contactAliases":
-		dst.ContactAliases = src.ContactAliases
-	case "favoriteContacts":
-		dst.FavoriteContacts = src.FavoriteContacts
-	case "hiddenContacts":
-		dst.HiddenContacts = src.HiddenContacts
-	case "hyperlinks":
-		dst.Hyperlinks = src.Hyperlinks
-	case "messageAvatars":
-		dst.MessageAvatars = src.MessageAvatars
-	case "owners":
-		dst.Owners = src.Owners
-	case "recipients":
-		dst.Recipients = src.Recipients
-	case "recipientsTimeout":
-		dst.RecipientsTimeout = src.RecipientsTimeout
-	case "targets":
-		dst.Targets = src.Targets
-	case "ui.orgTree":
-		dst.UI.OrgTree = src.UI.OrgTree
+	if fn, ok := displayKeyCopiers[key]; ok {
+		fn(dst, src)
 	}
 }
 
@@ -254,6 +247,9 @@ func parseHubDisplayConfig(used map[string]json.RawMessage) (Config, error) {
 		return Config{}, fmt.Errorf("hub display settings: %w", err)
 	}
 	if err := checkOwnersConfig(hc.Owners); err != nil {
+		return Config{}, fmt.Errorf("hub display settings: %w", err)
+	}
+	if err := checkReasonsConfig(hc.Reasons); err != nil {
 		return Config{}, fmt.Errorf("hub display settings: %w", err)
 	}
 	return hc, nil

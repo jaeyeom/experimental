@@ -71,9 +71,20 @@ var ErrNewerMessage = errors.New("new message arrived: not archived")
 
 // Option is one choice on a relay item. At most one option is recommended.
 type Option struct {
-	Key         string `json:"key"`
-	Label       string `json:"label"`
-	Recommended bool   `json:"recommended"`
+	Key         string   `json:"key"`
+	Label       string   `json:"label"`
+	Recommended bool     `json:"recommended"`
+	Ask         string   `json:"ask,omitempty"`
+	AskLinks    []string `json:"askLinks,omitempty"`
+}
+
+// Equal reports whether o and other have identical key, label, recommended, ask, and askLinks fields.
+func (o Option) Equal(other Option) bool {
+	return o.Key == other.Key &&
+		o.Label == other.Label &&
+		o.Recommended == other.Recommended &&
+		o.Ask == other.Ask &&
+		slices.Equal(o.AskLinks, other.AskLinks)
 }
 
 // Message is one entry in a thread. Author is "human" or an agent name.
@@ -722,6 +733,36 @@ func (l *Ledger) Answer(id, value, via string) (Item, error) {
 	return l.AnswerAt(id, value, via, time.Time{})
 }
 
+func checkAnswerableItem(it *Item, id string) error {
+	if it.Kind == KindTypeIn {
+		return fmt.Errorf("decide item %s is type-in", id)
+	}
+	if it.EffectiveClass() == ClassNote {
+		return fmt.Errorf("decide note %s takes no answer", id)
+	}
+	if it.State == StateWithdrawn {
+		return fmt.Errorf("decide item %s is %s", id, it.State)
+	}
+	if it.State == StateDone || it.State == StateDoneUnread {
+		return errors.New(AlreadyClosedMessage(it.Owner))
+	}
+	return nil
+}
+
+func resolveAnswerValue(it *Item, value string) (string, error) {
+	if it.EffectiveClass() == ClassFact {
+		return strings.TrimSpace(value), nil
+	}
+	if !it.FreeText {
+		stored := strings.TrimSpace(value)
+		if !hasOption(it, stored) {
+			return "", fmt.Errorf("decide answer %q is not an option", stored)
+		}
+		return stored, nil
+	}
+	return value, nil
+}
+
 // AnswerAt is Answer with an optional client writtenAt timestamp. When
 // writtenAt is non-zero, both WrittenAt and ReceivedAt (hub clock) are stored.
 func (l *Ledger) AnswerAt(id, value, via string, writtenAt time.Time) (Item, error) {
@@ -731,38 +772,32 @@ func (l *Ledger) AnswerAt(id, value, via string, writtenAt time.Time) (Item, err
 	if err := CheckVia(via); err != nil {
 		return Item{}, err
 	}
+	cfg, err := LoadConfig()
+	if err != nil {
+		return Item{}, err
+	}
 	var updated Item
-	err := l.locked(true, func(st *store) error {
+	err = l.lockedWithEvents(true, func(st *store) (bool, []Event, error) {
 		it, err := findItem(st, id)
 		if err != nil {
-			return err
+			return false, nil, err
 		}
-		if it.Kind == KindTypeIn {
-			return fmt.Errorf("decide item %s is type-in", id)
+		if err := checkAnswerableItem(it, id); err != nil {
+			return false, nil, err
 		}
-		if it.EffectiveClass() == ClassNote {
-			return fmt.Errorf("decide note %s takes no answer", id)
-		}
-		if it.State == StateWithdrawn {
-			return fmt.Errorf("decide item %s is %s", id, it.State)
-		}
-		if it.State == StateDone || it.State == StateDoneUnread {
-			return errors.New(AlreadyClosedMessage(it.Owner))
-		}
-		stored := value
-		if it.EffectiveClass() == ClassFact {
-			stored = strings.TrimSpace(value)
-		} else if !it.FreeText {
-			stored = strings.TrimSpace(value)
-			if !hasOption(it, stored) {
-				return fmt.Errorf("decide answer %q is not an option", stored)
-			}
+		stored, err := resolveAnswerValue(it, value)
+		if err != nil {
+			return false, nil, err
 		}
 		// Capture a legacy thread before replacing the answer. Otherwise the
 		// rebuild treats the new answer as the previous one and drops it.
 		ensureMessages(it)
 		receivedAt := l.clock().UTC()
 		answerType, label, isOption, askingAgent, rawAskingAgent, askedAt := prepareAnswerMeta(it, stored)
+		events, err := answerChoiceEvents(l.dir, cfg, it, receivedAt, via, askingAgent, rawAskingAgent, stored, label, isOption)
+		if err != nil {
+			return false, nil, err
+		}
 		it.State = StateAnswered
 		it.AnsweredAt = receivedAt
 		it.FollowUp = ""
@@ -772,12 +807,33 @@ func (l *Ledger) AnswerAt(id, value, via string, writtenAt time.Time) (Item, err
 		wakeOnMessage(it)
 		updated = *it
 		noteApprovalOnParent(st, it, stored, receivedAt)
-		return nil
+		return true, events, nil
 	})
 	if err != nil {
 		return Item{}, err
 	}
 	return updated, nil
+}
+
+func answerChoiceEvents(dir string, cfg Config, it *Item, receivedAt time.Time, via, askingAgent, rawAskingAgent, stored, label string, isOption bool) ([]Event, error) {
+	var chosenOpt *Option
+	var choiceKey, choiceLabel, replyText string
+	misfit := false
+	if isOption {
+		choiceKey = stored
+		choiceLabel = label
+		if opt, ok := findOption(it.Options, stored); ok {
+			chosenOpt = &opt
+		}
+	} else {
+		replyText = stored
+		misfit = len(it.Options) > 0
+	}
+	return buildChoiceAndAskEvents(
+		dir, cfg, it, receivedAt, Human, via,
+		askingAgent, rawAskingAgent,
+		choiceKey, choiceLabel, replyText, misfit, chosenOpt,
+	)
 }
 
 // StartThread stores a human compose addressed to owner.
@@ -965,6 +1021,38 @@ func (l *Ledger) ComposeAt(id, text, via, by string, writtenAt time.Time) (Item,
 	return l.ComposeVerbatimAt(id, text, "", via, by, writtenAt)
 }
 
+func composeAnswerMeta(it *Item) (answerType, askingAgent, rawAskingAgent string, askedAt time.Time, isQuestion bool) {
+	if !openQuestion(it) {
+		return AnswerTypeReplyNoQuestion, "", "", time.Time{}, false
+	}
+	askingAgent, rawAskingAgent, askedAt = pendingAsker(it)
+	if len(it.Options) > 0 {
+		return AnswerTypeFreeTextOverOptions, askingAgent, rawAskingAgent, askedAt, true
+	}
+	return AnswerTypeFreeTextOnly, askingAgent, rawAskingAgent, askedAt, true
+}
+
+func recordComposeAnswer(it *Item, ans, via, askingAgent, rawAskingAgent, answerType string, askedAt, now, writtenAt time.Time) {
+	it.State = StateAnswered
+	it.AnsweredAt = now
+	it.Answer = &Answer{
+		Value:          ans,
+		AnsweredBy:     "human",
+		Via:            via,
+		AnswerType:     answerType,
+		AskingAgent:    askingAgent,
+		RawAskingAgent: rawAskingAgent,
+		AskedAt:        utcTimePtr(askedAt),
+		AnsweredAt:     utcTimePtr(now),
+	}
+	if !writtenAt.IsZero() {
+		w := writtenAt.UTC()
+		r := now
+		it.Answer.WrittenAt = &w
+		it.Answer.ReceivedAt = &r
+	}
+}
+
 // ComposeVerbatimAt is ComposeVerbatim with an optional client writtenAt timestamp.
 func (l *Ledger) ComposeVerbatimAt(id, text, verbatim, via, by string, writtenAt time.Time) (Item, error) {
 	if strings.TrimSpace(text) == "" && strings.TrimSpace(verbatim) == "" {
@@ -978,27 +1066,32 @@ func (l *Ledger) ComposeVerbatimAt(id, text, verbatim, via, by string, writtenAt
 			return Item{}, err
 		}
 	}
+	ans := text
+	if ans == "" {
+		ans = verbatim
+	}
 	var updated Item
-	err := l.locked(true, func(st *store) error {
+	err := l.lockedWithEvents(true, func(st *store) (bool, []Event, error) {
 		it, err := findItem(st, id)
 		if err != nil {
-			return err
+			return false, nil, err
 		}
 		if it.State == StateWithdrawn {
-			return fmt.Errorf("decide item %s is %s", id, it.State)
+			return false, nil, fmt.Errorf("decide item %s is %s", id, it.State)
 		}
 		ensureMessages(it)
 		now := l.clock().UTC()
-		isQuestion := openQuestion(it)
-		answerType := AnswerTypeReplyNoQuestion
-		var askingAgent, rawAskingAgent string
-		var askedAt time.Time
-		if isQuestion {
-			askingAgent, rawAskingAgent, askedAt = pendingAsker(it)
-			if len(it.Options) > 0 {
-				answerType = AnswerTypeFreeTextOverOptions
-			} else {
-				answerType = AnswerTypeFreeTextOnly
+		answerType, askingAgent, rawAskingAgent, askedAt, isQuestion := composeAnswerMeta(it)
+		var newEvents []Event
+		if isQuestion && len(it.Options) > 0 {
+			var evErr error
+			newEvents, evErr = buildChoiceAndAskEvents(
+				l.dir, Config{}, it, now, Human, via,
+				askingAgent, rawAskingAgent,
+				"", "", ans, true, nil,
+			)
+			if evErr != nil {
+				return false, nil, evErr
 			}
 		}
 		msg := Message{
@@ -1021,32 +1114,11 @@ func (l *Ledger) ComposeVerbatimAt(id, text, verbatim, via, by string, writtenAt
 		}
 		it.Messages = append(it.Messages, msg)
 		if isQuestion {
-			ans := text
-			if ans == "" {
-				ans = verbatim
-			}
-			it.State = StateAnswered
-			it.AnsweredAt = now
-			it.Answer = &Answer{
-				Value:          ans,
-				AnsweredBy:     "human",
-				Via:            via,
-				AnswerType:     answerType,
-				AskingAgent:    askingAgent,
-				RawAskingAgent: rawAskingAgent,
-				AskedAt:        utcTimePtr(askedAt),
-				AnsweredAt:     utcTimePtr(now),
-			}
-			if !writtenAt.IsZero() {
-				w := writtenAt.UTC()
-				r := now
-				it.Answer.WrittenAt = &w
-				it.Answer.ReceivedAt = &r
-			}
+			recordComposeAnswer(it, ans, via, askingAgent, rawAskingAgent, answerType, askedAt, now, writtenAt)
 		}
 		wakeOnMessage(it)
 		updated = *it
-		return nil
+		return true, newEvents, nil
 	})
 	if err != nil {
 		return Item{}, err
@@ -1079,25 +1151,32 @@ func (l *Ledger) Reply(id, by, text string, options []Option, freeText bool) (It
 // An answered, done, or done-unread thread returns to the inbox. A withdrawn
 // thread is refused.
 // OwnerRepliesOnly refuses a sender other than the owner.
-func (l *Ledger) ReplyVerbatim(id, by, text, verbatim string, options []Option, freeText bool) (Item, error) {
+func validateReplyInput(text string, options []Option) error {
 	if strings.TrimSpace(text) == "" {
-		return Item{}, fmt.Errorf("decide text is empty")
+		return fmt.Errorf("decide text is empty")
 	}
 	if err := oneRecommended(options); err != nil {
-		return Item{}, err
+		return err
+	}
+	if err := checkOptionsAsks(options); err != nil {
+		return err
 	}
 	limits, err := loadShapeLimits()
 	if err != nil {
-		return Item{}, err
+		return err
 	}
 	if err := CheckShape(text, limits); err != nil {
-		return Item{}, err
+		return err
 	}
-	if err := checkOptionsShape(options, limits); err != nil {
+	return checkOptionsShape(options, limits)
+}
+
+func (l *Ledger) ReplyVerbatim(id, by, text, verbatim string, options []Option, freeText bool) (Item, error) {
+	if err := validateReplyInput(text, options); err != nil {
 		return Item{}, err
 	}
 	var updated Item
-	err = l.locked(true, func(st *store) error {
+	err := l.locked(true, func(st *store) error {
 		it, err := findItem(st, id)
 		if err != nil {
 			return err
@@ -1120,8 +1199,8 @@ func (l *Ledger) ReplyVerbatim(id, by, text, verbatim string, options []Option, 
 			By:       by,
 		}
 		if len(options) > 0 {
-			msg.Options = append([]Option(nil), options...)
-			it.Options = append([]Option(nil), options...)
+			msg.Options = cloneOptions(options)
+			it.Options = cloneOptions(options)
 			it.FreeText = freeText
 		} else if it.State == StateAnswered || it.State == StateDone || it.State == StateDoneUnread {
 			it.Options = nil
@@ -1384,7 +1463,13 @@ func (l *Ledger) clock() time.Time {
 	return l.now()
 }
 
-func (l *Ledger) locked(write bool, fn func(*store) error) (err error) {
+func (l *Ledger) locked(write bool, fn func(*store) error) error {
+	return l.lockedWithEvents(write, func(st *store) (bool, []Event, error) {
+		return write, nil, fn(st)
+	})
+}
+
+func (l *Ledger) lockedWithEvents(write bool, fn func(*store) (bool, []Event, error)) (err error) {
 	f, err := l.acquire()
 	if err != nil {
 		return err
@@ -1413,14 +1498,25 @@ func (l *Ledger) locked(write bool, fn func(*store) error) (err error) {
 		}
 		before = snapshotItems(st.Items)
 	}
-	if err = fn(st); err != nil {
+	writeLedger, newEvents, err := fn(st)
+	if err != nil {
 		return err
 	}
 	if !write {
-		return nil
+		writeLedger = false
 	}
-	if err = save(l.dir, st); err != nil {
-		return err
+	if writeLedger {
+		if err = save(l.dir, st); err != nil {
+			return err
+		}
+	}
+	if len(newEvents) > 0 {
+		if err = appendEvents(l.dir, newEvents); err != nil {
+			return err
+		}
+	}
+	if !writeLedger {
+		return nil
 	}
 	return l.saveDelta(before, st.Items)
 }
@@ -1647,6 +1743,16 @@ func optionLabel(options []Option, key string) (string, bool) {
 	return "", false
 }
 
+func findOption(options []Option, key string) (Option, bool) {
+	for _, opt := range options {
+		if opt.Key == key {
+			opt.AskLinks = append([]string(nil), opt.AskLinks...)
+			return opt, true
+		}
+	}
+	return Option{}, false
+}
+
 func keyLabel(key, label string) string {
 	if label == "" {
 		return key
@@ -1734,9 +1840,30 @@ func validate(item *Item) error {
 	if err := oneRecommended(item.Options); err != nil {
 		return err
 	}
+	if err := checkOptionsAsks(item.Options); err != nil {
+		return err
+	}
 	for i := range item.Messages {
 		if err := oneRecommended(item.Messages[i].Options); err != nil {
 			return err
+		}
+		if err := checkOptionsAsks(item.Messages[i].Options); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func checkOptionsAsks(opts []Option) error {
+	for _, opt := range opts {
+		if strings.TrimSpace(opt.Ask) != "" {
+			if _, _, err := ParseAskSpec(opt.Ask); err != nil {
+				return err
+			}
+			continue
+		}
+		if len(opt.AskLinks) > 0 {
+			return fmt.Errorf("decide option %q has askLinks without ask", opt.Key)
 		}
 	}
 	return nil
@@ -1796,10 +1923,24 @@ func oneRecommended(opts []Option) error {
 	return nil
 }
 
+func cloneOptions(src []Option) []Option {
+	if src == nil {
+		return nil
+	}
+	out := make([]Option, len(src))
+	for i, opt := range src {
+		out[i] = opt
+		if opt.AskLinks != nil {
+			out[i].AskLinks = append([]string(nil), opt.AskLinks...)
+		}
+	}
+	return out
+}
+
 func cloneItem(src *Item) Item {
 	item := *src
 	if src.Options != nil {
-		item.Options = append([]Option(nil), src.Options...)
+		item.Options = cloneOptions(src.Options)
 	}
 	if src.Links != nil {
 		item.Links = append([]string(nil), src.Links...)
@@ -1826,7 +1967,7 @@ func cloneItem(src *Item) Item {
 		item.Messages = append([]Message(nil), src.Messages...)
 		for i := range item.Messages {
 			if src.Messages[i].Options != nil {
-				item.Messages[i].Options = append([]Option(nil), src.Messages[i].Options...)
+				item.Messages[i].Options = cloneOptions(src.Messages[i].Options)
 			}
 			item.Messages[i].WrittenAt = cloneTime(src.Messages[i].WrittenAt)
 			item.Messages[i].ReceivedAt = cloneTime(src.Messages[i].ReceivedAt)
@@ -1881,7 +2022,7 @@ func ensureMessages(it *Item) {
 		Verbatim: it.Verbatim,
 	}
 	if len(it.Options) > 0 {
-		msg.Options = append([]Option(nil), it.Options...)
+		msg.Options = cloneOptions(it.Options)
 	}
 	it.Messages = []Message{msg}
 	if it.Answer == nil {

@@ -290,6 +290,8 @@ func (m *Model) dispatchModeKey(s decide.KeyStroke) (bool, error) {
 	switch m.mode {
 	case modeOutbox:
 		return m.handleOutboxKey(s)
+	case modeAsks:
+		return m.handleAsksKey(s)
 	case modeSettings:
 		return m.handleSettingsKey(s)
 	case modeDetail:
@@ -364,6 +366,7 @@ func (m *Model) runAction(action string) (bool, error) {
 		"goto.status":          func() (bool, error) { return false, m.showStatus() },
 		"goto.contacts":        func() (bool, error) { return false, m.showContacts() },
 		"goto.outbox":          func() (bool, error) { return false, m.showOutbox() },
+		"goto.asks":            func() (bool, error) { return false, m.showAsks() },
 		"goto.settings":        func() (bool, error) { return false, m.showSettings() },
 		"goto.top":             func() (bool, error) { return m.runGoToTop() },
 		"list.next":            func() (bool, error) { m.moveList(1); return false, nil },
@@ -377,6 +380,7 @@ func (m *Model) runAction(action string) (bool, error) {
 		"list.archive":         func() (bool, error) { return false, m.archiveSelected() },
 		"list.classFilter":     func() (bool, error) { m.classFiltering = true; return false, nil },
 		"list.snooze":          func() (bool, error) { m.beginSnooze(); return false, nil },
+		"list.flag":            func() (bool, error) { m.beginFlag(); return false, nil },
 		"list.clearFilter":     func() (bool, error) { m.clearAgentFilter(); m.SetClassFilter(nil); return false, nil },
 		"detail.back":          func() (bool, error) { m.backToList(); return false, nil },
 		"detail.scrollDown":    func() (bool, error) { m.Wheel(true); return false, nil },
@@ -399,6 +403,7 @@ func (m *Model) runAction(action string) (bool, error) {
 		"detail.forward":       func() (bool, error) { m.forwardItem(); return false, nil },
 		"detail.outcome":       func() (bool, error) { m.beginOutcome(); return false, nil },
 		"detail.reply":         func() (bool, error) { m.focusReply(); return false, nil },
+		"detail.flag":          func() (bool, error) { m.beginFlag(); return false, nil },
 		"status.next":          func() (bool, error) { m.moveStatusCursor(1); return false, nil },
 		"status.prev":          func() (bool, error) { m.moveStatusCursor(-1); return false, nil },
 		"status.pageDown":      func() (bool, error) { m.moveList(m.listPage()); return false, nil },
@@ -685,19 +690,19 @@ func (m *Model) goToChordItems() (prefix string, items []struct{ key, name strin
 		{"goto.top", "top"},
 	}
 	if m.hasOutbox() {
-		gotoActions = append(gotoActions[:len(gotoActions)-2],
+		gotoActions = slices.Insert(gotoActions, len(gotoActions)-2,
 			struct {
 				action string
 				name   string
 			}{"goto.outbox", "outbox"},
+		)
+	}
+	if m.hasAsks() {
+		gotoActions = slices.Insert(gotoActions, len(gotoActions)-2,
 			struct {
 				action string
 				name   string
-			}{"goto.settings", "settings"},
-			struct {
-				action string
-				name   string
-			}{"goto.top", "top"},
+			}{"goto.asks", "asks"},
 		)
 	}
 	for _, ga := range gotoActions {
@@ -787,6 +792,8 @@ func (m *Model) browseHintLine(label string) string {
 		return label + m.contactsHintLine()
 	case modeSettings:
 		return label + m.settingsHintLine()
+	case modeAsks:
+		return label + m.asksHintLine()
 	case modeDetail, modeOutcome:
 		return label + m.detailHintLine()
 	default:
@@ -886,6 +893,9 @@ func (m *Model) optionalHintExtras() []string {
 		if b := m.actionFirst("list.snooze"); b != "" {
 			extras = append(extras, b+" snooze")
 		}
+		if fl := m.actionFirst("list.flag"); fl != "" {
+			extras = append(extras, fl+" flag")
+		}
 	}
 	return extras
 }
@@ -903,6 +913,9 @@ func (m *Model) detailOptionalHints(find string) []string {
 	}
 	if o := m.actionFirst("detail.owner"); o != "" {
 		extras = append(extras, o+" owner")
+	}
+	if fl := m.actionFirst("detail.flag"); fl != "" {
+		extras = append(extras, fl+" flag")
 	}
 	return extras
 }
@@ -927,6 +940,8 @@ func (m *Model) helpTextLines() []string {
 		text = append(text, m.contactsHelpLines()...)
 	case modeOutbox:
 		text = append(text, m.outboxHelpLines()...)
+	case modeAsks:
+		text = append(text, "j/k move", "enter opens source thread", "d marks done (with reason)", "x drops (with reason)", "u returns to list")
 	case modeSettings:
 		text = append(text, m.settingsHelpLines()...)
 	default:
@@ -1045,6 +1060,7 @@ func (m *Model) listOrDetailHelpLines() []string {
 		{"detail.archive", "archive"},
 		{"detail.outcome", "archive with note"},
 		{"detail.snooze", "snooze"},
+		{"detail.flag", "flag"},
 	} {
 		if k := m.actionSlash(spec.action); k != "" {
 			itemActs = append(itemActs, k+" "+spec.label)

@@ -15,7 +15,9 @@ import {
   urlBase64ToUint8Array, pushSupport, subscriptionBody, classOptions, toggleClass, validateQuiet,
   prefsBody, formFromSub, permissionMessage,
 } from './push_model.js';
-import { applyResync, emptyState, parseRoute } from './store.js';
+import { groupReasons, validateFlagInput, resolveClientFlagTarget } from './flag_sheet.js';
+import { openAskCount, sortAsks, asksPanel, safeHttpURL } from './asks_model.js';
+import { applyResync, applyDelta, emptyState, parseRoute } from './store.js';
 
 const now = Date.parse('2026-01-01T12:00:00Z');
 const ago = (s) => new Date(now - s * 1000).toISOString();
@@ -370,4 +372,68 @@ test('quiet hours validation and preferences body', () => {
   assert.deepEqual(formFromSub({ classes: ['fact'], quietStart: '01:00', quietEnd: '02:00', tz: 'UTC' }),
     { classes: ['fact'], quietStart: '01:00', quietEnd: '02:00', tz: 'UTC' });
   assert.deepEqual(formFromSub(null).classes, ['approval', 'decision', 'fact', 'task', 'request', 'inbound']);
+});
+
+// --- flag reasons and asks ---
+test('flag reason grouping, validation, and message target resolution', () => {
+  const reasons = [
+    { id: 'verdict-not-first', category: 'format', label: 'verdict not first' },
+    { id: 'vague-pronoun', category: 'main-text', label: 'vague pronoun' },
+    { id: 'other', category: 'other', label: 'other (note required)', requireNote: true },
+  ];
+  const groups = groupReasons(reasons);
+  assert.deepEqual(groups.map((g) => g.category), ['format', 'main-text', 'other']);
+  assert.equal(validateFlagInput(reasons, [], '').ok, false);
+  assert.equal(validateFlagInput(reasons, ['other'], '  ').ok, false);
+  assert.deepEqual(validateFlagInput(reasons, ['other', 'vague-pronoun', 'other'], '  unclear it  '), {
+    ok: true,
+    reasonIds: ['other', 'vague-pronoun'],
+    note: 'unclear it',
+  });
+
+  const item = {
+    id: 'D-1',
+    owner: 'alice',
+    question: 'Choose one?',
+    messages: [
+      { author: 'agent', by: 'worker/alice', text: 'First msg' },
+      { author: 'human', text: 'Reply' },
+      { author: 'system', text: 'System notice' },
+    ],
+  };
+  assert.deepEqual(resolveClientFlagTarget(item, null), { messageIndex: 0, agent: 'worker/alice', preview: 'First msg' });
+  assert.deepEqual(resolveClientFlagTarget({ id: 'D-2', owner: 'bob', question: 'Q' }, null), { messageIndex: null, agent: 'bob', preview: 'Q' });
+});
+
+test('asks sorting, panel visibility, safe URLs, and SSE state updates', () => {
+  const list = [
+    { id: 'ASK-001', status: 'done', person: 'Bob', what: 'old done', createdAt: ago(300) },
+    { id: 'ASK-003', status: 'open', person: 'Dana', what: 'newer open', createdAt: ago(60) },
+    { id: 'ASK-002', status: 'open', person: 'Carol', what: 'older open', createdAt: ago(200) },
+  ];
+  assert.deepEqual(sortAsks(list).map((a) => a.id), ['ASK-002', 'ASK-003', 'ASK-001']);
+  assert.equal(openAskCount(list), 2);
+  assert.equal(asksPanel(list, false, now), null);
+  const panel = asksPanel(list, true, now);
+  assert.equal(panel.id, 'asks');
+  assert.equal(panel.data.rows[0].value, '2');
+  assert.equal(panel.data.rows[1].label, 'ASK-002');
+  assert.equal(buildDashboardPanels({ status: null, asks: list, asksEnabled: true, now }).map((p) => p.id).includes('asks'), true);
+  assert.equal(buildDashboardPanels({ status: null, asks: list, asksEnabled: false, now }).map((p) => p.id).includes('asks'), false);
+
+  assert.equal(safeHttpURL('https://example.com/pr/1'), 'https://example.com/pr/1');
+  assert.equal(safeHttpURL('javascript:alert(1)'), '');
+  assert.deepEqual(parseRoute('#/asks'), { name: 'asks', arg: '' });
+
+  const s1 = applyResync(emptyState(), {
+    seq: 2,
+    items: [],
+    reasons: [{ id: 'other', category: 'other', label: 'other', requireNote: true }],
+    asksEnabled: true,
+    asks: [list[2]],
+  });
+  assert.equal(s1.asksEnabled, true);
+  assert.equal(s1.asks.length, 1);
+  const s2 = applyDelta(s1, { seq: 3, changes: [], asks: list });
+  assert.equal(s2.asks.length, 3);
 });

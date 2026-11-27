@@ -21,6 +21,7 @@ const defaultPayload = () => ({
     { name: 'goto.status', view: 'global', scopes: browse, description: 'Go to Status.', where: 'any', keys: ['g s'], helpKeys: ['g s'], buttonKeys: ['g s'] },
     { name: 'goto.contacts', view: 'global', scopes: browse, description: 'Go to Contacts.', where: 'any', keys: ['g c'], helpKeys: ['g c'], buttonKeys: ['g c'] },
     { name: 'goto.outbox', view: 'global', scopes: browse, description: 'Go to Outbox.', where: 'any', keys: ['g o'], helpKeys: ['g o'], buttonKeys: ['g o'] },
+    { name: 'goto.asks', view: 'global', scopes: browse, description: 'Go to Asks.', where: 'any', keys: ['g k'], helpKeys: ['g k'], buttonKeys: ['g k'] },
     { name: 'goto.top', view: 'global', scopes: browse, description: 'Top of list or item.', where: 'any', keys: ['g g'], helpKeys: ['g g'], buttonKeys: ['g g'] },
 
     { name: 'list.next', view: 'list', scopes: ['list'], description: 'Next row.', where: 'list', keys: ['j'], helpKeys: ['j'], buttonKeys: ['j'] },
@@ -31,6 +32,7 @@ const defaultPayload = () => ({
     { name: 'list.compose', view: 'list', scopes: ['list'], description: 'Compose.', where: 'list', keys: ['c'], helpKeys: ['c'], buttonKeys: ['c'] },
     { name: 'list.archive', view: 'list', scopes: ['list'], description: 'Archive.', where: 'list', keys: ['e', 'y'], helpKeys: ['e', 'y'], buttonKeys: ['e', 'y'] },
     { name: 'list.snooze', view: 'list', scopes: ['list'], description: 'Snooze.', where: 'list', keys: ['b'], helpKeys: ['b'], buttonKeys: ['b'] },
+    { name: 'list.flag', view: 'list', scopes: ['list'], description: 'Flag item or message.', where: 'list', keys: ['!'], helpKeys: ['!'], buttonKeys: ['!'] },
     { name: 'list.clearFilter', view: 'list', scopes: ['list'], description: 'Clear filter.', where: 'list', keys: ['esc'], helpKeys: ['esc'], buttonKeys: ['Esc'] },
 
     { name: 'detail.back', view: 'detail', scopes: ['detail'], description: 'Back.', where: 'item', keys: ['u', 'esc'], helpKeys: ['u', 'esc'], buttonKeys: ['u', 'Esc'] },
@@ -42,6 +44,7 @@ const defaultPayload = () => ({
     { name: 'detail.prevMessage', view: 'detail', scopes: ['detail'], description: 'Previous message.', where: 'item', keys: ['p'], helpKeys: ['p'], buttonKeys: ['p'] },
     { name: 'detail.archive', view: 'detail', scopes: ['detail'], description: 'Archive.', where: 'item', keys: ['e', 'y'], helpKeys: ['e', 'y'], buttonKeys: ['e', 'y'] },
     { name: 'detail.snooze', view: 'detail', scopes: ['detail'], description: 'Snooze.', where: 'item', keys: ['b'], helpKeys: ['b'], buttonKeys: ['b'] },
+    { name: 'detail.flag', view: 'detail', scopes: ['detail'], description: 'Flag item or message.', where: 'item', keys: ['!'], helpKeys: ['!'], buttonKeys: ['!'] },
     { name: 'detail.compose', view: 'detail', scopes: ['detail'], description: 'Compose.', where: 'item', keys: ['c'], helpKeys: ['c'], buttonKeys: ['c'] },
     { name: 'detail.outcome', view: 'detail', scopes: ['detail'], description: 'Archive with note.', where: 'item', keys: ['E'], helpKeys: ['E'], buttonKeys: ['E'] },
     { name: 'detail.reply', view: 'detail', scopes: ['detail'], description: 'Focus reply box.', where: 'item', keys: ['0'], helpKeys: ['0'], buttonKeys: ['0'] },
@@ -77,6 +80,7 @@ test('each action fires exactly once for its key', () => {
   assert.deepEqual(press([ev('g'), ev('s')], { scope: 'list' }), ['goto.status']);
   assert.deepEqual(press([ev('g'), ev('c')], { scope: 'list' }), ['goto.contacts']);
   assert.deepEqual(press([ev('g'), ev('o')], { scope: 'list' }), ['goto.outbox']);
+  assert.deepEqual(press([ev('g'), ev('k')], { scope: 'list' }), ['goto.asks']);
   assert.deepEqual(press([ev('g'), ev('g')], { scope: 'list' }), ['goto.top']);
   assert.deepEqual(press([ev('Home')], { scope: 'list' }), ['list.top']);
   assert.deepEqual(press([ev('G', { shiftKey: true })], { scope: 'list' }), ['list.bottom']);
@@ -105,6 +109,8 @@ test('each action fires exactly once for its key', () => {
   assert.deepEqual(press([ev('y')], { scope: 'detail' }), ['detail.archive']);
   assert.deepEqual(press([ev('b')], { scope: 'list' }), ['list.snooze']);
   assert.deepEqual(press([ev('b')], { scope: 'detail' }), ['detail.snooze']);
+  assert.deepEqual(press([ev('!', { shiftKey: true })], { scope: 'list' }), ['list.flag']);
+  assert.deepEqual(press([ev('!', { shiftKey: true })], { scope: 'detail' }), ['detail.flag']);
   assert.deepEqual(press([ev('E', { shiftKey: true })], { scope: 'detail' }), ['detail.outcome']);
   assert.equal(km.handleKey(ev('d'), { scope: 'detail' }), null, 'd is unbound by default');
   assert.equal(km.handleKey(ev('E', { shiftKey: true }), { scope: 'list' }), null, 'E does nothing in list');

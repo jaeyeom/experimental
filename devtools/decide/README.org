@@ -241,7 +241,8 @@ that hub for one invocation.
 | ~decide reassign~                | Point an item at another owner or notify pane.                                   |
 | ~decide assign~                  | Record who is working on an item. ~--clear~ removes it.                          |
 | ~decide retag~                   | Change an item's class and prefix, recording a thread event.                     |
-| ~decide log search~              | Search answered decisions and facts, newest first.                               |
+| ~decide ask ls/show/add/done/drop~ | Manage optional tracked asks (~asks.enabled~).                                   |
+| ~decide log~                       | List choice events, misfits (~--misfit~), and flags (~--flags~). ~log cause~ adds a cause; ~log search~ searches answered decisions/facts. |
 | ~decide supersede~               | Record that a newer item replaces an older one.                                  |
 | ~decide skill~                   | Print the agent instructions.                                                    |
 | ~decide skill install~           | Install the agent skill for ~claude~, ~codex~, ~antigravity~, ~grok~, or ~all~.  |
@@ -313,6 +314,22 @@ and the deduplicated item IDs (~optionIds~, ~freeTextOverOptionsIds~,
 using ~contactAliases~, ~targets~, and ~agentbus~ pane/name mappings, or
 reported as ~unknown~ when ambiguous. ~decide doctor~ warns when two
 unaliased names file from the same pane within an hour.
+
+~decide stats answers~ report, ~answerType~, and ~events.jsonl~ choice logs stay active even when ~asks.enabled~ is off.
+
+** Choice event log, flags, and asks
+
+Every human choice selection or free-text reply (~0~ / ~Reply~) on an
+item that offers choices appends one immutable event to ~events.jsonl~
+in the same locked write as the answer. Free-text replies over choices
+are automatically flagged ~options did not fit~ with a snapshot of the
+offered options and the asking agent:
+
+- ~decide log [--misfit] [--flags] [--agent A] [--cause R] [--group-by-agent] [--json]~ lists choice events, misfits, or inbox flags.
+- ~decide log cause <event> <reason>... [--note TEXT]~ appends an immutable cause annotation to a misfit event.
+- ~decide log reasons~ prints the active reason catalog from ~config.json~ (~reasons~).
+- Press ~!~ in the terminal or web inbox (or click ~Flag~ in the web UI) to record a flag event on any item or agent message.
+- When ~"asks": {"enabled": true}~ is set in ~config.json~, choices tagged with ~--ask key="<person>: <what>"~ (and ~--ask-link~) open tracked asks managed via ~decide ask ls|show|add|done|drop~ and the inbox Asks view (~g k~). With ~asks~ disabled (the default), no ask records are created while the choice event log continues recording.
 
 * Notes and status
 

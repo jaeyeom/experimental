@@ -42,6 +42,7 @@ const (
 	modeContacts
 	modeOutbox
 	modeSettings
+	modeAsks
 )
 
 const (
@@ -363,6 +364,26 @@ type Model struct {
 	answerDraft          draftState
 	composeDraft         draftState
 	composeRestorePrompt bool
+
+	flagging     bool
+	flagItemID   string
+	flagMsgIdx   *int
+	flagAgent    string
+	flagPreview  string
+	flagReasons  []decide.Reason
+	flagSelected map[string]bool
+	flagNote     string
+	flagCursor   int
+	flagErr      string
+
+	asksOn         bool
+	asksOnExplicit bool
+	asks           []decide.AskRecord
+	askCursor      int
+	askClosing     string
+	askCloseID     string
+	askCloseBuf    string
+	askCloseErr    string
 }
 
 // New returns an inbox positioned on the open folder.
@@ -442,6 +463,7 @@ func (m *Model) applyList(all []decide.Item) error {
 		return err
 	}
 	m.rebuildContacts()
+	m.refreshAsks()
 	m.restoreFailedOutbox()
 	m.clampOutboxCursor()
 	if Folders[m.folder].Snoozed {
@@ -528,6 +550,12 @@ func (m *Model) overlayKey(r rune) (bool, bool, error) {
 	case m.snoozing:
 		quit, err := m.snoozeKey(r)
 		return quit, true, err
+	case m.flagging:
+		quit, err := m.flagKey(r)
+		return quit, true, err
+	case m.askClosing != "":
+		quit, err := m.askCloseKey(r)
+		return quit, true, err
 	case m.searching:
 		quit, err := m.searchKey(r)
 		return quit, true, err
@@ -573,6 +601,8 @@ func (m *Model) listLen() int {
 		return m.statusListLen()
 	case modeContacts:
 		return len(m.visibleContacts())
+	case modeAsks:
+		return len(m.visibleAsks())
 	default:
 		return len(m.items)
 	}
@@ -585,6 +615,9 @@ func (m *Model) moveList(delta int) {
 		return
 	case modeContacts:
 		m.moveContact(delta)
+		return
+	case modeAsks:
+		m.moveAsks(delta)
 		return
 	}
 	n := len(m.items)
@@ -620,6 +653,10 @@ func (m *Model) jumpList(index int) {
 	case modeContacts:
 		m.contactCursor = index
 		m.revealContactCursor()
+		return
+	case modeAsks:
+		m.askCursor = index
+		m.clampAskCursor()
 		return
 	}
 	m.cursor = index
@@ -1836,27 +1873,37 @@ func markCursorOffscreen(visible []screenLine, width int, below bool) []screenLi
 	return visible
 }
 
-func (m *Model) allLines() []screenLine {
+func (m *Model) overlayLines() ([]screenLine, bool) {
 	var lines []screenLine
-	if m.help || m.snoozing || m.linkPick || m.avatarPick || m.copyMenu {
-		switch {
-		case m.help:
-			lines = m.helpLines()
-		case m.snoozing:
-			lines = m.snoozeLines()
-		case m.avatarPick:
-			lines = m.avatarPickLines()
-		case m.copyMenu:
-			lines = m.copyMenuLines()
-		default:
-			lines = m.linkPickLines()
-		}
-		if w := m.contentWidth(); w > 0 {
-			lines = fitColumnLines(lines, w)
-		}
-	} else {
+	switch {
+	case m.help:
+		lines = m.helpLines()
+	case m.snoozing:
+		lines = m.snoozeLines()
+	case m.flagging:
+		lines = m.flagLines()
+	case m.askClosing != "":
+		lines = m.askCloseLines()
+	case m.avatarPick:
+		lines = m.avatarPickLines()
+	case m.copyMenu:
+		lines = m.copyMenuLines()
+	case m.linkPick:
+		lines = m.linkPickLines()
+	default:
+		return nil, false
+	}
+	if w := m.contentWidth(); w > 0 {
+		lines = fitColumnLines(lines, w)
+	}
+	return lines, true
+}
+
+func (m *Model) allLines() []screenLine {
+	lines, ok := m.overlayLines()
+	if !ok {
 		lines = m.mailLines()
-		if banner, ok := m.busBanner(); ok {
+		if banner, hasBanner := m.busBanner(); hasBanner {
 			lines = append([]screenLine{banner}, lines...)
 		}
 	}
@@ -1894,6 +1941,19 @@ func (m *Model) narrow() bool {
 	return m.width > 0 && m.width < narrowWidth
 }
 
+func (m *Model) overlayHintLine(label string) (screenLine, bool) {
+	switch {
+	case m.snoozing:
+		return screenLine{text: label + snoozeHint}, true
+	case m.flagging:
+		return screenLine{text: label + flagHint}, true
+	case m.askClosing != "":
+		return screenLine{text: label + "type reason  enter save  esc cancel"}, true
+	default:
+		return screenLine{}, false
+	}
+}
+
 func (m *Model) statusLine() screenLine {
 	// The mouse label stays in front. The list and status hints stay the same
 	// width, so a 70-column footer still shows "? help". An open item also
@@ -1903,8 +1963,8 @@ func (m *Model) statusLine() screenLine {
 		return line
 	}
 	label := m.mouseLabel()
-	if m.snoozing {
-		return screenLine{text: label + snoozeHint}
+	if line, ok := m.overlayHintLine(label); ok {
+		return line
 	}
 	if m.linkPick {
 		if m.status != "" {
@@ -1971,7 +2031,7 @@ func (m *Model) listFocused() bool {
 }
 
 func (m *Model) detailFocused() bool {
-	return m.mode != modeList && m.mode != modeStatus && m.mode != modeContacts && m.mode != modeSettings && !m.composing && !m.answerFocus
+	return m.mode != modeList && m.mode != modeStatus && m.mode != modeContacts && m.mode != modeOutbox && m.mode != modeSettings && m.mode != modeAsks && !m.composing && !m.answerFocus
 }
 
 func (m *Model) mailLines() []screenLine {
@@ -1990,6 +2050,9 @@ func (m *Model) mailLines() []screenLine {
 	}
 	if m.mode == modeOutbox {
 		return m.outboxMail(pane)
+	}
+	if m.mode == modeAsks {
+		return m.asksMail(pane)
 	}
 	if m.mode == modeSettings {
 		return m.settingsMail(pane)
@@ -2495,10 +2558,14 @@ func (m *Model) fitDetail(lines []screenLine, width int) []screenLine {
 }
 
 func (m *Model) navLen() int {
+	n := len(Folders) + 3
 	if m.hasOutbox() {
-		return len(Folders) + 4
+		n++
 	}
-	return len(Folders) + 3
+	if m.hasAsks() {
+		n++
+	}
+	return n
 }
 
 func (m *Model) settingsNavIndex() int {
@@ -2513,6 +2580,8 @@ func (m *Model) navSelected(i int) bool {
 		return i == len(Folders)+1
 	case modeOutbox:
 		return m.hasOutbox() && i == m.outboxNavIndex()
+	case modeAsks:
+		return m.hasAsks() && i == m.asksNavIndex()
 	case modeSettings:
 		return i == m.settingsNavIndex()
 	default:
@@ -2529,6 +2598,8 @@ func (m *Model) navName(i int) string {
 		name = "Status"
 	case m.hasOutbox() && i == m.outboxNavIndex():
 		name = "Outbox"
+	case m.hasAsks() && i == m.asksNavIndex():
+		name = "Asks"
 	case i == m.settingsNavIndex():
 		name = "Settings"
 	}
@@ -2564,6 +2635,24 @@ func (m *Model) navText(i int) string {
 // the query filters that view. Contacts counts active contacts, and
 // shows matches/total under a search or an agent filter. The bool is
 // true when a folder has no matches and should be dimmed.
+func (m *Model) outboxNavCountText(q string) (string, bool) {
+	ob, _ := m.outboxBackend()
+	all := ob.Outbox()
+	if q == "" {
+		return fmt.Sprintf("%d", len(all)), false
+	}
+	matches := len(m.outboxEntries())
+	return fmt.Sprintf("%d/%d", matches, len(all)), matches == 0
+}
+
+func (m *Model) asksNavCountText(q string) (string, bool) {
+	if q == "" && m.agentFilter == "" {
+		return fmt.Sprintf("%d", decide.OpenAskCount(m.asks)), false
+	}
+	vis := m.visibleAsks()
+	return fmt.Sprintf("%d/%d", len(vis), len(m.asks)), len(vis) == 0
+}
+
 func (m *Model) navCountText(i int) (string, bool) {
 	q := m.listQuery()
 	if i == len(Folders) {
@@ -2574,13 +2663,10 @@ func (m *Model) navCountText(i int) (string, bool) {
 		return fmt.Sprintf("%d/%d", matches, m.statusTotal), matches == 0
 	}
 	if m.hasOutbox() && i == m.outboxNavIndex() {
-		ob, _ := m.outboxBackend()
-		all := ob.Outbox()
-		if q == "" {
-			return fmt.Sprintf("%d", len(all)), false
-		}
-		matches := len(m.outboxEntries())
-		return fmt.Sprintf("%d/%d", matches, len(all)), matches == 0
+		return m.outboxNavCountText(q)
+	}
+	if m.hasAsks() && i == m.asksNavIndex() {
+		return m.asksNavCountText(q)
 	}
 	if i == m.settingsNavIndex() {
 		return "", false
@@ -2713,7 +2799,7 @@ func (m *Model) headerChrome() int {
 
 func (m *Model) hasSidebarMode() bool {
 	switch m.mode {
-	case modeList, modeStatus, modeContacts, modeOutbox, modeSettings:
+	case modeList, modeStatus, modeContacts, modeOutbox, modeAsks, modeSettings:
 		return true
 	default:
 		return false

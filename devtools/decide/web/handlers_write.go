@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/decide"
@@ -335,4 +336,88 @@ func (s *Server) setFavorites(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Watcher().Signal()
 	writeJSON(w, http.StatusOK, map[string]any{"display": display})
+}
+
+type flagReq struct {
+	MessageIndex *int     `json:"messageIndex"`
+	Reasons      []string `json:"reasons"`
+	Note         string   `json:"note"`
+}
+
+func (s *Server) flagItem(w http.ResponseWriter, r *http.Request) {
+	id, err := itemID(r)
+	if err != nil {
+		fail(w, err, 0)
+		return
+	}
+	var body flagReq
+	if err := decodeBody(w, r, &body); err != nil {
+		fail(w, err, 0)
+		return
+	}
+	if len(body.Reasons) == 0 {
+		fail(w, badRequest("reasons are required"), 0)
+		return
+	}
+	if err := tooLong("note", body.Note); err != nil {
+		fail(w, err, 0)
+		return
+	}
+	ev, err := s.Backend.Flag(id, body.MessageIndex, body.Reasons, body.Note)
+	if err != nil {
+		fail(w, err, http.StatusBadRequest)
+		return
+	}
+	s.Watcher().Signal()
+	writeJSON(w, http.StatusOK, map[string]any{"event": ev})
+}
+
+type closeAskReq struct {
+	Reason string `json:"reason"`
+}
+
+func (s *Server) closeAskHandler(status string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := askID(r)
+		if err != nil {
+			fail(w, err, 0)
+			return
+		}
+		var body closeAskReq
+		if err := decodeBody(w, r, &body); err != nil {
+			fail(w, err, 0)
+			return
+		}
+		if strings.TrimSpace(body.Reason) == "" {
+			fail(w, badRequest("reason is required"), 0)
+			return
+		}
+		if err := tooLong("reason", body.Reason); err != nil {
+			fail(w, err, 0)
+			return
+		}
+		enabled, err := s.asksEnabledFlag()
+		if err != nil {
+			fail(w, err, http.StatusInternalServerError)
+			return
+		}
+		if !enabled {
+			fail(w, badRequest("decide asks are disabled in config"), 0)
+			return
+		}
+		closed, err := s.Backend.CloseAsk(id, status, body.Reason)
+		if err != nil {
+			switch {
+			case strings.Contains(err.Error(), "not found"):
+				writeError(w, http.StatusNotFound, err.Error())
+			case strings.Contains(err.Error(), "is already "):
+				writeError(w, http.StatusConflict, err.Error())
+			default:
+				fail(w, err, http.StatusBadRequest)
+			}
+			return
+		}
+		s.Watcher().Signal()
+		writeJSON(w, http.StatusOK, map[string]any{"ask": closed})
+	}
 }

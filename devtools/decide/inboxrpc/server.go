@@ -97,6 +97,44 @@ func (s *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 	return nil
 }
 
+func (s *Server) eventsOp(req Request) (Response, bool) {
+	switch req.Op {
+	case OpReasons:
+		return s.reasons(), true
+	case OpFlag:
+		return s.flag(req), true
+	case OpListAsks:
+		return s.listAsks(), true
+	case OpCloseAsk:
+		return s.closeAsk(req), true
+	default:
+		return Response{}, false
+	}
+}
+
+func (s *Server) queryOp(ctx context.Context, req Request) (Response, bool) {
+	switch req.Op {
+	case OpHello:
+		return Response{Version: Version}, true
+	case OpList:
+		return s.list(), true
+	case OpStatus:
+		return s.status(), true
+	case OpTargets:
+		return Response{Targets: s.Targets, Agentbus: s.Agentbus}, true
+	case OpConfig:
+		return s.config(), true
+	case OpLocate:
+		return s.locate(ctx, req), true
+	case OpOrgTree:
+		return s.orgTree(ctx), true
+	case OpPanels:
+		return s.panels(), true
+	default:
+		return Response{}, false
+	}
+}
+
 func (s *Server) handle(ctx context.Context, req Request) Response {
 	if resp, ok := s.itemOp(req); ok {
 		return resp
@@ -110,28 +148,64 @@ func (s *Server) handle(ctx context.Context, req Request) Response {
 	if resp, ok := s.settingsOp(req); ok {
 		return resp
 	}
-	switch req.Op {
-	case OpHello:
-		return Response{Version: Version}
-	case OpList:
-		return s.list()
-	case OpStatus:
-		return s.status()
-	case OpTargets:
-		return Response{Targets: s.Targets, Agentbus: s.Agentbus}
-	case OpConfig:
-		return s.config()
-	case OpSend:
-		return s.send(req)
-	case OpLocate:
-		return s.locate(ctx, req)
-	case OpOrgTree:
-		return s.orgTree(ctx)
-	case OpPanels:
-		return s.panels()
-	default:
-		return Response{Error: fmt.Sprintf("unknown op %q", req.Op)}
+	if resp, ok := s.eventsOp(req); ok {
+		return resp
 	}
+	if resp, ok := s.queryOp(ctx, req); ok {
+		return resp
+	}
+	if req.Op == OpSend {
+		return s.send(req)
+	}
+	return Response{Error: fmt.Sprintf("unknown op %q", req.Op)}
+}
+
+func (s *Server) reasons() Response {
+	reasons, err := s.Backend.Reasons()
+	if err != nil {
+		return failed(err)
+	}
+	return Response{ReasonList: reasons}
+}
+
+func (s *Server) flag(req Request) Response {
+	ev, err := s.Backend.Flag(req.Item, req.MsgIndex, req.Reasons, req.Text)
+	if err != nil {
+		return failed(err)
+	}
+	return Response{Event: &ev}
+}
+
+func (s *Server) listAsks() Response {
+	enabled, err := s.Backend.AsksEnabled()
+	if err != nil {
+		return failed(err)
+	}
+	on := enabled
+	if !enabled {
+		empty := []decide.AskRecord{}
+		return Response{Asks: &empty, AsksEnabled: &on}
+	}
+	asks, err := s.Backend.ListAsks()
+	if err != nil {
+		return failed(err)
+	}
+	if asks == nil {
+		asks = []decide.AskRecord{}
+	}
+	return Response{Asks: &asks, AsksEnabled: &on}
+}
+
+func (s *Server) closeAsk(req Request) Response {
+	ask, err := s.Backend.CloseAsk(req.Item, req.Choice, req.Text)
+	if err != nil {
+		return failed(err)
+	}
+	resp := Response{Ask: &ask}
+	if it, gerr := s.Backend.Get(ask.ItemID); gerr == nil {
+		resp.Item = &it
+	}
+	return resp
 }
 
 func (s *Server) settingsOp(req Request) (Response, bool) {
@@ -517,6 +591,8 @@ func (c *connWatcher) response(id int64, ev WatchEvent) Response {
 		DraftSeq:       ev.DraftSeq,
 		OrgSpecModTime: ev.OrgSpecModTime,
 		Panels:         ev.Panels,
+		Asks:           ev.Asks,
+		AsksEnabled:    ev.AsksEnabled,
 	}
 }
 

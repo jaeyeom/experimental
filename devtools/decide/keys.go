@@ -320,6 +320,7 @@ func ActionCatalog() []ActionDef {
 		{Name: "goto.status", View: "global", Scopes: browse, Default: []string{"g s"}, Description: "Go to Status.", Where: "any"},
 		{Name: "goto.contacts", View: "global", Scopes: browse, Default: []string{"g c"}, Description: "Go to Contacts.", Where: "any"},
 		{Name: "goto.outbox", View: "global", Scopes: browse, Default: []string{"g o"}, Description: "Go to Outbox.", Where: "any"},
+		{Name: "goto.asks", View: "global", Scopes: browse, Default: []string{"g k"}, Description: "Go to Asks (when enabled).", Where: "any"},
 		{Name: "goto.settings", View: "global", Scopes: browse, Default: []string{"g ,"}, Description: "Go to Settings.", Where: "any"},
 		{Name: "goto.top", View: "global", Scopes: browse, Default: []string{"g g"}, Description: "Top of the list or item.", Where: "list, item, status, contacts"},
 
@@ -335,6 +336,7 @@ func ActionCatalog() []ActionDef {
 		{Name: "list.archive", View: "list", Scopes: []string{"list"}, Default: []string{"e", "y"}, Description: "Archive: mark done with outcome archived.", Where: "list"},
 		{Name: "list.classFilter", View: "list", Scopes: []string{"list"}, Default: []string{"f"}, Description: "Filter by item class.", Where: "list"},
 		{Name: "list.snooze", View: "list", Scopes: []string{"list"}, Default: []string{"b"}, Description: "Snooze. In Snoozed, also offers unsnooze.", Where: "list"},
+		{Name: "list.flag", View: "list", Scopes: []string{"list"}, Default: []string{"!"}, Description: "Flag the item or its latest agent message.", Where: "list"},
 		{Name: "list.clearFilter", View: "list", Scopes: []string{"list"}, Default: []string{"esc"}, Description: "Clear the agent or class filter.", Where: "list"},
 
 		// Detail view.
@@ -359,6 +361,7 @@ func ActionCatalog() []ActionDef {
 		{Name: "detail.forward", View: "detail", Scopes: []string{"detail"}, Default: []string{"f"}, Description: "Forward the item.", Where: "item"},
 		{Name: "detail.outcome", View: "detail", Scopes: []string{"detail"}, Default: []string{"E"}, Description: "Archive with a note: ask for one line, then mark done.", Where: "item"},
 		{Name: "detail.reply", View: "detail", Scopes: []string{"detail"}, Default: []string{"0"}, Description: "Focus the pinned reply box.", Where: "item"},
+		{Name: "detail.flag", View: "detail", Scopes: []string{"detail"}, Default: []string{"!"}, Description: "Flag this message or item.", Where: "item"},
 
 		// Status view.
 		{Name: "status.next", View: "status", Scopes: []string{"status"}, Default: []string{"j"}, Description: "Move to the next row.", Where: "status"},
@@ -766,7 +769,7 @@ func FormatReadmeKeyTable(km *KeyMap) string {
 		{formatKeys("list.next") + " / " + formatKeys("list.prev"), "list or item", "Move the row, or scroll one line in an item."},
 		{formatKeys("detail.nextMessage") + " / " + formatKeys("detail.prevMessage"), "item", "Next or previous message."},
 		{"~g~ then ~i~ ~z~ ~a~ ~d~ ~w~", "any", "Inbox, Snoozed, Answered, Done, Withdrawn."},
-		{"~g~ then ~s~ / ~c~ / ~,~", "any", "Status, Contacts, or Settings."},
+		{"~g~ then ~s~ / ~c~ / ~k~ / ~,~", "any", "Status, Contacts, Asks (if enabled), or Settings."},
 		{formatKeys("goto.top") + " / " + formatKeys("list.bottom"), "list, item, status, contacts", "Top or bottom of the list or item."},
 		{formatKeys("detail.bottom"), "item", "Scroll to the end."},
 		{formatKeys("list.pageUp") + " / " + formatKeys("list.pageDown") + ", " + formatKeys("list.top") + " / " + formatKeys("list.bottom"), "list and item", "Page, or jump."},
@@ -776,6 +779,7 @@ func FormatReadmeKeyTable(km *KeyMap) string {
 		{formatKeys("list.archive"), "list, item", "Archive: mark done with outcome ~archived~."},
 		{formatKeys("detail.outcome"), "item", "Archive with a note: ask for one line, then mark done."},
 		{formatKeys("list.snooze"), "list, item", "Snooze. In Snoozed, " + formatKeys("list.snooze") + " also offers unsnooze."},
+		{formatKeys("list.flag"), "list, item", "Flag an agent message or item with reasons."},
 		{formatKeys("search"), "any", "Filter the list, or highlight an item. Empty Enter clears."},
 		{formatKeys("list.clearFilter"), "list", "Clear the agent filter."},
 		{"~1~-~9~", "item", "Answer with that option."},

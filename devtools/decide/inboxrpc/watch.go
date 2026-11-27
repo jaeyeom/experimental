@@ -17,7 +17,7 @@ import (
 const defaultWatchEvery = 2 * time.Second
 
 // WatchEvent is one watch snapshot or delta. Status, Drafts,
-// OrgSpecModTime, and Panels are set only when they are new.
+// OrgSpecModTime, Panels, and Asks are set only when they are new.
 type WatchEvent struct {
 	Seq            int64
 	Resync         bool
@@ -28,6 +28,8 @@ type WatchEvent struct {
 	DraftSeq       int64
 	OrgSpecModTime *time.Time
 	Panels         *[]decide.PanelEntry
+	Asks           *[]decide.AskRecord
+	AsksEnabled    *bool
 }
 
 // fileStamp records cheap os.Stat metadata for change detection without
@@ -82,6 +84,10 @@ type Watcher struct {
 	orgSpecStamp fileStamp
 	hasOrgSpec   bool
 	panelMon     *decide.PanelMonitor
+	eventsStamp  fileStamp
+	lastAsks     []decide.AskRecord
+	lastAsksOn   bool
+	hasAsks      bool
 
 	// Counters for tests verifying that no-change polls skip file loads.
 	ledgerPolls int
@@ -173,6 +179,25 @@ func (w *Watcher) Start(since int64) (WatchEvent, error) {
 	if panels, err := w.panelMon.Start(); err == nil {
 		ev.Panels = &panels
 	}
+	eventsStamp := w.statState("events.jsonl")
+	asksOn, err := w.Backend.AsksEnabled()
+	if err == nil {
+		ev.AsksEnabled = &asksOn
+		w.lastAsksOn = asksOn
+		if asksOn {
+			if asks, aerr := w.Backend.ListAsks(); aerr == nil {
+				if asks == nil {
+					asks = []decide.AskRecord{}
+				}
+				ev.Asks = &asks
+				w.lastAsks = asks
+			}
+		} else {
+			w.lastAsks = nil
+		}
+		w.hasAsks = true
+	}
+	w.eventsStamp = eventsStamp
 	w.lastSeq = seq
 	w.started = true
 	return ev, nil
@@ -350,7 +375,8 @@ func (w *Watcher) Poll() (WatchEvent, bool) {
 	drafts, draftSeq := w.pollDrafts()
 	orgMod := w.pollOrgSpec()
 	panels := w.pollPanels()
-	if !resync && len(changes) == 0 && status == nil && drafts == nil && orgMod == nil && panels == nil {
+	asks, asksOn := w.pollAsks()
+	if !resync && len(changes) == 0 && status == nil && drafts == nil && orgMod == nil && panels == nil && asks == nil && asksOn == nil {
 		return WatchEvent{}, false
 	}
 	ev := WatchEvent{
@@ -361,6 +387,8 @@ func (w *Watcher) Poll() (WatchEvent, bool) {
 		Status:         status,
 		OrgSpecModTime: orgMod,
 		Panels:         panels,
+		Asks:           asks,
+		AsksEnabled:    asksOn,
 	}
 	if drafts != nil {
 		ev.Drafts = *drafts
@@ -522,4 +550,40 @@ func (w *Watcher) pollOrgSpec() *time.Time {
 	w.hasOrgSpec = true
 	mod := stamp.info.ModTime()
 	return &mod
+}
+
+func (w *Watcher) pollAsks() (*[]decide.AskRecord, *bool) {
+	asksOn, err := w.Backend.AsksEnabled()
+	if err != nil {
+		return nil, nil
+	}
+	stamp := w.statState("events.jsonl")
+	if w.hasAsks && asksOn == w.lastAsksOn && (!asksOn || sameFileStamp(stamp, w.eventsStamp)) {
+		return nil, nil
+	}
+	w.eventsStamp = stamp
+	onChanged := !w.hasAsks || asksOn != w.lastAsksOn
+	w.lastAsksOn = asksOn
+	w.hasAsks = true
+	var asks []decide.AskRecord
+	if asksOn {
+		loaded, lerr := w.Backend.ListAsks()
+		if lerr != nil {
+			return nil, nil
+		}
+		asks = loaded
+	}
+	if asks == nil {
+		asks = []decide.AskRecord{}
+	}
+	var outEnabled *bool
+	if onChanged {
+		v := asksOn
+		outEnabled = &v
+	}
+	if reflect.DeepEqual(w.lastAsks, asks) && !onChanged {
+		return nil, nil
+	}
+	w.lastAsks = asks
+	return &asks, outEnabled
 }

@@ -137,6 +137,8 @@ export function createStatusView({ root }) {
         busHealth: state.busHealth,
         panels: state.panels,
         dashboardPanels: state.dashboardPanels,
+        asks: state.asks,
+        asksEnabled: !!state.asksEnabled,
         now,
       });
       const kids = [el('h2', { text: 'Status' })];

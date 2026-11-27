@@ -65,6 +65,8 @@ func (s *Server) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/org-tree", s.orgTree)
 	mux.HandleFunc("GET /api/v1/search", s.search)
 	mux.HandleFunc("GET /api/v1/keymap", s.getKeymap)
+	mux.HandleFunc("GET /api/v1/reasons", s.getReasons)
+	mux.HandleFunc("GET /api/v1/asks", s.getAsks)
 	mux.HandleFunc("GET /api/v1/events", s.events)
 	mux.HandleFunc("POST /api/v1/presence", s.presence)
 
@@ -75,6 +77,9 @@ func (s *Server) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/items/{id}/done", s.writeItem(inboxrpc.OpDone, checkDone, s.done))
 	mux.HandleFunc("POST /api/v1/items/{id}/snooze", s.writeItem(inboxrpc.OpSnooze, s.checkSnooze, s.snooze))
 	mux.HandleFunc("POST /api/v1/items/{id}/unsnooze", s.writeItem(inboxrpc.OpUnsnooze, noBody, s.unsnooze))
+	mux.HandleFunc("POST /api/v1/items/{id}/flag", s.flagItem)
+	mux.HandleFunc("POST /api/v1/asks/{id}/done", s.closeAskHandler(decide.AskStatusDone))
+	mux.HandleFunc("POST /api/v1/asks/{id}/drop", s.closeAskHandler(decide.AskStatusDropped))
 	mux.HandleFunc("POST /api/v1/notes/archive-all", s.archiveAll)
 	mux.HandleFunc("POST /api/v1/send", s.send)
 	mux.HandleFunc("POST /api/v1/contacts/favorites", s.setFavorites)
@@ -144,13 +149,16 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any) error {
 	return nil
 }
 
-func itemID(r *http.Request) (string, error) {
+func resourceID(r *http.Request, kind string) (string, error) {
 	id := r.PathValue("id")
 	if !validID.MatchString(id) {
-		return "", badRequest("invalid item id %q", id)
+		return "", badRequest("invalid %s id %q", kind, id)
 	}
 	return id, nil
 }
+
+func itemID(r *http.Request) (string, error) { return resourceID(r, "item") }
+func askID(r *http.Request) (string, error)  { return resourceID(r, "ask") }
 
 // busRun is the agentbus runner the backend uses.
 func (s *Server) busRun() decide.AgentbusRunner {

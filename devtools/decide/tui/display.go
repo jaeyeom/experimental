@@ -25,6 +25,7 @@ type Display struct {
 	FavoriteContacts  []string
 	ContactAliases    map[string]string
 	OrgTree           bool
+	AsksEnabled       *bool
 	Note              string
 }
 
@@ -63,6 +64,18 @@ func (m *Model) applyDisplay(d Display) {
 	if !m.orgTreeOn {
 		m.orgView = false
 		m.orgRoot = nil
+	}
+	if d.AsksEnabled != nil {
+		m.asksOn = *d.AsksEnabled
+		m.asksOnExplicit = true
+		if !m.asksOn {
+			m.asks = nil
+			if m.mode == modeAsks {
+				m.backToList()
+			}
+		} else if len(m.allItems) > 0 || !m.loading {
+			m.refreshAsks()
+		}
 	}
 	prevHidden := strings.Join(m.hidden, "\x00")
 	m.hidden = append([]string(nil), d.HiddenContacts...)

@@ -77,11 +77,17 @@ func (h *hub) broadcast(ev inboxrpc.WatchEvent) {
 	h.broadcastLocked(ev)
 }
 
+func isEmptyInitialResync(ev inboxrpc.WatchEvent) bool {
+	return ev.Resync && ev.Seq == 0 && ev.Status == nil && ev.Drafts == nil &&
+		ev.OrgSpecModTime == nil && ev.Panels == nil && ev.Asks == nil && ev.AsksEnabled == nil
+}
+
 func (h *hub) broadcastLocked(ev inboxrpc.WatchEvent) {
+	emptyResync := isEmptyInitialResync(ev)
 	for sub := range h.subs {
 		// An empty ledger (seq 0) always polls as a resync; it carries
 		// nothing new.
-		if ev.Resync && ev.Seq == 0 && ev.Status == nil && ev.Drafts == nil && ev.OrgSpecModTime == nil && ev.Panels == nil {
+		if emptyResync {
 			continue
 		}
 		// Skip what a late subscriber's initial frame already covered.
@@ -307,10 +313,59 @@ func deltaBody(ev inboxrpc.WatchEvent, bus []byte, busChanged bool) map[string]a
 	if ev.Panels != nil {
 		body["panels"] = *ev.Panels
 	}
+	if ev.AsksEnabled != nil {
+		body["asksEnabled"] = *ev.AsksEnabled
+	}
+	if ev.Asks != nil {
+		body["asks"] = *ev.Asks
+	}
 	if busChanged && len(bus) > 0 {
 		body["busHealth"] = json.RawMessage(bus)
 	}
 	return body
+}
+
+type resyncSnapshotMeta struct {
+	status     *tui.StatusBoard
+	draftSeq   int64
+	drafts     []decide.Draft
+	panels     *[]decide.PanelEntry
+	dashPanels []decide.DashboardPanelConfig
+	display    decide.DisplaySettings
+	orgOn      bool
+	reasons    []decide.Reason
+	asksOn     bool
+	asks       []decide.AskRecord
+}
+
+func (s *Server) loadResyncMeta(ev inboxrpc.WatchEvent) (resyncSnapshotMeta, error) {
+	var m resyncSnapshotMeta
+	var err error
+	if m.status, err = s.resyncStatus(ev); err != nil {
+		return m, err
+	}
+	if m.draftSeq, m.drafts, err = s.resyncDrafts(ev); err != nil {
+		return m, err
+	}
+	if m.panels, err = s.resyncPanels(ev); err != nil {
+		return m, err
+	}
+	if m.dashPanels, err = s.dashboardPanels(); err != nil {
+		return m, err
+	}
+	if m.display, err = s.display(); err != nil {
+		return m, err
+	}
+	if m.orgOn, _, err = s.orgEnabled(); err != nil {
+		return m, err
+	}
+	if m.reasons, err = s.reasonsList(); err != nil {
+		return m, err
+	}
+	if m.asksOn, m.asks, err = s.resyncAsks(ev); err != nil {
+		return m, err
+	}
+	return m, nil
 }
 
 // resyncBody is the full snapshot: items plus everything a delta may
@@ -328,27 +383,7 @@ func (s *Server) resyncBody(ev inboxrpc.WatchEvent, bus []byte) (map[string]any,
 	if inbox == nil {
 		inbox = []decide.InboxEntry{}
 	}
-	status, err := s.resyncStatus(ev)
-	if err != nil {
-		return nil, err
-	}
-	draftSeq, drafts, err := s.resyncDrafts(ev)
-	if err != nil {
-		return nil, err
-	}
-	panels, err := s.resyncPanels(ev)
-	if err != nil {
-		return nil, err
-	}
-	dashPanels, err := s.dashboardPanels()
-	if err != nil {
-		return nil, err
-	}
-	display, err := s.display()
-	if err != nil {
-		return nil, err
-	}
-	orgOn, _, err := s.orgEnabled()
+	m, err := s.loadResyncMeta(ev)
 	if err != nil {
 		return nil, err
 	}
@@ -361,16 +396,19 @@ func (s *Server) resyncBody(ev inboxrpc.WatchEvent, bus []byte) (map[string]any,
 		"items":           items,
 		"inbox":           inbox,
 		"unreadCount":     decide.UnreadCount(open),
-		"status":          status,
-		"panels":          *panels,
-		"dashboardPanels": dashPanels,
-		"drafts":          drafts,
-		"draftSeq":        draftSeq,
-		"display":         display,
+		"status":          m.status,
+		"panels":          *m.panels,
+		"dashboardPanels": m.dashPanels,
+		"drafts":          m.drafts,
+		"draftSeq":        m.draftSeq,
+		"display":         m.display,
 		"busHealth":       json.RawMessage(bus),
 		"targets":         targets,
 		"agentbus":        s.Agentbus,
-		"orgTreeEnabled":  orgOn,
+		"orgTreeEnabled":  m.orgOn,
+		"reasons":         m.reasons,
+		"asksEnabled":     m.asksOn,
+		"asks":            m.asks,
 	}
 	if len(bus) == 0 {
 		body["busHealth"] = nil
@@ -378,10 +416,24 @@ func (s *Server) resyncBody(ev inboxrpc.WatchEvent, bus []byte) (map[string]any,
 	if ev.OrgSpecModTime != nil {
 		body["orgSpecModTime"] = ev.OrgSpecModTime
 	}
-	if ev.Panels != nil {
-		body["panels"] = *ev.Panels
-	}
 	return body, nil
+}
+
+func (s *Server) resyncAsks(ev inboxrpc.WatchEvent) (bool, []decide.AskRecord, error) {
+	if ev.AsksEnabled != nil {
+		enabled := *ev.AsksEnabled
+		if !enabled {
+			return false, []decide.AskRecord{}, nil
+		}
+		if ev.Asks != nil {
+			asks := *ev.Asks
+			if asks == nil {
+				asks = []decide.AskRecord{}
+			}
+			return true, asks, nil
+		}
+	}
+	return s.asksState()
 }
 
 func (s *Server) resyncPanels(ev inboxrpc.WatchEvent) (*[]decide.PanelEntry, error) {

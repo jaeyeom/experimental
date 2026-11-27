@@ -188,6 +188,9 @@ func (m *Model) waitPanelCmd() tea.Cmd {
 // updateKeyMsg routes one key: the external-editor prefix, then composer
 // editing keys, then chords, scrolling, and rune shortcuts.
 func (m *Model) updateKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.flagOverlayKeyMsg(msg) {
+		return m, nil
+	}
 	if m.settingsEditing {
 		m.handleSettingsEditKey(msg)
 		return m, nil
@@ -404,7 +407,7 @@ func (m *Model) updateBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 }
 
 func (m *Model) modalOpen() bool {
-	return m.confirmKind != confirmNone || m.chord || m.copyMenu || m.snoozing || m.searching || m.help || m.aliasPick || m.pickerOpen() || m.settingsEditing
+	return m.confirmKind != confirmNone || m.chord || m.copyMenu || m.snoozing || m.flagging || m.askClosing != "" || m.searching || m.help || m.aliasPick || m.pickerOpen() || m.settingsEditing
 }
 
 func (m *Model) inComposerState() bool {

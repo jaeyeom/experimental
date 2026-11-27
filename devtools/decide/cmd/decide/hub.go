@@ -139,11 +139,12 @@ func runOnHub(settings hubSettings, args []string, stdout, stderr io.Writer) int
 	defer stop()
 	call := hubcall.Call{Args: args, Stdout: stdout, Stderr: stderr}
 	if callerCommands[args[0]] && os.Getenv("HERDR_PANE_ID") != "" {
+		isAskItem := args[0] == "ask" && (len(args) <= 1 || !isAskSubcommand(args[1]))
 		caller, err := callerHandle(ctx, settings.machine)
 		switch {
 		case err == nil:
 			call.Env = append([]string{asHandleEnv + "=" + caller}, clientAskEnv(ctx, os.Getenv("HERDR_PANE_ID"))...)
-		case args[0] == "ask" || args[0] == "reassign":
+		case isAskItem || args[0] == "reassign":
 			return fail(stderr, err, 1)
 		default:
 			fmt.Fprintf(stderr, "warning: decide %s records no sender: %s\n", args[0], err)

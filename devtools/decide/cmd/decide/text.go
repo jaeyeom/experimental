@@ -349,7 +349,9 @@ func hubTextCommand(args []string) bool {
 		return false
 	}
 	switch args[0] {
-	case "ask", "reply", "send", "done", "withdraw":
+	case "ask":
+		return len(args) == 1 || !isAskSubcommand(args[1])
+	case "reply", "send", "done", "withdraw":
 		return true
 	case "status":
 		return len(args) > 1 && args[1] == "set"
@@ -389,14 +391,15 @@ func textValued(args []string) map[string]bool {
 	switch args[0] {
 	case "ask":
 		return map[string]bool{
-			"owner": true, "kind": true, "option": true, "rec": true,
+			"class": true, "parent": true, "owner": true, "kind": true,
+			"option": true, "rec": true, "ask": true, "ask-link": true,
 			"deadline": true, "link": true, "notify-pane": true,
 			"type-text": true, "where": true, "verbatim": true, "verbatim-file": true,
 		}
 	case "send":
 		return map[string]bool{"to": true, "id": true, "via": true, "verbatim": true, "verbatim-file": true}
 	case "reply":
-		return map[string]bool{"option": true, "rec": true, "verbatim": true, "verbatim-file": true}
+		return map[string]bool{"option": true, "rec": true, "ask": true, "ask-link": true, "verbatim": true, "verbatim-file": true}
 	case "done":
 		return map[string]bool{"via": true}
 	case "status":

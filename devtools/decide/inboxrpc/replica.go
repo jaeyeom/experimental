@@ -38,6 +38,8 @@ type replicaData struct {
 	OrgTree        string                      `json:"orgTree,omitempty"`
 	OrgSpecModTime time.Time                   `json:"orgSpecModTime,omitempty"`
 	Panels         []decide.PanelEntry         `json:"panels,omitempty"`
+	Asks           []decide.AskRecord          `json:"asks,omitempty"`
+	AsksEnabled    bool                        `json:"asksEnabled,omitempty"`
 }
 
 // ReplicaPath returns the on-disk replica file path for hub label under
@@ -206,6 +208,67 @@ func (r *replicaStore) panels() []decide.PanelEntry {
 	return decide.ClonePanelEntries(r.data.Panels)
 }
 
+func (r *replicaStore) asks() []decide.AskRecord {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ensureLoaded()
+	return cloneAskSlice(r.data.Asks)
+}
+
+func (r *replicaStore) asksEnabled() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ensureLoaded()
+	return r.data.AsksEnabled
+}
+
+func (r *replicaStore) setAsksLocal(asks []decide.AskRecord, enabled *bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ensureLoaded()
+	r.data.Asks = cloneAskSlice(asks)
+	if enabled != nil {
+		r.data.AsksEnabled = *enabled
+	}
+	r.save()
+}
+
+func (r *replicaStore) upsertAskLocal(ask decide.AskRecord) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ensureLoaded()
+	idx := slices.IndexFunc(r.data.Asks, func(a decide.AskRecord) bool { return a.ID == ask.ID })
+	if idx >= 0 {
+		r.data.Asks[idx] = cloneAskRecord(ask)
+	} else {
+		r.data.Asks = append(r.data.Asks, cloneAskRecord(ask))
+	}
+	decide.SortAsks(r.data.Asks)
+	r.save()
+}
+
+func cloneAskRecord(a decide.AskRecord) decide.AskRecord {
+	if a.Links != nil {
+		a.Links = append([]string(nil), a.Links...)
+	}
+	if a.ClosedAt != nil {
+		t := *a.ClosedAt
+		a.ClosedAt = &t
+	}
+	return a
+}
+
+func cloneAskSlice(in []decide.AskRecord) []decide.AskRecord {
+	if len(in) == 0 {
+		return []decide.AskRecord{}
+	}
+	out := make([]decide.AskRecord, len(in))
+	for i, a := range in {
+		out[i] = cloneAskRecord(a)
+	}
+	return out
+}
+
 func (r *replicaStore) status() tui.StatusBoard {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -237,6 +300,12 @@ func (r *replicaStore) applySync(resp Response, now time.Time) bool {
 	}
 	if resp.Panels != nil {
 		r.data.Panels = decide.ClonePanelEntries(*resp.Panels)
+	}
+	if resp.Asks != nil {
+		r.data.Asks = cloneAskSlice(*resp.Asks)
+	}
+	if resp.AsksEnabled != nil {
+		r.data.AsksEnabled = *resp.AsksEnabled
 	}
 	r.data.SyncedAt = now
 	r.save()

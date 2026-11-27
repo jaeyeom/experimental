@@ -255,6 +255,9 @@ func (m *Model) openNavFolder(i int) error {
 	if m.hasOutbox() && i == m.outboxNavIndex() {
 		return m.showOutbox()
 	}
+	if m.hasAsks() && i == m.asksNavIndex() {
+		return m.showAsks()
+	}
 	return m.showFolder(i)
 }
 

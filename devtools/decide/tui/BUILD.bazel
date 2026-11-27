@@ -3,6 +3,7 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "go_default_library",
     srcs = [
+        "asks.go",
         "avatarpick.go",
         "avatars.go",
         "backend.go",
@@ -22,6 +23,7 @@ go_library(
         "favorites.go",
         "field.go",
         "fill.go",
+        "flag.go",
         "inbox.go",
         "keydebug.go",
         "keys.go",
@@ -102,6 +104,7 @@ go_test(
         "favorites_test.go",
         "field_test.go",
         "fill_test.go",
+        "flag_asks_test.go",
         "follow_test.go",
         "hyperlink_test.go",
         "inbox_test.go",

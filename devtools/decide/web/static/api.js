@@ -51,6 +51,11 @@ export const markRead = (id) => post(itemPath(id, 'read'));
 export const answer = (id, body) => post(itemPath(id, 'answer'), body);
 export const reply = (id, body) => post(itemPath(id, 'reply'), body);
 export const done = (id, outcome) => post(itemPath(id, 'done'), outcome ? { outcome } : {});
+export const reasons = () => get('/reasons');
+export const flag = (id, body) => post(itemPath(id, 'flag'), body);
+export const asks = () => get('/asks');
+export const askDone = (id, reason) => post(`/asks/${encodeURIComponent(id)}/done`, { reason });
+export const askDrop = (id, reason) => post(`/asks/${encodeURIComponent(id)}/drop`, { reason });
 export const conflict = (e) => e instanceof ApiError && e.status === 409 && !!e.data?.conflict;
 export const draftConflict = (e) => e instanceof ApiError && e.status === 409 && !!e.data?.draftConflict;
 

@@ -12,7 +12,9 @@ and the decision log.
 ~--rec~. ~--kind type-in~ needs ~--type-text~ and ~--where~.
 ~--free-text~ allows an answer that is not an option. ~--options-only~
 rejects one, and for relay ~--free-text~ wins over that flag and over
-~optionsOnly~. ~--deadline~ is RFC3339. ~--link~ repeats. ~--notify-pane~
+~optionsOnly~. ~--deadline~ is RFC3339. ~--link~ repeats. ~--ask key="<person>: <what>"~
+and ~--ask-link [key=]<url>~ tag options that represent asking another
+person (recorded when ~asks.enabled~ is true). ~--notify-pane~
 is a pane id or ~agentbus:<name>~. ~--json~ prints the new item.
 
 ~--owner-replies-only~ refuses ~decide reply~ and ~decide send --id~
@@ -129,6 +131,33 @@ shows only the newest item of a chain, with a "supersedes" note.
 
 Agents search the log before filing a decision or fact question, and
 cite the id of any precedent they act on.
+
+* Choice event log, flags, and asks
+
+~events.jsonl~ in the state directory is an always-on, append-only log:
+
+- Answering an item with options (or replying with free text via ~0~ /
+  plain reply on one) writes one ~choice~ event in the same locked write
+  as the answer, recording the choice or reply text, a snapshot of the
+  offered options, and the asking agent.
+- Free-text replies on items with choices are flagged ~options did not fit~
+  (~misfit: true~).
+- ~decide log [--misfit] [--flags] [--agent A] [--cause R] [--group-by-agent] [--json]~
+  lists and groups events; ~decide log cause <event> <reason>... [--note TEXT]~
+  appends a separate ~cause~ annotation event without rewriting earlier events.
+- Press ~!~ in the inbox (or click ~Flag~ in the web UI) to record a
+  ~flag~ event on an agent message or item using reasons from config
+  (~reasons~, starting with ~format~, ~main-text~, ~choices~, and
+  ~other~ which requires a note).
+
+When ~"asks": {"enabled": true}~ is configured, picking an option tagged
+with ~--ask key="<person>: <what>"~ (or running ~decide ask add~ after a
+free-text answer) opens an ask record (~ASK-001~ up). Open asks are closed
+by the owning agent or human with ~decide ask done <id> --reason "..."~ or
+~decide ask drop <id> --reason "..."~ (or ~d~/~x~ in the TUI Asks view ~g k~
+and ~Done~/~Drop~ in the web UI), which appends a close event and adds a
+system note to the original thread. With ~asks.enabled~ off (default), no
+ask records are created while choice events continue recording.
 
 * Owner, worker, and snooze
 

@@ -259,6 +259,11 @@ also Compose and Forward, the Status board, Contacts (with the org tree
 when ~ui.orgTree~ is on), Settings (theme, notifications, sign out),
 and light and dark themes.
 
+Also note: clicking ~Flag~ (or pressing ~!~) on an item or agent message
+opens the reason checklist and saves a flag event immediately. When
+~asks.enabled~ is true, an ~Asks~ tab (~g k~) and open-asks dashboard
+panel are shown alongside Done and Drop actions.
+
 The page keeps a read cache in IndexedDB and follows the ledger over
 ~/api/v1/events~ (server-sent events). It resumes from the last event
 id after a drop and resyncs when it fell too far behind. Writes go straight to the
@@ -337,10 +342,10 @@ notifications on again. The public key is served at
 
 The page uses a JSON API under =/api/v1= that scripts can call with a Bearer
 token. It is not versioned beyond ~v1~ and may change with the app. Reads: ~snapshot~, ~items/{id}~,
-~status~, ~contacts~, ~org-tree~, ~search?q=~, ~keymap~, and ~events~ (SSE with
+~status~, ~contacts~, ~org-tree~, ~reasons~, ~asks~, ~search?q=~, ~keymap~, and ~events~ (SSE with
 ~resync~, ~delta~, and ~ping~ events; ~Last-Event-ID~ or ~?since=~
 resumes). Writes: ~items/{id}/{read,answer,reply,archive,done,snooze,
-unsnooze}~, ~notes/archive-all~, ~send~, ~contacts/favorites~, and
+unsnooze,flag}~, ~asks/{id}/{done,drop}~, ~notes/archive-all~, ~send~, ~contacts/favorites~, and
 ~drafts/{key}~. ~answer~, ~reply~, and the other item writes accept
 ~writtenAt~ and a ~conflictCheck~ (~baseState~, ~baseMessageCount~,
 ~baseLastMessageAt~, ~baseAnswered~); a stale view gets 409 with the
