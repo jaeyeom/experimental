@@ -328,7 +328,7 @@ func fileExists(path string) bool {
 }
 
 func loadPklConfig(path string) (*Config, error) {
-	evaluator, err := pkl.NewEvaluator(context.Background(), pkl.PreconfiguredOptions)
+	evaluator, err := pkl.NewEvaluator(context.Background(), pklEvaluatorOptions()...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create pkl evaluator: %w", err)
 	}
@@ -344,6 +344,18 @@ func loadPklConfig(path string) (*Config, error) {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+func pklEvaluatorOptions() []func(*pkl.EvaluatorOptions) {
+	if cacheDir := os.Getenv("PKL_CACHE_DIR"); cacheDir != "" {
+		return []func(*pkl.EvaluatorOptions){
+			func(opts *pkl.EvaluatorOptions) {
+				opts.CacheDir = cacheDir
+			},
+			pkl.MaybePreconfiguredOptions,
+		}
+	}
+	return []func(*pkl.EvaluatorOptions){pkl.PreconfiguredOptions}
 }
 
 func convertPklConfig(pklCfg *pklconfig.Config) *Config {

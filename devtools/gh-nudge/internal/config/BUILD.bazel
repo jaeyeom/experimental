@@ -27,6 +27,7 @@ go_test(
     data = [
         "//devtools/gh-nudge/pkl:config_pkl",
         "//devtools/gh-nudge/pkl:example.config.pkl",
+        "@pkl_project//:packages",
     ] + select({
         "@bazel_tools//src/conditions:darwin_arm64": ["@pkl-cli-macos-aarch64//file:downloaded"],
         "@bazel_tools//src/conditions:darwin_arm64e": ["@pkl-cli-macos-aarch64//file:downloaded"],
@@ -36,6 +37,8 @@ go_test(
         "//conditions:default": [],
     }),
     embed = [":go_default_library"],
-    tags = ["no-remote"],  # Config.pkl fetches package://pkg.pkl-lang.org/... over the network
-    deps = ["//devtools/gh-nudge/internal/config/pkl:go_default_library"],
+    deps = [
+        "//devtools/gh-nudge/internal/config/pkl:go_default_library",
+        "@com_github_apple_pkl_go//pkl:go_default_library",
+    ],
 )

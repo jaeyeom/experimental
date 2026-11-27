@@ -18,6 +18,9 @@ func TestMain(m *testing.M) {
 	if pklExec := resolvePklExec(); pklExec != "" {
 		_ = os.Setenv("PKL_EXEC", pklExec)
 	}
+	if pklCacheDir := resolvePklCacheDir(); pklCacheDir != "" {
+		_ = os.Setenv("PKL_CACHE_DIR", pklCacheDir)
+	}
 	os.Exit(m.Run())
 }
 
@@ -25,19 +28,35 @@ func resolvePklExec() string {
 	if bin := os.Getenv("PKL_EXEC"); bin != "" {
 		return bin
 	}
+	return resolveRunfile(filepath.Join("*pkl-cli-*", "file", "downloaded"), false)
+}
+
+func resolvePklCacheDir() string {
+	if dir := os.Getenv("PKL_CACHE_DIR"); dir != "" {
+		return dir
+	}
+	return resolveRunfile(filepath.Join("*pkl_project", "packages"), true)
+}
+
+func resolveRunfile(relGlob string, wantDir bool) string {
 	for _, key := range []string{"RUNFILES_DIR", "TEST_SRCDIR"} {
 		root := os.Getenv(key)
 		if root == "" {
 			continue
 		}
-		matches, err := filepath.Glob(filepath.Join(root, "*pkl-cli-*", "file", "downloaded"))
+		matches, err := filepath.Glob(filepath.Join(root, relGlob))
 		if err != nil {
 			continue
 		}
 		for _, candidate := range matches {
-			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-				return candidate
+			info, err := os.Stat(candidate)
+			if err != nil || info.IsDir() != wantDir {
+				continue
 			}
+			if abs, err := filepath.Abs(candidate); err == nil {
+				return abs
+			}
+			return candidate
 		}
 	}
 	return ""

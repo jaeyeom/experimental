@@ -8,12 +8,17 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/apple/pkl-go/pkl"
+
 	pklconfig "github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config/pkl"
 )
 
 func TestMain(m *testing.M) {
 	if pklExec := resolvePklExec(); pklExec != "" {
 		_ = os.Setenv("PKL_EXEC", pklExec)
+	}
+	if pklCacheDir := resolvePklCacheDir(); pklCacheDir != "" {
+		_ = os.Setenv("PKL_CACHE_DIR", pklCacheDir)
 	}
 	os.Exit(m.Run())
 }
@@ -24,19 +29,38 @@ func resolvePklExec() string {
 	if bin := os.Getenv("PKL_EXEC"); bin != "" {
 		return bin
 	}
+	return resolveRunfile(filepath.Join("*pkl-cli-*", "file", "downloaded"), false)
+}
+
+// resolvePklCacheDir returns the Bazel-fetched Pkl package cache directory from
+// runfiles when PKL_CACHE_DIR is unset, so Pkl config tests run hermetically
+// without network access.
+func resolvePklCacheDir() string {
+	if dir := os.Getenv("PKL_CACHE_DIR"); dir != "" {
+		return dir
+	}
+	return resolveRunfile(filepath.Join("*pkl_project", "packages"), true)
+}
+
+func resolveRunfile(relGlob string, wantDir bool) string {
 	for _, key := range []string{"RUNFILES_DIR", "TEST_SRCDIR"} {
 		root := os.Getenv(key)
 		if root == "" {
 			continue
 		}
-		matches, err := filepath.Glob(filepath.Join(root, "*pkl-cli-*", "file", "downloaded"))
+		matches, err := filepath.Glob(filepath.Join(root, relGlob))
 		if err != nil {
 			continue
 		}
 		for _, candidate := range matches {
-			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-				return candidate
+			info, err := os.Stat(candidate)
+			if err != nil || info.IsDir() != wantDir {
+				continue
 			}
+			if abs, err := filepath.Abs(candidate); err == nil {
+				return abs
+			}
+			return candidate
 		}
 	}
 	return ""
@@ -74,6 +98,69 @@ func TestResolvePklExec(t *testing.T) {
 		t.Setenv("TEST_SRCDIR", empty)
 		if got := resolvePklExec(); got != "" {
 			t.Errorf("resolvePklExec() = %q, want empty", got)
+		}
+	})
+}
+
+func TestResolvePklCacheDir(t *testing.T) {
+	t.Run("PKL_CACHE_DIR env", func(t *testing.T) {
+		t.Setenv("PKL_CACHE_DIR", "/custom/pkl-cache")
+		if got := resolvePklCacheDir(); got != "/custom/pkl-cache" {
+			t.Errorf("resolvePklCacheDir() = %q, want /custom/pkl-cache", got)
+		}
+	})
+
+	t.Run("runfiles", func(t *testing.T) {
+		dir := t.TempDir()
+		cachePath := filepath.Join(dir, "rules_pkl++pkl+pkl_project", "packages")
+		if err := os.MkdirAll(cachePath, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PKL_CACHE_DIR", "")
+		t.Setenv("RUNFILES_DIR", dir)
+		t.Setenv("TEST_SRCDIR", "")
+		if got := resolvePklCacheDir(); got != cachePath {
+			t.Errorf("resolvePklCacheDir() = %q, want %q", got, cachePath)
+		}
+	})
+
+	t.Run("fallback to empty when not found", func(t *testing.T) {
+		empty := t.TempDir()
+		t.Setenv("PKL_CACHE_DIR", "")
+		t.Setenv("RUNFILES_DIR", empty)
+		t.Setenv("TEST_SRCDIR", empty)
+		if got := resolvePklCacheDir(); got != "" {
+			t.Errorf("resolvePklCacheDir() = %q, want empty", got)
+		}
+	})
+}
+
+func TestPklEvaluatorOptions(t *testing.T) {
+	t.Run("uses PKL_CACHE_DIR when set", func(t *testing.T) {
+		t.Setenv("PKL_CACHE_DIR", "/hermetic/pkl-cache")
+		var opts pkl.EvaluatorOptions
+		for _, fn := range pklEvaluatorOptions() {
+			fn(&opts)
+		}
+		if opts.CacheDir != "/hermetic/pkl-cache" {
+			t.Errorf("CacheDir = %q, want /hermetic/pkl-cache", opts.CacheDir)
+		}
+		if len(opts.AllowedModules) == 0 || len(opts.AllowedResources) == 0 {
+			t.Errorf("expected preconfigured modules and resources, got modules=%v resources=%v", opts.AllowedModules, opts.AllowedResources)
+		}
+	})
+
+	t.Run("falls back to default cache dir when PKL_CACHE_DIR is empty", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("PKL_CACHE_DIR", "")
+		var opts pkl.EvaluatorOptions
+		for _, fn := range pklEvaluatorOptions() {
+			fn(&opts)
+		}
+		want := filepath.Join(home, ".pkl", "cache")
+		if opts.CacheDir != want {
+			t.Errorf("CacheDir = %q, want %q", opts.CacheDir, want)
 		}
 	})
 }
