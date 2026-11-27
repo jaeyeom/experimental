@@ -28,6 +28,8 @@
 //	hibernate_target = "3GiB"     # available memory at which it stops
 //	hibernate_min_idle = "30m"    # least idle time of an agent it stops
 //	hibernate_interval = "1m"     # how often it reads the available memory
+//	dialog_rules = {"oauth" = 'Paste code'}  # extra dialog regex rules
+//	expect_reply_senders = ["ops/reviewer"]  # senders whose messages expect a reply
 package config
 
 import (
@@ -147,9 +149,21 @@ type Config struct {
 	// hibernating its agent to log a warning. Nil means 60s. A pointer
 	// to zero turns the warning off.
 	HibernateWarnWithin *time.Duration
+	// DialogRules are extra regex rules (on top of the built-in ones)
+	// for detecting a dialog or input prompt on an agent pane's screen.
+	DialogRules []DialogRule
+	// ExpectReplySenders are sender names, handles, or globs whose
+	// delivered messages expect a reply unless already replied to.
+	ExpectReplySenders []string
 	// Warnings are problems that did not fail the load, such as an
 	// invalid lease_takeover.
 	Warnings []string
+}
+
+// DialogRule is a named regular expression rule for dialog detection.
+type DialogRule struct {
+	Name    string `json:"name"`
+	Pattern string `json:"pattern"`
 }
 
 // WakeModelRule maps a name, handle, or glob pattern to a wake model.
@@ -304,44 +318,60 @@ func Parse(text string) (Config, error) {
 		cfg                 Config
 		section             string
 		seenWakeModelByName bool
+		seenDialogRules     bool
 	)
 	for i, rawLine := range strings.Split(text, "\n") {
 		line := strings.TrimSpace(rawLine)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		if err := parseConfigLine(&cfg, line, &section, &seenWakeModelByName); err != nil {
+		if err := parseConfigLine(&cfg, line, &section, &seenWakeModelByName, &seenDialogRules); err != nil {
 			return Config{}, fmt.Errorf("line %d: %w", i+1, err)
 		}
 	}
 	return finalizeConfig(cfg)
 }
 
-func parseConfigLine(cfg *Config, line string, section *string, seenWakeModelByName *bool) error {
+func parseConfigLine(cfg *Config, line string, section *string, seenWakeModelByName, seenDialogRules *bool) error {
 	if strings.HasPrefix(line, "[") {
 		sec, err := parseSectionHeader(line)
 		if err != nil {
 			return err
 		}
-		if sec != "wake_model_by_name" {
+		switch sec {
+		case "wake_model_by_name":
+			if *seenWakeModelByName {
+				return errors.New("duplicate wake_model_by_name")
+			}
+			*seenWakeModelByName = true
+		case "dialog_rules":
+			if *seenDialogRules {
+				return errors.New("duplicate dialog_rules")
+			}
+			*seenDialogRules = true
+		default:
 			return fmt.Errorf("unknown section [%s]", sec)
 		}
-		if *seenWakeModelByName {
-			return errors.New("duplicate wake_model_by_name")
-		}
 		*section = sec
-		*seenWakeModelByName = true
 		return nil
 	}
-	if *section == "wake_model_by_name" {
+	switch *section {
+	case "wake_model_by_name":
 		rule, err := parseWakeModelEntry(line)
 		if err != nil {
 			return err
 		}
 		cfg.WakeModelByName = append(cfg.WakeModelByName, rule)
 		return nil
+	case "dialog_rules":
+		rule, err := parseDialogRuleEntry(line)
+		if err != nil {
+			return err
+		}
+		cfg.DialogRules = append(cfg.DialogRules, rule)
+		return nil
 	}
-	return parseLine(cfg, line, seenWakeModelByName)
+	return parseLine(cfg, line, seenWakeModelByName, seenDialogRules)
 }
 
 func finalizeConfig(cfg Config) (Config, error) {
@@ -354,7 +384,7 @@ func finalizeConfig(cfg Config) (Config, error) {
 	return cfg, nil
 }
 
-func parseLine(cfg *Config, line string, seenWakeModelByName *bool) error {
+func parseLine(cfg *Config, line string, seenWakeModelByName, seenDialogRules *bool) error {
 	key, value, ok := strings.Cut(line, "=")
 	if !ok {
 		return errors.New("want key = value")
@@ -367,31 +397,53 @@ func parseLine(cfg *Config, line string, seenWakeModelByName *bool) error {
 	case "remote_timeout", "list_liveness_max_age", "lease_check_interval", "lease_checkin_repeat", "lease_idle_grace", "wake_timeout",
 		"hibernate_min_idle", "hibernate_interval", "hold_notice_after", "gone_after", "verify_delivery_within", "stale_composer_after", "hibernate_warn_within":
 		return parseDurationKey(cfg, key, value)
+	case "auth_error_patterns", "composer_placeholders", "expect_reply_senders":
+		return parsePatternListKey(cfg, key, value)
+	case "dialog_rules":
+		return parseUniqueKey(seenDialogRules, "dialog_rules", func() error { return parseDialogRules(cfg, value) })
+	case "wake_model":
+		return parseWakeModel(cfg, value)
+	case "wake_model_by_name":
+		return parseUniqueKey(seenWakeModelByName, "wake_model_by_name", func() error { return parseWakeModelByName(cfg, value) })
+	case "hibernate_policy", "hibernate_below", "hibernate_target", "hibernate_exempt":
+		return parseHibernateKey(cfg, key, value)
+	case "lease_checkouts", "lease_takeover", "lease_ignore_procs":
+		return parseLeaseKey(cfg, key, value)
+	case "hub", "machine", "hub_socket", "ssh_identity_agent", "ssh_agent_socket", "herdr_path", "jobs_policy":
+		return parseHubKey(cfg, key, value)
+	default:
+		return fmt.Errorf("unknown key %s", key)
+	}
+}
+
+func parseUniqueKey(seen *bool, name string, parse func() error) error {
+	if *seen {
+		return fmt.Errorf("duplicate %s", name)
+	}
+	*seen = true
+	return parse()
+}
+
+func parsePatternListKey(cfg *Config, key, value string) error {
+	switch key {
 	case "auth_error_patterns":
 		return parseStringList(&cfg.AuthErrorPatterns, key, value, `["Login expired", "Please run /login"]`)
 	case "composer_placeholders":
 		return parseStringList(&cfg.ComposerPlaceholders, key, value, `["Once fixed, resend your message"]`)
-	case "wake_model":
-		return parseWakeModel(cfg, value)
-	case "wake_model_by_name":
-		if *seenWakeModelByName {
-			return errors.New("duplicate wake_model_by_name")
-		}
-		*seenWakeModelByName = true
-		return parseWakeModelByName(cfg, value)
-	case "hibernate_policy", "hibernate_below", "hibernate_target", "hibernate_exempt":
-		return parseHibernateKey(cfg, key, value)
+	default:
+		return parseStringList(&cfg.ExpectReplySenders, key, value, `["ops/reviewer", "ask/*"]`)
+	}
+}
+
+func parseLeaseKey(cfg *Config, key, value string) error {
+	switch key {
 	case "lease_checkouts":
 		return parseLeaseCheckouts(cfg, value)
 	case "lease_takeover":
 		parseLeaseTakeover(cfg, value)
 		return nil
-	case "lease_ignore_procs":
-		return parseLeaseIgnoreProcs(cfg, value)
-	case "hub", "machine", "hub_socket", "ssh_identity_agent", "ssh_agent_socket", "herdr_path", "jobs_policy":
-		return parseHubKey(cfg, key, value)
 	default:
-		return fmt.Errorf("unknown key %s", key)
+		return parseLeaseIgnoreProcs(cfg, value)
 	}
 }
 
@@ -496,6 +548,143 @@ func parseWakeModelEntry(line string) (WakeModelRule, error) {
 		return WakeModelRule{}, fmt.Errorf("wake_model_by_name[%q]: %w", pattern, err)
 	}
 	return WakeModelRule{Pattern: pattern, Model: model}, nil
+}
+
+// ValidateDialogRule validates a dialog regex pattern.
+func ValidateDialogRule(name, pattern string) error {
+	if name == "" {
+		return errors.New("dialog_rules rule name must not be empty")
+	}
+	if pattern == "" {
+		return fmt.Errorf("dialog_rules[%q]: regex pattern must not be empty", name)
+	}
+	if _, err := regexp.Compile(pattern); err != nil {
+		return fmt.Errorf("dialog_rules[%q]: invalid regex %q: %w", name, pattern, err)
+	}
+	return nil
+}
+
+func parseDialogRules(cfg *Config, value string) error {
+	switch {
+	case strings.HasPrefix(value, "["):
+		return parseDialogRuleList(cfg, value)
+	case strings.HasPrefix(value, "{"):
+		return parseDialogRuleTable(cfg, value)
+	default:
+		return errors.New(`dialog_rules must be a list of regex strings or an inline table, such as {"trust" = "Do you trust"}`)
+	}
+}
+
+func parseDialogRuleList(cfg *Config, value string) error {
+	rest, _ := strings.CutPrefix(value, "[")
+	for {
+		rest = strings.TrimSpace(rest)
+		if after, done := strings.CutPrefix(rest, "]"); done {
+			if !blankOrComment(after) {
+				return errors.New(`dialog_rules must be a list of regex strings, such as ["Do you trust"]`)
+			}
+			return nil
+		}
+		pat, after, ok := parsePatternString(rest)
+		if !ok || pat == "" {
+			return errors.New(`dialog_rules entries must be non-empty quoted regex strings`)
+		}
+		if err := ValidateDialogRule(pat, pat); err != nil {
+			return err
+		}
+		cfg.DialogRules = append(cfg.DialogRules, DialogRule{Name: pat, Pattern: pat})
+		rest = strings.TrimSpace(after)
+		if after, more := strings.CutPrefix(rest, ","); more {
+			rest = after
+		} else if !strings.HasPrefix(rest, "]") {
+			return errors.New(`dialog_rules must be a list of regex strings, such as ["Do you trust"]`)
+		}
+	}
+}
+
+func parseDialogRuleTable(cfg *Config, value string) error {
+	rest, _ := strings.CutPrefix(value, "{")
+	for {
+		rest = strings.TrimSpace(rest)
+		if after, done := strings.CutPrefix(rest, "}"); done {
+			if !blankOrComment(after) {
+				return errors.New(`dialog_rules must be an inline table, such as {"trust" = "Do you trust"}`)
+			}
+			return nil
+		}
+		name, after, ok := parseTableKey(rest)
+		if !ok || name == "" {
+			return errors.New(`dialog_rules keys must be non-empty strings, such as "trust"`)
+		}
+		after = strings.TrimSpace(after)
+		after, ok = strings.CutPrefix(after, "=")
+		if !ok {
+			return errors.New(`dialog_rules entries must be name = "regex"`)
+		}
+		pat, after, ok := parsePatternString(strings.TrimSpace(after))
+		if !ok {
+			return errors.New(`dialog_rules values must be quoted regex strings, such as "Do you trust"`)
+		}
+		if err := ValidateDialogRule(name, pat); err != nil {
+			return err
+		}
+		cfg.DialogRules = append(cfg.DialogRules, DialogRule{Name: name, Pattern: pat})
+		rest = strings.TrimSpace(after)
+		if after, more := strings.CutPrefix(rest, ","); more {
+			rest = after
+		} else if !strings.HasPrefix(rest, "}") {
+			return errors.New(`dialog_rules must be an inline table, such as {"trust" = "Do you trust"}`)
+		}
+	}
+}
+
+func parseDialogRuleEntry(line string) (DialogRule, error) {
+	name, after, ok := parseTableKey(line)
+	if !ok || name == "" {
+		return DialogRule{}, errors.New(`dialog_rules keys must be non-empty strings, such as "trust"`)
+	}
+	after = strings.TrimSpace(after)
+	after, ok = strings.CutPrefix(after, "=")
+	if !ok {
+		return DialogRule{}, errors.New("want key = value")
+	}
+	pat, rest, ok := parsePatternString(strings.TrimSpace(after))
+	if !ok || !blankOrComment(rest) {
+		return DialogRule{}, errors.New(`dialog_rules values must be quoted regex strings, such as "Do you trust"`)
+	}
+	if err := ValidateDialogRule(name, pat); err != nil {
+		return DialogRule{}, err
+	}
+	return DialogRule{Name: name, Pattern: pat}, nil
+}
+
+// parsePatternString reads a TOML single-quoted literal string ('...') or
+// double-quoted basic string ("...", supporting escapes such as \\ and \").
+func parsePatternString(value string) (string, string, bool) {
+	if rest, ok := strings.CutPrefix(value, "'"); ok {
+		end := strings.IndexByte(rest, '\'')
+		if end < 0 {
+			return "", "", false
+		}
+		return rest[:end], rest[end+1:], true
+	}
+	if !strings.HasPrefix(value, `"`) {
+		return "", "", false
+	}
+	for i := 1; i < len(value); i++ {
+		if value[i] == '\\' {
+			i++
+			continue
+		}
+		if value[i] == '"' {
+			unquoted, err := strconv.Unquote(value[:i+1])
+			if err != nil {
+				return "", "", false
+			}
+			return unquoted, value[i+1:], true
+		}
+	}
+	return "", "", false
 }
 
 // parseTableKey reads either a "quoted" key or a bare TOML key [A-Za-z0-9_-]+.

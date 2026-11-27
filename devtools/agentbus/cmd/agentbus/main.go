@@ -67,7 +67,7 @@ func run(ctx context.Context, args, env []string, stdin io.Reader, stdout, stder
 	if len(args) == 0 || !localCommands[args[0]] {
 		if cfgErr != nil {
 			fmt.Fprintf(stderr, "agentbus: %s\n", cfgErr)
-			return 1
+			return cmdErrorCode(args)
 		}
 		if cfg.Hub != "" {
 			return runHubMode(ctx, cfg, cmd, args, env, stdin, stdout, stderr)

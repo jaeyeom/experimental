@@ -249,7 +249,7 @@ handle: herdr:local/default/w1:p1
 | ~release <name> [--to <claimer>]~ | Drop a name, or hand it to a claimer. Send context first. Any caller may drop a name whose holder is gone. |
 | ~list [--json] [--fresh]~         | Registered names, ~--when~, liveness, and transport.                                           |
 | ~search [query]~                  | Every reachable agent, registered or not.                                                      |
-| ~send <name or handle> [<body>]~  | Send. The body comes from the argument, ~--file~, or stdin.                                    |
+| ~send <name or handle> [<body>]~  | Send. The body comes from the argument, ~--file~, or stdin. ~--expect-reply~ marks it for ~asks~. |
 | ~reply <id> [<body>]~             | Reply. ~to~ is the original sender and ~re~ is ~id~.                                           |
 | ~show <id>~                       | Print one stored message.                                                                      |
 | ~thread <id>~                     | Print the chain.                                                                               |
@@ -268,6 +268,9 @@ handle: herdr:local/default/w1:p1
 | ~paths --json~                    | Print ~socket~, ~hub_socket~, ~tunnel_socket~, and ~state_dir~.                                |
 | ~doctor [--sandbox]~              | Other ~agentbusd~ processes; in hub mode, the tunnel, ssh, and outbox.                         |
 | ~health [--json]~                 | Whether the bus can deliver now. Exit 0 ok, 1 daemon unreachable, 4 a transport down.          |
+| ~held [flags]~                    | List held messages (~--older-than~, ~--reason~, ~--not-reason~, ~--to~, ~--json~). Exit 0/1/2. |
+| ~asks [flags]~                    | List unanswered asks (~--unanswered~, ~--from~, ~--to~, ~--json~). Exit 0/1/2.                 |
+| ~dialogs [--machine M] [--json]~  | List panes showing a pending dialog or input prompt. Exit 0/1/2.                               |
 | ~install-hooks~                   | Install the observe-only ~SendMessage~ hook and the prompt guard.                              |
 | ~hook~                            | Internal. ~install-hooks~ runs it to record one ~SendMessage~ call.                            |
 | ~prompt-hook~                     | Guard merged drafts; ~prompt-hook off [--session <id>]~ disables it until ~on~.                  |
@@ -301,6 +304,39 @@ object:
 (the daemon, or the hub, cannot be reached, or cannot report). It exits 0
 when everything is ok, 1 when the daemon is unreachable or cannot
 report, and 4 when the daemon is up but a transport is down.
+
+*** Health-check queries (~held~, ~asks~, ~dialogs~)
+
+~held~, ~asks~, and ~dialogs~ report stuck messages, unanswered asks,
+and panes waiting on dialogs without starting the daemon. All three
+follow the same exit codes for scripts: ~0~ when nothing matches, ~1~
+when one or more items match, and ~2~ on a bus, config, or usage error.
+
+- ~agentbus held [--older-than D] [--reason R]... [--not-reason R]... [--to NAME] [--json]~:
+  lists messages in ~held~ state with id, from, to, held reason text,
+  stable ~reason_code~, ~held_since~, and ~age~. ~--reason~ and
+  ~--not-reason~ are repeatable and match stable reason codes: ~draft~,
+  ~draft-unknown~, ~scrolled~, ~focused~, ~ordering~, ~login-expired~,
+  ~unreachable~, ~hibernated~, ~waking~, ~wake-failed~, ~pane-gone~,
+  ~parked~, ~ambiguous~, ~ambiguous-unverified~, ~blocked~, ~no-agent~,
+  ~gone~, ~unknown~, ~transport-refused~, or ~other~.
+- ~agentbus asks [--unanswered D] [--from NAME] [--to NAME] [--json]~:
+  lists delivered messages that expect a reply and have no non-expired
+  reply (~re~) after ~D~ (by message age since ~sent~). A message
+  expects a reply when sent with ~agentbus send --expect-reply~
+  (~rule: "explicit"~), or via the fallback heuristics: body ending with
+  ~?~ after trimming whitespace (~rule: "question-mark"~), or sender
+  matching ~expect_reply_senders~ (~rule: "sender-skill"~). Agents and
+  skills whose workflows expect replies should pass ~--expect-reply~.
+- ~agentbus dialogs [--machine M] [--json]~: lists agent panes whose
+  screen currently shows a dialog or input prompt, reusing the same
+  built-in detector as ~hibernate~ (~permission prompt~,
+  ~question prompt~) plus any regexes configured in ~dialog_rules~, with
+  no LLM involved. Normal idle Claude screens whose input box parses
+  never trigger a false positive. Each entry reports ~pane~,
+  ~agent_name~, ~machine~, matched ~rule~, and one-line truncated
+  ~text~. Invalid regexes in ~dialog_rules~ fail loud on config load
+  with exit ~2~.
 
 ~status --json <id>...~ is for a UI that shows delivery state per
 message. It takes several ids, message or client ids, in one call, and
@@ -408,6 +444,10 @@ hibernate_interval = "1m"         # how often the policy reads available memory
 
 # Jobs. Default: jobs-policy.json beside this file; missing asks for every kind.
 # jobs_policy = "~/.config/agentbus/jobs-policy.json"
+
+# Health-check rules.
+# dialog_rules = {"trust" = 'Do you trust.*\? \[y/N\]'}  # extra regexes for dialogs/hibernate
+# expect_reply_senders = ["ops/reviewer", "ask/*"]     # senders whose delivered messages expect a reply
 #+END_SRC
 
 For ~wake_model~ and ~wake_model_by_name~, the daemon that performs

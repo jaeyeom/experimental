@@ -14,6 +14,7 @@ go_library(
         "//devtools/agentbus/internal/adapter/herdr:go_default_library",
         "//devtools/agentbus/internal/config:go_default_library",
         "//devtools/agentbus/internal/daemon:go_default_library",
+        "//devtools/agentbus/internal/dialog:go_default_library",
         "//devtools/agentbus/internal/hibernate:go_default_library",
         "//devtools/agentbus/internal/jobs:go_default_library",
         "//devtools/agentbus/internal/lastturn:go_default_library",
@@ -43,6 +44,7 @@ go_test(
     deps = [
         "//devtools/agentbus/internal/config:go_default_library",
         "//devtools/agentbus/internal/daemon:go_default_library",
+        "//devtools/agentbus/internal/dialog:go_default_library",
         "//devtools/agentbus/internal/hibernate:go_default_library",
         "//devtools/agentbus/internal/jobs:go_default_library",
         "//devtools/agentbus/internal/lease:go_default_library",

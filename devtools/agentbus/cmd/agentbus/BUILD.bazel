@@ -3,6 +3,7 @@ load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 go_library(
     name = "go_default_library",
     srcs = [
+        "checks.go",
         "discover.go",
         "envelope.go",
         "flags.go",
@@ -45,6 +46,7 @@ go_library(
         "//devtools/agentbus/internal/client:go_default_library",
         "//devtools/agentbus/internal/config:go_default_library",
         "//devtools/agentbus/internal/daemon:go_default_library",
+        "//devtools/agentbus/internal/dialog:go_default_library",
         "//devtools/agentbus/internal/eventlog:go_default_library",
         "//devtools/agentbus/internal/hibernate:go_default_library",
         "//devtools/agentbus/internal/jobs:go_default_library",
@@ -74,6 +76,7 @@ go_binary(
 go_test(
     name = "go_default_test",
     srcs = [
+        "checks_test.go",
         "discover_test.go",
         "earlyreply_test.go",
         "envelope_test.go",
@@ -122,6 +125,7 @@ go_test(
         "//devtools/agentbus/internal/client:go_default_library",
         "//devtools/agentbus/internal/config:go_default_library",
         "//devtools/agentbus/internal/daemon:go_default_library",
+        "//devtools/agentbus/internal/dialog:go_default_library",
         "//devtools/agentbus/internal/eventlog:go_default_library",
         "//devtools/agentbus/internal/hibernate:go_default_library",
         "//devtools/agentbus/internal/jobs:go_default_library",

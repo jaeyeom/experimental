@@ -3,10 +3,9 @@ package herdr
 import (
 	"context"
 	"fmt"
-	"regexp"
-	"strings"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/dialog"
 )
 
 // The calls here act on a pane of the local herdr server: agentbus
@@ -17,6 +16,16 @@ import (
 // --source visible`.
 func (a *Adapter) Screen(ctx context.Context, pane string) (string, error) {
 	return a.paneCall(ctx, "agent read", []string{"agent", "read", pane, "--source", "visible"})
+}
+
+// ReadScreen reads the visible screen for the pane of the handle raw,
+// reaching remote machines with `herdr --machine`.
+func (a *Adapter) ReadScreen(ctx context.Context, raw string) (string, error) {
+	machine, _, pane, err := parseHandle(raw)
+	if err != nil {
+		return "", err
+	}
+	return a.paneCallOn(ctx, machine, "agent read", []string{"agent", "read", pane, "--source", "visible"})
 }
 
 // SendText types text into the pane with `herdr pane send-text`,
@@ -120,49 +129,14 @@ func ComposerOf(kind, screen string) (empty, ok bool) {
 	return match(screen)
 }
 
-// dialogMatchers find a permission or question dialog on a screen, per
-// agent kind, and name it.
-var dialogMatchers = map[string]func(screen string) (string, bool){
-	"claude": claudeDialog,
-}
-
 // PendingDialog names the permission or question dialog a kind of agent
 // shows on screen. A kind with no matcher shows none.
 func PendingDialog(kind, screen string) (string, bool) {
-	match, ok := dialogMatchers[kind]
+	m, ok := dialog.Detect(kind, screen, nil)
 	if !ok {
 		return "", false
 	}
-	return match(screen)
-}
-
-// dialogTail is how many of the last screen lines a dialog is looked for
-// in.
-const dialogTail = 20
-
-// claudeMenuOption is the selected option of a Claude Code menu.
-var claudeMenuOption = regexp.MustCompile(`^\s*` + promptMarker + `\s*\d+\.\s`)
-
-// claudeDialog finds Claude Code's permission prompt ("Do you want
-// to ...?" over a numbered menu) or question prompt ("Esc to cancel"
-// under the options) in the bottom lines. A dialog takes the input
-// box's place, so a screen whose input box parses shows none, whatever
-// the agent's last reply says.
-func claudeDialog(screen string) (string, bool) {
-	if _, ok := claudeComposerEmpty(screen); ok {
-		return "", false
-	}
-	lines := strings.Split(strings.TrimRight(screen, "\n"), "\n")
-	lines = lines[max(0, len(lines)-dialogTail):]
-	for _, line := range lines {
-		switch {
-		case strings.Contains(line, "Esc to cancel"):
-			return "question prompt", true
-		case strings.Contains(line, "Do you want to"), claudeMenuOption.MatchString(line):
-			return "permission prompt", true
-		}
-	}
-	return "", false
+	return m.Rule, true
 }
 
 // exitInputs are the text and keys that make a kind of agent exit

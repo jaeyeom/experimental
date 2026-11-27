@@ -13,6 +13,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter/herdr"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/dialog"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/hibernate"
 	"github.com/jaeyeom/experimental/devtools/pkg/procinfo"
 )
@@ -77,15 +78,17 @@ func cmdHibernate(ctx context.Context, args, env []string, stdout, stderr io.Wri
 // newHibernator stops this machine's agents, with daemon requests sent
 // through dialBus. machine is empty unless in hub mode.
 func newHibernator(cfg config.Config, env []string, machine string) *hibernate.Hibernator {
+	rules, _ := dialog.CompileRules(cfg.DialogRules)
 	return &hibernate.Hibernator{
-		Panes:   &herdr.Adapter{},
-		Bus:     busClient{env: env},
-		Procs:   hibernateProcs,
-		Cwd:     hibernateCwd,
-		Clock:   hibernateClock,
-		Machine: machine,
-		Exempt:  cfg.HibernateExempt,
-		Self:    os.Getpid(),
+		Panes:       &herdr.Adapter{},
+		Bus:         busClient{env: env},
+		Procs:       hibernateProcs,
+		Cwd:         hibernateCwd,
+		Clock:       hibernateClock,
+		Machine:     machine,
+		Exempt:      cfg.HibernateExempt,
+		DialogRules: rules,
+		Self:        os.Getpid(),
 	}
 }
 

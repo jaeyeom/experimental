@@ -27,7 +27,7 @@ func cmdSend(ctx context.Context, args, env []string, stdin io.Reader, stdout, s
 	return finishSend(ctx, env, daemon.Request{
 		Op: "send", Name: parsed.target, Body: body, Env: env,
 		TTL: parsed.ttl, Wait: parsed.wait, ClientID: parsed.clientID,
-		LogName: parsed.target,
+		ExpectReply: parsed.expectReply, LogName: parsed.target,
 	}, parsed.asJSON, stdout, stderr)
 }
 
@@ -261,13 +261,14 @@ func noteHeld(stderr io.Writer, state string, unreachable, anonHerdr bool) int {
 }
 
 type sendParse struct {
-	target   string
-	body     string
-	file     string
-	ttl      string
-	clientID string
-	wait     bool
-	asJSON   bool
+	target      string
+	body        string
+	file        string
+	ttl         string
+	clientID    string
+	wait        bool
+	asJSON      bool
+	expectReply bool
 }
 
 func parseSend(args []string) (sendParse, error) {
@@ -277,6 +278,10 @@ func parseSend(args []string) (sendParse, error) {
 		return sendParse{}, err
 	}
 	asJSON, left, err := takeBool(left, "--json")
+	if err != nil {
+		return sendParse{}, err
+	}
+	expectReply, left, err := takeBool(left, "--expect-reply")
 	if err != nil {
 		return sendParse{}, err
 	}
@@ -298,13 +303,13 @@ func parseSend(args []string) (sendParse, error) {
 			return sendParse{}, fmt.Errorf("%w", err)
 		}
 	}
-	msg, err := parsePositionals(left, literal, "usage: agentbus send <name|handle> [<body>] [--file <path>] [--ttl <duration>] [--wait] [--client-id <id>] [--json]")
+	msg, err := parsePositionals(left, literal, "usage: agentbus send <name|handle> [<body>] [--file <path>] [--ttl <duration>] [--wait] [--expect-reply] [--client-id <id>] [--json]")
 	if err != nil {
 		return sendParse{}, err
 	}
 	return sendParse{
 		target: msg.recipient, body: msg.body, file: msg.file, ttl: ttl,
-		clientID: clientID, wait: wait, asJSON: asJSON,
+		clientID: clientID, wait: wait, asJSON: asJSON, expectReply: expectReply,
 	}, nil
 }
 

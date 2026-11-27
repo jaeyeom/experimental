@@ -10,6 +10,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter/herdr"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/dialog"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/memreport"
 	"github.com/jaeyeom/experimental/devtools/pkg/hubcall"
@@ -76,6 +77,8 @@ type Hibernator struct {
 	Machine string
 	// Exempt are hibernate_exempt: names, handles, or globs.
 	Exempt []string
+	// DialogRules are extra compiled regex rules for dialog detection.
+	DialogRules []dialog.Rule
 	// StopTimeout is how long to wait for the exit. Zero is
 	// DefaultStopTimeout.
 	StopTimeout time.Duration
@@ -398,8 +401,8 @@ func (h *Hibernator) checkScreen(ctx context.Context, a adapter.Agent, f *facts)
 		f.reasons = append(f.reasons, "cannot read the screen: "+err.Error())
 		return
 	}
-	if dialog, ok := herdr.PendingDialog(a.Kind, screen); ok {
-		f.reasons = append(f.reasons, "pending dialog: "+dialog)
+	if dlg, ok := dialog.Detect(a.Kind, screen, h.DialogRules); ok {
+		f.reasons = append(f.reasons, "pending dialog: "+dlg.Rule)
 		return
 	}
 	empty, ok := herdr.ComposerOf(a.Kind, screen)

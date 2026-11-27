@@ -89,9 +89,12 @@ func TestCommandHelpListsFlagsWithDefaults(t *testing.T) {
 		{"describe", []string{"--when"}},
 		{"release", []string{"--to"}},
 		{"list", []string{"--json", "--fresh", "name", "when", "liveness", "liveness_age", "transport", "handle", "alive", "dead", "unknown"}},
-		{"send", []string{"--file", "--ttl", "--wait", "--client-id", "--json"}},
+		{"send", []string{"--file", "--ttl", "--wait", "--expect-reply", "--client-id", "--json"}},
 		{"reply", []string{"--file", "stdin", "--client-id", "--json", "--"}},
 		{"log", []string{"--since", "--name", "--msg", "--event", "--follow", "--json"}},
+		{"held", []string{"--older-than", "--reason", "--not-reason", "--to", "--json"}},
+		{"asks", []string{"--unanswered", "--from", "--to", "--json"}},
+		{"dialogs", []string{"--machine", "--json"}},
 	} {
 		_, stdout, _ := runHelp(tt.cmd, "--help")
 		if !strings.Contains(stdout, "Flags:") || !strings.Contains(stdout, "default") {

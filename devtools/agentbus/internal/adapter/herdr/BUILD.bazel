@@ -10,6 +10,7 @@ go_library(
     visibility = ["//devtools/agentbus:__subpackages__"],
     deps = [
         "//devtools/agentbus/internal/adapter:go_default_library",
+        "//devtools/agentbus/internal/dialog:go_default_library",
         "//devtools/pkg/hubcall:go_default_library",
         "//devtools/pkg/procinfo:go_default_library",
         "//devtools/pkg/remotecall:go_default_library",

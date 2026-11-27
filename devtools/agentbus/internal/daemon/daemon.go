@@ -131,6 +131,11 @@ type Config struct {
 	// JobStatus, when not nil, gets the jobs status view, one row per
 	// machine, when it changes and at most once per Jobs.StatusInterval.
 	JobStatus jobs.StatusSink
+	// DialogRules are extra regex rules for dialog detection.
+	DialogRules []config.DialogRule
+	// ExpectReplySenders are sender names, handles, or globs whose
+	// delivered messages expect a reply unless already replied to.
+	ExpectReplySenders []string
 }
 
 // ProtocolVersion is the request format a hub-socket client must speak.
@@ -188,6 +193,14 @@ type Request struct {
 	Reason string `json:"reason,omitempty"`
 	DryRun bool   `json:"dryRun,omitempty"`
 	Force  bool   `json:"force,omitempty"`
+	// OlderThan, Reasons, NotReasons, From, ExpectReply, and DialogRules
+	// support send --expect-reply and the held, asks, and dialogs ops.
+	OlderThan   string              `json:"olderThan,omitempty"`
+	Reasons     []string            `json:"reasons,omitempty"`
+	NotReasons  []string            `json:"notReasons,omitempty"`
+	From        string              `json:"from,omitempty"`
+	ExpectReply bool                `json:"expectReply,omitempty"`
+	DialogRules []config.DialogRule `json:"dialogRules,omitempty"`
 }
 
 // ClientEvent is one log line a client asks the daemon to append.
@@ -267,6 +280,12 @@ type Response struct {
 	Released int `json:"released,omitempty"`
 	// Replayed are the messages replayed (or matched in dry-run) by op replay.
 	Replayed []mailbox.ReplayEntry `json:"replayed,omitempty"`
+	// HeldMessages answers op held.
+	HeldMessages []mailbox.HeldMessage `json:"heldMessages,omitempty"`
+	// Asks answers op asks.
+	Asks []mailbox.Ask `json:"asks,omitempty"`
+	// Dialogs answers op dialogs.
+	Dialogs []DialogEntry `json:"dialogs,omitempty"`
 }
 
 // Serve listens on dirs.SocketPath until ctx is cancelled. It creates
@@ -455,7 +474,7 @@ func newServer(ctx context.Context, stateDir string, cfg Config, lg *eventlog.Lo
 	srv := &server{
 		ctx: ctx, reg: reg, box: box, log: lg, leases: leases, jobs: queue,
 		adapters: cfg.Adapters, timing: cfg.LeaseTiming.WithDefaults(), notify: cfg.Notify,
-		clock: cfg.Now,
+		clock: cfg.Now, dialogRules: cfg.DialogRules,
 	}
 	queue.SetLeaser(jobLeases{srv})
 	return srv, nil
@@ -539,6 +558,10 @@ func openState(dir string, cfg Config, lg *eventlog.Log) (*registry.Registry, *m
 	box.SetAuthErrorPatterns(cfg.AuthErrorPatterns)
 	box.SetStaleComposerAfter(cfg.StaleComposerAfter)
 	box.SetHibernateWarnWithin(cfg.HibernateWarnWithin)
+	box.SetExpectReplySenders(cfg.ExpectReplySenders)
+	if cfg.Now != nil {
+		box.SetNow(cfg.Now)
+	}
 	return reg, box, nil
 }
 
@@ -557,7 +580,8 @@ type server struct {
 	// this machine. A change that can take that answer away drops it.
 	leaseCache leasecache.Cache
 	// clock is the Config's Now. Nil uses time.Now.
-	clock func() time.Time
+	clock       func() time.Time
+	dialogRules []config.DialogRule
 }
 
 func (s *server) now() time.Time {
@@ -746,6 +770,8 @@ func (s *server) dispatchMessage(req Request, pid int) Response {
 		return s.status(req)
 	case "status-report":
 		return s.statusReport(req)
+	case "held", "asks", "dialogs":
+		return s.dispatchChecks(req)
 	case "release-held", "replay":
 		return s.dispatchDeliveryRecovery(req)
 	case "bypass":
@@ -755,15 +781,19 @@ func (s *server) dispatchMessage(req Request, pid int) Response {
 	case "wake", "forget":
 		return s.dispatchWake(req)
 	default:
-		if strings.HasPrefix(req.Op, "lease-") {
-			return s.lease(req)
-		}
-		if strings.HasPrefix(req.Op, "hibernate-") {
-			return s.hibernateOp(req)
-		}
-		if strings.HasPrefix(req.Op, "jobs-") {
-			return s.jobsOp(req)
-		}
+		return s.dispatchPrefixed(req)
+	}
+}
+
+func (s *server) dispatchPrefixed(req Request) Response {
+	switch {
+	case strings.HasPrefix(req.Op, "lease-"):
+		return s.lease(req)
+	case strings.HasPrefix(req.Op, "hibernate-"):
+		return s.hibernateOp(req)
+	case strings.HasPrefix(req.Op, "jobs-"):
+		return s.jobsOp(req)
+	default:
 		return Response{Error: "unknown op"}
 	}
 }
@@ -1413,7 +1443,7 @@ func (s *server) send(req Request, pid int) Response {
 		return Response{Error: err.Error()}
 	}
 	result, err := s.box.Send(s.ctx, req.Env, pid, req.Name, req.Body, mailbox.Options{
-		TTL: ttl, Wait: req.Wait, ClientID: req.ClientID, ReplyFirst: !req.Wait,
+		TTL: ttl, Wait: req.Wait, ClientID: req.ClientID, ReplyFirst: !req.Wait, ExpectReply: req.ExpectReply,
 	})
 	if err != nil {
 		return sendError(err)

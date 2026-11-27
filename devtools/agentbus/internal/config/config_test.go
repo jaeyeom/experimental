@@ -560,3 +560,71 @@ func TestParseHibernateWarnWithin(t *testing.T) {
 		t.Fatalf("zero = %v, %v", off.HibernateWarnWithin, err)
 	}
 }
+
+func TestParseDialogRules(t *testing.T) {
+	t.Run("list with literal and escaped regex", func(t *testing.T) {
+		got, err := Parse(`dialog_rules = ['Do you trust.*\? \[y/N\]', "Paste code: \\d+"]` + "\n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []DialogRule{
+			{Name: `Do you trust.*\? \[y/N\]`, Pattern: `Do you trust.*\? \[y/N\]`},
+			{Name: `Paste code: \d+`, Pattern: `Paste code: \d+`},
+		}
+		if !reflect.DeepEqual(got.DialogRules, want) {
+			t.Fatalf("DialogRules = %+v, want %+v", got.DialogRules, want)
+		}
+	})
+
+	t.Run("inline table", func(t *testing.T) {
+		got, err := Parse(`dialog_rules = {"trust" = '\[y/N\]', "oauth" = "Paste code"}` + "\n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []DialogRule{
+			{Name: "trust", Pattern: `\[y/N\]`},
+			{Name: "oauth", Pattern: "Paste code"},
+		}
+		if !reflect.DeepEqual(got.DialogRules, want) {
+			t.Fatalf("DialogRules = %+v, want %+v", got.DialogRules, want)
+		}
+	})
+
+	t.Run("section", func(t *testing.T) {
+		got, err := Parse("[dialog_rules]\ntrust = 'Do you trust'\noauth = \"Enter token:\"\n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []DialogRule{
+			{Name: "trust", Pattern: "Do you trust"},
+			{Name: "oauth", Pattern: "Enter token:"},
+		}
+		if !reflect.DeepEqual(got.DialogRules, want) {
+			t.Fatalf("DialogRules = %+v, want %+v", got.DialogRules, want)
+		}
+	})
+
+	t.Run("invalid regex fails loud", func(t *testing.T) {
+		for _, text := range []string{
+			`dialog_rules = ["[unclosed"]` + "\n",
+			`dialog_rules = {"bad" = "(unclosed"}` + "\n",
+			"[dialog_rules]\nbad = \"[unclosed\"\n",
+			`dialog_rules = [""]` + "\n",
+		} {
+			if _, err := Parse(text); err == nil {
+				t.Errorf("Parse(%q) succeeded, want regex validation error", text)
+			}
+		}
+	})
+}
+
+func TestParseExpectReplySenders(t *testing.T) {
+	got, err := Parse(`expect_reply_senders = ["ops/reviewer", "ask/*"]` + "\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"ops/reviewer", "ask/*"}
+	if !reflect.DeepEqual(got.ExpectReplySenders, want) {
+		t.Fatalf("ExpectReplySenders = %v, want %v", got.ExpectReplySenders, want)
+	}
+}

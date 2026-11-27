@@ -10,9 +10,9 @@ import (
 	"os"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/dialog"
 	"github.com/jaeyeom/experimental/devtools/pkg/hubcall"
 	"github.com/jaeyeom/experimental/devtools/pkg/procinfo"
 	"github.com/jaeyeom/experimental/devtools/pkg/remotecall"
@@ -399,170 +399,24 @@ func (a *Adapter) readPane(ctx context.Context, machine, pane, source string) (s
 	return a.paneCallOn(ctx, machine, "agent read", []string{"agent", "read", pane, "--source", source})
 }
 
-// promptMarker starts Claude Code's input line.
-const promptMarker = "❯"
-
-// claudeComposerEmpty finds Claude Code's input box: the lines between the
-// last two horizontal rules, the first starting with the prompt marker.
-// The shell-mode marker "!" always counts as a draft.
 func claudeComposerEmpty(screen string) (empty, ok bool) {
-	return claudeComposerEmptyWithPlaceholders(screen, DefaultComposerPlaceholders)
+	return dialog.ClaudeComposerEmpty(screen, DefaultComposerPlaceholders)
 }
 
 func claudeComposerEmptyWithPlaceholders(screen string, placeholders []string) (empty, ok bool) {
-	text, ok := claudeComposerDraftText(screen, placeholders)
-	if !ok {
-		return false, false
-	}
-	if strings.HasPrefix(text, "!") {
-		return false, true
-	}
-	for _, line := range strings.Split(text, "\n") {
-		if !blank(line) {
-			return false, true
-		}
-	}
-	return true, true
+	return dialog.ClaudeComposerEmpty(screen, placeholders)
 }
 
-// claudeComposerText is the input box with the prompt marker removed.
-// Shell mode keeps the "!" line. ok is false when the screen does not parse.
 func claudeComposerText(screen string) (string, bool) {
-	lines := strings.Split(stripANSI(screen), "\n")
-	bottom := lastRule(lines, len(lines))
-	if bottom < 0 {
-		return "", false
-	}
-	top := lastRule(lines, bottom)
-	if top < 0 || top+1 >= bottom {
-		return "", false
-	}
-	box := append([]string(nil), lines[top+1:bottom]...)
-	switch {
-	case strings.HasPrefix(box[0], "!"):
-		return strings.Join(box, "\n"), true
-	case !strings.HasPrefix(box[0], promptMarker):
-		return "", false
-	}
-	box[0] = strings.TrimPrefix(box[0], promptMarker)
-	return strings.Join(box, "\n"), true
+	return dialog.ClaudeComposerText(screen)
 }
 
-// claudeComposerDraftText extracts Claude Code's input box, removes ANSI
-// styling, and treats a known placeholder as empty. Dim styling alone does
-// not make composer text empty: Claude also dims collapsed pasted text.
 func claudeComposerDraftText(screen string, placeholders []string) (string, bool) {
-	rawLines := strings.Split(screen, "\n")
-	plainLines := make([]string, len(rawLines))
-	for i, l := range rawLines {
-		plainLines[i] = stripANSI(l)
-	}
-	bottom := lastRule(plainLines, len(plainLines))
-	if bottom < 0 {
-		return "", false
-	}
-	top := lastRule(plainLines, bottom)
-	if top < 0 || top+1 >= bottom {
-		return "", false
-	}
-	firstPlain := plainLines[top+1]
-	switch {
-	case strings.HasPrefix(firstPlain, "!"):
-		return strings.Join(plainLines[top+1:bottom], "\n"), true
-	case !strings.HasPrefix(firstPlain, promptMarker):
-		return "", false
-	}
-	out := make([]string, 0, bottom-top-1)
-	for i := top + 1; i < bottom; i++ {
-		plain := stripANSI(rawLines[i])
-		if i == top+1 {
-			plain = strings.TrimPrefix(plain, promptMarker)
-		}
-		out = append(out, plain)
-	}
-	joined := strings.Join(out, "\n")
-	if isPlaceholderOnly(out, placeholders) {
-		return "", true
-	}
-	return joined, true
+	return dialog.ClaudeComposerDraftText(screen, placeholders)
 }
 
-func isPlaceholderOnly(lines, placeholders []string) bool {
-	var nonBlank []string
-	for _, l := range lines {
-		if !blank(l) {
-			nonBlank = append(nonBlank, strings.TrimFunc(l, unicode.IsSpace))
-		}
-	}
-	if len(nonBlank) != 1 {
-		return false
-	}
-	for _, p := range placeholders {
-		if p != "" && nonBlank[0] == p {
-			return true
-		}
-	}
-	return false
-}
-
-// stripANSI removes CSI and OSC escape sequences from s.
 func stripANSI(s string) string {
-	var b strings.Builder
-	b.Grow(len(s))
-	for i := 0; i < len(s); {
-		if s[i] == '\x1b' {
-			i = skipEscape(s, i)
-			continue
-		}
-		b.WriteByte(s[i])
-		i++
-	}
-	return b.String()
-}
-
-func skipEscape(s string, i int) int {
-	if i+1 >= len(s) {
-		return i + 1
-	}
-	switch s[i+1] {
-	case '[':
-		return skipCSI(s, i)
-	case ']':
-		for j := i + 2; j < len(s); j++ {
-			if s[j] == '\x07' {
-				return j + 1
-			}
-			if s[j] == '\x1b' && j+1 < len(s) && s[j+1] == '\\' {
-				return j + 2
-			}
-		}
-		return len(s)
-	default:
-		return i + 2
-	}
-}
-
-func skipCSI(s string, i int) int {
-	for j := i + 2; j < len(s); j++ {
-		if s[j] >= 0x40 && s[j] <= 0x7e {
-			return j + 1
-		}
-	}
-	return len(s)
-}
-
-func lastRule(lines []string, before int) int {
-	for i := before - 1; i >= 0; i-- {
-		line := strings.TrimSpace(lines[i])
-		if line != "" && strings.Trim(line, "─") == "" {
-			return i
-		}
-	}
-	return -1
-}
-
-func blank(s string) bool {
-	return strings.TrimFunc(s, unicode.IsSpace) == ""
+	return dialog.StripANSI(s)
 }
 
 // Deliver runs `herdr agent prompt` and does not wait for the agent to finish.

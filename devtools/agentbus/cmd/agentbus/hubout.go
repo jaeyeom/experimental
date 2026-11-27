@@ -293,7 +293,8 @@ func busRequest(handle string, e outbox.Entry, wait bool) daemon.Request {
 	return daemon.Request{
 		Op: op, Name: e.Target, Body: e.Body, Session: e.Session,
 		ClientID: e.ClientID, TTL: e.TTL, Wait: wait,
-		Protocol: daemon.ProtocolVersion, Handle: handle,
+		ExpectReply: e.ExpectReply,
+		Protocol:    daemon.ProtocolVersion, Handle: handle,
 	}
 }
 
@@ -377,7 +378,7 @@ func prepareSend(cfg config.Config, args []string, stdin io.Reader, stderr io.Wr
 	fwd = withClientID(fwd, id)
 	return outbox.Entry{
 		Kind: outbox.KindSend, Args: withoutBool(fwd, "--wait"), Stdin: stdinOf(parsed.body, parsed.file, body),
-		ClientID: id, TTL: parsed.ttl, Target: parsed.target, Body: body,
+		ClientID: id, TTL: parsed.ttl, Target: parsed.target, Body: body, ExpectReply: parsed.expectReply,
 	}, parsed.wait, parsed.asJSON, 0
 }
 

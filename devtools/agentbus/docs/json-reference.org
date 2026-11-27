@@ -82,3 +82,46 @@ refused; refusals under ~--idle-over~ exit 0.
 ~send --json~ and ~reply --json~ print one object with ~id~, ~state~,
 and, only when the accept was a retry of the same client id, ~duplicate~
 set to ~true~. Text output stays ~<id> <state>~.
+
+* held --json
+
+~held --json~ prints a JSON array (or ~[]~ when empty) of objects with:
+
+| Field | Value |
+|-------+-------|
+| ~id~ | Message id. |
+| ~from~ | Sender display name or handle. |
+| ~to~ | Recipient name or handle. |
+| ~reason~ | Stored hold reason text. |
+| ~reason_code~ | Stable reason code (~draft~, ~ordering~, ~login-expired~, etc.). |
+| ~held_since~ | RFC3339 UTC timestamp when the hold began. |
+| ~age~ | Human-readable hold duration. |
+| ~age_seconds~ | Integer seconds since ~held_since~. |
+
+* asks --json
+
+~asks --json~ prints a JSON array (or ~[]~ when empty) of objects with:
+
+| Field | Value |
+|-------+-------|
+| ~id~ | Message id. |
+| ~from~ | Sender display name or handle. |
+| ~to~ | Recipient name or handle. |
+| ~sent~ | RFC3339 UTC timestamp when sent. |
+| ~age~ | Human-readable age since ~sent~. |
+| ~age_seconds~ | Integer seconds since ~sent~. |
+| ~first_line~ | First non-empty line of the message body. |
+| ~rule~ | Matched rule: ~explicit~, ~question-mark~, or ~sender-skill~. |
+
+* dialogs --json
+
+~dialogs --json~ prints a JSON array (or ~[]~ when empty) of objects with:
+
+| Field | Value |
+|-------+-------|
+| ~pane~ | Pane id, such as ~w1:p2~. |
+| ~agent_name~ | First registered bus name, or ~""~ if unregistered. |
+| ~handle~ | Raw handle when present. |
+| ~machine~ | Machine name, such as ~local~ or ~linux2~. |
+| ~rule~ | Built-in or configured rule name that matched. |
+| ~text~ | Single-line truncated matched text. |

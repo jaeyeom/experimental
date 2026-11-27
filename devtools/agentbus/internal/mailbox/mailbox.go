@@ -51,10 +51,11 @@ type Result struct {
 // ReplyFirst answers after the precheck and leaves the paste until
 // DeliverDeferred. Wait ignores it and blocks until the message settles.
 type Options struct {
-	TTL        time.Duration
-	Wait       bool
-	ClientID   string
-	ReplyFirst bool
+	TTL         time.Duration
+	Wait        bool
+	ClientID    string
+	ReplyFirst  bool
+	ExpectReply bool
 }
 
 type message struct {
@@ -62,14 +63,15 @@ type message struct {
 	From string `json:"from"`
 	// FromNames are the sender's names when it was stamped. From is
 	// their display join; reply targets come from this list.
-	FromNames []string  `json:"fromNames,omitempty"`
-	To        string    `json:"to"`
-	Re        string    `json:"re,omitempty"`
-	SentAt    time.Time `json:"sentAt"`
-	Body      string    `json:"body"`
-	Replyable bool      `json:"replyable"`
-	State     string    `json:"state"`
-	Handle    string    `json:"handle"`
+	FromNames   []string  `json:"fromNames,omitempty"`
+	To          string    `json:"to"`
+	Re          string    `json:"re,omitempty"`
+	SentAt      time.Time `json:"sentAt"`
+	Body        string    `json:"body"`
+	Replyable   bool      `json:"replyable"`
+	ExpectReply bool      `json:"expectReply,omitempty"`
+	State       string    `json:"state"`
+	Handle      string    `json:"handle"`
 	// ClientID is the caller's retry key. Empty means the send was not idempotent.
 	ClientID string `json:"clientId,omitempty"`
 	// SenderHandle is the stable caller handle. From is only the display name.
@@ -188,6 +190,9 @@ type Mailbox struct {
 	authOutage map[string]authOutageRecord
 	// staleComposerNoticed tracks handle -> composerText already noticed.
 	staleComposerNoticed map[string]string
+	// expectReplySenders are sender name/handle globs whose delivered
+	// messages expect a reply unless already replied to.
+	expectReplySenders []string
 }
 
 // Open loads messages. A missing file is an empty mailbox.
@@ -226,6 +231,17 @@ func Open(dir string, reg *registry.Registry, adapters []adapter.Adapter, log *e
 		reg.OnHolderChange = box.MoveName
 	}
 	return box, nil
+}
+
+// SetNow overrides the clock the mailbox reads. Nil restores time.Now.
+func (m *Mailbox) SetNow(fn func() time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if fn == nil {
+		m.now = time.Now
+		return
+	}
+	m.now = fn
 }
 
 // Send stores a message and queues it for the resolved handle.
@@ -271,6 +287,7 @@ func (m *Mailbox) send(ctx context.Context, from, sender string, names []string,
 	msg.ClientID = opt.ClientID
 	msg.SenderHandle = sender
 	msg.FromNames = names
+	msg.ExpectReply = opt.ExpectReply
 	res, err := m.enqueue(ctx, msg, opt)
 	if err != nil {
 		return Result{}, err
@@ -307,6 +324,7 @@ func (m *Mailbox) Reply(ctx context.Context, env []string, peerPID int, id, body
 	msg.ClientID = opt.ClientID
 	msg.SenderHandle = sender
 	msg.FromNames = names
+	msg.ExpectReply = opt.ExpectReply
 	res, err := m.enqueue(ctx, msg, opt)
 	if err != nil {
 		return Result{}, err

@@ -17,6 +17,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter/herdr"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/dialog"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/hibernate"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/jobs"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lastturn"
@@ -231,6 +232,8 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 		JobPolicy:            jobsPolicy(env, cfg, stderr, notify),
 		JobDecider:           gateDecider(exec.LookPath, runOutput),
 		JobStatus:            decideStatusSink(exec.LookPath, runOutput),
+		DialogRules:          cfg.DialogRules,
+		ExpectReplySenders:   cfg.ExpectReplySenders,
 	}); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(stderr, "agentbusd: %s\n", err)
 		if errors.Is(err, daemon.ErrAlreadyRunning) {
@@ -269,6 +272,7 @@ func hibernatePolicy(cfg config.Config, stderr io.Writer) func(hibernate.Bus) *h
 	}
 	fmt.Fprintf(stderr, "agentbusd: hibernate_policy=%s below=%s target=%s min_idle=%s interval=%s\n",
 		p.Mode, memreport.HumanBytes(p.Below), memreport.HumanBytes(p.Target), p.MinIdle, p.Interval)
+	dialogRules, _ := dialog.CompileRules(cfg.DialogRules)
 	return func(bus hibernate.Bus) *hibernate.Policy {
 		return &hibernate.Policy{
 			Mode: p.Mode, Below: p.Below, Target: p.Target, MinIdle: p.MinIdle,
@@ -280,10 +284,11 @@ func hibernatePolicy(cfg config.Config, stderr io.Writer) func(hibernate.Bus) *h
 				Procs: func(ctx context.Context) ([]procinfo.Process, error) {
 					return procinfo.LocalTable().List(ctx) //nolint:wrapcheck // the hibernator names the process table
 				},
-				Cwd:    procinfo.LocalCwd,
-				Clock:  hibernate.RealClock{},
-				Exempt: cfg.HibernateExempt,
-				Self:   os.Getpid(),
+				Cwd:         procinfo.LocalCwd,
+				Clock:       hibernate.RealClock{},
+				Exempt:      cfg.HibernateExempt,
+				DialogRules: dialogRules,
+				Self:        os.Getpid(),
 			},
 		}
 	}

@@ -35,6 +35,9 @@ var tunnelCommands = map[string]bool{
 	"thread":      true,
 	"status":      true,
 	"health":      true,
+	"held":        true,
+	"asks":        true,
+	"dialogs":     true,
 	"wake":        true,
 	"hook":        true,
 	"prompt-hook": true,
@@ -88,6 +91,9 @@ func runHubMode(ctx context.Context, cfg config.Config, cmd command, args, env [
 			return 0
 		}
 		fmt.Fprintf(stderr, "agentbus: %s\n", err)
+		if isCheckCommand(args[0]) {
+			return 2
+		}
 		return 1
 	}
 	if ok {

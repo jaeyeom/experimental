@@ -46,6 +46,18 @@ type Adapter struct {
 	SubmitErr error
 	// PaneShell, when non-nil, maps handle to whether its pane is at a shell prompt.
 	PaneShell map[string]bool
+	// PaneScreens, when non-nil, maps handle to its visible screen for ReadScreen.
+	PaneScreens map[string]string
+	// ScreenErr, when it has the handle, is ReadScreen's error for it.
+	ScreenErr map[string]error
+}
+
+// ReadScreen returns the configured screen for handle.
+func (a *Adapter) ReadScreen(_ context.Context, handle string) (string, error) {
+	if err, ok := a.ScreenErr[handle]; ok {
+		return "", err
+	}
+	return a.PaneScreens[handle], nil
 }
 
 // PaneAtShell reports whether handle's pane is at its shell prompt.

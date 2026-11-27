@@ -38,22 +38,23 @@ const (
 
 // Entry is one queued message. The file is the durable copy.
 type Entry struct {
-	Kind       string    `json:"kind"`
-	Args       []string  `json:"args,omitempty"`
-	Stdin      string    `json:"stdin,omitempty"`
-	Handle     string    `json:"handle,omitempty"`
-	ClientID   string    `json:"clientId"`
-	EnqueuedAt time.Time `json:"enqueuedAt"`
-	Attempts   int       `json:"attempts"`
-	TTL        string    `json:"ttl,omitempty"`
-	LastError  string    `json:"lastError,omitempty"`
-	NextAt     time.Time `json:"nextAt,omitempty"`
-	State      string    `json:"state"`
-	MsgID      string    `json:"msgId,omitempty"`
-	HubState   string    `json:"hubState,omitempty"`
-	Target     string    `json:"target,omitempty"`
-	Body       string    `json:"body,omitempty"`
-	Session    string    `json:"session,omitempty"`
+	Kind        string    `json:"kind"`
+	Args        []string  `json:"args,omitempty"`
+	Stdin       string    `json:"stdin,omitempty"`
+	Handle      string    `json:"handle,omitempty"`
+	ClientID    string    `json:"clientId"`
+	EnqueuedAt  time.Time `json:"enqueuedAt"`
+	Attempts    int       `json:"attempts"`
+	TTL         string    `json:"ttl,omitempty"`
+	LastError   string    `json:"lastError,omitempty"`
+	NextAt      time.Time `json:"nextAt,omitempty"`
+	State       string    `json:"state"`
+	MsgID       string    `json:"msgId,omitempty"`
+	HubState    string    `json:"hubState,omitempty"`
+	Target      string    `json:"target,omitempty"`
+	Body        string    `json:"body,omitempty"`
+	Session     string    `json:"session,omitempty"`
+	ExpectReply bool      `json:"expectReply,omitempty"`
 }
 
 // LogEvent is one client log line waiting to be appended on the hub.

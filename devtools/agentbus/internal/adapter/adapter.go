@@ -125,6 +125,18 @@ func AsPaneProcessChecker(ad Adapter) (PaneProcessChecker, bool) {
 	return c, ok
 }
 
+// ScreenReader is optional. Adapters that can read an agent pane's visible
+// screen by handle implement it.
+type ScreenReader interface {
+	ReadScreen(ctx context.Context, handle string) (string, error)
+}
+
+// AsScreenReader returns ad's screen reader when implemented.
+func AsScreenReader(ad Adapter) (ScreenReader, bool) {
+	r, ok := ad.(ScreenReader)
+	return r, ok
+}
+
 // Adapter is one transport. Identify reads the caller's environment.
 // The caller does not type its own handle.
 //

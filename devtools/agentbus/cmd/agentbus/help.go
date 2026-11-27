@@ -87,7 +87,7 @@ func commands() []command {
 		{
 			name:    "send",
 			summary: "Send. The body comes from the argument, --file, or stdin. " + sendExitCodes,
-			usage:   "agentbus send <name|handle> [<body>] [--file <path>] [--ttl <duration>] [--wait] [--client-id <id>] [--json]",
+			usage:   "agentbus send <name|handle> [<body>] [--file <path>] [--ttl <duration>] [--wait] [--expect-reply] [--client-id <id>] [--json]",
 			flags: "--file <path>       read the body from this file (default: none)\n" +
 				"--ttl <duration>    deadline for this message, such as 30m (default: none, no deadline)\n" +
 				"--wait              block until delivered or the deadline passes (default: false).\n" +
@@ -97,6 +97,7 @@ func commands() []command {
 				"                    A stored message whose transport is unreachable exits 3 and prints:\n" +
 				"                    agentbus: held: the daemon can't reach herdr (<reason>); the message will be delivered when it recovers. See: agentbus doctor\n" +
 				"                    --wait does not use that exit\n" +
+				"--expect-reply      mark this message as expecting a reply for 'agentbus asks' (default: false)\n" +
 				"--client-id <id>    retry key, <machine>:<ulid>, up to 64 [A-Za-z0-9._:-] with a colon (default: a generated <machine>:<ulid>)\n" +
 				"--json              print id, state, and duplicate as JSON (default: false)\n" +
 				"--                   end of flags; the next words are the body, even if they start with --",
@@ -296,6 +297,38 @@ func commands() []command {
 			run:     noStdin(cmdHealth),
 		},
 		{
+			name:    "held",
+			summary: "List held messages with id, from, to, held reason, held since, and age. Exit 0: none match; 1: any match; 2: bus or usage error.",
+			usage:   "agentbus held [--older-than D] [--reason R]... [--not-reason R]... [--to NAME] [--json]",
+			flags: "--older-than <D>  only messages held at least this long, e.g. 10m, 2h, 1d (default: all)\n" +
+				"--reason <R>      include only this stable reason code, e.g. draft, ordering, login-expired (repeatable; default: all)\n" +
+				"--not-reason <R>  exclude this stable reason code (repeatable; default: none)\n" +
+				"--to <NAME>       filter by recipient name or handle (default: all)\n" +
+				"--json            print a JSON array (default: false)",
+			example: "agentbus held --older-than 10m --not-reason draft --json",
+			run:     noStdin(cmdHeld),
+		},
+		{
+			name:    "asks",
+			summary: "List delivered messages expecting a reply with none after D. Exit 0: none match; 1: any match; 2: bus or usage error.",
+			usage:   "agentbus asks [--unanswered D] [--from NAME] [--to NAME] [--json]",
+			flags: "--unanswered <D>  only asks unanswered for at least D, e.g. 10m, 2h, 1d (default: 0s, all)\n" +
+				"--from <NAME>     filter by sender name or handle (default: all)\n" +
+				"--to <NAME>       filter by recipient name or handle (default: all)\n" +
+				"--json            print a JSON array with id, from, to, sent, age, first_line, and rule (default: false)",
+			example: "agentbus asks --unanswered 15m --json",
+			run:     noStdin(cmdAsks),
+		},
+		{
+			name:    "dialogs",
+			summary: "List agent panes whose screen shows a pending dialog or input prompt. Exit 0: none match; 1: any match; 2: bus, config, or usage error.",
+			usage:   "agentbus dialogs [--machine M] [--json]",
+			flags: "--machine <M>  filter by machine name, e.g. local or linux2 (default: all)\n" +
+				"--json         print a JSON array with pane, agent_name, machine, rule, and text (default: false)",
+			example: "agentbus dialogs --json",
+			run:     noStdin(cmdDialogs),
+		},
+		{
 			name:    "install-hooks",
 			summary: "Install the observe-only SendMessage hook and the merged-draft prompt guard.",
 			usage:   "agentbus install-hooks",
@@ -446,6 +479,10 @@ Config ($XDG_CONFIG_HOME/agentbus/config.toml):
                           resumes on ("keep" keeps the original)
   wake_model_by_name = {"ops/*" = "keep"}
                           per-name/handle/glob overrides for wake_model (first match wins)
+  dialog_rules = {"trust" = 'Do you trust'}
+                          extra regex rules for 'agentbus dialogs' and hibernate
+  expect_reply_senders = ["ops/reviewer"]
+                          sender names/globs whose delivered messages expect a reply
 
 In hub mode a hub that cannot be reached fails the command with
 "agentbus: hub <target> unreachable: <cause>", except send and reply,

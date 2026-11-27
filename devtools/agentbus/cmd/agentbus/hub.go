@@ -122,6 +122,9 @@ func runOnHub(ctx context.Context, cfg config.Config, args, env []string, stdin 
 		return code
 	}
 	fmt.Fprintf(stderr, "agentbus: %s\n", sshHint(env, cfg, err))
+	if isCheckCommand(name) {
+		return 2
+	}
 	return code
 }
 
