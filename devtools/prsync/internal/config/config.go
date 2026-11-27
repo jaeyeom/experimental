@@ -351,6 +351,10 @@ type Config struct {
 	// WaiveChecks are check names a waive may cover. Re-posting requires
 	// a non-empty list.
 	WaiveChecks []string
+	// WaiveRequireGreen are check names that must all complete with
+	// success at the new head before `comment --repost-waives` re-posts.
+	// Empty turns this check off.
+	WaiveRequireGreen []string
 	// WaiveRepost allows re-posting a byte-identical waive comment for
 	// base-only head updates.
 	WaiveRepost bool
@@ -846,6 +850,8 @@ func applyWaiveKey(cfg *Config, key, val string) error {
 		cfg.WaiveAuthors = strings.Fields(val)
 	case "waive_checks":
 		cfg.WaiveChecks = splitCSV(val)
+	case "waive_require_green":
+		cfg.WaiveRequireGreen = splitCSV(val)
 	case "waive_repost":
 		b, err := parseBool(key, val)
 		if err != nil {

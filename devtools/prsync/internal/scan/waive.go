@@ -124,6 +124,98 @@ func matchingWaivedName(check gh.StatusCheck, waiveChecks []string) string {
 	return ""
 }
 
+// RequiredCheckOutcome classifies waive_require_green checks against a PR's
+// status check rollup.
+type RequiredCheckOutcome struct {
+	Failing []string
+	Pending []string
+	Missing []string
+}
+
+type requiredCheckState int
+
+const (
+	requiredCheckGreen requiredCheckState = iota
+	requiredCheckPending
+	requiredCheckFailing
+	requiredCheckMissing
+)
+
+// EvaluateRequiredChecks evaluates each unique name in required against checks.
+// A check is green only when every matching entry completed with success;
+// failing beats pending when multiple entries share a name, and an absent name
+// is recorded in Missing.
+func EvaluateRequiredChecks(checks []gh.StatusCheck, required []string) RequiredCheckOutcome {
+	var out RequiredCheckOutcome
+	seen := make(map[string]struct{}, len(required))
+	for _, name := range required {
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		switch evaluateOneRequiredCheck(checks, name) {
+		case requiredCheckFailing:
+			out.Failing = append(out.Failing, name)
+		case requiredCheckPending:
+			out.Pending = append(out.Pending, name)
+		case requiredCheckMissing:
+			out.Missing = append(out.Missing, name)
+		}
+	}
+	return out
+}
+
+func evaluateOneRequiredCheck(checks []gh.StatusCheck, name string) requiredCheckState {
+	matched := false
+	pending := false
+	for _, check := range checks {
+		if !checkMatchesName(check, name) {
+			continue
+		}
+		matched = true
+		switch classifyRequiredCheck(check) {
+		case requiredCheckFailing:
+			return requiredCheckFailing
+		case requiredCheckPending:
+			pending = true
+		}
+	}
+	if !matched {
+		return requiredCheckMissing
+	}
+	if pending {
+		return requiredCheckPending
+	}
+	return requiredCheckGreen
+}
+
+func checkMatchesName(check gh.StatusCheck, name string) bool {
+	return check.Name == name || check.Context == name
+}
+
+func classifyRequiredCheck(check gh.StatusCheck) requiredCheckState {
+	if check.State != "" {
+		switch check.State {
+		case "SUCCESS":
+			return requiredCheckGreen
+		case "PENDING", "EXPECTED":
+			return requiredCheckPending
+		default:
+			return requiredCheckFailing
+		}
+	}
+	if check.Status != "COMPLETED" {
+		return requiredCheckPending
+	}
+	if check.Conclusion == "SUCCESS" {
+		return requiredCheckGreen
+	}
+	return requiredCheckFailing
+}
+
 func detectStaleWaives(ctx context.Context, deps Deps, cfg config.Config, doc *Document) error {
 	if cfg.WaiveCommentPrefix == "" {
 		return nil
@@ -178,6 +270,9 @@ func detectPRStaleWaive(ctx context.Context, wgh WaiveGH, deps Deps, cfg config.
 		CommentAuthor: waive.Author,
 		CommentURL:    waive.URL,
 		CommentBody:   waive.Body,
+	}
+	if pr.statusCheckErr == "" {
+		sw.StatusChecks = slices.Clone(pr.statusChecks)
 	}
 	if classErr != nil {
 		sw.Error = classErr.Error()

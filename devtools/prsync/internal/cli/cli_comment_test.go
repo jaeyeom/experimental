@@ -1034,3 +1034,221 @@ func TestScanAndCommentAuthorChangesNeverReposted(t *testing.T) {
 		t.Fatal("gh pr comment was invoked for author changes")
 	}
 }
+
+func TestScanAndCommentRepostWaivesRequireGreen(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	repoDir := t.TempDir()
+	runGitTest := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repoDir}, args...)...) //nolint:gosec // test helper
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	writeRepoFile := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(repoDir, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runGitTest("init", "-q", "-b", "main")
+	runGitTest("config", "user.email", "test@example.com")
+	runGitTest("config", "user.name", "Test User")
+	runGitTest("remote", "add", "origin", "https://github.com/acme/widgets.git")
+	writeRepoFile("base.txt", "base0\n")
+	runGitTest("add", ".")
+	runGitTest("commit", "-q", "-m", "base0")
+
+	runGitTest("checkout", "-q", "-b", "fix-widget")
+	writeRepoFile("feat.txt", "feat1\n")
+	runGitTest("add", "feat.txt")
+	runGitTest("commit", "-q", "-m", "feat1")
+	oldHead := runGitTest("rev-parse", "HEAD")
+
+	runGitTest("checkout", "-q", "main")
+	writeRepoFile("base.txt", "base1\n")
+	runGitTest("add", "base.txt")
+	runGitTest("commit", "-q", "-m", "base1")
+	baseTip := runGitTest("rev-parse", "HEAD")
+
+	runGitTest("checkout", "-q", "fix-widget")
+	runGitTest("merge", "-q", "--no-ff", "--no-edit", "main")
+	newHead := runGitTest("rev-parse", "HEAD")
+
+	ghBin, herdrBin := fixtureBins(t)
+	t.Chdir(repoDir)
+
+	t0 := time.Date(2026, 2, 1, 10, 0, 0, 0, time.UTC)
+	waiveBody := "/waive\nknown flake\n"
+	fixtureDir := t.TempDir()
+	searchFile := filepath.Join(fixtureDir, "search.json")
+	prViewFile := filepath.Join(fixtureDir, "pr-view.json")
+	timelineFile := filepath.Join(fixtureDir, "timeline.json")
+
+	searchPayload := map[string]any{
+		"data": map[string]any{
+			"search": map[string]any{
+				"nodes": []any{
+					map[string]any{
+						"number":           123,
+						"title":            "[PROJ-123] Fix the widget",
+						"url":              "https://github.com/acme/widgets/pull/123",
+						"state":            "OPEN",
+						"baseRefName":      "main",
+						"headRefName":      "fix-widget",
+						"headRefOid":       newHead,
+						"updatedAt":        "2026-02-01T11:00:00Z",
+						"mergeable":        "MERGEABLE",
+						"mergeStateStatus": "CLEAN",
+						"isDraft":          false,
+						"reviewDecision":   "APPROVED",
+						"reviewRequests":   map[string]any{"nodes": []any{}},
+					},
+				},
+			},
+		},
+	}
+	timelinePayload := map[string]any{
+		"data": map[string]any{
+			"repository": map[string]any{
+				"pullRequest": map[string]any{
+					"comments": map[string]any{
+						"pageInfo": map[string]any{"hasNextPage": false, "endCursor": ""},
+						"nodes": []any{
+							map[string]any{
+								"id":         "IC_1",
+								"databaseId": 777,
+								"author":     map[string]any{"login": "maintainer"},
+								"body":       waiveBody,
+								"createdAt":  t0.Add(5 * time.Minute).Format(time.RFC3339),
+								"url":        "https://github.com/acme/widgets/pull/123#issuecomment-777",
+							},
+						},
+					},
+					"commits": map[string]any{
+						"pageInfo": map[string]any{"hasNextPage": false, "endCursor": ""},
+						"nodes": []any{
+							map[string]any{"commit": map[string]any{
+								"oid": oldHead, "committedDate": t0.Format(time.RFC3339), "pushedDate": t0.Format(time.RFC3339),
+								"parents": map[string]any{"nodes": []any{}},
+							}},
+							map[string]any{"commit": map[string]any{
+								"oid": newHead, "committedDate": t0.Add(10 * time.Minute).Format(time.RFC3339), "pushedDate": t0.Add(10 * time.Minute).Format(time.RFC3339),
+								"parents": map[string]any{"nodes": []any{map[string]any{"oid": oldHead}, map[string]any{"oid": baseTip}}},
+							}},
+						},
+					},
+					"timelineItems": map[string]any{
+						"pageInfo": map[string]any{"hasNextPage": false, "endCursor": ""},
+						"nodes":    []any{},
+					},
+				},
+			},
+		},
+	}
+	writeJSON := func(path string, v any) {
+		t.Helper()
+		data, err := json.Marshal(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeJSON(searchFile, searchPayload)
+	writeJSON(timelineFile, timelinePayload)
+
+	bodyFile := filepath.Join(t.TempDir(), "posted-body.txt")
+	t.Setenv("GH_FAKE_OPEN_PR_SEARCH_FILE", searchFile)
+	t.Setenv("GH_FAKE_PR_VIEW_FILE", prViewFile)
+	t.Setenv("GH_FAKE_WAIVE_TIMELINE_FILE", timelineFile)
+	t.Setenv("GH_FAKE_COMMENT_BODY_FILE", bodyFile)
+	t.Setenv("GH_FAKE_COMMENT_URL", "https://github.com/acme/widgets/pull/123#issuecomment-999")
+
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	ledgerPath := filepath.Join(t.TempDir(), "ledger.jsonl")
+	cfgPath := writeScanConfig(t, strings.Join([]string{
+		"gh_bin=" + ghBin,
+		"herdr_bin=" + herdrBin,
+		"author=alice",
+		"repos=acme/widgets",
+		"state_file=" + statePath,
+		"dispatch_ledger_file=" + ledgerPath,
+		"status_checks_ttl=0s",
+		"waive_comment_prefix=/waive",
+		"waive_authors=maintainer",
+		"waive_checks=ci/flake",
+		"waive_require_green=ci/lint, ci/unit",
+		"waive_repost=true",
+		"waive_max_per_pr=1",
+	}, "\n")+"\n")
+
+	runCommentOnce := func(rollup []any) dispatch.Document {
+		t.Helper()
+		writeJSON(prViewFile, map[string]any{"statusCheckRollup": rollup})
+		var stdout, stderr bytes.Buffer
+		code := Execute(context.Background(), []string{"comment", "--repost-waives", "--go", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+		if code != ExitOK {
+			t.Fatalf("comment exit = %d, stderr=%q", code, stderr.String())
+		}
+		return decodeDispatch(t, stdout.Bytes())
+	}
+
+	// 1. One required check pending -> skipped_waive_checks_pending.
+	got := runCommentOnce([]any{
+		map[string]any{"name": "ci/flake", "status": "COMPLETED", "conclusion": "FAILURE"},
+		map[string]any{"name": "ci/lint", "status": "COMPLETED", "conclusion": "SUCCESS"},
+		map[string]any{"name": "ci/unit", "status": "IN_PROGRESS"},
+	})
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionSkippedWaiveChecksPending {
+		t.Fatalf("pending results = %+v, want %s", got.Results, dispatch.ActionSkippedWaiveChecksPending)
+	}
+	if _, err := os.Stat(bodyFile); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal("pending check posted comment")
+	}
+
+	// 2. One required check missing -> skipped_waive_checks_pending saying missing.
+	got = runCommentOnce([]any{
+		map[string]any{"name": "ci/flake", "status": "COMPLETED", "conclusion": "FAILURE"},
+		map[string]any{"name": "ci/lint", "status": "COMPLETED", "conclusion": "SUCCESS"},
+	})
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionSkippedWaiveChecksPending {
+		t.Fatalf("missing results = %+v, want %s", got.Results, dispatch.ActionSkippedWaiveChecksPending)
+	}
+	if !strings.Contains(strings.ToLower(got.Results[0].Detail), "missing") || !strings.Contains(got.Results[0].Detail, "ci/unit") {
+		t.Fatalf("missing detail = %q, want missing + ci/unit", got.Results[0].Detail)
+	}
+
+	// 3. One required check failing -> skipped_waive_checks_failing naming the check.
+	got = runCommentOnce([]any{
+		map[string]any{"name": "ci/flake", "status": "COMPLETED", "conclusion": "FAILURE"},
+		map[string]any{"name": "ci/lint", "status": "COMPLETED", "conclusion": "SUCCESS"},
+		map[string]any{"name": "ci/unit", "status": "COMPLETED", "conclusion": "FAILURE"},
+	})
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionSkippedWaiveChecksFailing {
+		t.Fatalf("failing results = %+v, want %s", got.Results, dispatch.ActionSkippedWaiveChecksFailing)
+	}
+	if !strings.Contains(got.Results[0].Detail, "ci/unit") {
+		t.Fatalf("failing detail = %q, want ci/unit", got.Results[0].Detail)
+	}
+
+	// 4. All required checks green -> re-posted (earlier skips did not exhaust waive_max_per_pr=1).
+	got = runCommentOnce([]any{
+		map[string]any{"name": "ci/flake", "status": "COMPLETED", "conclusion": "FAILURE"},
+		map[string]any{"name": "ci/lint", "status": "COMPLETED", "conclusion": "SUCCESS"},
+		map[string]any{"name": "ci/unit", "status": "COMPLETED", "conclusion": "SUCCESS"},
+	})
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionDispatched {
+		t.Fatalf("green results = %+v, want %s", got.Results, dispatch.ActionDispatched)
+	}
+	postedBytes, err := os.ReadFile(bodyFile) //nolint:gosec // test sentinel
+	if err != nil || string(postedBytes) != waiveBody {
+		t.Fatalf("posted = %q, %v; want %q", string(postedBytes), err, waiveBody)
+	}
+}

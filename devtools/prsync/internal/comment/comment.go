@@ -272,12 +272,46 @@ func checkWaiveDedupeAndCap(c dispatch.Candidate, st dispatch.State, cfg config.
 		item.Detail = fmt.Sprintf("waive_max_per_pr=%d reached", cfg.WaiveMaxPerPR)
 		return item, "", nil
 	}
+	if blockedItem, blocked := checkWaiveRequireGreen(c.Repo, c.Number, cfg.WaiveRequireGreen, sw); blocked {
+		return blockedItem, "", nil
+	}
 	item.Detail = fmt.Sprintf("base-only old=%s new=%s failing=%s", sw.OldHead, newHead, strings.Join(failing, ","))
 	if dryRun {
 		item.Action = dispatch.ActionWouldDispatch
 		item.RenderedPrompt = sw.CommentBody
 	}
 	return item, sw.CommentBody, nil
+}
+
+func checkWaiveRequireGreen(repo string, number int, required []string, sw *scan.StaleWaive) (dispatch.Item, bool) {
+	if len(required) == 0 {
+		return dispatch.Item{}, false
+	}
+	outcome := scan.EvaluateRequiredChecks(sw.StatusChecks, required)
+	if len(outcome.Failing) > 0 {
+		return dispatch.Item{
+			Repo:   repo,
+			Number: number,
+			Action: dispatch.ActionSkippedWaiveChecksFailing,
+			Detail: "waive_require_green failing: " + strings.Join(outcome.Failing, ", "),
+		}, true
+	}
+	if len(outcome.Pending) == 0 && len(outcome.Missing) == 0 {
+		return dispatch.Item{}, false
+	}
+	var parts []string
+	if len(outcome.Pending) > 0 {
+		parts = append(parts, "pending: "+strings.Join(outcome.Pending, ", "))
+	}
+	if len(outcome.Missing) > 0 {
+		parts = append(parts, "missing: "+strings.Join(outcome.Missing, ", "))
+	}
+	return dispatch.Item{
+		Repo:   repo,
+		Number: number,
+		Action: dispatch.ActionSkippedWaiveChecksPending,
+		Detail: "waive_require_green " + strings.Join(parts, "; "),
+	}, true
 }
 
 func matchingWaiveChecks(failing, allowed []string) []string {

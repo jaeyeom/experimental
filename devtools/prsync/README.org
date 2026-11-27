@@ -196,6 +196,7 @@ are ~KEY=VALUE~. A ~#~ starts a comment. Unknown keys are ignored.
 | ~waive_comment_prefix~     | empty           | Exact first line marking a CI waive comment. Empty turns it off.   |
 | ~waive_authors~            | empty           | Space-separated logins whose waives count. Empty means any author. |
 | ~waive_checks~             | empty           | Comma-separated check names a waive covers (for re-posting).       |
+| ~waive_require_green~      | empty           | Comma-separated check names that must be green before re-posting.  |
 | ~waive_repost~             | ~false~         | Allow ~comment --repost-waives~ for ~base-only~ stale waives.      |
 | ~waive_max_per_pr~         | ~3~             | Cap on waive re-posts per PR.                                      |
 | ~bot_rereview~             | ~off~           | ~off~ / ~dry-run~ / ~auto~ (~maintain~ and ~loop~) to request bot re-review once per head when its threads are resolved. |

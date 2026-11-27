@@ -53,6 +53,12 @@ const (
 	ActionSkippedNoFailingWaivedChecks = "skipped_no_failing_waived_checks"
 	// ActionSkippedWaiveCap means waive_max_per_pr re-posts were already made.
 	ActionSkippedWaiveCap = "skipped_waive_cap"
+	// ActionSkippedWaiveChecksPending means at least one check in
+	// waive_require_green is still running or missing at the new head.
+	ActionSkippedWaiveChecksPending = "skipped_waive_checks_pending"
+	// ActionSkippedWaiveChecksFailing means at least one check in
+	// waive_require_green has failed at the new head.
+	ActionSkippedWaiveChecksFailing = "skipped_waive_checks_failing"
 	// ActionSkippedStale means a ci_fix_inbox request targeted an older head
 	// or a pull request that is no longer open.
 	ActionSkippedStale = "skipped_stale"

@@ -10,6 +10,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/dispatch"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/gh"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/ledger"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
 )
@@ -661,6 +662,247 @@ func TestWaiveRepostLiveLedgerDedupeAndCapAcrossRestarts(t *testing.T) {
 	if entries[1].OldHeadSHA != "head1" || entries[1].NewHeadSHA != "head2" || entries[1].CommentID != "502" {
 		t.Fatalf("entry[1] = %+v", entries[1])
 	}
+}
+
+func TestWaiveRepostRequireGreen(t *testing.T) {
+	t.Parallel()
+
+	origBody := "/waive\nknown flake\n"
+
+	t.Run("all listed checks green reposts waive", func(t *testing.T) {
+		t.Parallel()
+		cfg := waiveCfg(true)
+		cfg.DryRun = false
+		cfg.WaiveRequireGreen = []string{"ci/lint", "ci/unit"}
+		g := &fakeGH{commentID: "701"}
+		p := staleWaivePR("acme/widgets", 123, "old1", "new1", scan.WaiveClassBaseOnly, []string{"ci/flake"}, origBody)
+		p.StaleWaive.StatusChecks = []gh.StatusCheck{
+			{Name: "ci/flake", Status: "COMPLETED", Conclusion: "FAILURE"},
+			{Name: "ci/lint", Status: "COMPLETED", Conclusion: "SUCCESS"},
+			{Context: "ci/unit", State: "SUCCESS"},
+		}
+		got, err := Run(context.Background(), g, liveStore(t), cfg, Request{
+			Doc:          scan.Document{PRs: []scan.PR{p}},
+			RepostWaives: true,
+			Ledger:       &ledger.Store{Path: filepath.Join(t.TempDir(), "ledger.jsonl")},
+		}, fixtureNow)
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionDispatched {
+			t.Fatalf("results = %+v, want dispatched", got.Results)
+		}
+		if len(g.calls) != 1 || g.calls[0].body != origBody {
+			t.Fatalf("calls = %+v, want 1 call with exact body", g.calls)
+		}
+	})
+
+	t.Run("one listed check pending skips as pending", func(t *testing.T) {
+		t.Parallel()
+		cfg := waiveCfg(true)
+		cfg.DryRun = false
+		cfg.WaiveRequireGreen = []string{"ci/lint", "ci/unit"}
+		g := &fakeGH{commentID: "702"}
+		p := staleWaivePR("acme/widgets", 123, "old1", "new1", scan.WaiveClassBaseOnly, []string{"ci/flake"}, origBody)
+		p.StaleWaive.StatusChecks = []gh.StatusCheck{
+			{Name: "ci/flake", Status: "COMPLETED", Conclusion: "FAILURE"},
+			{Name: "ci/lint", Status: "COMPLETED", Conclusion: "SUCCESS"},
+			{Name: "ci/unit", Status: "IN_PROGRESS"},
+		}
+		got, err := Run(context.Background(), g, liveStore(t), cfg, Request{
+			Doc:          scan.Document{PRs: []scan.PR{p}},
+			RepostWaives: true,
+			Ledger:       &ledger.Store{Path: filepath.Join(t.TempDir(), "ledger.jsonl")},
+		}, fixtureNow)
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionSkippedWaiveChecksPending {
+			t.Fatalf("results = %+v, want skipped_waive_checks_pending", got.Results)
+		}
+		if len(g.calls) != 0 {
+			t.Fatalf("CommentPR called unexpectedly: %+v", g.calls)
+		}
+	})
+
+	t.Run("one listed check failed skips as failing naming check", func(t *testing.T) {
+		t.Parallel()
+		cfg := waiveCfg(true)
+		cfg.DryRun = false
+		cfg.WaiveRequireGreen = []string{"ci/lint", "ci/unit"}
+		g := &fakeGH{commentID: "703"}
+		p := staleWaivePR("acme/widgets", 123, "old1", "new1", scan.WaiveClassBaseOnly, []string{"ci/flake"}, origBody)
+		p.StaleWaive.StatusChecks = []gh.StatusCheck{
+			{Name: "ci/flake", Status: "COMPLETED", Conclusion: "FAILURE"},
+			{Name: "ci/lint", Status: "COMPLETED", Conclusion: "SUCCESS"},
+			{Name: "ci/unit", Status: "COMPLETED", Conclusion: "FAILURE"},
+		}
+		got, err := Run(context.Background(), g, liveStore(t), cfg, Request{
+			Doc:          scan.Document{PRs: []scan.PR{p}},
+			RepostWaives: true,
+			Ledger:       &ledger.Store{Path: filepath.Join(t.TempDir(), "ledger.jsonl")},
+		}, fixtureNow)
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionSkippedWaiveChecksFailing {
+			t.Fatalf("results = %+v, want skipped_waive_checks_failing", got.Results)
+		}
+		if !strings.Contains(got.Results[0].Detail, "ci/unit") {
+			t.Fatalf("detail = %q, want check name ci/unit", got.Results[0].Detail)
+		}
+		if len(g.calls) != 0 {
+			t.Fatalf("CommentPR called unexpectedly: %+v", g.calls)
+		}
+	})
+
+	t.Run("one listed check missing skips as pending and reports missing", func(t *testing.T) {
+		t.Parallel()
+		cfg := waiveCfg(true)
+		cfg.DryRun = false
+		cfg.WaiveRequireGreen = []string{"ci/lint", "ci/unit"}
+		g := &fakeGH{commentID: "704"}
+		p := staleWaivePR("acme/widgets", 123, "old1", "new1", scan.WaiveClassBaseOnly, []string{"ci/flake"}, origBody)
+		p.StaleWaive.StatusChecks = []gh.StatusCheck{
+			{Name: "ci/flake", Status: "COMPLETED", Conclusion: "FAILURE"},
+			{Name: "ci/lint", Status: "COMPLETED", Conclusion: "SUCCESS"},
+		}
+		got, err := Run(context.Background(), g, liveStore(t), cfg, Request{
+			Doc:          scan.Document{PRs: []scan.PR{p}},
+			RepostWaives: true,
+			Ledger:       &ledger.Store{Path: filepath.Join(t.TempDir(), "ledger.jsonl")},
+		}, fixtureNow)
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionSkippedWaiveChecksPending {
+			t.Fatalf("results = %+v, want skipped_waive_checks_pending", got.Results)
+		}
+		if !strings.Contains(strings.ToLower(got.Results[0].Detail), "missing") || !strings.Contains(got.Results[0].Detail, "ci/unit") {
+			t.Fatalf("detail = %q, want missing + ci/unit", got.Results[0].Detail)
+		}
+		if len(g.calls) != 0 {
+			t.Fatalf("CommentPR called unexpectedly: %+v", g.calls)
+		}
+	})
+
+	t.Run("empty waive_require_green behaves as today", func(t *testing.T) {
+		t.Parallel()
+		cfg := waiveCfg(true)
+		cfg.DryRun = false
+		cfg.WaiveRequireGreen = nil
+		g := &fakeGH{commentID: "705"}
+		p := staleWaivePR("acme/widgets", 123, "old1", "new1", scan.WaiveClassBaseOnly, []string{"ci/flake"}, origBody)
+		p.StaleWaive.StatusChecks = []gh.StatusCheck{
+			{Name: "ci/flake", Status: "COMPLETED", Conclusion: "FAILURE"},
+			{Name: "ci/unit", Status: "IN_PROGRESS"},
+		}
+		got, err := Run(context.Background(), g, liveStore(t), cfg, Request{
+			Doc:          scan.Document{PRs: []scan.PR{p}},
+			RepostWaives: true,
+			Ledger:       &ledger.Store{Path: filepath.Join(t.TempDir(), "ledger.jsonl")},
+		}, fixtureNow)
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionDispatched {
+			t.Fatalf("results = %+v, want dispatched", got.Results)
+		}
+		if len(g.calls) != 1 {
+			t.Fatalf("calls = %d, want 1", len(g.calls))
+		}
+	})
+
+	t.Run("skips do not count toward waive_max_per_pr", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		store := dispatch.FileStore{Path: filepath.Join(dir, "state.json")}
+		lgr := &ledger.Store{Path: filepath.Join(dir, "ledger.jsonl")}
+		cfg := waiveCfg(true)
+		cfg.DryRun = false
+		cfg.WaiveMaxPerPR = 1
+		cfg.WaiveRequireGreen = []string{"ci/lint", "ci/unit"}
+		g := &fakeGH{commentID: "706"}
+
+		runWithChecks := func(checks []gh.StatusCheck, offset time.Duration) dispatch.Item {
+			t.Helper()
+			p := staleWaivePR("acme/widgets", 123, "old1", "new1", scan.WaiveClassBaseOnly, []string{"ci/flake"}, origBody)
+			p.StaleWaive.StatusChecks = checks
+			got, err := Run(context.Background(), g, store, cfg, Request{
+				Doc:          scan.Document{PRs: []scan.PR{p}},
+				RepostWaives: true,
+				Ledger:       lgr,
+			}, fixtureNow.Add(offset))
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if len(got.Results) != 1 {
+				t.Fatalf("results = %+v, want 1", got.Results)
+			}
+			return got.Results[0]
+		}
+
+		// 1. Missing check -> skipped_waive_checks_pending.
+		if item := runWithChecks([]gh.StatusCheck{
+			{Name: "ci/flake", Status: "COMPLETED", Conclusion: "FAILURE"},
+			{Name: "ci/lint", Status: "COMPLETED", Conclusion: "SUCCESS"},
+		}, 0); item.Action != dispatch.ActionSkippedWaiveChecksPending {
+			t.Fatalf("missing action = %q, want skipped_waive_checks_pending", item.Action)
+		}
+		// 2. Pending check -> skipped_waive_checks_pending.
+		if item := runWithChecks([]gh.StatusCheck{
+			{Name: "ci/flake", Status: "COMPLETED", Conclusion: "FAILURE"},
+			{Name: "ci/lint", Status: "COMPLETED", Conclusion: "SUCCESS"},
+			{Name: "ci/unit", Status: "IN_PROGRESS"},
+		}, time.Minute); item.Action != dispatch.ActionSkippedWaiveChecksPending {
+			t.Fatalf("pending action = %q, want skipped_waive_checks_pending", item.Action)
+		}
+		// 3. Failing check -> skipped_waive_checks_failing.
+		if item := runWithChecks([]gh.StatusCheck{
+			{Name: "ci/flake", Status: "COMPLETED", Conclusion: "FAILURE"},
+			{Name: "ci/lint", Status: "COMPLETED", Conclusion: "SUCCESS"},
+			{Name: "ci/unit", Status: "COMPLETED", Conclusion: "FAILURE"},
+		}, 2*time.Minute); item.Action != dispatch.ActionSkippedWaiveChecksFailing {
+			t.Fatalf("failing action = %q, want skipped_waive_checks_failing", item.Action)
+		}
+		if len(g.calls) != 0 {
+			t.Fatalf("calls after skips = %d, want 0", len(g.calls))
+		}
+		if count, err := lgr.CountWaiveReposts("acme/widgets#123"); err != nil || count != 0 {
+			t.Fatalf("CountWaiveReposts() = %d, %v; want 0", count, err)
+		}
+
+		// 4. All green -> succeeds because skips did not count toward waive_max_per_pr=1.
+		if item := runWithChecks([]gh.StatusCheck{
+			{Name: "ci/flake", Status: "COMPLETED", Conclusion: "FAILURE"},
+			{Name: "ci/lint", Status: "COMPLETED", Conclusion: "SUCCESS"},
+			{Name: "ci/unit", Status: "COMPLETED", Conclusion: "SUCCESS"},
+		}, 3*time.Minute); item.Action != dispatch.ActionDispatched {
+			t.Fatalf("green action = %q, want dispatched", item.Action)
+		}
+		if len(g.calls) != 1 {
+			t.Fatalf("calls = %d, want 1", len(g.calls))
+		}
+
+		// 5. Next head now hits waive_max_per_pr=1.
+		p2 := staleWaivePR("acme/widgets", 123, "new1", "new2", scan.WaiveClassBaseOnly, []string{"ci/flake"}, origBody)
+		p2.StaleWaive.StatusChecks = []gh.StatusCheck{
+			{Name: "ci/flake", Status: "COMPLETED", Conclusion: "FAILURE"},
+			{Name: "ci/lint", Status: "COMPLETED", Conclusion: "SUCCESS"},
+			{Name: "ci/unit", Status: "COMPLETED", Conclusion: "SUCCESS"},
+		}
+		gotCap, err := Run(context.Background(), g, store, cfg, Request{
+			Doc:          scan.Document{PRs: []scan.PR{p2}},
+			RepostWaives: true,
+			Ledger:       lgr,
+		}, fixtureNow.Add(4*time.Minute))
+		if err != nil {
+			t.Fatalf("cap Run() error = %v", err)
+		}
+		if len(gotCap.Results) != 1 || gotCap.Results[0].Action != dispatch.ActionSkippedWaiveCap {
+			t.Fatalf("cap results = %+v, want skipped_waive_cap", gotCap.Results)
+		}
+	})
 }
 
 func pr(repo string, number int, noTab bool) scan.PR {

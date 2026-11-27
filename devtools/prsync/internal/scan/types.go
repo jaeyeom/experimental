@@ -105,15 +105,16 @@ const (
 // StaleWaive describes a waive comment whose covered head commit has been
 // superseded by a newer head on the pull request.
 type StaleWaive struct {
-	OldHead       string   `json:"old_head"` //nolint:tagliatelle // brief outbound contract
-	NewHead       string   `json:"new_head"` //nolint:tagliatelle // brief outbound contract
-	Class         string   `json:"class"`
-	FailingChecks []string `json:"failing_checks"`           //nolint:tagliatelle // brief outbound contract
-	CommentID     string   `json:"comment_id,omitempty"`     //nolint:tagliatelle // brief outbound contract
-	CommentAuthor string   `json:"comment_author,omitempty"` //nolint:tagliatelle // brief outbound contract
-	CommentURL    string   `json:"comment_url,omitempty"`    //nolint:tagliatelle // brief outbound contract
-	CommentBody   string   `json:"comment_body,omitempty"`   //nolint:tagliatelle // brief outbound contract
-	Error         string   `json:"error,omitempty"`
+	OldHead       string           `json:"old_head"` //nolint:tagliatelle // brief outbound contract
+	NewHead       string           `json:"new_head"` //nolint:tagliatelle // brief outbound contract
+	Class         string           `json:"class"`
+	FailingChecks []string         `json:"failing_checks"`           //nolint:tagliatelle // brief outbound contract
+	StatusChecks  []gh.StatusCheck `json:"status_checks,omitempty"`  //nolint:tagliatelle // brief outbound contract
+	CommentID     string           `json:"comment_id,omitempty"`     //nolint:tagliatelle // brief outbound contract
+	CommentAuthor string           `json:"comment_author,omitempty"` //nolint:tagliatelle // brief outbound contract
+	CommentURL    string           `json:"comment_url,omitempty"`    //nolint:tagliatelle // brief outbound contract
+	CommentBody   string           `json:"comment_body,omitempty"`   //nolint:tagliatelle // brief outbound contract
+	Error         string           `json:"error,omitempty"`
 }
 
 // ActionMergeQueueFix is the scan action for an our-code merge-queue ejection.

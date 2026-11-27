@@ -1335,6 +1335,9 @@ func TestWaiveConfigDefaultsAndParsing(t *testing.T) {
 	if len(def.WaiveChecks) != 0 {
 		t.Fatalf("WaiveChecks default = %v, want empty", def.WaiveChecks)
 	}
+	if len(def.WaiveRequireGreen) != 0 {
+		t.Fatalf("WaiveRequireGreen default = %v, want empty", def.WaiveRequireGreen)
+	}
 	if def.WaiveRepost {
 		t.Fatal("WaiveRepost default = true, want false")
 	}
@@ -1348,6 +1351,7 @@ func TestWaiveConfigDefaultsAndParsing(t *testing.T) {
 		`waive_comment_prefix="/waive"`,
 		`waive_authors=alice bob  carol`,
 		`waive_checks=ci/flake, Build (linux)`,
+		`waive_require_green=ci/lint, Unit Tests`,
 		`waive_repost=true`,
 		`waive_max_per_pr=5`,
 	}, "\n")+"\n")
@@ -1366,6 +1370,10 @@ func TestWaiveConfigDefaultsAndParsing(t *testing.T) {
 	wantChecks := []string{"ci/flake", "Build (linux)"}
 	if !slices.Equal(got.WaiveChecks, wantChecks) {
 		t.Fatalf("WaiveChecks = %v, want %v", got.WaiveChecks, wantChecks)
+	}
+	wantRequireGreen := []string{"ci/lint", "Unit Tests"}
+	if !slices.Equal(got.WaiveRequireGreen, wantRequireGreen) {
+		t.Fatalf("WaiveRequireGreen = %v, want %v", got.WaiveRequireGreen, wantRequireGreen)
 	}
 	if !got.WaiveRepost {
 		t.Fatal("WaiveRepost = false, want true")

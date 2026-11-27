@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -145,6 +146,93 @@ func TestFailingWaivedChecks(t *testing.T) {
 
 	if gotErr := FailingWaivedChecks(checks, "rollup failed", []string{"ci/flake"}); len(gotErr) != 0 {
 		t.Fatalf("FailingWaivedChecks(with error) = %v, want empty", gotErr)
+	}
+}
+
+func TestEvaluateRequiredChecks(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		checks   []gh.StatusCheck
+		required []string
+		want     RequiredCheckOutcome
+	}{
+		{
+			name:     "empty required list",
+			checks:   []gh.StatusCheck{{Name: "ci/lint", Status: "IN_PROGRESS"}},
+			required: nil,
+		},
+		{
+			name: "all green across check run and status context",
+			checks: []gh.StatusCheck{
+				{Name: "ci/lint", Status: "COMPLETED", Conclusion: "SUCCESS"},
+				{Context: "ci/unit", State: "SUCCESS"},
+			},
+			required: []string{"ci/lint", "ci/unit"},
+		},
+		{
+			name: "pending check run",
+			checks: []gh.StatusCheck{
+				{Name: "ci/lint", Status: "COMPLETED", Conclusion: "SUCCESS"},
+				{Name: "ci/unit", Status: "IN_PROGRESS"},
+			},
+			required: []string{"ci/lint", "ci/unit"},
+			want:     RequiredCheckOutcome{Pending: []string{"ci/unit"}},
+		},
+		{
+			name: "pending status context",
+			checks: []gh.StatusCheck{
+				{Context: "ci/unit", State: "PENDING"},
+			},
+			required: []string{"ci/unit"},
+			want:     RequiredCheckOutcome{Pending: []string{"ci/unit"}},
+		},
+		{
+			name: "failing check run and status context",
+			checks: []gh.StatusCheck{
+				{Name: "ci/lint", Status: "COMPLETED", Conclusion: "FAILURE"},
+				{Context: "ci/unit", State: "ERROR"},
+			},
+			required: []string{"ci/lint", "ci/unit"},
+			want:     RequiredCheckOutcome{Failing: []string{"ci/lint", "ci/unit"}},
+		},
+		{
+			name: "completed non-success conclusion counts as failing",
+			checks: []gh.StatusCheck{
+				{Name: "ci/lint", Status: "COMPLETED", Conclusion: "SKIPPED"},
+			},
+			required: []string{"ci/lint"},
+			want:     RequiredCheckOutcome{Failing: []string{"ci/lint"}},
+		},
+		{
+			name: "missing check",
+			checks: []gh.StatusCheck{
+				{Name: "ci/lint", Status: "COMPLETED", Conclusion: "SUCCESS"},
+			},
+			required: []string{"ci/lint", "ci/unit"},
+			want:     RequiredCheckOutcome{Missing: []string{"ci/unit"}},
+		},
+		{
+			name: "deduplicates repeated required names",
+			checks: []gh.StatusCheck{
+				{Name: "ci/lint", Status: "IN_PROGRESS"},
+			},
+			required: []string{"ci/lint", "ci/lint"},
+			want:     RequiredCheckOutcome{Pending: []string{"ci/lint"}},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := EvaluateRequiredChecks(tc.checks, tc.required)
+			if !slices.Equal(got.Failing, tc.want.Failing) ||
+				!slices.Equal(got.Pending, tc.want.Pending) ||
+				!slices.Equal(got.Missing, tc.want.Missing) {
+				t.Fatalf("EvaluateRequiredChecks() = %+v, want %+v", got, tc.want)
+			}
+		})
 	}
 }
 
