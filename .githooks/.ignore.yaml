@@ -1,0 +1,6 @@
+# Skip shared-githooks' gitleaks check here because .githooks/pre-commit/gitleaks.sh
+# already scans staged changes (and stays active for contributors without shared-githooks).
+patterns: []
+namespace-paths:
+- ns:jaeyeom-shared-githooks/pre-commit/checks/lint-gitleaks.sh
+version: 1

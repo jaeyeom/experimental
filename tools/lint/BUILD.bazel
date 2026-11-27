@@ -465,6 +465,7 @@ filegroup(
 filegroup(
     name = "repo_yaml_srcs",
     srcs = [
+        "//.githooks:yaml_srcs",
         "//.github:yaml_srcs",
         "//:yaml_srcs",
         "//codelab/proto:yaml_srcs",
