@@ -572,8 +572,11 @@ func writeLiveConfig(t *testing.T, ghBin, herdrBin, statePath string, extra ...s
 		"repos=acme/widgets",
 		"state_file=" + statePath,
 		"gate_poll_ms=1",
-		"gate_timeout_ms=2000",
-		"dispatch_timeout_ms=1000",
+		// Generous ceilings so real fake-subprocess forks do not hit
+		// wall-clock timeouts under CI CPU contention; timeout tests
+		// override gate_timeout_ms or return immediate fake errors.
+		"gate_timeout_ms=30000",
+		"dispatch_timeout_ms=30000",
 	}
 	lines = append(lines, extra...)
 	return writeScanConfig(t, strings.Join(lines, "\n")+"\n")
