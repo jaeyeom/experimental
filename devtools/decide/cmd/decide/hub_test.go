@@ -33,6 +33,7 @@ func setupHub(t *testing.T, config string) (*sshtest.Fake, string) {
 	t.Setenv("XDG_CONFIG_HOME", cfgDir)
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	return fake, state
 }
 

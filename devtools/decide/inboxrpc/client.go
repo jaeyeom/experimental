@@ -59,7 +59,9 @@ func HubDialer(hub hubcall.Hub) Dialer {
 		ctx, cancel := context.WithCancel(context.Background())
 		stderr := &tail{}
 		ended := &endedReader{r: outR}
+		done := make(chan struct{})
 		go func() {
+			defer close(done)
 			code, err := hub.Run(ctx, hubcall.Call{Args: []string{"serve", "--stdio"}, Stdin: inR, Stdout: outW, Stderr: stderr})
 			if err == nil {
 				err = fmt.Errorf("decide serve --stdio ended with exit %d", code)
@@ -71,10 +73,14 @@ func HubDialer(hub hubcall.Hub) Dialer {
 			inR.Close()
 			outW.Close()
 		}()
+		var closeOnce sync.Once
 		return &Conn{W: inW, R: ended, Close: func() {
-			_ = inW.Close()
-			cancel()
-			_ = outR.Close()
+			closeOnce.Do(func() {
+				_ = inW.Close()
+				cancel()
+				_ = outR.Close()
+			})
+			<-done
 		}}, nil
 	}
 }

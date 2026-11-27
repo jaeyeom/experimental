@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -17,6 +18,8 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/decide"
 	"github.com/jaeyeom/experimental/devtools/decide/tui"
+	"github.com/jaeyeom/experimental/devtools/pkg/hubcall"
+	"golang.org/x/sys/unix"
 )
 
 func TestMain(m *testing.M) {
@@ -1642,5 +1645,55 @@ func TestOrgTreeHubFailureReturnsHubMessage(t *testing.T) {
 	_, err := c.OrgTree()
 	if err == nil || !strings.Contains(err.Error(), "orgctl: reportsTo cycle: a -> b -> a") {
 		t.Fatalf("OrgTree() err = %v, want hub orgctl error", err)
+	}
+}
+
+func TestHubDialerCloseWaitsForProcessExit(t *testing.T) {
+	binDir := t.TempDir()
+	workDir := t.TempDir()
+	pidFile := filepath.Join(workDir, "pid")
+	subDir := filepath.Join(workDir, "sub")
+	tickFile := filepath.Join(subDir, "tick")
+	sshScript := "#!/bin/sh\n" +
+		"echo 'hubcall: ready' >&2\n" +
+		"printf '%s\\n' \"$$\" > " + hubcall.Quote(pidFile) + "\n" +
+		"while :; do\n" +
+		"  mkdir -p " + hubcall.Quote(subDir) + " && : > " + hubcall.Quote(tickFile) + "\n" +
+		"done\n"
+	if err := os.WriteFile(filepath.Join(binDir, "ssh"), []byte(sshScript), 0o755); err != nil { //nolint:gosec // test executable
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	conn, err := HubDialer(hubcall.Hub{Target: "me@hub", Tool: "decide"})()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pid int
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		data, rerr := os.ReadFile(pidFile)
+		if rerr == nil {
+			if _, serr := os.Stat(tickFile); serr == nil {
+				if n, perr := strconv.Atoi(strings.TrimSpace(string(data))); perr == nil && n > 0 {
+					pid = n
+					break
+				}
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if pid == 0 {
+		conn.Close()
+		t.Fatal("fake ssh did not start in time")
+	}
+
+	conn.Close()
+
+	if err := unix.Kill(pid, 0); !errors.Is(err, unix.ESRCH) {
+		t.Fatalf("child process %d still exists after Conn.Close(): %v", pid, err)
+	}
+	if err := os.RemoveAll(workDir); err != nil {
+		t.Fatalf("RemoveAll(workDir) after Conn.Close(): %v", err)
 	}
 }
