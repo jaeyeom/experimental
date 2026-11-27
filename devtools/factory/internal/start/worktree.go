@@ -36,11 +36,16 @@ func (s *Starter) effectiveWorktree() bool {
 	return s.Cfg.Worker.Worktree
 }
 
-func (s *Starter) effectiveOutputMode() string {
-	if s.Cfg.Output.Mode != "" {
-		return s.Cfg.Output.Mode
+func (s *Starter) effectiveOutput() config.Output {
+	out := s.Cfg.Output
+	if out.Mode == "" {
+		out.Mode = config.OutputModePR
 	}
-	return config.OutputModePR
+	return out
+}
+
+func (s *Starter) effectiveOutputMode() string {
+	return s.effectiveOutput().Mode
 }
 
 // WorktreeSpec returns the default worktree directory (slot-1) and branch name for id.

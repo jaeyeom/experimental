@@ -78,6 +78,48 @@ func TestLoadOutput(t *testing.T) {
 			lines:   cat([]string{"[output]", `strategy = "squash"`}, src),
 			wantErr: "unknown key output.strategy",
 		},
+		{
+			name:           "merge push_cmd inherited and overridden",
+			lines:          cat([]string{"[output]", `mode = "merge"`, `push_cmd = "review-and-push-loop --base {base} --json"`}, src, lane, []string{"[lane.output]", `push_cmd = "custom-push {id}"`}, order),
+			wantTop:        config.Output{Mode: config.OutputModeMerge, PushCmd: "review-and-push-loop --base {base} --json"},
+			wantSrc:        config.Output{Mode: config.OutputModeMerge, PushCmd: "review-and-push-loop --base {base} --json"},
+			wantLane:       config.Output{PushCmd: "custom-push {id}"},
+			wantLaneSource: config.Output{Mode: config.OutputModeMerge, PushCmd: "custom-push {id}"},
+		},
+		{
+			name:    "source clears inherited push_cmd when switching to pr",
+			lines:   cat([]string{"[output]", `mode = "merge"`, `push_cmd = "review-and-push-loop --base {base}"`}, src, []string{"[source.output]", `mode = "pr"`, `push_cmd = ""`}),
+			wantTop: config.Output{Mode: config.OutputModeMerge, PushCmd: "review-and-push-loop --base {base}"},
+			wantSrc: config.Output{Mode: config.OutputModePR, PushCmd: ""},
+		},
+		{
+			name:           "lane clears inherited push_cmd when switching to pr",
+			lines:          cat([]string{"[output]", `mode = "merge"`, `push_cmd = "review-and-push-loop --base {base}"`}, src, lane, []string{"[lane.output]", `mode = "pr"`, `push_cmd = ""`}, order),
+			wantTop:        config.Output{Mode: config.OutputModeMerge, PushCmd: "review-and-push-loop --base {base}"},
+			wantSrc:        config.Output{Mode: config.OutputModeMerge, PushCmd: "review-and-push-loop --base {base}"},
+			wantLane:       config.Output{Mode: config.OutputModePR, PushCmd: ""},
+			wantLaneSource: config.Output{Mode: config.OutputModePR, PushCmd: ""},
+		},
+		{
+			name:    "push_cmd disallowed with mode pr",
+			lines:   cat([]string{"[output]", `mode = "pr"`, `push_cmd = "review-and-push-loop"`}, src),
+			wantErr: `output.push_cmd: expected output.mode "merge" when push_cmd is set, found "pr"`,
+		},
+		{
+			name:    "lane switching to pr without clearing inherited push_cmd fails",
+			lines:   cat([]string{"[output]", `mode = "merge"`, `push_cmd = "review-and-push-loop"`}, src, lane, []string{"[lane.output]", `mode = "pr"`}, order),
+			wantErr: `lane "linux" output.push_cmd: expected output.mode "merge" when push_cmd is set, found "pr"`,
+		},
+		{
+			name:    "empty top push_cmd fails",
+			lines:   cat([]string{"[output]", `mode = "merge"`, `push_cmd = ""`}, src),
+			wantErr: "output.push_cmd: expected a non-empty command",
+		},
+		{
+			name:    "whitespace source push_cmd fails",
+			lines:   cat([]string{"[output]", `mode = "merge"`}, src, []string{"[source.output]", `push_cmd = "   "`}),
+			wantErr: `source "experimental" output.push_cmd: expected a non-blank command`,
+		},
 	}
 
 	for _, tc := range tests {

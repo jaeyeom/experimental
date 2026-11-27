@@ -91,7 +91,7 @@ func validateLaneOverrides(cfg *Config) error {
 		if err := validWorker(fmt.Sprintf("lane %q worker", lane.Name), lane.Worker.Over(cfg.Worker), true, true); err != nil {
 			return err
 		}
-		if err := validOutput(fmt.Sprintf("lane %q output", lane.Name), lane.Output.Over(cfg.Output)); err != nil {
+		if err := validOutput(fmt.Sprintf("lane %q output", lane.Name), lane.applyOutput(cfg.Output)); err != nil {
 			return err
 		}
 		if err := validateLaneLease(cfg, lane); err != nil {

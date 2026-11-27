@@ -1,9 +1,10 @@
 // Package reviewpush implements the review-and-push loop that reviews and
-// pushes local commits one at a time using Codex.
+// pushes local commits one at a time using a read-only reviewer.
 package reviewpush
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -14,35 +15,34 @@ import (
 )
 
 const (
-	// OutputModeHuman preserves the existing interactive terminal output.
+	// OutputModeHuman preserves the interactive terminal output.
 	OutputModeHuman = "human"
-	// OutputModeCompact minimizes output for agent-driven workflows.
+	// OutputModeCompact minimizes output for line-oriented agent workflows.
 	OutputModeCompact = "compact"
+	// OutputModeJSON emits a single structured JSON RunReport on stdout.
+	OutputModeJSON = "json"
 )
 
-// CodexResult represents the JSON response from a Codex review pass.
-type CodexResult struct {
-	Status        string  `json:"status"`
-	Summary       string  `json:"summary"`
-	MultiCommits  bool    `json:"multi_commits"`  //nolint:tagliatelle // Codex API uses snake_case
-	PushTarget    *string `json:"push_target"`    //nolint:tagliatelle // Codex API uses snake_case
-	BlockedReason *string `json:"blocked_reason"` //nolint:tagliatelle // Codex API uses snake_case
+// RunReport is the structured summary emitted on stdout when OutputMode is OutputModeJSON.
+type RunReport struct {
+	Status        string            `json:"status"`
+	Base          string            `json:"base,omitempty"`
+	PushedCommits []string          `json:"pushed_commits,omitempty"` //nolint:tagliatelle // reviewpush JSON output contract uses snake_case
+	Iterations    []IterationReport `json:"iterations,omitempty"`
+	BlockedCommit string            `json:"blocked_commit,omitempty"` //nolint:tagliatelle // reviewpush JSON output contract uses snake_case
+	Reason        string            `json:"reason,omitempty"`
+	ExitCode      int               `json:"exit_code"` //nolint:tagliatelle // reviewpush JSON output contract uses snake_case
 }
 
-// CodexPassInput contains the input parameters for a Codex review pass.
-type CodexPassInput struct {
-	RepoDir         string
-	BaseBranch      string
-	RemoteRef       string
-	RemoteRefExists bool
-	Iteration       int
-	AheadCount      int
-	TargetCommit    string
-}
-
-// CodexRunner executes a Codex review pass and returns the parsed result.
-type CodexRunner interface {
-	RunPass(ctx context.Context, input *CodexPassInput) (*CodexResult, error)
+// IterationReport describes a single review-and-push pass in RunReport.
+type IterationReport struct {
+	Iteration    int    `json:"iteration"`
+	TargetCommit string `json:"target_commit"` //nolint:tagliatelle // reviewpush JSON output contract uses snake_case
+	AheadCount   int    `json:"ahead_count"`   //nolint:tagliatelle // reviewpush JSON output contract uses snake_case
+	Status       string `json:"status"`
+	PushTarget   string `json:"push_target,omitempty"` //nolint:tagliatelle // reviewpush JSON output contract uses snake_case
+	Summary      string `json:"summary,omitempty"`
+	Reason       string `json:"reason,omitempty"`
 }
 
 // Config holds configuration for the review-and-push loop.
@@ -52,6 +52,7 @@ type Config struct {
 	MaxIterations      int
 	OutputMode         string
 	GitBin             string
+	ReviewerCmd        string
 	CodexBin           string
 	CodexTimeoutSecs   int
 }
@@ -68,22 +69,31 @@ type RemoteBase struct {
 
 // Runner executes the review-and-push loop.
 type Runner struct {
-	Cfg    Config
-	Exec   executor.Executor
+	Cfg      Config
+	Exec     executor.Executor
+	Reviewer Reviewer
+	// Codex is a backwards-compatible alias field; prefer Reviewer.
 	Codex  CodexRunner
 	Stdout io.Writer
 	Stderr io.Writer
 }
 
 // NewRunner creates a new Runner with default I/O writers.
-func NewRunner(cfg Config, exec executor.Executor, codex CodexRunner) *Runner {
+func NewRunner(cfg Config, exec executor.Executor, reviewer Reviewer) *Runner {
 	return &Runner{
-		Cfg:    cfg,
-		Exec:   exec,
-		Codex:  codex,
-		Stdout: os.Stdout,
-		Stderr: os.Stderr,
+		Cfg:      cfg,
+		Exec:     exec,
+		Reviewer: reviewer,
+		Stdout:   os.Stdout,
+		Stderr:   os.Stderr,
 	}
+}
+
+func (r *Runner) reviewer() Reviewer {
+	if r.Reviewer != nil {
+		return r.Reviewer
+	}
+	return r.Codex
 }
 
 func (r *Runner) log(format string, args ...any) {
@@ -92,6 +102,14 @@ func (r *Runner) log(format string, args ...any) {
 
 func (r *Runner) isCompactOutput() bool {
 	return r.Cfg.OutputMode == OutputModeCompact
+}
+
+func (r *Runner) isJSONOutput() bool {
+	return r.Cfg.OutputMode == OutputModeJSON
+}
+
+func (r *Runner) isQuietProgress() bool {
+	return r.isCompactOutput() || r.isJSONOutput()
 }
 
 func shortCommit(commit string) string {
@@ -227,7 +245,7 @@ func (r *Runner) ValidatePushTarget(ctx context.Context, pushTarget string, base
 }
 
 // PrintCommitBanner prints a visually prominent commit banner before a
-// Codex review pass, showing git log --stat --format=fuller output.
+// review pass, showing git log --stat --format=fuller output.
 func (r *Runner) PrintCommitBanner(ctx context.Context, commit string) {
 	output, err := r.gitOutput(ctx, "log", "--stat", "--format=fuller", "-1", commit)
 	if err != nil {
@@ -237,7 +255,7 @@ func (r *Runner) PrintCommitBanner(ctx context.Context, commit string) {
 	fmt.Fprintf(r.Stdout, "%s\nTARGET COMMIT\n%s\n%s\n%s\n", sep, sep, output, sep)
 }
 
-func (r *Runner) logCompactIteration(iteration, ahead int, targetCommit string, status string, detail string) {
+func (r *Runner) logCompactIteration(iteration, ahead int, targetCommit, status, detail string) {
 	msg := fmt.Sprintf(
 		"ITERATION %d target=%s ahead=%d status=%s",
 		iteration,
@@ -256,39 +274,56 @@ func (r *Runner) logDone(base *RemoteBase) {
 		r.log("DONE base=%s", base.Ref)
 		return
 	}
-	r.log("DONE: HEAD is not ahead of %s.", base.Ref)
+	if !r.isJSONOutput() {
+		r.log("DONE: HEAD is not ahead of %s.", base.Ref)
+	}
 }
 
-// handlePush validates and pushes commits based on the Codex result.
-// Returns the commit that was pushed and an error message on failure.
-func (r *Runner) handlePush(ctx context.Context, result *CodexResult, targetCommit string, base *RemoteBase) (string, string) {
+func (r *Runner) emitReport(report RunReport) int {
+	if r.isJSONOutput() {
+		enc := json.NewEncoder(r.Stdout)
+		enc.SetEscapeHTML(false)
+		_ = enc.Encode(report)
+	}
+	return report.ExitCode
+}
+
+// handlePush validates and pushes commits based on the review result.
+// Returns the commit that was pushed, a machine-readable reason code, and a
+// human error message on failure.
+func (r *Runner) handlePush(ctx context.Context, result *ReviewResult, targetCommit string, base *RemoteBase) (string, string, string) {
 	pushTarget := targetCommit
 	if result.MultiCommits && result.PushTarget != nil {
 		pushTarget = *result.PushTarget
 	}
 
 	if !r.ValidatePushTarget(ctx, pushTarget, base, targetCommit) {
-		return "", fmt.Sprintf("BLOCKED: Codex proposed invalid push target '%s' for oldest commit %s.", pushTarget, targetCommit)
+		return "", "invalid_push_target", fmt.Sprintf("BLOCKED: reviewer proposed invalid push target '%s' for oldest commit %s.", pushTarget, targetCommit)
 	}
 
 	refspec := pushTarget + ":refs/heads/" + base.Branch
 	if err := r.gitRun(ctx, "push", "origin", refspec); err != nil {
-		return "", fmt.Sprintf("BLOCKED: push failed for %s.", pushTarget)
+		return "", "push_failed", fmt.Sprintf("BLOCKED: push failed for %s.", pushTarget)
 	}
 
-	if !r.isCompactOutput() {
+	if !r.isQuietProgress() {
 		r.log("Pushed through %s.", pushTarget)
 	}
-	return pushTarget, ""
+	return pushTarget, "", ""
 }
 
-func (r *Runner) runCodexPass(ctx context.Context, base *RemoteBase, iteration, ahead int, targetCommit string) (*CodexResult, bool) {
-	if !r.isCompactOutput() {
+func (r *Runner) runReviewPass(ctx context.Context, base *RemoteBase, iteration, ahead int, targetCommit string) (*ReviewResult, error) {
+	if !r.isQuietProgress() {
 		r.log("Iteration %d: reviewing and pushing %s (%d commit(s) ahead of %s).", iteration, targetCommit, ahead, base.Ref)
 		r.PrintCommitBanner(ctx, targetCommit)
 	}
 
-	result, err := r.Codex.RunPass(ctx, &CodexPassInput{
+	rev := r.reviewer()
+	if rev == nil {
+		return nil, fmt.Errorf("no reviewer configured")
+	}
+
+	result, err := rev.RunPass(ctx, &ReviewPassInput{
 		RepoDir:         r.Cfg.RepoDir,
 		BaseBranch:      base.Branch,
 		RemoteRef:       base.Ref,
@@ -298,55 +333,171 @@ func (r *Runner) runCodexPass(ctx context.Context, base *RemoteBase, iteration, 
 		TargetCommit:    targetCommit,
 	})
 	if err != nil {
-		if r.isCompactOutput() {
-			r.logCompactIteration(iteration, ahead, targetCommit, "BLOCKED", "reason=codex_execution_failed")
-			return nil, true
-		}
-		r.log("BLOCKED: Codex execution failed during iteration %d.", iteration)
-		return nil, true
+		return nil, fmt.Errorf("run reviewer pass: %w", err)
 	}
-
-	return result, false
+	if err := ValidateReviewResult(result); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
-func (r *Runner) handlePassResult(ctx context.Context, result *CodexResult, base *RemoteBase, iteration, ahead int, targetCommit string) bool {
+func (r *Runner) handlePassFailure(report *RunReport, iteration, ahead int, targetCommit string, err error) {
+	reason := err.Error()
+	report.Status = StatusBlocked
+	report.BlockedCommit = targetCommit
+	report.Reason = reason
+	report.ExitCode = 2
+	report.Iterations = append(report.Iterations, IterationReport{
+		Iteration:    iteration,
+		TargetCommit: targetCommit,
+		AheadCount:   ahead,
+		Status:       StatusBlocked,
+		Reason:       reason,
+	})
+	if r.isCompactOutput() {
+		r.logCompactIteration(iteration, ahead, targetCommit, StatusBlocked, "reason=reviewer_execution_failed")
+		return
+	}
+	if !r.isJSONOutput() {
+		r.log("BLOCKED: reviewer execution failed during iteration %d: %v.", iteration, err)
+	}
+}
+
+func (r *Runner) handlePassResult(ctx context.Context, report *RunReport, result *ReviewResult, base *RemoteBase, iteration, ahead int, targetCommit string) bool {
 	switch result.Status {
-	case "PUSH":
-		pushTarget, msg := r.handlePush(ctx, result, targetCommit, base)
+	case StatusPush:
+		pushTarget, code, msg := r.handlePush(ctx, result, targetCommit, base)
 		if msg != "" {
+			report.Status = StatusBlocked
+			report.BlockedCommit = targetCommit
+			report.Reason = msg
+			report.ExitCode = 2
+			report.Iterations = append(report.Iterations, IterationReport{
+				Iteration:    iteration,
+				TargetCommit: targetCommit,
+				AheadCount:   ahead,
+				Status:       StatusBlocked,
+				Summary:      result.Summary,
+				Reason:       msg,
+			})
 			if r.isCompactOutput() {
-				r.logCompactIteration(iteration, ahead, targetCommit, "BLOCKED", "reason=invalid_push_target")
-				return true
+				r.logCompactIteration(iteration, ahead, targetCommit, StatusBlocked, "reason="+code)
+			} else if !r.isJSONOutput() {
+				r.log("%s", msg)
 			}
-			r.log("%s", msg)
 			return true
 		}
+		report.PushedCommits = append(report.PushedCommits, pushTarget)
+		report.Iterations = append(report.Iterations, IterationReport{
+			Iteration:    iteration,
+			TargetCommit: targetCommit,
+			AheadCount:   ahead,
+			Status:       StatusPush,
+			PushTarget:   pushTarget,
+			Summary:      result.Summary,
+		})
 		if r.isCompactOutput() {
-			r.logCompactIteration(iteration, ahead, targetCommit, "PUSH", fmt.Sprintf("push_target=%s", shortCommit(pushTarget)))
+			r.logCompactIteration(iteration, ahead, targetCommit, StatusPush, fmt.Sprintf("push_target=%s", shortCommit(pushTarget)))
 		}
 		return false
-	case "BLOCKED":
+	case StatusBlocked:
 		reason := "blocked"
 		if result.BlockedReason != nil {
 			reason = *result.BlockedReason
 		}
+		report.Status = StatusBlocked
+		report.BlockedCommit = targetCommit
+		report.Reason = reason
+		report.ExitCode = 2
+		report.Iterations = append(report.Iterations, IterationReport{
+			Iteration:    iteration,
+			TargetCommit: targetCommit,
+			AheadCount:   ahead,
+			Status:       StatusBlocked,
+			Summary:      result.Summary,
+			Reason:       reason,
+		})
 		if r.isCompactOutput() {
-			r.logCompactIteration(iteration, ahead, targetCommit, "BLOCKED", fmt.Sprintf("reason=%q", reason))
+			r.logCompactIteration(iteration, ahead, targetCommit, StatusBlocked, fmt.Sprintf("reason=%q", reason))
 			return true
 		}
-		r.log("BLOCKED: review-and-push stopped on %s.", targetCommit)
-		if result.BlockedReason != nil {
-			r.log("Reason: %s", *result.BlockedReason)
+		if !r.isJSONOutput() {
+			r.log("BLOCKED: review-and-push stopped on %s.", targetCommit)
+			if result.BlockedReason != nil {
+				r.log("Reason: %s", *result.BlockedReason)
+			}
 		}
 		return true
 	default:
+		reason := fmt.Sprintf("unexpected reviewer status '%s'", result.Status)
+		report.Status = StatusBlocked
+		report.BlockedCommit = targetCommit
+		report.Reason = reason
+		report.ExitCode = 2
+		report.Iterations = append(report.Iterations, IterationReport{
+			Iteration:    iteration,
+			TargetCommit: targetCommit,
+			AheadCount:   ahead,
+			Status:       StatusBlocked,
+			Reason:       reason,
+		})
 		if r.isCompactOutput() {
-			r.logCompactIteration(iteration, ahead, targetCommit, "BLOCKED", "reason=unexpected_status")
+			r.logCompactIteration(iteration, ahead, targetCommit, StatusBlocked, "reason=unexpected_status")
 			return true
 		}
-		r.log("BLOCKED: unexpected Codex status '%s' for %s.", result.Status, targetCommit)
+		if !r.isJSONOutput() {
+			r.log("BLOCKED: unexpected reviewer status '%s' for %s.", result.Status, targetCommit)
+		}
 		return true
 	}
+}
+
+func (r *Runner) reportRuntimeError(report *RunReport, msg string) int {
+	if r.isJSONOutput() {
+		report.Status = "ERROR"
+		report.Reason = msg
+		report.ExitCode = 2
+		return r.emitReport(*report)
+	}
+	fmt.Fprintf(r.Stderr, "Error: %s\n", msg)
+	return 2
+}
+
+func (r *Runner) runIteration(ctx context.Context, report *RunReport, base *RemoteBase, iteration int) (bool, int) {
+	if !r.isQuietProgress() {
+		r.log("Fetching %s before iteration %d...", base.Ref, iteration)
+	}
+	if err := r.gitRun(ctx, "fetch", "origin"); err != nil {
+		return true, r.reportRuntimeError(report, fmt.Sprintf("fetch failed: %v", err))
+	}
+	if !base.Exists {
+		base.Exists = r.remoteRefExists(ctx, base.Branch)
+	}
+
+	ahead, err := r.AheadCount(ctx, base)
+	if err != nil {
+		return true, r.reportRuntimeError(report, err.Error())
+	}
+	if ahead == 0 {
+		r.logDone(base)
+		report.Status = "DONE"
+		report.ExitCode = 0
+		return true, r.emitReport(*report)
+	}
+
+	targetCommit, err := r.OldestAheadCommit(ctx, base)
+	if err != nil {
+		return true, r.reportRuntimeError(report, err.Error())
+	}
+	result, err := r.runReviewPass(ctx, base, iteration, ahead, targetCommit)
+	if err != nil {
+		r.handlePassFailure(report, iteration, ahead, targetCommit, err)
+		return true, r.emitReport(*report)
+	}
+	if r.handlePassResult(ctx, report, result, base, iteration, ahead, targetCommit) {
+		return true, r.emitReport(*report)
+	}
+	return false, 0
 }
 
 // Run executes the review-and-push loop. Returns 0 on success (all commits
@@ -354,46 +505,27 @@ func (r *Runner) handlePassResult(ctx context.Context, result *CodexResult, base
 func (r *Runner) Run(ctx context.Context) int {
 	base, err := r.ResolveRemoteBase(ctx)
 	if err != nil {
+		if r.isJSONOutput() {
+			return r.emitReport(RunReport{Status: "ERROR", Reason: err.Error(), ExitCode: 1})
+		}
 		fmt.Fprintf(r.Stderr, "Error: %v\n", err)
 		return 1
 	}
 
+	report := RunReport{Base: base.Ref}
 	for iteration := 1; iteration <= r.Cfg.MaxIterations; iteration++ {
-		if !r.isCompactOutput() {
-			r.log("Fetching %s before iteration %d...", base.Ref, iteration)
-		}
-		if err := r.gitRun(ctx, "fetch", "origin"); err != nil {
-			fmt.Fprintf(r.Stderr, "Error: fetch failed: %v\n", err)
-			return 2
-		}
-		if !base.Exists {
-			base.Exists = r.remoteRefExists(ctx, base.Branch)
-		}
-
-		ahead, err := r.AheadCount(ctx, base)
-		if err != nil {
-			fmt.Fprintf(r.Stderr, "Error: %v\n", err)
-			return 2
-		}
-		if ahead == 0 {
-			r.logDone(base)
-			return 0
-		}
-
-		targetCommit, err := r.OldestAheadCommit(ctx, base)
-		if err != nil {
-			fmt.Fprintf(r.Stderr, "Error: %v\n", err)
-			return 2
-		}
-		result, blocked := r.runCodexPass(ctx, base, iteration, ahead, targetCommit)
-		if blocked {
-			return 2
-		}
-		if r.handlePassResult(ctx, result, base, iteration, ahead, targetCommit) {
-			return 2
+		if done, code := r.runIteration(ctx, &report, base, iteration); done {
+			return code
 		}
 	}
 
-	r.log("BLOCKED: reached max iterations (%d) before the branch was fully pushed.", r.Cfg.MaxIterations)
+	msg := fmt.Sprintf("reached max iterations (%d) before the branch was fully pushed", r.Cfg.MaxIterations)
+	if r.isJSONOutput() {
+		report.Status = StatusBlocked
+		report.Reason = msg
+		report.ExitCode = 2
+		return r.emitReport(report)
+	}
+	r.log("BLOCKED: %s.", msg)
 	return 2
 }

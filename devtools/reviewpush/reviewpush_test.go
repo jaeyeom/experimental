@@ -334,7 +334,7 @@ func TestTimeoutMode(t *testing.T) {
 	if exitCode != 2 {
 		t.Fatalf("expected exit code 2, got %d: %s", exitCode, buf.String())
 	}
-	if !strings.Contains(buf.String(), "BLOCKED: Codex execution failed during iteration 1.") {
+	if !strings.Contains(buf.String(), "BLOCKED: reviewer execution failed during iteration 1") {
 		t.Errorf("expected blocked message, got: %s", buf.String())
 	}
 }
@@ -708,6 +708,104 @@ exit 1
 	if !strings.Contains(stderr.String(), "important codex failure details") {
 		t.Fatalf("expected captured stderr on failure, got: %q", stderr.String())
 	}
+}
+
+type malformedReviewer struct {
+	result *ReviewResult
+}
+
+func (m malformedReviewer) RunPass(context.Context, *ReviewPassInput) (*ReviewResult, error) {
+	return m.result, nil
+}
+
+func TestRunnerRejectsMalformedReviewerVerdictsBeforePush(t *testing.T) {
+	cases := []struct {
+		name   string
+		result *ReviewResult
+	}{
+		{name: "nil result", result: nil},
+		{name: "unknown status", result: &ReviewResult{Status: "MAYBE", Summary: "x"}},
+		{name: "push with blocked_reason", result: &ReviewResult{Status: StatusPush, Summary: "x", BlockedReason: strPtr("oops")}},
+		{name: "multi_commits true without push_target", result: &ReviewResult{Status: StatusPush, Summary: "x", MultiCommits: true}},
+		{name: "blocked with push_target", result: &ReviewResult{Status: StatusBlocked, Summary: "x", PushTarget: strPtr("commit-1"), BlockedReason: strPtr("bad")}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			state := &testGitState{aheadCount: 1, remoteBaseExists: true}
+			var buf bytes.Buffer
+			runner := &Runner{
+				Cfg: Config{
+					RepoDir:       "/tmp/test-repo",
+					MaxIterations: 10,
+					OutputMode:    OutputModeJSON,
+					GitBin:        "git",
+				},
+				Exec:     &testGitExecutor{state: state},
+				Reviewer: malformedReviewer{result: tc.result},
+				Stdout:   &buf,
+				Stderr:   &buf,
+			}
+			code := runner.Run(context.Background())
+			if code != 2 {
+				t.Fatalf("expected exit 2, got %d (%s)", code, buf.String())
+			}
+			if len(state.pushLog) != 0 {
+				t.Fatalf("expected no git push on malformed verdict, got %v", state.pushLog)
+			}
+			var report RunReport
+			if err := json.Unmarshal(buf.Bytes(), &report); err != nil {
+				t.Fatalf("decode json report: %v (%s)", err, buf.String())
+			}
+			if report.Status != StatusBlocked || report.ExitCode != 2 {
+				t.Fatalf("unexpected report: %+v", report)
+			}
+		})
+	}
+}
+
+func TestJSONOutputMode(t *testing.T) {
+	t.Run("multi-commit push report", func(t *testing.T) {
+		state := &testGitState{aheadCount: 2, remoteBaseExists: true}
+		runner, _, buf := newTestRunner(t, state, "push-all")
+		runner.Cfg.OutputMode = OutputModeJSON
+
+		code := runner.Run(context.Background())
+		if code != 0 {
+			t.Fatalf("expected exit 0, got %d (%s)", code, buf.String())
+		}
+		var report RunReport
+		if err := json.Unmarshal(buf.Bytes(), &report); err != nil {
+			t.Fatalf("decode json report: %v (%s)", err, buf.String())
+		}
+		if report.Status != "DONE" || report.Base != "origin/main" || report.ExitCode != 0 {
+			t.Fatalf("unexpected report: %+v", report)
+		}
+		if len(report.PushedCommits) != 1 || report.PushedCommits[0] != "commit-2" {
+			t.Fatalf("pushed_commits = %v, want [commit-2]", report.PushedCommits)
+		}
+		if len(report.Iterations) != 1 || report.Iterations[0].Status != StatusPush {
+			t.Fatalf("iterations = %+v", report.Iterations)
+		}
+	})
+
+	t.Run("blocked report", func(t *testing.T) {
+		state := &testGitState{aheadCount: 1, remoteBaseExists: true}
+		runner, _, buf := newTestRunner(t, state, "blocked")
+		runner.Cfg.OutputMode = OutputModeJSON
+
+		code := runner.Run(context.Background())
+		if code != 2 {
+			t.Fatalf("expected exit 2, got %d (%s)", code, buf.String())
+		}
+		var report RunReport
+		if err := json.Unmarshal(buf.Bytes(), &report); err != nil {
+			t.Fatalf("decode json report: %v (%s)", err, buf.String())
+		}
+		if report.Status != StatusBlocked || report.BlockedCommit != "commit-1" || report.Reason != "hard blocker" || report.ExitCode != 2 {
+			t.Fatalf("unexpected blocked report: %+v", report)
+		}
+	})
 }
 
 func writeTestCodexScript(t *testing.T, content string) string {

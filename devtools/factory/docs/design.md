@@ -20,7 +20,11 @@ A single command that, when run, does this:
 
 It does not review, push, merge, or mark PRs ready. Once the tab exists, the
 existing chain takes over: `/implement-jira-ticket` or `/gh-issue-resolver` →
-draft PR → `/pr-watch` + `prsync dispatch`.
+draft PR → `/pr-watch` + `prsync dispatch` (or, under `[output] mode = "merge"`,
+workers rebase onto `origin/<base>` and push linear history directly, optionally
+gated by `[output] push_cmd`, such as `review-and-push-loop --base {base} --json`,
+so pre-push review remains a standalone composable CLI rather than part of
+read-only `verify` or post-landing `settle`).
 
 ### Non-goals
 - No repo-specific knowledge in code. Everything project-specific is in config (§9).

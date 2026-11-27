@@ -44,3 +44,20 @@ func TestRunDispatchesToolCLI(t *testing.T) {
 		t.Fatal("expected JSON version output")
 	}
 }
+
+func TestDoctorChecksCustomReviewerCommand(t *testing.T) {
+	t.Setenv("REVIEWPUSH_REVIEWER_CMD", "/opt/bin/custom-reviewer --strict")
+	tool := newReviewPushTool()
+	foundCustom := false
+	for _, cmd := range tool.RequiredCommands {
+		if cmd == "codex" {
+			t.Fatalf("did not expect codex in RequiredCommands when REVIEWPUSH_REVIEWER_CMD is set: %v", tool.RequiredCommands)
+		}
+		if cmd == "/opt/bin/custom-reviewer" {
+			foundCustom = true
+		}
+	}
+	if !foundCustom {
+		t.Fatalf("expected /opt/bin/custom-reviewer in RequiredCommands, got %v", tool.RequiredCommands)
+	}
+}

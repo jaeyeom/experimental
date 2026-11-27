@@ -45,7 +45,7 @@ func LaneSource(src Source, lane Lane) Source {
 		src.Worker.MaxWorkers = lane.MaxWorkers
 	}
 	src.Lease = lane.applyLease(src.Lease)
-	src.Output = lane.Output.Over(src.Output)
+	src.Output = lane.applyOutput(src.Output)
 	if lane.startPromptAppendSet {
 		src.StartPromptAppend = lane.StartPromptAppend
 	}

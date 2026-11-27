@@ -26,8 +26,8 @@ func (s *Starter) prepared(it source.Item) (ws, tab, prompt string, err error) {
 	prompt = placePrompt(s.Cfg.StartPrompt, rule, trustRule(s.Cfg), appendText, func(part string) string {
 		return renderPrompt(part, it, s.Cfg.Name, s.Cfg.Base, s.Caller, s.CallerBus)
 	})
-	if s.effectiveOutputMode() == config.OutputModeMerge {
-		prompt += "\n\n" + mergeOutputInstruction(s.Cfg.Base, it.ID, s.effectiveSpawner(), s.Machine != "")
+	if out := s.effectiveOutput(); out.Mode == config.OutputModeMerge {
+		prompt += "\n\n" + mergeOutputInstruction(s.Cfg.Base, it.ID, s.effectiveSpawner(), s.Machine != "", out.PushCmd)
 	}
 	if strings.TrimSpace(prompt) == "" {
 		return "", "", "", fmt.Errorf("start %s: expected a rendered prompt, found blank", it.ID)
@@ -142,8 +142,11 @@ func (s *Starter) writePlan(ctx context.Context, it source.Item, ws, tab, prompt
 		return err
 	}
 	text += worktreeLine
-	if s.effectiveOutputMode() == config.OutputModeMerge {
+	if out := s.effectiveOutput(); out.Mode == config.OutputModeMerge {
 		text += fmt.Sprintf("%-8s %s (exit worker on completion)\n", "output", config.OutputModeMerge)
+		if out.PushCmd != "" {
+			text += fmt.Sprintf("%-8s %s\n", "push_cmd", renderPushCmd(out.PushCmd, s.Cfg.Base, it.ID))
+		}
 	}
 	if s.Lane != "" {
 		text += fmt.Sprintf("%-8s %s\n", "lane", laneText(s.Lane, s.Machine))
@@ -311,21 +314,29 @@ func renderPrompt(tmpl string, it source.Item, sourceName, base, caller, callerB
 	).Replace(tmpl)
 }
 
-func mergeOutputInstruction(base, id, spawner string, remote bool) string {
+func renderPushCmd(tmpl, base, id string) string {
+	return strings.NewReplacer("{base}", base, "{id}", id).Replace(tmpl)
+}
+
+func mergeOutputInstruction(base, id, spawner string, remote bool, pushCmd string) string {
 	ref := id
 	if _, num, ok := strings.Cut(id, "#"); ok && num != "" {
 		ref = fmt.Sprintf("%s (e.g., Fixes #%s)", id, num)
 	}
+	pushClause := ""
+	if pushCmd != "" {
+		pushClause = fmt.Sprintf(" using `%s` (if it blocks or exits non-zero, resolve the blocker or report back rather than bypassing with raw git push)", renderPushCmd(pushCmd, base, id))
+	}
 	var head string
 	if base != "" {
 		head = fmt.Sprintf(
-			"Output mode is merge: do not open a pull request. Rebase onto origin/%s (after fetching origin/%s) with no merge commits (linear history), fast-forward %s, and push to origin/%s with commit(s) referencing %s.",
-			base, base, base, base, ref,
+			"Output mode is merge: do not open a pull request. Rebase onto origin/%s (after fetching origin/%s) with no merge commits (linear history), fast-forward %s, and push to origin/%s with commit(s) referencing %s%s.",
+			base, base, base, base, ref, pushClause,
 		)
 	} else {
 		head = fmt.Sprintf(
-			"Output mode is merge: do not open a pull request. Rebase onto the base branch (after fetching origin) with no merge commits (linear history), fast-forward the base branch, and push with commit(s) referencing %s.",
-			ref,
+			"Output mode is merge: do not open a pull request. Rebase onto the base branch (after fetching origin) with no merge commits (linear history), fast-forward the base branch, and push with commit(s) referencing %s%s.",
+			ref, pushClause,
 		)
 	}
 	return head + " " + mergeExitInstruction(id, spawner, remote)

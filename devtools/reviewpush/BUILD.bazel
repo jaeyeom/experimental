@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "codex.go",
+        "reviewer.go",
         "reviewpush.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/reviewpush",
@@ -15,6 +16,7 @@ go_test(
     name = "go_default_test",
     srcs = [
         "codex_test.go",
+        "reviewer_test.go",
         "reviewpush_test.go",
     ],
     embed = [":go_default_library"],

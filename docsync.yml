@@ -669,16 +669,22 @@ rules:
         why: "review-and-push-loop entry point"
       - path: devtools/reviewpush/README.md
         section: "## Options"
-        why: "--repo/--base/--max-iterations/--output"
+        why: "--repo/--base/--max-iterations/--output/--json/--reviewer-cmd"
       - path: devtools/reviewpush/README.md
         section: "## Options"
         why: "wrapper env overrides"
 
+  - match: ["devtools/reviewpush/reviewer.go"]
+    docs:
+      - path: devtools/reviewpush/README.md
+        section: "### Reviewer response contract"
+        why: "PUSH vs BLOCKED JSON contract and custom reviewer command boundary"
+
   - match: ["devtools/reviewpush/codex.go"]
     docs:
       - path: devtools/reviewpush/README.md
-        section: "### Codex response contract"
-        why: "PUSH vs BLOCKED JSON contract"
+        section: "#### Default Codex adapter"
+        why: "default Codex CLI adapter"
 
   - match: ["devtools/reviewpush/reviewpush.go"]
     docs:
@@ -687,7 +693,7 @@ rules:
         why: "oldest-ahead commit loop and wrapper push"
       - path: devtools/reviewpush/README.md
         section: "## Safety properties"
-        why: "read-only Codex; wrapper performs git push"
+        why: "read-only reviewer; wrapper performs git push"
 
   - match: ["devtools/pkg/ghauth/**"]
     docs:

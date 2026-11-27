@@ -104,6 +104,7 @@ type Lane struct {
 	Exec                  []string `toml:"exec"`
 	StartPromptAppend     string   `toml:"-"`
 	leaseRestore          *bool    `toml:"-"`
+	outputPushCmdSet      bool     `toml:"-"`
 	startPromptAppendFile bool     `toml:"-"`
 	startPromptAppendSet  bool     `toml:"-"`
 }
@@ -112,6 +113,14 @@ func (l Lane) applyLease(base LeasePrompt) LeasePrompt {
 	out := l.Lease.Over(base)
 	if l.leaseRestore != nil {
 		out.Restore = *l.leaseRestore
+	}
+	return out
+}
+
+func (l Lane) applyOutput(base Output) Output {
+	out := l.Output.Over(base)
+	if l.outputPushCmdSet {
+		out.PushCmd = l.Output.PushCmd
 	}
 	return out
 }
@@ -1085,6 +1094,10 @@ func (raw rawConfig) toConfig() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	outputCfg, err := raw.Output.toOutput()
+	if err != nil {
+		return nil, err
+	}
 	cfg := &Config{
 		Defaults: defaults,
 		Worker:   workerCfg,
@@ -1099,7 +1112,7 @@ func (raw rawConfig) toConfig() (*Config, error) {
 			HoldTTL:     holdTTL,
 		},
 		Lease:          raw.Lease.toLease(),
-		Output:         raw.Output.toOutput(),
+		Output:         outputCfg,
 		Claim:          raw.Claim.toClaim(),
 		AgentRules:     copyAgentRules(raw.AgentRules),
 		Sources:        make([]Source, len(raw.Sources)),
@@ -1211,6 +1224,7 @@ func (item rawLane) applyOverrides(lane Lane) (Lane, error) {
 			return Lane{}, err
 		}
 		lane.Output = item.Output.over(Output{})
+		lane.outputPushCmdSet = item.Output.PushCmd != nil
 	}
 	if item.StartPromptAppend != nil {
 		val, isFile, err := parseStartPromptAppend(fmt.Sprintf("lane %q", lane.Name), item.StartPromptAppend)

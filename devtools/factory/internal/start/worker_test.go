@@ -83,12 +83,12 @@ func TestOutputModeMerge(t *testing.T) {
 	if cl.OutputMode != config.OutputModeMerge {
 		t.Fatalf("claim OutputMode = %q, want %q", cl.OutputMode, config.OutputModeMerge)
 	}
-	if got := mergeOutputInstruction("main", "acme/widgets#42", config.SpawnerAgentbus, false); !strings.Contains(got, "Fixes #42") {
+	if got := mergeOutputInstruction("main", "acme/widgets#42", config.SpawnerAgentbus, false, ""); !strings.Contains(got, "Fixes #42") {
 		t.Fatalf("github merge instruction missing Fixes #42: %q", got)
 	}
 
 	// Remote-lane tab worker closes its own tab immediately after reporting back.
-	remotePrompt := mergeOutputInstruction("main", "PRJ-123", config.SpawnerAgentbus, true)
+	remotePrompt := mergeOutputInstruction("main", "PRJ-123", config.SpawnerAgentbus, true, "")
 	if !strings.Contains(remotePrompt, `herdr tab close "$HERDR_TAB_ID"`) {
 		t.Fatalf("remote merge instruction missing tab close: %q", remotePrompt)
 	}
@@ -97,10 +97,40 @@ func TestOutputModeMerge(t *testing.T) {
 	}
 
 	// Subagent worker returns immediately so coordinator settles and discards it.
-	subagentPrompt := mergeOutputInstruction("main", "PRJ-123", config.SpawnerSubagent, false)
+	subagentPrompt := mergeOutputInstruction("main", "PRJ-123", config.SpawnerSubagent, false, "")
 	for _, want := range []string{"factory verify PRJ-123", "finish and return immediately", "coordinator will run `factory settle PRJ-123`"} {
 		if !strings.Contains(subagentPrompt, want) {
 			t.Fatalf("subagent merge instruction missing %q: %q", want, subagentPrompt)
+		}
+	}
+
+	// Optional push_cmd in merge mode renders placeholders into dry-run plan and prompt.
+	h3 := newHarness(t)
+	h3.starter.Cfg.Output = config.Output{
+		Mode:    config.OutputModeMerge,
+		PushCmd: "review-and-push-loop --base {base} --json",
+	}
+	if err := h3.starter.Start(context.Background(), "PRJ-123", h3.snap, okGate, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(h3.out.String(), "push_cmd review-and-push-loop --base main --json\n") {
+		t.Fatalf("plan missing push_cmd:\n%s", h3.out.String())
+	}
+
+	h4 := newHarness(t)
+	h4.starter.Cfg.Output = config.Output{
+		Mode:    config.OutputModeMerge,
+		PushCmd: "review-and-push-loop --base {base} --json",
+	}
+	if err := h4.starter.Start(context.Background(), "PRJ-123", h4.snap, okGate, applyOpt); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"using `review-and-push-loop --base main --json`",
+		"resolve the blocker or report back rather than bypassing with raw git push",
+	} {
+		if !strings.Contains(h4.herdr.promptText, want) {
+			t.Fatalf("merge prompt with push_cmd missing %q:\n%s", want, h4.herdr.promptText)
 		}
 	}
 }

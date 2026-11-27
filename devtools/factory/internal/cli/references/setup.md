@@ -92,6 +92,7 @@ Review and adjust the generated TOML sections (see `factory.example.toml` and `e
 
 ### `[output]` (and `[source.output]` / `[lane.output]`)
 - `mode`: `"pr"` (default: create pull request and retain worker for review) or `"merge"` (rebase onto `base` and push linear history).
+- `push_cmd`: optional merge-mode command template (e.g. `"review-and-push-loop --base {base} --json"`, supporting `{base}` and `{id}`) instructed to workers instead of raw `git push` (clear inherited values with `push_cmd = ""` on `[source.output]` or `[lane.output]`).
 
 ### `[gate]`
 - `ignore_panes`, `ignore_tabs`: pane IDs or tab labels (such as a coordinator tab) skipped when counting working panes.

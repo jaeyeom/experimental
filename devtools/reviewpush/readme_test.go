@@ -25,7 +25,7 @@ func TestReviewpushReadmeOrder(t *testing.T) {
 	}
 
 	prereq := section(t, doc, "## Prerequisites")
-	for _, want := range []string{"codex", "authenticated", "origin", "push", "CODEX_BIN"} {
+	for _, want := range []string{"codex", "authenticated", "origin", "push", "CODEX_BIN", "--reviewer-cmd", "REVIEWPUSH_REVIEWER_CMD"} {
 		if !strings.Contains(prereq, want) {
 			t.Errorf("prerequisites lack %q", want)
 		}
@@ -46,8 +46,8 @@ func TestReviewpushReadmeOrder(t *testing.T) {
 	}
 	options := section(t, doc, "## Options")
 	for _, want := range []string{
-		"--repo", "--base", "--max-iterations", "--output",
-		"GIT_BIN", "CODEX_BIN", "CODEX_TIMEOUT_SECONDS",
+		"--repo", "--base", "--max-iterations", "--output", "--json", "--reviewer-cmd",
+		"GIT_BIN", "REVIEWPUSH_REVIEWER_CMD", "REVIEWPUSH_TIMEOUT_SECONDS", "CODEX_BIN", "CODEX_TIMEOUT_SECONDS",
 		"`100`", "`human`", "`git`", "`codex`", "`300`",
 	} {
 		if !strings.Contains(options, want) {
@@ -55,7 +55,7 @@ func TestReviewpushReadmeOrder(t *testing.T) {
 		}
 	}
 
-	for _, want := range []string{"TARGET COMMIT", "Pushed through", "status=PUSH", "========================================"} {
+	for _, want := range []string{"TARGET COMMIT", "Pushed through", "status=PUSH", "========================================", `"pushed_commits"`} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("sample output lacks %q", want)
 		}
@@ -67,6 +67,13 @@ func TestReviewpushReadmeOrder(t *testing.T) {
 		t.Error("Bazel target is missing")
 	}
 
+	arch := section(t, doc, "## Architecture & Factory Integration")
+	for _, want := range []string{"factory", `[output] push_cmd`, "verify", "settle"} {
+		if !strings.Contains(arch, want) {
+			t.Errorf("architecture section lacks %q", want)
+		}
+	}
+
 	internals := strings.Index(doc, "\n## Internals\n")
 	safety := strings.Index(doc, "\n## Safety properties\n")
 	if internals < 0 || safety < 0 || safety > internals {
@@ -75,9 +82,9 @@ func TestReviewpushReadmeOrder(t *testing.T) {
 	if strings.Contains(doc[safety:internals], "push_target") || strings.Contains(doc[safety:internals], "multi_commits") {
 		t.Error("safety properties use the JSON field names before they are defined")
 	}
-	contract := strings.Index(doc, "\n### Codex response contract\n")
+	contract := strings.Index(doc, "\n### Reviewer response contract\n")
 	if contract < internals {
-		t.Fatal("Codex JSON contract must sit under internals")
+		t.Fatal("Reviewer JSON contract must sit under internals")
 	}
 	if strings.Index(doc, "multi_commits") < internals {
 		t.Error("multi_commits is used before internals")
@@ -87,6 +94,9 @@ func TestReviewpushReadmeOrder(t *testing.T) {
 	}
 	if !strings.Contains(doc[internals:], "codex exec --help") {
 		t.Error("internals are missing the Codex flag probe")
+	}
+	if !strings.Contains(doc[internals:], "REVIEWPUSH_SCHEMA_FILE") {
+		t.Error("internals are missing custom reviewer env contract")
 	}
 }
 
