@@ -244,3 +244,50 @@ mode = "direct"
 		t.Errorf("exported episodic missing content:\n%s", string(exportedEpisodic))
 	}
 }
+
+func TestSplitFrontmatterUnquotedAtHandle(t *testing.T) {
+	content := "---\ntitle: Ada Lovelace\naliases:\n  - @ada\n  - Ada L.\n  - `ada-dev`\n---\n\n# Ada Lovelace\n"
+	fm, body, err := splitFrontmatter(content)
+	if err != nil {
+		t.Fatalf("splitFrontmatter: %v", err)
+	}
+	if fm.Title != "Ada Lovelace" {
+		t.Fatalf("unexpected title: %q", fm.Title)
+	}
+	if len(fm.Aliases) != 3 || fm.Aliases[0] != "@ada" || fm.Aliases[1] != "Ada L." || fm.Aliases[2] != "`ada-dev`" {
+		t.Fatalf("unexpected aliases: %v", fm.Aliases)
+	}
+	if !strings.Contains(body, "# Ada Lovelace") {
+		t.Fatalf("unexpected body: %q", body)
+	}
+}
+
+func TestParseEpisodicMarkdownHeadings(t *testing.T) {
+	md := `# 2026-06-01
+
+## 09:30 AM — Morning Standup
+
+Reviewed roadmap milestones.
+- Confirmed API timeline
+
+## ~14:15 Design Review (2026-06-01)
+
+Discussed SQLite vault isolation.
+`
+	events := parseEpisodicMarkdown("2026-06-01", "episodic/2026-06-01.md", md)
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %d: %+v", len(events), events)
+	}
+	if events[0].Summary != "Morning Standup" || events[0].OccurredAt.Hour() != 9 || events[0].OccurredAt.Minute() != 30 {
+		t.Errorf("unexpected event[0]: %+v", events[0])
+	}
+	if !strings.Contains(events[0].DetailsMD, "Confirmed API timeline") {
+		t.Errorf("event[0] details missing bullet: %q", events[0].DetailsMD)
+	}
+	if events[1].Summary != "Design Review (2026-06-01)" || events[1].OccurredAt.Hour() != 14 || events[1].OccurredAt.Minute() != 15 {
+		t.Errorf("unexpected event[1]: %+v", events[1])
+	}
+	if !strings.Contains(events[1].DetailsMD, "Discussed SQLite vault isolation.") {
+		t.Errorf("event[1] details missing prose: %q", events[1].DetailsMD)
+	}
+}

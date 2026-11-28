@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -89,11 +90,12 @@ type resolvedRule struct {
 }
 
 var (
-	attrBulletRe    = regexp.MustCompile(`^-\s+\*\*([^*]+)\*\*:\s*(.*)$`)
-	episodicEntryRe = regexp.MustCompile(`^-\s+\*\*(\d{2}:\d{2}(?::\d{2})?Z?)\*\*(?:\s+\[([^\]]+)\])?(?:\s+\(([^)]+)\))?:\s*(.*)$`)
-	memoryLinkRe    = regexp.MustCompile(`^-\s+\[[^\]]+\]\(([^)]+)\)`)
-	dateSlugRe      = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
-	nonSlugRe       = regexp.MustCompile(`[^a-z0-9]+`)
+	attrBulletRe      = regexp.MustCompile(`^-\s+\*\*([^*]+)\*\*:\s*(.*)$`)
+	episodicEntryRe   = regexp.MustCompile(`^-\s+\*\*(\d{2}:\d{2}(?::\d{2})?Z?)\*\*(?:\s+\[([^\]]+)\])?(?:\s+\(([^)]+)\))?:\s*(.*)$`)
+	episodicHeadingRe = regexp.MustCompile(`^~?(\d{1,2}:\d{2}(?::\d{2})?)\s*(AM|PM|am|pm|Z)?(?:\s*(?:—|–|-|:)\s*|\s+)(.*)$`)
+	memoryLinkRe      = regexp.MustCompile(`^-\s+\[[^\]]+\]\(([^)]+)\)`)
+	dateSlugRe        = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+	nonSlugRe         = regexp.MustCompile(`[^a-z0-9]+`)
 )
 
 // ImportAside scans an Aside-format Markdown directory tree at srcDir,
@@ -523,9 +525,63 @@ func splitFrontmatter(content string) (asideFrontmatter, string, error) {
 	body := rest[idx+endOffset:]
 	var fm asideFrontmatter
 	if err := yaml.Unmarshal([]byte(yamlRaw), &fm); err != nil {
+		if sanitized, changed := sanitizeAsideFrontmatterYAML(yamlRaw); changed {
+			if err2 := yaml.Unmarshal([]byte(sanitized), &fm); err2 == nil {
+				return fm, body, nil
+			}
+		}
 		return asideFrontmatter{}, "", fmt.Errorf("unmarshal yaml frontmatter: %w", err)
 	}
 	return fm, body, nil
+}
+
+func sanitizeAsideFrontmatterYAML(raw string) (string, bool) {
+	lines := strings.Split(raw, "\n")
+	changed := false
+	for i, line := range lines {
+		if updated, ok := quoteYAMLIndicatorLine(line); ok {
+			lines[i] = updated
+			changed = true
+		}
+	}
+	if !changed {
+		return raw, false
+	}
+	return strings.Join(lines, "\n"), true
+}
+
+func quoteYAMLIndicatorLine(line string) (string, bool) {
+	trimmed := strings.TrimLeft(line, " \t")
+	indent := line[:len(line)-len(trimmed)]
+	if rest, ok := strings.CutPrefix(trimmed, "- "); ok {
+		val := strings.TrimSpace(rest)
+		if needsYAMLQuoting(val) {
+			return indent + "- " + strconv.Quote(val), true
+		}
+		return line, false
+	}
+	if colon := strings.Index(trimmed, ": "); colon > 0 {
+		key := trimmed[:colon]
+		val := strings.TrimSpace(trimmed[colon+2:])
+		if needsYAMLQuoting(val) {
+			return indent + key + ": " + strconv.Quote(val), true
+		}
+	}
+	return line, false
+}
+
+func needsYAMLQuoting(val string) bool {
+	if val == "" {
+		return false
+	}
+	switch val[0] {
+	case '\'', '"', '[', '{', '|', '>':
+		return false
+	case '@', '`', '%', '*', '&', '!', '?', ':', ',', ']', '}', '#':
+		return true
+	default:
+		return strings.Contains(val, ": ")
+	}
 }
 
 type mdSection struct {
@@ -667,6 +723,66 @@ func slugifyHeading(s string) string {
 
 func parseEpisodicMarkdown(date, relPath, content string) []EventInput {
 	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
+	if hasEpisodicHeadings(lines) {
+		return parseEpisodicHeadingSections(date, relPath, lines)
+	}
+	return parseEpisodicBulletLines(date, relPath, lines)
+}
+
+func hasEpisodicHeadings(lines []string) bool {
+	inFence := false
+	for _, line := range lines {
+		if isFenceLine(line) {
+			inFence = !inFence
+			continue
+		}
+		if !inFence && strings.HasPrefix(line, "## ") {
+			return true
+		}
+	}
+	return false
+}
+
+func isFenceLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~")
+}
+
+func parseEpisodicHeadingSections(date, relPath string, lines []string) []EventInput {
+	var events []EventInput
+	var cur *EventInput
+	var details []string
+	inFence := false
+
+	flush := func() {
+		if cur == nil {
+			return
+		}
+		cur.DetailsMD = strings.TrimSpace(strings.Join(details, "\n"))
+		events = append(events, *cur)
+		cur = nil
+		details = nil
+	}
+
+	for idx, line := range lines {
+		if isFenceLine(line) {
+			inFence = !inFence
+		}
+		if !inFence && strings.HasPrefix(line, "## ") {
+			flush()
+			ev := parseEpisodicHeading(date, relPath, idx+1, strings.TrimSpace(strings.TrimPrefix(line, "## ")))
+			cur = &ev
+			continue
+		}
+		if cur != nil {
+			details = append(details, line)
+		}
+	}
+	flush()
+	return events
+}
+
+func parseEpisodicBulletLines(date, relPath string, lines []string) []EventInput {
 	var events []EventInput
 	var cur *EventInput
 	var details []string
@@ -708,6 +824,53 @@ func parseEpisodicMarkdown(date, relPath, content string) []EventInput {
 	}
 	flush()
 	return events
+}
+
+func parseEpisodicHeading(date, relPath string, lineNum int, heading string) EventInput {
+	sourceRef := fmt.Sprintf("%s#L%d", relPath, lineNum)
+	occurredAt := parseEpisodicTimestamp(date, "12:00:00Z")
+	summary := heading
+	if m := episodicHeadingRe.FindStringSubmatch(heading); len(m) == 4 {
+		occurredAt = parseEpisodicClockTime(date, m[1], m[2])
+		if s := strings.TrimSpace(m[3]); s != "" {
+			summary = s
+		}
+	}
+	return EventInput{
+		OccurredAt: occurredAt,
+		Summary:    summary,
+		SourceRef:  sourceRef,
+		Reporter:   "aside_import",
+	}
+}
+
+func parseEpisodicClockTime(date, clock, meridiem string) time.Time {
+	parts := strings.Split(clock, ":")
+	if len(parts) < 2 {
+		return parseEpisodicTimestamp(date, "12:00:00Z")
+	}
+	hour, errH := strconv.Atoi(parts[0])
+	minute, errM := strconv.Atoi(parts[1])
+	second := 0
+	if len(parts) == 3 {
+		if s, errS := strconv.Atoi(parts[2]); errS == nil {
+			second = s
+		}
+	}
+	if errH != nil || errM != nil {
+		return parseEpisodicTimestamp(date, "12:00:00Z")
+	}
+	switch strings.ToUpper(meridiem) {
+	case "AM":
+		if hour == 12 {
+			hour = 0
+		}
+	case "PM":
+		if hour >= 1 && hour < 12 {
+			hour += 12
+		}
+	}
+	return parseEpisodicTimestamp(date, fmt.Sprintf("%02d:%02d:%02dZ", hour, minute, second))
 }
 
 func parseEpisodicLine(date, relPath string, lineNum int, line string) EventInput {
