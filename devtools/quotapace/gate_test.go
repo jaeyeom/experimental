@@ -259,6 +259,124 @@ func TestGateExitCodesAndGapMath(t *testing.T) {
 			t.Fatalf("got (%+v, %v), want exit 3", res, err)
 		}
 	})
+
+	t.Run("against line matches default", func(t *testing.T) {
+		s := newStore(t)
+		if _, err := s.SetSchedule("work", Schedule{Window: "7d", Reset: "Thu 15:00", TZ: "UTC", Rate: 0.5, Offset: 10}, readingAt); err != nil {
+			t.Fatal(err)
+		}
+		record(t, s, Reading{At: readingAt, Profile: "work", Window: "7d", Percent: 33.3, ResetsAt: reset, Source: "claude-usage"}, false)
+
+		defRes, err := s.Gate(GateOptions{Profile: "work", Window: "7d", MinGap: 4.2, Stale: 6 * time.Hour}, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lineRes, err := s.Gate(GateOptions{Profile: "work", Window: "7d", MinGap: 4.2, Stale: 6 * time.Hour, Against: AgainstLine}, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if defRes.Against != AgainstLine || lineRes.Against != AgainstLine {
+			t.Fatalf("against = (%q, %q), want %q", defRes.Against, lineRes.Against, AgainstLine)
+		}
+		near(t, "def gap", *defRes.Gap, *lineRes.Gap)
+		near(t, "def budgetLine", *defRes.BudgetLine, *lineRes.BudgetLine)
+		near(t, "def amberLine", *defRes.AmberLine, *lineRes.AmberLine)
+		if defRes.Exit != lineRes.Exit || defRes.Line(now) != lineRes.Line(now) {
+			t.Fatalf("default != explicit line: %+v vs %+v", defRes, lineRes)
+		}
+	})
+
+	t.Run("against amber computes gap from amberLine", func(t *testing.T) {
+		s := newStore(t)
+		if _, err := s.SetSchedule("work", Schedule{Window: "7d", Reset: "Thu 15:00", TZ: "UTC", Rate: 0.5, Offset: 10, Amber: 7.0}, readingAt); err != nil {
+			t.Fatal(err)
+		}
+		// line = 37.5, amberLine = 37.5 + 7.0 = 44.5, used = 33.3 -> gap = 11.2.
+		record(t, s, Reading{At: readingAt, Profile: "work", Window: "7d", Percent: 33.3, ResetsAt: reset, Source: "claude-usage"}, false)
+
+		res, err := s.Gate(GateOptions{Profile: "work", Window: "7d", MinGap: 11.2, Stale: 6 * time.Hour, Against: AgainstAmber}, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Exit != 0 || res.Against != AgainstAmber {
+			t.Fatalf("got (exit=%d, against=%q, reason=%q), want (0, amber)", res.Exit, res.Against, res.Reason)
+		}
+		near(t, "budgetLine", *res.BudgetLine, 37.5)
+		near(t, "amberLine", *res.AmberLine, 44.5)
+		near(t, "gap", *res.Gap, 11.2)
+		if line := res.Line(now); line != "gap=11.2 amber=44.5 used=33.3 (7d, profile work, reading 3m old)" {
+			t.Fatalf("line = %q", line)
+		}
+	})
+
+	t.Run("against amber with plan start and profile offset", func(t *testing.T) {
+		s := newStore(t)
+		record(t, s, reading("work", 72, 40), false)
+		offset := 2.0
+		if _, err := s.StartPlan("work", StartOptions{Window: "7d", Amber: 8.0, Offset: &offset}, at(72)); err != nil {
+			t.Fatal(err)
+		}
+		// line = 72/168*100 = 42.8571..., amberLine = line + 8.0, used = 40 + 2 = 42.0.
+		res, err := s.Gate(GateOptions{Profile: "work", Window: "7d", MinGap: 8.0, Stale: 6 * time.Hour, Against: AgainstAmber}, at(73))
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantLine := 72.0 / 168 * 100
+		wantAmber := wantLine + 8.0
+		if res.Exit != 0 {
+			t.Fatalf("exit = %d, want 0", res.Exit)
+		}
+		near(t, "budgetLine", *res.BudgetLine, wantLine)
+		near(t, "amberLine", *res.AmberLine, wantAmber)
+		near(t, "gap", *res.Gap, wantAmber-42.0)
+	})
+
+	t.Run("negative gap reported and exits 1 when below min-gap", func(t *testing.T) {
+		s := newStore(t)
+		// line = 37.5, amberLine = 37.5 + 5.0 = 42.5.
+		if _, err := s.SetSchedule("work", Schedule{Window: "7d", Reset: "Thu 15:00", TZ: "UTC", Rate: 0.5, Offset: 10}, readingAt); err != nil {
+			t.Fatal(err)
+		}
+		// used = 45.0 -> line gap = -7.5, amber gap = -2.5.
+		record(t, s, Reading{At: readingAt, Profile: "work", Window: "7d", Percent: 45.0, ResetsAt: reset}, false)
+
+		lineRes, err := s.Gate(GateOptions{Profile: "work", Window: "7d", MinGap: 0, Stale: 6 * time.Hour, Against: AgainstLine}, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if lineRes.Exit != 1 {
+			t.Fatalf("line exit = %d, want 1", lineRes.Exit)
+		}
+		near(t, "line negative gap", *lineRes.Gap, -7.5)
+		if !strings.HasPrefix(lineRes.Line(now), "gap=-7.5 line=37.5 used=45.0") {
+			t.Fatalf("line output = %q", lineRes.Line(now))
+		}
+
+		amberRes, err := s.Gate(GateOptions{Profile: "work", Window: "7d", MinGap: 0, Stale: 6 * time.Hour, Against: AgainstAmber}, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if amberRes.Exit != 1 {
+			t.Fatalf("amber exit = %d, want 1", amberRes.Exit)
+		}
+		near(t, "amber negative gap", *amberRes.Gap, -2.5)
+		if !strings.HasPrefix(amberRes.Line(now), "gap=-2.5 amber=42.5 used=45.0") {
+			t.Fatalf("amber output = %q", amberRes.Line(now))
+		}
+
+		// With min-gap -3.0, amber gap -2.5 passes (exit 0), while line gap -7.5 fails (exit 1).
+		amberPass, err := s.Gate(GateOptions{Profile: "work", Window: "7d", MinGap: -3.0, Stale: 6 * time.Hour, Against: AgainstAmber}, now)
+		if err != nil || amberPass.Exit != 0 {
+			t.Fatalf("amberPass = (%+v, %v), want exit 0", amberPass, err)
+		}
+	})
+
+	t.Run("invalid against returns error", func(t *testing.T) {
+		s := newStore(t)
+		if _, err := s.Gate(GateOptions{Profile: "work", Window: "7d", Against: "red"}, now); err == nil {
+			t.Fatal("expected error for invalid Against")
+		}
+	})
 }
 
 func TestGateJSONFields(t *testing.T) {
@@ -285,7 +403,7 @@ func TestGateJSONFields(t *testing.T) {
 	if err := json.Unmarshal(data, &m); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"gap", "budgetLine", "sevenDay", "window", "profile", "source", "readingAt", "ageSeconds", "exit"} {
+	for _, key := range []string{"gap", "budgetLine", "amberLine", "against", "sevenDay", "window", "profile", "source", "readingAt", "ageSeconds", "exit"} {
 		if _, ok := m[key]; !ok {
 			t.Errorf("JSON missing key %q: %s", key, data)
 		}
@@ -293,9 +411,32 @@ func TestGateJSONFields(t *testing.T) {
 	if _, ok := m["fiveHour"]; ok {
 		t.Errorf("JSON should omit fiveHour when not recorded: %s", data)
 	}
+	if m["against"] != "line" {
+		t.Errorf("against = %v, want line", m["against"])
+	}
 	if m["ageSeconds"] != float64(180) || m["profile"] != "remote" || m["window"] != "7d" || m["source"] != "claude-usage" || m["exit"] != float64(0) {
 		t.Errorf("unexpected JSON values: %v", m)
 	}
+
+	// With --against amber: JSON names "amber" and includes amberLine.
+	resAmber, err := s.Gate(GateOptions{Profile: "remote", Window: "7d", MinGap: 4.0, Stale: 6 * time.Hour, Against: AgainstAmber}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dataAmber, err := json.Marshal(resAmber)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mAmber map[string]any
+	if err := json.Unmarshal(dataAmber, &mAmber); err != nil {
+		t.Fatal(err)
+	}
+	if mAmber["against"] != "amber" {
+		t.Errorf("against = %v, want amber (%s)", mAmber["against"], dataAmber)
+	}
+	near(t, "json budgetLine", mAmber["budgetLine"].(float64), 37.5)
+	near(t, "json amberLine", mAmber["amberLine"].(float64), 42.5)
+	near(t, "json gap", mAmber["gap"].(float64), 9.2)
 
 	// With 5h recorded: fiveHour should be included.
 	record(t, s, Reading{At: readingAt, Profile: "remote", Window: "5h", Percent: 12.5, ResetsAt: readingAt.Add(3 * time.Hour), Source: "claude-usage"}, false)

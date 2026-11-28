@@ -17,5 +17,5 @@ Common commands:
 - `quotapace status [--profile P] [--json]`
 - `quotapace report [--profile P] [--window W] [--json]`
 - `quotapace check [--profile P]`
-- `quotapace gate --profile P --window 7d --min-gap 5 [--stale 6h] [--json]`
+- `quotapace gate --profile P --window 7d --min-gap 5 [--against line|amber] [--stale 6h] [--json]`
 - `quotapace gate --profile P --window 7d --min-gap 5 --watch --every 1m --notify-cmd CMD`

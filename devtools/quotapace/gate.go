@@ -6,18 +6,27 @@ import (
 	"time"
 )
 
+// Gate target line choices for GateOptions.Against.
+const (
+	AgainstLine  = "line"
+	AgainstAmber = "amber"
+)
+
 // GateOptions configures a fail-closed headroom gate check for one profile and window.
 type GateOptions struct {
 	Profile string
 	Window  string
 	MinGap  float64
 	Stale   time.Duration
+	Against string
 }
 
 // GateResult is the outcome of Gate, serialized by `quotapace gate --json`.
 type GateResult struct {
 	Gap        *float64   `json:"gap"`
 	BudgetLine *float64   `json:"budgetLine"`
+	AmberLine  *float64   `json:"amberLine,omitempty"`
+	Against    string     `json:"against"`
 	SevenDay   *float64   `json:"sevenDay"`
 	FiveHour   *float64   `json:"fiveHour,omitempty"`
 	Window     string     `json:"window"`
@@ -32,15 +41,21 @@ type GateResult struct {
 }
 
 // Gate evaluates whether the given profile's window has at least MinGap
-// percentage points of headroom under its plan line. It reads only o.Profile
-// and fails closed (Exit 3) when there is no reading, the reading is stale,
-// there is no explicit plan, or the window reset since the last reading.
+// percentage points of headroom under its plan line (or amber line when
+// Against is AgainstAmber). It reads only o.Profile and fails closed (Exit 3)
+// when there is no reading, the reading is stale, there is no explicit plan,
+// or the window reset since the last reading.
 func (s Store) Gate(o GateOptions, now time.Time) (GateResult, error) {
 	res := GateResult{
 		Window:  o.Window,
 		Profile: o.Profile,
 		Exit:    3,
 	}
+	against, err := normalizeAgainst(o.Against)
+	if err != nil {
+		return res, err
+	}
+	res.Against = against
 	if err := CheckProfileName(o.Profile); err != nil {
 		return res, err
 	}
@@ -77,7 +92,18 @@ func (s Store) Gate(o GateOptions, now time.Time) (GateResult, error) {
 		res.Reason = "no plan"
 		return res, nil
 	}
-	return evaluateGate(res, plan, *latest, o.MinGap, o.Stale, now), nil
+	return evaluateGate(res, plan, *latest, o.MinGap, o.Stale, against, now), nil
+}
+
+func normalizeAgainst(against string) (string, error) {
+	switch against {
+	case "", AgainstLine:
+		return AgainstLine, nil
+	case AgainstAmber:
+		return AgainstAmber, nil
+	default:
+		return "", fmt.Errorf("invalid against %q: want %s or %s", against, AgainstLine, AgainstAmber)
+	}
 }
 
 func populateGateWindows(res *GateResult, readings []Reading, offset float64) {
@@ -89,7 +115,7 @@ func populateGateWindows(res *GateResult, readings []Reading, offset float64) {
 	}
 }
 
-func evaluateGate(res GateResult, plan Plan, latest Reading, minGap float64, stale time.Duration, now time.Time) GateResult {
+func evaluateGate(res GateResult, plan Plan, latest Reading, minGap float64, stale time.Duration, against string, now time.Time) GateResult {
 	if !now.Before(plan.ResetsAt) || !now.Before(latest.ResetsAt) || latest.At.Before(plan.BaselineAt) {
 		res.Reason = "window reset since last reading"
 		return res
@@ -99,8 +125,14 @@ func evaluateGate(res GateResult, plan Plan, latest Reading, minGap float64, sta
 		return res
 	}
 	line := plan.OnTrack(latest.At)
-	gap := line - res.used
+	amberLine := line + plan.Amber
+	target := line
+	if against == AgainstAmber {
+		target = amberLine
+	}
+	gap := target - res.used
 	res.BudgetLine = &line
+	res.AmberLine = &amberLine
 	res.Gap = &gap
 	const eps = 1e-9
 	if gap+eps >= minGap {
@@ -137,8 +169,12 @@ func (r GateResult) Line(now time.Time) string {
 	if r.ReadingAt != nil {
 		age = now.Sub(*r.ReadingAt)
 	}
-	return fmt.Sprintf("gap=%.1f line=%.1f used=%.1f (%s, profile %s, reading %s old)",
-		*r.Gap, *r.BudgetLine, r.used, r.Window, r.Profile, formatGateAge(age))
+	label, ref := "line", *r.BudgetLine
+	if r.Against == AgainstAmber && r.AmberLine != nil {
+		label, ref = "amber", *r.AmberLine
+	}
+	return fmt.Sprintf("gap=%.1f %s=%.1f used=%.1f (%s, profile %s, reading %s old)",
+		*r.Gap, label, ref, r.used, r.Window, r.Profile, formatGateAge(age))
 }
 
 func formatGateAge(d time.Duration) string {

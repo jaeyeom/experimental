@@ -76,7 +76,7 @@ quotapace plan set   --profile P --window W [--reset "Thu 15:00"] [--tz Area/Cit
 quotapace status [--profile P] [--json] [--recent 6h] [--stale 6h]
 quotapace report [--profile P] [--window W] [--json] [--recent 6h] [--stale 6h]
 quotapace check  [--profile P] [--stale 6h] [--repeat 6h] [--notify-cmd CMD] [--recent 6h]
-quotapace gate   --profile P [--window 7d] [--min-gap N] [--stale 6h] [--json]
+quotapace gate   --profile P [--window 7d] [--min-gap N] [--against line|amber] [--stale 6h] [--json]
                  [--watch --every 1m --notify-cmd CMD]
 #+END_EXAMPLE
 
@@ -137,12 +137,14 @@ Windows and durations take whole days (~7d~), a Go duration (~5h~,
 - ~gate~ :: fail-closed headroom gate for loops and scripts. It reads
   only the given ~--profile~ and computes ~gap = plan_line_now -
   percent_now~ where ~plan_line_now~ is the plan line at the time of
-  the latest reading. Exits ~0~ when ~gap >= N~, ~1~ when ~gap < N~,
+  the latest reading (or the amber line ~plan_line_now + amber~ with
+  ~--against amber~). Exits ~0~ when ~gap >= N~, ~1~ when ~gap < N~,
   and ~3~ when the answer cannot be computed (no reading, reading
   older than ~--stale~, no plan, or window reset since the last
   reading). Human output is one line:
-  ~gap=4.2 line=37.5 used=33.3 (7d, profile P, reading 3m old)~.
-  ~--json~ prints ~{gap, budgetLine, sevenDay, fiveHour (if recorded),
+  ~gap=4.2 line=37.5 used=33.3 (7d, profile P, reading 3m old)~ (or
+  ~amber=42.5~ with ~--against amber~). ~--json~ prints ~{gap,
+  budgetLine, amberLine, against, sevenDay, fiveHour (if recorded),
   window, profile, source, readingAt, ageSeconds, exit}~. With
   ~--watch --every D --notify-cmd CMD~, ~gate~ polls every ~D~ and
   runs ~CMD~ once each time the gap crosses ~--min-gap~ in either

@@ -15,6 +15,7 @@ func runGate(args []string, store quotapace.Store, e env) (int, error) {
 	profile := fs.String("profile", "", "profile (reads only this profile)")
 	window := fs.String("window", "7d", "window, such as 7d or 5h")
 	minGap := fs.Float64("min-gap", 0, "minimum headroom gap in percentage points")
+	against := fs.String("against", quotapace.AgainstLine, "reference line to measure headroom against: line or amber")
 	staleFlag := fs.String("stale", "6h", "fail closed when reading is older than this (0 disables)")
 	asJSON := fs.Bool("json", false, "print gate result as JSON")
 	watch := fs.Bool("watch", false, "poll periodically and notify when gap crosses --min-gap")
@@ -31,6 +32,9 @@ func runGate(args []string, store quotapace.Store, e env) (int, error) {
 	}
 	if _, err := quotapace.WindowLength(*window); err != nil {
 		return 0, usageErr("--window: %v", err)
+	}
+	if *against != quotapace.AgainstLine && *against != quotapace.AgainstAmber {
+		return 0, usageErr("--against %q: want line or amber", *against)
 	}
 	var stale time.Duration
 	if *staleFlag != "0" {
@@ -50,6 +54,7 @@ func runGate(args []string, store quotapace.Store, e env) (int, error) {
 		Window:  *window,
 		MinGap:  *minGap,
 		Stale:   stale,
+		Against: *against,
 	}
 	if !*watch {
 		now := e.now()

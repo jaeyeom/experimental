@@ -10,7 +10,7 @@
 //	quotapace status [--profile P] [--json]
 //	quotapace report [--profile P] [--window W] [--json]
 //	quotapace check [--profile P] [--stale 6h] [--repeat 6h] [--notify-cmd CMD]
-//	quotapace gate --profile P --window 7d --min-gap N [--stale D] [--json]
+//	quotapace gate --profile P --window 7d --min-gap N [--against line|amber] [--stale D] [--json]
 //
 // status, report, and check exit 0 green, 1 amber, 2 red, and 3 for a
 // missing or stale reading. gate exits 0 open, 1 below min-gap, and 3 when
@@ -51,7 +51,7 @@ const usage = `usage: quotapace [dashboard] [--profile P] [--window W] [--recent
        quotapace status [--profile P] [--json] [--recent 6h] [--stale 6h]
        quotapace report [--profile P] [--window W] [--json] [--recent 6h] [--stale 6h]
        quotapace check  [--profile P] [--stale 6h] [--repeat 6h] [--notify-cmd CMD] [--recent 6h]
-       quotapace gate   --profile P [--window 7d] [--min-gap N] [--stale 6h] [--json] [--watch --every 1m --notify-cmd CMD]`
+       quotapace gate   --profile P [--window 7d] [--min-gap N] [--against line|amber] [--stale 6h] [--json] [--watch --every 1m --notify-cmd CMD]`
 
 // errUsage marks an error that exits 64.
 var errUsage = errors.New("usage")
