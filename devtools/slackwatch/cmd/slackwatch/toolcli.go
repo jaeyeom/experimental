@@ -31,6 +31,7 @@ func newSlackwatchTool(configPath string) toolcli.Tool {
 	}
 	return toolcli.Tool{
 		Name:          "slackwatch",
+		ModulePath:    "github.com/jaeyeom/experimental",
 		MainPackage:   "github.com/jaeyeom/experimental/devtools/slackwatch/cmd/slackwatch",
 		DaemonService: "slackwatch serve",
 		SkillText:     renderedSkill,

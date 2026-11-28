@@ -36,6 +36,7 @@ func newForkKeeperToolWith(env []string, lookPath func(string) (string, error)) 
 	var tool toolcli.Tool
 	tool = toolcli.Tool{
 		Name:        "fork-keeper",
+		ModulePath:  "github.com/jaeyeom/experimental",
 		MainPackage: "github.com/jaeyeom/experimental/devtools/fork-keeper/cmd/fork-keeper",
 		SkillText:   skillText,
 		LookPath:    lookPath,

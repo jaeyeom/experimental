@@ -11,6 +11,7 @@ import (
 func newAuthwatchTool() toolcli.Tool {
 	return toolcli.Tool{
 		Name:          "authwatch",
+		ModulePath:    "github.com/jaeyeom/experimental",
 		MainPackage:   "github.com/jaeyeom/experimental/devtools/authwatch/cmd/authwatch",
 		DaemonService: "authwatch run",
 		SkillText:     skillText,

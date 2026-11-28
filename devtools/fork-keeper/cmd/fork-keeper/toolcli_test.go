@@ -126,3 +126,11 @@ func TestForkKeeperExtraDoctorChecks(t *testing.T) {
 		}
 	})
 }
+
+func TestForkKeeperToolModulePath(t *testing.T) {
+	tool := newForkKeeperTool()
+	const want = "github.com/jaeyeom/experimental"
+	if tool.ModulePath != want {
+		t.Fatalf("ModulePath = %q, want %q", tool.ModulePath, want)
+	}
+}

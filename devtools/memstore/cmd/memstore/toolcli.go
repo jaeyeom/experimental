@@ -10,6 +10,7 @@ import (
 func newMemstoreTool(configFlag string, getenv func(string) string) toolcli.Tool {
 	return toolcli.Tool{
 		Name:        "memstore",
+		ModulePath:  "github.com/jaeyeom/experimental",
 		MainPackage: "github.com/jaeyeom/experimental/devtools/memstore/cmd/memstore",
 		SkillText:   skillText,
 		ConfigPath: func() (string, bool) {

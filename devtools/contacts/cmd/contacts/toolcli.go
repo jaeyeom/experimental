@@ -10,6 +10,7 @@ import (
 func newContactsTool(configFlag string, getenv func(string) string) toolcli.Tool {
 	return toolcli.Tool{
 		Name:        "contacts",
+		ModulePath:  "github.com/jaeyeom/experimental",
 		MainPackage: "github.com/jaeyeom/experimental/devtools/contacts/cmd/contacts",
 		SkillText:   skillText,
 		ConfigPath: func() (string, bool) {

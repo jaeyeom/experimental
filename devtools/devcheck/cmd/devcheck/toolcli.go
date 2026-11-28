@@ -7,6 +7,7 @@ import (
 func newDevcheckTool() toolcli.Tool {
 	return toolcli.Tool{
 		Name:        "devcheck",
+		ModulePath:  "github.com/jaeyeom/experimental",
 		MainPackage: "github.com/jaeyeom/experimental/devtools/devcheck/cmd/devcheck",
 		SkillText:   skillText,
 	}

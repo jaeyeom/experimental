@@ -13,6 +13,7 @@ import (
 func newDiskwatchTool() toolcli.Tool {
 	return toolcli.Tool{
 		Name:        "diskwatch",
+		ModulePath:  "github.com/jaeyeom/experimental",
 		MainPackage: "github.com/jaeyeom/experimental/devtools/diskwatch/cmd/diskwatch",
 		SkillText:   skillText,
 		ConfigPath: func() (string, bool) {

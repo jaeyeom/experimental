@@ -12,6 +12,7 @@ import (
 func newSecretwatchTool() toolcli.Tool {
 	return toolcli.Tool{
 		Name:             "secretwatch",
+		ModulePath:       "github.com/jaeyeom/experimental",
 		MainPackage:      "github.com/jaeyeom/experimental/devtools/secretwatch/cmd/secretwatch",
 		DaemonService:    "secretwatch check --follow",
 		SkillText:        skillText,

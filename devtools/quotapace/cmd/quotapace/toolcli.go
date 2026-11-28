@@ -13,6 +13,7 @@ import (
 func newQuotapaceTool() toolcli.Tool {
 	return toolcli.Tool{
 		Name:                   "quotapace",
+		ModulePath:             "github.com/jaeyeom/experimental",
 		MainPackage:            "github.com/jaeyeom/experimental/devtools/quotapace/cmd/quotapace",
 		SkillText:              skillText,
 		ExtraDoctorCheckGroups: []toolcli.DoctorCheckGroup{checkScheduleResets},

@@ -34,6 +34,7 @@ func newInstallCheckToolWith(env []string, lookPath func(string) (string, error)
 	var tool toolcli.Tool
 	tool = toolcli.Tool{
 		Name:             "install-check",
+		ModulePath:       "github.com/jaeyeom/experimental",
 		MainPackage:      "github.com/jaeyeom/experimental/devtools/installcheck/cmd/install-check",
 		SkillText:        skillText,
 		RequiredCommands: []string{"git"},

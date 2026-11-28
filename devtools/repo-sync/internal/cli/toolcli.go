@@ -11,6 +11,7 @@ import (
 func newRepoSyncTool() toolcli.Tool {
 	return toolcli.Tool{
 		Name:             "repo-sync",
+		ModulePath:       "github.com/jaeyeom/experimental",
 		MainPackage:      "github.com/jaeyeom/experimental/devtools/repo-sync/cmd/repo-sync",
 		SkillText:        skillText,
 		RequiredCommands: []string{"git"},

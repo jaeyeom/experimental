@@ -13,6 +13,7 @@ import (
 func newGHOutboxTool() toolcli.Tool {
 	return toolcli.Tool{
 		Name:             "gh-outbox",
+		ModulePath:       "github.com/jaeyeom/experimental",
 		MainPackage:      "github.com/jaeyeom/experimental/devtools/gh-outbox/cmd/gh-outbox",
 		DaemonService:    "gh-outbox poll --watch",
 		SkillText:        skillText,

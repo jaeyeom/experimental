@@ -16,6 +16,7 @@ func newReviewPushTool() toolcli.Tool {
 	}
 	return toolcli.Tool{
 		Name:        "review-and-push-loop",
+		ModulePath:  "github.com/jaeyeom/experimental",
 		MainPackage: "github.com/jaeyeom/experimental/devtools/reviewpush/cmd/review-and-push-loop",
 		SkillText:   skillText,
 		RequiredCommands: []string{

@@ -21,6 +21,7 @@ func newHealthsnapTool() toolcli.Tool {
 func newHealthsnapToolWith(env []string, lookPath func(string) (string, error)) toolcli.Tool {
 	return toolcli.Tool{
 		Name:        "healthsnap",
+		ModulePath:  "github.com/jaeyeom/experimental",
 		MainPackage: "github.com/jaeyeom/experimental/devtools/healthsnap/cmd/healthsnap",
 		SkillText:   skillText,
 		LookPath:    lookPath,

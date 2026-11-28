@@ -13,6 +13,7 @@ func newAgentPoolTool(deps cliDeps) toolcli.Tool {
 	deps = deps.resolved()
 	return toolcli.Tool{
 		Name:          "agent-pool",
+		ModulePath:    "github.com/jaeyeom/experimental",
 		MainPackage:   "github.com/jaeyeom/experimental/devtools/agent-pool/cmd/agent-pool",
 		DaemonService: "agent-pool worker",
 		Companions: []toolcli.Companion{

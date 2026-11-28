@@ -31,6 +31,9 @@ func TestHealthsnapToolCLIConformance(t *testing.T) {
 			tool.HomeDir = func() (string, error) { return homeDir, nil }
 			tool.WorkDir = func() (string, error) { return workDir, nil }
 			tool.Executable = func() (string, error) { return exe, nil }
+			if tool.ModulePath != "github.com/jaeyeom/experimental" {
+				t.Fatalf("ModulePath = %q, want %q", tool.ModulePath, "github.com/jaeyeom/experimental")
+			}
 			return tool
 		},
 	})

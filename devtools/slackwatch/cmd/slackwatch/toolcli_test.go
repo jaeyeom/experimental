@@ -35,6 +35,9 @@ func TestSlackwatchToolCLIConformance(t *testing.T) {
 				}
 				return "/bin/" + file, nil
 			}
+			if tool.ModulePath != "github.com/jaeyeom/experimental" {
+				t.Fatalf("ModulePath = %q, want %q", tool.ModulePath, "github.com/jaeyeom/experimental")
+			}
 			return tool
 		},
 	})
