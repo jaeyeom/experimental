@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.3.0](https://github.com/jaeyeom/experimental/compare/v0.2.0...v0.3.0) (2026-11-28)
+
+
+### Features
+
+* **decide:** add conditional /decide setup guide ([858ac46](https://github.com/jaeyeom/experimental/commit/858ac4639c724e5c12189b7da1953c27ce9146c0)), closes [#1264](https://github.com/jaeyeom/experimental/issues/1264)
+* **fork-keeper:** check reviewer availability and login in doctor ([27b69ae](https://github.com/jaeyeom/experimental/commit/27b69ae4b0934f4d9be933a401221dfd5c035239))
+* **fork-keeper:** decouple external scripts and generalize reviewer ([8c917d5](https://github.com/jaeyeom/experimental/commit/8c917d586b98d8f253c8dcf191d01c8d97851460)), closes [#1271](https://github.com/jaeyeom/experimental/issues/1271)
+* **installcheck:** harden notifier boundary, gh_bin, and reliability ([e729764](https://github.com/jaeyeom/experimental/commit/e729764d269977fbb01f02894d32d4a6e86dc740)), closes [#1268](https://github.com/jaeyeom/experimental/issues/1268)
+* **outbox:** consolidate confirm-before-doing outbox gate ([a763aec](https://github.com/jaeyeom/experimental/commit/a763aeccb0ffe2bce78c821f30c3bdab0da08873)), closes [#1267](https://github.com/jaeyeom/experimental/issues/1267)
+* **quotapace:** absorb claude-usage collector and retire claude-usage ([7ff5552](https://github.com/jaeyeom/experimental/commit/7ff555242e86dbe536c9402e9d41d9299e2d6e6c)), closes [#937](https://github.com/jaeyeom/experimental/issues/937) [#1266](https://github.com/jaeyeom/experimental/issues/1266)
+* **quotapace:** add --against line|amber flag to gate ([22fa3d3](https://github.com/jaeyeom/experimental/commit/22fa3d3e97490cba3d39ba187d176c9335e16d57)), closes [#1272](https://github.com/jaeyeom/experimental/issues/1272)
+* **reviewpush:** generalize reviewer boundary and wire factory hook ([79c95d3](https://github.com/jaeyeom/experimental/commit/79c95d33e5626931f6bf87cb87fe5d11493d9385)), closes [#1269](https://github.com/jaeyeom/experimental/issues/1269)
+* **setup-dev:** install migrated Wave 1 tools from chorong-sh/chorong ([daa23af](https://github.com/jaeyeom/experimental/commit/daa23afc9fe7958d332e078e061888bf0bfabb68)), closes [#1273](https://github.com/jaeyeom/experimental/issues/1273)
+* **toolcli:** add skill ref, uninstall dir cleanup, and conformance ([ddec75d](https://github.com/jaeyeom/experimental/commit/ddec75d7fdcc397ebad9e88743f8bb248cf49d6d)), closes [#1263](https://github.com/jaeyeom/experimental/issues/1263)
+
+
+### Bug Fixes
+
+* **devcheck:** audit detectors, parsers, changed-only mode, and tests ([8e755b6](https://github.com/jaeyeom/experimental/commit/8e755b6a7a834d161772b4409daab036c66ab097)), closes [#1270](https://github.com/jaeyeom/experimental/issues/1270)
+* **devtools:** set ModulePath on toolcli.Tool definitions ([b453643](https://github.com/jaeyeom/experimental/commit/b453643a6d25062043636abf6114d18edb7ed479)), closes [#1275](https://github.com/jaeyeom/experimental/issues/1275)
+* **memstore:** handle unquoted YAML handles and heading episodic logs ([f279c18](https://github.com/jaeyeom/experimental/commit/f279c18455a2a3a4b3dcbeb3842e468347c4724f))
+
+
+### Documentation
+
+* **memstore:** add memory store and automation design doc ([4a5bcc0](https://github.com/jaeyeom/experimental/commit/4a5bcc0858a9c3126c295f9d400027ea1f95f302))
+
 ## [0.2.0](https://github.com/jaeyeom/experimental/compare/v0.1.0...v0.2.0) (2026-11-27)
 
 
