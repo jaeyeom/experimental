@@ -10,8 +10,8 @@ import (
 	"io"
 	"os"
 
+	pkgversion "github.com/chorong-sh/chorong/pkg/version"
 	"github.com/jaeyeom/experimental/devtools/linters/unnecessaryinterfaceassertion"
-	pkgversion "github.com/jaeyeom/experimental/devtools/pkg/version"
 )
 
 func main() {

@@ -6,7 +6,7 @@ Everyday posting is in [[file:../README.org::*Posting through decide][Posting th
 ~slackwatch post~ routes outbound Slack drafts through the shared
 [[file:../../pkg/outbox/README.md][devtools/pkg/outbox]] confirmation
 boundary before posting: drafts are hashed (~outbox.Digest~), shown to the
-user in [[file:../../decide/README.org][decide]], verified for human UI
+user in [[https://github.com/chorong-sh/chorong/blob/main/decide/README.md][decide]], verified for human UI
 provenance (~outbox.EvaluateApproval~), executed via ~outbox.ExecuteSteps~
 (direct mode) or ~awaiting-handoff~ (handoff mode, with self-post matching
 isolated behind ~slackwatch.OwnPostLinker~ so the inbound thread watcher

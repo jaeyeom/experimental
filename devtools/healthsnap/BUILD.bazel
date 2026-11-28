@@ -27,11 +27,17 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//devtools/pkg/notify:go_default_library",
-        "//devtools/pkg/procinfo:go_default_library",
         "@com_github_apple_pkl_go//pkl:go_default_library",
+        "@com_github_chorong_sh_chorong//pkg/procinfo:go_default_library",
         "@com_github_google_renameio_v2//:go_default_library",
     ] + select({
+        "@rules_go//go/platform:android": [
+            "@org_golang_x_sys//unix:go_default_library",
+        ],
         "@rules_go//go/platform:darwin": [
+            "@org_golang_x_sys//unix:go_default_library",
+        ],
+        "@rules_go//go/platform:ios": [
             "@org_golang_x_sys//unix:go_default_library",
         ],
         "@rules_go//go/platform:linux": [

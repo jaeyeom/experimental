@@ -21,8 +21,8 @@ go_library(
     importpath = "github.com/jaeyeom/experimental/devtools/slackwatch/cmd/slackwatch",
     visibility = ["//visibility:private"],
     deps = [
-        "//devtools/pkg/toolcli:go_default_library",
         "//devtools/slackwatch:go_default_library",
+        "@com_github_chorong_sh_chorong//pkg/toolcli:go_default_library",
         "@com_github_slack_go_slack//:go_default_library",
         "@com_github_slack_go_slack//slackevents:go_default_library",
         "@com_github_slack_go_slack//socketmode:go_default_library",
@@ -54,8 +54,8 @@ go_test(
     data = glob(["testdata/**"]),
     embed = [":go_default_library"],
     deps = [
-        "//devtools/pkg/toolcli:go_default_library",
         "//devtools/slackwatch:go_default_library",
+        "@com_github_chorong_sh_chorong//pkg/toolcli:go_default_library",
         "@com_github_slack_go_slack//:go_default_library",
         "@com_github_slack_go_slack//slackevents:go_default_library",
         "@com_github_slack_go_slack//socketmode:go_default_library",

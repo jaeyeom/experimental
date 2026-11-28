@@ -936,4 +936,4 @@ Logs are written to `~/.config/gh-nudge/logs/`:
 
 *** Storage Management
 
-For detailed storage management operations, see [[file:storage.org][storage.org]].
+For detailed storage management operations, see [[https://github.com/chorong-sh/chorong/blob/main/gh-nudge/storage.md][storage.md in chorong-sh/chorong]].

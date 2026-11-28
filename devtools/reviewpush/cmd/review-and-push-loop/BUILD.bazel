@@ -11,8 +11,8 @@ go_library(
     importpath = "github.com/jaeyeom/experimental/devtools/reviewpush/cmd/review-and-push-loop",
     visibility = ["//visibility:private"],
     deps = [
-        "//devtools/pkg/toolcli:go_default_library",
         "//devtools/reviewpush:go_default_library",
+        "@com_github_chorong_sh_chorong//pkg/toolcli:go_default_library",
         "@com_github_jaeyeom_go_cmdexec//:go_default_library",
     ],
 )
@@ -31,8 +31,8 @@ go_test(
     ],
     embed = [":go_default_library"],
     deps = [
-        "//devtools/pkg/toolcli:go_default_library",
         "//devtools/reviewpush:go_default_library",
+        "@com_github_chorong_sh_chorong//pkg/toolcli:go_default_library",
     ],
 )
 

@@ -5,11 +5,11 @@
 
 Small command-line tools I use day to day, mostly in Go. They fall
 into three groups: code-quality helpers you can use in any repo
-(devcheck, docsync, genfiles, linters), GitHub and Jira helpers (gh-nudge,
-gh-ask, gh-outbox, rename-jira-keys, reviewpush), and a stack for running
-several coding agents side by side in [[https://herdr.dev/][herdr]] terminal panes
-(agentbus, decide, slackwatch, prsync, orgctl, quotapace). Each
-tool has its own README. Start with the one-line summaries below.
+(devcheck, linters), GitHub and Jira helpers (gh-pr-review, gh-outbox,
+rename-jira-keys, reviewpush), and experimental companions to the
+[[https://github.com/chorong-sh/chorong][chorong]] stack for running coding agents side by side in
+[[https://herdr.dev/][herdr]] terminal panes (agent-pool, install-check, quotapace, slackwatch).
+Each tool has its own README. Start with the one-line summaries below.
 
 * Quick Navigation
 :PROPERTIES:
@@ -18,6 +18,7 @@ tool has its own README. Start with the one-line summaries below.
 
 - [[#status-tags][Status tags]]
 - [[#tools][Tools]]
+- [[#graduated-tools][Graduated tools]]
 - [[#agent-workflow][Agent workflow]]
 - [[#installation][Installation]]
 - [[#contributing][Contributing]]
@@ -36,43 +37,53 @@ tool has its own README. Start with the one-line summaries below.
 :CUSTOM_ID: tools
 :END:
 
-| Tool             | Purpose                                                    | Status       | Install                                           | README                                       |
-|------------------+------------------------------------------------------------+--------------+---------------------------------------------------+----------------------------------------------|
-| agent-pool       | MCP producer-consumer broker for pooled coding agent work  | experimental | make install                                      | [[file:agent-pool/README.org][README]]       |
-| agentbus         | Local message bus so coding agents can send and reply      | experimental | go install ./devtools/agentbus/cmd/agentbus       | [[file:agentbus/README.org][README]]         |
-| ascii-art        | Draw an ASCII box; gantt-chart and graph-viz are planned   | experimental | bazel build //devtools/ascii-art/cmd/box-renderer | [[file:ascii-art/README.org][README]]        |
-| decide           | Inbox where you answer questions from coding agents        | experimental | go install ./devtools/decide/cmd/decide           | [[file:decide/README.org][README]]           |
-| devcheck         | Run the format, lint, and test tools a repo already has    | experimental | make install                                      | [[file:devcheck/README.org][README]]         |
-| diskwatch        | Warn when a filesystem is low, without deleting files      | experimental | go install ./devtools/diskwatch/cmd/diskwatch     | [[file:diskwatch/README.org][README]]        |
-| docsync          | List the docs a code change is likely to have made stale   | experimental | make install                                      | [[file:docsync/README.org][README]]          |
-| factory          | Mirror Jira/GitHub issues and start herdr coding agents    | experimental | make install                                      | [[file:factory/README.md][README]]           |
-| fork-keeper      | Rebase a personal fork on upstream and open a review       | experimental | make install                                      | [[file:fork-keeper/README.md][README]]       |
-| genfiles         | Check a repo's list of generated files and their commands  | experimental | make install                                      | [[file:genfiles/README.org][README]]         |
-| gh-ask           | Hand a question about a pull-request range to a command    | experimental | make install                                      | [[file:gh-ask/README.org][README]]           |
-| gh-outbox        | Post agent-drafted PR comments only after decide approval  | experimental | make install                                      | [[file:gh-outbox/README.org][README]]        |
-| gh-nudge         | Review reminders, Slack posts, merge, and CODEOWNERS       | active       | make install                                      | [[file:gh-nudge/README.org][README]]         |
-| healthsnap       | Config-driven health checks, snapshots, and change alerts  | experimental | make install                                      | [[file:healthsnap/README.org][README]]       |
-| install-check    | Message an agent when watched issues land on main          | experimental | go install ./devtools/installcheck/cmd/install-check| [[file:installcheck/README.org][README]]     |
-| linters          | Org lint, unused interface checks, and package-level vars  | experimental | make install                                      | [[file:linters/README.org][README]]          |
-| magit            | Open magit-status in a running Emacs from the terminal     | active       | ./ensure.sh magit                                 | [[file:magit/README.org][README]]            |
-| memstore         | Compartmentalized personal memory store with FTS5 search   | experimental | make install                                      | [[file:memstore/README.org][README]]           |
-| orgctl           | Compare a written agent-team spec with live tabs and names | experimental | go install ./devtools/orgctl/cmd/orgctl           | [[file:orgctl/README.org][README]]           |
-| prsync           | Match your open pull requests to herdr agent tabs          | experimental | make install                                      | [[file:prsync/README.org][README]]           |
-| quotapace        | Project usage of rolling quota windows against a plan      | experimental | make install                                      | [[file:quotapace/README.org][README]]        |
-| rename-jira-keys | Rename Jira ticket keys in file names and contents         | experimental | make install                                      | [[file:rename-jira-keys/README.org][README]] |
-| repo-sync        | Sync selected project files across machines with git       | inactive     | bazel build //devtools/repo-sync/cmd/repo-sync    | [[file:repo-sync/README.org][README]]        |
-| reviewpush       | Have Codex review local commits, then push them            | experimental | make install                                      | [[file:reviewpush/README.md][README]]        |
-| secretwatch      | Watch the systemd journal for leaked secrets safely        | experimental | make install                                      | [[file:secretwatch/README.org][README]]       |
-| setup-dev        | Ansible playbooks that install a development environment   | active       | ./ensure.sh all                                   | [[file:setup-dev/README.org][README]]        |
-| slackwatch       | Deliver Slack replies; post only decide-approved drafts    | experimental | go install ./devtools/slackwatch/cmd/slackwatch   | [[file:slackwatch/README.org][README]]       |
+| Tool             | Purpose                                                        | Status       | Install                                            | README                                       |
+|------------------+----------------------------------------------------------------+--------------+----------------------------------------------------+----------------------------------------------|
+| agent-pool       | MCP producer-consumer broker for pooled coding agent work      | experimental | make install                                       | [[file:agent-pool/README.org][README]]       |
+| ascii-art        | Draw an ASCII box; gantt-chart and graph-viz are planned       | experimental | bazel build //devtools/ascii-art/cmd/box-renderer  | [[file:ascii-art/README.org][README]]        |
+| devcheck         | Run the format, lint, and test tools a repo already has        | experimental | make install                                       | [[file:devcheck/README.org][README]]         |
+| diskwatch        | Warn when a filesystem is low, without deleting files          | experimental | go install ./devtools/diskwatch/cmd/diskwatch      | [[file:diskwatch/README.org][README]]        |
+| fork-keeper      | Rebase a personal fork on upstream and open a review           | experimental | make install                                       | [[file:fork-keeper/README.md][README]]       |
+| gh-nudge         | Draft and submit PR line reviews (~gh-pr-review~ stays here)   | active       | make install                                       | [[file:gh-nudge/README.org][README]]         |
+| gh-outbox        | Post agent-drafted PR comments only after decide approval      | experimental | make install                                       | [[file:gh-outbox/README.org][README]]        |
+| healthsnap       | Config-driven health checks, snapshots, and change alerts      | experimental | make install                                       | [[file:healthsnap/README.org][README]]       |
+| install-check    | Message an agent when watched issues land on main              | experimental | go install ./devtools/installcheck/cmd/install-check | [[file:installcheck/README.org][README]]     |
+| linters          | Org lint, unused interface checks, and package-level vars      | experimental | make install                                       | [[file:linters/README.org][README]]          |
+| magit            | Open magit-status in a running Emacs from the terminal         | active       | ./ensure.sh magit                                  | [[file:magit/README.org][README]]            |
+| memstore         | Compartmentalized personal memory store with FTS5 search       | experimental | make install                                       | [[file:memstore/README.org][README]]           |
+| quotapace        | Project usage of rolling quota windows against a plan          | experimental | make install                                       | [[file:quotapace/README.org][README]]        |
+| rename-jira-keys | Rename Jira ticket keys in file names and contents             | experimental | make install                                       | [[file:rename-jira-keys/README.org][README]] |
+| repo-sync        | Sync selected project files across machines with git           | inactive     | bazel build //devtools/repo-sync/cmd/repo-sync     | [[file:repo-sync/README.org][README]]        |
+| reviewpush       | Have Codex review local commits, then push them                | experimental | make install                                       | [[file:reviewpush/README.md][README]]        |
+| secretwatch      | Watch the systemd journal for leaked secrets safely            | experimental | make install                                       | [[file:secretwatch/README.org][README]]       |
+| setup-dev        | Ansible playbooks that install a development environment       | active       | ./ensure.sh all                                    | [[file:setup-dev/README.org][README]]        |
+| slackwatch       | Deliver Slack replies; post only decide-approved drafts        | experimental | go install ./devtools/slackwatch/cmd/slackwatch    | [[file:slackwatch/README.org][README]]       |
 
 =make install=, from the repository root, installs every package named
 by =INSTALL_CMDS= in the root Makefile. That list is the source of
-truth, including =gh-approve=, =gh-throttle=, and the three linter
-commands (=org-lint=, =pkgvar=, and
-=unnecessary-interface-assertion-linter=). =./ensure.sh= is
-=devtools/setup-dev/ansible/ensure.sh=. The agentbus daemon is a
-second binary: =go install ./devtools/agentbus/cmd/agentbusd=.
+truth, including =gh-pr-review= and the three linter commands (=org-lint=,
+=pkgvar=, and =unnecessary-interface-assertion-linter=). =./ensure.sh=
+is =devtools/setup-dev/ansible/ensure.sh=.
+
+* Graduated tools
+:PROPERTIES:
+:CUSTOM_ID: graduated-tools
+:END:
+
+Wave 1 tools and shared libraries have graduated from this repository to
+[[https://github.com/chorong-sh/chorong][chorong-sh/chorong]] (Homebrew formulas in
+[[https://github.com/chorong-sh/homebrew-tap][chorong-sh/homebrew-tap]], installed by [[file:setup-dev/README.org][setup-dev]]):
+
+- =agentbus= (and =agentbusd=) — local message bus for coding agents
+- =decide= — inbox for human questions and approvals
+- =docsync= — code-to-doc staleness checker
+- =factory= — issue mirroring and herdr agent launcher
+- =genfiles= — generated-file manifest checker
+- =gh-ask= — pull-request range question runner
+- =orgctl= — declarative agent-team reconciler
+- =prsync= — pull-request to herdr tab reconciler
+- =gh-nudge= CLIs (=gh-nudge=, =gh-slack=, =gh-approve=, =gh-merge=, =gh-codeowners=, =gh-throttle=, =gh-storage=) — =gh-pr-review= stays here temporarily in =devtools/gh-nudge/=
+- Shared libraries (=github.com/chorong-sh/chorong/pkg/...= and =github.com/chorong-sh/chorong/decide=)
 
 * Agent workflow
 :PROPERTIES:
@@ -80,16 +91,17 @@ second binary: =go install ./devtools/agentbus/cmd/agentbusd=.
 :END:
 
 [[https://herdr.dev/][herdr]] is the terminal multiplexer. One pane holds one coding
-agent. The other tools hang off those panes:
+agent. Core workflow tools (=agentbus=, =decide=, =prsync=, =orgctl=) now live in
+[[https://github.com/chorong-sh/chorong][chorong]], and the remaining Wave 2 companions stay here while incubating:
 
 #+BEGIN_EXAMPLE
 herdr panes
     |
-    +-- agentbus    agents message each other
-    +-- decide      you answer and approve
+    +-- agentbus    agents message each other (chorong)
+    +-- decide      you answer and approve (chorong)
     +-- slackwatch  Slack replies in, approved drafts out
-    +-- prsync      one agent tab per open pull request
-    +-- orgctl      the written description of the team
+    +-- prsync      one agent tab per open pull request (chorong)
+    +-- orgctl      the written description of the team (chorong)
 #+END_EXAMPLE
 
 agentbus is the bus. It is not the user's approval. decide is the
@@ -98,7 +110,7 @@ to the agent that owns the post, and posts a draft only after decide
 has approved it. prsync keeps a herdr tab lined up with each open
 pull request. orgctl checks a declarative team spec against the live
 tabs, names, and scheduled jobs. After a reboot, follow
-[[file:agentbus/reboot.org][the agentbus runbook]].
+[[https://github.com/chorong-sh/chorong/blob/main/agentbus/reboot.md][the agentbus runbook]].
 
 * Installation
 :PROPERTIES:
@@ -111,7 +123,7 @@ tabs, names, and scheduled jobs. After a reboot, follow
 - *Git*.
 - *Bazel*, for ascii-art and repo-sync.
 - *Emacs*, for org-lint and the magit command.
-- *GitHub CLI (gh)*, for the gh-nudge commands.
+- *GitHub CLI (gh)*, for gh-pr-review and gh-outbox.
 - *Ansible*, for setup-dev.
 
 ** Versioning and releases
@@ -172,9 +184,10 @@ manifest stay in sync.
 
 ** gh-nudge commands
 
-=devtools/gh-nudge/cmd/= holds =gh-approve=, =gh-codeowners=,
-=gh-merge=, =gh-nudge=, =gh-pr-review=, =gh-slack=, =gh-storage=, and
-=gh-throttle=. =make install= installs all of them.
+=devtools/gh-nudge/cmd/= currently keeps =gh-pr-review=, which =make install=
+installs. The other =gh-nudge= commands (=gh-approve=, =gh-codeowners=,
+=gh-merge=, =gh-nudge=, =gh-slack=, =gh-storage=, and =gh-throttle=)
+moved to [[https://github.com/chorong-sh/chorong][chorong-sh/chorong]].
 
 ** ascii-art
 

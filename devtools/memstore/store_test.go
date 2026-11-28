@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jaeyeom/experimental/devtools/pkg/sqlitedb"
+	"github.com/chorong-sh/chorong/pkg/sqlitedb"
 )
 
 func testVaultConfig(t *testing.T) VaultConfig {

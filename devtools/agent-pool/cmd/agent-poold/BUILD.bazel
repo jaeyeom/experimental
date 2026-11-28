@@ -16,7 +16,7 @@ go_library(
         "//devtools/agent-pool/internal/broker/mcp:go_default_library",
         "//devtools/agent-pool/internal/broker/sqlite:go_default_library",
         "//devtools/agent-pool/internal/dlp:go_default_library",
-        "//devtools/pkg/version:go_default_library",
+        "@com_github_chorong_sh_chorong//pkg/version:go_default_library",
         "@com_github_pelletier_go_toml_v2//:go_default_library",
         "@org_golang_x_sys//unix:go_default_library",
     ],

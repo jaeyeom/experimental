@@ -1,5 +1,5 @@
 # Curated code → doc index. Matching is root-anchored (no implicit **/).
-# Schema: devtools/docsync/docsync.yml.example
+# Schema: https://github.com/chorong-sh/chorong/blob/main/docsync/docsync.yml.example
 #
 # Built by walking every tracked doc section onto the source it describes,
 # then walking source packages back onto those sections.
@@ -79,7 +79,6 @@ rules:
         section: "** Bazel"
         why: "rules_pkl / pkl-go pin for configuration codegen"
       - path: devtools/gh-nudge/README.org
-        section: "*** Pkl Configuration (Recommended)"
         why: "pkl-gen-go resolved through repo-root PklProject"
 
   - match:
@@ -120,7 +119,7 @@ rules:
     docs:
       - path: spacemacs/README.org
         section: "* Setup"
-        why: "CI runs make check-spacemacs and decide Emacs tests on Emacs-related changes"
+        why: "CI runs make check-spacemacs on Emacs-related changes"
 
   # --- .claude extensions ---
   - match: [".claude/skills/code-review/**", ".claude/commands/review.md"]
@@ -248,11 +247,6 @@ rules:
         why: "CSV-to-YAML key rules"
 
   # --- devtools README.md entry points ---
-  - match: ["devtools/agentbus/**"]
-    docs:
-      - path: devtools/agentbus/README.org
-        why: "tool overview and installation entry point"
-
   - match: ["devtools/ascii-art/**"]
     docs:
       - path: devtools/ascii-art/README.org
@@ -266,27 +260,6 @@ rules:
   - match: ["devtools/contacts/**"]
     docs:
       - path: devtools/contacts/README.org
-        why: "tool overview and installation entry point"
-
-  - match: ["devtools/decide/emacs/**"]
-    docs:
-      - path: devtools/decide/docs/emacs.org
-        why: "decide Emacs frontend setup, keybindings, and hub-mode wrapper"
-      - path: devtools/decide/README.org
-        section: "* Emacs"
-        why: "decide Emacs summary and link to docs/emacs.org"
-
-  - match: ["devtools/decide/web/**", "devtools/decide/cmd/decide/web.go"]
-    docs:
-      - path: devtools/decide/docs/web.org
-        why: "decide web setup, auth, ingress, Web Push, and security notes"
-      - path: devtools/decide/README.org
-        section: "* Web and mobile"
-        why: "decide web summary, command, and web.* config keys"
-
-  - match: ["devtools/decide/**"]
-    docs:
-      - path: devtools/decide/README.org
         why: "tool overview and installation entry point"
 
   - match: ["devtools/devcheck/**"]
@@ -304,26 +277,9 @@ rules:
       - path: devtools/installcheck/README.org
         why: "tool overview and installation entry point"
 
-  - match: ["devtools/docsync/**"]
-    docs:
-      - path: devtools/docsync/README.org
-        why: "tool overview and installation entry point"
-
-  - match: ["devtools/factory/**"]
-    docs:
-      - path: devtools/factory/README.md
-        why: "tool overview and installation entry point"
-      - path: devtools/factory/docs/usage.md
-        why: "configuration, CLI commands, and behavior reference"
-
   - match: ["devtools/fork-keeper/**"]
     docs:
       - path: devtools/fork-keeper/README.md
-        why: "tool overview and installation entry point"
-
-  - match: ["devtools/gh-ask/**"]
-    docs:
-      - path: devtools/gh-ask/README.org
         why: "tool overview and installation entry point"
 
   - match: ["devtools/gh-nudge/**"]
@@ -346,11 +302,6 @@ rules:
       - path: devtools/magit/README.org
         why: "tool overview and installation entry point"
 
-  - match: ["devtools/orgctl/**"]
-    docs:
-      - path: devtools/orgctl/README.org
-        why: "tool overview and installation entry point"
-
   - match: ["devtools/pkg/outbox/**"]
     docs:
       - path: devtools/pkg/outbox/README.md
@@ -363,11 +314,6 @@ rules:
     docs:
       - path: devtools/pkg/README.md
         why: "shared package overview"
-
-  - match: ["devtools/prsync/**"]
-    docs:
-      - path: devtools/prsync/README.org
-        why: "tool overview and installation entry point"
 
   - match: ["devtools/quotapace/**"]
     docs:
@@ -409,11 +355,6 @@ rules:
       - path: devtools/README.org
         section: "*** devcheck"
         why: "package summary"
-  - match: ["devtools/docsync/**/*.go"]
-    docs:
-      - path: devtools/README.org
-        section: "*** docsync"
-        why: "package summary"
   - match: ["devtools/linters/**/*.go"]
     docs:
       - path: devtools/README.org
@@ -434,11 +375,6 @@ rules:
       - path: devtools/README.org
         section: "*** magit"
         why: "package summary"
-  - match: ["devtools/prsync/**/*.go"]
-    docs:
-      - path: devtools/README.org
-        section: "*** prsync"
-        why: "package summary"
   - match: ["devtools/reviewpush/**/*.go"]
     docs:
       - path: devtools/README.org
@@ -447,7 +383,7 @@ rules:
   - match: ["devtools/gh-nudge/**/*.go"]
     docs:
       - path: devtools/README.org
-        section: "*** gh-nudge"
+        section: "* Tools"
         why: "package summary"
   - match: ["devtools/repo-sync/**/*.go"]
     docs:
@@ -460,7 +396,7 @@ rules:
         section: "*** setup-dev"
         why: "package summary"
 
-  # --- devcheck / docsync / linters ---
+  # --- devcheck / linters ---
   - match: ["devtools/devcheck/cmd/**", "devtools/devcheck/internal/runner/**"]
     docs:
       - path: devtools/devcheck/README.org
@@ -481,54 +417,6 @@ rules:
       - path: devtools/devcheck/README.org
         section: "* Overview"
         why: "config types for detected tools"
-
-  - match: ["devtools/docsync/cmd/**", "devtools/docsync/internal/cli/root.go"]
-    docs:
-      - path: devtools/docsync/README.org
-        section: "* Quick start"
-        why: "go install / bazel run entry point"
-      - path: devtools/docsync/README.org
-        section: "* Config discovery"
-        why: "upward docsync.yml discovery and --config"
-
-  - match: ["devtools/docsync/internal/cli/check.go", "devtools/docsync/internal/gitchanges/**", "devtools/docsync/internal/matcher/**"]
-    docs:
-      - path: devtools/docsync/README.org
-        section: "** check"
-        why: "--base/--files/--json/--exit-zero matching"
-
-  - match: ["devtools/docsync/internal/cli/validate.go", "devtools/docsync/internal/mapping/**"]
-    docs:
-      - path: devtools/docsync/README.org
-        section: "** validate"
-        why: "schema, glob, and missing-doc lint"
-      - path: devtools/docsync/README.org
-        section: "* Mapping file"
-        why: "rules/match/docs schema"
-
-  - match: ["devtools/docsync/docsync.yml.example"]
-    docs:
-      - path: devtools/docsync/README.org
-        section: "* Mapping file"
-        why: "commented three-rule example"
-
-  - match: ["devtools/docsync/internal/matcher/**"]
-    docs:
-      - path: devtools/docsync/README.org
-        section: "** Glob semantics"
-        why: "root-anchored doublestar matching"
-
-  - match: ["devtools/docsync/internal/cli/exit.go"]
-    docs:
-      - path: devtools/docsync/README.org
-        section: "* Exit codes"
-        why: "check/validate exit codes 0-3"
-
-  - match: ["devtools/docsync/internal/cli/version.go", "devtools/docsync/internal/version/**"]
-    docs:
-      - path: devtools/docsync/README.org
-        section: "** version"
-        why: "JSON version output"
 
   - match: ["devtools/linters/cmd/org-lint/**"]
     docs:
@@ -590,166 +478,7 @@ rules:
         section: "* Behavior"
         why: "emacsclient, perspective reuse, canonical-path matching"
 
-  - match:
-      - "devtools/prsync/cmd/**"
-      - "devtools/prsync/internal/cli/root.go"
-      - "devtools/prsync/prsync.config.example"
-    docs:
-      - path: devtools/prsync/README.org
-        section: "* Commands"
-        why: "scan/tabs/dispatch/comment/gate flags"
-      - path: devtools/prsync/README.org
-        section: "* Configuration"
-        why: "prsync.config keys"
-
-  - match: ["devtools/prsync/internal/scan/**", "devtools/prsync/internal/cli/scan.go"]
-    docs:
-      - path: devtools/prsync/README.org
-        section: "** scan"
-        why: "open-PR survey and classification"
-
-  - match: ["devtools/prsync/internal/cli/tabs.go", "devtools/prsync/internal/scan/orphan.go"]
-    docs:
-      - path: devtools/prsync/README.org
-        section: "** tabs --orphans"
-        why: "orphan tabs, --stdin, --close-merged"
-
-  - match: ["devtools/prsync/internal/dispatch/**", "devtools/prsync/internal/cli/dispatch.go"]
-    docs:
-      - path: devtools/prsync/README.org
-        section: "** dispatch"
-        why: "herdr prompt injection and --rebase/--ci-fix/--go/--force"
-      - path: devtools/prsync/README.org
-        section: "** Live dispatch"
-        why: "gate wait, settle debounce, herdr --wait --until"
-
-  - match: ["devtools/prsync/internal/comment/**", "devtools/prsync/internal/cli/comment.go"]
-    docs:
-      - path: devtools/prsync/README.org
-        section: "** comment"
-        why: "conversation-level PR comments via gh"
-
-  - match: ["devtools/prsync/internal/cli/gate.go", "devtools/prsync/internal/dispatch/gate.go"]
-    docs:
-      - path: devtools/prsync/README.org
-        section: "** gate"
-        why: "concurrency gate"
-      - path: devtools/prsync/README.org
-        section: "** Live dispatch"
-        why: "gate wait and blocked-as-busy"
-
-  - match: ["devtools/prsync/internal/runlog/**", "devtools/prsync/internal/cli/log.go", "devtools/prsync/internal/cli/logs.go"]
-    docs:
-      - path: devtools/prsync/README.org
-        section: "** logs"
-        why: "XDG state run log, --log-level, PRSYNC_LOG, prsync logs"
-
-  - match: ["devtools/prsync/internal/cli/exit.go"]
-    docs:
-      - path: devtools/prsync/README.org
-        section: "* Exit codes"
-        why: "CLI exit codes"
-
-  - match: ["devtools/prsync/internal/gh/**", "devtools/prsync/internal/herdr/**"]
-    docs:
-      - path: devtools/prsync/README.org
-        section: "* Prerequisites"
-        why: "gh CLI and herdr >= 0.8"
-
-  - match: ["devtools/prsync/internal/config/**"]
-    docs:
-      - path: devtools/prsync/README.org
-        section: "** Keys"
-        why: "config file key list"
-
-  - match: ["devtools/reviewpush/cmd/**"]
-    docs:
-      - path: devtools/reviewpush/README.md
-        section: "## Quick start"
-        why: "review-and-push-loop entry point"
-      - path: devtools/reviewpush/README.md
-        section: "## Options"
-        why: "--repo/--base/--max-iterations/--output/--json/--reviewer-cmd"
-      - path: devtools/reviewpush/README.md
-        section: "## Options"
-        why: "wrapper env overrides"
-
-  - match: ["devtools/reviewpush/reviewer.go"]
-    docs:
-      - path: devtools/reviewpush/README.md
-        section: "### Reviewer response contract"
-        why: "PUSH vs BLOCKED JSON contract and custom reviewer command boundary"
-
-  - match: ["devtools/reviewpush/codex.go"]
-    docs:
-      - path: devtools/reviewpush/README.md
-        section: "#### Default Codex adapter"
-        why: "default Codex CLI adapter"
-
-  - match: ["devtools/reviewpush/reviewpush.go"]
-    docs:
-      - path: devtools/reviewpush/README.md
-        section: "## What it does"
-        why: "oldest-ahead commit loop and wrapper push"
-      - path: devtools/reviewpush/README.md
-        section: "## Safety properties"
-        why: "read-only reviewer; wrapper performs git push"
-
-  - match: ["devtools/pkg/ghauth/**"]
-    docs:
-      - path: devtools/pkg/PLAN.md
-        section: "### Using pkg/ghauth"
-        why: "TokenSource chain"
-
-  - match: ["devtools/pkg/ghtest/**"]
-    docs:
-      - path: devtools/pkg/PLAN.md
-        section: "### Using pkg/ghtest"
-        why: "ghtest helpers"
-
-  # --- gh-nudge (per-command docs) ---
-  - match:
-      - "devtools/gh-nudge/cmd/gh-nudge/**"
-      - "devtools/gh-nudge/internal/notification/**"
-    docs:
-      - path: devtools/gh-nudge/nudge.org
-        section: "** Usage"
-        why: "review-reminder CLI flags"
-      - path: devtools/gh-nudge/nudge.org
-        section: "** Notification Persistence"
-        why: "notification thresholds and history"
-      - path: devtools/gh-nudge/README.org
-        why: "suite index"
-
-  - match:
-      - "devtools/gh-nudge/cmd/gh-slack/**"
-      - "devtools/gh-nudge/internal/slack/**"
-    docs:
-      - path: devtools/gh-nudge/slack.org
-        section: "** Usage"
-        why: "gh-slack CLI"
-      - path: devtools/gh-nudge/slack.org
-        section: "** Configuration and Setup"
-        why: "GitHub-to-Slack mapping"
-
-  - match: ["devtools/gh-nudge/cmd/gh-merge/**"]
-    docs:
-      - path: devtools/gh-nudge/merge.org
-        section: "** Usage"
-        why: "gh-merge CLI, MERGEABLE filter, dry-run"
-
-  - match: ["devtools/gh-nudge/cmd/gh-codeowners/**"]
-    docs:
-      - path: devtools/gh-nudge/codeowners.org
-        section: "* Command Line Tool Usage"
-        why: "gh-codeowners CLI"
-
-  - match: ["devtools/gh-nudge/internal/codeowners/**"]
-    docs:
-      - path: devtools/gh-nudge/codeowners.org
-        section: "* Custom Section-Based Matching (Project-Specific)"
-        why: "section-union CODEOWNERS matching"
-
+  # --- gh-nudge (remaining: gh-pr-review) ---
   - match: ["devtools/gh-nudge/cmd/gh-pr-review/**"]
     docs:
       - path: devtools/gh-nudge/pr-review.org
@@ -774,10 +503,7 @@ rules:
   - match: ["devtools/gh-nudge/internal/github/**"]
     docs:
       - path: devtools/gh-nudge/README.org
-        section: "** File Structure"
         why: "shared gh CLI client"
-      - path: devtools/gh-nudge/nudge.org
-        why: "gh CLI integration for pending PRs"
       - path: devtools/gh-nudge/pr-review.org
         why: "PR files API / review submit via gh"
 
@@ -786,20 +512,11 @@ rules:
       - path: devtools/gh-nudge/pr-review.org
         section: "*** Command Reference"
         why: "Unix flag parser used by gh-pr-review"
-      - path: devtools/gh-nudge/storage.org
-        section: "*** Command Reference"
-        why: "same parser used by gh-storage"
-
-  - match: ["devtools/gh-nudge/cmd/gh-storage/**"]
-    docs:
-      - path: devtools/gh-nudge/storage.org
-        section: "*** Command Reference"
-        why: "init/info/ls/get-set/migrate/backup/clean/lock/export"
 
   - match: ["devtools/gh-nudge/internal/storage/**"]
     docs:
-      - path: devtools/gh-nudge/storage.org
-        section: "** Storage Architecture"
+      - path: devtools/gh-nudge/pr-review.org
+        section: "*** Storage Structure"
         why: "~/.config/gh-nudge/storage layout"
 
   - match:
@@ -808,14 +525,10 @@ rules:
       - "devtools/gh-nudge/Makefile"
     docs:
       - path: devtools/gh-nudge/README.org
-        section: "*** Pkl Configuration (Recommended)"
         why: "pkl Config.pkl and generate-pkl"
-      - path: devtools/gh-nudge/README.org
-        section: "*** YAML Configuration (Legacy)"
-        why: "legacy YAML config"
-      - path: devtools/gh-nudge/nudge.org
-        section: "** Configuration and Setup"
-        why: "Slack token and reminder configuration"
+      - path: devtools/gh-nudge/pr-review.org
+        section: "** Architecture"
+        why: "gh-pr-review configuration"
 
   # --- repo-sync ---
   - match:

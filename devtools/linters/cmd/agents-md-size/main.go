@@ -10,9 +10,9 @@ import (
 	"os"
 	"path/filepath"
 
+	pkgversion "github.com/chorong-sh/chorong/pkg/version"
 	"github.com/jaeyeom/experimental/devtools/linters/agentsmdsize"
 	"github.com/jaeyeom/experimental/devtools/pkg/baseline"
-	pkgversion "github.com/jaeyeom/experimental/devtools/pkg/version"
 )
 
 type options struct {

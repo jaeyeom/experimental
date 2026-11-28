@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jaeyeom/experimental/devtools/decide"
+	"github.com/chorong-sh/chorong/decide"
 )
 
 // commandTimeout bounds a single external subprocess invocation.

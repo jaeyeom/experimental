@@ -1,6 +1,7 @@
 # Checked-in generated files and the commands that regenerate them.
-# Format: devtools/genfiles/README.org. `make lint` runs `genfiles check`,
-# which keeps .gitattributes marking exactly these patterns.
+# Format: https://github.com/chorong-sh/chorong/blob/main/genfiles/README.md.
+# `make test` runs `genfiles check`, which keeps .gitattributes marking exactly
+# these patterns.
 #
 # Not listed: devtools/setup-dev/ansible/*.yml. Its generated playbooks
 # (made by `make generate-ansible`) share one directory with handwritten

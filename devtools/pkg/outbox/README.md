@@ -7,7 +7,7 @@
 Following [`devtools/AGENTS.md`](../../AGENTS.md):
 
 1. **Core is agnostic**: zero references to GitHub, Slack, terminal pane managers (`herdr`), or specific LLM harnesses.
-2. **Human UI approval only**: [`EvaluateApproval`](./decide.go) requires human UI provenance (`author == "human"`, empty `by`, `via == "ui"`) via [`devtools/decide`](../../decide/README.org). Agent replies and CLI answers cannot approve outbound execution.
+2. **Human UI approval only**: [`EvaluateApproval`](./decide.go) requires human UI provenance (`author == "human"`, empty `by`, `via == "ui"`) via [`chorong/decide`](https://github.com/chorong-sh/chorong/blob/main/decide/README.md). Agent replies and CLI answers cannot approve outbound execution.
 3. **Narrow integration boundaries**:
    - **Store**: `Store` interface + `TypedFileStore[T]` / `FileStore` with `flock` directory locking (`LockDir`) and atomic writes (`WriteFileAtomic`).
    - **Preflight**: `PreflightHook` and agnostic deny-rule linter (`BuildLintRules`, `LintFields`, `LintText`), plus inbox message shape helpers (`ShapeMessage`, `ShapeBullet`, `ShapeLinkLine`).

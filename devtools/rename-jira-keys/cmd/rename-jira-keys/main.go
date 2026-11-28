@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 
-	pkgversion "github.com/jaeyeom/experimental/devtools/pkg/version"
+	pkgversion "github.com/chorong-sh/chorong/pkg/version"
 )
 
 type Config struct {

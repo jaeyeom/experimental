@@ -12,7 +12,7 @@ go_library(
     deps = [
         "//devtools/agent-pool/internal/broker:go_default_library",
         "//devtools/agent-pool/internal/protocol:go_default_library",
-        "//devtools/pkg/sqlitedb:go_default_library",
+        "@com_github_chorong_sh_chorong//pkg/sqlitedb:go_default_library",
     ],
 )
 
@@ -24,7 +24,7 @@ go_test(
         ":go_default_library",
         "//devtools/agent-pool/internal/broker:go_default_library",
         "//devtools/agent-pool/internal/protocol:go_default_library",
-        "//devtools/pkg/sqlitedb:go_default_library",
+        "@com_github_chorong_sh_chorong//pkg/sqlitedb:go_default_library",
     ],
 )
 

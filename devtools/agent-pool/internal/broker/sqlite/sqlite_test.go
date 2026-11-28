@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chorong-sh/chorong/pkg/sqlitedb"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker/sqlite"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/protocol"
-	"github.com/jaeyeom/experimental/devtools/pkg/sqlitedb"
 )
 
 func openTestStore(t *testing.T) (broker.Store, string) {

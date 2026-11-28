@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chorong-sh/chorong/pkg/toolcli"
 	"github.com/jaeyeom/experimental/devtools/devcheck/internal/config"
-	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 

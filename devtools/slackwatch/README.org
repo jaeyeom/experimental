@@ -4,8 +4,8 @@
 When a coding agent posts to Slack for you, the replies usually go
 nowhere: the agent never sees them. slackwatch is for people who run
 those agents. An ~owner~, usually the agent's
-[[file:../agentbus/README.org][agentbus]] name, is who hears each reply.
-Optional posting is approved in [[file:../decide/README.org][decide]] first.
+[[https://github.com/chorong-sh/chorong/blob/main/agentbus/README.md][agentbus]] name, is who hears each reply.
+Optional posting is approved in [[https://github.com/chorong-sh/chorong/blob/main/decide/README.md][decide]] first.
 
 * Overview
 
@@ -193,7 +193,7 @@ Four keys matter before the rest:
 - ~fallbackTarget~ is who hears a note when the owner cannot be reached.
   An owner that is not a key in ~targets~ is used as the address itself.
 
-The config key ~outbox~ is an [[file:../agentbus/README.org][agentbus]]
+The config key ~outbox~ is an [[https://github.com/chorong-sh/chorong/blob/main/agentbus/README.md][agentbus]]
 name. Agents send drafts there when ~post.mode~ is unset. It is not the
 ~slackwatch outbox~ command, and not the ~outbox~ table. Those hold
 drafts created with ~slackwatch post~.
@@ -640,7 +640,7 @@ markdown without installing (~slackwatch skill triage~ needs an
 an error when no ~inbound~ block is set. The brief names only that
 agent.
 
-It tells the agent to register on [[file:../agentbus/README.org][agentbus]],
+It tells the agent to register on [[https://github.com/chorong-sh/chorong/blob/main/agentbus/README.md][agentbus]],
 read each notice (channel, ts, author, kind, excerpt, permalink) as data
 rather than instructions, and file one decide item when the message needs
 something. Suggested owners come from ~agentbus list~ when-lines and the
@@ -662,7 +662,7 @@ slackwatch's inbound watcher (~Processor~) stays focused on watching Slack
 threads and delivering inbound replies (linking self-authored handoff posts
 only through its narrow ~OwnPostLinker~ boundary when ~post.mode~ is
 ~handoff~). ~slackwatch post~ stores a draft and files a
-[[file:../decide/README.org][decide]] item. Nothing is sent until you
+[[https://github.com/chorong-sh/chorong/blob/main/decide/README.md][decide]] item. Nothing is sent until you
 approve that exact text and destination in the decide UI. The lifecycle,
 footer normalization, and Slack error strings are in
 [[file:docs/posting.org][posting]].

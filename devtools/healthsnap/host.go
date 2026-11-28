@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jaeyeom/experimental/devtools/pkg/procinfo"
+	"github.com/chorong-sh/chorong/pkg/procinfo"
 )
 
 // LoadStats reports host CPU load averages.

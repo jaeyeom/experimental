@@ -56,20 +56,9 @@ INSTALL_CMDS := \
 	./devtools/agent-pool/cmd/agent-pool \
 	./devtools/agent-pool/cmd/agent-poold \
 	./devtools/devcheck/cmd/devcheck \
-	./devtools/docsync/cmd/docsync \
-	./devtools/factory/cmd/factory \
 	./devtools/fork-keeper/cmd/fork-keeper \
-	./devtools/genfiles/cmd/genfiles \
-	./devtools/gh-ask/cmd/gh-ask \
-	./devtools/gh-outbox/cmd/gh-outbox \
-	./devtools/gh-nudge/cmd/gh-approve \
-	./devtools/gh-nudge/cmd/gh-codeowners \
-	./devtools/gh-nudge/cmd/gh-merge \
-	./devtools/gh-nudge/cmd/gh-nudge \
 	./devtools/gh-nudge/cmd/gh-pr-review \
-	./devtools/gh-nudge/cmd/gh-slack \
-	./devtools/gh-nudge/cmd/gh-storage \
-	./devtools/gh-nudge/cmd/gh-throttle \
+	./devtools/gh-outbox/cmd/gh-outbox \
 	./devtools/healthsnap/cmd/healthsnap \
 	./devtools/linters/cmd/agents-md-size \
 	./devtools/linters/cmd/migration-immutability \
@@ -77,7 +66,6 @@ INSTALL_CMDS := \
 	./devtools/linters/cmd/pkgvar \
 	./devtools/linters/cmd/unnecessary-interface-assertion-linter \
 	./devtools/memstore/cmd/memstore \
-	./devtools/prsync/cmd/prsync \
 	./devtools/quotapace/cmd/quotapace \
 	./devtools/rename-jira-keys/cmd/rename-jira-keys \
 	./devtools/reviewpush/cmd/review-and-push-loop \
@@ -85,7 +73,7 @@ INSTALL_CMDS := \
 	./devtools/slackwatch/cmd/slackwatch
 
 VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
-VERSION_LDFLAGS := -ldflags "-X github.com/jaeyeom/experimental/devtools/pkg/version.Version=$(VERSION)"
+VERSION_LDFLAGS := -ldflags "-X github.com/chorong-sh/chorong/pkg/version.Version=$(VERSION)"
 
 install:
 	GOPACKAGESDRIVER= go install $(VERSION_LDFLAGS) $(INSTALL_CMDS)

@@ -12,8 +12,8 @@ import (
 
 	"github.com/bmatcuk/doublestar/v4"
 
+	"github.com/chorong-sh/chorong/pkg/genfiles"
 	pklconfig "github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config/pkl"
-	"github.com/jaeyeom/experimental/devtools/pkg/genfiles"
 )
 
 // DefaultApproveBody is the gh-approve review body when config omits body.

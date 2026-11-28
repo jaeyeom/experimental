@@ -6,8 +6,8 @@ import (
 	"io/fs"
 	"os"
 
+	"github.com/chorong-sh/chorong/pkg/toolcli"
 	ghoutbox "github.com/jaeyeom/experimental/devtools/gh-outbox"
-	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
 )
 
 func newGHOutboxTool() toolcli.Tool {

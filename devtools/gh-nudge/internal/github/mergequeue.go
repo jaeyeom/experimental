@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jaeyeom/experimental/devtools/pkg/ghcli"
+	"github.com/chorong-sh/chorong/pkg/ghcli"
 )
 
 const (

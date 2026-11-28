@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/jaeyeom/experimental/devtools/pkg/sqlitedb"
+	"github.com/chorong-sh/chorong/pkg/sqlitedb"
 )
 
 // migrations are applied in order. PRAGMA user_version records how many

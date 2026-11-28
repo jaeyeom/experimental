@@ -17,10 +17,10 @@ go_library(
     importpath = "github.com/jaeyeom/experimental/devtools/repo-sync/internal/cli",
     visibility = ["//devtools/repo-sync:__subpackages__"],
     deps = [
-        "//devtools/pkg/toolcli:go_default_library",
         "//devtools/repo-sync/internal/config:go_default_library",
         "//devtools/repo-sync/internal/database:go_default_library",
         "//devtools/repo-sync/internal/reposync:go_default_library",
+        "@com_github_chorong_sh_chorong//pkg/toolcli:go_default_library",
         "@com_github_spf13_cobra//:go_default_library",
         "@com_github_spf13_viper//:go_default_library",
     ],
@@ -30,7 +30,7 @@ go_test(
     name = "go_default_test",
     srcs = ["toolcli_test.go"],
     embed = [":go_default_library"],
-    deps = ["//devtools/pkg/toolcli:go_default_library"],
+    deps = ["@com_github_chorong_sh_chorong//pkg/toolcli:go_default_library"],
 )
 
 filegroup(

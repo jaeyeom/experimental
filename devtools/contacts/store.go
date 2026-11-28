@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/jaeyeom/experimental/devtools/pkg/sqlitedb"
+	"github.com/chorong-sh/chorong/pkg/sqlitedb"
 )
 
 // DBName is the database file name inside the data directory.

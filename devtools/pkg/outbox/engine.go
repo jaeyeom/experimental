@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jaeyeom/experimental/devtools/decide"
+	"github.com/chorong-sh/chorong/decide"
 )
 
 // PreflightHook checks a Draft before it is stored or filed for approval.

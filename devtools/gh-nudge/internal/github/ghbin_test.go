@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jaeyeom/experimental/devtools/pkg/ghcli"
+	"github.com/chorong-sh/chorong/pkg/ghcli"
 	cmdexec "github.com/jaeyeom/go-cmdexec"
 )
 

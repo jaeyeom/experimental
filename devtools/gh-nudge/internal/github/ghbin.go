@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/jaeyeom/experimental/devtools/pkg/ghcli"
+	"github.com/chorong-sh/chorong/pkg/ghcli"
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 

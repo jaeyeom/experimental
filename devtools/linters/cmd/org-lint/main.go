@@ -44,7 +44,7 @@ import (
 	"os"
 	"os/exec"
 
-	pkgversion "github.com/jaeyeom/experimental/devtools/pkg/version"
+	pkgversion "github.com/chorong-sh/chorong/pkg/version"
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 

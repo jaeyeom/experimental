@@ -20,7 +20,7 @@ func TestSetupDevReadmeEntry(t *testing.T) {
 			t.Errorf("first 10 lines lack %q", want)
 		}
 	}
-	if strings.Contains(head, "reboot.org") {
+	if strings.Contains(head, "reboot.md") {
 		t.Error("reboot runbook is in the first 10 lines")
 	}
 	const curl = "curl -fsSL https://raw.githubusercontent.com/jaeyeom/experimental/main/devtools/setup-dev/ansible/bootstrap.sh"
@@ -37,14 +37,14 @@ func TestSetupDevReadmeEntry(t *testing.T) {
 		"trim-debian.sh",
 		"qubes-templatevm",
 		"file:ansible/docs/hub-setup.org",
-		"file:../agentbus/reboot.org",
+		"https://github.com/chorong-sh/chorong/blob/main/agentbus/reboot.md",
 	} {
 		if !strings.Contains(top, want) {
 			t.Errorf("top README lacks %q", want)
 		}
 	}
 	quick := strings.Index(top, "* Quick start")
-	reboot := strings.Index(top, "reboot.org")
+	reboot := strings.Index(top, "reboot.md")
 	if quick < 0 || reboot < quick {
 		t.Fatal("reboot runbook must follow Quick start")
 	}

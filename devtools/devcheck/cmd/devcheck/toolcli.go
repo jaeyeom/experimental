@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
+	"github.com/chorong-sh/chorong/pkg/toolcli"
 )
 
 func newDevcheckTool() toolcli.Tool {

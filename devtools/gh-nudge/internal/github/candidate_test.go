@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jaeyeom/experimental/devtools/pkg/ghcli"
-	"github.com/jaeyeom/experimental/devtools/pkg/ghlimit"
+	"github.com/chorong-sh/chorong/pkg/ghcli"
+	"github.com/chorong-sh/chorong/pkg/ghlimit"
 )
 
 func TestCandidateStatesBatchesNPRsInOneQuery(t *testing.T) {

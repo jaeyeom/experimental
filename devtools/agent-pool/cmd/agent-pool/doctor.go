@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chorong-sh/chorong/pkg/toolcli"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/sandbox"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/worker"
-	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
 )
 
 const doctorHTTPTimeout = 5 * time.Second

@@ -14,13 +14,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chorong-sh/chorong/pkg/toolcli"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker/httpapi"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker/sqlite"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/dlp"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/protocol"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/quota"
-	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
 )
 
 const testValidCatalogJSON = `{

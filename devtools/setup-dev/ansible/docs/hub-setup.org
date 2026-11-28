@@ -12,8 +12,8 @@ create a hub.
 ~agentbusd~ is the bus daemon. It runs on the hub. It refuses to start
 in hub mode, so the client does not install it. ~decide~ is the ledger
 of questions that need a person; the hub keeps that ledger. See
-[[file:../../../agentbus/README.org][agentbus]] and
-[[file:../../../decide/README.org][decide]]. A herdr saved-machine label
+[[https://github.com/chorong-sh/chorong/blob/main/agentbus/README.md][agentbus]] and
+[[https://github.com/chorong-sh/chorong/blob/main/decide/README.md][decide]]. A herdr saved-machine label
 is the name herdr already uses for this client on the hub. The
 playbook calls that label ~client_machine_label~. The hub's herdr must
 already have that machine saved, and the hub must accept the client's

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jaeyeom/experimental/devtools/decide"
+	"github.com/chorong-sh/chorong/decide"
 )
 
 type fakeApprover struct {

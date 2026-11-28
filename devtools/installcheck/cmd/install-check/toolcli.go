@@ -11,8 +11,8 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/chorong-sh/chorong/pkg/toolcli"
 	"github.com/jaeyeom/experimental/devtools/installcheck"
-	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
 )
 
 func newInstallCheckTool() toolcli.Tool {

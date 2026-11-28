@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chorong-sh/chorong/pkg/version"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/protocol"
-	"github.com/jaeyeom/experimental/devtools/pkg/version"
 )
 
 const (

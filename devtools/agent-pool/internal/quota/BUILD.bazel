@@ -11,8 +11,8 @@ go_library(
     visibility = ["//devtools/agent-pool:__subpackages__"],
     deps = [
         "//devtools/agent-pool/internal/protocol:go_default_library",
-        "//devtools/pkg/sqlitedb:go_default_library",
         "//devtools/quotapace:go_default_library",
+        "@com_github_chorong_sh_chorong//pkg/sqlitedb:go_default_library",
     ],
 )
 

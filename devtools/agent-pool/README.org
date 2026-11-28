@@ -217,7 +217,7 @@ agent-pool catalog validate .
 
 * Standard CLI Protocol
 
-=agent-pool= adopts the repository's =devtools/pkg/toolcli= protocol:
+=agent-pool= adopts the standard =github.com/chorong-sh/chorong/pkg/toolcli= protocol:
 
 - =agent-pool version [--json]= :: Print version, module path, and VCS revision.
 - =agent-pool update [--check] [--ref <ref>] [--json]= :: Update =agent-pool= and companion =agent-poold=.

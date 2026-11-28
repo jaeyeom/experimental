@@ -17,7 +17,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/jaeyeom/experimental/devtools/decide"
+	"github.com/chorong-sh/chorong/decide"
 	outboxpkg "github.com/jaeyeom/experimental/devtools/pkg/outbox"
 )
 

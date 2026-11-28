@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/chorong-sh/chorong/pkg/toolcli"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/worker"
-	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
 )
 
 func newAgentPoolTool(deps cliDeps) toolcli.Tool {

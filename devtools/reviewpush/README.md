@@ -368,7 +368,7 @@ set), `--ephemeral`, `--color` (`never`), `--output-schema`, and
 
 ## Standard CLI protocol
 
-`review-and-push-loop` also implements `devtools/pkg/toolcli` subcommands:
+`review-and-push-loop` also implements `github.com/chorong-sh/chorong/pkg/toolcli` subcommands:
 
 - `review-and-push-loop version [--json]`
 - `review-and-push-loop update [--check] [--ref <ref>] [--json]`

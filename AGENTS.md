@@ -32,8 +32,8 @@ These instructions apply to every coding agent working in this repository.
 -   **Shared version**: Unchanged tools sharing a bumped version (and being
     byte-identical across consecutive releases) is expected and acceptable.
 -   **Binary version reporting**: Go binaries under `devtools/` should report
-    their version via `github.com/jaeyeom/experimental/devtools/pkg/version`
-    (`-ldflags "-X github.com/jaeyeom/experimental/devtools/pkg/version.Version=..."`
+    their version via `github.com/chorong-sh/chorong/pkg/version`
+    (`-ldflags "-X github.com/chorong-sh/chorong/pkg/version.Version=..."`
     with `runtime/debug.ReadBuildInfo()` fallback).
 -   **Release workflow**: `release-please` maintains a Release PR on `main`
     updating `CHANGELOG.md` and `.release-please-manifest.json` from

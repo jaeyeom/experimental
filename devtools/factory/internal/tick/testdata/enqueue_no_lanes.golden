@@ -1,1 +1,0 @@
-{"kind":"start-item","subject":"PRJ-7","source":"jira:acme","title":"Ship it","dedupe":"start-item:jira:acme:PRJ-7","priority":1,"needs":{"machine":"any","checkout":"/path/to/source/checkout","executor":"new-tab"},"command":["factory","start","--apply","PRJ-7"]}

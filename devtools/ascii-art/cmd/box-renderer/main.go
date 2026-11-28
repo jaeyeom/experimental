@@ -10,7 +10,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/jaeyeom/experimental/devtools/pkg/version"
+	"github.com/chorong-sh/chorong/pkg/version"
 	"github.com/jaeyeom/experimental/text/box"
 	"github.com/jaeyeom/experimental/text/canvas"
 )

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
+	"github.com/chorong-sh/chorong/pkg/toolcli"
 	"github.com/jaeyeom/experimental/devtools/slackwatch"
 )
 

@@ -7,7 +7,7 @@ go_library(
     visibility = ["//visibility:private"],
     deps = [
         "//devtools/linters/unnecessaryinterfaceassertion:go_default_library",
-        "//devtools/pkg/version:go_default_library",
+        "@com_github_chorong_sh_chorong//pkg/version:go_default_library",
     ],
 )
 
@@ -21,10 +21,7 @@ go_test(
     name = "go_default_test",
     srcs = ["main_test.go"],
     embed = [":go_default_library"],
-    deps = [
-        "//devtools/linters/unnecessaryinterfaceassertion:go_default_library",
-        "//devtools/pkg/version:go_default_library",
-    ],
+    deps = ["//devtools/linters/unnecessaryinterfaceassertion:go_default_library"],
 )
 
 exports_files(

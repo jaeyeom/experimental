@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
+	"github.com/chorong-sh/chorong/pkg/toolcli"
 )
 
 func TestDevcheckToolCLIConformance(t *testing.T) {

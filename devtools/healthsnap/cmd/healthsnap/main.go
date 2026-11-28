@@ -12,9 +12,9 @@ import (
 	"os"
 	"time"
 
+	"github.com/chorong-sh/chorong/pkg/toolcli"
 	"github.com/jaeyeom/experimental/devtools/healthsnap"
 	"github.com/jaeyeom/experimental/devtools/pkg/notify"
-	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
 )
 
 const errExitCode = 2

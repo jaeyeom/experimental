@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/jaeyeom/experimental/devtools/pkg/procinfo"
+	"github.com/chorong-sh/chorong/pkg/procinfo"
 	"golang.org/x/sys/unix"
 )
 

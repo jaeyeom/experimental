@@ -18,6 +18,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/chorong-sh/chorong/pkg/version"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker/catsync"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker/ghacl"
@@ -25,7 +26,6 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker/mcp"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/broker/sqlite"
 	"github.com/jaeyeom/experimental/devtools/agent-pool/internal/dlp"
-	"github.com/jaeyeom/experimental/devtools/pkg/version"
 )
 
 const (

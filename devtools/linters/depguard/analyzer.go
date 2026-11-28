@@ -39,6 +39,7 @@ func settings() *depguard.LinterSettings {
 				"github.com/charmbracelet/bubbles",
 				"github.com/charmbracelet/bubbletea",
 				"github.com/charmbracelet/lipgloss",
+				"github.com/chorong-sh/chorong",
 				"github.com/fsnotify/fsnotify",
 				"github.com/google/renameio/v2",
 				"github.com/google/uuid",

@@ -84,7 +84,6 @@ filegroup(
     srcs = [
         ":py_srcs",
         "//codelab/proto:py_srcs",
-        "//devtools/decide/contrib/panels:py_srcs",
         "//devtools/setup-dev/ansible:py_srcs",
         "//scripts:py_srcs",
         "//tools/lint:py_srcs",
@@ -103,7 +102,6 @@ filegroup(
     srcs = [
         ":py_entries",
         "//codelab/proto:py_entries",
-        "//devtools/decide/contrib/panels:py_entries",
         "//devtools/setup-dev/ansible:py_entries",
         "//scripts:py_entries",
         "//tools/lint:py_entries",

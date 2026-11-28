@@ -33,13 +33,13 @@ go_test(
     ],
     embed = [":go_default_library"],
     deps = [
-        "//devtools/decide:go_default_library",
         "//devtools/gh-nudge/internal/git:go_default_library",
         "//devtools/gh-nudge/internal/github:go_default_library",
         "//devtools/gh-nudge/internal/models:go_default_library",
         "//devtools/gh-nudge/internal/storage:go_default_library",
         "//devtools/gh-outbox:go_default_library",
         "//devtools/pkg/outbox:go_default_library",
+        "@com_github_chorong_sh_chorong//decide:go_default_library",
     ],
 )
 

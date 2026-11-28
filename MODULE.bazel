@@ -19,6 +19,10 @@ bazel_dep(name = "gazelle", version = "0.54.0")
 
 go_deps = use_extension("@gazelle//:extensions.bzl", "go_deps")
 go_deps.from_file(go_mod = "//:go.mod")
+go_deps.gazelle_override(
+    build_file_generation = "clean",
+    path = "github.com/chorong-sh/chorong",
+)
 
 # Explicitly declare golang.org/x/tools for nogo ADDITIONAL_GOVET analyzers
 # This prevents bazel mod tidy from removing it as an "indirect" dependency
@@ -37,6 +41,16 @@ go_deps.module(
     sum = "h1:67aF6LHa7SAL6QEc4es857GrXTT50gUqmrl0XPhtDx0=",
     version = "v2.30.0",
 )
+go_deps.module(
+    path = "github.com/ccojocar/zxcvbn-go",
+    sum = "h1:FWnCIRMXPj43ukfX000kvBZvV6raSxakYr1nzyNrUcc=",
+    version = "v1.0.4",
+)
+go_deps.module(
+    path = "github.com/uudashr/iface",
+    sum = "h1:ImZ+1oEJPXvjap7nK0md7gA9RRH7PMp4vliaLkJ2+cg=",
+    version = "v1.4.0",
+)
 
 # All Go dependencies referenced by BUILD files must be listed explicitly.
 # Note: This includes both direct and indirect dependencies from go.mod.
@@ -46,11 +60,8 @@ use_repo(
     "com_github_apple_pkl_go",
     "com_github_bkielbasa_cyclop",
     "com_github_bmatcuk_doublestar_v4",
-    "com_github_charmbracelet_bubbles",
-    "com_github_charmbracelet_bubbletea",
-    "com_github_charmbracelet_lipgloss",
-    "com_github_creack_pty",
-    "com_github_fsnotify_fsnotify",
+    "com_github_ccojocar_zxcvbn_go",
+    "com_github_chorong_sh_chorong",
     "com_github_go_critic_go_critic",
     "com_github_google_renameio_v2",
     "com_github_gordonklaus_ineffassign",
@@ -61,7 +72,6 @@ use_repo(
     "com_github_ldez_tagliatelle",
     "com_github_leanovate_gopter",
     "com_github_mattn_go_sqlite3",
-    "com_github_muesli_termenv",
     "com_github_openpeedeep_depguard_v2",
     "com_github_pelletier_go_toml_v2",
     "com_github_securego_gosec_v2",
@@ -71,12 +81,9 @@ use_repo(
     "com_github_tetafro_godot",
     "com_github_tomarrell_wrapcheck_v2",
     "com_github_uudashr_iface",
-    "com_github_yuin_goldmark",
     "in_gopkg_yaml_v3",
-    "org_golang_x_image",
     "org_golang_x_sys",
     "org_golang_x_tools",
-    "org_modernc_sqlite",
 )
 
 # Aspect rules for linting and formatting

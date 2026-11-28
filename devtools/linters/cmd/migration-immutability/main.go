@@ -10,9 +10,9 @@ import (
 	"os"
 	"path/filepath"
 
+	pkgversion "github.com/chorong-sh/chorong/pkg/version"
 	"github.com/jaeyeom/experimental/devtools/linters/migrationimmutability"
 	"github.com/jaeyeom/experimental/devtools/pkg/baseline"
-	pkgversion "github.com/jaeyeom/experimental/devtools/pkg/version"
 )
 
 type listFlag []string

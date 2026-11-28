@@ -12,7 +12,7 @@ go_library(
     importpath = "github.com/jaeyeom/experimental/devtools/linters/cmd/org-lint",
     visibility = ["//visibility:private"],
     deps = [
-        "//devtools/pkg/version:go_default_library",
+        "@com_github_chorong_sh_chorong//pkg/version:go_default_library",
         "@com_github_jaeyeom_go_cmdexec//:go_default_library",
     ],
 )

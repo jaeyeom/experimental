@@ -151,9 +151,9 @@ when no changed files match its language.
 
 - *Scope*: ~devcheck~ runs repository formatters, linters, and tests.
 - *Non-overlaps*:
-  - [[file:../docsync/README.org][docsync]] checks whether documentation is likely stale relative to changed files (~docsync.yml~). ~devcheck~ does not inspect doc mappings.
-  - [[file:../genfiles/README.org][genfiles]] validates ~generated_files.yaml~ and ~.gitattributes~ (~linguist-generated~) so linters and review tools handle generated files cleanly. ~devcheck~ does not inspect generated-file manifests.
-  - [[file:../factory/README.md][factory]] (~factory verify~) checks git worktree cleanliness, stash count, base-branch freshness, and PR template compliance before settling an issue. It does not invoke formatters, linters, or tests directly, so ~devcheck~ complements it as a standalone check command.
+  - [[https://github.com/chorong-sh/chorong/blob/main/docsync/README.md][docsync]] checks whether documentation is likely stale relative to changed files (~docsync.yml~). ~devcheck~ does not inspect doc mappings.
+  - [[https://github.com/chorong-sh/chorong/blob/main/genfiles/README.md][genfiles]] validates ~generated_files.yaml~ and ~.gitattributes~ (~linguist-generated~) so linters and review tools handle generated files cleanly. ~devcheck~ does not inspect generated-file manifests.
+  - [[https://github.com/chorong-sh/chorong/blob/main/factory/README.md][factory]] (~factory verify~) checks git worktree cleanliness, stash count, base-branch freshness, and PR template compliance before settling an issue. It does not invoke formatters, linters, or tests directly, so ~devcheck~ complements it as a standalone check command.
 - *Current limitations*:
   - Runs at most one tool per type (~format~, ~lint~, ~test~); in a polyglot repo without a unified ~Makefile~ or Bazel targets, fallback tools cover only the highest-priority detected language unless scoped to a subdirectory or filtered.
 

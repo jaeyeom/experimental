@@ -6,8 +6,8 @@ import (
 	"io/fs"
 	"os"
 
+	"github.com/chorong-sh/chorong/pkg/toolcli"
 	"github.com/jaeyeom/experimental/devtools/diskwatch"
-	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
 )
 
 func newDiskwatchTool() toolcli.Tool {

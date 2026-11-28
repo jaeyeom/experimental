@@ -7,8 +7,8 @@ import (
 	"io"
 	"os"
 
+	pkgversion "github.com/chorong-sh/chorong/pkg/version"
 	"github.com/jaeyeom/experimental/devtools/linters/pkgvar"
-	pkgversion "github.com/jaeyeom/experimental/devtools/pkg/version"
 	"golang.org/x/tools/go/analysis/singlechecker"
 )
 

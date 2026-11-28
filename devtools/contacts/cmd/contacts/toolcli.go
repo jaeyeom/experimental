@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 
+	"github.com/chorong-sh/chorong/pkg/toolcli"
 	"github.com/jaeyeom/experimental/devtools/contacts"
-	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
 )
 
 func newContactsTool(configFlag string, getenv func(string) string) toolcli.Tool {

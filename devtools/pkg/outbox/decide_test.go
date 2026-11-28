@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jaeyeom/experimental/devtools/decide"
+	"github.com/chorong-sh/chorong/decide"
 )
 
 func TestDecideCLIAskWithLegacyFallback(t *testing.T) {

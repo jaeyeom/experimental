@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/chorong-sh/chorong/pkg/toolcli"
 	"github.com/jaeyeom/experimental/devtools/authwatch"
-	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
 )
 
 func newAuthwatchTool() toolcli.Tool {

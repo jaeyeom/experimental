@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jaeyeom/experimental/devtools/decide"
+	"github.com/chorong-sh/chorong/decide"
 	"github.com/jaeyeom/experimental/devtools/pkg/outbox"
 )
 

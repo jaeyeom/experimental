@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
+	"github.com/chorong-sh/chorong/pkg/toolcli"
 	"github.com/spf13/cobra"
 )
 

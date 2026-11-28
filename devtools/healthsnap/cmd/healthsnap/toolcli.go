@@ -10,8 +10,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/chorong-sh/chorong/pkg/toolcli"
 	"github.com/jaeyeom/experimental/devtools/healthsnap"
-	"github.com/jaeyeom/experimental/devtools/pkg/toolcli"
 )
 
 func newHealthsnapTool() toolcli.Tool {

@@ -14,8 +14,8 @@ go_library(
     importpath = "github.com/jaeyeom/experimental/devtools/gh-outbox",
     visibility = ["//visibility:public"],
     deps = [
-        "//devtools/decide:go_default_library",
         "//devtools/pkg/outbox:go_default_library",
+        "@com_github_chorong_sh_chorong//decide:go_default_library",
         "@com_github_pelletier_go_toml_v2//:go_default_library",
     ],
 )

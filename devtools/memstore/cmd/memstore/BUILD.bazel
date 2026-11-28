@@ -24,7 +24,7 @@ go_library(
     visibility = ["//visibility:private"],
     deps = [
         "//devtools/memstore:go_default_library",
-        "//devtools/pkg/toolcli:go_default_library",
+        "@com_github_chorong_sh_chorong//pkg/toolcli:go_default_library",
         "@org_golang_x_sys//unix:go_default_library",
     ],
 )
@@ -49,8 +49,7 @@ go_test(
     embed = [":go_default_library"],
     deps = [
         "//devtools/memstore:go_default_library",
-        "//devtools/pkg/toolcli:go_default_library",
-        "@org_golang_x_sys//unix:go_default_library",
+        "@com_github_chorong_sh_chorong//pkg/toolcli:go_default_library",
     ],
 )
 

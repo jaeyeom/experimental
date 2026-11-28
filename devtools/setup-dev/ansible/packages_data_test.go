@@ -108,15 +108,25 @@ func TestGhNudgeCommandsAreInstalledTogether(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var allCmds []string
+	var remainingCmds []string
 	for _, entry := range entries {
 		if entry.IsDir() {
-			allCmds = append(allCmds, entry.Name())
+			remainingCmds = append(remainingCmds, entry.Name())
 		}
 	}
-	sort.Strings(allCmds)
-	if len(allCmds) == 0 {
+	sort.Strings(remainingCmds)
+	if len(remainingCmds) == 0 {
 		t.Fatal("devtools/gh-nudge/cmd has no commands")
+	}
+
+	wantMigrated := []string{
+		"gh-approve",
+		"gh-codeowners",
+		"gh-merge",
+		"gh-nudge",
+		"gh-slack",
+		"gh-storage",
+		"gh-throttle",
 	}
 
 	const (
@@ -124,17 +134,19 @@ func TestGhNudgeCommandsAreInstalledTogether(t *testing.T) {
 		expPrefix     = "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/"
 	)
 	chorongVersionSeen := ""
-	got := make([]string, 0, len(allCmds))
+	var gotMigrated, gotRemaining []string
 	for _, tool := range platformSpecificTools {
 		method, ok := tool.platforms[PlatformAll].(GoInstallMethod)
 		if !ok {
 			continue
 		}
 		var rest, expectedVer string
+		isMigrated := false
 		switch {
 		case strings.HasPrefix(method.PkgPath, chorongPrefix):
 			rest = strings.TrimPrefix(method.PkgPath, chorongPrefix)
 			expectedVer = chorongVersion
+			isMigrated = true
 		case strings.HasPrefix(method.PkgPath, expPrefix):
 			rest = strings.TrimPrefix(method.PkgPath, expPrefix)
 			expectedVer = experimentalVersion
@@ -152,12 +164,15 @@ func TestGhNudgeCommandsAreInstalledTogether(t *testing.T) {
 		if ver != expectedVer {
 			t.Errorf("%s installs @%s, want @%s", name, ver, expectedVer)
 		}
-		if strings.HasPrefix(method.PkgPath, chorongPrefix) {
+		if isMigrated {
 			if chorongVersionSeen == "" {
 				chorongVersionSeen = ver
 			} else if ver != chorongVersionSeen {
 				t.Errorf("%s installs @%s, want @%s like the rest of the migrated chorong gh-nudge family", name, ver, chorongVersionSeen)
 			}
+			gotMigrated = append(gotMigrated, name)
+		} else {
+			gotRemaining = append(gotRemaining, name)
 		}
 		hasGH := false
 		for _, imp := range tool.GetAllImports() {
@@ -168,18 +183,21 @@ func TestGhNudgeCommandsAreInstalledTogether(t *testing.T) {
 		if !hasGH {
 			t.Errorf("%s does not import the gh playbook", name)
 		}
-		got = append(got, name)
 	}
-	sort.Strings(got)
-	if !reflect.DeepEqual(got, allCmds) {
-		t.Errorf("installed gh-nudge commands = %v, cmd directories = %v", got, allCmds)
+	sort.Strings(gotMigrated)
+	if !reflect.DeepEqual(gotMigrated, wantMigrated) {
+		t.Errorf("migrated gh-nudge commands = %v, want %v", gotMigrated, wantMigrated)
+	}
+	sort.Strings(gotRemaining)
+	if !reflect.DeepEqual(gotRemaining, remainingCmds) {
+		t.Errorf("remaining gh-nudge commands = %v, cmd directories = %v", gotRemaining, remainingCmds)
 	}
 
 	vibe, err := os.ReadFile(filepath.Join(ansible, "setup-vibe-coding.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range allCmds {
+	for _, name := range append(append([]string(nil), wantMigrated...), remainingCmds...) {
 		line := "import_playbook: " + name + ".yml"
 		if !strings.Contains(string(vibe), line) {
 			t.Errorf("setup-vibe-coding.yml missing %q", line)

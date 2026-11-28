@@ -11,7 +11,7 @@ go_library(
     srcs = ["main.go"],
     importpath = "github.com/jaeyeom/experimental/devtools/rename-jira-keys/cmd/rename-jira-keys",
     visibility = ["//visibility:private"],
-    deps = ["//devtools/pkg/version:go_default_library"],
+    deps = ["@com_github_chorong_sh_chorong//pkg/version:go_default_library"],
 )
 
 go_test(

@@ -16,10 +16,10 @@ go_library(
     importpath = "github.com/jaeyeom/experimental/devtools/quotapace/cmd/quotapace",
     visibility = ["//visibility:private"],
     deps = [
-        "//devtools/pkg/toolcli:go_default_library",
         "//devtools/quotapace:go_default_library",
         "//devtools/quotapace/internal/collect/claude:go_default_library",
         "//devtools/quotapace/internal/collect/claude/credentials:go_default_library",
+        "@com_github_chorong_sh_chorong//pkg/toolcli:go_default_library",
     ],
 )
 
@@ -40,10 +40,10 @@ go_test(
     ],
     embed = [":go_default_library"],
     deps = [
-        "//devtools/pkg/toolcli:go_default_library",
         "//devtools/quotapace:go_default_library",
         "//devtools/quotapace/internal/collect/claude:go_default_library",
         "//devtools/quotapace/internal/collect/claude/credentials:go_default_library",
+        "@com_github_chorong_sh_chorong//pkg/toolcli:go_default_library",
     ],
 )
 

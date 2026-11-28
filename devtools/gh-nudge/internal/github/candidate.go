@@ -12,9 +12,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/chorong-sh/chorong/pkg/ghcli"
+	"github.com/chorong-sh/chorong/pkg/ghlimit"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
-	"github.com/jaeyeom/experimental/devtools/pkg/ghcli"
-	"github.com/jaeyeom/experimental/devtools/pkg/ghlimit"
 )
 
 // candidateBatchSize caps how many pull requests one batched GraphQL query

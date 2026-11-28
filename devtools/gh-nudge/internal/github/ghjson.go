@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jaeyeom/experimental/devtools/pkg/ghlimit"
+	"github.com/chorong-sh/chorong/pkg/ghlimit"
 )
 
 // emptyStdoutRetryDelay is the wait before the one retry of a gh JSON

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jaeyeom/experimental/devtools/pkg/sqlitedb"
+	"github.com/chorong-sh/chorong/pkg/sqlitedb"
 )
 
 // fixedNow is the tests' clock: 2026-03-10 09:30 UTC.

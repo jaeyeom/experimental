@@ -26,8 +26,8 @@ import (
 	"sort"
 	"strings"
 
+	pkgversion "github.com/chorong-sh/chorong/pkg/version"
 	"github.com/jaeyeom/experimental/devtools/linters/orglintparity"
-	pkgversion "github.com/jaeyeom/experimental/devtools/pkg/version"
 )
 
 func main() {

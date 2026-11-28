@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jaeyeom/experimental/devtools/decide"
+	"github.com/chorong-sh/chorong/decide"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
 	ghoutbox "github.com/jaeyeom/experimental/devtools/gh-outbox"
 	"github.com/jaeyeom/experimental/devtools/pkg/outbox"
