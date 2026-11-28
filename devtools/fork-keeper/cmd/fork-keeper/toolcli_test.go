@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -61,10 +62,16 @@ func TestForkKeeperExtraDoctorChecks(t *testing.T) {
 		}
 	}
 
+	runCmdOK := func(_ context.Context, _ string, _ []string, _ []string) ([]byte, error) {
+		return nil, nil
+	}
+
 	t.Run("standalone-no-reviewer-ok", func(t *testing.T) {
 		res := extraDoctorChecks(
+			context.Background(),
 			[]string{"HOME=/tmp/h", "FORK_KEEPER_SANDBOX=none"},
 			lookPathFound("gh-throttle"),
+			runCmdOK,
 			func() (string, bool) { return "", false },
 		)
 		if len(res) != 3 {
@@ -91,8 +98,10 @@ func TestForkKeeperExtraDoctorChecks(t *testing.T) {
 		}
 
 		res := extraDoctorChecks(
+			context.Background(),
 			[]string{"HOME=" + dir, "FORK_KEEPER_SANDBOX=none"},
 			lookPathFound("gh-throttle", "codex"),
+			runCmdOK,
 			func() (string, bool) { return cfgPath, true },
 		)
 		for _, r := range res {
@@ -100,10 +109,15 @@ func TestForkKeeperExtraDoctorChecks(t *testing.T) {
 				t.Errorf("check %s = %+v, want ok", r.Name, r)
 			}
 		}
+		if !strings.Contains(res[2].Detail, "logged in") {
+			t.Errorf("expected reviewer detail to include logged in, got %q", res[2].Detail)
+		}
 
 		resMissing := extraDoctorChecks(
+			context.Background(),
 			[]string{"HOME=" + dir, "FORK_KEEPER_SANDBOX=bogus"},
 			lookPathFound("gh-throttle"),
+			runCmdOK,
 			func() (string, bool) { return cfgPath, true },
 		)
 		if resMissing[1].Status != toolcli.StatusFail {
@@ -112,6 +126,95 @@ func TestForkKeeperExtraDoctorChecks(t *testing.T) {
 		if resMissing[2].Status != toolcli.StatusFail || !strings.Contains(resMissing[2].Detail, "codex") {
 			t.Errorf("expected reviewer fail for missing codex, got %+v", resMissing[2])
 		}
+	})
+
+	t.Run("reviewer-auth-status", func(t *testing.T) {
+		dir := t.TempDir()
+		cfgPath := filepath.Join(dir, "forks.json")
+
+		t.Run("codex-not-logged-in", func(t *testing.T) {
+			cfgBody := `{"gh_bin":"gh-throttle","reviewer_cmd":["codex","exec"],"forks":[]}`
+			if err := os.WriteFile(cfgPath, []byte(cfgBody), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			res := extraDoctorChecks(
+				context.Background(),
+				[]string{"HOME=" + dir, "FORK_KEEPER_SANDBOX=none"},
+				lookPathFound("gh-throttle", "codex"),
+				func(_ context.Context, bin string, args []string, _ []string) ([]byte, error) {
+					if bin != "/usr/local/bin/codex" || strings.Join(args, " ") != "login status" {
+						t.Fatalf("unexpected auth check call: %s %v", bin, args)
+					}
+					return []byte("Not logged in"), errors.New("exit status 1")
+				},
+				func() (string, bool) { return cfgPath, true },
+			)
+			if res[2].Status != toolcli.StatusWarn {
+				t.Fatalf("expected reviewer warn, got %+v", res[2])
+			}
+			if !strings.Contains(res[2].Detail, "not logged in") || !strings.Contains(res[2].Hint, "codex login") {
+				t.Errorf("unexpected reviewer warn detail/hint: %+v", res[2])
+			}
+		})
+
+		t.Run("claude-logged-in-and-logged-out", func(t *testing.T) {
+			cfgBody := `{"gh_bin":"gh-throttle","reviewer_cmd":["claude","-p"],"forks":[]}`
+			if err := os.WriteFile(cfgPath, []byte(cfgBody), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			resOK := extraDoctorChecks(
+				context.Background(),
+				[]string{"HOME=" + dir, "FORK_KEEPER_SANDBOX=none"},
+				lookPathFound("gh-throttle", "claude"),
+				func(_ context.Context, bin string, args []string, _ []string) ([]byte, error) {
+					if bin != "/usr/local/bin/claude" || strings.Join(args, " ") != "auth status" {
+						t.Fatalf("unexpected auth check call: %s %v", bin, args)
+					}
+					return []byte(`{"loggedIn":true}`), nil
+				},
+				func() (string, bool) { return cfgPath, true },
+			)
+			if resOK[2].Status != toolcli.StatusOK || !strings.Contains(resOK[2].Detail, "logged in") {
+				t.Fatalf("expected claude ok logged in, got %+v", resOK[2])
+			}
+
+			resOut := extraDoctorChecks(
+				context.Background(),
+				[]string{"HOME=" + dir, "FORK_KEEPER_SANDBOX=none"},
+				lookPathFound("gh-throttle", "claude"),
+				func(_ context.Context, _ string, _ []string, _ []string) ([]byte, error) {
+					return []byte(`{"loggedIn":false}`), nil
+				},
+				func() (string, bool) { return cfgPath, true },
+			)
+			if resOut[2].Status != toolcli.StatusWarn || !strings.Contains(resOut[2].Detail, "not logged in") || !strings.Contains(resOut[2].Hint, "claude auth login") {
+				t.Fatalf("expected claude warn not logged in, got %+v", resOut[2])
+			}
+		})
+
+		t.Run("custom-reviewer-available", func(t *testing.T) {
+			cfgBody := `{"gh_bin":"gh-throttle","reviewer_cmd":["my-reviewer"],"forks":[]}`
+			if err := os.WriteFile(cfgPath, []byte(cfgBody), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			called := false
+			res := extraDoctorChecks(
+				context.Background(),
+				[]string{"HOME=" + dir, "FORK_KEEPER_SANDBOX=none"},
+				lookPathFound("gh-throttle", "my-reviewer"),
+				func(_ context.Context, _ string, _ []string, _ []string) ([]byte, error) {
+					called = true
+					return nil, nil
+				},
+				func() (string, bool) { return cfgPath, true },
+			)
+			if called {
+				t.Fatal("did not expect auth command to be run for unknown reviewer")
+			}
+			if res[2].Status != toolcli.StatusOK || !strings.Contains(res[2].Detail, "available") {
+				t.Fatalf("expected custom reviewer available ok, got %+v", res[2])
+			}
+		})
 	})
 
 	t.Run("missing-default-config-is-ok", func(t *testing.T) {

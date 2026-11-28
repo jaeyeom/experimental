@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -9,13 +10,33 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/chorong-sh/chorong/pkg/toolcli"
 	forkkeeper "github.com/jaeyeom/experimental/devtools/fork-keeper"
 )
+
+type cmdRunner func(ctx context.Context, bin string, args []string, env []string) ([]byte, error)
+
+func defaultRunCmd(ctx context.Context, bin string, args []string, env []string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	// bin is resolved via LookPath for a configured reviewer CLI and args are
+	// fixed status subcommands; no shell is invoked.
+	//nolint:gosec // Known reviewer CLI auth status subcommand.
+	// nosemgrep: dangerous-exec-command
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Env = env
+	out, err := cmd.Output()
+	if err != nil {
+		return out, fmt.Errorf("run %s: %w", bin, err)
+	}
+	return out, nil
+}
 
 func newForkKeeperTool() toolcli.Tool {
 	return newForkKeeperToolWith(os.Environ(), exec.LookPath)
@@ -61,19 +82,19 @@ func newForkKeeperToolWith(env []string, lookPath func(string) (string, error)) 
 		},
 		RequiredCommands: []string{"git"},
 		ExtraDoctorCheckGroups: []toolcli.DoctorCheckGroup{
-			func(_ context.Context, _ bool) []toolcli.CheckResult {
+			func(ctx context.Context, _ bool) []toolcli.CheckResult {
 				lp := tool.LookPath
 				if lp == nil {
 					lp = exec.LookPath
 				}
-				return extraDoctorChecks(env, lp, resolveCfgPath)
+				return extraDoctorChecks(ctx, env, lp, defaultRunCmd, resolveCfgPath)
 			},
 		},
 	}
 	return tool
 }
 
-func extraDoctorChecks(env []string, lookPath func(string) (string, error), resolveCfgPath func() (string, bool)) []toolcli.CheckResult {
+func extraDoctorChecks(ctx context.Context, env []string, lookPath func(string) (string, error), runCmd cmdRunner, resolveCfgPath func() (string, bool)) []toolcli.CheckResult {
 	var cfg forkkeeper.Config
 	hasCfg := false
 	if path, ok := resolveCfgPath(); ok {
@@ -85,7 +106,7 @@ func extraDoctorChecks(env []string, lookPath func(string) (string, error), reso
 	return []toolcli.CheckResult{
 		checkGHBin(cfg, env, lookPath),
 		checkSandbox(env, lookPath),
-		checkReviewer(cfg, hasCfg, env, lookPath),
+		checkReviewer(ctx, cfg, hasCfg, env, lookPath, runCmd),
 	}
 }
 
@@ -144,7 +165,7 @@ func checkSandbox(env []string, lookPath func(string) (string, error)) toolcli.C
 	}
 }
 
-func checkReviewer(cfg forkkeeper.Config, hasCfg bool, env []string, lookPath func(string) (string, error)) toolcli.CheckResult {
+func checkReviewer(ctx context.Context, cfg forkkeeper.Config, hasCfg bool, env []string, lookPath func(string) (string, error), runCmd cmdRunner) toolcli.CheckResult {
 	names, err := collectConfiguredReviewerBins(cfg, hasCfg, env)
 	if err != nil {
 		return toolcli.CheckResult{
@@ -162,11 +183,15 @@ func checkReviewer(cfg forkkeeper.Config, hasCfg bool, env []string, lookPath fu
 		}
 	}
 
+	resolved := make(map[string]string, len(names))
 	var missing []string
 	for _, b := range names {
-		if _, err := lookPath(b); err != nil {
+		p, err := lookPath(b)
+		if err != nil {
 			missing = append(missing, b)
+			continue
 		}
+		resolved[b] = p
 	}
 	if len(missing) > 0 {
 		return toolcli.CheckResult{
@@ -176,10 +201,72 @@ func checkReviewer(cfg forkkeeper.Config, hasCfg bool, env []string, lookPath fu
 			Hint:   "install the configured reviewer command or clear agent/reviewer_cmd for built-in standalone mode",
 		}
 	}
+
+	details := make([]string, 0, len(names))
+	var hints []string
+	seenHint := make(map[string]bool)
+	hasAuthWarn := false
+	for _, b := range names {
+		p := resolved[b]
+		checked, loggedIn, hint := checkReviewerAuth(ctx, b, p, env, runCmd)
+		switch {
+		case checked && !loggedIn:
+			hasAuthWarn = true
+			details = append(details, fmt.Sprintf("%s (%s, not logged in)", b, p))
+			if hint != "" && !seenHint[hint] {
+				seenHint[hint] = true
+				hints = append(hints, hint)
+			}
+		case checked && loggedIn:
+			details = append(details, fmt.Sprintf("%s (%s, logged in)", b, p))
+		default:
+			details = append(details, fmt.Sprintf("%s (%s, available)", b, p))
+		}
+	}
+	if hasAuthWarn {
+		return toolcli.CheckResult{
+			Name:   "reviewer",
+			Status: toolcli.StatusWarn,
+			Detail: "configured: " + strings.Join(details, "; "),
+			Hint:   strings.Join(hints, "; "),
+		}
+	}
 	return toolcli.CheckResult{
 		Name:   "reviewer",
 		Status: toolcli.StatusOK,
-		Detail: "configured: " + strings.Join(names, ", "),
+		Detail: "configured: " + strings.Join(details, "; "),
+	}
+}
+
+func checkReviewerAuth(ctx context.Context, binName, resolvedPath string, env []string, runCmd cmdRunner) (checked bool, loggedIn bool, hint string) {
+	if runCmd == nil {
+		return false, false, ""
+	}
+	base := filepath.Base(binName)
+	if base == "." || base == string(filepath.Separator) {
+		base = filepath.Base(resolvedPath)
+	}
+	switch base {
+	case "codex":
+		_, err := runCmd(ctx, resolvedPath, []string{"login", "status"}, env)
+		if err != nil {
+			return true, false, "run `codex login` to authenticate"
+		}
+		return true, true, ""
+	case "claude":
+		out, err := runCmd(ctx, resolvedPath, []string{"auth", "status"}, env)
+		if err != nil {
+			return true, false, "run `claude auth login` to authenticate"
+		}
+		var parsed struct {
+			LoggedIn *bool `json:"loggedIn"`
+		}
+		if len(out) > 0 && json.Unmarshal(out, &parsed) == nil && parsed.LoggedIn != nil && !*parsed.LoggedIn {
+			return true, false, "run `claude auth login` to authenticate"
+		}
+		return true, true, ""
+	default:
+		return false, false, ""
 	}
 }
 
@@ -193,6 +280,9 @@ func collectConfiguredReviewerBins(cfg forkkeeper.Config, hasCfg bool, env []str
 		globalCmd = cfg.ReviewerCmd
 	}
 	bins := make(map[string]bool)
+	if len(globalCmd) > 0 {
+		bins[globalCmd[0]] = true
+	}
 	for _, f := range forks {
 		cmd, err := f.EffectiveReviewerCommand(nil, globalCmd, env)
 		if err != nil {
