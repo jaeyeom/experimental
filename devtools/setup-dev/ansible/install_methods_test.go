@@ -299,39 +299,63 @@ func TestGoInstallMethodRenderInstallTask(t *testing.T) {
 	})
 
 	t.Run("experimental module uses experimental_ref defaulting to main", func(t *testing.T) {
-		method := GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/decide/cmd/decide@main"}
+		method := GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/slackwatch/cmd/slackwatch@main"}
+		got := method.RenderInstallTask("slackwatch")
+
+		listTask := ansibleTask(t, got, "Determine the latest slackwatch version")
+		compareTask := ansibleTask(t, got, "Compare slackwatch installed and target versions")
+		installTask := ansibleTask(t, got, "Upgrade slackwatch")
+		assertContains(t, listTask, []string{
+			`"github.com/jaeyeom/experimental@{{ experimental_ref | default('main') }}"`,
+			"slackwatch_module_path == 'github.com/jaeyeom/experimental'",
+		})
+		assertNotContains(t, listTask, []string{"slackwatch_module_path }}@"})
+		assertContains(t, compareTask, []string{
+			"--installed-module",
+			`"{{ slackwatch_module_path | default('') | trim }}"`,
+			"--target-module",
+			"github.com/jaeyeom/experimental",
+		})
+		assertContains(t, installTask, []string{
+			"go install github.com/jaeyeom/experimental/devtools/slackwatch/cmd/slackwatch@{{ experimental_ref | default('main') }}",
+		})
+		assertNotContains(t, got, []string{"@latest"})
+	})
+
+	t.Run("chorong module uses chorong_ref defaulting to latest", func(t *testing.T) {
+		method := GoInstallMethod{PkgPath: "github.com/chorong-sh/chorong/decide/cmd/decide@latest"}
 		got := method.RenderInstallTask("decide")
 
 		listTask := ansibleTask(t, got, "Determine the latest decide version")
 		compareTask := ansibleTask(t, got, "Compare decide installed and target versions")
 		installTask := ansibleTask(t, got, "Upgrade decide")
 		assertContains(t, listTask, []string{
-			`"github.com/jaeyeom/experimental@{{ experimental_ref | default('main') }}"`,
-			"decide_module_path == 'github.com/jaeyeom/experimental'",
+			`"github.com/chorong-sh/chorong@{{ chorong_ref | default('latest') }}"`,
+			"decide_module_path == 'github.com/chorong-sh/chorong'",
 		})
 		assertNotContains(t, listTask, []string{"decide_module_path }}@"})
 		assertContains(t, compareTask, []string{
 			"--installed-module",
 			`"{{ decide_module_path | default('') | trim }}"`,
 			"--target-module",
-			"github.com/jaeyeom/experimental",
+			"github.com/chorong-sh/chorong",
 		})
 		assertContains(t, installTask, []string{
-			"go install github.com/jaeyeom/experimental/devtools/decide/cmd/decide@{{ experimental_ref | default('main') }}",
+			"go install github.com/chorong-sh/chorong/decide/cmd/decide@{{ chorong_ref | default('latest') }}",
 		})
-		assertNotContains(t, got, []string{"@latest"})
+		assertNotContains(t, got, []string{"experimental_ref"})
 	})
 
 	t.Run("factory module migration checks target module path", func(t *testing.T) {
-		method := GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/factory/cmd/factory@main"}
+		method := GoInstallMethod{PkgPath: "github.com/chorong-sh/chorong/factory/cmd/factory@latest"}
 		got := method.RenderInstallTask("factory")
 
 		listTask := ansibleTask(t, got, "Determine the latest factory version")
 		debugTask := ansibleTask(t, got, "Debug module path and version")
 		compareTask := ansibleTask(t, got, "Compare factory installed and target versions")
 		assertContains(t, listTask, []string{
-			`"github.com/jaeyeom/experimental@{{ experimental_ref | default('main') }}"`,
-			"factory_module_path == 'github.com/jaeyeom/experimental'",
+			`"github.com/chorong-sh/chorong@{{ chorong_ref | default('latest') }}"`,
+			"factory_module_path == 'github.com/chorong-sh/chorong'",
 		})
 		assertContains(t, debugTask, []string{
 			"(factory_latest | default({})).stdout | default('')",
@@ -340,7 +364,7 @@ func TestGoInstallMethodRenderInstallTask(t *testing.T) {
 			"--installed-module",
 			`"{{ factory_module_path | default('') | trim }}"`,
 			"--target-module",
-			"github.com/jaeyeom/experimental",
+			"github.com/chorong-sh/chorong",
 		})
 	})
 

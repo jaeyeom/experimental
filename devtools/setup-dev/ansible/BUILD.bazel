@@ -414,6 +414,7 @@ sh_test(
         "setup-hub-client.yml",
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
+        "slackwatch.yml",
         "tasks/github-release-info.yml",
     ],
     tags = [

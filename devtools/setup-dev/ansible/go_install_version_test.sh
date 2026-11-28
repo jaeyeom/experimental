@@ -187,8 +187,8 @@ env)
 version)
     # go version -m <bin>
     printf '%s: %s\n' "$3" "${FAKE_INSTALLED_GO:-go1.27.4}"
-    printf '\tpath\t%s\n' "${FAKE_MOD_PATH:-github.com/jaeyeom/experimental/devtools/decide/cmd/decide}"
-    printf '\tmod\t%s\t%s\th1:fake=\n' "${FAKE_MOD_ROOT:-github.com/jaeyeom/experimental}" "${FAKE_INSTALLED_VER}"
+    printf '\tpath\t%s\n' "${FAKE_MOD_PATH:-github.com/chorong-sh/chorong/decide/cmd/decide}"
+    printf '\tmod\t%s\t%s\th1:fake=\n' "${FAKE_MOD_ROOT:-github.com/chorong-sh/chorong}" "${FAKE_INSTALLED_VER}"
     ;;
 list)
     # go list -m -f ... <mod>@<ref>
@@ -280,18 +280,18 @@ run_pb() {
 PIDS=""
 
 # Scenario 1: decide.yml skips downgrade when installed main pseudo-version is
-# newer than resolved target (even if built with an older Go toolchain).
+# newer than resolved @latest target (even if built with an older Go toolchain).
 (
 	setup_case s1
 	install_fake_bin decide
 	FAKE_INSTALLED_VER="v0.1.1-0.20261125230000-abcdef123456" \
 	FAKE_INSTALLED_GO="go1.26.0" \
 	FAKE_TOOLCHAIN_GO="go1.27.4" \
-	FAKE_MAIN_VER="v0.1.0" \
+	FAKE_LATEST_VER="v0.1.0" \
 		run_pb "${SCRIPT_DIR}/decide.yml"
-	grep -qE 'go list -m -f \{\{\.Version ?\}\} github\.com/jaeyeom/experimental@main$' "$GO_LOG" || {
+	grep -qE 'go list -m -f \{\{\.Version ?\}\} github\.com/chorong-sh/chorong@latest$' "$GO_LOG" || {
 		cat "$GO_LOG" >&2
-		fail "decide.yml did not resolve @main"
+		fail "decide.yml did not resolve @latest"
 	}
 	if grep -q '^INSTALL ' "$GO_LOG"; then
 		cat "$GO_LOG" >&2
@@ -304,23 +304,23 @@ PIDS=""
 ) &
 PIDS="$PIDS $!"
 
-# Scenario 2: decide.yml upgrades when target @main is a newer pseudo-version.
+# Scenario 2: decide.yml upgrades when target @latest is newer.
 (
 	setup_case s2
 	install_fake_bin decide
 	FAKE_INSTALLED_VER="v0.1.0" \
 	FAKE_INSTALLED_GO="go1.27.4" \
 	FAKE_TOOLCHAIN_GO="go1.27.4" \
-	FAKE_MAIN_VER="v0.1.1-0.20261125230000-abcdef123456" \
+	FAKE_LATEST_VER="v0.1.1" \
 		run_pb "${SCRIPT_DIR}/decide.yml"
-	grep -qxF 'INSTALL github.com/jaeyeom/experimental/devtools/decide/cmd/decide@main' "$GO_LOG" || {
+	grep -qxF 'INSTALL github.com/chorong-sh/chorong/decide/cmd/decide@latest' "$GO_LOG" || {
 		cat "$GO_LOG" >&2
-		fail "decide.yml did not install @main when target was newer"
+		fail "decide.yml did not install @latest when target was newer"
 	}
 ) &
 PIDS="$PIDS $!"
 
-# Scenario 3: experimental_ref pins both go list -m and go install to one ref.
+# Scenario 3: chorong_ref pins both go list -m and go install to one ref.
 (
 	setup_case s3
 	install_fake_bin decide
@@ -328,35 +328,57 @@ PIDS="$PIDS $!"
 	FAKE_INSTALLED_GO="go1.27.4" \
 	FAKE_TOOLCHAIN_GO="go1.27.4" \
 	FAKE_PINNED_VER="v0.1.1-0.20261125120000-deadbeef1234" \
-		run_pb -e experimental_ref=deadbeef1234 "${SCRIPT_DIR}/decide.yml"
-	grep -qE 'go list -m -f \{\{\.Version ?\}\} github\.com/jaeyeom/experimental@deadbeef1234$' "$GO_LOG" || {
+		run_pb -e chorong_ref=deadbeef1234 "${SCRIPT_DIR}/decide.yml"
+	grep -qE 'go list -m -f \{\{\.Version ?\}\} github\.com/chorong-sh/chorong@deadbeef1234$' "$GO_LOG" || {
 		cat "$GO_LOG" >&2
-		fail "decide.yml did not pass experimental_ref to go list"
+		fail "decide.yml did not pass chorong_ref to go list"
 	}
-	grep -qxF 'INSTALL github.com/jaeyeom/experimental/devtools/decide/cmd/decide@deadbeef1234' "$GO_LOG" || {
+	grep -qxF 'INSTALL github.com/chorong-sh/chorong/decide/cmd/decide@deadbeef1234' "$GO_LOG" || {
 		cat "$GO_LOG" >&2
-		fail "decide.yml did not pass experimental_ref to go install"
+		fail "decide.yml did not pass chorong_ref to go install"
 	}
 ) &
 PIDS="$PIDS $!"
 
-# Scenario 4: experimental_ref can be set in ~/.config/setup-dev/vars.yml.
+# Scenario 4: chorong_ref and experimental_ref can be set in ~/.config/setup-dev/vars.yml.
 (
 	setup_case s4
 	install_fake_bin decide
 	mkdir -p "${HOME}/.config/setup-dev"
-	printf 'experimental_ref: deadbeef1234\n' >"${HOME}/.config/setup-dev/vars.yml"
+	printf 'chorong_ref: deadbeef1234\n' >"${HOME}/.config/setup-dev/vars.yml"
 	FAKE_INSTALLED_VER="v0.1.0" \
 	FAKE_INSTALLED_GO="go1.27.4" \
 	FAKE_TOOLCHAIN_GO="go1.27.4" \
 	FAKE_PINNED_VER="v0.1.1-0.20261125120000-deadbeef1234" \
 		run_pb "${SCRIPT_DIR}/decide.yml"
-	grep -qxF 'INSTALL github.com/jaeyeom/experimental/devtools/decide/cmd/decide@deadbeef1234' "$GO_LOG" || {
+	grep -qxF 'INSTALL github.com/chorong-sh/chorong/decide/cmd/decide@deadbeef1234' "$GO_LOG" || {
 		cat "$GO_LOG" >&2
-		fail "decide.yml did not read experimental_ref from vars.yml"
+		fail "decide.yml did not read chorong_ref from vars.yml"
 	}
 ) &
 PIDS="$PIDS $!"
+
+# Scenario 4b: experimental_ref still works for non-migrated experimental tools.
+if [ ! -e "${ANSIBLE_BIN_DIR}/slackwatch" ]; then
+	(
+		setup_case s4b
+		install_fake_bin slackwatch
+		mkdir -p "${HOME}/.config/setup-dev"
+		printf 'experimental_ref: deadbeef1234\n' >"${HOME}/.config/setup-dev/vars.yml"
+		FAKE_MOD_PATH="github.com/jaeyeom/experimental/devtools/slackwatch/cmd/slackwatch" \
+		FAKE_MOD_ROOT="github.com/jaeyeom/experimental" \
+		FAKE_INSTALLED_VER="v0.1.0" \
+		FAKE_INSTALLED_GO="go1.27.4" \
+		FAKE_TOOLCHAIN_GO="go1.27.4" \
+		FAKE_PINNED_VER="v0.1.1-0.20261125120000-deadbeef1234" \
+			run_pb "${SCRIPT_DIR}/slackwatch.yml"
+		grep -qxF 'INSTALL github.com/jaeyeom/experimental/devtools/slackwatch/cmd/slackwatch@deadbeef1234' "$GO_LOG" || {
+			cat "$GO_LOG" >&2
+			fail "slackwatch.yml did not read experimental_ref from vars.yml"
+		}
+	) &
+	PIDS="$PIDS $!"
+fi
 
 # Scenario 5: Third-party tool (gopls.yml) keeps using @latest.
 if [ ! -e "${ANSIBLE_BIN_DIR}/gopls" ]; then
@@ -410,17 +432,17 @@ if [ ! -e "${ANSIBLE_BIN_DIR}/diskwatch" ]; then
 	PIDS="$PIDS $!"
 fi
 
-# Scenario 7: setup-hub-client.yml (--tags hub-install) uses main by default and
+# Scenario 7: setup-hub-client.yml (--tags hub-install) uses latest by default and
 # refuses to downgrade.
 (
 	setup_case s7
 	install_fake_bin agentbus
-	FAKE_INSTALLED_VER="v0.1.1-0.20261125230000-abcdef123456" \
-	FAKE_MAIN_VER="v0.1.0" \
+	FAKE_INSTALLED_VER="v0.1.2-0.20261125230000-abcdef123456" \
+	FAKE_LATEST_VER="v0.1.1" \
 		run_pb --tags hub-install -e hub_ssh_target=me@hub.example -e client_machine_label=laptop "${SCRIPT_DIR}/setup-hub-client.yml"
-	grep -qE 'go list -m -f \{\{\.Version ?\}\} github\.com/jaeyeom/experimental@main$' "$GO_LOG" || {
+	grep -qE 'go list -m -f \{\{\.Version ?\}\} github\.com/chorong-sh/chorong@latest$' "$GO_LOG" || {
 		cat "$GO_LOG" >&2
-		fail "setup-hub-client.yml did not resolve @main"
+		fail "setup-hub-client.yml did not resolve @latest"
 	}
 	if grep -q '^INSTALL ' "$GO_LOG"; then
 		cat "$GO_LOG" >&2
@@ -434,26 +456,26 @@ fi
 PIDS="$PIDS $!"
 
 # Scenario 8: factory.yml migrates an existing factory binary installed from
-# github.com/jaeyeom/agentic-factory to github.com/jaeyeom/experimental without
+# github.com/jaeyeom/experimental to github.com/chorong-sh/chorong without
 # querying the stale module path.
 if [ ! -e "${ANSIBLE_BIN_DIR}/factory" ]; then
 	(
 		setup_case s8
 		install_fake_bin factory
-		FAKE_MOD_PATH="github.com/jaeyeom/agentic-factory/cmd/factory" \
-		FAKE_MOD_ROOT="github.com/jaeyeom/agentic-factory" \
+		FAKE_MOD_PATH="github.com/jaeyeom/experimental/devtools/factory/cmd/factory" \
+		FAKE_MOD_ROOT="github.com/jaeyeom/experimental" \
 		FAKE_INSTALLED_VER="v9.9.9" \
 		FAKE_INSTALLED_GO="go1.27.4" \
 		FAKE_TOOLCHAIN_GO="go1.27.4" \
-		FAKE_MAIN_VER="v0.1.0" \
+		FAKE_LATEST_VER="v0.1.1" \
 			run_pb -e gh_playbook_imported=true -e herdr_playbook_imported=true "${SCRIPT_DIR}/factory.yml"
-		if grep -q 'github\.com/jaeyeom/agentic-factory@' "$GO_LOG"; then
+		if grep -q 'github\.com/jaeyeom/experimental@' "$GO_LOG"; then
 			cat "$GO_LOG" >&2
-			fail "factory.yml queried stale agentic-factory module in go list -m"
+			fail "factory.yml queried stale experimental module in go list -m"
 		fi
-		grep -qxF 'INSTALL github.com/jaeyeom/experimental/devtools/factory/cmd/factory@main' "$GO_LOG" || {
+		grep -qxF 'INSTALL github.com/chorong-sh/chorong/factory/cmd/factory@latest' "$GO_LOG" || {
 			cat "$GO_LOG" >&2
-			fail "factory.yml did not reinstall factory from github.com/jaeyeom/experimental"
+			fail "factory.yml did not reinstall factory from github.com/chorong-sh/chorong"
 		}
 	) &
 	PIDS="$PIDS $!"

@@ -287,6 +287,19 @@ func (p PlatformSpecificTool) UsesExperimentalRef() bool {
 	return false
 }
 
+// UsesRepoRef returns true if any platform install method targets a repo
+// Go module whose ref can be overridden via ~/.config/setup-dev/vars.yml.
+func (p PlatformSpecificTool) UsesRepoRef() bool {
+	for _, method := range p.platforms {
+		if g, ok := method.(GoInstallMethod); ok {
+			if _, isRepo := g.repoModule(); isRepo {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // GetPostImports returns the imports that should be emitted after the install
 // play (i.e. those marked PostInstall: true). The When field is preserved as-is
 // from the explicit Imports slice; only explicit imports can be post-install.

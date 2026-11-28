@@ -188,12 +188,27 @@ func TestGhExtension(t *testing.T) {
 }
 
 func TestUsesExperimentalRef(t *testing.T) {
-	exp := experimentalGoTool("decide", "devtools/decide/cmd/decide")
+	exp := experimentalGoTool("slackwatch", "devtools/slackwatch/cmd/slackwatch")
 	if !exp.UsesExperimentalRef() {
 		t.Error("expected UsesExperimentalRef() = true for experimental GoTool")
 	}
+	if !exp.UsesRepoRef() {
+		t.Error("expected UsesRepoRef() = true for experimental GoTool")
+	}
+
+	chorong := chorongGoTool("decide", "decide/cmd/decide")
+	if chorong.UsesExperimentalRef() {
+		t.Error("expected UsesExperimentalRef() = false for chorong GoTool")
+	}
+	if !chorong.UsesRepoRef() {
+		t.Error("expected UsesRepoRef() = true for chorong GoTool")
+	}
+
 	thirdParty := GoTool("gopls", "golang.org/x/tools/gopls@latest")
 	if thirdParty.UsesExperimentalRef() {
 		t.Error("expected UsesExperimentalRef() = false for third-party GoTool")
+	}
+	if thirdParty.UsesRepoRef() {
+		t.Error("expected UsesRepoRef() = false for third-party GoTool")
 	}
 }

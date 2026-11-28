@@ -36,14 +36,14 @@
             gh_slack_module_path: "{{ gh_slack_installed.stdout.split()[1] }}"
             gh_slack_module_version: "{{ gh_slack_installed.stdout.split()[2] }}"
         - name: Determine the latest gh-slack version
-          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "github.com/jaeyeom/experimental@{{ experimental_ref | default('main') }}"
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "github.com/chorong-sh/chorong@{{ chorong_ref | default('latest') }}"
           register: gh_slack_latest
           ignore_errors: yes
           changed_when: False
           when: >-
             gh_slack_module_path | length > 0 and
-            (gh_slack_module_path == 'github.com/jaeyeom/experimental' or
-            'github.com/jaeyeom/experimental'.startswith(gh_slack_module_path ~ '/'))
+            (gh_slack_module_path == 'github.com/chorong-sh/chorong' or
+            'github.com/chorong-sh/chorong'.startswith(gh_slack_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
@@ -72,7 +72,7 @@
           - --installed-module
           - "{{ gh_slack_module_path | default('') | trim }}"
           - --target-module
-          - github.com/jaeyeom/experimental
+          - github.com/chorong-sh/chorong
       register: gh_slack_version_check
       changed_when: false
       check_mode: false
@@ -83,7 +83,7 @@
       when: (gh_slack_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
 
     - name: Upgrade gh-slack
-      command: go install github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-slack@{{ experimental_ref | default('main') }}
+      command: go install github.com/chorong-sh/chorong/gh-nudge/cmd/gh-slack@{{ chorong_ref | default('latest') }}
       register: gh_slack_upgrade
       until: gh_slack_upgrade is succeeded
       retries: 3

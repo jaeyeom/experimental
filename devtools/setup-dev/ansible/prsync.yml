@@ -39,14 +39,14 @@
             prsync_module_path: "{{ prsync_installed.stdout.split()[1] }}"
             prsync_module_version: "{{ prsync_installed.stdout.split()[2] }}"
         - name: Determine the latest prsync version
-          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "github.com/jaeyeom/experimental@{{ experimental_ref | default('main') }}"
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "github.com/chorong-sh/chorong@{{ chorong_ref | default('latest') }}"
           register: prsync_latest
           ignore_errors: yes
           changed_when: False
           when: >-
             prsync_module_path | length > 0 and
-            (prsync_module_path == 'github.com/jaeyeom/experimental' or
-            'github.com/jaeyeom/experimental'.startswith(prsync_module_path ~ '/'))
+            (prsync_module_path == 'github.com/chorong-sh/chorong' or
+            'github.com/chorong-sh/chorong'.startswith(prsync_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
@@ -75,7 +75,7 @@
           - --installed-module
           - "{{ prsync_module_path | default('') | trim }}"
           - --target-module
-          - github.com/jaeyeom/experimental
+          - github.com/chorong-sh/chorong
       register: prsync_version_check
       changed_when: false
       check_mode: false
@@ -86,7 +86,7 @@
       when: (prsync_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
 
     - name: Upgrade prsync
-      command: go install github.com/jaeyeom/experimental/devtools/prsync/cmd/prsync@{{ experimental_ref | default('main') }}
+      command: go install github.com/chorong-sh/chorong/prsync/cmd/prsync@{{ chorong_ref | default('latest') }}
       register: prsync_upgrade
       until: prsync_upgrade is succeeded
       retries: 3

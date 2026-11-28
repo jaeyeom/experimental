@@ -3,6 +3,12 @@
 
 - name: Setup cleanup-repo script
   hosts: all
+  vars_files:
+    - - "{{ (lookup('ansible.builtin.env', 'XDG_CONFIG_HOME') or (lookup('ansible.builtin.env', 'HOME') ~ '/.config')) ~ '/setup-dev/vars.yml' }}"
+      - /dev/null
+  vars:
+    cleanup_repo_dest: "{{ ansible_facts['env']['HOME'] }}/.local/bin/cleanup-repo"
+    cleanup_repo_ref: "{{ chorong_ref if (chorong_ref | default('') | length > 0 and chorong_ref != 'latest') else 'main' }}"
   tasks:
     - name: Include guard for cleanup-repo playbook
       block:
@@ -14,10 +20,20 @@
             cleanup_repo_playbook_imported: true
           when: cleanup_repo_playbook_imported is not defined
 
-    - name: Create symbolic link for cleanup-repo.sh
+    - name: Check if cleanup-repo is a legacy symlink
+      ansible.builtin.stat:
+        path: "{{ cleanup_repo_dest }}"
+      register: cleanup_repo_stat
+
+    - name: Remove legacy cleanup-repo symlink before downloading
       ansible.builtin.file:
-        src: "{{ ansible_facts['env']['HOME'] }}/go/src/github.com/jaeyeom/experimental/devtools/gh-nudge/cleanup-repo.sh"
-        dest: "{{ ansible_facts['env']['HOME'] }}/.local/bin/cleanup-repo"
-        state: link
-        force: yes
+        path: "{{ cleanup_repo_dest }}"
+        state: absent
+      when: cleanup_repo_stat.stat.islnk | default(false)
+
+    - name: Download cleanup-repo script from chorong-sh/chorong
+      ansible.builtin.get_url:
+        url: "https://raw.githubusercontent.com/chorong-sh/chorong/{{ cleanup_repo_ref }}/gh-nudge/cleanup-repo.sh"
+        dest: "{{ cleanup_repo_dest }}"
         mode: '0755'
+        force: yes

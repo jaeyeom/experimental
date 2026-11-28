@@ -74,7 +74,8 @@ def _compare_pre(a: tuple[str, ...], b: tuple[str, ...]) -> int:
         return 1
     if not b:
         return -1
-    for pa, pb in zip(a, b, strict=False):
+    for i in range(min(len(a), len(b))):
+        pa, pb = a[i], b[i]
         if pa == pb:
             continue
         a_num = pa.isdigit()

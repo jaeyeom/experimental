@@ -163,17 +163,27 @@ func tflintReleaseInstall(goos string) ShellInstallMethod {
 // last release tag; playbooks also allow overriding via experimental_ref.
 const experimentalVersion = "main"
 
-// ghNudgeVersion is the version every gh-nudge command installs. The
+// chorongVersion is the default ref used for Wave 1 tools graduated to
+// github.com/chorong-sh/chorong. Using "latest" resolves to the latest
+// published release tag (v0.1.1+); playbooks also allow overriding via
+// chorong_ref.
+const chorongVersion = "latest"
+
+// ghNudgeVersion is the version every migrated gh-nudge command installs. The
 // family shares one pkl/Config.pkl, and an older binary warns about
 // unknown fields.
-const ghNudgeVersion = experimentalVersion
+const ghNudgeVersion = chorongVersion
 
 func experimentalGoTool(command string, pkgPath string, imports ...Import) PlatformSpecificTool {
-	return GoTool(command, "github.com/jaeyeom/experimental/"+pkgPath+"@"+experimentalVersion, imports...)
+	return GoTool(command, experimentalModule+"/"+pkgPath+"@"+experimentalVersion, imports...)
+}
+
+func chorongGoTool(command string, pkgPath string, imports ...Import) PlatformSpecificTool {
+	return GoTool(command, chorongModule+"/"+pkgPath+"@"+chorongVersion, imports...)
 }
 
 func ghNudgeTool(name string) PlatformSpecificTool {
-	return experimentalGoTool(name, "devtools/gh-nudge/cmd/"+name, Import{Playbook: "gh"})
+	return chorongGoTool(name, "gh-nudge/cmd/"+name, Import{Playbook: "gh"})
 }
 
 // emacsApplicationsAliasSuffix runs emacs_app_link.sh after the Darwin
@@ -442,7 +452,7 @@ var platformSpecificTools = []PlatformSpecificTool{
 		},
 		Imports: nil,
 	},
-	experimentalGoTool("decide", "devtools/decide/cmd/decide"),
+	chorongGoTool("decide", "decide/cmd/decide"),
 	{
 		command: "delta",
 		platforms: map[PlatformName]InstallMethod{
@@ -539,7 +549,7 @@ ln -sf {{ user_bin_directory }}/../lib/detekt/bin/detekt-cli {{ user_bin_directo
 	},
 	// factory drives herdr from a Jira/GitHub mirror. herdr has no Termux
 	// build; the factory binary still installs there via go install.
-	experimentalGoTool("factory", "devtools/factory/cmd/factory", Import{Playbook: "gh"}, Import{Playbook: "herdr", When: WhenNotTermux}),
+	chorongGoTool("factory", "factory/cmd/factory", Import{Playbook: "gh"}, Import{Playbook: "herdr", When: WhenNotTermux}),
 	{
 		command: "fd",
 		platforms: map[PlatformName]InstallMethod{
@@ -587,7 +597,7 @@ ln -sf {{ user_bin_directory }}/../lib/detekt/bin/detekt-cli {{ user_bin_directo
 	ghNudgeTool("gh-codeowners"),
 	ghNudgeTool("gh-merge"),
 	ghNudgeTool("gh-nudge"),
-	ghNudgeTool("gh-pr-review"),
+	experimentalGoTool("gh-pr-review", "devtools/gh-nudge/cmd/gh-pr-review", Import{Playbook: "gh"}),
 	GhExtension("gh-repox", "jaeyeom/gh-repox"),
 	ghNudgeTool("gh-slack"),
 	ghNudgeTool("gh-storage"),
@@ -932,7 +942,7 @@ curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix 
 	GoTool("protolint", "github.com/yoheimuta/protolint/cmd/protolint@latest"),
 	// herdr has no Termux build. prsync still installs there and warns when
 	// the binary is absent; do not import the herdr playbook on Termux.
-	experimentalGoTool("prsync", "devtools/prsync/cmd/prsync", Import{Playbook: "gh"}, Import{Playbook: "herdr", When: WhenNotTermux}),
+	chorongGoTool("prsync", "prsync/cmd/prsync", Import{Playbook: "gh"}, Import{Playbook: "herdr", When: WhenNotTermux}),
 	{
 		command: "pylsp",
 		platforms: map[PlatformName]InstallMethod{

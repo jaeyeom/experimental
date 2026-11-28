@@ -111,7 +111,7 @@ const platformSpecificTemplate = `---
 
 - name: Ensure {{.Command}} is present
   hosts: all
-{{- if .UsesExperimentalRef }}
+{{- if .UsesRepoRef }}
   # The first file found is loaded. /dev/null keeps a missing vars file
   # from failing the play.
   vars_files:

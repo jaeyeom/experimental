@@ -579,12 +579,12 @@ func TestFactorySkillInstall(t *testing.T) {
 
 	factory := read("factory.yml")
 	for _, want := range []string{
-		`command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "github.com/jaeyeom/experimental@{{ experimental_ref | default('main') }}"`,
+		`command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "github.com/chorong-sh/chorong@{{ chorong_ref | default('latest') }}"`,
 		"- --installed-module",
 		`- "{{ factory_module_path | default('') | trim }}"`,
 		"- --target-module",
-		"- github.com/jaeyeom/experimental",
-		"command: go install github.com/jaeyeom/experimental/devtools/factory/cmd/factory@{{ experimental_ref | default('main') }}",
+		"- github.com/chorong-sh/chorong",
+		"command: go install github.com/chorong-sh/chorong/factory/cmd/factory@{{ chorong_ref | default('latest') }}",
 	} {
 		if !strings.Contains(factory, want) {
 			t.Errorf("factory.yml missing %q", want)
@@ -740,8 +740,8 @@ func TestDecideSkillInstall(t *testing.T) {
 	}
 
 	decide := read("decide.yml")
-	if !strings.Contains(decide, "command: go install github.com/jaeyeom/experimental/devtools/decide/cmd/decide@{{ experimental_ref | default('main') }}") {
-		t.Error("decide.yml missing go install of devtools/decide/cmd/decide with experimental_ref")
+	if !strings.Contains(decide, "command: go install github.com/chorong-sh/chorong/decide/cmd/decide@{{ chorong_ref | default('latest') }}") {
+		t.Error("decide.yml missing go install of decide/cmd/decide with chorong_ref")
 	}
 
 	vibe := read("setup-vibe-coding.yml")
@@ -873,7 +873,10 @@ func TestClaudeSandboxFormatsJSWithOxfmt(t *testing.T) {
 }
 
 func TestNoExperimentalModuleUsesLatest(t *testing.T) {
-	const expMod = "github.com/jaeyeom/experimental"
+	const (
+		expMod     = "github.com/jaeyeom/experimental"
+		chorongMod = "github.com/chorong-sh/chorong"
+	)
 
 	for _, tool := range platformSpecificTools {
 		for platform, method := range tool.platforms {
@@ -909,29 +912,39 @@ func TestNoExperimentalModuleUsesLatest(t *testing.T) {
 			t.Fatal(err)
 		}
 		text := string(raw)
-		if !strings.Contains(text, expMod) {
-			continue
-		}
-		for i, line := range strings.Split(text, "\n") {
-			if strings.Contains(line, "go install") || strings.Contains(line, "go list") || strings.Contains(line, "hub_client_version") {
-				if strings.Contains(line, "@latest") || strings.Contains(line, "default('latest')") {
-					t.Errorf("%s:%d uses @latest for an experimental module: %s", entry.Name(), i+1, strings.TrimSpace(line))
+		if strings.Contains(text, expMod) {
+			for i, line := range strings.Split(text, "\n") {
+				if strings.Contains(line, "go install") || strings.Contains(line, "go list") || strings.Contains(line, "hub_client_version") {
+					if strings.Contains(line, "@latest") || strings.Contains(line, "default('latest')") {
+						t.Errorf("%s:%d uses @latest for an experimental module: %s", entry.Name(), i+1, strings.TrimSpace(line))
+					}
+				}
+			}
+			if strings.Contains(text, "go install "+expMod) {
+				for _, want := range []string{
+					"{{ experimental_ref | default('main') }}",
+					"go_version_compare.py",
+				} {
+					if !strings.Contains(text, want) {
+						t.Errorf("%s installs an experimental module without %q", entry.Name(), want)
+					}
 				}
 			}
 		}
-		if strings.Contains(text, "go install "+expMod) {
+		if strings.Contains(text, "go install "+chorongMod) {
 			for _, want := range []string{
-				"{{ experimental_ref | default('main') }}",
+				"{{ chorong_ref | default('latest') }}",
 				"go_version_compare.py",
 			} {
 				if !strings.Contains(text, want) {
-					t.Errorf("%s installs an experimental module without %q", entry.Name(), want)
+					t.Errorf("%s installs a chorong module without %q", entry.Name(), want)
 				}
 			}
 		}
 		if entry.Name() == "setup-hub-client.yml" {
 			for _, want := range []string{
-				"experimental_ref | default('main')",
+				chorongMod,
+				"chorong_ref | default('latest')",
 				"go_version_compare.py",
 			} {
 				if !strings.Contains(text, want) {

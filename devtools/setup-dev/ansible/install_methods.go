@@ -253,11 +253,41 @@ func (g GoInstallMethod) RenderSetupTasks(_ string) string {
 
 const (
 	experimentalModule = "github.com/jaeyeom/experimental"
+	chorongModule      = "github.com/chorong-sh/chorong"
 )
 
-func (g GoInstallMethod) isExperimental() bool {
+type repoModuleSpec struct {
+	modulePath string
+	refVar     string
+	defaultRef string
+}
+
+var repoModuleSpecs = []repoModuleSpec{
+	{
+		modulePath: experimentalModule,
+		refVar:     "experimental_ref",
+		defaultRef: "main",
+	},
+	{
+		modulePath: chorongModule,
+		refVar:     "chorong_ref",
+		defaultRef: "latest",
+	},
+}
+
+func (g GoInstallMethod) repoModule() (repoModuleSpec, bool) {
 	pkg, _, _ := strings.Cut(g.PkgPath, "@")
-	return pkg == experimentalModule || strings.HasPrefix(pkg, experimentalModule+"/")
+	for _, spec := range repoModuleSpecs {
+		if pkg == spec.modulePath || strings.HasPrefix(pkg, spec.modulePath+"/") {
+			return spec, true
+		}
+	}
+	return repoModuleSpec{}, false
+}
+
+func (g GoInstallMethod) isExperimental() bool {
+	spec, ok := g.repoModule()
+	return ok && spec.modulePath == experimentalModule
 }
 
 // targetParts returns the package path without "@ref" and the target ref
@@ -267,23 +297,23 @@ func (g GoInstallMethod) targetParts() (pkg, ref string) {
 	if !ok || rawRef == "" {
 		rawRef = "latest"
 	}
-	if g.isExperimental() {
-		if rawRef == "latest" {
-			rawRef = "main"
+	if spec, isRepo := g.repoModule(); isRepo {
+		if spec.modulePath == experimentalModule && rawRef == "latest" {
+			rawRef = spec.defaultRef
 		}
-		return pkg, "{{ experimental_ref | default('" + rawRef + "') }}"
+		return pkg, "{{ " + spec.refVar + " | default('" + rawRef + "') }}"
 	}
 	return pkg, rawRef
 }
 
-// targetModule returns the expected Go module path for experimental tools, or
+// targetModule returns the expected Go module path for repo tools, or
 // the configured package path for third-party tools (whose Go module boundary
 // may be an ancestor of PkgPath).
 func (g GoInstallMethod) targetModule() string {
-	pkg, _, _ := strings.Cut(g.PkgPath, "@")
-	if g.isExperimental() {
-		return experimentalModule
+	if spec, isRepo := g.repoModule(); isRepo {
+		return spec.modulePath
 	}
+	pkg, _, _ := strings.Cut(g.PkgPath, "@")
 	return pkg
 }
 
@@ -292,7 +322,7 @@ func (g GoInstallMethod) RenderInstallTask(command string) string {
 	pkg, ref := g.targetParts()
 	targetMod := g.targetModule()
 	listMod := "{{ " + commandID + "_module_path }}"
-	if g.isExperimental() {
+	if _, isRepo := g.repoModule(); isRepo {
 		listMod = targetMod
 	}
 	return `    - name: Check if ` + command + ` is installed

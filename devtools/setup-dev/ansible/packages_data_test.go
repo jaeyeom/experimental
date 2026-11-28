@@ -108,27 +108,40 @@ func TestGhNudgeCommandsAreInstalledTogether(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var want []string
+	var allCmds []string
 	for _, entry := range entries {
 		if entry.IsDir() {
-			want = append(want, entry.Name())
+			allCmds = append(allCmds, entry.Name())
 		}
 	}
-	sort.Strings(want)
-	if len(want) == 0 {
+	sort.Strings(allCmds)
+	if len(allCmds) == 0 {
 		t.Fatal("devtools/gh-nudge/cmd has no commands")
 	}
 
-	const prefix = "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/"
-	version := ""
-	got := make([]string, 0, len(want))
+	const (
+		chorongPrefix = "github.com/chorong-sh/chorong/gh-nudge/cmd/"
+		expPrefix     = "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/"
+	)
+	chorongVersionSeen := ""
+	got := make([]string, 0, len(allCmds))
 	for _, tool := range platformSpecificTools {
 		method, ok := tool.platforms[PlatformAll].(GoInstallMethod)
 		if !ok {
 			continue
 		}
-		rest, ok := strings.CutPrefix(method.PkgPath, prefix)
-		if !ok {
+		var rest, expectedVer string
+		switch {
+		case strings.HasPrefix(method.PkgPath, chorongPrefix):
+			rest = strings.TrimPrefix(method.PkgPath, chorongPrefix)
+			expectedVer = chorongVersion
+		case strings.HasPrefix(method.PkgPath, expPrefix):
+			rest = strings.TrimPrefix(method.PkgPath, expPrefix)
+			expectedVer = experimentalVersion
+			if tool.command != "gh-pr-review" {
+				t.Errorf("%s should have migrated to chorong, still uses %q", tool.command, method.PkgPath)
+			}
+		default:
 			continue
 		}
 		name, ver, ok := strings.Cut(rest, "@")
@@ -136,10 +149,15 @@ func TestGhNudgeCommandsAreInstalledTogether(t *testing.T) {
 			t.Errorf("gh-nudge path %q does not install %q", method.PkgPath, tool.command)
 			continue
 		}
-		if version == "" {
-			version = ver
-		} else if ver != version {
-			t.Errorf("%s installs @%s, want @%s like the rest of the family", name, ver, version)
+		if ver != expectedVer {
+			t.Errorf("%s installs @%s, want @%s", name, ver, expectedVer)
+		}
+		if strings.HasPrefix(method.PkgPath, chorongPrefix) {
+			if chorongVersionSeen == "" {
+				chorongVersionSeen = ver
+			} else if ver != chorongVersionSeen {
+				t.Errorf("%s installs @%s, want @%s like the rest of the migrated chorong gh-nudge family", name, ver, chorongVersionSeen)
+			}
 		}
 		hasGH := false
 		for _, imp := range tool.GetAllImports() {
@@ -153,15 +171,15 @@ func TestGhNudgeCommandsAreInstalledTogether(t *testing.T) {
 		got = append(got, name)
 	}
 	sort.Strings(got)
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("installed gh-nudge commands = %v, cmd directories = %v", got, want)
+	if !reflect.DeepEqual(got, allCmds) {
+		t.Errorf("installed gh-nudge commands = %v, cmd directories = %v", got, allCmds)
 	}
 
 	vibe, err := os.ReadFile(filepath.Join(ansible, "setup-vibe-coding.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range want {
+	for _, name := range allCmds {
 		line := "import_playbook: " + name + ".yml"
 		if !strings.Contains(string(vibe), line) {
 			t.Errorf("setup-vibe-coding.yml missing %q", line)
@@ -715,7 +733,7 @@ func TestDecideGoTool(t *testing.T) {
 	if !ok {
 		t.Fatalf("decide PlatformAll method = %T, want GoInstallMethod", tool.platforms[PlatformAll])
 	}
-	wantPath := "github.com/jaeyeom/experimental/devtools/decide/cmd/decide@main"
+	wantPath := "github.com/chorong-sh/chorong/decide/cmd/decide@" + chorongVersion
 	if method.PkgPath != wantPath {
 		t.Errorf("decide PkgPath = %q, want %q", method.PkgPath, wantPath)
 	}
@@ -763,7 +781,7 @@ func TestPrsyncGoTool(t *testing.T) {
 	if !ok {
 		t.Fatalf("prsync PlatformAll method = %T, want GoInstallMethod", tool.platforms[PlatformAll])
 	}
-	wantPath := "github.com/jaeyeom/experimental/devtools/prsync/cmd/prsync@main"
+	wantPath := "github.com/chorong-sh/chorong/prsync/cmd/prsync@" + chorongVersion
 	if method.PkgPath != wantPath {
 		t.Errorf("prsync PkgPath = %q, want %q", method.PkgPath, wantPath)
 	}
@@ -806,7 +824,7 @@ func TestFactoryGoTool(t *testing.T) {
 	if !ok {
 		t.Fatalf("factory PlatformAll method = %T, want GoInstallMethod", tool.platforms[PlatformAll])
 	}
-	wantPath := "github.com/jaeyeom/experimental/devtools/factory/cmd/factory@" + experimentalVersion
+	wantPath := "github.com/chorong-sh/chorong/factory/cmd/factory@" + chorongVersion
 	if method.PkgPath != wantPath {
 		t.Errorf("factory PkgPath = %q, want %q", method.PkgPath, wantPath)
 	}
@@ -823,6 +841,51 @@ func TestFactoryGoTool(t *testing.T) {
 	}
 	if got := tool.GetAllImports(); !reflect.DeepEqual(got, wantAll) {
 		t.Errorf("factory GetAllImports() = %s, want %s", formatImports(got), formatImports(wantAll))
+	}
+}
+
+func TestMigratedAndExperimentalToolSources(t *testing.T) {
+	chorongTools := []string{
+		"decide",
+		"factory",
+		"gh-approve",
+		"gh-codeowners",
+		"gh-merge",
+		"gh-nudge",
+		"gh-slack",
+		"gh-storage",
+		"gh-throttle",
+		"prsync",
+	}
+	for _, cmd := range chorongTools {
+		tool := findPlatformSpecificTool(t, cmd)
+		method, ok := tool.platforms[PlatformAll].(GoInstallMethod)
+		if !ok {
+			t.Fatalf("%s PlatformAll method = %T, want GoInstallMethod", cmd, tool.platforms[PlatformAll])
+		}
+		if !strings.HasPrefix(method.PkgPath, chorongModule+"/") {
+			t.Errorf("%s PkgPath = %q, want prefix %q", cmd, method.PkgPath, chorongModule+"/")
+		}
+	}
+
+	expTools := []string{
+		"gh-pr-review",
+		"healthsnap",
+		"org-lint",
+		"quotapace",
+		"repo-sync",
+		"review-and-push-loop",
+		"slackwatch",
+	}
+	for _, cmd := range expTools {
+		tool := findPlatformSpecificTool(t, cmd)
+		method, ok := tool.platforms[PlatformAll].(GoInstallMethod)
+		if !ok {
+			t.Fatalf("%s PlatformAll method = %T, want GoInstallMethod", cmd, tool.platforms[PlatformAll])
+		}
+		if !strings.HasPrefix(method.PkgPath, experimentalModule+"/") {
+			t.Errorf("%s PkgPath = %q, want prefix %q", cmd, method.PkgPath, experimentalModule+"/")
+		}
 	}
 }
 

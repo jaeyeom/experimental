@@ -39,14 +39,14 @@
             factory_module_path: "{{ factory_installed.stdout.split()[1] }}"
             factory_module_version: "{{ factory_installed.stdout.split()[2] }}"
         - name: Determine the latest factory version
-          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "github.com/jaeyeom/experimental@{{ experimental_ref | default('main') }}"
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "github.com/chorong-sh/chorong@{{ chorong_ref | default('latest') }}"
           register: factory_latest
           ignore_errors: yes
           changed_when: False
           when: >-
             factory_module_path | length > 0 and
-            (factory_module_path == 'github.com/jaeyeom/experimental' or
-            'github.com/jaeyeom/experimental'.startswith(factory_module_path ~ '/'))
+            (factory_module_path == 'github.com/chorong-sh/chorong' or
+            'github.com/chorong-sh/chorong'.startswith(factory_module_path ~ '/'))
 
         - name: Debug module path and version
           debug:
@@ -75,7 +75,7 @@
           - --installed-module
           - "{{ factory_module_path | default('') | trim }}"
           - --target-module
-          - github.com/jaeyeom/experimental
+          - github.com/chorong-sh/chorong
       register: factory_version_check
       changed_when: false
       check_mode: false
@@ -86,7 +86,7 @@
       when: (factory_version_check.stdout | from_json).action in ['skip_older', 'skip_unresolved']
 
     - name: Upgrade factory
-      command: go install github.com/jaeyeom/experimental/devtools/factory/cmd/factory@{{ experimental_ref | default('main') }}
+      command: go install github.com/chorong-sh/chorong/factory/cmd/factory@{{ chorong_ref | default('latest') }}
       register: factory_upgrade
       until: factory_upgrade is succeeded
       retries: 3

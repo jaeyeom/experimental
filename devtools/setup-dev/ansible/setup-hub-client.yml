@@ -44,7 +44,7 @@
 #   client_machine_label  required, this machine's herdr saved-machine
 #                         label on the hub
 #   hub_tools_version     go install version: a branch, tag, or commit
-#                         (default experimental_ref or main)
+#                         (default chorong_ref or latest)
 #   hub_connect_timeout   ssh connect timeout (default 5s)
 #   hub_ssh_stable_agent  stable agent socket (default true; false opts out)
 #   hub_ssh_agent_rc      login rc for that block. Unset: the file
@@ -74,7 +74,7 @@
   vars:
     hub_client_target: "{{ hub_ssh_target | default('') }}"
     hub_client_machine: "{{ client_machine_label | default('') }}"
-    hub_client_version: "{{ hub_tools_version | default(experimental_ref | default('main')) }}"
+    hub_client_version: "{{ hub_tools_version | default(chorong_ref | default('latest')) }}"
     hub_client_timeout: "{{ hub_connect_timeout | default('5s') }}"
     hub_client_stable_agent: "{{ hub_ssh_stable_agent | default(true) | bool }}"
     hub_client_agent_rc: "{{ hub_ssh_agent_rc | default('') }}"
@@ -85,10 +85,10 @@
       - "{{ hub_client_config_home }}/systemd/user/agentbus-tunnel.service"
     hub_client_decide_config: "{{ hub_client_config_home }}/decide/config.json"
     hub_client_agentbus_config: "{{ hub_client_config_home }}/agentbus/config.toml"
-    hub_client_module: github.com/jaeyeom/experimental
+    hub_client_module: github.com/chorong-sh/chorong
     hub_client_packages:
-      - "{{ hub_client_module }}/devtools/agentbus/cmd/agentbus"
-      - "{{ hub_client_module }}/devtools/decide/cmd/decide"
+      - "{{ hub_client_module }}/agentbus/cmd/agentbus"
+      - "{{ hub_client_module }}/decide/cmd/decide"
   tasks:
     - name: Include guard for setup-hub-client playbook
       block:
@@ -126,7 +126,7 @@
     - name: Read the installed agentbus and decide versions
       ansible.builtin.shell: >-
         go version -m "$(go env GOPATH)/bin/{{ item | basename }}" 2>/dev/null
-        | awk '$1 == "mod" { print $3 }'
+        | awk '$1 == "mod" { print $2, $3 }'
       loop: "{{ hub_client_packages }}"
       register: hub_client_installed
       changed_when: false
@@ -139,8 +139,14 @@
         argv:
           - python3
           - "{{ playbook_dir }}/go_version_compare.py"
-          - "{{ item.stdout | trim }}"
+          - "{{ (item.stdout.split()[1] | default('')) if (item.stdout.split() | length) >= 2 else '' }}"
           - "{{ hub_client_resolved.stdout | trim }}"
+          - ""
+          - ""
+          - --installed-module
+          - "{{ item.stdout.split()[0] if (item.stdout.split() | length) >= 1 else '' }}"
+          - --target-module
+          - "{{ hub_client_module }}"
       loop: "{{ hub_client_installed.results }}"
       loop_control:
         label: "{{ item.item | basename }}"

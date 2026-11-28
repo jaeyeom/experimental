@@ -101,6 +101,7 @@ for one run.
 
 | Variable                   | Playbook                | Effect                                                  |
 |----------------------------+-------------------------+---------------------------------------------------------|
+| ~chorong_ref~              | chorong Go playbooks    | git ref/tag for ~github.com/chorong-sh/chorong~ tools (default ~latest~)   |
 | ~experimental_ref~         | repo Go tool playbooks  | git ref/commit for ~github.com/jaeyeom/experimental~ tools (default ~main~) |
 | ~fork_keeper_cron_enabled~ | ~setup-fork-keeper.yml~ | ~true~ keeps the daily fork-keeper job                  |
 | ~hub_ssh_target~           | ~setup-hub-client.yml~  | required ssh target; see the hub doc                    |
